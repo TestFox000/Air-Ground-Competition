@@ -133,28 +133,28 @@ def step_credential(token: str) -> bool:
 
 # --------------------------------------------------------------------------- 4
 def step_hook() -> bool:
-    hook = ROOT / ".git" / "hooks" / "post-commit"
+    """委托给 sync_progress.py 装钩子 —— 钩子只留一套实现，免得两边打架。"""
     if not (ROOT / ".git").is_dir():
         print(f"{FAIL} 这里不是 Git 仓库，跳过钩子")
         return False
-    hook.write_text(
-        "#!/bin/sh\n"
-        "# 由 tools/setup_sync.py 生成\n"
-        "# 每次提交后自动推送；失败不阻塞提交\n"
-        "git push origin HEAD 2>&1 | sed 's/^/[post-commit] /' || true\n",
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "tools" / "sync_progress.py"), "--install-hook"],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
         encoding="utf-8",
-        newline="\n",
+        errors="replace",
+        creationflags=_NO_WINDOW,
     )
-    try:
-        hook.chmod(0o755)
-    except OSError:
-        pass
+    if proc.returncode != 0:
+        print(f"{FAIL} 装钩子失败：{(proc.stderr or proc.stdout).strip()}")
+        return False
     print(f"{OK} 已装「提交即推送」钩子")
     return True
 
 
 # --------------------------------------------------------------------------- 5
-def step_schedule_windows(interval: int, machine: str, log: Path) -> bool:
+def step_schedule_windows(interval: int, machine: str, log: Path, mode: str) -> bool:
     pythonw = Path(sys.executable)
     candidate = pythonw.with_name("pythonw.exe")
     if candidate.exists():
@@ -164,7 +164,7 @@ def step_schedule_windows(interval: int, machine: str, log: Path) -> bool:
 
     script = ROOT / "tools" / "sync_progress.py"
     # schtasks 要求整个命令作为一个参数；用 list 形式交给 subprocess，它会正确传递内嵌引号
-    tr = f'"{pythonw}" "{script}" --machine {machine} --log "{log}"'
+    tr = f'"{pythonw}" "{script}"{mode} --machine {machine} --log "{log}"'
     proc = subprocess.run(
         [
             "schtasks", "/create", "/tn", TASK_NAME,
@@ -184,7 +184,7 @@ def step_schedule_windows(interval: int, machine: str, log: Path) -> bool:
     return True
 
 
-def step_schedule_linux(interval: int, machine: str, log: Path) -> bool:
+def step_schedule_linux(interval: int, machine: str, log: Path, mode: str) -> bool:
     script = ROOT / "tools" / "sync_progress.py"
     try:
         current = subprocess.run(
@@ -196,8 +196,8 @@ def step_schedule_linux(interval: int, machine: str, log: Path) -> bool:
 
     lines = [ln for ln in (current or "").splitlines() if "sync_progress.py" not in ln]
     lines.append(
-        f"*/{interval} * * * * cd {ROOT} && {sys.executable} tools/sync_progress.py "
-        f"--machine {machine} --log {log} >/dev/null 2>&1"
+        f"*/{interval} * * * * cd {ROOT} && {sys.executable} tools/sync_progress.py"
+        f"{mode} --machine {machine} --log {log} >/dev/null 2>&1"
     )
     proc = subprocess.run(
         ["crontab", "-"],
@@ -215,11 +215,15 @@ def step_schedule_linux(interval: int, machine: str, log: Path) -> bool:
     return True
 
 
-def step_schedule(interval: int, machine: str) -> bool:
+def step_schedule(interval: int, machine: str, full_auto: bool) -> bool:
     log = Path.home() / "air_ground_sync.log"
+    # 默认只拉取：定时任务每 N 分钟跑一次，如果让它自动提交，
+    # 会把你**还没写完**的代码提交并推给对方，跟看板 §6「push 前必须本地全绿」直接冲突。
+    # 推送方向交给 post-commit 钩子即可，实时性一点不损失（见看板 §9.2③）。
+    mode = "" if full_auto else " --pull-only"
     if platform.system() == "Windows":
-        return step_schedule_windows(interval, machine, log)
-    return step_schedule_linux(interval, machine, log)
+        return step_schedule_windows(interval, machine, log, mode)
+    return step_schedule_linux(interval, machine, log, mode)
 
 
 # --------------------------------------------------------------------------- 6
@@ -256,6 +260,11 @@ def main() -> int:
     ap.add_argument("--remote", default=DEFAULT_REMOTE, help="远端仓库地址")
     ap.add_argument("--interval", type=int, default=3, help="定时轮询间隔，分钟（默认 3）")
     ap.add_argument("--no-schedule", action="store_true", help="只配钩子，不建定时任务")
+    ap.add_argument(
+        "--full-auto",
+        action="store_true",
+        help="定时任务也自动提交+推送（默认只拉取 --pull-only，理由见看板 §9.2③）",
+    )
     args = ap.parse_args()
 
     print(f"配置双机同步 —— 本机代号 {args.machine}")
@@ -276,7 +285,7 @@ def main() -> int:
 
     if args.no_schedule:
         print(f"{WARN} 按 --no-schedule 要求，不建定时任务")
-    elif not step_schedule(args.interval, args.machine):
+    elif not step_schedule(args.interval, args.machine, args.full_auto):
         ok = False
 
     step_selfcheck()
