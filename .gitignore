@@ -15,10 +15,20 @@ log/
 *.bag
 ros2_ws/
 
-# 模型与数据（体积大，且多为官方 SDK 产物，不入库）
-models/
+# 模型与数据：体积大、多为官方 SDK 产物，默认不入库
+#
+# 注意这里是 `models/*` 而不是 `models/` —— 目录整体被排除后，
+# 子目录的否定规则（!models/release/）**不会生效**，这是 Git 的经典陷阱。
+models/*
+# 例外：正式发布、双方共用的成品模型**必须入库** —— 只有几 MB，值得。
+# 这样"两台机器用的不是同一个模型"这件事，从机制上就不可能发生（见 docs/协作看板.md §5）。
+!models/release/
+
+# 散落在别处的模型文件一律不入库 —— 只认 models/release/ 这一处
 *.rknn
 *.onnx
+!models/release/*.rknn
+!models/release/*.onnx
 !tools/samples/*.jsonl
 
 # 现场抓包 / 标定产物
