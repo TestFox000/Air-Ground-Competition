@@ -140,11 +140,24 @@ git restore <文件>                 # 撤销未提交的改动
 
 ```bash
 python car.py restore 172.23.116.188    # ① 补全官方栈：在 ~/dzrobot 里编译缺失的包（缺什么补什么）
-python car.py move    172.23.116.188    # ② 起底盘+定位+执行器+决策层 —— 但 dry_run，车不动
+python car.py deploy  172.23.116.188    # ② 传我们的源码到车上并编译（**车重启后 /tmp 被清，先跑这个**）
+python car.py move    172.23.116.188    # ③ 一键起：底盘+定位+执行器+决策层 —— 但 dry_run，车不动
+python car.py move    172.23.116.188 --with-vision              # ③' 再加 相机 + det_node(RKNN 检测)
 python car.py move    172.23.116.188 --really-move --run-s 60   # ★真发车★（必须有人在场）
-python car.py stop    172.23.116.188    # ③ 紧急停止：把能动/能开火的节点全停掉
-python car.py logs    172.23.116.188    # ④ 取回黑匣子日志 + 出复盘报告
+python car.py stop    172.23.116.188    # ④ 紧急停止：把能动/能开火的节点全停掉
+python car.py logs    172.23.116.188    # ⑤ 取回黑匣子日志 + 出复盘报告
 ```
+
+**重启后的完整一键流程**：`deploy` → `move --with-vision` →（看 `/car/route_status` 对不对）→
+`move --really-move` 或 `logs` 复盘。
+
+> ⚠️ 一键启动**不会**启动瞄准/开火链 `dzrknn_dataprocess` —— 它一跑就会扫云台并**自主开火**，
+> 而且不区分蓝红（官方"停车才开火"的 `/move_base/stop_signal` 是死代码，无订阅者）。
+> 这条有测试盯着（`tests/test_car_cli.py::test_one_click_never_starts_the_fire_chain`）。
+>
+> 实测（2026-09-28，`move --with-vision`）：相机 `/image_raw` ~20 Hz、`/offset_center` 有数据
+> （视野里没靶标时 cls=0）、决策层算出 13 段路线、`/nav/waypoint` **零下发**、复盘「严重 0 | 注意 0」。
+> 注意：`/offset_center` 要有**靶标进视野**才会出 cls 1/2，空场看到全 0 是正常的。
 
 **`move` 默认不发车**：不给 `--really-move` 时 `car_node` 以 `dry_run=true` 运行 ——
 底盘是活的、路线算得出来（`/car/route_status` 能看到完整路线），但**一条 `/nav/waypoint` 都不会发**。
@@ -184,7 +197,7 @@ python tools/sync_progress.py --install-hook   # 装「提交即推送」钩子�
 
 ```bash
 pip install -r requirements.txt        # 核心：numpy + pytest
-python -m pytest tests -q              # 508 项
+python -m pytest tests -q              # 513 项
 python tools/sim_selfcheck.py          # 离线闭环自检（无需 ROS）
 ```
 
@@ -337,7 +350,7 @@ python tools/log_report.py --dir logs/car --out report.md --strict   # 跑完一
 
 ## 8. 测试与 CI
 
-- `tests/` 共 508 项，覆盖：算法核心、协议编解码、情报投票、串口帧、UDP 链路、单应标定、图像解码、底盘状态机、桥洞占格、**黑匣子日志与复盘规则**（含"日志写不进去也不能崩主流程"）、**相机断流看门狗**、**单应未标定不再误诊为链路故障**、**上场前体检**、**一键入口 CLI**（含"`car.py move` 默认不许发车"这条硬约束）、**打包结构**（真机才暴露的两个坑）、**工具脚本冒烟**（`--help` 能跑）、**模型契约校验**
+- `tests/` 共 513 项，覆盖：算法核心、协议编解码、情报投票、串口帧、UDP 链路、单应标定、图像解码、底盘状态机、桥洞占格、**黑匣子日志与复盘规则**（含"日志写不进去也不能崩主流程"）、**相机断流看门狗**、**单应未标定不再误诊为链路故障**、**上场前体检**、**一键入口 CLI**（含"`car.py move` 默认不许发车"这条硬约束）、**打包结构**（真机才暴露的两个坑）、**工具脚本冒烟**（`--help` 能跑）、**模型契约校验**
 - `tests/ros_stub.py` 提供极简 ROS2 替身，使**节点层**（参数、话题、回调状态机、端到端链路）也能在没有 ROS 的机器上测试
 - `tests/test_params_consistency.py` 校验 `params.yaml` 的参数名与节点声明一致，防止拼写错误静默失效
 - `.github/workflows/ci.yml`：Python 3.10/3.12 跑单测 + 语法检查 + 工具冒烟；另有一个 ROS2 Humble 容器做 `colcon build` 与可执行文件检查
@@ -375,7 +388,7 @@ air_ground/
 
 ## 11. 项目状态
 
-**结构已经定型**（9 个包、508 项测试、一键 demo 跑出 85/85、
+**结构已经定型**（9 个包、513 项测试、一键 demo 跑出 85/85、
 **真机 colcon build / 决策干跑 / 视觉链联调均已通过**）。
 距离"能上场比赛"还差什么，有一张按四档（L0~L4）划分的核对表：
 [`docs/实机接口对照.md` §8](docs/实机接口对照.md)。
