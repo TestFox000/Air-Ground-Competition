@@ -1,0 +1,88 @@
+==================== 车端 ~/dzrobot 体积变化溯源（2026-09-28，只读取证）====================
+
+问题：`~/dzrobot` 从 2.8G 变成 476M，是不是丢了东西？
+结论：**不是。没有数据丢失**，两段变化各有原因，证据如下。
+
+------------------------------------------------------------
+## 1. 规模台账（来自本项目自己的存档，时间戳可复核）
+
+| 时间 | 存档 | ~/dzrobot |
+|---|---|---|
+| 09-27 18:55 | docs/probe/car_inventory.txt | 2.8G / 28367 个文件 |
+| 09-28 18:23 | docs/probe/car_baseline_0928.txt | 888M / 9101 |
+| 09-28 19:13 | docs/probe/car_cleanup_0928b.txt | 955M / 9345（含我补装的 +67M） |
+| 09-28 19:28 | docs/probe/car_cleanup_final_0928.txt | 476M / 3572 |
+
+## 2. 第一段：2.8G → 888M（−1.9G）＝构建产物，不是源码
+
+证据一（车端 `~/.bash_history`，末段，人手工执行，注释里提到 MobaXterm）：
+
+    1976:  # 3) ...MobaXterm 的文件流
+    1980:  rm -rf build/ install/ log/
+    1981:  colcon build --base-paths src --symlink-install
+    1989:  tar -czf ~/board_current_$(date +%m%d).tar.gz src
+    1998:  rm -rf build/ install/ log/
+    1999:  colcon build --base-paths src --symlink-install
+
+证据二（算账对得上）：
+    现役 src                     268M / 1764 文件
+    camera_dataset                81M
+    回收站里的 src_1 + src_4      538M
+    ------------------------------------------
+    合计                         887M  ≈ 当时测到的 888M
+    => 2.8G 里消失的 1.91G，正是 build/ + install/ + log/
+       （被 `rm -rf` 删掉，再用 `--symlink-install` 重建 → 新 install 只有几百 KB）
+
+旁证：`~/board_current_0928.tar.gz`（199M，09-28 16:52）只打包了 `src`，
+      说明对方的工作流就是"备份 src → 清掉产物 → 重建"。
+
+## 3. 第二段：955M → 476M（−479M）＝src_1/src_4 进了回收站，可恢复
+
+证据（决定性，来自回收站元数据）：
+
+    /home/duzhong/.local/share/Trash/info/src_1.trashinfo
+      [Trash Info]
+      Path=/home/duzhong/dzrobot/src_1
+      DeletionDate=2026-09-28T19:18:24
+    /home/duzhong/.local/share/Trash/info/src_4.trashinfo
+      [Trash Info]
+      Path=/home/duzhong/dzrobot/src_4
+      DeletionDate=2026-09-28T19:18:24
+
+    文件本体仍在：
+      /home/duzhong/.local/share/Trash/files/src_1   1768 文件  245M
+      /home/duzhong/.local/share/Trash/files/src_4   4109 文件  294M
+      回收站合计 538M
+
+**`*.trashinfo` 只在图形桌面删除时生成，`rm -rf` 不会** —— 因此这是
+"有人在车上的桌面里把它们拖进回收站"，而不是脚本/命令行删的。
+
+是否为重复副本（所以删了不丢源码）：
+
+    src_1 1768 文件    ≈ 现役 src 1764 文件      （src_1 还带 COLCON_IGNORE 标记）
+    src_4 4109 文件    = src 的副本 + 它自带的 build/install/log
+                          （4109 − 1764 = 2345，与文件名差异数 2349 吻合）
+
+## 4. 与本项目作业的关系（自清）
+
+本项目的脚本只动 `install/<包>` 和 `build/<包>`，从不碰官方源码：
+
+    tools/car_restore_official.sh:7-12  注释明确："零侵入 —— 不改、不删官方任何源码"
+    tools/car_restore_official.sh:60    for p in $MISSING; do rm -rf "install/$p" "build/$p"; done
+    tools/car_cleanup.sh               白名单只含 /tmp 下自己创建的路径
+
+且 19:18:24 走的是**回收站**（GUI），与命令行/脚本行为不符。
+
+## 5. 顺带查到的并发使用痕迹
+
+    ~/.codebuddy                     17:03 ~ 19:31 仍有写入
+    ~/.codebuddy-server-cn/*.log     19:31 仍在写连接日志
+    => 当天车上除本项目外，至少还有一个会话（队友 MobaXterm + 车上 CodeBuddy server）在活动。
+
+## 6. 副作用与建议
+
+- 删掉 src_1/src_4 **正好解开** "Duplicate package names not supported" 死结：
+  以后 `~/dzrobot` 里直接 `colcon build` 即可，无需再 `--base-paths src`
+- 若想回收 538M：清空回收站即可（确认过是重复副本）；
+  **不建议移回原位** —— 移回就等于把重复包名的构建阻塞又装回来
+- 约定与"上车前 10 秒自检"见 `协作看板.md` §12
