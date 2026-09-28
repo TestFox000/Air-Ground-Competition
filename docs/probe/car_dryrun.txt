@@ -1,0 +1,35 @@
+==================== 车端干跑联调（不动车） ====================
+2026年 09月 27日 星期日 19:05:28 CST
+
+----------------------------------------------------
+## 0. 前置检查：确认车里没有别人在跑关键节点（避免互相干扰）
+  （以上为当前节点；本项目只启动 car_node，dry_run=true）
+
+----------------------------------------------------
+## 1. 启动 car_node（dry_run=true，只算不发）
+  pid=20238，日志 /tmp/ag_car_node.log
+  [OK] 节点在跑
+
+----------------------------------------------------
+## 2. 喂两帧情报（min_votes=2，同内容、不同 seq）
+  已发送 seq=1,2（蓝面=敌方）
+
+----------------------------------------------------
+## 3. 抓 car_node 算出的路线（/car/route_status）
+-- 完整状态 JSON --
+  {"dry_run": true, "reset_sent": false, "route": "K9 K4 D2* B2 C3 G8 N11,y", "tasks": 8, "shots": 0, "mines": ["B2", "C3", "G8"], "bridge_a": "K4", "bridge_b": "K9", "target_cells": ["D2", "E2"], "target_face": "blue", "face_decided": "blue", "shoot_stops": ["D2"], "shoot_wait_budget_s": 60.0, "fits_shoot_wait": true, "drive_eta_s": 51.1, "bridge_zones": "A 段 K1~K5（5 选 1） / B 段 K6~K11（6 选 1）", "bridge_check_ok": true, "bridge_problems": []}
+  ---
+
+----------------------------------------------------
+## 4. 反证：dry_run 下**一条路线命令都没发**
+-- 监听 /nav/waypoint 8 秒（dry_run 应收到 0 条）--
+  [OK] 8 秒内没有收到任何 /nav/waypoint 消息 —— 车不会动
+  --（注：/nav/waypoint 的 Publisher count=1 是节点创建了发布器，不代表发过消息）--
+
+----------------------------------------------------
+## 5. 节点日志（dry_run 提示与路线）
+  [INFO] [1790507129.981129309] [car_node]: car_node 就绪: N10->N11 14x11 格, dry_run=True（dry_run=true：只计算不发命令）
+  [INFO] [1790507138.004331912] [car_node]: 路线[8 段] K9 K4 D2* B2 C3 G8 N11,y  (dry_run)
+
+==================== 结束（节点将自动停止） ====================
+  已停止 car_node (pid 20238)

@@ -1,0 +1,72 @@
+==================== 车端 ROS 日志（最近 180 分钟） ====================
+2026年 09月 27日 星期日 19:17:48 CST
+日志目录: /home/duzhong/.ros/log
+过滤: Odometry reset|ARRIVED|Navigating|Path Executor Node Initialized|stop_signal|Shoot stop|re-anchored|error|Error|Traceback
+
+## 1. 最近写过的日志文件（按时间倒序，前 15 个）
+  09-27 19:15:18  0  0 行
+     /home/duzhong/.ros/log/python3_23118_1790507718481.log
+  09-27 19:11:52  12K  106 行
+     /home/duzhong/.ros/log/python3_21621_1790507493298.log
+  09-27 19:03:05  0  0 行
+     /home/duzhong/.ros/log/python3_18432_1790506985638.log
+  09-27 18:42:31  0  0 行
+     /home/duzhong/.ros/log/2026-09-27-18-42-31-035657-duzhong-11041/launch.log
+  09-27 19:14:10  0  0 行
+     /home/duzhong/.ros/log/python3_22715_1790507650408.log
+  09-27 16:47:00  4.0K  3 行
+     /home/duzhong/.ros/log/2026-09-27-16-47-00-332077-duzhong-5221/launch.log
+  09-27 19:13:18  4.0K  25 行
+     /home/duzhong/.ros/log/2026-09-27-19-12-37-700770-duzhong-22099/launch.log
+  09-27 18:40:24  0  0 行
+     /home/duzhong/.ros/log/2026-09-27-18-40-24-145777-duzhong-9026/launch.log
+  09-27 19:11:46  0  0 行
+     /home/duzhong/.ros/log/python3_21691_1790507506820.log
+  09-27 19:13:18  4.0K  6 行
+     /home/duzhong/.ros/log/static_transform_publisher_22102_1790507557797.log
+  09-27 19:02:16  4.0K  13 行
+     /home/duzhong/.ros/log/usb_cam_node_exe_17944_1790506888416.log
+  09-27 19:15:53  0  0 行
+     /home/duzhong/.ros/log/static_transform_publisher_23312_1790507753391.log
+  09-27 18:50:00  0  0 行
+     /home/duzhong/.ros/log/python3_15734_1790506200061.log
+  09-27 18:49:24  0  0 行
+     /home/duzhong/.ros/log/2026-09-27-18-49-24-931270-duzhong-15449/launch.log
+  09-27 16:19:34  4.0K  5 行
+     /home/duzhong/.ros/log/2026-09-27-16-11-24-919118-duzhong-77385/launch.log
+
+## 2. 关键事件（按文件分组）
+===== python3_21621_1790507493298.log  (2 条) =====
+  [INFO] [1790507507.418607865] [serial_reader_node]: [v4-dr-reset] reset: DR direction re-anchored, map_yaw -> +90deg (was +90deg)
+  [INFO] [1790507512.112673688] [serial_reader_node]: [v4-dr-reset] reset: DR direction re-anchored, map_yaw -> +90deg (was +90deg)
+
+===== python3_23029_1790507703005.log  (1 条) =====
+  [INFO] [1790507709.300138520] [serial_reader_node]: [v4-dr-reset] reset: DR direction re-anchored, map_yaw -> +90deg (was +90deg)
+
+===== python3_22141_1790507567209.log  (1 条) =====
+  [INFO] [1790507580.738546472] [serial_reader_node]: [v4-dr-reset] reset: DR direction re-anchored, map_yaw -> +90deg (was +90deg)
+
+===== python3_21027_1790507392938.log  (1 条) =====
+  [INFO] [1790507428.996866144] [serial_reader_node]: [v4-dr-reset] reset: DR direction re-anchored, map_yaw -> +90deg (was +90deg)
+
+===== python3_22689_1790507644799.log  (1 条) =====
+  [INFO] [1790507659.108138754] [serial_reader_node]: [v4-dr-reset] reset: DR direction re-anchored, map_yaw -> +90deg (was +90deg)
+
+===== python3_23348_1790507762718.log  (1 条) =====
+  [INFO] [1790507777.356588477] [serial_reader_node]: [v4-dr-reset] reset: DR direction re-anchored, map_yaw -> +90deg (was +90deg)
+
+## 3. 全局搜索今天的 reset / ARRIVED（不限 mmin，防止时钟差异）
+  [INFO] [1788663998.407307483] [path_executor_node]: ARRIVED! dist=0.194m, drift=(+0.03m, -0.19m), yaw_drift=+6.4deg, stopped
+  [INFO] [1788491190.593871579] [path_executor_node]: Odometry reset to N10 facing y
+  [INFO] [1788491196.997382135] [path_executor_node]: Odometry reset to N10 facing y
+  [INFO] [1788491222.536895932] [path_executor_node]: ARRIVED! dist=0.199m, drift=(-0.00m, -0.20m), yaw_drift=-2.3deg, stopped
+  [INFO] [1788491268.627873386] [path_executor_node]: Odometry reset to N10 facing y
+  [INFO] [1788491312.586762287] [path_executor_node]: ARRIVED! dist=0.198m, drift=(+0.03m, -0.20m), yaw_drift=+3.4deg, stopped
+  [INFO] [1788491702.441951033] [path_executor_node]: Odometry reset to N10 facing y
+  [INFO] [1788491726.295954718] [path_executor_node]: ARRIVED! dist=0.190m, drift=(+0.00m, -0.19m), yaw_drift=-1.6deg, stopped
+  [INFO] [1789112552.287413019] [path_executor_node]: Odometry reset to N10 facing y
+  [INFO] [1789112629.846440356] [path_executor_node]: ARRIVED! dist=0.148m, drift=(+0.00m, +0.15m), yaw_drift=-6.7deg, stopped
+  [INFO] [1788094038.989066224] [path_executor_node]: Odometry reset to N10 facing y
+  [INFO] [1788094065.998144830] [path_executor_node]: ARRIVED! dist=0.049m, drift=(+0.00m, -0.05m), yaw_drift=+1.1deg, stopped
+
+==================== 结束 ====================

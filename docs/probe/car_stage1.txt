@@ -1,0 +1,90 @@
+[环境] 检测到 :0 上的 X 会话，已设置 DISPLAY=:0 XAUTHORITY=/home/duzhong/.Xauthority
+==================== 实机联调 · 第 1 段：视觉链路 ====================
+2026年 09月 27日 星期日 19:02:35 CST
+
+----------------------------------------------------
+## 0. 前置检查
+-- 当前是否已有节点在跑（有的话先别继续，可能互相干扰）--
+-- 依赖包 --
+  usb_cam              /opt/ros/humble
+  det_node             /home/duzhong/dzrobot/install/det_node
+  dzactuator           /home/duzhong/dzrobot/install/dzactuator
+  dzrknn_dataprocess   未安装
+-- 相机设备 --
+/dev/video0
+
+----------------------------------------------------
+## 1. 启动 usb_cam（只读相机，不产生任何动作）
+-- /image_raw 是否出现 --
+  [OK] /image_raw 存在
+-- 帧率（3 秒采样）--
+  average rate: 28.083
+  	min: 0.031s max: 0.068s std dev: 0.00895s window: 29
+  average rate: 23.733
+-- 一帧的分辨率/编码 --
+  header:
+    stamp:
+      sec: 1790506971
+      nanosec: 283224000
+    frame_id: default_cam
+  height: 480
+  width: 640
+  encoding: yuv422_yuy2
+  is_bigendian: 0
+  step: 1280
+  data:
+  - 175
+
+----------------------------------------------------
+## 2. 启动 det_node（RKNN 推理，输出 /offset_center）
+-- 节点日志（模型路径 / 初始化）--
+  [det_node-1] [INFO] [1790506973.067205881] [det_node]: Model path: /home/duzhong/dzrobot/src/rknn_pt/model/light_det.rknn
+
+-- /offset_center 是否在发 --
+  [OK] /offset_center 存在
+-- 采样 3 条真实输出（[dx, dy, 类别, 框宽, 框高, kpt_dx, kpt_dy, kpt_conf*100]）--
+  layout:
+    dim:
+    - label: light center coordinate
+      size: 8
+      stride: 8
+    data_offset: 0
+  data:
+  - -273
+  - 41
+  - 2
+  - 94
+  - 99
+  - -278
+  - 50
+  - 95
+  ---
+  layout:
+    dim:
+    - label: light center coordinate
+      size: 8
+      stride: 8
+    data_offset: 0
+  data:
+  - -273
+
+----------------------------------------------------
+## 3. 反证：确认没有启动任何会动硬件的节点
+-- 云台指令话题 /CameMo_Conl 的发布者数（应为 0）--
+  话题不存在（正常）
+-- 底盘指令 /pursuitAngle 的发布者数（应为 0）--
+  话题不存在（正常）
+-- 串口未被占用（dzactuator/judgment 都未启动）--
+  lrwxrwxrwx 1 root root 7  9月 27 18:08 /dev/dzactuator -> ttyACM0
+  lrwxrwxrwx 1 root root 7  9月 27 18:08 /dev/dzjudgment -> ttyACM1
+
+----------------------------------------------------
+## 4. 本次联调的结论与下一步
+  第 1 段（视觉）验证完就可以进第 2 段：
+    - 启动 dzactuator（底盘/云台串口）+ judgment（裁判）
+    - 最后才启动 dzrknn_dataprocess —— 它一启动云台就会开始左右扫描
+    ⚠️ 第 2 段必须有人在场看着，且车要架空或留出足够空间
+
+==================== 结束（节点将自动停止） ====================
+  已停止 pid 18382
+  已停止 pid 18306

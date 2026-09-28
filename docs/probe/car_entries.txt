@@ -1,0 +1,46 @@
+==================== 入口安装位置排查 ====================
+
+## 1. install/ag_car 目录结构
+  /tmp/ag_ws/install/ag_car
+  /tmp/ag_ws/install/ag_car/bin
+  /tmp/ag_ws/install/ag_car/lib
+  /tmp/ag_ws/install/ag_car/lib/python3.10
+  /tmp/ag_ws/install/ag_car/lib/python3.10/site-packages
+  /tmp/ag_ws/install/ag_car/share
+  /tmp/ag_ws/install/ag_car/share/colcon-core
+  /tmp/ag_ws/install/ag_car/share/colcon-core/packages
+  /tmp/ag_ws/install/ag_car/share/ament_index
+  /tmp/ag_ws/install/ag_car/share/ament_index/resource_index
+  /tmp/ag_ws/install/ag_car/share/ag_car
+  /tmp/ag_ws/install/ag_car/share/ag_car/hook
+-- 所有名为 car_node 的文件 --
+  /tmp/ag_ws/install/ag_car/bin/car_node
+
+## 2. 家目录里可执行文件在哪一层（对比：官方包 dzjudgment）
+  /home/duzhong/dzrobot/install/dzjudgment
+  /home/duzhong/dzrobot/install/dzjudgment/lib/dzjudgment
+  /home/duzhong/dzrobot/install/dzjudgment/share/dzjudgment
+    lib: dzjudgment
+
+## 3. ament 索引能查到的可执行文件（ros2 run 用的就是这个）
+  ag_car prefix = /tmp/ag_ws/install/ag_car
+      /tmp/ag_ws/install/ag_car/lib/: ['python3.10']
+      /tmp/ag_ws/install/ag_car/bin: ['car_node']
+  ag_mission prefix = /tmp/ag_ws/install/ag_mission
+      /tmp/ag_ws/install/ag_mission/bin: ['mission_node', 'target_node']
+      /tmp/ag_ws/install/ag_mission/lib/: ['python3.10']
+  dzjudgment: 未注册 ("package 'dzjudgment' not found, searching: ['/tmp/ag_ws/install/ag_bringup', '/tmp/ag_ws/install/ag_referee', '/tmp/ag_ws/install/ag_perception', '/tmp/ag_ws/install/ag_car', '/tmp/ag_ws/install/ag_mission', '/tmp/ag_ws/install/ag_chassis', '/tmp/ag_ws/install/ag_bridge', '/tmp/ag_ws/install/ag_interfaces', '/tmp/ag_ws/install/ag_core', '/opt/ros/humble']")
+
+## 4. ros2 run 的实际行为（--help，不启动节点）
+  ros2 pkg executables ag_car -> '<空>'
+  ros2 pkg executables ag_mission -> '<空>'
+  ros2 pkg executables ag_bridge -> '<空>'
+
+## 5. setuptools 的 entry_points 是否真的生成了脚本
+  20:        "console_scripts": [
+  21-            "car_node = ag_car.car_node:main",
+  22-        ],
+  23-    },
+  24-)
+
+==================== 结束 ====================

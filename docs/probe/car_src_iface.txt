@@ -1,0 +1,120 @@
+./slam_gmapping-eloquent-devel/slam_gmapping/src/slam_gmapping.cpp:101:    entropy_publisher_ = this->create_publisher<std_msgs::msg::Float64>("entropy", rclcpp::SystemDefaultsQoS());
+./slam_gmapping-eloquent-devel/slam_gmapping/src/slam_gmapping.cpp:102:    sst_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("map", rclcpp::SystemDefaultsQoS());
+./slam_gmapping-eloquent-devel/slam_gmapping/src/slam_gmapping.cpp:103:    sstm_ = this->create_publisher<nav_msgs::msg::MapMetaData>("map_metadata", rclcpp::SystemDefaultsQoS());
+./slam_gmapping-eloquent-devel/slam_gmapping/src/slam_gmapping.cpp:106://    sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
+./fake_amcl_node/src/fake_amcl_node.cpp:40:            this->create_publisher<
+./fake_amcl_node/src/fake_amcl_node.cpp:46:            this->create_subscription<
+./dzrknn_dataprocess/src/dzrknn_dataprocess.cpp:528:  pub_LaserShot_Command = this->create_publisher<std_msgs::msg::UInt8>("LaserShot_Command", 10);
+./dzrknn_dataprocess/src/dzrknn_dataprocess.cpp:529:  pub_CameMo_Conl = this->create_publisher<std_msgs::msg::Int32MultiArray>("CameMo_Conl", 10);
+./dzrknn_dataprocess/src/dzrknn_dataprocess.cpp:530:  pub_voice_switch = this->create_publisher<std_msgs::msg::UInt8>("voice_switch", 10);
+./dzrknn_dataprocess/src/dzrknn_dataprocess.cpp:531:  pub_shot_count = this->create_publisher<std_msgs::msg::Int32>("/shoot_count", 10);
+./dzrknn_dataprocess/src/dzrknn_dataprocess.cpp:535:  sub_offset_center = this->create_subscription<std_msgs::msg::Int32MultiArray>("offset_center", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(), std::bind(&turn_on_robot::callback_offset_center, this, std::placeholders::_1));
+./dzrknn_dataprocess/src/dzrknn_dataprocess.cpp:536:  sub_camemo_feedback = this->create_subscription<std_msgs::msg::Int32MultiArray>("camemo_feedback", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(), std::bind(&turn_on_robot::callback_camemo_feedback, this, std::placeholders::_1));
+./dzactuator/src/dzactuator.cpp:1100:  voltage_publisher = this->create_publisher<std_msgs::msg::Float32>("PowerVoltage", 10);            // Create a battery-voltage topic publisher //创建电池电压话题发布者
+./dzactuator/src/dzactuator.cpp:1101:  Battery_Percentage_pub = this->create_publisher<std_msgs::msg::Float32>("Battery_Percentage", 10); // Create a battery-voltage topic publisher //创建电池电量百分比话题发布者
+./dzactuator/src/dzactuator.cpp:1102:  odom_publisher = this->create_publisher<nav_msgs::msg::Odometry>("odom", 50);                      // Create the odometer topic publisher //创建里程计话题发布者
+./dzactuator/src/dzactuator.cpp:1103:  imu_publisher = this->create_publisher<sensor_msgs::msg::Imu>("raw", 20);                          // Create an IMU topic publisher //创建IMU话题发布者
+./dzactuator/src/dzactuator.cpp:1104:  pub_imu_msg_valid = this->create_publisher<std_msgs::msg::UInt8>("imu_msg_valid", 10);
+./dzactuator/src/dzactuator.cpp:1105:  pub_odom_msg_valid = this->create_publisher<std_msgs::msg::UInt8>("odom_msg_valid", 10);
+./dzactuator/src/dzactuator.cpp:1106:  pub_diff_filter = this->create_publisher<sensor_msgs::msg::Imu>("imu_data", 1);
+./dzactuator/src/dzactuator.cpp:1107:  pub_navi_cmd = this->create_publisher<std_msgs::msg::UInt8>("navi_cmd", 10);
+./dzactuator/src/dzactuator.cpp:1108:  pub_current_vel = this->create_publisher<geometry_msgs::msg::Twist>("current_vel_state", 10);
+./dzactuator/src/dzactuator.cpp:1109:  wakeup_ack_pub_ = this->create_publisher<std_msgs::msg::Int32>("wakeup_signal", 10);
+./dzactuator/src/dzactuator.cpp:1110:  pub_camemo = this->create_publisher<std_msgs::msg::Int32MultiArray>("camemo_feedback", 10);
+./dzactuator/src/dzactuator.cpp:1114:  Cmd_Vel_Sub = this->create_subscription<geometry_msgs::msg::Twist>("cmd_vel", rclcpp::QoS(rclcpp::KeepLast(100)).best_effort(), std::bind(&turn_on_robot::callback_cmd_vel_angle, this, std::placeholders::_1));
+./dzactuator/src/dzactuator.cpp:1115:  sub_movebase_angle = this->create_subscription<geometry_msgs::msg::Twist>("pursuitAngle", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(), std::bind(&turn_on_robot::callback_movebase_angle, this, std::placeholders::_1));
+./dzactuator/src/dzactuator.cpp:1116:  sub_logicontrol = this->create_subscription<geometry_msgs::msg::Twist>("logicontrol", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(), std::bind(&turn_on_robot::callback_logi_control, this, std::placeholders::_1));
+./dzactuator/src/dzactuator.cpp:1117:  sub_voice_switch = this->create_subscription<std_msgs::msg::UInt8>("voice_switch", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(), std::bind(&turn_on_robot::callback_voice_switch, this, std::placeholders::_1));
+./dzactuator/src/dzactuator.cpp:1118:  sub_vehicle_state = this->create_subscription<std_msgs::msg::UInt8>("vehicle_state", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(), std::bind(&turn_on_robot::callback_vehicle_state, this, std::placeholders::_1));
+./dzactuator/src/dzactuator.cpp:1119:  sub_vehicle_Drivestate = this->create_subscription<std_msgs::msg::UInt8>("vehicle_Drivestate", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(), std::bind(&turn_on_robot::callback_vehicle_Drivestate, this, std::placeholders::_1));
+./dzactuator/src/dzactuator.cpp:1120:  sub_CameMo_Conl = this->create_subscription<std_msgs::msg::Int32MultiArray>("CameMo_Conl", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(), std::bind(&turn_on_robot::callback_CameMo_Conl, this, std::placeholders::_1));
+./dzactuator/src/dzactuator.cpp:1121:  sub_stopCMD = this->create_subscription<std_msgs::msg::UInt8>("StopCmd", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(), std::bind(&turn_on_robot::callback_stopCMD, this, std::placeholders::_1));
+./car_localization/car_localization/serial_reader.py:96:        self.sub_odom = self.create_subscription(
+./car_localization/car_localization/serial_reader.py:98:        self.sub_imu = self.create_subscription(
+./car_localization/car_localization/serial_reader.py:104:        self.sub_reset = self.create_subscription(
+./car_localization/car_localization/serial_reader.py:107:        self.odom_publisher = self.create_publisher(
+./car_localization/car_localization/path_planner.py:113:        self.odom_sub = self.create_subscription(
+./car_localization/car_localization/path_planner.py:121:        self.imu_sub = self.create_subscription(
+./car_localization/car_localization/path_planner.py:129:        self.waypoint_sub = self.create_subscription(
+./car_localization/car_localization/path_planner.py:137:        self.cmd_vel_pub = self.create_publisher(
+./car_localization/car_localization/path_planner.py:144:        self.mode_ctrl_pub = self.create_publisher(
+./car_localization/car_localization/path_executor.py:291:        self.odom_sub = self.create_subscription(
+./car_localization/car_localization/path_executor.py:301:        self.waypoint_sub = self.create_subscription(
+./car_localization/car_localization/path_executor.py:316:        self.cmd_pub = self.create_publisher(
+./car_localization/car_localization/path_executor.py:324:        self.stop_signal_pub = self.create_publisher(
+./car_localization/car_localization/path_executor.py:331:        self.shoot_count_sub = self.create_subscription(
+./car_localization/car_localization/send_waypoint.py:20:        self.pub = self.create_publisher(String, '/nav/waypoint', 10)
+./navigation2/nav2_graceful_controller/src/graceful_controller.cpp:59:  transformed_plan_pub_ = node->create_publisher<nav_msgs::msg::Path>("transformed_global_plan", 1);
+./navigation2/nav2_graceful_controller/src/graceful_controller.cpp:60:  local_plan_pub_ = node->create_publisher<nav_msgs::msg::Path>("local_plan", 1);
+./navigation2/nav2_graceful_controller/src/graceful_controller.cpp:61:  motion_target_pub_ = node->create_publisher<geometry_msgs::msg::PointStamped>("motion_target", 1);
+./navigation2/nav2_graceful_controller/src/graceful_controller.cpp:62:  slowdown_pub_ = node->create_publisher<visualization_msgs::msg::Marker>("slowdown", 1);
+./navigation2/nav2_behaviors/plugins/assisted_teleop.cpp:53:  vel_sub_ = node->create_subscription<geometry_msgs::msg::Twist>(
+./navigation2/nav2_behaviors/plugins/assisted_teleop.cpp:59:  preempt_teleop_sub_ = node->create_subscription<std_msgs::msg::Empty>(
+./navigation2/nav2_behaviors/test/test_behaviors.cpp:137:    client_ = rclcpp_action::create_client<BehaviorAction>(
+./navigation2/nav2_behaviors/include/nav2_behaviors/timed_behavior.hpp:130:    vel_pub_ = node->template create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 1);
+./navigation2/nav2_lifecycle_manager/src/lifecycle_manager.cpp:64:  manager_srv_ = create_service<ManageLifecycleNodes>(
+./navigation2/nav2_lifecycle_manager/src/lifecycle_manager.cpp:70:  is_active_srv_ = create_service<std_srvs::srv::Trigger>(
+./navigation2/nav2_waypoint_follower/plugins/input_at_waypoint.cpp:71:  subscription_ = node->create_subscription<std_msgs::msg::Empty>(
+./navigation2/nav2_waypoint_follower/plugins/photo_at_waypoint.cpp:95:    camera_image_subscriber_ = node->create_subscription<sensor_msgs::msg::Image>(
+./navigation2/nav2_waypoint_follower/src/waypoint_follower.cpp:67:  nav_to_pose_client_ = rclcpp_action::create_client<ClientT>(
+./navigation2/nav2_waypoint_follower/test/test_task_executors.cpp:71:  auto pub = node->create_publisher<std_msgs::msg::Empty>("input_at_waypoint/input", 1);
+./navigation2/nav2_waypoint_follower/test/test_task_executors.cpp:113:  auto pub = node->create_publisher<sensor_msgs::msg::Image>("/camera/color/image_raw", 1);
+./navigation2/nav2_bt_navigator/src/navigators/navigate_to_pose.cpp:48:  self_client_ = rclcpp_action::create_client<ActionT>(node, getName());
+./navigation2/nav2_bt_navigator/src/navigators/navigate_to_pose.cpp:50:  goal_sub_ = node->create_subscription<geometry_msgs::msg::PoseStamped>(
+./navigation2/nav2_route/src/plugins/route_operations/adjust_speed_limit.cpp:41:  speed_limit_pub_ = node->create_publisher<nav2_msgs::msg::SpeedLimit>(topic, 1);
+./navigation2/nav2_route/src/plugins/route_operations/rerouting_service.cpp:33:  service_ = node->create_service<std_srvs::srv::Trigger>(
+./navigation2/nav2_route/src/plugins/edge_cost_functions/dynamic_edges_scorer.cpp:33:    node->create_service<nav2_msgs::srv::DynamicEdges>(
+./navigation2/nav2_route/src/route_server.cpp:42:    node->create_publisher<visualization_msgs::msg::MarkerArray>(
+./navigation2/nav2_route/src/route_server.cpp:55:  set_graph_service_ = node->create_service<nav2_msgs::srv::SetRouteGraph>(
+./navigation2/nav2_route/src/path_converter.cpp:40:  path_pub_ = node->create_publisher<nav_msgs::msg::Path>("plan", 1);
+./navigation2/nav2_route/test/performance_benchmarking.cpp:77:  // auto graph_vis_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>(
+./navigation2/nav2_route/test/test_operations.cpp:139:  auto sub = node->create_subscription<nav2_msgs::msg::SpeedLimit>(
+./navigation2/nav2_route/test/test_operations.cpp:302:  auto service = node_int->create_service<std_srvs::srv::Trigger>(service_name, callback);
+./navigation2/nav2_route/test/test_operations.cpp:363:  auto service = node_int->create_service<std_srvs::srv::Trigger>(service_name, callback);
+./navigation2/nav2_route/test/test_operations.cpp:389:  auto service2 = node_int->create_service<std_srvs::srv::Trigger>("hello_world", callback2);
+./navigation2/nav2_route/test/test_route_server.cpp:293:    rclcpp_action::create_client<nav2_msgs::action::ComputeRoute>(node2, "compute_route");
+./navigation2/nav2_route/test/test_route_server.cpp:312:    rclcpp_action::create_client<nav2_msgs::action::ComputeAndTrackRoute>(
+./navigation2/nav2_route/test/test_path_converter.cpp:41:  auto sub = node->create_subscription<nav_msgs::msg::Path>(
+./navigation2/nav2_route/include/nav2_route/plugins/route_operation_client.hpp:124:      main_client_ = node->create_client<SrvT>(
+./navigation2/nav2_route/include/nav2_route/plugins/route_operation_client.hpp:170:        auto client = node->create_client<SrvT>(
+./navigation2/nav2_smoother/src/nav2_smoother.cpp:107:  plan_publisher_ = create_publisher<nav_msgs::msg::Path>("plan_smoothed", 1);
+./navigation2/nav2_smoother/test/test_smoother_server.cpp:250:    client_ = rclcpp_action::create_client<SmoothAction>(
+./navigation2/nav2_constrained_smoother/test/test_constrained_smoother.cpp:119:    path_poses_pub_ = node_lifecycle_->create_publisher<geometry_msgs::msg::PoseArray>(
+./navigation2/nav2_constrained_smoother/test/test_constrained_smoother.cpp:121:    path_poses_pub_cmp_ = node_lifecycle_->create_publisher<geometry_msgs::msg::PoseArray>(
+./navigation2/nav2_constrained_smoother/test/test_constrained_smoother.cpp:123:    path_poses_pub_orig_ = node_lifecycle_->create_publisher<geometry_msgs::msg::PoseArray>(
+./navigation2/nav2_util/src/odometry_utils.cpp:33:  odom_sub_ = node->create_subscription<nav_msgs::msg::Odometry>(
+./navigation2/nav2_util/src/odometry_utils.cpp:53:  odom_sub_ = node->create_subscription<nav_msgs::msg::Odometry>(
+./navigation2/nav2_util/test/test_service_client.cpp:58:  auto service = service_node->create_service<std_srvs::srv::Empty>(
+./navigation2/nav2_util/test/test_service_client.cpp:66:  auto pub = pub_node->create_publisher<std_msgs::msg::Empty>(
+./navigation2/nav2_util/test/test_service_client.cpp:73:  auto sub = sub_node->create_subscription<std_msgs::msg::Empty>(
+./navigation2/nav2_util/test/test_odometry_utils.cpp:38:  auto odom_pub = node->create_publisher<nav_msgs::msg::Odometry>("odom", 1);
+./navigation2/nav2_util/test/test_actions.cpp:50:    deactivate_subs_ = create_subscription<std_msgs::msg::Empty>(
+./navigation2/nav2_util/test/test_actions.cpp:58:    activate_subs_ = create_subscription<std_msgs::msg::Empty>(
+./navigation2/nav2_util/test/test_actions.cpp:66:    omit_preempt_subs_ = create_subscription<std_msgs::msg::Empty>(
+./navigation2/nav2_util/test/test_actions.cpp:182:    action_client_ = rclcpp_action::create_client<Fibonacci>(shared_from_this(), "fibonacci");
+./navigation2/nav2_util/test/test_actions.cpp:185:    deactivate_pub_ = this->create_publisher<std_msgs::msg::Empty>("deactivate_server", 1);
+./navigation2/nav2_util/test/test_actions.cpp:186:    activate_pub_ = this->create_publisher<std_msgs::msg::Empty>("activate_server", 1);
+./navigation2/nav2_util/test/test_actions.cpp:187:    omit_prempt_pub_ = this->create_publisher<std_msgs::msg::Empty>("omit_preemption", 1);
+./navigation2/nav2_util/include/nav2_util/service_client.hpp:47:    client_ = node_->create_client<ServiceT>(
+./navigation2/nav2_behavior_tree/plugins/decorator/goal_updater_node.cpp:47:  goal_sub_ = node_->create_subscription<geometry_msgs::msg::PoseStamped>(
+./navigation2/nav2_behavior_tree/plugins/condition/is_battery_low_condition.cpp:43:  battery_sub_ = node_->create_subscription<sensor_msgs::msg::BatteryState>(
+./navigation2/nav2_behavior_tree/plugins/condition/is_battery_charging_condition.cpp:38:  battery_sub_ = node->create_subscription<sensor_msgs::msg::BatteryState>(
+./navigation2/nav2_behavior_tree/plugins/condition/is_stuck_condition.cpp:43:  odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
+./navigation2/nav2_behavior_tree/plugins/condition/is_path_valid_condition.cpp:29:  client_ = node_->create_client<nav2_msgs::srv::IsPathValid>("is_path_valid");
+./navigation2/nav2_behavior_tree/plugins/action/planner_selector_node.cpp:48:  planner_selector_sub_ = node_->create_subscription<std_msgs::msg::String>(
+./navigation2/nav2_behavior_tree/plugins/action/goal_checker_selector_node.cpp:42:  goal_checker_selector_sub_ = node_->create_subscription<std_msgs::msg::String>(
+./navigation2/nav2_behavior_tree/plugins/action/smoother_selector_node.cpp:49:  smoother_selector_sub_ = node_->create_subscription<std_msgs::msg::String>(
+./navigation2/nav2_behavior_tree/plugins/action/controller_selector_node.cpp:48:  controller_selector_sub_ = node_->create_subscription<std_msgs::msg::String>(
+./navigation2/nav2_behavior_tree/plugins/action/progress_checker_selector_node.cpp:41:  progress_checker_selector_sub_ = node_->create_subscription<std_msgs::msg::String>(
+./navigation2/nav2_behavior_tree/test/plugins/decorator/test_speed_controller.cpp:82:  auto odom_pub = node_->create_publisher<nav_msgs::msg::Odometry>("odom", 1);
+./navigation2/nav2_behavior_tree/test/plugins/decorator/test_goal_updater_node.cpp:99:    node_->create_publisher<geometry_msgs::msg::PoseStamped>("goal_update", 10);
+./navigation2/nav2_behavior_tree/test/plugins/decorator/test_goal_updater_node.cpp:128:    node_->create_publisher<geometry_msgs::msg::PoseStamped>("goal_update", 10);
+./navigation2/nav2_behavior_tree/test/plugins/decorator/test_goal_updater_node.cpp:166:    node_->create_publisher<geometry_msgs::msg::PoseStamped>("goal_update", 10);
+./navigation2/nav2_behavior_tree/test/plugins/condition/test_is_battery_charging.cpp:45:    battery_pub_ = node_->create_publisher<sensor_msgs::msg::BatteryState>(
+./navigation2/nav2_behavior_tree/test/plugins/condition/test_is_battery_low.cpp:46:    battery_pub_ = node_->create_publisher<sensor_msgs::msg::BatteryState>(
+./navigation2/nav2_behavior_tree/test/plugins/condition/test_is_stuck.cpp:53:  auto odom_pub = node_->create_publisher<nav_msgs::msg::Odometry>("odom", 1);
+./navigation2/nav2_behavior_tree/test/plugins/action/test_drive_on_heading_cancel_node.cpp:71:    client_ = rclcpp_action::create_client<nav2_msgs::action::DriveOnHeading>(
+./navigation2/nav2_behavior_tree/test/plugins/action/test_controller_cancel_node.cpp:70:    client_ = rclcpp_action::create_client<nav2_msgs::action::FollowPath>(
+./navigation2/nav2_behavior_tree/test/plugins/action/test_progress_checker_selector_node.cpp:109:    node_->create_publisher<std_msgs::msg::String>(
+./navigation2/nav2_behavior_tree/test/plugins/action/test_progress_checker_selector_node.cpp:158:    node_->create_publisher<std_msgs::msg::String>("progress_checker_selector", qos);
+./navigation2/nav2_behavior_tree/test/plugins/action/test_smoother_selector_node.cpp:110:    node_->create_publisher<std_msgs::msg::String>("smoother_selector_custom_topic_name", qos);

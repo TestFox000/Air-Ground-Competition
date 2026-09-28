@@ -1,0 +1,256 @@
+==================== 车端第四轮：模型与执行器常量 ====================
+2026年 09月 27日 星期日 18:28:47 CST
+
+----------------------------------------------------
+## 1. 模型文件（大小 + md5，确认哪几个其实是同一个）
+总计 42708
+drwxr-xr-x 2 duzhong duzhong    4096  9月 27 12:32 .
+drwxr-xr-x 7 duzhong duzhong    4096  9月 27 12:32 ..
+-rw-rw-r-- 1 duzhong duzhong 9899901  9月 26 09:35 light_det1.rknn
+-rw-rw-r-- 1 duzhong duzhong 9899901  9月 26 09:35 light_det2.rknn
+-rw-rw-r-- 1 duzhong duzhong 8487541  9月 27 09:17 light_det3.rknn
+-rw-r--r-- 1 duzhong duzhong 8487541  9月 27 09:58 light_det.rknn
+-rw-rw-r-- 1 duzhong duzhong 6939842  9月 26 10:15 light_det_v1.rknn
+-- md5 --
+95a56615  light_det1.rknn
+dd0074ae  light_det2.rknn
+49f37005  light_det3.rknn
+49f37005  light_det.rknn
+6899ca31  light_det_v1.rknn
+
+----------------------------------------------------
+## 2. 模型内嵌的字符串（找类别名 / 训练工程名）
+===== light_det1.rknn =====
+4qe79dS;P'GE-NPT
+{"connection":[{"left":"input","left_tensor_id":0,"node_id":0,"right_tensor":{"tensor_id":0,"type":"norm_tensor"}},{"left":"output","left_tensor_id":0,"node_id":0,"right_tensor":{"tensor_id":1,"type":"norm_tensor"}},{"left":"output","left_tensor_id":1,"node_id":0,"right_tensor":{"tensor_id":2,"type":"norm_tensor"}},{"left":"output","left_tensor_id":2,"node_id":0,"right_tensor":{"tensor_id":3,"type":"norm_tensor"}}],"const_tensor":[],"graph":[{"left":"input","left_tensor_id":0,"right":"norm_tensor","right_tensor_id":0},{"left":"output","left_tensor_id":0,"right":"norm_tensor","right_tensor_id":1},{"left":"output","left_tensor_id":1,"right":"norm_tensor","right_tensor_id":2},{"left":"output","left_tensor_id":2,"right":"norm_tensor","right_tensor_id":3}],"input_num":1,"name":"rknn model","network_platform":"ONNX","node_num":1,"nodes":[{"input_num":1,"lid":"npu_network_bin_graph","name":"nnbg","nn":{"nbg":{"type":"RKNN_OP_NNBG"}},"op":"RKNN_OP_NNBG","output_num":3,"uid":0}],"norm_tensor":[{"dim_num":4,"dtype":{"qnt_method":"layer","qnt_type":"int8","vx_type":"int8"},"size":[1,3,640,640],"tensor_id":0,"url":"images"},{"dim_num":4,"dtype":{"qnt_method":"layer","qnt_type":"int8","vx_type":"int8"},"size":[1,18,80,80],"tensor_id":1,"url":"output"},{"dim_num":4,"dtype":{"qnt_method":"layer","qnt_type":"int8","vx_type":"int8"},"size":[1,18,40,40],"tensor_id":2,"url":"379"},{"dim_num":4,"dtype":{"qnt_method":"layer","qnt_type":"int8","vx_type":"int8"},"size":[1,18,20,20],"tensor_id":3,"url":"381"}],"norm_tensor_num":4,"ori_network_platform":"ONNX","output_num":3,"target_platform":["rk3588"],"version":"1.5.2+b642f30c","virtual_tensor":[]}
+')(=d@e1PT
+=)PT
+
+===== light_det2.rknn =====
+{"connection":[{"left":"input","left_tensor_id":0,"node_id":0,"right_tensor":{"tensor_id":0,"type":"norm_tensor"}},{"left":"output","left_tensor_id":0,"node_id":0,"right_tensor":{"tensor_id":1,"type":"norm_tensor"}},{"left":"output","left_tensor_id":1,"node_id":0,"right_tensor":{"tensor_id":2,"type":"norm_tensor"}},{"left":"output","left_tensor_id":2,"node_id":0,"right_tensor":{"tensor_id":3,"type":"norm_tensor"}}],"const_tensor":[],"graph":[{"left":"input","left_tensor_id":0,"right":"norm_tensor","right_tensor_id":0},{"left":"output","left_tensor_id":0,"right":"norm_tensor","right_tensor_id":1},{"left":"output","left_tensor_id":1,"right":"norm_tensor","right_tensor_id":2},{"left":"output","left_tensor_id":2,"right":"norm_tensor","right_tensor_id":3}],"input_num":1,"name":"rknn model","network_platform":"ONNX","node_num":1,"nodes":[{"input_num":1,"lid":"npu_network_bin_graph","name":"nnbg","nn":{"nbg":{"type":"RKNN_OP_NNBG"}},"op":"RKNN_OP_NNBG","output_num":3,"uid":0}],"norm_tensor":[{"dim_num":4,"dtype":{"qnt_method":"layer","qnt_type":"int8","vx_type":"int8"},"size":[1,3,640,640],"tensor_id":0,"url":"images"},{"dim_num":4,"dtype":{"qnt_method":"layer","qnt_type":"int8","vx_type":"int8"},"size":[1,18,80,80],"tensor_id":1,"url":"output"},{"dim_num":4,"dtype":{"qnt_method":"layer","qnt_type":"int8","vx_type":"int8"},"size":[1,18,40,40],"tensor_id":2,"url":"379"},{"dim_num":4,"dtype":{"qnt_method":"layer","qnt_type":"int8","vx_type":"int8"},"size":[1,18,20,20],"tensor_id":3,"url":"381"}],"norm_tensor_num":4,"ori_network_platform":"ONNX","output_num":3,"target_platform":["rk3588"],"version":"1.5.2+b642f30c","virtual_tensor":[]}
+
+===== light_det3.rknn =====
+0TpT
+0TPT
+{"connection":[{"left":"input","left_tensor_id":0,"node_id":0,"right_tensor":{"tensor_id":0,"type":"norm_tensor"}},{"left":"output","left_tensor_id":0,"node_id":0,"right_tensor":{"tensor_id":1,"type":"norm_tensor"}}],"const_tensor":[],"graph":[{"left":"input","left_tensor_id":0,"right":"norm_tensor","right_tensor_id":0},{"left":"output","left_tensor_id":0,"right":"norm_tensor","right_tensor_id":1}],"input_num":1,"name":"rknn model","network_platform":"ONNX","node_num":1,"nodes":[{"input_num":1,"lid":"npu_network_bin_graph","name":"nnbg","nn":{"nbg":{"type":"RKNN_OP_NNBG"}},"op":"RKNN_OP_NNBG","output_num":1,"uid":0}],"norm_tensor":[{"dim_num":4,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,3,640,640],"tensor_id":0,"url":"images"},{"dim_num":3,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,9,8400],"tensor_id":1,"url":"output0"}],"norm_tensor_num":2,"ori_network_platform":"ONNX","output_num":1,"target_platform":["rk3588"],"version":"2.3.2","virtual_tensor":[]}
+@LpT
+@LPT
+/model.22/dfl/Softmax_output_0_sw_sw_ReduceMax_output_weight_0_16_1_1_1
+/model.22/dfl/Softmax_output_0_sw_sw_reducesum_output_weight_0_16_1_1_1
+@MpT
+@MPT
+@NpT
+@NPT
+@OpT
+@OPT
+ PpT
+@PpT
+`PpT
+ PPT
+@PPT
+`PPT
+pTpT
+pTPT
+PTpT
+PTPT
+ QpT
+@QpT
+
+===== light_det.rknn =====
+0TpT
+0TPT
+{"connection":[{"left":"input","left_tensor_id":0,"node_id":0,"right_tensor":{"tensor_id":0,"type":"norm_tensor"}},{"left":"output","left_tensor_id":0,"node_id":0,"right_tensor":{"tensor_id":1,"type":"norm_tensor"}}],"const_tensor":[],"graph":[{"left":"input","left_tensor_id":0,"right":"norm_tensor","right_tensor_id":0},{"left":"output","left_tensor_id":0,"right":"norm_tensor","right_tensor_id":1}],"input_num":1,"name":"rknn model","network_platform":"ONNX","node_num":1,"nodes":[{"input_num":1,"lid":"npu_network_bin_graph","name":"nnbg","nn":{"nbg":{"type":"RKNN_OP_NNBG"}},"op":"RKNN_OP_NNBG","output_num":1,"uid":0}],"norm_tensor":[{"dim_num":4,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,3,640,640],"tensor_id":0,"url":"images"},{"dim_num":3,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,9,8400],"tensor_id":1,"url":"output0"}],"norm_tensor_num":2,"ori_network_platform":"ONNX","output_num":1,"target_platform":["rk3588"],"version":"2.3.2","virtual_tensor":[]}
+@LpT
+@LPT
+/model.22/dfl/Softmax_output_0_sw_sw_ReduceMax_output_weight_0_16_1_1_1
+/model.22/dfl/Softmax_output_0_sw_sw_reducesum_output_weight_0_16_1_1_1
+@MpT
+@MPT
+@NpT
+@NPT
+@OpT
+@OPT
+ PpT
+@PpT
+`PpT
+ PPT
+@PPT
+`PPT
+pTpT
+pTPT
+PTpT
+PTPT
+ QpT
+@QpT
+
+===== light_det_v1.rknn =====
+{"connection":[{"left":"input","left_tensor_id":0,"node_id":0,"right_tensor":{"tensor_id":0,"type":"norm_tensor"}},{"left":"output","left_tensor_id":0,"node_id":0,"right_tensor":{"tensor_id":1,"type":"norm_tensor"}},{"left":"output","left_tensor_id":1,"node_id":0,"right_tensor":{"tensor_id":2,"type":"norm_tensor"}},{"left":"output","left_tensor_id":2,"node_id":0,"right_tensor":{"tensor_id":3,"type":"norm_tensor"}},{"left":"output","left_tensor_id":3,"node_id":0,"right_tensor":{"tensor_id":4,"type":"norm_tensor"}},{"left":"output","left_tensor_id":4,"node_id":0,"right_tensor":{"tensor_id":5,"type":"norm_tensor"}},{"left":"output","left_tensor_id":5,"node_id":0,"right_tensor":{"tensor_id":6,"type":"norm_tensor"}},{"left":"output","left_tensor_id":6,"node_id":0,"right_tensor":{"tensor_id":7,"type":"norm_tensor"}},{"left":"output","left_tensor_id":7,"node_id":0,"right_tensor":{"tensor_id":8,"type":"norm_tensor"}},{"left":"output","left_tensor_id":8,"node_id":0,"right_tensor":{"tensor_id":9,"type":"norm_tensor"}}],"const_tensor":[],"graph":[{"left":"input","left_tensor_id":0,"right":"norm_tensor","right_tensor_id":0},{"left":"output","left_tensor_id":0,"right":"norm_tensor","right_tensor_id":1},{"left":"output","left_tensor_id":1,"right":"norm_tensor","right_tensor_id":2},{"left":"output","left_tensor_id":2,"right":"norm_tensor","right_tensor_id":3},{"left":"output","left_tensor_id":3,"right":"norm_tensor","right_tensor_id":4},{"left":"output","left_tensor_id":4,"right":"norm_tensor","right_tensor_id":5},{"left":"output","left_tensor_id":5,"right":"norm_tensor","right_tensor_id":6},{"left":"output","left_tensor_id":6,"right":"norm_tensor","right_tensor_id":7},{"left":"output","left_tensor_id":7,"right":"norm_tensor","right_tensor_id":8},{"left":"output","left_tensor_id":8,"right":"norm_tensor","right_tensor_id":9}],"input_num":1,"name":"rknn model","network_platform":"ONNX","node_num":1,"nodes":[{"input_num":1,"lid":"npu_network_bin_graph","name":"nnbg","nn":{"nbg":{"type":"RKNN_OP_NNBG"}},"op":"RKNN_OP_NNBG","output_num":9,"uid":0}],"norm_tensor":[{"dim_num":4,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,3,640,640],"tensor_id":0,"url":"images"},{"dim_num":4,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,64,80,80],"tensor_id":1,"url":"conv2d_65"},{"dim_num":4,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,1,80,80],"tensor_id":2,"url":"sigmoid"},{"dim_num":4,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,1,80,80],"tensor_id":3,"url":"clamp"},{"dim_num":4,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,64,40,40],"tensor_id":4,"url":"conv2d_73"},{"dim_num":4,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,1,40,40],"tensor_id":5,"url":"sigmoid_1"},{"dim_num":4,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,1,40,40],"tensor_id":6,"url":"clamp_1"},{"dim_num":4,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,64,20,20],"tensor_id":7,"url":"conv2d_81"},{"dim_num":4,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,1,20,20],"tensor_id":8,"url":"sigmoid_2"},{"dim_num":4,"dtype":{"qnt_method":"","qnt_type":"","vx_type":""},"size":[1,1,20,20],"tensor_id":9,"url":"clamp_2"}],"norm_tensor_num":10,"ori_network_platform":"ONNX","output_num":9,"target_platform":["rk3588"],"version":"2.3.2","virtual_tensor":[]}
+matmul_1_mm_softmax_output_ReduceMax_output_weight_0_400_1_1_1
+matmul_1_mm_softmax_output_reducesum_output_weight_0_400_1_1_1
+
+----------------------------------------------------
+## 3. 数据集与标签（找类别名定义）
+/home/duzhong/dzrobot/src_4/dzactuator/params/slam_gmapping.yaml
+/home/duzhong/dzrobot/src_4/dzactuator/params/bmi_imu_param.yaml
+/home/duzhong/dzrobot/src_4/dzactuator/params/imu_calib.yaml
+/home/duzhong/dzrobot/src_4/dzactuator/params/amcl.yaml
+/home/duzhong/dzrobot/src_4/dzactuator/params/vehicle_client_params.yaml
+/home/duzhong/dzrobot/src_4/dzactuator/params/map.yaml
+/home/duzhong/dzrobot/src_4/dzactuator/params/group_amcl_sl.yaml
+/home/duzhong/dzrobot/src_4/dzactuator/params/mapping.yaml
+/home/duzhong/dzrobot/src_4/dzactuator/params/robot4_map.yaml
+/home/duzhong/dzrobot/src_4/dzactuator/params/self_amcl.yaml
+/home/duzhong/dzrobot/src_4/dztrack/params/dztrack_dwb_params.yaml
+/home/duzhong/dzrobot/src/dzactuator/params/slam_gmapping.yaml
+/home/duzhong/dzrobot/src/dzactuator/params/bmi_imu_param.yaml
+/home/duzhong/dzrobot/src/dzactuator/params/imu_calib.yaml
+/home/duzhong/dzrobot/src/dzactuator/params/amcl.yaml
+/home/duzhong/dzrobot/src/dzactuator/params/vehicle_client_params.yaml
+/home/duzhong/dzrobot/src/dzactuator/params/map.yaml
+/home/duzhong/dzrobot/src/dzactuator/params/group_amcl_sl.yaml
+/home/duzhong/dzrobot/src/dzactuator/params/mapping.yaml
+/home/duzhong/dzrobot/src/dzactuator/params/robot4_map.yaml
+-- 疑似 data.yaml 内容 --
+-- camera_dataset 目录 --
+img_0000.jpg
+img_0001.jpg
+img_0002.jpg
+img_0003.jpg
+img_0004.jpg
+img_0005.jpg
+img_0006.jpg
+img_0007.jpg
+img_0008.jpg
+img_0009.jpg
+81M	/home/duzhong/dzrobot/camera_dataset
+
+----------------------------------------------------
+## 4. path_executor 关键常量
+
+----------------------------------------------------
+## 5. 现场标定表 / 参数文件
+总计 32
+drwxr-xr-x  5 duzhong duzhong 4096  9月 27 17:09 .
+drwxr-xr-x 16 duzhong duzhong 4096  9月 27 12:32 ..
+-rw-rw-r--  1 duzhong duzhong 2479  9月 27 08:52 CMakeLists.txt
+drwxrwxr-x  2 duzhong duzhong 4096  9月 27 17:09 include
+drwxrwxr-x  2 duzhong duzhong 4096  9月 27 17:09 launch
+-rw-rw-rw-  1 duzhong duzhong   47  9月 26 19:42 offcenter_table.txt
+-rw-rw-rw-  1 duzhong duzhong 1251  9月 26 19:42 package.xml
+drwxrwxr-x  2 duzhong duzhong 4096  9月 27 17:09 src
+-- offcenter_table.txt 头几行 --
+0
+0
+0
+0
+0
+
+----------------------------------------------------
+## 6. 官方启动方式（launch 里带了什么参数）
+===== bringup_all =====
+6:                            TimerAction)
+25:    dzactuator_share = get_package_share_directory('dzactuator')
+26:    det_node_share = get_package_share_directory('det_node')
+27:    gimbal_share = get_package_share_directory('dzrknn_dataprocess')
+30:    ema_alpha = LaunchConfiguration('ema_alpha')
+31:    track_deadzone_px = LaunchConfiguration('track_deadzone_px')
+32:    fire_deadzone_px = LaunchConfiguration('fire_deadzone_px')
+33:    box_w_far = LaunchConfiguration('box_w_far')
+34:    box_w_near = LaunchConfiguration('box_w_near')
+35:    fire_real_speed_max = LaunchConfiguration('fire_real_speed_max')
+36:    fire_hold_frames = LaunchConfiguration('fire_hold_frames')
+37:    predict_gain = LaunchConfiguration('predict_gain')
+38:    max_shots = LaunchConfiguration('max_shots')
+39:    track_kp = LaunchConfiguration('track_kp')
+40:    track_kd = LaunchConfiguration('track_kd')
+41:    patrol_speed_ratio = LaunchConfiguration('patrol_speed_ratio')
+42:    aspect_min = LaunchConfiguration('aspect_min')
+43:    aspect_max = LaunchConfiguration('aspect_max')
+44:    track_speed_max_ratio = LaunchConfiguration('track_speed_max_ratio')
+45:    lost_frames_to_rescan = LaunchConfiguration('lost_frames_to_rescan')
+46:    pitch_deg_sign = LaunchConfiguration('pitch_deg_sign')
+49:    bringup = IncludeLaunchDescription(
+54:    camera = IncludeLaunchDescription(
+59:    det_node = IncludeLaunchDescription(
+64:    gimbal = IncludeLaunchDescription(
+
+===== dzrknn_dataprocess =====
+13:    motor_kp_arg = DeclareLaunchArgument(
+15:        default_value='1000.0',
+16:        description='PID控制器的比例增益'
+19:    motor_ki_arg = DeclareLaunchArgument(
+21:        default_value='1000.0',
+22:        description='PID控制器的积分增益'
+25:    motor_kd_arg = DeclareLaunchArgument(
+27:        default_value='1000.0',
+28:        description='PID控制器的微分增益'
+31:    ticks_per_meter_arg = DeclareLaunchArgument(
+33:        default_value='1000.0',
+34:        description='每米的编码器脉冲数'
+37:    pose_kp_arg = DeclareLaunchArgument(
+39:        default_value='1000.0',
+40:        description='位置控制的比例系数'
+44:    dzrknn_dataprocess_node = Node(
+45:        package='dzrknn_dataprocess',
+46:        executable='dzactuator_node',
+47:        name='dzrknn_dataprocess',
+48:        output='screen',
+49:        parameters=[{
+
+===== det_node =====
+13:    robot_color_arg = DeclareLaunchArgument(
+15:        default_value='red',
+16:        description='Robot color (red or blue)'
+20:    det_node = Node(
+21:        package='det_node',
+22:        executable='det_node',
+23:        name='det_node',
+24:        output='screen',
+25:        parameters=[{
+
+===== judgment =====
+7:            package="dzjudgment",
+8:            executable="dzjudgment",
+9:            name="dzjudgment",
+10:            output="screen",
+11:            emulate_tty=True,
+12:            parameters=[
+
+===== camera =====
+7:            package='usb_cam',
+8:            executable='usb_cam_node_exe',
+9:            name='usb_cam_node',
+10:            output='screen',
+11:            parameters=[{
+
+----------------------------------------------------
+## 7. 车端是否已有本项目（避免重复部署）
+  无独立工作空间
+car_localization
+dzactuator
+dzjudgment
+dzrknn_dataprocess
+dztrack
+fake_amcl_node
+navigation2
+naviPointPath
+rknn_pt
+robot_localization-humble-devel
+rplidar_ros-ros2
+rviz
+slam_gmapping-eloquent-devel
+----------------------------------------------------
+## 8. 当前 ROS 图（若官方栈已在跑，这里能看到真实话题与类型）
+-- nodes --
+-- topics --
+/parameter_events
+/rosout
+-- 关键话题类型 --
+/nav/waypoint            (未发布/无节点)
+/HpAndHitmsg             (未发布/无节点)
+/LaserShot_Command       (未发布/无节点)
+/shoot_count             (未发布/无节点)
+/offset_center           (未发布/无节点)
+/image_raw               (未发布/无节点)
+/odom/localization       (未发布/无节点)
+==================== 结束 ====================

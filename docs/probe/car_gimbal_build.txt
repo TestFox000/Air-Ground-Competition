@@ -1,0 +1,29 @@
+==================== 编译官方瞄准节点（到 /tmp，不动厂家目录） ====================
+2026年 09月 27日 星期日 19:18:47 CST
+
+## 1. 复制源码（只读源 -> /tmp）
+  已复制到 /tmp/ag_ws/src/dzrknn_dataprocess
+    CMakeLists.txt
+    include
+    launch
+    offcenter_table.txt
+    package.xml
+    src
+
+## 2. colcon build --packages-select dzrknn_dataprocess
+  退出码 = 0
+-- 摘要 --
+  Starting >>> dzrknn_dataprocess
+  Finished <<< dzrknn_dataprocess [24.0s]
+  Summary: 1 package finished [24.3s]
+
+## 3. 结果
+  [OK] 可执行文件已生成：
+    总计 0
+    lrwxrwxrwx 1 duzhong duzhong 51  9月 27 19:19 dzactuator_node -> /tmp/ag_ws/build/dzrknn_dataprocess/dzactuator_node
+
+## 4. 厂家的目录有没有被碰过（应该完全没变）
+  ~/dzrobot/install 包数: 60（开工前也是这个数）
+  [OK] 厂家 install 里仍然没有它（我们没写进去）
+  完整日志: /tmp/ag_gimbal_build.log
+==================== 结束 ====================

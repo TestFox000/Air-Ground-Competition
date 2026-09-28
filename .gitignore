@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# ROS2 / colcon
+build/
+install/
+log/
+*.bag
+ros2_ws/
+
+# 模型与数据（体积大，且多为官方 SDK 产物，不入库）
+models/
+*.rknn
+*.onnx
+!tools/samples/*.jsonl
+
+# 现场抓包 / 标定产物
+capture/
+calib/
+
+# 从车端取回的黑匣子日志与复盘报告（运行时数据，不入库）
+# 取回方法见 docs/调试日志.md
+logs/
+
+# 从车端取回的厂家源码：只作接口参照，不是我们的代码，不入库
+# （需要时用 tools/remote_run.py --get 重新拉取，方法见 docs/实机接口对照.md）
+reference/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+.DS_Store

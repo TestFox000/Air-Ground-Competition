@@ -1,0 +1,29 @@
+==================== 相机健康检查（零动作） ====================
+2026年 09月 28日 星期一 18:29:14 CST
+
+----------------------------------------------------
+## 0. 现状：有没有别人在跑
+
+----------------------------------------------------
+## 1. 起相机 + 检测
+-- 相机节点日志尾部 --
+  Package 'dzactuator' not found: "package 'dzactuator' not found, searching: ['/tmp/ag_ws/install/ag_bringup', '/tmp/ag_ws/install/ag_referee', '/tmp/ag_ws/install/ag_perception', '/tmp/ag_ws/install/ag_car', '/tmp/ag_ws/install/ag_mission', '/tmp/ag_ws/install/ag_chassis', '/tmp/ag_ws/install/ag_bridge', '/tmp/ag_ws/install/ag_interfaces', '/tmp/ag_ws/install/ag_core', '/home/duzhong/install/dztrack', '/home/duzhong/install/dzjudgment', '/home/duzhong/install/car_localization', '/opt/ros/humble']"
+
+----------------------------------------------------
+## 2. /image_raw 帧率（数 5 秒）
+  [FAIL] 5 秒内 /image_raw 没有任何一帧
+         -> 相机没起 / 崩了 / 话题名不对。先确认  里有 usb_cam_node
+
+----------------------------------------------------
+## 3. 是否能出检测结果（/offset_center）
+  /offset_center: WARNING: topic [/offset_center does not appear to be published yet
+  类别 cls = [/offset_center   （1=蓝靶=敌方  2=红靶=友方）
+
+----------------------------------------------------
+## 4. 结论
+  [FAIL] 相机没有稳定出图 —— 先修这个，视觉相关的一切都无从谈起
+  [OK] 读到检测类别 [/offset_center
+
+  结论: 相机不健康，先别跑视觉联调
+==================== 结束（节点将自动停止） ====================
+  已停止本脚本启动的节点（含子进程）

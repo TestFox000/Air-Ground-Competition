@@ -1,0 +1,14 @@
+# 可选依赖：只在 PC 调试 / 板端推理 / 串口联调时才需要。
+#   pip install -r requirements-extra.txt
+
+# ---- PC 端验证模型解码 ----
+onnx>=1.15
+onnxruntime>=1.16
+opencv-python>=4.8          # 图像预处理 / 标定 / debug 可视化
+
+# ---- 车端 ----
+pyserial>=3.5               # 裁判系统串口
+PyYAML>=6.0                 # 读取离线配置文件
+
+# ---- 板端（RK3588S）需单独安装，不能用 pip 源 ----
+# rknn-toolkit2-lite  : pip install rknn_toolkit2_lite-*.whl（瑞芯微官方 SDK 提供）

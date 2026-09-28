@@ -1,0 +1,82 @@
+==================== 车端环境探测 ====================
+2026年 09月 27日 星期日 17:07:16 CST
+
+----------------------------------------------------
+## 1. 系统与 ROS
+host: duzhong
+NAME="Ubuntu"
+VERSION="22.04.5 LTS (Jammy Jellyfish)"
+arch: aarch64
+ROS_DISTRO=<未设置>
+ros2: 未找到
+
+----------------------------------------------------
+## 2. 关键 ROS 包（决定我怎么对接）
+ros2 不可用，跳过
+
+----------------------------------------------------
+## 3. 当前活跃话题（车静止时也可能为空，最好先启动官方 launch 再跑一次）
+
+-- 与本项目相关的候选话题 --
+  无
+
+----------------------------------------------------
+## 4. 串口设备（裁判系统 / 底盘）
+crwxrwxrwx 1 root dialout 166,  0  9月 27 17:02 /dev/ttyACM0
+crwxrwxrwx 1 root dialout 166,  1  9月 27 17:02 /dev/ttyACM1
+crw-rw---- 1 root dialout   4, 73  9月 27 17:02 /dev/ttyS9
+  未发现串口设备
+-- usb 设备 --
+Bus 006 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+Bus 005 Device 002: ID 303a:1001 Espressif USB JTAG/serial debug unit
+Bus 005 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 004 Device 002: ID 1a86:55d4 QinHeng Electronics USB Single Serial
+Bus 004 Device 001: ID 1d6b:0001 Linux Foundation 1.1 root hub
+Bus 003 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 002 Device 001: ID 1d6b:0001 Linux Foundation 1.1 root hub
+Bus 001 Device 004: ID 32e4:0234 LRCP AR0234 LRCP AR0234
+Bus 001 Device 003: ID 1ea7:0066 SHARKOON Technologies GmbH [Mediatrack Edge Mini Keyboard]
+Bus 001 Device 002: ID 1a40:0101 Terminus Technology Inc. Hub
+Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+
+----------------------------------------------------
+## 5. 相机
+LRCP AR0234: LRCP AR0234 (usb-fc800000.usb-1.2):
+	/dev/video0
+	/dev/video1
+	/dev/media0
+
+crw-rw----+ 1 root video 81, 0  9月 27 17:02 /dev/video0
+crw-rw----+ 1 root video 81, 1  9月 27 17:02 /dev/video1
+-rw-rw----  1 root video    71  9月 27 17:02 /dev/video-dec0
+-rw-rw----  1 root video     4  9月 27 17:02 /dev/video-enc0
+
+----------------------------------------------------
+## 6. NPU / RKNN（板端推理能力）
+rknnlite: 不可用
+/usr/lib/librknnrt.so
+  librknnrt 未找到
+  /dev/rknpu* 未找到
+
+----------------------------------------------------
+## 7. 已有模型文件
+
+----------------------------------------------------
+## 8. Python 环境
+python3: Python 3.10.12
+numpy 1.26.4
+pyserial: 无
+
+----------------------------------------------------
+## 9. 网络
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    inet 127.0.0.1/8 scope host lo
+3: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    inet 10.15.166.188/24 brd 10.15.166.255 scope global dynamic noprefixroute wlan0
+
+----------------------------------------------------
+## 10. 已有的工作空间
+  未发现常见工作空间
+
+==================== 探测结束 ====================
+把本文件完整贴回给我即可。

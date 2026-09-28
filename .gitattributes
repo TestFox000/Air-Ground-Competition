@@ -1,0 +1,31 @@
+# 行尾（EOL）约定 —— 这个仓库里**必须**锁死，否则会出真机事故。
+#
+# 背景：tools/*.sh 是要上传到**Linux 车端**执行的。Windows 上 Git 默认
+# core.autocrlf=true，会把 LF 转成 CRLF；一旦转成 CRLF，shebang 变成
+# "#!/bin/bash\r"，车端执行直接 "/bin/bash^M: bad interpreter"。
+# 所以：凡是要上车跑的脚本，一律强制 LF。
+
+# 要跑到车上/ROS 侧的文本：一律 LF
+*.sh    text eol=lf
+*.py    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.cfg   text eol=lf
+*.txt   text eol=lf
+*.md    text eol=lf
+*.ini   text eol=lf
+*.xml   text eol=lf
+*.json  text eol=lf
+
+# Windows 双击入口：必须 CRLF
+*.bat   text eol=crlf
+
+# 二进制：别让 Git 动它
+*.rknn  binary
+*.onnx  binary
+*.pt    binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.pdf   binary
+*.zip   binary

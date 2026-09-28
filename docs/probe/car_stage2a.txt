@@ -1,0 +1,93 @@
+==================== 第 2 段 A：底盘 + 裁判 + 定位（零位移） ====================
+2026年 09月 27日 星期日 19:09:35 CST
+
+----------------------------------------------------
+## 0. 前置检查
+-- 现有节点（应为空，否则先确认是不是别人在用）--
+-- 串口设备 --
+  lrwxrwxrwx 1 root root 7  9月 27 18:08 /dev/dzactuator -> ttyACM0
+  lrwxrwxrwx 1 root root 7  9月 27 18:08 /dev/dzjudgment -> ttyACM1
+
+----------------------------------------------------
+## 1. 启动 dzactuator（底盘/IMU/里程计；无人发速度指令就不会动）
+  [dzactuator_node-3] [0m[INFO] [1790507376.700896361] [dzactuator]: dzactuator serial port opened[0m
+
+----------------------------------------------------
+## 2. 启动 dzjudgment（裁判串口 -> ROS 话题）
+  [dzjudgment-1] [32mjudgment_baudrate: [0m115200
+  [dzjudgment-1] [32mjudgment_serialport: [0m/dev/dzjudgment
+  [dzjudgment-1] [dzjudgment-->]Serial initialize start!
+  [dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+
+----------------------------------------------------
+## 3. 启动 serial_reader（/odom + /imu_data -> /odom/localization）
+  [serial_reader_node-1] [0m[INFO] [1790507397.466567567] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+  [serial_reader_node-1] [0m[INFO] [1790507397.666574576] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+  [serial_reader_node-1] [0m[INFO] [1790507397.866550086] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+  [serial_reader_node-1] [0m[INFO] [1790507398.066538428] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+
+----------------------------------------------------
+## 4. 启动 path_executor（订阅 /nav/waypoint，是真正执行路线的那一段）
+
+----------------------------------------------------
+## 5. 裁判状态：这是本次联调最关键的一项
+  [OK] /HpAndHitmsg 存在
+-- 真实裁判数据（[targethp, self_hp, hit, Shooting_Count, ammo]）--
+
+----------------------------------------------------
+## 6. 里程计 / IMU
+  [OK] /odom/localization
+  [OK] /odom
+  [OK] /imu_data
+-- /odom/localization 一条样本（block 单位 + 朝向）--
+  header:
+    stamp:
+      sec: 1790507427
+      nanosec: 722747677
+    frame_id: odom
+  child_frame_id: base_link
+  pose:
+    pose:
+      position:
+        x: 1.4999999999999998
+        y: 0.5
+        z: 0.2
+      orientation:
+        x: 0.0
+        y: 0.0
+        z: 0.001416406147013864
+        w: 0.9999989968963102
+    covariance:
+    - 1.0e-09
+    - 0.0
+
+----------------------------------------------------
+## 7. 命令链路验证：只发 reset（**零位移**），看真机执行器认不认
+-- 发送 reset:N10,y --
+  publishing #1: std_msgs.msg.String(data='reset:N10,y')
+  
+-- path_executor 日志里应该出现 Odometry reset --
+  ⚠️ 日志里没看到 Odometry reset，检查上面输出
+
+----------------------------------------------------
+## 8. 反证：车没有动
+-- 连采两次定位，比较位置 --
+  t0: x: 1.4999999999999998 y: 0.5 z: 0.2 --- 
+  t1: x: 1.4999999999999998 y: 0.5 z: 0.2 --- 
+-- 速度指令（应为 0）--
+  linear:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+  angular:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+
+----------------------------------------------------
+## 9. 结论
+  裁判能读 -> 看第 5 节；命令格式对被接受 -> 看第 7 节；车未移动 -> 看第 8 节
+  下一段（云台）记得：**先停掉 dzjudgment**，再启动 dzrknn_dataprocess
+    （否则它会自主开火，而且不区分蓝红）
+==================== 结束（节点将自动停止） ====================
+  已停止本次启动的节点
