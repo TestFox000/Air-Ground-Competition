@@ -317,8 +317,11 @@ def push(g: Git, remote: str, branch: str, log: Logger, retry: bool = True) -> i
 
     last = next((ln for ln in reversed(out.splitlines()) if ln.strip()), "")
     log(f"      [!] 推送失败：{last}")
+    if not retry and ("rejected" in low or "non-fast-forward" in low or "fetch first" in low):
+        log("      对方有新提交，需要合并后才能推 —— **这里刻意不自动合并**（怕把你的改动卷进冲突）。")
+        log("      手动跑一次：python tools/sync_progress.py")
     if any(k in low for k in ("authentication", "permission", "403", "401", "invalid username", "could not read username")):
-        log("      看起来是凭据问题 —— 按 协作看板.md §9.5 配好 store 凭据（令牌）")
+        log("      看起来是凭据问题 —— 按 docs/协作看板.md §9.5 配好 store 凭据（令牌）")
     return 4
 
 
@@ -377,8 +380,13 @@ def do_sync(g: Git, remote: str, branch: str, machine: str, log: Logger,
     up = upstream(g, branch, remote)
 
     if push_only:
-        log("[2-3/4] --push-only：跳过提交与合并")
-        return push(g, remote, branch, log)
+        # 钩子路径：**只推，不合**。
+        # 推送被拒（对方有新提交）时绝不能自动发起 rebase —— 用户只是提交了代码，
+        # 不该被拖进一次可能冲突的合并里。2026-09-28 实测踩到：`git commit` 触发钩子，
+        # 钩子自动 rebase 卡在中途，`git status` 直接变成 "(no branch, rebasing main)"，
+        # 而且钩子的 `|| true` 把失败吞了，用户完全不知道发生了什么。
+        log("[2-3/4] --push-only：只推送，不合并")
+        return push(g, remote, branch, log, retry=False)
 
     if not no_commit:
         rc = commit_local(g, machine, log)

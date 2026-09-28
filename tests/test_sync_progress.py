@@ -229,6 +229,25 @@ def test_conflict_stops_and_keeps_markers_for_human(tmp_path, monkeypatch, capsy
 
 
 @NEED_GIT
+def test_push_only_never_starts_a_rebase(tmp_path, monkeypatch, capsys):
+    """★ 钩子路径（`--push-only`）被拒时**不许自动合并**。
+
+    实测事故（2026-09-28）：`git commit` 触发钩子 → 推送被拒 → 钩子自动发起 rebase
+    并卡在中途，`git status` 变成 `(no branch, rebasing main)`；而钩子里的 `|| true`
+    把失败吞了，用户完全不知道刚才那一下把仓库带进了合并状态。
+    """
+    work, _ = _conflicting_pair(tmp_path)
+    mod = _load()
+    monkeypatch.setattr(mod, "ROOT", work)
+    g = mod.Git(work)
+
+    rc = mod.do_sync(g, "origin", "main", "T", mod.Logger(None), push_only=True)
+    capsys.readouterr()
+    assert rc != 0
+    assert mod.in_conflict(g) is False, "只推不合 —— 绝不能被拖进 rebase"
+
+
+@NEED_GIT
 def test_resolved_conflict_finishes_on_next_run(tmp_path, monkeypatch, capsys):
     """★ 用户解完冲突再跑一次，脚本要接着把这次 rebase 收尾。
 
