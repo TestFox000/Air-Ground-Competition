@@ -18,11 +18,25 @@ MINE_PATHS=(
   "/tmp/ag_build.log"       # 编译日志
   "/tmp/ag_car_node.log"    # 干跑联调时 car_node 的日志
   "/tmp/_pkgs.txt"          # probe_car.sh 抓包列表时写的临时文件
+  "/tmp/ag_logs"            # 黑匣子日志（跑一圈的全部证据；取回后清理）
+  "/tmp/dz_ws"              # 官方 dzactuator 的临时编译工作区（源码用符号链接，产物在这里）
+  "/tmp/ag_official_env.sh" # 官方栈环境（det_node 的 AMENT_PREFIX_PATH 补丁）
+  "/tmp/ag_dz_build.log"    # dzactuator 的编译日志
+  "/tmp/_chk.py"            # 排查时临时上传的小脚本
+  "/tmp/_cmp.py"
+  "/tmp/_gl.py"
+  "/tmp/_codes.py"
 )
 MINE_GLOBS=(
+  # 上传执行的脚本都会落成 `/tmp/<本地文件名>.sh`。
+  # `*.sh.sh` 这条是兜底：临时起个 `x.sh` 之类的名字时也不会漏（实测漏过一次，残留在 /tmp）。
+  "/tmp/*.sh.sh"
   "/tmp/probe_car*.sh.sh"   # 上传执行的探测脚本
   "/tmp/car_*.sh.sh"
   "/tmp/remote_run*.sh.sh"
+  "/tmp/ag_*.log"           # 各节点的运行日志（ground_link/air_link/guard/chk/move…）
+  "/tmp/ag_*.txt"           # 闸门自检/监视采样的临时文件
+  "/tmp/ag_*.yaml"          # 闸门启动时用的参数文件
 )
 # 本应已被移走、但万一还在的旧位置
 LEGACY_PATHS=(
@@ -138,7 +152,11 @@ for f in "$HOME/dzrobot/src/car_localization/car_localization/path_executor.py" 
          "$HOME/.bashrc"; do
   [ -e "$f" ] && printf "    %s  %s\n" "$(md5sum "$f" 2>/dev/null | cut -c1-10)" "${f/#$HOME/~}"
 done
-echo "  参考基线（开工时测得）：path_executor=6d31d068c1  dzrknn=8f...  judgment=34a3189d26  .bashrc=28addcce99"
+echo "  参考基线（2026-09-28 开工时测得）：path_executor=6d31d068c1  dzrknn=e5f433d4ca"
+echo "                                    judgment=34a3189d26  .bashrc=28addcce99"
+echo "  ⚠️ 这行会过期：别人重装/改过官方包后数值就变了（2026-09-28 就发现 dzrknn"
+echo "     从 8f... 变成了 e5f433d4ca，且 dzrobot 从 2.8G/28367 变成 888M/9101）。"
+echo "     每次开工先跑 tools/car_inventory.sh 重新记一份，别直接信这行。"
 echo
 
 echo "## 5. 家目录顶层（不应再出现 ag_ws 之类）"
@@ -147,5 +165,10 @@ echo
 
 echo "## 6. 收尾"
 echo "  提醒：小车上的 /tmp 会在重启后自动清空；下次要用重新上传即可。"
-echo "  dzrobot 等厂家目录全程只读，未做任何修改。"
+echo "  本脚本只清理\"我们自己创建的\"东西，不碰厂家目录里的任何文件。"
+echo
+echo "  ⚠️ 但要注意：**本次会话可能按需修复过官方目录**（例如补装缺失的包、"
+echo "     给重复源码目录加 COLCON_IGNORE）—— 那些是**有意保留**的成果，"
+echo "     不要当残留清掉。改了什么、怎么还原，见 docs/进度报告-*.md 的"
+echo "     「官方目录改动清单」。"
 echo "==================== 结束 ===================="

@@ -1,0 +1,69 @@
+==================== 车端痕迹清理 ====================
+2026年 09月 28日 星期一 19:28:22 CST
+
+## 0. 白名单（只会删这些）
+  /tmp/ag_ws
+  /tmp/ag_ws_old_mine
+  /tmp/syntaxcheck
+  /tmp/ag_build.log
+  /tmp/ag_car_node.log
+  /tmp/_pkgs.txt
+  /tmp/ag_logs
+  /tmp/dz_ws
+  /tmp/ag_official_env.sh
+  /tmp/ag_dz_build.log
+  /tmp/_chk.py
+  /tmp/_cmp.py
+  /tmp/_gl.py
+  /tmp/_codes.py
+  /tmp/*.sh.sh
+  /tmp/probe_car*.sh.sh
+  /tmp/car_*.sh.sh
+  /tmp/remote_run*.sh.sh
+  /tmp/ag_*.log
+  /tmp/ag_*.txt
+  /tmp/ag_*.yaml
+  （若存在）/home/duzhong/ag_ws
+  （若存在）/home/duzhong/ag_ws_old_mine
+
+## 1. 删除前：确认目标存在
+  [有] /tmp/car_cleanup.sh.sh
+  [有] /tmp/car_cleanup.sh.sh
+
+## 2. 执行删除（仅白名单）
+  已删 /tmp/car_cleanup.sh.sh
+
+## 2.5 停止我们启动过的节点进程（按 PID 精确停，不用模糊 pkill）
+  [OK] 没有残留进程
+
+## 3. 删除后：确认干净
+  [OK] 白名单内的东西都已清除
+
+## 4. 他人数据完整性核对（应与会话开始时一致）
+  /home/duzhong/dzrobot                         476M  3572 个文件
+  /home/duzhong/dzrobot/src                     268M  1763 个文件
+  /home/duzhong/src_save_backup_20260926        245M  1766 个文件
+  /home/duzhong/backup                          72K  6 个文件
+  -- 关键文件指纹（与开工前对比；不一致说明被动过）--
+    6d31d068c1  /home/duzhong/dzrobot/src/car_localization/car_localization/path_executor.py
+    e5f433d4ca  /home/duzhong/dzrobot/src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp
+    34a3189d26  /home/duzhong/dzrobot/src/dzjudgment/src/judgment.cpp
+    28addcce99  /home/duzhong/.bashrc
+  参考基线（2026-09-28 开工时测得）：path_executor=6d31d068c1  dzrknn=e5f433d4ca
+                                    judgment=34a3189d26  .bashrc=28addcce99
+  ⚠️ 这行会过期：别人重装/改过官方包后数值就变了（2026-09-28 就发现 dzrknn
+     从 8f... 变成了 e5f433d4ca，且 dzrobot 从 2.8G/28367 变成 888M/9101）。
+     每次开工先跑 tools/car_inventory.sh 重新记一份，别直接信这行。
+
+## 5. 家目录顶层（不应再出现 ag_ws 之类）
+  [OK] 家目录无可疑目录
+
+## 6. 收尾
+  提醒：小车上的 /tmp 会在重启后自动清空；下次要用重新上传即可。
+  本脚本只清理"我们自己创建的"东西，不碰厂家目录里的任何文件。
+
+  ⚠️ 但要注意：**本次会话可能按需修复过官方目录**（例如补装缺失的包、
+     给重复源码目录加 COLCON_IGNORE）—— 那些是**有意保留**的成果，
+     不要当残留清掉。改了什么、怎么还原，见 docs/进度报告-*.md 的
+     「官方目录改动清单」。
+==================== 结束 ====================

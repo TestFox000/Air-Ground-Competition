@@ -129,11 +129,62 @@ git restore <文件>                 # 撤销未提交的改动
 一旦被 Git 转成 CRLF，shebang 会变成 `#!/bin/bash\r`，车端直接 `bad interpreter`。
 所以不要改 `.gitattributes` 里 `*.sh` 那一行，也不要开 `core.autocrlf=true` 覆盖它。
 
+## 2.2 车端动作 `car.py` —— 会让车动，**和 `run.py` 分开**
+
+两个入口，别混：
+
+| 入口 | 干什么 | 前提 |
+|---|---|---|
+| `run.py` | **只在本机**：测试 / 仿真 demo / 复盘报告 | 不需要车 |
+| `car.py` | **对车下命令**：恢复官方栈 / 让车能动 / 急停 / 取日志 | 必须连上车（`AG_CAR_PASS` 或按提示输密码） |
+
+```bash
+python car.py restore 172.23.116.188    # ① 补全官方栈：在 ~/dzrobot 里编译缺失的包（缺什么补什么）
+python car.py move    172.23.116.188    # ② 起底盘+定位+执行器+决策层 —— 但 dry_run，车不动
+python car.py move    172.23.116.188 --really-move --run-s 60   # ★真发车★（必须有人在场）
+python car.py stop    172.23.116.188    # ③ 紧急停止：把能动/能开火的节点全停掉
+python car.py logs    172.23.116.188    # ④ 取回黑匣子日志 + 出复盘报告
+```
+
+**`move` 默认不发车**：不给 `--really-move` 时 `car_node` 以 `dry_run=true` 运行 ——
+底盘是活的、路线算得出来（`/car/route_status` 能看到完整路线），但**一条 `/nav/waypoint` 都不会发**。
+真要发车必须显式加 `--really-move`，且车端脚本还会再等 5 秒给你 Ctrl-C 的机会。
+
+**发车前的安全红线**（照抄 `CHECKLIST.md`）：
+
+- 有人站在车边，**遥控器在手**（规则允许紧急接管）；车周围 2 m 净空，或车已被架起
+- 每局必须发 `reset:<起点>,<朝向>`（`car_node` 会自动发；车是被人搬过去的，里程计不知道自己在哪）
+- **绝不**同时启动 `dzrknn_dataprocess` 和 `dzjudgment` —— 前者一跑就会扫云台并**自主开火，且不区分蓝红**（官方"停车才开火"的 `/move_base/stop_signal` 是死代码，没有订阅者）
+
+`move` 起的是**最小发车集合**（底盘 / 裁判 / 定位 / 路径执行器 / 我们的决策层），
+**不碰相机、`det_node`、云台** —— 所以官方视觉栈没装好也能先把车跑起来。
+
+## 2.3 双机协作（A 机现场 / B 机模型）
+
+两台机器同时推进这个项目时，**最怕同一件事各做一遍、或改了同一处互相覆盖**。
+约定与任务池都在 [`docs/协作看板.md`](docs/协作看板.md) —— 开工前花 30 秒看一眼它的第 2、4 节。
+
+```bash
+python tools/sync_progress.py              # 一条命令：拉对方进展 → 提交自己的改动 → 推给对方
+python tools/sync_progress.py --status     # 只看两边差多少，不碰任何东西
+python tools/sync_progress.py --install-hook   # 装「提交即推送」钩子（每台机器一次）
+```
+
+它的三条死规矩（有测试盯着，见 `tests/test_sync_progress.py`）：
+
+1. **绝不用** `reset --hard` / `checkout -f` / `push --force` —— 任何一条都会吃掉对方的提交
+2. **冲突时不猜**：把冲突文件列清楚、`rebase --abort` 退回安全状态，让人来决定
+3. **远端/凭据/仓库有问题时**只报清楚原因，本地一个字节都不动
+
+> ⚠️ **项目目录不要用网盘同步**（含 `.git` 会被静默损坏 —— 2026-09-28 真发生过，
+> 见 [`docs/协作看板.md`](docs/协作看板.md) §11）。网盘只用来传 `models/`、`*.rknn`、数据集这类
+> 不进 Git 的大文件，**且必须登记版本与 md5**（看板 §5）。
+
 ## 3. 快速开始（手动）
 
 ```bash
 pip install -r requirements.txt        # 核心：numpy + pytest
-python -m pytest tests -q              # 456 项
+python -m pytest tests -q              # 508 项
 python tools/sim_selfcheck.py          # 离线闭环自检（无需 ROS）
 ```
 
@@ -273,6 +324,9 @@ M10,y                        单点
 | `tools/car_log_rehearsal.sh` | 车端全链路干跑，验证"日志 → 取回 → 复盘"通路（不动车） |
 | `tools/car_camera_check.sh` | **相机健康检查**：有视觉的联调前先跑（官方 `usb_cam` 崩了整条链是静默的） |
 | `tools/preflight_check.py` | **上场前体检**：自动查"最容易忘"的项（单应、dry_run、广播地址、模型、版本） |
+| `tools/car_restore_official.sh` | 恢复官方栈：编译缺失的 `dzactuator`（只读官方源码，产物在 `/tmp`） |
+| `tools/car_move_dryrun.sh` | 起最小发车集合 + 决策层；默认 dry_run 不动车，`AG_CONFIRM_MOVE=1` 才发车 |
+| `tools/car_stop_all.sh` | **紧急停止**：把能动/能开火的节点全停掉（按可执行文件名精确停） |
 | `tools/build_dataset.py` | 数据集加工：标注转换 / 自动补发光中心关键点 / 清洗 / 划分 / 生成 data.yaml |
 
 ```bash
@@ -283,7 +337,7 @@ python tools/log_report.py --dir logs/car --out report.md --strict   # 跑完一
 
 ## 8. 测试与 CI
 
-- `tests/` 共 477 项，覆盖：算法核心、协议编解码、情报投票、串口帧、UDP 链路、单应标定、图像解码、底盘状态机、桥洞占格、**黑匣子日志与复盘规则**（含"日志写不进去也不能崩主流程"）、**相机断流看门狗**、**单应未标定不再误诊为链路故障**、**上场前体检**、**一键入口 CLI**（子命令字段契约 —— `run.py all` 曾因少一个参数崩掉）、**打包结构**（真机才暴露的两个坑）、**工具脚本冒烟**（`--help` 能跑）、**模型契约校验**
+- `tests/` 共 508 项，覆盖：算法核心、协议编解码、情报投票、串口帧、UDP 链路、单应标定、图像解码、底盘状态机、桥洞占格、**黑匣子日志与复盘规则**（含"日志写不进去也不能崩主流程"）、**相机断流看门狗**、**单应未标定不再误诊为链路故障**、**上场前体检**、**一键入口 CLI**（含"`car.py move` 默认不许发车"这条硬约束）、**打包结构**（真机才暴露的两个坑）、**工具脚本冒烟**（`--help` 能跑）、**模型契约校验**
 - `tests/ros_stub.py` 提供极简 ROS2 替身，使**节点层**（参数、话题、回调状态机、端到端链路）也能在没有 ROS 的机器上测试
 - `tests/test_params_consistency.py` 校验 `params.yaml` 的参数名与节点声明一致，防止拼写错误静默失效
 - `.github/workflows/ci.yml`：Python 3.10/3.12 跑单测 + 语法检查 + 工具冒烟；另有一个 ROS2 Humble 容器做 `colcon build` 与可执行文件检查
@@ -310,6 +364,7 @@ air_ground/
 │   └── ag_bringup/       launch（air / ground / sim / car）+ config
 ├── docs/                 规则原文(raw_txt) + 速查手册 + 模型报告 + 实机接口对照
 │   ├── 调试日志.md       黑匣子：打开方式 / 事件表 / 复盘用法 / 规则表 / 踩过的坑
+│   ├── 官方环境修复记录-20260928.md  车端官方栈为什么装不上、改了哪三处、怎么还原
 │   └── probe/            车端探测原始输出（可复现）
 ├── reference/car_src/    从车上取回的官方包源码（只作接口参照）
 ├── run.py / run.bat / run.sh   一键入口
@@ -320,7 +375,7 @@ air_ground/
 
 ## 11. 项目状态
 
-**结构已经定型**（9 个包、384 项测试、一键 demo 跑出 85/85、
+**结构已经定型**（9 个包、508 项测试、一键 demo 跑出 85/85、
 **真机 colcon build / 决策干跑 / 视觉链联调均已通过**）。
 距离"能上场比赛"还差什么，有一张按四档（L0~L4）划分的核对表：
 [`docs/实机接口对照.md` §8](docs/实机接口对照.md)。

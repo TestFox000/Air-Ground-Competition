@@ -1,0 +1,33 @@
+==================== 恢复官方栈（只读源码，产物在 /tmp） ====================
+2026年 09月 28日 星期一 18:46:32 CST
+
+----------------------------------------------------
+## 1. det_node：修 AMENT_PREFIX_PATH（目录其实在，只是没被索引）
+  已写 /tmp/ag_official_env.sh（后续脚本会 source 它）
+  det_node 现在可见: 0
+
+----------------------------------------------------
+## 2. dzactuator：在 /tmp 编译（符号链接官方源码，只读）
+  源码: /home/duzhong/dzrobot/src/dzactuator （符号链接，只读）
+  编译中（C++ 包，通常 1-3 分钟）...
+  colcon 退出码 = 0
+    [Processing: dzactuator]
+    Finished <<< dzactuator [32.7s]
+    
+    Summary: 1 package finished [33.0s]
+      1 package had stderr output: dzactuator
+
+----------------------------------------------------
+## 3. 复核：发车需要的包是否都可见
+  [OK] car_localization
+  [OK] dzactuator
+  [OK] dzjudgment
+  [缺] det_node
+
+  -- dzactuator 的可执行文件 --
+    dzactuator dzactuator_node
+
+----------------------------------------------------
+## 4. 结论
+  仍有缺失 —— 上面标 [缺] 的包需要厂家恢复，车现在动不了
+==================== 结束 ====================

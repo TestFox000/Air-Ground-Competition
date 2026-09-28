@@ -249,6 +249,16 @@ def main(argv=None) -> int:
     if args.out:
         Path(args.out).write_text(out, encoding="utf-8")
         print(f"[已保存] {args.out}（{len(out)} 字节）")
+    # ⚠️ 只在写之前把流的容错打开，不改编码：
+    #    Windows 控制台默认 GBK，而车端脚本会打 `⚠`／其它 GBK 里没有的符号，
+    #    这时 `sys.stdout.write(out)` 直接 UnicodeEncodeError，**整条命令崩掉**、
+    #    连车端已经做完的事都被误判成失败（2026-09-28 实测踩到：清理跑完了却报错）。
+    #    这里用 errors="replace"：编不出的字符退化成 ?，中文照旧正常显示。
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(errors="replace")
+        except Exception:  # noqa: BLE001 - 老解释器/被重定向时不强求
+            pass
     sys.stdout.write(out)
     if err.strip():
         sys.stderr.write("\n--- stderr ---\n" + err)

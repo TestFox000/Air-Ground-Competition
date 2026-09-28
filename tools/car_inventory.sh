@@ -22,11 +22,22 @@ MINE_PATHS=(
   "/tmp/ag_build.log"
   "/tmp/ag_car_node.log"
   "/tmp/_pkgs.txt"
+  "/tmp/ag_logs"
+  "/tmp/dz_ws"
+  "/tmp/ag_official_env.sh"
+  "/tmp/ag_dz_build.log"
+  "/tmp/_chk.py"
+  "/tmp/_cmp.py"
+  "/tmp/_gl.py"
+  "/tmp/_codes.py"
 )
 MINE_GLOBS=(
   "/tmp/probe_car*.sh.sh"
   "/tmp/car_*.sh.sh"
   "/tmp/remote_run*.sh.sh"
+  "/tmp/ag_*.log"
+  "/tmp/ag_*.txt"
+  "/tmp/ag_*.yaml"
 )
 LEGACY_PATHS=(
   "$HOME/ag_ws"

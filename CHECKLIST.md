@@ -2,6 +2,28 @@
 
 按时间倒序排列。带 `[ ]` 的项现场逐条勾，任何一条不过就不要上电出发。
 
+## -1. 让车先动起来（初赛选拔的最小路径）
+
+```bash
+python car.py restore <车IP>                                  # ① 官方栈（编译 dzactuator）
+python car.py move    <车IP>                                  # ② 只验链路：车不动，但能看到完整路线
+python car.py move    <车IP> --really-move --run-s 60          # ③ ★真发车★（有人在场、遥控器在手）
+python car.py stop    <车IP>                                  # ④ 急停（任何时候都可跑）
+python car.py logs    <车IP>                                  # ⑤ 取回日志出复盘
+```
+
+**车端满分 85 分里，光有车能跑只能拿 10 分**（驶离基地 5 + 回终点 5）：
+排雷 40 分、桥洞 20 分、打击 15 分都要**无人机侦察**（桥洞标识在桥顶，车看不见）。
+
+- [ ] 官方栈就绪：`car.py restore` 跑完五个包都 `[OK]`
+      （`car_localization` / `dzactuator` / `dzjudgment` / `det_node` / `dzrknn_dataprocess`）
+      —— 2026-09-28 之前这里一直是残缺的，原因与修法见
+      [`docs/官方环境修复记录-20260928.md`](docs/官方环境修复记录-20260928.md)
+      （根因：`~/dzrobot` 下 `src` 与 `src_4` 包名重复，colcon 拒绝构建）
+- [ ] 先 `car.py move` 不带 `--really-move` 跑一遍，确认 `/car/route_status` 里的路线正确
+- [ ] 真发车前：人在车边 + 遥控器在手 + 车周围 2 m 净空（或架起）
+- [ ] 收工：`car.py stop` → 取日志 → `tools/car_cleanup.sh`
+
 ## 0. 车端接口（已实测，见 `docs/实机接口对照.md`）
 
 2026-09-27 已把车端摸清，**不再是未知项**：
@@ -132,7 +154,7 @@ python run.py log --dir logs/car --out logs/car/report-第N局.md   # 归档这�
       广播地址是否还是默认值、模型路径是否为空、代码是否已提交）。
       剩下的"只能现场量"的项它列成提示给你，不自动判。
 - [ ] `python run.py check` 环境体检通过
-- [ ] `python -m pytest tests -q` 全绿（456 项）
+- [ ] `python -m pytest tests -q` 全绿（508 项）
 - [ ] 模型契约：`python tools/ml/verify_contract.py --model <模型>` 通过（输出必须是 `[1,9,8400]`）
       —— 车端 5 个 .rknn 里只有 `light_det.rknn`(=light_det3) 符合，另 3 个是旧版多输出，别指错
 - [ ] **别用 SSH/服务方式启动 det_node**：它内部 `cv::imshow`，无 `DISPLAY` 会一帧就崩

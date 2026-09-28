@@ -58,8 +58,11 @@ hr() { echo "----------------------------------------------------"; }
 # `--field data` 返回 numpy repr：array('i', [113, 55, 1, 80, ...])
 # 去掉包装与标点，压成 "113 55 1 80 ..."；第 3 个数就是类别号。
 sample() {
+  # ⚠️ `ros2 topic echo` 会在每帧后打一行 `---` 分隔符，必须去掉：
+  # 否则 is_blank 的 `^0( 0)*$` 永远匹配不上，"被拦成全 0"会被误判成放行。
   timeout 15 ros2 topic echo --once "$1" --field data 2>/dev/null \
     | sed "s/array('i', *\[*//; s/array('d', *\[*//; s/[])]//g" \
+    | grep -v -- '^---$' \
     | tr -d ',' | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//'
 }
 is_blank() { [ -z "$1" ] || echo "$1" | grep -qE "^0( 0)*$"; }
