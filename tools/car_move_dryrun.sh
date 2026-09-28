@@ -138,8 +138,15 @@ if [ "$NO_JUDGMENT" != "1" ]; then
   start judgment ros2 launch dzactuator judgment.launch.py
   sleep 6
   grep -E "Serial initialize|failed|baudrate" /tmp/ag_move_judgment.log 2>/dev/null | tail -3 | sed 's/^/    /'
+  # 我们自己的 referee_node：订阅官方 /HpAndHitmsg、/self_Material_Number，把
+  # 血量 / 弹药 / 受击计数**记进黑匣子**。没有它，复盘只能说"车跑了"，
+  # 说不出"到底打中没打中、还剩几条命" —— 而实战里这才是关键结论。
+  start referee ros2 run ag_referee referee_node --ros-args \
+    -p source:=dz -p hp_topic:=/HpAndHitmsg -p log_dir:="$AG_LOG_DIR"
+  sleep 4
+  tail -2 /tmp/ag_move_referee.log 2>/dev/null | sed 's/^/    /'
 else
-  echo "  （按要求跳过裁判串口）"
+  echo "  （按要求跳过裁判串口 —— 本次不会有血量/弹药数据，复盘会缺一块）"
 fi
 
 start localization ros2 launch car_localization localization.launch.py
@@ -202,7 +209,25 @@ read_pos() {
 }
 POS0=$(read_pos)
 echo "  当前位置: ${POS0:-（读不到）}"
-[ -z "$POS0" ] && echo "  ⚠️ 读不到定位：底盘/定位没起来，或话题名不同。看 /tmp/ag_move_localization.log"
+if [ -z "$POS0" ]; then
+  echo "  ⚠️ 读不到定位：底盘/定位没起来，或话题名不同。看 /tmp/ag_move_localization.log"
+  # ---- 硬门禁：真发车必须有定位 ----
+  # 车是照着 `/nav/waypoint` 跑的，而执行那一段（path_executor）靠定位位姿算转向；
+  # 定位读不到 = 车不知道自己在哪 = 发车就是盲跑（撞东西或跑丢）。
+  # 所以这里**拒绝发车**，而不是"提醒一下继续跑"。
+  if [ "$CONFIRM" = "1" ] && [ "${AG_ALLOW_NO_LOC:-0}" != "1" ]; then
+    echo
+    echo "  [FAIL] 要真发车（AG_CONFIRM_MOVE=1），但读不到定位 —— **已拒绝发车**。"
+    echo "         先解决定位（脚本会把已启动的节点都停掉，不会留下半套东西）："
+    echo "           tools/car_preflight.sh        # 一键体检：会列出真实话题名并逐个验活"
+    echo "           ros2 topic list | grep -i odom"
+    echo "           ros2 topic hz /odom/localization"
+    echo "         确实不需要定位（例如只想原地试转向）时，才加 AG_ALLOW_NO_LOC=1 强行放行。"
+    echo "  本次启动的节点将自动停止。"
+    exit 1
+  fi
+  echo "  （dry_run：只算不发，定位读不到不影响本次验证；但真发车前必须解决）"
+fi
 echo
 
 hr; echo "## 3. 情报源"
@@ -229,14 +254,47 @@ echo "  -- /car/route_status --"
 timeout 12 ros2 topic echo --once /car/route_status --field data 2>/dev/null | sed 's/^/    /'
 echo
 
-hr; echo "## 5. 跑 ${RUN_S}s（监视 /nav/waypoint）"
-timeout "$RUN_S" ros2 topic echo /nav/waypoint --field data > /tmp/ag_move_waypoint.txt 2>/dev/null
-echo "  -- 这段时间发出的 /nav/waypoint 命令 --"
-if [ -s /tmp/ag_move_waypoint.txt ]; then
-  grep -v '^---$' /tmp/ag_move_waypoint.txt | awk '!seen[$0]++' | head -10 | sed 's/^/    /'
+hr; echo "## 5. 跑 ${RUN_S}s（同时记录：/nav/waypoint + 轨迹 + 裁判状态）"
+# 这些证据**必须落进日志目录**，否则取回日志时它们不会跟着回来，
+# 复盘就只能看个黑匣子、看不到"车到底走到哪、还剩几条命"。
+RUN_DIR="$AG_LOG_DIR/run"
+mkdir -p "$RUN_DIR" 2>/dev/null
+
+# 轨迹采样（只读话题，不影响控制）：跑完要能回答"它到底走到哪、有没有跑偏"。
+timeout "$RUN_S" ros2 topic echo /odom/localization --field pose.pose.position \
+  > "$RUN_DIR/traj.txt" 2>&1 &
+TRAJ_PID=$!
+# 裁判状态采样：血量/弹药/受击随时间的变化（我们 referee_node 发的 JSON）。
+timeout "$RUN_S" ros2 topic echo /referee/state_json --field data \
+  > "$RUN_DIR/referee.txt" 2>&1 &
+REF_PID=$!
+
+timeout "$RUN_S" ros2 topic echo /nav/waypoint --field data > "$RUN_DIR/waypoint.txt" 2>/dev/null
+
+wait "$TRAJ_PID" 2>/dev/null
+wait "$REF_PID" 2>/dev/null
+
+echo "  -- 发出的 /nav/waypoint 命令 --"
+if [ -s "$RUN_DIR/waypoint.txt" ]; then
+  grep -v '^---$' "$RUN_DIR/waypoint.txt" | awk '!seen[$0]++' | head -10 | sed 's/^/    /'
 else
   echo "    （没有发出任何命令）"
 fi
+
+echo "  -- 轨迹（定位采样） --"
+SAMPLES="$(grep -cE '^[[:space:]]*x:' "$RUN_DIR/traj.txt" 2>/dev/null)"
+if [ "${SAMPLES:-0}" -gt 0 ]; then
+  echo "      样本 $SAMPLES 个，落在 $RUN_DIR/traj.txt"
+  grep -E '^[[:space:]]*[xyz]:' "$RUN_DIR/traj.txt" | head -3 | sed 's/^/      起 /'
+  echo "      ..."
+  grep -E '^[[:space:]]*[xyz]:' "$RUN_DIR/traj.txt" | tail -3 | sed 's/^/      终 /'
+else
+  echo "      （没有轨迹数据：定位读不到，或话题名不同 —— 这正是要修的东西）"
+fi
+
+echo "  -- 裁判状态（最后一条） --"
+tail -1 "$RUN_DIR/referee.txt" 2>/dev/null | sed 's/^/      /' \
+  || echo "      （没有裁判数据：referee_node 没起 / 官方 dzjudgment 没出 /HpAndHitmsg）"
 echo
 
 hr; echo "## 6. 结果"
@@ -245,10 +303,16 @@ echo "  起步位置: ${POS0:-?}"
 echo "  结束位置: ${POS1:-?}"
 if [ "$CONFIRM" = "1" ]; then
   [ "$POS0" != "$POS1" ] && echo "  [OK] 位置发生变化 —— 车真的动了" \
-                         || echo "  ⚠️ 位置没变：可能已到点、路线为空、或底盘没执行（看 /tmp/ag_move_executor.log）"
+                         || echo "  ⚠️ 位置没变：可能已到点、路线为空、或底盘没执行（看 $RUN_DIR 里的 executor 日志）"
 else
   echo "  （dry_run 模式：车不应移动；位置变化说明有别人在控制，立即检查）"
 fi
+
+# 把所有证据（各节点原始日志 + 轨迹/裁判/路点采样）统一收进日志目录，
+# 这样 `python car.py logs <IP>` 一次就能全部取回 —— 复盘缺的就是这些原始材料。
+cp -f /tmp/ag_move_*.log "$RUN_DIR/" 2>/dev/null
+echo "  原始材料已归档到 $RUN_DIR ："
+ls "$RUN_DIR" 2>/dev/null | sed 's/^/      /'
 echo
 echo "取回日志复盘："
 echo "  python tools/remote_run.py --host <IP> --user duzhong --get $AG_LOG_DIR --to logs/car"

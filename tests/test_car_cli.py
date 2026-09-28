@@ -21,11 +21,12 @@ sys.path.insert(0, str(ROOT))
 
 import car  # noqa: E402
 
-SUBCMDS = ["restore", "deploy", "move", "stop", "logs"]
+SUBCMDS = ["restore", "deploy", "preflight", "move", "stop", "logs"]
 
 REQUIRED_ATTRS = {
     "restore": ("host", "user", "func"),
     "deploy": ("host", "user", "ws", "func"),
+    "preflight": ("host", "user", "skip_hardware", "func"),
     "move": ("host", "user", "really_move", "run_s", "use_air", "no_judgment",
              "with_vision", "timeout", "func"),
     "stop": ("host", "user", "func"),

@@ -1,0 +1,98 @@
+==================== 官方栈依赖体检（只读） ====================
+2026年 09月 28日 星期一 20:24:33 CST
+
+----------------------------------------------------
+## 1. bringup.launch.py 里引用到的包
+    dzactuator
+    robot_localization
+    rplidar_ros
+    tf2_ros
+  -- launch 文件开头 20 行（肉眼看依赖）--
+    import os
+    
+    from ament_index_python import get_package_share_directory
+    
+    from launch import LaunchDescription
+    from launch.actions import DeclareLaunchArgument
+    from launch.actions import IncludeLaunchDescription
+    from launch.actions import GroupAction
+    from launch.launch_description_sources import PythonLaunchDescriptionSource
+    from launch.substitutions import LaunchConfiguration
+    from launch.substitutions import TextSubstitution
+    from launch_ros.actions import Node
+    from launch_ros.actions import PushRosNamespace
+    
+    
+    def generate_launch_description():
+        serial_port_name = LaunchConfiguration('serial_port_name',default= '/dev/dzactuator')
+        serial_baud_rate = LaunchConfiguration('serial_baud_rate',default= 115200)
+        odom_frame_id = LaunchConfiguration('odom_frame_id',default= 'odom')
+        robot_frame_id = LaunchConfiguration('robot_frame_id',default= 'base_link')
+
+----------------------------------------------------
+## 2. 官方工作区现状
+  -- ~/dzrobot/src 顶层 --
+    car_localization
+    det_node
+    dzactuator
+    dzjudgment
+    dzrknn_dataprocess
+    dztrack
+    fake_amcl_node
+    navigation2
+    naviPointPath
+    robot_localization-humble-devel
+    rplidar_ros-ros2
+    rviz
+    slam_gmapping-eloquent-devel
+  -- ~/dzrobot/install 顶层（已装好的）--
+    car_localization
+    COLCON_IGNORE
+    det_node
+    dzactuator
+    dzrknn_dataprocess
+    local_setup.bash
+    local_setup.ps1
+    local_setup.sh
+    _local_setup_util_ps1.py
+    _local_setup_util_sh.py
+    local_setup.zsh
+    nav2_velocity_smoother
+    setup.bash
+    setup.ps1
+    setup.sh
+    setup.zsh
+  -- ~/install 顶层（另一套工作区）--
+    car_localization
+    COLCON_IGNORE
+    det_node.orphan_0928
+    dzjudgment
+    dztrack
+    local_setup.bash
+    local_setup.ps1
+    local_setup.sh
+    _local_setup_util_ps1.py
+    _local_setup_util_sh.py
+    local_setup.zsh
+    setup.bash
+    setup.ps1
+    setup.sh
+    setup.zsh
+
+----------------------------------------------------
+## 3. 有没有别的 launch 也引用同一个包（判断影响面）
+    /home/duzhong/dzrobot/src/dzactuator/launch/amcl.launch.py
+    /home/duzhong/dzrobot/src/dzactuator/launch/bringup.launch.py
+    /home/duzhong/dzrobot/src/dzactuator/launch/ekf.launch.py
+    /home/duzhong/dzrobot/src/robot_localization-humble-devel/launch/dual_ekf_navsat_example.launch.py
+    /home/duzhong/dzrobot/src/robot_localization-humble-devel/launch/ekf.launch.py
+    /home/duzhong/dzrobot/src/robot_localization-humble-devel/launch/navsat_transform.launch.py
+    /home/duzhong/dzrobot/src/robot_localization-humble-devel/launch/ukf.launch.py
+
+----------------------------------------------------
+## 4. 结论
+  上面第 1 节列出的包，凡是不在「install 顶层」里的，就是**缺的**。
+  缺什么就在官方工作区里单独编什么（不要整仓 colcon build，太慢也容易踩重复包名）：
+    colcon build --base-paths src --packages-select <包名> [<包名>...]
+  编完再跑 tools/car_preflight.sh 复验（重点看 /odom/localization 有没有数据）。
+==================== 结束 ====================

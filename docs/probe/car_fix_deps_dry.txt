@@ -1,0 +1,24 @@
+==================== 补齐官方栈依赖 ====================
+2026年 09月 28日 星期一 20:25:01 CST
+
+----------------------------------------------------
+## 1. bringup 需要哪些包、哪些没装
+  [OK]   dzactuator               /home/duzhong/dzrobot/install/dzactuator
+  [缺]   robot_localization      
+  [缺]   rplidar_ros             
+  [OK]   tf2_ros                  /opt/ros/humble
+
+----------------------------------------------------
+## 2. 底盘串口设备（launch 默认 /dev/dzactuator）
+  [OK]   /dev/dzactuator      -> /dev/ttyACM0
+  [OK]   /dev/ttyACM0         -> /dev/ttyACM0
+  [OK]   /dev/ttyACM1         -> /dev/ttyACM1
+
+----------------------------------------------------
+## 3. 源码里有没有这些包
+  [有] robot_localization  <- /home/duzhong/dzrobot/src/robot_localization-humble-devel
+  [有] rplidar_ros  <- /home/duzhong/dzrobot/src/rplidar_ros-ros2
+
+----------------------------------------------------
+## 4. 编译缺失的包： robot_localization rplidar_ros
+  （AG_DRY_RUN=1，只诊断不编译）

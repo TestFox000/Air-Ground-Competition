@@ -9,6 +9,7 @@
 
 用法（密码走环境变量 AG_CAR_PASS，或按提示输入）：
 
+    python car.py preflight 172.23.116.188        # 发车前置体检（只读 + 短暂起底盘/定位验证；不发命令）
     python car.py restore 172.23.116.188          # 恢复官方栈（编译 dzactuator，只读源码）
     python car.py deploy  172.23.116.188          # 传源码到车上并编译（**车重启后 /tmp 被清，先跑这个**）
     python car.py move    172.23.116.188          # 一键起：底盘+定位+执行器+决策层 —— dry_run，车不动
@@ -57,9 +58,36 @@ def _script(name: str, host: str, user: str, timeout: float,
 
 
 def cmd_restore(args) -> int:
-    print("[1/1] 恢复官方栈（只读官方源码，编译产物放 /tmp，不动 ~/dzrobot）")
-    return _script("car_restore_official.sh", args.host, args.user, 900,
-                   out="docs/probe/car_restore_official.txt")
+    """把官方栈补到"能跑"：先补编译缺失的包，再补齐 launch 依赖的缺失包。
+
+    2026-09-28 实地发现第二类缺失：`dzactuator bringup.launch.py` 起不来，
+    因为 `robot_localization` / `rplidar_ros` 没装 —— 后果是**底盘起不来 → 没有 /imu_data
+    → 定位读不到 → 真发车被硬门禁拦住**。所以 restore 要把这两类都修掉。
+    """
+    print("[1/2] 编译官方栈缺的包（det_node / dzactuator …，只读源码）")
+    rc = _script("car_restore_official.sh", args.host, args.user, 900,
+                 out="docs/probe/car_restore_official.txt")
+    if rc != 0:
+        return rc
+    print("[2/2] 补齐 launch 依赖的缺失包（robot_localization / rplidar_ros …）")
+    rc = _script("car_fix_official_deps.sh", args.host, args.user, 900,
+                 out="docs/probe/car_fix_deps.txt")
+    if rc == 0:
+        print()
+        print(f"下一步：python car.py preflight {args.host}   # 复验定位有没有数据")
+    return rc
+
+
+def cmd_preflight(args) -> int:
+    """发车前的体检：官方栈 / 我们的包 / **定位能不能读** / 有没有别人在跑。
+
+    只读 + 短暂起一次底盘和定位（bringup 本身不会让车动），不发任何控制命令。
+    它是为了在"真发车"之前把最常见的三类故障拦下来 —— 见 tools/car_preflight.sh 里的说明。
+    """
+    print("发车前置体检（只读；会短暂起底盘+定位来验定位，不会让车动）")
+    env = ["AG_SKIP_HARDWARE=1"] if args.skip_hardware else None
+    return _script("car_preflight.sh", args.host, args.user, 600, env=env,
+                   out="docs/probe/car_preflight.txt")
 
 
 def cmd_deploy(args) -> int:
@@ -152,6 +180,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_r = sub.add_parser("restore", help="恢复官方栈（编译缺失的 dzactuator，只读源码）")
     _host(p_r)
     p_r.set_defaults(func=cmd_restore)
+
+    p_p = sub.add_parser("preflight",
+                         help="发车前置体检：官方栈 / 我们的包 / 定位能不能读 / 有没有别人在跑")
+    _host(p_p)
+    p_p.add_argument("--skip-hardware", action="store_true",
+                     help="只做静态检查，不起底盘/定位（秒级返回）")
+    p_p.set_defaults(func=cmd_preflight)
 
     p_d = sub.add_parser("deploy", help="上传我们的源码并编译（车重启后 /tmp 被清时先跑这个）")
     _host(p_d)

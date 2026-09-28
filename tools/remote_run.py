@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -43,13 +44,47 @@ def read_password(args) -> str:
     return getpass.getpass(f"{args.user}@{args.host} 的密码: ")
 
 
+def connect(host: str, user: str, password: str, port: int = 22,
+            timeout: float = 60.0, tries: int = 3):
+    """建立 SSH 连接，**只在连接阶段自动重试**。
+
+    为什么必须重试：车挂在 Wi-Fi 上（现场还可能换路由器 / 信号差），连接阶段偶发被重置
+    （`Error reading SSH protocol banner` / `WinError 10054`）。2026-09-28 晚上实测：
+    同一分钟内会有 1~2 次瞬时失败，隔一两秒重试往往就好了 —— 但不重试的话，
+    现场看到的就是"车连不上"，很容易去查错方向（以为车挂了 / IP 变了）。
+
+    为什么**只重试连接阶段**：命令一旦发出去，我们无法知道车端执行到哪了。
+    那种情况下重试可能让"已经在车上跑起来的节点"再跑一遍（比如 car.py move），
+    所以执行中途断开时宁可报错，也不自动重来。
+    """
+    last: Exception | None = None
+    tries = max(1, tries)
+    for i in range(1, tries + 1):
+        cli = paramiko.SSHClient()
+        cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            cli.connect(hostname=host, port=port, username=user, password=password,
+                        timeout=timeout, banner_timeout=timeout, auth_timeout=timeout)
+            if i > 1:
+                print(f"  [连接] 第 {i} 次尝试成功", file=sys.stderr)
+            return cli
+        except Exception as e:  # noqa: BLE001 - 网络层异常一律重试
+            last = e
+            try:
+                cli.close()
+            except Exception:  # noqa: BLE001
+                pass
+            if i < tries:
+                print(f"  [连接不稳] 第 {i}/{tries} 次失败（{type(e).__name__}），"
+                      f"1.5 秒后重试…", file=sys.stderr)
+                time.sleep(1.5)
+    raise last if last is not None else RuntimeError("连接失败")
+
+
 def run(host: str, user: str, password: str, cmd: str, timeout: float,
         port: int = 22) -> tuple[int, str, str]:
     """执行一条远程命令，返回 (退出码, stdout, stderr)。"""
-    cli = paramiko.SSHClient()
-    cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    cli.connect(hostname=host, port=port, username=user, password=password,
-                timeout=timeout, banner_timeout=timeout, auth_timeout=timeout)
+    cli = connect(host, user, password, port=port, timeout=timeout)
     try:
         stdin, stdout, stderr = cli.exec_command(cmd, timeout=timeout, get_pty=False)
         stdin.close()
@@ -66,10 +101,7 @@ def sftp_get(host: str, user: str, password: str, remote: str, local: str,
     """把远程文件/目录（递归）取回本地，返回文件数。"""
     import stat as stat_mod
 
-    cli = paramiko.SSHClient()
-    cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    cli.connect(hostname=host, port=port, username=user, password=password,
-                timeout=timeout, banner_timeout=timeout, auth_timeout=timeout)
+    cli = connect(host, user, password, port=port, timeout=timeout)
     n = 0
     try:
         sftp = cli.open_sftp()
@@ -110,10 +142,7 @@ def sftp_put(host: str, user: str, password: str, local: str, remote: str,
     """把本地文件/目录（递归）上传到远程，返回文件数。"""
     import stat as stat_mod
 
-    cli = paramiko.SSHClient()
-    cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    cli.connect(hostname=host, port=port, username=user, password=password,
-                timeout=timeout, banner_timeout=timeout, auth_timeout=timeout)
+    cli = connect(host, user, password, port=port, timeout=timeout)
     n = 0
     try:
         sftp = cli.open_sftp()

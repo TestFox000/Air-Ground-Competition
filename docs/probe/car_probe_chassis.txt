@@ -1,0 +1,55 @@
+==================== 底盘 / IMU / 定位 链路诊断 ====================
+2026年 09月 28日 星期一 20:23:22 CST
+
+----------------------------------------------------
+## 1. 串口设备与占用情况
+    crwxrwxrwx 1 root dialout 166, 0  9月 28 18:13 /dev/ttyACM0
+    crwxrwxrwx 1 root dialout 166, 1  9月 28 18:13 /dev/ttyACM1
+    （没有 ttyUSB/ttyACM 设备！底盘串口不在）
+  -- /dev/ttyACM0 被谁占着：
+      （没查到占用者）
+
+----------------------------------------------------
+## 2. 起底盘（dzactuator bringup）
+  actuator 进程组=62951
+  -- 底盘日志（尾部 25 行）--
+    [INFO] [launch]: All log files can be found below /home/duzhong/.ros/log/2026-09-28-20-23-22-488740-duzhong-62951
+    [INFO] [launch]: Default logging verbosity is set to INFO
+    [ERROR] [launch]: Caught exception in launch (see debug for traceback): Caught multiple exceptions when trying to load file of format [py]:
+     - PackageNotFoundError: "package 'robot_localization' not found, searching: ['/home/duzhong/install/dztrack', '/home/duzhong/install/dzjudgment', '/home/duzhong/install/car_localization', '/home/duzhong/dzrobot/install/dzrknn_dataprocess', '/home/duzhong/dzrobot/install/dzactuator', '/home/duzhong/dzrobot/install/det_node', '/opt/ros/humble']"
+     - InvalidFrontendLaunchFileError: The launch file may have a syntax error, or its format is unknown
+
+----------------------------------------------------
+## 3. 底盘相关的节点与话题
+  -- 节点 --
+  -- 话题（imu/odom/wheel/chassis 相关）--
+    （一个都没有）
+
+----------------------------------------------------
+## 4. /imu_data 有没有在发（定位的前提）
+    [FAIL] 没有 /imu_data 话题 —— 底盘节点没起来，或话题名不同
+
+----------------------------------------------------
+## 5. 再起定位，给它足够时间
+  localization 进程组=63034
+  -- 定位节点日志尾部 --
+    [INFO] [launch]: All log files can be found below /home/duzhong/.ros/log/2026-09-28-20-23-39-308867-duzhong-63034
+    [INFO] [launch]: Default logging verbosity is set to INFO
+    [INFO] [serial_reader_node-1]: process started with pid [63042]
+    [serial_reader_node-1] [0m[INFO] [1790598219.868817357] [serial_reader_node]: ==================================================[0m
+    [serial_reader_node-1] [0m[INFO] [1790598219.869328643] [serial_reader_node]: Coordinate Transform Node (IMU yaw + dead-reckoned pos) [v4-dr-reset][0m
+    [serial_reader_node-1] [0m[INFO] [1790598219.869716556] [serial_reader_node]: Map: 14x11, block=0.35m[0m
+    [serial_reader_node-1] [0m[INFO] [1790598219.870177968] [serial_reader_node]: Start: (1.5, 0.5) blocks[0m
+    [serial_reader_node-1] [0m[INFO] [1790598219.870532048] [serial_reader_node]: IMU: /imu_data, fallback after 2.0s[0m
+    [serial_reader_node-1] [0m[INFO] [1790598219.870880878] [serial_reader_node]: ==================================================[0m
+  -- /odom/localization 15 秒内有没有数据 --
+    [FAIL] 仍然没有数据
+
+----------------------------------------------------
+## 6. 结论提示
+  看上面第 2 节：底盘日志里有没有 'serial port opened'。
+  - 没有 → 底盘串口没开（设备不在 / 被占 / 底盘没上电），IMU 就没有数据，定位自然读不到
+  - 有但 /imu_data 仍无数据 → 看底盘节点是否真的在发（话题名可能不同）
+  - 都正常但仍无定位 → 定位节点需要时间收敛，或起点参数不对（它日志里会写 Start）
+==================== 结束 ====================
+  已停止本脚本启动的进程组
