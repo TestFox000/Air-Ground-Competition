@@ -1,5 +1,5 @@
 ==================== 车端痕迹清理 ====================
-2026年 09月 28日 星期一 19:20:55 CST
+2026年 09月 28日 星期一 19:25:36 CST
 
 ## 0. 白名单（只会删这些）
   /tmp/ag_ws
@@ -26,20 +26,12 @@
   （若存在）/home/duzhong/ag_ws_old_mine
 
 ## 1. 删除前：确认目标存在
-  [有] /tmp/car_camera_check.sh.sh
   [有] /tmp/car_cleanup.sh.sh
-  [有] /tmp/car_force.sh.sh
-  [有] /tmp/car_rebuild.sh.sh
-  [有] /tmp/ag_chk_cam.log
-  [有] /tmp/ag_chk_det.log
+  [有] /tmp/car_state2.sh.sh
 
 ## 2. 执行删除（仅白名单）
-  已删 /tmp/car_camera_check.sh.sh
   已删 /tmp/car_cleanup.sh.sh
-  已删 /tmp/car_force.sh.sh
-  已删 /tmp/car_rebuild.sh.sh
-  已删 /tmp/ag_chk_cam.log
-  已删 /tmp/ag_chk_det.log
+  已删 /tmp/car_state2.sh.sh
 
 ## 2.5 停止我们启动过的节点进程（按 PID 精确停，不用模糊 pkill）
   [OK] 没有残留进程

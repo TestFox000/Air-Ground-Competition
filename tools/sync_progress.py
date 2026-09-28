@@ -285,6 +285,20 @@ def push(g: Git, remote: str, branch: str, log: Logger, retry: bool = True) -> i
     return 4
 
 
+def _credential_hint(out: str, log: Logger) -> None:
+    """凭据没配好时，别把 git 的原文丢给用户 —— 直接告诉他补哪一行。"""
+    low = out.lower()
+    if ("could not read username" in low or "terminal prompts disabled" in low
+            or "authentication" in low or "403" in low or "401" in low):
+        log("      -> 这是**凭据没配**（不是网络问题）。补一次就好：")
+        log(f"         往 {Path.home() / '.git-credentials'} 写一行：")
+        log("         https://<用户名>:<Gitee 令牌>@gitee.com")
+        log("         然后确认本仓库只留 store 助手（踢掉系统级 manager）：")
+        log('         git config --local credential.helper ""   ')
+        log("         git config --local --add credential.helper store")
+        log("         细节与踩过的坑见 协作看板.md §9.5")
+
+
 def do_sync(g: Git, remote: str, branch: str, machine: str, log: Logger,
             no_commit: bool = False, pull_only: bool = False,
             push_only: bool = False) -> int:
@@ -299,7 +313,8 @@ def do_sync(g: Git, remote: str, branch: str, machine: str, log: Logger,
     log("[1/4] 取对方进展")
     code, out = g("fetch", "--prune", remote)
     if code != 0:
-        log(f"      [!] 取不到（网络或凭据问题）：{out.splitlines()[-1] if out else ''}")
+        log(f"      [!] 取不到：{out.splitlines()[-1] if out else ''}")
+        _credential_hint(out, log)
         log("      本地一个字节都没动。")
         return 3
     up = upstream(g, branch, remote)
