@@ -237,6 +237,42 @@ def cmd_install_hook() -> int:
     return 0
 
 
+def tee_to(path: str) -> None:
+    """把输出同时追加写入文件。
+
+    定时任务用 pythonw.exe 跑（不弹黑窗），此时 stdout 是 None，
+    所有提示都会消失 —— 所以必须留一份日志，否则出了问题时无从查起。
+    """
+    try:
+        fh = open(path, "a", encoding="utf-8")
+    except OSError:
+        return
+    original = sys.stdout
+
+    class _Tee:
+        def write(self, data: str) -> int:
+            fh.write(data)
+            if original is not None:
+                try:
+                    original.write(data)
+                except Exception:
+                    pass
+            return len(data)
+
+        def flush(self) -> None:
+            fh.flush()
+            if original is not None:
+                try:
+                    original.flush()
+                except Exception:
+                    pass
+
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    sys.stdout = _Tee()
+    sys.stderr = sys.stdout
+    print(f"\n===== {stamp} 同步开始 =====")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="双机进度同步：拉取对方进展 → 提交自己的改动 → 推给对方",
@@ -247,7 +283,11 @@ def main() -> int:
     ap.add_argument("--no-commit", action="store_true", help="拉取后不自动提交本地改动")
     ap.add_argument("--install-hook", action="store_true", help="安装 post-commit 钩子（提交即推送）")
     ap.add_argument("--machine", default="", help="本机代号（写进提交信息，默认取主机名）")
+    ap.add_argument("--log", default="", help="把输出同时追加写入该文件（定时任务用）")
     args = ap.parse_args()
+
+    if args.log:
+        tee_to(args.log)
 
     if not is_repo():
         print(f"{FAIL} 当前不是 Git 仓库：{ROOT}")
