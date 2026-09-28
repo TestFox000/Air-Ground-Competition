@@ -1,0 +1,55 @@
+??: 2026-09-28 19:03:12   uptime: up 50 minutes
+
+## 1. ???????source ?? install ???
+  car_localization         1
+  dzactuator               0
+  dzjudgment               1
+  det_node                 0
+  dztrack                  1
+  dzrknn_dataprocess       0
+  rknn_pt                  0
+  nav2_velocity_smoother   0
+
+## 2. install ???????
+  ~/dzrobot/install: car_localization COLCON_IGNORE local_setup.bash local_setup.ps1 local_setup.sh _local_setup_util_ps1.py _local_setup_util_sh.py local_setup.zsh nav2_velocity_smoother setup.bash setup.ps1 setup.sh setup.zsh 
+  ~/install:         car_localization COLCON_IGNORE det_node dzjudgment dztrack local_setup.bash local_setup.ps1 local_setup.sh _local_setup_util_ps1.py _local_setup_util_sh.py local_setup.zsh setup.bash setup.ps1 setup.sh setup.zsh 
+
+## 3. ????
+  ~/dzrobot/src: car_localization dzactuator dzjudgment dzrknn_dataprocess dztrack fake_amcl_node navigation2 naviPointPath rknn_pt robot_localization-humble-devel rplidar_ros-ros2 rviz slam_gmapping-eloquent-devel 
+
+## 4. det_node ???/???????????
+  /home/duzhong/log/build_2026-08-24_22-04-57/det_node
+  /home/duzhong/log/build_2026-08-24_22-21-16/det_node
+  /home/duzhong/build/det_node
+  /home/duzhong/install/det_node
+  /home/duzhong/install/det_node/share/det_node
+  /home/duzhong/.ros/log/det_node_15699_1789561174281.log
+  /home/duzhong/.ros/log/det_node_5336_1789982569714.log
+  /home/duzhong/.ros/log/det_node_6960_1786776648521.log
+  /home/duzhong/.ros/log/det_node_27608_1790508185497.log
+  /home/duzhong/.ros/log/det_node_17915_1790083114289.log
+  /home/duzhong/.ros/log/det_node_17009_1789562587322.log
+  /home/duzhong/.ros/log/det_node_10251_1787205955391.log
+  /home/duzhong/.ros/log/det_node_7573_1789542884356.log
+  /home/duzhong/.ros/log/det_node_7511_1788668890687.log
+  /home/duzhong/.ros/log/det_node_7807_1781508498515.log
+  /home/duzhong/.ros/log/det_node_7973_1787274021172.log
+  /home/duzhong/.ros/log/det_node_63276_1790301779618.log
+  /home/duzhong/.ros/log/det_node_8558_1788604290603.log
+  /home/duzhong/.ros/log/det_node_12116_1788682455210.log
+  /home/duzhong/.ros/log/det_node_8931_1789535174886.log
+  -- ???????? --
+build COLCON_IGNORE dzactuator dzjudgment dzrknn_dataprocess dztrack fake_amcl_node install log maps navigation2 naviPointPath rknn_pt robot_localization-humble-devel rplidar_ros-ros2 rviz slam_gmapping-eloquent-devel 
+  -- ???????? --
+  -rw-rw-r-- 1 duzhong duzhong 199M  9月 28 16:52 /home/duzhong/board_current_0928.tar.gz
+
+## 5. /tmp ??????????????
+  /tmp/ag_ws     7.3M
+  /tmp/dz_ws     27M
+  /tmp/ag_logs   44K
+
+## 6. ????
+  /home/duzhong/dzrobot                      888M  9101 ??
+  /home/duzhong/dzrobot/install              160K  21 ??
+  /home/duzhong/install                      14M  107 ??
+  /home/duzhong/src_save_backup_20260926     245M  1766 ??

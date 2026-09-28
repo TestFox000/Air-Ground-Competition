@@ -1,0 +1,102 @@
+==================== 车端痕迹盘点（只读） ====================
+2026年 09月 27日 星期日 18:55:17 CST
+主机: duzhong   运行时长: up 46 minutes
+
+----------------------------------------------------
+## 1. 我创建的东西（可安全删除；白名单同 car_cleanup.sh）
+  [有] /tmp/ag_ws  (7.1M, 944 个文件)
+  [有] /tmp/ag_ws_old_mine  (2.6M, 400 个文件)
+  [有] /tmp/syntaxcheck  (48K, 11 个文件)
+  [有] /tmp/ag_build.log  (4.0K, 1 个文件)
+  [有] /tmp/ag_car_node.log  (4.0K, 1 个文件)
+  [有] /tmp/probe_car4.sh.sh
+  [有] /tmp/probe_car5.sh.sh
+  [有] /tmp/car_build.sh.sh
+  [有] /tmp/car_check_entries.sh.sh
+  [有] /tmp/car_dryrun_test.sh.sh
+  [有] /tmp/car_inventory.sh.sh
+  [有] /tmp/car_syntaxcheck.sh.sh
+  [有] /tmp/car_verify.sh.sh
+  [有] /tmp/car_xcheck_constants.sh.sh
+  共 14 项；收工时跑 tools/car_cleanup.sh 清掉
+
+----------------------------------------------------
+## 3. 厂家/他人数据 —— 只允许读，未经批准不动
+/home/duzhong/dzrobot                         2.8G  28367 个文件
+/home/duzhong/dzrobot/src                     268M  1763 个文件
+/home/duzhong/src_save_backup_20260926        245M  1766 个文件
+/home/duzhong/backup                          76K  6 个文件
+-- 关键文件指纹（用于事后核对没被动过）--
+6d31d068c1  /home/duzhong/dzrobot/src/car_localization/car_localization/path_executor.py
+fde6ede5ef  /home/duzhong/dzrobot/src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp
+34a3189d26  /home/duzhong/dzrobot/src/dzjudgment/src/judgment.cpp
+28addcce99  /home/duzhong/.bashrc
+
+----------------------------------------------------
+## 4. 家目录顶层（看有没有我多出来的东西）
+     
+  9月 27 18:38 .
+  8月 27 2025 ..
+  11月 28 2025 远程桌面
+  9月 26 15:52 桌面
+  9月 27 16:37 backup
+  9月 27 18:23 .bash_history
+  11月 13 2024 .bash_logout
+  8月 10 08:58 .bashrc
+  9月 18 20:20 build
+  9月 27 18:09 .cache
+  11月 13 2024 .cinnamon
+  11月 27 2025 cmd
+  9月 27 18:09 .config
+  4月 14 14:39 .copilot
+  4月 3 18:01 .cursor
+  4月 3 17:37 .cursor-server
+  11月 27 2025 .dbus
+  4月 13 14:48 Desktop
+  8月 27 2025 .dmrc
+  11月 28 2025 Documents
+  8月 27 2025 .dotnet
+  9月 26 18:56 Downloads
+  9月 27 16:37 dzrobot
+  11月 27 2025 .fluxbox
+  11月 27 2025 .gnupg
+  11月 27 2025 .ICEauthority
+  9月 18 20:21 install
+  9月 26 15:36 .lesshst
+  12月 2 2025 .local
+  9月 19 20:56 log
+  11月 27 2025 .mozilla
+  9月 26 15:52 Music
+  11月 13 2024 .oh-my-zsh
+  12月 2 2025 openCV
+  9月 19 10:50 .pam_environment
+  8月 27 2025 .pki
+  11月 13 2024 .profile
+  9月 26 15:52 Public
+  9月 27 08:36 .python_history
+  4月 2 12:11 .ros
+  4月 13 12:29 .rviz2
+  11月 27 2025 snap
+  9月 26 19:09 src_save_backup_20260926
+  4月 22 15:00 .ssh
+  8月 25 2025 .sudo_as_admin_successful
+  9月 18 17:03 sudo
+  9月 26 15:52 Templates
+  9月 26 15:35 udo
+  9月 26 15:52 Videos
+  9月 27 12:50 .viminfo
+  9月 27 18:08 .vnc
+  8月 27 2025 .vscode
+  9月 26 18:31 .vscode-server
+  9月 26 18:38 .wget-hsts
+  9月 27 18:08 .Xauthority
+  11月 13 2024 .xscreensaver
+  9月 27 18:23 .xsession-errors
+  9月 27 17:21 .xsession-errors.old
+  11月 13 2024 .zshrc
+
+----------------------------------------------------
+## 5. 磁盘
+/dev/mmcblk1p2   57G   27G   30G   48% /
+
+==================== 结束 ====================

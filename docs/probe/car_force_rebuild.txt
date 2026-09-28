@@ -1,0 +1,31 @@
+## ??????? build/install????????
+  ?? install/det_node build/det_node
+  ?? install/dzactuator build/dzactuator
+  ?? install/dzrknn_dataprocess build/dzrknn_dataprocess
+
+## ???????????? --symlink-install?
+  ??: 19:15:16
+  ??: 19:15:51   ???=0
+    Finished <<< det_node [22.3s]
+    Finished <<< dzrknn_dataprocess [26.2s]
+    Finished <<< dzactuator [34.7s]
+    Summary: 3 packages finished [35.2s]
+
+## ???????????
+  [??] det_node/det_node  3856920 ??
+  [??] dzactuator/dzactuator_node  8044176 ??
+  [??] dzrknn_dataprocess/dzactuator_node  5431616 ??
+
+## ?????????????????
+  -rw-r--r-- 1 duzhong duzhong 9899901  9月 26 09:35 light_det1.rknn
+  -rw-r--r-- 1 duzhong duzhong 9899901  9月 26 09:35 light_det2.rknn
+  -rw-r--r-- 1 duzhong duzhong 8487541  9月 27 09:17 light_det3.rknn
+  -rw-r--r-- 1 duzhong duzhong 8487541  9月 27 09:58 light_det.rknn
+  -rw-r--r-- 1 duzhong duzhong 6939842  9月 26 10:15 light_det_v1.rknn
+
+## ???????? source ?? install ???
+  car_localization       1
+  dzactuator             1
+  dzjudgment             1
+  det_node               1
+  dzrknn_dataprocess     1

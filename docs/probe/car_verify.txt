@@ -1,0 +1,57 @@
+==================== 车端只读自检 ====================
+2026年 09月 27日 星期日 19:05:19 CST
+
+工作空间: /tmp/ag_ws
+
+----------------------------------------------------
+## 1. 包是否注册
+  [OK]   ag_core
+  [OK]   ag_interfaces
+  [OK]   ag_perception
+  [OK]   ag_car
+  [OK]   ag_mission
+  [OK]   ag_chassis
+  [OK]   ag_referee
+  [OK]   ag_bridge
+  [OK]   ag_bringup
+
+----------------------------------------------------
+## 2. 可执行文件（ros2 pkg executables）
+  ag_perception    intel_fusion_node vision_node 
+  ag_car           car_node 
+  ag_mission       mission_node target_node 
+  ag_chassis       chassis_node 
+  ag_referee       referee_node 
+  ag_bridge        air_link_node fake_intel_node ground_link_node 
+-- 期望的 9 个入口 --
+  [OK]   vision_node
+  [OK]   intel_fusion_node
+  [OK]   car_node
+  [OK]   mission_node
+  [OK]   target_node
+  [OK]   chassis_node
+  [OK]   referee_node
+  [OK]   air_link_node
+  [OK]   ground_link_node
+
+----------------------------------------------------
+## 3. launch 文件能否解析（--show-args，不会真的启动）
+  [OK]   car.launch.py -> 11 个参数
+  [OK]   air.launch.py -> 5 个参数
+  [OK]   ground.launch.py -> 9 个参数
+  [OK]   sim.launch.py -> 3 个参数
+
+----------------------------------------------------
+## 4. Python 导入（纯算法模块 + 消息）
+  [OK]   11 个模块导入成功
+  [OK]   自定义消息可用: FieldIntelMsg
+
+----------------------------------------------------
+## 5. 参数文件可解析且与车端常量一致
+  [OK]   params.yaml 解析成功，节点段: air_link_node, car_node, chassis_node, fake_intel_node, ground_link_node, intel_fusion_node, mission_node, referee_node, target_node, vision_node
+  [OK]   场地 14 列 x 11 行，各节点参数一致
+
+----------------------------------------------------
+## 6. 结论
+  全部通过：可以进入上车联调（仍建议先 dry_run:=true）
+==================== 结束 ====================

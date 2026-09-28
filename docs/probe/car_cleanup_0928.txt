@@ -1,0 +1,107 @@
+==================== 车端痕迹清理 ====================
+2026年 09月 28日 星期一 18:39:54 CST
+
+## 0. 白名单（只会删这些）
+  /tmp/ag_ws
+  /tmp/ag_ws_old_mine
+  /tmp/syntaxcheck
+  /tmp/ag_build.log
+  /tmp/ag_car_node.log
+  /tmp/_pkgs.txt
+  /tmp/ag_logs
+  /tmp/_chk.py
+  /tmp/_cmp.py
+  /tmp/_gl.py
+  /tmp/_codes.py
+  /tmp/probe_car*.sh.sh
+  /tmp/car_*.sh.sh
+  /tmp/remote_run*.sh.sh
+  /tmp/ag_*.log
+  /tmp/ag_*.txt
+  /tmp/ag_*.yaml
+  （若存在）/home/duzhong/ag_ws
+  （若存在）/home/duzhong/ag_ws_old_mine
+
+## 1. 删除前：确认目标存在
+  [有] /tmp/ag_ws  (7.3M)
+  [有] /tmp/ag_build.log  (4.0K)
+  [有] /tmp/ag_car_node.log  (4.0K)
+  [有] /tmp/ag_logs  (116K)
+  [有] /tmp/car_base.sh.sh
+  [有] /tmp/car_build.sh.sh
+  [有] /tmp/car_camera_check.sh.sh
+  [有] /tmp/car_camparam.sh.sh
+  [有] /tmp/car_cleanup.sh.sh
+  [有] /tmp/car_dz.sh.sh
+  [有] /tmp/car_guard_selftest.sh.sh
+  [有] /tmp/car_log_rehearsal.sh.sh
+  [有] /tmp/car_run2.sh.sh
+  [有] /tmp/car_run.sh.sh
+  [有] /tmp/car_st.sh.sh
+  [有] /tmp/ag_air_link.log
+  [有] /tmp/ag_build.log
+  [有] /tmp/ag_car_node.log
+  [有] /tmp/ag_chk_cam.log
+  [有] /tmp/ag_chk_det.log
+  [有] /tmp/ag_fake_intel.log
+  [有] /tmp/ag_ground_link.log
+  [有] /tmp/ag_guard_run.log
+  [有] /tmp/ag_guard_self_1.log
+  [有] /tmp/ag_guard_self_2.log
+  [有] /tmp/ag_guard_A.txt
+  [有] /tmp/ag_guard_B.txt
+  [有] /tmp/ag_guard_selftest.yaml
+
+## 2. 执行删除（仅白名单）
+  已删 /tmp/ag_ws
+  已删 /tmp/ag_build.log
+  已删 /tmp/ag_car_node.log
+  已删 /tmp/ag_logs
+  已删 /tmp/car_base.sh.sh
+  已删 /tmp/car_build.sh.sh
+  已删 /tmp/car_camera_check.sh.sh
+  已删 /tmp/car_camparam.sh.sh
+  已删 /tmp/car_cleanup.sh.sh
+  已删 /tmp/car_dz.sh.sh
+  已删 /tmp/car_guard_selftest.sh.sh
+  已删 /tmp/car_log_rehearsal.sh.sh
+  已删 /tmp/car_run2.sh.sh
+  已删 /tmp/car_run.sh.sh
+  已删 /tmp/car_st.sh.sh
+  已删 /tmp/ag_air_link.log
+  已删 /tmp/ag_chk_cam.log
+  已删 /tmp/ag_chk_det.log
+  已删 /tmp/ag_fake_intel.log
+  已删 /tmp/ag_ground_link.log
+  已删 /tmp/ag_guard_run.log
+  已删 /tmp/ag_guard_self_1.log
+  已删 /tmp/ag_guard_self_2.log
+  已删 /tmp/ag_guard_A.txt
+  已删 /tmp/ag_guard_B.txt
+  已删 /tmp/ag_guard_selftest.yaml
+
+## 2.5 停止我们启动过的节点进程（按 PID 精确停，不用模糊 pkill）
+  [OK] 没有残留进程
+
+## 3. 删除后：确认干净
+  [OK] 白名单内的东西都已清除
+
+## 4. 他人数据完整性核对（应与会话开始时一致）
+  /home/duzhong/dzrobot                         888M  9101 个文件
+  /home/duzhong/dzrobot/src                     268M  1763 个文件
+  /home/duzhong/src_save_backup_20260926        245M  1766 个文件
+  /home/duzhong/backup                          72K  6 个文件
+  -- 关键文件指纹（与开工前对比；不一致说明被动过）--
+    6d31d068c1  /home/duzhong/dzrobot/src/car_localization/car_localization/path_executor.py
+    e5f433d4ca  /home/duzhong/dzrobot/src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp
+    34a3189d26  /home/duzhong/dzrobot/src/dzjudgment/src/judgment.cpp
+    28addcce99  /home/duzhong/.bashrc
+  参考基线（开工时测得）：path_executor=6d31d068c1  dzrknn=8f...  judgment=34a3189d26  .bashrc=28addcce99
+
+## 5. 家目录顶层（不应再出现 ag_ws 之类）
+  [OK] 家目录无可疑目录
+
+## 6. 收尾
+  提醒：小车上的 /tmp 会在重启后自动清空；下次要用重新上传即可。
+  dzrobot 等厂家目录全程只读，未做任何修改。
+==================== 结束 ====================

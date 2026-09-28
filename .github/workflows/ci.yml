@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  # ---------- 1. 纯算法测试（不需要 ROS，Windows / Linux 都能跑） ----------
+  core-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 单元测试
+        run: python -m pytest tests -q
+
+      - name: 全部源文件语法检查（含 launch / tools）
+        run: python -m compileall -q src tools src/ag_bringup/launch
+
+      - name: 赛前闭环自检（冒烟）
+        run: python tools/sim_selfcheck.py
+
+      - name: 情报回放工具（冒烟）
+        run: python tools/replay_intel.py --input tools/samples/intel_sample.jsonl --sweep
+
+      - name: 标定工具（冒烟）
+        run: python tools/calib_homography.py --corners "120,80 980,95 965,700 105,690" --check "500,400"
+
+  # ---------- 2. ROS2 构建（验证包配置与 launch 文件） ----------
+  ros-build:
+    runs-on: ubuntu-latest
+    container:
+      image: ros:humble
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 组装 workspace
+        run: |
+          mkdir -p ~/ws/src
+          cp -r "$GITHUB_WORKSPACE" ~/ws/src/air_ground
+
+      - name: 安装依赖
+        run: |
+          apt-get update
+          rosdep update
+          rosdep install --from-paths ~/ws/src --ignore-src -r -y
+        continue-on-error: true   # 私有依赖缺失时不阻断构建检查
+
+      - name: colcon build
+        run: |
+          source /opt/ros/humble/setup.bash
+          cd ~/ws
+          colcon build --symlink-install --event-handlers console_direct-
+
+      - name: 检查包与可执行文件已安装
+        # ⚠️ 这里必须用 `ros2 pkg executables`（launch / ros2 run 真正使用的发现机制），
+        # 不能用 `command -v`：缺 setup.cfg 时脚本会落到 install/<pkg>/bin/，
+        # 文件存在、command -v 甚至能找到，但 ros2 run 与 launch 会启动即失败。
+        # （这个坑是在真机编译时才暴露的，见 docs/实机接口对照.md §10）
+        run: |
+          source /opt/ros/humble/setup.bash
+          source ~/ws/install/setup.bash
+          ros2 pkg list | grep -E '^ag_' | sort
+          fail=0
+          for pair in "ag_perception vision_node" "ag_perception intel_fusion_node" \
+                      "ag_car car_node" "ag_mission mission_node" "ag_mission target_node" \
+                      "ag_chassis chassis_node" "ag_referee referee_node" \
+                      "ag_bridge air_link_node" "ag_bridge ground_link_node" \
+                      "ag_bridge fake_intel_node"; do
+            set -- $pair
+            if ! ros2 pkg executables "$1" | grep -qw "$2"; then
+              echo "ros2 找不到可执行文件: $1 / $2（是否缺 setup.cfg？）"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: launch 文件可解析（不启动节点）
+        run: |
+          source /opt/ros/humble/setup.bash
+          source ~/ws/install/setup.bash
+          for l in air ground sim car; do
+            ros2 launch ag_bringup "$l.launch.py" --show-args >/dev/null
+            echo "  [OK] $l.launch.py"
+          done

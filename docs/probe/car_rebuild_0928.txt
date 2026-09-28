@@ -1,0 +1,22 @@
+## ????
+  /dev/mmcblk1p2   57G   26G   31G   46% /
+
+## ?????????? --symlink-install?????????????build ?????????
+  ??: 19:14:35
+  ??: 19:14:38   ???=0
+    Finished <<< det_node [1.15s]
+    Finished <<< dzrknn_dataprocess [1.28s]
+    Finished <<< dzactuator [1.31s]
+    Summary: 3 packages finished [1.80s]
+
+## ?????????????????
+  [??] det_node/det_node -> /home/duzhong/dzrobot/build/det_node/det_node
+  [??] dzactuator/dzactuator_node -> /home/duzhong/dzrobot/build/dzactuator/dzactuator_node
+  [??] dzrknn_dataprocess/dzactuator_node -> /home/duzhong/dzrobot/build/dzrknn_dataprocess/dzactuator_node
+
+## ????
+  car_localization       0
+  dzactuator             1
+  dzjudgment             0
+  det_node               1
+  dzrknn_dataprocess     1

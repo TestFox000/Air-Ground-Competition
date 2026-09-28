@@ -1,0 +1,50 @@
+----------------------------------------------------
+## 1. 起底盘 + 定位（后台，输出丢 /tmp）
+  底盘 pid=22977  定位 pid=23027
+  serial_reader: block: N10 | yaw: +90deg
+
+----------------------------------------------------
+## 2. 发命令（在执行器还没起来之前就发，测试它能否补收）
+  （Linux 下话题发布是「有订阅者才送达」，所以这步主要是确认没爆炸）
+  reset:N10,y 已发
+
+----------------------------------------------------
+## 3. 前台起执行器 8 秒，输出直接回传
+  ⚠️ 8 秒后会被 kill；只观察启动日志与它对定位数据的反应
+  [4s 时已发 N10,y]
+Traceback (most recent call last):
+  File "/home/duzhong/dzrobot/src/car_localization/car_localization/path_executor.py", line 1366, in main
+    rclpy.spin(node)  # enter event loop, process callbacks and timers
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 229, in spin
+    executor.spin_once()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 751, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 740, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 723, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 624, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/duzhong/dzrobot/src/car_localization/car_localization/path_executor.py", line 1378, in <module>
+    main()                  # call entry
+  File "/home/duzhong/dzrobot/src/car_localization/car_localization/path_executor.py", line 1374, in main
+    rclpy.shutdown()     # shutdown ROS2
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 130, in shutdown
+    _shutdown(context=context)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/utilities.py", line 58, in shutdown
+    return context.shutdown()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 102, in shutdown
+    self.__context.shutdown()
+rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:241
+  [执行器已停止]
+
+----------------------------------------------------
+## 4. 收尾
+  已停掉底盘与定位
+
+==================== 结束 ====================

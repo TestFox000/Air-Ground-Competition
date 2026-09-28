@@ -1,0 +1,32 @@
+==================== 车端常量契约校验 ====================
+车端源码: /home/duzhong/dzrobot/src
+我们的代码: /tmp/ag_ws/src
+
+  [定位] path_executor.py: /home/duzhong/dzrobot/src/car_localization/car_localization/path_executor.py
+  [定位] postprocess.h: /home/duzhong/dzrobot/src/rknn_pt/include/det/postprocess.h
+  [定位] dzrknn_dataprocess.cpp: /home/duzhong/dzrobot/src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp
+  [定位] dzrknn_dataprocess.h: /home/duzhong/dzrobot/src/dzrknn_dataprocess/include/dzrknn_dataprocess.h
+
+项目                                车端/上限       我们          结果
+--------------------------------------------------------------------------
+场地列数 MAP_COLS                     14          14          一致
+场地行数 MAP_ROWS                     11          11          一致
+单元边长 BLOCK_SIZE                   0.35        0.35        一致
+列字母表 COL_LETTERS                  ABCDEFGHIJKLMNABCDEFGHIJKLMN一致
+mission_node.cols                 14          14          一致
+mission_node.rows                 11          11          一致
+mission_node.cell_size            0.35        0.35        一致
+car_node.cols                     14          14          一致
+car_node.rows                     11          11          一致
+car_node.cell_size                0.35        0.35        一致
+intel_fusion_node.cols            14          14          一致
+intel_fusion_node.rows            11          11          一致
+intel_fusion_node.cell_size       0.35        0.35        一致
+打击停靠超时 SHOOT_WAIT_TIMEOUT         150.0       150.0       一致
+停靠点数上限(弹药10/每次10)                 1           1           满足
+等待预算 ≤ 车端超时                       150.0       60.0        满足
+类别数 OBJ_CLASS_NUM                 2           2           一致
+关键点数 KPT_NUM                      1           1           一致
+
+[OK] 所有常量一致 —— 我们的假设与车端源码完全对齐
+==================== 结束 ====================

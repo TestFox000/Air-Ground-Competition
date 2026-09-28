@@ -1,0 +1,734 @@
+==================== 车端既有包接口清单 ====================
+工作空间: /home/duzhong/dzrobot/src
+2026年 09月 27日 星期日 17:08:16 CST
+
+----------------------------------------------------
+## 1. 包清单与用途
+===== car_localization =====
+<name>car_localization</name>
+<description>Car localization package</description>
+  文件:
+    car_localization/test_coords.py
+    car_localization/car_localization/__init__.py
+    car_localization/car_localization/serial_reader.py
+    car_localization/car_localization/path_planner.py
+    car_localization/car_localization/path_executor.py
+    car_localization/car_localization/generate_path.py
+    car_localization/car_localization/send_waypoint.py
+    car_localization/setup.py
+    car_localization/launch/localization.launch.py
+
+===== dzactuator =====
+<name>dzactuator</name>
+<description>TODO: Package description</description>
+  文件:
+    dzactuator/src/dzactuator.cpp
+    dzactuator/src/Quaternion_Solution.cpp
+    dzactuator/launch/dznavigation.launch.py
+    dzactuator/launch/dztrack_savepath.launch.py
+    dzactuator/launch/judgment.launch.py
+    dzactuator/launch/camera.launch.py
+    dzactuator/launch/bringup.launch.py
+    dzactuator/launch/fake_amcl.launch.py
+    dzactuator/launch/amcl.launch.py
+    dzactuator/launch/dztrack.launch.py
+    dzactuator/launch/dzshooting.launch.py
+    dzactuator/launch/bringup_all.launch.py
+    dzactuator/launch/slam_gmapping.launch.py
+    dzactuator/launch/rplidar_s3e_launch.py
+    dzactuator/launch/ekf.launch.py
+
+===== dzjudgment =====
+<name>dzjudgment</name>
+<description>TODO: Package description</description>
+  文件:
+    dzjudgment/src/dzjudgment.cpp
+    dzjudgment/src/judgment.cpp
+    dzjudgment/src/judgment.h
+    dzjudgment/launch/judgment.launch.py
+
+===== dzrknn_dataprocess =====
+<name>dzrknn_dataprocess</name>
+<description>TODO: Package description</description>
+  文件:
+    dzrknn_dataprocess/src/dzrknn_dataprocess.cpp
+    dzrknn_dataprocess/launch/dzrknn_dataprocess.launch.py
+    dzrknn_dataprocess/include/dzrknn_dataprocess.h
+
+===== dztrack =====
+<name>dztrack</name>
+<description>TODO: Package description</description>
+  文件:
+    dztrack/src/control.cpp
+    dztrack/src/dztrack.cpp
+    dztrack/src/control.h
+    dztrack/scripts/dztrack_path_bridge.py
+    dztrack/launch/dztrack.launch.py
+
+===== fake_amcl_node =====
+<name>fake_amcl_node</name>
+<description>Fake AMCL Pose Publisher</description>
+  文件:
+    fake_amcl_node/src/fake_amcl_node.cpp
+    fake_amcl_node/launch/fake_amcl.launch.py
+
+===== naviPointPath =====
+  文件:
+
+===== rknn_pt =====
+<name>det_node</name>
+<description>RKNN detection node</description>
+  文件:
+    rknn_pt/launch/det_node.launch.py
+    rknn_pt/include/ThreadPool.hpp
+    rknn_pt/include/common.h
+    rknn_pt/include/rknnPool.hpp
+    rknn_pt/include/coreNum.hpp
+
+----------------------------------------------------
+## 2. 全部话题/服务名（从源码字符串里抽）
+===== car_localization =====
+"share/ament_index/resource_index/packages"
+===== dzactuator =====
+create_publisher<std_msgs::msg::Float32>("PowerVoltage"
+create_publisher<std_msgs::msg::Float32>("Battery_Percentage"
+create_publisher<nav_msgs::msg::Odometry>("odom"
+create_publisher<sensor_msgs::msg::Imu>("raw"
+create_publisher<std_msgs::msg::UInt8>("imu_msg_valid"
+create_publisher<std_msgs::msg::UInt8>("odom_msg_valid"
+create_publisher<sensor_msgs::msg::Imu>("imu_data"
+create_publisher<std_msgs::msg::UInt8>("navi_cmd"
+create_publisher<geometry_msgs::msg::Twist>("current_vel_state"
+create_publisher<std_msgs::msg::Int32>("wakeup_signal"
+create_publisher<std_msgs::msg::Int32MultiArray>("camemo_feedback"
+create_subscription<geometry_msgs::msg::Twist>("cmd_vel"
+create_subscription<geometry_msgs::msg::Twist>("pursuitAngle"
+create_subscription<geometry_msgs::msg::Twist>("logicontrol"
+create_subscription<std_msgs::msg::UInt8>("voice_switch"
+create_subscription<std_msgs::msg::UInt8>("vehicle_state"
+create_subscription<std_msgs::msg::UInt8>("vehicle_Drivestate"
+create_subscription<std_msgs::msg::Int32MultiArray>("CameMo_Conl"
+create_subscription<std_msgs::msg::UInt8>("StopCmd"
+create_publisher<std_msgs::msg::Float32>("PowerVoltage"
+create_publisher<std_msgs::msg::Float32>("Battery_Percentage"
+create_publisher<nav_msgs::msg::Odometry>("odom"
+create_publisher<sensor_msgs::msg::Imu>("raw"
+create_publisher<std_msgs::msg::UInt8>("imu_msg_valid"
+create_publisher<std_msgs::msg::UInt8>("odom_msg_valid"
+create_publisher<sensor_msgs::msg::Imu>("imu_data"
+create_publisher<std_msgs::msg::UInt8>("navi_cmd"
+create_publisher<geometry_msgs::msg::Twist>("current_vel_state"
+create_publisher<std_msgs::msg::Int32>("wakeup_signal"
+create_publisher<std_msgs::msg::Int32MultiArray>("camemo_feedback"
+create_subscription<geometry_msgs::msg::Twist>("cmd_vel"
+create_subscription<geometry_msgs::msg::Twist>("pursuitAngle"
+create_subscription<geometry_msgs::msg::Twist>("logicontrol"
+create_subscription<std_msgs::msg::UInt8>("voice_switch"
+create_subscription<std_msgs::msg::UInt8>("vehicle_state"
+create_subscription<std_msgs::msg::UInt8>("vehicle_Drivestate"
+create_subscription<std_msgs::msg::Int32MultiArray>("CameMo_Conl"
+create_subscription<std_msgs::msg::UInt8>("StopCmd"
+"camera/image_raw"
+===== dzjudgment =====
+create_publisher<std_msgs::msg::UInt8MultiArray>("HpAndHitmsg"
+create_publisher<std_msgs::msg::UInt8MultiArray>("all_Material_Number"
+create_publisher<std_msgs::msg::UInt8MultiArray>("enemy_Material_Number"
+create_publisher<std_msgs::msg::UInt8MultiArray>("self_Material_Number"
+===== dzrknn_dataprocess =====
+create_publisher<std_msgs::msg::UInt8>("LaserShot_Command"
+create_publisher<std_msgs::msg::Int32MultiArray>("CameMo_Conl"
+create_publisher<std_msgs::msg::UInt8>("voice_switch"
+create_publisher<std_msgs::msg::Int32>("/shoot_count"
+create_subscription<std_msgs::msg::Int32MultiArray>("offset_center"
+create_subscription<std_msgs::msg::Int32MultiArray>("camemo_feedback"
+===== dztrack =====
+create_publisher<nav_msgs::msg::Path>("dzplan"
+create_publisher<nav_msgs::msg::Path>("dzallplan"
+create_publisher<visualization_msgs::msg::MarkerArray>("visualization_marker"
+create_publisher<geometry_msgs::msg::PoseStamped>("current_pose"
+create_publisher<std_msgs::msg::UInt8>("vehicle_state"
+create_publisher<geometry_msgs::msg::Twist>("cmd_vel_dztrack"
+create_publisher<geometry_msgs::msg::Twist>("pursuitAngle"
+create_publisher<std_msgs::msg::UInt8>("vehicle_Drivestate"
+create_publisher<geometry_msgs::msg::PoseStamped>("goal_pose"
+create_subscription<std_msgs::msg::UInt8MultiArray>("trafficLightArray"
+create_subscription<sensor_msgs::msg::LaserScan>("scan"
+create_subscription<std_msgs::msg::UInt8>("savemapping"
+create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("amcl_pose"
+create_subscription<nav_msgs::msg::Path>("passenger_waypoints"
+create_subscription<std_msgs::msg::UInt8>("navi_cmd"
+create_subscription<std_msgs::msg::UInt8>("avp_parking_Num"
+"Eigen/Eigen"
+===== fake_amcl_node =====
+===== naviPointPath =====
+===== rknn_pt =====
+create_publisher<std_msgs::msg::Int32MultiArray>("offset_center"
+----------------------------------------------------
+## 3. 消息类型（接口是否自定义）
+-- 依赖的 ROS 消息包 --
+      8 sensor_msgs</
+      7 nav_msgs</
+      7 geometry_msgs</
+      6 std_msgs</
+      2 visualization_msgs</
+      2 lifecycle_msgs</
+      2 actionlib_msgs</
+      1 geographic_msgs</
+      1 diagnostic_msgs</
+----------------------------------------------------
+## 4. 关键代码片段：dzactuator（执行机构/开火）
+----- /home/duzhong/dzrobot/src/dzactuator/src/dzactuator.cpp -----
+#include "dzactuator.h"
+#include "Quaternion_Solution.h"
+#include <iostream>
+#include <iomanip>
+#include <chrono>
+#include <cmath>
+#include <chrono>
+
+// #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <tf2/convert.h>
+#include <tf2/utils.h>
+
+// 定义BOOST_BIND_GLOBAL_PLACEHOLDERS以消除警告
+#define BOOST_BIND_GLOBAL_PLACEHOLDERS
+#include <boost/bind.hpp>
+
+sensor_msgs::msg::Imu BMI088; // Instantiate an IMU object //实例化IMU对象
+
+int main(int argc, char **argv)
+{
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<turn_on_robot>("dzactuator");
+  // rclcpp::spin(node); // 使用rclcpp::spin而不是直接调用Control
+  node->Control();
+  rclcpp::shutdown();
+  return 0;
+}
+
+/**************************************
+Date: January 28, 2021
+Function: Data conversion function
+功能: 数据转换函数
+***************************************/
+short turn_on_robot::IMU_Trans(uint8_t Data_High, uint8_t Data_Low)
+{
+  short transition_16;
+  transition_16 = 0;
+  transition_16 |= Data_High << 8;
+  transition_16 |= Data_Low;
+  return transition_16;
+}
+float turn_on_robot::Odom_Trans(uint8_t Data_High, uint8_t Data_Low)
+{
+  float data_return;
+  short transition_16;
+  transition_16 = 0;
+  transition_16 |= Data_High << 8; // Get the high 8 bits of data   //获取数据的高8位
+  transition_16 |= Data_Low;       // Get the lowest 8 bits of data //获取数据的低8位
+  data_return = transition_16;     //(transition_16 / 1000)+(transition_16 % 1000)*0.001; // The speed unit is changed from mm/s to m/s //速度单位从mm/s转换为m/s
+  return data_return;
+}
+
+/**************************************
+Date: January 28, 2021
+Function: The speed topic subscription Callback function, according to the subscribed instructions through the serial port command control of the lower computer
+功能: 速度话题订阅回调函数Callback，根据订阅的指令通过串口发指令控制下位机
+***************************************/
+void turn_on_robot::callback_cmd_vel_angle(const geometry_msgs::msg::Twist::SharedPtr twist_aux)
+{
+----- /home/duzhong/dzrobot/src/dzactuator/src/Quaternion_Solution.cpp -----
+
+#include "Quaternion_Solution.h"
+#include <vector>
+#include <cmath>
+
+#define M_PI 3.14159265358979323846
+
+// ==================== 滤波器参数配置 ====================
+// 可调节的滤波器参数 - 直接修改变量即可
+float IMU_SAMPLING_FREQ = 50.0f;         // IMU采样频率 (Hz) - 可动态调整
+float GYRO_CUTOFF_FREQ = 10.0f;          // 角速度截止频率 (Hz) - 基于官方建议调整
+bool MOTION_ADAPTIVE_FILTER = true;      // 是否启用运动状态自适应滤波
+bool ENABLE_SMOOTH_PREFILTER = true;    // 预滤波开关 (默认关闭)
+
+// 基于Allan方差的噪声参数
+double GYRO_NOISE = 1.044e-3;            // 角速度噪声 (rad/s)
+double ACCEL_NOISE = 2.214e-2;           // 加速度噪声 (m/s²)
+
+// 滑动平均预滤波参数
+#define SMOOTH_FILTER_NUM 10              // 滑动平均窗口大小 (基于官方建议)
+
+// ==================== 滤波器状态变量 ====================
+// 卡尔曼滤波器状态 (加速度)
+static double acc_x_est = 0, acc_y_est = 0, acc_z_est = 0;
+static double P_acc_x = 1, P_acc_y = 1, P_acc_z = 1;
+
+// Butterworth滤波器缓冲区 (角速度)
+static std::vector<double> gyr_x_buf(3, 0), gyr_y_buf(3, 0), gyr_z_buf(3, 0);
+static std::vector<double> gyr_x_y_buf(2, 0), gyr_y_y_buf(2, 0), gyr_z_y_buf(2, 0);
+
+// 滑动平均预滤波缓冲区 (角速度)
+static std::vector<float> smooth_gx_buf(SMOOTH_FILTER_NUM, 0);
+static std::vector<float> smooth_gy_buf(SMOOTH_FILTER_NUM, 0);
+static std::vector<float> smooth_gz_buf(SMOOTH_FILTER_NUM, 0);
+
+// 滤波器系数缓存
+static double butter_b0 = 0, butter_b1 = 0, butter_b2 = 0;
+static double butter_a1 = 0, butter_a2 = 0;
+
+
+
+// ==================== 滤波器实现函数 ====================
+/**
+ * 优化的卡尔曼滤波器 (基于Allan方差参数)
+ */
+ double kalman_filter_optimized(double z, double &x_est_prev, double &P_prev, bool is_motion) {
+  // Allan 给出的加速度噪声标准差 (m/s²)，取平方为方差
+  double R_base = ACCEL_NOISE * ACCEL_NOISE;
+
+  // 过程噪声 Q 通常比观测噪声小几个量级
+  // 建议范围：R_base * 0.001 ~ R_base * 0.05
+  double Q = R_base * 0.01;
+
+  // 自适应 R（观测噪声方差）
+  double R = R_base;
+  if (MOTION_ADAPTIVE_FILTER) {
+      if (is_motion) {
+          R = R_base * 5.0;    // 运动时更信任预测
+      } else {
+          R = R_base * 0.5;    // 静止时更信任观测
+----- /home/duzhong/dzrobot/src/dzactuator/launch/dznavigation.launch.py -----
+# Copyright (c) 2018 Intel Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+
+from ament_index_python.packages import get_package_share_directory
+
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, SetEnvironmentVariable
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch_ros.actions import LoadComposableNodes
+from launch_ros.actions import Node
+from launch_ros.descriptions import ComposableNode, ParameterFile
+from nav2_common.launch import RewrittenYaml
+
+
+def generate_launch_description():
+    # Get the launch directory
+    bringup_dir = get_package_share_directory('nav2_bringup')
+
+    namespace = LaunchConfiguration('namespace')
+    use_sim_time = LaunchConfiguration('use_sim_time')
+    autostart = LaunchConfiguration('autostart')
+    params_file = LaunchConfiguration('params_file')
+    use_composition = LaunchConfiguration('use_composition')
+    container_name = LaunchConfiguration('container_name')
+    container_name_full = (namespace, '/', container_name)
+    use_respawn = LaunchConfiguration('use_respawn')
+    log_level = LaunchConfiguration('log_level')
+
+    lifecycle_nodes = ['controller_server',
+                       'smoother_server',
+                       'planner_server',
+                       'behavior_server',
+                       'bt_navigator',
+                       'waypoint_follower',
+                       'velocity_smoother']
+
+    # Map fully qualified names to relative ones so the node's namespace can be prepended.
+    # In case of the transforms (tf), currently, there doesn't seem to be a better alternative
+    # https://github.com/ros/geometry2/issues/32
+    # https://github.com/ros/robot_state_publisher/pull/30
+    # TODO(orduno) Substitute with `PushNodeRemapping`
+    #              https://github.com/ros2/launch_ros/issues/56
+    remappings = [('/tf', 'tf'),
+                  ('/tf_static', 'tf_static')]
+
+    # Create our own temporary YAML files that include substitutions
+----- /home/duzhong/dzrobot/src/dzactuator/launch/dztrack_savepath.launch.py -----
+import os
+from ament_index_python.packages import get_package_share_directory
+
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.actions import LogInfo
+from launch.substitutions import LaunchConfiguration
+
+from launch_ros.actions import Node
+
+def generate_launch_description():
+    routemap = LaunchConfiguration('maping',default ='/home/dzrobot/dzrobot/src/naviPointPath/map')
+    bdebug = LaunchConfiguration('bdebug',default = 1)
+    loopfrep = LaunchConfiguration('pathplannerloopfrep',default = 1)
+    second_mindis_path = LaunchConfiguration('second_mindis_path',default = 0.1)
+    min_serch_distance = LaunchConfiguration('min_serch_distance',default = 0.2)
+    min_diffangle= LaunchConfiguration('min_diffangle',default = 1.7)
+    startpoint_flag_param = LaunchConfiguration('startpoint_flag_param',default = 1)
+    erase_point_dis = LaunchConfiguration('erase_point_dis',default = 0.6)
+
+    return LaunchDescription([
+        # Node( 
+        #     package='tf2_ros',
+        #     executable='static_transform_publisher',
+        #     arguments = ['0', '0', '1', '0', '0', '0', 'map', 'base_link']),
+        Node(
+            package='dztrack',
+            executable='dztrack',
+            name='dztrack',
+            output="screen",
+            emulate_tty=True,
+            parameters=[
+                # {"my_parameter": "earth"}
+                {"saveMapping": True,  # False True
+                "save_mapping_point_dis": 0.02,
+                "charge_Battery_Percentage": 0.3,
+                "discharge_Battery_Percentage": 0.4,
+                "savePath": "/home/duzhong/dzrobot/src/naviPointPath/mapping.txt",
+                "saveStopPointPath": "/home/duzhong/dzrobot/src/naviPointPath/stopmapping.txt",
+                "backcar_roadPoints_savePath":  "/home/duzhong/dzrobot/src/naviPointPath/points/Parking_points.txt",
+                "backcar_backPoints_savePath":  "/home/duzhong/dzrobot/src/naviPointPath/points/Parking_points.txt",
+                "backcar_stopPoints_savePath": "/home/duzhong/dzrobot/src/naviPointPath/points/backcar_stopPoints.txt",
+                "charge_points_savePath":  "/home/duzhong/dzrobot/src/naviPointPath/points/Parking_points.txt",
+                "Parking_points_savePath": "/home/duzhong/dzrobot/src/naviPointPath/points/Parking_points.txt",
+                "backcar_Paths_savePath": "/home/duzhong/dzrobot/src/naviPointPath/backcar_paths/",
+                "forwardcar_Paths_savePath": "/home/duzhong/dzrobot/src/naviPointPath/forwardcar_paths/",
+                "robot_base_frame":  "base_link",
+                "global_frame":  "world",
+                "carport_stopX":  999.0,
+                "carport_stopY":  999.0,
+                "carport_stopZ":  0.0,
+                "carport_heading":  1.0,
+                "enable_backcar":  True,
+                "cout_hglocation":  False,
+                "pursuitSpeed":   0.8,
+                "minDis_param":   0.1,
+                "out_storage_speed":  0.5,
+                "put_storage_speed":  -0.5,
+                "far_min_dis":  0.20,
+                "near_min_dis":  0.20,
+----- /home/duzhong/dzrobot/src/dzactuator/launch/judgment.launch.py -----
+from launch import LaunchDescription
+from launch_ros.actions import Node
+
+def generate_launch_description():
+    return LaunchDescription([
+        Node(
+            package="dzjudgment",
+            executable="dzjudgment",
+            name="dzjudgment",
+            output="screen",
+            emulate_tty=True,
+            parameters=[
+                {"mcubaudrate": 115200},
+                {"mcuserialport": "/dev/dzjudgment"}, 
+            ]
+        )
+    ])----- /home/duzhong/dzrobot/src/dzactuator/launch/camera.launch.py -----
+from launch import LaunchDescription
+from launch_ros.actions import Node
+
+def generate_launch_description():
+    return LaunchDescription([
+        Node(
+            package='usb_cam',
+            executable='usb_cam_node_exe',
+            name='usb_cam_node',
+            output='screen',
+            parameters=[{
+                'video_device': '/dev/video0',    # 摄像头设备路径
+                'image_width': 640,               # 图像宽度
+                'image_height': 480,              # 图像高度
+                'framerate': 30.0,                # 帧率
+                'pixel_format': 'yuyv',           # 像素格式，可选 'yuyv' 或 'mjpeg'
+                'io_method': 'mmap'               # 采集方式，可选 'mmap'、'read' 或 'userptr'
+            }]
+        )
+    ])
+----- /home/duzhong/dzrobot/src/dzactuator/launch/bringup.launch.py -----
+import os
+
+from ament_index_python import get_package_share_directory
+
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.actions import IncludeLaunchDescription
+from launch.actions import GroupAction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch.substitutions import TextSubstitution
+from launch_ros.actions import Node
+from launch_ros.actions import PushRosNamespace
+
+
+def generate_launch_description():
+    serial_port_name = LaunchConfiguration('serial_port_name',default= '/dev/dzactuator')
+    serial_baud_rate = LaunchConfiguration('serial_baud_rate',default= 115200)
+    odom_frame_id = LaunchConfiguration('odom_frame_id',default= 'odom')
+    robot_frame_id = LaunchConfiguration('robot_frame_id',default= 'base_link')
+    gyro_frame_id = LaunchConfiguration('gyro_frame_id',default= 'imu_link')
+    calibrate_lineSpeed = LaunchConfiguration('calibrate_lineSpeed',default= 0)
+    ticksPerMeter = LaunchConfiguration('ticksPerMeter',default= 3290.0)
+    ticksPer2PI = LaunchConfiguration('ticksPer2PI',default= 3236.0)
+
+    # ✅ 声明 EKF 参数文件
+    ekf_params = DeclareLaunchArgument(
+        'ekf_params',
+        default_value=os.path.join(
+            get_package_share_directory('robot_localization'),
+            'params',
+            'ekf_0nly.yaml'
+        ),
+        description='Path to EKF parameters file'
+    )
+
+    return LaunchDescription([
+
+        ekf_params,   # ✅ ★ 必须加入！
+
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            arguments= ['0.0','0.0','0.08','0.0','0.0','0.0','base_link','imu_link']
+        ),
+
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            arguments= ['0.15','0.0','0.07','3.14159','0.0','0.0','base_link','laser']
+        ),
+
+
+        Node(
+            package='dzactuator',
+            executable='dzactuator_node',
+            name='dzactuator',
+            output="screen",
+            emulate_tty=True,
+            parameters=[{
+----- /home/duzhong/dzrobot/src/dzactuator/launch/fake_amcl.launch.py -----
+from launch import LaunchDescription
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+
+    return LaunchDescription([
+
+        Node(
+            package='fake_amcl_node',
+            executable='fake_amcl_node',
+            name='fake_amcl_node',
+            output='screen',
+            parameters=[
+                {
+                    'input_topic': '/odometry/filtered',
+                    'output_topic': '/amcl_pose',
+                    'frame_id': 'map',
+                }
+            ]
+        ),
+
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='map_to_odom_tf',
+            output='screen',
+            arguments=[
+                '0.0','0.0','0.0','0.0','0.0','0.0','map','odom'
+            ]
+        ),
+
+    ])----------------------------------------------------
+## 5. 关键代码片段：dzjudgment（裁判）
+----- /home/duzhong/dzrobot/src/dzjudgment/src/dzjudgment.cpp -----
+#include "judgment.h"
+
+// int main(int argc, char **argv)
+// {
+//     rclcpp::init(argc, argv);
+//     /*产生一个waypoint的节点*/
+//     auto node = std::make_shared<dzjudgment>("robot1_judgment");
+//     /* 运行节点，并检测退出信号*/
+//     rclcpp::spin(node);
+//     rclcpp::shutdown();
+//     return 0;
+// }
+#include "judgment.h"
+
+int main(int argc, char * argv[])
+{
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<dzjudgment>();
+  node->run();
+  rclcpp::shutdown();
+  return 0;
+}----- /home/duzhong/dzrobot/src/dzjudgment/src/judgment.cpp -----
+#include "judgment.h"
+
+dzjudgment::dzjudgment() : Node("dzjudgment_node")
+{
+    m_baudrate = 115200;
+    m_serialport = "/dev/ttyACM0";
+
+    this->declare_parameter("mcubaudrate", m_baudrate);
+    this->get_parameter("mcubaudrate", m_baudrate);
+    this->declare_parameter("mcuserialport", m_serialport);
+    this->get_parameter("mcuserialport", m_serialport);
+
+    // paramters
+    std::cout << FRED("Copyright©2016-2020 duzhong robot. All rights reserved ") << std::endl;
+    std::cout << FYEL("*****dzjudgment:parameters*******************") << std::endl;
+    std::cout << FGRN("judgment_baudrate: ") << m_baudrate << std::endl;
+    std::cout << FGRN("judgment_serialport: ") << m_serialport << std::endl;
+    std::cout << FYEL("*****dzjudgment:parameters end***************") << std::endl;
+
+    int retryCount = 3;
+    while (retryCount > 0)
+    {
+        try
+        {
+            std::cout << "[dzjudgment-->]" << "Serial initialize start!" << std::endl;
+            ser.setPort(m_serialport.c_str());
+            ser.setBaudrate(m_baudrate);
+            serial::Timeout to = serial::Timeout::simpleTimeout(30);
+            ser.setTimeout(to);
+            ser.open();
+            break;
+        }
+        catch (serial::IOException &e)
+        {
+            std::cout << "[dzjudgment-->]" << "Unable to open port! Retrying..." << std::endl;
+            retryCount--;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }
+
+    if (ser.isOpen())
+    {
+        std::cout << "[dzjudgment-->]" << "Serial initialize successfully!" << std::endl;
+    }
+    else
+    {
+        std::cout << "[dzjudgment-->]" << "Serial port failed after multiple attempts!" << std::endl;
+        rclcpp::shutdown();
+    }
+
+    sub_LaserShot_Command = this->create_subscription<std_msgs::msg::UInt8>(
+        "LaserShot_Command", 2, std::bind(&dzjudgment::callback_LaserShot_Command, this, std::placeholders::_1));
+
+    pub_hpandhismsg = this->create_publisher<std_msgs::msg::UInt8MultiArray>("HpAndHitmsg", 10);
+    pub_all_Material_Number = this->create_publisher<std_msgs::msg::UInt8MultiArray>("all_Material_Number", 10);
+    pub_enemy_Material_Number = this->create_publisher<std_msgs::msg::UInt8MultiArray>("enemy_Material_Number", 10);
+    pub_self_Material_Number = this->create_publisher<std_msgs::msg::UInt8MultiArray>("self_Material_Number", 10);
+}
+
+dzjudgment::~dzjudgment()
+----- /home/duzhong/dzrobot/src/dzjudgment/launch/judgment.launch.py -----
+from launch import LaunchDescription
+from launch_ros.actions import Node
+
+def generate_launch_description():
+    return LaunchDescription([
+        Node(
+            package="dzjudgment",
+            executable="dzjudgment",
+            name="dzjudgment",
+            output="screen",
+            emulate_tty=True,
+            parameters=[
+                {"mcubaudrate": 115200},
+                {"mcuserialport": "/dev/dzjudgment"}, 
+            ]
+        )
+    ])----------------------------------------------------
+## 6. 关键代码片段：naviPointPath（导航目标点接口）
+----------------------------------------------------
+## 7. launch 文件全清单
+/home/duzhong/dzrobot/src/fake_amcl_node/launch/fake_amcl.launch.py
+/home/duzhong/dzrobot/src/dzrknn_dataprocess/launch/dzrknn_dataprocess.launch.py
+/home/duzhong/dzrobot/src/rknn_pt/launch/det_node.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/dznavigation.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/dztrack_savepath.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/judgment.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/camera.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/bringup.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/fake_amcl.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/amcl.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/dztrack.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/dzshooting.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/bringup_all.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/slam_gmapping.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/ekf.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/dzcontrol.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/map_saver.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/det_node.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/dzrknn_dataprocess.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch_auto/auto_sl_s3e.launch.py
+/home/duzhong/dzrobot/src/car_localization/launch/localization.launch.py
+/home/duzhong/dzrobot/src/dztrack/launch/dztrack.launch.py
+/home/duzhong/dzrobot/src/robot_localization-humble-devel/test/test_ekf_localization_node_bag2.launch.py
+/home/duzhong/dzrobot/src/robot_localization-humble-devel/test/test_ukf_localization_node_bag2.launch.py
+/home/duzhong/dzrobot/src/robot_localization-humble-devel/test/test_ukf_localization_node_interfaces.launch.py
+/home/duzhong/dzrobot/src/robot_localization-humble-devel/test/test_ekf_localization_node_bag1.launch.py
+/home/duzhong/dzrobot/src/robot_localization-humble-devel/test/test_ukf_localization_node_bag3.launch.py
+/home/duzhong/dzrobot/src/robot_localization-humble-devel/test/test_ekf_localization_node_bag3.launch.py
+/home/duzhong/dzrobot/src/robot_localization-humble-devel/test/test_robot_localization_estimator.launch.py
+/home/duzhong/dzrobot/src/robot_localization-humble-devel/test/test_ros_robot_localization_listener.launch.py
+----------------------------------------------------
+## 8. 历史命令里的官方启动方式（只看 ros2/launch 相关行）
+ros2 topic pub -1 /CameMo_Conl std_msgs/msg/Int32MultiArray "{data: [2047, 3047, 300, 300]}"
+ros2 topic pub -1 /CameMo_Conl std_msgs/msg/Int32MultiArray "{data: [2047, 2047, 300, 300]}"
+ros2 launch dzactuator bringup_all.launch.py
+ros2 launch dzactuator bringup_all.launch.py
+ros2 launch dzactuator bringup_all.launch.py
+ros2 launch dzactuator bringup_all.launch.py
+- **Æô¶¯**£º`ros2 launch dzactuator bringup_all.launch.py`£¨4 ½Úµã°´ 0/2/5/7 ÃëÑÓ³ÙÀ­Æð£¬Ctrl+C È«Í££©
+ros2 launch dzactuator bringup_all.launch.py
+ros2 launch dzactuator bringup_all.launch.py
+ros2 launch dzactuator bringup_all.launch.py
+ros2 launch det_node det_node.launch.py
+ros2 launch dzactuator det_node.launch.py
+ros2 launch dzactuator camera.launch.py
+ros2 launch dzactuator det_node.launch.py
+pkill -f "ros2 launch"
+ros2 launch dzactuator camera.launch.py
+ros2 launch dzactuator bringup_all.launch.py
+ros2 launch dzactuator det_node.launch.py
+ros2 launch dzactuator dzrknn_dataprocess.launch.py
+ros2 launch dzactuator bringup_all.launch.py
+ros2 launch dzactuator camera.launch.py
+ros2 launch dzactuator bringup_all.launch.py
+ros2 launch dzactuator bringup.launch.py	
+ros2 launch dzactuator bringup_all.launch.py
+ros2 launch dzactuator det_node.launch.py
+ros2 launch dzactuator det_node.launch.py
+ros2 launch dzactuator det_node.launch.py
+ros2 launch dzactuator det_node.launch.py
+ros2 launch dzactuator bringup_all.launch.py
+ros2 launch dzactuator bringup_all.launch.py
+ros2 topic pub --once /move_base/stop_signal std_msgs/msg/UInt8 "{data: 1}"
+ros2 topic pub --once /move_base/stop_signal std_msgs/msg/UInt8 "{data: 0}"
+ros2 launch dzrobot/actuator bringup.launch.py
+ros2 launch dzactuator bringup.launch.py
+ros2 launch dzactuator bringup.launch.py
+ros2 launch dzactuator bringup.launch.pyls
+ros2 launch dzactuator bringup.launch.pyls
+ros2 launch dzactuator bringup.launch.py
+ros2 launch dzactuator dzrknn_dataprocess.launch.py
+pkill -f "ros2 launch"; pkill -f path_executor.py; pkill -f serial_reader; pkill -f det_node
+==================== 结束 ====================

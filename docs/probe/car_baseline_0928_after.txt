@@ -1,0 +1,39 @@
+??: 2026-09-28 18:40:15   uptime: up 27 minutes
+IP: 172.23.116.188
+
+## A. ?? ROS ???????????
+
+## B. /tmp ?????????
+  car_base.sh.sh
+  /tmp/ag_ws: ???
+
+## C. ?????
+  远程桌面
+  桌面
+  backup
+  board_current_0928.tar.gz
+  build
+  cmd
+  Desktop
+  Documents
+  Downloads
+  dzrobot
+  install
+  log
+  Music
+  openCV
+  Public
+  snap
+  src_save_backup_20260926
+  sudo nmcli device wifi connectOPPO Find X9 Pro E576password123lmjlxy
+  Templates
+  udo reboot
+
+## D. ???????????????
+  /home/duzhong/dzrobot                    888M  9101 ???
+  /home/duzhong/dzrobot/src                268M  1763 ???
+  /home/duzhong/src_save_backup_20260926   245M  1766 ???
+  /home/duzhong/backup                     72K  6 ???
+    6d31d068c1  /home/duzhong/dzrobot/src/car_localization/car_localization/path_executor.py
+    34a3189d26  /home/duzhong/dzrobot/src/dzjudgment/src/judgment.cpp
+    28addcce99  /home/duzhong/.bashrc

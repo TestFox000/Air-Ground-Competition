@@ -1,0 +1,225 @@
+==================== 车端深度探测 ====================
+2026年 09月 27日 星期日 17:07:36 CST
+
+----------------------------------------------------
+## 1. ROS 到底装没装（绕开 PATH）
+/opt/ros/humble
+  -- /opt/ros/humble --
+bin
+cmake
+include
+lib
+local
+local_setup.bash
+local_setup.sh
+_local_setup_util.py
+local_setup.zsh
+opt
+setup.bash
+setup.sh
+     setup.bash: 有
+-- 直接找可执行文件 --
+/opt/ros/humble/bin/ros2
+-- 包管理器痕迹 --
+  dpkg 里 ros 相关包数: 307
+ros-fish.list
+
+----------------------------------------------------
+## 2. 登录 shell 里的环境（对比上面，判断是不是 PATH 问题）
+ROS_DISTRO=<空>
+ros2=无
+PYTHONPATH=
+121:# >>> fishros initialize >>>
+122:source /opt/ros/humble/setup.bash
+123:# <<< fishros initialize <<<
+124:source /home/duzhong/dzrobot/install/setup.bash
+129:source /home/duzhong/dzrobot/install/setup.bash
+
+----------------------------------------------------
+## 3. 家目录里已有的东西（车端既有代码/脚本）
+总计 308
+drwxr-x--- 39 duzhong duzhong  4096  9月 27 17:06 .
+drwxr-xr-x  3 root    root     4096  8月 27  2025 ..
+drwxrwxr-x  2 duzhong duzhong  4096 11月 28  2025 远程桌面
+drwxrwxr-x  2 duzhong duzhong  4096  9月 26 15:52 桌面
+drwxrwxr-x  4 duzhong duzhong  4096  9月 27 16:37 backup
+-rw-------  1 duzhong duzhong 70104  9月 27 16:44 .bash_history
+-rw-r--r--  1 duzhong duzhong   220 11月 13  2024 .bash_logout
+-rw-r--r--  1 duzhong duzhong  4079  8月 10 08:58 .bashrc
+drwxrwxr-x  7 duzhong duzhong  4096  9月 18 20:20 build
+drwxrwxr-x 31 duzhong duzhong  4096  9月 27 17:06 .cache
+drwxr-xr-x  3 duzhong duzhong  4096 11月 13  2024 .cinnamon
+-rw-rw-r--  1 duzhong duzhong   222 11月 27  2025 cmd
+drwxr-xr-x 38 duzhong duzhong  4096  9月 27 17:02 .config
+drwx------  3 duzhong duzhong  4096  4月 14 14:39 .copilot
+drwxrwxr-x  3 duzhong duzhong  4096  4月  3 18:01 .cursor
+drwxrwxr-x  5 duzhong duzhong  4096  4月  3 17:37 .cursor-server
+drwx------  3 duzhong duzhong  4096 11月 27  2025 .dbus
+drwxr-xr-x  2 duzhong duzhong  4096  4月 13 14:48 Desktop
+-rw-r--r--  1 duzhong duzhong    23  8月 27  2025 .dmrc
+drwxr-xr-x  2 duzhong duzhong  4096 11月 28  2025 Documents
+drwxrwxr-x  3 duzhong duzhong  4096  8月 27  2025 .dotnet
+drwxr-xr-x  2 duzhong duzhong  4096  9月 26 18:56 Downloads
+drwxrwxr-x  9 duzhong duzhong  4096  9月 27 16:37 dzrobot
+drwx------  2 duzhong duzhong  4096 11月 27  2025 .fluxbox
+drwx------  3 duzhong duzhong  4096 11月 27  2025 .gnupg
+-rw-------  1 duzhong duzhong     0 11月 27  2025 .ICEauthority
+drwxrwxr-x  6 duzhong duzhong  4096  9月 18 20:21 install
+-rw-------  1 duzhong duzhong    20  9月 26 15:36 .lesshst
+drwxr-xr-x  5 duzhong duzhong  4096 12月  2  2025 .local
+drwxrwxr-x 10 duzhong duzhong  4096  9月 19 20:56 log
+drwx------  4 duzhong duzhong  4096 11月 27  2025 .mozilla
+drwxr-xr-x  2 duzhong duzhong  4096  9月 26 15:52 Music
+drwxrwxr-x  3 duzhong duzhong  4096 11月 13  2024 .oh-my-zsh
+drwxr-xr-x  2 duzhong duzhong  4096 12月  2  2025 openCV
+-rw-r--r--  1 duzhong duzhong   357  9月 19 10:50 .pam_environment
+drwx------  3 duzhong duzhong  4096  8月 27  2025 .pki
+-rw-r--r--  1 duzhong duzhong   807 11月 13  2024 .profile
+drwxr-xr-x  2 duzhong duzhong  4096  9月 26 15:52 Public
+-rw-------  1 duzhong duzhong  3409  9月 27 08:36 .python_history
+-- 递归找 launch / setup / 协议脚本 --
+/home/duzhong/backup/dzrknn_dataprocess.bak.20260926_190209/package.xml
+/home/duzhong/build/dzrknn_dataprocess/colcon_command_prefix_build.sh
+/home/duzhong/build/det_node/colcon_command_prefix_build.sh
+/home/duzhong/build/car_localization/colcon_command_prefix_setup_py.sh
+/home/duzhong/build/dztrack/colcon_command_prefix_build.sh
+/home/duzhong/build/dzjudgment/colcon_command_prefix_build.sh
+/home/duzhong/openCV/opencv_line.py
+/home/duzhong/openCV/kcf_tracking.py
+/home/duzhong/openCV/color_detection.py
+/home/duzhong/openCV/color_tracking.py
+/home/duzhong/openCV/qr_scan.py
+/home/duzhong/openCV/qr_generate.py
+/home/duzhong/openCV/mjpeg_server.py
+/home/duzhong/install/setup.sh
+/home/duzhong/install/_local_setup_util_sh.py
+/home/duzhong/install/local_setup.sh
+/home/duzhong/install/_local_setup_util_ps1.py
+/home/duzhong/dzrobot/save_cam.py
+/home/duzhong/dzrobot/test_rknn.py
+/home/duzhong/dzrobot/install/setup.sh
+/home/duzhong/dzrobot/install/_local_setup_util_sh.py
+/home/duzhong/dzrobot/install/local_setup.sh
+/home/duzhong/dzrobot/install/_local_setup_util_ps1.py
+/home/duzhong/src_save_backup_20260926/fake_amcl_node/package.xml
+/home/duzhong/src_save_backup_20260926/dzrknn_dataprocess/package.xml
+/home/duzhong/src_save_backup_20260926/rknn_pt/package.xml
+/home/duzhong/src_save_backup_20260926/dzactuator/package.xml
+/home/duzhong/src_save_backup_20260926/dztrack/package.xml
+/home/duzhong/src_save_backup_20260926/robot_localization-humble-devel/package.xml
+/home/duzhong/src_save_backup_20260926/dzjudgment/package.xml
+/home/duzhong/src_save_backup_20260926/install/setup.sh
+/home/duzhong/src_save_backup_20260926/install/_local_setup_util_sh.py
+/home/duzhong/src_save_backup_20260926/install/local_setup.sh
+/home/duzhong/src_save_backup_20260926/install/_local_setup_util_ps1.py
+/home/duzhong/src_save_backup_20260926/rplidar_ros-ros2/package.xml
+
+----------------------------------------------------
+## 4. 串口归属（两个 ACM 口分别是谁）
+-- /dev/ttyACM0 --
+ID_VENDOR=1a86
+ID_VENDOR_ENC=1a86
+ID_VENDOR_ID=1a86
+ID_MODEL=USB_Single_Serial
+ID_MODEL_ENC=USB\x20Single\x20Serial
+ID_MODEL_ID=55d4
+-- /dev/ttyACM1 --
+ID_VENDOR=Espressif
+ID_VENDOR_ENC=Espressif
+ID_VENDOR_ID=303a
+ID_MODEL=USB_JTAG_serial_debug_unit
+ID_MODEL_ENC=USB\x20JTAG\x2fserial\x20debug\x20unit
+ID_MODEL_ID=1001
+-- by-id 软链 --
+总计 0
+lrwxrwxrwx 1 root root 13  9月 27 17:02 usb-1a86_USB_Single_Serial_5A9B054223-if00 -> ../../ttyACM0
+lrwxrwxrwx 1 root root 13  9月 27 17:02 usb-Espressif_USB_JTAG_serial_debug_unit_B4:3A:45:A7:0F:00-if00 -> ../../ttyACM1
+-- 谁在占用 --
+
+----------------------------------------------------
+## 5. NPU / RKNN 能力（Orange Pi 5 应为 RK3588S）
+crw-rw-rw- 1 root video 241, 0  9月 27 17:02 /dev/mpp_service
+
+/dev/dri:
+总计 0
+crw-rw----+ 1 root video  226,   0  9月 27 17:02 card0
+crw-rw----+ 1 root video  226,   1  9月 27 17:02 card1
+crw-rw----+ 1 root render 226, 128  9月 27 17:02 renderD128
+crw-rw----+ 1 root render 226, 129  9月 27 17:02 renderD129
+-rwxr-xr-x 1 root root 7726232  9月 27 09:58 /usr/lib/librknnrt.so
+ModuleNotFoundError: No module named 'rknnlite'
+numpy                      1.26.4
+onnx                       1.16.1
+onnxoptimizer              0.3.8
+onnxruntime                1.23.2
+opencv-contrib-python      4.11.0.86
+opencv-python              4.11.0.86
+rknn-toolkit2              2.3.2
+torch                      2.2.0
+/usr/bin/ffmpeg
+ffmpeg version 4.4.2-0ubuntu0.22.04.1 Copyright (c) 2000-2021 the FFmpeg developers
+
+----------------------------------------------------
+## 6. 相机能力（AR0234）
+-- video0 支持格式 --
+ioctl: VIDIOC_ENUM_FMT
+	Type: Video Capture
+
+	[0]: 'MJPG' (Motion-JPEG, compressed)
+		Size: Discrete 1920x1200
+			Interval: Discrete 0.011s (90.000 fps)
+			Interval: Discrete 0.017s (60.000 fps)
+			Interval: Discrete 0.033s (30.000 fps)
+		Size: Discrete 1920x1080
+			Interval: Discrete 0.011s (90.000 fps)
+			Interval: Discrete 0.017s (60.000 fps)
+			Interval: Discrete 0.033s (30.000 fps)
+		Size: Discrete 896x1200
+			Interval: Discrete 0.011s (90.000 fps)
+			Interval: Discrete 0.017s (60.000 fps)
+			Interval: Discrete 0.033s (30.000 fps)
+		Size: Discrete 1600x1200
+			Interval: Discrete 0.011s (90.000 fps)
+			Interval: Discrete 0.017s (60.000 fps)
+			Interval: Discrete 0.033s (30.000 fps)
+		Size: Discrete 1280x960
+			Interval: Discrete 0.011s (90.000 fps)
+			Interval: Discrete 0.017s (60.000 fps)
+			Interval: Discrete 0.033s (30.000 fps)
+		Size: Discrete 1024x768
+			Interval: Discrete 0.011s (90.000 fps)
+			Interval: Discrete 0.017s (60.000 fps)
+			Interval: Discrete 0.033s (30.000 fps)
+		Size: Discrete 1280x720
+			Interval: Discrete 0.008s (120.000 fps)
+-- 尝试抓一帧（5 秒超时，只读不写盘） --
+  抓帧结束（无输出=成功）
+
+----------------------------------------------------
+## 7. 正在运行的服务与进程（有没有官方程序在跑）
+  vncserver@:1.service           loaded active running TigerVNC Server
+    PID COMMAND         COMMAND
+   4827 ros2            /usr/bin/python3 /opt/ros/humble/bin/ros2 topic pub --once /nav/scan_request std_msgs/msg/UInt8 {data: 1}
+   5172 sshd            sshd: duzhong [priv]
+   1071 accounts-daemon /usr/libexec/accounts-daemon
+   1875 Xorg            /usr/lib/xorg/Xorg -core :0 -seat seat0 -auth /var/run/lightdm/root/:0 -nolisten tcp vt7 -novtswitch
+   4142 terminator      /usr/bin/python3 /usr/bin/terminator
+      1 systemd         /sbin/init splash
+   1232 snapd           /usr/lib/snapd/snapd
+   5305 bash            bash /tmp/probe_car2.sh.sh
+   1973 Xtigervnc       /usr/bin/Xtigervnc :1 -localhost=0 -desktop duzhong:1 (duzhong) -rfbport 5901 -PasswordFile /home/duzhong/.vnc/passwd -SecurityTypes VncAuth,TLSVnc -auth /home/duzhong/.Xauthority -geometry 1280x800 -depth 24
+   1078 dbus-daemon     @dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only
+   1543 polkitd         /usr/libexec/polkitd --no-debug
+    692 dhd_dpc         [dhd_dpc]
+   1079 NetworkManager  /usr/sbin/NetworkManager --no-daemon
+   1636 run-cups-browse /bin/sh /snap/cups/1237/scripts/run-cups-browsed
+
+----------------------------------------------------
+## 8. Python 与磁盘
+Python 3.10.12
+pip 25.3 from /home/duzhong/.local/lib/python3.10/site-packages/pip (python 3.10)
+文件系统        大小  已用  可用 已用% 挂载点
+/dev/mmcblk1p2   57G   27G   30G   48% /
+/dev/mmcblk1p2   57G   27G   30G   48% /
+
+==================== 探测结束 ====================

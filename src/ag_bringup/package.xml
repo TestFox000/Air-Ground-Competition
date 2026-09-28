@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>ag_bringup</name>
+  <version>0.1.0</version>
+  <description>启动文件与参数配置总入口</description>
+  <maintainer email="team@example.com">team</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>ag_core</exec_depend>
+  <exec_depend>ag_interfaces</exec_depend>
+  <exec_depend>ag_perception</exec_depend>
+  <exec_depend>ag_mission</exec_depend>
+  <exec_depend>ag_referee</exec_depend>
+  <exec_depend>ag_bridge</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

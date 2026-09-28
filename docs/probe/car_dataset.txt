@@ -1,0 +1,155 @@
+==================== 车端第五轮：执行器常量 + 数据集 ====================
+2026年 09月 27日 星期日 18:29:28 CST
+
+----------------------------------------------------
+## 1. path_executor 常量（修正路径：src/car_localization/car_localization/）
+文件: /home/duzhong/dzrobot/src/car_localization/car_localization/path_executor.py (1378 行)
+-- 模块级常量 --
+103:CMD_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+106:COL_LETTERS = 'ABCDEFGHIJKLMN'  # 14 column letters, A (left/west) .. N (right/east)
+107:MAP_COLS = 14                   # map column count
+108:MAP_ROWS = 11                   # map row count, row 1 (far end) .. row 11 (near end)
+109:BLOCK_SIZE = 0.35  # block edge length (meters), 14x11 grid map
+115:RAW_YAW_TO_MAP_YAW_OFFSET = math.pi / 2  # fixed offset raw yaw -> map yaw (+90 deg)
+-- '*'(停靠打击) 相关 --
+30:  dzrknn_dataprocess --/shoot_count(Int32 cumulative shot count)--> this node
+49:  1. Waiting for shooting? -> stop, publish zero Twist until 10 shots or 150s timeout
+74:  (5) Sensor input               - shoot_count_cb(cumulative shot count cache),
+258:        # opening gimbal scan + shooting via stop_signal, then waiting for /shoot_count
+259:        # to reach SHOOT_COUNT_TARGET before continuing.
+261:        self.shoot_wait = False          # True = stopped, waiting for shooting to finish
+262:        self.shoot_wait_start = 0.0      # wait start time (seconds)
+263:        self.shoot_count_at_arrival = 0  # /shoot_count snapshot at arrival
+264:        self.SHOOT_COUNT_TARGET = 10     # pellets to fire
+265:        self.SHOOT_WAIT_TIMEOUT = 150.0  # seconds; on timeout give up and continue
+266:        self.SHOOT_STOP_RADIUS = 0.17    # m; stop judgment radius around a shoot waypoint
+344:        self.shoot_count_sub = self.create_subscription(
+345:            Int32, '/shoot_count', self.shoot_count_cb, 10)  # subscribe cumulative shot count topic
+346:        self.shoot_count = 0  # locally cached latest cumulative shot count
+378:        self.get_logger().info("          shots at D2, then continue")      # fire 10 then continue
+506:                    self.shoot_wait = False   # exit shoot wait
+583:            self.shoot_wait = False            # exit shoot wait
+609:        'G8 D2* E2'   -> same, but stop at D2, fire SHOOT_COUNT_TARGET shots, then continue
+717:        self.shoot_wait = False           # exit shoot wait
+730:    # shoot_count_cb: cache cumulative shot count; odom_callback: convert
+734:    def shoot_count_cb(self, msg):
+738:        self.shoot_count = int(msg.data)  # cache latest cumulative shot count
+791:        self.shoot_wait = True            # set wait flag
+792:        self.shoot_wait_start = self.get_clock().now().seconds_nanoseconds()[0]  # record start time
+793:        self.shoot_count_at_arrival = self.shoot_count  # snapshot current cumulative shots
+
+----------------------------------------------------
+## 2. camera_dataset 家底
+总大小: 81M	/home/duzhong/dzrobot/camera_dataset
+文件数: 1244
+-- 按扩展名统计 --
+   1244 jpg
+-- 目录结构（2 层）--
+/home/duzhong/dzrobot/camera_dataset
+-- 有没有标注（labels / txt / json / xml）--
+-- 图片分辨率抽样 --
+/home/duzhong/dzrobot/camera_dataset/img_0797.jpg (640, 480)
+/home/duzhong/dzrobot/camera_dataset/img_0537.jpg (640, 480)
+/home/duzhong/dzrobot/camera_dataset/img_0161.jpg (640, 480)
+
+----------------------------------------------------
+## 3. 全盘找训练素材/标签/脚本（限制深度，排除 build/install）
+/home/duzhong/.vscode-server/data/User/History/129de730/KbFY.yaml
+/home/duzhong/.vscode-server/data/User/History/-36d24ac7/Yp2B.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/UP25.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/Drae.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/ZM6h.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/G2lA.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/eHGM.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/O3hT.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/q05D.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/Yub9.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/D1R9.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/aTyD.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/WkxN.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/4Ax5.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/KL71.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/r1vI.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/eU1z.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/d6cR.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/SPld.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/lDSE.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/Aw9j.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/i3xp.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/cjWW.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/wXOj.yaml
+/home/duzhong/.vscode-server/data/User/History/-14ffe61f/e0kG.yaml
+-- 可疑的数据集目录 --
+/home/duzhong/backup/dzrknn_dataprocess.bak.20260926_190209
+/home/duzhong/log/build_2026-08-24_22-04-57/dzrknn_dataprocess
+/home/duzhong/log/build_2026-08-24_22-21-16/dzrknn_dataprocess
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260919_101729/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260824_203959/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20251203_092730/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260615_162604/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260916_124416/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260809_094251/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260927_165357/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260911_161746/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260812_181525/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260422_091608/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260809_145042/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260927_170256/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260917_171029/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260430_120621/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260828_122613/datareporting
+/home/duzhong/.mozilla/firefox/vxuqjg05.default-release-backup-crashrecovery-20260901_202433/datareporting
+
+----------------------------------------------------
+## 4. rkpt.cc 解码逻辑（确认类别数与关键点个数）
+-- 头文件里的宏 --
+
+----------------------------------------------------
+## 5. 车上有没有训练/导出脚本（判断 light_det 是谁生成的）
+/home/duzhong/backup/dzrknn_dataprocess.bak.20260926_190209/launch/dzrknn_dataprocess.launch.py
+/home/duzhong/dzrobot/src_4/dzrknn_dataprocess/launch/dzrknn_dataprocess.launch.py
+/home/duzhong/dzrobot/src_4/dzactuator/launch/dzrknn_dataprocess.launch.py
+/home/duzhong/dzrobot/src/dzrknn_dataprocess/launch/dzrknn_dataprocess.launch.py
+/home/duzhong/dzrobot/src/dzactuator/launch/dzrknn_dataprocess.launch.py
+/home/duzhong/dzrobot/test_rknn.py
+/home/duzhong/dzrobot/src_1/dzactuator/launch/dzrknn_dataprocess.launch.py
+/home/duzhong/src_save_backup_20260926/dzrknn_dataprocess/launch/dzrknn_dataprocess.launch.py
+/home/duzhong/src_save_backup_20260926/dzactuator/launch/dzrknn_dataprocess.launch.py
+-- test_rknn.py 头部（可能就是导出/验证脚本）--
+# -*- coding: utf-8 -*-
+from rknn.api import RKNN
+import numpy as np
+import cv2
+
+rknn = RKNN(verbose=True)
+
+print('=== load_rknn ===')
+ret = rknn.load_rknn('/home/duzhong/dzrobot/src/rknn_pt/model/best.rknn')
+print('load_rknn ret =', ret)
+if ret != 0:
+    print('model file load failed, model corrupted')
+    exit(1)
+
+print('=== init_runtime ===')
+ret = rknn.init_runtime()
+print('init_runtime ret =', ret)
+if ret != 0:
+    print('NPU runtime init failed')
+    exit(1)
+
+print('=== inputs ===')
+inputs = rknn.get_input_attrs()
+print(inputs)
+
+print('=== outputs ===')
+outputs = rknn.get_output_attrs()
+print(outputs)
+
+img = cv2.imread('test.jpg')
+
+----------------------------------------------------
+## 6. offcenter_table.txt 是否已标定
+行数: 23, 去重值: 0 
+
+==================== 结束 ====================

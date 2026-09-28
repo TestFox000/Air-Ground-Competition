@@ -1,0 +1,51 @@
+==================== 开火闸门重跑（失败：相机崩了） ====================
+2026-09-27 约 19:42—19:44（本次会话）
+
+## 结论
+
+闸门**这次没能验证**，原因不在闸门，而在相机：`usb_cam_node` 以 SIGABRT 崩掉，
+`det_node` 之后一直等 `/image_raw`，判定阶段没有目标可用。
+
+## 原始证据
+
+-- /tmp/ag_b_cam.log（尾部）--
+  [usb_cam_node_exe-1] 	YUYV 4:2:2 320 x 240 (10 Hz)
+  [usb_cam_node_exe-1] 	YUYV 4:2:2 320 x 240 (5 Hz)
+  [ERROR] [usb_cam_node_exe-1]: process has died [pid 38439, exit code -6,
+      cmd '/opt/ros/humble/lib/usb_cam/usb_cam_node_exe --ros-args -r __node:=usb_cam_node
+      --params-file /tmp/launch_params_sr2q3tx7']
+  # exit code -6 = SIGABRT
+
+-- /tmp/ag_b_det.log（尾部）--
+  [det_node-1] [INFO] [1790512164.728224535] [det_node]: waiting for /image_raw ...
+      (is the camera node running?)
+  [det_node-1] [INFO] [1790512166.741178537] [det_node]: waiting for /image_raw ...
+  [det_node-1] [INFO] [1790512168.754023040] [det_node]: waiting for /image_raw ...
+
+-- 两个闸门实例都起来了（退出时的报错是被 kill 的噪音，无害）--
+  /tmp/ag_guard_1.log: rclpy._rclpy_pybind11.RCLError: failed to shutdown:
+      rcl_shutdown already called on the given context
+  /tmp/ag_guard_2.log: 同上
+
+-- 运行结束后车端状态（**无残留，脚本 trap 生效**）--
+  ros2 node list -> 空
+  find /tmp -name "ag_*" -mmin -3 -> 只有 ag_b_cam.log / ag_b_det.log
+
+## 由此得到的两个真实结论
+
+1. **相机不稳**：同一天 19:03（`car_stage1.txt`）相机还是 26 fps 正常出图，
+   19:42 这次却 SIGABRT。`usb_cam` 崩掉的常见原因是设备被占用或 USB 带宽/供电问题。
+   → 上场前必须把"相机能否稳定出图"作为单独一项来验，别默认它一定在。
+
+2. **故障不可见**：相机死了之后，`det_node` 只是**无限等待**并刷
+   "waiting for /image_raw"，链路里没有任何一处显式报"相机挂了"。
+   如果不是特意去翻 `/tmp/ag_b_cam.log`，现场表现就是"什么都检测不到"。
+   → 这正是黑匣子要覆盖的场景；但目前 `usb_cam` / `det_node` 是官方节点、不写我们的日志，
+   只能靠 `tools/car_ros_logs.sh` 或现场看 `ros2 node list` 里 usb_cam 在不在。
+
+## 下一步
+
+重跑 `tools/car_stage2b_guard_proof.sh` 之前，先确认：
+- [ ] `ros2 node list` 里有 `usb_cam_node`，且 `ros2 topic hz /image_raw` 有稳定帧率
+- [ ] `/offset_center` 能读到有效类别（脚本第 2 步会打印）
+- [ ] 确保没有别的进程占着 `/dev/video*`

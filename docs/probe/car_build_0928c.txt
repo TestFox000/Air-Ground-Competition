@@ -1,0 +1,124 @@
+==================== 车端编译 ====================
+2026年 09月 28日 星期一 19:08:52 CST
+
+## 1. 环境
+ROS_DISTRO=humble
+colcon    = /usr/bin/colcon
+python3   = Python 3.10.12
+numpy     = 1.26.4
+
+## 2. 源码
+ag_bridge
+ag_bringup
+ag_car
+ag_chassis
+ag_core
+ag_interfaces
+ag_mission
+ag_perception
+ag_referee
+包数: 9
+-- 每个包是否都有 package.xml 同级的构建文件 --
+  ag_bridge        package.xml:有 setup.py:有 CMakeLists.txt:无
+  ag_bringup       package.xml:有 setup.py:有 CMakeLists.txt:无
+  ag_car           package.xml:有 setup.py:有 CMakeLists.txt:无
+  ag_chassis       package.xml:有 setup.py:有 CMakeLists.txt:无
+  ag_core          package.xml:有 setup.py:有 CMakeLists.txt:无
+  ag_interfaces    package.xml:有 setup.py:无 CMakeLists.txt:有
+  ag_mission       package.xml:有 setup.py:有 CMakeLists.txt:无
+  ag_perception    package.xml:有 setup.py:有 CMakeLists.txt:无
+  ag_referee       package.xml:有 setup.py:有 CMakeLists.txt:无
+
+## 3. colcon build
+colcon 退出码 = 0
+
+---- 摘要 ----
+Starting >>> ag_interfaces
+Starting >>> ag_core
+Finished <<< ag_core [1.56s]
+Finished <<< ag_interfaces [11.2s]
+Starting >>> ag_mission
+Starting >>> ag_bridge
+Starting >>> ag_perception
+Starting >>> ag_referee
+Starting >>> ag_chassis
+Finished <<< ag_mission [3.28s]
+Starting >>> ag_car
+Finished <<< ag_perception [3.32s]
+Finished <<< ag_bridge [3.33s]
+Finished <<< ag_chassis [3.75s]
+Finished <<< ag_referee [3.79s]
+Starting >>> ag_bringup
+Finished <<< ag_car [1.65s]
+Finished <<< ag_bringup [1.61s]
+Summary: 9 packages finished [17.0s]
+
+---- 错误/警告 ----
+
+---- 日志尾部 ----
+Starting >>> ag_interfaces
+Starting >>> ag_core
+Finished <<< ag_core [1.56s]
+Finished <<< ag_interfaces [11.2s]
+Starting >>> ag_mission
+Starting >>> ag_bridge
+Starting >>> ag_perception
+Starting >>> ag_referee
+Starting >>> ag_chassis
+Finished <<< ag_mission [3.28s]
+Starting >>> ag_car
+Finished <<< ag_perception [3.32s]
+Finished <<< ag_bridge [3.33s]
+Finished <<< ag_chassis [3.75s]
+Finished <<< ag_referee [3.79s]
+Starting >>> ag_bringup
+Finished <<< ag_car [1.65s]
+Finished <<< ag_bringup [1.61s]
+
+Summary: 9 packages finished [17.0s]
+
+## 4. 安装结果
+ag_bridge
+ag_bringup
+ag_car
+ag_chassis
+ag_core
+ag_interfaces
+ag_mission
+ag_perception
+ag_referee
+COLCON_IGNORE
+-- 可执行文件 --
+/tmp/ag_ws/install/ag_bridge/lib/ag_bridge:
+air_link_node
+fake_intel_node
+ground_link_node
+
+/tmp/ag_ws/install/ag_car/lib/ag_car:
+aim_guard_node
+car_node
+
+/tmp/ag_ws/install/ag_chassis/lib/ag_chassis:
+chassis_node
+
+/tmp/ag_ws/install/ag_mission/lib/ag_mission:
+mission_node
+target_node
+
+/tmp/ag_ws/install/ag_perception/lib/ag_perception:
+intel_fusion_node
+vision_node
+
+/tmp/ag_ws/install/ag_referee/lib/ag_referee:
+referee_node
+-- msg 生成 --
+/tmp/ag_ws/install/ag_interfaces/local/lib/python3.10/dist-packages/ag_interfaces/msg/_referee_state_msg.py
+/tmp/ag_ws/install/ag_interfaces/local/lib/python3.10/dist-packages/ag_interfaces/msg/_gimbal_command.py
+/tmp/ag_ws/install/ag_interfaces/local/lib/python3.10/dist-packages/ag_interfaces/msg/_field_intel_msg.py
+/tmp/ag_ws/install/ag_interfaces/local/lib/python3.10/dist-packages/ag_interfaces/msg/_detection_array.py
+/tmp/ag_ws/install/ag_interfaces/local/lib/python3.10/dist-packages/ag_interfaces/msg/_detection.py
+/tmp/ag_ws/install/ag_interfaces/local/lib/python3.10/dist-packages/ag_interfaces/msg/__init__.py
+/tmp/ag_ws/install/ag_interfaces/local/lib/python3.10/dist-packages/ag_interfaces/__init__.py
+
+完整日志：/tmp/ag_build.log
+==================== 结束 ====================

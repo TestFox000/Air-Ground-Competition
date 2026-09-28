@@ -1,0 +1,264 @@
+==================== 车端全链路干跑（不动车） ====================
+2026年 09月 28日 星期一 18:31:43 CST
+工作区 : /tmp/ag_ws
+日志目录: /tmp/ag_logs/rehearsal   （会话 rehearsal）
+
+----------------------------------------------------
+## 0. 前置检查：车上现在有哪些节点（避免与官方栈互相干扰）
+  
+  [OK] 没有本项目的残留节点
+
+----------------------------------------------------
+## 1. 清掉上次的同名日志（避免新旧混在一份报告里）
+  日志目录就绪: /tmp/ag_logs/rehearsal
+
+----------------------------------------------------
+## 2. 启动链路与节点
+  ground_link 进程组=7998 -> /tmp/ag_ground_link.log
+  air_link 进程组=7999 -> /tmp/ag_air_link.log
+  fake_intel 进程组=8037 -> /tmp/ag_fake_intel.log
+  car_node 进程组=8038 -> /tmp/ag_car_node.log
+  存活 4 / 4 个进程
+  [OK] 四个节点都在跑
+
+----------------------------------------------------
+## 3. 让链路跑 20s（假情报 -> UDP -> car_node）
+  完成
+
+----------------------------------------------------
+## 4. car_node 算出的路线（dry_run，只算不发）
+  {"dry_run": true, "reset_sent": false, "route": "K9 I9 H8 G7 F6 E5 D4 D2* B2 C3 K4 N11,y", "tasks": 13, "shots": 0, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "bridge_a": "K4", "bridge_b": "K9", "target_cells": ["D2", "E2"], "target_face": "blue", "face_decided": "blue", "shoot_stops": ["D2"], "shoot_wait_budget_s": 60.0, "fits_shoot_wait": true, "drive_eta_s": 61.1, "bridge_zones": "A 段 K1~K5（5 选 1） / B 段 K6~K11（6 选 1）", "bridge_check_ok": true, "bridge_problems": []}
+  ---
+
+----------------------------------------------------
+## 5. 反证：dry_run 下**一条路线命令都没发**
+  [OK] 没收到任何 /nav/waypoint 消息 —— 车不会动
+
+----------------------------------------------------
+## 6. 黑匣子：落了哪些文件
+  总计 80
+  -rw-rw-r-- 1 duzhong duzhong 23463  9月 28 18:32 air_link_node-8002.jsonl
+  -rw-rw-r-- 1 duzhong duzhong 23499  9月 28 18:32 car_node-8041.jsonl
+  -rw-rw-r-- 1 duzhong duzhong   456  9月 28 18:31 fake_intel_node-8040.jsonl
+  -rw-rw-r-- 1 duzhong duzhong 25433  9月 28 18:32 ground_link_node-8001.jsonl
+
+----------------------------------------------------
+## 7. 黑匣子：事件概览（这台车上的第一手复盘素材）
+  共 211 条事件，4 个节点，坏行 0
+  各节点条数: ground_link_node×71, air_link_node×69, car_node×69, fake_intel_node×2
+
+  T+   1.0s air_link_node      link.tx        {"kind": "heartbeat", "bytes": 76, "data": {"seq": 0}}
+  T+   1.0s ground_link_node   link.rx        {"kind": "heartbeat", "ok": true, "note": "非情报帧（心跳/状态）", "data": {"seq": 0}}
+  T+   2.0s car_node           session.begin  {"start_cell": "N10", "goal_cell": "N11", "cols": 14, "rows": 11, "cell_size": 0.35, "speed_mps": 0.55, "budget_s": 180.0, "goal_margin_s": 12.0, "dry
+  T+   2.5s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   2.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   2.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   3.0s air_link_node      link.tx        {"kind": "intel", "bytes": 212, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   3.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   3.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   3.0s car_node           intel.stable   {"mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "target_cells": ["D2", "E2"
+  T+   3.4s car_node           plan.built     {"route": "K9 I9 H8 G7 F6 E5 D4 D2* B2 C3 K4 N11,y", "tasks": 13, "shoot_stops": ["D2"], "eta_s": 61.1, "face": "blue", "dry_run": true}
+  T+   3.5s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   3.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   3.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   4.0s air_link_node      link.tx        {"kind": "intel", "bytes": 212, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   4.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   4.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   4.5s air_link_node      link.tx        {"kind": "intel", "bytes": 212, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   4.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   4.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   5.0s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   5.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   5.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   5.5s air_link_node      link.tx        {"kind": "intel", "bytes": 212, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   5.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   5.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   6.0s air_link_node      link.tx        {"kind": "intel", "bytes": 212, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   6.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   6.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   6.0s ground_link_node   link.rx        {"kind": "heartbeat", "ok": true, "note": "非情报帧（心跳/状态）", "data": {"seq": 8}}
+  T+   6.5s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   6.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   6.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   7.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   7.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   7.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   7.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   7.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   7.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   8.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   8.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   8.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   8.5s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   8.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   8.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   9.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   9.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   9.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+   9.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+   9.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+   9.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  10.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  10.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  10.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  10.5s air_link_node      link.tx        {"kind": "intel", "bytes": 212, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  10.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  10.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  11.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  11.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  11.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  11.0s ground_link_node   link.rx        {"kind": "heartbeat", "ok": true, "note": "非情报帧（心跳/状态）", "data": {"seq": 18}}
+  T+  11.5s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  11.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  11.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  12.0s air_link_node      link.tx        {"kind": "intel", "bytes": 212, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  12.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  12.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  12.0s air_link_node      link.tx        {"kind": "heartbeat", "bytes": 77, "data": {"seq": 20}}
+  T+  12.5s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  12.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  12.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  13.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  13.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  13.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  13.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  13.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  13.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  14.0s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  14.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  14.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  14.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  14.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  14.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  15.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  15.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  15.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  15.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  15.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  15.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  16.0s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  16.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  16.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  16.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  16.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  16.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  17.0s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  17.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  17.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  17.0s ground_link_node   link.rx        {"kind": "heartbeat", "ok": true, "note": "非情报帧（心跳/状态）", "data": {"seq": 30}}
+  T+  17.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  17.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  17.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  18.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  18.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  18.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  18.5s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  18.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  18.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  19.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  19.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  19.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  19.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  19.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  19.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  20.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  20.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  20.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  20.5s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  20.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  20.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  21.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  21.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  21.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  21.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  21.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  21.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  22.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  22.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  22.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  22.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  22.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  22.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  23.0s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  23.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  23.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  23.0s air_link_node      link.tx        {"kind": "heartbeat", "bytes": 77, "data": {"seq": 42}}
+  T+  23.0s ground_link_node   link.rx        {"kind": "heartbeat", "ok": true, "note": "非情报帧（心跳/状态）", "data": {"seq": 42}}
+  T+  23.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  23.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  23.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  24.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  24.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  24.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  24.5s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  24.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  24.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  25.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  25.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  25.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  25.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  25.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  25.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  26.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  26.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  26.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  26.5s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  26.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  26.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  27.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  27.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  27.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  27.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  27.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  27.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  28.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  28.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  28.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  28.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  28.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  28.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  29.0s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  29.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  29.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  29.0s ground_link_node   link.rx        {"kind": "heartbeat", "ok": true, "note": "非情报帧（心跳/状态）", "data": {"seq": 54}}
+  T+  29.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  29.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  29.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  30.0s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  30.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  30.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  30.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  30.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  30.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  31.0s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  31.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  31.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  31.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  31.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  31.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  32.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  32.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  32.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  32.5s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  32.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  32.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  33.0s air_link_node      link.tx        {"kind": "intel", "bytes": 214, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  33.0s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  33.0s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+  T+  33.0s air_link_node      link.tx        {"kind": "heartbeat", "bytes": 76, "data": {"seq": 62}}
+  T+  33.5s air_link_node      link.tx        {"kind": "intel", "bytes": 213, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K
+  T+  33.5s ground_link_node   link.rx        {"kind": "intel", "ok": true, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9"
+  T+  33.5s car_node           intel.recv     {"ok": true, "why": "", "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "obstacles": ["A5", "J7"], "bridge_a": "K4", "bridge_b": "K9", "tar
+
+  -- 文本日志 5 条（去重后；完整内容见本地报告）--
+     [info] ground_link_node: ground_link_node 就绪: bind 9901
+     [info] air_link_node: air_link_node 就绪: -> 127.0.0.1:9901 (bind 9902)
+     [info] car_node: car_node 就绪: N10->N11 14x11 格, dry_run=True（dry_run=true：只计算不发命令）
+     [info] fake_intel_node: fake_intel_node 就绪: mode=full -> /air/field_intel
+     [info] car_node: 路线[13 段] K9 I9 H8 G7 F6 E5 D4 D2* B2 C3 K4 N11,y  (dry_run)
+
+==================== 结束（节点将自动停止） ====================
+取回日志：
+  python tools/remote_run.py --host <IP> --user duzhong --get /tmp/ag_logs --to logs/car
+出报告　：python tools/log_report.py --dir logs/car
+  已停止本脚本启动的进程组:  7998 7999 8037 8038
