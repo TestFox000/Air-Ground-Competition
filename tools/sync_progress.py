@@ -388,7 +388,19 @@ def do_sync(g: Git, remote: str, branch: str, machine: str, log: Logger,
         log("[2-3/4] --push-only：只推送，不合并")
         return push(g, remote, branch, log, retry=False)
 
-    if not no_commit:
+    if pull_only:
+        # `--pull-only` 的语义是"只把对方的进展取回来，**绝不动我自己的东西**"。
+        # ⚠️ 2026-09-28 实测踩过：原实现是"先提交、再判断 pull_only"，于是
+        #    `--pull-only` 实际等于"自动提交 + 合并、只是不推送"。配上每 3 分钟的定时任务，
+        #    它会把我没写完的代码反复 commit（再被 post-commit 钩子连带推给对方），
+        #    对面看到的是一串 `chore(A): 自动同步 …` —— 跟「push 前必须本地全绿」直接冲突。
+        #    （对面 AI 从远端看出这一点并写进了 AI 信箱，诊断是对的。）
+        if dirty_files(g):
+            log("[2/4] 工作区有未提交改动 —— --pull-only 既不提交也不合并，一个字都不动")
+            log(f"      对方的改动已取到本地（{up}）；你提交或改完之后再跑一次即可")
+            return 5
+        log("[2/4] 工作区干净，无需提交（--pull-only）")
+    elif not no_commit:
         rc = commit_local(g, machine, log)
         if rc == 1:
             log("[2/4] 本地没有改动，跳过提交")
@@ -396,11 +408,6 @@ def do_sync(g: Git, remote: str, branch: str, machine: str, log: Logger,
             return 4
     else:
         log("[2/4] --no-commit：本地改动原样留着")
-
-    if pull_only and dirty_files(g):
-        log("[3/4] --pull-only 且工作区还有未提交改动 —— 不合并，避免动到你的东西")
-        log(f"      对方的 {up} 已经取到本地，处理完自己的改动后再跑一次即可")
-        return 5
 
     rc = rebase_onto_upstream(g, up, log)
     if rc == 2:

@@ -183,8 +183,8 @@ def _cfg(cwd: Path) -> None:
     _git_in(cwd, "config", "user.name", "t")
 
 
-def _conflicting_pair(tmp_path: Path):
-    """搭一对仓库并制造真冲突：bare 当远端，work 当本机，other 当"对面那台机器"。"""
+def _repo_pair(tmp_path: Path):
+    """搭一对仓库：bare 当远端，work 当本机，other 当"对面那台机器"（初始同步）。"""
     bare = tmp_path / "bare.git"
     subprocess.run(["git", "init", "--bare", "-b", "main", str(bare)],
                    check=True, capture_output=True)
@@ -200,6 +200,12 @@ def _conflicting_pair(tmp_path: Path):
     other = tmp_path / "other"
     subprocess.run(["git", "clone", str(bare), str(other)], check=True, capture_output=True)
     _cfg(other)
+    return work, other
+
+
+def _conflicting_pair(tmp_path: Path):
+    """在 `_repo_pair` 之上制造真冲突（两边改同一行）。"""
+    work, other = _repo_pair(tmp_path)
 
     (other / "x.txt").write_text("theirs\n", encoding="utf-8")   # 对面先改同一行
     _git_in(other, "add", "-A")
@@ -226,6 +232,36 @@ def test_conflict_stops_and_keeps_markers_for_human(tmp_path, monkeypatch, capsy
     assert "冲突文件" in out and "x.txt" in out
     assert mod.in_conflict(g) is True, "不能自动 abort —— 那样冲突上下文就一起丢了"
     assert "<<<<<<<" in (work / "x.txt").read_text(encoding="utf-8")
+
+
+@NEED_GIT
+def test_pull_only_never_commits(tmp_path, monkeypatch, capsys):
+    """★ `--pull-only` 只负责"把对方的取回来"，绝不许动我的工作区。
+
+    实测事故（2026-09-28，被对面 AI 从远端看出来并写进了 AI 信箱）：
+    原实现"先提交、再判断 pull_only"，于是每 3 分钟的定时任务把我**没写完的代码**
+    反复 commit（还被 post-commit 钩子连带推出去），远端出现一串
+    `chore(A): 自动同步 …` —— 跟「push 前必须本地全绿」直接冲突。
+    """
+    work, other = _repo_pair(tmp_path)
+    (other / "y.txt").write_text("theirs\n", encoding="utf-8")
+    _git_in(other, "add", "-A")
+    _git_in(other, "commit", "-m", "theirs")
+    _git_in(other, "push")
+
+    (work / "mine.txt").write_text("wip\n", encoding="utf-8")   # 本机有未提交的改动
+
+    mod = _load()
+    monkeypatch.setattr(mod, "ROOT", work)
+    g = mod.Git(work)
+    before = g("rev-parse", "HEAD")[1]
+
+    rc = mod.do_sync(g, "origin", "main", "A", mod.Logger(None), pull_only=True)
+    capsys.readouterr()
+    assert rc == 5, "工作区脏时应该什么都不合并"
+    assert g("rev-parse", "HEAD")[1] == before, "绝不能替用户提交"
+    assert (work / "mine.txt").exists(), "未提交的改动必须原样还在"
+    assert mod.dirty_files(g), "工作区应该仍然是脏的"
 
 
 @NEED_GIT
