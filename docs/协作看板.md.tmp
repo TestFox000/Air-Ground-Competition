@@ -1,0 +1,415 @@
+# 双机协作看板
+
+> 两台电脑同时推进一个项目，最怕的是**同一件事两边各做一遍**，或者**改了同一处互相覆盖**。
+> 这个文件就是为了避免这两件事。每次开工前花 30 秒看一眼第 2 节和第 4 节。
+
+---
+
+## 1. 机器分工
+
+| 机器 | 定位 | 负责 | 不负责 |
+|---|---|---|---|
+| **A 机**（本机 / 现场机，Windows + Python 3.10） | 现场联调 + 算法 | `ag_core` 算法、单元调试、车端命令（`car-rehearse` / `car-fetch` / `car-camera`）、单应标定、复盘报告、文档 | 训练、导出模型 |
+| **B 机**（模型机） | 训练 + 导出 | 数据集标注、`tools/ml/train_pose.py`、ONNX→RKNN 导出、`verify_contract.py` / `verify_decode.py` 参数标定 | 车端联调、现场操作 |
+
+**A 机已装**（不装 torch，跑不动也不必跑）：
+`numpy` `pytest` `paramiko`（SSH 连车）`PyYAML` `pyserial` `opencv-python`
+
+**B 机需要装**：
+```bash
+pip install -r requirements.txt          # numpy + pytest
+pip install -r requirements-train.txt    # torch / ultralytics / onnx / onnxsim
+```
+⚠️ `rknn-toolkit2` 只有 Linux x86 wheel —— **转 RKNN 那一步必须在 Linux 上做**（B 机或直接在车端）。
+Windows 上只能做到导出 ONNX。
+
+---
+
+## 2. 开工三步（拿起任何一台机器都先做这个）
+
+```bash
+git pull                    # ① 拿到对方的最新进展
+# ② 看下面第 4 节「🟡 进行中」里有没有人已经领了同一件事
+# ③ 把你要做的事改成 🟡 并写上自己，再开始动手
+```
+
+## 3. 收工两步
+
+```bash
+git add -A && git commit -m "..."
+git push
+```
+
+改了进展就顺手更新第 4 节的状态，**别攒着**——攒一天对面就白干一天。
+
+---
+
+## 4. 任务池
+
+状态：🔵 待领 ｜ 🟡 进行中（谁） ｜ ✅ 完成 ｜ ⛔ 受阻（缺什么）
+
+| # | 任务 | 归属 | 状态 | 备注 |
+|---|---|---|---|---|
+| 1 | 开火闸门双向验证 | A | ✅ 09-28 | **通过**：`tools/car_guard_selftest.sh` 用合成帧双向对照 —— 白名单内原样放行、白名单外拦成全 0（零位移零发射）。真靶标版 `car_stage2b_guard_proof.sh` 建议有靶标时再跑一次 |
+| 2 | 相机稳定性验证 `python run.py car-camera <车IP>` | A | ✅ 09-28 | 实测 `/image_raw` **26–29 Hz 稳定出图**；官方 `usb_cam` 曾 SIGABRT 静默崩，脚本已加前置快失败 |
+| 3 | 车端决策链回归 `car-rehearse` | A | ✅ 09-28 | 多次跑通，「严重 0 \| 注意 0」，路线 `K9 I9 H8 G7 F6 E5 D4 D2* B2 C3 K4 N11,y` |
+| 4 | 单应矩阵标定 `tools/calib_homography.py` | A | ⛔ 需无人机/全场图 | 不标定 → 情报出不来 → 计划为空 |
+| 5 | 现场量：终点格号 / 摆放朝向 / 桥洞占格 / 激光偏置 | A | ⛔ 需场地 | 量到就填 `config/params.yaml` |
+| 6 | 机载端联调 `air.launch.py` | A | ⛔ 需无人机 | **最大风险：当前零实测** |
+| 7 | 打击链实弹标定 | A | ⛔ 需能开火的场地 | `laser_offset_x/y`、云台零点 |
+| 8 | 数据集标注（现场 1244 张） | B | 🔵 | 规格见 `docs/数据集规格.md` |
+| 9 | 训练 YOLO-pose | B | ⛔ 缺 8 | `tools/ml/train_pose.py` |
+| 10 | 导出 ONNX → RKNN | B | ⛔ 缺 9 + Linux | 契约必须是 `[1,9,8400]` |
+| 11 | 模型解码参数标定 `verify_decode.py` | B | ⛔ 缺 10 | `cls_activation` / `kpt_unit` / `input_layout` |
+| 12 | 完整跑一局（L2） | A | ⛔ 需 4+5 | 有人在场 + 场地 |
+| 13 | 官方栈残缺修复（`det_node` / `dzactuator` 一直装不上） | A | ✅ 09-28 | 根因：`~/dzrobot` 下 `src` 与 `src_4` **包名重复**，colcon 直接拒绝构建。已补装并验证视觉链与发车链路；**改动清单与还原方法见 `docs/官方环境修复记录-20260928.md`** |
+
+---
+
+## 5. 交接物登记（不进 Git 的大文件）
+
+`models/` 和 `*.rknn` 被 `.gitignore` 排除（体积大且是 SDK 产物），靠网盘 / U 盘传递。
+**必须在这里登记版本和 md5** —— 否则会出现"两台机器跑的不是同一个模型，还都以为自己是对的"。
+
+| 交接物 | 文件名 | md5 | 存放位置 | 产出方 | 更新时间 |
+|---|---|---|---|---|---|
+| 车端现役模型 | `light_det.rknn` | `与 light_det3.rknn 同 md5` | 车端 `~/dzrobot/src/rknn_pt/model/` | 厂家 | 2026-09-27 |
+| 自研模型 | （待产出） | — | — | B 机 | — |
+| 数据集 | （待标注） | — | — | B 机 | — |
+
+---
+
+## 6. 防冲突规则
+
+1. **一个任务同时只能有一个人领**。看到 🟡 就别重复动手，去领 🔵 的。
+2. **`src/ag_core/` 两边都可能动**：改前先 `git pull`，改完立刻 push。
+3. **`config/params.yaml` 是高频冲突点**，按参数归属分治：
+   - 现场量出来的（终点格号、朝向、单应 H、激光偏置）→ **A 机填**
+   - 模型解码参数（`cls_activation` / `kpt_unit` / `input_layout`）→ **B 机标定后告诉 A 机填**
+   - 谁改了都在群里/看板说一声，别闷头改
+4. **测试基线 506 项**：push 前必须本地全绿。把红的推上去，对面一 pull 就跟着红，还以为是自己改坏的。
+5. **`.sh` 脚本一律 LF**（`.gitattributes` 已锁死）。Windows 上千万别开 `core.autocrlf=true` 覆盖它，
+   否则 shebang 变成 `#!/bin/bash\r`，车端直接 `bad interpreter`。
+
+---
+
+## 7. 提交信息约定（方便对面一眼看懂）
+
+```
+<类型>: <一句话>
+
+类型：feat / fix / docs / chore / test / calib
+例：
+fix: aim_guard 的 class_blue 未赋值导致闸门静默失效
+calib: 填入 0928 现场标定的单应矩阵
+docs: 协作看板新增双机分工
+```
+
+---
+
+## 8. B 机环境核对清单
+
+B 机开工前先跑一遍，把结果贴回本文件或群里（**只需确认一次**）：
+
+```powershell
+# 1) 工具链
+python --version ; git --version
+
+# 2) 仓库状态：有没有 .git？有没有远端？历史对不对？
+git log --oneline -3 ; git remote -v
+
+# 3) 核心测试（不依赖 torch，先确认代码本身没问题）
+python -m pytest tests -q        # 期望 506 passed
+
+# 4) 训练依赖
+python -c "import torch, ultralytics, onnx; print(torch.__version__, ultralytics.__version__, onnx.__version__)"
+```
+
+对照检查：
+
+| 项 | 期望 | 不符合怎么办 |
+|---|---|---|
+| `git log` | 能看到 `6abf5b1 chore: 重建仓库基线` | 没有 `.git` → 直接 clone 远端仓库 |
+| `git remote -v` | 指向 Gitee 同一个地址 | 补 `git remote add origin <地址>` |
+| `pytest` | 506 passed | 缺依赖 → `pip install -r requirements.txt` |
+| torch / ultralytics / onnx | 三个都能打印版本 | 缺 → `pip install -r requirements-train.txt` |
+
+⚠️ **RKNN 导出只能在 Linux 上做**：`rknn-toolkit2` 没有 Windows wheel。
+B 机若是 Windows，第 10 项任务（ONNX→RKNN）要挪到 Linux 或直接在车端做，Windows 上只能到 ONNX。
+
+---
+
+## 9. 实时同步（两台机器各配一次）
+
+### 9.1 一条命令搞定一轮同步
+
+```bash
+python tools/sync_progress.py          # 拉对方进展 → 提交自己的改动 → 推给对方
+python tools/sync_progress.py --status # 只看两边差多少，不碰任何东西
+python tools/sync_progress.py --pull-only   # 只看对方进展，不动自己的改动
+python tools/sync_progress.py --no-commit   # 拉取后不自动提交（改到一半时用）
+```
+
+冲突时它会**停下来把冲突文件列清楚**，并告诉你怎么处理，绝不自动猜、绝不覆盖对方的工作。
+
+### 9.2 让它自动跑（这就是「实时」的实现方式）
+
+**① 提交即推送**（最干脆的一层）
+
+```bash
+python tools/sync_progress.py --install-hook
+```
+装完以后每次 `git commit` 都会自动 push 给对方。不想要了就直接删 `.git/hooks/post-commit`。
+
+**② 定时轮询**（兜住「对方提交了我这边还不知道」）
+
+```powershell
+schtasks /create /tn air_ground_sync /sc minute /mo 3 /f /tr '"C:\Users\a\AppData\Local\Programs\Python\Python310\pythonw.exe" "E:\CodeBuddy\20260927120106\air_ground\tools\sync_progress.py" --machine A --log "C:\Users\a\air_ground_sync.log"'
+```
+
+两个细节**别漏**，漏了就会踩坑：
+
+- 用 **`pythonw.exe`**，不要用 `python.exe` —— 后者每次都会弹一个黑窗（每 3 分钟闪一次）
+- 带上 **`--log`** —— `pythonw` 没有任何输出，不留日志的话出了问题无从查起
+
+`--machine` 填 `A` / `B` 区分机器，提交信息里就能看出是谁推的。
+
+**日常管理定时任务：**
+
+```powershell
+schtasks /query  /tn air_ground_sync /fo LIST     # 看状态、下次运行时间
+schtasks /run    /tn air_ground_sync              # 立刻跑一次
+schtasks /change /tn air_ground_sync /disable     # 临时停用（保留配置，随时开回来）
+schtasks /change /tn air_ground_sync /enable      # 再开回来
+schtasks /delete /tn air_ground_sync /f           # 彻底删掉
+```
+
+**改间隔**（schtasks 不支持原地改，删了重建，把 `/mo 3` 换成想要的分钟数）：
+
+```powershell
+schtasks /delete /tn air_ground_sync /f
+schtasks /create /tn air_ground_sync /sc minute /mo 5 /f /tr '"<pythonw路径>" "<项目路径>\tools\sync_progress.py" --machine A --log "<日志路径>"'
+```
+
+**日志在这儿看**（每一轮都记了「拉取 / 提交 / 推送」三步的结果，失败会写清原因）：
+
+```
+C:\Users\a\air_ground_sync.log
+```
+
+```powershell
+Get-Content "C:\Users\a\air_ground_sync.log" -Encoding UTF8 | Select-Object -Last 20
+```
+
+两层叠加的效果：**自己一提交就推出去，对方最多 3 分钟就收到** —— 对两个人的协作来说，这已经是实际意义上的实时。
+
+### 9.3 为什么不让网盘直接同步项目目录
+
+看着最省事，实际最容易把仓库搞坏：
+
+| 问题 | 后果 |
+|---|---|
+| 网盘会同时改写 `.git/index`、`refs/`、`objects/` 等内部文件 | 两机并发时**静默损坏仓库**，某天突然 `git` 命令全报错，且无法定位是哪次同步搞坏的 |
+| 冲突处理 = 生成「xxx(2).md」副本 | 没有任何合并语义，得人工比对，比 Git 冲突难处理得多 |
+| 提交历史 | 网盘没有，谁改了什么、为什么改，全丢了 |
+
+Git 的冲突是**显式的、可解决的、可回退的**——这是它值得多一层的原因。
+网盘只承担一件事：传那些**不进 Git 的大文件**（见第 5 节）。
+
+### 9.4 通道状态（配好就打勾）
+
+| 机器 | 远端 | 免交互凭据 | 提交即推送 | 定时轮询 |
+|---|---|---|---|---|
+| **A**（本机 Windows） | ✅ `gitee.com/circle-of-joy/air_ground` | ✅ store（09-28 已填令牌） | ✅ 钩子已装 | ⬜ 待配，命令见 §9.2 |
+| **B**（模型机） | ⬜ | ⬜ | ⬜ | ⬜ |
+
+### 9.5 本机凭据是怎么配的（换令牌时看这里）
+
+令牌存在 **`~/.git-credentials`**（A 机为 `C:\Users\29212\.git-credentials`），明文，只有本机当前用户能读。
+
+``` 
+https://circle-of-joy:<令牌>@gitee.com
+```
+
+⚠️ 这里有个**踩过的坑**，B 机配置时不要重蹈：
+
+本机系统级装了 Git Credential Manager（`credential.helper=manager`），它会**反复送出一个错误的旧用户名 `yubinghuan`**，
+导致每次 push 都报 `yubinghuan: Incorrect username or password` —— 而且在我这种非交互环境里它**连弹窗都不弹**，
+直接空密码提交，所以怎么试都过不了。
+
+解决办法是在仓库级把 helper 链清掉、只留 `store`：
+
+```bash
+git config --local credential.helper ""        # 空值 = 重置整个 helper 链，把系统级的 manager 踢掉
+git config --local --add credential.helper store
+```
+
+**换令牌 / 吊销令牌**：直接改 `.git-credentials` 里那一行，或者用
+`cmdkey /delete` 清掉残留的旧凭据。文件名里的令牌建议在比赛结束后就去 Gitee 重置一次。
+
+### 9.6 踩过的坑②：屏幕每 3 分钟闪一下 cmd / git.exe
+
+**现象**：配好定时任务后，屏幕上每隔几分钟闪一个黑框。
+
+**根因**：`pythonw.exe` 自己不创建窗口，但它调用的 **`git.exe` 是控制台程序**。
+`pythonw` 没有控制台，Windows 就会给这个子进程**自动分配一个新的控制台窗口** → 一闪而过。
+
+**修复**：给子进程加"不要创建窗口"的标记（`tools/sync_progress.py` 已包含）：
+
+```python
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+subprocess.run([...], creationflags=_NO_WINDOW)
+```
+
+`CREATE_NO_WINDOW` 只在 Windows 上存在，所以必须写成 `if os.name == "nt" else 0`，
+否则 Linux 上（B 机）一导入就报 `AttributeError`。
+
+**排查这类问题的通用套路**：数一下闪烁的节奏 → 去日志里比对时间戳
+（`Select-String "同步开始"`），节奏对上了就是它。
+
+---
+
+## 10. B 机接入（只需做一次）
+
+### 10.1 最省事：一条命令
+
+仓库拉下来之后（或已经有仓库时），直接跑：
+
+```bash
+python tools/setup_sync.py --machine B --token <Gitee私人令牌>
+```
+
+远端 / 提交身份 / 免交互凭据 / 推送钩子 / 定时轮询**一次配完**，幂等，重复跑不会出问题。
+每步都会打印结果，最后自动跑一次自检。
+
+常用变体：
+
+```bash
+python tools/setup_sync.py --machine B --token <令牌> --interval 5   # 改成每 5 分钟一轮
+python tools/setup_sync.py --machine B --no-schedule                 # 只要钩子，不要定时任务
+python tools/setup_sync.py --machine B                               # 凭据已配过，只补齐其余
+```
+
+⚠️ B 机如果是 **Linux**，脚本会自己改用 `crontab`，不用你手动区分平台。
+
+（脚本跑不通时，照第 9.2 / 9.5 节手工配，原理都在那儿。）
+
+### 10.2 B 机还没有仓库（没有 `.git`）
+
+先判断：
+
+```bash
+python --version ; git log --oneline -3      # 报 not a git repository 就是这种情况
+```
+
+```bash
+# ① 先把现有目录改名保底 —— 千万别删！数据集和中间模型可能都在里面
+cd <它的上级目录>
+mv air_ground air_ground_old       # Windows: ren air_ground air_ground_old
+
+# ② 从 Gitee 拉一份干净的
+#    私有仓库，首次 clone 必须把令牌带上，否则会卡在认证上（B 机还没配凭据）
+git clone https://circle-of-joy:<令牌>@gitee.com/circle-of-joy/air_ground.git air_ground
+cd air_ground
+
+# ③ 然后回到 10.1 跑那条命令 —— 它会顺手把 URL 里的令牌清掉，改用凭据文件
+```
+
+### 10.3 B 机已有自己的 `.git` 历史
+
+看 `git log --oneline -3` 的输出：
+
+- **能看到 `6abf5b1 chore: 重建仓库基线`** → 和 A 机同源，接上远端即可：
+  ```bash
+  git remote add origin https://gitee.com/circle-of-joy/air_ground.git
+  git fetch origin
+  git rebase origin/main      # 把 B 机的提交叠到 A 机提交之上
+  git push origin main
+  ```
+- **看不到** → 是另一套历史，**别自己 merge**（容易拉出一个乱七八糟的合并提交）。
+  先把 `git log --oneline -5` 的输出发给 A 机，由 A 机给方案。
+
+### 10.4 接入后自检
+
+```bash
+python tools/sync_progress.py --status   # 期望：远端正确、领先/落后 0
+python -m pytest tests -q                # 期望：506 passed
+```
+
+### 10.5 搬数据
+
+从 `air_ground_old` 把 B 机独有的东西（数据集、`.pt`、`.onnx`）搬回新目录。
+这些在 `.gitignore` 里，**不会被提交**，不会污染仓库。
+只有最终产出的 `.rknn` 要放进 `models/release/` 跟着 Git 走（见第 5 节）。
+
+---
+
+## 11. 两套历史是怎么合成一条的（2026-09-28）
+
+**背景**：到 09-28 晚上，两台机器各有一条**互不相干**的 `main`：
+
+| 机器 | 基线提交 | 怎么来的 |
+|---|---|---|
+| B 机（发布到 Gitee 的那条） | `6abf5b1 chore: 重建仓库基线（迁移自旧电脑，原 a1ea04b 的 .git 未随拷贝带出）` | 项目目录拷到 B 机时**没带出 `.git`**，B 机重建了基线 |
+| A 机（现场机） | `b944ee4 chore: 重建仓库基线（原 .git 被网盘同步损坏）` | A 机的 `.git` 被网盘同步**静默损坏**（pack 文件丢失），也重建了基线 |
+
+两边根提交不同 → `git merge-base` 为空 → **直接 merge 会拉出一个"两个根"的乱账**
+（§10.3 那句"别自己 merge"说的就是这个）。
+
+**处理**：以**远端那条为准**（它带着看板、`setup_sync.py`、训练文档等完整协作记录），
+把 A 机当天的工作作为**一次普通提交**叠在 `6abf5b1` 之上：
+
+- 逐文件比对两棵树，**只有 3 个文件需要人工融合**：`tools/sync_progress.py`、`docs/协作看板.md`、`README.md`
+- 1 个文件是 B 机独有的：`tools/setup_sync.py` —— **原样保留，未动**
+- 其余差异要么是 A 机当天的新工作（官方栈修复、`car.py`、车端脚本、黑匣子取证），
+  要么是纯换行符差异（`.gitattributes`、`src/ag_interfaces/msg/*.msg` 等 7 个文件）
+- 融合时顺手把一边的漏洞补掉了：B 机的冲突提示写着"解决完再跑一次脚本"，
+  但脚本开头的冲突守卫会再报一次冲突、**原地打转**；现在会在"冲突文件已全部解决"后自动收尾
+
+**教训（还是同一条，只是换了形式）**：**不要用网盘同步含 `.git` 的目录**。
+B 机那次是"拷贝时漏了 `.git`"，A 机这次是"`.git` 被改坏"，两次都逼着重做基线。
+搬项目只用 `git clone` / `git pull`。
+
+## 12. 车端也会"两边同时用"（2026-09-28 实测）
+
+仓库有防冲突规则，**车也是共享资源** —— 两台机器都可能上车改东西，冲突起来更难查，
+因为没有 `git` 帮你留下痕迹。当天就踩到了。
+
+### 12.1 `~/dzrobot` 从 2.8G 缩到 476M 的完整台账
+
+| 时段 | 变化 | 原因 | 证据 |
+|---|---|---|---|
+| 09-27 18:55 → 09-28 18:23 | 2.8G/28367 → 888M/9101（**−1.9G**） | 有人在车上跑 `rm -rf build/ install/ log/` + `colcon build --base-paths src --symlink-install`。**这 1.9G 全是构建产物**，不是源码 | 车端 `~/.bash_history` 第 1980/1998 行；`~/board_current_0928.tar.gz`（16:52） |
+| 09-28 19:13 → 19:28 | 955M/9345 → 476M/3572（**−479M**） | 有人在**车上的桌面**把 `src_1`、`src_4` 拖进了回收站 | `~/.local/share/Trash/info/src_*.trashinfo`：`DeletionDate=2026-09-28T19:18:24` |
+
+**结论：没有数据丢失。**
+
+- 那 1.9G 是 `build/` + `install/` + `log/`，**可重建**（重编 4 个包只需 35 秒）
+- `src_1`/`src_4`（538M）**还在回收站里**，且是 `src` 的重复副本
+  （`src_1` 1768 文件 ≈ `src` 1764；`src_4` 多出的 2345 个文件是它自带的 `build/install/log`）
+- 副作用是好的：删掉它们**正好解开** "Duplicate package names not supported" 那个死结，
+  以后在 `~/dzrobot` 直接 `colcon build` 就行，不用再加 `--base-paths src`
+
+> `*.trashinfo` 只在**图形界面删除**时生成，`rm -rf` 不会 —— 查"谁删的、什么时候删的"就靠它，
+> 比翻 shell 历史可靠得多。完整取证见 `docs/probe/car_why_smaller_0928.txt`。
+
+### 12.2 上车前先花 10 秒判断"有没有人正在用"
+
+```bash
+tail -30 ~/.bash_history     # 最近有没有人在终端里动过官方目录
+ls -la --time-style=long-iso ~/.codebuddy ~/.codebuddy-server-cn 2>/dev/null | head
+ls -l ~/dzrobot/install ~/dzrobot/build   # 产物 mtime 是不是刚刚
+```
+
+**`~/dzrobot` 的产物 mtime 比自己的作业时间新 = 别人刚动过**，先问一句再动手。
+实测当天车上还跑着 CodeBuddy server（`~/.codebuddy-server-cn` 日志 19:31 仍在写），
+说明**除了两台机器，车上还可能有第三个会话**。
+
+### 12.3 三条约定
+
+1. **改官方目录前在群里说一声**（`rm -rf build/ install/` 会把别人正在跑的节点搞崩，
+   而且这种崩是"用着好好的突然不行了"，最难查）
+2. **官方源码不要用 `rm -rf`，走回收站**（这天的 `src_1/src_4` 正因为走了回收站才查得清、还能找回）
+3. **`rm -rf build/ install/` 之后要立刻重建完整**，否则第二天会出现
+   "`det_node` 是空壳、`dzactuator` 根本没装"这类**残缺状态**（09-28 白天修的就是这个）

@@ -57,12 +57,20 @@ def test_no_destructive_git_arguments():
         assert forbidden not in args, f"同步脚本真会执行危险操作: {forbidden}"
 
 
-def test_conflict_aborts_instead_of_guessing():
-    """冲突时必须 abort 回安全状态，而不是自己 merge/commit 猜一个结果。"""
+def test_conflict_is_left_to_the_human():
+    """★ 冲突时不许自动选边，也不许一 abort 了事。
+
+    - `-X` / `--merge` / `--strategy` = 替用户猜"留哪一份"，绝对不行
+    - `--abort` = 会把冲突上下文一起丢掉，用户就没法对着两边原文决定了
+      （2026-09-28 与 B 机对齐：采用它们"留在原地"的做法）
+    - `--continue` 只允许在"冲突文件已全部解决"之后调用，
+      由下面的端到端测试验证（不能让它变成替用户"接着做完"）
+    """
     args = _git_call_args()
-    assert "--abort" in args, "冲突后必须回退到安全状态"
-    assert "--continue" not in args, "不许替用户'接着做完'"
-    assert "--merge" not in args and "-X" not in args, "不许自动选边合并"
+    for forbidden in ("-X", "--merge", "--strategy", "--abort"):
+        assert forbidden not in args, f"冲突处理里不该出现: {forbidden}"
+    src = (ROOT / "tools" / "sync_progress.py").read_text(encoding="utf-8")
+    assert "git add" in src and "rebase --abort" in src, "得告诉人怎么收场"
 
 
 def test_hook_disables_prompt_to_avoid_hanging_commit():
@@ -81,8 +89,10 @@ def test_git_calls_never_prompt(monkeypatch, tmp_path):
         stdout = ""
         stderr = ""
 
-    def fake_run(cmd, cwd=None, capture_output=True, encoding=None, errors=None, env=None):
+    def fake_run(cmd, cwd=None, capture_output=True, encoding=None, errors=None,
+                 env=None, creationflags=None):
         seen["env"] = env
+        seen["flags"] = creationflags
         return FakeRun()
 
     monkeypatch.setattr(mod.subprocess, "run", fake_run)
@@ -161,3 +171,83 @@ def test_logger_never_raises_on_bad_path(tmp_path):
     lg = mod.Logger(str(bad / "nope" / "x.log"))
     lg("hello")          # 不该抛异常
     lg.close()
+
+
+# ------------------------------------------------------------------ 真实冲突（端到端）
+def _git_in(cwd: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True)
+
+
+def _cfg(cwd: Path) -> None:
+    _git_in(cwd, "config", "user.email", "t@t")
+    _git_in(cwd, "config", "user.name", "t")
+
+
+def _conflicting_pair(tmp_path: Path):
+    """搭一对仓库并制造真冲突：bare 当远端，work 当本机，other 当"对面那台机器"。"""
+    bare = tmp_path / "bare.git"
+    subprocess.run(["git", "init", "--bare", "-b", "main", str(bare)],
+                   check=True, capture_output=True)
+    work = tmp_path / "work"
+    subprocess.run(["git", "init", "-b", "main", str(work)], check=True, capture_output=True)
+    _cfg(work)
+    (work / "x.txt").write_text("base\n", encoding="utf-8")
+    _git_in(work, "add", "-A")
+    _git_in(work, "commit", "-m", "base")
+    _git_in(work, "remote", "add", "origin", str(bare))
+    _git_in(work, "push", "-u", "origin", "main")
+
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", str(bare), str(other)], check=True, capture_output=True)
+    _cfg(other)
+
+    (other / "x.txt").write_text("theirs\n", encoding="utf-8")   # 对面先改同一行
+    _git_in(other, "add", "-A")
+    _git_in(other, "commit", "-m", "theirs")
+    _git_in(other, "push")
+
+    (work / "x.txt").write_text("mine\n", encoding="utf-8")     # 本机也改同一行
+    _git_in(work, "add", "-A")
+    _git_in(work, "commit", "-m", "mine")
+    return work, other
+
+
+@NEED_GIT
+def test_conflict_stops_and_keeps_markers_for_human(tmp_path, monkeypatch, capsys):
+    """★ 两边改同一行：必须停下来、**保留冲突标记**，绝不自动决定留哪一份。"""
+    work, _ = _conflicting_pair(tmp_path)
+    mod = _load()
+    monkeypatch.setattr(mod, "ROOT", work)
+    g = mod.Git(work)
+
+    rc = mod.do_sync(g, "origin", "main", "T", mod.Logger(None))
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "冲突文件" in out and "x.txt" in out
+    assert mod.in_conflict(g) is True, "不能自动 abort —— 那样冲突上下文就一起丢了"
+    assert "<<<<<<<" in (work / "x.txt").read_text(encoding="utf-8")
+
+
+@NEED_GIT
+def test_resolved_conflict_finishes_on_next_run(tmp_path, monkeypatch, capsys):
+    """★ 用户解完冲突再跑一次，脚本要接着把这次 rebase 收尾。
+
+    这正是 B 机那版的死角：提示写着"解决完再跑一次脚本"，但脚本开头的冲突守卫
+    会直接再报一次冲突 —— 用户**原地打转**出不去。
+    """
+    work, _ = _conflicting_pair(tmp_path)
+    mod = _load()
+    monkeypatch.setattr(mod, "ROOT", work)
+    g = mod.Git(work)
+
+    assert mod.do_sync(g, "origin", "main", "T", mod.Logger(None)) == 2
+    capsys.readouterr()
+
+    (work / "x.txt").write_text("merged\n", encoding="utf-8")   # 由人来决定留什么
+    _git_in(work, "add", "x.txt")
+
+    rc = mod.do_sync(g, "origin", "main", "T", mod.Logger(None))
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert mod.in_conflict(g) is False
+    assert (work / "x.txt").read_text(encoding="utf-8") == "merged\n"

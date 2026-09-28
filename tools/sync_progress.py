@@ -48,6 +48,13 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 
+# Windows 上 subprocess 启动 git.exe 这类**控制台程序**时，系统会给子进程分配一个
+# 控制台窗口。定时任务每 3 分钟跑一轮，屏幕上就一直闪 cmd/git.exe —— 这就是"老闪"的根因。
+# CREATE_NO_WINDOW 让子进程不建控制台（非 Windows 上该常量不存在，取 0）。
+# （这条来自 B 机那边的 `9339aa5`，2026-09-28 合并进来。）
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
 # ----------------------------------------------------------------- 基础工具
 class Git:
     """薄薄一层 git 调用。所有可能失败的地方都返回 (code, out)，不抛异常。"""
@@ -56,13 +63,16 @@ class Git:
         self.cwd = cwd
 
     def __call__(self, *args: str, check: bool = False) -> Tuple[int, str]:
-        cmd = ["git", *args]
+        # core.quotepath=false：否则中文文件名会被转义成 \345\215\217...，
+        # 列改动/列冲突文件时看到的是乱码（同样来自 B 机那版）。
+        cmd = ["git", "-c", "core.quotepath=false", *args]
         # GIT_TERMINAL_PROMPT=0：凭据没配好时**立刻报错**，而不是弹一个没人能回答的
         # 用户名/密码提示把进程挂住（post-commit 钩子和定时任务里尤其致命 ——
         # 用户只是提交个代码，却被 push 的密码提示卡在那儿）。
         env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
         try:
             p = subprocess.run(cmd, cwd=str(self.cwd), capture_output=True, env=env,
+                               creationflags=_NO_WINDOW,
                                encoding="utf-8", errors="replace")
         except FileNotFoundError:
             return 127, "找不到 git 命令（装一个：winget install Git.Git）"
@@ -80,7 +90,18 @@ class Git:
 
 
 def _say(msg: str = "") -> None:
-    print(msg, flush=True)
+    """打印到屏幕。
+
+    定时任务常用 `pythonw.exe` 跑（不弹黑窗），此时 **`sys.stdout` 是 None**，
+    直接 `print` 会抛 AttributeError 把整轮同步搞崩。所以这里必须容错 ——
+    真正可靠的落点是 `--log` 指定的日志文件。
+    """
+    if sys.stdout is None:
+        return
+    try:
+        print(msg, flush=True)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 class Logger:
@@ -153,6 +174,31 @@ def ahead_behind(g: Git, up: str) -> Tuple[Optional[int], Optional[int]]:
 
 def dirty_files(g: Git) -> List[str]:
     return [ln[3:].strip() for ln in g.lines("status", "--porcelain") if ln.strip()]
+
+
+def in_conflict(g: Git) -> bool:
+    """是否卡在未完成的 rebase / merge 里（这种状态下绝不能自动做任何事）。"""
+    d = g.cwd / ".git"
+    return any((d / x).exists() for x in ("rebase-merge", "rebase-apply", "MERGE_HEAD"))
+
+
+def unmerged(g: Git) -> List[str]:
+    """还没解决完的冲突文件（返回空 = 都处理好并 `git add` 过了）。"""
+    return g.lines("diff", "--name-only", "--diff-filter=U")
+
+
+def _conflict_help(files: Sequence[str], log: Logger) -> None:
+    log("")
+    log("      ============ 有冲突，已停下，没有替你决定任何事 ============")
+    for f in files or ["(没能列出文件名，见下面的 git 原始输出)"]:
+        log(f"      冲突文件: {f}")
+    log("      你的提交完好保留，对方的提交也没被动过（Git 停在 rebase 中间）。")
+    log("      处理办法：")
+    log("        1) 打开上面的文件，把 <<<<<<< / ======= / >>>>>>> 三段理清，只留对的那份")
+    log("        2) git add <该文件>")
+    log("        3) python tools/sync_progress.py    # 再跑一次，会自动接着完成这次合并")
+    log("      想放弃这次合并、回到动手前：git rebase --abort")
+    log("      拿不准就找对方一起看 —— 详见 docs/协作看板.md §6")
 
 
 # ----------------------------------------------------------------- 各个动作
@@ -231,24 +277,15 @@ def rebase_onto_upstream(g: Git, up: str, log: Logger) -> int:
         log("      合并完成")
         return 0
 
-    # 冲突：绝不自动猜。列清楚，然后回退到安全状态（我们的提交原封不动还在）。
-    files = [ln.split(":", 1)[-1].strip() for ln in g.lines("diff", "--name-only", "--diff-filter=U")]
-    if not files:
-        files = [ln.strip() for ln in out.splitlines() if ln.startswith("CONFLICT")][:20]
-    log("")
-    log("      ============ 有冲突，已停下，没有替你决定任何事 ============")
-    for f in files or ["(没能列出文件名，见下面的 git 输出)"]:
-        log(f"      冲突文件: {f}")
-    g("rebase", "--abort")            # 回退到"我方提交完好、对方未合并"的状态
-    log("      已执行 git rebase --abort：你的提交完好保留，对方的提交也没被动过。")
-    log("      两种处理方式（选一种）：")
-    log("        a) 找对方一起看：把冲突文件里 `<<<<<<<` / `=======` / `>>>>>>>` 三段商量着改完，")
-    log("           再跑一次 `python tools/sync_progress.py`；")
-    log("        b) 你自己直接改：git pull --rebase origin <分支>，按提示逐个解决后 git rebase --continue。")
+    # 冲突：绝不自动猜。
+    # 也**不自动 abort** —— 冲突标记留在文件里，人才能对着两边的原文决定留哪个；
+    # 一 abort 就把那部分上下文一起丢了（B 机那版"留在原地"更实用，这里采纳）。
+    # "留在原地"之所以安全：`in_conflict()` 守卫会让之后每次自动同步都拒绝继续。
+    files = unmerged(g) or [ln.strip() for ln in out.splitlines() if ln.startswith("CONFLICT")][:20]
+    _conflict_help(files, log)
     if out:
-        tail = "\n".join("        " + ln for ln in out.splitlines()[-6:])
         log("      --- git 原始输出（尾部）---")
-        log(tail)
+        log("\n".join("        " + ln for ln in out.splitlines()[-6:]))
     return 2
 
 
@@ -296,15 +333,35 @@ def _credential_hint(out: str, log: Logger) -> None:
         log("         然后确认本仓库只留 store 助手（踢掉系统级 manager）：")
         log('         git config --local credential.helper ""   ')
         log("         git config --local --add credential.helper store")
-        log("         细节与踩过的坑见 协作看板.md §9.5")
+        log("         细节与踩过的坑见 docs/协作看板.md §9.5")
 
 
 def do_sync(g: Git, remote: str, branch: str, machine: str, log: Logger,
             no_commit: bool = False, pull_only: bool = False,
             push_only: bool = False) -> int:
+    # 卡在未完成的 rebase/merge 里：先处理掉，否则后面每一步都会更乱。
+    if in_conflict(g):
+        left = unmerged(g)
+        if left:
+            log("[!] 上一次的冲突还没解决完，先处理这些文件（不然只会越弄越乱）：")
+            _conflict_help(left, log)
+            return 2
+        # 冲突都解决好了（`git add` 过了）：自动把这次 rebase 收尾。
+        # 这一步是必须的 —— B 机那版让用户"解决完再跑一次脚本"，但脚本开头的
+        # 冲突守卫会直接再报一次冲突，**原地打转**走不出去。
+        # `-c core.editor=true` 是为了不让 git 弹编辑器把非交互场景卡住。
+        log("[*] 上次的冲突文件已全部解决，先完成那次合并")
+        code, out = g("-c", "core.editor=true", "rebase", "--continue")
+        if code != 0:
+            last = next((ln for ln in reversed(out.splitlines()) if ln.strip()), "")
+            log(f"      [!] 收尾失败：{last}")
+            _conflict_help(unmerged(g), log)
+            return 2
+        log("      合并完成，继续本次同步")
+
     url = remote_url(g, remote)
     if not url:
-        log("[!] 没配远端。按 协作看板.md §9 配一次，之后就不用管了：")
+        log("[!] 没配远端。按 docs/协作看板.md §9 配一次，之后就不用管了：")
         log(f"    git remote add {remote} <仓库地址>")
         return 3
 
@@ -356,7 +413,8 @@ HOOK_BODY = """#!/bin/sh
 # 提交后自动推给对方；推不上去（断网/没凭据）也**绝不让提交失败**。
 # GIT_TERMINAL_PROMPT=0 是必须的：否则凭据没配好时 git 会弹密码提示，
 # 把用户的 `git commit` 直接卡在那里。
-GIT_TERMINAL_PROMPT=0 python "{script}" --push-only --machine {machine} --log "{logfile}" >/dev/null 2>&1 || true
+# 用装着这个钩子的那个解释器（{python}），不假设 PATH 里有 `python`。
+GIT_TERMINAL_PROMPT=0 "{python}" "{script}" --push-only --machine {machine} --log "{logfile}" >/dev/null 2>&1 || true
 exit 0
 """
 
@@ -375,7 +433,8 @@ def install_hook(g: Git, machine: str, logfile: str, log: Logger, remove: bool =
             log("本来就没装钩子")
         return 0
     script = Path(__file__).resolve()
-    path.write_text(HOOK_BODY.format(script=script.as_posix(), machine=machine, logfile=logfile),
+    path.write_text(HOOK_BODY.format(script=script.as_posix(), machine=machine, logfile=logfile,
+                                     python=sys.executable.replace("\\", "/")),
                     encoding="utf-8", newline="\n")     # 必须 LF：Git Bash 才能执行
     try:
         path.chmod(0o755)
