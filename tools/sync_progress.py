@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import socket
 import subprocess
 import sys
@@ -32,6 +33,12 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# Windows 上 subprocess 启动 git(.exe) 这类**控制台程序**时，系统会给子进程
+# 自动分配一个控制台窗口。定时任务每 3 分钟跑一次，屏幕上就会不停闪现
+# cmd / git.exe —— 这就是那个「老闪」的根因。
+# CREATE_NO_WINDOW 让子进程不创建控制台（非 Windows 上该常量不存在，取 0）。
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 OK = "[ OK ]"
 WARN = "[WARN]"
@@ -47,6 +54,7 @@ def git(*args: str) -> tuple[int, str, str]:
         text=True,
         encoding="utf-8",
         errors="replace",
+        creationflags=_NO_WINDOW,
     )
     return proc.returncode, (proc.stdout or "").strip(), (proc.stderr or "").strip()
 
