@@ -28,6 +28,9 @@ MINE_PATHS=(
   "/tmp/_codes.py"
 )
 MINE_GLOBS=(
+  # 上传执行的脚本都会落成 `/tmp/<本地文件名>.sh`。
+  # `*.sh.sh` 这条是兜底：临时起个 `x.sh` 之类的名字时也不会漏（实测漏过一次，残留在 /tmp）。
+  "/tmp/*.sh.sh"
   "/tmp/probe_car*.sh.sh"   # 上传执行的探测脚本
   "/tmp/car_*.sh.sh"
   "/tmp/remote_run*.sh.sh"
