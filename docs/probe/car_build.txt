@@ -1,5 +1,5 @@
 ==================== 车端编译 ====================
-2026年 09月 27日 星期日 19:20:59 CST
+2026年 09月 28日 星期一 19:56:19 CST
 
 ## 1. 环境
 ROS_DISTRO=humble
@@ -17,8 +17,7 @@ ag_interfaces
 ag_mission
 ag_perception
 ag_referee
-dzrknn_dataprocess
-包数: 10
+包数: 9
 -- 每个包是否都有 package.xml 同级的构建文件 --
   ag_bridge        package.xml:有 setup.py:有 CMakeLists.txt:无
   ag_bringup       package.xml:有 setup.py:有 CMakeLists.txt:无
@@ -29,7 +28,6 @@ dzrknn_dataprocess
   ag_mission       package.xml:有 setup.py:有 CMakeLists.txt:无
   ag_perception    package.xml:有 setup.py:有 CMakeLists.txt:无
   ag_referee       package.xml:有 setup.py:有 CMakeLists.txt:无
-  dzrknn_dataprocess package.xml:有 setup.py:无 CMakeLists.txt:有
 
 ## 3. colcon build
 colcon 退出码 = 0
@@ -37,54 +35,47 @@ colcon 退出码 = 0
 ---- 摘要 ----
 Starting >>> ag_interfaces
 Starting >>> ag_core
-Starting >>> dzrknn_dataprocess
-Finished <<< ag_core [1.60s]
-Finished <<< ag_interfaces [12.8s]
+Finished <<< ag_core [1.56s]
+Finished <<< ag_interfaces [11.7s]
 Starting >>> ag_mission
 Starting >>> ag_bridge
 Starting >>> ag_perception
 Starting >>> ag_referee
 Starting >>> ag_chassis
-Finished <<< ag_bridge [3.29s]
-Finished <<< ag_referee [3.50s]
-Finished <<< ag_mission [3.55s]
+Finished <<< ag_bridge [3.32s]
+Finished <<< ag_mission [3.38s]
+Finished <<< ag_chassis [3.33s]
 Starting >>> ag_car
-Finished <<< ag_chassis [3.99s]
-Finished <<< ag_perception [4.01s]
+Finished <<< ag_perception [3.79s]
+Finished <<< ag_referee [3.79s]
 Starting >>> ag_bringup
-Finished <<< ag_car [1.75s]
-Finished <<< ag_bringup [1.71s]
-Finished <<< dzrknn_dataprocess [24.5s]
-Summary: 10 packages finished [24.8s]
+Finished <<< ag_car [1.56s]
+Finished <<< ag_bringup [1.60s]
+Summary: 9 packages finished [17.5s]
 
 ---- 错误/警告 ----
 
 ---- 日志尾部 ----
-Finished <<< ag_bringup [1.71s]
---- stderr: dzrknn_dataprocess
-In file included from /usr/include/boost/smart_ptr/detail/sp_thread_sleep.hpp:22,
-                 from /usr/include/boost/smart_ptr/detail/yield_k.hpp:23,
-                 from /usr/include/boost/smart_ptr/detail/spinlock_gcc_atomic.hpp:14,
-                 from /usr/include/boost/smart_ptr/detail/spinlock.hpp:42,
-                 from /usr/include/boost/smart_ptr/detail/spinlock_pool.hpp:25,
-                 from /usr/include/boost/smart_ptr/shared_ptr.hpp:29,
-                 from /usr/include/boost/shared_ptr.hpp:17,
-                 from /usr/include/boost/date_time/time_clock.hpp:17,
-                 from /usr/include/boost/thread/thread_time.hpp:9,
-                 from /usr/include/boost/thread/lock_types.hpp:18,
-                 from /usr/include/boost/thread/pthread/thread_data.hpp:12,
-                 from /usr/include/boost/thread/thread_only.hpp:17,
-                 from /usr/include/boost/thread/thread.hpp:12,
-                 from /tmp/ag_ws/src/dzrknn_dataprocess/include/dzrknn_dataprocess.h:4,
-                 from /tmp/ag_ws/src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp:1:
-/usr/include/boost/bind.hpp:36:1: note: ‘#pragma message: The practice of declaring the Bind placeholders (_1, _2, ...) in the global namespace is deprecated. Please use <boost/bind/bind.hpp> + using namespace boost::placeholders, or define BOOST_BIND_GLOBAL_PLACEHOLDERS to retain the current behavior.’
-   36 | BOOST_PRAGMA_MESSAGE(
-      | ^~~~~~~~~~~~~~~~~~~~
----
-Finished <<< dzrknn_dataprocess [24.5s]
+Starting >>> ag_interfaces
+Starting >>> ag_core
+Finished <<< ag_core [1.56s]
+Finished <<< ag_interfaces [11.7s]
+Starting >>> ag_mission
+Starting >>> ag_bridge
+Starting >>> ag_perception
+Starting >>> ag_referee
+Starting >>> ag_chassis
+Finished <<< ag_bridge [3.32s]
+Finished <<< ag_mission [3.38s]
+Finished <<< ag_chassis [3.33s]
+Starting >>> ag_car
+Finished <<< ag_perception [3.79s]
+Finished <<< ag_referee [3.79s]
+Starting >>> ag_bringup
+Finished <<< ag_car [1.56s]
+Finished <<< ag_bringup [1.60s]
 
-Summary: 10 packages finished [24.8s]
-  1 package had stderr output: dzrknn_dataprocess
+Summary: 9 packages finished [17.5s]
 
 ## 4. 安装结果
 ag_bridge

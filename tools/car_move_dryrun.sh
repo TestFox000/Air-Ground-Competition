@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 让车「能动」：起最小发车集合 + 我们的决策层。**默认不动车**。
 #
-# 最小发车集合（2026-09-27 实测通过，与官方 bringup_all 的区别是**不碰相机/det_node/云台**）：
+# 最小发车集合（2026-09-27 实测通过；与官方 bringup_all 的区别是**不碰云台**，
+# 相机/det_node 只在 AG_WITH_VISION=1 时才起 —— 官方栈 2026-09-28 已修好，视觉链可用）：
 #   dzactuator bringup.launch.py      底盘 / IMU / 里程计（没人发速度指令就不会动）
 #   dzactuator judgment.launch.py     裁判串口（读 /HpAndHitmsg）
 #   car_localization localization.launch.py   serial_reader（定位）
@@ -28,6 +29,9 @@
 #   AG_RUN_S=60         跑多久（秒）
 #   AG_USE_AIR=1        情报来自机载端（默认用 fake_intel 直连车端，供练车）
 #   AG_NO_JUDGMENT=1    不启动裁判串口
+#   AG_WITH_VISION=1    连相机 + det_node(RKNN 检测) 一起起（默认只起底盘那套）。
+#                       ⚠️ 仍然**不启动 dzrknn_dataprocess**（瞄准/开火链）——
+#                          它一跑就会扫云台并**自主开火**，而且不区分蓝红。
 
 # ⚠️ 不要用 set -u（ROS setup.bash 会引用未定义变量，非交互 shell 直接退出）
 set -o pipefail
@@ -36,6 +40,7 @@ RUN_S="${AG_RUN_S:-45}"
 CONFIRM="${AG_CONFIRM_MOVE:-0}"
 USE_AIR="${AG_USE_AIR:-0}"
 NO_JUDGMENT="${AG_NO_JUDGMENT:-0}"
+WITH_VISION="${AG_WITH_VISION:-0}"
 
 PIDS=""
 start() {   # start <名字> <命令行...>
@@ -75,6 +80,7 @@ echo "==================== 让车能动（默认 dry_run，车不动） ========
 date
 echo "  模式: $([ "$CONFIRM" = "1" ] && echo '★ 真发车（AG_CONFIRM_MOVE=1）★' || echo '只验链路（dry_run，不发命令）')"
 echo "  情报: $([ "$USE_AIR" = "1" ] && echo '机载端（需 air_link 在跑）' || echo 'fake_intel 直连车端（练车用）')"
+echo "  视觉: $([ "$WITH_VISION" = "1" ] && echo '相机 + det_node(RKNN) 一起起；瞄准/开火链仍不开' || echo '不起（只要视觉加 --with-vision）')"
 echo "  时长: ${RUN_S}s    日志: $AG_LOG_DIR/$AG_LOG_SESSION"
 echo
 
@@ -84,7 +90,7 @@ if [ "$CONFIRM" = "1" ]; then
   echo "    1) 有人站在车边，遥控器在手（可紧急接管）"
   echo "    2) 车周围 2 m 内没有人和障碍；或车已被架起"
   echo "    3) 场地格号/起点朝向与 params.yaml 一致（start_cell）"
-  echo "    4) 相机那套（det_node）当前是缺的，本次不涉及瞄准/开火"
+  echo "    4) 视觉与瞄准：相机/det_node 可用（AG_WITH_VISION=1 时启动）；但**开火链默认不开**"
   echo "  5 秒后开始，Ctrl-C 可立即中止..."
   sleep 5
 fi
@@ -142,6 +148,39 @@ sleep 6
 start executor python3 "$HOME/dzrobot/src/car_localization/car_localization/path_executor.py"
 sleep 6
 grep -E "Initialized|Command format|wait" /tmp/ag_move_executor.log 2>/dev/null | head -4 | sed 's/^/    /'
+echo
+
+if [ "$WITH_VISION" = "1" ]; then
+  hr; echo "## 1b. 视觉链（相机 + RKNN 检测）"
+  # det_node 内部会 cv::imshow 画框：没有图形后端**一帧就崩**，而且崩得很安静
+  # （外部只看到 /image_raw 没有发布者，或 det_node 悄悄退出）。车上有 VNC 桌面(X0)就借它的 DISPLAY。
+  if [ -z "${DISPLAY:-}" ] && [ -e /tmp/.X11-unix/X0 ]; then
+    export DISPLAY=:0 XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+    echo "  借用车上的 X 会话：DISPLAY=$DISPLAY"
+  fi
+  if [ -z "${DISPLAY:-}" ]; then
+    echo "  ⚠️ 没有可用的 X 会话 —— det_node 的 cv::imshow 很可能启动后即崩。"
+    echo "     解法：先在车上开一下 VNC 桌面（或 SSH 里 export DISPLAY=:0）再跑。"
+  fi
+
+  start camera ros2 launch dzactuator camera.launch.py
+  sleep 8
+  tail -3 /tmp/ag_camera.log 2>/dev/null | sed 's/^/    /'
+  if grep -q "process has died" /tmp/ag_camera.log 2>/dev/null; then
+    echo "  [FAIL] usb_cam 崩了（真机踩过 SIGABRT）：设备被占 / USB 供电或带宽不足"
+  fi
+
+  start det ros2 launch dzactuator det_node.launch.py
+  sleep 12
+  if grep -qE "process has died|GTK|Cannot open display" /tmp/ag_det.log 2>/dev/null; then
+    echo "  [FAIL] det_node 崩了 —— 多半是没有图形后端（见上面的告警）"
+  fi
+  echo "  -- /offset_center（检测输出；cls 1=蓝(友) 2=红）--"
+  RAW="$(timeout 20 ros2 topic echo --once /offset_center --field data 2>/dev/null | tr '\n' ' ')"
+  echo "    ${RAW:-（无数据：相机没出图 / 模型没加载 / 话题名不同）}"
+  echo "  ⚠️ 瞄准与开火链（dzrknn_dataprocess）**本次仍未启动** ——"
+  echo "     它一跑就会扫云台并自主开火，且不区分蓝红（官方\"停车才开火\"的信号是死代码）。"
+fi
 echo
 
 hr; echo "## 2. 定位是否出来（发车前提）"

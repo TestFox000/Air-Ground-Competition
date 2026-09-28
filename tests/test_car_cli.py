@@ -21,11 +21,13 @@ sys.path.insert(0, str(ROOT))
 
 import car  # noqa: E402
 
-SUBCMDS = ["restore", "move", "stop", "logs"]
+SUBCMDS = ["restore", "deploy", "move", "stop", "logs"]
 
 REQUIRED_ATTRS = {
     "restore": ("host", "user", "func"),
-    "move": ("host", "user", "really_move", "run_s", "use_air", "no_judgment", "timeout", "func"),
+    "deploy": ("host", "user", "ws", "func"),
+    "move": ("host", "user", "really_move", "run_s", "use_air", "no_judgment",
+             "with_vision", "timeout", "func"),
     "stop": ("host", "user", "func"),
     "logs": ("host", "user", "remote", "to", "out", "strict", "func"),
 }
@@ -97,6 +99,37 @@ def test_move_passes_flags_through(monkeypatch):
     car.main(["move", "192.0.2.1", "--use-air", "--no-judgment"])
     assert "AG_USE_AIR=1" in seen["env"]
     assert "AG_NO_JUDGMENT=1" in seen["env"]
+
+
+def test_move_with_vision_passes_flag(monkeypatch):
+    """`--with-vision` 要真的传到车端（一键启动整台车的关键开关）。"""
+    seen = _capture_script_env(monkeypatch)
+    car.main(["move", "192.0.2.1", "--with-vision"])
+    assert "AG_WITH_VISION=1" in seen["env"]
+
+
+def test_vision_is_off_by_default(monkeypatch):
+    """不给开关就不起视觉链 —— 官方栈没修好时它起不来，别拖累"让车能动"这条主路。"""
+    seen = _capture_script_env(monkeypatch)
+    car.main(["move", "192.0.2.1"])
+    assert "AG_WITH_VISION=1" not in seen["env"]
+
+
+def test_one_click_never_starts_the_fire_chain():
+    """★ 一键启动**绝不**启动 `dzrknn_dataprocess`（瞄准/开火链）。
+
+    它一跑就会扫云台并**自主开火**，而且不区分蓝红 ——
+    官方那条"停车才开火"的 `/move_base/stop_signal` 是死代码（没有订阅者）。
+    注释里必须反复告警，但真正的启动命令里一行都不许有。
+    """
+    src = (ROOT / "tools" / "car_move_dryrun.sh").read_text(encoding="utf-8")
+    for line in src.splitlines():
+        s = line.strip()
+        if s.startswith("#"):
+            continue
+        assert not (s.startswith("start ") and "dzrknn_dataprocess" in s), \
+            f"一键启动里不许起开火链：{s}"
+    assert "dzrknn_dataprocess" in src, "必须保留显式告警，否则读者会以为它没风险"
 
 
 def test_restore_uses_restore_script(monkeypatch):
