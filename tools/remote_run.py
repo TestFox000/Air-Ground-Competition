@@ -276,7 +276,13 @@ def main(argv=None) -> int:
         return 4
 
     if args.out:
-        Path(args.out).write_text(out, encoding="utf-8")
+        # ⚠️ 必须 newline="\n"：`write_text` 在 Windows 上会把 \n 翻译成 \r\n，
+        #    而 .gitattributes 要求 *.txt 是 LF —— 于是每次取回一份车端证据，
+        #    工作区就永久显示"脏"（diff 看着有变化、内容却一模一样），
+        #    对面的 --pull-only 因此拒绝合并、同步彻底卡死（2026-09-28 踩过，
+        #    2026-09-29 又踩了一次）。从这里掐断，后面所有证据文件都是干净的 LF。
+        with open(args.out, "w", encoding="utf-8", newline="\n") as f:
+            f.write(out)
         print(f"[已保存] {args.out}（{len(out)} 字节）")
     # ⚠️ 只在写之前把流的容错打开，不改编码：
     #    Windows 控制台默认 GBK，而车端脚本会打 `⚠`／其它 GBK 里没有的符号，
