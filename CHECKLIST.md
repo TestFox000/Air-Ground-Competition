@@ -21,7 +21,11 @@ python car.py logs    <车IP>                                  # ⑤ 取回日�
       [`docs/官方环境修复记录-20260928.md`](docs/官方环境修复记录-20260928.md)
       （根因：`~/dzrobot` 下 `src` 与 `src_4` 包名重复，colcon 拒绝构建）
 - [ ] 先 `car.py move` 不带 `--really-move` 跑一遍，确认 `/car/route_status` 里的路线正确
-- [ ] 真发车前：人在车边 + 遥控器在手 + 车周围 2 m 净空（或架起）
+- [ ] **遥控器电源已关闭**（⚠️ 2026-09-29 实测：遥控器开着时，底盘固件只听遥控器、
+      **屏蔽串口速度指令** —— 表现为"命令发了、执行器算出了速度、`/current_vel_state`
+      也回吐了 D 档，但车就是不动"。关掉遥控器后待复验）
+      —— 遥控器只留作应急接管：要接管时再开机
+- [ ] 真发车前：人在车边 + 车周围 2 m 净空（或架起）
 - [ ] 收工：`car.py stop` → 取日志 → `tools/car_cleanup.sh`
 
 ## 0. 车端接口（已实测，见 `docs/实机接口对照.md`）
@@ -204,7 +208,11 @@ python run.py log --dir logs/car --out logs/car/report-第N局.md   # 归档这�
 
 | 现象 | 可能原因 | 检查 |
 |---|---|---|
-| 没有任何检测结果 | 模型没加载 / 输入布局错 | 日志是否有「后端加载失败」；用 `verify_decode.py` 确认 `input_layout` |
+| **命令发了、执行器也算出了速度，但车纹丝不动** | **遥控器开着，底盘固件只听遥控器、屏蔽串口速度指令**（2026-09-29 实测，待关遥控器复验） | 先关遥控器再发一次。判据见下 |
+| 同上，且想确认"到底卡在哪一层" | 逐级看：决策层→执行器→`pursuitAngle`→底盘 | `tools/car_probe_velstate.sh`：看 `/current_vel_state` 有没有回吐 `linear.y=9.0`（D 档）。**有 = 速度已进下发分支，断点在底盘固件；没有 = 还在 ROS 层** |
+| 一直以为"执行器没发速度" | **判据用错了**：执行器发的是 **`pursuitAngle`**，不是 `/cmd_vel`。`/cmd_vel` 上"发布者 0"是**正常现象** | 别拿 `/cmd_vel` 判断执行器死活（2026-09-29 踩过，白查一轮） |
+| 执行器启动后立刻没了、车不动 | `path_executor.py` 缺 `map_utils`（只在源码目录里有）→ `ModuleNotFoundError` 启动即崩，`/nav/waypoint` 订阅者变 0 | `car.py preflight` 已会拦；修法 `export PYTHONPATH=$HOME/dzrobot/src/car_localization:$PYTHONPATH` |
+| 复盘时执行器日志是空的 | stdout 块缓冲，脚本 `cp` 时文件还是 0 字节 | 执行器必须用 `python3 -u` 起（已改） |
 | 检测一直是空的，**且看不出原因** | **相机崩了（链路静默）** | 先跑 `tools/car_camera_check.sh`；复盘报告里看 `no-image` / `vision-stale` 结论；`ros2 node list` 里还有没有 `usb_cam_node` |
 | 有框但瞄准点乱飘 | `kpt_unit` 猜错 | `verify_decode.py` 看 kpt 量级 |
 | 置信度全在 0.5 附近 | `cls_activation` 猜错 | 同上，看 cls 是否在 [0,1] |
