@@ -1,10 +1,18 @@
 ==================== 让车能动（默认 dry_run，车不动） ====================
-2026年 09月 29日 星期二 19:00:02 CST
-  模式: 只验链路（dry_run，不发命令）
+2026年 09月 29日 星期二 19:09:30 CST
+  模式: ★ 真发车（AG_CONFIRM_MOVE=1）★
   情报: fake_intel 直连车端（练车用）
   视觉: 不起（只要视觉加 --with-vision）
-  时长: 45s    日志: /tmp/ag_logs/move
+  时长: 60s    日志: /tmp/ag_logs/move
 
+----------------------------------------------------
+########## 安全确认（真发车） ##########
+  车会按路线真的动起来，确认以下几件事：
+    1) 有人站在车边，遥控器在手（可紧急接管）
+    2) 车周围 2 m 内没有人和障碍；或车已被架起
+    3) 场地格号/起点朝向与 params.yaml 一致（start_cell）
+    4) 视觉与瞄准：相机/det_node 可用（AG_WITH_VISION=1 时启动）；但**开火链默认不开**
+  5 秒后开始，Ctrl-C 可立即中止...
 
 ----------------------------------------------------
 ## 0. 前置检查
@@ -17,17 +25,17 @@
 
 ----------------------------------------------------
 ## 1. 起底盘 / 裁判 / 定位 / 路线执行器
-  actuator 进程组=13805 -> /tmp/ag_move_actuator.log
-    [dzactuator_node-3] [0m[INFO] [1790679604.467748784] [dzactuator]: dzactuator serial port opened[0m
-  judgment 进程组=13847 -> /tmp/ag_move_judgment.log
+  actuator 进程组=15595 -> /tmp/ag_move_actuator.log
+    [dzactuator_node-3] [0m[INFO] [1790680176.805085596] [dzactuator]: dzactuator serial port opened[0m
+  judgment 进程组=15637 -> /tmp/ag_move_judgment.log
     [dzjudgment-1] [32mjudgment_baudrate: [0m115200
     [dzjudgment-1] [dzjudgment-->]Serial initialize start!
     [dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
-  referee 进程组=13865 -> /tmp/ag_move_referee.log
-    [INFO] [1790679620.659637522] [referee_node]: source=dz: 状态来自 /HpAndHitmsg，开火发往 /LaserShot_Command（串口由 dzjudgment 负责）
-    [INFO] [1790679620.665526525] [referee_node]: referee_node 就绪: source=dz port=/dev/ttyUSB0 simulate=False
-  localization 进程组=13888 -> /tmp/ag_move_localization.log
-  executor 进程组=13910 -> /tmp/ag_move_executor.log
+  referee 进程组=15656 -> /tmp/ag_move_referee.log
+    [INFO] [1790680193.083990526] [referee_node]: source=dz: 状态来自 /HpAndHitmsg，开火发往 /LaserShot_Command（串口由 dzjudgment 负责）
+    [INFO] [1790680193.089889138] [referee_node]: referee_node 就绪: source=dz port=/dev/ttyUSB0 simulate=False
+  localization 进程组=15679 -> /tmp/ag_move_localization.log
+  executor 进程组=15702 -> /tmp/ag_move_executor.log
 
 
 ----------------------------------------------------
@@ -36,22 +44,23 @@
 
 ----------------------------------------------------
 ## 3. 情报源
-  fake_intel 进程组=13954 -> /tmp/ag_move_fake_intel.log
+  fake_intel 进程组=15747 -> /tmp/ag_move_fake_intel.log
   已启动 fake_intel -> /link/field_intel（full 模式：8 雷 / K4 K9 桥洞 / D2 蓝靶）
 
 ----------------------------------------------------
-## 4. 决策层 car_node（dry_run=true 只算不发）
-  car_node 进程组=13997 -> /tmp/ag_move_car_node.log
+## 4. 决策层 car_node（dry_run=false ★会发车★）
+  car_node 进程组=15790 -> /tmp/ag_move_car_node.log
   -- /car/route_status --
-    {"dry_run": true, "reset_sent": false, "route": "K9 I9 H8 G7 F6 E5 D4 D2* B2 C3 K4 N11,y", "tasks": 13, "shots": 0, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "bridge_a": "K4", "bridge_b": "K9", "target_cells": ["D2", "E2"], "target_face": "blue", "face_decided": "blue", "shoot_stops": ["D2"], "shoot_wait_budget_s": 60.0, "fits_shoot_wait": true, "drive_eta_s": 61.1, "bridge_zones": "A 段 K1~K5（5 选 1） / B 段 K6~K11（6 选 1）", "bridge_check_ok": true, "bridge_problems": []}
+    {"dry_run": false, "reset_sent": true, "route": "K9 I9 H8 G7 F6 E5 D4 D2* B2 C3 K4 N11,y", "tasks": 13, "shots": 0, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "bridge_a": "K4", "bridge_b": "K9", "target_cells": ["D2", "E2"], "target_face": "blue", "face_decided": "blue", "shoot_stops": ["D2"], "shoot_wait_budget_s": 60.0, "fits_shoot_wait": true, "drive_eta_s": 61.1, "bridge_zones": "A 段 K1~K5（5 选 1） / B 段 K6~K11（6 选 1）", "bridge_check_ok": true, "bridge_problems": []}
     ---
 
 ----------------------------------------------------
-## 5. 跑 45s（同时记录：/nav/waypoint + 轨迹 + 裁判状态）
+## 5. 跑 60s（同时记录：/nav/waypoint + 轨迹 + 裁判状态）
   -- 发出的 /nav/waypoint 命令 --
-    （没有发出任何命令）
+    reset:N10,y
+    K9 I9 H8 G7 F6 E5 D4 D2* B2 C3 K4 N11,y
   -- 轨迹（定位采样） --
-      样本 2183 个，落在 /tmp/ag_logs/run/traj.txt
+      样本 2911 个，落在 /tmp/ag_logs/run/traj.txt
       起 x: 1.4999999999999998
       起 y: 0.5
       起 z: 0.2
@@ -67,7 +76,10 @@
   起步位置: x: 1.4999999999999998 y: 0.5 z: 0.2 --- 
   结束位置: x: 1.4999999999999998 y: 0.5 z: 0.2 --- 
   位移: 0.000 m（判定阈值 0.15 m ≈ 半格）
-  （dry_run 模式：车不应移动；出现明显位移说明有别人在控制，立即检查）
+  [FAIL] 位移只有 0.000 m —— 车基本没动。按这个顺序排查：
+         1) /tmp/ag_logs/run/waypoint.txt 有没有命令   （空 = 决策层没发）
+         2) /tmp/ag_logs/run/ag_move_executor.log      （执行器崩了就没人执行命令）
+         3) /tmp/ag_logs/run/ag_move_actuator.log      （底盘串口开没开）
   原始材料已归档到 /tmp/ag_logs/run ：
       ag_move_actuator.log
       ag_move_camera.log

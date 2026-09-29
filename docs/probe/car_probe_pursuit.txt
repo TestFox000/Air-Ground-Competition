@@ -1,0 +1,103 @@
+==================== 定位 → 执行器 → pursuitAngle ====================
+2026年 09月 29日 星期二 19:16:17 CST
+
+----------------------------------------------------
+## 1. 起底盘 + 定位 + 执行器
+  -- 执行器 stdout/stderr --
+
+----------------------------------------------------
+## 2. 关键话题：谁发谁收（含 QoS）
+  -- /pursuitAngle（执行器 → 底盘，真正驱动车的话题）--
+      Type: geometry_msgs/msg/Twist
+      
+      Publisher count: 1
+      
+      Node name: path_executor_node
+      Node namespace: /
+      Topic type: geometry_msgs/msg/Twist
+      Endpoint type: PUBLISHER
+      GID: 01.0f.ad.14.62.44.fb.e0.00.00.00.00.00.00.13.03.00.00.00.00.00.00.00.00
+      QoS profile:
+        Reliability: BEST_EFFORT
+        History (Depth): UNKNOWN
+        Durability: VOLATILE
+        Lifespan: Infinite
+        Deadline: Infinite
+        Liveliness: AUTOMATIC
+        Liveliness lease duration: Infinite
+      
+      Subscription count: 1
+      
+      Node name: dzactuator
+      Node namespace: /
+      Topic type: geometry_msgs/msg/Twist
+      Endpoint type: SUBSCRIPTION
+      GID: 01.0f.ad.14.2b.44.43.7c.00.00.00.00.00.00.1e.04.00.00.00.00.00.00.00.00
+      QoS profile:
+        Reliability: BEST_EFFORT
+        History (Depth): UNKNOWN
+        Durability: VOLATILE
+        Lifespan: Infinite
+        Deadline: Infinite
+        Liveliness: AUTOMATIC
+        Liveliness lease duration: Infinite
+      
+  -- /odom/localization（定位 → 执行器）--
+      Type: nav_msgs/msg/Odometry
+      
+      Publisher count: 1
+      
+      Node name: serial_reader_node
+      Node namespace: /
+      Topic type: nav_msgs/msg/Odometry
+      Endpoint type: PUBLISHER
+      GID: 01.0f.ad.14.4e.44.cf.fd.00.00.00.00.00.00.14.03.00.00.00.00.00.00.00.00
+      QoS profile:
+        Reliability: RELIABLE
+        History (Depth): UNKNOWN
+        Durability: VOLATILE
+        Lifespan: Infinite
+        Deadline: Infinite
+        Liveliness: AUTOMATIC
+        Liveliness lease duration: Infinite
+      
+      Subscription count: 1
+      
+      Node name: path_executor_node
+      Node namespace: /
+      Topic type: nav_msgs/msg/Odometry
+      Endpoint type: SUBSCRIPTION
+      GID: 01.0f.ad.14.62.44.fb.e0.00.00.00.00.00.00.11.04.00.00.00.00.00.00.00.00
+      QoS profile:
+        Reliability: RELIABLE
+        History (Depth): UNKNOWN
+        Durability: VOLATILE
+        Lifespan: Infinite
+        Deadline: Infinite
+        Liveliness: AUTOMATIC
+        Liveliness lease duration: Infinite
+      
+
+----------------------------------------------------
+## 3. 空跑：不发命令，只看 pursuitAngle 有没有在发
+  空跑 6 s 抓到 242 条
+  [OK] 执行器在发 → 定位已经进来了（has_odom=True）
+      linear.x:   x: 0.0
+      linear.x:   x: 0.0
+      linear.x:   x: 0.0
+
+----------------------------------------------------
+## 4. 发命令（N9，一格）看速度有没有变非零
+  已发 reset:N10,y 与 N9,y
+  发车 14 s 抓到 637 条
+  [OK] 出现非零线速度：
+        x: 0.12250000000000003
+        x: 0.12250000000000003
+        x: 0.12250000000000003
+        x: 0.12250000000000003
+        x: 0.12250000000000003
+  -- 位移 --
+      样本 635，位移 0.000 m → [FAIL] 基本没动
+
+==================== 结束 ====================
+  已停止本脚本启动的节点

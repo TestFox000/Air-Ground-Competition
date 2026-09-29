@@ -1,0 +1,112 @@
+==================== 底盘状态体检（只读，不发车） ====================
+2026年 09月 29日 星期二 19:21:23 CST
+
+----------------------------------------------------
+## 1. 起底盘 + 定位
+
+----------------------------------------------------
+## 2. 场上全部话题（不猜名字）
+    /Battery_Percentage
+    /CameMo_Conl
+    /PowerVoltage
+    /StopCmd
+    /camemo_feedback
+    /cmd_vel
+    /current_vel_state
+    /imu_data
+    /imu_msg_valid
+    /logicontrol
+    /nav/waypoint
+    /navi_cmd
+    /odom
+    /odom/localization
+    /odom_msg_valid
+    /parameter_events
+    /pursuitAngle
+    /raw
+    /rosout
+    /tf
+    /tf_static
+    /vehicle_Drivestate
+    /vehicle_state
+    /voice_switch
+    /wakeup_signal
+
+----------------------------------------------------
+## 3. 底盘自己发布的那些：逐个读一次
+  -- /Battery_Percentage --
+      data: 0.8667999505996704
+      ---
+  -- /PowerVoltage --
+      data: 11.772000312805176
+      ---
+  -- /current_vel_state --
+      （读不到）
+  -- /imu_data --
+      header:
+        stamp:
+          sec: 1790680911
+          nanosec: 821853735
+        frame_id: imu_link
+      orientation:
+  -- /imu_msg_valid --
+      data: 1
+      ---
+  -- /navi_cmd --
+      （读不到）
+  -- /odom --
+      header:
+        stamp:
+          sec: 1790680921
+          nanosec: 381480507
+        frame_id: odom
+      child_frame_id: base_link
+  -- /odom/localization --
+      header:
+        stamp:
+          sec: 1790680922
+          nanosec: 861509338
+        frame_id: odom
+      child_frame_id: base_link
+  -- /odom_msg_valid --
+      data: 1
+      ---
+  -- /vehicle_Drivestate --
+      （读不到）
+  -- /vehicle_state --
+      （读不到）
+  -- /voice_switch --
+      （读不到）
+
+----------------------------------------------------
+## 4. 底盘节点的参数（可能藏着使能/模式开关）
+      calibrate_lineSpeed
+      gyro_frame_id
+      odom_frame_id
+      qos_overrides./parameter_events.publisher.depth
+      qos_overrides./parameter_events.publisher.durability
+      qos_overrides./parameter_events.publisher.history
+      qos_overrides./parameter_events.publisher.reliability
+      qos_overrides./tf.publisher.depth
+      qos_overrides./tf.publisher.durability
+      qos_overrides./tf.publisher.history
+      qos_overrides./tf.publisher.reliability
+      robot_frame_id
+      serial_baud_rate
+      serial_port_name
+      smooth_window_angle
+      smooth_window_speed
+      ticksPer2PI
+      ticksPerMeter
+      use_sim_time
+
+  -- 与模式/使能相关的参数取值 --
+
+----------------------------------------------------
+## 5. 底盘串口侧的打印（rx32 = 底盘上报状态字）
+    [dzactuator_node-3] [32mserial_port_name:[0m/dev/dzactuator
+    [dzactuator_node-3] [32mserial_baud_rate:[0m115200
+    [dzactuator_node-3] [0m[INFO] [1790680884.343556779] [dzactuator]: dzactuator serial port opened[0m
+
+==================== 结束 ====================
+  已停止本脚本启动的节点

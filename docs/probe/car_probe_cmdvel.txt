@@ -1,0 +1,56 @@
+==================== 命令 → 速度：决定性验证 ====================
+2026年 09月 29日 星期二 19:13:01 CST
+  目标：N9（只走一格）   时长：15s
+
+----------------------------------------------------
+## 1. 执行器往哪个话题发速度（静态）
+    257:        self.cmd_pub = self.create_publisher(
+    265:        self.stop_signal_pub = self.create_publisher(
+    282:        self.scan_req_pub = self.create_publisher(UInt8, '/nav/scan_request', 10)
+
+----------------------------------------------------
+## 2. 起底盘 + 定位 + 执行器
+  -- 执行器 stdout/stderr --
+
+----------------------------------------------------
+## 3. 控制类话题：谁在发、谁在收（关键）
+  -- /cmd_vel --
+      Type: geometry_msgs/msg/Twist
+      Publisher count: 0
+      Subscription count: 1
+  -- /navi_cmd --
+      Type: std_msgs/msg/UInt8
+      Publisher count: 1
+      Subscription count: 0
+  -- /StopCmd --
+      Type: std_msgs/msg/UInt8
+      Publisher count: 0
+      Subscription count: 1
+  -- /move_base/stop_signal --
+      Type: std_msgs/msg/UInt8
+      Publisher count: 1
+      Subscription count: 0
+
+----------------------------------------------------
+## 4. 发命令 + 同时监听速度
+  发布 reset:N10,y
+  发布 N9,y
+    publishing #1: std_msgs.msg.String(data='N9,y')
+    
+  -- /nav/waypoint 订阅者（发命令时）--
+      Type: std_msgs/msg/String
+      Publisher count: 0
+      Subscription count: 2
+
+----------------------------------------------------
+## 5. 结果：速度指令有没有发出来
+  -- /cmd_vel 抓取 --
+      [FAIL] /cmd_vel 一条都没抓到 —— 执行器根本没往这个话题发
+  -- 位移 --
+      样本 683，位移 0.000 m  → [FAIL] 基本没动
+  -- 执行器 ROS 日志（~/.ros/log 最新一份，含 INFO/WARN）--
+      /home/duzhong/.ros/log/python3_16472_1790680391925.log
+      [INFO] [1790680392.459842994] [serial_reader_node]: Raw odom start: (0.000, 0.000) m
+
+==================== 结束 ====================
+  已停止本脚本启动的节点
