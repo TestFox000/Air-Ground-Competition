@@ -1,5 +1,5 @@
 ==================== 车端编译 ====================
-2026年 09月 29日 星期二 18:19:26 CST
+2026年 09月 29日 星期二 20:04:54 CST
 
 ## 1. 环境
 ROS_DISTRO=humble
@@ -35,47 +35,47 @@ colcon 退出码 = 0
 ---- 摘要 ----
 Starting >>> ag_interfaces
 Starting >>> ag_core
-Finished <<< ag_core [4.72s]
-Finished <<< ag_interfaces [25.7s]
+Finished <<< ag_core [2.11s]
+Finished <<< ag_interfaces [15.8s]
 Starting >>> ag_mission
 Starting >>> ag_bridge
 Starting >>> ag_perception
 Starting >>> ag_referee
 Starting >>> ag_chassis
-Finished <<< ag_referee [3.53s]
-Finished <<< ag_chassis [4.61s]
-Finished <<< ag_perception [5.23s]
-Finished <<< ag_mission [5.68s]
+Finished <<< ag_bridge [3.69s]
+Finished <<< ag_referee [3.71s]
+Finished <<< ag_mission [3.74s]
 Starting >>> ag_car
-Finished <<< ag_bridge [6.28s]
+Finished <<< ag_perception [4.28s]
 Starting >>> ag_bringup
-Finished <<< ag_car [2.23s]
-Finished <<< ag_bringup [2.67s]
-Summary: 9 packages finished [35.5s]
+Finished <<< ag_chassis [4.30s]
+Finished <<< ag_car [1.98s]
+Finished <<< ag_bringup [1.91s]
+Summary: 9 packages finished [22.8s]
 
 ---- 错误/警告 ----
 
 ---- 日志尾部 ----
 Starting >>> ag_interfaces
 Starting >>> ag_core
-Finished <<< ag_core [4.72s]
-Finished <<< ag_interfaces [25.7s]
+Finished <<< ag_core [2.11s]
+Finished <<< ag_interfaces [15.8s]
 Starting >>> ag_mission
 Starting >>> ag_bridge
 Starting >>> ag_perception
 Starting >>> ag_referee
 Starting >>> ag_chassis
-Finished <<< ag_referee [3.53s]
-Finished <<< ag_chassis [4.61s]
-Finished <<< ag_perception [5.23s]
-Finished <<< ag_mission [5.68s]
+Finished <<< ag_bridge [3.69s]
+Finished <<< ag_referee [3.71s]
+Finished <<< ag_mission [3.74s]
 Starting >>> ag_car
-Finished <<< ag_bridge [6.28s]
+Finished <<< ag_perception [4.28s]
 Starting >>> ag_bringup
-Finished <<< ag_car [2.23s]
-Finished <<< ag_bringup [2.67s]
+Finished <<< ag_chassis [4.30s]
+Finished <<< ag_car [1.98s]
+Finished <<< ag_bringup [1.91s]
 
-Summary: 9 packages finished [35.5s]
+Summary: 9 packages finished [22.8s]
 
 ## 4. 安装结果
 ag_bridge
