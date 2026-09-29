@@ -1,0 +1,30 @@
+==================== 位移判据校验：/odom vs /odom/localization ====================
+2026年 09月 29日 星期二 19:38:55 CST
+  0.5 m/s × 3s
+
+----------------------------------------------------
+## 1. 起底盘 + 定位
+
+----------------------------------------------------
+## 2. 发 pursuitAngle 0.5 m/s，同时读两个里程计
+
+----------------------------------------------------
+## 3. 对照结果
+      /odom（底盘编码器，未加工）: 位姿位移 0.000 m（1036 样本） ｜ 速度峰值 0.000 m/s（259 样本）
+      /odom/localization（serial_reader 输出）: 位姿位移 1.581 m（1280 样本） ｜ 速度峰值 0.000 m/s（320 样本）
+
+  判读：
+    /odom 动了、/odom/localization 没动 → **位移判据一直是错的**，车其实动过
+    /odom 也没动                        → 电机确实没转，底盘固件层问题坐实
+
+----------------------------------------------------
+## 4. serial_reader 的状态字（看是不是 dr-reset 锁死）
+    [serial_reader_node-1] [0m[INFO] [1790681958.591704202] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+    [serial_reader_node-1] [0m[INFO] [1790681958.794203391] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+    [serial_reader_node-1] [0m[INFO] [1790681958.990803260] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+    [serial_reader_node-1] [0m[INFO] [1790681959.192471874] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+    [serial_reader_node-1] [0m[INFO] [1790681959.393740991] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+    [serial_reader_node-1] [0m[INFO] [1790681959.591835347] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+
+==================== 结束 ====================
+  已停止本脚本启动的节点
