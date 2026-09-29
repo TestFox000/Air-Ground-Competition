@@ -1,5 +1,5 @@
 ==================== 发车前置体检 ====================
-2026年 09月 29日 星期二 18:22:32 CST
+2026年 09月 29日 星期二 19:05:08 CST
   主机: duzhong   工作区: /tmp/ag_ws
 
 ----------------------------------------------------
@@ -21,6 +21,10 @@
   [OK] dzrknn_dataprocess
   -- 关键源码是否存在 --
   [OK] path_executor.py
+  -- 路线执行器能不能真起来（不只是『文件在不在』） --
+  [OK] map_utils 可导入（源码里有、装好的包里没有）
+  [!] 本会话尚未导出 PYTHONPATH=/home/duzhong/dzrobot/src/car_localization —— **起 path_executor 的脚本必须先导出它**，
+      否则执行器启动即崩、车不动，而链路上不会有任何报错
   -- 相机设备 --
       /dev/video0
       /dev/video1
@@ -33,14 +37,14 @@
 
 ----------------------------------------------------
 ## 2. 硬件项：起底盘 + 定位，验「定位到底能不能读」（最关键的检查）
-      [dzactuator_node-3] [0m[INFO] [1790677355.571371964] [dzactuator]: dzactuator serial port opened[0m
+      [dzactuator_node-3] [0m[INFO] [1790679910.454382652] [dzactuator]: dzactuator serial port opened[0m
   -- 定位节点日志尾部 --
-      [serial_reader_node-1] [0m[INFO] [1790677375.580277525] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
-      [serial_reader_node-1] [0m[INFO] [1790677375.780215705] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
-      [serial_reader_node-1] [0m[INFO] [1790677375.980125304] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
-      [serial_reader_node-1] [0m[INFO] [1790677376.187148231] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
-      [serial_reader_node-1] [0m[INFO] [1790677376.380098201] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
-      [serial_reader_node-1] [0m[INFO] [1790677376.580194455] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790679930.919228758] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790679931.119160474] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790679931.316813832] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790679931.516870256] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790679931.719236911] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790679931.919176335] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
 
   -- 相关话题（不猜名字，先看真实存在哪些） --
       /odom
@@ -48,20 +52,20 @@
       /odom_msg_valid
 
   -- 逐个验活 --
-  [OK] /odom/localization 有数据（average rate: 50.074）
+  [OK] /odom/localization 有数据（average rate: 50.049）
           header:
             stamp:
-              sec: 1790677381
-              nanosec: 976185756
+              sec: 1790679937
+              nanosec: 854311102
             frame_id: odom
           child_frame_id: base_link
           pose:
             pose:
-  [OK] /odom 有数据（average rate: 49.998）
+  [OK] /odom 有数据（average rate: 49.991）
           header:
             stamp:
-              sec: 1790677387
-              nanosec: 555679838
+              sec: 1790679943
+              nanosec: 134401031
             frame_id: odom
           child_frame_id: base_link
           pose:

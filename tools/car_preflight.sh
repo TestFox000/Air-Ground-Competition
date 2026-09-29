@@ -71,6 +71,24 @@ done
 echo "  -- 关键源码是否存在 --"
 PE="$HOME/dzrobot/src/car_localization/car_localization/path_executor.py"
 [ -f "$PE" ] && say_ok "path_executor.py" || say_fail "找不到 $PE（执行路线的那一段没了）"
+# ⚠️ 2026-09-29 实跑真因：源码存在 ≠ 起得来。
+#    path_executor.py 里 `from car_localization.map_utils import ...`，而 map_utils
+#    **只存在于源码目录**（官方装好的包里没有它）。直接 `python3 <源码>/path_executor.py`
+#    会 ModuleNotFoundError 启动即崩 —— 表现为 /nav/waypoint 的订阅者是 0，
+#    决策层命令发得出去、但**没人执行**，车纹丝不动，且链路上没有任何报错。
+#    修法：把源码目录加进 PYTHONPATH。体检必须拦住它，否则每次都要重新踩一遍。
+echo "  -- 路线执行器能不能真起来（不只是『文件在不在』） --"
+PE_SRC="$HOME/dzrobot/src/car_localization"
+if PYTHONPATH="$PE_SRC:${PYTHONPATH}" python3 -c "import car_localization.map_utils" 2>/dev/null; then
+  say_ok "map_utils 可导入（源码里有、装好的包里没有）"
+  case ":${PYTHONPATH}:" in
+    *":$PE_SRC:"*) say_ok "本会话已带 PYTHONPATH=$PE_SRC（执行器能起来）" ;;
+    *) echo "  [!] 本会话尚未导出 PYTHONPATH=$PE_SRC —— **起 path_executor 的脚本必须先导出它**，"
+       echo "      否则执行器启动即崩、车不动，而链路上不会有任何报错" ;;
+  esac
+else
+  say_fail "car_localization.map_utils 导不进来 → 执行器起不来 → 车不动。修法：export PYTHONPATH=\"$PE_SRC:\$PYTHONPATH\""
+fi
 echo "  -- 相机设备 --"
 ls /dev/video* 2>/dev/null | sed 's/^/      /' || echo "      （没有 /dev/video*）"
 echo "  -- 日志目录可写？ --"

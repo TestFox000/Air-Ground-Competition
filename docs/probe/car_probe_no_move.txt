@@ -1,0 +1,67 @@
+==================== 为什么车不动（下一环排查） ====================
+2026年 09月 29日 星期二 18:58:22 CST
+
+----------------------------------------------------
+## 1. path_executor 源码：订阅什么 / 发布什么
+    6:sequence, then uses the Pure Pursuit algorithm to publish pursuitAngle (Twist)
+    29:  send_waypoint.py --/nav/waypoint(String route command)--> this node
+    43:  this node --/move_base/stop_signal(UInt8)--> dzrknn_dataprocess
+    49:  1. Waiting for shooting? -> stop, publish zero Twist until 10 shots or 150s timeout
+    50:  2. No loaded path? -> publish empty Twist (keeps dzactuator Pursuit mode alive)
+    68:                                    threshold/approach segment); subscribers & publishers;
+    69:                                    20Hz control timer; publisher health check timer
+    70:  (4) Path loading & command parse - check_odom_publishers(loc topic publisher check),
+    85:  (9) main (entry point)         - rclpy init, node spin, Ctrl-C exit publishes zero Twist brake
+    108:# QoS config matches dzactuator's subscriber end (KeepLast(1) + best_effort).
+    111:# subscriber stalls and replay in a burst on recovery, causing latency jitter.
+    114:# serial_reader publishes /odom/localization in "block" units and forwards raw odom heading.
+    123:# state and topic plumbing; other functions cooperate as
+    200:        #     /nav/scan_request  1 -> 请求云台做一次全向扫描（左一趟 + 右一趟）
+    223:        # Subscribe to localization topic (the only source of localization data for this node; full chain):
+    225:        #   dzactuator: parses serial -> publishes /odom(Odometry)
+    226:        #   serial_reader: subscribes /odom + /imu_data, heading from IMU (2s timeout
+    228:        #     -> publishes /odom/localization
+    231:        # serial_reader publishes "block"-unit coords (x=0..10.5, y=0..13)
+    232:        self.odom_sub = self.create_subscription(
+    234:            '/odom/localization',   # topic: localization published by serial_reader
+    239:        # Subscribe to waypoint commands (trigger topic)
+    242:        self.waypoint_sub = self.create_subscription(
+    244:            '/nav/waypoint',        # topic: send_waypoint.py and similar tools send routes
+    250:        # speed and steering leave here). This Twist is subscribed by dzactuator's
+
+----------------------------------------------------
+## 2. 起底盘 + 执行器（不给任何控制命令）
+  actuator 进程组=13466
+  executor 进程组=13505
+  -- 执行器日志（全部）--
+    [WARN] [1790679517.875143721] [path_executor_node]: No publisher on /odom/localization yet
+    [WARN] [1790679520.846000468] [path_executor_node]: No publisher on /odom/localization yet
+
+----------------------------------------------------
+## 3. 现在 /nav/waypoint 有没有订阅者（关键）
+    Type: std_msgs/msg/String
+    Publisher count: 0
+    Subscription count: 1
+
+----------------------------------------------------
+## 4. 场上所有跟底盘/控制有关的话题
+    /StopCmd
+    /cmd_vel
+    /move_base/stop_signal
+    /nav/scan_request
+    /nav/waypoint
+    /navi_cmd
+
+----------------------------------------------------
+## 5. 执行器进程还活着吗
+    13505 python3 /home/duzhong/dzrobot/src/car_localization/car_localization/path_executor.py
+    13466 /usr/bin/python3 /opt/ros/humble/bin/ros2 launch dzactuator bringup.launch.py
+    13472 /home/duzhong/dzrobot/install/dzactuator/lib/dzactuator/dzactuator_node --ros-args -r __node:=dzactuator --params-file /tmp/launch_params_59oz599j
+
+----------------------------------------------------
+## 6. 提示
+  - 若第 3 节订阅者数为 0：执行器没建成订阅 → 发的命令没人接，车不会动
+  - 若订阅者 ≥1 但仍不动：看执行器往哪发（第 1 节），确认底盘收的是不是那个话题
+  - 若第 5 节执行器没在跑：看第 2 节点的日志报错
+==================== 结束 ====================
+  已停止本脚本启动的进程组

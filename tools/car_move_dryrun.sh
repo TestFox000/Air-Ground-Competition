@@ -75,6 +75,11 @@ source "$HOME/install/setup.bash" 2>/dev/null
 export RCUTILS_LOGGING_BUFFERED_STREAM=1
 export AG_LOG_DIR="${AG_LOG_DIR:-/tmp/ag_logs}"
 export AG_LOG_SESSION="${AG_LOG_SESSION:-move}"
+# ⚠️ path_executor.py 要 `from car_localization.map_utils import ...`，
+#    而 map_utils **只存在于源码里**（装好的包里没有它），所以直接跑源码会
+#    `ModuleNotFoundError` 崩溃 —— 车因此完全不动（2026-09-29 实跑真因）。
+#    把源码目录加进 PYTHONPATH 就能起来；这是官方自己也没装好的那一份。
+export PYTHONPATH="$HOME/dzrobot/src/car_localization:${PYTHONPATH}"
 
 echo "==================== 让车能动（默认 dry_run，车不动） ===================="
 date
@@ -152,7 +157,10 @@ fi
 start localization ros2 launch car_localization localization.launch.py
 sleep 6
 
-start executor python3 "$HOME/dzrobot/src/car_localization/car_localization/path_executor.py"
+# ⚠️ 必须 -u（无缓冲）：执行器的 stdout 默认是块缓冲，脚本末尾 `cp` 时文件还是 0 字节，
+#    复盘拿到的 ag_move_executor.log 是**空的** —— 2026-09-29 实跑就因此拿不到"执行器
+#    为什么不动"的证据（只能靠猜）。-u 让它边跑边落盘。
+start executor python3 -u "$HOME/dzrobot/src/car_localization/car_localization/path_executor.py"
 sleep 6
 grep -E "Initialized|Command format|wait" /tmp/ag_move_executor.log 2>/dev/null | head -4 | sed 's/^/    /'
 echo
@@ -242,6 +250,16 @@ sleep 3
 echo
 
 hr; echo "## 4. 决策层 car_node（$([ "$CONFIRM" = "1" ] && echo 'dry_run=false ★会发车★' || echo 'dry_run=true 只算不发')）"
+# ⚠️ 监听必须**先开**：car_node 只在"路线变化那一刻"发一条 /nav/waypoint，
+#    等它起来 8 秒再开监听就永远抓不到 —— 2026-09-29 实跑就因此得到空的 waypoint.txt，
+#    看上去像"根本没发命令"（其实是发了、没录上）。
+RUN_DIR="$AG_LOG_DIR/run"
+mkdir -p "$RUN_DIR" 2>/dev/null
+( timeout "$((RUN_S + 30))" ros2 topic echo /nav/waypoint --field data \
+    > "$RUN_DIR/waypoint.txt" 2>&1 ) &
+WP_PID=$!
+sleep 2
+
 if [ "$CONFIRM" = "1" ]; then
   start car_node ros2 run ag_car car_node --ros-args \
     -p dry_run:=false -p start_cell:=N10 -p goal_cell:=N11 -p log_dir:="$AG_LOG_DIR"
@@ -257,8 +275,6 @@ echo
 hr; echo "## 5. 跑 ${RUN_S}s（同时记录：/nav/waypoint + 轨迹 + 裁判状态）"
 # 这些证据**必须落进日志目录**，否则取回日志时它们不会跟着回来，
 # 复盘就只能看个黑匣子、看不到"车到底走到哪、还剩几条命"。
-RUN_DIR="$AG_LOG_DIR/run"
-mkdir -p "$RUN_DIR" 2>/dev/null
 
 # 轨迹采样（只读话题，不影响控制）：跑完要能回答"它到底走到哪、有没有跑偏"。
 timeout "$RUN_S" ros2 topic echo /odom/localization --field pose.pose.position \
@@ -269,10 +285,9 @@ timeout "$RUN_S" ros2 topic echo /referee/state_json --field data \
   > "$RUN_DIR/referee.txt" 2>&1 &
 REF_PID=$!
 
-timeout "$RUN_S" ros2 topic echo /nav/waypoint --field data > "$RUN_DIR/waypoint.txt" 2>/dev/null
-
 wait "$TRAJ_PID" 2>/dev/null
 wait "$REF_PID" 2>/dev/null
+kill "$WP_PID" 2>/dev/null; wait "$WP_PID" 2>/dev/null
 
 echo "  -- 发出的 /nav/waypoint 命令 --"
 if [ -s "$RUN_DIR/waypoint.txt" ]; then
@@ -301,11 +316,37 @@ hr; echo "## 6. 结果"
 POS1=$(read_pos)
 echo "  起步位置: ${POS0:-?}"
 echo "  结束位置: ${POS1:-?}"
+# 位移必须算**距离**，不能只比字符串：IMU 漂移会让坐标在小数点后第 3 位抖，
+# 字符串比较会把 8 毫米当成"车动了" —— 2026-09-29 实跑就得出过这种反向结论。
+DISP="$(python3 - "$RUN_DIR/traj.txt" 0.15 <<'PY' 2>/dev/null
+import sys, math, re
+try:
+    pts = re.findall(r"^\s*x:\s*(-?[\d.]+)\s*\n\s*y:\s*(-?[\d.]+)",
+                     open(sys.argv[1], encoding="utf-8", errors="replace").read(), re.M)
+    if len(pts) < 2:
+        print("? 0")
+    else:
+        d = math.dist((float(pts[0][0]), float(pts[0][1])),
+                      (float(pts[-1][0]), float(pts[-1][1])))
+        print(f"{d:.3f} {1 if d > float(sys.argv[2]) else 0}")
+except Exception:
+    print("? 0")
+PY
+)"
+DIST="$(echo "$DISP" | awk '{print $1}')"
+MOVED="$(echo "$DISP" | awk '{print $2}')"
+echo "  位移: ${DIST} m（判定阈值 0.15 m ≈ 半格）"
 if [ "$CONFIRM" = "1" ]; then
-  [ "$POS0" != "$POS1" ] && echo "  [OK] 位置发生变化 —— 车真的动了" \
-                         || echo "  ⚠️ 位置没变：可能已到点、路线为空、或底盘没执行（看 $RUN_DIR 里的 executor 日志）"
+  if [ "${MOVED:-0}" = "1" ]; then
+    echo "  [OK] 车真的动了"
+  else
+    echo "  [FAIL] 位移只有 ${DIST} m —— 车基本没动。按这个顺序排查："
+    echo "         1) $RUN_DIR/waypoint.txt 有没有命令   （空 = 决策层没发）"
+    echo "         2) $RUN_DIR/ag_move_executor.log      （执行器崩了就没人执行命令）"
+    echo "         3) $RUN_DIR/ag_move_actuator.log      （底盘串口开没开）"
+  fi
 else
-  echo "  （dry_run 模式：车不应移动；位置变化说明有别人在控制，立即检查）"
+  echo "  （dry_run 模式：车不应移动；出现明显位移说明有别人在控制，立即检查）"
 fi
 
 # 把所有证据（各节点原始日志 + 轨迹/裁判/路点采样）统一收进日志目录，

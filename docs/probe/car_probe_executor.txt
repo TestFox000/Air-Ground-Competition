@@ -1,0 +1,68 @@
+==================== path_executor 启动方式排查 ====================
+2026年 09月 29日 星期二 18:44:01 CST
+
+----------------------------------------------------
+## 1. 源码目录里有什么
+    总计 28
+    drwxr-xr-x 3 duzhong duzhong 4096  9月 28 20:00 car_localization
+    drwxr-xr-x 2 duzhong duzhong 4096  9月 27 12:32 launch
+    -rw-rw-r-- 1 duzhong duzhong  711  9月 28 19:42 package.xml
+    drwxr-xr-x 2 duzhong duzhong 4096  9月 27 12:32 resource
+    -rw-rw-r-- 1 duzhong duzhong  105  9月 27 10:47 setup.cfg
+    -rw-rw-r-- 1 duzhong duzhong 1011  9月 28 19:39 setup.py
+    -rw-rw-r-- 1 duzhong duzhong  865  9月 28 19:41 start_path_executor.sh
+  -- car_localization/ 包内 --
+    总计 108
+    -rw-rw-r-- 1 duzhong duzhong  3413  9月 28 19:38 generate_path.py
+    -rw-rw-r-- 1 duzhong duzhong     0  9月 27 10:47 __init__.py
+    -rw-rw-r-- 1 duzhong duzhong  2377  9月 28 19:32 map_utils.py
+    -rw-rw-r-- 1 duzhong duzhong 81136  9月 28 19:34 path_executor.py
+    drwxr-xr-x 2 duzhong duzhong  4096  9月 27 17:12 __pycache__
+    -rw-rw-r-- 1 duzhong duzhong  1453  9月 28 19:40 send_waypoint.py
+    -rw-rw-r-- 1 duzhong duzhong  9893  9月 28 19:38 serial_reader.py
+
+----------------------------------------------------
+## 2. map_utils 到底在不在
+    /home/duzhong/dzrobot/src/car_localization/car_localization/map_utils.py
+  （上面没有就说明源码里有但没被安装，或压根不存在）
+
+----------------------------------------------------
+## 3. 已安装的 car_localization 包里有什么
+  -- /home/duzhong/install/car_localization --
+    /home/duzhong/install/car_localization/lib/python3.10/site-packages/car_localization/__init__.py
+    /home/duzhong/install/car_localization/lib/python3.10/site-packages/car_localization/serial_reader.py
+    /home/duzhong/install/car_localization/lib/python3.10/site-packages/car_localization/path_planner.py
+    /home/duzhong/install/car_localization/lib/python3.10/site-packages/car_localization/path_executor.py
+    /home/duzhong/install/car_localization/lib/python3.10/site-packages/car_localization/generate_path.py
+    /home/duzhong/install/car_localization/lib/python3.10/site-packages/car_localization/send_waypoint.py
+    /home/duzhong/install/car_localization/share/car_localization/launch/localization.launch.py
+  -- /home/duzhong/dzrobot/install/car_localization --
+
+----------------------------------------------------
+## 4. 官方 launch 文件列表 + 谁引用了 path_executor
+    localization.launch.py
+  -- 引用 path_executor 的 launch --
+    （launch 里没引用）
+  -- 那些 launch 里的节点定义 --
+
+----------------------------------------------------
+## 5. 有没有现成的可执行入口
+    car_localization serial_reader_node
+
+----------------------------------------------------
+## 6. 直接试两种起法，看哪种能活 5 秒
+  A) PYTHONPATH 带上源码目录再跑源码：
+          _shutdown(context=context)
+        File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/utilities.py", line 58, in shutdown
+          return context.shutdown()
+        File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 102, in shutdown
+          self.__context.shutdown()
+      rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:241
+
+  B) 不设 PYTHONPATH 直接跑：
+      Traceback (most recent call last):
+        File "/home/duzhong/dzrobot/src/car_localization/car_localization/path_executor.py", line 99, in <module>
+          from car_localization.map_utils import (
+      ModuleNotFoundError: No module named 'car_localization.map_utils'
+
+==================== 结束 ====================
