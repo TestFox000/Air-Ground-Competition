@@ -130,10 +130,11 @@ def describe(e: Event) -> str:
 
 # ---------------------------------------------------------------- 渲染
 def render_markdown(paths: Sequence[Path], events: List[Event], bad: int,
-                    max_gap: float, timeline: int, note: str = "") -> str:
-    m = summarize(events)
+                    max_gap: float, timeline: int, note: str = "",
+                    nodes_all=None) -> str:
+    m = summarize(events, nodes_all=nodes_all)
     m["blackbox_errors"] = bad
-    findings = diagnose(events, max_gap_s=max_gap)
+    findings = diagnose(events, max_gap_s=max_gap, nodes_all=nodes_all)
 
     L: List[str] = []
     L.append("# 跑车复盘报告")
@@ -231,11 +232,11 @@ def render_markdown(paths: Sequence[Path], events: List[Event], bad: int,
 
 
 def print_summary(paths: Sequence[Path], events: List[Event], bad: int,
-                  max_gap: float) -> List[Any]:
+                  max_gap: float, nodes_all=None) -> List[Any]:
     """控制台摘要：**先看结论**，细节去报告里找。"""
-    m = summarize(events)
+    m = summarize(events, nodes_all=nodes_all)
     m["blackbox_errors"] = bad
-    findings = diagnose(events, max_gap_s=max_gap)
+    findings = diagnose(events, max_gap_s=max_gap, nodes_all=nodes_all)
     counts = {s: sum(1 for f in findings if f.severity == s) for s in SEVERITY_ORDER}
 
     print("=" * 74)
@@ -313,6 +314,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     paths = collect_jsonl(target)
     events, bad = read_events(paths)
+    # 节点集合按**全部**事件算（指标仍只看最后一局）：
+    # referee_node 比 car_node 先启动，它的 node.ready 落在"最后一局"窗口之前，
+    # 只按窗口算会误判成"referee_node 没在跑"（2026-09-28 实测踩到）。
+    nodes_all = {e.node for e in events if e.node}
     note = ""
     if not args.all:
         idx = session_start_index(events)
@@ -324,18 +329,20 @@ def main(argv: Optional[List[str]] = None) -> int:
             note = "（没有 session.begin，按全部事件统计）"
 
     if args.json:
-        m = summarize(events)
+        m = summarize(events, nodes_all=nodes_all)
         m["blackbox_errors"] = bad
         print(json.dumps({
             "paths": [str(p) for p in paths],
             "bad_lines": bad,
             "summary": m,
-            "findings": [f.to_dict() for f in diagnose(events, max_gap_s=args.max_gap)],
+            "findings": [f.to_dict() for f in
+                         diagnose(events, max_gap_s=args.max_gap, nodes_all=nodes_all)],
         }, ensure_ascii=False, indent=2, default=str))
         return 0
 
-    findings = print_summary(paths, events, bad, args.max_gap)
-    md = render_markdown(paths, events, bad, args.max_gap, args.timeline, note)
+    findings = print_summary(paths, events, bad, args.max_gap, nodes_all=nodes_all)
+    md = render_markdown(paths, events, bad, args.max_gap, args.timeline, note,
+                         nodes_all=nodes_all)
     if args.out:
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)

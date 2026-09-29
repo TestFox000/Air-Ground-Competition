@@ -154,7 +154,7 @@ python run.py log --dir logs/car --out logs/car/report-第N局.md   # 归档这�
       广播地址是否还是默认值、模型路径是否为空、代码是否已提交）。
       剩下的"只能现场量"的项它列成提示给你，不自动判。
 - [ ] `python run.py check` 环境体检通过
-- [ ] `python -m pytest tests -q` 全绿（514 项）
+- [ ] `python -m pytest tests -q` 全绿（517 项）
 - [ ] 模型契约：`python tools/ml/verify_contract.py --model <模型>` 通过（输出必须是 `[1,9,8400]`）
       —— 车端 5 个 .rknn 里只有 `light_det.rknn`(=light_det3) 符合，另 3 个是旧版多输出，别指错
 - [ ] **别用 SSH/服务方式启动 det_node**：它内部 `cv::imshow`，无 `DISPLAY` 会一帧就崩

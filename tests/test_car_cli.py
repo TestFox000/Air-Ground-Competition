@@ -66,6 +66,7 @@ def _capture_script_env(monkeypatch):
     seen = {}
 
     def fake_script(name, host, user, timeout, env=None, out=None):
+        seen.setdefault("names", []).append(name)   # restore 会连跑两个脚本
         seen["name"] = name
         seen["env"] = list(env or [])
         seen["host"] = host
@@ -133,10 +134,16 @@ def test_one_click_never_starts_the_fire_chain():
     assert "dzrknn_dataprocess" in src, "必须保留显式告警，否则读者会以为它没风险"
 
 
-def test_restore_uses_restore_script(monkeypatch):
+def test_restore_runs_both_repair_steps(monkeypatch):
+    """`restore` 要修**两类**缺失，少一类车就跑不起来。
+
+    2026-09-29 实地发现第二类：`dzactuator bringup.launch.py` 起不来，
+    因为 `robot_localization` / `rplidar_ros` 没装 → 底盘不起来 → 没有 /imu_data
+    → 定位永远读不到。所以 restore 必须两步都跑。
+    """
     seen = _capture_script_env(monkeypatch)
     car.main(["restore", "192.0.2.1"])
-    assert seen["name"] == "car_restore_official.sh"
+    assert seen["names"] == ["car_restore_official.sh", "car_fix_official_deps.sh"]
 
 
 def test_stop_uses_stop_script(monkeypatch):

@@ -8,6 +8,7 @@
 
 import importlib.util
 import json
+import time
 from enum import IntEnum
 from pathlib import Path
 
@@ -593,6 +594,39 @@ def test_diagnose_no_homography_points_at_calibration_not_link(tmp_path):
     assert "calib_homography" in f.hint
     # 根因已知时，不该再把人引去查链路（no-intel 会被抑制）
     assert not [x for x in findings if x.code == "no-intel"]
+
+
+def test_slicing_must_not_hide_nodes_started_earlier(tmp_path):
+    """★ 切局不能把"比 car_node 先启动的节点"切掉。
+
+    真车实测（2026-09-29）：`referee_node` 在 phase 1 就起来了，`car_node` 在 phase 4
+    才起、由它写 `session.begin`。于是 `referee_node` 的 `node.ready` 落在"最后一局"
+    窗口之外 —— 报告一口咬定"referee_node 没在跑"，而真相是
+    **"在跑，但整局没收到裁判状态"**（后者才指得出下一步该查什么）。
+    """
+    bb = BlackBox("referee_node", log_dir=str(tmp_path), session="s")
+    bb.log(EV.NODE_READY, pid=1)                 # 先启动
+    bb.close()
+    time.sleep(0.02)      # 拉开时间戳，否则两个文件的事件会交错、切局结果不确定
+    bb2 = BlackBox("car_node", log_dir=str(tmp_path), session="s")
+    bb2.log(EV.SESSION_BEGIN, start_cell="N10", goal_cell="N11")
+    bb2.log(EV.INTEL_RECV, seq=1)
+    bb2.close()
+
+    events, bad = read_events(tmp_path)
+    assert bad == 0
+    sliced = events[session_start_index(events):]
+    assert "referee_node" not in {e.node for e in sliced}      # 确实被切掉了
+
+    # 只按窗口算 → 误判成"没在跑"（信息级）
+    wrong = next(f for f in diagnose(sliced) if f.code == "no-referee")
+    assert wrong.severity == "info"
+
+    # 传全量节点集合 → 正确的"在跑但没数据"（注意级，带可行动提示）
+    right = next(f for f in diagnose(sliced, nodes_all={"referee_node", "car_node"})
+                 if f.code == "no-referee")
+    assert right.severity == "warn"
+    assert "/HpAndHitmsg" in right.hint
 
 
 def test_describe_covers_every_event_without_crash():

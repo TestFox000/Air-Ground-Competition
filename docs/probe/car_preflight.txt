@@ -1,5 +1,5 @@
 ==================== 发车前置体检 ====================
-2026年 09月 28日 星期一 20:17:01 CST
+2026年 09月 29日 星期二 18:22:32 CST
   主机: duzhong   工作区: /tmp/ag_ws
 
 ----------------------------------------------------
@@ -13,9 +13,9 @@
   [OK] dzactuator
   [OK] dzjudgment
   -- 我们的包（缺了就是 /tmp 被清过） --
-  [FAIL] 缺 ag_car → python car.py deploy <车IP>
-  [FAIL] 缺 ag_bridge → python car.py deploy <车IP>
-  [FAIL] 缺 ag_referee → python car.py deploy <车IP>
+  [OK] ag_car
+  [OK] ag_bridge
+  [OK] ag_referee
   -- 视觉（可选，只有要用相机才必须） --
   [OK] det_node
   [OK] dzrknn_dataprocess
@@ -29,28 +29,47 @@
   -- 日志目录可写？ --
   [OK] /tmp/ag_logs 可写（黑匣子日志会落这里）
   -- 磁盘 --
-      /dev/mmcblk1p2   57G   26G   31G   46% /
+      /dev/mmcblk1p2   57G   26G   31G   47% /
 
 ----------------------------------------------------
 ## 2. 硬件项：起底盘 + 定位，验「定位到底能不能读」（最关键的检查）
-      （底盘日志里没看到串口信息）
+      [dzactuator_node-3] [0m[INFO] [1790677355.571371964] [dzactuator]: dzactuator serial port opened[0m
   -- 定位节点日志尾部 --
-      [serial_reader_node-1] [0m[INFO] [1790597834.963832964] [serial_reader_node]: ==================================================[0m
-      [serial_reader_node-1] [0m[INFO] [1790597834.964342792] [serial_reader_node]: Coordinate Transform Node (IMU yaw + dead-reckoned pos) [v4-dr-reset][0m
-      [serial_reader_node-1] [0m[INFO] [1790597834.964727496] [serial_reader_node]: Map: 14x11, block=0.35m[0m
-      [serial_reader_node-1] [0m[INFO] [1790597834.965087993] [serial_reader_node]: Start: (1.5, 0.5) blocks[0m
-      [serial_reader_node-1] [0m[INFO] [1790597834.965437406] [serial_reader_node]: IMU: /imu_data, fallback after 2.0s[0m
-      [serial_reader_node-1] [0m[INFO] [1790597834.965784778] [serial_reader_node]: ==================================================[0m
+      [serial_reader_node-1] [0m[INFO] [1790677375.580277525] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790677375.780215705] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790677375.980125304] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790677376.187148231] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790677376.380098201] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790677376.580194455] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
 
   -- 相关话题（不猜名字，先看真实存在哪些） --
       /odom
       /odom/localization
+      /odom_msg_valid
 
   -- 逐个验活 --
-  [--] /odom/localization 话题在，但 8 秒内没数据（没收敛 / 没启动）
-  [--] /odom 话题在，但 8 秒内没数据（没收敛 / 没启动）
-  [FAIL] 发车要用的 /odom/localization 没有可用数据 —— **现在不能真发车**
+  [OK] /odom/localization 有数据（average rate: 50.074）
+          header:
+            stamp:
+              sec: 1790677381
+              nanosec: 976185756
+            frame_id: odom
+          child_frame_id: base_link
+          pose:
+            pose:
+  [OK] /odom 有数据（average rate: 49.998）
+          header:
+            stamp:
+              sec: 1790677387
+              nanosec: 555679838
+            frame_id: odom
+          child_frame_id: base_link
+          pose:
+            pose:
 ----------------------------------------------------
 ## 结论
-  [FAIL] 有上面标 [FAIL] 的项，按它给的命令修完再跑（**先别真发车**）
+  [OK] 体检通过，可以往下走。建议顺序：
+     python car.py move <车IP> --with-vision          # 先干跑，看路线对不对（车不动）
+     python car.py move <车IP> --really-move --run-s 60   # ★确认无误、有人在场再真发车★
+     python car.py logs <车IP>                        # 跑完取日志出复盘
 ==================== 结束（本脚本启动的节点已停止） ====================

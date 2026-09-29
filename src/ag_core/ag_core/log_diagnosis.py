@@ -61,8 +61,15 @@ def _pct(part: int, whole: int) -> str:
     return f"{(100.0 * part / whole):.0f}%" if whole else "-"
 
 
-def summarize(events: Sequence[Event]) -> Dict[str, Any]:
-    """把事件流压成一份指标字典（报告与诊断共用同一份口径）。"""
+def summarize(events: Sequence[Event], nodes_all: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+    """把事件流压成一份指标字典（报告与诊断共用同一份口径）。
+
+    `nodes_all` 是**未切局**的节点集合，用来判断"某个节点到底有没有在跑"。
+    为什么需要它：报告默认只统计"最后一局"（从 `session.begin` 往后切），
+    而 `referee_node` 这类节点比 `car_node` 先启动 —— 它的 `node.ready` 落在窗口之前，
+    只按窗口算就会误判成"referee_node 没在跑"，进而漏掉"整局拿不到血量/弹药"这条真结论
+    （2026-09-28 实测踩到）。指标仍只看窗口内的，只有节点集合用全量。
+    """
     s: Dict[str, Any] = {
         "events": len(events),
         "nodes": [],
@@ -124,7 +131,7 @@ def summarize(events: Sequence[Event]) -> Dict[str, Any]:
 
     kinds = Counter(e.ev for e in events)
     s["kinds"] = dict(kinds)
-    s["nodes"] = sorted({e.node for e in events if e.node})
+    s["nodes"] = sorted({e.node for e in events if e.node} | set(nodes_all or ()))
     s["sessions"] = sorted({e.session for e in events if e.session})
     s["start_ts"] = events[0].ts
     s["end_ts"] = events[-1].ts
@@ -556,8 +563,9 @@ _RULES = (_rule_sanity, _rule_intel, _rule_route, _rule_shoot,
           _rule_aim, _rule_referee, _rule_link, _rule_vision)
 
 
-def diagnose(events: Sequence[Event], max_gap_s: float = 30.0) -> List[Finding]:
-    """跑全部规则，返回按严重度排序的结论列表。"""
+def diagnose(events: Sequence[Event], max_gap_s: float = 30.0,
+             nodes_all: Optional[Sequence[str]] = None) -> List[Finding]:
+    """跑全部规则，返回按严重度排序的结论列表。`nodes_all` 的用途见 `summarize`。"""
     if not events:
         # 空日志提前返回：否则"没有裁判状态""最后一条事件…"这些会一起冒出来，
         # 掩盖真正的那一条结论（日志压根没生成）。
@@ -567,7 +575,7 @@ def diagnose(events: Sequence[Event], max_gap_s: float = 30.0) -> List[Finding]:
             "确认 AG_LOG_DIR / log_dir 参数，并检查节点是否有写权限；"
             "RViz 里能看到节点在跑但这里为空，就是路径问题。",
         )]
-    m = summarize(events)
+    m = summarize(events, nodes_all=nodes_all)
     out: List[Finding] = []
     for rule in _RULES:
         try:

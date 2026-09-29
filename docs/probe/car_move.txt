@@ -1,5 +1,5 @@
 ==================== 让车能动（默认 dry_run，车不动） ====================
-2026年 09月 28日 星期一 19:56:46 CST
+2026年 09月 29日 星期二 18:23:34 CST
   模式: 只验链路（dry_run，不发命令）
   情报: fake_intel 直连车端（练车用）
   视觉: 相机 + det_node(RKNN) 一起起；瞄准/开火链仍不开
@@ -17,51 +17,78 @@
 
 ----------------------------------------------------
 ## 1. 起底盘 / 裁判 / 定位 / 路线执行器
-  actuator 进程组=52810 -> /tmp/ag_move_actuator.log
-  judgment 进程组=52849 -> /tmp/ag_move_judgment.log
+  actuator 进程组=9173 -> /tmp/ag_move_actuator.log
+    [dzactuator_node-3] [0m[INFO] [1790677416.281052794] [dzactuator]: dzactuator serial port opened[0m
+  judgment 进程组=9215 -> /tmp/ag_move_judgment.log
     [dzjudgment-1] [32mjudgment_baudrate: [0m115200
     [dzjudgment-1] [dzjudgment-->]Serial initialize start!
     [dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
-  localization 进程组=52885 -> /tmp/ag_move_localization.log
-  executor 进程组=52921 -> /tmp/ag_move_executor.log
+  referee 进程组=9232 -> /tmp/ag_move_referee.log
+    [INFO] [1790677432.489987104] [referee_node]: source=dz: 状态来自 /HpAndHitmsg，开火发往 /LaserShot_Command（串口由 dzjudgment 负责）
+    [INFO] [1790677432.493968784] [referee_node]: referee_node 就绪: source=dz port=/dev/ttyUSB0 simulate=False
+  localization 进程组=9257 -> /tmp/ag_move_localization.log
+  executor 进程组=9277 -> /tmp/ag_move_executor.log
 
 ----------------------------------------------------
 ## 1b. 视觉链（相机 + RKNN 检测）
   借用车上的 X 会话：DISPLAY=:0
-  camera 进程组=52955 -> /tmp/ag_move_camera.log
-  det 进程组=52999 -> /tmp/ag_move_det.log
+  camera 进程组=9294 -> /tmp/ag_move_camera.log
+  det 进程组=9322 -> /tmp/ag_move_det.log
   -- /offset_center（检测输出；cls 1=蓝(友) 2=红）--
-    array('i', [0, 0, 0, 0, 0, 0, 0, 0]) --- 
+    （无数据：相机没出图 / 模型没加载 / 话题名不同）
   ⚠️ 瞄准与开火链（dzrknn_dataprocess）**本次仍未启动** ——
      它一跑就会扫云台并自主开火，且不区分蓝红（官方"停车才开火"的信号是死代码）。
 
 ----------------------------------------------------
 ## 2. 定位是否出来（发车前提）
-  当前位置: （读不到）
-  ⚠️ 读不到定位：底盘/定位没起来，或话题名不同。看 /tmp/ag_move_localization.log
+  当前位置: x: 1.4999999999999998 y: 0.5 z: 0.2 --- 
 
 ----------------------------------------------------
 ## 3. 情报源
-  fake_intel 进程组=53313 -> /tmp/ag_move_fake_intel.log
+  fake_intel 进程组=9391 -> /tmp/ag_move_fake_intel.log
   已启动 fake_intel -> /link/field_intel（full 模式：8 雷 / K4 K9 桥洞 / D2 蓝靶）
 
 ----------------------------------------------------
 ## 4. 决策层 car_node（dry_run=true 只算不发）
-  car_node 进程组=53346 -> /tmp/ag_move_car_node.log
+  car_node 进程组=9411 -> /tmp/ag_move_car_node.log
   -- /car/route_status --
     {"dry_run": true, "reset_sent": false, "route": "K9 I9 H8 G7 F6 E5 D4 D2* B2 C3 K4 N11,y", "tasks": 13, "shots": 0, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "bridge_a": "K4", "bridge_b": "K9", "target_cells": ["D2", "E2"], "target_face": "blue", "face_decided": "blue", "shoot_stops": ["D2"], "shoot_wait_budget_s": 60.0, "fits_shoot_wait": true, "drive_eta_s": 61.1, "bridge_zones": "A 段 K1~K5（5 选 1） / B 段 K6~K11（6 选 1）", "bridge_check_ok": true, "bridge_problems": []}
     ---
 
 ----------------------------------------------------
-## 5. 跑 20s（监视 /nav/waypoint）
-  -- 这段时间发出的 /nav/waypoint 命令 --
+## 5. 跑 20s（同时记录：/nav/waypoint + 轨迹 + 裁判状态）
+  -- 发出的 /nav/waypoint 命令 --
     （没有发出任何命令）
+  -- 轨迹（定位采样） --
+      样本 919 个，落在 /tmp/ag_logs/run/traj.txt
+      起 x: 1.4999999999999998
+      起 y: 0.5
+      起 z: 0.2
+      ...
+      终 x: 1.4999999999999998
+      终 y: 0.5
+      终 z: 0.2
+  -- 裁判状态（最后一条） --
+      Could not determine the type for the passed topic
 
 ----------------------------------------------------
 ## 6. 结果
-  起步位置: ?
-  结束位置: ?
+  起步位置: x: 1.4999999999999998 y: 0.5 z: 0.2 --- 
+  结束位置: x: 1.4999999999999998 y: 0.5 z: 0.2 --- 
   （dry_run 模式：车不应移动；位置变化说明有别人在控制，立即检查）
+  原始材料已归档到 /tmp/ag_logs/run ：
+      ag_move_actuator.log
+      ag_move_camera.log
+      ag_move_car_node.log
+      ag_move_det.log
+      ag_move_executor.log
+      ag_move_fake_intel.log
+      ag_move_judgment.log
+      ag_move_localization.log
+      ag_move_referee.log
+      referee.txt
+      traj.txt
+      waypoint.txt
 
 取回日志复盘：
   python tools/remote_run.py --host <IP> --user duzhong --get /tmp/ag_logs --to logs/car
