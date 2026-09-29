@@ -79,7 +79,21 @@ export AG_LOG_SESSION="${AG_LOG_SESSION:-move}"
 #    而 map_utils **只存在于源码里**（装好的包里没有它），所以直接跑源码会
 #    `ModuleNotFoundError` 崩溃 —— 车因此完全不动（2026-09-29 实跑真因）。
 #    把源码目录加进 PYTHONPATH 就能起来；这是官方自己也没装好的那一份。
-export PYTHONPATH="$HOME/dzrobot/src/car_localization:${PYTHONPATH}"
+#
+# ⚠️ 优先用**补丁副本**（tools/car_patch_executor.sh 生成）：官方那份
+#    `lookahead_dist=0.15`、`linear_speed=0.3` 都是硬编码，前者太短会让车
+#    **原地转圈**、后者太慢跑不完 13 段路线。补丁只改这两行，不动官方源码。
+PE_OFFICIAL="$HOME/dzrobot/src/car_localization/car_localization/path_executor.py"
+PE_PATCH="${AG_PATCH_DIR:-/tmp/ag_ws/patched}/car_localization/path_executor.py"
+if [ -f "$PE_PATCH" ]; then
+  export PYTHONPATH="$(dirname "$(dirname "$PE_PATCH")"):${PYTHONPATH}"
+  PE="$PE_PATCH"
+  echo "  执行器：用补丁副本 $PE_PATCH"
+else
+  export PYTHONPATH="$HOME/dzrobot/src/car_localization:${PYTHONPATH}"
+  PE="$PE_OFFICIAL"
+  echo "  执行器：用官方源码（未打补丁：前视 0.15 m / 速度 0.3 m/s，可能转圈且很慢）"
+fi
 
 echo "==================== 让车能动（默认 dry_run，车不动） ===================="
 date
@@ -129,9 +143,8 @@ if [ -n "$MISSING" ]; then
   echo "  （本次 ros2 pkg list 共 $(echo "$PKG_LIST" | wc -l) 个包）"
   exit 1
 fi
-[ -f "$HOME/dzrobot/src/car_localization/car_localization/path_executor.py" ] \
-  && echo "  [OK] path_executor.py 源码在" \
-  || { echo "  [FAIL] 找不到 path_executor.py"; exit 1; }
+[ -f "$PE" ] && echo "  [OK] path_executor.py 在（$PE）" \
+             || { echo "  [FAIL] 找不到 $PE"; exit 1; }
 echo
 
 hr; echo "## 1. 起底盘 / 裁判 / 定位 / 路线执行器"
@@ -160,7 +173,7 @@ sleep 6
 # ⚠️ 必须 -u（无缓冲）：执行器的 stdout 默认是块缓冲，脚本末尾 `cp` 时文件还是 0 字节，
 #    复盘拿到的 ag_move_executor.log 是**空的** —— 2026-09-29 实跑就因此拿不到"执行器
 #    为什么不动"的证据（只能靠猜）。-u 让它边跑边落盘。
-start executor python3 -u "$HOME/dzrobot/src/car_localization/car_localization/path_executor.py"
+start executor python3 -u "$PE"
 sleep 6
 grep -E "Initialized|Command format|wait" /tmp/ag_move_executor.log 2>/dev/null | head -4 | sed 's/^/    /'
 echo
@@ -215,7 +228,16 @@ read_pos() {
   fi
   echo "$v"
 }
-POS0=$(read_pos)
+# ⚠️ 定位节点刚起时**还没出数据**（serial_reader 要等 /odom 与 /imu_data 都到齐），
+#    立刻读会得到空 → 真发车门禁据此**拒绝发车**（2026-09-29 踩到：preflight 显示
+#    定位 50 Hz 正常，move 却因为起完只等 6 s 而读不到）。改成轮询等它出来。
+POS0=""
+for _try in $(seq 1 13); do
+  POS0="$(read_pos)"
+  [ -n "$POS0" ] && break
+  echo "  （第 $_try 次读定位为空，2 s 后重试；serial_reader 可能还在等 /odom + /imu_data）"
+  sleep 2
+done
 echo "  当前位置: ${POS0:-（读不到）}"
 if [ -z "$POS0" ]; then
   echo "  ⚠️ 读不到定位：底盘/定位没起来，或话题名不同。看 /tmp/ag_move_localization.log"

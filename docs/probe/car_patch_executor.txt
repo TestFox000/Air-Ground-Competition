@@ -1,0 +1,14 @@
+==================== 生成执行器补丁副本（不动官方源码） ====================
+  linear_speed   : 0.6 m/s  （底盘字节约 42/255）
+  lookahead_dist : 0.40 m
+
+  -- 替换结果（应看到 patched 注释）--
+    167:        self.lookahead_dist = 0.40   # patched: 官方 0.15 太短，会导致转圈
+    168:        self.linear_speed = 0.6   # patched: 官方 0.3 太慢，跑不完路线
+
+  -- 校验：补丁副本必须能导入 map_utils（否则一启动就崩）--
+      [OK] map_utils 可导入
+
+  [OK] 补丁在 /tmp/ag_ws/patched/car_localization
+  启动脚本会优先用它；想回到官方版本，删掉这个目录即可。
+==================== 结束 ====================

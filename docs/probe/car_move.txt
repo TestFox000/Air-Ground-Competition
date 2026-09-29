@@ -1,5 +1,6 @@
+  执行器：用补丁副本 /tmp/ag_ws/patched/car_localization/path_executor.py
 ==================== 让车能动（默认 dry_run，车不动） ====================
-2026年 09月 29日 星期二 20:05:31 CST
+2026年 09月 29日 星期二 20:28:10 CST
   模式: ★ 真发车（AG_CONFIRM_MOVE=1）★
   情报: fake_intel 直连车端（练车用）
   视觉: 不起（只要视觉加 --with-vision）
@@ -21,76 +22,33 @@
   [OK] dzactuator
   [OK] ag_car
   [OK] ag_bridge
-  [OK] path_executor.py 源码在
+  [OK] path_executor.py 在（/tmp/ag_ws/patched/car_localization/path_executor.py）
 
 ----------------------------------------------------
 ## 1. 起底盘 / 裁判 / 定位 / 路线执行器
-  actuator 进程组=6269 -> /tmp/ag_move_actuator.log
-    [dzactuator_node-3] [0m[INFO] [1790683538.652142046] [dzactuator]: dzactuator serial port opened[0m
-  judgment 进程组=6314 -> /tmp/ag_move_judgment.log
+  actuator 进程组=10945 -> /tmp/ag_move_actuator.log
+    [dzactuator_node-3] [0m[INFO] [1790684896.946317279] [dzactuator]: dzactuator serial port opened[0m
+  judgment 进程组=10987 -> /tmp/ag_move_judgment.log
     [dzjudgment-1] [32mjudgment_baudrate: [0m115200
     [dzjudgment-1] [dzjudgment-->]Serial initialize start!
     [dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
-  referee 进程组=6334 -> /tmp/ag_move_referee.log
-    [INFO] [1790683554.483701165] [referee_node]: source=dz: 状态来自 /HpAndHitmsg，开火发往 /LaserShot_Command（串口由 dzjudgment 负责）
-    [INFO] [1790683554.489600144] [referee_node]: referee_node 就绪: source=dz port=/dev/ttyUSB0 simulate=False
-  localization 进程组=6355 -> /tmp/ag_move_localization.log
-  executor 进程组=6379 -> /tmp/ag_move_executor.log
+  referee 进程组=11007 -> /tmp/ag_move_referee.log
+    [INFO] [1790684913.179508386] [referee_node]: source=dz: 状态来自 /HpAndHitmsg，开火发往 /LaserShot_Command（串口由 dzjudgment 负责）
+    [INFO] [1790684913.185385713] [referee_node]: referee_node 就绪: source=dz port=/dev/ttyUSB0 simulate=False
+  localization 进程组=11028 -> /tmp/ag_move_localization.log
+  executor 进程组=11036 -> /tmp/ag_move_executor.log
 
 
 ----------------------------------------------------
 ## 2. 定位是否出来（发车前提）
-  当前位置: x: 1.4999999999999998 y: 0.5 z: 0.2 --- 
+  当前位置: （读不到）
+  ⚠️ 读不到定位：底盘/定位没起来，或话题名不同。看 /tmp/ag_move_localization.log
 
-----------------------------------------------------
-## 3. 情报源
-  fake_intel 进程组=6423 -> /tmp/ag_move_fake_intel.log
-  已启动 fake_intel -> /link/field_intel（full 模式：8 雷 / K4 K9 桥洞 / D2 蓝靶）
-
-----------------------------------------------------
-## 4. 决策层 car_node（dry_run=false ★会发车★）
-  car_node 进程组=6465 -> /tmp/ag_move_car_node.log
-  -- /car/route_status --
-    {"dry_run": false, "reset_sent": true, "route": "K9 I9 H8 G7 F6 E5 D4 D2* B2 C3 K4 N11,y", "tasks": 13, "shots": 0, "mines": ["B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9"], "bridge_a": "K4", "bridge_b": "K9", "target_cells": ["D2", "E2"], "target_face": "blue", "face_decided": "blue", "shoot_stops": ["D2"], "shoot_wait_budget_s": 60.0, "fits_shoot_wait": true, "drive_eta_s": 61.1, "bridge_zones": "A 段 K1~K5（5 选 1） / B 段 K6~K11（6 选 1）", "bridge_check_ok": true, "bridge_problems": []}
-    ---
-
-----------------------------------------------------
-## 5. 跑 60s（同时记录：/nav/waypoint + 轨迹 + 裁判状态）
-  -- 发出的 /nav/waypoint 命令 --
-    reset:N10,y
-    K9 I9 H8 G7 F6 E5 D4 D2* B2 C3 K4 N11,y
-  -- 轨迹（定位采样） --
-      样本 2895 个，落在 /tmp/ag_logs/run/traj.txt
-      起 x: 0.0794480179321867
-      起 y: 0.8602080247287051
-      起 z: 0.2
-      ...
-      终 x: 0.6721105609101365
-      终 y: 1.3496975557383906
-      终 z: 0.2
-  -- 裁判状态（最后一条） --
-      Could not determine the type for the passed topic
-
-----------------------------------------------------
-## 6. 结果
-  起步位置: x: 1.4999999999999998 y: 0.5 z: 0.2 --- 
-  结束位置: x: 0.16572943334624754 y: 1.352959546503581 z: 0.2 --- 
-  位移: 0.769 m（判定阈值 0.15 m ≈ 半格）
-  [OK] 车真的动了
-  原始材料已归档到 /tmp/ag_logs/run ：
-      ag_move_actuator.log
-      ag_move_car_node.log
-      ag_move_executor.log
-      ag_move_fake_intel.log
-      ag_move_judgment.log
-      ag_move_localization.log
-      ag_move_referee.log
-      referee.txt
-      traj.txt
-      waypoint.txt
-
-取回日志复盘：
-  python tools/remote_run.py --host <IP> --user duzhong --get /tmp/ag_logs --to logs/car
-  python tools/log_report.py --dir logs/car
-==================== 结束（节点将自动停止） ====================
+  [FAIL] 要真发车（AG_CONFIRM_MOVE=1），但读不到定位 —— **已拒绝发车**。
+         先解决定位（脚本会把已启动的节点都停掉，不会留下半套东西）：
+           tools/car_preflight.sh        # 一键体检：会列出真实话题名并逐个验活
+           ros2 topic list | grep -i odom
+           ros2 topic hz /odom/localization
+         确实不需要定位（例如只想原地试转向）时，才加 AG_ALLOW_NO_LOC=1 强行放行。
+  本次启动的节点将自动停止。
   已停止本次启动的进程组与节点
