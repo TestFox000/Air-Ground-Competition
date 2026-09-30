@@ -1,5 +1,5 @@
 ==================== 发车前置体检 ====================
-2026年 09月 29日 星期二 20:29:49 CST
+2026年 09月 30日 星期三 19:20:44 CST
   主机: duzhong   工作区: /tmp/ag_ws
 
 ----------------------------------------------------
@@ -37,14 +37,14 @@
 
 ----------------------------------------------------
 ## 2. 硬件项：起底盘 + 定位，验「定位到底能不能读」（最关键的检查）
-      [dzactuator_node-3] [0m[INFO] [1790684991.031605804] [dzactuator]: dzactuator serial port opened[0m
+      [dzactuator_node-3] [0m[INFO] [1790767246.490575571] [dzactuator]: dzactuator serial port opened[0m
   -- 定位节点日志尾部 --
-      [serial_reader_node-1] [0m[INFO] [1790685011.513445417] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
-      [serial_reader_node-1] [0m[INFO] [1790685011.713626580] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
-      [serial_reader_node-1] [0m[INFO] [1790685011.914159659] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
-      [serial_reader_node-1] [0m[INFO] [1790685012.114001905] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
-      [serial_reader_node-1] [0m[INFO] [1790685012.314081568] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
-      [serial_reader_node-1] [0m[INFO] [1790685012.515718104] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790767266.825500313] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790767267.025288560] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790767267.225253556] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790767267.425378385] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790767267.625349924] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
+      [serial_reader_node-1] [0m[INFO] [1790767267.825291930] [serial_reader_node]: pos: (1.50, 0.50) | block: N10 | yaw: +90deg [imu] [v4-dr-reset][0m
 
   -- 相关话题（不猜名字，先看真实存在哪些） --
       /odom
@@ -52,20 +52,20 @@
       /odom_msg_valid
 
   -- 逐个验活 --
-  [OK] /odom/localization 有数据（average rate: 50.046）
+  [OK] /odom/localization 有数据（average rate: 50.117）
           header:
             stamp:
-              sec: 1790685018
-              nanosec: 429672851
+              sec: 1790767273
+              nanosec: 561430244
             frame_id: odom
           child_frame_id: base_link
           pose:
             pose:
-  [OK] /odom 有数据（average rate: 49.977）
+  [OK] /odom 有数据（average rate: 49.985）
           header:
             stamp:
-              sec: 1790685024
-              nanosec: 589662264
+              sec: 1790767278
+              nanosec: 761393648
             frame_id: odom
           child_frame_id: base_link
           pose:

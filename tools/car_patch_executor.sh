@@ -16,6 +16,9 @@
 #   python tools/remote_run.py --host <IP> --user duzhong \
 #       --script tools/car_patch_executor.sh --env AG_LINEAR_SPEED=0.6 --env AG_LOOKAHEAD=0.40
 set -o pipefail
+# 必须 source ROS：否则末尾的导入校验会因为找不到 rclpy 而**误报失败**
+# （serial_reader 依赖 rclpy，而 rclpy 只在 ROS 环境里）
+source /opt/ros/humble/setup.bash 2>/dev/null
 
 # 默认对齐官方 dztrack.launch.py 的 "pursuitSpeed": 0.8
 # （官方发布包 dzrobot-bisai-20260617/src/dztrack/launch/dztrack.launch.py）
@@ -34,9 +37,15 @@ if [ ! -f "$SRC/path_executor.py" ]; then
 fi
 
 mkdir -p "$DST" || { echo "  [FAIL] 建不了 $DST"; exit 1; }
-cp -f "$SRC/path_executor.py" "$DST/path_executor.py" || exit 1
-cp -f "$SRC/map_utils.py"     "$DST/map_utils.py"     2>/dev/null || echo "  [!] 没有 map_utils.py（后面会 import 失败）"
-if [ -f "$SRC/__init__.py" ]; then cp -f "$SRC/__init__.py" "$DST/__init__.py"; else : > "$DST/__init__.py"; fi
+# ⚠️ 必须复制**整个包**，不能只挑 path_executor.py + map_utils.py：
+#    启动脚本会把这个目录放进 PYTHONPATH 最前面，于是 `car_localization` 整个包名
+#    都解析到这里。少了 serial_reader.py，定位节点一启动就
+#    ModuleNotFoundError → 直接死 → 读不到定位 → 真发车门禁拒绝发车。
+#    （2026-09-30 踩过：补丁把定位"吃"掉了，查了半天才发现是自己造成的）
+cp -f "$SRC"/*.py "$DST/" || exit 1
+[ -f "$SRC/__init__.py" ] || : > "$DST/__init__.py"
+echo "  -- 复制的模块（必须含 serial_reader，否则定位会崩）--"
+ls -1 "$DST" | sed 's/^/      /'
 
 # 只替换那两行（行首 8 个空格，类属性赋值）
 sed -i "s|^        self\.lookahead_dist = .*|        self.lookahead_dist = ${LOOK}   # patched: 官方 0.15 太短，会导致转圈|" "$DST/path_executor.py"
@@ -45,8 +54,16 @@ sed -i "s|^        self\.linear_speed = .*|        self.linear_speed = ${SPEED} 
 echo "  -- 替换结果（应看到 patched 注释）--"
 grep -n "self.lookahead_dist = \|self.linear_speed = " "$DST/path_executor.py" | head -4 | sed 's/^/    /'
 echo
-echo "  -- 校验：补丁副本必须能导入 map_utils（否则一启动就崩）--"
-PYTHONPATH="$(dirname "$DST"):${PYTHONPATH}" python3 -c "import car_localization.map_utils; print('    [OK] map_utils 可导入')" 2>&1 | sed 's/^/  /'
+echo "  -- 校验：补丁包必须**两个**模块都能导入 --"
+echo "     （map_utils 给执行器、serial_reader 给定位节点，少一个就会静默崩掉一个节点）"
+PYTHONPATH="$(dirname "$DST"):${PYTHONPATH}" python3 -c "
+import importlib
+for m in ('car_localization.map_utils', 'car_localization.serial_reader'):
+    try:
+        importlib.import_module(m); print('    [OK]', m)
+    except Exception as e:
+        print('    [FAIL]', m, '->', e)
+" 2>&1 | sed 's/^/  /'
 echo
 echo "  [OK] 补丁在 $DST"
 echo "  启动脚本会优先用它；想回到官方版本，删掉这个目录即可。"

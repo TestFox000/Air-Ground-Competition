@@ -1,0 +1,19 @@
+==================== 解压源码包 ====================
+2026年 09月 30日 星期三 19:10:15 CST
+  包: /tmp/ag_ws/src.zip  (128K)
+  解压完成
+  -- 解压后的包 --
+      ag_bridge
+      ag_bringup
+      ag_car
+      ag_chassis
+      ag_core
+      ag_interfaces
+      ag_mission
+      ag_perception
+      ag_referee
+  -- 校验关键文件 --
+      [OK] ag_interfaces/CMakeLists.txt
+      [OK] ag_core/ag_core/grid_map.py
+      [OK] ag_car/ag_car/car_node.py
+==================== 结束 ====================

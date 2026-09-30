@@ -1,13 +1,23 @@
 ==================== 生成执行器补丁副本（不动官方源码） ====================
-  linear_speed   : 0.6 m/s  （底盘字节约 42/255）
+  linear_speed   : 0.8 m/s  （底盘字节约 56/255）
   lookahead_dist : 0.40 m
 
+  -- 复制的模块（必须含 serial_reader，否则定位会崩）--
+      generate_path.py
+      __init__.py
+      map_utils.py
+      path_executor.py
+      __pycache__
+      send_waypoint.py
+      serial_reader.py
   -- 替换结果（应看到 patched 注释）--
     167:        self.lookahead_dist = 0.40   # patched: 官方 0.15 太短，会导致转圈
-    168:        self.linear_speed = 0.6   # patched: 官方 0.3 太慢，跑不完路线
+    168:        self.linear_speed = 0.8   # patched: 官方 0.3 太慢，跑不完路线
 
-  -- 校验：补丁副本必须能导入 map_utils（否则一启动就崩）--
-      [OK] map_utils 可导入
+  -- 校验：补丁包必须**两个**模块都能导入 --
+     （map_utils 给执行器、serial_reader 给定位节点，少一个就会静默崩掉一个节点）
+      [OK] car_localization.map_utils
+      [OK] car_localization.serial_reader
 
   [OK] 补丁在 /tmp/ag_ws/patched/car_localization
   启动脚本会优先用它；想回到官方版本，删掉这个目录即可。

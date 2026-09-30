@@ -1,5 +1,5 @@
 ==================== 车端编译 ====================
-2026年 09月 29日 星期二 20:04:54 CST
+2026年 09月 30日 星期三 19:10:26 CST
 
 ## 1. 环境
 ROS_DISTRO=humble
@@ -35,47 +35,47 @@ colcon 退出码 = 0
 ---- 摘要 ----
 Starting >>> ag_interfaces
 Starting >>> ag_core
-Finished <<< ag_core [2.11s]
-Finished <<< ag_interfaces [15.8s]
+Finished <<< ag_core [2.12s]
+Finished <<< ag_interfaces [16.2s]
 Starting >>> ag_mission
 Starting >>> ag_bridge
 Starting >>> ag_perception
 Starting >>> ag_referee
 Starting >>> ag_chassis
-Finished <<< ag_bridge [3.69s]
-Finished <<< ag_referee [3.71s]
-Finished <<< ag_mission [3.74s]
+Finished <<< ag_perception [3.76s]
+Finished <<< ag_referee [3.79s]
+Finished <<< ag_mission [3.83s]
 Starting >>> ag_car
-Finished <<< ag_perception [4.28s]
+Finished <<< ag_chassis [4.35s]
+Finished <<< ag_bridge [4.43s]
 Starting >>> ag_bringup
-Finished <<< ag_chassis [4.30s]
-Finished <<< ag_car [1.98s]
+Finished <<< ag_car [1.94s]
 Finished <<< ag_bringup [1.91s]
-Summary: 9 packages finished [22.8s]
+Summary: 9 packages finished [23.2s]
 
 ---- 错误/警告 ----
 
 ---- 日志尾部 ----
 Starting >>> ag_interfaces
 Starting >>> ag_core
-Finished <<< ag_core [2.11s]
-Finished <<< ag_interfaces [15.8s]
+Finished <<< ag_core [2.12s]
+Finished <<< ag_interfaces [16.2s]
 Starting >>> ag_mission
 Starting >>> ag_bridge
 Starting >>> ag_perception
 Starting >>> ag_referee
 Starting >>> ag_chassis
-Finished <<< ag_bridge [3.69s]
-Finished <<< ag_referee [3.71s]
-Finished <<< ag_mission [3.74s]
+Finished <<< ag_perception [3.76s]
+Finished <<< ag_referee [3.79s]
+Finished <<< ag_mission [3.83s]
 Starting >>> ag_car
-Finished <<< ag_perception [4.28s]
+Finished <<< ag_chassis [4.35s]
+Finished <<< ag_bridge [4.43s]
 Starting >>> ag_bringup
-Finished <<< ag_chassis [4.30s]
-Finished <<< ag_car [1.98s]
+Finished <<< ag_car [1.94s]
 Finished <<< ag_bringup [1.91s]
 
-Summary: 9 packages finished [22.8s]
+Summary: 9 packages finished [23.2s]
 
 ## 4. 安装结果
 ag_bridge

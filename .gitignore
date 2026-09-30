@@ -48,3 +48,6 @@ reference/
 .idea/
 *.swp
 .DS_Store
+
+# 部署用的源码压缩包（tools/car_unzip_src.sh 配套，临时产物，不入库）
+src.zip

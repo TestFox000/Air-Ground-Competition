@@ -215,16 +215,28 @@ hr; echo "## 2. 定位是否出来（发车前提）"
 # 字段路径读不到时退回整条消息：不同版本的 /odom/localization 字段布局略有差异，
 # 只认一种写法会误报"定位没起来"（其实节点在跑）。
 read_pos() {
-  local v
-  v=$(timeout 12 ros2 topic echo --once /odom/localization --field pose.pose.position 2>/dev/null | tr '\n' ' ')
+  # ⚠️ 别用 `ros2 topic echo --once`：车端 Wi-Fi 差、场上节点又多时，--once 常常
+  #    一瞬间就超时返回空 —— 结果是"定位明明 50 Hz 正常，脚本却判定读不到"，
+  #    真发车门禁据此拒绝发车（2026-09-30 实测：`car.py preflight` 用 `topic hz`
+  #    看得到 50 Hz，同一时刻 move 用 --once 连试 13 次全是空）。
+  #    改成后台采样几秒、再从文件里取，稳得多。
+  local f="/tmp/ag_readpos_$$.txt"
+  local v=""
+  timeout 8 ros2 topic echo /odom/localization --field pose.pose.position > "$f" 2>&1 &
+  local p=$!
+  sleep 4
+  kill "$p" 2>/dev/null; wait "$p" 2>/dev/null
+  v=$(tr '\n' ' ' < "$f" 2>/dev/null | head -c 200)
+  rm -f "$f"
+  # 兜底：发布者若是 BEST_EFFORT，默认 QoS 收不到
   if [ -z "$v" ]; then
-    v=$(timeout 12 ros2 topic echo --once /odom/localization 2>/dev/null \
-        | grep -E "^ *[xy]:|block" | head -3 | tr '\n' ' ')
-  fi
-  if [ -z "$v" ]; then
-    # 有些发布者是 BEST_EFFORT，默认 QoS 的 echo 收不到任何东西
-    v=$(timeout 12 ros2 topic echo --once /odom/localization --qos-reliability best_effort 2>/dev/null \
-        | grep -E "^ *[xy]:|block" | head -3 | tr '\n' ' ')
+    f="/tmp/ag_readpos_be_$$.txt"
+    timeout 8 ros2 topic echo /odom/localization --qos-reliability best_effort > "$f" 2>&1 &
+    p=$!
+    sleep 4
+    kill "$p" 2>/dev/null; wait "$p" 2>/dev/null
+    v=$(grep -E "^ *[xy]:|block" "$f" 2>/dev/null | head -3 | tr '\n' ' ')
+    rm -f "$f"
   fi
   echo "$v"
 }

@@ -1,0 +1,66 @@
+==================== 对齐官方定位链路（无雷达） ====================
+2026年 09月 30日 星期三 18:43:21 CST
+  ⚠️ 只起节点，不发速度指令，车不会动
+
+----------------------------------------------------
+## 0. 官方那套在不在车上
+  [OK] robot_localization
+  [缺] fake_amcl_node
+  [OK] dztrack
+  [OK] car_localization
+  [OK] dzactuator
+  -- dzactuator 的 launch --
+      amcl.launch.py
+      bringup_all.launch.py
+      bringup.launch.py
+      ekf.launch.py
+
+----------------------------------------------------
+## 1. 起底盘（官方第一步）
+  actuator 进程组=5018
+    [dzactuator_node-3] [0m[INFO] [1790765003.373437883] [dzactuator]: dzactuator serial port opened[0m
+
+----------------------------------------------------
+## 2. 起我们现在的定位（serial_reader，block 坐标）
+  loc_ours 进程组=5062
+
+----------------------------------------------------
+## 3. 起官方 EKF（robot_localization，融合 IMU + 里程计）
+  ekf 进程组=5088
+    [INFO] [launch]: All log files can be found below /home/duzhong/.ros/log/2026-09-30-18-43-42-610608-duzhong-5088
+    [INFO] [launch]: Default logging verbosity is set to INFO
+    [INFO] [ekf_node-1]: process started with pid [5090]
+
+----------------------------------------------------
+## 4. 起官方 fake_amcl（/odometry/filtered → /amcl_pose）
+  [缺] fake_amcl_node —— 官方发布包里有，可单独拷过来编译
+
+----------------------------------------------------
+## 5. 三路定位逐个验活
+  [OK] /odom  average rate: 49.994
+  [OK] /odom/localization  average rate: 49.944
+  [OK] /odometry/filtered  average rate: 49.935
+  [--] /amcl_pose  没有数据或不存在
+  [OK] /imu_data  average rate: 49.991
+
+----------------------------------------------------
+## 6. 朝向对比（判断是不是 yaw 漂移导致转圈）
+  -- 我们的 /odom/localization（block 单位）--
+    x: 0.0
+    y: 0.0
+    z: 0.004586192466022492
+    w: 0.9999894833640325
+    ---
+  -- 官方 EKF /odometry/filtered（米制）--
+    x: 0.0
+    y: 0.0
+    z: 7.313212824210838e-07
+    w: 0.9999999999997325
+    ---
+
+  判读：
+    /odometry/filtered 有数据 → 官方无雷达定位链路可用，可以考虑作为定位增强
+    两者朝向差很多        → 航位推算的 yaw 在漂，这就是转圈的嫌疑根因
+
+==================== 结束（不发速度，车没动） ====================
+  已停止本脚本启动的节点

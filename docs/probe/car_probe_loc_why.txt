@@ -1,0 +1,58 @@
+==================== 定位被谁吃掉了 ====================
+2026年 09月 30日 星期三 19:28:02 CST
+  执行器: /tmp/ag_ws/patched/car_localization/path_executor.py
+
+----------------------------------------------------
+## 1. 只起底盘（基线）
+  起 actuator (15050)
+  -- 此时 /odom（底盘里程计）--
+      average rate: 49.989
+
+----------------------------------------------------
+## 2. + 定位
+  起 localization (15111)
+  [--] 只起到底盘+定位 → 收不到数据
+  -- localization 日志 --
+      [serial_reader_node-1]   File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+      [serial_reader_node-1]   File "<frozen importlib._bootstrap>", line 1004, in _find_and_load_unlocked
+      [serial_reader_node-1] ModuleNotFoundError: No module named 'car_localization.serial_reader'
+      [ERROR] [serial_reader_node-1]: process has died [pid 15114, exit code 1, cmd '/home/duzhong/install/car_localization/lib/car_localization/serial_reader_node --ros-args -r __node:=serial_reader_node'].
+
+----------------------------------------------------
+## 3. + 裁判串口（dzjudgment）
+  起 judgment (15145)
+  [--] 加了 judgment → 收不到数据
+
+----------------------------------------------------
+## 4. + 我们的 referee_node
+  起 referee (15186)
+  [--] 加了 referee_node → 收不到数据
+
+----------------------------------------------------
+## 5. + 路线执行器（path_executor）
+  起 executor (15233)
+  [--] 加了 path_executor ← 关键，看是不是它 → 收不到数据
+  -- 执行器日志 --
+      [WARN] [1790767756.350927383] [path_executor_node]: No publisher on /odom/localization yet
+      [WARN] [1790767759.283023155] [path_executor_node]: No publisher on /odom/localization yet
+      [WARN] [1790767762.283304427] [path_executor_node]: No publisher on /odom/localization yet
+      [WARN] [1790767765.283339241] [path_executor_node]: No publisher on /odom/localization yet
+      [WARN] [1790767768.283316306] [path_executor_node]: No publisher on /odom/localization yet
+
+----------------------------------------------------
+## 6. 场上与定位相关的话题
+    /odom
+    /odom/localization
+    /odom_msg_valid
+
+  -- 节点列表 --
+    /dzactuator
+    /dzjudgment
+    /path_executor_node
+    /referee_node
+    /static_transform_publisher_dFl2eLg4I4wphNwD
+    /static_transform_publisher_w3q4xiV0QhkritlU
+
+  判读：看第几步开始 [--]，那一步起的节点就是元凶。
+==================== 结束（没发速度，车没动） ====================
+  已停止本脚本启动的节点
