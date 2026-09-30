@@ -125,12 +125,16 @@ else
   timeout "$RUN_S" ros2 topic echo /odom/localization --field pose.pose.position \
     > "$OUT/pos_run.txt" 2>&1 &
   PR=$!
+  # 转向期间的 yaw：用来判断"指令让往左转、车是不是真的往左转"（判据 B2）
+  timeout "$RUN_S" ros2 topic echo /odom/localization --field pose.pose.orientation \
+    > "$OUT/yaw_run.txt" 2>&1 &
+  PY=$!
   sleep 2
   timeout 5 ros2 topic pub --once /nav/waypoint std_msgs/msg/String "{data: 'reset:N10,y'}" 2>&1 | sed 's/^/    /'
   sleep 2
   timeout 5 ros2 topic pub --once /nav/waypoint std_msgs/msg/String "{data: '$WP'}" 2>&1 | sed 's/^/    /'
   echo "    已发：$WP"
-  wait $PA 2>/dev/null; wait $PR 2>/dev/null
+  wait $PA 2>/dev/null; wait $PR 2>/dev/null; wait $PY 2>/dev/null
   cp -f /tmp/ag_circle_executor.log "$OUT/" 2>/dev/null
   echo
   hr; echo "## 4. 结论"
@@ -199,12 +203,44 @@ if send == "1":
     if ang:
         pos = sum(1 for a in ang if a > 1e-6)
         neg = sum(1 for a in ang if a < -1e-6)
-        print(f"    /pursuitAngle angular.z: {len(ang)} 个，正 {pos} / 负 {neg}，均值 {sum(ang)/len(ang):+.4f}")
+        mean = sum(ang) / len(ang)
+        peak = max(abs(a) for a in ang)
+        print(f"    /pursuitAngle angular.z: {len(ang)} 个，正 {pos} / 负 {neg}，均值 {mean:+.4f}")
+        print(f"      前 8 个原值: {[round(a, 3) for a in ang[:8]]}")
         if pos == 0 or neg == 0:
             print("      → ★转向恒定同号★ = 车被持续往一边打方向 → 画圆")
-            print("        结合判据 A：yaw 漂就修 yaw；yaw 不漂则是前视距离/目标点算错（判据 C）")
         else:
             print("      → 转向有正有负，不是一直往一边打死")
+        print()
+        # ---- B1 单位：底盘 dzactuator 的约定是 TargetAngle = angular.z + 60（25~95 限幅） ----
+        print("  [判据 B1] angular.z 的单位是弧度还是度")
+        print(f"    绝对峰值 {peak:.3f}")
+        if peak > 8:
+            print("      → ★是度★（ROS 标准是弧度）。底盘 TargetAngle = z + 60 会被顶到 95/25")
+            print("        上限 = 方向盘打死 → 车原地画圆。修：执行器输出前 ×π/180，")
+            print("        或改底盘那侧的换算（后者动官方固件，优先改我们这边）")
+        elif peak > 3:
+            print("      → 偏大（3~8）：多半已经是度、只是幅度小，按上面那条处理")
+        else:
+            print("      → 弧度量级，单位没问题")
+        # ---- B2 符号：指令方向 vs 车实际转向方向 ----
+        print()
+        print("  [判据 B2] 转向指令的符号接反了没（★正反馈会必然画圆★）")
+        yr = quats(os.path.join(out, "yaw_run.txt"))
+        if len(yr) > 2:
+            d = drift(yr)
+            print(f"    指令 angular.z 均值 {mean:+.4f}（>0 = 让车逆时针转）")
+            print(f"    实际 yaw 变化 {d:+.1f}°（>0 = 车确实在逆时针转）")
+            if abs(d) < 3:
+                print("      → 车基本没转向，判据不成立（可能没收到命令）")
+            elif mean * d > 0:
+                print("      → 方向一致：让往左转、车确实往左转。符号没接反")
+            else:
+                print("      → ★符号反了★ 让往一边转、车往另一边转 = **正反馈**")
+                print("        误差越转越大，车必然画圆且永不收敛 —— 这就是画圆的根因")
+                print("        修：把执行器输出 angular.z 的符号取反（补丁里加一行取反即可）")
+        else:
+            print("    （没抓到转向期间的 yaw，判据 B2 跳过）")
     else:
         print("    （没抓到 /pursuitAngle —— 执行器没起，或话题名不同；先看 /tmp/ag_circle_executor.log）")
     print()
@@ -236,10 +272,15 @@ if send == "1":
         for a in arrives[:3]:
             print(f"      {a.strip()[:110]}")
 print()
-print("  下一步：")
-print("    A 命中 → 换/修定位朝向（官方 EKF /odometry/filtered，或 serial_reader 的 yaw 解算）")
-print("    B 命中 → 调 AG_LOOKAHEAD（重跑 tools/car_patch_executor.sh）")
-print("    C 命中 → 核对 path_executor 里目标点是格还是米（map_utils 的换算）")
+print("  下一步（按命中项走，别一次全改）：")
+print("    A  命中（yaw 漂）→ 换/修定位朝向：用官方 EKF 的 yaw 顶替，或修 serial_reader 的解算")
+print("    B1 命中（单位是度）→ 执行器输出前 ×π/180（底盘 TargetAngle = z + 60 只认度）")
+print("    B2 命中（符号反了）→ 把 angular.z 取反。这一项是**正反馈**，改完立刻见效")
+print("    B  命中但 B1/B2 都没中 → 调 AG_LOOKAHEAD（重跑 tools/car_patch_executor.sh）")
+print("    C  命中（走了很多没到）→ 核对 path_executor 目标点是格还是米（map_utils 换算）")
+print()
+print("  ⚠️ 只改一项就重跑一次：同时改 yaw、单位、符号，画圆好了也不知道是哪个修好的，")
+print("     下次再犯还得从头查一遍。")
 PY
 
 echo
