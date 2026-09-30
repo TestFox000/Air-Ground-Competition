@@ -17,7 +17,9 @@
 #       --script tools/car_patch_executor.sh --env AG_LINEAR_SPEED=0.6 --env AG_LOOKAHEAD=0.40
 set -o pipefail
 
-SPEED="${AG_LINEAR_SPEED:-0.6}"
+# 默认对齐官方 dztrack.launch.py 的 "pursuitSpeed": 0.8
+# （官方发布包 dzrobot-bisai-20260617/src/dztrack/launch/dztrack.launch.py）
+SPEED="${AG_LINEAR_SPEED:-0.8}"
 LOOK="${AG_LOOKAHEAD:-0.40}"
 SRC="$HOME/dzrobot/src/car_localization/car_localization"
 DST="${AG_PATCH_DIR:-/tmp/ag_ws/patched}/car_localization"
