@@ -15,7 +15,9 @@ if [ ! -f "$ZIP" ]; then
 fi
 echo "  包: $ZIP  ($(du -h "$ZIP" 2>/dev/null | awk '{print $1}'))"
 
-rm -rf "$DEST/src"
+# ⚠️ **不要整目录删除**（用户 2026-09-30 明确要求：车里的码别删，传一次很费劲）。
+#    解压是**覆盖式**的：同名文件被替换，车端已有的其它文件/编译产物一律保留。
+#    这样即使上传中途断了，车上的东西也不会被清掉。
 mkdir -p "$DEST/src"
 python3 - "$ZIP" "$DEST" <<'PY'
 import sys, zipfile

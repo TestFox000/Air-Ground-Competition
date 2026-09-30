@@ -10,7 +10,15 @@ python car.py move    <车IP>                                  # ② 只验链�
 python car.py move    <车IP> --really-move --run-s 60          # ③ ★真发车★（有人在场、遥控器在手）
 python car.py stop    <车IP>                                  # ④ 急停（任何时候都可跑）
 python car.py logs    <车IP>                                  # ⑤ 取回日志出复盘
+python tools/traj_report.py logs/car/ag_logs/run/traj.txt     # ⑥ ★必须做★ 看车是怎么走的
 ```
+
+> ⚠️ **⑥ 不能省**：`car.py move` 只报一个「位移」数，而**本项目的路线终点 N11 就在起点
+> N10 旁边**——跑完全程的净位移本来也就 0.35 m。光看位移既分不出"跑完了"，
+> 也分不出"一直在原地画圆"。2026-09-30 就是靠 ⑥ 发现：位移 1.741 m 看着像动了，
+> 实际是**走了 12.68 m 却只净移动 1.74 m、净转角 +936°、转向零次反转**——
+> 车在半径 0.78 m 的圈里画了 2.6 圈，一段路线都没跑。
+> 判据怎么看、三种根因怎么分，见 `tools/traj_report.py` 末尾的说明。
 
 **车端满分 85 分里，光有车能跑只能拿 10 分**（驶离基地 5 + 回终点 5）：
 排雷 40 分、桥洞 20 分、打击 15 分都要**无人机侦察**（桥洞标识在桥顶，车看不见）。
@@ -217,6 +225,8 @@ python run.py log --dir logs/car --out logs/car/report-第N局.md   # 归档这�
 | 现象 | 可能原因 | 检查 |
 |---|---|---|
 | **命令发了、执行器也算出了速度，但车纹丝不动** | **遥控器还在「遥控」档**——底盘有「车辆遥控/串口程序驱动」模式开关，在遥控档时完全忽略串口速度指令（`docs/raw_txt/04_遥控器控制.txt`） | 把遥控器拨到「串口程序驱动」档再发一次。**关遥控器没用**（已实测：关机后接收机无信号，底盘照样不动） |
+| **位移有数、但车其实在原地画圆** | 只看"位移"看不出来（终点 N11 就在起点 N10 旁，跑完净位移也才 0.35 m） | `python tools/traj_report.py <traj.txt>`：**净转角 >360° 且转向反转 ≈0 次 = 单向画圆**；活动范围（bbox）很小但路径很长也是它 |
+| 画圆了，想知道是哪一层的问题 | 三个候选：定位 yaw 漂 / 前视距离不对 / 格-米单位不匹配 | `tools/car_probe_circle.sh`（默认不动车，先测静息 yaw 漂不漂；要发命令才加 `AG_SEND=1`） |
 | 同上，且想确认"到底卡在哪一层" | 逐级看：决策层→执行器→`pursuitAngle`→底盘 | `tools/car_probe_velstate.sh`：看 `/current_vel_state` 有没有回吐 `linear.y=9.0`（D 档）。**有 = 速度已进下发分支，断点在底盘固件；没有 = 还在 ROS 层** |
 | 一直以为"执行器没发速度" | **判据用错了**：执行器发的是 **`pursuitAngle`**，不是 `/cmd_vel`。`/cmd_vel` 上"发布者 0"是**正常现象** | 别拿 `/cmd_vel` 判断执行器死活（2026-09-29 踩过，白查一轮） |
 | 执行器启动后立刻没了、车不动 | `path_executor.py` 缺 `map_utils`（只在源码目录里有）→ `ModuleNotFoundError` 启动即崩，`/nav/waypoint` 订阅者变 0 | `car.py preflight` 已会拦；修法 `export PYTHONPATH=$HOME/dzrobot/src/car_localization:$PYTHONPATH` |
