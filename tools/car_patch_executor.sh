@@ -24,12 +24,18 @@ source /opt/ros/humble/setup.bash 2>/dev/null
 # （官方发布包 dzrobot-bisai-20260617/src/dztrack/launch/dztrack.launch.py）
 SPEED="${AG_LINEAR_SPEED:-0.8}"
 LOOK="${AG_LOOKAHEAD:-0.40}"
+# ⚠️ 到达阈值必须 **大于车的最小转弯半径**，否则车永远"到不了"：
+#    官方阈值 0.10 + π*0.073/4 ≈ 0.157 m，而最小转弯半径 ≈ 0.157/tan(30°) ≈ 0.27 m
+#    （实测绕圈半径 0.30 m）—— 纯追踪无法螺旋进一个自己转不进去的点，
+#    于是绕着目标稳定画圆，永远不会触发 arrived（2026-10-01 实测确认）。
+ARRIVE="${AG_ARRIVE_M:-0.40}"
 SRC="$HOME/dzrobot/src/car_localization/car_localization"
 DST="${AG_PATCH_DIR:-/tmp/ag_ws/patched}/car_localization"
 
 echo "==================== 生成执行器补丁副本（不动官方源码） ===================="
 echo "  linear_speed   : ${SPEED} m/s  （底盘字节约 $(awk -v s=$SPEED 'BEGIN{printf "%.0f", s*23/0.33}')/255）"
 echo "  lookahead_dist : ${LOOK} m"
+echo "  arrival_thresh : ${ARRIVE} m  （必须 > 最小转弯半径 ≈0.27 m）"
 echo
 
 if [ ! -f "$SRC/path_executor.py" ]; then
@@ -50,9 +56,11 @@ ls -1 "$DST" | sed 's/^/      /'
 # 只替换那两行（行首 8 个空格，类属性赋值）
 sed -i "s|^        self\.lookahead_dist = .*|        self.lookahead_dist = ${LOOK}   # patched: 官方 0.15 太短，会导致转圈|" "$DST/path_executor.py"
 sed -i "s|^        self\.linear_speed = .*|        self.linear_speed = ${SPEED}   # patched: 官方 0.3 太慢，跑不完路线|" "$DST/path_executor.py"
+# 到达阈值：官方算出来 ≈0.157 m，比最小转弯半径（≈0.27 m）还小 → 永远到不了
+sed -i "s|^        self\.arrival_threshold = .*|        self.arrival_threshold = ${ARRIVE}   # patched: 官方 ~0.157 m < 最小转弯半径，车绕圈到不了|" "$DST/path_executor.py"
 
 echo "  -- 替换结果（应看到 patched 注释）--"
-grep -n "self.lookahead_dist = \|self.linear_speed = " "$DST/path_executor.py" | head -4 | sed 's/^/    /'
+grep -n "self.lookahead_dist = \|self.linear_speed = \|self.arrival_threshold = " "$DST/path_executor.py" | head -5 | sed 's/^/    /'
 echo
 echo "  -- 校验：补丁包必须**两个**模块都能导入 --"
 echo "     （map_utils 给执行器、serial_reader 给定位节点，少一个就会静默崩掉一个节点）"

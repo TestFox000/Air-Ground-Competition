@@ -41,6 +41,17 @@ def read_password(args) -> str:
         return pw
     import getpass
 
+    # ⚠️ 没有交互终端时 getpass 会**静默死等标准输入**：命令不打印任何东西、
+    #    也不报错，看起来就是"卡死了"（2026-10-01 现场踩到：连续几条命令全卡在
+    #    这里，被误判成"车不通"，其实一个字都没发到车上）。
+    #    这里直接退出并说清该给什么，宁可报错也不要静默挂起。
+    if not sys.stdin.isatty():
+        raise SystemExit(
+            "缺少车端密码（当前没有交互终端，无法弹出密码提问）：\n"
+            "  ① 设环境变量：set AG_CAR_PASS=<密码>\n"
+            "  ② 或命令行传入：--password <密码>\n"
+            "密码见 docs/raw_txt/05_VNC远程桌面使用方法.txt（车端默认用户名 duzhong）"
+        )
     return getpass.getpass(f"{args.user}@{args.host} 的密码: ")
 
 

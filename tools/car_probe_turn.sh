@@ -29,6 +29,8 @@ source "$HOME/install/setup.bash" 2>/dev/null
 [ -f "${AG_WS:-/tmp/ag_ws}/install/setup.bash" ] && source "${AG_WS:-/tmp/ag_ws}/install/setup.bash" 2>/dev/null
 
 TARGET="${AG_TARGET:-N9}"
+# AG_ROUTE：直接给整条路线（如 "M8 L7,y"），用来验证多段路点能不能走完
+ROUTE_CMD="${AG_ROUTE:-$TARGET,y}"
 RUN_S="${AG_RUN_S:-15}"
 SETUP_S="${AG_SETUP_S:-10}"
 
@@ -141,8 +143,8 @@ start executor python3 -u "$PE"
 sleep "$SETUP_S"
 timeout 5 ros2 topic pub --once /nav/waypoint std_msgs/msg/String "{data: 'reset:N10,y'}" 2>&1 | sed 's/^/    /'
 sleep 3
-timeout 5 ros2 topic pub --once /nav/waypoint std_msgs/msg/String "{data: '$TARGET,y'}" 2>&1 | sed 's/^/    /'
-echo "    已发：$TARGET,y"
+timeout 5 ros2 topic pub --once /nav/waypoint std_msgs/msg/String "{data: '$ROUTE_CMD'}" 2>&1 | sed 's/^/    /'
+echo "    已发：$ROUTE_CMD"
 sleep "$RUN_S"
 kill $E1 2>/dev/null; wait $E1 2>/dev/null
 cp -f /tmp/ag_turn_executor.log "$OUT/" 2>/dev/null
