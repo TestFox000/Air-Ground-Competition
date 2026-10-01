@@ -69,7 +69,19 @@ class IntelVoter:
         """喂入一帧情报。返回 True 表示这帧被接受（非乱序/重复）。"""
         now = time.time() if now is None else now
         if intel.seq <= self._last_seq:
-            return False
+            # ⚠️ 发送端**重启**会把 seq 归零重来（机载端崩溃重启、重开 fake_intel
+            #    都会发生）。不允许回退的话，车端从此**永久拒收**——链路上
+            #    心跳还在跳、看着像活着，其实情报再也进不来，最难查的一种死法。
+            #    重启的两种形态都要认：
+            #      ① seq 回到 0/1（发送端第一帧）——哪怕只回退几帧也是重启
+            #      ② 大幅回退（>8 帧）——乱序不可能差这么多
+            #    小幅回退（乱序/重复）照样丢弃。
+            is_restart = (intel.seq <= 1 and intel.seq < self._last_seq) or \
+                         (intel.seq < self._last_seq - 8)
+            if is_restart:
+                self.reset()
+            else:
+                return False
         self._last_seq = intel.seq
         if intel.ts <= 0:
             intel.ts = now

@@ -92,7 +92,12 @@ class LinkCodec:
         (crc,) = struct.unpack("!I", buf[4 + n : 8 + n])
         if zlib.crc32(body) & 0xFFFFFFFF != crc:
             return None
-        return json.loads(body.decode("utf-8"))
+        # crc 过了但内容不是 JSON（发送端 bug / 协议版本不一致）时，
+        # 必须按"坏帧"丢弃而不是把异常抛进 ROS 回调里
+        try:
+            return json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return None
 
     @staticmethod
     def encode_heartbeat(seq: int = 0, role: str = "car") -> bytes:

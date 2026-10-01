@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pytest
 
@@ -92,3 +94,12 @@ def test_homography_pixel_to_cell():
 
     # 超出场地范围时应返回 None
     assert g.pixel_to_cell(360.0, 700.0) is None
+
+
+def test_path_length_counts_diagonal_steps():
+    """对角步是 √2 格，不能一律按 1 格算（否则时间预算低估最多 29%）。"""
+    g = FieldGrid()
+    diag = g.bfs_path(CellID.parse("A1"), CellID.parse("B2"), diagonal=True)
+    assert g.path_length_m(diag) == pytest.approx(g.cell_size * math.sqrt(2))
+    straight = g.bfs_path(CellID.parse("A1"), CellID.parse("A2"))
+    assert g.path_length_m(straight) == pytest.approx(g.cell_size)

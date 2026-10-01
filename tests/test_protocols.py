@@ -102,3 +102,29 @@ def test_heartbeat_and_status():
 def test_intel_completeness():
     assert not FieldIntel().is_complete()
     assert FieldIntel(mines=["A1"], bridge_a="K4").is_complete()
+
+
+def test_sof_split_across_reads_is_not_lost():
+    """帧头被两包拆开（缓冲末尾只剩 0xAA）时，这一帧不能丢。
+
+    旧实现找不到完整 SOF 就清空整个缓冲区，把末尾的半个帧头也丢了 ——
+    串口长会话里必然发生，丢帧概率低但稳定存在，而且极难抓。
+    """
+    c = RefereeCodec()
+    frame = RefereeCodec.encode(CMD.STATE, RefereeState(ammo=7).to_bytes())
+    assert c.feed(frame[:1]) == []          # 第一包只有半个帧头 0xAA
+    frames = c.feed(frame[1:])              # 第二包 0x55 + 其余
+    assert len(frames) == 1
+    assert frames[0][0] == CMD.STATE
+    assert RefereeState.from_bytes(frames[0][1]).ammo == 7
+
+
+def test_decode_rejects_non_json_with_valid_crc():
+    """crc 校验通过但内容不是 JSON 时，按坏帧丢弃，绝不能把异常抛进 ROS 回调。"""
+    import struct
+    import zlib
+
+    body = b"\xff\xfe not json"
+    crc = zlib.crc32(body) & 0xFFFFFFFF
+    buf = struct.pack("!I", len(body)) + body + struct.pack("!I", crc)
+    assert LinkCodec.decode(buf) is None

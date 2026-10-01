@@ -91,3 +91,17 @@ def test_task_serialization():
     p.set_intel(mines=["B2"], bridge_a="K4")
     d = p.full_plan()[1].to_dict()
     assert set(d) == {"type", "cell", "score", "path", "travel_s", "cost_s"}
+
+
+def test_leave_start_cost_is_counted():
+    """出发本身有 1 s 开销，必须计入时间估算——不算它预算会比实际乐观 1 秒。"""
+    from ag_core.mission_planner import TASK_COST_S
+
+    p = _planner()
+    p.set_intel(mines=["B2"])
+    plan = p.full_plan()
+    leave = plan[0]
+    assert leave.type == TaskType.LEAVE_START
+    assert leave.cost_s == TASK_COST_S[TaskType.LEAVE_START] > 0
+    # estimate_time 必须包含这段开销
+    assert p.estimate_time(plan) >= TASK_COST_S[TaskType.LEAVE_START] + 1.0

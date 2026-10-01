@@ -117,7 +117,14 @@ class RefereeCodec:
         while True:
             start = self._find_sof()
             if start < 0:
-                self._buf.clear()
+                # ⚠️ 末尾可能留着半个帧头（0xAA 是缓冲区最后一个字节）：
+                #    它和**下一包**开头的 0x55 才拼得出 SOF。整段清掉会把
+                #    这个 0xAA 也丢掉，于是跨包对齐的帧**整帧丢失**
+                #    （串口长会话里必然发生，只是概率低所以难抓）。
+                if self._buf and self._buf[-1] == SOF[0]:
+                    del self._buf[:-1]
+                else:
+                    self._buf.clear()
                 break
             if start > 0:
                 del self._buf[:start]

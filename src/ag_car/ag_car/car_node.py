@@ -158,6 +158,8 @@ class CarNode(Node):
         self.reset_sent = False
         self.last_route = ""
         self.shots = 0
+        #: 实际下发的打击停靠点（可能被时间预算砍掉；cb_timer/复盘用它，别用计划里的 TARGET 任务）
+        self._last_shoot_stops: List[str] = []
         self._plan: List[Task] = []
         self.face: Optional[str] = None      # 最近一次稳定的敌我判决（blue=敌 / red=友）
         #: 最近一次"没发车"的原因，以及**已经写进日志的那一条**（避免同一原因刷满日志）
@@ -294,8 +296,7 @@ class CarNode(Node):
         if route == self.last_route:
             return  # 路线没变，不重复下发（车端会重新从头跑）
 
-        stops = [t.cell.name for t in self._plan
-                 if t.type == TaskType.TARGET and t.cell is not None]
+        stops = list(self._last_shoot_stops)   # 实际下发的停靠点（可能被时间预算砍掉）
         eta_s = round(self.planner.estimate_time(self._plan), 1)
         self.bb.log(EV.PLAN_BUILT, route=route, tasks=len(self._plan),
                     shoot_stops=stops, eta_s=eta_s, face=self.face,
@@ -324,6 +325,9 @@ class CarNode(Node):
         """
         st = st if st is not None else self.voter.stable
         self._block = None
+        # 状态里要报的是"实际下发的停靠点"，不是"计划里的 TARGET 任务"——
+        # 时间不够砍掉 '*' 之后，两者就不一致了，照计划报会误导现场
+        self._last_shoot_stops = []
 
         # ---- 出发条件：情报已收敛（与「有没有打击点」无关）----
         n_mines = len(st.mines) if st else 0
@@ -347,10 +351,17 @@ class CarNode(Node):
                 continue  # 车本来就在起点，不必额外发一个"去起点"
             if t.cell is None:
                 continue
-            name = t.cell.name
-            cells.append(name)
+            # ⚠️ 必须下发 BFS 绕障路径的中间格，不能只发任务格：
+            #    纯追踪在相邻路点间走**直线**，而水桶障碍就立在格中央，
+            #    只发任务格会让车直接横穿障碍格（比如 C3->K4 一路扫过 8 格）。
+            #    task.path 是「上一任务格 -> 本任务格」的完整路径（含起点），
+            #    去掉首格避免与上一段的末格重复（build_route 也会再去重）。
+            if t.path:
+                cells.extend(c.name for c in t.path[1:])
+            else:
+                cells.append(t.cell.name)   # 兜底：路径缺失时退回任务格
             if t.type == TaskType.TARGET:
-                shoot.append(name)
+                shoot.append(t.cell.name)
         if not cells:
             self._block = (REASON.NO_CELLS, "任务序列为空（情报里既没有雷也没有终点）")
             return None
@@ -373,6 +384,7 @@ class CarNode(Node):
         if shoot and not self._fits_shoot_wait():
             self.get_logger().warning("时间不够，取消打击停靠点，优先保证回到终点")
             shoot = []
+        self._last_shoot_stops = list(shoot)
 
         if len(shoot) < self.min_shoot_stops:
             self.get_logger().warning(
@@ -409,8 +421,7 @@ class CarNode(Node):
 
     def cb_timer(self) -> None:
         st = self.voter.stable
-        stops = [t.cell.name for t in self._plan
-                 if t.type == TaskType.TARGET and t.cell is not None]
+        stops = list(self._last_shoot_stops)   # 与 build_command 实际下发的 '*' 一致
         s = String()
         s.data = json.dumps({
             "dry_run": self.dry_run,

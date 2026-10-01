@@ -115,6 +115,15 @@ class IntelAccumulator:
         else:
             face, target_cells = None, []
 
+        # ⚠️ 两处桥洞必须按**区域**分配，不能按票数先后直接排：
+        #    A 段是行号小的 5 格、B 段是行号大的 6 格（bridge_zone.py 的推断），
+        #    票数高的那处若被错标成 bridge_a，车端桥洞校验（strict 模式）会
+        #    判定"情报不符"而**拒绝发车**。
+        def _row_of(cell: str) -> int:
+            digits = "".join(ch for ch in cell if ch.isdigit())
+            return int(digits) if digits else 0
+
+        bridges = sorted(bridges, key=_row_of)   # 行号小 → A 段，行号大 → B 段
         return FieldIntel(
             mines=sorted(mines),
             obstacles=sorted(obstacles),

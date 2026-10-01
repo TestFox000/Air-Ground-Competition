@@ -175,8 +175,10 @@ def drift(yaws):
 print("  [判据 A] 定位 yaw 漂不漂（车静止时测的，最要紧的一条）")
 p0 = pts(os.path.join(out, "pos_idle.txt"))
 if len(p0) > 1:
+    # ⚠️ 坐标是 block 单位（不是米）：0.15 block ≈ 5 cm。
     move = max(math.dist(p0[0], p) for p in p0)
-    print(f"    静息位移: {move:.3f} m  {'(车确实没动，判据成立)' if move < 0.05 else '(⚠️ 车动了！判据作废，重跑)'}")
+    print(f"    静息位移: {move:.3f} block ≈ {move*0.35:.2f} m  "
+          f"{'(车确实没动，判据成立)' if move < 0.15 else '(⚠️ 车动了！判据作废，重跑)'}")
 y = quats(os.path.join(out, "yaw_ours.txt"))
 print(f"    /odom/localization: {len(y)} 个样本")
 if len(y) > 2:
@@ -247,16 +249,18 @@ if send == "1":
     print("  [判据 C] 目标点够不够得到（单位是否匹配）")
     p = pts(os.path.join(out, "pos_run.txt"))
     if len(p) > 1:
+        # ⚠️ 坐标是 block 单位（不是米）：单格 = 1.0 block = 0.35 m
         walked = sum(math.dist(p[i], p[i+1]) for i in range(len(p)-1))
         netd = math.dist(p[0], p[-1])
-        print(f"    走了 {walked:.3f} m，净移动 {netd:.3f} m（单格 0.35 m）")
+        print(f"    走了 {walked:.2f} block（{walked*0.35:.2f} m），"
+              f"净移动 {netd:.2f} block（{netd*0.35:.2f} m）；单格 = 1.0 block")
         # ⚠️ 判据必须是"净移动 / 走了多少"这个**效率**，不能只看净移动的绝对值：
         #    画圆时净移动也能有好几米（圈直径），光看绝对值会把画圆误判成"到了"。
         eff = netd / walked if walked > 1e-6 else 0.0
         print(f"    行进效率: {eff:.2f}  （净移动 / 走过的路；1.0 = 直着过去）")
-        if eff > 0.5 and netd > 0.25:
+        if eff > 0.5 and netd > 0.7:      # 0.7 block ≈ 0.25 m：单格命令"到了"的判据
             print("      → 到了（或接近到了）：单格命令能执行，问题在多格路线的转向衔接")
-        elif walked > 1.0:
+        elif walked > 1.0:                # 1.0 block = 一格 = 0.35 m
             print("      → ★走了很多却没到★ 目标点够不到：查前视距离 AG_LOOKAHEAD 与格/米单位")
         else:
             print("      → 基本没走：回到 car_move_dryrun.sh 那套排查（命令/执行器/底盘）")

@@ -352,29 +352,34 @@ echo "  起步位置: ${POS0:-?}"
 echo "  结束位置: ${POS1:-?}"
 # 位移必须算**距离**，不能只比字符串：IMU 漂移会让坐标在小数点后第 3 位抖，
 # 字符串比较会把 8 毫米当成"车动了" —— 2026-09-29 实跑就得出过这种反向结论。
-DISP="$(python3 - "$RUN_DIR/traj.txt" 0.15 <<'PY' 2>/dev/null
+#
+# ⚠️ /odom/localization 是 **block 单位**（不是米！见 docs/画圆根因分析-20260930.md）：
+#    判定阈值必须按 block 写。半格 = 0.5 block ≈ 0.175 m。
+#    之前写成"0.15 m ≈ 半格"是双错：既把 block 当米、又把阈值写小了 3 倍。
+DISP="$(python3 - "$RUN_DIR/traj.txt" 0.5 <<'PY' 2>/dev/null
 import sys, math, re
 try:
     pts = re.findall(r"^\s*x:\s*(-?[\d.]+)\s*\n\s*y:\s*(-?[\d.]+)",
                      open(sys.argv[1], encoding="utf-8", errors="replace").read(), re.M)
     if len(pts) < 2:
-        print("? 0")
+        print("? ? 0")
     else:
         d = math.dist((float(pts[0][0]), float(pts[0][1])),
-                      (float(pts[-1][0]), float(pts[-1][1])))
-        print(f"{d:.3f} {1 if d > float(sys.argv[2]) else 0}")
+                      (float(pts[-1][0]), float(pts[-1][1])))   # block 单位
+        print(f"{d:.3f} {d*0.35:.2f} {1 if d > float(sys.argv[2]) else 0}")
 except Exception:
-    print("? 0")
+    print("? ? 0")
 PY
 )"
-DIST="$(echo "$DISP" | awk '{print $1}')"
-MOVED="$(echo "$DISP" | awk '{print $2}')"
-echo "  位移: ${DIST} m（判定阈值 0.15 m ≈ 半格）"
+DIST_B="$(echo "$DISP" | awk '{print $1}')"
+DIST_M="$(echo "$DISP" | awk '{print $2}')"
+MOVED="$(echo "$DISP" | awk '{print $3}')"
+echo "  位移: ${DIST_B} block ≈ ${DIST_M} m（判定阈值 0.5 block = 半格）"
 if [ "$CONFIRM" = "1" ]; then
   if [ "${MOVED:-0}" = "1" ]; then
     echo "  [OK] 车真的动了"
   else
-    echo "  [FAIL] 位移只有 ${DIST} m —— 车基本没动。按这个顺序排查："
+    echo "  [FAIL] 位移只有 ${DIST_B} block ≈ ${DIST_M} m —— 车基本没动。按这个顺序排查："
     echo "         1) $RUN_DIR/waypoint.txt 有没有命令   （空 = 决策层没发）"
     echo "         2) $RUN_DIR/ag_move_executor.log      （执行器崩了就没人执行命令）"
     echo "         3) $RUN_DIR/ag_move_actuator.log      （底盘串口开没开）"

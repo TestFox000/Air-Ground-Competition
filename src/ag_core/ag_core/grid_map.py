@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque, Dict, List, Optional, Tuple
@@ -201,7 +202,17 @@ class FieldGrid:
         return None
 
     def path_length_m(self, path: List[CellID]) -> float:
-        return max(0, len(path) - 1) * self.cell_size
+        """按实际步长累加：对角步是 √2 格，不能一律按 1 格算。
+
+        现在 bfs_path 只走四邻域，但这条公式一旦被用在 diagonal=True 的路径上，
+        就会把路径长低估最多 29%（时间预算跟着失真）——必须按步算。
+        """
+        total = 0.0
+        for a, b in zip(path[:-1], path[1:]):
+            dr = abs(a.row - b.row)
+            dc = abs(a.col - b.col)
+            total += self.cell_size * math.hypot(dr, dc)
+        return total
 
     def count_turns(self, path: List[CellID]) -> int:
         if len(path) < 3:

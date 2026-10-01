@@ -34,6 +34,29 @@ def test_repeated_cells_become_stable():
     assert v.is_confident is True
 
 
+def test_sender_restart_is_tolerated():
+    """发送端重启（seq 归零重来）不能被永久拒收。
+
+    旧实现只要 seq 比上次小就丢 —— 机载端崩溃重启之后，车端从此一帧不收：
+    心跳还在跳、看着像活着，其实情报再也进不来，是最难查的一种死法。
+    """
+    v = IntelVoter(IntelVoteConfig(min_votes=2))
+    for i in range(1, 6):
+        v.push(_intel(i, ["C3"]))
+    # 发送端重启：seq 从 1 重来，必须被接受并重新投票
+    assert v.push(_intel(1, ["C3"])) is True
+    assert v.push(_intel(2, ["C3"])) is True
+    assert v.stable.mines == ["C3"]
+
+
+def test_reordered_frame_is_still_rejected():
+    """小幅回退（乱序）与重启（大幅回退）要区分开：乱序照样丢弃。"""
+    v = IntelVoter(IntelVoteConfig(min_votes=2))
+    v.push(_intel(10, ["C3"]))
+    assert v.push(_intel(9, ["D4"])) is False      # 乱序：丢弃
+    assert v.push(_intel(11, ["C3"])) is True       # 后续正常帧：接受
+
+
 def test_one_off_noise_is_filtered():
     v = IntelVoter(IntelVoteConfig(min_votes=2))
     for i in range(1, 6):

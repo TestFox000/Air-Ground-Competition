@@ -686,5 +686,25 @@ def test_car_node_status_json():
     assert st["drive_eta_s"] > 0
 
 
+def test_car_node_route_includes_bfs_intermediate_cells():
+    """绕障 BFS 路径的中间格必须下发，不能只发任务格。
+
+    纯追踪在相邻路点间走**直线**，而水桶障碍立在格中央：只发任务格，
+    车就会直线横穿障碍格（比如 C3->K4 一路扫过 8 格）。
+    旧的 build_command 只拼 t.cell.name，把 planner 算好的 t.path 丢掉了。
+    """
+    n = _car(dry_run=False)
+    # 一颗雷 C3：路线从 N10 出发，第一格必须是 N10 的相邻格，
+    # 而不是旧实现那样直接跳到十几格外的任务格
+    _feed(n, mines=("C3",), obstacles=(), bridge_a=None, bridge_b=None)
+    sent = [m.data for m in n.topic("/nav/waypoint").published]
+    route = sent[-1]
+    toks = route.replace(",y", "").split()
+    assert toks[0] in ("N9", "M10"), f"路线的第一格应是 N10 的相邻格，实际: {toks[0]}（{route}）"
+    assert "C3" in toks
+    assert "D2*" in route
+    assert route.endswith(",y")
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

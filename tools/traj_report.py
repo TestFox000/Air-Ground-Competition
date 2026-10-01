@@ -94,12 +94,19 @@ def main():
     ap.add_argument("traj", help="traj.txt（ros2 topic echo --field pose.pose.position 的输出）")
     ap.add_argument("--hz", type=float, default=50.0, help="定位实际频率，默认 50 Hz")
     ap.add_argument("--win", type=float, default=1.0, help="分段统计窗口（秒），默认 1.0")
+    ap.add_argument("--scale", type=float, default=1.0,
+                    help="坐标单位换算系数：车端 /odom/localization 是 block 单位"
+                         "（不是米！），传 0.35 得到米制结论。2026-09-30 就因为这个"
+                         "把半径 0.34 m 误报成 0.78 m")
     args = ap.parse_args()
 
     pts = load(args.traj)
     if len(pts) < 2:
         print(f"[FAIL] {args.traj} 里只解析出 {len(pts)} 个点，没法复盘")
         return 1
+    if args.scale != 1.0:
+        # 在入口处统一换算，下游所有几何计算都在同一单位里做
+        pts = [(x * args.scale, y * args.scale) for x, y in pts]
 
     dur = (len(pts) - 1) / args.hz
     # 路径总长：逐点累加，反映"车走过的路"
@@ -114,6 +121,8 @@ def main():
     print("==================== 轨迹复盘 ====================")
     print(f"  文件: {args.traj}")
     print(f"  样本: {len(pts)} 个   按 {args.hz:g} Hz 折算时长 ≈ {dur:.1f} s")
+    if args.scale != 1.0:
+        print(f"  单位: 已按 ×{args.scale} 换算（block→米）；下面的 m 是真米")
     print(f"  起点: x={pts[0][0]:.3f} y={pts[0][1]:.3f}")
     print(f"  终点: x={pts[-1][0]:.3f} y={pts[-1][1]:.3f}")
     print()

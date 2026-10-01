@@ -203,7 +203,9 @@ class MissionNode(Node):
     def cb_task_done(self, msg: String) -> None:
         token = (msg.data or "").strip().upper()
         if not token:
-            self._advance()
+            # 空消息**不能**推进任务：契约里 chassis_node 只发格号/任务类型，
+            # 空消息没有合法来源；任何一个写错的发布者都能让任务整段跳掉。
+            self.get_logger().warning("收到空的 task_done，已忽略（应发布格号或任务类型）")
             return
         cur = self.current_task
         if cur is not None and (token == (cur.cell.name if cur.cell else "") or token == cur.type.value.upper()):

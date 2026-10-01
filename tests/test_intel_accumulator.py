@@ -34,13 +34,18 @@ def test_mines_sorted_and_capped():
 
 
 def test_bridges_split_into_a_and_b():
+    """两处桥洞按**区域**分配：行号小 → A 段、行号大 → B 段，与票数无关。
+
+    旧实现按票数先后直接排，K9 票数高时会被错标成 bridge_a（A 段），
+    车端桥洞校验（strict 模式）会判定"情报不符"而拒绝发车。
+    """
     acc = _acc(min_votes=1)
     acc.observe(KIND.BRIDGE, "K4")
     acc.observe(KIND.BRIDGE, "K9")
-    acc.observe(KIND.BRIDGE, "K9")  # K9 票数更高
+    acc.observe(KIND.BRIDGE, "K9")  # K9 票数更高，但它是 B 段（行号大）
     st = acc.snapshot()
-    assert st.bridge_a == "K9"
-    assert st.bridge_b == "K4"
+    assert st.bridge_a == "K4"   # A 段 = 行号小，不看票数
+    assert st.bridge_b == "K9"
 
 
 def test_single_bridge_only_sets_a():

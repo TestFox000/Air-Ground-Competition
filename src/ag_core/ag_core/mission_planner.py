@@ -140,7 +140,8 @@ class MissionPlanner:
         """返回按执行顺序排列的任务列表（不含 LEAVE_START / GOAL 两个端点任务）。"""
         remaining = list(self._build_candidates())
         cur = self.start
-        used = 0.0
+        # 出发本身也有开销（起步加速）；不算它，预算会比实际乐观 1 秒
+        used = TASK_COST_S[TaskType.LEAVE_START]
         ordered: List[Task] = []
 
         while remaining:
@@ -167,7 +168,8 @@ class MissionPlanner:
     def full_plan(self) -> List[Task]:
         """含首尾：LEAVE_START -> ... -> GOAL。"""
         mid = self.plan()
-        out = [Task(TaskType.LEAVE_START, self.start, TASK_SCORE[TaskType.LEAVE_START], [self.start])]
+        out = [Task(TaskType.LEAVE_START, self.start, TASK_SCORE[TaskType.LEAVE_START],
+                    [self.start], cost_s=TASK_COST_S[TaskType.LEAVE_START])]
         out.extend(mid)
         last = mid[-1].cell if mid else self.start
         gp = self.grid.bfs_path(last, self.goal) or [last, self.goal]
