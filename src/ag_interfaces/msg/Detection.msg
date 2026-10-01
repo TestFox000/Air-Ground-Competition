@@ -1,9 +1,0 @@
-int32 cls
-float32 score
-float32 x1
-float32 y1
-float32 x2
-float32 y2
-float32 kpt_x
-float32 kpt_y
-float32 kpt_conf
