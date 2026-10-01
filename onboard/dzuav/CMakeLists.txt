@@ -1,4 +1,6 @@
-cmake_minimum_required(VERSION 3.20)
+# 3.16 = JetPack 5（focal）apt 仓库的 cmake 版本；工程未用到更高版本的特性，
+# 卡 3.20 会让老 JetPack 无法开箱编译。
+cmake_minimum_required(VERSION 3.16)
 project(dzuav LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
