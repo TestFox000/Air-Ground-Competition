@@ -36,6 +36,8 @@ class IntegrateNode(Node):
         self.declare_parameter("publish_reset", True)
         self.declare_parameter("min_mines", 1)
         self.declare_parameter("require_face", True)
+        self.declare_parameter("cross_gates", [""])
+        self.declare_parameter("mid_boundary", 5)
 
         p = lambda k: self.get_parameter(k).value  # noqa: E731
         self.start_cell = str(p("start_cell"))
@@ -47,6 +49,8 @@ class IntegrateNode(Node):
         self.publish_reset = bool(p("publish_reset"))
         self.min_mines = int(p("min_mines"))
         self.require_face = bool(p("require_face"))
+        self.cross_gates = tuple(n.strip() for n in p("cross_gates") if n.strip())
+        self.mid_boundary = int(p("mid_boundary"))
 
         self.model = WorldModel()
         self.reset_sent = False
@@ -95,6 +99,7 @@ class IntegrateNode(Node):
         commands = build_mission(
             snapshot, self.start_cell, self.goal_cell,
             self.start_heading, self.final_heading,
+            self.cross_gates, self.mid_boundary,
         )
         if commands.route == self.last_route:
             return

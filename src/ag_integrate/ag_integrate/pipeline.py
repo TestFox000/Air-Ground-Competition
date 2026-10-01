@@ -35,10 +35,13 @@ def build_mission(
     goal_cell: str,
     start_heading: str,
     final_heading: str | None,
+    cross_gates: tuple[str, ...] = (),
+    mid_boundary: int = 5,
 ) -> CarCommands:
     start = _parse_name(start_cell)
     goal = _parse_name(goal_cell)
-    ordered = plan_route(snapshot, start, goal)
+    gates = frozenset(_parse_name(name) for name in cross_gates) or None
+    ordered = plan_route(snapshot, start, goal, gates, mid_boundary)
     return adapt(snapshot, ordered, start_cell, start_heading, final_heading)
 
 

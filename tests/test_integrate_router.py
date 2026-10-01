@@ -65,3 +65,28 @@ def test_no_required_straight_to_goal():
     start, goal = CellRef(0, 0), CellRef(0, 1)   # A1 -> A2
     snap = make_snapshot(())
     assert plan_route(snap, start, goal) == ("A1", "A2")
+
+
+def test_cross_gates_without_gate_makes_goal_unreachable():
+    # 空场地，起点/终点分处两个半场；启用约束但不给任何 gate -> 不可穿越
+    start, goal = CellRef(0, 0), CellRef(0, 10)   # A1 -> A11
+    snap = make_snapshot(())
+    with pytest.raises(ValueError):
+        plan_route(snap, start, goal, cross_gates=frozenset())
+
+
+def test_cross_gates_route_crosses_only_at_gate():
+    start, goal = CellRef(0, 0), CellRef(0, 10)   # A1 -> A11
+    gate = CellRef(5, 5)                          # F6：跨入北半场的第一格
+    snap = make_snapshot(())
+    route = plan_route(snap, start, goal, cross_gates=frozenset({gate}))
+    assert route[0] == "A1"
+    assert route[-1] == "A11"
+    assert "F6" in route
+    # 全路线里跨越 行号5↔6 的相邻对只能有一处，且两格都在 F 列
+    crossings = [
+        (a, b)
+        for a, b in zip(route, route[1:])
+        if a[0] == b[0] and {int(a[1:]), int(b[1:])} == {5, 6}
+    ]
+    assert crossings == [("F5", "F6")]

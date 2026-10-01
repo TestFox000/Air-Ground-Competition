@@ -52,3 +52,13 @@ def test_build_mission_full():
     assert cmds.shoot_cells == ("D2",)
     assert "D2*" in tokens
     assert "F6" not in tokens
+
+
+def test_build_mission_cross_gates_from_names():
+    s = snapshot(())
+    # 格名字符串透传：F6 为唯一可穿越点，A1 -> A11 可达且经过 F6
+    cmds = build_mission(s, "A1", "A11", "y", None, cross_gates=("F6",))
+    tokens = cmds.route.split()
+    assert tokens[0] == "A1"
+    assert tokens[-1] == "A11"
+    assert "F6" in tokens
