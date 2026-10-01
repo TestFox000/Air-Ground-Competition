@@ -225,8 +225,8 @@ python run.py log --dir logs/car --out logs/car/report-第N局.md   # 归档这�
 | 现象 | 可能原因 | 检查 |
 |---|---|---|
 | **命令发了、执行器也算出了速度，但车纹丝不动** | **遥控器还在「遥控」档**——底盘有「车辆遥控/串口程序驱动」模式开关，在遥控档时完全忽略串口速度指令（`docs/raw_txt/04_遥控器控制.txt`） | 把遥控器拨到「串口程序驱动」档再发一次。**关遥控器没用**（已实测：关机后接收机无信号，底盘照样不动） |
-| **位移有数、但车其实在原地画圆** | 只看"位移"看不出来（终点 N11 就在起点 N10 旁，跑完净位移也才 0.35 m） | `python tools/traj_report.py <traj.txt>`：**净转角 >360° 且转向反转 ≈0 次 = 单向画圆**；活动范围（bbox）很小但路径很长也是它 |
-| 画圆了，想知道是哪一层的问题 | 三个候选：定位 yaw 漂 / 前视距离不对 / 格-米单位不匹配 | `tools/car_probe_circle.sh`（默认不动车，先测静息 yaw 漂不漂；要发命令才加 `AG_SEND=1`） |
+| **位移有数、但车其实在原地画圆** | 只看"位移"看不出来（终点 N11 就在起点 N10 旁，跑完净位移也才 0.35 m）；⚠️ `/odom/localization` 是 **block 单位**，按米读会把半径/速度放大 2.86 倍 | `python tools/traj_report.py <traj.txt>`：**净转角 >360° 且转向反转 ≈0 次 = 单向画圆**；根因分析与证据链见 [`docs/画圆根因分析-20260930.md`](docs/画圆根因分析-20260930.md)（结论：转向环从发车即发散，是符号/坐标架问题，不是调参） |
+| 画圆了，想知道是哪一层的问题 | 三个候选：angular.z 符号接反 / 定位 yaw 漂 / 单位（度-弧度、格-米） | `python tools/traj_geometry.py <traj.txt> --first <第一路点>` 先判"有没有朝目标走"；再 `tools/car_probe_circle.sh`（默认不动车测静息 yaw；发命令加 `AG_SEND=1`） |
 | 同上，且想确认"到底卡在哪一层" | 逐级看：决策层→执行器→`pursuitAngle`→底盘 | `tools/car_probe_velstate.sh`：看 `/current_vel_state` 有没有回吐 `linear.y=9.0`（D 档）。**有 = 速度已进下发分支，断点在底盘固件；没有 = 还在 ROS 层** |
 | 一直以为"执行器没发速度" | **判据用错了**：执行器发的是 **`pursuitAngle`**，不是 `/cmd_vel`。`/cmd_vel` 上"发布者 0"是**正常现象** | 别拿 `/cmd_vel` 判断执行器死活（2026-09-29 踩过，白查一轮） |
 | 执行器启动后立刻没了、车不动 | `path_executor.py` 缺 `map_utils`（只在源码目录里有）→ `ModuleNotFoundError` 启动即崩，`/nav/waypoint` 订阅者变 0 | `car.py preflight` 已会拦；修法 `export PYTHONPATH=$HOME/dzrobot/src/car_localization:$PYTHONPATH` |
