@@ -1,0 +1,25 @@
+ros2 launch livox_ros_driver2 msg_MID360_launch.py 
+
+ros2 launch fast_lio_localization velodyne_localization.launch.py
+
+MicroXRCEAgent serial --dev /dev/ttyACM0 -b 921600
+
+ros2 launch px4_odom_convert px4_odom_convert.launch.py
+
+ros2 launch px4_imu_bridge sensor_combined_to_imu.launch.py
+
+ros2 topic echo /fmu/in/vehicle_visual_odometry
+
+ros2 topic echo /fmu/out/vehicle_control_mode
+
+ros2 topic echo /fmu/out/vehicle_local_position
+
+ros2 topic echo /fmu/out/vehicle_odometry
+
+ros2 topic echo /fmu/out/vehicle_status
+
+ros2 run px4_control  px4_teleop_node --params-file ~/dzpx4/install/px4_control/share/px4_control/config/params.yaml
+
+ros2 launch px4_control px4_control.launch.py 
+
+ros2 launch px4_path px4_path.launch.py

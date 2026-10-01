@@ -39,9 +39,11 @@ calib/
 # 取回方法见 docs/调试日志.md
 logs/
 
-# 从车端取回的厂家源码：只作接口参照，不是我们的代码，不入库
+# 从车端/机载电脑取回的厂家源码：只作接口参照，不是我们的代码，不入库
 # （需要时用 tools/remote_run.py --get 重新拉取，方法见 docs/实机接口对照.md）
-reference/
+reference/*
+# 例外：2026-10-01 机载电脑（Orin Nano）完整盘点，归档入库以便脱离飞机继续工作
+!reference/onboard/
 
 # 编辑器
 .vscode/
