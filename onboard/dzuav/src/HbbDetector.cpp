@@ -12,6 +12,19 @@ HbbDetector::HbbDetector(const std::string& p, float c, float n)
         throw std::runtime_error("cannot set hbb_detector input shape");
     cudaMalloc(&input_, 3 * 1280 * 1280 * sizeof(float));
     cudaMalloc(&output_, 11 * 33600 * sizeof(float));
+    // 页锁定主机缓冲：H2D/D2H DMA 直传，免驱动临时中转（NVIDIA TRT 性能建议）。
+    if (cudaMallocHost(&h_input_, 3 * 1280 * 1280 * sizeof(float)) != cudaSuccess ||
+        cudaMallocHost(&h_output_, 11 * 33600 * sizeof(float)) != cudaSuccess)
+        throw std::runtime_error("cannot allocate pinned host buffers for hbb_detector");
+    // blob_ 包住 pinned 内存：blobFromImage 对同形状 OutputArray 不重新分配（Mat::create
+    // 契约），直接写入；即使个别 OpenCV 版本内部重新分配，后续拷贝也总是从 blob_.ptr()
+    // 取址，正确性不受影响（只是退回普通内存路径）。
+    const int sizes[] = {1, 3, 1280, 1280};
+    blob_ = cv::Mat(4, sizes, CV_32F, h_input_);
+    // 张量地址构造期绑定一次，每帧只 enqueue。
+    if (!context_->setTensorAddress("images", input_) ||
+        !context_->setTensorAddress("output0", output_))
+        throw std::runtime_error("cannot bind hbb_detector tensor addresses");
 }
 std::vector<Detection> HbbDetector::infer(const cv::Mat& image)
 {
@@ -20,16 +33,15 @@ std::vector<Detection> HbbDetector::infer(const cv::Mat& image)
     cv::resize(image, r, cv::Size(), s, s);
     cv::copyMakeBorder(r, r, 0, 1280 - r.rows, 0, 1280 - r.cols, cv::BORDER_CONSTANT,
                        cv::Scalar(114, 114, 114));
-    cv::Mat blob = cv::dnn::blobFromImage(r, 1 / 255.f, cv::Size(1280, 1280), {}, true, false);
-    cudaMemcpyAsync(input_, blob.ptr<float>(), blob.total() * sizeof(float), cudaMemcpyHostToDevice,
+    cv::dnn::blobFromImage(r, blob_, 1 / 255.f, cv::Size(1280, 1280), {}, true, false);
+    cudaMemcpyAsync(input_, blob_.ptr<float>(), blob_.total() * sizeof(float), cudaMemcpyHostToDevice,
                     stream_);
-    if (!context_->setTensorAddress("images", input_) ||
-        !context_->setTensorAddress("output0", output_) || !context_->enqueueV3(stream_))
+    if (!context_->enqueueV3(stream_))
         throw std::runtime_error("hbb_detector inference failed");
-    std::vector<float> raw(11 * 33600);
-    cudaMemcpyAsync(raw.data(), output_, raw.size() * sizeof(float), cudaMemcpyDeviceToHost,
+    cudaMemcpyAsync(h_output_, output_, 11 * 33600 * sizeof(float), cudaMemcpyDeviceToHost,
                     stream_);
     cudaStreamSynchronize(stream_);
+    const float* raw = h_output_;
     std::vector<cv::Rect> boxes;
     std::vector<float> scores;
     std::vector<int> classes;

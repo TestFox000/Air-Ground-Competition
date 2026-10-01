@@ -25,6 +25,8 @@ public:
             cudaFree(letters_);
         if (rows_ != nullptr)
             cudaFree(rows_);
+        if (h_input_ != nullptr)
+            cudaFreeHost(h_input_);
     }
 
     CellId infer(const cv::Mat& crop);
@@ -33,6 +35,7 @@ private:
     void* input_ = nullptr;
     void* letters_ = nullptr;
     void* rows_ = nullptr;
+    float* h_input_ = nullptr;   // 页锁定主机输入（Orin I/O coherent，CPU 写入无额外代价）
 };
 
 }  // namespace dzuav

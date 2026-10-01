@@ -44,12 +44,10 @@ protected:
 
     virtual ~TensorRtEngine()
     {
-        if (context_ != nullptr)
-            context_->destroy();
-        if (engine_ != nullptr)
-            engine_->destroy();
-        if (runtime_ != nullptr)
-            runtime_->destroy();
+        // TRT 8.x 起 destroy() 已废弃、10.x 移除；delete 在 8/10 均合法。
+        delete context_;
+        delete engine_;
+        delete runtime_;
         if (stream_ != nullptr)
             cudaStreamDestroy(stream_);
     }
