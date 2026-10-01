@@ -66,16 +66,28 @@ class IntelFrame:
     objects: tuple[IntelObject, ...]
 
 
-def crc16(data: bytes) -> int:
-    """CRC-16/Modbus：与机上 UdpBroadcaster.crc 完全相同（多项式 0xa001）。"""
+def _build_crc_table() -> tuple[int, ...]:
+    """预生成 256 项查表（多项式 0xa001，与逐位计算数学等价）。"""
+    table = []
+    for byte in range(256):
+        crc = byte
+        for _ in range(8):
+            crc = (crc >> 1) ^ 0xA001 if crc & 1 else crc >> 1
+        table.append(crc)
+    return tuple(table)
+
+
+_CRC_TABLE = _build_crc_table()
+
+
+def crc16(data: bytes | memoryview) -> int:
+    """CRC-16/Modbus 查表实现：与机上 UdpBroadcaster 逐位算法完全等价（"123456789"→0x4B37）。
+
+    接受 memoryview 以便调用方零拷贝地校验帧内区间。
+    """
     crc = 0xFFFF
     for byte in data:
-        crc ^= byte
-        for _ in range(8):
-            if crc & 1:
-                crc = (crc >> 1) ^ 0xA001
-            else:
-                crc >>= 1
+        crc = (crc >> 8) ^ _CRC_TABLE[(crc ^ byte) & 0xFF]
     return crc & 0xFFFF
 
 
@@ -119,7 +131,7 @@ def parse(data: bytes) -> IntelFrame:
 
     body_end = HEADER_SIZE + OBJECT_SIZE * count
     (received_crc,) = struct.unpack_from("<H", data, body_end)
-    actual_crc = crc16(data[4:body_end])
+    actual_crc = crc16(memoryview(data)[4:body_end])
     if received_crc != actual_crc:
         raise ValueError(f"crc mismatch: frame=0x{received_crc:04x} calc=0x{actual_crc:04x}")
 
@@ -141,6 +153,6 @@ def build(frame: IntelFrame) -> bytes:
             "<Bddff", int(obj.type), obj.x, obj.y, obj.length, obj.width
         )
     body_end = HEADER_SIZE + OBJECT_SIZE * count
-    out += struct.pack("<H", crc16(bytes(out[4:body_end])))
+    out += struct.pack("<H", crc16(memoryview(out)[4:body_end]))
     out += SUFFIX
     return bytes(out)

@@ -1,5 +1,6 @@
 """ag_integrate intel_protocol 二进制 :50000 协议解析测试。"""
 
+import random
 import struct
 
 import pytest
@@ -53,6 +54,33 @@ def test_fields_are_preserved():
 def test_crc16_known_value():
     # CRC-16/Modbus check value for "123456789" is 0x4B37
     assert crc16(b"123456789") == 0x4B37
+
+
+def _crc16_bitwise(data: bytes) -> int:
+    """逐位参考实现（与机上 UdpBroadcaster.crc 的写法一一对应）。"""
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            crc = (crc >> 1) ^ 0xA001 if crc & 1 else crc >> 1
+    return crc & 0xFFFF
+
+
+def test_crc16_table_matches_bitwise_reference():
+    # 查表实现必须与逐位参考在任意输入上逐位等价
+    rng = random.Random(20261001)
+    for length in (0, 1, 2, 7, 21, 100, 546):
+        blob = bytes(rng.randrange(256) for _ in range(length))
+        assert crc16(blob) == _crc16_bitwise(blob), f"mismatch at length {length}"
+
+
+def test_crc16_accepts_memoryview_zero_copy_span():
+    raw = build(IntelFrame(1, (make_object(0), make_object(5))))
+    mv = memoryview(raw)
+    # 与切片拷贝结果一致
+    assert crc16(mv[4:52]) == crc16(raw[4:52])
+    # 空区间
+    assert crc16(mv[4:4]) == 0xFFFF
 
 
 def _corrupt(raw: bytes, **changes) -> bytes:
