@@ -1,15 +1,20 @@
 """车端集成节点：接收 dzuav 二进制 UDP:50000 -> 官方 path_executor。
 
     UDP 广播 (dzuav UdpBroadcaster)
-        -> 后台收包线程
-             parse -> WorldModel -> 门控 -> 路由+适配
+        -> 后台收包线程（只做 收包/解析/态势归并）
+        -> 最新帧队列（容量 1，决策慢时自动丢旧帧——态势数据只要最新）
+        -> ROS timer 回调（executor 线程）：门控 -> 路由+适配 -> 发布
         -> /nav/waypoint  先发一次 reset，再发路线（官方 path_executor 消费）
+
+线程模型：规划与发布都在 ROS executor 线程的 timer 回调里做，
+后台线程只把最新 WorldSnapshot 递进来，不跨线程调用 ROS API。
 
 安全默认：dry_run=True（只计算、打日志，不发命令）；上车验证后再置 false。
 """
 
 from __future__ import annotations
 
+import queue
 import socket
 import threading
 
@@ -56,7 +61,13 @@ class IntegrateNode(Node):
         self.reset_sent = False
         self.last_route = ""
 
+        # 收包线程 -> 决策回调的最新帧交接：容量 1，满了丢旧帧。
+        # 态势数据只要最新值，决策慢于到达率时自动降级为"跳帧"，不积压。
+        self._frames: queue.Queue = queue.Queue(maxsize=1)
+
         self.pub = self.create_publisher(String, str(p("waypoint_topic")), 10)
+        # 决策/发布都在 executor 线程（timer 回调）里做，收包线程不碰 ROS。
+        self.create_timer(0.1, self._on_tick)
 
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._receive, args=(int(p("udp_port")),), daemon=True)
@@ -68,7 +79,7 @@ class IntegrateNode(Node):
             f"{self.start_cell}->{self.goal_cell}, {mode}"
         )
 
-    # ---------------- UDP 接收 ----------------
+    # ---------------- UDP 接收（后台线程，只解析不入 ROS） ----------------
     def _receive(self, port: int) -> None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -86,9 +97,27 @@ class IntegrateNode(Node):
             except ValueError as exc:
                 self.get_logger().warning(f"丢弃坏帧: {exc}")
                 continue
-            snapshot = self.model.update(frame)
-            self._handle(snapshot)
+            self._submit(self.model.update(frame))
         sock.close()
+
+    def _submit(self, snapshot) -> None:
+        """把最新态势放入交接队列；满了先丢旧帧再放（单生产者，无竞态）。"""
+        try:
+            self._frames.put_nowait(snapshot)
+        except queue.Full:
+            try:
+                self._frames.get_nowait()
+                self._frames.put_nowait(snapshot)
+            except (queue.Empty, queue.Full):
+                pass
+
+    # ---------------- 决策（executor 线程） ----------------
+    def _on_tick(self) -> None:
+        try:
+            snapshot = self._frames.get_nowait()
+        except queue.Empty:
+            return
+        self._handle(snapshot)
 
     def _handle(self, snapshot) -> None:
         gate = evaluate_gate(snapshot, self.min_mines, self.require_face)
