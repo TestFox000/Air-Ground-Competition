@@ -15,7 +15,7 @@
 | 回滚 | 找不到上一版 | `git checkout <commit> -- models/release/` |
 | 成本 | 每次传完要登记 | 零 |
 
-规则见 `docs/协作看板.md` §5。
+规则见 `docs/archive/协作看板.md` §5（历史规则，2026-10-01 已归档）。
 
 ## 入库规则
 

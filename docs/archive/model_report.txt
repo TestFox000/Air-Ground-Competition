@@ -1,0 +1,208 @@
+================================================================================
+[已过时 · 2026-10-01 归档]
+本文件产生于官方框架重构(commit c5120b8)之前，描述的旧自研模块已删除，
+不能作为当前开发依据。当前架构见 README.md 与
+docs/官方框架重构方案-20261001.md。保留仅作历史参考。
+================================================================================
+
+====================================================================================================
+文件                         大小KB                修改时间  MD5                               所在目录
+====================================================================================================
+best(1).rknn               6777    2026-09-26 09:51  6899ca319e3f4585283f27d8fa3a0188  2026-09
+best(2).onnx              10356    2026-09-26 09:45  aa0795d1c192fd9279772e934431784f  2026-09
+best(2).rknn               6777    2026-09-26 09:51  6899ca319e3f4585283f27d8fa3a0188  2026-09
+best(3).onnx              12369    2026-09-26 18:30  459d0e102e8c6ca709e0e1ac533945f2  2026-09
+best(3).rknn               6777    2026-09-26 09:51  6899ca319e3f4585283f27d8fa3a0188  2026-09
+best(4).onnx              12369    2026-09-26 18:30  459d0e102e8c6ca709e0e1ac533945f2  2026-09
+best(5).onnx              12369    2026-09-26 18:30  459d0e102e8c6ca709e0e1ac533945f2  2026-09
+best(6).onnx              12369    2026-09-26 18:30  459d0e102e8c6ca709e0e1ac533945f2  2026-09
+best.onnx                 10356    2026-09-24 20:24  829df23cfe80fc2e783571182b680b5f  2026-09
+best.pt                   20753    2026-09-24 20:25  410a41a1504effa404a6e62368be3786  2026-09
+best.rknn                  7367    2026-09-25 16:49  b42c060610f2dff06736f0818c534763  2026-09
+best_new(1).rknn           8289    2026-09-27 08:48  49f3700590a907994e7ee20e4d30cc13  2026-09
+best_new.rknn              8289    2026-09-27 08:48  49f3700590a907994e7ee20e4d30cc13  2026-09
+last.pt                   20753    2026-09-24 20:25  3cb9e4f16e0f69bf96ecdc11723a87f5  2026-09
+best.rknn                  7367    2026-09-25 16:49  b42c060610f2dff06736f0818c534763  标靶识别
+rest_clean.onnx           10356    2026-09-26 09:45  aa0795d1c192fd9279772e934431784f  障碍物识别
+rest_clean.rknn            7367    2026-09-26 10:08  a0f6294987eaff51b2f74c309550531f  障碍物识别
+light_det.rknn             9668    2026-09-26 10:43  95a56615c2d45b721abfcef3674b5db2  官方模型文件
+
+【重复文件分组】
+  6899ca319e3f... -> ['best(1).rknn', 'best(2).rknn', 'best(3).rknn']
+  aa0795d1c192... -> ['best(2).onnx', 'rest_clean.onnx']
+  459d0e102e8c... -> ['best(3).onnx', 'best(4).onnx', 'best(5).onnx', 'best(6).onnx']
+  b42c060610f2... -> ['best.rknn', 'best.rknn']
+  49f3700590a9... -> ['best_new(1).rknn', 'best_new.rknn']
+
+====================================================================================================
+【ONNX 结构解析】
+====================================================================================================
+
+--- best(2).onnx  (2026-09) ---
+  opset        : [18]
+  ir_version   : 8
+  input : images           shape=[1, 3, 640, 640]
+  output: output0          shape=[1, 5, 8400]
+  metadata:
+      description = Ultralytics YOLO11n model trained on C:\Users\29212\Desktop\datasets_explosive - 2\data.yaml
+      author = Ultralytics
+      date = 2026-09-26T09:45:03.569017+08:00
+      version = 8.4.161
+      license = AGPL-3.0 License (https://ultralytics.com/license)
+      docs = https://docs.ultralytics.com
+      stride = 32
+      task = detect
+      head = Detect
+      batch = 1
+      imgsz = [640, 640]
+      names = {0: 'explosive'}
+      args = {'data': None, 'batch': 1, 'fraction': 1.0, 'quantize': None, 'nms': None, 'dynamic': False, 'simplify': True, 'opset': None}
+      channels = 3
+      end2end = False
+  nodes        : 320
+
+--- best(3).onnx  (2026-09) ---
+  opset        : [12]
+  ir_version   : 7
+  input : images           shape=[1, 3, 640, 640]
+  output: output0          shape=[1, 9, 8400]
+  metadata:
+      description = Ultralytics YOLOv8n-pose model trained on C:\Users\29212\Desktop\datasets\data.yaml
+      author = Ultralytics
+      date = 2026-09-26T18:30:42.364280+08:00
+      version = 8.4.161
+      license = AGPL-3.0 License (https://ultralytics.com/license)
+      docs = https://docs.ultralytics.com
+      stride = 32
+      task = pose
+      head = Pose
+      batch = 1
+      imgsz = [640, 640]
+      names = {0: 'blue glowing target', 1: 'red glowing target'}
+      args = {'data': None, 'batch': 1, 'fraction': 1.0, 'quantize': None, 'nms': None, 'dynamic': False, 'simplify': True, 'opset': 12}
+      channels = 3
+      end2end = False
+      kpt_shape = [1, 3]
+      kpt_names = {0: ['0'], 1: ['0']}
+  nodes        : 268
+
+--- best(4).onnx  (2026-09) ---
+  opset        : [12]
+  ir_version   : 7
+  input : images           shape=[1, 3, 640, 640]
+  output: output0          shape=[1, 9, 8400]
+  metadata:
+      description = Ultralytics YOLOv8n-pose model trained on C:\Users\29212\Desktop\datasets\data.yaml
+      author = Ultralytics
+      date = 2026-09-26T18:30:42.364280+08:00
+      version = 8.4.161
+      license = AGPL-3.0 License (https://ultralytics.com/license)
+      docs = https://docs.ultralytics.com
+      stride = 32
+      task = pose
+      head = Pose
+      batch = 1
+      imgsz = [640, 640]
+      names = {0: 'blue glowing target', 1: 'red glowing target'}
+      args = {'data': None, 'batch': 1, 'fraction': 1.0, 'quantize': None, 'nms': None, 'dynamic': False, 'simplify': True, 'opset': 12}
+      channels = 3
+      end2end = False
+      kpt_shape = [1, 3]
+      kpt_names = {0: ['0'], 1: ['0']}
+  nodes        : 268
+
+--- best(5).onnx  (2026-09) ---
+  opset        : [12]
+  ir_version   : 7
+  input : images           shape=[1, 3, 640, 640]
+  output: output0          shape=[1, 9, 8400]
+  metadata:
+      description = Ultralytics YOLOv8n-pose model trained on C:\Users\29212\Desktop\datasets\data.yaml
+      author = Ultralytics
+      date = 2026-09-26T18:30:42.364280+08:00
+      version = 8.4.161
+      license = AGPL-3.0 License (https://ultralytics.com/license)
+      docs = https://docs.ultralytics.com
+      stride = 32
+      task = pose
+      head = Pose
+      batch = 1
+      imgsz = [640, 640]
+      names = {0: 'blue glowing target', 1: 'red glowing target'}
+      args = {'data': None, 'batch': 1, 'fraction': 1.0, 'quantize': None, 'nms': None, 'dynamic': False, 'simplify': True, 'opset': 12}
+      channels = 3
+      end2end = False
+      kpt_shape = [1, 3]
+      kpt_names = {0: ['0'], 1: ['0']}
+  nodes        : 268
+
+--- best(6).onnx  (2026-09) ---
+  opset        : [12]
+  ir_version   : 7
+  input : images           shape=[1, 3, 640, 640]
+  output: output0          shape=[1, 9, 8400]
+  metadata:
+      description = Ultralytics YOLOv8n-pose model trained on C:\Users\29212\Desktop\datasets\data.yaml
+      author = Ultralytics
+      date = 2026-09-26T18:30:42.364280+08:00
+      version = 8.4.161
+      license = AGPL-3.0 License (https://ultralytics.com/license)
+      docs = https://docs.ultralytics.com
+      stride = 32
+      task = pose
+      head = Pose
+      batch = 1
+      imgsz = [640, 640]
+      names = {0: 'blue glowing target', 1: 'red glowing target'}
+      args = {'data': None, 'batch': 1, 'fraction': 1.0, 'quantize': None, 'nms': None, 'dynamic': False, 'simplify': True, 'opset': 12}
+      channels = 3
+      end2end = False
+      kpt_shape = [1, 3]
+      kpt_names = {0: ['0'], 1: ['0']}
+  nodes        : 268
+
+--- best.onnx  (2026-09) ---
+  opset        : [18]
+  ir_version   : 8
+  input : images           shape=[1, 3, 640, 640]
+  output: output0          shape=[1, 5, 8400]
+  metadata:
+      description = Ultralytics YOLO11n model trained on C:\Users\29212\Desktop\datasets\data.yaml
+      author = Ultralytics
+      date = 2026-09-24T20:24:30.098189+08:00
+      version = 8.4.161
+      license = AGPL-3.0 License (https://ultralytics.com/license)
+      docs = https://docs.ultralytics.com
+      stride = 32
+      task = detect
+      head = Detect
+      batch = 1
+      imgsz = [640, 640]
+      names = {0: 'target'}
+      args = {'data': None, 'batch': 1, 'fraction': 1.0, 'quantize': None, 'nms': None, 'dynamic': False, 'simplify': True, 'opset': None}
+      channels = 3
+      end2end = False
+  nodes        : 320
+
+--- rest_clean.onnx  (障碍物识别) ---
+  opset        : [18]
+  ir_version   : 8
+  input : images           shape=[1, 3, 640, 640]
+  output: output0          shape=[1, 5, 8400]
+  metadata:
+      description = Ultralytics YOLO11n model trained on C:\Users\29212\Desktop\datasets_explosive - 2\data.yaml
+      author = Ultralytics
+      date = 2026-09-26T09:45:03.569017+08:00
+      version = 8.4.161
+      license = AGPL-3.0 License (https://ultralytics.com/license)
+      docs = https://docs.ultralytics.com
+      stride = 32
+      task = detect
+      head = Detect
+      batch = 1
+      imgsz = [640, 640]
+      names = {0: 'explosive'}
+      args = {'data': None, 'batch': 1, 'fraction': 1.0, 'quantize': None, 'nms': None, 'dynamic': False, 'simplify': True, 'opset': None}
+      channels = 3
+      end2end = False
+  nodes        : 320
