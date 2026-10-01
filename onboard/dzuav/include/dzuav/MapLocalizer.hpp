@@ -29,6 +29,11 @@ private:
     cv::Mat tvec_;
     cv::Mat Hinv_;    // 地面平面 单应的逆，像素 -> 世界
     bool ready_ = false;
+    // 畸变矫正缓存：cv::undistort 内部即 initUndistortRectifyMap+remap，
+    // 映射只与分辨率相关——同尺寸帧只算一次，每帧只做 remap（输出逐位等价）。
+    mutable cv::Mat map_x_;
+    mutable cv::Mat map_y_;
+    mutable cv::Size cached_size_{};
 };
 
 }  // namespace dzuav

@@ -3,6 +3,18 @@
 #include <opencv2/imgproc.hpp>
 namespace dzuav
 {
+namespace
+{
+// 按帧分辨率缩放基准内参（基准 1920x1080）。
+cv::Mat scaledIntrinsics(const cv::Mat& base, cv::Size sz)
+{
+    cv::Mat K = base.clone();
+    K.row(0) *= double(sz.width) / 1920;
+    K.row(1) *= double(sz.height) / 1080;
+    K.at<double>(2, 2) = 1;
+    return K;
+}
+}  // namespace
 MapLocalizer::MapLocalizer()
 {
     K_ = (cv::Mat_<double>(3, 3) << 995.153295, 0, 1010.494099, 0, 997.758431, 481.641588, 0, 0, 1);
@@ -10,12 +22,16 @@ MapLocalizer::MapLocalizer()
 }
 cv::Mat MapLocalizer::undistort(const cv::Mat& i) const
 {
-    cv::Mat K = K_.clone();
-    K.row(0) *= double(i.cols) / 1920;
-    K.row(1) *= double(i.rows) / 1080;
-    K.at<double>(2, 2) = 1;
+    // 同分辨率只算一次映射；cv::undistort 即 initUndistortRectifyMap(unity R)+remap(线性)，
+    // 此处显式缓存映射后每帧仅 remap，输出与逐帧 undistort 逐位等价。
+    if (cached_size_ != i.size())
+    {
+        const cv::Mat K = scaledIntrinsics(K_, i.size());
+        cv::initUndistortRectifyMap(K, dist_, cv::noArray(), K, i.size(), CV_16SC2, map_x_, map_y_);
+        cached_size_ = i.size();
+    }
     cv::Mat o;
-    cv::undistort(i, o, K, dist_);
+    cv::remap(i, o, map_x_, map_y_, cv::INTER_LINEAR);
     return o;
 }
 cv::Point3f MapLocalizer::world(const CellId& id) const
@@ -41,10 +57,7 @@ bool MapLocalizer::solve(const std::vector<std::pair<CellId, cv::Point2f>>& l, c
     cv::convexHull(p, h);
     if (std::abs(cv::contourArea(h)) < 0.02 * sz.area())
         return false;
-    cv::Mat K = K_.clone();
-    K.row(0) *= double(sz.width) / 1920;
-    K.row(1) *= double(sz.height) / 1080;
-    K.at<double>(2, 2) = 1;
+    cv::Mat K = scaledIntrinsics(K_, sz);
     std::vector<int> in;
     if (!cv::solvePnPRansac(w, p, K, cv::noArray(), rvec_, tvec_, false, 100, 5, .995, in,
                             cv::SOLVEPNP_ITERATIVE) ||

@@ -22,6 +22,7 @@ public:
 private:
     int fd_ = -1;
     uint16_t port_ = 0;
+    std::vector<uint8_t> buf_;   // 发送缓冲跨帧复用（clear 保留容量，免每帧分配）
 };
 
 }  // namespace dzuav

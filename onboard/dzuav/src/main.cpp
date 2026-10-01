@@ -53,28 +53,39 @@ void processFrame(const cv::Mat& frame, HbbDetector& hbb, CellClassifier& cell, 
             landmarks.push_back({id, {roi.x + roi.width * .5F, roi.y + roi.height * .5F}});
     }
     const bool localized = map.solve(landmarks, image.size());
+    // 可视化只在需要落盘时做（相机实时模式跳过 clone+绘制，省每帧 ~6MB 分配与绘制耗时）
+    const bool annotate = !output.empty();
     std::vector<WorldObject> objects;
-    cv::Mat visual = image.clone();
+    cv::Mat visual;
+    if (annotate)
+        visual = image.clone();
     for (const auto& detection : detections)
     {
-        cv::rectangle(visual, detection.box,
-                      detection.type == ObjectClass::CellLabel ? cv::Scalar(0, 255, 255)
-                                                               : cv::Scalar(0, 255, 0),
-                      2);
-        std::string label =
-            std::string(className(detection.type)) + " " + cv::format("%.2f", detection.confidence);
+        std::string label;
+        if (annotate)
+        {
+            cv::rectangle(visual, detection.box,
+                          detection.type == ObjectClass::CellLabel ? cv::Scalar(0, 255, 255)
+                                                                   : cv::Scalar(0, 255, 0),
+                          2);
+            label = std::string(className(detection.type)) + " " +
+                    cv::format("%.2f", detection.confidence);
+        }
         if (detection.type == ObjectClass::CellLabel)
         {
-            const auto it = std::find_if(
-                landmarks.begin(), landmarks.end(),
-                [&](const auto& value)
-                {
-                    return cv::norm(value.second -
-                                    cv::Point2f(detection.box.x + detection.box.width * .5F,
-                                                detection.box.y + detection.box.height * .5F)) < 2;
-                });
-            if (it != landmarks.end())
-                label += " " + it->first.text();
+            if (annotate)
+            {
+                const auto it = std::find_if(
+                    landmarks.begin(), landmarks.end(),
+                    [&](const auto& value)
+                    {
+                        return cv::norm(value.second -
+                                        cv::Point2f(detection.box.x + detection.box.width * .5F,
+                                                    detection.box.y + detection.box.height * .5F)) < 2;
+                    });
+                if (it != landmarks.end())
+                    label += " " + it->first.text();
+            }
         }
         else if (localized)
         {
@@ -84,10 +95,12 @@ void processFrame(const cv::Mat& frame, HbbDetector& hbb, CellClassifier& cell, 
             objects.push_back({detection.type,
                                cv::Point3f(float(world.x), float(world.y), 0.F),
                                detection.box.width, detection.box.height, detection.confidence});
-            label += cv::format(" (%.3f,%.3f)", world.x, world.y);
+            if (annotate)
+                label += cv::format(" (%.3f,%.3f)", world.x, world.y);
         }
-        cv::putText(visual, label, {int(detection.box.x), std::max(18, int(detection.box.y) - 5)},
-                    cv::FONT_HERSHEY_SIMPLEX, .55, cv::Scalar(0, 0, 255), 2);
+        if (annotate)
+            cv::putText(visual, label, {int(detection.box.x), std::max(18, int(detection.box.y) - 5)},
+                        cv::FONT_HERSHEY_SIMPLEX, .55, cv::Scalar(0, 0, 255), 2);
     }
     const auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::system_clock::now().time_since_epoch())
@@ -103,8 +116,8 @@ void processFrame(const cv::Mat& frame, HbbDetector& hbb, CellClassifier& cell, 
                   << "\",\"center\":[" << object.position.x << ',' << object.position.y
                   << "],\"length\":" << object.length << ",\"width\":" << object.width << '}';
     }
-    std::cout << "]" << std::endl;
-    if (!output.empty())
+    std::cout << "]\n";   // 不用 endl：省一次流刷新（30fps 下可观）
+    if (annotate)
         cv::imwrite(output.string(), visual);
 }
 
