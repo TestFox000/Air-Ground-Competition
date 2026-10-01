@@ -17,6 +17,8 @@ setup(
     description="官方框架车端薄集成：dzuav 二进制情报 - 世界模型 - path_executor",
     license="Apache-2.0",
     entry_points={
-        "console_scripts": [],
+        "console_scripts": [
+            "integrate_node = ag_integrate.integrate_node:main",
+        ],
     },
 )
