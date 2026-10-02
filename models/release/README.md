@@ -31,6 +31,8 @@
 | 文件名 | md5 | 体积 | 来源 | 用途 | 入库日期 |
 |---|---|---|---|---|---|
 | `light_det.rknn` | `49F3700590A907994E7EE20E4D30CC13` | 8.09 MB | 车端 `~/dzrobot/src/rknn_pt/model/`（厂家随车提供） | **车端现役基线**。输出 `[1,9,8400]` = 4 bbox + 1 cls + 4 kpt，单类别 YOLO-pose，与 `det_node` 期望一致 | 2026-09-28 |
+| `hbb_detector.onnx` | `85056EF546FA42C7656133945058FD30` | 36.66 MB | Orin `~/dzuav/models/`（出厂部署） | **无人机主检测器**（7 类）。输入 `images [N,3,1280,1280]`，输出 `output0 [N,11,33600]`（4 bbox + 7 类），与 `HbbDetector` 后处理一致。换机时用 `tools/orin_convert_engines.sh` 生成 FP16 引擎 | 2026-10-02 |
+| `cell_classifier.onnx` | `7B3053A9DC3347A9B0D35D6A9EF55E74` | 4.13 MB | Orin `~/dzuav/models/`（出厂部署） | **格号分类器**（双头 MobileNetV3）。输入 `images [N,3,96,96]`，输出 `letter_logits [N,14]`（列 A~N）+ `row_logits [N,11]`（行 1~11），与 `CellClassifier` 一致 | 2026-10-02 |
 
 ## 车端那一堆同族文件（别混）
 
@@ -47,7 +49,12 @@
 **新模型上车前必须过契约校验**：
 
 ```bash
-python tools/ml/verify_contract.py --model <模型>
+python tools/ml/verify_contract.py --all models/release
 ```
 
-输出必须是 `[1,9,8400]`，否则 `det_node` 解不出来。
+ONNX 契约（与 onboard/dzuav/src C++ 逐字对应）：
+- `hbb_detector`：输入 `images [N,3,1280,1280]`，输出 `output0 [N,11,33600]`
+- `cell_classifier`：输入 `images [N,3,96,96]`，输出 `letter_logits [N,14]` + `row_logits [N,11]`
+
+车端 `.rknn`（`light_det.rknn`）输出必须是 `[1,9,8400]`，否则 `det_node` 解不出来。
+契约校验同时在 pytest（`tests/test_model_contract.py`）里持续守护。
