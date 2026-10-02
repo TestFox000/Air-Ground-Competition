@@ -13,8 +13,8 @@ HbbDetector::HbbDetector(const std::string& p, float c, float n)
     cudaMalloc(&input_, 3 * 1280 * 1280 * sizeof(float));
     cudaMalloc(&output_, 11 * 33600 * sizeof(float));
     // 页锁定主机缓冲：H2D/D2H DMA 直传，免驱动临时中转（NVIDIA TRT 性能建议）。
-    if (cudaMallocHost(&h_input_, 3 * 1280 * 1280 * sizeof(float)) != cudaSuccess ||
-        cudaMallocHost(&h_output_, 11 * 33600 * sizeof(float)) != cudaSuccess)
+    if (cudaMallocHost(reinterpret_cast<void**>(&h_input_), 3 * 1280 * 1280 * sizeof(float)) != cudaSuccess ||
+        cudaMallocHost(reinterpret_cast<void**>(&h_output_), 11 * 33600 * sizeof(float)) != cudaSuccess)
         throw std::runtime_error("cannot allocate pinned host buffers for hbb_detector");
     // blob_ 包住 pinned 内存：blobFromImage 对同形状 OutputArray 不重新分配（Mat::create
     // 契约），直接写入；即使个别 OpenCV 版本内部重新分配，后续拷贝也总是从 blob_.ptr()

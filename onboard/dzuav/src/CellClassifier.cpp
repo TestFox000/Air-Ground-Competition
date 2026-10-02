@@ -11,7 +11,7 @@ CellClassifier::CellClassifier(const std::string& p) : TensorRtEngine(p)
     cudaMalloc(&input_, 3 * 96 * 96 * sizeof(float));
     cudaMalloc(&letters_, 14 * sizeof(float));
     cudaMalloc(&rows_, 11 * sizeof(float));
-    if (cudaMallocHost(&h_input_, 3 * 96 * 96 * sizeof(float)) != cudaSuccess)
+    if (cudaMallocHost(reinterpret_cast<void**>(&h_input_), 3 * 96 * 96 * sizeof(float)) != cudaSuccess)
         throw std::runtime_error("cannot allocate pinned host buffer for cell_classifier");
     // 张量地址构造期绑定一次，每个 ROI 推理只 enqueue。
     if (!context_->setTensorAddress("images", input_) ||
