@@ -105,7 +105,7 @@ void processFrame(const cv::Mat& frame, HbbDetector& hbb, CellClassifier& cell, 
     const auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::system_clock::now().time_since_epoch())
                                .count();
-    if (localized)
+    if (localized || std::getenv("DZUAV_FORCE_UDP"))
         udp.send(timestamp, objects);
     std::cout << output.filename() << " localized=" << localized
               << " landmarks=" << landmarks.size() << " [";
