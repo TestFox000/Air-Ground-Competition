@@ -19,7 +19,14 @@ public:
 
     void send(uint64_t timestamp_ms, const std::vector<WorldObject>& objects);
 
+    // 车真实位姿帧（msg_id=0x4002，根除车端绕圈问题）：
+    // magic+ver+ts+0x4002+len(=20)+x(double)+y(double)+yaw(float)+CRC+后缀，共 45 字节。
+    // 与车端 ag_integrate/intel_protocol.py 的 parse_car_pose 严格对应。
+    void sendCarPose(uint64_t timestamp_ms, double x, double y, float yaw);
+
 private:
+    void sendBuf();   // 把 buf_ 广播出去（send/sendCarPose 共用）
+
     int fd_ = -1;
     uint16_t port_ = 0;
     std::vector<uint8_t> buf_;   // 发送缓冲跨帧复用（clear 保留容量，免每帧分配）

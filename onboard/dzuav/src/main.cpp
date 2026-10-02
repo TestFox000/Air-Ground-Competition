@@ -2,6 +2,7 @@
 #include <atomic>
 #include <chrono>
 #include <cctype>
+#include <cmath>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -33,6 +34,36 @@ const char* className(ObjectClass type)
     static const char* names[] = {"mine",       "car",         "arrow",   "target_red",
                                   "cell_label", "target_blue", "obstacle"};
     return names[static_cast<int>(type)];
+}
+
+// 车头朝向估计：车顶贴红色方向标记（车头一侧），标记质心相对车框中心的
+// 偏移方向即车头方向。图像方向经 map.project 投到场地世界坐标后取 atan2。
+// 返回 false 表示这一帧估不出来（没找到标记 / 面积太小），调用方跳过即可。
+bool estimateCarYaw(const cv::Mat& image, const cv::Rect& box, MapLocalizer& map,
+                    double& out_x, double& out_y, float& out_yaw)
+{
+    const cv::Rect roi = box & cv::Rect(0, 0, image.cols, image.rows);
+    if (roi.area() <= 16)
+        return false;
+    cv::Mat hsv;
+    cv::cvtColor(image(roi), hsv, cv::COLOR_BGR2HSV);
+    // 红色横跨 H 两端（≈0-10 与 ≈170-180），两段都收。
+    cv::Mat mask, mask2;
+    cv::inRange(hsv, cv::Scalar(0, 100, 100), cv::Scalar(10, 255, 255), mask);
+    cv::inRange(hsv, cv::Scalar(170, 100, 100), cv::Scalar(180, 255, 255), mask2);
+    mask |= mask2;
+    const cv::Moments m = cv::moments(mask, true);
+    if (m.m00 < 50)   // 标记像素太少：不可靠，宁缺毋滥
+        return false;
+    const cv::Point2f marker(roi.x + float(m.m10 / m.m00), roi.y + float(m.m01 / m.m00));
+    const cv::Point2f center(roi.x + roi.width * .5F, roi.y + roi.height * .5F);
+    // 投影到世界坐标再取方向：免去图像坐标系手性/旋转的坑。
+    const auto wm = map.project(marker);
+    const auto wc = map.project(center);
+    out_x = wc.x;
+    out_y = wc.y;
+    out_yaw = std::atan2(float(wm.y - wc.y), float(wm.x - wc.x));
+    return true;
 }
 
 void processFrame(const cv::Mat& frame, HbbDetector& hbb, CellClassifier& cell, MapLocalizer& map,
@@ -107,6 +138,22 @@ void processFrame(const cv::Mat& frame, HbbDetector& hbb, CellClassifier& cell, 
                                .count();
     if (localized || std::getenv("DZUAV_FORCE_UDP"))
         udp.send(timestamp, objects);
+    // 车朝向（0x4002）：定位有效 + 检测到车时，用红色方向标记估计车头朝向下发，
+    // 车端 integrate_node（heading_bias_source=udp）据此修正 reset 断言，根除绕圈。
+    bool car_pose_ok = false;
+    double car_x = 0, car_y = 0;
+    float car_yaw = 0;
+    if (localized)
+    {
+        const Detection* car = nullptr;
+        for (const auto& d : detections)
+            if (d.type == ObjectClass::Car && (!car || d.confidence > car->confidence))
+                car = &d;
+        if (car)
+            car_pose_ok = estimateCarYaw(image, car->box, map, car_x, car_y, car_yaw);
+        if (car_pose_ok)
+            udp.sendCarPose(timestamp, car_x, car_y, car_yaw);
+    }
     std::cout << output.filename() << " localized=" << localized
               << " landmarks=" << landmarks.size() << " [";
     for (size_t i = 0; i < objects.size(); ++i)
@@ -116,7 +163,10 @@ void processFrame(const cv::Mat& frame, HbbDetector& hbb, CellClassifier& cell, 
                   << "\",\"center\":[" << object.position.x << ',' << object.position.y
                   << "],\"length\":" << object.length << ",\"width\":" << object.width << '}';
     }
-    std::cout << "]\n";   // 不用 endl：省一次流刷新（30fps 下可观）
+    std::cout << "]";
+    if (car_pose_ok)
+        std::cout << " car_pose=(" << car_x << ',' << car_y << ",yaw=" << car_yaw << ')';
+    std::cout << "\n";   // 不用 endl：省一次流刷新（30fps 下可观）
     if (annotate)
         cv::imwrite(output.string(), visual);
 }

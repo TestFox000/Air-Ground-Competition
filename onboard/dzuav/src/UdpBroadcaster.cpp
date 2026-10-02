@@ -72,6 +72,26 @@ void UdpBroadcaster::send(uint64_t ts, const std::vector<WorldObject>& o)
     }
     put<uint16_t>(buf_, crc(buf_.data() + 4, buf_.size() - 4));
     buf_.insert(buf_.end(), 4, 0xfe);
+    sendBuf();
+}
+
+void UdpBroadcaster::sendCarPose(uint64_t ts, double x, double y, float yaw)
+{
+    buf_.clear();
+    buf_.insert(buf_.end(), {0xef, 0xef, 0xef, 0xef, 0x10});
+    put<uint64_t>(buf_, ts);
+    put<uint16_t>(buf_, 0x4002);
+    put<uint32_t>(buf_, 20);   // body = x(8) + y(8) + yaw(4)
+    put<double>(buf_, x);
+    put<double>(buf_, y);
+    put<float>(buf_, yaw);
+    put<uint16_t>(buf_, crc(buf_.data() + 4, buf_.size() - 4));
+    buf_.insert(buf_.end(), 4, 0xfe);
+    sendBuf();
+}
+
+void UdpBroadcaster::sendBuf()
+{
     sockaddr_in a{};
     a.sin_family = AF_INET;
     a.sin_port = htons(port_);
