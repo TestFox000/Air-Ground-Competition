@@ -31,12 +31,16 @@ from enum import IntEnum
 MAGIC = b"\xef\xef\xef\xef"
 VERSION = 0x10
 MSG_ID = 0x4001
+MSG_ID_CAR_POSE = 0x4002   # 无人机观测的车真实位姿（位置+朝向），用于根除绕圈问题
 SUFFIX = b"\xfe\xfe\xfe\xfe"
 
-HEADER_SIZE = 21          # magic4 + version1 + ts8 + msgid2 + length4 + count2
+HEADER_SIZE = 21          # magic4 + version1 + ts8 + msgid2 + length4 + count2 (0x4001)
+HEADER_SIZE_NO_COUNT = 19  # magic4 + version1 + ts8 + msgid2 + length4 (0x4002，无 count)
 OBJECT_SIZE = 25          # type1 + x8 + y8 + length4 + width4
 CRC_SIZE = 2
 TAIL_SIZE = 4             # suffix
+
+CAR_POSE_SIZE = 20        # x8 + y8 + yaw4
 
 
 class ObjectType(IntEnum):
@@ -64,6 +68,23 @@ class IntelObject:
 class IntelFrame:
     timestamp_ms: int
     objects: tuple[IntelObject, ...]
+
+
+@dataclass(frozen=True)
+class CarPose:
+    """无人机观测到的车的真实位姿（msg_id=0x4002），用于根除绕圈问题。"""
+    timestamp_ms: int
+    x: float          # 车的世界坐标 x（米）
+    y: float          # 车的世界坐标 y（米）
+    yaw: float        # 车的真实朝向（弧度，场地坐标系）
+
+
+def detect_msg_id(data: bytes) -> int | None:
+    """快速判断帧的 msg_id（不做完整校验）；格式不对返回 None。"""
+    if len(data) < 15 or data[0:4] != MAGIC or data[4] != VERSION:
+        return None
+    msg_id = struct.unpack_from("<H", data, 13)[0]
+    return msg_id
 
 
 def _build_crc_table() -> tuple[int, ...]:
@@ -153,6 +174,55 @@ def build(frame: IntelFrame) -> bytes:
             "<Bddff", int(obj.type), obj.x, obj.y, obj.length, obj.width
         )
     body_end = HEADER_SIZE + OBJECT_SIZE * count
+    out += struct.pack("<H", crc16(memoryview(out)[4:body_end]))
+    out += SUFFIX
+    return bytes(out)
+
+
+# ---- msg_id=0x4002：车真实位姿（根除绕圈问题）----
+
+_CAR_POSE_FRAME_SIZE = HEADER_SIZE_NO_COUNT + CAR_POSE_SIZE + CRC_SIZE + TAIL_SIZE
+
+
+def parse_car_pose(data: bytes) -> CarPose:
+    """解析车位姿帧（msg_id=0x4002）；任何不一致抛 ValueError。"""
+    if len(data) != _CAR_POSE_FRAME_SIZE:
+        raise ValueError(f"car_pose frame size {len(data)} != expected {_CAR_POSE_FRAME_SIZE}")
+    if data[0:4] != MAGIC:
+        raise ValueError("bad magic prefix")
+    if data[4] != VERSION:
+        raise ValueError(f"unsupported version byte: 0x{data[4]:02x}")
+
+    timestamp_ms, msg_id, declared_len = struct.unpack_from("<QHI", data, 5)
+    if msg_id != MSG_ID_CAR_POSE:
+        raise ValueError(f"unexpected message id: 0x{msg_id:04x}")
+    if declared_len != CAR_POSE_SIZE:
+        raise ValueError(f"declared length {declared_len} != {CAR_POSE_SIZE}")
+
+    x, y, yaw = struct.unpack_from("<ddf", data, HEADER_SIZE_NO_COUNT)
+    if not all(math.isfinite(v) for v in (x, y, yaw)):
+        raise ValueError("car pose contains NaN/Inf")
+
+    body_end = HEADER_SIZE_NO_COUNT + CAR_POSE_SIZE
+    (received_crc,) = struct.unpack_from("<H", data, body_end)
+    actual_crc = crc16(memoryview(data)[4:body_end])
+    if received_crc != actual_crc:
+        raise ValueError(f"crc mismatch: frame=0x{received_crc:04x} calc=0x{actual_crc:04x}")
+
+    if data[body_end + CRC_SIZE : body_end + CRC_SIZE + TAIL_SIZE] != SUFFIX:
+        raise ValueError("bad suffix")
+
+    return CarPose(timestamp_ms, x, y, yaw)
+
+
+def build_car_pose(pose: CarPose) -> bytes:
+    """编码车位姿帧（msg_id=0x4002），用于测试/回放。"""
+    out = bytearray()
+    out += MAGIC
+    out.append(VERSION)
+    out += struct.pack("<QHI", pose.timestamp_ms, MSG_ID_CAR_POSE, CAR_POSE_SIZE)
+    out += struct.pack("<ddf", pose.x, pose.y, pose.yaw)
+    body_end = HEADER_SIZE_NO_COUNT + CAR_POSE_SIZE
     out += struct.pack("<H", crc16(memoryview(out)[4:body_end]))
     out += SUFFIX
     return bytes(out)

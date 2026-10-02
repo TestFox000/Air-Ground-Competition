@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import math
 import queue
 import socket
 import threading
@@ -22,7 +23,7 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from .intel_protocol import parse
+from .intel_protocol import detect_msg_id, parse, parse_car_pose
 from .pipeline import build_mission, evaluate_gate
 from .world_model import WorldModel
 
@@ -43,6 +44,14 @@ class IntegrateNode(Node):
         self.declare_parameter("require_face", True)
         self.declare_parameter("cross_gates", [""])
         self.declare_parameter("mid_boundary", 5)
+        # 外部朝向补偿（根除绕圈问题）：
+        #   heading_bias_source="none"  → 不补偿，保持现状（默认，安全）
+        #   heading_bias_source="udp"   → 监听 dzuav 的 0x4002 车位姿帧，
+        #                                  用无人机观测的真实朝向修正 reset 断言
+        #   heading_bias（弧度）         → 手动偏置（=真实朝向 - 断言朝向），
+        #                                  优先级低于 udp 自动补偿
+        self.declare_parameter("heading_bias_source", "none")
+        self.declare_parameter("heading_bias", 0.0)
 
         p = lambda k: self.get_parameter(k).value  # noqa: E731
         self.start_cell = str(p("start_cell"))
@@ -56,10 +65,14 @@ class IntegrateNode(Node):
         self.require_face = bool(p("require_face"))
         self.cross_gates = tuple(n.strip() for n in p("cross_gates") if n.strip())
         self.mid_boundary = int(p("mid_boundary"))
+        self.heading_bias_source = str(p("heading_bias_source")).strip().lower()
+        self.heading_bias = float(p("heading_bias"))
 
         self.model = WorldModel()
         self.reset_sent = False
         self.last_route = ""
+        # 无人机观测到的车真实朝向（0x4002 帧），None 表示尚未收到
+        self._car_true_yaw: float | None = None
 
         # 收包线程 -> 决策回调的最新帧交接：容量 1，满了丢旧帧。
         # 态势数据只要最新值，决策慢于到达率时自动降级为"跳帧"，不积压。
@@ -92,13 +105,33 @@ class IntegrateNode(Node):
                 continue
             except OSError:
                 break
-            try:
-                frame = parse(data)
-            except ValueError as exc:
-                self.get_logger().warning(f"丢弃坏帧: {exc}")
-                continue
-            self._submit(self.model.update(frame))
+            self._process_packet(data)
         sock.close()
+
+    def _process_packet(self, data: bytes) -> None:
+        """处理一帧 UDP 数据：区分 0x4001（态势）和 0x4002（车位姿）。"""
+        msg_id = detect_msg_id(data)
+        if msg_id is None:
+            return
+        if msg_id == 0x4002:
+            # 车位姿帧：无人机观测的车真实朝向，用于修正 reset 断言
+            try:
+                pose = parse_car_pose(data)
+            except ValueError as exc:
+                self.get_logger().warning(f"丢弃坏车位姿帧: {exc}")
+                return
+            self._car_true_yaw = pose.yaw
+            self.get_logger().debug(
+                f"收到车位姿: x={pose.x:.2f} y={pose.y:.2f} yaw={pose.yaw:.3f}"
+            )
+            return
+        # 默认：态势帧（0x4001）
+        try:
+            frame = parse(data)
+        except ValueError as exc:
+            self.get_logger().warning(f"丢弃坏帧: {exc}")
+            return
+        self._submit(self.model.update(frame))
 
     def _submit(self, snapshot) -> None:
         """把最新态势放入交接队列；满了先丢旧帧再放（单生产者，无竞态）。"""
@@ -119,15 +152,35 @@ class IntegrateNode(Node):
             return
         self._handle(snapshot)
 
+    def _effective_start_heading(self) -> str:
+        """根据无人机观测的真实朝向，选最近的坐标轴方向作为 reset 断言。
+
+        path_executor 的 reset 只支持 'x'(0°)/'y'(90°)，无法传任意偏置。
+        有外部朝向时选最近坐标轴，可显著减小断言与真实朝向的偏差；
+        无外部朝向时退回 start_heading（人工摆车对齐）。
+        """
+        if self.heading_bias_source == "udp" and self._car_true_yaw is not None:
+            yaw = self._car_true_yaw % (2 * math.pi)
+            # 45° 边界：[0,45)∪[315,360) -> 'x'，[45,135) -> 'y'，其余选最近
+            nearest = "y" if (math.pi / 4) <= yaw < (3 * math.pi / 4) else "x"
+            if nearest != self.start_heading:
+                self.get_logger().info(
+                    f"外部朝向修正: 断言 {self.start_heading} -> {nearest} "
+                    f"(观测 yaw={math.degrees(self._car_true_yaw):.1f}°)"
+                )
+            return nearest
+        return self.start_heading
+
     def _handle(self, snapshot) -> None:
         gate = evaluate_gate(snapshot, self.min_mines, self.require_face)
         if not gate.ok:
             self._log_hold_once(gate.reason)
             return
 
+        start_heading = self._effective_start_heading()
         commands = build_mission(
             snapshot, self.start_cell, self.goal_cell,
-            self.start_heading, self.final_heading,
+            start_heading, self.final_heading,
             self.cross_gates, self.mid_boundary,
         )
         if commands.route == self.last_route:

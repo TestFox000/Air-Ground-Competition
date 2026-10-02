@@ -6,10 +6,14 @@
 
 import ros_stub  # noqa: F401  必须先于 integrate_node 导入
 
+import math
+
 import pytest
 
 from ag_integrate.integrate_node import IntegrateNode
-from ag_integrate.intel_protocol import IntelFrame, IntelObject, ObjectType
+from ag_integrate.intel_protocol import (
+    CarPose, IntelFrame, IntelObject, ObjectType, build_car_pose,
+)
 from ag_integrate.world_model import WorldModel
 
 ros_stub.set_overrides(
@@ -121,5 +125,43 @@ def test_duplicate_route_not_republished():
         node._submit(snapshot_of(mine_at("D2"), blue_target_at("F5")))
         node.tick()
         assert len(node.topic("/nav/waypoint").published) == 2
+    finally:
+        node.destroy_node()
+
+
+def test_car_pose_udp_frame_sets_true_yaw():
+    """msg_id=0x4002 车位姿帧：接收并存储车的真实朝向。"""
+    node = make_node(heading_bias_source="udp")
+    try:
+        assert node._car_true_yaw is None
+        # 构造一帧 0x4002：车真实朝向 0°（x 方向）
+        data = build_car_pose(CarPose(1, 1.0, 2.0, 0.0))
+        node._process_packet(data)
+        assert node._car_true_yaw == 0.0
+    finally:
+        node.destroy_node()
+
+
+def test_external_yaw_picks_nearest_axis():
+    """有外部朝向时，reset 断言选最近坐标轴。"""
+    node = make_node(heading_bias_source="udp", start_heading="y")
+    try:
+        # 外部观测 yaw=0°（x 方向），断言 'y' 应修正为 'x'
+        node._car_true_yaw = 0.0
+        assert node._effective_start_heading() == "x"
+
+        # 外部观测 yaw=90°，断言 'y' 保持
+        node._car_true_yaw = math.pi / 2
+        assert node._effective_start_heading() == "y"
+    finally:
+        node.destroy_node()
+
+
+def test_no_udp_source_ignores_car_yaw():
+    """heading_bias_source='none'（默认）时，不使用外部朝向。"""
+    node = make_node(heading_bias_source="none", start_heading="y")
+    try:
+        node._car_true_yaw = 0.0  # 即使有 yaw 也忽略
+        assert node._effective_start_heading() == "y"
     finally:
         node.destroy_node()
