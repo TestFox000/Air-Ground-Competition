@@ -21,6 +21,39 @@ def make_object(type_index: int = 0) -> IntelObject:
     return IntelObject(ObjectType(type_index), 0.12 * type_index, -0.34, 0.35, 0.35)
 
 
+def test_car_pose_golden_bytes():
+    """0x4002 黄金帧：逐字节锁定布局，任何一端（C++ UdpBroadcaster 或本模块）
+    改了字段顺序/大小/偏移都会在这里炸——机上机上协议不可静默漂移。
+
+    布局（小端，共 45 字节）：
+        magic4 + version1 + ts8 + msgid2(0x4002) + len4(=20)
+        + x double8 + y double8 + yaw float4 + crc2 + suffix4
+    """
+    from ag_integrate.intel_protocol import (
+        CAR_POSE_SIZE, HEADER_SIZE_NO_COUNT, CarPose, build_car_pose, parse_car_pose,
+    )
+
+    pose = CarPose(1_700_000_000_123, 1.5, -2.25, 0.75)
+    raw = build_car_pose(pose)
+
+    assert len(raw) == HEADER_SIZE_NO_COUNT + CAR_POSE_SIZE + 2 + 4 == 45
+    assert raw[0:4] == b"\xef\xef\xef\xef"
+    assert raw[4] == 0x10
+    ts, msg_id, declared = struct.unpack_from("<QHI", raw, 5)
+    assert (ts, msg_id, declared) == (pose.timestamp_ms, 0x4002, 20)
+    x, y, yaw = struct.unpack_from("<ddf", raw, HEADER_SIZE_NO_COUNT)
+    assert (x, y, yaw) == (1.5, -2.25, 0.75)
+    body_end = HEADER_SIZE_NO_COUNT + CAR_POSE_SIZE
+    (received_crc,) = struct.unpack_from("<H", raw, body_end)
+    assert received_crc == crc16(raw[4:body_end])
+    assert raw[body_end + 2 :] == b"\xfe\xfe\xfe\xfe"
+
+    # 往返一致
+    decoded = parse_car_pose(raw)
+    assert decoded.timestamp_ms == pose.timestamp_ms
+    assert (decoded.x, decoded.y, decoded.yaw) == (pose.x, pose.y, pose.yaw)
+
+
 def test_roundtrip_empty_and_many():
     for count in (0, 1, 7):
         frame = IntelFrame(
