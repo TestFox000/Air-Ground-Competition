@@ -32,7 +32,31 @@ models/*
 !tools/samples/*.jsonl
 
 # 现场抓包 / 标定产物
-capture/
+# 用 `capture/*` 而非 `capture/`，否则子目录的否定规则不会生效（Git 经典陷阱）
+capture/*
+# 例外：标签与配置必须入库（图片可从视频重抽，标签是核心资产）
+!capture/aerial_field/
+!capture/aerial_field/labels/
+!capture/aerial_field/labels/*.txt
+!capture/aerial_field/labels_draft/
+!capture/aerial_field/labels_draft/*.txt
+!capture/aerial_field/labels_backup_pre_propagate/
+!capture/aerial_field/labels_backup_pre_propagate/*.txt
+!capture/aerial_field/labeling/
+!capture/aerial_field/labeling/*
+!capture/aerial_field/gallery/
+!capture/aerial_field/gallery/*.json
+!capture/aerial_field/gallery/*.csv
+!capture/datasets/
+!capture/datasets/**/data.yaml
+!capture/datasets/**/labels/
+!capture/datasets/**/labels/*.txt
+# capture 下的图片、review、venv 仍排除
+capture/**/images/
+capture/**/review/
+capture/**/.ocr_venv/
+capture/**/*.jpg
+capture/**/*.png
 calib/
 
 # 从车端取回的黑匣子日志与复盘报告（运行时数据，不入库）

@@ -1,0 +1,17 @@
+path: C:/Users/29212/CodeBuddy/20260927120106/air_ground/capture/aerial_field
+train: images
+val: 
+names:
+  0: mine
+  1: cell_label
+  2: arrow
+  3: bridge
+  4: car_start
+  5: car_end
+  6: uav_start
+  7: uav_end
+  8: bucket_red
+  9: bucket_green
+  10: bucket_cyan
+  11: bucket_unknown
+  12: orange_raw

@@ -1,0 +1,13 @@
+mine
+cell_label
+arrow
+bridge
+car_start
+car_end
+uav_start
+uav_end
+bucket_red
+bucket_green
+bucket_cyan
+bucket_unknown
+orange_raw
