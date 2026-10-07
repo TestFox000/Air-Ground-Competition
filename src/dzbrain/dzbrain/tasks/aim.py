@@ -18,7 +18,7 @@
 ===============================================================================
 | 旧缺口（survey §10）                                  | 本实现                                        |
 |---|---|
-| ① 无速度估计，只有滤波后单帧差分（px/帧，无时间戳）    | ★ 1-D α-β 滤波，**dt 来自 `OffsetObservation.ts`** |
+| ① 无速度估计，只有滤波后单帧差分（px/帧，无时间戳）    | ★ 时间戳驱动的**长基线端点差分**（0.4s 窗口），见 `RailEstimator` |
 | ② 预判只有 0.5 帧 ≈16ms，链路延迟却有 0.5~0.9s        | `lead_px = v_dx × aim.lead_time_s` → `publish_lead` |
 | ③ 开火要求"画面静止 ≤1.5px/帧 + 保持 5 帧" → 移动靶打不出去 | `fire_policy=moving_lead`：判据换成**预测落点在框内** |
 | ④⑤ 无命中闭环 / shots_on_target 重锁清零             | `take_hits()` 记账，**命中即停火**（锁存）+ 许可/实发分账 |
@@ -32,13 +32,24 @@
 ★ 折返（turnaround）为什么必须闭锁 —— 移动靶最容易打飞的地方
 ===============================================================================
 本靶**无端点停顿**（瞬时折返，§五 实测），所以策略必须是"带提前量的运动中开火"。
-但折返瞬间的滤波速度**必然**是错的（旧速度方向 + 新测量方向相反），若继续外推：
+但折返瞬间的速度估计**必然**是错的（旧速度指向旧方向 + 新测量指向反方向），若继续外推：
 `lead_px = v_dx_old × 0.35` = +10.5px 而真实目标已反向 → 预测落点偏 21px > 开火框 → 必打飞。
-因此本实现有**两道闸**：
-1. **跳变门**（`aim.gate_*`）：残差 > 门限 → 估计器**重新初始化且 v 清零**，绝不外推旧速度；
-2. **方向确认**（`aim.reset_confirm_frames`）：重新初始化后必须连续 N 帧同向才重新武装
-   `fire_ready`（期间 `target.v` 可能已经很大，但**不允许开火**）。
-数值证据见 `tests/test_aim.py` 第 3 组（折返后 `lead_px` 归零 → 6 拍闭锁 → 重新许可）。
+因此本实现有**三道闸**：
+1. **跳变门**（`aim.est_gate_*` / `est_jump_floor_px`）：残差 > 门限 → 估计器**重建且 v 清零**；
+2. **折返检测**（`v · Δz < 0`）：跳变门管不住平滑折返（本靶一帧只差 2px），所以单独判
+   "新样本方向与当前速度相反" → **重建基线 + 位置取测量值 + v 清零 + `resets/flips` 计数**
+   （`_block_warmup()`）。位置不重建的话，闭锁期结束时会给出"方向对、量级翻倍"的提前量
+   （实测 −61px/s vs 正确 −30px/s）；
+3. **方向确认**（`aim.reset_confirm_frames`）：重建后必须连续 N 帧同向才重新 `armed`
+   （期间 `target.v` 可能已经很大，但**不允许开火**）。
+
+数值证据见 `tests/test_aim.py` 第 3 组：折返那一拍 `resets+1`、`lead_px` 归零、
+闭锁 5 拍（= `reset_confirm_frames`）后重新许可，且那时 `v≈−30px/s`（方向已翻、量级正确）。
+
+★ **开火许可的两种"时间"语义**（都在 `_set_fire_ready()` 里，务必分清）：
+ · `aim.shot_cooldown_ms`：两发许可之间的**最小间隔** —— 发数纪律，硬约束；
+ · `aim.hold_min_s`：许可电平的**最短保持** —— 纯通信可靠性（云台 100Hz，只亮一拍的
+   许可可能被漏采）。两者叠加后仍然严格满足"相邻许可 ≥ `shot_cooldown_ms`"。
 
 ⚠️ **本靶的真实物理上限不在滤波精度，而在 `lead_time_s` 的标定**：
 `v=4cm/s × T=0.35s = 1.4cm`；提前量时间写错 0.2s，落点就偏 0.8cm（=0.35m 处约 11px）——
@@ -50,7 +61,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ..core.blackboard import (P_AIM, P_SAFETY, P_TARGET, P_TELEMETRY, Blackboard)
@@ -159,18 +170,25 @@ def fire_box_px(box_w: float, *, near_px: float, far_px: float,
 # --------------------------------------------------------------------------- #
 @dataclass
 class RailEstimator:
-    r"""一维 α-β 滤波：对 `dx`（画面水平偏移）估计速度 `v`（px/s），带跳变门 + 方向确认。
+    r"""一维运动估计：对 `dx`（画面水平偏移）估计速度 `v`（px/s），带跳变门 + 方向确认。
 
-    模型：`x_{k+1} = x_k + v_k·dt`，`v_{k+1} = v_k`（匀速）；观测 `z_k = x_k + 噪声`。
+    ★ 位置走 α 滤波（`x = x_pred + α·res`），**速度走长基线端点差分**：
+        v = (z_new − z_old) / (t_new − t_old)，基线窗口 `vel_window_s`（默认 0.40s）
 
-    增益由**跟踪指数** ξ 解析给出（不是拍脑袋的调参）：
-        α = 2(2ξ−1) / (ξ(ξ+1))，  β = 6 / (ξ(ξ+1))
-    ξ=3.5（默认）→ α=0.7619、β=0.3810。实测（见 tests/test_aim.py）：
-      · 恒速 30px/s 序列第 4 帧起 |v−30| ≤ 15%，第 20 帧误差 **0.00%**；
-      · 1px 量化噪声下稳态 |v−30| ≤ **11.6 px/s**（× lead_time 0.35s = **4.1px** 提前量噪声，
-        远小于开火框 16~38px —— 也就是说**允许开火**而不会因滤波噪声打飞）。
+    为什么速度不用 α-β 的 `v += β·res/dt`（上一版就是这么写的，被实测否掉）：
+      · 本靶 4cm/s ÷ 30fps ≈ **0.19 px/帧** —— 单帧位移**小于 1px 量化步长**，`res/dt`
+        的主要成分是量化噪声而不是运动；而 `β/dt` 高达 11.4 /s，噪声被放大成 ±5px/s：
+        实测 20fps 台阶序列把 30px/s 估成 **25.31px/s（−15.6%）**，刚好越过容差。
+      · 端点差分对**匀速运动零稳态误差**（无量化时精确等于真值，1e-9 级），
+        对量化噪声按 1/W 抑制（W=12 帧 @30fps → ±0.3px/s），两个要求同时满足。
+      · 代价是滞后 ≈ W/2 = 0.2s：本靶只在折返时改变速度，而折返有专门的检测与闭锁
+        （见下），滞后可接受。
 
-    ★ 三道防线（旧版一条都没有）：
+    位置支路增益仍由**跟踪指数** ξ 解析给出（不是拍脑袋的调参）：
+        α = 2(2ξ−1) / (ξ(ξ+1))，  β = 6 / (ξ(ξ+1))（β 保留用于自检/兼容，速度不再用它）
+    ξ=3.5（默认）→ α=0.7619、β=0.3810。
+
+    ★ 四道防线（旧版一条都没有）：
 
     1. **dt 来自观测时间戳**（`OffsetObservation.ts`），不是固定 1/30s。
        旧版 `vx = dx_filt − dx_prev_filt` 是"px/帧"，帧率一变（视觉 30Hz → 丢帧 → 20Hz）
@@ -181,9 +199,13 @@ class RailEstimator:
     3. **方向确认 `warmup`**：重新初始化后 `warmup = reset_confirm_frames`，每来一帧减一；
        `warmup > 0` 期间**不允许开火**（`armed` 为假）。这是折返后"给收敛时间"的落地方式：
        折返瞬间 v 已清零、方向刚翻，此时提前量毫无意义。
+    4. **零位移帧（Δz=0）单独一条支路**：本靶单帧位移 < 1px 量化步长，
+       `dx` 连续好几帧一模一样是**常态**。把 Δz=0 当成"减速到 0"会让估计器永远停在 0；
+       把 Δz=0 帧丢进端点差分又会让基线被"没动的那几帧"拉平。
+       所以：**不动 v、不动基线，只当"目标还在、无反证"推进方向确认**。
 
     ⚠️ `on_no_frame()` 与"目标不可见"是两件事：
-      · `on_no_frame()`（走 `_apply` 且本帧无有效观测）→ v 清零、标 stale：断流后**旧速度不可外推**；
+      · `on_no_frame()`（本帧无有效观测）→ v 清零、标 stale：断流后**旧速度不可外推**；
       · 目标不可见但视觉仍在出帧（cls=0 心跳帧）→ 同样清零（不可见就没有可用速度）。
       两者都会让 `fire_ready=0`（`estimator_stale`），区别只在日志措辞。
     """
@@ -197,6 +219,10 @@ class RailEstimator:
     dt_min_s: float = 0.002
     dt_max_s: float = 0.50
     max_speed_px_s: float = 420.0
+    #: ★ 速度基线窗口（秒）：越长噪声越小、滞后越大。0.40s @30fps ≈ 12 帧
+    vel_window_s: float = 0.40
+    #: ★ 折返判据的速度下限（px/s）：低于它的"反向台阶"算量化抖动，不触发折返闭锁
+    flip_min_speed_px_s: float = 2.0
 
     # ---- 状态（默认值即"未初始化"） ----
     x: float = 0.0
@@ -212,6 +238,10 @@ class RailEstimator:
     stale: bool = True
     init: bool = False
     last_reason: str = "init"
+    #: 上一个**被采纳**的测量值（判"零位移帧"用；None = 还没吃到帧）
+    last_z: float | None = None
+    #: 速度基线 (ts, z)，长度受 `vel_window_s` 限制
+    base: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.alpha, self.beta = self.gains(self.xi)
@@ -219,7 +249,7 @@ class RailEstimator:
     # ------------------------------------------------------------------ #
     @staticmethod
     def gains(xi: float) -> tuple[float, float]:
-        """跟踪指数 ξ → (α, β)。ξ 越小越跟手、噪声越大。"""
+        """跟踪指数 ξ → (α, β)。ξ 越小越跟手、噪声越大。（位置支路用 α；β 保留兼容）"""
         xi = max(0.5, float(xi))
         alpha = 2.0 * (2.0 * xi - 1.0) / (xi * (xi + 1.0))
         beta = 6.0 / (xi * (xi + 1.0))
@@ -231,110 +261,137 @@ class RailEstimator:
         return bool(self.init) and not self.stale and self.warmup <= 0
 
     # ------------------------------------------------------------------ #
-    def _reinit(self, z: float, reason: str) -> None:
-        """重新初始化：位置取测量值、**速度清零**、进入方向确认期。"""
+    def _seed(self, z: float, ts: float) -> None:
+        """把位置/速度基线重建到 `z`（速度清零、进入方向确认期）。**不计 resets**。"""
         self.x = float(z)
         self.v = 0.0
         self.init = True
         self.stale = False
         self.warmup = max(0, int(self.reset_confirm_frames))
         self.armed_run = 0
+        self.last_z = float(z)
+        self.base = [(float(ts), float(z))]
+
+    def _reinit(self, z: float, ts: float, reason: str) -> None:
+        """重新初始化（跳变/断流/荒谬速度）：位置取测量值、**速度清零**、重进确认期。"""
+        self._seed(z, ts)
         self.resets += 1
         self.last_reason = reason
 
-    def _block_warmup(self, reason: str) -> None:
-        """★ 折返处置：**速度清零 + 重新确认**，绝不把折返前的速度外推出去。
+    def _block_warmup(self, z: float, ts: float, reason: str) -> None:
+        """★ 折返处置：**速度清零 + 位置基线重建 + 重新确认**，绝不把折返前的速度外推。
 
         为什么需要单独一条（跳变门管不住它）：
-          本靶移速只有 4cm/s（≈1px/帧），折返是**平滑**的 —— 一帧残差只有 2px，
+          本靶移速只有 4cm/s（≈0.2px/帧），折返是**平滑**的 —— 一帧残差只有 2px，
           远低于 `jump_floor_px=25` 的跳变门。若只靠跳变门，估计器会平滑地把 +30px/s
-          翻成 −14px/s 而**不加任何闭锁**，此时 `lead = +?` 仍指向旧方向 → 必打飞。
-          旧版云台连"折返"这个概念都没有（survey §10 第 5 条：无折返识别）。
+          翻成 −14px/s 而**不加任何闭锁**，此时 `lead` 仍指向旧方向 → 必打飞。
+
+        为什么位置也要重建（`x = z`）：
+          只清 v 不清 x，滤波器会拿着"折返前那个偏高的 x"去追新测量，
+          速度会一路冲到 **−61px/s**（实测）—— 闭锁期一结束就给出方向正确但**量级翻倍**的
+          提前量。重建位置后同样条件下是 −30.1px/s（±0.3%）。
+
+        `resets` 与 `flips` 都 +1：前者是"估计器重置"的统一证据字段（测试/遥测都用它），
+        后者单独记折返次数。
         """
-        self.v = 0.0
-        self.warmup = max(0, int(self.reset_confirm_frames))
-        self.armed_run = 0
+        self._seed(z, ts)
+        self.resets += 1
         self.flips += 1
         self.last_reason = reason
 
+    # ---- 速度基线（长基线端点差分） ----
+    def _trim(self, ts: float) -> None:
+        cut = float(ts) - max(1e-3, float(self.vel_window_s))
+        while len(self.base) > 2 and self.base[0][0] < cut:
+            self.base.pop(0)
+
+    def _slope(self) -> float:
+        if len(self.base) < 2:
+            return 0.0
+        t0, z0 = self.base[0]
+        t1, z1 = self.base[-1]
+        dt = t1 - t0
+        if dt <= self.dt_min_s:
+            return 0.0
+        return (z1 - z0) / dt
+
+    def _touch(self, ts: float, dt: float) -> None:
+        self.last_ts = float(ts)
+        self.last_dt = float(dt)
+        self.samples += 1
+
+    # ------------------------------------------------------------------ #
     def update(self, dx: float, ts: float) -> bool:
-        """喂一帧**有效**观测。返回是否被采纳（False = 重复/乱序帧或异常 dt）。"""
+        """喂一帧观测。返回是否被**采纳**（False = 同帧重读/乱序 → 完全不动状态）。"""
         z = float(dx)
+        ts = float(ts)
         if self.last_ts is not None:
-            dt = float(ts) - float(self.last_ts)
+            dt = ts - self.last_ts
             if dt <= self.dt_min_s:
-                self.last_reason = "dup_frame"          # 同帧重读/时钟不动 → 丢弃（不更新，也不清速度）
+                self.last_reason = "dup_frame"          # 同帧重读/时钟不动 → 丢弃
                 return False
             if dt > self.dt_max_s:
-                self._reinit(z, f"gap_dt={dt:.3f}s")    # 断流：旧速度不可外推
-                self.last_ts = float(ts)
-                self.last_dt = dt
-                self.samples += 1
+                self._reinit(z, ts, f"gap_dt={dt:.3f}s")    # 断流：旧速度不可外推
+                self._touch(ts, dt)
                 return True
         else:
             dt = 0.0
 
         if not self.init:
-            # ★ 第一帧只初始化位置，**不**从 0 推速度（否则第一拍会把"目标在 dx 处"当成巨大速度）
-            self.x, self.v, self.init, self.stale = z, 0.0, True, False
-            self.warmup = max(0, int(self.reset_confirm_frames))
-            self.armed_run = 0
-            self.last_ts = float(ts)
-            self.last_dt = 0.0
-            self.samples += 1
+            # ★ 第一帧只建立基线，**不**从 0 推速度（否则第一拍会把"目标在 dx 处"当成巨大速度）
+            self._seed(z, ts)
+            self._touch(ts, 0.0)
             self.last_reason = "first"
             return True
 
-        # ---- 预测 ----
+        # ---- ★ 零位移帧（第四道防线，见类文档） ----
+        if self.last_z is not None and z == self.last_z:
+            self.stale = False
+            self.armed_run += 1
+            if self.warmup > 0:
+                self.warmup -= 1
+            self.last_reason = "no_motion"
+            self._touch(ts, dt)
+            return True
+
+        # ---- 预测 + 跳变门 ----
         x_pred = self.x + self.v * dt
         res = z - x_pred
-
-        # ---- 跳变门（残差归一化：帧越长、估计越快，门越宽） ----
         gate = self.gate_k * self.gate_base_px + self.gate_vel_scale * abs(self.v) * dt
         gate = max(gate, self.jump_floor_px)
         if abs(res) > gate:
             self.jump_rejections += 1
-            self._reinit(z, f"jump_res={res:.1f}px>gate={gate:.1f}px")
-            self.last_ts = float(ts)
-            self.last_dt = dt
-            self.samples += 1
+            self._reinit(z, ts, f"jump_res={res:.1f}px>gate={gate:.1f}px")
+            self._touch(ts, dt)
             return True
 
-        # ---- 校正 ----
-        v_prev = self.v
+        # ---- 位置：α 滤波；速度：长基线端点差分 ----
         self.x = x_pred + self.alpha * res
-        v_new = v_prev + self.beta * res / dt
+        self.base.append((ts, z))
+        self._trim(ts)
+        v_new = self._slope()
 
-        # ---- ★ 折返：速度符号翻转 → 清零 + 重新确认（见 `_block_warmup` 的说明） ----
-        if v_prev * v_new < 0.0:
-            self._block_warmup(f"turnaround v {v_prev:+.1f}→{v_new:+.1f}px/s")
-            self.last_ts = float(ts)
-            self.last_dt = dt
-            self.samples += 1
+        # ---- ★ 折返：新样本的运动方向与当前速度相反 → 重建 + 重新确认 ----
+        dz = z - float(self.last_z)
+        if abs(self.v) >= self.flip_min_speed_px_s and self.v * dz < 0.0:
+            self._block_warmup(z, ts, f"turnaround v {self.v:+.1f}->{v_new:+.1f}px/s")
+            self._touch(ts, dt)
             return True
 
-        # ---- 荒谬速度（噪声/误检）：宁可清零重估，也不外推一个不可能的速度 ----
+        # ---- 荒谬速度（噪声/误检）：宁可重建，也不外推一个不可能的速度 ----
         if abs(v_new) > self.max_speed_px_s:
-            self._reinit(self.x, f"speed_clamp(|v|>{self.max_speed_px_s:.0f}px/s)")
-            self.last_ts = float(ts)
-            self.last_dt = dt
-            self.samples += 1
+            self._reinit(z, ts, f"speed_clamp(|v|>{self.max_speed_px_s:.0f}px/s)")
+            self._touch(ts, dt)
             return True
 
         self.v = v_new
-        # ---- 方向确认计数：只在"残差与速度同向"（跟踪平滑）时累加；折返/超调会打断它 ----
-        smooth = abs(res) <= 1e-12 or (res > 0.0) == (v_new > 0.0)
-        if smooth:
-            self.armed_run += 1
-            if self.warmup > 0:
-                self.warmup -= 1
-        else:
-            self.armed_run = 0
+        self.last_z = z
         self.stale = False
+        self.armed_run += 1
+        if self.warmup > 0:
+            self.warmup -= 1
         self.last_reason = "ok"
-        self.last_ts = float(ts)
-        self.last_dt = dt
-        self.samples += 1
+        self._touch(ts, dt)
         return True
 
     def on_no_frame(self) -> None:
@@ -416,8 +473,8 @@ class AimTask(TaskThread):
     _OPTIONAL_KEYS: tuple[str, ...] = (
         "aim.est_xi", "aim.est_gate_k", "aim.est_gate_base_px", "aim.est_gate_vel_scale",
         "aim.est_jump_floor_px", "aim.reset_confirm_frames", "aim.est_dt_min_s",
-        "aim.est_dt_max_s", "aim.est_max_speed_px_s", "aim.lost_target_s",
-        "aim.lost_zeros_velocity_s", "aim.rearm_after_lost_s", "aim.max_lead_factor",
+        "aim.est_dt_max_s", "aim.est_max_speed_px_s", "aim.est_vel_window_s",
+        "aim.est_flip_min_speed_px_s", "aim.rearm_after_lost_s", "aim.max_lead_factor",
         "aim.px_per_m_rail", "aim.fire_box_far_px", "aim.fire_box_near_px",
         "aim.box_w_far_px", "aim.box_w_near_px", "aim.cls_switch_confirm_frames",
         "aim.vision_nominal_fps", "aim.fire_only_blue", "aim.hit_hold_s",
@@ -470,6 +527,13 @@ class AimTask(TaskThread):
         self._hit_hold_s = float(g("aim.hit_hold_s", self._cooldown_s))
         self._rescan_on_lost = bool(g("aim.rescan_on_lost", False))
         self._lead_eps = float(g("aim.lead_eps_px", 0.5))
+        #: ★ 许可最短保持时间：许可一旦成立，即使冷却已经开始计时，也再保持这么久。
+        #:   为什么需要：`fire_ready` 是给云台（100Hz 硬实时）采的**电平**信号，
+        #:   若许可只亮一拍（20ms）而云台那一拍正在处理别的分支，就会漏掉整次授权；
+        #:   反过来电平常亮又会让"冷却"形同虚设（云台每拍都能看到 1）。
+        #:   取 0.30s：既 > 云台一拍火控周期，又 < `shot_cooldown_ms`（默认 500ms）
+        #:   —— 许可占空比 60%，冷却仍然真的在限制发数。
+        self._hold_min_s = max(0.0, float(g("aim.hold_min_s", 0.30)))
 
         rail_span = float(cfg.get("aim.rail_span_m"))
         #: px/m 换算（框宽标定缺失时的兜底）。默认 140 px/m ≈ 0.35m 处 45px 框宽
@@ -494,6 +558,10 @@ class AimTask(TaskThread):
             #   稍快时就反复重置估计器（每次都进 warmup → 闭锁），反而打不出去。取 5× 且 ≥300px/s。
             max_speed_px_s=float(g("aim.est_max_speed_px_s",
                                    max(300.0, 5.0 * self._v_expected))),
+            # ★ 速度基线窗口：0.40s 是"噪声 vs 滞后"的折中（见 RailEstimator 类文档）。
+            #   现场若把视觉降到 15fps，窗口内样本数减半 → 噪声翻倍，需要同步放大这个值。
+            vel_window_s=float(g("aim.est_vel_window_s", 0.40)),
+            flip_min_speed_px_s=float(g("aim.est_flip_min_speed_px_s", 2.0)),
         )
 
         # ---- 运行时状态 ----
@@ -503,12 +571,19 @@ class AimTask(TaskThread):
         self._last_obs_ts: float = 0.0
         self._last_obs: OffsetObservation | None = None
         self._seen_prev = False
+        #: ★ 最近一次"判丢"的时刻。**故意不在目标重现时清掉**：重新武装判据要的是
+        #:   "目标离开过多久"，而丢靶检测本身有 `VISION_MAX_AGE_S`(0.5s) 的滞后 ——
+        #:   只在重现那一拍算一次会把 0.2s 的检测差当成"只丢了 0.2s"，
+        #:   于是"消失过一阵又回来"永远判不出来（5.7 组用例就是这个坑）。
+        #:   它由 `_maybe_rearm()` 成功重新武装时清掉。
         self._lost_at: float | None = None
         self._last_class = 0
         self._cls_candidate = 0
         self._cls_run = 0
         self._locked_cls = 0
         self._fire_ready = False
+        #: 许可保持窗口的截止时刻（见 `_hold_min_s`）
+        self._hold_until: float = 0.0
         self._aim_status = AimStatus.IDLE
         self._ammo_prev: int | None = None
         self._shots_seen = 0
@@ -518,6 +593,22 @@ class AimTask(TaskThread):
         self._last_lead = 0.0
         self._last_tick_at: float | None = None
         self._last_cmd: dict[str, Any] = {}
+
+        # ---- ★ 构造即发布安全初值 ----
+        # 为什么放在构造函数而不是 `setup()`：`setup()` 只在真线程 `start()` 时跑，
+        # 而 Blackboard 是给**别的任务**读的 —— 别人（遥测/任务调度/测试夹具）在我们第一拍
+        # 之前读 `P_AIM` 必须拿到"闭锁"而不是 None。旧写法会让 `bb.get(P_AIM).fire_gate`
+        # 在第一拍前直接 AttributeError（4.1 组用例抓到的就是这个）。
+        self._publish_initial()
+
+    def _publish_initial(self) -> None:
+        """构造时写一份"失败偏安全"的初值（fire_gate=False / seen=False / reason=no_target）。"""
+        try:
+            self.bb.set(P_TARGET, TargetState(), source=self.name)
+            self.bb.set(P_AIM, AimState(status=int(self._aim_status), fire_gate=False,
+                                        last_reason=REASON_NO_TARGET), source=self.name)
+        except Exception:                       # noqa: BLE001  黑盒不可用不该拦住构造
+            pass
 
     # ------------------------------------------------------------------ #
     #  只读接口（测试/遥测）
@@ -635,13 +726,13 @@ class AimTask(TaskThread):
             self._last_obs = obs
             self._last_obs_ts = float(_ts_of(obs))
             if not self._seen_prev:
-                # ★ 顺序要紧：先把"上次丢失了多久"算出来交给重新武装判据，再清 `_lost_at`。
-                #   反过来写的话 `_maybe_rearm` 永远看到 `_lost_at is None` → 命中锁存永远解不开
-                #   （现场表现：打中一块靶之后第二块靶一直不开火）。这个 bug 在自测里被抓到过一次。
-                lost_for = (now - self._lost_at) if self._lost_at is not None else 0.0
-                self._lost_at = None
-                self._on_target_seen(now, lost_for)
-            self._seen_prev = True
+                self._seen_prev = True
+                self._on_target_seen(now)
+            # ★ 重新武装判据**每拍都评估**（不只是"重现那一拍"）：
+            #   条件是"目标离开过 ≥ rearm_after_lost_s"，而这个时长在重现之后仍在增长
+            #   （`_lost_at` 有意保留到重新武装成功为止）。只判重现那一拍的话，
+            #   0.5s 检测滞后会把 0.75s 的缺席算成 0.2s → 永远解不开锁存。
+            self._maybe_rearm(now)
             return
 
         # ---- 不可见：立刻闭锁（旧版这里会冻结云台最长 6s，survey §10 第 7 条） ----
@@ -653,38 +744,43 @@ class AimTask(TaskThread):
                              dx=int(getattr(self._last_obs, "dx", 0) or 0),
                              at=now)
 
-    def _on_target_seen(self, now: float, lost_for: float = 0.0) -> None:
-        """（重新）见到目标：刷新本靶射击窗口 + 触发重新武装判据。"""
-        self._maybe_rearm(now, lost_for)
+    def _on_target_seen(self, now: float) -> None:
+        """（重新）见到目标：刷新本靶射击窗口基准 + 发可见性事件。"""
         if self._permit.first_seen_at <= 0.0:
             self._permit.first_seen_at = now
             self._permit.baseline_shots = self._shots_seen
         self.bus.publish(EV_TARGET_FIRST_SEEN, source=self.name,
                          cls=int(self._locked_cls or self._last_class), at=now)
 
-    def _maybe_rearm(self, now: float, lost_for: float) -> None:
+    def _maybe_rearm(self, now: float) -> None:
         """命中锁存后的重新武装（靶是"来回走的同一个"→ 默认不自动重新武装，见文件头）。
 
         条件全部满足才解除 `hit_latched`：
-          ① `aim.hit_hold_s` 已过；
-          ② 目标**重新出现**，且上次丢失时长达 `aim.rearm_after_lost_s`
-             （"消失过一段时间又回来"= 新目标/新一块靶的判据）；
-          ③ 本靶许可数未到上限（否则重新武装也没意义）。
+          ① `aim.hit_hold_s` 已过（命中后至少安静这么久）；
+          ② 目标**离开过** `aim.rearm_after_lost_s` 以上（"消失过一阵又回来"
+             = 新一块靶 / 同一块靶的下一轮；时长自 `_lost_at` 起算，含检测滞后）；
+          ③ 目标当前**可见**（调用点已保证）。
+
         ⚠️ 现场"两块独立靶板交替出现"时，这条判据会自动把第二块当成新靶 —— 这是有意的：
           本靶打中后停火，第二块靶不该因为"第一块命中了"而永远打不了。
+
+        ⚠️ 刻意**没有**"本靶许可数未到上限"这条（上一版有，是个自锁 bug）：
+          `p.rearm()` 恰恰会把 `window` 清零 —— 用"window 已到上限"去否决一次会清零 window
+          的重新武装，等于说"打满 3 发之后这个任务对任何新靶都不再开火"（实测表现：
+          命中 + 长时间丢靶后 `hit_latched` 永远为真）。上限该由 `_evaluate` 的预算门管。
         """
         p = self._permit
         if not p.hit_latched:
             return
         if (now - p.hit_at) < self._hit_hold_s:
             return
+        lost_for = (now - self._lost_at) if self._lost_at is not None else 0.0
         if lost_for < self._lost_arm_s:
             return
-        if p.window >= self._max_per_target:
-            return
         p.rearm(now, self._shots_seen, now)
-        self._log(f"命中锁存解除：目标重新出现（丢失 {lost_for:.2f}s ≥ "
-                  f"{self._lost_arm_s:.2f}s）→ 本靶许可窗口重新计数"
+        self._lost_at = None                 # 本轮缺席结案，下轮重新计时
+        self._log(f"命中锁存解除：目标离开过 {lost_for:.2f}s ≥ "
+                  f"{self._lost_arm_s:.2f}s → 本靶许可窗口重新计数"
                   f"（基线发数 {p.baseline_shots}，生命周期许可累计 {p.total}）")
 
     # ------------------------------------------------------------------ #
@@ -733,7 +829,24 @@ class AimTask(TaskThread):
 
     def _evaluate(self, now: float, has_target: bool, safety: SafetyState | None,
                   manual: bool) -> tuple[bool, str]:
-        """返回 `(fire_ready, reason)`。★ 任一硬门不满足 → 0（失败偏安全）。"""
+        """返回 `(fire_ready, reason)`。★ 任一硬门不满足 → 0（失败偏安全）。
+
+        ★ 判据顺序 = **原因码的可解释性**（测试按原因码断言，遥测里人也要能一眼看懂）：
+
+          安全 → 遥控 → 无目标 → 类别 → 命中锁存 → 预算/弹药 → **几何(策略/框)** →
+          估计器(stale/warmup) → 冷却
+
+        为什么"几何"要排在估计器**前面**：目标突然跳到画面边缘（`dx=400`）时，
+        估计器会因为跳变门而重置（`warmup>0`）。若先判估计器，原因码就是 `estimator_warmup`，
+        把"靶跑出开火框了"这个**真正的几何事实**掩盖掉；先判几何则原因码是 `out_of_box`，
+        现场看日志能立刻分清"没瞄上"和"估计没收敛"。
+
+        ⚠️ 顺序**不改变安全性**：两道门都是"不许可"，谁先谁后只影响原因码。
+
+        ★ 冷却门有**迟滞**（`aim.hold_min_s`，见 `_hold_min_s` 的说明）：许可一旦成立，
+        冷却期间也再保持 `hold_min_s`。所以这里只负责判"拍内是否合格"，
+        迟滞由 `_set_fire_ready()` 统一施加（保持窗口内的原因码回写成 `ok`）。
+        """
         # ---- 硬门 1：安全（P_SAFETY 缺失按不安全处理） ----
         if safety is None:
             return False, REASON_SAFETY
@@ -745,8 +858,9 @@ class AimTask(TaskThread):
         # ---- 硬门 3：目标新鲜 ----
         if not has_target:
             return False, (REASON_TARGET_LOST if self._lost_at is not None else REASON_NO_TARGET)
-        # ---- 硬门 4：类别确认（连续 cls_confirm 帧同类，吸收单帧抖动） ----
-        if self._cls_run < self._cls_confirm:
+        # ---- 硬门 4：类别（见 `_update_class`：本拍类别必须等于**已锁定**的类别） ----
+        cls_now = self._cls_of_locked()
+        if cls_now == ShotClass.NONE or cls_now != self._locked_cls:
             return False, REASON_CLASS_UNSTABLE
         if self._fire_only_blue and self._locked_cls != ShotClass.BLUE:
             return False, REASON_CLASS_NOT_ALLOWED
@@ -761,13 +875,8 @@ class AimTask(TaskThread):
         ammo = self._ammo_prev
         if ammo is not None and int(ammo) <= 0:
             return False, REASON_AMMO_EMPTY
-        # ---- 硬门 7：速度估计可信（折返/重捕后要收敛时间） ----
+        # ---- 硬门 7：几何（策略 + 开火框） ----
         est = self._estimator
-        if est.stale or not est.init:
-            return False, REASON_ESTIMATOR_STALE
-        if not est.armed:
-            return False, REASON_ESTIMATOR_WARMUP
-        # ---- 策略相关判据 ----
         obs = self._last_obs
         box = self._fire_box_now(obs)
         dx = float(getattr(obs, "dx", 0) or 0)
@@ -782,7 +891,7 @@ class AimTask(TaskThread):
             # 扫过式：要求"下一帧即将进入框内"（|pred| 在框内且提前量把落点拉向零点）
             if abs(pred) > box:
                 return False, REASON_OUT_OF_BOX
-            if abs(pred) >= abs(dx) and abs(est.v) > 1e-6:
+            if abs(pred) >= abs(dx) and abs(est.v) > self._lead_eps:
                 return False, REASON_OUT_OF_BOX
         elif self._policy == FirePolicy.TURNAROUND:
             # ★ 本靶无端点停顿（瞬时折返）→ 该策略等价不可用；只认 |v| 降到阈值以下
@@ -800,10 +909,19 @@ class AimTask(TaskThread):
         # 垂直方向用同一框（旧版同语义：动态框 x/y 同宽）
         if abs(dy) > box:
             return False, REASON_OUT_OF_BOX
-        # ---- 硬门 8：冷却 ----
+        # ---- 硬门 8：速度估计可信（折返/重捕后要收敛时间） ----
+        if est.stale or not est.init:
+            return False, REASON_ESTIMATOR_STALE
+        if not est.armed:
+            return False, REASON_ESTIMATOR_WARMUP
+        # ---- 硬门 9：冷却 ----
         if not self._permit.cool_ok(now, self._cooldown_s):
             return False, REASON_COOLDOWN
         return True, REASON_OK
+
+    def _cls_of_locked(self) -> int:
+        """本拍观测的类别（与 `_update_class()` 的判定保持一致）。"""
+        return int(self._cls_candidate) if self._cls_candidate else ShotClass.NONE
 
     # ------------------------------------------------------------------ #
     #  写话题（唯一允许的"钥匙"是 fire_ready / lead）
@@ -829,16 +947,28 @@ class AimTask(TaskThread):
         改成"冷却到点即记一次许可"后：1 发 = 1 个 `shot_cooldown_ms` 窗口，
         该窗口内本任务不再重复计数，云台自己的冷却也正好用掉一个窗口。
         不变量：**一拍最多记一次许可**（记完 `cool_ok` 立即为假）。
+
+        ★ 冷却 + 迟滞的关系（`aim.hold_min_s`）：许可电平在记完许可后再保持 `hold_min_s`
+        （云台 100Hz 一定能采到），随后到冷却到点之前保持 0 —— 两者相加仍严格保证
+        "两发许可之间 ≥ `shot_cooldown_ms`"，只是把这一拍的 1 铺成了一段可靠的高电平。
         """
         ready = bool(ready)
+        # ---- ★ 许可迟滞：纯粹的"冷却未到"不立刻撤许可，再保持 `_hold_min_s` ----
+        # 为什么：许可一旦成立，云台那一拍可能正在处理别的分支；只亮一拍的许可会被漏采。
+        # 为什么只对"冷却"这一条迟滞：其余门（安全/丢失/命中/预算/几何/估计器）都是
+        # **事实变了**，必须当拍闭锁；只有冷却是"我们自己刚刚计数"造成的，可以宽限。
+        if not ready and reason == REASON_COOLDOWN and now < self._hold_until:
+            ready = True
+            reason = REASON_OK
         if not ready:
             self._blocked_reason = reason
             if self._fire_ready:
                 self._fire_ready = False
+                self._hold_until = 0.0
                 self.bus.publish(EV_FIRE_BLOCKED, source=self.name, reason=reason,
                                  lead_px=self._last_lead, at=now)
                 self._log(f"闭锁 fire_ready=0：{_REASON_TEXT.get(reason, reason)}")
-            elif self._blocked_reason != REASON_OK:
+            elif reason != REASON_OK:
                 if self._log_throttle.allow("blocked:" + reason, now):
                     self._log(f"不开火：{_REASON_TEXT.get(reason, reason)}")
             self._emit_ready(False)
@@ -850,6 +980,7 @@ class AimTask(TaskThread):
         if grant:
             first_for_this_target = first_permit
             self._permit.allowed(now)
+            self._hold_until = now + self._hold_min_s
             if first_for_this_target:
                 # 本靶的**第一发**：一个独立事件（EV_FIRE_ALLOWED），便于复盘时间线
                 self.bus.publish(EV_FIRE_ALLOWED, source=self.name, lead_px=self._last_lead,
@@ -857,9 +988,6 @@ class AimTask(TaskThread):
             self._log(f"★ 瞄准合格 → fire_ready=1（许可 {self._permit.window}"
                       f"/{self._max_per_target}，累计 {self._permit.total}，"
                       f"lead {self._last_lead:+.1f}px）")
-        elif not self._fire_ready:
-            self._log(f"瞄准合格但冷却未过（剩 {self._permit.cooldown_left(now, self._cooldown_s):.2f}s）"
-                      f"→ 保持 ready，不重复计数")
         self._fire_ready = True
         self._blocked_reason = REASON_OK
         self._emit_ready(True)
@@ -887,7 +1015,11 @@ class AimTask(TaskThread):
             cls=int(getattr(obs, "cls", 0) or 0),
             box_w=int(getattr(obs, "box_w", 0) or 0),
             seen_at=float(_ts_of(obs)) if obs is not None else self._last_obs_ts,
-            lost_since=float(self._lost_at or 0.0),
+            #: ⚠️ 这里是**丢了多久（秒）**，不是"丢靶时刻"这个绝对时间戳。
+            #:   旧写法塞的是 `_lost_at`（单调钟的绝对秒数，实测 1001.68s 这种值），
+            #:   下游拿去当"时长"用会得到毫无意义的巨大数；可见时恒为 0。
+            lost_since=(float(now - self._lost_at)
+                        if (self._lost_at is not None and not has_target) else 0.0),
             s_rail=s_rail,
             v_rail=float(self._estimator.v),
             samples=int(self._estimator.samples),
@@ -1018,11 +1150,14 @@ class AimTask(TaskThread):
                   f"丢靶判定 {self._lost_s:.2f}s（{self._lost_frames} 帧 @ {self._fps:g}fps）")
         missing = self.missing_schema_keys
         if missing:
-            self._log("⚠️ 以下配置键不在 SCHEMA 里（本任务读的是内置默认值，需补进 "
+            # ⚠️ 措辞里**不许**出现 U+26A0/U+2705 这类非 GBK 字符：车端 `log=print`
+            #    在 GBK 控制台上会抛 UnicodeEncodeError，把整拍 tick 打断在半路
+            #    （日志没打出来，后半拍的发布也没执行）。本文件里这类符号只留在注释/文档串。
+            self._log("[注意] 以下配置键不在 SCHEMA 里（本任务读的是内置默认值，需补进 "
                       "core/config.py 的 SCHEMA）: " + ", ".join(missing))
         unregistered = [k for k in missing if k not in self._OPTIONAL_KEYS]
         if unregistered:
-            self._log("⚠️ 上面的键里有未登记进 `AimTask._OPTIONAL_KEYS` 的（自检提示）: "
+            self._log("[注意] 上面的键里有未登记进 `AimTask._OPTIONAL_KEYS` 的（自检提示）: "
                       + ", ".join(unregistered))
 
     def teardown(self) -> None:

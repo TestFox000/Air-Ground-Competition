@@ -7,6 +7,8 @@ log_*/
 # ---- 备份与临时目录 ----
 backup/
 _tmp_session/
+_scratch_*/
+artifacts/
 *.bak
 *.bak_*
 *.orig

@@ -161,6 +161,38 @@ SCHEMA: dict[str, Spec] = {
                                       "★丢帧回扫阈值；旧版 180 帧≈6s 会让云台在丢失期间冻结"),
     "aim.scan_pitch_offset_deg": Spec(6.0, _F, "°", -60.0, 30.0,
                                       "扫描俯仰基准（★旧注释与实测值长期冲突，现场必须核对）"),
+    # ---- 移动靶估计器（RailEstimator，2026-10-07 从 α-β 拆出的长基线端点差分）----
+    # ⚠️ 本段默认值/范围必须与 `tasks/aim.py` 的 `g(key, default)` **实现内置值一致**
+    #   （那是运行期真正生效的值；SCHEMA 只是给 validate()/未知键告警用的登记）。
+    "aim.box_w_far_px": Spec(30.0, _F, "px", 5.0, 200.0, "远处靶框宽标定（框宽→距离映射端点）"),
+    "aim.box_w_near_px": Spec(120.0, _F, "px", 10.0, 400.0, "近处靶框宽标定"),
+    "aim.cls_switch_confirm_frames": Spec(5, _I, "帧", 1, 60, "类别改锁需连续多少帧（抗抖动）"),
+    "aim.est_dt_max_s": Spec(0.50, _F, "s", 0.01, 2.0, "估计器两帧时间差上限（超过视为断流；10fps 正常帧≈0.1s）"),
+    "aim.est_dt_min_s": Spec(0.002, _F, "s", 0.0, 0.1, "估计器两帧时间差下限（防 dt=0 爆增益）"),
+    "aim.est_flip_min_speed_px_s": Spec(2.0, _F, "px/s", 0.5, 20.0,
+                                        "★折返判定：|v| 低于此值不算折返。必须 < 真实靶速(4cm/s≈5.6px/s)，"
+                                        "否则折返闭锁被整个关掉（旧误写 8.0 就是这种事故）"),
+    "aim.est_gate_base_px": Spec(3.0, _F, "px", 1.0, 20.0, "跳变门基础值"),
+    "aim.est_gate_k": Spec(3.0, _F, "s", 0.0, 20.0, "跳变门速度系数"),
+    "aim.est_gate_vel_scale": Spec(0.10, _F, "×", 0.0, 2.0, "跳变门随速度缩放"),
+    "aim.est_jump_floor_px": Spec(25.0, _F, "px", 5.0, 100.0, "跳变门下限（gate_base 与 jump_floor 别写反）"),
+    "aim.est_max_speed_px_s": Spec(300.0, _F, "px/s", 50.0, 3000.0,
+                                   "速度估计上限夹紧（防荒谬值兜底，取 ≥300 且 5×靶速）"),
+    "aim.est_vel_window_s": Spec(0.40, _F, "s", 0.05, 2.0, "速度估计长基线窗口（端点差分；随视觉帧率整定）"),
+    "aim.est_xi": Spec(3.5, _F, "", 0.5, 10.0,
+                       "跟踪指数 ξ（α=2(2ξ−1)/(ξ(ξ+1))，**不是** α 系数本身，勿按 0~1 理解）"),
+    "aim.fire_only_blue": Spec(True, _B, "", None, None, "仅攻击蓝靶(cls==1)"),
+    "aim.hit_hold_s": Spec(0.5, _F, "s", 0.0, 5.0, "命中后锁存时长"),
+    "aim.hold_min_s": Spec(0.30, _F, "s", 0.0, 2.0, "许可迟滞（只对冷却这一条，防电平只亮一拍被漏采）"),
+    "aim.lead_eps_px": Spec(0.5, _F, "px", 0.0, 20.0, "提前量收敛容差（sweep 策略用）"),
+    "aim.max_lead_factor": Spec(0.45, _F, "×", 0.0, 2.0, "提前量限幅 = 该值 × 轨道行程 × px_per_m"),
+    "aim.px_per_m_rail": Spec(140.0, _F, "px/m", 10.0, 1000.0,
+                              "★轨道单位换算：0.70m 行程对应多少 px（**现场必须实测标定**）"),
+    "aim.rearm_after_lost_s": Spec(1.0, _F, "s", 0.0, 10.0,
+                                   "目标丢失多久后允许重新武装（实现取 max(0.3, lost_s/2)）"),
+    "aim.rescan_on_lost": Spec(False, _B, "", None, None, "丢靶超阈值时是否发回扫请求"),
+    "aim.reset_confirm_frames": Spec(5, _I, "帧", 1, 60, "估计器重置确认帧数（warmup 闭锁拍数）"),
+    "aim.vision_nominal_fps": Spec(30.0, _F, "fps", 1.0, 120.0, "视觉名义帧率（丢帧计数换算）"),
 
     # ---------------- 误差修正（L2：位置） ----
     "fix.anchor_at_waypoint": Spec(True, _B, "", None, None, "到位后把位姿锚回格心"),

@@ -14,6 +14,15 @@ import math
 import sys
 import traceback
 
+# ★ Windows GBK 控制台兜底：测试打印里含 ✅/⚠️/❌ 等字符时，stdout 是 GBK 编码，
+#   直接 print 会抛 UnicodeEncodeError 且**把整个测试脚本炸掉**（不是"字打不出来"）。
+#   errors="replace" 让不可编码字符退化为 "?"，测试照常跑完。
+try:
+    sys.stdout.reconfigure(errors="replace")
+    sys.stderr.reconfigure(errors="replace")
+except Exception:
+    pass
+
 _PASS = 0
 _FAIL: list[str] = []
 _CURRENT = ""

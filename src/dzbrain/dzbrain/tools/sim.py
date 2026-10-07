@@ -65,6 +65,26 @@
 4. `metrics` 的键名是契约（`docs/P0接口约定.md` §5），只增不改。
 5. 指标**按段类型分组**（`normal` / `reverse` / `corner`）：不分组的话一个 90° 拐角的
    0.3 m 会淹没整条路线的 RMS，参数调优就看不出方向（详见 `SegmentStat`）。
+
+★★ 2026-10-07：现场图"跑不完"的根因已修（历史：822.5 s / 41127 拍 / ratio 5.32 未完成）
+------------------------------------------------------------------
+修完后的出厂实测：**completed=True / 6751 拍 / 135.0 s / ratio 1.04 / 末点 0.029 m**。
+根因**不是**几何（把 `max_steer_deg` 放到 60°、最小转弯半径 0.09 m 也跑不完 ——
+见 `_project_sticky` 的说明），而是**投影在折返交汇处选错了段**，
+连带把 Mission 的推进判据、前视点、前进/倒车决策全部带偏。四处改动（互补，缺一不可）：
+
+1. **投影候选比距离**（`_candidates` / `_pick_candidate`）：原 `Path.project` 的
+   "先到先得"会让**被夹在段端点的候选**赢过真正最近的点 —— 车头已伸过顶点，
+   投影却停在顶点上（`dist_to_vertex = 0` → 前视点被转角钳制塌缩 → 舵角退化）。
+2. **任务段下界 `s_min`**：投影不许落到 Mission 已经走过的段上（任务给段、定位给弧长）。
+3. **行进方向裁决 `motion_heading`**：折返压线时同一物理点到两条段**等距**，
+   位置裁决不了，只能用"车实际往哪边走"（取信念位姿的**实测位移方向**，
+   不是车头朝向 —— 过弯时车头几乎垂直于路线）。
+4. **段选择滞回 `_SEG_STICKY_M`**：投影是**跟踪**（上一拍那段是强先验），
+   不是每拍从零重算，否则在四段交汇的 `B6` 处逐拍翻转。
+   配套：`_clamp_forward` 增加了"车还在上一段时不许跨段钳制"的分支（假钉住），
+   目标推进增加**朝向门**（进 `arrival_m` 球但车头还没朝着下一段时不推进），
+   末点的"已过点即放行"改用 `_GOAL_STOP_M`（让 3 cm 停车门真正生效）。
 """
 
 from __future__ import annotations
@@ -358,21 +378,6 @@ def _ramp_towards(current: float, target: float, max_delta: float) -> float:
     elif delta < -max_delta:
         delta = -max_delta
     return current + delta
-
-
-def _slew_angle(current: float, target: float, max_delta: float) -> float:
-    """角度版斜坡：沿**最短弧**把 `current` 向 `target` 靠拢，单步不超过 `max_delta`。
-
-    ★ 为什么要角度版而不是直接用 `_ramp_towards`：航向是环上的量，
-      `+179° → -179°` 的差是 2° 而不是 358°；直接相减会让方向裁决
-      在 ±180° 附近"绕远路"（车明明只是掉了个头，却要转一整圈才追上）。
-    """
-    delta = geo.normalize_angle(target - current)
-    if delta > max_delta:
-        delta = max_delta
-    elif delta < -max_delta:
-        delta = -max_delta
-    return geo.normalize_angle(current + delta)
 
 
 def _cross_track_m(x: float, y: float,
