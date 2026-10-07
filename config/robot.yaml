@@ -444,6 +444,12 @@ path_executor:
       fire_policy: moving_lead        # moving_lead / sweep / turnaround（本靶无端点停顿，turnaround 不适用）
       rail_span_m: 0.70
       target_speed_mps: 0.04
+      # ★★ 全链路最关键、也最容易搞错的一个标定值：轨道方向上的"像素/米"。
+      #   用途：把视觉像素误差换算成轨道上的米（提前量、命中判据都依赖它）。
+      #   标定方法（现场 1 分钟）：把靶放在轨道一端记下画面 dx，再放到另一端记下 dx，
+      #       则 px_per_m_rail = |Δdx| / rail_span_m(0.70)。默认 140 px/m 只是估值。
+      #   自检：4 cm/s 的靶在 140 px/m 下约 5.6 px/s ⇒ 30fps 每帧仅动 0.19 px（很慢，符合现场描述）。
+      px_per_m_rail: 140.0
       max_shots_total: 10
       max_shots_per_target: 3
       shot_cooldown_ms: 500
