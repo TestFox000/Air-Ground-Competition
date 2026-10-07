@@ -164,6 +164,12 @@ SCHEMA: dict[str, Spec] = {
 
     # ---------------- 误差修正（L2：位置） ----
     "fix.anchor_at_waypoint": Spec(True, _B, "", None, None, "到位后把位姿锚回格心"),
+    "fix.anchor_max_offset_m": Spec(0.08, _F, "m", 0.01, 0.30,
+                                    "★吸附的最大允许偏移：只有信念位姿本来就在格心附近才锚，"
+                                    "否则'吸附'会自己制造误差（仿真实测：零误差下锚定把 belief 误差"
+                                    "从 0.000 抬到 0.119 m）"),
+    "fix.anchor_gain": Spec(1.0, _F, "×", 0.0, 1.0,
+                            "吸附强度：1.0=完全锚到格心；<1 为部分吸附（保守，防制造误差）"),
     "fix.scale_est_enabled": Spec(True, _B, "", None, None, "系统性比例误差在线估计"),
     "fix.scale_step_max": Spec(0.005, _F, "×/段", 0.0, 0.05, "每段允许的最大比例修正步长"),
     "fix.scale_limit": Spec(0.10, _F, "×", 0.0, 0.5, "比例修正总量夹紧（±）"),
@@ -189,7 +195,13 @@ SCHEMA: dict[str, Spec] = {
 }
 
 #: 旧 YAML 里的段落名 → 新版点号前缀（保证同一份 robot.yaml 新旧代码都能读）
+#: ★ `dzbrain` 段映射为**空前缀**：其 ros__parameters 下的 `pursuit:`/`route:`/… 会直接展平成
+#:   `pursuit.wheelbase_m` 这样的点号键；而 YAML 那边仍符合 ROS 的 `<节点名>: ros__parameters:`
+#:   结构 —— 顶层多一个**裸键**会让 --params-file 解析失败、相机/视觉/云台三节点同时 abort
+#:   （readme【项目结构提示】踩过这个坑），所以新参数必须挂在节点段里。
 SECTION_PREFIX = {
+    "/dzbrain": "",
+    "dzbrain": "",
     "path_executor": "path_executor",
     "/dzactuator": "dzactuator",
     "dzactuator": "dzactuator",
@@ -258,9 +270,10 @@ class Config:
         flat: dict[str, Any] = {}
         for top, body in raw.items():
             prefix = SECTION_PREFIX.get(str(top), str(top).lstrip("/"))
-            flat.update(_flatten(body, f"{prefix}."))
+            child_prefix = f"{prefix}." if prefix else ""
+            flat.update(_flatten(body, child_prefix))
             if isinstance(body, dict) and "ros__parameters" in body:
-                flat.update(_flatten(body["ros__parameters"], f"{prefix}."))
+                flat.update(_flatten(body["ros__parameters"], child_prefix))
         cfg = cls(flat, source=path, raw=raw)
         cfg._migrate_legacy()
         return cfg
@@ -355,6 +368,15 @@ class Config:
 
     def keys(self) -> Iterable[str]:
         return self._flat.keys()
+
+    def override(self, key: str, value: Any) -> "Config":
+        """就地覆盖一个键（**只给 bench/测试用**，不允许在车端运行路径上调用）。
+
+        为什么单独开一个方法而不是让调用方改 `_flat`：让"运行期改配置"这件事
+        有唯一的、可被 grep 到的入口（旧代码到处 `globals()[...] = ...` 是反面教材）。
+        """
+        self._flat[key] = value
+        return self
 
     # ------------------------------ 校验 ------------------------------ #
     def validate(self, strict: bool = True) -> list[Issue]:

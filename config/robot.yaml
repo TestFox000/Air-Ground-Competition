@@ -290,13 +290,14 @@ path_executor:
     shoot_stable_timeout: 6.0     # 等稳定的最长时间(s)；等不到就降级放行而非死等
 
     # ---- ★障碍表（射击点规划器算视线遮挡用）----
-    obstacle_blocks: ["B1", "I2", "F7", "C8", "E8", "A9", "H9", "D10"]
+    obstacle_blocks: ["D1", "B3", "I3", "F7", "A8", "E9", "G9", "C11"]
     # ★★ 真源唯一性（2026-10-03 修 C8）：本表必须与 config/map.yaml 的
     #   map.obstacles 完全一致 —— 以前这里是另一份陈旧数据
     #   (A1/C2/B4/G4/E6/I7/D9/H10)，导致两个连锁错误：
     #     ① shoot_planner 按"假障碍"算视线遮挡，射击点判据全错；
     #     ② 校验误判路线"踩了 H10/D9/G4"，而那三个格其实是合法格。
     #   改地图只改 map.yaml，这里同步即可（route_check.py 会校验一致性）。
+    # ★ 2026-10-07：已同步为**现场布置图**的 8 障（原为 Map-C 旧图）。
     # ---- ★打靶三段式状态机 ----
     #  0 停稳 -> 1 请求扫描并等锁定 -> 2 开火窗口。每段都有超时兜底。
     shoot_settle_time: 0.8        # 位置连续多少秒不变才算"底盘停稳"
@@ -326,36 +327,128 @@ path_executor:
 
     # ---- 路线（雷/通/靶 必须全覆盖，且不能踩到"障"）----
     #   挡板约束：第 6/7 行之间、D~N 列封死，只有 A/B/C 列能上下穿行
+    #   ★★ 2026-10-07 迁到"现场布置图"版路线（34 航点，与车上现役一致）★★
+    #   结构：N10 出发 → 下半场穿 K9 向西 → 绕隔板（A/B/C 列）→ 压雷避障 →
+    #         G10* 停站打移动靶 → 上半场穿 K4 向东 → N5 终点
+    #   ★ 注意：这里的 K9/K4 只是**本局现场识图的结果**；每局穿洞格随机（下半场 K7~K11、
+    #     上半场 K1~K6 之一），由无人机侦察后选定 —— 新版本用 /dzbrain 段的
+    #     route.cross_lower/upper_candidates 表达候选集合并据情报选格，
+    #     本表是"未收到情报时的默认实例"。
     mission_blocks:
       - N10
-      - N9
-      - N8
-      - K8
-      - I8
+      - M10
+      - L10
+      - L9
+      - K9
+      - J9
+      - J10
       - I10
+      - H10
       - G10*
-      - E10
-      - E9
-      - D9
-      - D7
-      - E7
-      - R:D7
-      - R:B7
+      - F10
+      - F11
+      - E11
+      - R:F11
+      - F10
+      - F8
+      - B8
       - B6
-      - B5
-      - B3
-      - A3
-      - A4
+      - A6
+      - R:B6
+      - R:D6
+      - C6
       - C4
-      - G4
-      - G6
-      - R:G2
-      - G1
+      - C2
+      - G2
+      - H2
       - H1
-      - K1
-      - K2
-      - K5
+      - I1
+      - J1
+      - J4
+      - K4
+      - L4
+      - L5
       - N5
+
+# =============================================================================
+#  ★ 新版决策层 dzbrain 的参数段（2026-10-07 新增）
+# -----------------------------------------------------------------------------
+#  为什么挂在 <节点名>: ros__parameters: 里：robot.yaml 会被 bringup.launch.py
+#  当 params-file 喂给 C++ 节点，顶层**裸键**会让解析失败、三节点同时 abort
+#  （readme【项目结构提示】）。所以新参数挂在 /dzbrain 段下，由 Config 展平成
+#  `pursuit.wheelbase_m` 这样的点号键。
+#
+#  ★ 这里只列"需要现场调整/一眼看清"的键；其余键的默认值在
+#    src/dzbrain/dzmain/core/config.py 的 SCHEMA 里（缺失会用显式默认值并记录）。
+# =============================================================================
+/dzbrain:
+  ros__parameters:
+
+    pursuit:
+      wheelbase_m: 0.157              # 轴距（旧代码硬编码在 path_executor.py:629）
+      max_steer_deg: 30.0             # 舵角限幅（底盘侧再 clamp）
+      max_steer_rate_deg_s: 120.0     # ★新增：舵角速率限幅，防一帧跳 60°
+      curvature_gain: 1.0             # 1.0=教科书式 δ=atan(2L·sinα/ld)；0.5=旧行为等价（分母口径略差 1.5%，见架构文档 4.2）
+      lookahead_min_m: 0.18           # 前视距离下限（旧硬编码 0.15，注释却写 0.2）
+      lookahead_max_m: 0.45
+      lookahead_k_v: 1.2              # 前视 = k_v × 速度
+      lat_acc_max_mps2: 0.35          # 横向加速度上限（曲率限速）
+      cruise_speed_mps: 0.15          # 巡航速度（旧 linear_speed）
+      map_safety_margin_m: 0.60       # 越界急停余量（★新版提到状态机最顶层）
+      drift_warn_m: 0.30              # 单段漂移告警
+      drift_seg_gate_m: 0.18          # ★漂移判定用弧长窗口，不能绑在吸附半径上（否则永远报不出来）
+      bridge_blocks: ["K1","K2","K3","K4","K5","K6","K7","K8","K9","K10","K11"]  # 整列保护点
+      align_straight_before: 2.0      # 洞前多少格开始锁航向
+      align_straight_after: 1.0
+      align_straight_speed_mps: 0.10
+      align_kp: 12.0
+      align_steer_limit_deg: 8.0
+
+    route:
+      # ★ U 形赛道两处穿洞的候选格（每局随机，由无人机情报选定；超时用 default）
+      cross_lower_candidates: ["K7","K8","K9","K10","K11"]
+      cross_upper_candidates: ["K1","K2","K3","K4","K5","K6"]
+      cross_lower_default: "K9"
+      cross_upper_default: "K4"
+
+    mission:
+      auto_start: true
+      auto_start_delay_s: 10.0
+      reset: "N10,y"
+      scan_mode: continuous           # 边走边扫（readme【十】：绝不在到点发 1 降级成单次）
+      shots_per_stop: 3               # 每个射击停站点打几发
+      shoot_timeout_s: 30.0           # 单点硬超时（绝不卡死）
+      lock_timeout_s: 18.0
+      settle_time_s: 0.8
+      bridge_info_wait_s: 20.0        # 等无人机桥洞情报的最长时间
+
+    aim:
+      # ★ 移动轨道靶（G11+H11 轨道，行程 0.70m，4cm/s，无停顿来回）
+      lead_time_s: 0.35               # 提前量补偿时间（旧版只预判 0.5 帧≈16ms，链路延迟却有 0.5~0.9s）
+      fire_policy: moving_lead        # moving_lead / sweep / turnaround（本靶无端点停顿，turnaround 不适用）
+      rail_span_m: 0.70
+      target_speed_mps: 0.04
+      max_shots_total: 10
+      max_shots_per_target: 3
+      shot_cooldown_ms: 500
+      lost_frames_to_rescan: 60       # ★旧值 180 帧≈6s，丢靶期间云台会冻结；这里收紧
+      scan_pitch_offset_deg: 6.0      # ★现场必须核对：注释史与实测值长期冲突
+
+    fix:
+      anchor_at_waypoint: true        # 到位吸附（格心锚定）
+      scale_est_enabled: true         # 系统性比例误差在线估计
+
+    drone:
+      enabled: true
+      heartbeat_timeout_s: 3.0
+      info_stale_s: 30.0
+
+    safety:
+      pose_timeout_s: 1.0
+      task_stall_s: 1.0
+      startup_grace_s: 3.0            # ★冷启动宽限：区分"还没收到数据"与"跑着跑着断流"
+      brake_on_fault: true
+
 
 # =============================================================================
 #  ★ 底盘（C2：2026-10-03 接入配置中心）
@@ -382,14 +475,22 @@ path_executor:
     #  标定方法：把车放在场地直线段，遥控低速直行 6 格（6×0.35=2.10m），
     #            读出编码器计数增量 N，则 ticksPerMeter = N / 2.10。
     #  验收标准：走完 2.10m 后 /odom/localization 的位移应≈2.10m，误差 <3% 即可用。
-    ticksPerMeter: 3290.0
+    #  ★★★ 2026-10-07 修正：3290.0 → 2776.0 ★★★
+    #   来源：10-05 实车复标（odom 报 2.157m / 真实 1.85m ⇒ 旧值 2381 系错误测量，
+    #         复标后 2776）。车上现役包（10-03 20:06 打的 v2 包）带的是**复标前**的值，
+    #         两代文档都记载"原 8 次实测跑偏 Δy=−3.56m 的根因就是旧标定值"。
+    #   ⚠️ 该复标是在**另一条代码血统**上做的，本血统（10-03 快照）必须**实车复测确认**：
+    #      验收：遥控低速直行 2.10m，/odom/localization 位移应≈2.10m（误差 <3%）。
+    ticksPerMeter: 2776.0
     #  ticksPer2PI —— 原地转满一整圈(360°)对应的编码器计数（直接决定航向精度）。
-    #  ★当前 3236 与"按轮距反推"的 ≈2274 差 42%，二者必有一错：
+    #  ★ 旧值 3236 与"按轮距反推"的 ≈2274 差 42%，二者必有一错：
     #    差 42% 的后果是"命令转 90° 实际只转约 38°"，表现为过桥洞时航向持续偏出、
     #    还没到洞口就撞侧壁 —— 所以这个值必须实测，不能靠推算。
     #  标定方法：让底盘原地匀速转满一圈（地上贴角度基准线），读编码器增量即得。
     #  验证：命令转 90°，实测航向（serial_reader 的 yaw）应≈90°。
-    ticksPer2PI: 3236.0
+    #  ★★★ 2026-10-07 修正：3236.0 → 2309.4（10-03 20:15 复标，校正比 0.9886）★★★
+    #     同上：需在本血统实车复测确认。
+    ticksPer2PI: 2309.4
 
     # ---- 抖动抑制窗口（调试期先别动）----
     smooth_window_speed: 20

@@ -81,6 +81,9 @@ TOPICS: dict[str, Topic] = {
                           "0=停扫 1=单趟 2=持续", "pub"),
     "aim_fire_gate": Topic("/aim/fire_gate", "std_msgs/UInt8", QOS_EVENT,
                            "1=允许开火（★新增，修旧版死线）", "pub"),
+    "aim_fire_ready": Topic("/aim/fire_ready", "std_msgs/UInt8", QOS_EVENT,
+                            "1=瞄准合格（预测落点在开火框内）—— 与 fire_gate 构成"
+                            "**两键开火**：云台补丁只在两者都为 1 时开火", "pub"),
     "stop_signal": Topic("/move_base/stop_signal", "std_msgs/UInt8", QOS_EVENT,
                          "1=允许云台扫描+射击（历史话题，云台侧原先无人订阅）", "pub"),
     "motion_state": Topic("/nav/motion_state", "std_msgs/UInt8", QOS_EVENT,

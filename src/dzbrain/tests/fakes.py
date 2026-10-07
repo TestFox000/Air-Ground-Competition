@@ -54,6 +54,7 @@ class FakeBridge:
         self.brakes = 0
         self.scan_requests: list[int] = []
         self.fire_gate: list[bool] = []
+        self.fire_ready: list[bool] = []
         self.motion_states: list[bool] = []
         self.voices: list[int] = []
         self.drone_out: list[str] = []
@@ -178,6 +179,10 @@ class FakeBridge:
 
     def publish_lead(self, lead_px: float) -> None:
         self.leads.append(float(lead_px))
+
+    def publish_fire_ready(self, ready: bool) -> None:
+        """两键开火的第二把钥匙（AimTask 写）。"""
+        self.fire_ready.append(bool(ready))
 
     # ---------------- 断言辅助 ----------------
     def last_command(self) -> tuple[float, float] | None:

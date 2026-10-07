@@ -98,6 +98,7 @@ class TrackerTask(TaskThread):
         self._route_id: int | None = None
         self._seg_s: float | None = None            # 上一拍投影弧长（下一拍 s_hint）
         self._last_steer_deg: float | None = None
+        self._last_linear_x: float | None = None    # 上一拍线速度（判行进方向用）
         self._last_tick_at: float | None = None
         self._reverse_state: bool | None = None     # ★ 仅变化时发 motion_state
         self._align_segs: frozenset[int] = frozenset()
@@ -240,7 +241,15 @@ class TrackerTask(TaskThread):
             prev = self.bb.get(P_ROUTE_S)
             s_hint = float(prev) if isinstance(prev, (int, float)) else None
 
-        proj: Projection = path.project(pose.x, pose.y, s_hint=s_hint, window_m=self._window_m)
+        # ★ 行进方向（地图系）：倒车时是"车头反向"。路线折返压在同一条线上时
+        #   （现场图 B6→A6→R:B6），同一物理点落在两条航段上完全等距，
+        #   位置裁决不了 —— 必须把"车正在往哪边走"告诉投影（path.project 的 motion_heading）。
+        travel_heading = pose.yaw if (self._last_linear_x or 0.0) >= 0.0 else \
+            geo.normalize_angle(pose.yaw + math.pi)
+
+        proj: Projection = path.project(pose.x, pose.y, s_hint=s_hint,
+                                        window_m=self._window_m,
+                                        motion_heading=travel_heading)
         self._seg_s = proj.s
 
         is_rev = path.segment_is_reverse(proj.seg_index)
@@ -267,6 +276,7 @@ class TrackerTask(TaskThread):
             reason_tag = cmd.speed_reason
 
         self._last_steer_deg = steer
+        self._last_linear_x = speed          # ★ 供下一拍判断"实际行进方向"（倒车=车头反向）
         self.bridge.publish_command(speed, steer)
 
         # ---- 倒车状态：仅变化时发（旧版 1427–1435 同语义） ----

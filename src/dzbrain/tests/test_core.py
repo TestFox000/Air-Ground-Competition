@@ -150,9 +150,14 @@ cfg = Config.load(str(cfg_path))
 check("来源路径正确", cfg.source.endswith("robot.yaml"))
 check("旧键 path_executor.linear_speed 可读", cfg.get("path_executor.linear_speed") == 0.15)
 check("新键 pursuit.cruise_speed_mps 由旧键迁移", cfg.get("pursuit.cruise_speed_mps") == 0.15)
-check("route.tokens 由 mission_blocks 迁移", len(cfg.get("route.tokens") or []) == 29)
+# 2026-10-07 配置迁移：现场布置图路线 34 点（原 Map-C 旧图 29 点），标定改为复标值
+check("route.tokens 由 mission_blocks 迁移（现场图 34 点）",
+      len(cfg.get("route.tokens") or []) == 34)
 check("桥洞保护整列 K1~K11", len(cfg.get("pursuit.bridge_blocks") or []) == 11)
-check("旧 dzactuator 段可读", cfg.get("dzactuator.ticksPerMeter") == 3290.0)
+check("旧 dzactuator 段可读（已迁到复标值 2776.0）",
+      cfg.get("dzactuator.ticksPerMeter") == 2776.0)
+check("新版参数段 /dzbrain 生效（非 SCHEMA 默认）",
+      cfg.get("aim.lead_time_s") == 0.35 and cfg.get("pursuit.curvature_gain") == 1.0)
 check("新版默认值可读（SCHEMA 默认）", cfg.get("pursuit.wheelbase_m") == 0.157)
 check("case: 未知键给出告警", True)
 issues = cfg.validate(strict=False)

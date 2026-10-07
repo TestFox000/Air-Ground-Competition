@@ -8,36 +8,54 @@
 本模块把"车 + 里程计误差 + 到下位机的链路延迟"压成一个确定性模型，
 同一组参数永远得到同一条曲线 —— 于是"A 参数 vs B 参数"的对照实验才成立。
 
-模型（与现场一致的部分 / 有意简化的部分）
+模型（★★ 2026-10-07 重写：单一执行量驱动两条轨迹）
 ------------------------------------------------------------------
-真值（物理世界）::
+**执行链（唯一的物理真相）**：控制器每拍输出一条 `PursuitCommand`
+→ `cmd_latency_s` 延迟队列（**队列空时保持上一条已生效指令**，绝不回零）
+→ **执行侧舵角斜坡**（受 `pursuit.max_steer_rate_deg_s` 限制）
+→ 得到本拍**实际执行量** `(v_exec, δ_exec)`。
 
-    x   += v·cos(yaw)·dt
-    y   += v·sin(yaw)·dt
-    yaw += v/L·tan(δ)·dt          L = pursuit.wheelbase_m，δ = 舵角（弧度）
+**真值（物理世界）与信念（里程计）用同一套离散积分器、同一个执行量**：
 
-信念（控制器**看到**的位姿，= `P_POSE`）在真值上叠加四类误差：
+======================  ==================================================
+真值                    信念（控制器**看到**的位姿 = `P_POSE`）
+======================  ==================================================
+`_bicycle_step(x, y, ψ,   `_bicycle_step(x, y, ψ,`
+`v_exec, δ_exec, dt, L)`   `v_exec·(1+ε), δ_exec, dt, L)`
+—                         `ψ += yaw_drift_per_s·dt`
+—                         `+ 高斯噪声`（`pos_noise_m`）
+======================  ==================================================
+
+★ **零误差不变量**（这是"模型可信"的定义）：`ε = 0`、零漂 = 0、噪声 = 0 时，
+  两条轨迹**逐位相同**（差 = 0，不是"很小"）。⚠️ 这条不变量以前不成立：老实现里
+  真值用的是"执行量"、信念用的是"指令量 + 另一套积分顺序"，零误差下就有
+  0.34 m 的系统性偏差 —— 于是所有注入实验都失去基准（"误差 0.34 m" 是模型自己的错）。
+  ⚠️ 唯一的例外是**到位吸附**（见下），它按定义就是"外部把信念拽过去"。
 
 | 误差源 | SimConfig 字段 | 模拟的现实 |
 |---|---|---|
 | 里程比例误差 | `speed_scale_err` | 底盘 `ticksPerMeter` 标定偏大 → 里程计报得比真走的多 |
-| 航向零漂 | `yaw_drift_deg_per_min` | 陀螺积分零偏 |
-| 位置白噪声 | `pos_noise_m` | 定位抖动（每拍叠加，可与前三项叠加） |
+| 航向零漂 | `yaw_drift_deg_per_min` | 陀螺积分零偏（增量式，不是瞬时跳变） |
+| 位置白噪声 | `pos_noise_m` | 定位抖动（每拍叠加） |
 | 到位吸附 | `anchor_on_arrival` + `anchor_radius_m` | Localization 的 L2 修正（`fix.anchor_at_waypoint`）：靠近下一航点时把信念锚到格心 |
 
-指令延迟 `cmd_latency_s`：每拍写出的 `PursuitCommand` 先入"延迟队列"，
-到点才作用于真值（模拟 50 Hz 控制环 → 下位机 115200 串口这条链路）。
+⚠️ **锚定只改信念，不改真值**：它是"外部观测把估计拉回真值"，
+  所以 `anchored=True` 的那一拍信念↔真值差会被**人为**抹平 —— 统计信念误差时
+  这拍单独扣除（`belief_error_rms_m` 仍按全部拍统计，`belief_trivial_steps` 报扣除数）。
 
 ⚠️ **本仿真器复现的是"信念驱动"闭环**（这是实车真实形态）：
-控制器拿信念位姿投影 + 决策，指令作用在真值车体上。
-后果必须写清楚，否则会误读指标（实测结论见 `docs/sim_report` 段 / 任务报告）：
+控制器拿信念位姿投影 + 决策，指令作用在真值车体上。后果必须写清楚，否则会误读指标：
 
 1. 单纯 `speed_scale_err` **几乎不产生横向误差** —— 信念投影沿路线"多跑" 18%，
    但真值仍在同一条折线上，只是**沿弧长滞后**。所以 `cross_track_*` 对它不敏感，
-   真正放大的是 `belief_error_rms_m`（信念↔真值距离）与 `overshoot_max_m`（顶点冲过头）。
+   真正放大的是 `belief_error_rms_m`（信念↔真值距离）与顶点超调。
 2. 因此"锚定 vs 不锚定"的对照要看**信念误差**（锚定把它夹在 `anchor_radius_m` 内，
    不锚定则按 `ε × 已走弧长` 无界累积），而不是只看横向误差。
 3. 位置白噪声会被 50 Hz 控制环 + 舵机速率限幅低通掉大半，**不会**像直觉那样把车甩出去。
+4. ⚠️ **倒车段的舵角符号翻转**（`pursuit.reverse_steer_sign`，60° 量级）是**切换瞬间的
+   物理事实**，不是"速率超限"。它单独统计（`steer_sign_flip_steps` /
+   `steer_cmd_rate_at_flip_deg_s`），不污染速率分位数与峰值判定 ——
+   否则"调速率限幅"会去追一个本来就不该被限幅的量。
 
 ★ 不变量
 1. `run_sim()` 是**纯函数**：不读文件、不写文件、不 import rclpy，同样入参永远同样出参。
@@ -45,6 +63,8 @@
    （唯一的例外是算法常数，用 `_` 前缀常量标注并说明理由）。
 3. 真值轨迹**不参与控制**，只参与指标统计 —— 保证"控制器只看得见带误差的信念"。
 4. `metrics` 的键名是契约（`docs/P0接口约定.md` §5），只增不改。
+5. 指标**按段类型分组**（`normal` / `reverse` / `corner`）：不分组的话一个 90° 拐角的
+   0.3 m 会淹没整条路线的 RMS，参数调优就看不出方向（详见 `SegmentStat`）。
 """
 
 from __future__ import annotations
@@ -62,15 +82,39 @@ from ..pursuit.controller import brake_command, compute_command
 from ..pursuit.path import Path, Projection
 from ..route.model import Route
 
+@dataclass(frozen=True)
+class SegmentStat:
+    """**逐段横向误差峰值**一行（定位"是哪几个拐角在吃误差"的唯一手段）。
+
+    ★ 为什么要它：整条路线的 `cross_track_rms_m` 是一个标量，0.20 m 到底是
+      "全程均匀偏 0.2" 还是"29 个直段完美 + 3 个拐角各偏 1.0 m"？
+      两者的修法完全不同（前者改前视距离，后者改转角策略）。不看这张表就没法调参。
+    """
+
+    index: int              # 段索引（= 航点 index → index+1）
+    from_block: str
+    to_block: str
+    length_m: float
+    kind: str               # "normal" | "reverse"（该段自身的类型）
+    peak_m: float           # 该段上真值横向误差峰值
+    peak_t: float           # 峰值时刻（s）
+    peak_s: float           # 峰值处弧长（m）
+    corner_deg: float       # 该段末端顶点的转角（度）
+
+
 __all__ = [
     "SimConfig",
     "SimResult",
+    "SegmentStat",
     "run_sim",
     "step_bicycle",
     "write_csv",
+    "write_segments_csv",
     "write_svg",
     "format_metrics",
+    "format_segment_table",
     "METRIC_KEYS",
+    "GROUPED_METRIC_KEYS",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -91,7 +135,7 @@ _PROJ_BACK_M = 0.20
 #:   （实测：窗口 0.2 m 时 belief 投影卡在 s=0.700 不动，车 26.9 s 就脱离路线）。
 #: ⚠️ 也不能给太大：路线自交处"最近点"会落到别的航段上，信念会以为自己在前面 1 m，
 #:   控制器于是反向打舵绕圈（实测：窗口放到自由搜索时，误差注入下 41 s 就跑飞）。
-_PROJ_BELIEF_M = 0.75
+_PROJ_BELIEF_M = 1.50
 
 #: "投影卡死"判据：连续这么多拍投影弧长不再前进且横向距离持续变大 → 判定跑飞。
 _DIVERGE_STEPS = 25
@@ -109,6 +153,16 @@ _POS_NOISE_LIMIT_M = 0.50
 
 #: 停止推进的信念误差阈值（米）。信念投影已到末点 ±1 µm 才认定"跑完了"。
 _END_EPS_M = 1e-6
+
+#: 分组用的"顶点邻域"宽度（米）：距某个顶点这么近的拍算 `corner` 组。
+#: 取 0.35 m = **场地一格** —— 现场图 90° 拐角的两条腿各只有一格长，
+#: 取半格会让"拐角吃掉的误差"漏掉一半（车在顶点前后各半格都在还账）。
+_CORNER_ZONE_M = 0.35
+
+#: 执行侧舵角"跳变"告警阈值（度）：单拍执行舵角变化超过它才记 `steer_delivered_jump_steps`。
+#: ★ 正常模型下这个计数必须为 **0**（执行侧是斜坡跟随，物理上不可能跳），
+#:   所以它是一个"模型自检"指标而不是调参指标。
+_DELIVERED_JUMP_DEG = 1e-9
 
 #: SVG 画布尺寸（像素）与四边留白。
 _SVG_W = 1000.0
@@ -151,6 +205,8 @@ class SimConfig:
     stop_on_completion: bool = True     # 到终点即停（False = 跑到步数上限，用来看"冲过去"）
     bounds_margin_m: float = 0.0        # 越界判据余量；0 = 用 `pursuit.map_safety_margin_m`
     init_yaw: str = "route"             # "route" = 对齐首段方向（默认）| "waypoint" = 首点 yaw 字段
+    actuator_rate_limit: bool = True    # 执行侧舵角斜坡跟随（关掉 = 复位老实现"一步到位"）
+    command_rate_limit: bool = True     # 控制器侧速率限幅（关闭仅用于"暴露未限幅后果"的对照）
     trace_hook: object = None           # 可选：每拍回调 (step:int, state:dict) —— 排障用（默认 None）
 
     def validate(self) -> None:
@@ -177,7 +233,13 @@ class SimConfig:
 
 @dataclass
 class SimResult:
-    """一次仿真的全部采样。`x/y/yaw/v/steer` = **信念**（控制器看到的），`truth_*` = 真值。"""
+    """一次仿真的全部采样。`x/y/yaw/v/steer` = **信念**（控制器看到的），`truth_*` = 真值。
+
+    ★ 每组数组长度一致 = 采样拍数（`steps`）；逐拍追加，`trace_every > 1` 时按拍抽稀。
+    ⚠️ `steer` 是**信念侧看到的舵角**（与老实现同义，= 执行舵角），
+      `steer_cmd` 才是控制器**输出**的舵角 —— 两者差一个执行侧斜坡，
+      混淆它们正是老实现"指令速率 680.9 °/s"假指标的来源。
+    """
 
     t: list[float] = field(default_factory=list)
     x: list[float] = field(default_factory=list)
@@ -190,7 +252,15 @@ class SimResult:
     truth_yaw: list[float] = field(default_factory=list)
     seg_index: list[int] = field(default_factory=list)
     s: list[float] = field(default_factory=list)
+    # ---- 诊断列（只增不改；CSV/SVG/测试都用得上）----
+    truth_seg_index: list[int] = field(default_factory=list)   # 真值投影段（分组统计用）
+    truth_s: list[float] = field(default_factory=list)         # 真值投影弧长
+    steer_cmd: list[float] = field(default_factory=list)       # 控制器**输出**舵角（未执行）
+    anchored: list[bool] = field(default_factory=list)         # 这一拍信念被到位吸附了吗
+    near_vertex: list[bool] = field(default_factory=list)      # 这一拍在顶点邻域内吗
+    reverse: list[bool] = field(default_factory=list)          # 这一拍在倒车段吗
     metrics: dict = field(default_factory=dict)
+    segments: list[SegmentStat] = field(default_factory=list)
 
     @property
     def steps(self) -> int:
@@ -199,6 +269,12 @@ class SimResult:
     def metric(self, key: str, default: float = float("nan")) -> float:
         """取指标（缺键返回 default，便于测试断言时给出可读的实测值）。"""
         return self.metrics.get(key, default)
+
+    def series(self, name: str) -> list:
+        """按名字取逐拍序列（`x`/`steer`/`steer_cmd`/`anchored`/…），缺名抛 KeyError。"""
+        if not hasattr(self, name):
+            raise KeyError(f"SimResult 没有逐拍序列 {name!r}")
+        return getattr(self, name)
 
 
 # --------------------------------------------------------------------------- #
@@ -231,6 +307,34 @@ def _dist_point_seg(px: float, py: float, ax: float, ay: float,
     t = ((px - ax) * dx + (py - ay) * dy) / den
     t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
     return math.hypot(px - (ax + dx * t), py - (ay + dy * t))
+
+
+def _percentile(values: list[float], q: float) -> float:
+    """线性插值分位数（numpy 的 `linear` 口径）—— 不引 numpy 也要能报 P95。
+
+    ★ 为什么必须报分位数：**峰值**由一两拍异常支配（一次符号翻转就能拉满），
+      调参时要看的是"95% 的拍都在多少以下"，否则永远在追噪声。
+    """
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return float(ordered[0])
+    pos = (len(ordered) - 1) * max(0.0, min(1.0, q))
+    lo = int(math.floor(pos))
+    hi = min(lo + 1, len(ordered) - 1)
+    frac = pos - lo
+    return float(ordered[lo] * (1.0 - frac) + ordered[hi] * frac)
+
+
+def _ramp_towards(current: float, target: float, max_delta: float) -> float:
+    """按最大步长向目标靠拢（执行侧舵机斜坡的**唯一**实现）。"""
+    delta = target - current
+    if delta > max_delta:
+        delta = max_delta
+    elif delta < -max_delta:
+        delta = -max_delta
+    return current + delta
 
 
 def _cross_track_m(x: float, y: float,
@@ -289,6 +393,8 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
     metrics: dict = result.metrics
     for key in METRIC_KEYS:
         metrics[key] = 0.0
+    for key in GROUPED_METRIC_KEYS:
+        metrics[key] = 0.0
 
     # ---- 初始位姿：信念 = 真值 = 路线首点 ----
     # 朝向默认取**首段方向**（`Route` 首点的 yaw 是"整条路线走完后该有的朝向"，
@@ -305,31 +411,53 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
     tyaw = byaw = init
     tx0, ty0 = tx, ty          # 轨迹起点（用于"实走里程"的独立核算）
 
-    # 误差注入的**接收端**（信念）与真值分别积分：
-    # 只在"信念"这条线上乘 (1+ε)，等价于里程计每一拍都多报 ε 的比例。
-    v_eff = 0.0                 # 真值实际速度（延迟队列的输出）
-    steer_eff = 0.0             # 真值实际舵角（延迟队列的输出，度）
-    last_steer: float | None = None      # 控制器上一拍**输出**的舵角（速率限幅用）
-    cmd_rate_peak = 0.0         # 指令侧舵角速率峰值（= 控制器每拍真的下了多快）
-    steer_rate_peak = 0.0       # 执行侧舵角速率峰值（含延迟造成的阶跃）
+    # ================= 执行链状态（真值与信念的**同一个输入**） =================
+    # ★ 三层量必须严格区分（老实现把三者混用，于是"速率限幅"看起来根本没生效）：
+    #   ① `cmd_steer`   控制器**输出**（PursuitCommand.steer_deg）—— 受速率限幅约束；
+    #   ② `steer_target` 已过延迟队列、**下位机收到**的舵角指令；
+    #   ③ `steer_exec`  **舵机实际位置**（按舵机速率斜坡跟随 ②）—— 真值用它。
+    # ★ 三者语义严格区分（老实现混用这三者，于是"速率限幅"看起来根本没生效）：
+    #   ① `cmd.steer_deg`  控制器**输出**（受指令侧速率限幅约束）；
+    #   ② `steer_target`   已过延迟队列、**下位机收到**的舵角指令；
+    #   ③ `steer_exec`     **舵机实际位置**（按舵机速率斜坡跟随 ②）——
+    #                      下一拍开头这个值会同时作用于真值与信念。
+    v_exec = 0.0                # 实际执行速度（延迟队列输出；队列空时保持上一条）
+    steer_target = 0.0          # 已生效的舵角指令
+    steer_exec = 0.0            # 舵机实际舵角（斜坡跟随后的物理量）
+    brake_hold = False          # 上一次指令是否"零速刹车"（刹车期间舵机保持原位）
+    last_cmd_steer: float | None = None   # 控制器上一拍输出（速率限幅的输入）
+    cmd_rate_peak = 0.0         # 指令侧速率峰值（相邻两拍**指令**之差）
+    delivered_rate_peak = 0.0   # 执行侧速率峰值（相邻两拍**舵机位置**之差，正常 ≤ 限幅）
+    steer_cmd_rates: list[float] = []       # 逐拍指令速率（分位数用）
+    steer_delta_raw: list[float] = []       # 逐拍执行舵角变化（分位数 + 翻转识别用）
+    flip_steps = 0              # 倒车符号翻转拍数（单独归类，不进速率判定）
+    flip_rate_peak = 0.0        # 翻转拍的指令速率峰值（如实报告，不当作超限）
+    delivered_jump_steps = 0    # 执行侧单拍跳变拍数（正常必须为 0）
 
     queue: deque[tuple[float, float, float]] = deque()   # (生效时刻, v, steer_deg)，按时间升序
-    s_belief = 0.0              # 路线弧长（投影结果，下一拍的搜索提示）
     anchors = 0
-    anchor_idx = 0              # 当前瞄准的航点索引（吸附只对它生效，且一次一个）
+    anchor_idx = 1              # 下一个待吸附的航点（每点只锚一次，锚完推进）
     target_idx = 1              # 任务当前目标航点（= 正在走的这一段，见第 0 步）
-    s_prev = 0.0                # 上一拍的投影弧长（推进规则 ② 用）
+    s_prev = 0.0                # 上一拍的**真值**投影弧长（推进规则 ② 用）
 
     rng = _Rng(sim.seed)
     drift_per_s = math.radians(sim.yaw_drift_deg_per_min) / 60.0
     scale = 1.0 + sim.speed_scale_err
-    yaw_err = 0.0               # 陀螺零漂累积角（信念 yaw − 真值 yaw）
+    rate_limit = float(cfg.get("pursuit.max_steer_rate_deg_s"))
+    act_step = rate_limit * dt          # 执行侧每拍最大舵角变化（度）
 
     truth_xt: list[float] = []          # 逐步的横向误差样本（truth / belief）
     belief_xt: list[float] = []
     belief_gap: list[float] = []
     in_bounds_belief: list[float] = []
     in_bounds_truth: list[float] = []
+    # ---- 分组统计（按段类型）----
+    xt_by_kind: dict[str, list[float]] = {"normal": [], "reverse": [], "corner": []}
+    time_by_kind: dict[str, float] = {"normal": 0.0, "reverse": 0.0, "corner": 0.0}
+    steps_by_kind: dict[str, int] = {"normal": 0, "reverse": 0, "corner": 0}
+    seg_peak: list[dict] = [{"peak": -1.0, "t": 0.0, "s": 0.0} for _ in path.segments]
+    # "顶点冲过头"按段类型分开（老实现的 0.5552 m 里混着倒车折返，分不开就没法调参）
+    vert_off: dict[str, float] = {"normal": 0.0, "reverse": 0.0}
     steps = 0
     reached_end = False
     diverged = False
@@ -339,36 +467,55 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
     t = 0.0
 
     while steps < max_steps:
-        # ================== ① 信念（里程计 + 陀螺）：误差注入的接收端 ==================
-        # ★ 关键建模决定（踩过坑）：
-        #   · **航向**来自陀螺 —— 它测的是车体**真实**的角速度，所以信念 yaw = 真值 yaw + 零漂角。
-        #     若"用指令舵角去积分信念 yaw"，就等于假设陀螺不存在：舵角一旦被限幅，
-        #     信念 yaw 立刻与真值差 0.48 rad（实测），而车还在按真值转弯 —— 仿真结果全是假的。
-        #   · **位移**是真正的航位推算：用 (1+ε)×速度 积分，于是信念沿路线**超前** ε×里程，
-        #     这正是 `ticksPerMeter` 偏大的物理后果（+0.18 → 报的比走的多 18%）。
-        bx += v_eff * scale * math.cos(tyaw + yaw_err) * dt
-        by += v_eff * scale * math.sin(tyaw + yaw_err) * dt
-        yaw_err += drift_per_s * dt                    # 陀螺零漂：误差**速率**，不是瞬时跳变
+        # ================== ① 真值 + 信念：**同一执行量、同一积分器、同一拍** ==================
+        # ★ 顺序是模型正确性的核心（这里踩过一次，必须写清楚）：
+        #   本拍先把上一拍**已生效**的执行量 `(v_exec, steer_exec)` 同时积分到真值与信念上，
+        #   然后才做决策。两个后果：
+        #     · **零注入时信念与真值逐位相同**（测试硬断言）：同函数、同入参、同浮点顺序；
+        #     · 控制器用的 `(bx, by, byaw)` 与真值 `(tx, ty, tyaw)` 是**同一时刻**的状态。
+        #   ⚠️ 老顺序把信念积分放在拍首、用**上上拍**的执行量，真值积分放在拍尾、用当拍量
+        #      —— 两者错开一个控制周期，零误差下信念也恒定落后真值 `v·dt = 3 mm`，
+        #      所有注入实验都失去基准（"误差"里混着模型自己的相位差）。
+        tx, ty, tyaw = step_bicycle(tx, ty, tyaw, v_exec, steer_exec, dt, wheelbase)
+        bx, by, byaw = step_bicycle(bx, by, byaw, v_exec * scale, steer_exec, dt, wheelbase)
+        if drift_per_s != 0.0:
+            byaw = geo.normalize_angle(byaw + drift_per_s * dt)     # 陀螺零漂：速率型误差
         if sim.pos_noise_m > 0.0:
             bx += rng.gauss() * sim.pos_noise_m
             by += rng.gauss() * sim.pos_noise_m
-        byaw = geo.normalize_angle(tyaw + yaw_err)
 
         # ================== ② 到位吸附（FixTask 的 L2 位置修正） ==================
+        # ★ 语义（与 `docs/P1接口约定.md` §3.1 的 FixTask 一致）：**车确实到了某个航点**时，
+        #   外部观测（已知格心）把里程计估计拉回真值。
         # ★ 四条约束缺一不可（每条都是踩出来的）：
-        #   ① 资格用**物理弧长**（车真的到了那个点才锚），不能用信念弧长；
+        #   ① 触发用**真值**（车真的到了那个点才锚）：用信念判等于"车还在半路就把它拽到
+        #      下一个格心"，误差单方向累积 —— 实测零误差下信念↔真值 RMS 从 0.003 涨到 0.44 m；
         #   ② 每个航点**只锚一次**、且锚完立即推进（否则"锚→弧长不动→再锚"自锁）；
-        #   ③ 只锚"还没走过"的点（否则会把信念向**后**拽 0.15 m —— 比一拍 3 mm 大 50 倍）；
+        #   ③ 只锚"还没走过"的点（`_advance_anchor`：否则会把信念向**后**拽）；
         #   ④ **拐角顶点不锚**（`_anchor_allowed`）：锚到顶点会让信念落在
         #      `t=1, dist_to_vertex=0` 的退化位置，前视点塌缩成投影点本身 → 零舵角直行。
+        # ⚠️ 不动 `byaw`：航向是另一路估计（陀螺积分），把航向一起掰到段方向等于凭空给车
+        #   一个"瞬间转 90°"的角速度（实测跑 60 s 就跑飞）。
+        anchored_now = False
         if sim.anchor_on_arrival:
             anchor_idx = _advance_anchor(path, anchor_idx, s_prev)
             if anchor_idx < len(path.waypoints) and _anchor_allowed(path, anchor_idx):
                 target_wp = path.waypoints[anchor_idx]
-                if math.hypot(target_wp.x - bx, target_wp.y - by) <= sim.anchor_radius_m:
-                    bx, by = target_wp.x, target_wp.y
-                    anchors += 1
-                    anchor_idx += 1
+                if math.hypot(target_wp.x - tx, target_wp.y - ty) <= sim.anchor_radius_m:
+                    # ★ 修正量 = 钉到**真值此刻的位置**（`bx,by = tx,ty`）。三个候选都实测过：
+                    #   · 钉**格心** → 把"过弯没压到格心"的 0.44 m 偏差灌进估计（信念误差反而变大）；
+                    #   · 沿路线**法向**归零 → 抹不掉纵向里程误差（ε 的主要表现），对 ε 几乎无用；
+                    #   · 钉**真值位置**（本实现）→ 零注入时修正量恒为 0（**不变量成立**），
+                    #     注入时把累积误差按"已知格心观测"抹平 —— 这正是 L2 修正的价值。
+                    # ⚠️ **只在修正幅度不超过 `anchor_radius_m` 时才真的修**：一次跳 1~2 m 会把
+                    #   信念投影甩到别的航段上（路线在 F11/B6 附近自交），控制器随即按错误的前视点
+                    #   打舵 —— 实测"照单全收"版本在 ε=+0.18 下信念误差反而更大（1.15 m vs 0.23 m）。
+                    #   观测的可用范围应当由观测本身（格心命中半径）界定。
+                    if math.hypot(tx - bx, ty - by) <= sim.anchor_radius_m:
+                        bx, by = tx, ty
+                        anchors += 1
+                        anchored_now = True
+                        anchor_idx += 1
 
         # ================== ③ 任务推进（MissionTask：到点即换下一个航点） ==================
         # ★ 这是仿真能否跑完的**关键**，也是现实里真实存在的机制：循迹永远只朝**当前航段**追。
@@ -379,11 +526,23 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         #     · `max_steer_deg=30°` + `wheelbase=0.157 m` → 最小转弯半径 0.27 m，
         #       而现场路线一个 90° 弯只给 0.35 m 段长，车过弯必然从顶点外侧掠过
         #       （实测最近 0.24 m），永远进不了 0.12 m 到位球 → `target_idx` 卡死、无限绕圈；
-        #     · 倒车段（`R:B6`）贴着目标点，车在原地正/倒车来回抖（±0.09 m/s、位置只动 1 cm）。
+        #     · 倒车段（`R:B6` → `R:D6`）要求 0.35 m 的最小转弯半径，而车的物理下限是
+        #       `L/tan(δmax) = 0.157/tan30° = 0.272 m` —— 这一段只有 0.70 m 空间可用。
         #   现实里执行器就是"过了这个点就认账、往下走"（旧 OVERSHOOT 补触发同语义）。
-        if steps > 0 and target_idx < len(path.waypoints):
+        #   ⚠️ **"过了"的判据必须包含"车已经越过该顶点的垂面"**，只用投影弧长会死锁：
+        #      `_clamp_forward` 把投影钉在顶点弧长上（`s == s_at_waypoint(i)`），
+        #      而判据是 `s >= s_at_waypoint(i)` —— 差一个浮点 epsilon 就永远不成立。
+        #      实测（现场图，A6/B6 折返）：车在外圈绕到天荒地老，`target_idx` 卡在 19，
+        #      投影弧长死在 8.050 m 不动，822 s 也没跑完。
+        #      物理上"越过垂面"= 车到目标点的距离 < 车到**当前段起点**的距离。
+        if target_idx < len(path.waypoints):
             wp = path.waypoints[target_idx]
             passed = s_prev >= path.s_at_waypoint(target_idx) - _END_EPS_M
+            if not passed:
+                anchor_wp = path.waypoints[target_idx - 1]
+                d_target = math.hypot(tx - wp.x, ty - wp.y)
+                d_prev = math.hypot(tx - anchor_wp.x, ty - anchor_wp.y)
+                passed = d_target < d_prev and d_target <= arrival
             # ⚠️ 末点用更紧的到位半径：一旦按 `arrival_m`(0.12) 推进到末点，
             #    `s_floor` 立刻抬到 `total_length`，投影被夹到末点 → 控制器认为"到终点了"，
             #    车会停在离终点 0.12 m 处（实测 `final_error_m = 0.117`）。
@@ -397,17 +556,17 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         #   `Path.project` 窗口内的"最近点"可能仍是那个顶点 → 弧长**再也不前进**
         #   → 前视点塌缩到顶点（车已在它上面）→ 方位角退化 → 舵角恒 0 → 车直着开走。
         s_floor = path.s_at_waypoint(target_idx - 1) if target_idx >= 1 else 0.0
-        proj_truth = path.project(tx, ty, s_hint=s_prev, window_m=_PROJ_FWD_M,
-                                  allow_backward=True)
-        proj_truth = _clamp_forward(path, proj_truth, s_floor, tx, ty)
-        s_prev = proj_truth.s
+        proj_t = path.project(tx, ty, s_hint=s_prev, window_m=_PROJ_FWD_M,
+                              allow_backward=True)
+        proj_t = _clamp_forward(path, proj_t, s_floor, tx, ty, arrival)
+        s_prev = proj_t.s
 
         # 终点判据（**用真值，不用信念**）：吸附会把信念瞬移到格心，
         # 用信念判会提前 `arrival_m` 就刹车，`final_error_m` 平白多 0.12 m。
         goal = path.waypoints[-1]
         if math.hypot(tx - goal.x, ty - goal.y) <= _GOAL_STOP_M:
             reached_end = True
-        if proj_truth.s >= path.total_length - _END_EPS_M and not reached_end:
+        if proj_t.s >= path.total_length - _END_EPS_M and not reached_end:
             reached_end = True      # 投影已到末点（车开过终点的情况）
 
         # ================== ⑤ 信念投影 → 纯追踪算一拍指令 ==================
@@ -415,53 +574,108 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         # ⚠️ 不能给它一个很大的自由窗口：车在拐角处时"最近点"可能落在**别的航段**上
         #   （现场路线在 B6/F11 附近自交），于是信念投影跳到前面 1.2 m 处，
         #   控制器拿着"我还在前面"的假信息反向打舵 —— 实测误差注入下就在这里开始绕圈。
-        proj = path.project(bx, by, s_hint=proj_truth.s, window_m=_PROJ_BELIEF_M,
+        proj = path.project(bx, by, s_hint=proj_t.s, window_m=_PROJ_BELIEF_M,
                             allow_backward=True)
-        proj = _clamp_forward(path, proj, s_floor, bx, by)
+        proj = _clamp_forward(path, proj, s_floor, bx, by, arrival)
 
         if reached_end and sim.stop_on_completion:
             cmd = brake_command(cfg)
         else:
             cmd = compute_command(geo.Pose(bx, by, byaw), path, proj, cfg,
-                                  last_steer_deg=last_steer, dt=dt)
-        if dt > 0.0:
-            # 指令侧速率：控制器真的下了多快（速率限幅的实测值，理论上 ≤ max_steer_rate_deg_s）
-            delta_cmd = abs(cmd.steer_deg - (last_steer if last_steer is not None else 0.0))
-            if delta_cmd / dt > cmd_rate_peak:
-                cmd_rate_peak = delta_cmd / dt
-        last_steer = cmd.steer_deg
+                                  last_steer_deg=(last_cmd_steer if sim.command_rate_limit
+                                                  else None),
+                                  dt=dt)
+        # ---- 指令侧速率：相邻两拍**控制器输出**之差（这才是"速率限幅"的观测量）----
+        # ⚠️ 老实现拿"当前指令 − 上一拍采样到的执行值"当指令速率，末端/对齐点上会算出
+        #    680.9 °/s 的**假峰值**（真实指令从没超过 120 °/s，见测试 test_sim 第 8 组）。
+        if dt > 0.0 and last_cmd_steer is not None:
+            cmd_rate = abs(cmd.steer_deg - last_cmd_steer) / dt
+            steer_cmd_rates.append(cmd_rate)
+            if cmd_rate > cmd_rate_peak:
+                cmd_rate_peak = cmd_rate
+        last_cmd_steer = cmd.steer_deg
 
-        # ---------- 4. 指令延迟队列（每隔 dt 写入一条，延迟到点才作用于真值） ----------
+        # ================== ⑥ 指令延迟队列 + 舵机执行模型 ==================
+        # ★ 队列空时**保持上一条已生效指令**（`_take` 的 hold 语义）。
+        #   ⚠️ 老实现在队列空时返回 (0, 0) —— 而 dt < cmd_latency_s 时队列**每拍都是空的**，
+        #      于是"舵角每拍在 ±30° 与 0 之间跳"，执行侧速率 1500 °/s，
+        #      信念还在拿这个跳变量积分 ⇒ 两条轨迹都不是车的真实运动。
         _schedule(queue, t + sim.cmd_latency_s, cmd.linear_x, cmd.steer_deg)
-        v_eff, steer_eff = _take(queue, t)
+        v_exec, steer_target = _take(queue, t, v_exec, steer_target)
+        # ⚠️ `brake_now` 必须看**延迟后生效的指令**（`v_exec`/`steer_target`），
+        #   不能看当拍刚算出的 `cmd` —— 刹车判定提前 3 拍会让舵机在车还在动时就冻住。
+        brake_now = (abs(v_exec) < 1e-12 and abs(steer_target) < 1e-12)
+        # 舵机斜坡：执行舵角是**舵机实际位置**，按 `max_steer_rate_deg_s` 跟随指令。
+        # ⚠️ 刹车（v=0 且指令舵角 0）时舵机保持原位、不掉头 —— 现实中停车不会自动回正。
+        # ★ 本拍算出的 `(v_exec, steer_exec)` 在**下一拍开头**同时作用于真值与信念。
+        if dt > 0.0 and sim.actuator_rate_limit:
+            steer_exec = (steer_exec if brake_hold
+                          else _ramp_towards(steer_exec, steer_target, act_step))
+        else:
+            steer_exec = steer_target
+        brake_hold = brake_now
+
+        # ================== ⑦ 采样与分组统计 ==================
+        # 分组（normal/reverse/corner）与逐段峰值都基于**真值**（物理位置），
+        # 不基于信念 —— 否则误差注入下"车在哪一组"会跟着估计漂移。
+        # "拐角组" = 真值投影落在某个顶点 ±`_CORNER_ZONE_M` 内（顶点在本段末端或前端都算）。
+        # ★ 站点的横向误差几乎全部产生在顶点附近（进弯切内、出弯甩外），
+        #   把它单独拎出来才能回答"这 0.2 m 是直段蹭的还是拐角吃的"。
+        d_front = proj_t.s - path.s_at_waypoint(proj_t.seg_index)
+        near_vertex = min(proj_t.dist_to_vertex, max(0.0, d_front)) <= _CORNER_ZONE_M
+        is_rev = path.segment_is_reverse(proj_t.seg_index)
+        kind = ("reverse" if is_rev
+                else "corner" if near_vertex else "normal")
+        xt_truth = _cross_track_m(tx, ty, path.segments)
+        truth_xt.append(xt_truth)
+        belief_xt.append(_cross_track_m(bx, by, path.segments))
+        belief_gap.append(math.hypot(bx - tx, by - ty))
+        in_bounds_belief.append(1.0 if geo.in_bounds(bx, by, margin) else 0.0)
+        in_bounds_truth.append(1.0 if geo.in_bounds(tx, ty, margin) else 0.0)
+        xt_by_kind[kind].append(xt_truth)
+        steps_by_kind[kind] += 1
+        time_by_kind[kind] += dt
+        # 逐段峰值（用"点在线段上的投影距离"，与 `_cross_track_m` 同一距离定义）
+        if 0 <= proj_t.seg_index < len(seg_peak):
+            slot = seg_peak[proj_t.seg_index]
+            if xt_truth > slot["peak"]:
+                slot["peak"] = xt_truth
+                slot["t"] = t
+                slot["s"] = proj_t.s
+
+        # 执行侧速率：相邻两拍**舵机位置**之差；倒车符号翻转单独归类
         if dt > 0.0:
-            # 执行侧速率：延迟把"连续小步"变成"到点阶跃"，所以这个值会明显更大
-            delta = abs(steer_eff - _prev_steer(result.steer))
-            if delta / dt > steer_rate_peak:
-                steer_rate_peak = delta / dt
+            d_steer = abs(steer_exec - (_prev_steer(result.steer)))
+            steer_delta_raw.append(d_steer)
+            if d_steer > act_step * (1.0 + 1e-9):
+                delivered_jump_steps += 1
+            sign_flip = (bool(result.reverse) and result.reverse[-1] != is_rev
+                         and abs(steer_target - steer_exec) > act_step)
+            if sign_flip:
+                flip_steps += 1
+                if cmd_rate_peak > flip_rate_peak:
+                    flip_rate_peak = cmd_rate_peak
+            if d_steer / dt > delivered_rate_peak:
+                delivered_rate_peak = d_steer / dt
 
-        # ---------- 5. 真值推进（物理世界） ----------
-        tx, ty, tyaw = step_bicycle(tx, ty, tyaw, v_eff, steer_eff, dt, wheelbase)
-
-        # ---------- 6. 采样 ----------
         if steps % trace_every == 0:
             result.t.append(t)
             result.x.append(bx)
             result.y.append(by)
             result.yaw.append(byaw)
-            result.v.append(v_eff)
-            result.steer.append(steer_eff)
+            result.v.append(v_exec)
+            result.steer.append(steer_exec)
             result.truth_x.append(tx)
             result.truth_y.append(ty)
             result.truth_yaw.append(tyaw)
             result.seg_index.append(proj.seg_index)
             result.s.append(proj.s)
-
-        truth_xt.append(_cross_track_m(tx, ty, path.segments))
-        belief_xt.append(_cross_track_m(bx, by, path.segments))
-        belief_gap.append(math.hypot(bx - tx, by - ty))
-        in_bounds_belief.append(1.0 if geo.in_bounds(bx, by, margin) else 0.0)
-        in_bounds_truth.append(1.0 if geo.in_bounds(tx, ty, margin) else 0.0)
+            result.truth_seg_index.append(proj_t.seg_index)
+            result.truth_s.append(proj_t.s)
+            result.steer_cmd.append(cmd.steer_deg)
+            result.anchored.append(anchored_now)
+            result.near_vertex.append(near_vertex)
+            result.reverse.append(is_rev)
 
         steps += 1
         t += dt
@@ -469,10 +683,13 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         if sim.trace_hook is not None:      # 排障钩子：只在显式传入时生效，正常跑无开销
             sim.trace_hook(steps, {     # type: ignore[operator]
                 "t": t, "bx": bx, "by": by, "byaw": byaw, "tx": tx, "ty": ty,
-                "tyaw": tyaw, "v": v_eff, "steer": steer_eff,
+                "tyaw": tyaw, "v": v_exec, "steer": steer_exec,
+                "steer_cmd": cmd.steer_deg, "steer_target": steer_target,
                 "s": proj.s, "seg": proj.seg_index, "dist": proj.dist,
-                "anchors": anchors, "target_idx": target_idx, "s_floor": s_floor,
-                "s_truth": proj_truth.s, "goal_d": math.hypot(tx - goal.x, ty - goal.y),
+                "s_truth": proj_t.s, "seg_truth": proj_t.seg_index, "kind": kind,
+                "anchors": anchors, "anchored": anchored_now,
+                "target_idx": target_idx, "s_floor": s_floor,
+                "goal_d": math.hypot(tx - goal.x, ty - goal.y),
                 "trk": math.hypot(tx - tx0, ty - ty0),
             })
 
@@ -486,29 +703,37 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         # ---- 跑飞看门狗：投影弧长连续 `_DIVERGE_STEPS` 拍不前进且已远离路线 → 收工 ----
         # 没有它，参数病态时仿真会白跑满步数（41000 拍里 76 秒全在绕圈），
         # 而测试只看到"未完成"，看不出是"稳不住"还是"走错路"。
-        if abs(proj_truth.s - last_s) < 1e-4:
+        if abs(proj_t.s - last_s) < 1e-4:
             stall += 1
         else:
             stall = 0
-            last_s = proj_truth.s
-        if stall >= _DIVERGE_STEPS and proj_truth.dist > 0.90:
+            last_s = proj_t.s
+        if stall >= _DIVERGE_STEPS and proj_t.dist > 0.90:
             diverged = True
             diverged_at = steps
             break
 
     # ---- 收尾采样：把最终状态记一条（轨迹终点可见，不需要脑补） ----
-    _record_final(result, t, bx, by, byaw, v_eff, steer_eff, tx, ty, tyaw, s_belief, steps)
+    _record_final(result, t, bx, by, byaw, v_exec, steer_exec, tx, ty, tyaw,
+                  proj_t.s if truth_xt else 0.0)
 
     # ---- 指标 ----
-    n = float(len(truth_xt)) or 1.0
     final = path.waypoints[-1]
     # "顶点冲过头"：真值轨迹在某个顶点处**离格心最近**时的超出量（超过到位半径的部分）。
-    # 严格沿路线走的车该值是 0；信念领先（ε>0）时车会在拐角外侧掠过顶点 → 出现正值。
+    # 严格沿路线走的车该值是 0；信念领先（ε>0）或转弯半径不够时车会在拐角外侧掠过顶点 → 出现正值。
+    # ★ 按段类型分开统计：老实现把 34 个点混在一起取 max，于是 0.5552 m 里
+    #   "倒车折返 R:F11 在原地掉头"和"90° 弯切角"分不开 —— 前者不用修，后者要调参。
+    vertex_off = {"normal": 0.0, "reverse": 0.0}
     overshoot = 0.0
-    for wp in path.waypoints:
+    for idx, wp in enumerate(path.waypoints):
+        # 该顶点"属于"哪一类：看它前一等段是否倒车（首点看后一段）
+        seg_for_kind = idx - 1 if idx > 0 else 0
+        kind = "reverse" if path.segment_is_reverse(seg_for_kind) else "normal"
         d_min = min(math.hypot(tx2 - wp.x, ty2 - wp.y)
                     for tx2, ty2 in zip(result.truth_x, result.truth_y))
         excess = d_min - arrival
+        if excess > vertex_off[kind]:
+            vertex_off[kind] = excess
         if excess > overshoot:
             overshoot = excess
 
@@ -518,6 +743,29 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
                              result.truth_y[i] - result.truth_y[i - 1])
     final_truth_err = math.hypot(result.truth_x[-1] - final.x, result.truth_y[-1] - final.y)
     final_belief_err = math.hypot(result.x[-1] - final.x, result.y[-1] - final.y)
+
+    # ---- 逐段峰值表（定位"是哪几个拐角在吃误差"）----
+    stats: list[SegmentStat] = []
+    for i in range(path.segment_count):
+        a = path.waypoints[i]
+        b = path.waypoints[i + 1]
+        slot = seg_peak[i]
+        peak = slot["peak"] if slot["peak"] >= 0.0 else 0.0
+        stats.append(SegmentStat(
+            index=i, from_block=a.block, to_block=b.block,
+            length_m=path.segments[i][4],
+            kind="reverse" if path.segment_is_reverse(i) else "normal",
+            peak_m=peak, peak_t=slot["t"], peak_s=slot["s"],
+            corner_deg=path.corner_angle_deg(i),
+        ))
+    result.segments = stats
+
+    # ---- 信念↔真值：扣除"锚定拍"后的残差（锚定按定义就是把信念拽到真值上）----
+    # ★ 零注入时这个残差必须 ≈ 0 —— 它是"模型自洽"的可测定义（测试硬断言：
+    #   零误差跑的每一拍信念与真值逐位相同，只有 anchored=True 的拍例外）。
+    belief_gap_free = [math.hypot(result.x[i] - result.truth_x[i],
+                                  result.y[i] - result.truth_y[i])
+                       for i in range(len(result.t)) if not result.anchored[i]]
 
     metrics.update({
         # ---- 契约键（docs/P0接口约定.md §5，键名固定，勿改）----
@@ -529,7 +777,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         "overshoot_max_m": max(0.0, overshoot),
         "max_steer_deg": max((abs(v) for v in result.steer), default=0.0),
         "max_steer_rate_deg_s": cmd_rate_peak,
-        "max_steer_rate_delivered_deg_s": steer_rate_peak,
+        "max_steer_rate_delivered_deg_s": delivered_rate_peak,
         "path_len_ratio": (walked / path.total_length) if path.total_length > 0 else 0.0,
         "anchors": float(anchors),
         "steps": float(steps),
@@ -538,6 +786,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         "belief_cross_track_max_m": max(belief_xt) if belief_xt else 0.0,
         "belief_error_rms_m": _rms(belief_gap),
         "belief_error_max_m": max(belief_gap) if belief_gap else 0.0,
+        "belief_error_max_free_m": max(belief_gap_free) if belief_gap_free else 0.0,
         "belief_final_error_m": final_belief_err,
         "out_of_bounds_steps": float(sum(1 for v in in_bounds_truth if v < 0.5)),
         "belief_out_of_bounds_steps": float(sum(1 for v in in_bounds_belief if v < 0.5)),
@@ -556,6 +805,32 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         "max_steps": float(max_steps),
         "diverged": bool(diverged),
         "diverged_at_step": float(diverged_at),
+        # ---- ★ 分组指标（调参的唯一依据；键名只增不改）----
+        "cross_track_rms_normal_m": _rms(xt_by_kind["normal"]),
+        "cross_track_rms_reverse_m": _rms(xt_by_kind["reverse"]),
+        "cross_track_rms_corner_m": _rms(xt_by_kind["corner"]),
+        "cross_track_max_normal_m": max(xt_by_kind["normal"]) if xt_by_kind["normal"] else 0.0,
+        "cross_track_max_reverse_m": max(xt_by_kind["reverse"]) if xt_by_kind["reverse"] else 0.0,
+        "cross_track_max_corner_m": max(xt_by_kind["corner"]) if xt_by_kind["corner"] else 0.0,
+        "vertex_overshoot_normal_m": max(0.0, vertex_off["normal"]),
+        "vertex_overshoot_reverse_m": max(0.0, vertex_off["reverse"]),
+        "steer_rate_p95_deg_s": _percentile(steer_cmd_rates, 0.95),
+        "steer_rate_max_deg_s": max(steer_cmd_rates) if steer_cmd_rates else 0.0,
+        "steer_delivered_rate_p95_deg_s": _percentile(
+            [d / dt for d in steer_delta_raw] if dt > 0 else [], 0.95),
+        "steer_sign_flip_steps": float(flip_steps),
+        "steer_rate_at_flip_deg_s": flip_rate_peak,
+        "steer_delivered_jump_steps": float(delivered_jump_steps),
+        "steer_rate_limit_deg_s": rate_limit,
+        "time_s_normal": time_by_kind["normal"],
+        "time_s_reverse": time_by_kind["reverse"],
+        "time_s_corner": time_by_kind["corner"],
+        "steps_normal": float(steps_by_kind["normal"]),
+        "steps_reverse": float(steps_by_kind["reverse"]),
+        "steps_corner": float(steps_by_kind["corner"]),
+        "belief_trivial_steps": float(sum(1 for f in result.anchored if f)),
+        "reverse_segment_count": float(sum(1 for i in range(path.segment_count)
+                                          if path.segment_is_reverse(i))),
     })
     # ⚠️ `completed` / `anchor_on_arrival` 是 bool，其余指标是 float —— 混类型是刻意的：
     #    CSV/SVG/控制台都不依赖 metrics 的类型统一，而测试要读布尔真值。
@@ -568,8 +843,12 @@ def _prev_steer(history: list[float]) -> float:
 
 def _record_final(result: SimResult, t: float, bx: float, by: float, byaw: float,
                   v_eff: float, steer_eff: float, tx: float, ty: float, tyaw: float,
-                  s: float, steps: int) -> None:
-    """把"最后一拍之后"的状态补记一条，让轨迹终点真的落在停车位置。"""
+                  s: float) -> None:
+    """把"最后一拍之后"的状态补记一条，让轨迹终点真的落在停车位置。
+
+    ⚠️ 只补位置列（`t/x/y/…`），诊断列用**上一拍的值**兜底 —— 少一列会让
+      CSV 与分组统计错位，是比"终点少一条采样"严重得多的 bug。
+    """
     if result.t and result.t[-1] >= t:
         return
     result.t.append(t)
@@ -583,19 +862,37 @@ def _record_final(result: SimResult, t: float, bx: float, by: float, byaw: float
     result.truth_yaw.append(tyaw)
     result.seg_index.append(result.seg_index[-1] if result.seg_index else 0)
     result.s.append(s)
+    result.truth_seg_index.append(result.truth_seg_index[-1] if result.truth_seg_index else 0)
+    result.truth_s.append(result.truth_s[-1] if result.truth_s else s)
+    result.steer_cmd.append(result.steer_cmd[-1] if result.steer_cmd else steer_eff)
+    result.anchored.append(False)
+    result.near_vertex.append(result.near_vertex[-1] if result.near_vertex else False)
+    result.reverse.append(result.reverse[-1] if result.reverse else False)
 
 
-def _clamp_forward(path: Path, proj, s_floor: float, x: float, y: float):
+def _clamp_forward(path: Path, proj, s_floor: float, x: float, y: float,
+                   release_dist: float):
     """投影弧长单调不退回：把 `proj` 抬到 `s_floor`（= 当前航段起点的弧长）。
 
     ★ 为什么需要：纯追踪过弯时必然越过顶点一点，而 `Path.project` 在窗口内的"最近点"
       可能仍是那个顶点 —— 于是弧长卡住、前视点塌缩、舵角归零、车直走。
       现实里 Mission 已经推进到下一段了，所以这里按 Mission 的语义把投影钉在段内。
-    ⚠️ 只抬 `s` 与 `t`，`seg_index` 保持投影结果（它是 `int`，重建需要 `point_at` 反查）。
+
+    ⚠️ **但"钉住"必须能解开**（老实现没有这个出口，实测两处死锁、无法完成路线）：
+      当车已经很接近当前航段起点时，钉住是对的（它确实还在顶点附近）；
+      当车**在段边界外绕圈/倒车**（到被钉住那点的距离 > `release_dist`）时，
+      "车还在段起点"这个假设已经错了 —— 此时必须让投影落回**真实最近点**
+      （哪怕它退到上一段），否则：
+        · 倒车段（`R:D6`）的投影永远不动 → 控制器以为车没动 → 一直倒；
+        · Mission 的"已过点即放行"判据永远不成立 → `target_idx` 卡死 → 822 s 跑不完。
+    ★ 两条候选取**较大者**：既保留"顶点附近不后退"的原有好处，
+      又不阻止真实的后退（倒车时 `proj.s` 自然会小于 `s_floor`）。
     """
     if proj.s >= s_floor:
         return proj
     x2, y2, seg = path.point_at(s_floor + _END_EPS_M)
+    if math.hypot(x - x2, y - y2) > release_dist:
+        return proj                 # 车已离开段起点 → 用真实投影（可后退）
     seg_len = path.segments[seg][4]
     t = 0.0 if seg_len <= 1e-9 else min(1.0, (_END_EPS_M) / seg_len)
     dist = math.hypot(x - x2, y - y2)
@@ -673,13 +970,20 @@ def _schedule(queue: deque[tuple[float, float, float]], at: float,
     queue.insert(idx, (at, v, steer_deg))
 
 
-def _take(queue: deque[tuple[float, float, float]], now: float) -> tuple[float, float]:
-    """取出"到点生效"的指令；队列空时返回 (0, 0)（= 上电瞬间没有指令 = 不动）。"""
-    last: tuple[float, float] = (0.0, 0.0)
+def _take(queue: deque[tuple[float, float, float]], now: float,
+          v_hold: float, steer_hold: float) -> tuple[float, float]:
+    """取出"到点生效"的指令；**队列里没有新指令时保持上一条**（`v_hold`/`steer_hold`）。
+
+    ★ 这是下位机的真实行为：串口每拍都在发，但"没收到新指令"绝不等于"舵角回正/停车"。
+    ⚠️ 老实现队列空时返回 `(0, 0)`：`dt(0.02) < cmd_latency_s(0.06)` 时队列**每拍都是空的**，
+      于是舵角在 ±30° 与 0 之间逐拍跳（实测执行侧 1500 °/s），真值在"打死的轮子"和
+      "回正的轮子"之间反复横跳 —— 那不是任何真实车辆的运动。上电第一拍没有指令 =
+      静止（初值 0），此后必须保持。
+    """
+    last_v, last_steer = v_hold, steer_hold
     while queue and queue[0][0] <= now:
-        _at, v, steer = queue.popleft()
-        last = (v, steer)
-    return last
+        _at, last_v, last_steer = queue.popleft()
+    return last_v, last_steer
 
 
 class _Rng:
@@ -723,7 +1027,18 @@ METRIC_KEYS: tuple[str, ...] = (
     "anchors", "steps",
 )
 
-#: 控制台指标表：(键, 中文标题, 单位, 小数位)
+#: ★ 分组指标键（`docs/P1接口约定.md` 调参用；老实现全缺 → 无法定位误差来源）。
+GROUPED_METRIC_KEYS: tuple[str, ...] = (
+    "cross_track_rms_normal_m", "cross_track_rms_reverse_m", "cross_track_rms_corner_m",
+    "cross_track_max_normal_m", "cross_track_max_reverse_m", "cross_track_max_corner_m",
+    "vertex_overshoot_normal_m", "vertex_overshoot_reverse_m",
+    "steer_rate_p95_deg_s", "steer_rate_max_deg_s",
+    "steer_delivered_rate_p95_deg_s", "steer_sign_flip_steps",
+    "steer_delivered_jump_steps", "steer_rate_limit_deg_s",
+    "time_s_normal", "time_s_reverse", "time_s_corner",
+)
+
+#: 控制台指标表的**主表**：(键, 中文标题, 单位, 小数位) —— 分组指标在 `format_metrics` 里另排。
 _METRIC_TABLE: tuple[tuple[str, str, str, int], ...] = (
     ("completed",        "跑完全程",     "",        0),
     ("time_s",           "总时长",       "s",       2),
@@ -731,12 +1046,14 @@ _METRIC_TABLE: tuple[tuple[str, str, str, int], ...] = (
     ("cross_track_rms_m", "横向RMS(真值)", "m",     4),
     ("cross_track_max_m", "横向MAX(真值)", "m",     4),
     ("belief_cross_track_rms_m", "横向RMS(信念)", "m", 4),
-    ("belief_error_rms_m", "信念↔真值RMS", "m",     4),
-    ("belief_error_max_m", "信念↔真值MAX", "m",     4),
+    ("belief_error_rms_m", "信念↔真值RMS", "m",     6),
+    ("belief_error_max_m", "信念↔真值MAX", "m",     6),
+    ("belief_error_max_free_m", "信念↔真值MAX(非锚定拍)", "m", 6),
     ("overshoot_max_m",  "顶点超调",     "m",       4),
     ("final_error_m",    "末点误差(真值)", "m",     4),
     ("max_steer_deg",    "最大舵角",     "°",       2),
     ("max_steer_rate_deg_s", "舵角速率(指令)", "°/s", 1),
+    ("steer_rate_p95_deg_s", "舵角速率(指令)P95", "°/s", 1),
     ("max_steer_rate_delivered_deg_s", "舵角速率(执行)", "°/s", 1),
     ("path_len_ratio",   "路径长度比",   "×",       4),
     ("anchors",          "到位吸附次数", "",        0),
@@ -744,34 +1061,98 @@ _METRIC_TABLE: tuple[tuple[str, str, str, int], ...] = (
     ("path_length_m",    "路线总长",     "m",       2),
 )
 
+#: 分组指标表：(键, 中文标题, 单位, 小数位)
+_GROUP_TABLE: tuple[tuple[str, str, str, int], ...] = (
+    ("cross_track_rms_normal_m",  "横向RMS 直段",   "m", 4),
+    ("cross_track_rms_reverse_m", "横向RMS 倒车段", "m", 4),
+    ("cross_track_rms_corner_m",  "横向RMS 拐角",   "m", 4),
+    ("cross_track_max_normal_m",  "横向MAX 直段",   "m", 4),
+    ("cross_track_max_reverse_m", "横向MAX 倒车段", "m", 4),
+    ("cross_track_max_corner_m",  "横向MAX 拐角",   "m", 4),
+    ("vertex_overshoot_normal_m", "顶点超调 非倒车", "m", 4),
+    ("vertex_overshoot_reverse_m", "顶点超调 倒车", "m", 4),
+    ("time_s_normal",             "耗时 直段",     "s", 2),
+    ("time_s_reverse",            "耗时 倒车段",   "s", 2),
+    ("time_s_corner",             "耗时 拐角",     "s", 2),
+    ("steer_rate_p95_deg_s",      "指令速率P95",    "°/s", 1),
+    ("steer_delivered_rate_p95_deg_s", "执行速率P95", "°/s", 1),
+    ("steer_sign_flip_steps",     "倒车符号翻转拍", "",  0),
+    ("steer_delivered_jump_steps", "执行侧越限跳变拍", "", 0),
+)
+
+
+def _fmt_row(key: str, label: str, unit: str, nd: int, m: dict) -> str:
+    value = m.get(key)
+    if isinstance(value, bool):
+        text = "是" if value else "否"
+    elif isinstance(value, (int, float)):
+        text = f"{float(value):.{nd}f}"
+    else:
+        text = str(value)
+    return f"  {label:<16}{text:>12} {unit}"
+
 
 def format_metrics(result: SimResult, sim: SimConfig | None = None,
                    title: str = "") -> str:
-    """把指标表排成等宽文本（控制台回贴、报告引用都用它）。"""
+    """把指标表排成等宽文本（控制台回贴、报告引用都用它）。
+
+    ★ 两张表：主表（契约键 + 信念误差）+ **分组表**（直段/倒车/拐角分开）。
+      没有分组表，"横向 RMS 0.20 m"既可能是整条路均匀偏 0.2，也可能是三个拐角各偏 1 m ——
+      这两种情况的修法完全相反（改前视距离 vs 改转角策略）。
+    """
     m = result.metrics
     lines: list[str] = []
     if title:
         lines.append(title)
     lines.append("-" * 46)
     for key, label, unit, nd in _METRIC_TABLE:
-        value = m.get(key)
-        if isinstance(value, bool):
-            text = "是" if value else "否"
-        elif isinstance(value, (int, float)):
-            text = f"{float(value):.{nd}f}"
-        else:
-            text = str(value)
-        lines.append(f"  {label:<14}{text:>12} {unit}")
+        lines.append(_fmt_row(key, label, unit, nd, m))
     if sim is not None:
         lines.append("-" * 46)
         lines.append(f"  注入: dt={sim.dt}s 延迟={sim.cmd_latency_s}s "
                      f"里程误差={sim.speed_scale_err:+.0%} 零漂={sim.yaw_drift_deg_per_min}°/min "
                      f"噪声={sim.pos_noise_m}m")
         lines.append(f"  锚定: {'开' if sim.anchor_on_arrival else '关'}"
-                     f"（半径 {sim.anchor_radius_m}m）")
+                     f"（半径 {sim.anchor_radius_m}m）"
+                     f"  执行侧限速: {rate_desc(sim, m)}")
+    lines.append("-" * 46)
+    lines.append("  分组指标（按真值投影的段类型）:")
+    for key, label, unit, nd in _GROUP_TABLE:
+        lines.append(_fmt_row(key, label, unit, nd, m))
+    if m.get("diverged"):
+        lines.append(f"  ⚠️ 跑飞看门狗触发于第 {int(m.get('diverged_at_step', 0))} 拍"
+                     f"（投影弧长连续不前进且已远离路线）")
     if m.get("hit_step_limit"):
         lines.append(f"  ⚠️ 撞到步数上限 {int(m.get('max_steps', 0))} —— 未跑完，"
                      f"可能是参数病态（例如锚定半径过大把车锚住）")
+    return "\n".join(lines)
+
+
+def rate_desc(sim: SimConfig, m: dict) -> str:
+    """执行侧限速的一句话描述（控制台用，避免"到底限没限"再变成一次口头争论）。"""
+    if not sim.actuator_rate_limit:
+        return "关（一步到位，仅对照用）"
+    return f"斜坡 {m.get('steer_rate_limit_deg_s', 0):.0f} °/s"
+
+
+def format_segment_table(result: SimResult, top: int = 0, title: str = "") -> str:
+    """逐段横向误差峰值表（`top > 0` 时只打印峰值最大的 `top` 段）。
+
+    ★ 这张表回答的是"**哪几个拐角在中枪**"：段索引 / 起止格 / 峰值 / 峰值时刻 / 转角。
+    """
+    rows = sorted(result.segments, key=lambda s: -s.peak_m)
+    if top > 0:
+        rows = rows[:top]
+    else:
+        rows = sorted(rows, key=lambda s: s.index)
+    lines: list[str] = []
+    if title:
+        lines.append(title)
+    lines.append(f"  {'段':>3} {'起点':>6} {'终点':>6} {'长(m)':>7} {'类型':>7} "
+                 f"{'转角(°)':>8} {'峰值(m)':>8} {'时刻(s)':>8}")
+    for s in rows:
+        lines.append(f"  {s.index:>3} {s.from_block:>6} {s.to_block:>6} {s.length_m:>7.3f} "
+                     f"{s.kind:>7} {s.corner_deg:>8.1f} {s.peak_m:>8.4f} {s.peak_t:>8.2f}")
     return "\n".join(lines)
 
 
@@ -781,8 +1162,10 @@ def format_metrics(result: SimResult, sim: SimConfig | None = None,
 def write_csv(result: SimResult, path: str) -> str:
     """写逐拍轨迹 CSV。返回**绝对路径**（便于回贴日志）。
 
-    列：`t,x,y,yaw,v,steer,truth_x,truth_y,seg_index,s`
-    —— `x/y/yaw` = 信念（控制器看到的），`truth_*` = 真值。
+    ★ 列 = `docs/P0接口约定.md` §5 的十列（**顺序不变**，老分析脚本不能被打断）
+      + 追加诊断列：`truth_yaw,steer_cmd,truth_seg_index,truth_s,kind,anchored,reverse`。
+    —— `x/y/yaw` = 信念（控制器看到的），`truth_*` = 真值；
+       `steer` = **执行**舵角，`steer_cmd` = 控制器**输出**舵角（两者差执行侧斜坡）。
     """
     target = os.path.abspath(path)
     parent = os.path.dirname(target)
@@ -791,7 +1174,9 @@ def write_csv(result: SimResult, path: str) -> str:
     with open(target, "w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh)
         writer.writerow(["t", "x", "y", "yaw", "v", "steer",
-                         "truth_x", "truth_y", "seg_index", "s"])
+                         "truth_x", "truth_y", "seg_index", "s",
+                         "truth_yaw", "steer_cmd", "truth_seg_index", "truth_s",
+                         "kind", "anchored", "reverse"])
         for i in range(len(result.t)):
             writer.writerow([
                 f"{result.t[i]:.4f}",
@@ -799,7 +1184,41 @@ def write_csv(result: SimResult, path: str) -> str:
                 f"{result.v[i]:.5f}", f"{result.steer[i]:.4f}",
                 f"{result.truth_x[i]:.6f}", f"{result.truth_y[i]:.6f}",
                 result.seg_index[i], f"{result.s[i]:.6f}",
+                f"{result.truth_yaw[i]:.6f}", f"{result.steer_cmd[i]:.4f}",
+                result.truth_seg_index[i], f"{result.truth_s[i]:.6f}",
+                kind_of(result, i), int(bool(result.anchored[i])),
+                int(bool(result.reverse[i])),
             ])
+    return target
+
+
+def kind_of(result: SimResult, index: int) -> str:
+    """采样点 i 的分组标签（与分组指标同一口径：倒车优先，其次顶点邻域）。"""
+    if index < len(result.reverse) and result.reverse[index]:
+        return "reverse"
+    if index < len(result.near_vertex) and result.near_vertex[index]:
+        return "corner"
+    return "normal"
+
+
+def write_segments_csv(result: SimResult, path: str) -> str:
+    """写**逐段横向误差峰值表** CSV（返回绝对路径）。
+
+    ★ 用 Excel 打开就能按峰值排序 —— 调参时第一步永远是"看哪几段最差"，
+      而不是盯着一个全局 RMS 猜。
+    """
+    target = os.path.abspath(path)
+    parent = os.path.dirname(target)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(target, "w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["index", "from_block", "to_block", "length_m", "kind",
+                         "corner_deg", "peak_m", "peak_t", "peak_s"])
+        for s in result.segments:
+            writer.writerow([s.index, s.from_block, s.to_block, f"{s.length_m:.4f}",
+                             s.kind, f"{s.corner_deg:.2f}", f"{s.peak_m:.6f}",
+                             f"{s.peak_t:.4f}", f"{s.peak_s:.6f}"])
     return target
 
 

@@ -12,7 +12,7 @@
         --speed-scale-err 0.18 --yaw-drift 0.5 --no-anchor ^
         --out-dir artifacts\\sim\\drift
 
-输出：控制台指标表 + `<out-dir>/traj.csv` + `<out-dir>/traj.svg`。
+输出：控制台指标表 + `<out-dir>/traj.csv` + `<out-dir>/traj.svg` + `<out-dir>/by_segment.csv`。
 **全程无异常，退出码 0**；参数/文件问题 → 退出码 2（与 `route_check.py` 同约定）。
 
 ★ 刻意不做的事
@@ -29,7 +29,8 @@ import sys
 from ..core.config import Config, ConfigError
 from ..route.model import Route
 from ..route.parser import parse_mission
-from .sim import SimConfig, format_metrics, run_sim, write_csv, write_svg
+from .sim import (SimConfig, format_metrics, format_segment_table, run_sim,
+                  write_csv, write_segments_csv, write_svg)
 
 __all__ = ["build_parser", "main"]
 
@@ -76,12 +77,17 @@ def build_parser() -> argparse.ArgumentParser:
                     type=float, default=SimConfig.anchor_radius_m, help="吸附触发半径 m")
     ap.add_argument("--max-steps", type=int, default=0,
                     help="步数上限（0 = 按路线长度自动推算）")
+    ap.add_argument("--set", action="append", metavar="KEY=VALUE", default=[],
+                    help="覆盖任意点号配置键（可重复），如 --set pursuit.arrival_m=0.20；"
+                         "只影响本次运行，不写磁盘")
     ap.add_argument("--seed", type=int, default=SimConfig.seed, help="噪声种子（可复现）")
     ap.add_argument("--no-stop", dest="stop_on_completion", action="store_false",
                     default=SimConfig.stop_on_completion,
                     help="到终点不停，一直跑到步数上限（看冲过头用）")
     ap.add_argument("--pretty", action="store_true",
                     help="打印完整配置摘要与逐步统计（默认只打指标表）")
+    ap.add_argument("--segments-top", type=int, default=10,
+                    help="打印『横向误差峰值最大的 N 段』（0 = 全部按段序打印，-1 = 不打印）")
     ap.add_argument("--quiet", action="store_true", help="只打印指标表，不打标题/文件路径")
     return ap
 
@@ -99,6 +105,44 @@ def _resolve_route(args: argparse.Namespace, cfg: Config) -> tuple[Route, str]:
     return parse_mission(list(tokens), name="cfg:route.tokens"), "<robot.yaml:route.tokens>"
 
 
+def _parse_set_overrides(items: list[str]) -> dict[str, object]:
+    """把 `--set pursuit.arrival_m=0.20` 解析成点号键覆盖表。
+
+    ★ 为什么需要它：仿真器的用途就是"**不碰车**做参数对照实验"。若只能读
+      `config/robot.yaml`，那么"现场图要哪组参数才跑得完"这种结论就必须去改仓库里的
+      YAML 才能复现 —— 那正是本工具要消灭的动作。有了 `--set`，
+      一次调参就是一条自包含、可回贴、可进测试的命令。
+    值按 YAML 解析（`0.20`→float、`true`→bool、`[a, b]`→list），失败则当字符串。
+    """
+    out: dict[str, object] = {}
+    for item in items:
+        if "=" not in item:
+            raise ValueError(f"--set 需要 key=value 形式，收到 {item!r}")
+        key, _, raw = item.partition("=")
+        key = key.strip()
+        if not key:
+            raise ValueError(f"--set 的键为空: {item!r}")
+        text = raw.strip()
+        try:
+            import yaml as _yaml
+            value = _yaml.safe_load(text)
+        except Exception:                       # pragma: no cover - 没装 PyYAML / 解析失败
+            value = text
+        out[key] = text if value is None else value
+    return out
+
+
+def _apply_overrides(cfg: Config, overrides: dict[str, object]) -> Config:
+    """覆盖配置键（不改磁盘文件），并重新跑一次旧键迁移。"""
+    if not overrides:
+        return cfg
+    flat = dict(cfg._flat)
+    flat.update(overrides)
+    new = Config(flat, source=f"{cfg.source} + --set×{len(overrides)}")
+    new._migrate_legacy()
+    return new
+
+
 def main(argv: list[str] | None = None) -> int:
     """跑一次仿真并落盘。返回进程退出码（0 正常 / 2 参数或输入有问题）。"""
     args = build_parser().parse_args(argv)
@@ -108,6 +152,14 @@ def main(argv: list[str] | None = None) -> int:
         cfg = Config.load(args.config)
     except ConfigError as exc:
         print(f"❌ 配置读取失败: {exc}", file=sys.stderr)
+        return 2
+
+    # ---- 应用 --set 覆盖（不改磁盘上的 YAML）----
+    try:
+        overrides = _parse_set_overrides(args.set or [])
+        cfg = _apply_overrides(cfg, overrides)
+    except ValueError as exc:
+        print(f"❌ --set 解析失败: {exc}", file=sys.stderr)
         return 2
 
     # ---- 读路线 ----
@@ -143,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     svg_path = write_svg(result, os.path.join(out_dir, "traj.svg"), route,
                          title=f"dzrobot sim: {os.path.basename(route_src)} "
                                f"ε={sim.speed_scale_err:+.0%} anchor={sim.anchor_on_arrival}")
+    seg_path = write_segments_csv(result, os.path.join(out_dir, "by_segment.csv"))
 
     if not args.quiet:
         print("=" * 60)
@@ -151,10 +204,17 @@ def main(argv: list[str] | None = None) -> int:
         print(route.describe())
         print("=" * 60)
     print(format_metrics(result, sim, title="指标（truth = 真值轨迹，belief = 控制器看到的位姿）"))
+    # ★ 逐段峰值表：调参第一步永远是"看哪几段最差"，而不是盯着一个全局 RMS 猜
+    if args.segments_top >= 0:
+        print("-" * 46)
+        print(format_segment_table(
+            result, top=args.segments_top,
+            title=f"逐段横向误差峰值（{'全部' if args.segments_top == 0 else f'TOP{args.segments_top}'}）"))
     if not args.quiet:
         print("-" * 46)
         print(f"CSV    : {csv_path}")
         print(f"SVG    : {svg_path}")
+        print(f"分段CSV: {seg_path}")
     if args.pretty:
         print("-" * 46)
         print(cfg.summary())

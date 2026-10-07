@@ -296,6 +296,19 @@ class SafetyTask(TaskThread):
             if h.state == TaskState.FAULT.value:
                 out.append(f"task_fault:{h.name} state=FAULT err={h.last_error or '-'}")
                 continue
+            # ★ 冷启动宽限：任务组是**顺序 start** 的，Safety 起来时后面的线程可能还没
+            #   开始跑（state=INIT、ticks=0、**last_tick_at 还是 0**）。此时判"心跳停滞"
+            #   会把刚启动的系统直接锁死（bench 实测：Tracker/Mission 被判 stalled →
+            #   刹车 + 不自动恢复）。
+            #   ⚠️ 宽限条件必须同时满足三条：INIT + **从未 tick 过**（last_tick_at=0）+
+            #   仍在宽限期内。只要有 last_tick_at（说明它活过），心跳变旧就是真停滞 ——
+            #   哪怕系统刚起来（否则"宽限期"会变成"启动后 3 秒内可以静默死掉"）。
+            if (h.state == TaskState.INIT.value and not h.last_tick_at
+                    and (now - self._started_at) <= self._startup_grace_s):
+                if self._warn.allow(f"init_grace_{h.name}"):
+                    self._log(f"检查③宽限：{h.name} 仍是 INIT 且从未 tick（还没轮到启动），"
+                              f"宽限 {self._startup_grace_s:.1f}s 内不判停滞")
+                continue
             age = self._task_age(h, now)
             if age is not None and age > self.task_stall_s:
                 out.append(f"task_stalled:{h.name} 心跳 {age:.2f}s > {self.task_stall_s:.2f}s"

@@ -204,6 +204,8 @@ class RosBridge:
                                                _qos(ct.topic("scan_request").qos))
         self._pub_fire_gate = node.create_publisher(UInt8, ct.topic("aim_fire_gate").name,
                                                     _qos(ct.topic("aim_fire_gate").qos))
+        self._pub_fire_ready = node.create_publisher(UInt8, ct.topic("aim_fire_ready").name,
+                                                     _qos(ct.topic("aim_fire_ready").qos))
         self._pub_stop_signal = node.create_publisher(UInt8, ct.topic("stop_signal").name,
                                                       _qos(ct.topic("stop_signal").qos))
         self._pub_motion = node.create_publisher(UInt8, ct.topic("motion_state").name,
@@ -322,6 +324,19 @@ class RosBridge:
         self._pub_fire_gate.publish(msg)
         # 历史话题同步发一份，便于与旧云台节点对拍/回退
         self._pub_stop_signal.publish(msg)
+
+    def publish_fire_ready(self, ready: bool) -> None:
+        """★ 两键开火的第二把钥匙：**瞄准合格**（预测落点在开火框内）。
+
+        分工（避免两个任务抢同一个话题）：
+          · `fire_gate`  ← MissionTask（任务级：到站、停稳、进入 FIRE 阶段）
+          · `fire_ready` ← AimTask（瞄准级：目标确认、预测落点合格、冷却已过）
+          云台补丁只在**两者都为 1** 时点亮激光 —— 任一任务误判都不会误开火。
+        """
+        from std_msgs.msg import UInt8
+        msg = UInt8()
+        msg.data = 1 if ready else 0
+        self._pub_fire_ready.publish(msg)
 
     def publish_motion_state(self, reverse: bool) -> None:
         from std_msgs.msg import UInt8

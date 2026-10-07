@@ -34,6 +34,10 @@ from ..route.model import Route, Waypoint
 __all__ = ["Projection", "Path"]
 
 _EPS = 1e-9          # 段长/参数比较容差（米）
+#: 自重叠段（路线折返压在同一条线上）的等距容差，单位 m²。
+#: 两条段到车的距离差在这个平方容差内就视为"几何上等距"，改由 s_hint 连续性裁决 ——
+#: 见 `Path.project` 的说明（现场图 B6→A6→R:B6→R:D6 就是这种结构）。
+_TIE_D2_M2 = 1e-6
 
 
 @dataclass(frozen=True)
@@ -202,7 +206,8 @@ class Path:
     #  投影（核心）
     # ------------------------------------------------------------------ #
     def project(self, x: float, y: float, *, s_hint: float | None = None,
-                window_m: float = 0.60, allow_backward: bool = True) -> Projection:
+                window_m: float = 0.60, allow_backward: bool = True,
+                motion_heading: float | None = None) -> Projection:
         """把车位置投影到折线上。
 
         ★ `s_hint` 给定时只在 `[s_hint - window_m, s_hint + window_m]` 内搜索
@@ -211,6 +216,11 @@ class Path:
         ★ `allow_backward=False` 时索引只前进（旧行为，防倒退误锁）；
           倒车段（`R:`）必须用 `True`，否则车往后走时投影点不肯后退。
         ★ 末点之后：最近段 = 末段且原始参数 > 1 → `t = 1`、`s = total_length`、`passed_end=True`。
+        ★★ `motion_heading`：**实际行进方向**（地图系弧度；倒车时是车头反向）。
+          路线折返压在同一条线上时（现场图 B6→A6→R:B6 就是），同一物理点落在两条
+          航段上**等距**，位置本身无法裁决 —— 唯一的判据是"车正在往哪边走"：
+          往前一次走 ⇒ 命中前一条段；倒回来 ⇒ 命中后一条段。不传该参数时退化为
+          "等距取更接近 s_hint 的候选"（无 hint 则取先找到的，保持确定性）。
         """
         n = len(self._segments)
         s_start = self._s_start
@@ -247,12 +257,22 @@ class Path:
                         t_floor = 1.0
 
         # ---- 2. 窗口内找最近点（用平方距离比较，省 sqrt） ----
+        # ★ 自重叠段的裁决（现场图 B6→A6→R:B6→R:D6 就是这种：折返压在同一条线上）：
+        #   两条段到车的距离完全相等（都为 0），若仍按"先找到的优先"，投影会永远贴回
+        #   前一条段的末端 ⇒ 沿程弧长 s 卡在段界上不再前进（仿真实测：s 在 7.58↔8.400
+        #   之间反复跳，任务推进判据永不满足，车原地绕圈）。
+        #   ★ 但"位置"本身裁决不了：同一物理点在两条重叠段上**完全等距**。
+        #     真正的判据是 `motion_heading`（车正在往哪边走）：往前一趟 ⇒ 命中前一条段，
+        #     倒回来 ⇒ 命中后一条段。取不到方向时退化为"更接近 s_hint 的候选"。
         best_i = -1
         best_t = 0.0
         best_d2 = float("inf")
         best_t_raw = 0.0
+        best_s = 0.0
+        best_ds = float("inf")          # |s - s_hint|
+        tie_tol = _TIE_D2_M2
         for i in range(i_first, i_last + 1):
-            x0, y0, x1, y1, length, _ = self._segments[i]
+            x0, y0, x1, y1, length, heading_i = self._segments[i]
             if length <= _EPS:
                 continue
             ux = (x1 - x0) / length
@@ -264,11 +284,35 @@ class Path:
             px = x0 + (x1 - x0) * t
             py = y0 + (y1 - y0) * t
             d2 = (x - px) * (x - px) + (y - py) * (y - py)
-            if d2 < best_d2:
+            s_i = s_start[i] + length * t
+            if best_i < 0:
+                take = True
+            elif d2 < best_d2 - tie_tol:
+                take = True
+            elif abs(d2 - best_d2) <= tie_tol:
+                # ---- 等距（几何重叠）裁决 ----
+                take = False
+                if motion_heading is not None:
+                    # ① 首选：本段走向与实际行进方向一致的那条（倒车段靠这个才认得出来）
+                    cos_new = math.cos(heading_i - motion_heading)
+                    cos_best = math.cos(self._segments[best_i][5] - motion_heading)
+                    if cos_new > cos_best + 1e-12:
+                        take = True
+                    elif abs(cos_new - cos_best) <= 1e-12 and s_hint is not None:
+                        take = abs(s_i - hint) < best_ds - 1e-12      # ② 再比连续性
+                elif s_hint is not None:
+                    take = abs(s_i - hint) < best_ds - 1e-12          # 无方向信息 → 只比连续性
+                else:
+                    take = i > best_i                                 # 都无 → 取更靠后的段
+            else:
+                take = False
+            if take:
                 best_d2 = d2
                 best_i = i
                 best_t = t
                 best_t_raw = t_raw
+                best_s = s_i
+                best_ds = abs(s_i - hint) if s_hint is not None else 0.0
 
         if best_i < 0:      # 整条路径都是零长度退化段
             best_i = 0
