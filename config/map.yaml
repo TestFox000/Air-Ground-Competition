@@ -1,0 +1,15 @@
+# 地图要素 —— 与 robot.yaml 分开存放
+# ★ 为什么不能放 robot.yaml：ROS params 文件顶层只允许 <节点名>: ros__parameters: 结构，
+#   多一个顶层键会让 --params-file 解析失败，相机/视觉/云台三节点同时 abort。
+
+map:
+  name: "Map-C 第三次测试图"
+  start: "N10"
+  end: "N5"
+  barrier_col_from: "D"
+  barrier_row_hi: 6
+  barrier_row_lo: 7
+  mines:      ["H1", "G2", "A3", "C4", "B5", "G6", "E7", "I10"]
+  obstacles:  ["B1", "I2", "F7", "C8", "E8", "A9", "H9", "D10"]
+  targets:    ["G11"]
+  bridges:    ["K2", "K8"]

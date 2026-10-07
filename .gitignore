@@ -1,0 +1,29 @@
+# ---- 构建产物与运行日志（车端/本地重建，不入库）----
+build/
+install/
+log/
+log_*/
+
+# ---- 备份与临时目录 ----
+backup/
+_tmp_session/
+*.bak
+*.bak_*
+*.orig
+
+# ---- 大体积资源（媒体/安装包/固件压缩包，共约 2 GB，与算法无关）----
+src/history/附加资源/
+
+# ---- 二进制模型（RKNN）----
+models/*.rknn
+*.rknn
+
+# ---- Python 缓存 ----
+__pycache__/
+*.pyc
+*.pyo
+
+# ---- 编辑器/系统杂物 ----
+.vscode/*.log
+Thumbs.db
+desktop.ini

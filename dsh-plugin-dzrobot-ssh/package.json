@@ -1,0 +1,43 @@
+{
+  "name": "dsh-dzrobot-ssh",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "在 dsh 里操作 dzrobot 小车（RK3588）：侧栏图标进入小车面板，可自由切换 VNC 桌面（自带 noVNC + WebSocket 隧道到 TigerVNC :1）、终端（DSH 原生终端里 ssh）与文件目录（浏览/预览/下载/上传小车的文件系统）。",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "src",
+    "cordis.patch.yml",
+    "vnc-app.html",
+    "vnc-connect.html",
+    "novnc"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "ssh",
+    "robot"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  },
+  "license": "MIT"
+}
