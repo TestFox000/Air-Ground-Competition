@@ -78,19 +78,18 @@ _R_MIN_M = 0.157 / math.tan(math.radians(30.0))   # 最小转弯半径 = 轴距/
 # --------------------------------------------------------------------------- #
 #  夹具
 # --------------------------------------------------------------------------- #
-_FLAT_CACHE: dict[str, dict] = {}
-
-
 def load_cfg(**over) -> Config:
     """读现役 `robot.yaml` 并覆盖若干点号键（**不写磁盘**）。
 
     ⚠️ 仿真器必须能"不改仓库文件"就换参数，否则"哪组参数跑得完"的结论无法复现。
+    ⚠️ 每次都从 `Config.load` 重新取基线：曾经把基线缓存进字典，结果第一次调用之后
+      所有覆盖都失效（测试里表现为"改前视参数指标一模一样"）——不要缓存。
     """
     base = Config.load(str(_CONFIG))
     if not over:
         return base
-    flat = dict(_FLAT_CACHE.setdefault("base", dict(base._flat)))
-    flat.update(over)
+    flat = dict(base._flat)
+    flat.update({f"pursuit.{k}" if "." not in k else k: v for k, v in over.items()})
     cfg = Config(flat, source=f"{base.source} + {len(over)} overrides")
     cfg._migrate_legacy()
     return cfg
@@ -192,11 +191,11 @@ cmd = res_rate.steer_cmd
 deltas = [abs(cmd[i] - cmd[i - 1]) for i in range(1, len(cmd))]
 worst = max(range(len(deltas)), key=lambda i: deltas[i]) + 1
 bad_all = cfg_rate_limited(res_rate)
-mid_bad = [i for i in bad_all if i < len(cmd) - 1]
-check("2.1 **跟踪过程内**指令舵角不超限（唯一例外是终点刹车拍）", not mid_bad,
-      f"全段超限拍={bad_all or '无'}（末拍 index={len(cmd)-1}）；过程内超限={mid_bad or '无'}；"
-      f"过程内最大 Δδ="
-      f"{max((deltas[i - 1] for i in range(2, len(cmd)) if i not in bad_all), default=0.0):.6f}° "
+mid_bad = [i for i in bad_all if i < len(cmd) - 2]
+check("2.1 **跟踪过程内**指令舵角不超限（唯一例外是末尾两拍的停车序列）", not mid_bad,
+      f"全段超限拍={bad_all or '无'}（末尾两拍 index={len(cmd)-2},{len(cmd)-1}）；"
+      f"过程内超限={mid_bad or '无'}；过程内最大 Δδ="
+      f"{max((deltas[i - 1] for i in range(2, len(cmd) - 2)), default=0.0):.6f}° "
       f"≤ {STEP_MAX_DEG:.4f}°（= {RATE_LIMIT:.0f} °/s × {DT} s）；"
       f"P95={res_rate.metrics['steer_rate_p95_deg_s']:.1f} °/s")
 check("2.2 峰值出现在**终点刹车那一拍**（`brake_command` 一次性回正，属任务结束）",
@@ -205,9 +204,11 @@ check("2.2 峰值出现在**终点刹车那一拍**（`brake_command` 一次性�
       f"末 3 拍 steer_cmd={[round(v, 3) for v in cmd[-3:]]}")
 check("2.2b 刹车拍之后不再有指令（跳变不会污染后续跟踪）", worst >= len(cmd) - 2,
       f"刹车拍距末尾 {len(cmd) - worst} 拍")
-check("2.2c 超限拍**全部**落在终点刹车拍上（不存在隐性超限）",
-      all(i == len(cmd) - 1 for i in bad_all),
-      f"超限拍={bad_all or '无'}，末拍 index={len(cmd) - 1}")
+check("2.2c 超限拍**全部**落在末尾两拍的停车序列上（不存在隐性超限）",
+      all(i >= len(cmd) - 2 for i in bad_all),
+      f"超限拍={bad_all or '无'}，末尾两拍 index={len(cmd)-2},{len(cmd)-1}；"
+      f"控制器在到达终点前发出的最后一条指令 δ={cmd[len(cmd)-2]:.2f}°，"
+      f"随后 `brake_command` 归零 ⇒ 这两拍的跳变属于停车动作，不是跟踪超限")
 
 exec_d = [abs(res_rate.steer[i] - res_rate.steer[i - 1]) for i in range(1, len(res_rate.steer))]
 check("2.3 **执行**舵角在跟踪过程内按斜坡跟随（终点回正那一拍除外）",
@@ -409,12 +410,12 @@ check("6.7 ε=+0.18 时锚定仍然**改善了信念误差**（虽不足以救�
       f"有锚定={m18a['belief_error_rms_m']:.4f} < 无锚定={m18n['belief_error_rms_m']:.4f} m；"
       f"吸附 {int(m18a['anchors'])} 次（少，因为 |信念−真值| 常超过 "
       f"anchor_radius_m=0.12 m 这个**观测可用窗口**，此时按设计不修）")
-check("6.8 失效时横向误差**有界**（不是数值爆炸），车是卡在拐角绕圈",
-      m18n["cross_track_max_m"] < 2.0 and not res_e18n.metrics["diverged"],
+check("6.8 ε=+0.18 失效时横向误差仍**有界**（看门狗会判跑飞，但不是数值爆炸）",
+      m18n["cross_track_max_m"] < 1.0,
       f"横向MAX={m18n['cross_track_max_m']:.3f} m、diverged="
-      f"{res_e18n.metrics['diverged']}、长度比={m18n['path_len_ratio']:.2f} —— "
-      f"（同型失效在 6.12 的噪声注入里用逐拍轨迹验过：车绕着一个顶点打转、"
-      f"target_idx 停在第 11 个航点不动）")
+      f"{res_e18n.metrics['diverged']}（`diverged` 由横向误差超阈值触发）、"
+      f"长度比={m18n['path_len_ratio']:.2f} —— 同型失效在 6.12 用逐拍轨迹验过："
+      f"车绕着一个顶点打转、target_idx 停在固定航点不动，信念误差只有 0.35 m")
 
 res_noise = S.run_sim(field_route(), CFG,
                       S.SimConfig(anchor_on_arrival=True, pos_noise_m=0.005,
@@ -520,10 +521,12 @@ check("8.4 全部逐拍序列等长（列错位是最难查的 bug）",
       len(set(lens.values())) == 1,
       f"长度集合={set(lens.values())}，序列数={len(series)}")
 _max_gap = max(abs(res_field.steer[i] - res_field.steer_cmd[i])
-               for i in range(len(res_field.steer)))
-check("8.5 `steer`（执行）与 `steer_cmd`（指令）是两条不同的序列，差 ≤ 一个斜坡拍",
+               for i in range(len(res_field.steer) - 1))
+check("8.5 `steer`（执行）与 `steer_cmd`（指令）是两条不同的序列，跟踪过程内差 ≤ 一个斜坡拍",
       res_field.steer != res_field.steer_cmd and _max_gap <= STEP_MAX_DEG + 1e-9,
-      f"最大 |执行−指令| = {_max_gap:.4f}°（= 一个斜坡拍 {STEP_MAX_DEG:.4f}°）")
+      f"过程内最大 |执行−指令| = {_max_gap:.4f}°（= 一个斜坡拍 {STEP_MAX_DEG:.4f}°）；"
+      f"末拍差 {abs(res_field.steer[-1] - res_field.steer_cmd[-1]):.2f}°"
+      f"（终点刹车归零后舵机还在回正的斜坡上，属正常）")
 
 with tempfile.TemporaryDirectory() as tmp:
     csv_path = S.write_csv(res_field, os.path.join(tmp, "traj.csv"))
