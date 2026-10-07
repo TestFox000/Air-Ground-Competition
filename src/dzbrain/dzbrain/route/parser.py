@@ -324,6 +324,10 @@ def parse_mission(tokens, *, shoot_planner: Callable[[str], Any] | None = None,
                 ))
             continue
 
+        # 普通坐标点 —— 分组只覆盖**紧邻**的候选链，遇到任何普通点即封口
+        group = None
+        insert_at = None
+
         block = info["block"]
         heading = info["heading"]
         if heading is not None:
@@ -339,8 +343,6 @@ def parse_mission(tokens, *, shoot_planner: Callable[[str], Any] | None = None,
             reverse=info["reverse"], shoot=info["shoot"], scan=info["scan"],
             group=group, token=info["token"],
         ))
-        if insert_at is None:                              # 分组只覆盖相邻的候选链
-            group = None
 
     route = builder.build(fix_final_yaw=final_yaw if have_final_heading else None)
     route = _dedup_waypoints(route)
