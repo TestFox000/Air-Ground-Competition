@@ -112,17 +112,28 @@ def _as_list(value: Any) -> list[str]:
     return []
 
 
-def _cross_rows(cfg: Config | None) -> tuple[list[int], list[int]]:
-    """穿洞候选行：**优先从候选格名集合反推行号**（与现场 YAML 永远同步）。"""
+def _cross_rows(cfg: Config | None,
+                cross_candidates: Iterable[str] | None = None) -> tuple[list[int], list[int]]:
+    """穿洞候选行：**优先从候选格名集合反推行号**（与现场 YAML 永远同步）。
+
+    `docs/P0接口约定.md` §2 把 `cross_candidates` 定义为"穿洞候选集合"的覆盖项，
+    行号与候选格名是同一件事的两种说法 —— 所以显式覆盖时**两边都要覆盖**：
+    只覆盖集合不覆盖行号，就会出现"候选里有 K5、候选行里没有 5"的自相矛盾。
+    """
     lower: list[int] = []
     upper: list[int] = []
-    for raw in _as_list(_cfg_get(cfg, _KEY_CROSS_LOWER, None)):
+    lower_names = _as_list(_cfg_get(cfg, _KEY_CROSS_LOWER, None))
+    upper_names = _as_list(_cfg_get(cfg, _KEY_CROSS_UPPER, None))
+    if cross_candidates:
+        lower_names = list(lower_names) + [str(c) for c in cross_candidates]
+        upper_names = list(upper_names) + [str(c) for c in cross_candidates]
+    for raw in lower_names:
         try:
             row_idx, _ = geo.block_to_index(raw)
         except ValueError:
             continue
         lower.append(row_idx + 1)
-    for raw in _as_list(_cfg_get(cfg, _KEY_CROSS_UPPER, None)):
+    for raw in upper_names:
         try:
             row_idx, _ = geo.block_to_index(raw)
         except ValueError:
@@ -189,6 +200,10 @@ def _rc(block: str) -> tuple[int, int]:
     return row_idx + 1, col_idx
 
 
+def _sign(value: int) -> int:
+    return (value > 0) - (value < 0)
+
+
 def _blocks(route: Any) -> list[str]:
     items = getattr(route, "waypoints", None)
     if items is None:
@@ -228,65 +243,118 @@ def _barrier_crossing(a: str, b: str) -> tuple[bool, float, float] | None:
     return blocked, cd, rd
 
 
+def _crossing_row_of_cell(cell: str | None) -> float | None:
+    """由穿洞格直接给出它所在的行号（与 `_crossing_cell` 永远一致）。"""
+    if not cell:
+        return None
+    try:
+        row, _ = _rc(cell)
+    except ValueError:
+        return None
+    return float(row)
+
+
+def _is_cross(a: str, b: str) -> bool:
+    """线段 a→b 是否**朝该列推进并抵达/越过它**（即算一次进入 `CROSS_COLUMN`）。
+
+    ★ 三个 helper（`_crossing_row` / `_crossing_cell` / `_crossing_at_column`）
+      共用这一条判据，避免各写一套导致口径打架（本模块前几版反复踩的坑）。
+
+    判据：`min(列) < K <= max(列)`，也就是**这一段真的把 K 列夹在中间**：
+
+    - `L9 -> K9`（列 11→10）→ 真（过洞前半）
+    - `K9 -> J9`（列 10→9） → 真（过洞后半）
+    - `L9 -> J9`（列 11→9） → 真（一次跨两格，先跨进 K 再从 K 出去）
+    - `J9 -> K9`（列 9→10） → 真（从西侧推进到洞口）
+    - `K9 -> L9`（列 10→11）→ **假**（只是从洞里出来，没有再进入）
+    - `K9 -> K10`（同列挪格）→ **假**（在洞里横着走，由 R009 单独报）
+    - 任何斜切（行号在变）→ 真，但角度 > 10° 会被 R009 拦下
+
+    于是 `K9 -> J9` 与 `K9 -> L9` 被正确区分开：两者几何相同，**方向相反** ——
+    前者是"穿过 K 继续走"，后者是"离开 K 往外走"。
+    """
+    _, c1 = _rc(a)
+    _, c2 = _rc(b)
+    k_col = geo.COL_LETTERS.index(CROSS_COLUMN)
+    return min(c1, c2) < k_col <= max(c1, c2)
+
+
 def _crossing_row(a: str, b: str) -> float | None:
-    """线段 a→b **在 `CROSS_COLUMN` 列那一刻**所处的行号；不涉及该列返回 None。
+    """线段 a→b **在 `CROSS_COLUMN` 列那一刻**所处的行号；不算进入该列返回 None。
 
     ★ 不能拿两端点的行号来判断"穿的是哪一行"：现场 `L9 -> J9` 这种长段直线，
     两端行号都是 9 看着没问题，但 `L5 -> J5` 只有跨完列才看得出穿的是第 5 行。
     判据必须落在**与 K 列相交的那一点**上。
     """
+    if not _is_cross(a, b):
+        return None
     r1, c1 = _rc(a)
     r2, c2 = _rc(b)
     k_col = geo.COL_LETTERS.index(CROSS_COLUMN)
-    if c1 == c2:
-        if c1 != k_col:
-            return None
-        return float(min(r1, r2)) if r1 != r2 else float(r1)
-    if (c1 - k_col) * (c2 - k_col) > 0:
-        return None
+    if c2 == k_col:
+        return float(r2)
+    if c1 == k_col:
+        return float(r1)
     t = (k_col - c1) / (c2 - c1)
     if t < -EPS or t > 1.0 + EPS:
         return None
     return r1 + t * (r2 - r1)
 
 
+def _crossing_cell(a: str, b: str) -> str | None:
+    """线段 a→b 进入 `CROSS_COLUMN` 时落在该列上的那一格，否则 None。
+
+    ★ 必须把**车实际穿过的那一格**记下来：`L9 -> J9` 这种跨两格的长段，两端都不是 K 格，
+    但车确实从 K9 里穿了过去 —— 只看端点会让 R008/R007 漏判（本模块调试中踩过的坑）。
+    """
+    row = _crossing_row(a, b)
+    if row is None:
+        return None
+    k_col = geo.COL_LETTERS.index(CROSS_COLUMN)
+    idx = int(round(row))
+    idx = min(max(idx, 1), geo.MAP_ROWS)
+    return geo.index_to_block(idx - 1, k_col)
+
+
 def _crossing_at_column(a: str, b: str) -> tuple[float, float, float, float] | None:
     """线段 a→b 与列 `CROSS_COLUMN` 的交点。
 
-    返回 ``(row, angle_in_deg, angle_out_deg, col_diff)``；不穿越返回 None。
+    返回 ``(row, angle_in_deg, angle_out_deg, col_diff)``；**只对真正的穿越**返回非 None
+    （口径与 `_is_cross` 完全一致：`K9->L9` 这类"只是从洞里出来"的段返回 None）。
 
     ★ 角度语义（现场硬约束，见 `config/robot.yaml` 的 `bridge_order` 注释）：
     "穿洞方向" = **只换行号、不换列**（沿用 `geometry` 的 x = 行轴）。
     所以：
 
     - 水平直穿（列差非 0、行号不变）→ 进入角 0°、离开角 0°（**唯一合法形态**）；
-    - 沿列行驶（行号在变）→ 进入角 = 离开角 = 90°（在洞里横着走，必撞侧壁）；
-    - 斜切（行号与列同时变）→ 进入角 = `atan2(|Δ列|, |Δ行|)`，超过 10° 即 R009。
+    - 斜切（行号与列同时变）→ 角度 = `atan2(|Δ列|, |Δ行|)`，超过 10° 即 R009。
     """
+    if not _is_cross(a, b):
+        return None
     r1, c1 = _rc(a)
     r2, c2 = _rc(b)
     k_col = geo.COL_LETTERS.index(CROSS_COLUMN)
-    if c1 == c2:
-        if c1 != k_col:
+    if c2 == k_col:
+        row = float(r2)
+    elif c1 == k_col:
+        row = float(r1)
+    else:
+        t = (k_col - c1) / (c2 - c1)
+        if t < -EPS or t > 1.0 + EPS:
             return None
-        # 整段都在 K 列内：沿列方向行驶 = 90°（在洞里横着走）
-        angle = 0.0 if r1 == r2 else 90.0
-        return float(max(r1, r2)), angle, angle, 0.0
-    if (c1 - k_col) * (c2 - k_col) > 0:                  # 同侧，不穿越
-        return None
-    t = (k_col - c1) / (c2 - c1)
-    if t < -EPS or t > 1.0 + EPS:
-        return None
-    row = r1 + t * (r2 - r1)
-    # 行号不变（严格水平）→ 0°；行号随列号一起变（斜切）→ atan2(|Δ列|, |Δ行|)
-    angle_in = 0.0 if abs(r2 - r1) < EPS else \
-        math.degrees(math.atan2(abs(c2 - c1), abs(r2 - r1)))
-    angle_out = 0.0 if c2 == k_col else angle_in
-    return row, angle_in, angle_out, float(c2 - c1)
+        row = r1 + t * (r2 - r1)
+    straight = abs(r2 - r1) < EPS                        # 严格水平直穿
+    # 直线段与"穿洞方向"（行轴）的夹角：水平 = 0°，斜切 = atan2(|Δ列|, |Δ行|)
+    angle = 0.0 if straight else math.degrees(math.atan2(abs(c2 - c1), abs(r2 - r1)))
+    return row, angle, angle, float(c2 - c1)
 
 
 def _crossing_row_of(blocks: Sequence[str]) -> float | None:
-    """一段"穿越"里位于 `CROSS_COLUMN` 列上的那个格子的行号（可能是"洞前/洞后"两侧）。"""
+    """一串格名里，位于 `CROSS_COLUMN` 列上的那一格的行号（诊断/日志用）。
+
+    注意：R007 的"穿的是哪一行"**不要**用它 —— 长段直线（`L5 -> J5`）两端都不是 K 格，
+    必须用 `_crossing_row` 算交点所在的行。
+    """
     for block in blocks:
         try:
             row, col = _rc(block)
@@ -337,10 +405,11 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     mines = _cells(merged, "mines")
     obstacles = _cells(merged, "obstacles")
     targets = _cells(merged, "targets")
-    lower_rows, upper_rows = _cross_rows(cfg)
+    lower_rows, upper_rows = _cross_rows(cfg, cross_candidates)
     cross_pool = _candidates(cfg, cross_candidates)
     lo_m, hi_m = _window(cfg)
-    cross_rows = set(lower_rows) | set(upper_rows)        # ★ 必须在 R007 之前的检查里就能用
+    #: 两个半场的行号并集 —— R007 之外的检查里只用来判断"某行是否属于某个半场"
+    cross_rows = set(lower_rows) | set(upper_rows)
     k_col = geo.COL_LETTERS.index(CROSS_COLUMN)
 
     # ---------------------------------------------------------------- R002
@@ -426,29 +495,54 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     prev: dict | None = None
     for i in range(len(valid) - 1):
         a, b = valid[i][1], valid[i + 1][1]
+        # ★ 半步也算：`L9->K9` 是过洞的**前半**（跨到 K 格），`K9->J9` 是**后半**（从 K 格跨出去），
+        #   两者靠下面的合并拼回**一次**过洞；`J9->K9` 只是"停在洞里"、`K9->L9` 只是"从洞里出来"，
+        #   都不是过洞（`_crossing_cell`/`_crossing_row` 对它们返回 None）。
+        ca, cb = _rc(a)[1], _rc(b)[1]
+        ra, rb = _rc(a)[0], _rc(b)[0]
+        along_k = ca == cb == k_col and ra != rb       # 在洞里沿列挪格（必撞侧壁）
+        if ca == cb == k_col:
+            moves = ra != rb
+        else:                                          # 跨列：一端在 K 列上、另一端在两侧之一
+            moves = ca != cb
+        cell = _crossing_cell(a, b)
+        cross_row = _crossing_row_of_cell(cell)        # ★ 行号一律由穿洞格反推，两者永远一致
+        if not moves or cell is None or cross_row is None:
+            prev = None
+            continue
+        if along_k:
+            issues.append(Issue("error", "R009",
+                                f"第 {i} 段 {a}->{b} 沿 {CROSS_COLUMN} 列**列内**行驶"
+                                f"（第 {ra}->{rb} 行）—— 桥洞只有单格宽度，必须严格直穿"))
+            prev = None
+            continue
+        # 与前一次过洞相接（从刚穿到的那一格继续往外走，还是同一格、同一行、**同一方向**）→ 合并
+        #   ★ 方向必须一致：`J6->K6->J9` 是在 K6 里掉了个头（两次反向穿越），
+        #     若只按"格 + 行"合并，会被拼成一次方向混乱的假穿越。
+        direction = (_sign(cb - ca), _sign(rb - ra))
+        if (prev is not None and prev["segs"][-1][1] == a
+                and prev["cell"] == cell
+                and int(round(prev["row"])) == int(round(cross_row))
+                and prev["dir"] == direction):
+            prev["segs"].append((a, b))
+            prev["b"] = b
+            hit2 = _crossing_at_column(a, b)
+            if hit2 is not None:
+                prev["col_diff"] += hit2[3]
+            continue
+        # ★ 这里**不按行号过滤**：行号不在候选范围内恰恰是最该报 R008 的情形，
+        #   先滤掉就再也看不见了（第三版踩过的坑）。
         hit = _crossing_at_column(a, b)
         if hit is None:
             prev = None
             continue
-        cross_row = _crossing_row(a, b)
-        if cross_row is None or (cross_rows and int(round(cross_row)) not in cross_rows):
-            prev = None
-            continue
-        # ★ 只在"确实跨过 K 列"的段之间合并：`J5->K4` 只是**停在** K4，没跨过去，
-        #   若并进上一段会把两次不同行的穿越混成一次（本模块第二版踩过的坑）。
-        if (prev is not None and prev["segs"][-1][1] == a
-                and _rc(a)[1] == k_col and int(round(prev["row"])) == int(round(cross_row))):
-            prev["segs"].append((a, b))
-            prev["b"] = b
-            prev["col_diff"] += hit[3]
-        else:
-            prev = {"segs": [(a, b)], "a": a, "b": b, "index": i, "col_diff": hit[3],
-                    "row": cross_row}
-            runs.append(prev)
+        prev = {"segs": [(a, b)], "a": a, "b": b, "index": i, "col_diff": hit[3],
+                "row": cross_row, "cell": cell, "dir": direction}
+        runs.append(prev)
 
     for run in runs:
-        # ★ 只统计**跨越 K 列那一刻**的角度：进来一段、出去一段。
-        #   整段落在 K 列内、只是沿列挪格的那一段（K9->K10）不算"斜切"，另由 R007 报方向错。
+        # ★ 进来的角度与出去的角度都要看：`J9->K8->H9` 这种"折线穿洞"两段都斜，
+        #   只取其中一段会漏判（本模块调试中踩过的坑）。
         angles = []
         for seg_a, seg_b in run["segs"]:
             hit = _crossing_at_column(seg_a, seg_b)
@@ -460,20 +554,55 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
                 angles.append(a_out)
         run["angle"] = max(angles) if angles else 0.0
         run["cells"] = {blk for seg in run["segs"] for blk in seg}
+        crossed = [c for c in (_crossing_cell(sa, sb) for sa, sb in run["segs"]) if c]
+        run["cells"] |= set(crossed)
+        run["k_cells"] = sorted(set(crossed))
+        row = int(round(run["row"]))
+        if CROSS_LOWER_ROWS[0] <= row <= CROSS_LOWER_ROWS[1]:
+            run["half"] = "lower"
+            run["band_ok"] = row in set(lower_rows)
+        elif CROSS_UPPER_ROWS[0] <= row <= CROSS_UPPER_ROWS[1]:
+            run["half"] = "upper"
+            run["band_ok"] = row in set(upper_rows)
+        else:                                              # 不该发生：行号只有 1~11
+            run["half"] = "other"
+            run["band_ok"] = False
 
-    lower_runs = [r for r in runs if int(round(r["row"])) in set(lower_rows)]
-    upper_runs = [r for r in runs if int(round(r["row"])) in set(upper_rows)]
+    lower_runs = [r for r in runs if r["half"] == "lower"]
+    upper_runs = [r for r in runs if r["half"] == "upper"]
 
-    # ★ R008 独立于"属于哪个半场"：只要在 K 列穿行的格子不在候选集合里就报。
-    #   现场硬约束（robot.yaml 注释）：通口只有 K4(+K5) 与 K9/K10，K5 不算合法通口。
+    # ★ R008 独立于 R007 的"次数/方向"：只要某次过洞所在的**半场候选集合**里
+    #   没有它用的那个 K 列格，就报。现场硬约束（robot.yaml 注释）：
+    #   下半场通口 K9/K10、上半场通口 K4(+K5)，跨半场借用是不允许的。
+    #   `cross_candidates` 显式给出时**同时覆盖两个半场**（工具/无人机临场改情报用）。
+    if cross_candidates:
+        lower_pool = upper_pool = {str(c).upper() for c in cross_candidates}
+    else:
+        lower_pool = set(_as_list(_cfg_get(cfg, _KEY_CROSS_LOWER, None)))
+        upper_pool = set(_as_list(_cfg_get(cfg, _KEY_CROSS_UPPER, None)))
+        if not lower_pool:
+            lower_pool = {f"{CROSS_COLUMN}{r}" for r in lower_rows}
+        if not upper_pool:
+            upper_pool = {f"{CROSS_COLUMN}{r}" for r in upper_rows}
     for run in runs:
-        offenders = sorted(c for c in run["cells"]
-                           if c.startswith(CROSS_COLUMN) and c not in cross_pool)
-        if offenders:
+        pool = lower_pool if run["half"] == "lower" else upper_pool
+        k_cells = run.get("k_cells") or sorted(c for c in run["cells"] if c.startswith(CROSS_COLUMN))
+        if not (set(k_cells) & pool):
             issues.append(Issue("error", "R008",
                                 f"第 {run['index']} 段 {run['a']}->{run['b']}"
-                                f"（{CROSS_COLUMN} 列第 {run['row']:.0f} 行）用了候选集合外的穿洞格 "
-                                f"{' '.join(offenders)}（候选 {' '.join(sorted(cross_pool))}）"))
+                                f"（{CROSS_COLUMN} 列第 {run['row']:.0f} 行，"
+                                f"{'下半场' if run['half'] == 'lower' else '上半场'}）"
+                                f"用的格子 {' '.join(k_cells) or '（无）'} 不在候选集合里"
+                                f"（本半场候选 {' '.join(sorted(pool)) or '空'}）"))
+
+    # ★ R009：**每一次**过洞都要看夹角，不能只查 R007 那个"唯一一次"——
+    #   现场一旦多了一次斜切（例如某段折线斜着蹭过 K 列），只查唯一一次就会漏掉。
+    for run in runs:
+        if run["angle"] > MAX_CROSS_ANGLE_DEG + EPS:
+            issues.append(Issue("error", "R009",
+                                f"第 {run['index']} 段 {run['a']}->{run['b']} 斜切入洞：与穿洞方向"
+                                f"夹角 {run['angle']:.1f}°（上限 {MAX_CROSS_ANGLE_DEG:.0f}°），"
+                                f"在 {CROSS_COLUMN} 列第 {run['row']:.2f} 行穿行 —— 会撞侧壁"))
 
     def _fmt(run_list: list[dict]) -> str:
         return " ".join(f"{r['a']}->{r['b']}@{int(round(r['row']))}行" for r in run_list)
@@ -483,17 +612,11 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
                             f"下半场（第 {CROSS_LOWER_ROWS[0]}~{CROSS_LOWER_ROWS[1]} 行）"
                             f"应恰好 1 次穿越 {CROSS_COLUMN} 列，实际 {len(lower_runs)} 次"
                             f"（{_fmt(lower_runs) or '无'}）"))
-    else:
+    elif lower_runs[0]["col_diff"] >= 0:
         run = lower_runs[0]
-        if run["col_diff"] >= 0:
-            issues.append(Issue("error", "R007",
-                                f"下半场穿越方向错：{run['a']}->{run['b']} 必须**向西**"
-                                f"（列号减小，现场 bridge_order: L* -> K* -> J*）"))
-        if run["angle"] > MAX_CROSS_ANGLE_DEG + EPS:
-            issues.append(Issue("error", "R009",
-                                f"下半场入洞段 {run['a']}->{run['b']} 斜切：与穿洞方向夹角 "
-                                f"{run['angle']:.1f}°（上限 {MAX_CROSS_ANGLE_DEG:.0f}°），"
-                                f"在 {CROSS_COLUMN} 列第 {run['row']:.2f} 行穿行 —— 会撞侧壁"))
+        issues.append(Issue("error", "R007",
+                            f"下半场穿越方向错：{run['a']}->{run['b']} 必须**向西**"
+                            f"（列号减小，现场 bridge_order: L* -> K* -> J*）"))
     if len(upper_runs) != 1:
         issues.append(Issue("error", "R007",
                             f"上半场（第 {CROSS_UPPER_ROWS[0]}~{CROSS_UPPER_ROWS[1]} 行）"
@@ -505,34 +628,28 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
             issues.append(Issue("error", "R007",
                                 f"上半场穿越方向错：{run['a']}->{run['b']} 必须**向东**"
                                 f"（列号增大，现场 bridge_order: J* -> K* -> L*）"))
-        if run["angle"] > MAX_CROSS_ANGLE_DEG + EPS:
-            issues.append(Issue("error", "R009",
-                                f"上半场入洞段 {run['a']}->{run['b']} 斜切：与穿洞方向夹角 "
-                                f"{run['angle']:.1f}°（上限 {MAX_CROSS_ANGLE_DEG:.0f}°），"
-                                f"在 {CROSS_COLUMN} 列第 {run['row']:.2f} 行穿行 —— 会撞侧壁"))
 
     if not runs:
         issues.append(Issue("error", "R007",
                             f"路线没有任何一次穿越 {CROSS_COLUMN} 列（两个半场各需一次）"))
 
     for run in runs:
-        if not (run["cells"] & cross_pool):
+        if not run["band_ok"]:
             issues.append(Issue("error", "R008",
-                                f"第 {run['index']} 段 {run['a']}->{run['b']}"
-                                f"（{CROSS_COLUMN} 列第 {run['row']:.0f} 行）的穿洞格完全不在候选集合里"
-                                f"（候选 {' '.join(sorted(cross_pool)) or '空'}）"))
+                                f"第 {run['index']} 段 {run['a']}->{run['b']} 在 {CROSS_COLUMN} 列第 "
+                                f"{run['row']:.0f} 行穿行，而候选行只有 "
+                                f"下半场 {'/'.join(str(r) for r in lower_rows)}、"
+                                f"上半场 {'/'.join(str(r) for r in upper_rows)}"))
 
-    # ② 不与任何穿越相接、却整段沿 K 列行驶的段：同样算"在洞里横着走"
+    # ② 整段都在 K 列里、还沿列挪格（在洞里横着走）—— 已在上面的 run 构建里逐段报过，
+    #    这里只在"该段没被 run 收录"时兜底（防御性：逻辑改动时不会静默漏掉）
+    reported_k = {tuple(seg) for run in runs for seg in run["segs"]}
     for i in range(len(valid) - 1):
         a, b = valid[i][1], valid[i + 1][1]
         ra, ca = _rc(a)
         rb, cb = _rc(b)
-        if ca != k_col or cb != k_col or ra == rb:
+        if ca != k_col or cb != k_col or ra == rb or (a, b) in reported_k:
             continue
-        if cross_rows and ra not in cross_rows:
-            continue
-        if any(seg[0] == a and seg[1] == b for run in runs for seg in run["segs"]):
-            continue                                          # 已由上面的 R009 报过
         issues.append(Issue("error", "R009",
                             f"第 {i} 段 {a}->{b} 沿 {CROSS_COLUMN} 列**列内**行驶"
                             f"（第 {ra}->{rb} 行）—— 桥洞只有单格宽度，必须严格直穿"))

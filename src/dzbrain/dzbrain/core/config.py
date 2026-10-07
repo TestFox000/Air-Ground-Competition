@@ -97,9 +97,14 @@ SCHEMA: dict[str, Spec] = {
                                                "前视点钳制的转角阈值（旧 20°）"),
     "pursuit.stop_approach_speed_gain": Spec(0.30, _F, "1/s", 0.05, 2.0,
                                              "停站减速：v = min(v, max(min_speed, gain×d))"),
-    "pursuit.finish_approach_gain": Spec(0.35, _F, "1/s", 0.05, 2.0, "终点减速增益"),
+    # 注：旧代码对"终点减速(0.35)"与"射击点减速(0.30)"用了两个键；两者数值几乎相同，
+    #     新版统一为上面一个键（避免死键）。若将来确需区分，再加 `pursuit.finish_approach_gain`
+    #     并在控制器里按"下一个停站点类型"选择增益。
     "pursuit.map_safety_margin_m": Spec(0.60, _F, "m", 0.0, 1.5, "越界急停余量（顶层强制生效）"),
     "pursuit.drift_warn_m": Spec(0.30, _F, "m", 0.05, 1.0, "单段漂移告警阈值"),
+    "pursuit.drift_seg_gate_m": Spec(0.18, _F, "m", 0.02, 1.0,
+                                     "★漂移判定独立于吸附：能吸附的偏差(<arrival_m)永远低于告警阈值，"
+                                     "所以漂移用弧长窗口判据，不能用横向距离当门槛"),
 
     # ---------------- 桥洞保护（配置驱动，不硬编码 K 列） ----
     "pursuit.bridge_blocks": Spec(None, list, "", None, None,
@@ -130,6 +135,9 @@ SCHEMA: dict[str, Spec] = {
     "mission.lock_timeout_s": Spec(18.0, _F, "s", 1.0, 120.0, "等云台锁定的最长时间"),
     "mission.settle_time_s": Spec(0.8, _F, "s", 0.0, 10.0, "底盘停稳判定时长"),
     "mission.settle_eps_m": Spec(0.02, _F, "m", 0.001, 0.20, "停稳判定的位置变化容差"),
+    "mission.settle_speed_mps": Spec(0.02, _F, "m/s", 0.001, 0.20, "停稳判定的速度容差"),
+    "mission.scan_stop_timeout_s": Spec(8.0, _F, "s", 0.5, 60.0,
+                                        "纯扫描停站点（:SCAN_STOP）的等待上限"),
     "mission.stable_timeout_s": Spec(6.0, _F, "s", 0.5, 30.0, "等瞄准稳定的最长时间（超时降级放行）"),
     "mission.stable_offset_px": Spec(40.0, _F, "px", 5.0, 200.0, "瞄准稳定容差"),
     "mission.candidate_retry": Spec(3, _I, "个", 1, 10, "单个靶最多尝试几个候选射击点"),
@@ -169,6 +177,9 @@ SCHEMA: dict[str, Spec] = {
 
     # ---------------- 安全 ----
     "safety.pose_timeout_s": Spec(1.0, _F, "s", 0.1, 10.0, "定位失联判定（超时即刹车）"),
+    "safety.startup_grace_s": Spec(3.0, _F, "s", 0.0, 30.0,
+                                   "★启动宽限：区分'还没收到数据（不刹）'与'跑着跑着断流（立刻刹）'，"
+                                   "否则冷启动第一拍就会因 P_ODOM_AGE 缺失而永久锁死"),
     "safety.task_stall_s": Spec(1.0, _F, "s", 0.1, 10.0, "任务线程心跳丢失判定"),
     "safety.brake_on_fault": Spec(True, _B, "", None, None, "故障时强制发零速"),
 

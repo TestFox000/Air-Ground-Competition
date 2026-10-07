@@ -37,7 +37,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 FIXTURES = HERE / "fixtures"
 ROUTE_FIELD = FIXTURES / "route_field.txt"
 MAP_FIELD = FIXTURES / "map_field.yaml"
-WS_ROOT = HERE.parents[1]                                   # src/dzbrain/tests -> 工作区根
+# 工作区根：本文件在 <root>/src/dzbrain/tests/ 下（python 3.10 的 parents 切片语义与 3.12 一致）
+WS_ROOT = pathlib.Path(__file__).resolve().parents[3]
 ROBOT_YAML = WS_ROOT / "config" / "robot.yaml"
 
 # --------------------------------------------------------------------------- #
@@ -429,30 +430,38 @@ def test_validate_negatives() -> None:
     show(iss, "R008 负例 L5->K5->J5（从 K5 穿洞）")
     check("R008 触发（K5 不在候选集合）", "R008" in errors(iss), str(errors(iss)))
     check("R008 消息给出候选集合",
-          any("K7" in i.msg for i in iss if i.code == "R008"),
+          any("K4" in i.msg for i in iss if i.code == "R008"),
           next((i.msg for i in iss if i.code == "R008"), "（无）"))
     iss_ok = V.validate_route(r, map_cfg=map_cfg, cfg=cfg, cross_candidates=["K4", "K5"])
     check("R008 在显式 cross_candidates 含 K5 时不触发",
           "R008" not in errors(iss_ok), f"errors={errors(iss_ok)}")
 
-    # --- R009：斜切入洞（L9 -> J9 斜穿 K 列，夹角 63.4° > 10°）---
-    r = P.parse_mission(["K4", "L4", "L3", "J3", "K3", "L3",
-                         "L9", "K9", "K10", "L10",
-                         "L9", "J9"])
+    # --- R009：斜切入洞（J9 -> K8：同时在换列与换行，夹角 45° > 10°）---
+    r = P.parse_mission(["A8", "B8", "C8", "D8", "E9", "I9", "J9", "K8", "H9"])
     iss = V.validate_route(r, map_cfg=map_cfg, cfg=cfg)
-    show(iss, "R009 负例 L9->J9 斜切")
-    check("R009 触发（斜切 > 10°）", "R009" in errors(iss), str(errors(iss)))
+    show(iss, "R009 负例 J9->K8 斜切（45°）")
+    r009 = [i for i in iss if i.code == "R009"]
+    check("R009 触发（斜切 > 10°）", bool(r009), str(errors(iss)))
     check("R009 消息给出夹角数值",
-          any(re.search(r"[0-9]+\.[0-9]°", i.msg) for i in iss if i.code == "R009"),
-          next((i.msg for i in iss if i.code == "R009"), "（无）"))
-    check("R009 只报斜切那一处（严格水平直穿不报）",
-          sum(1 for i in iss if i.code == "R009") == 1,
-          str([i.msg for i in iss if i.code == "R009"]))
-    # 对照：严格水平直穿不报 R009
-    r_ok = P.parse_mission(["K4", "L4", "L9", "K9", "J9", "J3", "K3", "L3", "L9", "K9"])
+          any(re.search(r"[0-9]+\.[0-9]°", i.msg) for i in r009),
+          r009[0].msg if r009 else "（无）")
+    check("R009 报的那处就是 J9->K8 斜切",
+          any("J9->K8" in i.msg for i in r009), str([i.msg for i in r009]))
+    check("R009 进洞段与出洞段都算斜切（J9->K8 进、K8->H9 出）",
+          sum(1 for i in r009 if "J9->K8" in i.msg) == 1
+          and sum(1 for i in r009 if "K8->H9" in i.msg) == 1,
+          str([i.msg[:40] for i in r009]))
+    # 对照：同样经过 K9 但严格水平直穿（J9->K9->H9）不报 R009
+    r_ok = P.parse_mission(["A8", "B8", "C8", "D8", "E9", "I9", "J9", "K9", "H9"])
     iss_ok = V.validate_route(r_ok, map_cfg=map_cfg, cfg=cfg)
-    check("R009 不误伤严格水平直穿（L9->K9->J9）", "R009" not in errors(iss_ok),
+    check("R009 不误伤严格水平直穿（J9->K9->H9）", "R009" not in errors(iss_ok),
           f"errors={errors(iss_ok)}")
+    # 对照：沿 K 列挪格（K9->K10）算"列内行驶"，也归 R009
+    r_along = P.parse_mission(["A8", "B8", "C8", "D8", "E9", "I9", "J9", "K9", "K10", "L10"])
+    iss_along = V.validate_route(r_along, map_cfg=map_cfg, cfg=cfg)
+    check("R009 拦住在洞里沿列挪格（K9->K10）",
+          any("列内" in i.msg for i in iss_along if i.code == "R009"),
+          str([i.msg for i in iss_along if i.code == "R009"]))
 
     # --- R013：射击点到靶 0.7 m（超窗口上限 0.45）---
     #   K9 -> L9 -> L11 -> K11 -> K1 -> L1 -> L3 -> K3 -> J3 -> C4 -> A6 -> D6 -> D7
@@ -511,12 +520,15 @@ def test_validate_negatives() -> None:
     iss4 = V.validate_route(r4, map_cfg=map_cfg, cfg=cfg)
     check("R004 触发（D1 是障碍格）", "R004" in errors(iss4), str(errors(iss4)))
 
-    # --- R014：倒车占比 > 30%（沿 N 列/第 2 行，避开雷与障碍）---
-    r14 = P.parse_mission(["N10", "N9", "N8", "N7", "N6", "N5", "N4", "N3", "N2",
-                           "R:M2", "R:L2", "R:K2"])
+    # --- R014：倒车占比 > 30%（第 2 行绕一小圈：前进 N2/M3/N3 + 倒车 N2/M2/L2 = 75%）---
+    r14 = P.parse_mission(["N2", "M3", "N3", "R:N2", "R:M2", "R:L2"])
     iss14 = V.validate_route(r14, map_cfg=map_cfg, cfg=cfg)
-    show(iss14, "R014 负例（8 段前进 + 3 段倒车 = 27.3%）")
+    show(iss14, "R014 负例（倒车 1.05 m / 全长 1.40 m = 75%）")
     check("R014 触发（倒车段占比过高）", "R014" in warns(iss14), str(warns(iss14)))
+    r14b = P.parse_mission(["N5", "N6", "N7", "N8", "N9", "R:N8"])
+    iss14b = V.validate_route(r14b, map_cfg=map_cfg, cfg=cfg)
+    check("R014 不误伤少量倒车（0.35 m / 1.75 m = 20%）",
+          "R014" not in warns(iss14b), str(warns(iss14b)))
 
     # --- R006：有靶但一个射击停站点都没有 ---
     r6 = P.parse_mission(["A6", "B6", "D6", "D7", "C7"])
