@@ -12,6 +12,7 @@
 #include "std_msgs/msg/u_int8.hpp"
 #include "std_msgs/msg/int32.hpp"
 #include "std_msgs/msg/int32_multi_array.hpp"
+#include "std_msgs/msg/float32.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include <fstream>
 using namespace std;
@@ -81,6 +82,29 @@ public:
 	rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr sub_scan_request; // 循迹: 到达点位，请求全向扫描
 	rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr sub_manual_gimbal; // ★浏览器遥控: 手动接管开关
 	rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr sub_shoot_reset;   // ★射击计数重置 (/shoot_reset)
+
+	// ================= ★新版本补丁（2026-10-07）：两键开火 + 提前量 =================
+	// 为什么需要（旧版两个硬缺口，见 docs/survey_gimbal_fire.md）：
+	//   ① 放行门是**死线**：path_executor 一直在发 /move_base/stop_signal，
+	//      但 C++ 侧**零订阅者** —— "允许开火"从未真正生效，云台按自己的判据开火；
+	//   ② 预判只有 0.5 帧（≈16ms）而链路延迟 0.5~0.9s，且开火要求"画面静止 ≤1.5px/帧"
+	//      —— 移动轨道靶几乎打不出去（车上日志正是"确认→允许射击→马上丢失"循环）。
+	// 本补丁把开火权改成**两把钥匙**（默认关闭，保持旧行为）：
+	//   · /aim/fire_gate  ← MissionTask：已到站、已停稳、进入 FIRE 阶段
+	//   · /aim/fire_ready ← AimTask：目标确认、**预测落点**在开火框内、冷却/弹药预算允许
+	//   两者都为 1 才开火；同时用 /aim/lead_x（px）做**延迟补偿提前量**（增益可调）。
+	rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr sub_fire_gate;
+	rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr sub_fire_ready;
+	rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_lead_x;
+	void callback_fire_gate(const std_msgs::msg::UInt8::SharedPtr msg);
+	void callback_fire_ready(const std_msgs::msg::UInt8::SharedPtr msg);
+	void callback_lead_x(const std_msgs::msg::Float32::SharedPtr msg);
+
+	bool use_external_fire_gate_ = false; // true = 开火改由"两键"决定（移动靶模式）
+	double lead_apply_gain_ = 0.0;        // 0 = 不施加提前量（旧行为）；1 = 完全施加 /aim/lead_x
+	bool external_gate_ = false;          // /aim/fire_gate 当前值
+	bool external_ready_ = false;         // /aim/fire_ready 当前值
+	double lead_px_ = 0.0;                // /aim/lead_x 当前值（px，正 = 目标向右）
 
 	// ★云台手动接管标志：1 = 停止下发 CameMo_Conl，把云台控制权让给遥控器。
 	//   为什么必须让云台闭嘴：本节点主循环以 50~100Hz 持续发 CameMo_Conl，

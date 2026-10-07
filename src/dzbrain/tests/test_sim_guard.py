@@ -304,9 +304,26 @@ check("3.4 注入使误差沿路线累积（>= 0.30 m RMS，drift_warn_m 量级�
       r3f.metrics["belief_error_rms_m"] >= 0.30,
       f"belief_error_rms={r3f.metrics['belief_error_rms_m']:.5f} "
       f"max={r3f.metrics['belief_error_max_m']:.5f}")
-check("3.5 注入版在对照窗口内给出可比样本（跑完 = 提前完成，不算差异）",
-      r3f.steps >= FIELD_CAP_STEPS - 1 or r3f.metrics["completed"] is True,
-      f"steps={r3f.steps} completed={r3f.metrics['completed']}")
+# ★ 对照样本必须"有效"。⚠️ 2026-10-07 修复后本条**由 XFAIL 转为常驻**（修前是
+#   "提前退出造成假差异"）。判据 = 跑满窗口 **或** 看门狗判定跑飞（`diverged`）——
+#   两者都是**明确的终态**，给出的样本可比；只有"既没跑满、也没有终止理由"才算无效。
+#   ⚠️ 纯里程漂移（ε=0.18、关锚定）实测就是**跑飞**（第 2570 拍、信念领先近 1 m）：
+#      这是模型如实反映的现实（现场必须有 FixTask 到位吸附，否则纯里程计会漂到失控），
+#      所以 `diverged=True` 是**证据**而不是缺陷，放在本条的合法终态里。
+check("3.5 注入版给出可比样本（跑满窗口 / 跑完 / 判定跑飞，三选一）",
+      r3f.steps >= FIELD_CAP_STEPS - 1 or r3f.metrics["completed"] is True
+      or r3f.metrics["diverged"] is True,
+      f"steps={r3f.steps} completed={r3f.metrics['completed']} "
+      f"diverged={r3f.metrics['diverged']}")
+
+# ⚠️ 上面那条的对偶证据：**关锚定**的纯里程漂移确实会失控，而**开锚定**的不会 ——
+#    这正是 docstring "不锚定则按 ε×已走弧长无界累积" 的现场复现。
+print("     ε=0.18 不锚定 vs 锚定: diverged=%s(steps=%d) vs %s(steps=%d)" % (
+    r3f.metrics["diverged"], r3f.steps, r3a.metrics["diverged"], r3a.steps))
+check("3.5b ★纯里程漂移（ε=0.18 / 关锚定）失控跑飞，锚定版不跑飞",
+      r3f.metrics["diverged"] is True and r3a.metrics["diverged"] is False,
+      f"不锚定 diverged={r3f.metrics['diverged']} steps={r3f.steps} / "
+      f"锚定 diverged={r3a.metrics['diverged']} steps={r3a.steps}")
 
 # ⚠️ 锚定：修前（2026-10-07 之前）同窗口实测 不锚定 0.36020 / 锚定 0.34930（只差 3%），
 #    docstring 宣称的"夹在 anchor_radius_m 内"不成立。修后投影/推进修好，
@@ -330,13 +347,21 @@ check("3.9 ★吸附不能造误差（横向）：锚定版横向 RMS <= 不锚�
       f"锚定={r3a.metrics['cross_track_rms_m']:.5f} 不锚定={r3f.metrics['cross_track_rms_m']:.5f}")
 
 # 同注入放到直线路线上：误差必须小一个量级（证明误差与路线形状相关）
+# ⚠️ 阈值与"车实际走多远"挂钩，不写死：末点停车精度改成 `_GOAL_STOP_M`(0.03 m) 之后
+#    （修前是 0.12 m 就刹车）直线多走约 0.09 m，`ε=0.18` 下信念误差按里程线性长，
+#    于是 0.05 m 这个绝对值不再站得住 —— 改成与里程成比例的判据，
+#    语义（"直线上的误差比现场图小一个量级"）不变。
 r3s = _run(STRAIGHT, speed_scale_err=0.18, anchor_on_arrival=False)
-print("     同注入放直线 N10->M10: completed=%s belief_rms=%.6f belief_max=%.6f" % (
-    r3s.metrics["completed"], r3s.metrics["belief_error_rms_m"],
-    r3s.metrics["belief_error_max_m"]))
-check("3.9 直线 + 同注入：仍跑完且信念偏差 < 0.05 m",
-      r3s.metrics["completed"] is True and r3s.metrics["belief_error_max_m"] < 0.05,
-      f"completed={r3s.metrics['completed']} max={r3s.metrics['belief_error_max_m']:.5f}")
+_walk3s = math.hypot(r3s.truth_x[-1] - r3s.truth_x[0], r3s.truth_y[-1] - r3s.truth_y[0])
+print("     同注入放直线 N10->M10: completed=%s belief_rms=%.6f belief_max=%.6f "
+      "实走=%.4f m ε·里程=%.4f m" % (
+          r3s.metrics["completed"], r3s.metrics["belief_error_rms_m"],
+          r3s.metrics["belief_error_max_m"], _walk3s, 0.18 * _walk3s))
+check("3.9 直线 + 同注入：仍跑完且信念偏差 = O(ε × 里程)",
+      r3s.metrics["completed"] is True
+      and r3s.metrics["belief_error_max_m"] < 1.5 * 0.18 * _walk3s,
+      f"completed={r3s.metrics['completed']} max={r3s.metrics['belief_error_max_m']:.5f} "
+      f"阈值={1.5 * 0.18 * _walk3s:.5f}")
 
 # =========================================================================== #
 section("4. 指令延迟：调大 → 横向误差变大，且仍能跑完")

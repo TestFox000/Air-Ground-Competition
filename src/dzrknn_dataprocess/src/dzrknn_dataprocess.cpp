@@ -191,8 +191,24 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
                             (std::abs(vy) <= fire_stable_px_per_frame_);
     const bool aim_ready = fire_use_image_stable_ ? aim_stable : motor_still;
 
+    // ===== ★新版本补丁：两键开火（默认关闭，use_external_fire_gate=false 时行为与旧版一致）=====
+    //   旧版"画面静止"判据对**移动轨道靶**几乎不可能满足（靶 4cm/s 一直在走），
+    //   所以移动靶模式下改由任务层的两把钥匙决定：
+    //     /aim/fire_gate（MissionTask：已到站/停稳/FIRE 阶段）
+    //     /aim/fire_ready（AimTask：目标确认 + **预测落点**在开火框内 + 冷却/预算允许）
+    //   注意：AimTask 的 ready 已包含"预测落点在框内"，所以这里不再叠加 aim_stable，
+    //   否则等于又要求画面静止 —— 那个坑正是本次要修的。
+    const bool external_fire_ok = use_external_fire_gate_ && external_gate_ && external_ready_;
+    const bool aim_ready_effective = use_external_fire_gate_ ? external_fire_ok : aim_ready;
+
     // 开火零点取"激光实际中心"：激光与摄像头不同轴时，画面几何中心并非命中点
-    const double aim_err_x = std::abs(dx_filt_ - laser_offset_x_);
+    // ★提前量：lead_apply_gain_ > 0 时把 /aim/lead_x 叠加到误差上 ——
+    //   让云台**物理上瞄向目标的未来位置**（补偿视觉流水线 0.26s + 伺服滞后）。
+    //   0 = 不施加（旧行为）。★现场整定建议：先只开两键（gain=0）确认能开火，
+    //   再逐步加大 gain（0.3 → 0.6 → 1.0）看命中分布；AimTask 侧同时有
+    //   `aim.lead_time_s` 决定"提前量算多大"，两个旋钮别同时乱调。
+    const double lead_applied = lead_apply_gain_ * lead_px_;
+    const double aim_err_x = std::abs(dx_filt_ + lead_applied - laser_offset_x_);
     const double aim_err_y = std::abs(dy_filt_ - laser_offset_y_);
     const bool in_fire_zone = (aim_err_x <= fire_dz) && (aim_err_y <= fire_dz);
     // ===== ★P1-3 类别迟滞推进 =====
@@ -229,7 +245,7 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
     const bool cooldown_ok =
         ((this->now() - last_shot_time_).seconds() * 1000.0 >= static_cast<double>(shot_cooldown_ms_));
 
-    if (in_fire_zone && aim_ready && ammo_ok && cooldown_ok && target_confirmed)
+    if (in_fire_zone && aim_ready_effective && ammo_ok && cooldown_ok && target_confirmed)
     {
       fire_hold_count_++;
       if (fire_hold_count_ >= fire_hold_frames_)
@@ -756,6 +772,45 @@ void turn_on_robot::callback_imu(const sensor_msgs::msg::Imu::SharedPtr msg)
   imu_omega_z_ = msg->angular_velocity.z; // rad/s，绕车体 Z 轴的偏航角速度
   last_imu_time_ = this->now();
 }
+
+// ================= ★新版本补丁：两键开火 + 提前量的三个回调 =================
+// 设计原则：回调只**更新状态**，不做决策 —— 决策集中在 CaremaMontorControl 的开火判定里，
+// 这样"什么时候开火"只有一个地方可读、可测、可回退（use_external_fire_gate_ = false 即旧行为）。
+void turn_on_robot::callback_fire_gate(const std_msgs::msg::UInt8::SharedPtr msg)
+{
+  const bool on = (msg->data != 0);
+  if (on != external_gate_)
+  {
+    std::cout << (on ? "★ 收到【开火放行】/aim/fire_gate=1（任务级：已到站停稳）"
+                     : "★ 收到【开火收回】/aim/fire_gate=0")
+              << std::endl;
+  }
+  external_gate_ = on;
+}
+
+void turn_on_robot::callback_fire_ready(const std_msgs::msg::UInt8::SharedPtr msg)
+{
+  const bool on = (msg->data != 0);
+  if (on != external_ready_)
+  {
+    std::cout << (on ? "★ 收到【瞄准合格】/aim/fire_ready=1（预测落点在开火框内）"
+                     : "★ 收到【瞄准未合格】/aim/fire_ready=0")
+              << std::endl;
+  }
+  external_ready_ = on;
+}
+
+void turn_on_robot::callback_lead_x(const std_msgs::msg::Float32::SharedPtr msg)
+{
+  // 提前量（px，正 = 目标向右）。范围守卫：异常值不许污染伺服（现场标定可能发出离谱数）。
+  double v = static_cast<double>(msg->data);
+  if (!std::isfinite(v) || std::abs(v) > 400.0)
+  {
+    v = 0.0;
+  }
+  lead_px_ = v;
+}
+
 int turn_on_robot::compute_comp_pixel_0(double tar_dis)
 {
   // 输入范围检查
@@ -862,6 +917,19 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   // /imu_data 由 dzactuator 发布（已滤波 + 零偏校正，队列深度 1，延迟最低），用于车体转动前馈
   sub_imu = this->create_subscription<sensor_msgs::msg::Imu>("/imu_data", 1, std::bind(&turn_on_robot::callback_imu, this, std::placeholders::_1));
 
+  // ================= ★新版本补丁：两键开火 + 提前量 =================
+  // 队列深度 1 + BEST_EFFORT：只要最新值（放行门是"当前状态"而非事件流，
+  // 积压旧值会让云台按过期许可开火 —— 那正是要避免的事）。
+  sub_fire_gate = this->create_subscription<std_msgs::msg::UInt8>(
+      "/aim/fire_gate", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(),
+      std::bind(&turn_on_robot::callback_fire_gate, this, std::placeholders::_1));
+  sub_fire_ready = this->create_subscription<std_msgs::msg::UInt8>(
+      "/aim/fire_ready", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(),
+      std::bind(&turn_on_robot::callback_fire_ready, this, std::placeholders::_1));
+  sub_lead_x = this->create_subscription<std_msgs::msg::Float32>(
+      "/aim/lead_x", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(),
+      std::bind(&turn_on_robot::callback_lead_x, this, std::placeholders::_1));
+
 
   last_voice_msg.data = 0;
 
@@ -915,6 +983,9 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->declare_parameter("fire_speed_max", 50);		  // 开火时指令速度上限
   this->declare_parameter("fire_hold_frames", 5);		  // 连续满足多少帧才开火
   this->declare_parameter("fire_use_image_stable", true);   // 开火稳定判据：true=画面稳定(移动中可开火)
+  // ★新版本补丁：两键开火 + 提前量（默认关闭 → 不改旧行为；配置里开）
+  this->declare_parameter("use_external_fire_gate", false); // true=开火由 /aim/fire_gate + /aim/fire_ready 决定
+  this->declare_parameter("lead_apply_gain", 0.0);          // 0=不施加提前量；1=完全施加 /aim/lead_x
   this->declare_parameter("fire_stable_px_per_frame", 1.5); // 画面稳定阈值(像素/帧)
   this->declare_parameter("predict_gain", 0.5);			  // 目标移动预判强度(帧，0=关闭)
   this->declare_parameter("laser_offset_x", 0.0);		  // 激光落点水平偏移(标定值,像素)
@@ -983,6 +1054,11 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->get_parameter("fire_speed_max", fire_speed_max_);
   this->get_parameter("fire_hold_frames", fire_hold_frames_);
   this->get_parameter("fire_use_image_stable", fire_use_image_stable_);
+  // ★新版本补丁：两键开火 + 提前量
+  this->get_parameter("use_external_fire_gate", use_external_fire_gate_);
+  this->get_parameter("lead_apply_gain", lead_apply_gain_);
+  if (lead_apply_gain_ < 0.0) { lead_apply_gain_ = 0.0; }   // 负增益无物理意义，夹到 0
+  if (lead_apply_gain_ > 2.0) { lead_apply_gain_ = 2.0; }   // 上限 2 倍，防现场手滑
   this->get_parameter("fire_stable_px_per_frame", fire_stable_px_per_frame_);
   this->get_parameter("predict_gain", predict_gain_);
   this->get_parameter("laser_offset_x", laser_offset_x_);
@@ -1081,6 +1157,13 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   RCLCPP_INFO(this->get_logger(),
               "自瞄: 状态机 IDLE/SCAN/TRACK | 点位全向扫描 %d 趟 | 扫描速度 %d | 循迹请求 /nav/scan_request | 状态上报 /aim/status",
               scan_passes_, patrolSpeed());
+
+  // ★新版本补丁：两键开火 + 提前量（开机横幅必须能一眼看清是否生效 —— "静默失败"是本项目最大的坑）
+  RCLCPP_INFO(this->get_logger(),
+              "开火权限(★补丁): 两键开火 %s | 提前量施加增益 %.2f (输入 /aim/lead_x) | 订阅 /aim/fire_gate + /aim/fire_ready",
+              (use_external_fire_gate_ ? "已启用（/aim/fire_gate + /aim/fire_ready 同时为 1 才开火）"
+                                       : "已关闭（沿用旧的画面静止判据）"),
+              lead_apply_gain_);
 
 
   std::cout << FRED("Copyright©2016-2020 dzrknn_dataprocess. All rights reserved ") << std::endl;
