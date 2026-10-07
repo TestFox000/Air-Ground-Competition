@@ -59,6 +59,8 @@ SHOOT_AT_PREFIX = "SHOOT@"
 SHOOT_SUFFIXES = frozenset({":SHOOT_STOP", ":SHOOT"})
 #: 纯扫描停站后缀（旧实现 1179-1180）—— 只剥后缀，**不射击**
 SCAN_SUFFIXES = frozenset({":SCAN_STOP", ":SCAN"})
+#: 扫描后缀的归一形态（`:SCAN_STOP` / `:SCAN` 都折成它，回写时短一档）
+SCAN_CANON = ":SCAN"
 #: 终点朝向后缀（旧实现 1108-1117）
 HEADING_SUFFIXES = frozenset({",X", ",Y"})
 #: 兼容写法：`,y` 也可被写成 `:y`（旧文档同时出现过；两者语义一致）
@@ -138,6 +140,8 @@ def normalize_token(token: str) -> str:
         out = REVERSE_PREFIX + out
     if shoot:
         out += SHOOT_SUFFIX
+    elif scan:
+        out += SCAN_CANON            # `F2:SCAN_STOP` 归一成 `F2:SCAN`（语义不变，回写短一档）
     if heading:
         out += "," + heading
     return out
@@ -204,13 +208,16 @@ def parse_token(token: str) -> dict:
     shoot = text.endswith(SHOOT_SUFFIX)
     if shoot:
         text = text[:-1]
+    scan = text.endswith(SCAN_CANON)                     # `F2:SCAN` / `F2:SCAN_STOP` 归一后的形态
+    if scan:
+        text = text[: len(text) - len(SCAN_CANON)]
     block, heading = _split_block_suffix(text, raw)
     if not block:
         raise ValueError(f"缺少格名: {raw!r}")
 
     geo.block_to_index(block)                           # 越界/非法格名 -> ValueError
     return {
-        "block": block, "reverse": reverse, "shoot": shoot, "scan": False,
+        "block": block, "reverse": reverse, "shoot": shoot, "scan": scan,
         "heading": heading, "group": None, "raw": raw,
         "shoot_at": False, "target": None, "token": norm,
     }
@@ -344,7 +351,11 @@ def parse_mission(tokens, *, shoot_planner: Callable[[str], Any] | None = None,
             group=group, token=info["token"],
         ))
 
-    route = builder.build(fix_final_yaw=final_yaw if have_final_heading else None)
+    # ★ `drop_consecutive_duplicates=False`：并点必须走本模块的 `_dedup_waypoints`。
+    #   `RouteBuilder.build` 的内置去重是"二选一"（保留信息更丰富的那个），
+    #   会把 `B5*` + `B5:SCAN_STOP` 合并成只剩 shoot 或只剩 scan —— 违反"标记取并集"的约定。
+    route = builder.build(drop_consecutive_duplicates=False,
+                          fix_final_yaw=final_yaw if have_final_heading else None)
     route = _dedup_waypoints(route)
     crossing = detect_crossing(route)
     if crossing:
@@ -447,8 +458,8 @@ def format_route(route: Route) -> list[str]:
         token = REVERSE_PREFIX + block if wp.reverse else block
         if wp.shoot:
             token += SHOOT_SUFFIX
-        elif wp.scan:
-            token += ":SCAN_STOP"
+        if wp.scan:
+            token += SCAN_CANON
         if idx == last and abs(wp.yaw - geo.HEADING_Y) < 1e-6:
             token += ",y"
         out.append(token)

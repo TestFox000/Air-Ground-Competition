@@ -228,6 +228,28 @@ def _barrier_crossing(a: str, b: str) -> tuple[bool, float, float] | None:
     return blocked, cd, rd
 
 
+def _crossing_row(a: str, b: str) -> float | None:
+    """线段 a→b **在 `CROSS_COLUMN` 列那一刻**所处的行号；不涉及该列返回 None。
+
+    ★ 不能拿两端点的行号来判断"穿的是哪一行"：现场 `L9 -> J9` 这种长段直线，
+    两端行号都是 9 看着没问题，但 `L5 -> J5` 只有跨完列才看得出穿的是第 5 行。
+    判据必须落在**与 K 列相交的那一点**上。
+    """
+    r1, c1 = _rc(a)
+    r2, c2 = _rc(b)
+    k_col = geo.COL_LETTERS.index(CROSS_COLUMN)
+    if c1 == c2:
+        if c1 != k_col:
+            return None
+        return float(min(r1, r2)) if r1 != r2 else float(r1)
+    if (c1 - k_col) * (c2 - k_col) > 0:
+        return None
+    t = (k_col - c1) / (c2 - c1)
+    if t < -EPS or t > 1.0 + EPS:
+        return None
+    return r1 + t * (r2 - r1)
+
+
 def _crossing_at_column(a: str, b: str) -> tuple[float, float, float, float] | None:
     """线段 a→b 与列 `CROSS_COLUMN` 的交点。
 
@@ -318,6 +340,8 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     lower_rows, upper_rows = _cross_rows(cfg)
     cross_pool = _candidates(cfg, cross_candidates)
     lo_m, hi_m = _window(cfg)
+    cross_rows = set(lower_rows) | set(upper_rows)        # ★ 必须在 R007 之前的检查里就能用
+    k_col = geo.COL_LETTERS.index(CROSS_COLUMN)
 
     # ---------------------------------------------------------------- R002
     valid: list[tuple[int, str]] = []
@@ -397,24 +421,29 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
                                 f"{' '.join(missing)}（路线必须压过每一颗雷）"))
 
     # ---------------------------------------------------------------- R007 / R008 / R009（穿洞）
-    cross_rows = set(lower_rows) | set(upper_rows)
-    k_col = geo.COL_LETTERS.index(CROSS_COLUMN)
-
     # ① 把**连续相接**的穿越段并成一次"过洞"（L9->K9 与 K9->J9 是同一次穿越的两段）
     runs: list[dict] = []
     prev: dict | None = None
     for i in range(len(valid) - 1):
         a, b = valid[i][1], valid[i + 1][1]
         hit = _crossing_at_column(a, b)
-        if hit is None or (cross_rows and int(round(hit[0])) not in cross_rows):
+        if hit is None:
             prev = None
             continue
-        if prev is not None and prev["segs"][-1][1] == a:      # 与上一段首尾相接
+        cross_row = _crossing_row(a, b)
+        if cross_row is None or (cross_rows and int(round(cross_row)) not in cross_rows):
+            prev = None
+            continue
+        # ★ 只在"确实跨过 K 列"的段之间合并：`J5->K4` 只是**停在** K4，没跨过去，
+        #   若并进上一段会把两次不同行的穿越混成一次（本模块第二版踩过的坑）。
+        if (prev is not None and prev["segs"][-1][1] == a
+                and _rc(a)[1] == k_col and int(round(prev["row"])) == int(round(cross_row))):
             prev["segs"].append((a, b))
             prev["b"] = b
             prev["col_diff"] += hit[3]
         else:
-            prev = {"segs": [(a, b)], "a": a, "b": b, "index": i, "col_diff": hit[3]}
+            prev = {"segs": [(a, b)], "a": a, "b": b, "index": i, "col_diff": hit[3],
+                    "row": cross_row}
             runs.append(prev)
 
     for run in runs:
@@ -429,13 +458,22 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
             angles.append(a_in)
             if a_out > 0.0:
                 angles.append(a_out)
-        row = _crossing_row_of([blk for seg in run["segs"] for blk in seg])
-        run["row"] = row if row is not None else float("nan")
         run["angle"] = max(angles) if angles else 0.0
         run["cells"] = {blk for seg in run["segs"] for blk in seg}
 
     lower_runs = [r for r in runs if int(round(r["row"])) in set(lower_rows)]
     upper_runs = [r for r in runs if int(round(r["row"])) in set(upper_rows)]
+
+    # ★ R008 独立于"属于哪个半场"：只要在 K 列穿行的格子不在候选集合里就报。
+    #   现场硬约束（robot.yaml 注释）：通口只有 K4(+K5) 与 K9/K10，K5 不算合法通口。
+    for run in runs:
+        offenders = sorted(c for c in run["cells"]
+                           if c.startswith(CROSS_COLUMN) and c not in cross_pool)
+        if offenders:
+            issues.append(Issue("error", "R008",
+                                f"第 {run['index']} 段 {run['a']}->{run['b']}"
+                                f"（{CROSS_COLUMN} 列第 {run['row']:.0f} 行）用了候选集合外的穿洞格 "
+                                f"{' '.join(offenders)}（候选 {' '.join(sorted(cross_pool))}）"))
 
     def _fmt(run_list: list[dict]) -> str:
         return " ".join(f"{r['a']}->{r['b']}@{int(round(r['row']))}行" for r in run_list)
@@ -480,9 +518,9 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     for run in runs:
         if not (run["cells"] & cross_pool):
             issues.append(Issue("error", "R008",
-                                f"第 {run['index']} 段 {run['a']}->{run['b']}（{CROSS_COLUMN} 列第 "
-                                f"{run['row']:.0f} 行）的穿洞格不在候选集合里"
-                                f"（候选 {' '.join(sorted(cross_pool))}）"))
+                                f"第 {run['index']} 段 {run['a']}->{run['b']}"
+                                f"（{CROSS_COLUMN} 列第 {run['row']:.0f} 行）的穿洞格完全不在候选集合里"
+                                f"（候选 {' '.join(sorted(cross_pool)) or '空'}）"))
 
     # ② 不与任何穿越相接、却整段沿 K 列行驶的段：同样算"在洞里横着走"
     for i in range(len(valid) - 1):
@@ -540,20 +578,28 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
                                         f"车尾朝靶使有效距离超出窗口上限（{dists}；上限 {hi_m:.2f} m）"))
 
     # ---------------------------------------------------------------- R011（段长）
+    # ★ 长段**汇总成一条** warn：现场路线天然含 3 处长段（F8->B8 / C2->G2 / J1->J4），
+    #   逐段刷屏会把真正的问题淹掉 —— `P0接口约定.md` §2 要求"R011 至多 1 条 warn"。
+    long_segments: list[tuple[float, int, str, str]] = []
     for i in range(len(valid) - 1):
         a, b = valid[i][1], valid[i + 1][1]
         ax, ay = geo.block_to_meters(a)
         bx, by = geo.block_to_meters(b)
         length = math.hypot(bx - ax, by - ay)
-        cells = length / geo.BLOCK_SIZE
         if length < MIN_SEGMENT_M:
             issues.append(Issue("error", "R011",
                                 f"第 {i} 段 {a}->{b} 长度 {length:.4f} m < {MIN_SEGMENT_M} m"
                                 f"（重复点？）"))
-        elif cells > MAX_SEGMENT_BLOCKS:
-            issues.append(Issue("warn", "R011",
-                                f"第 {i} 段 {a}->{b} 长 {cells:.2f} 格（{length:.3f} m）"
-                                f"> {MAX_SEGMENT_BLOCKS} 格，疑似漏点（中途无航点约束）"))
+        elif length / geo.BLOCK_SIZE > MAX_SEGMENT_BLOCKS:
+            long_segments.append((length / geo.BLOCK_SIZE, i, a, b))
+    if long_segments:
+        longest = max(long_segments)
+        detail = "、".join(f"{a}->{b}({cells:.2f}格)" for cells, _, a, b in long_segments)
+        issues.append(Issue("warn", "R011",
+                            f"有 {len(long_segments)} 段超过 {MAX_SEGMENT_BLOCKS} 格，疑似漏点"
+                            f"（最长：第 {longest[1]} 段 {longest[2]}->{longest[3]} "
+                            f"{longest[0]:.2f} 格 / {longest[0] * geo.BLOCK_SIZE:.3f} m）"
+                            f"：{detail}"))
 
     # ---------------------------------------------------------------- R014（倒车占比）
     reverse_m = 0.0

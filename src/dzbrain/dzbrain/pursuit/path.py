@@ -1,0 +1,291 @@
+# -*- coding: utf-8 -*-
+"""路径几何：把 `Route` 编译成**折线 + 弧长前缀**，提供投影 / 弧长 / 段属性查询。
+
+旧实现的问题（docs/survey_path_executor.md §2.2、§8.1、§8.2）：
+- `find_nearest_segment()` 每拍 O(N) **只向前**全扫；路线一密（文件路径 320+ 点）就是热点；
+- 索引只前进无法回退，"车在倒车（`R:`）而索引在前进"这一情形没有处理；
+- 转角几何在 3 处各写一遍、阈值还不一样（20° / 45° / 45°）。
+
+本模块的对策：
+- 弧长前缀 `_s_start` + `bisect` → 给 `s_hint` 时只为**窗口内**的段算距离（O(窗口)）；
+- `allow_backward` 显式区分"只前进（旧行为）"与"允许回退（倒车段必需）"；
+- 转角几何收敛到 `corner_angle_deg()` 一处（策略阈值仍由 Config 决定）。
+
+★ 不变量
+1. `project().s` 是**弧长**（从路线首点算起），`t ∈ [0, 1]` 是段内参数，`dist` 是到折线的距离。
+2. `allow_backward=False` 时必有 `result.s >= s_hint`（索引绝不后退 = 旧行为）。
+3. `passed_end=True` 仅当"最近段就是末段"且该段原始投影参数 > 1（即车已跑过末点）。
+4. 段索引 `i` 的语义 = 航点 `i → i+1`；段属性（倒车等）挂在**终点航点**上，
+   与 `Route.reverse_segments()` 的既有约定一致。
+
+⚠️ 退化段（相邻同格点 → 长度 0）在投影时被跳过：`RouteBuilder.build()` 已去重，
+   但手工构造的 `Route` 仍可能出现，故保留防御而不是让它除零。
+"""
+
+from __future__ import annotations
+
+import bisect
+import math
+from dataclasses import dataclass
+
+from ..core import geometry as geo
+from ..route.model import Route, Waypoint
+
+__all__ = ["Projection", "Path"]
+
+_EPS = 1e-9          # 段长/参数比较容差（米）
+
+
+@dataclass(frozen=True)
+class Projection:
+    """车当前位置在路径上的投影（不可变，可跨线程共享）。"""
+
+    seg_index: int          # 命中的段索引（= 航点 i → i+1）
+    t: float                # 段内参数 [0, 1]
+    x: float                # 投影点（米制）
+    y: float
+    s: float                # 投影点的弧长（从路线首点算起）
+    dist: float             # 车到折线的距离
+    seg_length: float       # 命中段长度
+    seg_heading: float      # 命中段航向（弧度）
+    passed_end: bool        # 车已跑过末点
+
+    @property
+    def s_vertex(self) -> float:
+        """本段**末端顶点**的弧长（= 下一航点所在的弧长位置）。"""
+        return self.s + self.seg_length * (1.0 - self.t)
+
+    @property
+    def dist_to_vertex(self) -> float:
+        """沿路径到本段末端顶点还剩多少米（转角钳制/转角减速都用它）。"""
+        return self.seg_length * (1.0 - self.t)
+
+
+class Path:
+    """一条不可变折线路径：`Path(route)` 一次编译，之后只读查询。
+
+    ★ 线程安全：构造后所有字段只读，`project()` 无副作用（可多线程并发调用）。
+    """
+
+    def __init__(self, route: Route) -> None:
+        points: tuple[Waypoint, ...] = tuple(route.waypoints)
+        if len(points) < 2:
+            raise ValueError(f"Path 至少需要 2 个航点才能构成路径（当前 {len(points)} 个）")
+
+        segments: list[tuple[float, float, float, float, float, float]] = []
+        s_start: list[float] = []
+        acc = 0.0
+        for a, b in zip(points, points[1:]):
+            dx, dy = b.x - a.x, b.y - a.y
+            length = math.hypot(dx, dy)
+            # 零向量段用起点朝向兜底（heading_of 自带 fallback）
+            segments.append((a.x, a.y, b.x, b.y, length,
+                             geo.heading_of(dx, dy, fallback=a.yaw)))
+            s_start.append(acc)
+            acc += length
+
+        self._route = route
+        self._points = points
+        self._segments = tuple(segments)
+        self._s_start = tuple(s_start)
+        self._total = acc
+
+        # 停站候选（射击/扫描）+ 末点：控制器只遍历这几个索引，不做全表扫描
+        stops = [i for i, w in enumerate(points) if w.is_stop_point]
+        last = len(points) - 1
+        if last not in stops:
+            stops.append(last)
+        self._stop_indices = tuple(sorted(stops))
+
+    # ------------------------------------------------------------------ #
+    #  只读属性
+    # ------------------------------------------------------------------ #
+    @property
+    def total_length(self) -> float:
+        """路径总长（米）。"""
+        return self._total
+
+    @property
+    def segments(self) -> tuple[tuple[float, float, float, float, float, float], ...]:
+        """每段 `(x0, y0, x1, y1, length, heading)`。"""
+        return self._segments
+
+    @property
+    def segment_count(self) -> int:
+        return len(self._segments)
+
+    @property
+    def route(self) -> Route:
+        return self._route
+
+    @property
+    def waypoints(self) -> tuple[Waypoint, ...]:
+        return self._points
+
+    @property
+    def stop_indices(self) -> tuple[int, ...]:
+        """需要减速/停车的航点索引（射击停站、扫描停站、末点），升序。"""
+        return self._stop_indices
+
+    # ------------------------------------------------------------------ #
+    #  弧长查询
+    # ------------------------------------------------------------------ #
+    def _seg_index_at(self, s: float) -> int:
+        """弧长 s 落在哪一段（边界归**后**一段；越界夹紧）。"""
+        i = bisect.bisect_right(self._s_start, s) - 1
+        if i < 0:
+            return 0
+        if i > len(self._segments) - 1:
+            return len(self._segments) - 1
+        return i
+
+    def point_at(self, s: float) -> tuple[float, float, int]:
+        """弧长 s 处的点 -> (x, y, seg_index)。s 越界自动夹到 [0, total_length]。"""
+        if s < 0.0:
+            s = 0.0
+        elif s > self._total:
+            s = self._total
+        i = self._seg_index_at(s)
+        x0, y0, x1, y1, length, _ = self._segments[i]
+        if length <= _EPS:
+            return x0, y0, i
+        t = (s - self._s_start[i]) / length
+        if t < 0.0:
+            t = 0.0
+        elif t > 1.0:
+            t = 1.0
+        return x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, i
+
+    def heading_at(self, s: float) -> float:
+        """弧长 s 所在段的航向（弧度）。"""
+        return self._segments[self._seg_index_at(s)][5]
+
+    def s_at_waypoint(self, index: int) -> float:
+        """航点 index 处的弧长（越界夹紧；index == 航点数-1 → 总长）。"""
+        if index <= 0:
+            return 0.0
+        if index >= len(self._segments):
+            return self._total
+        return self._s_start[index]
+
+    def remaining(self, s: float) -> float:
+        """从弧长 s 到终点还剩多少米（负值夹到 0）。"""
+        left = self._total - s
+        return left if left > 0.0 else 0.0
+
+    # ------------------------------------------------------------------ #
+    #  段属性
+    # ------------------------------------------------------------------ #
+    def segment_is_reverse(self, seg_index: int) -> bool:
+        """该段是否倒车（`R:` 标记挂在**终点航点**上，与旧 `_is_reverse_segment` 同语义）。"""
+        if seg_index < 0 or seg_index >= len(self._segments):
+            return False        # ⚠️ 越界防御式返回 False，不外抛（控制环不能因索引错位停摆）
+        return bool(self._points[seg_index + 1].reverse)
+
+    def segment_speed_scale(self, seg_index: int) -> float:
+        """该段限速系数：取两端点 `speed_scale` 的**较小值**（限速挂在哪端都生效，失败偏安全）。"""
+        if seg_index < 0 or seg_index >= len(self._segments):
+            return 1.0
+        a = self._points[seg_index].speed_scale
+        b = self._points[seg_index + 1].speed_scale
+        return float(min(a, b))
+
+    def corner_angle_deg(self, seg_index: int) -> float:
+        """本段与下一段的夹角（度，0 = 共线，180 = 原路折返）。末段无下一段 → 0。"""
+        if seg_index < 0 or seg_index + 1 >= len(self._segments):
+            return 0.0
+        h0 = self._segments[seg_index][5]
+        h1 = self._segments[seg_index + 1][5]
+        return abs(math.degrees(geo.normalize_angle(h1 - h0)))
+
+    # ------------------------------------------------------------------ #
+    #  投影（核心）
+    # ------------------------------------------------------------------ #
+    def project(self, x: float, y: float, *, s_hint: float | None = None,
+                window_m: float = 0.60, allow_backward: bool = True) -> Projection:
+        """把车位置投影到折线上。
+
+        ★ `s_hint` 给定时只在 `[s_hint - window_m, s_hint + window_m]` 内搜索
+          （`allow_backward=False` 时下界收到 `s_hint`）—— 复杂度只与窗口内段数有关，
+          避免"路线自交 → 误锁到另一条边"。
+        ★ `allow_backward=False` 时索引只前进（旧行为，防倒退误锁）；
+          倒车段（`R:`）必须用 `True`，否则车往后走时投影点不肯后退。
+        ★ 末点之后：最近段 = 末段且原始参数 > 1 → `t = 1`、`s = total_length`、`passed_end=True`。
+        """
+        n = len(self._segments)
+        s_start = self._s_start
+        if window_m < 0.0:      # ⚠️ 负窗口会把区间反转发散，直接当 0 处理
+            window_m = 0.0
+
+        # ---- 1. 确定搜索窗口的段区间（bisect，O(log N)） ----
+        t_floor = 0.0
+        if s_hint is None:
+            i_first, i_last = 0, n - 1
+        else:
+            hint = s_hint if 0.0 <= s_hint <= self._total else (
+                0.0 if s_hint < 0.0 else self._total)
+            lo = hint - window_m if allow_backward else hint
+            if lo < 0.0:
+                lo = 0.0
+            hi = hint + window_m
+            if hi > self._total:
+                hi = self._total
+            i_first = self._seg_index_at(lo)
+            i_last = bisect.bisect_right(s_start, hi) - 1
+            if i_last < i_first:
+                i_last = i_first
+            elif i_last > n - 1:
+                i_last = n - 1
+            if not allow_backward:
+                # ★ 窗口下界不能落在本段 t<0 的位置，否则 s 会小于 s_hint（索引后退）
+                seg_len = self._segments[i_first][4]
+                if seg_len > _EPS:
+                    t_floor = (lo - s_start[i_first]) / seg_len
+                    if t_floor < 0.0:
+                        t_floor = 0.0
+                    elif t_floor > 1.0:
+                        t_floor = 1.0
+
+        # ---- 2. 窗口内找最近点（用平方距离比较，省 sqrt） ----
+        best_i = -1
+        best_t = 0.0
+        best_d2 = float("inf")
+        best_t_raw = 0.0
+        for i in range(i_first, i_last + 1):
+            x0, y0, x1, y1, length, _ = self._segments[i]
+            if length <= _EPS:
+                continue
+            ux = (x1 - x0) / length
+            uy = (y1 - y0) / length
+            t_raw = ((x - x0) * ux + (y - y0) * uy) / length
+            t = 0.0 if t_raw < 0.0 else (1.0 if t_raw > 1.0 else t_raw)
+            if i == i_first and t < t_floor:
+                t = t_floor
+            px = x0 + (x1 - x0) * t
+            py = y0 + (y1 - y0) * t
+            d2 = (x - px) * (x - px) + (y - py) * (y - py)
+            if d2 < best_d2:
+                best_d2 = d2
+                best_i = i
+                best_t = t
+                best_t_raw = t_raw
+
+        if best_i < 0:      # 整条路径都是零长度退化段
+            best_i = 0
+            best_t = 0.0
+            best_t_raw = 0.0
+            x0, y0 = self._segments[0][0], self._segments[0][1]
+            best_d2 = (x - x0) * (x - x0) + (y - y0) * (y - y0)
+
+        x0, y0, x1, y1, length, heading = self._segments[best_i]
+        px = x0 + (x1 - x0) * best_t
+        py = y0 + (y1 - y0) * best_t
+        s = s_start[best_i] + length * best_t
+        passed_end = (best_i == n - 1) and (best_t_raw > 1.0)
+        return Projection(seg_index=best_i, t=best_t, x=px, y=py, s=s,
+                          dist=math.sqrt(best_d2), seg_length=length,
+                          seg_heading=heading, passed_end=passed_end)
+
+    def __repr__(self) -> str:      # pragma: no cover - 仅日志用
+        return (f"Path(segments={len(self._segments)}, "
+                f"length={self._total:.3f}m, name={self._route.name!r})")

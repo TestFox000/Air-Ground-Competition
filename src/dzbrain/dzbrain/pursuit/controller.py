@@ -1,0 +1,200 @@
+# -*- coding: utf-8 -*-
+"""舵角与速度剖面 —— 纯追踪的"输出层"（阿克曼自行车模型，输出**度**）。
+
+旧实现（`path_executor.pure_pursuit_control` 1736–1809）的问题与保留项：
+- 🔧 修掉：舵角公式**缺教科书因子 2**（`δ = atan(L·sinα/d)`，等效增益只有一半）；
+  现在 `δ = atan(gain · 2L·sinα / l_d)`，`gain = pursuit.curvature_gain`，
+  **`gain = 0.5` 逐位等于旧行为**（`0.5 × 2 = 1` 在 IEEE754 里是精确的），
+  所以现场要不要吃那半个增益，是一个 YAML 键的事，不用改代码。
+- 🔧 修掉：前视距离硬编码 0.15（注释还写 0.2）、舵角无速率限制（可一帧跳 60°）、
+  速度分层散落在控制环里（终点 0.35 / 射击 0.30 / 转角 0.12 三处各写一遍）。
+- ✅ 保留：**倒车舵角同式**（只乘方向系数、公式不变）、
+  **零 Twist = 刹车**（`brake_command()`：`linear_x = 0` 且 `steer_deg = 0`）、
+  分母下限防"目标贴脸时增益爆炸"（`pursuit.lookahead_floor_m`，旧硬编码 0.10）。
+
+★ 不变量
+1. `steer_deg` 单位是**度**，正 = 左转（与下位机 `pursuitAngle.angular.z` 契约一致）。
+2. `|steer_deg| <= pursuit.max_steer_deg`，且相邻两拍变化 <= `max_steer_rate_deg_s × dt`
+   （速率限幅作用在**最终输出**上，倒车符号翻转也算在内）。
+3. `linear_x < 0` ⟺ 倒车；倒车速度 = 前进速度 × `reverse_speed_ratio`，下界 `min_speed_mps`。
+4. `curvature = 2·sinα / l_d`（**不含 gain**的目标几何曲率，正 = 左弯）：
+   限速用"路线要求转多少"，与转向增益解耦 —— 调 gain 不会顺带改速度。
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+from ..core.config import Config, curve_speed_limit, lookahead_distance
+from .lookahead import find_lookahead_point
+from .path import Path, Projection
+
+__all__ = ["PursuitCommand", "compute_command", "speed_profile", "brake_command"]
+
+_CHORD_EPS = 1e-6       # 车到前视点的弦长下限（米）：低于它就认为"目标贴在车上"，方位角无意义
+
+
+@dataclass(frozen=True)
+class PursuitCommand:
+    """一拍控制指令（不可变）。`linear_x` 单位 m/s，`steer_deg` 单位度（正=左转）。"""
+
+    linear_x: float
+    steer_deg: float
+    curvature: float        # 目标几何曲率 1/m（正 = 左弯）
+    speed_reason: str       # 限速主因：cruise / curve / stop_approach / corner / min_speed / brake
+    reverse: bool
+
+
+# --------------------------------------------------------------------------- #
+#  速度剖面
+# --------------------------------------------------------------------------- #
+def speed_profile(*, curvature: float, dist_to_stop: float | None,
+                  corner_dist: float | None, speed_scale: float,
+                  cfg: Config) -> tuple[float, str]:
+    """前进速度剖面：`min(巡航×scale, 曲率限速, 停站减速, 转角减速) × 量化补偿`，下界 `min_speed`。
+
+    - 停站减速：`v = min(v, max(min_speed, stop_approach_speed_gain × d))`（旧 0.30·d）
+    - 转角减速：距尖角顶点 < `corner_slow_dist_m` → 压到 `corner_speed_mps`（旧固定 0.12）
+    - `dist_to_stop` / `corner_dist` 传 `None` 表示"这一层不参与"
+    ★ 返回的 `reason` 是**真正起作用的那一层**，便于日志定位"为什么这么慢"。
+    """
+    cruise = cfg.get("pursuit.cruise_speed_mps")
+    min_speed = cfg.get("pursuit.min_speed_mps")
+
+    v = cruise * max(0.0, speed_scale)
+    reason = "cruise"
+
+    curve_v = curve_speed_limit(curvature, cfg)
+    if curve_v < v:
+        v, reason = curve_v, "curve"
+
+    if dist_to_stop is not None:
+        stop_v = max(min_speed, cfg.get("pursuit.stop_approach_speed_gain") * dist_to_stop)
+        if stop_v < v:
+            v, reason = stop_v, "stop_approach"
+
+    if corner_dist is not None and corner_dist < cfg.get("pursuit.corner_slow_dist_m"):
+        corner_v = cfg.get("pursuit.corner_speed_mps")
+        if corner_v < v:
+            v, reason = corner_v, "corner"
+
+    v *= cfg.get("pursuit.speed_quant_comp")
+    if v < min_speed:       # ★ 下界最后兜（保证任何分支都不会低于蠕动速度）
+        v, reason = min_speed, "min_speed"
+    return v, reason
+
+
+def _dist_to_stop(pose, path: Path, proj: Projection, cfg: Config) -> float | None:
+    """前方最近的停站/终点距离；超过 `approach_m` 返回 None（不做无谓减速）。
+
+    ★ 只遍历 `path.stop_indices`（射击点/扫描点/末点），不做全表扫描 ——
+      旧实现每拍遍历全部航点 3 次（survey §8.1）。
+    """
+    limit = cfg.get("pursuit.approach_m")
+    best: float | None = None
+    points = path.waypoints
+    for i in path.stop_indices:
+        if i <= proj.seg_index:         # 已经过的点不再减速（含当前段的起点）
+            continue
+        w = points[i]
+        d = math.hypot(w.x - pose.x, w.y - pose.y)
+        if d <= limit and (best is None or d < best):
+            best = d
+    return best
+
+
+def _corner_dist(path: Path, proj: Projection, cfg: Config) -> float | None:
+    """若本段末端是"尖角"（夹角 > `corner_angle_deg`）→ 返回到顶点的弧长距离，否则 None。"""
+    if path.corner_angle_deg(proj.seg_index) <= cfg.get("pursuit.corner_angle_deg"):
+        return None
+    return proj.dist_to_vertex
+
+
+# --------------------------------------------------------------------------- #
+#  舵角
+# --------------------------------------------------------------------------- #
+def compute_command(pose, path: Path, proj: Projection, cfg: Config, *,
+                    reverse: bool = False, last_steer_deg: float | None = None,
+                    dt: float = 0.02) -> PursuitCommand:
+    """纯追踪一拍：位姿 + 路径投影 → (速度, 舵角, 曲率, 限速主因)。
+
+    `pose` 只需有 `.x/.y/.yaw`（`core.geometry.Pose`）；`last_steer_deg=None` 表示首拍、不做速率限幅。
+
+    ★ 倒车判定 = 显式 `reverse` 参数 **或** 该段带 `R:` 标记（取或，两者都不会漏）；
+      倒车只做两件事：速度取负 × `reverse_speed_ratio`、舵角 × `reverse_steer_sign`。
+    ★ 前视距离由**巡航速度**决定（不随瞬时速度变化）：否则"减速 → 前视变短 → 转向变猛"
+      会形成正反馈，低速贴站时反而摆头。
+    """
+    wheelbase = cfg.get("pursuit.wheelbase_m")
+    gain = cfg.get("pursuit.curvature_gain")
+    ld = lookahead_distance(cfg.get("pursuit.cruise_speed_mps"), cfg)
+    denom = max(ld, cfg.get("pursuit.lookahead_floor_m"))
+
+    target = find_lookahead_point(path, proj, ld, cfg)
+
+    # ---- 车体系分解：前向 / 左向分量（与旧实现同一旋转写法） ----
+    dx = target.x - pose.x
+    dy = target.y - pose.y
+    cos_neg = math.cos(-pose.yaw)
+    sin_neg = math.sin(-pose.yaw)
+    rel_x = dx * cos_neg - dy * sin_neg
+    rel_y = dx * sin_neg + dy * cos_neg
+    chord = math.hypot(rel_x, rel_y)
+    # ⚠️ 目标点贴在车上时 atan2 全是噪声：取 0（分母下限已挡住增益爆炸，不必像旧代码那样急刹）
+    alpha = 0.0 if chord < _CHORD_EPS else math.atan2(rel_y, rel_x)
+    sin_a = math.sin(alpha)
+
+    # ---- 舵角：δ = atan(gain · 2L·sinα / l_d) ----
+    steer_deg = math.degrees(math.atan(gain * 2.0 * wheelbase * sin_a / denom))
+    max_steer = cfg.get("pursuit.max_steer_deg")
+    if steer_deg > max_steer:
+        steer_deg = max_steer
+    elif steer_deg < -max_steer:
+        steer_deg = -max_steer
+
+    # ---- 倒车：方向系数 ----
+    rev = bool(reverse) or path.segment_is_reverse(proj.seg_index)
+    if rev:
+        steer_deg *= cfg.get("pursuit.reverse_steer_sign")
+
+    # ---- 速率限幅（对最终输出，含倒车符号翻转） ----
+    rate = cfg.get("pursuit.max_steer_rate_deg_s")
+    if last_steer_deg is not None and dt > 0.0:
+        step = rate * dt
+        delta = steer_deg - last_steer_deg
+        if delta > step:
+            delta = step
+        elif delta < -step:
+            delta = -step
+        steer_deg = last_steer_deg + delta
+        if steer_deg > max_steer:       # 兜底：上一个值本身越界时不放大
+            steer_deg = max_steer
+        elif steer_deg < -max_steer:
+            steer_deg = -max_steer
+
+    # ---- 速度剖面 ----
+    curvature = 2.0 * sin_a / denom
+    speed, reason = speed_profile(
+        curvature=curvature,
+        dist_to_stop=_dist_to_stop(pose, path, proj, cfg),
+        corner_dist=_corner_dist(path, proj, cfg),
+        speed_scale=path.segment_speed_scale(proj.seg_index),
+        cfg=cfg,
+    )
+    if rev:
+        min_speed = cfg.get("pursuit.min_speed_mps")
+        speed = -max(min_speed, speed * cfg.get("pursuit.reverse_speed_ratio"))
+
+    return PursuitCommand(linear_x=speed, steer_deg=steer_deg, curvature=curvature,
+                          speed_reason=reason, reverse=rev)
+
+
+def brake_command(cfg: Config) -> PursuitCommand:
+    """零速刹车：**零 Twist = 刹车**（下位机看到 0 速度即停，不需要额外停机协议）。
+
+    ★ `steer_deg` 也必须是 0：下位机 `servo = angular.z + 60`，
+      发一个非零舵角会让轮子保持打死的姿态停车（下次起步会带偏）。
+    """
+    return PursuitCommand(linear_x=0.0, steer_deg=0.0, curvature=0.0,
+                          speed_reason="brake", reverse=False)
