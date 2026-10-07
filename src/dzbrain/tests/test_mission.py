@@ -601,6 +601,77 @@ def test_rate() -> None:
           f"errors={rig.task.health().errors} last={rig.task.health().last_error!r}")
 
 
+def test_stall_fallback() -> None:
+    """拐角绕圈兜底：停滞/绕圈 → 强制跳过，绝不卡死（readme【八】27）。"""
+    section("10. 拐角绕圈兜底：停滞 / 绕圈 → 强制跳过，任务继续")
+    import math as _math
+
+    # ---- 10.x 停滞超时（车"卡在拐角"：位姿不动，只走时钟）----
+    cfg = _field_cfg(stall_timeout_s=2.0, stall_yaw_deg=3600.0)  # 关掉绕圈判据，只测超时
+    rig = Rig(cfg=cfg, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig.ticks(3)
+    check("10.1 已自动出发（阶段 DRIVE）", rig.task.phase == MissionPhase.DRIVE,
+          f"phase={rig.task.phase!r}")
+    check("10.2 起步阶段未误判停滞", getattr(rig.task, "_forced_skips", 0) == 0,
+          f"forced_skips={getattr(rig.task, '_forced_skips', None)}")
+
+    # 位姿一动不动，快进 4 s（> stall_timeout 2.0s）
+    for _ in range(20):
+        rig.task.tick()
+        rig.events.extend(rig.sub.poll(4096))
+        rig.clock.advance(0.2)
+
+    skips = getattr(rig.task, "_forced_skips", 0)
+    forced = [e for e in rig.of(EV_WAYPOINT_REACHED) if e.data.get("forced_skip")]
+    check("10.3 停滞超时后强制跳过（forced_skips ≥ 1）", skips >= 1, f"skips={skips}")
+    check("10.4 跳过时发 EV_WAYPOINT_REACHED(forced_skip=True)", len(forced) >= 1,
+          f"forced_events={len(forced)}")
+    check("10.5 跳过的是「下一个未到达航点」（块名非空、索引单调）",
+          len(forced) == 0 or all(isinstance(e.data.get("index"), int) for e in forced),
+          f"{[e.data.get('block') for e in forced][:5]}")
+    check("10.6 任务没卡死：仍在 DRIVE/APPROACH（不是 STOP/SAFE_STOP）",
+          rig.task.phase in (MissionPhase.DRIVE, MissionPhase.APPROACH),
+          f"phase={rig.task.phase!r}")
+    check("10.7 日志给出「不可达」证据（含 跳过/拐角绕圈 字样）",
+          any("跳过" in ln or "拐角绕圈" in ln for ln in rig.logs),
+          f"logs_tail={rig.logs[-2:]}")
+
+    # ---- 10.8 绕圈判据：未超时但累计转向达阈值也触发 ----
+    cfg2 = _field_cfg(stall_timeout_s=3600.0, stall_yaw_deg=180.0)  # 关超时，只测绕圈
+    rig2 = Rig(cfg=cfg2, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig2.ticks(3)
+    yaw = geo.HEADING_Y
+    for _ in range(6):            # 每拍 +90° → 两拍就够 180°
+        yaw = geo.normalize_angle(yaw + _math.radians(90))
+        rig2.clock.advance(0.1)
+        b = rig2.bridge
+        p = rig2.bb.get(P_POSE)
+        b.set_pose(p.x, p.y, yaw)
+        rig2.bb.set(P_POSE, geo.Pose(p.x, p.y, yaw), "test")
+        rig2.task.tick()
+        rig2.events.extend(rig2.sub.poll(4096))
+    skips2 = getattr(rig2.task, "_forced_skips", 0)
+    check("10.8 原地绕圈（累计转向达标）也会触发跳过", skips2 >= 1, f"skips={skips2}")
+    check("10.9 绕圈触发时仍未超时（说明是航向判据起的作用）",
+          rig2.clock.now() - 0.0 < 3600.0 and skips2 >= 1, f"skips={skips2}")
+
+    # ---- 10.10 跳过后能继续正常推进（不重复跳同一个点）----
+    cfg3 = _field_cfg(stall_timeout_s=2.0, stall_yaw_deg=3600.0)
+    rig3 = Rig(cfg=cfg3, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig3.ticks(3)
+    for _ in range(20):
+        rig3.task.tick()
+        rig3.events.extend(rig3.sub.poll(4096))
+        rig3.clock.advance(0.2)
+    n_after_stall = getattr(rig3.task, "_forced_skips", 0)
+    rig3.walk(step=0.05, max_steps=200, stop_on_stop_point=False)
+    normal = [e for e in rig3.of(EV_WAYPOINT_REACHED) if not e.data.get("forced_skip")]
+    check("10.10 跳过之后仍能正常推进（出现非 forced 的到达事件）", len(normal) >= 2,
+          f"normal={len(normal)} forced={n_after_stall}")
+    check("10.11 跳过次数有上限（不会把整条路线全跳光）",
+          n_after_stall <= len(FIELD_ROUTE), f"skips={n_after_stall} / 点数={len(FIELD_ROUTE)}")
+
+
 # --------------------------------------------------------------------------- #
 def main() -> int:
     print("=" * 72)
@@ -615,6 +686,7 @@ def main() -> int:
     test_commands()
     test_phase_gate()
     test_rate()
+    test_stall_fallback()
     finish()
     return 0
 

@@ -142,6 +142,12 @@ SCHEMA: dict[str, Spec] = {
     "mission.stable_offset_px": Spec(40.0, _F, "px", 5.0, 200.0, "瞄准稳定容差"),
     "mission.candidate_retry": Spec(3, _I, "个", 1, 10, "单个靶最多尝试几个候选射击点"),
     "mission.finish_voice_id": Spec(0, _I, "", 0, 255, "完成提示音 ID（0 = 不播）"),
+    # ---- 拐角绕圈兜底（2026-10-07；仿真实测噪声 0.01m/拍会让车在拐角原地转圈）----
+    "mission.stall_timeout_s": Spec(12.0, _F, "s", 2.0, 120.0,
+                                    "★航点推进停滞判定：投影弧长 s 超过这么久不前进就判'不可达'，"
+                                    "强制跳过该点（宁可漏一个点，不可卡死——readme【八】27）"),
+    "mission.stall_yaw_deg": Spec(360.0, _F, "°", 90.0, 1440.0,
+                                  "★绕圈判定的累计航向转动阈值：停滞期间车累计转满这么多度 = 原地绕圈"),
 
     # ---------------- 瞄准与打击（P2；键先就位，读旧 dzrknn 段） ----
     "aim.scan_request_on_start": Spec(2, _I, "", 0, 2,

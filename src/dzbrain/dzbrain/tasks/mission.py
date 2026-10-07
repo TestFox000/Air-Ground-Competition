@@ -122,6 +122,9 @@ class MissionTask(TaskThread):
         self._stop_radius_m = float(cfg.get("pursuit.stop_radius_m"))
         self._approach_m = float(cfg.get("pursuit.approach_m"))
         self._rate_limit_s = float(cfg.get("logging.rate_limit_s") or 1.0)
+        # ---- 拐角绕圈兜底（仿真实测噪声 0.01m/拍会让车原地转圈、末点误差 2.96m）----
+        self._stall_timeout_s = float(cfg.get("mission.stall_timeout_s", 12.0))
+        self._stall_yaw_deg = float(cfg.get("mission.stall_yaw_deg", 360.0))
 
         # ---- 任务态 ----
         self._created_at = self._clock()
@@ -154,6 +157,12 @@ class MissionTask(TaskThread):
         self._stop_s: dict[int, float] = {}
         self._stop_blocks: list[str] = []
         self._last_s = 0.0
+        # ---- 拐角绕圈兜底的状态 ----
+        self._stall_since: float | None = None       # 弧长开始停滞的时刻（None = 没在停滞）
+        self._stall_last_s: float = 0.0              # 停滞开始时的弧长
+        self._stall_last_yaw: float | None = None    # 停滞期间累计航向（绕圈判定）
+        self._stall_yaw_sum: float = 0.0
+        self._forced_skips: int = 0                  # 强制跳过航点的次数（结束横幅要汇总）
 
     # ------------------------------------------------------------------ #
     #  只读接口（测试/遥测）
@@ -447,6 +456,71 @@ class MissionTask(TaskThread):
                 self._log(f"到点 {i}/{len(route) - 1} {wp.block}"
                           f"（s={path.s_at_waypoint(i):.2f} m）")
 
+    def _detect_stall_and_skip(self) -> None:
+        """拐角绕圈兜底：弧长停滞 / 原地绕圈 → 强制跳过不可达航点。
+
+        ★ 为什么需要（仿真实测，见 docs/C线_仿真器报告.md §4）：
+          当定位噪声或里程比例误差让"车的投影弧长 s"无法越过下一个航点时，
+          `_advance_waypoints` 的 `s + arrival_m >= s_at_waypoint(i)` 永远不成立，
+          车就会在拐角原地转圈（实测噪声 0.01m/拍 → 46.8s 卡死、末点误差 2.96m）。
+          按 readme【八】27 "宁可漏打，不可卡死"，这里主动把卡住的点判为不可达并跳过，
+          让任务继续，绝不原地空转。
+
+        判据（任一成立即触发）：
+          ① s 在 `mission.stall_timeout_s` 内前进不足 `arrival_m`；
+          ② 停滞期间车累计转满 `mission.stall_yaw_deg`（原地绕圈特征）。
+        触发后：把"下一个未到达航点"强制标记为已过（跳过），发事件并告警；
+                若该点是停站点（打靶），跳过意味着放弃这一击 —— 宁可漏打，不可卡死。
+        """
+        route, path = self._route, self._path
+        if route is None or path is None:
+            self._reset_stall()
+            return
+        s = self._last_s
+        pose = self.bb.get(P_POSE)
+        yaw = pose.yaw if pose is not None else None
+
+        # ---- 维护停滞窗口 ----
+        progressed = self._stall_last_s is None or (s - self._stall_last_s) >= self._arrival_m
+        if progressed:
+            self._reset_stall()
+        if self._stall_since is None:
+            self._stall_since = self._clock()
+            self._stall_last_s = s
+            self._stall_last_yaw = yaw
+            self._stall_yaw_sum = 0.0
+        elif yaw is not None and self._stall_last_yaw is not None:
+            self._stall_yaw_sum += abs(geo.ang_diff(yaw, self._stall_last_yaw))
+            self._stall_last_yaw = yaw
+
+        # ---- 判定 ----
+        stalled_time = self._clock() - self._stall_since
+        yaw_circled = self._stall_yaw_sum >= math.radians(self._stall_yaw_deg)
+        if stalled_time < self._stall_timeout_s and not yaw_circled:
+            return
+
+        # ---- 找下一个未到达航点（跳过它）----
+        next_idx = next((i for i in range(1, len(route)) if not self._passed[i]), None)
+        if next_idx is None:
+            self._reset_stall()
+            return
+        wp = route[next_idx]
+        self._passed[next_idx] = True
+        self._forced_skips += 1
+        self._next_wp = next_idx + 1
+        self._log(f"⚠️ 拐角绕圈兜底：航点 {wp.block}（#{next_idx}）停滞 "
+                  f"{stalled_time:.1f}s / 累计转 {math.degrees(self._stall_yaw_sum):.0f}° 仍不可达，"
+                  f"强制跳过（宁可漏点，不可卡死）")
+        self.bus.publish(EV_WAYPOINT_REACHED, source=self.name, index=next_idx,
+                         block=wp.block, forced_skip=True)
+        self._reset_stall()
+
+    def _reset_stall(self) -> None:
+        self._stall_since = None
+        self._stall_last_s = 0.0
+        self._stall_last_yaw = None
+        self._stall_yaw_sum = 0.0
+
     def _next_stop_candidate(self) -> int | None:
         """下一个需要停车的停站点索引；**末点不算停站点**。
 
@@ -475,6 +549,7 @@ class MissionTask(TaskThread):
     # ------------------------------------------------------------------ #
     def _drive(self) -> None:
         self._advance_waypoints()
+        self._detect_stall_and_skip()     # ★ 拐角绕圈兜底：宁可漏点，不可卡死
         idx = self._next_stop_candidate()
         if idx is None:
             self._dist_to_next_stop = None
