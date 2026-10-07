@@ -520,31 +520,40 @@ lens = {name: len(res_field.series(name)) for name in series}
 check("8.4 全部逐拍序列等长（列错位是最难查的 bug）",
       len(set(lens.values())) == 1,
       f"长度集合={set(lens.values())}，序列数={len(series)}")
-_max_gap = max(abs(res_field.steer[i] - res_field.steer_cmd[i])
-               for i in range(len(res_field.steer) - 1))
-check("8.5 `steer`（执行）与 `steer_cmd`（指令）是两条不同的序列，跟踪过程内差 ≤ 一个斜坡拍",
-      res_field.steer != res_field.steer_cmd and _max_gap <= STEP_MAX_DEG + 1e-9,
-      f"过程内最大 |执行−指令| = {_max_gap:.4f}°（= 一个斜坡拍 {STEP_MAX_DEG:.4f}°）；"
-      f"末拍差 {abs(res_field.steer[-1] - res_field.steer_cmd[-1]):.2f}°"
-      f"（终点刹车归零后舵机还在回正的斜坡上，属正常）")
+_gap_track = max(abs(res_field.steer[i] - res_field.steer_cmd[i])
+                 for i in range(len(res_field.steer) - 2))
+check("8.5 `steer`（执行）与 `steer_cmd`（指令）在跟踪过程内**逐步一致**（除末尾停车两拍）",
+      res_field.steer != res_field.steer_cmd and _gap_track == 0.0,
+      f"过程内最大 |执行−指令| = {_gap_track:.6f}°（执行斜坡每拍最多 "
+      f"{STEP_MAX_DEG:.2f}°，实测从未落后）；"
+      f"末尾两拍差 {abs(res_field.steer[-1] - res_field.steer_cmd[-1]):.2f}°"
+      f"（刹车归零后舵机仍在回正斜坡上，属正常）")
+_cmd_rates = [abs(res_field.steer_cmd[i] - res_field.steer_cmd[i - 1]) / DT
+              for i in range(1, len(res_field.steer_cmd) - 2)]
+check("8.6 跟踪过程内指令速率**从未超出** 120 °/s 限幅（只有停车那拍是脉冲）",
+      max(_cmd_rates) <= RATE_LIMIT * (1 + 1e-9),
+      f"过程内 peak={max(_cmd_rates):.2f} °/s（**正好贴着**限幅 {RATE_LIMIT:.0f} °/s，"
+      f"说明限幅确实在工作、且这条路线用满了一个斜坡拍）；"
+      f"指标里的 peak={res_field.metrics['steer_rate_max_deg_s']:.1f} °/s 来自停车脉冲"
+      f"（{abs(res_field.steer_cmd[-1] - res_field.steer_cmd[-3]):.2f}° / {DT} s）")
 
 with tempfile.TemporaryDirectory() as tmp:
     csv_path = S.write_csv(res_field, os.path.join(tmp, "traj.csv"))
     svg_path = S.write_svg(res_field, os.path.join(tmp, "traj.svg"), field_route(),
                            title="unit test")
     seg_path = S.write_segments_csv(res_field, os.path.join(tmp, "by_segment.csv"))
-    check("8.6 write_csv 落盘（路径存在且非空）",
+    check("8.7 write_csv 落盘（路径存在且非空）",
           os.path.isfile(csv_path) and os.path.getsize(csv_path) > 1000,
           f"{os.path.basename(csv_path)} = {os.path.getsize(csv_path)} B")
     with open(csv_path, "r", encoding="utf-8") as fh:
         head = fh.readline().strip()
         rows = sum(1 for _ in fh)
-    check("8.7 CSV 前 10 列 == 契约列序，且含诊断列；行数 == 采样拍数",
+    check("8.8 CSV 前 10 列 == 契约列序，且含诊断列；行数 == 采样拍数",
           head.startswith("t,x,y,yaw,v,steer,truth_x,truth_y,seg_index,s")
           and "steer_cmd" in head and "anchored" in head and rows == len(res_field.t),
           f"列={head}；数据行={rows} 采样拍={len(res_field.t)}")
     svg_text = pathlib.Path(svg_path).read_text(encoding="utf-8")
-    check("8.8 write_svg 落盘且含路线折线 / 真值轨迹 / 航点元素",
+    check("8.9 write_svg 落盘且含路线折线 / 真值轨迹 / 航点元素",
           os.path.isfile(svg_path) and "<svg" in svg_text and "</svg>" in svg_text
           and svg_text.count("<polyline") >= 3 and "<circle" in svg_text,
           f"{os.path.getsize(svg_path)} B，polyline={svg_text.count('<polyline')} "
@@ -552,27 +561,27 @@ with tempfile.TemporaryDirectory() as tmp:
     with open(seg_path, "r", encoding="utf-8") as fh:
         seg_head = fh.readline().strip()
         seg_rows = sum(1 for _ in fh)
-    check("8.9 write_segments_csv 落盘且段数正确（每段一行，含峰值与时刻）",
+    check("8.10 write_segments_csv 落盘且段数正确（每段一行，含峰值与时刻）",
           seg_head.startswith("index,from_block,to_block") and seg_rows == len(res_field.segments)
           and "peak_m" in seg_head and "peak_t" in seg_head,
           f"列={seg_head}；行={seg_rows} 段={len(res_field.segments)}")
 
 fmt = S.format_metrics(res_field, S.SimConfig(), title="t")
-check("8.10 指标表格式化含主表 + 分组表，不抛异常",
+check("8.11 指标表格式化含主表 + 分组表，不抛异常",
       "分组指标" in fmt and "拐角" in fmt and "信念" in fmt,
       f"输出 {len(fmt)} 字符")
-check("8.11 逐段表格式化不抛异常且列出峰值",
+check("8.12 逐段表格式化不抛异常且列出峰值",
       "峰值" in S.format_segment_table(res_field, top=5),
       f"TOP5 表 {len(S.format_segment_table(res_field, top=5))} 字符")
 
 p_field = field_path()
-check("8.12 现场路线几何：34 航点 / 16.45 m / 3 个倒车段",
+check("8.13 现场路线几何：34 航点 / 16.45 m / 3 个倒车段",
       len(p_field.waypoints) == 34 and abs(p_field.total_length - 16.45) < 0.01
       and sum(1 for i in range(p_field.segment_count)
               if p_field.segment_is_reverse(i)) == 3,
       f"航点={len(p_field.waypoints)} 总长={p_field.total_length:.3f} m "
       f"倒车段={[i for i in range(p_field.segment_count) if p_field.segment_is_reverse(i)]}")
-check("8.13 最小转弯半径 R_min = 轴距/tan(30°) = 0.272 m > 半格 0.175 m"
+check("8.14 最小转弯半径 R_min = 轴距/tan(30°) = 0.272 m > 半格 0.175 m"
       "（这是现场「到不了格心」的几何根因）",
       abs(_R_MIN_M - 0.27193) < 1e-4 and _R_MIN_M > _GRID_M / 2,
       f"R_min={_R_MIN_M:.5f} m，半格={_GRID_M/2:.3f} m，格={_GRID_M} m")
