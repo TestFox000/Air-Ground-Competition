@@ -146,6 +146,27 @@ if [ -f "$CONFIG" ]; then
 else
   echo "        ❌ 文件不存在 —— 各节点会回退到代码内置默认值"
 fi
+
+# ---- ★新版决策层启动门禁（2026-10-07）----
+#   为什么要拦：本项目历史上最大的坑是"静默失败"——配置/路线不对，车照样起栈，
+#   然后在场上跑飞。新版 dzbrain 自带配置校验 + 路线校验（雷/障/穿洞/U 形/射击点距离），
+#   这里在**发车前**跑一次，不通过就不起栈。
+#   应急绕过：SKIP_PRECHECK=1 ./start_all.sh restart
+echo ""
+if [ "${SKIP_PRECHECK:-0}" = "1" ]; then
+  echo "启动门禁: 已按 SKIP_PRECHECK=1 跳过（应急模式，风险自负）"
+elif python3 -c "import dzbrain" 2>/dev/null; then
+  echo "启动门禁: dzbrain --dry-run（配置 + 路线校验）..."
+  if PYTHONIOENCODING=utf-8 timeout 60 python3 -m dzbrain.main \
+        --config "$CONFIG" --map "$WS/config/map.yaml" --dry-run; then
+    echo "        ✅ 通过"
+  else
+    echo "        ❌ 未通过 —— 已阻止起栈（修好后重试；应急可 SKIP_PRECHECK=1）"
+    exit 2
+  fi
+else
+  echo "启动门禁: 未安装 dzbrain（跳过）—— 回退到旧循迹时属正常"
+fi
 echo ""
 
 echo "1/8 底盘串口 + TF + IMU ..."
@@ -179,8 +200,16 @@ echo "6/8 射击驱动 (dzjudgment -> /dev/dzjudgment) ..."
 spawn 6_judgment ros2 launch dzjudgment judgment.launch.py
 sleep 2
 
-echo "7/8 循迹 (启动后约 8 秒自动出发) ..."
-spawn 7_path python3 "$WS/src/car_localization/car_localization/path_executor.py"
+echo "7/8 循迹（新决策层 dzbrain：8 任务线程 / 通用纯追踪） ..."
+# ★2026-10-07：默认走**新决策层** dzbrain（单进程多线程：定位/安全/循迹/调度/云台打击/
+#   误差修正/无人机/遥测）；它取代旧的 path_executor 单体（2622 行）。
+#   一键回退旧实现：LEGACY_PATH=1 ./start_all.sh restart
+if [ "${LEGACY_PATH:-0}" = "1" ]; then
+  echo "        [回退] 旧 path_executor（单体，源码直跑）"
+  spawn 7_path python3 "$WS/src/car_localization/car_localization/path_executor.py"
+else
+  spawn 7_path python3 -m dzbrain.main --config "$CONFIG" --map "$WS/config/map.yaml"
+fi
 sleep 2
 
 LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
