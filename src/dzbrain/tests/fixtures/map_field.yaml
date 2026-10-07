@@ -1,0 +1,12 @@
+# 现场布置图（2026-10-07 识图标定）—— 取自车上现役 config/map.yaml
+map:
+  name: "现场布置图 2026-10-07 (识图标定)"
+  start: "N10"
+  end: "N5"
+  barrier_col_from: "D"
+  barrier_row_hi: 6
+  barrier_row_lo: 7
+  mines:      ["H1", "G2", "C4", "A6", "D6", "F8", "I10", "E11"]
+  obstacles:  ["D1", "B3", "I3", "F7", "A8", "E9", "G9", "C11"]
+  targets:    ["G11"]
+  bridges:    ["K4", "K9"]
