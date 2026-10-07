@@ -143,6 +143,23 @@ _PROJ_BELIEF_M = 1.50
 #:   只要车真的在动（哪怕 1% 的蠕动速度）就用实测位移，只有完全静止才沿用旧值。
 _MH_MIN_STEP_M = 1.6e-5
 
+#: 段选择的**切换滞回**（米）：新的候选段要比"上一拍命中的段"近这么多才允许换段。
+#: ★ 为什么必须有：现场图在 `B6` 一点上有**四条段交汇**（`B8→B6` 与 `B6→D6` 同沿 x=…，
+#:   `B6→A6` 与 `A6→B6` 沿同一条竖线折返），车停在交点附近时多个候选**等距**，
+#:   而 `s_hint` 在两个候选之间来回跳 → 投影段逐拍翻转 → 指令在前进/倒车间翻转
+#:   → 车在交点原地摆动（实测 2000 拍、`s` 在 7.58↔8.40 之间跳）。
+#:   滞回让"已经在哪一段"成为**默认答案**，只有真的更近才换 —— 这与现实的
+#:   Localization 一致：投影是**跟踪**（上一拍的位置是强先验），不是每拍从零重算。
+#: ⚠️ 取值 2 cm ≈ 一个控制周期走的路（0.12 m/s × 0.02 s = 2.4 mm）的 8 倍：
+#:   足以压住"等距抖动"，又远小于一格（0.35 m），不会锁死在已经走过的段上。
+_SEG_STICKY_M = 0.02
+
+#: 目标推进的**朝向门**容差（度）：车到位后，车头与**下一段走向**的夹角超过它就
+#: 先不推进目标（继续把当前段走完 / 原地把车头转过来）。
+#: ★ 只用来挡"掉头"（下一段与当前段反向 = 差 180°），现场图 90° 拐角必须照常放行，
+#:   所以容差取 90°：90° 拐角恰好卡在边界上（`<=` 放行），180° 掉头一定被挡。
+_ADVANCE_FACING_TOL_DEG = 90.0
+
 #: "投影卡死"判据：连续这么多拍投影弧长不再前进且横向距离持续变大 → 判定跑飞。
 _DIVERGE_STEPS = 25
 
@@ -467,6 +484,8 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
     #:   初值取首段走向（与初始位姿同源），此后按信念位姿的实测位移更新。
     motion_heading = path.segments[0][5] if path.segment_count > 0 else 0.0
     _bx_prev, _by_prev = bx, by        # 上一拍信念位置（求实测位移方向用）
+    prev_truth_seg = -1                # 上一拍真值投影命中的段（段选择滞回的先验）
+    prev_belief_seg = -1               # 上一拍信念投影命中的段
 
     rng = _Rng(sim.seed)
     drift_per_s = math.radians(sim.yaw_drift_deg_per_min) / 60.0
@@ -584,18 +603,44 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         #      物理上"越过垂面"= 车到目标点的距离 < 车到**当前段起点**的距离。
         if target_idx < len(path.waypoints):
             wp = path.waypoints[target_idx]
+            is_goal = (target_idx == len(path.waypoints) - 1)
             passed = s_prev >= path.s_at_waypoint(target_idx) - _END_EPS_M
             if not passed:
                 anchor_wp = path.waypoints[target_idx - 1]
                 d_target = math.hypot(tx - wp.x, ty - wp.y)
                 d_prev = math.hypot(tx - anchor_wp.x, ty - anchor_wp.y)
-                passed = d_target < d_prev and d_target <= arrival
+                # ⚠️ 末点的"已过点即放行"必须用同一个更紧半径：用 `arrival_m`(0.12) 判
+                #    "越过了终点垂面"等于在 0.12 m 外就认账，`_GOAL_STOP_M` 永远轮不到生效
+                #    （这正是 `final_error_m` 长期钉在 0.118 的原因）。
+                passed = d_target < d_prev and d_target <= (_GOAL_STOP_M if is_goal else arrival)
             # ⚠️ 末点用更紧的到位半径：一旦按 `arrival_m`(0.12) 推进到末点，
             #    `s_floor` 立刻抬到 `total_length`，投影被夹到末点 → 控制器认为"到终点了"，
             #    车会停在离终点 0.12 m 处（实测 `final_error_m = 0.117`）。
             #    末点必须真的走到 `_GOAL_STOP_M` 内才算到 —— 与现场"终点要停车"一致。
-            radius = _GOAL_STOP_M if target_idx == len(path.waypoints) - 1 else arrival
-            if math.hypot(tx - wp.x, ty - wp.y) <= radius or passed:
+            radius = _GOAL_STOP_M if is_goal else arrival
+            # ★★ **朝向门**：进到位球还不够，车头必须已经**朝着下一段的走向**。
+            #   为什么（端到端实测出来的最后一处死锁）：现场图 `F11→E11`（朝北）之后紧接
+            #   `R:F11`（朝南，倒车）—— 车在 E11 的 `arrival_m` 球内、**还朝北**时就推进目标，
+            #   于是 `s_floor` 抬到 E11、投影被拉到 `E11→F11` 段上且**朝向翻 180°**：
+            #     · `dist_to_vertex = 0` → `find_lookahead_point` 把前视点钳成顶点本身
+            #       （前视点塌缩 = 方位角退化，见 `_anchor_allowed` 的注释）；
+            #     · 控制器按"已到 E11、该往南走"算，可车还在 E11 北侧 0.17 m 处 ——
+            #       指令与实际位置不自洽，车被推离路线且再也回不来
+            #       （实测：`s` 在 4.200 上钉死 1100 拍、`xt_rms` 0.107 → 0.249）。
+            #   加门之后，车会先按"还差最后一段"把最后 0.12 m 走完 / 原地把车头转到
+            #   下一段方向，投影与指令重新自洽，折返才能完成。
+            #   ⚠️ 容差 90°：现场图 90° 拐角（`L10` / `F10` / `A6` / `D6` …）必须照常放行，
+            #      只挡"掉头"这一种（下一段与当前段反向 = 差 180°）。
+            #   ⚠️ `passed`（已过垂面）不受门限制：那是"车已经走过去了"的既成事实，
+            #      再等朝向只会让它原地打转。
+            facing = True
+            if target_idx < path.segment_count:
+                out_heading = path.segments[target_idx][5]
+                facing = abs(geo.normalize_angle(out_heading - tyaw)) <= math.radians(
+                    _ADVANCE_FACING_TOL_DEG)
+            if math.hypot(tx - wp.x, ty - wp.y) <= radius and facing:
+                target_idx += 1
+            elif passed:
                 target_idx += 1
 
         # ================== ④ 物理投影（"Localization 报的 P_ROUTE_S"） ==================
@@ -603,10 +648,12 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         #   `Path.project` 窗口内的"最近点"可能仍是那个顶点 → 弧长**再也不前进**
         #   → 前视点塌缩到顶点（车已在它上面）→ 方位角退化 → 舵角恒 0 → 车直着开走。
         s_floor = path.s_at_waypoint(target_idx - 1) if target_idx >= 1 else 0.0
-        proj_t = path.project(tx, ty, s_hint=s_prev, window_m=_PROJ_FWD_M,
-                              allow_backward=True, motion_heading=motion_heading)
+        proj_t = _project_sticky(path, tx, ty, s_hint=s_prev, window_m=_PROJ_FWD_M,
+                                 allow_backward=True, motion_heading=motion_heading,
+                                 prev_seg=prev_truth_seg, s_min=s_floor)
         proj_t = _clamp_forward(path, proj_t, s_floor, tx, ty, arrival)
         s_prev = proj_t.s
+        prev_truth_seg = proj_t.seg_index
 
         # 终点判据（**用真值，不用信念**）：吸附会把信念瞬移到格心，
         # 用信念判会提前 `arrival_m` 就刹车，`final_error_m` 平白多 0.12 m。
@@ -621,9 +668,11 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         # ⚠️ 不能给它一个很大的自由窗口：车在拐角处时"最近点"可能落在**别的航段**上
         #   （现场路线在 B6/F11 附近自交），于是信念投影跳到前面 1.2 m 处，
         #   控制器拿着"我还在前面"的假信息反向打舵 —— 实测误差注入下就在这里开始绕圈。
-        proj = path.project(bx, by, s_hint=proj_t.s, window_m=_PROJ_BELIEF_M,
-                            allow_backward=True, motion_heading=motion_heading)
+        proj = _project_sticky(path, bx, by, s_hint=proj_t.s, window_m=_PROJ_BELIEF_M,
+                               allow_backward=True, motion_heading=motion_heading,
+                               prev_seg=prev_belief_seg, s_min=s_floor)
         proj = _clamp_forward(path, proj, s_floor, bx, by, arrival)
+        prev_belief_seg = proj.seg_index
 
         if reached_end and sim.stop_on_completion:
             cmd = brake_command(cfg)
@@ -917,6 +966,179 @@ def _record_final(result: SimResult, t: float, bx: float, by: float, byaw: float
     result.reverse.append(result.reverse[-1] if result.reverse else False)
 
 
+def _project_with_seg(path: Path, seg: int, x: float, y: float):
+    """把点投影到**指定段**（返回 `Projection`；段退化时退化为端点距）。"""
+    x0, y0, x1, y1, length, heading = path.segments[seg]
+    if length <= 1e-9:
+        return _projection_at(path, seg, path.s_at_waypoint(seg), x, y)
+    ux = (x1 - x0) / length
+    uy = (y1 - y0) / length
+    t = ((x - x0) * ux + (y - y0) * uy) / length
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    s = path.s_at_waypoint(seg) + length * t
+    return _projection_at(path, seg, s, x, y)
+
+
+def _candidates(path: Path, x: float, y: float, i_lo: int, i_hi: int):
+    """窗口 `[i_lo, i_hi]` 内每段的投影候选（按段序返回）。"""
+    out = []
+    for i in range(max(0, i_lo), min(i_hi, path.segment_count - 1) + 1):
+        out.append(_project_with_seg(path, i, x, y))
+    return out
+
+
+def _pick_candidate(cands, *, x: float, y: float, hint: float | None,
+                    motion_heading: float | None,
+                    allow_beyond: bool):
+    """从候选里挑一个：**先比距离**，等距时依次用 行进方向 → 连续性 → 段序 裁决。
+
+    ★ 为什么不能直接相信搜索顺序（这是端到端复现出来的**真正死锁**）：
+      `Path.project` 在窗口内按"先用 `<` 严格更近"挑点，遇到"投影被夹到段端点"
+      的候选（车已经越过顶点）时，先被考虑到的**前一段**会赢 —— 于是车头已经伸过
+      顶点，投影却仍然停在顶点上：`s` 不再前进、`dist_to_vertex = 0`、
+      前视点被转角钳制塌缩到顶点本身，控制器算出 0 舵角直着开走；
+      车在 `A6` 拐角外绕 0.4 m 的圈，`s` 死钉在 8.050 m、`target_idx` 死在 20，
+      8000 拍跑不完（`xt_rms` 0.107 → 0.266）。
+      正确的判据是"哪个候选离车**最近**"（被夹住的端点在车越过顶点后会**更远**），
+      而不是"哪个候选先被看到"。
+    ★ `allow_beyond=False` 时（任务仍在当前段内）不许选任务段之后的候选：
+      那是"车还没走到就先看见下一段"，会让前视点跳到还没到的路上去。
+    """
+    best = None
+    best_d = None
+    best_h = None
+    for c in cands:
+        if not allow_beyond and best is not None and c.seg_index > best.seg_index:
+            break
+        if best is None:
+            take = True
+        elif c.dist < best_d - 1e-9:
+            take = True
+        elif c.dist > best_d + 1e-9:
+            take = False
+        else:
+            take = False
+            if motion_heading is not None:
+                cos_new = math.cos(c.seg_heading - motion_heading)
+                cos_best = math.cos(best_h - motion_heading)
+                if cos_new > cos_best + 1e-12:
+                    take = True
+                elif abs(cos_new - cos_best) <= 1e-12 and hint is not None:
+                    take = abs(c.s - hint) < abs(best.s - hint) - 1e-12
+            elif hint is not None:
+                take = abs(c.s - hint) < abs(best.s - hint) - 1e-12
+            else:
+                take = c.seg_index > best.seg_index
+        if take:
+            best, best_d, best_h = c, c.dist, c.seg_heading
+    return best
+
+
+def _project_sticky(path: Path, x: float, y: float, *, s_hint: float | None,
+                    window_m: float, allow_backward: bool,
+                    motion_heading: float | None, prev_seg: int, s_min: float = 0.0):
+    """带**任务下界 + 段选择滞回**的投影（`Path.project` 的加强版）。
+
+    ★ 为什么需要（这是本仿真器跑不完现场图的**核心**，两条独立线索都指向它）：
+      · 现场图在 `B6` 一点上有**四条段交汇**（`B8→B6` 与 `B6→D6` 共线、
+        `B6→A6` 与 `A6→B6` 折返），车停在交点附近时多个候选**等距**；
+      · `Path.project` 用 `s_hint = 上一拍真值弧长` 做连续性裁决，而真值弧长
+        本身在"抬到 s_floor"与"落回真实最近点"之间摆动 → 投影段逐拍翻转
+        → 指令在前进/倒车间翻转 → 车在交点原地摆动（实测 2000 拍，
+        `s` 在 7.58 ↔ 8.40 之间跳、`target_idx` 死在 20）。
+    ★ 三层修法（互补，缺一条都跑不完）：
+      ① **`s_min` = 当前任务段的起点弧长**：投影不能落到任务段**之前**的段上。
+         现场实测：`target_idx` 已推进到第 20 段（`R:D6`）时车在 `B6` 通道里，
+         而"上一拍那段"是第 16 段 —— 它离车更近，滞回于是把投影**钉在已经走过的
+         段上**，车在 `B6` 附近摆 4000 拍也进不了 D6 通道。任务给段、定位在段内给
+         弧长，这与现实的 Mission/Localization 分工一致。
+      ② **窗口内比距离（而不是比搜索顺序）**：见 `_pick_candidate`。
+      ③ **上一拍那段是强先验**：别的候选至少要近 `_SEG_STICKY_M` 才允许换段，
+         换段后立即生效（滞回是**不对称**的，不会把车锁死在旧段上）。
+    ★ `motion_heading` 仍然要传：它解决的是"同一拍内两个候选等距"时该选哪个
+      （折返压线的判据只能是"车正在往哪边走"）。
+    """
+    if s_hint is not None and s_hint < s_min:
+        s_hint = s_min
+    floor_seg = _seg_index_of_s(path, s_min) if s_min > 0.0 else 0
+    proj = path.project(x, y, s_hint=s_hint, window_m=window_m,
+                        allow_backward=allow_backward, motion_heading=motion_heading)
+    i_lo, i_hi = _window_segments(path, s_hint, window_m, allow_backward)
+    i_lo = max(i_lo, floor_seg)
+    if i_hi >= i_lo:
+        cands = _candidates(path, x, y, i_lo, i_hi)
+        # 任务还没走完当前段时不许"先看见"后面的段（车还没到那儿）
+        allow_beyond = (prev_seg < 0) or (_seg_index_of_s(path, s_min) <= prev_seg
+                                          if s_min > 0.0 else True)
+        pick = _pick_candidate(cands, x=x, y=y, hint=s_hint,
+                               motion_heading=motion_heading,
+                               allow_beyond=allow_beyond)
+        if pick is not None:
+            proj = pick
+    if s_min > 0.0 and proj.s < s_min and proj.seg_index < floor_seg:
+        proj = _project_with_seg(path, floor_seg, x, y)
+    if prev_seg < 0 or prev_seg >= path.segment_count or prev_seg == proj.seg_index:
+        return proj
+    if prev_seg < floor_seg:
+        return proj                 # 先验本身落在任务段之前 → 不可用
+    keep = _project_with_seg(path, prev_seg, x, y)
+    if keep.dist <= proj.dist - _SEG_STICKY_M:
+        return keep
+    return proj
+
+
+def _window_segments(path: Path, s_hint: float | None, window_m: float,
+                     allow_backward: bool) -> tuple[int, int]:
+    """与 `Path.project` 同口径的搜索窗口（段区间），供候选枚举使用。"""
+    n = path.segment_count
+    if s_hint is None:
+        return 0, n - 1
+    hint = s_hint if 0.0 <= s_hint <= path.total_length else (
+        0.0 if s_hint < 0.0 else path.total_length)
+    lo = hint - window_m if allow_backward else hint
+    lo = 0.0 if lo < 0.0 else lo
+    hi = hint + window_m
+    hi = path.total_length if hi > path.total_length else hi
+    i_first = _seg_index_of_s(path, lo)
+    i_last = bisect.bisect_right(path._s_start, hi) - 1      # noqa: SLF001 - 只读查询
+    if i_last < i_first:
+        i_last = i_first
+    if i_last > n - 1:
+        i_last = n - 1
+    return i_first, i_last
+
+
+def _seg_index_of_s(path: Path, s: float) -> int:
+    """弧长 `s` 落在哪一段（边界归**后**一段，与 `Path._seg_index_at` 同义）。"""
+    i = bisect.bisect_right(path._s_start, s) - 1      # noqa: SLF001 - 同包内只读查询
+    if i < 0:
+        return 0
+    if i > path.segment_count - 1:
+        return path.segment_count - 1
+    return i
+
+
+def _projection_at(path: Path, seg: int, s: float, x: float, y: float):
+    """构造"段 `seg` 内、弧长 `s` 处"的投影（`dist` 如实取到车的位置）。
+
+    ★ 与 `Path.project` 返回的 `Projection` 同构：`t` 由弧长反解，`seg_heading` 取该段走向。
+      只用于 `_clamp_forward` 的钳制分支 —— 那里需要"把投影放到某个确定的弧长上"，
+      而 `Path.point_at()` 只给坐标、不给完整的投影记录。
+    """
+    x0, y0, x1, y1, length, heading = path.segments[seg]
+    if length <= 1e-9:
+        t = 0.0
+        px, py = x0, y0
+    else:
+        t = (s - path.s_at_waypoint(seg)) / length
+        t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+        px = x0 + (x1 - x0) * t
+        py = y0 + (y1 - y0) * t
+    return Projection(seg_index=seg, t=t, x=px, y=py, s=s,
+                      dist=math.hypot(x - px, y - py), seg_length=length,
+                      seg_heading=heading, passed_end=False)
+
+
 def _clamp_forward(path: Path, proj, s_floor: float, x: float, y: float,
                    release_dist: float):
     """投影弧长单调不退回：把 `proj` 抬到 `s_floor`（= 当前航段起点的弧长）。
@@ -954,7 +1176,10 @@ def _clamp_forward(path: Path, proj, s_floor: float, x: float, y: float,
     floor_seg = path._seg_index_at(s_floor)          # `s_floor` 落在哪一段（下一段）
     if proj.seg_index < floor_seg:
         # 车还在**上一段**（Mission 提前推进造成的假钉住）：只在上一段内钳制，不跨段
-        return max(proj, path.point_at(path.s_at_waypoint(proj.seg_index)))
+        s_min = path.s_at_waypoint(proj.seg_index)
+        if proj.s >= s_min:
+            return proj
+        return _projection_at(path, proj.seg_index, s_min, x, y)
     # 原始投影已经离路线很远 → "车还在段起点"解释不了它，用真实最近点（可后退）
     if proj.dist > release_dist:
         return proj

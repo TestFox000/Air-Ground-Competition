@@ -162,15 +162,16 @@ _arrival = float(cfg.get("pursuit.arrival_m"))
 _goal_stop = getattr(S, "_GOAL_STOP_M", None)
 print("     末点误差机理: final_error=%.5f  arrival_m=%.2f  sim._GOAL_STOP_M=%s" % (
     m1["final_error_m"], _arrival, _goal_stop))
-# ⚠️ 见 INTERFACE_NOTES #4：`_GOAL_STOP_M = 0.03` 从没生效 —— 末点先被
-#    `pursuit.arrival_m` 判到位并推进 `target_idx`，下一拍投影弧长直接抬到
-#    `total_length` ⇒ `reached_end = True` ⇒ 刹车。停点因此固定在 arrival_m 量级。
-xfail("1.10",
-      "末点误差 = arrival_m 量级而非 sim.py 自称的 _GOAL_STOP_M=0.03 "
-      "(实测 %.5f)" % m1["final_error_m"])
-_check_x("1.10", "★末点停车精度 = sim 自称的 _GOAL_STOP_M(0.03 m)",
-         abs(m1["final_error_m"] - (0.03 if _goal_stop is None else float(_goal_stop))) < 0.01,
-         f"final_error={m1['final_error_m']:.5f} vs _GOAL_STOP_M={_goal_stop}")
+# ⚠️ 见 INTERFACE_NOTES #4（已修）：`_GOAL_STOP_M = 0.03` 修前从没生效 —— 末点先被
+#    `pursuit.arrival_m`(0.12) 判到位并推进 `target_idx`，下一拍投影弧长直接抬到
+#    `total_length` ⇒ `reached_end = True` ⇒ 刹车，停点因此固定在 0.118 m。
+#    修法（sim.py）：末点的"已过点即放行"也用 `_GOAL_STOP_M` 判，末点不再在 0.12 m
+#    处提前推进 —— 停点于是真的收到 3 cm 量级（实测见下行打印）。
+print("     末点误差机理（已修）: final_error=%.5f  arrival_m=%.2f  "
+      "sim._GOAL_STOP_M=%s" % (m1["final_error_m"], _arrival, _goal_stop))
+check("1.10 ★末点停车精度 = sim 自称的 _GOAL_STOP_M(0.03 m)",
+      abs(m1["final_error_m"] - (0.03 if _goal_stop is None else float(_goal_stop))) < 0.01,
+      f"final_error={m1['final_error_m']:.5f} vs _GOAL_STOP_M={_goal_stop}")
 
 # =========================================================================== #
 section("2. 现场图路线（34 航点，含 3 个倒车段 + G10* 停站）：结构 + 全程")
@@ -224,17 +225,16 @@ print("     分组横向 RMS: 直段 %.5f / 倒车 %.5f / 拐角 %.5f" % (
     m2["cross_track_rms_corner_m"]))
 # 参考基线（同一 fixture、更早的 sim.py 版本实测，见任务书 §7）：
 print("     参考基线: 113.0 s / 5648 拍 / ratio ~0.97 跑完（旧版实测）")
-
-xfail("2.10",
-      "现场图在**出厂参数**下跑不完：completed=False / 撞步数上限 / ratio %.2f"
-      % m2["path_len_ratio"])
-_check_x("2.10", "★现场图在出厂参数下 completed=True", m2["completed"] is True,
-         f"completed={m2['completed']} steps={r2.steps} ratio={m2['path_len_ratio']:.3f} "
-         f"final_error={m2['final_error_m']:.3f}")
-_check_x("2.11", "★现场图 steps < 20000", r2.steps < 20000,
-         f"steps={r2.steps} max_steps={int(m2['max_steps'])} hit_step_limit={m2['hit_step_limit']}")
-_check_x("2.12", "现场图 path_len_ratio < 1.6（卡死时为 5.3 量级）",
-         m2["path_len_ratio"] < 1.6, f"ratio={m2['path_len_ratio']:.4f}")
+# ★ 2026-10-07 修复：投影改为"任务段下界 + 窗口内比距离 + 行进方向裁决 + 段滞回"，
+#   现场图在**出厂参数**下跑完（修前：822.5 s / 41127 拍 / ratio 5.32 / 未完成）。
+#   这三条断言从此常驻（不再是 XFAIL），防止再次退化。
+check("2.10 ★现场图在出厂参数下 completed=True", m2["completed"] is True,
+      f"completed={m2['completed']} steps={r2.steps} ratio={m2['path_len_ratio']:.3f} "
+      f"final_error={m2['final_error_m']:.3f}")
+check("2.11 ★现场图 steps < 20000", r2.steps < 20000,
+      f"steps={r2.steps} max_steps={int(m2['max_steps'])} hit_step_limit={m2['hit_step_limit']}")
+check("2.12 现场图 path_len_ratio < 1.6（卡死时为 5.3 量级）",
+      m2["path_len_ratio"] < 1.6, f"ratio={m2['path_len_ratio']:.4f}")
 check("2.13 现场图没有跑飞看门狗触发", not m2["diverged"],
       f"diverged={m2['diverged']} at {int(m2['diverged_at_step'])}")
 check("2.14 现场图真值未越界（如实记录）", m2["out_of_bounds_steps"] == 0.0,
@@ -245,7 +245,7 @@ check("2.15 零注入下信念↔真值仍逐位相同（仅锚定拍例外）",
       f"max_gap={max(math.hypot(r2.x[i] - r2.truth_x[i], r2.y[i] - r2.truth_y[i]) for i in range(r2.steps)):.4e} "
       f"anchors={int(m2['anchors'])}")
 
-# ---- 卡死形态快照（8000 拍上限，秒级）：护栏红了时立刻能判断"是不是老毛病" ----
+# ---- 折返区快照（8000 拍上限，秒级）：护栏红了时立刻能判断"是不是老毛病" ----
 r2b = _run(FIELD, max_steps=FIELD_HARD_CAP)
 print("     实测(%d 拍上限快照): completed=%s steps=%d ratio=%.4f final_error=%.4f "
       "diverged=%s diverged_at=%d" % (
@@ -255,16 +255,26 @@ print("     实测(%d 拍上限快照): completed=%s steps=%d ratio=%.4f final_e
 check("2.16 8000 拍快照与完整跑结论一致（排除步数上限造成的假象）",
       bool(r2b.metrics["completed"]) == bool(m2["completed"]),
       f"cap8000={r2b.metrics['completed']} auto={m2['completed']}")
-# 卡死点定位证据：卡死时车停在 #20 D6 之前的折返区
+# ★ 折返区定位证据（2026-10-07 修复后改写）。
+#   修前：车在 (2.3, 4.4) 附近绕圈、`target_idx` 死在 20（D6）、投影弧长在
+#         7.58 ↔ 8.40 之间反复跳，822 s 撞步数上限 —— 于是旧断言写成
+#         "卡死位置确实停在 D6 附近"。
+#   修后：路线跑完（`completed=True`），**旧断言必然失败**，所以改成检验
+#         "修好的形态"：末位置落在终点 N5 的 `arrival_m` 量级内，
+#         且折返区（第 18~20 段：A6→B6→D6）确实被走过了。
 _last_xy = (r2b.truth_x[-1], r2b.truth_y[-1])
-print("     卡死末位置 = (%.3f, %.3f)；#20 D6 = (%.3f, %.3f) 距离 %.3f m" % (
-    _last_xy[0], _last_xy[1], FIELD_PATH.waypoints[20].x, FIELD_PATH.waypoints[20].y,
-    math.hypot(_last_xy[0] - FIELD_PATH.waypoints[20].x,
-               _last_xy[1] - FIELD_PATH.waypoints[20].y)))
-check("2.17 卡死位置确实停在 D6 附近（< 1.5 m，与史实一致）",
-      math.hypot(_last_xy[0] - FIELD_PATH.waypoints[20].x,
-                 _last_xy[1] - FIELD_PATH.waypoints[20].y) < 1.5,
-      f"d={math.hypot(_last_xy[0] - FIELD_PATH.waypoints[20].x, _last_xy[1] - FIELD_PATH.waypoints[20].y):.3f}")
+_goal_wp = FIELD_PATH.waypoints[-1]
+_d_goal = math.hypot(_last_xy[0] - _goal_wp.x, _last_xy[1] - _goal_wp.y)
+print("     末位置 = (%.3f, %.3f)；终点 %s = (%.3f, %.3f) 距离 %.3f m；"
+      "折返区最大真值弧长 = %.3f m（D6 在 %.3f m）" % (
+          _last_xy[0], _last_xy[1], _goal_wp.block, _goal_wp.x, _goal_wp.y, _d_goal,
+          max(r2b.truth_s), FIELD_PATH.s_at_waypoint(20)))
+check("2.17 末位置停在终点 %s 的 arrival_m 量级内（修前是卡死在 D6 附近）" % _goal_wp.block,
+      _d_goal <= 2.0 * _arrival, f"d={_d_goal:.3f} m vs arrival={_arrival}")
+check("2.18 ★折返区（A6→B6→D6）确实走过了（真值弧长越过 D6 = %.3f m）"
+      % FIELD_PATH.s_at_waypoint(20),
+      max(r2b.truth_s) >= FIELD_PATH.s_at_waypoint(20) - 1e-9,
+      f"max_s_truth={max(r2b.truth_s):.3f} vs s(D6)={FIELD_PATH.s_at_waypoint(20):.3f}")
 
 # =========================================================================== #
 section("3. 误差注入对照：注入必须真的产生误差（同窗口 3000 拍）")
@@ -294,23 +304,21 @@ check("3.4 注入使误差沿路线累积（>= 0.30 m RMS，drift_warn_m 量级�
       r3f.metrics["belief_error_rms_m"] >= 0.30,
       f"belief_error_rms={r3f.metrics['belief_error_rms_m']:.5f} "
       f"max={r3f.metrics['belief_error_max_m']:.5f}")
-check("3.5 注入版跑满了对照窗口（不是提前退出造成的假差异）",
-      r3f.steps >= FIELD_CAP_STEPS - 1, f"steps={r3f.steps}")
+check("3.5 注入版在对照窗口内给出可比样本（跑完 = 提前完成，不算差异）",
+      r3f.steps >= FIELD_CAP_STEPS - 1 or r3f.metrics["completed"] is True,
+      f"steps={r3f.steps} completed={r3f.metrics['completed']}")
 
-# ⚠️ 见 INTERFACE_NOTES #1：锚定**没有**把信念误差夹住。
-#    sim.py docstring 宣称"锚定把它夹在 anchor_radius_m 内"，实测同窗口下
-#    不锚定 0.36020 / 锚定 0.34930（只差 3%），且锚定版横向误差反而更大。
-#    本文件**不替它断言"锚定更好"**，只断言三个"必须成立"的性质。
+# ⚠️ 锚定：修前（2026-10-07 之前）同窗口实测 不锚定 0.36020 / 锚定 0.34930（只差 3%），
+#    docstring 宣称的"夹在 anchor_radius_m 内"不成立。修后投影/推进修好，
+#    锚定确实把累积误差压回 anchor_radius_m 量级（见下方打印的实测值）。
 print("     锚定 vs 不锚定: belief_rms %.5f vs %.5f (比值 %.3f) / xt_rms %.5f vs %.5f" % (
     r3a.metrics["belief_error_rms_m"], r3f.metrics["belief_error_rms_m"],
     r3a.metrics["belief_error_rms_m"] / max(1e-12, r3f.metrics["belief_error_rms_m"]),
     r3a.metrics["cross_track_rms_m"], r3f.metrics["cross_track_rms_m"]))
-xfail("3.6", "锚定未把信念误差夹在 anchor_radius_m(%.2f) 内，实测 %.5f（docstring 宣称不成立）"
-      % (float(cfg.get("pursuit.arrival_m")), r3a.metrics["belief_error_rms_m"]))
-_check_x("3.6", "★锚定把信念误差夹在 anchor_radius 量级内",
-         r3a.metrics["belief_error_rms_m"] <= 2.0 * _arrival,
-         f"锚定版 belief_error_rms={r3a.metrics['belief_error_rms_m']:.5f} vs "
-         f"anchor_radius={_arrival}")
+check("3.6 ★锚定把信念误差夹在 anchor_radius 量级内",
+      r3a.metrics["belief_error_rms_m"] <= 2.0 * _arrival,
+      f"锚定版 belief_error_rms={r3a.metrics['belief_error_rms_m']:.5f} vs "
+      f"anchor_radius={_arrival}")
 check("3.7 锚定确实被触发过（不是没生效）",
       r3a.metrics["anchors"] >= 1.0, f"anchors={int(r3a.metrics['anchors'])}")
 check("3.8 ★吸附不能造误差：锚定版信念误差 <= 不锚定版的 2 倍",
@@ -533,11 +541,10 @@ print("     护栏结论: completed=%s steps=%d/%d ratio=%.4f xt_rms=%.5f "
       "（基线参考 5648 拍 / ratio ~0.97）" % (
           m2["completed"], r2.steps, int(m2["max_steps"]), m2["path_len_ratio"],
           m2["cross_track_rms_m"]))
-xfail("7.3", "出厂配置下现场图未跑完（steps=%d / ratio=%.3f）—— 与 §2 同一现象"
-      % (r2.steps, m2["path_len_ratio"]))
-_check_x("7.3", "★出厂配置下现场图跑完（端到端护栏）", m2["completed"] is True,
-         f"completed={m2['completed']} steps={r2.steps} ratio={m2['path_len_ratio']:.4f} "
-         f"final_error={m2['final_error_m']:.4f}")
+# ★ 2026-10-07 修复后常驻断言（修前是 XFAIL：822.5 s / 41127 拍 / ratio 5.32 未完成）。
+check("7.3 ★出厂配置下现场图跑完（端到端护栏）", m2["completed"] is True,
+      f"completed={m2['completed']} steps={r2.steps} ratio={m2['path_len_ratio']:.4f} "
+      f"final_error={m2['final_error_m']:.4f}")
 check("7.4 出厂配置下横向 RMS 仍 < 0.20 m（没退化成乱跑）",
       m2["cross_track_rms_m"] < 0.20, f"xt_rms={m2['cross_track_rms_m']:.5f}")
 check("7.5 分组指标键齐全、有限、非负",
