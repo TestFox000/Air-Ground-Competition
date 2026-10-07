@@ -1,0 +1,18 @@
+# 车端是 Linux：这些文件必须保持 LF，否则推上车后 bash 会报 $'\r' 错误
+*.sh   text eol=lf
+*.py   text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.txt  text eol=lf
+*.launch.py text eol=lf
+# Windows 侧脚本按平台默认处理
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+# 二进制
+*.rknn binary
+*.png  binary
+*.jpg  binary
+*.zip  binary
+*.mp4  binary
