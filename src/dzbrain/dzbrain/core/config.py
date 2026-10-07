@@ -205,6 +205,16 @@ SCHEMA: dict[str, Spec] = {
     "fix.scale_est_enabled": Spec(True, _B, "", None, None, "系统性比例误差在线估计"),
     "fix.scale_step_max": Spec(0.005, _F, "×/段", 0.0, 0.05, "每段允许的最大比例修正步长"),
     "fix.scale_limit": Spec(0.10, _F, "×", 0.0, 0.5, "比例修正总量夹紧（±）"),
+    # ---- FixTask 估计器（2026-10-07；默认值必须与 tasks/fix.py 实现一致）----
+    "fix.drift_cull_m": Spec(0.30, _F, "m", 0.0, 1.0,
+                             "漂移剔除阈值（默认回落到 pursuit.drift_warn_m）"),
+    "fix.seg_min_m": Spec(0.05, _F, "m", 0.0, 0.5, "段长下限（短于此值不出估计）"),
+    "fix.scale_min_samples": Spec(3, _I, "段", 1, 20, "最小有效样本数（低于不出估计值）"),
+    "fix.ratio_bounds": Spec((0.75, 1.35), tuple, "×", None, None,
+                             "单段比值合法区间（里程多报 18% 时上界需 ≥1.18，见 fix 段警告）"),
+    "fix.ratio_jump_max": Spec(0.15, _F, "×", 0.0, 1.0, "比值突跳容差（与窗口均值比）"),
+    "fix.ratio_jump_min_prior": Spec(3, _I, "段", 1, 20, "突跳判定需要的历史样本数"),
+    "fix.scale_window": Spec(5, _I, "段", 1, 50, "比例估计滑动窗口"),
 
     # ---------------- 无人机链路 ----
     "drone.enabled": Spec(True, _B, "", None, None, "是否启用无人机链路"),
@@ -212,6 +222,11 @@ SCHEMA: dict[str, Spec] = {
     "drone.topic_out": Spec("/dzlink/car_to_drone", _S, "", None, None, "车→无人机 话题"),
     "drone.heartbeat_timeout_s": Spec(3.0, _F, "s", 0.5, 30.0, "心跳丢失判定"),
     "drone.info_stale_s": Spec(30.0, _F, "s", 1.0, 300.0, "情报过期判定"),
+    "drone.car_state_period_s": Spec(0.7, _F, "s", 0.1, 10.0, "车状态周期上报间隔"),
+    "drone.ack_enabled": Spec(True, _B, "", None, None, "收到需确认消息时回 ack"),
+    "drone.field_diff_max": Spec(8, _I, "条", 0, 100, "靶区/雷障核对差异条数上限"),
+    "drone.map_path": Spec("", _S, "", None, None,
+                           "本地地图路径（空 = 自动定位 <repo>/config/map.yaml）"),
 
     # ---------------- 安全 ----
     "safety.pose_timeout_s": Spec(1.0, _F, "s", 0.1, 10.0, "定位失联判定（超时即刹车）"),
