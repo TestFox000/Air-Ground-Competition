@@ -6,10 +6,10 @@
     python src\\dzbrain\\tests\\test_sim.py
 
 ★ 这个测试文件存在的**唯一理由**：仿真器的结论会被拿去改现场参数，
-  所以它自己必须先被证明"模型是对的"。三类断言，按可信度从高到低：
+  所以它自己必须先被证明「模型是对的」。三类断言，按可信度从高到低：
 
 1. **模型不变量**（不可协商、必须精确成立）
-   · 零注入时**信念与真值逐位相同**（差 == 0，不是"很小"）—— 这是"模型可信"的定义；
+   · 零注入时**信念与真值逐位相同**（差 == 0，不是「很小」）—— 这是「模型可信」的定义；
    · 舵角速率限幅在**指令侧**与**执行侧**都真的成立（倒车符号翻转单独归类）；
    · 直线路线零误差能跑完；分组指标口径完备（拍数可加、RMS 可合成）。
 2. **定性物理**（只断言方向，不写死数值）
@@ -19,13 +19,13 @@
 3. **契约**（指标键、CSV/SVG/分段 CSV 落盘、逐拍序列等长）。
 
 ★ 关于两条**"规格与现实的偏差"**（本文件把偏差原样打印，不偷偷放宽阈值）：
-  · 现场图 `cross_track_rms_m` 的物理地板约 0.10 m（不是"越小越好"的调参问题）：
+  · 现场图 `cross_track_rms_m` 的物理地板约 0.10 m（不是「越小越好」的调参问题）：
     `max_steer_deg=30°` + `wheelbase=0.157 m` ⇒ 最小转弯半径 `L/tan30° = 0.272 m`，
     而现场图一个 90° 弯只给 0.35 m 段长 ⇒ 车必然从顶点外侧掠过。
   · 现场图在**出厂参数**（`lookahead_min_m=0.18` / `arrival_m=0.12`）下**跑不完**：
     `R:B6 → R:D6` 要求在 0.70 m 内完成掉头（需要 R≈0.35 m），而物理下限是 0.272 m，
     纯追踪会在 A6 外圈反复绕。测试把这一条**如实钉住**（4.10），
-    另用实测可跑的一组参数（`RUNNABLE`）覆盖"跑完 + 无越界"。
+    另用实测可跑的一组参数（`RUNNABLE`）覆盖「跑完 + 无越界」。
 
 ⚠️ 本文件只**读**仿真器，不修改 `sim.py`/`sim_cli.py`/`core`/`route`/`pursuit`/`config`。
 """
@@ -82,7 +82,7 @@ _ROUTE_FIELD = _TESTS / "fixtures" / "route_field.txt"
 def load_cfg(**over) -> Config:
     """读现役 `robot.yaml` 并覆盖若干点号键（**不写磁盘**）。
 
-    ⚠️ 仿真器必须能"不改仓库文件"就换参数，否则"哪组参数跑得完"的结论无法复现。
+    ⚠️ 仿真器必须能「不改仓库文件」就换参数，否则「哪组参数跑得完」的结论无法复现。
     """
     base = Config.load(str(_CONFIG))
     if not over:
@@ -96,7 +96,7 @@ def load_cfg(**over) -> Config:
 
 #: 现场图路线**实测可跑完**的一组参数（出厂值在 A6 折返处死锁，见 4.10）。
 #: 只改两个键：前视距离下限 0.18→0.26 m（转角更早开始转、顶点超调降到 0），
-#: 到位半径 0.12→0.20 m（承认"最小转弯半径 0.272 m > 半格 0.175 m"这个几何事实）。
+#: 到位半径 0.12→0.20 m（承认「最小转弯半径 0.272 m > 半格 0.175 m"这个几何事实）。
 RUNNABLE = {"pursuit.arrival_m": 0.20, "pursuit.lookahead_min_m": 0.26}
 
 
@@ -110,7 +110,7 @@ def straight_route():
 
 
 def gaps(result: S.SimResult) -> list[float]:
-    """逐拍"信念↔真值"距离。"""
+    """逐拍「信念↔真值」距离。"""
     return [math.hypot(result.x[i] - result.truth_x[i], result.y[i] - result.truth_y[i])
             for i in range(len(result.t))]
 
@@ -118,15 +118,15 @@ def gaps(result: S.SimResult) -> list[float]:
 # --------------------------------------------------------------------------- #
 #  1. 零注入 → 闭环不变量（信念 == 真值）
 # --------------------------------------------------------------------------- #
-section("1. 零注入不变量：信念与真值逐拍相同（这是"模型可信"的定义）")
+section("1. 零注入不变量：信念与真值逐拍相同（这是「模型可信」的定义）")
 
 cfg0 = load_cfg()
 res0 = S.run_sim(field_route(), cfg0, S.SimConfig(anchor_on_arrival=False))
 g0 = gaps(res0)
-check("1.1 零注入、无锚定：belief↔truth 最大偏差 == 0（不是"很小"）",
+check("1.1 零注入、无锚定：belief↔truth 最大偏差 == 0（不是「很小」）",
       max(g0) == 0.0,
       f"max={max(g0):.3e} rms={S._rms(g0):.3e} 拍数={len(g0)}")
-check("1.2 逐拍都相同（不存在"只有开头对得上"）",
+check("1.2 逐拍都相同（不存在「只有开头对得上」）",
       all(v == 0.0 for v in g0),
       f"非零拍数={sum(1 for v in g0 if v != 0.0)}/{len(g0)}")
 check_close("1.3 信念误差 RMS 指标也是 0", res0.metrics["belief_error_rms_m"], 0.0, 0.0)
@@ -190,7 +190,7 @@ exec_d = [abs(res_rate.steer[i] - res_rate.steer[i - 1]) for i in range(1, len(r
 check("2.3 **执行**舵角相邻两拍变化 ≤ 同一限幅（执行侧是斜坡跟随，不是阶跃）",
       max(exec_d) <= tol,
       f"最大 Δδ={max(exec_d):.6f}°（= {max(exec_d)/dt_v:.1f} °/s）")
-check("2.4 执行侧"越限跳变"计数为 0（模型自检指标，正常必须为 0）",
+check("2.4 执行侧「越限跳变」计数为 0（模型自检指标，正常必须为 0）",
       int(res_rate.metrics["steer_delivered_jump_steps"]) == 0,
       f"jump_steps={int(res_rate.metrics['steer_delivered_jump_steps'])}")
 check("2.5 速率分位数 ≤ 峰值 ≤ 限幅（三者自洽）",
@@ -324,7 +324,7 @@ check("6.1 注入后信念误差显著大于零注入（ε 真的进了模型）
 check("6.2 ε 主要放大的是**信念误差**，不是横向误差（建模结论，显式记录）",
       mn["belief_error_rms_m"] > mn["cross_track_rms_m"],
       f"信念RMS={mn['belief_error_rms_m']:.4f} > 横向RMS={mn['cross_track_rms_m']:.4f} m "
-      f"（信念沿路线"多跑" ε×里程，真值仍在同一条折线上）")
+      f"（信念沿路线「多跑」 ε×里程，真值仍在同一条折线上）")
 check("6.3 锚定把**最大**信念偏差夹住（不锚定无界累积）",
       ma["belief_error_max_m"] < mn["belief_error_max_m"],
       f"有锚定 max={ma['belief_error_max_m']:.4f} m < 无锚定 max={mn['belief_error_max_m']:.4f} m")
@@ -411,12 +411,13 @@ lens = {name: len(res_field.series(name)) for name in series}
 check("8.3 全部逐拍序列等长（列错位是最难查的 bug）",
       len(set(lens.values())) == 1,
       f"长度集合={set(lens.values())}，序列数={len(series)}")
+_max_steer_gap = max(abs(res_field.steer[i] - res_field.steer_cmd[i])
+                     for i in range(len(res_field.steer)))
 check("8.4 诊断列语义正确：steer = 执行舵角，steer_cmd = 指令舵角，两者不同",
       res_field.steer_cmd != res_field.steer
       and all(abs(res_field.steer[i] - res_field.steer_cmd[i]) <= limit + 1e-9
               for i in range(len(res_field.steer))),
-      f"最大 |执行−指令| = {max(abs(res_field.steer[i] - res_field.steer_cmd[i]) "
-                                f"for i in range(len(res_field.steer))):.4f}°（≤ 限幅 {limit:.0f}°）")
+      f"最大 |执行−指令| = {_max_steer_gap:.4f}°（≤ 限幅 {limit:.0f}°）")
 
 with tempfile.TemporaryDirectory() as tmp:
     csv_path = S.write_csv(res_field, os.path.join(tmp, "traj.csv"))

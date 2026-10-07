@@ -547,15 +547,18 @@ def test_real_robot_yaml() -> None:
     cfg = Config.load(str(ROBOT_YAML))
     tokens = cfg.get("route.tokens")
     check("cfg.get('route.tokens') 不是 None", tokens is not None, repr(tokens)[:80])
-    check("route.tokens 是 29 个 token（现工作区仍是旧图路线）",
-          isinstance(tokens, list) and len(tokens) == 29,
+    # 2026-10-07 配置迁移：现场布置图路线 34 点（原 Map-C 旧图 29 点）
+    check("route.tokens 是 34 个 token（现场布置图路线）",
+          isinstance(tokens, list) and len(tokens) == 34,
           f"{len(tokens) if isinstance(tokens, list) else type(tokens).__name__} 个")
-    if isinstance(tokens, list) and len(tokens) == 29:
-        check("旧图路线首点 N10", tokens[0] == "N10", repr(tokens[0]))
-        check("旧图路线末点 N5", tokens[-1] == "N5", repr(tokens[-1]))
-        check("旧图路线含射击点 G10*", "G10*" in tokens, repr(tokens))
+    if isinstance(tokens, list) and len(tokens) == 34:
+        check("现场图路线首点 N10", tokens[0] == "N10", repr(tokens[0]))
+        check("现场图路线末点 N5", tokens[-1] == "N5", repr(tokens[-1]))
+        check("现场图路线含射击点 G10*", "G10*" in tokens, repr(tokens))
+        check("现场图路线含两处桥洞穿越（K9 下半场 / K4 上半场）",
+              "K9" in tokens and "K4" in tokens, repr([t for t in tokens if t.startswith("K")]))
         route = P.parse_mission(tokens)
-        check("旧图路线能被 parse_mission 解析（29 点）", len(route) == 29, f"{len(route)} 点")
+        check("现场图路线能被 parse_mission 解析（34 点）", len(route) == 34, f"{len(route)} 点")
     check("mission.reset 迁移自 mission_reset", cfg.get("mission.reset") == "N10,y",
           repr(cfg.get("mission.reset")))
     check("pursuit.cruise_speed_mps 迁移自 linear_speed（0.15）",

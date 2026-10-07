@@ -223,6 +223,7 @@ check("畸形条目被剔除后剩下的 {G11} 与本地 {G11,H11} 确实不同 
       len(bb.get(P_DRONE).field_diff) == 1, f"got {bb.get(P_DRONE).field_diff}")
 push(bridge, {"type": "target_zone", "blocks": ["G11", "H12"]})   # 不一致（新开一段核对）
 task.field_diffs.clear()
+events_of(sub)                                    # 清事件队列（上一条畸形消息也发过 verify）
 feed(task, clock)
 diffs = bb.get(P_DRONE).field_diff
 check("不一致时 field_diff 有 1 条", len(diffs) == 1, f"got {diffs}")

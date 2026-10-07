@@ -137,6 +137,12 @@ _PROJ_BACK_M = 0.20
 #:   控制器于是反向打舵绕圈（实测：窗口放到自由搜索时，误差注入下 41 s 就跑飞）。
 _PROJ_BELIEF_M = 1.50
 
+#: 行进方向估计的**最低位移**（米/拍）：信念位姿本拍与上拍的位移小于它就认为"没在走"，
+#: 保留上一次的方向估计（停车、原地摆头时位移是数值噪声，不是方向）。
+#: ⚠️ 取 `pursuit.min_speed_mps`(0.08) × `dt`(0.02) = 1.6 mm 的**百分之一**：
+#:   只要车真的在动（哪怕 1% 的蠕动速度）就用实测位移，只有完全静止才沿用旧值。
+_MH_MIN_STEP_M = 1.6e-5
+
 #: "投影卡死"判据：连续这么多拍投影弧长不再前进且横向距离持续变大 → 判定跑飞。
 _DIVERGE_STEPS = 25
 
@@ -337,6 +343,21 @@ def _ramp_towards(current: float, target: float, max_delta: float) -> float:
     return current + delta
 
 
+def _slew_angle(current: float, target: float, max_delta: float) -> float:
+    """角度版斜坡：沿**最短弧**把 `current` 向 `target` 靠拢，单步不超过 `max_delta`。
+
+    ★ 为什么要角度版而不是直接用 `_ramp_towards`：航向是环上的量，
+      `+179° → -179°` 的差是 2° 而不是 358°；直接相减会让方向裁决
+      在 ±180° 附近"绕远路"（车明明只是掉了个头，却要转一整圈才追上）。
+    """
+    delta = geo.normalize_angle(target - current)
+    if delta > max_delta:
+        delta = max_delta
+    elif delta < -max_delta:
+        delta = -max_delta
+    return geo.normalize_angle(current + delta)
+
+
 def _cross_track_m(x: float, y: float,
                    segments: tuple[tuple[float, float, float, float, float, float], ...]) -> float:
     """点到路线折线的最近距离（横向误差的**定义**，truth 与 belief 各算一份）。"""
@@ -439,6 +460,13 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
     anchor_idx = 1              # 下一个待吸附的航点（每点只锚一次，锚完推进）
     target_idx = 1              # 任务当前目标航点（= 正在走的这一段，见第 0 步）
     s_prev = 0.0                # 上一拍的**真值**投影弧长（推进规则 ② 用）
+    #: 行进方向估计（弧度，地图系）——`Path.project(..., motion_heading=...)` 的输入。
+    #: ★ 为什么是一个**有状态**的量：路线折返压在同一条线上时（现场图
+    #:   `B6→A6` 与 `A6→B6→D6` 在 B6 处交叉，`B8→B6` 又从同一交点进入），
+    #:   同一物理点到两条段**等距**，位置裁决不了，只能靠"车正在往哪边走"。
+    #:   初值取首段走向（与初始位姿同源），此后按信念位姿的实测位移更新。
+    motion_heading = path.segments[0][5] if path.segment_count > 0 else 0.0
+    _bx_prev, _by_prev = bx, by        # 上一拍信念位置（求实测位移方向用）
 
     rng = _Rng(sim.seed)
     drift_per_s = math.radians(sim.yaw_drift_deg_per_min) / 60.0
@@ -483,6 +511,25 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         if sim.pos_noise_m > 0.0:
             bx += rng.gauss() * sim.pos_noise_m
             by += rng.gauss() * sim.pos_noise_m
+
+        # ================== ①' 行进方向估计（投影等距时的唯一裁决量） ==================
+        # ★ 投影的"最近点"在**折返压线**处是多解的：现场图 `B8→B6`（+Y 进入）、
+        #   `B6→A6`（+Y）、`A6→B6`（-Y）、`B6→D6`（-Y）四条段在 B6 一点交汇，
+        #   车停在交点附近时到两条段**完全等距**（`Path.project` 的 `_TIE_D2_M2` 容差内），
+        #   位置本身裁决不了 —— 只能问"车正在往哪边走"。
+        # ★ 方向取**信念位姿的实际位移**（本拍 − 上拍），不是车头朝向：
+        #   过弯时车头几乎垂直于路线（现场图 `L10→L9` 处实测 yaw=174.9° 而路线走向 90°），
+        #   拿车头当"往哪边走"会把投影裁决到**垂直于车的那条段**上 —— 实测第一次分歧
+        #   就在 E11 顶点：车头朝西、实际向北，投影被裁决到 `E11→F11`（倒车段，朝南），
+        #   `s` 从 3.978 一步跳到 4.422，从此整条路线跑偏（xt_rms 0.107 → 0.424）。
+        #   位移方向是"车真的往哪边走"的**直接测量**，过弯时也正确（它就是速度方向）。
+        # ★ 只在真的走了 `_MH_MIN_STEP_M` 以上时才更新：停车/原地摆头时位移是数值噪声，
+        #   保留上一次的方向估计（哨兵 0 表示"还没有可用估计"）。
+        _mvx = bx - _bx_prev
+        _mvy = by - _by_prev
+        if math.hypot(_mvx, _mvy) >= _MH_MIN_STEP_M:
+            motion_heading = math.atan2(_mvy, _mvx)
+        _bx_prev, _by_prev = bx, by
 
         # ================== ② 到位吸附（FixTask 的 L2 位置修正） ==================
         # ★ 语义（与 `docs/P1接口约定.md` §3.1 的 FixTask 一致）：**车确实到了某个航点**时，
@@ -557,7 +604,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         #   → 前视点塌缩到顶点（车已在它上面）→ 方位角退化 → 舵角恒 0 → 车直着开走。
         s_floor = path.s_at_waypoint(target_idx - 1) if target_idx >= 1 else 0.0
         proj_t = path.project(tx, ty, s_hint=s_prev, window_m=_PROJ_FWD_M,
-                              allow_backward=True)
+                              allow_backward=True, motion_heading=motion_heading)
         proj_t = _clamp_forward(path, proj_t, s_floor, tx, ty, arrival)
         s_prev = proj_t.s
 
@@ -575,7 +622,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         #   （现场路线在 B6/F11 附近自交），于是信念投影跳到前面 1.2 m 处，
         #   控制器拿着"我还在前面"的假信息反向打舵 —— 实测误差注入下就在这里开始绕圈。
         proj = path.project(bx, by, s_hint=proj_t.s, window_m=_PROJ_BELIEF_M,
-                            allow_backward=True)
+                            allow_backward=True, motion_heading=motion_heading)
         proj = _clamp_forward(path, proj, s_floor, bx, by, arrival)
 
         if reached_end and sim.stop_on_completion:
@@ -885,10 +932,31 @@ def _clamp_forward(path: Path, proj, s_floor: float, x: float, y: float,
       （哪怕它退到上一段），否则：
         · 倒车段（`R:D6`）的投影永远不动 → 控制器以为车没动 → 一直倒；
         · Mission 的"已过点即放行"判据永远不成立 → `target_idx` 卡死 → 822 s 跑不完。
+    ★★ **真正的死锁机制（端到端复现出来的那一处，比"绕圈"更隐蔽）**：
+      `s_floor` 来自 **Mission 的目标**，而 Mission 会在"车进入顶点 `arrival_m` 球内"
+      时**提前**推进 —— 此时车**还差一点没到顶点**，`s_floor` 却已经跳到下一段的起点：
+        · 车在 `F11→E11` 段上朝北走、离 E11 还有 0.15 m（横向 0.17 m，> `arrival_m`）
+          → 目标推进到 `R:F11` → `s_floor = 4.200`（E11 = 4.200）
+        · 原始投影 `s = 4.2000`（顶死在顶点）、`dist = 0.17 > arrival_m`
+        · 两个"释放"判据都要求 `dist <= arrival_m` → **都不成立** → 投影被钉在 **E11 顶点
+          朝南** → 控制器认为"我已到 F11、该倒车了"，发 `v<0` + 满舵
+        · 车被推离路线（实测 0.38 m），`xt_rms` 从 0.107 涨到 0.424，路线再也跑不完
+      ⇒ 只要"车其实还在**上一段**上"（`proj.seg_index < s_floor` 所在段），钉住就必然是假的：
+        上一段**还没走完**，投影不该跨到下一段去。此时取"原始投影"与"本段起点弧长"的
+        **较大者** —— 既不许它退回本段起点之前（保留单调不后退的原有好处），
+        也不许它越到下一段去（那是 Mission 提前推进造成的幻觉）。
+      ⚠️ 阈值仍用 `release_dist`（= `pursuit.arrival_m`）：它就是现场"算不算到位"的判据。
     ★ 两条候选取**较大者**：既保留"顶点附近不后退"的原有好处，
       又不阻止真实的后退（倒车时 `proj.s` 自然会小于 `s_floor`）。
     """
     if proj.s >= s_floor:
+        return proj
+    floor_seg = path._seg_index_at(s_floor)          # `s_floor` 落在哪一段（下一段）
+    if proj.seg_index < floor_seg:
+        # 车还在**上一段**（Mission 提前推进造成的假钉住）：只在上一段内钳制，不跨段
+        return max(proj, path.point_at(path.s_at_waypoint(proj.seg_index)))
+    # 原始投影已经离路线很远 → "车还在段起点"解释不了它，用真实最近点（可后退）
+    if proj.dist > release_dist:
         return proj
     x2, y2, seg = path.point_at(s_floor + _END_EPS_M)
     if math.hypot(x - x2, y - y2) > release_dist:

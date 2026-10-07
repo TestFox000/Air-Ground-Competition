@@ -178,13 +178,16 @@ def finish_report(bb: Blackboard, group: TaskGroup, bus: EventBus,
 #  bench：无 ROS 联调（真实任务线程 + FakeBridge）
 # --------------------------------------------------------------------------- #
 def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
-              speed_factor: float = 8.0, log: Callable[[str], None] = LOG) -> int:
+              speed_factor: float = 1.0, log: Callable[[str], None] = LOG) -> int:
     """在 FakeBridge 上跑真实任务线程 —— 不碰车、不需要 ROS，用来验证线程协作。
 
     `--drive` 再挂一辆**虚拟小车**：把循迹线程发出的 (速度, 舵角) 用自行车模型积分，
-    每 20 ms 回写 FakeBridge 的位姿 ⇒ 形成完整闭环（任务层 + 运动学），
-    于是"整条路线能不能走完"在本机就能验，不用上车。
-    `speed_factor` 把时间快进若干倍（默认 8×），否则 25 m 路线要跑 3 分钟。
+    每 20 ms 回写 FakeBridge 的位姿 ⇒ 形成完整闭环（任务层 + 运动学）。
+
+    ⚠️ `speed_factor` 只能用于**冒烟**：控制器是按真实时序整定的（50 Hz、20 ms 控制周期、
+    0.15 m/s 巡航），把虚拟车速放大 N 倍等于让车用 N 倍速度跑同一套整定 ⇒ 必然超调跑飞
+    （实测 3× 时横向偏差 3 m）。**要看真实行为就用默认 1.0**；
+    要快的、可信的全程仿真请用 `tools/sim_pursuit.py`（它有完整的三层执行链建模）。
     """
     tests_dir = pathlib.Path(__file__).resolve().parents[3] / "src" / "dzbrain" / "tests"
     sys.path.insert(0, str(tests_dir))
@@ -352,8 +355,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--bench", action="store_true", help="FakeBridge 联调（无 ROS/无车）")
     ap.add_argument("--drive", action="store_true",
                     help="bench 时再挂虚拟小车（自行车模型闭环，可跑完整条路线）")
-    ap.add_argument("--speed-factor", type=float, default=8.0,
-                    help="虚拟小车时间快进倍数（默认 8×）")
+    ap.add_argument("--speed-factor", type=float, default=1.0,
+                    help="虚拟小车时间快进倍数（默认 1.0=忠实；>1 仅作冒烟，会超调）")
     ap.add_argument("--seconds", type=float, default=5.0, help="bench 运行时长")
     ap.add_argument("--force", action="store_true", help="门禁不通过也启动（现场应急）")
     args = ap.parse_args(argv)

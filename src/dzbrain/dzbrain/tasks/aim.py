@@ -198,13 +198,15 @@ class RailEstimator:
     dt_max_s: float = 0.50
     max_speed_px_s: float = 420.0
 
-    # ---- 状态 ----
+    # ---- 状态（默认值即"未初始化"） ----
     x: float = 0.0
     v: float = 0.0
     samples: int = 0
     resets: int = 0
     jump_rejections: int = 0
     warmup: int = 0
+    flips: int = 0
+    armed_run: int = 0
     last_ts: float | None = None
     last_dt: float = 0.0
     stale: bool = True
@@ -236,7 +238,23 @@ class RailEstimator:
         self.init = True
         self.stale = False
         self.warmup = max(0, int(self.reset_confirm_frames))
+        self.armed_run = 0
         self.resets += 1
+        self.last_reason = reason
+
+    def _block_warmup(self, reason: str) -> None:
+        """★ 折返处置：**速度清零 + 重新确认**，绝不把折返前的速度外推出去。
+
+        为什么需要单独一条（跳变门管不住它）：
+          本靶移速只有 4cm/s（≈1px/帧），折返是**平滑**的 —— 一帧残差只有 2px，
+          远低于 `jump_floor_px=25` 的跳变门。若只靠跳变门，估计器会平滑地把 +30px/s
+          翻成 −14px/s 而**不加任何闭锁**，此时 `lead = +?` 仍指向旧方向 → 必打飞。
+          旧版云台连"折返"这个概念都没有（survey §10 第 5 条：无折返识别）。
+        """
+        self.v = 0.0
+        self.warmup = max(0, int(self.reset_confirm_frames))
+        self.armed_run = 0
+        self.flips += 1
         self.last_reason = reason
 
     def update(self, dx: float, ts: float) -> bool:
@@ -260,6 +278,7 @@ class RailEstimator:
             # ★ 第一帧只初始化位置，**不**从 0 推速度（否则第一拍会把"目标在 dx 处"当成巨大速度）
             self.x, self.v, self.init, self.stale = z, 0.0, True, False
             self.warmup = max(0, int(self.reset_confirm_frames))
+            self.armed_run = 0
             self.last_ts = float(ts)
             self.last_dt = 0.0
             self.samples += 1
@@ -282,17 +301,35 @@ class RailEstimator:
             return True
 
         # ---- 校正 ----
+        v_prev = self.v
         self.x = x_pred + self.alpha * res
-        self.v = self.v + self.beta * res / dt
-        if abs(self.v) > self.max_speed_px_s:
-            # 速度不合理（噪声/误检）：宁可清零重估，也不外推一个不可能的速度
+        v_new = v_prev + self.beta * res / dt
+
+        # ---- ★ 折返：速度符号翻转 → 清零 + 重新确认（见 `_block_warmup` 的说明） ----
+        if v_prev * v_new < 0.0:
+            self._block_warmup(f"turnaround v {v_prev:+.1f}→{v_new:+.1f}px/s")
+            self.last_ts = float(ts)
+            self.last_dt = dt
+            self.samples += 1
+            return True
+
+        # ---- 荒谬速度（噪声/误检）：宁可清零重估，也不外推一个不可能的速度 ----
+        if abs(v_new) > self.max_speed_px_s:
             self._reinit(self.x, f"speed_clamp(|v|>{self.max_speed_px_s:.0f}px/s)")
             self.last_ts = float(ts)
             self.last_dt = dt
             self.samples += 1
             return True
-        if self.warmup > 0:
-            self.warmup -= 1
+
+        self.v = v_new
+        # ---- 方向确认计数：只在"残差与速度同向"（跟踪平滑）时累加；折返/超调会打断它 ----
+        smooth = abs(res) <= 1e-12 or (res > 0.0) == (v_new > 0.0)
+        if smooth:
+            self.armed_run += 1
+            if self.warmup > 0:
+                self.warmup -= 1
+        else:
+            self.armed_run = 0
         self.stale = False
         self.last_reason = "ok"
         self.last_ts = float(ts)
@@ -305,6 +342,7 @@ class RailEstimator:
         if self.v != 0.0:
             self.v = 0.0
         self.stale = True
+        self.armed_run = 0
         self.warmup = max(self.warmup, int(self.reset_confirm_frames))
         self.last_reason = "no_frame"
 
@@ -894,6 +932,8 @@ class AimTask(TaskThread):
             "v_error": float(est.v - self._v_expected),
             "est_armed": bool(est.armed),
             "est_warmup": int(est.warmup),
+            "est_armed_run": int(est.armed_run),
+            "est_flips": int(est.flips),
             "est_samples": int(est.samples),
             "est_resets": int(est.resets),
             "est_jumps": int(est.jump_rejections),
