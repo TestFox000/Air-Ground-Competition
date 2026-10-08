@@ -47,7 +47,23 @@ from ..pursuit.controller import PursuitCommand, compute_command
 from ..pursuit.path import Path, Projection
 from ..route.model import Route
 
-__all__ = ["TrackerTask", "TRACKER_CMD_KEY", "ACTIVE_PHASES", "BLOCKED_PHASES"]
+__all__ = ["TrackerTask", "TRACKER_CMD_KEY", "ACTIVE_PHASES", "BLOCKED_PHASES", "PivotPhase"]
+
+
+class PivotPhase:
+    """PIVOT 原地转向的三段相位（并入 10-05 核心的已验证修复）。
+
+    IDLE   : 未在 PIVOT（走纯追踪 / 桥洞直行）
+    SETTLE : 已在顶点前触发，先刹车 `pursuit.pivot_wait_s` 让底盘惯性消失
+    TURN   : 以 `pursuit.pivot_speed_mps` 蠕动、舵角指向目标航向，直到误差进入
+             `pursuit.pivot_yaw_tol_deg`（或 `pursuit.pivot_timeout_s` 超时放行）
+    """
+
+    IDLE = "IDLE"
+    SETTLE = "SETTLE"
+    TURN = "TURN"
+
+    ALL = (IDLE, SETTLE, TURN)
 
 #: 遥测键：Track 最近一拍的控制指令与判定原因（供 Safety/遥测/测试断言）。
 #: `P_TELEMETRY` 的约定值是 dict，本任务只往里塞这一个子键，不覆盖别的任务的内容。
@@ -88,6 +104,7 @@ class TrackerTask(TaskThread):
         self._align_after = float(cfg.get("pursuit.align_straight_after") or 0.0)
         self._bridge_blocks = list(cfg.get("pursuit.bridge_blocks") or [])
         self._max_steer_deg = float(cfg.get("pursuit.max_steer_deg"))
+        self._max_steer_rate_deg_s = float(cfg.get("pursuit.max_steer_rate_deg_s"))
         self._min_speed_mps = float(cfg.get("pursuit.min_speed_mps"))
         self._cruise_mps = float(cfg.get("pursuit.cruise_speed_mps"))
         self._tick_dt = 1.0 / self.rate_hz
@@ -103,6 +120,29 @@ class TrackerTask(TaskThread):
         self._reverse_state: bool | None = None     # ★ 仅变化时发 motion_state
         self._align_segs: frozenset[int] = frozenset()
         self._align_build_key: tuple | None = None
+
+        # ---- ★PIVOT 原地转向（并入 10-05 核心的已验证修复）----
+        #   纯追踪在大角度换向（现场图 F11 的 180° 折返）会画大弧：仿真实测 0.41 m 横向偏差，
+        #   而那里是压雷段 —— 偏差 0.4 m 就可能漏压雷。参数扫描证明调参无解（结构性）。
+        self._pivot_enabled = bool(cfg.get("pursuit.pivot_enabled"))
+        self._pivot_angle_deg = float(cfg.get("pursuit.pivot_angle_deg"))
+        self._pivot_dist_m = float(cfg.get("pursuit.pivot_dist_m"))
+        self._pivot_wait_s = float(cfg.get("pursuit.pivot_wait_s"))
+        self._pivot_speed_mps = float(cfg.get("pursuit.pivot_speed_mps"))
+        self._pivot_yaw_tol_deg = float(cfg.get("pursuit.pivot_yaw_tol_deg"))
+        self._pivot_timeout_s = float(cfg.get("pursuit.pivot_timeout_s"))  # ★旧版没有超时
+        self._pivot_kp = float(cfg.get("pursuit.pivot_kp"))
+        self._pivot_phase: str = PivotPhase.IDLE
+        self._pivot_started_at: float = 0.0
+        self._pivot_target_heading: float = 0.0
+        self._pivot_vertex_s: float = 0.0
+        #: ★超时/放弃后，直到投影弧长越过这个值之前不再对同一顶点触发 PIVOT。
+        #: 为什么需要：超时放行后车还停在该顶点前，下一拍会**立刻再次触发** ——
+        #: 变成"超时→放行→再触发"的循环（不是死锁，但白等、日志刷屏）。
+        self._pivot_abandon_until_s: float = 0.0
+        self.pivot_count = 0                     # 完成次数（遥测/测试）
+        self.pivot_abandon_count = 0             # 超时放弃次数（遥测/测试）
+
         self._last_cmd: dict[str, Any] = {}
         self._blocked_reason: str = ""
         self._log_throttle = Throttle(self._rate_limit_s)
@@ -259,7 +299,12 @@ class TrackerTask(TaskThread):
                                               dt=dt)
         align = self._align_active(proj.seg_index)
 
-        if align:
+        # ---- ★PIVOT 原地转向：优先级最高（它在"顶点前"接管，免得纯追踪画出 0.4 m 的大弧） ----
+        pivot = self._pivot_update(pose, path, proj, now, dt)
+
+        if pivot is not None:
+            steer, speed, reason_tag = pivot.steer_deg, pivot.linear_x, pivot.speed_reason
+        elif align:
             # ---- 桥洞直行：关掉纯追踪，只做航向保持（survey §6.1 的 2480–2481 复刻） ----
             seg_heading = path.heading_at(proj.s)
             err_deg = geo.deg(geo.ang_diff(seg_heading, pose.yaw))
@@ -292,7 +337,9 @@ class TrackerTask(TaskThread):
         self._last_cmd = {
             "blocked": False, "reason": "", "gate": "run",
             "speed": float(speed), "steer_deg": float(steer),
-            "align": bool(align), "reverse": bool(is_rev),
+            "align": bool(align), "pivot": pivot is not None,
+            "pivot_phase": str(self._pivot_phase),
+            "reverse": bool(is_rev),
             "seg_index": int(proj.seg_index), "s": float(proj.s),
             "dist_to_path": float(proj.dist), "curvature": float(cmd.curvature),
             "speed_reason": cmd.speed_reason, "reason_tag": reason_tag,
@@ -301,6 +348,98 @@ class TrackerTask(TaskThread):
             "at": now,
         }
         self._write_telemetry()
+
+    # ------------------------------------------------------------------ #
+    #  ★PIVOT 原地转向（并入 10-05 核心的已验证修复）
+    # ------------------------------------------------------------------ #
+    def _corner_ahead(self, path: Path, proj: Projection):
+        """前方顶点信息 -> (顶点弧长, 换向角°, 下一段走向)；没有下一段则 None。"""
+        i = proj.seg_index
+        if i + 1 >= path.segment_count:
+            return None
+        s_v = path.s_at_waypoint(i + 1)
+        return s_v, path.corner_angle_deg(i), path.heading_at(s_v + 1e-6)
+
+    def _pivot_update(self, pose, path: Path, proj: Projection, now: float, dt: float):
+        """PIVOT 状态机：返回要发布的指令（PursuitCommand）或 None（= 不接管）。
+
+        为什么要有它（实测证据）：纯追踪在 F11 那个 180° 折返会画大弧，
+        横向偏差 0.37~0.41 m，而 E11/F8 是必须压过的雷 —— 偏差 0.4 m 就可能漏压。
+        9 组参数扫描（`tools/sim_param_sweep.py`）证明这是**几何结构性**的，调参无解，
+        必须改用"停下来 + 低速蠕动转向"（10-05 核心的做法）。
+
+        ★ 与旧版的差异：**补了硬超时**（`pursuit.pivot_timeout_s`）——旧版没有超时，
+        是本项目自己标注的缺口（survey §7 风险 R2）；超时即放行，绝不卡死。
+        ★ 越界保护：本分支不需要自己查边界 —— 新版把越界急停收敛到 `SafetyTask` 一处
+        （它是唯一有权强制停车者），Tracker 的 `P_SAFETY` 门会把指令整体刹住。
+        """
+        if not self._pivot_enabled:
+            return None
+
+        if self._pivot_phase == PivotPhase.IDLE:
+            info = self._corner_ahead(path, proj)
+            if info is None:
+                return None
+            s_v, angle, next_heading = info
+            dist_to_vertex = s_v - proj.s
+            # ★ 刚超时放弃过的顶点：先开过去再说（否则"超时→放行→再触发"循环）
+            if s_v <= self._pivot_abandon_until_s:
+                return None
+            if angle < self._pivot_angle_deg or dist_to_vertex > self._pivot_dist_m:
+                return None
+            # 桥洞保护段内绝不做原地转向（旧版显式排除过；桥洞里侧壁就在旁边）
+            if self._align_active(proj.seg_index):
+                return None
+            self._pivot_phase = PivotPhase.SETTLE
+            self._pivot_started_at = now
+            self._pivot_target_heading = next_heading
+            self._pivot_vertex_s = s_v
+            self._log(f"★ 进入 PIVOT（原地转向）：顶点 s={s_v:.2f} 距 {dist_to_vertex:.2f}m / "
+                      f"换向 {angle:.0f}° > 阈值 {self._pivot_angle_deg:.0f}°")
+
+        elapsed = now - self._pivot_started_at
+        # ---- ① 硬超时兜底（★旧版缺这个，是本项目标注的缺口）----
+        if elapsed > self._pivot_timeout_s:
+            self._log(f"⚠️ PIVOT 超时（{elapsed:.1f}s > {self._pivot_timeout_s:.1f}s）→ 放行交回纯追踪")
+            # 记下"这个顶点我不再 pivot"，等车开过去再恢复（防"超时→放行→再触发"循环）
+            self._pivot_abandon_until_s = self._pivot_vertex_s + max(0.35, self._pivot_dist_m * 2.0)
+            self.pivot_abandon_count += 1
+            self._reset_pivot()
+            return None
+
+        err_deg = geo.deg(geo.ang_diff(self._pivot_target_heading, pose.yaw))
+
+        # ---- ② 先停稳（让底盘惯性消失，再开始蠕转）----
+        if self._pivot_phase == PivotPhase.SETTLE:
+            if elapsed >= self._pivot_wait_s:
+                self._pivot_phase = PivotPhase.TURN
+            else:
+                return PursuitCommand(linear_x=0.0, steer_deg=0.0, curvature=0.0,
+                                      speed_reason="pivot_settle", reverse=False)
+
+        # ---- ③ 蠕动转向：舵角指向目标航向，到容差即完成 ----
+        if abs(err_deg) <= self._pivot_yaw_tol_deg:
+            self._log(f"✓ PIVOT 完成：航向误差 {err_deg:+.1f}° ≤ {self._pivot_yaw_tol_deg:.0f}°"
+                      f"（用时 {elapsed:.1f}s）")
+            self.pivot_count += 1
+            self._reset_pivot()
+            return None
+
+        steer = err_deg * self._pivot_kp
+        lim = self._max_steer_deg
+        steer = lim if steer > lim else (-lim if steer < -lim else steer)
+        # 舵角速率限幅（与纯追踪同一条契约，避免"限幅只在纯追踪里生效"的暗坑）
+        if self._last_steer_deg is not None:
+            max_step = self._max_steer_rate_deg_s * dt
+            delta = steer - self._last_steer_deg
+            if abs(delta) > max_step:
+                steer = self._last_steer_deg + (max_step if delta > 0 else -max_step)
+        return PursuitCommand(linear_x=self._pivot_speed_mps, steer_deg=steer, curvature=0.0,
+                              speed_reason="pivot_turn", reverse=False)
+
+    def _reset_pivot(self) -> None:
+        self._pivot_phase = PivotPhase.IDLE
+        self._pivot_started_at = 0.0
 
     def _write_telemetry(self) -> None:
         snap = self.bb.get(P_TELEMETRY)

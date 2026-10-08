@@ -77,6 +77,21 @@ SCHEMA: dict[str, Spec] = {
                                      "横向加速度上限（曲率限速 v=sqrt(a/|κ|)）"),
     "pursuit.min_speed_mps": Spec(0.08, _F, "m/s", 0.01, 0.30, "最低前进速度（蠕动）"),
     "pursuit.cruise_speed_mps": Spec(0.15, _F, "m/s", 0.02, 0.60, "巡航速度"),
+    # ---------------- ★PIVOT 原地转向（并入 10-05 核心的已验证修复）----------------
+    #  为什么需要：纯追踪在**大角度换向**（现场图 F11 那个 180° 折返）时会画一条大弧，
+    #  仿真实测该处横向偏差 0.37~0.41 m，而那里正是**压雷段**（E11/F8 是雷）——
+    #  偏差 0.4 m 就可能漏压雷。9 组参数扫描证明这是几何结构性的（最好只降 0.7%）。
+    #  10-05 核心的做法：接近顶点时**停下来 + 低速蠕动转向**，直到航向对上再放行。
+    "pursuit.pivot_enabled": Spec(True, _B, "", None, None, "是否启用 PIVOT 原地转向"),
+    "pursuit.pivot_angle_deg": Spec(135.0, _F, "°", 60.0, 180.0,
+                                    "换向角超过此值才 PIVOT（90° 直角弯仍走纯追踪）"),
+    "pursuit.pivot_dist_m": Spec(0.25, _F, "m", 0.05, 1.0, "距顶点多近开始 PIVOT"),
+    "pursuit.pivot_wait_s": Spec(0.5, _F, "s", 0.0, 5.0, "PIVOT 前先刹车等待（让底盘停稳）"),
+    "pursuit.pivot_speed_mps": Spec(0.08, _F, "m/s", 0.02, 0.30, "PIVOT 转向时的蠕动速度"),
+    "pursuit.pivot_yaw_tol_deg": Spec(15.0, _F, "°", 3.0, 45.0, "航向对上多少度算完成"),
+    "pursuit.pivot_timeout_s": Spec(8.0, _F, "s", 1.0, 30.0,
+                                    "★PIVOT 硬超时（旧版**没有**超时，是本项目标注的缺口，必须兜底）"),
+    "pursuit.pivot_kp": Spec(1.0, _F, "°/°", 0.2, 5.0, "PIVOT 航向→舵角增益（舵角=误差×kp）"),
     "pursuit.speed_quant_comp": Spec(1.0, _F, "×", 0.8, 1.3,
                                      "底盘速度量化补偿：旧侧 |v·23/0.33| 截断丢约 4.3%，可填 1.043"),
     "pursuit.reverse_speed_ratio": Spec(0.6, _F, "×", 0.1, 1.0, "倒车速度比例"),
