@@ -32,6 +32,7 @@ import argparse
 import hashlib
 import io
 import pathlib
+import re
 import subprocess
 import sys
 import tarfile
@@ -153,6 +154,39 @@ def sha256_file(path: pathlib.Path) -> str:
     return h.hexdigest()
 
 
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def normalize_auto_start(text: str) -> str:
+    """与车端那段强制脚本**逐字一致**的归一化（验证阶段绝不允许自动发车）。"""
+    return re.sub(r"(auto_start:)\s*true", r"\1 false", text)
+
+
+#: 推送后由本工具主动改写的文件 → 对账基准必须用「改写后」的期望内容。
+#: （首版忘了这一步，自己的归一化被当成"推送没生效"，报了一个假警报。）
+POST_PUSH_TRANSFORM = {
+    "config/robot.yaml": normalize_auto_start,
+}
+
+
+def expected_remote_bytes(local: str, raw: bytes) -> bytes:
+    """推送 + 车端归一化之后，车端**应该**有的字节内容（对账基准）。
+
+    忠实复刻车端脚本语义：
+      s  = read_text(encoding='utf-8')  → 通用换行：CRLF/CR 统一成 LF
+      s2 = 归一化(s)
+      只有 s2 != s 时才 write_text(s2, encoding='utf-8')（写回即 LF 换行）；
+      没改动时车端保留 scp 过去的**原始字节**（可能仍是 CRLF）。
+    """
+    transform = POST_PUSH_TRANSFORM.get(local)
+    if transform is None:
+        return raw
+    text = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    new = transform(text)
+    return raw if new == text else new.encode("utf-8")
+
+
 def local_manifest(local: str) -> dict[str, str]:
     """本地清单：相对路径 → sha256（目录递归；单文件用文件名）。
 
@@ -162,7 +196,7 @@ def local_manifest(local: str) -> dict[str, str]:
     if not p.exists():
         raise FileNotFoundError(f"本地路径不存在：{local}")
     if p.is_file():
-        return {p.name: sha256_file(p)}
+        return {p.name: sha256_bytes(expected_remote_bytes(local, p.read_bytes()))}
     return {f.relative_to(p).as_posix(): sha256_file(f) for f in iter_payload(p)}
 
 
@@ -265,7 +299,8 @@ def verify_pushed(ip: str, items: list[tuple[str, str, bool]], *, dry: bool = Fa
             for k in (missing + mismatch)[:5]:
                 log(f"       - {k}")
         else:
-            log(f"  ✅ 对账通过 {local}：{len(lm)} 个文件 sha256 全部一致"
+            note = "（对账基准含推送后归一化：auto_start 强制 false）" if local in POST_PUSH_TRANSFORM else ""
+            log(f"  ✅ 对账通过 {local}：{len(lm)} 个文件 sha256 全部一致{note}"
                 + (f"（车端多出 {len(extra)} 个，已忽略）" if extra else ""))
     return 1 if bad else 0
 

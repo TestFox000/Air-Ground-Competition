@@ -119,6 +119,50 @@ check("少推文件时 mismatch 为空", mismatch == [])
 check("单文件清单用文件名做 key", set(dep.local_manifest("config/robot.yaml")) == {"robot.yaml"})
 
 
+section("③b 推送后归一化：对账基准必须算上「工具自己改的那一处」，否则假警报")
+check("归一化只把 auto_start: true 改成 false",
+      dep.normalize_auto_start("auto_start: true") == "auto_start: false")
+check("归一化不动 auto_start: false（幂等）",
+      dep.normalize_auto_start("auto_start: false") == "auto_start: false")
+check("归一化不碰别的键",
+      dep.normalize_auto_start("auto_start: true\nmax_speed: 1.5") == "auto_start: false\nmax_speed: 1.5")
+check("POST_PUSH_TRANSFORM 只登记被推送且会被车端改写的文件",
+      set(dep.POST_PUSH_TRANSFORM) <= {loc for loc, _ in dep.PUSH_FILES})
+
+# 忠实复刻车端 read_text/write_text 语义：改动了才写回，写回即 LF
+_crlf_true = b"a: 1\r\nauto_start: true\r\n"
+check("★ 有改动 → 期望内容是 LF 且已归一化",
+      dep.expected_remote_bytes("config/robot.yaml", _crlf_true) == b"a: 1\nauto_start: false\n")
+_crlf_false = b"a: 1\r\nauto_start: false\r\n"
+check("★ 无改动 → 期望内容原样保留（车端不写回，CRLF 也得保留）",
+      dep.expected_remote_bytes("config/robot.yaml", _crlf_false) == _crlf_false)
+_raw = b"whatever\r\n"
+check("未登记归一化的文件按原始字节对账",
+      dep.expected_remote_bytes("config/map.yaml", _raw) == _raw)
+
+# 真实文件：车端 robot.yaml 的 sha256 应该等于「归一化后」而不是「原始字节」
+_rp = WS / "config" / "robot.yaml"
+_raw_bytes = _rp.read_bytes()
+_expected = dep.expected_remote_bytes("config/robot.yaml", _raw_bytes)
+check("★ 本地 robot.yaml 含 auto_start: true（这正是不发车闸门的输入）",
+      b"auto_start: true" in _raw_bytes or b"auto_start:true" in _raw_bytes)
+check("★ 对账基准用的是归一化内容，不是原始字节",
+      dep.sha256_bytes(_expected) != dep.sha256_bytes(_raw_bytes),
+      "若相等说明归一化没生效 → 会重现'假警报'或'假通过'")
+_raw_text = _raw_bytes.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+_exp_text = _expected.decode("utf-8")
+check("归一化不增删行（只改行内内容）",
+      len(_exp_text.splitlines()) == len(_raw_text.splitlines()),
+      f"{len(_exp_text.splitlines())} vs {len(_raw_text.splitlines())}")
+_diff_lines = [(a, b) for a, b in zip(_raw_text.splitlines(), _exp_text.splitlines()) if a != b]
+check("★ 变化的行全部是 auto_start 行（不误伤别的配置）",
+      len(_diff_lines) >= 1 and all("auto_start" in a for a, _ in _diff_lines),
+      f"改了 {len(_diff_lines)} 行")
+check("★ 每处 auto_start: true 都被改成 false",
+      _exp_text.count("auto_start: true") == 0 and _exp_text.count("auto_start: false") == 2)
+check("注释与其它键原样保留", "自动出发" in _exp_text and "auto_start_delay: 10.0" in _exp_text)
+
+
 section("④ 包完整性：整包替换后车端能直接编译（少一个文件就会把车端搞挂）")
 for rel in ("package.xml", "setup.py", "setup.cfg", "resource/dzbrain", "dzbrain/__init__.py"):
     check(f"src/dzbrain/{rel} 存在", (WS / "src" / "dzbrain" / rel).exists())
