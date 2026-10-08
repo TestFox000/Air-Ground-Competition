@@ -8,7 +8,7 @@
     无人机通信 / 安全 / 遥测）+ 通用可配的纯追踪循迹算法。
     替代旧的 car_localization/path_executor.py（2622 行单体）。
   </description>
-  <maintainer email="duzhong@local">duzhong</maintainer>
+  <maintainer email="duzhong@example.com">duzhong</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>

@@ -20,7 +20,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="duzhong",
-    maintainer_email="duzhong@local",
+    maintainer_email="duzhong@example.com",
     description="dzrobot 新决策层：多线程任务架构 + 通用纯追踪循迹",
     license="MIT",
     entry_points={

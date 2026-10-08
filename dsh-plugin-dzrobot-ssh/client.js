@@ -54,6 +54,7 @@ window.__ModuleLoader__.load({
         toolNote: '点“打开”后主视图会切到会话，工具窗口显示在会话右侧——右栏属于会话，这是 DSH 的结构。',
         filesToolDesc: '浏览、预览、下载、上传小车上的文件（走同一条已信任的 SSH 通道）',
         vncToolDesc: '小车的 X 桌面（TigerVNC :1，1920×1080）；需要时会在画面里向你要 VNC 密码',
+        consoleToolDesc: '内嵌 Eruda 调试面板：控制台、元素、网络、资源、源码，适合在小车的 Web 页面里直接排查 JS 错误',
         copy: '复制命令',
         copied: '已复制',
         retry: '重试',
@@ -98,6 +99,7 @@ window.__ModuleLoader__.load({
         viewVnc: 'VNC 桌面',
         viewTerminal: '终端',
         viewFiles: '文件目录',
+        viewConsole: '浏览器控制台',
         vncConnect: '连接桌面',
         vncReconnect: '重新连接',
         vncDisconnect: '断开',
@@ -121,6 +123,7 @@ window.__ModuleLoader__.load({
         filesPath: '路径',
         filesEmpty: '（空目录）',
         filesLoading: '正在读取…',
+        consoleLoading: '正在加载 Eruda…',
         filesUp: '上一级',
         filesRefresh: '刷新',
         filesDownload: '下载',
@@ -187,7 +190,8 @@ window.__ModuleLoader__.load({
         toolNote: 'Opening a tool switches the main view to the Conversation — the tool window appears on its right. The right column belongs to the Conversation; that is DSH’s structure.',
         filesToolDesc: 'Browse, preview, download and upload the car’s files (over the same trusted SSH channel)',
         vncToolDesc: 'The car’s X desktop (TigerVNC :1, 1920×1080); it may ask for the VNC password in the screen',
-        copy: 'Copy command',
+                consoleToolDesc: 'Embedded Eruda debug panel: console, elements, network, resources, sources — handy for debugging JS errors directly in the car's web pages',
+copy: 'Copy command',
         copied: 'Copied',
         retry: 'Retry',
         probe: 'Test reachability',
@@ -231,6 +235,7 @@ window.__ModuleLoader__.load({
         viewVnc: 'VNC desktop',
         viewTerminal: 'Terminal',
         viewFiles: 'Files',
+        viewConsole: 'Browser Console',
         vncConnect: 'Connect desktop',
         vncReconnect: 'Reconnect',
         vncDisconnect: 'Disconnect',
@@ -254,6 +259,7 @@ window.__ModuleLoader__.load({
         filesPath: 'Path',
         filesEmpty: '(empty directory)',
         filesLoading: 'Loading…',
+        consoleLoading: 'Loading Eruda…',
         filesUp: 'Up',
         filesRefresh: 'Refresh',
         filesDownload: 'Download',
@@ -1412,6 +1418,63 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function makeConsoleTabShell(ctx, t) {
+      // One stable component identity — Eruda loads from CDN and initializes
+      // inside a container div. We keep the shell stable so tab switches don't
+      // re-inject the script or re-initialize Eruda.
+      return function ConsoleTabShell() {
+        const containerRef = useRef(null)
+        const [loaded, setLoaded] = useState(false)
+        const [error, setError] = useState('')
+
+        useEffect(() => {
+          let alive = true
+          // Load Eruda from jsDelivr CDN
+          const script = document.createElement('script')
+          script.src = 'https://cdn.jsdelivr.net/npm/eruda@latest/eruda.min.js'
+          script.async = true
+          script.onload = () => {
+            if (alive && containerRef.current) {
+              try {
+                // Initialize Eruda with the container
+                window.eruda.init({
+                  container: containerRef.current,
+                  tool: ['console', 'elements', 'network', 'resources', 'sources'],
+                  useShadowDom: true,
+                  autoScale: true,
+                })
+                if (alive) setLoaded(true)
+              } catch (e) {
+                if (alive) setError(String(e?.message ?? e))
+              }
+            }
+          }
+          script.onerror = () => {
+            if (alive) setError('Failed to load Eruda from CDN')
+          }
+          document.head.appendChild(script)
+          return () => {
+            alive = false
+            // Clean up Eruda on unmount
+            if (window.eruda && typeof window.eruda.destroy === 'function') {
+              try { window.eruda.destroy() } catch (_) {}
+            }
+            script.remove()
+          }
+        }, [])
+
+        if (error !== '') {
+          return h('div', { className: 'dzr_tabroot' }, h('div', { className: 'dzr_pad' }, h('div', { className: 'dzr_note dzr_warn' }, error)))
+        }
+        if (!loaded) {
+          return h('div', { className: 'dzr_tabroot' }, h('div', { className: 'dzr_pad' }, h('div', { className: 'dzr_note' }, t('consoleLoading') ?? 'Loading Eruda…')))
+        }
+        return h('div', { className: 'dzr_tabroot', style: { height: '100%', display: 'flex' } },
+          h('div', { ref: containerRef, style: { width: '100%', height: '100%', minHeight: 400 } })
+        )
+      }
+    }
+
     // ── the tool list ─────────────────────────────────────────────────────────
     /**
      * The panel's one table of contents.
@@ -1424,6 +1487,7 @@ window.__ModuleLoader__.load({
       { id: 'terminal', kind: 'terminal', mode: 'terminal', titleKey: 'viewTerminal', descKey: 'terminalHint' },
       { id: 'files', kind: 'dzr-files', mode: 'tab', titleKey: 'viewFiles', descKey: 'filesToolDesc' },
       { id: 'vnc', kind: 'dzr-vnc', mode: 'tab', titleKey: 'viewVnc', descKey: 'vncToolDesc' },
+      { id: 'console', kind: 'dzr-console', mode: 'tab', titleKey: 'viewConsole', descKey: 'consoleToolDesc' },
     ]
 
     /** Compact glyphs for the list rows. */
@@ -1437,6 +1501,11 @@ window.__ModuleLoader__.load({
         vnc: [
           h('rect', { key: 'a', x: '1.8', y: '3', width: '12.4', height: '7.6', rx: '1.2', stroke: 'currentColor' }),
           h('path', { key: 'b', d: 'M6 13.6h4M8 10.6v3', stroke: 'currentColor', strokeLinecap: 'round' }),
+        ],
+        // code brackets / devtools
+        console: [
+          h('path', { key: 'a', d: 'M3 4L7 8L3 12', stroke: 'currentColor', strokeLinecap: 'round', strokeLinejoin: 'round' }),
+          h('path', { key: 'b', d: 'M13 4L9 8L13 12', stroke: 'currentColor', strokeLinecap: 'round', strokeLinejoin: 'round' }),
         ],
       }
       return h('svg', { width: 18, height: 18, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true' }, paths[id] ?? [])
@@ -2064,6 +2133,7 @@ window.__ModuleLoader__.load({
       // live VNC session — so the shells are created once, here.
       const VncTabShell = makeVncTabShell(ctx, t)
       const FilesTabShell = makeFilesTabShell(ctx, t)
+      const ConsoleTabShell = makeConsoleTabShell(ctx, t)
       if (tabTypes !== undefined && typeof tabTypes.register === 'function') {
         ctx.effect(() => tabTypes.register({
           id: 'dsh-dzrobot-ssh/vnc',
@@ -2084,6 +2154,13 @@ window.__ModuleLoader__.load({
           title: () => t('viewFiles'),
         }), 'dzrobot-ssh: tab type files')
 
+        ctx.effect(() => tabTypes.register({
+          id: 'dsh-dzrobot-ssh/console',
+          kind: 'dzr-console',
+          multiple: false,
+          title: () => t('viewConsole'),
+        }), 'dzrobot-ssh: tab type console')
+
         ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
           name: 'sidebar.right.pane.tab',
           key: 'dsh-dzrobot-ssh/vnc',
@@ -2097,6 +2174,13 @@ window.__ModuleLoader__.load({
           locale: NS,
           inject: () => ({}),
         }, FilesTabShell)), 'dzrobot-ssh: tab body files')
+
+        ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+          name: 'sidebar.right.pane.tab',
+          key: 'dsh-dzrobot-ssh/console',
+          locale: NS,
+          inject: () => ({}),
+        }, ConsoleTabShell)), 'dzrobot-ssh: tab body console')
       } else {
         diag('tabs.unavailable', { hasRegistry: tabTypes !== undefined })
       }
