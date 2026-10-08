@@ -36,21 +36,37 @@ fi
 
 mkdir -p "$OUT_DIR"
 
-# convert <onnx文件名> <输出引擎名>
-convert() {
-    local onnx="$REPO/models/release/$1"
-    local engine="$OUT_DIR/$2"
-    if [[ ! -f "$onnx" ]]; then
-        echo "缺少模型: $onnx（先 git pull）" >&2
-        exit 4
+# resolve <指针名> <无版本回退名> -> 实际 onnx 文件名
+# 优先读 release_models.py 维护的 current 指针（带版本名入库，指针指最新），
+# 没有指针则回退无版本名（历史遗留），最后按修改时间取最新带版本文件。
+resolve() {
+    local pointer="$1" fallback="$2"
+    local name
+    name=$(cat "$REPO/models/release/$pointer" 2>/dev/null || true)
+    if [[ -n "$name" && -f "$REPO/models/release/$name" ]]; then
+        echo "$name"; return 0
     fi
-    echo "==> 转换 $1 -> $engine（FP16）"
-    # 两个模型输入形状都是静态的，无需 --shapes；--fp16 允许 FP16 内核。
+    if [[ -f "$REPO/models/release/$fallback" ]]; then
+        echo "$fallback"; return 0
+    fi
+    name=$(ls -1t "$REPO/models/release/" 2>/dev/null | grep -E "^${fallback%.*}_" | head -n 1 || true)
+    [[ -n "$name" ]] && { echo "$name"; return 0; }
+    return 1
+}
+
+# convert <指针名> <无版本回退名> <输出引擎名>
+convert() {
+    local onnx_name
+    onnx_name=$(resolve "$1" "$2") || { echo "找不到模型（指针 $1 / 回退 $2 均无）: 先 git pull" >&2; exit 4; }
+    local onnx="$REPO/models/release/$onnx_name"
+    local engine="$OUT_DIR/$3"
+    echo "==> 转换 $onnx_name -> $engine（FP16）"
+    # 输入形状均为静态契约（hbb 1280/cell 96），无需 --shapes；--fp16 允许 FP16 内核。
     "$TRTEXEC" --onnx="$onnx" --saveEngine="$engine" --fp16
 }
 
-convert "hbb_detector.onnx"     "hbb_detector_fp16.engine"
-convert "cell_classifier.onnx"  "cell_classifier_fp16.engine"
+convert "current_hbb_detector"    "hbb_detector.onnx"    "hbb_detector_fp16.engine"
+convert "current_cell_classifier"  "cell_classifier.onnx" "cell_classifier_fp16.engine"
 
 echo "=================================================="
 echo "引擎已生成于: $OUT_DIR"

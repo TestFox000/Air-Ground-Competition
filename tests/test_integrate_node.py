@@ -18,7 +18,7 @@ from ag_integrate.world_model import WorldModel
 
 ros_stub.set_overrides(
     udp_port=0, dry_run=False, publish_reset=True,
-    start_cell="N10", goal_cell="N11", start_heading="y", final_heading="y",
+    start_cell="N10", goal_cell="N11", start_heading="y", final_heading="x",
 )
 
 
@@ -54,7 +54,8 @@ def snapshot_of(*objects: IntelObject):
 def make_node(**overrides) -> IntegrateNode:
     params = dict(
         udp_port=0, dry_run=False, publish_reset=True,
-        start_cell="N10", goal_cell="N11", start_heading="y", final_heading="y",
+        # N11 是最底行，物理上无法朝北进入 -> 终点朝向用 x（东向驶入可达）
+        start_cell="N10", goal_cell="N11", start_heading="y", final_heading="x",
     )
     params.update(overrides)
     ros_stub.set_overrides(**params)
@@ -74,8 +75,11 @@ def test_latest_frame_wins_and_publishes_reset_then_route():
         assert pub.published[0].data == "reset:N10,y"
         route = pub.published[1].data
         assert "E2" in route and "D2" not in route
-        assert "F5*" in route          # 蓝敌格允许停靠开火
-        assert route.endswith(",y")    # 终点朝向
+        # 蓝靶 F5 不可踩；停靠格是其正交邻格（E5/F4/F6/G5 之一）带 *
+        assert "F5" not in route
+        stars = [t.rstrip("*") for t in route.split() if t.endswith("*")]
+        assert stars and all(s in ("E5", "F4", "F6", "G5") for s in stars)
+        assert route.endswith(",x")    # 终点朝向（最底行只能东/西驶入）
     finally:
         node.destroy_node()
 
@@ -125,6 +129,42 @@ def test_duplicate_route_not_republished():
         node._submit(snapshot_of(mine_at("D2"), blue_target_at("F5")))
         node.tick()
         assert len(node.topic("/nav/waypoint").published) == 2
+    finally:
+        node.destroy_node()
+
+
+def test_replan_disabled_keeps_first_route():
+    """replan_on_update=False（默认）：首条路线发出后，态势变化不重发。"""
+    node = make_node()
+    try:
+        node._submit(snapshot_of(mine_at("D2"), blue_target_at("F5")))
+        node.tick()
+        assert len(node.topic("/nav/waypoint").published) == 2
+
+        # 新识别到一颗雷：路线本应变化，但开关关 -> 不重发
+        node._submit(snapshot_of(mine_at("D2"), mine_at("E2"), blue_target_at("F5")))
+        node.tick()
+        assert len(node.topic("/nav/waypoint").published) == 2
+    finally:
+        node.destroy_node()
+
+
+def test_replan_enabled_republishes_changed_route():
+    """replan_on_update=True：态势变化导致路线变化时自动重发新路线。"""
+    node = make_node(replan_on_update=True)
+    try:
+        node._submit(snapshot_of(mine_at("D2"), blue_target_at("F5")))
+        node.tick()
+        first_route = node.topic("/nav/waypoint").published[1].data
+        assert len(node.topic("/nav/waypoint").published) == 2
+
+        # 新识别到一颗雷：路线变化 -> 重发（reset 不重复发）
+        node._submit(snapshot_of(mine_at("D2"), mine_at("E2"), blue_target_at("F5")))
+        node.tick()
+        published = node.topic("/nav/waypoint").published
+        assert len(published) == 3          # reset + 旧路线 + 新路线
+        assert "E2" in published[2].data
+        assert published[2].data != first_route
     finally:
         node.destroy_node()
 

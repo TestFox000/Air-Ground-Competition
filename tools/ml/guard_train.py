@@ -1,19 +1,25 @@
 """训练守护进程：训练挂了自动从 last.pt 恢复。
 
 用法：
-    C:\\Users\\29212\\Desktop\\ultralytics-main\\.venv\\Scripts\\python.exe tools/ml/guard_train.py
+    <venv-python> tools/ml/guard_train.py
 
 开机自启：把命令做成快捷方式放进 shell:startup。
+路径均按本文件位置自动推导，换机器/换目录无需修改。
 """
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-PYTHON = r"C:\Users\29212\Desktop\ultralytics-main\.venv\Scripts\python.exe"
-WORK_DIR = Path(r"C:\Users\29212\CodeBuddy\20260927120106\air_ground")
-# 搜索最新的 last.pt
-LAST_PT = WORK_DIR / "runs" / "detect" / "runs" / "detect" / "aerial_field" / "weights" / "last.pt"
+WORK_DIR = Path(__file__).resolve().parents[2]
+
+
+def find_last_pt() -> Path | None:
+    """在 runs/ 下找最新的 last.pt（兼容历史嵌套目录）。"""
+    runs = WORK_DIR / "runs"
+    candidates = list(runs.rglob("last.pt")) if runs.exists() else []
+    candidates = [p for p in candidates if p.stat().st_size > 0]
+    return max(candidates, key=lambda p: p.stat().st_mtime, default=None)
 
 
 def log(msg: str) -> None:
@@ -25,13 +31,14 @@ def log(msg: str) -> None:
 
 
 def main() -> None:
-    log(f"guard started (PID={__import__('os').getpid()})")
+    log(f"guard started (PID={__import__('os').getpid()}, python={sys.executable})")
     while True:
-        if LAST_PT.exists():
-            cmd = [PYTHON, "tools/ml/train_detect.py", "--resume"]
-            log(f"resume from {LAST_PT}")
+        last_pt = find_last_pt()
+        if last_pt is not None:
+            cmd = [sys.executable, "tools/ml/train_detect.py", "--resume"]
+            log(f"resume from {last_pt}")
         else:
-            cmd = [PYTHON, "tools/ml/train_detect.py",
+            cmd = [sys.executable, "tools/ml/train_detect.py",
                    "--data", "capture/datasets/aerial_field/data.yaml",
                    "--batch", "8"]
             log("no last.pt, starting fresh")

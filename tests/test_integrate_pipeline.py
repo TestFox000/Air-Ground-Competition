@@ -43,14 +43,15 @@ def test_build_mission_full():
             obj(CellRef(3, 1), ObjectType.TARGET_BLUE),  # D2 敌
         )
     )
-    cmds = build_mission(s, "N10", "N11", "y", "y")
+    cmds = build_mission(s, "N10", "N11", "y", "x")  # N11 最底行，只能东/西驶入
     assert cmds.reset == "reset:N10,y"
     tokens = cmds.route.split()
     assert tokens[0] == "N10"
-    assert tokens[-1] == "N11,y"
-    # 敌靶格带 *，且射击点集合恰为 D2
-    assert cmds.shoot_cells == ("D2",)
-    assert "D2*" in tokens
+    assert tokens[-1] == "N11,x"
+    # 敌靶格 D2 不可踩；车在其正交邻格停靠开火（D3 邻 D2）
+    assert "D2" not in tokens
+    assert cmds.shoot_cells == ("D3",)
+    assert "D3*" in tokens
     assert "F6" not in tokens
 
 

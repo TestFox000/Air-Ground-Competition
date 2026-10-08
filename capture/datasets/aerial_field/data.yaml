@@ -1,4 +1,4 @@
-path: C:/Users/29212/CodeBuddy/20260927120106/air_ground/capture/datasets/aerial_field
+path: E:/OneDrive - mails.qust.edu.cn/桌面/air_ground/capture/datasets/aerial_field
 train: images/train
 val: images/val
 test: images/test

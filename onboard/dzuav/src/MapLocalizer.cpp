@@ -1,5 +1,9 @@
 #include "dzuav/MapLocalizer.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
 #include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
 namespace dzuav
@@ -60,10 +64,32 @@ bool MapLocalizer::solve(const std::vector<std::pair<CellId, cv::Point2f>>& l, c
         return false;
     cv::Mat K = scaledIntrinsics(K_, sz);
     std::vector<int> in;
+    // 诊断结论（runs/sim_match/_diag_pnp.py, frame_00170 真值对照）：
+    //   * SOLVEPNP_ITERATIVE 对纯平面点集(z=0)直接无解 -> 改 P3P
+    //   * 内参与实际相机不符时 P3P 会以极少数内点"假成功"，全点重投影中位
+    //     误差 ~250px（正确内参 <3px），垃圾解会把目标投到场外 -> 质检门槛。
     if (!cv::solvePnPRansac(w, p, K, cv::noArray(), rvec_, tvec_, false, 100, 5, .995, in,
-                            cv::SOLVEPNP_ITERATIVE) ||
+                            cv::SOLVEPNP_P3P) ||
         in.size() < 4)
         return false;
+    {
+        std::vector<cv::Point2f> proj;
+        cv::projectPoints(w, rvec_, tvec_, K, cv::noArray(), proj);
+        std::vector<float> e2;
+        e2.reserve(p.size());
+        for (std::size_t k = 0; k < p.size(); ++k)
+        {
+            const float dx = proj[k].x - p[k].x;
+            const float dy = proj[k].y - p[k].y;
+            e2.push_back(std::sqrt(dx * dx + dy * dy));
+        }
+        std::vector<float> sorted(e2);
+        std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
+        const float median = sorted[sorted.size() / 2];
+        const std::size_t need = std::max<std::size_t>(12, p.size() * 3 / 10);
+        if (in.size() < need || median > 10.f)
+            return false;   // 解不可信 -> localized=0, 不广播垃圾坐标
+    }
     cv::Mat R;
     cv::Rodrigues(rvec_, R);
     cv::Mat H(3, 3, CV_64F);

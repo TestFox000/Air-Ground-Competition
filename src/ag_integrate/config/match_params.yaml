@@ -1,0 +1,29 @@
+# 每局开赛前唯一要改的文件：裁判系统地图先验 + 摆位。
+# 无人机识别到的雷/障碍/桥洞通行格（ARROW）/靶面，由 dzuav 帧实时给出，
+# 不在此配置。
+integrate_node:
+  ros__parameters:
+    # ---- 链路 ----
+    udp_port: 50000                 # dzuav 态势广播端口
+    waypoint_topic: "/nav/waypoint"  # 官方 path_executor 订阅的话题
+    dry_run: true                   # 只算不发；实车联调通过后改 false
+    publish_reset: true
+    # ---- 本局摆位（现场确定） ----
+    start_cell: "N11"
+    start_heading: "y"              # 车头朝向断言 x(东)/y(北)
+    goal_cell: "N6"
+    final_heading: "y"              # 终点朝向计 5 分；最底行格只能 x
+    # ---- 发车门控 ----
+    min_mines: 1                    # 至少识别到几颗雷才发车
+    require_face: true              # 必须先看清靶面敌我再发车
+    # ---- 中场约束（留空：桥洞墙由 ARROW 自动推导） ----
+    cross_gates: [""]
+    mid_boundary: 5
+    # ---- 朝向补偿 ----
+    heading_bias_source: "none"     # 可改 "udp"：用 0x4002 帧实测朝向修正断言
+    heading_bias: 0.0
+    # ---- 移动靶先验（全场唯一靶，裁判系统每局固定） ----
+    target_track: ["D8", "E8"]      # 轨道两端格号
+    target_blue_face: "S"           # 蓝面朝向 S/N(水平轨道)/E/W(垂直轨道)
+    # ---- 中途重规划 ----
+    replan_on_update: false         # path_executor 换路线行为实车验证后改 true

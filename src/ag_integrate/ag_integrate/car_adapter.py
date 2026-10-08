@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .car_commands import RoutePlan, reset_command, route_command
-from .fire_guard import decide_fire
+from .fire_guard import decide_fire, neighbor_names
 from .world_model import WorldSnapshot
 
 
@@ -27,12 +27,28 @@ def adapt(
     start_heading: str,
     final_heading: str | None = None,
 ) -> CarCommands:
-    # 先用禁火保险过滤候选停靠点：只有蓝敌格保留 '*'
+    # 禁火保险过滤 + 每靶一次：只有蓝敌格保留 '*'，且每个蓝靶
+    # 只在其首个邻接停靠点开火一次（顺路再次经过邻格不重复开火）。
     shoot: list[str] = []
+    shoot_set: set[str] = set()
+    served: set[str] = set()
     for cell in ordered_cells:
-        decision = decide_fire(snapshot, cell)
-        if decision.allowed:
-            shoot.append(cell.strip().upper())
+        name = cell.strip().upper()
+        decision = decide_fire(snapshot, name)
+        if decision.denied:
+            continue
+        hit = [
+            t.cell.name
+            for t in snapshot.targets
+            if t.is_blue and t.cell.name in neighbor_names(name)
+        ]
+        fresh = [t for t in hit if t not in served]
+        if not fresh:
+            continue
+        served.update(fresh)
+        if name not in shoot_set:
+            shoot_set.add(name)
+            shoot.append(name)
 
     plan = RoutePlan(tuple(ordered_cells), frozenset(shoot), final_heading)
     return CarCommands(

@@ -77,3 +77,14 @@ reference/*
 
 # 部署用的源码压缩包（tools/car_unzip_src.sh 配套，临时产物，不入库）
 src.zip
+
+# 赛前冲刺新增（2026-10-08）：
+# /datasets/ = 根目录训练数据快照（~200MB，可再生），/weights/ = 基础预训练权重
+# —— 前导斜杠锚定根目录：不带斜杠的 `datasets/` 会匹配任意层级，
+#    曾把 capture/datasets/ 也误伤（标签是核心资产，必须入库，见上）
+# —— 成品模型只认 models/release/ 这一处（见上），散落数据/权重一律不入库
+/datasets/
+/weights/
+
+# 训练守护进程日志（tools/ml/finetune_watchdog.py 产物，运行时数据）
+train_guard.log

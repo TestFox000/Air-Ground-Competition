@@ -18,8 +18,13 @@ from .intel_protocol import IntelFrame, ObjectType
 
 @dataclass(frozen=True)
 class TargetRef:
-    cell: CellRef
-    is_blue: bool   # True=敌方(蓝) False=友方(红)
+    cell: CellRef          # 检测落点（移动靶=该帧瞬时位置）
+    is_blue: bool          # True=敌方蓝面可见 False=友方红面可见
+    # 移动靶专用（全场仅一个）：track=轨道两端格，blue_face=蓝面朝向。
+    # 轨道水平（两端同行）时 blue_face='S'(朝南)/'N'；垂直时 'E'/'W'。
+    # 轨道两端由裁判系统地图确定（每局固定），蓝面朝向由无人机识别/现场标定。
+    track: tuple[CellRef, CellRef] | None = None
+    blue_face: str | None = None
 
 
 @dataclass(frozen=True)

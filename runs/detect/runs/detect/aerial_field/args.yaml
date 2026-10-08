@@ -1,6 +1,6 @@
 task: detect
 mode: train
-model: C:\Users\29212\CodeBuddy\20260927120106\air_ground\runs\detect\runs\detect\aerial_field\weights\last.pt
+model: E:\OneDrive - mails.qust.edu.cn\桌面\air_ground\runs\detect\runs\detect\aerial_field\weights\last.pt
 data: capture\datasets\aerial_field\data.yaml
 epochs: 200
 time: null
@@ -25,7 +25,7 @@ single_cls: false
 rect: false
 cos_lr: true
 close_mosaic: 15
-resume: C:\Users\29212\CodeBuddy\20260927120106\air_ground\runs\detect\runs\detect\aerial_field\weights\last.pt
+resume: E:\OneDrive - mails.qust.edu.cn\桌面\air_ground\runs\detect\runs\detect\aerial_field\weights\last.pt
 amp: false
 fraction: 1.0
 profile: false
@@ -111,4 +111,4 @@ auto_augment: randaugment
 erasing: 0.4
 cfg: null
 tracker: tracktrack.yaml
-save_dir: C:\Users\29212\CodeBuddy\20260927120106\air_ground\runs\detect\runs\detect\aerial_field
+save_dir: E:\OneDrive - mails.qust.edu.cn\桌面\air_ground\runs\detect\runs\detect\aerial_field

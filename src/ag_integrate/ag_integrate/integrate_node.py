@@ -27,6 +27,13 @@ from .intel_protocol import detect_msg_id, parse, parse_car_pose
 from .pipeline import build_mission, evaluate_gate
 from .world_model import WorldModel
 
+# 黑匣子（软依赖）：ag_core 未装时静默关闭，不影响主流程。
+try:
+    from ag_core.blackbox import BlackBox, EV
+    _HAS_BB = True
+except ImportError:
+    _HAS_BB = False
+
 
 class IntegrateNode(Node):
     def __init__(self) -> None:
@@ -52,6 +59,20 @@ class IntegrateNode(Node):
         #                                  优先级低于 udp 自动补偿
         self.declare_parameter("heading_bias_source", "none")
         self.declare_parameter("heading_bias", 0.0)
+        # 移动靶先验（全场仅一个，裁判系统每局固定）：
+        #   target_track = ["D8", "E8"]  轨道两端格号
+        #   target_blue_face = "S"      蓝面朝向 S/N(水平轨道)/E/W(垂直轨道)
+        # 无人机只识别瞬时哪面可见（TARGET_BLUE/RED），轨道与朝向由本参数注入。
+        self.declare_parameter("target_track", [""])
+        self.declare_parameter("target_blue_face", "")
+        # 中途重规划开关（默认关）：path_executor 对"执行中途换路线"的
+        # 行为未验证（从头执行？当前段接续？），实车确认前保持一次性规划。
+        # 置 true 后：态势变化导致路线变化时自动重发新路线。
+        self.declare_parameter("replan_on_update", False)
+        # ---- 黑匣子（ag_core.blackbox）----
+        self.declare_parameter("log_enabled", True)
+        self.declare_parameter("log_dir", "")
+        self.declare_parameter("log_level", "info")
 
         p = lambda k: self.get_parameter(k).value  # noqa: E731
         self.start_cell = str(p("start_cell"))
@@ -67,6 +88,11 @@ class IntegrateNode(Node):
         self.mid_boundary = int(p("mid_boundary"))
         self.heading_bias_source = str(p("heading_bias_source")).strip().lower()
         self.heading_bias = float(p("heading_bias"))
+        track = tuple(str(n).strip().upper() for n in p("target_track") if str(n).strip())
+        self.target_track = track if len(track) == 2 else None
+        bf = str(p("target_blue_face")).strip().upper()
+        self.target_blue_face = bf if bf in ("S", "N", "E", "W") else None
+        self.replan_on_update = bool(p("replan_on_update"))
 
         self.model = WorldModel()
         self.reset_sent = False
@@ -86,11 +112,26 @@ class IntegrateNode(Node):
         self._thread = threading.Thread(target=self._receive, args=(int(p("udp_port")),), daemon=True)
         self._thread.start()
 
+        # 黑匣子挂载 + 关键参数快照（复盘一局"为什么这么走"的依据）
+        self.bb = BlackBox.from_params(self) if _HAS_BB else None
+        self._blog(EV.NODE_ARGS if _HAS_BB else "", dry_run=self.dry_run,
+                   start=self.start_cell, goal=self.goal_cell,
+                   heading=self.start_heading, final=self.final_heading,
+                   udp_port=int(p("udp_port")), bias=self.heading_bias_source,
+                   track=self.target_track, replan=self.replan_on_update,
+                   log_file=str(self.bb.path) if self.bb else "")
+
         mode = "DRY_RUN（只算不发）" if self.dry_run else "实发"
         self.get_logger().info(
             f"integrate_node 就绪: 监听 UDP:{p('udp_port')} -> "
             f"{self.start_cell}->{self.goal_cell}, {mode}"
         )
+
+    # ---------------- 黑匣子 ----------------
+    def _blog(self, ev: str, level: str = "info", **fields) -> None:
+        """黑匣子软接口：没挂上（ag_core 缺失/写盘失败）就是空操作。"""
+        if self.bb is not None and ev:
+            self.bb.log(ev, level=level, **fields)
 
     # ---------------- UDP 接收（后台线程，只解析不入 ROS） ----------------
     def _receive(self, port: int) -> None:
@@ -119,6 +160,7 @@ class IntegrateNode(Node):
                 pose = parse_car_pose(data)
             except ValueError as exc:
                 self.get_logger().warning(f"丢弃坏车位姿帧: {exc}")
+                self._blog(EV.LINK_DROP, level="warn", msg=f"car_pose: {exc}")
                 return
             self._car_true_yaw = pose.yaw
             self.get_logger().debug(
@@ -130,8 +172,14 @@ class IntegrateNode(Node):
             frame = parse(data)
         except ValueError as exc:
             self.get_logger().warning(f"丢弃坏帧: {exc}")
+            self._blog(EV.LINK_DROP, level="warn", msg=str(exc))
             return
-        self._submit(self.model.update(frame))
+        snapshot = self.model.update(frame)
+        if self.bb is not None and self.bb.throttled("intel", 5.0):
+            self._blog(EV.INTEL_RECV, n=len(frame.objects),
+                       ts=frame.timestamp_ms,
+                       mines=len(snapshot.mines) if snapshot else 0)
+        self._submit(snapshot)
 
     def _submit(self, snapshot) -> None:
         """把最新态势放入交接队列；满了先丢旧帧再放（单生产者，无竞态）。"""
@@ -175,6 +223,12 @@ class IntegrateNode(Node):
         gate = evaluate_gate(snapshot, self.min_mines, self.require_face)
         if not gate.ok:
             self._log_hold_once(gate.reason)
+            self._blog(EV.ROUTE_BLOCKED, level="warn", reason=gate.reason)
+            return
+
+        # 默认关：首条路线发出后不再重规划（一次性规划模式），
+        # 跳过 build_mission 也省掉每帧规划开销。
+        if self.last_route and not self.replan_on_update:
             return
 
         start_heading = self._effective_start_heading()
@@ -182,10 +236,15 @@ class IntegrateNode(Node):
             snapshot, self.start_cell, self.goal_cell,
             start_heading, self.final_heading,
             self.cross_gates, self.mid_boundary,
+            target_track=self.target_track,
+            target_blue_face=self.target_blue_face,
         )
         if commands.route == self.last_route:
             return
         self.last_route = commands.route
+        self._blog(EV.PLAN_BUILT, reset=commands.reset, route=commands.route,
+                   shoot=",".join(commands.shoot_cells),
+                   heading=start_heading)
 
         if self.dry_run:
             self.get_logger().info(
@@ -197,6 +256,8 @@ class IntegrateNode(Node):
             self._publish(commands.reset)
             self.reset_sent = True
         self._publish(commands.route)
+        self._blog(EV.ROUTE_PUBLISH, cmd=commands.route, kind="route",
+                   reset_sent=self.reset_sent)
         self.get_logger().info(f"已下发路线: {commands.route}")
 
     def _log_hold_once(self, reason: str) -> None:

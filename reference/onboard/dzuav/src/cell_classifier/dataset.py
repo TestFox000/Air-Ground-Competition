@@ -85,9 +85,9 @@ def build_transform(image_size: int, training: bool) -> transforms.Compose:
             [
                 transforms.Resize((image_size, image_size), interpolation=InterpolationMode.BICUBIC),
                 transforms.RandomAffine(
-                    degrees=(-180.0, 180.0),
+                    degrees=(-25.0, 25.0),
                     translate=(0.04, 0.04),
-                    scale=(0.82, 1.05),
+                    scale=(0.85, 1.10),
                     shear=(-4.0, 4.0),
                     interpolation=InterpolationMode.BICUBIC,
                     fill=(114, 114, 114),

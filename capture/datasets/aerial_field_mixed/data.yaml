@@ -1,0 +1,18 @@
+path: E:/OneDrive - mails.qust.edu.cn/桌面/air_ground/capture/datasets/aerial_field_mixed
+train: images/train
+val: images/val
+test: images/test
+
+nc: 11
+names:
+  0: mine
+  1: cell_label
+  2: arrow
+  3: bridge
+  4: car_start
+  5: car_end
+  6: uav_start
+  7: uav_end
+  8: bucket_red
+  9: bucket_green
+  10: bucket_cyan

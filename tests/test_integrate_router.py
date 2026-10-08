@@ -5,7 +5,7 @@ import pytest
 from ag_integrate.field_frame import CellRef, cell_to_world
 from ag_integrate.intel_protocol import IntelFrame, IntelObject, ObjectType
 from ag_integrate.world_model import WorldModel
-from ag_integrate.mission_router import plan_route
+from ag_integrate.mission_router import compress_route, plan_route
 
 
 def make_snapshot(objects):
@@ -28,12 +28,15 @@ def test_simple_open_route():
          )
     )
     route = plan_route(snap, start, goal)
-    # 起点在首，终点在末；必经点都出现；障碍格不出现
+    # 起点在首，终点在末；雷必经；障碍格不出现
     assert route[0] == "N10"
     assert route[-1] == "N11"
-    for required in ("D11", "B7", "K9", "D2"):
+    for required in ("D11", "B7"):
         assert required in route
     assert "F6" not in route
+    # 蓝靶 D2 不可踩；其正交邻格中必有停靠射击点
+    assert "D2" not in route
+    assert any(n in route for n in ("C2", "E2", "D1", "D3"))
     # 相邻不重复
     assert all(a != b for a, b in zip(route, route[1:]))
 
@@ -67,6 +70,27 @@ def test_no_required_straight_to_goal():
     assert plan_route(snap, start, goal) == ("A1", "A2")
 
 
+def test_moving_target_stops_on_blue_face_side():
+    """移动靶（双面，轨道 D8-E8 水平，蓝面朝南）：
+    轨道两端不可踩；必经蓝面侧端点正对格（D9/E9）停靠；红面可见时不安排停靠。"""
+    from ag_integrate.world_model import TargetRef, WorldSnapshot
+
+    start, goal = CellRef(0, 0), CellRef(0, 10)   # A1 -> A11
+    a, b = CellRef(3, 7), CellRef(4, 7)          # D8, E8 轨道两端
+    mine = CellRef(0, 5)                          # A6
+    snap = WorldSnapshot(0, (mine,), (), (), (TargetRef(a, True, (a, b), "S"),))
+    route = plan_route(snap, start, goal)
+    assert "A6" in route                    # 雷照常
+    assert "D8" not in route and "E8" not in route    # 轨道不可踩
+    assert "D9" in route or "E9" in route   # 蓝面侧停靠必经
+
+    # 红面可见（友方）：不安排停靠，路线只剩排雷
+    snap_red = WorldSnapshot(0, (mine,), (), (), (TargetRef(a, False, (a, b), "S"),))
+    route2 = plan_route(snap_red, start, goal)
+    assert "A6" in route2
+    assert "D9" not in route2 and "E9" not in route2
+
+
 def test_cross_gates_without_gate_makes_goal_unreachable():
     # 空场地，起点/终点分处两个半场；启用约束但不给任何 gate -> 不可穿越
     start, goal = CellRef(0, 0), CellRef(0, 10)   # A1 -> A11
@@ -90,3 +114,26 @@ def test_cross_gates_route_crosses_only_at_gate():
         if a[0] == b[0] and {int(a[1:]), int(b[1:])} == {5, 6}
     ]
     assert crossings == [("F5", "F6")]
+
+
+def test_compress_route_removes_collinear_middle_cells():
+    # A1→B2→C3→D4 同向对角，E4→F4 同向水平：只留拐点
+    route = ("A1", "B2", "C3", "D4", "E4", "F4")
+    assert compress_route(route) == ("A1", "D4", "F4")
+
+
+def test_compress_route_keeps_corners_and_waypoints():
+    # 拐点（方向变化处）永不被删
+    route = ("A1", "A2", "A3", "B4")
+    assert compress_route(route) == ("A1", "A3", "B4")
+    # keep 中的必经点即使共线也保留
+    route = ("A1", "B2", "C3", "D4", "E4", "F4")
+    assert compress_route(route, keep={"C3"}) == ("A1", "C3", "D4", "F4")
+
+
+def test_compress_route_short_and_degenerate():
+    assert compress_route(("A1", "A2")) == ("A1", "A2")
+    assert compress_route(("A1",)) == ("A1",)
+    # 折返点（进入/离开方向相反）是拐点，保留
+    route = ("A1", "A2", "A1")
+    assert compress_route(route) == ("A1", "A2", "A1")

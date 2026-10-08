@@ -60,26 +60,44 @@ def snapshot_with_targets(blue: CellRef, red: CellRef):
 
 
 def test_fire_guard():
-    blue, red = CellRef(3, 1), CellRef(4, 1)
+    blue, red = CellRef(3, 1), CellRef(7, 9)   # D2 蓝敌, H10 红友
     snap = snapshot_with_targets(blue, red)
-    assert decide_fire(snap, "D2").allowed
-    assert decide_fire(snap, "E2").denied       # 红面友方
-    assert decide_fire(snap, "K9").denied       # 该格无靶
+    assert decide_fire(snap, "D3").allowed     # D3 正交邻 D2 蓝
+    assert decide_fire(snap, "D2").denied      # 靶格本身无邻靶，不可停靠开火
+    assert decide_fire(snap, "G10").denied      # G10 邻 H10 红友方
+    assert decide_fire(snap, "K9").denied       # 附近无靶
+
+
+def test_fire_guard_moving_target():
+    """移动靶禁火判定：蓝面可见时只有蓝面侧正对端点的格允许开火；
+    红面侧/顺路格一律禁；红面可见全场禁火。"""
+    from ag_integrate.world_model import TargetRef, WorldSnapshot
+
+    a, b = CellRef(3, 7), CellRef(4, 7)   # D8-E8 水平轨道，蓝面朝南
+    blue = TargetRef(a, True, (a, b), "S")
+    red = TargetRef(a, False, (a, b), "S")
+    snap_blue = WorldSnapshot(0, (), (), (), (blue,))
+    snap_red = WorldSnapshot(0, (), (), (), (red,))
+    assert decide_fire(snap_blue, "D9").allowed    # 正对 D8 端点，蓝面侧
+    assert decide_fire(snap_blue, "E9").allowed     # 正对 E8 端点
+    assert decide_fire(snap_blue, "C8").denied     # 顺路邻轨道但非蓝面停靠位
+    assert decide_fire(snap_blue, "D7").denied     # 红面侧（北），禁停
+    assert decide_fire(snap_red, "D9").denied       # 红面可见：友方，全场禁火
 
 
 # ---------- 适配器端到端 ----------
 
 def test_adapt_emits_reset_route_and_filters_shoot():
-    blue, red = CellRef(3, 1), CellRef(4, 1)
+    blue, red = CellRef(3, 1), CellRef(7, 9)   # D2 蓝敌, H10 红友
     snap = snapshot_with_targets(blue, red)
-    # 路线同时经过蓝格与红格：只有蓝格保留 '*'
+    # 路线同时经过蓝靶停靠格（D3 邻 D2）与红靶旁格（I10 邻 H10）：只有前者保留 '*'
     cmds = adapt(
         snap,
-        ("G8", "D2", "E2", "N11"),
+        ("G8", "D3", "I10", "N11"),
         start_cell="N10",
         start_heading="y",
         final_heading="y",
     )
     assert cmds.reset == "reset:N10,y"
-    assert cmds.route == "G8 D2* E2 N11,y"
-    assert cmds.shoot_cells == ("D2",)
+    assert cmds.route == "G8 D3* I10 N11,y"
+    assert cmds.shoot_cells == ("D3",)

@@ -54,16 +54,19 @@ def draw_frame(image, lines, width: int):
     h0, w0 = image.shape[:2]
     scale = width / w0
     vis = cv2.resize(image, (width, int(h0 * scale)))
+    out_h = vis.shape[0]
     for line in lines:
         values = line.split()
         cls = int(values[0])
         if cls not in _SEMANTIC:
             continue
         color, label = _STYLE[cls]
-        cx, cy, bw, bh_ = (float(values[1]) * width, float(values[2]) * width,
-                          float(values[3]) * width, float(values[4]) * width)
-        x1, y1 = int(cx - bw / 2), int(cy - bh_ / 2)
-        x2, y2 = int(cx + bw / 2), int(cy + bh_ / 2)
+        cx = float(values[1]) * width
+        cy = float(values[2]) * out_h
+        bw = float(values[3]) * width
+        bh = float(values[4]) * out_h
+        x1, y1 = int(cx - bw / 2), int(cy - bh / 2)
+        x2, y2 = int(cx + bw / 2), int(cy + bh / 2)
         thickness = 5 if cls == 12 else 3
         cv2.rectangle(vis, (x1, y1), (x2, y2), color, thickness)
         ty = max(18, y1 - 6)

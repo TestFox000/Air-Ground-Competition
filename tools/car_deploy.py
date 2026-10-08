@@ -1,11 +1,11 @@
-"""车端部署：把 ag_integrate 上传到香橙派并 colcon build + 验证。
+"""车端部署：把 ag_integrate + ag_core 上传到香橙派并 colcon build + 验证。
 
 流程：
-    1. 本机打包 src/ag_integrate（排除 __pycache__）
+    1. 本机打包 src/ag_integrate + src/ag_core（排除 __pycache__）
     2. SSH 上传到车端工作空间 <ws>/src/
-    3. colcon build --packages-select ag_integrate
-    4. ros2 pkg list | grep ag_integrate  验证安装
-    5. 可选：--dry-run-test 启动 integrate_node 5 秒，确认节点能起来
+    3. colcon build --packages-select ag_integrate ag_core
+    4. ros2 pkg list 验证安装
+    5. 可选：--dry-run-test 启动 integrate_node 5 秒，确认节点能起
 
 用法：
     # 密码走环境变量（推荐）
@@ -35,7 +35,8 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SRC_PKG = REPO / "src" / "ag_integrate"
+SRC_ROOT = REPO / "src"
+PACKAGES = ("ag_integrate", "ag_core")  # ag_core: 黑匣子依赖
 
 try:
     import paramiko
@@ -64,21 +65,24 @@ def fail(msg: str) -> None:
 
 # ---------------------------------------------------------------- 打包
 def make_tarball() -> bytes:
-    """把 src/ag_integrate 打包成 tar.gz（排除 __pycache__、.pyc、.bak）。"""
-    if not SRC_PKG.is_dir():
-        fail(f"找不到源码目录: {SRC_PKG}")
+    """把 PACKAGES 里的包打包成 tar.gz（排除 __pycache__、.pyc、.bak）。"""
+    for pkg in PACKAGES:
+        if not (SRC_ROOT / pkg).is_dir():
+            fail(f"找不到源码目录: {SRC_ROOT / pkg}")
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        for path in sorted(SRC_PKG.rglob("*")):
-            rel = path.relative_to(SRC_PKG)
-            # 排除缓存与临时文件
-            parts = rel.parts
-            if any(p == "__pycache__" for p in parts):
-                continue
-            if path.suffix in (".pyc", ".bak"):
-                continue
-            if path.is_file():
-                tar.add(path, arcname=str(Path("ag_integrate") / rel))
+        for pkg in PACKAGES:
+            src_pkg = SRC_ROOT / pkg
+            for path in sorted(src_pkg.rglob("*")):
+                rel = path.relative_to(src_pkg)
+                # 排除缓存与临时文件
+                parts = rel.parts
+                if any(p == "__pycache__" for p in parts):
+                    continue
+                if path.suffix in (".pyc", ".bak"):
+                    continue
+                if path.is_file():
+                    tar.add(path, arcname=str(Path(pkg) / rel))
     buf.seek(0)
     return buf.read()
 
@@ -164,7 +168,8 @@ def main() -> int:
         ok("tarball 已上传")
 
         # 解压（覆盖旧版本）
-        rc, out = run(ssh, f"cd {ws}/src && rm -rf ag_integrate && tar xzf {remote_tar}")
+        rm_old = " ".join(f"rm -rf {pkg}" for pkg in PACKAGES)
+        rc, out = run(ssh, f"cd {ws}/src && {rm_old} && tar xzf {remote_tar}")
         if rc != 0:
             fail(f"解压失败:\n{out}")
         run(ssh, f"rm -f {remote_tar}")
@@ -179,25 +184,27 @@ def main() -> int:
         build_cmd = (
             f"source {ros_setup} && "
             f"cd {ws} && "
-            f"colcon build --packages-select ag_integrate --symlink-install 2>&1"
+            f"colcon build --packages-select {' '.join(PACKAGES)} --symlink-install 2>&1"
         )
         rc, out = run(ssh, build_cmd, timeout=600)
         print(out)
-        if rc != 0 or "Failed   <<< ag_integrate" in out:
+        if rc != 0 or "Failed   <<<" in out:
             fail("colcon build 失败，见上方输出")
         ok("colcon build 成功")
 
         # 6. 验证安装
-        step("验证安装：ros2 pkg list | grep ag_integrate")
+        step(f"验证安装：ros2 pkg list | grep -E '{'|'.join(PACKAGES)}'")
         verify_cmd = (
             f"source {ros_setup} && "
             f"source {ws}/install/setup.bash && "
-            f"ros2 pkg list | grep ag_integrate"
+            f"ros2 pkg list | grep -E '{'|'.join(PACKAGES)}'"
         )
         rc, out = run(ssh, verify_cmd, timeout=60)
-        if rc != 0 or "ag_integrate" not in out:
-            fail(f"验证失败，ros2 pkg list 中没有 ag_integrate:\n{out}")
-        ok(f"ag_integrate 已安装: {out.strip()}")
+        found = {ln.strip() for ln in out.splitlines() if ln.strip()}
+        missing = [pkg for pkg in PACKAGES if pkg not in found]
+        if missing:
+            fail(f"验证失败，ros2 pkg list 缺少 {missing}:\n{out}")
+        ok(f"已安装: {sorted(found)}")
 
         # 7. 可选 dry_run 测试
         if args.dry_run_test:

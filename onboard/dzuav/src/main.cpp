@@ -79,8 +79,13 @@ void processFrame(const cv::Mat& frame, HbbDetector& hbb, CellClassifier& cell, 
         const auto roi = cv::Rect2f(detection.box) & cv::Rect2f(0, 0, image.cols, image.rows);
         if (roi.area() <= 4)
             continue;
+        // 贴边半标签：框被图像边缘裁切，中心系统性偏离格心，会污染 PnP（弃用）
+        if (roi.x < 8.f || roi.y < 8.f ||
+            roi.x + roi.width > static_cast<float>(image.cols) - 8.f ||
+            roi.y + roi.height > static_cast<float>(image.rows) - 8.f)
+            continue;
         const CellId id = cell.infer(image(roi));
-        if (id.valid() && id.confidence > .55F)
+        if (id.valid() && id.confidence > .45F)   // TTA 后置信度更可靠，放宽阈值多用地标
             landmarks.push_back({id, {roi.x + roi.width * .5F, roi.y + roi.height * .5F}});
     }
     const bool localized = map.solve(landmarks, image.size());
