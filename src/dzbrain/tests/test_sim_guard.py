@@ -19,6 +19,13 @@ r"""离线追踪仿真器 `dzbrain.tools.sim` 的**回归护栏**测试（纯脚
   另新增 3.5b（纯里程漂移会跑飞、锚定不会）与 2.18（折返区确实走过）两条常驻断言。
   历史留档：修前 822.5 s / 41127 拍 / ratio 5.32 / `completed=False`。
 
+★ 2026-10-09 路线设计变更：底盘不支持倒车（决定性实验：STM32 下位机无视方向位），
+   robot.yaml 删掉全部 3 条 R: 倒车腿、180° 折返改为原地 PIVOT 掉头（E11/A6/D6，
+   corner_turn_deg=180°）；巡航 0.15 m/s、lookahead_max 0.45→0.24。
+   本文件与 test_sim.py 自当日起**直接读 robot.yaml 的 route.tokens** ——
+   `fixtures/route_field.txt` 是旧路线夹具（含 R: 腿），继续用它 = 全绿假象。
+   新基线实测：completed=True / 5869 拍 / 117.38 s / ratio 0.94 / RMS 0.1117 / 末点 0.028 m。
+
 ★ 本文件只**读**仿真器，不修改 `sim.py` / `sim_cli.py` / `tools\sim_pursuit.py` /
   `core/ route/ pursuit/ io/ fakes.py config/`。
 
@@ -62,8 +69,6 @@ from dzbrain.tools import sim as S                                         # noq
 
 _WS = _TESTS_DIR.parents[2]
 _CFG_PATH = _WS / "config" / "robot.yaml"
-_FIXTURES = _TESTS_DIR / "fixtures"
-_FIELD_PATH = _FIXTURES / "route_field.txt"
 
 # --------------------------------------------------------------------------- #
 #  XFAIL：已知不达标项（见文件末 INTERFACE_NOTES）
@@ -97,11 +102,13 @@ def _sha256(path: pathlib.Path) -> str:
 
 
 cfg = Config.load(str(_CFG_PATH))          # ★ 只用出厂配置，绝不 override
-FIELD = parse_mission(str(_FIELD_PATH))
+# ★ 2026-10-09 起现场图路线 = robot.yaml 的 route.tokens（旧夹具 route_field.txt 含 R: 腿，
+#   已停用——继续用它 = 全绿假象，在验证一条车端已不存在的路线）
+FIELD = parse_mission(list(cfg.get("route.tokens")), name="robot.yaml:route.tokens")
 FIELD_PATH = S.Path(FIELD)
 
 FIELD_WAYPOINTS = 34
-FIELD_REVERSE_SEGS = (12, 18, 19)          # E11->F11 / A6->B6 / B6->D6
+FIELD_PIVOT_BLOCKS = ("A6", "D6", "E11")   # 2026-10-09：3 个 180° 折返（corner_turn_deg=180°）
 FIELD_STOP_INDICES = (9, 33)               # G10* 射击停站 + 末点 N5
 FIELD_LENGTH_M = 16.45
 
@@ -123,7 +130,7 @@ print("sim.py    : %d bytes  sha256[:16]=%s  mtime=%s" % (
                   time.localtime((_WS / "src" / "dzbrain" / "dzbrain" / "tools"
                                   / "sim.py").stat().st_mtime))))
 print("robot.yaml: sha256[:16]=%s（出厂值，不做任何覆盖）" % _sha256(_CFG_PATH))
-print("现场图    : %s" % _FIELD_PATH)
+print("现场图    : robot.yaml:route.tokens（旧夹具 route_field.txt 已停用）")
 
 _T0 = time.time()
 
@@ -180,19 +187,27 @@ check("1.10 ★末点停车精度 = sim 自称的 _GOAL_STOP_M(0.03 m)",
       f"final_error={m1['final_error_m']:.5f} vs _GOAL_STOP_M={_goal_stop}")
 
 # =========================================================================== #
-section("2. 现场图路线（34 航点，含 3 个倒车段 + G10* 停站）：结构 + 全程")
+section("2. 现场图路线（34 航点，0 倒车段 + 3 个 180° PIVOT 折返 + G10* 停站）：结构 + 全程")
 # =========================================================================== #
-print("     结构: %d 点 / %.2f m / 倒车段 %s / 停站点 %s / 拐角 %d 处" % (
+print("     结构: %d 点 / %.2f m / 倒车段 %s / 停站点 %s / 拐角(>45°) %d 处 / PIVOT 折返 %s" % (
     len(FIELD.waypoints), FIELD_PATH.total_length,
     [i for i in range(FIELD_PATH.segment_count) if FIELD_PATH.segment_is_reverse(i)],
     list(FIELD_PATH.stop_indices),
-    sum(1 for i in range(FIELD_PATH.segment_count) if FIELD_PATH.corner_angle_deg(i) > 45.0)))
+    sum(1 for i in range(FIELD_PATH.segment_count) if FIELD_PATH.corner_angle_deg(i) > 45.0),
+    sorted(FIELD.waypoints[i + 1].block for i in range(FIELD_PATH.segment_count - 1)
+           if FIELD_PATH.corner_turn_deg(i) >= 135.0)))
 check("2.1 解析出 34 个航点", len(FIELD.waypoints) == FIELD_WAYPOINTS,
       f"got {len(FIELD.waypoints)}")
 check_close("2.2 路线总长 = 16.45 m", FIELD_PATH.total_length, FIELD_LENGTH_M, 1e-9)
 _rev = tuple(i for i in range(FIELD_PATH.segment_count)
              if FIELD_PATH.segment_is_reverse(i))
-check("2.3 倒车段索引 = %s" % (FIELD_REVERSE_SEGS,), _rev == FIELD_REVERSE_SEGS, f"got {_rev}")
+check("2.3 ★现场图已无倒车段（2026-10-09 底盘不支持倒车，R: 腿全删）", _rev == (),
+      f"got {_rev}（旧基线 = (12, 18, 19)：R:F11 / R:B6 / R:D6）")
+_piv = sorted(FIELD.waypoints[i + 1].block
+              for i in range(FIELD_PATH.segment_count - 1)
+              if FIELD_PATH.corner_turn_deg(i) >= 135.0)
+check("2.3b ★3 个 180° 折返点全部转为 ≥135° PIVOT 掉头", _piv == list(FIELD_PIVOT_BLOCKS),
+      f"pivots={_piv}（预期 {FIELD_PIVOT_BLOCKS}：E11/A6/D6，corner_turn_deg=180°）")
 check("2.4 停站点索引 = %s" % (FIELD_STOP_INDICES,),
       tuple(FIELD_PATH.stop_indices) == FIELD_STOP_INDICES,
       f"got {tuple(FIELD_PATH.stop_indices)}")
@@ -267,7 +282,7 @@ check("2.16 8000 拍快照与完整跑结论一致（排除步数上限造成的
 #         "卡死位置确实停在 D6 附近"。
 #   修后：路线跑完（`completed=True`），**旧断言必然失败**，所以改成检验
 #         "修好的形态"：末位置落在终点 N5 的 `arrival_m` 量级内，
-#         且折返区（第 18~20 段：A6→B6→D6）确实被走过了。
+#         且折返区（第 17~20 段：B6→A6→B6→D6；2026-10-09 起倒车改正向+PIVOT）确实被走过了。
 _last_xy = (r2b.truth_x[-1], r2b.truth_y[-1])
 _goal_wp = FIELD_PATH.waypoints[-1]
 _d_goal = math.hypot(_last_xy[0] - _goal_wp.x, _last_xy[1] - _goal_wp.y)
@@ -277,7 +292,7 @@ print("     末位置 = (%.3f, %.3f)；终点 %s = (%.3f, %.3f) 距离 %.3f m；
           max(r2b.truth_s), FIELD_PATH.s_at_waypoint(20)))
 check("2.17 末位置停在终点 %s 的 arrival_m 量级内（修前是卡死在 D6 附近）" % _goal_wp.block,
       _d_goal <= 2.0 * _arrival, f"d={_d_goal:.3f} m vs arrival={_arrival}")
-check("2.18 ★折返区（A6→B6→D6）确实走过了（真值弧长越过 D6 = %.3f m）"
+check("2.18 ★折返区（B6→A6→B6→D6，现正向+PIVOT）确实走过了（真值弧长越过 D6 = %.3f m）"
       % FIELD_PATH.s_at_waypoint(20),
       max(r2b.truth_s) >= FIELD_PATH.s_at_waypoint(20) - 1e-9,
       f"max_s_truth={max(r2b.truth_s):.3f} vs s(D6)={FIELD_PATH.s_at_waypoint(20):.3f}")
@@ -313,7 +328,7 @@ check("3.4 注入使误差沿路线累积（>= 0.30 m RMS，drift_warn_m 量级�
 # ★ 对照样本必须"有效"。⚠️ 2026-10-07 修复后本条**由 XFAIL 转为常驻**（修前是
 #   "提前退出造成假差异"）。判据 = 跑满窗口 **或** 看门狗判定跑飞（`diverged`）——
 #   两者都是**明确的终态**，给出的样本可比；只有"既没跑满、也没有终止理由"才算无效。
-#   ⚠️ 纯里程漂移（ε=0.18、关锚定）实测就是**跑飞**（第 2570 拍、信念领先近 1 m）：
+#   ⚠️ 纯里程漂移（ε=0.18、关锚定）实测就是**跑飞**（第 2573 拍、信念领先近 2 m）：
 #      这是模型如实反映的现实（现场必须有 FixTask 到位吸附，否则纯里程计会漂到失控），
 #      所以 `diverged=True` 是**证据**而不是缺陷，放在本条的合法终态里。
 check("3.5 注入版给出可比样本（跑满窗口 / 跑完 / 判定跑飞，三选一）",
@@ -569,7 +584,8 @@ check("7.2 物理投影窗口仍是前宽后窄（0.80 / 0.20）",
 
 # ---- 端到端护栏：**只用出厂配置**（§2 已跑，这里把结论按护栏语义再钉一次）----
 print("     护栏结论: completed=%s steps=%d/%d ratio=%.4f xt_rms=%.5f "
-      "（基线参考 5648 拍 / ratio ~0.97）" % (
+      "（2026-10-09 新路线基线 5869 拍 / 117.38 s / ratio 0.94 / RMS 0.1117；"
+      "旧路线参考 6751 拍 / 135.0 s / ratio 1.04）" % (
           m2["completed"], r2.steps, int(m2["max_steps"]), m2["path_len_ratio"],
           m2["cross_track_rms_m"]))
 # ★ 2026-10-07 修复后常驻断言（修前是 XFAIL：822.5 s / 41127 拍 / ratio 5.32 未完成）。
@@ -709,12 +725,21 @@ _NOTES = [
     "⇒ 限幅只作用在循迹拍，**刹车那一拍不受限**（`steer_sign_flip_steps = 0`，"
     "所以不是倒车翻转的锅）。已由 `tests\\test_sim.py` §2.1/§2.5 记红。",
 
-    "⚠️ 遗留：另一条线的 `tests\\test_sim.py` 有 9 条断言建立在**修前形态**上，现在会判红 —— "
-    "§4.10/§4.11 断言'出厂参数跑不完'（实测已跑完：6751 拍 / ratio 1.04）、"
-    "§7.4 断言'延迟 0.2 s 跑不完'（实测跑得完）、§2.1/§2.5 是上面那条未修的速率问题、"
-    "§4.6 断言顶点超调 < 0.02 m（实测 0.1617 m，是'一格 0.35 m + 舵角 30°'的几何地板量级，"
-    "见该文件自己的 §4.5 注释）、§6.3/§6.4 是 ε=0.18 长窗口（RUNNABLE 配置）下的注入实验。"
-    "本文件**不动它**（它是别人的交付物），只在此登记，供决策。",
+    "★ 2026-10-09 路线设计变更（已同步）：底盘不支持倒车（STM32 下位机无视方向位），"
+    "robot.yaml 删掉全部 3 条 R: 倒车腿、180° 折返改为原地 PIVOT（E11/A6/D6）。"
+    "本文件与 `tests\\test_sim.py` 的现场图路线自当日起直接读 robot.yaml 的 route.tokens —— "
+    "`fixtures/route_field.txt` 是旧路线夹具（含 R: 腿），继续用它 = 全绿假象"
+    "（在验证一条车端已不存在的路线）。新基线：5869 拍 / 117.38 s / ratio 0.94 / RMS 0.1117。",
+
+    "⚠️ sim 未实现 PIVOT：新路线 3 个 180° 折返在仿真里由纯追踪以最小转弯半径画弧，"
+    "顶点超调实测 0.3114 m（旧路线 0.2233 m：折返靠倒车、车头不转）。实车 PIVOT 原地转向"
+    "无此弧 —— 这是 sim 与实车的模型边界，不是控制退化；`test_sim.py` §4.6 阈值因此"
+    "由 R_min=0.272 改为 2×R_min=0.544 m（纯追踪弧的几何上界），供复查。",
+
+    "⚠️ 遗留（他人交付物，本文件不代改）：`tests\\test_path_overlap.py` §5 当前判红 —— "
+    "其断言取 `corner_turn_deg(i)>=135` 时用 blocks[i] 标注（off-by-one：该函数对应"
+    "waypoint i+1，应取 blocks[i+1]），且期望块名把 D6 写成了 B6（180° 折返实际在 "
+    "E11/A6/D6）。修正后应为 sorted == ['A6','D6','E11']。",
 ]
 for _note in _NOTES:
     print("     - %s" % _note)
