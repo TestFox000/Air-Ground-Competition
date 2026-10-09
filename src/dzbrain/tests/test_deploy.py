@@ -195,4 +195,40 @@ check("healthcheck.sh 语法基本自洽：if/then/fi 数量配平",
       and _hc.count("fi\n") >= _hc.count("\nif ") - _hc.count("elif "),
       f"if={_hc.count('if ')} fi={_hc.count('fi')}")
 
+section("⑥ start_all.sh 必须「默认新核 + 可回退 + 保住现场适配」")
+#  为什么钉这条：start_all.sh 在本地与车里**分叉过**，而且方向相反 ——
+#    · 车上那份有现场适配：ROS 域号钉在 dzros.env（无人机联调事故的修复）、
+#      5b 自瞄状态 Int32→UInt8 兼容转发、-u 无缓冲（否则日志长时间 0 字节被误判卡死）；
+#    · 本地那份有 dzbrain 接线与启动门禁。
+#  直接 deploy 会用本地版**冲掉现场适配**（无人机链路与网页状态又坏）；不 deploy 则
+#  **重启车就回到旧核**。所以这里把三件事同时钉死，任何一项被丢掉都立刻红。
+_sa = (WS / "start_all.sh").read_text(encoding="utf-8")
+for _need, _why in (
+        ("python3 -u -m dzbrain.main", "节点 7 默认必须是新核（否则重启回到旧核）"),
+        ("LEGACY_PATH", "必须留一键回退旧核的开关"),
+        ("ros2 run car_localization path_executor_node", "回退路径要指向 install 入口"),
+        ("SKIP_PRECHECK", "启动门禁要有应急绕过（否则配置一坏就完全起不来）"),
+        ("--dry-run", "启动门禁 = dzbrain 配置+路线校验"),
+        ("dzros.env", "★现场适配：ROS 域号必须钉住（否则无人机/网页静默看不见）"),
+        ("5b_aimshim", "★现场适配：自瞄状态 Int32→UInt8 兼容转发"),
+        ("PYTHONUNBUFFERED", "★现场适配：无缓冲（否则日志 0 字节被误判卡死）")):
+    check(f"start_all.sh 覆盖 {_need}（{_why}）", _need in _sa)
+#  ⚠️ `python3 -u -m dzbrain.main` 在文件里**出现两次**（启动门禁的 --dry-run 一次、
+#     节点 7 真正启动一次）—— 一开始我按"只出现 1 次"写，测试当场红，这是对的：
+#     它把"门禁与启动是两件事"这个事实钉住了。
+_n7 = _sa.split("7/8 循迹")[1].split("sleep 2")[0] if "7/8 循迹" in _sa else ""
+check("★节点 7 是二选一分支：旧核入口 + 新核启动都在同一块里",
+      "LEGACY_PATH" in _n7 and "path_executor_node" in _n7 and "dzbrain.main" in _n7,
+      f"块长度 {len(_n7)}")
+check("★节点 7 分支只启动**一个**（不是顺序起两个）",
+      _n7.count("spawn 7_path") == 2 and _n7.count("if ") == 1,
+      f"spawn7={_n7.count('spawn 7_path')} if={_n7.count('if ')}")
+check("★门禁用 --dry-run、节点 7 才是真启动（两者不能混）",
+      _sa.count("python3 -u -m dzbrain.main") == 2
+      and "--dry-run" in _sa.split("python3 -u -m dzbrain.main")[1]
+      and "--dry-run" not in _sa.split("python3 -u -m dzbrain.main")[2],
+      "门禁=校验，节点7=启动")
+check("★启动门禁在走旧核时自动跳过（不阻塞回退路径）",
+      "LEGACY_PATH=1（走旧循迹核）→ 跳过 dzbrain 校验" in _sa)
+
 finish()
