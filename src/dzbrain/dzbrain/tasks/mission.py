@@ -445,9 +445,16 @@ class MissionTask(TaskThread):
             if i == 0:
                 self._passed[0] = True           # 起点不报"到达"
                 continue
-            reached = (s + self._arrival_m) >= path.s_at_waypoint(i)
-            if not reached and pose is not None:
-                reached = wp.distance_to(pose.x, pose.y) <= self._arrival_m
+            # ★ 弧长判据必须与"车确实在附近"**合取**，不能单用：
+            #   投影链会跳变/冻结（诊断见 docs/诊断_投影与顶点.md），实测 s 从 3.50 冲到 4.20 时，
+            #   #11 F11 / #12 E11 / #13 F11 三个**从未走到**的点被默默判成"已到达" ——
+            #   这既不诚实（没有 forced_skip 记录），又会让后续航点计数整体错位。
+            #   放宽到 2×arrival_m 是为了不误伤正常到位误差（实测到位偏差 ≈0.12 m）；
+            #   真到不了的点仍由 `_detect_stall_and_skip` **显式**跳过（有事件 + 日志）。
+            dist = None if pose is None else wp.distance_to(pose.x, pose.y)
+            s_reached = (s + self._arrival_m) >= path.s_at_waypoint(i)
+            near = dist is None or dist <= 2.0 * self._arrival_m
+            reached = (s_reached and near) or (dist is not None and dist <= self._arrival_m)
             if reached:
                 self._passed[i] = True
                 self._arrived += 1

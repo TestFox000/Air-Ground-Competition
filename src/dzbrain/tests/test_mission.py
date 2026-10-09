@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import math
 import pathlib
 import sys
 
@@ -703,6 +704,62 @@ def test_stall_fallback() -> None:
           skips4b >= 1, f"skips={skips4b}")
 
 
+def test_arrival_requires_proximity() -> None:
+    """★11. 到点判定必须同时满足「车确实在附近」。
+
+    诊断依据（docs/诊断_投影与顶点.md §2.5）：`_advance_waypoints` 用
+    `s + arrival_m >= s_at_waypoint(i)` 单判"到点"，而 `_current_s()` 的弧长来自投影。
+    车一旦被锚定/投影到后面的段上，**同一次 tick 里所有"被越过"的航点都会被判到达** ——
+    bench 实测 #11 F11 / #12 E11 / #13 F11 三个从未走到的点被默默标记（没有 forced_skip 记录，
+    航点计数整体错位）。
+    修法：弧长判据与"距离 ≤ 2×arrival_m"**合取**；真到不了的点仍由
+    `_detect_stall_and_skip` **显式**跳过（有事件 + 日志，可追溯）。
+    """
+    section("11. ★到点判定必须同时满足「车在附近」")
+    cfg = _field_cfg()
+    arrival = float(cfg.get("pursuit.arrival_m"))
+    # 场景照抄 bench 的真实机制：车**沿路线推进**（弧长越过航点），但物理上**横向偏离**
+    # 航点 > 2×arrival_m。旧写法只看弧长 ⇒ 这个航点会被判"已到达"（bench 实测
+    # #11 F11/#12 E11/#13 F11 三个从未走到的点就是这样被默默标掉的）。
+    # ⚠️ 不能用"把车瞬移到远处"来构造：`_current_s()` 用 `_last_s` 做 ±0.6 m 窗口，
+    #    瞬移不会让 s 跳变 —— 必须真的沿路线推进。
+    m10 = geo.block_to_meters("M10")            # FIELD_ROUTE[1]，航段沿 +y
+    off = 0.35                                  # 横向偏离（> 2×arrival_m=0.24）
+
+    def _run(rig, n=6):
+        for _ in range(n):
+            rig.task.tick()
+            rig.events.extend(rig.sub.poll(4096))
+            rig.clock.advance(0.2)
+
+    rig = Rig(cfg=cfg)
+    _run(rig, 4)                                # ⚠️ 自动出发会把 belief **复位到 N10**
+    rig.set_pose(m10[0] + off, m10[1], geo.HEADING_Y)   # 复位之后再摆位，否则会被覆盖
+    _run(rig)
+    check("11.1 已自动出发（阶段 DRIVE）", rig.task.phase == MissionPhase.DRIVE,
+          f"phase={rig.task.phase!r}")
+    check("11.2 前置：弧长确实已经越过 M10（否则测的不是这件事）",
+          (rig.task._last_s or 0.0) + arrival >= rig.task._path.s_at_waypoint(1),
+          f"s={rig.task._last_s} s_at(1)={rig.task._path.s_at_waypoint(1):.3f}")
+
+    reached = [e for e in rig.of(EV_WAYPOINT_REACHED) if not e.data.get("forced_skip")]
+    idxs = sorted(int(e.data.get("index")) for e in reached)
+    check("11.3 ★车偏 0.35 m 时不得因「弧长越过」而判到达（旧写法会判）",
+          len(reached) == 0, f"报了 {len(reached)} 个：{idxs}")
+    check("11.4 该航点仍未通过（`_passed[1]` 保持 False）",
+          rig.task._passed[1] is False, f"_passed[1]={rig.task._passed[1]}")
+
+    # 对照：车真正贴到航点上（≤ arrival_m）→ 必须判到达（修完不能"太严"）
+    rig2 = Rig(cfg=cfg)
+    _run(rig2, 4)
+    rig2.set_pose(m10[0] + arrival * 0.5, m10[1], geo.HEADING_Y)
+    _run(rig2)
+    got2 = [e for e in rig2.of(EV_WAYPOINT_REACHED)
+            if not e.data.get("forced_skip") and int(e.data.get("index")) == 1]
+    check("11.5 对照：车在 arrival_m 内 → 正常判到达（没有变得过严）", len(got2) >= 1,
+          f"M10 到达事件 {len(got2)} 个")
+
+
 # --------------------------------------------------------------------------- #
 def main() -> int:
     print("=" * 72)
@@ -718,6 +775,7 @@ def main() -> int:
     test_phase_gate()
     test_rate()
     test_stall_fallback()
+    test_arrival_requires_proximity()
     finish()
     return 0
 
