@@ -231,7 +231,7 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
 
     # ---------------- 虚拟小车线程（仅 --drive） ----------------
     car = {"x": 0.0, "y": 0.0, "yaw": 0.0, "v": 0.0, "steer": 0.0, "steps": 0,
-           "last_cmd_index": 0, "reached": 0, "max_xt": 0.0}
+           "last_cmd_index": 0, "reached": 0, "max_xt": 0.0, "stats_relocks": 0}
     pose0 = bridge.pose()
     if pose0:
         car.update(x=pose0.x, y=pose0.y, yaw=pose0.yaw)
@@ -241,6 +241,7 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
     def _car_loop() -> None:
         dt_real = 0.02
         wheelbase = float(cfg.get("pursuit.wheelbase_m") or 0.157)
+        release_m = float(cfg.get("pursuit.projection_release_m") or 0.30)
         while not stop_flag["stop"]:
             time.sleep(dt_real)
             # 取最新指令（FakeBridge 记录了全部指令；取最后一条非刹车也照用）
@@ -258,9 +259,20 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
             car["steps"] += 1
             bridge.set_pose(car["x"], car["y"], car["yaw"])
             # 统计：离路线多远 / 到了几个点
+            #  ★ 统计这条投影链**必须和 Tracker 一样能"跟丢自愈"**：`s_hint` 每拍跟随上一拍的
+            #    s，窗口（±0.6 m）会把错误的 s 变成自洽不动点 —— 一旦锁死，`proj.dist` 会随
+            #    车开远而无限增大、`reached` 永远停在锁死处。实测（bench_relock 之前）：
+            #    同一条跑动里 Tracker 报"到点 31"，而这里报"走到第 18/34 点、最大横向偏差
+            #    4.098 m" —— 车其实一直在路线上（到点判据要求"车贴近路径"），
+            #    4.098 m 是**统计口径**的假值，不是车跑飞了。
             try:
                 proj = path.project(car["x"], car["y"], s_hint=s_hint["s"] or None,
                                     allow_backward=True)
+                if proj.dist > release_m:                     # 跟丢 → 丢 hint 全路线重投影
+                    proj_relock = path.project(car["x"], car["y"])
+                    if proj_relock.dist < proj.dist - 1e-6:
+                        proj = proj_relock
+                        car["stats_relocks"] = car.get("stats_relocks", 0) + 1
                 s_hint["s"] = proj.s
                 car["max_xt"] = max(car["max_xt"], proj.dist)
                 idx = sum(1 for i in range(len(route))
@@ -292,7 +304,7 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
         if drive:
             log(f"虚拟小车：走到第 {car['reached']}/{len(route)} 点，"
                 f"位置 ({car['x']:.2f}, {car['y']:.2f})，最大横向偏差 {car['max_xt']:.3f} m，"
-                f"积分 {car['steps']} 拍")
+                f"积分 {car['steps']} 拍，统计跟丢自愈 {car['stats_relocks']} 次")
         finish_report(bb, group, bus, elapsed=time.time() - t0)
         faulty = group.faulty()
         if faulty:
