@@ -759,6 +759,26 @@ def test_arrival_requires_proximity() -> None:
     check("11.5 对照：车在 arrival_m 内 → 正常判到达（没有变得过严）", len(got2) >= 1,
           f"M10 到达事件 {len(got2)} 个")
 
+    # ---- 11.6/11.7 ★正常切角：车**贴着路径**通过，离格心却 0.29 m ----
+    #  为什么必须成立：bench 实测 L10→L9→K9 的直角，车路过 L9 时离线心 0.288 m、横向偏差
+    #  只有 ~0.09 m。旧判据（离格心 ≤ 2×arrival_m = 0.24 m）在这种**完全正常**的切角下恒假
+    #  ⇒ L9 永不置位 ⇒ 停滞兜底 12 s 后把它当"不可达"补跳；一次跑从 #3 补跳到 #27（12 个），
+    #  240 s 全耗在等待上（实测到点 30 → 16、绕圈 3 → 12、跑不完全程）。
+    #  这里刻意**不经过** L9 格心（否则会被 dist≤arrival_m 直接放行，测不出这件事）。
+    rig3 = Rig(cfg=cfg)
+    _run(rig3, 4)
+    l9x, l9y = geo.block_to_meters("L9")          # FIELD_ROUTE[3]，L10→L9→K9 的直角顶点
+    rig3.set_pose(l9x - 0.085, l9y, geo.HEADING_X)     # 沿 L10→L9 走到离顶点 0.085 m
+    _run(rig3, 2)
+    rig3.set_pose(l9x, l9y + 0.29, geo.HEADING_Y)      # 切角后贴在 K9 腿上、离线心 0.29 m
+    _run(rig3, 3)
+    lat = getattr(rig3.task, "_last_lat_m", None)
+    check("11.6 前置：车确实贴在路径上（横向偏差 ≤0.30 m）而离线心 0.29 m",
+          lat is not None and lat <= 0.30 and 0.29 > 2 * arrival,
+          f"lat={lat} 离线心=0.290 阈值=2×arrival={2 * arrival}")
+    check("11.7 ★正常切角通过也必须判到达（否则航点永不置位、被停滞兜底补跳）",
+          rig3.task._passed[3] is True, f"_passed[3]={rig3.task._passed[3]}")
+
 
 # --------------------------------------------------------------------------- #
 def main() -> int:

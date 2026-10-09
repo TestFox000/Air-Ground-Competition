@@ -162,6 +162,8 @@ class MissionTask(TaskThread):
         self._stall_since: float | None = None       # 弧长开始停滞的时刻（None = 没在停滞）
         self._stall_last_s: float = 0.0              # 停滞开始时的弧长
         self._stall_last_yaw: float | None = None    # 停滞期间累计航向（绕圈判定）
+        #: ★到点判定的"是否贴在路径上"：`_current_s` 现算投影时记下的横向偏差（米）
+        self._last_lat_m: float | None = None
         self._stall_yaw_sum: float = 0.0
         self._forced_skips: int = 0                  # 强制跳过航点的次数（结束横幅要汇总）
 
@@ -420,6 +422,7 @@ class MissionTask(TaskThread):
         s: float | None = None
         if pose is not None:
             proj = path.project(pose.x, pose.y, s_hint=self._last_s)
+            self._last_lat_m = float(proj.dist)      # ★ 横向偏差（"是否贴在路径上"的判据）
             if isinstance(cached, (int, float)) and abs(float(cached) - proj.s) <= self._arrival_m:
                 s = float(cached)                   # 与位姿一致 → 沿用（Localization 的权威值）
             else:
@@ -449,11 +452,32 @@ class MissionTask(TaskThread):
             #   投影链会跳变/冻结（诊断见 docs/诊断_投影与顶点.md），实测 s 从 3.50 冲到 4.20 时，
             #   #11 F11 / #12 E11 / #13 F11 三个**从未走到**的点被默默判成"已到达" ——
             #   这既不诚实（没有 forced_skip 记录），又会让后续航点计数整体错位。
-            #   放宽到 2×arrival_m 是为了不误伤正常到位误差（实测到位偏差 ≈0.12 m）；
-            #   真到不了的点仍由 `_detect_stall_and_skip` **显式**跳过（有事件 + 日志）。
+            #
+            # ★★ 但"在附近"的门槛不能取 2×arrival_m(0.24 m)：纯追踪**正常切角**时车离格心
+            #   会超过它 —— bench 实测 L10→L9→K9 的直角，车路过 L9 时离线心 **0.288 m**
+            #   ⇒ `near` 恒假 ⇒ L9 **永不置位** ⇒ 停滞兜底 12 s 后把它当"不可达"补跳。
+            #   一次跑下来从 #3 一路补跳到 #27（12 个），车光在等 12 s×12 就把时间耗光了。
+            #
+            # ★★★ 真正的护栏是**"刚越过"窗口**，不是距离：s 跳变会一次性跨过好几个航点，
+            #   那些点的 `over` 远大于 arrival_m，窗口直接把它们挡住；而正常逐拍推进时
+            #   每个点都在窗口内被逮住（10 Hz × 0.15 m/s = 15 mm/拍 ≪ 120 mm）。
+            #   距离门槛据此放宽到 4×arrival_m(≈0.48 m)：放行正常切角，仍挡住"车根本不在
+            #   这条路附近，是投影跑到别处去了"的情形。
+            s_wp = path.s_at_waypoint(i)
             dist = None if pose is None else wp.distance_to(pose.x, pose.y)
-            s_reached = (s + self._arrival_m) >= path.s_at_waypoint(i)
-            near = dist is None or dist <= 2.0 * self._arrival_m
+            over = s + self._arrival_m - s_wp        # >0 = 已越过该航点
+            s_reached = over >= 0.0
+            # ★★ "车在附近"的判据改成**贴近路径**（横向偏差 `_last_lat_m`），不是贴近格心：
+            #   纯追踪的**正常切角**会离线心很远却仍在路径上 —— bench 实测 L10→L9→K9 的
+            #   直角，车路过 L9 时离线心 **0.288 m**、但横向偏差只有 ~0.09 m。旧判据
+            #   `dist ≤ 2×arrival_m(0.24 m)` 在这种正常切角下恒假 ⇒ L9 **永不置位** ⇒
+            #   停滞兜底 12 s 后把它当"不可达"补跳，一次跑从 #3 补跳到 #27（12 个），
+            #   240 s 全耗在等待上（到点 30 → 16、绕圈 3 → 12、跑不完全程）。
+            #   而"投影跑到别处造成的假到点"里车离**路径**也远（§11 用例：横偏 0.35 m），
+            #   两条判据由此区分开，互不误伤。
+            lat = self._last_lat_m
+            near = ((lat is not None and lat <= 0.30)
+                    or dist is None or dist <= 2.0 * self._arrival_m)
             reached = (s_reached and near) or (dist is not None and dist <= self._arrival_m)
             if reached:
                 self._passed[i] = True
