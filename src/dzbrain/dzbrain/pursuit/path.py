@@ -246,7 +246,8 @@ class Path:
     def project(self, x: float, y: float, *, s_hint: float | None = None,
                 window_m: float = 0.60, allow_backward: bool = True,
                 motion_heading: float | None = None,
-                back_m: float | None = None) -> Projection:
+                back_m: float | None = None,
+                s_min: float | None = None) -> Projection:
         """把车位置投影到折线上。
 
         ★ `s_hint` 给定时只在 `[s_hint - window_m, s_hint + window_m]` 内搜索
@@ -264,6 +265,8 @@ class Path:
           正常运动每拍只走几毫米（0.12 m/s × 0.02 s = 2.4 mm），15 cm 的余量绰绰有余；
           被这条限制挡住的只有"一拍跳一整段"这种病态情况。
         ★ 末点之后：最近段 = 末段且原始参数 > 1 → `t = 1`、`s = total_length`、`passed_end=True`。
+        ★★ `s_min`：**弧长地板**（单调推进的硬下界）——已经走过的顶点不允许再退回去。
+          请参见 `_search_window()` 里的长注释：它断的是"倒车段↔正向段交界处"的自指环。
         ★★ 顶点前瞻重投影：最优点**正好贴在当前段末端顶点**（`t ≥ 1`）且还有下一段时，
           内部 hint 会推到 `s_at_waypoint(i+1) + 1e-3` 再投影一次（最多一次），采用"不比
           第一遍更差"的那个结果 —— 因为纯追踪在顶点上必须用**下一段**算前视，返回顶点本身
@@ -294,6 +297,16 @@ class Path:
             h = hint if 0.0 <= hint <= self._total else (0.0 if hint < 0.0 else self._total)
             back = window_m if back_m is None else max(0.0, float(back_m))
             lo = (h - back) if allow_backward else h
+            # ★★ 弧长地板：**已经走过的顶点不允许再退回去**（与仿真的 `_project_with_floor`
+            #    同语义）。为什么必须要：倒车段→正向段的交界处（现场 F11：seg12 E11→R:F11
+            #    倒车结束、seg13 正向去 F10），两条候选的 s 都在顶点附近、Δs 几乎相同 ⇒
+            #    "连续性裁决"分不出来，只能落到"行进方向"；而方向由命令符号决定、
+            #    命令符号又由 `is_rev` 决定 ⇒ 自指环复现。而且此时车真的在来回抖
+            #    （v=±0.08~0.15 × 0.02 s = 1.6~3 mm/拍），**大于**行进方向的锁存门限，
+            #    于是"实测方向"也每拍跟着翻 —— 探针实测 30 s 内 715 次符号翻转、位置冻住。
+            #    地板把"顶点之前的那条段"整个排除出搜索窗口，环就断了。
+            if s_min is not None and float(s_min) > lo:
+                lo = float(s_min)
             if lo < 0.0:
                 lo = 0.0
             hi = h + window_m

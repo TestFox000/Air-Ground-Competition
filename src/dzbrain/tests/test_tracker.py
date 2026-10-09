@@ -497,6 +497,75 @@ def test_overlap_no_flipflop() -> None:
           f"速度集合={sorted({round(c[0], 3) for c in rig.bridge.commands})}")
 
 
+def test_arc_floor_no_oscillation() -> None:
+    """★9. 弧长地板：倒车段↔正向段交界处不得来回振荡（现场 F11 簇）。
+
+    实闭环 bench 与确定性探针都复现过同一故障：车倒车回到 F11（seg12 `E11→R:F11`
+    倒车段结束、seg13 正向去 F10）后**永久振荡**，机制是三重叠加：
+      · 两条候选（倒车段末端 / 正向段起点）的 s 都在顶点附近、Δs 几乎相同
+        ⇒ 第 ① 顺位"连续性裁决"分不出来；
+      · 于是落到第 ② 顺位"行进方向"，而方向由命令符号决定、命令符号又由 `is_rev`
+        决定 ⇒ 自指环；
+      · 此时车**真的**在抖（0.08~0.15 m/s × 0.02 s = 1.6~3 mm/拍），**大于**行进方向
+        的锁存门限 1 mm ⇒ 连"实测方向"也每拍跟着翻。
+    探针实测 30 s 内 **715 次**命令符号翻转、位置冻在毫米级；bench 里表现为
+    「拐角绕圈兜底」每 12 s 跳一个点（到点 30 → 17）。
+
+    修法：投影加**弧长地板**（已经走过的顶点不允许退回去）—— 与仿真
+    `_project_with_floor` 同语义，把"顶点之前那条段"整个排除出搜索窗口，环就断了。
+    """
+    section("9. ★弧长地板：倒车段↔正向段交界处不得振荡（F11 簇）")
+    cfg = cfg_of(pivot_enabled=True, bridge_blocks=[])
+    tokens = ["F10", "F11", "E11", "R:F11", "F10", "F8", "B8", "B6"]
+    p0 = geo.block_to_meters("F10")
+    p1 = geo.block_to_meters("F11")
+    ux, uy = p1[0] - p0[0], p1[1] - p0[1]
+    d = math.hypot(ux, uy)
+    ux, uy = ux / d, uy / d
+    rig = Rig(cfg=cfg, route=parse_mission(tokens),
+              pose=(p0[0], p0[1], geo.heading_of(ux, uy)))
+    wheelbase = float(cfg.get("pursuit.wheelbase_m"))
+    dt = 0.02
+    signs: list[int] = []
+    segs: list[int] = []
+    s_track: list[float] = []
+    for _ in range(1500):                      # 30 s @ 50 Hz
+        rig.task.tick()
+        v, steer = rig.bridge.commands[-1]
+        signs.append(0 if abs(v) < 1e-9 else (1 if v > 0 else -1))
+        seg_now = rig.bb.get(P_ROUTE_INDEX)
+        segs.append(int(seg_now) if isinstance(seg_now, (int, float)) else -1)
+        s_now = rig.bb.get(P_ROUTE_S)
+        s_track.append(float(s_now) if isinstance(s_now, (int, float)) else -1.0)
+        p = rig.bb.get(P_POSE)
+        yaw = p.yaw + (v / wheelbase) * math.tan(math.radians(steer)) * dt
+        x = p.x + v * math.cos(yaw) * dt
+        y = p.y + v * math.sin(yaw) * dt
+        rig.set_pose(x, y, yaw)
+        rig.clock.advance(dt)
+
+    def _flips(seq: list[int]) -> int:
+        n, prev = 0, 0
+        for sg in seq:
+            if sg and prev and sg != prev:
+                n += 1
+            if sg:
+                prev = sg
+        return n
+
+    check("9.1 ★沿程单调推进到接近末端（≥2.30 m，全长 2.45 m）",
+          max(s_track) >= 2.30, f"max s={max(s_track):.3f}")
+    check("9.2 ★命令符号翻转 ≤5 次/30s（无地板时 715 次）",
+          _flips(signs) <= 5, f"{_flips(signs)} 次")
+    check("9.3 ★段号不来回跳（切换次数 ≤ 段数 7）",
+          sum(1 for i in range(1, len(segs)) if segs[i] != segs[i - 1]) <= 7,
+          f"切换={sum(1 for i in range(1, len(segs)) if segs[i] != segs[i-1])}")
+    check("9.4 ★末 5 秒已收敛（≤2 次翻转）", _flips(signs[-250:]) <= 2,
+          f"尾 250 拍翻转 {_flips(signs[-250:])} 次")
+    check("9.5 倒车段确实走过（出现过反向指令）", any(sg < 0 for sg in signs),
+          f"速度集合={sorted({round(c[0], 3) for c in rig.bridge.commands})}")
+
+
 def main() -> int:
     print("=" * 72)
     print("dzbrain TrackerTask 自测（纯脚本）")
@@ -508,6 +577,7 @@ def main() -> int:
     test_stop_approach()
     test_path_cache()
     test_overlap_no_flipflop()
+    test_arc_floor_no_oscillation()
     test_rate()
     finish()
     return 0

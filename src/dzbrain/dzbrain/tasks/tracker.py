@@ -144,6 +144,10 @@ class TrackerTask(TaskThread):
         #: 不限住就会在 0.0↔0.70 之间倒带（见 pursuit/path.py 的 back_m 说明）。
         self._rewind_m = float(cfg.get("pursuit.projection_rewind_m"))
         self._reverse_entry_m = float(cfg.get("pursuit.reverse_entry_m"))
+        #: ★弧长地板：已走过的顶点的弧长，投影不允许退回到它之前（单调推进）。
+        #: 与仿真的 `_project_with_floor` 同语义 —— 断"倒车段↔正向段交界处"的自指环。
+        self._vertex_floor_m = float(cfg.get("pursuit.vertex_floor_m"))
+        self._s_floor = 0.0
         self._min_speed_mps = float(cfg.get("pursuit.min_speed_mps"))
         self._pivot_phase: str = PivotPhase.IDLE
         self._pivot_started_at: float = 0.0
@@ -233,6 +237,8 @@ class TrackerTask(TaskThread):
                 path = Path(route_obj)
                 self._path = path
                 self._route_id = id(route_obj)
+                # ★ 路线换了 → 弧长地板必须复位（旧路线的 s 对新路线毫无意义）
+                self._s_floor = 0.0
         self._ensure_align_segments(route_obj)
         return path
 
@@ -328,8 +334,20 @@ class TrackerTask(TaskThread):
         proj: Projection = path.project(pose.x, pose.y, s_hint=s_hint,
                                         window_m=self._window_m,
                                         back_m=self._rewind_m,
+                                        s_min=self._s_floor,
                                         motion_heading=travel_heading)
         self._seg_s = proj.s
+
+        # ---- ★弧长地板：贴到顶点就算"这个顶点走过了"，此后投影不许退回去 ----
+        #  为什么在"贴到"（而不是"越过"）时就抬升：越过顶点的那一拍，投影可能已经被
+        #  另一条共线段抢走（s 很小的那一支），此时再抬升就晚了 —— 探针里车正是这样
+        #  在 F11 处冻住（倒车段末端 ↔ 正向段起点，两候选的 s 都在顶点附近、Δs 几乎相同，
+        #  连续性分不出 ⇒ 落到"行进方向"⇒ 而方向由命令符号决定 ⇒ 自指环）。
+        if (proj.dist_to_vertex <= self._vertex_floor_m
+                and proj.seg_index + 1 < path.segment_count):
+            v_s = path.s_at_waypoint(proj.seg_index + 1)
+            if v_s > self._s_floor:
+                self._s_floor = v_s
 
         is_rev = path.segment_is_reverse(proj.seg_index)
         cmd: PursuitCommand = compute_command(pose, path, proj, self.cfg,
