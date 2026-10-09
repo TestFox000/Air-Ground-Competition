@@ -115,7 +115,10 @@ class TrackerTask(TaskThread):
         self._route_id: int | None = None
         self._seg_s: float | None = None            # 上一拍投影弧长（下一拍 s_hint）
         self._last_steer_deg: float | None = None
-        self._last_linear_x: float | None = None    # 上一拍线速度（判行进方向用）
+        # ⚠️ 曾经有个 `_last_linear_x`（上一拍**命令**的线速度）被用来猜"行进方向"。
+        #    那是个自指环：命令符号 → 选哪条重叠段 → is_reverse → 命令符号，
+        #    在折返压线处每拍翻转（bench 实测 601 次）。现在行进方向取**实测位移**
+        #    （见 `_tick` 里的长注释），该字段已删除 —— 别再加回来。
         self._last_tick_at: float | None = None
         self._reverse_state: bool | None = None     # ★ 仅变化时发 motion_state
         self._align_segs: frozenset[int] = frozenset()
@@ -386,7 +389,6 @@ class TrackerTask(TaskThread):
             reason_tag = cmd.speed_reason
 
         self._last_steer_deg = steer
-        self._last_linear_x = speed          # ★ 供下一拍判断"实际行进方向"（倒车=车头反向）
         self.bridge.publish_command(speed, steer)
 
         # ---- 倒车状态：仅变化时发（旧版 1427–1435 同语义） ----
