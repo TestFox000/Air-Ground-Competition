@@ -136,9 +136,12 @@ class TrackerTask(TaskThread):
         self._pivot_started_at: float = 0.0
         self._pivot_target_heading: float = 0.0
         self._pivot_vertex_s: float = 0.0
-        #: ★超时/放弃后，直到投影弧长越过这个值之前不再对同一顶点触发 PIVOT。
-        #: 为什么需要：超时放行后车还停在该顶点前，下一拍会**立刻再次触发** ——
-        #: 变成"超时→放行→再触发"的循环（不是死锁，但白等、日志刷屏）。
+        #: ★**已处理过**（完成 或 超时放弃）的顶点：投影弧长越过这个值之前不再对它触发 PIVOT。
+        #: 为什么需要：处理完车还停在该顶点邻域内（< pivot_dist_m），下一拍条件依然成立 →
+        #: **立刻再次触发**。超时分支一开始就有这个标记，但**成功分支漏了** —— 实闭环 bench
+        #: 实测（`--bench --drive --seconds 240`）在 F11 的 180° 折返处变成
+        #: 「进入 PIVOT → 0.5s 刹车 → 判定完成 → 下一拍再进入」的**无限循环**：
+        #: 几百次循环、整场卡在 s≈4.4/34 m，车几乎不动（每拍先被刹车 0.5s）。
         self._pivot_abandon_until_s: float = 0.0
         self.pivot_count = 0                     # 完成次数（遥测/测试）
         self.pivot_abandon_count = 0             # 超时放弃次数（遥测/测试）
@@ -382,7 +385,8 @@ class TrackerTask(TaskThread):
                 return None
             s_v, angle, next_heading = info
             dist_to_vertex = s_v - proj.s
-            # ★ 刚超时放弃过的顶点：先开过去再说（否则"超时→放行→再触发"循环）
+            # ★ 已处理（完成或超时）过的顶点：先开过去再说
+            #   （否则「超时→放行→再触发」以及「完成→再触发」都会变成死循环）
             if s_v <= self._pivot_abandon_until_s:
                 return None
             if angle < self._pivot_angle_deg or dist_to_vertex > self._pivot_dist_m:
@@ -422,6 +426,11 @@ class TrackerTask(TaskThread):
             self._log(f"✓ PIVOT 完成：航向误差 {err_deg:+.1f}° ≤ {self._pivot_yaw_tol_deg:.0f}°"
                       f"（用时 {elapsed:.1f}s）")
             self.pivot_count += 1
+            # ★ 完成后**同样**要标记"这个顶点已处理"（与超时分支对称）：
+            #   否则车还停在顶点邻域内、换向角依旧 > 阈值 → 下一拍立刻重入 PIVOT →
+            #   又是 0.5s 刹车 → 再"完成" → **无限循环、车几乎不动**。
+            #   实闭环 bench 在 F11（180° 折返）处就是这么卡的：整场 240s 只走到 4.4/34 m。
+            self._pivot_abandon_until_s = self._pivot_vertex_s + max(0.35, self._pivot_dist_m * 2.0)
             self._reset_pivot()
             return None
 

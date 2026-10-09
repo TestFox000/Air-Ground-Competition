@@ -247,6 +247,66 @@ def test_timeout_covers_physics() -> None:
     check("5.4 超时不许超过 30s（否则「卡死兜底」失去意义）", timeout <= 30.0)
 
 
+def test_no_reentry_after_success() -> None:
+    """★6. PIVOT 成功后不得在同一顶点反复重入（实闭环 bench 抓到的死循环）。
+
+    bench 证据（`--bench --drive --seconds 240`，修超时值**之后**仍然复现，说明
+    这是与超时无关的第二个 bug）：
+
+        ★ 进入 PIVOT（顶点 s=4.20 距 0.20m / 换向 180° > 阈值 135°）
+        [T] F11 DRIVE (-0.058,3.127) yaw-105.0 **v0.000** st+0.0 | 段12 s4.43/34
+        ✓ PIVOT 完成：航向误差 +15.0° ≤ 15°（用时 0.5s）
+        ★ 进入 PIVOT（……）        ← 下一拍又来，周而复始
+
+    整场 240s 卡在 s≈4.4/34 m（几百次循环），车每拍先被刹车 0.5s，几乎不动。
+
+    根因：`_pivot_abandon_until_s` 这个"该顶点已处理"的标记**只有超时分支设**，
+    成功分支漏了 —— 而车完成转向后**仍停在顶点邻域内**（< pivot_dist_m）、换向角
+    依旧 > 阈值，于是每拍重新满足触发条件。
+
+    本组故意让车**停在顶点不动**并把车头摆到容差内（最坏情况：最容易重入），
+    要求 3 秒内只进入 1 次、只完成 1 次，且完成后能交回纯追踪（发得出非零速度）。
+    """
+    section("6. ★PIVOT 成功后不得重入（顶点邻域死循环回归）")
+    cfg = _cfg(pivot_dist_m=0.30, pivot_wait_s=0.4, pivot_speed_mps=0.08,
+               pivot_yaw_tol_deg=15.0, pivot_timeout_s=8.0)
+    a6x, a6y = geo.block_to_meters("A6")
+    b6x, b6y = geo.block_to_meters("B6")
+    dx, dy = a6x - b6x, a6y - b6y
+    d = math.hypot(dx, dy)
+    ux, uy = dx / d, dy / d
+    # 车停在顶点前 0.10 m（< pivot_dist_m），车头朝"来向" → 触发条件成立
+    rig = Rig(tokens=U_TURN, pose=(a6x - ux * 0.10, a6y - uy * 0.10, geo.heading_of(ux, uy)),
+              cfg=cfg)
+    rig.tick()
+    entered_first = rig.task._pivot_phase != PivotPhase.IDLE
+    check("6.1 顶点邻域内触发 PIVOT（前置条件成立）", entered_first or rig.task.pivot_count > 0,
+          f"phase={rig.task._pivot_phase}")
+
+    # 把车头直接摆到目标航向 → 下一拍必然判"完成"（最坏情况：立刻满足容差）
+    if rig.task._pivot_phase != PivotPhase.IDLE:
+        target = rig.task._pivot_target_heading
+        p = rig.bb.get(P_POSE)
+        rig.set_pose(p.x, p.y, target)
+
+    # ★ 关键：之后**一动不动**地 tick 3 秒（150 拍）。
+    #   修好之前这里会反复"进入→完成"，修好之后只允许各 1 次。
+    n0 = len([s for s in rig.logs if "进入 PIVOT" in s])
+    for _ in range(150):
+        rig.tick()
+    entries = len([s for s in rig.logs if "进入 PIVOT" in s])
+    completed = len([s for s in rig.logs if "PIVOT 完成" in s])
+    check("6.2 ★停车 3s 内只进入 PIVOT 1 次（不重入）", entries - n0 <= 1,
+          f"进入 {entries - n0} 次（阈值 1）")
+    check("6.3 ★只完成 1 次（不是每 0.4s『完成』一次）", rig.task.pivot_count == 1,
+          f"pivot_count={rig.task.pivot_count}")
+    check("6.4 完成次数与日志条数一致（无隐藏重入）", completed <= 1,
+          f"日志里『完成』{completed} 条")
+    check("6.5 ★完成后交回纯追踪：发得出非零前进速度（车能走）",
+          any(abs(c[0]) > 0.05 for c in rig.bridge.commands),
+          f"速度集合={sorted({round(c[0], 3) for c in rig.bridge.commands})}")
+
+
 def main() -> int:
     print("=" * 72)
     print("dzbrain PIVOT 原地转向专项测试（纯脚本）")
@@ -256,6 +316,7 @@ def main() -> int:
     test_no_false_trigger()
     test_turn_respects_rate_limit()
     test_timeout_covers_physics()
+    test_no_reentry_after_success()
     finish()
     return 0
 
