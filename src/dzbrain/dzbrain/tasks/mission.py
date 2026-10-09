@@ -53,6 +53,7 @@ from ..io.contract import AimStatus, MissionPhase
 from ..pursuit.path import Path
 from ..route.model import Route, Waypoint
 from ..route.parser import parse_mission, parse_reset, parse_token
+from .tracker import TRACKER_CMD_KEY, PivotPhase
 
 __all__ = ["MissionTask", "MISSION_STATE_KEY"]
 
@@ -469,6 +470,10 @@ class MissionTask(TaskThread):
         判据（任一成立即触发）：
           ① s 在 `mission.stall_timeout_s` 内前进不足 `arrival_m`；
           ② 停滞期间车累计转满 `mission.stall_yaw_deg`（原地绕圈特征）。
+        ★ 例外：Tracker 正在执行 PIVOT 有界机动时**整体不计停滞**（见 `_pivot_in_progress`）——
+          180° 折返的 PIVOT 实测要 ~10.8s、累计转 ~180°，与上面两条判据**在数值上正面撞车**：
+          PIVOT 被修成"真的会转"之后，看门狗把每一次正常折返都当成绕圈（实闭环 bench
+          实测 F11/A6/D6 三处误跳点）。PIVOT 自带 14s 硬超时且必然自终止，无卡死风险。
         触发后：把"下一个未到达航点"强制标记为已过（跳过），发事件并告警；
                 若该点是停站点（打靶），跳过意味着放弃这一击 —— 宁可漏打，不可卡死。
         """
@@ -476,6 +481,12 @@ class MissionTask(TaskThread):
         if route is None or path is None:
             self._reset_stall()
             return
+
+        # ---- ★ 有界机动（PIVOT）期间不计停滞：时间窗整体重置（不是忽略本次判定）----
+        if self._pivot_in_progress():
+            self._reset_stall()
+            return
+
         s = self._last_s
         pose = self.bb.get(P_POSE)
         yaw = pose.yaw if pose is not None else None
@@ -514,6 +525,24 @@ class MissionTask(TaskThread):
         self.bus.publish(EV_WAYPOINT_REACHED, source=self.name, index=next_idx,
                          block=wp.block, forced_skip=True)
         self._reset_stall()
+
+    def _pivot_in_progress(self) -> bool:
+        """Tracker 是否正在执行 PIVOT 机动（读它的遥测快照，不直接依赖其内部状态）。
+
+        ★ 为什么停滞判定必须让位：180° 折返的 PIVOT 实测要 **~10.8s**、车累计转 **~180°**，
+          而绕圈判据是"`stall_timeout_s`(=12s) 内 s 不前进" + "累计转满 `stall_yaw_deg`"
+          —— **正常折返与"原地绕圈"在数值上完全撞车**。PIVOT 被修成真的会转之后，
+          看门狗就会把每一次正常折返都判成绕圈跳点（实闭环 bench 实测 F11/A6/D6 三处，
+          跳点=漏压雷/漏打靶）。PIVOT 自带 14s 硬超时并且必然自终止，没有卡死风险，
+          所以有界机动期间整个停滞窗口重置（而不是只跳过这一次判定）。
+        """
+        snap = self.bb.get(P_TELEMETRY)
+        if not isinstance(snap, dict):
+            return False
+        cmd = snap.get(TRACKER_CMD_KEY)
+        if not isinstance(cmd, dict):
+            return False
+        return str(cmd.get("pivot_phase", PivotPhase.IDLE)) != PivotPhase.IDLE
 
     def _reset_stall(self) -> None:
         self._stall_since = None

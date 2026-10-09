@@ -322,8 +322,9 @@ class Path:
                     cos_new = math.cos(heading_i - motion_heading)
                     cos_best = math.cos(self._segments[best_i][5] - motion_heading)
                     take = cos_new > cos_best + 1e-12             # ② 连续性分不出 → 比方向
-                else:
-                    take = i > best_i                             # ③ 都无 → 取更靠后的段
+                elif s_hint is None:
+                    take = i > best_i                             # ③ 无提示 → 取更靠后的段
+                # ④ 连续性完全并列、又没有方向信息 → 保持先找到的那条（稳定的旧行为）
             else:
                 take = False
             if take:

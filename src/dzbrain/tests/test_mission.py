@@ -671,6 +671,37 @@ def test_stall_fallback() -> None:
     check("10.11 跳过次数有上限（不会把整条路线全跳光）",
           n_after_stall <= len(FIELD_ROUTE), f"skips={n_after_stall} / 点数={len(FIELD_ROUTE)}")
 
+    # ---- 10.12 ★PIVOT 有界机动期间：同样的"不动 + 转到 180°"不判停滞 ----
+    # 为什么：180° 折返的 PIVOT 实测 ~10.8s、累计转 ~180°，与绕圈判据（12s 不前进 /
+    # 累计转向达阈值）在数值上正面撞车 —— 不豁免就会把每次正常折返都误判成绕圈跳点
+    # （实闭环 bench 实测 F11/A6/D6 三处）。PIVOT 自带硬超时且必然自终止，无卡死风险。
+    cfg4 = _field_cfg(stall_timeout_s=2.0, stall_yaw_deg=60.0)   # 两个判据都很敏感
+    rig4 = Rig(cfg=cfg4, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig4.ticks(3)
+    yaw4 = geo.HEADING_Y
+    for _ in range(20):            # 4s（> 超时 2s）且每拍 +30°（> 阈值 60°）
+        yaw4 = geo.normalize_angle(yaw4 + _math.radians(30))
+        rig4.bb.set(P_TELEMETRY, {"tracker_cmd": {"pivot_phase": "TURN"}}, "test")
+        p = rig4.bb.get(P_POSE)
+        rig4.bridge.set_pose(p.x, p.y, yaw4)
+        rig4.bb.set(P_POSE, geo.Pose(p.x, p.y, yaw4), "test")
+        rig4.task.tick()
+        rig4.events.extend(rig4.sub.poll(4096))
+        rig4.clock.advance(0.2)
+    skips4 = getattr(rig4.task, "_forced_skips", 0)
+    check("10.12 ★PIVOT 进行中不判停滞（4s>超时2s、累计转600°>60°，仍 0 跳点）",
+          skips4 == 0, f"skips={skips4}")
+
+    # 机动结束 → 停滞判定必须照常生效（豁免不能变成永久免疫）
+    for _ in range(20):
+        rig4.bb.set(P_TELEMETRY, {"tracker_cmd": {"pivot_phase": "IDLE"}}, "test")
+        rig4.task.tick()
+        rig4.events.extend(rig4.sub.poll(4096))
+        rig4.clock.advance(0.2)
+    skips4b = getattr(rig4.task, "_forced_skips", 0)
+    check("10.13 PIVOT 结束后停滞判定照常生效（豁免不是永久免疫）",
+          skips4b >= 1, f"skips={skips4b}")
+
 
 # --------------------------------------------------------------------------- #
 def main() -> int:
