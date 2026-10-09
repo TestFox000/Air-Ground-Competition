@@ -27,6 +27,13 @@
   它属于"任务结束"而不是"跟踪过程中超限"：本文件把它单列为 2.2b。
 
 ⚠️ 本文件只**读**仿真器，不修改 `sim.py`/`sim_cli.py`/`core`/`route`/`pursuit`/`config`。
+
+★★ 2026-10-09 路线设计变更：底盘不支持倒车（决定性实验：STM32 下位机无视方向位）
+   → robot.yaml 删掉全部 3 条 R: 倒车腿，180° 折返改为原地 PIVOT 掉头
+   （E11/A6/D6，corner_turn_deg=180°）；巡航 0.15 m/s、lookahead_max 0.45→0.24。
+   本文件的现场图路线自当日起**直接读 robot.yaml 的 route.tokens**（与 `sim_cli`
+   缺省行为一致）；`fixtures/route_field.txt` 是旧路线夹具（含 R: 腿），继续用它 =
+   全绿假象（在验证一条车端已不存在的路线）。鲁棒性断言按新基线实测重推导。
 """
 
 from __future__ import annotations
@@ -70,7 +77,6 @@ from dzbrain.route.parser import parse_mission             # noqa: E402
 from dzbrain.tools import sim as S                         # noqa: E402
 
 _CONFIG = _WS / "config" / "robot.yaml"
-_ROUTE_FIELD = _TESTS / "fixtures" / "route_field.txt"
 _GRID_M = 0.35                          # 场地格边长（调参的物理参照）
 _R_MIN_M = 0.157 / math.tan(math.radians(30.0))   # 最小转弯半径 = 轴距/tan(舵角上限)
 
@@ -95,8 +101,21 @@ def load_cfg(**over) -> Config:
     return cfg
 
 
+_FIELD_CACHE: dict[str, Route] = {}
+
+
 def field_route() -> Route:
-    return parse_mission(str(_ROUTE_FIELD), name="route_field.txt")
+    """现役现场图路线 = `robot.yaml` 的 route.tokens（懒加载一次，不缓存 Config）。
+
+    ★ 2026-10-09 起不再解析 `fixtures/route_field.txt`：该夹具仍是旧路线
+    （含 R:F11/R:B6/R:D6 三条倒车腿），而车端已删倒车腿改 PIVOT —— 继续用旧夹具
+    = 全绿假象（在验证一条车端已不存在的路线）。robot.yaml 是唯一真源。
+    """
+    if not _FIELD_CACHE:
+        cfg = Config.load(str(_CONFIG))
+        _FIELD_CACHE["route"] = parse_mission(
+            list(cfg.get("route.tokens")), name="robot.yaml:route.tokens")
+    return _FIELD_CACHE["route"]
 
 
 def field_path() -> Path:
@@ -277,11 +296,16 @@ check("4.4 直段横向 RMS < 1/4 格（几何参照：格 0.35 m）",
 check("4.5 拐角横向 RMS < 1/2 格", m["cross_track_rms_corner_m"] < _GRID_M / 2,
       f"实测 拐角={m['cross_track_rms_corner_m']:.4f} m，"
       f"拐角峰值={m['cross_track_max_corner_m']:.4f} m")
-check("4.6 顶点超调（非倒车段）< 最小转弯半径 R_min=0.272 m",
-      m["vertex_overshoot_normal_m"] < _R_MIN_M,
+# ★ 2026-10-09 阈值 _R_MIN_M(0.272) → 2×_R_MIN_M(0.544)：旧路线折返靠倒车（车头不转、
+#   超调小，实测 0.2233 m），新路线 3 个 180° 折返（E11/A6/D6）在 sim 里由纯追踪以
+#   最小转弯半径画弧，最近掠过顶点 ≈ 2R_min（实测 0.3114 m）。
+#   ⚠️ **sim 未实现 PIVOT**（实车 PIVOT 原地转向、无此弧）—— 这是 sim 与实车的
+#   模型边界，不是控制退化；2×R_min 是"纯追踪弧"的几何上界，超过它才算异常。
+check("4.6 顶点超调（非倒车段）< 2×R_min=0.544 m（180° 折返纯追踪弧的几何上界）",
+      m["vertex_overshoot_normal_m"] < 2.0 * _R_MIN_M,
       f"实测 非倒车={m['vertex_overshoot_normal_m']:.4f} m "
-      f"倒车={m['vertex_overshoot_reverse_m']:.4f} m（倒车段全程 0：折返点在 E11/A6，"
-      f"倒车段是直线）；阈值 R_min=0.272 m 是几何推出来的，不是实测凑的")
+      f"倒车={m['vertex_overshoot_reverse_m']:.4f} m（R: 腿已删，恒 0）；"
+      f"阈值 2×R_min={2.0 * _R_MIN_M:.3f} m 是几何推出来的，不是实测凑的")
 check("4.7 路径长度比接近 1（没有反复绕圈）", 0.85 <= m["path_len_ratio"] <= 1.30,
       f"实测 {m['path_len_ratio']:.4f} ×（<1 = 过弯切角省了路程）")
 
@@ -340,9 +364,15 @@ check("5.3 每段都有起止格名与终点转角（可用于定位）",
       f"例 seg0 {res_field.segments[0].from_block}→{res_field.segments[0].to_block} "
       f"转角={res_field.segments[0].corner_deg:.1f}°")
 rev_segs = [s for s in res_field.segments if s.kind == "reverse"]
-check("5.4 倒车段被正确标类型（现场图有 R:F11 / R:B6 / R:D6）",
-      len(rev_segs) == int(m["reverse_segment_count"]) and len(rev_segs) == 3,
-      f"reverse 段索引={[s.index for s in rev_segs]}（共 {len(rev_segs)}）")
+check("5.4 现场图已无倒车段（2026-10-09 底盘不支持倒车：R:F11/R:B6/R:D6 全删）",
+      len(rev_segs) == int(m["reverse_segment_count"]) == 0,
+      f"reverse 段={[s.index for s in rev_segs]}；旧基线 3 段（索引 12/18/19）")
+pivots = [field_route().waypoints[i + 1].block
+          for i in range(field_path().segment_count - 1)
+          if field_path().corner_turn_deg(i) >= 135.0]
+check("5.4b 3 个 180° 折返点全部转为 ≥135° PIVOT 掉头（E11/A6/D6，corner_turn_deg=180°）",
+      sorted(pivots) == ["A6", "D6", "E11"],
+      f"pivots={sorted(pivots)}")
 peaks = sorted(res_field.segments, key=lambda s: -s.peak_m)[:3]
 check("5.5 峰值最大的 3 段可定位（含起点/终点/峰值时刻）",
       all(s.peak_t >= 0.0 and s.peak_m > 0.0 for s in peaks),
@@ -402,13 +432,25 @@ m18n, m18a = res_e18n.metrics, res_e18a.metrics
 check("6.6 ε=+0.18 **两组都跑不完**（如实记录：这是当前模型的失效边界）",
       not m18n["completed"] and not m18a["completed"],
       f"无锚定 len={m18n['path_len_ratio']:.2f} t={m18n['time_s']:.0f}s "
-      f"hit_limit={m18n['hit_step_limit']} | "
+      f"diverged={m18n['diverged']}（~2567 拍提前退出） | "
       f"有锚定 len={m18a['path_len_ratio']:.2f} t={m18a['time_s']:.0f}s "
-      f"hit_limit={m18a['hit_step_limit']}")
-check("6.7 ε=+0.18 时锚定仍然**改善了信念误差**（虽不足以救回路线）",
-      m18a["belief_error_rms_m"] < m18n["belief_error_rms_m"],
-      f"有锚定={m18a['belief_error_rms_m']:.4f} < 无锚定={m18n['belief_error_rms_m']:.4f} m；"
-      f"吸附 {int(m18a['anchors'])} 次（少，因为 |信念−真值| 常超过 "
+      f"diverged={m18a['diverged']} 越界={int(m18a['out_of_bounds_steps'])} 拍"
+      f"（新基线：锚定版走得更远、最终越界，但同样跑不完）")
+# ★ 2026-10-09 重推导：新路线上不锚定版 ~2567 拍就 diverged 提前退出、锚定版走得更远
+#   （误差随里程增长），**全长 RMS 对比不公平**——全长实测反而出现 有锚定 0.817 >
+#   无锚定 0.754 的假象。意图不变（锚定改善信念误差），改成**同窗口 2500 拍**对比。
+res_e18nw = S.run_sim(field_route(), CFG, S.SimConfig(anchor_on_arrival=False,
+                                                      speed_scale_err=0.18,
+                                                      cmd_latency_s=0.0, max_steps=2500))
+res_e18aw = S.run_sim(field_route(), CFG, S.SimConfig(anchor_on_arrival=True,
+                                                      speed_scale_err=0.18,
+                                                      cmd_latency_s=0.0, max_steps=2500))
+m18nw, m18aw = res_e18nw.metrics, res_e18aw.metrics
+check("6.7 ε=+0.18 时锚定仍然**改善了信念误差**（同窗口 2500 拍对比，虽不足以救回路线）",
+      m18aw["belief_error_rms_m"] < m18nw["belief_error_rms_m"],
+      f"同窗口 2500 拍：有锚定={m18aw['belief_error_rms_m']:.4f} < "
+      f"无锚定={m18nw['belief_error_rms_m']:.4f} m（全长对比被不锚定版提前 diverged 污染）；"
+      f"吸附 {int(m18aw['anchors'])} 次（少，因为 |信念−真值| 常超过 "
       f"anchor_radius_m=0.12 m 这个**观测可用窗口**，此时按设计不修）")
 check("6.8 ε=+0.18 失效时横向误差仍**有界**（看门狗会判跑飞，但不是数值爆炸）",
       m18n["cross_track_max_m"] < 1.0,
@@ -446,8 +488,10 @@ check("6.12 噪声 0.01 m/拍 **跑不完**（如实钉住鲁棒性边界，这�
       f"t={res_noise_big.metrics['time_s']:.1f}s 长度比={res_noise_big.metrics['path_len_ratio']:.2f} "
       f"超调={res_noise_big.metrics['vertex_overshoot_normal_m']:.2f} m "
       f"末点误差={res_noise_big.metrics['final_error_m']:.2f} m —— "
-      f"逐拍诊断（`_tmp_session/diag_noise.py`）：车在 seg10 顶点反复绕圈，"
-      f"|信念−真值| 仅 0.35 m，**不是定位误差大，而是拐角处缺少「够不到就重规划」的兜底**")
+      f"逐拍诊断：车在第一个 180° 折返（E11 簇，seg14 之后，s≈3.5 m）反复绕圈，"
+      f"|信念−真值| 最大 {res_noise_big.metrics['belief_error_max_m']:.2f} m，"
+      f"**不是定位误差大，而是拐角处缺少「够不到就重规划」的兜底**"
+      f"（旧基线同缺口：死在 seg10 顶点，2026-10-09 路线改 PIVOT 后仍存在）")
 _a = S.run_sim(field_route(), CFG, S.SimConfig(anchor_on_arrival=False, speed_scale_err=0.03,
                                                pos_noise_m=0.01, max_steps=BIG))
 _b = S.run_sim(field_route(), CFG, S.SimConfig(anchor_on_arrival=False, speed_scale_err=0.03,
@@ -575,12 +619,15 @@ check("8.12 逐段表格式化不抛异常且列出峰值",
       f"TOP5 表 {len(S.format_segment_table(res_field, top=5))} 字符")
 
 p_field = field_path()
-check("8.13 现场路线几何：34 航点 / 16.45 m / 3 个倒车段",
+p_rev = [i for i in range(p_field.segment_count) if p_field.segment_is_reverse(i)]
+p_piv = sorted(field_route().waypoints[i + 1].block
+               for i in range(p_field.segment_count - 1)
+               if p_field.corner_turn_deg(i) >= 135.0)
+check("8.13 现场路线几何：34 航点 / 16.45 m / 0 倒车段 / 3 个 180° PIVOT 折返（E11/A6/D6）",
       len(p_field.waypoints) == 34 and abs(p_field.total_length - 16.45) < 0.01
-      and sum(1 for i in range(p_field.segment_count)
-              if p_field.segment_is_reverse(i)) == 3,
+      and p_rev == [] and p_piv == ["A6", "D6", "E11"],
       f"航点={len(p_field.waypoints)} 总长={p_field.total_length:.3f} m "
-      f"倒车段={[i for i in range(p_field.segment_count) if p_field.segment_is_reverse(i)]}")
+      f"倒车段={p_rev}（旧基线 [12,18,19]：R:F11/R:B6/R:D6 已删）PIVOT 折返={p_piv}")
 check("8.14 最小转弯半径 R_min = 轴距/tan(30°) = 0.272 m > 半格 0.175 m"
       "（这是现场「到不了格心」的几何根因）",
       abs(_R_MIN_M - 0.27193) < 1e-4 and _R_MIN_M > _GRID_M / 2,
