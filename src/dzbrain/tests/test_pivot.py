@@ -37,7 +37,7 @@ from dzbrain.core.state import SafetyState                      # noqa: E402
 from dzbrain.io.contract import MissionPhase                    # noqa: E402
 from dzbrain.pursuit.path import Path                           # noqa: E402
 from dzbrain.route.parser import parse_mission                  # noqa: E402
-from dzbrain.tasks.tracker import PivotPhase, TrackerTask       # noqa: E402
+from dzbrain.tasks.tracker import PIVOT_DONE_KEY, PivotPhase, TrackerTask  # noqa: E402
 from fakes import FakeBridge, FakeClock                         # noqa: E402
 from harness import check, section, finish                      # noqa: E402
 
@@ -169,6 +169,14 @@ def test_timeout_no_deadlock() -> None:
     check("2.4 超时后恢复正常循迹（有非零速度指令）",
           any(abs(c[0]) > 0.01 for c in rig.bridge.commands[-5:]),
           f"tail={rig.bridge.commands[-3:]}")
+    # ★ 超时放弃也要通知 MissionTask（PIVOT_DONE_KEY=("abandon")），
+    #   否则顶点判不到达 → 拐角绕圈兜底强制跳过（bench 实测 E11/A6/B6）。
+    note = rig.bb.get(PIVOT_DONE_KEY)
+    check("2.5 ★超时放弃写 PIVOT 通知（顶点索引/s/结局 abandon）",
+          isinstance(note, tuple) and len(note) == 3 and note[0] == 1
+          and note[2] == "abandon"
+          and abs(float(note[1]) - Path(rig.route).s_at_waypoint(1)) < 1e-9,
+          f"note={note!r} s_wp={Path(rig.route).s_at_waypoint(1):.4f}")
 
 
 def test_no_false_trigger() -> None:
@@ -401,6 +409,56 @@ def test_reverse_vertex_no_pivot() -> None:
           f"末 s={s_end}")
 
 
+def test_done_notice_to_mission() -> None:
+    """★8. PIVOT 完成 → 写 `PIVOT_DONE_KEY` 通知（MissionTask 据此判顶点到达）。
+
+    bench 缺陷（E11/A6/B6）：`pivot_dist_m`(0.25) > `arrival_m`(0.12) —— 车在距顶点
+    0.25 m 处掉头、完成后原路返回，永远进不了 0.12 m 到达圈 ⇒ MissionTask 到点判定
+    恒假 ⇒ 拐角绕圈兜底 12 s 后强制跳过。修法：完成（或超时放弃）时把
+    `(顶点航点索引, 顶点弧长, 结局)` 写进黑盒，本测试钉死"完成"这一半。
+    若把 tracker 的写入改回旧代码，本组立刻红。
+    """
+    section("8. ★PIVOT 完成写 PIVOT 通知（MissionTask 判到达的信源）")
+    cfg = _cfg(pivot_dist_m=0.25, pivot_wait_s=0.4, pivot_speed_mps=0.08,
+               pivot_yaw_tol_deg=15.0, pivot_timeout_s=8.0)
+    a6x, a6y = geo.block_to_meters("A6")
+    b6x, b6y = geo.block_to_meters("B6")
+    dx, dy = a6x - b6x, a6y - b6y
+    d = math.hypot(dx, dy)
+    ux, uy = dx / d, dy / d
+    # ★ 车摆在 A6 前 0.18 m（> arrival_m=0.12 且 < pivot_dist_m=0.25）：正是
+    #   "pivot 完成但 dist > arrival_m"的缺陷场景（车头朝来向，换向角 180°）。
+    rig = Rig(tokens=U_TURN, cfg=cfg,
+              pose=(a6x - ux * 0.18, a6y - uy * 0.18, geo.heading_of(ux, uy)))
+    s_wp = Path(rig.route).s_at_waypoint(1)
+    rig.tick()
+    check("8.1 前置：顶点前 0.18 m 触发 PIVOT（phase != IDLE 或已完成）",
+          rig.task._pivot_phase != PivotPhase.IDLE or rig.task.pivot_count > 0,
+          f"phase={rig.task._pivot_phase} count={rig.task.pivot_count}")
+    check("8.2 前置：完成前没有通知（完成才写）",
+          rig.bb.get(PIVOT_DONE_KEY) is None, f"{rig.bb.get(PIVOT_DONE_KEY)!r}")
+
+    # 快进过 SETTLE，把车头摆到目标航向 → 下一拍完成
+    for _ in range(30):
+        rig.tick()
+    target = rig.task._pivot_target_heading
+    p = rig.bb.get(P_POSE)
+    rig.set_pose(p.x, p.y, target)
+    rig.tick()
+    check("8.3 PIVOT 完成并计数（前置成立）",
+          rig.task.pivot_count >= 1 and rig.task._pivot_phase == PivotPhase.IDLE,
+          f"count={rig.task.pivot_count} phase={rig.task._pivot_phase}")
+
+    note = rig.bb.get(PIVOT_DONE_KEY)
+    check("8.4 ★完成写通知：顶点航点索引 = 1（A6）",
+          isinstance(note, tuple) and len(note) == 3 and note[0] == 1, f"note={note!r}")
+    check("8.5 ★通知的顶点弧长与路径表逐位一致（MissionTask 按此对号）",
+          isinstance(note, tuple) and abs(float(note[1]) - s_wp) < 1e-9,
+          f"note_s={note[1] if isinstance(note, tuple) else None!r} s_wp={s_wp:.4f}")
+    check("8.6 ★结局 = done（完成，不是放弃）",
+          isinstance(note, tuple) and note[2] == "done", f"note={note!r}")
+
+
 def main() -> int:
     print("=" * 72)
     print("dzbrain PIVOT 原地转向专项测试（纯脚本）")
@@ -412,6 +470,7 @@ def main() -> int:
     test_timeout_covers_physics()
     test_no_reentry_after_success()
     test_reverse_vertex_no_pivot()
+    test_done_notice_to_mission()
     finish()
     return 0
 

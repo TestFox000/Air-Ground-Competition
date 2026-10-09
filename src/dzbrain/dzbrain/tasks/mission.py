@@ -20,6 +20,9 @@
   （**持续**扫描）。readme【十】第 31 条：绝不能在到点时发 `1` 把它降级成单趟。
 - 终点：最后一个航点到达 → `FINISH`（**锁存**）、`publish_brake()`、`publish_scan_request(0)`、
   `EV_MISSION_FINISHED`、结束横幅（用时/发数/漂移）。
+- ★ PIVOT 原地掉头顶点：Tracker 完成/放弃 PIVOT 时经 `PIVOT_DONE_KEY` 通知本任务，
+  该顶点直接判到达（`pivot_dist_m` > `arrival_m`，正常判据恒假，bench 实测 E11/A6/B6
+  被拐角绕圈兜底强制跳过）。停站点恰是掉头顶点时照常进入三段式停站。
 - 外部命令（`/nav/waypoint`）：`reset:BLOCK,HEAD` / `load:文件` / `单点 BLOCK,HEAD` / `多点 ...`
   全部支持；**未知命令只告警不崩**（旧版 `waypoint_callback` 的教训）。
 
@@ -53,7 +56,7 @@ from ..io.contract import AimStatus, MissionPhase
 from ..pursuit.path import Path
 from ..route.model import Route, Waypoint
 from ..route.parser import parse_mission, parse_reset, parse_token
-from .tracker import TRACKER_CMD_KEY, PivotPhase
+from .tracker import PIVOT_DONE_KEY, TRACKER_CMD_KEY, PivotPhase
 
 __all__ = ["MissionTask", "MISSION_STATE_KEY"]
 
@@ -166,6 +169,14 @@ class MissionTask(TaskThread):
         self._last_lat_m: float | None = None
         self._stall_yaw_sum: float = 0.0
         self._forced_skips: int = 0                  # 强制跳过航点的次数（结束横幅要汇总）
+        # ---- ★PIVOT 完成通知（Tracker 经 `PIVOT_DONE_KEY` 写，见 tracker.py 注释）----
+        #: 经 PIVOT 通知判到达的航点集合：停站点若由此判到达，仍要进三段式停站
+        #: （`_next_stop_candidate` 据此放行），不能像普通"已过"那样直接跳过。
+        self._passed_by_pivot: set[int] = set()
+        #: 通知判到达的"车仍在顶点附近"窗口：真完成时车距顶点 ≈ pivot_dist_m（掉头蠕转
+        #: 还会带出少量位移）；跨轮次/竞态残留的通知里车在起点，二者差好几段，被窗口挡住。
+        self._pivot_accept_m = max(float(cfg.get("pursuit.pivot_dist_m")) * 3.0,
+                                   self._arrival_m * 6.0)
 
     # ------------------------------------------------------------------ #
     #  只读接口（测试/遥测）
@@ -356,6 +367,7 @@ class MissionTask(TaskThread):
         self._arrived = 0
         self._next_wp = 1
         self._handled_stops = set()
+        self._passed_by_pivot = set()                # ★ 新轮次：旧通知的"已到达"作废
         self._stopctx = None
         self._last_stop_state = StopPointState()
         self._route_s = 0.0
@@ -370,6 +382,9 @@ class MissionTask(TaskThread):
         self._stop_blocks = [route[i].block for i in sorted(self._stop_s)]
         self.bb.update(self.name, **{P_ROUTE: route})
         self.bb.update(self.name, **{P_ROUTE_INDEX: 0, P_ROUTE_S: 0.0})
+        # ★ 清掉上一轮残留的 PIVOT 通知：旧通知对新路线毫无意义，
+        #   留着会（在最坏的同几何重载场景）把新轮次航点开局误判成"已到达"。
+        self.bb.update(self.name, **{PIVOT_DONE_KEY: None})
 
     # ------------------------------------------------------------------ #
     #  `SHOOT@<靶标>` 的候选链计算
@@ -442,6 +457,7 @@ class MissionTask(TaskThread):
             return
         pose = self.bb.get(P_POSE)
         s = self._current_s()
+        notice = self._pivot_notice()                # 本拍读一次，循环里复用
         for i, wp in enumerate(route.waypoints):
             if self._passed[i]:
                 continue
@@ -479,6 +495,14 @@ class MissionTask(TaskThread):
             near = ((lat is not None and lat <= 0.30)
                     or dist is None or dist <= 2.0 * self._arrival_m)
             reached = (s_reached and near) or (dist is not None and dist <= self._arrival_m)
+            if not reached and pose is not None \
+                    and self._pivot_notice_accepts(notice, i, s_wp, s, dist):
+                # ★ PIVOT 完成通知判到达：原地掉头后车原路返回，上面的两条判据恒假
+                #   （pivot_dist_m > arrival_m），见 `PIVOT_DONE_KEY` 注释与
+                #   `_pivot_notice_accepts` 的护栏说明。bench 实测 E11/A6/B6 三处
+                #   此前就是在这里判不到、12 s 后被拐角绕圈兜底强制跳过。
+                reached = True
+                self._passed_by_pivot.add(i)
             if reached:
                 self._passed[i] = True
                 self._arrived += 1
@@ -575,6 +599,37 @@ class MissionTask(TaskThread):
             return False
         return str(cmd.get("pivot_phase", PivotPhase.IDLE)) != PivotPhase.IDLE
 
+    # ------------------------------------------------------------------ #
+    #  ★PIVOT 完成通知（Tracker 写、本任务读）
+    # ------------------------------------------------------------------ #
+    def _pivot_notice(self) -> tuple | None:
+        """读 PIVOT 完成/放弃通知：`(顶点航点索引, 顶点弧长, 结局)`；无/非法 → None。"""
+        value = self.bb.get(PIVOT_DONE_KEY)
+        if isinstance(value, tuple) and len(value) == 3:
+            return value
+        return None
+
+    def _pivot_notice_accepts(self, notice, idx: int, s_wp: float, s: float,
+                              dist: float | None) -> bool:
+        """PIVOT 通知是否可把航点 `idx` 判为到达。
+
+        护栏（防跨轮次残留/竞态误判，bench 实测缺一不可）：
+          ① 航点索引与顶点弧长**逐位**对上（每条路线各顶点弧长唯一）；
+          ② 车当前仍在顶点附近：`s_wp - s` 与几何距离都不得超过
+             `_pivot_accept_m`（≈3×pivot_dist_m）——真完成时二者 ≈ pivot_dist_m，
+             而残留通知里车在起点，差好几段长。
+        """
+        if notice is None or notice[0] != idx:
+            return False
+        if abs(float(notice[1]) - s_wp) > 1e-6:
+            return False
+        win = self._pivot_accept_m
+        if (s_wp - s) > win:
+            return False
+        if dist is not None and dist > win:
+            return False
+        return True
+
     def _reset_stall(self) -> None:
         self._stall_since = None
         self._stall_last_s = 0.0
@@ -593,7 +648,9 @@ class MissionTask(TaskThread):
                 continue
             if idx in self._handled_stops:
                 continue
-            if idx < len(self._passed) and self._passed[idx]:
+            # ★ 经 PIVOT 通知判到达的停站点**不**跳过：它还没走三段式停站
+            #   （`_should_trigger_stop` 里同样的通知会让它立刻触发进站）。
+            if idx < len(self._passed) and self._passed[idx] and idx not in self._passed_by_pivot:
                 continue
             return idx
         return None
@@ -631,11 +688,16 @@ class MissionTask(TaskThread):
 
         ★ 弧长与半径**取或**：弧长判据在"路线自交/投影跳段"时可能提前触发，
           半径判据在"车贴着点但投影没跟上"时兜底，两者互补（旧版只有半径 + 开过头补触发）。
+        ★ PIVOT 通知也算：停站点恰是掉头顶点时，正常两条判据同样够不着
+          （pivot_dist_m > arrival_m），但车已在顶点跟前完成掉头 → 照常进三段式。
         """
         path = self._path
         if path is not None and s + self._stop_radius_m >= self._stop_s.get(idx, math.inf):
             return True
         if dist is not None and dist <= max(self._stop_radius_m, self._arrival_m):
+            return True
+        if self._pivot_notice_accepts(self._pivot_notice(), idx,
+                                      self._stop_s.get(idx, math.inf), s, dist):
             return True
         return False
 
@@ -1007,6 +1069,7 @@ class MissionTask(TaskThread):
         self._path = None
         self._waypoint_count = 0
         self._passed = []
+        self._passed_by_pivot = set()
         self._handled_stops = set()
         self._stopctx = None
         self._last_stop_state = StopPointState()
@@ -1020,5 +1083,6 @@ class MissionTask(TaskThread):
         self._route_s = 0.0
         self._set_fire_gate(False)
         self.bb.set(P_ROUTE, None, source=self.name)
-        self.bb.update(self.name, **{P_ROUTE_INDEX: -1, P_ROUTE_S: 0.0})
+        self.bb.update(self.name, **{P_ROUTE_INDEX: -1, P_ROUTE_S: 0.0,
+                                     PIVOT_DONE_KEY: None})
         self._log(f"清空路线（{why}）")

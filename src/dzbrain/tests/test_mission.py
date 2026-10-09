@@ -42,7 +42,9 @@ from dzbrain.core.events import (EV_ARRIVED_STOP_POINT, EV_MISSION_FINISHED,  # 
                                  EV_WAYPOINT_REACHED, EventBus)
 from dzbrain.core.state import SafetyState, StopKind, StopPhase  # noqa: E402
 from dzbrain.io.contract import AimStatus, MissionPhase        # noqa: E402
+from dzbrain.pursuit.path import Path                          # noqa: E402
 from dzbrain.tasks.mission import MissionTask                  # noqa: E402
+from dzbrain.tasks.tracker import PIVOT_DONE_KEY, PivotPhase, TrackerTask  # noqa: E402
 
 from fakes import FakeBridge, FakeClock                        # noqa: E402
 
@@ -780,6 +782,119 @@ def test_arrival_requires_proximity() -> None:
           rig3.task._passed[3] is True, f"_passed[3]={rig3.task._passed[3]}")
 
 
+def test_pivot_done_marks_arrival() -> None:
+    """★12. PIVOT 完成通知 → 顶点判到达（dist>arrival_m 时不再兜底跳过）。
+
+    bench 缺陷（E11/A6/B6）：`pivot_dist_m`(0.25) > `arrival_m`(0.12) —— 车在距顶点
+    0.25 m 处原地掉头、完成后原路返回，**既不进到达圈、弧长也永不越过顶点**，
+    `_advance_waypoints` 的两条判据恒假 ⇒ 拐角绕圈兜底 12 s 后强制跳过。
+    本测试把 Tracker + Mission 接在同一个黑盒上完整复现：pivot 完成点距顶点
+    0.18 m（> 0.12），断言旧行为（不判到达）不存在、新行为（通知判到达）成立。
+    把 mission.py 的通知接受改回旧代码，本组立刻红。
+    """
+    section("12. ★PIVOT 完成 → 顶点判到达（完整复现 bench E11/A6/B6 机制）")
+    tokens = ["B6", "A6", "B6", "B7"]
+    cfg = Config.from_dict({
+        "mission": {"auto_start": True, "auto_start_delay_s": 0.1, "reset": "B6,y",
+                    "stall_timeout_s": 3.0},
+        "route": {"tokens": tokens},
+        "pursuit": {"pivot_dist_m": 0.25, "pivot_wait_s": 0.3, "pivot_timeout_s": 8.0,
+                    "pivot_yaw_tol_deg": 15.0},
+        "logging": {"rate_limit_s": 1.0},
+    })
+    arrival = float(cfg.get("pursuit.arrival_m"))
+    clock = FakeClock()
+    bridge = FakeBridge(clock)
+    bb = Blackboard()
+    bus = EventBus()
+    logs: list[str] = []
+    tracker = TrackerTask(bridge, bb, bus, cfg, log=logs.append, clock=clock.now)
+    mission = MissionTask(bridge, bb, bus, cfg, log=logs.append, clock=clock.now)
+    bb.set(P_SAFETY, SafetyState(ok=True), "test")
+    sub = bus.subscribe("test", [EV_WAYPOINT_REACHED], maxsize=4096)
+    events: list = []
+
+    def m_tick() -> None:
+        mission.tick()
+        events.extend(sub.poll(4096))
+        clock.advance(0.1)
+
+    # ---- 12.1~12.3 路线装载 & 残留通知护栏 ----
+    bb.set(PIVOT_DONE_KEY, (1, 0.35, "done"), "test")       # 上一轮"残留"的通知
+    mission.setup()
+    for _ in range(3):
+        m_tick()
+    route = bb.get(P_ROUTE)
+    check("12.1 前置：自动出发、路线 = B6→A6→B6→B7",
+          route is not None and list(route.blocks()) == tokens,
+          f"{route.blocks() if route else None}")
+    check("12.2 ★装路线时清掉残留通知（不会开局误判到点）",
+          bb.get(PIVOT_DONE_KEY) is None, f"{bb.get(PIVOT_DONE_KEY)!r}")
+    check("12.3 前置：A6（#1）尚未到达", mission._passed[1] is False,
+          f"_passed={mission._passed}")
+
+    # ---- 12.4~12.5 通知护栏：索引对但顶点弧长对不上 → 不得判到达 ----
+    a6 = geo.block_to_meters("A6")
+    b6 = geo.block_to_meters("B6")
+    path = Path(route)
+    s_a6 = path.s_at_waypoint(1)
+    bb.set(PIVOT_DONE_KEY, (1, s_a6 + 1.0, "done"), "test")
+    m_tick()
+    check("12.4 ★弧长对不上的通知被拒绝（A6 不判到达）",
+          mission._passed[1] is False, f"_passed[1]={mission._passed[1]}")
+
+    # ---- 12.6~12.7 完整缺陷场景：pivot 完成点距顶点 0.18 m > arrival_m ----
+    dx, dy = a6[0] - b6[0], a6[1] - b6[1]
+    d = math.hypot(dx, dy)
+    ux, uy = dx / d, dy / d
+    x0, y0 = a6[0] - ux * 0.18, a6[1] - uy * 0.18
+    yaw0 = geo.heading_of(ux, uy)
+    bridge.set_pose(x0, y0, yaw0)
+    bb.set(P_POSE, geo.Pose(x0, y0, yaw0), "test")
+    check("12.5 ★缺陷场景成立：pivot 完成点离 A6 0.18 m > arrival_m(0.12)（正常判据够不着）",
+          0.18 > arrival, f"dist=0.18 arrival={arrival}")
+    tracker.tick()
+    clock.advance(0.02)
+    check("12.6 前置：Tracker 进入 PIVOT（非 IDLE 或已完成）",
+          tracker._pivot_phase != PivotPhase.IDLE or tracker.pivot_count > 0,
+          f"phase={tracker._pivot_phase} count={tracker.pivot_count}")
+    for _ in range(25):                     # 0.5 s > pivot_wait_s(0.3) → TURN
+        tracker.tick()
+        clock.advance(0.02)
+    target = tracker._pivot_target_heading
+    p = bb.get(P_POSE)
+    bridge.set_pose(p.x, p.y, target)
+    bb.set(P_POSE, geo.Pose(p.x, p.y, target), "test")
+    tracker.tick()
+    check("12.7 前置：PIVOT 完成并计数（信源已写入）",
+          tracker.pivot_count == 1 and tracker._pivot_phase == PivotPhase.IDLE,
+          f"count={tracker.pivot_count} phase={tracker._pivot_phase}")
+
+    # ---- 12.8~12.11 ★新行为：MissionTask 判 A6 到达，不兜底跳过 ----
+    for _ in range(12):                     # 1.2 s < stall_timeout(3.0)，足够看到到达
+        m_tick()
+    reached_a6 = [e for e in events
+                  if e.type == EV_WAYPOINT_REACHED and e.data.get("block") == "A6"
+                  and not e.data.get("forced_skip")]
+    forced_a6 = [e for e in events
+                 if e.type == EV_WAYPOINT_REACHED and e.data.get("block") == "A6"
+                 and e.data.get("forced_skip")]
+    check("12.8 ★A6 判到达（发 EV_WAYPOINT_REACHED、非强制跳过）",
+          len(reached_a6) >= 1 and len(forced_a6) == 0,
+          f"到达 {len(reached_a6)} 次 / 强制跳过 {len(forced_a6)} 次")
+    check("12.9 ★`_passed[1]` 置位、航点推进",
+          mission._passed[1] is True and mission._next_wp == 2,
+          f"_passed={mission._passed} next_wp={mission._next_wp}")
+    check("12.10 ★没有触发拐角绕圈兜底（forced_skips=0、无兜底日志）",
+          mission._forced_skips == 0
+          and not any("拐角绕圈兜底" in ln for ln in logs),
+          f"forced_skips={mission._forced_skips}")
+    check("12.11 通知是 'done' 结局、顶点弧长与路径表一致",
+          (lambda v: isinstance(v, tuple) and len(v) == 3 and v[0] == 1
+           and v[2] == "done" and abs(float(v[1]) - s_a6) < 1e-9)(bb.get(PIVOT_DONE_KEY)),
+          f"{bb.get(PIVOT_DONE_KEY)!r}")
+
+
 # --------------------------------------------------------------------------- #
 def main() -> int:
     print("=" * 72)
@@ -796,6 +911,7 @@ def main() -> int:
     test_rate()
     test_stall_fallback()
     test_arrival_requires_proximity()
+    test_pivot_done_marks_arrival()
     finish()
     return 0
 

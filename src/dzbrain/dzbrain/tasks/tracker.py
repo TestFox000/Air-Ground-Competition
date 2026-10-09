@@ -47,7 +47,8 @@ from ..pursuit.controller import PursuitCommand, compute_command
 from ..pursuit.path import Path, Projection
 from ..route.model import Route
 
-__all__ = ["TrackerTask", "TRACKER_CMD_KEY", "ACTIVE_PHASES", "BLOCKED_PHASES", "PivotPhase"]
+__all__ = ["TrackerTask", "TRACKER_CMD_KEY", "ACTIVE_PHASES", "BLOCKED_PHASES",
+           "PIVOT_DONE_KEY", "PivotPhase"]
 
 
 class PivotPhase:
@@ -68,6 +69,16 @@ class PivotPhase:
 #: 遥测键：Track 最近一拍的控制指令与判定原因（供 Safety/遥测/测试断言）。
 #: `P_TELEMETRY` 的约定值是 dict，本任务只往里塞这一个子键，不覆盖别的任务的内容。
 TRACKER_CMD_KEY = "tracker_cmd"
+
+#: ★PIVOT 完成/放弃通知键（Tracker 写、MissionTask 读）：值为**不可变三元组**
+#:   `(顶点航点索引, 顶点弧长, 结局)`，结局 ∈ {"done", "abandon"}。
+#: 为什么需要（bench 实测 E11/A6/B6）：`pursuit.pivot_dist_m`(0.25) > `pursuit.arrival_m`
+#: (0.12) —— 车在距顶点 0.25 m 处原地掉头，掉头完成后**原路返回**，既不进 0.12 m 的
+#: 到达圈、沿程弧长也永远不越过顶点 ⇒ MissionTask 的到点判定恒假 ⇒ 拐角绕圈兜底
+#: 12 s 后把它当"不可达"强制跳过。PIVOT 触发本身已保证"车在顶点 pivot_dist_m 内、
+#: 且掉头已完成（或超时放弃）"，把这个事实通知 MissionTask 判到达才是诚实语义。
+#: MissionTask 在路线载入/清空时把该键复位为 None，防止跨轮次残留误判。
+PIVOT_DONE_KEY = "pivot_done"
 
 #: 允许循迹的阶段（★ 白名单而不是黑名单：将来新增的阶段默认**不动车**，失败偏安全）
 ACTIVE_PHASES: tuple[str, ...] = (MissionPhase.DRIVE, MissionPhase.APPROACH)
@@ -156,6 +167,9 @@ class TrackerTask(TaskThread):
         self._pivot_started_at: float = 0.0
         self._pivot_target_heading: float = 0.0
         self._pivot_vertex_s: float = 0.0
+        #: 本次 PIVOT 的顶点 = 哪一号航点（= 进入 PIVOT 时 `proj.seg_index + 1`），
+        #: 完成/放弃时随 `PIVOT_DONE_KEY` 一起通知 MissionTask。
+        self._pivot_vertex_index: int = -1
         #: ★**已处理过**（完成 或 超时放弃）的顶点：投影弧长越过这个值之前不再对它触发 PIVOT。
         #: 为什么需要：处理完车还停在该顶点邻域内（< pivot_dist_m），下一拍条件依然成立 →
         #: **立刻再次触发**。超时分支一开始就有这个标记，但**成功分支漏了** —— 实闭环 bench
@@ -242,6 +256,9 @@ class TrackerTask(TaskThread):
                 self._route_id = id(route_obj)
                 # ★ 路线换了 → 弧长地板必须复位（旧路线的 s 对新路线毫无意义）
                 self._s_floor = 0.0
+                # ★ 同理复位"已处理顶点"标记：旧路线的顶点 s 对新路线毫无意义，
+                #   不复位的话同几何重载会把新轮次的 PIVOT 整个抑制掉。
+                self._pivot_abandon_until_s = 0.0
         self._ensure_align_segments(route_obj)
         return path
 
@@ -516,6 +533,7 @@ class TrackerTask(TaskThread):
             self._pivot_started_at = now
             self._pivot_target_heading = next_heading
             self._pivot_vertex_s = s_v
+            self._pivot_vertex_index = proj.seg_index + 1
             self._log(f"★ 进入 PIVOT（原地转向）：顶点 s={s_v:.2f} 距 {dist_to_vertex:.2f}m / "
                       f"换向 {angle:.0f}° > 阈值 {self._pivot_angle_deg:.0f}°")
 
@@ -526,6 +544,11 @@ class TrackerTask(TaskThread):
             # 记下"这个顶点我不再 pivot"，等车开过去再恢复（防"超时→放行→再触发"循环）
             self._pivot_abandon_until_s = self._pivot_vertex_s + max(0.35, self._pivot_dist_m * 2.0)
             self.pivot_abandon_count += 1
+            # ★ 通知 MissionTask："这个顶点已在 PIVOT 内处理过（放弃）"——
+            #   否则 MissionTask 的到点判定恒假，12 s 后拐角绕圈兜底强制跳过（bench E11/A6/B6）。
+            self.bb.update(self.name, **{PIVOT_DONE_KEY:
+                                         (self._pivot_vertex_index, self._pivot_vertex_s,
+                                          "abandon")})
             self._reset_pivot()
             return None
 
@@ -544,6 +567,11 @@ class TrackerTask(TaskThread):
             self._log(f"✓ PIVOT 完成：航向误差 {err_deg:+.1f}° ≤ {self._pivot_yaw_tol_deg:.0f}°"
                       f"（用时 {elapsed:.1f}s）")
             self.pivot_count += 1
+            # ★ 通知 MissionTask："这个顶点已到达"（原地掉头后车会原路返回，永远不会
+            #   进到达圈/越过顶点弧长 ⇒ MissionTask 正常判据恒假，见 PIVOT_DONE_KEY 注释）。
+            self.bb.update(self.name, **{PIVOT_DONE_KEY:
+                                         (self._pivot_vertex_index, self._pivot_vertex_s,
+                                          "done")})
             # ★ 完成后**同样**要标记"这个顶点已处理"（与超时分支对称）：
             #   否则车还停在顶点邻域内、换向角依旧 > 阈值 → 下一拍立刻重入 PIVOT →
             #   又是 0.5s 刹车 → 再"完成" → **无限循环、车几乎不动**。
