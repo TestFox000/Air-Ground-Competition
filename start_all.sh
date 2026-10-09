@@ -86,10 +86,6 @@ cleanup_strays() {
     case "$_cmd" in */bin/bash*|*/bin/sh*) continue ;; esac
     kill -9 "$_pid" 2>/dev/null && _n=$((_n+1))
   done
-  # 网页弹窗服务可能不在 $WS 路径下启动（比如手动 cd 到 tools 里跑）
-  for _p in $(ss -lntp 2>/dev/null | grep ':8080' | grep -oP '(?<=pid=)[0-9]+'); do
-    kill -9 "$_p" 2>/dev/null
-  done
   [ "$_n" -gt 0 ] && echo "  已清理 $_n 个上次遗留的残留进程"
   return 0
 }
@@ -111,10 +107,6 @@ stop_all() {
   fi
   cleanup_strays
   sleep 1
-  if ss -lntp 2>/dev/null | grep -q ':8080'; then
-    echo "  ⚠️  8080 仍被占用 —— 网页弹窗可能起不来，可手动处理后再试"
-  fi
-  pkill -f "chromium-browser.*127.0.0.1:8080" 2>/dev/null
   echo "已停止 $n 个受管节点。"
 }
 
@@ -191,34 +183,31 @@ else
   echo "启动门禁: 未安装 dzbrain（跳过）—— 回退到旧循迹时属正常"
 fi
 echo ""
-echo "1/8 底盘串口 + TF + IMU ..."
+echo "1/7 底盘串口 + TF + IMU ..."
 spawn 1_chassis ros2 launch dzactuator bringup.launch.py
 sleep 3
 
-echo "2/8 相机 ..."
+echo "2/7 相机 ..."
 spawn 2_camera ros2 launch dzactuator camera.launch.py
 sleep 3
 
-echo "3/8 定位 (serial_reader -> /odom/localization) ..."
+echo "3/7 定位 (serial_reader -> /odom/localization) ..."
 spawn 3_localization ros2 launch car_localization localization.launch.py
 sleep 3
 
-echo "4/8 视觉检测 (识别画面窗口 -> 显示 $GUI_DISPLAY) ..."
+echo "4/7 视觉检测 (识别画面窗口 -> 显示 $GUI_DISPLAY) ..."
 spawn 4_det ros2 launch det_node det_node.launch.py
 sleep 3
 
-echo "5/8 云台自瞄 ..."
+echo "5/7 云台自瞄 ..."
 spawn 5_gimbal ros2 launch dzrknn_dataprocess dzrknn_dataprocess.launch.py
 sleep 2
 
-# ★ 网页端兼容转发 —— 少了这一步，网页"云台状态"会永远显示空闲 ★
-#   云台发布的是 std_msgs/Int32，而 cam_viewer 按 std_msgs/UInt8 订阅同一个
-#   /aim/status；ROS 2 按类型匹配端点，类型不一致 → 网页端一个包都收不到。
-#   shim 订阅 Int32 后按【同名话题】以 UInt8 回发，网页端即可恢复显示，
-#   同时 path_executor 的 Int32 链路不受影响（DDS 按类型匹配）。
-echo "5b/8 自瞄状态兼容转发 (Int32 -> UInt8，供网页端读取) ..."
-spawn 5b_aimshim env PYTHONUNBUFFERED=1 python3 -u "$WS/tools/aim_status_shim.py"
-sleep 1
+# ★ 原 5b 步「自瞄状态兼容转发 (Int32 -> UInt8)」已随浏览器控制台一并下线。
+#   它存在的唯一理由是网页端按 UInt8 订阅 /aim/status，而云台发的是 Int32；
+#   网页端没了，这个 shim 就只剩一个没人订阅的转发节点 —— 白占一个进程和一份
+#   DDS 带宽。**注意 /aim/status 本身没变**：dzbrain(contract.py) 与旧
+#   path_executor 都直接订阅 Int32 原话题，不经过这个 shim，循迹不受影响。
 
 # ★★★ 射击驱动 —— 少了这一步，开火就是"发进了空话题" ★★★
 #   链路：dzrknn_dataprocess --/LaserShot_Command(UInt8=1)--> dzjudgment
@@ -227,11 +216,11 @@ sleep 1
 #   dzrknn_dataprocess（云台控制）+ dzjudgment（上位机与车载裁判系统通讯）。
 #   以前只起了前者，导致 ros2 topic info /LaserShot_Command 显示
 #   Publisher 3 / Subscription 0 —— 云台算得好好的开火指令全进了空话题。
-echo "6/8 射击驱动 (dzjudgment -> /dev/dzjudgment) ..."
+echo "6/7 射击驱动 (dzjudgment -> /dev/dzjudgment) ..."
 spawn 6_judgment ros2 launch dzjudgment judgment.launch.py
 sleep 2
 
-echo "7/8 循迹（默认新决策层 dzbrain；LEGACY_PATH=1 回退旧核）..."
+echo "7/7 循迹（默认新决策层 dzbrain；LEGACY_PATH=1 回退旧核）..."
 # ★2026-10-07 换血：默认走**新决策层** dzbrain（单进程 8 任务线程：定位 / 安全 / 循迹 /
 #   调度 / 云台打击 / 误差修正 / 无人机 / 遥测），取代旧的 path_executor 单体（2622 行）。
 #   一键回退旧实现： LEGACY_PATH=1 bash start_all.sh restart
@@ -249,54 +238,26 @@ else
 fi
 sleep 2
 
-LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-echo "8/8 摄像头网页弹窗 + 自动打开浏览器 ..."
-# 源码撤离后 tools 下只有 .pyc（防读）；开发阶段回退到 .py
-VIEWER="$WS/tools/cam_viewer.pyc"
-[ -f "$VIEWER" ] || VIEWER="$WS/tools/cam_viewer.py"
-spawn 8_camview python3 -u "$VIEWER" --port 8080   # 同上，-u 保证日志实时
-sleep 3
-
-# ★自动弹出浏览器观察端（显示在 GUI_DISPLAY 指定的那块屏上）
-#   默认开：省得每次手动开浏览器。想关掉就  OPEN_BROWSER=0 ./start_all.sh restart
-#   用 --app= 模式：没有地址栏和标签页，看起来就像个原生监视窗口。
-OPEN_BROWSER="${OPEN_BROWSER:-1}"
-if [ "$OPEN_BROWSER" = "1" ]; then
-  # 先等一下 viewer 真的起来，免得浏览器打开时是"无法连接"
-  for _i in 1 2 3 4 5 6 7 8 9 10; do
-    if curl -s -o /dev/null --max-time 1 "http://127.0.0.1:8080/api/status"; then break; fi
-    sleep 1
-  done
-  if command -v chromium-browser >/dev/null 2>&1; then
-    DISPLAY="$GUI_DISPLAY" nohup chromium-browser \
-        --app="http://127.0.0.1:8080" --start-maximized \
-        --no-first-run --no-default-browser-check \
-        > "$LOGDIR/8_browser.log" 2>&1 &
-    echo "       浏览器(chromium) -> 显示 $GUI_DISPLAY"
-  elif command -v firefox >/dev/null 2>&1; then
-    DISPLAY="$GUI_DISPLAY" nohup firefox "http://127.0.0.1:8080" \
-        > "$LOGDIR/8_browser.log" 2>&1 &
-    echo "       浏览器(firefox) -> 显示 $GUI_DISPLAY"
-  else
-    echo "       ⚠️  未找到浏览器，请手动打开 http://127.0.0.1:8080"
-  fi
-fi
+# ★ 浏览器控制台已下线（2026-10-09）——原第 8 步 cam_viewer :8080 整块移除。
+#   它不是"一个网页"：/api/param 是全车唯一的调参通道（白名单/类型校验/.bak 回滚
+#   全在 param_spec.py 里），/api/rc* 的遥控器还兼着【接管仲裁 + 四层失效保护】
+#   （rc_control.py，负责按住才动 / 数值钳制 / 两层看门狗），start_all.sh 因此不再拉起它。
+#   ⚠️ 由此产生的真实缺口：**遥控器没有替代品了**。原先唯一的可视化遥控入口就是
+#      这个网页；底盘 1.0s 无指令强制停车仍作为最底层兜底保留，但"人接管"这条路
+#      现在只能自己写节点。起栈前请确认这点可接受。
+#   调参改走 config/robot.yaml（healthcheck.sh 第 3 节查配置一致性）。
+echo "（已跳过原第 8 步：浏览器控制台已下线）"
 
 echo ""
 echo "=========================================================="
 echo " 全部启动完成。日志目录: $LOGDIR"
 echo ""
-echo "  ★ 摄像头实时画面(浏览器打开):"
-echo "        http://${LAN_IP:-<板子IP>}:8080"
-echo ""
 echo "   tail -f $LOGDIR/5_gimbal.log        # 云台自瞄  ★最关键"
 echo "   tail -f $LOGDIR/4_det.log           # 视觉检测  ★看模型是否加载成功"
 echo "   tail -f $LOGDIR/6_judgment.log      # 射击驱动  ★看开火指令是否下发"
 echo "   tail -f $LOGDIR/7_path.log          # 循迹      ★看是否自动出发"
-echo "   tail -f $LOGDIR/8_camview.log       # 网页弹窗服务"
 echo "   tail -f $LOGDIR/1_chassis.log       # 底盘串口"
 echo ""
-echo "  浏览器观察端:      http://127.0.0.1:8080  (已自动打开)"
 echo "  出车体检:          $WS/tools/healthcheck.sh"
 echo "  狙击链路自检:      ros2 topic info /LaserShot_Command   # Subscription 必须是 1"
 echo "  自瞄数值实时监控:  $WS/monitor_aim.sh"

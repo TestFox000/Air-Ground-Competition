@@ -25,6 +25,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DATA_DIR_NAME, JsonStore, SETTINGS_INITIAL, resolveDshHome } from './src/store.js'
+import { collectMetrics } from './src/metrics.js'
 import { commandLine, describe as describeCar, interactiveArgv, localName, probe } from './src/ssh.js'
 import { isLoopback, rejectionFor } from './src/trust.js'
 import { isReloading, selfReload, watchPackage } from './src/reload.js'
@@ -48,6 +49,13 @@ const VNC_APP_FILE = fileURLToPath(new URL('./vnc-app.html', import.meta.url))
 
 /** The generic connector document: noVNC dialing any ws://host:port/path directly. */
 const VNC_CONNECT_FILE = fileURLToPath(new URL('./vnc-connect.html', import.meta.url))
+
+/**
+ * The standalone status float: the same three numbers as the in-page overlay
+ * (battery, CPU, uptime), served as its own document so it can live in a
+ * separate OS window.
+ */
+const FLOAT_APP_FILE = fileURLToPath(new URL('./float.html', import.meta.url))
 
 /** Content types for the vendored tree; anything else is refused, not guessed. */
 const NOVNC_TYPES = {
@@ -218,6 +226,11 @@ export function apply(ctx, config = {}) {
         if (described.ok) { status.update({ car: described }); status.flush() }
         return send(200, described)
       }
+      // The float's reading. Always 200: an unreachable car is an answer the
+      // float renders (as an error line), not an HTTP failure to hide behind.
+      if (method === 'GET' && route === '/metrics') {
+        return send(200, await collectMetrics(settings.get(), { logger }))
+      }
       if (route === '/config') {
         if (method === 'GET') return send(200, settings.get())
         if (method === 'POST') {
@@ -297,6 +310,9 @@ export function apply(ctx, config = {}) {
       // header for why it must live on a plain http origin at all).
       if (method === 'GET' && route === '/vnc-connect.html') {
         return serveFile(res, send, VNC_CONNECT_FILE, 'text/html; charset=utf-8')
+      }
+      if (method === 'GET' && route === '/float.html') {
+        return serveFile(res, send, FLOAT_APP_FILE, 'text/html; charset=utf-8')
       }
       if (method === 'GET' && route.startsWith('/novnc/')) {
         return serveNovnc(res, route.slice('/novnc/'.length), send)

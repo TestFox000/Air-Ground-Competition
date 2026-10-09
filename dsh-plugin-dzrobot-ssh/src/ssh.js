@@ -99,8 +99,16 @@ export function commandLine(settings) {
   return parts.join(' ')
 }
 
-/** Run a command to completion, capturing output. Never rejects on non-zero. */
-function run(argv, { timeoutMs, input } = {}) {
+/**
+ * Run a command to completion, capturing output. Never rejects on non-zero.
+ *
+ * @param maxStdoutBytes - bound the captured stdout. `0` means unbounded (the
+ *   probes emit a marker each); a metrics read sets it because the float polls
+ *   forever and a remote shell that streamed forever would otherwise grow the
+ *   buffer without limit. Exceeding the bound kills the child and settles the
+ *   promise — a truncated answer is reported as a failure, never parsed.
+ */
+export function run(argv, { timeoutMs, input, maxStdoutBytes = 0 } = {}) {
   return new Promise(resolve => {
     let child
     try {
@@ -124,13 +132,53 @@ function run(argv, { timeoutMs, input } = {}) {
     }, timeoutMs)
     timer.unref?.()
 
-    child.stdout?.on('data', chunk => { stdout += chunk.toString() })
+    child.stdout?.on('data', chunk => {
+      stdout += chunk.toString()
+      if (maxStdoutBytes > 0 && stdout.length > maxStdoutBytes) {
+        stdout = ''
+        try { child.kill() } catch { /* already gone */ }
+        finish({ code: -1, stdout, stderr: stderr || `stdout exceeded ${maxStdoutBytes} bytes`, bounded: true })
+      }
+    })
     child.stderr?.on('data', chunk => { stderr += chunk.toString() })
     child.on('error', error => finish({ code: -1, stdout, stderr: String(error?.message ?? error), spawnFailed: true }))
     child.on('close', code => finish({ code: code ?? -1, stdout, stderr }))
     if (input !== undefined) { try { child.stdin?.end(input) } catch { /* not a pipe */ } }
     else { try { child.stdin?.end() } catch { /* not a pipe */ } }
   })
+}
+
+/**
+ * Read a failed ssh attempt rather than guessing at it.
+ *
+ * These refusals look identical in the exit code alone and lead the user to
+ * four different fixes, so the table lives in one exported place: the
+ * reachability probe and the metrics probe both answer with it, and neither is
+ * allowed to invent its own wording for the same underlying failure.
+ *
+ * @param result - the shape `run()` settles with (code/stdout/stderr/timedOut).
+ * @returns `{ state, detail, latencyMs, target }` — always a refusal, never ok.
+ */
+export function refusalFor(result, { ms = 0, target = '', logger } = {}) {
+  const text = `${result.stderr ?? ''}\n${result.stdout ?? ''}`.trim()
+  const low = text.toLowerCase()
+  if (result.timedOut) return { state: 'unreachable', detail: `连接超时（${ms}ms）`, latencyMs: ms, target }
+  if (result.spawnFailed) return { state: 'error', detail: `无法启动 ssh：${text.split('\n')[0] ?? 'unknown'}`, latencyMs: ms, target }
+  if (/could not resolve|unknown host|name or service not known|no such host|nodename nor servname/.test(low)) {
+    return { state: 'unreachable', detail: '无法解析主机名', latencyMs: ms, target }
+  }
+  if (/connection refused/.test(low)) return { state: 'unreachable', detail: '端口被拒绝（车已开但 sshd 没起？）', latencyMs: ms, target }
+  if (/connection timed out|operation timed out|no route to host|network is unreachable|unreachable/.test(low)) {
+    return { state: 'unreachable', detail: '网络不可达（车还没连上 WiFi？）', latencyMs: ms, target }
+  }
+  if (/permission denied|publickey|password/.test(low)) {
+    return { state: 'needs-password', detail: '能连上，但需要密码或密钥', latencyMs: ms, target }
+  }
+  if (/host key verification failed|remote host identification/.test(low)) {
+    return { state: 'host-key', detail: '主机密钥与记录不符', latencyMs: ms, target }
+  }
+  logger?.info?.(`dzrobot-ssh: ssh refused for ${target} -> ${result.code} (${ms}ms)`)
+  return { state: 'error', detail: text.split('\n').filter(line => line.trim() !== '')[0] ?? `ssh 退出码 ${result.code}`, latencyMs: ms, target }
 }
 
 /**
@@ -154,7 +202,6 @@ export async function probe(settings, { logger } = {}) {
   const result = await run(argv, { timeoutMs: (settings.probeTimeoutMs ?? 2500) + 2000 })
   const ms = Date.now() - started
   const authenticated = result.code === 0 && result.stdout.includes(LOGIN_MARKER)
-  const text = `${result.stderr}\n${result.stdout}`.trim()
 
   if (authenticated) {
     return {
@@ -167,24 +214,7 @@ export async function probe(settings, { logger } = {}) {
 
   // Read the refusal rather than guessing: these four cases look identical from
   // the exit code alone and lead the user to four different fixes.
-  const low = text.toLowerCase()
-  if (result.timedOut) return { state: 'unreachable', detail: `连接超时（${ms}ms）`, latencyMs: ms, target }
-  if (result.spawnFailed) return { state: 'error', detail: `无法启动 ssh：${text.split('\n')[0] ?? 'unknown'}`, latencyMs: ms, target }
-  if (/could not resolve|unknown host|name or service not known|no such host|nodename nor servname/.test(low)) {
-    return { state: 'unreachable', detail: '无法解析主机名', latencyMs: ms, target }
-  }
-  if (/connection refused/.test(low)) return { state: 'unreachable', detail: '端口被拒绝（车已开但 sshd 没起？）', latencyMs: ms, target }
-  if (/connection timed out|operation timed out|no route to host|network is unreachable|unreachable/.test(low)) {
-    return { state: 'unreachable', detail: '网络不可达（车还没连上 WiFi？）', latencyMs: ms, target }
-  }
-  if (/permission denied|publickey|password/.test(low)) {
-    return { state: 'needs-password', detail: '能连上，但需要密码或密钥', latencyMs: ms, target }
-  }
-  if (/host key verification failed|remote host identification/.test(low)) {
-    return { state: 'host-key', detail: '主机密钥与记录不符', latencyMs: ms, target }
-  }
-  logger?.info?.(`dzrobot-ssh: probe ${target} -> ${result.code} (${ms}ms)`)
-  return { state: 'error', detail: text.split('\n').filter(line => line.trim() !== '')[0] ?? `ssh 退出码 ${result.code}`, latencyMs: ms, target }
+  return refusalFor(result, { ms, target, logger })
 }
 
 /** A short human summary of the car, used by the sidebar tooltip. */

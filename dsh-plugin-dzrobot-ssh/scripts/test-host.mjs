@@ -133,6 +133,143 @@ console.log('armed ->', JSON.stringify(armed.payload), '| first read:', JSON.str
 const graph = await call('/graph')
 console.log('\nGET /graph (no clientModules mounted) ->', graph.status, JSON.stringify(graph.payload))
 
+// ── the metrics parser (offline, synthetic payloads) ──────────────────────────
+// Every gauge number is parsed out of one marker-bounded payload, so a
+// mis-parse here paints plausible-looking lies on the card. The cases cover
+// the whole contract: two /proc/stat samples become a delta, /proc/uptime is
+// the source, btime rides along when present (and is dropped when absurd), the
+// chassis battery is believed at both published scales (0..1 and 0..100),
+// volts without percent become a *derived* level with the note that says so,
+// and a truncated payload is a failed reading — never a plausible zero.
+{
+  const { parseMetrics, normalizeBattery, cpuUsage, METRICS_COMMAND } = await import('../src/metrics.js')
+  const payload = lines => lines.join('\n')
+  const full = parseMetrics(payload([
+    'Welcome to Ubuntu 22.04 (banner noise outside the markers)',
+    'DZH_BEGIN',
+    '100 0 50 900 0 0 0 0 0',
+    '500 0 100 2400 0 0 0 0 0',
+    'uptimeSec=666.97',
+    'bootEpoch=1791338271',
+    'load1=0.33 load5=0.25 load15=0.20',
+    'batteryPct=0.86',
+    'batteryVolt=11.42',
+    'DZH_END',
+    'trailing noise',
+  ]))
+  check('parser: a full payload answers every gauge',
+    full !== undefined && Math.abs(full.uptimeSec - 666.97) < 1e-9
+      && full.bootEpoch === 1791338271 && full.battery === 86 && full.batteryVolt === 11.42
+      && full.batteryNote === null && Array.isArray(full.load) && Number.isFinite(full.cpuPercent),
+    JSON.stringify(full?.load) + ` batt=${full?.battery} cpu=${full?.cpuPercent}`)
+  // The chassis already publishing percent (0..100 scale) must not read as 1 %.
+  const percentScale = parseMetrics(payload([
+    'DZH_BEGIN', '100 0 50 900 0 0 0 0 0', '500 0 100 2400 0 0 0 0 0',
+    'uptimeSec=42', 'batteryPct=77', 'DZH_END',
+  ]))
+  check('parser: an already-percent battery reads as itself', percentScale?.battery === 77, JSON.stringify(percentScale?.battery))
+  // Stack down: voltage topic alone still answers, via the pack calibration,
+  // and the note says the number is derived rather than chassis-published.
+  const derived = parseMetrics(payload([
+    'DZH_BEGIN', '100 0 50 900 0 0 0 0 0', '500 0 100 2400 0 0 0 0 0',
+    'uptimeSec=42', 'batteryVolt=11', 'batteryNote=no_stack', 'DZH_END',
+  ]))
+  check('parser: volts without percent derive 50 % and mark it derived',
+    derived?.battery === 50 && derived?.batteryNote === 'derived', JSON.stringify({ battery: derived?.battery, note: derived?.batteryNote }))
+  // Stack down and no voltage answer either: null with the reason, never 0 %.
+  const noStack = parseMetrics(payload([
+    'DZH_BEGIN', '100 0 50 900 0 0 0 0 0', '500 0 100 2400 0 0 0 0 0',
+    'uptimeSec=42', 'batteryNote=no_stack', 'DZH_END',
+  ]))
+  check('parser: no stack yields battery null with the note (not a fake 0)',
+    noStack?.battery === null && noStack?.batteryNote === 'no_stack', JSON.stringify({ battery: noStack?.battery, note: noStack?.batteryNote }))
+  const noBtime = parseMetrics(payload([
+    'DZH_BEGIN', '100 0 50 900 0 0 0 0 0', '500 0 100 2400 0 0 0 0 0',
+    'uptimeSec=42', 'DZH_END',
+  ]))
+  check('parser: an answer without btime still parses, with bootEpoch absent',
+    noBtime !== undefined && noBtime.uptimeSec === 42 && !('bootEpoch' in noBtime),
+    JSON.stringify(noBtime))
+  const absurd = parseMetrics(payload([
+    'DZH_BEGIN', '100 0 50 900 0 0 0 0 0', '500 0 100 2400 0 0 0 0 0',
+    'uptimeSec=42', 'bootEpoch=123456789', 'DZH_END',
+  ]))
+  check('parser: a boot instant before 2000 is dropped, not printed',
+    absurd !== undefined && !('bootEpoch' in absurd), JSON.stringify(absurd?.bootEpoch))
+  const truncated = parseMetrics('DZH_BEGIN\n100 0 50 900 0 0 0 0 0\nuptimeSec=99\n')
+  check('parser: a payload missing the end marker is a failed reading, not a zero',
+    truncated === undefined, String(truncated))
+
+  // The battery scale itself: both published shapes accepted, junk rejected
+  // instead of clamped into the gauge.
+  for (const [raw, want] of [[0.86, 86], [0, 0], [1, 100], [77, 77], [100, 100], [101, null], [-1, null], ['abc', null]]) {
+    const got = normalizeBattery(raw)
+    check(`normalizeBattery(${JSON.stringify(raw)}) -> ${want}`, got === want, `got ${got}`)
+  }
+  // CPU is a delta: identical samples are 0 %, never a division by zero.
+  const before = [100, 0, 50, 900, 0, 0, 0, 0, 0]
+  const after = [500, 0, 100, 2400, 0, 0, 0, 0, 0]
+  check('cpuUsage between two samples is the idle delta (23.1 %)', cpuUsage(before, after) === 23.1, String(cpuUsage(before, after)))
+  check('a clock that did not advance is 0 %, not NaN', cpuUsage(before, before) === 0, String(cpuUsage(before, before)))
+
+  // The remote command itself must carry the battery half — without these
+  // markers the float would render "no stack" forever on a perfectly healthy car.
+  for (const needle of ['DZH_BEGIN', 'batteryPct', 'Battery_Percentage', 'PowerVoltage', '/proc/stat', '/proc/uptime']) {
+    check(`METRICS_COMMAND carries ${needle}`, METRICS_COMMAND.includes(needle), '')
+  }
+}
+
+// ── the float's endpoints ─────────────────────────────────────────────────────
+// /metrics always answers 200 with an `ok` flag: an unreachable car is an
+// answer the float renders (as an error line), not an HTTP failure to hide
+// behind.
+const metrics = await call('/metrics')
+console.log('\nGET /metrics ->', metrics.status, JSON.stringify(metrics.payload).slice(0, 160))
+check('GET /metrics answers 200 with a boolean ok flag',
+  metrics.status === 200 && typeof metrics.payload?.ok === 'boolean',
+  `status=${metrics.status} ok=${metrics.payload?.ok}`)
+if (metrics.payload?.ok === true) {
+  const reading = metrics.payload
+  check('a live reading carries battery, uptime and cpu gauges',
+    (reading.battery === null || typeof reading.battery === 'number')
+      && Number.isFinite(reading.uptimeSec) && Number.isFinite(reading.cpuPercent)
+      && [null, 'no_stack', 'derived'].includes(reading.batteryNote),
+    JSON.stringify({ battery: reading.battery, note: reading.batteryNote, up: reading.uptimeSec }))
+} else {
+  check('an offline car still yields an explainable reading',
+    typeof metrics.payload?.detail === 'string' || typeof metrics.payload?.state === 'string',
+    JSON.stringify(metrics.payload).slice(0, 120))
+}
+
+// The opacity is a persisted, clamped setting: the slider can only send
+// 30..100, and anything else must land on a sane value instead of a
+// transparent-to-invisible or over-opaque card.
+const opacityHigh = await call('/config', { method: 'POST', body: JSON.stringify({ floatOpacity: 999 }) })
+check('POST /config floatOpacity 999 clamps to 100',
+  opacityHigh.status === 200 && opacityHigh.payload?.settings?.floatOpacity === 100,
+  JSON.stringify(opacityHigh.payload?.settings?.floatOpacity))
+const opacityLow = await call('/config', { method: 'POST', body: JSON.stringify({ floatOpacity: 5 }) })
+check('POST /config floatOpacity 5 clamps to the 30 floor',
+  opacityLow.status === 200 && opacityLow.payload?.settings?.floatOpacity === 30,
+  JSON.stringify(opacityLow.payload?.settings?.floatOpacity))
+const opacityGarbage = await call('/config', { method: 'POST', body: JSON.stringify({ floatOpacity: 'opaque' }) })
+check('POST /config floatOpacity "opaque" falls back to 100',
+  opacityGarbage.status === 200 && opacityGarbage.payload?.settings?.floatOpacity === 100,
+  JSON.stringify(opacityGarbage.payload?.settings?.floatOpacity))
+// Round trip: /status is where the panel reads the value back after a reload.
+const opacityRoundTrip = await call('/status')
+check('GET /status reports the persisted floatOpacity',
+  opacityRoundTrip.status === 200 && opacityRoundTrip.payload?.settings?.floatOpacity === 100,
+  JSON.stringify(opacityRoundTrip.payload?.settings?.floatOpacity))
+
+// The standalone window: a separate document (its own refresh button, no
+// overlay needed) that polls the same /metrics the card does.
+const floatPage = await fetch(`${base}/float.html`)
+const floatHtml = await floatPage.text()
+check('GET /float.html serves the standalone float window',
+  floatPage.status === 200 && /text\/html/.test(floatPage.headers.get('content-type') ?? '') && floatHtml.includes('/metrics'),
+  `${floatPage.status} ${floatPage.headers.get('content-type')} ${floatHtml.length}B`)
+
 // ── vendored noVNC ────────────────────────────────────────────────────────────
 console.log('\n--- noVNC assets ---')
 

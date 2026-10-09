@@ -11,6 +11,10 @@
  *      (`dsh-dzrobot-ssh/vnc`, `dsh-dzrobot-ssh/files`).
  *   4. `settings.section` — the car's address, the probe result, and the exact
  *      command line, so the integration can be checked without a terminal.
+ *   5. `shell.overlay` — the status float: battery and CPU usage as two
+ *      blue-boxed cells with live time/value curves, draggable, refreshed every
+ *      5 seconds (the battery comes from the chassis node over ROS; see
+ *      `src/metrics.js` for why it can honestly say "no stack").
  *
  * The right column belongs to the Conversation (the shell clears its on-screen
  * Session while any other main panel is active), so opening a tool switches the
@@ -54,7 +58,6 @@ window.__ModuleLoader__.load({
         toolNote: '点“打开”后主视图会切到会话，工具窗口显示在会话右侧——右栏属于会话，这是 DSH 的结构。',
         filesToolDesc: '浏览、预览、下载、上传小车上的文件（走同一条已信任的 SSH 通道）',
         vncToolDesc: '小车的 X 桌面（TigerVNC :1，1920×1080）；需要时会在画面里向你要 VNC 密码',
-        consoleToolDesc: '内嵌 Eruda 调试面板：控制台、元素、网络、资源、源码，适合在小车的 Web 页面里直接排查 JS 错误',
         copy: '复制命令',
         copied: '已复制',
         retry: '重试',
@@ -99,7 +102,6 @@ window.__ModuleLoader__.load({
         viewVnc: 'VNC 桌面',
         viewTerminal: '终端',
         viewFiles: '文件目录',
-        viewConsole: '浏览器控制台',
         vncConnect: '连接桌面',
         vncReconnect: '重新连接',
         vncDisconnect: '断开',
@@ -123,7 +125,6 @@ window.__ModuleLoader__.load({
         filesPath: '路径',
         filesEmpty: '（空目录）',
         filesLoading: '正在读取…',
-        consoleLoading: '正在加载 Eruda…',
         filesUp: '上一级',
         filesRefresh: '刷新',
         filesDownload: '下载',
@@ -138,6 +139,33 @@ window.__ModuleLoader__.load({
         filesRoot: '根目录',
         fieldFilesRoot: '文件浏览起始目录',
         openTerminalFirst: '先打开一个会话，再点这里',
+        // status float
+        viewFloat: '状态浮窗',
+        floatToolDesc: '悬浮显示小车的电量与 CPU 占用——两列蓝框卡片带时间/数值曲线，可拖动，5 秒一轮自动刷新',
+        toolClose: '收起',
+        floatTitle: '小车状态',
+        floatBattery: '电量',
+        floatCpu: 'CPU 占用',
+        floatUp: '开机时间',
+        floatDown: '小车未连接',
+        floatLoad: '负载 {load}',
+        floatBattVolts: '{v} V · 底盘发布',
+        floatBattDerived: '{v} V · 按 12V满/10V空 折算',
+        floatBattNone: '底盘未发布电量（ROS 栈未运行）',
+        floatSince: '开机于 {time}',
+        floatRefresh: '刷新',
+        floatClose: '关闭',
+        fieldFloatOpacity: '浮窗不透明度',
+        opacityHint: '数值越低越透明；鼠标悬停时浮窗恢复完整不透明，方便操作。',
+        floatLoading: '正在读取…',
+        floatError: '读取失败：{message}',
+        floatSync: '{time} 更新 · 5 秒一轮',
+        floatDrag: '按住标题栏可拖动',
+        floatAxisX: '时间',
+        unitDay: '天',
+        unitHour: '小时',
+        unitMin: '分',
+        unitSec: '秒',
         // generic VNC connector
         vncConnectorNav: 'VNC 连接器',
         vncConnectorTitle: 'VNC 连接器',
@@ -190,7 +218,6 @@ window.__ModuleLoader__.load({
         toolNote: 'Opening a tool switches the main view to the Conversation — the tool window appears on its right. The right column belongs to the Conversation; that is DSH’s structure.',
         filesToolDesc: 'Browse, preview, download and upload the car’s files (over the same trusted SSH channel)',
         vncToolDesc: 'The car’s X desktop (TigerVNC :1, 1920×1080); it may ask for the VNC password in the screen',
-        consoleToolDesc: 'Embedded Eruda debug panel: console, elements, network, resources, sources — handy for debugging JS errors directly in the car’s web pages',
         copy: 'Copy command',
         copied: 'Copied',
         retry: 'Retry',
@@ -235,7 +262,6 @@ window.__ModuleLoader__.load({
         viewVnc: 'VNC desktop',
         viewTerminal: 'Terminal',
         viewFiles: 'Files',
-        viewConsole: 'Browser Console',
         vncConnect: 'Connect desktop',
         vncReconnect: 'Reconnect',
         vncDisconnect: 'Disconnect',
@@ -259,7 +285,6 @@ window.__ModuleLoader__.load({
         filesPath: 'Path',
         filesEmpty: '(empty directory)',
         filesLoading: 'Loading…',
-        consoleLoading: 'Loading Eruda…',
         filesUp: 'Up',
         filesRefresh: 'Refresh',
         filesDownload: 'Download',
@@ -274,6 +299,33 @@ window.__ModuleLoader__.load({
         filesRoot: 'Root',
         fieldFilesRoot: 'File browser starts at',
         openTerminalFirst: 'Open a Session first, then click here',
+        // status float
+        viewFloat: 'Status float',
+        floatToolDesc: 'A floating gauge for the car’s battery and CPU usage — two blue-boxed charts with time/value axes, draggable, refreshed every 5 seconds',
+        toolClose: 'Close',
+        floatTitle: 'Car status',
+        floatBattery: 'Battery',
+        floatCpu: 'CPU usage',
+        floatUp: 'Uptime',
+        floatDown: 'Car offline',
+        floatLoad: 'load {load}',
+        floatBattVolts: '{v} V · chassis topic',
+        floatBattDerived: '{v} V · from the 12 V-full / 10 V-empty calibration',
+        floatBattNone: 'Battery not published (ROS stack is down)',
+        floatSince: 'booted {time}',
+        floatRefresh: 'Refresh',
+        floatClose: 'Close',
+        fieldFloatOpacity: 'Float opacity',
+        opacityHint: 'Lower is more transparent; hovering the card restores full opacity so its controls stay usable.',
+        floatLoading: 'Loading…',
+        floatError: 'Reading failed: {message}',
+        floatSync: 'updated {time} · every 5s',
+        floatDrag: 'Drag the title bar to move',
+        floatAxisX: 'Time',
+        unitDay: 'd',
+        unitHour: 'h',
+        unitMin: 'm',
+        unitSec: 's',
         // generic VNC connector
         vncConnectorNav: 'VNC Connector',
         vncConnectorTitle: 'VNC Connector',
@@ -424,6 +476,60 @@ window.__ModuleLoader__.load({
 .dzr_prehead{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;flex-wrap:wrap}
 .dzr_prebody{flex:1;min-height:0;overflow:auto;margin:0;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1)}
 .dzr_tag{font-size:10.5px;padding:2px 7px;border-radius:6px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary)}
+/* ── the status float (registered on the frame-wide shell.overlay seat) ─────── */
+/* Opacity comes from a custom property so a ':hover' rule can win without
+   !important: a card dimmed to 30% must still be readable while you are using
+   it, and the slider that set it lives inside the card. (No backticks here —
+   this comment sits inside the CSS template literal.) */
+.dzr_float{--dzr-op:1;position:fixed;width:334px;border-radius:16px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);box-shadow:0 14px 44px rgb(0 0 0 / 32%);font-size:12.5px;line-height:1.5;z-index:2147483000;overflow:hidden;display:flex;flex-direction:column;user-select:none;opacity:var(--dzr-op,1)}
+.dzr_float:hover{opacity:1}
+.dzr_float *{box-sizing:border-box}
+.dzr_fhead{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-3);cursor:move;touch-action:none}
+/* Header line: 名称 | 开机时间：m:ss — one row, no uptime cell in the body. */
+.dzr_ftitle{flex:1;min-width:0;display:flex;align-items:baseline;gap:5px;overflow:hidden;white-space:nowrap}
+.dzr_ftitle b{font-size:12.5px;font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;flex:none}
+.dzr_fsep{font-style:normal;color:var(--dsw-alias-label-tertiary);opacity:.6;flex:none}
+.dzr_fup{font-size:11.5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;flex:none;overflow:hidden;text-overflow:ellipsis}
+.dzr_fbtn{font:inherit;font-size:13px;line-height:1;padding:3px 7px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;flex:none}
+.dzr_fbtn:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-state-business-primary)}
+.dzr_fbtn:disabled{opacity:.45;cursor:default}
+/* Two columns (battery, CPU). Each cell is a blue pair of boxes: 名称 +
+   数值 on top, the axes-bearing curve plot underneath. The blue is a
+   color-mix tint over a declared fallback, so a browser without color-mix
+   still gets the neutral box rather than an invisible border. */
+.dzr_fgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;padding:10px}
+.dzr_fcell{display:flex;flex-direction:column;gap:6px;min-width:0}
+.dzr_fbox{min-width:0;display:flex;flex-direction:column;gap:1px;padding:7px 9px;border-radius:12px;border:1px solid var(--dsw-alias-border-l1);border-color:color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, transparent);background:var(--dsw-alias-bg-layer-1);background:color-mix(in srgb, var(--dsw-alias-state-business-primary) 7%, var(--dsw-alias-bg-layer-1))}
+.dzr_fbox>span:first-child{font-size:10.5px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dzr_fbox b{font-size:17px;font-weight:650;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dzr_fbox b small{font-size:10.5px;font-weight:500;color:var(--dsw-alias-label-tertiary);margin-left:1px}
+/* Battery thresholds run backwards — low is the bad direction — so the
+   level classes below are set by the caller with the inverted scale. */
+.dzr_fcell[data-level="warm"] .dzr_fbox b{color:var(--dsw-alias-state-warning-primary)}
+.dzr_fcell[data-level="hot"] .dzr_fbox b{color:var(--dsw-alias-state-error-primary)}
+.dzr_fplot{padding:5px 6px 3px;gap:0;align-items:stretch}
+/* The plot itself: a viewBox whose pixel size is the box's inner width, so the
+   tick labels draw at ~1:1 instead of being scaled down with the frame. Axes
+   and grid are dashed, the curve keeps the cell's level colour, and the red
+   dot plus its dashed cross-hairs mark the latest exact value. */
+.dzr_fchart{display:block;width:100%;height:auto;overflow:visible}
+.dzr_fchart .dzr_faxis{stroke:var(--dsw-alias-border-l2);stroke-width:1;vector-effect:non-scaling-stroke}
+/* Named gridline rather than dzr_fgrid: that class already styles the body
+   grid, and a stray display:grid on an SVG line would misrender it. */
+.dzr_fchart .dzr_fgridline{stroke:var(--dsw-alias-border-l1);stroke-width:1;stroke-dasharray:2 3;vector-effect:non-scaling-stroke}
+.dzr_fchart .dzr_ftick{stroke:var(--dsw-alias-border-l2);stroke-width:1;vector-effect:non-scaling-stroke}
+.dzr_fchart .dzr_flab,.dzr_fchart .dzr_faxis-title{fill:var(--dsw-alias-label-tertiary);font-family:inherit;font-size:6.5px;font-variant-numeric:tabular-nums}
+.dzr_fchart .dzr_fno{stroke:var(--dsw-alias-border-l2);stroke-width:1.2;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
+.dzr_fchart polyline{fill:none;stroke:var(--dsw-alias-state-business-primary);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.dzr_fcell[data-level="warm"] .dzr_fchart polyline{stroke:var(--dsw-alias-state-warning-primary)}
+.dzr_fcell[data-level="hot"] .dzr_fchart polyline{stroke:var(--dsw-alias-state-error-primary)}
+.dzr_fchart .dzr_fdot{fill:var(--dsw-alias-state-error-primary,#e5484d);stroke:var(--dsw-alias-bg-layer-2);stroke-width:.5}
+.dzr_fchart .dzr_fcross{stroke:var(--dsw-alias-state-error-primary,#e5484d);stroke-width:1;stroke-dasharray:3 3;opacity:.75;vector-effect:non-scaling-stroke}
+.dzr_ffoot{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--dsw-alias-border-l1);flex-wrap:wrap}
+.dzr_ffoot .dzr_note{flex:1;min-width:80px}
+.dzr_ferr{padding:0 12px 8px}
+.dzr_fopacity{width:74px;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer;flex:none}
+.dzr_range{width:100%;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}
 `
     function installStyles() {
       const id = 'dsh-dzrobot-ssh/styles'
@@ -695,7 +801,10 @@ window.__ModuleLoader__.load({
      */
     function createStore() {
       const listeners = new Set()
-      let value = { phase: 'idle', probe: undefined, car: undefined, message: '', command: '' }
+      // The float shares this store too: the panel row that opens it and the
+      // overlay card that renders it are two registrations apart, and
+      // `floatOpen` is the wire between them.
+      let value = { phase: 'idle', probe: undefined, car: undefined, message: '', command: '', floatOpen: floatOpenByDefault() }
       return {
         get: () => value,
         set: patch => {
@@ -858,6 +967,18 @@ window.__ModuleLoader__.load({
                 onChange: event => patch('sshOptions', event.target.value),
               }),
             ]),
+            // The float's opacity lives here as well as on the card itself:
+            // settings are the place to find a knob whose name you forgot, and
+            // both writers go through the same `/config` route and clamp.
+            h('div', { key: 'opacity', className: 'dzr_field' }, [
+              h('span', { key: 'l' }, `${t('fieldFloatOpacity')} · ${settings.floatOpacity ?? 100}%`),
+              h('input', {
+                key: 'i', className: 'dzr_range', type: 'range', min: 30, max: 100, step: 5,
+                value: settings.floatOpacity ?? 100,
+                onChange: event => patch('floatOpacity', Math.min(100, Math.max(30, Math.round(Number(event.target.value))))),
+              }),
+            ]),
+            h('div', { key: 'opacityNote', className: 'dzr_note' }, t('opacityHint')),
             h('div', { key: 'save', className: 'dzr_actions' }, h('button', {
               type: 'button', className: 'dzr_action', disabled: busy !== '', onClick: save,
             }, busy === 'save' ? '…' : t('save'))),
@@ -1418,63 +1539,491 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function makeConsoleTabShell(ctx, t) {
-      // One stable component identity — Eruda loads from CDN and initializes
-      // inside a container div. We keep the shell stable so tab switches don't
-      // re-inject the script or re-initialize Eruda.
-      return function ConsoleTabShell() {
-        const containerRef = useRef(null)
-        const [loaded, setLoaded] = useState(false)
-        const [error, setError] = useState('')
+    // ── the status float ─────────────────────────────────────────────────────
+    /**
+     * Remember the float's corner across reloads: it is a window the user
+     * positioned once, and having it jump back to a default on every refresh is
+     * the kind of small betrayal that makes people stop opening it.
+     */
+    function readFloatPos() {
+      const fallback = () => {
+        const width = typeof window !== 'undefined' && Number.isFinite(window.innerWidth) ? window.innerWidth : 1200
+        const height = typeof window !== 'undefined' && Number.isFinite(window.innerHeight) ? window.innerHeight : 800
+        return { left: Math.max(8, width - 300), top: Math.max(8, Math.round(height * 0.12)) }
+      }
+      try {
+        const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('dsh-dzrobot-ssh.float.pos') : null
+        if (raw !== null) {
+          const parsed = JSON.parse(raw)
+          if (parsed !== null && typeof parsed === 'object' && Number.isFinite(parsed.left) && Number.isFinite(parsed.top)) return parsed
+        }
+      } catch { /* no storage in this context */ }
+      return fallback()
+    }
 
-        useEffect(() => {
-          let alive = true
-          // Load Eruda from jsDelivr CDN
-          const script = document.createElement('script')
-          script.src = 'https://cdn.jsdelivr.net/npm/eruda@latest/eruda.min.js'
-          script.async = true
-          script.onload = () => {
-            if (alive && containerRef.current) {
-              try {
-                // Initialize Eruda with the container
-                window.eruda.init({
-                  container: containerRef.current,
-                  tool: ['console', 'elements', 'network', 'resources', 'sources'],
-                  useShadowDom: true,
-                  autoScale: true,
-                })
-                if (alive) setLoaded(true)
-              } catch (e) {
-                if (alive) setError(String(e?.message ?? e))
-              }
-            }
-          }
-          script.onerror = () => {
-            if (alive) setError('Failed to load Eruda from CDN')
-          }
-          document.head.appendChild(script)
-          return () => {
-            alive = false
-            // Clean up Eruda on unmount
-            if (window.eruda && typeof window.eruda.destroy === 'function') {
-              try { window.eruda.destroy() } catch (_) {}
-            }
-            script.remove()
+    function saveFloatPos(pos) {
+      try { if (typeof localStorage !== 'undefined') localStorage.setItem('dsh-dzrobot-ssh.float.pos', JSON.stringify(pos)) } catch { /* ignore */ }
+    }
+
+    /** Whether the float was left open: reopening it on load is the point. */
+    function floatOpenByDefault() {
+      try { return typeof localStorage !== 'undefined' && localStorage.getItem('dsh-dzrobot-ssh.float.open') === '1' } catch { return false }
+    }
+
+    function rememberFloatOpen(open) {
+      try { if (typeof localStorage !== 'undefined') localStorage.setItem('dsh-dzrobot-ssh.float.open', open ? '1' : '0') } catch { /* ignore */ }
+    }
+
+    /**
+     * Human uptime from a reading that is already `age` milliseconds old, so
+     * the seconds keep advancing between the 5-second polls.
+     */
+    function formatDuration(totalSeconds, t) {
+      if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '—'
+      const seconds = Math.floor(totalSeconds)
+      const days = Math.floor(seconds / 86400)
+      const hours = Math.floor((seconds % 86400) / 3600)
+      const minutes = Math.floor((seconds % 3600) / 60)
+      const rest = seconds % 60
+      if (days > 0) return `${days}${t('unitDay')} ${hours}${t('unitHour')}`
+      if (hours > 0) return `${hours}${t('unitHour')} ${minutes}${t('unitMin')}`
+      if (minutes > 0) return `${minutes}${t('unitMin')} ${rest}${t('unitSec')}`
+      return `${rest}${t('unitSec')}`
+    }
+
+    /** `hh:mm:ss` for the "updated at" line and the boot time. */
+    function clockTime(ms) {
+      const date = new Date(ms)
+      const pad = value => String(value).padStart(2, '0')
+      return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    }
+
+    /** CPU thresholds: the RK3588 runs warm past 75 % and saturates at 90. */
+    const levelOf = (value, warm, hot) => (value >= hot ? 'hot' : value >= warm ? 'warm' : 'ok')
+
+    /**
+     * Battery thresholds run backwards: the pack is the one gauge where *low*
+     * is the bad direction — ≤30 % warns, ≤15 % is critical. Returns the same
+     * `ok|warm|hot` vocabulary the CSS levels use, so one rule set styles both
+     * cells.
+     */
+    const batteryLevelOf = value => (value <= 15 ? 'hot' : value <= 30 ? 'warm' : 'ok')
+
+    /**
+     * Title-bar uptime as `m:ss` — minutes are the *total* elapsed minutes of
+     * the car's own /proc/uptime (no hours: it is a stopwatch, not a clock,
+     * so a two-day car reads 2880:00). Seconds are padded; `--:--` before
+     * the first reading. The full "3天 4小时" text rides as the title's
+     * tooltip via formatDuration.
+     */
+    function formatUptime(totalSeconds) {
+      if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '--:--'
+      const seconds = Math.floor(totalSeconds)
+      const pad = value => String(value).padStart(2, '0')
+      return `${Math.floor(seconds / 60)}:${pad(seconds % 60)}`
+    }
+
+    /**
+     * How old a reading may be and still be called "the car's uptime".
+     *
+     * Three 5-second poll intervals plus slack: long enough to ride out one
+     * slow SSH round trip, short enough that a stale anchor is never
+     * extrapolated into a plausible-looking lie (after the car disconnected,
+     * the header kept counting from the last good sample — the reported bug).
+     */
+    const UPTIME_STALE_MS = 15_000
+
+    /**
+     * The header's uptime verdict — pure, so the test pins the contract.
+     *
+     *   · `live`  — the car answered, the failure flag is clear and the
+     *     reading is younger than UPTIME_STALE_MS: the value is the car's
+     *     own `/proc/uptime` plus the seconds that have passed since that
+     *     sample (`startedAt` prefers the car's `btime` boot instant when
+     *     present, falling back to host-clock arithmetic).
+     *   · `down`  — the last poll failed, or the reading is too old to
+     *     claim: the header must say 小车未连接, not keep ticking.
+     *   · `loading` — nothing tried yet: `--:--`.
+     *
+     * On reconnect the next good reading replaces everything, so all gauges
+     * re-anchor on the car's numbers.
+     */
+    function uptimeView(reading, error, now) {
+      const good = reading != null && reading.ok === true && Number.isFinite(reading.uptimeSec)
+        && Number.isFinite(reading.at)
+      const age = good ? Math.max(0, now - reading.at) : 0
+      if (good && error === '' && age <= UPTIME_STALE_MS) {
+        const startedAt = Number.isFinite(reading.bootEpoch)
+          ? reading.bootEpoch * 1000
+          : reading.at - reading.uptimeSec * 1000
+        return { state: 'live', uptime: reading.uptimeSec + age / 1000, startedAt, age }
+      }
+      if (!good && error === '') return { state: 'loading' }
+      return { state: 'down' }
+    }
+
+    /** Plot geometry in viewBox units; the box's inner width matches it 1:1,
+        so tick labels draw at ~1:1 instead of being scaled with the frame. */
+    const CHART = { w: 144, h: 78, l: 26, r: 141, t: 6, b: 56 }
+    const X_HALF = 30 * 1000    // x axis: now ± 30 seconds
+    const X_STEP = 5 * 1000     // a tick every 5 seconds
+
+    /**
+     * The plot's geometry, recomputed on every paint so both axes move with the
+     * car rather than being pinned to whatever the first reading happened to
+     * be:
+     *
+     *   x — now ± 30 s, a tick every 5 seconds, HH:MM:SS labels at −30 s,
+     *       now and +30 s (the red dot lands on the centre line). Seconds
+     *       are required in the labels: ±30 s around a whole minute would
+     *       otherwise show the same HH:MM at centre and right end.
+     *   y — battery and CPU are both percentages: current ±10 points, ticks
+     *       every 5 %, clamped into 0..100 (a car sitting at 95 % has no
+     *       +110 tick to draw).
+     *
+     * Returns the ranges, the tick lists with labels pre-formatted, the
+     * polyline and the latest-value dot — plain numbers, so the tests assert
+     * the scales directly and the renderer only draws what this says. Samples
+     * outside the x window are dropped, not clamped: a squeezed line would lie
+     * about the rate of change. `current` non-finite (no reading yet) answers
+     * null, and the renderer draws an empty frame with a dashed baseline —
+     * never a made-up curve.
+     */
+    function chartModel(kind, samples, now, current) {
+      if (!Number.isFinite(current)) return null
+      const lo = Math.max(0, current - 10)
+      const hi = Math.min(100, current + 10)
+      const step = 5
+      const xOf = at => CHART.l + ((at - (now - X_HALF)) / (2 * X_HALF)) * (CHART.r - CHART.l)
+      const yOf = value => CHART.b - ((value - lo) / (hi - lo)) * (CHART.b - CHART.t)
+      const clamp = value => Math.min(hi, Math.max(lo, value))
+
+      // Ticks anchored on the current value, so ±10/±5 land exactly on the
+      // range the spec asks for; the clamp drops the one the 0..100 bound
+      // pushed outside.
+      const yTicks = []
+      for (let index = -2; index <= 2; index += 1) {
+        const value = current + index * step
+        if (value < lo - 1e-9 || value > hi + 1e-9) continue
+        yTicks.push({
+          v: Math.round(value * 100) / 100,
+          y: yOf(value),
+          label: String(Math.round(value)),
+        })
+      }
+
+      const xTicks = []
+      const steps = Math.round((2 * X_HALF) / X_STEP)
+      for (let index = 0; index <= steps; index += 1) {
+        const at = now - X_HALF + index * X_STEP
+        // Clock labels only at the ends and the centre (a label on every 5-s
+        // tick would collide: ~9 units apart in a 144-unit box), and with
+        // second precision so the three labels are distinguishable.
+        const major = index === 0 || index === steps || index * X_STEP === X_HALF
+        xTicks.push({ x: xOf(at), at, label: major ? clockTime(at) : null })
+      }
+
+      const usable = (Array.isArray(samples) ? samples : [])
+        .filter(sample => Number.isFinite(sample?.at) && Number.isFinite(sample?.value)
+          && sample.at >= now - X_HALF && sample.at <= now + X_HALF)
+      const points = usable.length < 2
+        ? ''
+        : usable.map(sample => `${xOf(sample.at).toFixed(1)},${yOf(clamp(sample.value)).toFixed(1)}`).join(' ')
+      const latest = usable.length > 0 ? usable[usable.length - 1] : { at: now, value: current }
+
+      return {
+        lo, hi, unit: '%', xTicks, yTicks, points,
+        dot: { x: xOf(latest.at), y: yOf(clamp(latest.value)) },
+      }
+    }
+
+    /**
+     * The status float itself: a draggable card of the car's battery level and
+     * CPU usage — two parallel cells, each a blue pair of boxes (名称 + 数值
+     * over a curve plot with live axes: x = now±30 s ticked every 5 seconds,
+     * y = the metric's own ±range). The uptime moved up to the header line
+     * (`小车状态 | 开机时间：m:ss`) and no longer draws a curve.
+     *
+     * Registered on `shell.overlay` — the frame-wide floating layer above every
+     * column — rather than as a tab, because the whole point is to keep
+     * watching the car's battery while the app shows something else. Opening it
+     * is a store flip, not a navigation: no Session is needed, so it works on a
+     * fresh start before any conversation exists.
+     *
+     * Three clocks run while it is open: a 5-second poll (each reading is one
+     * ssh round trip to the car, and one history sample — the ring keeps 160
+     * ≈ 13 minutes of it; the axis only draws the last ±30 s), a
+     * 1-second tick (uptime advances between polls, and the x axis slides with
+     * it), and the drag itself. The first two stop when the float closes or
+     * the page is hidden.
+     *
+     * The opacity slider is a persisted setting, not a local tweak: it writes
+     * through to the Host's `/config` (debounced — one drag is dozens of change
+     * events), and the value rides on the `--dzr-op` custom property so hover
+     * can still override it; see the CSS comment for why inline `opacity`
+     * would lock a dimmed card's own controls out of reach.
+     */
+    function makeFloatWindow(ctx, store, t) {
+      return function FloatWindow() {
+        const state = useStore(store)
+        const open = state.floatOpen === true
+        const [reading, setReading] = useState(undefined)
+        const [error, setError] = useState('')
+        const [history, setHistory] = useState([])
+        const [pos, setPos] = useState(readFloatPos)
+        const [now, setNow] = useState(() => Date.now())
+        const drag = useRef(null)
+        const opacitySave = useRef(null)
+
+        const pull = useCallback(async () => {
+          // A hidden page has no float to keep fresh; skip the round trip.
+          if (typeof document !== 'undefined' && document.hidden) return
+          try {
+            const payload = await api('/metrics')
+            if (payload.ok === true) {
+              setReading(payload)
+              setError('')
+              // One sample per successful poll, stamped with the reading's own
+              // time so the x axis plots against when it was taken (the host
+              // clock, which is this machine's). The ring keeps the last 160
+              // (≈13 min; the plot draws the last ±30 s of it); a failure
+              // contributes nothing instead of poisoning the curve with 0.
+              setHistory(list => [...list, {
+                at: Number.isFinite(payload.at) ? payload.at : Date.now(),
+                battery: Number.isFinite(payload.battery) ? payload.battery : null,
+                cpu: Number.isFinite(payload.cpuPercent) ? payload.cpuPercent : null,
+              }].slice(-160))
+            } else setError(String(payload.detail ?? payload.state ?? 'error'))
+          } catch (problem) {
+            setError(String(problem?.message ?? problem))
           }
         }, [])
 
-        if (error !== '') {
-          return h('div', { className: 'dzr_tabroot' }, h('div', { className: 'dzr_pad' }, h('div', { className: 'dzr_note dzr_warn' }, error)))
+        useEffect(() => {
+          if (!open) return undefined
+          void pull()
+          const timer = setInterval(() => { void pull() }, 5000)
+          return () => clearInterval(timer)
+        }, [open, pull])
+
+        // The uptime gauge ticks between polls instead of jumping every 5s.
+        useEffect(() => {
+          if (!open) return undefined
+          const timer = setInterval(() => setNow(Date.now()), 1000)
+          return () => clearInterval(timer)
+        }, [open])
+
+        // Coming back to the page re-anchors at once: the stale bound would
+        // otherwise hold the header on 小车未连接 for a full poll cycle even
+        // though the car is right there.
+        useEffect(() => {
+          if (!open || typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined
+          const onVisible = () => { if (!document.hidden) void pull() }
+          document.addEventListener('visibilitychange', onVisible)
+          return () => document.removeEventListener('visibilitychange', onVisible)
+        }, [open, pull])
+
+        const startDrag = event => {
+          // A press on a control is a click, not a grab. Without this guard the
+          // header takes pointer capture for every press on the × button, the
+          // browser then retargets the resulting click to the capturing header
+          // itself, and the button's onClick never fires — precisely the
+          // reported "关不掉". Buttons in the header therefore never start a drag.
+          if (typeof event.target?.closest === 'function' && event.target.closest('button') !== null) return
+          drag.current = { dx: event.clientX - pos.left, dy: event.clientY - pos.top }
+          try { event.currentTarget.setPointerCapture?.(event.pointerId) } catch { /* no pointer capture */ }
         }
-        // The container div must be mounted BEFORE the script fires onload —
-        // otherwise containerRef.current is still null in script.onload and
-        // Eruda never initializes (the tab would sit on "loading" forever). So
-        // the container stays in the tree and the loading note sits above it
-        // until init finishes.
-        return h('div', { className: 'dzr_tabroot', style: { height: '100%', display: 'flex', flexDirection: 'column' } },
-          loaded ? null : h('div', { className: 'dzr_pad' }, h('div', { className: 'dzr_note' }, t('consoleLoading') ?? 'Loading Eruda…')),
-          h('div', { ref: containerRef, style: { flex: '1 1 auto', width: '100%', height: '100%', minHeight: 400 } })
-        )
+        const moveDrag = event => {
+          if (drag.current === null) return
+          const width = typeof window !== 'undefined' && Number.isFinite(window.innerWidth) ? window.innerWidth : 1024
+          const height = typeof window !== 'undefined' && Number.isFinite(window.innerHeight) ? window.innerHeight : 768
+          const left = Math.min(Math.max(4, event.clientX - drag.current.dx), Math.max(4, width - 120))
+          const top = Math.min(Math.max(4, event.clientY - drag.current.dy), Math.max(4, height - 48))
+          setPos({ left, top })
+        }
+        const endDrag = () => {
+          if (drag.current === null) return
+          drag.current = null
+          saveFloatPos(pos)
+        }
+
+        const close = () => { rememberFloatOpen(false); store.set({ floatOpen: false }) }
+
+        // Opacity: instant on screen (store → re-render), durable on disk
+        // (debounced POST — a single slider drag fires dozens of change events).
+        const opacityRaw = Number(state.floatOpacity)
+        const opacityValue = Number.isFinite(opacityRaw) ? Math.min(100, Math.max(30, Math.round(opacityRaw))) : 100
+        const setOpacity = event => {
+          const value = Math.round(Number(event.target.value))
+          if (!Number.isFinite(value)) return
+          const clamped = Math.min(100, Math.max(30, value))
+          store.set({ floatOpacity: clamped })
+          if (opacitySave.current !== null) clearTimeout(opacitySave.current)
+          opacitySave.current = setTimeout(() => {
+            opacitySave.current = null
+            void api('/config', { method: 'POST', body: JSON.stringify({ floatOpacity: clamped }) }).catch(() => {})
+          }, 400)
+        }
+
+        if (!open) return null
+
+        // One verdict drives every uptime decision: `live` is the car's own
+        // /proc/uptime advanced to now; `down` is the disconnect state the
+        // header must name — never a stale anchor kept ticking; `loading` is
+        // the pre-first-poll placeholder.
+        const up = uptimeView(reading, error, now)
+        const fresh = up.state === 'live'
+        const uptime = fresh ? up.uptime : undefined
+        const startedAt = fresh ? up.startedAt : 0
+        // Battery/CPU keep their last painted value while the error line below
+        // names the outage; the next good poll re-anchors every gauge on the
+        // car's own numbers.
+        const hasReading = reading !== undefined && reading.ok === true
+        const battery = hasReading && Number.isFinite(reading.battery) ? reading.battery : null
+        const cpu = hasReading ? reading.cpuPercent : undefined
+
+        /** One metric's samples so far: a failed poll contributes none. */
+        const samplesOf = field => history
+          .filter(sample => Number.isFinite(sample[field]))
+          .map(sample => ({ at: sample.at, value: sample[field] }))
+
+        // The plot: axes and ticks recomputed every paint from chartModel, the
+        // curve from the samples, and the latest value as a red dot with dashed
+        // cross-hairs to the axes. With no reading model is null and this is
+        // an empty frame with a dashed baseline — never an invented curve.
+        const chart = kind => {
+          const model = chartModel(kind, samplesOf(kind), now, kind === 'battery' ? battery : cpu)
+          const kids = []
+          const axis = [
+            h('line', { key: 'ax', x1: CHART.l, y1: CHART.t, x2: CHART.l, y2: CHART.b, className: 'dzr_faxis' }),
+            h('line', { key: 'az', x1: CHART.l, y1: CHART.b, x2: CHART.r, y2: CHART.b, className: 'dzr_faxis' }),
+          ]
+          if (model === null) {
+            kids.push(axis[0], axis[1])
+            const mid = (CHART.t + CHART.b) / 2
+            kids.push(h('line', { key: 'no', x1: CHART.l, y1: mid, x2: CHART.r, y2: mid, className: 'dzr_fno' }))
+          } else {
+            kids.push(axis[0], axis[1])
+            for (const tick of model.yTicks) {
+              kids.push(h('line', { key: `gy${tick.v}`, x1: CHART.l, y1: tick.y, x2: CHART.r, y2: tick.y, className: 'dzr_fgridline' }))
+              kids.push(h('text', { key: `ly${tick.v}`, x: CHART.l - 3, y: tick.y + 2.2, className: 'dzr_flab', 'text-anchor': 'end' }, tick.label))
+            }
+            model.xTicks.forEach((tick, index) => {
+              kids.push(h('line', { key: `tx${index}`, x1: tick.x, y1: CHART.b, x2: tick.x, y2: CHART.b + 3, className: 'dzr_ftick' }))
+              if (tick.label !== null) {
+                // The end labels hug their edge instead of centring, or they
+                // would run past the viewBox and touch the box's border.
+                const anchor = index === 0 ? 'start' : index === model.xTicks.length - 1 ? 'end' : 'middle'
+                kids.push(h('text', { key: `lx${index}`, x: tick.x, y: CHART.b + 11, className: 'dzr_flab', 'text-anchor': anchor }, tick.label))
+              }
+            })
+            if (model.points !== '') kids.push(h('polyline', { key: 'p', points: model.points }))
+            kids.push(h('line', { key: 'cx', x1: model.dot.x, y1: model.dot.y, x2: model.dot.x, y2: CHART.b, className: 'dzr_fcross' }))
+            kids.push(h('line', { key: 'cy', x1: CHART.l, y1: model.dot.y, x2: model.dot.x, y2: model.dot.y, className: 'dzr_fcross' }))
+            kids.push(h('circle', { key: 'd', cx: model.dot.x, cy: model.dot.y, r: 2, className: 'dzr_fdot' }))
+            const midY = (CHART.t + CHART.b) / 2
+            kids.push(h('text', { key: 'yu', x: 7, y: midY, className: 'dzr_faxis-title', 'text-anchor': 'middle', transform: `rotate(-90 7 ${midY})` }, model.unit))
+            kids.push(h('text', { key: 'xu', x: (CHART.l + CHART.r) / 2, y: CHART.h - 2, className: 'dzr_faxis-title', 'text-anchor': 'middle' }, t('floatAxisX')))
+          }
+          return h('svg', { key: 'c', className: 'dzr_fchart', viewBox: `0 0 ${CHART.w} ${CHART.h}`, 'aria-hidden': 'true' }, kids)
+        }
+
+        const number = (text, unit) => (text === undefined
+          ? h('b', { key: 'v' }, '—')
+          : h('b', { key: 'v' }, [h('span', { key: 'n' }, text), h('small', { key: 'u' }, unit)]))
+
+        // One cell = two blue boxes: 名称 + 数值 on top, its curve plot below.
+        // The extra context (the pack's voltage / why there is none, the load
+        // average) rides as a tooltip on the cell rather than taking a line of
+        // its own.
+        const cell = (key, label, value, tip, level) => h('div', {
+          key,
+          className: 'dzr_fcell',
+          'data-kind': key,
+          ...level === undefined ? {} : { 'data-level': level },
+          ...tip === '' ? {} : { title: tip },
+        }, [
+          h('div', { key: 'box', className: 'dzr_fbox' }, [h('span', { key: 'l' }, label), value]),
+          h('div', { key: 'plot', className: 'dzr_fbox dzr_fplot' }, [chart(key)]),
+        ])
+
+        // Where the battery number comes from: the chassis topic (volts as
+        // published), the voltage-derived fallback (12 V full / 10 V empty),
+        // or nothing at all — in which case the tooltip says the stack is
+        // down instead of the gauge inventing a 0 %.
+        const battTip = () => {
+          if (battery === null) return t('floatBattNone')
+          const volts = Number.isFinite(reading.batteryVolt) ? reading.batteryVolt : null
+          if (volts === null) return ''
+          return reading.batteryNote === 'derived'
+            ? t('floatBattDerived', { v: volts.toFixed(2) })
+            : t('floatBattVolts', { v: volts.toFixed(2) })
+        }
+
+        return h('div', {
+          className: 'dzr_float',
+          style: { left: `${pos.left}px`, top: `${pos.top}px`, '--dzr-op': `${opacityValue / 100}` },
+          'aria-label': t('floatTitle'),
+        }, [
+          h('div', {
+            key: 'head',
+            className: 'dzr_fhead',
+            title: t('floatDrag'),
+            onPointerDown: startDrag,
+            onPointerMove: moveDrag,
+            onPointerUp: endDrag,
+            onPointerCancel: endDrag,
+          }, [
+            h('span', { key: 'g', className: 'dzr_icon' }, CarGlyph({ size: 14 })),
+            // Header line: 名称 | 开机时间：m:ss — the uptime lives here now,
+            // so the body can be the two charts. Hover still gives the full
+            // detail the compact digits drop: "4分53秒 · 开机于 08:20".
+            h('div', { key: 't', className: 'dzr_ftitle' }, [
+              h('b', { key: 'n' }, t('floatTitle')),
+              h('i', { key: 's', className: 'dzr_fsep' }, '|'),
+              h('span', {
+                key: 'u',
+                className: 'dzr_fup',
+                ...(fresh ? { title: `${formatDuration(uptime, t)} · ${t('floatSince', { time: clockTime(startedAt) })}` } : {}),
+              }, `${t('floatUp')}：${up.state === 'down' ? t('floatDown') : formatUptime(uptime)}`),
+            ]),
+            h('button', {
+              key: 'c', type: 'button', className: 'dzr_fbtn', title: t('floatClose'),
+              // Belt and braces beside the startDrag guard: a press that starts
+              // on the button never reaches the draggable header at all, so no
+              // pointer capture can retarget its click.
+              onPointerDown: event => event.stopPropagation(),
+              onClick: close,
+            }, '×'),
+          ]),
+          h('div', { key: 'body', className: 'dzr_fgrid' }, [
+            cell('battery', t('floatBattery'),
+              number(battery === null ? undefined : battery.toFixed(1), '%'),
+              fresh || battery !== null ? battTip() : '',
+              battery === null ? undefined : batteryLevelOf(battery)),
+            cell('cpu', t('floatCpu'),
+              number(cpu === undefined ? undefined : cpu.toFixed(1), '%'),
+              fresh && Array.isArray(reading.load)
+                ? t('floatLoad', { load: reading.load.map(value => value.toFixed(2)).join(' ') })
+                : '',
+              cpu === undefined ? undefined : levelOf(cpu, 75, 90)),
+          ]),
+          error !== '' ? h('div', { key: 'err', className: 'dzr_note dzr_warn dzr_ferr' }, t('floatError', { message: error })) : null,
+          h('div', { key: 'foot', className: 'dzr_ffoot' }, [
+            h('span', { key: 'sync', className: 'dzr_note' },
+              reading === undefined ? t('floatLoading') : t('floatSync', { time: clockTime(reading.at) })),
+            h('input', {
+              key: 'op', type: 'range', className: 'dzr_fopacity',
+              min: 30, max: 100, step: 5, value: opacityValue,
+              title: t('fieldFloatOpacity'), 'aria-label': t('fieldFloatOpacity'),
+              onChange: setOpacity,
+            }),
+            h('button', {
+              key: 'refresh', type: 'button', className: 'dzr_fbtn', title: t('floatRefresh'),
+              onClick: () => { setNow(Date.now()); void pull() },
+            }, '↻'),
+          ]),
+        ])
       }
     }
 
@@ -1483,14 +2032,17 @@ window.__ModuleLoader__.load({
      * The panel's one table of contents.
      *
      * `kind` is the right-column tab type registered in `apply()` — except for
-     * `terminal`, which reuses the stock type so the shell keeps owning the PTY.
+     * `terminal`, which reuses the stock type so the shell keeps owning the PTY,
+     * and `float`, which is not a tab at all: it flips the store flag the
+     * `shell.overlay` card renders from (no Session needed, so it works before
+     * any conversation exists).
      * Adding a tool is: a row here, a tab-type registration there.
      */
     const TOOLS = [
       { id: 'terminal', kind: 'terminal', mode: 'terminal', titleKey: 'viewTerminal', descKey: 'terminalHint' },
       { id: 'files', kind: 'dzr-files', mode: 'tab', titleKey: 'viewFiles', descKey: 'filesToolDesc' },
       { id: 'vnc', kind: 'dzr-vnc', mode: 'tab', titleKey: 'viewVnc', descKey: 'vncToolDesc' },
-      { id: 'console', kind: 'dzr-console', mode: 'tab', titleKey: 'viewConsole', descKey: 'consoleToolDesc' },
+      { id: 'float', kind: null, mode: 'float', titleKey: 'viewFloat', descKey: 'floatToolDesc' },
     ]
 
     /** Compact glyphs for the list rows. */
@@ -1505,10 +2057,11 @@ window.__ModuleLoader__.load({
           h('rect', { key: 'a', x: '1.8', y: '3', width: '12.4', height: '7.6', rx: '1.2', stroke: 'currentColor' }),
           h('path', { key: 'b', d: 'M6 13.6h4M8 10.6v3', stroke: 'currentColor', strokeLinecap: 'round' }),
         ],
-        // code brackets / devtools
-        console: [
-          h('path', { key: 'a', d: 'M3 4L7 8L3 12', stroke: 'currentColor', strokeLinecap: 'round', strokeLinejoin: 'round' }),
-          h('path', { key: 'b', d: 'M13 4L9 8L13 12', stroke: 'currentColor', strokeLinecap: 'round', strokeLinejoin: 'round' }),
+        // a battery: the cell with its terminal (the float's headline number)
+        float: [
+          h('rect', { key: 'a', x: '1.8', y: '4.6', width: '10.6', height: '6.8', rx: '1.6', stroke: 'currentColor' }),
+          h('path', { key: 'b', d: 'M14.2 6.8v2.4', stroke: 'currentColor', strokeLinecap: 'round' }),
+          h('path', { key: 'c', d: 'M4 6.8h4.2v2.4H4z', fill: 'currentColor', stroke: 'none' }),
         ],
       }
       return h('svg', { width: 18, height: 18, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true' }, paths[id] ?? [])
@@ -1533,6 +2086,9 @@ window.__ModuleLoader__.load({
               probe: payload.probe,
               car: payload.car,
               filesShortcuts: payload.files?.shortcuts ?? [],
+              // The overlay card needs the persisted opacity; the panel is one
+              // of the two seats that read /status on mount.
+              floatOpacity: payload.settings?.floatOpacity,
             })
             diag('panel.status', { origin: payload.origin, vnc: payload.vnc, root: payload.files?.root })
           }).catch(problem => {
@@ -1550,8 +2106,17 @@ window.__ModuleLoader__.load({
         }
 
         const open = tool => async () => {
-          setBusy(tool.id)
           setRowMsg(current => ({ ...current, [tool.id]: '' }))
+          if (tool.mode === 'float') {
+            // No session, no tab, no navigation: toggling the store flag is the
+            // whole protocol — the `shell.overlay` card follows it from there.
+            const next = !(store.get().floatOpen === true)
+            rememberFloatOpen(next)
+            store.set({ floatOpen: next })
+            diag('tool.float', { open: next })
+            return
+          }
+          setBusy(tool.id)
           try {
             const result = tool.mode === 'terminal'
               ? await connect(ctx, document.body, () => {})
@@ -1589,9 +2154,10 @@ window.__ModuleLoader__.load({
                 rowMsg[tool.id] ? h('div', { key: 'm', className: 'dzr_note dzr_warn' }, rowMsg[tool.id]) : null,
               ]),
               h('button', {
-                key: 'b', type: 'button', className: 'dzr_action primary',
+                key: 'b', type: 'button',
+                className: `dzr_action${tool.mode === 'float' && state.floatOpen === true ? '' : ' primary'}`,
                 disabled: busy !== '', onClick: open(tool),
-              }, busy === tool.id ? '…' : t('toolOpen')),
+              }, busy === tool.id ? '…' : (tool.mode === 'float' && state.floatOpen === true ? t('toolClose') : t('toolOpen'))),
             ])),
           ]),
         ])
@@ -2136,7 +2702,6 @@ window.__ModuleLoader__.load({
       // live VNC session — so the shells are created once, here.
       const VncTabShell = makeVncTabShell(ctx, t)
       const FilesTabShell = makeFilesTabShell(ctx, t)
-      const ConsoleTabShell = makeConsoleTabShell(ctx, t)
       if (tabTypes !== undefined && typeof tabTypes.register === 'function') {
         ctx.effect(() => tabTypes.register({
           id: 'dsh-dzrobot-ssh/vnc',
@@ -2157,13 +2722,6 @@ window.__ModuleLoader__.load({
           title: () => t('viewFiles'),
         }), 'dzrobot-ssh: tab type files')
 
-        ctx.effect(() => tabTypes.register({
-          id: 'dsh-dzrobot-ssh/console',
-          kind: 'dzr-console',
-          multiple: false,
-          title: () => t('viewConsole'),
-        }), 'dzrobot-ssh: tab type console')
-
         ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
           name: 'sidebar.right.pane.tab',
           key: 'dsh-dzrobot-ssh/vnc',
@@ -2177,16 +2735,23 @@ window.__ModuleLoader__.load({
           locale: NS,
           inject: () => ({}),
         }, FilesTabShell)), 'dzrobot-ssh: tab body files')
-
-        ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
-          name: 'sidebar.right.pane.tab',
-          key: 'dsh-dzrobot-ssh/console',
-          locale: NS,
-          inject: () => ({}),
-        }, ConsoleTabShell)), 'dzrobot-ssh: tab body console')
       } else {
         diag('tabs.unavailable', { hasRegistry: tabTypes !== undefined })
       }
+
+      // ── the status float, on the frame-wide overlay ─────────────────────────
+      // `shell.overlay` is a floating layer above every column and outside their
+      // scroll containers, so the card stays put through panel switches — which
+      // is the whole point of watching the car's battery while working
+      // somewhere else.
+      ctx.effect(() => ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+        name: 'shell.overlay',
+        id: 'dzrobot-float',
+        // Above the built-in overlay items, below any transient layer.
+        order: 40,
+        label: () => t('floatTitle'),
+        locale: NS,
+      }, makeFloatWindow(ctx, store, t))), 'dzrobot-ssh: status float overlay')
 
       // Prime the sidebar dot from the last known probe, then run the one-shot
       // self-test when the Host armed it: the flow is otherwise only reachable by
@@ -2197,7 +2762,7 @@ window.__ModuleLoader__.load({
           try {
             const status = await api('/status')
             if (!alive) return
-            store.set({ probe: status.probe, car: status.car, command: status.command })
+            store.set({ probe: status.probe, car: status.car, command: status.command, floatOpacity: status.settings?.floatOpacity })
             const selfTest = await api('/selftest')
             diag('client.selftest', selfTest)
             if (selfTest.run !== true) return
@@ -2239,6 +2804,13 @@ window.__ModuleLoader__.load({
       connect, ensureConversation, openToolTab, waitFor, describeService, surveyServices,
       DICT, STATE_KEY, TOOLS, makeVncView, makeFilesView, makeCarPanel,
       makeVncTabShell, makeFilesTabShell,
+      // The float's pure parts: uptime formatting, the chart's axis/geometry
+      // math and the open/pos persistence are plain logic worth pinning; the
+      // card itself is exercised through the panel row and the overlay
+      // registration above. uptimeView is the disconnect contract: live only
+      // from a fresh car reading, 小车未连接 the moment that fails.
+      makeFloatWindow, formatDuration, formatUptime, uptimeView, UPTIME_STALE_MS, levelOf, batteryLevelOf, clockTime, readFloatPos, floatOpenByDefault,
+      chartModel, CHART,
       // generic VNC connector
       detectRuntime, normalizeConnectorConfig, makeVncConnectorPanel,
       bridgeConnectorConfig, VNC_RESOLUTIONS, CONNECTOR_ID,

@@ -38,10 +38,12 @@ const check = (label, run) => {
  * Paths `index.js` hands to the browser at runtime.
  *
  * `vnc-app.html` is the iframe document itself; `novnc/` is the whole ES module
- * graph it imports. Both are read from disk per request, so a missing one is a
- * 404 in the browser and nothing else.
+ * graph it imports; `float.html` is the standalone status window and
+ * `src/metrics.js` + `src/store.js` are imported by the Host half (the metrics
+ * probe and the clamped float settings). Every one of them is read from disk per
+ * request or at import time, so a missing one is a 404 or a boot failure.
  */
-const RUNTIME_ASSETS = ['vnc-app.html', 'novnc']
+const RUNTIME_ASSETS = ['vnc-app.html', 'novnc', 'float.html', 'src/metrics.js', 'src/store.js']
 
 /** Whether a `files` entry ships `relative` (a path or anything under it). */
 const isDeclared = relative => declared.some(entry => {
@@ -97,11 +99,30 @@ if (!fs.existsSync(installed)) {
       throw new Error('the installed vnc-app.html differs from the source tree; reinstall before testing the browser')
     }
   })
+  // package.json is the install's own manifest. Without it the bundle cannot be
+  // registered at all: the loader reads `main`/`exports` to find index.js and
+  // `dsh.bundle` to learn it is a client+host plugin. A copy that lost it looks
+  // like "the plugin was deleted" — every route 404s and the sidebar entry is
+  // simply absent, with no error anywhere. We shipped exactly that once, so this
+  // is checked before the content comparison below.
+  check('the installed copy contains package.json', () => {
+    const manifest = path.join(installed, 'package.json')
+    if (!fs.existsSync(manifest)) {
+      throw new Error(
+        `package.json is absent from ${installed}; the plugin cannot register (main/exports/dsh.bundle unreadable) — reinstall instead of hand-copying files`,
+      )
+    }
+    const shipped = JSON.parse(fs.readFileSync(manifest, 'utf8'))
+    if (shipped.name !== pkg.name) {
+      throw new Error(`the installed manifest declares ${shipped.name}, not ${pkg.name}`)
+    }
+  })
+
   // The host half loads from here, so a stale src/ would mean the fixes under
   // test are not the ones running. client.js is included because the browser half
   // is consumed as-is here — there is no bundling step to hide a stale copy.
   check('the installed plugin matches the source tree', () => {
-    for (const relative of ['index.js', 'client.js', 'src/vnc.js', 'src/ws.js']) {
+    for (const relative of ['index.js', 'client.js', 'src/vnc.js', 'src/ws.js', 'src/metrics.js', 'src/store.js', 'float.html']) {
       const source = fs.readFileSync(path.join(root, relative))
       const shippedPath = path.join(installed, relative)
       if (!fs.existsSync(shippedPath)) throw new Error(`${relative} is absent from the install`)

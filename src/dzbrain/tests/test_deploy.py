@@ -210,13 +210,13 @@ for _need, _why in (
         ("SKIP_PRECHECK", "启动门禁要有应急绕过（否则配置一坏就完全起不来）"),
         ("--dry-run", "启动门禁 = dzbrain 配置+路线校验"),
         ("dzros.env", "★现场适配：ROS 域号必须钉住（否则无人机/网页静默看不见）"),
-        ("5b_aimshim", "★现场适配：自瞄状态 Int32→UInt8 兼容转发"),
         ("PYTHONUNBUFFERED", "★现场适配：无缓冲（否则日志 0 字节被误判卡死）")):
     check(f"start_all.sh 覆盖 {_need}（{_why}）", _need in _sa)
-#  ⚠️ `python3 -u -m dzbrain.main` 在文件里**出现两次**（启动门禁的 --dry-run 一次、
-#     节点 7 真正启动一次）—— 一开始我按"只出现 1 次"写，测试当场红，这是对的：
-#     它把"门禁与启动是两件事"这个事实钉住了。
-_n7 = _sa.split("7/8 循迹")[1].split("sleep 2")[0] if "7/8 循迹" in _sa else ""
+#  ⚠️ 这里**不要**锚定 `7/8 循迹` / `5b_aimshim` 这类会随节点数变化的东西 —— 实测踩过：
+#     工作区把 8 节点删成 7 节点（浏览器控制台下线）后，锚点失配 → 切块长度 0 → 3 条断言全红，
+#     而代码其实是好的。锚点必须锚在**结构**上（`spawn 7_path` 的位置），不是文案上。
+_i7 = _sa.index("spawn 7_path")
+_n7 = _sa[max(0, _i7 - 1500): _sa.index("sleep 2", _i7)]
 check("★节点 7 是二选一分支：旧核入口 + 新核启动都在同一块里",
       "LEGACY_PATH" in _n7 and "path_executor_node" in _n7 and "dzbrain.main" in _n7,
       f"块长度 {len(_n7)}")

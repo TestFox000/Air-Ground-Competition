@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小车状态</title>
+<!--
+  dzrobot-ssh — the standalone status float.
+
+  The same three numbers as the in-page overlay — battery, CPU, uptime — but as
+  its own document so it can live in a separate OS window that stays on screen
+  while you work in another application. It is served by the plugin's own http
+  origin (the app's `dsh-app://` page cannot host a second window), which also
+  makes the metrics fetch below a plain same-origin request.
+
+  The battery number is the car's own: the chassis node reads the VCU over
+  serial and publishes Battery_Percentage / PowerVoltage over ROS. When the
+  stack is not running the cell says so instead of showing a fake 0 %.
+
+  No dependencies, no build step: one polling loop, three gauges.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --line: #e3e6ea;
+    --text: #1b1d21;
+    --muted: #797f88;
+    --accent: #2f6fed;
+    --ok: #16a34a;
+    --warm: #d97706;
+    --hot: #dc2626;
+    --track: #eceef1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --card: #1c1f24;
+      --line: #2b2f36;
+      --text: #e8eaed;
+      --muted: #8b919b;
+      --track: #262a31;
+    }
+  }
+  * { box-sizing: border-box }
+  html, body { margin: 0; height: 100% }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.5 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    flex-direction: column;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--card);
+  }
+  header b { font-size: 13px }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none }
+  .dot[data-state="live"] { background: var(--ok) }
+  .dot[data-state="loading"] { background: var(--warm) }
+  .dot[data-state="failed"] { background: var(--hot) }
+  #title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  button {
+    font: inherit;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  button:hover { color: var(--text); border-color: var(--accent) }
+  main { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px }
+  .cell {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .cell .label { font-size: 11px; color: var(--muted) }
+  .cell .value { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums }
+  .cell .value small { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 3px }
+  .cell .sub { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .cell[data-level="warm"] .value { color: var(--warm) }
+  .cell[data-level="hot"] .value { color: var(--hot) }
+  .bar { height: 6px; border-radius: 999px; background: var(--track); overflow: hidden }
+  .bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width .4s ease }
+  .bar i[data-level="warm"] { background: var(--warm) }
+  .bar i[data-level="hot"] { background: var(--hot) }
+  #error {
+    display: none;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--hot);
+    border-top: 1px solid var(--line);
+    background: var(--card);
+    word-break: break-all;
+  }
+  footer {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 12px;
+    border-top: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--card);
+  }
+  footer span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot" data-state="loading"></span>
+  <b id="title">小车状态</b>
+  <button id="refresh" type="button">刷新</button>
+</header>
+<main>
+  <div class="cell" id="batteryCell">
+    <span class="label" id="batteryLabel">电量</span>
+    <span class="value" id="batteryValue">—</span>
+    <span class="bar"><i id="batteryBar" style="width:0%"></i></span>
+    <span class="sub" id="batterySub"></span>
+  </div>
+  <div class="cell" id="cpuCell">
+    <span class="label" id="cpuLabel">CPU 占用</span>
+    <span class="value" id="cpuValue">—</span>
+    <span class="bar"><i id="cpuBar" style="width:0%"></i></span>
+    <span class="sub" id="cpuSub"></span>
+  </div>
+  <div class="cell" id="upCell">
+    <span class="label" id="upLabel">开机时间</span>
+    <span class="value" id="upValue">—</span>
+    <span class="sub" id="upSub"></span>
+  </div>
+</main>
+<div id="error"></div>
+<footer>
+  <span id="sync">—</span>
+  <span id="target"></span>
+</footer>
+<script>
+(() => {
+  'use strict'
+  const API = '/api/dzrobot-ssh/metrics'
+  const POLL_MS = 3000
+
+  const DICT = {
+    zh: {
+      title: '小车状态', refresh: '刷新', battery: '电量', cpu: 'CPU 占用', up: '开机时间',
+      down: '小车未连接',
+      loading: '正在读取…', empty: '—', updated: '更新于 {time}', poll: '每 3 秒自动刷新',
+      unitDay: '天', unitHour: '小时', unitMin: '分', unitSec: '秒',
+      since: '开机于 {time}', load: '负载 {load}',
+      battVolts: '{v} V · 底盘发布',
+      battDerived: '{v} V · 按 12V满/10V空 折算',
+      battNone: '底盘未发布电量（ROS 栈未运行）',
+      failed: '读取失败：{message}',
+    },
+    en: {
+      title: 'Car status', refresh: 'Refresh', battery: 'Battery', cpu: 'CPU usage', up: 'Uptime',
+      down: 'Car offline',
+      loading: 'Loading…', empty: '—', updated: 'updated {time}', poll: 'auto-refresh every 3s',
+      unitDay: 'd', unitHour: 'h', unitMin: 'm', unitSec: 's',
+      since: 'booted {time}', load: 'load {load}',
+      battVolts: '{v} V · chassis topic',
+      battDerived: '{v} V · from the 12 V-full / 10 V-empty calibration',
+      battNone: 'Battery not published (ROS stack is down)',
+      failed: 'Reading failed: {message}',
+    },
+  }
+  const lang = String(navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en'
+  const dict = DICT[lang]
+  const t = (key, vars) => Object.keys(vars || {}).reduce(
+    (text, name) => text.replace(`{${name}}`, String(vars[name])), dict[key])
+
+  const $ = id => document.getElementById(id)
+  $('title').textContent = t('title')
+  $('refresh').textContent = t('refresh')
+  $('batteryLabel').textContent = t('battery')
+  $('cpuLabel').textContent = t('cpu')
+  $('upLabel').textContent = t('up')
+
+  let last = null       // the last good reading
+  let failed = false    // whether the last attempt failed
+
+  // A reading older than this may not claim to be the car's uptime: three
+  // poll cycles of slack, then the cell says 小车未连接 instead of
+  // extrapolating a dead anchor.
+  const STALE_MS = 15000
+
+  const pad = value => String(value).padStart(2, '0')
+  const clock = ms => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` }
+
+  /** Uptime as m:ss — total minutes of /proc/uptime (stopwatch, no hours);
+      the seconds tick locally between polls. */
+  function duration(total) {
+    if (!Number.isFinite(total) || total < 0) return t('empty')
+    const s = Math.floor(total)
+    return `${Math.floor(s / 60)}:${pad(s % 60)}`
+  }
+
+  /** warm/hot thresholds: a CPU throttles near 75, saturates at 90. */
+  const level = (value, warm, hot) => (value >= hot ? 'hot' : value >= warm ? 'warm' : 'ok')
+  /** Battery thresholds run backwards: low is the bad direction (≤30 warn, ≤15 critical). */
+  const battLevel = value => (value <= 15 ? 'hot' : value <= 30 ? 'warm' : 'ok')
+
+  function paint() {
+    if (last === null) {
+      // Nothing read yet: the uptime cell reports the connection state rather
+      // than a dash that looks like a broken gauge.
+      $('upValue').textContent = failed ? t('down') : t('empty')
+      $('upSub').textContent = ''
+      return
+    }
+    const ageMs = Math.max(0, Date.now() - last.at)
+    const ageSec = ageMs / 1000
+    const live = !failed && ageMs <= STALE_MS
+
+    const batt = Number.isFinite(last.battery) ? last.battery : null
+    $('batteryValue').innerHTML = batt === null ? t('empty') : `${batt.toFixed(1)}<small>%</small>`
+    $('batteryCell').dataset.level = batt === null ? 'ok' : battLevel(batt)
+    $('batteryBar').style.width = `${batt === null ? 0 : Math.max(0, Math.min(100, batt))}%`
+    $('batteryBar').dataset.level = batt === null ? 'ok' : battLevel(batt)
+    $('batterySub').textContent = batt === null
+      ? t('battNone')
+      : last.batteryNote === 'derived' && Number.isFinite(last.batteryVolt)
+        ? t('battDerived', { v: last.batteryVolt.toFixed(2) })
+        : Number.isFinite(last.batteryVolt) ? t('battVolts', { v: last.batteryVolt.toFixed(2) }) : ''
+
+    $('cpuValue').innerHTML = `${last.cpuPercent.toFixed(1)}<small>%</small>`
+    $('cpuCell').dataset.level = level(last.cpuPercent, 75, 90)
+    $('cpuBar').style.width = `${Math.max(0, Math.min(100, last.cpuPercent))}%`
+    $('cpuBar').dataset.level = level(last.cpuPercent, 75, 90)
+    $('cpuSub').textContent = Array.isArray(last.load)
+      ? t('load', { load: last.load.map(value => value.toFixed(2)).join(' ') })
+      : ''
+
+    if (live) {
+      // The counter is the car's own /proc/uptime advanced to now; the boot
+      // line prefers the car's btime (its clock, its claim) and falls back
+      // to host-clock arithmetic when the answer carried none.
+      $('upValue').textContent = duration(last.uptimeSec + ageSec)
+      const bootMs = Number.isFinite(last.bootEpoch)
+        ? last.bootEpoch * 1000
+        : last.at - (last.uptimeSec + ageSec) * 1000
+      $('upSub').textContent = t('since', { time: clock(bootMs) })
+    } else {
+      $('upValue').textContent = t('down')
+      $('upSub').textContent = ''
+    }
+    $('sync').textContent = `${t('updated', { time: clock(last.at) })} · ${t('poll')}`
+    document.title = `${batt === null ? '--' : batt.toFixed(0)}% ${last.cpuPercent.toFixed(0)}% · ${t('title')}`
+  }
+
+  function fail(message) {
+    failed = true
+    $('dot').dataset.state = 'failed'
+    const box = $('error')
+    box.textContent = t('failed', { message })
+    box.style.display = 'block'
+  }
+
+  async function pull() {
+    $('dot').dataset.state = last === null ? 'loading' : $('dot').dataset.state
+    try {
+      const response = await fetch(API, { cache: 'no-store' })
+      const payload = await response.json()
+      if (payload && payload.ok === true) {
+        last = payload
+        failed = false
+        $('dot').dataset.state = 'live'
+        $('error').style.display = 'none'
+        paint()
+        return
+      }
+      fail((payload && (payload.detail || payload.state)) || `HTTP ${response.status}`)
+    } catch (error) {
+      fail(String((error && error.message) || error))
+    }
+    if (last !== null) $('dot').dataset.state = 'failed'
+  }
+
+  $('refresh').addEventListener('click', () => void pull())
+  // The gauge ticks every second (uptime advances between polls) and the poll
+  // itself is slower on purpose: each reading is an ssh round trip to the car.
+  setInterval(paint, 1000)
+  setInterval(() => { if (!document.hidden) void pull() }, POLL_MS)
+  // Returning to the window re-anchors at once instead of waiting out a poll
+  // cycle of 小车未连接.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) void pull() })
+  void pull()
+})()
+</script>
+</body>
+</html>

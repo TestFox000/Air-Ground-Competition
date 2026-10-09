@@ -52,6 +52,12 @@ export const SETTINGS_INITIAL = {
   vncPassword: '',
   /** Where the file browser starts. */
   filesRoot: '/home/duzhong',
+  /**
+   * Status float opacity, percent (100 = solid). A saved choice, not a per-session
+   * tweak: the card's slider and the settings page both write it through `/config`.
+   * The floor is 30 — below that the card's own controls become hard to hit.
+   */
+  floatOpacity: 100,
   lastConnectedAt: 0,
 }
 
@@ -132,6 +138,15 @@ export class JsonStore {
     if (next.probeTimeoutMs !== undefined) {
       const value = Number(next.probeTimeoutMs)
       next.probeTimeoutMs = Number.isFinite(value) && value > 0 ? Math.min(60_000, Math.trunc(value)) : SETTINGS_INITIAL.probeTimeoutMs
+    }
+    if (next.floatOpacity !== undefined) {
+      // A slider posts a number, but `/config` takes arbitrary JSON: an
+      // out-of-range or non-numeric value falls back to the default instead of
+      // rendering a card at `opacity: NaN` (i.e. invisible-but-clickable).
+      const value = Number(next.floatOpacity)
+      next.floatOpacity = Number.isFinite(value)
+        ? Math.min(100, Math.max(30, Math.round(value)))
+        : SETTINGS_INITIAL.floatOpacity
     }
     return next
   }

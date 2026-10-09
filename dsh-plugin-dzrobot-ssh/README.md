@@ -8,6 +8,7 @@
 | **SSH 终端** | 复用 DSH 内置 `terminal` 类型——回显、Tab 补全、Ctrl-C、缩放都是原生的（Host 拼命令，Client 写入终端视图） |
 | **文件目录** | 插件自有标签类型 `dzr-files`：浏览、预览、下载、上传小车文件（走同一条已信任的 SSH 通道） |
 | **VNC 桌面** | 插件自有标签类型 `dzr-vnc`：noVNC + WebSocket 隧道到小车的 TigerVNC :1 |
+| **状态浮窗** | 不开标签——`shell.overlay` 座位上浮出一张可拖动的状态卡（**电量 + CPU** 两块并列曲线卡，标题栏带开机时间，5 秒自动刷新，透明度可调并持久化）；独立文档 `/api/dzrobot-ssh/float.html` 同源可用 |
 
 入口只有一个：侧栏那辆车的图标，点它进工具列表。
 
@@ -16,7 +17,8 @@
 切换失败会把面板切回去，错误显示在你点的地方。
 
 **以后加新工具**（这是这套结构的目的）：
-1. 在 `client.js` 的 `TOOLS` 数组加一行 `{ id, kind, mode: 'tab', titleKey, descKey }`；
+1. 在 `client.js` 的 `TOOLS` 数组加一行 `{ id, kind, mode: 'tab', titleKey, descKey }`
+   （`mode: 'float'` 的行不开标签，只翻转 store 里的 `floatOpen`——状态浮窗那行就是这么接的）；
 2. 在 `apply()` 里 `ctx.get('sidebarRightTabs').register(...)` 注册标签类型
    （id、kind、`multiple: false` 让重复点击聚焦已有标签），并
    `ctx.slots.inject('sidebar.right.pane.tab', ...)` 以 **类型 id 为 key** 注册标签体
@@ -24,6 +26,42 @@
 3. 字典里加两条文案。
 右栏会经 `openContent → expanded → RightbarSeat syncPresentation → openRightbar` 自动展开，
 无需自己开栏。VNC 标签设了 `keepMounted: true`——iframe 不随切换卸载，桌面不断线。
+
+## 浏览器控制台已下线（2026-10-09）
+
+插件原先有一个「浏览器控制台」工具（`dzr-console`），内嵌 Eruda 调试面板。
+它已**整条链路**移除：标签类型与标签体注册、`TOOLS` 里的一行、
+`makeConsoleTabShell` 组件、`/eruda.js` 路由、`vendor/eruda.min.js`（约 500 KB）
+与全部中英文文案键。
+
+保留它的成本是每台机器多装 500 KB 第三方调试面板，而实际用途
+（在小车自己的 Web 页面里排查 JS 错误）日常几乎为零——出问题时开
+DSH 自己的开发者工具更快。`scripts/test-client.mjs` 现在会断言这些部件
+**全部不再出现**，避免只删一半、面板里留下一个点开是空白页的行。
+
+## 小车操作台已下线（2026-10-09）
+
+插件原先有一个「小车操作台」标签，直接内嵌车上 `tools/cam_viewer.py`
+（`:8080`）的页面。它连同车端工具一起删除了，因为**它不是一个可以随手
+重建的网页**：
+
+- `/api/param` 是**全车唯一的调参通道**——参数白名单、类型/范围校验、
+  `.bak` + 回读回滚全部在 `param_spec.py` 里（`robot.yaml` 只是被它读写的对象）。
+- `/api/rc*` 的可视化遥控器兼着**接管仲裁与四层失效保护**
+  （`rc_control.py`：按住才动 / 数值钳制 / 接管看门狗 / 底盘兜底），
+  用来和 20Hz 的 `path_executor`、50~100Hz 的云台争抢控制权。
+- 它是 `start_all.sh` 第 8 步，也是 `aim_status_shim.py`（Int32→UInt8 类型
+  兼容转发）**唯一的存在理由**。
+
+⚠️ **真实缺口**：遥控器**没有替代品**了。底盘自身的 1.0s 无指令强制停车仍在
+（最底层兜底），但"人接管"这条路现在只能自己写节点。出车前请确认这点可接受。
+
+调参改走 `config/robot.yaml`（`healthcheck.sh` 第 3 节查配置一致性）；
+需要可视化遥控时，自己写一个 ROS 节点订阅 `/nav/manual_override` 即可。
+
+**为什么"先删插件入口、再删车端"是危险的中间态**：插件入口删掉后车端还在跑，
+看起来一切正常，直到有人发现 `/api/param` 已经没有任何 UI 能用——所以两边
+必须一起下线。
 
 ## 设计要点
 
@@ -111,6 +149,23 @@ const channelProps = [...Object.keys(rawChannel),
 
 **安全**：所有路由只接受本机回环；装了 `connection` 服务时走它自己的准入判断。
 文件名与路径在进入远程 shell 之前，只经过 `src/files.js` 的 `quote()` 一个收口点。
+
+**浮窗的电量从哪来（以及为什么敢显示"没有"）**：电量是全插件唯一一个**藏在 ROS 后面**的读数——
+只有底盘节点 `dzactuator` 通过串口读 VCU、发布 `/Battery_Percentage`（0..1）与 `/PowerVoltage`，
+sysfs/systemd 里都没有它。所以 `/metrics` 是一条 SSH 远程命令：两帧 `/proc/stat`（隔 1 秒的增量 =
+CPU 占用）+ `/proc/uptime`（`btime` 一并带回做"开机于"）+ 在 `bash -c` 里并行
+`ros2 topic echo --once` 拉两个电量话题（`timeout 6`；在 `sh`/dash 里 source ROS 会直接中止
+shell，必须 `bash -c`——实测，不是推断）。**栈没跑时话题不存在、回读为空**，此时返回
+`battery=null, batteryNote=no_stack`，浮窗显示"—"、原因进 tooltip，**绝不编一个 0 %**；
+只有电压没有百分比时按 12 V满 / 10 V空 折算并标注 `derived`。解析全在 `src/metrics.js`，
+`DZH_BEGIN/END` 横幅把 MOTD/bashrc 噪音挡在门外；`test-host.mjs` 用合成载荷钉死每条分支。
+
+**浮窗挂在哪个座位**：`shell.overlay`——全界面浮层，不在任何一列的滚动容器里，切视图不会把它
+滚走；开/关是 store 里一个 `floatOpen`（面板第 4 行的按钮与卡片上的 × 写同一根线），**不需要
+Session**，应用刚启动也能用。透明度是持久化设置（30–100，滑杆防抖 POST `/config`），值走
+`--dzr-op` 自定义属性而不是内联 `opacity`——否则调暗的卡片会把自己的控件也一起锁住，
+"悬停恢复全透明"就做不到了。曲线的几何（x=now±30 s 每 5 s 一刻度、y=当前值 ±10 点、
+越界夹取 0..100）全在纯函数 `chartModel` 里，测试直接断言数值。
 
 ## 安装位置
 
@@ -269,7 +324,9 @@ ssh -N -L 6080:127.0.0.1:6080 user@server
 | GET | `/status` | 配置、上次探测、小车信息、等价命令行、VNC 目标 |
 | POST | `/probe[?car=0]` | 探测可达性与免密登录 |
 | POST | `/describe` | 采集小车信息（用户/主机名/内核/运行时长） |
-| GET/POST | `/config` | 读取 / 保存配置 |
+| GET/POST | `/config` | 读取 / 保存配置（含浮窗不透明度 `floatOpacity`，30–100 夹取） |
+| GET | `/metrics` | 浮窗读数：电量 / CPU / 开机时间（永远 200，车连不上是 `ok:false` + 原因） |
+| GET | `/float.html` | 状态浮窗独立文档（同一批数字，自己的刷新按钮） |
 | GET | `/files?path=` | 列目录（NUL+base64，名字里带空格/引号也不怕） |
 | GET | `/file?path=` | 读文本（二进制会被识别出来而不是渲染成乱码） |
 | GET | `/stat?path=` | 取大小/类型/时间 |
@@ -290,8 +347,8 @@ ssh -N -L 6080:127.0.0.1:6080 user@server
 node scripts/deploy.mjs         # 把改动同步进 profile 安装位置（改完代码第一步；--dry-run 可预览）
 node scripts/check-ssh.mjs      # SSH 层：真实免密登录、描述
 node scripts/check-files.mjs    # 文件层：列举/读取/二进制识别/奇怪文件名往返/符号链接解引用
-node scripts/test-host.mjs      # Host 半身：全部路由 + noVNC 资源 + VNC 隧道（本机替身）
-node scripts/test-client.mjs    # Client 半身：四个座位注册与渲染 + 完整连接流程
+node scripts/test-host.mjs      # Host 半身：全部路由 + 电量解析/浮窗端点 + noVNC 资源 + VNC 隧道（本机替身）
+node scripts/test-client.mjs    # Client 半身：五个座位注册与渲染 + 浮窗结构契约 + 完整连接流程
 node scripts/test-vnc-guard.mjs # 缓存地址闸门：非 VNC 对端被拒、零字节转发、失败即清缓存
 node scripts/test-vnc-wrapper.mjs   # 浏览器侧 WebSocket 探针能过 noVNC 自己的通道检查（两份文档都验）
 node scripts/test-vnc-connect.mjs   # 连接器文档逻辑无头验证：URL 构造/分辨率/缩放/密码事件/面板协议

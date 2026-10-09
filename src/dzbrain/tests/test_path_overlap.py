@@ -121,8 +121,16 @@ try:
     field = parse_mission(cfg.get("route.tokens") or [])
     fpath = Path(field)
     rev = field.reverse_segments()
-    check("现场图路线含倒车段", len(rev) >= 1, f"reverse_segments={rev}")
-    # 找 B6→A6→R:B6 这条回折（same-line backtrack）
+    # ★ 2026-10-09 设计变更（实车铁证）：底盘**不支持倒车**（决定性实验：发 linear.x<0，
+    #   车以 |v| 朝车头方向前进；STM32 下位机无视串口帧方向位）⇒ 路线删掉全部 R: 腿，
+    #   180° 折返改为**原地 PIVOT 掉头**（corner_turn_deg=180° > 阈值 135°）。
+    check("★现场图路线已无倒车段（底盘不支持倒车 → 折返改为 PIVOT）",
+          len(rev) == 0, f"reverse_segments={rev}")
+    piv_blocks = [field.blocks()[i] for i in range(1, fpath.segment_count)
+                  if fpath.corner_turn_deg(i) >= 135.0]
+    check("★折返点全部转为 ≥135° 的 PIVOT 掉头（E11 / A6 / B6 各一处）",
+          sorted(piv_blocks) == ["A6", "B6", "E11"], f"pivots={piv_blocks}")
+    # 找 F11→E11→F11 这条回折（same-line backtrack，现在走 PIVOT 而非倒车）
     blocks = field.blocks()
     backtrack = [i for i in range(len(blocks) - 2)
                  if blocks[i + 2] == blocks[i]]

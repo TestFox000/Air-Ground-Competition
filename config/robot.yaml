@@ -248,7 +248,7 @@
 # =============================================================================
 path_executor:
   ros__parameters:
-    linear_speed: 0.15            # ★基础巡航速度(m/s)。0.30 = 原值；降速可让画面更稳
+    linear_speed: 0.15            # ★基础巡航速度(m/s)。与 dzbrain 段 cruise_speed_mps 保持一致
                                   #   从而更容易满足云台开火前的"画面稳定"判据
     auto_start: true             # ★一键启动后自动出发（调试时可临时改 false，车原地待命）
     auto_start_delay: 10.0        # ★出发前留给底盘/相机/云台完成初始化的秒数
@@ -364,14 +364,14 @@ path_executor:
       - F10
       - F11
       - E11
-      - R:F11
+      - F11
       - F10
       - F8
       - B8
       - B6
       - A6
-      - R:B6
-      - R:D6
+      - B6
+      - D6
       - C6
       - C4
       - C2
@@ -406,10 +406,10 @@ path_executor:
       max_steer_rate_deg_s: 120.0     # ★新增：舵角速率限幅，防一帧跳 60°
       curvature_gain: 1.0             # 1.0=教科书式 δ=atan(2L·sinα/ld)；0.5=旧行为等价（分母口径略差 1.5%，见架构文档 4.2）
       lookahead_min_m: 0.18           # 前视距离下限（旧硬编码 0.15，注释却写 0.2）
-      lookahead_max_m: 0.45
+      lookahead_max_m: 0.24          # ★前视上限必须 < 格子边长 0.35m（0.3m/s × 1.2 = 0.36 会越格致切角失控）
       lookahead_k_v: 1.2              # 前视 = k_v × 速度
       lat_acc_max_mps2: 0.35          # 横向加速度上限（曲率限速）
-      cruise_speed_mps: 0.15          # 巡航速度（旧 linear_speed）
+      cruise_speed_mps: 0.15          # 巡航速度（旧 linear_speed；0.3 使 PIVOT 掉头到达判定失控，先回退）
       map_safety_margin_m: 0.60       # 越界急停余量（★新版提到状态机最顶层）
       drift_warn_m: 0.30              # 单段漂移告警
       drift_seg_gate_m: 0.18          # ★漂移判定用弧长窗口，不能绑在吸附半径上（否则永远报不出来）

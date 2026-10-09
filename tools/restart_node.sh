@@ -30,8 +30,16 @@ node_spec() {
     gimbal) echo "5_gimbal|ros2 launch dzrknn_dataprocess dzrknn_dataprocess.launch.py" ;;
     camera) echo "2_camera|ros2 launch dzactuator camera.launch.py" ;;
     vision) echo "4_det|ros2 launch det_node det_node.launch.py" ;;
-    path)   echo "7_path|python3 $WS/src/car_localization/car_localization/path_executor.py" ;;
-    viewer) echo "8_camview|python3 $WS/tools/cam_viewer.py --port 8080" ;;
+    # ★ 循迹槽位与 start_all.sh 必须**保持一致**：默认新核 dzbrain，LEGACY_PATH=1 回退旧核。
+    #   旧版本这里写死直跑 path_executor.py ⇒ 跑车途中一条 `restart_node.sh path`
+    #   就会**悄悄切回旧核**（现象一模一样、日志也在同一个 7_path.log，极难发现）。
+    #   `-u` 无缓冲同样沿用 start_all.sh 的教训（否则日志长时间 0 字节被误判卡死）。
+    path)
+      if [ "${LEGACY_PATH:-0}" = "1" ]; then
+        echo "7_path|env PYTHONUNBUFFERED=1 ros2 run car_localization path_executor_node"
+      else
+        echo "7_path|env PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 python3 -u -m dzbrain.main --config $CONFIG --map $WS/config/map.yaml"
+      fi ;;
     judgment) echo "6_judgment|ros2 launch dzjudgment judgment.launch.py" ;;
     chassis) echo "1_chassis|ros2 launch dzactuator bringup.launch.py" ;;
     loc)    echo "3_localization|ros2 launch car_localization localization.launch.py" ;;
@@ -48,7 +56,6 @@ if [ "${1:-}" = "--list" ] || [ $# -eq 0 ]; then
     camera    相机       改曝光/分辨率/帧率
     vision    视觉检测   换模型文件后
     path      循迹       改路线/巡航速度/急停余量
-    viewer    网页弹窗
     chassis   底盘串口
     loc       定位
 
@@ -77,13 +84,6 @@ if [ -f "$PIDFILE" ]; then
   rm -f "$PIDFILE"
 else
   echo "  没有 PID 记录（可能本来就没在跑）"
-fi
-
-# 网页弹窗另按端口兜底
-if [ "$1" = "viewer" ]; then
-  for _p in $(ss -lntp 2>/dev/null | grep ':8080' | grep -oP '(?<=pid=)[0-9]+'); do
-    kill -9 "$_p" 2>/dev/null
-  done
 fi
 
 # ---- 2) 起新实例 ----

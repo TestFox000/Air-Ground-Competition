@@ -56,8 +56,15 @@ if (loaded === undefined) throw new Error('client.js did not register with the m
 const client = loaded.factory(name => {
   if (name === 'react') {
     return {
-      createElement: () => ({}),
-      useState: value => [value, () => {}],
+      // A real tree rather than an opaque token. The float's contract is
+      // structural now — two cells each carrying 名称/数值/曲线, a close button,
+      // an opacity slider, a drag-guarded header — and `() => ({})` would make
+      // all of that unassertable. Children arrive either spread or as one
+      // array, so the walkers below flatten.
+      createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
+      // React calls a function initial value once to produce the first state;
+      // the float relies on that for its saved position, so the stub does too.
+      useState: value => [typeof value === 'function' ? value() : value, () => {}],
       useEffect: () => {},
       useRef: value => ({ current: value }),
       useCallback: fn => fn,
@@ -228,7 +235,7 @@ const settingsStub = {
   filesRoot: '/home/duzhong', filesShortcuts: [{ label: '主目录', path: '/home/duzhong' }],
 }
 const storeStub = { get: () => ({ phase: 'idle', probe: { state: 'ready' } }), subscribe: () => () => {}, set: () => {} }
-const { makeVncView, makeFilesView, makeCarPanel, makeVncTabShell, makeFilesTabShell } = client.__test
+const { makeVncView, makeFilesView, makeCarPanel, makeVncTabShell, makeFilesTabShell, makeFloatWindow } = client.__test
 const tKey = key => key
 for (const [label, component] of [
   ['vnc', makeVncView(ctxClient, tKey)({ settings: settingsStub, origin: 'http://127.0.0.1:19387' })],
@@ -249,6 +256,155 @@ for (const [label, component] of [
   } catch (error) {
     renderFailures.push(`render(view:${label}) threw: ${error?.message ?? error}`)
   }
+}
+
+// The status float, in both states. Closed must be a deliberate `null` (an
+// intentional nothing-to-show, distinct from a render that returned
+// `undefined`), and open must paint without a Session, an origin or a reading —
+// those all arrive later, and a first paint that throws would show an empty
+// corner with no error anywhere.
+const floatStoreStub = { get: () => ({ floatOpen: true }), subscribe: () => () => {}, set: () => {} }
+for (const [label, component] of [
+  ['float:closed', makeFloatWindow(ctxClient, storeStub, tKey)],
+  ['float:open', makeFloatWindow(ctxClient, floatStoreStub, tKey)],
+]) {
+  try {
+    const tree = component({})
+    const closed = label.endsWith('closed')
+    const expected = closed ? tree === null : tree !== undefined && tree !== null
+    console.log(`  render(view:${label}) -> ${tree === undefined || tree === null ? String(tree) : 'element'}`)
+    if (tree === undefined) renderFailures.push(`render(view:${label}) returned undefined (only null is an intentional empty)`)
+    else if (!expected) renderFailures.push(`render(view:${label}) should have ${closed ? 'null (closed)' : 'an element (open)'}`)
+  } catch (error) {
+    renderFailures.push(`render(view:${label}) threw: ${error?.message ?? error}`)
+  }
+}
+
+// The open float in full detail: two parallel cells (电量, CPU), each the pair
+// of blue boxes — 名称 + 数值 over an axes-bearing plot; the uptime on the
+// header line instead of in the body; a close button wired to the store; an
+// opacity slider — and a header that refuses to start a drag when the press
+// lands on a button (pointer capture would retarget that click to the header
+// itself: the reported "关不掉").
+const floatWalk = (node, visit) => {
+  if (Array.isArray(node)) { node.forEach(item => floatWalk(item, visit)); return }
+  if (node === null || node === undefined || typeof node !== 'object') return
+  visit(node)
+  floatWalk(node.children, visit)
+}
+const floatFind = (tree, predicate) => {
+  const found = []
+  floatWalk(tree, node => { if (predicate(node)) found.push(node) })
+  return found
+}
+const floatSets = []
+const floatOpenStore = {
+  get: () => ({ floatOpen: true, floatOpacity: 60 }),
+  subscribe: () => () => {},
+  set: patch => { floatSets.push(patch) },
+}
+try {
+  const tree = makeFloatWindow(ctxClient, floatOpenStore, tKey)({})
+
+  // ── the header line: 名称 | 开机时间：--:-- ────────────────────────────────
+  const titleGroups = floatFind(tree, node => node.props?.className === 'dzr_ftitle')
+  if (titleGroups.length !== 1) renderFailures.push(`expected one title group, got ${titleGroups.length}`)
+  else {
+    const parts = (titleGroups[0].children ?? []).flat()
+    const [name, sep, up] = parts
+    if (name?.type !== 'b' || name.children?.[0] !== 'floatTitle') {
+      renderFailures.push(`title should lead with the name, got ${JSON.stringify(name)}`)
+    }
+    if (sep?.type !== 'i' || sep.children?.[0] !== '|') {
+      renderFailures.push(`title separator should be '|', got ${JSON.stringify(sep)}`)
+    }
+    const upText = Array.isArray(up?.children) ? up.children.join('') : String(up?.children ?? '')
+    if (up?.type !== 'span' || upText !== 'floatUp：--:--') {
+      renderFailures.push(`header uptime should read floatUp：--:-- before a reading, got ${JSON.stringify(upText)}`)
+    }
+    if (up?.props?.className !== 'dzr_fup') renderFailures.push('header uptime missing the dzr_fup class')
+  }
+
+  // ── the body: two cells, each 名称+数值 box over its plot box ─────────────
+  const cells = floatFind(tree, node => node.props?.className === 'dzr_fcell')
+  if (cells.length !== 2) renderFailures.push(`the float should render 2 parallel cells, got ${cells.length}`)
+  const kinds = cells.map(cell => cell.props['data-kind'])
+  if (kinds.join(',') !== 'battery,cpu') renderFailures.push(`cells should be battery,cpu (uptime left the body), got ${kinds.join(',')}`)
+  for (const cell of cells) {
+    const boxes = (cell.children ?? []).flat()
+    if (boxes.length !== 2) { renderFailures.push(`cell ${cell.props['data-kind']} should be 2 boxes, got ${boxes.length}`); continue }
+    const [valueBox, plotBox] = boxes
+    if (valueBox?.props?.className !== 'dzr_fbox') renderFailures.push(`cell ${cell.props['data-kind']}: first box lost the dzr_fbox class`)
+    const valueParts = (valueBox?.children ?? []).flat()
+    if (valueParts[0]?.type !== 'span' || valueParts[1]?.type !== 'b') {
+      renderFailures.push(`cell ${cell.props['data-kind']}: 名称+数值 box should be span then b, got ${JSON.stringify(valueParts.map(part => part?.type))}`)
+    }
+    if (!String(plotBox?.props?.className ?? '').includes('dzr_fplot')) {
+      renderFailures.push(`cell ${cell.props['data-kind']}: second box should be the plot box`)
+    }
+    const charts = floatFind(plotBox, node => node.type === 'svg' && node.props?.className === 'dzr_fchart')
+    if (charts.length !== 1) renderFailures.push(`cell ${cell.props['data-kind']} should carry exactly one plot, got ${charts.length}`)
+    else if (charts[0].props.viewBox !== '0 0 144 78') renderFailures.push(`plot viewBox wrong: ${charts[0].props.viewBox}`)
+    else {
+      // First paint has no reading, so the plot must be its empty state: both
+      // axes drawn plus the dashed baseline — no curve, no invented ticks.
+      const kids = (charts[0].children ?? []).flat()
+      const classes = kids.map(kid => String(kid?.props?.className ?? ''))
+      if (classes.filter(name => name === 'dzr_faxis').length !== 2) {
+        renderFailures.push(`cell ${cell.props['data-kind']}: empty plot should draw both axes, got ${JSON.stringify(classes)}`)
+      }
+      if (classes.includes('dzr_fno') !== true) renderFailures.push(`cell ${cell.props['data-kind']}: empty plot should draw the dashed baseline`)
+      if (kids.some(kid => kid?.type === 'polyline')) renderFailures.push(`cell ${cell.props['data-kind']}: drew a curve with no reading`)
+      if (kids.some(kid => kid?.type === 'circle')) renderFailures.push(`cell ${cell.props['data-kind']}: drew the red dot with no reading`)
+    }
+  }
+
+  // The close path: a click on × must flip the store the overlay card reads.
+  const closeButtons = floatFind(tree, node => node.type === 'button' && node.props?.title === 'floatClose')
+  if (closeButtons.length !== 1) renderFailures.push(`expected exactly one close button, got ${closeButtons.length}`)
+  else {
+    closeButtons[0].props.onClick()
+    if (!floatSets.some(patch => patch.floatOpen === false)) {
+      renderFailures.push('clicking × did not close the float (store never saw floatOpen:false)')
+    }
+  }
+
+  // The drag guard, both directions: a button press must not be captured, a
+  // press on the title bar must start a drag as before.
+  const heads = floatFind(tree, node => node.props?.className === 'dzr_fhead')
+  if (heads.length !== 1) renderFailures.push(`expected one draggable header, got ${heads.length}`)
+  else {
+    let captures = 0
+    const press = target => ({ target, clientX: 8, clientY: 8, pointerId: 1, currentTarget: { setPointerCapture: () => { captures += 1 } } })
+    heads[0].props.onPointerDown(press({ closest: selector => (selector === 'button' ? {} : null) }))
+    if (captures !== 0) renderFailures.push('pressing a header button started a drag — its click would be retargeted (关不掉 regression)')
+    heads[0].props.onPointerDown(press({ closest: () => null }))
+    if (captures !== 1) renderFailures.push('a press on the title bar should start a drag')
+  }
+
+  // Opacity: 60% in the store must reach the card as --dzr-op, and the slider
+  // must be a clamped 30..100 range whose changes reach the store.
+  const style = tree.props?.style ?? {}
+  if (style['--dzr-op'] !== '0.6') renderFailures.push(`opacity 60 should render --dzr-op:"0.6", got ${JSON.stringify(style['--dzr-op'])}`)
+  const sliders = floatFind(tree, node => node.type === 'input' && node.props?.type === 'range')
+  if (sliders.length !== 1) renderFailures.push(`expected one opacity slider, got ${sliders.length}`)
+  else {
+    const slider = sliders[0].props
+    if (slider.min !== 30 || slider.max !== 100 || slider.value !== 60) {
+      renderFailures.push(`opacity slider wrong: min=${slider.min} max=${slider.max} value=${slider.value}`)
+    }
+    slider.onChange({ target: { value: '55' } })
+    if (!floatSets.some(patch => patch.floatOpacity === 55)) {
+      renderFailures.push('the opacity slider change never reached the store')
+    }
+  }
+
+  // The refresh button: one manual re-poll without closing the card.
+  if (floatFind(tree, node => node.type === 'button' && node.props?.title === 'floatRefresh').length !== 1) {
+    renderFailures.push('expected exactly one refresh button in the footer')
+  }
+} catch (error) {
+  renderFailures.push(`render(view:float:detail) threw: ${error?.message ?? error}`)
 }
 
 const phases = []
@@ -311,7 +467,20 @@ for (const id of ['dsh-dzrobot-ssh/vnc', 'dsh-dzrobot-ssh/files']) {
     failures.push(`no sidebar.right.pane.tab body registered under key ${id}`)
   }
 }
-if (client.__test.TOOLS.length !== 3) failures.push(`tool list should have 3 rows, has ${client.__test.TOOLS.length}`)
+// Four rows now: the three tab tools plus the float, which opens as an overlay
+// card rather than a tab.
+if (client.__test.TOOLS.length !== 4) failures.push(`tool list should have 4 rows, has ${client.__test.TOOLS.length}`)
+const floatRow = client.__test.TOOLS.find(tool => tool.id === 'float')
+if (floatRow === undefined || floatRow.mode !== 'float') {
+  failures.push(`the float tool row is missing or not mode:"float": ${JSON.stringify(floatRow)}`)
+}
+// The float lives on the frame-wide overlay seat; if that registration ever
+// stops happening the card has nowhere to mount and the tool row silently
+// toggles a flag nothing renders.
+const overlayRegistrations = registered['shell.overlay'] ?? []
+if (!overlayRegistrations.some(entry => entry.definition.id === 'dzrobot-float')) {
+  failures.push(`no shell.overlay registration under id dzrobot-float (got ${JSON.stringify(overlayRegistrations.map(entry => entry.definition.id))})`)
+}
 
 // ── the generic VNC connector panel ────────────────────────────────────────────
 const connector = client.__test
@@ -403,6 +572,171 @@ for (const key of ['connCarBridge', 'connCarBridgeHint', 'connCarBridgeDone', 'c
     const value = connector.DICT?.[lang]?.[key]
     if (typeof value !== 'string' || value === '') failures.push(`DICT.${lang}.${key} is missing`)
   }
+}
+
+// ── the float's pure logic ────────────────────────────────────────────────────
+// Uptime must stay readable across all three magnitudes (a freshly booted car
+// counts seconds, one left on for weeks counts days), every unit the gauge
+// prints must exist in both dictionaries or the card renders raw translation
+// keys in the corner of the screen, and the title-bar stopwatch is m:ss with
+// --:-- before the first reading.
+const unitT = key => ({ unitDay: 'd', unitHour: 'h', unitMin: 'm', unitSec: 's' }[key] ?? key)
+for (const [input, expected] of [[45, '45s'], [90, '1m 30s'], [3671, '1h 1m'], [90061, '1d 1h'], [NaN, '—'], [-3, '—']]) {
+  const actual = client.__test.formatDuration(input, unitT)
+  if (actual !== expected) failures.push(`formatDuration(${input}) = ${JSON.stringify(actual)}, want ${JSON.stringify(expected)}`)
+}
+for (const [input, expected] of [[45, '0:45'], [90, '1:30'], [3671, '61:11'], [90061, '1501:01'], [NaN, '--:--'], [-3, '--:--']]) {
+  const actual = client.__test.formatUptime(input)
+  if (actual !== expected) failures.push(`formatUptime(${input}) = ${JSON.stringify(actual)}, want ${JSON.stringify(expected)}`)
+}
+for (const dict of [client.__test.DICT.zh, client.__test.DICT.en]) {
+  for (const key of ['viewFloat', 'floatToolDesc', 'floatTitle', 'floatBattery', 'floatCpu', 'floatUp', 'floatDown',
+    'floatSync', 'floatAxisX', 'fieldFloatOpacity', 'opacityHint', 'unitDay', 'unitHour', 'unitMin', 'unitSec',
+    'floatBattNone', 'floatBattVolts', 'floatBattDerived', 'floatLoading', 'floatError', 'floatDrag', 'floatClose',
+    'floatRefresh', 'floatSince', 'floatLoad', 'toolClose']) {
+    if (typeof dict[key] !== 'string' || dict[key] === '') failures.push(`dictionary is missing the float key ${key}`)
+  }
+}
+
+// The disconnect contract (reported: the header kept ticking from a dead
+// anchor, so it neither froze honestly nor matched the car's real uptime):
+// live only from a fresh car reading, 小车未连接 the moment the poll fails or
+// the reading ages past the bound, --:-- before anything is tried — and a
+// reconnect replaces the anchor with the car's own numbers.
+const uptimeView = client.__test.uptimeView
+{
+  const at = 1_000_000
+  const reading = { ok: true, uptimeSec: 600, at, bootEpoch: 400 }
+  const live = uptimeView(reading, '', at + 3000)
+  if (live.state !== 'live' || Math.abs(live.uptime - 603) > 1e-9) {
+    failures.push(`uptimeView live should be /proc/uptime + age (603), got ${JSON.stringify(live)}`)
+  }
+  if (live.startedAt !== 400_000) {
+    failures.push(`uptimeView should prefer the car's btime boot instant, got ${live.startedAt}`)
+  }
+  // No btime (older host answer): fall back to host-clock arithmetic.
+  const noBtime = uptimeView({ ok: true, uptimeSec: 600, at }, '', at)
+  if (noBtime.state !== 'live' || noBtime.startedAt !== at - 600_000) {
+    failures.push(`uptimeView fallback boot instant wrong: ${JSON.stringify(noBtime)}`)
+  }
+  // A failed poll: down, and no uptime number to render from the stale sample.
+  const down = uptimeView(reading, '连接超时(4511ms)', at + 3000)
+  if (down.state !== 'down' || down.uptime !== undefined) {
+    failures.push(`uptimeView with a failed poll must answer down with no number, got ${JSON.stringify(down)}`)
+  }
+  // A silent page (no polls ran): an old reading may not claim liveness.
+  const stale = uptimeView(reading, '', at + client.__test.UPTIME_STALE_MS + 1)
+  if (stale.state !== 'down') failures.push(`a reading older than the stale bound must be down, got ${JSON.stringify(stale)}`)
+  // Just inside the bound still ticks.
+  const edge = uptimeView(reading, '', at + client.__test.UPTIME_STALE_MS)
+  if (edge.state !== 'live') failures.push(`a reading inside the bound must stay live, got ${JSON.stringify(edge)}`)
+  // Nothing yet: the placeholder, not the down text.
+  if (uptimeView(undefined, '', at).state !== 'loading') failures.push('before the first attempt the state must be loading')
+}
+
+// The plot scales — asserted numerically, because every line of this math is
+// invisible in a screenshot until it is wrong: x ticks every 5 seconds across
+// now±30 s with HH:MM:SS labels only at the ends and the centre, y ticks
+// anchored on the current value (±10 points in 5 % steps, clamped into 0..100),
+// the latest sample landing on the centre line as the red dot, and no NaN
+// anywhere. Both gauges are percentages, so both share the same shape.
+const chartModel = client.__test.chartModel
+const chartNow = new Date(2024, 4, 1, 10, 0, 0).getTime()  // 10:00 local
+
+const battModel = chartModel('battery', [{ at: chartNow - 20000, value: 40 }, { at: chartNow, value: 48.2 }], chartNow, 48.2)
+if (battModel === null) failures.push('chartModel(battery) with a reading must not answer null')
+else {
+  if (Math.abs(battModel.lo - 38.2) > 1e-9 || Math.abs(battModel.hi - 58.2) > 1e-9) {
+    failures.push(`battery y range should be current±10, got ${battModel.lo}..${battModel.hi}`)
+  }
+  if (battModel.yTicks.map(tick => tick.label).join(',') !== '38,43,48,53,58') {
+    failures.push(`battery ticks should step 5 across ±10, got ${battModel.yTicks.map(tick => tick.label).join(',')}`)
+  }
+  if (battModel.unit !== '%') failures.push(`battery y axis should be labelled %, got ${battModel.unit}`)
+  if (battModel.xTicks.length !== 13) failures.push(`x axis should have 13 ticks (5-s steps over ±30 s), got ${battModel.xTicks.length}`)
+  const gap = battModel.xTicks[1].x - battModel.xTicks[0].x
+  if (Math.abs(gap - (client.__test.CHART.r - client.__test.CHART.l) / 12) > 1e-9) {
+    failures.push(`x tick spacing wrong: ${gap}`)
+  }
+  const xLabels = battModel.xTicks.map(tick => tick.label)
+  if (xLabels.filter(label => label !== null).join(',') !== '09:59:30,10:00:00,10:00:30') {
+    failures.push(`x labels should be −30 s/now/+30 s with second precision, got ${JSON.stringify(xLabels.filter(label => label !== null))}`)
+  }
+  if (!Number.isFinite(battModel.dot.x) || Math.abs(battModel.dot.x - (client.__test.CHART.l + client.__test.CHART.r) / 2) > 1e-9) {
+    failures.push(`the dot at "now" should sit on the centre line, got x=${battModel.dot.x}`)
+  }
+  if (Math.abs(battModel.dot.y - (client.__test.CHART.t + client.__test.CHART.b) / 2) > 1e-9) {
+    failures.push(`the dot for the current value should sit mid-box, got y=${battModel.dot.y}`)
+  }
+  if (battModel.points === '' || battModel.points.includes('NaN')) {
+    failures.push(`battery polyline wrong: ${JSON.stringify(battModel.points)}`)
+  } else if (!battModel.points.split(' ').at(-1).endsWith(',31.0')) {
+    failures.push(`the polyline should end at the current value (y=31), got ${JSON.stringify(battModel.points)}`)
+  }
+}
+
+// CPU: same shape in percent, but the range is clamped into 0..100 — the spec's
+// ±10/5 % cannot print a negative floor or a >100 ceiling.
+for (const [current, label, wantLo, wantHi, wantTicks] of [
+  [30, 'mid-range', 20, 40, '20,25,30,35,40'],
+  [95, 'near the ceiling', 85, 100, '85,90,95,100'],
+  [5, 'near the floor', 0, 15, '0,5,10,15'],
+]) {
+  const model = chartModel('cpu', [{ at: chartNow, value: current }], chartNow, current)
+  if (model === null) { failures.push(`chartModel(cpu) at ${current}% must not answer null`); continue }
+  if (model.lo !== wantLo || model.hi !== wantHi) failures.push(`cpu range at ${current}% (${label}) should be ${wantLo}..${wantHi}, got ${model.lo}..${model.hi}`)
+  const ticks = model.yTicks.map(tick => tick.label).join(',')
+  if (ticks !== wantTicks) failures.push(`cpu ticks at ${current}% (${label}) should be ${wantTicks}, got ${ticks}`)
+  if (model.yTicks.some(tick => !Number.isFinite(tick.y) || tick.y < client.__test.CHART.t - 1e-9 || tick.y > client.__test.CHART.b + 1e-9)) {
+    failures.push(`cpu tick outside the plot box at ${current}%: ${JSON.stringify(model.yTicks)}`)
+  }
+}
+
+// Degenerate inputs: no reading answers null (the renderer draws an empty
+// frame), samples outside the ±30 s window or without a finite value are
+// dropped rather than dragged onto the axis, and a flat series keeps the dot on
+// the centre line instead of reading as a collapse.
+if (chartModel('battery', [], chartNow, null) !== null || chartModel('cpu', [], chartNow, NaN) !== null) {
+  failures.push('chartModel must answer null when the current value is not finite')
+}
+const base = chartModel('battery', [{ at: chartNow - 5000, value: 47 }, { at: chartNow, value: 48.2 }], chartNow, 48.2)
+const polluted = chartModel('battery', [
+  { at: chartNow - 45000, value: 10 },   // 45 s old: just outside the ±30 s window
+  { at: chartNow - 700000, value: 10 },  // 11.7 min old: far outside it
+  { at: chartNow, value: NaN },           // a poll that read no battery
+  { at: chartNow - 5000, value: 47 },
+  { at: chartNow, value: 48.2 },
+], chartNow, 48.2)
+if (base === null || polluted === null) failures.push('chartModel answered null for finite inputs')
+else if (base.points !== polluted.points) failures.push(`out-of-window/NaN samples changed the curve: ${polluted.points} vs ${base.points}`)
+const flat = chartModel('battery', [{ at: chartNow, value: 48.2 }, { at: chartNow - 5000, value: 48.2 }], chartNow, 48.2)
+if (flat === null || flat.points === '' || flat.points.includes('NaN')) failures.push(`flat series should still plot: ${JSON.stringify(flat?.points)}`)
+else if (flat.dot.y !== (client.__test.CHART.t + client.__test.CHART.b) / 2) failures.push(`flat series dot should sit mid-box, got y=${flat.dot.y}`)
+
+// The float's stylesheet lives in a template literal, so `node --check` only
+// proves the JavaScript parses — a missing `}` in the CSS is invisible to it
+// and silently swallows every later rule (the card would render unstyled, and
+// nothing reports an error). Assert balance and the selectors that carry the
+// float's contract: two cells, the drag/close chrome, the opacity variable.
+// Truncation by a stray backtick is already covered by loading this module —
+// the leftover would be a syntax error and no test would run at all.
+const cssLiteral = clientSource.match(/const CSS = `([\s\S]*?)`/)?.[1] ?? ''
+const cssOpen = (cssLiteral.match(/{/g) ?? []).length
+const cssClose = (cssLiteral.match(/}/g) ?? []).length
+if (cssOpen !== cssClose || cssOpen === 0) {
+  failures.push(`CSS braces unbalanced: ${cssOpen} '{' vs ${cssClose} '}'`)
+}
+for (const selector of ['.dzr_float', '.dzr_fcell', '.dzr_fhead', '.dzr_ftitle', '.dzr_fplot', '.dzr_fchart', 'repeat(2,1fr)', '--dzr-op']) {
+  if (!cssLiteral.includes(selector)) failures.push(`CSS is missing the float rule/variable ${selector}`)
+}
+// The plot's gridline class is dzr_fgridline, not dzr_fgrid: that class styles
+// the body grid (display:grid), and a stray match on an SVG line would paint
+// that layout onto it.
+if (!cssLiteral.includes('.dzr_fchart .dzr_fgridline')) {
+  failures.push('CSS is missing the SVG gridline rule .dzr_fchart .dzr_fgridline')
+}
+if (/\.dzr_fchart[^{]*\.dzr_fgrid\b/.test(cssLiteral)) {
+  failures.push('SVG gridline class collides with the body grid class dzr_fgrid')
 }
 
 server.close()
