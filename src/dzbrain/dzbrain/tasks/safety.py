@@ -88,6 +88,20 @@ class SafetyTask(TaskThread):
         self._first_data_at: float | None = None    # 第一次见到定位数据的时刻
         self._started_at = self.clock()             # 构造时刻 → 启动宽限基准
         self._degraded = False                      # "等数据中"（DEGRADED，不是 SAFE_STOP）
+        #: ★ 本进程内是否**见过两个来源都健康的定位**（启动期与运行期的分界）。
+        #  为什么需要它（实车实测 2026-10-09 20:1x，Orange Pi）：两个任务对"有没有定位"
+        #  的判断**天然差一拍** ——
+        #    · Localization 先 tick：它自己还没拿到里程计 → 把 `P_ODOM_AGE` 写成 `inf`
+        #    · Safety 后 tick：桥此刻**已经**收到帧（`pose_age` 有限）
+        #  ⇒ 旧判据 `never_had_pose = pose_age==inf and (odom_age is None or inf)` 为假，
+        #    于是绕开启动宽限、直接落到"`elif pose_age == _INF or odom_age == _INF`"
+        #    那条**既无宽限也无日志**的分支 → `pose_lost` → 锁存 SAFE_STOP；
+        #    而安全是**刻意不自动恢复**的 ⇒ 车一动不动。
+        #  日志特征（可据此一眼认出）：只有一条 `启动宽限（0.0x/3.0s）`，
+        #  **没有** `❌ 启动宽限期已过`，却出现了 `pose_lost`。
+        self._ever_had_pose = False
+        #: `P_ODOM_AGE=inf` 的起始时刻（None = 当前不是 inf）→ 配合持续性判据，见 `_check_pose`。
+        self._odom_inf_since: float | None = None
 
         # 恢复后立刻又触发 → 记 auto_recover；连续 N 次视为"抖动"，打横幅
         self.auto_recover_count = 0
@@ -230,26 +244,48 @@ class SafetyTask(TaskThread):
         #       ⇒ **完全没有宽限**，直接 `pose_lost` 并锁存 SAFE_STOP
         #     · 而安全是**刻意不自动恢复**的 ⇒ 车一动不动（这正是"起不来"的第二个原因）
         #   ⇒ 判据改为"**桥没有帧** 且 `P_ODOM_AGE` 缺失或为 inf"（= 两种写法都算"从未有数据"）。
-        never_had_pose = pose_age == _INF and (odom_age is None or odom_age == _INF)
-        if never_had_pose:
+        never_had_pose = pose_age == _INF and (odom_age is None or odom_age == _INF)  # noqa: F841 (保留给日志排查)
+        # ★ 桥有**新鲜位姿** ⇒ 记下"本进程见过定位"（此后任何失联都是运行期真故障）。
+        #   为什么以桥为准而不是"两来源都健康"：`P_ODOM_AGE` 是 **Localization 自报**的
+        #   心跳，而它与本任务读的是**同一个桥** —— "桥有帧、它却写 inf" 必然只是
+        #   两个任务**差一拍**（≤ 1/20Hz = 50ms），把它算成"没见过定位"会让宽限永远
+        #   续不上、真故障时反而漏报。
+        if pose_age != _INF:
+            self._ever_had_pose = True
+        # ★ `P_ODOM_AGE=inf` 的**持续性**判据（实车 2026-10-09 20:1x 血证）：
+        #   单拍 inf 是上面那种必然竞态；**持续**超过 `pose_timeout_s` 才是真故障。
+        #   旧写法"任一来源 inf 即致命"会在启动/节点单独重启时**立刻锁存 SAFE_STOP**，
+        #   而安全刻意不自动恢复 ⇒ 车一动不动（auto_start 也拉不动）。
+        if odom_age == _INF:
+            if self._odom_inf_since is None:
+                self._odom_inf_since = now
+        else:
+            self._odom_inf_since = None
+        odom_inf_long = (self._odom_inf_since is not None
+                         and (now - self._odom_inf_since) > self.pose_timeout_s)
+        # ★ 启动期 = **本进程内从未见过新鲜位姿**（不是"此刻某一来源是 inf"）。
+        if not self._ever_had_pose:
             elapsed = now - self._started_at
             if elapsed <= self._startup_grace_s:
                 self._degraded = True
                 if self._warn.allow("no_pose_data", now):
                     self._log(f"启动宽限（{elapsed:.2f}"
                               f"/{self._startup_grace_s:.1f}s）：仍未收到任何定位数据，"
-                              f"暂不判失联（pose_age=inf，P_ODOM_AGE={odom_raw!r}）")
+                              f"暂不判失联（pose_age={pose_age!r}，P_ODOM_AGE={odom_raw!r}）")
                 return out                          # 只跳过检查①，③④照常
             self._degraded = False                   # 宽限过后不是"降级"，是明确故障
             if self._warn.allow("no_pose_data_end", now):
                 self._log(f"❌ 启动宽限期（{self._startup_grace_s:.1f}s）已过，"
                           f"仍未收到任何定位数据 → 按失联处理")
             out.append("pose_lost:里程计无数据（age=inf）")
-        elif pose_age == _INF or odom_age == _INF:
+        elif pose_age == _INF or odom_inf_long:
             out.append("pose_lost:里程计无数据（age=inf）")
         elif pose_age > self.pose_timeout_s:
             out.append(f"pose_stale:里程计 {pose_age:.2f}s > {self.pose_timeout_s:.2f}s")
-        elif odom_age is not None and odom_age > self.pose_timeout_s:
+        elif odom_age is not None and odom_age != _INF and odom_age > self.pose_timeout_s:
+            # ★ 必须排掉 inf：`inf > timeout` 恒真，会把"从未/丢失"误报成"陈旧 1 秒"
+            #   （实测被这条二次锁存：`pose_stale:P_ODOM_AGE infs > 1.00s`）。
+            #   inf 由上面的 `odom_inf_long`（持续性）单独负责。
             out.append(f"pose_stale:P_ODOM_AGE {odom_age:.2f}s > {self.pose_timeout_s:.2f}s")
         if heart_age is not None and heart_age > self.pose_timeout_s * 2.0:
             out.append(f"pose_stalled:Localization 心跳 {heart_age:.2f}s 未更新")

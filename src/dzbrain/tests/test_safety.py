@@ -227,6 +227,41 @@ check("原因含 pose_lost", any("pose_lost" in r for r in st.reasons), f"got {s
 check("宽限过后刹车 ≥ 1", bridge.brakes >= 1, f"got {bridge.brakes}")
 check("DEGRADED 标记被清掉", task.degraded is False)
 
+# ★★ 实车实测的**第三个**洞（2026-10-09 20:1x，Orange Pi，`restart_node.sh path` 单独重启
+#   循迹节点时复现 —— 车进 SAFE_STOP、一动不动，auto_start 也拉不动它）：
+#   上面两条覆盖的都是"两个来源**都**说没数据"。真实竞态是**两个任务差一拍**：
+#     · Localization 先 tick：它自己还没拿到里程计 → 把 P_ODOM_AGE 写成 inf
+#     · Safety 后 tick：桥此刻**已经**收到帧（pose_age 是有限值！）
+#   ⇒ 旧判据 `never_had_pose = pose_age==inf and (odom_age is None or inf)` 为假 ⇒
+#     绕开启动宽限，落进 `elif pose_age == _INF or odom_age == _INF` 那条
+#     **既无宽限也无日志**的分支 ⇒ pose_lost ⇒ 锁存 SAFE_STOP ⇒ 车永远不动。
+#   日志特征（一眼可辨）：只有一条 `启动宽限（0.0x/3.0s）`，
+#   **没有** `❌ 启动宽限期已过`，却出现 `pose_lost`。
+task, bridge, bb, bus, clock = build(with_pose=False, stall=5.0)
+task._started_at = clock.now()
+bb.set(P_ODOM_AGE, float("inf"), "test")      # Localization 先 tick 写下的 inf
+task.tick()                                    # Safety 首拍：两来源都 inf → 宽限
+check("③a 首拍两来源都 inf → 进宽限、不刹车", bridge.brakes == 0, f"got {bridge.brakes}")
+# 桥收到帧了（pose_age 变有限），但 Localization 还没再 tick ⇒ P_ODOM_AGE 仍是 inf
+bridge.set_pose(0.525, 0.175, 0.0)
+task.tick()
+st = bb.get(P_SAFETY)
+check("★③b 桥已有帧 + P_ODOM_AGE=inf（差一拍）→ 不得判失联",
+      st.ok is True, f"got {st!r}")
+check("★③c 差一拍时不得刹车（否则车永远不动）", bridge.brakes == 0, f"got {bridge.brakes}")
+check("★③d 差一拍时不得锁存 SAFE_STOP", task.stopped is False)
+# Localization 随后也写正常值 → 完全健康
+bb.set(P_ODOM_AGE, 0.0, "test", ts=clock.now())
+task.tick()
+check("③e 两来源都健康 → 正常放行", bb.get(P_SAFETY).ok is True)
+check("③f 记下『本进程见过定位』", task._ever_had_pose is True)
+# ★ 设计核心不变：**桥**失联（= 真的没有可用位姿）必须立刻致命，不受宽限保护、不自动恢复
+bridge.pose_frozen = True
+task.tick()
+st = bb.get(P_SAFETY)
+check("★③g 运行期桥失联 → 立刻致命（设计未被削弱）", st.ok is False, f"got {st!r}")
+check("③h 原因含 pose_lost", any("pose_lost" in r for r in st.reasons), f"got {st.reasons!r}")
+
 # 反向：一旦见过数据，再断流就是**运行期**失联，必须立刻停车（不受宽限保护）
 task, bridge, bb, bus, clock = build(with_pose=False, stall=5.0)
 task._started_at = clock.now()
@@ -294,7 +329,18 @@ task2.tick()
 check("先健康", bb2.get(P_SAFETY).ok is True)
 bb2.set(P_ODOM_AGE, INF, source="test")
 task2.tick()
-check("P_ODOM_AGE=inf 即判失联", bb2.get(P_SAFETY).ok is False, f"{bb2.get(P_SAFETY)!r}")
+# ★ 语义变更（有实车血证，2026-10-09 20:1x，Orange Pi）：单拍 `P_ODOM_AGE=inf`
+#   与"桥已有新鲜帧"之间**必然差一拍**（Localization 与 Safety 读同一个桥，
+#   它的 tick 可能落在帧到达之前，≤ 1/20Hz = 50 ms）。旧写法"任一来源 inf 即致命"
+#   会在启动 / 节点单独重启时立刻锁存 SAFE_STOP，而安全刻意不自动恢复 ⇒ 车永远不动。
+check("★P_ODOM_AGE=inf 单拍**不**判失联（差一拍是必然竞态）",
+      bb2.get(P_SAFETY).ok is True, f"{bb2.get(P_SAFETY)!r}")
+clock2.advance(1.5)                       # > pose_timeout_s(1.0) 仍持续 inf
+task2.tick()
+check("★P_ODOM_AGE=inf 持续 > pose_timeout_s → 判失联（fail-safe 未削弱）",
+      bb2.get(P_SAFETY).ok is False, f"{bb2.get(P_SAFETY)!r}")
+check("原因含 pose_lost", any("pose_lost" in r for r in bb2.get(P_SAFETY).reasons),
+      f"{bb2.get(P_SAFETY).reasons!r}")
 check("刹车 ≥ 1", bridge2.brakes >= 1)
 
 section("③ 越界：x=-0.5、margin=0.6 → 出界 → 刹车且 ok=False")
@@ -588,6 +634,11 @@ with grp_task._health_lock:
 task, bridge, bb, bus, clock = build(stall=1.0, group=group8, blackboard=bb8, bus=bus8)
 sub8 = bus.subscribe("t8", [EV_SAFETY_STOP])
 publish_pose(bridge, bb, clock, 0.525, 0.175)    # 先有定位数据（否则进启动宽限）
+# ★ 必须先跑一拍：新语义下"运行期失联"的前提是**本进程见过新鲜位姿**（`_ever_had_pose`）。
+#   真实系统里 Safety 每 50ms 一拍、位姿冻结只能发生在"见过数据之后"；若在首拍前就冻结，
+#   那是启动期 —— 由 3s 宽限 + 宽限过期后的 `pose_lost` 兜住（不是免死金牌）。
+task.tick()
+check("前置：已见过定位（本拍健康、不刹）", bridge.brakes == 0, f"got {bridge.brakes}")
 bridge.pose_frozen = True                        # 然后断流
 tick_n(task, 50)
 events = sub8.poll()
@@ -623,6 +674,7 @@ check("两拍都刹车（累计 51）", bridge.brakes == 51, f"got {bridge.brake
 section("⑨ 抖动熔断：反复'解除又触发'达上限打横幅（仍不自动恢复）")
 task, bridge, bb, bus, clock = build()
 publish_pose(bridge, bb, clock, 0.525, 0.175)      # 先有定位数据（否则进启动宽限）
+task.tick()                                        # ★ 先健康一拍 → 确立"本进程见过定位"
 bridge.pose_frozen = True
 task.tick()
 check("先停车", bb.get(P_SAFETY).ok is False)
@@ -638,6 +690,7 @@ section("⑩ brake_on_fault=False → 只报不刹（配置生效）")
 task, bridge, bb, bus, clock = build(overrides={"safety": {"brake_on_fault": False}})
 sub10 = bus.subscribe("t10", [EV_SAFETY_STOP])
 publish_pose(bridge, bb, clock, 0.525, 0.175)
+task.tick()                                        # ★ 先健康一拍 → 运行期失联才成立
 bridge.pose_frozen = True
 tick_n(task, 3)
 check("ok 仍被判 False", bb.get(P_SAFETY).ok is False)
