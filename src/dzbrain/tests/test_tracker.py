@@ -489,9 +489,12 @@ def test_overlap_no_flipflop() -> None:
           _flips(signs) <= 150, f"{_flips(signs)} 次")
     check("8.4 ★最后 4 秒已收敛（≤5 次翻转，不是一直在抖）",
           _flips(signs[-200:]) <= 5, f"尾 200 拍翻转 {_flips(signs[-200:])} 次")
-    check("8.5 PIVOT 只进入一次（折返顶点不被反复重入）",
-          sum(1 for x in rig.logs if "进入 PIVOT" in x) == 1,
-          f"{sum(1 for x in rig.logs if '进入 PIVOT' in x)} 次")
+    check("8.5 ★倒车段折返顶点不进入 PIVOT（车头无需转，倒着原路退回）",
+          sum(1 for x in rig.logs if "进入 PIVOT" in x) == 0 and rig.task.pivot_count == 0,
+          f"进入 {sum(1 for x in rig.logs if '进入 PIVOT' in x)} 次 / 完成 {rig.task.pivot_count} 次")
+    check("8.6 ★确实发出了倒车指令（倒车段入口'推一把'生效）",
+          any(sg < 0 for sg in signs),
+          f"速度集合={sorted({round(c[0], 3) for c in rig.bridge.commands})}")
 
 
 def main() -> int:

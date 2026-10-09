@@ -195,12 +195,44 @@ class Path:
         return float(min(a, b))
 
     def corner_angle_deg(self, seg_index: int) -> float:
-        """本段与下一段的夹角（度，0 = 共线，180 = 原路折返）。末段无下一段 → 0。"""
+        """本段与下一段的夹角（度，0 = 共线，180 = 原路折返）。末段无下一段 → 0。
+
+        ⚠️ 这是两条段的**行进方向**夹角，不是车头要转的角度 —— 需要后者请用
+        `corner_turn_deg()`（下一段是倒车段时两者差 180°，见其注释）。
+        """
         if seg_index < 0 or seg_index + 1 >= len(self._segments):
             return 0.0
         h0 = self._segments[seg_index][5]
         h1 = self._segments[seg_index + 1][5]
         return abs(math.degrees(geo.normalize_angle(h1 - h0)))
+
+    def car_heading_on(self, seg_index: int) -> float:
+        """在 `seg_index` 这段上行驶时，**车头**该朝的方向（弧度）。
+
+        ★ 与 `heading_at()` 的区别：那是**行进方向**。倒车段的车头与行进方向相反 ——
+          现场路线 `F10→F11→E11→R:F11→F10` 里 seg1（F11→E11，行进 +90°）与 seg2
+          （E11→R:F11，倒车、行进 −90°）**行进方向差 180°，但车头都是 +90°**：
+          车倒着原路退回，一度都不用转。
+        """
+        if seg_index < 0 or seg_index >= len(self._segments):
+            return 0.0
+        h = self._segments[seg_index][5]
+        return geo.normalize_angle(h + math.pi) if self.segment_is_reverse(seg_index) else h
+
+    def corner_turn_deg(self, seg_index: int) -> float:
+        """车头在顶点处**实际需要转过的角度**（0~180°）。末段无下一段 → 0。
+
+        ★★ 这是本项目一个真 bug 的来源：旧代码在 PIVOT 判据里用 `corner_angle_deg`
+          （**行进方向**夹角）。折返压线时下一段若是倒车段（`R:`），行进方向差 180°
+          而**车头一度都不用转**（直接倒回去）⇒ PIVOT 被误触发，还把车头**转反 180°**，
+          之后纯追踪自己跟自己打架。实闭环 bench 实测（现场 F11 簇）：
+          `v` 在 +0.150/−0.080 之间反复翻、`yaw` 一直转、每 12s 触发一次「绕圈跳点」，
+          而正确行为是**保持车头、倒车退回**。
+        """
+        if seg_index < 0 or seg_index + 1 >= len(self._segments):
+            return 0.0
+        return abs(math.degrees(geo.normalize_angle(
+            self.car_heading_on(seg_index + 1) - self.car_heading_on(seg_index))))
 
     # ------------------------------------------------------------------ #
     #  投影（核心）

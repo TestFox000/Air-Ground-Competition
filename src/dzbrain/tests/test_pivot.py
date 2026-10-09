@@ -29,12 +29,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.stdout.reconfigure(errors="replace")
 
 from dzbrain.core import geometry as geo                        # noqa: E402
-from dzbrain.core.blackboard import (P_MISSION_PHASE, P_POSE, P_ROUTE, P_SAFETY,  # noqa: E402
-                                     Blackboard)
+from dzbrain.core.blackboard import (P_MISSION_PHASE, P_POSE, P_ROUTE, P_ROUTE_INDEX,  # noqa: E402
+                                     P_ROUTE_S, P_SAFETY, Blackboard)
 from dzbrain.core.config import Config                          # noqa: E402
 from dzbrain.core.events import EventBus                        # noqa: E402
 from dzbrain.core.state import SafetyState                      # noqa: E402
 from dzbrain.io.contract import MissionPhase                    # noqa: E402
+from dzbrain.pursuit.path import Path                           # noqa: E402
 from dzbrain.route.parser import parse_mission                  # noqa: E402
 from dzbrain.tasks.tracker import PivotPhase, TrackerTask       # noqa: E402
 from fakes import FakeBridge, FakeClock                         # noqa: E402
@@ -79,10 +80,15 @@ class Rig:
             self.tick(dt)
 
 
-# 180° 折返：A6 -> B6（向西）-> 再向东回到 A6（换向 180°）
-U_TURN = ["B6", "A6", "R:B6", "R:D6"]
+# ★ 180° 折返（**两条正向段**）：B6 → A6 → 再正向回到 B6，车头必须真调头 180°。
+#   ⚠️ 曾经这里用的是 `["B6","A6","R:B6","R:D6"]`（下一段是**倒车段**）—— 那种顶点车头
+#   **一度都不用转**（倒着原路退回就行），按"行进方向夹角 180°"判 PIVOT 是错的：
+#   会把车头转反 180°，之后纯追踪自己跟自己打架（见 test_reverse_vertex_no_pivot）。
+U_TURN = ["B6", "A6", "B6"]
 # 90° 直角：C6 -> D6（向西）-> D4（向南）
 RIGHT_ANGLE = ["C6", "D6", "D4"]
+# ★ 现场 F11 折返簇：F11→E11（正向）→ R:F11（**倒车**退回）→ F10
+REV_STUB = ["F11", "E11", "R:F11", "F10"]
 
 
 def test_trigger_and_phases() -> None:
@@ -307,6 +313,81 @@ def test_no_reentry_after_success() -> None:
           f"速度集合={sorted({round(c[0], 3) for c in rig.bridge.commands})}")
 
 
+def test_reverse_vertex_no_pivot() -> None:
+    """★7. 下一段是**倒车段**（`R:`）的顶点：不得 PIVOT，但要能"倒进"倒车段。
+
+    现场路线 `F10→F11→E11→R:F11→F10`：
+      · seg1 = F11→E11（正向，行进 +90°）→ seg2 = E11→R:F11（**倒车**，行进 −90°）
+      · 两条段的**行进方向**差 180°，但**车头都是 +90°** —— 车倒着原路退回，一度都不用转。
+    旧代码按"行进方向夹角"判 PIVOT ⇒ 把车头**转反 180°**（转到 −90°），然后：
+      · 投影仍贴在前一段（换段靠实测位移，而车头已反）
+      · 纯追踪又要往回转 ⇒ `v` 在 +0.150/−0.080 之间反复翻、`yaw` 一直转
+      · 12s 后触发「拐角绕圈兜底」跳点（bench 实测 F11/A6/D6 三处）
+
+    修法两半，缺一不可：
+      ① 换向角用 `corner_turn_deg`（**车头**转角）→ 这种顶点转角 0° ⇒ 不触发 PIVOT；
+      ② 倒车段入口"推一把"：贴到顶点且下一段是倒车段时直接给 v<0 ——
+         否则「换段靠实测位移、实测位移靠先发 v<0、v<0 靠先换段」鸡生蛋，s 冻在顶点。
+    """
+    section("7. ★倒车段顶点：不 PIVOT（车头无需转）+ 能倒进倒车段")
+    cfg = _cfg(pivot_dist_m=0.30, pivot_wait_s=0.4, pivot_speed_mps=0.08,
+               pivot_yaw_tol_deg=15.0, pivot_timeout_s=8.0)
+    route = parse_mission(REV_STUB)
+    path = Path(route)
+
+    # ---- 7.1~7.3 几何：旧判据会触发，新判据不该触发 ----
+    #  tokens = [F11, E11, R:F11, F10] → seg0 = F11→E11（正向）、seg1 = E11→R:F11（倒车）
+    #  顶点夹在 seg0/seg1 之间 ⇒ 索引 0
+    check("7.1 行进方向夹角 = 180°（旧判据据此触发 PIVOT）",
+          abs(path.corner_angle_deg(0) - 180.0) < 1e-9, f"{path.corner_angle_deg(0):.1f}°")
+    check("7.2 ★车头实际转角 = 0°（新判据不触发）",
+          path.corner_turn_deg(0) < 1e-9, f"{path.corner_turn_deg(0):.2f}°")
+    check("7.3 两段的车头朝向相同（倒车段车头与行进反向）",
+          abs(geo.deg(geo.ang_diff(path.car_heading_on(0),
+                                   path.car_heading_on(1)))) < 1e-9,
+          f"{geo.deg(path.car_heading_on(0)):.1f}° vs {geo.deg(path.car_heading_on(1)):.1f}°")
+    check("7.4 正向 180° 调头仍然算 180°（没有被改坏）",
+          abs(parse_mission(U_TURN) and Path(parse_mission(U_TURN)).corner_turn_deg(0) - 180.0) < 1e-9,
+          f"{Path(parse_mission(U_TURN)).corner_turn_deg(0):.1f}°")
+
+    # ---- 7.5~7.7 跑起来：用 bench 同款积分模型驱动 ----
+    e11 = geo.block_to_meters("E11")
+    f11 = geo.block_to_meters("F11")
+    ux, uy = e11[0] - f11[0], e11[1] - f11[1]
+    d = math.hypot(ux, uy)
+    ux, uy = ux / d, uy / d
+    rig = Rig(tokens=REV_STUB, cfg=cfg,
+              pose=(e11[0] - ux * 0.05, e11[1] - uy * 0.05, geo.heading_of(ux, uy)))
+    wheelbase = float(cfg.get("pursuit.wheelbase_m"))
+    dt = 0.02
+    segs: list[int] = []
+    speeds: list[float] = []
+    for _ in range(300):                       # 6 s
+        rig.task.tick()
+        v, steer = rig.bridge.commands[-1]
+        speeds.append(v)
+        seg_now = rig.bb.get(P_ROUTE_INDEX)
+        segs.append(int(seg_now) if isinstance(seg_now, (int, float)) else -1)
+        p = rig.bb.get(P_POSE)
+        yaw = p.yaw + (v / wheelbase) * math.tan(math.radians(steer)) * dt
+        x = p.x + v * math.cos(yaw) * dt
+        y = p.y + v * math.sin(yaw) * dt
+        rig.set_pose(x, y, yaw)
+        rig.clock.advance(dt)
+
+    check("7.5 ★全程从未进入 PIVOT（车头无需转）",
+          rig.task.pivot_count == 0 and rig.task._pivot_phase == PivotPhase.IDLE,
+          f"count={rig.task.pivot_count} phase={rig.task._pivot_phase}")
+    check("7.6 ★发出过倒车指令（'推一把'生效）", any(v < -1e-9 for v in speeds),
+          f"速度集合={sorted({round(v, 3) for v in speeds})}")
+    check("7.7 ★投影换到了倒车段（seg1）且沿程推进",
+          1 in segs, f"段集合={sorted(set(segs))}")
+    s_end = rig.bb.get(P_ROUTE_S)
+    check("7.8 倒车段上 s 继续增长（越过顶点 0.35 m 以上）",
+          isinstance(s_end, (int, float)) and float(s_end) > 0.37,
+          f"末 s={s_end}")
+
+
 def main() -> int:
     print("=" * 72)
     print("dzbrain PIVOT 原地转向专项测试（纯脚本）")
@@ -317,6 +398,7 @@ def main() -> int:
     test_turn_respects_rate_limit()
     test_timeout_covers_physics()
     test_no_reentry_after_success()
+    test_reverse_vertex_no_pivot()
     finish()
     return 0
 

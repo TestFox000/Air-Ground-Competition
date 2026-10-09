@@ -140,6 +140,8 @@ class TrackerTask(TaskThread):
         #: ★投影单拍最大回退量：折返压线时两条共线段"等距、s 相差一整段"，
         #: 不限住就会在 0.0↔0.70 之间倒带（见 pursuit/path.py 的 back_m 说明）。
         self._rewind_m = float(cfg.get("pursuit.projection_rewind_m"))
+        self._reverse_entry_m = float(cfg.get("pursuit.reverse_entry_m"))
+        self._min_speed_mps = float(cfg.get("pursuit.min_speed_mps"))
         self._pivot_phase: str = PivotPhase.IDLE
         self._pivot_started_at: float = 0.0
         self._pivot_target_heading: float = 0.0
@@ -336,8 +338,37 @@ class TrackerTask(TaskThread):
         # ---- ★PIVOT 原地转向：优先级最高（它在"顶点前"接管，免得纯追踪画出 0.4 m 的大弧） ----
         pivot = self._pivot_update(pose, path, proj, now, dt)
 
+        # ---- ★倒车段入口的"推一把"（否则永远进不去倒车段） ----
+        #  为什么必须有：投影"换到下一段"靠的是**实测位移方向**（见本文件 travel_heading
+        #  那段长注释），而"车真的往后动"又需要**先换到倒车段**才会发 v<0 —— 鸡生蛋。
+        #  实闭环 bench 实测（现场 F10→F11→E11→R:F11→F10）：车到了 E11 顶点后
+        #  s 冻在 4.20 不动、yaw 一直转、每 12s 触发一次「绕圈跳点」。
+        #  条件收得很紧：**已经贴到顶点** + **下一段是倒车段** + **本段不是倒车段**，
+        #  此时直接给一个小倒车速度把车"推"回倒车段；投影一旦落到下一段就自动接管。
+        rev_entry = (pivot is None and not is_rev
+                     and proj.seg_index + 1 < path.segment_count
+                     and path.segment_is_reverse(proj.seg_index + 1)
+                     and proj.dist_to_vertex <= self._reverse_entry_m)
+
         if pivot is not None:
             steer, speed, reason_tag = pivot.steer_deg, pivot.linear_x, pivot.speed_reason
+        elif rev_entry:
+            # 只做航向保持，别让"推一把"把车带偏（车头本来就该保持原朝向：倒车段车头与
+            # 行进方向相反，而此刻车头的朝向正是下一段需要的车头朝向）
+            seg_heading = path.car_heading_on(proj.seg_index)
+            err_deg = geo.deg(geo.ang_diff(seg_heading, pose.yaw))
+            steer = err_deg * self._align_kp / 10.0
+            lim = self._align_steer_limit_deg
+            steer = lim if steer > lim else (-lim if steer < -lim else steer)
+            speed = -self._min_speed_mps
+            reason_tag = "reverse_entry"
+            # ★ 还要把投影**显式推进到下一段**：换段（连续性/实测位移）在这个时刻都指向
+            #   前一段（车刚从顶点退开、行进方向还没翻），于是 s 会**倒退**而不是继续增长。
+            #   两条折返段在顶点处代表的是**同一个物理点**（这里只差 <1mm），
+            #   所以这不是"跳变"，而是把"这一段已经走完"这件事告诉投影。
+            vertex_s = path.s_at_waypoint(proj.seg_index + 1)
+            if self._seg_s is None or self._seg_s <= vertex_s:
+                self._seg_s = vertex_s + 1e-3
         elif align:
             # ---- 桥洞直行：关掉纯追踪，只做航向保持（survey §6.1 的 2480–2481 复刻） ----
             seg_heading = path.heading_at(proj.s)
@@ -387,12 +418,18 @@ class TrackerTask(TaskThread):
     #  ★PIVOT 原地转向（并入 10-05 核心的已验证修复）
     # ------------------------------------------------------------------ #
     def _corner_ahead(self, path: Path, proj: Projection):
-        """前方顶点信息 -> (顶点弧长, 换向角°, 下一段走向)；没有下一段则 None。"""
+        """前方顶点信息 -> (顶点弧长, 换向角°, 下一段的**车头朝向**)；没有下一段则 None。
+
+        ★★ 换向角用 `corner_turn_deg`（**车头**要转多少），不是 `corner_angle_deg`
+          （**行进方向**夹角）；目标航向用 `car_heading_on`（车头朝向），不是 `heading_at`
+          （行进方向）。下一段是倒车段（`R:`）时两者差 180°：车倒着原路退回**一度都不用转**，
+          旧代码却据此把车头转反 180°，之后纯追踪自己跟自己打架（bench 实测 F11 簇）。
+        """
         i = proj.seg_index
         if i + 1 >= path.segment_count:
             return None
         s_v = path.s_at_waypoint(i + 1)
-        return s_v, path.corner_angle_deg(i), path.heading_at(s_v + 1e-6)
+        return s_v, path.corner_turn_deg(i), path.car_heading_on(i + 1)
 
     def _pivot_update(self, pose, path: Path, proj: Projection, now: float, dt: float):
         """PIVOT 状态机：返回要发布的指令（PursuitCommand）或 None（= 不接管）。
