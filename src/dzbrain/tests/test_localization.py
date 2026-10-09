@@ -34,6 +34,7 @@ from dzbrain.core.config import Config                                        # 
 from dzbrain.core.events import (EV_DRIFT_WARNING, EV_POSE_ANCHORED,          # noqa: E402
                                  EventBus)
 from dzbrain.core.state import FixState                                       # noqa: E402
+from dzbrain.pursuit.path import Path                                         # noqa: E402
 from dzbrain.route.model import Route, Waypoint, make_route                   # noqa: E402
 from dzbrain.tasks.localization import LocalizationTask                       # noqa: E402
 from fakes import FakeBridge, FakeClock                                       # noqa: E402
@@ -296,5 +297,122 @@ check("冻结时 P_ODOM_AGE 被写成 inf", bb.get(P_ODOM_AGE) == INF,
       f"got {bb.get(P_ODOM_AGE)!r}")
 check("冻结被计入 missing_pose_ticks", task.missing_pose_ticks == n_before + 1,
       f"got {task.missing_pose_ticks}")
+
+# --------------------------------------------------------------------------- #
+section("⑨ ★ 投影卡死自愈：离开走廊后 P_ROUTE_S 仍跟得上全局投影（bench 实证缺陷）")
+
+# 合成路线 = 现场图那一段的形状（坐标就是 geometry.block_to_meters 的格心值）：
+#   G10 → F10 → F11 → E11 → D11 → D8
+# 为什么非得是这种"折返/两条平行走廊"的形状：冻结需要**路线自己靠近自己** —— 车切角
+# 拐进两条走廊之间的"口袋"后，全局最近点落在后面那条走廊（D11→D8），而窗口投影被夹在
+# 窗口下界（`Path.project` 的 t_floor）上不动。bench 日志里 P_ROUTE_S 正是冻在
+# "段10 s3.73"（F10→F11 段的中段）而全局投影已跑到 2.5 m 之外。
+# ★ 与现场图的**刻意差异**：现场 F11→E11→R:F11 是**共线折返**（同一物理点落在两条航段上、
+#   s 相差整整一段），那是路径自重叠的分支歧义，会掩盖"冻结"本身；这里把折返简化为
+#   "继续向北、再向东"，保留冻结所需的几何，同时让"真值"唯一。
+_ROUTE_FOLD = (("G10", 0.525, 2.625), ("F10", 0.525, 2.975), ("F11", 0.175, 2.975),
+               ("E11", 0.175, 3.325), ("D11", 0.175, 3.675), ("D8", 1.225, 3.675))
+_TICK_DT = 0.05          # 20 Hz
+_STEP_M = 0.0075         # 巡航 0.15 m/s × 0.05 s
+
+
+def fold_route() -> Route:
+    return make_route([Waypoint(block=b, x=x, y=y, yaw=0.0) for b, x, y in _ROUTE_FOLD])
+
+
+def walk(task, bridge, clock, path, s_target: float) -> None:
+    """沿路线把投影链"喂"到弧长 s_target（每拍 7.5 mm，模拟真实 20 Hz 巡航）。"""
+    s = 0.0
+    while s < s_target:
+        x, y, _ = path.point_at(s)
+        bridge.set_pose(x, y, 0.0)
+        clock.advance(_TICK_DT)
+        task.tick()
+        s += _STEP_M
+
+
+def leg(task, bridge, clock, bb, path, x0, y0, dx, dy, n, out) -> None:
+    """走一条直线腿，逐拍记录（上报投影点 vs 全局最近点）。"""
+    for k in range(n + 1):
+        t = k / n
+        x, y = x0 + dx * t, y0 + dy * t
+        bridge.set_pose(x, y, 0.0)
+        clock.advance(_TICK_DT)
+        task.tick()
+        s = bb.get(P_ROUTE_S)
+        px, py, _ = path.point_at(s)
+        g = path.project(x, y, s_hint=None)
+        out.append({
+            "x": x, "y": y, "s": s,
+            "d_car": math.hypot(x - px, y - py),        # 车 → 上报投影点
+            "g_s": g.s,
+            "g_car": math.hypot(x - g.x, y - g.y),      # 车 → 全局最近点
+            "d_pt": math.hypot(px - g.x, py - g.y),     # 上报点 ↔ 全局点
+        })
+
+
+route_fold = fold_route()
+path_fold = Path(route_fold)
+check_close("合成路线总长 = 一格 + 一格 + 0.35 + 0.35 + 1.05 = 2.45 m",
+            path_fold.total_length, 2.45, 1e-9)
+
+# ---- ⑨.1 沿走廊把 hint 喂到冻结段中段（F10→F11 段，s=0.55） ----
+task, bridge, bb, bus, clock = build(overrides={"fix": {"anchor_at_waypoint": False}},
+                                     route=route_fold, seed_pose=False)
+walk(task, bridge, clock, path_fold, 0.55)
+check("喂到冻结段：P_ROUTE_S 落在 F10→F11 段中段（0.54~0.56）",
+      0.54 <= bb.get(P_ROUTE_S) <= 0.56, f"got {bb.get(P_ROUTE_S)}（步长 {_STEP_M} m）")
+check("喂的过程中 hint 与投影链都没卡（0 次全扫）", task.stuck_scans == 0,
+      f"got {task.stuck_scans}")
+
+# ---- ⑨.2 切角离开走廊：冻结 → 自愈 ----
+rows: list[dict] = []
+leg(task, bridge, clock, bb, path_fold, 0.325, 2.975, 0.275, 0.425, 67, rows)   # 进"口袋"
+leg(task, bridge, clock, bb, path_fold, 0.600, 3.400, 0.200, 0.260, 40, rows)   # 回到远端走廊
+moved = math.hypot(rows[-1]["x"] - rows[0]["x"], rows[-1]["y"] - rows[0]["y"])
+lag_last = abs(rows[-1]["s"] - rows[-1]["g_s"])
+worst = max(r["d_car"] - r["g_car"] for r in rows)
+
+check("车确实离开了原走廊并走了 ~0.83 m（对照：不是原地抖动）", moved > 0.80,
+      f"位移 {moved:.3f} m")
+check("★ 自愈被触发（projection_heals ≥ 1）", task.projection_heals >= 1,
+      f"heals={task.projection_heals} scans={task.stuck_scans}")
+check("★ 每一拍：车到**上报**投影点的距离 ≤ 车到**全局最近点**的距离 + arrival_m"
+      "（冻结时这一项会失控增长 —— 见下面修复前的失败输出）",
+      worst <= 0.12 + 1e-9, f"最差 {worst:.3f} m（容差 0.12 m）")
+check("★ 末拍：上报 P_ROUTE_S 与全局投影之差 ≤ arrival_m（车已回到远端走廊上）",
+      lag_last <= 0.12 + 1e-9, f"|{rows[-1]['s']:.3f} − {rows[-1]['g_s']:.3f}| = {lag_last:.3f} m")
+check("★ 末拍：车到上报投影点 ≤ arrival_m（上报点就在车脚下）",
+      rows[-1]["d_car"] <= 0.12 + 1e-9, f"{rows[-1]['d_car']:.3f} m")
+check("末拍与全局点基本重合", rows[-1]["d_pt"] <= 0.05,
+      f"{rows[-1]['d_pt']:.3f} m")
+heals_at_freeze = [r for r in rows if r["s"] != 0.55]
+check("s 不再是那个冻住的 0.55（旧代码 109 拍全冻）", bool(heals_at_freeze),
+      f"s 序列唯一值 = {sorted({round(r['s'], 3) for r in rows})}")
+check("P_ROUTE_INDEX 跟着 s 走（不再卡在第 1 段）",
+      bb.get(P_ROUTE_INDEX) == path_fold.project(rows[-1]["x"], rows[-1]["y"]).seg_index,
+      f"index={bb.get(P_ROUTE_INDEX)}")
+
+# ---- ⑨.3 反例一：正常沿走廊行驶，一次全扫都不该做（不是"每拍全路径扫描"） ----
+task_n, bridge_n, bb_n, bus_n, clock_n = build(
+    overrides={"fix": {"anchor_at_waypoint": False}}, route=route_fold, seed_pose=False)
+walk(task_n, bridge_n, clock_n, path_fold, 0.55)
+check("正常行驶 0 次全扫（自愈不是性能热点）", task_n.stuck_scans == 0,
+      f"scans={task_n.stuck_scans} heals={task_n.projection_heals}")
+
+# ---- ⑨.4 反例二：车静止 + 大横向偏差 → 不判卡死（判据要求"车确实在动"） ----
+task_s, bridge_s, bb_s, bus_s, clock_s = build(
+    overrides={"fix": {"anchor_at_waypoint": False}}, route=route_fold, seed_pose=False)
+bridge_s.set_pose(0.875, 3.425, 0.0)          # 停在走廊之间（离线 ~0.25 m）
+task_s.tick()
+s_park = bb_s.get(P_ROUTE_S)
+for _ in range(40):
+    clock_s.advance(_TICK_DT)
+    task_s.tick()
+check("静止 40 拍：0 次全扫（位姿没动 → 不满足'车在动'）", task_s.stuck_scans == 0,
+      f"scans={task_s.stuck_scans}")
+check("静止时 P_ROUTE_S 保持不变（车没动，没有跑掉的真值要追）",
+      bb_s.get(P_ROUTE_S) == s_park, f"{s_park} → {bb_s.get(P_ROUTE_S)}")
+check("静止时也没吸附/没崩（ticks == 41）", task_s.ticks == 41, f"got {task_s.ticks}")
 
 finish()

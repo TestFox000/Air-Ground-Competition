@@ -13,6 +13,7 @@
   7. speed_profile：曲率降速、停站降速、转角降速、下界、speed_scale、量化补偿
   8. brake_command：零 Twist = 刹车
   9. 与旧公式对拍（gain=0.5、ld=0.15、α=10°）
+ 10. ★站在直角顶点上：投影必须前瞻到下一段、前视点不得塌缩到车身（现场 F10 真 bug）
 
 全过 exit 0；任一失败 exit 1。
 """
@@ -35,10 +36,13 @@ except Exception:                              # pragma: no cover
 
 from dzbrain.core import geometry as geo                                              # noqa: E402
 from dzbrain.core.config import Config, curve_speed_limit, lookahead_distance         # noqa: E402
+from dzbrain.pursuit import lookahead as lookahead_module                             # noqa: E402
+from dzbrain.pursuit import path as path_module                                       # noqa: E402
 from dzbrain.pursuit.controller import brake_command, compute_command, speed_profile  # noqa: E402
 from dzbrain.pursuit.lookahead import find_lookahead_point                            # noqa: E402
 from dzbrain.pursuit.path import Path                                                 # noqa: E402
 from dzbrain.route.model import Route, RouteBuilder, Waypoint                         # noqa: E402
+from dzbrain.route.parser import parse_mission                                        # noqa: E402
 
 # --------------------------------------------------------------------------- #
 #  极简断言框架
@@ -570,6 +574,159 @@ def test_brake() -> None:
 
 
 # --------------------------------------------------------------------------- #
+#  10. ★站在直角顶点上：投影必须前瞻到下一段（现场 F10 实测缺陷）
+# --------------------------------------------------------------------------- #
+FIELD_TOKENS = ("N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 F11 E11 R:F11 F10 F8 B8 "
+                "B6 A6 R:B6 R:D6 C6 C4 C2 G2 H2 H1 I1 J1 J4 K4 L4 L5 N5")
+
+
+def field_path() -> Path:
+    """现场图路线（34 点，取自 `fixtures/route_field.txt`）。"""
+    return Path(parse_mission(FIELD_TOKENS.split()))
+
+
+def test_vertex_lookahead() -> None:
+    """★真 bug 回归：车**正好站在直角顶点上**时，投影+顶点钳制会让前视点塌缩到车身上。
+
+    现象（离线复现，现场图 F10 = wp10、s=3.500）：车被 Localization 钉到 F10 格心后，
+    seg9（到顶点）/ seg10（顶点向西）/ seg11（顶点向北）三条段到车**完全等距**
+    （d² 全 = 0.015876），等距裁决按"s 更接近 s_hint"留下了**已走完的 seg9 端点
+    t=1.000**；`find_lookahead_point` 的顶点钳制（dist_to_vertex = 0 < 0.04）再把前视点
+    钳到顶点 = 车自己所在的位置 ⇒ 弦长 0 ⇒ `steer_deg = +0.0°`、`v = +0.120` 直行漂出走廊。
+    实闭环 bench：2.5 s 内投影 s 冻在 3.500、dist 0.000→0.300 m、舵角恒 +0.0°，
+    12 s 后触发 MissionTask「拐角绕圈兜底」强制跳过 F8。
+
+    ⚠️ 本测试直接调 `path.project` / `find_lookahead_point` / `compute_command`
+       —— 即**纯追踪几何层**；不经过 TrackerTask 的 PIVOT（那是另一条策略）。
+    """
+    sec("10. ★站在直角顶点上：投影前瞻到下一段（前视点不得塌缩到车身）")
+    path = field_path()
+    fx, fy = geo.block_to_meters("F10")
+    pose = geo.Pose(fx, fy, math.pi / 2)            # 车头朝 +y（北）= 沿 seg9 的行进方向
+    cfg = cfg_of()                                  # 出厂默认：ld=0.18 / clamp=0.04 / max_steer=30
+    ld = lookahead_distance(cfg.get("pursuit.cruise_speed_mps"), cfg)
+
+    # ---- 前置：几何确实是"三条段等距"的直角顶点 ----
+    #  ⚠️ 段长是 block_to_meters 的两个浮点坐标相减（0.525-0.175 = 0.3499999999999999），
+    #     不能用 == 0.35 断言（1 ULP）—— 与 §1 的 N10.x 是同一类浮点事实。
+    ok("10.1 前置：F10 是直角顶点、seg9 到它的弧长 = 3.5",
+       abs(path.segments[9][4] - 0.35) < 1e-12 and abs(path.segments[10][4] - 0.35) < 1e-12
+       and abs(path.s_at_waypoint(10) - 3.5) < 1e-12 and path.corner_angle_deg(9) == 90.0,
+       f"s_at_waypoint(10)={path.s_at_waypoint(10)!r} seg10（向西）={path.segments[10][4]!r} m "
+       f"seg11（向北）={path.segments[11][4]!r} m 转角={path.corner_angle_deg(9):.0f}°")
+
+    # ---- ★钉死断言①：顶点处投影必须前瞻到下一段，不许留在已走完的 seg9 ----
+    # s_hint 取 "已走完 seg9、即将进角" 的 3.300（在窗口 [3.15, 3.90] 内，不含顶点）：
+    # 车站在顶点上时第一遍仍会把手位算到 seg9 端点，修复后必须重投影到 seg10。
+    proj = path.project(fx, fy, s_hint=3.300, window_m=0.60, back_m=0.15,
+                        motion_heading=math.pi / 2)
+    ok("10.2 ★顶点投影前瞻到下一段（修复前 seg_index=9）", proj.seg_index != 9,
+       f"seg_index={proj.seg_index} t={proj.t:.4f} s={proj.s:.4f} "
+       f"（修复前 = 9 / t=1.0000 / s=3.5000）")
+
+    # ---- ★钉死断言②③：前视点不许塌缩到车身上，舵角必须打出来 ----
+    target = find_lookahead_point(path, proj, ld, cfg)
+    chord = math.hypot(target.x - pose.x, target.y - pose.y)
+    cmd = compute_command(pose, path, proj, cfg, dt=0.02)
+    ok("10.3 ★前视点到车身的弦长 > 0.05 m（修复前 0.0000 m）", chord > 0.05,
+       f"弦长={chord:.4f} m 前视点=({target.x:.4f},{target.y:.4f}) "
+       f"clamped={target.clamped_to_vertex}（修复前 0.0000 m，点=车自己）")
+    ok("10.4 ★舵角 |δ| ≥ 20°（修复前恒 +0.0°）", abs(cmd.steer_deg) >= 20.0,
+       f"δ={cmd.steer_deg:+.1f}° v={cmd.linear_x:+.3f}（修复前 +0.0° / +0.120）")
+
+    # ---- 二道防线：即便调用方手工构造"车正站在顶点上"的投影，前视点也不许塌缩 ----
+    from dzbrain.pursuit.path import Projection as _Proj
+    manual = _Proj(seg_index=9, t=1.0, x=fx, y=fy, s=3.5, dist=0.0, seg_length=0.35,
+                   seg_heading=path.segments[9][5], passed_end=False)
+    mt = find_lookahead_point(path, manual, ld, cfg)
+    ok("10.5 手工构造 dist_to_vertex=0 的投影：前视点仍不得落在车身上",
+       math.hypot(mt.x - fx, mt.y - fy) > 0.05 and mt.s > manual.s,
+       f"弦长={math.hypot(mt.x - fx, mt.y - fy):.4f} m s={mt.s:.4f}（> 投影 {manual.s:.4f}）")
+
+    # ---- 端到端：同一起点按自行车模型积分 250 拍（5 s @ 50 Hz） ----
+    # 「bench 同款积分模型」（与 test_tracker.py §8 一致）：一阶欧拉 + tan(δ)、减速靠命令速度。
+    wheelbase = cfg.get("pursuit.wheelbase_m")
+    dt = 0.02
+    x, y, yaw = fx, fy, math.pi / 2
+    s_hint, last_steer = 3.300, None
+    dists: list[float] = []
+    steers: list[float] = []
+    for _ in range(250):
+        pr = path.project(x, y, s_hint=s_hint, window_m=0.60, back_m=0.15, motion_heading=yaw)
+        s_hint = pr.s
+        # 用全量搜索的真实最近点做指标（避免"段选择"污染"离路线多远"的度量）
+        dists.append(path.project(x, y).dist)
+        c = compute_command(geo.Pose(x, y, yaw), path, pr, cfg,
+                            last_steer_deg=last_steer, dt=dt)
+        last_steer = c.steer_deg
+        steers.append(c.steer_deg)
+        yaw = geo.normalize_angle(yaw + (c.linear_x / wheelbase)
+                                  * math.tan(math.radians(c.steer_deg)) * dt)
+        x += c.linear_x * math.cos(yaw) * dt
+        y += c.linear_x * math.sin(yaw) * dt
+
+    if getattr(path_module, "_VERTEX_LOOKAHEAD", True) and getattr(lookahead_module, "_VERTEX_LOOKAHEAD", True):
+        # 修复后：第 0 拍就打舵（修复前要 2.92 s 才因漂远而被动打舵），
+        #          峰值 0.2266 m、并在 4 s 内回到路线（末拍 0.089 m）。
+        # ⚠️ 阈值说明：`< 0.15 m` 在本场景**物理上到不了** —— 车速 0.12 m/s + 舵角速率
+        #    120°/s（单拍 2.4°）时，车必须先直行 ~0.5 s 才能把车身转过来，几何最低偏移
+        #    ≈0.21 m。故这里钉 0.25 m（现状 0.3511 m 必失败），并另加"确实回到路线"断言。
+        ok("10.6 ★250 拍内 max 真实最近点距离 < 0.25 m（现状 0.3511 m）",
+           max(dists) < 0.25, f"max={max(dists):.4f} m @第{dists.index(max(dists))}拍"
+                              f"（现状 0.3511 m，且此后一直增大到 0.337 m 不收敛）")
+    else:
+        # ★「测试有牙」专用分支：把模块内的 _VERTEX_LOOKAHEAD 置 False（等价于修复前），
+        #   必须看到失败 —— 这就是"先把修复关掉跑一次确认失败"的可复现形式。
+        ok("10.6 ★250 拍内 max 真实最近点距离 < 0.25 m（现状 0.3511 m）",
+           max(dists) < 0.25, f"[修复已关闭] max={max(dists):.4f} m —— 预期失败")
+    ok("10.7 ★0.5 s 内舵角非零（现状 2.92 s 才被动打舵，且靠漂出 0.24 m 换来）",
+       any(abs(s) > 1e-9 for s in steers[:25]),
+       f"前 25 拍舵角={[round(s, 2) for s in steers[:6]]}… "
+       f"首非零拍={next((i for i, s in enumerate(steers) if abs(s) > 1e-9), None)}"
+       f"（现状 None）")
+    ok("10.8 ★4 s 时已回到路线 0.05 m 内（现状 0.349 m 且仍在增大）", dists[199] < 0.05,
+       f"第200拍 dist={dists[199]:.4f} m（现状 0.349 m）")
+
+    # ---- 边界：不许把"车沿上一段方向冲过顶点"的既有语义改坏 ----
+    #  车在 (1.2, 0)，沿 seg0 延长线冲过顶点 0.2 m：最近点就是顶点 (1, 0)、距离 0.2 m。
+    #  ★ 修复前返回 "seg0 / t=1.0"（顶点），修复后返回 "seg1 / t=0.0"（**同一个点**）——
+    #    段号变了但投影点与距离必须一字不差；这条防止重投影把距离/末点语义改坏。
+    lpath = Path(route_of([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)], name="L-vertex"))
+    beyond = lpath.project(1.2, 0.0)
+    ok("10.9 车冲过顶点（1.2, 0）：投影点仍是顶点、距离不被重投影改坏",
+       (beyond.x, beyond.y) == (1.0, 0.0) and abs(beyond.dist - 0.2) < 1e-12
+       and beyond.passed_end is False,
+       f"seg={beyond.seg_index}[{beyond.t:.1f}] 点=({beyond.x!r},{beyond.y!r}) "
+       f"dist={beyond.dist!r}（修复前 seg0/t=1.0，同一个点）")
+
+    # ---- 边界：末段顶点不得触发重投影，passed_end 语义原样保留 ----
+    straight2 = straight(2.0)
+    pe = straight2.project(2.5, 0.0)
+    ok("10.10 末段之后 passed_end/t/s 语义不变（不得被重投影改写）",
+       pe.seg_index == 0 and pe.t == 1.0 and pe.s == 2.0 and pe.passed_end is True,
+       f"seg={pe.seg_index} t={pe.t!r} s={pe.s!r} passed_end={pe.passed_end}")
+
+    # ---- 边界：自重叠折返段的顶点处，重投影后段属性仍是"倒车"（不许丢 reverse） ----
+    #  现场 B6→A6→R:B6→R:D6：折返腿（A6→B6，**倒车**）与去程腿（B6→A6）完全共线。
+    #  车倒着回到 B6 顶点时，投影必须落在**折返腿**附近并让 `segment_is_reverse` 保持 True
+    #  —— 段属性一旦翻转，命令符号就跟着翻，两个自洽状态互锁 ⇒ 每拍抖（bench 601 次翻转）。
+    #  ★ 修复后投影会被顶点重投影推到 **seg2（B6→D6）的 t=0**（顶点之后），而 seg2 的终点
+    #    D6 带 `R:` 标记 ⇒ `segment_is_reverse(2)` 仍为 True，倒车语义不丢。
+    back_route = parse_mission(["B6", "A6", "R:B6", "R:D6"])
+    bpath = Path(back_route)
+    bx, by = geo.block_to_meters("B6")
+    ax, ay = geo.block_to_meters("A6")
+    travel_back = geo.heading_of(ax - bx, ay - by)          # 倒退回 B6 的行进方向
+    back = bpath.project(bx, by, s_hint=bpath.s_at_waypoint(2) - 0.035,
+                         back_m=0.15, motion_heading=travel_back)
+    ok("10.11 折返顶点：投影点 = B6 顶点、dist=0，且段属性仍是倒车（不许被重投影改写）",
+       abs(back.x - bx) < 1e-12 and abs(back.y - by) < 1e-12 and back.dist < 1e-12
+       and bpath.segment_is_reverse(back.seg_index) is True,
+       f"seg={back.seg_index} t={back.t:.4f} s={back.s:.4f} d2v={back.dist_to_vertex:.4f} "
+       f"is_reverse={bpath.segment_is_reverse(back.seg_index)} 点=({back.x:.4f},{back.y:.4f})")
+
+
+# --------------------------------------------------------------------------- #
 #  9. 与旧行为对拍
 # --------------------------------------------------------------------------- #
 def test_legacy_parity() -> None:
@@ -637,6 +794,7 @@ def main() -> int:
     test_speed_profile()
     test_brake()
     test_legacy_parity()
+    test_vertex_lookahead()
     dt = time.perf_counter() - t0
 
     us_win = MEASURED.get("us_win", float("nan"))

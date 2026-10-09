@@ -340,4 +340,75 @@ check("位移不足的段被剔除（seg_too_short）",
 task.teardown()
 check("teardown 后取消订阅（再发事件也不进队列）", task._sub is None)
 
+# --------------------------------------------------------------------------- #
+section("⑨ ★ 输入守卫：物理不可能的 ds 被丢弃 + 计数，且不毁掉正常段（P_ROUTE_S 三写入者互跳）")
+# 现场实证：P_ROUTE_S 有 Localization / Tracker / Mission 三个写入者，各维护自己的投影链；
+# 任一处冻结或换手，相邻两拍的 ds 就是物理不可能的跳（bench：3.73↔4.20 来回跳）。
+# 这里把"换手"做成一次明确的注入：第 3 拍上 P_ROUTE_S 突然 +7 m（来源写成 TrackerTask）。
+task, bridge, bb, bus, clock, _w, sub, route = build({"fix": {}})
+x0, y0 = geo.block_to_meters("N10")
+x1, y1 = geo.block_to_meters("M10")
+set_pose(bb, x0, y0, 0.0)
+tick(task, clock, bb)
+FAKE_DS = 7.0                       # 假增量（米）
+inject_tick = 3
+for i in range(1, _FRAMES_PER_SEG + 1):
+    t = i / _FRAMES_PER_SEG
+    set_pose(bb, x0 + (x1 - x0) * t * _BELIEF_RATIO, y0 + (y1 - y0) * t * _BELIEF_RATIO,
+             t * STEP)
+    if i == inject_tick:
+        bb.set(P_ROUTE_S, t * STEP + FAKE_DS, source="TrackerTask", ts=0.0)
+    tick(task, clock, bb)
+# ★ 段内的累加器要在"锚定事件闭合本段"之前取（`_on_anchored` 会 rebaseline 清零）
+geo_m, belief_m = task._geo_m, task._belief_m
+bus.publish(EV_POSE_ANCHORED, source="LocalizationTask", block="M10", index=1,
+            drift=_ANCHOR_OFFSET)
+set_pose(bb, x1, y1, STEP)
+tick(task, clock, bb)
+
+st = task.stats()
+check("★ 假 ds 被丢弃并计数（ds_rejected ≥ 1）", task.ds_rejected >= 1,
+      f"ds_rejected={task.ds_rejected} 共 {task.ds_rejected_m:.3f} m")
+check("★ 被丢弃的量级就是那 7 m（不是小数被误伤）",
+      FAKE_DS <= task.ds_rejected_m <= FAKE_DS + STEP, f"{task.ds_rejected_m:.3f} m")
+check("★ 假 ds 没有进几何弧长：本段 geo 仍等于真实走过的 0.35 m",
+      abs(geo_m - STEP) < 1e-9,
+      f"geo={geo_m:.4f} m（无守卫时会是 {STEP + FAKE_DS:.2f} m 量级）")
+check("信念位移没被牵连（belief 仍是 0.35×1.18）",
+      abs(belief_m - STEP * _BELIEF_RATIO) < 1e-9, f"belief={belief_m:.4f} m")
+check("★ 该段**仍然被接受**（守卫不该吞掉正常样本）", task.samples == 1,
+      f"samples={task.samples} rejected={task.segments_rejected} {st['reasons']}")
+check("★ 比值仍是真值 1.18（丢弃的那一拍由下一拍补账回来，比值不偏）",
+      len(st["ratios"]) == 1 and abs(st["ratios"][0] - _BELIEF_RATIO) < 0.03,
+      f"ratios={[round(r, 4) for r in st['ratios']]}")
+check("统计口径可观测：stats() 里有 ds_rejected / ds_rejected_m",
+      st["ds_rejected"] == task.ds_rejected
+      and abs(st["ds_rejected_m"] - task.ds_rejected_m) < 1e-12, f"{st}")
+check("段落盘（P_FIX_EST）没被这次污染影响", isinstance(bb.get(P_FIX_EST), FixState))
+
+# 反向：正常段一次都不该误伤（守卫不能把正常 ds 也拒掉）
+ds_before = task.ds_rejected
+run_segment(task, clock, bb, bus, route, "M10", "L10", drift=0.02)
+check("正常段零误伤（ds_rejected 不增）", task.ds_rejected == ds_before,
+      f"{ds_before} → {task.ds_rejected}")
+
+# 反向：连续不可信 → 重新基线，改按新坐标系继续量（不死循环、也不把 +7 记成位移）
+task2, bridge2, bb2, bus2, clock2, _w2, sub2, route2 = build({"fix": {}})
+set_pose(bb2, 0.525, 0.175, 0.0)
+tick(task2, clock2, bb2)
+bad_frame = 7.0                     # 坏写入者：整条链偏了 7 m，但自己的增量是正常的
+for i in range(1, 10):
+    set_pose(bb2, 0.525, 0.175 + 0.01 * i, 0.01 * i)
+    bb2.set(P_ROUTE_S, 0.01 * i + bad_frame, source="BadWriter", ts=0.0)
+    tick(task2, clock2, bb2)
+check("换坐标系那几拍被计数（≥ fix.ds_reject_max_run）", task2.ds_rejected >= 3,
+      f"got {task2.ds_rejected}")
+check("★ 偏置 7 m 没有变成位移（geo 只累计换基线之后的正常增量）",
+      abs(task2._geo_m - 0.06) < 1e-9, f"geo_m={task2._geo_m:.4f} m")
+check("★ 重新基线后估计器恢复工作（不是卡在拒绝里）", task2._geo_m > 0.0,
+      f"geo_m={task2._geo_m:.4f} m")
+check("坏坐标系的偏置不会被当成漂移/段样本",
+      task2.segments_total == 0 and task2.samples == 0,
+      f"segments={task2.segments_total} samples={task2.samples}")
+
 finish()

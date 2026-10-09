@@ -36,16 +36,27 @@ r"""FixTask —— 误差修正（10 Hz），架构 §7.1 的 **L2 位置修正 
 ★ 为什么要"保守"：比例误差的观测本身带噪声（吸附位移、投影跳段、倒车段方向反转），
   一次误收敛会让整条路线的限速/到点判据系统性偏移——旧代码的教训是"宁可不动，不可乱动"。
 
+## 输入守卫（`_settle_ds`，2026-10-07 补）
+
+`P_ROUTE_S` 有**三个写入者**（Localization / Tracker / Mission），各维护自己的投影链。
+任一处冻结或换手，相邻两拍就会给出物理上不可能的 `ds`（bench 实测：冻结期间 `P_ROUTE_S`
+在 3.73↔4.20 之间来回跳）。原实现 `if ds > 0: geo_m += ds` 只挑正数不判别 ⇒ 来回跳全被
+记成前进 ⇒ 段比值被推成 0.12~0.23（真值≈1），并把正常样本挤掉。
+现在只接受 `0 < ds <= max(同一窗口的位姿位移 × fix.ds_max_ratio, fix.ds_floor_m)`：
+越界的丢弃并计数（`ds_rejected` / `ds_rejected_m`，见 `stats()`），**不写任何新黑盒键**。
+被判不可信的那一拍**不推进基线**，下一拍把落下的正常位移一起补回来（belief 与 geo 必须
+覆盖同一段时间，否则比值会系统性偏大）；连续 `fix.ds_reject_max_run` 拍不可信就重新基线。
+
 ## 铁律
 
 - `tick()` 非阻塞：只做 O(1) 累加 + 事件 drain，不做投影、不做 I/O；
 - **不 import rclpy**；不直接调 `time.time()/time.monotonic()`（走注入的 `clock`）；
 - 与 Localization 只通过 Blackboard/EventBus 通信，**禁止互相调用**。
 
-⚠️ SCHEMA 缺键（本文件不改 `core/config.py`，故用带默认值的 `cfg.get`）：
-  `fix.seg_min_m` / `fix.scale_min_samples` / `fix.drift_cull_m` / `fix.ratio_bounds` /
-  `fix.ratio_jump_max` / `fix.ratio_jump_min_prior`。建议补进 SCHEMA，否则
-  `Config.validate()` 看不到它们（键名拼错也不会被"未知配置段"告警兜住）。
+配置键：本文件读的可选键**已全部进 `core/config.py` 的 SCHEMA**（`fix.seg_min_m` /
+`fix.scale_min_samples` / `fix.drift_cull_m` / `fix.ratio_bounds` / `fix.ratio_jump_max` /
+`fix.ratio_jump_min_prior` / `fix.ds_max_ratio` / `fix.ds_floor_m`），
+所以 `Config.validate()` 能看见它们，键名拼错会被"未知配置段"告警兜住。
 """
 
 from __future__ import annotations
@@ -99,6 +110,10 @@ class FixTask(TaskThread):
         self.ratio_jump_max = float(cfg.get("fix.ratio_jump_max", 0.15))
         self.ratio_jump_min_prior = int(cfg.get("fix.ratio_jump_min_prior", 3))
         self.window = max(1, int(cfg.get("fix.scale_window", 5)))
+        # ★ 单拍位移守卫（`_accumulate`）：见 `_ds_limit()` 与模块 docstring ★P_ROUTE_S
+        self.ds_max_ratio = float(cfg.get("fix.ds_max_ratio") or 2.0)
+        self.ds_floor_m = float(cfg.get("fix.ds_floor_m") or 0.05)
+        self.ds_reject_max_run = max(1, int(cfg.get("fix.ds_reject_max_run") or 3))
         self._rate_limit_s = float(cfg.get("logging.rate_limit_s") or 1.0)
 
         # ---------------- 估计状态 ----------------
@@ -110,6 +125,10 @@ class FixTask(TaskThread):
         self.reject_reasons: dict[str, int] = {}
         self.steps = 0                       # 实际发生过的估计更新次数
         self._ratios: list[float] = []       # 最近 window 个被接受的比值
+        self.ds_rejected = 0                 # ★ 物理不可能的 ds 被丢弃的拍数（可观测）
+        self.ds_rejected_m = 0.0             # ★ 被丢弃的弧长总量（米，可观测）
+        self._ds_run_m = 0.0                 # 本结算窗口内累计的位姿位移（配 ds 用）
+        self._ds_reject_run = 0              # 连续被判不可信的拍数（防死循环）
 
         # ---------------- 漂移台账（从事件累计，P_FIX 里的是 Localization 的副本） ----
         self.anchor_count = 0
@@ -150,7 +169,8 @@ class FixTask(TaskThread):
             self._sub = None
         self._log(f"退出：锚定 {self.anchor_count} 次 / 段 {self.segments_accepted}"
                   f"/{self.segments_total} 接受 / 估计 scale={self.scale:.5f}"
-                  f"（原始 {self.scale_raw:.5f}）/ 漂移 max {self.max_drift_m:.3f} m")
+                  f"（原始 {self.scale_raw:.5f}）/ 漂移 max {self.max_drift_m:.3f} m"
+                  f"/ 丢弃不可信 ds {self.ds_rejected} 拍（{self.ds_rejected_m:.3f} m）")
 
     # ------------------------------------------------------------------ #
     #  只读接口（测试/遥测/结束横幅）
@@ -170,6 +190,7 @@ class FixTask(TaskThread):
             "samples": self.segments_accepted, "segments": self.segments_total,
             "rejected": self.segments_rejected, "reasons": dict(self.reject_reasons),
             "steps": self.steps, "ratios": list(self._ratios),
+            "ds_rejected": self.ds_rejected, "ds_rejected_m": self.ds_rejected_m,
         }
 
     def drift_report(self) -> dict[str, Any]:
@@ -315,19 +336,88 @@ class FixTask(TaskThread):
                 return
             self._belief_m += step
             self._frames += 1
-            if self._prev_s is not None and s is not None:
-                ds = s - self._prev_s
-                if ds > 0.0:
-                    self._geo_m += ds
-        self._prev_pose = pose
-        if s is not None:
+            if s is not None:
+                self._settle_ds(s, step)      # ★ 唯一改动 prev_s / _geo_m / 计数的地方
+        elif s is not None:
+            # 本拍是"基线刚重设后的第一拍"（锚定/突跳的下一拍）：只把弧长基线对齐到当前值，
+            # 不累计几何 —— 与旧行为一致（旧代码每拍都同步 `_prev_s`），否则基线会停在
+            # 重设前的位置，下一拍的 ds 会跨过整个重设窗口。
             self._prev_s = s
+            self._ds_run_m = 0.0
+        self._prev_pose = pose
+
+    def _ds_limit(self, run_m: float) -> float:
+        """本结算窗口允许计入的**最大弧长增量**（米）。
+
+        ★ 为什么需要这道守卫：`P_ROUTE_S` 有**三个写入者**（Localization / Tracker /
+          Mission），各维护自己的投影链；任一处冻结或换手，相邻两拍的 `ds` 就会出现
+          物理上不可能的跳。原来的累加是 `if ds > 0: geo_m += ds` —— 只挑正数、不判别，
+          于是"冻结→跳回→再冻结"的来回全被记成**前进**，段比值被推成 0.12~0.23
+          （bench 实测：K9 0.23~0.46 / H10 0.12~0.22 / G10 1.46~1.57，真值≈1）。
+          后果不是"多一条告警"：这些离谱比值会把**正常样本挤掉**，估计器的样本数与
+          收敛都被牵连。
+
+        判据 = `max(同一窗口的位姿位移 × fix.ds_max_ratio, fix.ds_floor_m)`，两个都必要：
+          · `× 2` 利用"弧长 ≥ 直线位移"这一几何关系 —— 正常行驶 ds ≈ 位移，给 2 倍余量；
+          · 绝对下限 `fix.ds_floor_m`(0.05 m ≈ 0.5 m/s × 0.1 s) 兜住"位姿位移很小"的拍：
+            否则蠕行/定位抖动时 `位移×2` 会小到把**正常**的 ds 也拒掉（那会把 geo_m
+            系统性算小，比不修更糟）。
+        """
+        return max(run_m * self.ds_max_ratio, self.ds_floor_m)
+
+    def _settle_ds(self, s: float, step: float) -> None:
+        """结算一次弧长增量。`ds` 与 `run_m` 覆盖**同一个时间窗口**，这是比值正确的前提。
+
+        ★ 窗口语义（为什么被判不可信时**不**推进基线）：`ds = s - prev_s`，而 `prev_s`
+          只在①结算成功 ②本窗口测不到几何（`ds ≤ 0`：停着/倒车/投影冻住）③连续
+          `fix.ds_reject_max_run` 拍都不可信 这三种情况下前进。
+          于是"某一拍被判不可信"不会**吞掉**那一拍的正常位移 —— 下一拍的 ds 会把它一起
+          带回来（补账），belief 与 geo 仍然覆盖同一段时间，比值不会因为丢一拍而系统性偏大
+          （旧写法"直接丢掉一拍"实测能把 1.18 的比值抬到 1.77，反而误杀正常段）。
+          连续多拍不可信说明不是噪声而是"换了写入者的坐标系"→ 重新基线，避免死循环。
+        """
+        self._ds_run_m += step
+        if self._prev_s is None:
+            self._prev_s = s
+            self._ds_run_m = 0.0
+            return
+        ds = s - self._prev_s
+        if ds <= 0.0:
+            # 没有前进：本窗口测不到几何（停着/倒车/被冻住）→ 基线跟上，位移作废
+            self._prev_s = s
+            self._ds_run_m = 0.0
+            self._ds_reject_run = 0
+            return
+
+        limit = self._ds_limit(self._ds_run_m)
+        if ds <= limit:
+            self._geo_m += ds
+            self._prev_s = s
+            self._ds_run_m = 0.0
+            self._ds_reject_run = 0
+            return
+
+        # ---- 物理不可能：丢弃（基线不动 → 下一拍补账），计数 + 限流日志 ----
+        self.ds_rejected += 1
+        self.ds_rejected_m += ds
+        self._ds_reject_run += 1
+        if self._warn.allow("ds_impossible", self.clock()):
+            self._log(f"⚠️ 段位移不可信：本窗口 ds={ds:.3f} m 远超位姿位移 "
+                      f"{self._ds_run_m:.3f} m（上限 {limit:.3f} m = 位移×"
+                      f"{self.ds_max_ratio:g} 与 {self.ds_floor_m:.3f} m 取大）→ 不计入几何弧长"
+                      f"（已丢弃 {self.ds_rejected} 拍 / {self.ds_rejected_m:.3f} m）")
+        if self._ds_reject_run >= self.ds_reject_max_run:
+            self._prev_s = s                  # 连续不可信 = 换了坐标系，重新基线
+            self._ds_run_m = 0.0
+            self._ds_reject_run = 0
 
     def _rebaseline(self, pose=None, s: float | None = None) -> None:
         self._geo_m = 0.0
         self._belief_m = 0.0
         self._frames = 0
         self._rebaselined = True
+        self._ds_run_m = 0.0
+        self._ds_reject_run = 0
         if pose is not None:
             self._prev_pose = pose
         if s is not None:

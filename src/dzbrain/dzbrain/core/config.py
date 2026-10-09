@@ -261,6 +261,34 @@ SCHEMA: dict[str, Spec] = {
     "fix.ratio_jump_max": Spec(0.15, _F, "×", 0.0, 1.0, "比值突跳容差（与窗口均值比）"),
     "fix.ratio_jump_min_prior": Spec(3, _I, "段", 1, 20, "突跳判定需要的历史样本数"),
     "fix.scale_window": Spec(5, _I, "段", 1, 50, "比例估计滑动窗口"),
+    #  ★ 单拍位移守卫（FixTask._accumulate）：`P_ROUTE_S` 有**三个写入者**
+    #    （Localization / Tracker / Mission），各维护自己的投影链；任一处冻结或跳变，
+    #    相邻两拍的 `ds` 就会出现物理上不可能的跳（实测 P_ROUTE_S 在 3.73↔4.20 之间翻），
+    #    而 `ds>0` 只累加不判别 ⇒ 段比值被推成 0.12~0.23 并**挤掉**正常样本。
+    "fix.ds_max_ratio": Spec(2.0, _F, "×", 1.0, 10.0,
+                             "★单拍路线弧长增量上限 = 位姿位移 × 该系数（超过即不可能，丢弃并计数）"),
+    "fix.ds_floor_m": Spec(0.05, _F, "m", 0.0, 0.30,
+                           "★单拍弧长增量的绝对下限（位姿位移很小时用）。0.05 m ≈ 0.5 m/s × 0.1 s "
+                           "的物理上限；低于它才允许按位移比例判定"),
+    "fix.ds_reject_max_run": Spec(3, _I, "拍", 1, 50,
+                                  "★连续多少拍 ds 都不可信就重新基线（那是换了写入者的坐标系，"
+                                  "不是噪声；不重置会一直补账、卡死在拒绝里）"),
+
+    # ---------------- 定位投影自愈（LocalizationTask._heal_stuck，2026-10-07） ----
+    #  ★ 背景（bench 实证）：`Path.project(allow_backward=False)` 把窗口下界夹在 `s_hint`
+    #    上，车的垂足一旦落到窗口之前，"窗口内最近点"就永远是下界点本身 ⇒ 返回的 s
+    #    恰好等于上一拍 hint ⇒ 不动点：车继续走，而 P_ROUTE_S 永久停在原地
+    #    （实测上报投影点离线 0.5~3.5 m、占 20~37% 拍，段比值被污染成 0.12~0.23）。
+    #    以下三条判据**同时**成立才做一次全路线重投影（正常每拍仍是窗口投影）。
+    "localization.stuck_ticks": Spec(5, _I, "拍", 2, 50,
+                                      "★投影卡死：连续这么多拍 s 前进不足 stuck_eps_m"),
+    "localization.stuck_eps_m": Spec(0.01, _F, "m", 0.001, 0.10,
+                                      "★卡死判定的 s 前进量上限。最低速 0.08 m/s @20 Hz "
+                                      "五拍也前进 20 mm → 正常行驶（含蠕动）不会被误判"),
+    "localization.stuck_dist_m": Spec(0.20, _F, "m", 0.05, 1.0,
+                                       "★卡死判定的投影点离线距离：上报点离车这么远就说明它"
+                                       "已不是车的位置。取 0.20 ≈ 仿真实测跟踪 RMS，"
+                                       "既放过正常横向偏差、又不放过 >0.5 m 的冻结"),
 
     # ---------------- 无人机链路 ----
     "drone.enabled": Spec(True, _B, "", None, None, "是否启用无人机链路"),
@@ -498,9 +526,9 @@ class Config:
 
         # 已知键之外的路径段（打错键名会被发现，而不是静默忽略）
         known_prefixes = ("pursuit.", "route.", "mission.", "fix.", "drone.", "safety.",
-                          "logging.", "telemetry.", "aim.", "referee.", "path_executor.",
-                          "dzactuator.", "dzrknn_dataprocess.", "det_node.", "usb_cam_node.",
-                          "dzjudgment.", "ackermann_sim.")
+                          "logging.", "telemetry.", "aim.", "localization.", "referee.",
+                          "path_executor.", "dzactuator.", "dzrknn_dataprocess.", "det_node.",
+                          "usb_cam_node.", "dzjudgment.", "ackermann_sim.")
         for key in self._flat:
             if not key.startswith(known_prefixes):
                 note("warn", key, "未知配置段（拼写错误？新版本未登记？）")

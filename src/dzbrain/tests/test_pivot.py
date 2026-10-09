@@ -145,8 +145,15 @@ def test_timeout_no_deadlock() -> None:
     b6x, b6y = geo.block_to_meters("B6")
     # ★ 关键：车头摆成"来的时候那个方向"（B6→A6），而目标航向是"走的时候那个方向"（A6→B6）
     #   —— 两者差 180°，而本测试**故意不把车转过去**，所以只能靠超时放行。
-    rig = Rig(tokens=U_TURN, pose=(a6x, a6y, geo.heading_of(a6x - b6x, a6y - b6y)), cfg=cfg)
-    # 车到达顶点；此后**故意不把车头转过去**（航向误差永远很大）→ 只能靠超时放行
+    # ⚠️ 起点必须在顶点**之前**（< pivot_dist_m）：`path.project` 在"投影正好贴在顶点"时
+    #   会把段号推到下一段（顶点前瞻重投影，见 path.py 2b 段注释），那时 `_corner_ahead`
+    #   看到的顶点已经不是这个折返点了 —— 夹具若把车摆在顶点正上方，就不再触发 PIVOT
+    #   （这是**夹具**问题，不是逻辑问题：现场是先触发再走过去，正上方是测不到的瞬间态）。
+    rig = Rig(tokens=U_TURN,
+              pose=(a6x - (a6x - b6x) * 0.34, a6y - (a6y - b6y) * 0.34,
+                    geo.heading_of(a6x - b6x, a6y - b6y)), cfg=cfg)
+    # 车在顶点前 0.12 m（< pivot_dist_m=0.30）→ 触发 PIVOT；此后**故意不把车头转过去**
+    # （航向误差永远很大）→ 只能靠超时放行
     rig.tick()
     phases = []
     for _ in range(120):        # 120 × 0.02 = 2.4 s > timeout 1.0 s
@@ -200,7 +207,13 @@ def test_turn_respects_rate_limit() -> None:
     a6x, a6y = geo.block_to_meters("A6")
     b6x, b6y = geo.block_to_meters("B6")
     # 同上：车头朝向与目标航向差 180°，TURN 段才会持续（否则瞬间完成，采不到样本）
-    rig = Rig(tokens=U_TURN, pose=(a6x, a6y, geo.heading_of(a6x - b6x, a6y - b6y)), cfg=cfg)
+    # ⚠️ 同样必须在顶点**之前**起步（原因见 §2 的说明：投影贴在顶点时会推到下一段）。
+    # ⚠️ 而且要先让**纯追踪跑几拍**建立"上一拍舵角" —— 否则起手就在 PIVOT 里、
+    #    `_last_steer_deg` 是 None，首拍不受限幅（实测样本会全等于 30°，4.2 变成空断言）。
+    rig = Rig(tokens=U_TURN, pose=(b6x, b6y, geo.heading_of(a6x - b6x, a6y - b6y)), cfg=cfg)
+    rig.ticks(3)                      # 纯追踪：在线上直行 → 上一拍舵角≈0
+    rig.set_pose(a6x - (a6x - b6x) * 0.34, a6y - (a6y - b6y) * 0.34,
+                 geo.heading_of(a6x - b6x, a6y - b6y))   # 挪到顶点前 0.12 m → 触发 PIVOT
     rig.tick()
     steers: list[float] = []
     for _ in range(40):
