@@ -126,10 +126,10 @@ try:
     #   180° 折返改为**原地 PIVOT 掉头**（corner_turn_deg=180° > 阈值 135°）。
     check("★现场图路线已无倒车段（底盘不支持倒车 → 折返改为 PIVOT）",
           len(rev) == 0, f"reverse_segments={rev}")
-    piv_blocks = [field.blocks()[i] for i in range(1, fpath.segment_count)
+    piv_blocks = [field.blocks()[i + 1] for i in range(1, fpath.segment_count)
                   if fpath.corner_turn_deg(i) >= 135.0]
-    check("★折返点全部转为 ≥135° 的 PIVOT 掉头（E11 / A6 / B6 各一处）",
-          sorted(piv_blocks) == ["A6", "B6", "E11"], f"pivots={piv_blocks}")
+    check("★折返点全部转为 ≥135° 的 PIVOT 掉头（E11 / A6 / D6 各一处）",
+          sorted(piv_blocks) == ["A6", "D6", "E11"], f"pivots={piv_blocks}")
     # 找 F11→E11→F11 这条回折（same-line backtrack，现在走 PIVOT 而非倒车）
     blocks = field.blocks()
     backtrack = [i for i in range(len(blocks) - 2)
