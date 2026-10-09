@@ -190,8 +190,8 @@ window.__ModuleLoader__.load({
         toolNote: 'Opening a tool switches the main view to the Conversation — the tool window appears on its right. The right column belongs to the Conversation; that is DSH’s structure.',
         filesToolDesc: 'Browse, preview, download and upload the car’s files (over the same trusted SSH channel)',
         vncToolDesc: 'The car’s X desktop (TigerVNC :1, 1920×1080); it may ask for the VNC password in the screen',
-                consoleToolDesc: 'Embedded Eruda debug panel: console, elements, network, resources, sources — handy for debugging JS errors directly in the car's web pages',
-copy: 'Copy command',
+        consoleToolDesc: 'Embedded Eruda debug panel: console, elements, network, resources, sources — handy for debugging JS errors directly in the car’s web pages',
+        copy: 'Copy command',
         copied: 'Copied',
         retry: 'Retry',
         probe: 'Test reachability',
@@ -1466,11 +1466,14 @@ copy: 'Copy command',
         if (error !== '') {
           return h('div', { className: 'dzr_tabroot' }, h('div', { className: 'dzr_pad' }, h('div', { className: 'dzr_note dzr_warn' }, error)))
         }
-        if (!loaded) {
-          return h('div', { className: 'dzr_tabroot' }, h('div', { className: 'dzr_pad' }, h('div', { className: 'dzr_note' }, t('consoleLoading') ?? 'Loading Eruda…')))
-        }
-        return h('div', { className: 'dzr_tabroot', style: { height: '100%', display: 'flex' } },
-          h('div', { ref: containerRef, style: { width: '100%', height: '100%', minHeight: 400 } })
+        // The container div must be mounted BEFORE the script fires onload —
+        // otherwise containerRef.current is still null in script.onload and
+        // Eruda never initializes (the tab would sit on "loading" forever). So
+        // the container stays in the tree and the loading note sits above it
+        // until init finishes.
+        return h('div', { className: 'dzr_tabroot', style: { height: '100%', display: 'flex', flexDirection: 'column' } },
+          loaded ? null : h('div', { className: 'dzr_pad' }, h('div', { className: 'dzr_note' }, t('consoleLoading') ?? 'Loading Eruda…')),
+          h('div', { ref: containerRef, style: { flex: '1 1 auto', width: '100%', height: '100%', minHeight: 400 } })
         )
       }
     }
