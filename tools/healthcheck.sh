@@ -141,6 +141,8 @@ PY
   #   ros2 param get 显示新值、本脚本的运行时比对也"一致"，但代码用的是头文件默认值。
   #   这类"参数设上了、代码却不读"的静默失败，运行时比对【根本查不出来】，只能查源码。
   #   代价：俯仰参数改了三次都毫无效果，排查了很久。
+  #   换血后（源码撤离车上）此项由本地 git 库的开发流程承担，车上退化为提示。
+  if [ -d "$WS/src" ]; then
   MISPAIR=$(python3 - "$WS" <<'PY'
 import re, os, sys
 ws = sys.argv[1]
@@ -172,6 +174,9 @@ PY
   else
     ok "参数声明配对" "declare / get 全部成对"
   fi
+  else
+    printf "     \033[36mℹ\033[0m 源码已撤离车上（换血），declare/get 配对检查由本地 git 库开发流程承担\n"
+  fi
 
   # ★★ 狙击链路：激光到底能不能亮 ★★
   #   踩过的巨坑：dzjudgment（射击驱动）以前根本没被启动过，导致
@@ -195,8 +200,10 @@ PY
     warn "射击驱动未运行" "开火不会有反应；启: ./start_all.sh start 或 tools/restart_node.sh judgment"
   fi
 
-  # 模型文件：det_node 只会加载 share/det_node/model/light_det.rknn
-  MODEL="$WS/src/rknn_pt/model/light_det.rknn"
+  # 模型文件：det_node 优先加载 install 包内 share/det_node/model/light_det.rknn
+  #   （源码撤离后不再依赖 src/；开发阶段 install 缺失时回退到源码路径）
+  MODEL="$WS/install/det_node/share/det_node/model/light_det.rknn"
+  [ -f "$MODEL" ] || MODEL="$WS/src/rknn_pt/model/light_det.rknn"
   if [ -f "$MODEL" ]; then
     ok "识别模型" "$(du -h "$MODEL" | cut -f1)  $(stat -c%y "$MODEL" | cut -d. -f1)"
   else
@@ -228,6 +235,8 @@ else
   #   与本脚本开头的 `set -u` 冲突，会让脚本在此处【静默终止】——
   #   表现为"体检报告只打印到第 3 段就没了"。(start_all.sh 当初踩过同一个坑)
   set +u
+  # ★ ROS 域号：统一从 dzros.env 取（别再依赖 ~/.bashrc —— 换种起法会静默变成域 0）
+  if [ -f "$HOME/dzrobot/dzros.env" ]; then . "$HOME/dzrobot/dzros.env"; fi
   source /opt/ros/humble/setup.bash >/dev/null 2>&1 || true
   source "$WS/install/setup.bash" >/dev/null 2>&1 || true
   set -u

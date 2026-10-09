@@ -55,6 +55,12 @@ PUSH_FILES: list[tuple[str, str]] = [
     ("config/map.yaml", f"{CAR_WS}/config/map.yaml"),
     ("tools/config_selfcheck.py", f"{CAR_WS}/tools/config_selfcheck.py"),         # 车上自检
     ("tools/dzbrain.py", f"{CAR_WS}/tools/dzbrain.py"),
+    # ★ 出车体检脚本：**必须推**，否则车上一直跑旧版 —— 实测踩过：本地给 healthcheck.sh
+    #   补了「新核心 dzbrain」章节（双钥匙开火门控 / 裁判回传 / 保活速率），但部署清单里
+    #   没有它，车上跑出来的还是旧脚本（章节号仍是 N/6），出车前照样是"假全绿"。
+    #   ⚠️ 推之前务必确认本地版已**并回车端适配**（源码撤离后跳过 declare/get 配对、
+    #   模型路径优先 install、ROS 域号取自 dzros.env）—— 否则会把现场适配冲掉。
+    ("tools/healthcheck.sh", f"{CAR_WS}/tools/healthcheck.sh"),
 ]
 
 #: backup 时打包的车端路径
