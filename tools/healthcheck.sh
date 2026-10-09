@@ -356,8 +356,11 @@ else
   TOPICS=$(timeout 8 ros2 topic list 2>/dev/null)
   if grep -q dzbrain <<<"$NODES"; then
     ok "dzbrain 节点" "在线（新核心）"
-    # ★ pursuitAngle 是底盘的**保活指令**（零 Twist = 刹车，底盘有 1s 看门狗）
-    r=$(timeout 5 ros2 topic hz pursuitAngle 2>/dev/null | grep -oP 'average rate: \K[0-9.]+' | head -1)
+    # ★ 保活速率：必须取**最后一个**采样，且窗口要够长
+    #   为什么：`ros2 topic hz` 的第一个 sample 含 DDS 发现/建链爬升 —— 车上实测读出
+    #   **40.2 Hz**，而同一时刻 20 s 窗口的真值是 **49.998 Hz**（std 0.0012 s）。
+    #   用 `head -1` 等于自己制造假警报（本脚本上一版就是这么写的，2026-10-09 实测踩到）。
+    r=$(timeout 10 ros2 topic hz pursuitAngle 2>/dev/null | grep -oP 'average rate: \K[0-9.]+' | tail -1)
     if [ -z "$r" ]; then
       bad "pursuitAngle 保活" "无数据 —— 底盘将在 1s 看门狗后停车"
     elif awk -v r="$r" 'BEGIN{exit !(r>=40 && r<=60)}' </dev/null; then
@@ -371,7 +374,8 @@ else
       else bad "$t" "不存在 —— 双钥匙门控不完整，云台不会开火"; fi
     done
     # ★ 裁判回传真源（命中即停火 / 弹药对账的数据来源，1Hz 心跳）
-    r=$(timeout 6 ros2 topic hz /HpAndHitmsg 2>/dev/null | grep -oP 'average rate: \K[0-9.]+' | head -1)
+    #   1 Hz 的话题窗口要更长，且同样取最后一个采样（爬升段同样会带偏）。
+    r=$(timeout 12 ros2 topic hz /HpAndHitmsg 2>/dev/null | grep -oP 'average rate: \K[0-9.]+' | tail -1)
     if [ -n "$r" ]; then
       ok "/HpAndHitmsg 裁判回传" "${r} Hz（命中/弹药闭环真源）"
     else
@@ -397,11 +401,9 @@ fi
 # 5) 端口占用
 # -----------------------------------------------------------------------------
 sec "5/7 端口与残留进程"
-if ss -lntp 2>/dev/null | grep -q ':8080'; then
-  ok "8080 (网页弹窗)" "已被占用 = 服务在跑"
-else
-  warn "8080 (网页弹窗)" "空闲 —— cam_viewer 未启动，浏览器将打不开"
-fi
+# ★ 原 8080(cam_viewer) 检查已下线：浏览器控制台不再启动，"空闲"从警告
+#   变成了**正常状态**，继续 warn 只会让出车体检永远带一个假黄灯。
+#   调参改走 config/robot.yaml，出车体检请看第 3 节参数一致性。
 TF=$(timeout 6 ros2 node list 2>/dev/null | grep -c static_transform)
 if [ "${TF:-0}" -gt 6 ]; then
   warn "static_transform_publisher" "${TF} 个(正常<=6) —— 可能有多套底盘栈残留"
