@@ -118,6 +118,20 @@ stop_all() {
   echo "已停止 $n 个受管节点。"
 }
 
+# ==============================================================================
+#  ★ ROS 域号：钉在这里，不再依赖 ~/.bashrc（2026-10-07 无人机↔小车联调事故）
+#    · 交互式终端起栈              → 读 ~/.bashrc → 118
+#    · systemd / cron / ssh 一行命令 → 不读 ~/.bashrc → 默认 0
+#    两种起法域号不同，症状一模一样且【一个错都不报】：
+#      ping 通、SSH 通、网页台 :8080 通，但 ROS 死活看不见对方。
+#    ★ 改域号只改一个文件：$WS/dzros.env（无人机侧对应 ~/dzlink_tools/dzlink.env）
+#    外部已显式 export 的 ROS_DOMAIN_ID 仍优先（临时 A/B 用），但启动横幅会报警。
+# ==============================================================================
+if [ -f "$WS/dzros.env" ]; then . "$WS/dzros.env"; fi    # ★ 全车唯一真相源
+DZ_ROS_DOMAIN="${DZ_ROS_DOMAIN:-118}"                    # 兜底：上面文件缺失时才用它
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$DZ_ROS_DOMAIN}"
+export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-0}"
+
 # ---- stop / restart 需要在 stop_all 之前就把 ROS 环境准备好（cleanup_strays 用不到，但保持顺序清晰）----
 # 注意：ROS 的 setup.bash 内部会展开未定义变量 AMENT_TRACE_SETUP_FILES
 #       （/opt/ros/humble/setup.bash 第 8 行），与脚本开头的 `set -u` 冲突，
@@ -146,18 +160,27 @@ if [ -f "$CONFIG" ]; then
 else
   echo "        ❌ 文件不存在 —— 各节点会回退到代码内置默认值"
 fi
+echo ""
+
+# ---- 链路自检：域号不一致是最阴的静默故障（对端不同域时 ROS 一个错都不报）----
+echo "ROS 链路域号: ROS_DOMAIN_ID=$ROS_DOMAIN_ID  ROS_LOCALHOST_ONLY=$ROS_LOCALHOST_ONLY  (车标准域 $DZ_ROS_DOMAIN)"
+if [ "$ROS_DOMAIN_ID" != "$DZ_ROS_DOMAIN" ]; then
+  echo "        ⚠️  域号偏离标准值 —— 无人机侧必须跟着改 ~/dzlink_tools/dzlink.env，否则互相看不见"
+fi
 
 # ---- ★新版决策层启动门禁（2026-10-07）----
 #   为什么要拦：本项目历史上最大的坑是"静默失败"——配置/路线不对，车照样起栈，
 #   然后在场上跑飞。新版 dzbrain 自带配置校验 + 路线校验（雷/障/穿洞/U 形/射击点距离），
 #   这里在**发车前**跑一次，不通过就不起栈。
-#   应急绕过：SKIP_PRECHECK=1 ./start_all.sh restart
-echo ""
-if [ "${SKIP_PRECHECK:-0}" = "1" ]; then
+#   应急绕过：SKIP_PRECHECK=1 bash start_all.sh restart
+#   ⚠️ 走旧核（LEGACY_PATH=1）时 dzbrain 未安装/未使用，门禁自动跳过（不阻塞回退路径）。
+if [ "${LEGACY_PATH:-0}" = "1" ]; then
+  echo "启动门禁: LEGACY_PATH=1（走旧循迹核）→ 跳过 dzbrain 校验"
+elif [ "${SKIP_PRECHECK:-0}" = "1" ]; then
   echo "启动门禁: 已按 SKIP_PRECHECK=1 跳过（应急模式，风险自负）"
 elif python3 -c "import dzbrain" 2>/dev/null; then
   echo "启动门禁: dzbrain --dry-run（配置 + 路线校验）..."
-  if PYTHONIOENCODING=utf-8 timeout 60 python3 -m dzbrain.main \
+  if PYTHONIOENCODING=utf-8 timeout 60 python3 -u -m dzbrain.main \
         --config "$CONFIG" --map "$WS/config/map.yaml" --dry-run; then
     echo "        ✅ 通过"
   else
@@ -168,7 +191,6 @@ else
   echo "启动门禁: 未安装 dzbrain（跳过）—— 回退到旧循迹时属正常"
 fi
 echo ""
-
 echo "1/8 底盘串口 + TF + IMU ..."
 spawn 1_chassis ros2 launch dzactuator bringup.launch.py
 sleep 3
@@ -189,6 +211,15 @@ echo "5/8 云台自瞄 ..."
 spawn 5_gimbal ros2 launch dzrknn_dataprocess dzrknn_dataprocess.launch.py
 sleep 2
 
+# ★ 网页端兼容转发 —— 少了这一步，网页"云台状态"会永远显示空闲 ★
+#   云台发布的是 std_msgs/Int32，而 cam_viewer 按 std_msgs/UInt8 订阅同一个
+#   /aim/status；ROS 2 按类型匹配端点，类型不一致 → 网页端一个包都收不到。
+#   shim 订阅 Int32 后按【同名话题】以 UInt8 回发，网页端即可恢复显示，
+#   同时 path_executor 的 Int32 链路不受影响（DDS 按类型匹配）。
+echo "5b/8 自瞄状态兼容转发 (Int32 -> UInt8，供网页端读取) ..."
+spawn 5b_aimshim env PYTHONUNBUFFERED=1 python3 -u "$WS/tools/aim_status_shim.py"
+sleep 1
+
 # ★★★ 射击驱动 —— 少了这一步，开火就是"发进了空话题" ★★★
 #   链路：dzrknn_dataprocess --/LaserShot_Command(UInt8=1)--> dzjudgment
 #         --> 串口 /dev/dzjudgment 写 6 字节帧 B5 5B 03 21 01 25 --> 激光模块
@@ -200,21 +231,30 @@ echo "6/8 射击驱动 (dzjudgment -> /dev/dzjudgment) ..."
 spawn 6_judgment ros2 launch dzjudgment judgment.launch.py
 sleep 2
 
-echo "7/8 循迹（新决策层 dzbrain：8 任务线程 / 通用纯追踪） ..."
-# ★2026-10-07：默认走**新决策层** dzbrain（单进程多线程：定位/安全/循迹/调度/云台打击/
-#   误差修正/无人机/遥测）；它取代旧的 path_executor 单体（2622 行）。
-#   一键回退旧实现：LEGACY_PATH=1 ./start_all.sh restart
+echo "7/8 循迹（默认新决策层 dzbrain；LEGACY_PATH=1 回退旧核）..."
+# ★2026-10-07 换血：默认走**新决策层** dzbrain（单进程 8 任务线程：定位 / 安全 / 循迹 /
+#   调度 / 云台打击 / 误差修正 / 无人机 / 遥测），取代旧的 path_executor 单体（2622 行）。
+#   一键回退旧实现： LEGACY_PATH=1 bash start_all.sh restart
+# ★★ 必须无缓冲 ★★：ROS2 Python 节点的日志走 stdout，
+#   而 stdout 重定向到文件时是【块缓冲】(4KB 才 flush) —— 不加 -u 时
+#   7_path.log 会长时间 0 字节，现场 tail -f 看不到任何日志，
+#   极易误判成"循迹节点没起来/卡死"（2026-10-03 实测踩到，进程其实在跑）。
 if [ "${LEGACY_PATH:-0}" = "1" ]; then
-  echo "        [回退] 旧 path_executor（单体，源码直跑）"
-  spawn 7_path python3 "$WS/src/car_localization/car_localization/path_executor.py"
+  echo "        [回退] 旧 path_executor（install 的 console_scripts 入口）"
+  spawn 7_path env PYTHONUNBUFFERED=1 ros2 run car_localization path_executor_node
 else
-  spawn 7_path python3 -m dzbrain.main --config "$CONFIG" --map "$WS/config/map.yaml"
+  echo "        [新核] dzbrain —— 8 任务线程 / 通用纯追踪（启动后约 8~10 秒自动出发）"
+  spawn 7_path env PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 \
+    python3 -u -m dzbrain.main --config "$CONFIG" --map "$WS/config/map.yaml"
 fi
 sleep 2
 
 LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo "8/8 摄像头网页弹窗 + 自动打开浏览器 ..."
-spawn 8_camview python3 "$WS/tools/cam_viewer.py" --port 8080
+# 源码撤离后 tools 下只有 .pyc（防读）；开发阶段回退到 .py
+VIEWER="$WS/tools/cam_viewer.pyc"
+[ -f "$VIEWER" ] || VIEWER="$WS/tools/cam_viewer.py"
+spawn 8_camview python3 -u "$VIEWER" --port 8080   # 同上，-u 保证日志实时
 sleep 3
 
 # ★自动弹出浏览器观察端（显示在 GUI_DISPLAY 指定的那块屏上）
