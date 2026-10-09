@@ -40,6 +40,7 @@ from dzbrain.core.config import Config                         # noqa: E402
 from dzbrain.core.events import EventBus                       # noqa: E402
 from dzbrain.core.state import SafetyState                     # noqa: E402
 from dzbrain.io.contract import MissionPhase                   # noqa: E402
+from dzbrain.pursuit.path import Path                          # noqa: E402
 from dzbrain.route.parser import parse_mission                 # noqa: E402
 from dzbrain.tasks.tracker import TRACKER_CMD_KEY, TrackerTask  # noqa: E402
 
@@ -566,6 +567,56 @@ def test_arc_floor_no_oscillation() -> None:
           f"速度集合={sorted({round(c[0], 3) for c in rig.bridge.commands})}")
 
 
+def test_projection_relock() -> None:
+    """★10. 投影「跟丢」必须能自愈 —— 窗口/地板不得把错误的 s 变成自洽不动点。
+
+    bench 实测的后果（本轮抓到的最严重一条）：tracker 的 s 冻在第 16 段 **7.70**，
+    而车实际已在第 32 段 **16.30**（同一个信念位姿、Localization 与 Tracker 两个写入者
+    差 **8.6 m**）；tracker 于是追着幻影目标开 ——
+    虚拟小车**最大横向偏差 4.101 m**、只走到第 18/34 点、`定位` 侧还报了 4 次"投影卡死自愈"。
+
+    机制：`s_hint` 每拍跟随上一拍的 s ⇒ 窗口（±0.6 m，外加地板）把错误的 s
+    变成**自洽的不动点**，车走多远都拉不回来。仿真的 `_project_with_floor` 一直有
+    `release_dist` 出口，实车代码此前没有。
+
+    本组构造同样的跟丢：先在顶点处把地板抬起来（投影链"锚"在前段），再把车**远距离
+    挪到路线后段**（模拟锚定/位姿跳变打断窗口链），断言投影能全路线重投影恢复。
+    """
+    section("10. ★投影跟丢自愈（窗口/地板不得把错的 s 变成不动点）")
+    cfg = cfg_of(pivot_enabled=False, bridge_blocks=[])
+    tokens = ["F10", "F11", "E11", "R:F11", "F10", "F8", "B8", "B6"]
+    route = parse_mission(tokens)
+    path = Path(route)
+    p0 = geo.block_to_meters("F10")
+    p1 = geo.block_to_meters("F11")
+    ux, uy = p1[0] - p0[0], p1[1] - p0[1]
+    d = math.hypot(ux, uy)
+    ux, uy = ux / d, uy / d
+    rig = Rig(cfg=cfg, route=route, pose=(p0[0], p0[1], geo.heading_of(ux, uy)))
+    rig.ticks(40)                                  # 先开一段，让投影链/地板建立起来
+    s_before = rig.bb.get(P_ROUTE_S)
+    check("10.1 前置：已建立投影（s 有值且在地板之前）",
+          isinstance(s_before, (int, float)) and float(s_before) < 1.0, f"s={s_before}")
+
+    # ★ 远距离瞬移到路线**后段**（B6 = 末点），模拟锚定/位姿跳变把窗口链打断
+    b6 = geo.block_to_meters("B6")
+    rig.set_pose(b6[0], b6[1], geo.heading_of(-1.0, 0.0))
+    rig.ticks(3)
+    s_after = rig.bb.get(P_ROUTE_S)
+    dist_after = getattr(rig.task, "_last_cmd", {}).get("dist_to_path")
+    check("10.2 ★跟丢后 s 恢复到后段（≥2.0 m，路线全长 2.45 m）",
+          isinstance(s_after, (int, float)) and float(s_after) >= 2.0,
+          f"跟丢前 s={s_before} → 跟丢后 s={s_after}")
+    check("10.3 ★恢复后离线很小（≤0.15 m；不恢复时会 ≥1 m）",
+          isinstance(dist_after, (int, float)) and float(dist_after) <= 0.15,
+          f"dist_to_path={dist_after}")
+    check("10.4 自愈计数器被记录（可观测，便于上车排障）",
+          getattr(rig.task, "projection_relocks", 0) >= 1,
+          f"projection_relocks={getattr(rig.task, 'projection_relocks', None)}")
+    check("10.5 自愈日志可查（含「跟丢」字样）",
+          any("跟丢" in ln for ln in rig.logs), f"logs_tail={rig.logs[-2:]}")
+
+
 def main() -> int:
     print("=" * 72)
     print("dzbrain TrackerTask 自测（纯脚本）")
@@ -578,6 +629,7 @@ def main() -> int:
     test_path_cache()
     test_overlap_no_flipflop()
     test_arc_floor_no_oscillation()
+    test_projection_relock()
     test_rate()
     finish()
     return 0

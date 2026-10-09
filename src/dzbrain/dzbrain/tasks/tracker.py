@@ -148,6 +148,9 @@ class TrackerTask(TaskThread):
         #: 与仿真的 `_project_with_floor` 同语义 —— 断"倒车段↔正向段交界处"的自指环。
         self._vertex_floor_m = float(cfg.get("pursuit.vertex_floor_m"))
         self._s_floor = 0.0
+        #: ★投影"跟丢"判据：窗口内最近点离线超过它就全路线重投影（解开地板/窗口的死锁）。
+        self._release_m = float(cfg.get("pursuit.projection_release_m"))
+        self.projection_relocks = 0            # 跟丢自愈次数（遥测/测试）
         self._min_speed_mps = float(cfg.get("pursuit.min_speed_mps"))
         self._pivot_phase: str = PivotPhase.IDLE
         self._pivot_started_at: float = 0.0
@@ -336,6 +339,33 @@ class TrackerTask(TaskThread):
                                         back_m=self._rewind_m,
                                         s_min=self._s_floor,
                                         motion_heading=travel_heading)
+
+        # ---- ★投影"跟丢"自愈：地板/窗口把真实最近点排除掉了 → 必须能解开 ----
+        #  没有这个出口会怎样（实闭环 bench 实测，最严重的后果）：
+        #    tracker 的 s 冻在 **7.70**（第 16 段）而车实际已在 **16.30**（第 32 段）——
+        #    同一个信念位姿、两个写入者差 **8.6 m**；tracker 于是追着幻影目标开，
+        #    虚拟小车**最大横向偏差 4.101 m**、只走到第 18/34 点。
+        #  机制：`s_hint` 每拍跟随上一拍的 s ⇒ 窗口（±0.6 m）+ 地板一起把错误的 s
+        #  变成自洽的不动点，车走多远都拉不回来。
+        #  仿真的 `_project_with_floor` 一直有同样的出口（`release_dist`），实车代码此前没有
+        #  （与"弧长地板"同属"仿真有、实车缺"的一类缺口）。
+        if proj.dist > self._release_m:
+            proj_relock = path.project(pose.x, pose.y)        # 丢掉 hint 与地板，全路线重投影
+            # ★ 只接受**向前**的修正（`s` 不许后退到地板之前）：
+            #   · 地板过时（bench 实测：地板停在 7.70 而车已在 16.30）→ 重投影向前 ✓ 采用
+            #   · 地板正确、只是车横向离线（F11 过渡期 0.5 m）→ 重投影会退到上一段 ✗ 拒绝
+            #   后者如果也采用，就等于把"地板"整个绕过去了 —— test_tracker 第 9 组立刻红
+            #   （翻转 2 → 11、s 只推进到 1.05）。
+            if (proj_relock.dist < proj.dist - 1e-6
+                    and proj_relock.s >= self._s_floor - 1e-9):
+                proj = proj_relock
+                self._s_floor = path.s_at_waypoint(proj.seg_index)   # 地板跟到新位置的本段起点
+                if self._log_throttle.allow("projection_relock", now):
+                    self._log(
+                        f"⚠️ 投影跟丢自愈：窗口内最近点离线 {proj_relock.dist:.2f} m，"
+                        f"全路线重投影 → 段{proj.seg_index} s={proj.s:.2f}"
+                        f"（累计 {self.projection_relocks + 1} 次）")
+                self.projection_relocks += 1
         self._seg_s = proj.s
 
         # ---- ★弧长地板：贴到顶点就算"这个顶点走过了"，此后投影不许退回去 ----
