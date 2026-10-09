@@ -222,21 +222,23 @@ class SafetyTask(TaskThread):
         heart_age = self._heartbeat_age("Localization", now)
 
         # ★ 启动宽限：**从未收到过任何定位数据** ≠ **跑着跑着定位丢了**。
-        #   两个任务各自 20 Hz 独立起线程，Safety 的某一拍完全可能早于 Localization
-        #   的第一次写入（实测就发生在第一拍）。那时 pose_age 已是 inf（桥还没有帧）、
-        #   P_ODOM_AGE 还不存在 —— 若照常判"失联"，由于本任务**故意不做自动恢复**，
-        #   这一拍会把整车永久锁在 SAFE_STOP，必须人工 clear_safety() 才能动
-        #   （实测：此后 39 拍一直 ok=False，直到 clear）。这是"误刹 + 需人工干预"，
-        #   比不刹更糟。所以引入"从未见过数据且仍在宽限期内"的独立分支：
-        #   限流告警、置 DEGRADED、**不**触发 SAFE_STOP；宽限期一过照常停车。
-        if odom_age is None and pose_age == _INF:
+        #   ⚠️ 判据不能要求"`P_ODOM_AGE` 键不存在" —— 这条真实路径会漏掉
+        #   （**实车实测 2026-10-09 19:05，Orange Pi**）：
+        #     · Localization **先 tick 了一拍**，把 `P_ODOM_AGE` 写成 `inf`
+        #       （它自己此刻也还没拿到里程计 —— ROS2 发现还没完成）
+        #     · Safety 随后判 `odom_age is None` 为假 ⇒ 落到 `elif pose_age == _INF`
+        #       ⇒ **完全没有宽限**，直接 `pose_lost` 并锁存 SAFE_STOP
+        #     · 而安全是**刻意不自动恢复**的 ⇒ 车一动不动（这正是"起不来"的第二个原因）
+        #   ⇒ 判据改为"**桥没有帧** 且 `P_ODOM_AGE` 缺失或为 inf"（= 两种写法都算"从未有数据"）。
+        never_had_pose = pose_age == _INF and (odom_age is None or odom_age == _INF)
+        if never_had_pose:
             elapsed = now - self._started_at
             if elapsed <= self._startup_grace_s:
                 self._degraded = True
                 if self._warn.allow("no_pose_data", now):
                     self._log(f"启动宽限（{elapsed:.2f}"
                               f"/{self._startup_grace_s:.1f}s）：仍未收到任何定位数据，"
-                              f"暂不判失联（P_ODOM_AGE 未被写过，pose_age=inf）")
+                              f"暂不判失联（pose_age=inf，P_ODOM_AGE={odom_raw!r}）")
                 return out                          # 只跳过检查①，③④照常
             self._degraded = False                   # 宽限过后不是"降级"，是明确故障
             if self._warn.allow("no_pose_data_end", now):
@@ -297,16 +299,24 @@ class SafetyTask(TaskThread):
                 out.append(f"task_fault:{h.name} state=FAULT err={h.last_error or '-'}")
                 continue
             # ★ 冷启动宽限：任务组是**顺序 start** 的，Safety 起来时后面的线程可能还没
-            #   开始跑（state=INIT、ticks=0、**last_tick_at 还是 0**）。此时判"心跳停滞"
+            #   开始跑（ticks=0、**last_tick_at 还是 0**）。此时判"心跳停滞"
             #   会把刚启动的系统直接锁死（bench 实测：Tracker/Mission 被判 stalled →
             #   刹车 + 不自动恢复）。
-            #   ⚠️ 宽限条件必须同时满足三条：INIT + **从未 tick 过**（last_tick_at=0）+
-            #   仍在宽限期内。只要有 last_tick_at（说明它活过），心跳变旧就是真停滞 ——
+            #   ⚠️ 宽限条件**不能要求 `state == INIT`**：`TaskThread.start()` 是先把状态
+            #   置成 RUNNING、再进循环跑第一拍 —— 于是"已 RUNNING 但从未 tick"的任务拿不到
+            #   宽限，`age = _INF` 直接被判停滞。**周期最慢的两个天然中招**
+            #   （DroneTask 5Hz / TelemetryTask 2Hz 的首拍要来 0.2~0.5s 之后）。
+            #   ★ 实车实测（2026-10-09 18:57，Orange Pi 上 `python3 -m dzbrain.main`）：
+            #       🛑 task_stalled:DroneTask 心跳 infs > 1.00s（ticks=0 state=RUNNING）
+            #     而安全是**刻意不自动恢复**的 ⇒ 新核一上电就永久锁在 SAFE_STOP、车一动不动。
+            #     （这条 bench 抓不到：bench 的起线程时序不同。）
+            #   ⇒ 判据改为"**从未 tick 过**（last_tick_at=0）+ 仍在宽限期内"，与 state 无关。
+            #   原语义仍保留：只要有 last_tick_at（说明它活过），心跳变旧就是真停滞 ——
             #   哪怕系统刚起来（否则"宽限期"会变成"启动后 3 秒内可以静默死掉"）。
-            if (h.state == TaskState.INIT.value and not h.last_tick_at
+            if (not h.last_tick_at
                     and (now - self._started_at) <= self._startup_grace_s):
                 if self._warn.allow(f"init_grace_{h.name}"):
-                    self._log(f"检查③宽限：{h.name} 仍是 INIT 且从未 tick（还没轮到启动），"
+                    self._log(f"检查③宽限：{h.name} 从未 tick（ticks=0 state={h.state}），"
                               f"宽限 {self._startup_grace_s:.1f}s 内不判停滞")
                 continue
             age = self._task_age(h, now)

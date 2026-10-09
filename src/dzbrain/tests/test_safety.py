@@ -193,6 +193,26 @@ check("宽限期内不锁存", task.stopped is False)
 check("但标记为 DEGRADED（不是在正常发车）", task.degraded is True)
 check("P_SAFETY 仍被写出来（下游能读到 ok）", isinstance(st, SafetyState))
 
+# ★★ 实车实测的**第二个**洞（2026-10-09 19:05，Orange Pi 上 python3 -m dzbrain.main）：
+#   上面那条只覆盖"P_ODOM_AGE 键还不存在"。真实路径往往是：
+#     Localization **先 tick 了一拍**，把 P_ODOM_AGE 写成 **inf**（它自己也没拿到里程计，
+#     ROS2 发现还没完成）⇒ 旧判据 `odom_age is None` 为假 ⇒ **完全不进宽限** ⇒
+#     落到 `elif pose_age == _INF` ⇒ pose_lost + 锁存 SAFE_STOP（绝不自动恢复）⇒ 车不动。
+task, bridge, bb, bus, clock = build(with_pose=False, stall=5.0)
+task._started_at = clock.now()
+bb.set(P_ODOM_AGE, float("inf"), "test")      # ★ 关键：键**存在**但值是 inf
+task.tick()
+st = bb.get(P_SAFETY)
+check("★P_ODOM_AGE=inf（键存在）时同样进宽限：不误刹", st.ok is True, f"got {st!r}")
+check("★P_ODOM_AGE=inf 时不刹车（否则车永远不动）", bridge.brakes == 0, f"got {bridge.brakes}")
+check("★P_ODOM_AGE=inf 时不锁存（stopped=False）", task.stopped is False)
+check("★确实进了 DEGRADED（不是在正常发车）", task.degraded is True)
+clock.advance(4.0)                            # 超过 startup_grace_s(3.0)
+task.tick()
+st = bb.get(P_SAFETY)
+check("★宽限过后仍无数据 → 判失联（宽限不是免死金牌）", st.ok is False, f"got {st!r}")
+check("原因含 pose_lost", any("pose_lost" in r for r in st.reasons), f"got {st.reasons!r}")
+
 task, bridge, bb, bus, clock = build(with_pose=False, stall=5.0,
                                      overrides={"safety": {"startup_grace_s": 1.0}})
 task._started_at = clock.now()
@@ -437,6 +457,44 @@ check("原因含 task_stalled", any("task_stalled" in r for r in st.reasons),
 check("原因里带年龄（约 10.05 s，含 0.05 时钟偏斜容差）",
       any("10.0" in r or "10.1" in r for r in st.reasons), f"got {st.reasons!r}")
 check("刹车 ≥ 1", bridge.brakes >= 1)
+
+section("⑤c ★RUNNING 但从未 tick 的任务：宽限期内不得判停滞（实车启动竞态）")
+#  ★ 实车实测（2026-10-09 18:57，Orange Pi 上 `python3 -m dzbrain.main`）：
+#      🛑 安全停车：task_stalled:DroneTask 心跳 infs > 1.00s（ticks=0 state=RUNNING）
+#    而安全是**刻意不自动恢复**的 ⇒ 新核一上电就永久锁在 SAFE_STOP、**车一动不动**
+#    （这正是"车跑不起来"的真正原因，bench 抓不到：bench 的起线程时序不同）。
+#  根因：宽限条件要求 `state == INIT`，而 `TaskThread.start()` 是**先把状态置 RUNNING、
+#  再进循环跑第一拍** —— 周期最慢的 DroneTask(5Hz)/TelemetryTask(2Hz) 首拍天然来得晚，
+#  正好落在"已 RUNNING、ticks=0、last_tick_at=0"的窗口里 ⇒ `age = _INF` ⇒ 判停滞。
+#  修法：宽限判据只看"**从未 tick 过** + 在宽限期内"，与 state 无关。
+bus_g3 = EventBus()
+bb_g3 = Blackboard()
+group3 = TaskGroup(bus_g3, bb_g3, logger=lambda m: None)
+slow = FakeTask("SlowFake", failing=False, bus=bus_g3, blackboard=bb_g3)
+group3.add(slow)
+with slow._health_lock:
+    slow._health.state = TaskState.RUNNING.value     # ★ 线程已启动…
+    slow._health.last_tick_at = 0.0                  # …但第一拍还没跑（真实竞态）
+    slow._health.ticks = 0
+task, bridge, bb, bus, clock = build(group=group3, stall=1.0, blackboard=bb_g3, bus=bus_g3)
+task._started_at = clock.now()                       # 宽限基准 = 现在
+task.tick()
+st = bb_g3.get(P_SAFETY)
+check("★RUNNING 且从未 tick：宽限期内 ok 仍为 True（不误刹）", st.ok is True, f"got {st!r}")
+check("★不刹车（刹车会让车永远不动）", bridge.brakes == 0, f"brakes={bridge.brakes}")
+check("★原因里没有 task_stalled:SlowFake",
+      not any("task_stalled:SlowFake" in r for r in st.reasons), f"got {st.reasons!r}")
+clock.advance(2.0)                                   # 累计 2.0 s：仍在 startup_grace_s(3.0) 内
+task.tick()
+st = bb_g3.get(P_SAFETY)
+check("宽限期内（+2s）仍不判**任务停滞**（此时可能因别的检查而 ok=False，只看停滞原因）",
+      not any("task_stalled" in r for r in st.reasons), f"got {st.reasons!r}")
+clock.advance(1.5)                                   # 累计 3.5 s > 宽限 3.0 s
+task.tick()
+st = bb_g3.get(P_SAFETY)
+check("★宽限过后仍从未 tick → 判停滞（宽限不是免死金牌）", st.ok is False, f"got {st!r}")
+check("原因含 task_stalled:SlowFake",
+      any("task_stalled:SlowFake" in r for r in st.reasons), f"got {st.reasons!r}")
 
 section("⑤b group=None → 跳过检查④并说明；其余检查照常")
 task, bridge, bb, bus, clock = build(group=None)
