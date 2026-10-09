@@ -174,4 +174,25 @@ check("setup.py 打包 resource 标记", "share/ament_index/resource_index/packa
 check_raises("本地文件缺失时 local_manifest 抛错（不静默返回空）",
              FileNotFoundError, dep.local_manifest, "src/dzbrain/不存在的文件.py")
 
+section("⑤ 出车体检脚本必须覆盖**新核心**契约（旧脚本只体检旧架构 = 假全绿）")
+#  为什么钉这条：`tools/healthcheck.sh` 原本只检查 usb_cam / det_node / dzrknn /
+#  path_executor / serial_reader 与 pursuitAngle —— 新版决策层 dzbrain 的契约
+#  （双钥匙开火门控、裁判回传真源、保活速率）**一条都没查**。出车前跑一遍会拿到"全绿"，
+#  而云台可能永远打不出去（缺 `/aim/fire_ready`）或命中闭环空转（`/HpAndHitmsg` 无数据）。
+#  这类"假全绿"必须在测试里钉死，否则改脚本时会被人悄悄删掉。
+_hc = (WS / "tools" / "healthcheck.sh").read_text(encoding="utf-8")
+for _need, _why in (
+        ("dzbrain", "必须识别新核心节点（否则新核心没起来也报全绿）"),
+        ("/aim/fire_gate", "双钥匙门控第一把钥匙"),
+        ("/aim/fire_ready", "双钥匙门控第二把钥匙（缺它就永远不开火）"),
+        ("/HpAndHitmsg", "裁判回传真源（命中即停火 / 弹药对账）"),
+        ("pursuitAngle", "底盘 1s 看门狗的保活指令"),
+        ("LEGACY_PATH", "走旧核时必须降级为提示，而不是误报失败"),
+        ("--pre", "--pre 模式（节点未起）不得报错")):
+    check(f"healthcheck.sh 覆盖 {_need}（{_why}）", _need in _hc)
+check("healthcheck.sh 语法基本自洽：if/then/fi 数量配平",
+      _hc.count("\nif ") + _hc.count("\n  if ") + _hc.count("\nelif ") + _hc.count("\n    elif ") > 0
+      and _hc.count("fi\n") >= _hc.count("\nif ") - _hc.count("elif "),
+      f"if={_hc.count('if ')} fi={_hc.count('fi')}")
+
 finish()
