@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import math
 import pathlib
 import sys
 
@@ -39,6 +40,7 @@ from dzbrain.core.config import Config                         # noqa: E402
 from dzbrain.core.events import EventBus                       # noqa: E402
 from dzbrain.core.state import SafetyState                     # noqa: E402
 from dzbrain.io.contract import MissionPhase                   # noqa: E402
+from dzbrain.route.parser import parse_mission                 # noqa: E402
 from dzbrain.tasks.tracker import TRACKER_CMD_KEY, TrackerTask  # noqa: E402
 
 from fakes import FakeBridge, FakeClock                        # noqa: E402
@@ -428,6 +430,70 @@ def test_rate() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+#  8. ★自重叠折返：命令符号不得每拍翻转（实闭环 bench 的 F8/B8/B6 停滞）
+# --------------------------------------------------------------------------- #
+def test_overlap_no_flipflop() -> None:
+    section("8. ★折返压线处投影不得来回倒带（bench 的 F8/B8/B6 停滞）")
+    # 实闭环 bench（--bench --drive --seconds 240）在 F11 折返簇实测：命令在
+    # +0.120/-0.080 之间**每拍翻转**、段号在两条共线段之间来回跳、车毫米级抖动，
+    # 12s 后触发「拐角绕圈兜底」强制跳点（F8/B8/B6 三处，全在同一段自重叠折返上）。
+    #
+    # 根因：去程段与回程段**完全共线** ⇒ 同一物理点到两条段等距（横向偏移相同），
+    # 而两条候选的 s 相差整整一段。旧代码在等距时**先比行进方向**，而方向又由命令
+    # 决定 ⇒ 自指环：命令符号 → 运动方向 → 选哪条段 → is_reverse → 命令符号。
+    # 修法：等距时**先比与上拍投影的连续性**（弧长不跳变），方向只在连续性也分不出
+    # 时使用（典型就是折返顶点：两条候选的 s 相同）。
+    #
+    # 本组用「bench 同款积分模型」驱动**真实 TrackerTask**，在 B6→A6→R:B6 上跑 24 s。
+    cfg = cfg_of(pivot_enabled=True, bridge_blocks=[])
+    route = parse_mission(["B6", "A6", "R:B6", "R:D6"])
+    a6 = geo.block_to_meters("A6")
+    b6 = geo.block_to_meters("B6")
+    ux, uy = a6[0] - b6[0], a6[1] - b6[1]
+    dist = math.hypot(ux, uy)
+    ux, uy = ux / dist, uy / dist
+    rig = Rig(cfg=cfg, route=route, pose=(b6[0], b6[1], geo.heading_of(ux, uy)))
+    wheelbase = float(cfg.get("pursuit.wheelbase_m"))
+    dt = 0.02
+    signs: list[int] = []
+    s_track: list[float] = []
+    for _ in range(1200):                       # 24 s @ 50 Hz
+        rig.task.tick()
+        v, steer = rig.bridge.commands[-1]
+        signs.append(0 if abs(v) < 1e-9 else (1 if v > 0 else -1))
+        p = rig.bb.get(P_POSE)
+        yaw = p.yaw + (v / wheelbase) * math.tan(math.radians(steer)) * dt
+        x = p.x + v * math.cos(yaw) * dt
+        y = p.y + v * math.sin(yaw) * dt
+        rig.set_pose(x, y, yaw)
+        rig.clock.advance(dt)
+        s_now = rig.bb.get(P_ROUTE_S)
+        s_track.append(float(s_now) if isinstance(s_now, (int, float)) else -1.0)
+
+    def _flips(seq: list[int]) -> int:
+        n, prev = 0, 0
+        for sg in seq:
+            if sg and prev and sg != prev:
+                n += 1
+            if sg:
+                prev = sg
+        return n
+
+    check("8.1 ★折返走完：s 到达回程末端（≥0.66 m，全程 0.70 m）",
+          max(s_track) >= 0.66, f"max s={max(s_track):.3f}")
+    check("8.2 ★终点回到 B6 一侧（没有越走越远）",
+          abs(s_track[-1] - max(s_track)) < 0.35 or s_track[-1] >= 0.60,
+          f"末 s={s_track[-1]:.3f} max={max(s_track):.3f}")
+    check("8.3 ★命令符号翻转 ≤150 次/24s（修复前 601 次=每拍翻转）",
+          _flips(signs) <= 150, f"{_flips(signs)} 次")
+    check("8.4 ★最后 4 秒已收敛（≤5 次翻转，不是一直在抖）",
+          _flips(signs[-200:]) <= 5, f"尾 200 拍翻转 {_flips(signs[-200:])} 次")
+    check("8.5 PIVOT 只进入一次（折返顶点不被反复重入）",
+          sum(1 for x in rig.logs if "进入 PIVOT" in x) == 1,
+          f"{sum(1 for x in rig.logs if '进入 PIVOT' in x)} 次")
+
+
 def main() -> int:
     print("=" * 72)
     print("dzbrain TrackerTask 自测（纯脚本）")
@@ -438,6 +504,7 @@ def main() -> int:
     test_reverse()
     test_stop_approach()
     test_path_cache()
+    test_overlap_no_flipflop()
     test_rate()
     finish()
     return 0

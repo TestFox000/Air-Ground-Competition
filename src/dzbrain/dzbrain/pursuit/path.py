@@ -207,7 +207,8 @@ class Path:
     # ------------------------------------------------------------------ #
     def project(self, x: float, y: float, *, s_hint: float | None = None,
                 window_m: float = 0.60, allow_backward: bool = True,
-                motion_heading: float | None = None) -> Projection:
+                motion_heading: float | None = None,
+                back_m: float | None = None) -> Projection:
         """把车位置投影到折线上。
 
         ★ `s_hint` 给定时只在 `[s_hint - window_m, s_hint + window_m]` 内搜索
@@ -215,6 +216,15 @@ class Path:
           避免"路线自交 → 误锁到另一条边"。
         ★ `allow_backward=False` 时索引只前进（旧行为，防倒退误锁）；
           倒车段（`R:`）必须用 `True`，否则车往后走时投影点不肯后退。
+        ★ `back_m`：**单拍内投影点允许向后跳的最大距离**（默认 None = 用 `window_m`，
+          即旧行为）。为什么需要：折返压线时去程段与回程段**完全共线**，同一个物理点
+          （尤其两段的公共端点，如 B6）到两条段**等距**，而两条候选的 s 相差整整一段
+          （0.0 vs 0.70）。若允许向后搜 0.6 m，s 就会在 0.0↔0.70 之间跳；跳完 hint 也跟着
+          跳，而 ±window_m 的窗口又**回不到**刚跳走的那一支 ⇒ 两个吸引子互锁，
+          连命令符号一起每拍翻转（实闭环 bench 与探针实测：601 次翻转、位置毫米级抖动、
+          12s 后触发"拐角绕圈兜底"强制跳点）。
+          正常运动每拍只走几毫米（0.12 m/s × 0.02 s = 2.4 mm），15 cm 的余量绰绰有余；
+          被这条限制挡住的只有"一拍跳一整段"这种病态情况。
         ★ 末点之后：最近段 = 末段且原始参数 > 1 → `t = 1`、`s = total_length`、`passed_end=True`。
         ★★ `motion_heading`：**实际行进方向**（地图系弧度；倒车时是车头反向）。
           路线折返压在同一条线上时（现场图 B6→A6→R:B6 就是），同一物理点落在两条
@@ -234,7 +244,8 @@ class Path:
         else:
             hint = s_hint if 0.0 <= s_hint <= self._total else (
                 0.0 if s_hint < 0.0 else self._total)
-            lo = hint - window_m if allow_backward else hint
+            back = window_m if back_m is None else max(0.0, float(back_m))
+            lo = (hint - back) if allow_backward else hint
             if lo < 0.0:
                 lo = 0.0
             hi = hint + window_m
@@ -246,15 +257,18 @@ class Path:
                 i_last = i_first
             elif i_last > n - 1:
                 i_last = n - 1
-            if not allow_backward:
-                # ★ 窗口下界不能落在本段 t<0 的位置，否则 s 会小于 s_hint（索引后退）
-                seg_len = self._segments[i_first][4]
-                if seg_len > _EPS:
-                    t_floor = (lo - s_start[i_first]) / seg_len
-                    if t_floor < 0.0:
-                        t_floor = 0.0
-                    elif t_floor > 1.0:
-                        t_floor = 1.0
+            # ★ 窗口下界必须在**弧长**上生效，不能只按"段"生效：
+            #   搜索区间是按段取的（`i_first = seg_index_at(lo)`），若不对首段做 t 下限，
+            #   首段会被**整段**搜索 —— 于是 `back_m=0.15` 也可能返回 0.3~0.6 m 之后的
+            #   候选（共线折返的两条段正好都落在同一个首段区间里），限位形同虚设。
+            #   实测：不加这一钳制时 `back_m` 完全挡不住 s 在 0.202↔0.499 之间倒带。
+            seg_len = self._segments[i_first][4]
+            if seg_len > _EPS:
+                t_floor = (lo - s_start[i_first]) / seg_len
+                if t_floor < 0.0:
+                    t_floor = 0.0
+                elif t_floor > 1.0:
+                    t_floor = 1.0
 
         # ---- 2. 窗口内找最近点（用平方距离比较，省 sqrt） ----
         # ★ 自重叠段的裁决（现场图 B6→A6→R:B6→R:D6 就是这种：折返压在同一条线上）：
@@ -290,20 +304,26 @@ class Path:
             elif d2 < best_d2 - tie_tol:
                 take = True
             elif abs(d2 - best_d2) <= tie_tol:
-                # ---- 等距（几何重叠）裁决 ----
+                # ---- 等距（两条段几何重叠）裁决 ----
+                # ★★ 顺序很关键：**先比"与上拍投影的连续性"（弧长），再比行进方向**。
+                #   旧顺序（方向优先）在自重叠折返段上会形成**闭环振荡**：
+                #     命令符号 → 实际运动方向 → 等距裁决选哪条段 → segment_is_reverse
+                #     → 命令符号 …… 首尾相接。实闭环 bench 与探针实测（B6→A6→R:B6）：
+                #     命令每拍翻转（24s 内 601 次）、段号在两条共线段间来回跳、
+                #     车在毫米级抖动、12s 后触发"拐角绕圈兜底"强制跳点。
+                #   连续性给出的是**稳定不动点**：两条段完全共线时，位置与瞬时方向都
+                #   裁决不了，唯一有意义的语义是"沿路线连续推进"（弧长不跳变）。
+                #   方向只在连续性也分不出时使用 —— 典型场景正是**折返顶点**：
+                #   两条候选的 s 相同（都是顶点），这时才必须靠"车正在往哪边走"裁决。
                 take = False
-                if motion_heading is not None:
-                    # ① 首选：本段走向与实际行进方向一致的那条（倒车段靠这个才认得出来）
+                if s_hint is not None and abs(abs(s_i - hint) - best_ds) > 1e-9:
+                    take = abs(s_i - hint) < best_ds              # ① 连续性优先
+                elif motion_heading is not None:
                     cos_new = math.cos(heading_i - motion_heading)
                     cos_best = math.cos(self._segments[best_i][5] - motion_heading)
-                    if cos_new > cos_best + 1e-12:
-                        take = True
-                    elif abs(cos_new - cos_best) <= 1e-12 and s_hint is not None:
-                        take = abs(s_i - hint) < best_ds - 1e-12      # ② 再比连续性
-                elif s_hint is not None:
-                    take = abs(s_i - hint) < best_ds - 1e-12          # 无方向信息 → 只比连续性
+                    take = cos_new > cos_best + 1e-12             # ② 连续性分不出 → 比方向
                 else:
-                    take = i > best_i                                 # 都无 → 取更靠后的段
+                    take = i > best_i                             # ③ 都无 → 取更靠后的段
             else:
                 take = False
             if take:

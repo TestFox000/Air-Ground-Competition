@@ -132,6 +132,14 @@ class TrackerTask(TaskThread):
         self._pivot_yaw_tol_deg = float(cfg.get("pursuit.pivot_yaw_tol_deg"))
         self._pivot_timeout_s = float(cfg.get("pursuit.pivot_timeout_s"))  # ★旧版没有超时
         self._pivot_kp = float(cfg.get("pursuit.pivot_kp"))
+        #: ★行进方向裁决：用**实际位移**算，位移小于门限时锁存上次可信值。
+        #: 绝不能用"上一拍命令的速度符号"——那是自指环，见 `_tick` 里的长注释。
+        self._motion_eps_m = float(cfg.get("pursuit.motion_heading_eps_m"))
+        self._travel_heading: float | None = None      # 锁存的"车正在往哪边走"（地图系）
+        self._last_motion_xy: tuple[float, float] | None = None
+        #: ★投影单拍最大回退量：折返压线时两条共线段"等距、s 相差一整段"，
+        #: 不限住就会在 0.0↔0.70 之间倒带（见 pursuit/path.py 的 back_m 说明）。
+        self._rewind_m = float(cfg.get("pursuit.projection_rewind_m"))
         self._pivot_phase: str = PivotPhase.IDLE
         self._pivot_started_at: float = 0.0
         self._pivot_target_heading: float = 0.0
@@ -285,13 +293,36 @@ class TrackerTask(TaskThread):
             s_hint = float(prev) if isinstance(prev, (int, float)) else None
 
         # ★ 行进方向（地图系）：倒车时是"车头反向"。路线折返压在同一条线上时
-        #   （现场图 B6→A6→R:B6），同一物理点落在两条航段上完全等距，
-        #   位置裁决不了 —— 必须把"车正在往哪边走"告诉投影（path.project 的 motion_heading）。
-        travel_heading = pose.yaw if (self._last_linear_x or 0.0) >= 0.0 else \
-            geo.normalize_angle(pose.yaw + math.pi)
+        #   （现场图 F10→F11→E11→R:F11→F10，B6→A6→R:B6 也是），同一物理点落在两条航段上
+        #   完全等距，位置裁决不了 —— 必须把"车正在往哪边走"告诉投影（path.project 的
+        #   motion_heading）。
+        #   ★★ 但这个方向**必须取实际位移**，不能取"我们上一拍命令的速度符号"：
+        #     命令符号 → 决定选哪条重叠段 → 决定 segment_is_reverse → 决定命令符号，
+        #     这是一个**自指环**，两个状态互相自洽 ⇒ 每拍翻转。实闭环 bench 实测
+        #     （`--bench --drive --seconds 240`，F11 折返簇）：命令在 +0.120/-0.080 之间
+        #     交替、段号在 11↔13 之间来回跳、车几乎不动，12s 后触发"拐角绕圈兜底"强制跳点
+        #     （F8/B8/B6 三处，全在同一段重叠折返上）。
+        #     三层仿真不中招，正是因为它用的是**真值速度**算方向（tools/sim.py:555）——
+        #     也就是说：仿真与实车代码在这一点上语义不一致，仿真绿掩盖了实车会卡。
+        #   ★ 车几乎不动时（|位移| < 门限）方向是噪声 → **锁存上一次可信方向**，
+        #     而不是退回命令符号（否则又回到自指环）。
+        travel_heading = self._travel_heading
+        if self._last_motion_xy is not None:
+            dx = pose.x - self._last_motion_xy[0]
+            dy = pose.y - self._last_motion_xy[1]
+        else:
+            dx = dy = 0.0
+        self._last_motion_xy = (pose.x, pose.y)
+        if math.hypot(dx, dy) >= self._motion_eps_m:
+            travel_heading = math.atan2(dy, dx)         # 实测位移方向（倒车时天然反向）
+            self._travel_heading = travel_heading
+        elif travel_heading is None:
+            travel_heading = pose.yaw                    # 首拍/从未动过：退化为车头方向
+            self._travel_heading = travel_heading
 
         proj: Projection = path.project(pose.x, pose.y, s_hint=s_hint,
                                         window_m=self._window_m,
+                                        back_m=self._rewind_m,
                                         motion_heading=travel_heading)
         self._seg_s = proj.s
 
