@@ -13,6 +13,8 @@ r"""PIVOT 原地转向专项测试（并入 10-05 核心的已验证修复）。
   ④ 桥洞保护段内不触发（桥洞里侧壁就在旁边）；
   ⑤ 蠕转舵角也受限幅约束（"限幅只在纯追踪里生效"是暗坑）；
   ⑥ 航向对上后正常退出并计数。
+  ⑦ ★**超时预算必须覆盖物理转弯时间**（8.0s < 135° 所需的 8.01s = 触发即超时，
+     实闭环 bench 在 E11 的 180° 折返处就是这么卡住的；现按配置现算并卡住）。
 
 运行：python src\dzbrain\tests\test_pivot.py
 """
@@ -209,6 +211,42 @@ def test_turn_respects_rate_limit() -> None:
           all(abs(s) <= 30.0 + 1e-9 for s in steers), f"max={max([abs(s) for s in steers], default=0):.2f}°")
 
 
+def test_timeout_covers_physics() -> None:
+    """★5. 超时预算必须覆盖物理转弯时间 —— 否则 PIVOT 每次触发都必然超时。
+
+    这不是纸上推演：实闭环 bench（`python tools\\dzbrain.py --bench --drive --seconds 180`）
+    在 E11 的 180° 折返处实测 —— PIVOT 触发 → 8.0s 硬超时 → 半路放行交回纯追踪 →
+    车在顶点附近来回摆（yaw 在 ±180° 之间来回、v 在 ±0.08/0.12 之间抖），
+    13/34 个点后停滞，并触发"拐角绕圈兜底"强制跳过航点。
+
+    手算就看得出来（Ackermann 模型，最小转弯半径 R = L/tan(舵角)）：
+        偏航率上限 = v/L·tan(舵角) = 0.08/0.157·tan(30°) = 0.294 rad/s = 16.9°/s
+        135°（触发阈值）需 8.01s；180°（现场折返）需 10.68s
+    而当时 pivot_timeout_s = 8.0s —— **比触发阈值所需的 8.01s 还短**，
+    也就是"只要触发就必定超时"，而超时又把转弯丢在半路，比不转更糟。
+
+    所以这里按配置**现算**一遍，任何一项参数被改坏都会立刻变红。
+    """
+    section("5. ★超时预算必须覆盖物理转弯时间（「触发即超时」的死结）")
+    cfg = Config.from_dict({})
+    L = float(cfg.get("pursuit.wheelbase_m"))
+    steer = math.radians(float(cfg.get("pursuit.max_steer_deg")))
+    v = float(cfg.get("pursuit.pivot_speed_mps"))
+    wait = float(cfg.get("pursuit.pivot_wait_s"))
+    timeout = float(cfg.get("pursuit.pivot_timeout_s"))
+    thresh = float(cfg.get("pursuit.pivot_angle_deg"))
+
+    yaw_rate = v / L * math.tan(steer)        # rad/s（上限）
+    check("5.1 偏航率上限算得出来（v/L·tan 舵角）", yaw_rate > 1e-6,
+          f"{math.degrees(yaw_rate):.1f}°/s（最小转弯半径 {L / math.tan(steer):.3f} m）")
+    for angle in (thresh, 180.0):
+        need = wait + math.radians(angle) / yaw_rate
+        check(f"5.2 ★超时 {timeout:.1f}s 覆盖 {angle:.0f}° 转弯（需 {need:.2f}s，余量 ≥15%）",
+              timeout >= need * 1.15, f"余量 {timeout - need:+.2f}s")
+    check("5.3 超时仍在可配范围内（1~30s）", 1.0 <= timeout <= 30.0, f"{timeout}s")
+    check("5.4 超时不许超过 30s（否则「卡死兜底」失去意义）", timeout <= 30.0)
+
+
 def main() -> int:
     print("=" * 72)
     print("dzbrain PIVOT 原地转向专项测试（纯脚本）")
@@ -217,6 +255,7 @@ def main() -> int:
     test_timeout_no_deadlock()
     test_no_false_trigger()
     test_turn_respects_rate_limit()
+    test_timeout_covers_physics()
     finish()
     return 0
 
