@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from . import contract as ct
+from .referee import RefereeTracker
 from ..core import geometry as geo
 
 
@@ -47,11 +48,15 @@ class RosStats:
     aim_status_msgs: int = 0
     hit_msgs: int = 0
     ammo_msgs: int = 0
+    referee_msgs: int = 0        # /HpAndHitmsg 收到的帧数（含坏帧）
+    referee_bad: int = 0         # 其中长度不足/非法被丢弃的帧数
+    self_hits: int = 0           # 我方挨打次数（self_hp 下降）
     commands_sent: int = 0
     zero_commands: int = 0
     drone_in_msgs: int = 0
     last_odom_ts: float = 0.0
     last_vision_ts: float = 0.0
+    last_referee_ts: float = 0.0
     started_at: float = field(default_factory=time.time)
 
 
@@ -80,6 +85,10 @@ class RosBridge:
         self._shoot_count = 0
         self._ammo: int | None = None
         self._hit_pending = 0
+        #: ★命中闭环真源：解析车端**已经在发**的 /HpAndHitmsg（见 io/referee.py 长注释）。
+        #: `/referee/hit`、`/referee/ammo` 两个 Int32 话题车端无生产者，只作兜底。
+        self._referee = RefereeTracker()
+        self._referee_shots_hw = 0
         self._manual_override = False
         self._manual_gimbal = False
         self._drone_inbox: list[str] = []
@@ -95,7 +104,7 @@ class RosBridge:
         from geometry_msgs.msg import Twist
         from nav_msgs.msg import Odometry
         from sensor_msgs.msg import Imu
-        from std_msgs.msg import Int32, Int32MultiArray, String, UInt8
+        from std_msgs.msg import Int32, Int32MultiArray, String, UInt8, UInt8MultiArray
 
         node = self.node
 
@@ -138,14 +147,40 @@ class RosBridge:
                 self._shoot_count = int(msg.data)
 
         def on_hit(msg: Int32) -> None:
+            # ★ 兜底源（车端当前**无生产者**）：一旦收到过合法 /HpAndHitmsg 帧，
+            #   就彻底忽略本话题 —— 否则 hp 解析与本话题会**双计**命中。
+            if self._referee.valid_seen:
+                return
             with self._lock:
                 self._hit_pending += 1
                 self.stats.hit_msgs += 1
 
         def on_ammo(msg: Int32) -> None:
+            # ★ 同上：referee_hp 的 [4] 才是弹药真源
+            if self._referee.valid_seen:
+                return
             with self._lock:
                 self._ammo = int(msg.data)
                 self.stats.ammo_msgs += 1
+
+        def on_referee_hp(msg: UInt8MultiArray) -> None:
+            # ★★ 命中/挨打/弹药的**唯一真源**。计数基于状态变化（HP 下降量），
+            #    不是"收到帧"—— 1Hz 心跳会重复推完全相同的字节（见 referee.py）。
+            delta = self._referee.feed(msg.data, time.time())
+            frame = delta.frame
+            with self._lock:
+                self.stats.referee_msgs += 1
+                if frame is None:
+                    self.stats.referee_bad += 1
+                    return
+                self.stats.last_referee_ts = frame.at
+                self._referee_shots_hw = frame.shots_hw
+                self._ammo = frame.ammo
+                if delta.hits:
+                    self._hit_pending += int(delta.hits)
+                    self.stats.hit_msgs += int(delta.hits)
+                if delta.self_hits:
+                    self.stats.self_hits += int(delta.self_hits)
 
         def on_manual_override(msg: UInt8) -> None:
             with self._lock:
@@ -183,6 +218,8 @@ class RosBridge:
                                      _qos(ct.topic("referee_hit").qos)),
             node.create_subscription(Int32, ct.topic("referee_ammo").name, on_ammo,
                                      _qos(ct.topic("referee_ammo").qos)),
+            node.create_subscription(UInt8MultiArray, ct.topic("referee_hp").name,
+                                     on_referee_hp, _qos(ct.topic("referee_hp").qos)),
             node.create_subscription(UInt8, ct.topic("manual_override").name, on_manual_override,
                                      _qos(ct.topic("manual_override").qos)),
             node.create_subscription(UInt8, ct.topic("manual_gimbal").name, on_manual_gimbal,
@@ -269,6 +306,19 @@ class RosBridge:
             n = self._hit_pending
             self._hit_pending = 0
             return n
+
+    def referee(self) -> RefereeTracker:
+        """裁判解析器（只读：状态/计数/坏帧数；排障与遥测用）。"""
+        return self._referee
+
+    def referee_age(self) -> float:
+        """距最后一帧裁判回传的秒数（inf = 从未收到 → 裁判系统没开/没接）。"""
+        return self._referee.age(time.time())
+
+    def referee_shots_hw(self) -> int:
+        """硬件侧累计射击次数（judgment 的 [3]）—— 与云台 `/shoot_count` 交叉校验。"""
+        with self._lock:
+            return self._referee_shots_hw
 
     def manual_override(self) -> bool:
         with self._lock:
@@ -399,15 +449,23 @@ class RosBridge:
             pass
 
     def summary(self) -> dict[str, Any]:
+        # ★ 持锁内**不得**再调 pose_age() 等也要 self._lock 的访问器
+        #   （Lock 不可重入 → 死锁；本 bug 此前因 summary() 几乎没被调用而潜伏）。
+        #   需要的值在此处一次性读出。
         with self._lock:
+            pose_ts = self._pose_ts
             return {
                 "odom_msgs": self.stats.odom_msgs,
                 "vision_msgs": self.stats.vision_msgs,
                 "commands_sent": self.stats.commands_sent,
                 "zero_commands": self.stats.zero_commands,
-                "pose_age_s": round(self.pose_age(), 3),
+                "pose_age_s": round(float("inf") if not pose_ts else time.time() - pose_ts, 3),
                 "aim_status": ct.AimStatus.name(self._aim_status),
                 "shoot_count": self._shoot_count,
                 "ammo": self._ammo,
                 "manual_override": self._manual_override,
+                "referee_msgs": self.stats.referee_msgs,
+                "referee_bad": self.stats.referee_bad,
+                "self_hits": self.stats.self_hits,
+                "referee_shots_hw": self._referee_shots_hw,
             }

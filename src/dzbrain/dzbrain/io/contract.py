@@ -95,10 +95,16 @@ TOPICS: dict[str, Topic] = {
                       "JSON 情报：桥洞/靶区/雷障核对/心跳", "sub"),
     "drone_out": Topic("/dzlink/car_to_drone", "std_msgs/String", QOS_LINK,
                        "JSON：车状态/ack", "pub"),
+    "referee_hp": Topic("/HpAndHitmsg", "std_msgs/UInt8MultiArray", QOS_EVENT,
+                        unit="裁判回传帧（★★命中闭环真源：dzjudgment 收帧即发 + 1Hz 心跳）",
+                        note="字段=[0]对方HP [1]己方HP [2]被击打方位(0x10=未被击打) "
+                             "[3]硬件累计发数 [4]剩余弹药；解析见 io/referee.py",
+                        direction="sub"),
     "referee_hit": Topic("/referee/hit", "std_msgs/Int32", QOS_EVENT,
-                         "命中确认（来自 dzjudgment 裁判回传帧解析）", "sub"),
+                         "命中确认（★车端**无生产者**：实际命中由 referee_hp 解析；"
+                         "本话题仅作未来桥接兜底，且只在从未收到合法帧时才认）", "sub"),
     "referee_ammo": Topic("/referee/ammo", "std_msgs/Int32", QOS_EVENT,
-                          "剩余弹药（裁判回传）", "sub"),
+                          "剩余弹药（★同上：兜底源，referee_hp 的 [4] 才是真源）", "sub"),
     "aim_lead": Topic("/aim/lead_x", "std_msgs/Float32", QOS_EVENT,
                       "★提前量（px，云台补丁订阅；旧版无此能力）", "pub"),
 }
