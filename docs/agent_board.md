@@ -145,6 +145,7 @@
 | R2 | 车仍画圆 | Agent-3 | align已就绪，待实车 |
 | R3 | 7cls训练中断 | Agent-4 | Modern Standby已禁用；best_snapshot备份 |
 | R4 | 0x4002帧未广播 | Agent-4 | 代码完成，待Orin编译 |
+| R6 | **E盘（项目存储）不可访问** | 经理 | WD My Passport USB状态Unknown，需用户检查USB连接 |
 
 ---
 
