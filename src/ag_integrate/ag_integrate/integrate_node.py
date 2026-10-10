@@ -21,11 +21,16 @@ import threading
 
 import rclpy
 from rclpy.node import Node
+from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 
+from .heading_calibration import closed_loop_rate, wrap_pi
 from .intel_protocol import detect_msg_id, parse, parse_car_pose
 from .pipeline import build_mission, evaluate_gate
 from .world_model import WorldModel
+
+# reset 断言朝向对应的场地 yaw（弧度，0=东、π/2=北，与 dzuav 0x4002 同架）
+_HEADING_YAW = {"x": 0.0, "y": math.pi / 2}
 
 # 黑匣子（软依赖）：ag_core 未装时静默关闭，不影响主流程。
 try:
@@ -55,10 +60,20 @@ class IntegrateNode(Node):
         #   heading_bias_source="none"  → 不补偿，保持现状（默认，安全）
         #   heading_bias_source="udp"   → 监听 dzuav 的 0x4002 车位姿帧，
         #                                  用无人机观测的真实朝向修正 reset 断言
+        #                                  （取最近坐标轴，残差 ≤ 45°，不挪车）
+        #   heading_bias_source="align" → 用 0x4002 真实朝向闭环原地转向，
+        #                                  把车头转到与 start_heading 断言一致
+        #                                  （零残差，需发 /cmd_vel 角速度）
         #   heading_bias（弧度）         → 手动偏置（=真实朝向 - 断言朝向），
-        #                                  优先级低于 udp 自动补偿
+        #                                  优先级低于 udp/align 自动补偿
         self.declare_parameter("heading_bias_source", "none")
         self.declare_parameter("heading_bias", 0.0)
+        # ---- 朝向对齐（align 模式）参数 ----
+        self.declare_parameter("cmd_vel_topic", "/cmd_vel")
+        self.declare_parameter("heading_align_tolerance", 0.05)   # rad ≈ 3°
+        self.declare_parameter("heading_align_max_rate", 0.5)    # rad/s
+        self.declare_parameter("heading_align_timeout", 15.0)    # s
+        self.declare_parameter("heading_align_settle_ticks", 3)  # 连续 N tick 在容差内才算对齐
         # 移动靶先验（全场仅一个，裁判系统每局固定）：
         #   target_track = ["D8", "E8"]  轨道两端格号
         #   target_blue_face = "S"      蓝面朝向 S/N(水平轨道)/E/W(垂直轨道)
@@ -88,6 +103,11 @@ class IntegrateNode(Node):
         self.mid_boundary = int(p("mid_boundary"))
         self.heading_bias_source = str(p("heading_bias_source")).strip().lower()
         self.heading_bias = float(p("heading_bias"))
+        self.cmd_vel_topic = str(p("cmd_vel_topic"))
+        self.heading_align_tolerance = float(p("heading_align_tolerance"))
+        self.heading_align_max_rate = float(p("heading_align_max_rate"))
+        self.heading_align_timeout = float(p("heading_align_timeout"))
+        self.heading_align_settle_ticks = int(p("heading_align_settle_ticks"))
         track = tuple(str(n).strip().upper() for n in p("target_track") if str(n).strip())
         self.target_track = track if len(track) == 2 else None
         bf = str(p("target_blue_face")).strip().upper()
@@ -99,6 +119,16 @@ class IntegrateNode(Node):
         self.last_route = ""
         # 无人机观测到的车真实朝向（0x4002 帧），None 表示尚未收到
         self._car_true_yaw: float | None = None
+
+        # ---- 朝向对齐状态机（align 模式）----
+        # _align_state: None=未启动, "aligning"=转向中, "aligned"=已对齐, "failed"=超时/无朝向
+        self._align_state: str | None = None
+        self._align_settle_count = 0
+        self._align_start_time: float | None = None
+
+        self.pub = self.create_publisher(String, str(p("waypoint_topic")), 10)
+        # 朝向对齐时直接发底盘角速度（path_executor 无路线时不占 /cmd_vel）
+        self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
 
         # 收包线程 -> 决策回调的最新帧交接：容量 1，满了丢旧帧。
         # 态势数据只要最新值，决策慢于到达率时自动降级为"跳帧"，不积压。
@@ -197,17 +227,34 @@ class IntegrateNode(Node):
         try:
             snapshot = self._frames.get_nowait()
         except queue.Empty:
-            return
-        self._handle(snapshot)
+            snapshot = None
+        if snapshot is not None:
+            self._handle(snapshot)
+        # 朝向对齐需要每 tick 持续发 /cmd_vel；放在 _handle 之后，
+        # 这样 _handle 启动对齐的同一 tick 就会发出第一帧角速度。
+        if self._align_state == "aligning":
+            self._do_heading_alignment()
 
     def _effective_start_heading(self) -> str:
         """根据无人机观测的真实朝向，选最近的坐标轴方向作为 reset 断言。
 
         path_executor 的 reset 只支持 'x'(0°)/'y'(90°)，无法传任意偏置。
-        有外部朝向时选最近坐标轴，可显著减小断言与真实朝向的偏差；
-        无外部朝向时退回 start_heading（人工摆车对齐）。
+        - udp 模式：选最近坐标轴，残差 ≤ 45°，不挪车；
+        - align 模式：已通过 _do_heading_alignment 把车头转到 start_heading，
+          直接用 start_heading（零残差）；
+        - none：退回 start_heading（人工摆车对齐）。
         """
-        if self.heading_bias_source == "udp" and self._car_true_yaw is not None:
+        src = self.heading_bias_source
+        if src == "align":
+            # 对齐成功：车头已物理转到 start_heading 断言方向，零残差
+            if self._align_state == "aligned":
+                return self.start_heading
+            # 对齐失败/未完成：退回最近坐标轴（与 udp 模式同逻辑）
+            if self._car_true_yaw is not None:
+                yaw = self._car_true_yaw % (2 * math.pi)
+                return "y" if (math.pi / 4) <= yaw < (3 * math.pi / 4) else "x"
+            return self.start_heading
+        if src == "udp" and self._car_true_yaw is not None:
             yaw = self._car_true_yaw % (2 * math.pi)
             # 45° 边界：[0,45)∪[315,360) -> 'x'，[45,135) -> 'y'，其余选最近
             nearest = "y" if (math.pi / 4) <= yaw < (3 * math.pi / 4) else "x"
@@ -219,12 +266,89 @@ class IntegrateNode(Node):
             return nearest
         return self.start_heading
 
+    # ---------------- 朝向对齐（align 模式） ----------------
+    def _needs_heading_alignment(self) -> bool:
+        """是否需要执行朝向对齐。"""
+        return self.heading_bias_source == "align"
+
+    def _start_heading_alignment(self) -> None:
+        """启动朝向对齐：把车头原地转到 start_heading 断言方向。"""
+        if self._align_state in ("aligning", "aligned"):
+            return
+        self._align_state = "aligning"
+        self._align_settle_count = 0
+        self._align_start_time = self.get_clock().now().nanoseconds / 1e9
+        self.get_logger().info(
+            f"朝向对齐启动: 目标 {self.start_heading} "
+            f"({math.degrees(_HEADING_YAW[self.start_heading]):.1f}°)"
+        )
+
+    def _do_heading_alignment(self) -> None:
+        """每 tick 执行：读无人机真实 yaw，闭环发角速度直到对齐。"""
+        if self._align_state != "aligning":
+            return
+
+        now = self.get_clock().now().nanoseconds / 1e9
+        # 超时保护
+        if (self._align_start_time is not None
+                and now - self._align_start_time > self.heading_align_timeout):
+            self._align_state = "failed"
+            self._stop_cmd_vel()
+            self.get_logger().warning(
+                f"朝向对齐超时 ({self.heading_align_timeout}s)，"
+                f"退回 udp 最近轴断言"
+            )
+            return
+
+        if self._car_true_yaw is None:
+            # 还没收到车位姿帧，保持停止等待
+            self._stop_cmd_vel()
+            return
+
+        target_yaw = _HEADING_YAW[self.start_heading]
+        rate = closed_loop_rate(
+            self._car_true_yaw, target_yaw,
+            max_rate=self.heading_align_max_rate,
+            tolerance=self.heading_align_tolerance,
+        )
+        if rate == 0.0:
+            self._align_settle_count += 1
+            self._stop_cmd_vel()
+            if self._align_settle_count >= self.heading_align_settle_ticks:
+                self._align_state = "aligned"
+                self.get_logger().info(
+                    f"朝向对齐完成: 观测 "
+                    f"{math.degrees(self._car_true_yaw):.1f}° ≈ 目标 "
+                    f"{math.degrees(target_yaw):.1f}°"
+                )
+        else:
+            self._align_settle_count = 0
+            self._publish_cmd_vel_angular(rate)
+
+    def _publish_cmd_vel_angular(self, rate: float) -> None:
+        msg = Twist()
+        msg.angular.z = rate
+        self.cmd_vel_pub.publish(msg)
+
+    def _stop_cmd_vel(self) -> None:
+        msg = Twist()
+        self.cmd_vel_pub.publish(msg)
+
     def _handle(self, snapshot) -> None:
         gate = evaluate_gate(snapshot, self.min_mines, self.require_face)
         if not gate.ok:
             self._log_hold_once(gate.reason)
             self._blog(EV.ROUTE_BLOCKED, level="warn", reason=gate.reason)
             return
+
+        # 朝向对齐（align 模式）：发车前先把车头摆正，消除 reset 断言偏差。
+        if self._needs_heading_alignment() and self._align_state is None:
+            self._start_heading_alignment()
+        if self._align_state == "aligning":
+            return   # 对齐中，不发路线
+        if self._align_state == "failed":
+            # 对齐失败：退回 udp 最近轴，仍尝试发车（比完全不动好）
+            pass
 
         # 默认关：首条路线发出后不再重规划（一次性规划模式），
         # 跳过 build_mission 也省掉每帧规划开销。
@@ -273,6 +397,12 @@ class IntegrateNode(Node):
     def destroy_node(self) -> bool:
         self._stop.set()
         self._thread.join(timeout=2)
+        # 安全：关闭时若正在对齐，发零角速度让底盘停转
+        if self._align_state == "aligning":
+            try:
+                self._stop_cmd_vel()
+            except Exception:
+                pass
         return super().destroy_node()
 
 

@@ -19,9 +19,18 @@ integrate_node:
     # ---- 中场约束（留空：桥洞墙由 ARROW 自动推导） ----
     cross_gates: [""]
     mid_boundary: 5
-    # ---- 朝向补偿 ----
-    heading_bias_source: "none"     # 可改 "udp"：用 0x4002 帧实测朝向修正断言
+    # ---- 朝向补偿（根除画圆：reset 断言朝向 vs 真实朝向的固定偏差）----
+    #   none  : 不补偿，靠人工把车摆正（不推荐）
+    #   udp   : 用 0x4002 真实朝向取最近坐标轴，残差 ≤ 45°，不挪车
+    #   align : 用 0x4002 真实朝向闭环原地转向到断言朝向，零残差（推荐）
+    heading_bias_source: "align"
     heading_bias: 0.0
+    # ---- 朝向对齐（align 模式）参数 ----
+    cmd_vel_topic: "/cmd_vel"           # 底盘角速度话题（path_executor 无路线时不占）
+    heading_align_tolerance: 0.05       # 对齐容差 rad ≈ 3°
+    heading_align_max_rate: 0.5         # 最大角速度 rad/s
+    heading_align_timeout: 15.0         # 对齐超时 s（超时退回最近轴）
+    heading_align_settle_ticks: 3       # 连续 N tick 在容差内才算对齐
     # ---- 移动靶先验（全场唯一靶，裁判系统每局固定） ----
     target_track: ["D8", "E8"]      # 轨道两端格号
     target_blue_face: "S"           # 蓝面朝向 S/N(水平轨道)/E/W(垂直轨道)

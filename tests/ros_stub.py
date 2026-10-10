@@ -61,6 +61,19 @@ class _Quaternion:
         self.w = 1.0
 
 
+class _Vector3:
+    def __init__(self) -> None:
+        self.x = 0.0
+        self.y = 0.0
+        self.z = 0.0
+
+
+class Twist:
+    def __init__(self) -> None:
+        self.linear = _Vector3()
+        self.angular = _Vector3()
+
+
 class _Pose:
     def __init__(self) -> None:
         self.position = _Point()
@@ -128,8 +141,14 @@ class FakeLogger:
 
 
 class FakeClock:
+    def __init__(self) -> None:
+        self._ns = 1_000_000_000  # 1s 起步，单调递增
+
     def now(self):
-        return types.SimpleNamespace(to_msg=lambda: None)
+        self._ns += 100_000_000  # 每次调用推进 0.1s
+        return types.SimpleNamespace(
+            nanoseconds=self._ns, to_msg=lambda: None,
+        )
 
 
 class FakePublisher:
@@ -245,7 +264,8 @@ def install() -> None:
                           "Float32": make_msg_class("Float32", {"data": 0.0})})
     _package("sensor_msgs", {"Image": Image})
     _package("geometry_msgs", {"PoseStamped": PoseStamped, "Point": _Point,
-                               "Quaternion": _Quaternion, "Pose": _Pose})
+                               "Quaternion": _Quaternion, "Pose": _Pose,
+                               "Twist": Twist, "Vector3": _Vector3})
     _package(
         "ag_interfaces",
         {

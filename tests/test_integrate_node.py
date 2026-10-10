@@ -205,3 +205,99 @@ def test_no_udp_source_ignores_car_yaw():
         assert node._effective_start_heading() == "y"
     finally:
         node.destroy_node()
+
+
+# ---------------- 朝向对齐（align 模式） ----------------
+
+def test_align_mode_waits_until_aligned():
+    """align 模式：门控通过后启动对齐，对齐完成前不发路线。"""
+    node = make_node(heading_bias_source="align", start_heading="y")
+    try:
+        snap = snapshot_of(mine_at("D2"), blue_target_at("F5"))
+        node._submit(snap)
+        node._car_true_yaw = math.radians(158.6)  # 偏 68.6°
+        node.tick()   # 启动对齐，但未完成
+
+        # 对齐中：不发 reset/route，只发 cmd_vel
+        assert node.topic("/nav/waypoint").published == []
+        cmdvel = node.topic("/cmd_vel").published
+        assert cmdvel and cmdvel[-1].angular.z != 0.0
+    finally:
+        node.destroy_node()
+
+
+def test_align_completes_then_publishes_route():
+    """align 模式：yaw 收敛到目标后，连续 settle 完成，发 reset+route。"""
+    node = make_node(heading_bias_source="align", start_heading="y",
+                     heading_align_settle_ticks=2)
+    try:
+        snap = snapshot_of(mine_at("D2"), blue_target_at("F5"))
+        node._submit(snap)
+        target = math.pi / 2  # 'y' = 90°
+
+        # 第一帧：偏 68.6°，启动对齐
+        node._car_true_yaw = math.radians(158.6)
+        node.tick()
+        assert node._align_state == "aligning"
+        assert node.topic("/nav/waypoint").published == []
+
+        # 后续 tick：yaw 已在目标容差内
+        node._car_true_yaw = target
+        for _ in range(5):
+            node.tick()
+        assert node._align_state == "aligned"
+
+        # 对齐完成后再 tick 一次（带态势）触发路线发布
+        node._submit(snap)
+        node.tick()
+        pub = node.topic("/nav/waypoint").published
+        assert len(pub) == 2
+        assert pub[0].data == "reset:N10,y"
+    finally:
+        node.destroy_node()
+
+
+def test_align_publishes_zero_cmd_vel_when_within_tolerance():
+    """yaw 在容差内时，发零角速度（停止）并累计 settle。"""
+    node = make_node(heading_bias_source="align", start_heading="y")
+    try:
+        node._car_true_yaw = math.pi / 2  # 正好是目标
+        node._start_heading_alignment()
+        node._do_heading_alignment()
+        last = node.topic("/cmd_vel").published[-1]
+        assert last.angular.z == 0.0
+        assert node._align_settle_count == 1
+    finally:
+        node.destroy_node()
+
+
+def test_align_rotates_in_correct_direction():
+    """真实朝向偏左/偏右时，角速度符号指向目标方向。"""
+    node = make_node(heading_bias_source="align", start_heading="y")
+    target = math.pi / 2
+    try:
+        # 真实 0°（东），目标 90°（北）：应逆时针（正角速度）
+        node._car_true_yaw = 0.0
+        node._start_heading_alignment()
+        node._do_heading_alignment()
+        assert node.topic("/cmd_vel").published[-1].angular.z > 0.0
+
+        # 真实 180°，目标 90°：应顺时针（负角速度）
+        node._car_true_yaw = math.pi
+        node._do_heading_alignment()
+        assert node.topic("/cmd_vel").published[-1].angular.z < 0.0
+    finally:
+        node.destroy_node()
+
+
+def test_align_no_yaw_keeps_stopped():
+    """未收到车位姿帧时，不发角速度（等待）。"""
+    node = make_node(heading_bias_source="align", start_heading="y")
+    try:
+        node._car_true_yaw = None
+        node._start_heading_alignment()
+        node._do_heading_alignment()
+        assert node.topic("/cmd_vel").published[-1].angular.z == 0.0
+        assert node._align_state == "aligning"  # 仍在等
+    finally:
+        node.destroy_node()

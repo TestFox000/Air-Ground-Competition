@@ -46,6 +46,7 @@
 | `light_det2.rknn` | 待补 | ❌ 同上 |
 | `light_det_v1.rknn` | 待补 | ❌ 另一套导出 |
 | `cell_classifier_v4c_20261008.onnx` | `4F1838BEBFC951BC62170D821D56EC22` | 4.34 MB | 本次训练产物（tag=v4c） | 格号分类器，见 current_cell_classifier 指针 | 2026-10-08 |
+| `cell_classifier_v4c_20261009.onnx` | `850AE9376BD5AC7BDFE44D6BD550A920` | 4.34 MB | 本次训练产物（tag=v4c） | 格号分类器，见 current_cell_classifier 指针 | 2026-10-09 |
 
 **新模型上车前必须过契约校验**：
 
