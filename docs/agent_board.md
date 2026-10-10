@@ -52,7 +52,7 @@
 
 | 任务ID | 任务 | 状态 | 截止 | 完成时间 | 进度 |
 |---|---|---|---|---|---|
-| A4-1 | **7cls 蒸馏训练收敛** | 🟡 epoch 22/75 | 约10-10 | — | mAP50=0.779，watch_eval自动监控 |
+| A4-1 | **7cls 蒸馏训练收敛** | 🟡 epoch 24/75（已续训） | 约10-11 | — | best mAP50=0.7827(ep5)，训练曾中断已恢复，watch_eval自动监控 |
 | A4-2 | **格号识别 v4c 训练** | ✅ | 10-10 | 10-10 08:00 | v4c模型已发布 cell_classifier_v4c_20261009.onnx |
 | A4-3 | Orin 编译 dzuav | 🔵 待启动 | Orin上线后1h | — | 需Orin在线 |
 | A4-4 | 相机出图验证 | ⛔ | 依赖A4-3 | — | |
@@ -143,10 +143,10 @@
 |---|---|---|---|
 | R1 | Orin 不在线 | Agent-4 | 确认WiFi连接；同时推进训练 |
 | R2 | 车仍画圆 | Agent-3 | align已就绪，待实车 |
-| R3 | 7cls训练中断 | Agent-4 | Modern Standby已禁用；best_snapshot备份 |
+| R3 | 7cls训练中断 | Agent-4 | Modern Standby已禁用；best_snapshot备份；10-10巡检发现进程已死，已从last.pt续训至epoch 24 |
 | R4 | 0x4002帧未广播 | Agent-4 | 代码完成，待Orin编译 |
-| R6 | **E盘（项目存储）不可访问** | 经理 | WD My Passport USB状态Unknown，需用户检查USB连接 |
+| R6 | E盘（项目存储） | 经理 | ✅ 已恢复（7cls续训成功读取E:\ml_datasets），持续监控 |
 
 ---
 
-*最后更新：2026-10-10 经理*
+*最后更新：2026-10-10 经理（每小时巡检）*
