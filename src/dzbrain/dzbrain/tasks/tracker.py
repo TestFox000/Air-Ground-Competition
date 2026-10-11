@@ -397,10 +397,14 @@ class TrackerTask(TaskThread):
                 self._s_floor = v_s
 
         is_rev = path.segment_is_reverse(proj.seg_index)
+        # ★ t21：把黑板交给速度剖面 —— `P_MOTION_LIMIT`（Localization 写的限速/停机请求）
+        #   由此真正生效。**无信号（键不存在/None/载荷非法）时读侧完全 no-op**，命令与
+        #   不传 `bb` 时逐位一致（`pursuit.controller.motion_limit_speed_limit` 的契约、
+        #   `tests/test_tracker.py §11` 与 `tests/test_motion_limit.py` 双重钉住）。
         cmd: PursuitCommand = compute_command(pose, path, proj, self.cfg,
                                               reverse=is_rev,
                                               last_steer_deg=self._last_steer_deg,
-                                              dt=dt)
+                                              dt=dt, bb=self.bb)
         align = self._align_active(proj.seg_index)
 
         # ---- ★PIVOT 原地转向：优先级最高（它在"顶点前"接管，免得纯追踪画出 0.4 m 的大弧） ----

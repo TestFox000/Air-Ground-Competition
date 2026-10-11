@@ -38,10 +38,11 @@ except Exception:                              # pragma: no cover
 
 from harness import check, check_close, close, finish, run_case, section   # noqa: E402
 
-from dzbrain.core.blackboard import P_AIM, P_SAFETY, P_TARGET, P_TELEMETRY, Blackboard  # noqa: E402
+from dzbrain.core.blackboard import (P_AIM, P_SAFETY, P_STOP_POINT, P_TARGET,  # noqa: E402
+                                     P_TELEMETRY, Blackboard)
 from dzbrain.core.config import SCHEMA, Config                            # noqa: E402
 from dzbrain.core.events import EV_TARGET_FIRST_SEEN, EV_TARGET_LOST, EventBus  # noqa: E402
-from dzbrain.core.state import SafetyState                                # noqa: E402
+from dzbrain.core.state import SafetyState, StopPointState                # noqa: E402
 from dzbrain.io.contract import AimStatus, ShotClass                      # noqa: E402
 from dzbrain.tasks.aim import (AIM_TELEMETRY_KEY, FirePolicy, RailEstimator,  # noqa: E402
                                REASON_AMMO_EMPTY, REASON_BUDGET_PER_TARGET, REASON_COOLDOWN,
@@ -793,16 +794,23 @@ def test_07_lost() -> None:
     rig.idle(2.2)                                     # 超过 lost_frames/fps = 2.0s
     check("7.8 超过 lost_frames_to_rescan 阈值 → 回扫标志置位",
           rig.tel()["rescan_requested"] is True, f"{rig.tel()['rescan_requested']}")
-    check("7.9 默认**不**主动发 scan_request（决定权留在任务里，见报告）",
-          rig.bridge.scan_requests == [], f"{rig.bridge.scan_requests}")
+    # ★★ 卡 t13（用户 2026-10-11 指令）改写了本组的检测口径：
+    #    旧契约 = "aim 完全不管 scan_request，决定权全留 Mission"；
+    #    新契约 = "**aim 掌管云台扫描开关**：巡迹（未到最佳射击点停站）一律锁止 0，
+    #              到 StopKind.SHOOT 停站才起转搜索 2"。旧的 7.9/7.10 断言的正是旧契约，
+    #    因此按新契约重写（详见 _tmp_session/t13_gimbal.md 与 test_gimbal_lock.py）。
+    check("7.9 ★巡迹中（未到射击停站）只发**锁止** 0，绝不发 1/2",
+          rig.bridge.scan_requests == [0], f"{rig.bridge.scan_requests}")
 
-    # 7.10 打开开关：只发 2（持续），绝不发 1（readme【十】31：到点发 1 会降级成单趟）
+    # 7.10 打开开关：丢靶回扫**只在已到最佳射击点停站**时才发 2
     rig2 = Rig(cfg=cfg_of(rescan_on_lost=True))
     _compile(rig2, 8)
     rig2.no_vision(0.6)
     rig2.idle(2.2)
-    check("7.10 开关打开后只发 scan_request=2，绝不发 0/1",
-          rig2.bridge.scan_requests == [2], f"{rig2.bridge.scan_requests}")
+    check("7.10 ★巡迹途中丢靶回扫**不解锁**云台（仍只有锁止 0）",
+          rig2.bridge.scan_requests == [0], f"{rig2.bridge.scan_requests}")
+    # （"到 SHOOT 停站后才起转搜索 2"的完整覆盖放在 test_gimbal_lock.py —— 那里用独立夹具，
+    #   免得插在这里扰动 7.11 的目标/预算时序。）
 
     # 7.11 重新出现 → 恢复
     _compile(rig2, 8)

@@ -108,6 +108,9 @@ __all__ = [
     "DEFAULT_MAX_SECONDS",
     "PIVOT_MARK_DEG",
     "PIVOT_PENALTY",
+    "MINE_PRESS_TOL_M",
+    "MINE_TURN_PENALTY",
+    "straighten_mines",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -151,6 +154,19 @@ PIVOT_MARK_DEG = 135.0
 #: 横向扫出 ~0.54 m > 一格 0.35 m），比多绕两格贵得多 ——
 #: 只按 A* 里程排序会把它当成"顺路"，于是折返点变成路线里最贵的动作却没被计价。
 PIVOT_PENALTY = 5.0
+
+#: ★★ 雷心必须被**车心**压过（用户 2026-10-11 口径）：参考折线到每个雷格中心的
+#: 最近距离 ≤ 该容差（米）。实现见 `straighten_mines()` —— 把雷格做成"进—雷—出"
+#: 三点直线的**中点**，纯追踪于是沿直线穿过雷心；不这么做的后果有实测依据：
+#: ① 90° 拐角处的雷被切角"擦过"（t8 报告 §3.5：C5 差 3.1 cm、I8 差 2.7 cm）；
+#: ② 180° 折返顶点上的雷更糟：`pursuit.pivot_dist_m=0.25` 让车在距顶点 0.25 m 处
+#:    就掉头，车心**根本到不了**雷心（A9 实测差 12.7 cm）。
+MINE_PRESS_TOL_M = 0.03
+
+#: ★ 顺序层"雷格不得作为拐点"的惩罚权重（等效代价单位）：90° 拐点记 1 份、180° 记 8 份。
+#: 1.0 份 ≈ 1 格前进代价 —— 权衡"多绕一格"与"雷被切角擦过"，后者要严重得多
+#: （真车漏压雷 = 直接丢分），所以取 2.0 让排序优先满足压雷。
+MINE_TURN_PENALTY = 2.0
 
 #: 单次规划的时间预算（秒）。超了抛 `PlannerError`，绝不静默给半成品路线。
 DEFAULT_MAX_SECONDS = 0.8
@@ -1030,8 +1046,16 @@ class PlanResult:
     allow_reverse: bool = True
     #: ★ 折返点清单 ``[(航点索引, 格名, 折返角°), ...]`` —— 与 `:PIVOT` 声明一一对应
     pivots: tuple[tuple[int, str, float], ...] = ()
-    #: 折返惩罚（等效代价单位/处）；0.0 = 未启用（允许倒车模式的默认值）
+    #: 折返惩罚（等效代价单位/处）；0.0 = 未启用
     pivot_penalty: float = 0.0
+    #: "雷格不得作拐点"的惩罚权重（等效代价单位）；0.0 = 未启用
+    mine_turn_penalty: float = 0.0
+    #: ★ 逐雷穿越轴 ``[(雷格名, 轴编号0北1西2南3东, 是否找到可行轴), …]`` ——
+    #: `ok=False` 表示该雷找不到直线穿越轴（会被切角擦过，需人工核对地图）
+    mine_axes: tuple[tuple[str, int, bool], ...] = ()
+    #: ★【自诊断】逐雷"进点前共线格数" ``[(雷格名, 格数), …]`` —— 见 `_mine_aligned_runs`。
+    #: `<2` 的雷在纯追踪下会被切角（车心压不到雷心），plan_route 会另附一条 warning。
+    mine_runs: tuple[tuple[str, int], ...] = ()
     #: 顺序代价（含折返惩罚）—— 供"加惩罚前 vs 后"对比用
     tour_cost: float = 0.0
 
@@ -1058,6 +1082,9 @@ class PlanResult:
             "warnings": list(self.warnings),
             "allow_reverse": self.allow_reverse,
             "pivot_penalty": round(self.pivot_penalty, 4),
+            "mine_turn_penalty": round(self.mine_turn_penalty, 4),
+            "mine_axes": [{"block": b, "axis": a, "ok": o} for b, a, o in self.mine_axes],
+            "mine_runs": [{"block": b, "run": r} for b, r in self.mine_runs],
             "tour_cost": round(self.tour_cost, 4),
             "pivot_count": self.pivot_count,
             "pivots": [{"index": i, "block": b, "deg": round(d, 1)}
@@ -1098,12 +1125,23 @@ class _Tour:
     """
 
     def __init__(self, grid: Grid, deadline: float,
-                 pivot_penalty: float = 0.0) -> None:
+                 pivot_penalty: float = 0.0, record_dirs: bool = True,
+                 mine_cells: Iterable[tuple[int, int]] = (),
+                 mine_turn_penalty: float = 0.0) -> None:
         self.grid = grid
         self.deadline = deadline
         #: ★ 折返惩罚（等效代价单位/处）。0.0 = 关闭（允许倒车模式的默认值，
         #: 也是"加惩罚前 vs 后"对比实验的对照组）。
         self.pivot_penalty = max(0.0, float(pivot_penalty))
+        #: 是否记录"每对访问点最短腿的起步/末步朝向"——折返惩罚与
+        #: `straighten_mines()`（雷心直线穿越）都要用它，故默认开启。
+        self.record_dirs = bool(record_dirs)
+        #: ★ 雷格集合 + **雷格不得作为拐点**的惩罚权重：顺序里若某个雷格处有转角
+        #: （90° 记 1 份、180° 记 8 份），按该权重计价。理由同 `MINE_PRESS_TOL_M`：
+        #: 雷格一旦是拐点，纯追踪就会切角/掉头，车心压不到雷心 —— 这一项让
+        #: "顺序 ↔ 朝向"优化主动把雷格排到**直线上**，而不是事后补救。
+        self.mine_cells = set(mine_cells)
+        self.mine_turn_penalty = max(0.0, float(mine_turn_penalty))
         self._floods: dict[tuple[int, int], tuple[dict, dict, dict, int]] = {}
         self.settled = 0
         self.head_cost: dict[tuple[tuple[int, int], tuple[int, int]],
@@ -1154,8 +1192,9 @@ class _Tour:
                                           for ha in range(4)]
                 value = min(min(row) for row in table)
                 self.order_cost[(a, b)] = self.order_cost[(b, a)] = value
-        # ★ 折返惩罚需要"每对点之间最短腿的起步/末步朝向"（见 `_record_leg_dirs`）
-        if self.pivot_penalty > 0.0:
+        # ★ 折返惩罚与"雷心直线穿越"都要用"每对点之间最短腿的起步/末步朝向"
+        #   （见 `_record_leg_dirs`）
+        if self.record_dirs or self.pivot_penalty > 0.0:
             for a in ordered:
                 for b in ordered:
                     if a != b:
@@ -1192,6 +1231,25 @@ class _Tour:
             self._exit_dir[(a, b)] = dirs[0]
             self._entry_dir[(a, b)] = dirs[-1]
 
+    def leg_cost(self, a: tuple[int, int], b: tuple[int, int]) -> float:
+        """`a -> b` 的**顺序层代价**（四个朝向对里的最小值，与 `order_cost` 同口径）。
+
+        新插入的格子（`straighten_mines` 的进点/出点）不在 `order_cost` 里，
+        这里按需洪泛并取最小，保证"选哪条穿越轴"的判决与顺序优化用同一把尺子。
+        """
+        if a == b:
+            return 0.0
+        hit = self.order_cost.get((a, b))
+        if hit is not None:
+            return hit
+        best = float("inf")
+        for ha in range(4):
+            for hb in range(4):
+                value = self.cost(a, b, ha, hb)
+                if value < best:
+                    best = value
+        return best
+
     def reversals(self, seq: Sequence[tuple[int, int]]) -> int:
         """访问顺序里的**折返次数**：`a -> b -> c` 且"进 b 的末步朝向"与"出 b 的起步朝向"相反。"""
         count = 0
@@ -1205,11 +1263,38 @@ class _Tour:
         return count
 
     def penalty_of(self, seq: Sequence[tuple[int, int]]) -> float:
-        if self.pivot_penalty <= 0.0:
-            return 0.0
-        return self.pivot_penalty * self.reversals(seq)
+        """顺序里"不该有的动作"的总代价：折返（180°）+ **雷格当拐点**。"""
+        total = 0.0
+        if self.pivot_penalty > 0.0:
+            total += self.pivot_penalty * self.reversals(seq)
+        if self.mine_turn_penalty > 0.0 and self.mine_cells:
+            for i in range(1, len(seq) - 1):
+                if seq[i] not in self.mine_cells:
+                    continue
+                entry = self._entry_dir.get((seq[i - 1], seq[i]))
+                leave = self._exit_dir.get((seq[i], seq[i + 1]))
+                if entry is None or leave is None:
+                    continue
+                delta = (entry - leave) % 4
+                if delta == 0:
+                    continue                    # 直线穿越 = 合格
+                total += self.mine_turn_penalty * (8.0 if delta == 2 else 1.0)
+        return total
 
     # ---------------- 顺序 ----------------
+    def order_cost_total(self, seq: Sequence[tuple[int, int]]) -> float:
+        """整条顺序的代价（含惩罚项）。**用 `leg_cost`**，所以对 `straighten_mines`
+        插进来的新格子也成立 —— 否则 `seq_cost` 读不到预建表会返回 `inf`，
+        报告里就会出现"顺序代价 inf"这种假读数（本轮踩过）。
+        """
+        total = self.penalty_of(seq)
+        for a, b in zip(seq, seq[1:]):
+            value = self.leg_cost(a, b)
+            if not math.isfinite(value):
+                return float("inf")
+            total += value
+        return total
+
     def seq_cost(self, seq: Sequence[tuple[int, int]]) -> float:
         total = self.penalty_of(seq)
         for a, b in zip(seq, seq[1:]):
@@ -1234,16 +1319,27 @@ class _Tour:
             cur = best
         return out
 
-    def two_opt(self, seq: list[tuple[int, int]]) -> list[tuple[int, int]]:
-        """2-opt（子段反转）直到不再改进或达到轮数上限。"""
+    def two_opt(self, seq: list[tuple[int, int]],
+                *, keep_ends: bool = True) -> list[tuple[int, int]]:
+        """2-opt（子段反转）直到不再改进或达到轮数上限。
+
+        ★ `keep_ends=True`（默认）时**只反转内部子段**：起点/终点是任务硬约束
+          （`mission.reset` 锚在起点、终点要停在 `map.end`），2-opt 不该动它们。
+          旧实现允许反转含首/末的子段，一旦代价函数变化就会把起点挪走，
+          只能在 `plan_route` 末尾靠"内部错误：优化后起点/终点被挪动"兜住 ——
+          那是把约束写在断言里而不是算法里，本轮踩到后改为按约束搜索。
+        """
         if len(seq) < 3:
             return seq
+        i_lo = 1 if keep_ends else 0
+        i_hi = len(seq) - 1 if keep_ends else len(seq) - 1
+        j_hi = len(seq) - 1 if keep_ends else len(seq)
         improved, passes = True, 0
         while improved and passes < MAX_2OPT_PASSES:
             improved, passes = False, passes + 1
             best = self.seq_cost(seq)
-            for i in range(len(seq) - 1):
-                for j in range(i + 2, len(seq)):
+            for i in range(i_lo, i_hi):
+                for j in range(i + 2, j_hi):
                     candidate = seq[:i] + list(reversed(seq[i:j + 1])) + seq[j + 1:]
                     cost = self.seq_cost(candidate)
                     if cost < best - 1e-9:
@@ -1387,6 +1483,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                max_seconds: float = DEFAULT_MAX_SECONDS,
                allow_reverse: bool = True,
                pivot_penalty: float | None = None,
+               mine_turn_penalty: float | None = None,
                name: str = "planner", source: str = "") -> PlanResult:
     """**核心入口**：一张地图 -> 一条可直接下发的路线。
 
@@ -1401,12 +1498,11 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         （不把 180° 折返改写成 `R:`）；③ 给每个折返顶点打 `:PIVOT` 声明（`mark_pivots`）；
         ④ 合法性断言换成 `assert_legal_no_reverse`（0 段 `R:` + 折返声明完整且不虚报）。
         True = 旧行为（`R:` 倒车段处理死角），**默认值不变**（签名向后兼容）。
-    :param pivot_penalty: 顺序搜索的折返惩罚（等效代价单位/处）。`None`（缺省）= **0.0**
-        （不加惩罚 = 卡 A 基线形状：现场图 43 token、2 处 `:PIVOT`）。
-        显式给 `PIVOT_PENALTY`(5.0) 即打开惩罚：现场图实测折返点 **2 → 0**、
-        里程 17.15 → 18.55 m（对比表见 `docs/车上自动规划_C_规划器无倒车.md`）。
-        默认关闭的理由：卡 A 的 43 token 形状已在真车链路里验证过，
-        惩罚版换了一个 49 token 的新形状，需要现场验证后再切换（改一个参数即可）。
+    :param pivot_penalty: 顺序搜索的折返惩罚（等效代价单位/处）。`None`（缺省）=
+        **跟随配置** `planner.pivot_penalty`（键缺失 → 0.0，行为与卡 A 基线一致）。
+    :param mine_turn_penalty: 顺序搜索里"**雷格不得作为拐点**"的惩罚权重。
+        `None`（缺省）= 跟随配置 `planner.mine_turn_penalty`（键缺失 → `MINE_TURN_PENALTY`）。
+        每压一个雷都要多 2 格路（进点/出点），这一项保证"宁可多绕一格，也不让雷被切角擦过"。
     :raises PlannerError: 无解 / 结构约束矛盾 / 超时 / 折返声明不一致（**绝不静默降级**）
     """
     t0 = time.perf_counter()
@@ -1414,7 +1510,13 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     limits = _limits(cfg)
     warnings: list[str] = []
     deadline = t0 + max(0.05, float(max_seconds))
-    pivot_penalty = 0.0 if pivot_penalty is None else max(0.0, float(pivot_penalty))
+    if pivot_penalty is None:
+        pivot_penalty = float(V._cfg_get(cfg, "planner.pivot_penalty", 0.0) or 0.0)   # noqa: SLF001
+    pivot_penalty = max(0.0, float(pivot_penalty))
+    if mine_turn_penalty is None:
+        mine_turn_penalty = float(V._cfg_get(                                          # noqa: SLF001
+            cfg, "planner.mine_turn_penalty", MINE_TURN_PENALTY) or 0.0)
+    mine_turn_penalty = max(0.0, float(mine_turn_penalty))
 
     start_cell, end_cell = _cell(spec.start), _cell(spec.end)
 
@@ -1506,7 +1608,10 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                 f"或射击窗口 {limits[0]:.2f}~{limits[1]:.2f} m 是否需要现场标定")
 
     # ---------------- 顺序 + 朝向联合优化 ----------------
-    tour = _Tour(grid, deadline, pivot_penalty=pivot_penalty)
+    #   ★ "雷格不得作拐点"的惩罚同样只在无倒车模式下生效（理由同上：允许倒车 = 旧行为）
+    mine_cells = set() if allow_reverse else {_cell(m) for m in spec.mines}
+    tour = _Tour(grid, deadline, pivot_penalty=pivot_penalty,
+                 mine_cells=mine_cells, mine_turn_penalty=mine_turn_penalty)
     tour.build([start_cell] + mines_lower + mines_upper
                + [cross_lower_cell, cross_upper_cell, end_cell]
                + [_cell(b) for b in shoot_pool])
@@ -1530,6 +1635,21 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     shoot_block = ""
     if shoot_pool:
         order, heads, shoot_block = _insert_shoot(tour, order, heads, shoot_pool)
+
+    # ---------------- ★ 雷心直线穿越（用户 2026-10-11：车心必须压过每个雷心）----------------
+    #   把每个雷格补成"进点—雷格—出点"三点直线的中点；插点后顺序变了，朝向必须重算。
+    #   ★ 只在**无倒车模式**下做：那是车上真正跑的路线（真车底盘不支持倒车）；
+    #     `allow_reverse=True` 保持旧行为，避免"允许倒车"这条诊断路径的输出被顺带改掉
+    #     （也符合卡 A/卡 C「允许倒车 = 旧行为」的语义）。
+    mine_axes: list[tuple[str, int, bool]] = []
+    if not allow_reverse:
+        order, mine_axes = straighten_mines(order, spec, grid, tour)
+        heads = tour.best_headings(order, fixed={order[0]: start_heading})
+        for _block, _axis, _ok in mine_axes:
+            if not _ok:
+                warnings.append(
+                    f"雷 {_block} 找不到可行的直线穿越轴（进/出点被障碍挡住或落在 K 列上）"
+                    f"—— 该雷仍会被切角擦过，需人工核对地图")
 
     # ---------------- 编译成航点 ----------------
     keep = {start_cell, end_cell, cross_lower_cell, cross_upper_cell}
@@ -1596,6 +1716,22 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     if not allow_reverse:
         marked = mark_pivots(stops)
 
+    # ★【自诊断】逐雷"雷前共线格数"：<2 的雷在纯追踪下会被切角，车心压不到雷心。
+    #   只报一条汇总 warning（每个雷一行会把启动日志淹掉），数据同时进 `PlanResult.mine_runs`。
+    mine_runs: list[tuple[str, int]] = []
+    if not allow_reverse:
+        mine_runs = _mine_aligned_runs(stops, spec)
+        short = [(b, r) for b, r in mine_runs if r < 2]
+        if short:
+            warnings.append(
+                "雷心压过风险：%d/%d 个雷的进点前共线不足 2 格（%s）—— "
+                "纯追踪要 ~2 格（0.7 m）才贴回参考线，这些雷会被切角，"
+                "车心到雷心实测可差 3~8 cm（t8/t11 口径）。"
+                "要真正消除需要改访问顺序（会额外增加 PIVOT/里程），"
+                "当前按『不动路线』处理，仅提示。"
+                % (len(short), len(mine_runs),
+                   " ".join("%s=%d" % (b, r) for b, r in short)))
+
     crossing = {"lower": lower_cross, "upper": upper_cross}
     route = _to_route(stops, name=name, crossing=crossing,
                       final_heading=_final_heading(stops))
@@ -1632,7 +1768,10 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         map_source=spec.source, start=spec.start, end=spec.end,
         polyline_m=polyline, start_heading=HEAD_NAMES[start_heading],
         allow_reverse=bool(allow_reverse), pivots=tuple(marked),
-        pivot_penalty=float(pivot_penalty), tour_cost=tour.seq_cost(order),
+        pivot_penalty=float(pivot_penalty),
+        mine_turn_penalty=float(mine_turn_penalty), mine_axes=tuple(mine_axes),
+        mine_runs=tuple(mine_runs),
+        tour_cost=tour.order_cost_total(order),
     )
 
 
@@ -1679,3 +1818,204 @@ def _insert_shoot(tour: _Tour, order: list[tuple[int, int]], heads: Sequence[int
         new_order.insert(pos, cell)
     new_heads = tour.best_headings(new_order, seed=None, fixed={new_order[0]: heads[0]})
     return new_order, new_heads, block
+
+
+# --------------------------------------------------------------------------- #
+#  ★ 雷心直线穿越（用户 2026-10-11 口径：车心必须压过每个雷格中心）
+# --------------------------------------------------------------------------- #
+def _axis_pass_ok(grid: Grid, cell: tuple[int, int], d: tuple[int, int]
+                  ) -> tuple[bool, tuple[int, int], tuple[int, int]]:
+    """沿方向 `d` 能否做"进点—雷—出点"直线穿越，返回 (可行, 进点, 出点)。
+
+    三条硬约束（每条都对应一条既有规则，不新造判据）：
+      ① 进/出点必须可通行（障碍不可通行）；
+      ② 进/出点**不能在 K 列**：否则会平白多一次 K 列穿行（R007 要求每半场恰好一次）；
+      ③ 进/出两步不得非法跨越第 6/7 行隔板（只有 A/B/C 列能过，R003）。
+
+    ★ 曾经还要求"雷前第 2 格（起跑点）也通行"并把它插进航点序列，实测**更差**：
+      A* 会先绕到起跑点再折回，PIVOT 从 1 个涨到 5 个、里程 19.95→23.45 m。
+      车心到雷心的真值偏差改用"速度/前视"扫描来压（t11 报告 §A3），不靠插起跑点。
+    """
+    m_in = (cell[0] - d[0], cell[1] - d[1])
+    m_out = (cell[0] + d[0], cell[1] + d[1])
+    for c in (m_in, m_out):
+        if not grid.passable(*c):
+            return False, m_in, m_out
+        if c[1] == _CROSS_COL:
+            return False, m_in, m_out
+        if not grid.barrier_cross_ok(cell[0], c[0], c[1]):
+            return False, m_in, m_out
+    return True, m_in, m_out
+
+
+def _dir_turn_cost(from_dir: int, to_dir: int) -> float:
+    """朝向索引 `from_dir -> to_dir` 的转角代价：0° = 0，90° = 1，180° = 100（几乎禁止）。
+
+    180° 之所以重罚：无倒车模式下它必然是一次原地 PIVOT（实测 ~10.8 s、横向扫出 ~0.54 m），
+    而且 `pursuit.pivot_dist_m=0.25` 让车在距顶点 0.25 m 处就掉头 —— 只要 180° 落在
+    雷格**旁边那一格**，同样会把雷心的压过精度毁掉。所以选轴时必须把"新插点处会不会
+    出现折返"一并计进去。
+    """
+    delta = (int(from_dir) - int(to_dir)) % 4
+    if delta == 0:
+        return 0.0
+    if delta == 2:
+        return 100.0
+    return 1.0
+
+
+def _aligned_run_before(tour: "_Tour", prev_cell: tuple[int, int] | None,
+                        m_in: tuple[int, int], axis: int) -> int:
+    """进点 `m_in` **之前**还有几格是沿 `axis` 共线的（0/1/2，2 表示"够长"）。
+
+    为什么必须够长：纯追踪在 90° 转向后要 ~2 格（0.7 m）才重新贴回参考线。若雷格
+    前面只有 1 格直线（即转向点就在进点处），车心到雷心实测能差 **14~19 cm**
+    （t11 第一版实测 B3 0.1409 / F3 0.1933 m）——比"在雷格上切角擦过"（2.7~3.1 cm）更糟。
+    所以"雷前 ≥2 格共线"是压雷的必要条件，不是可选项。
+    """
+    if prev_cell is None:
+        return 0
+    table = tour.head_cost.get((prev_cell, m_in))
+    best: tuple[float, int, int] | None = None
+    if table is not None:
+        for ha in range(4):
+            for hb in range(4):
+                value = table[ha][hb]
+                if not math.isfinite(value):
+                    continue
+                if best is None or value < best[0] - 1e-12:
+                    best = (value, ha, hb)
+    if best is None:
+        return 0
+    path, _cost = tour.path(prev_cell, m_in, best[1], best[2])
+    dirs: list[int] = []
+    for prev, cur in zip(path, path[1:]):
+        if (cur[0], cur[1]) != (prev[0], prev[1]):
+            dirs.append(_heading_of(cur[0] - prev[0], cur[1] - prev[1], -1))
+    run = 0
+    for d in reversed(dirs):
+        if d == axis:
+            run += 1
+        else:
+            break
+    return run
+
+
+def _mine_aligned_runs(stops: Sequence["_Stop"], spec: MapSpec) -> list[tuple[str, int]]:
+    """【自诊断】逐雷量"雷格前有几格是共线的"（编译后路线口径，单位 = 格）。
+
+    口径：从雷格往前数，**方向不变**的连续格数（含紧邻的那一格）。
+    `1` = 转向点就压在雷前那一格上 —— 纯追踪此时还在切角，车心压不到雷心；
+    `>= 2` = 车进雷格之前已经有 ~0.7 m 直线，够贴回参考线。
+
+    为什么放在规划器里：这条是**真车丢分的直接原因**（漏压雷 = 直接丢分），
+    但以前只有跑完仿真才知道（t8 §3.5 / t11 §A3 都是事后测量）。现在规划器自己
+    把风险报出来（`PlanResult.mine_runs` + 一条 warning），新地图不用先上车就能看出
+    哪几个雷压不实。判据本身不发明阈值：`MINE_PRESS_TOL_M` 与 t11 的实测口径一致。
+    """
+    cells = [(stop.row, stop.col) for stop in stops]
+    out: list[tuple[str, int]] = []
+    for name in spec.mines:
+        cell = _cell(name)
+        if cell not in cells:
+            out.append((name, 0))
+            continue
+        idx = cells.index(cell)
+        if idx == 0 or idx >= len(cells) - 1:
+            out.append((name, 0))
+            continue
+        step_in = (cell[0] - cells[idx - 1][0], cell[1] - cells[idx - 1][1])
+        step_out = (cells[idx + 1][0] - cell[0], cells[idx + 1][1] - cell[1])
+        if step_in != step_out or step_in == (0, 0):
+            out.append((name, 0))          # 雷格是拐点（不是直线穿越）→ 必然切角
+            continue
+        run = abs(step_in[0]) + abs(step_in[1])
+        k = idx - 1
+        while k > 0:
+            prev = (cells[k][0] - cells[k - 1][0], cells[k][1] - cells[k - 1][1])
+            if prev != step_in:
+                break
+            run += abs(prev[0]) + abs(prev[1])
+            k -= 1
+        out.append((name, run))
+    return out
+
+
+def straighten_mines(order: list[tuple[int, int]], spec: MapSpec, grid: Grid,
+                     tour: "_Tour"
+                     ) -> tuple[list[tuple[int, int]], list[tuple[str, int, bool]]]:
+    """把每个雷格变成"进—雷—出"三点直线的**中点**，返回 (新顺序, 穿越轴清单)。
+
+    为什么必须动顺序而不是只动编译：雷格上的转角是**拓扑**决定的 —— 只要雷格是
+    访问顺序里的一个拐点，纯追踪就会在它上面切角（实测 2.7~3.1 cm）；若是 180°
+    折返点，车更是在距顶点 0.25 m 处就掉头（`pursuit.pivot_dist_m`），车心压不到雷心
+    （A9 实测差 12.7 cm）。这里在顺序里给雷格补上**进点**与**出点**（各离雷格一格、
+    与雷格共线），于是编译出的折线在雷格处是**直线**：
+
+        …, 进点, 雷格, 出点, …        （进点 → 雷格 → 出点 共线）
+
+    轴的选择（确定性）：对每个可行轴算"进点处的转角 + 出点处的转角"（180° 记 100、
+    90° 记 1、直行记 0，见 `_dir_turn_cost`），取代价最小者；平局取轴编号小者。
+    三条硬约束见 `_axis_pass_ok()`。
+
+    :return: ``(新顺序, [(雷格名, 轴编号(0北1西2南3东), 是否找到可行轴), …])``
+        —— 找不到可行轴时**如实记 False**，由 `plan_route` 报 warning，绝不假装压到了。
+    """
+    mines = {_cell(m) for m in spec.mines}
+    out: list[tuple[int, int]] = []
+    axes: list[tuple[str, int, bool]] = []
+    for idx, cell in enumerate(order):
+        if cell not in mines:
+            out.append(cell)
+            continue
+        block = geo.index_to_block(cell[0] - 1, cell[1])
+        prev_cell = order[idx - 1] if idx > 0 else None
+        next_cell = order[idx + 1] if idx + 1 < len(order) else None
+        entry = tour._entry_dir.get((prev_cell, cell)) if prev_cell else None   # noqa: SLF001
+        leave = tour._exit_dir.get((cell, next_cell)) if next_cell else None    # noqa: SLF001
+        chosen: tuple[tuple[int, float, int], tuple[int, int], tuple[int, int]] | None = None
+        for axis in range(4):
+            ok, m_in, m_out = _axis_pass_ok(grid, cell, DIRS[axis])
+            if not ok:
+                continue
+            # ① 这个轴会不会在进点/出点**制造 180° 折返**（新 PIVOT，必须优先避免）
+            bad = 0
+            if prev_cell is not None and prev_cell != m_in:
+                tour._record_leg_dirs(prev_cell, m_in)                          # noqa: SLF001
+                arrive = tour._entry_dir.get((prev_cell, m_in))                 # noqa: SLF001
+                if arrive is not None and (int(arrive) - axis) % 4 == 2:
+                    bad = 1
+            if next_cell is not None and next_cell != m_out:
+                tour._record_leg_dirs(m_out, next_cell)                         # noqa: SLF001
+                depart = tour._exit_dir.get((m_out, next_cell))                 # noqa: SLF001
+                if depart is not None and (axis - int(depart)) % 4 == 2:
+                    bad = 1
+            # ② 同分时比**实际路径代价**（进点→雷格→出点 各一格 = 2 格，可忽略不计），
+            #    这把"绕远路去压雷"和"走近路但要多打一次舵"放在同一把尺子上量。
+            cost = 0.0
+            if prev_cell is not None and prev_cell != m_in:
+                cost += tour.leg_cost(prev_cell, m_in)
+            if next_cell is not None and next_cell != m_out:
+                cost += tour.leg_cost(m_out, next_cell)
+            # ③ 按 (是否制造 180°, 实际代价, 轴编号) 取最优 —— 全序、确定性
+            key = (bad, round(cost, 6), axis)
+            if chosen is None or key < chosen[0]:
+                chosen = (key, m_in, m_out)
+        if chosen is None:
+            axes.append((block, -1, False))
+            out.append(cell)
+            continue
+        (_bad, _cost, axis), m_in, m_out = chosen
+        # 进点 → 雷格 → 出点（三点共线）
+        if m_in != prev_cell and (not out or out[-1] != m_in):
+            out.append(m_in)
+        out.append(cell)
+        if m_out != next_cell:
+            out.append(m_out)
+        axes.append((block, axis, True))
+    # 去重相邻重复点（插点可能与原顺序里的邻居重合）
+    dedup: list[tuple[int, int]] = []
+    for c in out:
+        if not dedup or dedup[-1] != c:
+            dedup.append(c)
+    return dedup, axes

@@ -217,9 +217,17 @@ check("2.1 **跟踪过程内**指令舵角不超限（唯一例外是末尾两�
       f"{max((deltas[i - 1] for i in range(2, len(cmd) - 2)), default=0.0):.6f}° "
       f"≤ {STEP_MAX_DEG:.4f}°（= {RATE_LIMIT:.0f} °/s × {DT} s）；"
       f"P95={res_rate.metrics['steer_rate_p95_deg_s']:.1f} °/s")
-check("2.2 新路线峰值 = 恰好一个限幅步（2.4°），出现在中途拐角而非终点刹车拍（旧路线是终点刹车脉冲）",
-      deltas[worst - 1] <= STEP_MAX_DEG + 1e-9,
-      f"最大 Δδ={deltas[worst-1]:.4f}° 在第 {worst}/{len(cmd)} 拍；"
+# ★ 2026-10-11 重钉（t18）：旧路线"中途拐角恰好一个限幅步"的说法随路线失效。
+#   新 54 点路线（0.30 m/s、单 PIVOT@G10*）上：**跟踪过程内仍严格 ≤ 一个限幅步**（见 2.1）；
+#   全段最大跳变出现在**末尾停车序列**（末条指令 δ=3.397° → brake 归零），
+#   该脉冲的物理上界 = 被归零的那条指令本身 ⇒ 判据改写为
+#   「过程内 ≤ STEP_MAX_DEG」+「末端脉冲 ≤ 末条有效指令的绝对值」，强度不降。
+_mid_peak = max((deltas[i - 1] for i in range(2, len(cmd) - 2)), default=0.0)
+check("2.2 跟踪过程内峰值 ≤ 一个限幅步（2.4°）；末端停车脉冲 ≤ 被归零的末条指令（3.40°）",
+      _mid_peak <= STEP_MAX_DEG + 1e-9 and deltas[worst - 1] <= abs(cmd[-3]) + 1e-9,
+      f"过程内最大 Δδ={_mid_peak:.6f}° ≤ {STEP_MAX_DEG:.4f}°；"
+      f"全段最大 Δδ={deltas[worst-1]:.4f}° 在第 {worst}/{len(cmd)} 拍（末尾停车序列，"
+      f"被归零的末条指令 δ={cmd[-3]:.3f}°）；"
       f"末 3 拍 steer_cmd={[round(v, 3) for v in cmd[-3:]]}")
 check("2.2b 末拍刹车归零且末跳 ≤ 一个限幅步（0.435°——新路线末段舵角本就接近 0，刹车脉冲很轻）",
       abs(cmd[-1]) < 0.01 and deltas[-1] <= STEP_MAX_DEG + 1e-9,
@@ -371,15 +379,22 @@ check("5.4 现场图已无倒车段（2026-10-09 底盘不支持倒车：R:F11/R
 pivots = [field_route().waypoints[i + 1].block
           for i in range(field_path().segment_count - 1)
           if field_path().corner_turn_deg(i) >= 135.0]
-check("5.4b 3 个 180° 折返点全部转为 ≥135° PIVOT 掉头（G10/A9/F3，corner_turn_deg=180°）",
-      sorted(pivots) == ["A9", "F3", "G10"],
+# ★ 2026-10-11 重钉（t18）：折返顶点 3 处（G10/A9/F3）→ **1 处（G10）**。
+#   理由：t11 把 8 个雷改走「进点—雷格—出点」直线穿越后，A9（F11→E11→F11）与 F3 不再是折返顶点。
+check("5.4b 折返点收敛为恰好 1 处 ≥135° PIVOT 掉头（G10，corner_turn_deg=180°）",
+      sorted(pivots) == ["G10"],
       f"pivots={sorted(pivots)}")
 peaks = sorted(res_field.segments, key=lambda s: -s.peak_m)[:3]
 check("5.5 峰值最大的 3 段可定位（含起点/终点/峰值时刻）",
       all(s.peak_t >= 0.0 and s.peak_m > 0.0 for s in peaks),
       " | ".join(f"seg{s.index} {s.from_block}→{s.to_block} "
                  f"{s.peak_m:.4f}m@{s.peak_t:.1f}s" for s in peaks))
-check("5.6 峰值段的分类可能被**超调**误导（0.35 m 拐角带之外的顶点会被记成 normal）",
+# ⚠️ 2026-10-11（t18）：本断言在新路线上**必须保持失败**，禁止静默改绿 ——
+#   TOP1 段是 seg18 G10→F10（PIVOT 顶点的出边）被记成 kind=normal、corner_deg=0.0°，
+#   而同一条边在 pursuit 侧 Path.corner_turn_deg(18)=180°（同一顶点两套口径不一致）。
+#   属「监测/分组口径失效」（与 test_sim_guard 4.3-4.5 同类），不是机械期望滞后
+#   ⇒ **已进 t17 终版体检**；改绿会掩盖"峰值段归组不可信"这一诊断缺口。
+check("5.6 峰值段的分类可能被**超调**误导（0.35 m 拐角带之外的顶点会被记成 normal）（⚠️ 已进 t17 终版体检，保持失败）",
       peaks[0].kind in ("reverse", "corner") or peaks[0].corner_deg > 30.0,
       f"TOP1 = seg{peaks[0].index} {peaks[0].from_block}→{peaks[0].to_block} "
       f"kind={peaks[0].kind} 转角={peaks[0].corner_deg:.1f}° 峰值={peaks[0].peak_m:.3f} m —— "
@@ -447,7 +462,7 @@ res_e18aw = S.run_sim(field_route(), CFG, S.SimConfig(anchor_on_arrival=True,
                                                       speed_scale_err=0.18,
                                                       cmd_latency_s=0.0, max_steps=2500))
 m18nw, m18aw = res_e18nw.metrics, res_e18aw.metrics
-check("6.7 ε=+0.18 时锚定仍然**改善了信念误差**（同窗口 2500 拍对比，虽不足以救回路线）",
+check("6.7 ε=+0.18 时锚定仍然**改善了信念误差**（同窗口 2500 拍对比，虽不足以救回路线）（⚠️ 9.2 行为变化：已进 t17 终版体检，保持失败）",
       m18aw["belief_error_rms_m"] < m18nw["belief_error_rms_m"],
       f"同窗口 2500 拍：有锚定={m18aw['belief_error_rms_m']:.4f} < "
       f"无锚定={m18nw['belief_error_rms_m']:.4f} m（全长对比被不锚定版提前 diverged 污染）；"
@@ -476,13 +491,18 @@ check("6.9 位置白噪声入口有效（信念误差被噪声抬起）",
 check("6.10 航向零漂入口有效（信念↔真值出现偏差）",
       res_drift.metrics["belief_error_max_m"] > 0.0,
       f"零漂 2°/min → 信念MAX={res_drift.metrics['belief_error_max_m']:.4f} m")
-# ★★ 2026-10-11 换图后噪声边界重排（非单调）：0.005 m/拍跑不完（118.7s 末点误差 3.4m）、
-#    0.01 m/拍却能跑完（115.8s、超调 0.71m）——两档噪声在新 46 点路线上的失效面不同，如实钉住。
-check("6.11 噪声 0.005 m/拍在新路线上**跑不完**（旧路线该档能跑完——噪声边界重排，如实钉住）",
-      not res_noise.metrics["completed"],
+# ★★ 2026-10-11 重钉（t18）：上面两条注释是 **46 点 / cruise 0.15 时代**的真值
+#    （0.005 m/拍跑不完：118.7s、末点误差 3.4m）。换成 54 点 + cruise 0.30 后，
+#    每米里程的噪声采样数减半 ⇒ 该档**能跑完但轨迹打折**：实测 t=95.1s / 长度比 0.93 /
+#    末点误差 0.182 m。⇒ 期望值按新真值钉住（不再断言"跑不完"），
+#    并把**折扣量**写进判据，防止把"completed=True"误读成"没问题"。
+check("6.11 噪声 0.005 m/拍在新路线（54 点 / 0.30 m/s）上能跑完，但轨迹打折（长度比 ≤0.95 或末点误差 >0.15 m）",
+      bool(res_noise.metrics["completed"])
+      and (res_noise.metrics["path_len_ratio"] <= 0.95
+           or res_noise.metrics["final_error_m"] > 0.15),
       f"0.005 m/拍 completed={res_noise.metrics['completed']} "
       f"t={res_noise.metrics['time_s']:.1f}s 长度比={res_noise.metrics['path_len_ratio']:.2f} "
-      f"末点误差={res_noise.metrics['final_error_m']:.3f} m")
+      f"末点误差={res_noise.metrics['final_error_m']:.3f} m（旧 46 点/0.15 时代：跑不完）")
 check("6.12 噪声 0.01 m/拍在新路线上能跑完（超调/末点误差仍是缺口，如实记录）",
       bool(res_noise_big.metrics["completed"]),
       f"0.01 m/拍 completed={res_noise_big.metrics['completed']} "
@@ -527,7 +547,7 @@ check("7.3 0.2 s 延迟横向 RMS 继续变大（延迟的物理后果，单调�
       f"0.06s={res_l06.metrics['cross_track_rms_m']:.4f} → "
       f"0.2s={res_l2.metrics['cross_track_rms_m']:.4f} m（+"
       f"{(res_l2.metrics['cross_track_rms_m']/res_l0.metrics['cross_track_rms_m']-1)*100:.0f}%）")
-check("7.4 0.2 s 延迟在新路线下发散（旧路线有界 <0.5m——鲁棒性回退，如实钉住待修）",
+check("7.4 0.2 s 延迟在新路线下发散（旧路线有界 <0.5m——鲁棒性回退，如实钉住待修）（⚠️ 9.2 行为变化：已进 t17 终版体检，保持失败）",
       res_l2.metrics["diverged"] is True,
       f"t={res_l2.metrics['time_s']:.1f}s len={res_l2.metrics['path_len_ratio']:.2f} "
       f"diverged={res_l2.metrics['diverged']}（疑似 G10* 停站+PIVOT 区，待查）")
@@ -565,8 +585,13 @@ check("8.4 全部逐拍序列等长（列错位是最难查的 bug）",
       f"长度集合={set(lens.values())}，序列数={len(series)}")
 _gap_track = max(abs(res_field.steer[i] - res_field.steer_cmd[i])
                  for i in range(len(res_field.steer) - 2))
-check("8.5 新路线全程未触限幅：steer（执行）与 steer_cmd（指令）逐位一致（旧路线靠 120°/s 斜坡吸收超限）",
-      _gap_track == 0.0 and abs(res_field.steer[-1] - res_field.steer_cmd[-1]) == 0.0,
+# ★ 2026-10-11 重钉（t18）：过程内两序列恒等（= 0.000000°）在新路线上仍成立；
+#   变的只是**末尾停车那一拍**：新路线末条指令 δ=3.397° 被 brake 归零，末拍出现 1.00° 差。
+#   ⇒ 判据改写为「过程内逐位一致」+「末拍差 ≤ 一个执行斜坡步（2.40°）」，强度不降
+#     （旧路线末两拍恰好相等，属于当时几何的偶然，不是契约）。
+check("8.5 新路线未触限幅：过程内 steer（执行）== steer_cmd（指令）逐位一致；末拍停车差 ≤ 一个斜坡步",
+      _gap_track == 0.0
+      and abs(res_field.steer[-1] - res_field.steer_cmd[-1]) <= STEP_MAX_DEG + 1e-9,
       f"过程内最大 |执行−指令| = {_gap_track:.6f}°（执行斜坡每拍最多 "
       f"{STEP_MAX_DEG:.2f}°；新路线全程指令未超限幅 ⇒ 两序列恒等；"
       f"末尾两拍差 {abs(res_field.steer[-1] - res_field.steer_cmd[-1]):.2f}°")
@@ -621,9 +646,12 @@ p_rev = [i for i in range(p_field.segment_count) if p_field.segment_is_reverse(i
 p_piv = sorted(field_route().waypoints[i + 1].block
                for i in range(p_field.segment_count - 1)
                if p_field.corner_turn_deg(i) >= 135.0)
-check("8.13 现场路线几何：46 航点 / 19.95 m / 0 倒车段 / 3 个 180° PIVOT 折返（G10/A9/F3）",
-      len(p_field.waypoints) == 46 and abs(p_field.total_length - 19.95) < 0.01
-      and p_rev == [] and p_piv == ["A9", "F3", "G10"],
+# ★ 2026-10-11 重钉（t18）：46 航点 / 3 处 180° 折返 → **54 航点 / 1 处（G10）**。
+#   理由：8 个雷改「进点—雷格—出点」直线穿越（+8 进点，46+8=54）；总长不变 19.95 m；
+#   0 段倒车；折返只剩 G10* 射击停站一处。
+check("8.13 现场路线几何：54 航点 / 19.95 m / 0 倒车段 / 1 个 180° PIVOT 折返（G10）",
+      len(p_field.waypoints) == 54 and abs(p_field.total_length - 19.95) < 0.01
+      and p_rev == [] and p_piv == ["G10"],
       f"航点={len(p_field.waypoints)} 总长={p_field.total_length:.3f} m "
       f"倒车段={p_rev}（旧基线 [12,18,19]：R:F11/R:B6/R:D6 已删）PIVOT 折返={p_piv}")
 check("8.14 最小转弯半径 R_min = 轴距/tan(30°) = 0.272 m > 半格 0.175 m"

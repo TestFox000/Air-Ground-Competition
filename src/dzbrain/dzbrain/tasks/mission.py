@@ -78,6 +78,14 @@ __all__ = ["MissionTask", "MISSION_STATE_KEY", "plan_route_from_config", "resolv
 #: 遥测键：Mission 的当前上下文（停站点/航点/用时）
 MISSION_STATE_KEY = "mission_state"
 
+#: 终点停车判据（米）：**末点（最后一个航点）**的"到点/终点"判定半径。
+#: 对齐 `tools/sim.py` 的 `_GOAL_STOP_M`（0.03）：比 `pursuit.arrival_m`(0.12) 更紧 ——
+#: 末点若沿用 0.12 m 的到位余量，会在离终点 0.12 m 处就把它判成"已到"（配合
+#: Localization 同半径的末点吸附，信念被提前拽到格心）→ FINISH 提前刹车 →
+#: 物理车停在格心前 ~11 cm。实车 2026 直线标定 N10→A10 实测欠程 11 cm，而
+#: 车端 scale=1.00003 说明不是里程计误差。非末点航点仍用 `arrival_m`，行为不变。
+_GOAL_STOP_M = 0.03
+
 # --------------------------------------------------------------------------- #
 #  ★ 自动规划（任务卡 B）：路线来源标注 + 规划入口
 # --------------------------------------------------------------------------- #
@@ -798,7 +806,13 @@ class MissionTask(TaskThread):
                 #   等 s 跳过去那一拍它已经走远 —— 只看当拍距离就会把这种**真的到过**
                 #   判成"没到"。本行是 finding D1 里"静默丢点"的第一道解药。
                 self._min_dist[i] = float(dist)
-            over = s + self._arrival_m - s_wp        # >0 = 已越过该航点
+            # ★ 末点停车判定收紧到 `_GOAL_STOP_M`(0.03，对齐 tools/sim.py)：末点若沿用
+            #   `arrival_m`(0.12) 的到位余量，"s+近路径 / 距格心"会在离终点 0.12 m 处就
+            #   把末点判成"已到" → FINISH 提前刹车 → 物理车停在格心前 ~11 cm
+            #   （2026 直线标定 N10→A10 实测欠程；车端 scale=1.00003 证明不是里程计误差）。
+            #   非末点航点的判据（余量、近路径、几何复核、越窗待定）完全不变。
+            arrival = _GOAL_STOP_M if i == len(route) - 1 else self._arrival_m
+            over = s + arrival - s_wp                  # >0 = 已越过该航点
             s_reached = over >= 0.0
             # ★★ "车在附近"的判据改成**贴近路径**（横向偏差 `_last_lat_m`），不是贴近格心：
             #   纯追踪的**正常切角**会离线心很远却仍在路径上 —— bench 实测 L10→L9→K9 的
@@ -809,10 +823,14 @@ class MissionTask(TaskThread):
             #   而"投影跑到别处造成的假到点"里车离**路径**也远（§11 用例：横偏 0.35 m），
             #   两条判据由此区分开，互不误伤。
             lat = self._last_lat_m
+            # ★ 末点"附近窗口"同步收紧：2×arrival_m(0.24 m) 对末点改为 2×_GOAL_STOP_M(0.06 m) ——
+            #   与 sim.py 末点"已过垂面必须 ≤ _GOAL_STOP_M"语义对齐：信念刚越过终点垂面、
+            #   离格心还有 0.06~0.24 m 时，不再被 `s_reached and near` 提前判成到达。
+            #   非末点航点的 2×arrival_m 切角放行窗口一字不变。
             near = ((lat is not None and lat <= 0.30)
-                    or dist is None or dist <= 2.0 * self._arrival_m)
+                    or dist is None or dist <= 2.0 * arrival)
             why = ""
-            if (s_reached and near) or (dist is not None and dist <= self._arrival_m):
+            if (s_reached and near) or (dist is not None and dist <= arrival):
                 why = "s+近路径" if s_reached else "距格心"
             elif pose is not None and self._pivot_notice_accepts(notice, i, s_wp, s, dist):
                 # ★ PIVOT 完成通知判到达：原地掉头后车原路返回，上面的两条判据恒假
@@ -1284,7 +1302,9 @@ class MissionTask(TaskThread):
         last = len(route) - 1
         self._advance_waypoints()                   # 先补最后一次推进（末点也要报到达）
         s = self._current_s()
-        if not (self._passed[last] or s + self._arrival_m >= path.s_at_waypoint(last)):
+        # ★ 末点终点判据收紧到 `_GOAL_STOP_M`(0.03，对齐 tools/sim.py)：`arrival_m`(0.12)
+        #   会让车在离终点 0.12 m 处触发 FINISH 提前刹车（2026 直线标定欠程 11 cm 的根因）。
+        if not (self._passed[last] or s + _GOAL_STOP_M >= path.s_at_waypoint(last)):
             return
 
         self._finish_latched = True
@@ -1352,7 +1372,8 @@ class MissionTask(TaskThread):
             return
         last = len(route) - 1
         s = self._last_s
-        # ★ 含末点：`_check_finish` 允许"弧长达标"就判完成（`s + arrival >= s_at_waypoint(last)`），
+        # ★ 含末点：`_check_finish` 允许"弧长达标"就判完成（`s + _GOAL_STOP_M >=
+        #   s_at_waypoint(last)`），
         #   那种情况下 `_passed[last]` 仍是 False —— 若把他排除在外，台账就永远闭不上
         #   （`unexplained` 里会永远吊着末点）。这里把他一并清账，并如实写明"车没接近"。
         for i in range(1, len(route)):

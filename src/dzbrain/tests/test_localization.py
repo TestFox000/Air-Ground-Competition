@@ -156,8 +156,12 @@ task.tick()
 check("hint 落后时也能前进到正确弧长（0.20 m）",
       abs(bb.get(P_ROUTE_S) - 0.20) < 1e-9, f"got {bb.get(P_ROUTE_S)}")
 
-section("⑤ 到位吸附：偏差 0.05 m < arrival 0.12 m")
-task, bridge, bb, bus, clock = build(route=route, seed_pose=False)
+section("⑤ 到位吸附（非末点）：偏差 0.05 m < arrival 0.12 m")
+# ★ 用 3 点路线 N10→M10→M9：M10 是**非末点**航点，吸附半径照旧 arrival_m(0.12)。
+#   末点的吸附半径已收紧到 _GOAL_STOP_M(0.03)（见 ⑦d），本条专证非末点行为不变。
+route3a = make_route([Waypoint.at_block("N10"), Waypoint.at_block("M10"),
+                      Waypoint.at_block("M9")])
+task, bridge, bb, bus, clock = build(route=route3a, seed_pose=False)
 sub_anchor = bus.subscribe("t_anchor", [EV_POSE_ANCHORED])
 bridge.set_pose(N10[0], N10[1] + 0.30, 0.0)   # 沿路只差 0.05 m 到 M10 格心
 task.tick()
@@ -176,7 +180,8 @@ check("last_anchor == 'M10'", getattr(fx, "last_anchor", None) == "M10",
 check_close("drift_m == 锚定前偏差 0.05", fx.drift_m, 0.05, 1e-9)
 check_close("max_drift_m == 0.05", fx.max_drift_m, 0.05, 1e-9)
 check("task.anchored == 1", task.anchored == 1, f"got {task.anchored}")
-check("锚定后 P_ROUTE_S == 总长（锚在末点上）", abs(bb.get(P_ROUTE_S) - STEP) < 1e-9,
+check("锚定后 P_ROUTE_S == M10 的弧长 0.35 m（非末点吸附照常）",
+      abs(bb.get(P_ROUTE_S) - STEP) < 1e-9,
       f"got {bb.get(P_ROUTE_S)}")
 
 # 同一航点连续吸附：只算一次（防"越锚越偏"）
@@ -235,7 +240,11 @@ check("同航点 50 拍不再重复告警", len(sub_drift.poll()) == 0)
 check("drift_warnings 仍为 1", task.drift_warnings == 1, f"got {task.drift_warnings}")
 
 section("⑦b 锚定与告警互斥性验证：可锚定的偏差一定低于告警阈值")
-task, bridge, bb, bus, clock = build(route=route, seed_pose=False)
+# ★ 3 点直线 N10→M10→L10（都沿 +y）：M10 是**非末点**航点，0.117 m 偏差照旧可锚；
+#   末点吸附半径收紧到 _GOAL_STOP_M(0.03) 由 ⑦d 单独验证。
+route3b = make_route([Waypoint.at_block("N10"), Waypoint.at_block("M10"),
+                      Waypoint.at_block("L10")])
+task, bridge, bb, bus, clock = build(route=route3b, seed_pose=False)
 sub_b = bus.subscribe("t_d5", [EV_DRIFT_WARNING, EV_POSE_ANCHORED])
 LAT, ALNG = 0.11, 0.04          # 到格心 0.1170 m < arrival 0.12 m → 可锚定
 bridge.set_pose(N10[0] + LAT, M10[1] - ALNG, 0.0)
@@ -251,8 +260,9 @@ check("锚回 M10 格心", abs(bb.get(P_POSE).x - M10[0]) < 1e-12
       and abs(bb.get(P_POSE).y - M10[1]) < 1e-12, f"got {bb.get(P_POSE)!r}")
 
 section("⑦c 吸附闩锁按航点重置：下一个航点会再次吸附")
+# ★ 4 点路线 N10→M10→M9→L9：M9 是**非末点**航点，第二次吸附仍按 arrival_m(0.12) 判。
 route3 = make_route([Waypoint.at_block("N10"), Waypoint.at_block("M10"),
-                     Waypoint.at_block("M9")])
+                     Waypoint.at_block("M9"), Waypoint.at_block("L9")])
 task, bridge, bb, bus, clock = build(route=route3, seed_pose=False)
 sub3 = bus.subscribe("t_d4", [EV_POSE_ANCHORED])
 bridge.set_pose(N10[0], N10[1] + 0.30, 0.0)       # 到位 M10（第 1 段末点）
@@ -270,6 +280,35 @@ check("anchor_count 累计为 2", bb.get(P_FIX).anchor_count == 2,
       f"got {bb.get(P_FIX).anchor_count}")
 check("EV_POSE_ANCHORED 共 2 条", len(sub3.poll()) == 2)
 check("max_drift_m 取两段较大者", bb.get(P_FIX).max_drift_m >= bb.get(P_FIX).drift_m - 1e-12)
+
+section("⑦d ★ 末点吸附收紧：0.10 m 外不再被拽到格心 / 0.02 m 内照常吸附")
+# 实车缺陷（2026 直线标定 N10→A10）：末点按 arrival_m(0.12) 吸附，信念在偏差 0.118 m
+# 处被拽到格心（车端 7_path.log："到位吸附 A10 偏差 0.118 m → 锚回格心"）→ Mission
+# 见信念已到 → FINISH 提前刹车 → 物理车停在格心前 11 cm 欠程（scale=1.00003 说明
+# 不是里程计误差）。修复后末点吸附半径 = _GOAL_STOP_M(0.03)：
+#   0.10 m 外不吸附（假 FINISH 无从谈起），0.02 m 内照常吸附（误差归零能力保留）。
+task, bridge, bb, bus, clock = build(route=route, seed_pose=False)   # route 的末点 = M10
+sub_g = bus.subscribe("t_goal", [EV_POSE_ANCHORED])
+bridge.set_pose(N10[0], M10[1] - 0.10, 0.0)   # 离末点 M10 还有 0.10 m
+task.tick()
+p = bb.get(P_POSE)
+check("0.10 m 外不吸附：P_POSE 保持原值（未被拽到格心）",
+      abs(p.x - N10[0]) < 1e-12 and abs(p.y - (M10[1] - 0.10)) < 1e-12,
+      f"got ({p.x!r},{p.y!r})")
+check("0.10 m 外不吸附：无 EV_POSE_ANCHORED / anchored==0 / 不写 P_FIX",
+      len(sub_g.poll()) == 0 and task.anchored == 0 and bb.get(P_FIX) is None,
+      f"anchored={task.anchored} fix={bb.get(P_FIX)!r}")
+check("0.10 m 外 P_ROUTE_S = 0.25（没有因吸附被填成总长 0.35）",
+      abs(bb.get(P_ROUTE_S) - 0.25) < 1e-9, f"got {bb.get(P_ROUTE_S)}")
+bridge.set_pose(N10[0], M10[1] - 0.02, 0.0)   # 离末点 0.02 m ≤ _GOAL_STOP_M(0.03)
+task.tick()
+p2 = bb.get(P_POSE)
+check("0.02 m 内照常吸附回末点格心", abs(p2.x - M10[0]) < 1e-12
+      and abs(p2.y - M10[1]) < 1e-12, f"got ({p2.x!r},{p2.y!r})")
+evs = sub_g.poll()
+check("0.02 m 内吸附：1 条 EV_POSE_ANCHORED / anchored==1",
+      len(evs) == 1 and task.anchored == 1, f"evs={len(evs)} anchored={task.anchored}")
+check_close("吸附记录 drift_m = 0.02", bb.get(P_FIX).drift_m, 0.02, 1e-9)
 
 section("⑧ 边界情形：无路线 / 路线换新 / 位姿冻结")
 task, bridge, bb, bus, clock = build(seed_pose=False)

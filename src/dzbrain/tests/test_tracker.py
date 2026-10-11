@@ -34,8 +34,8 @@ except Exception:                              # pragma: no cover
 from harness import check, finish, section                     # noqa: E402
 
 from dzbrain.core import geometry as geo                       # noqa: E402
-from dzbrain.core.blackboard import (P_MISSION_PHASE, P_POSE, P_ROUTE, P_ROUTE_INDEX,  # noqa: E402
-                                     P_ROUTE_S, P_SAFETY, Blackboard)
+from dzbrain.core.blackboard import (P_MISSION_PHASE, P_MOTION_LIMIT, P_POSE, P_ROUTE,  # noqa: E402
+                                     P_ROUTE_INDEX, P_ROUTE_S, P_SAFETY, Blackboard)
 from dzbrain.core.config import Config                         # noqa: E402
 from dzbrain.core.events import EventBus                       # noqa: E402
 from dzbrain.core.state import SafetyState                     # noqa: E402
@@ -617,6 +617,92 @@ def test_projection_relock() -> None:
           any("跟丢" in ln for ln in rig.logs), f"logs_tail={rig.logs[-2:]}")
 
 
+def test_motion_limit_wiring() -> None:
+    """★11. 限速请求接线（卡 t21）：`P_MOTION_LIMIT` 必须真的钳到**指令速度**。
+
+    分工：读侧实现在 `pursuit/controller.py`（卡 t20：`motion_limit_speed_limit` +
+    `compute_command(..., bb=...)`）；**本组验的是"接线"** —— Tracker 把 `self.bb` 传进
+    `compute_command`，于是 Localization 的限速/停机请求真能生效。
+
+    ★ 负向控制（证明断言有牙）：把 `tasks/tracker.py` 里 `compute_command(...)` 的
+      `bb=self.bb` 注释掉，本组 **11.2 / 11.3 / 11.6 必红**（实测 78/81、exit 1；
+      11.1/11.1b/11.4/11.5 仍绿 —— 它们是"无信号 no-op"的正向保证，本就不依赖接线）。
+      实测输出：`_tmp_session/t21/neg_control_broken.txt`。
+    """
+    section("11. 限速请求接线：P_MOTION_LIMIT 钳速 + 无信号 no-op")
+    cfg = cfg_of(cruise_speed_mps=0.30, max_steer_deg=30.0)
+    # 路线要足够长：否则末点落在 `pursuit.approach_m` 窗口内，速度由 `stop_approach` 主导，
+    # 就看不出"巡航 0.30 被钳到 0.08"这件事了（第一版踩过：实测 0.156/stop_approach）。
+    route = ("N10", "M10", "L10", "K10", "J10")
+    pose = (0.525, 0.355, geo.HEADING_Y)      # 对准首段直路（与 2.5 同构）
+    keys = ("speed", "steer_deg", "speed_reason")
+
+    def trip(ticks: int = 5, payload=...):
+        """独立一台车跑 `ticks` 拍；`payload` 省略 = 键根本不存在。"""
+        rig = Rig(cfg=cfg, route=route_of(*route), pose=pose)
+        if payload is not ...:
+            rig.bb.set(P_MOTION_LIMIT, payload, "Localization")
+        rig.ticks(ticks)
+        return rig
+
+    # 11.1 无信号两种形态（键不存在 / 键=None）逐位一致
+    base = trip()
+    none_rig = trip(payload=None)
+    b0, n0 = base.cmd(), none_rig.cmd()
+    check("11.1 ★键不存在 vs 值=None：三条命令字段逐位一致（无信号 no-op）",
+          tuple(b0.get(k) for k in keys) == tuple(n0.get(k) for k in keys),
+          f"{[b0.get(k) for k in keys]} vs {[n0.get(k) for k in keys]}")
+    check("11.1b 无信号时速度 = 巡航 0.30（前置事实，reason=cruise）",
+          abs(float(b0.get("speed", -1)) - 0.30) < 1e-9 and b0.get("speed_reason") == "cruise",
+          f"v={b0.get('speed')!r} reason={b0.get('speed_reason')!r}")
+
+    # 11.2 ★接线生效：0.08 的限速必须把 0.30 的巡航钳下来
+    lim = trip(payload={"speed_mps": 0.08, "reason": "drift", "drift_run": 5})
+    c1 = lim.cmd()
+    check("11.2 ★有信号 0.08 → 指令速度被钳到 0.08（接线生效）",
+          abs(float(c1.get("speed", -1)) - 0.08) < 1e-9 and c1.get("speed_reason") == "motion_limit",
+          f"无信号 {b0.get('speed')!r} → 有信号 {c1.get('speed')!r} "
+          f"reason={c1.get('speed_reason')!r}")
+
+    # 11.3 ★停机请求 0.0 必须真给 0（不被 pursuit.min_speed_mps 蠕动下限顶回）
+    lim.bb.set(P_MOTION_LIMIT, {"speed_mps": 0.0, "reason": "boundary_stop"}, "Localization")
+    lim.ticks(1)
+    c2 = lim.cmd()
+    check("11.3 ★停机请求 0.0 → 指令速度 0.0（reason=motion_limit）",
+          c2.get("speed") == 0.0 and c2.get("speed_reason") == "motion_limit",
+          f"v={c2.get('speed')!r}（min_speed={cfg.get('pursuit.min_speed_mps')}）"
+          f" reason={c2.get('speed_reason')!r}")
+
+    # 11.4 撤回（写 None）→ 回到巡航（接线置空即恢复，不会残留限速）
+    lim.bb.set(P_MOTION_LIMIT, None, "Localization")
+    lim.ticks(1)
+    c3 = lim.cmd()
+    check("11.4 撤回信号（None）→ 回到巡航 0.30",
+          abs(float(c3.get("speed", -1)) - 0.30) < 1e-9,
+          f"v={c3.get('speed')!r} reason={c3.get('speed_reason')!r}")
+
+    # 11.5 ★非法载荷（半个信号）→ 与无信号逐位一致，绝不把车锁死
+    bad = trip(payload={"speed_mps": "x", "reason": "drift"})
+    c4 = bad.cmd()
+    check("11.5 ★非法载荷 → 三条字段逐位等于无信号（不锁死）",
+          tuple(c4.get(k) for k in keys) == tuple(b0.get(k) for k in keys),
+          f"{[c4.get(k) for k in keys]} vs {[b0.get(k) for k in keys]}")
+
+    # 11.6 倒车段按绝对值钳且保号（Tracker 的 reverse 分支也要受限速管）
+    from dzbrain.route.model import make_route, Waypoint
+    rev_cfg = cfg_of(cruise_speed_mps=0.15, reverse_speed_ratio=0.6, reverse_steer_sign=1.0)
+    rev = Rig(cfg=rev_cfg,
+              route=make_route([Waypoint.at_block("B5"), Waypoint.at_block("B6", reverse=True),
+                                Waypoint.at_block("B7", reverse=True)]))
+    rev.set_pose(2.1, 4.375, geo.rad(180.0))          # 与 §4 同构：倒着往 B6 走，倒车速度 -0.09
+    rev.bb.set(P_MOTION_LIMIT, {"speed_mps": 0.05, "reason": "drift"}, "Localization")
+    rev.ticks(1)
+    c5 = rev.cmd()
+    check("11.6 倒车：|v| ≤ 0.05 且保号（负）",
+          -0.05 - 1e-12 <= float(c5.get("speed", 0.0)) < 0.0,
+          f"v={c5.get('speed')!r} reason={c5.get('speed_reason')!r}")
+
+
 def main() -> int:
     print("=" * 72)
     print("dzbrain TrackerTask 自测（纯脚本）")
@@ -630,6 +716,7 @@ def main() -> int:
     test_overlap_no_flipflop()
     test_arc_floor_no_oscillation()
     test_projection_relock()
+    test_motion_limit_wiring()
     test_rate()
     finish()
     return 0

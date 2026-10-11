@@ -107,9 +107,9 @@ cfg = Config.load(str(_CFG_PATH))          # ★ 只用出厂配置，绝不 ove
 FIELD = parse_mission(list(cfg.get("route.tokens")), name="robot.yaml:route.tokens")
 FIELD_PATH = S.Path(FIELD)
 
-FIELD_WAYPOINTS = 46
-FIELD_PIVOT_BLOCKS = ("A9", "F3", "G10")   # 2026-10-11 换图：3 个 180° 折返（sorted，corner_turn_deg=180°）
-FIELD_STOP_INDICES = (14, 45)              # G10* 射击停站 + 末点 N5
+FIELD_WAYPOINTS = 54
+FIELD_PIVOT_BLOCKS = ("G10",)                # 2026-10-11 重钉（t18）：雷改直线穿越后折返只剩 G10* 一处
+FIELD_STOP_INDICES = (18, 53)                # G10* 射击停站（54 点路线的第 19 个）+ 末点 N5
 FIELD_LENGTH_M = 19.95
 
 STRAIGHT = parse_mission(["N10", "M10"])   # 两格直线，0.35 m
@@ -187,7 +187,7 @@ check("1.10 ★末点停车精度 = sim 自称的 _GOAL_STOP_M(0.03 m)",
       f"final_error={m1['final_error_m']:.5f} vs _GOAL_STOP_M={_goal_stop}")
 
 # =========================================================================== #
-section("2. 现场图路线（46 航点，0 倒车段 + 3 个 180° PIVOT 折返 + G10* 停站）：结构 + 全程")
+section("2. 现场图路线（54 航点，0 倒车段 + 1 个 180° PIVOT 折返 + G10* 停站）：结构 + 全程")
 # =========================================================================== #
 print("     结构: %d 点 / %.2f m / 倒车段 %s / 停站点 %s / 拐角(>45°) %d 处 / PIVOT 折返 %s" % (
     len(FIELD.waypoints), FIELD_PATH.total_length,
@@ -196,7 +196,7 @@ print("     结构: %d 点 / %.2f m / 倒车段 %s / 停站点 %s / 拐角(>45°
     sum(1 for i in range(FIELD_PATH.segment_count) if FIELD_PATH.corner_angle_deg(i) > 45.0),
     sorted(FIELD.waypoints[i + 1].block for i in range(FIELD_PATH.segment_count - 1)
            if FIELD_PATH.corner_turn_deg(i) >= 135.0)))
-check("2.1 解析出 46 个航点", len(FIELD.waypoints) == FIELD_WAYPOINTS,
+check("2.1 解析出 54 个航点", len(FIELD.waypoints) == FIELD_WAYPOINTS,
       f"got {len(FIELD.waypoints)}")
 check_close("2.2 路线总长 = 19.95 m", FIELD_PATH.total_length, FIELD_LENGTH_M, 1e-9)
 _rev = tuple(i for i in range(FIELD_PATH.segment_count)
@@ -206,13 +206,15 @@ check("2.3 ★现场图已无倒车段（2026-10-09 底盘不支持倒车，R: �
 _piv = sorted(FIELD.waypoints[i + 1].block
               for i in range(FIELD_PATH.segment_count - 1)
               if FIELD_PATH.corner_turn_deg(i) >= 135.0)
-check("2.3b ★3 个 180° 折返点全部转为 ≥135° PIVOT 掉头", _piv == list(FIELD_PIVOT_BLOCKS),
-      f"pivots={_piv}（预期 {FIELD_PIVOT_BLOCKS}：G10/A9/F3，corner_turn_deg=180°）")
+check("2.3b ★折返点收敛为恰好 1 处 ≥135° PIVOT 掉头（G10）", _piv == list(FIELD_PIVOT_BLOCKS),
+      f"pivots={_piv}（预期 {FIELD_PIVOT_BLOCKS}：G10* 射击停站，corner_turn_deg=180°；"
+      f"旧 46 点版是 A9/F3/G10 三处）")
 check("2.4 停站点索引 = %s" % (FIELD_STOP_INDICES,),
       tuple(FIELD_PATH.stop_indices) == FIELD_STOP_INDICES,
       f"got {tuple(FIELD_PATH.stop_indices)}")
-check("2.5 G10 是射击停站", FIELD.waypoints[14].shoot is True,
-      f"block={FIELD.waypoints[14].block} shoot={FIELD.waypoints[14].shoot}")
+check("2.5 G10 是射击停站", FIELD.waypoints[FIELD_STOP_INDICES[0]].shoot is True,
+      f"block={FIELD.waypoints[FIELD_STOP_INDICES[0]].block} "
+      f"shoot={FIELD.waypoints[FIELD_STOP_INDICES[0]].shoot}")
 
 # ---- 零注入 + 关锚定 ⇒ 信念必须**逐位**等于真值 ----
 r2z = _run(FIELD, anchor_on_arrival=False, max_steps=FIELD_HARD_CAP)
@@ -341,7 +343,7 @@ check("3.5 注入版给出可比样本（跑满窗口 / 跑完 / 判定跑飞，
 #    这正是 docstring "不锚定则按 ε×已走弧长无界累积" 的现场复现。
 print("     ε=0.18 不锚定 vs 锚定: diverged=%s(steps=%d) vs %s(steps=%d)" % (
     r3f.metrics["diverged"], r3f.steps, r3a.metrics["diverged"], r3a.steps))
-check("3.5b ★新路线 ε=0.18 窗口内：不锚定未跑飞（3000 拍窗口不足）、锚定版先跑飞（1453 拍）——与旧路线结论相反，如实钉住待查（疑似新几何 + 锚定 + 投影看门狗相互作用）",
+check("3.5b ★新路线 ε=0.18 窗口内：不锚定未跑飞（3000 拍窗口不足）、锚定版先跑飞（1453 拍）——与旧路线结论相反，如实钉住待查（疑似新几何 + 锚定 + 投影看门狗相互作用）（⚠️ 9.2 行为变化：已进 t17 终版体检，保持失败）",
       r3f.metrics["diverged"] is False and r3a.metrics["diverged"] is True,
       f"不锚定 diverged={r3f.metrics['diverged']} steps={r3f.steps} / "
       f"锚定 diverged={r3a.metrics['diverged']} steps={r3a.steps}")
@@ -353,7 +355,7 @@ print("     锚定 vs 不锚定: belief_rms %.5f vs %.5f (比值 %.3f) / xt_rms 
     r3a.metrics["belief_error_rms_m"], r3f.metrics["belief_error_rms_m"],
     r3a.metrics["belief_error_rms_m"] / max(1e-12, r3f.metrics["belief_error_rms_m"]),
     r3a.metrics["cross_track_rms_m"], r3f.metrics["cross_track_rms_m"]))
-check("3.6 ★锚定版信念误差 0.37m > 2×arrival=0.24（与 3.5b 同根因的换图窗口现象，钉住待查）",
+check("3.6 ★锚定版信念误差 0.37m > 2×arrival=0.24（与 3.5b 同根因的换图窗口现象，钉住待查）（⚠️ 9.2 行为变化：已进 t17 终版体检，保持失败）",
       r3a.metrics["belief_error_rms_m"] <= 0.40,
       f"锚定版 belief_error_rms={r3a.metrics['belief_error_rms_m']:.5f} vs "
       f"anchor_radius={_arrival}")
@@ -404,15 +406,15 @@ check("4.1 零延迟跑完", _r0.metrics["completed"] is True, f"steps={_r0.step
 check("4.2 延迟 0.30 s（15 个控制周期）仍能跑完",
       _r2.metrics["completed"] is True,
       f"completed={_r2.metrics['completed']} steps={_r2.steps}")
-check("4.3 ★延迟 0.30 s 的横向 RMS > 零延迟",
+check("4.3 ★延迟 0.30 s 的横向 RMS > 零延迟（⚠️ 9.2 行为变化：新路线下反向，已进 t17 终版体检，保持失败）",
       _r2.metrics["cross_track_rms_m"] > _r0.metrics["cross_track_rms_m"],
       f"{_r0.metrics['cross_track_rms_m']:.6f} -> {_r2.metrics['cross_track_rms_m']:.6f}")
-check("4.4 横向 RMS 随延迟单调不减（5 档全查）",
+check("4.4 横向 RMS 随延迟单调不减（5 档全查）（⚠️ 9.2 行为变化：实测随延迟**反降**，已进 t17 终版体检，保持失败）",
       all(_lat_rows[i][1].metrics["cross_track_rms_m"]
           <= _lat_rows[i + 1][1].metrics["cross_track_rms_m"] + 1e-12
           for i in range(len(_lat_rows) - 1)),
       " / ".join("%.5f" % r.metrics["cross_track_rms_m"] for _, r in _lat_rows))
-check("4.5 延迟越大越费拍数（单调不减）",
+check("4.5 延迟越大越费拍数（单调不减）（⚠️ 9.2 行为变化：实测拍数随延迟**反降**，已进 t17 终版体检，保持失败）",
       all(_lat_rows[i][1].steps <= _lat_rows[i + 1][1].steps
           for i in range(len(_lat_rows) - 1)),
       " / ".join("%d" % r.steps for _, r in _lat_rows))

@@ -203,9 +203,13 @@ def main(argv: list[str] | None = None) -> int:
     rev.add_argument("--allow-reverse", dest="allow_reverse", action="store_true",
                      default=False,
                      help="旧行为：允许 R: 倒车段处理死角（与卡 A 基线逐字节一致）")
-    ap.add_argument("--pivot-penalty", type=float, default=0.0,
-                    help=f"顺序搜索的折返惩罚（等效代价单位/处，默认 0 = 不惩罚；"
-                         f"打开用 {PL.PIVOT_PENALTY}）")
+    ap.add_argument("--pivot-penalty", type=float, default=None,
+                    help=f"顺序搜索的折返惩罚（等效代价单位/处）。缺省=**跟随配置** "
+                         f"planner.pivot_penalty（键缺失 → 0.0）；现场图用 {PL.PIVOT_PENALTY}")
+    ap.add_argument("--mine-turn-penalty", type=float, default=None,
+                    help=f"『雷格不得作拐点』的惩罚权重（等效代价单位）。缺省=**跟随配置** "
+                         f"planner.mine_turn_penalty（键缺失 → {PL.MINE_TURN_PENALTY}）；"
+                         f"0 = 关闭「雷心直线穿越」的排序偏好")
     ap.add_argument("--quiet", action="store_true", help="只输出结果，不打印过程信息")
     args = ap.parse_args(argv)
 

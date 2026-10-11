@@ -6,13 +6,19 @@ r"""上车部署工具（本地 → 小车，走 SSH/SCP）。
     backup   在车上把将被覆盖的文件打包到 ~/dzrobot/_backups/<时间戳>/
     push     把本地文件/目录推到车上（默认含 dzbrain 包、云台补丁源码、config、tools）
     build    车上 colcon build（默认 dzbrain + dzrknn_dataprocess）
-    verify   车上验证：启动门禁 dry-run + bench 冒烟（FakeBridge，不动车）+ 包/参数存在性
-    all      backup → push → build → verify
+    verify   车上验证（**独立可选子命令，想要才跑**，不在 all 内）：dzbrain 包/入口存在性 +
+             云台补丁符号检查（原「配置+路线门禁 dry-run」「bench 冒烟 4s」已随自检简化移除）
+    all      backup → push → build
+
+★ 自检已从 all 移除（2026-10-11 用户定版）：自检只能存在于小车**发车前** dzbrain 自己的
+  mission.auto_start_delay_s=10 准备窗口内（就绪日志 / 定位与安全初始化 / 出发前路线加载校验），
+  部署不再自动等自检；需要车上验证时单独跑 verify。
 
 安全约定：
-- **绝不在验证阶段启动 ROS 栈**（起栈会让车按路线行动；`auto_start` 也必须保持 false）。
+- **绝不在验证阶段启动 ROS 栈**（起栈会让车按路线行动；要防验证阶段自动发车，用 `--force-no-autostart` 把车端 `auto_start` 保持 false）。
 - push 前自动 backup；backup 目录名带时间戳，便于回滚。
-- config 推送时会把 `auto_start` 强制为 false（车端当前也是 false），并在报告里注明这一处差异。
+- push **默认不碰**车端 `auto_start`（自检已收敛到发车前 10s 窗口，部署不再拖测试节奏）；
+  只有显式 `--force-no-autostart` 时才把车端 `auto_start` 强制为 false。
 - ★ 目录推送必须用「tar 流 → 就地替换」，**绝不能用 `scp -r 本地目录 车端同名目录`**：
   目标目录已存在时 scp 会把源目录整个塞进去变成 `dst/<basename>/...`，
   于是"推送成功"但车端一个文件都没更新（2026-10-08 真机踩过：车端一直是旧代码，
@@ -171,20 +177,25 @@ def normalize_auto_start(text: str) -> str:
 
 #: 推送后由本工具主动改写的文件 → 对账基准必须用「改写后」的期望内容。
 #: （首版忘了这一步，自己的归一化被当成"推送没生效"，报了一个假警报。）
+#: ★ 2026-10-11 定版：该改写**只在显式 --force-no-autostart 时发生**；默认 push 不碰
+#:   auto_start，对账基准按原始字节（见 expected_remote_bytes 的 apply_transform 开关）。
 POST_PUSH_TRANSFORM = {
     "config/robot.yaml": normalize_auto_start,
 }
 
 
-def expected_remote_bytes(local: str, raw: bytes) -> bytes:
+def expected_remote_bytes(local: str, raw: bytes, *, apply_transform: bool = False) -> bytes:
     """推送 + 车端归一化之后，车端**应该**有的字节内容（对账基准）。
 
-    忠实复刻车端脚本语义：
+    apply_transform=False（默认）：push 不碰 auto_start，对账基准就是原始字节。
+    apply_transform=True（--force-no-autostart 时）：忠实复刻车端脚本语义 ——
       s  = read_text(encoding='utf-8')  → 通用换行：CRLF/CR 统一成 LF
       s2 = 归一化(s)
       只有 s2 != s 时才 write_text(s2, encoding='utf-8')（写回即 LF 换行）；
       没改动时车端保留 scp 过去的**原始字节**（可能仍是 CRLF）。
     """
+    if not apply_transform:
+        return raw
     transform = POST_PUSH_TRANSFORM.get(local)
     if transform is None:
         return raw
@@ -193,7 +204,7 @@ def expected_remote_bytes(local: str, raw: bytes) -> bytes:
     return raw if new == text else new.encode("utf-8")
 
 
-def local_manifest(local: str) -> dict[str, str]:
+def local_manifest(local: str, *, apply_transform: bool = False) -> dict[str, str]:
     """本地清单：相对路径 → sha256（目录递归；单文件用文件名）。
 
     路径不存在直接抛错 —— "对账对象不存在"绝不能被当成"清单为空/通过"。
@@ -202,7 +213,7 @@ def local_manifest(local: str) -> dict[str, str]:
     if not p.exists():
         raise FileNotFoundError(f"本地路径不存在：{local}")
     if p.is_file():
-        return {p.name: sha256_bytes(expected_remote_bytes(local, p.read_bytes()))}
+        return {p.name: sha256_bytes(expected_remote_bytes(local, p.read_bytes(), apply_transform=apply_transform))}
     return {f.relative_to(p).as_posix(): sha256_file(f) for f in iter_payload(p)}
 
 
@@ -288,11 +299,12 @@ def diff_manifest(local_m: dict[str, str], remote_m: dict[str, str]) -> tuple[li
     return missing, extra, mismatch
 
 
-def verify_pushed(ip: str, items: list[tuple[str, str, bool]], *, dry: bool = False) -> int:
+def verify_pushed(ip: str, items: list[tuple[str, str, bool]], *, dry: bool = False,
+                  apply_transform: bool = False) -> int:
     """★ 对账闸门：逐项比对本地/车端 sha256。返回 0 才算真的推上去了。"""
     bad = 0
     for local, remote, is_dir in items:
-        lm = local_manifest(local)
+        lm = local_manifest(local, apply_transform=apply_transform)
         rm = remote_manifest(ip, remote, is_dir, dry=dry)
         if dry:
             log(f"  [dry-run] 对账 {local}（{len(lm)} 个文件）")
@@ -305,7 +317,8 @@ def verify_pushed(ip: str, items: list[tuple[str, str, bool]], *, dry: bool = Fa
             for k in (missing + mismatch)[:5]:
                 log(f"       - {k}")
         else:
-            note = "（对账基准含推送后归一化：auto_start 强制 false）" if local in POST_PUSH_TRANSFORM else ""
+            note = ("（对账基准含推送后归一化：auto_start 强制 false）"
+                    if (apply_transform and local in POST_PUSH_TRANSFORM) else "")
             log(f"  ✅ 对账通过 {local}：{len(lm)} 个文件 sha256 全部一致{note}"
                 + (f"（车端多出 {len(extra)} 个，已忽略）" if extra else ""))
     return 1 if bad else 0
@@ -350,21 +363,23 @@ def cmd_push(ip: str, args) -> int:
         if rc != 0 and not args.dry_run:
             log(f"❌ 推送失败：{local}")
             return 1
-    # ★ 推送后把车端 auto_start 强制为 false（验证阶段绝不允许自动发车）
-    ssh_run(ip, f"cd {CAR_WS} && python3 - <<'PY'\n"
-                "import re, pathlib\n"
-                "p = pathlib.Path('config/robot.yaml')\n"
-                "s = p.read_text(encoding='utf-8')\n"
-                "s2 = re.sub(r'(auto_start:)\\s*true', r'\\1 false', s)\n"
-                "s2 = re.sub(r'(auto_start:)\\s*true', r'\\1 false', s2)\n"
-                "if s2 != s:\n"
-                "    p.write_text(s2, encoding='utf-8')\n"
-                "    print('★ auto_start 已强制为 false（验证阶段不发车）')\n"
-                "else:\n"
-                "    print('auto_start 已是 false')\n"
-                "PY", dry=args.dry_run, label="强制 auto_start=false")
+    # ★ 2026-10-11 定版：默认**不碰**车端 auto_start（每次部署都强制改回 false 太拖测试节奏；
+    #   自检已收敛到发车前 10s 窗口）。只有显式 --force-no-autostart 才执行下面的强制改写。
+    if args.force_no_autostart:
+        ssh_run(ip, f"cd {CAR_WS} && python3 - <<'PY'\n"
+                    "import re, pathlib\n"
+                    "p = pathlib.Path('config/robot.yaml')\n"
+                    "s = p.read_text(encoding='utf-8')\n"
+                    "s2 = re.sub(r'(auto_start:)\\s*true', r'\\1 false', s)\n"
+                    "s2 = re.sub(r'(auto_start:)\\s*true', r'\\1 false', s2)\n"
+                    "if s2 != s:\n"
+                    "    p.write_text(s2, encoding='utf-8')\n"
+                    "    print('★ auto_start 已强制为 false（--force-no-autostart）')\n"
+                    "else:\n"
+                    "    print('auto_start 已是 false')\n"
+                    "PY", dry=args.dry_run, label="强制 auto_start=false（--force-no-autostart）")
     log("  ── 推送对账（本地 sha256 ↔ 车端 sha256）──")
-    return verify_pushed(ip, items, dry=args.dry_run)
+    return verify_pushed(ip, items, dry=args.dry_run, apply_transform=args.force_no_autostart)
 
 
 def cmd_build(ip: str, args) -> int:
@@ -384,19 +399,16 @@ def cmd_build(ip: str, args) -> int:
 
 
 def cmd_verify(ip: str, args) -> int:
+    # ★ 2026-10-11 定版（自检简化）：原 ① 车上配置+路线门禁（config_selfcheck --quiet）、
+    #   ② bench 冒烟 4s 已移除 —— 又慢又不在"发车前 10s 窗口"内；自检只存在于发车前
+    #   mission.auto_start_delay_s=10 准备窗口。verify 保留两个瞬时存在性检查：
     rc = 0
-    # ① 启动门禁（配置 + 路线校验），不需要 ROS
-    rc |= ssh_run(ip, f"cd {CAR_WS} && python3 tools/config_selfcheck.py --quiet 2>&1 | tail -8",
-                  dry=args.dry_run, label="车上配置+路线门禁")
-    # ② bench 冒烟：真实任务线程 + FakeBridge（不动车、不起 ROS 栈）
-    rc |= ssh_run(ip, f"cd {CAR_WS} && python3 tools/dzbrain.py --bench --seconds 4 2>&1 | tail -14",
-                  dry=args.dry_run, label="bench 冒烟（四线程，不动车）")
-    # ③ 包与入口存在性
+    # ① dzbrain 包与入口存在性
     rc |= ssh_run(ip, f"cd {CAR_WS} && source /opt/ros/humble/setup.bash && source install/setup.bash && "
                       f"ros2 pkg executables dzbrain; "
                       f"ros2 pkg prefix dzbrain",
                   dry=args.dry_run, label="dzbrain 包/入口")
-    # ④ 云台补丁是否真的编进二进制（防"改了源码没编"）
+    # ② 云台补丁是否真的编进二进制（防"改了源码没编"）
     rc |= ssh_run(ip, f"grep -c 'use_external_fire_gate' {CAR_WS}/install/dzrknn_dataprocess/lib/"
                       f"dzrknn_dataprocess/dzactuator_node 2>/dev/null || "
                       f"find {CAR_WS}/install/dzrknn_dataprocess -type f -perm -u+x | head -3",
@@ -407,9 +419,13 @@ def cmd_verify(ip: str, args) -> int:
 # --------------------------------------------------------------------------- #
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="本地 → 小车 部署工具（SSH/SCP）")
-    ap.add_argument("action", choices=["probe", "backup", "push", "build", "verify", "all"])
+    ap.add_argument("action", choices=["probe", "backup", "push", "build", "verify", "all"],
+                    help="子命令；all = backup→push→build（不再自动跑 verify）。"
+                         "verify 可选、按需手动跑（包/入口存在性 + 云台补丁符号，瞬时检查）")
     ap.add_argument("--ip", default=None, help="直接指定车端 IP（跳过 mDNS 解析）")
     ap.add_argument("--packages", nargs="*", default=None, help="colcon build 的包列表")
+    ap.add_argument("--force-no-autostart", action="store_true",
+                    help="push 时显式把车端 auto_start 强制为 false（默认不碰车端 auto_start）")
     ap.add_argument("--dry-run", action="store_true", help="只打印将执行的命令")
     args = ap.parse_args(argv)
 
@@ -439,9 +455,11 @@ def main(argv: list[str] | None = None) -> int:
         return rc
     rc = cmd_build(ip, args)
     if rc != 0:
-        log("⛔ 编译失败，跳过验证（先修编译）")
+        log("⛔ 编译失败（先修编译）")
         return rc
-    return cmd_verify(ip, args)
+    log("✅ 部署完成：backup → push → build（自检已从 all 移除 —— 自检只在小车发车前 dzbrain 的 "
+        "10s 准备窗口内做；需要车上验证时可选跑：python tools\\deploy_to_car.py verify）")
+    return 0
 
 
 if __name__ == "__main__":

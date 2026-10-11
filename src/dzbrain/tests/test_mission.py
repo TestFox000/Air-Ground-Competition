@@ -453,6 +453,69 @@ def test_finish_latch() -> None:
 
 
 # --------------------------------------------------------------------------- #
+#  6b. ★ 末点停车判定收紧（_GOAL_STOP_M = 0.03）
+# --------------------------------------------------------------------------- #
+def test_goal_stop_tight() -> None:
+    """★6b. 末点停车判定收紧：0.10 m 外不 FINISH / 0.02 m 内 FINISH，台账诚实。
+
+    实车缺陷（2026 直线标定 N10→A10，4.55 m）：Localization 的末点吸附按
+    `arrival_m`(0.12) 在偏差 0.118 m 处把信念拽到 A10 格心（车端 7_path.log：
+    "到位吸附 A10 偏差 0.118 m → 锚回格心"）→ Mission 的末点判据见"已到" →
+    FINISH 提前刹车 → 物理车停在格心前 11 cm 欠程；而车端 scale=1.00003
+    说明不是里程计误差。修法：末点判据用 `_GOAL_STOP_M`(0.03)（对齐 tools/sim.py），
+    非末点航点仍用 `arrival_m`(0.12)，行为完全不变。
+    """
+    section("6b. ★末点停车判定收紧：0.10 m 外不 FINISH / 0.02 m 内 FINISH")
+    tokens = ["N10", "M10", "L10"]           # N10→M10→L10 沿 +y 直线，L10 是末点
+    cfg = cfg_of(mission={"auto_start": True, "auto_start_delay_s": 0.1, "reset": "N10,y"},
+                 route={"tokens": tokens})
+    n10 = geo.block_to_meters("N10")
+    m10 = geo.block_to_meters("M10")
+    l10 = geo.block_to_meters("L10")
+    rig = Rig(cfg=cfg, pose=n10 + (geo.HEADING_Y,))
+    rig.ticks(3)                              # 自动出发
+
+    # ---- 6b.1 非末点 M10：0.10 m 内照常按 arrival_m 判到达（行为不变）----
+    rig.set_pose(n10[0], m10[1] - 0.10, geo.HEADING_Y)
+    rig.tick()
+    check("6b.1 非末点 M10 在 0.10 m 内照常判到达（arrival_m 语义不变）",
+          rig.task._passed[1] is True,
+          f"_passed[1]={rig.task._passed[1]} arrived_by={rig.task._arrived_by.get(1)}")
+
+    # ---- 6b.2 末点 0.10 m 外：不得 FINISH（旧代码 s+0.12 余量会提前认账）----
+    rig.set_pose(n10[0], l10[1] - 0.10, geo.HEADING_Y)
+    rig.tick()
+    check("6b.2 末点 0.10 m 外：`_passed[last]` 保持 False、不 FINISH、不刹车",
+          rig.task._passed[2] is False
+          and rig.task.phase != MissionPhase.FINISH
+          and rig.count(EV_MISSION_FINISHED) == 0
+          and rig.bridge.brakes == 0,
+          f"_passed[2]={rig.task._passed[2]} phase={rig.task.phase!r} "
+          f"finished={rig.count(EV_MISSION_FINISHED)} brakes={rig.bridge.brakes}")
+    check("6b.3 末点 0.10 m 外：到点台账不虚报（无 index=2 的到达事件）",
+          sum(1 for e in rig.of(EV_WAYPOINT_REACHED)
+              if not e.data.get("forced_skip") and e.data.get("index") == 2) == 0,
+          f"index=2 到达事件 "
+          f"{[e.data for e in rig.of(EV_WAYPOINT_REACHED) if e.data.get('index') == 2]}")
+
+    # ---- 6b.4 末点 0.02 m 内：FINISH 照常（真到了才认）----
+    rig.set_pose(n10[0], l10[1] - 0.02, geo.HEADING_Y)
+    rig.tick()
+    check("6b.4 末点 0.02 m 内：判到达 + FINISH + 刹车",
+          rig.task._passed[2] is True
+          and rig.task.phase == MissionPhase.FINISH
+          and rig.count(EV_MISSION_FINISHED) == 1
+          and rig.bridge.brakes >= 1,
+          f"_passed[2]={rig.task._passed[2]} phase={rig.task.phase!r} "
+          f"finished={rig.count(EV_MISSION_FINISHED)} brakes={rig.bridge.brakes}")
+    check("6b.5 到点台账诚实：末点到达事件恰好 1 条、非强制跳过",
+          sum(1 for e in rig.of(EV_WAYPOINT_REACHED)
+              if not e.data.get("forced_skip") and e.data.get("index") == 2) == 1,
+          f"index=2 事件 "
+          f"{[e.data for e in rig.of(EV_WAYPOINT_REACHED) if e.data.get('index') == 2]}")
+
+
+# --------------------------------------------------------------------------- #
 #  7. 外部命令
 # --------------------------------------------------------------------------- #
 def test_commands() -> None:
@@ -1038,6 +1101,7 @@ def main() -> int:
     test_stop_point_three_phases()
     test_no_deadlock()
     test_finish_latch()
+    test_goal_stop_tight()
     test_commands()
     test_phase_gate()
     test_rate()

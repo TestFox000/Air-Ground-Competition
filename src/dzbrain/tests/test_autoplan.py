@@ -31,6 +31,7 @@ import os
 import pathlib
 import re
 import sys
+import tempfile
 import threading
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -59,10 +60,52 @@ from fakes import FakeBridge, FakeClock                           # noqa: E402
 WS = pathlib.Path(__file__).resolve().parents[3]          # <ws>/src/dzbrain/tests/x.py
 CONFIG = WS / "config" / "robot.yaml"
 MAP = WS / "config" / "map.yaml"
-SCRATCH = WS / "_scratch_auto_plan" / "mission"
-BROKEN = SCRATCH / "broken_map.yaml"                      # mines 含非法格名 → PlannerError
-BAD_YAML = SCRATCH / "bad_yaml_map.yaml"                  # YAML 语法错 → YAMLError（非 PlannerError）
-MISSING_MINES = SCRATCH / "broken_map_missing_mines_probe.yaml"   # "缺 mines" 的坏图（其实能解）
+
+#: ★★ 自足夹具（卡 D 修复带出的**测试卫生**问题）：
+#:   本套件原先读 `_scratch_auto_plan/mission/*.yaml` —— 那些文件在 `.gitignore` 里
+#:   （`.gitignore:10  _scratch_*/`），**换一个干净检出/快照就全没了**。
+#:   实测：`git archive HEAD` 解出来的干净树里跑本套件，6 项失败全部是
+#:   `FileNotFoundError: 地图文件不存在: <tree>/_scratch_auto_plan/mission/broken_map.yaml`
+#:   —— 代码没问题，是**测试依赖了不进版本库的临时文件**。
+#:   现在所有夹具都在 `tempfile` 目录里**现场生成**，测试可脱离工作区独立运行。
+_FIX = pathlib.Path(tempfile.mkdtemp(prefix="dz_autoplan_fix_"))
+
+
+def _sub_mines(text: str, repl: str) -> str:
+    """把 map.yaml 里 `mines:` 那一行换成 `repl`（保留原缩进）。"""
+    return re.sub(r"(?m)^([ \t]*)mines:.*$", lambda m: m.group(1) + repl, text)
+
+
+def _drop_mines(text: str) -> str:
+    """整行删掉 `mines:`（这就是"缺 mines 的坏图"，实测**能解**，只能当反例）。"""
+    return re.sub(r"(?m)^[ \t]*mines:.*\n", "", text)
+
+
+def _make_fixtures() -> None:
+    map_text = MAP.read_text(encoding="utf-8")
+    # ① 坏图：mines 含非法格名 `Z9` → load_map 抛 PlannerError（**回退分支的正确夹具**）
+    (_FIX / "broken_map.yaml").write_text(_sub_mines(map_text, 'mines:      ["H1", "Z9"]'),
+                                          encoding="utf-8")
+    # ② 反例：整行删掉 mines → 实测**能解出路线**（不是失败用例，见 §1.12）
+    (_FIX / "missing_mines.yaml").write_text(_drop_mines(map_text), encoding="utf-8")
+    # ③ YAML 语法非法 → ParserError（**不是** PlannerError，用来测宽捕获）
+    (_FIX / "bad_yaml_map.yaml").write_text(
+        'map:\n  name: "x"\n  mines:      ["H1", "G2"\n   obstacles:  ["D1",\n', encoding="utf-8")
+    # ④ 顶层不是映射 → ValueError
+    (_FIX / "not_a_mapping_map.yaml").write_text("- a\n- b\n", encoding="utf-8")
+    # ⑤ 门禁必红配置：真 robot.yaml + 一条过时的 2 点手写路线（幂等注入到 `    route:` 后）
+    lines = CONFIG.read_text(encoding="utf-8").splitlines(keepends=True)
+    at = next(i for i, ln in enumerate(lines) if ln.rstrip("\r\n") == "    route:")
+    lines.insert(at + 1, '      tokens: ["N10", "N5"]          # ★ 本套件现场注入的过时路线\n')
+    (_FIX / "gate_fail.yaml").write_text("".join(lines), encoding="utf-8")
+
+
+_make_fixtures()
+BROKEN = _FIX / "broken_map.yaml"                 # mines 含非法格名 → PlannerError
+BAD_YAML = _FIX / "bad_yaml_map.yaml"             # YAML 语法错 → ParserError（非 PlannerError）
+MISSING_MINES = _FIX / "missing_mines.yaml"       # "缺 mines" 的坏图（其实能解）
+GATE_FAIL = _FIX / "gate_fail.yaml"               # 门禁必红（route.tokens 只有 2 个点）
+NO_SUCH_MAP = _FIX / "no_such_map.yaml"           # 不存在的路径（不需要真的建）
 
 
 def real_cfg(**kv) -> Config:
@@ -167,7 +210,7 @@ out_yaml = plan_route_from_config(cfg.override("planner.map_path", str(BAD_YAML)
 check("1.10 ★ 宽捕获：YAML 语法错（**不是** PlannerError）也变成可回退的失败",
       (not out_yaml.ok) and ("Error" in out_yaml.error), out_yaml.error)
 
-out_nofile = plan_route_from_config(cfg.override("planner.map_path", str(SCRATCH / "nope.yaml")),
+out_nofile = plan_route_from_config(cfg.override("planner.map_path", str(_FIX / "nope.yaml")),
                                     log=lambda s: None)
 check("1.11 地图文件不存在 → FileNotFoundError（含实际尝试的路径）",
       out_nofile.error.startswith("FileNotFoundError:") and "nope.yaml" in out_nofile.error,
@@ -197,14 +240,14 @@ section("2. 地图路径解析顺序：绝对路径 → 相对配置文件目录
 abs_out = resolve_map_path(None, str(MAP))
 check("2.1 绝对路径原样返回（不拼接）", abs_out == MAP, str(abs_out))
 
-# 三个候选**都存在**的对照：配置目录里的同名文件必须赢过工作区里的
-probe_dir = SCRATCH / "_order_probe"
-nest = probe_dir / "_scratch_auto_plan" / "mission"
-nest.mkdir(parents=True, exist_ok=True)
-ws_side = WS / "_scratch_auto_plan" / "mission" / "order_probe.yaml"
-cfg_side = nest / "order_probe.yaml"
-rel = "_scratch_auto_plan/mission/order_probe.yaml"
-ws_side.write_text('map:\n  name: "WORKSPACE"\n', encoding="utf-8")
+# 两个候选**都存在**的对照：配置目录里的那份必须赢过工作区里的那份。
+# ★ 用 `config/map.yaml` 当相对路径：工作区那份天然存在（仓库文件），配置目录那份放临时目录里，
+#   于是**两个候选同时为真**，且测试不再往工作区里写任何文件（原先会留 `_scratch_auto_plan` 垃圾）。
+probe_dir = _FIX / "_order_probe"
+(probe_dir / "config").mkdir(parents=True, exist_ok=True)
+rel = "config/map.yaml"
+ws_side = WS / "config" / "map.yaml"
+cfg_side = probe_dir / "config" / "map.yaml"
 cfg_side.write_text('map:\n  name: "CONFIGDIR"\n', encoding="utf-8")
 cfg_probe = Config.from_dict({"x": 1}, source=str(probe_dir / "cfg.yaml"))
 picked = resolve_map_path(cfg_probe, rel)
@@ -213,11 +256,11 @@ check("2.2 ★ 两个候选都存在时：**相对配置文件目录**优先于�
 check("2.3 内容确实是配置目录那份（marker=CONFIGDIR）",
       "CONFIGDIR" in picked.read_text(encoding="utf-8"), picked.read_text(encoding="utf-8").strip())
 
-cfg_side.unlink(missing_ok=True)                    # 只删配置目录那份，工作区那份留着
+cfg_side.unlink()                                   # 只删配置目录那份，工作区那份是仓库文件
 picked_ws = resolve_map_path(cfg_probe, rel)
 check("2.4 配置目录那份不存在时 → 落到**相对工作区**（工作区那份确实存在）",
-      picked_ws == ws_side and picked_ws.is_file(), f"picked={picked_ws}")
-ws_side.unlink(missing_ok=True)
+      picked_ws == ws_side and picked_ws.is_file() and "CONFIGDIR" not in
+      picked_ws.read_text(encoding="utf-8"), f"picked={picked_ws}")
 
 picked_none = resolve_map_path(Config.from_dict({}, source=str(probe_dir / "cfg.yaml")),
                                "no_such_dir/no_such_map.yaml")
@@ -298,7 +341,7 @@ check("4.7 基线日志里也没有出现 token 列表行（没有规划就没�
       rig_off.logged_tokens() == [], str(rig_off.logged_tokens()))
 
 # 极端证明："手动模式根本不看 map_path" —— 指向不存在的文件也必须照常出发
-rig_off2 = Rig(real_cfg(auto_plan_enabled=False, map_path=str(SCRATCH / "no_such_map.yaml")))
+rig_off2 = Rig(real_cfg(auto_plan_enabled=False, map_path=str(NO_SUCH_MAP)))
 rig_off2.ticks(3)
 check("4.8 ★ map_path 指向不存在的文件也照常出发（证明手动模式没碰规划器）",
       rig_off2.task.phase == MissionPhase.DRIVE
@@ -321,7 +364,7 @@ check("5.2 ★ warn 日志（⚠️）含异常类型 PlannerError 与原始消�
       "⚠️" in txt and "PlannerError" in txt and "Z9" in txt, "见日志")
 check("5.3 warn 里点名了 fallback_to_tokens=true 与「回退」动作",
       "fallback_to_tokens=true" in txt and "回退 route.tokens" in txt, "见日志")
-check("5.4 ★ 回退后的执行路线 == route.tokens（46 点）",
+check("5.4 ★ 回退后的执行路线 == route.tokens（54 点）",
       list(rig_fb.task.route.blocks()) == list(base.blocks()), f"{len(rig_fb.task.route)} 点")
 check("5.5 路线来源改标「手动配置」（实际用的就是手动路线）+ 横幅同源",
       st_fb["route_source"] == ROUTE_SOURCE_MANUAL
@@ -336,7 +379,7 @@ check("5.8 载入 source 标明是回退来的",
       any("route.tokens/mission_blocks(自动规划失败回退)" in s for s in rig_fb.logs), "见日志")
 
 # 文件不存在也算失败 → 同样回退
-rig_nf = Rig(real_cfg(auto_plan_enabled=True, map_path=str(SCRATCH / "no_such_map.yaml"),
+rig_nf = Rig(real_cfg(auto_plan_enabled=True, map_path=str(NO_SUCH_MAP),
                       allow_reverse=False, max_seconds=2.0, fallback_to_tokens=True))
 rig_nf.ticks(3)
 check("5.9 地图文件不存在 → 同样回退并进入 DRIVE",
@@ -437,7 +480,6 @@ check("7.12 坏图输出里含异常类型与消息",
       "PlannerError" in banner_bad.getvalue() and "Z9" in banner_bad.getvalue(), "见输出")
 
 # ★ 门禁豁免：`route.tokens` 过时（手写路线已经不合法）时，`--plan-only` 仍必须能算出新路线
-GATE_FAIL = SCRATCH / "gate_fail.yaml"
 check("7.13 门禁必红的测试配置存在（route.tokens 被换成 2 个点）", GATE_FAIL.is_file(), str(GATE_FAIL))
 buf_gf = io.StringIO()
 with contextlib.redirect_stdout(buf_gf):
@@ -500,7 +542,7 @@ out_junk = plan_route_from_config(cfg_junk, log=lambda s: None)
 check("8.7 非法 max_seconds 不崩（回落到默认预算 2.0s）", out_junk.ok
       and len(out_junk.tokens) == len(out.tokens), f"ok={out_junk.ok} err={out_junk.error!r}")
 
-not_map = SCRATCH / "not_a_mapping_map.yaml"
+not_map = _FIX / "not_a_mapping_map.yaml"
 not_map.write_text("- a\n- b\n", encoding="utf-8")          # 顶层是 list，不是地图映射
 out_nm = plan_route_from_config(cfg_junk.override("planner.map_path", str(not_map)),
                                 log=lambda s: None)
@@ -566,7 +608,6 @@ check("9.6 D2：`plan_route_from_config(map_path=…)` 的结果与 CLI 一致�
       f"ok={_out_variant.ok} / {len(_out_variant.tokens)} token")
 
 # 9.7 D3：门禁报文只打一次，且标注"只针对 route.tokens"
-GATE_FAIL = SCRATCH / "gate_fail.yaml"
 check("9.7 前置：门禁必红配置存在", GATE_FAIL.is_file(), str(GATE_FAIL))
 _buf_g = io.StringIO()
 with contextlib.redirect_stdout(_buf_g):

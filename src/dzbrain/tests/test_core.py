@@ -148,14 +148,21 @@ section("Config：读真实 robot.yaml（旧格式兼容）")
 cfg_path = WS / "config" / "robot.yaml"
 cfg = Config.load(str(cfg_path))
 check("来源路径正确", cfg.source.endswith("robot.yaml"))
-check("旧键 path_executor.linear_speed 可读", cfg.get("path_executor.linear_speed") == 0.15)
-check("新键 pursuit.cruise_speed_mps 由旧键迁移", cfg.get("pursuit.cruise_speed_mps") == 0.15)
-# 2026-10-11 换图：像素级识图版路线 46 点（2026-10-07 现场图 34 点，原 Map-C 旧图 29 点）
-check("route.tokens 由 mission_blocks 迁移（识图版 46 点）",
-      len(cfg.get("route.tokens") or []) == 46)
+# ★ 2026-10-11 用户口径：巡航 0.15 → 0.30 m/s（t11 实测 0.30 跑完全程、隔板触线/压障归零）
+#   两条一起改：path_executor.linear_speed 与 pursuit.cruise_speed_mps 必须**同步**
+#   （robot.yaml 里就是这么注释约束的，改一条另一条不跟着变就会出现"车里两个速度"）。
+check("旧键 path_executor.linear_speed 可读（0.30，与 cruise 同步）",
+      cfg.get("path_executor.linear_speed") == 0.30)
+check("新键 pursuit.cruise_speed_mps 由旧键迁移（0.30）",
+      cfg.get("pursuit.cruise_speed_mps") == 0.30)
+# 2026-10-11 t11 换路线：**54 点**（旧 46 点）。这一版是"雷心直线穿越"后的规划器输出，
+#   即 `plan_route(map.yaml)` 逐 token 的结果（《算法归纳规则》恒等式），比 46 点多 8 个
+#   航点 = 8 个雷的"进点/出点"（每个雷变成三点直线的中点）。点数不是凑的，是恒等式的结果。
+check("route.tokens 由 mission_blocks 迁移（t11 新路线 54 点）",
+      len(cfg.get("route.tokens") or []) == 54)
 check("桥洞保护整列 K1~K11", len(cfg.get("pursuit.bridge_blocks") or []) == 11)
-check("旧 dzactuator 段可读（已迁到复标值 2776.0）",
-      cfg.get("dzactuator.ticksPerMeter") == 2776.0)
+check("旧 dzactuator 段可读（2026-10-11 实车直线标定 → 3280.0）",
+      cfg.get("dzactuator.ticksPerMeter") == 3280.0)
 check("新版参数段 /dzbrain 生效（非 SCHEMA 默认）",
       cfg.get("aim.lead_time_s") == 0.35 and cfg.get("pursuit.curvature_gain") == 1.0)
 check("新版默认值可读（SCHEMA 默认）", cfg.get("pursuit.wheelbase_m") == 0.157)

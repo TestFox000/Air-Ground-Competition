@@ -527,23 +527,32 @@ def main() -> int:
     check("[无倒车] parser 能编译回同样的航点数",
           len(PARSER.parse_mission(nr.tokens)) == len(nr.tokens),
           f"{len(PARSER.parse_mission(nr.tokens))} vs {len(nr.tokens)}")
-    check("[无倒车] 与卡 A 探针同形：46 token / 里程 18.55 m（只多了 :PIVOT 后缀）",
-          len(nr.tokens) == 46 and abs(nr.polyline_m - 18.55) < 0.02,
+    # ★ 2026-10-11 重钉（t18）：无倒车路线 46 token / 18.55 m → **54 token / 19.95 m**。
+    #   理由（t11 加固后的新几何）：8 个雷改走「进点—雷格—出点」直线穿越（每个雷多 1 个进点），
+    #   总长与旧版相同（19.95 m）；0 段 R:，:PIVOT 只剩 G10* 射击停站一处。
+    check("[无倒车] 54 token / 里程 19.95 m（0 段 R:，:PIVOT 仅 G10* 一处）",
+          len(nr.tokens) == 54 and abs(nr.polyline_m - 19.95) < 0.02,
           f"{len(nr.tokens)} token / {nr.polyline_m:.2f} m")
 
     # ---- ① 折返点清单：几何判据 vs :PIVOT 声明，逐一对应 ----
     geo_pivots = P.pivot_vertices(nr.route)
     declared = [(i, wp.block) for i, wp in enumerate(nr.route.waypoints) if wp.pivot]
-    check("[折返点] 现场无倒车路线实测 3 处 180° 折返（F10 / A9 / F3）",
-          [(b, round(a)) for _i, b, a in geo_pivots] == [("F10", 180), ("A9", 180), ("F3", 180)],
+    # ★ 2026-10-11 重钉（t18）：180° 折返顶点 3 处（F10/A9/F3）→ **1 处（G10）**。
+    #   理由：8 个雷改直线穿越后 A9 与 F3 不再是折返顶点（见 test_path_overlap §5 同款重钉）。
+    check("[折返点] 现场无倒车路线实测 1 处 180° 折返（G10，corner_turn_deg=180°）",
+          [(b, round(a)) for _i, b, a in geo_pivots] == [("G10", 180)],
           str([(i, b, round(a)) for i, b, a in geo_pivots]))
     check("[折返点] 每一处几何折返顶点都带 :PIVOT（无漏报）",
           [(i, b) for i, b, _a in geo_pivots] == declared, str(declared))
-    check("[折返点] token 里确实写着 `:PIVOT`，且只有这几处",
-          [t for t in nr.tokens if t.endswith(":PIVOT")] == ["F10*:PIVOT", "A9:PIVOT", "F3:PIVOT"],
+    check("[折返点] token 里确实写着 `:PIVOT`，且只有这一处（G10* 射击停站）",
+          [t for t in nr.tokens if t.endswith(":PIVOT")] == ["G10*:PIVOT"],
           str([t for t in nr.tokens if t.endswith(":PIVOT")]))
+    # ★ 2026-10-11 重钉（t18）：config/robot.yaml 的 planner 段新增 `pivot_penalty: 5.0`
+    #   （t9 复审 F1 的收口：让"配置里的路线"与"车上实际规划"用同一组参数），
+    #   故 nr 不再走 plan_route 的缺省 0.0，而是与 P.PIVOT_PENALTY 一致。
     check("[折返点] PlanResult 清单与是否无倒车模式一致",
-          nr.pivot_count == 3 and nr.allow_reverse is False and nr.pivot_penalty == 0.0,
+          nr.pivot_count == 1 and nr.allow_reverse is False
+          and nr.pivot_penalty == P.PIVOT_PENALTY,
           f"count={nr.pivot_count} allow_reverse={nr.allow_reverse} "
           f"penalty={nr.pivot_penalty}")
     check("[折返点] 允许倒车模式**不声明** :PIVOT（折返由 R: 完成）",
@@ -635,11 +644,13 @@ def main() -> int:
     print(f"      折返惩罚 {P.PIVOT_PENALTY}/处 的路线（{len(pen.tokens)} token / "
           f"{pen.polyline_m:.2f} m / 折返点 {pen.pivot_count}）：")
     print("        " + " ".join(pen.tokens))
-    check("[惩罚] 折返点是唯一通路，惩罚后仍是 3 处（3 → 3）",
-          nr.pivot_count == 3 and pen.pivot_count == 3,
+    # ★ 2026-10-11 重钉（t18）：折返已被压到「唯一通路」的最小值 1 处（G10）⇒ 惩罚无从再消；
+    #   顺序搜索也没有更省的排序 ⇒ 惩罚版与基线**同长**（19.95 m），不再出现"变长换少折返"。
+    check("[惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 1 处（1 → 1）",
+          nr.pivot_count == 1 and pen.pivot_count == 1,
           f"惩罚前 {nr.pivot_count} → 惩罚后 {pen.pivot_count}")
-    check("[惩罚] 惩罚版里程变长（18.55 → 19.95 m，仍 3 处折返）",
-          pen.polyline_m > nr.polyline_m,
+    check("[惩罚] 惩罚版与基线同长（折返已到最小，顺序搜索无从再优化）= 19.95 m",
+          abs(pen.polyline_m - nr.polyline_m) < 1e-9,
           f"{nr.polyline_m:.2f} → {pen.polyline_m:.2f} m")
     check("[惩罚] 惩罚版仍 0 段 R: 且仍合法",
           pen.reverse_segments == 0 and pen.pivot_penalty == P.PIVOT_PENALTY, "0 段 R:")

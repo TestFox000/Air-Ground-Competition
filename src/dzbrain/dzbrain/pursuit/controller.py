@@ -27,10 +27,12 @@ import math
 from dataclasses import dataclass
 
 from ..core.config import Config, curve_speed_limit, lookahead_distance
+from ..core.blackboard import P_MOTION_LIMIT
 from .lookahead import find_lookahead_point
 from .path import Path, Projection
 
-__all__ = ["PursuitCommand", "compute_command", "speed_profile", "brake_command"]
+__all__ = ["PursuitCommand", "compute_command", "speed_profile", "brake_command",
+           "motion_limit_speed_limit"]
 
 _CHORD_EPS = 1e-6       # 车到前视点的弦长下限（米）：低于它就认为"目标贴在车上"，方位角无意义
 
@@ -47,16 +49,49 @@ class PursuitCommand:
 
 
 # --------------------------------------------------------------------------- #
+#  ★ 限速请求读侧（t20）：`motion_limit` 黑板键 → 线速度上限
+# --------------------------------------------------------------------------- #
+def motion_limit_speed_limit(bb) -> float | None:
+    """读黑板键 `P_MOTION_LIMIT` → 线速度上限（m/s）；**无信号一律返回 `None`（读侧 no-op）**。
+
+    契约（写侧原文见 `core/blackboard.py` 的 `P_MOTION_LIMIT` 注释）：
+      · 键不存在 / 值为 `None` / 载荷不是 dict / 缺 `speed_mps` / 不是数字 / NaN / ±inf /
+        负数 → **全部当"无信号"**，读侧行为与没有这个键时**逐位一致**；
+      · 合法值 `speed_mps ≥ 0` → 把线速度**钳到该值以内（只降不升，倒车按绝对值保号）**；
+      · `speed_mps = 0.0` = "请求停车"，必须真的给 0（不受 `min_speed_mps` 蠕动下限兜底）。
+
+    ★ 本函数在 50 Hz 控制环里被调用，**任何情况都不抛异常**（黑板实现被换/被关掉 → 当无信号）。
+    """
+    if bb is None:
+        return None
+    try:
+        payload = bb.get(P_MOTION_LIMIT)
+    except Exception:                       # 读黑板失败 = 无信号（宁可跑原速，也不打断循迹）
+        return None
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("speed_mps")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    if not math.isfinite(value) or value < 0.0:
+        return None
+    return value
+
+
+# --------------------------------------------------------------------------- #
 #  速度剖面
 # --------------------------------------------------------------------------- #
 def speed_profile(*, curvature: float, dist_to_stop: float | None,
                   corner_dist: float | None, speed_scale: float,
-                  cfg: Config) -> tuple[float, str]:
+                  cfg: Config, motion_limit_mps: float | None = None) -> tuple[float, str]:
     """前进速度剖面：`min(巡航×scale, 曲率限速, 停站减速, 转角减速) × 量化补偿`，下界 `min_speed`。
 
     - 停站减速：`v = min(v, max(min_speed, stop_approach_speed_gain × d))`（旧 0.30·d）
     - 转角减速：距尖角顶点 < `corner_slow_dist_m` → 压到 `corner_speed_mps`（旧固定 0.12）
     - `dist_to_stop` / `corner_dist` 传 `None` 表示"这一层不参与"
+    - `motion_limit_mps`：外部限速请求（`None` = 无信号 → **完全 no-op**）。它是**最后一层**，
+      **在 `min_speed` 下限之后**施加，所以 `0.0` 能真正压到 0（"请求停车"不被蠕动下限顶回去）。
     ★ 返回的 `reason` 是**真正起作用的那一层**，便于日志定位"为什么这么慢"。
     """
     cruise = cfg.get("pursuit.cruise_speed_mps")
@@ -82,6 +117,8 @@ def speed_profile(*, curvature: float, dist_to_stop: float | None,
     v *= cfg.get("pursuit.speed_quant_comp")
     if v < min_speed:       # ★ 下界最后兜（保证任何分支都不会低于蠕动速度）
         v, reason = min_speed, "min_speed"
+    if motion_limit_mps is not None and motion_limit_mps < v:   # ★ 限速请求：只降不升
+        v, reason = float(motion_limit_mps), "motion_limit"
     return v, reason
 
 
@@ -116,7 +153,8 @@ def _corner_dist(path: Path, proj: Projection, cfg: Config) -> float | None:
 # --------------------------------------------------------------------------- #
 def compute_command(pose, path: Path, proj: Projection, cfg: Config, *,
                     reverse: bool = False, last_steer_deg: float | None = None,
-                    dt: float = 0.02) -> PursuitCommand:
+                    dt: float = 0.02, bb=None,
+                    motion_limit_mps: float | None = None) -> PursuitCommand:
     """纯追踪一拍：位姿 + 路径投影 → (速度, 舵角, 曲率, 限速主因)。
 
     `pose` 只需有 `.x/.y/.yaw`（`core.geometry.Pose`）；`last_steer_deg=None` 表示首拍、不做速率限幅。
@@ -125,7 +163,11 @@ def compute_command(pose, path: Path, proj: Projection, cfg: Config, *,
       倒车只做两件事：速度取负 × `reverse_speed_ratio`、舵角 × `reverse_steer_sign`。
     ★ 前视距离由**巡航速度**决定（不随瞬时速度变化）：否则"减速 → 前视变短 → 转向变猛"
       会形成正反馈，低速贴站时反而摆头。
+    ★ `motion_limit_mps` / `bb`（t20 读侧）：限速请求来源二选一 —— 显式传 `motion_limit_mps`
+      优先；否则从黑板 `bb` 读 `P_MOTION_LIMIT`。**两者都没有信号时逐位等价于旧行为**
+      （`speed_profile` 收到 `None` 就整层不参与）。
     """
+    limit = motion_limit_mps if motion_limit_mps is not None else motion_limit_speed_limit(bb)
     wheelbase = cfg.get("pursuit.wheelbase_m")
     gain = cfg.get("pursuit.curvature_gain")
     ld = lookahead_distance(cfg.get("pursuit.cruise_speed_mps"), cfg)
@@ -181,10 +223,17 @@ def compute_command(pose, path: Path, proj: Projection, cfg: Config, *,
         corner_dist=_corner_dist(path, proj, cfg),
         speed_scale=path.segment_speed_scale(proj.seg_index),
         cfg=cfg,
+        motion_limit_mps=limit,
     )
     if rev:
         min_speed = cfg.get("pursuit.min_speed_mps")
         speed = -max(min_speed, speed * cfg.get("pursuit.reverse_speed_ratio"))
+        # ★ 限速请求对**倒车**同样有效：符号翻转后再按绝对值钳（保号）。
+        #   必须放在翻转**之后**：否则 `speed=0` 会被上面的 `max(min_speed, …)` 顶成蠕动速度，
+        #   "请求停车"就失效了。`0.0` 用正零，避免下游把 `-0.0` 当特殊值。
+        if limit is not None and abs(speed) > limit:
+            speed = 0.0 if limit == 0.0 else math.copysign(float(limit), speed)
+            reason = "motion_limit"
 
     return PursuitCommand(linear_x=speed, steer_deg=steer_deg, curvature=curvature,
                           speed_reason=reason, reverse=rev)

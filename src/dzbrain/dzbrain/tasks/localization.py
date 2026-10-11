@@ -50,11 +50,35 @@ from ..core.task import TaskThread
 from ..pursuit.path import Path
 from ..route.model import Route
 
-__all__ = ["LocalizationTask", "PoseSource"]
+__all__ = ["LocalizationTask", "PoseSource", "P_MOTION_LIMIT"]
 
 _INF = float("inf")
 #: 自愈判定的"有没有变"容差（米）：全扫与窗口投影的差异小于它就算一致（浮点噪声/顶点归属）。
 _EPS_S = 1e-9
+
+#: 末点（路线最后一个航点）的**吸附半径**（米）：对齐 `tools/sim.py` 的 `_GOAL_STOP_M`。
+#: 末点吸附若沿用 `arrival_m`(0.12)，信念会在离终点 0.118 m 处被提前拽到格心（车端
+#: 7_path.log 实测"到位吸附 A10 偏差 0.118 m → 锚回格心"）→ Mission 见信念已到 →
+#: FINISH 提前刹车 → 物理车停在格心前 ~11 cm。收紧到 0.03 m：偏差落在停车容差内，
+#: FINISH 只可能因"真到了"触发。非末点航点仍按 `arrival_m` 吸附，行为完全不变。
+_GOAL_STOP_M = 0.03
+
+# --------------------------------------------------------------------------- #
+#  ★★ 新黑板键：限速/停机请求（卡 t12 的对外接口）
+# --------------------------------------------------------------------------- #
+#: `P_MOTION_LIMIT`：Localization **写**、执行侧（Tracker / pursuit 的速度钳制）**读**。
+#:
+#: 取值语义（读侧必须严格按此实现，否则会破坏"无漂移时逐位一致"的承诺）：
+#:   · `None`（或键不存在）→ **完全 no-op**：执行侧一行代码都不该因此改变 ——
+#:     这是为了 t11 的"零注入大扫描"能与现版本**逐位一致**；
+#:   · `{"speed_mps": float, "reason": str, "drift_run": int, "anchor_refused": int,
+#:       "distance_to_boundary_m": float|None, "since": float}` → 把线速度**钳到
+#:     `speed_mps` 以内**（只降不升；负速度/倒车段按绝对值钳），`reason` 仅供日志。
+#:   本键**不**取代 Safety：`P_SAFETY` 仍是唯一的强制停车者，这里只是"提前一脚刹车"。
+#:
+#: ⚠️ 键名字符串按写域要求定义在本文件（`core/blackboard.py` 不在本卡 In scope）；
+#: 建议队长收口时把它登记进 `core/blackboard.py` 并加进"共享键表"文档。
+P_MOTION_LIMIT = "motion_limit"
 
 
 class PoseSource(Protocol):
@@ -97,6 +121,44 @@ class LocalizationTask(TaskThread):
         self.stuck_ticks = max(2, int(cfg.get("localization.stuck_ticks") or 5))
         self.stuck_eps_m = float(cfg.get("localization.stuck_eps_m") or 0.01)
         self.stuck_dist_m = float(cfg.get("localization.stuck_dist_m") or 0.20)
+
+        # ---- ★实车漂移护栏（卡 t12，2026-10-11 首跑 SAFE_STOP@B1 的证据：13 m 里漂 0.65 m）----
+        # 全部走"代码默认值"（config/*.yaml 由 t11 专写；清单已回报队长，待并入）。
+        #: 单次吸附允许把信念挪动的**上限**（米）。吸附只在 `arrival_m` 半径内触发，
+        #: 所以这个上限是"双保险"：超过它说明不是"到位纠偏"而是"被外力拽走"。
+        self.anchor_max_pull_m = float(cfg.get("localization.anchor_max_pull_m")
+                                       or self.arrival_m)
+        #: "误差不变大"判据的容差（米）：吸附后离线距离允许与之持平/略差这么多，
+        #: 超过就拒绝 —— ★ 早期发现#1「吸附在制造误差」的正面堵法。
+        self.anchor_reject_eps_m = float(cfg.get("localization.anchor_reject_eps_m") or 0.005)
+        #: 连续多少拍"有漂移但没纠回来"→ 请求降速（`P_MOTION_LIMIT`）。
+        self.drift_slow_after = max(1, int(cfg.get("localization.drift_slow_after") or 3))
+        self.drift_slow_speed_mps = float(cfg.get("localization.drift_slow_speed_mps") or 0.08)
+        #: 连续多少拍还没纠回来 → 请求停车（速度 0，仍需 Safety/执行侧裁决）。
+        self.drift_stop_after = max(2, int(cfg.get("localization.drift_stop_after") or 8))
+        #: 连续多少拍"干净"才撤销限速（避免抖动式反复开关）。
+        self.drift_clear_ticks = max(1, int(cfg.get("localization.drift_clear_ticks") or 5))
+        #: 信念接近**安全边界**（`pursuit.map_safety_margin_m` 内再多这么多）就开始限速。
+        self.boundary_guard_m = float(cfg.get("localization.boundary_guard_m") or 0.10)
+        self.boundary_guard_speed_mps = float(cfg.get("localization.boundary_guard_speed_mps")
+                                              or 0.08)
+        #: 离边界这么近就请求停车（越界后由 Safety 硬停；这里是**提前**拦一道）。
+        self.boundary_stop_m = float(cfg.get("localization.boundary_stop_m") or 0.03)
+        #: ★横向重锚的单次上限（米）：在**顶点窗口内**发现信念横向残差 > `drift_warn_m` 时，
+        #: 把它沿**垂直方向**拉回折线（这一步按构造只会让"离线距离"变小）；
+        #: 残差超过这个上限 ⇒ 不硬拉（那已经不是"横向噪声"而是"整段跑偏"），拒绝并请求降速。
+        self.reanchor_pull_max_m = float(cfg.get("localization.reanchor_pull_max_m") or 0.35)
+        #: ★★「吸附掩盖尺度误差」闸（2026-10-11 实车标定教训）：
+        #: 实车 17.9% 里程虚增时，**吸附每段归零**会让漂移告警一条都不出（实测 13/13 吸附、
+        #: 0 告警），而真值早在终点前 69 cm —— "仅靠吸附不产生告警 ≠ 里程健康"。
+        #: 本闸把每次吸附的**沿程修正量**除以"距上次吸附走了多远"，得到**隐含尺度误差**；
+        #: 超过 `anchor_scale_max`（默认 8%）就**拒绝这次吸附**（不再替里程计掩盖），
+        #: 记进台账并参与限速升级 ⇒ 尺度误差从"被掩盖"变成"看得见 + 会降速"。
+        #: ⚠️ 本卡**不**硬编码任何 ticks/scale 标定值（标定归队长），只做健康度判别。
+        self.anchor_scale_max = float(cfg.get("localization.anchor_scale_max") or 0.08)
+        #: 隐含尺度误差的滑动窗口长度（取中位数上报，抗单次噪声）
+        self.implied_scale_window = max(1, int(cfg.get("localization.implied_scale_window") or 4))
+
         self._warn = Throttle(float(cfg.get("logging.rate_limit_s") or 1.0))
 
         # 路线缓存：Route 不可变，用 `is` 判同一性即可
@@ -106,6 +168,20 @@ class LocalizationTask(TaskThread):
         self._last_seg: int = -1
         self._anchor_idx: int = -1          # 上一个"已吸附过"的航点索引（防同一航点反复锚）
         self._anchor_key: tuple | None = None   # 上次发过漂移告警的锚点（按航点，不按时间）
+        self._reanchor_idx: int = -1        # 上一处已横向重锚过的顶点索引（防每拍重做）
+        #: ★★ 横向漂移补偿（2026-10-11 实车标定第 3/4 趟：直线 4.55 m 右偏 10/11 cm ≈ 1.4°）
+        #: 陀螺只测角速度，"恒定横漂"（车头与真实前进方向固定夹角）它测不到 ⇒
+        #: 信念 yaw 永远等于陀螺 yaw，控制器自认为笔直、物理车却在平移侧滑。
+        #: 本参数把信念 yaw 额外旋转 `yaw_trim_deg` 度。操作口径:车右漂→负值、左漂→正值、
+        #: 0=关闭。符号反了只会把漂移放大,翻过来即可。控制器见信念偏右 → 左打舵 → 横漂被抵消。
+        #: 标定法：实测横向偏移(cm) ÷ 行程(m) → 角度(°)，同向取正值。
+        self.yaw_trim_deg = float(cfg.get("localization.yaw_trim_deg") or 0.0)
+        #: ★尺度误差健康度的滑动窗口与判据（见 `anchor_scale_max` / `_implied_scale`）
+        self._implied_scales: list[float] = []
+        self._anchor_ds: list[float] = []   # 最近几次吸附的**沿程修正量**（闸③的判别窗口）
+        self._last_anchor_s: float | None = None
+        self.scale_suspect = False          # 是否出现过"疑似尺度误差"（> anchor_scale_max）
+        self.scale_suspect_max = 0.0        # 见过的最大疑似尺度误差（绝对值）
         self._last_odom_ts: float | None = None
 
         # 卡死判定的滑动窗口（起点：s 与位姿。s 一有前进就重新起算）
@@ -122,6 +198,16 @@ class LocalizationTask(TaskThread):
         self.drift_warnings = 0
         self.stuck_scans = 0        # 判定卡死 → 全路线重投影的次数（含"全局在身后"的）
         self.projection_heals = 0   # 其中真正改了上报值（全局投影更靠前）的次数
+        # ---- ★漂移护栏的计数与状态（t12）----
+        self.anchor_refused = 0          # 因"误差会变大/超上限"**拒绝**吸附的次数（显式记账）
+        self.drift_run = 0               # 连续"有漂移、未纠回"的拍数
+        self.healthy_run = 0             # 连续干净拍数（用于撤销限速）
+        self.boundary_alerts = 0         # 进入边界护栏区（提前限速）的次数
+        self.reanchored = 0              # ★横向重锚成功次数（"误差变小才施加"的那条路径）
+        self.motion_limited_ticks = 0    # 处于限速/停机状态的拍数
+        self.motion_limit_published = 0  # 实际下发 `P_MOTION_LIMIT` 的次数（变化才发）
+        self._limit_state: tuple | None = None      # 上次下发的限速状态（去重用）
+        self._boundary_warned = False               # 边界告警只打一次（退出护栏区复位）
 
     # ------------------------------------------------------------------ #
     #  生命周期
@@ -155,6 +241,8 @@ class LocalizationTask(TaskThread):
         if not isinstance(fix, FixState):
             fix = FixState()
         cx, cy, cyaw = fix.corrected(pose.x, pose.y, pose.yaw)
+        if self.yaw_trim_deg:
+            cyaw = geo.normalize_angle(cyaw + math.radians(self.yaw_trim_deg))
         self.bb.set(P_POSE_RAW, pose, source=self.name, ts=now)
 
         # ---------------- ③ 路线投影（带 s_hint） ---------------- #
@@ -166,12 +254,23 @@ class LocalizationTask(TaskThread):
 
         # ---------------- ④ 到位吸附 + 漂移判定 ---------------- #
         anchored_pose = self._anchor(cx, cy, cyaw, proj, now)
+        unhealthy = False
         if anchored_pose is None and proj is not None and self.anchor_enabled:
             gate = self._warning_gate(proj)
-            if gate is not None:
+            # ---------------- ④b ★横向重锚（t12）：只在"已知顶点窗口内"动手 ----------------
+            anchored_pose = self._reanchor(proj, cyaw, gate, now)
+            if anchored_pose is None and gate is not None:
                 gidx, gwp = gate
                 self._report_drift(gwp.block, gidx, gwp.distance_to(cx, cy), now,
                                    anchored=False)
+                # ★"有漂移、没纠回来"= 不健康的一拍（驱动限速/停机）
+                unhealthy = gwp.distance_to(cx, cy) > self.drift_warn_m
+
+        # ---------------- ⑤ ★信念漂移护栏（t12） ---------------- #
+        # 先算信念离安全边界还有多远（`geo.in_bounds/map_bounds` 与 Safety 同源，不重复实现），
+        # 再据此 + 吸附健康度下发 `P_MOTION_LIMIT`。★ 读侧在无信号时必须完全 no-op。
+        belief = anchored_pose if anchored_pose is not None else geo.Pose(cx, cy, cyaw)
+        self._update_drift_guard(belief, unhealthy=unhealthy, now=now)
 
         # 写 P_POSE 的必须是"最终信念"，且 P_ROUTE_S 要与之一致 →
         # 吸附把点挪了，就重新投影一次（单段内，代价可忽略）
@@ -188,6 +287,10 @@ class LocalizationTask(TaskThread):
         self._log(f"定位退出：{self.ticks} 拍 / 缺位姿 {self.missing_pose_ticks} 拍 / "
                   f"吸附 {self.anchored} 次 / 漂移告警 {self.drift_warnings} 次 / "
                   f"投影卡死自愈 {self.projection_heals} 次（判定 {self.stuck_scans} 次）")
+        # ★ t12：漂移护栏台账（"吸附失败要显式记账"的收尾口径）
+        self._log(f"漂移护栏：吸附被拒 {self.anchor_refused} 次 / 限速或停机 "
+                  f"{self.motion_limited_ticks} 拍（下发 {self.motion_limit_published} 次）/ "
+                  f"边界护栏 {self.boundary_alerts} 拍 / 最终连续不健康 {self.drift_run} 拍")
 
     # ------------------------------------------------------------------ #
     #  内部
@@ -227,6 +330,7 @@ class LocalizationTask(TaskThread):
             self._s_hint = None
             self._last_seg = -1
             self._anchor_idx = -1
+            self._reanchor_idx = -1
             self._anchor_key = None
             self._clear_stuck()
             self._log(f"路线已装载：{len(route.waypoints)} 点 / {self._path.total_length:.2f} m")
@@ -335,16 +439,30 @@ class LocalizationTask(TaskThread):
 
         两件事分开判，不要混：
         · **吸附**只有一种触发条件 —— 车离目标航点 < `arrival_m`（"到位"就是到位）；
+          ★ 唯一例外是**末点**：吸附半径收紧到 `_GOAL_STOP_M`(0.03) —— 末点按 0.12 m
+           吸附会把信念在 0.12 m 外拽到格心，Mission 据此提前 FINISH、物理车停在格心前
+           ~11 cm（2026 直线标定 N10→A10 实测欠程，见模块常量 `_GOAL_STOP_M` 注释）。
         · **漂移判定**在 `_warning_gate()` 处独立进行 —— 否则就有个结构性死角：
           `arrival_m`(0.12) 远小于 `drift_warn_m`(0.30)，横向漂了 0.5 m 的车
           永远进不了吸附半径 ⇒ 既不纠偏、也永远报不出漂移（漂移这件事"报不出来"）。
+
+        ★★ 卡 t12（2026-10-11 实车 SAFE_STOP@B1，13 m 漂 0.65 m）新增**施加前的两道闸**，
+        针对早期发现#1「吸附在制造误差（只有让误差变小时才该施加）」：
+          ① 上限闸：`drift > anchor_max_pull_m` ⇒ 拒绝（这不是"到位纠偏"，是被拽走）；
+          ② 误差闸：把信念挪到格心后，**离折线的距离不能变大**（`_error_shrinks`）⇒
+             否则拒绝。判据用"离线距离"而不是"离格心距离"：格心只是格的几何中心，
+             真正代表"车应在哪"的是折线本身；吸附若把信念推离折线，就是在制造误差。
+        两条闸都**显式记账**（`anchor_refused` + 事件 + 日志），绝不静默。
         """
         if proj is None or self._path is None or not self.anchor_enabled:
             return None
         candidates = self._anchor_candidates(proj, x, y)
         target_idx, target = -1, None
+        last_idx = len(self._path.waypoints) - 1
         for idx, wp in candidates:
-            if wp.distance_to(x, y) < self.arrival_m:
+            # ★ 末点吸附半径收紧到 `_GOAL_STOP_M`(0.03)：见模块常量注释 —— 非末点照旧。
+            radius = _GOAL_STOP_M if idx == last_idx else self.arrival_m
+            if wp.distance_to(x, y) < radius:
                 target_idx, target = idx, wp
                 break
         if target is None:
@@ -354,8 +472,47 @@ class LocalizationTask(TaskThread):
             return geo.Pose(target.x, target.y, yaw)
 
         drift = math.hypot(x - target.x, y - target.y)
+        # ---- ★闸①：位移上限 ----
+        if drift > self.anchor_max_pull_m + 1e-9:
+            self._refuse_anchor(target.block, target_idx, drift, now,
+                                f"位移 {drift:.3f} m > 上限 {self.anchor_max_pull_m:.3f} m")
+            self._anchor_idx = target_idx        # 本航点不再反复尝试（与施加后的闩锁一致）
+            return None
+        # ---- ★闸②：吸附后离线距离不得变大 ----
+        if not self._error_shrinks(target, proj):
+            self._refuse_anchor(target.block, target_idx, drift, now,
+                                "吸附后离折线的距离会变大（制造误差）")
+            self._anchor_idx = target_idx
+            return None
+        # ---- ★闸③：不得替里程计掩盖**尺度误差**（实车 17.9% 虚增的教训）----
+        susp = self._scale_suspected(target, proj)
+        if susp is not None:
+            implied, why = susp
+            self.scale_suspect = True
+            self.scale_suspect_max = max(self.scale_suspect_max, abs(implied))
+            self._refuse_anchor(target.block, target_idx, drift, now,
+                                f"疑似尺度误差（{why}）—— 不再用吸附把它掩盖掉")
+            self._anchor_idx = target_idx
+            return None
+
         self._anchor_idx = target_idx
         self.anchored += 1
+        self.drift_run = 0                       # ★ 纠回来了：连续不健康拍数归零
+        implied = self._implied_scale(target, proj)
+        if implied is not None:
+            self._implied_scales.append(implied)
+            if len(self._implied_scales) > self.implied_scale_window:
+                self._implied_scales.pop(0)
+        ds = self._along_ds(target, proj)
+        if ds is not None:
+            self._anchor_ds.append(ds)
+            if len(self._anchor_ds) > self.implied_scale_window:
+                self._anchor_ds.pop(0)
+        try:                                             # 记下本次吸附所在的弧长
+            self._last_anchor_s = float(self._path.project(target.x, target.y,
+                                                           s_hint=proj.s).s)
+        except Exception:                                # noqa: BLE001
+            self._last_anchor_s = float(proj.s)
         self._store_drift(target, drift, now)
         self.bus.publish(EV_POSE_ANCHORED, source=self.name, block=target.block,
                          index=target_idx, drift=round(drift, 4),
@@ -364,6 +521,264 @@ class LocalizationTask(TaskThread):
                   f" → 锚回格心 ({target.x:.3f}, {target.y:.3f})，yaw 不变 {yaw:+.3f} rad")
         self._report_drift(target.block, target_idx, drift, now, anchored=True)
         return geo.Pose(target.x, target.y, yaw)
+
+    def _error_shrinks(self, target, proj) -> bool:
+        """★"误差不变大"判据（t12 闸②）：把信念挪到 `target` 之后，离折线不许更远。
+
+        · 用**离线距离**（`Path.project().dist`）而不是"离格心距离"：格心只是格的几何中心，
+          车真正该在的位置是折线；吸附把点推离折线 = 制造误差。
+        · 容差 `anchor_reject_eps_m`(0.005 m)：允许"持平/噪声级变差"，挡住明显变差。
+        · 这一判据**只读**（用 `self._path.project` 直接投影，不碰 `self._s_hint` 状态）。
+        """
+        assert self._path is not None
+        try:
+            after = self._path.project(target.x, target.y, s_hint=proj.s,
+                                       window_m=self.arrival_m, allow_backward=False)
+        except Exception:                                    # noqa: BLE001 投影失败不阻断定位
+            return True                                      # 判不了就别拦（保守放行）
+        return float(after.dist) <= float(proj.dist) + self.anchor_reject_eps_m
+
+    def _along_ds(self, target, proj) -> float | None:
+        """本次吸附的**沿程修正量**（米，带符号）：>0 = 把信念往前拉，<0 = 往后拉。"""
+        assert self._path is not None
+        try:
+            after = self._path.project(target.x, target.y, s_hint=proj.s,
+                                       window_m=self.arrival_m, allow_backward=False)
+        except Exception:                                    # noqa: BLE001
+            return None
+        return float(after.s) - float(proj.s)
+
+    def _scale_suspected(self, target, proj) -> tuple[float, str] | None:
+        """★★"吸附掩盖尺度误差"判别（闸③）：**符号一致 + 幅度接近到位半径**才算疑似。
+
+        为什么不用"修正量 ÷ 段长"：段长只有 0.35 m，而单次吸附的沿程修正量天然可以到
+        `arrival_m`(0.12) —— 噪声级的一次修正除以短段长就是 30%+，会**误杀正常吸附**
+        （实测把 test_localization ⑦c 的第二次吸附也拦掉了）。
+        真正区分"里程尺度误差"与"正常到位噪声"的是**模式**：
+        ・连续 ≥3 次吸附的沿程修正量**同号**（总是往同一个方向拽）；
+        ・幅度中位数 ≥ `0.5 × arrival_m`（不是噪声级，而是稳定地差一大截）。
+        这正是实车那趟（4.55 m 里每段都往前拽、累计 69 cm）的指纹；
+        而健康车的修正量是零均值的小噪声，凑不出"连续同号 + 大偏差"。
+        返回 `(隐含尺度误差估计, 理由文本)`；不疑似返回 None。
+        """
+        ds = self._along_ds(target, proj)
+        if ds is None:
+            return None
+        window = list(self._anchor_ds) + [ds]
+        if len(window) < 3:
+            return None
+        same_sign = all(v > 0 for v in window) or all(v < 0 for v in window)
+        size = sorted(abs(v) for v in window)[len(window) // 2]
+        if not same_sign or size < 0.5 * self.arrival_m:
+            return None
+        ratio = self._implied_scale(target, proj)
+        est = ratio if ratio is not None else (ds / max(self.arrival_m, 1e-9))
+        return est, (f"连续 {len(window)} 次同向、幅度中位 {size:.3f} m ≥ "
+                     f"{0.5 * self.arrival_m:.3f} m；隐含尺度≈{est:+.1%}")
+
+    def _implied_scale(self, target, proj) -> float | None:
+        """★隐含尺度误差 = 本次吸附的**沿程修正量** ÷ 距上次吸附走过的弧长。
+
+        为什么这能看穿"吸附掩盖尺度误差"：里程虚增 ε 时，信念在**车还没到**顶点时就先到了，
+        吸附于是把信念往前拽 ε×段长 —— 这个修正量与段长之比就是 ε 本身。
+        只看"吸附次数/漂移告警"永远是健康的（实车 13/13 吸附、0 告警），
+        但这条比值会稳稳地指着 18% ⇒ 尺度误差**看得见**了。
+
+        返回 None 表示本拍无法判定（第一次吸附、段长太短、投影失败）——此时**不拦**。
+        """
+        assert self._path is not None
+        try:
+            after = self._path.project(target.x, target.y, s_hint=proj.s,
+                                       window_m=self.arrival_m, allow_backward=False)
+        except Exception:                                    # noqa: BLE001
+            return None
+        ds = float(after.s) - float(proj.s)                  # 沿程修正量（带符号）
+        base = float(proj.s) - self._last_anchor_s if self._last_anchor_s is not None else None
+        if base is None or base < 0.10:                      # 第一次 / 段太短：判不了
+            return None
+        return ds / base
+
+    def _refuse_anchor(self, block: str, index: int, drift: float, now: float,
+                       reason: str) -> None:
+        """★吸附/重锚被拒 = **显式记账**（t12）：计数 + 日志 + 遥测。
+
+        ⚠️ 刻意**不**复用 `EV_DRIFT_WARNING`：那是"漂移告警"的语义，且带"每航点至多一条"
+        的去重约定（test_localization ⑦ 直接断言它）。拒绝是**另一件事**（本可纠偏但没纠），
+        若混用会把那条去重契约搅乱 —— 所以拒绝走"计数 + 日志 + `P_MOTION_LIMIT` 载荷"，
+        同样可被逐条审计（`anchor_refused` 计数、`⛔ 吸附被拒` 日志行）。
+        """
+        self.anchor_refused += 1
+        self.drift_run += 1
+        if self._warn.allow(f"anchor_refuse:{block}#{index}", now):
+            self._log(f"⛔ 吸附被拒（{reason}）：{block}（航点 #{index}）偏差 {drift:.3f} m"
+                      f" → 保留当前信念（累计拒绝 {self.anchor_refused} 次）")
+
+    def guard_state(self) -> dict:
+        """漂移护栏的**只读**状态快照（遥测/测试/收尾台账共用）。"""
+        scales = sorted(self._implied_scales)
+        median = None
+        if scales:
+            mid = len(scales) // 2
+            median = round(scales[mid] if len(scales) % 2 else
+                           (scales[mid - 1] + scales[mid]) / 2.0, 4)
+        return {
+            "anchor_refused": self.anchor_refused,
+            "reanchored": self.reanchored,
+            "drift_run": self.drift_run,
+            "healthy_run": self.healthy_run,
+            "motion_limited_ticks": self.motion_limited_ticks,
+            "motion_limit_published": self.motion_limit_published,
+            "boundary_alerts": self.boundary_alerts,
+            "limit": (None if self._limit_state is None
+                      else {"speed_mps": self._limit_state[1], "reason": self._limit_state[2]}),
+            # ★尺度误差健康度（"吸附掩盖尺度误差"故障模式的可见化）：
+            #   `implied_scale_median` = 隐含尺度误差中位数；`scale_suspect` = 是否越过上限。
+            #   ⚠️ 本字段只做**判别与告警**，不改任何标定值（标定归队长）。
+            "implied_scale_median": median,
+            "implied_scale_n": len(self._implied_scales),
+            "scale_suspect": self.scale_suspect,
+            "scale_suspect_max": round(self.scale_suspect_max, 4),
+            "anchor_scale_max": self.anchor_scale_max,
+            "warnings": self.drift_warnings,
+            "note": "吸附会掩盖尺度误差：漂移告警为 0 **不等于**里程健康",
+        }
+
+    def _reanchor(self, proj, yaw: float, gate, now: float):
+        """★横向重锚（t12 的"重锚/自愈"路径）：在**顶点窗口内**把信念的横向分量拉回折线。
+
+        为什么只在顶点窗口内动手：**"误差变小才施加"**这条规则要落地，必须先知道
+        "车此刻应该在哪"。唯一可靠的这类时刻就是"正在过一个已知顶点"（`_warning_gate`
+        给出的弧长窗口）—— 此时车按路线就在折线上，把信念的横向残差清零是**有依据的**
+        纠偏；而在自由行驶段拉信念，就真的只是在"制造误差"（早期发现#1 的反面）。
+        三道闸：
+          ① 残差 `proj.dist ≤ drift_warn_m` → 误差本来就不大，**不动**（no-op）；
+          ② 残差 `> reanchor_pull_max_m` → 不硬拉（那是整段跑偏，不是横向噪声）⇒
+             `_refuse_anchor()` 显式记账 + 交给护栏降速/停机；
+          ③ 通过①② ⇒ 把信念移到**垂直足点**（只消横向分量、不改沿程位置），
+             按构造"离线距离 0 ≤ 原来的 dist"，即"误差确实变小了"。
+        """
+        if proj is None or self._path is None or gate is None:
+            return None
+        lat = float(proj.dist)
+        if lat <= self.drift_warn_m:
+            return None                                  # ① 不制造误差：没必要动
+        gidx, gwp = gate
+        if gidx == self._reanchor_idx:
+            # ★ 同一顶点只重锚一次：它是**幂等的**（把信念投影到垂直足点），每拍重做不会更准，
+            #   只会把计数和日志刷爆；换顶点后重新允许（与 `_anchor_idx` 同款闩锁）。
+            return None
+        if lat > self.reanchor_pull_max_m:               # ② 超上限 → 拒绝 + 记账
+            self._reanchor_idx = gidx
+            self._refuse_anchor(gwp.block, gidx, lat, now,
+                                f"横向残差 {lat:.3f} m > 重锚上限 {self.reanchor_pull_max_m:.3f} m")
+            return None
+        self._reanchor_idx = gidx
+        self.reanchored += 1
+        self.drift_run = 0
+        self._store_drift(geo.Pose(proj.x, proj.y, yaw), lat, now)
+        self.bus.publish(EV_POSE_ANCHORED, source=self.name, block=gwp.block, index=gidx,
+                         drift=round(lat, 4), x=round(proj.x, 4), y=round(proj.y, 4))
+        self._log(f"↩️ 横向重锚：{gwp.block}（航点 #{gidx}）横向残差 {lat:.3f} m"
+                  f" → 信念拉回折线 ({proj.x:.3f}, {proj.y:.3f})（只消横向分量）")
+        return geo.Pose(proj.x, proj.y, yaw)
+
+    # ------------------------------------------------------------------ #
+    #  ★信念漂移护栏（t12）：P_MOTION_LIMIT 的**写**侧
+    # ------------------------------------------------------------------ #
+    def _distance_to_boundary(self, pose) -> float | None:
+        """信念离**安全边界**还有多远（米）；边界本身用与 Safety 同源的 `geo.map_bounds`。
+
+        安全边界 = 地图外框内缩 `pursuit.map_safety_margin_m`（Safety 的越界判据同源），
+        所以这里的"还有多远"= 到那个内缩矩形的距离；在矩形内为正、越界为负。
+        """
+        margin = float(self.cfg.get("pursuit.map_safety_margin_m") or 0.0)
+        x_min, x_max, y_min, y_max = geo.map_bounds(margin)
+        dx = min(pose.x - x_min, x_max - pose.x)
+        dy = min(pose.y - y_min, y_max - pose.y)
+        return min(dx, dy)
+
+    def _update_drift_guard(self, pose, *, unhealthy: bool, now: float) -> None:
+        """把"漂移健康度 + 边界接近度"折算成一条**限速/停机请求**，写 `P_MOTION_LIMIT`。
+
+        ★ 语义约定（读侧必须遵守，见模块 `P_MOTION_LIMIT` 注释）：
+          · 键**存在且非空** → 把线速度钳到 `speed_mps` 以内（只降不升）；
+          · 键**不存在 None** → 完全 no-op，执行侧行为与没有本功能时**逐位一致**。
+        这样做是为了让 t11 的零注入大扫描在"无漂移"时拿到与现版本完全相同的结果。
+        """
+        self.drift_run = self.drift_run + 1 if unhealthy else 0
+        self.healthy_run = 0 if unhealthy else self.healthy_run + 1
+
+        dist_b = self._distance_to_boundary(pose)
+        # ---- 边界护栏：提前降速 + 告警（而不是只有越界后的硬 SAFE_STOP）----
+        boundary_level = ""
+        if dist_b is not None:
+            if dist_b <= self.boundary_stop_m:
+                boundary_level = "stop"
+            elif dist_b <= self.boundary_guard_m:
+                boundary_level = "guard"
+            if boundary_level:
+                self.boundary_alerts += 1
+                if not self._boundary_warned:
+                    self._boundary_warned = True
+                    self._log(f"⚠️ 信念已接近安全边界：离边界 {dist_b:.3f} m "
+                              f"（护栏 {self.boundary_guard_m:.2f} m / 停车 {self.boundary_stop_m:.2f} m）"
+                              f" → 请求{'停车' if boundary_level == 'stop' else '降速'}，"
+                              f"避免带着漂移撞上硬 SAFE_STOP")
+                self._log_throttled(f"boundary:{boundary_level}", now,
+                                    f"边界护栏（{boundary_level}）：离边界 {dist_b:.3f} m，"
+                                    f"限速 {self.boundary_guard_speed_mps:.2f} m/s")
+                self.bus.publish(EV_DRIFT_WARNING, source=self.name, block="",
+                                 index=-1, drift=round(-dist_b, 4),
+                                 threshold=self.boundary_guard_m, anchored=False,
+                                 refused=False, reason=f"boundary_{boundary_level}")
+            elif self._boundary_warned:
+                self._boundary_warned = False        # 离开护栏区：告警可再次触发
+
+        # ---- 漂移护栏：连续不健康 → 降速 → 停车 ----
+        level, speed, reason = "none", None, ""
+        if self.drift_run >= self.drift_stop_after:
+            level, speed, reason = "stop", 0.0, "drift_stop"
+        elif self.drift_run >= self.drift_slow_after:
+            level, speed, reason = "slow", self.drift_slow_speed_mps, "drift"
+        if boundary_level == "stop":
+            level, speed, reason = "stop", 0.0, "boundary_stop"
+        elif boundary_level == "guard" and level != "stop":
+            level, speed, reason = "slow", min(self.boundary_guard_speed_mps,
+                                               speed if speed is not None else 1e9), "boundary"
+
+        if level != "none":
+            self.motion_limited_ticks += 1
+        elif self.drift_run == 0 and self.healthy_run >= self.drift_clear_ticks:
+            level, speed, reason = "clear", None, ""
+
+        state = (level, speed, reason) if level in ("slow", "stop") else None
+        if state != self._limit_state:
+            self._limit_state = state
+            if state is None:
+                # 撤销：写 None（读侧必须把"无信号"当 no-op）
+                self.bb.set(P_MOTION_LIMIT, None, source=self.name, ts=now)
+                if level == "clear" and self.motion_limited_ticks:
+                    self._log("✅ 漂移/边界护栏解除：信念已连续 "
+                              f"{self.healthy_run} 拍干净，撤销限速请求")
+            else:
+                payload = {"speed_mps": float(speed or 0.0), "reason": reason,
+                           "drift_run": self.drift_run,
+                           "anchor_refused": self.anchor_refused,
+                           "distance_to_boundary_m": (None if dist_b is None
+                                                      else round(dist_b, 4)),
+                           # ★尺度误差健康度随限速一起上报（"吸附掩盖尺度误差"的可见化）
+                           "implied_scale_median": self.guard_state()["implied_scale_median"],
+                           "scale_suspect": self.scale_suspect,
+                           "since": now}
+                self.bb.set(P_MOTION_LIMIT, payload, source=self.name, ts=now)
+                self.motion_limit_published += 1
+                self._log(f"🛑 下发限速请求 P_MOTION_LIMIT={payload['speed_mps']:.2f} m/s"
+                          f"（原因 {reason}；连续不健康 {self.drift_run} 拍；"
+                          f"离边界 {dist_b if dist_b is None else round(dist_b, 3)} m）")
+
+    def _log_throttled(self, key: str, now: float, text: str) -> None:
+        if self._warn.allow(key, now):
+            self._log(text)
 
     def _anchor_candidates(self, proj, x: float, y: float) -> tuple[tuple[int, object], ...]:
         """吸附候选，按优先级：① 当前段末端航点 ② 其后最近的未完成航点（兜底）。
@@ -375,6 +790,7 @@ class LocalizationTask(TaskThread):
         （`dist_to_vertex + drift_warn_m >= 0`，允许顶点略在身后），且横向偏差不超过
         `max(arrival_m, drift_warn_m)` —— 吸附半径是 `arrival_m`（0.12 m），
         这个准入只是"值得算一下距离"的必要条件，不构成吸附判据本身。
+        ★ 末点例外：吸附半径在 `_anchor` 里收紧到 `_GOAL_STOP_M`(0.03)，准入条件不变。
         """
         assert self._path is not None
         pts = self._path.waypoints

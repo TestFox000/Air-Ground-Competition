@@ -6,10 +6,11 @@
 #     ~/dzrobot/start_all.sh restart    重启全部节点
 #
 #  启动顺序：底盘 -> 相机 -> 定位 -> 视觉 -> 云台 -> 循迹 -> 网页弹窗
-#  循迹节点启动后会在 AUTO_START_DELAY(默认8s) 后自动下发内置路线
+#  循迹节点启动后会在 mission.auto_start_delay_s(默认10s) 后自动下发内置路线
 #
-#  ★ 出车前建议先跑一次体检：  ~/dzrobot/tools/healthcheck.sh
-#     它会把"参数改了不起作用"这类静默故障提前揪出来。
+#  ★ 自检只在发车前 dzbrain 自己的准备窗口内做（mission.auto_start_delay_s=10：
+#     就绪日志 / 定位与安全初始化 / 出发前路线加载校验）；起栈本身不再跑额外门禁。
+#     出车体检（可选，人工按需）可另跑：  ~/dzrobot/tools/healthcheck.sh
 # ============================================================
 set -u
 
@@ -141,7 +142,8 @@ esac
 
 stop_all   # 先清场，避免残留进程抢话题
 
-# ---- 配置中心自检：静默失败是所有"改了参数不生效"问题的根源，启动时先报出来 ----
+# ---- 配置中心 YAML 可解析守卫（瞬时、不算自检）：解析失败或顶层裸键会让相机/视觉/云台
+#      三节点 abort，所以起栈前先报出来（不是门禁，只提示不拦截） ----
 echo "配置中心: $CONFIG"
 if [ -f "$CONFIG" ]; then
   if python3 -c "import yaml,sys; yaml.safe_load(open(sys.argv[1],encoding='utf-8'))" "$CONFIG" 2>/dev/null; then
@@ -160,28 +162,8 @@ if [ "$ROS_DOMAIN_ID" != "$DZ_ROS_DOMAIN" ]; then
   echo "        ⚠️  域号偏离标准值 —— 无人机侧必须跟着改 ~/dzlink_tools/dzlink.env，否则互相看不见"
 fi
 
-# ---- ★新版决策层启动门禁（2026-10-07）----
-#   为什么要拦：本项目历史上最大的坑是"静默失败"——配置/路线不对，车照样起栈，
-#   然后在场上跑飞。新版 dzbrain 自带配置校验 + 路线校验（雷/障/穿洞/U 形/射击点距离），
-#   这里在**发车前**跑一次，不通过就不起栈。
-#   应急绕过：SKIP_PRECHECK=1 bash start_all.sh restart
-#   ⚠️ 走旧核（LEGACY_PATH=1）时 dzbrain 未安装/未使用，门禁自动跳过（不阻塞回退路径）。
-if [ "${LEGACY_PATH:-0}" = "1" ]; then
-  echo "启动门禁: LEGACY_PATH=1（走旧循迹核）→ 跳过 dzbrain 校验"
-elif [ "${SKIP_PRECHECK:-0}" = "1" ]; then
-  echo "启动门禁: 已按 SKIP_PRECHECK=1 跳过（应急模式，风险自负）"
-elif python3 -c "import dzbrain" 2>/dev/null; then
-  echo "启动门禁: dzbrain --dry-run（配置 + 路线校验）..."
-  if PYTHONIOENCODING=utf-8 timeout 60 python3 -u -m dzbrain.main \
-        --config "$CONFIG" --map "$WS/config/map.yaml" --dry-run; then
-    echo "        ✅ 通过"
-  else
-    echo "        ❌ 未通过 —— 已阻止起栈（修好后重试；应急可 SKIP_PRECHECK=1）"
-    exit 2
-  fi
-else
-  echo "启动门禁: 未安装 dzbrain（跳过）—— 回退到旧循迹时属正常"
-fi
+# ---- 自检已收敛到发车前 auto_start_delay_s=10 准备窗口（dzbrain 就绪横幅），起栈路径不再跑任何门禁 ----
+
 echo ""
 echo "1/7 底盘串口 + TF + IMU ..."
 spawn 1_chassis ros2 launch dzactuator bringup.launch.py
@@ -233,8 +215,9 @@ if [ "${LEGACY_PATH:-0}" = "1" ]; then
   spawn 7_path env PYTHONUNBUFFERED=1 ros2 run car_localization path_executor_node
 else
   echo "        [新核] dzbrain —— 8 任务线程 / 通用纯追踪（启动后约 8~10 秒自动出发）"
+  echo "        [--force] 起栈前自检已卸载（用户令 2026-10-11：提速优先，标定路线不满足 R007 全图规则属预期）"
   spawn 7_path env PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 \
-    python3 -u -m dzbrain.main --config "$CONFIG" --map "$WS/config/map.yaml"
+    python3 -u -m dzbrain.main --config "$CONFIG" --map "$WS/config/map.yaml" --force
 fi
 sleep 2
 
@@ -258,7 +241,7 @@ echo "   tail -f $LOGDIR/6_judgment.log      # 射击驱动  ★看开火指令�
 echo "   tail -f $LOGDIR/7_path.log          # 循迹      ★看是否自动出发"
 echo "   tail -f $LOGDIR/1_chassis.log       # 底盘串口"
 echo ""
-echo "  出车体检:          $WS/tools/healthcheck.sh"
+echo "  出车体检(可选):    $WS/tools/healthcheck.sh"
 echo "  狙击链路自检:      ros2 topic info /LaserShot_Command   # Subscription 必须是 1"
 echo "  自瞄数值实时监控:  $WS/monitor_aim.sh"
 echo "  一键停止:          $0 stop"

@@ -36,6 +36,26 @@ P_SAFETY = "safety"                   # SafetyState：安全状态
 P_TELEMETRY = "telemetry"             # dict：遥测快照
 P_CONFIG = "config"                   # dict：配置快照（只读）
 
+# --------------------------------------------------------------------------- #
+#  ★ 共享键 `motion_limit`（限速/停机请求）—— 读写契约（t20 收口，双方引用此处）
+# --------------------------------------------------------------------------- #
+#: `P_MOTION_LIMIT`：**Localization 写**、**执行侧（pursuit 速度钳制 / 将来 Tracker）读**。
+#:
+#: 取值语义（读侧必须严格按此实现，否则会破坏"无漂移时逐位一致"的承诺）：
+#:   · `None`（或键不存在）→ **完全 no-op**：读侧一行行为都不该因此改变 ——
+#:     这是为了 t11 的"零注入大扫描"与现版本**逐位一致**；
+#:   · `{"speed_mps": float, "reason": str, "drift_run": int, "anchor_refused": int,
+#:       "distance_to_boundary_m": float | None, "since": float}`
+#:     → 把线速度**钳到 `speed_mps` 以内**：只降不升；倒车/负速度**按绝对值钳**（保号）；
+#:       `speed_mps = 0.0` 是"请求停车"，读侧必须真的给 0（**不受 `pursuit.min_speed_mps`
+#:       蠕动下限兜底**，否则请求会被下限顶回去）；`reason` 等其余字段仅供日志/遥测。
+#:   本键**不取代 Safety**：`P_SAFETY` 仍是唯一的强制停车者，这里只是"提前一脚刹车"。
+#:
+#: 为什么键名常量放在这里：写侧（`tasks/localization.py`）与读侧（`pursuit/controller.py`）
+#: 各写一份字符串就是"拼写漂移"的温床；两侧都引用本常量，并由
+#: `tests/test_motion_limit.py` 断言 `localization.P_MOTION_LIMIT == P_MOTION_LIMIT`。
+P_MOTION_LIMIT = "motion_limit"
+
 
 @dataclass(frozen=True)
 class Entry:

@@ -64,12 +64,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ..core.blackboard import (P_AIM, P_SAFETY, P_TARGET, P_TELEMETRY, Blackboard)
+from ..core.blackboard import (P_AIM, P_MISSION_PHASE, P_SAFETY, P_STOP_POINT,  # noqa: F401
+                               P_TARGET, P_TELEMETRY, Blackboard)
 from ..core.config import SCHEMA, Config
 from ..core.events import (EV_AMMO_CHANGED, EV_FIRE_ALLOWED, EV_FIRE_BLOCKED,
                            EV_HIT_CONFIRMED, EV_TARGET_FIRST_SEEN, EV_TARGET_LOST, EventBus)
 from ..core.logging import Throttle
-from ..core.state import AimState, SafetyState, TargetState
+from ..core.state import AimState, SafetyState, StopKind, StopPointState, TargetState  # noqa: E402
 from ..core.task import TaskThread
 from ..io.contract import AimStatus, OffsetObservation, ShotClass
 
@@ -526,6 +527,19 @@ class AimTask(TaskThread):
                                       cfg.get("dzrknn_dataprocess.fire_only_blue", False)))
         self._hit_hold_s = float(g("aim.hit_hold_s", self._cooldown_s))
         self._rescan_on_lost = bool(g("aim.rescan_on_lost", False))
+        # ---- ★★ 卡 t13：云台巡迹锁止（用户 2026-10-11 指令）----
+        # 用户原话：「循迹期间云台保持不动（锁止），到达最佳射击点（停站）之后云台才开始旋转、
+        # 寻找目标」。实车首跑失败形态：`mission.scan_mode='continuous'` 让 mission 开局就发
+        # `scan_request=2`，整趟巡迹云台一直在转（瞄 SCAN 全程）→ 视觉不稳 + 到站 G10 打 3 发 0 命中。
+        # 因此 aim（云台任务）改为**自己掌管扫描开关**：行进/寻迹一律下发"停扫"（锁止），
+        # 只有进入 `StopKind.SHOOT` 停站（最佳射击点）才下发"持续扫描"（起转寻靶），
+        # 离开停站（含 30s 超时放行、FINISH）立刻回到锁止。
+        # 机械语义说明：本仓 bridge 没有"归中"指令，`scan_request=0` 就是"停扫/保持当前位"
+        # —— 与 C++ 侧既有语义一致（`survey_gimbal_fire.md` §2.2），不新增机械动作。
+        self.gimbal_lock_enabled = bool(g("aim.gimbal_lock_enabled", True))
+        self.gimbal_lock_scan = int(g("aim.gimbal_lock_scan_request", 0))
+        self.gimbal_seek_scan = int(g("aim.gimbal_seek_scan_request", 2))
+        self.gimbal_seek_shoot_only = bool(g("aim.gimbal_seek_on_shoot_stop_only", True))
         self._lead_eps = float(g("aim.lead_eps_px", 0.5))
         #: ★ 许可最短保持时间：许可一旦成立，即使冷却已经开始计时，也再保持这么久。
         #:   为什么需要：`fire_ready` 是给云台（100Hz 硬实时）采的**电平**信号，
@@ -593,6 +607,12 @@ class AimTask(TaskThread):
         self._last_lead = 0.0
         self._last_tick_at: float | None = None
         self._last_cmd: dict[str, Any] = {}
+        # ---- ★云台巡迹锁止的状态（t13）----
+        self._gimbal_seek = False           # 当前是否允许转台搜索（= 在最佳射击点停站内）
+        self._gimbal_cmd: int | None = None  # 上次下发的 scan_request（None = 还没下发过）
+        self.gimbal_lock_ticks = 0          # 处于锁止的拍数（遥测/验收用）
+        self.gimbal_seek_ticks = 0          # 处于可起转搜索的拍数
+        self.gimbal_switches = 0            # 实际下发开关切换的次数（应远小于拍数）
 
         # ---- ★ 构造即发布安全初值 ----
         # 为什么放在构造函数而不是 `setup()`：`setup()` 只在真线程 `start()` 时跑，
@@ -685,6 +705,9 @@ class AimTask(TaskThread):
         except Exception:                       # noqa: BLE001  鸭子类型替身可能没实现
             manual = False
         self._aim_status = int(self.bridge.aim_status())
+
+        # ---- 5b. ★云台巡迹锁止（t13）：行进中锁止，只有最佳射击点停站才起转 ----
+        self._update_gimbal_gate(now)
 
         # ---- 6. 开火判据 ----
         ready, reason = self._evaluate(now, has_target, safety, manual)
@@ -992,6 +1015,56 @@ class AimTask(TaskThread):
         self._blocked_reason = REASON_OK
         self._emit_ready(True)
 
+    def _update_gimbal_gate(self, now: float) -> None:
+        """★★云台巡迹锁止（卡 t13）：**行进中不动，到最佳射击点才起转寻靶**。
+
+        判据只看两样**已经存在**的事实（不新增状态机、不抢 Mission 的停站判定）：
+          · `P_STOP_POINT`（Mission 写、本任务读）：`active` 且 `kind == StopKind.SHOOT`
+            ⇒ "正在最佳射击点停站" ⇒ 允许转台搜索；
+          · 其余全部情形（DRIVE 巡迹 / 到点未停稳 / SCAN 类停站 / 停站已 DONE / FINISH）
+            ⇒ **锁止**（下发"停扫"，云台保持当前位不动）。
+
+        三个"绝不破坏"：
+          ① **停站判定仍归 Mission**（本方法只读 `P_STOP_POINT`，不写任何停站状态）；
+          ② **30 s 超时放行**仍由 Mission 的 `shot_timeout_s/lock_timeout_s` 决定 —— 超时后
+             `StopPointState` 被置为 DONE/离开停站 ⇒ 本方法自然回到锁止，不干预计时；
+          ③ **发弹统计**（`_account`/`_shots_seen`/`_hits_total`/`permits`）完全不碰。
+
+        下发策略：**只在取值变化时发**（`_gimbal_cmd` 去重）—— 20 Hz 每拍重发会把话题刷爆，
+        而 C++ 侧对 `scan_request` 是"电平/保持"语义（发一次即生效）。
+        性能：`aim.gimbal_lock_enabled=False` 时本方法**完全不动**（回到旧行为，便于对照）。
+        """
+        if not self.gimbal_lock_enabled:
+            return
+        stop = self.bb.get(P_STOP_POINT)
+        phase = self.bb.get(P_MISSION_PHASE)
+        seeking = False
+        why = "巡迹/非射击停站"
+        if isinstance(stop, StopPointState) and stop.active:
+            kind = str(getattr(stop, "kind", "") or "")
+            if self.gimbal_seek_shoot_only:
+                seeking = (kind == StopKind.SHOOT)
+            else:
+                seeking = kind in (StopKind.SHOOT, StopKind.SCAN)
+            if seeking:
+                why = f"最佳射击点停站 {stop.block or '#' + str(stop.index)}（kind={kind}）"
+        self._gimbal_seek = bool(seeking)
+        if seeking:
+            self.gimbal_seek_ticks += 1
+        else:
+            self.gimbal_lock_ticks += 1
+        want = int(self.gimbal_seek_scan if seeking else self.gimbal_lock_scan)
+        if want == self._gimbal_cmd:
+            return
+        self._gimbal_cmd = want
+        self.gimbal_switches += 1
+        try:
+            self.bridge.publish_scan_request(want)
+        except Exception:                       # noqa: BLE001  话题缺失不该杀任务
+            return
+        self._log(f"云台{'起转搜索' if seeking else '锁止'}：scan_request={want}"
+                  f"（{why}；阶段={phase}；累计切换 {self.gimbal_switches} 次）")
+
     def _emit_ready(self, ready: bool) -> None:
         try:
             self.bridge.publish_fire_ready(bool(ready))
@@ -1081,6 +1154,11 @@ class AimTask(TaskThread):
             "ammo": self._ammo_prev,
             "cool_left_s": self._permit.cooldown_left(now, self._cooldown_s),
             "rescan_requested": bool(self._rescan_requested),
+            # ★卡 t13：云台巡迹锁止状态（遥测/验收可读；`scan_request` 的当前下发值也在里面）
+            "gimbal_seek": bool(self._gimbal_seek),
+            "gimbal_cmd": self._gimbal_cmd,
+            "gimbal_lock_ticks": int(self.gimbal_lock_ticks),
+            "gimbal_seek_ticks": int(self.gimbal_seek_ticks),
             "dt": float(dt),
             "at": now,
         }
@@ -1093,7 +1171,9 @@ class AimTask(TaskThread):
         if (self._lost_at is not None and not self._rescan_requested
                 and (now - self._lost_at) >= self._lost_s):
             self._rescan_requested = True
-            if self._rescan_on_lost:
+            # ★卡 t13：**只有已到最佳射击点、云台允许起转搜索时**才重发扫描。
+            #   巡迹途中丢靶重发 2 会把刚锁止的云台重新解锁 —— 正是用户要消灭的行为。
+            if self._rescan_on_lost and self._gimbal_seek:
                 # ⚠️ 只发 2（持续），**绝不发 1**（readme【十】31：到点发 1 会把持续扫描降级成单趟）；
                 #    发 0 会在目标短暂消失时彻底停扫，是更糟的失败方向。
                 #    C++ 侧 TRACK 期间忽略 scan_request、SCAN 期间 ≥1 只改模式不重置进度（survey §2.2）

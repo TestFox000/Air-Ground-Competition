@@ -16,7 +16,9 @@ r"""部署通道测试 —— 钉死 2026-10-08 真机踩到的两个"静默失�
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import inspect
 import io
 import pathlib
 import re
@@ -119,7 +121,7 @@ check("少推文件时 mismatch 为空", mismatch == [])
 check("单文件清单用文件名做 key", set(dep.local_manifest("config/robot.yaml")) == {"robot.yaml"})
 
 
-section("③b 推送后归一化：对账基准必须算上「工具自己改的那一处」，否则假警报")
+section("③b auto_start 改写：默认不碰，只有 --force-no-autostart 才归一化（2026-10-11 定版）")
 check("归一化只把 auto_start: true 改成 false",
       dep.normalize_auto_start("auto_start: true") == "auto_start: false")
 check("归一化不动 auto_start: false（幂等）",
@@ -129,24 +131,30 @@ check("归一化不碰别的键",
 check("POST_PUSH_TRANSFORM 只登记被推送且会被车端改写的文件",
       set(dep.POST_PUSH_TRANSFORM) <= {loc for loc, _ in dep.PUSH_FILES})
 
-# 忠实复刻车端 read_text/write_text 语义：改动了才写回，写回即 LF
+# ★ 默认（apply_transform=False）：push 不碰 auto_start，对账基准 = 原始字节
 _crlf_true = b"a: 1\r\nauto_start: true\r\n"
-check("★ 有改动 → 期望内容是 LF 且已归一化",
-      dep.expected_remote_bytes("config/robot.yaml", _crlf_true) == b"a: 1\nauto_start: false\n")
-_crlf_false = b"a: 1\r\nauto_start: false\r\n"
-check("★ 无改动 → 期望内容原样保留（车端不写回，CRLF 也得保留）",
-      dep.expected_remote_bytes("config/robot.yaml", _crlf_false) == _crlf_false)
-_raw = b"whatever\r\n"
-check("未登记归一化的文件按原始字节对账",
-      dep.expected_remote_bytes("config/map.yaml", _raw) == _raw)
+check("★ 默认不碰 auto_start：原始字节（CRLF 也保留）就是对账基准",
+      dep.expected_remote_bytes("config/robot.yaml", _crlf_true) == _crlf_true)
 
-# 真实文件：车端 robot.yaml 的 sha256 应该等于「归一化后」而不是「原始字节」
+# --force-no-autostart（apply_transform=True）：忠实复刻车端 read_text/write_text 语义
+check("★ 强制改写且有改动 → 期望内容是 LF 且已归一化",
+      dep.expected_remote_bytes("config/robot.yaml", _crlf_true, apply_transform=True) == b"a: 1\nauto_start: false\n")
+_crlf_false = b"a: 1\r\nauto_start: false\r\n"
+check("★ 强制改写但无改动 → 期望内容原样保留（车端不写回，CRLF 也得保留）",
+      dep.expected_remote_bytes("config/robot.yaml", _crlf_false, apply_transform=True) == _crlf_false)
+_raw = b"whatever\r\n"
+check("未登记归一化的文件按原始字节对账（即便 apply_transform=True）",
+      dep.expected_remote_bytes("config/map.yaml", _raw, apply_transform=True) == _raw)
+
+# 真实文件：默认 push 的对账基准必须是**原始字节**（不再强制 auto_start=false）
 _rp = WS / "config" / "robot.yaml"
 _raw_bytes = _rp.read_bytes()
-_expected = dep.expected_remote_bytes("config/robot.yaml", _raw_bytes)
-check("★ 本地 robot.yaml 含 auto_start: true（这正是不发车闸门的输入）",
+check("★ 本地 robot.yaml 含 auto_start: true（默认 push 不再改它）",
       b"auto_start: true" in _raw_bytes or b"auto_start:true" in _raw_bytes)
-check("★ 对账基准用的是归一化内容，不是原始字节",
+check("★ 默认对账基准 = 原始字节（push 不碰 auto_start）",
+      dep.expected_remote_bytes("config/robot.yaml", _raw_bytes) == _raw_bytes)
+_expected = dep.expected_remote_bytes("config/robot.yaml", _raw_bytes, apply_transform=True)
+check("★ 强制改写时对账基准用归一化内容，不是原始字节",
       dep.sha256_bytes(_expected) != dep.sha256_bytes(_raw_bytes),
       "若相等说明归一化没生效 → 会重现'假警报'或'假通过'")
 _raw_text = _raw_bytes.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
@@ -195,23 +203,34 @@ check("healthcheck.sh 语法基本自洽：if/then/fi 数量配平",
       and _hc.count("fi\n") >= _hc.count("\nif ") - _hc.count("elif "),
       f"if={_hc.count('if ')} fi={_hc.count('fi')}")
 
-section("⑥ start_all.sh 必须「默认新核 + 可回退 + 保住现场适配」")
+section("⑥ start_all.sh 必须「默认新核 + 可回退 + 保住现场适配 + 起栈前不跑自检」")
 #  为什么钉这条：start_all.sh 在本地与车里**分叉过**，而且方向相反 ——
 #    · 车上那份有现场适配：ROS 域号钉在 dzros.env（无人机联调事故的修复）、
 #      5b 自瞄状态 Int32→UInt8 兼容转发、-u 无缓冲（否则日志长时间 0 字节被误判卡死）；
 #    · 本地那份有 dzbrain 接线与启动门禁。
 #  直接 deploy 会用本地版**冲掉现场适配**（无人机链路与网页状态又坏）；不 deploy 则
-#  **重启车就回到旧核**。所以这里把三件事同时钉死，任何一项被丢掉都立刻红。
+#  **重启车就回到旧核**。所以这里把现场适配与新核接线同时钉死，任何一项被丢掉都立刻红。
+#  ★ 2026-10-11 用户定版：**自检只能存在于小车发车前** —— 即 dzbrain 自己那
+#     mission.auto_start_delay_s=10 的准备窗口（就绪日志 / 定位与安全初始化 /
+#     出发前路线加载校验）。起栈前不再跑任何门禁，否则每改一次配置都要在起栈时
+#     再等一遍校验，拖慢测试进度。因此「启动门禁」整段（SKIP_PRECHECK / --dry-run）
+#     必须从 start_all.sh 里**不存在**；YAML 可解析守卫（瞬时、不算自检）保留。
 _sa = (WS / "start_all.sh").read_text(encoding="utf-8")
 for _need, _why in (
         ("python3 -u -m dzbrain.main", "节点 7 默认必须是新核（否则重启回到旧核）"),
         ("LEGACY_PATH", "必须留一键回退旧核的开关"),
         ("ros2 run car_localization path_executor_node", "回退路径要指向 install 入口"),
-        ("SKIP_PRECHECK", "启动门禁要有应急绕过（否则配置一坏就完全起不来）"),
-        ("--dry-run", "启动门禁 = dzbrain 配置+路线校验"),
         ("dzros.env", "★现场适配：ROS 域号必须钉住（否则无人机/网页静默看不见）"),
         ("PYTHONUNBUFFERED", "★现场适配：无缓冲（否则日志 0 字节被误判卡死）")):
     check(f"start_all.sh 覆盖 {_need}（{_why}）", _need in _sa)
+check("★ 起栈前不跑任何自检门禁（自检只在发车前 10s 窗口，2026-10-11 用户定版）",
+      "SKIP_PRECHECK" not in _sa and "--dry-run" not in _sa and "启动门禁" not in _sa,
+      "SKIP_PRECHECK / --dry-run / 启动门禁 必须都已从 start_all.sh 删除")
+check("★ python3 -u -m dzbrain.main 只在节点 7 真启动处出现 1 次（门禁已删，不再有 dry-run 那次）",
+      _sa.count("python3 -u -m dzbrain.main") == 1,
+      f"count={_sa.count('python3 -u -m dzbrain.main')}")
+check("★ YAML 可解析守卫保留（瞬时、防三节点 abort，不算自检）",
+      "yaml.safe_load" in _sa)
 #  ⚠️ 这里**不要**锚定 `7/8 循迹` / `5b_aimshim` 这类会随节点数变化的东西 —— 实测踩过：
 #     工作区把 8 节点删成 7 节点（浏览器控制台下线）后，锚点失配 → 切块长度 0 → 3 条断言全红，
 #     而代码其实是好的。锚点必须锚在**结构**上（`spawn 7_path` 的位置），不是文案上。
@@ -223,12 +242,36 @@ check("★节点 7 是二选一分支：旧核入口 + 新核启动都在同一�
 check("★节点 7 分支只启动**一个**（不是顺序起两个）",
       _n7.count("spawn 7_path") == 2 and _n7.count("if ") == 1,
       f"spawn7={_n7.count('spawn 7_path')} if={_n7.count('if ')}")
-check("★门禁用 --dry-run、节点 7 才是真启动（两者不能混）",
-      _sa.count("python3 -u -m dzbrain.main") == 2
-      and "--dry-run" in _sa.split("python3 -u -m dzbrain.main")[1]
-      and "--dry-run" not in _sa.split("python3 -u -m dzbrain.main")[2],
-      "门禁=校验，节点7=启动")
-check("★启动门禁在走旧核时自动跳过（不阻塞回退路径）",
-      "LEGACY_PATH=1（走旧循迹核）→ 跳过 dzbrain 校验" in _sa)
+
+section("⑦ 自检简化契约：all 不跑 verify / push 默认不碰 auto_start（2026-10-11 用户定版）")
+#  为什么钉这条：自检只能存在于小车**发车前** dzbrain 自己的 10s 准备窗口；部署/起栈环节
+#  的自检全部简化或取消 —— 配置+路线门禁与 bench 冒烟若被人加回 verify 或 all，这里立刻红。
+_verify_src = inspect.getsource(dep.cmd_verify)
+check("★ verify 不再跑配置+路线门禁（config_selfcheck --quiet 命令已移除）",
+      "config_selfcheck.py --quiet" not in _verify_src)
+check("★ verify 不再跑 bench 冒烟", "--bench" not in _verify_src)
+check("verify 保留 dzbrain 包/入口存在性检查", "ros2 pkg executables dzbrain" in _verify_src)
+check("verify 保留云台补丁符号检查（证明补丁已编入）", "use_external_fire_gate" in _verify_src)
+
+_all_buf = io.StringIO()
+with contextlib.redirect_stdout(_all_buf):
+    _rc = dep.main(["all", "--dry-run"])
+check("★ all --dry-run 正常走完（exit 0）", _rc == 0, f"rc={_rc}")
+_all_out = _all_buf.getvalue()
+check("★ all 不再自动跑 verify（输出里无配置门禁/bench 步骤）",
+      "config_selfcheck.py --quiet" not in _all_out and "--bench" not in _all_out)
+check("all 以 backup→push→build 收尾（部署完成横幅）", "部署完成" in _all_out)
+
+_push_buf = io.StringIO()
+with contextlib.redirect_stdout(_push_buf):
+    _rc = dep.main(["push", "--dry-run"])
+check("★ push 默认不强制 auto_start=false",
+      _rc == 0 and "强制 auto_start=false" not in _push_buf.getvalue())
+
+_flag_buf = io.StringIO()
+with contextlib.redirect_stdout(_flag_buf):
+    _rc = dep.main(["push", "--dry-run", "--force-no-autostart"])
+check("★ --force-no-autostart 显式触发强制改写",
+      _rc == 0 and "强制 auto_start=false" in _flag_buf.getvalue())
 
 finish()
