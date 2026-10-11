@@ -150,9 +150,40 @@
 
 ---
 
-*最后更新：2026-10-12 02:01 经理（每小时巡检）*
+*最后更新：2026-10-12 03:01 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 02:01）
+## 7. 本轮巡检非硬件推进（2026-10-12 03:01）
+
+### ✅ 代码base健康
+- `pytest tests/` 128 passed in 17.31s（无回归）
+
+### ✅ 模型发布指针确认无误
+- `current_hbb_detector` → `hbb_detector_7cls_distill_20261011.onnx`（36.66MB，契约 [1,3,1280,1280]→[1,11,33600]）
+- `current_cell_classifier` → `cell_classifier_v4c_ft_20261010.onnx`（4.13MB）
+
+### ✅ 5090 监控脚本健康（已运行 6h+）
+- 两个 `watch_5090_v4d_seed.py` 后台运行中（PID 33984 系统Python + 37436 venv Python）
+- 脚本 `wait_ssh()` 每 60s 重试连接，连通即自动监控训练+下载产物
+- seed157/v4d/target_merged 训练状态未知（5090 不可达）
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/200（无变化，157 JSON + 157 txt）
+
+### 📋 当前无可推进非硬件工作
+- 所有软件任务（7cls检测、格号识别、路径规划、朝向对齐、UDP链路）均已就绪
+- seed157/v4d/target_merged 数据集已就绪，等待 5090 恢复后自动部署训练
+- M0-1/M0-2 待实车，M0-3 待 Orin，其余 M0 项已完成
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 02:01）
 
 ### ✅ 模型 ONNX 契约冒烟测试通过（非硬件推进）
 - **7cls 检测器**：`hbb_detector_7cls_distill_20261011.onnx` 输入 [1,3,1280,1280] → 输出 [1,11,33600]，CPU 推理 OK
