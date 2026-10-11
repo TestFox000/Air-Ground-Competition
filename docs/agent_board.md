@@ -150,9 +150,36 @@
 
 ---
 
-*最后更新：2026-10-11 22:01 经理（每小时巡检）*
+*最后更新：2026-10-11 23:02 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-11 22:01）
+## 7. 本轮巡检非硬件推进（2026-10-11 23:02）
+
+### ✅ 数据集与部署脚本全量就绪确认
+- **seed_157**：134 train + 23 val，363 框全部 w>0 h>0（0 无效标签），已部署 5090（训练状态待连回确认）
+- **v4d**：`cellv4d_upload_v2.zip`（218.4MB，25236 文件，正确 cell_labels/ 结构）就绪，deploy 脚本 V4D_ZIP 已指向 v2
+- **target_merged**：652 帧（555 train + 97 val，6类），`target_merged_upload.zip`（631.9MB）就绪，deploy 脚本已验证（imgsz=960, batch=32, epochs=150）
+- 5090 恢复后可一键部署 v4d + target_merged 训练
+
+### ✅ 代码base健康
+- `pytest tests/` 128 passed in 19.00s（无回归）
+
+### ✅ 模型发布指针确认
+- `current_hbb_detector` → `hbb_detector_7cls_distill_20261011.onnx`（38.44MB，契约 [1,3,1280,1280]→[1,11,33600]）
+- `current_cell_classifier` → `cell_classifier_v4c_ft_20261010.onnx`
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` NoValidConnectionsError
+- seed157 训练状态未知，v4d/target_merged 部署待重连
+- 两个 `watch_5090_v4d_seed.py` 后台运行中（PID 33984 + 37436），连通即自动监控+下载
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/357（无变化）
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-11 22:01）
 
 ### ✅ 修复 deploy_5090_v4d_seed.py 的 V4D_ZIP 路径
 - 原 `V4D_ZIP` 指向 `cellv4d_upload.zip`（113.6MB，旧版结构错误：缺 cell_labels/ + v4c 图片扁平化）
