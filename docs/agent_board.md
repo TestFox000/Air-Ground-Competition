@@ -150,9 +150,43 @@
 
 ---
 
-*最后更新：2026-10-12 06:07 经理（每小时巡检）*
+*最后更新：2026-10-12 07:03 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 06:07）
+## 7. 本轮巡检非硬件推进（2026-10-12 07:03）
+
+### ✅ 非硬件推进：提交关键部署脚本入库
+- `tools/ml/deploy_target_merged.py`（标靶合并数据集部署脚本）此前未入库，5090恢复后需用其上传652帧数据集并启动训练
+- `tools/ml/merge_target_dataset.py`（seed_157 + manual_hq_5合并脚本，含green target→green bucket、r'r/RR→red bucket手误修正映射）
+- `tools/ml/gen_widget.py`（标注预览组件生成）
+- 三个脚本均通过 `py_compile` 语法校验，watch脚本也已覆盖target_merged产物下载
+
+### ✅ 代码base健康
+- `pytest tests/` 128 passed in 16.19s（无回归，0 skipped）
+
+### ✅ watch 脚本健康（3 实例运行中）
+- PID 41148（系统Python）+ 42360（venvPython）+ 42708，均于 05:06:37 启动
+- 连通 5090 后自动监控 v4d + seed157 + target_merged 三个训练并下载产物
+- `E:\ml_datasets\downloaded\` 尚无 v4d/seed157/target_merged 产物（5090不可达）
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/200（无变化）
+
+### 📋 当前无可推进非硬件工作
+- 所有软件任务（7cls检测、格号识别、路径规划、朝向对齐、UDP链路）均已就绪
+- seed157/v4d/target_merged 数据集 + 部署脚本 + watch监控全链路就绪，等待 5090 恢复后自动部署训练
+- M0-1/M0-2 待实车，M0-3 待 Orin，其余 M0 项已完成
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 06:07）
 
 ### ✅ 非硬件推进：更新 finish_line_analysis.md 瓶颈分析文档
 - 原文档停留在 2026-10-09，7cls 仍标为 "epoch 21/75"，格号识别标为 "v4c训练中"
