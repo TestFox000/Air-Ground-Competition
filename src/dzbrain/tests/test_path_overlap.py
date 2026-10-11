@@ -118,7 +118,7 @@ try:
     from dzbrain.route.parser import parse_mission
     ws = pathlib.Path(__file__).resolve().parents[3]
     cfg = Config.load(str(ws / "config" / "robot.yaml"))
-    field = parse_mission(cfg.get("route.tokens") or [])
+    field = parse_mission(cfg.get("mission_blocks") or [])
     fpath = Path(field)
     rev = field.reverse_segments()
     # ★ 2026-10-09 设计变更（实车铁证）：底盘**不支持倒车**（决定性实验：发 linear.x<0，
@@ -128,8 +128,8 @@ try:
           len(rev) == 0, f"reverse_segments={rev}")
     piv_blocks = [field.blocks()[i + 1] for i in range(1, fpath.segment_count)
                   if fpath.corner_turn_deg(i) >= 135.0]
-    check("★折返点全部转为 ≥135° 的 PIVOT 掉头（E11 / A6 / D6 各一处）",
-          sorted(piv_blocks) == ["A6", "D6", "E11"], f"pivots={piv_blocks}")
+    check("★折返点全部转为 ≥135° 的 PIVOT 掉头（G10 / A9 / F3 各一处）",
+          sorted(piv_blocks) == ["A9", "F3", "G10"], f"pivots={piv_blocks}")
     # 找 F11→E11→F11 这条回折（same-line backtrack，现在走 PIVOT 而非倒车）
     blocks = field.blocks()
     backtrack = [i for i in range(len(blocks) - 2)

@@ -29,6 +29,19 @@
 ★ 时间来源一律走构造注入的 `clock`（默认真实 `time.monotonic`），三段超时全部基于它，
   测试用 `FakeClock` 快进即可 —— 任务内**不得**直接调 `time.time()`。
 
+★ 自动规划（任务卡 B，2026-10-08）：`planner.auto_plan_enabled: true` 时**启动即自己算路** ——
+  读 `planner.map_path` 的地图 → `route.planner.plan_route(..., allow_reverse=...)` →
+  成功就用 `PlanResult.tokens` 当执行路线（日志打**完整 token 列表 + 规划耗时(ms)**，
+  横幅标「路线来源：自动规划」）。失败语义按 `planner.fallback_to_tokens`：
+  `true` → warn（含异常类型+消息）后回退 `route.tokens`，**仍进入 DRIVE**；
+  `false` → error + **停在 IDLE 不出发**（绝不 publish `EV_MISSION_STARTED`）。
+  规划入口 `plan_route_from_config()` 与 `python -m dzbrain --plan-only` **共用同一段代码**
+  —— 否则"静态规划通过"不等于"车上规划通过"，那种绿灯毫无意义。
+  ⚠️ `planner.*` 目前**未登记进 `core/config.py` 的 SCHEMA**（不在本卡允许改动范围内）：
+  `Config.validate()` 会给这 5 个键各记一条 "未知配置段" warn（不是 error，门禁仍过），
+  且键名拼错不会被 SCHEMA 兜住 —— 建议收口时补进 SCHEMA 并把 `planner.` 加进
+  `known_prefixes`。
+
 ⚠️ SCHEMA 缺键（本次未改 `core/config.py`，故用带默认值的 `cfg.get`）：
   `mission.shots_per_stop` / `mission.settle_time_s` / `mission.settle_eps_m` /
   `mission.settle_speed_mps` / `mission.lock_timeout_s` / `mission.shot_timeout_s` /
@@ -40,7 +53,8 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+import pathlib
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ..core import geometry as geo
@@ -58,10 +72,155 @@ from ..route.model import Route, Waypoint
 from ..route.parser import parse_mission, parse_reset, parse_token
 from .tracker import PIVOT_DONE_KEY, TRACKER_CMD_KEY, PivotPhase
 
-__all__ = ["MissionTask", "MISSION_STATE_KEY"]
+__all__ = ["MissionTask", "MISSION_STATE_KEY", "plan_route_from_config", "resolve_map_path",
+           "PlanOutcome", "AutoPlanBlocked", "ROUTE_SOURCE_AUTO", "ROUTE_SOURCE_MANUAL"]
 
 #: 遥测键：Mission 的当前上下文（停站点/航点/用时）
 MISSION_STATE_KEY = "mission_state"
+
+# --------------------------------------------------------------------------- #
+#  ★ 自动规划（任务卡 B）：路线来源标注 + 规划入口
+# --------------------------------------------------------------------------- #
+#: 横幅/日志里的"路线来源"字样（验收项要求原文出现这两个词）
+ROUTE_SOURCE_AUTO = "自动规划"
+ROUTE_SOURCE_MANUAL = "手动配置"
+#: 外部命令（/nav/waypoint）载入的路线
+ROUTE_SOURCE_COMMAND = "外部命令"
+
+#: 默认地图路径（相对配置文件目录 / 相对工作区，二者按序解析）
+DEFAULT_MAP_PATH = "config/map.yaml"
+_DEFAULT_PLAN_SECONDS = 2.0
+
+
+class AutoPlanBlocked(RuntimeError):
+    """`planner.fallback_to_tokens=false` 且规划失败 —— 停在 IDLE，**绝不**带病出车。"""
+
+
+@dataclass
+class PlanOutcome:
+    """一次自动规划的结果（**不抛异常**，失败信息全在 `error` 里，便于日志与测试断言）。"""
+
+    ok: bool = False
+    tokens: list[str] = field(default_factory=list)
+    elapsed_ms: float = 0.0
+    error: str = ""                      # 失败时 "<异常类型>: <消息>"
+    map_path: str = ""                   # 实际用的地图文件（已解析成绝对路径）
+    allow_reverse: bool = False
+    route_len_m: float = 0.0
+    reverse_segments: int = 0
+    cost: float = 0.0
+
+    @property
+    def source(self) -> str:
+        return ROUTE_SOURCE_AUTO if self.ok else ""
+
+    @property
+    def mode(self) -> str:
+        return "允许倒车" if self.allow_reverse else "无倒车"
+
+
+def workspace_root() -> pathlib.Path:
+    """工作区根目录（`<ws>/src/dzbrain/dzbrain/tasks/mission.py` → `parents[4]`）。
+
+    ⚠️ 这里是 **parents[4]** 不是 [3]：`tasks/` 比 `main.py` 深一层
+    （`main.py` 在 `<ws>/src/dzbrain/dzbrain/`，其 `parents[3]` 才是 `<ws>`）。
+    取错一位会让"相对工作区"的地图候选变成 `<ws>/src/config/map.yaml` —— 实测
+    `python -m dzbrain --plan-only` 报 `FileNotFoundError: 地图文件不存在:
+    D:\\...\\dzrobot_v2\\src\\config\\map.yaml`，正好把这个 off-by-one 暴露出来。
+    """
+    return pathlib.Path(__file__).resolve().parents[4]
+
+
+def config_dir(cfg: Any) -> pathlib.Path | None:
+    """配置文件所在目录（`Config.from_dict` 造的配置没有真实文件 → None）。"""
+    src = str(getattr(cfg, "source", "") or "")
+    if not src or src in ("<memory>", "<dict>"):
+        return None
+    return pathlib.Path(src).parent
+
+
+def resolve_map_path(cfg: Any = None, spec: str | None = None) -> pathlib.Path:
+    """地图路径解析顺序（任务卡 B 规格）：**绝对路径 → 相对配置文件目录 → 相对工作区**。
+
+    三个候选按序 `is_file()`；都不存在时返回**工作区候选**（调用方据此报"地图文件不存在"，
+    错误信息里能看到实际尝试的路径）。本函数不抛异常、也不读文件内容。
+    """
+    text = spec if spec is not None else (cfg.get("planner.map_path") if cfg is not None else None)
+    text = str(text or DEFAULT_MAP_PATH)
+    raw = pathlib.Path(text).expanduser()
+    if raw.is_absolute():
+        return raw
+    cands: list[pathlib.Path] = []
+    cdir = config_dir(cfg) if cfg is not None else None
+    if cdir is not None:
+        cands.append(cdir / raw)
+    cands.append(workspace_root() / raw)
+    for cand in cands:
+        if cand.is_file():
+            return cand
+    return cands[-1]
+
+
+def _read_map_yaml(path: pathlib.Path) -> dict:
+    """读地图 YAML（失败即抛，由 `plan_route_from_config` 统一转成 `PlanOutcome.error`）。"""
+    import yaml                                   # 车上/本地都有 PyYAML（core/config.py 同款）
+
+    if not path.is_file():
+        raise FileNotFoundError(f"地图文件不存在: {path}")
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"地图文件不是 YAML 映射（顶层应为 dict）: {path}")
+    return raw
+
+
+def plan_route_from_config(cfg: Any, *, map_path: str | None = None,
+                           log: Callable[[str], None] | None = None) -> PlanOutcome:
+    """按 `planner.*` 配置规划一条路线 —— **永不抛异常**（失败 → `ok=False` + `error`）。
+
+    调用契约（与任务卡 A 冻结的规划器 API 一致，本文件**只消费不修改** `route/`）：
+        `plan_route(map_cfg, cfg, allow_reverse=bool, max_seconds=float, source=str) -> PlanResult`
+        `PlanResult.tokens: list[str]` / `.elapsed_ms: float` —— 失败抛 `PlannerError`。
+
+    ★ 宽捕获 `Exception`：任何规划器内部错误都必须变成"可回退的失败"，
+      绝不允许把 MissionTask 一起炸掉（宁可漏规划，不可卡死）。
+    """
+    want_reverse = bool(cfg.get("planner.allow_reverse", False))
+    try:
+        budget = float(cfg.get("planner.max_seconds", _DEFAULT_PLAN_SECONDS)
+                       or _DEFAULT_PLAN_SECONDS)
+    except (TypeError, ValueError):
+        budget = _DEFAULT_PLAN_SECONDS
+    try:
+        pivot_penalty = float(cfg.get("planner.pivot_penalty", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        pivot_penalty = 0.0
+    path = resolve_map_path(cfg, map_path if map_path is not None
+                            else cfg.get("planner.map_path"))
+    map_text = str(path)
+    try:
+        raw = _read_map_yaml(path)
+        from ..route import planner as PL          # ★ 惰性导入：无规划器时也能 import 本模块
+        res = PL.plan_route(raw, cfg, allow_reverse=want_reverse,
+                            pivot_penalty=pivot_penalty,
+                            max_seconds=budget, source=map_text)
+        tokens = [str(t) for t in (res.tokens or [])]
+        if not tokens:
+            raise ValueError("规划器返回了空 token 列表")
+        return PlanOutcome(
+            ok=True, tokens=tokens, elapsed_ms=float(getattr(res, "elapsed_ms", 0.0) or 0.0),
+            error="", map_path=map_text, allow_reverse=want_reverse,
+            route_len_m=float(getattr(res, "polyline_m", 0.0) or 0.0),
+            reverse_segments=int(getattr(res, "reverse_segments", 0) or 0),
+            cost=float(getattr(res, "cost", 0.0) or 0.0),
+        )
+    except Exception as exc:                       # noqa: BLE001  ★ 规划失败一律回退，不崩
+        msg = f"{type(exc).__name__}: {exc}"
+        if log is not None:
+            log(f"规划失败（将按 fallback_to_tokens 处理）：map={map_text} "
+                f"预算 {budget:g}s {msg}")
+        return PlanOutcome(ok=False, tokens=[], elapsed_ms=0.0, error=msg,
+                           map_path=map_text, allow_reverse=want_reverse)
+
 
 #: 只有这些阶段允许"发车/推进"（★ 白名单：未知阶段一律不动）
 _DRIVING_PHASES: tuple[str, ...] = (MissionPhase.DRIVE, MissionPhase.APPROACH)
@@ -129,6 +288,17 @@ class MissionTask(TaskThread):
         # ---- 拐角绕圈兜底（仿真实测噪声 0.01m/拍会让车原地转圈、末点误差 2.96m）----
         self._stall_timeout_s = float(cfg.get("mission.stall_timeout_s", 12.0))
         self._stall_yaw_deg = float(cfg.get("mission.stall_yaw_deg", 360.0))
+        # ---- ★自动规划（任务卡 B）：全部走 `planner.*`，缺键用显式默认 ----
+        self._auto_plan_enabled = bool(cfg.get("planner.auto_plan_enabled", False))
+        self._planner_map_path = str(cfg.get("planner.map_path") or DEFAULT_MAP_PATH)
+        self._planner_fallback = bool(cfg.get("planner.fallback_to_tokens", True))
+        self._planner_allow_reverse = bool(cfg.get("planner.allow_reverse", False))
+        try:
+            self._planner_max_seconds = float(cfg.get("planner.max_seconds",
+                                                      _DEFAULT_PLAN_SECONDS)
+                                              or _DEFAULT_PLAN_SECONDS)
+        except (TypeError, ValueError):
+            self._planner_max_seconds = _DEFAULT_PLAN_SECONDS
 
         # ---- 任务态 ----
         self._created_at = self._clock()
@@ -137,6 +307,13 @@ class MissionTask(TaskThread):
         self._route: Route | None = None
         self._path: Path | None = None
         self._route_name = ""
+        #: ★路线来源（`ROUTE_SOURCE_AUTO` / `ROUTE_SOURCE_MANUAL` / `ROUTE_SOURCE_COMMAND`），
+        #: 横幅与遥测的"路线来源"行用它；`planner.auto_plan_enabled=false` 时开局即手动配置。
+        self._route_source = ROUTE_SOURCE_MANUAL if not self._auto_plan_enabled else ""
+        #: 最近一次自动规划的证据（map/耗时/错误），写进 `MISSION_STATE_KEY` 便于遥测与测试断言
+        self._plan_info: dict[str, Any] = {}
+        #: ★硬失败定格：`fallback_to_tokens=false` 且规划失败 → 停在 IDLE 且**不再每拍重试**
+        self._autoplan_blocked = False
         self._waypoint_count = 0
         self._passed: list[bool] = []
         self._arrived = 0
@@ -178,6 +355,30 @@ class MissionTask(TaskThread):
         self._pivot_accept_m = max(float(cfg.get("pursuit.pivot_dist_m")) * 3.0,
                                    self._arrival_m * 6.0)
 
+        # ---- ★逐点到达台账（卡 D finding D1：绝不静默丢点）----
+        #: 每个待推进航点的**历史最近距离**（米）。几何复核用：s 一步跨过航点时，
+        #: 只看"当拍"的距离会误判 —— 车常在几拍前就从格心旁穿过（此时 s 还没到），
+        #: 等到 s 跳过去那一拍，车已经走远了。历史最近距离能如实回答"它到底来没来过"。
+        self._min_dist: list[float] = []
+        #: 索引 → 判达依据（"s+近路径" / "距格心" / "PIVOT 通知" / "最近接近 X m"）
+        self._arrived_by: dict[int, str] = {}
+        #: 索引 → 显式跳过依据（停滞兜底 / 收尾清账）。**凡未到达必在此或 `_arrived_by` 里**
+        self._skipped_at: dict[int, str] = {}
+        #: 索引 → "越窗待定"依据（finding D1）。**只是候选，不置位**：投影跳变的同一拍车
+        #: 可能马上又靠近这个点 —— 立即判死会把本来能登记到达的航点提前毙掉
+        #: （bench 实测：雷 I8 在基线里是「到点 8/45」，立即跳过版把它变成跳点 ⇒ 雷 7/8）。
+        self._pending_skip: dict[int, str] = {}
+        #: s 已越过、但车从未接近 ⇒ 显式跳过（与停滞兜底分开计数，便于分别审计）
+        self._cross_skips: int = 0
+        #: "最近接近"复核半径 = 半格（0.175 m）。**刻意不取更宽**：格间距就是 0.35 m，
+        #: 半径超过半格会把"从邻居格心穿过"也算成到过。正常切角（离线心 ~0.29 m）由
+        #: `near`（横向偏差判据）负责登记，这里只认"真从格心附近穿过"。
+        self._close_m = max(self._arrival_m, 0.5 * geo.BLOCK_SIZE)
+        #: 判"越窗跳过"的**超窗余量**：s 越过航点不足这个距离时先挂起（可能正在靠近），
+        #: 越过这么多还没接近过 ⇒ 显式记账。取值 = 4×arrival_m 与 1 格取大（≈0.48 m）：
+        #: 既不会被投影跳变的瞬间误判成"跳点"，也保证一个航点不会无限期悬着。
+        self._skip_over_m = max(4.0 * self._arrival_m, geo.BLOCK_SIZE)
+
     # ------------------------------------------------------------------ #
     #  只读接口（测试/遥测）
     # ------------------------------------------------------------------ #
@@ -210,7 +411,54 @@ class MissionTask(TaskThread):
             "dist_to_next_stop": self._dist_to_next_stop,
             "finish": dict(self._finish_info),
             "commands": dict(self._cmd_stats),
+            # ★路线来源与自动规划证据（横幅同源；遥测/测试据此断言「自动规划」/「手动配置」）
+            "route_source": self._route_source,
+            "plan": dict(self._plan_info),
+            # ★逐点到达台账（卡 D finding D1）：`unexplained` 恒为 0 才叫"无静默丢点"
+            "accounting": self.accounting(),
         }
+
+    def accounting(self) -> dict[str, Any]:
+        """逐点到达台账（遥测/测试/结束横幅共用同一份口径）。
+
+        口径（与任务卡 D 的验收一致，**不放宽**）：
+          · 分母 = `len(route) - 1`（起点不计）；
+          · `arrived` = 登记到达数（含"最近接近"几何复核、含 PIVOT 通知判达）；
+          · `skipped` = 显式跳过数（停滞兜底 + s 越窗），每一条都有事件与日志；
+          · `unexplained` = 既没登记到达、也没显式跳过的航点 —— **必须为空**。
+        """
+        n = self._waypoint_count
+        unexplained = [i for i in range(1, n)
+                       if not self._passed[i] and i not in self._skipped_at
+                       and i not in self._pending_skip] if self._passed else []
+        by: dict[str, int] = {}
+        for reason in self._arrived_by.values():
+            key = reason.split(" ")[0]
+            by[key] = by.get(key, 0) + 1
+        return {
+            "denominator": max(0, n - 1),
+            "arrived": self._arrived,
+            "arrived_by": by,
+            "stall_skips": self._forced_skips,
+            "cross_skips": self._cross_skips,
+            "skipped_total": len(self._skipped_at),
+            "skipped": {str(k): v for k, v in sorted(self._skipped_at.items())},
+            # ★"越窗待定"（已记账、未定案）：收尾时由 `_close_ledger()` 转成正式跳过，
+            #   期间若车又靠近，上面的判据会把它登记为**到达**（雷 I8 就是这种）
+            "pending_skips": {str(k): v for k, v in sorted(self._pending_skip.items())},
+            "unexplained": unexplained,
+            "close_m": round(self._close_m, 4),
+            "skip_over_m": round(self._skip_over_m, 4),
+        }
+
+    def closest_approaches(self) -> dict[int, float]:
+        """每个航点的**历史最近距离**（米，-1 表示还没测到）。
+
+        只读接口，供"车体到底有没有盖住格心"的复核（t8 的雷 A9 / t10 的雷覆盖对账）——
+        本方法**不改变**任何到达/跳过判定，只是把 Mission 已经算出来的距离摊开给人看。
+        """
+        return {i: (round(v, 4) if v != math.inf else -1.0)
+                for i, v in enumerate(self._min_dist)}
 
     # ------------------------------------------------------------------ #
     #  生命周期
@@ -265,15 +513,64 @@ class MissionTask(TaskThread):
             return
         if self._route is not None:                 # 外部命令已经载入过路线
             return
+        if self._autoplan_blocked:                  # ★硬失败已定格（error 日志出过一次）→ 不再重试
+            return
         try:
             self._reset_belief(self._reset_spec)
-            self._load_tokens(self.cfg.get("route.tokens"), source="route.tokens")
+            self._load_startup_route()              # ★ 自动规划 / 读 route.tokens（见函数 docstring）
+        except AutoPlanBlocked:
+            self._autoplan_blocked = True           # ★ 停在 IDLE：不 publish EV_MISSION_STARTED
+            return
         except Exception as exc:                    # noqa: BLE001  配置错就停着，绝不带病发车
             if self._log_throttle.allow("auto_start_failed", self._clock()):
                 self._log(f"自动出发失败（保持 IDLE）：{type(exc).__name__}: {exc}")
             return
         self._log(f"自动出发：延时 {self._auto_start_delay_s:g}s 到，复位 {self._reset_spec!r}")
         self._start_mission()
+
+    def _load_startup_route(self) -> None:
+        """启动路线来源：`planner.auto_plan_enabled` 决定"自动规划"还是"读 route.tokens"。
+
+        ★ 失败语义（任务卡 B 规格，两条分支都有独立测试）：
+          - `planner.fallback_to_tokens: true` → warn（含异常类型+消息）后回退 `route.tokens`，
+            **仍进入 DRIVE**（宁可路线不是最优，也要出车）；
+          - `false` → error 日志 + 抛 `AutoPlanBlocked` → `_maybe_auto_start` 捕获后**停在 IDLE**，
+            绝不 publish `EV_MISSION_STARTED`。
+        """
+        if not self._auto_plan_enabled:
+            self._route_source = ROUTE_SOURCE_MANUAL
+            tokens = self.cfg.get("route.tokens") or self.cfg.get("mission_blocks")
+            self._load_tokens(tokens, source="route.tokens(或 mission_blocks)")
+            return
+
+        out = plan_route_from_config(self.cfg, map_path=self._planner_map_path, log=self._log)
+        self._plan_info = {
+            "ok": out.ok, "map_path": out.map_path, "elapsed_ms": out.elapsed_ms,
+            "error": out.error, "allow_reverse": out.allow_reverse,
+            "max_seconds": self._planner_max_seconds, "token_count": len(out.tokens),
+            "fallback_to_tokens": self._planner_fallback,
+        }
+        if out.ok:
+            self._route_source = ROUTE_SOURCE_AUTO
+            # ★ 验收项：日志必须能看到【完整 token 列表】与【规划耗时(ms)】
+            self._log(f"自动规划成功：map={out.map_path} {out.mode} "
+                      f"耗时 {out.elapsed_ms:.1f} ms / {len(out.tokens)} token / "
+                      f"{out.route_len_m:.2f} m / 倒车段 {out.reverse_segments} / "
+                      f"A* 代价 {out.cost:.2f}")
+            self._log(f"自动规划 token 列表（{len(out.tokens)}）：" + " ".join(out.tokens))
+            self._load_tokens(out.tokens, source=f"{ROUTE_SOURCE_AUTO}({out.map_path})")
+            return
+
+        detail = (f"自动规划失败：map={out.map_path} {out.mode} "
+                  f"预算 {self._planner_max_seconds:g}s → {out.error}")
+        if self._planner_fallback:
+            self._log(f"⚠️ {detail}；fallback_to_tokens=true → 回退 route.tokens/mission_blocks 并继续出发")
+            self._route_source = ROUTE_SOURCE_MANUAL
+            tokens = self.cfg.get("route.tokens") or self.cfg.get("mission_blocks")
+            self._load_tokens(tokens, source="route.tokens/mission_blocks(自动规划失败回退)")
+            return
+        self._log(f"❌ {detail}；fallback_to_tokens=false → 停在 IDLE，不出发")
+        raise AutoPlanBlocked(out.error)
 
     def _start_mission(self) -> None:
         """路线就绪 → 阶段 DRIVE + 事件 + 持续扫描（见模块 docstring）。"""
@@ -290,11 +587,19 @@ class MissionTask(TaskThread):
         route = self._route
         if route is None:
             return
+        # ★ 路线来源行：验收项要求横幅里能读到「路线来源：自动规划 / 手动配置」，
+        #   自动规划时顺带把地图与规划耗时一起打出来（与上面的"自动规划成功"日志同源）。
+        src_line = f"路线来源：{self._route_source or ROUTE_SOURCE_MANUAL}"
+        if self._plan_info.get("ok"):
+            src_line += (f"（map={self._plan_info.get('map_path')} "
+                         f"耗时 {float(self._plan_info.get('elapsed_ms') or 0.0):.1f} ms "
+                         f"{'允许倒车' if self._plan_info.get('allow_reverse') else '无倒车'}）")
         banner([
             f"【任务开始】路线 {len(route)} 点 / {route.path_length():.2f} m / 穿洞 {route.crossing}",
             f"停站点 {len(self._stop_s)} 个："
             + " ".join(f"{i}:{b}" for i, b in sorted(self._stop_s.items())),
             f"扫描模式 {self._scan_mode or '未设置'}（continuous → scan_request=2）",
+            src_line,
         ], log=self._log)
 
     def _reset_belief(self, spec: str) -> None:
@@ -368,6 +673,13 @@ class MissionTask(TaskThread):
         self._next_wp = 1
         self._handled_stops = set()
         self._passed_by_pivot = set()                # ★ 新轮次：旧通知的"已到达"作废
+        # ★★ 逐点到达台账换轮次：新路线必须从零开始，否则上一轮的"最近接近"会把
+        #    新路线里**同名不同索引**的航点误判成到过（路线自折叠时格名会重复）。
+        self._min_dist = [math.inf] * len(route)
+        self._arrived_by = {}
+        self._skipped_at = {}
+        self._pending_skip = {}
+        self._cross_skips = 0
         self._stopctx = None
         self._last_stop_state = StopPointState()
         self._route_s = 0.0
@@ -481,6 +793,11 @@ class MissionTask(TaskThread):
             #   这条路附近，是投影跑到别处去了"的情形。
             s_wp = path.s_at_waypoint(i)
             dist = None if pose is None else wp.distance_to(pose.x, pose.y)
+            if dist is not None and dist < self._min_dist[i]:
+                # ★ 历史最近距离（几何复核用）：车常在"s 还没到"的几拍前从格心旁穿过，
+                #   等 s 跳过去那一拍它已经走远 —— 只看当拍距离就会把这种**真的到过**
+                #   判成"没到"。本行是 finding D1 里"静默丢点"的第一道解药。
+                self._min_dist[i] = float(dist)
             over = s + self._arrival_m - s_wp        # >0 = 已越过该航点
             s_reached = over >= 0.0
             # ★★ "车在附近"的判据改成**贴近路径**（横向偏差 `_last_lat_m`），不是贴近格心：
@@ -494,23 +811,48 @@ class MissionTask(TaskThread):
             lat = self._last_lat_m
             near = ((lat is not None and lat <= 0.30)
                     or dist is None or dist <= 2.0 * self._arrival_m)
-            reached = (s_reached and near) or (dist is not None and dist <= self._arrival_m)
-            if not reached and pose is not None \
-                    and self._pivot_notice_accepts(notice, i, s_wp, s, dist):
+            why = ""
+            if (s_reached and near) or (dist is not None and dist <= self._arrival_m):
+                why = "s+近路径" if s_reached else "距格心"
+            elif pose is not None and self._pivot_notice_accepts(notice, i, s_wp, s, dist):
                 # ★ PIVOT 完成通知判到达：原地掉头后车原路返回，上面的两条判据恒假
                 #   （pivot_dist_m > arrival_m），见 `PIVOT_DONE_KEY` 注释与
                 #   `_pivot_notice_accepts` 的护栏说明。bench 实测 E11/A6/B6 三处
                 #   此前就是在这里判不到、12 s 后被拐角绕圈兜底强制跳过。
-                reached = True
+                why = "PIVOT 通知"
                 self._passed_by_pivot.add(i)
-            if reached:
+            elif s_reached and self._min_dist[i] <= self._close_m:
+                # ★★ 几何复核（finding D1 的第二道解药）：s 跳变把"刚越过窗口"跳过去了，
+                #    但**历史最近距离**证明车确实从格心附近穿过 ⇒ 如实登记为到达，
+                #    而不是既不记到达、也不记跳过的静默丢弃。
+                why = f"最近接近 {self._min_dist[i]:.3f}m"
+            if why:
+                revoked = self._pending_skip.pop(i, None)   # ★ 待定被"后来居上"的到达撤销
                 self._passed[i] = True
                 self._arrived += 1
+                self._arrived_by[i] = why
                 self._next_wp = i + 1
                 self.bus.publish(EV_WAYPOINT_REACHED, source=self.name, index=i,
-                                 block=wp.block, s=round(path.s_at_waypoint(i), 3))
+                                 block=wp.block, s=round(path.s_at_waypoint(i), 3),
+                                 reason=why)
                 self._log(f"到点 {i}/{len(route) - 1} {wp.block}"
-                          f"（s={path.s_at_waypoint(i):.2f} m）")
+                          f"（s={path.s_at_waypoint(i):.2f} m，依据 {why}）"
+                          + ("（撤销先前的越窗待定）" if revoked else ""))
+                continue
+            if s_reached and over >= self._skip_over_m:
+                # ★★ 显式记账（finding D1 的第三道解药，**绝不静默丢点**）：
+                #    s 已越过这么多，而车**从头到尾**都没进过 `_close_m`(半格) ⇒ 它确实
+                #    还没走到。这里只把它登记成"越窗**待定**"，**不置位 `_passed`** ——
+                #    投影跳变的同一拍车可能马上又靠回来，那时上面的判据会正常登记到达
+                #    （bench 实测雷 I8：基线里是「到点 8/45」，一旦立即判死就变成跳点、
+                #    雷覆盖从 8/8 掉到 7/8）。真正定案放在 `_close_ledger()`（任务收尾），
+                #    所以"无静默丢点"在收尾时仍然成立，而正常到达的机会一点没少。
+                detail = (f"s 已越过 {over:.2f} m（> {self._skip_over_m:.2f} m），"
+                          f"但最近只到 {self._min_dist[i]:.3f} m"
+                          f"（> 复核半径 {self._close_m:.3f} m，横向偏差 {lat}）")
+                if i not in self._pending_skip:
+                    self._pending_skip[i] = detail
+                    self._log(f"⚠️ 越窗待定（显式记账，不静默丢点）：航点 {wp.block}（#{i}）{detail}")
 
     def _detect_stall_and_skip(self) -> None:
         """拐角绕圈兜底：弧长停滞 / 原地绕圈 → 强制跳过不可达航点。
@@ -574,11 +916,14 @@ class MissionTask(TaskThread):
         self._passed[next_idx] = True
         self._forced_skips += 1
         self._next_wp = next_idx + 1
+        # ★ 进台账（finding D1）：兜底跳过与"越窗跳过"共用一本账，收尾时逐点对账。
+        self._skipped_at[next_idx] = (f"停滞兜底 {stalled_time:.1f}s / 累计转 "
+                                      f"{math.degrees(self._stall_yaw_sum):.0f}°")
         self._log(f"⚠️ 拐角绕圈兜底：航点 {wp.block}（#{next_idx}）停滞 "
                   f"{stalled_time:.1f}s / 累计转 {math.degrees(self._stall_yaw_sum):.0f}° 仍不可达，"
                   f"强制跳过（宁可漏点，不可卡死）")
         self.bus.publish(EV_WAYPOINT_REACHED, source=self.name, index=next_idx,
-                         block=wp.block, forced_skip=True)
+                         block=wp.block, forced_skip=True, reason="stall")
         self._reset_stall()
 
     def _pivot_in_progress(self) -> bool:
@@ -943,6 +1288,7 @@ class MissionTask(TaskThread):
             return
 
         self._finish_latched = True
+        self._close_ledger()                        # ★ 收尾：把"还悬着"的航点显式记账
         elapsed = (self._clock() - self._started_at) if self._started_at is not None else 0.0
         drift = 0.0
         fix = self.bb.get("fix")
@@ -959,12 +1305,75 @@ class MissionTask(TaskThread):
         if not self._finish_done:
             self._finish_done = True
             self.bus.publish(EV_MISSION_FINISHED, source=self.name, **self._finish_info)
+            acc = self.accounting()
+            denom = acc["denominator"]
+            rate = (acc["arrived"] / denom * 100.0) if denom else 0.0
             banner([
                 "【任务结束】" + (f"路线 {len(route)} 点 / {route.path_length():.2f} m"),
                 f"用时 {elapsed:.1f} s（{self._fmt_duration(elapsed)}）",
                 f"发数 {shots} / 命中 {hits} / 漂移 {drift:.3f} m",
                 f"停站点 {len(self._stop_s)} 个（完成 {len(self._handled_stops)}）",
+                # ★★ 逐点到达台账（finding D1 的验收口径）：登记到达 / 显式跳过 / 无主航点
+                f"逐点到点率 {acc['arrived']}/{denom} = {rate:.2f}%"
+                f"（依据 {acc['arrived_by']}）",
+                f"显式跳过 {acc['skipped_total']} 个"
+                f"（停滞兜底 {acc['stall_skips']} + s 越窗 {acc['cross_skips']}）"
+                + (f"：{list(acc['skipped'])}" if acc["skipped"] else ""),
             ], log=self._log)
+            unexplained = acc["unexplained"]
+            if unexplained:
+                # ★ 不变量被破坏才会走到这里：说明还有航点既没登记到达、也没显式记账。
+                #   修复前（t4 finding D1）这里会列出 7 个"静默丢点"；修复后应恒为空。
+                banner([f"❌ 存在 {len(unexplained)} 个**无主航点**（既非到达、也非显式跳过）："
+                        f"{' '.join(f'{route.waypoints[i].block}#{i}' for i in unexplained)}"],
+                       char="!", log=self._log)
+            else:
+                self._log("✅ 逐点台账闭合：全部航点要么登记到达、要么显式跳过（无静默丢点）")
+            # ★ 车体覆盖复核（只报不改）：t8 提出"雷 A9 心在 PIVOT 顶点差 12.7 cm、
+            #   车体没盖住"。Mission 只知道"车离航点最近到过多少"，把这份数据摊开，
+            #   供 t8/t10 用 0.127 m 之类的阈值逐雷对账 —— 本行**不影响**任何判定。
+            uncovered = [(i, v) for i, v in self.closest_approaches().items()
+                         if i >= 1 and v >= 0.0 and v > self._arrival_m]
+            if uncovered:
+                self._log(f"航点最近接近复核（min_dist > 到达半径 {self._arrival_m:.3f} m "
+                          f"⇒ 车体未必盖住格心）："
+                          + " ".join(f"#{i}{route.waypoints[i].block}={v:.3f}m"
+                                     for i, v in uncovered))
+
+    def _close_ledger(self) -> None:
+        """收尾清账：任务结束时若还有航点"悬着"（s 越过但没到判跳过的余量），显式记账。
+
+        finding D1 的"绝不静默丢点"在**任何退出路径**上都要成立 —— 不能只在
+        "s 越窗"那一条分支上成立。收尾时把这些点一次性记为显式跳过并告警，
+        使 `accounting()['unexplained']` 恒为空。
+        """
+        route = self._route
+        if route is None or self._path is None:
+            return
+        last = len(route) - 1
+        s = self._last_s
+        # ★ 含末点：`_check_finish` 允许"弧长达标"就判完成（`s + arrival >= s_at_waypoint(last)`），
+        #   那种情况下 `_passed[last]` 仍是 False —— 若把他排除在外，台账就永远闭不上
+        #   （`unexplained` 里会永远吊着末点）。这里把他一并清账，并如实写明"车没接近"。
+        for i in range(1, len(route)):
+            if self._passed[i] or i in self._skipped_at:
+                continue
+            wp = route[i]
+            over = s + self._arrival_m - self._path.s_at_waypoint(i)
+            self._passed[i] = True
+            self._cross_skips += 1
+            tail = "（末点：由「弧长达标」判完成，车未接近）" if i == last else ""
+            # ① 之前记过"越窗待定"的，用它自己的依据定案（含它当时看到的 min_dist/横向偏差）；
+            # ② 其余（从没触发过越窗、也没到达的）用收尾清账的依据。
+            detail = self._pending_skip.get(i) or (
+                f"任务收尾清账（s 越过 {over:+.2f} m，最近只到 "
+                f"{self._min_dist[i]:.3f} m > {self._close_m:.3f} m）")
+            self._skipped_at[i] = detail
+            self._pending_skip.pop(i, None)
+            reason = "s_over_step" if "s 已越过" in detail else "close_ledger"
+            self._log(f"⚠️ 逐点定案（显式记账）：航点 {wp.block}（#{i}）{detail}{tail}")
+            self.bus.publish(EV_WAYPOINT_REACHED, source=self.name, index=i,
+                             block=wp.block, forced_skip=True, reason=reason)
 
     @staticmethod
     def _fmt_duration(seconds: float) -> str:
@@ -994,6 +1403,10 @@ class MissionTask(TaskThread):
         if not text:
             raise ValueError("空命令")
         low = text.lower()
+        # ★ 外部命令载入的路线一律标"外部命令"来源（横幅会覆盖"自动规划/手动配置"），
+        #   否则横幅会把 /nav/waypoint 下发的路线说成"启动时手动配置的 route.tokens"。
+        self._route_source = ROUTE_SOURCE_COMMAND
+        self._plan_info = {}
 
         if low.startswith("reset:"):
             self._reset_belief(text[len("reset:"):].strip())

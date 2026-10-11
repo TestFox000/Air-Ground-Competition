@@ -85,7 +85,7 @@ from ..core import geometry as geo
 from ..core.config import Config
 from . import validate as V
 from .model import Route, RouteBuilder, Waypoint
-from .parser import parse_reset, parse_token
+from .parser import PIVOT_SUFFIX as _PIVOT_SUFFIX, parse_reset, parse_token
 
 __all__ = [
     "PlannerError",
@@ -96,13 +96,18 @@ __all__ = [
     "load_map",
     "map_section",
     "assert_legal",
+    "assert_legal_no_reverse",
     "check_route_structure",
     "shoot_candidates",
     "stop_distance_m",
     "turn_angle_deg",
     "route_tokens",
+    "pivot_vertices",
+    "mark_pivots",
     "DIRS",
     "DEFAULT_MAX_SECONDS",
+    "PIVOT_MARK_DEG",
+    "PIVOT_PENALTY",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -134,6 +139,18 @@ BARRIER_NEAR_COST = 0.15
 
 #: 编译阶段的倒车改写阈值（度）：>150° 才算"折返"，正常 90° 拐弯绝不动它。
 UTURN_REVERSE_DEG = 150.0
+
+#: ★ 折返点（`:PIVOT`）的判定阈值（度）。取值 = `pursuit.pivot_angle_deg`
+#: （`core/config.py` 默认 135°，真车已实测完成），判据与 `pursuit.path.corner_turn_deg`
+#: 一致（顶点处**车头**需转过的角度）：相邻两段有倒车时车头一度都不用转，不算折返。
+#: 现场无倒车路线实测只有两处：`F8` / `D6`（都是"开进死格再原路退出"的压雷死角）。
+PIVOT_MARK_DEG = 135.0
+#: ★ TSP/顺序搜索里的**折返惩罚**（等效代价单位）：
+#: 访问顺序里一处"进去再原路退出来"的顶点按 5.0 计（= 5 格前进代价）。
+#: 为什么需要：无倒车模式下这种访问必然让车在顶点原地掉头（PIVOT 实测 ~10.8 s、
+#: 横向扫出 ~0.54 m > 一格 0.35 m），比多绕两格贵得多 ——
+#: 只按 A* 里程排序会把它当成"顺路"，于是折返点变成路线里最贵的动作却没被计价。
+PIVOT_PENALTY = 5.0
 
 #: 单次规划的时间预算（秒）。超了抛 `PlannerError`，绝不静默给半成品路线。
 DEFAULT_MAX_SECONDS = 0.8
@@ -247,8 +264,13 @@ class Grid:
     （与 `geometry.block_to_index` 的返回值口径对齐）。
     """
 
-    def __init__(self, spec: MapSpec, bridge_rows: Iterable[int] = ()) -> None:
+    def __init__(self, spec: MapSpec, bridge_rows: Iterable[int] = (),
+                 *, allow_reverse: bool = True) -> None:
         self.spec = spec
+        #: 无倒车模式（真车底盘不支持倒车）：`_moves` 不再产出倒车动作，
+        #: 180° 折返 = 正向开进死格、原地转向（2×COST_TURN）后正向开出 ——
+        #: 顶点处由 TrackerTask 自动 PIVOT。默认 True = 旧行为（允许倒车）。
+        self.allow_reverse = bool(allow_reverse)
         self.blocked: set[tuple[int, int]] = set()
         for cell in spec.obstacles:
             row_idx, col_idx = geo.block_to_index(cell)
@@ -328,11 +350,20 @@ class Grid:
 #  带朝向的搜索（Dijkstra 洪泛）
 # --------------------------------------------------------------------------- #
 def _moves(grid: Grid, row: int, col: int, head: int):
-    """``((row, col, head), cost, action)``：前进 / 倒车 / 左右转，阿克曼可执行的动作集。"""
+    """``((row, col, head), cost, action)``：前进 / 倒车 / 左右转，阿克曼可执行的动作集。
+
+    `grid.allow_reverse=False`（无倒车模式）时**不产出倒车动作**：真车底盘不支持倒车
+    （负速度方向位被 STM32 无视），所以路线里任何依赖倒车的路径都必须改用
+    "正向开进 + 原地转向 + 正向开出"（顶点处由 TrackerTask PIVOT）。
+    """
     drow, dcol = DIRS[head]
     nrow, ncol = row + drow, col + dcol
     if grid.move_ok(row, col, nrow, ncol):
         yield (nrow, ncol, head), COST_FORWARD + grid.danger(nrow, ncol), ACT_FORWARD
+    if not grid.allow_reverse:
+        yield (row, col, (head + TURN_LEFT) % 4), COST_TURN, ACT_LEFT
+        yield (row, col, (head + TURN_RIGHT) % 4), COST_TURN, ACT_RIGHT
+        return
     brow, bcol = row - drow, col - dcol
     if grid.move_ok(row, col, brow, bcol):
         yield (brow, bcol, head), COST_BACKWARD + grid.danger(brow, bcol), ACT_BACKWARD
@@ -507,6 +538,8 @@ class _Stop:
     reverse: bool = False       # 段 (i-1 -> i) 倒车到位
     shoot: bool = False
     tag: str = ""               # start / end / mine / lower_bridge / upper_bridge / shoot
+    #: `:PIVOT` 折返点声明（该顶点处车头需转过 ≥ `PIVOT_MARK_DEG`）。**纯声明。**
+    pivot: bool = False
 
 
 def _collapse(path: Sequence[tuple[int, int, int, int]],
@@ -646,6 +679,31 @@ def _merge_duplicate_stops(stops: list[_Stop]) -> list[_Stop]:
     return out
 
 
+def mark_pivots(stops: list[_Stop], *,
+                min_deg: float = PIVOT_MARK_DEG) -> list[tuple[int, str, float]]:
+    """给折返顶点打上 `:PIVOT` 声明，返回 ``[(索引, 格名, 角度°), ...]``。
+
+    判据与 `pivot_vertices()` **逐字相同**（只是作用在编译期的 `_Stop` 上）：
+    折返角 ≥ `min_deg` 且相邻两段都不是倒车段 ⇒ `stop.pivot = True`。
+
+    ★ 调用时机：必须在 `_merge_duplicate_stops` **之后**（否则索引会变），
+      且只在**无倒车模式**下调用 —— 允许倒车模式下折返由 `R:` 完成，
+      不应出现 `:PIVOT` 声明（这也是 `--allow-reverse` 与卡 A 基线逐字节一致的结构性保证）。
+    ★ `:PIVOT` 只是声明：不打车、不停车、不改 `pursuit/**` 与 `tracker.py` 的行为。
+    """
+    marked: list[tuple[int, str, float]] = []
+    for i in range(1, len(stops) - 1):
+        prev, cur, nxt = stops[i - 1], stops[i], stops[i + 1]
+        if cur.reverse or nxt.reverse:
+            continue
+        angle = turn_angle_deg((prev.row, prev.col), (cur.row, cur.col),
+                               (nxt.row, nxt.col))
+        if angle >= min_deg - 1e-9:
+            cur.pivot = True
+            marked.append((i, cur.block, angle))
+    return marked
+
+
 def _refresh_headings(stops: list[_Stop]) -> None:
     """重算每个航点记的**车头实际朝向**（= 到达该点时车头指向哪边）。
 
@@ -700,10 +758,12 @@ def _to_route(stops: Sequence[_Stop], *, name: str, crossing: dict,
     for stop in stops:
         x, y = geo.block_to_meters(stop.block)
         yaw = geo.HEADING_Y if stop.heading in (1, 3) else geo.HEADING_X
+        token = (("R:" if stop.reverse else "") + stop.block
+                 + ("*" if stop.shoot else "")
+                 + (_PIVOT_SUFFIX if stop.pivot else ""))
         builder.add(Waypoint(block=stop.block, x=x, y=y, yaw=yaw,
                              reverse=stop.reverse, shoot=stop.shoot,
-                             token=(("R:" if stop.reverse else "") + stop.block
-                                    + ("*" if stop.shoot else ""))))
+                             pivot=stop.pivot, token=token))
     fix_final = None
     if final_heading is not None:
         fix_final = geo.HEADING_Y if final_heading in (1, 3) else geo.HEADING_X
@@ -714,12 +774,15 @@ def _to_route(stops: Sequence[_Stop], *, name: str, crossing: dict,
 def route_tokens(route: Route, *, final_heading: bool = True) -> list[str]:
     """`Route` -> token 列表（下发 `/nav/waypoint` / 回写 `robot.yaml`）。
 
-    后缀顺序与 `parser.normalize_token` 的约定一致：`R:` 前缀 → 格名 → `*` → `,x|,y`。
+    后缀顺序与 `parser.normalize_token` 的约定一致：
+    `R:` 前缀 → 格名 → `*` → `:PIVOT` → `,x|,y`。
     """
     tokens: list[str] = []
     last = len(route.waypoints) - 1
     for idx, wp in enumerate(route.waypoints):
         token = ("R:" if wp.reverse else "") + wp.block + ("*" if wp.shoot else "")
+        if wp.pivot:
+            token += _PIVOT_SUFFIX
         if final_heading and idx == last:
             token += ",y" if abs(wp.yaw - geo.HEADING_Y) < 1e-6 else ",x"
         tokens.append(token)
@@ -863,6 +926,80 @@ def _angle_of(a: Waypoint, b: Waypoint, c: Waypoint) -> float:
     return math.degrees(math.acos(cosv))
 
 
+def pivot_vertices(route: Route, *, min_deg: float = PIVOT_MARK_DEG
+                   ) -> list[tuple[int, str, float]]:
+    """折返顶点清单 ``[(索引, 格名, 折返角°), ...]``（升序）。
+
+    判据与循迹层**逐条对齐**（这不是另发明一套）：
+      * 角度 = `pursuit.path.corner_turn_deg` = 顶点处**车头**要转过的角度；
+        无倒车模式下与 `corner_angle_deg`（行进方向夹角）同值；
+      * 阈值 = `pursuit.pivot_angle_deg`（`PIVOT_MARK_DEG` = 135°，只做声明）；
+      * 相邻两段中**任一段是倒车段**就不算折返（`route_check._is_rev_vertex` 同一判据）：
+        倒车段的车头一度都不用转，那里不会触发 PIVOT。
+    """
+    out: list[tuple[int, str, float]] = []
+    wps = route.waypoints
+    for i in range(1, len(wps) - 1):
+        prev, cur, nxt = wps[i - 1], wps[i], wps[i + 1]
+        if cur.reverse or nxt.reverse:              # 相邻段有倒车 → 车头不用掉头
+            continue
+        angle = _angle_of(prev, cur, nxt)
+        if angle >= min_deg - 1e-9:
+            out.append((i, cur.block, angle))
+    return out
+
+
+def assert_legal_no_reverse(route: Route) -> None:
+    """无倒车模式的硬性合法性断言（`plan_route(allow_reverse=False)` 内必调）。
+
+    四条不变量：
+      ① 每个航点的 token 可解析，且 `block` / `reverse` / `pivot` 与模型一致；
+      ② 相邻航点不重复；
+      ③ **0 段 `R:`** —— 真车底盘不支持倒车（负速度方向位被 STM32 无视，车以 |v|
+         朝车头方向前进），出现一段 `R:` 就整条路线报废（旧行为：不允许）；
+      ④ **折返点声明完整、且不虚报**：每个折返角 ≥ `PIVOT_MARK_DEG`（= 循迹层
+         `pursuit.pivot_angle_deg`，判据同 `pursuit.path.corner_turn_deg`）的顶点
+         都必须带 `:PIVOT`；反之带 `:PIVOT` 的顶点必须真的是折返点。
+
+    第 ④ 条就是"合法性自检"的负向控制入口：把某处 `:PIVOT` 去掉即抛 `PlannerError`。
+    `:PIVOT` 本身**不改变**循迹层行为（`pursuit/**` / `tasks/tracker.py` 不读该字段），
+    这里断言的是"声明与实际几何必须一致"，不是"照着声明去执行"。
+    """
+    for idx, wp in enumerate(route.waypoints):
+        token = ("R:" if wp.reverse else "") + wp.block + ("*" if wp.shoot else "")
+        if wp.pivot:
+            token += _PIVOT_SUFFIX
+        info = parse_token(token)
+        if (info["block"] != wp.block or info["reverse"] != wp.reverse
+                or info["pivot"] != wp.pivot):
+            raise PlannerError(f"第 {idx} 个航点 {token!r} 与模型不一致")
+        if wp.reverse:
+            raise PlannerError(
+                f"无倒车模式却出现倒车段：第 {idx} 个航点 {token!r}"
+                f"（真车底盘不支持倒车，负速度方向位被 STM32 无视）")
+    blocks = route.blocks()
+    for a, b in zip(blocks, blocks[1:]):
+        if a == b:
+            raise PlannerError(f"相邻重复航点 {a}")
+
+    # ---- ④ 折返点声明的一致性（完整性 + 不虚报）----
+    need = {i: (block, deg) for i, block, deg in pivot_vertices(route)}
+    declared = {i: wp.block for i, wp in enumerate(route.waypoints) if wp.pivot}
+    missing = sorted(set(need) - set(declared))
+    if missing:
+        detail = "; ".join(f"#{i} {need[i][0]} {need[i][1]:.0f}°" for i in missing)
+        raise PlannerError(
+            f"折返点缺少 {_PIVOT_SUFFIX} 声明：{detail}"
+            f"（折返角 ≥ {PIVOT_MARK_DEG:.0f}° 的顶点必须显式声明 —— "
+            f"该处车头要转 {need[missing[0]][1]:.0f}°，无倒车模式下车只能原地掉头）")
+    extra = sorted(set(declared) - set(need))
+    if extra:
+        detail = "; ".join(f"#{i} {declared[i]}" for i in extra)
+        raise PlannerError(
+            f"虚报 {_PIVOT_SUFFIX}：{detail}（这些顶点的折返角 "
+            f"< {PIVOT_MARK_DEG:.0f}°，或相邻段是倒车段 —— 车头一度都不用转）")
+
+
 # --------------------------------------------------------------------------- #
 #  规划结果
 # --------------------------------------------------------------------------- #
@@ -889,6 +1026,18 @@ class PlanResult:
     end: str = ""
     polyline_m: float = 0.0
     start_heading: str = ""
+    #: 本次规划是否**允许倒车**（`allow_reverse`；False = 车上默认的无倒车模式）
+    allow_reverse: bool = True
+    #: ★ 折返点清单 ``[(航点索引, 格名, 折返角°), ...]`` —— 与 `:PIVOT` 声明一一对应
+    pivots: tuple[tuple[int, str, float], ...] = ()
+    #: 折返惩罚（等效代价单位/处）；0.0 = 未启用（允许倒车模式的默认值）
+    pivot_penalty: float = 0.0
+    #: 顺序代价（含折返惩罚）—— 供"加惩罚前 vs 后"对比用
+    tour_cost: float = 0.0
+
+    @property
+    def pivot_count(self) -> int:
+        return len(self.pivots)
 
     def as_dict(self) -> dict:
         return {
@@ -907,17 +1056,27 @@ class PlanResult:
             "expanded": self.expanded,
             "elapsed_ms": round(self.elapsed_ms, 3),
             "warnings": list(self.warnings),
+            "allow_reverse": self.allow_reverse,
+            "pivot_penalty": round(self.pivot_penalty, 4),
+            "tour_cost": round(self.tour_cost, 4),
+            "pivot_count": self.pivot_count,
+            "pivots": [{"index": i, "block": b, "deg": round(d, 1)}
+                       for i, b, d in self.pivots],
         }
 
     def summary(self) -> str:
         shoot = (f"射击停站 {self.shoot_stop} 到靶 {self.shoot_distance_m:.3f} m"
                  f"（{'/'.join(self.shoot_targets)}）" if self.shoot_stop else "无射击停站")
+        pivots = (" ".join(f"{b} {d:.0f}°" for _, b, d in self.pivots) or "无")
         lines = [
             f"路线[{self.route.name}] {len(self.tokens)} token / {self.polyline_m:.2f} m"
             f" | 穿洞 下={self.crossing.get('lower', '?')} 上={self.crossing.get('upper', '?')}"
             f" | {shoot}",
             f"  A* 代价 {self.cost:.2f} / 展开 {self.expanded} 次 / 耗时 {self.elapsed_ms:.1f} ms"
-            f" | 倒车段 {self.reverse_segments}（折返改写 {self.uturn_fixes}）",
+            f" | 倒车段 {self.reverse_segments}（折返改写 {self.uturn_fixes}）"
+            f" | 无倒车模式 {'是' if not self.allow_reverse else '否'}",
+            f"  折返点 {self.pivot_count} 处（{_PIVOT_SUFFIX} 声明）：{pivots}"
+            f" | 顺序代价 {self.tour_cost:.2f}（折返惩罚 {self.pivot_penalty:.1f}/处）",
             "  " + " ".join(self.tokens),
         ]
         lines.extend(f"  ⚠️ {w}" for w in self.warnings)
@@ -938,14 +1097,21 @@ class _Tour:
       后者在 19 个点上要 2700+ 次搜索，会直接顶爆 `DEFAULT_MAX_SECONDS`。
     """
 
-    def __init__(self, grid: Grid, deadline: float) -> None:
+    def __init__(self, grid: Grid, deadline: float,
+                 pivot_penalty: float = 0.0) -> None:
         self.grid = grid
         self.deadline = deadline
+        #: ★ 折返惩罚（等效代价单位/处）。0.0 = 关闭（允许倒车模式的默认值，
+        #: 也是"加惩罚前 vs 后"对比实验的对照组）。
+        self.pivot_penalty = max(0.0, float(pivot_penalty))
         self._floods: dict[tuple[int, int], tuple[dict, dict, dict, int]] = {}
         self.settled = 0
         self.head_cost: dict[tuple[tuple[int, int], tuple[int, int]],
                              list[list[float]]] = {}
         self.order_cost: dict[tuple[tuple[int, int], tuple[int, int]], float] = {}
+        #: 每对访问点之间"最短腿"的**起步朝向**与**末步朝向**（用于判折返）
+        self._exit_dir: dict[tuple[tuple[int, int], tuple[int, int]], int] = {}
+        self._entry_dir: dict[tuple[tuple[int, int], tuple[int, int]], int] = {}
 
     # ---------------- 洪泛与查询 ----------------
     def _flood_of(self, cell: tuple[int, int]) -> tuple[dict, dict, dict, int]:
@@ -988,10 +1154,64 @@ class _Tour:
                                           for ha in range(4)]
                 value = min(min(row) for row in table)
                 self.order_cost[(a, b)] = self.order_cost[(b, a)] = value
+        # ★ 折返惩罚需要"每对点之间最短腿的起步/末步朝向"（见 `_record_leg_dirs`）
+        if self.pivot_penalty > 0.0:
+            for a in ordered:
+                for b in ordered:
+                    if a != b:
+                        self._record_leg_dirs(a, b)
+
+    def _record_leg_dirs(self, a: tuple[int, int], b: tuple[int, int]) -> None:
+        """记下 `a -> b` **最短腿**的起步朝向与末步朝向（只在末步/起步方向判折返）。
+
+        为什么这么判：无倒车模式里"车在顶点掉头"的物理表现就是**到达方向与离开方向
+        正好相反**（原路退回）。这里取的是纯里程最短腿（朝向对里代价最小者，平局按
+        (ha, hb) 升序 → 确定性），所以它是顺序层的**下界估计**，不会高估也不会漏判
+        那些"必须以折返结束/开始"的访问。
+        """
+        table = self.head_cost.get((a, b))
+        if table is None:
+            return
+        best: tuple[float, int, int] | None = None
+        for ha in range(4):
+            for hb in range(4):
+                value = table[ha][hb]
+                if not math.isfinite(value):
+                    continue
+                if best is None or value < best[0] - 1e-12:
+                    best = (value, ha, hb)
+        if best is None:
+            return
+        path, _ = self.path(a, b, best[1], best[2])
+        dirs: list[int] = []
+        for prev, cur in zip(path, path[1:]):
+            if (cur[0], cur[1]) != (prev[0], prev[1]):
+                dirs.append(_heading_of(cur[0] - prev[0], cur[1] - prev[1], -1))
+        dirs = [d for d in dirs if d >= 0]
+        if dirs:
+            self._exit_dir[(a, b)] = dirs[0]
+            self._entry_dir[(a, b)] = dirs[-1]
+
+    def reversals(self, seq: Sequence[tuple[int, int]]) -> int:
+        """访问顺序里的**折返次数**：`a -> b -> c` 且"进 b 的末步朝向"与"出 b 的起步朝向"相反。"""
+        count = 0
+        for i in range(1, len(seq) - 1):
+            entry = self._entry_dir.get((seq[i - 1], seq[i]))
+            leave = self._exit_dir.get((seq[i], seq[i + 1]))
+            if entry is None or leave is None:
+                continue
+            if (entry - leave) % 4 == 2:                 # 正相反 = 原路折返
+                count += 1
+        return count
+
+    def penalty_of(self, seq: Sequence[tuple[int, int]]) -> float:
+        if self.pivot_penalty <= 0.0:
+            return 0.0
+        return self.pivot_penalty * self.reversals(seq)
 
     # ---------------- 顺序 ----------------
     def seq_cost(self, seq: Sequence[tuple[int, int]]) -> float:
-        total = 0.0
+        total = self.penalty_of(seq)
         for a, b in zip(seq, seq[1:]):
             value = self.order_cost.get((a, b), float("inf"))
             if not math.isfinite(value):
@@ -1040,8 +1260,9 @@ class _Tour:
         return table[ha][hb]
 
     def route_cost(self, order: Sequence[tuple[int, int]], heads: Sequence[int]) -> float:
-        return sum(self.pair_cost(order[i], order[i + 1], heads[i], heads[i + 1])
-                   for i in range(len(order) - 1))
+        return (sum(self.pair_cost(order[i], order[i + 1], heads[i], heads[i + 1])
+                    for i in range(len(order) - 1))
+                + self.penalty_of(order))
 
     def best_headings(self, order: Sequence[tuple[int, int]],
                       seed: Sequence[int] | None = None,
@@ -1164,6 +1385,8 @@ def _default_cross(cfg: Config | None, pool: Sequence[str], half: str) -> str:
 def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                cross_lower: str | None = None, cross_upper: str | None = None,
                max_seconds: float = DEFAULT_MAX_SECONDS,
+               allow_reverse: bool = True,
+               pivot_penalty: float | None = None,
                name: str = "planner", source: str = "") -> PlanResult:
     """**核心入口**：一张地图 -> 一条可直接下发的路线。
 
@@ -1172,13 +1395,26 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     :param cross_lower/cross_upper: 指定穿洞格（通常由无人机情报给出）；
         缺省用 `route.cross_*_default`；不在候选集合里则抛 `PlannerError`
     :param max_seconds: 时间预算；超出抛 `PlannerError`
-    :raises PlannerError: 无解 / 结构约束矛盾 / 超时（**绝不静默降级**）
+    :param allow_reverse: **False = 无倒车模式**（车上 dzbrain 的默认用法）。
+        真车底盘不支持倒车（实测：负速度方向位被 STM32 无视），所以无倒车模式：
+        ① 搜索动作集里**没有倒车**（`Grid.allow_reverse`）；② **跳过** `_fix_uturn_reverse`
+        （不把 180° 折返改写成 `R:`）；③ 给每个折返顶点打 `:PIVOT` 声明（`mark_pivots`）；
+        ④ 合法性断言换成 `assert_legal_no_reverse`（0 段 `R:` + 折返声明完整且不虚报）。
+        True = 旧行为（`R:` 倒车段处理死角），**默认值不变**（签名向后兼容）。
+    :param pivot_penalty: 顺序搜索的折返惩罚（等效代价单位/处）。`None`（缺省）= **0.0**
+        （不加惩罚 = 卡 A 基线形状：现场图 43 token、2 处 `:PIVOT`）。
+        显式给 `PIVOT_PENALTY`(5.0) 即打开惩罚：现场图实测折返点 **2 → 0**、
+        里程 17.15 → 18.55 m（对比表见 `docs/车上自动规划_C_规划器无倒车.md`）。
+        默认关闭的理由：卡 A 的 43 token 形状已在真车链路里验证过，
+        惩罚版换了一个 49 token 的新形状，需要现场验证后再切换（改一个参数即可）。
+    :raises PlannerError: 无解 / 结构约束矛盾 / 超时 / 折返声明不一致（**绝不静默降级**）
     """
     t0 = time.perf_counter()
     spec = map_cfg if isinstance(map_cfg, MapSpec) else load_map(map_cfg, source=source)
     limits = _limits(cfg)
     warnings: list[str] = []
     deadline = t0 + max(0.05, float(max_seconds))
+    pivot_penalty = 0.0 if pivot_penalty is None else max(0.0, float(pivot_penalty))
 
     start_cell, end_cell = _cell(spec.start), _cell(spec.end)
 
@@ -1199,7 +1435,8 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     if cross_lower_cell == cross_upper_cell:
         raise PlannerError(f"下半场与上半场选了同一个桥洞 {lower_cross}（必须各穿一次）")
 
-    grid = Grid(spec, bridge_rows=(cross_lower_cell[0], cross_upper_cell[0]))
+    grid = Grid(spec, bridge_rows=(cross_lower_cell[0], cross_upper_cell[0]),
+                allow_reverse=allow_reverse)
     if not grid.passable(*start_cell):
         raise PlannerError(f"起点 {spec.start} 是障碍格，无法出发")
     if not grid.passable(*end_cell):
@@ -1269,7 +1506,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                 f"或射击窗口 {limits[0]:.2f}~{limits[1]:.2f} m 是否需要现场标定")
 
     # ---------------- 顺序 + 朝向联合优化 ----------------
-    tour = _Tour(grid, deadline)
+    tour = _Tour(grid, deadline, pivot_penalty=pivot_penalty)
     tour.build([start_cell] + mines_lower + mines_upper
                + [cross_lower_cell, cross_upper_cell, end_cell]
                + [_cell(b) for b in shoot_pool])
@@ -1344,11 +1581,20 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         else:                                   # pragma: no cover - 防御性
             raise PlannerError(f"内部错误：射击点 {shoot_block} 不在编译后的路线里")
 
-    uturn_fixes = _fix_uturn_reverse(stops)
+    uturn_fixes = _fix_uturn_reverse(stops) if allow_reverse else 0
     stops = _merge_duplicate_stops(stops)
     # ★ 折返改写会改变"哪一段在倒车"，所以必须**在改写之后**重算车头朝向
     #   （原地掉头与倒车掉头的车头正好相反，弄错会让终点姿态与云台基准全错）。
+    #   无倒车模式没有改写，但朝向重算对"正向开进死格再正向开出"同样必需
+    #   （顶点处 180° 换向由 TrackerTask PIVOT 完成，航点序列本身保持前进语义）。
     _refresh_headings(stops)
+
+    # ★ `:PIVOT` 折返点声明：**只在无倒车模式**下打（允许倒车模式的折返由 `R:` 完成，
+    #   声明它反而自相矛盾，且会让 `--allow-reverse` 输出偏离卡 A 基线）。
+    #   标记必须在 `_merge_duplicate_stops` 之后（索引已冻结）。
+    marked: list[tuple[int, str, float]] = []
+    if not allow_reverse:
+        marked = mark_pivots(stops)
 
     crossing = {"lower": lower_cross, "upper": upper_cross}
     route = _to_route(stops, name=name, crossing=crossing,
@@ -1357,7 +1603,10 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     problems = check_route_structure(route, spec, grid, limits)
     if problems:
         raise PlannerError("规划结果未通过结构自检：\n  - " + "\n  - ".join(problems))
-    assert_legal(route)
+    if allow_reverse:
+        assert_legal(route)
+    else:
+        assert_legal_no_reverse(route)
 
     tokens = route_tokens(route)
     shoot_at = next((wp.block for _, wp in route.shoot_points()), "")
@@ -1382,6 +1631,8 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         uturn_fixes=uturn_fixes, warnings=tuple(warnings), map_name=spec.name,
         map_source=spec.source, start=spec.start, end=spec.end,
         polyline_m=polyline, start_heading=HEAD_NAMES[start_heading],
+        allow_reverse=bool(allow_reverse), pivots=tuple(marked),
+        pivot_penalty=float(pivot_penalty), tour_cost=tour.seq_cost(order),
     )
 
 
@@ -1390,10 +1641,12 @@ def _insert_shoot(tour: _Tour, order: list[tuple[int, int]], heads: Sequence[int
     """把射击停站插到"绕路代价最小"的位置，返回 (新顺序, 新朝向, 选中的射击格)。
 
     绕路代价 = `m(prev,stop) + m(stop,next) - m(prev,next)`（不新增任何阈值），
-    再用朝向轮重算一次朝向。平局用 (绕路代价, 插入位置, 格名) 全序决定 —— **确定性**。
+    再加上**折返惩罚的增量**（插入点可能把一处顺路访问变成"进去再退出来"），
+    然后用朝向轮重算一次朝向。平局用 (绕路代价, 插入位置, 格名) 全序决定 —— **确定性**。
     """
     positions = range(1, len(order))
     best: tuple[float, int, str] | None = None
+    base_penalty = tour.penalty_of(order)
     for block in pool:
         cell = _cell(block)
         if cell in order:
@@ -1405,6 +1658,10 @@ def _insert_shoot(tour: _Tour, order: list[tuple[int, int]], heads: Sequence[int
                 value = (tour.order_cost.get((prev_cell, cell), float("inf"))
                          + tour.order_cost.get((cell, next_cell), float("inf"))
                          - tour.order_cost.get((prev_cell, next_cell), 0.0))
+                if math.isfinite(value) and tour.pivot_penalty > 0.0:
+                    trial = list(order)
+                    trial.insert(i, cell)
+                    value += tour.penalty_of(trial) - base_penalty
                 scored.append((value, i))
             detour, pos = min(scored, key=lambda item: (item[0], item[1]))
         if not math.isfinite(detour):

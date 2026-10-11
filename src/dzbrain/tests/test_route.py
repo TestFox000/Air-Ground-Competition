@@ -547,23 +547,108 @@ def test_real_robot_yaml() -> None:
     cfg = Config.load(str(ROBOT_YAML))
     tokens = cfg.get("route.tokens")
     check("cfg.get('route.tokens') 不是 None", tokens is not None, repr(tokens)[:80])
-    # 2026-10-07 配置迁移：现场布置图路线 34 点（原 Map-C 旧图 29 点）
-    check("route.tokens 是 34 个 token（现场布置图路线）",
-          isinstance(tokens, list) and len(tokens) == 34,
+    # 2026-10-11 换图：像素级识图版路线 46 点（2026-10-07 现场图 34 点，原 Map-C 旧图 29 点）
+    check("route.tokens 是 46 个 token（识图版路线）",
+          isinstance(tokens, list) and len(tokens) == 46,
           f"{len(tokens) if isinstance(tokens, list) else type(tokens).__name__} 个")
-    if isinstance(tokens, list) and len(tokens) == 34:
+    if isinstance(tokens, list) and len(tokens) == 46:
         check("现场图路线首点 N10", tokens[0] == "N10", repr(tokens[0]))
-        check("现场图路线末点 N5", tokens[-1] == "N5", repr(tokens[-1]))
-        check("现场图路线含射击点 G10*", "G10*" in tokens, repr(tokens))
-        check("现场图路线含两处桥洞穿越（K9 下半场 / K4 上半场）",
-              "K9" in tokens and "K4" in tokens, repr([t for t in tokens if t.startswith("K")]))
+        check("现场图路线末点 N5", tokens[-1].startswith("N5"), repr(tokens[-1]))
+        check("现场图路线含射击点 G10*", any(t.startswith("G10*") for t in tokens), repr(tokens))
+        check("现场图路线含两处桥洞穿越（K7 下半场 / K1 上半场）",
+              "K7" in tokens and "K1" in tokens, repr([t for t in tokens if t.startswith("K")]))
         route = P.parse_mission(tokens)
-        check("现场图路线能被 parse_mission 解析（34 点）", len(route) == 34, f"{len(route)} 点")
+        check("现场图路线能被 parse_mission 解析（46 点）", len(route) == 46, f"{len(route)} 点")
     check("mission.reset 迁移自 mission_reset", cfg.get("mission.reset") == "N10,y",
           repr(cfg.get("mission.reset")))
     check("pursuit.cruise_speed_mps 迁移自 linear_speed（0.15）",
           abs(float(cfg.get("pursuit.cruise_speed_mps")) - 0.15) < 1e-9,
           repr(cfg.get("pursuit.cruise_speed_mps")))
+
+
+# --------------------------------------------------------------------------- #
+#  11. `:PIVOT` 后缀（卡 C）+ 既有形态逐字节回归
+# --------------------------------------------------------------------------- #
+def test_pivot_suffix() -> None:
+    print("\n=== 11. :PIVOT 后缀（卡 C 新增）+ 既有形态逐字节回归 ===")
+
+    # ---- ① 既有 5 种形态：normalize 逐字节不变 ----
+    legacy_norm = [
+        ("F2:SCAN", "F2:SCAN"),
+        ("F2:SCAN_STOP", "F2:SCAN"),        # 归一形态就是 :SCAN（短一档）
+        ("F2*", "F2*"),
+        ("R:F2", "R:F2"),
+        ("F2,x", "F2,x"),
+    ]
+    for raw, want in legacy_norm:
+        got = P.normalize_token(raw)
+        check(f"既有形态 normalize({raw!r}) == {want!r}（逐字节不变）", got == want, repr(got))
+
+    # ---- ② 既有 5 种形态：parse_token 六元组逐字节不变 ----
+    legacy_parse = [
+        ("F2:SCAN", ("F2", False, False, True, False, None)),
+        ("F2:SCAN_STOP", ("F2", False, False, True, False, None)),
+        ("F2*", ("F2", False, True, False, False, None)),
+        ("R:F2", ("F2", True, False, False, False, None)),
+        ("F2,x", ("F2", False, False, False, False, "x")),
+    ]
+    for raw, want in legacy_parse:
+        t = P.parse_token(raw)
+        got = (t["block"], t["reverse"], t["shoot"], t["scan"], t["pivot"], t["heading"])
+        check(f"既有形态 parse_token({raw!r}) 元组不变", got == want, str(got))
+
+    # ---- ③ 既有形态：回写逐字节不变（后缀顺序 R:→格名→*→:SCAN→,y）----
+    legacy_tokens = ["B5:SCAN", "C5*", "R:D5", "N5"]
+    wrote = P.format_route(P.parse_mission(legacy_tokens))
+    check("既有形态回写逐字节 = 原 token 串", wrote == legacy_tokens, str(wrote))
+    check("既有形态往返一致", P.format_route(P.parse_mission(wrote)) == legacy_tokens,
+          str(P.format_route(P.parse_mission(wrote))))
+
+    # ---- ④ :PIVOT 解析（新增布尔字段 pivot）----
+    t = P.parse_token("F8:PIVOT")
+    check("parse 'F8:PIVOT' -> pivot=True，其余标记全 False",
+          (t["block"], t["pivot"], t["reverse"], t["shoot"], t["scan"], t["heading"])
+          == ("F8", True, False, False, False, None), str(t))
+    check("normalize ' f8:pivot ' -> 'F8:PIVOT'（大小写/空格规范化）",
+          P.normalize_token(" f8:pivot ") == "F8:PIVOT", repr(P.normalize_token(" f8:pivot ")))
+    t = P.parse_token("R:B5:PIVOT")
+    check("parse 'R:B5:PIVOT' 倒车 + 折返声明共存",
+          (t["block"], t["reverse"], t["pivot"]) == ("B5", True, True), str(t))
+    t = P.parse_token("G10*:PIVOT")
+    check("parse 'G10*:PIVOT' 射击 + 折返声明共存",
+          (t["block"], t["shoot"], t["pivot"]) == ("G10", True, True), str(t))
+    t = P.parse_token("F8:PIVOT,y")
+    check("parse 'F8:PIVOT,y' 朝向仍在最后",
+          (t["block"], t["pivot"], t["heading"]) == ("F8", True, "y"), str(t))
+    t = P.parse_token("SHOOT@G11")
+    check("SHOOT@ 指令的 pivot 字段为 False（契约键齐全）",
+          t["pivot"] is False, str(t["pivot"]))
+
+    # ---- ⑤ Waypoint 携带该标记 + 回写保序 ----
+    r = P.parse_mission(["K9", "F8:PIVOT", "F9", "N5"])
+    check("Waypoint 携带 pivot 标记", r[1].pivot is True and r[0].pivot is False,
+          str([w.pivot for w in r]))
+    check("Route.pivot_points()/pivot_blocks() 可读",
+          r.pivot_blocks() == ["F8"] and r.pivot_points()[0][0] == 1, str(r.pivot_blocks()))
+    check(":PIVOT **不产生停站**（is_stop_point 仍只看 shoot/scan）",
+          r[1].is_stop_point is False and len(r.stop_points()) == 0,
+          str([w.is_stop_point for w in r]))
+    tokens_p = ["K9", "F8:PIVOT", "F9", "N5,y"]
+    check(":PIVOT 回写保序（R:→格名→*→:SCAN→:PIVOT→,y）",
+          P.format_route(P.parse_mission(tokens_p)) == tokens_p,
+          str(P.format_route(P.parse_mission(tokens_p))))
+
+    r2 = P.parse_mission(["B5", "B5:PIVOT"])
+    check("相邻同格合并时 :PIVOT 取并集", len(r2) == 1 and r2[0].pivot is True,
+          f"{len(r2)} 点 pivot={r2[0].pivot if len(r2) else None}")
+
+    # ---- ⑥ 非法形态仍然抛 ValueError（不许静默忽略）----
+    check_raises("'K9:FOO' 仍是未知后缀", P.parse_token, "K9:FOO")
+    check_raises("'F2:PIVOT_STOP' 不是合法后缀", P.parse_token, "F2:PIVOT_STOP")
+    check_raises("'F2:SCAN*' 后缀乱序（:SCAN 在 * 前）仍报错", P.parse_token, "F2:SCAN*")
+    check_raises("'F2:PIVOT:SCAN' 后缀乱序仍报错", P.parse_token, "F2:PIVOT:SCAN")
+    check_raises("parse_reset 不接受 :PIVOT", P.parse_reset, "N10:PIVOT")
+    check_raises("parse_reset 不接受 :PIVOT,y", P.parse_reset, "N10:PIVOT,y")
 
 
 # --------------------------------------------------------------------------- #
@@ -586,6 +671,7 @@ def main() -> int:
         test_validate_field_route,
         test_validate_negatives,
         test_real_robot_yaml,
+        test_pivot_suffix,
     ]
     for case in cases:
         try:

@@ -45,7 +45,7 @@ LOCAL_MAP = {
         "name": "测试地图",
         "mines": ["H1", "G2", "C4"],
         "obstacles": ["D1", "B3"],
-        "targets": ["G11", "H11"],
+        "targets": ["F11", "G11"],
         "bridges": ["K4", "K9"],
     }
 }
@@ -210,7 +210,7 @@ check("坏消息之后任务照常跑（P_DRONE 仍在更新）", bb.get(P_DRONE
 # --------------------------------------------------------------------------- #
 section("⑥ target_zone 与本地 map 不一致 → field_diff 有内容")
 task, bridge, bb, bus, clock, sub = build()
-push(bridge, {"type": "target_zone", "blocks": ["G11", "H11"]})   # 与本地一致
+push(bridge, {"type": "target_zone", "blocks": ["F11", "G11"]})   # 与本地一致
 feed(task, clock)
 check("一致时 field_diff 为空", bb.get(P_DRONE).field_diff == (),
       f"got {bb.get(P_DRONE).field_diff}")
@@ -219,7 +219,7 @@ push(bridge, {"type": "target_zone", "blocks": ["G11", "", 7]})    # 畸形条�
 feed(task, clock)
 check("畸形条目计入 missing_fields（不静默）", task.missing_fields == 1,
       f"got {task.missing_fields}")
-check("畸形条目被剔除后剩下的 {G11} 与本地 {G11,H11} 确实不同 → 如实报差异",
+check("畸形条目被剔除后剩下的 {G11} 与本地 {F11,G11} 确实不同 → 如实报差异",
       len(bb.get(P_DRONE).field_diff) == 1, f"got {bb.get(P_DRONE).field_diff}")
 push(bridge, {"type": "target_zone", "blocks": ["G11", "H12"]})   # 不一致（新开一段核对）
 task.field_diffs.clear()
@@ -228,13 +228,13 @@ feed(task, clock)
 diffs = bb.get(P_DRONE).field_diff
 check("不一致时 field_diff 有 1 条", len(diffs) == 1, f"got {diffs}")
 check("差异文本含两侧证据（仅无人机 / 仅本地）",
-      "H12" in diffs[0] and "H11" in diffs[0] and "仅无人机" in diffs[0]
+      "H12" in diffs[0] and "F11" in diffs[0] and "仅无人机" in diffs[0]
       and "仅本地" in diffs[0], f"got {diffs[0]!r}")
 verify = events_of(sub, EV_FIELD_VERIFY)
 check("发出 EV_FIELD_VERIFY（tag/remote/local 齐备）",
       len(verify) == 1 and verify[0].data["tag"] == "target_zone"
       and verify[0].data["only_remote"] == ["H12"]
-      and verify[0].data["only_local"] == ["H11"],
+      and verify[0].data["only_local"] == ["F11"],
       f"got {verify[0].data if verify else None}")
 
 section("⑥b field_verify：雷/障差异同样记进 field_diff")
@@ -313,7 +313,7 @@ check("默认路径指向 <repo>/config/map.yaml 且存在",
 task, bridge, bb, bus, clock, sub = build(local_map=None)
 check("不传 local_map → 自动读仓库默认地图（loaded=True）", task.map_loaded is True,
       f"got {task.map_loaded} source={task._map_source}")
-check("靶区从 map.yaml 读出 = {G11,H11}", task.targets == frozenset({"G11", "H11"}),
+check("靶区从 map.yaml 读出 = {F11,G11}", task.targets == frozenset({"F11", "G11"}),
       f"got {sorted(task.targets)}")
 check("雷 8 个、障 8 个被读出",
       len(task.mines) == 8 and len(task.obstacles) == 8,

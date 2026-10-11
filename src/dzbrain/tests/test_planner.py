@@ -413,7 +413,7 @@ def main() -> int:
                  cross_lower="K2")
 
     mine_on_obstacle = copy.deepcopy(map_cfg)
-    mine_on_obstacle["map"]["mines"] = list(mine_on_obstacle["map"]["mines"][:7]) + ["F7"]
+    mine_on_obstacle["map"]["mines"] = list(mine_on_obstacle["map"]["mines"][:7]) + ["F5"]
     check_raises("雷落在障碍格上（地图自相矛盾）-> 抛错",
                  P.plan_route, mine_on_obstacle, cfg)
 
@@ -509,6 +509,161 @@ def main() -> int:
           and V._stop_ok(Waypoint.at_block("G10"), "H11",              # noqa: SLF001
                          *P.accept_window(limits)),
           f"d={P.stop_distance_m('G10', 'H11'):.3f} m，标称上限 {limits[1]}")
+
+    # ------------------------------------------------------------------ #
+    section("9 卡 C：无倒车路线（0 段 R:）+ 折返点 :PIVOT + 合法性自检负向控制")
+    check("PIVOT_MARK_DEG = 循迹层 `pursuit.pivot_angle_deg` 默认值（135°）",
+          P.PIVOT_MARK_DEG == 135.0, f"{P.PIVOT_MARK_DEG}")
+    check("PIVOT_PENALTY = 5.0（等效代价单位/处）", P.PIVOT_PENALTY == 5.0,
+          f"{P.PIVOT_PENALTY}")
+
+    nr = P.plan_route(map_cfg, cfg, allow_reverse=False, name="norev")
+    print(f"      无倒车路线（{len(nr.tokens)} token / {nr.polyline_m:.2f} m）：")
+    print("        " + " ".join(nr.tokens))
+    check("[无倒车] 0 段 R:（reverse_segments）", nr.reverse_segments == 0,
+          f"{nr.reverse_segments} 段")
+    check("[无倒车] token 串里没有任何 `R:` 前缀",
+          not any(t.upper().startswith("R:") for t in nr.tokens), "0 个")
+    check("[无倒车] parser 能编译回同样的航点数",
+          len(PARSER.parse_mission(nr.tokens)) == len(nr.tokens),
+          f"{len(PARSER.parse_mission(nr.tokens))} vs {len(nr.tokens)}")
+    check("[无倒车] 与卡 A 探针同形：46 token / 里程 18.55 m（只多了 :PIVOT 后缀）",
+          len(nr.tokens) == 46 and abs(nr.polyline_m - 18.55) < 0.02,
+          f"{len(nr.tokens)} token / {nr.polyline_m:.2f} m")
+
+    # ---- ① 折返点清单：几何判据 vs :PIVOT 声明，逐一对应 ----
+    geo_pivots = P.pivot_vertices(nr.route)
+    declared = [(i, wp.block) for i, wp in enumerate(nr.route.waypoints) if wp.pivot]
+    check("[折返点] 现场无倒车路线实测 3 处 180° 折返（F10 / A9 / F3）",
+          [(b, round(a)) for _i, b, a in geo_pivots] == [("F10", 180), ("A9", 180), ("F3", 180)],
+          str([(i, b, round(a)) for i, b, a in geo_pivots]))
+    check("[折返点] 每一处几何折返顶点都带 :PIVOT（无漏报）",
+          [(i, b) for i, b, _a in geo_pivots] == declared, str(declared))
+    check("[折返点] token 里确实写着 `:PIVOT`，且只有这几处",
+          [t for t in nr.tokens if t.endswith(":PIVOT")] == ["F10*:PIVOT", "A9:PIVOT", "F3:PIVOT"],
+          str([t for t in nr.tokens if t.endswith(":PIVOT")]))
+    check("[折返点] PlanResult 清单与是否无倒车模式一致",
+          nr.pivot_count == 3 and nr.allow_reverse is False and nr.pivot_penalty == 0.0,
+          f"count={nr.pivot_count} allow_reverse={nr.allow_reverse} "
+          f"penalty={nr.pivot_penalty}")
+    check("[折返点] 允许倒车模式**不声明** :PIVOT（折返由 R: 完成）",
+          result.pivot_count == 0 and result.allow_reverse is True
+          and not any(t.endswith(":PIVOT") for t in result.tokens),
+          f"count={result.pivot_count} R段={result.reverse_segments}")
+
+    # ---- ② 用**循迹层自己的判据**复算：corner_turn_deg ≥ 135 ⇔ :PIVOT ----
+    try:
+        from dzbrain.pursuit.path import Path                   # 只读复用，不改它
+        pth = Path(nr.route)
+        want = {i for i in range(1, len(nr.route.waypoints) - 1)
+                if pth.corner_turn_deg(i - 1) >= P.PIVOT_MARK_DEG - 1e-9}
+        got = {i for i, wp in enumerate(nr.route.waypoints) if wp.pivot}
+        check("[折返点] pursuit.path.corner_turn_deg ≥ 135° 的点集 == :PIVOT 声明点集",
+              want == got, f"循迹层判据 {sorted(want)} vs 声明 {sorted(got)}")
+
+        # ---- ③ 声明不改变循迹层行为：带/不带 :PIVOT 的 Path 逐项相同 ----
+        plain_route = PARSER.parse_mission(
+            [t.replace(":PIVOT", "") for t in nr.tokens])
+        plain_path = Path(plain_route)
+        check("[声明无害] 折线几何逐段一致（去掉 :PIVOT 后 segments 完全相同）",
+              pth.segments == plain_path.segments,
+              f"{len(pth.segments)} 段")
+        check("[声明无害] 每段倒车标记一致",
+              [pth.segment_is_reverse(i) for i in range(pth.segment_count)]
+              == [plain_path.segment_is_reverse(i) for i in range(plain_path.segment_count)],
+              "全一致")
+        check("[声明无害] 每个顶点车头转角一致（corner_turn_deg 逐点相同）",
+              [round(pth.corner_turn_deg(i), 9) for i in range(pth.segment_count - 1)]
+              == [round(plain_path.corner_turn_deg(i), 9)
+                  for i in range(plain_path.segment_count - 1)],
+              "全一致")
+        check("[声明无害] 停站索引一致（:PIVOT 不产生停站）",
+              pth.stop_indices == plain_path.stop_indices,
+              f"{pth.stop_indices}")
+        check("[声明无害] 总长一致", abs(pth.total_length - plain_path.total_length) < 1e-12,
+              f"{pth.total_length:.6f} m")
+    except ImportError as exc:                                   # pragma: no cover
+        check("[折返点] 能 import dzbrain.pursuit.path 做交叉验证", False, str(exc))
+
+    # ---- ④ 合法性自检的负向控制（两条硬性用例）----
+    check_raises("[负向 A] 折返点缺 :PIVOT 的路线必须抛 PlannerError",
+                 P.assert_legal_no_reverse,
+                 PARSER.parse_mission([t.replace(":PIVOT", "") for t in nr.tokens]))
+    check_raises("[负向 B] 含 R: 的路线必须抛 PlannerError（assert_legal_no_reverse）",
+                 P.assert_legal_no_reverse, PARSER.parse_mission(["N10", "R:N9", "N5"]))
+    # 虚报 :PIVOT（给一个 90° 顶点加声明）也必须抛 —— 走的是"虚报"分支
+    appended = list(nr.tokens)
+    appended[5] = appended[5] + ":PIVOT"            # 第 5 点是 I9：前后段夹角 90°
+    check_raises("[负向 C] 虚报 :PIVOT（给 90° 顶点加声明）也必须抛 PlannerError",
+                 P.assert_legal_no_reverse, PARSER.parse_mission(appended))
+    # 对照组：原样路线通过（证明上面三条不是"随便什么都抛"）
+    ok_legal = True
+    try:
+        P.assert_legal_no_reverse(PARSER.parse_mission(nr.tokens))
+    except P.PlannerError as exc:                                # pragma: no cover
+        ok_legal = False
+        print(f"        {exc}")
+    check("[负向对照] 带 :PIVOT 的原样路线通过 assert_legal_no_reverse", ok_legal,
+          "0 error")
+
+    # ---- ⑤ 自检确实在 plan_route 内部被调用（spy 计数）----
+    hits = {"no_reverse": 0, "reverse": 0}
+    orig_no_rev, orig_rev = P.assert_legal_no_reverse, P.assert_legal
+
+    def spy_no_rev(route):
+        hits["no_reverse"] += 1
+        return orig_no_rev(route)
+
+    def spy_rev(route):
+        hits["reverse"] += 1
+        return orig_rev(route)
+
+    P.assert_legal_no_reverse, P.assert_legal = spy_no_rev, spy_rev
+    try:
+        P.plan_route(map_cfg, cfg, allow_reverse=False, name="spy-norev")
+        P.plan_route(map_cfg, cfg, allow_reverse=True, name="spy-rev")
+    finally:
+        P.assert_legal_no_reverse, P.assert_legal = orig_no_rev, orig_rev
+    check("[自检接线] plan_route(allow_reverse=False) 内部调用 assert_legal_no_reverse",
+          hits["no_reverse"] == 1, str(hits))
+    check("[自检接线] plan_route(allow_reverse=True) 内部调用 assert_legal",
+          hits["reverse"] == 1, str(hits))
+
+    # ---- ⑥ 折返惩罚：加惩罚前 vs 后 ----
+    pen = P.plan_route(map_cfg, cfg, allow_reverse=False,
+                       pivot_penalty=P.PIVOT_PENALTY, name="norev-pen")
+    print(f"      折返惩罚 {P.PIVOT_PENALTY}/处 的路线（{len(pen.tokens)} token / "
+          f"{pen.polyline_m:.2f} m / 折返点 {pen.pivot_count}）：")
+    print("        " + " ".join(pen.tokens))
+    check("[惩罚] 折返点是唯一通路，惩罚后仍是 3 处（3 → 3）",
+          nr.pivot_count == 3 and pen.pivot_count == 3,
+          f"惩罚前 {nr.pivot_count} → 惩罚后 {pen.pivot_count}")
+    check("[惩罚] 惩罚版里程变长（18.55 → 19.95 m，仍 3 处折返）",
+          pen.polyline_m > nr.polyline_m,
+          f"{nr.polyline_m:.2f} → {pen.polyline_m:.2f} m")
+    check("[惩罚] 惩罚版仍 0 段 R: 且仍合法",
+          pen.reverse_segments == 0 and pen.pivot_penalty == P.PIVOT_PENALTY, "0 段 R:")
+    c6, d6, b6 = P._cell("C6"), P._cell("D6"), P._cell("B6")      # noqa: SLF001
+    g_nr = P.Grid(spec, bridge_rows=(9, 4), allow_reverse=False)
+    t5 = P._Tour(g_nr, 1e9, pivot_penalty=P.PIVOT_PENALTY)        # noqa: SLF001
+    t0 = P._Tour(g_nr, 1e9, pivot_penalty=0.0)                    # noqa: SLF001
+    t5.build([c6, d6, b6])
+    t0.build([c6, d6, b6])
+    check("[惩罚] 单元：C6->D6->B6 判为 1 处折返", t5.reversals([c6, d6, b6]) == 1,
+          f"reversals={t5.reversals([c6, d6, b6])}")
+    check("[惩罚] 单元：同一序列的 seq_cost 差 = 5.0（= 1 处 × PIVOT_PENALTY）",
+          abs((t5.seq_cost([c6, d6, b6]) - t0.seq_cost([c6, d6, b6]))
+              - P.PIVOT_PENALTY) < 1e-9,
+          f"{t5.seq_cost([c6, d6, b6]):.4f} - {t0.seq_cost([c6, d6, b6]):.4f}")
+
+    # ---- ⑦ 无倒车路线过出车前校验（六层 0 error）----
+    if ROUTE_CHECK.is_file():
+        ncode, ndetail = route_check_errors(nr.tokens, MAP_YAML)
+        check("[无倒车] route_check 退出码 0（六层全过、0 error）", ncode == 0,
+              f"exit={ncode} | {ndetail[:220]}")
+        pcode, pdetail = route_check_errors(pen.tokens, MAP_YAML)
+        check("[惩罚版] route_check 退出码 0", pcode == 0,
+              f"exit={pcode} | {pdetail[:220]}")
 
     return finish()
 

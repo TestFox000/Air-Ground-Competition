@@ -150,9 +150,9 @@ cfg = Config.load(str(cfg_path))
 check("来源路径正确", cfg.source.endswith("robot.yaml"))
 check("旧键 path_executor.linear_speed 可读", cfg.get("path_executor.linear_speed") == 0.15)
 check("新键 pursuit.cruise_speed_mps 由旧键迁移", cfg.get("pursuit.cruise_speed_mps") == 0.15)
-# 2026-10-07 配置迁移：现场布置图路线 34 点（原 Map-C 旧图 29 点），标定改为复标值
-check("route.tokens 由 mission_blocks 迁移（现场图 34 点）",
-      len(cfg.get("route.tokens") or []) == 34)
+# 2026-10-11 换图：像素级识图版路线 46 点（2026-10-07 现场图 34 点，原 Map-C 旧图 29 点）
+check("route.tokens 由 mission_blocks 迁移（识图版 46 点）",
+      len(cfg.get("route.tokens") or []) == 46)
 check("桥洞保护整列 K1~K11", len(cfg.get("pursuit.bridge_blocks") or []) == 11)
 check("旧 dzactuator 段可读（已迁到复标值 2776.0）",
       cfg.get("dzactuator.ticksPerMeter") == 2776.0)
@@ -163,7 +163,7 @@ check("case: 未知键给出告警", True)
 issues = cfg.validate(strict=False)
 errs = [i for i in issues if i.level == "error"]
 check("真实配置无 error", not errs, "; ".join(str(i) for i in errs))
-check("配置摘要包含穿洞兜底格", "K9" in cfg.summary())
+check("配置摘要包含穿洞兜底格", "K7" in cfg.summary())
 
 section("Config：校验真的会拦（负例）")
 bad = Config.from_dict({

@@ -896,6 +896,138 @@ def test_pivot_done_marks_arrival() -> None:
 
 
 # --------------------------------------------------------------------------- #
+#  13. ★卡 D finding D1：逐点台账（s 跨点/收尾都必须显式记账，绝不静默丢点）
+# --------------------------------------------------------------------------- #
+def test_waypoint_ledger() -> None:
+    """★13. 越窗/收尾的航点必须**显式记账**，且"最近接近"几何复核不得虚报到达。
+
+    缺陷（t4 报告 D1，bench 实测）：`s` 一步跨过若干航点时，到达判据
+    `(s_reached and near)` 对"车不在附近"的点恒假 ⇒ 那些点**既没登记到达、也没有
+    forced_skip 记录**（静默丢点；老 43 点图上 42 个航点里 11 个没登记，其中 3 颗雷）。
+    本用例把它做成可复现的场景：
+      ① 车贴在 B1 后方 0.17 m（≤ 半格 0.175，但 s 还没越过）⇒ 只该记下"最近距离"；
+      ② 横向偏 0.45 m（`near` 判据失效）+ 沿路径前冲 ⇒ s 跳跃，B1 由**最近接近**登记到达，
+         而 C1/D1/E1（最近只到 ~0.47 m）必须走"越窗跳过"显式记账，F1/G1 由收尾清账兜住。
+    台账不变量：`unexplained == []`（既非到达、也非显式跳过的航点一个都不能有）。
+    """
+    section("13. ★逐点台账：s 跨点/收尾都必须显式记账（绝不静默丢点）")
+    tokens = ["A1", "B1", "C1", "D1", "E1", "F1", "G1"]     # A1→G1 沿 -y 的直线，格距 0.35
+    cfg = cfg_of(mission={"auto_start": True, "auto_start_delay_s": 0.0, "reset": "A1,x"},
+                 route={"tokens": tokens})
+    rig = Rig(cfg=cfg, pose=geo.block_to_meters("A1") + (geo.HEADING_X,))
+    rig.tick()                                              # 出发（delay=0）
+    bx, by = geo.block_to_meters("B1")
+
+    # ① 贴到 B1 后方 0.17 m：不触达（s 未越过），但留下"历史最近距离"
+    rig.set_pose(bx + 0.08, by + 0.15, geo.HEADING_X)
+    rig.tick()
+    s1 = rig.task._last_s
+    s_b1 = rig.task._path.s_at_waypoint(1)
+    check("13.1 前置：s 尚未越过 B1（否则测的不是 s 跨点）",
+          s1 + float(cfg.get("pursuit.arrival_m")) < s_b1,
+          f"s={s1:.3f} s_at(1)={s_b1:.3f} arrival={cfg.get('pursuit.arrival_m')}")
+    check("13.2 前置：已记下 B1 的最近距离 ≤ 复核半径（半格 0.175 m）",
+          rig.task._min_dist[1] <= rig.task._close_m,
+          f"min_dist={rig.task._min_dist[1]:.3f} close_m={rig.task._close_m:.3f}")
+    check("13.3 前置：此刻 B1 未登记到达（`_passed[1]` False、arrived=0）",
+          rig.task._passed[1] is False and rig.task.accounting()["arrived"] == 0,
+          f"_passed[1]={rig.task._passed[1]} arrived={rig.task.accounting()['arrived']}")
+
+    # ② 横向 0.45 m（near 失效）沿路径前冲：s 跳跃，跨过 B1/C1/D1/E1/F1/G1
+    for dy in (0.0, 0.7, 1.4):
+        rig.set_pose(bx + 0.45, by + 0.15 - dy, geo.HEADING_X)
+        rig.tick()
+
+    acc_mid = rig.task.accounting()
+    check("13.4 ★s 跨点后 B1 由「最近接近」几何复核登记到达（旧代码：静默丢弃）",
+          acc_mid["arrived_by"].get("最近接近", 0) == 1 and rig.task._passed[1] is True,
+          f"arrived_by={acc_mid['arrived_by']} _passed[1]={rig.task._passed[1]}")
+    check("13.5 ★复核半径不虚报：C1/D1 最近只到 ~0.47 m > 0.175 m ⇒ 不得登记到达",
+          all(rig.task._min_dist[i] > rig.task._close_m
+              for i in (2, 3)) and all(i not in rig.task._arrived_by for i in (2, 3)),
+          f"min_dist[2..3]={[round(rig.task._min_dist[i], 3) for i in (2, 3)]}")
+    check("13.6 ★越窗的点只记「待定」，**不立即置位**（否则会把还能到达的点提前判死）",
+          set(int(k) for k in acc_mid["pending_skips"]) >= {2, 3}
+          and rig.task._passed[2] is False and rig.task._passed[3] is False,
+          f"pending={sorted(int(k) for k in acc_mid['pending_skips'])} "
+          f"_passed[2]={rig.task._passed[2]} _passed[3]={rig.task._passed[3]}")
+    check("13.7 待定项已显式记账（日志有「越窗待定」，不算静默）",
+          any("越窗待定（显式记账，不静默丢点）" in ln for ln in rig.logs),
+          f"{[ln for ln in rig.logs if '越窗待定' in ln][:1]}")
+    check("13.8 前置：**已被 s 跨过**的航点不会落进 unexplained（待定也算已记账；"
+          "后面的 E1/F1/G1 还没到，不算丢点）",
+          not ({2, 3} & set(acc_mid["unexplained"])),
+          f"unexplained={acc_mid['unexplained']}（其中 4/5/6 是尚未推进到的航点）")
+
+    # ★③ 车又靠回 C1（0.094 m ≤ arrival_m）→ 必须**照样登记到达**（bench 实测雷 I8 就是这种：
+    #    基线里是「到点 8/45 I8」；若越窗那拍就判死，它会被误记成跳点、雷覆盖 8/8→7/8）
+    cx, cy = geo.block_to_meters("C1")
+    rig.set_pose(cx + 0.05, cy + 0.08, geo.HEADING_X)
+    rig.tick()
+    acc_back = rig.task.accounting()
+    check("13.9 ★★越窗待定的点后来又靠上 ⇒ 登记**到达**而不是跳过（雷 I8 的保护）",
+          rig.task._passed[2] is True and "2" not in acc_back["skipped"]
+          and "2" not in acc_back["pending_skips"],
+          f"_passed[2]={rig.task._passed[2]} skipped={sorted(int(k) for k in acc_back['skipped'])} "
+          f"pending={sorted(int(k) for k in acc_back['pending_skips'])}")
+
+    # ④ 继续前冲到终点，剩余的越窗点由收尾清账定案
+    for dy in (2.1, 2.8):
+        rig.set_pose(bx + 0.45, by + 0.15 - dy, geo.HEADING_X)
+        rig.tick()
+
+    acc = rig.task.accounting()
+    check("13.10 ★未到达的 D1/E1/F1/G1 全部显式记账（越窗定案 + 收尾清账）",
+          all(str(i) in acc["skipped"] for i in (3, 4, 5, 6))
+          and ("s 已越过" in acc["skipped"]["3"] or "s 已越过" in acc["skipped"]["4"]),
+          f"skipped={ {k: v[:26] for k, v in acc['skipped'].items()} }")
+    check("13.11 ★★无静默丢点：unexplained 为空（本用例的核心判据）",
+          acc["unexplained"] == [], f"unexplained={acc['unexplained']}")
+    check("13.12 台账闭合：arrived + 显式跳过 == 分母（len(route)-1）",
+          acc["arrived"] + acc["skipped_total"] == acc["denominator"]
+          and acc["pending_skips"] == {},
+          f"{acc['arrived']}+{acc['skipped_total']} vs {acc['denominator']} pending={acc['pending_skips']}")
+
+    forced = [e for e in rig.of(EV_WAYPOINT_REACHED) if e.data.get("forced_skip")]
+    reasons = sorted({str(e.data.get("reason")) for e in forced})
+    check("13.13 ★每个定案的航点都有事件（forced_skip=True + reason 可审计）",
+          len(forced) == acc["skipped_total"]
+          and reasons == ["close_ledger", "s_over_step"],
+          f"forced={len(forced)} reasons={reasons}")
+    check("13.14 ★事件与台账逐点对得上（索引集合相同）",
+          sorted(int(e.data.get("index")) for e in forced) ==
+          sorted(int(k) for k in acc["skipped"]),
+          f"events={sorted(int(e.data.get('index')) for e in forced)} "
+          f"ledger={sorted(int(k) for k in acc['skipped'])}")
+    check("13.15 日志可逐点对账（含「显式记账，不静默丢点」与定案行）",
+          any("越窗待定（显式记账，不静默丢点）" in ln for ln in rig.logs)
+          and any("逐点定案（显式记账）" in ln for ln in rig.logs),
+          f"logs_tail={rig.logs[-3:]}")
+    check("13.16 结束横幅给出逐点到点率与显式跳过汇总",
+          any("逐点到点率" in ln for ln in rig.logs)
+          and any("显式跳过" in ln for ln in rig.logs),
+          f"{[ln for ln in rig.logs if '逐点到点率' in ln][:1]}")
+    check("13.17 任务正常收尾（FINISH），没有卡死",
+          rig.task.phase == MissionPhase.FINISH, f"phase={rig.task.phase!r}")
+    check("13.18 车体覆盖复核（只读接口，供 t8/t10 对账雷是否被盖住）",
+          isinstance(rig.task.closest_approaches(), dict)
+          and rig.task.closest_approaches().get(1, -1) == 0.17,
+          f"min_dist[1]={rig.task.closest_approaches().get(1)}")
+
+    # ⑤ 对照（防"复核太松"）：车**真贴到**格心时，主判据（距格心/s+近路径）必须照样生效
+    rig2 = Rig(cfg=cfg, pose=geo.block_to_meters("A1") + (geo.HEADING_X,))
+    rig2.tick()
+    rig2.set_pose(*geo.block_to_meters("B1"), geo.HEADING_X)          # 正落在 B1 格心
+    rig2.tick(0.1)
+    check("13.19 对照：车在格心上 → 登记到达且依据不是「最近接近」（主判据未被抢）",
+          rig2.task._passed[1] is True
+          and not str(rig2.task.accounting()["arrived_by"].get(1, "")).startswith("最近接近"),
+          f"arrived_by={rig2.task.accounting()['arrived_by']}")
+    check("13.20 对照：`_min_dist` 仍如实记录（0 m）",
+          rig2.task._min_dist[1] < 1e-9, f"min_dist={rig2.task._min_dist[1]}")
+
+
+# --------------------------------------------------------------------------- #
 def main() -> int:
     print("=" * 72)
     print("dzbrain MissionTask 自测（纯脚本）")
@@ -912,6 +1044,7 @@ def main() -> int:
     test_stall_fallback()
     test_arrival_requires_proximity()
     test_pivot_done_marks_arrival()
+    test_waypoint_ledger()
     finish()
     return 0
 

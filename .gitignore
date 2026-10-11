@@ -29,3 +29,8 @@ __pycache__/
 .vscode/*.log
 Thumbs.db
 desktop.ini
+
+# ---- 本地智能体状态 / 临时产物（不入库）----
+.agent-teams/
+_tmp_install_repro/
+_tmp_*.txt

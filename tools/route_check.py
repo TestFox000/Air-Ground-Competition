@@ -29,13 +29,14 @@
 （不是重写一份 —— 重写就会两处逻辑各说各话，那正是要避免的）。
 
 --------------------------------------------------------------------------------
-五层检查
+五层检查（⑥ 折返层为卡 C 新增，共六层）
 --------------------------------------------------------------------------------
     ① 语法层    token 合法性（复用 path_executor.validate_mission_blocks）
     ② 解析层    模拟 follow_route_command，产出航点与标记数组
     ③ 几何层    挡板穿越列/余量、障碍最近距离、地图边界、转弯角度
     ④ 任务层    雷/靶/桥洞覆盖、射击点距离是否在 0.20~0.45m
     ⑤ 安全层    越界余量、桥洞保护点、倒车段长度
+    ⑥ 折返层    `:PIVOT` 声明与实际折返几何是否一致（虚报 = ❌，漏报 = ⚠️）
 
 --------------------------------------------------------------------------------
 用法
@@ -86,7 +87,12 @@ BARRIER_MIN_MARGIN = 0.10        # 过挡板缺口时离挡板边缘的最小余
 OBSTACLE_WARN_M = 0.30           # 航段离障碍的告警距离(m)
 SHOOT_DIST_MIN = 0.20            # 射击点距离下限(m)，会被配置中心覆盖
 SHOOT_DIST_MAX = 0.45            # 射击点距离上限(m)，会被配置中心覆盖
-SHARP_CORNER_DEG = 45.0          # 超过此角度会触发 PIVOT 原地转向
+SHARP_CORNER_DEG = 45.0          # 超过此角度算"急转弯"（提示级；★ PIVOT 的真正门限见下行）
+# ★ PIVOT 真正触发门限（度）：循迹层用 `pursuit.path.corner_turn_deg`（**车头**要转的角度）
+#   与 `pursuit.pivot_angle_deg`（`core/config.py` 默认 135°、robot.yaml 未覆盖）比较。
+#   本工具里它只用来校验 `:PIVOT` 声明的一致性（第 ⑥ 层），
+#   **不改变** `pursuit/**` 与 `tasks/tracker.py` 的任何行为。
+PIVOT_DECL_DEG = 135.0
 
 MAP_X_MIN = 0.5 * BLOCK_SIZE
 MAP_X_MAX = 10.5 * BLOCK_SIZE
@@ -174,6 +180,7 @@ def load_path_executor():
 def fallback_validate(tokens):
     """path_executor 不可用时的内置等价校验（保持同样的规则）。"""
     problems, n_rev, n_shoot, n_norm = [], 0, 0, 0
+    n_pivot = 0
     for i, tok in enumerate(tokens):
         t = str(tok).strip()
         if not t:
@@ -201,6 +208,10 @@ def fallback_validate(tokens):
                 body, n_shoot = h.strip(), n_shoot + 1
             elif tu in ('SCAN_STOP', 'SCAN'):
                 body = h.strip()
+            elif tu == 'PIVOT':
+                # ★ 卡 C 新增后缀：折返点**声明**（该顶点车头需转过 ≥ PIVOT_DECL_DEG）。
+                #   不产生停站、不改变循迹层行为，第 ⑥ 层再校验它与几何是否一致。
+                body, n_pivot = h.strip(), n_pivot + 1
         if body.endswith('*'):
             body, n_shoot = body[:-1].strip(), n_shoot + 1
         bu = body.upper()
@@ -211,16 +222,20 @@ def fallback_validate(tokens):
         else:
             n_norm += 1
     return (not problems), problems, {'total': len(tokens), 'reverse': n_rev,
-                                      'shoot': n_shoot, 'normal': n_norm}
+                                      'shoot': n_shoot, 'normal': n_norm,
+                                      'pivot': n_pivot}
 
 
 def parse_route(tokens):
-    """模拟 follow_route_command 的 token 循环，产出 (航点, shoot, scan, reverse)。
+    """模拟 follow_route_command 的 token 循环，产出 (航点, shoot, scan, reverse, pivot)。
 
     这一步刻意与 path_executor 的解析顺序保持完全一致：
         R: 前缀  ->  :LABEL 标签  ->  * 后缀  ->  ,朝向
+
+    ★ `pivot`（第 5 个返回值，卡 C 新增）与 `pts` **逐点对齐**：
+      `:PIVOT` 只是声明，不产生新航点、不影响去重（同一个格 + 同样的 reverse 才合并）。
     """
-    pts, shoot_f, scan_f, rev_f = [], [], [], []
+    pts, shoot_f, scan_f, rev_f, pivot_f = [], [], [], [], []
     for tok in tokens:
         t = str(tok).strip()
         if not t:
@@ -229,6 +244,7 @@ def parse_route(tokens):
         if t.upper().startswith('R:'):
             rev = True
             t = t[2:].strip()
+        pivot = False
         if ':' in t:
             head, tail = t.split(':', 1)
             tu = tail.strip().upper()
@@ -236,6 +252,8 @@ def parse_route(tokens):
                 t = head.strip() + '*'
             elif tu in ('SCAN_STOP', 'SCAN'):
                 t = head.strip()
+            elif tu == 'PIVOT':
+                t, pivot = head.strip(), True
         shoot = t.endswith('*')
         b = (t[:-1] if shoot else t).upper()
         if ',' in b:
@@ -247,12 +265,14 @@ def parse_route(tokens):
                 and rev_f[-1] == rev:
             if shoot:
                 shoot_f[-1] = True
+            pivot_f[-1] = pivot_f[-1] or pivot
             continue
         pts.append((px, py))
         shoot_f.append(shoot)
         scan_f.append(True)
         rev_f.append(rev)
-    return pts, shoot_f, scan_f, rev_f
+        pivot_f.append(pivot)
+    return pts, shoot_f, scan_f, rev_f, pivot_f
 
 
 # =============================================================================
@@ -426,7 +446,7 @@ def run_check(route: str, cfg: dict) -> int:
     print("  共 %d 个 token" % len(tokens))
 
     # ---------------- ① 语法层 ----------------
-    sec("1/5 语法层")
+    sec("1/6 语法层")
     pe = load_path_executor()
     if pe is not None and hasattr(pe, 'normalize_mission_token'):
         toks = [x for x in (pe.normalize_mission_token(t) for t in tokens) if x]
@@ -438,25 +458,26 @@ def run_check(route: str, cfg: dict) -> int:
         info("校验来源", "内置等价副本")
 
     if valid:
-        ok("全部 token 合法", "普通 %d | 倒车 %d | 射击 %d"
-           % (stats['normal'], stats['reverse'], stats['shoot']))
+        ok("全部 token 合法", "普通 %d | 倒车 %d | 射击 %d | 折返 %d"
+           % (stats['normal'], stats['reverse'], stats['shoot'], stats.get('pivot', 0)))
     else:
         bad("%d 处 token 非法" % len(problems))
         for p in problems[:8]:
             print("        " + p)
 
     # ---------------- ② 解析层 ----------------
-    sec("2/5 解析层")
-    pts, shoot_f, scan_f, rev_f = parse_route(toks)
+    sec("2/6 解析层")
+    pts, shoot_f, scan_f, rev_f, pivot_f = parse_route(toks)
     if len(pts) < 2:
         bad("解析出的航点不足 2 个，无法构成路线")
         return summarise()
     ok("解析出 %d 个航点" % len(pts))
     info("射击点索引", str([i for i, f in enumerate(shoot_f) if f]) or "(无)")
     info("倒车段索引", str([i for i, f in enumerate(rev_f) if f]) or "(无)")
+    info("折返点索引", str([i for i, f in enumerate(pivot_f) if f]) or "(无)")
 
     # ---------------- ③ 几何层 ----------------
-    sec("3/5 几何层")
+    sec("3/6 几何层")
 
     # 边界
     oob = [(i, x, y) for i, (x, y) in enumerate(pts)
@@ -505,16 +526,18 @@ def run_check(route: str, cfg: dict) -> int:
     turns = [(i, a) for (i, a) in turn_angles(pts)
              if not _is_rev_vertex(i, rev_f)]
     sharp = [t for t in turns if t[1] > SHARP_CORNER_DEG]
+    declared_in_sharp = [i for i, _a in sharp if i < len(pivot_f) and pivot_f[i]]
     if sharp:
         warn("急转弯 %d 处" % len(sharp),
-             "最大 %.0f° @航点#%d（将触发 PIVOT 原地转向）"
-             % (max(sharp, key=lambda x: x[1])[1], max(sharp, key=lambda x: x[1])[0]))
+             "最大 %.0f° @航点#%d（其中 %d 处已声明 :PIVOT）"
+             % (max(sharp, key=lambda x: x[1])[1], max(sharp, key=lambda x: x[1])[0],
+                len(declared_in_sharp)))
     else:
         ok("转弯平顺", "最大 %.0f° < %.0f°，全程无需 PIVOT"
            % (max([t[1] for t in turns] or [0]), SHARP_CORNER_DEG))
 
     # ---------------- ④ 任务层 ----------------
-    sec("4/5 任务层")
+    sec("4/6 任务层")
     visited = set()
     for t in toks:
         b = t.upper()
@@ -631,7 +654,7 @@ def run_check(route: str, cfg: dict) -> int:
         info("射击点距离", "未提供靶标位置，跳过")
 
     # ---------------- ⑤ 安全层 ----------------
-    sec("5/5 安全层")
+    sec("5/6 安全层")
     total = path_length(pts)
     info("总里程", "%.2f m（%d 航段）" % (total, len(pts) - 1))
     info("越界保护", "MAP_SAFETY_MARGIN = %.2f m（保持不变）" % MAP_SAFETY_MARGIN)
@@ -682,7 +705,52 @@ def run_check(route: str, cfg: dict) -> int:
             warn("桥洞保护点未覆盖",
                  "路线不经过 %s —— 强制直行保护不会触发" % " ".join(brg))
 
+    # ---------------- ⑥ 折返层（:PIVOT 声明一致性） ----------------
+    sec("6/6 折返层")
+    _pivot_layer(pts, rev_f, pivot_f)
+
     return summarise()
+
+
+def _pivot_layer(pts, rev_f, pivot_f):
+    """`:PIVOT` 声明与实际折返几何的一致性 —— **只报不改，不改循迹层行为**。
+
+    判据（与 `planner.PIVOT_MARK_DEG` / `pursuit.pivot_angle_deg` 同一套）：
+      * "折返顶点" = 顶点处**行进方向**夹角 ≥ `PIVOT_DECL_DEG`（135°），
+        且相邻两段**都不是倒车段**（`_is_rev_vertex`：倒车段车头一度都不用转）；
+      * 虚报（声明了 `:PIVOT` 但不是折返顶点）= ❌ 真缺陷（会让现场误判该处要掉头）；
+      * 漏报（是折返顶点但没声明）= ⚠️ 提示（循迹层仍会按 `corner_turn_deg` 自动 PIVOT，
+        车不会撞 —— 但下发的路线就"没写明"，与本卡「折返点显式 :PIVOT」的目标不符）。
+    """
+    thick = []
+    for i, angle in turn_angles(pts):
+        if angle < PIVOT_DECL_DEG - 1e-9:
+            continue
+        if _is_rev_vertex(i, rev_f):            # 相邻段有倒车 → 车头不用掉头
+            continue
+        thick.append((i, angle))
+
+    declared = [i for i, f in enumerate(pivot_f) if f]
+    extra = [i for i in declared if not any(i == j for j, _a in thick)]
+    missing = [(i, a) for i, a in thick if not (i < len(pivot_f) and pivot_f[i])]
+
+    def name_of(idx):
+        row, col = parse_block_xy(pts[idx])
+        return "%s%d" % (COL_LETTERS[col], row)
+
+    if extra:
+        bad("虚报 :PIVOT %d 处" % len(extra),
+            " ".join("#%d %s" % (i, name_of(i)) for i in extra[:4]))
+    if missing:
+        warn("折返点缺 :PIVOT %d 处" % len(missing),
+             " ".join("#%d %.0f° @%s" % (i, a, name_of(i)) for i, a in missing[:4]))
+    if not extra and not missing:
+        if thick:
+            ok("折返点声明一致 %d 处" % len(thick),
+               " ".join("#%d %.0f° @%s" % (i, a, name_of(i)) for i, a in thick[:5]))
+        else:
+            info("折返点", "0 处 —— 无 ≥%.0f° 的正向折返顶点，无需 :PIVOT"
+                 % PIVOT_DECL_DEG)
 
 
 def parse_block_xy(xy):
@@ -758,6 +826,12 @@ def load_cfg(path):
                            ('shoot_distance_max', 'SHOOT_DIST_MAX')):
                 if _k in p:
                     globals()[_g] = float(p[_k])
+            # ★ 折返声明门限也随配置走（`/dzbrain: ros__parameters: pursuit:` 段；
+            #   robot.yaml 目前没写这个键，所以取 `core/config.py` 的默认 135°）。
+            dz = (d.get('/dzbrain') or {}).get('ros__parameters', {}) or {}
+            pu = dz.get('pursuit') if isinstance(dz.get('pursuit'), dict) else {}
+            if pu and 'pivot_angle_deg' in pu:
+                globals()['PIVOT_DECL_DEG'] = float(pu['pivot_angle_deg'])
         except Exception as exc:
             print("  ⚠️  读配置中心失败: %s" % exc, file=sys.stderr)
 

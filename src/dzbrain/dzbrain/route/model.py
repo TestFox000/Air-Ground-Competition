@@ -33,6 +33,11 @@ class Waypoint:
     group: str | None = None        # SHOOT@ 候选链组号（同组打中一个即跳过其余）
     branch: str | None = None       # 分叉标签（如 "cross_lower" / "cross_upper"）
     token: str = ""                 # 原始 token（日志/回溯用）
+    #: `:PIVOT` 后缀 —— **折返点声明**（该顶点处车头需转过 ≥135°，由循迹层自动 PIVOT）。
+    #: ★ 纯声明，不是指令：`pursuit/**` 与 `tasks/tracker.py` **不读这个字段**，
+    #:   PIVOT 依旧由 `pursuit.path.corner_turn_deg` ≥ `pursuit.pivot_angle_deg` 自动触发。
+    #:   对 `is_stop_point` **无影响**（声明不产生停站）。
+    pivot: bool = False
 
     # ------------------------------------------------------------------ #
     @classmethod
@@ -103,6 +108,14 @@ class Route:
         return [i for i, w in enumerate(self.waypoints)
                 if i + 1 < len(self.waypoints) and self.waypoints[i + 1].reverse]
 
+    def pivot_points(self) -> list[tuple[int, "Waypoint"]]:
+        """带 `:PIVOT` 声明的折返点 ``[(索引, 航点), ...]``（升序）。"""
+        return [(i, w) for i, w in enumerate(self.waypoints) if w.pivot]
+
+    def pivot_blocks(self) -> list[str]:
+        """折返点格名列表（升序，供日志/JSON）。"""
+        return [w.block for w in self.waypoints if w.pivot]
+
     def path_length(self) -> float:
         total = 0.0
         for a, b in zip(self.waypoints, self.waypoints[1:]):
@@ -161,10 +174,13 @@ class RouteBuilder:
             deduped: list[Waypoint] = []
             for w in pts:
                 if deduped and deduped[-1].block == w.block and deduped[-1].reverse == w.reverse:
-                    # 保留信息更丰富的那个（射击/扫描标记）
+                    # 保留信息更丰富的那个（射击/扫描标记）；`:PIVOT` 声明取并集
                     prev = deduped[-1]
+                    merged_pivot = prev.pivot or w.pivot
                     if (w.shoot or w.scan) and not (prev.shoot or prev.scan):
-                        deduped[-1] = replace(w, reverse=prev.reverse)
+                        deduped[-1] = replace(w, reverse=prev.reverse, pivot=merged_pivot)
+                    elif merged_pivot != prev.pivot:
+                        deduped[-1] = replace(prev, pivot=merged_pivot)
                     continue
                 deduped.append(w)
             pts = deduped

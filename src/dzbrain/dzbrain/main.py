@@ -51,8 +51,13 @@ def default_config_path() -> str:
 #  启动门禁
 # --------------------------------------------------------------------------- #
 def load_and_check(config_path: str | None, map_path: str | None,
-                   *, force: bool = False) -> tuple[Config, dict, list[str]]:
-    """加载配置 + 路线校验。返回 (cfg, map_cfg, errors)。"""
+                   *, force: bool = False, announce: bool = True) -> tuple[Config, dict, list[str]]:
+    """加载配置 + 路线校验。返回 (cfg, map_cfg, errors)。
+
+    ★ `announce=False`（卡 D finding D3）：调用方自己会把错误**带来源标注**打印一次。
+      否则 `--plan-only` 下门禁报文会打印两遍（`load_and_check` 一遍 + 调用方一遍），
+      而且读者分不清那些 error 是针对手写 `route.tokens` 还是针对规划结果。
+    """
     cfg = Config.load(config_path or default_config_path())
     issues = cfg.validate(strict=False)
     errors = [str(i) for i in issues if i.level == "error"]
@@ -91,7 +96,7 @@ def load_and_check(config_path: str | None, map_path: str | None,
             route_errors.append(f"路线校验异常: {type(exc).__name__}: {exc}")
     errors.extend(route_errors)
 
-    if errors and not force:
+    if errors and not force and announce:
         LOG("")
         banner(["启动门禁未通过（拒绝启动）"] + errors, char="!", log=LOG)
         LOG("提示：确认无误可用 --force 跳过（现场应急），但不建议。")
@@ -135,10 +140,18 @@ def build_tasks(bridge: Any, bb: Blackboard, bus: EventBus, cfg: Config,
 
 def start_banner(cfg: Config, group: TaskGroup) -> None:
     tokens = cfg.get("route.tokens") or []
+    plan_on = bool(cfg.get("planner.auto_plan_enabled", False))
+    if plan_on:
+        route_line = (f"自动规划（map_path={cfg.get('planner.map_path')}，"
+                      f"{'允许倒车' if cfg.get('planner.allow_reverse') else '无倒车'}，"
+                      f"预算 {cfg.get('planner.max_seconds')}s；实际 token 见任务开始横幅）")
+    else:
+        route_line = (f"{len(tokens)} 点（穿洞 {cfg.get('route.cross_lower_default')} / "
+                      f"{cfg.get('route.cross_upper_default')}）")
     lines = ["dzbrain 启动 · 多线程任务架构"] + kv_lines({
         "配置文件": cfg.source,
-        "路线": f"{len(tokens)} 点（穿洞 {cfg.get('route.cross_lower_default')} / "
-                f"{cfg.get('route.cross_upper_default')}）",
+        "路线来源": "自动规划" if plan_on else "手动配置",
+        "路线": route_line,
         "巡航速度": f"{cfg.get('pursuit.cruise_speed_mps')} m/s",
         "自动出发": f"{cfg.get('mission.auto_start')}（延时 {cfg.get('mission.auto_start_delay_s')}s）",
         "越界余量": f"{cfg.get('pursuit.map_safety_margin_m')} m",
@@ -203,6 +216,24 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
     if drive:
         # bench 专用覆盖：立即出发（否则要等 auto_start_delay）
         cfg.override("mission.auto_start", True).override("mission.auto_start_delay_s", 0.3)
+
+    # ★ 自动规划（任务卡 B）：bench 的虚拟小车按 `route.tokens` 建 Path / 统计"走到第 N 点"，
+    #   而 MissionTask 在 `planner.auto_plan_enabled=true` 时执行的是**规划结果** ——
+    #   两者必须一致，否则统计口径与实际走的路线整段错位（"走到第 20/34 点"是假数字）。
+    #   这里先把规划结果回写到 cfg.route.tokens；MissionTask 自己还会再规划一次（同一份配置
+    #   ⇒ 同一条路线），所以这不是"绕过规划"，只是让 bench 的观测口径对齐。
+    if bool(cfg.get("planner.auto_plan_enabled", False)):
+        try:
+            from .tasks.mission import plan_route_from_config
+            out = plan_route_from_config(cfg, log=log)
+            if out.ok:
+                cfg.override("route.tokens", list(out.tokens))
+                log(f"bench：自动规划路线 {len(out.tokens)} token / {out.elapsed_ms:.1f} ms "
+                    f"（已同步给虚拟小车，保证统计口径一致）")
+            else:
+                log(f"bench：自动规划失败（{out.error}）→ 按 route.tokens（{len(cfg.get('route.tokens') or [])} 点）")
+        except Exception as exc:                    # noqa: BLE001
+            log(f"bench：自动规划异常（{type(exc).__name__}: {exc}）→ 用 route.tokens")
 
     bridge = fakes.FakeBridge()
     route = parse_mission(cfg.get("route.tokens") or [])
@@ -314,6 +345,40 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
 
 
 # --------------------------------------------------------------------------- #
+#  静态规划入口（--plan-only）
+# --------------------------------------------------------------------------- #
+def run_plan_only(cfg: Config, *, map_path: str | None = None,
+                  log: Callable[[str], None] = LOG) -> int:
+    """`--plan-only`：只规划、打印 token 列表 + 耗时。
+
+    ★ 与车上自动规划**共用同一段代码**（`tasks.mission.plan_route_from_config`）：
+      不起线程、不建 Bridge、不发任何指令、不 import ROS —— 所以它可以在没有 ROS
+      的机器上跑，也可以当"这条路线能不能算出来"的离线体检。
+      规划失败返回 1（退出码非 0 才有人会去看日志）。
+    ★ `map_path`（卡 D finding D2）：`--map <图>` 必须真的决定**规划用的地图**。
+      此前只作用于门禁（`load_and_check`），规划仍走 `planner.map_path` ⇒ 同一条命令里
+      两套地图口径并存，`--plan-only --map 变体图` 打印的还是配置里的图。
+    """
+    from .tasks.mission import plan_route_from_config
+    out = plan_route_from_config(cfg, map_path=map_path, log=log)
+    if not out.ok:
+        banner([f"静态规划失败（--plan-only）：{out.error}",
+                f"地图: {out.map_path}",
+                f"模式: {out.mode}（planner.allow_reverse={out.allow_reverse}）"], char="!", log=log)
+        return 1
+    banner([
+        "静态规划结果（--plan-only：未起线程、未发指令、未连 ROS）",
+        f"地图: {out.map_path}",
+        f"模式: {out.mode}（planner.allow_reverse={out.allow_reverse}）",
+        f"token 数: {len(out.tokens)} / 折线 {out.route_len_m:.2f} m / 倒车段 {out.reverse_segments}",
+        f"A* 代价: {out.cost:.2f}",
+    ], log=log)
+    log(f"token 列表（{len(out.tokens)}）：" + " ".join(out.tokens))
+    log(f"规划耗时：{out.elapsed_ms:.1f} ms")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
 #  正常上车运行
 # --------------------------------------------------------------------------- #
 def run_live(cfg: Config, *, log: Callable[[str], None] = LOG) -> int:
@@ -364,6 +429,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--config", default=None, help="robot.yaml 路径（默认 ~/dzrobot/config/robot.yaml）")
     ap.add_argument("--map", dest="map_path", default=None, help="map.yaml 路径")
     ap.add_argument("--dry-run", action="store_true", help="只做启动门禁，不起线程")
+    ap.add_argument("--plan-only", dest="plan_only", action="store_true",
+                    help="只按 planner.* 静态规划一次，打印 token + 耗时（不起线程/不发指令/无 ROS）")
     ap.add_argument("--bench", action="store_true", help="FakeBridge 联调（无 ROS/无车）")
     ap.add_argument("--drive", action="store_true",
                     help="bench 时再挂虚拟小车（自行车模型闭环，可跑完整条路线）")
@@ -373,7 +440,43 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--force", action="store_true", help="门禁不通过也启动（现场应急）")
     args = ap.parse_args(argv)
 
-    cfg, _map_cfg, errors = load_and_check(args.config, args.map_path, force=args.force)
+    cfg, _map_cfg, errors = load_and_check(args.config, args.map_path, force=args.force,
+                                           announce=not args.plan_only)
+
+    # ★ --map 透传（2026-10-11 修复）：planner.map_path 的相对解析以 workspace_root() 为基准；
+    #   install 拷贝树里 workspace_root() = install/dzbrain/lib → config/map.yaml 永远找不到
+    #   → 自动规划静默失败、回退手写路线（车端 verify/bench 走 src 导入，看不出此问题，
+    #   真起栈才暴露 —— 卡D验收第2步前查实）。start_all.sh 起栈时传 --map，这里用
+    #   绝对路径钉死 planner.map_path，与 resolve_map_path 的「绝对路径直接采用」分支闭环。
+    #   同时修复卡D finding D2：--plan-only --map <图> 此前静默用 config 里的图。
+    if args.map_path:
+        cfg.override("planner.map_path", str(pathlib.Path(args.map_path).resolve()))
+
+    # ★ 静态规划：必须在门禁 `return 2`、以及 bench/live 之前分流 —— 这是**功能前提**，不是顺序偏好。
+    #   `planner.auto_plan_enabled=true` 时车上执行的是**规划结果**；而门禁校验的恰恰是
+    #   `route.tokens`（`load_and_check` → `validate_route(parse_mission(route.tokens))`）。
+    #   旧手写路线一旦过时，门禁必然报 error，于是 `--plan-only` 直接 `return 2` **什么都算不出来**
+    #   —— 而它正是"手写路线不对了、让机器自己算一条"唯一的离线入口，这一条比门禁更该先跑。
+    #   故此处显式豁免：仍**打印**门禁错误（不隐瞒），但继续规划。
+    #   ⚠️ 早期版本把这个分支放在 `if errors: return 2` **之后**，那句 `if errors:` 成了永不执行的
+    #   死代码（`--plan-only` 在坏路线下恒 exit 2，实测 route.tokens 改成 2 个点时如此）——
+    #   已调整顺序，`test_autoplan.py` 7.13/7.14 用"坏 route.tokens + --plan-only"钉住它。
+    #   `--dry-run` / `--bench` / live 的门禁语义**未变**（仍是 errors → return 2）。
+    #
+    #   ★ 卡 D finding D3：这段报文此前会**打印两遍**（`load_and_check` 一遍 + 这里一遍），
+    #     而且没写清那些 error 是**针对手写 `route.tokens`** 的 —— 读者很容易以为
+    #     "规划结果也有这些错"。现在改为：`load_and_check(announce=False)` 不打印，
+    #     这里只打印**一次**，并显式标注来源与"与规划结果无关"。
+    if args.plan_only:
+        if errors:
+            banner([
+                "启动门禁未通过（--plan-only 仍继续规划：执行路线由规划器产出）",
+                f"以下 {len(errors)} 条错误**只针对 route.tokens（手写回退路线）**，"
+                f"与下面的规划结果无关；",
+                f"规划结果按 planner.map_path={cfg.get('planner.map_path')} 独立产出。",
+            ] + errors, char="!", log=LOG)
+        return run_plan_only(cfg, map_path=args.map_path)
+
     if errors and not args.force:
         return 2
 

@@ -17,8 +17,15 @@
     # 生成 + 立刻跑出车前校验（复用 tools/route_check.py，0 error 才算过）
     python tools/plan_route.py --check
 
-    # 机器可读（含耗时/代价/穿洞格/射击点证据数值）
+    # 机器可读（含耗时/代价/穿洞格/射击点/折返点证据数值）
     python tools/plan_route.py --json
+
+    # ★ 倒车开关：默认**无倒车**（真车底盘不支持倒车，180° 折返由循迹层 PIVOT 完成）
+    python tools/plan_route.py --emit tokens          # 默认：0 段 R: + 折返点 :PIVOT
+    python tools/plan_route.py --allow-reverse        # 旧行为：允许 R: 倒车段（卡 A 基线）
+
+    # ★ 折返惩罚（顺序搜索里给"进去再原路退出来"记 5.0 等效代价/处）
+    python tools/plan_route.py --pivot-penalty 5.0    # 现场图实测：折返点 2 → 0
 
     # 指定穿洞格（无人机情报：下半场 K10、上半场 K3），并遍历所有合法组合
     python tools/plan_route.py --cross-lower K10 --cross-upper K3
@@ -31,6 +38,8 @@
   （缺省 = `--config` 同目录的 `map.yaml`，再缺省 = 工作区 `config/map.yaml`）
 * 约束（射击窗口、穿洞候选、起点朝向）：`--config` 指定的 `robot.yaml`
   经 `dzbrain.core.config.Config` 读取，键名与 `docs/P0接口约定.md` 一致
+* **倒车/折返**：`--no-reverse`（默认）走 `plan_route(allow_reverse=False)` —— 0 段 `R:`、
+  每个 180° 折返顶点带 `:PIVOT` 声明；`--allow-reverse` 是旧行为（卡 A 基线逐字节一致）
 * 校验：`tools/route_check.py`（**子进程调用原文件**，不复制它的规则）
 * 规划本体：`src/dzbrain/dzbrain/route/planner.py`
 
@@ -150,6 +159,7 @@ def plan_once(map_cfg: dict, cfg: Config, args, *, cross_lower: str | None,
               cross_upper: str | None, map_path: pathlib.Path) -> PL.PlanResult:
     return PL.plan_route(
         map_cfg, cfg, cross_lower=cross_lower, cross_upper=cross_upper,
+        allow_reverse=bool(args.allow_reverse), pivot_penalty=args.pivot_penalty,
         name=map_path.stem or "route", source=str(map_path),
         max_seconds=args.max_seconds)
 
@@ -184,6 +194,18 @@ def main(argv: list[str] | None = None) -> int:
                     help="遍历穿洞候选的**所有组合**逐个规划（桥洞随机时用）")
     ap.add_argument("--max-seconds", type=float, default=PL.DEFAULT_MAX_SECONDS,
                     help=f"单次规划时间预算（默认 {PL.DEFAULT_MAX_SECONDS}s）")
+    # ★ 倒车开关：默认**无倒车**（真车底盘不支持倒车）。两者互斥、语义相反，
+    #   所以放同一组；`--no-reverse` 只是把默认值写明，方便脚本自解释。
+    rev = ap.add_mutually_exclusive_group()
+    rev.add_argument("--no-reverse", dest="allow_reverse", action="store_false",
+                     default=False,
+                     help="无倒车模式（**默认**）：0 段 R:，180° 折返顶点带 :PIVOT 声明")
+    rev.add_argument("--allow-reverse", dest="allow_reverse", action="store_true",
+                     default=False,
+                     help="旧行为：允许 R: 倒车段处理死角（与卡 A 基线逐字节一致）")
+    ap.add_argument("--pivot-penalty", type=float, default=0.0,
+                    help=f"顺序搜索的折返惩罚（等效代价单位/处，默认 0 = 不惩罚；"
+                         f"打开用 {PL.PIVOT_PENALTY}）")
     ap.add_argument("--quiet", action="store_true", help="只输出结果，不打印过程信息")
     args = ap.parse_args(argv)
 
