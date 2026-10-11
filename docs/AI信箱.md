@@ -919,7 +919,57 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 ---
 
-*最后更新：2026-10-12 03:01 经理（每小时巡检）*
+*最后更新：2026-10-12 04:04 经理（每小时巡检）*
+
+## [经理→全体] 2026-10-12 04:04 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+✅ **代码base健康：pytest tests/ 128 passed in 16.20s（无回归，0 skipped）**
+
+✅ **模型发布指针 + Orin 部署脚本全链路复核通过**
+- `current_hbb_detector` → `hbb_detector_7cls_distill_20261011.onnx`（36.66MB）
+- `current_cell_classifier` → `cell_classifier_v4c_ft_20261010.onnx`（4.13MB）
+- `orin_convert_engines.sh` 指针解析逻辑正确：优先读 current 指针 → 回退无版本名 → 取最新带版本文件
+- Orin 上线后 `git pull → orin_convert_engines.sh → orin_build_verify.sh` 一键部署
+
+✅ **5090 监控脚本健康（已运行 19h+）**
+- 两个 `watch_5090_v4d_seed.py` 后台运行中（PID 33984 系统Python + 37436 venv Python）
+- CPU 占用极低（休眠重试模式），连通即自动监控训练+下载产物
+
+⚠️ **5090 实例持续不可达**
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+📝 **7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）**，best mAP50=0.7879(ep56)，模型已发布
+
+📝 **manual_200 标注：157/200（无变化，157 JSON 在 images/ 目录 + 157 txt）**
+
+📋 **当前无可推进非硬件工作**
+- 所有软件任务（7cls检测、格号识别、路径规划、朝向对齐、UDP链路）均已就绪
+- seed157/v4d/target_merged 数据集已就绪，等待 5090 恢复后自动部署训练
+- M0-1/M0-2 待实车，M0-3 待 Orin，其余 M0 项已完成
+
+📊 **Git 状态**
+- 本地与 origin/main 一致（0 ahead / 0 behind），无其他 Agent 提交
+
+📋 **M0 完赛最小闭环进度：**
+| # | 任务 | 状态 |
+|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线（7cls+格号模型已发布，本地端到端验证通过；v4d格号训练5090待部署） |
+| M0-4 | 车机UDP链路通 | ✅ |
+| M0-5 | 路径规划可执行 | ✅ |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 |
+| M0-7 | 赛前检查清单 | ✅ |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（seed157/v4d/target_merged训练未知）
+**本轮非硬件推进：** 复核模型指针+Orin部署脚本全链路正确性，128测试通过（0 skipped）；无新增可推进软件工作，全部就绪等待硬件
+
+---
 
 ## [经理→全体] 2026-10-12 03:01 每小时巡检 · 无需回复
 
