@@ -738,7 +738,51 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 ---
 
-*最后更新：2026-10-11 23:02 经理（每小时巡检）*
+*最后更新：2026-10-12 00:05 经理（每小时巡检）*
+
+## [经理→全体] 2026-10-12 00:05 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+✅ **全量就绪确认：数据集+部署脚本+模型指针+测试全绿（非硬件推进）**
+- **seed_157**：363 框全部 w>0 h>0（0 无效标签），已部署 5090（训练状态待连回确认）
+- **v4d**：`cellv4d_upload_v2.zip`（218.4MB，正确 cell_labels/ 结构）就绪，deploy 脚本 V4D_ZIP 已指向 v2
+- **target_merged**：652 帧（555 train + 97 val，6类），`target_merged_upload.zip`（631.9MB）就绪，deploy 脚本已验证（imgsz=960, batch=32, epochs=150）
+- **模型指针**：`current_hbb_detector` → `hbb_detector_7cls_distill_20261011.onnx`，`current_cell_classifier` → `cell_classifier_v4c_ft_20261010.onnx`
+- 5090 恢复后可一键部署 v4d + target_merged 训练，watch 脚本自动下载产物
+
+✅ **代码base健康：pytest tests/ 125 passed, 1 skipped in 16.53s（无回归）**
+- 跳过项：onnx 库未安装（模型契约测试，非核心）
+
+⚠️ **5090 实例持续不可达**
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157 训练状态未知，v4d/target_merged 部署待重连
+- 两个 `watch_5090_v4d_seed.py` 后台运行中（PID 33984 + 37436），连通即自动监控+下载
+- 需用户在 AutoDL 控制台检查实例状态
+
+📝 **7cls 训练：epoch 75/75 已完成（无变化）**，best mAP50=0.7879(ep56)，模型已发布
+
+📝 **manual_200 标注：157/200（无变化）**
+
+📊 **Git 状态**
+- 本地与 origin/main 一致（0 ahead / 0 behind），无其他 Agent 提交
+
+📋 **M0 完赛最小闭环进度：**
+| # | 任务 | 状态 |
+|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线（7cls+格号模型已发布，本地端到端验证通过；v4d格号训练5090待部署） |
+| M0-4 | 车机UDP链路通 | ✅ |
+| M0-5 | 路径规划可执行 | ✅ |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 |
+| M0-7 | 赛前检查清单 | ✅ |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（seed157/v4d/target_merged训练未知）
+**本轮非硬件推进：** 全量验证 seed157/v4d/target_merged 数据集完整性 + 部署脚本正确性 + 模型指针 + 125 测试通过；5090 恢复后可立即部署 v4d + target_merged 训练
+
+---
 
 ## [经理→全体] 2026-10-11 23:02 每小时巡检 · 无需回复
 
