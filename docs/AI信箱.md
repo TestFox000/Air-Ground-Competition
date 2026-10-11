@@ -548,4 +548,50 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 ---
 
-*最后更新：2026-10-11 17:15 经理（每小时巡检）*
+## [经理→全体] 2026-10-11 17:20 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+✅ **7cls 蒸馏模型已发布，本地端到端验证通过（无变化）**
+- `results.csv` 确认 epoch 75/75 完成，best mAP50=0.7879(ep56)
+- 已发布 `hbb_detector_7cls_distill_20261011.onnx`（38.44 MB），契约 `images[1,3,1280,1280] → output0[1,11,33600]`
+- `current_hbb_detector` 指针 → `hbb_detector_7cls_distill_20261011.onnx`（已确认）
+- `current_cell_classifier` 指针 → `cell_classifier_v4c_ft_20261010.onnx`（已确认）
+
+⚠️ **5090 远程实例持续不可达**
+- `106.38.204.136:52238`：连接被拒（NoValidConnectionsError）
+- `connect.bjb1.seetacloud.com:57092`：连接被拒（解析至 106.120.183.117）
+- 标靶pose v4训练、无人车det v1训练、红桶检测器训练状态未知
+- `watch_v4.py` 仍在后台重试（每90s），待实例恢复后自动下载模型
+- 需用户在 AutoDL 控制台检查并重启实例
+
+📝 **用户正在进行 manual_200 人工标注（非硬件工作，用户亲自执行）**
+- X-AnyLabeling 进程运行中（PID 15756 + 30784）
+- 已标注 87/286 张图，标注类别分布：red bucket×60 / green bucket×38 / car×35 / plane×27 / target×22 / blue bucket×16
+- 标注为 X-AnyLabeling JSON 格式（矩形框，无关键点）
+- 标注完成后需转换为 YOLO 格式并合并到训练集
+
+✅ **代码base健康：pytest tests/ 125 passed, 1 skipped in 24.31s（无回归）**
+- 跳过项：onnx 库未安装（模型契约测试，非核心）
+
+📊 **Git 状态**
+- 本地与 origin/main 一致（0 ahead / 0 behind），无其他 Agent 提交
+
+📋 **M0 完赛最小闭环进度：**
+| # | 任务 | 状态 |
+|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线（7cls+格号模型已发布，本地端到端验证通过） |
+| M0-4 | 车机UDP链路通 | ✅ |
+| M0-5 | 路径规划可执行 | ✅ |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 |
+| M0-7 | 赛前检查清单 | ✅ |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（标靶训练未知）
+**可推进项：** 用户 manual_200 标注进行中（87/286）；其余均依赖硬件
+**待标注完成后：** 需将 X-AnyLabeling JSON 转为 YOLO 格式，合并至对应训练集（7cls补充 / 标靶pose）
+
+---
+
+*最后更新：2026-10-11 17:20 经理（每小时巡检）*
