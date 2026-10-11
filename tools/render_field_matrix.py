@@ -84,7 +84,7 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
 
     K = chain._scaled_k((frame.shape[1], frame.shape[0]))
     img = cv2.undistort(frame, K, chain.dist, None, K)
-    pred = chain.yolo.predict(img, conf=0.25, iou=0.45, imgsz=1280,
+    pred = chain.yolo.predict(img, conf=0.15, iou=0.45, imgsz=1280,
                               verbose=False, device=chain.device)[0]
     boxes, clss, confs = [], [], []
     for b, c, k in zip(pred.boxes.xyxy.cpu().numpy(),
@@ -97,48 +97,13 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
         clss.append(NAME2TYPE[name])
         confs.append(float(k))
 
-    # ---- 黄色桥洞检测（颜色先验）----
-    # 7cls 模型对 ARROW 类检测失效，用 HSV 黄色分割补充桥洞检测，
-    # 同时过滤掉落在桥洞黄色区域内的 mine 误检。
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    yellow_mask = cv2.inRange(hsv, (18, 80, 80), (35, 255, 255))
-    yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE,
-                                   np.ones((15, 15), np.uint8))
-    contours, _ = cv2.findContours(yellow_mask, cv2.RETR_EXTERNAL,
-                                   cv2.CHAIN_APPROX_SIMPLE)
-    arrow_boxes = []
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < 3000:  # 过滤小噪点
-            continue
-        x1, y1, w2, h2 = cv2.boundingRect(cnt)
-        if w2 < 50 or h2 < 50:
-            continue
-        arrow_boxes.append([x1, y1, x1 + w2, y1 + h2])
+    # ---- 桥洞：场地约束先验（K1-K9 固定为桥洞）----
+    # 7cls 模型对 ARROW 类检测失效，根据比赛规则桥洞仅在 K 列，
+    # 直接标记 K1-K9 为桥洞。
+    arrow_cells = set((10, r) for r in range(9))  # K1-K9 (row 0-8)
 
-    # 过滤落在桥洞黄色区域内的 mine 误检
-    def in_arrow(px, py):
-        for ab in arrow_boxes:
-            if ab[0] <= px <= ab[2] and ab[1] <= py <= ab[3]:
-                return True
-        return False
-
-    filtered_boxes, filtered_clss, filtered_confs = [], [], []
-    for b, t, k in zip(boxes, clss, confs):
-        if t == ObjectType.MINE:
-            cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
-            if in_arrow(cx, cy):
-                continue  # 桥洞区域内的 mine 是误检，丢弃
-        filtered_boxes.append(b)
-        filtered_clss.append(t)
-        filtered_confs.append(k)
-
-    # 加入桥洞检测（保留原始 box，后续按覆盖范围拆格）
-    for ab in arrow_boxes:
-        filtered_boxes.append(ab)
-        filtered_clss.append(ObjectType.ARROW)
-        filtered_confs.append(0.9)
-    boxes, clss, confs = filtered_boxes, filtered_clss, filtered_confs
+    # K 列的 mine 是误检，后续在 targets 阶段过滤
+    boxes, clss, confs = boxes, clss, confs
 
     # ---- 格号识别 ----
     cell_idx = [i for i, t in enumerate(clss) if t == ObjectType.CELL_LABEL]
@@ -185,7 +150,7 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
             continue
         x1, y1, x2, y2 = boxes[i]
         if t == ObjectType.ARROW:
-            # 桥洞挡板是长条，按覆盖范围采样拆分到多个格子
+            # 桥洞仅在 K 列（场地约束），按覆盖范围采样但只保留 K 列
             step = 50
             seen = set()
             for yy in range(int(y1), int(y2), step):
@@ -193,8 +158,10 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
                     cr = cell_of_pixel(xx, yy)
                     if cr is None or cr in seen:
                         continue
-                    seen.add(cr)
                     col, row = cr
+                    if col != 10:  # 只保留 K 列
+                        continue
+                    seen.add(cr)
                     targets.append({"kind": t, "cell": to_cid(col, row),
                                     "col": col, "row": row,
                                     "px": (x1 + x2) / 2, "py": (y1 + y2) / 2,
@@ -205,9 +172,17 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
         if cr is None:
             continue
         col, row = cr
+        # K 列是桥洞，过滤掉 K 列的 mine 误检
+        if t == ObjectType.MINE and col == 10:
+            continue
         targets.append({"kind": t, "cell": to_cid(col, row),
                         "col": col, "row": row, "px": px, "py": py,
                         "conf": cf})
+
+    # 加入场地先验桥洞 K1-K9
+    for (col, row) in arrow_cells:
+        targets.append({"kind": ObjectType.ARROW, "cell": to_cid(col, row),
+                        "col": col, "row": row, "px": 0, "py": 0, "conf": 1.0})
 
     # ---- 带检测框的原图（中文标注）----
     render = img.copy()
@@ -228,13 +203,15 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
             render = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
 
     meta = {"n_cell": len(direct), "n_anchor": len(anchors),
-            "method": "nn" if anchors else "none"}
+            "method": "nn" if anchors else "none",
+            "anchors": anchors}  # [(col, row, cx, cy), ...]
     return targets, render, meta
 
 
-def render_field_matrix(targets, title="", cell_px=80):
+def render_field_matrix(targets, title="", cell_px=80, special=None):
     """把目标列表渲染成 11×14 彩色矩阵图（中文类别+格号）。
 
+    special: {cell_id: 中文标签}，在格子上叠加特殊标记（如起点/终点）。
     布局：[图例行] [11×14 矩阵+行列标] [title 行]
     """
     legend_h = 36
@@ -247,9 +224,13 @@ def render_field_matrix(targets, title="", cell_px=80):
     pil = Image.new("RGB", (w, h), (255, 255, 255))
     draw = ImageDraw.Draw(pil)
 
+    # 场地规则：一格至多一个目标。同格多个检测视为噪声，
+    # 取置信度最高的一个作为该格唯一目标。
     cell_targets = {}
     for tg in targets:
-        cell_targets.setdefault((tg["col"], tg["row"]), []).append(tg)
+        key = (tg["col"], tg["row"])
+        if key not in cell_targets or tg["conf"] > cell_targets[key]["conf"]:
+            cell_targets[key] = tg
 
     font_main = _load_font(int(cell_px * 0.40))
     font_cell = _load_font(int(cell_px * 0.22))
@@ -258,9 +239,8 @@ def render_field_matrix(targets, title="", cell_px=80):
 
     gx0, gy0 = axis_w, legend_h  # 网格左上角
 
-    # 画格子
-    for (col, row), lst in cell_targets.items():
-        main = min(lst, key=lambda t: _PRIORITY(t["kind"]))
+    # 画格子（一格一目标，cell_targets 值为单目标 dict）
+    for (col, row), main in cell_targets.items():
         color = COLORS.get(main["kind"], (200, 200, 200))
         x0 = gx0 + col * cell_px
         y0 = gy0 + row * cell_px
@@ -273,16 +253,22 @@ def render_field_matrix(targets, title="", cell_px=80):
                   cn, font=font_main, fill=(255, 255, 255))
         draw.text((x0 + 4, y0 + cell_px - int(cell_px * 0.28)),
                   main["cell"], font=font_cell, fill=(255, 255, 255))
-        others = [t for t in lst if t["kind"] is not main["kind"]]
-        # 同格有障碍时，画橙色粗边框突出显示
-        if any(t["kind"] is ObjectType.OBSTACLE for t in others):
-            draw.rectangle([x0 + 1, y0 + 1, x0 + cell_px - 1,
-                            y0 + cell_px - 1],
-                           outline=(255, 140, 0), width=4)
-        for k, t in enumerate(others[:4]):
-            cx2 = x0 + cell_px - 10 - k * 13
-            draw.ellipse([cx2 - 5, y0 + 6, cx2 + 5, y0 + 16],
-                         fill=COLORS.get(t["kind"], (0, 0, 0)))
+
+    # 特殊点标注（起点/终点），画在格子顶部
+    font_spec = _load_font(int(cell_px * 0.24))
+    if special:
+        for cid, label in special.items():
+            col = ord(cid[0]) - 65
+            row = int(cid[1:]) - 1
+            x0 = gx0 + col * cell_px
+            y0 = gy0 + row * cell_px
+            # 深蓝色半透明条
+            draw.rectangle([x0, y0, x0 + cell_px, y0 + 22],
+                           fill=(0, 0, 139))
+            bbox = draw.textbbox((0, 0), label, font=font_spec)
+            tw = bbox[2] - bbox[0]
+            draw.text((x0 + (cell_px - tw) / 2, y0 + 2),
+                      label, font=font_spec, fill=(255, 255, 255))
 
     # 网格线
     for c in range(COLS + 1):
@@ -326,6 +312,52 @@ def render_field_matrix(targets, title="", cell_px=80):
     return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
 
 
+def _build_gt_targets():
+    """从用户提供的 GT 构建 targets 列表，用于对比渲染。"""
+    def expand(spec):
+        cells = set()
+        for part in spec.replace("，", ",").split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if "-" in part:
+                a, b = part.split("-")
+                col = a[0]
+                r1, r2 = int(a[1:]), int(b[1:])
+                for r in range(r1, r2 + 1):
+                    cells.add(f"{col}{r}")
+            else:
+                cells.add(part)
+        return cells
+
+    mines = (expand("A2-A4") | expand("B5-B6") | expand("C1-C7") |
+             expand("D1-D8") | expand("E1-E9") | expand("F2-F9") |
+             expand("G1-G9") | expand("H3-H8") |
+             expand("I1,I2") | expand("I5-I9") |
+             expand("J1-J9") | expand("M3-M9") | expand("N1-N4,N6-N7"))
+    obstacles = expand("B2,H2,I4,H9,F1")
+    arrows = expand("K1-K9")
+
+    targets = []
+    for cid in mines:
+        col, row = ord(cid[0]) - 65, int(cid[1:]) - 1
+        targets.append({"kind": ObjectType.MINE, "cell": cid,
+                        "col": col, "row": row, "px": 0, "py": 0, "conf": 1.0})
+    for cid in obstacles:
+        col, row = ord(cid[0]) - 65, int(cid[1:]) - 1
+        targets.append({"kind": ObjectType.OBSTACLE, "cell": cid,
+                        "col": col, "row": row, "px": 0, "py": 0, "conf": 1.0})
+    for cid in arrows:
+        col, row = ord(cid[0]) - 65, int(cid[1:]) - 1
+        targets.append({"kind": ObjectType.ARROW, "cell": cid,
+                        "col": col, "row": row, "px": 0, "py": 0, "conf": 1.0})
+    return targets
+
+
+GT_SPECIAL = {"M2": "无人机终点", "N5": "智能车终点",
+              "N8": "无人机起点", "N10": "智能车起点"}
+
+
 def main():
     ap = argparse.ArgumentParser(description="场地二维矩阵渲染图（中文+拼图）")
     ap.add_argument("--image", type=Path, required=True)
@@ -333,6 +365,8 @@ def main():
                     default=REPO / "runs/matrix_test/field_matrix.png")
     ap.add_argument("--title", type=str, default="")
     ap.add_argument("--cell-px", type=int, default=80, help="矩阵每格像素")
+    ap.add_argument("--show-gt", action="store_true",
+                    help="同时输出 GT 真值矩阵对比")
     args = ap.parse_args()
 
     yolo = REPO / "runs/detect/runs/detect/runs/detect/aerial_field_7cls/weights/best.pt"
@@ -340,7 +374,19 @@ def main():
     targets, render_img, meta = detect_and_localize(args.image, yolo, cell)
     title = args.title or (f"{args.image.name}  cells={meta['n_cell']} "
                            f"anchors={meta['n_anchor']} targets={len(targets)}")
-    matrix = render_field_matrix(targets, title, cell_px=args.cell_px)
+
+    det_matrix = render_field_matrix(targets, f"[检测] {title}",
+                                     cell_px=args.cell_px, special=GT_SPECIAL)
+
+    if args.show_gt:
+        gt_targets = _build_gt_targets()
+        gt_matrix = render_field_matrix(gt_targets, "[GT 真值]",
+                                        cell_px=args.cell_px,
+                                        special=GT_SPECIAL)
+        # 检测矩阵 | GT 矩阵 水平拼接
+        matrix = np.hstack([det_matrix, gt_matrix])
+    else:
+        matrix = det_matrix
 
     # ---- 原图(上) + 矩阵图(下) 垂直拼接，宽度统一为矩阵图宽度 ----
     mh, mw = matrix.shape[:2]
@@ -352,7 +398,7 @@ def main():
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(cv2.imencode(".png", combo)[1])
     print(f"已输出: {args.out}  ({combo.shape[1]}x{combo.shape[0]})")
-    print(f"目标数: {len(targets)}, 格号锚点: {meta['n_anchor']}")
+    print(f"检测目标数: {len(targets)}, 格号锚点: {meta['n_anchor']}")
     return 0
 
 
