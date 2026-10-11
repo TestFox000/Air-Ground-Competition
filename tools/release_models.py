@@ -63,7 +63,7 @@ def export_hbb(pt: Path, out_dir: Path) -> Path:
     """YOLO 检测器 .pt -> ONNX（契约: images[N,3,1280,1280] -> output0[N,11,33600]）。"""
     from ultralytics import YOLO
 
-    YOLO(str(pt)).export(format="onnx", imgsz=1280, dynamic=True, opset=17)
+    YOLO(str(pt)).export(format="onnx", imgsz=1280, dynamic=False, opset=17)
     onnx = pt.with_suffix(".onnx")
     if not onnx.is_file():  # ultralytics 有时存到别的名字
         cand = sorted(pt.parent.glob("*.onnx"), key=lambda p: p.stat().st_mtime)

@@ -103,7 +103,7 @@ def test_cross_gates_route_crosses_only_at_gate():
     start, goal = CellRef(0, 0), CellRef(0, 10)   # A1 -> A11
     gate = CellRef(5, 5)                          # F6：跨入北半场的第一格
     snap = make_snapshot(())
-    route = plan_route(snap, start, goal, cross_gates=frozenset({gate}))
+    route = plan_route(snap, start, goal, cross_gates=frozenset({gate}), mid_boundary=5)
     assert route[0] == "A1"
     assert route[-1] == "A11"
     assert "F6" in route

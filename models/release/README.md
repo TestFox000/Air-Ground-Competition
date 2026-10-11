@@ -47,6 +47,7 @@
 | `light_det_v1.rknn` | 待补 | ❌ 另一套导出 |
 | `cell_classifier_v4c_20261008.onnx` | `4F1838BEBFC951BC62170D821D56EC22` | 4.34 MB | 本次训练产物（tag=v4c） | 格号分类器，见 current_cell_classifier 指针 | 2026-10-08 |
 | `cell_classifier_v4c_20261009.onnx` | `850AE9376BD5AC7BDFE44D6BD550A920` | 4.34 MB | 本次训练产物（tag=v4c） | 格号分类器，见 current_cell_classifier 指针 | 2026-10-09 |
+| `hbb_detector_7cls_distill_20261011.onnx` | `E93DEC04F9C7D8F272CC11624261741D` | 38.44 MB | 本次训练产物（tag=7cls_distill） | 无人机主检测器，见 current_hbb_detector 指针 | 2026-10-11 |
 
 **新模型上车前必须过契约校验**：
 

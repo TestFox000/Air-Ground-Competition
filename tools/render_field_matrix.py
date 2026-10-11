@@ -73,6 +73,56 @@ def _PRIORITY(kind):
             ObjectType.ARROW: 4, ObjectType.CAR: 5}.get(kind, 99)
 
 
+def fit_lattice(anchors, min_inliers=6):
+    """逆向反推：由已识别格号锚点拟合全场格网（RANSAC 单应）。
+
+    原理：场地平面→图像是透视变换（单应），锚点格号(col,row)与
+    像素(cx,cy)一一对应。用足够多的真锚点拟合单应矩阵后：
+      - 内点 = 与格网一致的真锚点
+      - 外点 = 误读/误检的假锚点（如重复识别的 H5、错位的 B7），自动剔除
+      - 任何像素都能反推格号——包括标签未识别成功的格子
+    返回 (cell_of_pixel_fn, n_inlier, n_outlier, rejected)，
+    拟合失败返回 (None, 0, 0, [])。
+    """
+    if len(anchors) < 8:
+        return None, 0, 0, []
+    src = np.array([[a[0], a[1]] for a in anchors], dtype=np.float32)
+    dst = np.array([[a[2], a[3]] for a in anchors], dtype=np.float32)
+    # 自适应阈值：最近邻锚点间距中值 × 0.35（透视下格距随位置变化）
+    d2 = ((dst[:, None, 0] - dst[None, :, 0]) ** 2
+          + (dst[:, None, 1] - dst[None, :, 1]) ** 2)
+    np.fill_diagonal(d2, np.inf)
+    thr = max(15.0, 0.35 * float(np.median(np.sqrt(d2.min(axis=1)))))
+    H, mask = cv2.findHomography(src, dst, cv2.RANSAC, thr)
+    if H is None or mask is None:
+        return None, 0, 0, []
+    keep = mask.ravel().astype(bool)
+    inl = int(keep.sum())
+    in_cols = {anchors[i][0] for i in range(len(anchors)) if keep[i]}
+    in_rows = {anchors[i][1] for i in range(len(anchors)) if keep[i]}
+    # 覆盖检查：内点须横跨 >=3 列、>=2 行，避免退化为共线拟合
+    if inl < min_inliers or len(in_cols) < 3 or len(in_rows) < 2:
+        return None, 0, 0, []
+    Hinv = np.linalg.inv(H)
+    rejected = [anchors[i] for i in range(len(anchors)) if not keep[i]]
+
+    def cell_of_pixel(px, py):
+        """像素 → 反推格号 (col, row)；画面外/场外返回 None。"""
+        v = Hinv @ np.array([px, py, 1.0])
+        fc, fr = v[0] / v[2], v[1] / v[2]
+        col, row = int(round(fc)), int(round(fr))
+        if not (0 <= col < COLS and 0 <= row < ROWS):
+            return None
+        # 反投影像素残差sanity：格中心映射回来距离过大视为外推失真
+        c = H @ np.array([col, row, 1.0])
+        cx, cy = c[0] / c[2], c[1] / c[2]
+        if (cx - px) ** 2 + (cy - py) ** 2 > (3.0 * thr) ** 2:
+            return None
+        return col, row
+
+    return cell_of_pixel, inl, len(anchors) - inl, rejected
+
+
 def detect_and_localize(image_path, yolo_pt, cell_pt,
                         conf=0.45, anchor_conf=0.80):
     """跑识别 + 格号锚点定位，返回目标列表、带框原图、定位元信息。"""
@@ -135,8 +185,8 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
 
     anchor_arr = np.array([[a[2], a[3], a[0], a[1]] for a in anchors])
 
-    def cell_of_pixel(px, py):
-        """像素坐标 -> (col, row)。最近邻格号标签（Voronoi）。"""
+    def nn_cell_of_pixel(px, py):
+        """像素坐标 -> (col, row)。最近邻格号标签（Voronoi 兜底）。"""
         if not anchors:
             return None
         d = np.sqrt((anchor_arr[:, 0] - px) ** 2 +
@@ -144,7 +194,18 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
         j = int(np.argmin(d))
         return int(anchor_arr[j, 2]), int(anchor_arr[j, 3])
 
+    # ---- 逆向反推：锚点拟合全场格网，覆盖标签未识别的格子 ----
+    lattice_fn, n_inlier, n_outlier, rejected = fit_lattice(anchors)
+    if lattice_fn is not None:
+        def cell_of_pixel(px, py):
+            return lattice_fn(px, py)
+    else:
+        def cell_of_pixel(px, py):
+            return nn_cell_of_pixel(px, py)
+
     targets = []
+    direct_cells = {(a[0], a[1]) for a in anchors}
+    inferred_cells = set()  # 反推格：目标落入但无直接锚点的格
     for i, (t, cf) in enumerate(zip(clss, confs)):
         if t == ObjectType.CELL_LABEL:
             continue
@@ -175,6 +236,8 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
         # K 列是桥洞，过滤掉 K 列的 mine 误检
         if t == ObjectType.MINE and col == 10:
             continue
+        if (col, row) not in direct_cells:
+            inferred_cells.add((col, row))  # 格号反推所得
         targets.append({"kind": t, "cell": to_cid(col, row),
                         "col": col, "row": row, "px": px, "py": py,
                         "conf": cf})
@@ -203,15 +266,22 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
             render = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
 
     meta = {"n_cell": len(direct), "n_anchor": len(anchors),
-            "method": "nn" if anchors else "none",
+            "method": "lattice" if lattice_fn is not None
+                      else ("nn" if anchors else "none"),
+            "n_inlier": n_inlier, "n_outlier": n_outlier,
+            "rejected": [to_cid(a[0], a[1]) for a in rejected],
+            "inferred": sorted(to_cid(c, r) for c, r in inferred_cells),
             "anchors": anchors}  # [(col, row, cx, cy), ...]
     return targets, render, meta
 
 
-def render_field_matrix(targets, title="", cell_px=80, special=None):
+def render_field_matrix(targets, title="", cell_px=80, special=None,
+                        inferred=None):
     """把目标列表渲染成 11×14 彩色矩阵图（中文类别+格号）。
 
     special: {cell_id: 中文标签}，在格子上叠加特殊标记（如起点/终点）。
+    inferred: 反推格 cell_id 集合（目标落入但格号标签未直接识别，
+              由格网反推得出），渲染为虚线边框。
     布局：[图例行] [11×14 矩阵+行列标] [title 行]
     """
     legend_h = 36
@@ -240,11 +310,32 @@ def render_field_matrix(targets, title="", cell_px=80, special=None):
     gx0, gy0 = axis_w, legend_h  # 网格左上角
 
     # 画格子（一格一目标，cell_targets 值为单目标 dict）
+    inferred = inferred or set()
     for (col, row), main in cell_targets.items():
         color = COLORS.get(main["kind"], (200, 200, 200))
         x0 = gx0 + col * cell_px
         y0 = gy0 + row * cell_px
         draw.rectangle([x0, y0, x0 + cell_px, y0 + cell_px], fill=color)
+        if main["cell"] in inferred:
+            # 反推格：虚线边框（格号由周边锚点反推，标签未直接识别）
+            dash, gap = 8, 5
+            for edge in ("top", "bottom", "left", "right"):
+                if edge == "top":
+                    xs, ys, xe, ye = x0, y0, x0 + cell_px, y0
+                elif edge == "bottom":
+                    xs, ys, xe, ye = x0, y0 + cell_px, x0 + cell_px, y0 + cell_px
+                elif edge == "left":
+                    xs, ys, xe, ye = x0, y0, x0, y0 + cell_px
+                else:
+                    xs, ys, xe, ye = x0 + cell_px, y0, x0 + cell_px, y0 + cell_px
+                seg = dash + gap
+                n = max(1, int(abs(xe - xs) + abs(ye - ys)) // seg)
+                for k in range(n):
+                    t0 = k * seg / n
+                    t1 = (k * seg + dash) / n
+                    p1 = (xs + (xe - xs) * t0, ys + (ye - ys) * t0)
+                    p2 = (xs + (xe - xs) * t1, ys + (ye - ys) * t1)
+                    draw.line([p1, p2], fill=(20, 20, 20), width=3)
         cn = CN_NAMES[main["kind"]]
         bbox = draw.textbbox((0, 0), cn, font=font_main)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -303,6 +394,10 @@ def render_field_matrix(targets, title="", cell_px=80, special=None):
         cx = 10 + i * 135
         draw.rectangle([cx, 6, cx + 22, 28], fill=COLORS[k])
         draw.text((cx + 28, 6), txt, font=font_leg, fill=(40, 40, 40))
+    if inferred:
+        lx = 10 + len(legend) * 135
+        draw.rectangle([lx, 6, lx + 22, 28], outline=(20, 20, 20), width=3)
+        draw.text((lx + 28, 6), "虚线=反推格", font=font_leg, fill=(40, 40, 40))
 
     # title（底部单独一行）
     if title:
@@ -372,11 +467,19 @@ def main():
     yolo = REPO / "runs/detect/runs/detect/runs/detect/aerial_field_7cls/weights/best.pt"
     cell = REPO / "runs/cell_classifier_v4c/best.pt"
     targets, render_img, meta = detect_and_localize(args.image, yolo, cell)
-    title = args.title or (f"{args.image.name}  cells={meta['n_cell']} "
-                           f"anchors={meta['n_anchor']} targets={len(targets)}")
+    if args.title:
+        title = args.title
+    elif meta["method"] == "lattice":
+        title = (f"{args.image.name}  格网反推: 锚点{meta['n_inlier']}/"
+                 f"{meta['n_anchor']}(剔{meta['n_outlier']}假) "
+                 f"反推格{len(meta['inferred'])} targets={len(targets)}")
+    else:
+        title = (f"{args.image.name}  cells={meta['n_cell']} "
+                 f"anchors={meta['n_anchor']} targets={len(targets)}")
 
     det_matrix = render_field_matrix(targets, f"[检测] {title}",
-                                     cell_px=args.cell_px, special=GT_SPECIAL)
+                                     cell_px=args.cell_px, special=GT_SPECIAL,
+                                     inferred=set(meta["inferred"]))
 
     if args.show_gt:
         gt_targets = _build_gt_targets()
@@ -398,7 +501,12 @@ def main():
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(cv2.imencode(".png", combo)[1])
     print(f"已输出: {args.out}  ({combo.shape[1]}x{combo.shape[0]})")
-    print(f"检测目标数: {len(targets)}, 格号锚点: {meta['n_anchor']}")
+    print(f"检测目标数: {len(targets)}, 格号锚点: {meta['n_anchor']}, "
+          f"定位方式: {meta['method']}")
+    if meta["method"] == "lattice":
+        print(f"格网反推: 内点{meta['n_inlier']} 剔除假锚点{meta['n_outlier']}"
+              f"{meta['rejected']}")
+        print(f"反推格（目标落入、标签未识别）: {meta['inferred']}")
     return 0
 
 

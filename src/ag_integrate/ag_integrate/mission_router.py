@@ -44,6 +44,10 @@ _ALL_HEADINGS = tuple(range(8))
 # 第6行、第7行格子本身可通行，但跨边界的竖向移动被阻挡，桥洞缺口除外。
 _MID_BOUNDARY = 6  # row5(第6行) ↔ row6(第7行) 之间
 
+# 横向挡板覆盖 D(3)~N(13) 列，A、B、C 列无挡板可自由穿越。
+# 桥洞列由 passable（ARROW）动态确定，每局随机。
+_BARRIER_COLS: frozenset[int] = frozenset(range(3, COLS))  # D..N
+
 
 def _turn_units(h1: int, h2: int) -> int:
     """两个航向之间相差几个 45°。"""
@@ -426,25 +430,34 @@ def plan_route(
     entry0 = (_HEADING_IDX[start_heading],) if start_heading else _ALL_HEADINGS
     h_final = _HEADING_IDX[final_heading] if final_heading else None
 
-    # 桥洞墙自动推导：passable 是无人机识别到的带箭头可通行格（ARROW）。
-    # 它们所在的列即桥洞列。桥洞是挡板上的缺口，小车需从引道驶入：
-    # ARROW 格本身可通行，其上下各一格也视为引道可通行；列中其余格才是墙。
-    # 若同一列有多个 ARROW，它们之间的整段连通。通行格位置每局随机。
+    # 桥洞列推导：passable（ARROW）所在列即桥洞列。
+    # 桥洞列物理上每格都有缺口，但规则上只有带箭头的格子允许通过，
+    # 其余格视为墙。箭头格朝向挡板边界的一侧设1格引道（穿越后出口），
+    # 另一侧不设引道——保证桥洞列南北不连通，形成两个独立半场。
+    # 箭头位置每场随机。多个箭头之间不默认连通。
     passable_cells = tuple(snapshot.passable)
     passable_names = {c.name for c in passable_cells}
     bridge_cols = {c.col for c in passable_cells}
+    bridge_open: set[CellRef] = set()       # 桥洞列中可通行的格
     bridge_walls: set[CellRef] = set()
     for col in bridge_cols:
-        col_arrows = sorted(c.row for c in passable_cells if c.col == col)
-        lo, hi = col_arrows[0] - 1, col_arrows[-1] + 1
-        lo = max(lo, 0); hi = min(hi, ROWS - 1)
+        open_rows: set[int] = set()
+        for c in passable_cells:
+            if c.col != col:
+                continue
+            open_rows.add(c.row)            # 箭头格本身
+            # 引道只在朝向边界的一侧：南侧箭头(row>=mid)引道向北(row-1)，
+            # 北侧箭头(row<mid)引道向南(row+1)。
+            dr = -1 if c.row >= mid_boundary else 1
+            r = c.row + dr
+            if 0 <= r < ROWS:
+                open_rows.add(r)
         for row in range(ROWS):
             c = CellRef(col, row)
-            if c.name in passable_names:
-                continue
-            if lo <= row <= hi:
-                continue   # ARROW 及引道、多 ARROW 之间连通段
-            bridge_walls.add(c)
+            if row in open_rows:
+                bridge_open.add(c)
+            else:
+                bridge_walls.add(c)
     bridge_walls = frozenset(bridge_walls)
     # 标靶格一律不可踩（物理靶体）；移动靶的轨道两端同样不可踩（轨道本体）。
     target_cells = {t.cell.name: t.cell for t in snapshot.targets}
@@ -456,10 +469,22 @@ def plan_route(
     # 桥洞可通行格优先于桥洞墙（同一格不可能既是缺口又是墙）。
     blocked = frozenset(c for c in blocked if c.name not in passable_names)
 
-    # 中场横向挡板的桥洞缺口：passable 格即为允许穿越边界的位置。
-    # 若调用方未显式指定 cross_gates，则自动用 passable 格作为缺口。
-    if cross_gates is None and passable_cells:
-        cross_gates = frozenset(passable_cells)
+    # 中场横向挡板的穿越缺口：
+    # 1. 挡板范围外的列（A、B、I~N）可自由穿越边界；
+    # 2. 桥洞列中位于边界附近的可通行格（箭头+引道）可穿越。
+    # 若调用方未显式指定 cross_gates，则自动推导。
+    if cross_gates is None:
+        gates: set[CellRef] = set()
+        for col in range(COLS):
+            if col not in _BARRIER_COLS:
+                for row in (mid_boundary - 1, mid_boundary):
+                    gates.add(CellRef(col, row))
+        # 桥洞列中边界附近的可通行格
+        for c in bridge_open:
+            if c.row in (mid_boundary - 1, mid_boundary):
+                gates.add(c)
+        if gates:
+            cross_gates = frozenset(gates)
 
     # 雷为普通必经点；蓝靶的必经点是其停靠射击格（每靶一组候选）。
     base_required: dict[str, CellRef] = {}
