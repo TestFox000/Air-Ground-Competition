@@ -144,15 +144,40 @@
 | R1 | Orin 不在线 | Agent-4 | 确认WiFi连接；同时推进训练 |
 | R2 | 车仍画圆 | Agent-3 | align已就绪，待实车 |
 | R3 | 7cls训练中断 | Agent-4 | ✅ 训练已于15:38完成epoch 75并发布 hbb_detector_7cls_distill_20261011.onnx；本地ONNX冒烟测试通过。建议禁用Modern Standby防止再次中断 |
-| R7 | 5090连接不稳定 | Agent-4 | 5090实例（connect.bjb2.seetacloud.com:37113）本轮巡检不可达（NoValidConnectionsError）。seed157训练状态未知，v4d上传待重连。两个watch_5090_v4d_seed.py后台运行中，连通即自动监控+下载。deploy脚本V4D_ZIP已修复指向cellv4d_upload_v2.zip（218.4MB正确结构） |
+| R7 | 5090连接不稳定 | Agent-4 | 5090实例持续不可达（connect.bjb2.seetacloud.com:37113 与 106.38.204.136:52238 均 TcpTestSucceeded=False）。seed157/v4d/target_merged 训练状态未知。两个 watch_5090_v4d_seed.py 后台运行中（PID 33984 + 37436），连通即自动监控+下载。需用户在 AutoDL 控制台检查实例状态 |
 | R4 | 0x4002帧未广播 | Agent-4 | 代码完成，待Orin编译 |
 | R6 | E盘（项目存储） | 经理 | ✅ 已恢复（7cls续训成功读取E:\ml_datasets），持续监控 |
 
 ---
 
-*最后更新：2026-10-12 00:05 经理（每小时巡检）*
+*最后更新：2026-10-12 01:04 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 00:05）
+## 7. 本轮巡检非硬件推进（2026-10-12 01:04）
+
+### ✅ 全量数据集标签完整性复核（非硬件推进）
+- **seed_157**：363 框全部 w>0 h>0（0 无效标签），类别分布 class0=36/1=63/2=76/3=55/4=102/5=31，与 data.yaml 一致
+- **target_merged**：1768 框全部 w>0 h>0（0 无效标签），类别分布 class0=211/1=142/2=475/3=83/4=559/5=298
+- **v4d**：`cellv4d_upload_v2.zip`（218.4MB，25236 条目）结构正确：cell_classifier/ + cell_labels/ + gen_cell_synth.py
+- 三个数据集均已就绪，5090 恢复后可立即部署训练，不会再出现 seed_157 h=0 类致命问题
+
+### ✅ 代码base健康
+- `pytest tests/` 128 passed in 18.99s（无回归）
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 两个 `watch_5090_v4d_seed.py` 后台运行中（PID 33984 + 37436），连通即自动监控+下载
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/200（无变化）
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 00:05）
 
 ### ✅ 全量就绪确认：数据集+部署脚本+模型指针+测试全绿
 - **seed_157**：363 框全部 w>0 h>0（0 无效标签），已部署 5090（训练状态待连回确认）
