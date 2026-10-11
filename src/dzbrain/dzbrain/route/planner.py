@@ -110,6 +110,7 @@ __all__ = [
     "PIVOT_PENALTY",
     "MINE_PRESS_TOL_M",
     "MINE_TURN_PENALTY",
+    "BARRIER_TURN_PENALTY",
     "straighten_mines",
 ]
 
@@ -167,6 +168,16 @@ MINE_PRESS_TOL_M = 0.03
 #: 1.0 份 ≈ 1 格前进代价 —— 权衡"多绕一格"与"雷被切角擦过"，后者要严重得多
 #: （真车漏压雷 = 直接丢分），所以取 2.0 让排序优先满足压雷。
 MINE_TURN_PENALTY = 2.0
+
+#: ★★ 隔板相邻行"死胡同式 90° 转向"的**推荐**惩罚权重（等效代价单位/处）。
+#: 取值依据（`_tmp_session/t6_planner/`）：现场 54 点路线在这种顶点上有 2 处
+#: （`N7` / `H7`），每处实测触线 175~178 拍；一处 90° 转向的绕路替代（多走 1~2 格）
+#: 的里程代价 ≈ 1.0~2.0 等效单位，所以取 **8.0**（4~8 倍里程代价）足以让搜索把
+#: 访问顺序与段路径一起改掉，而不是"便宜就认了"。
+#: ★ 默认值（`plan_route` 的键缺失回落到 **0.0**）刻意是 **0.0**：关闭 = 与历史
+#: `route.tokens` / 四处逐 token 恒等式逐字一致。启用由 `planner.barrier_turn_penalty`
+#: 决定（本模块不替现场做启用决定，见任务卡 t6 的写域限制）。
+BARRIER_TURN_PENALTY = 8.0
 
 #: 单次规划的时间预算（秒）。超了抛 `PlannerError`，绝不静默给半成品路线。
 DEFAULT_MAX_SECONDS = 0.8
@@ -281,16 +292,54 @@ class Grid:
     """
 
     def __init__(self, spec: MapSpec, bridge_rows: Iterable[int] = (),
-                 *, allow_reverse: bool = True) -> None:
+                 *, allow_reverse: bool = True,
+                 barrier_turn_margin_m: float = 0.0) -> None:
         self.spec = spec
         #: 无倒车模式（真车底盘不支持倒车）：`_moves` 不再产出倒车动作，
         #: 180° 折返 = 正向开进死格、原地转向（2×COST_TURN）后正向开出 ——
         #: 顶点处由 TrackerTask 自动 PIVOT。默认 True = 旧行为（允许倒车）。
         self.allow_reverse = bool(allow_reverse)
+        #: ★★ 隔板相邻行"行内 90° 转向"的**最小安全裕度**（米，任务卡 t6）：
+        #: 行心到隔板只有半格（0.175 m），这个值就是"行内必须留出的摆动空间"。
+        #: `0.0`（默认）= 判据按纯几何生效；**负值 = 关闭该判据**（只报不拦）。
+        #: 放在 `Grid` 上而不是多开一个函数参数：判据 `_barrier_turn_cell()` 与
+        #: 代价函数 `_moves()` 都要用它，挂在地图对象上最不容易漏传。
+        self.barrier_turn_margin_m = float(barrier_turn_margin_m)
         self.blocked: set[tuple[int, int]] = set()
         for cell in spec.obstacles:
             row_idx, col_idx = geo.block_to_index(cell)
             self.blocked.add((row_idx + 1, col_idx))
+        # ---------- ★★ 跨格靶板 = 占两格的**实体**，同样不可压过（任务卡 t10） ----------
+        # 用户 2026-10-11 裁定：「C1+D1 是一块跨格靶板，**所有靶子都是一个占用两格的跨格靶板**」。
+        # 为什么必须"拉黑"而不是"加代价"：靶板是**物理实体**，压过去就是撞板；加代价只能表达
+        # "尽量别压"。现场实测（`_tmp_session/n8_newmap/报告_跨格靶板约束.md`）现路线在新图确实
+        # 压过靶板（@0.15 C1 61 拍 / D1 93 拍，@0.30 各 45 拍）—— 这是**非法**，不是"次优"。
+        #
+        # 为什么"拉黑"与"射击停站"不冲突（两个不同机制，互不削弱）：
+        #   · **通行**判据问"车能不能开进这一格" → 靶板是实体，答案永远是不能；
+        #   · **停站**判据问"站在这儿能不能打到靶板" → 停站是靶格的**正交邻居**，
+        #     本来就不是靶格自身（`shoot_candidates()` 取的正是 `DIRS` 邻居；
+        #     现场图 `G10` 同时服务 `G11`/`H11` 就是这种点）。
+        #   ⇒ 拉黑靶格**自动**把靶格剔出射击候选（`shoot_candidates` 用 `grid.passable()` 筛邻居），
+        #     而"邻近停站仍能打到靶板"这条完全不受影响（见 `shoot_candidates` 的注释）。
+        #
+        # 向后兼容：现图（`config/map.yaml`，靶 `F11`/`G11`）的 54 token 路线本来就不进靶格，
+        # 实测"拉黑 vs 不拉黑"输出**逐 token 相同**（`_tmp_session/t11_target_block/
+        # probe_would_change.txt` §①）⇒ 对现图零影响。
+        for cell in spec.targets:
+            row_idx, col_idx = geo.block_to_index(cell)
+            self.blocked.add((row_idx + 1, col_idx))
+        #: ★ 靶板格（不可通行，与 `obstacles` 同待遇）；单独留一份供日志/诊断区分
+        #: "这格为什么不能走"，也让 `_build_danger` 能在不改变障碍语义的前提下单独处理它。
+        self.target_cells: set[tuple[int, int]] = {
+            (geo.block_to_index(c)[0] + 1, geo.block_to_index(c)[1]) for c in spec.targets
+        }
+        #: ★★ 势场源 = **只含障碍**，不含靶板（见 `_build_danger` 的说明：
+        #: 靶板要贴着打，加"离远点"势场是反着用力；本轮实测它会把射击停站从 G10
+        #: 挤到 F10 并让现图路线越界 196 拍）。`blocked` 仍含靶板（管通行）。
+        self.hazard_cells: set[tuple[int, int]] = {
+            (geo.block_to_index(c)[0] + 1, geo.block_to_index(c)[1]) for c in spec.obstacles
+        }
         self.barrier_col = geo.COL_LETTERS.index(spec.barrier_col_from)
         self.barrier_hi = spec.barrier_row_hi
         self.barrier_lo = spec.barrier_row_lo
@@ -323,7 +372,20 @@ class Grid:
          ③ K 列内不上下挪格（R009：桥洞单格宽，必撞侧壁）；
          ④ **只在桥洞行进出 K 列**（R007：每半场恰好一次穿越；非桥洞行进出会多算穿越，
             行为上也是撞桥墩）。K 邻列的斜切同时被本条拦掉（R009 的 10° 上限）。
+
+        ★★ 前置断言（任务卡 t17 / t14 建议）：**每一步必须是正交相邻的一格**，
+        即 `abs(drow) + abs(dcol) == 1`。为什么加：现在"恒正交相邻"是靠调用链
+        （`_moves()` 只按 `DIRS` 产出单位步）**隐式**保证的；一旦将来有人在这里塞
+        "跳格移动"（例如为了走对角线而直接跳到隔一格），下面的 ③/④ 判据全部只在
+        "目标格"上成立，会**静默**放过中间格上的桥墩/隔板 ⇒ 这里把不变量显式钉住，
+        跳格会当场炸而不是悄悄产出非法路线。
         """
+        drow, dcol = nrow - row, ncol - col
+        if abs(drow) + abs(dcol) != 1:
+            raise PlannerError(
+                f"内部错误：move_ok 只接受正交相邻的一步，收到 "
+                f"({row},{col}) -> ({nrow},{ncol})（位移 ({drow},{dcol})）"
+                f"—— 跳格移动会让后面的桥洞/隔板判据失效")
         if not self.passable(nrow, ncol):
             return False
         if not self.barrier_cross_ok(row, nrow, ncol):
@@ -342,8 +404,22 @@ class Grid:
         return self._danger[row][col]
 
     def _build_danger(self) -> list[list[float]]:
-        grid = [[0.0] * geo.MAP_COLS for _ in range(geo.MAP_ROWS + 1)]
-        for (orow, ocol) in self.blocked:
+        """障碍安全势场。**只由 `hazard_cells`（= 障碍）生成，不由靶板生成。**
+
+        ★★ 为什么必须分开（任务卡 t10 的关键）：靶板与障碍虽然**都不可通行**，
+        但它们的"势场语义"不同：
+          · 障碍（水桶）：会挡视线、蹭上去风险高 → 附近加软代价让路线离远点；
+          · 靶板：是**该去打的目标**，射击停站本来就必须紧贴它（现场图 `F10`/`G10`
+            服务 `F11`/`G11`）—— 给靶板加同样的"离远点"势场，等于**反着用力**。
+        实测踩到的后果：把靶格并进 `blocked` 后，`F10` 的势场从 0.4 抬到 0.9
+        （它同时被 `F11`+`G11` 两个"假障碍"覆盖），于是 `E9→F10`/`F10→E10` 的腿各贵
+        0.5 —— 射击停站从 `G10` 被挤到 `F10`，现图路线 54→53 token，
+        且新路线仿真 **越界 196 拍**（`_tmp_session/t11_target_block/probe_delta.txt`）。
+        ⇒ **可通行性与势场必须解耦**：`blocked` 管"能不能走"（含靶板），
+          `hazard_cells` 管"想不想靠近"（只有障碍）。
+        """
+        grids = [[0.0] * geo.MAP_COLS for _ in range(geo.MAP_ROWS + 1)]
+        for (orow, ocol) in self.hazard_cells:
             for drow in range(-OBSTACLE_DANGER_RADIUS, OBSTACLE_DANGER_RADIUS + 1):
                 for dcol in range(-OBSTACLE_DANGER_RADIUS, OBSTACLE_DANGER_RADIUS + 1):
                     row, col = orow + drow, ocol + dcol
@@ -353,46 +429,145 @@ class Grid:
                     if cheb == 0:
                         continue
                     value = OBSTACLE_DANGER_W1 if cheb == 1 else OBSTACLE_DANGER_W2
-                    if value > grid[row][col]:
-                        grid[row][col] = value
+                    if value > grids[row][col]:
+                        grids[row][col] = value
         for row in (self.barrier_hi, self.barrier_lo):
             if 1 <= row <= geo.MAP_ROWS:
                 for col in range(geo.MAP_COLS):
-                    grid[row][col] += BARRIER_NEAR_COST
-        return grid
+                    grids[row][col] += BARRIER_NEAR_COST
+        return grids
 
 
 # --------------------------------------------------------------------------- #
-#  带朝向的搜索（Dijkstra 洪泛）
+#  ★ 隔板相邻行的"死胡同式 90° 转向"（任务卡 t6 / n6）
 # --------------------------------------------------------------------------- #
-def _moves(grid: Grid, row: int, col: int, head: int):
-    """``((row, col, head), cost, action)``：前进 / 倒车 / 左右转，阿克曼可执行的动作集。
+#: ★★ 规划器的搜索状态：``(row, col, head)`` 在**开了隔板避让**时扩成
+#: ``(row, col, head, prev_head, prev_head_valid)`` —— 多带"上一段的行进朝向"，
+#: 用于识别"从隔板行南侧邻行北上进入隔板行、随后在隔板行内 90° 转向"这个三格形态。
+#: 关掉避让（默认）时 `prev_head_valid=False`，状态空间等价于旧的 `(row, col, head)`。
+_STATE_START = -1
+
+
+def _barrier_turn_cell(grid: Grid, row: int, col: int, prev_head: int, head: int,
+                       margin_m: float | None = None) -> bool:
+    """★★ 当前格是不是"隔板相邻行的侧向 90° 转向"顶点（任务卡 t6）。
+
+    ---------- 现场机理（逐事件实测，见 `_tmp_session/t6_planner/probe_corner2.txt`） ----------
+    隔板下方那一行（本图 = 第 7 行）只有 **0.175 m** 净宽（行心 `x=1.575` 到隔板 `x=1.75`），
+    而车身在行内做侧向 90° 转向的横向摆动是"转弯半径 R 量级"
+    （`R = 0.157/tan30° = 0.272 m`，见 `docs/路线加固盘点与候选方案.md` §3）
+    —— 走廊半格**物理上装不下**，车会甩进隔板。
+
+    `base_v015`（现 54 点路线 @0.15）实测 353 拍触线 = **2 个事件，全部**落在同一形态上：
+      · `N7`：车从 `N8` 沿行主轴（西）开到 `N7`，再转向南     —— 178 拍
+      · `H7`：车从 `H8` 沿行主轴（西）开到 `H7`，再转向南     —— 175 拍
+    `A11_v015` 219 拍 = 1 个事件，同样是这一形态（`H7`）—— 这就是任务卡 ①
+    "A11 单独上车反而更差"的几何原因：A11 只是把另一处挪到了行 8，没消掉这一处。
+    同行的另两类拐角（`J7` 西→北、`E7` 西→北）实测**都不触线**：车从行 8 北上进入行 7、
+    再折向西，摆动被行 8 吸收 —— 所以判据必须**区分"来向"**，不能只按"在第 7 行转向"一刀切。
+
+    ---------- 判据（几何量全部来自地图/栅格本身，不新造角度阈值） ----------
+    命中的充要形态：**车从"另一侧那一行"（本图 = 第 8 行）开进隔板紧邻行，
+    在行内做一个侧向 90° 转向，再回/继续在行内或行外走**。逐条：
+      ① 当前格不在 K 列（K 列桥洞另有 R007/R009 规则管）；
+      ② 当前格就是隔板**紧邻**行（`row == grid.barrier_lo`，本图 = 第 7 行）；
+      ③ 转向前的来向与转向后的去向**垂直**（90°，纯几何）；
+      ④ 定向来向 = "从 `barrier_lo ± 1` 那一行进来"：由 `prev_head`（上一步的真实行进朝向）
+         反推上一格；**上一格必须落在紧邻行**（本图 = 第 7 行）**或另一侧那一行**（第 8 行），
+         即这一转向确实发生在"行内 / 行际"交界，而不是隔着半张地图的巧合；
+      ⑤ 行内可用净宽（半格，`0.5 × geo.BLOCK_SIZE`）装不下这次转向所需的摆动：
+         `margin_m` 是操作者显式给的**最小安全裕度**（`planner.barrier_turn_margin_m`）：
+           * `≥ 0`（推荐 0.0）⇒ 半格 0.175 m 永远不够 ⇒ 一律拦下；
+           * `< 0`（如 −1.0）⇒ **关闭本条**（退化成"只报不拦"的诊断模式）。
+
+    ⚠️ **不变量**：`head`/`prev_head` 是 `_heading_of()` 的**行进方向**枚举
+    （0=北 1=西 2=南 3=东），不是"车头朝向"。路线串里相邻点可能相隔多格
+    （`N8→N7`、`N7→M7` 各跨 1 格），但每一格的行列**差值只有一个非零**，
+    所以"来向"能由 `prev_head` 唯一还原（`prev_cell = (row,col) - DIRS[prev_head]`）。
+    """
+    if col == _CROSS_COL:
+        return False
+    # ★ 行号口径：规划器内部一律用 `_cell()` 的 **1-based 行号**（`block_to_index + 1`），
+    #   与 `spec.barrier_row_lo/hi`（块行号）**同口径** —— 隔板在第 `barrier_row_hi` 与
+    #   `barrier_row_lo` 行之间，所以"隔板紧邻行"就是 `barrier_row_lo`。
+    bar_row = grid.barrier_lo                          # 隔板紧邻行（本图 = 第 7 行）
+    if row != bar_row or grid.barrier_col <= 0:
+        return False
+    if prev_head not in (0, 1, 2, 3):
+        return False
+    dr, dc = DIRS[int(prev_head)]
+    prev_cell = (row - dr, col - dc)                   # 上一格（沿来向反推一格）
+    dr2, dc2 = DIRS[int(head)]
+    next_cell = (row + dr2, col + dc2)                 # 下一格（沿去向一格）
+    if not (1 <= prev_cell[0] <= geo.MAP_ROWS and 1 <= next_cell[0] <= geo.MAP_ROWS):
+        return False
+    if prev_cell[0] not in (bar_row, bar_row + 1):
+        return False
+    d_out = _heading_of(next_cell[0] - row, next_cell[1] - col, -1)
+    if d_out < 0:
+        return False
+    # 来向 = 上一步的真实行进朝向（`DIRS` 枚举本身就是单位方位，直接取奇偶性）；
+    # 去向同理。两者不同 ⇒ 这是一次 90° 转向。
+    if (int(prev_head) % 2) == (d_out % 2):
+        return False
+    margin = (float(margin_m) if margin_m is not None
+              else float(getattr(grid, "barrier_turn_margin_m", 0.0)))
+    if margin < 0.0:                                 # 显式关闭（只报不拦）
+        return False
+    # ★ 判据方向（本轮在这里踩了两次）：`margin_m ≥ 0` ⇒ **认定行内装不下侧向 90° 转向**
+    #   （行内可用净宽只有半格 0.175 m，而侧向转向要吃掉整行可用宽度）⇒ 命中、拦下。
+    #   只在显式给出 `margin_m < 0` 时关闭本条。取 `≤` 而不是 `<`：margin=0 时必须命中。
+    return 0.5 * geo.BLOCK_SIZE >= margin - 1e-9
+
+
+def _moves(grid: Grid, row: int, col: int, head: int,
+           prev_head: int = _STATE_START, prev_valid: bool = False,
+           barrier_turn_penalty: float = 0.0):
+    """``((row, col, head, prev_head, prev_valid), cost, action)``：阿克曼可执行的动作集。
 
     `grid.allow_reverse=False`（无倒车模式）时**不产出倒车动作**：真车底盘不支持倒车
     （负速度方向位被 STM32 无视），所以路线里任何依赖倒车的路径都必须改用
     "正向开进 + 原地转向 + 正向开出"（顶点处由 TrackerTask PIVOT）。
+
+    `barrier_turn_penalty > 0` 时给 `_barrier_turn_cell()` 命中的转向动作加软代价
+    （见该函数文档：隔板相邻行的死胡同式 90° 转向 = 车会甩进隔板）。
     """
     drow, dcol = DIRS[head]
     nrow, ncol = row + drow, col + dcol
     if grid.move_ok(row, col, nrow, ncol):
-        yield (nrow, ncol, head), COST_FORWARD + grid.danger(nrow, ncol), ACT_FORWARD
+        yield (nrow, ncol, head, head, True), COST_FORWARD + grid.danger(nrow, ncol), ACT_FORWARD
     if not grid.allow_reverse:
-        yield (row, col, (head + TURN_LEFT) % 4), COST_TURN, ACT_LEFT
-        yield (row, col, (head + TURN_RIGHT) % 4), COST_TURN, ACT_RIGHT
+        left, right = (head + TURN_LEFT) % 4, (head + TURN_RIGHT) % 4
+        extra = (barrier_turn_penalty
+                 if (barrier_turn_penalty > 0.0 and prev_valid
+                     and _barrier_turn_cell(grid, row, col, prev_head, left)) else 0.0)
+        yield (row, col, left, prev_head, prev_valid), COST_TURN + extra, ACT_LEFT
+        extra = (barrier_turn_penalty
+                 if (barrier_turn_penalty > 0.0 and prev_valid
+                     and _barrier_turn_cell(grid, row, col, prev_head, right)) else 0.0)
+        yield (row, col, right, prev_head, prev_valid), COST_TURN + extra, ACT_RIGHT
         return
     brow, bcol = row - drow, col - dcol
     if grid.move_ok(row, col, brow, bcol):
-        yield (brow, bcol, head), COST_BACKWARD + grid.danger(brow, bcol), ACT_BACKWARD
-    yield (row, col, (head + TURN_LEFT) % 4), COST_TURN, ACT_LEFT
-    yield (row, col, (head + TURN_RIGHT) % 4), COST_TURN, ACT_RIGHT
+        yield (brow, bcol, head, head, True), COST_BACKWARD + grid.danger(brow, bcol), ACT_BACKWARD
+    yield (row, col, (head + TURN_LEFT) % 4, prev_head, prev_valid), COST_TURN, ACT_LEFT
+    yield (row, col, (head + TURN_RIGHT) % 4, prev_head, prev_valid), COST_TURN, ACT_RIGHT
 
 
-def flood(grid: Grid, source: tuple[int, int, int]):
+def flood(grid: Grid, source: tuple[int, int, int],
+          barrier_turn_penalty: float = 0.0):
     """从 ``(row, col, heading)`` 出发的**一次** Dijkstra 洪泛。
 
-    :return: ``(dist, came, actions, settled)``；``dist[(row, col, head)]`` = 最短代价，
-        ``came`` 是前驱状态，``actions[(row, col, head)]`` = 到达该状态用的动作，
-        ``settled`` = 实际弹出的状态数（搜索代价的读数，供日志/断言用）。
+    :return: ``(dist, came, actions, settled, rank)``；
+        ``dist[(row, col, head, prev_head, prev_valid)]`` = 最短代价，``came`` 是前驱状态，
+        ``actions[...]`` = 到达该状态用的动作，``settled`` = 实际弹出的状态数
+        （搜索代价的读数，供日志/断言用），``rank`` = 各状态的**收紧次序**
+        （同代价多状态时的确定性 tie-break，见 `_reconstruct`）。
+
+    ★ 状态比"位置+朝向"多带一维 ``prev_head``（上一段的行进朝向）—— 隔板相邻行的
+    "死胡同式 90° 转向"判据需要它（见 `_barrier_turn_cell`）。`barrier_turn_penalty=0.0`
+    （默认）时 `prev_valid` 恒为 False、`prev_head` 恒为初始值，状态空间与旧版等价，
+    输出的路径也逐字相同（`_reconstruct` 的路径元组仍是 `(row, col, head, action)`）。
 
     ★ 为什么要洪泛而不是逐对 A*：代价矩阵要"一个点到其它所有点 × 四个到达朝向"，
       逐对 A* 是 16 次搜索/对，19 个点就是 2700+ 次 —— 直接吃光时间预算。
@@ -401,40 +576,84 @@ def flood(grid: Grid, source: tuple[int, int, int]):
     """
     counter = 0
     settled = 0
-    heap: list[tuple[float, int, tuple[int, int, int]]] = [(0.0, counter, source)]
-    dist: dict[tuple[int, int, int], float] = {source: 0.0}
-    came: dict[tuple[int, int, int], tuple[int, int, int] | None] = {source: None}
-    actions: dict[tuple[int, int, int], int] = {source: ACT_START}
+    src = (source[0], source[1], source[2], _STATE_START, False)
+    heap: list[tuple[float, int, tuple[int, int, int, int, bool]]] = [(0.0, counter, src)]
+    dist: dict[tuple[int, int, int, int, bool], float] = {src: 0.0}
+    came: dict[tuple[int, int, int, int, bool], tuple[int, int, int, int, bool] | None] = {src: None}
+    actions: dict[tuple[int, int, int, int, bool], int] = {src: ACT_START}
+    #: ★ 状态的**收紧次序**（= 它第一次拿到有限距离时的序号）。用途：`_reconstruct` /
+    #: `_flood_value` 在"位置+朝向相同、代价也相同"的多个状态之间必须**确定性**地选一个。
+    #: 为什么必要：状态多带 `prev_head` 后，同一格同一朝向会出现多个同代价状态，
+    #: 而纯字典迭代序不是确定性的 —— 会选出"代价一样但几何不同"的腿（本轮实测踩过：
+    #: 默认参数下路线突然在下半场穿 K 列两次）。用收紧次序做 tie-break，
+    #: 等价于旧版"一个 (格, 朝向) 只有一个状态"的语义。
+    rank: dict[tuple[int, int, int, int, bool], int] = {src: 0}
 
     while heap:
         value, _, cur = heapq.heappop(heap)
         if value > dist.get(cur, float("inf")) + 1e-9:
             continue
         settled += 1
-        row, col, head = cur
-        for nxt, cost, action in _moves(grid, row, col, head):
+        row, col, head, prev_head, prev_valid = cur
+        for nxt, cost, action in _moves(grid, row, col, head, prev_head, prev_valid,
+                                       barrier_turn_penalty):
             nv = value + cost
             if nv < dist.get(nxt, float("inf")) - 1e-9:
                 dist[nxt] = nv
                 came[nxt] = cur
                 actions[nxt] = action
                 counter += 1
+                rank[nxt] = counter
                 heapq.heappush(heap, (nv, counter, nxt))
-    return dist, came, actions, settled
+    return dist, came, actions, settled, rank
 
 
-def _reconstruct(dist: dict, came: dict, actions: dict, goal: tuple[int, int, int]
-                 ) -> tuple[list[tuple[int, int, int, int]], float]:
-    """从洪泛结果里取出一条最短路径（目标朝向固定）。"""
-    if goal not in dist:
+def _reconstruct(dist: dict, came: dict, actions: dict, goal: tuple[int, int, int],
+                 rank: dict | None = None) -> tuple[list[tuple[int, int, int, int]], float]:
+    """从洪泛结果里取出一条最短路径（目标朝向固定）。
+
+    ★ 洪泛的状态多带 `prev_head/prev_valid` 两维，但**回传的路径元组仍是
+      `(row, col, head, action)`** —— 调用方（`_collapse` / `_Tour.path` /
+      `plan_route` 的编译段）不需要知道新增维度。取法：在 `dist` 里找"位置+朝向
+      匹配 goal"的最优状态，再沿 `came` 回溯。同代价多状态时按 `rank`（收紧次序）
+      tie-break —— 保证与旧版"每 (格, 朝向) 只有一个状态"的语义等价且**确定性**。
+    """
+    best: tuple[float, int, tuple[int, int, int, int, bool]] | None = None
+    for state, value in dist.items():
+        if state[0] != goal[0] or state[1] != goal[1] or state[2] != goal[2]:
+            continue
+        # ★ 容差比较：多状态投影下同一 (格, 朝向) 会出现**相差 1e-15 的等价代价**
+        #   （浮点求和次序不同），严格 `<` 会让"谁更小"变成噪声判决 —— 必须按
+        #   (代价, 收紧次序) 全序比较，否则默认参数下路线会变（本轮实测踩过）。
+        rk = (rank or {}).get(state, 1 << 30)
+        if best is None or (value, rk) < (best[0], best[1]):
+            best = (value, rk, state)
+    if best is None:
         return [], float("inf")
     path: list[tuple[int, int, int, int]] = []
-    node: tuple[int, int, int] | None = goal
+    node: tuple[int, int, int, int, bool] | None = best[2]
     while node is not None:
         path.append((node[0], node[1], node[2], actions.get(node, ACT_START)))
         node = came[node]
     path.reverse()
-    return path, dist[goal]
+    return path, best[0]
+
+
+def _flood_value(dist: dict, goal: tuple[int, int, int], rank: dict | None = None) -> float:
+    """`dist` 里"位置+朝向"匹配 `goal` 的最优代价（状态多带 `prev_head` 维时的取法）。
+
+    与 `_reconstruct` 用**同一条**取法（含同一条 tie-break）—— 否则
+    `_Tour.cost()`（读 `dist`）与 `_Tour.path()`（回溯）会挑到不同的腿，
+    "代价说 A、路线走 B"。
+    """
+    best: tuple[float, int] | None = None
+    for state, value in dist.items():
+        if state[0] != goal[0] or state[1] != goal[1] or state[2] != goal[2]:
+            continue
+        key = (value, (rank or {}).get(state, 1 << 30))
+        if best is None or key < best:
+            best = key
+    return best[0] if best is not None else float("inf")
 
 
 def _heading_of(drow: int, dcol: int, fallback: int) -> int:
@@ -695,6 +914,28 @@ def _merge_duplicate_stops(stops: list[_Stop]) -> list[_Stop]:
     return out
 
 
+def _barrier_turn_stops(grid: Grid, stops: Sequence["_Stop"]) -> list[str]:
+    """★★ 在**编译后的逐点路线**里找出"隔板相邻行死胡同式 90° 转向"的顶点（任务卡 t6）。
+
+    与 `_Tour.penalty_of()` 的同类判据相比，这一版**不依赖 `head_cost` 里的标称腿**，
+    而是直接看编译出来的航点序列：对每个内部点，取"上一点的来向"与"下一点的去向"，
+    喂给同一个 `_barrier_turn_cell()`。两条路径共用同一条判据（一个函数），
+    所以"搜索时避开了、编译后又冒出来"这种不一致不可能悄悄发生。
+
+    :return: 命中的格名列表（顺序即路线顺序；空 = 干净）
+    """
+    out: list[str] = []
+    cells = [(stop.row, stop.col) for stop in stops]
+    for i in range(1, len(cells) - 1):
+        d_in = _heading_of(cells[i][0] - cells[i - 1][0], cells[i][1] - cells[i - 1][1], -1)
+        d_out = _heading_of(cells[i + 1][0] - cells[i][0], cells[i + 1][1] - cells[i][1], -1)
+        if d_in < 0 or d_out < 0:
+            continue
+        if _barrier_turn_cell(grid, cells[i][0], cells[i][1], d_in, d_out):
+            out.append(geo.index_to_block(cells[i][0] - 1, cells[i][1]))
+    return out
+
+
 def mark_pivots(stops: list[_Stop], *,
                 min_deg: float = PIVOT_MARK_DEG) -> list[tuple[int, str, float]]:
     """给折返顶点打上 `:PIVOT` 声明，返回 ``[(索引, 格名, 角度°), ...]``。
@@ -836,11 +1077,12 @@ def check_route_structure(route: Route, spec: MapSpec, grid: Grid,
     if not any(geo.block_to_index(b)[1] in u_cols for b in blocks):
         problems.append(f"路线完全没有经过 {'/'.join(V.U_TURN_COLUMNS)} 列（没绕过隔板）")
 
-    runs: list[tuple[str, str, tuple]] = []
-    for a, b in zip(blocks, blocks[1:]):
-        hit = V._crossing_at_column(a, b)               # noqa: SLF001
-        if hit is not None:
-            runs.append((a, b, hit))
+    # ★ 一次过洞由**两段**组成：进洞那一半（`L→K`，起点不在 K 列）+ 出洞那一半（`K→J`，
+    #   起点就在 K 列上）—— `validate._is_cross` 把**两半都算**成"朝 K 列推进/穿过它"。
+    #   所以这里必须用 `validate.crossing_entries()`（**一次过洞 = 一条记录**，与 R007 的
+    #   run 计数等价）来数次数；直接用 `_crossing_at_column` 会把现场路线
+    #   `L7->K7` + `K7->J7` 数成 2 次 ⇒ 自检误红（t7 2026-10-11 实测）。
+    runs: list[tuple[str, str, tuple]] = list(V.crossing_entries(blocks))   # noqa: SLF001
     lower = [r for r in runs if V.LOWER_HALF_ROWS[0] <= round(r[2][0]) <= V.LOWER_HALF_ROWS[1]]
     upper = [r for r in runs if V.UPPER_HALF_ROWS[0] <= round(r[2][0]) <= V.UPPER_HALF_ROWS[1]]
     if len(lower) != 1:
@@ -1050,6 +1292,11 @@ class PlanResult:
     pivot_penalty: float = 0.0
     #: "雷格不得作拐点"的惩罚权重（等效代价单位）；0.0 = 未启用
     mine_turn_penalty: float = 0.0
+    #: ★★ 隔板相邻行"死胡同式 90° 转向"的惩罚权重（任务卡 t6）；0.0 = 未启用
+    barrier_turn_penalty: float = 0.0
+    #: ★★ 编译后路线里**实际残留**的隔板死胡同转向格名（启用惩罚时应为空；
+    #: 非空即抛 `PlannerError`，这里只是留证据字段）
+    barrier_turns: tuple[str, ...] = ()
     #: ★ 逐雷穿越轴 ``[(雷格名, 轴编号0北1西2南3东, 是否找到可行轴), …]`` ——
     #: `ok=False` 表示该雷找不到直线穿越轴（会被切角擦过，需人工核对地图）
     mine_axes: tuple[tuple[str, int, bool], ...] = ()
@@ -1083,6 +1330,8 @@ class PlanResult:
             "allow_reverse": self.allow_reverse,
             "pivot_penalty": round(self.pivot_penalty, 4),
             "mine_turn_penalty": round(self.mine_turn_penalty, 4),
+            "barrier_turn_penalty": round(self.barrier_turn_penalty, 4),
+            "barrier_turns": list(self.barrier_turns),
             "mine_axes": [{"block": b, "axis": a, "ok": o} for b, a, o in self.mine_axes],
             "mine_runs": [{"block": b, "run": r} for b, r in self.mine_runs],
             "tour_cost": round(self.tour_cost, 4),
@@ -1127,12 +1376,19 @@ class _Tour:
     def __init__(self, grid: Grid, deadline: float,
                  pivot_penalty: float = 0.0, record_dirs: bool = True,
                  mine_cells: Iterable[tuple[int, int]] = (),
-                 mine_turn_penalty: float = 0.0) -> None:
+                 mine_turn_penalty: float = 0.0,
+                 barrier_turn_penalty: float = 0.0) -> None:
         self.grid = grid
         self.deadline = deadline
         #: ★ 折返惩罚（等效代价单位/处）。0.0 = 关闭（允许倒车模式的默认值，
         #: 也是"加惩罚前 vs 后"对比实验的对照组）。
         self.pivot_penalty = max(0.0, float(pivot_penalty))
+        #: ★★ 隔板相邻行"死胡同式 90° 转向"的软代价（任务卡 t6）。0.0（默认）
+        #: = 关闭（= `route.tokens`/历史逐 token 一致）；> 0 = 规划器主动避开这种转向
+        #: （见 `_barrier_turn_cell`）。它同时进**洪泛代价**与**顺序惩罚** ——
+        #: 前者决定"段路径往哪绕"，后者决定"访问顺序怎么排"，
+        #: 两个都得看得到它，否则会出现"顺序层以为占了便宜、段路径层再偷偷加价"。
+        self.barrier_turn_penalty = max(0.0, float(barrier_turn_penalty))
         #: 是否记录"每对访问点最短腿的起步/末步朝向"——折返惩罚与
         #: `straighten_mines()`（雷心直线穿越）都要用它，故默认开启。
         self.record_dirs = bool(record_dirs)
@@ -1152,12 +1408,13 @@ class _Tour:
         self._entry_dir: dict[tuple[tuple[int, int], tuple[int, int]], int] = {}
 
     # ---------------- 洪泛与查询 ----------------
-    def _flood_of(self, cell: tuple[int, int]) -> tuple[dict, dict, dict, int]:
+    def _flood_of(self, cell: tuple[int, int]) -> tuple[dict, dict, dict, int, dict]:
         hit = self._floods.get(cell)
         if hit is None:
             if time.perf_counter() > self.deadline:
                 raise PlannerError("规划超时（代价洪泛阶段）")
-            hit = flood(self.grid, (cell[0], cell[1], 0))
+            hit = flood(self.grid, (cell[0], cell[1], 0),
+                        barrier_turn_penalty=self.barrier_turn_penalty)
             self._floods[cell] = hit
             self.settled += hit[3]
         return hit
@@ -1166,16 +1423,16 @@ class _Tour:
         """带朝向的精确代价 `(a, ha) -> (b, hb)`（洪泛里直接读，O(1)）。"""
         if a == b:
             return 0.0 if ha == hb else COST_TURN
-        dist = self._flood_of(a)[0]
-        return dist.get((b[0], b[1], hb), float("inf"))
+        dist, _came, _actions, _settled, rank = self._flood_of(a)
+        return _flood_value(dist, (b[0], b[1], hb), rank)
 
     def path(self, a: tuple[int, int], b: tuple[int, int], ha: int, hb: int
              ) -> tuple[list[tuple[int, int, int, int]], float]:
         """取一段最短路径（同一 (起,终,朝向对) 只算一次）。"""
         if a == b:
             return ([(a[0], a[1], ha, ACT_START)], 0.0) if ha == hb else ([], float("inf"))
-        dist, came, actions, _ = self._flood_of(a)
-        return _reconstruct(dist, came, actions, (b[0], b[1], hb))
+        dist, came, actions, _settled, rank = self._flood_of(a)
+        return _reconstruct(dist, came, actions, (b[0], b[1], hb), rank)
 
     # ---------------- 代价表 ----------------
     def build(self, cells: Sequence[tuple[int, int]]) -> None:
@@ -1263,7 +1520,13 @@ class _Tour:
         return count
 
     def penalty_of(self, seq: Sequence[tuple[int, int]]) -> float:
-        """顺序里"不该有的动作"的总代价：折返（180°）+ **雷格当拐点**。"""
+        """顺序里"不该有的动作"的总代价：折返（180°）+ **雷格当拐点** + **隔板死胡同转向**。
+
+        ★ 第三项（任务卡 t6）：顺序层里 `a → b → c` 若在 `b` 处构成
+        "横着切进隔板相邻行、再在行内 90° 转向"（`_barrier_turn_cell`），
+        按 `barrier_turn_penalty` 计价。只用顺序相邻两点判据，与
+        `mine_turn_penalty` 同结构 —— 这样顺序优化与段路径洪泛看到的是**同一条禁令**。
+        """
         total = 0.0
         if self.pivot_penalty > 0.0:
             total += self.pivot_penalty * self.reversals(seq)
@@ -1279,6 +1542,15 @@ class _Tour:
                 if delta == 0:
                     continue                    # 直线穿越 = 合格
                 total += self.mine_turn_penalty * (8.0 if delta == 2 else 1.0)
+        if self.barrier_turn_penalty > 0.0:
+            for i in range(1, len(seq) - 1):
+                row, col = seq[i]
+                entry = self._entry_dir.get((seq[i - 1], seq[i]))
+                leave = self._exit_dir.get((seq[i], seq[i + 1]))
+                if entry is None or leave is None:
+                    continue
+                if _barrier_turn_cell(self.grid, row, col, entry, leave):
+                    total += self.barrier_turn_penalty
         return total
 
     # ---------------- 顺序 ----------------
@@ -1478,12 +1750,65 @@ def _default_cross(cfg: Config | None, pool: Sequence[str], half: str) -> str:
     return sorted(pool)[0]
 
 
+def _u_shape_order(tour: "_Tour", start: tuple[int, int], end: tuple[int, int],
+                   mines_lower: Sequence[tuple[int, int]], mines_upper: Sequence[tuple[int, int]],
+                   cross_lower: tuple[int, int], cross_upper: tuple[int, int],
+                   *, seed_from_cross: bool = False) -> list[tuple[int, int]]:
+    """★★ U 形单回路顺序（任务卡 t17）：把两个穿洞格**钉在各自半场的边界**上。
+
+    为什么需要它：`_Tour.polish()`（= 顺序↔朝向交替 2-opt）会在**整条 order** 上反转
+    任意子段，于是把 `cross_upper` 从"本半场末尾"挪到半场中间。实测（t17，第三张图
+    K1+K11 那张）：
+
+        polish 前  N10 K11 I7 D8 E10 C4 G4 F3 H2 B2 K1 N5   ← 合规形状
+        polish 后  N10 K11 E10 D8 I7 C4 B2 K1 H2 G4 F3 N5   ← `K1` 夹在中间
+        编译结果   … H1 I1 J1 K1 L1 … 且 `J1→K1` 出现两次
+                   ⇒ `上半场应恰好穿洞 1 次，实际 2 次`
+
+    现场的手工路线（`_tmp_session/n11_newmap2/route_v3.txt`，62 token、`route_check` 0 error）
+    正是这个拓扑：**`cross_lower` 是本半场离开东区后的第一跳、`cross_upper` 是本半场
+    回到东区前的最后一跳**。
+
+    本函数把"每半场一次穿洞"做成**硬约束**（不是加罚）：
+      · 下半场序 = `2-opt_from(start, 下半场雷)` + `[cross_lower]`；
+      · 上半场序 = `2-opt_from(cross_lower, 上半场雷)` + `[cross_upper]`；
+      · 全序 = `[start] + 下半场序 + 上半场序 + [end]`。
+    `2-opt` 只用在本半场节点集合内 ⇒ 跨 K 的往返**在搜索空间里不存在**，不可能被破坏。
+
+    :return: 候选顺序（长度 = 2 + 两个半场节点数 + 两个穿洞格）；**调用方仍需跑
+        结构自检**——本函数只保证形状，不保证编译后一定合规（射击停站/雷心穿越是后处理）。
+    """
+    if mines_lower:
+        # ★★ 关键：`cross_lower` 必须是**下半场第一跳**（实测枚举 24 种下半场顺序，
+        #   只有"`K11` 在最前"这种拓扑能得到"下洞 1 次"；放在末尾必然多一次
+        #   `L11→K11→J11 … J11→K11` 往返 —— 见 `probe_lower_orders.txt`）。
+        #   所以这里**先**把 `cross_lower` 固定为起点，再在其后做本半场 2-opt；
+        #   不再让 `two_opt` 有机会把它挪到别处。
+        if seed_from_cross:
+            tail = tour.two_opt(tour.nearest(cross_lower, list(mines_lower)))
+            lower = [cross_lower] + [c for c in tail if c != cross_lower]
+        else:
+            tail = tour.two_opt(tour.nearest(start, list(mines_lower)))
+            lower = [cross_lower] + [c for c in tail if c != cross_lower]
+    else:
+        lower = [cross_lower]
+    upper_nodes = list(mines_upper) + [cross_upper]
+    upper = tour.two_opt(tour.nearest(cross_lower, upper_nodes)) if upper_nodes else [cross_upper]
+    if cross_upper not in upper:                         # 纯防御
+        upper.append(cross_upper)
+    else:
+        upper = [c for c in upper if c != cross_upper] + [cross_upper]
+    return [start] + lower + upper + [end]
+
+
 def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                cross_lower: str | None = None, cross_upper: str | None = None,
                max_seconds: float = DEFAULT_MAX_SECONDS,
                allow_reverse: bool = True,
                pivot_penalty: float | None = None,
                mine_turn_penalty: float | None = None,
+               barrier_turn_penalty: float | None = None,
+               barrier_turn_margin_m: float | None = None,
                name: str = "planner", source: str = "") -> PlanResult:
     """**核心入口**：一张地图 -> 一条可直接下发的路线。
 
@@ -1503,7 +1828,18 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     :param mine_turn_penalty: 顺序搜索里"**雷格不得作为拐点**"的惩罚权重。
         `None`（缺省）= 跟随配置 `planner.mine_turn_penalty`（键缺失 → `MINE_TURN_PENALTY`）。
         每压一个雷都要多 2 格路（进点/出点），这一项保证"宁可多绕一格，也不让雷被切角擦过"。
-    :raises PlannerError: 无解 / 结构约束矛盾 / 超时 / 折返声明不一致（**绝不静默降级**）
+    :param barrier_turn_penalty: ★★ **隔板相邻行的行内 90° 转向** 的惩罚权重
+        （任务卡 t6）。`None`（缺省）= 跟随配置 `planner.barrier_turn_penalty`
+        （**键缺失 → 0.0，行为与历史逐 token 一致**）。> 0 时：洪泛代价与顺序代价
+        都会避开"横着切进隔板相邻行、再在行内 90° 转向"这一形态；规划结束后
+        再做一次**硬校验**，若结果里仍存在该形态则抛 `PlannerError`（绝不静默降级）。
+        机理与实测归因见 `_barrier_turn_cell()`。
+    :param barrier_turn_margin_m: 该形态判据的**最小安全裕度**（米）。
+        `None`（缺省）= 跟随配置 `planner.barrier_turn_margin_m`（键缺失 → 0.0）。
+        行心到隔板只有半格（`0.5 × 0.35 = 0.175 m`）：`0.0` = 按纯几何一律拦下；
+        **负值 = 关闭该判据**（退化成诊断模式，路线与历史逐字相同）。
+    :raises PlannerError: 无解 / 结构约束矛盾 / 超时 / 折返声明不一致 /
+        隔板行内 90° 转向未避开（**绝不静默降级**）
     """
     t0 = time.perf_counter()
     spec = map_cfg if isinstance(map_cfg, MapSpec) else load_map(map_cfg, source=source)
@@ -1517,6 +1853,14 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         mine_turn_penalty = float(V._cfg_get(                                          # noqa: SLF001
             cfg, "planner.mine_turn_penalty", MINE_TURN_PENALTY) or 0.0)
     mine_turn_penalty = max(0.0, float(mine_turn_penalty))
+    if barrier_turn_penalty is None:
+        barrier_turn_penalty = float(V._cfg_get(                                       # noqa: SLF001
+            cfg, "planner.barrier_turn_penalty", 0.0) or 0.0)
+    barrier_turn_penalty = max(0.0, float(barrier_turn_penalty))
+    if barrier_turn_margin_m is None:
+        barrier_turn_margin_m = float(V._cfg_get(                                      # noqa: SLF001
+            cfg, "planner.barrier_turn_margin_m", 0.0) or 0.0)
+    barrier_turn_margin_m = float(barrier_turn_margin_m)
 
     start_cell, end_cell = _cell(spec.start), _cell(spec.end)
 
@@ -1538,7 +1882,8 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         raise PlannerError(f"下半场与上半场选了同一个桥洞 {lower_cross}（必须各穿一次）")
 
     grid = Grid(spec, bridge_rows=(cross_lower_cell[0], cross_upper_cell[0]),
-                allow_reverse=allow_reverse)
+                allow_reverse=allow_reverse,
+                barrier_turn_margin_m=barrier_turn_margin_m)
     if not grid.passable(*start_cell):
         raise PlannerError(f"起点 {spec.start} 是障碍格，无法出发")
     if not grid.passable(*end_cell):
@@ -1611,7 +1956,8 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     #   ★ "雷格不得作拐点"的惩罚同样只在无倒车模式下生效（理由同上：允许倒车 = 旧行为）
     mine_cells = set() if allow_reverse else {_cell(m) for m in spec.mines}
     tour = _Tour(grid, deadline, pivot_penalty=pivot_penalty,
-                 mine_cells=mine_cells, mine_turn_penalty=mine_turn_penalty)
+                 mine_cells=mine_cells, mine_turn_penalty=mine_turn_penalty,
+                 barrier_turn_penalty=barrier_turn_penalty)
     tour.build([start_cell] + mines_lower + mines_upper
                + [cross_lower_cell, cross_upper_cell, end_cell]
                + [_cell(b) for b in shoot_pool])
@@ -1630,95 +1976,141 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     if order[0] != start_cell or order[-1] != end_cell:
         raise PlannerError("内部错误：优化后起点/终点被挪动")
     heads[0] = start_heading                          # 起点朝向由 mission.reset 锁死
+    order_candidates: list[list[tuple[int, int]]] = [list(order)]
+    # ★★ U 形单回路**硬约束**兜底候选（任务卡 t17）——见 `_u_shape_order()` 的说明。
+    #   只在候选 1（现有行为：polish 整条）**结构自检失败**时才会被用到 ⇒
+    #   对已经合规的地图（n8 图等）零影响。
+    #   ★ 两个变体都试：`nearest(start, …)` 与 `nearest(cross_lower, …)` 的下半场顺序
+    #   在第三张图（K1+K11）上表现不同（前者编译后会多一次 `L11→K11→J11` 往返）。
+    order_candidates.append(_u_shape_order(tour, start_cell, end_cell,
+                                           mines_lower, mines_upper,
+                                           cross_lower_cell, cross_upper_cell))
+    order_candidates.append(_u_shape_order(tour, start_cell, end_cell,
+                                           mines_lower, mines_upper,
+                                           cross_lower_cell, cross_upper_cell,
+                                           seed_from_cross=True))
 
-    # ---------------- 射击停站：插到"绕路代价最小"的位置 ----------------
-    shoot_block = ""
-    if shoot_pool:
-        order, heads, shoot_block = _insert_shoot(tour, order, heads, shoot_pool)
-
-    # ---------------- ★ 雷心直线穿越（用户 2026-10-11：车心必须压过每个雷心）----------------
-    #   把每个雷格补成"进点—雷格—出点"三点直线的中点；插点后顺序变了，朝向必须重算。
-    #   ★ 只在**无倒车模式**下做：那是车上真正跑的路线（真车底盘不支持倒车）；
-    #     `allow_reverse=True` 保持旧行为，避免"允许倒车"这条诊断路径的输出被顺带改掉
-    #     （也符合卡 A/卡 C「允许倒车 = 旧行为」的语义）。
-    mine_axes: list[tuple[str, int, bool]] = []
-    if not allow_reverse:
-        order, mine_axes = straighten_mines(order, spec, grid, tour)
-        heads = tour.best_headings(order, fixed={order[0]: start_heading})
-        for _block, _axis, _ok in mine_axes:
-            if not _ok:
-                warnings.append(
-                    f"雷 {_block} 找不到可行的直线穿越轴（进/出点被障碍挡住或落在 K 列上）"
-                    f"—— 该雷仍会被切角擦过，需人工核对地图")
-
-    # ---------------- 编译成航点 ----------------
-    keep = {start_cell, end_cell, cross_lower_cell, cross_upper_cell}
-    keep |= set(mines_lower) | set(mines_upper)
-    if shoot_block:
-        keep.add(_cell(shoot_block))
-
-    stops: list[_Stop] = [_Stop(start_cell[0], start_cell[1], spec.start,
-                                heading=start_heading, tag="start")]
-    cost = 0.0
-    for i in range(len(order) - 1):
-        a, b = order[i], order[i + 1]
-        path, seg_cost = tour.path(a, b, heads[i], heads[i + 1])
-        if not path:
-            raise PlannerError(f"无解：{geo.index_to_block(a[0] - 1, a[1])} -> "
-                               f"{geo.index_to_block(b[0] - 1, b[1])}"
-                               f"（出发朝向 {HEAD_NAMES[heads[i]]} / "
-                               f"到达朝向 {HEAD_NAMES[heads[i + 1]]}）")
-        cost += seg_cost
-        for (row, col, face, back) in _collapse(path, keep):
-            if (row, col) == (stops[-1].row, stops[-1].col):
-                stops[-1].reverse = back
-                stops[-1].heading = face
-                continue
-            block = geo.index_to_block(row - 1, col)
-            stops.append(_Stop(row, col, block, heading=face, reverse=back,
-                               tag="mine" if block in set(spec.mines) else "path"))
-        if time.perf_counter() > deadline:
-            raise PlannerError(f"规划超时（>{max_seconds:.2f} s），未生成完整路线")
-
-    if (stops[0].row, stops[0].col) != start_cell:
-        raise PlannerError("内部错误：路线首点不是起点")
-    if (stops[-1].row, stops[-1].col) != end_cell:
-        raise PlannerError("内部错误：路线末点不是终点")
-
-    # ---------------- 长段插点 + 标记 + 180° 折返改写 ----------------
-    stops = _split_long_hops(stops, grid)
-    for stop in stops:
-        if (stop.row, stop.col) == cross_lower_cell:
-            stop.tag = "lower_bridge"
-        elif (stop.row, stop.col) == cross_upper_cell:
-            stop.tag = "upper_bridge"
-    if shoot_block:
-        for stop in stops:
-            if stop.block == shoot_block:
-                stop.shoot = True
-                stop.tag = "shoot"
-                break
-        else:                                   # pragma: no cover - 防御性
-            raise PlannerError(f"内部错误：射击点 {shoot_block} 不在编译后的路线里")
-
-    uturn_fixes = _fix_uturn_reverse(stops) if allow_reverse else 0
-    stops = _merge_duplicate_stops(stops)
-    # ★ 折返改写会改变"哪一段在倒车"，所以必须**在改写之后**重算车头朝向
-    #   （原地掉头与倒车掉头的车头正好相反，弄错会让终点姿态与云台基准全错）。
-    #   无倒车模式没有改写，但朝向重算对"正向开进死格再正向开出"同样必需
-    #   （顶点处 180° 换向由 TrackerTask PIVOT 完成，航点序列本身保持前进语义）。
-    _refresh_headings(stops)
-
-    # ★ `:PIVOT` 折返点声明：**只在无倒车模式**下打（允许倒车模式的折返由 `R:` 完成，
-    #   声明它反而自相矛盾，且会让 `--allow-reverse` 输出偏离卡 A 基线）。
-    #   标记必须在 `_merge_duplicate_stops` 之后（索引已冻结）。
+    # ---------------- 顺序候选（任务卡 t17：U 形单回路硬约束）----------------
+    #   候选 1 = 现有行为（polish 整条）；候选 2 = U 形单回路（穿洞格钉在本半场边界）。
+    #   依次编译并跑**结构自检**，取第一个通过的；两者都不通过 ⇒ 抛错（不静默降级）。
+    #   ⇒ 对已经合规的地图（历史现图/n8 图）行为**逐字节不变**（候选 1 就通过，不会走到候选 2）。
+    pcost = 0.0
+    route: Route | None = None
+    uturn_fixes = 0
     marked: list[tuple[int, str, float]] = []
-    if not allow_reverse:
-        marked = mark_pivots(stops)
+    mine_runs: list[tuple[str, int]] = []
+    mine_axes: list[tuple[str, int, bool]] = []
+    problems: list[str] = []
+    barrier_turns: list[str] = []
+    for _ci, _cand in enumerate(order_candidates):
+        _tour = _Tour(grid, deadline, pivot_penalty=pivot_penalty,
+                      mine_cells=mine_cells, mine_turn_penalty=mine_turn_penalty,
+                      barrier_turn_penalty=barrier_turn_penalty)
+        _tour.__dict__.update(tour.__dict__)            # 共享洪泛缓存（只读复用）
+        _order = list(_cand)
+        _heads = _tour.best_headings(_order, fixed={_order[0]: start_heading})
+
+        # ---------------- 射击停站：插到"绕路代价最小"的位置 ----------------
+        _shoot = ""
+        if shoot_pool:
+            _order, _heads, _shoot = _insert_shoot(_tour, _order, _heads, shoot_pool)
+
+        # ---------------- ★ 雷心直线穿越 ----------------
+        _axes: list[tuple[str, int, bool]] = []
+        if not allow_reverse:
+            _order, _axes = straighten_mines(_order, spec, grid, _tour)
+            _heads = _tour.best_headings(_order, fixed={_order[0]: start_heading})
+
+        # ---------------- 编译成航点 ----------------
+        _keep = {start_cell, end_cell, cross_lower_cell, cross_upper_cell}
+        _keep |= set(mines_lower) | set(mines_upper)
+        if _shoot:
+            _keep.add(_cell(_shoot))
+        _stops: list[_Stop] = [_Stop(start_cell[0], start_cell[1], spec.start,
+                                     heading=start_heading, tag="start")]
+        _cost = 0.0
+        _bad_seg = ""
+        for i2 in range(len(_order) - 1):
+            a, b = _order[i2], _order[i2 + 1]
+            path, seg_cost = _tour.path(a, b, _heads[i2], _heads[i2 + 1])
+            if not path:
+                _bad_seg = (f"{geo.index_to_block(a[0] - 1, a[1])} -> "
+                            f"{geo.index_to_block(b[0] - 1, b[1])}")
+                break
+            _cost += seg_cost
+            for (row, col, face, back) in _collapse(path, _keep):
+                if (row, col) == (_stops[-1].row, _stops[-1].col):
+                    _stops[-1].reverse = back
+                    _stops[-1].heading = face
+                    continue
+                _blk = geo.index_to_block(row - 1, col)
+                _stops.append(_Stop(row, col, _blk, heading=face, reverse=back,
+                                    tag="mine" if _blk in set(spec.mines) else "path"))
+            if time.perf_counter() > deadline:
+                raise PlannerError(f"规划超时（>{max_seconds:.2f} s），未生成完整路线")
+        if _bad_seg:
+            if _ci >= len(order_candidates) - 1:
+                raise PlannerError(f"无解：{_bad_seg}")
+            continue
+        if (_stops[0].row, _stops[0].col) != start_cell:
+            raise PlannerError("内部错误：路线首点不是起点")
+        if (_stops[-1].row, _stops[-1].col) != end_cell:
+            raise PlannerError("内部错误：路线末点不是终点")
+
+        # ---------------- 长段插点 + 标记 + 180° 折返改写 ----------------
+        _stops = _split_long_hops(_stops, grid)
+        for _st in _stops:
+            if (_st.row, _st.col) == cross_lower_cell:
+                _st.tag = "lower_bridge"
+            elif (_st.row, _st.col) == cross_upper_cell:
+                _st.tag = "upper_bridge"
+        if _shoot:
+            for _st in _stops:
+                if _st.block == _shoot:
+                    _st.shoot = True
+                    _st.tag = "shoot"
+                    break
+            else:                                   # pragma: no cover - 防御性
+                raise PlannerError(f"内部错误：射击点 {_shoot} 不在编译后的路线里")
+
+        _fixes = _fix_uturn_reverse(_stops) if allow_reverse else 0
+        _stops = _merge_duplicate_stops(_stops)
+        _refresh_headings(_stops)
+        _marked: list[tuple[int, str, float]] = []
+        if not allow_reverse:
+            _marked = mark_pivots(_stops)
+        _route = _to_route(_stops, name=name,
+                           crossing={"lower": lower_cross, "upper": upper_cross},
+                           final_heading=_final_heading(_stops))
+        problems = check_route_structure(_route, spec, grid, limits)
+        # ★★【硬校验】隔板相邻行的"侧向 90° 转向"（任务卡 t6）—— 与结构自检同层：
+        #   只在 `barrier_turn_penalty > 0`（显式启用）时生效；默认 0.0 ⇒ 恒空、零影响。
+        _bturns: list[str] = []
+        if barrier_turn_penalty > 0.0 and not problems:
+            _bturns = _barrier_turn_stops(grid, _stops)
+            if _bturns:
+                problems = ["隔板相邻行仍有『侧向 90° 转向』：" + " ".join(_bturns)
+                            + "（第 %d 行贴隔板那一侧的走廊净宽只有半格 %.3f m，"
+                              "车身在行内做侧向 90° 转向的横向摆动是转弯半径量级 —— "
+                              "实测会把车甩进隔板）"
+                            % (spec.barrier_row_lo, 0.5 * geo.BLOCK_SIZE)]
+        if problems and _ci < len(order_candidates) - 1:
+            warnings.append("顺序候选 #%d 未过结构自检（%s）→ 换用 U 形单回路候选重试"
+                            % (_ci + 1, "；".join(problems[:2])))
+            continue
+        if problems:
+            raise PlannerError("规划结果未通过结构自检：\n  - " + "\n  - ".join(problems))
+        # ---- 该候选通过，固化为最终结果 ----
+        tour, order, heads, stops, shoot_block = _tour, _order, _heads, _stops, _shoot
+        cost, uturn_fixes, marked, mine_axes = _cost, _fixes, _marked, _axes
+        barrier_turns = _bturns
+        route = _route
+        break
+    if route is None:                               # pragma: no cover - 上面必抛
+        raise PlannerError("内部错误：没有任何顺序候选被接受")
 
     # ★【自诊断】逐雷"雷前共线格数"：<2 的雷在纯追踪下会被切角，车心压不到雷心。
     #   只报一条汇总 warning（每个雷一行会把启动日志淹掉），数据同时进 `PlanResult.mine_runs`。
-    mine_runs: list[tuple[str, int]] = []
     if not allow_reverse:
         mine_runs = _mine_aligned_runs(stops, spec)
         short = [(b, r) for b, r in mine_runs if r < 2]
@@ -1731,19 +2123,12 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                 "当前按『不动路线』处理，仅提示。"
                 % (len(short), len(mine_runs),
                    " ".join("%s=%d" % (b, r) for b, r in short)))
-
-    crossing = {"lower": lower_cross, "upper": upper_cross}
-    route = _to_route(stops, name=name, crossing=crossing,
-                      final_heading=_final_heading(stops))
-
-    problems = check_route_structure(route, spec, grid, limits)
-    if problems:
-        raise PlannerError("规划结果未通过结构自检：\n  - " + "\n  - ".join(problems))
     if allow_reverse:
         assert_legal(route)
     else:
         assert_legal_no_reverse(route)
 
+    crossing = {"lower": lower_cross, "upper": upper_cross}
     tokens = route_tokens(route)
     shoot_at = next((wp.block for _, wp in route.shoot_points()), "")
     shoot_dist = 0.0
@@ -1771,6 +2156,8 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         pivot_penalty=float(pivot_penalty),
         mine_turn_penalty=float(mine_turn_penalty), mine_axes=tuple(mine_axes),
         mine_runs=tuple(mine_runs),
+        barrier_turn_penalty=float(barrier_turn_penalty),
+        barrier_turns=tuple(barrier_turns),
         tour_cost=tour.order_cost_total(order),
     )
 

@@ -1090,14 +1090,15 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   }
 
   // 状态初始化：开机处于空闲(IDLE)，不主动扫描，等循迹的扫描请求
-  // ★★ 开机即进入「持续往复扫描」★★
-  //    以前默认是 IDLE 且 scan_continuous_=false —— 完全依赖 path_executor 那条
-  //    /nav/scan_request=2 送达才会开始扫。一旦该消息因时序/丢包没到，丢目标后就会
-  //    掉进 IDLE 停住不动（表现就是"云台固定视角不转"）。
-  //    改成上电即扫：云台一启动就左右匀速往复、边走边找目标；
-  //    需要停下时由 /nav/scan_request=0 显式关闭。
-  aim_state_ = AIM_SCAN;
-  scan_continuous_ = true;
+  // ★★ 2026-10-11（用户指令「云台的激活设置在启动命令之后」）：改回开机 IDLE ——
+  //    上电即扫会让云台在起栈后、发车命令前就开始左右往复（标定时无意义还扰人）。
+  //    激活时机 = path_executor 在任务开始（发车命令）时发 /nav/scan_request=2；
+  //    云台节点先于循迹起（auto_start_delay=10s 更在其后），订阅早已建立，无丢消息风险。
+  //    任务结束（FINISH）path_executor 会发 scan_request=1（终点全向扫一次）后自然回 IDLE。
+  //    （历史：曾"上电即扫"防 scan_request=2 丢失后云台卡死不动；现激活/停止均由循迹显式下发，
+  //     不再需要上电兜底。临时想彻底冻住云台：/nav/manual_gimbal=1 遥控接管。）
+  aim_state_ = AIM_IDLE;
+  scan_continuous_ = false;
   scan_yaw_idx_ = 0;
   scan_yaw_dir_ = 1;
   scan_pitch_idx_ = 0;

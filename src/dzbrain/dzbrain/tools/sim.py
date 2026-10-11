@@ -102,6 +102,13 @@ from ..pursuit.controller import brake_command, compute_command
 from ..pursuit.path import Path, Projection
 from ..route.model import Route
 
+# ⚠️ 刻意不做的事（t9 复核定稿，别再当 bug 报）：
+#   本仿真**不建模 PIVOT**（状态机在 tasks/tracker.py，sim 不 import tasks/）。
+#   后果：① config 里所有 `pivot_*` 键在本仿真**恒为 no-op**（推极端也不改轨迹）；
+#         ② 由 180° 折返点主导的指标（A6/A1 大弧、横向 MAX 等）**不可迁移实车**；
+#         ③ 千万别用本仿真验证/调 PIVOT 行为 —— 只能实车或闭环 bench 验。
+#   对照实验卫生：两次运行之间不许改 config；各臂显式 --set 被测键（t9/n8 教训）。
+
 @dataclass(frozen=True)
 class SegmentStat:
     """**逐段横向误差峰值**一行（定位"是哪几个拐角在吃误差"的唯一手段）。

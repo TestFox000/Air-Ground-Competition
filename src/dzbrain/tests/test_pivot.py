@@ -459,6 +459,46 @@ def test_done_notice_to_mission() -> None:
           isinstance(note, tuple) and note[2] == "done", f"note={note!r}")
 
 
+def test_adaptive_trigger_dist() -> None:
+    """G1 速度自适应触发距离：0.30 巡航更早触发、0.15 标定行为逐位不变、硬上限保护。"""
+    section("9. ★G1 PIVOT 触发距离速度自适应（0.3 曾致到达失控的加固）")
+    from dzbrain.core.config import pivot_dist_eff
+
+    cfg015 = _cfg(cruise_speed_mps=0.15)
+    cfg030 = _cfg(cruise_speed_mps=0.30)
+    cfg040 = _cfg(cruise_speed_mps=0.40)
+    check("9.1 巡航 0.15 → 触发距离 = 0.25（标定行为逐位不变）",
+          pivot_dist_eff(cfg015, 0.15) == 0.25,
+          f"eff={pivot_dist_eff(cfg015, 0.15):.3f}")
+    check("9.2 巡航 0.30 → 0.25+1.0×0.15=0.40 → 钳到硬上限 0.32",
+          pivot_dist_eff(cfg030, 0.30) == 0.32,
+          f"eff={pivot_dist_eff(cfg030, 0.30):.3f}")
+    check("9.3 巡航 0.40 → 钳到硬上限 0.32（压雷折返点保护）",
+          pivot_dist_eff(cfg040, 0.40) == 0.32,
+          f"eff={pivot_dist_eff(cfg040, 0.40):.3f}")
+    check("9.4 低速不收缩（0.10 < v_ref → 仍 0.25）",
+          pivot_dist_eff(cfg030, 0.10) == 0.25,
+          f"eff={pivot_dist_eff(cfg030, 0.10):.3f}")
+
+    # 行为级：车摆在顶点前 0.28 m（0.25 < 0.28 ≤ eff 0.32）：0.30 巡航该触发、0.15 不该触发
+    a6x, a6y = geo.block_to_meters("A6")
+    b6x, b6y = geo.block_to_meters("B6")
+    dx, dy = a6x - b6x, a6y - b6y
+    d = math.hypot(dx, dy)
+    ux, uy = dx / d, dy / d
+    pose = (a6x - ux * 0.28, a6y - uy * 0.28, geo.heading_of(ux, uy))
+    rig30 = Rig(tokens=U_TURN, cfg=_cfg(cruise_speed_mps=0.30), pose=pose)
+    rig30.ticks(3)
+    check("9.5 巡航 0.30：顶点前 0.28 m 就触发（0.28 ≤ eff 0.32）",
+          rig30.task._pivot_phase != PivotPhase.IDLE or rig30.task.pivot_count > 0,
+          f"phase={rig30.task._pivot_phase} count={rig30.task.pivot_count}")
+    rig15 = Rig(tokens=U_TURN, cfg=_cfg(cruise_speed_mps=0.15), pose=pose)
+    rig15.ticks(3)
+    check("9.6 巡航 0.15：顶点前 0.28 m 不触发（0.28 > 0.25，标定口径不变）",
+          rig15.task._pivot_phase == PivotPhase.IDLE and rig15.task.pivot_count == 0,
+          f"phase={rig15.task._pivot_phase} count={rig15.task.pivot_count}")
+
+
 def main() -> int:
     print("=" * 72)
     print("dzbrain PIVOT 原地转向专项测试（纯脚本）")
@@ -471,6 +511,7 @@ def main() -> int:
     test_no_reentry_after_success()
     test_reverse_vertex_no_pivot()
     test_done_notice_to_mission()
+    test_adaptive_trigger_dist()
     finish()
     return 0
 

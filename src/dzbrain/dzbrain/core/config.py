@@ -86,6 +86,18 @@ SCHEMA: dict[str, Spec] = {
     "pursuit.pivot_angle_deg": Spec(135.0, _F, "°", 60.0, 180.0,
                                     "换向角超过此值才 PIVOT（90° 直角弯仍走纯追踪）"),
     "pursuit.pivot_dist_m": Spec(0.25, _F, "m", 0.05, 1.0, "距顶点多近开始 PIVOT"),
+    #  ★G1 速度自适应触发距离（史实：0.30 巡航曾致 PIVOT 到达判定失控，每拍位移 6 mm、
+    #    固定 0.25 m 窗口太紧）。eff = clamp(dist + lead×(v−v_ref), [dist, dist_max])：
+    #    - 0.15 标定速度下 lead×(0.15−0.15)=0 ⇒ 行为逐位不变（不干扰标定）；
+    #    - 0.30 巡航 ⇒ 0.25+1.0×0.15=0.40 → 钳到 0.32；触发更早、刹车余量更大；
+    #    - 硬上限保护：PIVOT 顶点常是压雷点，触发点离格心太远会漏压雷（t8 新图实测
+    #      盖雷对 pivot 行为敏感），故钳 pivot_dist_max_m。
+    "pursuit.pivot_speed_lead_s": Spec(1.0, _F, "s", 0.3, 3.0,
+                                        "PIVOT 触发距离随巡航速度加长的系数（秒）"),
+    "pursuit.pivot_speed_ref_mps": Spec(0.15, _F, "m/s", 0.05, 0.40,
+                                        "低于此速度不加长触发距离（0.15 标定行为逐位不变）"),
+    "pursuit.pivot_dist_max_m": Spec(0.32, _F, "m", 0.25, 0.60,
+                                     "PIVOT 触发距离硬上限（压雷折返点保护）"),
     "pursuit.pivot_wait_s": Spec(0.5, _F, "s", 0.0, 5.0, "PIVOT 前先刹车等待（让底盘停稳）"),
     "pursuit.pivot_speed_mps": Spec(0.08, _F, "m/s", 0.02, 0.30, "PIVOT 转向时的蠕动速度"),
     "pursuit.pivot_yaw_tol_deg": Spec(15.0, _F, "°", 3.0, 45.0, "航向对上多少度算完成"),
@@ -597,3 +609,17 @@ def curve_speed_limit(curvature: float, cfg: "Config") -> float:
     if k < 1e-6:
         return float("inf")
     return math.sqrt(a / k)
+
+
+def pivot_dist_eff(cfg: "Config", speed_mps: float) -> float:
+    """PIVOT 触发距离（速度自适应）：`clamp(dist + lead×max(0, v−v_ref), [dist, dist_max])`。
+
+    ★ 为什么：0.30 巡航每拍 6 mm，固定 0.25 m 窗口太紧（G1 史实：0.3 曾致 PIVOT
+    到达判定失控）。0.15 标定速度下逐位不变。硬上限保护压雷折返点（见 Spec 注释）。
+    """
+    base = cfg.get("pursuit.pivot_dist_m")
+    lead = cfg.get("pursuit.pivot_speed_lead_s")
+    ref = cfg.get("pursuit.pivot_speed_ref_mps")
+    cap = cfg.get("pursuit.pivot_dist_max_m")
+    eff = base + lead * max(0.0, abs(speed_mps) - ref)
+    return max(base, min(cap, eff))

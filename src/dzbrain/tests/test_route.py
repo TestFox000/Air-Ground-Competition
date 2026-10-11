@@ -656,6 +656,43 @@ def test_pivot_suffix() -> None:
 
 
 # --------------------------------------------------------------------------- #
+#  12. `_is_cross` 方向对称性（t7）—— ★ 刻意放在**文件末尾**
+# --------------------------------------------------------------------------- #
+def test_is_cross_symmetry_t7() -> None:
+    """`validate._is_cross` 必须**方向对称**：东侧进洞 `L→K` 与西侧进洞 `J→K` 等价。
+
+    ★ t7（2026-10-11）修的漏判：旧判据 `min(c1,c2) < k_col <= max(c1,c2)` 在"一端恰好
+      压在 K 列上"时 `min == k_col` ⇒ 恒假 ⇒ **东侧进洞整类漏判**；连 docstring 自举的
+      第一个例子 `L9 -> K9`（标"真"）实测都是 `False`。后果见
+      `_tmp_session/t3_verify/t3_报告_全量回归与复核.md` §5：`L8->K7` 这种 45° 斜切
+      永远进不了 R009，而它的真值轨迹车身 ∩ 未开放 K 桥室 = 189 拍（车心口径 0 拍）。
+
+    ⚠️ 本函数**刻意放在文件末尾**（而不是紧挨 §9 的 R009 负例）：`tools/calib_backfill.py`
+      的重钉清单用**行锚点**钉住本文件里的 `cruise_speed_mps` 断言（第 568/569 行），
+      在文件中部插入行会让那些锚点整体下移 ⇒ `test_calib_backfill` 报 STALE。
+      末尾追加是本文件唯一"不会移动既有行号"的位置（见任务卡 t2/t7）。
+    """
+    print("\n=== 12. `_is_cross` 方向对称性（t7：东侧进洞 L→K 不再漏判）===")
+    check("`_is_cross(L9->K9)` 为真（东侧进洞 = 过洞前半）", V._is_cross("L9", "K9") is True,
+          f"got {V._is_cross('L9', 'K9')}")
+    check("`_is_cross(L8->K7)` 为真（A8 的对角进洞，45° 斜切）",
+          V._is_cross("L8", "K7") is True, f"got {V._is_cross('L8', 'K7')}")
+    check("`_is_cross(J9->K9)` 为真（西侧进洞，旧判据已为真 —— 对称的对照组）",
+          V._is_cross("J9", "K9") is True, f"got {V._is_cross('J9', 'K9')}")
+    check("`_is_cross` 仍把「从洞里出来」`K9->L9` 判假（方向必须可分）",
+          V._is_cross("K9", "L9") is False, f"got {V._is_cross('K9', 'L9')}")
+    check("`_is_cross` 仍把「洞里沿列挪格」`K9->K10` 判假",
+          V._is_cross("K9", "K10") is False, f"got {V._is_cross('K9', 'K10')}")
+    check("`_crossing_at_column(L8->K7)` 入洞角 = 45.0°（> R009 上限 10°）",
+          (V._crossing_at_column("L8", "K7") or (None,))[1] == 45.0,
+          str(V._crossing_at_column("L8", "K7")))
+    check("`crossing_entries()` 一次过洞只给一条记录（下游数次数用）",
+          [e[:2] for e in V.crossing_entries(["N10", "M10", "L9", "K9", "J9", "J8"])]
+          == [("L9", "K9")],
+          str([e[:2] for e in V.crossing_entries(["N10", "M10", "L9", "K9", "J9", "J8"])]))
+
+
+# --------------------------------------------------------------------------- #
 #  main
 # --------------------------------------------------------------------------- #
 def main() -> int:
@@ -676,6 +713,7 @@ def main() -> int:
         test_validate_negatives,
         test_real_robot_yaml,
         test_pivot_suffix,
+        test_is_cross_symmetry_t7,
     ]
     for case in cases:
         try:

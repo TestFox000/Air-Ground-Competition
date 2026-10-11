@@ -130,8 +130,13 @@ def sec(name):
 # =============================================================================
 #  坐标工具
 # =============================================================================
-def block_to_meters(name: str) -> Tuple[float, float]:
-    s = str(name).strip().upper()
+def token_block(tok) -> str:
+    """token -> **纯格名**（剥掉 `R:` / `SHOOT@` 前缀与 `*` / `:PIVOT` / `,朝向` 后缀）。
+
+    ★ 与 `block_to_meters()` 的清洗规则**同一套**（这里抽出来只为复用，不另立口径）：
+      第 ④ 任务层的 `visited`、以及「航点压靶板」判据都走这一个函数。
+    """
+    s = str(tok).strip().upper()
     for p in ('R:', 'SHOOT@'):
         if s.startswith(p):
             s = s[len(p):]
@@ -141,7 +146,11 @@ def block_to_meters(name: str) -> Tuple[float, float]:
         s = s.split(':', 1)[0]
     if ',' in s:
         s = s.split(',', 1)[0]
-    s = s.strip()
+    return s.strip()
+
+
+def block_to_meters(name: str) -> Tuple[float, float]:
+    s = token_block(name)
     if len(s) < 2 or s[0] not in COL_LETTERS or not s[1:].isdigit():
         raise ValueError("非法坐标: %r" % name)
     row = int(s[1:])
@@ -328,8 +337,41 @@ def seg_obstacle_min(pts, obstacles):
 
 
 
+#: 「进洞角」上限（度）。真源是 `src/dzbrain/dzbrain/route/validate.py` 的
+#: `MAX_CROSS_ANGLE_DEG`（R009）—— 本工具**刻意不 import dzbrain**（用户侧脚本，
+#: 车端没装 dzbrain 包时也要能单跑），所以在这里复写一份常量，值必须与真源一致。
+R009_MAX_ANGLE_DEG = 10.0
+
+#: ★「车心压过靶板」的几何判据半径（米）= **半格**（0.35/2 = 0.175）。
+#: 语义：`route_covers(pts, cell, tol)` 算的是"路线折线到**格心**的最短距离"，
+#: 取半格即"车心进到格心 0.175 m 以内" ⇒ 必然压在这块 0.35 m 见方的靶板上
+#: （= 该格的**内切圆**口径，偏保守：擦角不入圆的极端划角可能漏判，但**不会误报**）。
+#: 与「雷覆盖」同一套算法，只是 tol 从 `BLOCK_SIZE*0.6` 收到半格。
+TARGET_RUNOVER_TOL_M = BLOCK_SIZE / 2.0
+
+
 def _bridge_group_check(bridges, pts):
-    """桥洞穿越检查（支持"整列都是桥洞"）。"""
+    """桥洞穿越检查（支持"整列都是桥洞"）。
+
+    ★ 三层口径（第 ②③ 层为 t7 新增，2026-10-11）：
+
+    ① **水平直穿**（段严格同行 `x1 == x2`）：唯一合法形态，判定与旧版逐字一致；
+    ② **斜切进洞**（段与桥洞列**相交**、但行号在变，例如 `L8 -> K7`）：进洞角
+       `atan2(|Δ列|, |Δ行|)`（口径与 R009 相同），> `R009_MAX_ANGLE_DEG` 即"斜切" ——
+       桥洞只有单格宽，斜着切进去**会蹭侧壁**；
+    ③ **列内行驶**（`y` 恒等于桥洞列、`x` 在变，例如 `K9 -> K10`）：格与格之间有侧壁，
+       在洞里沿列挪格同样必撞（与 R009 的「列内」判据同义）。
+
+    ★ 为什么必须补 ②：旧版这一段只统计 `abs(x1-x2) <= 1e-6` 的段，其余 `continue` ——
+      于是**对角线进洞段被整段吞掉**（A8 的 `L8->K7` 45° 斜切完全不可见，
+      A8 反而只报"直穿 3 次"、`0 error`）。实证见
+      `_tmp_session/t3_verify/t3_报告_全量回归与复核.md` §5.2（那里同时给了物理后果：
+      A8 真值轨迹车身 ∩ 未开放 K 桥室 = **189 拍**，而车心口径 0 拍）。
+
+    ★ 判级：② ③ 都只报 ⚠️ 警告（**不改退出码**）——**硬拦由真源
+      `dzbrain.route.validate` 的 R009 负责**（那里是 ❌ error），本工具不抢判决权。
+      若确实要让本工具也硬拦，把下面两处 `warn(` 换成 `bad(` 即可（一行改动）。
+    """
     if not bridges:
         info("桥洞覆盖", "未提供，跳过")
         return
@@ -339,8 +381,11 @@ def _bridge_group_check(bridges, pts):
         info("桥洞覆盖", "未提供，跳过")
         return
     tol = BLOCK_SIZE * 0.45
+    tol_plane = 1e-6                       # "正好落在桥洞列上"的容差（同一表达式算出的坐标是逐位相等的）
     n_cross = 0
     detail = []
+    diag = []                              # ② 斜切进洞：(段号, 行号, 角度)
+    along = []                             # ③ 列内行驶：(段号, 起行, 止行)
     for col in cols:
         cx = (13.5 - COL_LETTERS.index(col)) * BLOCK_SIZE
         for i in range(len(pts) - 1):
@@ -348,13 +393,26 @@ def _bridge_group_check(bridges, pts):
             # ★注意坐标轴：x 对应"行"，y 对应"列"。
             #   穿 K 列 = 在同一行内跨越 y 方向 -> 应筛"x 不变"的段。
             #   （之前写成筛 y 不变，方向正好反了，导致明明穿了却判"未直穿"。）
-            if abs(x1 - x2) > 1e-6:
-                continue                       # 只看同一行内的段
-            if min(y1, y2) - tol <= cx <= max(y1, y2) + tol:
-                r = round(10.5 - x1 / BLOCK_SIZE) + 1
-                if not rows or min(rows) <= r <= max(rows):
-                    n_cross += 1
-                    detail.append("段#%d(行%d)" % (i, r))
+            if abs(x1 - x2) <= 1e-6:                       # ① 水平直穿
+                if min(y1, y2) - tol <= cx <= max(y1, y2) + tol:
+                    r = round(10.5 - x1 / BLOCK_SIZE) + 1
+                    if not rows or min(rows) <= r <= max(rows):
+                        n_cross += 1
+                        detail.append("段#%d(行%d)" % (i, r))
+                continue
+            # ②/③ 的入口判据：这一段到底有没有"碰到桥洞列"（含正好落在列上）
+            if not (min(y1, y2) - tol_plane <= cx <= max(y1, y2) + tol_plane):
+                continue
+            if abs(y1 - y2) <= tol_plane:                  # ③ 整段都躺在桥洞列里
+                r1 = round(10.5 - x1 / BLOCK_SIZE) + 1
+                r2 = round(10.5 - x2 / BLOCK_SIZE) + 1
+                along.append("段#%d(行%d->%d)" % (i, r1, r2))
+                continue
+            t = (cx - y1) / (y2 - y1)                      # ② 与桥洞列的交点
+            xc = x1 + t * (x2 - x1)
+            r = round(10.5 - xc / BLOCK_SIZE) + 1
+            ang = math.degrees(math.atan2(abs(y2 - y1), abs(x2 - x1)))
+            diag.append((i, r, ang))
     if n_cross >= 2:
         ok("桥洞水平直穿 %d 次" % n_cross,
            "%s 列  %s" % ("/".join(cols), " ".join(detail[:4])))
@@ -362,6 +420,23 @@ def _bridge_group_check(bridges, pts):
         warn("桥洞只直穿 1 次", "本场有 2 个通口，应各穿一次")
     else:
         bad("桥洞未直穿", "%s 列上没有水平穿越段" % "/".join(cols))
+
+    steep = [d for d in diag if d[2] > R009_MAX_ANGLE_DEG + 1e-9]
+    if steep:
+        warn("桥洞斜切进洞 %d 段" % len(steep),
+             "%s 列  %s（与穿洞方向夹角 > %.0f°，R009 级 —— 会蹭侧壁）"
+             % ("/".join(cols),
+                " ".join("段#%d(行%d)%.1f°" % d for d in steep[:4]),
+                R009_MAX_ANGLE_DEG))
+    elif diag:
+        info("桥洞轻微斜切 %d 段" % len(diag),
+             "%s 列  %s（≤ %.0f°，R009 放行）"
+             % ("/".join(cols), " ".join("段#%d(行%d)%.1f°" % d for d in diag[:4]),
+                R009_MAX_ANGLE_DEG))
+    if along:
+        warn("桥洞列内行驶 %d 段" % len(along),
+             "%s 列  %s（格与格之间有侧壁，必须严格直穿）"
+             % ("/".join(cols), " ".join(along[:4])))
 
 
 def _is_rev_vertex(i, rev_f):
@@ -540,17 +615,7 @@ def run_check(route: str, cfg: dict) -> int:
     sec("4/6 任务层")
     visited = set()
     for t in toks:
-        b = t.upper()
-        for p in ('R:', 'SHOOT@'):
-            if b.startswith(p):
-                b = b[len(p):]
-        if b.endswith('*'):
-            b = b[:-1]
-        if ':' in b:
-            b = b.split(':', 1)[0]
-        if ',' in b:
-            b = b.split(',', 1)[0]
-        b = b.strip()
+        b = token_block(t)
         if b:
             visited.add(b)
 
@@ -578,6 +643,56 @@ def run_check(route: str, cfg: dict) -> int:
             extra = ("（其中 %s 为途经而非航点，已确认真实压过）"
                      % " ".join(far)) if far else ""
             ok("%s覆盖 %d/%d" % (name, len(lst), len(lst)), extra)
+
+    # ★★【航点压过靶板 = ❌ error】(t12, 2026-10-11)
+    #   用户口径：「所有靶子都是一个占用两格的跨格靶板」⇒ 靶板是**实体**，车不能开上去。
+    #   规划器侧已把靶格并进 `Grid.blocked`（t10），但本工具此前只查"打不打得到"、
+    #   不查"有没有从靶板上开过去"：手工 `route.txt` 压过 `C1/D1` 仍拿 `0 error`
+    #   （t10 报告 §5.4 记的盲区，`probe_hand_check.txt` 独立复现）。
+    #   ★ 判据只看**航点 token 自身**（`token_block()` 剥后缀后的格名）∈ 本图 `targets`：
+    #     不做坐标换算、不做曼哈顿展开 ⇒ 天然绕开 0-based/1-based 口径坑
+    #     （`geo.block_to_index` 是 0-based、规划器 `Grid`/`_cell` 是 1-based，这里两边都不碰）。
+    #   ★ 覆盖度判据（下面的「靶覆盖 N/N」）**保持不变**：打得到 ≠ 压得起，两条各管各的。
+    if targets:
+        tset = {str(x).strip().upper() for x in targets}
+        hits = [(i, token_block(t)) for i, t in enumerate(toks) if token_block(t) in tset]
+        if hits:
+            names: List[str] = []
+            for _, b in hits:
+                if b not in names:
+                    names.append(b)
+            bad("航点压过靶板 %d 处" % len(hits),
+                "token#%s = %s（本图靶板 %s 是占两格的实体，车不可压过）"
+                % ("/#".join(str(i) for i, _ in hits), " ".join(names),
+                   " ".join(sorted(tset))))
+        else:
+            ok("航点不压靶板", "航点里没有 %s（靶板是实体，只在旁边停站射击）"
+               % " ".join(sorted(tset)))
+
+    # ★★【航段几何横穿靶格 = ❌ error】(t14, 2026-10-11)
+    #   为什么在 token 级判据之外还要这一条：规划器/手工路线会把直线段**中间的格压缩掉**
+    #   （`F8 -> B8` 这种 4 格直段只留两端），于是 `B1 -> E1` 这类直段可以**几何上横穿
+    #   `C1`+`D1` 两块靶板**而航点里一个靶格 token 都没有 —— t12 报告 §4 的
+    #   `probe_residual_gap` 实测这种路线仍拿 `exit 0`（采样 34/101 点落在靶格内）。
+    #   ★ 判据与「雷覆盖」**完全同一套**（`route_covers(pts, cell, tol)`：路线折线到格心的
+    #     最短距离 ≤ tol，解析式、非采样），只是 tol 取**半格**（见 `TARGET_RUNOVER_TOL_M`）。
+    #     不另写几何、不手写采样展开 ⇒ 不给自己造第二套口径。
+    #   ★ 纵深防御：token 级（航点自身）与几何级（航段经过）两条**都要**，任一命中即 error。
+    if targets:
+        worst = 9e9
+        runover: List[str] = []
+        for t in targets:
+            covered, dist = route_covers(pts, t, TARGET_RUNOVER_TOL_M)
+            worst = min(worst, dist)
+            if covered:
+                runover.append("%s(车心最近 %.3f m)" % (t, dist))
+        if runover:
+            bad("航段横穿靶板 %d 块" % len(runover),
+                "%s —— 判据 = 车心进到格心 %.3f m 以内（半格，靶板 0.35 m 见方）"
+                % (" ".join(runover), TARGET_RUNOVER_TOL_M))
+        else:
+            ok("航段不横穿靶板", "全路线（含直段中间的格）离最近靶格心 %.3f m > %.3f m"
+               % (worst, TARGET_RUNOVER_TOL_M))
 
     # ★靶标按【射击覆盖】判定：靶不需要被踩到，只要路线上有某个
     #   "射击点"落在 0.20~0.45m 且视线通畅即可开火。

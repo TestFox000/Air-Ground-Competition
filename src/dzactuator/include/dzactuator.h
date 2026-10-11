@@ -66,7 +66,7 @@ using namespace std;
 // #define PI 				  3.1415926f //PI //圆周率
 
 #define CARL 0.15 // 轴距
-#define CARW 0.11 // 轮距
+#define CARW 0.157 // 轮距(m)：2026-10-11 用户卷尺实测 0.157（旧 0.11 与实测不符；本常量当前无代码引用，ticksPer2PI=3236 与 0.157 自洽）
 
 extern sensor_msgs::msg::Imu BMI088; // External variables, IMU topic data //外部变量，IMU话题数据
 

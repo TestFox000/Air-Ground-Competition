@@ -153,11 +153,12 @@ def audit(blocks: list[str], map_cfg: dict, limits: tuple[float, float],
     # ② 没有任何 token 落在 obstacles 上
     on_obs = sorted(obs_set & set(blocks))
     # ③ 穿洞：逐段算与 K 列的交点（长段 `L9->J9` 也覆盖得到）
-    runs = []
-    for a, b in zip(blocks, blocks[1:]):
-        hit = V._crossing_at_column(a, b)                    # noqa: SLF001
-        if hit is not None:
-            runs.append((a, b, hit))
+    #   ★ t7（2026-10-11）：一次过洞由两段组成（`L7->K7` 进 + `K7->J7` 出），
+    #     `validate._is_cross` 对**两半都算**（东侧进洞 `L→K` 从 t7 起不再漏判），
+    #     `validate_route` 靠 run 合并拼回一次（R007）。所以要数"过洞**次数**"必须用
+    #     `V.crossing_entries()`（一次过洞 = 一条记录，与 R007 等价）——
+    #     直接数 `_crossing_at_column` 的非 None 会把现场路线数成 2 次 ⇒ 误红。
+    runs = list(V.crossing_entries(blocks))
     lower = [r for r in runs if V.LOWER_HALF_ROWS[0] <= round(r[2][0]) <= V.LOWER_HALF_ROWS[1]]
     upper = [r for r in runs if V.UPPER_HALF_ROWS[0] <= round(r[2][0]) <= V.UPPER_HALF_ROWS[1]]
     # ④ 隔板非法穿越
@@ -413,7 +414,7 @@ def main() -> int:
                  cross_lower="K2")
 
     mine_on_obstacle = copy.deepcopy(map_cfg)
-    mine_on_obstacle["map"]["mines"] = list(mine_on_obstacle["map"]["mines"][:7]) + ["F5"]
+    mine_on_obstacle["map"]["mines"] = list(mine_on_obstacle["map"]["mines"][:7]) + ["A5"]
     check_raises("雷落在障碍格上（地图自相矛盾）-> 抛错",
                  P.plan_route, mine_on_obstacle, cfg)
 
@@ -527,31 +528,33 @@ def main() -> int:
     check("[无倒车] parser 能编译回同样的航点数",
           len(PARSER.parse_mission(nr.tokens)) == len(nr.tokens),
           f"{len(PARSER.parse_mission(nr.tokens))} vs {len(nr.tokens)}")
-    # ★ 2026-10-11 重钉（t18）：无倒车路线 46 token / 18.55 m → **54 token / 19.95 m**。
-    #   理由（t11 加固后的新几何）：8 个雷改走「进点—雷格—出点」直线穿越（每个雷多 1 个进点），
-    #   总长与旧版相同（19.95 m）；0 段 R:，:PIVOT 只剩 G10* 射击停站一处。
-    check("[无倒车] 54 token / 里程 19.95 m（0 段 R:，:PIVOT 仅 G10* 一处）",
-          len(nr.tokens) == 54 and abs(nr.polyline_m - 19.95) < 0.02,
+    # ★ 2026-10-11 重钉（t17）：config/map.yaml 被上游换成**第三张图**（K1+K11、靶 E4/E5、
+    #   8 雷全换），所以下面的"黄金值"整体重钉一次：
+    #     54 token / 19.95 m / 折返 G10 一处
+    #   → **65 token / 24.85 m / 折返 D8 与 I2 两处**（第三张图 + U 形单回路顺序）。
+    #   路线形状：`N10 L10 L11 K11 J11 … D8:PIVOT … F4* … I2:PIVOT … K1 L1 … N5`
+    #   —— 下半场**先穿 K11 再收西区**、上半场收在 K1，即"每半场恰好一次穿洞"的 U 形单回路。
+    check("[无倒车] 65 token / 里程 24.85 m（0 段 R:，:PIVOT 两处 D8/I2）",
+          len(nr.tokens) == 65 and abs(nr.polyline_m - 24.85) < 0.02,
           f"{len(nr.tokens)} token / {nr.polyline_m:.2f} m")
 
     # ---- ① 折返点清单：几何判据 vs :PIVOT 声明，逐一对应 ----
     geo_pivots = P.pivot_vertices(nr.route)
     declared = [(i, wp.block) for i, wp in enumerate(nr.route.waypoints) if wp.pivot]
-    # ★ 2026-10-11 重钉（t18）：180° 折返顶点 3 处（F10/A9/F3）→ **1 处（G10）**。
-    #   理由：8 个雷改直线穿越后 A9 与 F3 不再是折返顶点（见 test_path_overlap §5 同款重钉）。
-    check("[折返点] 现场无倒车路线实测 1 处 180° 折返（G10，corner_turn_deg=180°）",
-          [(b, round(a)) for _i, b, a in geo_pivots] == [("G10", 180)],
+    # ★ 2026-10-11 重钉（t17）：第三张图上 180° 折返顶点 = **2 处（D8 / I2）**。
+    check("[折返点] 现场无倒车路线实测 2 处 180° 折返（D8、I2，corner_turn_deg=180°）",
+          [(b, round(a)) for _i, b, a in geo_pivots] == [("D8", 180), ("I2", 180)],
           str([(i, b, round(a)) for i, b, a in geo_pivots]))
     check("[折返点] 每一处几何折返顶点都带 :PIVOT（无漏报）",
           [(i, b) for i, b, _a in geo_pivots] == declared, str(declared))
-    check("[折返点] token 里确实写着 `:PIVOT`，且只有这一处（G10* 射击停站）",
-          [t for t in nr.tokens if t.endswith(":PIVOT")] == ["G10*:PIVOT"],
+    check("[折返点] token 里确实写着 `:PIVOT`，且只有这两处（D8 / I2）",
+          [t for t in nr.tokens if t.endswith(":PIVOT")] == ["D8:PIVOT", "I2:PIVOT"],
           str([t for t in nr.tokens if t.endswith(":PIVOT")]))
     # ★ 2026-10-11 重钉（t18）：config/robot.yaml 的 planner 段新增 `pivot_penalty: 5.0`
     #   （t9 复审 F1 的收口：让"配置里的路线"与"车上实际规划"用同一组参数），
     #   故 nr 不再走 plan_route 的缺省 0.0，而是与 P.PIVOT_PENALTY 一致。
     check("[折返点] PlanResult 清单与是否无倒车模式一致",
-          nr.pivot_count == 1 and nr.allow_reverse is False
+          nr.pivot_count == 2 and nr.allow_reverse is False
           and nr.pivot_penalty == P.PIVOT_PENALTY,
           f"count={nr.pivot_count} allow_reverse={nr.allow_reverse} "
           f"penalty={nr.pivot_penalty}")
@@ -644,28 +647,71 @@ def main() -> int:
     print(f"      折返惩罚 {P.PIVOT_PENALTY}/处 的路线（{len(pen.tokens)} token / "
           f"{pen.polyline_m:.2f} m / 折返点 {pen.pivot_count}）：")
     print("        " + " ".join(pen.tokens))
-    # ★ 2026-10-11 重钉（t18）：折返已被压到「唯一通路」的最小值 1 处（G10）⇒ 惩罚无从再消；
-    #   顺序搜索也没有更省的排序 ⇒ 惩罚版与基线**同长**（19.95 m），不再出现"变长换少折返"。
-    check("[惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 1 处（1 → 1）",
-          nr.pivot_count == 1 and pen.pivot_count == 1,
+    # ★ 2026-10-11 重钉（t17）：第三张图上折返点是 **2 处（D8 / I2）**，且都已到"唯一通路"的
+    #   最小值 ⇒ 惩罚再加也消不掉，惩罚版与基线**同长**（同一条路线）。
+    check("[惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 2 处（2 → 2）",
+          nr.pivot_count == 2 and pen.pivot_count == 2,
           f"惩罚前 {nr.pivot_count} → 惩罚后 {pen.pivot_count}")
-    check("[惩罚] 惩罚版与基线同长（折返已到最小，顺序搜索无从再优化）= 19.95 m",
+    check("[惩罚] 惩罚版与基线同长（折返已到最小，顺序搜索无从再优化）= 24.85 m",
           abs(pen.polyline_m - nr.polyline_m) < 1e-9,
           f"{nr.polyline_m:.2f} → {pen.polyline_m:.2f} m")
     check("[惩罚] 惩罚版仍 0 段 R: 且仍合法",
           pen.reverse_segments == 0 and pen.pivot_penalty == P.PIVOT_PENALTY, "0 段 R:")
-    c6, d6, b6 = P._cell("C6"), P._cell("D6"), P._cell("B6")      # noqa: SLF001
-    g_nr = P.Grid(spec, bridge_rows=(9, 4), allow_reverse=False)
+    # ★ 2026-10-11 重钉（t17）：换成**第三张图**上真能构成 1 处原路折返的三格
+    #   （`A1→A2→B1`：进 A2 后原路退回再东出 ⇒ entry 与 leave 反向）。
+    a1, a2, b1 = P._cell("A1"), P._cell("A2"), P._cell("B1")      # noqa: SLF001
+    g_nr = P.Grid(spec, bridge_rows=(11, 1), allow_reverse=False)
     t5 = P._Tour(g_nr, 1e9, pivot_penalty=P.PIVOT_PENALTY)        # noqa: SLF001
     t0 = P._Tour(g_nr, 1e9, pivot_penalty=0.0)                    # noqa: SLF001
-    t5.build([c6, d6, b6])
-    t0.build([c6, d6, b6])
-    check("[惩罚] 单元：C6->D6->B6 判为 1 处折返", t5.reversals([c6, d6, b6]) == 1,
-          f"reversals={t5.reversals([c6, d6, b6])}")
+    t5.build([a1, a2, b1])
+    t0.build([a1, a2, b1])
+    check("[惩罚] 单元：A1->A2->B1 判为 1 处折返", t5.reversals([a1, a2, b1]) == 1,
+          f"reversals={t5.reversals([a1, a2, b1])}")
     check("[惩罚] 单元：同一序列的 seq_cost 差 = 5.0（= 1 处 × PIVOT_PENALTY）",
-          abs((t5.seq_cost([c6, d6, b6]) - t0.seq_cost([c6, d6, b6]))
+          abs((t5.seq_cost([a1, a2, b1]) - t0.seq_cost([a1, a2, b1]))
               - P.PIVOT_PENALTY) < 1e-9,
-          f"{t5.seq_cost([c6, d6, b6]):.4f} - {t0.seq_cost([c6, d6, b6]):.4f}")
+          f"{t5.seq_cost([a1, a2, b1]):.4f} - {t0.seq_cost([a1, a2, b1]):.4f}")
+
+    # ---- ⑧ ★ 通口贴边（K11）地图：U 形单回路硬约束（任务卡 t17）----
+    #   背景：`config/map.yaml` 是第三张图，**下半场通口落在最外一行（K11）**。
+    #   曾经的缺陷：`_Tour.polish()` 在整条 order 上做 2-opt，会把 `cross_upper`(K1)
+    #   从"上半场末尾"挪到中间 ⇒ 编译后同一次穿洞被数成 2 次
+    #   （`上半场应恰好穿洞 1 次，实际 2 次`）⇒ 整个 `plan_route` 失败。
+    #   修法：`plan_route` 在候选 1 未过结构自检时改用 `_u_shape_order()`
+    #   （`cross_lower` 钉为下半场**第一跳**、`cross_upper` 钉为上半场**最后一跳**）。
+    section("⑧ 通口贴边（K11）：U 形单回路硬约束")
+    check("⑧.0 回归前提：本图下半场通口确实在最外一行 K11",
+          "K11" in spec.bridges, f"bridges={spec.bridges}")
+    _runs = list(V.crossing_entries(nr.route.blocks()))
+    _lo = [r for r in _runs if V.LOWER_HALF_ROWS[0] <= round(r[2][0]) <= V.LOWER_HALF_ROWS[1]]
+    _up = [r for r in _runs if V.UPPER_HALF_ROWS[0] <= round(r[2][0]) <= V.UPPER_HALF_ROWS[1]]
+    check("⑧.1 下半场恰好 1 次穿洞，且落在最外一行（K11）",
+          len(_lo) == 1 and round(_lo[0][2][0]) == 11,
+          f"下洞 {[(r[0], r[1], round(r[2][0])) for r in _lo]}")
+    check("⑧.2 上半场恰好 1 次穿洞（K1）",
+          len(_up) == 1 and round(_up[0][2][0]) == 1,
+          f"上洞 {[(r[0], r[1], round(r[2][0])) for r in _up]}")
+    check("⑧.3 ★ U 形单回路：穿洞记录不重复（无『跨 K 往返』）",
+          len({(r[0], r[1]) for r in _runs}) == len(_runs),
+          f"{len(_runs)} 条，去重后 {len({(r[0], r[1]) for r in _runs})} 条")
+    check("⑧.4 ★ 结构自检 0 问题（这条就是曾经失败的那一条）",
+          not P.check_route_structure(nr.route, spec,
+                                      P.Grid(spec, bridge_rows=(11, 1), allow_reverse=False),
+                                      limits),
+          "0 问题")
+    # ---- ⑨ move_ok 相邻性断言（任务卡 t17 第 3 条）----
+    section("⑨ move_ok 相邻性断言")
+    g_adj = P.Grid(spec, bridge_rows=(11, 1), allow_reverse=False)
+    _raised = False
+    try:
+        g_adj.move_ok(10, 13, 8, 13)                    # 跳两格
+    except P.PlannerError:
+        _raised = True
+    check("⑨.1 跳格移动（10,13)->(8,13) 当场抛 PlannerError（不静默放行）",
+          _raised, "已抛错")
+    check("⑨.2 正交相邻仍照常返回判定（不误伤）",
+          isinstance(g_adj.move_ok(10, 13, 9, 13), bool),
+          f"move_ok(10,13 -> 9,13) = {g_adj.move_ok(10, 13, 9, 13)}")
 
     # ---- ⑦ 无倒车路线过出车前校验（六层 0 error）----
     if ROUTE_CHECK.is_file():

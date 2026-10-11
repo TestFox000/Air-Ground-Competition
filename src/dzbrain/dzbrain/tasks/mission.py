@@ -60,7 +60,7 @@ from typing import Any, Callable
 from ..core import geometry as geo
 from ..core.blackboard import (P_MISSION_PHASE, P_POSE, P_ROUTE, P_ROUTE_INDEX, P_ROUTE_S,
                                P_SAFETY, P_STOP_POINT, P_TELEMETRY, Blackboard)
-from ..core.config import Config
+from ..core.config import Config, pivot_dist_eff
 from ..core.events import (EV_MISSION_FINISHED, EV_MISSION_STARTED, EV_ARRIVED_STOP_POINT,
                            EV_ROUTE_LOADED, EV_STOP_POINT_DONE, EV_WAYPOINT_REACHED, EventBus)
 from ..core.logging import Throttle, banner
@@ -358,10 +358,12 @@ class MissionTask(TaskThread):
         #: 经 PIVOT 通知判到达的航点集合：停站点若由此判到达，仍要进三段式停站
         #: （`_next_stop_candidate` 据此放行），不能像普通"已过"那样直接跳过。
         self._passed_by_pivot: set[int] = set()
-        #: 通知判到达的"车仍在顶点附近"窗口：真完成时车距顶点 ≈ pivot_dist_m（掉头蠕转
+        #: 通知判到达的"车仍在顶点附近"窗口：真完成时车距顶点 ≈ 触发距离（掉头蠕转
         #: 还会带出少量位移）；跨轮次/竞态残留的通知里车在起点，二者差好几段，被窗口挡住。
-        self._pivot_accept_m = max(float(cfg.get("pursuit.pivot_dist_m")) * 3.0,
-                                   self._arrival_m * 6.0)
+        #: ★G1 速度自适应：窗口随有效触发距离缩放（0.30 巡航时 3×0.30，与 tracker 同源口径）。
+        self._pivot_accept_m = max(
+            pivot_dist_eff(cfg, float(cfg.get("pursuit.cruise_speed_mps"))) * 3.0,
+            self._arrival_m * 6.0)
 
         # ---- ★逐点到达台账（卡 D finding D1：绝不静默丢点）----
         #: 每个待推进航点的**历史最近距离**（米）。几何复核用：s 一步跨过航点时，

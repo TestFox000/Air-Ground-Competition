@@ -37,7 +37,7 @@ from typing import Any, Callable
 from ..core import geometry as geo
 from ..core.blackboard import (P_MISSION_PHASE, P_POSE, P_ROUTE, P_ROUTE_INDEX, P_ROUTE_S,
                                P_SAFETY, P_TELEMETRY, Blackboard)
-from ..core.config import Config, lookahead_distance
+from ..core.config import Config, lookahead_distance, pivot_dist_eff
 from ..core.events import EventBus
 from ..core.logging import Throttle
 from ..core.state import SafetyState
@@ -177,6 +177,8 @@ class TrackerTask(TaskThread):
         #: 「进入 PIVOT → 0.5s 刹车 → 判定完成 → 下一拍再进入」的**无限循环**：
         #: 几百次循环、整场卡在 s≈4.4/34 m，车几乎不动（每拍先被刹车 0.5s）。
         self._pivot_abandon_until_s: float = 0.0
+        #: 本次 PIVOT 实际使用的触发距离（速度自适应，G1：0.30 巡航时 > 0.25 基础值）
+        self._pivot_trigger_dist_m: float = float(cfg.get("pursuit.pivot_dist_m"))
         self.pivot_count = 0                     # 完成次数（遥测/测试）
         self.pivot_abandon_count = 0             # 超时放弃次数（遥测/测试）
 
@@ -528,7 +530,10 @@ class TrackerTask(TaskThread):
             #   （否则「超时→放行→再触发」以及「完成→再触发」都会变成死循环）
             if s_v <= self._pivot_abandon_until_s:
                 return None
-            if angle < self._pivot_angle_deg or dist_to_vertex > self._pivot_dist_m:
+            # ★G1 速度自适应触发距离：0.30 巡航时比基础 0.25 m 更早触发（0.15 标定行为逐位不变），
+            #   刹车余量更大 —— 史实：0.3 曾致 PIVOT 到达判定失控（每拍 6 mm，窗口太紧）。
+            pivot_dist = pivot_dist_eff(self.cfg, self._cruise_mps)
+            if angle < self._pivot_angle_deg or dist_to_vertex > pivot_dist:
                 return None
             # 桥洞保护段内绝不做原地转向（旧版显式排除过；桥洞里侧壁就在旁边）
             if self._align_active(proj.seg_index):
@@ -538,7 +543,9 @@ class TrackerTask(TaskThread):
             self._pivot_target_heading = next_heading
             self._pivot_vertex_s = s_v
             self._pivot_vertex_index = proj.seg_index + 1
+            self._pivot_trigger_dist_m = pivot_dist
             self._log(f"★ 进入 PIVOT（原地转向）：顶点 s={s_v:.2f} 距 {dist_to_vertex:.2f}m / "
+                      f"触发距离 {pivot_dist:.2f}m（基础 {self._pivot_dist_m:.2f}+速度加长） / "
                       f"换向 {angle:.0f}° > 阈值 {self._pivot_angle_deg:.0f}°")
 
         elapsed = now - self._pivot_started_at
@@ -546,7 +553,8 @@ class TrackerTask(TaskThread):
         if elapsed > self._pivot_timeout_s:
             self._log(f"⚠️ PIVOT 超时（{elapsed:.1f}s > {self._pivot_timeout_s:.1f}s）→ 放行交回纯追踪")
             # 记下"这个顶点我不再 pivot"，等车开过去再恢复（防"超时→放行→再触发"循环）
-            self._pivot_abandon_until_s = self._pivot_vertex_s + max(0.35, self._pivot_dist_m * 2.0)
+            self._pivot_abandon_until_s = self._pivot_vertex_s + max(0.35,
+                                                                     self._pivot_trigger_dist_m * 2.0)
             self.pivot_abandon_count += 1
             # ★ 通知 MissionTask："这个顶点已在 PIVOT 内处理过（放弃）"——
             #   否则 MissionTask 的到点判定恒假，12 s 后拐角绕圈兜底强制跳过（bench E11/A6/B6）。
@@ -580,7 +588,8 @@ class TrackerTask(TaskThread):
             #   否则车还停在顶点邻域内、换向角依旧 > 阈值 → 下一拍立刻重入 PIVOT →
             #   又是 0.5s 刹车 → 再"完成" → **无限循环、车几乎不动**。
             #   实闭环 bench 在 F11（180° 折返）处就是这么卡的：整场 240s 只走到 4.4/34 m。
-            self._pivot_abandon_until_s = self._pivot_vertex_s + max(0.35, self._pivot_dist_m * 2.0)
+            self._pivot_abandon_until_s = self._pivot_vertex_s + max(0.35,
+                                                                     self._pivot_trigger_dist_m * 2.0)
             self._reset_pivot()
             return None
 
