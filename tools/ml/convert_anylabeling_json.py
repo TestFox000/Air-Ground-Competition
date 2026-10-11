@@ -16,9 +16,17 @@
     当前默认归入 target_blue(5)，仅用于 7cls 粗检训练。
 
 用法：
+    # 7cls 检测模型标签（buckets→obstacle, plane跳过）
     python tools/ml/convert_anylabeling_json.py \\
         --json-dir E:/ml_datasets/manual_200/images \\
-        --out-dir E:/ml_datasets/manual_200/labels_yolo
+        --out-dir E:/ml_datasets/manual_200/labels_yolo \\
+        --preset 7cls
+
+    # seed_157 标靶种子训练标签（6类：blue bucket/car/green bucket/plane/red bucket/target）
+    python tools/ml/convert_anylabeling_json.py \\
+        --json-dir E:/ml_datasets/manual_200/images \\
+        --out-dir E:/ml_datasets/seed_157/labels_all \\
+        --preset seed
 """
 
 from __future__ import annotations
@@ -28,8 +36,8 @@ import json
 import sys
 from pathlib import Path
 
-# 默认 7cls 类号映射（标签名 → 类号；None 表示跳过）
-DEFAULT_LABEL_MAP: dict[str, int | None] = {
+# 7cls 检测模型类号映射（标签名 → 类号；None 表示跳过）
+LABEL_MAP_7CLS: dict[str, int | None] = {
     "red bucket": 1,
     "green bucket": 1,
     "blue bucket": 1,
@@ -38,10 +46,30 @@ DEFAULT_LABEL_MAP: dict[str, int | None] = {
     "target": 5,          # ⚠️ 默认 target_blue，颜色待确认
 }
 
+# seed_157 标靶种子训练类号映射（6类，对应 seed_157/data.yaml）
+LABEL_MAP_SEED: dict[str, int | None] = {
+    "blue bucket": 0,
+    "car": 1,
+    "green bucket": 2,
+    "plane": 3,
+    "red bucket": 4,
+    "target": 5,
+}
+
 # 类名（仅用于统计打印）
 CLASS_NAMES = {
     0: "mine", 1: "obstacle", 2: "arrow", 3: "cell_label",
     4: "car", 5: "target_blue", 6: "target_red",
+}
+
+CLASS_NAMES_SEED = {
+    0: "blue bucket", 1: "car", 2: "green bucket",
+    3: "plane", 4: "red bucket", 5: "target",
+}
+
+PRESETS = {
+    "7cls": (LABEL_MAP_7CLS, CLASS_NAMES),
+    "seed": (LABEL_MAP_SEED, CLASS_NAMES_SEED),
 }
 
 
@@ -110,22 +138,30 @@ def main() -> int:
     parser.add_argument("--json-dir", required=True, help="X-AnyLabeling JSON 目录")
     parser.add_argument("--out-dir", required=True, help="YOLO txt 输出目录")
     parser.add_argument(
+        "--preset",
+        choices=list(PRESETS.keys()),
+        default="7cls",
+        help="类号映射预设：7cls(无人机7类检测) / seed(seed_157标靶种子6类)",
+    )
+    parser.add_argument(
         "--target-class",
         type=int,
-        default=5,
-        help="target 标签映射到的类号（默认 5=target_blue，6=target_red）",
+        default=None,
+        help="覆盖 target 标签映射到的类号（7cls默认5=target_blue；seed预设不生效）",
     )
     args = parser.parse_args()
 
-    label_map = dict(DEFAULT_LABEL_MAP)
-    label_map["target"] = args.target_class
+    label_map, class_names = PRESETS[args.preset]
+    label_map = dict(label_map)
+    if args.target_class is not None:
+        label_map["target"] = args.target_class
 
     stats = convert(args.json_dir, args.out_dir, label_map)
     print(f"处理文件 {stats['files']} 个（空标签 {stats['empty']} 个）")
     print(f"输出框总数 {stats['boxes']}")
     by = stats["by_class"]
     print("各类框数：" + " ".join(
-        f"{CLASS_NAMES.get(c, c)}={by[c]}" for c in sorted(by)
+        f"{class_names.get(c, c)}={by[c]}" for c in sorted(by)
     ))
     if stats["skipped"]:
         print("跳过标签：" + " ".join(

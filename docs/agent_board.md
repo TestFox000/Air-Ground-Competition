@@ -149,10 +149,19 @@
 
 ---
 
-*最后更新：2026-10-11 19:13 经理（每小时巡检）*
+*最后更新：2026-10-11 20:11 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-11 19:13）
+## 7. 本轮巡检非硬件推进（2026-10-11 20:11）
 
-- 用户 manual_200 标注：157/200（78.5%），类别分布：red bucket 102 / green bucket 76 / car 63 / plane 55 / blue bucket 36 / target 31
-- 新增 `tools/ml/convert_anylabeling_json.py`：X-AnyLabeling JSON → YOLO 转换脚本，已实测输出 308 框（obstacle=214/car=63/target_blue=31）
-- 5090 实例持续不可达，标靶训练状态未知，需用户在 AutoDL 控制台重启
+### 🔴 关键修复：seed_157 标靶种子数据集标签全部无效（h=0）
+- **问题**：seed_157/labels 中所有 363 个标注框的 height=0.000000，YOLO 训练会完全失败
+- **根因**：旧版转换脚本仅使用矩形前 2 个点（top-left + top-right，y 相同），导致 y2-y1=0
+- **修复**：`convert_anylabeling_json.py` 已正确使用全部 4 个点取 min/max
+- **增强**：新增 `--preset seed` 参数，支持 seed_157 的 6 类映射（blue bucket=0, car=1, green bucket=2, plane=3, red bucket=4, target=5）
+- **验证**：重新生成 363 框，全部 w>0 且 h>0，类别分布与 data.yaml 一致
+- **影响**：5090 恢复后 seed157 训练可正常启动，无需人工干预
+
+### 部署就绪确认
+- `deploy_5090_v4d_seed.py --wait` 后台运行中，5090 连通即自动打包+上传+训练
+- `watch_5090_v4d_seed.py` 后台运行中，训练完成后自动下载产物
+- seed_157 标签修复后，pack_seed() 会自动检测到文件更新并重新打包 zip
