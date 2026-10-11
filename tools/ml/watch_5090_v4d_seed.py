@@ -28,12 +28,14 @@ EVAL = Path(r"e:\OneDrive - mails.qust.edu.cn\桌面\air_ground\tools\ml\eval_ce
 BEST = {
     "v4d": f"{REMOTE}/cellv4d/runs/cell_v4d/best.pt",
     "seed": f"{REMOTE}/runs/seed/seed157_v1/weights/best.pt",
+    "target": f"{REMOTE}/runs/target/target_merged_v1/weights/best.pt",
 }
 LOGS = {
     "v4d": f"{REMOTE}/cellv4d/pipeline.log",
     "seed": f"{REMOTE}/seed_train.log",
+    "target": f"{REMOTE}/target_train.log",
 }
-PROC = {"v4d": "cell_classifier", "seed": "yolo"}
+PROC = {"v4d": "cell_classifier", "seed": "yolo", "target": "yolo"}
 ARTIFACTS = {  # tag -> [(remote, local)] 仅在对应训练完成时下载
     "v4d": [
         (f"{REMOTE}/cellv4d/runs/cell_v4d/best.pt", DL / "cell_classifier_v4d_best.pt"),
@@ -43,6 +45,10 @@ ARTIFACTS = {  # tag -> [(remote, local)] 仅在对应训练完成时下载
     "seed": [
         (f"{REMOTE}/runs/seed/seed157_v1/weights/best.pt", DL / "seed157_v1_best.pt"),
         (f"{REMOTE}/runs/seed/seed157_v1/results.csv", DL / "seed157_v1_results.csv"),
+    ],
+    "target": [
+        (f"{REMOTE}/runs/target/target_merged_v1/weights/best.pt", DL / "target_merged_v1_best.pt"),
+        (f"{REMOTE}/runs/target/target_merged_v1/results.csv", DL / "target_merged_v1_results.csv"),
     ],
 }
 
@@ -96,14 +102,14 @@ def download(cli, status) -> None:
 
 
 def main() -> None:
-    status = {"v4d": "wait", "seed": "wait"}
-    bad = {"v4d": 0, "seed": 0}  # 连续异常观测次数(防瞬时误判)
+    status = {"v4d": "wait", "seed": "wait", "target": "wait"}
+    bad = {"v4d": 0, "seed": 0, "target": 0}  # 连续异常观测次数(防瞬时误判)
     c = wait_ssh()
 
     # 阶段1: 监视训练 (best.pt出现且进程退出=完成; 无best+无进程+Traceback=失败)
     while any(s == "wait" for s in status.values()):
         try:
-            for tag in ("v4d", "seed"):
+            for tag in ("v4d", "seed", "target"):
                 if status[tag] != "wait":
                     continue
                 best, alive, tail = probe(c, tag)

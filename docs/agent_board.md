@@ -150,9 +150,50 @@
 
 ---
 
-*最后更新：2026-10-12 04:04 经理（每小时巡检）*
+*最后更新：2026-10-12 05:07 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 04:04）
+## 7. 本轮巡检非硬件推进（2026-10-12 05:07）
+
+### ✅ 非硬件推进：watch_5090 脚本新增 target_merged 监控
+- `watch_5090_v4d_seed.py` 此前仅监控 v4d + seed157，target_merged 训练无自动下载
+- 已在 BEST/LOGS/PROC/ARTIFACTS 字典中新增 `target` 条目（`runs/target/target_merged_v1/weights/best.pt` + results.csv）
+- main() 的 status/bad 字典及监控循环已扩展为 `("v4d", "seed", "target")`
+- 5090 恢复后三个训练（v4d格号 / seed157标靶种子 / target_merged标靶全量）产物均自动下载至 `E:\ml_datasets\downloaded\`
+- 语法校验通过，watch 脚本已重启（PID 42708 系统Python + 42360 venvPython + 41148）
+
+### ✅ 代码base健康
+- `pytest tests/` 125 passed, 1 skipped in 16.06s（无回归，跳过项为 onnx 库未安装）
+
+### ✅ 数据集 + 部署脚本全量就绪确认
+- seed_157: 134 train + 23 val，363 框全部 w>0 h>0
+- target_merged: 555 train + 97 val，1768 框全部 w>0 h>0
+- v4d: `cellv4d_upload_v2.zip`（218.4MB）就绪
+- 部署脚本：`deploy_5090_v4d_seed.py`（v4d+seed）+ `deploy_target_merged.py`（target）均就绪
+- 模型指针：`current_hbb_detector` → `hbb_detector_7cls_distill_20261011.onnx`，`current_cell_classifier` → `cell_classifier_v4c_ft_20261010.onnx`
+
+### ✅ watch 脚本健康（已重启，加载 target_merged 监控）
+- 三个 `watch_5090_v4d_seed.py` 后台运行中（PID 42708 + 42360 + 41148）
+- 连通即自动监控 v4d + seed157 + target_merged 三个训练并下载产物
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/200（无变化，157 JSON + 157 txt）
+
+### 📋 当前无可推进非硬件工作
+- 所有软件任务（7cls检测、格号识别、路径规划、朝向对齐、UDP链路）均已就绪
+- seed157/v4d/target_merged 数据集 + 部署脚本 + watch监控全链路就绪，等待 5090 恢复后自动部署训练
+- M0-1/M0-2 待实车，M0-3 待 Orin，其余 M0 项已完成
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 04:04）
 
 ### ✅ 代码base健康
 - `pytest tests/` 128 passed in 16.20s（无回归，0 skipped）

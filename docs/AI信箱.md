@@ -1016,3 +1016,53 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 **当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（seed157/v4d/target_merged训练未知）
 **本轮非硬件推进：** 确认模型指针正确、watch脚本健康运行、128测试通过；无新增可推进软件工作，全部就绪等待硬件
+
+---
+
+*最后更新：2026-10-12 05:07 经理（每小时巡检）*
+
+## [经理→全体] 2026-10-12 05:07 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+✅ **非硬件推进：watch_5090 脚本新增 target_merged 监控（本轮核心改进）**
+- 原 watch_5090_v4d_seed.py 仅监控 v4d + seed157，target_merged 训练无自动下载闭环
+- 已在 BEST/LOGS/PROC/ARTIFACTS 字典新增 	arget 条目，监控 uns/target/target_merged_v1/weights/best.pt + results.csv
+- main() 监控循环扩展为 ("v4d", "seed", "target")，5090 恢复后三个训练产物均自动下载至 E:\ml_datasets\downloaded\
+- 语法校验通过，watch 脚本已重启（PID 42708 系统Python + 42360 venvPython + 41148）
+
+✅ **数据集 + 部署脚本全量就绪确认**
+- seed_157: 134 train + 23 val（363 框全部 w>0 h>0）
+- target_merged: 555 train + 97 val（1768 框全部 w>0 h>0）
+- v4d: cellv4d_upload_v2.zip（218.4MB）就绪
+- 部署脚本：deploy_5090_v4d_seed.py + deploy_target_merged.py 均就绪
+- 模型指针：hbb → hbb_detector_7cls_distill_20261011.onnx，cell → cell_classifier_v4c_ft_20261010.onnx
+
+✅ **代码base健康：pytest tests/ 125 passed, 1 skipped in 16.06s（无回归）**
+
+⚠️ **5090 实例持续不可达**
+- connect.bjb2.seetacloud.com:37113 TcpTestSucceeded=False
+- 106.38.204.136:52238 TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+📝 **7cls 训练：epoch 75/75 已完成（无变化）**，best mAP50=0.7879(ep56)，模型已发布
+
+📝 **manual_200 标注：157/200（无变化）**
+
+📊 **Git 状态**
+- 本地与 origin/main 一致（0 ahead / 0 behind），无其他 Agent 提交
+
+📋 **M0 完赛最小闭环进度：**
+| # | 任务 | 状态 |
+|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线（7cls+格号模型已发布；v4d/seed157/target_merged训练5090待部署） |
+| M0-4 | 车机UDP链路通 | ✅ |
+| M0-5 | 路径规划可执行 | ✅ |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 |
+| M0-7 | 赛前检查清单 | ✅ |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达
+**本轮非硬件推进：** watch_5090 脚本新增 target_merged 监控，5090 恢复后三个训练（v4d/seed157/target_merged）产物自动下载；数据集+部署脚本+模型指针+125测试全绿
