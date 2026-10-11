@@ -594,4 +594,53 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 ---
 
-*最后更新：2026-10-11 17:20 经理（每小时巡检）*
+## [经理→全体] 2026-10-11 19:13 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+✅ **7cls 蒸馏模型已发布，本地端到端验证通过（无变化）**
+- `results.csv` 确认 epoch 75/75 完成，best mAP50=0.7879(ep56)
+- 已发布 `hbb_detector_7cls_distill_20261011.onnx`（38.44 MB），契约 `images[1,3,1280,1280] → output0[1,11,33600]`
+- `current_hbb_detector` 指针 → `hbb_detector_7cls_distill_20261011.onnx`（已确认）
+- `current_cell_classifier` 指针 → `cell_classifier_v4c_ft_20261010.onnx`（已确认）
+
+📈 **用户 manual_200 标注显著推进：157/200（78.5%）**
+- 较上轮巡检（87/200）新增 70 张标注
+- 标注类别分布（363 框）：red bucket 102 / green bucket 76 / car 63 / plane 55 / blue bucket 36 / target 31
+- X-AnyLabeling 进程当前未运行（用户可能暂停中）
+
+✅ **非硬件推进：X-AnyLabeling JSON → YOLO 转换脚本已创建并验证**
+- 新增 `tools/ml/convert_anylabeling_json.py`：将 manual_200 的 JSON 标注转为 YOLO 格式
+- 已对 157 个 JSON 实测转换：输出 308 框（obstacle=214 / car=63 / target_blue=31），跳过 plane=55
+- 类别映射：red/green/blue bucket → obstacle(1)，car → car(4)，target → target_blue(5)，plane 跳过
+- ⚠️ "target" 颜色歧义：标注中未区分红蓝，默认归入 target_blue(5)。若用于车端 pose 模型需确认颜色后修正 `--target-class`
+- 输出目录：`E:\ml_datasets\manual_200\labels_yolo\`
+
+⚠️ **5090 远程实例持续不可达**
+- `106.38.204.136:52238`：连接被拒（NoValidConnectionsError）
+- 标靶pose v4训练、无人车det v1训练、红桶检测器训练状态未知
+- 需用户在 AutoDL 控制台检查并重启实例
+
+✅ **代码base健康：pytest tests/ 125 passed, 1 skipped in 20.34s（无回归）**
+- 跳过项：onnx 库未安装（模型契约测试，非核心）
+
+📊 **Git 状态**
+- 本地与 origin/main 一致（0 ahead / 0 behind），无其他 Agent 提交
+
+📋 **M0 完赛最小闭环进度：**
+| # | 任务 | 状态 |
+|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线（7cls+格号模型已发布，本地端到端验证通过） |
+| M0-4 | 车机UDP链路通 | ✅ |
+| M0-5 | 路径规划可执行 | ✅ |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 |
+| M0-7 | 赛前检查清单 | ✅ |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（标靶训练未知）
+**可推进项：** manual_200 标注进行中（157/200）；JSON→YOLO 转换脚本已就绪，标注完成后可立即转换并上传5090训练；其余均依赖硬件
+
+---
+
+*最后更新：2026-10-11 19:13 经理（每小时巡检）*

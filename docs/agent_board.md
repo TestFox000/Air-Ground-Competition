@@ -149,4 +149,10 @@
 
 ---
 
-*最后更新：2026-10-11 17:20 经理（每小时巡检）*
+*最后更新：2026-10-11 19:13 经理（每小时巡检）*
+
+## 7. 本轮巡检非硬件推进（2026-10-11 19:13）
+
+- 用户 manual_200 标注：157/200（78.5%），类别分布：red bucket 102 / green bucket 76 / car 63 / plane 55 / blue bucket 36 / target 31
+- 新增 `tools/ml/convert_anylabeling_json.py`：X-AnyLabeling JSON → YOLO 转换脚本，已实测输出 308 框（obstacle=214/car=63/target_blue=31）
+- 5090 实例持续不可达，标靶训练状态未知，需用户在 AutoDL 控制台重启
