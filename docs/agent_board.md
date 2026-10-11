@@ -144,15 +144,39 @@
 | R1 | Orin 不在线 | Agent-4 | 确认WiFi连接；同时推进训练 |
 | R2 | 车仍画圆 | Agent-3 | align已就绪，待实车 |
 | R3 | 7cls训练中断 | Agent-4 | ✅ 训练已于15:38完成epoch 75并发布 hbb_detector_7cls_distill_20261011.onnx；本地ONNX冒烟测试通过。建议禁用Modern Standby防止再次中断 |
-| R7 | 5090连接不稳定 | Agent-4 | 5090实例连接频繁中断（SSH/SFTP上传中途断开）。seed157训练已启动（yolo11s.pt已就位，AMP检查中），v4d上传因断连失败待重连。watch脚本自动重连中 |
+| R7 | 5090连接不稳定 | Agent-4 | 5090实例（connect.bjb2.seetacloud.com:37113）本轮巡检不可达（NoValidConnectionsError）。seed157训练状态未知，v4d上传待重连。两个watch_5090_v4d_seed.py后台运行中，连通即自动监控+下载。deploy脚本V4D_ZIP已修复指向cellv4d_upload_v2.zip（218.4MB正确结构） |
 | R4 | 0x4002帧未广播 | Agent-4 | 代码完成，待Orin编译 |
 | R6 | E盘（项目存储） | 经理 | ✅ 已恢复（7cls续训成功读取E:\ml_datasets），持续监控 |
 
 ---
 
-*最后更新：2026-10-11 21:40 经理（每小时巡检）*
+*最后更新：2026-10-11 22:01 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-11 21:40）
+## 7. 本轮巡检非硬件推进（2026-10-11 22:01）
+
+### ✅ 修复 deploy_5090_v4d_seed.py 的 V4D_ZIP 路径
+- 原 `V4D_ZIP` 指向 `cellv4d_upload.zip`（113.6MB，旧版结构错误：缺 cell_labels/ + v4c 图片扁平化）
+- 已改为指向 `cellv4d_upload_v2.zip`（218.4MB，25236 文件，正确 cell_labels/ 目录 + merged_v4d.csv）
+- 5090 恢复后，`deploy_5090_v4d_seed.py --skip-seed` 将上传正确的 v4d 包并启动训练
+
+### ✅ 代码base健康
+- `pytest tests/` 125 passed, 1 skipped in 18.65s（无回归，跳过项为 onnx 库未安装）
+
+### ✅ 数据集就绪确认
+- seed_157：363 框（train 261 + val 102），已在 5090 启动训练（状态待连回确认）
+- target_merged：1768 框（555 train + 97 val，6类），部署脚本 `deploy_target_merged.py` 已就绪，待 5090 恢复后部署
+
+### ⚠️ 5090 实例不可达
+- `connect.bjb2.seetacloud.com:37113` NoValidConnectionsError（3次重试均失败）
+- seed157 训练状态未知，v4d 上传待重连
+- 两个 `watch_5090_v4d_seed.py` 后台运行中（PID 33984 + 37436），连通即自动监控训练+下载产物
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-11 21:40）
 
 ### ✅ 5090 实例恢复在线，部署 seed157 + v4d 训练
 - 5090 实例（connect.bjb2.seetacloud.com:37113）恢复可达，GPU: RTX 5090 32GB

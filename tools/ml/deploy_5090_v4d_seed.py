@@ -20,7 +20,7 @@ from pathlib import Path
 import paramiko
 
 HOST, PORT, USER, PWD = "connect.bjb2.seetacloud.com", 37113, "root", "Zip83Urbyglp"
-V4D_ZIP = Path(r"E:\ml_datasets\cellv4d_upload.zip")
+V4D_ZIP = Path(r"E:\ml_datasets\cellv4d_upload_v2.zip")  # v2: 正确 cell_labels/ 结构 + merged_v4d.csv
 SEED_DIR = Path(r"E:\ml_datasets\seed_157")
 SEED_ZIP = Path(r"E:\ml_datasets\seed_157_upload.zip")
 REMOTE = "/root/autodl-tmp"
