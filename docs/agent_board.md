@@ -150,9 +150,43 @@
 
 ---
 
-*最后更新：2026-10-12 05:07 经理（每小时巡检）*
+*最后更新：2026-10-12 06:07 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 05:07）
+## 7. 本轮巡检非硬件推进（2026-10-12 06:07）
+
+### ✅ 非硬件推进：更新 finish_line_analysis.md 瓶颈分析文档
+- 原文档停留在 2026-10-09，7cls 仍标为 "epoch 21/75"，格号识别标为 "v4c训练中"
+- 已更新 §1 瓶颈排序表：7cls → ✅ 已完成（epoch 75/75，best mAP50=0.7879，模型已发布）；格号识别 → "v4c已发布(joint_acc=0.8588)，v4d待5090训练"
+- 已更新 §2.3：补充 7cls 蒸馏模型双口径评估结果（官方74张 mine mAP50=0.7972 vs 厂家 0.1248）
+- 已更新 §2.4：补充 v4c 离线验证指标 + v4d 训练集构成 + RANSAC/lattice 已落地说明
+- 已更新 §3.2 改进建议表：新增"状态"列，3/5 项已实现（MatrixFusion多帧融合、RANSAC几何约束、路径可视化）
+
+### ✅ 代码base健康
+- `pytest tests/` 128 passed in 16.08s（无回归，0 skipped）
+
+### ✅ watch 脚本健康（3 实例运行中）
+- PID 41148（系统Python）+ 42360（venvPython）+ 42708，均于 05:06:37 启动
+- 连通 5090 后自动监控 v4d + seed157 + target_merged 三个训练并下载产物
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/200（无变化）
+
+### 📋 当前无可推进非硬件工作
+- 所有软件任务（7cls检测、格号识别、路径规划、朝向对齐、UDP链路）均已就绪
+- seed157/v4d/target_merged 数据集 + 部署脚本 + watch监控全链路就绪，等待 5090 恢复后自动部署训练
+- M0-1/M0-2 待实车，M0-3 待 Orin，其余 M0 项已完成
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 05:07）
 
 ### ✅ 非硬件推进：watch_5090 脚本新增 target_merged 监控
 - `watch_5090_v4d_seed.py` 此前仅监控 v4d + seed157，target_merged 训练无自动下载
