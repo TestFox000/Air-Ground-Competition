@@ -118,7 +118,7 @@ try:
     from dzbrain.route.parser import parse_mission
     ws = pathlib.Path(__file__).resolve().parents[3]
     cfg = Config.load(str(ws / "config" / "robot.yaml"))
-    field = parse_mission(cfg.get("mission_blocks") or [])
+    field = parse_mission(cfg.get("route.tokens") or [])   # Config 别名:route.tokens == 46 点 mission_blocks
     fpath = Path(field)
     rev = field.reverse_segments()
     # ★ 2026-10-09 设计变更（实车铁证）：底盘**不支持倒车**（决定性实验：发 linear.x<0，
@@ -143,7 +143,7 @@ try:
         check("回折两段长度相等（几何重叠）",
               abs((sb - sa) - 2 * fpath.segments[i][4]) < 1e-6,
               f"Δs={sb - sa:.4f} 段长={fpath.segments[i][4]:.4f}")
-except Exception as exc:      # 配置读不到也要让上面几节的结果有效
-    check(f"现场图路线检查（跳过：{type(exc).__name__}: {exc}）", True, "skip")
+except Exception as exc:      # 配置读不到 = 测试环境坏了，必须红，绝不允许静默跳过（2026-10-11 假绿教训）
+    check(f"现场图路线检查失败（{type(exc).__name__}: {exc}）", False, "异常")
 
 finish()
