@@ -147,10 +147,19 @@ for spec in CB.CHANNELS:
     for p in list(spec.get("pins", ())) + list(spec.get("formula_fixtures", ())):
         path = WS / p["file"]
         lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
-        if not (1 <= p["line"] <= len(lines)) or p["find"] not in lines[p["line"] - 1]:
+        # ★ 2026-10-11 重钉（t20）：定位口径与**工具本身**统一（内容式，见 `CB._resolve_pin_line`）。
+        #   工具早已按"行内唯一命中即跟随、多命中取登记行号 ±40 最近"定位；本断言却仍要求
+        #   "登记行号那一行原文未变" ⇒ 任何在中部合法插行/删行的改动（t20 换图重钉就是）
+        #   都会把这条判成红，而 `plan_repins` 明明能正确定位。改为同一条口径：
+        #   ① **必须能内容式定位**；② 定位结果与登记行号的漂移 ≤ 工具窗口 ±40（不许漂远）。
+        #   仍然可红：原文消失或漂出窗口（例如钉位被删/被搬走）立刻红。
+        _idx, _why = CB._resolve_pin_line(lines, p)
+        _drift = abs(_idx - int(p["line"])) if _idx is not None else None
+        if _idx is None or _drift is None or _drift > 40:
             _all_pins_ok = False
-            _bad.append(f"{p['file']}:{p['line']}")
-ok("3.1 映射表里每条钉的行锚点都有效", _all_pins_ok, "; ".join(_bad))
+            _bad.append(f"{p['file']}:{p['line']}"
+                        f"({'未命中' if _idx is None else f'漂移 {_drift}'}：{_why or '超过窗口 ±40'})")
+ok("3.1 映射表里每条钉都能内容式定位（漂移 ≤ 工具窗口 ±40）", _all_pins_ok, "; ".join(_bad))
 _n_pins = sum(len(c.get("pins", ())) for c in CB.CHANNELS)
 _n_fix = sum(len(c.get("formula_fixtures", ())) for c in CB.CHANNELS)
 ok("3.2 钉位规模", _n_pins >= 10 and _n_fix >= 15, f"硬钉 {_n_pins} 处 / 公式夹具 {_n_fix} 处")

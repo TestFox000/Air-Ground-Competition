@@ -205,9 +205,11 @@ def main() -> int:
         "localization.anchor_scale_max": 0.08,
         "localization.implied_scale_window": 4,
         "localization.reanchor_pull_max_m": 0.35,
-        "localization.drift_slow_after": 3,
+        # ★ 2026-10-11 快速采集(用户指令)：两条漂移门禁有意偏离代码默认
+        #   （3→999 只告警不降速 / 8→999 只告警不停车；代码默认值仍是 3/8）
+        "localization.drift_slow_after": 999,
         "localization.drift_slow_speed_mps": 0.08,
-        "localization.drift_stop_after": 8,
+        "localization.drift_stop_after": 999,
         "localization.drift_clear_ticks": 5,
         "localization.boundary_guard_m": 0.10,
         "localization.boundary_guard_speed_mps": 0.08,
@@ -217,10 +219,15 @@ def main() -> int:
     ok("5.1 12 个键都在 robot.yaml 里", not missing, f"缺 {missing}" if missing else "12/12")
     mismatch = {k: (real.get(k), v) for k, v in expect.items() if real.get(k) != v}
     ok("5.2 ★ 逐条等于代码默认值", not mismatch, f"{mismatch}" if mismatch else "12/12 一致")
-    ok("5.3 t11 落盘值未被本卡改动（cruise 0.30 / ld_max 0.40 / 路线 54 点 / ticksPerMeter 3280）",
-       abs(real.get("pursuit.cruise_speed_mps") - 0.30) < 1e-12
+    # ★ 2026-10-11 重钉（t22）：第三次换图落盘的标定值里 ld_max 0.40 / 62 点路线 /
+    #   ticksPerMeter 3280 不变，**巡航 0.30 → 0.35**（用户现场口径）。
+    #   ⚠️ 行内保留旧值原文（`ticksPerMeter 3280）` 与 旧断言本体 `- 0.30`）作为
+    #      `tools/calib_backfill.py` 的钉锚点（内容式定位；该映射在 t2 写域，本卡不改）。
+    ok("5.3 落盘值（cruise 0.35 / ld_max 0.40 / 第三张图路线 62 点 / ticksPerMeter 3280）"
+       "（旧 cruise 0.30）",
+       abs(real.get("pursuit.cruise_speed_mps") - 0.35) < 1e-12
        and abs(real.get("pursuit.lookahead_max_m") - 0.40) < 1e-12
-       and len(real.get("route.tokens") or []) == 54
+       and len(real.get("route.tokens") or []) == 62
        and abs(real.get("dzactuator.ticksPerMeter") - 3280.0) < 1e-9,
        f"cruise={real.get('pursuit.cruise_speed_mps')} ld_max={real.get('pursuit.lookahead_max_m')} "
        f"tokens={len(real.get('route.tokens') or [])} ticks={real.get('dzactuator.ticksPerMeter')}")

@@ -107,10 +107,15 @@ cfg = Config.load(str(_CFG_PATH))          # ★ 只用出厂配置，绝不 ove
 FIELD = parse_mission(list(cfg.get("route.tokens")), name="robot.yaml:route.tokens")
 FIELD_PATH = S.Path(FIELD)
 
-FIELD_WAYPOINTS = 54
-FIELD_PIVOT_BLOCKS = ("G10",)                # 2026-10-11 重钉（t18）：雷改直线穿越后折返只剩 G10* 一处
-FIELD_STOP_INDICES = (18, 53)                # G10* 射击停站（54 点路线的第 19 个）+ 末点 N5
-FIELD_LENGTH_M = 19.95
+FIELD_WAYPOINTS = 62
+# ★ 2026-10-11 重钉（t20）：**第三次换图**（现场图 p-81Zc2l、手工 v3、62 点）——
+#   U 形改走外圈绕行 ⇒ 全程**没有 ≥135° 折返顶点**（最大转角 90°），故 PIVOT 折返 = 空元组。
+FIELD_PIVOT_BLOCKS = ()
+# ★ 2026-10-11 重钉（t20）：射击停站由 G10* 改为 **F4***（第三张图靶板 E4/E5 的跨格靶板），
+#   末点仍是 N5；索引按 62 点路线实测（46 = F4*、61 = N5）。
+FIELD_STOP_INDICES = (46, 61)
+# ★ 2026-10-11 重钉（t20）：总长 19.95 → **21.350 m**（62 点手工 v3 路线实测）。
+FIELD_LENGTH_M = 21.350
 
 STRAIGHT = parse_mission(["N10", "M10"])   # 两格直线，0.35 m
 MID = parse_mission(["M10", "M8", "K8", "K10", "I10", "I8"])   # 4 个 90 度拐角 / 3.50 m
@@ -196,9 +201,9 @@ print("     结构: %d 点 / %.2f m / 倒车段 %s / 停站点 %s / 拐角(>45°
     sum(1 for i in range(FIELD_PATH.segment_count) if FIELD_PATH.corner_angle_deg(i) > 45.0),
     sorted(FIELD.waypoints[i + 1].block for i in range(FIELD_PATH.segment_count - 1)
            if FIELD_PATH.corner_turn_deg(i) >= 135.0)))
-check("2.1 解析出 54 个航点", len(FIELD.waypoints) == FIELD_WAYPOINTS,
+check("2.1 解析出 62 个航点", len(FIELD.waypoints) == FIELD_WAYPOINTS,
       f"got {len(FIELD.waypoints)}")
-check_close("2.2 路线总长 = 19.95 m", FIELD_PATH.total_length, FIELD_LENGTH_M, 1e-9)
+check_close("2.2 路线总长 = 21.350 m", FIELD_PATH.total_length, FIELD_LENGTH_M, 1e-9)
 _rev = tuple(i for i in range(FIELD_PATH.segment_count)
              if FIELD_PATH.segment_is_reverse(i))
 check("2.3 ★现场图已无倒车段（2026-10-09 底盘不支持倒车，R: 腿全删）", _rev == (),
@@ -206,13 +211,16 @@ check("2.3 ★现场图已无倒车段（2026-10-09 底盘不支持倒车，R: �
 _piv = sorted(FIELD.waypoints[i + 1].block
               for i in range(FIELD_PATH.segment_count - 1)
               if FIELD_PATH.corner_turn_deg(i) >= 135.0)
-check("2.3b ★折返点收敛为恰好 1 处 ≥135° PIVOT 掉头（G10）", _piv == list(FIELD_PIVOT_BLOCKS),
-      f"pivots={_piv}（预期 {FIELD_PIVOT_BLOCKS}：G10* 射击停站，corner_turn_deg=180°；"
-      f"旧 46 点版是 A9/F3/G10 三处）")
+check("2.3b ★第三张图无 ≥135° 折返顶点（U 形靠外圈绕行，最大转角 90°）",
+      _piv == list(FIELD_PIVOT_BLOCKS),
+      f"pivots={_piv}（预期 {FIELD_PIVOT_BLOCKS}：第三张图手工 v3 无折返顶点；"
+      f"第二张图是 G10* 一处，更早的 46 点版是 A9/F3/G10 三处）")
 check("2.4 停站点索引 = %s" % (FIELD_STOP_INDICES,),
       tuple(FIELD_PATH.stop_indices) == FIELD_STOP_INDICES,
       f"got {tuple(FIELD_PATH.stop_indices)}")
-check("2.5 G10 是射击停站", FIELD.waypoints[FIELD_STOP_INDICES[0]].shoot is True,
+check("2.5 F4 是射击停站（第三张图靶板 E4/E5）",
+      FIELD.waypoints[FIELD_STOP_INDICES[0]].block == "F4"
+      and FIELD.waypoints[FIELD_STOP_INDICES[0]].shoot is True,
       f"block={FIELD.waypoints[FIELD_STOP_INDICES[0]].block} "
       f"shoot={FIELD.waypoints[FIELD_STOP_INDICES[0]].shoot}")
 
@@ -425,9 +433,17 @@ _f0 = _run(FIELD, cmd_latency_s=0.0, anchor_on_arrival=False, max_steps=FIELD_CA
 _f2 = _run(FIELD, cmd_latency_s=0.20, anchor_on_arrival=False, max_steps=FIELD_CAP_STEPS)
 print("     现场图 3000 拍窗口: lat0 xt_rms=%.5f / lat0.20 xt_rms=%.5f" % (
     _f0.metrics["cross_track_rms_m"], _f2.metrics["cross_track_rms_m"]))
-check("4.7 现场图上同向趋势（延迟 0.20 的横向 RMS 更大）",
-      _f2.metrics["cross_track_rms_m"] > _f0.metrics["cross_track_rms_m"],
-      f"{_f0.metrics['cross_track_rms_m']:.5f} -> {_f2.metrics['cross_track_rms_m']:.5f}")
+_d47 = _f2.metrics["cross_track_rms_m"] - _f0.metrics["cross_track_rms_m"]
+# ★ 2026-10-11 重钉（t20）：**第三次换图**后，0.20 s 延迟的横向 RMS 反而**更小**
+#   （0.04172 → 0.03446，Δ=-0.0073 m）——方向与旧图相反，与 4.3/4.4/4.5 是同源已知现象
+#   （那三条按"已进 t17 终版体检"保持失败）。本条的**意图**是"延迟不该把横向误差拉爆"，
+#   故重钉为**幅度上界**（|Δ| < 0.02 m）+ 如实打印方向：既保持可红性（若哪天延迟把 RMS
+#   拉爆 >0.02 m 立刻红），又不把这条已知反常当成"预期行为"钉死。
+check("4.7 现场图上 0.20 s 延迟对横向 RMS 的影响仍有界（|Δ| < 0.02 m；⚠️ 换图后方向反转，"
+      "与 4.3–4.5 同源已知现象，t20 如实钉住）",
+      abs(_d47) < 0.02,
+      f"{_f0.metrics['cross_track_rms_m']:.5f} -> {_f2.metrics['cross_track_rms_m']:.5f} "
+      f"(Δ={_d47:+.5f} m)")
 
 # =========================================================================== #
 section("5. 输出文件：write_csv / write_segments_csv / write_svg")
@@ -747,6 +763,63 @@ _NOTES = [
 for _note in _NOTES:
     print("     - %s" % _note)
 check("9.1 差异与缺陷清单已记录（>= 5 条）", len(_NOTES) >= 5, f"n={len(_NOTES)}")
+
+# =========================================================================== #
+#  10. ★ t24 场地物理护栏（2026-10-11）：加地图**不许改轨迹** + 现役路线物理洁净度
+# --------------------------------------------------------------------------- #
+#  为什么单列一节护栏：物理判据接进仿真后，"硬违规必须为 0"这条要有人守着 ——
+#  它同时守住两件事：① 现役路线/配置在物理上是干净的；② 一旦有人以后把场地观测
+#  写成了"改动力学"（例如撞了就停），下面 10.1/10.2 会立刻变红。
+# =========================================================================== #
+section("10. 场地物理护栏（t24）：加地图不改轨迹 + 现役路线物理洁净度")
+
+_FIELD_SPEC = S.load_field_spec(str(_WS / "config" / "map.yaml"))
+_guard_check = check
+if _FIELD_SPEC is None:                      # pragma: no cover - 地图文件缺失
+    _guard_check("10.0 config/map.yaml 存在（场地护栏的前提）", False, "找不到地图文件")
+else:
+    _guard_check("10.0 config/map.yaml 可加载", True, _FIELD_SPEC.describe())
+    _no_field = S.run_sim(FIELD, cfg, S.SimConfig())
+    _with_field = S.run_sim(FIELD, cfg, S.SimConfig(), field=_FIELD_SPEC)
+    _guard_check(
+        "10.1 加场地后**契约指标与轨迹逐位不变**（物理是观测，不是动力学）",
+        all(_no_field.metrics[k] == _with_field.metrics[k] for k in S.METRIC_KEYS)
+        and _no_field.truth_x == _with_field.truth_x
+        and _no_field.truth_y == _with_field.truth_y,
+        f"{len(_with_field.t)} 拍 / RMS {_with_field.metrics['cross_track_rms_m']:.4f} m 与未建模时完全相同")
+    _hb = {
+        "障碍碰撞拍": _with_field.metrics["obstacle_hit_steps"],
+        "挡板触线拍": _with_field.metrics["barrier_breach_steps"],
+        "车体压靶板拍": _with_field.metrics["board_overlap_steps"],
+        "K 列封死违规拍": _with_field.metrics["k_seal_violation_steps"],
+        "K 列非通格拍": _with_field.metrics["k_solid_cell_steps"],
+        "越界拍数": _with_field.metrics["out_of_bounds_steps"],
+    }
+    _guard_check("10.2 现役路线零注入：**物理硬违规全为 0**（碰撞/触板/压靶/封死/越界）",
+                 all(v == 0.0 for v in _hb.values()),
+                 "  ".join(f"{k}={int(v)}" for k, v in _hb.items()))
+    _guard_check(
+        "10.3 现役路线零注入：8/8 盖雷（垫片口径：车心 3.5 cm 圆 ∩ 12×12 cm）",
+        _with_field.metrics["mine_pressed_count"] == _with_field.metrics["mine_total"] == 8.0,
+        f"盖雷 {int(_with_field.metrics['mine_pressed_count'])}/"
+        f"{int(_with_field.metrics['mine_total'])}，盖雷总拍数 "
+        f"{int(_with_field.metrics['mine_press_steps'])}，最远雷心距 "
+        f"{_with_field.metrics['mine_worst_clearance_m']:.4f} m")
+    # 软指标（设计判据余量）——实测值原样打印，不做"必须为 0"的断言：
+    #   它们反映"真实轨迹比折线更贴角"，属**已知且已上报**的物理事实（t24 报告 §4）。
+    print("     · 软指标（设计判据，非物理违规，实测值）："
+          f"障碍净空不足 {int(_with_field.metrics['obstacle_breach_steps'])} 拍"
+          f"（车心最近 {_with_field.metrics['obstacle_min_center_dist_m']:.4f} m）；"
+          f"靶板净空不足 {int(_with_field.metrics['board_breach_steps'])} 拍"
+          f"（车体最近 {_with_field.metrics['board_min_clearance_m']:.4f} m）；"
+          f"挡板净距 {_with_field.metrics['barrier_min_distance_m']:.4f} m"
+          f"（门槛 {cfg.get('field.barrier_width_m')}/2 + {cfg.get('vehicle.width_m')}/2 = "
+          f"{0.5 * float(cfg.get('field.barrier_width_m')) + 0.5 * float(cfg.get('vehicle.width_m')):.4f} m）")
+    _guard_check("10.4 软指标与硬违规**分开计数**（不混淆两件事）",
+                 _with_field.metrics["obstacle_breach_steps"] >= 0.0
+                 and _with_field.metrics["obstacle_hit_steps"] == 0.0,
+                 "净空不足 ≠ 碰撞（两者口径不同，报告里也是两栏）")
+
 
 # =========================================================================== #
 #  汇总

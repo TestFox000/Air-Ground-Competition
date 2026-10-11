@@ -179,6 +179,27 @@ SCHEMA: dict[str, Spec] = {
     "pursuit.align_kp": Spec(12.0, _F, "", 1.0, 40.0, "航向保持增益（度误差 → 度舵角 /10）"),
     "pursuit.align_steer_limit_deg": Spec(8.0, _F, "°", 1.0, 20.0, "直行段舵角限幅"),
 
+    # ---------------- ★物理几何（t22：用户 2026-10-11 现场口径）----------------
+    #  为什么单独一组键：车体/障碍/雷垫片/挡板的**尺寸**以前散落在各模块的硬编码里
+    #  （`route_check` 的 BARRIER_MIN_MARGIN=0.10 格带口径、雷覆盖用"到格心 0.21 m"），
+    #  现场一量尺寸就得改多处。现在全部收口到这里，公式放 `route/physics.py`。
+    "vehicle.length_m": Spec(0.28, _F, "m", 0.10, 1.00,
+                             "车体长（沿车头方向；现场实测 0.28）"),
+    "vehicle.width_m": Spec(0.135, _F, "m", 0.05, 0.60,
+                            "车体宽（现场实测 0.135；扫掠/挡板判据都用它的一半）"),
+    "vehicle.coverage_radius_m": Spec(0.035, _F, "m", 0.005, 0.20,
+                                      "★车心假设圆半径（压雷判据：车心到垫片 ≤ 此值算压到）"),
+    "field.obstacle_radius_m": Spec(0.1275, _F, "m", 0.01, 0.50,
+                                    "障碍圆柱半径（柱心在障碍格格心）"),
+    "field.mine_pad_m": Spec(0.12, _F, "m", 0.02, 0.35,
+                             "雷垫片边长（0.12×0.12 正方形，中心在雷格格心）"),
+    "field.barrier_width_m": Spec(0.02, _F, "m", 0.002, 0.20,
+                                  "挡板厚度（第 6/7 行之间的细条；半厚 0.01 进触线判据）"),
+    "field.barrier_cols": Spec("D..N", _S, "", None, None,
+                               "挡板覆盖的列（含两端；现场 D..N = 11 列 = 3.85 m）"),
+    "planner.obstacle_margin_m": Spec(0.02, _F, "m", 0.0, 0.30,
+                                      "障碍净空余量（规划/校验共用；判据 = r + 车半宽 + 此值）"),
+
     # ---------------- 路线与任务 ----
     "route.tokens": Spec(None, list, "", None, None, "mission_blocks（格名 token 列表）", True),
     "route.cross_lower_candidates": Spec([f"K{r}" for r in range(7, 12)], list, "",

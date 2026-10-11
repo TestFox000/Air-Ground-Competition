@@ -248,10 +248,10 @@
 # =============================================================================
 path_executor:
   ros__parameters:
-    linear_speed: 0.30   # ★基础巡航速度(m/s)。与 dzbrain 段 cruise_speed_mps 保持一致
+    linear_speed: 0.35   # ★基础巡航速度(m/s)。与 dzbrain 段 cruise_speed_mps 保持一致（2026-10-11 t22：0.30→0.35）
                                   #   从而更容易满足云台开火前的"画面稳定"判据
     auto_start: true             # ★一键启动后自动出发（调试时可临时改 false，车原地待命）
-    auto_start_delay: 10.0        # ★出发前留给底盘/相机/云台完成初始化的秒数
+    auto_start_delay: 2.0         # ★2026-10-11 快速采集(用户指令):10.0→2.0 出发前初始化秒数
     mission_scan_mode: continuous # continuous = 边走边扫 | waypoint = 到点停车扫描 | none
     mission_reset: "N10,y"
 
@@ -303,11 +303,11 @@ path_executor:
     #   ★必须 <= 云台 max_shots_per_target(默认 3)：云台到这个数就停火，
     #     若这里要得更多，循迹就只能干等 shoot_timeout，每个射击点白等 30 秒。
     shoot_count_target: 3
-    shoot_timeout: 30.0           # ★单个候选点硬超时(s)。超时立刻换点/放行，绝不卡死
+    shoot_timeout: 10.0           # ★2026-10-11 快速采集:30→10 单个候选点硬超时(s)。超时立刻换点/放行，绝不卡死
     shoot_settle_speed: 0.02      # 底盘速度小于此值视为"停住"(m/s)
     shoot_stable_frames: 5   # ★降低：连续 8 帧≈0.27s 过于苛刻，降到 5 帧
     shoot_stable_offset_px: 40.0   # ★放宽容差：原 25px 与云台开火框(26px)几乎重合，判定过紧
-    shoot_stable_timeout: 6.0     # 等稳定的最长时间(s)；等不到就降级放行而非死等
+    shoot_stable_timeout: 3.0     # ★2026-10-11 快速采集:6→3 等稳定的最长时间(s)；等不到就降级放行而非死等
 
     # ---- ★障碍表（射击点规划器算视线遮挡用）----
     obstacle_blocks: ["A5", "G5", "B6", "D7", "C8", "E9", "I9", "H10"]
@@ -317,8 +317,8 @@ path_executor:
     # ★ 2026-10-11 第三次换图：已同步为 p-81Zc2l/n11 像素级识图版的 8 障。
     # ---- ★打靶三段式状态机 ----
     #  0 停稳 -> 1 请求扫描并等锁定 -> 2 开火窗口。每段都有超时兜底。
-    shoot_settle_time: 0.8        # 位置连续多少秒不变才算"底盘停稳"
-    shoot_lock_timeout: 18.0      # 找靶阶段(阶段1)最长时间(s)，超时换点
+    shoot_settle_time: 0.4        # ★2026-10-11 快速采集:0.8→0.4 位置连续多少秒不变才算"底盘停稳"
+    shoot_lock_timeout: 6.0       # ★2026-10-11 快速采集:18→6 找靶阶段(阶段1)最长时间(s)，超时换点
     shoot_overshoot_tol: 0.30     # ★云台扫描仅 ±90°：车冲过射击点后，仍在此距离内补触发停站
                                   #   原来只认"半径 0.17m 以内"，冲过去就永远不触发、静默漏打
     shoot_slowdown_m: 0.60        # ★射击点前提前减速距离(m)，防止冲过头       # ★"扫完没找到"的判定延迟(s)。
@@ -437,7 +437,7 @@ path_executor:
       lookahead_max_m: 0.40   # ★ 1.2×0.30=0.36 > 旧上限 0.24/0.35 会被钳住 → 实测放到 0.40
       lookahead_k_v: 1.2              # 前视 = k_v × 速度
       lat_acc_max_mps2: 0.35          # 横向加速度上限（曲率限速）
-      cruise_speed_mps: 0.30   # 巡航速度；用户 2026-10-11 口径 0.30（实测跑完全程，见 t11 报告）
+      cruise_speed_mps: 0.35   # ★2026-10-11 现场口径（t22）：0.30 → 0.35 m/s。与 path_executor.linear_speed 同步（两条必须同值）；转角减速/PIVOT/前视等其余不动
       map_safety_margin_m: 0.60       # 越界急停余量（★新版提到状态机最顶层）
       drift_warn_m: 0.30              # 单段漂移告警
       drift_seg_gate_m: 0.18          # ★漂移判定用弧长窗口，不能绑在吸附半径上（否则永远报不出来）
@@ -458,14 +458,14 @@ path_executor:
 
     mission:
       auto_start: true
-      auto_start_delay_s: 10.0
+      auto_start_delay_s: 2.0            # ★2026-10-11 快速采集(用户指令):10→2 出发前初始化等待
       reset: "N10,y"
       scan_mode: continuous           # 边走边扫（readme【十】：绝不在到点发 1 降级成单次）
       shots_per_stop: 3               # 每个射击停站点打几发
-      shoot_timeout_s: 30.0           # 单点硬超时（绝不卡死）
-      lock_timeout_s: 18.0
-      settle_time_s: 0.8
-      bridge_info_wait_s: 20.0        # 等无人机桥洞情报的最长时间
+      shoot_timeout_s: 10.0           # ★2026-10-11 快速采集:30→10 单点硬超时（绝不卡死）
+      lock_timeout_s: 6.0             # ★2026-10-11 快速采集:18→6
+      settle_time_s: 0.4              # ★2026-10-11 快速采集:0.8→0.4
+      bridge_info_wait_s: 2.0         # ★2026-10-11 快速采集:20→2 等无人机桥洞情报的最长时间
 
     # ---- ★车上自动规划（任务卡 B）：启动时自己读地图算路线 ----
     #   与 route:/mission: 同级同缩进（4 空格）→ 点号键 planner.*
@@ -481,6 +481,8 @@ path_executor:
       pivot_penalty: 5.0              # ★ 折返惩罚/处；与 mission_blocks 生成参数一致（--pivot-penalty 5），
       mine_turn_penalty: 2.0           # ★ 雷格不得作拐点（车心必须压过雷心；0=关闭）
                                       #   使车上自动规划产出 G10* 版路线（19.95 m）= 仿真/bench 验证的同一版
+      obstacle_margin_m: 0.02          # ★t22 物理几何：障碍净空余量（判据 = 柱半径 0.1275 + 车半宽 0.0675
+                                      #   [顶点用扫掠半径 0.1554] + 此值；见 dzbrain/route/physics.py）
 
     aim:
       # ★ 移动轨道靶（F11+G11 一块跨格靶板，轨道行程 0.70m，4cm/s，无停顿来回；2026-10-11 换图）
@@ -518,9 +520,9 @@ path_executor:
       anchor_scale_max: 0.08            # 隐含尺度误差判别上限（仅判别，不改标定值）
       implied_scale_window: 4           # 尺度/沿程修正量统计窗口（拍）
       reanchor_pull_max_m: 0.35         # 横向重锚单次上限（且只在顶点窗口内）
-      drift_slow_after: 3               # 连续不健康 N 拍 → 降速
+      drift_slow_after: 999             # ★2026-10-11 快速采集(用户指令):3→999 解除"漂移降速"门禁(只告警不降速)
       drift_slow_speed_mps: 0.08        # 降速目标（经 motion_limit 下发给执行侧）
-      drift_stop_after: 8               # 连续不健康 N 拍 → 停车请求
+      drift_stop_after: 999             # ★2026-10-11 快速采集(用户指令):8→999 解除"漂移停车"门禁(只告警不停车)
       drift_clear_ticks: 5              # 连续干净 N 拍 → 撤销降速/停车
       boundary_guard_m: 0.10            # 离安全边界多近开始限速
       boundary_guard_speed_mps: 0.08    # 边界限速值
@@ -537,9 +539,9 @@ path_executor:
       info_stale_s: 30.0
 
     safety:
-      pose_timeout_s: 1.0
-      task_stall_s: 1.0
-      startup_grace_s: 3.0            # ★冷启动宽限：区分"还没收到数据"与"跑着跑着断流"
+      pose_timeout_s: 1.5             # ★2026-10-11 快速采集:1.0→1.5 减启动期误刹(t27 锁存现象)
+      task_stall_s: 1.5               # ★2026-10-11 快速采集:1.0→1.5
+      startup_grace_s: 8.0            # ★2026-10-11 快速采集:3→8 吸收启动抖动(冷启动宽限)
       brake_on_fault: true
 
 
@@ -577,12 +579,25 @@ path_executor:
     #   复验标准：同一直线重跑，停位距 A10 中心 ≤4 cm；仍欠程则按实测比再修一次。
     ticksPerMeter: 3280.0
     #  ticksPer2PI —— 原地转满一整圈(360°)对应的编码器计数（直接决定航向精度）。
-    #  ★★★ 2026-10-11 修正：2750.0 → 2723.0（用户现场指令，第五趟实跑前改）★★★
-    #   依据：2750 趟估计 scale=1.01000（原始 1.00980）⇒ 尺度仍高估 ~1% ⇒
-    #   物理真值 ≈ 2750/1.01 ≈ 2723 ⇒ 取 2723。
-    #   2750 趟成绩：131.8s 完赛、60/61、N5 FINISH——循迹已很好，这趟微调收尾。
-    #   几何等价轮距 = 2723/(2π×3280) = 0.132 m（yaw 通道独立常数，与 ticksPerMeter 不必同源）。
-    ticksPer2PI: 2723.0
+    #  ★★★ 2026-10-11 第二次修正：2723.0 → 2680.0（用户现场指令）★★★
+    #   依据（用户口径）：插值预测的尺度 scale ≈ 0.97 ⇒ 物理真值 ≈ 2723 × 0.97 ≈ 2641~2680 区间；
+    #     取 2680（保守一侧）。
+    #   ⚠️ 风险（如实记录，待实车仲裁）：scale≈0.97 意味着"按 2680 换算出的航向增量比物理偏大 ~3%"，
+    #     而**到位吸附会拒收**（观测与预测差超阈就不修正）⇒ 若实车出现"转完对不上、吸附不生效"，
+    #     按下面流程二分：先回 2723 复跑一趟 → 若明显变好则说明 2680 过冲 → 取中间值再试。
+    #   几何等价轮距 = 2680/(2π×3280) = 0.130 m（yaw 通道独立常数，与 ticksPerMeter 不必同源）。
+    ticksPer2PI: 2680.0
+
+    # ---- ★物理几何（t22：用户 2026-10-11 现场口径；公式在 dzbrain/route/physics.py）----
+    vehicle:
+      length_m: 0.28            # 车体长（沿车头方向）
+      width_m: 0.135            # 车体宽（半宽 0.0675 进挡板/障碍判据）
+      coverage_radius_m: 0.035  # ★车心假设圆半径（压雷判据：车心到 0.12×0.12 垫片 ≤ 此值算压到）
+    field:
+      obstacle_radius_m: 0.1275 # 障碍圆柱半径（柱心在障碍格格心）
+      mine_pad_m: 0.12          # 雷垫片边长（0.12×0.12 正方形，中心在雷格格心）
+      barrier_width_m: 0.02     # 挡板厚度（第 6/7 行之间、D..N 列的细条；半厚 0.01）
+      barrier_cols: "D..N"      # 挡板覆盖列（含两端 = 11 列 = 3.85 m）
 
     # ---- 抖动抑制窗口（调试期先别动）----
     smooth_window_speed: 20

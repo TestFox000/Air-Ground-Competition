@@ -85,6 +85,20 @@ BARRIER_COL_FROM = "D"
 # 判定阈值
 BARRIER_MIN_MARGIN = 0.10        # 过挡板缺口时离挡板边缘的最小余量(m)
 OBSTACLE_WARN_M = 0.30           # 航段离障碍的告警距离(m)
+
+#: ★★物理几何（t22：用户 2026-10-11 现场口径）—— 与 `config/robot.yaml` 的
+#: `vehicle.*` / `field.*` / `planner.obstacle_margin_m` 逐项对应，`load_cfg()` 会用配置值
+#: **覆盖**这里的默认值（默认值与 `core/config.py` SCHEMA 一致）。
+#: 公式与 `dzbrain/route/physics.py` 是**同一套**——本工具刻意不 import dzbrain（车端没装包
+#: 也要能单跑），所以由 `src/dzbrain/tests/test_physics.py` 的**对拍断言**钉住两份实现不许分叉。
+VEHICLE_LENGTH_M = 0.28          # 车体长
+VEHICLE_WIDTH_M = 0.135          # 车体宽（半宽 0.0675 进挡板/障碍判据）
+COVERAGE_RADIUS_M = 0.035        # 车心假设圆半径（压雷判据）
+OBSTACLE_RADIUS_M = 0.1275       # 障碍圆柱半径（柱心在格心）
+MINE_PAD_M = 0.12                # 雷垫片边长（0.12×0.12 正方形）
+BARRIER_WIDTH_M = 0.02           # 挡板厚度（2 cm 细条；半厚 0.01 进触线判据）
+BARRIER_COLS = "D..N"            # 挡板覆盖的列（含两端 = 11 列 = 3.85 m）
+OBSTACLE_MARGIN_M = 0.02         # 障碍净空余量
 SHOOT_DIST_MIN = 0.20            # 射击点距离下限(m)，会被配置中心覆盖
 SHOOT_DIST_MAX = 0.45            # 射击点距离上限(m)，会被配置中心覆盖
 SHARP_CORNER_DEG = 45.0          # 超过此角度算"急转弯"（提示级；★ PIVOT 的真正门限见下行）
@@ -503,6 +517,219 @@ def path_length(pts):
 
 
 # =============================================================================
+#  ★物理几何判据（t22）—— 公式与 `dzbrain/route/physics.py` 同一套（对拍见 test_physics.py）
+# =============================================================================
+def _phys_point_seg_dist(px, py, ax, ay, bx, by):
+    """点 P 到线段 AB 的最近距离。"""
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy
+    if L2 <= 1e-18:
+        return math.hypot(px - ax, py - ay)
+    t = ((px - ax) * dx + (py - ay) * dy) / L2
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def _phys_point_rect_dist(px, py, cx, cy, half):
+    """点到轴对齐矩形（心 (cx,cy)、半边长 half）的最近距离；在矩形内 = 0。
+
+    ★ 压雷必须用**点到矩形**的距离：垫片是 0.12 m 见方的方块，"贴边压过"时
+      车心离雷心可以到 0.06+0.035 = 0.095 m 仍算压到（差一个垫片半宽 0.06 m 量级）。
+    """
+    ox, oy = abs(px - cx) - half, abs(py - cy) - half
+    if ox <= 0.0 and oy <= 0.0:
+        return 0.0
+    return math.hypot(max(ox, 0.0), max(oy, 0.0))
+
+
+def _phys_seg_rect_intersects(ax, ay, bx, by, cx, cy, half):
+    """线段与轴对齐矩形是否相交（含相切）—— Liang–Barsky 平板裁剪。"""
+    lo_x, hi_x = cx - half, cx + half
+    lo_y, hi_y = cy - half, cy + half
+    dx, dy = bx - ax, by - ay
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, ax - lo_x), (dx, hi_x - ax), (-dy, ay - lo_y), (dy, hi_y - ay)):
+        if abs(p) <= 1e-18:
+            if q < 0.0:
+                return False
+            continue
+        r = q / p
+        if p < 0.0:
+            if r > t1:
+                return False
+            if r > t0:
+                t0 = r
+        else:
+            if r < t0:
+                return False
+            if r < t1:
+                t1 = r
+    return t0 <= t1
+
+
+def _phys_seg_rect_dist(ax, ay, bx, by, cx, cy, half):
+    """线段到轴对齐矩形的最近距离（相交 = 0）。
+
+    两步：① 平板裁剪判相交（少了它，"从矩形中间穿过去"会被算成"离角还有 half 那么远"）；
+          ② 不相交时取 `min(4 个角到线段, 两端点到矩形)` —— 凸集最近点对必在某一方的顶点上。
+    """
+    if _phys_seg_rect_intersects(ax, ay, bx, by, cx, cy, half):
+        return 0.0
+    corners = ((cx - half, cy - half), (cx + half, cy - half),
+               (cx + half, cy + half), (cx - half, cy + half))
+    return min(min(_phys_point_seg_dist(qx, qy, ax, ay, bx, by) for qx, qy in corners),
+               _phys_point_rect_dist(ax, ay, cx, cy, half),
+               _phys_point_rect_dist(bx, by, cx, cy, half))
+
+
+def _phys_seg_seg_dist(ax, ay, bx, by, cx, cy, dx, dy):
+    """两条线段的最近距离（相交 = 0）。"""
+    def _cross(ox, oy, px, py, qx, qy):
+        return (px - ox) * (qy - oy) - (py - oy) * (qx - ox)
+    d1 = _cross(cx, cy, dx, dy, ax, ay)
+    d2 = _cross(cx, cy, dx, dy, bx, by)
+    d3 = _cross(ax, ay, bx, by, cx, cy)
+    d4 = _cross(ax, ay, bx, by, dx, dy)
+    if ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)):
+        return 0.0
+    return min(_phys_point_seg_dist(ax, ay, cx, cy, dx, dy),
+               _phys_point_seg_dist(bx, by, cx, cy, dx, dy),
+               _phys_point_seg_dist(cx, cy, ax, ay, bx, by),
+               _phys_point_seg_dist(dx, dy, ax, ay, bx, by))
+
+
+def vehicle_half_diagonal_m(length_m=None, width_m=None):
+    """车体半对角线（= 拐角扫掠半径）= ``√((L/2)² + (W/2)²)``（现场 0.15542 m）。"""
+    L = VEHICLE_LENGTH_M if length_m is None else length_m
+    W = VEHICLE_WIDTH_M if width_m is None else width_m
+    return math.hypot(L / 2.0, W / 2.0)
+
+
+def bridge_column(bridges, default="K"):
+    """从 `bridges` 列表推出桥洞所在**列字母**（现场 K1/K11 → `"K"`）；空则用 default。
+
+    ★ 只取第一个字母：本工具的桥洞豁免/统计都按"一个桥洞列"建模（现场就是 K 列），
+      多列时按字母序取首个，并在调用处如实打印，避免"没豁免"或"乱豁免"。
+    """
+    letters = sorted({str(b).strip().upper()[:1] for b in (bridges or []) if str(b).strip()})
+    return letters[0] if letters else default
+
+
+def mine_clearance_by_route(pts, mine_block):
+    """路线（折线）到**雷垫片**（`MINE_PAD_M` 见方）的最近距离；格名非法返回 9e9。
+
+    ⇒ **压雷判据** = 该值 ≤ `COVERAGE_RADIUS_M`（车心 3.5 cm 圆与垫片产生过重叠）。
+    """
+    try:
+        mx, my = block_to_meters(mine_block)
+    except ValueError:
+        return 9e9
+    half = MINE_PAD_M / 2.0
+    return min((_phys_seg_rect_dist(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1],
+                                    mx, my, half)
+                for i in range(len(pts) - 1)), default=9e9)
+
+
+def obstacle_clearances(pts, obstacles, rev_f=None):
+    """障碍净空：``(直段最小距离, 段号, 障碍名, 拐角最小距离, 航点号, 障碍名)``。
+
+    * **直段口径**：折线到柱心 ≥ `柱半径 + 车半宽 + margin` = 0.1275+0.0675+0.02 = **0.215 m**；
+    * **拐角口径**：转向顶点到柱心 ≥ `柱半径 + 扫掠半径 + margin` = 0.1275+0.1554+0.02 = **0.3029 m**
+      （车绕顶点转向时车身外包圆 = 半对角线；用"车半宽"会低估 0.088 m）。
+      倒车顶点（`_is_rev_vertex`）不算转向 —— 那只是"开到死格再退出来"，车没掉头。
+    """
+    d_seg, seg_i, seg_name = 9e9, -1, ""
+    for i in range(len(pts) - 1):
+        for ob in obstacles:
+            try:
+                ox, oy = block_to_meters(ob)
+            except ValueError:
+                continue
+            d = _phys_point_seg_dist(ox, oy, pts[i][0], pts[i][1],
+                                     pts[i + 1][0], pts[i + 1][1])
+            if d < d_seg:
+                d_seg, seg_i, seg_name = d, i, ob
+    d_turn, turn_i, turn_name = 9e9, -1, ""
+    for i, ang in turn_angles(pts):
+        if ang <= 10.0:                                  # 基本直线 ⇒ 车身横向占位只有半宽
+            continue
+        if rev_f is not None and _is_rev_vertex(i, rev_f):
+            continue
+        for ob in obstacles:
+            try:
+                ox, oy = block_to_meters(ob)
+            except ValueError:
+                continue
+            d = math.hypot(pts[i][0] - ox, pts[i][1] - oy)
+            if d < d_turn:
+                d_turn, turn_i, turn_name = d, i, ob
+    return d_seg, seg_i, seg_name, d_turn, turn_i, turn_name
+
+
+def barrier_centerline():
+    """挡板**中心线** ``(x, y0, y1)``：第 6/7 行中点、`BARRIER_COLS` 覆盖列的外缘。
+
+    现场 = `(1.75, 0.0, 3.85)`（长 3.85 m = 11 列 × 0.35 m）。
+    """
+    x_hi = (10.5 - (BARRIER_ROW_HI - 1)) * BLOCK_SIZE
+    x_lo = (10.5 - (BARRIER_ROW_LO - 1)) * BLOCK_SIZE
+    spec = str(BARRIER_COLS).upper().replace("..", "-").replace("—", "-")
+    a, _, b = spec.partition("-")
+    a = (a.strip() or "D")[0]
+    b = (b.strip() or a)[0]
+    c0, c1 = COL_LETTERS.index(a), COL_LETTERS.index(b)
+    y_a = (13.5 - c0) * BLOCK_SIZE + BLOCK_SIZE / 2.0
+    y_b = (13.5 - c1) * BLOCK_SIZE - BLOCK_SIZE / 2.0
+    return (x_hi + x_lo) / 2.0, min(y_a, y_b), max(y_a, y_b)
+
+
+def seg_outside_band(ax, ay, bx, by, band_y, band_half):
+    """把线段抠掉"落在 ``|y − band_y| ≤ band_half`` 带内"的部分，返回剩余子线段。
+
+    ★ 用途：**桥洞豁免** —— 挡板在 K 列有通口，带内穿行合法；带外照样不许贴线。
+      必须精确抠段（"一端点在带内就整段豁免"会把"斜着蹭过洞口外侧"放过去）。
+    """
+    out = []
+    lo, hi = band_y - band_half, band_y + band_half
+    dy = by - ay
+    if abs(dy) <= 1e-15:
+        if ay < lo - 1e-12 or ay > hi + 1e-12:
+            out.append((ax, ay, bx, by))
+        return out
+    ta, tb = (lo - ay) / dy, (hi - ay) / dy
+    c0, c1 = max(0.0, min(ta, tb)), min(1.0, max(ta, tb))
+    if c0 >= c1:
+        out.append((ax, ay, bx, by))
+        return out
+    for (u, v) in ((0.0, c0), (c1, 1.0)):
+        if v - u > 1e-12:
+            out.append((ax + u * (bx - ax), ay + u * dy,
+                        ax + v * (bx - ax), ay + v * dy))
+    return out
+
+
+def barrier_touch_min(pts, bridge_col="K"):
+    """车心到挡板**中心线**的最近距离，返回 ``(距离, 段号)``。
+
+    ★ 判据：该值 ≥ `挡板半厚 + 车半宽` = 0.01 + 0.0675 = **0.0775 m**（2 cm 细条口径），
+      **不得跨越**。
+    ★★ 2026-10-11 用户现场澄清（以澄清为准）：挡板是 385 cm × 2 cm 细条、第 6/7 行之间、
+      **D..N 列（含 K 段）** ⇒ 挡板在 K 列处**没有通口**（"通格 K1/K11 横向贯通"说的是
+      K 列**格与格之间**的纵向封死关系，不是挡板上的洞）⇒ 本判据**不做桥洞豁免**。
+      （`seg_outside_band()` 作为通用工具保留，本判据不再调用。）
+    :param bridge_col: 仅为兼容旧签名保留；判据本身已与桥洞无关。
+    """
+    x, y0, y1 = barrier_centerline()
+    best, best_i = 9e9, -1
+    for i in range(len(pts) - 1):
+        (ax, ay), (bx, by) = pts[i], pts[i + 1]
+        d = _phys_seg_seg_dist(ax, ay, bx, by, x, y0, x, y1)
+        if d < best:
+            best, best_i = d, i
+    return best, best_i
+
+
+# =============================================================================
 #  主流程
 # =============================================================================
 def run_check(route: str, cfg: dict) -> int:
@@ -582,6 +809,22 @@ def run_check(route: str, cfg: dict) -> int:
                "均在 %s 列，最小余量 %.3f m"
                % ("/".join(sorted({c['col'] for c in crossings})), m))
 
+    # ★挡板**触线**（t22：细条口径替换旧的格带口径）
+    #   旧口径：只看"过缺口时的余量 ≥ 0.10 m"（`BARRIER_MIN_MARGIN`），挡板被当成一整格宽。
+    #   新口径：挡板是 2 cm 细条 ⇒ 车心到**中心线** ≥ 半厚 + 车半宽 = 0.0775 m；
+    #          桥洞 K 处豁免（`seg_outside_band` 精确抠段，见其 docstring）。
+    _bx, _by0, _by1 = barrier_centerline()
+    _bd, _bi = barrier_touch_min(pts, bridge_col=bridge_column(bridges))
+    _bd_req = BARRIER_WIDTH_M / 2.0 + VEHICLE_WIDTH_M / 2.0
+    if _bd < _bd_req - 1e-9:
+        bad("挡板触线 %.4f m < %.4f m" % (_bd, _bd_req),
+            "航段#%d 距挡板中心线 x=%.3f（y %.3f~%.3f）不足；"
+            "判据 = 挡板半厚 %.3f + 车半宽 %.4f"
+            % (_bi, _bx, _by0, _by1, BARRIER_WIDTH_M / 2.0, VEHICLE_WIDTH_M / 2.0))
+    else:
+        ok("挡板不触线 %.4f m ≥ %.4f m" % (_bd, _bd_req),
+           "最近在航段#%d（挡板 D..N 含 K 段连续，无豁免）" % _bi)
+
     # 障碍距离
     if obstacles:
         d, where = seg_obstacle_min(pts, obstacles)
@@ -593,6 +836,27 @@ def run_check(route: str, cfg: dict) -> int:
                % (d, where[0], where[1], OBSTACLE_WARN_M))
     else:
         info("障碍距离", "未提供障碍表，跳过")
+
+    # ★障碍**净空**（t22 新增，**error 级**）：直段 0.215 m / 拐角按扫掠圆 0.3029 m
+    if obstacles:
+        _ds, _si, _sn, _dt, _ti, _tn = obstacle_clearances(pts, obstacles, rev_f)
+        _req_straight = OBSTACLE_RADIUS_M + VEHICLE_WIDTH_M / 2.0 + OBSTACLE_MARGIN_M
+        _req_corner = (OBSTACLE_RADIUS_M
+                       + vehicle_half_diagonal_m(VEHICLE_LENGTH_M, VEHICLE_WIDTH_M)
+                       + OBSTACLE_MARGIN_M)
+        _villain = []
+        if _ds < _req_straight - 1e-9:
+            _villain.append("直段 %.3f < %.3f m（航段#%d 距 障%s）" % (_ds, _req_straight, _si, _sn))
+        if _dt < _req_corner - 1e-9:
+            _villain.append("拐角 %.3f < %.3f m（航点#%d 距 障%s，按扫掠半径 %.4f）"
+                            % (_dt, _req_corner, _ti, _tn, vehicle_half_diagonal_m()))
+        if _villain:
+            bad("障碍净空不足", "；".join(_villain))
+        else:
+            ok("障碍净空", "直段 %.3f ≥ %.3f m；拐角 %.3f ≥ %.3f m（扫掠半径 %.4f）"
+               % (_ds, _req_straight, _dt, _req_corner, vehicle_half_diagonal_m()))
+    else:
+        info("障碍净空", "未提供障碍表，跳过")
 
     # 转弯角度
     # ★必须排除倒车段：'R:K9' 这种是"往前开、然后倒着退一格"，
@@ -625,24 +889,31 @@ def run_check(route: str, cfg: dict) -> int:
     # 改为"桥洞列被水平直穿足够多次"—— 把整列 11 格都算进去没有意义。
     _bridge_group_check(bridges, pts)
 
+    # ★★★ 雷覆盖（t22 换成**物理判据**）：车心 3.5 cm 圆与 0.12×0.12 垫片是否产生过重叠
+    #   ⇔ 路线（折线）到**垫片**的最近距离 ≤ `COVERAGE_RADIUS_M`（0.035 m）。
+    #   ⚠️ 旧口径是"路线到**雷格心** ≤ BLOCK_SIZE*0.6 = 0.21 m"——它是个"差不多踩到"的宽松代理，
+    #      既会把"擦着格心 0.2 m 过"判成压到（垫片只有 0.12 m 见方，实际差 0.1 m 就没压上），
+    #      又会把"贴边压过"（车心离雷心 0.095 m、圆与垫片确实重叠）判成压到 ——**恰好相反方向**。
+    #      现场口径（用户给定）：判据必须落在**点到正方形**的距离上，不能用"到格心 ≤ 3.5 cm"。
     for name, lst in (("雷", mines),):
         if not lst:
             info("%s覆盖" % name, "未提供，跳过")
             continue
-        miss, far = [], []
+        miss, worst = [], []
         for x in lst:
-            cov, d = route_covers(pts, x)
-            if not cov:
-                miss.append("%s(%.2fm)" % (x, d))
-            elif d > BLOCK_SIZE * 0.25:
-                far.append("%s(%.2fm)" % (x, d))
+            d = mine_clearance_by_route(pts, x)
+            if d > COVERAGE_RADIUS_M + 1e-12:
+                miss.append("%s(离垫片 %.3fm)" % (x, d))
+            else:
+                worst.append(d)
         if miss:
             bad("%s覆盖 %d/%d" % (name, len(lst) - len(miss), len(lst)),
-                "未经过: %s" % " ".join(miss))
+                "未压到（车心 %.3fm 圆 ∩ %.2fm 垫片）: %s"
+                % (COVERAGE_RADIUS_M, MINE_PAD_M, " ".join(miss)))
         else:
-            extra = ("（其中 %s 为途经而非航点，已确认真实压过）"
-                     % " ".join(far)) if far else ""
-            ok("%s覆盖 %d/%d" % (name, len(lst), len(lst)), extra)
+            ok("%s覆盖 %d/%d（车心 %.3fm 圆 ∩ %.2fm 垫片）" % (name, len(lst), len(lst),
+                                                              COVERAGE_RADIUS_M, MINE_PAD_M),
+               "最差 %.4f m（阈值 %.3f）" % (max(worst), COVERAGE_RADIUS_M))
 
     # ★★【航点压过靶板 = ❌ error】(t12, 2026-10-11)
     #   用户口径：「所有靶子都是一个占用两格的跨格靶板」⇒ 靶板是**实体**，车不能开上去。
@@ -693,6 +964,43 @@ def run_check(route: str, cfg: dict) -> int:
         else:
             ok("航段不横穿靶板", "全路线（含直段中间的格）离最近靶格心 %.3f m > %.3f m"
                % (worst, TARGET_RUNOVER_TOL_M))
+
+    # ★★【车体压靶 = ❌ error】(t22 追加：用户 2026-10-11 现场澄清④)
+    #   靶板 **35×35 cm/格、中心在格心** ⇒ 格级挡块（planner 侧）"恰好物理精确"（澄清③，那边不动）；
+    #   路线几何这一侧的判据是：**车体 28×13.5 不许与靶板 overlap** ⇔
+    #     直段：折线到靶板**矩形**的距离 ≥ 车半宽 0.0675；
+    #     拐角：转向顶点到靶板矩形的距离 ≥ 车体半对角线 0.1554（车绕顶点转时车身外包圆）。
+    #   ⚠️ 与上一条「航段横穿靶板」（车心半格口径）是**两级纵深**：这条是物理精确口径，
+    #      两条都是 error 级；常量全部来自 config（`vehicle.*`），本工具不写第二份。
+    if targets:
+        _bhalf = BLOCK_SIZE / 2.0
+        _req_str = VEHICLE_WIDTH_M / 2.0
+        _req_cnr = vehicle_half_diagonal_m(VEHICLE_LENGTH_M, VEHICLE_WIDTH_M)
+        _bs, _bt = 9e9, 9e9
+        for _t in targets:
+            try:
+                _tx, _ty = block_to_meters(_t)
+            except ValueError:
+                continue
+            for _i in range(len(pts) - 1):
+                _bs = min(_bs, _phys_seg_rect_dist(pts[_i][0], pts[_i][1],
+                                                   pts[_i + 1][0], pts[_i + 1][1],
+                                                   _tx, _ty, _bhalf))
+            for _i, _ang in turn_angles(pts):
+                if _ang <= 10.0 or (rev_f is not None and _is_rev_vertex(_i, rev_f)):
+                    continue
+                _bt = min(_bt, _phys_point_rect_dist(pts[_i][0], pts[_i][1], _tx, _ty, _bhalf))
+        _bv = []
+        if _bs < _req_str - 1e-9:
+            _bv.append("直段 %.4f < %.4f m（车半宽）" % (_bs, _req_str))
+        if _bt < _req_cnr - 1e-9:
+            _bv.append("拐角 %.4f < %.4f m（车体半对角线 %.4f）" % (_bt, _req_cnr,
+                                                                  vehicle_half_diagonal_m()))
+        if _bv:
+            bad("车体压靶板", "；".join(_bv))
+        else:
+            ok("车体不压靶板", "直段 %.4f ≥ %.4f m；拐角 %.4f ≥ %.4f m（靶板 %.2f m 见方，中心在格心）"
+               % (_bs, _req_str, _bt, _req_cnr, BLOCK_SIZE))
 
     # ★靶标按【射击覆盖】判定：靶不需要被踩到，只要路线上有某个
     #   "射击点"落在 0.20~0.45m 且视线通畅即可开火。
@@ -947,6 +1255,23 @@ def load_cfg(path):
             pu = dz.get('pursuit') if isinstance(dz.get('pursuit'), dict) else {}
             if pu and 'pivot_angle_deg' in pu:
                 globals()['PIVOT_DECL_DEG'] = float(pu['pivot_angle_deg'])
+            # ★★物理几何（t22）：尺寸全部随配置走，判据里**不许**再出现硬编码数字。
+            #   现场一量尺寸只改 `config/robot.yaml`，本工具的判据自动跟上。
+            veh = dz.get('vehicle') if isinstance(dz.get('vehicle'), dict) else {}
+            fld = dz.get('field') if isinstance(dz.get('field'), dict) else {}
+            pln = dz.get('planner') if isinstance(dz.get('planner'), dict) else {}
+            for _src, _k, _g in ((veh, 'length_m', 'VEHICLE_LENGTH_M'),
+                                 (veh, 'width_m', 'VEHICLE_WIDTH_M'),
+                                 (veh, 'coverage_radius_m', 'COVERAGE_RADIUS_M'),
+                                 (fld, 'obstacle_radius_m', 'OBSTACLE_RADIUS_M'),
+                                 (fld, 'mine_pad_m', 'MINE_PAD_M'),
+                                 (fld, 'barrier_width_m', 'BARRIER_WIDTH_M'),
+                                 (pln, 'obstacle_margin_m', 'OBSTACLE_MARGIN_M')):
+                if _k in _src:
+                    globals()[_g] = float(_src[_k])
+            if fld.get('barrier_cols'):
+                globals()['BARRIER_COLS'] = str(fld['barrier_cols'])
+            cfg['physics'] = {'vehicle': dict(veh), 'field': dict(fld), 'planner': dict(pln)}
         except Exception as exc:
             print("  ⚠️  读配置中心失败: %s" % exc, file=sys.stderr)
 

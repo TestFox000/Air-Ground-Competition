@@ -168,7 +168,8 @@ check("★ 变化的行全部是 auto_start 行（不误伤别的配置）",
       f"改了 {len(_diff_lines)} 行")
 check("★ 每处 auto_start: true 都被改成 false",
       _exp_text.count("auto_start: true") == 0 and _exp_text.count("auto_start: false") == 2)
-check("注释与其它键原样保留", "自动出发" in _exp_text and "auto_start_delay: 10.0" in _exp_text)
+check("注释与其它键原样保留", "自动出发" in _exp_text and "auto_start_delay: 2.0" in _exp_text
+      )  # ★2026-10-11 快速采集(用户指令):10.0→2.0,期望值同步
 
 
 section("④ 包完整性：整包替换后车端能直接编译（少一个文件就会把车端搞挂）")

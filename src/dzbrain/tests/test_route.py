@@ -550,24 +550,32 @@ def test_real_robot_yaml() -> None:
     # ★ 2026-10-11 重钉（t18）：路线 46 点 → 54 点。理由（t11 加固后的新几何）：
     #   8 个雷全部改走「进点—雷格—出点」直线穿越（每个雷多 1 个进点：J8/I8/H8/H7/C4/B4/B2/C1 等），
     #   0 段 R:、:PIVOT 只剩 1 处（G10* 射击停站），总长仍 19.95 m。历史：34 点(10-07) → 46 点 → 54 点。
-    check("route.tokens 是 54 个 token（识图版 + 雷心直线穿越加固）",
-          isinstance(tokens, list) and len(tokens) == 54,
+    # ★ 2026-10-11 重钉（t20）：**第三次换图**（现场图 p-81Zc2l，用户已实跑两趟）⇒ 路线 **62 点**。
+    #   这一版是**手工 v3**（`path_executor.mission_blocks`；规划器 `auto_plan_enabled=false`
+    #   期间的现役路线）：U 形靠外圈绕行、最大转角 90°（**无 ≥135° 折返顶点**）、0 段 R:、
+    #   射击停站 `F4*`（靶板 E4/E5）、桥洞 K11(下半场) / K1(上半场)。
+    #   历史：34 点(10-07) → 46 点 → 54 点(t11) → **62 点(t20)**。
+    check("route.tokens 是 62 个 token（第三张图手工 v3）",
+          isinstance(tokens, list) and len(tokens) == 62,
           f"{len(tokens) if isinstance(tokens, list) else type(tokens).__name__} 个")
-    if isinstance(tokens, list) and len(tokens) == 54:
+    if isinstance(tokens, list) and len(tokens) == 62:
         check("现场图路线首点 N10", tokens[0] == "N10", repr(tokens[0]))
         check("现场图路线末点 N5", tokens[-1].startswith("N5"), repr(tokens[-1]))
-        check("现场图路线含射击点 G10*", any(t.startswith("G10*") for t in tokens), repr(tokens))
-        check("现场图路线含两处桥洞穿越（K7 下半场 / K1 上半场）",
-              "K7" in tokens and "K1" in tokens, repr([t for t in tokens if t.startswith("K")]))
+        check("现场图路线含射击点 F4*（靶板 E4/E5）",
+              any(t.startswith("F4*") for t in tokens), repr(tokens))
+        check("现场图路线含两处桥洞穿越（K11 下半场 / K1 上半场）",
+              "K11" in tokens and "K1" in tokens, repr([t for t in tokens if t.startswith("K")]))
         route = P.parse_mission(tokens)
-        check("现场图路线能被 parse_mission 解析（54 点）", len(route) == 54, f"{len(route)} 点")
+        check("现场图路线能被 parse_mission 解析（62 点）", len(route) == 62, f"{len(route)} 点")
     check("mission.reset 迁移自 mission_reset", cfg.get("mission.reset") == "N10,y",
           repr(cfg.get("mission.reset")))
-    # ★ 2026-10-11 重钉（t18）：巡航 0.15 → 0.30 m/s（用户新指令；t11 扫描 cruise 0.20~0.35 全区间单调，
-    #   0.30 需 lookahead_max ≥ 0.36，现场取 0.40）。旧核同义键 path_executor.linear_speed 已同步为 0.30。
-    check("pursuit.cruise_speed_mps 迁移自 linear_speed（0.30）",
-          abs(float(cfg.get("pursuit.cruise_speed_mps")) - 0.30) < 1e-9,
-          repr(cfg.get("pursuit.cruise_speed_mps")))
+    # ★ 2026-10-11 重钉（t22）：巡航 0.30 → **0.35 m/s**（用户现场口径）。
+    #   历史：0.15（t18 前）→ 0.30（t18，lookahead_max 0.40 配套）→ 0.35（t22）。
+    #   ⚠️ 行内保留旧值原文（`linear_speed（0.30）` 与 旧断言本体 `- 0.30`）作为
+    #      `tools/calib_backfill.py` 的钉锚点（内容式定位；该映射在 t2 写域，本卡不改）。
+    check("pursuit.cruise_speed_mps 迁移自 linear_speed（0.35）（旧 linear_speed（0.30））",
+          abs(float(cfg.get("pursuit.cruise_speed_mps")) - 0.35) < 1e-9,
+          repr(cfg.get("pursuit.cruise_speed_mps")) + "（旧断言本体 - 0.30）")
 
 
 # --------------------------------------------------------------------------- #

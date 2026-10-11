@@ -313,7 +313,9 @@ check("默认路径指向 <repo>/config/map.yaml 且存在",
 task, bridge, bb, bus, clock, sub = build(local_map=None)
 check("不传 local_map → 自动读仓库默认地图（loaded=True）", task.map_loaded is True,
       f"got {task.map_loaded} source={task._map_source}")
-check("靶区从 map.yaml 读出 = {F11,G11}", task.targets == frozenset({"F11", "G11"}),
+# ★ 2026-10-11 重钉（t20）：第三次换图（现场图 p-81Zc2l）靶板 = **E4 + E5**（跨格靶板）。
+check("靶区从 map.yaml 读出 = {E4,E5}（第三张图跨格靶板）",
+      task.targets == frozenset({"E4", "E5"}),
       f"got {sorted(task.targets)}")
 check("雷 8 个、障 8 个被读出",
       len(task.mines) == 8 and len(task.obstacles) == 8,

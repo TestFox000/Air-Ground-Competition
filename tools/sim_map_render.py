@@ -15,7 +15,7 @@ r"""sim_map_render.py —— 把「仿真跑过的路线」渲染成场地 PNG �
 ③ 隔板：第 6/7 行之间、D~N 列【整条封死】，不允许触碰、不允许跨越；
    只有 A/B/C 三列（隔板西端）能上下穿行。画成连续粗黑线，【不在 K 列留缺口】。
 ④ K 列：整列是一座桥，每一格都是一个桥洞、彼此被侧壁隔开；
-   横穿 K 列【不必强制直行】（用户 2026-10-11 口径：纯追踪 + 调好速度/前视即可平稳通过）。本局开放格 = map.bridges（K1/K7，青色），
+   横穿 K 列【不必强制直行】（用户 2026-10-11 口径：纯追踪 + 调好速度/前视即可平稳通过）。本局开放格 = map.bridges（**随图变**，如第三张图 K1/K11，青色），
    其余 K 格画成封闭桥室（浅灰）。穿越顺序：先 L→K→J（下半场向西），后 J→K→L（上半场向东）。
 ⑤ 起点 N10、终点 N5。射击停站（token 带 *）画品红星；折返 PIVOT（:PIVOT）画紫菱
    （真车底盘不支持倒车，折返一律 PIVOT 原地掉头）。
@@ -181,7 +181,7 @@ def render(map_path, route, csv_path, bench_log, out, title):
         ax.text(-0.16, (11.5 - r) * CELL, str(r), ha="center", va="center",
                 fontsize=9, color="0.35", fontweight="bold")
 
-    # ---- K 列 = 桥（整列侧壁 + 每格隔开；本局开 K1/K7）----
+    # ---- K 列 = 桥（整列侧壁 + 每格隔开；开放格随图变，见 m['bridges']）----
     kx_w = col_sx("K") - CELL / 2           # K 列西缘
     kx_e = col_sx("K") + CELL / 2           # K 列东缘
     open_blocks = set(m["bridges"])
@@ -236,15 +236,18 @@ def render(map_path, route, csv_path, bench_log, out, title):
         sx, sy = cell_center(b)
         ax.plot(sx, sy, marker="o", ms=10, mfc="red", mec="darkred", mew=1.8, ls="none", zorder=6)
 
-    # ---- 起终点（N10 起点右下 · N5 终点）----
-    sx_s, sy_s = cell_center(m["start"])
-    sx_e, sy_e = cell_center(m["end"])
-    ax.plot(sx_s, sy_s, marker="o", ms=12, mfc="lime", mec="green", mew=1.5, ls="none", zorder=7)
-    ax.plot(sx_e, sy_e, marker="*", ms=16, mfc="gold", mec="green", mew=1.2, ls="none", zorder=7)
-    ax.annotate(f"起点 {m['start']}", (sx_s, sy_s), textcoords="offset points",
-                xytext=(6, 8), fontsize=9, color="green")
-    ax.annotate(f"终点 {m['end']}", (sx_e, sy_e), textcoords="offset points",
-                xytext=(6, 8), fontsize=9, color="green")
+    # ---- 起终点（★★ 一整个格子：35×35 cm，与场地格完全重合 —— 用户 2026-10-11 口径）----
+    #   ⚠️ 以前画的是"绿点 / 金星"（点状标记），用户明确要求"起点终点都是一整个格子"，
+    #      所以改成整格色块 + 格心上写标签（再大的轨迹压上去也认得出是哪一格）。
+    for cell, face, edge, tag in ((m["start"], "#b2f2bb", "#2b8a3e", "起点"),
+                                  (m["end"], "#ffe066", "#e8590c", "终点")):
+        cx, cy = cell_center(cell)
+        ax.add_patch(plt.Rectangle((cx - CELL / 2.0, cy - CELL / 2.0), CELL, CELL,
+                                   facecolor=face, alpha=0.9, edgecolor=edge,
+                                   lw=2.2, zorder=7))
+        ax.annotate(f"{tag}\n{cell}", (cx, cy), ha="center", va="center",
+                    fontsize=8.5, color="black", fontweight="bold", zorder=10,
+                    bbox=dict(boxstyle="round,pad=0.15", fc="white", ec=edge, alpha=0.75))
 
     # ---- 参考路线（蓝线 + 航点 + 停站/PIVOT 标记）----
     if route is not None:
@@ -301,17 +304,30 @@ def render(map_path, route, csv_path, bench_log, out, title):
     for sx, sy, yaw in car_poses:
         ax.add_patch(car_patch(ax, sx, sy, yaw))
 
+    # ★ 2026-10-11：图例里的三处**旧图硬编码**改成从地图/路线派生
+    #   （以前写死 "靶 = F11+G11 / 桥洞 K1/K7 / 射击停站 G10* / :PIVOT(G10/A9/F3)"，
+    #    换到第三张图后这些字全是错的 —— 图上一眼看到的说明反而比不写更糟）。
+    _tgt = "+".join(m["targets"]) or "?"
+    _brg = "/".join(m["bridges"]) or "?"
+    _piv = [wp.block for wp in route.waypoints if wp.pivot] if route is not None else []
+    _sht = [wp.block for wp in route.waypoints if wp.shoot] if route is not None else []
     handles = [
         plt.Line2D([], [], color="royalblue", lw=2.2, label="参考路线"),
         plt.Line2D([], [], color="red", lw=1.8, label="仿真轨迹"),
         plt.Line2D([], [], marker="o", ms=7, mfc="red", mec="darkred", ls="none", label="雷(必须压过)"),
         plt.Rectangle((0, 0), 1, 1, facecolor="0.35", edgecolor="black", label="障(水桶)"),
         plt.Rectangle((0, 0), 1, 1, facecolor="orange", alpha=0.75, edgecolor="darkorange",
-                      label="靶 = F11+G11【一块靶板】"),
-        plt.Rectangle((0, 0), 1, 1, facecolor="cyan", alpha=0.45, label="本局桥洞 K1/K7(直穿)"),
+                      label=f"靶 = {_tgt}【一块靶板】"),
+        plt.Rectangle((0, 0), 1, 1, facecolor="cyan", alpha=0.45, label=f"本局桥洞 {_brg}(直穿)"),
         plt.Line2D([], [], color="black", lw=6, label="隔板 D~N(不可触碰/跨越)"),
-        plt.Line2D([], [], marker="D", ms=8, mfc="darkviolet", ls="none", label=":PIVOT 折返(G10/A9/F3)"),
-        plt.Line2D([], [], marker="*", ms=16, mfc="magenta", ls="none", label="射击停站 G10*"),
+        plt.Line2D([], [], marker="D", ms=8, mfc="darkviolet", ls="none",
+                   label=f":PIVOT 折返({'/'.join(_piv) if _piv else '无'})"),
+        plt.Line2D([], [], marker="*", ms=16, mfc="magenta", ls="none",
+                   label=f"射击停站 {'/'.join(_sht) if _sht else '无'}"),
+        plt.Rectangle((0, 0), 1, 1, facecolor="#b2f2bb", edgecolor="#2b8a3e",
+                      label=f"起点 {m['start']}(整格)"),
+        plt.Rectangle((0, 0), 1, 1, facecolor="#ffe066", edgecolor="#e8590c",
+                      label=f"终点 {m['end']}(整格)"),
         plt.Rectangle((0, 0), 1, 1, facecolor="0.25", alpha=0.45,
                       label=f"车身占位 {CAR_LEN_M:.2f}×{CAR_WID_M:.2f} m(待实测)"),
     ]

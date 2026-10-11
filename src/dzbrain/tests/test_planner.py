@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import os
 import pathlib
 import subprocess
@@ -34,6 +35,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from dzbrain.core.config import Config                        # noqa: E402
 from dzbrain.core import geometry as geo                      # noqa: E402
+from dzbrain.route import physics as PH                        # noqa: E402
 from dzbrain.route import planner as P                        # noqa: E402
 from dzbrain.route import parser as PARSER                    # noqa: E402
 from dzbrain.route import validate as V                       # noqa: E402
@@ -712,6 +714,75 @@ def main() -> int:
     check("⑨.2 正交相邻仍照常返回判定（不误伤）",
           isinstance(g_adj.move_ok(10, 13, 9, 13), bool),
           f"move_ok(10,13 -> 9,13) = {g_adj.move_ok(10, 13, 9, 13)}")
+
+    # ---- ⑩ t16 两条硬约束的尺子（t21 落地 → t23 几何化）----
+    #   约束① 过门转弯余量：可用余量 = 转弯点所在列到"隔板东端" = (index(D) − index(col)) × 0.35
+    #     ⇒ A 1.050 / B 0.700 / C 0.350 / D 0.000 m。
+    #     ★ **t23 把阈值几何化了**：t21 用固定 0.5 m（⇒ 只有 A/B 合规、C 判红），
+    #       现改为 `所需余量 = R·sinθ + w/2·cosθ`（R = wheelbase/tan(max_steer)，与 pursuit 同源）
+    #       ⇒ 90° 只需 **0.2719 m** ⇒ **C 列其实合规**（0.350 > 0.2719）。
+    #   约束② 外行雷转弯间距：最外行/列的雷，最近转弯点曼哈顿格距 ≥ 2 格（未变）。
+    #   两者都是**代价项**（缺省 0.0 ⇒ 零影响），本组钉住"尺子本身"与"开关默认关闭"。
+    section("⑩ t16 两条硬约束的尺子（t21 → t23 几何化）")
+    check("⑩.1 约束① 可用余量尺子：A=1.050 / B=0.700 / C=0.350 / D=0.000 m",
+          [round(P._door_turn_margin_m(g_adj, g_adj.barrier_lo, geo.block_to_index(c)[1]), 3)   # noqa: SLF001
+           for c in ("A1", "B1", "C1", "D1")] == [1.050, 0.700, 0.350, 0.000],
+          "A/B/C/D 余量列")
+    _ph = P._phys_params(cfg)                                                    # noqa: SLF001
+    _need90 = P._door_turn_required_margin_m(90.0, _ph)                          # noqa: SLF001
+    _need0 = P._door_turn_required_margin_m(0.0, _ph)                            # noqa: SLF001
+    check("⑩.2a ★t23 几何化阈值：90° 所需 = R·sin90 + w/2·cos90 = 0.2719 m（不是固定 0.5）",
+          abs(_need90 - 0.27193) < 5e-5 and abs(_need0 - 0.0675) < 1e-9,
+          f"90°={_need90:.5f} m / 0°={_need0:.5f} m")
+    check("⑩.2b ★t23 判据翻转：C 列**合规**（0.350 > 0.2719）、D 列不合规（0.000 < 0.2719）",
+          P._door_turn_margin_m(g_adj, g_adj.barrier_lo, geo.block_to_index("C1")[1])           # noqa: SLF001
+          >= _need90
+          and P._door_turn_margin_m(g_adj, g_adj.barrier_lo, geo.block_to_index("D1")[1])       # noqa: SLF001
+          < _need90,
+          f"C={P._door_turn_margin_m(g_adj, g_adj.barrier_lo, geo.block_to_index('C1')[1]):.3f} "    # noqa: SLF001
+          f"D={P._door_turn_margin_m(g_adj, g_adj.barrier_lo, geo.block_to_index('D1')[1]):.3f} "    # noqa: SLF001
+          f"need90={_need90:.4f}")
+    check("⑩.2c ★t23 R 与 pursuit 键同源（不写常量）：0.157/tan30° = 0.27193 m",
+          abs(_need90 - _ph["wheelbase_m"] / math.tan(math.radians(_ph["max_steer_deg"]))) < 1e-9,
+          f"R={_ph['wheelbase_m']/math.tan(math.radians(_ph['max_steer_deg'])):.5f} m")
+    check("⑩.3 约束① 只对隔板相邻行生效（其它行返回 inf，不参与约束）",
+          P._door_turn_margin_m(g_adj, 1, 3) == float("inf"),                                  # noqa: SLF001
+          "第 1 行 -> inf")
+    _em = {(1, 0), (11, 7)}                      # 假设的"最外行"雷
+    check("⑩.4 约束② 尺子：格距 >= 2 合格、< 2 不合格",
+          P._edge_mine_turn_gap((3, 0), _em) >= P.EDGE_MINE_TURN_MIN_CELLS                   # noqa: SLF001
+          and P._edge_mine_turn_gap((2, 0), _em) < P.EDGE_MINE_TURN_MIN_CELLS,               # noqa: SLF001
+          f"(3,0)->{P._edge_mine_turn_gap((3, 0), _em)} "                                     # noqa: SLF001
+          f"(2,0)->{P._edge_mine_turn_gap((2, 0), _em)}")                                      # noqa: SLF001
+    check("⑩.5 零影响契约：两条约束的权重缺省 0.0（= 与 v2.3 逐字节一致的守门条件）",
+          P.DOOR_TURN_PENALTY > 0.0 and P.EDGE_MINE_TURN_PENALTY > 0.0
+          and V._cfg_get(cfg, "planner.door_turn_penalty", 0.0) == 0.0          # noqa: SLF001
+          and V._cfg_get(cfg, "planner.edge_mine_turn_penalty", 0.0) == 0.0,     # noqa: SLF001
+          "常量 >0（推荐值）、config 键缺省 0.0")
+
+    # ---- ⑪ t23 物理几何接入（physics.py / config 键 / 障碍净空）----
+    section("⑪ t23 物理几何接入（physics 模块 + config 键）")
+    check("⑪.1 物理参数从 config 读到现场值（真源在 config，不在 planner 里写常量）",
+          abs(_ph["width_m"] - 0.135) < 1e-9 and abs(_ph["obstacle_radius_m"] - 0.1275) < 1e-9
+          and abs(_ph["mine_pad_m"] - 0.12) < 1e-9 and abs(_ph["barrier_width_m"] - 0.02) < 1e-9
+          and abs(_ph["wheelbase_m"] - 0.157) < 1e-9 and abs(_ph["max_steer_deg"] - 30.0) < 1e-9,
+          f"w={_ph['width_m']} r={_ph['obstacle_radius_m']} pad={_ph['mine_pad_m']}")
+    check("⑪.2 障碍净空门槛：直段 0.215 m（半宽）/ 拐角 0.3029 m（扫掠半径）",
+          abs(P._required_obstacle_clearance_m(_ph, at_corner=False) - 0.2150) < 5e-5      # noqa: SLF001
+          and abs(P._required_obstacle_clearance_m(_ph, at_corner=True) - 0.3029) < 5e-5,   # noqa: SLF001
+          f"直段={P._required_obstacle_clearance_m(_ph, at_corner=False):.4f} "             # noqa: SLF001
+          f"拐角={P._required_obstacle_clearance_m(_ph, at_corner=True):.4f}")              # noqa: SLF001
+    _pr = P._phys_params(None)                        # noqa: SLF001
+    check("⑪.3 压雷判据走**垫片**而非『车心到雷心』：格心压到、5 格外未压到",
+          P._mine_pressed_at((1, 3), (1, 3), _pr)                                    # noqa: SLF001
+          is True and P._mine_pressed_at((1, 8), (1, 3), _pr) is False,              # noqa: SLF001
+          "格心压到 / 5 格外未压到")
+    check("⑪.4 K 列桥室纵向封死 = 物理事实（physics 提供根据，planner 侧 R009 拦截）",
+          PH.k_cells_sealed_along_column() is True,
+          "k_cells_sealed_along_column() = True")
+    check("⑪.5 障碍转弯净空权重缺省 0.0（零影响）",
+          V._cfg_get(cfg, "planner.obstacle_turn_penalty", 0.0) == 0.0,              # noqa: SLF001
+          "键缺省 0.0")
 
     # ---- ⑦ 无倒车路线过出车前校验（六层 0 error）----
     if ROUTE_CHECK.is_file():

@@ -128,22 +128,25 @@ try:
           len(rev) == 0, f"reverse_segments={rev}")
     piv_blocks = [field.blocks()[i + 1] for i in range(1, fpath.segment_count)
                   if fpath.corner_turn_deg(i) >= 135.0]
-    # ★ 2026-10-11 重钉（t18）：折返点由 3 处（A9/F3/G10）收敛为**恰好 1 处**（G10）。
-    #   理由（t11 新 54 点路线几何）：8 个雷改走「进点—雷格—出点」直线穿越后，
-    #   原 A9（F11→E11→F11）与 F3 两处 180° 折返被直线腿取代，只剩 G10* 射击停站一处掉头。
-    check("★折返点收敛为恰好 1 处 ≥135° 的 PIVOT 掉头（G10）",
-          sorted(piv_blocks) == ["G10"], f"pivots={piv_blocks}")
-    # ★ 2026-10-11 重钉（t18）：原断言「现场图存在 A→B→A 式的同格回折」是**旧路线（带 R: 折返腿）**
-    #   的语义；新路线把折返全部改成「直线穿越 + 单处 PIVOT」，已**不再有任何同格回折**。
-    #   语义变了但不许删 —— 改写为「已无同格回折」+「折返顶点恰好 1 处」两条**正向**断言：
+    max_turn = max((fpath.corner_turn_deg(i) for i in range(1, fpath.segment_count)), default=0.0)
+    # ★ 2026-10-11 重钉（t20）：**第三次换图**（现场图 p-81Zc2l，手工 v3，62 点）把 U 形
+    #   改成"外圈绕行"，全程**没有 ≥135° 的折返顶点**（最大转角 90°，PIVOT 门限 135°）
+    #   ⇒ 旧断言"折返点恰好 1 处（G10*）"不再成立。仍写成**正向**断言：
+    #   将来若有人把折返顶点加回来（或最大转角越过 135°），这两条立刻变红。
+    check("★第三张图路线无 ≥135° 折返顶点（U 形靠外圈绕行，最大转角 90°）",
+          sorted(piv_blocks) == [] and max_turn < 135.0,
+          f"pivots={piv_blocks}；最大转角={max_turn:.1f}°（门限 135°）")
+    # ★ 2026-10-11 重钉（t18 → t20）：原断言「现场图存在 A→B→A 式的同格回折」是**旧路线（带 R: 折返腿）**
+    #   的语义；路线把折返全部改成「直线穿越 + 外圈绕行」后已**不再有任何同格回折**。
+    #   语义变了但不许删 —— 保持「已无同格回折」+「折返顶点 0 处」两条**正向**断言：
     #   将来若有人把回折腿加回来，这两条会立刻变红，不存在静默跳过。
     blocks = field.blocks()
     backtrack = [i for i in range(len(blocks) - 2)
                  if blocks[i + 2] == blocks[i]]
     check("★新路线已无 A→B→A 式同格回折（折返腿已全部改为直线穿越）",
           backtrack == [], f"index={backtrack}")
-    check("★与「无同格回折」自洽：180° 折返顶点恰好 1 处（G10）",
-          len(piv_blocks) == 1 and piv_blocks[0] == "G10",
+    check("★与「无同格回折」自洽：折返顶点 0 处 + 同格回折 0 处",
+          len(piv_blocks) == 0 and len(backtrack) == 0,
           f"pivots={piv_blocks}；同格回折数={len(backtrack)}")
     if backtrack:
         # 仅在回折腿回归时才会执行（上面第二条断言那时已变红，必须人工复核本段）

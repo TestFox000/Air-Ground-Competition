@@ -100,6 +100,7 @@ from ..core import geometry as geo
 from ..core.config import Config, lookahead_distance
 from ..pursuit.controller import brake_command, compute_command
 from ..pursuit.path import Path, Projection
+from ..route import physics as ph
 from ..route.model import Route
 
 # ⚠️ 刻意不做的事（t9 复核定稿，别再当 bug 报）：
@@ -108,6 +109,389 @@ from ..route.model import Route
 #         ② 由 180° 折返点主导的指标（A6/A1 大弧、横向 MAX 等）**不可迁移实车**；
 #         ③ 千万别用本仿真验证/调 PIVOT 行为 —— 只能实车或闭环 bench 验。
 #   对照实验卫生：两次运行之间不许改 config；各臂显式 --set 被测键（t9/n8 教训）。
+
+# --------------------------------------------------------------------------- #
+#  ★ 场地物理要素（t24，2026-10-11）：把 `route/physics.py` 的口径接进仿真
+# --------------------------------------------------------------------------- #
+# 分层（单一真源，不许分叉）：
+#     `config/robot.yaml` 存**数**  →  `route/physics.py` 存**公式**  →  本节只**调用**
+#
+# ⚠️ 本节的硬约束：**只观测、不改动力学**。同一路线、同一注入参数下，加不加场地，
+#    真值/信念轨迹必须**逐位不变**（t24 有硬断言）—— 否则"换一套判定"就不可比，
+#    历史上所有基线（RMS 0.1168 / 6751 拍 …）全部失效。
+#    需要"撞上就停"的对照时，显式开 `SimConfig.stop_on_field_violation=True`。
+#
+# 判据（用户 2026-10-11 现场澄清，以澄清为准）：
+#   · 障碍：圆柱 r=0.1275、柱心在障格格心；净空门槛 `r + 车半宽 + margin` = 0.215 m
+#           （拐角顶点用扫掠半径 ⇒ 0.3029 m）；**物理碰撞**另算"车体矩形 ∩ 圆柱"。
+#   · 雷  ：12×12 cm 垫片、心在雷格格心；盖雷 = **车心 3.5 cm 圆 ∩ 垫片**（替换旧半径口径）。
+#   · 挡板：385×2 cm 细条、第 6/7 行之间 D..N 列（含 K 段，**无洞**）；
+#           车心到中心线 ≥ 挡板半厚 + 车半宽 = 0.0775 m，不得跨越。
+#   · K 列：通格横向贯通；**纵向相邻格之间全部封死**（`physics.k_cells_sealed_along_column`）。
+#   · 靶板：35×35 cm/格、心在格心 ⇒ 车体 28×13.5 不许与靶板矩形 overlap。
+#   · 车体：28 × 13.5 cm（**注意**：宽度由 17 cm 更正为 13.5 cm —— 老后处理脚本按 17 cm 算，偏保守）。
+#   · 越界：**维持现口径**（`pursuit.map_safety_margin_m`，本卡不动）。
+
+
+@dataclass(frozen=True)
+class FieldSpec:
+    """一张 `config/map.yaml` 的物理要素（只读；`None` = 空场地 = 老行为）。"""
+
+    mines: tuple[str, ...] = ()
+    obstacles: tuple[str, ...] = ()
+    targets: tuple[str, ...] = ()
+    bridges: tuple[str, ...] = ()
+    barrier_col_from: str = "D"
+    barrier_row_hi: int = 6
+    barrier_row_lo: int = 7
+    name: str = ""
+    source: str = ""
+
+    def describe(self) -> str:
+        return (f"场地[{self.name or '未命名'}] 雷{len(self.mines)} 障{len(self.obstacles)} "
+                f"靶{len(self.targets)} 通{len(self.bridges)} "
+                f"隔板 {self.barrier_col_from}~N @{self.barrier_row_hi}/{self.barrier_row_lo} 行之间")
+
+
+def _strip_comment(line: str) -> str:
+    """去掉行尾注释，但**不碰引号内**的 `#`（地图名里有 `#` 也不许被切掉）。"""
+    out, in_quote = [], False
+    for ch in line:
+        if ch == '"':
+            in_quote = not in_quote
+        elif ch == "#" and not in_quote:
+            break
+        out.append(ch)
+    return "".join(out).rstrip()
+
+
+def _parse_inline_list(value: str) -> tuple[str, ...]:
+    """`["A1", B2]` → `("A1", "B2")`（去引号、去空白、丢空项）。"""
+    body = value.strip()
+    if body.startswith("["):
+        body = body[1:]
+    if body.endswith("]"):
+        body = body[:-1]
+    items = []
+    for raw in body.split(","):
+        item = raw.strip().strip('"').strip("'").strip()
+        if item:
+            items.append(item.upper())
+    return tuple(items)
+
+
+def parse_map_yaml(text: str, *, source: str = "") -> FieldSpec:
+    """把 `config/map.yaml` 的文本解析成 `FieldSpec`（**纯函数**，不读文件）。
+
+    ★ 为什么不用 PyYAML：本模块要能在**没有 yaml 的环境**里工作（车端最小镜像 / CI）。
+      只解析 `map:` 段下真正要用的键：标量（name / barrier_col_from / barrier_row_hi /
+      barrier_row_lo）与列表（mines / obstacles / targets / bridges，行内 `[..]` 或块状
+      `- X` 两种写法都支持）。其余键（start/end）本仿真不用 —— 起终点来自路线。
+    """
+    spec: dict[str, object] = {}
+    inside = False
+    pending_list: str | None = None
+    for raw in str(text).splitlines():
+        line = _strip_comment(raw)
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        stripped = line.strip()
+        if indent == 0:
+            if stripped.startswith("map:") or stripped == "map:":
+                inside = True
+                pending_list = None
+                continue
+            if inside:                      # 顶层下一个键 = `map:` 段结束
+                break
+            continue
+        if not inside:
+            continue
+        if stripped.startswith("- ") or stripped == "-":
+            if pending_list:                # 块状列表续行
+                cur = list(spec.get(pending_list, ())) if isinstance(spec.get(pending_list), tuple) else []
+                item = stripped[1:].strip().strip('"').strip("'").strip()
+                if item:
+                    cur.append(item.upper())
+                spec[pending_list] = tuple(cur)
+            continue
+        if ":" not in stripped:
+            continue
+        key, _, value = stripped.partition(":")
+        key, value = key.strip(), value.strip()
+        if value:
+            if value.startswith("["):
+                spec[key] = _parse_inline_list(value)
+            else:
+                spec[key] = value.strip('"').strip("'")
+            pending_list = None
+        else:
+            spec[key] = ()
+            pending_list = key
+    return FieldSpec(
+        mines=tuple(spec.get("mines", ())),
+        obstacles=tuple(spec.get("obstacles", ())),
+        targets=tuple(spec.get("targets", ())),
+        bridges=tuple(spec.get("bridges", ())),
+        barrier_col_from=str(spec.get("barrier_col_from", "D") or "D").strip().upper(),
+        barrier_row_hi=int(spec.get("barrier_row_hi", 6) or 6),
+        barrier_row_lo=int(spec.get("barrier_row_lo", 7) or 7),
+        name=str(spec.get("name", "") or ""),
+        source=source,
+    )
+
+
+def _repo_root() -> str:
+    """按 `__file__` 上溯找仓库根（判据：存在 `config/map.yaml`）。找不到返回空串。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(8):
+        cand = os.path.join(here, "config", "map.yaml")
+        if os.path.isfile(cand):
+            return here
+        parent = os.path.dirname(here)
+        if parent == here:
+            break
+        here = parent
+    return ""
+
+
+def load_field_spec(map_path: str | os.PathLike | None = None, *,
+                    cfg_source: str | None = None) -> FieldSpec | None:
+    """读地图文件 → `FieldSpec`。**本模块唯一的读文件入口**（`run_sim()` 自己不调它）。
+
+    ★ 为什么要单独一个函数：`run_sim()` 是纯函数（不读文件）这条不变量是有测试钉住的，
+      而"仿哪张图"是**环境**而不是**参数**。所以把 I/O 放在这里，由调用方（或测试）
+      显式取好再传进去 —— 顺便让"同一份 spec 跑两条臂"成为可能（对照实验卫生）。
+
+    查找顺序：显式 `map_path` > 环境变量 `ROBOT_MAP` > `cfg_source` 同目录的 `map.yaml`
+    > 仓库 `config/map.yaml`。都找不到返回 `None`（= 不建模任何地图要素，老行为）。
+
+    ⚠️ **显式给路径时不再回退**：路径不存在就返回 `None` —— 悄悄改用另一张地图比报错危险
+      （"我以为跑了新图，其实跑的是 config/map.yaml"）。
+    """
+    if map_path:
+        cand = str(map_path)
+        if not os.path.isfile(cand):
+            return None
+        with open(cand, encoding="utf-8") as fh:
+            return parse_map_yaml(fh.read(), source=os.path.abspath(cand))
+    cands: list[str] = []
+    env = os.environ.get("ROBOT_MAP")
+    if env:
+        cands.append(env)
+    if cfg_source:
+        cands.append(os.path.join(os.path.dirname(os.path.abspath(cfg_source)), "map.yaml"))
+    root = _repo_root()
+    if root:
+        cands.append(os.path.join(root, "config", "map.yaml"))
+    for cand in cands:
+        if cand and os.path.isfile(cand):
+            with open(cand, encoding="utf-8") as fh:
+                return parse_map_yaml(fh.read(), source=os.path.abspath(cand))
+    return None
+
+
+def body_corners(x: float, y: float, yaw: float, *, length_m: float = 0.28,
+                 width_m: float = 0.135) -> tuple[tuple[float, float], ...]:
+    """车体矩形的 4 个角（地图系，逆时针）。★ 车体半长/半宽来自 config，不写死。"""
+    c, s = math.cos(yaw), math.sin(yaw)
+    hl, hw = length_m / 2.0, width_m / 2.0
+    return tuple((x + dx * c - dy * s, y + dx * s + dy * c)
+                 for dx, dy in ((hl, hw), (hl, -hw), (-hl, -hw), (-hl, hw)))
+
+
+def body_point_clearance_m(x: float, y: float, yaw: float, px: float, py: float, *,
+                           length_m: float = 0.28, width_m: float = 0.135) -> float:
+    """**点 P 到车体矩形**的最近距离（m；点在车内 = 0）。
+
+    ★ 做法：把 P 变到**车体系**，再套 `physics.point_rect_distance_m()` 的同一个公式 ——
+      是"换坐标系"，不是"另写一套几何"（两份实现迟早分叉，t22 的教训）。
+    """
+    dx, dy = px - x, py - y
+    c, s = math.cos(yaw), math.sin(yaw)
+    u = dx * c + dy * s              # 沿车长方向
+    v = -dx * s + dy * c             # 沿车宽方向
+    ou = abs(u) - length_m / 2.0
+    ov = abs(v) - width_m / 2.0
+    if ou <= 0.0 and ov <= 0.0:
+        return 0.0
+    return math.hypot(max(ou, 0.0), max(ov, 0.0))
+
+
+@dataclass
+class FieldObs:
+    """场地物理观测累加器：每拍喂一次**真值**位姿，最后取指标。
+
+    ★ 只用真值：地图上的物理事实不能跟着里程计漂移走，否则"压到雷"会随 `ε` 变化，
+      指标就不可复现（与"分组统计用真值"同一原则）。
+
+    ★ 只观测不改动力学：`stop_on_violation=False`（默认）时本类对轨迹**零影响**。
+    """
+
+    spec: FieldSpec
+    length_m: float = 0.28
+    width_m: float = 0.135
+    coverage_radius_m: float = 0.035
+    obstacle_radius_m: float = 0.1275
+    mine_pad_m: float = 0.12
+    barrier_width_m: float = 0.02
+    barrier_cols: str = "D..N"
+    obstacle_margin_m: float = 0.02
+    stop_on_violation: bool = False          # True = 第一次物理违规即结束（对照组用）
+
+    def __post_init__(self) -> None:
+        self.mine_xy = {b: geo.block_to_meters(b) for b in self.spec.mines}
+        self.obs_xy = {b: geo.block_to_meters(b) for b in self.spec.obstacles}
+        self.tgt_xy = {b: geo.block_to_meters(b) for b in self.spec.targets}
+        self.open_rows = sorted({geo.block_to_index(b)[0] for b in self.spec.bridges})
+        self.k_col = geo.COL_LETTERS.index("K")
+        c0, c1 = ph.parse_col_span(self.barrier_cols)
+        self.bar_x, self.bar_y0, self.bar_y1 = ph.barrier_centerline(
+            col_from=c0, col_to=c1, row_hi=self.spec.barrier_row_hi,
+            row_lo=self.spec.barrier_row_lo)
+        self.bar_need = ph.required_barrier_distance_m(
+            barrier_width_m=self.barrier_width_m, car_width_m=self.width_m)
+        self.board_half = ph.board_half_m()
+        # 累加量
+        self.press_steps: dict[str, int] = {b: 0 for b in self.spec.mines}
+        self.mine_best: dict[str, tuple[float, float]] = {b: (9e9, 0.0) for b in self.spec.mines}
+        self.obs_hit_steps = 0
+        self.obs_min_center: tuple[float, str, float] = (9e9, "", 0.0)
+        self.obs_breach_normal = 0
+        self.obs_breach_corner = 0
+        self.bar_min: tuple[float, float] = (9e9, 0.0)
+        self.bar_breach_steps = 0
+        self.board_overlap_steps = 0
+        self.board_breach_steps = 0
+        self.board_min: tuple[float, str, float] = (9e9, "", 0.0)
+        self.k_col_steps = 0
+        self.k_seal_steps = 0
+        self.k_solid_steps = 0
+        self.steps = 0
+        self.first: dict[str, tuple[float, str, float]] = {}
+        self._prev_row: int | None = None
+        self._prev_col: int | None = None
+        self._prev_in_k = False
+        self._through_row: int | None = None
+
+    # ---- 内部：记录"第一次违规"（报告要用它定位；只报事实，不改流程）----
+    def _first(self, key: str, t: float, block: str, value: float) -> None:
+        self.first.setdefault(key, (t, block, value))
+
+    def observe(self, t: float, x: float, y: float, yaw: float, *, kind: str = "normal") -> bool:
+        """观测一拍（真值位姿）。返回 True 表示本拍出现**物理违规**（供对照组提前结束）。"""
+        self.steps += 1
+        violated = False
+        # ---- ① 盖雷：车心 3.5 cm 圆 ∩ 12×12 垫片 ----
+        for block, (mx, my) in self.mine_xy.items():
+            clear = ph.mine_clearance_m(x, y, mx, my, mine_pad_m=self.mine_pad_m)
+            if clear < self.mine_best[block][0]:
+                self.mine_best[block] = (clear, t)
+            if clear <= self.coverage_radius_m + 1e-12:
+                self.press_steps[block] += 1
+        # ---- ② 障碍：物理碰撞（车体 ∩ 圆柱）+ 净空门槛（直段/拐角两档） ----
+        need = ph.required_obstacle_center_distance_m(
+            obstacle_radius_m=self.obstacle_radius_m,
+            body_radius_m=(ph.vehicle_half_diagonal_m(self.length_m, self.width_m)
+                           if kind == "corner" else self.width_m / 2.0),
+            margin_m=self.obstacle_margin_m)
+        for block, (ox, oy) in self.obs_xy.items():
+            dist = ph.obstacle_clearance_point_m(x, y, ox, oy)
+            if dist < self.obs_min_center[0]:
+                self.obs_min_center = (dist, block, t)
+            if body_point_clearance_m(x, y, yaw, ox, oy, length_m=self.length_m,
+                                      width_m=self.width_m) <= 0.0:
+                self.obs_hit_steps += 1
+                self._first("障碍碰撞(车体∩圆柱)", t, block, dist)
+                violated = True
+            if dist < need - 1e-12:
+                if kind == "corner":
+                    self.obs_breach_corner += 1
+                else:
+                    self.obs_breach_normal += 1
+                self._first("障碍净空不足", t, block, dist)
+        # ---- ③ 挡板：车心到中心线 ≥ 半厚+车半宽 ----
+        bar_d = ph.barrier_distance_point_m(x, y, x=self.bar_x, y0=self.bar_y0, y1=self.bar_y1)
+        if bar_d < self.bar_min[0]:
+            self.bar_min = (bar_d, t)
+        if bar_d < self.bar_need - 1e-12:
+            self.bar_breach_steps += 1
+            self._first("挡板触线", t, "隔板", bar_d)
+            violated = True
+        # ---- ④ 靶板：**两级**（与障碍同构，两件事分开数）----
+        #   ① `board_overlap_steps`：**物理重叠**（精确的"旋转后车体矩形 ∩ 35×35 靶板矩形"= 0）
+        #      —— 这是硬事实，车真的压上去了；
+        #   ② `board_breach_steps`：**设计判据不足**（间隙 < 车半宽 0.0675 / 拐角 0.1554）
+        #      —— 与 route_check/t22 同一条规则，只是这里喂的是**实测轨迹**的间隙。
+        #   ⚠️ 不要把 physics.target_body_overlap() 套在"已有精确车体距离"上：那个函数
+        #      的输入是**折线/顶点**的间隙（把扫掠包络折算成间隙门槛），套在精确车体距离上
+        #      会把扫掠算两遍、虚报违规。
+        #   ★ 距离算法：min(车体 4 条边 → 靶板矩形)，边与矩形相交时
+        #      `segment_rect_distance_m` 直接返回 0（Liang–Barsky）；靶板比车体大，
+        #      不存在"矩形整个包在车体里"的退化 ⇒ 这个 min 是**精确**的。
+        corners = body_corners(x, y, yaw, length_m=self.length_m, width_m=self.width_m)
+        edges = list(zip(corners, corners[1:] + corners[:1]))
+        need_board = ph.required_target_body_clearance_m(
+            length_m=self.length_m, width_m=self.width_m, at_corner=(kind == "corner"))
+        for block, (cx, cy) in self.tgt_xy.items():
+            clear = min(ph.segment_rect_distance_m(ax, ay, bx, by, cx, cy, self.board_half)
+                        for (ax, ay), (bx, by) in edges)
+            if clear < self.board_min[0]:
+                self.board_min = (clear, block, t)
+            if clear <= 0.0:
+                self.board_overlap_steps += 1
+                self._first("车体压靶板(物理重叠)", t, block, clear)
+                violated = True
+            if clear < need_board - 1e-12:
+                self.board_breach_steps += 1
+                self._first("靶板净空不足(设计判据)", t, block, clear)
+        # ---- ⑤ K 列桥室：非通格 = 实体；纵向相邻格之间封死 ----
+        row_idx, col_idx = geo.block_to_index(geo.meters_to_block(x, y))
+        if col_idx == self.k_col:
+            self.k_col_steps += 1
+            if row_idx not in self.open_rows:
+                self.k_solid_steps += 1
+                self._first("K 列非通格", t, geo.index_to_block(row_idx, col_idx), 0.0)
+                violated = True
+            if self._prev_row is not None and self._prev_col == self.k_col \
+                    and row_idx != self._prev_row and ph.k_cells_sealed_along_column():
+                self.k_seal_steps += 1
+                self._first("K 列纵向挪格(封死)", t, geo.index_to_block(row_idx, col_idx), 0.0)
+                violated = True
+            self._through_row = row_idx
+        elif self._prev_col == self.k_col and self._through_row is not None:
+            if self._through_row not in self.open_rows:      # 从非通格横穿出去
+                self.k_seal_steps += 1
+                self._first("K 列横向穿越(非通格)", t, geo.index_to_block(self._through_row,
+                                                                    self.k_col), 0.0)
+                violated = True
+        self._prev_row, self._prev_col = row_idx, col_idx
+        return violated
+
+    def metrics(self) -> dict[str, float]:
+        """汇总指标（键名只增不改；`field_*` 前缀 = 本卡新增）。"""
+        pressed = sorted(b for b, n in self.press_steps.items() if n > 0)
+        out: dict[str, float] = {
+            "field_modeled": 1.0,
+            "mine_total": float(len(self.spec.mines)),
+            "mine_pressed_count": float(len(pressed)),
+            "mine_press_steps": float(sum(self.press_steps.values())),
+            "mine_worst_clearance_m": (max((v[0] for v in self.mine_best.values()), default=0.0)),
+            "obstacle_hit_steps": float(self.obs_hit_steps),
+            "obstacle_breach_steps": float(self.obs_breach_normal + self.obs_breach_corner),
+            "obstacle_breach_corner_steps": float(self.obs_breach_corner),
+            "obstacle_min_center_dist_m": float(self.obs_min_center[0]),
+            "barrier_min_distance_m": float(self.bar_min[0]),
+            "barrier_breach_steps": float(self.bar_breach_steps),
+            "board_overlap_steps": float(self.board_overlap_steps),
+            "board_breach_steps": float(self.board_breach_steps),
+            "board_min_clearance_m": float(self.board_min[0]),
+            "k_column_steps": float(self.k_col_steps),
+            "k_seal_violation_steps": float(self.k_seal_steps),
+            "k_solid_cell_steps": float(self.k_solid_steps),
+        }
+        return out
+
 
 @dataclass(frozen=True)
 class SegmentStat:
@@ -258,6 +642,10 @@ class SimConfig:
     actuator_rate_limit: bool = True    # 执行侧舵角斜坡跟随（关掉 = 复位老实现"一步到位"）
     command_rate_limit: bool = True     # 控制器侧速率限幅（关闭仅用于"暴露未限幅后果"的对照）
     trace_hook: object = None           # 可选：每拍回调 (step:int, state:dict) —— 排障用（默认 None）
+    # ★ t24：场地物理观测（默认关 —— 只有显式传入 FieldSpec 才启用，见 run_sim 的 field 形参）。
+    #   True = 本拍出现物理违规（压到雷以外的硬违规：障碍碰撞/挡板触线/压靶板/K 列封死）即结束。
+    #   ⚠️ 刻意**默认 False**：加场地不许改轨迹（历史基线可比），"撞上就停"是对照组实验。
+    stop_on_field_violation: bool = False
 
     def validate(self) -> None:
         """参数自检：非法值**立刻报错**，不留给"跑了半天才发现 dt=0"。"""
@@ -311,6 +699,9 @@ class SimResult:
     reverse: list[bool] = field(default_factory=list)          # 这一拍在倒车段吗
     metrics: dict = field(default_factory=dict)
     segments: list[SegmentStat] = field(default_factory=list)
+    #: ★ t24：场地物理观测明细（逐雷盖雷拍数 / 最近距离 / 首次违规位置 …）；无场地时 = {}。
+    #:   刻意不复用 `metrics`：那里只放**数值**（CSV/表都按数值格式化），明细走这里。
+    field_report: dict = field(default_factory=dict)
 
     @property
     def steps(self) -> int:
@@ -418,12 +809,15 @@ def auto_max_steps(path: Path, cfg: Config, sim: SimConfig) -> int:
 # --------------------------------------------------------------------------- #
 #  主循环
 # --------------------------------------------------------------------------- #
-def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResult:
+def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
+            field: FieldSpec | None = None) -> SimResult:
     """跑一次闭环仿真，返回 `SimResult`（含真值/信念两条轨迹与全部指标）。
 
     :param route: 路线（通常 `parse_mission(cfg.get("route.tokens"))` 或读路线文件）。
     :param cfg: 现场配置（一切 `pursuit.*` 都从它读，本函数不硬编码）。
     :param sim: 误差注入参数；None = 理想车（无误差、有锚定）。
+    :param field: 场地物理要素（`load_field_spec()` 的产物）；None = **不建模任何地图要素**
+        （= 老行为；此时 `metrics["field_modeled"] == 0.0`，报告里那些场地指标一律不打印）。
     """
     sim = sim or SimConfig()
     sim.validate()
@@ -437,6 +831,24 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
     dt = sim.dt
     max_steps = sim.max_steps or auto_max_steps(path, cfg, sim)
     trace_every = max(1, sim.trace_every)
+
+    # ---- ★ 场地物理观测（t24）：公式全在 route/physics.py，参数全在 config，这里只取数 ----
+    # ⚠️ 一律 `cfg.get(key, 默认)`：这 8 个键由 t22 落进 SCHEMA/robot.yaml，但**老配置**
+    #    （或测试里手搓的最小配置）没有它们时也必须能跑 —— 默认值与 physics.py 的形参默认**同源**。
+    obs: FieldObs | None = None
+    if field is not None:
+        obs = FieldObs(
+            spec=field,
+            length_m=float(cfg.get("vehicle.length_m", 0.28)),
+            width_m=float(cfg.get("vehicle.width_m", 0.135)),
+            coverage_radius_m=float(cfg.get("vehicle.coverage_radius_m", 0.035)),
+            obstacle_radius_m=float(cfg.get("field.obstacle_radius_m", 0.1275)),
+            mine_pad_m=float(cfg.get("field.mine_pad_m", 0.12)),
+            barrier_width_m=float(cfg.get("field.barrier_width_m", 0.02)),
+            barrier_cols=str(cfg.get("field.barrier_cols", "D..N")),
+            obstacle_margin_m=float(cfg.get("planner.obstacle_margin_m", 0.02)),
+            stop_on_violation=bool(sim.stop_on_field_violation),
+        )
 
     # ---- 期望值（契约指标名，见 docs/P0接口约定.md §5）----
     result = SimResult()
@@ -524,6 +936,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
     stall = 0
     last_s = -1.0
     t = 0.0
+    field_stop_t: float | None = None    # ★ t24：stop_on_field_violation 触发时的时刻
 
     while steps < max_steps:
         # ================== ① 真值 + 信念：**同一执行量、同一积分器、同一拍** ==================
@@ -751,6 +1164,13 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
                 slot["t"] = t
                 slot["s"] = proj_t.s
 
+        # ================== ⑦' ★ 场地物理观测（t24） ==================
+        # ★ 用**真值**位姿（物理世界）：地图上的事实不能跟着里程计漂移走。
+        # ⚠️ 本块**只读** `(tx, ty, tyaw)` 并累加计数 —— 对轨迹零影响（t24 有硬断言）。
+        field_violation = False
+        if obs is not None:
+            field_violation = obs.observe(t, tx, ty, tyaw, kind=kind)
+
         # 执行侧速率：相邻两拍**舵机位置**之差；倒车符号翻转单独归类
         if dt > 0.0:
             d_steer = abs(steer_exec - (_prev_steer(result.steer)))
@@ -806,6 +1226,11 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         #   所以这里先刹车（上一拍的 `reached_end` 已让控制器低速滑行）再退出，
         #   保证末拍的真值就停在终点上（`final_error_m` 才有意义）。
         if sim.stop_on_completion and reached_end:
+            break
+        # ★ t24 对照组：撞上场地要素（障碍/挡板/靶板/K 列封死）即结束。
+        #   ⚠️ 默认关闭：本仿真测的是"循迹能力"，加了硬停就不再与历史基线可比。
+        if sim.stop_on_field_violation and field_violation:
+            field_stop_t = t
             break
 
         # ---- 跑飞看门狗：投影弧长连续 `_DIVERGE_STEPS` 拍不前进且已远离路线 → 收工 ----
@@ -940,6 +1365,40 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None) -> SimResul
         "reverse_segment_count": float(sum(1 for i in range(path.segment_count)
                                           if path.segment_is_reverse(i))),
     })
+    # ---- ★ 场地物理指标（t24，只增不改）----
+    # ⚠️ 未建模场地时 `field_modeled = 0.0`，`format_metrics` 据此**整块不打印** ——
+    #    这样"没接地图"与"接了地图但零违规"在控制台上不会长得一样（不说谎）。
+    if obs is not None:
+        metrics.update(obs.metrics())
+        result.field_report = {
+            "spec": obs.spec.describe(),
+            "source": obs.spec.source,
+            "cells": {"mines": list(obs.spec.mines), "obstacles": list(obs.spec.obstacles),
+                      "targets": list(obs.spec.targets), "bridges": list(obs.spec.bridges)},
+            "press_steps": dict(obs.press_steps),
+            "mine_best": dict(obs.mine_best),
+            "first": dict(obs.first),
+            "board_min": obs.board_min,
+            "obs_min_center": obs.obs_min_center,
+            # ★ 画图参数（渲染按物理形状画，尺寸必须与判据同源；`write_svg` 从这里取）
+            "shape": {
+                "mine_pad_m": obs.mine_pad_m,
+                "obstacle_radius_m": obs.obstacle_radius_m,
+                "barrier_width_m": obs.barrier_width_m,
+                "board_half_m": obs.board_half,
+                "barrier": (obs.bar_x, obs.bar_y0, obs.bar_y1),
+                "barrier_cols": obs.barrier_cols,
+                "k_col": obs.k_col,
+                "open_rows": tuple(obs.open_rows),
+                "rows": geo.MAP_ROWS,
+                "cols": geo.MAP_COLS,
+                "block_m": geo.BLOCK_SIZE,
+            },
+        }
+    else:
+        metrics["field_modeled"] = 0.0
+    metrics["field_stopped"] = 1.0 if field_stop_t is not None else 0.0
+    metrics["field_stop_t"] = float(field_stop_t) if field_stop_t is not None else -1.0
     # ⚠️ `completed` / `anchor_on_arrival` 是 bool，其余指标是 float —— 混类型是刻意的：
     #    CSV/SVG/控制台都不依赖 metrics 的类型统一，而测试要读布尔真值。
     return result
@@ -1385,6 +1844,27 @@ _GROUP_TABLE: tuple[tuple[str, str, str, int], ...] = (
     ("steer_delivered_jump_steps", "执行侧越限跳变拍", "", 0),
 )
 
+#: ★ t24 场地物理表：(键, 中文标题, 单位, 小数位)。
+#: ⚠️ **只在接了地图时打印**（`metrics["field_modeled"] > 0`）—— 否则"没建模"与"零违规"
+#:    在控制台上长得一模一样，那是在说谎。
+_FIELD_TABLE: tuple[tuple[str, str, str, int], ...] = (
+    ("mine_pressed_count",      "盖雷(块/总数)",  "",  0),
+    ("mine_press_steps",        "盖雷总拍数",     "",  0),
+    ("mine_worst_clearance_m",  "最远雷心距",     "m", 4),
+    ("obstacle_hit_steps",      "障碍碰撞拍",     "",  0),
+    ("obstacle_breach_steps",   "障碍净空不足拍", "",  0),
+    ("obstacle_breach_corner_steps", "└其中拐角拍", "", 0),
+    ("obstacle_min_center_dist_m", "车心距柱心(最近)", "m", 4),
+    ("barrier_breach_steps",    "挡板触线拍",     "",  0),
+    ("barrier_min_distance_m",  "挡板净距(最近)", "m", 4),
+    ("board_overlap_steps",     "车体压靶板拍",   "",  0),
+    ("board_breach_steps",      "靶板净空不足拍", "",  0),
+    ("board_min_clearance_m",   "靶板净距(最近)", "m", 4),
+    ("k_column_steps",          "K 列拍数",       "",  0),
+    ("k_seal_violation_steps",  "K 列封死违规拍", "",  0),
+    ("k_solid_cell_steps",      "K 列非通格拍",   "",  0),
+)
+
 
 def _fmt_row(key: str, label: str, unit: str, nd: int, m: dict) -> str:
     value = m.get(key)
@@ -1424,6 +1904,17 @@ def format_metrics(result: SimResult, sim: SimConfig | None = None,
     lines.append("  分组指标（按真值投影的段类型）:")
     for key, label, unit, nd in _GROUP_TABLE:
         lines.append(_fmt_row(key, label, unit, nd, m))
+    # ---- ★ t24 场地物理表（只有接了地图才出现；见 _FIELD_TABLE 的 ⚠️）----
+    if m.get("field_modeled", 0.0):
+        rep = result.field_report or {}
+        lines.append("-" * 46)
+        lines.append(f"  场地物理（{rep.get('spec', '已建模')}）:"
+                     + ("  ⚠️ 撞停于 %.2f s" % m.get("field_stop_t", -1.0)
+                        if m.get("field_stopped") else ""))
+        for key, label, unit, nd in _FIELD_TABLE:
+            lines.append(_fmt_row(key, label, unit, nd, m))
+        for tag, (t_hit, block, value) in sorted((rep.get("first") or {}).items()):
+            lines.append(f"  ⚠️ 首次{tag}: t={t_hit:.2f}s @{block}（实测 {value:.4f} m）")
     if m.get("diverged"):
         lines.append(f"  ⚠️ 跑飞看门狗触发于第 {int(m.get('diverged_at_step', 0))} 拍"
                      f"（投影弧长连续不前进且已远离路线）")
@@ -1537,10 +2028,13 @@ def _traj_color(metrics: dict) -> str:
 
 
 def write_svg(result: SimResult, path: str, route: Route,
-              title: str = "") -> str:
+              title: str = "", field: FieldSpec | None = None) -> str:
     """写轨迹 SVG（路线折线 + 航点 + 真值轨迹 + 信念轨迹）。返回绝对路径。
 
     ★ 手写 SVG：车上/CI 都没有 matplotlib，而"看图找问题"是调参的主要手段。
+    ★ t24：给了 `field` 就**按物理形状**把场地画出来（雷 = 12×12 cm 方、障碍 = r12.75 cm 圆、
+      挡板 = 2 cm 细条、K 列桥室 = 格间封死横线、靶板 = 35×35 cm 块），形状尺寸取自
+      `result.field_report["shape"]`（与碰撞判据**同源**，不另抄一份数字）。
     """
     target = os.path.abspath(path)
     parent = os.path.dirname(target)
@@ -1550,6 +2044,10 @@ def write_svg(result: SimResult, path: str, route: Route,
     route_pts = [(wp.x, wp.y) for wp in route.waypoints]
     pts = list(route_pts) + list(zip(result.truth_x, result.truth_y)) \
         + list(zip(result.x, result.y))
+    shape = dict((result.field_report or {}).get("shape") or {})
+    if field is not None and shape:
+        # ★ 画场地时把**整块场地**纳入视野：否则"车在场地哪个位置"就看不出来了
+        pts += [(0.0, 0.0), (shape["rows"] * shape["block_m"], shape["cols"] * shape["block_m"])]
     if not pts:
         pts = [(0.0, 0.0)]
     xs = [p[0] for p in pts]
@@ -1595,6 +2093,65 @@ def write_svg(result: SimResult, path: str, route: Route,
     head = title or f"pure-pursuit sim ({os.path.basename(target)})"
     parts.append(f'  <text x="{_SVG_PAD:.0f}" y="30" font-family="monospace" '
                  f'font-size="18" fill="#212529">{_xml_escape(head)}</text>\n')
+    # ---- ★ t24：场地物理底图（画在所有轨迹**下面**；形状尺寸与碰撞判据同源）----
+    if field is not None and shape:
+        block = float(shape["block_m"])
+        rows, cols = int(shape["rows"]), int(shape["cols"])
+        span_x_m, span_y_m = rows * block, cols * block
+        bx, by0, by1 = shape["barrier"]
+        bw = float(shape["barrier_width_m"])
+        k_col = int(shape["k_col"])
+        k_y0 = (geo.MAP_COLS + 0.5 - k_col) * block - block / 2.0
+        k_y1 = k_y0 + block
+        parts.append(f'  <rect x="{sx(0.0):.2f}" y="{sy(span_y_m):.2f}" '
+                     f'width="{span_x_m * scale:.2f}" height="{span_y_m * scale:.2f}" '
+                     f'fill="#fcfcfc" stroke="#868e96" stroke-width="1.5"/>\n')
+        # 格线（浅）
+        for c in range(cols + 1):
+            parts.append(f'  <line x1="{sx(0.0):.2f}" y1="{sy(c * block):.2f}" '
+                         f'x2="{sx(span_x_m):.2f}" y2="{sy(c * block):.2f}" '
+                         f'stroke="#e9ecef" stroke-width="1"/>\n')
+        for r in range(rows + 1):
+            parts.append(f'  <line x1="{sx(r * block):.2f}" y1="{sy(0.0):.2f}" '
+                         f'x2="{sx(r * block):.2f}" y2="{sy(span_y_m):.2f}" '
+                         f'stroke="#e9ecef" stroke-width="1"/>\n')
+        # 靶板 35×35 cm（格级挡块 = 物理精确）
+        for name in field.targets:
+            tx_, ty_ = geo.block_to_meters(name)
+            half = float(shape["board_half_m"])
+            parts.append(f'  <rect class="board" x="{sx(tx_ - half):.2f}" y="{sy(ty_ + half):.2f}" '
+                         f'width="{2 * half * scale:.2f}" height="{2 * half * scale:.2f}" '
+                         f'fill="#e83e8c" fill-opacity="0.45" stroke="#c2185b" stroke-width="1"/>\n')
+        # 障碍：圆柱 r=12.75 cm（柱心在格心）
+        for name in field.obstacles:
+            ox, oy = geo.block_to_meters(name)
+            rr = float(shape["obstacle_radius_m"])
+            parts.append(f'  <circle class="obstacle" cx="{sx(ox):.2f}" cy="{sy(oy):.2f}" '
+                         f'r="{rr * scale:.2f}" fill="#495057" stroke="#212529" stroke-width="1"/>\n')
+        # 雷：12×12 cm 垫片（心在格心）
+        for name in field.mines:
+            mx, my = geo.block_to_meters(name)
+            ph_half = float(shape["mine_pad_m"]) / 2.0
+            parts.append(f'  <rect class="mine" x="{sx(mx - ph_half):.2f}" y="{sy(my + ph_half):.2f}" '
+                         f'width="{2 * ph_half * scale:.2f}" height="{2 * ph_half * scale:.2f}" '
+                         f'fill="#ffd700" stroke="#b8860b" stroke-width="1"/>\n')
+        # 挡板：2 cm 细条（D..N，含 K 段，无洞）
+        parts.append(f'  <rect class="barrier" x="{sx(bx - bw / 2):.2f}" y="{sy(by1):.2f}" '
+                     f'width="{bw * scale:.2f}" height="{(by1 - by0) * scale:.2f}" '
+                     f'fill="#343a40"/>\n')
+        # K 列桥室：通格（横向贯通）+ 格间**封死**的横壁
+        open_rows = set(shape.get("open_rows") or ())
+        for r in range(1, rows + 1):
+            mid = (geo.MAP_ROWS + 0.5 - r) * block          # 第 r 行的行心 x
+            x0 = mid - block / 2.0
+            fill = "#b2f2bb" if (r - 1) in open_rows else "#e9ecef"
+            parts.append(f'  <rect class="kcell" x="{sx(x0):.2f}" y="{sy(k_y1):.2f}" '
+                         f'width="{block * scale:.2f}" height="{block * scale:.2f}" '
+                         f'fill="{fill}" fill-opacity="0.55"/>\n')
+            if r > 1:                       # 格间横壁（K 列纵向封死）
+                parts.append(f'  <line class="kwall" x1="{sx(x0):.2f}" y1="{sy(k_y0):.2f}" '
+                             f'x2="{sx(x0):.2f}" y2="{sy(k_y1):.2f}" stroke="#212529" '
+                             f'stroke-width="2.5"/>\n')
     # ① 路线折线（底层参考）
     parts.append(polyline(route_pts, _COLOR_ROUTE, _COLOR_ROUTE_W, dash="6 4"))
     # ② 真值轨迹（主角）

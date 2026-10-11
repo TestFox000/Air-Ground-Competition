@@ -542,6 +542,42 @@ check("★宽限过后仍从未 tick → 判停滞（宽限不是免死金牌）
 check("原因含 task_stalled:SlowFake",
       any("task_stalled:SlowFake" in r for r in st.reasons), f"got {st.reasons!r}")
 
+section("⑤d ★Localization 从未 tick + 桥已有帧：宽限期内不得判 pose_stalled（t27 实车锁存根因）")
+#  ★ 实车 2026-10-11 15:15（t27）：Safety 首拍早于 Localization 首拍；桥由 serial_reader
+#    提前喂帧 ⇒ 检查①的"启动宽限"（桥从未有帧）整段跳过；而 heart_age 判据自己零宽限
+#    ⇒ 首拍即 pose_stalled ⇒ 锁存 SAFE_STOP（刻意不自动恢复 ⇒ 只能重启）。
+#  修法（t27 建议①采纳）：从未 tick（heart_age=inf）+ 仍在宽限期内 ⇒ 不判；
+#    宽限过后仍从未 tick 才判（不削弱真故障语义）。
+bus_g4 = EventBus()
+bb_g4 = Blackboard()
+group4 = TaskGroup(bus_g4, bb_g4, logger=lambda m: None)
+loc = FakeTask("Localization", failing=False, bus=bus_g4, blackboard=bb_g4)
+group4.add(loc)
+with loc._health_lock:
+    loc._health.state = TaskState.RUNNING.value      # ★ 线程已启动…
+    loc._health.last_tick_at = 0.0                   # …但第一拍还没跑（真实竞态）
+    loc._health.ticks = 0
+task, bridge, bb, bus, clock = build(group=group4, stall=1.0, blackboard=bb_g4, bus=bus_g4)
+task._started_at = clock.now()                       # 宽限基准 = 现在
+task.tick()
+st = bb_g4.get(P_SAFETY)
+check("★Localization 从未 tick：首拍不得 pose_stalled（不误刹）",
+      not any("pose_stalled" in r for r in st.reasons), f"got {st.reasons!r}")
+check("★首拍不锁存（ok=True）", st.ok is True, f"got {st!r}")
+check("★首拍不刹车（刹车会让车永远不动）", bridge.brakes == 0, f"brakes={bridge.brakes}")
+clock.advance(4.0)                                   # 累计 4.0 s > 宽限 3.0 s
+task.tick()
+st = bb_g4.get(P_SAFETY)
+check("★宽限过后仍从未 tick → 判 pose_stalled（宽限不是免死金牌）", st.ok is False, f"got {st!r}")
+check("原因含 pose_stalled:Localization",
+      any("pose_stalled:Localization" in r for r in st.reasons), f"got {st.reasons!r}")
+# 让它 tick 一拍 ⇒ 条件解除，但锁存不自动恢复（原语义不变）
+with loc._health_lock:
+    loc._health.last_tick_at = clock.now()
+task.tick()
+check("★tick 后条件解除但锁存不自动恢复（stopped 仍 True）", task.stopped is True,
+      f"stopped={task.stopped}")
+
 section("⑤b group=None → 跳过检查④并说明；其余检查照常")
 task, bridge, bb, bus, clock = build(group=None)
 check("group 确实没注入", task.group is None)

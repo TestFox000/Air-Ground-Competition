@@ -287,8 +287,20 @@ class SafetyTask(TaskThread):
             #   （实测被这条二次锁存：`pose_stale:P_ODOM_AGE infs > 1.00s`）。
             #   inf 由上面的 `odom_inf_long`（持续性）单独负责。
             out.append(f"pose_stale:P_ODOM_AGE {odom_age:.2f}s > {self.pose_timeout_s:.2f}s")
+        # ★ 启动竞态豁免（t27 实车 2026-10-11 15:15 血证）：Safety 首拍可能早于
+        #   Localization 首拍 ⇒ _heartbeat_age 因 last_tick_at==0 返回 inf ⇒
+        #   `inf > 2*timeout` 恒真 ⇒ 首拍即 pose_stalled 锁存 SAFE_STOP（且不自动恢复）。
+        #   上面的启动宽限救不了这条：它判"桥从未有帧"，而桥由 serial_reader 提前喂 ⇒
+        #   恒不触发（t27 日志实证「启动宽限」0 命中）。与 _check_group 的 init_grace
+        #   同口径：从未 tick + 仍在宽限期内 ⇒ 不判；宽限过后仍从未 tick 照判
+        #   （不削弱真故障语义，宽限不是免死金牌）。
         if heart_age is not None and heart_age > self.pose_timeout_s * 2.0:
-            out.append(f"pose_stalled:Localization 心跳 {heart_age:.2f}s 未更新")
+            if heart_age == _INF and (now - self._started_at) <= self._startup_grace_s:
+                if self._warn.allow("localization_init_grace", now):
+                    self._log(f"检查①宽限：Localization 从未 tick（heart_age=inf），"
+                              f"宽限 {self._startup_grace_s:.1f}s 内不判停滞")
+            else:
+                out.append(f"pose_stalled:Localization 心跳 {heart_age:.2f}s 未更新")
         if pose_age != _INF or odom_age is not None:
             self._first_data_at = now                # 见过定位数据了
             self._degraded = False

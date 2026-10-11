@@ -83,6 +83,7 @@ from typing import Any, Iterable, Sequence
 
 from ..core import geometry as geo
 from ..core.config import Config
+from . import physics as _phys
 from . import validate as V
 from .model import Route, RouteBuilder, Waypoint
 from .parser import PIVOT_SUFFIX as _PIVOT_SUFFIX, parse_reset, parse_token
@@ -178,6 +179,24 @@ MINE_TURN_PENALTY = 2.0
 #: `route.tokens` / 四处逐 token 恒等式逐字一致。启用由 `planner.barrier_turn_penalty`
 #: 决定（本模块不替现场做启用决定，见任务卡 t6 的写域限制）。
 BARRIER_TURN_PENALTY = 8.0
+
+#: ★★ t23：**过门转弯点**离隔板东端的**几何**要求（取代 t21 的固定 0.5 m 阈值）。
+#: 用户 2026-10-11 口径：`所需余量 ≥ R·sinθ + w/2·cosθ`，其中
+#:   · `R = wheelbase / tan(max_steer)` —— **同源取 `pursuit.wheelbase_m` / `pursuit.max_steer_deg`**，
+#:     绝不在本模块写常量（现场 `0.157/tan30° = 0.27193 m`）；
+#:   · `w/2` = 车半宽（`vehicle.width_m / 2`，现场 0.0675 m）；
+#:   · `θ` = 过门那次转弯的角度（现场 90° ⇒ 所需 0.2719 m）。
+#: ★ 与 t21 的差别（本卡要点）：t21 用固定 **0.5 m** ⇒ 只有 A(1.050)/B(0.700) 合规、C(0.350) 判红；
+#:   几何化后 90° 只需 **0.2719 m** ⇒ **C 列其实合规**（0.350 > 0.2719）。
+#:   用户要求"按几何推导取代固定阈值"正是为此。默认权重 0.0 ⇒ 零影响。
+DOOR_TURN_PENALTY = 6.0
+
+#: ★ t21 / t16 约束②：最外行/列的雷，**进入该行/列的那次转弯**必须离雷 ≥ 该格数。
+#: 理由（t16 §4）：转弯点贴着外行/列的雷时，纯追踪以 0.18~0.21 m 横向偏移骑到边界外侧
+#: （hand_v1 出场地车心 3.2 cm 就是这么来的）；"先长直再横穿"的走法偏移只有 0.065 m。
+EDGE_MINE_TURN_MIN_CELLS = 2
+#: 约束② 的软代价权重（等效代价单位/处）。**0.0（默认）= 关闭**。
+EDGE_MINE_TURN_PENALTY = 6.0
 
 #: 单次规划的时间预算（秒）。超了抛 `PlannerError`，绝不静默给半成品路线。
 DEFAULT_MAX_SECONDS = 0.8
@@ -518,6 +537,171 @@ def _barrier_turn_cell(grid: Grid, row: int, col: int, prev_head: int, head: int
     #   （行内可用净宽只有半格 0.175 m，而侧向转向要吃掉整行可用宽度）⇒ 命中、拦下。
     #   只在显式给出 `margin_m < 0` 时关闭本条。取 `≤` 而不是 `<`：margin=0 时必须命中。
     return 0.5 * geo.BLOCK_SIZE >= margin - 1e-9
+
+
+def _door_turn_margin_m(grid: Grid, row: int, col: int) -> float:
+    """★★ 约束①（t16）：该格作为**过门转弯点**时，离隔板东端的余量（米）。
+
+    = `(index(barrier_col_from) − col) × 格宽`；现场 D 列 ⇒ A 1.050 / B 0.700 / C 0.350 /
+    D 0.000 m。**只在隔板相邻行（`barrier_row_lo`，现场第 7 行）有意义**；其它行返回 +inf
+    （不构成过门转弯，不参与约束）。判据取"行"而不是列位：过门转弯就是把车从隔板相邻行
+    拐进 A/B/C 列缺口的那一次转向。
+
+    ★ 为什么不放进 `_moves()`（搜索代价）而只放在顺序层 `penalty_of()`：
+    过门转弯的**转角**由顺序决定（`a→b→c` 三点），不是单步动作的性质；放在顺序层
+    才能和 `mine_turn_penalty` / `barrier_turn_penalty` 用同一把尺子，且**缺省 0.0 时
+    对 v2.3 零影响**。
+    """
+    if row != grid.barrier_lo:
+        return float("inf")
+    return (grid.barrier_col - col) * geo.BLOCK_SIZE
+
+
+def _phys_params(cfg: "Config | None") -> dict:
+    """★ t23：从 config 读**物理几何**参数（真源在 `config/robot.yaml`，公式在 `physics.py`）。
+
+    `None`（无 config，例如纯单元测试）⇒ 用 `physics.py` 的默认形参，行为等价于现场值。
+    :return: ``{length_m, width_m, coverage_radius_m, obstacle_radius_m, mine_pad_m,
+        barrier_width_m, barrier_cols, obstacle_margin_m, wheelbase_m, max_steer_deg}``
+    """
+    def g(key: str, fallback: float | str) -> Any:
+        if cfg is None:
+            return fallback
+        return V._cfg_get(cfg, key, fallback)                             # noqa: SLF001
+    return {
+        "length_m": float(g("vehicle.length_m", 0.28)),
+        "width_m": float(g("vehicle.width_m", 0.135)),
+        "coverage_radius_m": float(g("vehicle.coverage_radius_m", 0.035)),
+        "obstacle_radius_m": float(g("field.obstacle_radius_m", 0.1275)),
+        "mine_pad_m": float(g("field.mine_pad_m", 0.12)),
+        "barrier_width_m": float(g("field.barrier_width_m", 0.02)),
+        "barrier_cols": str(g("field.barrier_cols", "D..N")),
+        "obstacle_margin_m": float(g("planner.obstacle_margin_m", 0.02)),
+        "wheelbase_m": float(g("pursuit.wheelbase_m", 0.157)),
+        "max_steer_deg": float(g("pursuit.max_steer_deg", 30.0)),
+    }
+
+
+def _door_turn_required_margin_m(turn_deg: float, phys: dict) -> float:
+    """★ t23：过门转弯所需的**最小余量**（几何推导，取代 t21 的固定 0.5 m）。
+
+    `所需余量 ≥ R·sinθ + w/2·cosθ`，其中 `R = wheelbase/tan(max_steer)`（与 `pursuit.*` 同源）、
+    `w/2` = 车半宽、`θ` = 转弯角。
+
+    为什么是这个式子：车绕顶点转 θ 时，车体中心相对顶点的横向外扩 = `R·sinθ`（圆弧外扩）
+    `+ w/2·cosθ`（车身横放时的半宽投影），两者之和就是必须让出的横向空间。
+
+    现场 90°：`R = 0.27193`、`w/2 = 0.0675` ⇒ `0.27193 + 0` = **0.2719 m**。
+    `θ = 0`（直行）⇒ `w/2 = 0.0675 m`。
+    ⚠️ `θ → 180°`（掉头）时 `cosθ → −1`，裸式子会给出负数 —— 物理上掉头需要的横向空间
+    远大于两个端点，故取 `max(w/2, …)` 兜底（不用 `|cosθ|`：掉头不是"变窄"）。
+    """
+    rad = math.radians(max(0.0, min(180.0, float(turn_deg))))
+    _, r_min = _phys.sweep_radius(length_m=phys["length_m"], width_m=phys["width_m"],
+                                  wheelbase_m=phys["wheelbase_m"],
+                                  max_steer_deg=phys["max_steer_deg"])
+    half_w = phys["width_m"] / 2.0
+    return max(half_w, r_min * math.sin(rad) + half_w * math.cos(rad))
+
+
+def _turn_deg_from_dirs(entry: int, leave: int) -> float:
+    """两个行进方位（0北/1西/2南/3东）之间的**转角**（度，∈ [0,180]）。
+
+    直行 = 0°；正交转向（90° 或 270°）= **90°**；反向 = 180°。
+    """
+    delta = abs((int(entry) - int(leave)) % 4)
+    return {0: 0.0, 1: 90.0, 2: 180.0, 3: 90.0}[delta]
+
+
+def _door_turn_margin_m(grid: Grid, row: int, col: int, *,
+                        turn_deg: float = 90.0,
+                        phys: "dict | None" = None) -> float:
+    """★★ t23（取代 t21）：该格作为**过门转弯点**时的**可用余量**（米）。
+
+    = `(index(barrier_col_from) − col) × 格宽`；现场 D 列 ⇒ A 1.050 / B 0.700 / C 0.350 /
+    D 0.000 m。**只在隔板相邻行（`barrier_row_lo`）有意义**；其它行返回 `inf`（不构成过门转弯）。
+
+    ⚠️ t21 版本返回的就是这个**可用余量**，而判据侧的阈值是**固定 0.5 m**；
+    t23 起阈值改成 `_door_turn_required_margin_m(turn_deg, phys)`（几何推导）——
+    调用方要比较 `可用余量 >= 所需余量`，**不要再写死 0.5**。
+    """
+    if row != grid.barrier_lo:
+        return float("inf")
+    return (grid.barrier_col - col) * geo.BLOCK_SIZE
+
+
+def _obstacle_turn_clearance_m(grid: Grid, cell: tuple[int, int],
+                              obstacles: Iterable[tuple[int, int]], *,
+                              at_corner: bool = True, phys: "dict | None" = None) -> float:
+    """★ t23：该转弯点到最近**障碍柱心**的距离（米）—— 判据 `>= 所需中心距`。
+
+    所需中心距 = `柱半径 + 车身半径 + 余量`（`physics.required_obstacle_center_distance_m`）：
+      · **直段** `车身半径 = 车半宽 0.0675` ⇒ **0.215 m**；
+      · **拐角** `车身半径 = 扫掠半径 0.15542` ⇒ **0.3029 m**（转弯时车身外包圆更大）。
+    `inf`（无障碍或无障碍格）表示无约束。
+    """
+    if not obstacles:
+        return float("inf")
+    x, y = geo.block_to_meters(geo.index_to_block(cell[0] - 1, cell[1]))
+    best = float("inf")
+    for (orow, ocol) in obstacles:
+        ox, oy = geo.block_to_meters(geo.index_to_block(orow - 1, ocol))
+        d = _phys.obstacle_clearance_point_m(x, y, ox, oy)
+        if d < best:
+            best = d
+    return best
+
+
+def _required_obstacle_clearance_m(phys: dict, *, at_corner: bool) -> float:
+    """★ t23：障碍净空门槛（米）——直段用车身半径、拐角用扫掠半径，**不写常量**。"""
+    sweep, _r = _phys.sweep_radius(length_m=phys["length_m"], width_m=phys["width_m"],
+                                   wheelbase_m=phys["wheelbase_m"],
+                                   max_steer_deg=phys["max_steer_deg"])
+    body_r = sweep if at_corner else phys["width_m"] / 2.0
+    return _phys.required_obstacle_center_distance_m(
+        obstacle_radius_m=phys["obstacle_radius_m"], body_radius_m=body_r,
+        margin_m=phys["obstacle_margin_m"])
+
+
+def _mine_pressed_at(cell: tuple[int, int], mine_cell: tuple[int, int],
+                     phys: dict) -> bool:
+    """★ t23：车心在 `cell`（1-based 行）时，`mine_pad` 是否被压到（`physics.mine_pressed`）。
+
+    判据 = 车心 3.5 cm 圆与 **0.12×0.12 垫片**（中心在雷格格心）产生过重叠
+    ⇔ 车心到垫片最近距离 ≤ `coverage_radius_m`。
+    ⚠️ 这**不是**"车心到雷心 ≤ 0.035"：贴边压过时车心离雷心可到 `0.06+0.035 = 0.095 m`。
+    """
+    x, y = geo.block_to_meters(geo.index_to_block(cell[0] - 1, cell[1]))
+    mx, my = geo.block_to_meters(geo.index_to_block(mine_cell[0] - 1, mine_cell[1]))
+    return _phys.mine_pressed(x, y, mx, my,
+                              coverage_radius_m=phys["coverage_radius_m"],
+                              mine_pad_m=phys["mine_pad_m"])
+
+
+def _edge_mine_turn_gap(seq_cell: tuple[int, int],
+                        edge_mines: Iterable[tuple[int, int]]) -> int:
+    """★★ 约束②（t16）：该转弯点到"最外行/列雷"的最小曼哈顿格距。
+
+    返回格数（>=0）；`edge_mines` 为空时返回一个大数（= 无约束）。
+    """
+    row, col = seq_cell
+    best = 10 ** 9
+    for (mr, mc) in edge_mines:
+        d = abs(row - mr) + abs(col - mc)
+        if d < best:
+            best = d
+    return best
+
+
+def _edge_mine_cells(grid: Grid, spec: MapSpec) -> set[tuple[int, int]]:
+    """★ 约束② 作用对象：位于**最外行（1 / MAP_ROWS）或最外列（A / N）**的雷格（1-based 行）。"""
+    out: set[tuple[int, int]] = set()
+    for mine in spec.mines:
+        r, c = geo.block_to_index(mine)
+        row, col = r + 1, c
+        if row in (1, geo.MAP_ROWS) or col in (0, geo.MAP_COLS - 1):
+            out.add((row, col))
+    return out
 
 
 def _moves(grid: Grid, row: int, col: int, head: int,
@@ -1377,7 +1561,13 @@ class _Tour:
                  pivot_penalty: float = 0.0, record_dirs: bool = True,
                  mine_cells: Iterable[tuple[int, int]] = (),
                  mine_turn_penalty: float = 0.0,
-                 barrier_turn_penalty: float = 0.0) -> None:
+                 barrier_turn_penalty: float = 0.0,
+                 door_turn_penalty: float = 0.0,
+                 edge_mine_turn_penalty: float = 0.0,
+                 edge_mine_cells: Iterable[tuple[int, int]] = (),
+                 obstacle_turn_penalty: float = 0.0,
+                 obstacle_cells: Iterable[tuple[int, int]] = (),
+                 phys: "dict | None" = None) -> None:
         self.grid = grid
         self.deadline = deadline
         #: ★ 折返惩罚（等效代价单位/处）。0.0 = 关闭（允许倒车模式的默认值，
@@ -1389,6 +1579,17 @@ class _Tour:
         #: 前者决定"段路径往哪绕"，后者决定"访问顺序怎么排"，
         #: 两个都得看得到它，否则会出现"顺序层以为占了便宜、段路径层再偷偷加价"。
         self.barrier_turn_penalty = max(0.0, float(barrier_turn_penalty))
+        #: ★ t21 / t16 约束①：过门转弯点离隔板东端余量不足的软代价（0.0 = 关闭）。
+        self.door_turn_penalty = max(0.0, float(door_turn_penalty))
+        #: ★ t21 / t16 约束②：最外行/列雷附近转弯的软代价（0.0 = 关闭）。
+        self.edge_mine_turn_penalty = max(0.0, float(edge_mine_turn_penalty))
+        #: 约束② 的作用对象（最外行/列的雷格，1-based 行）
+        self.edge_mine_cells: set[tuple[int, int]] = set(edge_mine_cells)
+        #: ★ t23：圆柱障碍在**转弯点**的软代价（0.0 = 关闭）与作用格集合
+        self.obstacle_turn_penalty = max(0.0, float(obstacle_turn_penalty))
+        self.obstacle_cells: set[tuple[int, int]] = set(obstacle_cells)
+        #: ★ t23：物理几何参数（`config` 的 vehicle/field/planner.* 键；见 `_phys_params`）
+        self.phys: dict = dict(phys) if phys else _phys_params(None)
         #: 是否记录"每对访问点最短腿的起步/末步朝向"——折返惩罚与
         #: `straighten_mines()`（雷心直线穿越）都要用它，故默认开启。
         self.record_dirs = bool(record_dirs)
@@ -1520,12 +1721,15 @@ class _Tour:
         return count
 
     def penalty_of(self, seq: Sequence[tuple[int, int]]) -> float:
-        """顺序里"不该有的动作"的总代价：折返（180°）+ **雷格当拐点** + **隔板死胡同转向**。
+        """顺序里"不该有的动作"的总代价：折返 + 雷格作拐点 + 隔板死胡同转向
+        + **过门转弯余量不足**（t16 约束①） + **外行雷转弯贴太近**（t16 约束②）。
 
         ★ 第三项（任务卡 t6）：顺序层里 `a → b → c` 若在 `b` 处构成
         "横着切进隔板相邻行、再在行内 90° 转向"（`_barrier_turn_cell`），
-        按 `barrier_turn_penalty` 计价。只用顺序相邻两点判据，与
-        `mine_turn_penalty` 同结构 —— 这样顺序优化与段路径洪泛看到的是**同一条禁令**。
+        按 `barrier_turn_penalty` 计价。只用顺序相邻两点判据。
+        ★ 第四/五项（任务卡 t21）：见 `_door_turn_margin_m()` 与 `_edge_mine_turn_gap()`。
+        两者同结构：都是"顺序里某个**转弯点**违反了一条几何约束"⇒ 按次数计价；
+        权重缺省 0.0 ⇒ 本函数与 v2.3 逐字节等价（零影响契约）。
         """
         total = 0.0
         if self.pivot_penalty > 0.0:
@@ -1551,6 +1755,34 @@ class _Tour:
                     continue
                 if _barrier_turn_cell(self.grid, row, col, entry, leave):
                     total += self.barrier_turn_penalty
+        if self.door_turn_penalty > 0.0 or self.edge_mine_turn_penalty > 0.0:
+            for i in range(1, len(seq) - 1):
+                entry = self._entry_dir.get((seq[i - 1], seq[i]))
+                leave = self._exit_dir.get((seq[i], seq[i + 1]))
+                if entry is None or leave is None or entry == leave:
+                    continue                    # 非转弯点不问
+                if self.door_turn_penalty > 0.0:
+                    row, col = seq[i]
+                    # ★ t23：阈值走**几何推导**（R·sinθ + w/2·cosθ），不再是固定 0.5 m
+                    need = _door_turn_required_margin_m(
+                        _turn_deg_from_dirs(entry, leave), self.phys)
+                    if _door_turn_margin_m(self.grid, row, col) < need - 1e-12:
+                        total += self.door_turn_penalty
+                if self.edge_mine_turn_penalty > 0.0 and self.edge_mine_cells:
+                    if _edge_mine_turn_gap(seq[i], self.edge_mine_cells) \
+                            < EDGE_MINE_TURN_MIN_CELLS:
+                        total += self.edge_mine_turn_penalty
+        if self.obstacle_turn_penalty > 0.0 and self.obstacle_cells:
+            # ★ t23：圆柱障碍在**转弯点**的净空（拐角用扫掠半径 ⇒ 门槛 0.3029 m）
+            threshold = _required_obstacle_clearance_m(self.phys, at_corner=True)
+            for i in range(1, len(seq) - 1):
+                entry = self._entry_dir.get((seq[i - 1], seq[i]))
+                leave = self._exit_dir.get((seq[i], seq[i + 1]))
+                if entry is None or leave is None or entry == leave:
+                    continue
+                if _obstacle_turn_clearance_m(self.grid, seq[i], self.obstacle_cells) \
+                        < threshold - 1e-12:
+                    total += self.obstacle_turn_penalty
         return total
 
     # ---------------- 顺序 ----------------
@@ -1809,6 +2041,9 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                mine_turn_penalty: float | None = None,
                barrier_turn_penalty: float | None = None,
                barrier_turn_margin_m: float | None = None,
+               door_turn_penalty: float | None = None,
+               edge_mine_turn_penalty: float | None = None,
+               obstacle_turn_penalty: float | None = None,
                name: str = "planner", source: str = "") -> PlanResult:
     """**核心入口**：一张地图 -> 一条可直接下发的路线。
 
@@ -1861,6 +2096,21 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         barrier_turn_margin_m = float(V._cfg_get(                                      # noqa: SLF001
             cfg, "planner.barrier_turn_margin_m", 0.0) or 0.0)
     barrier_turn_margin_m = float(barrier_turn_margin_m)
+    # ★ t21 / t16 两条硬约束的权重（缺省 0.0 ⇒ 零影响，与 v2.3 逐字节一致）
+    if door_turn_penalty is None:
+        door_turn_penalty = float(V._cfg_get(                                          # noqa: SLF001
+            cfg, "planner.door_turn_penalty", 0.0) or 0.0)
+    door_turn_penalty = max(0.0, float(door_turn_penalty))
+    if edge_mine_turn_penalty is None:
+        edge_mine_turn_penalty = float(V._cfg_get(                                     # noqa: SLF001
+            cfg, "planner.edge_mine_turn_penalty", 0.0) or 0.0)
+    edge_mine_turn_penalty = max(0.0, float(edge_mine_turn_penalty))
+    # ★ t23：物理几何参数与"障碍转弯净空"权重（缺省 0.0 ⇒ 零影响）
+    phys = _phys_params(cfg)
+    if obstacle_turn_penalty is None:
+        obstacle_turn_penalty = float(V._cfg_get(                                       # noqa: SLF001
+            cfg, "planner.obstacle_turn_penalty", 0.0) or 0.0)
+    obstacle_turn_penalty = max(0.0, float(obstacle_turn_penalty))
 
     start_cell, end_cell = _cell(spec.start), _cell(spec.end)
 
@@ -1955,9 +2205,17 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     # ---------------- 顺序 + 朝向联合优化 ----------------
     #   ★ "雷格不得作拐点"的惩罚同样只在无倒车模式下生效（理由同上：允许倒车 = 旧行为）
     mine_cells = set() if allow_reverse else {_cell(m) for m in spec.mines}
+    edge_mine_cells = _edge_mine_cells(grid, spec) if edge_mine_turn_penalty > 0.0 else set()
+    # 障碍格 = blocked 去掉靶板（靶板另有格级判据，不参与"圆柱净空"）
+    obstacle_cells = set(grid.blocked - grid.target_cells) if obstacle_turn_penalty > 0.0 else set()
     tour = _Tour(grid, deadline, pivot_penalty=pivot_penalty,
                  mine_cells=mine_cells, mine_turn_penalty=mine_turn_penalty,
-                 barrier_turn_penalty=barrier_turn_penalty)
+                 barrier_turn_penalty=barrier_turn_penalty,
+                 door_turn_penalty=door_turn_penalty,
+                 edge_mine_turn_penalty=edge_mine_turn_penalty,
+                 edge_mine_cells=edge_mine_cells,
+                 obstacle_turn_penalty=obstacle_turn_penalty,
+                 obstacle_cells=obstacle_cells, phys=phys)
     tour.build([start_cell] + mines_lower + mines_upper
                + [cross_lower_cell, cross_upper_cell, end_cell]
                + [_cell(b) for b in shoot_pool])
@@ -2005,7 +2263,12 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     for _ci, _cand in enumerate(order_candidates):
         _tour = _Tour(grid, deadline, pivot_penalty=pivot_penalty,
                       mine_cells=mine_cells, mine_turn_penalty=mine_turn_penalty,
-                      barrier_turn_penalty=barrier_turn_penalty)
+                      barrier_turn_penalty=barrier_turn_penalty,
+                      door_turn_penalty=door_turn_penalty,
+                      edge_mine_turn_penalty=edge_mine_turn_penalty,
+                      edge_mine_cells=edge_mine_cells,
+                      obstacle_turn_penalty=obstacle_turn_penalty,
+                      obstacle_cells=obstacle_cells, phys=phys)
         _tour.__dict__.update(tour.__dict__)            # 共享洪泛缓存（只读复用）
         _order = list(_cand)
         _heads = _tour.best_headings(_order, fixed={_order[0]: start_heading})

@@ -514,14 +514,29 @@ check("8.2 `planner:` 与 `route:`/`mission:` 同级同缩进（4 空格）",
       len(idx) == 1 and lines[idx[0]].startswith("    planner:")
       and any(l.startswith("    route:") for l in lines)
       and any(l.startswith("    mission:") for l in lines), f"行号 {idx[0] + 1}")
-seg = lines[idx[0]:idx[0] + 7]
-want = ["auto_plan_enabled: true", 'map_path: "config/map.yaml"', "fallback_to_tokens: true",
-        "allow_reverse: false", "max_seconds: 2.0", "pivot_penalty: 5.0"]
-check("8.3 ★ planner 段恰好含验收要求的 6 个键值（2026-10-11 新增 pivot_penalty 对齐 mission_blocks）",
+# ★ 2026-10-11 重钉（t20）：第三次换图后 `planner:` 段是 **7 个键**（新增 `mine_turn_penalty`），
+#   且 `auto_plan_enabled` 被**关闭**（robot.yaml 该行注释：n11 图规划器有 t15 已知缺陷，
+#   本次跑车用 `mission_blocks` 手工 v3 62 token；t16 修复落地后再改回 true）。
+#   段范围改为"到下一个 4 空格顶层键为止"，不再用写死的 7 行窗口（配置里还有多行注释）。
+def _is_top_key(line: str) -> bool:
+    return (line.startswith("    ") and not line.startswith("     ")
+            and not line.lstrip().startswith("#") and ":" in line)
+
+
+_end = next((j for j in range(idx[0] + 1, len(lines)) if _is_top_key(lines[j])), len(lines))
+seg = lines[idx[0]:_end]
+_key_lines = [l for l in seg[1:]
+              if l.startswith("      ") and not l.startswith("       ") and ":" in l]
+# ★ 2026-10-11 重钉（t22）：`planner:` 段再增一键 = **8 个键**
+#   （t20 是 7 个；t22 物理几何卡新增 `obstacle_margin_m: 0.02`）。
+want = ["auto_plan_enabled: false", 'map_path: "config/map.yaml"', "fallback_to_tokens: true",
+        "allow_reverse: false", "max_seconds: 2.0", "pivot_penalty: 5.0",
+        "mine_turn_penalty: 2.0", "obstacle_margin_m: 0.02"]
+check("8.3 ★ planner 段含当前实际的 8 个键值（含 auto_plan_enabled=false / obstacle_margin_m）",
       all(any(w in l for l in seg) for w in want), "; ".join(want))
-check("8.4 6 个键都在 planner 段内部（缩进 6 空格）",
-      sum(1 for l in seg[1:] if l.startswith("      ") and ":" in l) == 6,
-      f"{sum(1 for l in seg[1:] if l.startswith('      ') and ':' in l)} 行")
+check("8.4 8 个键都在 planner 段内部（恰好 6 空格缩进）",
+      len(_key_lines) == 8,
+      f"{len(_key_lines)} 行：{[l.strip().split(':')[0] for l in _key_lines]}")
 
 cfg_blank = Config.from_dict({"mission": {"auto_start": True, "auto_start_delay_s": 0.0},
                               "route": {"tokens": list(cfg_off.get("route.tokens"))}})
