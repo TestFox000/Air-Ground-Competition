@@ -1,0 +1,39 @@
+{
+  "version": "3.3.10",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "mine",
+      "score": null,
+      "points": [
+        [
+          369.3695652173913,
+          109.58695652173918
+        ],
+        [
+          1106.3260869565217,
+          109.58695652173918
+        ],
+        [
+          1106.3260869565217,
+          1326.978260869565
+        ],
+        [
+          369.3695652173913,
+          1326.978260869565
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "difficult": false,
+      "shape_type": "rectangle",
+      "flags": {},
+      "attributes": {},
+      "kie_linking": []
+    }
+  ],
+  "imagePath": "explosive_146.jpg",
+  "imageData": null,
+  "imageHeight": 1417,
+  "imageWidth": 1417
+}

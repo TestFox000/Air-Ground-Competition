@@ -1,0 +1,5 @@
+path: e:/OneDrive - mails.qust.edu.cn/桌面/air_ground/runs/eval_official74
+train: images
+val: images
+names:
+  0: mine

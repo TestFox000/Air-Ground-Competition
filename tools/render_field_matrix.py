@@ -1,0 +1,360 @@
+# -*- coding: utf-8 -*-
+"""场地二维矩阵渲染图：把识别结果画成 11×14 彩色格子图（中文标注）。
+
+格号来源：格号识别器真值锚点 + 最近邻归属（Voronoi），
+不依赖 PnP/poly 世界坐标投影，避免投影系统偏移导致格号错位。
+
+输出：原图（带检测框，中文类别）+ 矩阵图（中文类别+格号）并排拼接。
+
+用法:
+  python tools/render_field_matrix.py --image capture/aerial_field/images/frame_00124.jpg
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import cv2
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "tools"))
+sys.path.insert(0, str(REPO / "tools" / "ml"))
+sys.path.insert(0, str(REPO / "reference" / "onboard" / "dzuav" / "src"))
+sys.path.insert(0, str(REPO / "src" / "ag_integrate"))
+
+from sim_match import SimChain, NAME2TYPE, ObjectType  # noqa: E402
+from eval_cell_frames import to_cid  # noqa: E402
+from ag_integrate.field_frame import COLS, ROWS  # noqa: E402
+
+# 类别配色 (RGB)
+COLORS = {
+    ObjectType.MINE: (230, 0, 0),           # 红 爆炸物
+    ObjectType.OBSTACLE: (255, 140, 0),     # 橙 障碍
+    ObjectType.TARGET_BLUE: (0, 120, 230),  # 蓝 敌方
+    ObjectType.TARGET_RED: (230, 230, 0),   # 黄 友方
+    ObjectType.ARROW: (0, 210, 0),          # 绿 桥洞
+    ObjectType.CAR: (220, 0, 220),          # 紫 车
+}
+CN_NAMES = {
+    ObjectType.MINE: "爆炸物",
+    ObjectType.OBSTACLE: "障碍",
+    ObjectType.TARGET_BLUE: "蓝靶",
+    ObjectType.TARGET_RED: "红靶",
+    ObjectType.ARROW: "桥洞",
+    ObjectType.CAR: "车",
+}
+LETTERS = "ABCDEFGHIJKLMN"
+
+# 中文字体（Windows 微软雅黑）
+_FONT_PATHS = [
+    r"C:\Windows\Fonts\msyh.ttc",
+    r"C:\Windows\Fonts\simhei.ttf",
+    r"C:\Windows\Fonts\simsun.ttc",
+]
+
+
+def _load_font(size):
+    for fp in _FONT_PATHS:
+        if Path(fp).exists():
+            try:
+                return ImageFont.truetype(fp, size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
+def _PRIORITY(kind):
+    return {ObjectType.MINE: 0, ObjectType.OBSTACLE: 1,
+            ObjectType.TARGET_BLUE: 2, ObjectType.TARGET_RED: 3,
+            ObjectType.ARROW: 4, ObjectType.CAR: 5}.get(kind, 99)
+
+
+def detect_and_localize(image_path, yolo_pt, cell_pt,
+                        conf=0.45, anchor_conf=0.80):
+    """跑识别 + 格号锚点定位，返回目标列表、带框原图、定位元信息。"""
+    frame = cv2.imdecode(np.fromfile(str(image_path), dtype=np.uint8),
+                         cv2.IMREAD_COLOR)
+    args = SimpleNamespace(conf=conf, anchor_conf=anchor_conf,
+                           no_lattice=False, port=50000, device="auto")
+    chain = SimChain(yolo_pt, cell_pt, args)
+
+    K = chain._scaled_k((frame.shape[1], frame.shape[0]))
+    img = cv2.undistort(frame, K, chain.dist, None, K)
+    pred = chain.yolo.predict(img, conf=0.25, iou=0.45, imgsz=1280,
+                              verbose=False, device=chain.device)[0]
+    boxes, clss, confs = [], [], []
+    for b, c, k in zip(pred.boxes.xyxy.cpu().numpy(),
+                       pred.boxes.cls.cpu().numpy().astype(int),
+                       pred.boxes.conf.cpu().numpy()):
+        name = chain.yolo.names[c]
+        if name not in NAME2TYPE:
+            continue
+        boxes.append(b)
+        clss.append(NAME2TYPE[name])
+        confs.append(float(k))
+
+    # ---- 黄色桥洞检测（颜色先验）----
+    # 7cls 模型对 ARROW 类检测失效，用 HSV 黄色分割补充桥洞检测，
+    # 同时过滤掉落在桥洞黄色区域内的 mine 误检。
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    yellow_mask = cv2.inRange(hsv, (18, 80, 80), (35, 255, 255))
+    yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE,
+                                   np.ones((15, 15), np.uint8))
+    contours, _ = cv2.findContours(yellow_mask, cv2.RETR_EXTERNAL,
+                                   cv2.CHAIN_APPROX_SIMPLE)
+    arrow_boxes = []
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area < 3000:  # 过滤小噪点
+            continue
+        x1, y1, w2, h2 = cv2.boundingRect(cnt)
+        if w2 < 50 or h2 < 50:
+            continue
+        arrow_boxes.append([x1, y1, x1 + w2, y1 + h2])
+
+    # 过滤落在桥洞黄色区域内的 mine 误检
+    def in_arrow(px, py):
+        for ab in arrow_boxes:
+            if ab[0] <= px <= ab[2] and ab[1] <= py <= ab[3]:
+                return True
+        return False
+
+    filtered_boxes, filtered_clss, filtered_confs = [], [], []
+    for b, t, k in zip(boxes, clss, confs):
+        if t == ObjectType.MINE:
+            cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+            if in_arrow(cx, cy):
+                continue  # 桥洞区域内的 mine 是误检，丢弃
+        filtered_boxes.append(b)
+        filtered_clss.append(t)
+        filtered_confs.append(k)
+
+    # 加入桥洞检测（保留原始 box，后续按覆盖范围拆格）
+    for ab in arrow_boxes:
+        filtered_boxes.append(ab)
+        filtered_clss.append(ObjectType.ARROW)
+        filtered_confs.append(0.9)
+    boxes, clss, confs = filtered_boxes, filtered_clss, filtered_confs
+
+    # ---- 格号识别 ----
+    cell_idx = [i for i, t in enumerate(clss) if t == ObjectType.CELL_LABEL]
+    crops, centers = [], []
+    for i in cell_idx:
+        x1, y1, x2, y2 = boxes[i]
+        ccx, ccy = (x1 + x2) / 2, (y1 + y2) / 2
+        side = max(x2 - x1, y2 - y1) * 1.3
+        sx1 = max(0, int(ccx - side / 2))
+        sy1 = max(0, int(ccy - side / 2))
+        sx2 = min(img.shape[1], int(ccx + side / 2))
+        sy2 = min(img.shape[0], int(ccy + side / 2))
+        crops.append(Image.fromarray(cv2.cvtColor(
+            img[sy1:sy2, sx1:sx2], cv2.COLOR_BGR2RGB)))
+        centers.append((ccx, ccy))
+
+    direct = {}
+    for j, pr in enumerate(chain.rec.predict(crops) if crops else []):
+        if pr is not None and pr.joint_confidence >= conf:
+            direct[cell_idx[j]] = (pr.cell_id, pr.joint_confidence)
+
+    # ---- 格号锚点：识别器真值格号 + 像素坐标 ----
+    anchors = []
+    for i, (cid, cf) in direct.items():
+        col = ord(cid[0]) - 65
+        row = int(cid[1:]) - 1
+        cx, cy = centers[cell_idx.index(i)]
+        anchors.append((col, row, cx, cy))
+
+    anchor_arr = np.array([[a[2], a[3], a[0], a[1]] for a in anchors])
+
+    def cell_of_pixel(px, py):
+        """像素坐标 -> (col, row)。最近邻格号标签（Voronoi）。"""
+        if not anchors:
+            return None
+        d = np.sqrt((anchor_arr[:, 0] - px) ** 2 +
+                    (anchor_arr[:, 1] - py) ** 2)
+        j = int(np.argmin(d))
+        return int(anchor_arr[j, 2]), int(anchor_arr[j, 3])
+
+    targets = []
+    for i, (t, cf) in enumerate(zip(clss, confs)):
+        if t == ObjectType.CELL_LABEL:
+            continue
+        x1, y1, x2, y2 = boxes[i]
+        if t == ObjectType.ARROW:
+            # 桥洞挡板是长条，按覆盖范围采样拆分到多个格子
+            step = 50
+            seen = set()
+            for yy in range(int(y1), int(y2), step):
+                for xx in range(int(x1), int(x2), step):
+                    cr = cell_of_pixel(xx, yy)
+                    if cr is None or cr in seen:
+                        continue
+                    seen.add(cr)
+                    col, row = cr
+                    targets.append({"kind": t, "cell": to_cid(col, row),
+                                    "col": col, "row": row,
+                                    "px": (x1 + x2) / 2, "py": (y1 + y2) / 2,
+                                    "conf": cf})
+            continue
+        px, py = (x1 + x2) / 2, (y1 + y2) / 2
+        cr = cell_of_pixel(px, py)
+        if cr is None:
+            continue
+        col, row = cr
+        targets.append({"kind": t, "cell": to_cid(col, row),
+                        "col": col, "row": row, "px": px, "py": py,
+                        "conf": cf})
+
+    # ---- 带检测框的原图（中文标注）----
+    render = img.copy()
+    for i, (t, cf) in enumerate(zip(clss, confs)):
+        x1, y1, x2, y2 = map(int, boxes[i])
+        color = COLORS.get(t, (128, 128, 128))
+        bgr = (color[2], color[1], color[0])
+        cv2.rectangle(render, (x1, y1), (x2, y2), bgr, 2)
+        if t != ObjectType.CELL_LABEL:
+            label = f"{CN_NAMES[t]} {cf:.2f}"
+            # 用 PIL 画中文标签
+            pil = Image.fromarray(cv2.cvtColor(render, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(pil)
+            font = _load_font(18)
+            tw = draw.textlength(label, font=font)
+            draw.rectangle([x1, y1 - 24, x1 + tw + 8, y1], fill=bgr)
+            draw.text((x1 + 4, y1 - 22), label, font=font, fill=(255, 255, 255))
+            render = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+    meta = {"n_cell": len(direct), "n_anchor": len(anchors),
+            "method": "nn" if anchors else "none"}
+    return targets, render, meta
+
+
+def render_field_matrix(targets, title="", cell_px=80):
+    """把目标列表渲染成 11×14 彩色矩阵图（中文类别+格号）。
+
+    布局：[图例行] [11×14 矩阵+行列标] [title 行]
+    """
+    legend_h = 36
+    title_h = 28
+    axis_w = 28
+    grid_w = COLS * cell_px
+    grid_h = ROWS * cell_px
+    w = axis_w + grid_w
+    h = legend_h + grid_h + axis_w + title_h
+    pil = Image.new("RGB", (w, h), (255, 255, 255))
+    draw = ImageDraw.Draw(pil)
+
+    cell_targets = {}
+    for tg in targets:
+        cell_targets.setdefault((tg["col"], tg["row"]), []).append(tg)
+
+    font_main = _load_font(int(cell_px * 0.40))
+    font_cell = _load_font(int(cell_px * 0.22))
+    font_axis = _load_font(20)
+    font_leg = _load_font(18)
+
+    gx0, gy0 = axis_w, legend_h  # 网格左上角
+
+    # 画格子
+    for (col, row), lst in cell_targets.items():
+        main = min(lst, key=lambda t: _PRIORITY(t["kind"]))
+        color = COLORS.get(main["kind"], (200, 200, 200))
+        x0 = gx0 + col * cell_px
+        y0 = gy0 + row * cell_px
+        draw.rectangle([x0, y0, x0 + cell_px, y0 + cell_px], fill=color)
+        cn = CN_NAMES[main["kind"]]
+        bbox = draw.textbbox((0, 0), cn, font=font_main)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        draw.text((x0 + (cell_px - tw) / 2,
+                   y0 + (cell_px - th) / 2 - 2),
+                  cn, font=font_main, fill=(255, 255, 255))
+        draw.text((x0 + 4, y0 + cell_px - int(cell_px * 0.28)),
+                  main["cell"], font=font_cell, fill=(255, 255, 255))
+        others = [t for t in lst if t["kind"] is not main["kind"]]
+        # 同格有障碍时，画橙色粗边框突出显示
+        if any(t["kind"] is ObjectType.OBSTACLE for t in others):
+            draw.rectangle([x0 + 1, y0 + 1, x0 + cell_px - 1,
+                            y0 + cell_px - 1],
+                           outline=(255, 140, 0), width=4)
+        for k, t in enumerate(others[:4]):
+            cx2 = x0 + cell_px - 10 - k * 13
+            draw.ellipse([cx2 - 5, y0 + 6, cx2 + 5, y0 + 16],
+                         fill=COLORS.get(t["kind"], (0, 0, 0)))
+
+    # 网格线
+    for c in range(COLS + 1):
+        x = gx0 + c * cell_px
+        draw.line([(x, gy0), (x, gy0 + grid_h)], fill=(180, 180, 180))
+    for r in range(ROWS + 1):
+        y = gy0 + r * cell_px
+        draw.line([(gx0, y), (gx0 + grid_w, y)], fill=(180, 180, 180))
+
+    # 列标 A..N（底部）
+    for c in range(COLS):
+        ch = LETTERS[c]
+        bbox = draw.textbbox((0, 0), ch, font=font_axis)
+        tw = bbox[2] - bbox[0]
+        x = gx0 + c * cell_px + (cell_px - tw) / 2
+        draw.text((x, gy0 + grid_h + 2), ch, font=font_axis, fill=(60, 60, 60))
+    # 行标 1..11（左侧）
+    for r in range(ROWS):
+        num = str(r + 1)
+        bbox = draw.textbbox((0, 0), num, font=font_axis)
+        tw = bbox[2] - bbox[0]
+        x = (axis_w - tw) / 2
+        y = gy0 + r * cell_px + (cell_px - 20) / 2
+        draw.text((x, y), num, font=font_axis, fill=(60, 60, 60))
+
+    # 图例（顶部）
+    legend = [(ObjectType.MINE, "爆炸物"), (ObjectType.OBSTACLE, "障碍"),
+              (ObjectType.TARGET_BLUE, "蓝靶(敌)"),
+              (ObjectType.TARGET_RED, "红靶(友)"),
+              (ObjectType.ARROW, "桥洞"), (ObjectType.CAR, "车")]
+    for i, (k, txt) in enumerate(legend):
+        cx = 10 + i * 135
+        draw.rectangle([cx, 6, cx + 22, 28], fill=COLORS[k])
+        draw.text((cx + 28, 6), txt, font=font_leg, fill=(40, 40, 40))
+
+    # title（底部单独一行）
+    if title:
+        draw.text((10, legend_h + grid_h + axis_w + 2),
+                  title, font=font_axis, fill=(30, 30, 30))
+
+    return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+
+def main():
+    ap = argparse.ArgumentParser(description="场地二维矩阵渲染图（中文+拼图）")
+    ap.add_argument("--image", type=Path, required=True)
+    ap.add_argument("--out", type=Path,
+                    default=REPO / "runs/matrix_test/field_matrix.png")
+    ap.add_argument("--title", type=str, default="")
+    ap.add_argument("--cell-px", type=int, default=80, help="矩阵每格像素")
+    args = ap.parse_args()
+
+    yolo = REPO / "runs/detect/runs/detect/runs/detect/aerial_field_7cls/weights/best.pt"
+    cell = REPO / "runs/cell_classifier_v4c/best.pt"
+    targets, render_img, meta = detect_and_localize(args.image, yolo, cell)
+    title = args.title or (f"{args.image.name}  cells={meta['n_cell']} "
+                           f"anchors={meta['n_anchor']} targets={len(targets)}")
+    matrix = render_field_matrix(targets, title, cell_px=args.cell_px)
+
+    # ---- 原图(上) + 矩阵图(下) 垂直拼接，宽度统一为矩阵图宽度 ----
+    mh, mw = matrix.shape[:2]
+    rh, rw = render_img.shape[:2]
+    scale = mw / rw
+    render_scaled = cv2.resize(render_img, (mw, int(rh * scale)))
+    combo = np.vstack([render_scaled, matrix])
+
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_bytes(cv2.imencode(".png", combo)[1])
+    print(f"已输出: {args.out}  ({combo.shape[1]}x{combo.shape[0]})")
+    print(f"目标数: {len(targets)}, 格号锚点: {meta['n_anchor']}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

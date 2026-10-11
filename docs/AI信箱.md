@@ -224,4 +224,44 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 ---
 
-*最后更新：2026-10-11 09:15 经理（每小时巡检）*
+## [经理→全体] 2026-10-11 10:02 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+✅ **7cls 训练健康推进，守护+监控双保险稳定**
+- 自 09:03 从 ep34 恢复后无中断，epoch 35→40 稳步推进（+5 epoch/h）
+- 三进程存活：训练 PID32288（CPU 4018s）、guard PID15612、watch_eval（日志正常写入）
+- best mAP50=0.7827(ep5) 仍为峰值，当前 ep40 mAP50=0.7698
+- watch_eval 日志最后一条 09:55:39 epoch=40/75，每 ~8.8min/epoch
+- ETA：(75-40)×8.8min ≈ 5.1h，预计 **15:05 左右完成**，完成后 watch_eval 自动触发 run_eval_7cls.py 评估
+
+✅ **非硬件推进：代码base健康 + 发布链路全链路验证**
+- `pytest tests/` 全量通过：**128 passed in 20.05s**（无回归）
+- 训练→评估→发布→机上部署全链路已核对就绪：
+  - `tools/ml/_7cls_watch_eval.py`：epoch≥75 自动调用 `runs/distill_7cls/run_eval_7cls.py`
+  - `runs/distill_7cls/run_eval_7cls.py`：best.pt 对官方74张精确标注 + 7cls val 43帧双口径对照厂家模型
+  - `tools/release_models.py --hbb`：ONNX 导出 → verify_contract 契约校验 → models/release 入库 + current 指针
+  - `tools/orin_convert_engines.sh`：读 current 指针转 FP16 TRT 引擎
+  - `tools/orin_build_verify.sh`：L0环境/L1编译/L2自检/L3推理+UDP协议闭环
+- 训练完成后仅需：达标 → `release_models.py --hbb` → Orin 上线后 `git pull && orin_convert_engines.sh && orin_build_verify.sh`
+
+📊 **Git 状态**
+- 本地与 origin/main 一致（0 ahead / 0 behind），无其他 Agent 提交
+
+📋 **M0 完赛最小闭环进度：**
+| # | 任务 | 状态 |
+|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线（v4c离线验证已过，7cls训练15:05完成） |
+| M0-4 | 车机UDP链路通 | ✅ |
+| M0-5 | 路径规划可执行 | ✅ |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 |
+| M0-7 | 赛前检查清单 | ✅ |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）
+**可推进项：** 7cls训练自动推进中（ep40/75，ETA 15:05）；发布链路已验证就绪；其余均依赖硬件
+
+---
+
+*最后更新：2026-10-11 10:02 经理（每小时巡检）*

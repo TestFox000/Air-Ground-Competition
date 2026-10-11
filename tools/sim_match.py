@@ -88,8 +88,20 @@ class SimChain:
 
     def __init__(self, yolo_pt: Path, cell_pt: Path, args):
         from ultralytics import YOLO
+        # 设备选择：默认自动（显存够用走 GPU，被训练占满时回落 CPU）
+        if getattr(args, "device", "auto") == "auto":
+            try:
+                import torch
+                free = torch.cuda.mem_get_info()[0] / 2**20 if torch.cuda.is_available() else 0
+                args.device = 0 if free > 2500 else "cpu"
+            except Exception:
+                args.device = "cpu"
+        # 归一化: YOLO 用 int(0)/"cpu"; torch 分类器用 "cuda:0"/"cpu"
+        self.device = args.device
+        dev_torch = f"cuda:{args.device}" if str(args.device).isdigit() else "cpu"
         self.yolo = YOLO(str(yolo_pt))
-        self.rec = CellIdRecognizer(str(cell_pt), device="cuda:0", half=True,
+        self.rec = CellIdRecognizer(str(cell_pt), device=dev_torch,
+                                     half=(dev_torch != "cpu"),
                                      rotation_tta=True, confidence_threshold=0.0)
         self.K, self.dist, self.base = load_intrinsics()
         self.args = args
@@ -110,7 +122,7 @@ class SimChain:
         K = self._scaled_k((frame.shape[1], frame.shape[0]))
         img = cv2.undistort(frame, K, self.dist, None, K)
         pred = self.yolo.predict(img, conf=0.25, iou=0.45, imgsz=1280,
-                                 verbose=False, device=0)[0]
+                                 verbose=False, device=self.device)[0]
         boxes, clss, confs = [], [], []
         for b, c, k in zip(pred.boxes.xyxy.cpu().numpy(),
                            pred.boxes.cls.cpu().numpy().astype(int),
@@ -256,6 +268,8 @@ class SimChain:
                         car_pose = CarPose(0, cx_, cy_, float(np.arctan2(wy - cy_, wx - cx_)))
 
         # ---- 可视化 ----
+        # last_project: 暴露本帧投影函数（像素->世界），供测试/核对工具复用
+        self.last_project = project
         if render is not None:
             render[:] = img
             for i, (t, cf) in enumerate(zip(clss, confs)):

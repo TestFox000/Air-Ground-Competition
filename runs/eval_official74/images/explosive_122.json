@@ -1,0 +1,69 @@
+{
+  "version": "3.3.10",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "mine",
+      "score": null,
+      "points": [
+        [
+          563.0,
+          478.6
+        ],
+        [
+          598.9,
+          478.6
+        ],
+        [
+          598.9,
+          508.4
+        ],
+        [
+          563.0,
+          508.4
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "difficult": false,
+      "shape_type": "rectangle",
+      "flags": {},
+      "attributes": {},
+      "kie_linking": []
+    },
+    {
+      "label": "mine",
+      "score": null,
+      "points": [
+        [
+          106.3260869565218,
+          35.673913043478315
+        ],
+        [
+          1308.5,
+          35.673913043478315
+        ],
+        [
+          1308.5,
+          1276.978260869565
+        ],
+        [
+          106.3260869565218,
+          1276.978260869565
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "difficult": false,
+      "shape_type": "rectangle",
+      "flags": {},
+      "attributes": {},
+      "kie_linking": []
+    }
+  ],
+  "imagePath": "explosive_122.jpg",
+  "imageData": null,
+  "imageHeight": 1417,
+  "imageWidth": 1417,
+  "description": ""
+}

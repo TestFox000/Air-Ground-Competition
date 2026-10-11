@@ -1,0 +1,68 @@
+{
+  "version": "3.3.10",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "mine",
+      "score": null,
+      "points": [
+        [
+          254.15217391304355,
+          261.76086956521743
+        ],
+        [
+          728.0652173913045,
+          261.76086956521743
+        ],
+        [
+          728.0652173913045,
+          1155.2391304347825
+        ],
+        [
+          254.15217391304355,
+          1155.2391304347825
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "difficult": false,
+      "shape_type": "rectangle",
+      "flags": {},
+      "attributes": {},
+      "kie_linking": []
+    },
+    {
+      "label": "mine",
+      "score": null,
+      "points": [
+        [
+          747.6304347826087,
+          283.50000000000006
+        ],
+        [
+          1182.413043478261,
+          283.50000000000006
+        ],
+        [
+          1182.413043478261,
+          1144.3695652173915
+        ],
+        [
+          747.6304347826087,
+          1144.3695652173915
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "difficult": false,
+      "shape_type": "rectangle",
+      "flags": {},
+      "attributes": {},
+      "kie_linking": []
+    }
+  ],
+  "imagePath": "explosive_001.jpg",
+  "imageData": null,
+  "imageHeight": 1417,
+  "imageWidth": 1417
+}

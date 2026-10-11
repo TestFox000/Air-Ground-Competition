@@ -18,12 +18,14 @@ import math
 import queue
 import socket
 import threading
+import time
 
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 
+from .field_matrix import MatrixFusion, render_report_from_spots
 from .heading_calibration import closed_loop_rate, wrap_pi
 from .intel_protocol import detect_msg_id, parse, parse_car_pose
 from .pipeline import build_mission, evaluate_gate
@@ -84,6 +86,16 @@ class IntegrateNode(Node):
         # 行为未验证（从头执行？当前段接续？），实车确认前保持一次性规划。
         # 置 true 后：态势变化导致路线变化时自动重发新路线。
         self.declare_parameter("replan_on_update", False)
+        # 态势矩阵输出（教员建议的矩阵形式）：
+        # 每收到一帧识别结果，把爆炸物/障碍物/靶等落成 11×14 场地矩阵并
+        # 打印精确坐标明细。可靠性设计：
+        #   - 多帧滑窗融合（window 票 confirm 才上矩阵）：抑制单帧漏检
+        #     闪断与单帧误检幽灵目标，坐标输出窗口内中值（更稳）；
+        #   - 仅矩阵内容变化时打印，且最少间隔 matrix_min_interval 秒。
+        self.declare_parameter("matrix_log", True)
+        self.declare_parameter("matrix_fuse_window", 5)
+        self.declare_parameter("matrix_fuse_confirm", 2)
+        self.declare_parameter("matrix_min_interval", 2.0)
         # ---- 黑匣子（ag_core.blackbox）----
         self.declare_parameter("log_enabled", True)
         self.declare_parameter("log_dir", "")
@@ -113,6 +125,14 @@ class IntegrateNode(Node):
         bf = str(p("target_blue_face")).strip().upper()
         self.target_blue_face = bf if bf in ("S", "N", "E", "W") else None
         self.replan_on_update = bool(p("replan_on_update"))
+        self.matrix_log = bool(p("matrix_log"))
+        self._matrix_sig: tuple | None = None  # 上次打印的矩阵签名
+        self._matrix_last_ts: float = -1e9     # 上次打印时刻（节流）
+        self._fusion = MatrixFusion(
+            window=int(p("matrix_fuse_window")),
+            confirm=int(p("matrix_fuse_confirm")),
+        )
+        self._matrix_min_interval = float(p("matrix_min_interval"))
 
         self.model = WorldModel()
         self.reset_sent = False
@@ -209,7 +229,28 @@ class IntegrateNode(Node):
             self._blog(EV.INTEL_RECV, n=len(frame.objects),
                        ts=frame.timestamp_ms,
                        mines=len(snapshot.mines) if snapshot else 0)
+        if self.matrix_log:
+            self._log_matrix(frame)
         self._submit(snapshot)
+
+    def _log_matrix(self, frame) -> None:
+        """态势矩阵输出：多帧融合确认目标 + 精确坐标。
+
+        打印条件（AND）：矩阵内容变化 且 距上次打印 ≥ matrix_min_interval 秒。
+        移动靶高频移动时靠节流兜底，避免刷屏。
+        """
+        import time as _time
+        spots = self._fusion.add_frame(frame) + self._fusion.outside_spots()
+        sig = tuple(sorted((s.kind.value, s.col, s.row) for s in spots))
+        now = _time.monotonic()
+        if sig == self._matrix_sig:
+            return  # 矩阵无变化，不重复打印
+        if now - self._matrix_last_ts < self._matrix_min_interval:
+            return  # 变了但太快，等下个变化窗口
+        self._matrix_sig = sig
+        self._matrix_last_ts = now
+        self.get_logger().info("\n" + render_report_from_spots(
+            spots, frame.timestamp_ms, fused=True))
 
     def _submit(self, snapshot) -> None:
         """把最新态势放入交接队列；满了先丢旧帧再放（单生产者，无竞态）。"""

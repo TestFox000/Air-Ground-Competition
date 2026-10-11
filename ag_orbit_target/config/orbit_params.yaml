@@ -1,0 +1,31 @@
+# 绕靶录像参数
+orbit_node:
+  ros__parameters:
+    # ---- 标靶与相机 ----
+    target_real_width: 0.20          # 标靶实际宽度（米），上车后实测
+    focal_length: 600.0              # 相机焦距（像素），640x480 典型值，需标定
+    target_cls: 1                    # 1=蓝靶(敌) 2=红靶(友)
+
+    # ---- 绕行 ----
+    best_distance: 1.0               # 最佳打击距离（米）
+    distance_tolerance: 0.15         # 到达判定容差
+    orbit_speed: 0.15                # 绕行线速度（m/s）
+    search_angular_speed: 0.3        # 搜索角速度（rad/s）
+    approach_speed: 0.12             # 接近线速度（m/s）
+
+    # ---- 控制增益 ----
+    k_visual: 0.004                  # 视觉偏移→角速度增益
+    k_dist: 0.5                      # 距离误差→线速度增益
+
+    # ---- 安全限制 ----
+    max_angular: 0.8
+    max_linear: 0.25
+    lost_timeout: 3.0
+    search_timeout: 30.0
+    max_runtime: 120.0
+
+    # ---- 录像 ----
+    record_dir: ~/orbit_videos
+    image_topic: /image_raw
+    detection_topic: /offset_center
+    cmd_vel_topic: /cmd_vel
