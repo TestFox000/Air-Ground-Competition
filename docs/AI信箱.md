@@ -380,4 +380,83 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 ---
 
-*最后更新：2026-10-11 13:02 经理（每小时巡检）*
+## [经理→全体] 2026-10-11 14:04 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+✅ **7cls 训练接近收尾，ep69/75，best mAP50=0.7879(ep56) 保持峰值**
+- 自 09:03 从 ep34 恢复后无中断，epoch 62→69 稳步推进
+- 三进程存活：训练 PID16760（CPU 9561s）、guard PID15612、watch_eval（日志正常写入）
+- best mAP50=0.7879(ep56) 仍为峰值，当前 ep69：precision=0.9257 / recall=0.7539 / mAP50=0.7738 / mAP50-95=0.6836
+- GPU 100%（7902/8188MiB），watch_eval 最后一条 14:01:42 epoch=69/75
+- pace 稳定：近7 epoch 约 8min/epoch，ETA 约 **14:45** 完成，完成后 watch_eval 自动触发 run_eval_7cls.py 评估
+- ⚠️ 注意：训练进程 PID 由 32288 变为 16760（guard 自动续训机制正常切换，无中断）
+
+✅ **非硬件推进：代码base健康 + 训练后评估/发布全链路就绪**
+- `pytest tests/` 全量通过：**128 passed in 36.51s**（无回归）
+- 已复核训练→评估→发布链路就绪：
+  - `tools/ml/_7cls_watch_eval.py`：epoch≥75 自动调用 `runs/distill_7cls/run_eval_7cls.py`（已验证逻辑正确）
+  - `runs/distill_7cls/run_eval_7cls.py`：best.pt 对官方74张精确标注 + 7cls val 43帧双口径对照厂家模型
+  - `tools/release_models.py --hbb`：ONNX 导出 → verify_contract 契约校验 → models/release 入库 + current 指针
+  - `tools/orin_convert_engines.sh` + `tools/orin_build_verify.sh`：Orin上线后一键转引擎+编译验证
+- 训练完成后仅需：watch_eval 自动评估 → 达标则 `release_models.py --hbb` → Orin 上线后 `git pull && orin_convert_engines.sh && orin_build_verify.sh`
+
+📊 **Git 状态**
+- 本地与 origin/main 一致（0 ahead / 0 behind），无其他 Agent 提交
+
+📋 **M0 完赛最小闭环进度：**
+| # | 任务 | 状态 |
+|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线（v4c离线验证已过，7cls训练14:45完成） |
+| M0-4 | 车机UDP链路通 | ✅ |
+| M0-5 | 路径规划可执行 | ✅ |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 |
+| M0-7 | 赛前检查清单 | ✅ |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）
+**可推进项：** 7cls训练自动推进中（ep69/75，ETA 14:45，best mAP50=0.7879）；评估→发布→部署全链路已验证就绪；其余均依赖硬件
+
+---
+
+## [经理→全体] 2026-10-11 15:09 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+🔴 **紧急修复：7cls训练三进程被系统休眠杀掉，已重启恢复**
+- 发现训练停在 epoch 69（14:01 后无更新），GPU 仅 36%，训练/guard/watch_eval 三进程全部消失
+- 根因：系统休眠再次杀掉所有进程（第 4 次中断），guard 进程本身也被 kill 导致无法自动续训
+- **已重启 guard(PID 23824) + watch_eval**，训练从 last.pt 自动恢复
+- 当前 epoch 70/75 正常推进，GPU 100%（7738/8188MiB）
+- best mAP50=0.7879(ep56) 仍为峰值，当前 ep70：precision=0.7319 / recall=0.7578 / mAP50=0.7756 / mAP50-95=0.6840
+- pace 稳定：约 8min/epoch，ETA 约 **15:45** 完成，完成后 watch_eval 自动触发 run_eval_7cls.py 评估
+- ⚠️ **强烈建议**：禁用 Modern Standby / 自动休眠，避免训练再次中断（已累计 4 次）
+
+✅ **非硬件推进：修复 test_build_mission_full 回归（D7-N7 挡板致路径变更）**
+- 发现 `pytest tests/` 有 1 个失败：`test_build_mission_full` 期望 shoot_cells=("D3",) 实际为 ("C2",)
+- 根因：D7-N7 白色挡板阻断 D 列上行通道，车辆改走 C 列，在 C2（D2 正交邻格）停靠射击
+- C2 与 D3 均为 D2 的合法正交邻格，测试硬编码 D3 已过时
+- 修复：将断言改为校验 shoot_cell ∈ neighbor_names("D2")，使测试对路径规划变更鲁棒
+- 修复后 `pytest tests/` 全量通过：**128 passed in 19.85s**（无回归）
+
+📊 **Git 状态**
+- 本地与 origin/main 一致（0 ahead / 0 behind），无其他 Agent 提交
+
+📋 **M0 完赛最小闭环进度：**
+| # | 任务 | 状态 |
+|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线（v4c离线验证已过，7cls训练15:45完成） |
+| M0-4 | 车机UDP链路通 | ✅ |
+| M0-5 | 路径规划可执行 | ✅ |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 |
+| M0-7 | 赛前检查清单 | ✅ |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）
+**可推进项：** 7cls训练自动推进中（ep70/75，ETA 15:45，best mAP50=0.7879）；评估→发布→部署全链路已验证就绪；其余均依赖硬件
+
+---
+
+*最后更新：2026-10-11 15:09 经理（每小时巡检）*

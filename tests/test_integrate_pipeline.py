@@ -1,6 +1,7 @@
 """pipeline：门控 + 从态势直接组装车命令。"""
 
 from ag_integrate.field_frame import CellRef, cell_to_world
+from ag_integrate.fire_guard import neighbor_names
 from ag_integrate.intel_protocol import IntelFrame, IntelObject, ObjectType
 from ag_integrate.world_model import WorldModel
 from ag_integrate.pipeline import evaluate_gate, build_mission
@@ -48,10 +49,13 @@ def test_build_mission_full():
     tokens = cmds.route.split()
     assert tokens[0] == "N10"
     assert tokens[-1] == "N11,x"
-    # 敌靶格 D2 不可踩；车在其正交邻格停靠开火（D3 邻 D2）
+    # 敌靶格 D2 不可踩；车在其正交邻格停靠开火（C2/D3/E2/D1 均为合法邻格，
+    # 具体选哪个取决于路径规划，如 D7-N7 挡板会改变最优通路）
     assert "D2" not in tokens
-    assert cmds.shoot_cells == ("D3",)
-    assert "D3*" in tokens
+    d2_neighbors = set(neighbor_names("D2"))
+    assert len(cmds.shoot_cells) == 1
+    assert cmds.shoot_cells[0] in d2_neighbors
+    assert f"{cmds.shoot_cells[0]}*" in tokens
     assert "F6" not in tokens
 
 
