@@ -350,6 +350,14 @@ path_executor:
     #   结构：N10 出发 → L11→K11 下半场穿洞向西 → 下区压雷(I7/D8/E10) → C7→C6 绕隔板
     #         西端进上区 → 压雷(C4/B2/F3) → F4* 停站打靶(E4+E5 纵向跨格板) → 压雷
     #         (G4/H2) → K1 上半场穿洞向东 → N5 终点
+    #   ★★ 2026-10-12 第四次换图（t3 卡）：config/map.yaml 换成第四张图识图版
+    #      （源图 sha256 e6448ea1…c68faaa8，与 p-81Zc2l 要素集合逐格一致 —— 换图**不需要改路线**）。
+    #      ★ 本表**逐字不变**：t3 独立物理复核（场地图 map_v3 + t24 FieldSpec，零注入）@0.30/@0.35
+    #        盖雷 8/8、障碍真碰撞 0、挡板触线 0、车体压靶 0、K 列封死违规 0、越界急停未触发。
+    #      ★ 自动规划 65 点产物**再次被物理链否决**（与 docs/上下文快照 §1 裁决一致）：
+    #        @0.30 盖雷 5/8（漏 D8/E10/G4）、最紧柱心距 G5=0.154、顶点超调 0.45m；
+    #        @0.35 盖雷 7/8（漏 G4）+ **真碰撞 D7 5 拍**；且含 2 处 :PIVOT（仿真不建模，无法离线背书）。
+    #        ⇒ route.tokens / mission_blocks 保持手工 62 点（双源一致）。
     mission_blocks:
       - N10
       - M10
@@ -474,7 +482,12 @@ path_executor:
       auto_plan_enabled: false        # ★ 2026-10-11 第三次换图:n11 图规划器有已知缺陷(t15:下半场
                                       #   通口贴边时访问顺序生成违反 U 形单回路),本次跑车用 mission_blocks
                                       #   手工 v3(62 token,双档仿真全合规);t16 修复落地后改回 true。
+                                      #   ★ 2026-10-12 第四次换图(t3):第四张图上自动规划 65 点**仍然不能用**
+                                      #   ——静态 route_check 全绿,但物理链否决(盖雷 5~7/8、@0.35
+                                      #   真碰撞 D7、带 2 处 :PIVOT 而仿真不建模)⇒ 继续 false + 手工 62 点。
       map_path: "config/map.yaml"     # 解析顺序：绝对路径 → 相对配置文件目录 → 相对工作区
+                                      # ★ 2026-10-12 t3:换图就是**覆盖这个文件**(第四张图识图版),
+                                      #   所有消费方(route_check/planner/sim/config_selfcheck)按此名查找
       fallback_to_tokens: true        # 规划失败（PlannerError/超时/坏图）→ warn 后回退 route.tokens，仍出发
       allow_reverse: false            # ★真车底盘不支持倒车 → 规划器走无倒车模式（0 段 R:，折返交 PIVOT）
       max_seconds: 2.0                # 规划时间预算；超出抛 PlannerError → 走上面的回退分支
