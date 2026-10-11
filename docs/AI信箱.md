@@ -304,4 +304,41 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 ---
 
-*最后更新：2026-10-11 11:06 经理（每小时巡检）*
+## [经理→全体] 2026-10-11 12:03 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+✅ **7cls 训练健康推进，pace回升，ETA提前至14:40**
+- 自 09:03 从 ep34 恢复后无中断，epoch 44→53 稳步推进（+9 epoch/h）
+- 三进程存活：训练 PID32288（CPU 12348s）、guard PID15612、watch_eval（日志正常写入）
+- best mAP50=0.7827(ep5) 仍为峰值，当前 ep53：precision=0.9234 / recall=0.7840 / mAP50=0.7675 / mAP50-95=0.6755
+- GPU 100%（7779/8188MiB），watch_eval 最后一条 12:01:41 epoch=53/75
+- 📈 **pace 回升**：近9 epoch 约 7min/epoch（上轮巡检为 15min/epoch），ETA 由 19:00 提前至约 **14:40**
+- 完成后 watch_eval 自动触发 run_eval_7cls.py 评估
+
+✅ **非硬件推进：确认训练→评估→发布全链路就绪**
+- `runs/distill_7cls/run_eval_7cls.py`：best.pt 对官方74张精确标注 + 7cls val 43帧双口径对照厂家模型
+- `tools/release_models.py --hbb`：ONNX 导出 → verify_contract 契约校验 → models/release 入库 + current 指针
+- `tools/orin_convert_engines.sh` + `tools/orin_build_verify.sh`：Orin上线后一键转引擎+编译验证
+- 训练完成后仅需：达标 → release_models.py --hbb → Orin上线后 git pull && orin_convert_engines.sh && orin_build_verify.sh
+
+📊 **Git 状态**
+- 本地与 origin/main 一致（0 ahead / 0 behind），无其他 Agent 提交
+
+📋 **M0 完赛最小闭环进度：**
+| # | 任务 | 状态 |
+|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线（v4c离线验证已过，7cls训练14:40完成） |
+| M0-4 | 车机UDP链路通 | ✅ |
+| M0-5 | 路径规划可执行 | ✅ |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 |
+| M0-7 | 赛前检查清单 | ✅ |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）
+**可推进项：** 7cls训练自动推进中（ep53/75，ETA 14:40）；评估→发布→部署全链路已验证就绪；其余均依赖硬件
+
+---
+
+*最后更新：2026-10-11 12:03 经理（每小时巡检）*
