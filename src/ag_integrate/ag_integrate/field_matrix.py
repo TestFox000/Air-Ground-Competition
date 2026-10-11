@@ -10,7 +10,8 @@
     - 融合参数 window=5 / confirm=2：窗口内出现 ≥2 帧才上矩阵，
       移动靶（B/R）换格后最多滞后 1 帧重新确认，属可接受延迟。
 
-矩阵符号（同格多目标时按 M > O > B > R > A > C 取优先级最高者）：
+矩阵符号（场地规则：一格至多一个目标，同格冲突取票数最高者，
+平票障碍优先——安全考虑，规划宁可绕开）：
     M=mine(爆炸物)  O=obstacle(障碍物)  B=蓝靶(敌方)  R=红靶(友方)
     A=arrow(桥洞)   C=car(车)           .=空
 CELL_LABEL 是定位基础设施（每帧数百个），默认不进矩阵/明细，参数可开。
@@ -52,6 +53,10 @@ _PRIORITY: dict[ObjectType, int] = {
     ObjectType.ARROW: 4,
     ObjectType.CAR: 5,
 }
+
+# 会移动的类别：超过 window 帧未复现则从矩阵清除（防移动靶拖影）
+_MOVING_KINDS = {ObjectType.TARGET_BLUE, ObjectType.TARGET_RED,
+                 ObjectType.CAR}
 
 
 @dataclass(frozen=True)
@@ -122,9 +127,11 @@ class MatrixFusion:
 
         融合粒度：同格同类多目标合并为一格一目标（坐标中值）。
         确认延迟：目标首次出现后需第 confirm 帧才上矩阵。
+        遗忘机制：静态类（雷/障碍/桥洞）确认后永久保留（漏检容忍）；
+        移动类（蓝/红靶、车）超过 window 帧未复现即清除，防止移动靶
+        把走过的格永久留在矩阵上。
         """
         self._seq += 1
-        seen_keys: set[tuple[ObjectType, int, int]] = set()
         for obj in frame.objects:
             if obj.type is ObjectType.CELL_LABEL and not include_labels:
                 continue
@@ -134,14 +141,24 @@ class MatrixFusion:
                 self._outside[obj.type] = (obj.x, obj.y)
                 continue
             key = (obj.type, c.col, c.row)
-            seen_keys.add(key)
             q = self._obs.setdefault(key, deque(maxlen=self.window))
             q.append((self._seq, obj.x, obj.y))
+        # 移动类遗忘：最近一次出现距今超过 window 帧 → 整键删除
+        stale = [k for k, q in self._obs.items()
+                 if k[0] in _MOVING_KINDS
+                 and q and self._seq - q[-1][0] >= self.window]
+        for k in stale:
+            del self._obs[k]
         return self.fused_spots()
 
     def fused_spots(self) -> list[ObjectSpot]:
-        """当前窗口的确认目标：票数≥confirm，坐标取中值。"""
-        out: list[ObjectSpot] = []
+        """当前窗口的确认目标：票数≥confirm，坐标取中值。
+
+        场地规则：一格至多一个目标。同格多种类别均过确认线时，
+        取票数最高者为该格唯一目标；平票时障碍优先（安全：
+        规划宁可绕开，避免把桶当雷导致撞桶）。
+        """
+        best: dict[tuple[int, int], tuple[int, ObjectType, float, float]] = {}
         for key, q in self._obs.items():
             if len(q) < self.confirm:
                 continue
@@ -151,8 +168,23 @@ class MatrixFusion:
             n = len(q)
             mx = xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2
             my = ys[n // 2] if n % 2 else (ys[n // 2 - 1] + ys[n // 2]) / 2
-            out.append(ObjectSpot(kind, mx, my, col, row))
-        return out
+            cell = (col, row)
+            votes = n
+            cur = best.get(cell)
+            if cur is None or votes > cur[0] or (
+                    votes == cur[0] and self._tie_break(kind, cur[1])):
+                best[cell] = (votes, kind, mx, my)
+        return [ObjectSpot(k, mx, my, c, r)
+                for (c, r), (_, k, mx, my) in best.items()]
+
+    @staticmethod
+    def _tie_break(a: ObjectType, b: ObjectType) -> bool:
+        """平票裁决：a 是否胜过 b。障碍优先，其余按显示优先级。"""
+        a_obs = a is ObjectType.OBSTACLE
+        b_obs = b is ObjectType.OBSTACLE
+        if a_obs != b_obs:
+            return a_obs
+        return _PRIORITY.get(a, 99) < _PRIORITY.get(b, 99)
 
     def outside_spots(self) -> list[ObjectSpot]:
         """最近观测到的出界目标（不落格，仅报坐标）。"""
