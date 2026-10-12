@@ -210,6 +210,33 @@ def test_decode_detect_rejects_bad_channels():
         prelabel_o.decode_detect(np.zeros((1, 9, 100), np.float32), .25, .45, 7)
 
 
+def test_filter_edge_boxes_removes_edge_mine():
+    # mine(cls=0) at x=0.005 (left edge) → 应被过滤
+    items = [(0, 0.005, 0.5, 0.02, 0.02),
+             (0, 0.5, 0.5, 0.02, 0.02),  # 中心 → 保留
+             (6, 0.005, 0.5, 0.05, 0.05)]  # obstacle 边缘 → target_cls={0} 时保留
+    result = prelabel_o.filter_edge_boxes(items, edge_thr=0.01, target_cls={0})
+    assert len(result) == 2
+    assert result[0] == (0, 0.5, 0.5, 0.02, 0.02)
+    assert result[1][0] == 6
+
+
+def test_filter_edge_boxes_all_classes():
+    items = [(0, 0.005, 0.5, 0.02, 0.02),  # 边缘 → 过滤
+             (6, 0.005, 0.5, 0.05, 0.05),  # 边缘 → 过滤
+             (4, 0.5, 0.5, 0.02, 0.02)]   # 中心 → 保留
+    result = prelabel_o.filter_edge_boxes(items, edge_thr=0.01, target_cls=None)
+    assert len(result) == 1
+    assert result[0][0] == 4
+
+
+def test_filter_edge_boxes_no_threshold():
+    items = [(0, 0.001, 0.001, 0.02, 0.02)]
+    # edge_thr=0 → 不过滤
+    result = prelabel_o.filter_edge_boxes(items, edge_thr=0.0, target_cls={0})
+    assert len(result) == 1
+
+
 def test_classify_bucket_colors_and_reflection():
     assert convert_l.classify_bucket(15, 140, 90) == "green"
     assert convert_l.classify_bucket(30, 50, 120) == "red"
