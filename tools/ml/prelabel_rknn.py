@@ -12,6 +12,7 @@
     [4:4+nc]        类别分数（官方 nc=2：0=蓝面敌方 1=红面友方）
     [4+nc:...]      关键点，每点 x y v（官方 nk=1：靶心）
     即标准 ultralytics-pose 公式：通道数 = 4 + nc + nk*3
+    兼容 8 通道模型（4+nc+nk*2，无 visibility 分）：解码时 v 自动补 1.0
 
 用法（车端）：
     python3 prelabel_rknn.py --model ~/models/best_new.rknn \
@@ -52,21 +53,29 @@ def decode_output(output, conf_thr: float, iou_thr: float,
                   num_classes: int = 2, num_kpts: int = 1):
     """把 [1,C,8400]（或 [C,8400]）解码为 (boxes, scores, kpts, class_ids)。
 
-    通道公式：C = 4 + num_classes + num_kpts*3（标准 ultralytics-pose）。
+    支持两种通道布局（自动判别）：
+      * 含 visibility：C = 4 + num_classes + num_kpts*3（标准 ultralytics-pose，9 通道）
+      * 无 visibility：C = 4 + num_classes + num_kpts*2（8 通道模型，v 统一补 1.0）
     返回：
         boxes     [N,4]  cx,cy,w,h（640 坐标系）
         scores    [N]    各类别中的最大分类分
-        kpts      [N,nk,3] x,y,v（640 坐标系）
+        kpts      [N,nk,3] x,y,v（640 坐标系，无 visibility 时 v=1.0）
         class_ids [N]    argmax 类别号
     """
     arr = np.squeeze(output, axis=0)
     if arr.ndim != 2:
         raise ValueError(f"输出维度异常: {arr.shape}")
     channels, anchors = arr.shape
-    expected = 4 + num_classes + num_kpts * 3
-    if channels != expected:
+    expected_viz = 4 + num_classes + num_kpts * 3
+    expected_noviz = 4 + num_classes + num_kpts * 2
+    if channels == expected_viz:
+        has_visibility = True
+    elif channels == expected_noviz:
+        has_visibility = False
+    else:
         raise ValueError(
-            f"通道数 {channels} 与 4+{num_classes}类+{num_kpts}点*3={expected} 不符；"
+            f"通道数 {channels} 与 4+{num_classes}类+{num_kpts}点 不符"
+            f"（含visibility={expected_viz} / 无visibility={expected_noviz}）；"
             "用 --nc / --nkpt 指定模型真实布局"
         )
 
@@ -84,7 +93,14 @@ def decode_output(output, conf_thr: float, iou_thr: float,
                 np.zeros((0, num_kpts, 3)), np.zeros(0, dtype=np.int64))
 
     boxes = arr[:, :4].copy()
-    kpts = arr[:, 4 + num_classes:].reshape(-1, num_kpts, 3)
+    raw_kpts = arr[:, 4 + num_classes:]
+    if has_visibility:
+        kpts = raw_kpts.reshape(-1, num_kpts, 3)
+    else:
+        # 8 通道模型无 visibility 分数，统一补 1.0（靶心恒可见）
+        xy = raw_kpts.reshape(-1, num_kpts, 2)
+        v = np.ones((xy.shape[0], num_kpts, 1), dtype=xy.dtype)
+        kpts = np.concatenate([xy, v], axis=2)
 
     # 按类别分别 NMS（不同类的重叠框都要保留）
     keep_indices: list[int] = []

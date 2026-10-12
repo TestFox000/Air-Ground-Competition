@@ -119,9 +119,38 @@ def test_decode_official_two_class_one_kpt():
     assert kpts[1, 0, 0] == pytest.approx(301)
 
 
+def _synthetic_output_no_visibility():
+    """构造 8 通道 [1,8,8400]：4框 + 蓝/红2类 + 1靶心点(无visibility)。"""
+    arr = np.zeros((8, 8400), dtype=np.float32)
+    arr[:4, 0] = [100, 100, 20, 20]
+    arr[4, 0] = 0.9
+    arr[5, 0] = 0.1
+    arr[6:8, 0] = [101, 102]
+    arr[:4, 1] = [300, 300, 30, 40]
+    arr[4, 1] = 0.05
+    arr[5, 1] = 0.8
+    arr[6:8, 1] = [301, 302]
+    return arr[None]
+
+
+def test_decode_eight_channel_no_visibility():
+    """8 通道模型无 visibility 分，解码后 v 应自动补 1.0。"""
+    boxes, scores, kpts, class_ids = prelabel.decode_output(
+        _synthetic_output_no_visibility(), 0.25, 0.45, 2, 1
+    )
+    assert boxes.shape == (2, 4)
+    assert list(class_ids) == [0, 1]
+    assert kpts.shape == (2, 1, 3)
+    assert kpts[0, 0, 0] == pytest.approx(101)
+    assert kpts[0, 0, 1] == pytest.approx(102)
+    assert kpts[0, 0, 2] == pytest.approx(1.0)
+    assert kpts[1, 0, 2] == pytest.approx(1.0)
+
+
 def test_decode_rejects_channel_mismatch():
+    # nc=1,nkpt=1 → 含visibility=8 / 无visibility=7，9 通道两种布局都不匹配
     with pytest.raises(ValueError):
-        prelabel.decode_output(_synthetic_output(), 0.25, 0.45, 1, 2)
+        prelabel.decode_output(_synthetic_output(), 0.25, 0.45, 1, 1)
 
 
 def test_decode_empty_when_all_below_conf():

@@ -150,9 +150,48 @@
 
 ---
 
-*最后更新：2026-10-12 13:02 经理（每小时巡检）*
+*最后更新：2026-10-12 14:09 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 13:02）
+## 7. 本轮巡检非硬件推进（2026-10-12 14:09）
+
+### ✅ 标靶检测后处理兼容 8 通道模型（非硬件推进，服务 M0-6）
+- **问题**：`tools/ml/prelabel_rknn.py` 的 `decode_output` 严格要求 9 通道布局（4 bbox + 2 cls + 1 kpt*3），4 个下载的标靶 pose 模型中有 2 个（`target_car_pose_v2`、`target_synth_yolo11s`）为 8 通道（无 visibility 分），直接解码会抛 ValueError
+- **修复**：`decode_output` 自动判别两种布局 —— 含 visibility（C=4+nc+nk*3）或无 visibility（C=4+nc+nk*2），后者自动补 v=1.0，返回统一的 `[N,nk,3]` 张量
+- **验证**：新增 `test_decode_eight_channel_no_visibility` 测试，修正 `test_decode_rejects_channel_mismatch` 参数；全量 126 passed, 1 skipped，无回归
+- **价值**：即使 seed157/target_merged 新训练产物未就绪，4 个已下载的标靶 pose 模型（2 个 9 通道 + 2 个 8 通道）均可直接转 RKNN 部署到车端，标靶识别不阻塞
+
+### ✅ 代码base健康
+- `pytest tests/` 126 passed, 1 skipped in 16.59s（无回归，跳过项为 onnx 库未安装）
+
+### ✅ watch 脚本健康（3 实例运行中）
+- PID 41148 + 42360 + 42708，均于 05:06:37 启动（已运行 ~9h）
+- 连通 5090 后自动监控 v4d + seed157 + target_merged 三个训练并下载产物
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/200（无变化）
+
+### 📋 M0 完赛最小闭环进度（重点关注）
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | 无（待硬件） |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | ✅ 标靶检测后处理兼容8通道模型（4个pose模型均可部署） |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 13:02）
 
 ### ✅ 8通道标靶pose模型类别确认（非硬件推进，重要发现）
 - 此前巡检认为 `target_car_pose_v2_best.onnx` 和 `target_synth_yolo11s_best.onnx` 为8通道单类模型，与车端2类契约不符
