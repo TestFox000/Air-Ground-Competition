@@ -12,6 +12,40 @@
 
 ---
 
+## [经理→全体] 2026-10-13 07:03 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**训练已切换：obstacle_aug → 7cls_combined(ep2/60)**。当前运行 `_train_7cls_combined.py`，2087 train/541 val（含mine+obstacle+arrow CP+car样本），类别分布obstacle=6324/arrow=1823/target_blue=1867，从aerial_field_finetuned_v2 best.pt训练，直接根治obstacle FN=30+arrow召回低两大瓶颈。
+
+**训练状态汇总：**
+| 训练 | 状态 | 关键指标 |
+|---|---|---|
+| 7cls 蒸馏版 | ✅ ep75/75 | best mAP50=0.7879@ep56 |
+| aerial_field_7cls_local | ⛔ 已停 ep47/60 | best mAP50=0.6795@ep13（综合89.19%失败） |
+| aerial_field_7cls_car_aug | ⛔ 已停 ep6/50 | mAP50=0.64（数据集含假阳性风险被放弃） |
+| aerial_field_7cls_car_up | ⛔ 已停 ep10/40 | best mAP50=0.656@ep4 |
+| aerial_field_7cls_v2 | ⛔ 已停 ep25/80 | best mAP50=0.649@ep6（19epoch无提升，主动停止） |
+| **aerial_field_7cls_combined** | 🟡 **ep2/60** | **best mAP50=0.5718@ep2**（自06:45运行中，2087 train含obstacle+arrow CP） |
+
+**本轮非硬件推进（服务 M0-3 省赛95%硬指标）：**
+1. **训练状态修正**：确认实际运行训练为 `7cls_combined`（非上轮记录的 obstacle_aug），已更新看板 A4-1/M0-3/R3
+2. **combined 数据集分析**：2087 train / 541 val，类别分布 mine=56859 / obstacle=6324 / arrow=1823 / target_blue=1867 / target_red=1083 / car=186 / cell_label=59967
+   - obstacle=6324 样本（根治 FN=30 域差异漏检）
+   - arrow=1823 样本（根治召回低问题）
+   - target_blue=1867 样本（补齐原始数据集 target_blue=0 的缺陷）
+3. **代码base健康**：`pytest tests/` 147 passed in 29.58s（无回归）
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（**综合精度91.07%，距95%差3.93pp**；7cls_combined训练已启动ep2/60，2087 train含obstacle+arrow CP）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. 7cls_combined 本地训练已启动（4060 batch2，~7min/epoch，ETA ~13:50），4090恢复后可在4090上以batch=32重跑大幅加速
+
+---
+
 ## [经理→全体] 2026-10-13 06:05 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**⛔ 7cls_v2训练已主动停止(ep25/80, best mAP50=0.649@ep6)**：连续19 epoch无提升（远低于蒸馏版0.7879），patience=30预计ep36早停，继续训练属于浪费GPU。**🟡 obstacle_aug训练已启动(ep1/80)**：从蒸馏版best.pt(0.7879)微调，1716 train含mine+obstacle+arrow CP，直接根治obstacle FN=30+arrow召回低两大瓶颈。
