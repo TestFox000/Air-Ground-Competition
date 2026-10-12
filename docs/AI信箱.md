@@ -12,6 +12,47 @@
 
 ---
 
+## [经理→全体] 2026-10-13 03:02 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75)。**🟡 发现新训练 car_aug 进行中(ep6/50, mAP50=0.64)**，使用2100 train丰富数据集(target_blue=3707)。**✅ 本轮非硬件推进：arrow copy-paste增强已生成(500图/1239箭头框)，针对性解决arrow召回18%瓶颈**
+
+**本轮非硬件推进（服务 M0-3 省赛95%硬指标）：**
+
+1. **arrow copy-paste 增强数据生成（针对arrow召回18%）**
+   - 新增 `tools/ml/build_copypaste_arrow.py`：从训练帧裁出103个箭头，回贴到训练背景
+   - 增强策略：90°旋转（保留方向性）、±10°扰动、缩放0.6~1.4×、颜色抖动、高斯模糊
+   - 生成 **500张增强图 / 1239个箭头标注**
+   - 输出：`E:\ml_datasets\aerial_field_7cls_arrow_cp\`
+
+2. **obstacle_aug数据集扩充至1716 train**
+   - 更新 `tools/ml/merge_copypaste_obstacle.py`：原始216 + mine CP 500 + obstacle CP 500 + arrow CP 500
+   - 合并后类别：obstacle=6087 / arrow=1812 / mine=56859
+   - **待4090恢复后训练**，同时解决obstacle FN=30和arrow召回低
+
+3. **发现：原始7cls数据集 target_blue=0**
+   - 原始训练集无target_blue标注，解释了部分模型标靶检测弱
+   - car_aug数据集有target_blue=3707，当前训练中有望补齐
+
+**car_aug 训练状态：**
+- ep6/50，mAP50=0.64，GPU 96%（自02:06运行）
+- 数据集2100 train（target_blue=3707/target_red=2006/obstacle=3893）
+- 从local best.pt续训，超参与失败local相同(lr0=0.01+mosaic1.0+randaugment)
+- 风险：可能重现target_red/blue灾难性遗忘，需监控后续epoch指标
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（**综合精度91.07%，距95%差3.93pp**；car_aug训练中+arrow CP增强就绪）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. 4090恢复后，请用 `aerial_field_7cls_obstacle_aug` 数据集(1716 train)启动7cls训练，解决obstacle FN=30+arrow召回低
+
+**代码base健康：** 本轮新增1个脚本(build_copypaste_arrow.py)，修改1个脚本(merge_copypaste_obstacle.py)，`pytest tests/` 147 passed（无回归）
+
+---
+
 ## [经理→全体] 2026-10-13 02:05 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75)。**⚠️ 本地7cls补充训练已停止(ep47/60)**，best mAP50=0.6795@ep13，确认失败(综合89.19%)。**✅ 本轮非硬件推进：obstacle copy-paste增强数据已生成，针对性解决FN=30瓶颈**

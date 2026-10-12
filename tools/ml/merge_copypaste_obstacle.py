@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""合并原始7cls训练集 + mine copy-paste + obstacle copy-paste，创建新data.yaml。
+"""合并原始7cls训练集 + mine copy-paste + obstacle copy-paste + arrow copy-paste，创建新data.yaml。
 
-针对 obstacle FN=30 瓶颈：在原始数据基础上追加障碍copy-paste增强样本。
+针对 obstacle FN=30 和 arrow 召回低瓶颈：在原始数据基础上追加障碍/箭头copy-paste增强样本。
 用法: python tools/ml/merge_copypaste_obstacle.py
 """
 from pathlib import Path
@@ -13,6 +13,8 @@ MINE_CP_IMG = Path(r"E:\ml_datasets\aerial_field_7cls_copypaste\images\train")
 MINE_CP_LBL = Path(r"E:\ml_datasets\aerial_field_7cls_copypaste\labels\train")
 OBS_CP_IMG = Path(r"E:\ml_datasets\aerial_field_7cls_obstacle_cp\images\train")
 OBS_CP_LBL = Path(r"E:\ml_datasets\aerial_field_7cls_obstacle_cp\labels\train")
+ARR_CP_IMG = Path(r"E:\ml_datasets\aerial_field_7cls_arrow_cp\images\train")
+ARR_CP_LBL = Path(r"E:\ml_datasets\aerial_field_7cls_arrow_cp\labels\train")
 DST = Path(r"E:\ml_datasets\aerial_field_7cls_obstacle_aug")
 
 # 清空目标
@@ -49,6 +51,16 @@ for f in OBS_CP_IMG.glob("*"):
 for f in OBS_CP_LBL.glob("*"):
     shutil.copy2(f, DST / "labels" / "train" / f.name)
 print(f"obstacle copy-paste追加: {n_obs_cp} 张")
+
+# 追加arrow copy-paste到train（如存在）
+n_arr_cp = 0
+if ARR_CP_IMG.exists():
+    for f in ARR_CP_IMG.glob("*"):
+        shutil.copy2(f, DST / "images" / "train" / f.name)
+        n_arr_cp += 1
+    for f in ARR_CP_LBL.glob("*"):
+        shutil.copy2(f, DST / "labels" / "train" / f.name)
+    print(f"arrow copy-paste追加: {n_arr_cp} 张")
 
 # 写data.yaml
 yaml = f"""path: {DST.as_posix()}

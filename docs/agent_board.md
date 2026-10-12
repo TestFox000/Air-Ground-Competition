@@ -52,7 +52,7 @@
 
 | 任务ID | 任务 | 状态 | 截止 | 完成时间 | 进度 |
 |---|---|---|---|---|---|
-| A4-1 | **7cls 蒸馏训练收敛** | ✅ | 10-11 16:05 | 10-11 16:05 | 蒸馏版ep75/75完成(mAP50=0.7879)已发布。**4090三连训**：7cls_clean(ep80/80✅,mAP50=0.6666)→7cls_final_v2(ep60/60✅,mAP50=0.7207)→7cls_v3(ep20/50🟡,mAP50=0.6799)。**综合评估最优：2stage_v2+edge1%=91.07%**。mine_cls_v5雷分类器(ep40/40✅,val_acc=0.9969)已下载。**⚠️本地7cls补充训练已停止(ep47/60)**：aerial_field_7cls_local(2053障碍样本)best mAP50=0.6795@ep13(低于所有现役模型)，综合精度仅89.19%，obstacle FN仍=30未改善，target_red/blue灾难性遗忘(acc=0)。根因：lr0=0.01过高+强增强。**✅本轮推进：obstacle copy-paste增强数据已生成**(500图/3025障碍框，从漏检val帧裁出障碍回贴训练背景)，合并数据集aerial_field_7cls_obstacle_aug(1216 train)就绪，待4090恢复后训练 |
+| A4-1 | **7cls 蒸馏训练收敛** | ✅ | 10-11 16:05 | 10-11 16:05 | 蒸馏版ep75/75完成(mAP50=0.7879)已发布。**4090三连训**：7cls_clean(ep80/80✅,mAP50=0.6666)→7cls_final_v2(ep60/60✅,mAP50=0.7207)→7cls_v3(ep20/50🟡,mAP50=0.6799)。**综合评估最优：2stage_v2+edge1%=91.07%**。mine_cls_v5雷分类器(ep40/40✅,val_acc=0.9969)已下载。**⚠️本地7cls补充训练已停止(ep47/60)**：aerial_field_7cls_local(2053障碍样本)best mAP50=0.6795@ep13，综合精度89.19%，obstacle FN仍=30，target_red/blue灾难性遗忘。**🟡本轮新训练：aerial_field_7cls_car_aug(ep6/50,mAP50=0.64)**：使用更丰富数据集(2100 train，target_blue=3707/target_red=2006/obstacle=3893/arrow=678)，从local best.pt续训，自02:06运行中(GPU 96%)。**✅arrow copy-paste增强已生成**(500图/1239箭头框)，obstacle_aug数据集扩充至1716 train(含arrow CP) |
 | A4-2 | **格号识别 v4c 训练** | ✅ | 10-10 | 10-10 08:00 | v4c模型已发布 cell_classifier_v4c_20261009.onnx |
 | A4-3 | Orin 编译 dzuav | 🔵 待启动 | Orin上线后1h | — | 需Orin在线 |
 | A4-4 | 相机出图验证 | ⛔ | 依赖A4-3 | — | |
@@ -92,7 +92,7 @@
 |---|---|---|---|
 | M0-1 | 车能走直线不画圆 | Agent-3 | 🟡 软件就绪待实车 |
 | M0-2 | 朝向对齐实车验证 | Agent-3 | 🟡 软件就绪待实车 |
-| M0-3 | 无人机出情报(UDP) | Agent-4 | 🔵 待Orin上线（v4c离线验证已过，7cls模型已发布；本地端到端管线验证通过。**综合识别精度91.07%(2stage_v2+mine边缘1%过滤)，距95%差3.93pp**。瓶颈：obstacle FN=30（四模型均漏检同一批，纯数据域差异）+ arrow召回低。**✅本轮：obstacle copy-paste增强数据已生成(500图/3025障碍框)，合并数据集就绪待训**） |
+| M0-3 | 无人机出情报(UDP) | Agent-4 | 🔵 待Orin上线（v4c离线验证已过，7cls模型已发布；本地端到端管线验证通过。**综合识别精度91.07%(2stage_v2+mine边缘1%过滤)，距95%差3.93pp**。瓶颈：obstacle FN=30（四模型均漏检同一批，纯数据域差异）+ arrow召回低(11GT仅2检出)。**🟡本轮新训练car_aug进行中(ep6/50)**：2100 train丰富数据集(target_blue=3707/obstacle=3893)，有望解决FN+遗忘。**✅arrow copy-paste增强已生成(500图/1239箭头框)**，obstacle_aug扩充至1716 train待4090训） |
 | M0-4 | 车机UDP链路通 | Agent-1 | ✅ 模拟验证通过 |
 | M0-5 | 路径规划可执行 | Agent-1 | ✅ 模拟验证通过 |
 | M0-6 | 车按路径行驶 | Agent-3 | ⛔ 依赖M0-1,M0-2（标靶pose模型target_pose_v2已完成：mAP50=0.9755，ONNX契约[1,9,8400]匹配车端；**mine_cls_v5雷分类器已完成val_acc=0.9969**，爆炸物二次确认就绪） |
@@ -143,7 +143,7 @@
 |---|---|---|---|
 | R1 | Orin 不在线 | Agent-4 | 确认WiFi连接；同时推进训练 |
 | R2 | 车仍画圆 | Agent-3 | align已就绪，待实车 |
-| R3 | 7cls综合精度未达95% | Agent-4 | **当前最优91.07%**(2stage_v2_cls0.9 + mine类1%边缘过滤)。瓶颈：obstacle FN=30（**四模型均漏检同一批→纯数据域差异，本地2053障碍样本训练未解决**，漏检障碍面积31K-614Kpx均值220Kpx，非小目标问题）、arrow召回低(11GT仅2检出)。本地补充训练失败(综合89.19%劣于现役)。**✅本轮：obstacle copy-paste增强数据已生成(500图/3025障碍框)，从漏检val帧裁出障碍回贴训练背景，合并数据集aerial_field_7cls_obstacle_aug(1216 train)就绪，待4090恢复后训练**。距95%差3.93pp |
+| R3 | 7cls综合精度未达95% | Agent-4 | **当前最优91.07%**(2stage_v2_cls0.9 + mine类1%边缘过滤)。瓶颈：obstacle FN=30（四模型均漏检同一批→纯数据域差异，漏检障碍面积31K-614Kpx均值220Kpx，非小目标问题）、arrow召回低(11GT仅2检出)。本地补充训练失败(综合89.19%)。**🟡本轮：car_aug新训练进行中(ep6/50,2100 train丰富数据集)**，**✅arrow copy-paste增强已生成(500图/1239箭头框)**，obstacle_aug数据集扩充至1716 train(含mine+obstacle+arrow CP)待4090训。距95%差3.93pp |
 | R7 | 5090连接不稳定 | Agent-4 | 5090实例持续不可达（connect.bjb2.seetacloud.com:37113 TcpTestSucceeded=False）。seed157/v4d/target_merged 训练状态未知。watch_5090_v4d_seed.py 2实例持续存活（自18:04起），连通即自动监控+下载。需用户在 AutoDL 控制台检查实例状态 |
 | R8 | 4090训练进度 | Agent-4 | ⚠️ 4090实例(connect.bjb1:27379)本轮不可达。**已完成**：7cls_clean / 7cls_final_v2 / mine_cls_v5 / target_pose_v2 / red_bucket。**进行中(中断)**：7cls_v3(ep20/50) / red_bucket_v2(ep28)，待实例恢复后续训 |
 | R4 | 0x4002帧未广播 | Agent-4 | 代码完成，待Orin编译 |
@@ -151,9 +151,53 @@
 
 ---
 
-*最后更新：2026-10-13 02:05 经理（每小时巡检）*
+*最后更新：2026-10-13 03:02 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-13 02:05）
+## 7. 本轮巡检非硬件推进（2026-10-13 03:02）
+
+### 📊 训练进度监控
+- **7cls 蒸馏训练**：ep75/75 已完成（best mAP50=0.7879，无变化）
+- **本地 7cls 补充训练（aerial_field_7cls_local）**：⛔ 已停止 ep47/60，best mAP50=0.6795@ep13（失败）
+- **🟡 新训练 aerial_field_7cls_car_aug**：ep6/50，mAP50=0.64（自 02:06 运行中，GPU 96%）
+  - 数据集：2100 train / 541 val（比原始216 train丰富10倍）
+  - 类别分布：target_blue=3707 / target_red=2006 / obstacle=3893 / arrow=678 / mine=48817
+  - 从 local best.pt 续训，超参 lr0=0.01+mosaic=1.0+randaugment（与失败local相同）
+  - **关键差异**：原始7cls数据集target_blue=0（无标注），car_aug有3707个target_blue，有望解决标靶检测
+- **4090/5090 实例**：均不可达（TcpTestSucceeded=False）
+  - 7cls_v3(ep20/50) / red_bucket_v2(ep28) 训练中断，待实例恢复
+- **watch_5090 监控脚本**：2 实例持续存活（PID 4256+14796，自 18:04 起）
+
+### ✅ arrow copy-paste 增强数据生成（非硬件推进，服务 M0-3 arrow召回瓶颈）
+**针对 arrow 召回极低问题**（val 11个GT仅检出2个，召回率18%）：
+
+1. **新增 `tools/ml/build_copypaste_arrow.py`**：从训练帧裁出103个箭头区域，回贴到216张训练背景图
+   - 增强策略：90°旋转（保留箭头方向性）、小角度扰动±10°、缩放0.6~1.4×、颜色抖动、高斯模糊
+   - 箭头面积比例0.1%~1%（匹配航拍箭头实际尺寸）
+2. **生成结果**：500张增强图，共 **1239个箭头标注**（平均2.5个/图）
+   - 输出：`E:\ml_datasets\aerial_field_7cls_arrow_cp\`
+3. **更新 `tools/ml/merge_copypaste_obstacle.py`**：合并原始216 + mine CP 500 + obstacle CP 500 + arrow CP 500 = **1716 train / 34 val**
+   - 输出：`E:\ml_datasets\aerial_field_7cls_obstacle_aug\data.yaml`
+   - 合并后类别：obstacle=6087 / arrow=1812 / mine=56859
+   - **待4090恢复后即可用此数据集训练**，同时解决obstacle FN=30和arrow召回低
+
+**价值**：与mine/obstacle copy-paste成功经验一致，直接将箭头真实纹理注入训练集，从数据层面根治arrow漏检。
+
+### ⚠️ 发现：原始7cls数据集 target_blue=0
+- 原始 `aerial_field_7cls` 训练集 target_blue 标注数为 **0**
+- 这解释了为何部分模型 target_blue 检测能力弱
+- car_aug 数据集（2100 train）有 target_blue=3707，是更全面的训练数据
+- 当前 car_aug 训练正在进行，有望补齐 target_blue 检测能力
+
+### 📋 M0 完赛最小闭环进度（重点关注）
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | 🟡 car_aug新训练进行中(ep6/50,2100 train)；✅ arrow copy-paste增强已生成(1239箭头框)，obstacle_aug扩充至1716 train |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | 无（待硬件） |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
 
 ### 📊 训练进度监控
 - **7cls 蒸馏训练**：ep75/75 已完成（best mAP50=0.7879，无变化）
