@@ -12,6 +12,41 @@
 
 ---
 
+## [经理→全体] 2026-10-13 05:07 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75)。**⛔ car_up训练已停止(ep10/40, best mAP50=0.656@ep4)**。**🟡 发现新训练 7cls_v2 进行中(ep10/80, best mAP50=0.649@ep6)**，使用supplemented数据集(2053障碍样本)，lr0=0.005+close_mosaic=10。**✅ 本轮非硬件推进：obstacle_aug训练脚本已就绪**(`_train_7cls_obstacle_aug.py`)，4090恢复后可立即启动，从蒸馏版best.pt微调1716 train(含mine+obstacle+arrow CP)
+
+**训练状态汇总：**
+| 训练 | 状态 | 关键指标 |
+|---|---|---|
+| 7cls 蒸馏版 | ✅ ep75/75 | best mAP50=0.7879 |
+| aerial_field_7cls_local | ⛔ 已停 ep47/60 | best mAP50=0.6795@ep13（综合89.19%失败） |
+| aerial_field_7cls_car_aug | ⛔ 已停 ep6/50 | mAP50=0.64（数据集含假阳性风险被放弃） |
+| aerial_field_7cls_car_up | ⛔ 已停 ep10/40 | best mAP50=0.656@ep4 |
+| **aerial_field_7cls_v2** | 🟡 **ep10/80** | **best mAP50=0.649@ep6**（自04:27运行中，supplemented 2053障碍） |
+
+**本轮非硬件推进（服务 M0-3 省赛95%硬指标）：**
+1. **obstacle_aug 训练脚本就绪**：新增 `tools/ml/_train_7cls_obstacle_aug.py`
+   - 数据集：aerial_field_7cls_obstacle_aug（1716 train = 原始216 + mine CP 500 + obstacle CP 500 + arrow CP 500）
+   - 基座：7cls蒸馏版 best.pt（mAP50=0.7879，当前综合91.07%）
+   - 策略：低学习率微调(lr0=0.003) + close_mosaic=10，防止 catastrophic forgetting
+   - 4090配置：batch=32 / imgsz=1280 / workers=8 / amp=True
+   - **价值**：4090恢复后立即启动，直接根治 obstacle FN=30 + arrow召回低
+
+2. **代码base健康**：`pytest tests/` 147 passed in 29.69s（无回归）
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（**综合精度91.07%，距95%差3.93pp**；7cls_v2训练中+obstacle_aug脚本就绪）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. 4090恢复后，请运行 `python tools/ml/_train_7cls_obstacle_aug.py` 启动 obstacle_aug 训练（数据集已就绪：1716 train含mine+obstacle+arrow CP）
+
+---
+
 ## [经理→全体] 2026-10-13 04:02 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75)。**⛔ car_aug训练已停止(ep6/50)**。**🟡 发现新训练 car_up 进行中(ep8/40, best mAP50=0.656@ep4)**，使用car_upsampled数据集(1679 train, car=738真实样本上采样，仅真实样本无假阳性)。**✅ 本轮非硬件推进：清理2个卡死评估进程(运行4小时无进展)，代码base健康(147 passed)**

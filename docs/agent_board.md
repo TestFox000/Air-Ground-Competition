@@ -52,7 +52,7 @@
 
 | 任务ID | 任务 | 状态 | 截止 | 完成时间 | 进度 |
 |---|---|---|---|---|---|
-| A4-1 | **7cls 蒸馏训练收敛** | ✅ | 10-11 16:05 | 10-11 16:05 | 蒸馏版ep75/75完成(mAP50=0.7879)已发布。**4090三连训**：7cls_clean(ep80/80✅,mAP50=0.6666)→7cls_final_v2(ep60/60✅,mAP50=0.7207)→7cls_v3(ep20/50🟡,mAP50=0.6799)。**综合评估最优：2stage_v2+edge1%=91.07%**。mine_cls_v5雷分类器(ep40/40✅,val_acc=0.9969)已下载。**⚠️本地7cls补充训练已停止(ep47/60)**：aerial_field_7cls_local(2053障碍样本)best mAP50=0.6795@ep13，综合精度89.19%，obstacle FN仍=30，target_red/blue灾难性遗忘。**⛔car_aug训练已停止(ep6/50)**：2100 train数据集(target_blue=3707)，mAP50=0.64，因car_aug数据集含增强假阳性风险被放弃。**🟡新训练car_up进行中(ep8/40,best mAP50=0.656@ep4)**：使用car_upsampled数据集(1679 train, car=738真实样本上采样, mine=49968/target_red=1037/target_blue=2083/obstacle=3757/arrow=713)，从local best.pt续训，自03:07运行中(GPU 72%)，仅复制真实样本不引入假阳性。**✅arrow copy-paste增强已生成**(500图/1239箭头框)，obstacle_aug数据集扩充至1716 train(含arrow CP)待4090训 |
+| A4-1 | **7cls 蒸馏训练收敛** | ✅ | 10-11 16:05 | 10-11 16:05 | 蒸馏版ep75/75完成(mAP50=0.7879)已发布。**4090三连训**：7cls_clean(ep80/80✅,mAP50=0.6666)→7cls_final_v2(ep60/60✅,mAP50=0.7207)→7cls_v3(ep20/50🟡,mAP50=0.6799)。**综合评估最优：2stage_v2+edge1%=91.07%**。mine_cls_v5雷分类器(ep40/40✅,val_acc=0.9969)已下载。**⚠️本地7cls补充训练已停止(ep47/60)**：aerial_field_7cls_local(2053障碍样本)best mAP50=0.6795@ep13，综合精度89.19%，obstacle FN仍=30，target_red/blue灾难性遗忘。**⛔car_aug训练已停止(ep6/50)**：mAP50=0.64，因car_aug数据集含增强假阳性风险被放弃。**⛔car_up训练已停止(ep10/40)**：best mAP50=0.656@ep4(car_upsampled 1679 train)。**🟡新训练7cls_v2进行中(ep10/80,best mAP50=0.649@ep6)**：使用aerial_field_7cls_supplemented数据集(2053障碍样本)，从aerial_field_finetuned_v2 best.pt续训，lr0=0.005+cls=0.5+close_mosaic=10，自04:27运行中。**✅obstacle_aug训练脚本已就绪**(`_train_7cls_obstacle_aug.py`)：1716 train(含mine+obstacle+arrow CP)，从蒸馏版best.pt微调，待4090恢复后启动 |
 | A4-2 | **格号识别 v4c 训练** | ✅ | 10-10 | 10-10 08:00 | v4c模型已发布 cell_classifier_v4c_20261009.onnx |
 | A4-3 | Orin 编译 dzuav | 🔵 待启动 | Orin上线后1h | — | 需Orin在线 |
 | A4-4 | 相机出图验证 | ⛔ | 依赖A4-3 | — | |
@@ -92,7 +92,7 @@
 |---|---|---|---|
 | M0-1 | 车能走直线不画圆 | Agent-3 | 🟡 软件就绪待实车 |
 | M0-2 | 朝向对齐实车验证 | Agent-3 | 🟡 软件就绪待实车 |
-| M0-3 | 无人机出情报(UDP) | Agent-4 | 🔵 待Orin上线（v4c离线验证已过，7cls模型已发布；本地端到端管线验证通过。**综合识别精度91.07%(2stage_v2+mine边缘1%过滤)，距95%差3.93pp**。瓶颈：obstacle FN=30（四模型均漏检同一批，纯数据域差异）+ arrow召回低(11GT仅2检出)。**⛔car_aug已停(ep6/50,mAP50=0.64)**。**🟡car_up新训练进行中(ep8/40,best mAP50=0.656@ep4)**：car_upsampled数据集(1679 train, car=738真实样本上采样)，仅真实样本无假阳性。**✅arrow copy-paste增强已生成(500图/1239箭头框)**，obstacle_aug扩充至1716 train待4090训） |
+| M0-3 | 无人机出情报(UDP) | Agent-4 | 🔵 待Orin上线（v4c离线验证已过，7cls模型已发布；本地端到端管线验证通过。**综合识别精度91.07%(2stage_v2+mine边缘1%过滤)，距95%差3.93pp**。瓶颈：obstacle FN=30（四模型均漏检同一批，纯数据域差异）+ arrow召回低(11GT仅2检出)。**⛔car_aug已停(ep6/50,mAP50=0.64)**。**⛔car_up已停(ep10/40,best mAP50=0.656@ep4)**。**🟡7cls_v2新训练进行中(ep10/80,best mAP50=0.649@ep6)**：supplemented数据集(2053障碍)，lr0=0.005+close_mosaic=10。**✅obstacle_aug训练脚本就绪**(1716 train含mine+obstacle+arrow CP)，待4090训） |
 | M0-4 | 车机UDP链路通 | Agent-1 | ✅ 模拟验证通过 |
 | M0-5 | 路径规划可执行 | Agent-1 | ✅ 模拟验证通过 |
 | M0-6 | 车按路径行驶 | Agent-3 | ⛔ 依赖M0-1,M0-2（标靶pose模型target_pose_v2已完成：mAP50=0.9755，ONNX契约[1,9,8400]匹配车端；**mine_cls_v5雷分类器已完成val_acc=0.9969**，爆炸物二次确认就绪） |
@@ -143,7 +143,7 @@
 |---|---|---|---|
 | R1 | Orin 不在线 | Agent-4 | 确认WiFi连接；同时推进训练 |
 | R2 | 车仍画圆 | Agent-3 | align已就绪，待实车 |
-| R3 | 7cls综合精度未达95% | Agent-4 | **当前最优91.07%**(2stage_v2_cls0.9 + mine类1%边缘过滤)。瓶颈：obstacle FN=30（四模型均漏检同一批→纯数据域差异，漏检障碍面积31K-614Kpx均值220Kpx，非小目标问题）、arrow召回低(11GT仅2检出)。本地补充训练失败(综合89.19%)。**⛔car_aug已停(ep6/50)**。**🟡car_up新训练进行中(ep8/40,best mAP50=0.656@ep4)**：car_upsampled数据集(1679 train, car=738真实样本上采样)，仅真实样本无假阳性风险。**✅arrow copy-paste增强已生成(500图/1239箭头框)**，obstacle_aug数据集扩充至1716 train(含mine+obstacle+arrow CP)待4090训。距95%差3.93pp |
+| R3 | 7cls综合精度未达95% | Agent-4 | **当前最优91.07%**(2stage_v2_cls0.9 + mine类1%边缘过滤)。瓶颈：obstacle FN=30（四模型均漏检同一批→纯数据域差异，漏检障碍面积31K-614Kpx均值220Kpx，非小目标问题）、arrow召回低(11GT仅2检出)。本地补充训练失败(综合89.19%)。**⛔car_aug已停(ep6/50)**。**⛔car_up已停(ep10/40,best mAP50=0.656@ep4)**。**🟡7cls_v2新训练进行中(ep10/80,best mAP50=0.649@ep6)**：supplemented数据集(2053障碍)，lr0=0.005+close_mosaic=10。**✅obstacle_aug训练脚本已就绪**(1716 train含mine+obstacle+arrow CP)，从蒸馏版best.pt微调，待4090恢复后启动。距95%差3.93pp |
 | R7 | 5090连接不稳定 | Agent-4 | 5090实例持续不可达（connect.bjb2.seetacloud.com:37113 TcpTestSucceeded=False）。seed157/v4d/target_merged 训练状态未知。watch_5090_v4d_seed.py 2实例持续存活（自18:04起），连通即自动监控+下载。需用户在 AutoDL 控制台检查实例状态 |
 | R8 | 4090训练进度 | Agent-4 | ⚠️ 4090实例(connect.bjb1:27379)本轮不可达。**已完成**：7cls_clean / 7cls_final_v2 / mine_cls_v5 / target_pose_v2 / red_bucket。**进行中(中断)**：7cls_v3(ep20/50) / red_bucket_v2(ep28)，待实例恢复后续训 |
 | R4 | 0x4002帧未广播 | Agent-4 | 代码完成，待Orin编译 |
@@ -151,9 +151,46 @@
 
 ---
 
-*最后更新：2026-10-13 04:02 经理（每小时巡检）*
+*最后更新：2026-10-13 05:07 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-13 04:02）
+## 7. 本轮巡检非硬件推进（2026-10-13 05:07）
+
+### 📊 训练进度监控
+- **7cls 蒸馏训练**：ep75/75 已完成（best mAP50=0.7879，无变化）
+- **⛔ car_up 训练已停止**：ep10/40，best mAP50=0.65644@ep4（car_upsampled 1679 train）
+- **🟡 新训练 aerial_field_7cls_v2**：ep10/80，best mAP50=0.64856@ep6（自 04:27 运行中）
+  - 数据集：aerial_field_7cls_supplemented（2053 障碍样本）
+  - 从 aerial_field_finetuned_v2 best.pt 续训，lr0=0.005 / cls=0.5 / close_mosaic=10
+  - 关键差异 vs 失败 local：学习率减半(0.01→0.005)、cls损失权重降低、最后10epoch关mosaic
+- **4090/5090 实例**：均不可达（TcpTestSucceeded=False）
+  - 7cls_v3(ep20/50) / red_bucket_v2(ep28) 训练中断，待实例恢复
+- **watch_5090 监控脚本**：2 实例持续存活（PID 4256+14796，自 18:04 起）
+
+### ✅ obstacle_aug 训练脚本就绪（非硬件推进，服务 M0-3 95%硬指标）
+- **新增 `tools/ml/_train_7cls_obstacle_aug.py`**：4090 训练脚本，针对 obstacle FN=30 + arrow 召回低
+  - 数据集：aerial_field_7cls_obstacle_aug（1716 train = 原始216 + mine CP 500 + obstacle CP 500 + arrow CP 500）
+  - 基座：7cls蒸馏版 best.pt（mAP50=0.7879，当前综合91.07%）
+  - 策略：低学习率微调(lr0=0.003) + close_mosaic=10，防止 catastrophic forgetting
+  - 4090配置：batch=32 / imgsz=1280 / workers=8 / amp=True
+  - 本地调试：注释切换至 E:\ml_datasets 路径 + batch=2
+- **数据集验证**：1716 train / 34 val，7类完整（mine/car/arrow/target_red/cell_label/target_blue/obstacle）
+- **价值**：4090 恢复后可立即启动训练，直接将漏检障碍+箭头的真实纹理注入，从数据层面根治域差异
+
+### ✅ 代码base健康
+- `pytest tests/` 147 passed in 29.69s（无回归）
+
+### 📋 M0 完赛最小闭环进度（重点关注）
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | ⛔ car_up已停(ep10)；🟡 7cls_v2新训练进行中(ep10/80,best 0.649@ep6)；✅ obstacle_aug训练脚本就绪待4090 |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | 无（待硬件） |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
+
+---
 
 ### 📊 训练进度监控
 - **7cls 蒸馏训练**：ep75/75 已完成（best mAP50=0.7879，无变化）
