@@ -1,9 +1,9 @@
 {
   "name": "dsh-dzrobot-ssh",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
-  "description": "在 dsh 里操作 dzrobot 小车（RK3588）：侧栏图标进入小车面板，可自由切换 VNC 桌面（自带 noVNC + WebSocket 隧道到 TigerVNC :1）、终端（DSH 原生终端里 ssh）与文件目录（浏览/预览/下载/上传小车的文件系统），并提供状态浮窗（电量与 CPU 两块并列卡片各带动态时间轴曲线，标题栏显示开机时间，可拖动、自动刷新、可调透明度）与本地离线仿真台（一键跑 dzbrain 仿真：速度档 + 误差注入 → 指标/路线图/历史对比，不连小车）。",
+  "description": "在 dsh 里操作 dzrobot 小车（RK3588）：侧栏图标进入小车面板，可自由切换 VNC 桌面（自带 noVNC + WebSocket 隧道到 TigerVNC :1）、终端（DSH 原生终端里 ssh）与文件目录（浏览/预览/下载/上传小车的文件系统），并提供状态浮窗（电量与 CPU 两块并列卡片各带动态时间轴曲线，标题栏显示开机时间，可拖动、自动刷新、可调透明度）与本地离线仿真台（一键跑 dzbrain 仿真：速度档 + 误差注入 + seed → 指标/横置场地视图/路线图/历史对比；可改雷障洞点位 —— 只落运行目录 override 并只读调规划器重规划路线，不连小车、不写 config、无 GPU 路径）。",
   "main": "./index.js",
   "exports": {
     ".": "./index.js",
@@ -20,6 +20,7 @@
     "vnc-connect.html",
     "float.html",
     "sim.html",
+    "sim-root.json",
     "novnc"
   ],
   "keywords": [

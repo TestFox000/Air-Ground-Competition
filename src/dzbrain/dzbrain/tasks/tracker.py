@@ -35,15 +35,15 @@ import math
 from typing import Any, Callable
 
 from ..core import geometry as geo
-from ..core.blackboard import (P_MISSION_PHASE, P_POSE, P_ROUTE, P_ROUTE_INDEX, P_ROUTE_S,
-                               P_SAFETY, P_TELEMETRY, Blackboard)
+from ..core.blackboard import (P_MISSION_PHASE, P_POSE, P_PURSUIT_GEAR, P_ROUTE, P_ROUTE_INDEX,
+                               P_ROUTE_S, P_SAFETY, P_TELEMETRY, Blackboard)
 from ..core.config import Config, lookahead_distance, pivot_dist_eff
 from ..core.events import EventBus
 from ..core.logging import Throttle
 from ..core.state import SafetyState
 from ..core.task import TaskThread
 from ..io.contract import MissionPhase
-from ..pursuit.controller import PursuitCommand, compute_command
+from ..pursuit.controller import PursuitCommand, compute_command, dynamic_gear_speed
 from ..pursuit.path import Path, Projection
 from ..route.model import Route
 
@@ -83,10 +83,12 @@ PIVOT_DONE_KEY = "pivot_done"
 #: 允许循迹的阶段（★ 白名单而不是黑名单：将来新增的阶段默认**不动车**，失败偏安全）
 ACTIVE_PHASES: tuple[str, ...] = (MissionPhase.DRIVE, MissionPhase.APPROACH)
 
-#: 明令刹车的阶段（`P1接口约定.md` §3.2 列出的六个）
+#: 明令刹车的阶段（`P1接口约定.md` §3.2 列出的六个 + ★t32 的桥前等待 HOLD）
+#: ★ t32 的仲裁就靠这张表：`HOLD` **不在** `ACTIVE_PHASES`（白名单）里 ⇒ Mission 一切到 HOLD，
+#:   Tracker 每拍都走 `_hold()` → `publish_brake()`；驱动指令仍只有 Tracker 一个写者。
 BLOCKED_PHASES: tuple[str, ...] = (MissionPhase.IDLE, MissionPhase.STOP, MissionPhase.SHOOT,
-                                   MissionPhase.WAIT_SCAN, MissionPhase.FINISH,
-                                   MissionPhase.SAFE_STOP)
+                                   MissionPhase.WAIT_SCAN, MissionPhase.HOLD,
+                                   MissionPhase.FINISH, MissionPhase.SAFE_STOP)
 
 _EPS = 1e-9
 
@@ -118,6 +120,10 @@ class TrackerTask(TaskThread):
         self._max_steer_rate_deg_s = float(cfg.get("pursuit.max_steer_rate_deg_s"))
         self._min_speed_mps = float(cfg.get("pursuit.min_speed_mps"))
         self._cruise_mps = float(cfg.get("pursuit.cruise_speed_mps"))
+        # ★ t36 动态档：**默认关闭**（False ⇒ 下面 _gear_cruise() 恒返回 None
+        #   ⇒ compute_command 收到的 cruise_mps 就是 None ⇒ 与历史逐位一致）
+        self._gear_enabled = bool(cfg.get("pursuit.dynamic_gear_enabled", False))
+        self._gear_last: tuple[str, float] | None = None
         self._tick_dt = 1.0 / self.rate_hz
         self._window_m = max(0.0, float(cfg.get("pursuit.approach_m")))
 
@@ -403,6 +409,9 @@ class TrackerTask(TaskThread):
                 self._s_floor = v_s
 
         is_rev = path.segment_is_reverse(proj.seg_index)
+        # ★ t36 动态档（**默认关闭**）：开启时按"车到下一个桥洞格的直线距离"选 0.35/0.40；
+        #   关闭时 `gear is None` ⇒ `compute_command(cruise_mps=None)` ⇒ 与历史**逐位一致**。
+        gear = self._gear_cruise(pose, route, proj, now)
         # ★ t21：把黑板交给速度剖面 —— `P_MOTION_LIMIT`（Localization 写的限速/停机请求）
         #   由此真正生效。**无信号（键不存在/None/载荷非法）时读侧完全 no-op**，命令与
         #   不传 `bb` 时逐位一致（`pursuit.controller.motion_limit_speed_limit` 的契约、
@@ -411,7 +420,8 @@ class TrackerTask(TaskThread):
                                               reverse=is_rev,
                                               last_steer_deg=self._last_steer_deg,
                                               dt=dt, bb=self.bb,
-                                              last_speed_mps=self._last_cmd_speed)
+                                              last_speed_mps=self._last_cmd_speed,
+                                              cruise_mps=gear)
         #: ★t38：记下本拍**控制器输出**的命令速度（t37 规格 §④ 的字面口径 `abs(cmd.linear_x)`），
         #:  供下一拍斜坡用；`abs` 兼容倒车（倒车命令为负）。位置紧跟调用点：只记"速度剖面产物"，
         #:  不掺 align 分支的定点速度（否则会与斜坡历史混源）。
@@ -491,6 +501,9 @@ class TrackerTask(TaskThread):
             "dist_to_path": float(proj.dist), "curvature": float(cmd.curvature),
             "speed_reason": cmd.speed_reason, "reason_tag": reason_tag,
             "lookahead_m": float(lookahead_distance(self._cruise_mps, self.cfg)),
+            # ★ t36 动态档：当拍档位也进遥测（关闭时恒为 None / "off"，与历史一致）
+            "gear_mps": (None if gear is None else float(gear)),
+            "gear": ("off" if gear is None else str((self._gear_last or ("?",))[0])),
             "align_segments": sorted(self._align_segs),
             "at": now,
         }
@@ -512,6 +525,53 @@ class TrackerTask(TaskThread):
             return None
         s_v = path.s_at_waypoint(i + 1)
         return s_v, path.corner_turn_deg(i), path.car_heading_on(i + 1)
+
+    def _dist_to_next_cross(self, pose, route: Route | None, proj: Projection | None):
+        """车到**前方最近一个桥洞格（K 列）**的直线距离；前方没有桥洞 / 缺信息 → `None`。
+
+        ★ t36：判据只看"洞"（`route.crossing` 的格心），不看路线弧长 —— 距离是现场可量的、
+          也是无人机情报（洞的位置）直接对应的量；用弧长会把"绕行逼近"算成很远。
+        """
+        if pose is None or route is None or proj is None:
+            return None
+        cells = [str(c).strip().upper() for c in (route.crossing or {}).values()]
+        if not cells:
+            return None
+        here = int(getattr(proj, "seg_index", 0) or 0)
+        best: float | None = None
+        for i, wp in enumerate(route.waypoints):
+            if str(wp.block).strip().upper() not in cells or i <= here:
+                continue                                  # 已经过掉的洞不算"前方"
+            dist = ((wp.x - pose.x) ** 2 + (wp.y - pose.y) ** 2) ** 0.5
+            if best is None or dist < best:
+                best = dist
+        return best
+
+    def _gear_cruise(self, pose, route: Route | None, proj: Projection | None,
+                     now: float) -> float | None:
+        """★ t36 动态档：返回本拍要用的巡航速度（`None` = 不覆盖 ⇒ 逐位同历史）。
+
+        关闭时**一行都不写黑板、不算距离**（`self._gear_enabled` 为 False 直接返回 None）；
+        开启时按桥洞远近选档，并把"当拍档位"写进遥测与黑板观测键 `P_PURSUIT_GEAR`（日志限流）。
+        """
+        if not self._gear_enabled:
+            return None
+        dist = self._dist_to_next_cross(pose, route, proj)
+        gear = dynamic_gear_speed(self.cfg, dist)
+        if gear is None:                                  # 理论上不会（闸门已开）
+            return None
+        threshold = float(self.cfg.get("pursuit.dynamic_gear_near_dist_m"))
+        label = "near" if (dist is not None and float(dist) <= threshold) else "far"
+        if self._gear_last is None or self._gear_last != (label, round(gear, 4)):
+            self._gear_last = (label, round(gear, 4))
+            self._log(f"动态档：{label}（离洞 "
+                      f"{'—' if dist is None else format(float(dist), '.2f') + 'm'} vs 阈值 "
+                      f"{threshold:g}m）→ 巡航 {gear:g} m/s")
+        self.bb.update(self.name, **{P_PURSUIT_GEAR: {
+            "gear": label, "cruise_mps": float(gear), "enabled": True,
+            "dist_to_cross_m": (None if dist is None else round(float(dist), 3)),
+            "threshold_m": threshold, "since": float(now)}})
+        return float(gear)
 
     def _pivot_update(self, pose, path: Path, proj: Projection, now: float, dt: float):
         """PIVOT 状态机：返回要发布的指令（PursuitCommand）或 None（= 不接管）。

@@ -2088,7 +2088,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     :param cfg: `core.config.Config`；提供射击窗口、穿洞候选集合、代价项等
         （★ 卡 t13 起**不再**从它读起点朝向：起始航向是设计常量 `START_HEADING`）
     :param cross_lower/cross_upper: 指定穿洞格（通常由无人机情报给出）；
-        缺省用 `route.cross_*_default`；不在候选集合里则抛 `PlannerError`
+        ★t31：缺省用 `route.cross_*_default`；硬门 = **K 列 + 本半场行段**（下 7~11 / 上 1~6），行段外/非 K 列/坏格名才抛 `PlannerError`（候选集合只用来挑缺省洞，无人机情报可纠正过期地图）
     :param max_seconds: 时间预算；超出抛 `PlannerError`
     :param allow_reverse: **False = 无倒车模式**（车上 dzbrain 的默认用法）。
         真车底盘不支持倒车（实测：负速度方向位被 STM32 无视），所以无倒车模式：
@@ -2153,18 +2153,30 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     start_cell, end_cell = _cell(spec.start), _cell(spec.end)
 
     # ---------------- 穿洞格（先定，再建带桥洞约束的栅格） ----------------
+    # ★ t31：权威门放宽（按 t11 §10 建议①、t23 复核）—— 判据从"必须在
+    #   `route.cross_{half}_candidates ∩ map.bridges` 的池子里"放宽为
+    #   **K 列 + 本半场行段**（下 K7~K11 / 上 K1~K6）：这样无人机的新鲜情报可以
+    #   **纠正过期地图**（地图/候选还停在上一局、只开了别的洞时，行段内别的洞照样能走）。
+    #   仍未放宽的：格名非法（`Z9`/`ZZ9`）、不在 K 列（`A1`）、跨半场行段 —— 一律 PlannerError。
+    #   池子仍然参与**缺省值**选择（`_default_cross`），只是不再当硬门。
     lower_pool, upper_pool = _cross_pools(cfg, spec)
     lower_cross = (cross_lower or _default_cross(cfg, lower_pool, "lower")).strip().upper()
     upper_cross = (cross_upper or _default_cross(cfg, upper_pool, "upper")).strip().upper()
-    for cell, pool, half in ((lower_cross, lower_pool, "下半场"),
-                             (upper_cross, upper_pool, "上半场")):
-        if cell not in pool:
-            raise PlannerError(f"{half}穿洞格 {cell} 不在候选集合（{' '.join(pool)}）里"
-                               f" —— 候选来自 route.cross_lower/upper_candidates 与 "
-                               f"map.bridges")
-        row_idx, col_idx = geo.block_to_index(cell)
+    for cell, half, band in ((lower_cross, "下半场", V.LOWER_HALF_ROWS),
+                             (upper_cross, "上半场", V.UPPER_HALF_ROWS)):
+        try:
+            row_idx, col_idx = geo.block_to_index(cell)
+        except ValueError as exc:
+            raise PlannerError(f"{half}穿洞格 {cell} 格名非法（{exc}）") from None
         if col_idx != _CROSS_COL:
             raise PlannerError(f"穿洞格 {cell} 不在 {V.CROSS_COLUMN} 列上")
+        row = row_idx + 1
+        if not (band[0] <= row <= band[1]):
+            raise PlannerError(
+                f"{half}穿洞格 {cell} 不在 {V.CROSS_COLUMN}{band[0]}~{V.CROSS_COLUMN}{band[1]} "
+                f"行段内（本半场只允许这一段 K 列格；跨半场/非 K 列的池外非法格一律拒绝）"
+                f" —— 缺省候选来自 route.cross_lower/upper_candidates 与 map.bridges")
+        # 池外但在本半场行段内 → 采纳（池子只用于缺省值；上面的行段判据才是硬门）
     cross_lower_cell, cross_upper_cell = _cell(lower_cross), _cell(upper_cross)
     if cross_lower_cell == cross_upper_cell:
         raise PlannerError(f"下半场与上半场选了同一个桥洞 {lower_cross}（必须各穿一次）")
@@ -3146,12 +3158,20 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
     lower_pool, upper_pool = _cross_pools(cfg, spec)
     lower_cross = (cross_lower or _default_cross(cfg, lower_pool, "lower")).strip().upper()
     upper_cross = (cross_upper or _default_cross(cfg, upper_pool, "upper")).strip().upper()
-    for cell_name, pool, half in ((lower_cross, lower_pool, "下半场"),
-                                  (upper_cross, upper_pool, "上半场")):
-        if cell_name not in pool:
-            raise PlannerError(f"{half}穿洞格 {cell_name} 不在候选集合（{' '.join(pool)}）里")
-        if geo.block_to_index(cell_name)[1] != _CROSS_COL:
+    # ★ t31：与 `plan_route` 同口径 —— 硬门 = K 列 + 本半场行段（候选池只用来挑缺省洞）
+    for cell_name, half, band in ((lower_cross, "下半场", V.LOWER_HALF_ROWS),
+                                  (upper_cross, "上半场", V.UPPER_HALF_ROWS)):
+        try:
+            row_idx, col_idx = geo.block_to_index(cell_name)
+        except ValueError as exc:
+            raise PlannerError(f"{half}穿洞格 {cell_name} 格名非法（{exc}）") from None
+        if col_idx != _CROSS_COL:
             raise PlannerError(f"穿洞格 {cell_name} 不在 {V.CROSS_COLUMN} 列上")
+        row = row_idx + 1
+        if not (band[0] <= row <= band[1]):
+            raise PlannerError(
+                f"{half}穿洞格 {cell_name} 不在 {V.CROSS_COLUMN}{band[0]}~{V.CROSS_COLUMN}"
+                f"{band[1]} 行段内（本半场只允许这一段 K 列格）")
     cross_lower_cell, cross_upper_cell = _cell(lower_cross), _cell(upper_cross)
     if cross_lower_cell == cross_upper_cell:
         raise PlannerError(f"下半场与上半场选了同一个桥洞 {lower_cross}（必须各穿一次）")

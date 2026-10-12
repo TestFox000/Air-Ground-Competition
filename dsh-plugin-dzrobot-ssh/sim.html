@@ -87,6 +87,19 @@
   .rot90 > img { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-90deg); }
   .rotbox { border-radius: 8px; overflow: hidden; background: #fff; margin-top: 10px; text-align: center; }
   .rotbox img { max-width: 100%; height: auto; }
+  /* ── t27：历史看图（懒加载 modal）────────────────────────────────────── */
+  .shotbtn { padding: 2px 8px; font-size: 12px; border-radius: 6px; margin-right: 6px; }
+  .modal { position: fixed; inset: 0; background: rgba(6, 8, 12, .74); display: flex;
+           align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+  .modalBox { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+              width: min(1080px, 96vw); max-height: 92vh; overflow: auto; padding: 14px 16px; }
+  .modalHead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .modalHead .grow { margin-left: auto; }
+  .modalHead h3 { margin: 0; font-size: 14px; }
+  .shotmsg { border: 1px solid #7a6325; background: #2a2416; color: #ffe6a8; border-radius: 8px;
+             padding: 12px 14px; font-size: 13px; line-height: 1.8; }
+  .shotmsg b { color: #ffd166; }
+  .badge.warn2 { color: var(--warn); border-color: #7a6325; }
 </style>
 </head>
 <body>
@@ -237,7 +250,8 @@
     </section>
 
     <section style="margin-top:16px">
-      <h2>历史<span class="hint">最近 50 次（台账 <code>artifacts/sim/run_meta.jsonl</code>，追加不覆盖）</span></h2>
+      <h2>历史<span class="hint">最近 50 次（台账 <code>artifacts/sim/run_meta.jsonl</code>，追加不覆盖）</span>
+        <span id="fetchCount" class="badge" title="本页发起的 /sim/artifact 请求计数（懒加载取证：打开页面应为 0，点一次「看图」+1）">artifact 请求 0 次</span></h2>
       <div class="scroll"><table id="hist"><thead><tr>
         <th>选</th><th>时间</th><th>备注</th><th>档位/注入</th><th>点位/seed</th><th class="num">exitCode</th>
         <th class="num">时长 s</th><th class="num">RMS m</th><th class="num">越界</th><th class="num">长度比</th><th>跑完</th><th>产物</th>
@@ -245,6 +259,21 @@
     </section>
   </div>
 </main>
+
+<!-- ── t27：历史看图 modal（懒加载：仅点击/深链时发一次 /sim/artifact 请求）── -->
+<div id="shotModal" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="shotTitle">
+  <div class="modalBox">
+    <div class="modalHead">
+      <h3 id="shotTitle">run</h3>
+      <span id="shotStatus" class="badge">…</span>
+      <span class="grow"></span>
+      <label class="check" style="margin:0"><input id="shotPortrait" type="checkbox"><span>竖版（原始方向）</span></label>
+      <button id="shotClose" type="button">关闭</button>
+    </div>
+    <div id="shotBody"></div>
+    <div id="shotFoot" class="foot"></div>
+  </div>
+</div>
 
 <script>
 'use strict';
@@ -350,7 +379,8 @@ function renderResult(payload) {
   }
   html += '</div>';
 
-  var svg = API + '/sim/artifact?path=' + encodeURIComponent(id + '/traj.svg');
+  var svg = artifactUrl(id + '/traj.svg');
+  countArtifact('结果预览 ' + id);
   html += rotSvgBox(svg);                       // ★ t25：横置渲染（旋转 90°，不改仿真核心）
   html += '<div class="foot">产物：';
   (record.files || []).forEach(function (file, index) {
@@ -386,7 +416,24 @@ function renderChecks(payload) {
 var historyRuns = [];
 var picked = [];
 
-function injectSummary(record) {  var parts = [];
+/** 历史表「点位/seed」列：改过点位 → 亮出改了哪几类 + 段数；否则只报 seed。 */
+function fieldSummary(record) {
+  var parts = [];
+  if (record.field) {
+    ['mines', 'obstacles', 'bridges'].forEach(function (key) {
+      var cells = record.field[key] || [];
+      if (cells.length) parts.push(key + '×' + cells.length);
+    });
+    if (record.plan) parts.push('重规划 ' + (record.plan.tokenCount || 0) + ' token');
+    parts.push('改点位');
+  }
+  if (record.seed !== undefined && record.seed !== null) parts.push('seed=' + record.seed);
+  if (!parts.length) return '—';
+  return parts.join('·');
+}
+
+function injectSummary(record) {
+  var parts = [];
   var overrides = record.overrides || {};
   if (overrides['pursuit.cruise_speed_mps'] !== undefined) parts.push('v=' + overrides['pursuit.cruise_speed_mps']);
   var inject = record.inject || {};
@@ -414,6 +461,8 @@ function renderHistory() {
       var href = API + '/sim/artifact?path=' + encodeURIComponent(id + '/' + file.name);
       return '<a href="' + esc(href) + '" target="_blank" rel="noreferrer">' + esc(file.name.replace(/^\w+\./, '')) + '</a>';
     }).join(' ');
+    // ★ t27：查看图入口。这里只写 `data-shot=<id>`，**不发任何请求**（懒加载；URL 只在 openShot 里拼）
+    var shotButton = '<button type="button" class="shotbtn" data-shot="' + esc(id) + '">看图</button>';
     return '<tr class="' + (pickedNow ? 'pick' : '') + '" data-id="' + esc(id) + '">' +
       '<td><input type="checkbox" data-pick="' + esc(id) + '"' + (pickedNow ? ' checked' : '') + '></td>' +
       '<td>' + esc(when(record.at)) + '</td>' +
@@ -426,11 +475,15 @@ function renderHistory() {
       '<td class="num">' + (m.out_of_bounds === undefined ? '—' : m.out_of_bounds) + '</td>' +
       '<td class="num">' + num(m.length_ratio, 4) + '</td>' +
       '<td>' + (m.finished === true ? '是' : (m.finished === false ? '否' : '—')) + '</td>' +
-      '<td>' + (files || '—') + '</td>' +
+      '<td>' + shotButton + (files || '—') + '</td>' +
       '</tr>';
   }).join('');
   Array.prototype.forEach.call(body.querySelectorAll('input[data-pick]'), function (box) {
     box.addEventListener('change', function () { togglePick(box.getAttribute('data-pick'), box.checked); });
+  });
+  // ★ t27：行内「看图」按钮走事件委托；**循环里只绑监听，不发请求**
+  Array.prototype.forEach.call(body.querySelectorAll('button[data-shot]'), function (button) {
+    button.addEventListener('click', function () { openShot(button.getAttribute('data-shot')); });
   });
 }
 function togglePick(id, on) {
@@ -634,6 +687,8 @@ function refreshFieldHints() {
   if (!FIELD || !FIELD.ok) return;
   var form = fieldLists();
   ['mines', 'obstacles', 'bridges'].forEach(function (key) {
+    var node = $(key);
+    node.style.borderColor = '';                       // 清掉上次拦截留下的红边
     var base = (FIELD[key] || []).join(' ');
     var now = (form[key] || []).join(' ');
     var chip = $(key + 'Count');
@@ -647,8 +702,33 @@ function refreshFieldHints() {
     });
   });
   var warn = $('fieldWarn');
-  if (bad.length) { warn.style.display = ''; warn.textContent = '忽略非法格名：' + bad.join(' '); }
-  else warn.style.display = 'none';
+  if (bad.length) {
+    warn.style.display = '';
+    warn.textContent = '非法格名将被忽略：' + bad.join(' ') + '（格名形如 A1..N11；整类都非法时点「运行仿真」会被拦下）';
+  } else warn.style.display = 'none';
+}
+
+/** ★ t26-L1：哪一类"填了东西但一格合法都没有"（这种必须拦下，不能让宿主宰成"没改点位"）。 */
+function fieldInputErrors() {
+  var out = [];
+  ['mines', 'obstacles', 'bridges'].forEach(function (key) {
+    var raw = String($(key).value).split(/[\s,;|]+/).map(function (item) { return item.trim(); })
+      .filter(function (item) { return item !== ''; });
+    if (raw.length && parseCells($(key).value).length === 0) out.push({ key: key, raw: raw });
+  });
+  return out;
+}
+
+/** 被忽略的非法条目（部分非法时给出"已忽略 …"提示；全非法走 fieldInputErrors 拦截）。 */
+function droppedSummary() {
+  var out = [];
+  ['mines', 'obstacles', 'bridges'].forEach(function (key) {
+    String($(key).value).split(/[\s,;|]+/).forEach(function (item) {
+      var cell = item.trim();
+      if (cell !== '' && !FIELD_CELL_RE.test(cell.toUpperCase())) out.push(key + ':' + cell);
+    });
+  });
+  return out.join(' ');
 }
 function loadField() {
   return api('/sim/map').then(function (body) {
@@ -671,7 +751,8 @@ function loadTrace(record) {
   TRACE = { route: (record && record.route) || (FIELD && FIELD.route) || [], points: [] };
   renderMap();
   if (!record || !record.id) return Promise.resolve();
-  var url = API + '/sim/artifact?path=' + encodeURIComponent(record.id + '/traj.csv');
+  var url = artifactUrl(record.id + '/traj.csv');
+  countArtifact('本局轨迹 ' + record.id);
   return fetch(url).then(function (response) { return response.text(); }).then(function (text) {
     var lines = text.split('\n');
     var head = (lines[0] || '').split(',');
@@ -708,7 +789,104 @@ function fitRot(img) {
   img.style.width = (ratio * 100) + '%';
 }
 
-/* ── 动作 ────────────────────────────────────────────────────────────────── */
+/* ── ★ t27：历史结果看图（懒加载 modal）────────────────────────────────────
+   · 唯一发 `/sim/artifact` 请求的地方就是 `openShot()`（下方 `fetch`）——渲染循环/初始化**都不取图**；
+   · 计数器 `ARTIFACT_FETCHES` 直接画在历史标题旁（`#fetchCount`），打开页面应为 0、点一次「看图」+1；
+   · 同一 run 第二次点开走 `shotCache`（0 请求）；
+   · 404（例如 t25 的 `plan-failed` 跑没有产物）→ modal 里给具体中文文案 + HTTP 状态，不留白屏；
+   · 横置渲染**复用 t25 的同一套**：CSS `.rot90` + `rotate(-90deg)` + `fitRot()`（本文件 t25 段），
+     `?path=<run>/traj.svg`（<run> = 历史行的 id）。 */
+var ARTIFACT_FETCHES = 0;
+var ARTIFACT_LAST = '';                              // 最近一次取图原因（计数器后缀，便于现场核对）
+var shotCache = {};                                  // run id → { url(blob), bytes }
+var shotCurrent = null;
+
+function artifactUrl(relative) {                     // 只在 openShot / 结果预览 / 文件链接里用；不在渲染循环里调
+  return API + '/sim/artifact?path=' + encodeURIComponent(relative);
+}
+/**
+ * 记一次"页面发起的 artifact 图/数据请求"。**只有三个地方会调它**：
+ *   ① openShot() 取历史图（本卡的功能；同一 run 再点走缓存 ⇒ 不再计数）；
+ *   ② renderResult() 画本局结果预览的 traj.svg（跑完一次 = 一次，非历史预取）；
+ *   ③ loadTrace() 拉本局 traj.csv（仅在勾了「本次轨迹」时）。
+ * 历史渲染循环（renderHistory）与页面初始化**一处都不调** —— 这就是"不预取"的可判定证据。
+ */
+function countArtifact(what) {
+  ARTIFACT_FETCHES += 1;
+  ARTIFACT_LAST = what;
+  updateFetchCount();
+}
+function updateFetchCount() {
+  var node = $('fetchCount');
+  if (node) text(node, 'artifact 请求 ' + ARTIFACT_FETCHES + ' 次' + (ARTIFACT_LAST ? '（最近：' + ARTIFACT_LAST + '）' : ''));
+}
+function closeShot() {
+  shotCurrent = null;
+  var modal = $('shotModal');
+  if (modal) modal.style.display = 'none';
+}
+/** 打开某个 run 的图（懒加载；404 走可读提示）。`silent` = 深链自动打开时不再改 hash。 */
+function openShot(id, silent) {
+  if (!id) return;
+  var run = findRun(id) || { id: id };
+  var modal = $('shotModal');
+  shotCurrent = id;
+  text($('shotTitle'), (run.label ? run.label + ' · ' : '') + id + (run.at ? ' · ' + when(run.at) : ''));
+  var status = $('shotStatus');
+  status.className = 'badge';
+  text(status, shotCache[id] ? '缓存（0 请求）' : '读取中…');
+  $('shotBody').innerHTML = '<span style="color:var(--dim)">正在取图…</span>';
+  text($('shotFoot'), '');
+  modal.style.display = 'flex';
+  if (!silent) { try { location.hash = 'view=' + encodeURIComponent(id); } catch (e) { /* 忽略 */ } }
+
+  if (shotCache[id]) { renderShot(id); return; }     // 同一 run 已取过 → 0 请求
+
+  countArtifact('历史看图 ' + id);
+  var url = artifactUrl(id + '/traj.svg');
+  fetch(url).then(function (response) {
+    if (!response.ok) {
+      // T3：具体中文文案 + HTTP 状态；不白屏、不静默吞
+      var files = (run.files || []).map(function (file) { return file.name; });
+      status.className = 'badge bad';
+      text(status, 'HTTP ' + response.status);
+      $('shotBody').innerHTML = '<div class="shotmsg">'
+        + '该次运行没有生成轨迹图（<b>traj.svg 不存在</b>）—— <b>HTTP ' + esc(response.status) + '</b>。<br>'
+        + '可能原因：这次运行在规划/校验阶段就失败了（`status='
+        + esc(run.status || '未知') + '`，没跑仿真 ⇒ 无产物），或产物已被清理。<br>'
+        + '该 run 记录里的产物：' + (files.length ? esc(files.join(' / ')) : '（无）')
+        + '；台账可查 `GET /sim/history`。</div>';
+      var metrics = run.metrics || {};
+      text($('shotFoot'), 'run id = ' + id + ' · exitCode = ' + (run.exitCode === undefined ? '—' : run.exitCode)
+        + ' · status = ' + (run.status || '—') + ' · 指标 = ' + (Object.keys(metrics).length ? JSON.stringify(metrics) : '（无）'));
+      return null;
+    }
+    return response.text().then(function (svgText) {
+      var blob = new Blob([svgText], { type: 'image/svg+xml' });
+      shotCache[id] = { url: URL.createObjectURL(blob), bytes: svgText.length };
+      status.className = 'badge ok';
+      text(status, 'HTTP 200 · ' + shotCache[id].bytes + ' B');
+      renderShot(id);
+    });
+  }).catch(function (problem) {
+    status.className = 'badge bad';
+    text(status, '取图失败');
+    $('shotBody').innerHTML = '<div class="shotmsg">取图失败：<b>' + esc(String(problem && problem.message ? problem.message : problem))
+      + '</b>。可检查宿主是否在跑（`/sim/root`）、或直接打开 ' + esc(artifactUrl(id + '/traj.svg')) + '。</div>';
+  });
+}
+/** 画出图：横置（默认，复用 t25 的 .rot90 + fitRot）或竖版（.rotbox）。 */
+function renderShot(id) {
+  var entry = shotCache[id];
+  if (!entry) return;
+  var portrait = $('shotPortrait') && $('shotPortrait').checked;
+  $('shotBody').innerHTML = portrait
+    ? '<div class="rotbox"><img alt="traj.svg（原始竖版）" src="' + esc(entry.url) + '"></div>'
+    : '<div class="rot90" id="rotBox"><img alt="traj.svg（横置，rotate(-90deg)）" src="' + esc(entry.url)
+      + '" onload="fitRot(this)"></div>';
+  text($('shotFoot'), '横置视图 = 原 traj.svg 旋转 90°（与 t25 的 `.rot90`/`fitRot()` 同一套约定；'
+    + '起点 N10 落在右下角）· 勾「竖版」看原始方向 · run id = ' + id + ' · 本次仅发 1 次 artifact 请求（同行再点走缓存）');
+}
 function loadRoot() {
   api('/sim/root').then(function (body) {
     var badge = $('rootLine');
@@ -733,7 +911,19 @@ function loadHistory() {
     return 0;
   });
 }
+/* ── 动作 ────────────────────────────────────────────────────────────────── */
 function runSimulation() {
+  // ★ t26-L1（t27 修）：**非法格名不得静默丢弃**。任一类"非空输入但规范化后 0 格"时**不发请求**，
+  //   直接把非法条目列出来（否则请求体不带该 key ⇒ 宿主当"没改点位"按默认图跑完全程，用户以为改了）。
+  var bad = fieldInputErrors();
+  if (bad.length) {
+    bad.forEach(function (item) { $(item.key).style.borderColor = '#7a3232'; });
+    message($('runMsg'), 'bad',
+      '改点位里有非法格名，已拦下未发车：' + bad.map(function (item) {
+        return '「' + item.key + '」里没有合法格名 —— ' + item.raw.join(' ');
+      }).join('；') + '（格名形如 A1..N11，列 A~N、行 1~11）');
+    return;
+  }
   var body = readForm();
   var button = $('run');
   button.disabled = true; $('check').disabled = true; $('refresh').disabled = true;
@@ -742,14 +932,24 @@ function runSimulation() {
   api('/sim/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
     .then(function (payload) {
       renderResult(payload);
+      // 地图叠加：本局的参考路线（改点位时是重规划后的）+ 可选的真值轨迹
+      TRACE = { route: (payload.record && payload.record.route) || [], points: [] };
+      renderMap();
+      if ($('showTrace').checked) loadTrace(payload.record);
       var m = payload.record && payload.record.metrics || {};
+      var dropped = droppedSummary();
       message($('runMsg'), 'ok', '完成：exitCode=' + payload.record.exitCode + '，用时 ' + num(payload.record.seconds, 1) +
-        ' s，RMS ' + num(m.rms_m, 4) + ' m，越界 ' + (m.out_of_bounds === undefined ? '—' : m.out_of_bounds) + ' 拍');
+        ' s，RMS ' + num(m.rms_m, 4) + ' m，越界 ' + (m.out_of_bounds === undefined ? '—' : m.out_of_bounds) + ' 拍'
+        + (payload.record.field ? '【改点位：已按 override 重规划并运行】' : '')
+        + (dropped ? '【注意：已忽略非法格名 ' + dropped + '】' : ''));
       return loadHistory();
     })
     .catch(function (problem) {
       $('result').innerHTML = '<span style="color:var(--dim)">未完成。</span>';
-      message($('runMsg'), 'bad', '仿真失败：' + problem.message + (problem.status === 409 ? '（上一次还在跑）' : ''));
+      var hint = problem.status === 409 ? '（上一次还在跑）'
+        : (problem.status === 422 ? '（改点位后规划/校验未过：见任务栏与台账 plan 字段）' : '');
+      message($('runMsg'), 'bad', '仿真失败：' + problem.message + hint);
+      if (problem.status === 422) return loadHistory();     // plan-failed 也进了台账
     })
     .then(function () { button.disabled = false; $('check').disabled = false; $('refresh').disabled = false; });
 }
@@ -778,12 +978,50 @@ $('check').addEventListener('click', runChecks);
 $('refresh').addEventListener('click', function () {
   loadHistory().then(function (count) { message($('runMsg'), 'ok', '历史已刷新（' + count + ' 条）'); });
 });
+// ★ t25：改点位即时预览 + 恢复默认 + 地图叠加开关
+['mines', 'obstacles', 'bridges'].forEach(function (key) {
+  $(key).addEventListener('input', function () { refreshFieldHints(); renderMap(); });
+});
+Array.prototype.forEach.call(document.querySelectorAll('button[data-reset]'), function (button) {
+  button.addEventListener('click', function () {
+    var key = button.getAttribute('data-reset');
+    if (FIELD && FIELD.ok) {
+      $(key).value = (FIELD[key] || []).join(' ');
+      refreshFieldHints(); renderMap();
+      message($('runMsg'), 'ok', key + ' 已恢复现场默认值');
+    }
+  });
+});
+$('showRoute').addEventListener('change', renderMap);
+$('showTrace').addEventListener('change', function () {
+  if ($('showTrace').checked && TRACE) renderMap();
+  else renderMap();
+});
+// ★ t27：看图 modal 的关法与竖版切换
+$('shotClose').addEventListener('click', closeShot);
+$('shotPortrait').addEventListener('change', function () { if (shotCurrent) renderShot(shotCurrent); });
+$('shotModal').addEventListener('click', function (event) {
+  if (event.target === $('shotModal')) closeShot();      // 点遮罩关闭
+});
+document.addEventListener('keydown', function (event) {
+  if (event.key === 'Escape' && $('shotModal').style.display !== 'none') closeShot();
+});
 window.addEventListener('error', function (event) {
   message($('runMsg'), 'bad', '页面脚本异常：' + (event && event.message ? event.message : '未知'));
 });
 
+// ★ t27：深链 `#view=<run id>` → 打开该 run 的图（**显式动作**，不是预取；普通打开仍是 0 请求）
+function openFromHash() {
+  var match = /(?:^|[#&])view=([^&]+)/.exec(String(location.hash || ''));
+  if (!match) return;
+  var id = decodeURIComponent(match[1]);
+  if (id) openShot(id, true);
+}
+
+updateFetchCount();     // 画上计数器（此时必须为 0）
 loadRoot();
-loadHistory();
+loadField();            // 先拿场地：地图视图 + 改点位表单的默认值
+loadHistory().then(openFromHash);   // 历史就绪后再按 hash 打开（避免 findRun 找不到）
 </script>
 </body>
 </html>

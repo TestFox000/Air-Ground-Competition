@@ -237,6 +237,15 @@ SCHEMA: dict[str, Spec] = {
                               "continuous 边走边扫 / waypoint 到点扫描 / none"),
     "mission.bridge_info_wait_s": Spec(20.0, _F, "s", 0.0, 120.0,
                                        "等待无人机桥洞情报的最长时间，超时用兜底格"),
+    # ---- ★ 卡 t32：桥前等待（L10 决策点）+ 赛事预算 + 迟到改道上限 ----
+    "mission.bridge_wait_at_start": Spec(False, _B, "", None, None,
+                                         "★t32：起点是否仍为情报推迟发车（默认 false = 等移到 L10 决策点）"),
+    "mission.bridge_wait_max_s": Spec(12.0, _F, "s", 0.0, 120.0,
+                                      "★t32：L10 桥前等待的上限（与预算余量取 min；到点必发车）"),
+    "mission.race_budget_s": Spec(180.0, _F, "s", 10.0, 600.0,
+                                  "★t32：本局总预算（t11 的 3 分钟口径）= 桥前等待余量的数据源"),
+    "mission.bridge_reroute_max": Spec(1, _I, "次", 0, 5,
+                                       "★t32：迟到情报在决策点前允许的换洞改道次数（全程上限）"),
     "mission.shots_per_stop": Spec(3, _I, "发", 1, 10, "每个射击停站点要打几发（旧 shoot_count_target）"),
     "mission.shoot_timeout_s": Spec(30.0, _F, "s", 1.0, 120.0, "单个停站点硬超时（绝不卡死）"),
     "mission.lock_timeout_s": Spec(18.0, _F, "s", 1.0, 120.0, "等云台锁定的最长时间"),
@@ -245,6 +254,19 @@ SCHEMA: dict[str, Spec] = {
     "mission.settle_speed_mps": Spec(0.02, _F, "m/s", 0.001, 0.20, "停稳判定的速度容差"),
     "mission.scan_stop_timeout_s": Spec(8.0, _F, "s", 0.5, 60.0,
                                         "纯扫描停站点（:SCAN_STOP）的等待上限"),
+    # ---- ★ 卡 t36：动态档（按桥洞远近在近/远两档间选巡航速度；**默认关闭**）----
+    #   闸门 = `pursuit.dynamic_gear_enabled`（false ⇒ `pursuit.controller.dynamic_gear_speed()`
+    #   返回 None ⇒ tracker 不给 `compute_command` 传覆盖值 ⇒ 与历史逐位一致）。
+    #   判据 = 车到**下一个桥洞格（K 列）**的距离：`≤ near_dist_m` 用 `near_mps`，否则 `far_mps`；
+    #   前方没有桥洞（None）= `far_mps`（离洞远 ⇒ 放开跑）。
+    "pursuit.dynamic_gear_enabled": Spec(False, _B, "", None, None,
+                                         "★t36 动态档总闸（默认 false；开启后按桥洞远近选档）"),
+    "pursuit.dynamic_gear_near_dist_m": Spec(1.05, _F, "m", 0.0, 20.0,
+                                             "★t36 近洞阈值（默认 1.05m = 3 格 × 0.35m）"),
+    "pursuit.dynamic_gear_near_mps": Spec(0.35, _F, "m/s", 0.02, 0.60,
+                                          "★t36 近洞档巡航速度（默认 0.35）"),
+    "pursuit.dynamic_gear_far_mps": Spec(0.40, _F, "m/s", 0.02, 0.60,
+                                         "★t36 远洞档巡航速度（默认 0.40）"),
     "mission.stable_timeout_s": Spec(6.0, _F, "s", 0.5, 30.0, "等瞄准稳定的最长时间（超时降级放行）"),
     "mission.stable_offset_px": Spec(40.0, _F, "px", 5.0, 200.0, "瞄准稳定容差"),
     "mission.candidate_retry": Spec(3, _I, "个", 1, 10, "单个靶最多尝试几个候选射击点"),

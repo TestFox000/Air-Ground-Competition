@@ -484,9 +484,25 @@ export async function runSim(body) {
         }
       }
       routePath = path.join(overrideDir, 'route.tokens.txt')
-      fs.writeFileSync(routePath, `${planned.tokens.join('\n')}\n`, 'utf8')
+      // ★ `--route` 的文件解析按空格/逗号切词，末点的朝向后缀 `,x`/`,y` 会被切成独立 token
+      //   （实测 `❌ 无法解析的 token: 'y'`）。仿真对末点朝向不敏感（剥掉后缀后 traj.csv
+      //   与带后缀**逐字节相同**，t25 实测），所以给 `--route` 的那份剥掉后缀，
+      //   规划器原样 token 另存一份备查。
+      const routeArgv = planned.tokens.slice()
+      let routeNote = ''
+      const last = routeArgv.length - 1
+      if (last >= 0 && /,[xy]$/i.test(routeArgv[last])) {
+        routeArgv[last] = routeArgv[last].replace(/,[xy]$/i, '')
+        routeNote = '末点朝向后缀已从本文件剥离（--route 的文件解析按空格/逗号切词会把它切成独立 token）；'
+          + '原样 token 见 route.tokens.planner.txt，仿真结果不受影响'
+      }
+      fs.writeFileSync(routePath, `${routeArgv.join('\n')}\n`, 'utf8')
+      fs.writeFileSync(path.join(overrideDir, 'route.tokens.planner.txt'),
+        `${planned.tokens.join(' ')}\n`, 'utf8')
       record.route = planned.tokens
       record.routeSource = 'planned(map_override)'
+      record.plan.routeFile = routePath
+      record.plan.routeFileNote = routeNote
       configPath = overrideRobot
       // `ROBOT_MAP`：让任何按环境变量找地图的路径（load_field_spec）也用这张 override 图。
       env = { ROBOT_MAP: overrideMap }

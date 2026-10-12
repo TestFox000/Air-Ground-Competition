@@ -71,9 +71,13 @@
     ③ 无人机离线（`DroneState.online=False`，心跳超 `drone.heartbeat_timeout_s`）→ 默认格
        （**即使 `bridge_ts` 还在过期窗口内**：离线即情报不可信，保守口径）；
     ④ 情报过期（`now - 事件 ts > drone.info_stale_s`）/ 该半场从未收到事件 → 默认格；
-    ⑤ 格名非法、不在 K 列、不在本半场行段、或不在本半场候选集合
-       （`route.cross_{half}_candidates` ∩ `map.bridges`，与 `planner._cross_pools` 同口径）→ 默认格
-       —— **绝不把一条坏情报变成规划器的 `PlannerError`**（那会让 `fallback_to_tokens=false`
+    ⑤ 格名非法（`Z9`/`ZZ9`）、不在 K 列（`A1`）、或不在本半场行段
+       （下 K7~K11 / 上 K1~K6）→ 默认格
+       —— **★ t31 权威门放宽**：判据从"候选集合 ∩ `map.bridges`"（`planner._cross_pools`
+       同口径）改为**K 列 + 本半场行段**，于是无人机的新鲜情报可以**纠正过期地图**
+       （地图/候选还停在上一局、只开了别的洞时，行段内别的 K 列格照样采纳）；
+       池外但在行段内 → 采纳，并把口径写进 `reason`/日志（"池外…纠正过期地图"）。
+       **绝不把一条坏情报变成规划器的 `PlannerError`**（那会让 `fallback_to_tokens=false`
        的配置直接停在 IDLE）：坏情报只降级成默认格，不炸自动规划、不卡发车；
     ⑥ 其余 → 采用无人机格。
   两个出口（各自的"默认值路径"与接线前**逐字节一致**）：
@@ -103,6 +107,36 @@
   边界（刻意不改，见 `_handle_command`）：外部命令（`/nav/waypoint` 的 `多点`/`单点`/`load:`）
   按操作者原意执行，不做换洞；发车后晚到的情报只进遥测（`state()["bridge"]`，其中 `used`
   是**冻结**的实际用格），路线已冻结不再换洞。
+
+★★★★ 卡 t32：**L10 桥前等待 + 迟到情报改道一次**（机制设计段先行，按 t11 §10 建议②⑤ / t23 复核）
+
+  ① 保持/让位仲裁（**不新增第二个驱动指令写者**）：新增 `MissionPhase.HOLD`（`io/contract.py`）。
+     `tracker.ACTIVE_PHASES` 是**白名单**（只有 DRIVE/APPROACH），且 `_blocked_reason_now()` 里
+     "阶段不在白名单 → `_hold()` → `publish_brake()`" 已经存在 ⇒ Mission 一切到 HOLD，
+     Tracker 每拍自己刹车；HOLD 同时登记进 `tracker.BLOCKED_PHASES`（文档口径一致）。
+     Mission 侧在**进 HOLD 那一拍**也发一次 `publish_brake()`（双保险，语义与停站/终点一致）。
+  ② 决策点 = **洞口（K 列格）航点的前一个航点**：默认路线是 `L10`（下半场）/`J5`（上半场）。
+     `_decision_point()` 返回"第一个**洞口尚未过**的穿洞三连"，取 `(决策点下标, 洞口下标, 半场)`。
+     ⇒ 不写死 L10：换一张图/换一个洞，决策点自动跟着走。
+  ③ 等待条件（缺一不可，全部满足才进 HOLD；**任一条不满足 = 不等**）：
+     · 车侧**有**链路（`P_DRONE` 存在）且 `online=True`（离线/无链路 = 情报不可信，**逐拍与 t20 后版本一致**）；
+     · 两个半场**没有**都拿到新鲜情报（都齐 ⇒ 直接决策，不停车）；
+     · 上限 `cap > 0`（见 ④）。
+  ④ 上限口径：`cap = min(mission.bridge_wait_max_s(默认 12s), 预算余量)`，
+     预算余量 = `mission.race_budget_s(默认 180s，t11 的 3 分钟口径) − (now − 本局 DRIVE 起点)`，
+     取 `max(0, …)`。**到点必发车**（t20 语义不变）：`waited ≥ cap` 那一拍立刻放行，绝不再等；
+     `cap ≤ 0`（预算已耗尽 / 等待上限为 0）⇒ **不进 HOLD**，直接带已得情报走。
+  ⑤ 迟到情报改道（**全程 ≤ `mission.bridge_reroute_max`(默认 1) 次**）：
+     · **决策点前**（洞口未过）到达的新鲜情报 → 用 `_apply_intel_to_tokens()`（形状 + `validate_route`
+       0 error 才通过）把穿洞三连换到新行 → `parse_mission` → **`_install_route(..., keep_progress=True)`**：
+       保留 `_passed/_arrived/_next_wp/_min_dist/_arrived_by/_skipped_at/_route_s/_last_s/_handled_stops`
+       与黑盒 `P_ROUTE_INDEX/P_ROUTE_S`（修掉"重装路线 = 进度归零 = 车回 N10"这条阻断）；
+       换洞只动穿洞三连的 3 个 token ⇒ 决策点及其之前的**下标一一对应**，所以保留索引是自洽的。
+     · **决策点后**（洞口已过 / 改道次数用尽 / 情报不新鲜）→ **维持原 token**（只进遥测）。
+  ⑥ 起点窗口（t20 的 `bridge_info_wait_s`）**语义保留但默认关闭**：`mission.bridge_wait_at_start`
+     （默认 false）—— 等情报这件事从起点**移到** L10 决策点（t11 建议②）；要复现 t20 起点等待的
+     对照档，把它显式置 true（`tests/test_mission.py` 的 14.30/14.31/14.31b 就是这么钉的）。
+  ⑦ 遥测：`bridge.note.hold = {active, cap_s, waited_s, half, reroutes}`（现场看"为什么停着"）。
 
 ⚠️ SCHEMA 缺键（**t20 实测更正**：下面这些键多数已在 t26/t31 收口时补进 SCHEMA，只剩一个仍缺）：
   仍缺：`mission.shot_timeout_s`（本文件用 `cfg.get(key, 30.0)` 兜底）。缺它 ⇒ `Config.validate()`
@@ -247,7 +281,7 @@ class BridgeIntel:
     #: `route.cross_{half}_default`（回落目标；日志里用来对照"本来会走哪个洞"）
     default: str = ""
     #: 来源：`drone`（采纳情报）/ `default` / `stale` / `missing` / `offline` / `disabled`
-    #: / `no_link` / `rejected`（情报非法或不在候选集合）
+    #: / `no_link` / `rejected`（情报非法：坏格名 / 非 K 列 / 不在本半场行段；t31 起不再要求"在候选集合"）
     source: str = "no_link"
     #: 无人机原始报格（未采纳时留证据；采纳时与 `cell` 相同）
     raw: str = ""
@@ -264,7 +298,10 @@ class BridgeIntel:
     def describe(self) -> str:
         if self.from_drone:
             age = "（ts 差未知）" if self.age_s is None else f"（新鲜度 {self.age_s:.2f}s）"
-            return f"{self.half} → {self.cell} ★无人机情报{age}；默认 {self.default}"
+            # ★ t31：reason 里可能带"池外但在行段内 ⇒ 采纳、纠正过期地图"的口径，日志要带上
+            #   （现场排"这个洞怎么跟我记的候选不一样"时要能直接看出来）。
+            extra = f"；{self.reason}" if self.reason else ""
+            return f"{self.half} → {self.cell} ★无人机情报{age}{extra}；默认 {self.default}"
         return f"{self.half} → {self.cell}（{self.source}：{self.reason}）"
 
     def as_dict(self) -> dict[str, Any]:
@@ -878,8 +915,9 @@ def plan_route_from_config(cfg: Any, *, map_path: str | None = None,
         `PlanResult.tokens: list[str]` / `.elapsed_ms: float` —— 失败抛 `PlannerError`。
 
     :param cross_lower: ★卡 t6：下半场穿洞格（**新鲜无人机情报**），`None` = 用
-        `route.cross_lower_default`（与接线前逐字节一致）。规划器自己会校验"是否在候选集合"
-        并抛 `PlannerError`；调用方（MissionTask）**先做一次候选校验**，绝不会把坏格喂进来。
+        `route.cross_lower_default`（与接线前逐字节一致）。★t31 后规划器的硬门 = **K 列 +
+        本半场行段**（候选集合只用来挑缺省洞），行段外/非 K 列/坏格名才抛 `PlannerError`；
+        调用方（MissionTask）仍先做一次同口径校验，绝不把坏格喂进来。
     :param cross_upper: 同上，上半场。
 
     ★ 卡 t11 引擎开关（`planner.engine`，默认 `tour`）：
@@ -1094,6 +1132,30 @@ class MissionTask(TaskThread):
             self._bridge_wait_s = max(0.0, float(cfg.get("mission.bridge_info_wait_s") or 0.0))
         except (TypeError, ValueError):
             self._bridge_wait_s = 0.0
+        # ---- ★ 卡 t32：桥前等待（L10 决策点）+ 赛事预算 + 迟到改道上限 ----
+        #: 起点是否仍为情报推迟发车（默认 False = 等移到 L10 决策点，t11 建议②）
+        self._bridge_wait_at_start = bool(cfg.get("mission.bridge_wait_at_start", False))
+        #: L10 桥前等待上限（与预算余量取 min）
+        try:
+            self._bridge_wait_max_s = max(0.0, float(cfg.get("mission.bridge_wait_max_s") or 0.0))
+        except (TypeError, ValueError):
+            self._bridge_wait_max_s = 0.0
+        #: 本局总预算（t11 的 3 分钟口径）—— 桥前等待"预算余量"的数据源
+        try:
+            self._race_budget_s = max(0.0, float(cfg.get("mission.race_budget_s") or 0.0))
+        except (TypeError, ValueError):
+            self._race_budget_s = 0.0
+        #: 决策点前允许的换洞改道次数（全程上限，默认 1）
+        try:
+            self._bridge_reroute_max = max(0, int(cfg.get("mission.bridge_reroute_max") or 0))
+        except (TypeError, ValueError):
+            self._bridge_reroute_max = 0
+        #: 已改道次数 / 本次保持状态 / 已决策过的洞（`(half, 洞口下标)`）
+        self._reroutes = 0
+        self._hold_started_at: float | None = None
+        self._hold_cap_s = 0.0
+        self._hold_half = ""
+        self._hold_decided_for: tuple[str, int] | None = None
         #: 两个半场的**兜底**穿洞格（`route.cross_{half}_default`；缺键取 SCHEMA 默认）
         self._cross_default: dict[str, str] = {}
         for _half in BRIDGE_HALVES:
@@ -1397,7 +1459,18 @@ class MissionTask(TaskThread):
         return pool
 
     def _intel_cell_ok(self, half: str, cell: str) -> tuple[bool, str]:
-        """无人机报的格是否可用（列 → 半场行段 → 候选集合，三道全过才算）。"""
+        """无人机报的格是否可用（★ t31 权威门放宽：**列 → 本半场行段** 两道即可）。
+
+        ★ t31（按 t11 §10 建议①、t23 复核）：判据从"候选集合 ∩ `map.bridges`"放宽为
+        **K 列 + 本半场行段**（下 K7~K11 / 上 K1~K6）—— 新鲜情报即可**纠正过期地图**：
+        地图/候选停在上一局（例如只开 K10）时，无人机报的同半场行段内别的洞仍被采纳。
+
+        仍然必须拒绝的（语义未放宽）：格名非法（`Z9`/`ZZ9`）、不在 K 列（`A1`）、
+        不在本半场行段（跨半场借用）—— 采纳它们会让规划器/校验器直接报错
+        （`fallback_to_tokens=false` 时把车停在 IDLE）。
+
+        :returns: `(可采纳, 备注)`；备注在"池外但在行段内"时写明口径（遥测/日志对账用）。
+        """
         text = str(cell or "").strip().upper()
         if not text:
             return False, "格名为空"
@@ -1414,7 +1487,9 @@ class MissionTask(TaskThread):
                            f"{'下' if half == 'lower' else '上'}半场（{band[0]}~{band[1]} 行）")
         pool = self._bridge_pool(half)
         if text not in pool:
-            return False, f"不在本半场候选集合（{' '.join(pool)}）里"
+            # ★ t31：池外**但**在本半场行段内 ⇒ 采纳（这就是"纠正过期地图"那条路）
+            return True, (f"池外但在 K 列第 {row} 行（{band[0]}~{band[1]} 行）内 ⇒ 采纳，"
+                          f"纠正过期地图（本半场候选/桥洞 {' '.join(pool)}）")
         return True, ""
 
     def _bridge_subscription(self) -> Subscription:
@@ -1527,9 +1602,12 @@ class MissionTask(TaskThread):
         if not ok:
             return BridgeIntel(half, default, default, "rejected", cell,
                                f"情报 {cell} 不可用（{why}）→ 用默认格", age)
-        return BridgeIntel(half, cell, default, "drone", cell,
-                           f"新鲜情报（{self._fmt_age(age)} < 过期阈值 "
-                           f"{self._drone_info_stale_s:g}s）", age)
+        # ★ t31：`why` 非空 = 池外但在本半场行段内被采纳（纠正过期地图），把口径带进遥测/日志
+        note = (f"新鲜情报（{self._fmt_age(age)} < 过期阈值 "
+                f"{self._drone_info_stale_s:g}s）")
+        if why:
+            note = f"{note}；{why}"
+        return BridgeIntel(half, cell, default, "drone", cell, note, age)
 
     def _refresh_intel(self, *, log: bool = True) -> dict[str, BridgeIntel]:
         """刷新两个半场的情报结论；`log=True` 时**只在结论变化时**记一条（限流兜底）。
@@ -1599,6 +1677,158 @@ class MissionTask(TaskThread):
         if self._intel_complete():                       # ⑥ 两半场都齐：不必等
             return False
         return self._has_fresh_half()                    # ⑥ 至少要有一半可用的新鲜情报
+
+    # ------------------------------------------------------------------ #
+    #  ★ 卡 t32：L10 桥前等待 + 迟到情报改道一次（机制见模块 docstring t32 段）
+    # ------------------------------------------------------------------ #
+    def _bridge_wait_cap(self) -> float:
+        """桥前等待上限 = `min(bridge_wait_max_s, 预算余量)`（★ t32 ④，恒 ≥ 0）。"""
+        if self._bridge_wait_max_s <= 0.0:
+            return 0.0
+        base = self._started_at if self._started_at is not None else self._created_at
+        used = max(0.0, self._clock() - base)
+        remain = max(0.0, self._race_budget_s - used)
+        return max(0.0, min(self._bridge_wait_max_s, remain))
+
+    def _decision_point(self) -> tuple[int, int, str] | None:
+        """第一个"洞口尚未过"的桥洞决策点 → `(决策点下标, 洞口下标, 半场)`；没有则 `None`。
+
+        ★ 决策点 = 洞口（K 列格）航点的**前一个**航点：默认路线是 `L10`（下）/`J5`（上）。
+          不写死格名：换图/换洞后自动跟着走。
+        """
+        route = self._route
+        if route is None or not self._passed:
+            return None
+        candidates: list[tuple[int, int, str]] = []
+        for half, cell in (route.crossing or {}).items():
+            want = str(cell).strip().upper()
+            if not want:
+                continue
+            for i, wp in enumerate(route.waypoints):
+                if i > 0 and str(wp.block).strip().upper() == want:
+                    candidates.append((i - 1, i, str(half)))
+                    break
+        for dp in sorted(candidates, key=lambda item: item[1]):
+            cross_idx = dp[1]
+            if cross_idx < len(self._passed) and not self._passed[cross_idx]:
+                return dp
+        return None
+
+    def _link_online(self) -> bool:
+        """车侧有链路且无人机在线（**无链路/离线 = 不等待、不改道**，逐拍与 t20 后版本一致）。"""
+        if not self._drone_link_enabled:
+            return False
+        state = self._drone_state()
+        return state is not None and bool(getattr(state, "online", False))
+
+    def _maybe_enter_bridge_hold(self) -> None:
+        """到达决策点这一拍做决策（★ t32 ③④）：该等就进 HOLD，否则直接带已得情报走。"""
+        if self._phase != MissionPhase.DRIVE:
+            return
+        dp = self._decision_point()
+        if dp is None:
+            return
+        decision_idx, cross_idx, half = dp
+        if not (decision_idx < len(self._passed) and self._passed[decision_idx]):
+            return                                   # 还没到决策点
+        if self._hold_decided_for == (half, cross_idx):
+            return                                   # 这个洞已经决策过（含等待结束）
+        self._hold_decided_for = (half, cross_idx)
+        cap = self._bridge_wait_cap()
+        if self._intel_complete() or (not self._link_online()) or cap <= 0.0:
+            # 不等：把"此刻已到手的新鲜情报"用上（决策点前到 ⇒ 允许改道 ≤ 上限）
+            reason = ("两半场情报已齐" if self._intel_complete()
+                      else ("无链路/离线" if not self._link_online() else "上限为 0（预算耗尽）"))
+            self._reroute_at_decision(half, why=f"不等（{reason}）")
+            return
+        self._hold_started_at = self._clock()
+        self._hold_cap_s = cap
+        self._hold_half = half
+        self._write_phase(MissionPhase.HOLD)
+        self.bridge.publish_brake()
+        self._intel_note["hold"] = {"active": True, "half": half, "cap_s": round(cap, 3),
+                                    "waited_s": 0.0, "reroutes": self._reroutes}
+        self._publish_intel_note(waiting=True)
+        self._log(f"桥前等待[{half}]：在决策点第 {decision_idx} 点（洞口 {cross_idx}）停车等情报，"
+                  f"上限 min(bridge_wait_max_s={self._bridge_wait_max_s:g}s, 预算余量)={cap:.2f}s｜"
+                  f"lower={self._intel.get('lower', BridgeIntel('lower')).describe()}；"
+                  f"upper={self._intel.get('upper', BridgeIntel('upper')).describe()}")
+
+    def _run_bridge_hold(self) -> None:
+        """HOLD 每拍：两半场齐 或 到点 → 放行（**到点必发车**，t20 语义不变）。"""
+        if self._hold_started_at is None:            # 异常兜底：没有起点信息就立刻恢复 DRIVE
+            self._write_phase(MissionPhase.DRIVE)
+            return
+        waited = max(0.0, self._clock() - self._hold_started_at)
+        note = self._intel_note.get("hold")
+        if isinstance(note, dict):
+            note["waited_s"] = round(waited, 3)
+        if self._intel_complete():
+            self._release_bridge_hold(f"两半场情报已齐（等了 {waited:.2f}s）")
+            return
+        if waited >= self._hold_cap_s - 1e-9:
+            self._release_bridge_hold(f"窗口到点（{self._hold_cap_s:.2f}s）→ 必须发车")
+            return
+        self.bridge.publish_brake()                  # Tracker 也刹（阶段不在白名单），这里双保险
+
+    def _release_bridge_hold(self, reason: str) -> None:
+        half = self._hold_half
+        waited = 0.0 if self._hold_started_at is None else self._clock() - self._hold_started_at
+        self._hold_started_at = None
+        self._hold_half = ""
+        if half:
+            self._reroute_at_decision(half, why=reason)   # 决策点前迟到情报 → 换洞一次
+        note = self._intel_note.get("hold")
+        if isinstance(note, dict):
+            note.update({"active": False, "waited_s": round(waited, 3),
+                         "reroutes": self._reroutes, "reason": reason})
+        self._write_phase(MissionPhase.DRIVE)
+        self._publish_intel_note(waiting=False)
+        self._log(f"桥前等待结束：{reason}｜lower={self._intel.get('lower', BridgeIntel('lower')).describe()}；"
+                  f"upper={self._intel.get('upper', BridgeIntel('upper')).describe()}")
+
+    def _reroute_at_decision(self, half: str, *, why: str = "") -> bool:
+        """决策点前换洞一次（★ t32 ⑤）：**保留当前段索引**，绝不把车送回起点。
+
+        :returns: 是否真的换了洞。任何一步不满足（次数用尽/情报不新鲜/形状不符/校验不过）
+            都原样保留旧路线 —— 与"改道失败就按原 token 走"的纪律一致。
+        """
+        if self._route is None or self._reroutes >= self._bridge_reroute_max:
+            return False
+        snap = self._intel or self._refresh_intel(log=True)
+        it = snap.get(half)
+        if it is None or not it.from_drone:
+            return False
+        current = str((self._route.crossing or {}).get(half) or "").strip().upper()
+        if current == it.cell:
+            return False                              # 与当前路线一致 → 不用改
+        try:
+            tokens = [str(t) for t in self._route.tokens()]
+        except Exception as exc:                       # noqa: BLE001
+            self._log(f"⚠️ 决策点换洞跳过（拿不到 token：{type(exc).__name__}）")
+            return False
+        new_tokens, accepted = self._apply_intel_to_tokens(tokens, {half: it})
+        if not accepted or list(new_tokens) == tokens:
+            self._intel_note["reroute_rejected"] = dict(self._intel_note.get("manual_substituted") or {})
+            self._log(f"⚠️ 决策点换洞未生效[{half}]（形状/校验不过）→ 维持原 token（{why}）")
+            return False
+        try:
+            route = parse_mission(new_tokens, shoot_planner=self._shoot_planner,
+                                  name=self._route_name)
+        except Exception as exc:                       # noqa: BLE001
+            self._log(f"⚠️ 决策点换洞解析失败（{type(exc).__name__}: {exc}）→ 维持原 token")
+            return False
+        index_before = self.bb.get(P_ROUTE_INDEX)
+        self._install_route(route, source=f"{self._route_name}+决策点改道", keep_progress=True)
+        self._reroutes += 1
+        self._intel_note["reroute"] = {"half": half, "old": current, "new": it.cell,
+                                       "count": self._reroutes, "index_kept": index_before,
+                                       "why": why}
+        note = self._intel_note.get("hold")
+        if isinstance(note, dict):
+            note["reroutes"] = self._reroutes
+        self._log(f"★ 决策点改道[{half}]（第 {self._reroutes}/{self._bridge_reroute_max} 次，{why}）："
+                  f"{current or '默认'} → {it.cell}；保留段索引 {index_before}（不回车起点）")
 
     def _apply_intel_to_tokens(self, tokens: Any,
                                snap: dict[str, BridgeIntel] | None = None
@@ -1751,6 +1981,9 @@ class MissionTask(TaskThread):
             pass                                    # ★ 锁存：FINISH 后不再推进（也不重复发事件）
         elif self._phase in _DRIVING_PHASES:
             self._drive()
+            self._maybe_enter_bridge_hold()         # ★ t32：到 L10 决策点 → 可能进 HOLD
+        elif self._phase == MissionPhase.HOLD:
+            self._run_bridge_hold()                 # ★ t32：保持中（Tracker 每拍自刹，见 t32 段①）
         elif self._phase == MissionPhase.STOP:
             self._run_stop_point()
         self._check_finish()
@@ -1771,7 +2004,9 @@ class MissionTask(TaskThread):
             return
         # ★★ 卡 t6：情报等待窗口（`mission.bridge_info_wait_s`）。
         #   只在"车侧确实有无人机链路 + 两半场情报未齐"时推迟发车；窗口耗尽照常出发。
-        if self._should_wait_for_intel(elapsed):
+        #   ★ 卡 t32：默认**不在起点等**（`mission.bridge_wait_at_start=false`，等移到 L10 决策点）；
+        #   置 true 即回到 t20 起点窗口语义（对照档/回归用）。
+        if self._bridge_wait_at_start and self._should_wait_for_intel(elapsed):
             if self._intel_wait_started is None:
                 self._intel_wait_started = self._clock()
             if self._intel_guard.first("wait"):
@@ -2022,7 +2257,24 @@ class MissionTask(TaskThread):
                   f"只用于「停在该点」类调试）")
         return 1
 
-    def _install_route(self, route: Route, *, source: str = "") -> None:
+    def _install_route(self, route: Route, *, source: str = "",
+                       keep_progress: bool = False) -> None:
+        """装上执行路线（**唯一的路线真源**）。
+
+        ★ 卡 t32：`keep_progress=True` = **保留当前段进度**的中途换洞（决策点前改道）——
+        旧行为把 `P_ROUTE_INDEX/P_ROUTE_S` 与全部进度台账复位成 0，等于"把车送回起点"。
+        这里在复位前快照、复位后回填；`_route/_path/_stop_s` 仍按新路线重算（换洞只动
+        穿洞三连 ⇒ 决策点及其之前的航点下标一一对应，保留进度自洽）。
+        """
+        snapshot: dict[str, Any] = {}
+        if keep_progress:
+            for name in ("_passed", "_arrived", "_next_wp", "_min_dist", "_arrived_by",
+                         "_skipped_at", "_pending_skip", "_cross_skips", "_route_s",
+                         "_last_s", "_handled_stops"):
+                value = getattr(self, name, None)
+                snapshot[name] = list(value) if isinstance(value, list) else value
+            snapshot[P_ROUTE_INDEX] = self.bb.get(P_ROUTE_INDEX)
+            snapshot[P_ROUTE_S] = self.bb.get(P_ROUTE_S)
         self._route = route
         self._route_name = source or route.name
         # ★ 单点路线（`单点 BLOCK,HEAD`）只有 1 个航点，而 `Path` 要求 ≥2 点，
@@ -2058,6 +2310,16 @@ class MissionTask(TaskThread):
         self._intel_used = {str(k): str(v) for k, v in (route.crossing or {}).items()}
         self.bb.update(self.name, **{P_ROUTE: route})
         self.bb.update(self.name, **{P_ROUTE_INDEX: 0, P_ROUTE_S: 0.0})
+        # ★ t32：新一轮/新图都要把"已决策过的洞"清掉（下标会变）
+        self._hold_decided_for = None
+        if keep_progress:
+            for name, value in snapshot.items():
+                if name in (P_ROUTE_INDEX, P_ROUTE_S):
+                    continue
+                setattr(self, name, list(value) if isinstance(value, list) else value)
+            if snapshot.get(P_ROUTE_INDEX) is not None:
+                self.bb.update(self.name, **{P_ROUTE_INDEX: snapshot[P_ROUTE_INDEX],
+                                             P_ROUTE_S: snapshot.get(P_ROUTE_S) or 0.0})
         # ★ 清掉上一轮残留的 PIVOT 通知：旧通知对新路线毫无意义，
         #   留着会（在最坏的同几何重载场景）把新轮次航点开局误判成"已到达"。
         self.bb.update(self.name, **{PIVOT_DONE_KEY: None})

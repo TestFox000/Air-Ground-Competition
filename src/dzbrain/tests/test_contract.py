@@ -80,7 +80,7 @@ check("补偿后计数提升", ct.chassis_speed_counts(0.15 * 1.043) == 10,
 section("枚举与阶段")
 check("云台状态名", ct.AimStatus.name(2) == "TRACK" and ct.AimStatus.name(0) == "IDLE")
 check("未知状态名不崩", ct.AimStatus.name(9) == "UNKNOWN(9)")
-check("任务阶段齐全", len(ct.MissionPhase.ALL) == 8 and "SAFE_STOP" in ct.MissionPhase.ALL)
+check("任务阶段齐全（★t32：+HOLD = 9）", len(ct.MissionPhase.ALL) == 9 and "SAFE_STOP" in ct.MissionPhase.ALL and "HOLD" in ct.MissionPhase.ALL)
 check("靶类别编码（0 无 / 1 蓝 / 2 红）", (ct.ShotClass.NONE, ct.ShotClass.BLUE, ct.ShotClass.RED)
       == (0, 1, 2))
 

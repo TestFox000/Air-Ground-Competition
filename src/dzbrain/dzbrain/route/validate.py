@@ -609,12 +609,16 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
         run["cells"] |= set(crossed)
         run["k_cells"] = sorted(set(crossed))
         row = int(round(run["row"]))
+        # ★ t31 权威门放宽（按 t11 §10 建议①、t23 复核）：穿洞行的硬门 = **本半场行段**
+        #   （下 7~11 / 上 1~6），不再要求"落在候选行"上 —— 候选集合 / `map.bridges`
+        #   只用于挑**缺省洞**，可以过期，由无人机的新鲜情报纠正（见 R008 报文与
+        #   `tasks/mission.py::_intel_cell_ok`、`route/planner.py` 的同口径硬门）。
         if CROSS_LOWER_ROWS[0] <= row <= CROSS_LOWER_ROWS[1]:
             run["half"] = "lower"
-            run["band_ok"] = row in set(lower_rows)
+            run["band_ok"] = True
         elif CROSS_UPPER_ROWS[0] <= row <= CROSS_UPPER_ROWS[1]:
             run["half"] = "upper"
-            run["band_ok"] = row in set(upper_rows)
+            run["band_ok"] = True
         else:                                              # 不该发生：行号只有 1~11
             run["half"] = "other"
             run["band_ok"] = False
@@ -622,29 +626,9 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     lower_runs = [r for r in runs if r["half"] == "lower"]
     upper_runs = [r for r in runs if r["half"] == "upper"]
 
-    # ★ R008 独立于 R007 的"次数/方向"：只要某次过洞所在的**半场候选集合**里
-    #   没有它用的那个 K 列格，就报。现场硬约束（robot.yaml 注释）：
-    #   下半场通口 K9/K10、上半场通口 K4(+K5)，跨半场借用是不允许的。
-    #   `cross_candidates` 显式给出时**同时覆盖两个半场**（工具/无人机临场改情报用）。
-    if cross_candidates:
-        lower_pool = upper_pool = {str(c).upper() for c in cross_candidates}
-    else:
-        lower_pool = set(_as_list(_cfg_get(cfg, _KEY_CROSS_LOWER, None)))
-        upper_pool = set(_as_list(_cfg_get(cfg, _KEY_CROSS_UPPER, None)))
-        if not lower_pool:
-            lower_pool = {f"{CROSS_COLUMN}{r}" for r in lower_rows}
-        if not upper_pool:
-            upper_pool = {f"{CROSS_COLUMN}{r}" for r in upper_rows}
-    for run in runs:
-        pool = lower_pool if run["half"] == "lower" else upper_pool
-        k_cells = run.get("k_cells") or sorted(c for c in run["cells"] if c.startswith(CROSS_COLUMN))
-        if not (set(k_cells) & pool):
-            issues.append(Issue("error", "R008",
-                                f"第 {run['index']} 段 {run['a']}->{run['b']}"
-                                f"（{CROSS_COLUMN} 列第 {run['row']:.0f} 行，"
-                                f"{'下半场' if run['half'] == 'lower' else '上半场'}）"
-                                f"用的格子 {' '.join(k_cells) or '（无）'} 不在候选集合里"
-                                f"（本半场候选 {' '.join(sorted(pool)) or '空'}）"))
+    # ★ R008（t31 后语义）：**只**看"穿洞行是否在 K 列本半场行段内"（下半场 7~11 /
+    #   上半场 1~6），候选行/候选集合不再当硬门；报文里仍打印候选行供现场对账。
+    #   "不在候选集合"因此**不再是 error** —— 那正是本卡要放开的（无人机情报可纠正过期地图）。
 
     # ★ R009：**每一次**过洞都要看夹角，不能只查 R007 那个"唯一一次"——
     #   现场一旦多了一次斜切（例如某段折线斜着蹭过 K 列），只查唯一一次就会漏掉。
@@ -686,11 +670,15 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
 
     for run in runs:
         if not run["band_ok"]:
+            # ★ t31：报文写"行段"（硬门），候选行只作参考 —— 旧文"而候选行只有 …"会让现场
+            #   以为是候选集合把关（已放开：无人机新鲜情报可纠正过期地图）。
             issues.append(Issue("error", "R008",
                                 f"第 {run['index']} 段 {run['a']}->{run['b']} 在 {CROSS_COLUMN} 列第 "
-                                f"{run['row']:.0f} 行穿行，而候选行只有 "
-                                f"下半场 {'/'.join(str(r) for r in lower_rows)}、"
-                                f"上半场 {'/'.join(str(r) for r in upper_rows)}"))
+                                f"{run['row']:.0f} 行穿行，不在本半场行段"
+                                f"（下 {CROSS_LOWER_ROWS[0]}~{CROSS_LOWER_ROWS[1]} / "
+                                f"上 {CROSS_UPPER_ROWS[0]}~{CROSS_UPPER_ROWS[1]} 行）里"
+                                f"（候选行 下半场 {'/'.join(str(r) for r in lower_rows)}、"
+                                f"上半场 {'/'.join(str(r) for r in upper_rows)} 仅供参考）"))
 
     # ② 整段都在 K 列里、还沿列挪格（在洞里横着走）—— 已在上面的 run 构建里逐段报过，
     #    这里只在"该段没被 run 收录"时兜底（防御性：逻辑改动时不会静默漏掉）

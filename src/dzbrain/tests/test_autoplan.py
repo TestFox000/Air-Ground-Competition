@@ -1010,11 +1010,23 @@ check("11.4 ★ 两半场独立：只给 upper=K4 → upper=K4、lower 仍是默
 _out_bad = plan_route_from_config(
     Config.load(str(CONFIG)).override("planner.engine", MT.ENGINE_TOUR),
     log=lambda s: None, cross_lower="K9")
-check("11.5 ★ 现役候选集合只有 K10：K9 会被**规划器**抛 PlannerError"
-      "（这正是 Mission 必须先做候选校验的原因）",
-      (not _out_bad.ok) and _out_bad.error.startswith("PlannerError:")
-      and "K9" in _out_bad.error and "候选集合" in _out_bad.error,
-      _out_bad.error[:90])
+check("11.5 ★ t31 权威门放宽：现役候选只有 K10，但 K9 在**下半场行段（7~11 行）内** "
+      "⇒ 规划器采纳（无人机新鲜情报可纠正过期地图）",
+      _out_bad.ok and _out_bad.cross_lower == "K9" and _out_bad.cross_upper == "K5",
+      f"ok={_out_bad.ok} cross={_out_bad.cross_lower}/{_out_bad.cross_upper} "
+      f"err={_out_bad.error[:80]}")
+_out_off = plan_route_from_config(
+    Config.load(str(CONFIG)).override("planner.engine", MT.ENGINE_TOUR),
+    log=lambda s: None, cross_lower="K3")
+check("11.5b ★ t31 **仍拒**：下半场给上半场行段的 K3 → PlannerError（跨半场借用不放宽）",
+      (not _out_off.ok) and _out_off.error.startswith("PlannerError:")
+      and "行段" in _out_off.error, _out_off.error[:90])
+_out_z = plan_route_from_config(
+    Config.load(str(CONFIG)).override("planner.engine", MT.ENGINE_TOUR),
+    log=lambda s: None, cross_lower="Z9")
+check("11.5c ★ t31 **仍拒**：格名非法 Z9 → PlannerError（不是 ValueError 上抛、不炸调用方）",
+      (not _out_z.ok) and _out_z.error.startswith("PlannerError:") and "Z9" in _out_z.error,
+      _out_z.error[:90])
 
 # ---- 11.B MissionTask：情报注入 → 执行路线用 K9 ----
 rig = Rig(intel_cfg())
@@ -1069,25 +1081,35 @@ check("11.12 无情报时遥测 source=no_link、used 走默认格",
       and rig_off.state()["plan"]["cross_requested"] == {"lower": "", "upper": ""},
       str(rig_off.state()["bridge"]["lower"]))
 
-# ---- 11.D 坏情报 + fallback_to_tokens=false：绝不是"一条坏情报把车停在 IDLE" ----
+# ---- 11.D 池外情报：t31 新语义 = 行段内采纳；真非法的仍稳（fallback=false 也不停在 IDLE） ----
 cfg_strict = intel_cfg(fallback_to_tokens=False)
-cfg_strict.override("route.cross_lower_candidates", ["K10"])     # 现役口径：K9 不合法
+cfg_strict.override("route.cross_lower_candidates", ["K10"])     # 候选只有 K10（可过期）
 rig_bad = Rig(cfg_strict)
-push_drone(rig_bad, half="lower", block="K9")
+push_drone(rig_bad, half="lower", block="K9")     # t31：K9 在下半场行段内 ⇒ 采纳
 rig_bad.ticks(3)
 st_bad = rig_bad.state()
-check("11.13 ★★ 坏情报（K9 不在候选集合）+ fallback=false → 仍 DRIVE（情报被预校验拦下，"
-      "不炸规划、不卡发车）",
-      rig_bad.task.phase == MissionPhase.DRIVE and rig_bad.count(EV_MISSION_STARTED) == 1,
-      f"phase={rig_bad.task.phase} started={rig_bad.count(EV_MISSION_STARTED)}")
-check("11.14 坏情报被拒的证据齐全：source=rejected + 原因 + 走默认 K10",
-      st_bad["bridge"]["lower"]["source"] == "rejected"
-      and "候选集合" in st_bad["bridge"]["lower"]["reason"]
-      and st_bad["plan"]["cross_lower"] == "K10" and kcells(rig_bad) == ["K10", "K5"],
+check("11.13 ★★ t31 权威门放宽：池外的 K9（下半场行段内）+ fallback=false → "
+      "**采纳并照常 DRIVE**（换洞生效，不是原地回默认）",
+      rig_bad.task.phase == MissionPhase.DRIVE and rig_bad.count(EV_MISSION_STARTED) == 1
+      and kcells(rig_bad) == ["K9", "K5"],
+      f"phase={rig_bad.task.phase} started={rig_bad.count(EV_MISSION_STARTED)} k={kcells(rig_bad)}")
+check("11.14 t31：池外采纳的证据齐全：source=drone + 原因写明『池外…纠正过期地图』+ 实际走 K9",
+      st_bad["bridge"]["lower"]["source"] == "drone"
+      and "池外" in st_bad["bridge"]["lower"]["reason"]
+      and "纠正过期地图" in st_bad["bridge"]["lower"]["reason"]
+      and st_bad["plan"]["cross_lower"] == "K9" and kcells(rig_bad) == ["K9", "K5"],
       f"{st_bad['bridge']['lower']['reason']} / k={kcells(rig_bad)}")
-check("11.15 拒收只记日志、不上抛（任务无异常）",
-      rig_bad.task.health().errors == 0 and any("候选集合" in s for s in rig_bad.logs),
+check("11.15 采纳只记日志、不上抛（任务无异常，日志写明口径）",
+      rig_bad.task.health().errors == 0 and any("池外" in s for s in rig_bad.logs),
       f"errors={rig_bad.task.health().errors}")
+rig_rej = Rig(cfg_strict)                          # 同一个严格配置（fallback=false）
+push_drone(rig_rej, half="lower", block="A1")      # 真非法：不在 K 列
+rig_rej.ticks(3)
+check("11.16 ★ t31：真非法情报（A1 非 K 列）+ fallback=false → 拒收 + 仍 DRIVE"
+      "（不炸规划、不卡发车），穿洞回落默认 K10",
+      rig_rej.task.phase == MissionPhase.DRIVE and rig_rej.count(EV_MISSION_STARTED) == 1
+      and rig_rej.state()["bridge"]["lower"]["source"] == "rejected"
+      and kcells(rig_rej) == ["K10", "K5"], f"k={kcells(rig_rej)}")
 
 # ---- 11.E 过期/离线情报：自动规划也不换洞 ----
 rig_exp = Rig(intel_cfg())

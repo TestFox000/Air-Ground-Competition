@@ -86,7 +86,8 @@ def speed_profile(*, curvature: float, dist_to_stop: float | None,
                   corner_dist: float | None, speed_scale: float,
                   cfg: Config, motion_limit_mps: float | None = None,
                   last_speed_mps: float | None = None,
-                  dt: float | None = None) -> tuple[float, str]:
+                  dt: float | None = None,
+                  cruise_mps: float | None = None) -> tuple[float, str]:
     """前进速度剖面：`min(巡航×scale, 曲率限速, 停站减速, 转角减速) × 量化补偿`，下界 `min_speed`。
 
     - 停站减速：`v = min(v, max(min_speed, stop_approach_speed_gain × d))`（旧 0.30·d）
@@ -113,9 +114,13 @@ def speed_profile(*, curvature: float, dist_to_stop: float | None,
         "运动中速度 ≥ min_speed" 这条既有不变量不变；而 `motion_limit`（安全层）仍在**最后**，
         所以"请求停车 = 0"不会被斜坡或下限顶回去。
 
+    ★★ t36 新增：`cruise_mps` —— **动态档**的注入点。默认 `None` = 用
+      `pursuit.cruise_speed_mps`（与历史**逐位一致**）；给值就只换"巡航那一层"的基准速度，
+      其余层（曲率/停站/转角/斜坡/下限/motion_limit）一字不改。
+
     ★ 返回的 `reason` 是**真正起作用的那一层**，便于日志定位"为什么这么慢"。
     """
-    cruise = cfg.get("pursuit.cruise_speed_mps")
+    cruise = cfg.get("pursuit.cruise_speed_mps") if cruise_mps is None else float(cruise_mps)
     min_speed = cfg.get("pursuit.min_speed_mps")
 
     v = cruise * max(0.0, speed_scale)
@@ -183,6 +188,31 @@ def _corner_dist(path: Path, proj: Projection, cfg: Config) -> float | None:
     return proj.dist_to_vertex
 
 
+def dynamic_gear_speed(cfg: Config, dist_to_cross_m: float | None) -> float | None:
+    """★ t36 动态档：按"离下一个桥洞（K 列格）的距离"在**近/远两档**间选巡航速度。
+
+    **默认关闭**（`pursuit.dynamic_gear_enabled=false`）⇒ 本函数返回 `None`，
+    调用方（`tasks/tracker.py`）就不给 `compute_command` 传覆盖值 ⇒ 与历史逐位一致。
+
+    键与阈值（全部登记在 `core/config.py` 的 SCHEMA 里，`config/robot.yaml` **零改动**）：
+      · `pursuit.dynamic_gear_enabled`     bool，默认 **False** —— 总闸
+      · `pursuit.dynamic_gear_near_dist_m` float，默认 **1.05 m**（= 3 格 × 0.35 m）—— "近洞"阈值
+      · `pursuit.dynamic_gear_near_mps`    float，默认 **0.35 m/s** —— 距洞 ≤ 阈值时的档
+      · `pursuit.dynamic_gear_far_mps`     float，默认 **0.40 m/s** —— 距洞 > 阈值时的档
+    `dist_to_cross_m is None`（路线里没有"前方桥洞"）= **远档**（离洞远 ⇒ 放开跑）。
+
+    :returns: 生效的巡航速度（m/s）；**关闭时返回 `None`**（调用方必须把它原样当"不覆盖"）。
+    """
+    if not bool(cfg.get("pursuit.dynamic_gear_enabled", False)):
+        return None
+    near_mps = float(cfg.get("pursuit.dynamic_gear_near_mps"))
+    far_mps = float(cfg.get("pursuit.dynamic_gear_far_mps"))
+    if dist_to_cross_m is None:
+        return far_mps
+    threshold = float(cfg.get("pursuit.dynamic_gear_near_dist_m"))
+    return near_mps if float(dist_to_cross_m) <= threshold else far_mps
+
+
 # --------------------------------------------------------------------------- #
 #  舵角
 # --------------------------------------------------------------------------- #
@@ -190,7 +220,8 @@ def compute_command(pose, path: Path, proj: Projection, cfg: Config, *,
                     reverse: bool = False, last_steer_deg: float | None = None,
                     dt: float = 0.02, bb=None,
                     motion_limit_mps: float | None = None,
-                    last_speed_mps: float | None = None) -> PursuitCommand:
+                    last_speed_mps: float | None = None,
+                    cruise_mps: float | None = None) -> PursuitCommand:
     """纯追踪一拍：位姿 + 路径投影 → (速度, 舵角, 曲率, 限速主因)。
 
     `pose` 只需有 `.x/.y/.yaw`（`core.geometry.Pose`）；`last_steer_deg=None` 表示首拍、不做速率限幅。
@@ -206,6 +237,8 @@ def compute_command(pose, path: Path, proj: Projection, cfg: Config, *,
       （限值来自 `pursuit.accel_up_mps2` / `pursuit.accel_down_mps2`，**缺省 0.0 = 不参与**）；
       `None` = 首拍/无历史 ⇒ 不参与（原因见 `speed_profile` 的"为什么不是当成 0"）。
       `dt` 同时是斜坡的时间基准（默认 0.02 s）。
+    ★★ t36：`cruise_mps` = **动态档**的巡航速度覆盖（`None` = 不覆盖 ⇒ 逐位同历史；
+      只换 `speed_profile` 的巡航那一层，**前视距离仍按配置巡航速度**算，几何不变）。
     """
     limit = motion_limit_mps if motion_limit_mps is not None else motion_limit_speed_limit(bb)
     wheelbase = cfg.get("pursuit.wheelbase_m")
@@ -266,6 +299,7 @@ def compute_command(pose, path: Path, proj: Projection, cfg: Config, *,
         motion_limit_mps=limit,
         last_speed_mps=last_speed_mps,      # ★ t30：上一拍**命令**速度（None = 首拍/无历史 ⇒ 不参与）
         dt=dt,
+        cruise_mps=cruise_mps,              # ★ t36：动态档（None = 不覆盖 ⇒ 逐位同历史）
     )
     if rev:
         min_speed = cfg.get("pursuit.min_speed_mps")

@@ -389,16 +389,29 @@ def test_degrade_matrix() -> None:
           f"source={rig3.source_of('lower')} online={getattr(st3, 'online', None)} "
           f"used={rig3.used()}")
 
-    # ---- 3c 坏情报：K11（在下半场行段内、但不在夹具候选集合里） ----
+    # ---- 3c t31 权威门放宽：K11 在下半场行段内、**不在**夹具候选集合里 ⇒ 现在被采纳 ----
     rig4 = Link(cfg_of())
     rig4.send(hb(seq=1))
     rig4.send(bp("lower", "K11"))
     rig4.ticks(3)
-    check("3.3 不在候选集合的格被拒收（rejected）→ 回落默认，不喂给规划器",
-          rig4.source_of("lower") == "rejected"
-          and rig4.used().get("lower") == LOWER_DEFAULT
-          and LOWER_DEFAULT in rig4.k_blocks(),
+    check("3.3 t31：池外但在下半场行段内的 K11 → **采纳**（纠正过期地图），"
+          "路线真穿 K11（不再回落默认）",
+          rig4.source_of("lower") == "drone"
+          and rig4.used().get("lower") == "K11"
+          and "K11" in rig4.k_blocks(),
           f"source={rig4.source_of('lower')} used={rig4.used()} K 列格={rig4.k_blocks()}")
+
+    # ---- 3c2 t31：真非法格（非 K 列 / 格名非法）仍必须拒收 —— 否则就是"放宽"做成了"什么都收" ----
+    for bad_cell, why in (("A1", "非 K 列"), ("Z9", "格名非法")):
+        rig4b = Link(cfg_of())
+        rig4b.send(hb(seq=1))
+        rig4b.send(bp("lower", bad_cell))
+        rig4b.ticks(3)
+        check(f"3.3b t31 仍拒：{why}的情报 {bad_cell} → rejected + 回落默认，不喂给规划器",
+              rig4b.source_of("lower") == "rejected"
+              and rig4b.used().get("lower") == LOWER_DEFAULT
+              and LOWER_DEFAULT in rig4b.k_blocks(),
+              f"source={rig4b.source_of('lower')} used={rig4b.used()} 格={rig4b.k_blocks()}")
 
     # ---- 3d 链路整体关闭（drone.enabled=false） ----
     rig5 = Link(cfg_of(drone_enabled=False))

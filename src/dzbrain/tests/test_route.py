@@ -424,17 +424,24 @@ def test_validate_negatives() -> None:
     check("R005 消息给出漏掉的雷名", any("E11" in i.msg for i in iss if i.code == "R005"),
           next((i.msg for i in iss if i.code == "R005"), ""))
 
-    # --- R008：穿洞格改成 K5（在 K 列内，但不在候选集 {K7..K11, K1..K6}）---
+    # --- R008（★ t31 新语义）：穿洞格只要求"K 列 + 本半场行段"，**不再**要求落在候选集合里 ---
     r = P.parse_mission(["L5", "K5", "J5", "K4", "L4"])
     iss = V.validate_route(r, map_cfg=map_cfg, cfg=cfg)
-    show(iss, "R008 负例 L5->K5->J5（从 K5 穿洞）")
-    check("R008 触发（K5 不在候选集合）", "R008" in errors(iss), str(errors(iss)))
-    check("R008 消息给出候选集合",
-          any("K4" in i.msg for i in iss if i.code == "R008"),
-          next((i.msg for i in iss if i.code == "R008"), "（无）"))
+    show(iss, "R008 正例（t31）：K5 在 K 列第 5 行 = 上半场行段内 ⇒ 候选集合不再是硬门")
+    check("t31 ★ R008 不再因『不在候选集合』触发（K 列 + 本半场行段即合法）",
+          "R008" not in errors(iss), f"errors={errors(iss)}")
+    check("t31 ★ 同一条路线仍被 R007 管住（下半场穿洞次数不对）",
+          "R007" in errors(iss), f"errors={errors(iss)}")
     iss_ok = V.validate_route(r, map_cfg=map_cfg, cfg=cfg, cross_candidates=["K4", "K5"])
     check("R008 在显式 cross_candidates 含 K5 时不触发",
           "R008" not in errors(iss_ok), f"errors={errors(iss_ok)}")
+    # 反例（t31）：K 列穿洞在**行段之外**无法构造（行 1~11 全被两个半场覆盖）⇒
+    # "池外非法"只剩"非 K 列 / 格名非法"，那两类由 geometry/parse 拦下（见 R007 段与
+    # planner/mission 的 `Z9`/`A1` 用例）。这里钉住"缺席穿洞"仍报 R007：
+    r_miss = P.parse_mission(["L5", "J4", "J5", "K4", "L4"])
+    iss_miss = V.validate_route(r_miss, map_cfg=map_cfg, cfg=cfg)
+    check("t31 ★ 行段放开后，『该半场没穿洞』仍由 R007 报出",
+          "R007" in errors(iss_miss), f"errors={errors(iss_miss)}")
 
     # --- R009：斜切入洞（J9 -> K8：同时在换列与换行，夹角 45° > 10°）---
     r = P.parse_mission(["A8", "B8", "C8", "D8", "E9", "I9", "J9", "K8", "H9"])

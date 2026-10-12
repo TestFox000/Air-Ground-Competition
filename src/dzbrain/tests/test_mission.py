@@ -37,6 +37,7 @@ from harness import check, finish, section                     # noqa: E402
 
 from dzbrain.core import geometry as geo                       # noqa: E402
 from dzbrain.core.blackboard import (P_DRONE, P_MISSION_PHASE, P_POSE, P_ROUTE,  # noqa: E402
+                             P_ROUTE_INDEX,
                                      P_ROUTE_S, P_SAFETY, P_STOP_POINT, P_TELEMETRY, Blackboard)
 from dzbrain.core.config import Config                         # noqa: E402
 from dzbrain.core.events import (EV_ARRIVED_STOP_POINT, EV_BRIDGE_INFO,  # noqa: E402
@@ -1227,11 +1228,20 @@ _T6_BASE = [parse_token(t)["block"] for t in _T6_TOKENS]
 
 def t6_cfg(*, tokens=None, wait: float = 0.0, auto_plan: bool = False,
            engine: str = "tour", drone_enabled: bool = True,
-           lower_cand=("K9", "K10"), upper_cand=("K4", "K5")) -> Config:
-    """t6 夹具配置（默认：手动路线 + 不等待 + 无人机链路开）。"""
+           lower_cand=("K9", "K10"), upper_cand=("K4", "K5"),
+           wait_at_start: bool = False, hold_max: float = 0.0,
+           budget: float = 180.0, reroute_max: int = 1) -> Config:
+    """t6 夹具配置（默认：手动路线 + 不等 + 无人机链路开）。
+
+    ★ 卡 t32：`wait_at_start=True` 复现 t20 的**起点**等待窗口（对照档）；
+    默认 false = 等移到 L10 决策点，届时用 `hold_max`（+ `budget`）控制桥前等待上限。
+    """
     return Config.from_dict({
         "mission": {"auto_start": True, "auto_start_delay_s": 0.1, "reset": "N10,y",
-                    "bridge_info_wait_s": wait, "scan_mode": "none"},
+                    "bridge_info_wait_s": wait, "scan_mode": "none",
+                    "bridge_wait_at_start": wait_at_start,
+                    "bridge_wait_max_s": hold_max, "race_budget_s": budget,
+                    "bridge_reroute_max": reroute_max},
         "route": {"tokens": list(_T6_TOKENS if tokens is None else tokens),
                   "cross_lower_candidates": list(lower_cand),
                   "cross_upper_candidates": list(upper_cand),
@@ -1389,15 +1399,16 @@ def test_bridge_intel() -> None:
           str(rig3.task.state()["bridge"]["lower"]))
 
     rig4 = Rig(cfg=t6_cfg(wait=0.0), pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
-    t6_drone_round(rig4, lower="K11")       # K 列 + 下半场行段，但不在候选集合里
+    t6_drone_round(rig4, lower="K11")       # K 列 + 下半场行段内，但**不在**候选集合 {K10} 里
     rig4.ticks(3)
     st4 = rig4.task.state()["bridge"]
-    check("14.20 ★ 情报不在候选集合（K11 ∉ {K9,K10}）→ 回落默认、不崩、照常出发",
-          list(rig4.task.route.blocks()) == _T6_BASE and rig4.task.phase == MissionPhase.DRIVE
-          and rig4.task.health().errors == 0, f"phase={rig4.task.phase}")
-    check("14.21 拒收原因写明『不在候选集合』（遥测 + 日志都有）",
-          st4["lower"]["source"] == "rejected" and "候选集合" in st4["lower"]["reason"]
-          and any("候选集合" in s for s in rig4.logs), str(st4["lower"]))
+    check("14.20 ★ t31 权威门放宽：情报 K11（池外但在下半场行段内）→ **采纳**（不再回落默认）、不崩、照常出发",
+          st4["lower"]["source"] == "drone" and st4["lower"]["cell"] == "K11"
+          and rig4.task.phase == MissionPhase.DRIVE and rig4.task.health().errors == 0,
+          str(st4["lower"]))
+    check("14.21 t31：池外采纳的原因写明『纠正过期地图』（遥测 + 日志都有）",
+          "池外" in st4["lower"]["reason"] and "纠正过期地图" in st4["lower"]["reason"]
+          and any("池外" in s for s in rig4.logs), str(st4["lower"]["reason"]))
 
     rig5 = Rig(cfg=t6_cfg(wait=0.0), pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
     t6_drone_round(rig5, lower="A1")       # 非 K 列
@@ -1406,6 +1417,20 @@ def test_bridge_intel() -> None:
           list(rig5.task.route.blocks()) == _T6_BASE
           and rig5.task.state()["bridge"]["lower"]["source"] == "rejected",
           str(rig5.task.state()["bridge"]["lower"]))
+
+    # ★ t31：行段放开后，"池外非法格"只剩两类 —— 格名非法 / 非 K 列 / 跨半场行段；
+    #   这里把三类各钉一条（防止哪天把"放宽"做成"什么都收"）。
+    for cell, expect in (("Z9", "格名非法"), ("ZZ9", "格名非法"), ("K3", "半场")):
+        rig_bad = Rig(cfg=t6_cfg(wait=0.0),
+                      pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+        t6_drone_round(rig_bad, lower=cell)
+        rig_bad.ticks(3)
+        st_bad = rig_bad.task.state()["bridge"]["lower"]
+        check(f"14.23 t31 仍拒：下半场情报 {cell}（{expect}）→ rejected + 回落默认 K10",
+              st_bad["source"] == "rejected" and st_bad["cell"] == "K10"
+              and expect in st_bad["reason"]
+              and list(rig_bad.task.route.blocks()) == _T6_BASE
+              and rig_bad.task.health().errors == 0, str(st_bad))
 
     rig6 = Rig(cfg=t6_cfg(wait=0.0, drone_enabled=False),
                pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
@@ -1464,7 +1489,7 @@ def test_bridge_intel() -> None:
           f"lower={rig8b.task.state()['bridge']['lower']['source']}")
 
     #   F1② online + 已有一半新鲜情报 → 进等待窗口；另一半在窗口内到达即**立即**采纳
-    rig9 = Rig(cfg=t6_cfg(wait=5.0), pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig9 = Rig(cfg=t6_cfg(wait=5.0, wait_at_start=True), pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
     t6_drone_round(rig9, lower="K9")                # 先给下半场（新鲜）→ 这才是"值得等"
     rig9.ticks(3)                                   # t≈0.3s：延时(0.1s)已到、窗口未满
     check("14.30 ★ F1②：online + 一半新鲜情报 → **进等待窗口**（0.3s 仍 IDLE、路线未载入）",
@@ -1481,7 +1506,7 @@ def test_bridge_intel() -> None:
           and "K4" in list(rig9.task.route.blocks()), f"K 列格={t6_kblocks(rig9)}")
 
     #   硬上限仍是**兜底**（F1 裁决明确保留）：另一半永不到，delay+wait 到点必发车
-    rig9b = Rig(cfg=t6_cfg(wait=2.0), pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig9b = Rig(cfg=t6_cfg(wait=2.0, wait_at_start=True), pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
     t6_drone_round(rig9b, lower="K9")               # 一半新鲜 → 会进窗口
     rig9b.ticks(5)                                  # t≈0.5s：仍在等
     mid_waiting = rig9b.task.phase == MissionPhase.IDLE
@@ -1638,6 +1663,145 @@ def t6_drone_state_of(rig) -> DroneState:
 
 
 # --------------------------------------------------------------------------- #
+def test_bridge_hold_t32() -> None:
+    section("15. ★t32：L10 桥前等待（HOLD）+ 迟到情报改道一次")
+
+    def drive_to_hold(rig, *, max_steps: int = 120, step: float = 0.05) -> bool:
+        """小步循迹直到进 HOLD（或走完）；返回是否进了 HOLD。"""
+        for _ in range(max_steps):
+            if rig.task.phase == MissionPhase.HOLD:
+                return True
+            rig.walk(step=step, max_steps=1, stop_on_stop_point=False)
+        return rig.task.phase == MissionPhase.HOLD
+
+    def blockers(rig) -> list[str]:
+        return [str(b) for b in rig.task.route.blocks()]
+
+    # ---- 15.1 无链路：不发车等待、L10 也不停（逐拍与 t20 后版本一致）----
+    rig1 = Rig(cfg=t6_cfg(wait=0.0, hold_max=12.0),
+               pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig1.ticks(3)                                    # 无 P_DRONE → 立即出发
+    entered1 = drive_to_hold(rig1)
+    check("15.1 ★ t32 无链路：不在 L10 停（phase 恒 DRIVE，HOLD 一次都没进）",
+          (not entered1) and rig1.task.phase != MissionPhase.HOLD,
+          f"phase={rig1.task.phase} entered={entered1}")
+    check("15.2 无链路时路线与接线前一致（默认洞 K10/K5，没改道）",
+          rig1.task.state()["bridge"]["note"].get("reroute") is None
+          and rig1.task.state()["bridge"]["used"] == {"lower": "K10", "upper": "K5"},
+          str(rig1.task.state()["bridge"].get("used")))
+
+    # ---- 15.3 链路在线 + 两半场未齐 → 到决策点进 HOLD；保持期间进度冻结 ----
+    rig2 = Rig(cfg=t6_cfg(wait=0.0, hold_max=12.0),
+               pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    t6_drone(rig2, half=None, block=None, online=True)     # 有链路、在线、还没情报
+    rig2.ticks(3)
+    entered2 = drive_to_hold(rig2)
+    idx_hold = rig2.bb.get(P_ROUTE_INDEX)
+    check("15.3 ★ t32：在线 + 两半场未齐 → 到决策点进 HOLD（停车等情报）",
+          entered2 and rig2.task.phase == MissionPhase.HOLD
+          and rig2.task.state()["bridge"]["note"]["hold"]["active"] is True,
+          f"phase={rig2.task.phase} hold={rig2.task.state()['bridge']['note'].get('hold')}")
+    check("15.4 HOLD 的遥测写明上限 = min(bridge_wait_max_s, 预算余量) 与半场",
+          rig2.task.state()["bridge"]["note"]["hold"]["cap_s"] > 0.0
+          and rig2.task.state()["bridge"]["note"]["hold"]["half"] in ("lower", "upper"),
+          str(rig2.task.state()["bridge"]["note"]["hold"]))
+    rig2.walk(step=0.05, max_steps=3, stop_on_stop_point=False)
+    check("15.5 保持期间**不放行**（phase 仍 HOLD、未换洞、0.4s ≪ 上限 12s）",
+          rig2.task.phase == MissionPhase.HOLD
+          and rig2.task.state()["bridge"]["note"]["hold"]["active"] is True
+          and rig2.task.state()["bridge"]["note"].get("reroute") is None,
+          f"phase={rig2.task.phase} note={rig2.task.state()['bridge']['note']}")
+    t6_drone_round(rig2, lower="K9", upper="K4")     # 两半场齐 → 立即放行
+    rig2.ticks(3)
+    check("15.6 ★ 两半场齐 → 立即放行（不必等满）且下半场当拍换洞（K10→K9）",
+          rig2.task.phase == MissionPhase.DRIVE and "K9" in blockers(rig2)
+          and "K10" not in blockers(rig2),
+          f"phase={rig2.task.phase} k={[b for b in blockers(rig2) if b.startswith('K')]}")
+    check("15.7 放行后遥测 hold.active=False 且记了 waited_s",
+          rig2.task.state()["bridge"]["note"]["hold"]["active"] is False
+          and rig2.task.state()["bridge"]["note"]["hold"]["waited_s"] >= 0.0,
+          str(rig2.task.state()["bridge"]["note"]["hold"]))
+
+    # ---- 15.8 到点必发车（t20 语义不变）----
+    rig3 = Rig(cfg=t6_cfg(wait=0.0, hold_max=0.6),
+               pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    t6_drone(rig3, half=None, block=None, online=True)
+    rig3.ticks(3)
+    entered3 = drive_to_hold(rig3)
+    rig3.ticks(10)                                   # 1.0 s > 上限 0.6 s
+    check("15.8 ★ 到点必发车：HOLD 到上限即恢复 DRIVE（不卡死、不等满）",
+          entered3 and rig3.task.phase == MissionPhase.DRIVE
+          and any("窗口到点" in s for s in rig3.logs),
+          f"phase={rig3.task.phase} logs={[s for s in rig3.logs if '桥前等待' in s][-1:]}")
+
+    # ---- 15.9 上限 = min(12s, 预算余量)：预算耗尽 → 不进 HOLD ----
+    rig4 = Rig(cfg=t6_cfg(wait=0.0, hold_max=12.0, budget=0.3),
+               pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    t6_drone(rig4, half=None, block=None, online=True)
+    rig4.ticks(20)                                   # 2.0 s ≫ 预算 0.3 s → 余量 0
+    entered4 = drive_to_hold(rig4)
+    check("15.9 ★ 预算余量封顶：余量 0 → 不进 HOLD（cap=0 ⇒ 直接走）",
+          (not entered4) and rig4.task.phase != MissionPhase.HOLD,
+          f"phase={rig4.task.phase} entered={entered4}")
+
+    # ---- 15.10 决策点前迟到情报 → 换洞一次且**不回车起点**（索引保留）----
+    rig5 = Rig(cfg=t6_cfg(wait=0.0, hold_max=12.0),
+               pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    t6_drone(rig5, half=None, block=None, online=True)
+    rig5.ticks(3)
+    entered5 = drive_to_hold(rig5)
+    idx5 = rig5.bb.get(P_ROUTE_INDEX)
+    t6_drone_round(rig5, lower="K9")                 # 迟到：下半场 K9（执行路线此刻是默认 K10）
+    rig5.ticks(5)
+    check("15.10 只到一半 → 仍在 HOLD（没到点不放行）",
+          entered5 and rig5.task.phase == MissionPhase.HOLD and idx5 > 0,
+          f"phase={rig5.task.phase} idx={idx5}")
+    t6_drone_round(rig5, upper="K4")                 # 齐 → 放行 + 决策点前改道
+    rig5.ticks(3)
+    note5 = rig5.task.state()["bridge"]["note"]
+    check("15.11 ★ 决策点前迟到情报 → 换洞（K10→K9）且**保留段索引**（不是从 N10 重来）",
+          rig5.task.phase == MissionPhase.DRIVE and "K9" in blockers(rig5)
+          and rig5.bb.get(P_ROUTE_INDEX) == idx5
+          and isinstance(note5.get("reroute"), dict) and note5["reroute"]["count"] == 1
+          and note5["reroute"]["old"] == "K10" and note5["reroute"]["new"] == "K9",
+          f"idx={rig5.bb.get(P_ROUTE_INDEX)} vs {idx5} k={[b for b in blockers(rig5) if b.startswith('K')]} "
+          f"reroute={note5.get('reroute')}")
+    check("15.12 改道只动穿洞格：决策点及其之前的航点顺序不变（前缀一致）",
+          blockers(rig5)[:idx5 + 1] == _T6_BASE[:idx5 + 1],
+          f"{blockers(rig5)[:idx5 + 2]} vs {_T6_BASE[:idx5 + 2]}")
+
+    # ---- 15.13 决策点后到达的情报 → 维持原 token（只进遥测）----
+    rig5.walk(step=0.05, max_steps=60, stop_on_stop_point=False)   # 穿过 K9 洞
+    before5 = blockers(rig5)
+    t6_drone_round(rig5, lower="K7")                 # 洞口已过 → 不能再改
+    rig5.ticks(3)
+    check("15.13 ★ 决策点后到达的情报 → 维持原 token（K7 没被换上）",
+          blockers(rig5) == before5 and "K7" not in blockers(rig5)
+          and rig5.task.state()["bridge"]["note"]["reroute"]["count"] == 1,
+          f"k={[b for b in blockers(rig5) if b.startswith('K')]}")
+
+    # ---- 15.14 全程改道上限 1 次（上半场再迟到也不换）----
+    rig6 = Rig(cfg=t6_cfg(wait=0.0, hold_max=12.0),
+               pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    t6_drone(rig6, half=None, block=None, online=True)
+    rig6.ticks(3)
+    drive_to_hold(rig6)
+    t6_drone_round(rig6, lower="K9")                 # 第一次改道（下半场）
+    rig6.ticks(3)
+    t6_drone_round(rig6, upper="K4")                 # 同时给上半场
+    rig6.ticks(3)
+    first = blockers(rig6)
+    t6_drone_round(rig6, upper="K4")                 # 再报一次（不应触发第二次改道）
+    rig6.ticks(3)
+    check("15.14 ★ 全程改道上限 1 次：上半场未换洞（仍 K5）、计数仍是 1",
+          blockers(rig6) == first
+          and rig6.task.state()["bridge"]["note"]["reroute"]["count"] == 1
+          and "K5" in blockers(rig6),
+          f"k={[b for b in blockers(rig6) if b.startswith('K')]} "
+          f"reroutes={rig6.task.state()['bridge']['note']['reroute']['count']}")
+
+
+# --------------------------------------------------------------------------- #
 def main() -> int:
     print("=" * 72)
     print("dzbrain MissionTask 自测（纯脚本）")
@@ -1658,6 +1822,7 @@ def main() -> int:
     test_pivot_done_marks_arrival()
     test_waypoint_ledger()
     test_bridge_intel()
+    test_bridge_hold_t32()
     finish()
     return 0
 
