@@ -1212,3 +1212,45 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 **当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（seed157/v4d/target_merged训练未知）
 **本轮非硬件推进：** 核验4个已下载标靶pose模型的ONNX契约，确认2个9通道模型可转RKNN上车、2个8通道模型需确认类别数；125测试通过；watch脚本3实例健康
+
+---
+
+## [经理→全体] 2026-10-12 09:04 · 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+✅ **非硬件推进：端到端检测+格号+矩阵渲染全链路实跑验证（本轮核心）**
+- \ender_field_matrix.py --image capture/aerial_field/images/frame_00124.jpg\ 全链路跑通
+- 检测目标数：88，格号锚点：80，定位方式：lattice（RANSAC 单应拟合）
+- 格网反推：内点 57 / 剔除假锚点 23，反推格 23 个
+- 输出：\uns/matrix_test/field_matrix.png\ (1148x1617)
+- 验证结论：7cls 检测 → 格号识别 → RANSAC lattice 反推 → 矩阵渲染 全链路就绪，Orin 上线后可直接部署
+
+✅ **代码base健康：pytest tests/ 128 passed in 16.77s（无回归，0 skipped）**
+
+✅ **watch 脚本健康（3 实例运行中，已运行 ~4h）**
+- PID 41148（系统Python）+ 42360（venvPython）+ 42708
+- 连通 5090 后自动监控 v4d + seed157 + target_merged 三个训练并下载产物
+
+⚠️ **5090 实例持续不可达**
+- \connect.bjb2.seetacloud.com:37113\ TcpTestSucceeded=False
+- \106.38.204.136:52238\ TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+📝 **7cls 训练：epoch 75/75 已完成（无变化）**
+- best mAP50=0.7879(ep56)，模型已发布 \hbb_detector_7cls_distill_20261011.onnx\
+
+📋 **M0 完赛最小闭环进度（重点关注）**
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | ✅ 端到端链路实跑验证通过 |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | 无（待硬件） |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（seed157/v4d/target_merged训练未知）
+**本轮非硬件推进：** 端到端检测+格号+矩阵渲染全链路实跑验证通过；128测试通过；watch脚本3实例健康
