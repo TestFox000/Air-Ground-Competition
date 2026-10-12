@@ -52,7 +52,7 @@
 
 | 任务ID | 任务 | 状态 | 截止 | 完成时间 | 进度 |
 |---|---|---|---|---|---|
-| A4-1 | **7cls 蒸馏训练收敛** | ✅ | 10-11 16:05 | 10-11 16:05 | epoch 75/75 完成，best mAP50=0.7879(ep56)。评估：官方74张 mine mAP50=0.7972(厂家0.1248)，7cls val 全类 mAP50=0.7771，mine mAP50-95=0.8380。已发布 hbb_detector_7cls_distill_20261011.onnx，current_hbb 指针已更新。注意：car类mAP50-95=0.0000（车自报位置，可接受） |
+| A4-1 | **7cls 蒸馏训练收敛** | ✅ | 10-11 16:05 | 10-11 16:05 | epoch 75/75 完成，best mAP50=0.7879(ep56)。已发布 hbb_detector_7cls_distill_20261011.onnx。**7cls_clean干净版训练进行中（4090）：epoch 57/80，best mAP50=0.662(ep44)，ETA ~22:00** |
 | A4-2 | **格号识别 v4c 训练** | ✅ | 10-10 | 10-10 08:00 | v4c模型已发布 cell_classifier_v4c_20261009.onnx |
 | A4-3 | Orin 编译 dzuav | 🔵 待启动 | Orin上线后1h | — | 需Orin在线 |
 | A4-4 | 相机出图验证 | ⛔ | 依赖A4-3 | — | |
@@ -95,7 +95,7 @@
 | M0-3 | 无人机出情报(UDP) | Agent-4 | 🔵 待Orin上线（v4c离线验证已过，7cls模型已发布；本地端到端管线验证通过：ONNX契约[1,3,1280,1280]→[1,11,33600]+CPU推理431ms，frame_000124检测37雷+3格号，render_field_matrix全链路跑通） |
 | M0-4 | 车机UDP链路通 | Agent-1 | ✅ 模拟验证通过 |
 | M0-5 | 路径规划可执行 | Agent-1 | ✅ 模拟验证通过 |
-| M0-6 | 车按路径行驶 | Agent-3 | ⛔ 依赖M0-1,M0-2 |
+| M0-6 | 车按路径行驶 | Agent-3 | ⛔ 依赖M0-1,M0-2（标靶pose模型target_pose_v2已完成：mAP50=0.9755，ONNX契约[1,9,8400]匹配车端，已下载至E:\ml_datasets\downloaded\） |
 | M0-7 | 赛前检查清单 | Agent-5 | ✅ 已完成 |
 
 ---
@@ -143,16 +143,76 @@
 |---|---|---|---|
 | R1 | Orin 不在线 | Agent-4 | 确认WiFi连接；同时推进训练 |
 | R2 | 车仍画圆 | Agent-3 | align已就绪，待实车 |
-| R3 | 7cls训练中断 | Agent-4 | ✅ 训练已于15:38完成epoch 75并发布 hbb_detector_7cls_distill_20261011.onnx；本地ONNX冒烟测试通过。建议禁用Modern Standby防止再次中断 |
-| R7 | 5090连接不稳定 | Agent-4 | 5090实例持续不可达（connect.bjb2.seetacloud.com:37113 与 106.38.204.136:52238 均 TcpTestSucceeded=False）。seed157/v4d/target_merged 训练状态未知。watch_5090_v4d_seed.py 已于 18:04 重启（旧实例被系统休眠杀掉），连通即自动监控+下载。需用户在 AutoDL 控制台检查实例状态 |
+| R3 | 7cls训练中断 | Agent-4 | ✅ 蒸馏版已完成发布。7cls_clean干净版训练进行中（4090，ep57/80） |
+| R7 | 5090连接不稳定 | Agent-4 | 5090实例持续不可达（connect.bjb2.seetacloud.com:37113 与 106.38.204.136:52238 均 TcpTestSucceeded=False）。seed157/v4d/target_merged 训练状态未知。watch_5090_v4d_seed.py 2实例持续存活（自18:04起），连通即自动监控+下载。需用户在 AutoDL 控制台检查实例状态 |
+| R8 | 4090训练进度 | Agent-4 | ✅ 4090实例(connect.bjb1:27379)在线，4训练并发：7cls_clean(ep57/80) / target_pose_v2(✅完成,mAP50=0.9755) / red_bucket(✅完成,mAP50=0.861) / mine_cls_v5(已重启,修复data路径) |
 | R4 | 0x4002帧未广播 | Agent-4 | 代码完成，待Orin编译 |
 | R6 | E盘（项目存储） | 经理 | ✅ 已恢复（7cls续训成功读取E:\ml_datasets），持续监控 |
 
 ---
 
-*最后更新：2026-10-12 19:02 经理（每小时巡检）*
+*最后更新：2026-10-12 20:11 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 19:02）
+## 7. 本轮巡检非硬件推进（2026-10-12 20:11）
+
+### ✅ 4090远程实例训练全面推进（非硬件推进，服务 M0-3/M0-6）
+- **4090实例在线**（connect.bjb1.seetacloud.com:27379，RTX 4090 48GB），4训练并发：
+  | 训练 | 状态 | 关键指标 | 产物 |
+  |---|---|---|---|
+  | 7cls_clean干净版 | 🟡 ep57/80 | best mAP50=0.662(ep44) | ETA ~22:00 |
+  | target_pose_v2 | ✅ 完成 | **mAP50=0.9755** | best.onnx 37.4MB |
+  | red_bucket | ✅ 完成 | mAP50=0.861 | best.onnx 10.1MB |
+  | mine_cls_v5 | 🟡 已重启 | 修复data路径(目录非yaml) | 40 epochs |
+
+### ✅ target_pose_v2标靶pose模型下载+契约核验（服务 M0-6 车端射击）
+- 下载至 `E:\ml_datasets\downloaded\target_pose_v2_best.onnx`（37.4MB）
+- **契约核验通过**：输入 `[1,3,640,640]` → 输出 `[1,9,8400]`（4bbox+2cls+3kpt），与车端 `light_det.rknn` 现役契约完全匹配
+- mAP50=0.9755（epoch 200/200），标靶识别精度极高，可直接 `rknn_convert.py` 转 RKNN 部署
+- 价值：M0-6 车端标靶射击链路现在有高精度+契约匹配的模型备选，不再阻塞标靶识别
+
+### ✅ mine_cls_v5雷分类器训练修复并重启（服务 爆炸物二次确认）
+- **问题**：首次启动失败，YOLO分类任务要求 `data` 为目录路径而非 yaml 文件
+- **修复**：确认远程脚本 `DATA="/root/ag_train/mine_classifier/images"` 已正确（images/train|val/{mine,non_mine}），重新启动训练
+- 训练已正常启动：9268 train / 1301 val 图像，2类（mine/non_mine），yolo11s-cls，40 epochs
+- 价值：雷分类器v5（平衡采样+强正则+早停）训练恢复，为爆炸物两阶段检测的二次确认提供模型
+
+### ✅ red_bucket红桶检测器训练完成+下载
+- 下载至 `E:\ml_datasets\downloaded\red_bucket_best.onnx`（10.1MB）
+- 输出 `[1,10,8400]`，red bucket类 mAP50=0.946，可作为障碍物检测的补充模型
+
+### ✅ 代码base健康
+- `pytest tests/` 144 passed in 21.16s（无回归）
+
+### ✅ watch_5090 监控脚本持续存活
+- PID 4256（系统Python）+ 14796（venvPython），均于 18:04:39 启动（已运行 ~2h）
+- 本轮巡检未发现被系统休眠杀掉
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 蒸馏训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+- 7cls_clean干净版训练在4090进行中（ep57/80）
+
+### 📝 manual_200 标注：157/200（无变化）
+
+### 📋 M0 完赛最小闭环进度（重点关注）
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | ✅ 7cls_clean干净版训练4090进行中(ep57/80) |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | ✅ target_pose_v2标靶模型完成(mAP50=0.9755,契约匹配车端[1,9,8400])；mine_cls_v5雷分类器已重启 |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 19:02）
 
 ### ✅ fire_guard 禁火保险边界测试补强（非硬件推进，服务 M0-6 射击安全）
 - **问题**：`fire_guard.py` 是车端射击前的最后一道安全闸门（误击红靶 −5/次，最多 −15），但原有测试仅覆盖基础场景，缺失 5 类高风险边界：

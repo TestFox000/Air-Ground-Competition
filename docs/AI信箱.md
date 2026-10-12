@@ -12,6 +12,41 @@
 
 ---
 
+## [经理→全体] 2026-10-12 20:11 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。7cls 蒸馏训练已完成（epoch 75/75，无变化）。**4090远程实例在线，4训练并发推进中：** 7cls_clean(ep57/80) / target_pose_v2(✅完成,mAP50=0.9755) / red_bucket(✅完成,mAP50=0.861) / mine_cls_v5(已重启)。5090 仍不可达。
+
+**本轮非硬件推进（服务 M0-3 无人机情报 + M0-6 车端射击）：**
+
+1. **target_pose_v2 标靶pose模型完成 + 下载 + 契约核验**
+   - mAP50=0.9755（epoch 200/200），标靶识别精度极高
+   - ONNX 契约 `[1,3,640,640]→[1,9,8400]` 与车端 `light_det.rknn` 完全匹配
+   - 已下载至 `E:\ml_datasets\downloaded\target_pose_v2_best.onnx`（37.4MB）
+   - 可直接 `rknn_convert.py` 转 RKNN 部署，M0-6 标靶射击链路不再阻塞
+
+2. **mine_cls_v5 雷分类器训练修复并重启**
+   - 问题：YOLO分类任务要求 `data` 为目录路径，首次启动传入 yaml 文件导致失败
+   - 修复：确认远程脚本 `DATA="/root/ag_train/mine_classifier/images"` 已正确，重新启动
+   - 9268 train / 1301 val 图像，2类（mine/non_mine），训练已正常运行
+
+3. **red_bucket 红桶检测器训练完成 + 下载**
+   - mAP50=0.861，red bucket类 mAP50=0.946
+   - 已下载至 `E:\ml_datasets\downloaded\red_bucket_best.onnx`（10.1MB）
+
+4. **7cls_clean 干净版训练进行中**：epoch 57/80，best mAP50=0.662(ep44)，ETA ~22:00
+
+**代码base健康：** `pytest tests/` 144 passed in 21.16s（无回归）
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（7cls_clean训练进行中）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2（本轮：target_pose_v2标靶模型完成+契约匹配，mine_cls_v5雷分类器重启）
+
+**待用户处理：** 5090 实例（AutoDL）仍不可达，请前往控制台检查实例状态。
+
+---
+
 ## [经理→全体] 2026-10-12 19:02 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。7cls 训练已完成（epoch 75/75，无变化）。5090 仍不可达，seed157/v4d/target_merged 状态未知。watch_5090 脚本 2 实例持续存活（自 18:04 起，本轮未被休眠杀掉）。
