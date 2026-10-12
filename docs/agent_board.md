@@ -150,9 +150,50 @@
 
 ---
 
-*最后更新：2026-10-12 14:09 经理（每小时巡检）*
+*最后更新：2026-10-12 15:02 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 14:09）
+## 7. 本轮巡检非硬件推进（2026-10-12 15:02）
+
+### ✅ MapLocalizer 新增单应拟合兜底（非硬件推进，服务 M0-3）
+- **问题**：`onboard/dzuav/src/MapLocalizer.cpp` 的 `solve()` 仅使用 PnP 定位，当相机内参偏差或地标几何不佳时 PnP 失败 → `localized=false` → 无人机不广播情报 → M0-3 直接断链
+- **修复**：PnP 失败后自动兜底为 `cv::findHomography(w2, p, RANSAC)`，直接拟合格号世界坐标↔图像坐标的单应矩阵，无需相机内参
+- **质检**：单应解重投影中位误差 ≤ 15px（PnP 为 10px，单应无内参故门槛略宽）、内点数 ≥ max(8, 30%地标)，否则拒绝
+- **价值**：Python `lattice_ransac.py` 已验证单应拟合在航拍正射下定位有效，兜底后定位成功率提升，减少"有地标但不广播"的断帧
+- **影响范围**：仅 `MapLocalizer::solve()` 内部逻辑，`project()` 接口不变，Orin 编译后生效
+
+### ✅ 代码base健康
+- `pytest tests/` 129 passed in 16.12s（无回归）
+- CMakeLists.txt 已链接 `${OpenCV_LIBS}` 全模块，`findHomography`/`perspectiveTransform` 可用
+
+### ✅ watch 脚本健康（3 实例运行中）
+- PID 41148 + 42360 + 42708，均于 05:06:37 启动（已运行 ~10h）
+- 连通 5090 后自动监控 v4d + seed157 + target_merged 三个训练并下载产物
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/200（无变化）
+
+### 📋 M0 完赛最小闭环进度（重点关注）
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | ✅ MapLocalizer新增单应拟合兜底，PnP失败时仍可定位广播 |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | 无（待硬件） |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 14:09）
 
 ### ✅ 标靶检测后处理兼容 8 通道模型（非硬件推进，服务 M0-6）
 - **问题**：`tools/ml/prelabel_rknn.py` 的 `decode_output` 严格要求 9 通道布局（4 bbox + 2 cls + 1 kpt*3），4 个下载的标靶 pose 模型中有 2 个（`target_car_pose_v2`、`target_synth_yolo11s`）为 8 通道（无 visibility 分），直接解码会抛 ValueError
