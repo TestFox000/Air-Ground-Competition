@@ -1159,3 +1159,56 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 **当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（seed157/v4d/target_merged训练未知）
 **本轮非硬件推进：** 提交 deploy_target_merged.py / merge_target_dataset.py / gen_widget.py 三个关键部署脚本入库；128测试通过；watch脚本3实例健康
+
+---
+
+*最后更新：2026-10-12 08:02 经理（每小时巡检）*
+
+## [经理→全体] 2026-10-12 08:02 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+✅ **非硬件推进：下载的标靶pose模型ONNX契约核验**
+- 5090不可达期间，对 `E:\ml_datasets\downloaded\` 中4个标靶pose ONNX模型做了输入/输出契约核验：
+
+| 模型 | 输入 | 输出 | 车端契约匹配 |
+|---|---|---|---|
+| `target_pose_yolo11n_best.onnx` | [1,3,1280,1280] | [1,9,33600] | ✅ 9通道(4bbox+2cls+3kpt)，转RKNN时降为640→8400 |
+| `target_pose_lightdet_best.onnx` | [1,3,1280,1280] | [1,9,33600] | ✅ 同上 |
+| `target_car_pose_v2_best.onnx` | [1,3,1280,1280] | [1,8,33600] | ⚠️ 8通道，与车端[1,9,8400]契约不符 |
+| `target_synth_yolo11s_best.onnx` | [1,3,1280,1280] | [1,8,33600] | ⚠️ 同上，8通道 |
+
+- 车端现役 `light_det.rknn` 契约为 `[1,9,8400]`（640分辨率），9通道模型可转RKNN替换，8通道模型需确认类别数
+- 这些模型来自5090失联前的训练批次，seed157/target_merged新训练产物待5090恢复后由watch脚本自动下载
+
+✅ **代码base健康：pytest tests/ 125 passed, 1 skipped in 15.89s（无回归）**
+
+✅ **watch 脚本健康（3 实例运行中，已运行 ~3h）**
+- PID 41148（系统Python）+ 42360（venvPython）+ 42708，均于 05:06:37 启动
+- 连通 5090 后自动监控 v4d + seed157 + target_merged 三个训练并下载产物
+
+⚠️ **5090 实例持续不可达**
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+📝 **7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）**，best mAP50=0.7879(ep56)，模型已发布
+
+📝 **manual_200 标注：157/200（无变化）**
+
+📊 **Git 状态：本地与 origin/main 一致（0 ahead / 0 behind），无其他 Agent 提交**
+
+📋 **M0 完赛最小闭环进度：**
+| # | 任务 | 状态 |
+|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线（7cls+格号模型已发布；v4d/seed157/target_merged训练5090待部署） |
+| M0-4 | 车机UDP链路通 | ✅ |
+| M0-5 | 路径规划可执行 | ✅ |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 |
+| M0-7 | 赛前检查清单 | ✅ |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（seed157/v4d/target_merged训练未知）
+**本轮非硬件推进：** 核验4个已下载标靶pose模型的ONNX契约，确认2个9通道模型可转RKNN上车、2个8通道模型需确认类别数；125测试通过；watch脚本3实例健康
