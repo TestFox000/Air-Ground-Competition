@@ -63,6 +63,12 @@ class SafetyTask(TaskThread):
         self.pose_timeout_s = float(cfg.get("safety.pose_timeout_s") or 1.0)
         self.task_stall_s = float(cfg.get("safety.task_stall_s") or 1.0)
         self.brake_on_fault = bool(cfg.get("safety.brake_on_fault"))
+        #: ★ 连续 N 拍"零速指令发不出去"就报独立 alarm（t8；默认 3）。
+        #  为什么必须有这条：上下文一坏（收栈时 rclpy 的 SIGTERM 处理器会直接
+        #  `rcl_shutdown`），`publish_brake` 必抛 —— 而它此前被 `_safe_call` 吞成 None、
+        #  日志照样打"已发零速指令"⇒ **日志自证安全、实际一条零速都没出去**，
+        #  唯一真刹手段静默失效（2026-10-11 16:18 实车血证，t6 §7 P0-2 / t3 finding C）。
+        self.brake_fail_alarm_after = int(cfg.get("safety.brake_fail_alarm_after") or 3)
         self.map_margin_m = float(cfg.get("pursuit.map_safety_margin_m") or 0.0)
         #: 启动宽限：从未收到任何定位数据时的容忍时间（超过才判"定位失联"）。
         #: 为什么不复用 `safety.pose_timeout_s`：那个是"数据流断了多久算丢"（运行期语义），
@@ -80,7 +86,10 @@ class SafetyTask(TaskThread):
 
         # 计数器（测试直接断言，不解析日志）
         self.ticks = 0
-        self.brakes = 0
+        self.brakes = 0                      # **成功发出**的零速指令数（失败不计！t8 C 项）
+        self.brake_failures = 0              # 零速指令发布失败总次数（独立计数）
+        self.brake_consecutive_failures = 0  # 连续失败拍数（成功即清零）
+        self._last_brake_error = ""          # 最近一次发布失败的原因（排障用）
         self.forced_stops = 0
         self.stop_events = 0
         self.clear_events = 0
@@ -432,11 +441,39 @@ class SafetyTask(TaskThread):
 
         if first:
             self._log(f"★ 强制停车（第 {self.forced_stops} 次）："
-                      f"{'已发零速指令' if self.brake_on_fault else 'brake_on_fault=False，未发指令'}")
+                      f"{'开始逐拍续发零速指令' if self.brake_on_fault else 'brake_on_fault=False，未发指令'}")
         if self.brake_on_fault:
-            # ★ 每拍都发：底盘有 1 s 看门狗，安全态必须持续压住（不是"发一次就算"）
-            self._safe_call(self.bridge.publish_brake)
-            self.brakes += 1
+            # ★ 每拍都发：底盘有 1 s 看门狗，安全态必须持续压住（不是"发一次就算"）。
+            #   t8 追加核验（队长 B 项）：这**本来就是逐拍续发**，不是锁存后只发一次；
+            #   现在把它钉进测试（test_safety ⑪），并顺手让"发失败"不再冒充成功。
+            ok = self._publish_brake()
+            if ok:
+                self.brakes += 1
+                self.brake_consecutive_failures = 0
+            else:
+                before = self.brake_consecutive_failures
+                self.brake_consecutive_failures += 1
+                if before < self.brake_fail_alarm_after <= self.brake_consecutive_failures:
+                    self._log(f"🚨 真刹失效告警（独立 alarm，不是'已发零速指令'）："
+                              f"连续 {self.brake_consecutive_failures} 拍零速指令**一条都没发出去**"
+                              f"（累计失败 {self.brake_failures} 次）→ 唯一真刹手段已失效，"
+                              f"只剩底盘 1 s 看门狗兜底；上下文/发布链需要立刻人工介入")
+
+    def _publish_brake(self) -> bool:
+        """发一拍零速并**如实**返回成败 —— 这是"日志自证安全"的唯一堵口（t8 C 项）。
+
+        旧写法 `self._safe_call(self.bridge.publish_brake)` 把发布异常吞成 None，
+        然后无条件 `brakes += 1` ⇒ 上下文已死时（实车 16:18 收栈血证）日志照样自证
+        "已发零速指令"，而底盘一条都没收到。现在：成功才算成功，失败单独计数。
+        """
+        try:
+            self.bridge.publish_brake()
+        except Exception as exc:                 # noqa: BLE001（发布失败形态由 rclpy 决定）
+            self.brake_failures += 1
+            self._last_brake_error = f"{type(exc).__name__}: {exc}"
+            return False
+        self._last_brake_error = ""
+        return True
 
     def _state(self, *, ok: bool, now: float) -> SafetyState:
         """组装 P_SAFETY。

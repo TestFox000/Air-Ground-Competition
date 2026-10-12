@@ -282,9 +282,44 @@ CHANNEL_BY_ID = {c["id"]: c for c in CHANNELS}
 #: 判断"合法 bool"用
 _TRUE = ("true", "yes", "1", "y", "是", "确认")
 
-#: 扫描"未被登记的历史引用"时跳过的目录
+#: 扫描"未被登记的历史引用"时跳过的目录名（任一路径段命中即跳过）
 _SCAN_SKIP = {".git", "build", "install", "log", "backup", "artifacts", "__pycache__",
               "_tmp_session", "_scratch_aim", "_scratch_auto_plan", "_tmp_install_repro", ".agent-teams"}
+
+
+def _skip_dir(name: str) -> bool:
+    """该目录名是否属于"草稿/临时"（不参与旧值引用扫描）。
+
+    ★ 为什么必须按**路径上任意一段**判、而不是只判文件名前缀（t16 根因）：
+      `_SCAN_SKIP` 列了 `_tmp_session`，但**后缀不同的兄弟目录**（如 `_tmp_verify/`）会漏掉；
+      而"只判文件名 `startswith('_tmp_')`"更漏 —— 变异副本里**被扫的是 `tests/test_core.py`**，
+      文件名根本不带 `_tmp_`。于是 `_tmp_verify/t9/mut/*/tests/test_core.py`（t9 变异测试的
+      临时副本，与 src 下的真 test_core 同名）被当成"已登记钉的重复引用"⇒ test 10.2 假红。
+      ⇒ 统一口径：路径上任意一段以 `_tmp_` 开头，或命中 `_SCAN_SKIP`，即跳过。
+    """
+    return name.startswith("_tmp_") or name in _SCAN_SKIP
+
+
+#: ★ 历史部署快照/草稿的**注册表**（卡 t16）——扫描时按"整条相对路径"豁免。
+#  为什么用独立注册表而不是塞进 `CHANNELS[*].pins`：pins 的语义是"**会被回填的钉位**"
+#  （`manual=False` 的通道会真的 `plan_repins` 改文件；test 3.1/3.3 还要求每条钉都能
+#  内容式定位、且重钉后文本必变）。把"历史快照"塞进 pins 会让它们出现在"待回填清单"里，
+#  既语义错（快照不该被改）又破坏回填自检。这里是**只登记不参与回填**的豁免表。
+_HISTORICAL_SNAPSHOTS: tuple[dict, ...] = (
+    {"file": "_backups/deploy_map3_20261011_142413/robot.yaml",
+     "why": "历史部署快照（2026-10-11 14:24 换图前备份）"},
+    {"file": "_backups/g1_030_Azu_20261011_135423/robot.yaml",
+     "why": "历史部署快照（2026-10-11 13:54 g1_030 备份）"},
+    {"file": "_deploy_cfg.yaml",
+     "why": "历史部署草稿；活跃真值是 config/robot.yaml"},
+)
+
+
+def _scan_snapshot_paths(root: pathlib.Path) -> set[pathlib.Path]:
+    """注册表 → 绝对路径集合（扫描时整条豁免）。"""
+    return {(root / s["file"]).resolve() for s in _HISTORICAL_SNAPSHOTS}
+
+
 _SCAN_EXT = {".py", ".yaml", ".yml", ".md", ".sh", ".json", ".txt"}
 
 
@@ -919,17 +954,22 @@ def scan_untracked_refs(old_literal: str, root: pathlib.Path,
                         pins: tuple | list, extra_skip: set[pathlib.Path] | None = None) -> list[str]:
     """扫仓库里出现旧值的引用，报告**未登记进本表**的那些（提示不能自动替换）。
 
-    跳过：`.git/build/...`、已登记的钉文件、本工具自身、目标 robot.yaml、`_tmp_*` 草稿。
+    跳过（口径 = **按路径判**，不靠"临时目录里恰好没有副本"）：
+      · 路径上任意一段命中 `_SCAN_SKIP` 或以 `_tmp_` 开头（含 `_tmp_verify/` 等兄弟目录，
+        以及其中形如 `tests/test_core.py` 的变异副本 —— 文件名本身不带 `_tmp_`，见 t16）；
+      · 已登记的钉文件、`_HISTORICAL_SNAPSHOTS` 注册的历史快照/草稿、本工具自身与模板。
     """
     files = {(root / p["file"]).resolve() for p in pins}
     files |= {p.resolve() for p in (extra_skip or set())}
+    files |= _scan_snapshot_paths(root)
     files |= {_HERE.resolve(), (_HERE.parent / "calib_backfill_template.yaml").resolve()}
     hits: list[str] = []
     for path in root.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in _SCAN_EXT:
             continue
-        parts = set(path.parts)
-        if parts & _SCAN_SKIP or path.name.startswith("_tmp_") or path.resolve() in files:
+        if any(_skip_dir(part) for part in path.parts):
+            continue
+        if path.resolve() in files:
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="ignore")

@@ -186,6 +186,14 @@ public:
 	int scan_dwell_ms_ = 300;		  // 每个点最短驻留时间(ms)
 	int scan_arrive_tol_ = 30;		  // 认为云台"已到位"的刻度容差
 	int scan_passes_ = 2;			  // 全向扫描趟数：1 趟"左" + 1 趟"右" = 2
+	// ===== ★卡 t25：进入扫描前的"归位段" + 连续扫描轮数上限 =====
+	// 用户口径：①进入扫描先复位到正前+水平，再开始巡航；②连续扫描最多 3 轮，
+	//   3 轮仍无目标 → 自动回 IDLE 归位（不再无限扫）；③找到目标立即 TRACK（既有链路不变）。
+	int scan_continuous_cycles_ = 3;   // 连续扫描最多几轮（一轮 = scan_passes_ 趟）；<=0 = 不限（旧行为）
+	int scan_home_timeout_ms_ = 1500;  // 归位段超时(ms)：电机卡住/到位判据不满足时也要进扫描（绝不永远不进）
+	rclcpp::Time scan_home_deadline_;  // 归位段截止时刻（startScan 时按上面超时设置）
+	bool scan_homing_ = false;         // true = 当前处于"进扫描前先归位"阶段（此时 aim_state_ 仍是 IDLE）
+	int scan_cycles_done_ = 0;         // 本次连续扫描已完成的轮数（用于 3 轮上限）
 	int lost_frames_to_rescan_ = 60;  // 跟踪中连续丢帧超过该值才放弃追踪回到扫描
 	int vision_timeout_ms_ = 1000;	  // 追踪中多久收不到视觉结果就强制回扫描(ms)
 	// ===== 视觉滤波与消抖 =====
@@ -290,6 +298,8 @@ public:
 	void applyScanTarget();
 	void advanceScanIndex();
 	void startScan(bool continuous); // 启动全向扫描；continuous=true 时扫完自动重来
+	bool scanHomingStep();           // ★t25：进扫描前的归位段；返回 true = 归位完成，可以开扫
+	void enterScanPhase();           // ★t25：真正进入扫描阶段（下发第一个横扫点）
 	int trackSpeedFor(double abs_err, double d_abs_err, double eff) const;
 	int fireDeadzonePx(double box_w) const;
 	// ===================== 瞄准扫描参数结束 =====================

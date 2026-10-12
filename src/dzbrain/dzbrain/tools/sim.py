@@ -65,6 +65,8 @@
 4. `metrics` 的键名是契约（`docs/P0接口约定.md` §5），只增不改。
 5. 指标**按段类型分组**（`normal` / `reverse` / `corner`）：不分组的话一个 90° 拐角的
    0.3 m 会淹没整条路线的 RMS，参数调优就看不出方向（详见 `SegmentStat`）。
+6. ★ 卡 t13：**起拍位姿 = 现场摆位约定**（设计常量：设计起点格 + 车头 `+y`），
+   不从路线反推（见 `DESIGN_START_BLOCK` / `DESIGN_START_YAW` / `SimConfig.init_yaw`）。
 
 ★★ 2026-10-07：现场图"跑不完"的根因已修（历史：822.5 s / 41127 拍 / ratio 5.32 未完成）
 ------------------------------------------------------------------
@@ -618,6 +620,16 @@ _COLOR_BY_ERROR = [
 ]
 _COLOR_WORST = "#c92a2a"    # 偏得离谱 —— 红
 
+# --------------------------------------------------------------------------- #
+#  ★★ 卡 t13：起拍位姿 = **现场摆位约定**（设计常量，不从路线反推）
+# --------------------------------------------------------------------------- #
+#: 设计起点格：每次发车车都摆在这一格（现场图 = `N10`）。
+DESIGN_START_BLOCK = "N10"
+#: 设计起拍航向：车头**水平朝图左** = 朝 K 列桥洞方向 = 列号减小 = 地图 `+y`
+#: （`geometry.HEADING_Y` = +π/2）。与 `route.planner.START_HEADING` 是同一个约定的
+#: 两个表示（那边是 `DIRS` 索引 1，这边是地图 yaw），摆位由现场用户保证。
+DESIGN_START_YAW = geo.HEADING_Y
+
 
 @dataclass
 class SimConfig:
@@ -638,7 +650,14 @@ class SimConfig:
     trace_every: int = 1                # 每 N 拍记一条轨迹（1 = 全记）
     stop_on_completion: bool = True     # 到终点即停（False = 跑到步数上限，用来看"冲过去"）
     bounds_margin_m: float = 0.0        # 越界判据余量；0 = 用 `pursuit.map_safety_margin_m`
-    init_yaw: str = "route"             # "route" = 对齐首段方向（默认）| "waypoint" = 首点 yaw 字段
+    #: ★★ 卡 t13：起拍航向来源。**默认 = 现场摆位约定**（见 `DESIGN_START_BLOCK/YAW`）：
+    #:   · `"start"`（默认）= 车摆在设计起点格、车头 `+y`（图左 / K 列方向）—— 与实车
+    #:     摆位一致；**不从路线推**，所以"首段方向≠+y"的路线也能如实反映"车要先把头转过去"。
+    #:     ⚠️ 只对**从设计起点格出发**的路线生效；不从那里出发的合成夹具（实验室画的短
+    #:     路线）保持历史行为「对齐首段方向」，否则等于拿 N10 的摆位去模拟一条不存在的短线。
+    #:   · `"route"` = 对齐首段方向（历史行为，对照/复现旧数据用）；
+    #:   · `"waypoint"` = 首点 yaw 字段（复现"起步摆正"）。
+    init_yaw: str = "start"
     actuator_rate_limit: bool = True    # 执行侧舵角斜坡跟随（关掉 = 复位老实现"一步到位"）
     command_rate_limit: bool = True     # 控制器侧速率限幅（关闭仅用于"暴露未限幅后果"的对照）
     trace_hook: object = None           # 可选：每拍回调 (step:int, state:dict) —— 排障用（默认 None）
@@ -665,8 +684,8 @@ class SimConfig:
             raise ValueError(f"trace_every 必须 >= 1，收到 {self.trace_every!r}")
         if self.max_steps < 0:
             raise ValueError(f"max_steps 不能为负，收到 {self.max_steps!r}")
-        if self.init_yaw not in ("route", "waypoint"):
-            raise ValueError(f"init_yaw 只能是 'route' / 'waypoint'，收到 {self.init_yaw!r}")
+        if self.init_yaw not in ("start", "route", "waypoint"):
+            raise ValueError(f"init_yaw 只能是 'start' / 'route' / 'waypoint'，收到 {self.init_yaw!r}")
 
 
 @dataclass
@@ -702,6 +721,9 @@ class SimResult:
     #: ★ t24：场地物理观测明细（逐雷盖雷拍数 / 最近距离 / 首次违规位置 …）；无场地时 = {}。
     #:   刻意不复用 `metrics`：那里只放**数值**（CSV/表都按数值格式化），明细走这里。
     field_report: dict = field(default_factory=dict)
+    #: ★ t13：本想起拍航向**是哪条规则给出的**（"设计常量…" / "首段方向" / "waypoint…"）。
+    #:   只作诊断与测试证据，不参与任何指标计算。
+    init_yaw_src: str = ""
 
     @property
     def steps(self) -> int:
@@ -859,17 +881,31 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
         metrics[key] = 0.0
 
     # ---- 初始位姿：信念 = 真值 = 路线首点 ----
-    # 朝向默认取**首段方向**（`Route` 首点的 yaw 是"整条路线走完后该有的朝向"，
-    # 例如现场路线末尾 `N5` 无后缀 → yaw = 0 = 朝 X+，而首段其实是朝 Y+；
-    # 拿它当初朝向 = 开局就让车横着 90°，纯追踪要绕 0.3 m 半径的圆弧去救 ——
-    # 那是在测"起步摆正能力"，不是测循迹质量）。要复现起步摆正，填 init_yaw="waypoint"。
+    # 朝向默认 = **现场摆位约定**（设计常量 +y，卡 t13）：车摆在本图起点格、车头朝图左。
+    # 为什么不能用 `Route` 首点的 yaw 字段：那是"整条路线走完后该有的朝向"
+    # （例如现场路线末尾 `N5` 无后缀 → yaw = 0 = 朝 X+），拿它当初朝向 = 开局就让车横着
+    # 90°，纯追踪要绕 0.3 m 半径的圆弧去救 —— 那是在测"起步摆正能力"，不是测循迹质量。
+    # 历史默认「对齐首段方向」仍可用 `init_yaw="route"` 取回；复现起步摆正用 "waypoint"。
     head = path.waypoints[0]
     tx, ty = head.x, head.y
     bx, by = head.x, head.y
+    # ★★ 卡 t13：起拍航向的**默认来源 = 现场摆位约定**（设计常量），不是从路线反推：
+    #   车摆在设计起点格、车头 `+y`（图左 / K 列方向）—— 现场用户保证摆位。
+    #   ⚠️ 只对"从设计起点格出发"的路线生效；合成夹具（从别处出发的短路线）保持历史
+    #      行为「对齐首段方向」，见 `SimConfig.init_yaw` 的说明。
     if sim.init_yaw == "waypoint":
         init = head.yaw
+        result.init_yaw_src = f"waypoint（首点 yaw 字段 = {geo.deg(init):.1f}°）"
+    elif sim.init_yaw == "start" and str(getattr(head, "block", "") or "").upper() \
+            == DESIGN_START_BLOCK:
+        init = DESIGN_START_YAW
+        result.init_yaw_src = (f"设计常量：{DESIGN_START_BLOCK} 出发、车头 +y"
+                               f"（{geo.deg(DESIGN_START_YAW):.1f}°，现场摆位约定）")
     else:
         init = head.heading_to(path.waypoints[1])
+        result.init_yaw_src = (f"首段方向（{geo.deg(init):.1f}°）"
+                               + ("，非设计起点出发的合成夹具" if sim.init_yaw == "start"
+                                  else f"，init_yaw={sim.init_yaw!r}"))
     tyaw = byaw = init
     tx0, ty0 = tx, ty          # 轨迹起点（用于"实走里程"的独立核算）
 
@@ -888,6 +924,12 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
     steer_exec = 0.0            # 舵机实际舵角（斜坡跟随后的物理量）
     brake_hold = False          # 上一次指令是否"零速刹车"（刹车期间舵机保持原位）
     last_cmd_steer: float | None = None   # 控制器上一拍输出（速率限幅的输入）
+    #: ★ t30：控制器上一拍**命令速度**（加减速斜坡的输入）。
+    #: 语义与 `last_cmd_steer` 对称：`None` = 首拍（斜坡层不参与）；
+    #: 限值来自 `pursuit.accel_up_mps2` / `pursuit.accel_down_mps2`（缺省 0.0 ⇒ 整层 no-op，
+    #: 因此**不落配置时本改动对既有基线逐位无影响**）。
+    last_cmd_speed: float | None = None
+    speed_ramp_steps = 0        # 本拍速度被斜坡改写的拍数（诊断读数）
     cmd_rate_peak = 0.0         # 指令侧速率峰值（相邻两拍**指令**之差）
     delivered_rate_peak = 0.0   # 执行侧速率峰值（相邻两拍**舵机位置**之差，正常 ≤ 限幅）
     steer_cmd_rates: list[float] = []       # 逐拍指令速率（分位数用）
@@ -1105,7 +1147,8 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
             cmd = compute_command(geo.Pose(bx, by, byaw), path, proj, cfg,
                                   last_steer_deg=(last_cmd_steer if sim.command_rate_limit
                                                   else None),
-                                  dt=dt)
+                                  dt=dt,
+                                  last_speed_mps=last_cmd_speed)
         # ---- 指令侧速率：相邻两拍**控制器输出**之差（这才是"速率限幅"的观测量）----
         # ⚠️ 老实现拿"当前指令 − 上一拍采样到的执行值"当指令速率，末端/对齐点上会算出
         #    680.9 °/s 的**假峰值**（真实指令从没超过 120 °/s，见测试 test_sim 第 8 组）。
@@ -1115,6 +1158,12 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
             if cmd_rate > cmd_rate_peak:
                 cmd_rate_peak = cmd_rate
         last_cmd_steer = cmd.steer_deg
+        # ---- ★ t30：命令速度历史（加减速斜坡的输入；同时也是"斜坡拍数"读数）----
+        #   ⚠️ 用**命令量**而不是执行量：斜坡建模的是"控制器给下位机的速度指令变化率"，
+        #      下位机侧还有延迟队列（`cmd_latency_s`）单独建模。
+        if cmd.speed_reason in ("ramp_up", "ramp_down"):
+            speed_ramp_steps += 1
+        last_cmd_speed = abs(cmd.linear_x)
 
         # ================== ⑥ 指令延迟队列 + 舵机执行模型 ==================
         # ★ 队列空时**保持上一条已生效指令**（`_take` 的 hold 语义）。
@@ -1399,6 +1448,9 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
         metrics["field_modeled"] = 0.0
     metrics["field_stopped"] = 1.0 if field_stop_t is not None else 0.0
     metrics["field_stop_t"] = float(field_stop_t) if field_stop_t is not None else -1.0
+    #: ★ t30：本趟里有几拍的**命令速度被加减速斜坡改写**（`ramp_up`/`ramp_down`）。
+    #: 缺省配置（两个 accel 键为 0.0）时恒为 0 ⇒ 该键只是诊断读数，不影响任何既有指标。
+    metrics["speed_ramp_steps"] = float(speed_ramp_steps)
     # ⚠️ `completed` / `anchor_on_arrival` 是 bool，其余指标是 float —— 混类型是刻意的：
     #    CSV/SVG/控制台都不依赖 metrics 的类型统一，而测试要读布尔真值。
     return result

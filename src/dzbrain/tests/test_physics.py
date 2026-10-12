@@ -41,6 +41,7 @@ _WS = _SRC.parents[1]
 from harness import check, check_close, check_raises, section, finish   # noqa: E402
 
 from dzbrain.core.config import Config                                  # noqa: E402
+from dzbrain.core import geometry as geo                                # noqa: E402
 from dzbrain.route import physics as P                                  # noqa: E402
 
 _CFG = Config.load(str(_WS / "config" / "robot.yaml"))
@@ -190,9 +191,11 @@ def test_config_values() -> None:
     want = {"vehicle.length_m": 0.28, "vehicle.width_m": 0.135,
             "vehicle.coverage_radius_m": 0.035, "field.obstacle_radius_m": 0.1275,
             "field.mine_pad_m": 0.12, "field.barrier_width_m": 0.02,
-            "planner.obstacle_margin_m": 0.02, "pursuit.cruise_speed_mps": 0.35,
-            "path_executor.linear_speed": 0.35, "dzactuator.ticksPer2PI": 2680.0,
-            "dzactuator.ticksPerMeter": 3280.0}
+            "planner.obstacle_margin_m": 0.02, "pursuit.cruise_speed_mps": 0.15,
+            "path_executor.linear_speed": 0.15, "dzactuator.ticksPer2PI": 2680.0,
+            "dzactuator.ticksPerMeter": 3280.0,
+            # ★ 卡 t11：现场卷尺实测的参考点偏移（后轴中心 → 车体几何中心）
+            "vehicle.ref_offset_m": 0.075}
     for k, v in want.items():
         check_close(f"{k} = {v}", _CFG.get(k), v, 1e-12)
     check("`field.barrier_cols` = D..N", str(_CFG.get("field.barrier_cols")) == "D..N",
@@ -201,6 +204,18 @@ def test_config_values() -> None:
     check("真实配置无 error（新键已进 SCHEMA）", not issues, "; ".join(str(i) for i in issues))
     check("新键可读（SCHEMA 注册过，不是「只有 YAML 有、代码读不到」）",
           all(_CFG.get(k) is not None for k in want), "8 个新键 + 3 个旧键全部可读")
+    # ★ 卡 t11：**YAML 真源 ↔ SCHEMA 默认值**必须一致，且要按 YAML 里的**段前缀键路径**读得到。
+    #   为什么单列这一条：`vehicle.*` 在 YAML 里写在 `/dzactuator: ros__parameters: vehicle:`，
+    #   flatten 之后是 `dzactuator.vehicle.*`；而 `cfg.get("vehicle.length_m", 0.28)` 这种带非 None
+    #   默认值的写法在键不在 `_flat` 时**直接返回默认值**（读不到现场改动）—— 偏移这个量必须
+    #   确保走的是"读得到 YAML"的那条路（`tasks/mission.py: vehicle_geometry()`）。
+    import yaml                                                    # noqa: PLC0415
+    _doc = yaml.safe_load((_WS / "config" / "robot.yaml").read_text(encoding="utf-8"))
+    _veh = _doc["/dzactuator"]["ros__parameters"]["vehicle"]
+    check("YAML 里 `dzactuator.vehicle.ref_offset_m` 与 SCHEMA 默认值逐位一致（单一真源）",
+          abs(float(_veh["ref_offset_m"]) - float(_CFG.get("vehicle.ref_offset_m"))) < 1e-12
+          and "dzactuator.vehicle.ref_offset_m" in list(_CFG.keys()),
+          f"yaml={_veh['ref_offset_m']} / SCHEMA={_CFG.get('vehicle.ref_offset_m')}")
 
 
 # --------------------------------------------------------------------------- #
@@ -309,6 +324,96 @@ def test_amended_field_spec() -> None:
           _bt >= _req_c - 1e-9, f"{_bt:.4f}")
 
 
+def test_ref_offset_footprint() -> None:
+    """★ 卡 t11：**参考点偏移**感知的车体足迹（`body_*`）与实测状态钉死。"""
+    section("7. 参考点偏移（后轴中心 → 车体几何中心 +7.5 cm）")
+    OFF = float(_CFG.get("vehicle.ref_offset_m"))
+    check_close("SCHEMA 默认偏移 = 现场实测 +7.5 cm", OFF, 0.075, 1e-12)
+    check_close("默认偏移常量 = 0.0（不读配置的调用方行为不变）", P.DEFAULT_REF_OFFSET_M, 0.0, 1e-12)
+
+    # ---- 几何：中心沿车头方向平移 ----
+    check("offset=0 时车体中心 == 参考点（老行为）",
+          P.body_center(1.234, 5.678, 0.9, offset_m=0.0) == (1.234, 5.678), "同点")
+    check_close("yaw=0、offset=+7.5cm ⇒ 中心 x 前移 0.075",
+                P.body_center(1.0, 2.0, 0.0, offset_m=OFF)[0], 1.075, 1e-12)
+    check_close("yaw=90°、offset=+7.5cm ⇒ 中心 y 前移 0.075",
+                P.body_center(1.0, 2.0, math.pi / 2, offset_m=OFF)[1], 2.075, 1e-12)
+    check("offset=0 的四角 == 以参考点为心的旋转矩形（与 sim.body_corners 口径一致）",
+          all(abs(a[0] - b[0]) < 1e-12 and abs(a[1] - b[1]) < 1e-12
+              for a, b in zip(P.body_corners(0.0, 0.0, 0.0),
+                              ((0.14, 0.0675), (0.14, -0.0675),
+                               (-0.14, -0.0675), (-0.14, 0.0675)))),
+          str(P.body_corners(0.0, 0.0, 0.0)))
+    check("offset=+7.5cm 的四角 == 整体沿 +x 平移 0.075（yaw=0）",
+          all(abs(a[0] - (b[0] + 0.075)) < 1e-12 and abs(a[1] - b[1]) < 1e-12
+              for a, b in zip(P.body_corners(0.0, 0.0, 0.0, offset_m=OFF),
+                              P.body_corners(0.0, 0.0, 0.0))), "平移")
+
+    # ---- 多边形判据（SAT / 最近距离）自洽 ----
+    check_close("重叠深度：两块 0.2 方块错开 0.15 ⇒ 0.05",
+                P.polygon_overlap_depth(P.corner_poly(0, 0, 0.1, 0.1),
+                                        P.corner_poly(0.15, 0, 0.1, 0.1)), 0.05, 1e-12)
+    check("分离 ⇒ 重叠深度恒 0（不能用「中心在不在里面」代替）",
+          P.polygon_overlap_depth(P.corner_poly(0, 0, 0.1, 0.1),
+                                  P.corner_poly(0.3, 0, 0.1, 0.1)) == 0.0, "0")
+    check_close("分离 ⇒ 最近距离 0.10",
+                P.polygon_distance_m(P.corner_poly(0, 0, 0.1, 0.1),
+                                     P.corner_poly(0.3, 0, 0.1, 0.1)), 0.10, 1e-12)
+    _rect_c = P.body_corners(2.0, 2.0, 0.0)
+    _edges_min = min(P.segment_rect_distance_m(_rect_c[_i][0], _rect_c[_i][1],
+                                               _rect_c[(_i + 1) % 4][0],
+                                               _rect_c[(_i + 1) % 4][1],
+                                               2.0, 3.0, 0.175) for _i in range(4))
+    check("与既有基元不分叉：offset=0 的 body↔矩形 ==「车体 4 边 → segment_rect_distance」",
+          abs(P.body_rect_clearance_m(2.0, 2.0, 0.0, rect_cx=2.0, rect_cy=3.0,
+                                      rect_half_x=0.175, rect_half_y=0.175)
+              - _edges_min) < 1e-12, f"{_edges_min:.4f}")
+
+    # ---- ★ 实测状态钉死（真值轨迹里挡板最紧/首个侵入那一拍，见 _tmp_session/t11/out/）
+    #  tracker-safe @0.30 的第 1466 拍：x=1.53733, y=1.65956, yaw=43.21°（J7 拐角切内）
+    _x, _y, _yaw = 1.5373257425306674, 1.6595578010558152, math.radians(43.21046949591248)
+    _strip = P.corner_poly(1.75, (0.0 + 3.85) / 2.0, 0.02 / 2.0, 3.85 / 2.0)
+    _p0 = P.body_corners(_x, _y, _yaw, length_m=L, width_m=W, offset_m=0.0)
+    _p1 = P.body_corners(_x, _y, _yaw, length_m=L, width_m=W, offset_m=OFF)
+    check_close("同一拍：offset=0 ⇒ 挡板余量 +0.0544 m（碰不到）",
+                P.polygon_distance_m(_p0, _strip), 0.0544, 1e-4)
+    check_close("同一拍：offset=+7.5cm ⇒ 车体角点侵入挡板 0.24 mm（深度）",
+                P.polygon_overlap_depth(_p1, _strip), 0.000243, 2e-5)
+    check("翻转偏移符号（-7.5 cm）⇒ 余量变大（证明符号约定没写反）",
+          P.polygon_distance_m(P.body_corners(_x, _y, _yaw, length_m=L, width_m=W,
+                                              offset_m=-OFF), _strip) > 0.05, "远离挡板")
+    check_close("body_barrier_clearance_m 与多边形判据同源（同一拍 offset=0）",
+                P.body_barrier_clearance_m(_x, _y, _yaw, length_m=L, width_m=W, offset_m=0.0),
+                0.0544, 1e-4)
+
+    # ---- 射击停站 F4 正对靶板（E4+E5 合并 35×70）：offset 把它从"差 3.5 cm"变成"压上" ----
+    _fx, _fy, _fyaw = 2.625, 2.975, math.pi / 2          # F4 格心，朝 +y（正对靶板）
+    _kw = dict(rect_cx=2.45, rect_cy=3.325, rect_half_x=0.35, rect_half_y=0.175,
+               length_m=L, width_m=W)
+    check_close("F4 停站 offset=0 ⇒ 车头离靶板 +0.0350 m",
+                P.body_rect_clearance_m(_fx, _fy, _fyaw, offset_m=0.0, **_kw), 0.035, 1e-9)
+    check("F4 停站 offset=+7.5cm ⇒ 车头压进靶板（叠合深度 = 0.04 m）",
+          abs(P.polygon_overlap_depth(
+              P.body_corners(_fx, _fy, _fyaw, length_m=L, width_m=W, offset_m=OFF),
+              P.corner_poly(2.45, 3.325, 0.35, 0.175)) - 0.04) < 1e-9, "0.04 m")
+
+    # ---- 障碍：车体矩形 ↔ 圆柱（t5 口径：老口径漏判"斜着蹭柱面"） ----
+    _cx, _cy = geo.block_to_meters("C8")
+    check_close("柱心在车体内 ⇒ 间隙 = −r（真重叠，不是 0）",
+                P.body_obstacle_clearance_m(_cx, _cy, 0.0, _cx, _cy,
+                                            obstacle_radius_m=R_OBS,
+                                            length_m=L, width_m=W, offset_m=OFF),
+                -R_OBS, 1e-12)
+    _g_axis = P.body_obstacle_clearance_m(_cx, _cy + 0.5, math.pi / 2, _cx, _cy,
+                                          obstacle_radius_m=R_OBS, length_m=L, width_m=W,
+                                          offset_m=OFF)
+    _g_diag = P.body_obstacle_clearance_m(_cx, _cy + 0.5, math.pi / 4, _cx, _cy,
+                                          obstacle_radius_m=R_OBS, length_m=L, width_m=W,
+                                          offset_m=OFF)
+    check("斜置车体的柱面间隙比正对更小（旋转角点更靠外，老口径看不到）",
+          _g_diag < _g_axis, f"{_g_diag:.4f} < {_g_axis:.4f}")
+
+
 def main() -> None:
     print("=" * 74)
     print("dzbrain 物理几何基础自测（t22：0.28×0.135 车体 / r=0.1275 障碍 / 0.12 垫片 / 2cm 挡板）")
@@ -321,6 +426,7 @@ def main() -> None:
     test_config_values()
     test_cross_check_route_check()
     test_amended_field_spec()
+    test_ref_offset_footprint()
     finish()
 
 

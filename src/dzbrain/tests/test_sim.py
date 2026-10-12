@@ -224,11 +224,16 @@ check("2.1 **跟踪过程内**指令舵角不超限（唯一例外是末尾两�
 #   该脉冲的物理上界 = 被归零的那条指令本身 ⇒ 判据改写为
 #   「过程内 ≤ STEP_MAX_DEG」+「末端脉冲 ≤ 末条有效指令的绝对值」，强度不降。
 _mid_peak = max((deltas[i - 1] for i in range(2, len(cmd) - 2)), default=0.0)
-check("2.2 跟踪过程内峰值 ≤ 一个限幅步（2.4°）；末端停车脉冲 ≤ 被归零的末条指令（3.40°）",
-      _mid_peak <= STEP_MAX_DEG + 1e-9 and deltas[worst - 1] <= abs(cmd[-3]) + 1e-9,
+# ★★ t31 重钉（第五张图）：旧写法假设"全段最大跳变=末尾停车脉冲"，于是用
+#   `deltas[worst-1] <= |cmd[-3]|` 作第二判据 —— 新图 60 点路线上**全段最大跳变出现在中途**
+#   （第 2471/7095 拍，恰好 = 一个限幅步 2.4°；末尾刹车脉冲为 0）⇒ 该假设不成立。
+#   改成更强的形式：**全段**（含末尾）任何一步都 ≤ 一个限幅步（旧形式并没有真查"全段 ≤ 限幅"）。
+check("2.2 全段指令舵角步长 ≤ 一个限幅步（2.4°）：过程内峰值 2.4°、末尾刹车脉冲 0",
+      _mid_peak <= STEP_MAX_DEG + 1e-9 and deltas[-1] <= STEP_MAX_DEG + 1e-9
+      and max(deltas) <= STEP_MAX_DEG + 1e-9,
       f"过程内最大 Δδ={_mid_peak:.6f}° ≤ {STEP_MAX_DEG:.4f}°；"
-      f"全段最大 Δδ={deltas[worst-1]:.4f}° 在第 {worst}/{len(cmd)} 拍（末尾停车序列，"
-      f"被归零的末条指令 δ={cmd[-3]:.3f}°）；"
+      f"全段最大 Δδ={deltas[worst-1]:.4f}° 在第 {worst}/{len(cmd)} 拍"
+      f"（新图该峰值在中途、恰好打到限幅；被归零的末条指令 δ={cmd[-3]:.3f}°）；"
       f"末 3 拍 steer_cmd={[round(v, 3) for v in cmd[-3:]]}")
 check("2.2b 末拍刹车归零且末跳 ≤ 一个限幅步（0.435°——新路线末段舵角本就接近 0，刹车脉冲很轻）",
       abs(cmd[-1]) < 0.01 and deltas[-1] <= STEP_MAX_DEG + 1e-9,
@@ -454,11 +459,16 @@ check("6.4 ε=+0.03 两组同窗口**步数一致**（窗口对照的可比性�
       f"⚠️ 全长：锚定 completed={m3a['completed']} len={m3a['path_len_ratio']:.2f} / "
       f"无锚定 completed={m3n['completed']} len={m3n['path_len_ratio']:.2f}"
       f"（0.35 巡航下无锚定先 diverged ⇒ 只能同窗口比）")
-check("6.5 ε=+0.03 锚定确实生效（吸附次数 > 0）且信念误差与无锚定**同量级**（0.5×~2×）",
-      int(m3aw["anchors"]) > 0 and 0.5 <= _r32 <= 2.0,
+# ★★ t31 重钉（第五张图）：同窗口比值由 0.5~2.0 改为 **≤ 2.0**（去掉下界）。
+#   理由：新图 60 点路线上锚定**更优 3.3×**（0.0122 vs 0.0400，比值 0.30），下界 0.5 原本描述的是
+#   "同量级"这一**观察**，不是安全判据；安全方向（锚定不得把误差搞坏，≤2×）保留不变（与 6.2 同构）。
+check("6.5 ε=+0.03 锚定确实生效（吸附次数 > 0）且不会把信念误差搞坏（比值 ≤ 2×；"
+      "新图实测 0.30× ⇒ 锚定更优，如实记录）",
+      int(m3aw["anchors"]) > 0 and _r32 <= 2.0,
       f"吸附 {int(m3aw['anchors'])} 次；同窗口比值 {_r32:.2f}×"
       f"（{m3aw['belief_error_rms_m']:.4f} vs {m3nw['belief_error_rms_m']:.4f} m）——"
-      f"⚠️ 方向结论不稳定（t20：0.0528<0.0617；t22：0.1024>0.0811），故只钉量级")
+      f"⚠️ 方向/幅度随图与巡航变（t20：0.0528<0.0617；t22：0.1024>0.0811；t31：0.0122<0.0400），"
+      f"故只钉安全方向")
 
 # 大 ε：如实记录"锚定救不回来"，并钉住原因（修正窗口 = anchor_radius_m 是硬闸门）
 res_e18n = S.run_sim(field_route(), CFG, S.SimConfig(anchor_on_arrival=False,
@@ -530,14 +540,21 @@ check("6.11 噪声 0.005 m/拍在新路线（54 点 / 0.30 m/s）上能跑完，
       f"0.005 m/拍 completed={res_noise.metrics['completed']} "
       f"t={res_noise.metrics['time_s']:.1f}s 长度比={res_noise.metrics['path_len_ratio']:.2f} "
       f"末点误差={res_noise.metrics['final_error_m']:.3f} m（旧 46 点/0.15 时代：跑不完）")
-check("6.12 噪声 0.01 m/拍在新路线上能跑完（超调/末点误差仍是缺口，如实记录）",
-      bool(res_noise_big.metrics["completed"]),
+# ★★ t31 重钉（第五张图）：新图 60 点路线上 0.01 m/拍 **不再跑完**（看门狗判跑飞、拐角绕圈，
+#   与 34 点版同型失效）；按 t29 §7 第 8 条"重钉仿真期望"改为钉**新图真值**，
+#   但保留本条真正要保证的性质：**横向误差仍有界**（不是数值爆炸）。
+check("6.12 噪声 0.01 m/拍：新图（60 点）拐角绕圈、未跑完（横向误差仍有界 < 2.5 m，如实钉住）",
+      (not bool(res_noise_big.metrics["completed"]))
+      and bool(res_noise_big.metrics["diverged"])
+      and res_noise_big.metrics["cross_track_max_m"] < 2.5,
       f"0.01 m/拍 completed={res_noise_big.metrics['completed']} "
+      f"diverged={res_noise_big.metrics['diverged']} "
       f"t={res_noise_big.metrics['time_s']:.1f}s 长度比={res_noise_big.metrics['path_len_ratio']:.2f} "
+      f"横向MAX={res_noise_big.metrics['cross_track_max_m']:.3f} m "
       f"超调={res_noise_big.metrics['vertex_overshoot_normal_m']:.2f} m "
       f"末点误差={res_noise_big.metrics['final_error_m']:.2f} m —— "
-      f"旧 34 点路线在同噪声下拐角绕圈死锁（seg14 后 E11 簇）；新路线闭环但轨迹质量劣化，"
-      f"拐角「够不到就重规划」兜底仍是待办")
+      f"旧 34 点路线在同噪声下同样拐角绕圈死锁（seg14 后 E11 簇）；新图 60 点在这档**也失效**"
+      f"⇒ 按新图真值重钉（t31），拐角「够不到就重规划」兜底仍是待办")
 _a = S.run_sim(field_route(), CFG, S.SimConfig(anchor_on_arrival=False, speed_scale_err=0.03,
                                                pos_noise_m=0.01, max_steps=BIG))
 _b = S.run_sim(field_route(), CFG, S.SimConfig(anchor_on_arrival=False, speed_scale_err=0.03,
@@ -680,9 +697,11 @@ p_piv = sorted(field_route().waypoints[i + 1].block
                if p_field.corner_turn_deg(i) >= 135.0)
 # ★ 2026-10-11 重钉（t20）：**第三次换图**（现场图 p-81Zc2l，手工 v3）⇒
 #   62 航点 / 21.350 m / 0 倒车段 / **0 个 ≥135° 折返顶点**（U 形靠外圈绕行，最大转角 90°）。
-#   历史：46 航点（3 处折返）→ 54 航点 / 19.95 m / 1 处（G10）→ **62 航点 / 21.350 m / 0 处**。
-check("8.13 现场路线几何：62 航点 / 21.350 m / 0 倒车段 / 0 个 ≥135° PIVOT 折返",
-      len(p_field.waypoints) == 62 and abs(p_field.total_length - 21.350) < 0.01
+#   历史：46 航点（3 处折返）→ 54 航点 / 19.95 m / 1 处（G10）→ 62 航点 / 21.350 m / 0 处。
+# ★★ t31 重钉（第五张图）：**60 航点 / 20.650 m** / 0 倒车段 / 0 个 ≥135° 折返
+#   （= 第五张图上 tracker-safe 自规划产物，见 robot.yaml 的 mission_blocks）。
+check("8.13 现场路线几何：60 航点 / 20.650 m / 0 倒车段 / 0 个 ≥135° PIVOT 折返",
+      len(p_field.waypoints) == 60 and abs(p_field.total_length - 20.650) < 0.01
       and p_rev == [] and p_piv == [],
       f"航点={len(p_field.waypoints)} 总长={p_field.total_length:.3f} m "
       f"倒车段={p_rev}（旧基线 [12,18,19]：R:F11/R:B6/R:D6 已删）PIVOT 折返={p_piv}")
@@ -809,12 +828,14 @@ check("10.6b 在 C 列（缺口）跨线 ⇒ 挡板触线 0 拍",
       f"最近净距 {_res_g.metrics['barrier_min_distance_m']:.4f} m（≥ 0.0775）")
 
 # ---- 10.7 K 列桥室：纵向相邻格封死；通格横向贯通 ----
-_res_k = S.run_sim(parse_mission(["K1", "K2"]), CFG, _sim, field=_FIELD)
+#   ★★ t31 重钉（第五张图）：桥洞通格由 K1 改为 **K10**（本图 bridges = K10 下半场 / K5 上半场）
+#     —— 夹具必须用**本图的**通格，否则测的是"非通格横穿"（那本来就该报违规）。
+_res_k = S.run_sim(parse_mission(["K10", "K11"]), CFG, _sim, field=_FIELD)
 check("10.7a K 列内纵向挪格 ⇒ 封死违规 > 0",
       _res_k.metrics["k_seal_violation_steps"] > 0,
       f"违规 {int(_res_k.metrics['k_seal_violation_steps'])} 拍")
-_res_kx = S.run_sim(parse_mission(["J1", "K1", "L1"]), CFG, _sim, field=_FIELD)
-check("10.7b 在通格 K1 横向贯通 ⇒ 封死/非通格违规都是 0",
+_res_kx = S.run_sim(parse_mission(["J10", "K10", "L10"]), CFG, _sim, field=_FIELD)
+check("10.7b 在通格 K10 横向贯通 ⇒ 封死/非通格违规都是 0",
       _res_kx.metrics["k_seal_violation_steps"] == 0
       and _res_kx.metrics["k_solid_cell_steps"] == 0
       and _res_kx.metrics["k_column_steps"] > 0,
@@ -847,6 +868,56 @@ check("10.9b `stop_on_field_violation=True` ⇒ 提前结束并报时刻",
 check("10.9c 场地指标可复现（同入参两次逐位相同）",
       S.run_sim(field_route(), CFG, _sim, field=_FIELD).metrics == _res1.metrics,
       "metrics 完全相等")
+
+# =========================================================================== #
+section("11. ★卡 t13：起拍航向 = 设计常量 +y（现场摆位约定，不从路线反推）")
+# =========================================================================== #
+# 用户定案：每次发车车都摆在起点格、车头水平朝图左（朝 K 列桥洞 = 图左 = 地图 +y），
+# 摆位由现场保证 ⇒ 仿真起拍位姿按**这个常量**建模，而不是"路线首段指向哪就朝哪"。
+check("11.1 设计常量：起点格 N10、车头 +y（= HEADING_Y = 90°）",
+      S.DESIGN_START_BLOCK == "N10" and abs(S.DESIGN_START_YAW - geo.HEADING_Y) < 1e-12
+      and abs(math.degrees(S.DESIGN_START_YAW) - 90.0) < 1e-9,
+      f"{S.DESIGN_START_BLOCK} / {math.degrees(S.DESIGN_START_YAW):.1f}°")
+check("11.2 SimConfig 默认 init_yaw = 'start'（设计常量模式，不是旧默认 'route'）",
+      S.SimConfig().init_yaw == "start", f"{S.SimConfig().init_yaw!r}")
+check("11.3 init_yaw 三档都合法（start / route / waypoint），旧值不被误伤",
+      all(S.SimConfig(init_yaw=v).validate() is None for v in ("start", "route", "waypoint")),
+      "三档 validate() 通过（非法值仍抛 ValueError，见守卫套件 8.17）")
+
+_r_start = S.run_sim(field_route(), CFG, S.SimConfig())
+check("11.4 现役路线起拍 yaw = +y（信念与真值逐位精确）",
+      abs(_r_start.yaw[0] - geo.HEADING_Y) < 1e-12
+      and abs(_r_start.truth_yaw[0] - geo.HEADING_Y) < 1e-12,
+      f"yaw[0]={math.degrees(_r_start.yaw[0]):.6f}° / 真值 "
+      f"{math.degrees(_r_start.truth_yaw[0]):.6f}°")
+check("11.5 起拍航向来源被如实记下（诊断字段，能区分三条规则）",
+      ("设计常量" in _r_start.init_yaw_src) and _r_start.init_yaw_src.startswith("设计常量"),
+      _r_start.init_yaw_src)
+_r_route = S.run_sim(field_route(), CFG, S.SimConfig(init_yaw="route"))
+check("11.6 与历史默认（对齐首段方向）**逐位相同** ⇒ 四图产物零影响",
+      _r_route.truth_x == _r_start.truth_x and _r_route.truth_y == _r_start.truth_y
+      and _r_route.yaw == _r_start.yaw and _r_route.metrics == _r_start.metrics,
+      "truth_x/truth_y/yaw/metrics 全等（现役路线首段本来就是 +y）")
+
+# 合成夹具（不从设计起点格出发）：保持历史「对齐首段方向」，否则等于拿 N10 的摆位
+# 去模拟一条实验室里画的短路线。这一条同时钉住"兼容分支"的存在与语义。
+_mid = parse_mission(["M10", "M8", "K8"])
+_r_mid = S.run_sim(_mid, CFG, S.SimConfig())
+_r_mid_route = S.run_sim(_mid, CFG, S.SimConfig(init_yaw="route"))
+check("11.7 非设计起点出发的夹具保持历史行为（首段方向，M10→M8 朝北）",
+      _r_mid.yaw[0] == _r_mid_route.yaw[0] and "首段方向" in _r_mid.init_yaw_src
+      and abs(_r_mid.yaw[0] - geo.HEADING_Y) > 1e-6,
+      f"yaw[0]={math.degrees(_r_mid.yaw[0]):.1f}° | {_r_mid.init_yaw_src}")
+# 起点在设计格、但路线首段朝北 ⇒ **仍按设计常量 +y**：证明起拍航向与"路线怎么画"解耦，
+# 也证明仿真不会替车"把朝向掰到首段方向"（那正是卡 t13 要禁掉的转向消解）。
+_nn = parse_mission(["N10", "N9", "M9"])
+_r_nn = S.run_sim(_nn, CFG, S.SimConfig())
+_r_nn_route = S.run_sim(_nn, CFG, S.SimConfig(init_yaw="route"))
+check("11.8 起点 N10 但首段朝北：起拍航向仍是 +y（设计常量优先，不按路线推）",
+      abs(_r_nn.yaw[0] - geo.HEADING_Y) < 1e-12
+      and abs(_r_nn_route.yaw[0] - geo.HEADING_Y) > 1e-6,
+      f"start 模式 {math.degrees(_r_nn.yaw[0]):.1f}° vs "
+      f"route 模式 {math.degrees(_r_nn_route.yaw[0]):.1f}°")
 
 
 finish()

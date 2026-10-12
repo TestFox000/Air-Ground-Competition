@@ -157,6 +157,21 @@ def grep_route_check(text: str) -> list[str]:
 # --------------------------------------------------------------------------- #
 def plan_once(map_cfg: dict, cfg: Config, args, *, cross_lower: str | None,
               cross_upper: str | None, map_path: pathlib.Path) -> PL.PlanResult:
+    """规划一次。`--engine` 选引擎（默认 `tour` = 历史行为，逐字节不变）。
+
+    ★★ t7：`--engine tracker-safe` 走 `plan_route_tracker_safe()` —— 把"真车能跟住"
+      当硬约束（禁 180° / 禁紧凑 U / 雷直线穿心），代价只由"实走长度 + 转角"决定。
+      实测（现役图）：新引擎给出 **62 token / 21.35 m**，双档仿真与物理在环
+      **逐项追平或优于手工 62 点路线**（对比表见 `_tmp_session/t7/报告.md`）。
+    """
+    if getattr(args, "engine", "tour") == "tracker-safe":
+        turned = tuple(args.turned_mines.split(",")) if args.turned_mines else ()
+        return PL.plan_route_tracker_safe(
+            map_cfg, cfg, cross_lower=cross_lower, cross_upper=cross_upper,
+            phase_cell=args.phase_cell, turn_w=args.t7_turn_w,
+            turned_mines=turned,
+            max_seconds=args.max_seconds, name=map_path.stem or "route",
+            source=str(map_path))
     return PL.plan_route(
         map_cfg, cfg, cross_lower=cross_lower, cross_upper=cross_upper,
         allow_reverse=bool(args.allow_reverse), pivot_penalty=args.pivot_penalty,
@@ -192,8 +207,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cross-upper", default=None, help="上半场穿洞格（如 K3）")
     ap.add_argument("--all-crossings", action="store_true",
                     help="遍历穿洞候选的**所有组合**逐个规划（桥洞随机时用）")
-    ap.add_argument("--max-seconds", type=float, default=PL.DEFAULT_MAX_SECONDS,
-                    help=f"单次规划时间预算（默认 {PL.DEFAULT_MAX_SECONDS}s）")
+    ap.add_argument("--max-seconds", type=float, default=None,
+                    help=f"单次规划时间预算（默认：tour 引擎 {PL.DEFAULT_MAX_SECONDS}s / "
+                         f"tracker-safe 引擎 {PL.TS_MAX_SECONDS}s）")
     # ★ 倒车开关：默认**无倒车**（真车底盘不支持倒车）。两者互斥、语义相反，
     #   所以放同一组；`--no-reverse` 只是把默认值写明，方便脚本自解释。
     rev = ap.add_mutually_exclusive_group()
@@ -211,7 +227,29 @@ def main(argv: list[str] | None = None) -> int:
                          f"planner.mine_turn_penalty（键缺失 → {PL.MINE_TURN_PENALTY}）；"
                          f"0 = 关闭「雷心直线穿越」的排序偏好")
     ap.add_argument("--quiet", action="store_true", help="只输出结果，不打印过程信息")
+    # ★★ t7：引擎选择（默认 tour = 历史行为，逐字节不变）
+    ap.add_argument("--engine", choices=("tour", "tracker-safe"), default="tour",
+                    help="规划引擎：tour=历史『顺序+朝向联合优化』（默认，行为不变）；"
+                         "tracker-safe=t7 新增『真车可跟踪』引擎（禁 180°/禁紧凑 U/"
+                         "雷直线穿心，实测追平手工 62 点）")
+    ap.add_argument("--phase-cell", default=None,
+                    help="tracker-safe 引擎的隔板过渡航点（默认跟随 PL.TS_PHASE_CELL=C6）")
+    ap.add_argument("--t7-turn-w", type=float, default=None,
+                    help="tracker-safe 引擎的转角权重（米/90°，默认 0.10）")
+    ap.add_argument("--turned-mines", default=None,
+                    help="tracker-safe 引擎里允许 90° 拐过的『口袋雷』（逗号分隔，默认 D8）")
     args = ap.parse_args(argv)
+    if args.engine == "tracker-safe":
+        if args.phase_cell is None:
+            args.phase_cell = PL.TS_PHASE_CELL
+        if args.t7_turn_w is None:
+            args.t7_turn_w = PL.TS_TURN_W
+        if args.turned_mines is None:
+            args.turned_mines = ",".join(PL.TS_TURNED_MINES)
+    if args.max_seconds is None:
+        # ★ 两种引擎的默认预算不同（tracker-safe 的状态空间多一维、且要遍历射击点候选）
+        args.max_seconds = (PL.TS_MAX_SECONDS if args.engine == "tracker-safe"
+                            else PL.DEFAULT_MAX_SECONDS)
 
     cfg_path = pathlib.Path(args.config)
     if not cfg_path.is_file():

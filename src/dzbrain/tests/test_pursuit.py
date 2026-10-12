@@ -559,6 +559,133 @@ def test_speed_profile() -> None:
 
 
 # --------------------------------------------------------------------------- #
+#  7b. ★ t30 加减速斜坡（speed_profile 第 5 层）
+# --------------------------------------------------------------------------- #
+def test_speed_ramp() -> None:
+    sec("7b. speed_profile 加减速斜坡（t30：巡航上限 0.40 + 直线猛加速 + 拐角仍减速）")
+
+    cruise40 = dict(cruise_speed_mps=0.40, accel_up_mps2=0.70, accel_down_mps2=1.10)
+    c40 = cfg_of(**cruise40)
+
+    # ---- ① 缺省（不传 last/dt 或 accel=0）⇒ 整层 no-op，与历史逐位一致 ----
+    v_noh, r_noh = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=None,
+                                 speed_scale=1.0, cfg=c40)
+    close("7b.1 传了 accel 但**不给历史**（last=None）⇒ 斜坡不参与（v=巡航 0.40）", v_noh, 0.40, 1e-12)
+    ok("7b.2 同上 reason 仍是 cruise（不是 ramp_*）", r_noh == "cruise", f"reason={r_noh!r}")
+
+    c_off = cfg_of(cruise_speed_mps=0.40)          # accel 键缺省 = 0.0
+    v_off, r_off = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=None,
+                                 speed_scale=1.0, cfg=c_off,
+                                 last_speed_mps=0.0, dt=0.02)
+    ok("7b.3 accel 键缺省(0.0) + 给了历史 ⇒ 仍逐位等价于旧行为（v=0.40, reason=cruise）",
+       abs(v_off - 0.40) < 1e-12 and r_off == "cruise", f"v={v_off!r} reason={r_off!r}")
+    ok("7b.4 缺省键不会报 ramp_* 主因（不会悄悄改变线上行为）",
+       r_off not in ("ramp_up", "ramp_down"), f"reason={r_off!r}")
+
+    # ---- ② 升速斜坡：0 → 0.40 每拍最多 +accel_up×dt ----
+    v_up, r_up = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=None,
+                               speed_scale=1.0, cfg=c40, last_speed_mps=0.10, dt=0.02)
+    ok("7b.5 升速斜坡：last=0.10 + 0.70×0.02 = 0.114（被夹，不是直接冲到 0.40）",
+       abs(v_up - 0.114) < 1e-12 and r_up == "ramp_up", f"v={v_up!r} reason={r_up!r}")
+    v_up2, r_up2 = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=None,
+                                 speed_scale=1.0, cfg=c40, last_speed_mps=0.395, dt=0.02)
+    close("7b.6 升速斜坡：last=0.395 ⇒ 0.409 但被巡航上限 0.40 夹住（此时主因仍是 cruise）",
+          v_up2, 0.40, 1e-12)
+    ok("7b.7 上限内不再报 ramp_up（斜坡没起作用就不改主因）",
+       r_up2 == "cruise", f"reason={r_up2!r}")
+
+    # ---- ③ 降速斜坡：0.40 → 0.12（拐角）每拍最多 −accel_down×dt ----
+    v_dn, r_dn = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=0.20,
+                               speed_scale=1.0, cfg=c40, last_speed_mps=0.40, dt=0.02)
+    ok("7b.8 降速斜坡：拐角目标 0.12 但一拍只能降到 0.40−1.10×0.02 = 0.378",
+       abs(v_dn - 0.378) < 1e-12 and r_dn == "ramp_down", f"v={v_dn!r} reason={r_dn!r}")
+    v_dn2, r_dn2 = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=0.20,
+                                 speed_scale=1.0, cfg=c40, last_speed_mps=0.13, dt=0.02)
+    ok("7b.9 距离拐角已很近（last=0.13）⇒ 降到 corner_speed 0.12（主因回到 corner）",
+       abs(v_dn2 - 0.12) < 1e-12 and r_dn2 == "corner", f"v={v_dn2!r} reason={r_dn2!r}")
+
+    # ---- ④ 斜坡不得越过下界，也不得把"请求停车"顶回去 ----
+    v_lo, r_lo = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=None,
+                               speed_scale=0.0, cfg=c40, last_speed_mps=0.40, dt=0.02)
+    ok("7b.10 斜坡+min_speed：speed_scale=0 ⇒ 不得低于 min_speed（运动中恒 ≥0.08）",
+       abs(v_lo - max(0.08, 0.40 - 1.10 * 0.02)) < 1e-12, f"v={v_lo!r} reason={r_lo!r}")
+    v_stop0, r_stop0 = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=None,
+                                     speed_scale=1.0, cfg=c40, last_speed_mps=0.40, dt=0.02,
+                                     motion_limit_mps=0.0)
+    ok("7b.11 安全层优先：motion_limit=0 即使有升速斜坡也必须给 0（不被斜坡/下限顶回）",
+       v_stop0 == 0.0 and r_stop0 == "motion_limit", f"v={v_stop0!r} reason={r_stop0!r}")
+
+    # ---- ⑤ 斜坡是"每拍限值"而不是"目标值"：连续 5 拍应从 0 逐拍爬升 ----
+    #   ⚠️ 首拍例外：从静止起步时 `min_speed` 下限仍会把第一拍抬到 0.08（既有不变量，
+    #      "运动中速度 ≥ min_speed"）⇒ 首拍步长可以是 min_speed，之后每拍 ≤ accel_up·dt。
+    speeds = [0.0]
+    for _ in range(5):
+        v_i, _r_i = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=None,
+                                  speed_scale=1.0, cfg=c40, last_speed_mps=speeds[-1], dt=0.02)
+        speeds.append(round(v_i, 6))
+    ok("7b.12 连续爬升：首拍被 min_speed 抬到 0.08，之后每拍增量 ≤ accel_up×dt(0.014)",
+       abs(speeds[1] - 0.08) < 1e-12
+       and all(speeds[i + 1] - speeds[i] <= 0.70 * 0.02 + 1e-12 for i in range(1, len(speeds) - 1))
+       and all(s >= 0.08 for s in speeds[1:]),
+       f"序列={speeds}")
+
+    # ---- ⑥ 0.40 巡航下"直线猛加速、拐角仍减速"的联合行为 ----
+    v_line, r_line = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=None,
+                                   speed_scale=1.0, cfg=c40, last_speed_mps=0.38, dt=0.02)
+    ok("7b.13 直线升速：0.38 + 0.014 = 0.394（一拍走不满，两拍才到 0.40 —— 斜坡就是上限）",
+       abs(v_line - 0.394) < 1e-12 and r_line == "ramp_up", f"v={v_line!r} reason={r_line!r}")
+    v_line2, r_line2 = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=None,
+                                     speed_scale=1.0, cfg=c40, last_speed_mps=0.40, dt=0.02)
+    ok("7b.14 已到上限：0.40 保持 0.40（主因 cruise，不再报 ramp）",
+       abs(v_line2 - 0.40) < 1e-12 and r_line2 == "cruise", f"v={v_line2!r} reason={r_line2!r}")
+
+    # ---- 拐角/曲率：**稳态目标值不变**（斜坡只拖慢趋近过程，不改变最终压到的目标）----
+    v_cor, r_cor = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=0.10,
+                                 speed_scale=1.0, cfg=c40, last_speed_mps=0.20, dt=0.02)
+    ok("7b.15 降速中（last=0.20）：一拍只能到 0.20−0.022 = 0.178（ramp_down）",
+       abs(v_cor - 0.178) < 1e-12 and r_cor == "ramp_down", f"v={v_cor!r} reason={r_cor!r}")
+    v_cor2, r_cor2 = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=0.10,
+                                   speed_scale=1.0, cfg=c40, last_speed_mps=0.13, dt=0.02)
+    ok("7b.16 拐角稳态：last 已降到 0.13 ⇒ 精确落到 corner_speed_mps 0.12（主因 corner，未回归）",
+       abs(v_cor2 - 0.12) < 1e-12 and r_cor2 == "corner", f"v={v_cor2!r} reason={r_cor2!r}")
+    # 曲率层：多拍迭代后必须收敛到 sqrt(a/κ)（= 旧行为的目标值）
+    v_iter, reason_iter = 0.40, ""
+    for _ in range(30):
+        v_iter, reason_iter = speed_profile(curvature=5.0, dist_to_stop=None, corner_dist=None,
+                                            speed_scale=1.0, cfg=c40,
+                                            last_speed_mps=v_iter, dt=0.02)
+    close("7b.17 曲率层稳态：迭代收敛到 sqrt(0.35/5)=0.2646（与旧行为目标值逐位一致）",
+          v_iter, math.sqrt(0.35 / 5.0), 1e-12)
+    ok("7b.18 稳态主因回到 curve（斜坡只在过渡期报 ramp_down）",
+       reason_iter == "curve", f"reason={reason_iter!r}")
+
+    # ---- ⑦ timestep 口径：dt 缺失/为 0 ⇒ 不参与（防"每拍都被当首拍"的死锁）----
+    v_nodt, r_nodt = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=None,
+                                   speed_scale=1.0, cfg=c40, last_speed_mps=0.10, dt=None)
+    ok("7b.19 dt=None ⇒ 斜坡不参与（避免用错时间基导致速度被永久压死）",
+       abs(v_nodt - 0.40) < 1e-12 and r_nodt == "cruise", f"v={v_nodt!r} reason={r_nodt!r}")
+    v_dt0, r_dt0 = speed_profile(curvature=0.0, dist_to_stop=None, corner_dist=None,
+                                 speed_scale=1.0, cfg=c40, last_speed_mps=0.10, dt=0.0)
+    ok("7b.20 dt=0 ⇒ 斜坡不参与（除零防护）",
+       abs(v_dt0 - 0.40) < 1e-12 and r_dt0 == "cruise", f"v={v_dt0!r} reason={r_dt0!r}")
+
+    # ---- ⑧ compute_command 侧的接线：传 last_speed_mps 后命令速度受斜坡约束 ----
+    c40b = cfg_of(**cruise40)
+    r_line3 = RouteBuilder("ramp")
+    r_line3.add(Waypoint(block="Q0", x=0.0, y=0.0, yaw=0.0))
+    r_line3.add(Waypoint(block="Q1", x=5.0, y=0.0, yaw=0.0))
+    p_line3 = Path(r_line3.build())
+    cmd_r = compute_command(geo.Pose(1.0, 0.0, 0.0), p_line3, p_line3.project(1.0, 0.0),
+                            c40b, dt=0.02, last_speed_mps=0.10)
+    ok("7b.21 compute_command 透传 last_speed_mps：命令速度 = 0.114（斜坡起效）",
+       abs(cmd_r.linear_x - 0.114) < 1e-12 and cmd_r.speed_reason == "ramp_up",
+       f"v={cmd_r.linear_x!r} reason={cmd_r.speed_reason!r}")
+    cmd_r2 = compute_command(geo.Pose(1.0, 0.0, 0.0), p_line3, p_line3.project(1.0, 0.0),
+                             c40b, dt=0.02)
+    close("7b.22 compute_command 不传历史 ⇒ 旧行为（直接 0.40）", cmd_r2.linear_x, 0.40, 1e-12)
+
+
+# --------------------------------------------------------------------------- #
 #  8. 刹车
 # --------------------------------------------------------------------------- #
 def test_brake() -> None:
@@ -792,6 +919,7 @@ def main() -> int:
     test_lookahead()
     test_steer()
     test_speed_profile()
+    test_speed_ramp()          # ★ t30：加减速斜坡（第 5 层）
     test_brake()
     test_legacy_parity()
     test_vertex_lookahead()

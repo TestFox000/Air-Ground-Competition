@@ -156,8 +156,17 @@ def _candidates(cfg: Config | None, cross_candidates: Iterable[str] | None) -> s
     lower, upper = _cross_rows(cfg)
     pool = {f"{CROSS_COLUMN}{r}" for r in lower}
     pool |= {f"{CROSS_COLUMN}{r}" for r in upper}
-    pool |= {str(_cfg_get(cfg, _KEY_CROSS_LOWER_DEFAULT, "K9")).upper(),
-             str(_cfg_get(cfg, _KEY_CROSS_UPPER_DEFAULT, "K4")).upper()}
+    # ★ t20（t14-F3）：这里**不再写第二份兜底穿洞格**（旧代码硬编码 "K9"/"K4"，属第四张图，
+    #   与现役真值 K10/K5 不符 —— 过期值只会把人误导到失效的洞）。
+    #   改为**读配置**：`_cfg_get(..., None)` 在键缺失时会走 `Config.get()` 的 SCHEMA 缺省
+    #   （`core/config.py` 现值 K10/K5，与 `config/robot.yaml:520-521` 同源），
+    #   所以"候选与兜底都拿不到"时补进池子的仍是配置里的兜底穿洞格。
+    #   ⚠️ 本分支只在 `route.cross_{half}_candidates` 全空/非列表时才走到（现场两者都非空 ⇒ 不生效），
+    #   且此处已按 K 列上下半场行段建池，故这是一次**只去旧值、不改判定**的收口。
+    for key in (_KEY_CROSS_LOWER_DEFAULT, _KEY_CROSS_UPPER_DEFAULT):
+        cell = str(_cfg_get(cfg, key, None) or "").strip().upper()
+        if cell:
+            pool.add(cell)
     return pool
 
 

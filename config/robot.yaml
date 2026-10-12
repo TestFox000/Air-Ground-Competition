@@ -33,15 +33,22 @@
     # -------------------------------------------------------------------------
     #  扫描姿态
     # -------------------------------------------------------------------------
-    scan_yaw_min_deg: -160.0       # 水平最小角(相对车头，右为正)
-    scan_yaw_max_deg: 10.0         # 水平最大角
+    scan_yaw_min_deg: -150.0       # ★t25 用户指令：巡航范围左右各 150°
+    scan_yaw_max_deg: 150.0        # ★t25：旧值 -160.0/+10.0（非对称，第一趟要横跨 170°）已弃用
+    #   ⚠ 连带影响（写进 t25 报告）：scan_yaw_min/max **同时**被 TRACK 的
+    #     `clampYawToScan()` 当作"跟踪水平允许范围"。±150° 在机械极限内
+    #     （`gimbal_yaw_tick_min/max` = 100..3995 ⇒ 相对正前 2047 约 -171°..+171°），
+    #     故跟踪时的水平伺服范围也一并放宽到 ±150°（对"目标跑到侧后方"的场景是好事，
+    #     但意味着跟踪可以做更大的偏转 —— 若现场发现跟踪摆幅过大，再单独加跟踪限幅参数）。
     # ★俯仰基准角（度）。约定：负=向下压，正=抬头。
     #   ⚠ 下面这行历史上注释写的是 -26（第六次下压），但实测值早已被改成 +6.0，
     #     注释与值长期不符，是这次"云台追不上地面靶"误判的直接原因。
     #   2026-10-03 起：跟踪模式已改走机械限位（不再被本值钳住）；
     #     但【扫描模式】仍以本值为基准 —— 若扫描时看不到地面靶，
     #     把本值改回负数（-20 ~ -26 之间试），不要盲调 tracking_pitch_margin_deg。
-    scan_pitch_offset_deg: 6.0
+    scan_pitch_offset_deg: 0.0     # ★t25 用户指令：进入扫描先"复位到正前 + 水平"⇒ 俯仰偏置归零（旧值 +6.0）
+    #   ★ 配合 C++ 侧 t25 改动：startScan() 先走"归位段"（目标 yaw=行程中点=0°、pitch=基准），
+    #     归位到位或超时（scan_home_timeout_ms）后才开始第一个横扫点。
     # ★★ 多层俯仰扫描（本次新增）★★
     #   踩过的坑：原来扫描只在 pitch = 0 + (-8°) = -8°，而靶在 0.35m 外的地面上，
     #   需要的俯角约 atan(0.30/0.35) ≈ 40° —— 靶直接掉出画面下沿，
@@ -55,12 +62,19 @@
     scan_yaw_dirs: 8               # (兼容保留) 旧逐点扫描的点数，连续扫描下不参与计算
     scan_dwell_ms: 300             # 每个点最短驻留(ms)
     scan_passes: 2               # 一轮 = 左一趟 + 右一趟（射击点连做两轮）
+    # ★t25 用户指令：连续扫描（scan_request>=2）最多 3 轮，3 轮仍未找到目标 ⇒ 自动回 IDLE 归位，
+    #   不再无限往复扫（旧版 scan_continuous_ 无轮数上限 —— 现场表现为"云台一直在转"）。
+    #   <=0 = 不限（旧行为，可回退对照）。单次扫描（scan_request=1）不受本参数影响，仍按 scan_passes 趟。
+    scan_continuous_cycles: 3
+    # ★t25：进入扫描前的"归位段"超时（ms）。归位目标 = 正前方(yaw=0)+水平(pitch=基准)；
+    #   到位判据用 scan_arrive_tol；电机卡住/反馈缺失时按本超时兜底放行，绝不永远不进扫描。
+    scan_home_timeout_ms: 1500
     scan_arrive_tol: 30            # 到位容差(刻度)
 
     # -------------------------------------------------------------------------
     #  速度体系
     # -------------------------------------------------------------------------
-    patrol_speed_ratio: 0.10       # ★扫描速度 = gimbal_max_speed × 该比例 (0.35 = 35%)
+    patrol_speed_ratio: 0.60       # ★t25 用户指令：扫描速度 = gimbal_max_speed × 0.60（旧值 0.10 → 太慢）
     gimbal_max_speed: 3700         # 云台最大转速(刻度/s)
     track_speed_max: 0             # ★跟踪速度上限(刻度/s)。>0 = 用这个绝对值；
                                    #   0 = 按 patrol_speed_ratio 派生（降扫描速度会拖累跟踪）
@@ -136,7 +150,10 @@
     # -------------------------------------------------------------------------
     fire_only_blue: true           # ★仅攻击蓝色靶(cls==1)，红靶只跟踪不开火
     max_shots: 10                  # 全程可用发数(硬上限 10)
-    max_shots_per_target: 3        # ★单目标连发上限，防止把全程弹药倾泻在一个靶上
+    # ★ t26（2026-10-11 用户指令 4）：单目标连发上限 3 → **10**（= 允许对同一目标打完全部弹药）。
+    #   旧值 3 的溯源：原口径"防把全程弹药倾泻在一个靶上"；现改由 `max_shots_total=10` +
+    #   决策层"到站发数增量满 10 即离站"共同兜底。本键被 dzrknn 云台节点直接读取。
+    max_shots_per_target: 10
 
     # -------------------------------------------------------------------------
     #  激光同轴标定（用连续激光笔测出后填这里）
@@ -248,10 +265,23 @@
 # =============================================================================
 path_executor:
   ros__parameters:
-    linear_speed: 0.35   # ★基础巡航速度(m/s)。与 dzbrain 段 cruise_speed_mps 保持一致（2026-10-11 t22：0.30→0.35）
-                                  #   从而更容易满足云台开火前的"画面稳定"判据
-    auto_start: true             # ★一键启动后自动出发（调试时可临时改 false，车原地待命）
-    auto_start_delay: 2.0         # ★2026-10-11 快速采集(用户指令):10.0→2.0 出发前初始化秒数
+    # ★★ t31（换图收口 / F-t29-2）：legacy 段与 dzbrain 段**双真源**必须对齐 ——
+    #   若赛前走 `LEGACY_PATH=1`/legacy `path_executor_node`，它就按这一段跑：
+    #   · linear_speed: 0.35 → **0.15**（t29 首跑安全档；新图 @0.35 车体离挡板细条仅 +0.5 mm，
+    #     @0.15 为 +14.2 mm ⇒ 0.35 会绕过安全档；与 `pursuit.cruise_speed_mps=0.15` 一致）
+    #     ★t38 提速档落地：两段再一起 0.15 → **0.40**（t30 三档仿真 + t37 需求契约；
+    #       @0.40+斜坡 98.90 s，比 @0.35 快 4.1%、比 @0.15 快 30.4%，碰撞/硬违规/越界全 0）
+    #   · auto_start 旧值真 → **假**（与 `mission.auto_start=false` 一致：不要在没核对横幅的情况下自己出发）
+    #     ⚠️ 注释里**故意不写** `auto_start` 的"冒号+空格+真值"字面串（`tests/test_deploy.py` 会对
+    #       归一化后的全文做 count 校验；写成字面串会污染计数造成假红/假绿）。
+    #   · auto_start_delay: 2.0 → **45.0**（与 `mission.auto_start_delay_s=45.0` 一致：留横幅核对窗口；
+    #     真源语义见 src/car_localization/car_localization/path_executor.py:441-446 与
+    #     `core/config.py:480-485` 的旧键迁移表）
+    linear_speed: 0.15   # ★基础巡航速度(m/s)。与 dzbrain 段 cruise_speed_mps 保持一致
+                         #   （2026-10-11 t22：0.30→0.35；★t29 首跑安全档 0.35→0.15；t31 两段对齐；
+                         #    ★t38 提速档落地：0.15→0.40（本轮实车暂回 0.15 安全档，跑完恢复 0.40））
+    auto_start: false            # ★一键启动后自动出发（本轮现场发车：翻 true 推车，跑完回 false）
+    auto_start_delay: 45.0        # ★t31 对齐 dzbrain 段 mission.auto_start_delay_s=45.0（旧值 2.0）
     mission_scan_mode: continuous # continuous = 边走边扫 | waypoint = 到点停车扫描 | none
     mission_reset: "N10,y"
 
@@ -300,10 +330,17 @@ path_executor:
     # ---- ★打靶执行（定点狙击）----
     # ★本候选点打满这么多发就收站去下一个点（靶子全场只有一个，走到最佳射击点
     #   狠狠瞄、狠狠打即可，不必耗尽全场 10 发）。
-    #   ★必须 <= 云台 max_shots_per_target(默认 3)：云台到这个数就停火，
+    #   ★必须 <= 云台 max_shots_per_target：云台到这个数就停火，
     #     若这里要得更多，循迹就只能干等 shoot_timeout，每个射击点白等 30 秒。
-    shoot_count_target: 3
-    shoot_timeout: 10.0           # ★2026-10-11 快速采集:30→10 单个候选点硬超时(s)。超时立刻换点/放行，绝不卡死
+    #   ★t26 口径变更提示：**决策层（dzbrain MissionTask）的真源是 `mission.shots_per_stop`
+    #     =10**（用户指令 4：打完全部弹药/到站 30s 先到即离）；本键是 **legacy
+    #     path_executor 节点**自己的目标发数。
+    #   ★队长裁决 2026-10-11（F-t26-1 收口）：车端 start_all.sh 已确认默认走新核 dzbrain、
+    #     旧 path_executor 仅在 LEGACY_PATH=1 时回退；为防回退时新旧口径打架，
+    #     本键同步为 10，与新决策层口径一致（t26 原按契约留 3，由队长改齐）。
+    shoot_count_target: 10
+    shoot_timeout: 30.0           # ★2026-10-11 用户指令:最佳射击点停留射击最长 30s(30→10 快速采集改回 30)。超时立刻换点/放行，绝不卡死
+                                  # ★t26：与 `mission.shoot_timeout_s` 同值(30.0)，保持不动；决策层口径见下方 mission 段
     shoot_settle_speed: 0.02      # 底盘速度小于此值视为"停住"(m/s)
     shoot_stable_frames: 5   # ★降低：连续 8 帧≈0.27s 过于苛刻，降到 5 帧
     shoot_stable_offset_px: 40.0   # ★放宽容差：原 25px 与云台开火框(26px)几乎重合，判定过紧
@@ -350,77 +387,84 @@ path_executor:
     #   结构：N10 出发 → L11→K11 下半场穿洞向西 → 下区压雷(I7/D8/E10) → C7→C6 绕隔板
     #         西端进上区 → 压雷(C4/B2/F3) → F4* 停站打靶(E4+E5 纵向跨格板) → 压雷
     #         (G4/H2) → K1 上半场穿洞向东 → N5 终点
-    #   ★★ 2026-10-12 第四次换图（t3 卡）：config/map.yaml 换成第四张图识图版
-    #      （源图 sha256 e6448ea1…c68faaa8，与 p-81Zc2l 要素集合逐格一致 —— 换图**不需要改路线**）。
-    #      ★ 本表**逐字不变**：t3 独立物理复核（场地图 map_v3 + t24 FieldSpec，零注入）@0.30/@0.35
-    #        盖雷 8/8、障碍真碰撞 0、挡板触线 0、车体压靶 0、K 列封死违规 0、越界急停未触发。
-    #      ★ 自动规划 65 点产物**再次被物理链否决**（与 docs/上下文快照 §1 裁决一致）：
-    #        @0.30 盖雷 5/8（漏 D8/E10/G4）、最紧柱心距 G5=0.154、顶点超调 0.45m；
-    #        @0.35 盖雷 7/8（漏 G4）+ **真碰撞 D7 5 拍**；且含 2 处 :PIVOT（仿真不建模，无法离线背书）。
-    #        ⇒ route.tokens / mission_blocks 保持手工 62 点（双源一致）。
+    #   ★★ 2026-10-11 第五次换图（t29 接入 + t31 收口）：config/map.yaml 换成第五张图
+    #      （源图 sha256 `d0159f11…765dda`）。要素：雷 `B1 G2 H3 A4 / D8 F9 I10 E11`、
+    #      障 `D1 F4 A5 H5 / B7 C9 E10 G11`、靶 `B11+C11`（横向相邻 = 一块 35×70 跨格板）、
+    #      通口 `K10`(下半场) / `K5`(上半场)、起终 `N10`/`N5`、隔板 行 6/7 之间 `D~N` 无缺口。
+    #   ★★ t31 重钉本表 = **车上自规划（tracker-safe）在第五张图上的同一条产物**：
+    #      60 token / 20.65 m / 0 折返（无 `:PIVOT`、无 `R:`）/ 射击停站 `C10` / K 穿越恰 2 次（`K10`、`K5`）。
+    #      生成参数：`planner.engine=tracker-safe`、`TS_PHASE_CELL="A6"`、`TS_TURNED_MINES=("A4","D8")`。
+    #   ★ 为什么必须换掉旧的 62 点（第四张图手工路线）：它在第五张图上有 **12 条 error**
+    #      （R004 踩障 / R005 雷覆盖 4/8 / R008 穿洞行 / R006 靶覆盖 / R013 射击点距离），
+    #      而 `planner.fallback_to_tokens: true` ⇒ 自规划失败时会**拿它发车** ⇒
+    #      兜底路线必须在新图上合法（否则 `config_selfcheck` 12 error = 不可发车）。
+    #   ★ 为什么相位必须是 `A6`（不是旧的 `C6`）：`C6` 相位在新图上出 58 token 解但**在 C9 撞障碍**
+    #      （真值足迹：@0.15 603 拍 / @0.35 453 拍）；`A6`（与 `B6` 数值同价）双档全绿。
+    #   ★ 物理口径（`_tmp_session/t29/sim_t29.py` 同族工具，`FootprintObs` 真值足迹 substeps=4）：
+    #      @0.15 障碍碰撞 0 / 硬违规 0 / 越界 0；@0.35 障碍碰撞 0 / 硬违规 0 / 越界 0。
+    #   ⚠ **已知残留**：盖雷 **7/8**（漏 `A4` —— A4 是口袋雷，90° 拐过时真车切内；接近腿改造需
+    #      用户现场裁决）。**不得**为凑 8/8 引入碰撞或硬违规。
     mission_blocks:
       - N10
       - M10
       - L10
-      - L11
-      - K11
-      - J11
+      - K10
       - J10
-      - J9
-      - J8
-      - J7
-      - I7
-      - H7
-      - G7
-      - F7
+      - I10
+      - H10
+      - H9
+      - H8
+      - G8
       - F8
       - F9
       - F10
-      - E10
+      - F11
+      - E11
+      - D11
       - D10
       - D9
       - D8
-      - E8
-      - F8
-      - F9
-      - F10
-      - E10
-      - D10
-      - C10
+      - D7
+      - C7
+      - C6
+      - B6
+      - A6
+      - A7
+      - A8
+      - A9
+      - A10
       - B10
-      - B9
-      - B8
-      - B7
+      - C10*
+      - D10
+      - D9
+      - D8
+      - D7
       - C7
       - C6
       - C5
       - C4
-      - C3
-      - B3
-      - B2
+      - B4
+      - A4
+      - A3
+      - A2
+      - A1
       - B1
       - C1
-      - D1
-      - E1
-      - F1
+      - C2
+      - D2
+      - E2
       - F2
-      - F3
-      - F4*
-      - G4
-      - H4
-      - H3
+      - G2
       - H2
-      - H1
-      - I1
-      - J1
-      - K1
-      - L1
-      - M1
-      - N1
-      - N2
-      - N3
-      - N4
-      - N5,x
+      - H3
+      - H4
+      - I4
+      - I5
+      - J5
+      - K5
+      - L5
+      - M5
+      - N5,y
 
 # =============================================================================
 #  ★ 新版决策层 dzbrain 的参数段（2026-10-07 新增）
@@ -445,7 +489,14 @@ path_executor:
       lookahead_max_m: 0.40   # ★ 1.2×0.30=0.36 > 旧上限 0.24/0.35 会被钳住 → 实测放到 0.40
       lookahead_k_v: 1.2              # 前视 = k_v × 速度
       lat_acc_max_mps2: 0.35          # 横向加速度上限（曲率限速）
-      cruise_speed_mps: 0.35   # ★2026-10-11 现场口径（t22）：0.30 → 0.35 m/s。与 path_executor.linear_speed 同步（两条必须同值）；转角减速/PIVOT/前视等其余不动
+      cruise_speed_mps: 0.15   # ★t38 提速档落地（t30 三档仿真 + t37 需求契约）：0.15 → 0.40；本轮实车暂回 0.15 安全档
+                               #   依据：新图 60 token tracker-safe 路线双档/三档仿真 @0.40+斜坡 98.90 s，
+                               #   比 @0.35 快 4.1%、比 @0.15 快 30.4%，且碰撞/硬违规/越界全 0（挡板余量档位无关，恒 +0.5 mm）
+      # ★t38：速度剖面第 5 层「加减速斜坡」的两个限值（真源 = t30 `pursuit/controller.py:speed_profile()`）
+      #   语义：升速每拍 ≤ accel_up·dt；降速每拍 ≤ accel_down·dt（0.40→0.12 仅需 0.255 s / 0.066 m ≪ 0.45 m 入弯窗口）。
+      #   缺省 0.0 = 整层不参与（与旧版逐位一致，回归安全）；施加顺序：四层 min → ×quant → 斜坡 → min_speed → motion_limit（安全层最后）。
+      accel_up_mps2: 0.0               # 升速上限 (m/s²)（t37 建议 0.6~0.8；★本轮实车发车档 0.0=斜坡层不参与，= t31 基线逐位一致；跑完恢复 0.70）
+      accel_down_mps2: 0.0             # 降速上限 (m/s²)（t37 建议 1.0~1.2；★本轮实车发车档 0.0；跑完恢复 1.10）
       map_safety_margin_m: 0.60       # 越界急停余量（★新版提到状态机最顶层）
       drift_warn_m: 0.30              # 单段漂移告警
       drift_seg_gate_m: 0.18          # ★漂移判定用弧长窗口，不能绑在吸附半径上（否则永远报不出来）
@@ -458,19 +509,38 @@ path_executor:
 
     route:
       # ★ U 形赛道两处穿洞的候选格（每局随机，由无人机情报选定；超时用 default）
-      # ★ 2026-10-11 第三次换图：下半场通口 K11（本图贴最外行），上半场 K1
-      cross_lower_candidates: ["K11"]
-      cross_upper_candidates: ["K1"]
-      cross_lower_default: "K11"
-      cross_upper_default: "K1"
+      # ★ 2026-10-11 第五次换图（卡 t29）：下半场通口 K10（旧 K11）、上半场 K5（旧 K1）
+      cross_lower_candidates: ["K10"]
+      cross_upper_candidates: ["K5"]
+      # ★★ t31 收口：兜底穿洞格同步为新图通口（旧值 K11/K1 属第四张图，已失效）。
+      #   为什么必须改：① `_default_cross()` 只在 default ∈ 候选集合时才用它，否则回落候选集合首元素
+      #   ⇒ 旧值不会改路线，但会让 `Config.validate()` 报「兜底穿洞格不在候选集合里」warn、
+      #   且 `main.py:200` 的开机横幅会把**错误的通口名**打给现场（横幅真源就是这两个键）；
+      #   ② `test_bridge_gate` 把 `route.cross_lower_default` 当"本图下半场桥洞格"用。
+      cross_lower_default: "K10"
+      cross_upper_default: "K5"
 
     mission:
-      auto_start: true
-      auto_start_delay_s: 2.0            # ★2026-10-11 快速采集(用户指令):10→2 出发前初始化等待
+      auto_start: false
+      auto_start_delay_s: 45.0           # ★t29 首跑档：给队长留横幅核对窗口（旧值 2.0；SCHEMA 类型 float，必须写 45.0）
       reset: "N10,y"
-      scan_mode: continuous           # 边走边扫（readme【十】：绝不在到点发 1 降级成单次）
-      shots_per_stop: 3               # 每个射击停站点打几发
-      shoot_timeout_s: 10.0           # ★2026-10-11 快速采集:30→10 单点硬超时（绝不卡死）
+      scan_mode: continuous           # ★t24：lock 模式下 **inert**（见下方注释）；readme【十】：绝不在到点发 1 降级成单次
+      # ★★ t26（2026-10-11 用户指令 4）：最佳射击点**离站条件**改为
+      #   「发数增量 ≥ 10（打完全部弹药）**或** 到站起 30s 硬死线，两者先到即离站；
+      #     即使 0 发，30s 到点也必须离站」。三段式结构（SETTLE→ACQUIRE→FIRE→DONE）与
+      #   各自的段超时链**不变**，只在它们之上加一条到站级死线（`mission.py: _stop_deadline_s`）。
+      #   ★旧值溯源：`shots_per_stop: 3` 是第九趟实车"到站打 3 发"口径；第十一趟实车 F4 停站
+      #   日志为「到站（累计发数 0）→ 锁定超时 6.10s ≥ 6.00s → 放弃」，即**0 发**也要占满三段。
+      shots_per_stop: 10              # ★t26：3 → 10（打完十发即完成离站；旧值 3 见上方注释）
+      shoot_timeout_s: 30.0           # ★2026-10-11 用户指令:最佳射击点停留射击最长 30s(快速采集 30→10 改回 30)
+                                      # ★t26：**值保持 30.0 不动**，但口径变为"**到站起**累计硬死线"
+                                      #   （旧实现只从 FIRE 段计时：SETTLE 12s + ACQUIRE 6s + FIRE 30s
+                                      #   = 最长 48s，与"到站 30s"不符）。0 发也必须在 30s 离站。
+      # ★★ 卡 t24 口径：本行在 `aim.gimbal_lock_enabled=true`（默认）下 **inert** ——
+      #   云台扫描开关由 AimTask 独家下发（巡迹段 0 锁止 / 最佳射击点停站 2 起转 / 离开与 FINISH 回 0），
+      #   MissionTask 一个值都不发。run11 曾出现「Mission 的 2 在巡迹全程压住 Aim 的 0（C++ 是电平保持语义）
+      #   ⇒ 云台一直在转」，就是这里被发出去造成的。要让本行重新生效，需显式把
+      #   `aim.gimbal_lock_enabled` 设为 false（旧行为/对照档）。
       lock_timeout_s: 6.0             # ★2026-10-11 快速采集:18→6
       settle_time_s: 0.4              # ★2026-10-11 快速采集:0.8→0.4
       bridge_info_wait_s: 2.0         # ★2026-10-11 快速采集:20→2 等无人机桥洞情报的最长时间
@@ -479,14 +549,49 @@ path_executor:
     #   与 route:/mission: 同级同缩进（4 空格）→ 点号键 planner.*
     #   对应实现：tasks/mission.py 的 `_load_startup_route` / `plan_route_from_config`
     planner:
-      auto_plan_enabled: false        # ★ 2026-10-11 第三次换图:n11 图规划器有已知缺陷(t15:下半场
-                                      #   通口贴边时访问顺序生成违反 U 形单回路),本次跑车用 mission_blocks
-                                      #   手工 v3(62 token,双档仿真全合规);t16 修复落地后改回 true。
-                                      #   ★ 2026-10-12 第四次换图(t3):第四张图上自动规划 65 点**仍然不能用**
-                                      #   ——静态 route_check 全绿,但物理链否决(盖雷 5~7/8、@0.35
-                                      #   真碰撞 D7、带 2 处 :PIVOT 而仿真不建模)⇒ 继续 false + 手工 62 点。
+      # ---- ★★ 规划引擎（卡 t11：t7 新引擎"可选上车"，默认行为不变）----
+      #   tour          = 历史引擎（`planner.plan_route`：顺序+朝向联合优化，用 `:PIVOT`
+      #                   消解 180° 折返）。**默认值 = 与历史逐字节一致**。
+      #   tracker-safe  = t7 新引擎（`planner.plan_route_tracker_safe`：禁 180°/禁紧凑 U/
+      #                   雷直线穿心）。现役图实测 62 token / 21.35 m，与手工 62 点同长；
+      #                   双档仿真 RMS/MAX/超调 ≤1.2×手工、盖雷 8/8、碰撞 0、`:PIVOT` 0 处
+      #                   （证据见 `_tmp_session/t7/报告.md` §3）。
+      #   ★ 只有 tracker-safe 会跑**双门禁**（`tools/route_check.py` 0 error +
+      #     `route.validate_route` 0 error/0 warn）；门禁不过 → 按 `fallback_to_tokens`
+      #     回退 `route.tokens`（现役手工 62 点）并在日志里打印原因。
+      #     tour **不加门禁**：它的历史行为（含"缺 mines 的图也能解"这类既有语义）必须逐字不变。
+      engine: tracker-safe  # ★t29：**第五张图专用**（用户指定「用车上自己有的路径规划器跑路线生成」）；
+                            #   tracker-safe 会跑双门禁（tools/route_check.py 0 error + route.validate_route 0 error/0 warn），
+                            #   不过则按 planner.fallback_to_tokens 回退 route.tokens。
+                            #   旧注释（第七趟用户指令，J7 现场量测车头最前缘→挡板南表面 = 3.5 cm ≥ 2 cm 门槛）保留在案
+      # 足迹诊断（参考点偏移感知：挡板/障碍/靶板）在门禁里的严重级：
+      #   warn  = 只报不拦（**默认**：t11 实测 +7.5cm 下现役手工路线与 tracker-safe
+      #           路线在 J8→J7→I7 拐角都报 5 mm 级侵入，而第三张图实跑 61/61 未触板
+      #           ⇒ 折线口径在拐角处过于保守，不能据此硬拦现役路线）；
+      #   error = 有侵入即判门禁未过（新引擎会按 fallback_to_tokens 回退）。
+      # 现场核实挡板实际位置/宽度后：若确认余量够，保持 warn 并放行 tracker-safe；
+      # 若确认真的会蹭板，改成 error 并把下半场 corridor 的走法改掉。
+      footprint_gate: warn
+      # tracker-safe 的时间预算（秒）。**刻意不与 max_seconds 共用**：新引擎状态空间多一维
+      # （格×本腿方向×上一腿方向）、且要遍历"覆盖全部靶格"的射击点候选 —— 本机(PC)实测
+      # 1.59~1.67 s，沿用 2.0 s 只剩 0.3 s 余量，正是 t8 那次 flake 的形态（旧引擎本机
+      # 0.55 s 在 0.8 s 预算下都会超时）。缺省 = planner.TS_MAX_SECONDS（与本键同值）。
+      # ★ 2026-10-11 第八趟(用户指令重跑):第七趟实车 5.0s 在 ARM 板上超时(顺序搜索阶段)
+      #   → 回退手工 62 点。当时暂放宽到 20.0 让新引擎在车上真跑通。
+      # ★★ t19 按**车端实测**重定（本键就是车上的唯一真源）：
+      #   车端 RK3588S(8 核)同一份地图/配置，`plan_route_tracker_safe` 中位耗时
+      #     提速前 **6693 ms**（settled 470118，`_ts_phase` 16 次）
+      #     提速后 **2788 ms**（settled 200811，`_ts_phase` 5 次）⇒ 2.40×
+      #   取值规则 = max(实测中位 × 3, 实测中位 + 5 s) = max(8.36, 7.79) ⇒ **10.0 s**
+      #   （20.0 是超时应急值，会白等 17 s；5.0 是 PC 时代值，第七趟实车证明不够）。
+      #   证据与方法：`_tmp_session/t19/`（ARM 探针走 ssh stdin、内存补丁，车端零落盘）。
+      tracker_max_seconds: 10.0
+      auto_plan_enabled: true         # ★ 2026-10-11 第七趟(用户指令):只给地图参数,路线由车上
+                                      #   tracker-safe 引擎现算(t11 双门禁 + t13 起始航向 +y 已落地;
+                                      #   J7 挡板现场量测 3.5cm ≥ 2cm ⇒ 放行)。失败时按
+                                      #   fallback_to_tokens 回退 mission_blocks 手工 62 点(同一路线)。
       map_path: "config/map.yaml"     # 解析顺序：绝对路径 → 相对配置文件目录 → 相对工作区
-                                      # ★ 2026-10-12 t3:换图就是**覆盖这个文件**(第四张图识图版),
+                                      # ★ 2026-10-11 t3:换图就是**覆盖这个文件**(第四张图识图版),
                                       #   所有消费方(route_check/planner/sim/config_selfcheck)按此名查找
       fallback_to_tokens: true        # 规划失败（PlannerError/超时/坏图）→ warn 后回退 route.tokens，仍出发
       allow_reverse: false            # ★真车底盘不支持倒车 → 规划器走无倒车模式（0 段 R:，折返交 PIVOT）
@@ -498,6 +603,18 @@ path_executor:
                                       #   [顶点用扫掠半径 0.1554] + 此值；见 dzbrain/route/physics.py）
 
     aim:
+      # ★★ 卡 t24：云台扫描**单写者**四键（已登记进 core/config.py 的 SCHEMA；此处注释形式
+      #    给出显式配置位置，值就是 SCHEMA 默认值 —— 不写进 YAML 也生效，写进 YAML 仅便于现场调）。
+      #    语义：lock=true（默认）时**只有 AimTask 写** /nav/scan_request
+      #      · 巡迹段（射击点之前）/ 离开射击点之后 / FINISH → 0（停扫；车端 C++ 进 AIM_IDLE
+      #        后每帧主动归位到"车头正前 + 基准俯仰" ⇒ 用户要求的"回正并保持"）
+      #      · 进入 StopKind.SHOOT 停站（最佳射击点）→ 2（持续扫描 = 起转寻靶）
+      #      · TRACK→锁止 的**边沿**会再发一次 0（保证从目标方向显式回正，不被去重吞掉）
+      #    lock=false 时回到旧行为：由 MissionTask 按 `mission.scan_mode` 下发（现场对照用）。
+      # gimbal_lock_enabled: true          # ← 默认 true；设 false 可回退旧行为（Mission 发）
+      # gimbal_lock_scan_request: 0        # 锁止值（0=停扫；车端收到即归位）
+      # gimbal_seek_scan_request: 2        # 起转值（2=持续扫描；绝不发 1）
+      # gimbal_seek_on_shoot_stop_only: true   # 只在 SHOOT 停站起转
       # ★ 移动轨道靶（F11+G11 一块跨格靶板，轨道行程 0.70m，4cm/s，无停顿来回；2026-10-11 换图）
       lead_time_s: 0.35               # 提前量补偿时间（旧版只预判 0.5 帧≈16ms，链路延迟却有 0.5~0.9s）
       fire_policy: moving_lead        # moving_lead / sweep / turnaround（本靶无端点停顿，turnaround 不适用）
@@ -509,11 +626,14 @@ path_executor:
       #       则 px_per_m_rail = |Δdx| / rail_span_m(0.70)。默认 140 px/m 只是估值。
       #   自检：4 cm/s 的靶在 140 px/m 下约 5.6 px/s ⇒ 30fps 每帧仅动 0.19 px（很慢，符合现场描述）。
       px_per_m_rail: 140.0
-      max_shots_total: 10
-      max_shots_per_target: 3
+      max_shots_total: 10             # ★t26 保持 10（全程弹药硬上限，不动）
+      # ★ t26（用户指令 4）：3 → **10** —— 允许对同一目标打满剩余弹药（配合 mission 侧
+      #   "发数增量满 10 即离站"）。旧值 3 的溯源见本文件上方 `dzrknn_dataprocess` 段的同名键。
+      max_shots_per_target: 10
       shot_cooldown_ms: 500
       lost_frames_to_rescan: 60       # ★旧值 180 帧≈6s，丢靶期间云台会冻结；这里收紧
-      scan_pitch_offset_deg: 6.0      # ★现场必须核对：注释史与实测值长期冲突
+      scan_pitch_offset_deg: 0.0      # ★队长裁决 2026-10-11：与 /dzrknn_dataprocess 段对齐为 0（用户指令"复位水平"）。
+                                      #   此键在 dzbrain 中无消费者（仅 schema 登记），真源是 dzrknn 段；对齐只为杜绝口径歧义。
 
     fix:
       anchor_at_waypoint: true        # 到位吸附（格心锚定）
@@ -606,6 +726,18 @@ path_executor:
       length_m: 0.28            # 车体长（沿车头方向）
       width_m: 0.135            # 车体宽（半宽 0.0675 进挡板/障碍判据）
       coverage_radius_m: 0.035  # ★车心假设圆半径（压雷判据：车心到 0.12×0.12 垫片 ≤ 此值算压到）
+      # ★★ 卡 t11：参考点(后轴中心) → 车体**几何中心**的纵向偏移（米）。
+      #   实测来源（用户现场卷尺，2026-10-11）：后轴中心→车尾沿 6.5 cm、
+      #   后轴中心→车头沿 21.5 cm、车身总长 28 cm
+      #   ⇒ 中心在参考点前方 (21.5 − 6.5)/2 = **+7.5 cm**。
+      #   约定：**正值 = 车体中心在参考点前方**；参考点 = 里程计/仿真积分点
+      #   （`dzactuator.cpp` 与 `tools/sim.py: step_bicycle` 都按后轴式积分 `X += v·cos(yaw)`）。
+      #   消费者：`route/physics.py` 的 `body_corners()/body_*_clearance_m()`（净空唯一真源）、
+      #   规划门禁的足迹诊断（`tasks/mission.py`）、离线足迹链（`_tmp_session/t5_bold/t5lib.py`）。
+      #   ⚠️ t11 实测：把该偏移计入后，**现役手工 62 点与 tracker-safe 62 点**在下半场
+      #      `J8→J7→I7` 的拐角切内处（真值 yaw≈45°、车体角点朝挡板）从"+7.6 mm 余量"
+      #      变成 **−5.2 mm 侵入（35~38 拍）** ⇒ 挡板几何必须在现场复核后才能放行新引擎。
+      ref_offset_m: 0.075
     field:
       obstacle_radius_m: 0.1275 # 障碍圆柱半径（柱心在障碍格格心）
       mine_pad_m: 0.12          # 雷垫片边长（0.12×0.12 正方形，中心在雷格格心）

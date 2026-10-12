@@ -18,7 +18,13 @@
   → `parse_mission(route.tokens)` → 写 `P_ROUTE` → `EV_ROUTE_LOADED` → 阶段 `DRIVE`（§3.3）。
 - 开机跨帧一致性：`mission.scan_mode == 'continuous'` 时开局发 `publish_scan_request(2)`
   （**持续**扫描）。readme【十】第 31 条：绝不能在到点时发 `1` 把它降级成单趟。
-- 终点：最后一个航点到达 → `FINISH`（**锁存**）、`publish_brake()`、`publish_scan_request(0)`、
+- ★★ **云台扫描单写者**（卡 t24，与 AimTask 的 t13 锁止配套）：`aim.gimbal_lock_enabled=true`
+  （默认）时，云台扫描开关**由 AimTask 独家掌管**（巡迹段 0 锁止 / 最佳射击点停站 2 起转 /
+  离开停站与 FINISH 回 0），**Mission 一个值都不发** —— 本文件的 `_request_scan()` 直接返回，
+  `mission.scan_mode` 在该模式下 **inert**（只影响横幅文案）。理由见 `_request_scan` docstring
+  （run11 实证：Mission 的 2 在巡迹全程压住了 Aim 的 0，而 C++ 侧是电平保持语义）。
+  仅 `aim.gimbal_lock_enabled=false`（旧行为/对照档）时，Mission 才按 `scan_mode` 照旧下发。
+- 终点：最后一个航点到达 → `FINISH`（**锁存**）、`publish_brake()`、（旧行为档才发 `scan_request(0)`）、
   `EV_MISSION_FINISHED`、结束横幅（用时/发数/漂移）。
 - ★ PIVOT 原地掉头顶点：Tracker 完成/放弃 PIVOT 时经 `PIVOT_DONE_KEY` 通知本任务，
   该顶点直接判到达（`pivot_dist_m` > `arrival_m`，正常判据恒假，bench 实测 E11/A6/B6
@@ -42,11 +48,78 @@
   且键名拼错不会被 SCHEMA 兜住 —— 建议收口时补进 SCHEMA 并把 `planner.` 加进
   `known_prefixes`。
 
-⚠️ SCHEMA 缺键（本次未改 `core/config.py`，故用带默认值的 `cfg.get`）：
-  `mission.shots_per_stop` / `mission.settle_time_s` / `mission.settle_eps_m` /
-  `mission.settle_speed_mps` / `mission.lock_timeout_s` / `mission.shot_timeout_s` /
-  `mission.scan_stop_timeout_s`。建议 P1 收口时补进 SCHEMA，否则 `Config.validate()`
-  看不到它们（键拼错不会被"未知配置段"告警兜住）。
+★★★★ 卡 t6：**无人机桥洞情报接线**（`EV_BRIDGE_INFO` / `P_DRONE` → 穿洞格选择）
+  缺口：`tasks/drone.py` 收到 `bridge_passable{half,block}` 时写 `P_DRONE`（`DroneState`，
+  `bridge_of(half, now, stale_s)` 已含"半场匹配 + 情报过期 `>drone.info_stale_s`"判据），
+  但**接线前 Mission 全文不读它** ⇒ 情报到车即弃，穿洞格永远走 `route.cross_*_default`。
+  ── ★★ 卡 t13（按 t4 的 D3 风险修正）：情报的**唯一真源 = `EV_BRIDGE_INFO` 事件流** ──
+  ⚠️ D3（t4 实测）：`DroneState` 只有**一组** `bridge_half/bridge_block/bridge_ts` 槽，
+    `DroneTask._on_bridge_passable` 每收一条 `bridge_passable` 就**覆盖式赋值**（drone.py:283）。
+    无人机每轮按 **lower → upper** 顺序发，于是稳态下槽里恒是 `upper`：只看 `P_DRONE` 快照，
+    `bridge_of("lower")` **恒为 None** —— t6 第一版"读槽 + 按半场累积"虽然凑出了两半场，
+    但它把"能不能同时拿到两半场"绑在了**轮询时机**上（槽被覆盖的那一拍正好没 tick 就丢）。
+  修法（t13 采选项①）：**订阅 `EV_BRIDGE_INFO`**，每条事件自带 `half/block/ts`，
+    按半场各存一份（`_intel_seen`），**后到的 upper 事件永远顶不掉先到的 lower 记录**。
+    事件载荷里的 `ts` 就是 `DroneTask` 写 `bridge_ts` 用的**同一个数**（drone.py:283-287），
+    所以过期判据 `now - ts > drone.info_stale_s` 与 `DroneState.bridge_of()` **逐字同源**。
+    `P_DRONE` 仍要读，但只用来判**链路状态**（是否存在 / 是否在线）—— 那是黑盒事实，不是情报值；
+    `DroneTask` 的"写槽"与"发事件"在同一段代码里（drone.py:283-287），
+    故 `事件覆盖 ⊇ 槽覆盖`：生产上不存在"槽里有、事件没有"的情报 —— 槽位不再是情报真源。
+  采纳顺序（**两个半场各自独立判定**，任一半场失败不影响另一半场；★ t7 已通过的 5 道门 + 过期判据
+  **逐点未改**，只换了"原始格与 ts 从哪儿来"）：
+    ① `drone.enabled=false` → 默认格；② 无 `P_DRONE`（DroneTask 未运行/被禁用）→ 默认格；
+    ③ 无人机离线（`DroneState.online=False`，心跳超 `drone.heartbeat_timeout_s`）→ 默认格
+       （**即使 `bridge_ts` 还在过期窗口内**：离线即情报不可信，保守口径）；
+    ④ 情报过期（`now - 事件 ts > drone.info_stale_s`）/ 该半场从未收到事件 → 默认格；
+    ⑤ 格名非法、不在 K 列、不在本半场行段、或不在本半场候选集合
+       （`route.cross_{half}_candidates` ∩ `map.bridges`，与 `planner._cross_pools` 同口径）→ 默认格
+       —— **绝不把一条坏情报变成规划器的 `PlannerError`**（那会让 `fallback_to_tokens=false`
+       的配置直接停在 IDLE）：坏情报只降级成默认格，不炸自动规划、不卡发车；
+    ⑥ 其余 → 采用无人机格。
+  两个出口（各自的"默认值路径"与接线前**逐字节一致**）：
+    · `planner.auto_plan_enabled=true` → 作为 `cross_lower/cross_upper` 关键字传给
+      `plan_route_from_config()`（缺省 `None` = 完全走规划器自己的 `_default_cross`）；
+    · 手动路线（`route.tokens` / `mission_blocks`）→ 把"进洞口-K 列格-出洞口"**同行三连**
+      整体挪到新行（`rewrite_crossing_tokens`：只认规划器生成的那种形状），且结果**必须**过
+      `validate_route`(0 error) 才允许执行；形状不符/校验不过 → 原样不动（走默认洞）。
+  默认穿洞格的**信号源**＝配置 `route.cross_{half}_default`：
+    ★ 现场真值（`config/robot.yaml:520-521`，t4 实测）＝ **lower `K10` / upper `K5`**，
+      与候选集合（robot.yaml:513-514 ＝ `["K10"]` / `["K5"]`）、现役 `route.tokens` 的穿洞三连
+      （`L10→K10→J10` / `J5→K5→L5`）三者一致。
+    ✅ `core/config.py` 的 SCHEMA 缺省**已同步为 `K10`/`K5`**（卡 t17 收口；t13 报告里"SCHEMA 仍是
+      K9/K4"那句已失效）。本文件不做"临时兜底改默认值"：兜底一律以配置为唯一真源，
+      否则现场翻不出到底走的哪个洞。
+  等待窗口（★ 卡 t20 按 t14-F1 裁决**收回判据**）：`mission.bridge_info_wait_s`（现场 2s）内，
+  只有"**等得到东西**"才推迟发车 —— 需要同时满足：
+    · 车侧有无人机链路（`P_DRONE` 存在）**且 `online=True`**（离线即情报不可信）；
+    · 并且**手上已经有一半场的有效新鲜情报**（>=1 个半场 `source=drone`，即 age ≤ `info_stale_s`
+      且通过了 5 道采纳门）；
+  两半场都齐 → 不等；离线/无链路/情报过期或从未到达 → **不等、立即按默认格 K10/K5 出发**。
+  硬上限仍是 `auto_start_delay_s + bridge_info_wait_s`（兜底：到点必发车，绝不卡死），
+  窗口耗尽时用"已得情报 + 默认格"。
+  ⚠️ 为什么要收回：`DroneTask` **每拍都写 `P_DRONE`**（无论在线与否），所以"有 link"这条判据
+  恒真 —— 只看 link 会让无人机离线时也白等到硬上限（t14 审出的 F1）。
+  窗口耗尽照常出发（用已得情报 + 默认格）。**无 `P_DRONE` 时不等、不换，行为与接线前逐字一致。**
+  边界（刻意不改，见 `_handle_command`）：外部命令（`/nav/waypoint` 的 `多点`/`单点`/`load:`）
+  按操作者原意执行，不做换洞；发车后晚到的情报只进遥测（`state()["bridge"]`，其中 `used`
+  是**冻结**的实际用格），路线已冻结不再换洞。
+
+⚠️ SCHEMA 缺键（**t20 实测更正**：下面这些键多数已在 t26/t31 收口时补进 SCHEMA，只剩一个仍缺）：
+  仍缺：`mission.shot_timeout_s`（本文件用 `cfg.get(key, 30.0)` 兜底）。缺它 ⇒ `Config.validate()`
+  看不到这个键，键名拼错不会被"未知配置段"告警兜住。
+  已登记（无需再改）：`mission.shots_per_stop` / `settle_time_s` / `settle_eps_m` /
+  `settle_speed_mps` / `lock_timeout_s` / `scan_stop_timeout_s` / `bridge_info_wait_s`
+  / `drone.*` / `route.cross_*`。
+  （t13 报告里"这 7 个键都没进 SCHEMA"那句已失效 —— 那是我当时未核对 SCHEMA 的转述，
+   t20 逐键实测后更正；勿照旧文去补。）
+
+★ 规划引擎开关（卡 t11）：`planner.engine`（`tour` 缺省 / `tracker-safe`）。
+  `tracker-safe`（t7 新引擎，"真车能跟住"）的产物**必须**过双门禁
+  （`tools/route_check.py` 0 error + `route.validate_route` 0 error/0 warn），
+  否则按 `fallback_to_tokens` 回退现役手工路线并打印原因。缺省 `tour` = 历史行为逐字节不变。
+  门禁实现见 `check_planned_route()` / `GateResult`（同一段代码也被 `--plan-only` 复用）。
+  ⚠️ 与上面 `planner.*` 一样，`planner.engine` / `planner.tracker_max_seconds`
+  **未登记进 SCHEMA** ⇒ `Config.validate()` 会各记一条"未知配置段"warn（不是 error）。
 """
 
 from __future__ import annotations
@@ -54,26 +127,39 @@ from __future__ import annotations
 import json
 import math
 import pathlib
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ..core import geometry as geo
-from ..core.blackboard import (P_MISSION_PHASE, P_POSE, P_ROUTE, P_ROUTE_INDEX, P_ROUTE_S,
-                               P_SAFETY, P_STOP_POINT, P_TELEMETRY, Blackboard)
+from ..core.blackboard import (P_DRONE, P_MISSION_PHASE, P_POSE, P_ROUTE, P_ROUTE_INDEX,
+                               P_ROUTE_S, P_SAFETY, P_STOP_POINT, P_TELEMETRY, Blackboard)
 from ..core.config import Config, pivot_dist_eff
-from ..core.events import (EV_MISSION_FINISHED, EV_MISSION_STARTED, EV_ARRIVED_STOP_POINT,
-                           EV_ROUTE_LOADED, EV_STOP_POINT_DONE, EV_WAYPOINT_REACHED, EventBus)
-from ..core.logging import Throttle, banner
-from ..core.state import SafetyState, StopKind, StopPhase, StopPointState
+from ..core.events import (EV_BRIDGE_INFO, EV_MISSION_FINISHED, EV_MISSION_STARTED,
+                           EV_ARRIVED_STOP_POINT, EV_ROUTE_LOADED, EV_STOP_POINT_DONE,
+                           EV_WAYPOINT_REACHED, EventBus, Subscription)
+from ..core.logging import FaultGuard, Throttle, banner
+from ..core.state import DroneState, SafetyState, StopKind, StopPhase, StopPointState
 from ..core.task import TaskThread
 from ..io.contract import AimStatus, MissionPhase
 from ..pursuit.path import Path
 from ..route.model import Route, Waypoint
-from ..route.parser import parse_mission, parse_reset, parse_token
+from ..route.parser import detect_crossing, parse_mission, parse_reset, parse_token
+from ..route.validate import (CROSS_COLUMN, CROSS_LOWER_ROWS, CROSS_UPPER_ROWS,
+                              validate_route)
 from .tracker import PIVOT_DONE_KEY, TRACKER_CMD_KEY, PivotPhase
 
 __all__ = ["MissionTask", "MISSION_STATE_KEY", "plan_route_from_config", "resolve_map_path",
-           "PlanOutcome", "AutoPlanBlocked", "ROUTE_SOURCE_AUTO", "ROUTE_SOURCE_MANUAL"]
+           "PlanOutcome", "AutoPlanBlocked", "ROUTE_SOURCE_AUTO", "ROUTE_SOURCE_MANUAL",
+           # ★ 卡 t11：引擎开关 + 规划产物双门禁
+           "ENGINE_TOUR", "ENGINE_TRACKER_SAFE", "DEFAULT_PLAN_ENGINE", "PLAN_ENGINES",
+           "resolve_plan_engine", "plan_budget_seconds", "GateResult", "check_planned_route",
+           "route_check_script", "load_route_check_module",
+           # ★ 卡 t11：参考点偏移感知足迹（挡板/障碍/靶板顾问级诊断）
+           "FootprintReport", "footprint_diagnostic", "vehicle_geometry",
+           "FOOTPRINT_GATE_MODES", "DEFAULT_FOOTPRINT_GATE",
+           # ★ 卡 t6：无人机桥洞情报（EV_BRIDGE_INFO → 穿洞格）
+           "BRIDGE_HALVES", "BridgeIntel", "rewrite_crossing_tokens", "retag_block_token"]
 
 #: 遥测键：Mission 的当前上下文（停站点/航点/用时）
 MISSION_STATE_KEY = "mission_state"
@@ -99,6 +185,585 @@ ROUTE_SOURCE_COMMAND = "外部命令"
 DEFAULT_MAP_PATH = "config/map.yaml"
 _DEFAULT_PLAN_SECONDS = 2.0
 
+# --------------------------------------------------------------------------- #
+#  ★★ 卡 t11：规划引擎开关（`planner.engine`）+ 规划产物"双门禁"
+# --------------------------------------------------------------------------- #
+#  背景：t7 交付了 `route.planner.plan_route_tracker_safe()`（"真车能跟住"的新引擎，
+#  现役图 62 token / 21.35 m，追平手工 62 点），但它在车上**没有任何入口** ——
+#  只有 `tools/plan_route.py --engine tracker-safe` 手动跑。本卡把它接进车上入口，
+#  并且**默认零影响**：`planner.engine` 缺省 `tour` ⇒ 走的还是老引擎、同一条路线。
+#
+#  为什么 tracker-safe 要额外过"双门禁"才允许装车执行：
+#    t8 的教训是"门禁绿 ≠ 真车过得去"（纯追踪在顶点切角，折线口径看不见），
+#    但反过来"没门禁就上车"更危险（旧自动 65 点路线静态全绿、物理链漏压 3 个雷、
+#    还撞 D7）。所以新引擎的产物必须同时过 `tools/route_check.py`(0 error) 与
+#    `route.validate_route`(0 error/0 warn)，否则按 `fallback_to_tokens` 回退现役
+#    手工路线（回退 = 出车，不是停摆）。
+#  为什么 tour **不加**这道门禁：它的历史行为必须逐字节不变 —— 例：`test_autoplan`
+#    的 1.12「缺 mines 的图其实能解」就是被既有语义钉住的用例，给它加门禁会改变
+#    "什么算规划成功"的定义（那是另一张卡的事）。
+# --------------------------------------------------------------------------- #
+#: 历史引擎（`planner.plan_route`）：行为与 t7 之前逐字节一致
+ENGINE_TOUR = "tour"
+#: t7 新引擎（`planner.plan_route_tracker_safe`）：禁 180°/禁紧凑 U/雷直线穿心
+ENGINE_TRACKER_SAFE = "tracker-safe"
+DEFAULT_PLAN_ENGINE = ENGINE_TOUR
+PLAN_ENGINES = (ENGINE_TOUR, ENGINE_TRACKER_SAFE)
+#: 引擎名容错映射（现场手写配置的常见写法）；**不在这里的一律回退默认并告警**
+_ENGINE_ALIASES = {
+    "": ENGINE_TOUR, "tour": ENGINE_TOUR, "legacy": ENGINE_TOUR, "dijkstra": ENGINE_TOUR,
+    "tracker-safe": ENGINE_TRACKER_SAFE, "tracker_safe": ENGINE_TRACKER_SAFE,
+    "trackersafe": ENGINE_TRACKER_SAFE, "t7": ENGINE_TRACKER_SAFE,
+}
+#: 新引擎预算兜底（秒）：`planner.tracker_max_seconds` 缺省时用它；
+#: 运行时优先读 `planner.TS_MAX_SECONDS`（引擎自己才是预算的真源）。
+_FALLBACK_TRACKER_SECONDS = 5.0
+#: 用户侧权威门禁脚本的位置（相对配置文件目录的父目录 / 相对工作区）
+ROUTE_CHECK_REL = ("tools", "route_check.py")
+#: 足迹诊断的严重级：`warn`（默认，只报不拦）| `error`（硬拦：有侵入即不放行）
+FOOTPRINT_GATE_MODES = ("warn", "error")
+DEFAULT_FOOTPRINT_GATE = "warn"
+#: 足迹诊断的采样步长（米）：折线上按这个步长取点，yaw 取所在航段方向（保守折线口径）
+_FOOTPRINT_SAMPLE_M = 0.05
+
+# --------------------------------------------------------------------------- #
+#  ★★ 卡 t6 / t13：无人机桥洞情报（EV_BRIDGE_INFO 事件流 → 穿洞格；P_DRONE 只判链路）
+# --------------------------------------------------------------------------- #
+#: 两个半场（与 `tasks/drone.py` 的 `_BRIDGE_HALVES` 同名同义：lower=下半场 / upper=上半场）
+BRIDGE_HALVES: tuple[str, ...] = ("lower", "upper")
+#: `EV_BRIDGE_INFO` 订阅队列长度（★ 卡 t13）：情报是**低频**事件（每轮两半场各一条），
+#: 64 足够；真被灌满时 `Subscription.dropped` 会计数并进遥测 `bridge.events_dropped`，
+#: 不静默丢（"最后一条"语义下最坏结局也只是回落默认格，绝不卡死）。
+_BRIDGE_SUB_MAXSIZE = 64
+
+
+@dataclass(frozen=True)
+class BridgeIntel:
+    """一个半场的穿洞格"结论"（值 + 来源 + 证据），遥测与日志共用同一份口径。"""
+
+    half: str = "lower"
+    #: ★ 本次**采用**的穿洞格（采纳无人机情报或回落默认值，恒非空——除非配置里连默认都没有）
+    cell: str = ""
+    #: `route.cross_{half}_default`（回落目标；日志里用来对照"本来会走哪个洞"）
+    default: str = ""
+    #: 来源：`drone`（采纳情报）/ `default` / `stale` / `missing` / `offline` / `disabled`
+    #: / `no_link` / `rejected`（情报非法或不在候选集合）
+    source: str = "no_link"
+    #: 无人机原始报格（未采纳时留证据；采纳时与 `cell` 相同）
+    raw: str = ""
+    #: 人类可读的原因（日志/遥测/测试断言共用）
+    reason: str = ""
+    #: 情报年龄（秒，`now - bridge_ts`）；拿不到 = None
+    age_s: float | None = None
+
+    @property
+    def from_drone(self) -> bool:
+        """是否真的采纳了无人机情报（= 与"用默认格"不同的那条路径）。"""
+        return self.source == "drone"
+
+    def describe(self) -> str:
+        if self.from_drone:
+            age = "（ts 差未知）" if self.age_s is None else f"（新鲜度 {self.age_s:.2f}s）"
+            return f"{self.half} → {self.cell} ★无人机情报{age}；默认 {self.default}"
+        return f"{self.half} → {self.cell}（{self.source}：{self.reason}）"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"half": self.half, "cell": self.cell, "default": self.default,
+                "source": self.source, "raw": self.raw, "reason": self.reason,
+                "age_s": (None if self.age_s is None else round(self.age_s, 3)),
+                "from_drone": self.from_drone}
+
+
+def retag_block_token(token: str, old_block: str, new_block: str) -> str:
+    """把一个 token 里的格名换成新格名，**保留前后缀**（`K10*` → `K9*`、`R:K10` → `R:K9`）。
+
+    ★ 用词边界正则而不是 `str.replace`：`K1` 会命中 `K10` 的前缀 —— 那会把洞名改错位。
+    """
+    old = str(old_block).strip().upper()
+    new = str(new_block).strip().upper()
+    return re.sub(rf"(?<![A-Za-z0-9]){re.escape(old)}(?![0-9])", new, str(token))
+
+
+def _token_block(token: Any) -> str | None:
+    """token → 格名（解析失败返回 None，绝不抛）。"""
+    try:
+        block = str(parse_token(str(token))["block"]).strip().upper()
+    except Exception:                                    # noqa: BLE001  坏 token 由调用方拒
+        return None
+    return block or None
+
+
+def rewrite_crossing_tokens(tokens: Any, half: str, old_cell: str,
+                            new_cell: str) -> list[str] | None:
+    """把某个半场的穿洞**三连**（`L{r} K{r} J{r}` 形状）整体挪到新行。形状不符 → `None`。
+
+    为什么是"三连"而不是只换 K 列那一格：换洞 = 换**穿洞行**。只把 `K10` 改成 `K9` 会让
+    `L10 -> K9 -> J10` 变成两段 45° 斜切，`validate_route` 的 R009（斜切入洞上限 10°）
+    立刻报 error —— 那种"换了洞但过不去"的路线比不换更糟。所以进洞口/洞/出洞口必须同行。
+
+    只认**规划器生成的形状**（`_ts`/tour 引擎的产物都是这个形状）：
+      · 三连必须**同一行**，中间那格在 K 列，两侧是 K 列的**相邻列**（|Δ列| = 1）；
+      · 洞格在整条 token 列表里必须**只出现一次**（重复 = 路线自折叠，语义不明 → 拒）。
+    其余一律返回 `None`（手工怪形状交给调用方"原样不动"处理，宁可走默认洞）。
+    """
+    try:
+        items = [str(t) for t in tokens]
+    except TypeError:
+        return None
+    half = str(half).strip().lower()
+    if half not in BRIDGE_HALVES:
+        return None
+    old = str(old_cell).strip().upper()
+    new = str(new_cell).strip().upper()
+    if not old or not new or old == new:
+        return None
+    hits = [i for i, t in enumerate(items) if _token_block(t) == old]
+    if len(hits) != 1:
+        return None
+    i = hits[0]
+    if i == 0 or i + 1 >= len(items):
+        return None
+    try:
+        old_row, old_col = geo.block_to_index(old)
+        new_row = geo.block_to_index(new)[0]
+        k_col = geo.COL_LETTERS.index(CROSS_COLUMN)
+    except ValueError:
+        return None
+    if old_col != k_col:
+        return None
+    band = CROSS_LOWER_ROWS if half == "lower" else CROSS_UPPER_ROWS
+    if not (band[0] <= new_row + 1 <= band[1]):          # 新洞必须落在同一半场的行段里
+        return None
+    out = list(items)
+    for j in (i - 1, i, i + 1):
+        block = _token_block(out[j])
+        if block is None:
+            return None
+        try:
+            row, col = geo.block_to_index(block)
+        except ValueError:
+            return None
+        if row != old_row:                               # 三连必须同行（换洞 = 换行）
+            return None
+        if j != i and (col == k_col or abs(col - k_col) != 1):
+            return None                                  # 两侧必须是 K 列的邻格
+        out[j] = retag_block_token(out[j], block, geo.index_to_block(new_row, col))
+    return out
+
+
+def resolve_plan_engine(cfg: Any = None, log: Callable[[str], None] | None = None) -> str:
+    """`planner.engine` → 引擎名（`tour` / `tracker-safe`）。**永不抛异常**。
+
+    未知值（含打错键名/打错拼写）→ 回退 `DEFAULT_PLAN_ENGINE` 并**告警**：
+    宁可装上老引擎出车，也不能因为一个配置字符串写错就停在 IDLE。
+    """
+    if cfg is None:
+        return DEFAULT_PLAN_ENGINE
+    raw = cfg.get("planner.engine", DEFAULT_PLAN_ENGINE)
+    engine = _ENGINE_ALIASES.get(str(raw if raw is not None else "").strip().lower())
+    if engine is None:
+        if log is not None:
+            log(f"⚠️ planner.engine={raw!r} 不是已知引擎（{'/'.join(PLAN_ENGINES)}）"
+                f"→ 按默认 {DEFAULT_PLAN_ENGINE} 规划（键名拼错不该让车停摆）")
+        return DEFAULT_PLAN_ENGINE
+    return engine
+
+
+def plan_budget_seconds(cfg: Any, engine: str = DEFAULT_PLAN_ENGINE,
+                        log: Callable[[str], None] | None = None) -> float:
+    """按引擎解析规划时间预算（秒）。
+
+    · `tour` → `planner.max_seconds`（缺省 `_DEFAULT_PLAN_SECONDS`）—— **与历史同一行代码**；
+    · `tracker-safe` → `planner.tracker_max_seconds`（缺省 `planner.TS_MAX_SECONDS`）——
+      新引擎本机实测 1.59~1.67 s，共用 2.0 s 会踩 t8 那类 flake（见 robot.yaml 注释）。
+    """
+    try:
+        if engine == ENGINE_TRACKER_SAFE:
+            default = _FALLBACK_TRACKER_SECONDS
+            try:
+                from ..route import planner as PL
+                default = float(getattr(PL, "TS_MAX_SECONDS", default) or default)
+            except Exception:                        # noqa: BLE001  拿不到常量就用兜底
+                pass
+            return float(cfg.get("planner.tracker_max_seconds", default) or default)
+        return float(cfg.get("planner.max_seconds", _DEFAULT_PLAN_SECONDS)
+                     or _DEFAULT_PLAN_SECONDS)
+    except (TypeError, ValueError):
+        if log is not None:
+            log(f"⚠️ planner 时间预算不是数字 → 用默认（引擎 {engine}）")
+        return _FALLBACK_TRACKER_SECONDS if engine == ENGINE_TRACKER_SAFE else _DEFAULT_PLAN_SECONDS
+
+
+@dataclass
+class GateResult:
+    """规划产物的**双门禁**结果（`check_planned_route()` 的返回；本类只装证据、不抛异常）。"""
+
+    ok: bool = True
+    #: `tools/route_check.py` 是否真的跑到了（车端通常没部署它 → False，不算失败）
+    route_check_available: bool = False
+    #: route_check 退出码：0 = 无 error（有 warn 时也是 0，口径与它自己的 CLI 完全一致）
+    route_check_rc: int | None = None
+    route_check_errors: list[str] = field(default_factory=list)
+    route_check_warns: list[str] = field(default_factory=list)
+    #: ★ 卡 t11：双门禁结果
+    validate_errors: list[str] = field(default_factory=list)
+    validate_warns: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    #: ★ 卡 t11：偏移感知足迹诊断（折线口径，顾问级）
+    footprint: "FootprintReport | None" = None
+
+    @property
+    def checks(self) -> str:
+        rc = f"rc={self.route_check_rc}" if self.route_check_available else "不可用"
+        return (f"route_check {rc} / validate {len(self.validate_errors)} error, "
+                f"{len(self.validate_warns)} warn")
+
+    @property
+    def summary(self) -> str:
+        """一行结论（日志、遥测、测试断言共用同一份口径）。"""
+        if self.ok:
+            return f"门禁通过（{self.checks}）"
+        villains = ([f"validate: {e}" for e in self.validate_errors]
+                    + [f"validate(warn): {w}" for w in self.validate_warns]
+                    + [f"route_check: {e}" for e in self.route_check_errors])
+        if self.route_check_rc not in (None, 0):
+            villains.append(f"route_check 退出码 {self.route_check_rc}")
+        villains += list(self.notes)
+        return f"门禁未过（{self.checks}）：" + "；".join(villains[:6])
+
+
+def route_check_script(cfg: Any = None) -> pathlib.Path | None:
+    """定位 `tools/route_check.py`（配置文件目录的同级 → 工作区根）。找不到返回 `None`。"""
+    cands: list[pathlib.Path] = []
+    cdir = config_dir(cfg) if cfg is not None else None
+    if cdir is not None:
+        cands.append(cdir.parent.joinpath(*ROUTE_CHECK_REL))
+    cands.append(workspace_root().joinpath(*ROUTE_CHECK_REL))
+    for cand in cands:
+        if cand.is_file():
+            return cand
+    return None
+
+
+def load_route_check_module(cfg: Any = None) -> Any:
+    """把 `tools/route_check.py` 当模块加载（它刻意**不 import dzbrain**，是独立脚本）。
+
+    返回模块对象；找不到/加载失败 → `None`（调用方按"该门禁不可用"处理，绝不因此拒车）。
+    """
+    path = route_check_script(cfg)
+    if path is None:
+        return None
+    import importlib.util                                # 惰性导入：不用门禁时不付这个成本
+
+    try:
+        spec = importlib.util.spec_from_file_location("dzbrain_tools_route_check", str(path))
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:                                    # noqa: BLE001  车端未必有它的依赖
+        return None
+
+
+def _run_route_check(mod: Any, tokens: Any, map_cfg: Any,
+                     cfg: Any) -> tuple[int, list[str], list[str]]:
+    """在**本进程**里跑一次 route_check（等价 CLI：`--route "…" --config <robot.yaml>`）。
+
+    ★ 三个坑（都实测过）：
+      ① `route_check.FAIL/WARN/OK/INFO` 是**模块级、跨调用累积**的列表 —— 不复位会把上一次
+         的结论算进这一次；
+      ② 它自己按 `config/map.yaml` / `ROBOT_MAP` 找地图 —— 换了 `planner.map_path` 就会
+         校验**另一张图**。所以这里用本次规划真正用的那张图的要素**覆盖**它的几何输入；
+      ③ 它 `print()` 一大片人读报文 —— 输出重定向到内存，只把结论留给日志。
+    """
+    import contextlib
+    import io
+
+    for name in ("FAIL", "WARN", "OK", "INFO"):
+        lst = getattr(mod, name, None)
+        if isinstance(lst, list):
+            lst.clear()
+    src = str(getattr(cfg, "source", "") or "")
+    cfg_path = src if src and src not in ("<memory>", "<dict>") else ""
+    rcfg = (mod.load_cfg(cfg_path) if cfg_path
+            else {"obstacles": [], "mines": [], "targets": [], "bridges": []})
+    merged = map_cfg.get("map") if isinstance(map_cfg, dict) else None
+    geo_map = merged if isinstance(merged, dict) else (map_cfg if isinstance(map_cfg, dict) else {})
+    for key in ("mines", "obstacles", "targets", "bridges"):
+        if geo_map.get(key):
+            rcfg[key] = list(geo_map[key])
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = int(mod.run_check(" ".join(str(t) for t in tokens), rcfg))
+    return rc, [str(x) for x in (getattr(mod, "FAIL", None) or [])], \
+        [str(x) for x in (getattr(mod, "WARN", None) or [])]
+
+
+def check_planned_route(tokens: Any, map_cfg: Any, cfg: Any,
+                        log: Callable[[str], None] | None = None,
+                        route_check_module: Any = None) -> GateResult:
+    """规划产物**双门禁**：`validate_route`(0 error/0 warn) + `tools/route_check.py`(0 error)。
+
+    :param route_check_module: `None` = 自动查找并加载；`False` = 显式跳过（车端未部署/测试）；
+        也可以直接传一个已加载的模块（测试注入失败分支用）。
+    :returns: `GateResult`。**本函数永不抛异常** —— 任何内部错误都记进 `notes`，
+        并按"该门禁不可用"处理（绝不允许门禁自己把 Mission 线程炸掉）。
+
+    语义（卡 t11 第 4 条）：
+      · 任一 error（或 `validate_route` 的 warn）→ `ok=False` ⇒ 调用方**不得**执行这条路线；
+      · `tools/route_check.py` 找不到/加载失败 → **不算失败**（车端 `tools/` 不随包部署，
+        这是已知事实，`docs/部署清单` 里只有 3 个 tools 脚本），但 `notes` 里留痕；
+        此时门禁退化为"内包 `validate_route`"。决策依据：车端宁可少一道**用户侧**检查，
+        也不能因为缺一个开发脚本就拒绝自动规划（回退到手工路线仍是安全态）。
+    """
+    res = GateResult()
+    # ---- ① 内包 validate_route（纯函数、无 ROS、dzbrain 包内一定有） ----
+    try:
+        from ..route.parser import parse_mission
+        from ..route.validate import validate_route
+        route = parse_mission([str(t) for t in tokens], name="planner-gate")
+        for issue in validate_route(route, map_cfg=map_cfg, cfg=cfg):
+            bucket = (res.validate_errors if getattr(issue, "level", "") == "error"
+                      else res.validate_warns)
+            bucket.append(str(issue))
+    except Exception as exc:                             # noqa: BLE001
+        res.validate_errors.append(f"{type(exc).__name__}: {exc}")
+
+    # ---- ② tools/route_check.py（用户侧权威门禁；规则不复制第二份） ----
+    if route_check_module is False:
+        mod = None
+        skip_note = ("route_check 显式跳过（调用方传 route_check_module=False；"
+                     "车端不部署 tools/ 时等价）→ 本次只用内置 validate_route 门禁")
+    else:
+        mod = route_check_module if route_check_module is not None else load_route_check_module(cfg)
+        skip_note = ("route_check 不可用（未找到/加载失败 tools/route_check.py；"
+                     "车端不部署它）→ 本次只用内置 validate_route 门禁")
+    if mod is None:
+        res.notes.append(skip_note)
+        if log is not None:
+            log("⚠️ " + skip_note)
+    else:
+        try:
+            rc, errs, warns = _run_route_check(mod, tokens, map_cfg, cfg)
+            res.route_check_available = True
+            res.route_check_rc = rc
+            res.route_check_errors = errs
+            res.route_check_warns = warns
+        except Exception as exc:                         # noqa: BLE001
+            res.notes.append(f"route_check 执行异常（{type(exc).__name__}: {exc}）→ 该门禁忽略")
+
+    # ---- ③ 参考点偏移感知的足迹诊断（顾问级；`planner.footprint_gate: error` 才硬拦） ----
+    report = footprint_diagnostic(tokens, map_cfg, cfg)
+    res.footprint = report
+    if report.risks:
+        res.notes.append("足迹诊断：" + "；".join(report.risks[:4]))
+        if log is not None:
+            log("⚠️ " + report.summary)
+
+    res.ok = ((not res.validate_errors) and (not res.validate_warns)
+              and res.route_check_rc in (None, 0))
+    # ★ 足迹诊断的严重级由 `planner.footprint_gate` 决定（默认 warn = 只报不拦"现役风格"）。
+    mode = str(cfg.get("planner.footprint_gate", DEFAULT_FOOTPRINT_GATE)
+               or DEFAULT_FOOTPRINT_GATE).strip().lower()
+    if mode not in FOOTPRINT_GATE_MODES:
+        mode = DEFAULT_FOOTPRINT_GATE
+    if report.risks and mode == "error":
+        res.ok = False
+    return res
+
+
+@dataclass
+class FootprintReport:
+    """**参考点偏移感知**的车体足迹诊断（折线口径；顾问级：默认只报不拦）。
+
+    ★ 为什么是"顾问级"而不是硬门禁：折线口径看不到纯追踪的**拐角切内**，而它按
+      "航段方向"给 yaw —— 在 `J8→J7→I7` 这种"垂直进、水平出"的拐角上，它会把
+      "车头正对挡板"那一瞬间算进去（保守 ~5 cm），而真值轨迹里车到那一点时 yaw 已经
+      转到 ~45°（实测侵入只有 5 mm 级）。所以本报告用来**暴露风险**，授权判据仍是
+      `route_check` + `validate_route`（真值轨迹级结论见 `_tmp_session/t11/`）。
+    """
+
+    offset_m: float = 0.0
+    samples: int = 0
+    min_barrier_m: float = float("inf")
+    min_barrier_where: str = ""
+    min_obstacle_m: float = float("inf")
+    min_obstacle_where: str = ""
+    min_target_m: float = float("inf")
+    min_target_where: str = ""
+    risks: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return not self.risks
+
+    @property
+    def summary(self) -> str:
+        if not self.samples:
+            return "足迹诊断：未采样（路线为空）"
+        text = (f"足迹诊断（offset {self.offset_m:+.3f} m / {self.samples} 采样 / "
+                f"**折线口径=保守上界**）：挡板 {self.min_barrier_m:+.4f}")
+        if math.isfinite(self.min_obstacle_m):
+            text += f" / 障碍 {self.min_obstacle_m:+.4f}（{self.min_obstacle_where}）"
+        if math.isfinite(self.min_target_m):
+            text += f" / 靶板 {self.min_target_m:+.4f}（{self.min_target_where}）"
+        text += " m（真值轨迹级复核见 sim/离线足迹链；折线口径会高估侵入）"
+        return text + ("；⚠️ " + "；".join(self.risks) if self.risks else "；✅ 无侵入")
+
+
+def vehicle_geometry(cfg: Any) -> dict[str, float]:
+    """`vehicle.*` 三个尺寸 + **参考点偏移**（读不到就退 SCHEMA 默认，绝不抛异常）。
+
+    ★ 键路径口径（t11 实测的坑，必须写明）：尺寸/偏移的真源写在
+      `config/robot.yaml` 的 **`/dzactuator: ros__parameters: vehicle:`** 段里
+      （与 `length_m`/`width_m` 同一个段），`Config._flatten()` 之后是
+      **`dzactuator.vehicle.*`**；而 `SCHEMA` 里的规范名是 `vehicle.*`。
+      所以这里**先读带段前缀的真源键，再退规范名**：
+      `cfg.get("vehicle.length_m", 0.28)` 这类写法（带非 None 默认值）在键不在 `_flat` 里时
+      会**直接返回默认值**、看不到 YAML 的改动 —— 现场量了新尺寸却读不到，是最坏的一类 bug。
+    """
+
+    def _f(keys: tuple[str, ...], fallback: float) -> float:
+        for key in keys:
+            try:
+                val = cfg.get(key)
+            except Exception:                            # noqa: BLE001  配置缺失/关键键报错
+                continue
+            if val is None:
+                continue
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                continue
+        return fallback
+
+    return {
+        "length_m": _f(("dzactuator.vehicle.length_m", "vehicle.length_m"), 0.28),
+        "width_m": _f(("dzactuator.vehicle.width_m", "vehicle.width_m"), 0.135),
+        "offset_m": _f(("dzactuator.vehicle.ref_offset_m", "vehicle.ref_offset_m"), 0.0),
+    }
+
+
+def _map_geometry(map_cfg: Any) -> dict:
+    """兼容 `{'map': {...}}` 与扁平两种地图写法，返回要素字典。"""
+    merged = map_cfg.get("map") if isinstance(map_cfg, dict) else None
+    return merged if isinstance(merged, dict) else (map_cfg if isinstance(map_cfg, dict) else {})
+
+
+def _merged_target_rect(geo_map: dict) -> tuple[float, float, float, float] | None:
+    """跨格靶板的**合并矩形**（心 + 两半边长）—— 现场口径：一块 35×70 板，不是两格。"""
+    cells = [str(c) for c in (geo_map.get("targets") or [])]
+    if not cells:
+        return None
+    try:
+        pts = [geo.block_to_meters(c) for c in cells]
+    except ValueError:
+        return None
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    hx = (max(xs) - min(xs)) / 2.0 + geo.BLOCK_SIZE / 2.0
+    hy = (max(ys) - min(ys)) / 2.0 + geo.BLOCK_SIZE / 2.0
+    return ((max(xs) + min(xs)) / 2.0, (max(ys) + min(ys)) / 2.0, hx, hy)
+
+
+def footprint_diagnostic(tokens: Any, map_cfg: Any, cfg: Any) -> FootprintReport:
+    """折线口径的**偏移感知**足迹诊断（挡板 / 障碍 / 靶板三类实体）。**永不抛异常**。
+
+    采样：沿相邻航点连线按 `_FOOTPRINT_SAMPLE_M` 步长取点，`yaw` = 该航段方向；
+    再对每个航点用"进/出航段方向"各采一次（等价覆盖折线拐角的两端状态）。
+    """
+    from ..route import physics as ph                       # 惰性导入：不跑诊断就不付成本
+
+    rep = FootprintReport()
+    body = vehicle_geometry(cfg)
+    rep.offset_m = body["offset_m"]
+    geo_map = _map_geometry(map_cfg)
+    try:
+        route = parse_mission([str(t) for t in tokens], name="footprint")
+    except Exception as exc:                                # noqa: BLE001
+        rep.risks.append(f"足迹诊断无法解析路线（{type(exc).__name__}: {exc}）")
+        return rep
+    wps = list(route.waypoints)
+    if len(wps) < 2:
+        return rep
+
+    # ---- 场地实体的物理形状（与 sim/route_check 同源公式） ----
+    try:
+        bar_x, bar_y0, bar_y1 = ph.barrier_centerline(
+            col_from=str(geo_map.get("barrier_col_from") or "D"),
+            col_to=str(geo_map.get("barrier_col_to") or "N"),
+            row_hi=int(geo_map.get("barrier_row_hi") or 6),
+            row_lo=int(geo_map.get("barrier_row_lo") or 7))
+        barrier_w = float(cfg.get("field.barrier_width_m", 0.02) or 0.02)
+    except (TypeError, ValueError):
+        bar_x, bar_y0, bar_y1, barrier_w = 1.75, 0.0, 3.85, 0.02
+    barrier_poly = ph.corner_poly(bar_x, (bar_y0 + bar_y1) / 2.0,
+                                  barrier_w / 2.0, (bar_y1 - bar_y0) / 2.0)
+    obs = []
+    for cell in (geo_map.get("obstacles") or []):
+        try:
+            ox, oy = geo.block_to_meters(str(cell))
+        except ValueError:
+            continue
+        obs.append((str(cell), ox, oy))
+    obs_r = float(cfg.get("field.obstacle_radius_m", 0.1275) or 0.1275)
+    target_rect = _merged_target_rect(geo_map)
+
+    def _state(px: float, py: float, yaw: float, where: str) -> None:
+        rep.samples += 1
+        poly = ph.body_corners(px, py, yaw, length_m=body["length_m"],
+                               width_m=body["width_m"], offset_m=body["offset_m"])
+        depth = ph.polygon_overlap_depth(poly, barrier_poly)
+        gap = 0.0 if depth > 0 else ph.polygon_distance_m(poly, barrier_poly)
+        if gap - 1e-12 < rep.min_barrier_m:
+            rep.min_barrier_m = gap
+            rep.min_barrier_where = where
+        if depth > 0.0:
+            rep.risks.append(f"车体侵入挡板 {depth * 1000:.1f} mm @ {where}"
+                             f"（yaw {math.degrees(yaw):.0f}°）")
+        for name, ox, oy in obs:
+            gap_i = ph.body_obstacle_clearance_m(
+                px, py, yaw, ox, oy, obstacle_radius_m=obs_r,
+                length_m=body["length_m"], width_m=body["width_m"],
+                offset_m=body["offset_m"])
+            if gap_i < rep.min_obstacle_m:
+                rep.min_obstacle_m = gap_i
+                rep.min_obstacle_where = name
+            if gap_i <= 0.0:
+                rep.risks.append(f"车体侵入障碍 {name}（{-gap_i * 1000:.1f} mm）@ {where}")
+        if target_rect is not None:
+            tc, ty, hx, hy = target_rect
+            tpoly = ph.corner_poly(tc, ty, hx, hy)
+            td = ph.polygon_overlap_depth(poly, tpoly)
+            tg = 0.0 if td > 0 else ph.polygon_distance_m(poly, tpoly)
+            if tg - 1e-12 < rep.min_target_m:
+                rep.min_target_m = tg
+                rep.min_target_where = where
+            if td > 0.0:
+                rep.risks.append(f"车体侵入靶板 {td * 1000:.1f} mm @ {where}")
+
+    for i in range(len(wps) - 1):
+        a, b = wps[i], wps[i + 1]
+        dx, dy = b.x - a.x, b.y - a.y
+        dist = math.hypot(dx, dy)
+        if dist <= 1e-9:
+            continue
+        yaw = math.atan2(dy, dx)
+        n = max(1, int(dist / _FOOTPRINT_SAMPLE_M))
+        for k in range(n + 1):
+            u = k / float(n)
+            _state(a.x + u * dx, a.y + u * dy, yaw,
+                   f"{a.block}->{b.block} t={u:.2f}")
+    # 拐角两端：进/出航段方向各算一次（折线口径的保守补扫）
+    for i in range(1, len(wps) - 1):
+        p, q, r = wps[i - 1], wps[i], wps[i + 1]
+        for (src, tag) in ((p, "进"), (r, "出")):
+            dx, dy = src.x - q.x, src.y - q.y
+            if abs(dx) > 1e-9 or abs(dy) > 1e-9:
+                _state(q.x, q.y, math.atan2(-dy, -dx), f"{q.block}拐角({tag})")
+    return rep
+
 
 class AutoPlanBlocked(RuntimeError):
     """`planner.fallback_to_tokens=false` 且规划失败 —— 停在 IDLE，**绝不**带病出车。"""
@@ -117,6 +782,18 @@ class PlanOutcome:
     route_len_m: float = 0.0
     reverse_segments: int = 0
     cost: float = 0.0
+    #: ★ 卡 t11：这次用的引擎（`tour` / `tracker-safe`）
+    engine: str = DEFAULT_PLAN_ENGINE
+    #: ★ 卡 t11：双门禁结论（只有 `tracker-safe` 会跑门禁；tour 恒为"未跑 = True"）
+    gate_ok: bool = True
+    gate_detail: str = ""
+    #: ★ 卡 t11：参考点偏移感知的足迹诊断（一行结论；折线口径，顾问级）
+    footprint: str = ""
+    #: ★ 卡 t11：足迹诊断是否有侵入（决定 `planner.footprint_gate: error` 时是否硬拦）
+    footprint_ok: bool = True
+    #: ★ 卡 t6：本次**实际采用**的穿洞格（来自 `PlanResult.crossing`；失败时为空）
+    cross_lower: str = ""
+    cross_upper: str = ""
 
     @property
     def source(self) -> str:
@@ -125,6 +802,14 @@ class PlanOutcome:
     @property
     def mode(self) -> str:
         return "允许倒车" if self.allow_reverse else "无倒车"
+
+    @property
+    def engine_line(self) -> str:
+        """日志/横幅用的引擎行（含门禁结论，缺省引擎不额外占字）。"""
+        text = f"引擎 {self.engine}"
+        if self.engine != DEFAULT_PLAN_ENGINE:
+            text += f"（门禁{'✅通过' if self.gate_ok else '❌未过'}：{self.gate_detail}）"
+        return text
 
 
 def workspace_root() -> pathlib.Path:
@@ -182,22 +867,42 @@ def _read_map_yaml(path: pathlib.Path) -> dict:
 
 
 def plan_route_from_config(cfg: Any, *, map_path: str | None = None,
-                           log: Callable[[str], None] | None = None) -> PlanOutcome:
+                           log: Callable[[str], None] | None = None,
+                           cross_lower: str | None = None,
+                           cross_upper: str | None = None) -> PlanOutcome:
     """按 `planner.*` 配置规划一条路线 —— **永不抛异常**（失败 → `ok=False` + `error`）。
 
     调用契约（与任务卡 A 冻结的规划器 API 一致，本文件**只消费不修改** `route/`）：
         `plan_route(map_cfg, cfg, allow_reverse=bool, max_seconds=float, source=str) -> PlanResult`
+        `plan_route_tracker_safe(map_cfg, cfg, *, max_seconds=float, source=str) -> PlanResult`
         `PlanResult.tokens: list[str]` / `.elapsed_ms: float` —— 失败抛 `PlannerError`。
+
+    :param cross_lower: ★卡 t6：下半场穿洞格（**新鲜无人机情报**），`None` = 用
+        `route.cross_lower_default`（与接线前逐字节一致）。规划器自己会校验"是否在候选集合"
+        并抛 `PlannerError`；调用方（MissionTask）**先做一次候选校验**，绝不会把坏格喂进来。
+    :param cross_upper: 同上，上半场。
+
+    ★ 卡 t11 引擎开关（`planner.engine`，默认 `tour`）：
+      · `tour`（缺省）→ `plan_route(...)` + `planner.max_seconds`：**与历史逐字节一致**；
+      · `tracker-safe` → `plan_route_tracker_safe(...)` + `planner.tracker_max_seconds`，
+        且产物**必须过双门禁**（`tools/route_check.py` 0 error + `validate_route` 0-0），
+        否则本次返回 `ok=False`（调用方按 `fallback_to_tokens` 回退现役路线）。
 
     ★ 宽捕获 `Exception`：任何规划器内部错误都必须变成"可回退的失败"，
       绝不允许把 MissionTask 一起炸掉（宁可漏规划，不可卡死）。
     """
+    engine = resolve_plan_engine(cfg, log)
     want_reverse = bool(cfg.get("planner.allow_reverse", False))
+    # ★ 卡 t6：只在"真的采纳了情报"时把格透传下去；`None` 走的还是规划器自己的默认路径。
+    want_lower = str(cross_lower or "").strip().upper() or None
+    want_upper = str(cross_upper or "").strip().upper() or None
     try:
         budget = float(cfg.get("planner.max_seconds", _DEFAULT_PLAN_SECONDS)
                        or _DEFAULT_PLAN_SECONDS)
     except (TypeError, ValueError):
         budget = _DEFAULT_PLAN_SECONDS
+    if engine != DEFAULT_PLAN_ENGINE:
+        budget = plan_budget_seconds(cfg, engine, log)     # 新引擎预算独立（见 robot.yaml）
     try:
         pivot_penalty = float(cfg.get("planner.pivot_penalty", 0.0) or 0.0)
     except (TypeError, ValueError):
@@ -205,29 +910,70 @@ def plan_route_from_config(cfg: Any, *, map_path: str | None = None,
     path = resolve_map_path(cfg, map_path if map_path is not None
                             else cfg.get("planner.map_path"))
     map_text = str(path)
+    gate = GateResult()
+    gate_ran = False                     # 只有 tracker-safe 会跑门禁（tour 保持历史行为）
     try:
         raw = _read_map_yaml(path)
         from ..route import planner as PL          # ★ 惰性导入：无规划器时也能 import 本模块
-        res = PL.plan_route(raw, cfg, allow_reverse=want_reverse,
-                            pivot_penalty=pivot_penalty,
-                            max_seconds=budget, source=map_text)
+        if engine == ENGINE_TRACKER_SAFE:
+            res = PL.plan_route_tracker_safe(raw, cfg, cross_lower=want_lower,
+                                             cross_upper=want_upper,
+                                             max_seconds=budget, source=map_text)
+        else:
+            res = PL.plan_route(raw, cfg, cross_lower=want_lower, cross_upper=want_upper,
+                                allow_reverse=want_reverse,
+                                pivot_penalty=pivot_penalty,
+                                max_seconds=budget, source=map_text)
         tokens = [str(t) for t in (res.tokens or [])]
         if not tokens:
             raise ValueError("规划器返回了空 token 列表")
+        crossing = dict(getattr(res, "crossing", None) or {})
+        if want_lower or want_upper:
+            if log is not None:
+                log(f"穿洞格（无人机情报）：下半场 {want_lower or '（默认）'} / "
+                    f"上半场 {want_upper or '（默认）'} → 规划产物 crossing={crossing}")
+        gate_detail = f"缺省引擎 {DEFAULT_PLAN_ENGINE} 不跑门禁（历史行为逐字节不变）"
+        footprint_text = ""
+        footprint_ok = True
+        if engine == ENGINE_TRACKER_SAFE:
+            gate = check_planned_route(tokens, raw, cfg, log=log)
+            gate_ran = True
+            gate_detail = gate.summary
+            if log is not None:
+                log(f"规划门禁[{engine}]：{gate_detail}")
+            if not gate.ok:
+                raise ValueError(f"新引擎 {engine} 产出未过门禁：{gate_detail}")
+        # ★ 足迹诊断对**两种引擎**都算（tour 也报，但只作顾问；`--plan-only` 同源可见）：
+        #   现场卷尺实测的 +7.5 cm 参考点偏移一旦计入，挡板余量就是报告的核心读数。
+        fp = (gate.footprint if (engine == ENGINE_TRACKER_SAFE and gate.footprint is not None)
+              else footprint_diagnostic(tokens, raw, cfg))
+        if fp is not None:
+            footprint_text = fp.summary
+            footprint_ok = fp.ok
+            if log is not None:
+                log(("⚠️ " if not fp.ok else "") + footprint_text)
         return PlanOutcome(
             ok=True, tokens=tokens, elapsed_ms=float(getattr(res, "elapsed_ms", 0.0) or 0.0),
             error="", map_path=map_text, allow_reverse=want_reverse,
             route_len_m=float(getattr(res, "polyline_m", 0.0) or 0.0),
             reverse_segments=int(getattr(res, "reverse_segments", 0) or 0),
             cost=float(getattr(res, "cost", 0.0) or 0.0),
+            engine=engine, gate_ok=gate.ok, gate_detail=gate_detail,
+            footprint=footprint_text, footprint_ok=footprint_ok,
+            cross_lower=str(crossing.get("lower") or ""),
+            cross_upper=str(crossing.get("upper") or ""),
         )
     except Exception as exc:                       # noqa: BLE001  ★ 规划失败一律回退，不崩
         msg = f"{type(exc).__name__}: {exc}"
         if log is not None:
-            log(f"规划失败（将按 fallback_to_tokens 处理）：map={map_text} "
-                f"预算 {budget:g}s {msg}")
+            log(f"规划失败（将按 fallback_to_tokens 处理）：map={map_text} 引擎 {engine} "
+                f"预算 {budget:g}s 穿洞(下/上)={want_lower or '默认'}/{want_upper or '默认'} {msg}")
+        # ★ 门禁真的跑过且没过时，把证据留在遥测里（`gate_ok=False` + 报文）；
+        #   其它失败（坏图/超时）门禁根本没跑到 ⇒ `gate_ok` 保持 True + detail 为空。
         return PlanOutcome(ok=False, tokens=[], elapsed_ms=0.0, error=msg,
-                           map_path=map_text, allow_reverse=want_reverse)
+                           map_path=map_text, allow_reverse=want_reverse, engine=engine,
+                           gate_ok=(gate.ok if gate_ran else True),
+                           gate_detail=(gate.summary if gate_ran else ""))
 
 
 #: 只有这些阶段允许"发车/推进"（★ 白名单：未知阶段一律不动）
@@ -281,6 +1027,18 @@ class MissionTask(TaskThread):
         self._auto_start_delay_s = float(cfg.get("mission.auto_start_delay_s") or 0.0)
         self._reset_spec = str(cfg.get("mission.reset") or "")
         self._scan_mode = str(cfg.get("mission.scan_mode") or "").strip().lower()
+        # ---- ★★ 卡 t24：云台扫描**单写者**铁律（与 AimTask 的 t13 锁止配套）----
+        #  为什么 Mission 必须放权（run11 日志实证的顺序）：
+        #      云台锁止 scan_request=0（阶段=None）
+        #   →  mission「扫描模式 continuous（continuous → scan_request=2）」
+        #   →  云台起转搜索（最佳射击点 F4）
+        #  即：Mission 在**巡迹全程**用 2 压住了 Aim 的 0；而 C++ 侧 `scan_request` 是
+        #  **电平保持**语义，Aim 又有 `_gimbal_cmd` 去重（值没变就不再重发 0）
+        #  ⇒ 云台实际一直在转 —— 正是用户要杜绝的形态（t13 死灰复燃的洞）。
+        #  因此：`aim.gimbal_lock_enabled=true`（默认）时，**Mission 一个值都不发**
+        #  （路线就绪的 2、FINISH 的 0 全部交给 Aim 按 P_STOP_POINT/阶段决定）；
+        #  只有显式 `aim.gimbal_lock_enabled=false`（旧行为/对照档）时，Mission 才照旧发。
+        self._gimbal_lock_enabled = bool(cfg.get("aim.gimbal_lock_enabled", True))
         self._shots_per_stop = int(cfg.get("mission.shots_per_stop", 3) or 3)
         self._settle_time_s = float(cfg.get("mission.settle_time_s", 0.8))
         self._settle_eps_m = float(cfg.get("mission.settle_eps_m", 0.02))
@@ -288,6 +1046,18 @@ class MissionTask(TaskThread):
         self._lock_timeout_s = float(cfg.get("mission.lock_timeout_s", 18.0))
         self._shot_timeout_s = float(cfg.get("mission.shot_timeout_s", 30.0))
         self._scan_stop_timeout_s = float(cfg.get("mission.scan_stop_timeout_s", 8.0))
+        # ★★ t26（2026-10-11 用户指令 4）：**到站级硬死线**（秒）—— 自"到站那一刻"起累计超过它
+        #   就强制离站（0 发也一样），口径 = "最佳射击点停留最长 30s"。
+        #   为什么必须单独有一条：三段式各自超时是**按段**计时的（SETTLE 0.4×30=12s +
+        #   ACQUIRE 6s + FIRE 30s = 最长 48s），与用户口径"到站起 30s"不符；"0 发"时旧实现
+        #   要等完三段才放行。真源沿用 `mission.shoot_timeout_s`（现场 30.0，本卡不动它），
+        #   另给一个可选覆盖键 `mission.stop_deadline_s`（未写入 robot.yaml，避免两个同义键）。
+        try:
+            self._stop_deadline_s = float(cfg.get("mission.stop_deadline_s",
+                                                  self._shot_timeout_s)
+                                          or self._shot_timeout_s)
+        except (TypeError, ValueError):
+            self._stop_deadline_s = self._shot_timeout_s
         self._settle_grace_s = max(0.4 * self._shot_timeout_s, 1.0)     # ★ 旧版 0.4×SHOOT_TIMEOUT
         self._arrival_m = float(cfg.get("pursuit.arrival_m"))
         self._stop_radius_m = float(cfg.get("pursuit.stop_radius_m"))
@@ -307,6 +1077,50 @@ class MissionTask(TaskThread):
                                               or _DEFAULT_PLAN_SECONDS)
         except (TypeError, ValueError):
             self._planner_max_seconds = _DEFAULT_PLAN_SECONDS
+        # ★ 卡 t11：引擎开关（缺省 `tour` ⇒ 与历史逐字节一致）。这里只**读**一次；
+        #   真正的分派与门禁在 `plan_route_from_config()`（与 `--plan-only` 共用同一段代码）。
+        self._planner_engine = resolve_plan_engine(cfg, self._log)
+        #: 本次实际用的时间预算（tour=`planner.max_seconds`；tracker-safe=`planner.tracker_max_seconds`）
+        self._planner_budget_s = plan_budget_seconds(cfg, self._planner_engine, self._log)
+
+        # ---- ★★ 卡 t6：无人机桥洞情报（EV_BRIDGE_INFO / P_DRONE → 穿洞格）----
+        #   配置（`drone.*` / `mission.bridge_info_wait_s` / `route.cross_*` 都已在 SCHEMA 里）
+        self._drone_link_enabled = bool(cfg.get("drone.enabled", True))
+        try:
+            self._drone_info_stale_s = float(cfg.get("drone.info_stale_s") or 30.0)
+        except (TypeError, ValueError):
+            self._drone_info_stale_s = 30.0
+        try:
+            self._bridge_wait_s = max(0.0, float(cfg.get("mission.bridge_info_wait_s") or 0.0))
+        except (TypeError, ValueError):
+            self._bridge_wait_s = 0.0
+        #: 两个半场的**兜底**穿洞格（`route.cross_{half}_default`；缺键取 SCHEMA 默认）
+        self._cross_default: dict[str, str] = {}
+        for _half in BRIDGE_HALVES:
+            self._cross_default[_half] = str(cfg.get(f"route.cross_{_half}_default")
+                                             or "").strip().upper()
+        #: 最近一次（每拍刷新）的情报结论：half → `BridgeIntel`
+        self._intel: dict[str, BridgeIntel] = {}
+        #: ★ 卡 t13：按半场存**原始情报**（half → (格, 该条情报的 ts)），真源 = `EV_BRIDGE_INFO`。
+        #:   两半场各占一个键 ⇒ 后到的 `upper` 事件**顶不掉**先到的 `lower` 记录
+        #:   （t6 第一版读 `P_DRONE` 单槽时，覆盖式赋值会让另一半天永久丢失 —— t4 的 D3）
+        self._intel_seen: dict[str, tuple[str, float]] = {}
+        #: `EV_BRIDGE_INFO` 订阅句柄（惰性创建；`setup()` 里先建好，遥测也能看到队列状态）
+        self._bridge_sub: Subscription | None = None
+        #: 已消费的情报事件条数（遥测 `bridge.events`；现场排"情报到底到没到"看它）
+        self._intel_events = 0
+        #: 本局**实际装进执行路线**的穿洞格（路线载入即冻结；晚到的情报不再改它）
+        self._intel_used: dict[str, str] = {}
+        #: 等待窗口/换洞决策的证据（遥测 `bridge.note`）
+        self._intel_note: dict[str, Any] = {}
+        self._intel_wait_started: float | None = None
+        self._intel_waited_s: float | None = None
+        self._intel_guard = FaultGuard()             # 一次性日志（进/出等待窗口）
+        self._intel_warn = Throttle(self._rate_limit_s)
+        #: 候选集合 / 本地地图 只算一次的缓存（每拍刷新情报要用，不能每拍读文件）
+        self._pool_cache: dict[str, tuple[str, ...]] = {}
+        self._map_cfg_cache: dict | None = None
+        self._map_cfg_tried = False
 
         # ---- 任务态 ----
         self._created_at = self._clock()
@@ -426,6 +1240,8 @@ class MissionTask(TaskThread):
             "plan": dict(self._plan_info),
             # ★逐点到达台账（卡 D finding D1）：`unexplained` 恒为 0 才叫"无静默丢点"
             "accounting": self.accounting(),
+            # ★卡 t6：无人机桥洞情报（实时结论 + 本局**冻结**的实际用格）
+            "bridge": self.bridge_state(),
         }
 
     def accounting(self) -> dict[str, Any]:
@@ -471,14 +1287,437 @@ class MissionTask(TaskThread):
                 for i, v in enumerate(self._min_dist)}
 
     # ------------------------------------------------------------------ #
+    #  ★ 卡 t6 / t13：无人机桥洞情报（EV_BRIDGE_INFO 事件流 → 穿洞格；P_DRONE 只判链路）
+    # ------------------------------------------------------------------ #
+    def bridge_state(self) -> dict[str, Any]:
+        """桥洞情报的遥测快照（`state()["bridge"]`；现场不翻日志也能看到结论与来源）。"""
+        return {
+            "enabled": self._drone_link_enabled,
+            "stale_s": self._drone_info_stale_s,
+            "wait_s": self._bridge_wait_s,
+            "waited_s": (None if self._intel_waited_s is None
+                         else round(self._intel_waited_s, 3)),
+            "link": self._drone_state() is not None,
+            # ★ 卡 t13：情报通道的证据（订阅在听 + 已消费条数 + 队列溢出计数）
+            "subscribed": self._bridge_sub is not None,
+            "events": self._intel_events,
+            "events_dropped": (self._bridge_sub.dropped if self._bridge_sub is not None else 0),
+            # 每拍刷新的**实时**结论（发车后晚到的情报在这里可见）
+            "lower": self._intel.get("lower", BridgeIntel("lower")).as_dict(),
+            "upper": self._intel.get("upper", BridgeIntel("upper")).as_dict(),
+            # 本局实际装进执行路线的格（路线载入即冻结）
+            "used": dict(self._intel_used),
+            # ★ 按半场存的原始情报（格 + 该条情报自己的 ts）：真源是 `EV_BRIDGE_INFO` 事件流
+            #   （每条自带 half，**不受 `P_DRONE` 单槽覆盖式赋值影响**）—— 现场排"情报到没到"看它
+            "seen": {half: {"cell": cell, "ts": round(ts, 3)}
+                     for half, (cell, ts) in sorted(self._intel_seen.items())},
+            "note": dict(self._intel_note),
+        }
+
+    def _drone_state(self) -> Any:
+        """读 `P_DRONE`（`DroneState`）；缺失/异常 → `None`（= 车侧没有无人机链路）。"""
+        try:
+            state = self.bb.get(P_DRONE)
+        except Exception:                                # noqa: BLE001  黑盒读失败不该杀任务
+            return None
+        if state is None:
+            return None
+        # 只要"看起来像 DroneState"就接受（测试替身/gzip 后的旧版都兼容）
+        if isinstance(state, DroneState):
+            return state
+        if all(hasattr(state, attr) for attr in ("bridge_block", "bridge_half", "bridge_ts")):
+            return state
+        return None
+
+    def _intel_map_cfg(self) -> dict | None:
+        """本地地图（候选集合的真源之一）；**只读一次**并缓存，读不到 → `None`。
+
+        为什么缓存：情报每拍刷新，而这里会走文件 I/O —— 10 Hz 每拍读 YAML 是不可接受的。
+        地图内容在任务生命周期内不变（进程内只读），缓存是安全的。
+        """
+        if not self._map_cfg_tried:
+            self._map_cfg_tried = True
+            try:
+                path = resolve_map_path(self.cfg, self._planner_map_path)
+                self._map_cfg_cache = _read_map_yaml(path)
+            except Exception as exc:                     # noqa: BLE001  地图不可用不该杀任务
+                self._map_cfg_cache = None
+                if self._intel_warn.allow("map_missing", self._clock()):
+                    self._log(f"⚠️ 桥洞情报：本地地图不可用（{type(exc).__name__}: {exc}）"
+                              f"→ 候选校验只按 route.cross_*_candidates，手动换洞一律不做")
+        return self._map_cfg_cache
+
+    def _map_bridges(self) -> tuple[str, ...]:
+        """`map.bridges` 的 K 列格（读不到地图 = 空）。"""
+        geo_map = _map_geometry(self._intel_map_cfg())
+        out: list[str] = []
+        for cell in (geo_map.get("bridges") or []):
+            text = str(cell).strip().upper()
+            try:
+                row_idx, col_idx = geo.block_to_index(text)
+            except ValueError:
+                continue
+            if col_idx == geo.COL_LETTERS.index(CROSS_COLUMN):
+                out.append(text)
+        return tuple(sorted(set(out)))
+
+    def _half_candidates(self, half: str) -> tuple[str, ...]:
+        """`route.cross_{half}_candidates` 收窄到"K 列 + 本半场行段"。"""
+        band = CROSS_LOWER_ROWS if half == "lower" else CROSS_UPPER_ROWS
+        raw = self.cfg.get(f"route.cross_{half}_candidates")
+        out: list[str] = []
+        for cell in (raw if isinstance(raw, (list, tuple)) else []):
+            text = str(cell).strip().upper()
+            try:
+                row_idx, col_idx = geo.block_to_index(text)
+            except ValueError:
+                continue
+            if col_idx == geo.COL_LETTERS.index(CROSS_COLUMN) and band[0] <= row_idx + 1 <= band[1]:
+                out.append(text)
+        return tuple(sorted(set(out)))
+
+    def _bridge_pool(self, half: str) -> tuple[str, ...]:
+        """某半场的合法穿洞格集合 —— 与 `planner._cross_pools` **同口径**（结果缓存）。
+
+        口径：`route.cross_{half}_candidates` 与 `map.bridges` **都非空时取交集**，
+        否则取非空的那个；两边都空 → 退成"整段 K 列"（规划器也是这么兜的）。
+        为什么必须一模一样：这里放行的格会被喂给规划器，口径更松就会撞上规划器的
+        `PlannerError`（`fallback_to_tokens=false` 时直接把车停在 IDLE）。
+        """
+        if half in self._pool_cache:
+            return self._pool_cache[half]
+        cands = self._half_candidates(half)
+        band = CROSS_LOWER_ROWS if half == "lower" else CROSS_UPPER_ROWS
+        bridges = tuple(c for c in self._map_bridges()
+                        if band[0] <= geo.block_to_index(c)[0] + 1 <= band[1])
+        pool = tuple(sorted(set(cands) & set(bridges))) if (cands and bridges) else (cands or bridges)
+        if not pool:
+            pool = tuple(f"{CROSS_COLUMN}{r}" for r in range(band[0], band[1] + 1))
+        self._pool_cache[half] = pool
+        return pool
+
+    def _intel_cell_ok(self, half: str, cell: str) -> tuple[bool, str]:
+        """无人机报的格是否可用（列 → 半场行段 → 候选集合，三道全过才算）。"""
+        text = str(cell or "").strip().upper()
+        if not text:
+            return False, "格名为空"
+        try:
+            row_idx, col_idx = geo.block_to_index(text)
+        except ValueError as exc:
+            return False, f"格名非法（{exc}）"
+        if col_idx != geo.COL_LETTERS.index(CROSS_COLUMN):
+            return False, f"不在 {CROSS_COLUMN} 列（桥洞列）上"
+        band = CROSS_LOWER_ROWS if half == "lower" else CROSS_UPPER_ROWS
+        row = row_idx + 1
+        if not (band[0] <= row <= band[1]):
+            return False, (f"第 {row} 行不属于"
+                           f"{'下' if half == 'lower' else '上'}半场（{band[0]}~{band[1]} 行）")
+        pool = self._bridge_pool(half)
+        if text not in pool:
+            return False, f"不在本半场候选集合（{' '.join(pool)}）里"
+        return True, ""
+
+    def _bridge_subscription(self) -> Subscription:
+        """`EV_BRIDGE_INFO` 订阅句柄（**惰性**创建：调用方没走 `setup()` 也照样消费情报）。
+
+        ★ 为什么惰性：`TaskGroup` 正常会先 `setup()`，但测试/bench/局部装配可能只调 `tick()`
+        —— 那种情况下若订阅缺失，情报会被**静默忽略**（最坏是走默认洞，现场很难查）。
+        惰性创建让"第一个 tick 起就在听"，代价只是"订阅之前发布的事件收不到"（与 `setup()`
+        订阅同一语义：事件总线**不重放**历史）。
+        """
+        sub = self._bridge_sub
+        if sub is None:
+            sub = self.bus.subscribe(f"{self.name}:bridge", [EV_BRIDGE_INFO],
+                                    maxsize=_BRIDGE_SUB_MAXSIZE)
+            self._bridge_sub = sub
+        return sub
+
+    @staticmethod
+    def _event_ts(data: dict, now: float) -> float:
+        """情报事件里的 `ts`（`DroneTask` 写的是**它收到该条消息的时刻** ＝ 它写 `bridge_ts` 的值）。
+
+        ★ 为什么用载荷里的 `ts` 而不是 `Event.ts`：`Event.ts` 默认是 `time.time()`（**墙钟**），
+        而全部任务线程统一用注入时钟（车上是 `time.monotonic`）—— 两者不同源，混用会让
+        "新鲜度"永远算错。载荷 `ts` 与 `P_DRONE.bridge_ts` 是**同一个数**（drone.py:283-287），
+        所以这里的过期判据与 `DroneState.bridge_of()` **逐字同源**（t7 已核验的 14.10/14.17）。
+        载荷没带 / 非法（外部脚本手发的事件）→ 用本拍时钟兜底（等价于"刚收到"）。
+        """
+        try:
+            ts = float(data.get("ts"))
+        except (TypeError, ValueError):
+            return now
+        return ts if math.isfinite(ts) and ts > 0.0 else now
+
+    def _record_intel(self, half: str, block: str, ts: float) -> bool:
+        """按半场记一条情报（`half` 必须合法，调用方已过滤）。返回是否真的写进去了。
+
+        ★ 两条语义（缺一不可）：
+          ① **按半场独立**：`lower`/`upper` 各占一个键，互不覆盖 —— 这就是 D3 的修法。
+          ② **同半场不倒退**：`ts` 早于现有记录的事件**不覆盖**（乱序/重放/外部脚本重放旧情报
+             时，不能让一条旧情报把新鲜记录顶掉）。真车上 `DroneTask` 单线程按到达顺序发布，
+             `ts` 天然单调，所以这条守卫在正常情况下永不触发。
+        """
+        prev = self._intel_seen.get(half)
+        if prev is not None and ts < prev[1]:
+            return False
+        self._intel_seen[half] = (str(block).strip().upper(), ts)
+        self._intel_events += 1
+        return True
+
+    def _drain_bridge_events(self, now: float, max_items: int = _BRIDGE_SUB_MAXSIZE) -> int:
+        """★ 卡 t13：消费本拍到达的 `EV_BRIDGE_INFO`（**桥洞情报的唯一真源**）。
+
+        每条事件自带 `half/block/ts`（`drone.py:286-287`），所以**不受 `P_DRONE` 单槽的
+        覆盖式赋值影响**（D3：先 lower 后 upper 时槽里只剩 upper）。
+        **非阻塞**（`Subscription.poll` 是 `get_nowait` 循环）、**不上抛**（坏事件只丢弃 + 限流日志）、
+        无文件 I/O —— 满足"宁可漏打，不可卡死"。
+        事件队列溢出时 `Subscription.dropped` 只会被记一次日志并进遥测（不是每拍刷屏）。
+        """
+        sub = self._bridge_subscription()
+        got = 0
+        for ev in sub.poll(max_items):
+            got += 1
+            data = getattr(ev, "data", None)
+            if not isinstance(data, dict):
+                continue
+            half = str(data.get("half") or "").strip().lower()
+            block = str(data.get("block") or "").strip().upper()
+            if half not in BRIDGE_HALVES or not block:
+                # ★ 缺字段/半场非法：丢这一条（不猜、不影响另一半场、不炸任务）
+                if self._intel_warn.allow("bad_bridge_event", now):
+                    self._log(f"⚠️ 桥洞情报事件字段不全：half={half!r} block={block!r}"
+                              f"（按『无这条情报』处理，另一半场不受影响）")
+                continue
+            self._record_intel(half, block, self._event_ts(data, now))
+        if sub.dropped and self._intel_guard.first("bridge_drops"):
+            self._log(f"⚠️ 桥洞情报事件队列溢出：累计丢 {sub.dropped} 条"
+                      f"（队列 {_BRIDGE_SUB_MAXSIZE}）→ 仍按『最后一条』语义工作，"
+                      f"被丢的那个半场会回落默认格（不卡死）")
+        return got
+
+    def _intel_of(self, half: str) -> BridgeIntel:
+        """一个半场的**当前**情报结论（采纳顺序见模块 docstring；**永不上抛**）。"""
+        half = str(half).strip().lower()
+        default = self._cross_default.get(half, "")
+        if not self._drone_link_enabled:
+            return BridgeIntel(half, default, default, "disabled", "", "drone.enabled=false → 不读情报")
+        state = self._drone_state()
+        if state is None:
+            return BridgeIntel(half, default, default, "no_link", "",
+                               "未收到 P_DRONE（DroneTask 未运行/未启用）→ 用默认格")
+        now = self._clock()
+        rec = self._intel_seen.get(half)
+        if not bool(getattr(state, "online", False)):
+            # ★ 离线口径：即使情报还在过期窗口内也**回落默认**（离线 = 情报不可信）。
+            #   现场含义：无人机断链后车不会再拿到新情报，宁可走配置里的兜底洞。
+            raw = rec[0] if rec else ""
+            age = (now - rec[1]) if rec else None
+            return BridgeIntel(half, default, default, "offline", raw,
+                               f"无人机离线（online=False，最近情报 {self._fmt_age(age)}）", age)
+        if rec is None:
+            return BridgeIntel(half, default, default, "missing", "",
+                               "该半场从未收到 bridge_passable（EV_BRIDGE_INFO 事件）→ 用默认格")
+        cell, ts = rec
+        age = (now - ts) if ts else None
+        if age is not None and age > self._drone_info_stale_s:
+            return BridgeIntel(half, default, default, "stale", cell,
+                               f"情报已过期 {age:.2f}s > {self._drone_info_stale_s:g}s"
+                               f" → 用默认格", age)
+        ok, why = self._intel_cell_ok(half, cell)
+        if not ok:
+            return BridgeIntel(half, default, default, "rejected", cell,
+                               f"情报 {cell} 不可用（{why}）→ 用默认格", age)
+        return BridgeIntel(half, cell, default, "drone", cell,
+                           f"新鲜情报（{self._fmt_age(age)} < 过期阈值 "
+                           f"{self._drone_info_stale_s:g}s）", age)
+
+    def _refresh_intel(self, *, log: bool = True) -> dict[str, BridgeIntel]:
+        """刷新两个半场的情报结论；`log=True` 时**只在结论变化时**记一条（限流兜底）。
+
+        ★ 每拍先消费 `EV_BRIDGE_INFO`（t13：情报真源），再算两半场的结论 —— 顺序不能反。
+        """
+        now = self._clock()
+        self._drain_bridge_events(now)
+        snap: dict[str, BridgeIntel] = {}
+        for half in BRIDGE_HALVES:
+            try:
+                snap[half] = self._intel_of(half)
+            except Exception as exc:                     # noqa: BLE001  ★ 情报读取绝不许杀任务
+                default = self._cross_default.get(half, "")
+                snap[half] = BridgeIntel(half, default, default, "no_link", "",
+                                         f"情报读取异常（{type(exc).__name__}: {exc}）→ 用默认格")
+        if log:
+            for half, it in snap.items():
+                prev = self._intel.get(half)
+                changed = (prev is None or prev.source != it.source or prev.cell != it.cell
+                           or prev.raw != it.raw)
+                if changed and self._intel_warn.allow(f"intel:{half}:{it.source}:{it.cell}",
+                                                      now):
+                    self._log(f"桥洞情报[{half}]：{it.describe()}")
+        self._intel = snap
+        return snap
+
+    def _intel_complete(self, snap: dict[str, BridgeIntel] | None = None) -> bool:
+        """两半场是否都拿到了**新鲜情报**（等待窗口的退出条件）。"""
+        snap = self._intel if snap is None else snap
+        return all(bool(snap.get(half) and snap[half].from_drone) for half in BRIDGE_HALVES)
+
+    def _has_fresh_half(self, snap: dict[str, BridgeIntel] | None = None) -> bool:
+        """是否**已经有一半场拿到了可用的新鲜情报**（`source=drone` = 在线 + 新鲜 + 过 5 道门）。
+
+        ★ 卡 t20（t14-F1）：这就是"等得到东西"的判据 —— 等待窗口只为"再等另一半"而开。
+        """
+        snap = self._intel if snap is None else snap
+        return any(bool(snap.get(half) and snap[half].from_drone) for half in BRIDGE_HALVES)
+
+    def _should_wait_for_intel(self, elapsed: float) -> bool:
+        """是否该为情报推迟发车（`mission.bridge_info_wait_s` 窗口内，见模块 docstring）。
+
+        ★ 卡 t20（按 t14-F1 裁决**收回判据**）：只有"**等得到东西**"才推迟发车，六条缺一不可：
+          ① 窗口 ≤ 0；
+          ② 硬上限未到（`elapsed < auto_start_delay_s + bridge_info_wait_s`，到点必发车，不卡死）；
+          ③ 配置没关掉无人机链路（`drone.enabled=false` → 不等）；
+          ④ 车侧**有**无人机链路（`P_DRONE` 存在）—— "全程无无人机"时不进窗口，
+             行为与接线前**逐字一致**（不等、不换）；
+          ⑤ 无人机**在线**（`DroneState.online=True`）—— 离线时情报不可信，等也白等；
+          ⑥ 手上**已经有一半新鲜情报**（>=1 个半场 `source=drone`）—— 情报过期/从未到达时不等，
+             立即按默认格出发，别让一个哑掉的链路压着发车时间；两半场都齐则无需等待。
+        ⚠️ 为什么要收回（F1 原文）：`DroneTask` **每拍都写 `P_DRONE`**（无论在线与否），
+        所以旧判据里的"有 link"**恒真** ⇒ 无人机离线也会白等到硬上限才发车。
+        """
+        if self._bridge_wait_s <= 0.0:
+            return False
+        if elapsed >= self._auto_start_delay_s + self._bridge_wait_s:
+            return False
+        if not self._drone_link_enabled:
+            return False
+        state = self._drone_state()
+        if state is None:                                # ④ 无链路：不等、不换（接线前行为）
+            return False
+        if not bool(getattr(state, "online", False)):     # ⑤ 离线：不等
+            return False
+        if self._intel_complete():                       # ⑥ 两半场都齐：不必等
+            return False
+        return self._has_fresh_half()                    # ⑥ 至少要有一半可用的新鲜情报
+
+    def _apply_intel_to_tokens(self, tokens: Any,
+                               snap: dict[str, BridgeIntel] | None = None
+                               ) -> tuple[Any, dict[str, tuple[str, str]]]:
+        """把新鲜情报换进**手动** token 列表（`route.tokens` / `mission_blocks`）。
+
+        :returns: `(tokens, accepted)`；`accepted = {half: (旧格, 新格)}`。
+            **一个半场都没换成功时原样返回传入对象**（"行为与接线前逐字一致"的硬保证）。
+        每个半场独立判定：形状不符 / 校验不过 → 该半场不换（另一半场照常）。
+        """
+        snap = self._intel if snap is None else snap
+        want = {half: snap[half] for half in BRIDGE_HALVES
+                if snap.get(half) and snap[half].from_drone}
+        if not want:
+            return tokens, {}
+        try:
+            work = [str(t) for t in tokens]
+        except TypeError:
+            return tokens, {}
+        if not work:
+            return tokens, {}
+        accepted: dict[str, tuple[str, str]] = {}
+        for half in BRIDGE_HALVES:
+            it = want.get(half)
+            if it is None:
+                continue
+            try:
+                old = detect_crossing(parse_mission(list(work))).get(half)
+            except Exception as exc:                     # noqa: BLE001  手工路线解析失败→不换
+                self._intel_note[f"reject_{half}"] = f"路线解析失败（{type(exc).__name__}）"
+                continue
+            if not old:
+                self._intel_note[f"reject_{half}"] = "路线里找不到本半场的穿洞格 → 不换洞"
+                continue
+            if old == it.cell:
+                continue                                 # 情报与现役格相同：无需改写
+            cand = rewrite_crossing_tokens(work, half, old, it.cell)
+            if cand is None:
+                reason = (f"路线形状不是『进洞口-{CROSS_COLUMN}列格-出洞口』同行三连"
+                          f"（{old} 附近）→ 不换洞，走默认 {old}")
+                self._intel_note[f"reject_{half}"] = reason
+                if self._intel_warn.allow(f"shape:{half}", self._clock()):
+                    self._log(f"⚠️ 桥洞情报[{half}]：{reason}")
+                continue
+            ok, why = self._swapped_tokens_ok(cand, half, old, it.cell)
+            if not ok:
+                self._intel_note[f"reject_{half}"] = why
+                if self._intel_warn.allow(f"gate:{half}", self._clock()):
+                    self._log(f"⚠️ 桥洞情报[{half}]：{old} → {it.cell} 未采纳：{why}"
+                              f"（原样走 {old}）")
+                continue
+            work = cand
+            accepted[half] = (old, it.cell)
+            self._log(f"★ 桥洞情报[{half}]换洞生效：{old} → {it.cell}"
+                      f"（三连同改 + validate_route 0 error）")
+        if not accepted:
+            return tokens, {}
+        return work, accepted
+
+    def _swapped_tokens_ok(self, tokens: list[str], half: str, old: str,
+                           new: str) -> tuple[bool, str]:
+        """换洞后的候选 token 列表能否执行：`validate_route` **0 error** 才放行。
+
+        ★ 为什么必须真的跑校验：换洞会改动三格的位置，可能把路线挪到障碍/雷上，
+        或让雷覆盖从 8/8 掉到 6/8（R005）。这些错**不能**靠"看上去对"来判。
+        ★ 为什么地图不可用就拒：`validate_route` 的 R004/R005 依赖 `map_cfg`；没有地图时
+        校验收窄成"只查几何"，那时放行等于**无证据地改路线** —— 宁可走配置里的默认洞。
+        """
+        map_cfg = self._intel_map_cfg()
+        if map_cfg is None:
+            return False, "本地地图不可用 → 不做换洞（保守：读得到地图才允许改路线）"
+        try:
+            route = parse_mission([str(t) for t in tokens])
+        except Exception as exc:                         # noqa: BLE001
+            return False, f"换洞后路线解析失败（{type(exc).__name__}: {exc}）"
+        blocks = [w.block for w in route.waypoints]
+        if new not in blocks or old in blocks:
+            return False, f"换洞后 token 列表不符（{old} 仍在 / {new} 缺失）"
+        try:
+            issues = validate_route(route, map_cfg=map_cfg, cfg=self.cfg)
+        except Exception as exc:                         # noqa: BLE001
+            return False, f"换洞后校验异常（{type(exc).__name__}: {exc}）"
+        errors = [str(i) for i in issues if getattr(i, "level", "") == "error"]
+        if errors:
+            return False, "换洞后校验未过（R004/R005/R008/R009 等）：" + "；".join(errors[:3])
+        return True, ""
+
+    @staticmethod
+    def _fmt_age(age: float | None) -> str:
+        return "未知" if age is None else f"{age:.2f}s"
+
+    # ------------------------------------------------------------------ #
     #  生命周期
     # ------------------------------------------------------------------ #
     def setup(self) -> None:
         self._write_phase(MissionPhase.IDLE)
+        # ★ 卡 t13：桥洞情报的订阅在这里建好（**必须在任何 tick 之前**：事件总线不重放历史）。
+        #   惰性兜底见 `_bridge_subscription()`。
+        self._bridge_subscription()
         self._log(f"就绪：auto_start={self._auto_start} 延时={self._auto_start_delay_s:g}s "
                   f"复位={self._reset_spec!r} 扫描模式={self._scan_mode or '未设置'}")
+        # ★ 卡 t6/t13：把桥洞情报的配置口径打全（现场一眼看出"情报从哪来、会不会等、默认走哪个洞"）
+        self._log(f"桥洞情报：来源=EV_BRIDGE_INFO 事件流（半场各自独立） "
+                  f"drone.enabled={self._drone_link_enabled} "
+                  f"过期阈值={self._drone_info_stale_s:g}s 等待窗口={self._bridge_wait_s:g}s "
+                  f"默认格 lower={self._cross_default.get('lower') or '未配置'}"
+                  f"/upper={self._cross_default.get('upper') or '未配置'} "
+                  f"（新鲜情报优先，缺失/过期/离线一律回落默认）")
+        if self._bridge_wait_s > 0.0:
+            self._log(f"桥洞情报：等待窗口只在『车侧有无人机链路（P_DRONE 存在）且两半场情报未齐』"
+                      f"时生效；无 P_DRONE 时不等、不换，行为与接线前一致")
 
     def teardown(self) -> None:
+        try:
+            if self._bridge_sub is not None:            # ★ 卡 t13：退订（别在总线上留悬挂队列）
+                self._bridge_sub.unsubscribe()
+                self._bridge_sub = None
+        except Exception:                            # noqa: BLE001
+            pass
         try:
             self.bridge.publish_fire_gate(False)     # ★ 收尾关闸：绝不留一个开着的放行门
         except Exception:                            # noqa: BLE001
@@ -494,6 +1733,10 @@ class MissionTask(TaskThread):
     def tick(self) -> None:
         now = self._clock()
         self._drain_commands()
+        # ★ 卡 t13：每拍消费 `EV_BRIDGE_INFO` 事件流并刷新两半场结论（10 Hz；非阻塞 `poll`
+        #   + 缓存的候选集合，**无文件 I/O**）。结论变化时才记一条日志（`_refresh_intel` 内部
+        #   限流），所以不会告警风暴。
+        self._refresh_intel()
 
         safety: SafetyState | None = self.bb.get(P_SAFETY)
         if safety is not None and not safety.ok:
@@ -519,12 +1762,32 @@ class MissionTask(TaskThread):
     def _maybe_auto_start(self) -> None:
         if not self._auto_start or self._phase != MissionPhase.IDLE:
             return
-        if (self._clock() - self._created_at) < self._auto_start_delay_s:
+        elapsed = self._clock() - self._created_at
+        if elapsed < self._auto_start_delay_s:
             return
         if self._route is not None:                 # 外部命令已经载入过路线
             return
         if self._autoplan_blocked:                  # ★硬失败已定格（error 日志出过一次）→ 不再重试
             return
+        # ★★ 卡 t6：情报等待窗口（`mission.bridge_info_wait_s`）。
+        #   只在"车侧确实有无人机链路 + 两半场情报未齐"时推迟发车；窗口耗尽照常出发。
+        if self._should_wait_for_intel(elapsed):
+            if self._intel_wait_started is None:
+                self._intel_wait_started = self._clock()
+            if self._intel_guard.first("wait"):
+                self._log(f"等待无人机桥洞情报：最多 {self._bridge_wait_s:g}s"
+                          f"（到 {self._auto_start_delay_s + self._bridge_wait_s:g}s 为止）｜"
+                          f"当前 lower={self._intel.get('lower', BridgeIntel('lower')).describe()}"
+                          f"；upper={self._intel.get('upper', BridgeIntel('upper')).describe()}")
+            self._publish_intel_note(waiting=True)
+            return
+        if self._intel_wait_started is not None and self._intel_guard.first("wait_end"):
+            self._intel_waited_s = self._clock() - self._intel_wait_started
+            verdict = "两半场情报已齐" if self._intel_complete() else "窗口耗尽/无条件，用已得情报"
+            self._log(f"桥洞情报等待结束：等了 {self._intel_waited_s:.2f}s（{verdict}）｜"
+                      f"lower={self._intel.get('lower', BridgeIntel('lower')).describe()}；"
+                      f"upper={self._intel.get('upper', BridgeIntel('upper')).describe()}")
+            self._publish_intel_note(waiting=False)     # 遥测别停在"还在等"的假状态上
         try:
             self._reset_belief(self._reset_spec)
             self._load_startup_route()              # ★ 自动规划 / 读 route.tokens（见函数 docstring）
@@ -538,6 +1801,13 @@ class MissionTask(TaskThread):
         self._log(f"自动出发：延时 {self._auto_start_delay_s:g}s 到，复位 {self._reset_spec!r}")
         self._start_mission()
 
+    def _publish_intel_note(self, *, waiting: bool) -> None:
+        """把等待窗口的状态写进遥测（`bridge.note`），便于现场判断"为什么还没出发"。"""
+        self._intel_note["waiting"] = bool(waiting)
+        self._intel_note["wait_s"] = self._bridge_wait_s
+        if self._intel_wait_started is not None:
+            self._intel_note["waited_s"] = round(self._clock() - self._intel_wait_started, 3)
+
     def _load_startup_route(self) -> None:
         """启动路线来源：`planner.auto_plan_enabled` 决定"自动规划"还是"读 route.tokens"。
 
@@ -546,44 +1816,83 @@ class MissionTask(TaskThread):
             **仍进入 DRIVE**（宁可路线不是最优，也要出车）；
           - `false` → error 日志 + 抛 `AutoPlanBlocked` → `_maybe_auto_start` 捕获后**停在 IDLE**，
             绝不 publish `EV_MISSION_STARTED`。
+
+        ★ 卡 t11：`planner.engine: tracker-safe` 时"门禁未过"也走**同一条**失败路径
+          （`plan_route_from_config` 返回 `ok=False` + error 里带门禁报文）——
+          回退到现役手工路线并打印原因，绝不把没过门禁的路线装上执行。
+
+        ★ 卡 t6：穿洞格优先用**新鲜无人机情报**（`self._intel`，本拍已刷新）：
+          · 自动规划 → 作为 `cross_lower/cross_upper` 透传（未采纳的半场传 `None`）；
+          · 手动路线 → 换洞三连改写 + `validate_route` 0 error 才执行；
+          两半场各自独立。所有分支都在这里收口，`out.tokens` 之外没有第二个真源。
         """
+        snap = self._intel or self._refresh_intel(log=True)
+        cross = {half: (snap[half].cell if (snap.get(half) and snap[half].from_drone) else None)
+                 for half in BRIDGE_HALVES}
         if not self._auto_plan_enabled:
             self._route_source = ROUTE_SOURCE_MANUAL
             tokens = self.cfg.get("route.tokens") or self.cfg.get("mission_blocks")
-            self._load_tokens(tokens, source="route.tokens(或 mission_blocks)")
+            tokens, accepted = self._apply_intel_to_tokens(tokens, snap)
+            self._intel_note["manual_substituted"] = {
+                half: f"{old}→{new}" for half, (old, new) in accepted.items()}
+            src = "route.tokens(或 mission_blocks)"
+            if accepted:
+                src += "（无人机情报换洞）"
+            self._load_tokens(tokens, source=src)
             return
 
-        out = plan_route_from_config(self.cfg, map_path=self._planner_map_path, log=self._log)
+        out = plan_route_from_config(self.cfg, map_path=self._planner_map_path, log=self._log,
+                                     cross_lower=cross["lower"], cross_upper=cross["upper"])
         self._plan_info = {
             "ok": out.ok, "map_path": out.map_path, "elapsed_ms": out.elapsed_ms,
             "error": out.error, "allow_reverse": out.allow_reverse,
-            "max_seconds": self._planner_max_seconds, "token_count": len(out.tokens),
+            "max_seconds": self._planner_budget_s, "token_count": len(out.tokens),
             "fallback_to_tokens": self._planner_fallback,
+            # ★ 卡 t11：引擎与门禁证据（遥测/测试据此断言"走的是哪个引擎、门禁过没过"）
+            "engine": out.engine, "gate_ok": out.gate_ok, "gate_detail": out.gate_detail,
+            # ★ 卡 t11：足迹诊断（现场卷尺实测偏移下的挡板/障碍/靶板余量）
+            "footprint": out.footprint, "footprint_ok": out.footprint_ok,
+            # ★ 卡 t6：穿洞格（请求的 + 规划产物实际采用的），现场对账用
+            "cross_requested": {"lower": cross["lower"] or "", "upper": cross["upper"] or ""},
+            "cross_lower": out.cross_lower, "cross_upper": out.cross_upper,
         }
         if out.ok:
             self._route_source = ROUTE_SOURCE_AUTO
             # ★ 验收项：日志必须能看到【完整 token 列表】与【规划耗时(ms)】
-            self._log(f"自动规划成功：map={out.map_path} {out.mode} "
+            self._log(f"自动规划成功：map={out.map_path} {out.mode} {out.engine_line} "
                       f"耗时 {out.elapsed_ms:.1f} ms / {len(out.tokens)} token / "
                       f"{out.route_len_m:.2f} m / 倒车段 {out.reverse_segments} / "
-                      f"A* 代价 {out.cost:.2f}")
+                      f"A* 代价 {out.cost:.2f}"
+                      f" / 穿洞 下={out.cross_lower or '?'} 上={out.cross_upper or '?'}")
             self._log(f"自动规划 token 列表（{len(out.tokens)}）：" + " ".join(out.tokens))
             self._load_tokens(out.tokens, source=f"{ROUTE_SOURCE_AUTO}({out.map_path})")
             return
 
-        detail = (f"自动规划失败：map={out.map_path} {out.mode} "
-                  f"预算 {self._planner_max_seconds:g}s → {out.error}")
+        detail = (f"自动规划失败：map={out.map_path} {out.mode} 引擎 {out.engine or self._planner_engine} "
+                  f"预算 {self._planner_budget_s:g}s → {out.error}")
         if self._planner_fallback:
             self._log(f"⚠️ {detail}；fallback_to_tokens=true → 回退 route.tokens/mission_blocks 并继续出发")
             self._route_source = ROUTE_SOURCE_MANUAL
             tokens = self.cfg.get("route.tokens") or self.cfg.get("mission_blocks")
-            self._load_tokens(tokens, source="route.tokens/mission_blocks(自动规划失败回退)")
+            # ★ 卡 t6：回退路线**也是要执行**的路线，所以同样吃情报换洞（否则"规划失败"
+            #   会把穿洞格悄悄退回默认，而现场恰恰最需要这条兜底路线是安全的）。
+            tokens, accepted = self._apply_intel_to_tokens(tokens, snap)
+            self._intel_note["manual_substituted"] = {
+                half: f"{old}→{new}" for half, (old, new) in accepted.items()}
+            src = "route.tokens/mission_blocks(自动规划失败回退)"
+            if accepted:
+                src += "（无人机情报换洞）"
+            self._load_tokens(tokens, source=src)
             return
         self._log(f"❌ {detail}；fallback_to_tokens=false → 停在 IDLE，不出发")
         raise AutoPlanBlocked(out.error)
 
     def _start_mission(self) -> None:
-        """路线就绪 → 阶段 DRIVE + 事件 + 持续扫描（见模块 docstring）。"""
+        """路线就绪 → 阶段 DRIVE + 事件 + 扫描下发（见模块 docstring）。
+
+        ★ t24：lock 模式下这一句 `_request_scan` 会被单写者守卫直接吞掉（只留一条日得），
+        值由 AimTask 独家下发。
+        """
         self.bus.publish(EV_MISSION_STARTED, source=self.name,
                          route=len(self._route) if self._route else 0)
         self._write_phase(MissionPhase.DRIVE)
@@ -592,6 +1901,42 @@ class MissionTask(TaskThread):
         else:
             self._request_scan(1 if self._scan_mode == "waypoint" else 0)
         self._banner_start()
+
+    def _engine_banner_text(self) -> str:
+        """横幅里的引擎行：缺省引擎（tour）只印引擎名，新引擎额外印门禁结论。"""
+        engine = str(self._plan_info.get("engine") or self._planner_engine)
+        if engine == DEFAULT_PLAN_ENGINE:
+            return f"引擎 {engine}"
+        gate = "✅通过" if self._plan_info.get("gate_ok") else "❌未过"
+        return f"引擎 {engine}（门禁{gate}：{self._plan_info.get('gate_detail') or '未记录'}）"
+
+    def _cross_source_line(self) -> str:
+        """本局穿洞格的**来源**（无人机情报 / 默认格 / 拒收）。**两个半场独立列出**。"""
+        names = {"drone": "无人机情报", "default": "默认", "missing": "未收到情报",
+                 "stale": "情报过期", "offline": "无人机离线", "no_link": "无链路",
+                 "disabled": "链路已关", "rejected": "情报被拒"}
+        parts: list[str] = []
+        for half in BRIDGE_HALVES:
+            used = self._intel_used.get(half, "") or "未配置"
+            it = self._intel.get(half)
+            if it is not None and it.from_drone and used == it.cell:
+                parts.append(f"{half}=无人机情报({used})")
+            elif it is not None and it.from_drone:
+                parts.append(f"{half}=默认({used}，情报 {it.cell} 未生效)")
+            elif it is not None and it.source == "rejected":
+                sub = self._intel_note.get(f"reject_{half}") or it.reason
+                parts.append(f"{half}=默认({used}，情报 {it.raw} 被拒：{sub})")
+            else:
+                parts.append(f"{half}={names.get(it.source if it else '', '未刷新')}({used})")
+        return " ".join(parts)
+
+    def _intel_summary_line(self) -> str:
+        """一行情报摘要（新鲜度 + 缺情报的原因），现场不用翻日志。"""
+        items = []
+        for half in BRIDGE_HALVES:
+            it = self._intel.get(half)
+            items.append(f"{half}=" + (it.describe() if it is not None else "未刷新"))
+        return "｜".join(items)
 
     def _banner_start(self) -> None:
         route = self._route
@@ -603,12 +1948,18 @@ class MissionTask(TaskThread):
         if self._plan_info.get("ok"):
             src_line += (f"（map={self._plan_info.get('map_path')} "
                          f"耗时 {float(self._plan_info.get('elapsed_ms') or 0.0):.1f} ms "
+                         # ★ 卡 t11：横幅里看得见引擎与门禁结论（缺省 tour 不额外占字）
+                         f"{self._engine_banner_text()} "
                          f"{'允许倒车' if self._plan_info.get('allow_reverse') else '无倒车'}）")
         banner([
             f"【任务开始】路线 {len(route)} 点 / {route.path_length():.2f} m / 穿洞 {route.crossing}",
+            # ★ 卡 t6：穿洞格的**来源**（无人机情报 / 默认 / 拒收原因）——现场第一个要看的行
+            f"穿洞格来源：{self._cross_source_line()}｜情报 {self._intel_summary_line()}",
             f"停站点 {len(self._stop_s)} 个："
             + " ".join(f"{i}:{b}" for i, b in sorted(self._stop_s.items())),
-            f"扫描模式 {self._scan_mode or '未设置'}（continuous → scan_request=2）",
+            (f"扫描模式 {self._scan_mode or '未设置'}（lock 模式**inert**："
+             f"单写者=AimTask）" if self._gimbal_lock_enabled
+             else f"扫描模式 {self._scan_mode or '未设置'}（continuous → scan_request=2）"),
             src_line,
         ], log=self._log)
 
@@ -702,6 +2053,9 @@ class MissionTask(TaskThread):
             if (len(route) - 1) not in self._stop_s:     # 末点一定是一个"停站点"（终点）
                 self._stop_s[len(route) - 1] = self._path.total_length
         self._stop_blocks = [route[i].block for i in sorted(self._stop_s)]
+        # ★ 卡 t6：本局**实际装进执行路线**的穿洞格（`Route.crossing` 由 parse/planner 填）。
+        #   一旦路线载入就**冻结**：发车后晚到的情报只进遥测，不再改路线。
+        self._intel_used = {str(k): str(v) for k, v in (route.crossing or {}).items()}
         self.bb.update(self.name, **{P_ROUTE: route})
         self.bb.update(self.name, **{P_ROUTE_INDEX: 0, P_ROUTE_S: 0.0})
         # ★ 清掉上一轮残留的 PIVOT 通知：旧通知对新路线毫无意义，
@@ -1091,7 +2445,9 @@ class MissionTask(TaskThread):
                          kind=kind, shots=shots)
         self._log(f"★ 停站点 {idx} {wp.block}（{kind}）{self._stopctx.detail}"
                   f"；三段超时 SETTLE>{self._settle_grace_s:.1f}s "
-                  f"ACQUIRE>{self._lock_timeout_s:.1f}s FIRE>{self._shot_timeout_s:.1f}s")
+                  f"ACQUIRE>{self._lock_timeout_s:.1f}s FIRE>{self._shot_timeout_s:.1f}s"
+                  f"；★到站硬死线 {self._stop_deadline_s:.1f}s（发数增量 {self._stopctx.shots_needed} "
+                  f"或到点，先到即离）")
 
     def _run_stop_point(self) -> None:
         stop = self._stopctx
@@ -1099,6 +2455,20 @@ class MissionTask(TaskThread):
             self._write_phase(MissionPhase.DRIVE)
             return
         now = self._clock()
+        # ★★ t26（2026-10-11 用户指令 4）：**到站级 30s 硬死线**，先于三段判定执行。
+        #   口径："发数增量 ≥ shots_needed（=10，打完全部弹药）或 到站起 30s，两者先到即离站；
+        #   即使 0 发，30s 到点也必须离站。"
+        #   放行出口与三段超时**同一条**：`_abandon_stop` → `_close_stop_point`
+        #   → phase=DONE → 放行下一个候选（结构不改，只是多一个更上位的死线）。
+        if (now - stop.started_at) >= self._stop_deadline_s:
+            shots_now = int(self.bridge.shoot_count())
+            self._abandon_stop(
+                stop, f"到站硬死线 {(now - stop.started_at):.2f}s"
+                      f" ≥ {self._stop_deadline_s:.2f}s"
+                      f"（发数增量 {shots_now - stop.shots_at_arrival}/{stop.shots_needed}）"
+                      f" → 强制离站（0 发也不例外）")
+            self._publish_stop_state(now)
+            return
         if stop.kind == StopKind.SCAN:
             self._run_scan_stop(stop, now)
         elif stop.phase == StopPhase.SETTLE:
@@ -1253,7 +2623,19 @@ class MissionTask(TaskThread):
         self._fire_gate_state = allow
 
     def _request_scan(self, mode: int) -> None:
+        """下发 `scan_request`；**lock 模式下 Mission 不是写者**（t24 单写者铁律）。
+
+        返回值/记录语义未变（`_scans` 仍只记"本任务真的发出去的"），
+        所以"Mission 在 lock 模式下从不写 scan_request"可以**用 `_scans` 空/非空直接断言**。
+        """
         mode = int(mode)
+        if self._gimbal_lock_enabled:
+            # 由 AimTask（`_sync_gimbal_scan`）独占：巡迹段 0、SHOOT 停站 2、离开/FINISH 回 0
+            if self._log_throttle.allow("scan_single_writer", self._clock()):
+                self._log(f"跳过 scan_request={mode}：云台扫描单写者 = AimTask"
+                          f"（aim.gimbal_lock_enabled=true；mission.scan_mode="
+                          f"{self._scan_mode or '未设置'} 在 lock 模式下 inert）")
+            return
         if mode == 1 and 2 in self._scans:
             # ★ readme【十】31：持续扫描期间绝不能再发 1（会被降级成单趟）
             if self._log_throttle.allow("scan_downgrade", self._clock()):
@@ -1322,8 +2704,13 @@ class MissionTask(TaskThread):
                              "drift_m": round(drift, 3), "waypoints": len(route)}
         self._write_phase(MissionPhase.FINISH)
         self.bridge.publish_brake()
-        self.bridge.publish_scan_request(0)         # 0 = 停扫
-        self._scans.append(0)
+        # ★ t24 单写者：lock 模式下 FINISH 的"停扫 0"也归 AimTask（它看到阶段=FINISH 就回锁止）。
+        #   这里若照旧直发 0，就又是"Mission 覆写 Aim"的第二处洞（`_scans` 也不再记账）。
+        if self._gimbal_lock_enabled:
+            pass
+        else:
+            self.bridge.publish_scan_request(0)     # 0 = 停扫（旧行为/对照档）
+            self._scans.append(0)
         if not self._finish_done:
             self._finish_done = True
             self.bus.publish(EV_MISSION_FINISHED, source=self.name, **self._finish_info)
@@ -1515,6 +2902,7 @@ class MissionTask(TaskThread):
         self._finish_latched = False
         self._finish_done = False
         self._finish_info = {}
+        self._intel_used = {}                       # ★ 卡 t6：路线清空 → 用格证据也清空
         self._last_s = 0.0
         self._route_s = 0.0
         self._set_fire_gate(False)

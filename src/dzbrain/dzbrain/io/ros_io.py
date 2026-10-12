@@ -24,6 +24,26 @@ from .referee import RefereeTracker
 from ..core import geometry as geo
 
 
+def _signal_handler_options():
+    """rclpy 的 `SignalHandlerOptions.NO`；老/假 rclpy 上没有就返回 **None**（= 不传该参数）。
+
+    ★ 为什么要 NO（实车血证，t6 §2）：`rclpy.init()` 默认 `SignalHandlerOptions.ALL`
+      会在 **C++ 层**给 SIGINT **和 SIGTERM** 装处理器，而它只做 `rcl_shutdown`
+      （上下文失效）—— **不抛 Python 异常、不退进程**。2026-10-11 16:18 收栈时
+      `start_all.sh stop` 发的 SIGTERM 正是被它接走的：上下文当拍死掉，而 dzbrain
+      的任务线程照旧按 50/20/10 Hz tick，把 RCLError 刷成风暴。
+      关掉默认处理 ⇒ 信号归我们自己（`main.py:install_stop_signals` 只置位 + 留痕），
+      主循环再靠 `rclpy.ok()` 兜底，收栈才是干净退出。
+
+    ★ 返回 None 的语义是"**别传这个参数**"，不是"传 None"：rclpy 的签名里
+      `signal_handler_options=None` 等价于装默认处理器（见 rclpy `__init__.py`
+      `if signal_handler_options is None: ... ALL`）—— 那就正好把我们要关的东西又打开了。
+    """
+    import rclpy
+    opts = getattr(getattr(rclpy, "signals", None), "SignalHandlerOptions", None)
+    return getattr(opts, "NO", None)
+
+
 def _qos(spec: ct.QosSpec):
     """QosSpec → rclpy QoSProfile（惰性导入）。"""
     from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,
@@ -69,7 +89,18 @@ class RosBridge:
 
         self._rclpy = rclpy
         if not rclpy.ok():
-            rclpy.init()
+            # ★ 显式关闭 rclpy 的默认信号处理（否则 SIGTERM 走 C++ 的 rcl_shutdown：
+            #   上下文死、进程活、任务线程刷 RCLError 风暴 —— t6 取证报告 §2）。
+            #   取不到 SignalHandlerOptions（老版本/测试替身）时**不传该参数**：
+            #   传 None 反而等于"装默认处理器"，与修复目的相反。
+            _opts = _signal_handler_options()
+            try:
+                if _opts is None:
+                    rclpy.init()
+                else:
+                    rclpy.init(signal_handler_options=_opts)
+            except Exception:
+                rclpy.init()
         self.node: "Node" = Node(node_name)
         self._log = log
         self.stats = RosStats()
@@ -354,7 +385,15 @@ class RosBridge:
             self.stats.commands_sent += 1
 
     def publish_brake(self) -> None:
-        """零 Twist = 刹车（所有安全路径都走这里）。"""
+        """零 Twist = 刹车（所有安全路径都走这里）。
+
+        ★ 上下文已死时**必须抛异常**（t8 修复点 C）：`publisher.publish()` 抛的是
+          `RCLError`，而 Safety 过去用 `_safe_call` 把它吞成 None、照样打"已发零速指令"
+          ⇒ 日志自证安全、实际一条零速都没出去（唯一真刹手段静默失效，只剩底盘 1 s 看门狗）。
+          这里显式判活，让"发不出去"这件事**不可能被误读成发出去了**。
+        """
+        if not self._rclpy.ok():
+            raise RuntimeError("ROS 上下文已失效（rclpy.ok()=False）：零速指令无法发布")
         self.publish_command(0.0, 0.0)
         with self._lock:
             self.stats.zero_commands += 1
@@ -428,12 +467,22 @@ class RosBridge:
         return self._spin_thread
 
     def shutdown(self, *, brake: bool = True) -> None:
-        """收尾：默认先发零指令（刹车是唯一安全的默认动作）。"""
-        try:
-            if brake:
-                self.publish_brake()
-        except Exception:
-            pass
+        """收尾：默认先发零指令（刹车是唯一安全的默认动作）。
+
+        ★ 上下文已死时**不再试**刹车（t8）：那只会再抛一串 RCLError（t6 的血证里
+          收栈阶段就是这么刷屏的），而且发不出去是**已知**的 —— 省掉这 1 条噪声。
+          `rc` 留给调用方写 teardown 留痕（0=干净收尾 / 1=上下文先死）。
+        """
+        rc = 0
+        if brake:
+            if self._rclpy.ok():
+                try:
+                    self.publish_brake()
+                except Exception:
+                    pass
+            else:
+                rc = 1
+                self._log("收尾：ROS 上下文已失效 → 跳过刹车指令（发不出去，不再刷 RCLError）")
         try:
             if getattr(self, "_executor", None) is not None:
                 self._executor.shutdown(timeout_sec=1.0)
@@ -447,6 +496,7 @@ class RosBridge:
             self._rclpy.shutdown()
         except Exception:
             pass
+        return rc
 
     def summary(self) -> dict[str, Any]:
         # ★ 持锁内**不得**再调 pose_age() 等也要 self._lock 的访问器

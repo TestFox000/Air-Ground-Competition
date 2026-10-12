@@ -126,6 +126,10 @@ class TrackerTask(TaskThread):
         self._route_id: int | None = None
         self._seg_s: float | None = None            # 上一拍投影弧长（下一拍 s_hint）
         self._last_steer_deg: float | None = None
+        #: ★t38：上一拍**命令**速度（m/s，恒 ≥0；倒车取 abs）。喂给 `speed_profile()` 的
+        #: `last_speed_mps` ⇒ 让 `pursuit.accel_up_mps2/accel_down_mps2` 的加减速斜坡真正生效
+        #: （两键缺省 0.0 时该层不参与，与旧版逐位一致）。首拍 = None ⇒ 整层不参与。
+        self._last_cmd_speed: float | None = None
         # ⚠️ 曾经有个 `_last_linear_x`（上一拍**命令**的线速度）被用来猜"行进方向"。
         #    那是个自指环：命令符号 → 选哪条重叠段 → is_reverse → 命令符号，
         #    在折返压线处每拍翻转（bench 实测 601 次）。现在行进方向取**实测位移**
@@ -406,7 +410,12 @@ class TrackerTask(TaskThread):
         cmd: PursuitCommand = compute_command(pose, path, proj, self.cfg,
                                               reverse=is_rev,
                                               last_steer_deg=self._last_steer_deg,
-                                              dt=dt, bb=self.bb)
+                                              dt=dt, bb=self.bb,
+                                              last_speed_mps=self._last_cmd_speed)
+        #: ★t38：记下本拍**控制器输出**的命令速度（t37 规格 §④ 的字面口径 `abs(cmd.linear_x)`），
+        #:  供下一拍斜坡用；`abs` 兼容倒车（倒车命令为负）。位置紧跟调用点：只记"速度剖面产物"，
+        #:  不掺 align 分支的定点速度（否则会与斜坡历史混源）。
+        self._last_cmd_speed = abs(cmd.linear_x)
         align = self._align_active(proj.seg_index)
 
         # ---- ★PIVOT 原地转向：优先级最高（它在"顶点前"接管，免得纯追踪画出 0.4 m 的大弧） ----

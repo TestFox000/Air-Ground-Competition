@@ -14,6 +14,28 @@
 就是 bug —— 测试第 9 组会断言 `bridge.fire_gate` **全程为空**。
 
 ===============================================================================
+★★ 云台扫描开关的**单写者**（卡 t24；与 t13 锁止配套）
+===============================================================================
+| 话题                     | 唯一写者        | 语义                                                      |
+|--------------------------|-----------------|-----------------------------------------------------------|
+| `/nav/scan_request`      | **本任务**      | `aim.gimbal_lock_enabled=true`（默认）时**只有 AimTask 写** |
+| `/aim/lead_x`            | 本任务          | 提前量（px）→ 云台补丁                                     |
+
+- `aim.gimbal_lock_enabled=true`（默认）时：`MissionTask` **一个值都不发**
+  （它的 `mission.scan_mode` 在该模式下 **inert**，只影响横幅文案；旧行为需
+  `aim.gimbal_lock_enabled=false` 才回退）。为什么必须这样（run11 实证的顺序）：
+  云台锁止 `0`（阶段=None）→ mission「扫描模式 continuous → `2`」→ 云台起转搜索 ——
+  Mission 的 `2` 在**巡迹全程**压住了 Aim 的 `0`；而 C++ 侧 `scan_request` 是**电平保持**
+  语义，Aim 又有 `_gimbal_cmd` 去重（值没变就不再重发 `0`）⇒ 云台实际一直在转。
+- 锁止 = `scan_request=0` ⇒ C++ 进 `AIM_IDLE` ⇒ `CaremaMontorControl()` 每帧主动**回正到
+  车头正前**（`Position_1 = center + 扫描行程中点`、`Position_0 = center + 基准俯仰`；
+  证据：`src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp:662-684`，注释原文
+  「旧版在 IDLE 时直接 return，于是云台【冻结在最后一次的任意姿态】上」）。
+  ⇒ 用户要求「射击点之前/离开之后云台回正到向前看并保持」**由 C++ 的 IDLE 归位实现**，
+  Python 侧只需保证**锁止边沿确实发了一次 0**（TRACK→锁止 那一次不能因为
+  "值没变"而被去重吞掉，见 `_update_gimbal_gate` 的 `lock_edge`）。
+
+===============================================================================
 ★ 旧版 15 条缺口 → 本任务的对应处置
 ===============================================================================
 | 旧缺口（survey §10）                                  | 本实现                                        |
@@ -480,6 +502,9 @@ class AimTask(TaskThread):
         "aim.box_w_far_px", "aim.box_w_near_px", "aim.cls_switch_confirm_frames",
         "aim.vision_nominal_fps", "aim.fire_only_blue", "aim.hit_hold_s",
         "aim.rescan_on_lost", "aim.lead_eps_px", "aim.hold_min_s",
+        # ★ 卡 t24：云台锁止四键已登记进 SCHEMA（core/config.py），这里同步登记以便自检一致
+        "aim.gimbal_lock_enabled", "aim.gimbal_lock_scan_request",
+        "aim.gimbal_seek_scan_request", "aim.gimbal_seek_on_shoot_stop_only",
     )
 
     def __init__(self, bridge, bb: Blackboard, bus: EventBus, cfg: Config, *,
@@ -611,6 +636,10 @@ class AimTask(TaskThread):
         self._gimbal_seek = False           # 当前是否允许转台搜索（= 在最佳射击点停站内）
         self._gimbal_cmd: int | None = None  # 上次下发的 scan_request（None = 还没下发过）
         self.gimbal_lock_ticks = 0          # 处于锁止的拍数（遥测/验收用）
+        #: ★ t24：进入锁止的**边沿**计数（每次 TRACK→锁止 都会 +1 并强制发一次 0 ⇒ C++ 回正）
+        self.gimbal_home_cmds = 0
+        self._gimbal_was_seeking = False     # 上一拍是否在"起转搜索"（用于识别锁止边沿）
+        self._gimbal_last_home_at: float = 0.0
         self.gimbal_seek_ticks = 0          # 处于可起转搜索的拍数
         self.gimbal_switches = 0            # 实际下发开关切换的次数（应远小于拍数）
 
@@ -1054,7 +1083,22 @@ class AimTask(TaskThread):
         else:
             self.gimbal_lock_ticks += 1
         want = int(self.gimbal_seek_scan if seeking else self.gimbal_lock_scan)
-        if want == self._gimbal_cmd:
+        # ★★ t24-A1/A2：**每次 TRACK→锁止 的边沿必须再发一次 0**（车端 C++ 收到 0 → `AIM_IDLE`
+        #   → `CaremaMontorControl()` 每帧主动归位到"扫描行程中点 + 基准俯仰"= 相对车头回正）。
+        #   为什么不能被 `_gimbal_cmd` 值去重吞掉：TRACK→锁止 时 `want(0)` 与缓存里的锁止值相同
+        #   （都是 0），按值去重就会漏发 ⇒ 云台停在 TRACK 结束时的目标方向（可能侧向大角度），
+        #   正是用户明确禁止的"停在任意角度"。**只发边沿那一拍**（不是每拍）：
+        #   每拍重发会把话题刷爆（与 1.3「20 拍只 1 条」的既有契约冲突），而 C++ IDLE 自己
+        #   每帧都在归位，边沿发一次就足够。
+        #   C++ 证据：`src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp:662-684`
+        #   （IDLE 分支每帧下发 Position_1/Position_0；注释原文「旧版在 IDLE 时直接 return，
+        #   于是云台【冻结在最后一次的任意姿态】上」）。
+        lock_edge = self._gimbal_was_seeking and not seeking
+        self._gimbal_was_seeking = bool(seeking)
+        if lock_edge:
+            self.gimbal_home_cmds += 1
+            self._gimbal_last_home_at = now
+        elif want == self._gimbal_cmd:
             return
         self._gimbal_cmd = want
         self.gimbal_switches += 1
@@ -1062,8 +1106,11 @@ class AimTask(TaskThread):
             self.bridge.publish_scan_request(want)
         except Exception:                       # noqa: BLE001  话题缺失不该杀任务
             return
-        self._log(f"云台{'起转搜索' if seeking else '锁止'}：scan_request={want}"
-                  f"（{why}；阶段={phase}；累计切换 {self.gimbal_switches} 次）")
+        self._log(f"云台{'起转搜索' if seeking else ('回正锁止' if lock_edge else '锁止')}"
+                  f"：scan_request={want}"
+                  f"（{why}；阶段={phase}；累计切换 {self.gimbal_switches} 次"
+                  + (f"；★TRACK→锁止 边沿回正：C++ IDLE 每帧归位到车头正前"
+                     f"（累计回正 {self.gimbal_home_cmds} 次）" if lock_edge else "") + "）")
 
     def _emit_ready(self, ready: bool) -> None:
         try:
@@ -1159,6 +1206,9 @@ class AimTask(TaskThread):
             "gimbal_cmd": self._gimbal_cmd,
             "gimbal_lock_ticks": int(self.gimbal_lock_ticks),
             "gimbal_seek_ticks": int(self.gimbal_seek_ticks),
+            # ★ t24：锁止边沿回正台账（每次 TRACK→锁止 强发一次 0；回正由 C++ IDLE 每帧执行）
+            "gimbal_home_cmds": int(self.gimbal_home_cmds),
+            "gimbal_last_home_at": float(self._gimbal_last_home_at),
             "dt": float(dt),
             "at": now,
         }

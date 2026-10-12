@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import os
 import pathlib
 import shutil
 import sys
@@ -35,7 +36,10 @@ import yaml  # noqa: E402
 
 from dzbrain.core.config import Config  # noqa: E402
 
-TOOL_PATH = WS / "tools" / "calib_backfill.py"
+TOOL_PATH = pathlib.Path(
+    os.environ.get("CALIB_TOOL_PATH") or (WS / "tools" / "calib_backfill.py"))
+#: 被测工具的**非源码**配套（模板）始终取仓库真件：即使为了负向对照换了工具副本，
+#: "模板与 build_template() 同源"这条判据仍然对拍真仓库（换掉的是被检查的实现，不是真源）。
 TEMPLATE_PATH = WS / "tools" / "calib_backfill_template.yaml"
 REAL_CFG = WS / "config" / "robot.yaml"
 
@@ -368,7 +372,69 @@ ok("9.5 无钉的键在空模板下也给出补钉片段（队长可直接粘）
 
 sec("10. 旧值引用扫描（提示，不自动改）")
 _hits = CB.scan_untracked_refs("3280", WS, [p for c in CB.CHANNELS for p in c.get("pins", ())])
-ok("10.1 能列出未登记的旧值引用（≥1 处，供人工核对）", len(_hits) >= 1, f"{len(_hits)} 个文件")
+def _hit_is_clean(hit: str) -> bool:
+    """发现口径判据：该命中是否"干净"（不含临时副本、不含历史快照）。
+
+    ★ 判据本体放在函数里，便于**合成串自检**（见 10.1 的第 ④ 项）：若把它写成
+      "只看文件名是否以 `_tmp_` 开头"（t16 之前的退化口径），下面那两条合成串都会返回
+      True ⇒ 自检立刻红 —— 这样这条回归钉永远不会变成空转。
+    """
+    path = hit.split("（")[0]
+    name = path.split("/")[-1]
+    return (not any(seg.startswith("_tmp_") for seg in path.split("/"))
+            and not (name == "test_core.py" and "_tmp_" in path)
+            and not path.startswith("_backups/")
+            and path != "_deploy_cfg.yaml")
+
+
+# ★ 10.1（卡 t16 升级）：本条同时是**发现口径回归钉**（原判据保留，断言总数不变）。
+#   为什么必须"自己数一遍旧口径"再对拍：现行工具扫描本来就不含 `_tmp_*` 里的副本，
+#   所以只断言"命中里没有 test_core.py"**可能恒真**（空转）。这里每次现场造一个同名
+#   干扰副本，并用同一遍历的 `_raw`（不排除 `_tmp_`）与工具扫描 `_hits2` 对拍。
+_guard = _TMP / "tmp_verify_style_copy"
+_guard.mkdir(parents=True, exist_ok=True)
+(_guard / "test_core.py").write_text(
+    "# 模拟 t9 变异测试的临时副本（与 src 下真 test_core.py 同名）\n"
+    "TICKS_PER_METER = 3280  # 旧标定字面量\n"
+    "assert 3280 == 3280\n", encoding="utf-8")
+
+
+def _raw_scan_3280() -> list[str]:
+    """等价"旧口径"：同一遍历，但**不排除** `_tmp_*`（只跳过 .git/__pycache__）。"""
+    out = []
+    for p in WS.rglob("*"):
+        if not p.is_file() or p.suffix.lower() not in CB._SCAN_EXT:
+            continue
+        if {".git", "__pycache__"} & set(p.parts):
+            continue
+        try:
+            t = p.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if "3280" in t:
+            out.append(p.relative_to(WS).as_posix())
+    return sorted(out)
+
+
+try:
+    _hits2 = CB.scan_untracked_refs("3280", WS,
+                                    [p for c in CB.CHANNELS for p in c.get("pins", ())])
+    _raw = _raw_scan_3280()
+    _raw_guard = [h for h in _raw if h.startswith("_tmp_")]
+    _synth = ["_tmp_verify/t9/mut/base/tests/test_core.py（2 处）",   # 必须判"不干净"
+              "_backups/deploy_map3_x/robot.yaml（4 处）",           # 必须判"不干净"
+              "src/dzbrain/tests/test_core.py（2 处）"]              # 已登记钉，判"干净"
+    _synth_ok = (not _hit_is_clean(_synth[0]) and not _hit_is_clean(_synth[1])
+                 and _hit_is_clean(_synth[2]))
+    _clean_all = (all(_hit_is_clean(h) for h in _hits2)
+                  and not any(h.startswith("_tmp_") for h in _hits2))
+    ok("10.1 能列出未登记的旧值引用 + 干扰副本/历史快照不进命中（t16 口径对拍）",
+       len(_hits) >= 1 and len(_hits2) >= 1 and bool(_raw_guard) and _clean_all
+       and _synth_ok and len(_hits2) < len(_raw),
+       f"工具扫描 {len(_hits2)} 个 / 旧口径 {len(_raw)} 个（其中 _tmp_* {len(_raw_guard)} 个）；"
+       f"判据合成串自检={_synth_ok}")
+finally:
+    shutil.rmtree(_guard, ignore_errors=True)
 ok("10.2 已登记的钉不再重复列出", not any("test_core.py" == h.split("（")[0].split("/")[-1] for h in _hits),
    "; ".join(_hits[:4]))
 ok("10.3 工具自身/模板/目标配置不再自报（去噪）",

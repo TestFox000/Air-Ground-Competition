@@ -76,41 +76,83 @@ CAR_L, CAR_W = 0.28, 0.17
 #: 历史（第二张图 `L8->K7`）：车身 **189** 拍 / 车心 **0** 拍（t7）。
 #: ★ 模型/车身尺寸/参数一变这个数就会变 ⇒ 按新实测**重钉**（本断言的意义是把
 #:   「斜切进洞的物理后果」量化并留在回归里，而不是把它藏起来）。
-_A8_BODY_FRAMES = 167
+#: ★★ t31 重钉（第五张图，洞口 `K10`，合成进场 `M11 -> L11 -> K10`）@0.15 + lookahead 0.36 →
+#: **车身 160 拍 / 车心 8 拍**（4.8%，与第三张图 167/8 同型）。候选比较（12 组）见
+#: `_tmp_session/t31/probe_a8_fixture.py`：`M11->L11->K10` 是"原语义 + 最小改动"的那一组
+#: （`L8->L9->K10` 是 0 拍车心，但 0 拍让"车心会漏"这条断言失去量化意义）。
+_A8_BODY_FRAMES = 160
 #: 同一次实测的车心口径拍数（用于"车心判据会漏"那条断言）
 _A8_CENTER_FRAMES = 8
 
+#: ★★ t31：合成斜切进场的显式选择 `pre -> diag -> hole`（第五张图 = `M11 -> L11 -> K10`）。
+#: 为什么显式钉：`_diagonal_entry_fixture()` 的候选搜索会命中的第一组是 `I11 -> J11 -> K10`
+#: （车身 290 / 车心 33 ⇒ 车心占比 11%，丢掉"车心会漏"的原语义）；显式钉住这一组后，
+#: 断言里的 `c8 * 10 < b8` 才继续成立（8 × 10 < 160）。
+_DIAG_APPROACH = ("M11", "L11")
+
 
 def _live_tokens() -> list[str]:
-    """现役路线 = `robot.yaml` 的 `route.tokens`（第三张图手工 v3，62 token）。"""
+    """现役路线 = `robot.yaml` 的 `route.tokens`（第五张图 tracker-safe 自规划，60 token）。"""
     return [str(t) for t in (Config.load(str(_ROBOT_YAML)).get("route.tokens") or [])]
 
 
 def _lower_hole() -> str:
-    """本图下半场桥洞格（`route.cross_lower_default`，第三张图 = K11）。"""
+    """本图下半场桥洞格（`route.cross_lower_default`，第五张图 = K10）。"""
     return str(Config.load(str(_ROBOT_YAML)).get("route.cross_lower_default") or "").upper()
 
 
 def _diagonal_entry_fixture() -> list[str]:
-    """「A8 类对角进洞」夹具：去掉现役路线里**进洞前那一格**，把进洞段变成 45° 斜切。
+    """「A8 类对角进洞」夹具：进洞那一段必须变成 45° 斜切（Δ行 ±1、Δ列 ±1）。
 
-    第三张图：`… M10 L10 L11 K11 J11 …` 去掉 `L11` ⇒ `L10 -> K11`（行 +1、列 −1）。
-    ★ 带**构造自检**：改完的进洞段必须正好是"行 +1、列 −1"，否则抛错 ——
-      路线一换（或夹具失效）就立刻红，不允许静默给出一条无效夹具。
+    ★★ t31 重钉（第五张图）：旧版靠"删掉现役路线里进洞前那一格"造 45°，其前提是现役路线恰好
+      `… pre mid hole …` 且删掉 `mid` 后 `pre->hole` 是斜切。第五张图的现役路线进洞口是
+      `M10 L10 K10`（**水平直穿**；删掉 `L10` 得 `M10->K10` = 跨 2 列）⇒ 旧造法在新图上**无解**
+      （实测 `AssertionError: 夹具构造失败：去掉 L10 后 M10->K10 不是 45° 斜切进洞`）。
+      新版：**先**沿用旧造法（若现役路线恰好合适，最小改动）；否则**合成**两格斜切进场
+      `pre → diag → hole`（`diag` 与洞口斜相邻、`pre` 与 `diag` 正交相邻），
+      再接上现役路线**从洞口开始**的余段。两条路径都有**构造自检**（不满足 45° 就抛错，
+      不允许静默给出一条无效夹具）。
     """
     live = _live_tokens()
     hole = _lower_hole()
     if hole not in live:
         raise AssertionError(f"夹具构造失败：下半场洞口 {hole!r} 不在现役路线里")
     i = live.index(hole)
-    if i < 2:
-        raise AssertionError(f"夹具构造失败：{hole} 在路线里太靠前（i={i}）")
-    pre, dropped, after = live[i - 2], live[i - 1], live[i]
-    ra, ca = geo.block_to_index(pre)
-    rb, cb = geo.block_to_index(after)
-    if not (rb == ra + 1 and cb == ca - 1):
-        raise AssertionError(f"夹具构造失败：去掉 {dropped} 后 {pre}->{after} 不是 45° 斜切进洞")
-    return live[:i - 1] + live[i:]
+    # ---- 路径 1（旧造法）：删掉进洞前那一格 ----
+    if i >= 2:
+        pre, dropped, after = live[i - 2], live[i - 1], live[i]
+        ra, ca = geo.block_to_index(pre)
+        rb, cb = geo.block_to_index(after)
+        if rb == ra + 1 and cb == ca - 1:
+            return live[:i - 1] + live[i:]
+    # ---- 路径 2（t31 合成）：pre --正交--> diag --45°--> hole ----
+    #   候选顺序：先试显式钉住的 `_DIAG_APPROACH`（保住"车身多、车心少"的原语义），
+    #   它不适用时再按 4 个斜向自动挑一个（自检不过就抛错）。
+    order: list[tuple[str, str]] = []
+    if len(_DIAG_APPROACH) == 2:
+        order.append((_DIAG_APPROACH[0], _DIAG_APPROACH[1]))
+    rh, ch = geo.block_to_index(hole)
+    for dr, dc in ((1, -1), (1, 1), (-1, -1), (-1, 1)):
+        try:
+            diag = geo.index_to_block(rh + dr, ch + dc)
+            pre = geo.index_to_block(rh + dr, ch + dc + (1 if dc < 0 else -1))
+        except Exception:                       # 越界 ⇒ 换一个斜向
+            continue
+        order.append((pre, diag))
+    for pre, diag in order:
+        if diag in live or pre in live:          # 别和现役路线自身的格打架
+            continue
+        try:
+            ra, ca = geo.block_to_index(pre)
+            rb, cb = geo.block_to_index(diag)
+        except Exception:
+            continue
+        if abs(rb - ra) + abs(cb - ca) != 1:     # pre -> diag 必须**正交**相邻
+            continue
+        if abs(rh - rb) != 1 or abs(ch - cb) != 1:   # diag -> hole 必须 **45°**
+            continue
+        return [pre, diag] + live[i:]
+    raise AssertionError(f"夹具构造失败：洞口 {hole} 附近造不出 45° 斜切进场")
 
 
 def _tokens(text: str) -> list[str]:
@@ -346,7 +388,7 @@ def test_body_frame_gate() -> None:
         check(f"[{label}] 车心口径 K 桥室侵入 = 0 拍", c_hit == 0, f"{c_hit} 拍")
         check(f"[{label}] ★ 车身口径 K 桥室侵入 = 0 拍", b_hit == 0, f"{b_hit} 拍")
 
-    section("5. 车心口径会漏：A8 类斜切进洞 车身 167 拍 / 车心 8 拍（门禁拦它才不是空转）")
+    section("5. 车心口径会漏：A8 类斜切进洞 车身 160 拍 / 车心 8 拍（第五张图 t31 口径；门禁拦它才不是空转）")
     diag = _diagonal_entry_fixture()
     a8_errors = _errors(_validate(diag))
     res8 = _sim(diag, {"pursuit.cruise_speed_mps": 0.15, "pursuit.lookahead_min_m": 0.36})
@@ -354,7 +396,7 @@ def test_body_frame_gate() -> None:
     print(f"      [A8类@0.15+L036] {res8.steps} 拍 / {res8.t[-1]:.2f} s / 完成={res8.metric('completed')}"
           f" / RMS(真值)={res8.metric('cross_track_rms_m'):.4f} / 车心 {c8} 拍 / 车身 {b8} 拍")
     check("★ A8 类的车身口径侵入 > 0 拍（斜切进洞的物理后果真实存在）", b8 > 0, f"{b8} 拍")
-    check(f"★ A8 类车身口径侵入 = {_A8_BODY_FRAMES} 拍（t20 第三张图实测；模型/尺寸变了就重钉）",
+    check(f"★ A8 类车身口径侵入 = {_A8_BODY_FRAMES} 拍（t31 第五张图实测；模型/尺寸变了就重钉）",
           b8 == _A8_BODY_FRAMES, f"{b8} 拍")
     check(f"★ A8 类车心口径侵入 = {_A8_CENTER_FRAMES} 拍（≈车身的 1/20 ⇒ 车心判据会漏）",
           c8 == _A8_CENTER_FRAMES and c8 * 10 < b8,

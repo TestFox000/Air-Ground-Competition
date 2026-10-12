@@ -35,6 +35,7 @@ import {
   MAX_READ_BYTES, MAX_UPLOAD_BYTES, downloadFile, homeShortcuts,
   listDirectory, readTextFile, statPath, uploadFile,
 } from './src/files.js'
+import { fieldSpec, listHistory, routeTokens, runChecks, runSim, serveArtifact, SIM_ROOT } from './src/simbench.js'
 
 export const name = 'dzrobot-ssh'
 
@@ -56,6 +57,12 @@ const VNC_CONNECT_FILE = fileURLToPath(new URL('./vnc-connect.html', import.meta
  * separate OS window.
  */
 const FLOAT_APP_FILE = fileURLToPath(new URL('./float.html', import.meta.url))
+
+/**
+ * The simulation bench: runs the local dzbrain simulator without the car, so a
+ * repeatable sim run costs one click instead of an agent turn.
+ */
+const SIM_APP_FILE = fileURLToPath(new URL('./sim.html', import.meta.url))
 
 /** Content types for the vendored tree; anything else is refused, not guessed. */
 const NOVNC_TYPES = {
@@ -313,6 +320,33 @@ export function apply(ctx, config = {}) {
       }
       if (method === 'GET' && route === '/float.html') {
         return serveFile(res, send, FLOAT_APP_FILE, 'text/html; charset=utf-8')
+      }
+      // ── the local simulation bench ─────────────────────────────────────────
+      if (method === 'GET' && route === '/sim.html') {
+        return serveFile(res, send, SIM_APP_FILE, 'text/html; charset=utf-8')
+      }
+      if (method === 'POST' && route === '/sim/run') {
+        const body = await readJson(req) ?? {}
+        const result = await runSim(body)
+        if (!result.ok) return send(result.code ?? 400, { error: result.error })
+        return send(200, result)
+      }
+      if (method === 'GET' && route === '/sim/history') {
+        return send(200, listHistory())
+      }
+      if (method === 'GET' && route === '/sim/artifact') {
+        const outcome = serveArtifact(url.searchParams.get('path') ?? '', res)
+        return typeof outcome === 'number' ? send(outcome, { error: `artifact ${outcome}` }) : undefined
+      }
+      if (method === 'POST' && route === '/sim/check') {
+        return send(200, await runChecks())
+      }
+      if (method === 'GET' && route === '/sim/root') {
+        return send(200, { root: SIM_ROOT, ok: fs.existsSync(path.join(SIM_ROOT, 'src', 'dzbrain')) })
+      }
+      // 场地真值（只读）；页面用它画横置地图 + 预填改点位表单
+      if (method === 'GET' && route === '/sim/map') {
+        return send(200, { ...fieldSpec(), route: routeTokens() })
       }
       if (method === 'GET' && route.startsWith('/novnc/')) {
         return serveNovnc(res, route.slice('/novnc/'.length), send)

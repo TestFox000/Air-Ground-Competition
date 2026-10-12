@@ -149,27 +149,59 @@ check("未登记归一化的文件按原始字节对账（即便 apply_transform
 # 真实文件：默认 push 的对账基准必须是**原始字节**（不再强制 auto_start=false）
 _rp = WS / "config" / "robot.yaml"
 _raw_bytes = _rp.read_bytes()
-check("★ 本地 robot.yaml 含 auto_start: true（默认 push 不再改它）",
-      b"auto_start: true" in _raw_bytes or b"auto_start:true" in _raw_bytes)
+# ★★ t31 重钉（第五张图收口）：本条原为"本地 robot.yaml 含 auto_start: true"（给"默认不碰"这条
+#   不变式提供一个**真值样本**）。t31 按 F-t29-2 把 `path_executor.auto_start` 也从 true 改成 false
+#   （与 dzbrain 段 `mission.auto_start=false` 对齐，防 LEGACY_PATH 回退绕过核对窗口）⇒ 全文已无
+#   `auto_start: true`，该**前置条件**不再成立。改成**与取值无关**的前置条件：只要有 auto_start 键
+#   就行（真正的不变式是下面那条"默认 push = 原始字节逐位相同"，它才是本段要守的东西）。
+check("★ 本地 robot.yaml 含 auto_start 键（任一取值；默认 push 不再改它）",
+      b"auto_start: true" in _raw_bytes or b"auto_start:true" in _raw_bytes
+      or b"auto_start: false" in _raw_bytes or b"auto_start:false" in _raw_bytes,
+      "两段 auto_start 现均为 false（t31 F-t29-2 对齐）")
 check("★ 默认对账基准 = 原始字节（push 不碰 auto_start）",
       dep.expected_remote_bytes("config/robot.yaml", _raw_bytes) == _raw_bytes)
 _expected = dep.expected_remote_bytes("config/robot.yaml", _raw_bytes, apply_transform=True)
-check("★ 强制改写时对账基准用归一化内容，不是原始字节",
-      dep.sha256_bytes(_expected) != dep.sha256_bytes(_raw_bytes),
+# ★★ t31 重钉：真实文件里**两处 auto_start 都已显式 false**（F-t29-2 对齐）⇒ 对真文件做
+#   `apply_transform` 是**幂等空操作**（字节相同、0 行变化）。原来这两条断言把"文件里存在
+#   true 值"当成了前提（`sha 必须不同` / `至少改 1 行`）⇒ 前提消失后必红。
+#   改法（语义不降）：把"归一化确实改变内容、且只改 auto_start 行"这条不变式移到**合成样本**上验
+#   （样本里放 true，工具行为与真文件同一条代码路径），真文件上则钉"空操作 ⇒ 基准 = 原始字节"。
+_syn_true = b"a: 1\r\nauto_start: true\r\nauto_start_delay: 2.0\r\n"
+_syn_exp = dep.expected_remote_bytes("config/robot.yaml", _syn_true, apply_transform=True)
+check("★ 强制改写时对账基准用归一化内容，不是原始字节（合成样本含 true ⇒ 必须变）",
+      dep.sha256_bytes(_syn_exp) != dep.sha256_bytes(_syn_true),
       "若相等说明归一化没生效 → 会重现'假警报'或'假通过'")
+_syn_diff = [(a, b) for a, b in zip(_syn_true.decode("utf-8").splitlines(),
+                                    _syn_exp.decode("utf-8").splitlines()) if a != b]
+check("★ 变化的行全部是 auto_start 行（不误伤别的配置）",
+      len(_syn_diff) >= 1 and all(a.strip().startswith("auto_start:")
+                                  and "delay" not in a for a, _ in _syn_diff),
+      f"合成样本改了 {len(_syn_diff)} 行：{_syn_diff}")
+check("★ 真实文件：两段已 false ⇒ 强制改写是幂等空操作（基准 = 原始字节逐位）",
+      dep.sha256_bytes(_expected) == dep.sha256_bytes(_raw_bytes),
+      "★t31：`path_executor.auto_start`/`mission.auto_start` 均为 false（F-t29-2 对齐）")
 _raw_text = _raw_bytes.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 _exp_text = _expected.decode("utf-8")
 check("归一化不增删行（只改行内内容）",
       len(_exp_text.splitlines()) == len(_raw_text.splitlines()),
       f"{len(_exp_text.splitlines())} vs {len(_raw_text.splitlines())}")
 _diff_lines = [(a, b) for a, b in zip(_raw_text.splitlines(), _exp_text.splitlines()) if a != b]
-check("★ 变化的行全部是 auto_start 行（不误伤别的配置）",
-      len(_diff_lines) >= 1 and all("auto_start" in a for a, _ in _diff_lines),
-      f"改了 {len(_diff_lines)} 行")
-check("★ 每处 auto_start: true 都被改成 false",
-      _exp_text.count("auto_start: true") == 0 and _exp_text.count("auto_start: false") == 2)
-check("注释与其它键原样保留", "自动出发" in _exp_text and "auto_start_delay: 2.0" in _exp_text
-      )  # ★2026-10-11 快速采集(用户指令):10.0→2.0,期望值同步
+check("★ 真实文件空操作 ⇒ 0 行变化（含注释，全文逐位相同）",
+      _diff_lines == [], f"改了 {len(_diff_lines)} 行")
+# ★★ t31 重钉：计数只数**配置行**（`#` 注释行不算）——注释里出现同名键字面串会污染
+#   `text.count(...)`，本卡就踩过一次（注释里的自动出发键把 false 计数抬到 4 ⇒ 假红）。
+_bare_cfg = [ln for ln in _exp_text.splitlines()
+             if "auto_start:" in ln and not ln.lstrip().startswith("#")]
+check("★ 每处 auto_start 都被归一化成 false（配置行恰好 2 处、全文无 true）",
+      _exp_text.count("auto_start: true") == 0
+      and sum(1 for ln in _bare_cfg if "auto_start: false" in ln) == 2,
+      f"true={_exp_text.count('auto_start: true')} / 配置行 false="
+      f"{sum(1 for ln in _bare_cfg if 'auto_start: false' in ln)}"
+      f"（★t31：本仓两段都已显式 false ⇒ 归一化是幂等空操作，本条仍守『不得残留 true』不变式）")
+# ★★ t31 重钉：`auto_start_delay` 的期望值随本卡对齐改为 **45.0**（dzbrain 段与 legacy 段同值；
+#   历史 10.0 → 2.0（t29 前的快速采集）→ 45.0（t29 首跑档 + t31 两段对齐））。
+check("注释与其它键原样保留", "自动出发" in _exp_text and "auto_start_delay: 45.0" in _exp_text
+      )  # ★t31:2.0→45.0（t29 首跑档留横幅核对窗口）
 
 
 section("④ 包完整性：整包替换后车端能直接编译（少一个文件就会把车端搞挂）")

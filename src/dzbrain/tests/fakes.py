@@ -62,6 +62,8 @@ class FakeBridge:
 
         # 故障注入
         self.pose_frozen = False          # True = pose_age 一直涨（模拟定位失联）
+        self.brake_fails = False          # True = publish_brake 必抛（模拟 ROS 上下文已死，
+                                          #        rclpy 的 RCLError 就是这么冒出来的；t8 用）
 
     # ---------------- 脚本化 ----------------
     def set_pose(self, x: float, y: float, yaw: float = 0.0) -> None:
@@ -159,6 +161,13 @@ class FakeBridge:
         self.commands.append((float(linear_x), float(steer_deg)))
 
     def publish_brake(self) -> None:
+        """零速指令；`brake_fails=True` 时模拟"发不出去"（真实场景是 RCLError）。
+
+        ★ 计数只在**成功**路径增加（t8）：车端 RosBridge.publish_brake 在上下文已死时
+          会抛，Safety 靠这个区分"发了"与"没发出去"。替身必须同构，否则测不出假安全。
+        """
+        if self.brake_fails:
+            raise RuntimeError("模拟：ROS 上下文已失效，零速指令发布失败")
         self.brakes += 1
         self.commands.append((0.0, 0.0))
 

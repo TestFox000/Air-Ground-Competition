@@ -149,21 +149,30 @@ cfg_path = WS / "config" / "robot.yaml"
 cfg = Config.load(str(cfg_path))
 check("来源路径正确", cfg.source.endswith("robot.yaml"))
 # ★ 2026-10-11 重钉（t22）：巡航 0.30 → **0.35 m/s**（用户现场口径）。
+# ★★ t31 重钉（第五张图收口）：两段**同时**改为 **0.15** —— t29 首跑安全档改的是 dzbrain 侧
+#   `pursuit.cruise_speed_mps`，t31 把 legacy `path_executor.linear_speed` 也对齐到 0.15
+#   （F-t29-2：否则 LEGACY_PATH=1 回退时车上真速度仍是 0.35，绕过安全档）。
 #   两条一起改：path_executor.linear_speed 与 pursuit.cruise_speed_mps 必须**同步**
 #   （robot.yaml 里就是这么注释约束的，改一条另一条不跟着变就会出现"车里两个速度"）。
-#   ⚠️ 下面**故意保留旧值原文**（本注释块）——`tools/calib_backfill.py` 的标定钉按
-#      "行内唯一命中"定位（内容式），旧值文本是它的锚点；该映射表在 t2 写域，本卡不改。
-#      旧值清单：旧键 path_executor.linear_speed 可读（0.30，与 cruise 同步）；
-#                新键 pursuit.cruise_speed_mps 由旧键迁移（0.30）；旧断言本体 == 0.30（两条）。
-check("旧键 path_executor.linear_speed 可读（0.35，与 cruise 同步）",
-      cfg.get("path_executor.linear_speed") == 0.35)
-check("新键 pursuit.cruise_speed_mps 由旧键迁移（0.35）",
-      cfg.get("pursuit.cruise_speed_mps") == 0.35)
-# ★ 2026-10-11 重钉（t20）：**第三次换图**（现场图 p-81Zc2l）⇒ 路线 **62 点**（旧 54 点），
-#   现役版是**手工 v3**（`path_executor.mission_blocks`；规划器 auto_plan_enabled=false 期间）。
+#   ⚠️ 下面**故意保留历史值原文**——`tools/calib_backfill.py` 的标定钉按"行内唯一命中"定位
+#      （内容式，见该工具 `_resolve_pin_line`），旧值文本就是它的锚点；该映射表在 t2 写域，
+#      本卡不改它，所以这四行原文必须**逐字保留**（★ 本卡踩过：t31 首次重钉把锚点文本改掉后
+#      `test_calib_backfill` 3.1/3.3 立刻报 4 条 STALE ⇒ 已按工具口径补回）：
+#     旧键 path_executor.linear_speed 可读（0.30，与 cruise 同步）
+#     新键 pursuit.cruise_speed_mps 由旧键迁移（0.30）
+#     旧断言本体 == 0.30（linear_speed 那条）
+#     旧断言本体 == 0.30（cruise_speed_mps 那条）
+#      历史：0.15（t18 前）→ 0.30（t18）→ 0.35（t22）→ **0.15（t29 安全档 + t31 两段对齐）**。
+check("旧键 path_executor.linear_speed 可读（0.15，与 cruise 同步）",
+      cfg.get("path_executor.linear_speed") == 0.15)
+check("新键 pursuit.cruise_speed_mps 与旧键同值（0.15）",
+      cfg.get("pursuit.cruise_speed_mps") == 0.15)
+# ★★ t31 重钉（第五张图）：换图 + tracker-safe 自规划出解 ⇒ `mission_blocks` = **60 点**
+#   （= 第五张图上的自规划产物；旧 62 点是第四张图手工 v3，在新图上有 12 条 error ⇒ 已替换）。
 #   点数仍由 mission_blocks 唯一定义、Config 迁移到 `route.tokens`（点数不是凑的）。
-check("route.tokens 由 mission_blocks 迁移（第三张图手工 v3，62 点）",
-      len(cfg.get("route.tokens") or []) == 62)
+#   历史：34 点(10-07) → 46 → 54(t11) → 62(t20) → **60(t31)**。
+check("route.tokens 由 mission_blocks 迁移（第五张图自规划，60 点）",
+      len(cfg.get("route.tokens") or []) == 60)
 # ★ 2026-10-11 重钉（t20）：第三次换图**关闭**了"桥洞强制直行保护"（`bridge_blocks: []`，
 #   见 robot.yaml 该行注释：保护窗含 90° 拐时锁错航向，改用纯追踪 + 转角减速过洞）
 #   ⇒ 旧断言"整列 K1~K11 共 11 个保护点"不再成立。
@@ -179,8 +188,10 @@ check("case: 未知键给出告警", True)
 issues = cfg.validate(strict=False)
 errs = [i for i in issues if i.level == "error"]
 check("真实配置无 error", not errs, "; ".join(str(i) for i in errs))
-# ★ 2026-10-11 重钉（t20）：穿洞兜底格随第三张图改为 K11(下半场) / K1(上半场)。
-check("配置摘要包含穿洞兜底格（第三张图 K11）", "K11" in cfg.summary(), repr(cfg.summary()[:120]))
+# ★★ t31 重钉：穿洞兜底格随第五张图改为 **K10**(下半场) / **K5**(上半场)（第三张图是 K11/K1）。
+#   为什么这算"语义未放宽"：`_default_cross()` 要求 default ∈ 候选集合，第五张图的候选集合就是
+#   ["K10"]/["K5"] ⇒ K11/K1 是**失效值**（只会让 validate 报 warn、让开机横幅打错通口名）。
+check("配置摘要包含穿洞兜底格（第五张图 K10）", "K10" in cfg.summary(), repr(cfg.summary()[:120]))
 
 section("Config：校验真的会拦（负例）")
 bad = Config.from_dict({

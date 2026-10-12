@@ -25,6 +25,11 @@
 ⚠️ 门禁口径在 `tools/route_check.py`（用户侧脚本，**刻意不 import dzbrain**：车端没装包也要能单跑）
   —— 它按**同一套公式**复算，并由 `src/dzbrain/tests/test_physics.py` 的**对拍断言**钉住
   两份实现不许分叉。规划器/仿真侧请直接 import 本模块。
+⚠️ 卡 t11 起本模块还提供**参考点偏移感知**的车体足迹（`body_corners()` / `body_*_clearance_m()`，
+  真源 = `config/robot.yaml: vehicle.ref_offset_m`，现场实测 +7.5 cm）。**默认偏移 0.0**，
+  所以既有调用方行为不变；而 `tools/route_check.py` 那份副本**不含**偏移口径（它读不到
+  `vehicle.ref_offset_m`）——它的挡板/障碍判据只等价于 `offset=0` 的情形，这一点必须在
+  报告里说明（t11：+7.5 cm 时挡板余量从 +7.6 mm 变成 −5.2 mm 的侵入）。
 ⚠️ 本模块**不做**语义判断（该不该压雷、绕不绕路），只回答"几何上有没有碰上"。
 """
 
@@ -58,6 +63,16 @@ __all__ = [
     "required_target_body_clearance_m",
     "target_body_overlap",
     "body_overlaps_rect_centered",
+    # ★★ 卡 t11：**参考点偏移**感知的车体足迹（净空唯一真源）
+    "DEFAULT_REF_OFFSET_M",
+    "body_center",
+    "body_corners",
+    "corner_poly",
+    "polygon_overlap_depth",
+    "polygon_distance_m",
+    "body_obstacle_clearance_m",
+    "body_barrier_clearance_m",
+    "body_rect_clearance_m",
 ]
 
 #: 格边长（= `geometry.BLOCK_SIZE`，只在这里取一次，避免各处重复写 0.35）
@@ -387,3 +402,170 @@ def segment_outside_band(ax: float, ay: float, bx: float, by: float, *,
             out.append((ax + u * (bx - ax), ay + u * dy,
                         ax + v * (bx - ax), ay + v * dy))
     return out
+
+
+# --------------------------------------------------------------------------- #
+#  ★★ 卡 t11：参考点偏移感知的车体足迹（"净空唯一真源"补齐）
+# --------------------------------------------------------------------------- #
+#  背景（现场卷尺实测，2026-10-11）：
+#    后轴中心→车尾沿 6.5 cm、后轴中心→车头沿 21.5 cm、车身总长 28 cm
+#    ⇒ 车体**几何中心**在参考点（= 里程计/仿真积分点 = **后轴中心**）**前方 7.5 cm**。
+#    `config/robot.yaml: vehicle.ref_offset_m` 是唯一真源；`dzactuator.cpp` 与
+#    `tools/sim.py: step_bicycle` 都按"后轴"积分（`X += v·cos(yaw)`），所以这个偏移
+#    是**真实几何**，不是建模花招。
+#
+#  为什么必须落在本模块：本模块是净空/碰撞的**唯一真源**（`tools/route_check.py` 那份
+#  是等价的用户侧副本，由 `test_physics.py` 对拍钉住）。t5 实测：把车体矩形沿车头方向
+#  平移 +3.5 cm 就让现役路线"顶到挡板"，+7.5 cm 报 35~38 拍侵入 ⇒ 偏移必须能进真源，
+#  否则所有"净空够不够"的结论都默认了 `offset=0`（= 假设车体中心与后轴重合，**与实测矛盾**）。
+#
+#  兼容性铁律：`offset_m` 默认 `DEFAULT_REF_OFFSET_M = 0.0` ⇒ 不读配置的老调用方
+#  （planner / sim / route_check / 既有测试）行为**逐字节不变**；只有显式传值的调用方
+#  才进入"真实几何"口径。
+#: 参考点(后轴中心) → 车体几何中心的纵向偏移默认值（米，正 = 中心在参考点前方）
+DEFAULT_REF_OFFSET_M = 0.0
+
+
+def body_center(px: float, py: float, yaw: float, *,
+                offset_m: float = DEFAULT_REF_OFFSET_M) -> tuple[float, float]:
+    """参考点 `(px,py,yaw)` → 车体**几何中心**（沿车头方向前移 `offset_m`）。"""
+    return (px + offset_m * math.cos(yaw), py + offset_m * math.sin(yaw))
+
+
+def body_corners(px: float, py: float, yaw: float, *,
+                 length_m: float = 0.28, width_m: float = 0.135,
+                 offset_m: float = DEFAULT_REF_OFFSET_M
+                 ) -> tuple[tuple[float, float], ...]:
+    """车体矩形 4 角（地图系，逆时针；中心 = `body_center()`）。
+
+    `offset_m=0.0`（默认）时退化为"以参考点为心的轴对齐/旋转矩形" —— 与
+    `tools/sim.py: body_corners()`（把矩形中心放在积分点上）**完全一致**。
+    """
+    cx, cy = body_center(px, py, yaw, offset_m=offset_m)
+    c, s = math.cos(yaw), math.sin(yaw)
+    hl, hw = length_m / 2.0, width_m / 2.0
+    return tuple((cx + dx * c - dy * s, cy + dx * s + dy * c)
+                 for dx, dy in ((hl, hw), (hl, -hw), (-hl, -hw), (-hl, hw)))
+
+
+def corner_poly(cx: float, cy: float, half_x: float, half_y: float
+                ) -> tuple[tuple[float, float], ...]:
+    """轴对齐矩形 4 角（心 + 两个半边长）—— 挡板细条/靶板矩形都用它构造。"""
+    return ((cx - half_x, cy - half_y), (cx + half_x, cy - half_y),
+            (cx + half_x, cy + half_y), (cx - half_x, cy + half_y))
+
+
+def _poly_axes(poly) -> list[tuple[float, float]]:
+    """凸多边形的所有边法线（SAT 候选轴）。"""
+    out: list[tuple[float, float]] = []
+    n = len(poly)
+    for i in range(n):
+        x0, y0 = poly[i]
+        x1, y1 = poly[(i + 1) % n]
+        dx, dy = x1 - x0, y1 - y0
+        L = math.hypot(dx, dy)
+        if L > 1e-12:
+            out.append((-dy / L, dx / L))
+    return out
+
+
+def _poly_proj(poly, ax: tuple[float, float]) -> tuple[float, float]:
+    vals = [p[0] * ax[0] + p[1] * ax[1] for p in poly]
+    return min(vals), max(vals)
+
+
+def polygon_overlap_depth(a, b) -> float:
+    """两**凸**多边形的重叠深度（SAT/MTV；`> 0` = 真重叠，`0` = 不重叠）。
+
+    ★ 与 `tools/sim.py` / t5lib 的 `sat_overlap_depth` 同式：只要有一条分离轴就返回 0，
+      否则返回最短穿透深度 —— "**碰上了没有**"必须用这个判据，不能用"中心在不在里面"。
+    """
+    best = float("inf")
+    for ax in _poly_axes(a) + _poly_axes(b):
+        lo_a, hi_a = _poly_proj(a, ax)
+        lo_b, hi_b = _poly_proj(b, ax)
+        ov = min(hi_a, hi_b) - max(lo_a, lo_b)
+        if ov <= 0.0:
+            return 0.0
+        best = min(best, ov)
+    return best
+
+
+def polygon_distance_m(a, b) -> float:
+    """两**凸**多边形的最近距离（重叠 = 0）。凸集的最近点必在"顶点-边"对上 ⇒ 精确。"""
+    if polygon_overlap_depth(a, b) > 0.0:
+        return 0.0
+    best = float("inf")
+    for poly_a, poly_b in ((a, b), (b, a)):
+        n, m = len(poly_a), len(poly_b)
+        for i in range(n):
+            ax, ay = poly_a[i]
+            bx, by = poly_a[(i + 1) % n]
+            for j in range(m):
+                cx, cy = poly_b[j]
+                dx, dy = poly_b[(j + 1) % m]
+                best = min(best, _seg_seg_distance(ax, ay, bx, by, cx, cy, dx, dy))
+    return best
+
+
+def _point_in_poly(px: float, py: float, poly) -> bool:
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        x0, y0 = poly[i]
+        x1, y1 = poly[(i + 1) % n]
+        if (y0 > py) != (y1 > py):
+            x_at = x0 + (py - y0) * (x1 - x0) / (y1 - y0)
+            if x_at > px:
+                inside = not inside
+    return inside
+
+
+def body_obstacle_clearance_m(px: float, py: float, yaw: float, ox: float, oy: float, *,
+                              obstacle_radius_m: float = 0.1275,
+                              length_m: float = 0.28, width_m: float = 0.135,
+                              offset_m: float = DEFAULT_REF_OFFSET_M) -> float:
+    """车体矩形表面 → **圆柱障碍表面**的间隙（米；`≤ 0` = 真重叠）。
+
+    比老口径（"车心到柱心 ≥ r + 车半宽 + 余量"）严格：它算的是旋转车体的真实角点，
+    所以"斜着蹭柱面"不会被漏掉（t5 实测：老口径报 0 拍，本口径报 253 拍真重叠）。
+    """
+    poly = body_corners(px, py, yaw, length_m=length_m, width_m=width_m, offset_m=offset_m)
+    if _point_in_poly(ox, oy, poly):
+        return -obstacle_radius_m
+    d = min(point_segment_distance_m(ox, oy, poly[i][0], poly[i][1],
+                                     poly[(i + 1) % len(poly)][0],
+                                     poly[(i + 1) % len(poly)][1])
+            for i in range(len(poly)))
+    return d - obstacle_radius_m
+
+
+def body_barrier_clearance_m(px: float, py: float, yaw: float, *,
+                             barrier_width_m: float = 0.02,
+                             barrier_x: float = 1.75,
+                             barrier_y0: float = 0.0, barrier_y1: float = 3.85,
+                             length_m: float = 0.28, width_m: float = 0.135,
+                             offset_m: float = DEFAULT_REF_OFFSET_M) -> float:
+    """车体矩形表面 → **挡板细条表面**的间隙（米；重叠 = 0）。
+
+    挡板是 `barrier_width_m` 厚的细条（`x = barrier_x` 恒定，`y ∈ [y0, y1]`），
+    所以判据是"两个矩形的最近距离"，**不是**"车心到中心线 ≥ 半厚 + 车半宽"（后者把
+    旋转中的车身当成半宽细条，t5 实测两口径差 13 mm）。
+    """
+    poly = body_corners(px, py, yaw, length_m=length_m, width_m=width_m, offset_m=offset_m)
+    strip = corner_poly(barrier_x, (barrier_y0 + barrier_y1) / 2.0,
+                        barrier_width_m / 2.0, (barrier_y1 - barrier_y0) / 2.0)
+    return polygon_distance_m(poly, strip)
+
+
+def body_rect_clearance_m(px: float, py: float, yaw: float, *,
+                          rect_cx: float, rect_cy: float,
+                          rect_half_x: float, rect_half_y: float,
+                          length_m: float = 0.28, width_m: float = 0.135,
+                          offset_m: float = DEFAULT_REF_OFFSET_M) -> float:
+    """车体矩形表面 → **任意轴对齐矩形实体**表面（靶板/桥室侧壁都用它）的间隙。
+
+    重叠 = 0；`rect_half_*` 是半边长（跨格靶板 35×70 cm ⇒ 半边长 0.175/0.35）。
+    """
+    poly = body_corners(px, py, yaw, length_m=length_m, width_m=width_m, offset_m=offset_m)
+    return polygon_distance_m(poly, corner_poly(rect_cx, rect_cy, rect_half_x, rect_half_y))

@@ -426,23 +426,29 @@ def test_degrade_matrix() -> None:
           f"used={rig6.used()}")
 
     # ---- 3f ★ 现场真口径：DroneTask 在跑但**无人机没上线**（P_DRONE 存在、offline） ----
-    #   这是本节最关键的一条现场场景，因为它会走到等待窗口。
+    #   ★ 卡 t20（t14-F1 裁决）**重钉**：离线时**不再进等待窗口**（旧 3.9 断言"会进等待窗口"已废）。
+    #     等待判据收回为「online=True **且**手上已有一半新鲜情报（source=drone）」；
+    #     硬上限 `delay+wait` 仍是兜底，其覆盖见 `test_mission.py` 14.31b（另一半永不到 → 到点发车）
+    #     与 14.27/14.29（离线/过期 → 不等）、14.30/14.31（online+一半新鲜 → 窗口内到齐即发）。
     rig7 = Link(cfg_of(wait=5.0))                    # drone.enabled=true、不发任何报文
     rig7.ticks(4)
     tel7 = rig7.bridge_tel()
     check("3.8 ★ DroneTask 在跑但无人机未上线 → 黑盒里**有** P_DRONE（link=true）",
           rig7.drone_state() is not None and tel7.get("link") is True,
           f"link={tel7.get('link')} online={getattr(rig7.drone_state(), 'online', None)}")
-    check("3.9 ★★ 该场景会进等待窗口，但**有硬上限**：delay+wait 到点必出发（不卡死）",
-          bool((tel7.get("note") or {}).get("waiting")) is True
-          and rig7.phase() == "IDLE",
-          f"waiting={(tel7.get('note') or {}).get('waiting')} phase={rig7.phase()}")
-    rig7.ticks(int((0.1 + 5.0) / 0.1) + 4)           # 快进越过硬上限
-    check("3.10 ★★ 硬上限到点后照常出发，且穿洞格=现场默认（未因等待而漏发车）",
-          rig7.phase() == "DRIVE"
+    check("3.9 ★★（t20 重钉）离线 → **不进等待窗口**：0.4s 内已出发、穿洞格=现场默认",
+          bool((tel7.get("note") or {}).get("waiting")) is not True
+          and rig7.phase() == "DRIVE"
           and rig7.used() == {"lower": LOWER_DEFAULT, "upper": UPPER_DEFAULT},
+          f"waiting={(tel7.get('note') or {}).get('waiting')} phase={rig7.phase()} "
+          f"used={rig7.used()}")
+    rig7.ticks(int((0.1 + 5.0) / 0.1) + 4)           # 再快进 5s（远超旧窗口）
+    check("3.10 ★★（t20 重钉）全程离线都**没有等过**：再快进 5s 仍是 DRIVE + 默认格、waited_s 为空",
+          rig7.phase() == "DRIVE"
+          and rig7.used() == {"lower": LOWER_DEFAULT, "upper": UPPER_DEFAULT}
+          and (rig7.bridge_tel().get("note") or {}).get("waited_s") is None,
           f"phase={rig7.phase()} used={rig7.used()} "
-          f"waited={(rig7.bridge_tel().get('note') or {}).get('waited_s')}")
+          f"note={rig7.bridge_tel().get('note')}")
 
 
 # --------------------------------------------------------------------------- #

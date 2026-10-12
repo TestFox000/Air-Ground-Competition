@@ -84,7 +84,9 @@ def motion_limit_speed_limit(bb) -> float | None:
 # --------------------------------------------------------------------------- #
 def speed_profile(*, curvature: float, dist_to_stop: float | None,
                   corner_dist: float | None, speed_scale: float,
-                  cfg: Config, motion_limit_mps: float | None = None) -> tuple[float, str]:
+                  cfg: Config, motion_limit_mps: float | None = None,
+                  last_speed_mps: float | None = None,
+                  dt: float | None = None) -> tuple[float, str]:
     """前进速度剖面：`min(巡航×scale, 曲率限速, 停站减速, 转角减速) × 量化补偿`，下界 `min_speed`。
 
     - 停站减速：`v = min(v, max(min_speed, stop_approach_speed_gain × d))`（旧 0.30·d）
@@ -92,6 +94,25 @@ def speed_profile(*, curvature: float, dist_to_stop: float | None,
     - `dist_to_stop` / `corner_dist` 传 `None` 表示"这一层不参与"
     - `motion_limit_mps`：外部限速请求（`None` = 无信号 → **完全 no-op**）。它是**最后一层**，
       **在 `min_speed` 下限之后**施加，所以 `0.0` 能真正压到 0（"请求停车"不被蠕动下限顶回去）。
+
+    ★★ t30 新增：**加减速斜坡**（"直线上猛加速、拐角照样减速"的落地件）
+      · 两个点号键（**缺省 0.0 = 本层完全不参与**，行为与历史逐位一致）：
+          `pursuit.accel_up_mps2`   —— 升速上限（m/s²），建议 0.6~0.8
+          `pursuit.accel_down_mps2` —— 降速上限（m/s²），建议 1.0~1.2
+      · `last_speed_mps` = **上一拍控制器输出的速度**（命令量，不是里程计实测）；
+        `dt` = 控制周期。两个都给了、且至少一个限值 > 0 时，本层才参与：
+            `v_hi = last + accel_up·dt`、`v_lo = last − accel_down·dt`（`v_lo` 再被 `min_speed` 兜底）
+        目标速度 `v` 超过 `v_hi` 就压到 `v_hi`（`reason="ramp_up"`），低于 `v_lo` 就抬到 `v_lo`
+        （`reason="ramp_down"`）。
+      · **首拍/无历史（`last_speed_mps is None`）或没给 `dt` ⇒ 本层不参与**（返回 `reason` 不变）。
+        为什么不是"当成 0"：调用方若不传历史，每一拍都会被当成首拍 ⇒ 速度被永久压在
+        `accel_up·dt`（0.7×0.02 = 0.014 m/s）⇒ **车根本不会动**。所以"无历史 = 不限"是唯一安全语义，
+        并且**调用方有责任播种历史**（`sim.py` 已在本卡里接上；真车侧见
+        `_tmp_session/t30/patch.md` 的接线清单）。
+      · 施加位置：**在 `min_speed` 下限之前**（先斜坡、再兜底），因此
+        "运动中速度 ≥ min_speed" 这条既有不变量不变；而 `motion_limit`（安全层）仍在**最后**，
+        所以"请求停车 = 0"不会被斜坡或下限顶回去。
+
     ★ 返回的 `reason` 是**真正起作用的那一层**，便于日志定位"为什么这么慢"。
     """
     cruise = cfg.get("pursuit.cruise_speed_mps")
@@ -115,6 +136,20 @@ def speed_profile(*, curvature: float, dist_to_stop: float | None,
             v, reason = corner_v, "corner"
 
     v *= cfg.get("pursuit.speed_quant_comp")
+
+    # ---- ★ t30 加减速斜坡（缺省 0.0 ⇒ 整层 no-op） ----
+    accel_up = cfg.get("pursuit.accel_up_mps2", 0.0) or 0.0
+    accel_down = cfg.get("pursuit.accel_down_mps2", 0.0) or 0.0
+    if last_speed_mps is not None and dt is not None and dt > 0.0 \
+            and (accel_up > 0.0 or accel_down > 0.0):
+        last = max(0.0, float(last_speed_mps))          # 命令量恒 ≥ 0（倒车在调用侧另取绝对值）
+        v_hi = last + accel_up * dt if accel_up > 0.0 else float("inf")
+        v_lo = max(min_speed, last - accel_down * dt) if accel_down > 0.0 else min_speed
+        if v > v_hi:
+            v, reason = v_hi, "ramp_up"
+        elif v < v_lo:
+            v, reason = v_lo, "ramp_down"
+
     if v < min_speed:       # ★ 下界最后兜（保证任何分支都不会低于蠕动速度）
         v, reason = min_speed, "min_speed"
     if motion_limit_mps is not None and motion_limit_mps < v:   # ★ 限速请求：只降不升
@@ -154,7 +189,8 @@ def _corner_dist(path: Path, proj: Projection, cfg: Config) -> float | None:
 def compute_command(pose, path: Path, proj: Projection, cfg: Config, *,
                     reverse: bool = False, last_steer_deg: float | None = None,
                     dt: float = 0.02, bb=None,
-                    motion_limit_mps: float | None = None) -> PursuitCommand:
+                    motion_limit_mps: float | None = None,
+                    last_speed_mps: float | None = None) -> PursuitCommand:
     """纯追踪一拍：位姿 + 路径投影 → (速度, 舵角, 曲率, 限速主因)。
 
     `pose` 只需有 `.x/.y/.yaw`（`core.geometry.Pose`）；`last_steer_deg=None` 表示首拍、不做速率限幅。
@@ -166,6 +202,10 @@ def compute_command(pose, path: Path, proj: Projection, cfg: Config, *,
     ★ `motion_limit_mps` / `bb`（t20 读侧）：限速请求来源二选一 —— 显式传 `motion_limit_mps`
       优先；否则从黑板 `bb` 读 `P_MOTION_LIMIT`。**两者都没有信号时逐位等价于旧行为**
       （`speed_profile` 收到 `None` 就整层不参与）。
+    ★★ t30：`last_speed_mps` = 上一拍**控制器输出**的速度（命令量）。传了就启用加减速斜坡
+      （限值来自 `pursuit.accel_up_mps2` / `pursuit.accel_down_mps2`，**缺省 0.0 = 不参与**）；
+      `None` = 首拍/无历史 ⇒ 不参与（原因见 `speed_profile` 的"为什么不是当成 0"）。
+      `dt` 同时是斜坡的时间基准（默认 0.02 s）。
     """
     limit = motion_limit_mps if motion_limit_mps is not None else motion_limit_speed_limit(bb)
     wheelbase = cfg.get("pursuit.wheelbase_m")
@@ -224,6 +264,8 @@ def compute_command(pose, path: Path, proj: Projection, cfg: Config, *,
         speed_scale=path.segment_speed_scale(proj.seg_index),
         cfg=cfg,
         motion_limit_mps=limit,
+        last_speed_mps=last_speed_mps,      # ★ t30：上一拍**命令**速度（None = 首拍/无历史 ⇒ 不参与）
+        dt=dt,
     )
     if rev:
         min_speed = cfg.get("pursuit.min_speed_mps")

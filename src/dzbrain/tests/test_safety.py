@@ -18,10 +18,19 @@ r"""SafetyTask 测试（纯脚本，无 pytest）。
 
 from __future__ import annotations
 
+import os
 import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+#: 被测包根覆盖（**变异测试专用**，口径与 test_shutdown.py 一致，卡 t17）。
+#  ★ 为什么必须有：本文件上面那句 `sys.path.insert(0, ../..)` 会把**真源**钉在 `sys.path[0]`，
+#    于是"只把变异副本放进 PYTHONPATH"是**无效**的 —— 真源仍然赢（t14 已在 test_shutdown
+#    上实测到同一陷阱：变异体"全绿"是假绿）。顺序要紧：先插 tests，**再**插覆盖根。
+_PKG_ROOT_OVERRIDE = os.environ.get("DZ_PKG_ROOT")
+if _PKG_ROOT_OVERRIDE:
+    sys.path.insert(0, _PKG_ROOT_OVERRIDE)
 
 try:                                    # 车端/CI 控制台默认不是 UTF-8，中文会乱码
     sys.stdout.reconfigure(encoding="utf-8")
@@ -160,6 +169,13 @@ def tick_live(task, n: int, *, dt: float = 0.05) -> None:
 
 
 section("① 正常状态：ok=True、不刹车、无原因")
+# ★ 自证（卡 t17）：设了 DZ_PKG_ROOT 却仍然导入到真源 ⇒ 变异测试会得到"变异体全绿"的假绿。
+#   只在有覆盖时断言一次（正常跑不加断言，保持 190 条不变；覆盖跑 = 191 条）。
+if _PKG_ROOT_OVERRIDE:
+    _mod_file = pathlib.Path(str(sys.modules[SafetyTask.__module__].__file__)).resolve()
+    check("⓪ 变异复现：DZ_PKG_ROOT 覆盖生效（导入到的是被测副本，不是真源）",
+          _mod_file.is_relative_to(pathlib.Path(_PKG_ROOT_OVERRIDE).resolve()),
+          f"safety.py={_mod_file} root={_PKG_ROOT_OVERRIDE}")
 task, bridge, bb, bus, clock = build()
 sub_stop = bus.subscribe("t1", [EV_SAFETY_STOP])
 task.tick()
@@ -732,5 +748,77 @@ tick_n(task, 3)
 check("ok 仍被判 False", bb.get(P_SAFETY).ok is False)
 check("但不发零速指令", bridge.brakes == 0, f"got {bridge.brakes}")
 check("仍然发布 EV_SAFETY_STOP（让上层知道）", len(sub10.poll()) == 1)
+
+section("⑪ 锁存后刹车**逐拍续发**（底盘 1 s 看门狗要求刷新，不能只发一次）")
+# t8 追加核验（队长 B 项）：验收要求"锁存后逐拍续发"。实测当前实现本来就是每拍发
+# （`_update` 里 `if self.brake_on_fault: publish_brake()` 在 reason 存在时每拍执行），
+# 这条把它**钉死**：若哪天有人改成"锁存后只发一次"，刹车计数会在 6 拍后停在 1 ⇒ 必红。
+task, bridge, bb, bus, clock = build()
+publish_pose(bridge, bb, clock, 0.525, 0.175)      # 先见过定位（否则进启动宽限）
+task.tick()
+publish_pose(bridge, bb, clock, -0.5, 0.175)       # 越界 → 硬停车
+task.tick()
+check("⑪ 锁存后第 1 拍发了零速（brakes==1）", bridge.brakes == 1, f"got {bridge.brakes}")
+tick_n(task, 5)
+check("★ 锁存后 5 拍共续发 5 次（brakes==6，不是只发一次）", bridge.brakes == 6,
+      f"got {bridge.brakes}")
+check("⑪ 全程 6 拍仍在锁存态", task.stopped is True)
+check("⑪ 强制停车只计数 1 次（锁存语义没被逐拍续发破坏）", task.forced_stops == 1,
+      f"got {task.forced_stops}")
+# 逐拍续发 ≠ 无限刷屏：原因集合不变时 EMERGENCY 事件只有 1 条、日志按限流打印
+check("⑪ 仍在安全停车中（原因未解除）", bb.get(P_SAFETY).ok is False)
+
+section("⑫ 真刹失效独立告警：连续 ≥3 拍发布失败 → 独立 alarm + 成功计数不增（t8 C 项）")
+# 复现实车血证（t6 §7 P0-2 / t3 finding C）：上下文一坏，publish_brake 全失败，
+# 而旧实现用 `_safe_call` 吞异常、照样 `brakes += 1` 并打"已发零速指令"
+# ⇒ 日志自证安全、实际一条零速都没出去。现在必须：失败独立计数 + 独立文案 + 成功不涨。
+logs_12: list[str] = []
+task12, bridge12, bb12, bus12, clock12 = build()
+task12._log = logs_12.append
+publish_pose(bridge12, bb12, clock12, 0.525, 0.175)
+task12.tick()
+publish_pose(bridge12, bb12, clock12, -0.5, 0.175)      # 越界 → 进入锁存
+bridge12.brake_fails = True                             # ★ 从这一拍起，零速发不出去
+task12.tick()
+check("⑫ 第 1 拍失败：成功计数仍为 0（旧实现这里会变 1）", task12.brakes == 0,
+      f"got {task12.brakes}")
+check("⑫ 第 1 拍失败：失败计数 1", task12.brake_failures == 1, f"got {task12.brake_failures}")
+check("⑫ 连续失败计数 1", task12.brake_consecutive_failures == 1,
+      f"got {task12.brake_consecutive_failures}")
+task12.tick()
+check("⑫ 未达阈值（2 拍）**不**告警", not any("真刹失效告警" in m for m in logs_12), f"{logs_12}")
+task12.tick()                                           # 第 3 拍 = 阈值
+alarms = [m for m in logs_12 if "真刹失效告警" in m]
+check("⑫ 连续 3 拍失败 → 出独立告警（恰好 1 条）", len(alarms) == 1, f"{alarms}")
+check("⑫ 告警文案明确写'不是已发零速指令'",
+      bool(alarms) and "不是'已发零速指令'" in alarms[0], f"{alarms}")
+check("⑫ 告警带连续失败拍数 3", bool(alarms) and "连续 3 拍" in alarms[0], f"{alarms}")
+check("★ 失败期间**不**出现'已发零速指令'",
+      not any(m.startswith("★ 强制停车") and "已发零速指令" in m for m in logs_12), f"{logs_12}")
+check("⑫ 3 拍后成功计数仍为 0", task12.brakes == 0, f"got {task12.brakes}")
+check("⑫ 失败计数 3", task12.brake_failures == 3, f"got {task12.brake_failures}")
+check("⑫ 失败原因被留痕（不是空字符串）",
+      "RuntimeError" in task12._last_brake_error, f"got {task12._last_brake_error!r}")
+tick_n(task12, 4)                                       # 继续失败 → 告警不刷屏
+check("⑫ 告警只在'跨过阈值'那一次打（后续 4 拍不再打）",
+      sum(1 for m in logs_12 if "真刹失效告警" in m) == 1,
+      f"{[m for m in logs_12 if '真刹失效告警' in m]}")
+
+section("⑬ 发布恢复：连续失败计数清零、成功计数从 0 重新累加（不静默、不误报）")
+task12.clear_safety()
+bridge12.brake_fails = False                            # 上下文恢复
+publish_pose(bridge12, bb12, clock12, -0.5, 0.175)      # 再次越界 → 再锁存
+task12.tick()
+check("⑬ 恢复后这一拍真的发出去了（brakes==1）", task12.brakes == 1, f"got {task12.brakes}")
+check("⑬ 连续失败计数清零", task12.brake_consecutive_failures == 0,
+      f"got {task12.brake_consecutive_failures}")
+check("⑬ 失败总计数在恢复后不再增长（停在 7 = 3+4）", task12.brake_failures == 7,
+      f"got {task12.brake_failures}")
+check("⑬ 恢复这一拍不打新告警",
+      any("真刹失效告警" in m for m in logs_12) and
+      sum(1 for m in logs_12 if "真刹失效告警" in m) == 1,
+      f"{[m for m in logs_12 if '真刹失效告警' in m]}")
+check("⑬ 恢复后逐拍续发照旧（再 2 拍 → brakes==3）", (tick_n(task12, 2) or task12.brakes) == 3,
+      f"got {task12.brakes}")
 
 finish()

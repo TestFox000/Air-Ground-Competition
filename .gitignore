@@ -7,6 +7,7 @@ log_*/
 # ---- 备份与临时目录 ----
 backup/
 _tmp_session/
+_tmp_verify/
 _scratch_*/
 artifacts/
 *.bak
@@ -29,6 +30,10 @@ __pycache__/
 .vscode/*.log
 Thumbs.db
 desktop.ini
+src_v1/.vscode/
+
+# ---- 第三方 embedded repo（嵌套 .git，182MB，非本项目代码，不入库）----
+src_v1/navigation2/
 
 # ---- 本地智能体状态 / 临时产物（不入库）----
 .agent-teams/

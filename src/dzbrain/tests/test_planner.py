@@ -47,6 +47,13 @@ MAP_YAML = WS_ROOT / "config" / "map.yaml"
 ROBOT_YAML = WS_ROOT / "config" / "robot.yaml"
 ROUTE_CHECK = WS_ROOT / "tools" / "route_check.py"
 
+#: ★★ t7：规划类调用的**显式**时间预算（秒）。
+#: 为什么必须显式：`plan_route` 的默认预算（`planner.DEFAULT_MAX_SECONDS`，现 2.0 s）是
+#: **给线上的兜底值**，而"测试必须绿"不该依赖机器负载 —— 本机单次规划实测 0.55 s，
+#: 旧默认 0.8 s 在 4 忙核下会稳定超时（t8 门禁抓到的 flake，单跑 5/5 绿）。
+#: 取 10 s：规划结果完全不变（同一份搜索、同一份输出），只是不再被负载左右判据。
+TEST_PLAN_BUDGET_S = 10.0
+
 try:
     import yaml
 except ImportError:                                          # pragma: no cover
@@ -536,21 +543,27 @@ def main() -> int:
     #   → **65 token / 24.85 m / 折返 D8 与 I2 两处**（第三张图 + U 形单回路顺序）。
     #   路线形状：`N10 L10 L11 K11 J11 … D8:PIVOT … F4* … I2:PIVOT … K1 L1 … N5`
     #   —— 下半场**先穿 K11 再收西区**、上半场收在 K1，即"每半场恰好一次穿洞"的 U 形单回路。
-    check("[无倒车] 65 token / 里程 24.85 m（0 段 R:，:PIVOT 两处 D8/I2）",
-          len(nr.tokens) == 65 and abs(nr.polyline_m - 24.85) < 0.02,
+    # ★★ t31 重钉（第五张图）：**53 token / 19.25 m / 折返 I11 与 C10 两处**（tour 引擎在新图上的产物）。
+    #   路线形状：`N10 … c11 … I11:PIVOT … C10*:PIVOT … K5 L5 … N5`。历史：
+    #     54/19.95/1 处(G10) → 65/24.85/2 处(D8,I2) → **53/19.25/2 处(I11,C10)**。
+    #   ⚠️ 注意：**tour 引擎**的产物在新图上带 2 处 180° 折返（`C10*` 同时是射击停站），
+    #      而车端用的是 tracker-safe 引擎（60 token / 20.65 m / 0 折返，见 robot.yaml 注释）
+    #      —— 两者不是同一条路线，这里钉的是 tour 引擎自身的黄金值。
+    check("[无倒车] 53 token / 里程 19.25 m（0 段 R:，:PIVOT 两处 I11/C10）",
+          len(nr.tokens) == 53 and abs(nr.polyline_m - 19.25) < 0.02,
           f"{len(nr.tokens)} token / {nr.polyline_m:.2f} m")
 
     # ---- ① 折返点清单：几何判据 vs :PIVOT 声明，逐一对应 ----
     geo_pivots = P.pivot_vertices(nr.route)
     declared = [(i, wp.block) for i, wp in enumerate(nr.route.waypoints) if wp.pivot]
-    # ★ 2026-10-11 重钉（t17）：第三张图上 180° 折返顶点 = **2 处（D8 / I2）**。
-    check("[折返点] 现场无倒车路线实测 2 处 180° 折返（D8、I2，corner_turn_deg=180°）",
-          [(b, round(a)) for _i, b, a in geo_pivots] == [("D8", 180), ("I2", 180)],
+    # ★★ t31 重钉（第五张图）：180° 折返顶点 = **2 处（I11 / C10）**（第三张图是 D8/I2）。
+    check("[折返点] 现场无倒车路线实测 2 处 180° 折返（I11、C10，corner_turn_deg=180°）",
+          [(b, round(a)) for _i, b, a in geo_pivots] == [("I11", 180), ("C10", 180)],
           str([(i, b, round(a)) for i, b, a in geo_pivots]))
     check("[折返点] 每一处几何折返顶点都带 :PIVOT（无漏报）",
           [(i, b) for i, b, _a in geo_pivots] == declared, str(declared))
-    check("[折返点] token 里确实写着 `:PIVOT`，且只有这两处（D8 / I2）",
-          [t for t in nr.tokens if t.endswith(":PIVOT")] == ["D8:PIVOT", "I2:PIVOT"],
+    check("[折返点] token 里确实写着 `:PIVOT`，且只有这两处（I11 / C10）",
+          [t for t in nr.tokens if t.endswith(":PIVOT")] == ["I11:PIVOT", "C10*:PIVOT"],
           str([t for t in nr.tokens if t.endswith(":PIVOT")]))
     # ★ 2026-10-11 重钉（t18）：config/robot.yaml 的 planner 段新增 `pivot_penalty: 5.0`
     #   （t9 复审 F1 的收口：让"配置里的路线"与"车上实际规划"用同一组参数），
@@ -634,8 +647,10 @@ def main() -> int:
 
     P.assert_legal_no_reverse, P.assert_legal = spy_no_rev, spy_rev
     try:
-        P.plan_route(map_cfg, cfg, allow_reverse=False, name="spy-norev")
-        P.plan_route(map_cfg, cfg, allow_reverse=True, name="spy-rev")
+        P.plan_route(map_cfg, cfg, allow_reverse=False, name="spy-norev",
+                     max_seconds=TEST_PLAN_BUDGET_S)
+        P.plan_route(map_cfg, cfg, allow_reverse=True, name="spy-rev",
+                     max_seconds=TEST_PLAN_BUDGET_S)
     finally:
         P.assert_legal_no_reverse, P.assert_legal = orig_no_rev, orig_rev
     check("[自检接线] plan_route(allow_reverse=False) 内部调用 assert_legal_no_reverse",
@@ -644,8 +659,14 @@ def main() -> int:
           hits["reverse"] == 1, str(hits))
 
     # ---- ⑥ 折返惩罚：加惩罚前 vs 后 ----
+    # ★★ t7（t8 门禁抓到的 flake）：这一组调用**显式传预算**，不再依赖 planner 的默认值。
+    #   原因：`plan_route` 的默认预算曾是 0.8 s，而这条路线在本机单次实测 0.55 s（8/8 次
+    #   548~569 ms）—— 余量只有 0.25 s，**4 忙核**下稳定超时（单跑 5/5 绿 ⇒ 纯负载敏感）。
+    #   现在双保险：① 默认值已放宽到 2.0 s（= `planner.max_seconds` 现场真源）；
+    #   ② 本测试显式给 10 s，让"测试是否通过"只取决于**规划结果**而不是机器负载。
     pen = P.plan_route(map_cfg, cfg, allow_reverse=False,
-                       pivot_penalty=P.PIVOT_PENALTY, name="norev-pen")
+                       pivot_penalty=P.PIVOT_PENALTY, name="norev-pen",
+                       max_seconds=TEST_PLAN_BUDGET_S)
     print(f"      折返惩罚 {P.PIVOT_PENALTY}/处 的路线（{len(pen.tokens)} token / "
           f"{pen.polyline_m:.2f} m / 折返点 {pen.pivot_count}）：")
     print("        " + " ".join(pen.tokens))
@@ -681,17 +702,19 @@ def main() -> int:
     #   （`上半场应恰好穿洞 1 次，实际 2 次`）⇒ 整个 `plan_route` 失败。
     #   修法：`plan_route` 在候选 1 未过结构自检时改用 `_u_shape_order()`
     #   （`cross_lower` 钉为下半场**第一跳**、`cross_upper` 钉为上半场**最后一跳**）。
-    section("⑧ 通口贴边（K11）：U 形单回路硬约束")
-    check("⑧.0 回归前提：本图下半场通口确实在最外一行 K11",
-          "K11" in spec.bridges, f"bridges={spec.bridges}")
+    section("⑧ 通口贴边（K10）：U 形单回路硬约束")
+    # ★★ t31 重钉（第五张图）：本图通口 = **K10（下半场，第 10 行）/ K5（上半场，第 5 行）**；
+    #   第三张图是 K11（第 11 行 = 最外一行）/ K1。历史：K1+K7 → K1+K11 → **K5+K10**。
+    check("⑧.0 回归前提：本图下半场通口在 K10",
+          "K10" in spec.bridges, f"bridges={spec.bridges}")
     _runs = list(V.crossing_entries(nr.route.blocks()))
     _lo = [r for r in _runs if V.LOWER_HALF_ROWS[0] <= round(r[2][0]) <= V.LOWER_HALF_ROWS[1]]
     _up = [r for r in _runs if V.UPPER_HALF_ROWS[0] <= round(r[2][0]) <= V.UPPER_HALF_ROWS[1]]
-    check("⑧.1 下半场恰好 1 次穿洞，且落在最外一行（K11）",
-          len(_lo) == 1 and round(_lo[0][2][0]) == 11,
+    check("⑧.1 下半场恰好 1 次穿洞，且落在本图通口行 K10（第 10 行）",
+          len(_lo) == 1 and round(_lo[0][2][0]) == 10,
           f"下洞 {[(r[0], r[1], round(r[2][0])) for r in _lo]}")
-    check("⑧.2 上半场恰好 1 次穿洞（K1）",
-          len(_up) == 1 and round(_up[0][2][0]) == 1,
+    check("⑧.2 上半场恰好 1 次穿洞（K5，第 5 行）",
+          len(_up) == 1 and round(_up[0][2][0]) == 5,
           f"上洞 {[(r[0], r[1], round(r[2][0])) for r in _up]}")
     check("⑧.3 ★ U 形单回路：穿洞记录不重复（无『跨 K 往返』）",
           len({(r[0], r[1]) for r in _runs}) == len(_runs),
@@ -792,6 +815,82 @@ def main() -> int:
         pcode, pdetail = route_check_errors(pen.tokens, MAP_YAML)
         check("[惩罚版] route_check 退出码 0", pcode == 0,
               f"exit={pcode} | {pdetail[:220]}")
+
+    # ---- ⑫ ★卡 t13：起始航向 = 设计常量 +y（两引擎；不从 mission.reset 反推）----
+    #   用户定案：每次发车车都摆在起点格、车头水平朝图左（朝 K 列桥洞 = 图左 = 地图 +y）；
+    #   摆位由现场用户保证 ⇒ 规划器把它当**设计输入**，**不为起点生成转向消解**，
+    #   也不再有任何"摆错就拒绝发车"式的校验。
+    section("⑫ 卡 t13：起始航向 = 设计常量 +y（两引擎）")
+    check("⑫.1 常量本身：START_HEADING=1（DIRS 里是『西 = 列号减小 = +y』）"
+          "且 START_HEADING_YAW = HEADING_Y = +90°",
+          P.START_HEADING == 1 and abs(P.START_HEADING_YAW - geo.HEADING_Y) < 1e-12
+          and P.DIRS[P.START_HEADING] == (0, -1)
+          and P.HEAD_NAMES[P.START_HEADING] == "西(列号减小)",
+          f"START_HEADING={P.START_HEADING} DIRS={P.DIRS[P.START_HEADING]} "
+          f"yaw={geo.deg(P.START_HEADING_YAW):.1f}° {P.HEAD_NAMES[P.START_HEADING]}")
+    _src = pathlib.Path(P.__file__).read_text(encoding="utf-8")
+    check("⑫.2 规划器源码里不再读起点朝向配置（无 `\"mission.reset\"` 字面量）"
+          "—— 硬编码常量的机器可验证证据",
+          '"mission.reset"' not in _src,
+          f"planner.py 中 `\"mission.reset\"` 出现 0 次（{len(_src)} 字符）")
+
+    def _first_leg_dir(res) -> tuple[int, int]:
+        """产物首腿方向（DIRS 索引，-1 = 零向量/无法判定）与首点车头。"""
+        blks = res.route.blocks()
+        ra, ca = geo.block_to_index(blks[0])
+        rb, cb = geo.block_to_index(blks[1])
+        return P._heading_of(rb - ra, cb - ca, -1), res.stops[0].heading   # noqa: SLF001
+
+    _dir_nr, _head_nr = _first_leg_dir(nr)
+    check("⑫.3 [tour 无倒车] 首腿方向 = +y（西）且首点车头 = 设计常量"
+          "（起点处 0 转向，不生成转向消解）",
+          _dir_nr == P.START_HEADING and _head_nr == P.START_HEADING
+          and not nr.stops[1].reverse and nr.stops[1].heading == P.START_HEADING,
+          f"{nr.route.blocks()[0]}->{nr.route.blocks()[1]} 方向索引={_dir_nr} "
+          f"首点车头={_head_nr} 首点 yaw={geo.deg(nr.route.waypoints[0].yaw):.0f}°")
+    check("⑫.4 [tour] 起点航向与 `mission.reset` **完全解耦**：把 reset 改成 'N10,x' "
+          "/ 清空后，token 串与基线逐字相同",
+          P.plan_route(map_cfg, cfg.override("mission.reset", "N10,x"),
+                       max_seconds=TEST_PLAN_BUDGET_S).tokens == tokens
+          and P.plan_route(map_cfg, cfg.override("mission.reset", ""),
+                           max_seconds=TEST_PLAN_BUDGET_S).tokens == tokens,
+          f"基线 {len(tokens)} token；改动 mission.reset 后 token 串不变"
+          "（旧实现按 reset_yaw 反推 ⇒ 朝北会整条变样）")
+
+    _ts = P.plan_route_tracker_safe(map_cfg, cfg, max_seconds=TEST_PLAN_BUDGET_S)
+    _ts_dir, _ts_head = _first_leg_dir(_ts)
+    check("⑫.5 [tracker-safe] 首腿方向 = +y（西）且首点车头 = 设计常量",
+          _ts_dir == P.START_HEADING and _ts_head == P.START_HEADING
+          and abs(geo.ang_diff(_ts.route.waypoints[0].yaw, geo.HEADING_Y)) < 1e-9,
+          f"{_ts.route.blocks()[0]}->{_ts.route.blocks()[1]} 方向索引={_ts_dir} "
+          f"首点 yaw={geo.deg(_ts.route.waypoints[0].yaw):.0f}°")
+    check("⑫.6 [tracker-safe] 同样与 `mission.reset` 解耦（改成 'N10,x' 后 token 串不变）",
+          P.plan_route_tracker_safe(map_cfg, cfg.override("mission.reset", "N10,x"),
+                                    max_seconds=TEST_PLAN_BUDGET_S).tokens == _ts.tokens,
+          f"{len(_ts.tokens)} token 不变")
+    check("⑫.7 [两引擎] 起点不是折返点：起始顶点无 :PIVOT 声明",
+          not nr.route.waypoints[0].pivot and not _ts.route.waypoints[0].pivot
+          and all(i != 0 for _i, _b, _a in P.pivot_vertices(nr.route)),
+          f"tour 折返点 {[b for _i, b, _a in P.pivot_vertices(nr.route)]} / "
+          f"tracker-safe 折返点 {len(_ts.pivots)} 处")
+    # ⑫.8 直接把"不许在起点转向"钉在**搜索原语**上：起点那一段的第一步只能沿设计朝向。
+    #   为什么需要：tracker-safe 的代价里"先右转 90° 再走"与"直行"**等长**，
+    #   靠 tie-break 会挑到前者（改前实测产物首腿 `N10 -> N11` 朝南，即起步就掉头）。
+    _tsg = P._TSGrid(spec=spec,
+                     grid=P.Grid(spec, bridge_rows=(11, 1), allow_reverse=False),
+                     phys=P._phys_params(cfg))
+    _h0 = P.DIRS[P.START_HEADING]
+    _start_cell = P._cell("N10")
+    _legs = P._ts_leg(_tsg, _start_cell, P._cell("K11"), _h0, {}, first_dir=_h0)  # noqa: SLF001
+    _firsts = {(cells[0][0] - _start_cell[0], cells[0][1] - _start_cell[1])
+               for _c, cells in _legs.values()}
+    _legs_raw = P._ts_leg(_tsg, _start_cell, P._cell("K11"), _h0, {})             # noqa: SLF001
+    _raw_firsts = {(cells[0][0] - _start_cell[0], cells[0][1] - _start_cell[1])
+                   for _c, cells in _legs_raw.values()}
+    check("⑫.8 起段搜索原语：第一步只能沿设计朝向（起点禁转向）"
+          "—— 不加该约束时同一段会被挑到先朝南（起步掉头，故必须有这条硬约束）",
+          _firsts == {_h0} and (1, 0) in _raw_firsts,
+          f"first_dir 后首步方向 {sorted(_firsts)} / 不限时 {sorted(_raw_firsts)}")
 
     return finish()
 

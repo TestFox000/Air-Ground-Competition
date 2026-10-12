@@ -44,14 +44,17 @@ except Exception:                                      # pragma: no cover
 
 from harness import check, finish, section                        # noqa: E402
 
-from dzbrain.core.blackboard import P_ROUTE, P_SAFETY, P_TELEMETRY, Blackboard  # noqa: E402
+from dzbrain.core.blackboard import (P_DRONE, P_ROUTE, P_SAFETY, P_TELEMETRY,  # noqa: E402
+                                     Blackboard)
 from dzbrain.core.config import Config                            # noqa: E402
-from dzbrain.core.events import EV_MISSION_STARTED, EV_ROUTE_LOADED, EventBus  # noqa: E402
-from dzbrain.core.state import SafetyState                        # noqa: E402
+from dzbrain.core.events import (EV_BRIDGE_INFO, EV_MISSION_STARTED, EV_ROUTE_LOADED,  # noqa: E402
+                                 EventBus)
+from dzbrain.core.state import DroneState, SafetyState            # noqa: E402
 from dzbrain.io.contract import MissionPhase                      # noqa: E402
 from dzbrain.route import planner as PL                           # noqa: E402
 from dzbrain.route.parser import parse_mission, parse_token       # noqa: E402
-from dzbrain.tasks.mission import (ROUTE_SOURCE_AUTO, ROUTE_SOURCE_MANUAL,  # noqa: E402
+from dzbrain.tasks.mission import (ENGINE_TOUR, ENGINE_TRACKER_SAFE,      # noqa: E402
+                                   ROUTE_SOURCE_AUTO, ROUTE_SOURCE_MANUAL,
                                    MissionTask, plan_route_from_config, resolve_map_path)
 
 from fakes import FakeBridge, FakeClock                           # noqa: E402
@@ -98,6 +101,16 @@ def _make_fixtures() -> None:
     at = next(i for i, ln in enumerate(lines) if ln.rstrip("\r\n") == "    route:")
     lines.insert(at + 1, '      tokens: ["N10", "N5"]          # ★ 本套件现场注入的过时路线\n')
     (_FIX / "gate_fail.yaml").write_text("".join(lines), encoding="utf-8")
+    # ⑥ ★卡 t21：`engine: tour` 的配置副本 —— 把"读配置"落到夹具里。
+    #   为什么需要：§1.12/1.13（缺 mines 的图能解）与 §9（`--map` 透传）测的是 **tour 引擎**的
+    #   既有语义，而 `config/robot.yaml` 的 `planner.engine` 自第七趟（用户指令）起是
+    #   `tracker-safe` —— 它对这两张夹具图会"无解 / 被双门禁拦下"（那是 t11 引入的正确行为）。
+    #   夹具只改 `engine:` 那一行，其余逐字照抄真配置。
+    _lines = CONFIG.read_text(encoding="utf-8").splitlines(keepends=True)
+    (_FIX / "engine_tour.yaml").write_text(
+        "".join("      engine: tour\n"
+                if (ln.startswith("      ") and ln.lstrip().startswith("engine:")) else ln
+                for ln in _lines), encoding="utf-8")
 
 
 _make_fixtures()
@@ -105,6 +118,7 @@ BROKEN = _FIX / "broken_map.yaml"                 # mines 含非法格名 → Pl
 BAD_YAML = _FIX / "bad_yaml_map.yaml"             # YAML 语法错 → ParserError（非 PlannerError）
 MISSING_MINES = _FIX / "missing_mines.yaml"       # "缺 mines" 的坏图（其实能解）
 GATE_FAIL = _FIX / "gate_fail.yaml"               # 门禁必红（route.tokens 只有 2 个点）
+CFG_TOUR = _FIX / "engine_tour.yaml"              # ★卡 t21：engine=tour 的真配置副本
 NO_SUCH_MAP = _FIX / "no_such_map.yaml"           # 不存在的路径（不需要真的建）
 
 
@@ -218,10 +232,23 @@ check("1.11 地图文件不存在 → FileNotFoundError（含实际尝试的路�
 
 out_mm = plan_route_from_config(cfg.override("planner.map_path", str(MISSING_MINES)),
                                 log=lambda s: None)
-check("1.12 ★ 诚实记录：'缺 mines 的坏图'**不是一个失败用例**（它真能解出路线）",
-      out_mm.ok, f"ok={out_mm.ok} {len(out_mm.tokens)} token / error={out_mm.error!r}")
+# ★★ 卡 t21（读配置口径）：这对断言说的是 **tour 引擎**的既有容忍度（缺 mines 的图它照样解得出）。
+#   现役 `config/robot.yaml` 的 `planner.engine` 自第七趟（用户指令）起是 `tracker-safe`，
+#   它对缺 mines 的图会**如实**被双门禁拦下（route_check「雷覆盖 1/8」）—— 那是 t11 引入的
+#   正确行为，不是"缺 mines 能解"被推翻。所以这里把引擎**显式钉成 tour**（就地覆盖，不碰配置），
+#   并把两种引擎下的行为都记进证据串，判据不再依赖配置现值。
+out_mm_tour = plan_route_from_config(
+    cfg.override("planner.map_path", str(MISSING_MINES)).override("planner.engine", ENGINE_TOUR),
+    log=lambda s: None)
+check("1.12 ★ 诚实记录：'缺 mines 的坏图'对 **tour** 引擎**不是一个失败用例**（它真能解出路线；"
+      "现役 tracker-safe 则按双门禁如实拦下）",
+      out_mm_tour.ok and (out_mm.ok or (out_mm.gate_ok is False)
+                          or "门禁" in (out_mm.error or "")),
+      f"tour ok={out_mm_tour.ok}({len(out_mm_tour.tokens)} token) / "
+      f"配置引擎 ok={out_mm.ok} err={(out_mm.error or '')[:70]!r}")
 check("1.13 所以回退分支的坏图夹具必须是 broken_map.yaml（mines 非法），不是缺 mines 的副本",
-      (not out_bad.ok) and out_mm.ok, f"坏图失败={not out_bad.ok} 缺mines成功={out_mm.ok}")
+      (not out_bad.ok) and out_mm_tour.ok,
+      f"坏图失败={not out_bad.ok} 缺mines(tour)成功={out_mm_tour.ok}")
 
 logs_bad: list[str] = []
 plan_route_from_config(cfg.override("planner.map_path", str(BROKEN)), log=logs_bad.append)
@@ -525,17 +552,40 @@ def _is_top_key(line: str) -> bool:
 
 _end = next((j for j in range(idx[0] + 1, len(lines)) if _is_top_key(lines[j])), len(lines))
 seg = lines[idx[0]:_end]
+# ★ 卡 t11：注释行（`      # …`）**不是键** —— 段内加注释是本卡的正常做法（`engine` 的依据
+#   必须写在现场看得见的地方），所以过滤条件显式排除 `#` 开头，再加进键值断言。
 _key_lines = [l for l in seg[1:]
-              if l.startswith("      ") and not l.startswith("       ") and ":" in l]
+              if l.startswith("      ") and not l.startswith("       ")
+              and not l.lstrip().startswith("#") and ":" in l]
 # ★ 2026-10-11 重钉（t22）：`planner:` 段再增一键 = **8 个键**
 #   （t20 是 7 个；t22 物理几何卡新增 `obstacle_margin_m: 0.02`）。
-want = ["auto_plan_enabled: false", 'map_path: "config/map.yaml"', "fallback_to_tokens: true",
-        "allow_reverse: false", "max_seconds: 2.0", "pivot_penalty: 5.0",
-        "mine_turn_penalty: 2.0", "obstacle_margin_m: 0.02"]
-check("8.3 ★ planner 段含当前实际的 8 个键值（含 auto_plan_enabled=false / obstacle_margin_m）",
+# ★ 卡 t11 重钉：再增三键 = **11 个键** —— `engine`、`tracker_max_seconds`、`footprint_gate`。
+# ★★ 卡 t21（读配置口径）：`want` 不再硬编码 `engine: tour` / `tracker_max_seconds: 5.0`
+#   ——那两条是 t11 时代的默认值，第七趟（用户指令）现场已把 `engine` 改成 `tracker-safe`、
+#   t19 又把预算按车端实测改成 `10.0`。现在**逐条从 `config/robot.yaml` 读**：
+#   本断言要证明的是"这 11 个键都在 `planner:` 段里、值与配置一致"，不是"值必须是某个旧字面量"。
+def _kv(name: str, value, *, quote: bool = False) -> str:
+    """把配置值渲染成 `robot.yaml` 里那一行的写法（bool → true/false，str 原样）。"""
+    text = ("true" if value else "false") if isinstance(value, bool) else str(value)
+    return f'{name}: "{text}"' if quote else f"{name}: {text}"
+
+
+_cfg_now = Config.load(str(CONFIG))
+want = [_kv("auto_plan_enabled", _cfg_now.get("planner.auto_plan_enabled")),
+        _kv("map_path", _cfg_now.get("planner.map_path"), quote=True),
+        _kv("fallback_to_tokens", _cfg_now.get("planner.fallback_to_tokens")),
+        _kv("allow_reverse", _cfg_now.get("planner.allow_reverse")),
+        _kv("max_seconds", _cfg_now.get("planner.max_seconds")),
+        _kv("pivot_penalty", _cfg_now.get("planner.pivot_penalty")),
+        _kv("mine_turn_penalty", _cfg_now.get("planner.mine_turn_penalty")),
+        _kv("obstacle_margin_m", _cfg_now.get("planner.obstacle_margin_m")),
+        _kv("engine", _cfg_now.get("planner.engine")),
+        _kv("tracker_max_seconds", _cfg_now.get("planner.tracker_max_seconds")),
+        _kv("footprint_gate", _cfg_now.get("planner.footprint_gate"))]
+check("8.3 ★ planner 段的实际 11 个键值 = **配置里读到的值**（含 engine / tracker_max_seconds）",
       all(any(w in l for l in seg) for w in want), "; ".join(want))
-check("8.4 8 个键都在 planner 段内部（恰好 6 空格缩进）",
-      len(_key_lines) == 8,
+check("8.4 11 个键都在 planner 段内部（恰好 6 空格缩进，注释行不计）",
+      len(_key_lines) == 11,
       f"{len(_key_lines)} 行：{[l.strip().split(':')[0] for l in _key_lines]}")
 
 cfg_blank = Config.from_dict({"mission": {"auto_start": True, "auto_start_delay_s": 0.0},
@@ -594,19 +644,24 @@ _variant.write_text(MAP.read_text(encoding="utf-8").replace(f'"{_mines[0]}"', f'
 check("9.1 变体图已生成（把第一颗雷挪到远角空格，config/ 未改动）",
       _variant.is_file() and _far not in _mines, f"{_mines[0]}→{_far} @ {_variant}")
 
+# ★★ 卡 t21（读配置口径）：本节的判据是 **D2「`--map` 透传」** —— 与"用哪个引擎、门禁过不过"无关。
+#   变体图（把一颗雷挪到远角 A11/A1/…）在 **tracker-safe** 下是"**无解**"（禁 180°/禁紧凑 U/
+#   雷穿心把它筛空），会让 `--plan-only` 退 1、把"地图透传"这条判据污染成"引擎能不能解这张图"。
+#   故本节统一走 **`engine: tour` 的配置副本 `CFG_TOUR`**（只改 engine 一行，其余逐字同真配置），
+#   判据回到 D2 本身；同时把"默认图打印的是工作区 map.yaml"这条也一并钉住。
 _buf_def = io.StringIO()
 with contextlib.redirect_stdout(_buf_def):
-    _rc_def = M.main(["--plan-only"])
+    _rc_def = M.main(["--plan-only", "--config", str(CFG_TOUR)])
 _default_tokens = _tokens_of(_buf_def.getvalue())
 
 _buf_var = io.StringIO()
 with contextlib.redirect_stdout(_buf_var):
-    _rc_var = M.main(["--plan-only", "--map", str(_variant)])
+    _rc_var = M.main(["--plan-only", "--config", str(CFG_TOUR), "--map", str(_variant)])
 _var_txt = _buf_var.getvalue()
 _var_tokens = _tokens_of(_var_txt)
 
-check("9.2 两次 --plan-only 都 exit 0", _rc_def == 0 and _rc_var == 0,
-      f"默认={_rc_def} 变体={_rc_var}")
+check("9.2 两次 --plan-only 都 exit 0（engine=tour 夹具：本节只判 `--map` 透传，不判引擎能否解该图）",
+      _rc_def == 0 and _rc_var == 0, f"默认={_rc_def} 变体={_rc_var}")
 check("9.3 ★D2：`--map <变体图>` 真的决定规划用的地图（打印的是变体图）",
       str(_variant) in _var_txt and str(MAP) in _buf_def.getvalue(),
       [l for l in _var_txt.splitlines() if l.startswith("地图:")][:1])
@@ -614,10 +669,11 @@ check("9.4 ★D2：变体图的 token 与默认图**不同**（旧代码：静�
       _var_tokens != _default_tokens and len(_var_tokens.split()) != len(_default_tokens.split()),
       f"默认 {len(_default_tokens.split())} token / 变体 {len(_var_tokens.split())} token")
 check("9.5 D2 第二入口：`run_plan_only(cfg, map_path=…)` 也按该图规划",
-      M.run_plan_only(real_cfg(auto_plan_enabled=True), map_path=str(_variant),
-                      log=lambda s: None) == 0, "函数直调 exit 0")
-_out_variant = plan_route_from_config(real_cfg(auto_plan_enabled=True), map_path=str(_variant),
-                                      log=lambda s: None)
+      M.run_plan_only(real_cfg(auto_plan_enabled=True, engine=ENGINE_TOUR),
+                      map_path=str(_variant), log=lambda s: None) == 0, "函数直调 exit 0")
+_out_variant = plan_route_from_config(
+    real_cfg(auto_plan_enabled=True, engine=ENGINE_TOUR), map_path=str(_variant),
+    log=lambda s: None)
 check("9.6 D2：`plan_route_from_config(map_path=…)` 的结果与 CLI 一致（同一段代码）",
       _out_variant.ok and " ".join(_out_variant.tokens) == _var_tokens,
       f"ok={_out_variant.ok} / {len(_out_variant.tokens)} token")
@@ -650,5 +706,404 @@ check("9.12 对照：`announce=True`（bench/live/--dry-run 走这条）仍会�
       "启动门禁未通过（拒绝启动）" in _buf_lc2.getvalue(), "见输出")
 _tmpdir.cleanup()
 
+# =========================================================================== #
+section("10. 卡 t11：`planner.engine` 开关（默认 tour）+ tracker-safe 双门禁 / 失败回退")
+# =========================================================================== #
+#  设计要点：
+#   · **默认零影响**用"engine 键缺省（YAML null）vs 显式 tour"逐字一致来钉（10.8）。
+#     ★ 卡 t21 修正：原先拿"第 1 节那次规划"当缺省值，而第 1 节走的是**配置现值**
+#     （第七趟用户指令起 `planner.engine: tracker-safe`）⇒ 该条必然红；现在两侧都显式钉住。
+#   · 新引擎的两个产物断言（无 :PIVOT / 不比 tour 长）都来自 t7 报告 §3 的硬指标；
+#     门禁断言对"本机有没有 tools/route_check.py"做**条件化**处理：有则必须 rc=0，
+#     没有（车端形态）则必须留痕说明退化为内置 validate（绝不假装跑过）。
+#   · 失败回退用**注入假门禁**（monkeypatch `MT.check_planned_route`）确定性钉死，
+#     不依赖"某张图恰好算不出路线"这种脆断言。
+import dzbrain.tasks.mission as MT                                 # noqa: E402
+
+check("10.1 ★ `planner.engine` 缺省 → tour（默认行为不变）",
+      MT.resolve_plan_engine(Config.from_dict({})) == MT.ENGINE_TOUR,
+      MT.resolve_plan_engine(Config.from_dict({})))
+# ★★ 卡 t21（读配置口径）：真配置里的引擎**读出来**是什么就是什么（第七趟起是 tracker-safe），
+#   不再硬编码 tour；断言改成"配置值与 `resolve_plan_engine` 的结论一致，且是已知引擎"。
+check("10.2 真配置 robot.yaml → **配置里写明的引擎**（逐条读配置，且必须是已知引擎）",
+      MT.resolve_plan_engine(real_cfg()) == str(real_cfg().get("planner.engine")).strip().lower()
+      and MT.resolve_plan_engine(real_cfg()) in MT.PLAN_ENGINES,
+      f"{real_cfg().get('planner.engine')!r} → {MT.resolve_plan_engine(real_cfg())}")
+_eng_alias = [MT.resolve_plan_engine(real_cfg(engine=v))
+              for v in ("tracker-safe", "tracker_safe", "Tracker-Safe", "t7")]
+check("10.3 引擎名容错：tracker-safe / tracker_safe / Tracker-Safe / t7 → 同一个新引擎",
+      set(_eng_alias) == {MT.ENGINE_TRACKER_SAFE}, str(_eng_alias))
+_logs_eng: list[str] = []
+_bad_eng = MT.resolve_plan_engine(real_cfg(engine="trour"), log=_logs_eng.append)
+check("10.4 ★ 键名写错 → 回退 tour + 告警（不因一个配置字符串停摆）",
+      _bad_eng == MT.ENGINE_TOUR and any("不是已知引擎" in s for s in _logs_eng),
+      f"{_bad_eng} / {(_logs_eng[0][:40] if _logs_eng else '无日志')}")
+check("10.5 YAML 写 null（键在但值为空）→ tour",
+      MT.resolve_plan_engine(real_cfg(engine=None)) == MT.ENGINE_TOUR, "engine=None")
+# ★★ 卡 t21（读配置口径）：两个预算都**从配置读**（tour=`max_seconds`、tracker-safe=
+#   `tracker_max_seconds`）—— t19 已把后者按车端 ARM 实测重定为 10.0，硬编码 5.0 必然过期。
+check("10.6 预算按引擎分开：tour=planner.max_seconds / tracker-safe=tracker_max_seconds（读配置）",
+      abs(MT.plan_budget_seconds(real_cfg(), MT.ENGINE_TOUR)
+          - float(_cfg_now.get("planner.max_seconds"))) < 1e-9
+      and abs(MT.plan_budget_seconds(real_cfg(), MT.ENGINE_TRACKER_SAFE)
+              - float(_cfg_now.get("planner.tracker_max_seconds"))) < 1e-9,
+      f"{MT.plan_budget_seconds(real_cfg(), 'tour')} / "
+      f"{MT.plan_budget_seconds(real_cfg(), 'tracker-safe')} "
+      f"(config: {_cfg_now.get('planner.max_seconds')} / "
+      f"{_cfg_now.get('planner.tracker_max_seconds')})")
+check("10.7 新引擎预算可现场覆盖（planner.tracker_max_seconds=7.5）",
+      abs(MT.plan_budget_seconds(real_cfg(tracker_max_seconds=7.5),
+                                 MT.ENGINE_TRACKER_SAFE) - 7.5) < 1e-9, "7.5s")
+
+# ---- 10.B 默认零影响：显式 tour == `engine` 键缺省（YAML 写 null）----
+#   ★ 卡 t21：原判据拿"第 1 节那次规划"当缺省值，而第 1 节走的是 **配置现值**（第七趟起
+#     = tracker-safe）⇒ t11 之后这条必然红。现在两侧都显式钉住：一次 `engine: null`
+#     （缺省语义）、一次 `engine: tour`，逐字一致才叫"缺省 = tour、零影响"。
+_out_tour = plan_route_from_config(
+    real_cfg(auto_plan_enabled=True, map_path=str(MAP), engine=MT.ENGINE_TOUR),
+    log=lambda s: None)
+_out_tour_null = plan_route_from_config(
+    real_cfg(auto_plan_enabled=True, map_path=str(MAP), engine=None),
+    log=lambda s: None)
+check("10.8 ★ engine 键缺省（YAML null）与显式 tour 逐字一致：token 列表完全相同",
+      _out_tour.ok and _out_tour_null.ok and _out_tour_null.tokens == _out_tour.tokens,
+      f"null={len(_out_tour_null.tokens)} vs tour={len(_out_tour.tokens)} token")
+check("10.9 ★ tour 不跑门禁（gate_ok 恒 True，detail 写明'不跑'，历史行为逐字节不变）",
+      _out_tour.gate_ok and _out_tour.engine == MT.ENGINE_TOUR
+      and "不跑门禁" in _out_tour.gate_detail, _out_tour.gate_detail)
+
+# ---- 10.C tracker-safe：车上入口真的走新引擎，且产物过了双门禁 ----
+_cfg_ts = real_cfg(auto_plan_enabled=True, map_path=str(MAP), engine=MT.ENGINE_TRACKER_SAFE,
+                   fallback_to_tokens=True)
+_logs_ts: list[str] = []
+_out_ts = plan_route_from_config(_cfg_ts, log=_logs_ts.append)
+check("10.10 ★ engine=tracker-safe → 规划成功且走的是新引擎",
+      _out_ts.ok and _out_ts.engine == MT.ENGINE_TRACKER_SAFE,
+      f"ok={_out_ts.ok} err={_out_ts.error[:60]!r}")
+check("10.11 ★ 新引擎产物无 `:PIVOT`（仿真/真车都不建模原地折返，t7 的硬规则）",
+      len(_out_ts.tokens) >= 2 and not any("PIVOT" in t for t in _out_ts.tokens),
+      f"{sum(1 for t in _out_ts.tokens if 'PIVOT' in t)} 处")
+check("10.12 ★ 新引擎路线长度 = 20.65 m（第五张图 tracker-safe 实测；t31 重钉）",
+      0.0 < _out_ts.route_len_m <= 21.0 and abs(_out_ts.route_len_m - 20.65) < 0.02,
+      f"{_out_ts.route_len_m:.2f} m vs tour {_out_tour.route_len_m:.2f} m"
+      f"（第五张图上 tour 反而短 1.40 m，但它的产物带 2 处 :PIVOT、且 C10* 同时是折返顶点"
+      f" —— 仿真/真车都不建模折返 ⇒ 不可发货；判据从『不比 tour 长』改为『等于新图实测值』）")
+check("10.13 有射击停站点（`*` 后缀；route_check 的靶覆盖靠它）",
+      any(t.endswith("*") for t in _out_ts.tokens),
+      ",".join(t for t in _out_ts.tokens if t.endswith("*")))
+_rc_script = MT.route_check_script(_cfg_ts)
+_rc_ok_text = "route_check rc=0" if _rc_script else "route_check 不可用"
+check("10.14 ★ 门禁通过：route_check 0 error + validate 0 error/0 warn",
+      _out_ts.gate_ok and "validate 0 error, 0 warn" in _out_ts.gate_detail
+      and _rc_ok_text in _out_ts.gate_detail,
+      f"script={_rc_script} / {_out_ts.gate_detail}")
+check("10.15 门禁结论进日志流（现场一眼看得见用哪个引擎、门禁过没过）",
+      any("规划门禁[tracker-safe]" in s for s in _logs_ts), str(_logs_ts[:1])[:90])
+
+# ---- 10.D 门禁函数本身：好路线过 / 坏路线拦 / 模块级状态不串味 ----
+_g_ok = MT.check_planned_route(_out_ts.tokens, _raw, _cfg_ts)
+check("10.16 ★ 门禁（含 route_check）：新引擎路线 ok；有脚本时 route_check 可用且 rc=0",
+      _g_ok.ok and (not _rc_script or (_g_ok.route_check_available
+                                       and _g_ok.route_check_rc == 0)),
+      _g_ok.summary)
+_g_skip = MT.check_planned_route(_out_ts.tokens, _raw, _cfg_ts, route_check_module=False)
+check("10.17 ★ route_check 不可用/显式跳过时退化：只以 validate 为门禁 + notes 留痕（车端不部署 tools/）",
+      _g_skip.ok and not _g_skip.route_check_available
+      and any(("不可用" in n) or ("跳过" in n) for n in _g_skip.notes), _g_skip.summary)
+_broken_route = ["N10", "N5"]
+_g_bad = MT.check_planned_route(_broken_route, _raw, _cfg_ts)
+check("10.18 ★ 坏路线（跳过全部雷/靶、0 停站）→ 门禁 ❌，两道门都红",
+      (not _g_bad.ok) and bool(_g_bad.validate_errors)
+      and (not _rc_script or _g_bad.route_check_rc not in (None, 0)),
+      _g_bad.summary)
+_g_again = MT.check_planned_route(_out_ts.tokens, _raw, _cfg_ts)
+check("10.19 ★ 门禁不串味：坏路线之后同进程再判好路线仍 ok（FAIL/WARN 每次调用复位）",
+      _g_again.ok and _g_again.route_check_errors == [] and _g_again.validate_errors == [],
+      _g_again.summary)
+
+# ---- 10.E 车上入口端到端：门禁通过 → 执行的真的是新引擎路线 ----
+rig_ts = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP),
+                      engine=MT.ENGINE_TRACKER_SAFE, fallback_to_tokens=True))
+rig_ts.ticks(3)
+st_ts = rig_ts.state()
+check("10.20 ★ 阶段 DRIVE + 遥测标了引擎 tracker-safe 与门禁通过",
+      rig_ts.task.phase == MissionPhase.DRIVE
+      and st_ts["plan"].get("engine") == MT.ENGINE_TRACKER_SAFE
+      and st_ts["plan"].get("gate_ok") is True,
+      f"{rig_ts.task.phase} / engine={st_ts['plan'].get('engine')} / "
+      f"gate={st_ts['plan'].get('gate_ok')}")
+check("10.21 ★ 执行路线 == 新引擎产物（不是回退的手工 62 点）",
+      list(rig_ts.task.route.blocks()) == blocks_of(_out_ts.tokens)
+      and len(rig_ts.task.route) == len(_out_ts.tokens),
+      f"{len(rig_ts.task.route)} 点 vs 规划 {len(_out_ts.tokens)} 点")
+check("10.22 任务横幅里看得见引擎与门禁结论",
+      "引擎 tracker-safe" in rig_ts.text() and "门禁✅通过" in rig_ts.text(), "见横幅")
+check("10.23 遥测 plan.max_seconds 用的是新引擎预算（读配置 `tracker_max_seconds`，且 > tour 的）",
+      abs(float(st_ts["plan"].get("max_seconds") or 0.0)
+          - float(_cfg_now.get("planner.tracker_max_seconds"))) < 1e-9
+      and float(st_ts["plan"].get("max_seconds") or 0.0)
+      > MT.plan_budget_seconds(real_cfg(), MT.ENGINE_TOUR),
+      f"遥测={st_ts['plan'].get('max_seconds')} / config="
+      f"{_cfg_now.get('planner.tracker_max_seconds')} / "
+      f"tour={MT.plan_budget_seconds(real_cfg(), MT.ENGINE_TOUR)}")
+
+# ---- 10.F 门禁未过 → 按 fallback_to_tokens 回退 / 停 IDLE（注入假门禁，确定性钉死）----
+_gate_real = MT.check_planned_route
+
+
+def _gate_injected(*_a, **_k):
+    """假门禁：恒红（模拟"新引擎产物在某张图上没过门禁"）。"""
+    return MT.GateResult(ok=False, route_check_available=True, route_check_rc=1,
+                         route_check_errors=["（测试注入）雷覆盖 6/8"],
+                         validate_warns=["（测试注入）R011 段长"])
+
+
+MT.check_planned_route = _gate_injected
+try:
+    rig_gf = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP),
+                          engine=MT.ENGINE_TRACKER_SAFE, fallback_to_tokens=True))
+    rig_gf.ticks(3)
+    txt_gf, st_gf = rig_gf.text(), rig_gf.state()
+    check("10.24 ★ 门禁未过 + fallback=true → 仍进入 DRIVE（回退也能出车）",
+          rig_gf.task.phase == MissionPhase.DRIVE, rig_gf.task.phase)
+    check("10.25 ★ 回退后的执行路线 == 现役 route.tokens（手工 62 点，逐字节一致）",
+          list(rig_gf.task.route.blocks()) == list(base.blocks()),
+          f"{len(rig_gf.task.route)} 点 vs 现役 {len(base)} 点")
+    check("10.26 ★ 打印了原因：门禁报文 + 注入证据 + 回退动作，三样都在",
+          "未过门禁" in txt_gf and "（测试注入）雷覆盖 6/8" in txt_gf
+          and "回退 route.tokens" in txt_gf, "见日志")
+    check("10.27 遥测记下失败证据：plan.ok=False / engine=tracker-safe / gate_ok=False",
+          st_gf["plan"]["ok"] is False
+          and st_gf["plan"]["engine"] == MT.ENGINE_TRACKER_SAFE
+          and st_gf["plan"]["gate_ok"] is False
+          and "未过门禁" in str(st_gf["plan"]["error"]),
+          f"ok={st_gf['plan']['ok']} gate={st_gf['plan']['gate_ok']} "
+          f"err={st_gf['plan']['error'][:48]!r}")
+
+    rig_gf2 = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP),
+                           engine=MT.ENGINE_TRACKER_SAFE, fallback_to_tokens=False))
+    rig_gf2.ticks(60)
+    txt_gf2 = rig_gf2.text()
+    check("10.28 ★ 门禁未过 + fallback=false → 停 IDLE、不 publish EV_MISSION_STARTED",
+          rig_gf2.task.phase == MissionPhase.IDLE
+          and rig_gf2.count(EV_MISSION_STARTED) == 0
+          and "❌" in txt_gf2 and "停在 IDLE，不出发" in txt_gf2,
+          f"{rig_gf2.task.phase} / started={rig_gf2.count(EV_MISSION_STARTED)}")
+    check("10.29 硬失败定格：错误日志只打一次（不是每拍刷屏）",
+          txt_gf2.count("❌ 自动规划失败") == 1, str(txt_gf2.count("❌ 自动规划失败")))
+finally:
+    MT.check_planned_route = _gate_real
+check("10.30 假门禁已还原（后续用例/其它套件不受污染）",
+      MT.check_planned_route is _gate_real, str(MT.check_planned_route))
+
+# ---- 10.G 参考点偏移（现场卷尺实测 +7.5 cm）与足迹诊断 ----
+#  真源：`config/robot.yaml` 的 `/dzactuator: ros__parameters: vehicle: ref_offset_m`
+#  （与 length_m/width_m 同段）。这里钉三件事：① 读得到真源（含段前缀回退）；
+#  ② 诊断能报出 t5/t11 实测的挡板风险；③ 严重级开关在 warn/error 间真的起作用。
+_vg = MT.vehicle_geometry(Config.load(str(CONFIG)))
+check("10.31 ★ 车辆几何读得到真源：长度/宽度/偏移 = 0.28 / 0.135 / +0.075",
+      abs(_vg["length_m"] - 0.28) < 1e-9 and abs(_vg["width_m"] - 0.135) < 1e-9
+      and abs(_vg["offset_m"] - 0.075) < 1e-9, str(_vg))
+check("10.32 ★ 段前缀回退真的在起作用（`dzactuator.vehicle.*` 是 YAML 里的键路径）",
+      "dzactuator.vehicle.ref_offset_m" in list(Config.load(str(CONFIG)).keys()),
+      "见 robot.yaml /dzactuator: ros__parameters: vehicle:")
+_fp_cfg = real_cfg(auto_plan_enabled=True, map_path=str(MAP))
+_fp = MT.footprint_diagnostic(out.tokens, _raw, _fp_cfg)
+check("10.33 ★ 足迹诊断用实测偏移跑得动（折线口径 600+ 采样）",
+      _fp.samples > 500 and abs(_fp.offset_m - 0.075) < 1e-9,
+      f"samples={_fp.samples} offset={_fp.offset_m}")
+check("10.34 ★ t11 实测风险可见：+7.5 cm 下报挡板侵入（折线保守上界，非硬门禁）",
+      (not _fp.ok) and any("挡板" in r for r in _fp.risks)
+      and _fp.min_barrier_m < 9e8, _fp.summary[:110])
+check("10.35 偏移改成 0 → 同一路线挡板不再报侵入（证明风险确实来自该偏移）",
+      MT.footprint_diagnostic(out.tokens, _raw,
+                              Config.load(str(CONFIG)).override("dzactuator.vehicle.ref_offset_m",
+                                                                 0.0)).ok,
+      "offset=0 时 ok")
+check("10.36 门禁严重级默认 warn：足迹报侵入也不拦现役 tour（历史行为不变）",
+      str(Config.load(str(CONFIG)).get("planner.footprint_gate")) == "warn"
+      and _out_tour.ok and _out_tour.footprint_ok is False,
+      f"gate={Config.load(str(CONFIG)).get('planner.footprint_gate')} "
+      f"tour_ok={_out_tour.ok} footprint_ok={_out_tour.footprint_ok}")
+_g_warn = MT.check_planned_route(_out_ts.tokens, _raw, _cfg_ts)
+_g_err = MT.check_planned_route(_out_ts.tokens, _raw,
+                                _cfg_ts.override("planner.footprint_gate", "error"))
+check("10.37 ★ 严重级开关有效：warn → ok=True；error → ok=False（同一门禁、同一路线）",
+      _g_warn.ok and (not _g_err.ok)
+      and any("足迹诊断" in n for n in _g_err.notes),
+      f"warn.ok={_g_warn.ok} error.ok={_g_err.ok}")
+check("10.38 遥测把足迹诊断原样带出来（现场不翻日志也能看到）",
+      "足迹诊断" in str(_out_tour.footprint) and _out_tour.footprint_ok is False,
+      _out_tour.footprint[:80])
+
+
+# =========================================================================== #
+#  11. ★卡 t6：无人机桥洞情报 → 规划器 cross_lower/cross_upper（自动规划路径）
+# =========================================================================== #
+section("11. 无人机桥洞情报 → 自动规划透传 cross_lower/upper（卡 t6）")
+#  夹具：第五张图副本，只把 `bridges:` 放宽成 K4/K5/K9/K10（现场每局随机会换洞），
+#        其余要素逐字照抄 `config/map.yaml` —— 这样"换洞"才是**真的换了一个合法洞**。
+_T6_MAP = _FIX / "map_bridge_intel.yaml"
+_T6_MAP.write_text(
+    re.sub(r"(?m)^([ \t]*)bridges:.*$",
+           lambda m: m.group(1) + 'bridges:    ["K4", "K5", "K9", "K10"]',
+           MAP.read_text(encoding="utf-8")), encoding="utf-8")
+
+
+def intel_cfg(**kv) -> Config:
+    """自动规划 + 桥洞候选放宽到 {K9,K10}/{K4,K5} 的配置（其余逐字来自现役 robot.yaml）。"""
+    cfg = real_cfg(auto_plan_enabled=True, map_path=str(_T6_MAP),
+                   engine=MT.ENGINE_TOUR, fallback_to_tokens=True)
+    cfg.override("route.cross_lower_candidates", ["K9", "K10"])
+    cfg.override("route.cross_upper_candidates", ["K4", "K5"])
+    cfg.override("route.cross_lower_default", "K10")
+    cfg.override("route.cross_upper_default", "K5")
+    cfg.override("mission.bridge_info_wait_s", 0.0)      # 本节的等待语义由 test_mission 覆盖
+    cfg.override("drone.info_stale_s", 30.0)
+    for key, val in kv.items():
+        cfg.override(key, val)
+    return cfg
+
+
+def push_drone(rig: Rig, *, half=None, block=None, online: bool = True, age: float = 0.0,
+               publish: bool = True) -> DroneState:
+    """忠实模拟 `DroneTask._on_bridge_passable`（drone.py:283-287）：**写槽 + 发事件**。
+
+    ★ 卡 t13：情报真源 = `EV_BRIDGE_INFO` 事件流（每条自带 half）；`P_DRONE` 只有**一个**
+      桥洞槽且被覆盖式赋值，所以"先 lower 后 upper"之后槽里只剩 upper。夹具必须两件事都做，
+      否则测的是"接线前 Mission 根本不读情报"的老盘面。
+    """
+    now = rig.clock.now()
+    ts = (now - age) if block else 0.0
+    state = DroneState(online=bool(online),
+                       last_heartbeat=(now if online else 0.0),
+                       bridge_half=half, bridge_block=block,
+                       bridge_confidence=0.9, bridge_ts=ts)
+    rig.bb.set(P_DRONE, state, "test")
+    if publish and half in ("lower", "upper") and block:
+        rig.bus.publish(EV_BRIDGE_INFO, source="drone", half=half, block=block,
+                        confidence=0.9, ts=ts)
+    return state
+
+
+def kcells(rig: Rig) -> list[str]:
+    return [b for b in rig.task.route.blocks() if b.startswith("K")]
+
+
+# ---- 11.A 纯函数：cross_lower/upper 真的进了规划器（缺省 = 与接线前一致）----
+_out_intel = plan_route_from_config(intel_cfg(), log=lambda s: None, cross_lower="K9")
+check("11.1 ★ `cross_lower='K9'` 透传到底：规划产物 crossing.lower=K9、upper 保持默认 K5",
+      _out_intel.ok and _out_intel.cross_lower == "K9" and _out_intel.cross_upper == "K5"
+      and any(t.startswith("K9") for t in _out_intel.tokens),
+      f"ok={_out_intel.ok} cross={_out_intel.cross_lower}/{_out_intel.cross_upper}")
+_out_plain = plan_route_from_config(intel_cfg(), log=lambda s: None)
+check("11.2 ★ 一个参数都不传（= 接线前）→ crossing 走 route.cross_*_default（K10/K5）",
+      _out_plain.ok and _out_plain.cross_lower == "K10" and _out_plain.cross_upper == "K5",
+      f"cross={_out_plain.cross_lower}/{_out_plain.cross_upper}")
+check("11.3 换洞真的改了路线（不是只在遥测里改字）：token 列表不同",
+      _out_intel.tokens != _out_plain.tokens,
+      f"{len(_out_intel.tokens)} vs {len(_out_plain.tokens)} token")
+_out_up = plan_route_from_config(intel_cfg(), log=lambda s: None, cross_upper="K4")
+check("11.4 ★ 两半场独立：只给 upper=K4 → upper=K4、lower 仍是默认 K10",
+      _out_up.ok and _out_up.cross_upper == "K4" and _out_up.cross_lower == "K10",
+      f"cross={_out_up.cross_lower}/{_out_up.cross_upper}")
+_out_bad = plan_route_from_config(
+    Config.load(str(CONFIG)).override("planner.engine", MT.ENGINE_TOUR),
+    log=lambda s: None, cross_lower="K9")
+check("11.5 ★ 现役候选集合只有 K10：K9 会被**规划器**抛 PlannerError"
+      "（这正是 Mission 必须先做候选校验的原因）",
+      (not _out_bad.ok) and _out_bad.error.startswith("PlannerError:")
+      and "K9" in _out_bad.error and "候选集合" in _out_bad.error,
+      _out_bad.error[:90])
+
+# ---- 11.B MissionTask：情报注入 → 执行路线用 K9 ----
+rig = Rig(intel_cfg())
+push_drone(rig, half="lower", block="K9")
+rig.ticks(3)
+st = rig.state()
+check("11.6 ★ 自动规划 + 情报 → 阶段 DRIVE 且执行路线穿 K9（上半场仍默认 K5）",
+      rig.task.phase == MissionPhase.DRIVE and kcells(rig) == ["K9", "K5"],
+      f"{rig.task.phase} / {kcells(rig)}")
+check("11.7 ★ 遥测同时记下『请求的格』与『规划产物实际用的格』（现场对账两栏都在）",
+      st["plan"]["cross_requested"] == {"lower": "K9", "upper": ""}
+      and st["plan"]["cross_lower"] == "K9" and st["plan"]["cross_upper"] == "K5",
+      f"req={st['plan']['cross_requested']} got={st['plan']['cross_lower']}/{st['plan']['cross_upper']}")
+check("11.8 遥测 `bridge.used` = 规划产物实际用格 {lower:K9, upper:K5}",
+      st["bridge"]["used"] == {"lower": "K9", "upper": "K5"}, str(st["bridge"]["used"]))
+check("11.9 日志两处可复盘：透传行 + 自动规划成功行都点了穿洞格",
+      any("穿洞格（无人机情报）：下半场 K9" in s for s in rig.logs)
+      and any("穿洞 下=K9 上=K5" in s for s in rig.logs),
+      str([s for s in rig.logs if "穿洞" in s][:2]))
+check("11.10 门禁行仍按引擎口径（tour 不跑门禁）",
+      str(st["plan"]["engine"]) == MT.ENGINE_TOUR and st["plan"]["gate_ok"] is True,
+      f"engine={st['plan']['engine']} gate={st['plan']['gate_ok']}")
+
+# ---- 11.B2 ★卡 t13（D3）：单槽被 upper 覆盖后，lower 仍走事件流生效（自动规划路径）----
+rig_pair = Rig(intel_cfg())
+push_drone(rig_pair, half="lower", block="K9")     # 无人机先报下半场
+st_pair_last = push_drone(rig_pair, half="upper", block="K4")   # 再报上半场 → 槽被覆盖
+rig_pair.ticks(3)
+check("11.10b ★★ D3：槽里只剩 upper（框架层 bridge_of('lower') 恒 None），"
+      "自动规划仍同时用 K9 与 K4",
+      str(getattr(st_pair_last, "bridge_half", "")) == "upper"
+      and st_pair_last.bridge_of("lower", now=rig_pair.clock.now(), stale_s=30.0) is None
+      and kcells(rig_pair) == ["K9", "K4"],
+      f"槽 half={getattr(st_pair_last, 'bridge_half', None)!r} k={kcells(rig_pair)} "
+      f"seen={list(rig_pair.state()['bridge']['seen'])}")
+check("11.10c 遥测 `bridge` 暴露事件通道证据（订阅在听 + 已消费条数 + 溢出计数）",
+      rig_pair.state()["bridge"]["subscribed"] is True
+      and rig_pair.state()["bridge"]["events"] >= 2
+      and rig_pair.state()["bridge"]["events_dropped"] == 0,
+      str({k: rig_pair.state()["bridge"][k]
+           for k in ("subscribed", "events", "events_dropped")}))
+
+# ---- 11.C 无情报 → 与接线前逐 token 一致 ----
+rig_off = Rig(intel_cfg())
+rig_off.ticks(3)
+check("11.11 ★ 无 P_DRONE（无无人机）→ 执行路线与『不传 cross 参数』的规划产物逐 token 一致",
+      [b for b in rig_off.task.route.blocks()]
+      == [parse_token(t)["block"] for t in _out_plain.tokens],
+      f"{len(rig_off.task.route)} 点 vs 基线 {len(_out_plain.tokens)} 点")
+check("11.12 无情报时遥测 source=no_link、used 走默认格",
+      rig_off.state()["bridge"]["lower"]["source"] == "no_link"
+      and rig_off.state()["plan"]["cross_requested"] == {"lower": "", "upper": ""},
+      str(rig_off.state()["bridge"]["lower"]))
+
+# ---- 11.D 坏情报 + fallback_to_tokens=false：绝不是"一条坏情报把车停在 IDLE" ----
+cfg_strict = intel_cfg(fallback_to_tokens=False)
+cfg_strict.override("route.cross_lower_candidates", ["K10"])     # 现役口径：K9 不合法
+rig_bad = Rig(cfg_strict)
+push_drone(rig_bad, half="lower", block="K9")
+rig_bad.ticks(3)
+st_bad = rig_bad.state()
+check("11.13 ★★ 坏情报（K9 不在候选集合）+ fallback=false → 仍 DRIVE（情报被预校验拦下，"
+      "不炸规划、不卡发车）",
+      rig_bad.task.phase == MissionPhase.DRIVE and rig_bad.count(EV_MISSION_STARTED) == 1,
+      f"phase={rig_bad.task.phase} started={rig_bad.count(EV_MISSION_STARTED)}")
+check("11.14 坏情报被拒的证据齐全：source=rejected + 原因 + 走默认 K10",
+      st_bad["bridge"]["lower"]["source"] == "rejected"
+      and "候选集合" in st_bad["bridge"]["lower"]["reason"]
+      and st_bad["plan"]["cross_lower"] == "K10" and kcells(rig_bad) == ["K10", "K5"],
+      f"{st_bad['bridge']['lower']['reason']} / k={kcells(rig_bad)}")
+check("11.15 拒收只记日志、不上抛（任务无异常）",
+      rig_bad.task.health().errors == 0 and any("候选集合" in s for s in rig_bad.logs),
+      f"errors={rig_bad.task.health().errors}")
+
+# ---- 11.E 过期/离线情报：自动规划也不换洞 ----
+rig_exp = Rig(intel_cfg())
+push_drone(rig_exp, half="lower", block="K9", age=99.0)
+rig_exp.ticks(3)
+check("11.16 过期情报（99s）→ 自动规划用默认洞 K10（且与基线 token 一致）",
+      kcells(rig_exp) == ["K10", "K5"]
+      and [b for b in rig_exp.task.route.blocks()]
+      == [parse_token(t)["block"] for t in _out_plain.tokens],
+      f"k={kcells(rig_exp)} source={rig_exp.state()['bridge']['lower']['source']}")
+rig_offl = Rig(intel_cfg())
+push_drone(rig_offl, half="lower", block="K9", online=False)
+rig_offl.ticks(3)
+check("11.17 无人机离线 → 自动规划用默认洞 K10",
+      kcells(rig_offl) == ["K10", "K5"]
+      and rig_offl.state()["bridge"]["lower"]["source"] == "offline",
+      f"k={kcells(rig_offl)}")
 
 finish()

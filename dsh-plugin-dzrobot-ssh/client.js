@@ -58,6 +58,7 @@ window.__ModuleLoader__.load({
         toolNote: '点“打开”后主视图会切到会话，工具窗口显示在会话右侧——右栏属于会话，这是 DSH 的结构。',
         filesToolDesc: '浏览、预览、下载、上传小车上的文件（走同一条已信任的 SSH 通道）',
         vncToolDesc: '小车的 X 桌面（TigerVNC :1，1920×1080）；需要时会在画面里向你要 VNC 密码',
+        simToolDesc: '本地跑 dzbrain 离线仿真：速度档+误差注入一键出指标与路线图，历史对比，不连小车',
         copy: '复制命令',
         copied: '已复制',
         retry: '重试',
@@ -102,6 +103,7 @@ window.__ModuleLoader__.load({
         viewVnc: 'VNC 桌面',
         viewTerminal: '终端',
         viewFiles: '文件目录',
+        viewSim: '仿真台',
         vncConnect: '连接桌面',
         vncReconnect: '重新连接',
         vncDisconnect: '断开',
@@ -119,6 +121,7 @@ window.__ModuleLoader__.load({
         vncSubmitPassword: '登录',
         vncBlacklisted: '小车暂时拒绝本机了：连续认证失败会被 TigerVNC 列入黑名单（默认 10 分钟），等一会儿再连。密码没输错的话，先在设置页把正确的 VNC 密码填上。',
         vncNoOrigin: '没能从插件后端取到服务地址，无法加载 VNC 画面',
+        simOpenHint: '没能自动打开仿真台（弹窗被拦截，或还没取到服务地址）。手动地址：{url}',
         vncDropped: '连接异常中断——小车可能掉线，或主机名解析抖动（这台车的 mDNS 时好时坏），稍后重试',
         vncSendCad: 'Ctrl+Alt+Del',
         terminalHint: 'SSH 跑在 DSH 自带终端里（回显/补全/缩放都是原生的）。点击后会切到会话视图——终端在会话右侧，这是 DSH 的结构。',
@@ -218,6 +221,7 @@ window.__ModuleLoader__.load({
         toolNote: 'Opening a tool switches the main view to the Conversation — the tool window appears on its right. The right column belongs to the Conversation; that is DSH’s structure.',
         filesToolDesc: 'Browse, preview, download and upload the car’s files (over the same trusted SSH channel)',
         vncToolDesc: 'The car’s X desktop (TigerVNC :1, 1920×1080); it may ask for the VNC password in the screen',
+        simToolDesc: 'Run the dzbrain offline simulator locally: a speed step plus error injection gives metrics and the route plot in one click, with a history to compare — no car involved',
         copy: 'Copy command',
         copied: 'Copied',
         retry: 'Retry',
@@ -262,6 +266,7 @@ window.__ModuleLoader__.load({
         viewVnc: 'VNC desktop',
         viewTerminal: 'Terminal',
         viewFiles: 'Files',
+        viewSim: 'Sim bench',
         vncConnect: 'Connect desktop',
         vncReconnect: 'Reconnect',
         vncDisconnect: 'Disconnect',
@@ -279,6 +284,7 @@ window.__ModuleLoader__.load({
         vncSubmitPassword: 'Sign in',
         vncBlacklisted: 'The car is refusing this machine: repeated failed logins put it on TigerVNC’s blacklist (10 minutes by default). Wait a moment and retry — or set the correct VNC password in Settings first.',
         vncNoOrigin: 'Could not learn the server address from the plugin backend, so the VNC screen cannot load',
+        simOpenHint: 'The sim bench could not be opened automatically (popup blocked, or the server address is unknown). Open it manually: {url}',
         vncDropped: 'Connection dropped unexpectedly — the car may be offline, or its mDNS name is flapping (this hotspot is unreliable). Retry shortly.',
         vncSendCad: 'Ctrl+Alt+Del',
         terminalHint: 'SSH runs in the app’s own terminal (native echo, completion, resizing). Clicking switches to the Conversation — the terminal lives in its right column; that is DSH’s structure.',
@@ -2043,6 +2049,10 @@ window.__ModuleLoader__.load({
       { id: 'files', kind: 'dzr-files', mode: 'tab', titleKey: 'viewFiles', descKey: 'filesToolDesc' },
       { id: 'vnc', kind: 'dzr-vnc', mode: 'tab', titleKey: 'viewVnc', descKey: 'vncToolDesc' },
       { id: 'float', kind: null, mode: 'float', titleKey: 'viewFloat', descKey: 'floatToolDesc' },
+      // No tab: the bench is its own document on this plugin's http origin (it runs
+      // long child processes and wants a full window), so `mode: 'external'` just
+      // opens `${origin}/api/dzrobot-ssh/sim.html` in a new tab.
+      { id: 'sim', kind: null, mode: 'external', titleKey: 'viewSim', descKey: 'simToolDesc' },
     ]
 
     /** Compact glyphs for the list rows. */
@@ -2062,6 +2072,12 @@ window.__ModuleLoader__.load({
           h('rect', { key: 'a', x: '1.8', y: '4.6', width: '10.6', height: '6.8', rx: '1.6', stroke: 'currentColor' }),
           h('path', { key: 'b', d: 'M14.2 6.8v2.4', stroke: 'currentColor', strokeLinecap: 'round' }),
           h('path', { key: 'c', d: 'M4 6.8h4.2v2.4H4z', fill: 'currentColor', stroke: 'none' }),
+        ],
+        // a lab flask: the bench runs experiments, it does not drive anything
+        sim: [
+          h('path', { key: 'a', d: 'M6.2 1.8h3.6', stroke: 'currentColor', strokeLinecap: 'round' }),
+          h('path', { key: 'b', d: 'M6.9 1.8v3.4L3.6 11.4a1.5 1.5 0 0 0 1.3 2.3h6.2a1.5 1.5 0 0 0 1.3-2.3L9.1 5.2V1.8', stroke: 'currentColor', strokeLinejoin: 'round' }),
+          h('path', { key: 'c', d: 'M5.1 10.4h5.8', stroke: 'currentColor', strokeLinecap: 'round' }),
         ],
       }
       return h('svg', { width: 18, height: 18, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true' }, paths[id] ?? [])
@@ -2089,6 +2105,12 @@ window.__ModuleLoader__.load({
               // The overlay card needs the persisted opacity; the panel is one
               // of the two seats that read /status on mount.
               floatOpacity: payload.settings?.floatOpacity,
+              // The sim bench is opened as its own http document, and the page
+              // that hosts this panel runs under `dsh-app://` — so the new tab's
+              // URL has to be built from the origin the request arrived on, not
+              // from `location.href`. Kept in the store because the click that
+              // needs it happens long after this fetch.
+              origin: payload.origin,
             })
             diag('panel.status', { origin: payload.origin, vnc: payload.vnc, root: payload.files?.root })
           }).catch(problem => {
@@ -2114,6 +2136,22 @@ window.__ModuleLoader__.load({
             rememberFloatOpen(next)
             store.set({ floatOpen: next })
             diag('tool.float', { open: next })
+            return
+          }
+          if (tool.mode === 'external') {
+            // A standalone document on this plugin's http origin. A popup blocker
+            // is the one failure this path can hit, and it must not stay silent:
+            // the manual URL goes into the row so the user can still get there.
+            const origin = String(store.get().origin ?? '')
+            const path = '/api/dzrobot-ssh/sim.html'
+            const url = origin === '' ? path : `${origin}${path}`
+            let opened = null
+            if (origin !== '') {
+              try { opened = window.open(url, '_blank') } catch { opened = null }
+            }
+            const ok = opened !== null && opened !== undefined
+            diag('tool.external', { id: tool.id, origin, ok })
+            if (!ok) setRowMsg(current => ({ ...current, [tool.id]: t('simOpenHint', { url }) }))
             return
           }
           setBusy(tool.id)

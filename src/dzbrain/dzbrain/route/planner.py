@@ -38,7 +38,8 @@
 * `cost[(a, b)]` = 从 a 的**四个朝向**出发、到达 b 的**四个朝向**的最小代价（顺序轮用）；
 * `h_cost[(a, b)][ha][hb]` = 带朝向的精确代价（朝向轮用）。
 
-两者交替优化（顺序 → 朝向 → 顺序 …，最多 3 轮），起点朝向按 `mission.reset` 锁死。
+两者交替优化（顺序 → 朝向 → 顺序 …，最多 3 轮），起点朝向 = **设计常量 `START_HEADING`**
+（车头 +y，见常量区「卡 t13」说明），与 `mission.reset` 无关。
 2-opt 反转子段时，两端的朝向选择会自动重新评估（成本函数里每次都取当前朝向）。
 
 --------------------------------------------------------------------------------
@@ -86,7 +87,7 @@ from ..core.config import Config
 from . import physics as _phys
 from . import validate as V
 from .model import Route, RouteBuilder, Waypoint
-from .parser import PIVOT_SUFFIX as _PIVOT_SUFFIX, parse_reset, parse_token
+from .parser import PIVOT_SUFFIX as _PIVOT_SUFFIX, parse_token
 
 __all__ = [
     "PlannerError",
@@ -107,12 +108,26 @@ __all__ = [
     "mark_pivots",
     "DIRS",
     "DEFAULT_MAX_SECONDS",
+    # ★ 卡 t13：起始航向 = 设计常量（+y），两引擎共用；见常量区的说明
+    "START_HEADING",
+    "START_HEADING_YAW",
     "PIVOT_MARK_DEG",
     "PIVOT_PENALTY",
     "MINE_PRESS_TOL_M",
     "MINE_TURN_PENALTY",
     "BARRIER_TURN_PENALTY",
     "straighten_mines",
+    # ★★ t7 tracker-safe 引擎（自动规划追平手工 62 点；见文件末尾那一节）
+    "plan_route_tracker_safe",
+    "TS_TURN_W",
+    "TS_MINE_TURN_PENALTY_M",
+    "TS_PHASE_CELL",
+    "TS_TURNED_MINES",
+    "TS_MAX_TURN_DEG",
+    "TS_MINE_STRAIGHT_DEG",
+    "TS_MAX_SECONDS",
+    # ★ t19：顺序 DP 的到达状态上限（Pareto 截断，现役图恒不触发）
+    "TS_PARETO_KEEP",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -124,6 +139,20 @@ __all__ = [
 DIRS: tuple[tuple[int, int], ...] = ((-1, 0), (0, -1), (1, 0), (0, 1))
 TURN_LEFT, TURN_RIGHT = -1, +1
 HEAD_NAMES = ("北(行号减小)", "西(列号减小)", "南(行号增大)", "东(列号增大)")
+
+#: ★★ 卡 t13：**起始航向 = 设计常量**（用户定案；不再由 `mission.reset` 反推）。
+#:
+#: 现场约定：每次发车，车都摆在起点格（现场图 = `N10`）、**车头水平朝图左** ——
+#: 即朝 K 列桥洞方向、列号减小方向，也就是地图 `+y`（`geometry.HEADING_Y`）
+#: = `HEAD_NAMES[1]`「西」。**摆位由现场用户保证**，判据里不需要、也不允许有
+#: "摆错就拒绝发车"这类校验（卡 t13 明文）。
+#:
+#: 规划器把这个常量当**设计输入**：**不为起点生成任何转向消解** ——
+#: ① 不按 `mission.reset` 反推朝向（旧实现把 `reset_yaw` 当起点朝向真源）；
+#: ② 不再在"起点朝西不可行"时把起点朝向改成朝 X+（那是一条静默的朝向改写）。
+#: 现场图 `N10 → M10` 本来就是 +y ⇒ 输出与历史**逐字节一致**（本卡零影响契约）。
+START_HEADING: int = 1                     # DIRS 索引：1 = 西 = 列号减小 = +y
+START_HEADING_YAW: float = geo.HEADING_Y   # 同一朝向的地图 yaw（+π/2）
 
 #: 动作编号（`flood` 回传，用于判断某一段是否倒车）
 ACT_START, ACT_FORWARD, ACT_BACKWARD, ACT_LEFT, ACT_RIGHT = 9, 0, 1, 2, 3
@@ -199,7 +228,14 @@ EDGE_MINE_TURN_MIN_CELLS = 2
 EDGE_MINE_TURN_PENALTY = 6.0
 
 #: 单次规划的时间预算（秒）。超了抛 `PlannerError`，绝不静默给半成品路线。
-DEFAULT_MAX_SECONDS = 0.8
+#: ★★ t7 修正（t8 门禁抓到的 flake）：0.8 → **2.0 s**。
+#:   实测（本机，现役图 config/map.yaml）`plan_route(allow_reverse=False, pivot_penalty=5.0)`
+#:   单次耗时 **0.55 s**（8/8 次跑在 548~569 ms），离旧默认 0.8 s 只有 0.25 s 余量；
+#:   在 4 忙核下 `test_planner.py:647` 那次调用稳定超时（单跑 5/5 绿 ⇒ 纯负载敏感 flake）。
+#:   取 **2.0 s** 的理由：① 与现场真源 `config/robot.yaml` 的 `planner.max_seconds: 2.0` 一致
+#:   （车上本来就是这个预算，常量只是"没有配置时的兜底"）；② 余量 3.6× 足够吸收负载抖动。
+#:   ⚠️ 超时仍是**硬错误**（不做静默降级），只是不再在正常负载下误报。
+DEFAULT_MAX_SECONDS = 2.0
 #: "顺序 ↔ 朝向"交替优化的轮数上限
 MAX_TOUR_ROUNDS = 3
 #: 2-opt 的收敛上限（防病态输入吃光时间预算）
@@ -1828,7 +1864,8 @@ class _Tour:
         """2-opt（子段反转）直到不再改进或达到轮数上限。
 
         ★ `keep_ends=True`（默认）时**只反转内部子段**：起点/终点是任务硬约束
-          （`mission.reset` 锚在起点、终点要停在 `map.end`），2-opt 不该动它们。
+          （起点 = `map.start` + 设计起始航向 `START_HEADING`，终点要停在 `map.end`），
+          2-opt 不该动它们。
           旧实现允许反转含首/末的子段，一旦代价函数变化就会把起点挪走，
           只能在 `plan_route` 末尾靠"内部错误：优化后起点/终点被挪动"兜住 ——
           那是把约束写在断言里而不是算法里，本轮踩到后改为按约束搜索。
@@ -1869,7 +1906,7 @@ class _Tour:
                       fixed: dict[tuple[int, int], int] | None = None) -> list[int]:
         """给定顺序，最小化 `Σ pair_cost(i, i+1)` 的朝向序列（坐标下降）。
 
-        起点朝向通常被 `mission.reset` 锁死（放在 `fixed` 里）；终点朝向自由
+        起点朝向 = 设计常量 `START_HEADING`（放在 `fixed` 里，卡 t13）；终点朝向自由
         （可在终点原地转向，代价由 `pair_cost` 的 `COST_TURN` 体现）。
         """
         fixed = dict(fixed or {})
@@ -2048,7 +2085,8 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     """**核心入口**：一张地图 -> 一条可直接下发的路线。
 
     :param map_cfg: `config/map.yaml` 的原始 dict（`{'map': {...}}`）；也接受 `MapSpec`
-    :param cfg: `core.config.Config`；提供射击窗口、穿洞候选集合、起点朝向（`mission.reset`）
+    :param cfg: `core.config.Config`；提供射击窗口、穿洞候选集合、代价项等
+        （★ 卡 t13 起**不再**从它读起点朝向：起始航向是设计常量 `START_HEADING`）
     :param cross_lower/cross_upper: 指定穿洞格（通常由无人机情报给出）；
         缺省用 `route.cross_*_default`；不在候选集合里则抛 `PlannerError`
     :param max_seconds: 时间预算；超出抛 `PlannerError`
@@ -2143,25 +2181,12 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         if not grid.passable(*cell):
             raise PlannerError(f"{half}穿洞格 {name} 是障碍格，无法通行")
 
-    # ---------------- 起点朝向（真源：mission.reset，如 "N10,y"） ----------------
-    start_heading = 1                                  # 默认朝西（列号减小）
-    reset_spec = str(V._cfg_get(cfg, "mission.reset", "") or "")      # noqa: SLF001
-    if reset_spec:
-        try:
-            reset_block, reset_yaw = parse_reset(reset_spec)
-            if reset_block == spec.start:
-                start_heading = 1 if abs(reset_yaw - geo.HEADING_Y) < 1e-6 else 0
-            else:
-                warnings.append(f"mission.reset={reset_spec} 的起点 {reset_block} 与地图起点 "
-                                f"{spec.start} 不一致，起点朝向按向西处理")
-        except ValueError:
-            warnings.append(f"mission.reset={reset_spec!r} 无法解析，起点朝向按向西处理")
-    drow, dcol = DIRS[start_heading]
-    if not grid.move_ok(start_cell[0], start_cell[1],
-                        start_cell[0] + drow, start_cell[1] + dcol):
-        start_heading = 0
-        warnings.append(f"起点 {spec.start} 朝西不可行（前方是障碍/出界/非桥洞行的 K 列），"
-                        f"起点朝向改为朝 X+")
+    # ---------------- 起点朝向 = 设计常量（卡 t13） ----------------
+    #   ★ 真源不再是 `mission.reset`（旧实现按 `reset_yaw` 反推，还会在"朝西不可行"时
+    #     把起点朝向改成朝 X+）—— 那正是本卡要删掉的"为起点生成转向消解"：
+    #     现场约定车每次都摆在起点、车头恒定朝 +y（图左 / K 列方向），摆位由用户保证。
+    #   ⇒ 只读设计常量：不校验、不拒绝、不改写（见 `START_HEADING` 的说明）。
+    start_heading = START_HEADING
 
     # ---------------- U 形结构可行性 ----------------
     # 下半场：起点在桥东 -> 穿 K(lower) 向西 -> 收站；上半场：收站 -> 穿 K(upper) 向东 -> 终点。
@@ -2233,7 +2258,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     order, heads, _ = tour.polish(order, heads, rounds=MAX_TOUR_ROUNDS - 1)
     if order[0] != start_cell or order[-1] != end_cell:
         raise PlannerError("内部错误：优化后起点/终点被挪动")
-    heads[0] = start_heading                          # 起点朝向由 mission.reset 锁死
+    heads[0] = start_heading                          # 起点朝向 = 设计常量（卡 t13）
     order_candidates: list[list[tuple[int, int]]] = [list(order)]
     # ★★ U 形单回路**硬约束**兜底候选（任务卡 t17）——见 `_u_shape_order()` 的说明。
     #   只在候选 1（现有行为：polish 整条）**结构自检失败**时才会被用到 ⇒
@@ -2669,3 +2694,568 @@ def straighten_mines(order: list[tuple[int, int]], spec: MapSpec, grid: Grid,
         if not dedup or dedup[-1] != c:
             dedup.append(c)
     return dedup, axes
+
+
+# =========================================================================== #
+#  ★★ t7：**tracker-safe 引擎** —— "自动规划追平手工 62 点"
+# --------------------------------------------------------------------------- #
+#  为什么另起一个引擎（t7 实测的差距根因，全部有数字）：
+#   ① **原地转向（PIVOT）不可仿真**：旧引擎用 180° 折返 + `:PIVOT` 处理死角，
+#      而 `tools/sim.py` 与真车循迹层都**不建模 PIVOT** ⇒ 真值轨迹只能画一个大弧兜回
+#      去：实测自动 65 点路线峰值横向误差 **0.4292 m**（段 `D8→F8`，90° 折返）。
+#   ② **紧凑 U 形折返会被整段切掉**：两条反向腿之间只隔 1 格时（如
+#      `D10→E10→E11→D11→C11`），前视 0.36~0.40 m ≥ 单格 0.35 m ⇒ 车在 `E10` 就已经
+#      瞄到 `D11` 之后；实测车心离 `D11` 顶点最近只有 **0.240 m**（峰值 0.2467 m）。
+#   ③ **雷在顶点被拐过去 = 漏压**：纯追踪在顶点切内，实测漏压 `B2`（0.0364 m，
+#      阈值 0.035）/ `E10`（0.0800 m）。
+#  ⇒ 本引擎的硬规则（全部可枚举、可复现）：
+#       · 只走**单格**（正交），复用内置 `Grid.move_ok` 的隔板/K 列判据；
+#       · **禁 180°**（转角 ≤ 90°）⇒ 路线里**不含 `:PIVOT`**；
+#       · **禁紧凑 U 形折返**（反向腿之间只隔 1 格）；
+#       · **雷必须直线穿心**（转角 ≤ 10°），"口袋雷"（正交下无法穿心，默认 `D8`）
+#         允许 90° 拐过并给重罚 —— 现场手工 62 点路线正是这么压 `D8` 的（实测 9.2 mm）；
+#       · 净空用**物理口径**（障碍段 ≥ 0.215 / 拐角顶点 ≥ 0.3029、靶板 ≥ 0.0675 / 0.1554、
+#         挡板细条 ≥ 0.0775）。
+#  搜索：朝向感知 Dijkstra（状态 = 格 × 本腿方向 × 上一腿方向，后者用于判紧凑 U）
+#        + 分阶段顺序 DP（下半天雷 → 隔板过渡格 → 上半天雷+射击点 → 上桥洞 → 终点），
+#        代价 = **实走长度 + 转角权重 + 雷转角重罚**（不掺"绕远省钱"的软偏好）。
+# =========================================================================== #
+
+#: 转角权重（米/90°）：让搜索在同长度下偏好"少打舵"的走法
+TS_TURN_W = 0.10
+#: 雷格"被拐过去"的重罚（米/90°）：强烈偏好直线穿心，只在口袋雷上让位
+TS_MINE_TURN_PENALTY_M = 1.5
+#: 单格移动集（正交）—— 与手工 62 点路线同族（实测：加入对角/跃迁会让峰值误差涨到 0.24 m）
+TS_ORTHO = ((1, 0), (-1, 0), (0, 1), (0, -1))
+#: 顶点转角上限（> 该值即禁）：90° = 禁 180° 折返（真车靠 PIVOT，仿真不建模）
+TS_MAX_TURN_DEG = 90.0
+#: 雷"直线穿心"的转角容差（度）
+TS_MINE_STRAIGHT_DEG = 10.0
+#: 隔板过渡格（两半场之间的过渡航点）。★t31（第五张图）：`C6` → **`A6`**。
+#: 为什么换：第五张图上 `C6` 相位出的 58 token / 19.95 m 解**在 C9 撞障碍**（FootprintObs 真值足迹：
+#: @0.15 603 拍、@0.35 453 拍，净空 −0.00013 m；`tools/route_check.py` 的折线口径在该处乐观、判"0.350 ≥ 0.215"）。
+#: `A6`（与 `B6` 数值完全一致）出的 60 token / 20.65 m 解双档全绿（0 碰撞 / 0 硬违规 / 越界 0 / K 穿越 2 次）。
+#: 证据：`_tmp_session/t29/报告.md` §3/§4（24 组 phase×turned 矩阵 + `diag_collision.py` 定位）。
+TS_PHASE_CELL = "A6"
+#: "口袋雷"：正交移动集下无法直线穿心，允许 90° 拐过。
+#: ★t31（第五张图）：加入 **`A4`** —— 新图上 `A4` 是口袋雷（西侧出界、南侧 `A5` 是障碍 ⇒ 正交移动集
+#: 下不可能直线穿心）；不加它 `plan_route_tracker_safe()` 直接 `PlannerError: 无解`
+#: （车上自规划失败 → 回退旧 62 点 → 新图上 `config_selfcheck` 12 error、不可发车）。
+#: `D8` 仍在新图雷位里，保留。证据：`_tmp_session/t29/报告.md` §5（24 组矩阵：不含 A4 的组合全无解）。
+TS_TURNED_MINES = ("A4", "D8")
+#: ★★ t19：顺序 DP 每个节点保留的**到达状态上限**（Pareto 截断；`None` = 不截断）。
+#: 依据：`_ts_phase` 的到达前沿在现役图实测 **max=2**（16 次调用：前沿 1 出现 8 次、
+#: 2 出现 8 次）⇒ 本图恒不触发、是等价变换；它只是给"到达状态更多"的图兜一个上限。
+#: A/B：`keep=2` 与不截断在现役图/异地图上**逐候选产物逐 token 相同**（`_tmp_session/t19/`）。
+TS_PARETO_KEEP = 2
+#: tracker-safe 引擎的默认时间预算（秒）。这是**签名兜底值**，车上的真源是
+#: `config/robot.yaml: planner.tracker_max_seconds`（两者同值，且 `tools/plan_route.py`
+#: 的 `--max-seconds` 缺省直接引用本常量 ⇒ 改一处三处同步）。
+#: ★ t19 重定：**ARM 车端实测**（RK3588S，8 核，现场 `~/dzrobot` 同一份地图/配置）——
+#:   提速前 6515/6693/6752 ms（settled 470118，`_ts_phase` 16 次）；
+#:   提速后 **2788/2788/2786 ms**（settled 200811，`_ts_phase` 5 次）。
+#:   取值规则（卡 t19 第 3 条）= max(实测中位 × 3, 实测中位 + 5 s) = max(8.36, 7.79) ⇒ **10.0 s**。
+#:   （旧值 5.0 s 是 PC 实测 1.5 s 年代的；第七趟实车就是被这个 5 s 卡住而回退手工路线。）
+TS_MAX_SECONDS = 10.0
+
+
+def _ts_unit(v: tuple[int, int]) -> tuple[int, int]:
+    """方向向量约到最简（本引擎只有单格移动，直接返回）。"""
+    g = math.gcd(abs(v[0]), abs(v[1])) or 1
+    return (v[0] // g, v[1] // g)
+
+
+def _ts_turn_deg(a: tuple[int, int], b: tuple[int, int]) -> float:
+    """两个行进方向之间的转角（度，∈ [0,180]）。"""
+    return abs(math.degrees(geo.normalize_angle(math.atan2(b[0], b[1])
+                                                - math.atan2(a[0], a[1]))))
+
+
+@dataclass
+class _TSGrid:
+    """tracker-safe 引擎的栅格：复用内置 `Grid`（通行/隔板/K 列）+ 物理净空 + 转角规则。
+
+    与内置 `Grid.move_ok` 的分工：**段级**合法性（能不能走这一步）继续由它负责
+    （它已经把"隔板只有 A/B/C 能上下""K 列只能水平进出通格""靶格不可通行"写死了）；
+    本类只补三样它没有的：**物理净空**（障碍/靶板/挡板细条）、**转角规则**
+    （禁 180°、禁紧凑 U、雷穿心）、以及转角/雷的**代价**。
+    """
+
+    spec: MapSpec
+    grid: Grid
+    phys: dict
+    turn_w: float = TS_TURN_W
+    mine_turn_penalty_m: float = TS_MINE_TURN_PENALTY_M
+    turned_mines: tuple[str, ...] = TS_TURNED_MINES
+    moves: tuple[tuple[int, int], ...] = TS_ORTHO
+
+    def __post_init__(self) -> None:
+        self.mine_cells = {_cell(m) for m in self.spec.mines}
+        self.straight_mines = {c for c in self.mine_cells
+                               if geo.index_to_block(c[0] - 1, c[1]) not in set(self.turned_mines)}
+        self.obs_xy = {o: geo.block_to_meters(o) for o in self.spec.obstacles}
+        self.tgt_xy = {t: geo.block_to_meters(t) for t in self.spec.targets}
+        self.obs_r = float(self.phys["obstacle_radius_m"])
+        self.width_m = float(self.phys["width_m"])
+        self.length_m = float(self.phys["length_m"])
+        self.mgn = float(self.phys["obstacle_margin_m"])
+        sweep, _r = _phys.sweep_radius(length_m=self.length_m, width_m=self.width_m,
+                                       wheelbase_m=self.phys["wheelbase_m"],
+                                       max_steer_deg=self.phys["max_steer_deg"])
+        self.obs_seg_req = _phys.required_obstacle_center_distance_m(
+            obstacle_radius_m=self.obs_r, body_radius_m=self.width_m / 2.0, margin_m=self.mgn)
+        self.obs_corner_req = _phys.required_obstacle_center_distance_m(
+            obstacle_radius_m=self.obs_r, body_radius_m=sweep, margin_m=self.mgn)
+        self.board_seg_req = _phys.required_target_body_clearance_m(
+            length_m=self.length_m, width_m=self.width_m, at_corner=False)
+        self.board_corner_req = _phys.required_target_body_clearance_m(
+            length_m=self.length_m, width_m=self.width_m, at_corner=True)
+        self.barrier_req = _phys.required_barrier_distance_m(
+            barrier_width_m=float(self.phys["barrier_width_m"]), car_width_m=self.width_m)
+        c0, c1 = _phys.parse_col_span(str(self.phys["barrier_cols"]))
+        self.bar_x, self.bar_y0, self.bar_y1 = _phys.barrier_centerline(
+            col_from=c0, col_to=c1, row_hi=self.spec.barrier_row_hi,
+            row_lo=self.spec.barrier_row_lo)
+        self._legal: dict[tuple, bool] = {}
+        self._turn: dict[tuple, tuple[bool, float, float]] = {}
+        self.settled = 0
+
+    # ---------------- 段级 ----------------
+    def move_ok(self, a: tuple[int, int], b: tuple[int, int]) -> bool:
+        key = (a, b)
+        hit = self._legal.get(key)
+        if hit is not None:
+            return hit
+        ok = self._move_ok_raw(a, b)
+        self._legal[key] = ok
+        return ok
+
+    def _move_ok_raw(self, a: tuple[int, int], b: tuple[int, int]) -> bool:
+        if (b[0] - a[0], b[1] - a[1]) not in self.moves:
+            return False
+        if not self.grid.move_ok(a[0], a[1], b[0], b[1]):
+            return False
+        ax, ay = geo.block_to_meters(geo.index_to_block(a[0] - 1, a[1]))
+        bx, by = geo.block_to_meters(geo.index_to_block(b[0] - 1, b[1]))
+        if _phys.barrier_distance_segment_m(ax, ay, bx, by, x=self.bar_x,
+                                            y0=self.bar_y0, y1=self.bar_y1) \
+                < self.barrier_req - 1e-12:
+            return False
+        for ox, oy in self.obs_xy.values():
+            if _phys.obstacle_clearance_segment_m(ax, ay, bx, by, ox, oy) \
+                    < self.obs_seg_req - 1e-12:
+                return False
+        half = _phys.board_half_m()
+        for cx, cy in self.tgt_xy.values():
+            if _phys.segment_rect_distance_m(ax, ay, bx, by, cx, cy, half) \
+                    < self.board_seg_req - 1e-12:
+                return False
+        return True
+
+    # ---------------- 顶点级 ----------------
+    def turn_gate(self, cell: tuple[int, int], d_prev: tuple[int, int] | None,
+                  d_in: tuple[int, int], d_out: tuple[int, int]
+                  ) -> tuple[bool, float, float]:
+        """``(是否允许, 转角°, 附加代价)``。
+
+        ★ 三条硬规则（每条都有实测依据，见本节顶部注释）：
+          ① 转角 > 90° ⇒ 禁（180° 折返只能靠 PIVOT，仿真/真车循迹都不建模）；
+          ② 上一腿与本腿**反向**且中间只隔 1 格 ⇒ 禁（紧凑 U，会被纯追踪整段切掉）；
+          ③ 雷格上转角 > 10° ⇒ 禁（会被切角漏压）；仅"口袋雷"例外（罚 `mine_turn_penalty_m`）。
+        """
+        key = (cell, d_prev, d_in, d_out)
+        hit = self._turn.get(key)
+        if hit is not None:
+            return hit
+        deg = _ts_turn_deg(d_in, d_out)
+        ok, extra = True, 0.0
+        if deg > TS_MAX_TURN_DEG + 1e-9:
+            ok = False
+        if ok and d_prev is not None and deg > 45.0:
+            if _ts_turn_deg(d_prev, d_in) > 45.0 and _ts_unit((-d_prev[0], -d_prev[1])) == _ts_unit(d_out):
+                ok = False
+        if ok and cell in self.mine_cells:
+            if cell in self.straight_mines and deg > TS_MINE_STRAIGHT_DEG + 1e-9:
+                ok = False
+            else:
+                extra += self.mine_turn_penalty_m * (deg / 90.0)
+        if ok and deg > 10.0:
+            x, y = geo.block_to_meters(geo.index_to_block(cell[0] - 1, cell[1]))
+            for ox, oy in self.obs_xy.values():
+                if _phys.obstacle_clearance_point_m(x, y, ox, oy) \
+                        < self.obs_corner_req - 1e-12:
+                    ok = False
+                    break
+            if ok:
+                half = _phys.board_half_m()
+                for cx, cy in self.tgt_xy.values():
+                    if _phys.point_rect_distance_m(x, y, cx, cy, half) \
+                            < self.board_corner_req - 1e-12:
+                        ok = False
+                        break
+        out = (ok, deg, extra)
+        self._turn[key] = out
+        return out
+
+
+def _ts_tight_reversals(cells: Sequence[tuple[int, int]]) -> list[int]:
+    """扫描折线，列出"紧凑 U 形折返"的顶点下标（两条反向腿之间只隔 1 格）。"""
+    bad: list[int] = []
+    for i in range(1, len(cells) - 2):
+        d1 = (cells[i][0] - cells[i - 1][0], cells[i][1] - cells[i - 1][1])
+        d2 = (cells[i + 1][0] - cells[i][0], cells[i + 1][1] - cells[i][1])
+        d3 = (cells[i + 2][0] - cells[i + 1][0], cells[i + 2][1] - cells[i + 1][1])
+        if (_ts_turn_deg(_ts_unit(d1), _ts_unit(d2)) > 45.0
+                and _ts_turn_deg(_ts_unit(d2), _ts_unit(d3)) > 45.0
+                and _ts_unit((-d1[0], -d1[1])) == _ts_unit(d3)):
+            bad.append(i)
+    return bad
+
+
+def _ts_leg(ts: _TSGrid, a: tuple[int, int], b: tuple[int, int],
+            h_in: tuple[int, int], cache: dict,
+            first_dir: tuple[int, int] | None = None) -> dict:
+    """从 ``a``（进入方向 `h_in`）到 ``b`` 的全部**到达朝向** Pareto 腿。
+
+    :param first_dir: ★ 卡 t13：只允许**第一步**朝这个方向走（`None` = 不限）。
+        「起点朝向 = 设计常量」的硬含义：车头朝 `+y` 时**不许在起点转向** ——
+        第一步必须沿 `+y` 直行，否则等代价的"先右转 90° 再走"会在 tie-break 下胜出，
+        产出一条"起步就掉头"的路线，那正是"为起点生成转向消解"。
+    :return: ``{(到达方向, 上一腿方向): (cost, [cells...])}``；`cells` 不含起点、含终点。
+    """
+    key = (a, b, h_in, first_dir)
+    if key in cache:
+        return cache[key]
+    start = (a, _ts_unit(h_in), None)
+    dist: dict = {start: 0.0}
+    came: dict = {}
+    pq: list[tuple[float, tuple]] = [(0.0, start)]
+    goal: dict = {}
+    while pq:
+        d, st = heapq.heappop(pq)
+        if d > dist.get(st, float("inf")) + 1e-15:
+            continue
+        ts.settled += 1
+        cell, h, h_prev = st
+        if cell == b and st != start:
+            goal[(h, h_prev)] = d
+            continue
+        for v in ts.moves:
+            if first_dir is not None and st == start and _ts_unit(v) != first_dir:
+                continue
+            nxt = (cell[0] + v[0], cell[1] + v[1])
+            if not ts.move_ok(cell, nxt):
+                continue
+            ok, deg, extra = ts.turn_gate(cell, h_prev, h, _ts_unit(v))
+            if not ok:
+                continue
+            nd = d + geo.BLOCK_SIZE + ts.turn_w * (deg / 90.0) + extra
+            nst = (nxt, _ts_unit(v), h)
+            if nd < dist.get(nst, float("inf")) - 1e-15:
+                dist[nst] = nd
+                came[nst] = st
+                heapq.heappush(pq, (nd, nst))
+    out: dict = {}
+    for (h, h_prev), d in goal.items():
+        st = (b, h, h_prev)
+        cells: list[tuple[int, int]] = []
+        while st != start:
+            cells.append(st[0])
+            st = came[st]
+        cells.reverse()
+        out[(h, h_prev)] = (d, cells)
+    cache[key] = out
+    return out
+
+
+def _ts_cut(out: dict, keep: int | None) -> dict:
+    """★ t19：Pareto 截断 —— 只保留代价最小的前 `keep` 个到达状态（`None` = 不截断）。
+
+    ⚠️ 这是**启发式**（不保证与不截断时同解），因此只在"实测前沿本来就 ≤ keep"的图上
+    才是恒等变换。本图的实测前沿见 `TS_PARETO_KEEP` 的注释。
+    """
+    if keep is None or keep <= 0 or len(out) <= keep:
+        return out
+    return dict(sorted(out.items(), key=lambda kv: kv[1][0])[:keep])
+
+
+def _ts_phase(ts: _TSGrid, cache: dict, order: Sequence[tuple[int, int]],
+              cur: tuple[int, int], hpair: tuple, last: tuple[int, int],
+              deadline: float, *, keep: int | None = TS_PARETO_KEEP) -> list[tuple[float, list, tuple]]:
+    """分阶段顺序 DP：从 `cur`（进入朝向 `hpair`）访问 `order` 全部，最后到 `last`。
+
+    ★ t19 两处**不改产物**的提速（各自都有 A/B 证据，见 `_tmp_session/t19/`）：
+
+    ① **记忆键去掉 `h_prev`**（`key = (mask, node, hp[0])`）。
+       为什么精确等价：本 DP 往下的每一次 `_ts_leg(ts, node, target, h, cache)` 只读
+       `h = hp[0]`，`h_prev` 在 `_ts_leg` 里被置成 `None`（腿的第一步不判"紧凑 U"），
+       所以 `(mask, node, (h, hp1))` 与 `(mask, node, (h, hp2))` 的子问题**逐位相同**。
+       旧写法把它们当两个键各算一遍 ⇒ 同一棵子树最多重复 4 次（实测 1.09~1.25×）。
+       ⚠️ 返回字典的**键**仍是 `(h, h_prev)`（来自 `_ts_leg` 的到达状态）—— 那是上层
+       挑选用的粒度，未改动，故父层拿到的键集合、迭代顺序、代价全部不变。
+    ② **每个子问题只留前 `keep` 个到达状态**（Pareto 截断，`keep=None` 关闭）。
+       本图上到达前沿 max=2（16 次调用：前沿 1 出现 8 次、2 出现 8 次）⇒ **恒不触发**；
+       它的作用是给"到达状态更多"的图兜一个上限（见 `TS_PARETO_KEEP`）。
+    """
+    full = (1 << len(order)) - 1
+    memo: dict = {}
+
+    def go(mask: int, node: tuple[int, int], hp: tuple) -> dict:
+        key = (mask, node, hp[0])
+        hit = memo.get(key)
+        if hit is not None:
+            return hit
+        h = hp[0]
+        if mask == full:
+            out = {hp2: (c, cells)
+                   for hp2, (c, cells) in _ts_leg(ts, node, last, h, cache).items()}
+            memo[key] = _ts_cut(out, keep)
+            return memo[key]
+        out = {}
+        for j, target in enumerate(order):
+            if mask & (1 << j):
+                continue
+            if time.perf_counter() > deadline:
+                raise PlannerError("tracker-safe 规划超时（顺序搜索阶段）")
+            for hp2, (c, cells) in _ts_leg(ts, node, target, h, cache).items():
+                for hp3, (c2, cells2) in go(mask | (1 << j), target, hp2).items():
+                    tot = c + c2
+                    if hp3 not in out or tot < out[hp3][0] - 1e-12:
+                        out[hp3] = (tot, cells + cells2)
+        memo[key] = _ts_cut(out, keep)
+        return memo[key]
+
+    res = go(0, cur, hpair)
+    return sorted(((c, cells, hp) for hp, (c, cells) in res.items()), key=lambda t: t[0])
+
+
+def _ts_search_multi(ts: _TSGrid, spec: MapSpec, *,
+                     cross_lower_cell: tuple[int, int],
+                     cross_upper_cell: tuple[int, int],
+                     shoot_cells: Sequence[tuple[int, int]],
+                     phase_cell: tuple[int, int], start_heading: int,
+                     deadline: float, collect: int = 24,
+                     keep: int | None = TS_PARETO_KEEP,
+                     ) -> dict[tuple[int, int], list[tuple[float, list, int]]]:
+    """★ t19：**多候选共享**的两阶段顺序搜索 —— `{射击点格: [(cost, cells, 紧凑U个数), …]}`。
+
+    与 t7 版"**逐候选各跑一遍 `_ts_search`**"的差别只有一处：把**候选无关**的部分
+    （`legs0`：起点→下半场穿洞格；下半场 `_ts_phase`）提到候选循环外**只算一次**，
+    候选循环里只剩"上半场 DP（雷 + 该候选射击点）→ 上半场穿洞格 → 终点"。
+
+    * 为什么这样改：射击停站只改变**上半场 DP 的最后一个必访点**，其它一切与候选无关；
+      t7 的实现把 4 个候选的完整搜索各跑一遍（settled 累加 470118），其中约 3/4 是纯重复。
+      A/B：现役图 1412 ms → 581 ms（**2.43×**），**逐候选产物逐 token 相同**。
+    * ★ 为什么不按"取第一个可行候选即停"来省：实测候选代价 = F4 **24.95** / D4 = D5 25.85 /
+      F5 28.15，而 `full_cover` 顺序的第一个是 D4 ⇒ 提前停在第一个可行解会把产物换成
+      D4 那条（+0.90 m、62→64 格），违反本卡"产物逐 token 不变"的硬门禁。
+      证据：`_tmp_session/t19/probe.py` 的逐候选表。
+    * 迭代顺序与 t7 版**逐层相同**（legs0 顺序 → 下半场结果按代价序 → 上半场结果按代价序），
+      因此 `out` 的插入顺序、`sort` 的稳定性、以及最终 `collect` 截断都一致。
+    """
+    start, end = _cell(spec.start), _cell(spec.end)
+    lower = [_cell(m) for m in spec.mines if _cell(m)[0] >= spec.barrier_row_lo]
+    upper = [_cell(m) for m in spec.mines if _cell(m)[0] <= spec.barrier_row_hi]
+    cache: dict = {}
+    # ★ 卡 t13：起点朝向 = **设计常量**（车头 +y），不再是"从起点指向下半场穿洞格的方向"
+    #   —— 旧写法 `_ts_unit((cross_lower - start))` 在斜向时给出的是 (1,-3) 这类**斜向量**，
+    #   当朝向用等于给车一个 ~108° 的虚拟车头（实测它让"起步先向南 90° 掉头"比直行更便宜）。
+    #   同时禁止起点转向：第一步必须沿设计朝向直行（见 `_ts_leg(first_dir=…)`）。
+    h0 = DIRS[start_heading]
+    legs0 = _ts_leg(ts, start, cross_lower_cell, h0, cache, first_dir=h0)
+    if not legs0:
+        return {sc: [] for sc in shoot_cells}
+    # ---- 候选无关：下半场（穿洞格 → phase，必访下半场雷）只算一次 ----
+    #   ★ 去重键用 `hp[0]`（**进入朝向**）：本 DP 只读 `hpair[0]`（`h_prev` 不参与，见
+    #     `_ts_phase` 的说明）⇒ 起点那一段若有多个到达状态而进入朝向相同，DP 结果是同一份。
+    #     实测现役图 `legs0` 的两个到达状态进入朝向都是 `(0,-1)`，旧实现把同一份 DP 算了两遍。
+    lower_res: dict = {}
+    for hp in legs0:
+        if hp[0] not in lower_res:
+            lower_res[hp[0]] = _ts_phase(ts, cache, lower, cross_lower_cell,
+                                         (hp[0], None), phase_cell, deadline, keep=keep)
+    results: dict[tuple[int, int], list[tuple[float, list, int]]] = {}
+    for shoot_cell in shoot_cells:
+        out: list[tuple[float, list, int]] = []
+        order_upper = list(upper) + [shoot_cell]
+        #   ★ 同一个下半场到达状态 `hpA` 可能从多个 `legs0` 桶里出现（现役图：同一 hpA
+        #     出现 2 次）—— 旧实现逐次重算整棵上半场 DP。这里按 `hpA` 复用：`_ts_phase`
+        #     是纯函数（同样的 order/cur/hpair/last + 同一份 `cache` ⇒ 逐位相同结果），
+        #     复用不改变任何代价、路径与迭代顺序。
+        upper_res: dict = {}
+        for hp, (c0, cells0) in legs0.items():
+            for costA, pathA, hpA in lower_res[hp[0]]:
+                hit = upper_res.get(hpA)
+                if hit is None:
+                    hit = upper_res[hpA] = _ts_phase(ts, cache, order_upper, phase_cell,
+                                                     hpA, cross_upper_cell, deadline,
+                                                     keep=keep)
+                for costB, pathB, hpB in hit:
+                    for _hp2, (c1, cells2) in _ts_leg(ts, cross_upper_cell, end, hpB[0],
+                                                      cache).items():
+                        full = [start] + cells0 + pathA + pathB + cells2
+                        bad = len(_ts_tight_reversals(full))
+                        out.append((c0 + costA + costB + c1, full, bad))
+        out.sort(key=lambda t: t[0])
+        results[shoot_cell] = out[:collect]
+    return results
+
+
+def _ts_search(ts: _TSGrid, spec: MapSpec, *, cross_lower_cell: tuple[int, int],
+               cross_upper_cell: tuple[int, int], shoot_cell: tuple[int, int],
+               phase_cell: tuple[int, int], start_heading: int,
+               deadline: float, collect: int = 24) -> list[tuple[float, list, int]]:
+    """单候选包装（保留 t7 的调用形态；内部走 t19 的多候选实现）。"""
+    return _ts_search_multi(ts, spec, cross_lower_cell=cross_lower_cell,
+                            cross_upper_cell=cross_upper_cell,
+                            shoot_cells=[shoot_cell], phase_cell=phase_cell,
+                            start_heading=start_heading, deadline=deadline,
+                            collect=collect)[shoot_cell]
+
+
+def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
+                            cross_lower: str | None = None,
+                            cross_upper: str | None = None,
+                            phase_cell: str = TS_PHASE_CELL,
+                            turned_mines: Sequence[str] = TS_TURNED_MINES,
+                            turn_w: float = TS_TURN_W,
+                            max_seconds: float = TS_MAX_SECONDS,
+                            name: str = "planner-tracker-safe",
+                            source: str = "") -> PlanResult:
+    """★★ t7：**tracker-safe 引擎** —— 生成"真车能跟踪"的最短路线（自动追平手工 62 点）。
+
+    与 `plan_route()` 的差别只有一处**策略**：本引擎把"真车能不能跟住这条折线"当成
+    硬约束（禁 180°/禁紧凑 U/雷穿心），代价只由"实走长度 + 转角重量"决定；
+    旧引擎则用"原地转向 + 软惩罚"绕开死角，代价里掺了大量绕远惩罚 ⇒ 输出的路线
+    更长、且带 `:PIVOT`（仿真不建模）。
+
+    :param phase_cell: 两半场之间的过渡航点（默认 `C6`，与现场手工路线同点）。
+    :param turned_mines: 允许 90° 拐过的"口袋雷"（正交移动集下无法直线穿心的那些）。
+    :param turn_w: 转角权重（米/90°）。
+    :return: `PlanResult`（字段与 `plan_route` 同构；`allow_reverse=False`、
+        `pivots` 恒为空 —— 本引擎不产生折返）
+    :raises PlannerError: 无解 / 超时
+    """
+    t0 = time.perf_counter()
+    spec = map_cfg if isinstance(map_cfg, MapSpec) else load_map(map_cfg, source=source)
+    limits = _limits(cfg)
+    deadline = t0 + max(0.05, float(max_seconds))
+    phys = _phys_params(cfg)
+    start_cell, end_cell = _cell(spec.start), _cell(spec.end)
+
+    lower_pool, upper_pool = _cross_pools(cfg, spec)
+    lower_cross = (cross_lower or _default_cross(cfg, lower_pool, "lower")).strip().upper()
+    upper_cross = (cross_upper or _default_cross(cfg, upper_pool, "upper")).strip().upper()
+    for cell_name, pool, half in ((lower_cross, lower_pool, "下半场"),
+                                  (upper_cross, upper_pool, "上半场")):
+        if cell_name not in pool:
+            raise PlannerError(f"{half}穿洞格 {cell_name} 不在候选集合（{' '.join(pool)}）里")
+        if geo.block_to_index(cell_name)[1] != _CROSS_COL:
+            raise PlannerError(f"穿洞格 {cell_name} 不在 {V.CROSS_COLUMN} 列上")
+    cross_lower_cell, cross_upper_cell = _cell(lower_cross), _cell(upper_cross)
+    if cross_lower_cell == cross_upper_cell:
+        raise PlannerError(f"下半场与上半场选了同一个桥洞 {lower_cross}（必须各穿一次）")
+    phase = _cell(phase_cell) if isinstance(phase_cell, str) else tuple(phase_cell)
+
+    grid = Grid(spec, bridge_rows=(cross_lower_cell[0], cross_upper_cell[0]),
+                allow_reverse=False)
+    ts = _TSGrid(spec=spec, grid=grid, phys=phys, turn_w=turn_w,
+                 turned_mines=tuple(turned_mines))
+
+    # ---------------- 起点朝向 = 设计常量（卡 t13） ----------------
+    #   与 `plan_route` 同源：车摆在起点格、车头恒定 +y（图左 / K 列方向），
+    #   摆位由现场用户保证 ⇒ 不读 `mission.reset`、不校验、不生成转向消解。
+    start_heading = START_HEADING
+
+    # ---------------- 射击停站候选（必须覆盖**全部**靶格） ----------------
+    pool = shoot_candidates(spec, grid, limits)
+    cover = covering_stops(spec, pool, limits)
+    full_cover = [b for b in pool if len(cover.get(b, ())) == len(spec.targets)]
+    if spec.targets and not full_cover:
+        raise PlannerError(f"没有任何射击点能覆盖全部靶格 {spec.targets}（候选 {pool}）")
+    shots = full_cover or [""]
+
+    # ---------------- 逐候选搜索（★ t19：共享候选无关部分；语义仍是"取代价最小者"）----
+    #   为什么不能"取第一个可行候选即停"：实测候选代价 F4=24.95 / D4=D5=25.85 / F5=28.15，
+    #   而 full_cover 的第一个是 D4 ⇒ 提前停会把产物换成 D4（+0.90 m、62→64 格）。
+    #   见 `_ts_search_multi()` 的说明与 `_tmp_session/t19/probe.py` 的逐候选表。
+    shoot_cells = [_cell(s) if s else cross_upper_cell for s in shots]
+    searched = _ts_search_multi(ts, spec, cross_lower_cell=cross_lower_cell,
+                                cross_upper_cell=cross_upper_cell,
+                                shoot_cells=shoot_cells, phase_cell=phase,
+                                start_heading=start_heading, deadline=deadline)
+    best: tuple[float, list, int, str] | None = None
+    for shoot, shoot_cell in zip(shots, shoot_cells):
+        cands = searched.get(shoot_cell, [])
+        clean = [c for c in cands if c[2] == 0]
+        pick = clean[0] if clean else (cands[0] if cands else None)
+        if pick is None:
+            continue
+        cost, cells, _bad = pick
+        if best is None or cost < best[0] - 1e-12:
+            best = (cost, cells, _bad, shoot)
+    if best is None:
+        raise PlannerError("tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）")
+    cost, cells, n_bad_u, shoot = best
+    warnings: list[str] = []
+
+    # ---------------- 编译成航点 / Route ----------------
+    stops: list[_Stop] = []
+    for row, col in cells:
+        blk = geo.index_to_block(row - 1, col)
+        tag = ("start" if (row, col) == start_cell else
+               "end" if (row, col) == end_cell else
+               "mine" if blk in set(spec.mines) else
+               "lower_bridge" if (row, col) == cross_lower_cell else
+               "upper_bridge" if (row, col) == cross_upper_cell else
+               "shoot" if blk == shoot else "path")
+        stops.append(_Stop(row, col, blk, shoot=(blk == shoot), tag=tag))
+    stops[0].heading = start_heading
+    _refresh_headings(stops)
+    marked = mark_pivots(stops)
+    if marked:
+        raise PlannerError("tracker-safe 引擎内部错误：路线里出现了折返点 "
+                           + " ".join(b for _i, b, _d in marked))
+    route = _to_route(stops, name=name,
+                      crossing={"lower": lower_cross, "upper": upper_cross},
+                      final_heading=_final_heading(stops))
+    problems = check_route_structure(route, spec, grid, limits)
+    if problems:
+        raise PlannerError("tracker-safe 结果未通过结构自检：\n  - " + "\n  - ".join(problems))
+    assert_legal_no_reverse(route)
+
+    mine_runs = _mine_aligned_runs(stops, spec)
+    mine_axes = tuple((m, -1, run >= 2) for m, run in mine_runs)
+    short = [(b, r) for b, r in mine_runs if r < 2]
+    if short:
+        warnings.append("雷心压过风险：%s（进点前共线不足 2 格）" %
+                        " ".join("%s=%d" % (b, r) for b, r in short))
+    if n_bad_u:
+        warnings.append("仍有 %d 处紧凑 U 形折返（已被搜遍仍无法避开）" % n_bad_u)
+    if shoot:
+        warnings.append("射击停站由『覆盖全部靶格』精确筛出：%s" % shoot)
+
+    tokens = route_tokens(route)
+    shoot_at = next((wp.block for _i, wp in route.shoot_points()), "")
+    shoot_dist = 0.0
+    shoot_targets: tuple[str, ...] = ()
+    if shoot_at:
+        acc_lo, acc_hi = accept_window(limits)
+        pairs = sorted((stop_distance_m(shoot_at, t), t) for t in spec.targets)
+        in_window = [(d, t) for d, t in pairs if acc_lo - 1e-9 <= d <= acc_hi + 1e-9]
+        shoot_dist, _ = in_window[0] if in_window else pairs[0]
+        shoot_targets = tuple(t for d, t in in_window if abs(d - shoot_dist) < 1e-6)
+    polyline = sum(math.hypot(route.waypoints[i + 1].x - route.waypoints[i].x,
+                              route.waypoints[i + 1].y - route.waypoints[i].y)
+                   for i in range(len(route.waypoints) - 1))
+    return PlanResult(
+        route=route, tokens=tokens, stops=tuple(stops),
+        crossing={"lower": lower_cross, "upper": upper_cross},
+        shoot_stop=shoot_at, shoot_distance_m=float(shoot_dist),
+        shoot_targets=shoot_targets, cost=float(cost), expanded=int(ts.settled),
+        elapsed_ms=(time.perf_counter() - t0) * 1000.0, reverse_segments=0,
+        warnings=tuple(warnings), map_name=spec.name, map_source=spec.source,
+        start=spec.start, end=spec.end, polyline_m=polyline,
+        start_heading=HEAD_NAMES[start_heading], allow_reverse=False, pivots=(),
+        pivot_penalty=0.0, mine_turn_penalty=float(ts.mine_turn_penalty_m),
+        mine_axes=mine_axes, mine_runs=tuple(mine_runs), tour_cost=float(cost))

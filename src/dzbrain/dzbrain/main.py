@@ -37,6 +37,57 @@ from .core.task import TaskGroup, TaskState, TaskThread
 
 LOG = print
 
+#: 显式接管的退出信号。**SIGTERM 必须自己接**（t8 / t6 取证报告 §2）：
+#: 车端 rclpy 默认 `SignalHandlerOptions.ALL` 会在 C++ 层接走 SIGTERM，
+#: 它只做 `rcl_shutdown`（上下文失效）—— **不抛异常、不退进程** ⇒ 上下文死、任务线程活、
+#: RCLError 刷屏（2026-10-11 16:18 收栈就是这么变成"假崩溃"的）。
+_STOP_SIGNALS = ("SIGINT", "SIGTERM")
+
+
+def install_stop_signals(stop_flag: dict, log: Callable[[str], None] = LOG) -> list[str]:
+    """显式接管 SIGINT/SIGTERM：**只置停机标志 + 留痕**，不做任何 rclpy 调用。
+
+    为什么只置位：信号处理器在解释器主线程里"异步"跑，任何非异步信号安全的动作
+    （发 ROS 指令、拿锁、print 到半截）都可能死锁或重入。真正的收尾由主循环退出后
+    的 `finally` 做（`group.stop_all` → `bridge.shutdown` → `finish_report`）。
+
+    返回实际装上的信号名（测试断言用）。
+    """
+    installed: list[str] = []
+    for name in _STOP_SIGNALS:
+        signum = getattr(signal, name, None)
+        if signum is None:                       # 平台没有这个信号（Windows 上很少见）
+            continue
+
+        def _handler(_signum, _frame, _name=name):
+            # ★ 处理器内**只写字典**：不 print、不拿锁、不碰 ROS —— 这是信号上下文，
+            #   print 的缓冲锁可能正被主线程持有（收栈时尤其容易），会死锁。
+            #   留痕由主循环醒来后打印（见 `_live_loop` / `run_bench`）。
+            stop_flag["stop"] = True
+            stop_flag["signal"] = _name
+        try:
+            signal.signal(signum, _handler)
+        except (ValueError, OSError):            # 非主线程 / 平台不支持
+            continue
+        installed.append(name)
+    return installed
+
+
+def ros_context_alive() -> bool:
+    """ROS 上下文是否还活着（`rclpy.ok()`）；无 ROS 环境（bench/单测）恒判 True。
+
+    ★ 主循环每拍调它：上下文被**任何来源**销毁（SIGTERM 的 rcl_shutdown、别的
+      executor 退出、守护进程收栈）都必须 ≤1 拍退出，而不是让线程继续打 RCLError。
+    """
+    try:
+        import rclpy
+    except Exception:
+        return True                              # 没有 rclpy = 没有上下文可失（bench）
+    try:
+        return bool(rclpy.ok())
+    except Exception:
+        return True                              # 判活本身出错时不误杀正常流程
+
 
 def default_config_path() -> str:
     """默认配置：车上用 ~/dzrobot/config/robot.yaml；开发机上退回工作区的 config/robot.yaml。"""
@@ -229,6 +280,7 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
             if out.ok:
                 cfg.override("route.tokens", list(out.tokens))
                 log(f"bench：自动规划路线 {len(out.tokens)} token / {out.elapsed_ms:.1f} ms "
+                    f"引擎 {out.engine}"
                     f"（已同步给虚拟小车，保证统计口径一致）")
             else:
                 log(f"bench：自动规划失败（{out.error}）→ 按 route.tokens（{len(cfg.get('route.tokens') or [])} 点）")
@@ -250,11 +302,10 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
     for s in skipped:
         log(f"  (跳过未实现的任务) {s}")
 
-    stop_flag = {"stop": False}
-
-    def _sigint(_signum, _frame):
-        stop_flag["stop"] = True
-    signal.signal(signal.SIGINT, _sigint)
+    stop_flag: dict = {"stop": False, "signal": None}
+    # ★ 与上车运行用同一套信号接管（t8）：bench 只接了 SIGINT，且处理器里直接 print
+    #   —— 漏了 SIGTERM，也让"留痕"发生在信号上下文里（见 install_stop_signals 注释）。
+    install_stop_signals(stop_flag, log)
 
     start_banner(cfg, group)
     group.start_all()
@@ -327,6 +378,8 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
             time.sleep(0.1)
     finally:
         stop_flag["stop"] = True
+        if stop_flag.get("signal"):
+            log(f"收到信号 {stop_flag['signal']}：bench 收尾（信号处理器只置位，留痕在主循环外）")
         if car_thread:
             car_thread.join(timeout=1.0)
         stuck = group.stop_all(timeout=2.0)
@@ -364,14 +417,20 @@ def run_plan_only(cfg: Config, *, map_path: str | None = None,
     if not out.ok:
         banner([f"静态规划失败（--plan-only）：{out.error}",
                 f"地图: {out.map_path}",
+                f"引擎: {out.engine}（planner.engine）",
                 f"模式: {out.mode}（planner.allow_reverse={out.allow_reverse}）"], char="!", log=log)
         return 1
     banner([
         "静态规划结果（--plan-only：未起线程、未发指令、未连 ROS）",
         f"地图: {out.map_path}",
+        f"引擎: {out.engine}（planner.engine）",
+        f"门禁: {'✅通过' if out.gate_ok else '❌未过'} —— {out.gate_detail}",
         f"模式: {out.mode}（planner.allow_reverse={out.allow_reverse}）",
         f"token 数: {len(out.tokens)} / 折线 {out.route_len_m:.2f} m / 倒车段 {out.reverse_segments}",
         f"A* 代价: {out.cost:.2f}",
+        # ★ 卡 t11：参考点偏移感知的足迹诊断（现场卷尺实测 offset 下的挡板/障碍/靶板余量）
+        (f"足迹: {'✅' if out.footprint_ok else '⚠️'} {out.footprint}"
+         if out.footprint else "足迹: 未诊断"),
     ], log=log)
     log(f"token 列表（{len(out.tokens)}）：" + " ".join(out.tokens))
     log(f"规划耗时：{out.elapsed_ms:.1f} ms")
@@ -381,7 +440,38 @@ def run_plan_only(cfg: Config, *, map_path: str | None = None,
 # --------------------------------------------------------------------------- #
 #  正常上车运行
 # --------------------------------------------------------------------------- #
-def run_live(cfg: Config, *, log: Callable[[str], None] = LOG) -> int:
+def _live_loop(stop_flag: dict, *, bb: Blackboard, alive: Callable[[], bool] = ros_context_alive,
+               log: Callable[[str], None] = LOG, poll_s: float = 0.2,
+               finish_wait_s: float = 2.0) -> str:
+    """上车运行的主循环：返回退出原因 `stop` / `context_dead` / `finish`。
+
+    ★ 三条退出路径缺一不可（t8）：
+      1. `stop_flag` —— 显式信号（SIGINT/SIGTERM）置位；
+      2. **上下文失效** —— `alive()` 为假时 ≤1 拍退出（poll_s=0.2 s 一拍）。
+         这是本次 P0：旧循环只看 stop_flag/FINISH，SIGTERM 把 rclpy 上下文
+         在 C++ 层关掉后它**永远不退出**，8 个线程继续按 50/20/10 Hz 打 RCLError
+         （实测约 100 行/s、持续到被 SIGKILL）。判活必须每拍做，因为上下文
+         可能被**任何来源**销毁（不只是我们的 shutdown 路径）。
+      3. FINISH —— 正常跑完。
+    """
+    while not stop_flag["stop"]:
+        if not alive():
+            log("‼️ ROS 上下文已失效（rclpy.ok()=False）→ 立即停止主循环、准备收尾"
+                "（不再空转刷 RCLError）")
+            return "context_dead"
+        time.sleep(poll_s)
+        if bb.get("mission_phase") == "FINISH":
+            log(f"任务已到终点，等待 {finish_wait_s:g}s 后退出…")
+            time.sleep(finish_wait_s)
+            return "finish"
+    sig = stop_flag.get("signal")
+    log(f"收到信号 {sig}：开始安全收尾（刹车 → 停线程 → 退出报告）" if sig
+        else "收到停机请求：开始安全收尾（刹车 → 停线程 → 退出报告）")
+    return "stop"
+
+
+def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
+             alive: Callable[[], bool] = ros_context_alive) -> int:
     from .io.ros_io import RosBridge          # 只在真跑时导入（无 ROS 的机器 import 会失败但惰性）
     from .io import contract as ct
 
@@ -391,12 +481,10 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG) -> int:
     for s in skipped:
         log(f"  (跳过未实现的任务) {s}")
 
-    stop_flag = {"stop": False}
-
-    def _sigint(_signum, _frame):
-        stop_flag["stop"] = True
-        log("收到 Ctrl-C，准备安全退出…")
-    signal.signal(signal.SIGINT, _sigint)
+    stop_flag: dict = {"stop": False, "signal": None}
+    installed = install_stop_signals(stop_flag, log)
+    log(f"信号接管：{'/'.join(installed) or '无'} → 只置停机标志；"
+        f"ROS 上下文判活 = rclpy.ok()（默认信号处理已在 RosBridge 里关闭）")
 
     start_banner(cfg, group)
     log("ROS 契约：" + " | ".join(f"{k}={ct.topic(k).name}" for k in
@@ -405,22 +493,25 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG) -> int:
     bridge.spin_async(threads=4)
     group.start_all()
     t0 = time.time()
+    rc = 0
 
     # 安全兜底：任务组出现 FAULT 时，Safety 会刹；这里只做退出条件判断
     try:
-        while not stop_flag["stop"]:
-            time.sleep(0.2)
-            if bb.get("mission_phase") == "FINISH":
-                log("任务已到终点，等待 2s 后退出…")
-                time.sleep(2.0)
-                break
+        why = _live_loop(stop_flag, bb=bb, alive=alive, log=log)
+        # ★ teardown 留痕（t6 指出收栈时**一条都没有**，事后无法判断是正常收尾还是被打死）
+        log(f"退出原因 = {why}（运行 {time.time() - t0:.1f}s；"
+            f"信号={stop_flag.get('signal')}；rclpy.ok()={alive()}）")
+        if why == "context_dead":
+            rc = 1
     finally:
         stuck = group.stop_all(timeout=2.0)
         if stuck:
             log(f"⚠️ 未按时退出的任务: {stuck}")
-        bridge.shutdown(brake=True)           # ★ 退出必刹车
+        shutdown_rc = bridge.shutdown(brake=True)      # ★ 退出必刹车（上下文已死则跳过）
+        log(f"收尾：ros 上下文{'已失效' if shutdown_rc else '正常'}，"
+            f"刹车已尝试={'否' if shutdown_rc else '是'}，任务线程已停")
         finish_report(bb, group, bus, elapsed=time.time() - t0)
-    return 0
+    return rc
 
 
 # --------------------------------------------------------------------------- #

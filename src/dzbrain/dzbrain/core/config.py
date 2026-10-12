@@ -77,6 +77,12 @@ SCHEMA: dict[str, Spec] = {
                                      "横向加速度上限（曲率限速 v=sqrt(a/|κ|)）"),
     "pursuit.min_speed_mps": Spec(0.08, _F, "m/s", 0.01, 0.30, "最低前进速度（蠕动）"),
     "pursuit.cruise_speed_mps": Spec(0.15, _F, "m/s", 0.02, 0.60, "巡航速度"),
+    # ★t38：速度剖面第 5 层「加减速斜坡」的两键（真源 = t30 `pursuit/controller.py:speed_profile()`）
+    #   `default=0.0` 是**硬要求**：缺省即"整层不参与" ⇒ 与旧版逐位一致（回归安全）。
+    "pursuit.accel_up_mps2": Spec(0.0, _F, "m/s²", 0.0, 3.0,
+                                  "★升速上限（每拍速度增量 ≤ 该值×dt）；0=不启用斜坡"),
+    "pursuit.accel_down_mps2": Spec(0.0, _F, "m/s²", 0.0, 3.0,
+                                    "★降速上限（每拍速度降幅 ≤ 该值×dt）；0=不启用斜坡"),
     # ---------------- ★PIVOT 原地转向（并入 10-05 核心的已验证修复）----------------
     #  为什么需要：纯追踪在**大角度换向**（现场图 F11 那个 180° 折返）时会画一条大弧，
     #  仿真实测该处横向偏差 0.37~0.41 m，而那里正是**压雷段**（E11/F8 是雷）——
@@ -189,6 +195,14 @@ SCHEMA: dict[str, Spec] = {
                             "车体宽（现场实测 0.135；扫掠/挡板判据都用它的一半）"),
     "vehicle.coverage_radius_m": Spec(0.035, _F, "m", 0.005, 0.20,
                                       "★车心假设圆半径（压雷判据：车心到垫片 ≤ 此值算压到）"),
+    # ★★ 卡 t11：参考点偏移（现场卷尺实测 2026-10-11）
+    #   后轴中心→车尾沿 6.5 cm、后轴中心→车头沿 21.5 cm、总长 28 cm
+    #   ⇒ 车体几何中心在参考点（= 里程计/仿真积分点 = 后轴中心）**前方 (21.5−6.5)/2 = +7.5 cm**。
+    #   正值 = 车体中心在参考点前方；0.0 = 老假设（中心与参考点重合，**与实测矛盾**）。
+    #   消费者：`route/physics.py` 的 `body_corners()/body_*_clearance_m()`（净空唯一真源）、
+    #   `tasks/mission.py` 的规划门禁足迹诊断、离线足迹链（t5lib）。
+    "vehicle.ref_offset_m": Spec(0.075, _F, "m", -0.30, 0.30,
+                                 "参考点(后轴中心)→车体几何中心的纵向偏移（正=中心在参考点前方）"),
     "field.obstacle_radius_m": Spec(0.1275, _F, "m", 0.01, 0.50,
                                     "障碍圆柱半径（柱心在障碍格格心）"),
     "field.mine_pad_m": Spec(0.12, _F, "m", 0.02, 0.35,
@@ -206,8 +220,16 @@ SCHEMA: dict[str, Spec] = {
                                          None, None, "下半场穿洞候选格（U 形赛道第一处）"),
     "route.cross_upper_candidates": Spec([f"K{r}" for r in range(1, 7)], list, "",
                                          None, None, "上半场穿洞候选格（U 形赛道第二处）"),
-    "route.cross_lower_default": Spec("K9", _S, "", None, None, "未收到无人机情报时的兜底穿洞格"),
-    "route.cross_upper_default": Spec("K4", _S, "", None, None, "未收到无人机情报时的兜底穿洞格"),
+    # ★ t17 收口 / t20 复查（t14-F3 指的就是本条旧表述）：**现缺省值 = K10(下) / K5(上)**，
+    #   即现役第五张图真值，与 `config/robot.yaml:520-521` 逐字一致。
+    #   历史值 K9/K4 属**第四张图**，本文件里已不存在（只留这句历史说明）：
+    #   留着旧值只会让"yaml 漏键"这条路径静默退回失效的洞，并让 `validate()` 因
+    #   default ∉ candidates（现役候选 `["K10"]`/`["K5"]`）多报一条 warn。
+    #   本次**只改兜底值**：`validate()` 一致性断言逻辑、候选集合宽口径缺省（K7~K11 / K1~K6）均未改。
+    "route.cross_lower_default": Spec("K10", _S, "", None, None,
+                                      "未收到无人机情报时的兜底穿洞格（第五张图下半场 = K10）"),
+    "route.cross_upper_default": Spec("K5", _S, "", None, None,
+                                      "未收到无人机情报时的兜底穿洞格（第五张图上半场 = K5）"),
     "mission.auto_start": Spec(True, _B, "", None, None, "起栈后自动出发"),
     "mission.auto_start_delay_s": Spec(10.0, _F, "s", 0.0, 120.0, "出发前初始化等待"),
     "mission.reset": Spec("N10,y", _S, "", None, None, "起步复位（格,航向）"),
@@ -284,6 +306,20 @@ SCHEMA: dict[str, Spec] = {
     "aim.rescan_on_lost": Spec(False, _B, "", None, None, "丢靶超阈值时是否发回扫请求"),
     "aim.reset_confirm_frames": Spec(5, _I, "帧", 1, 60, "估计器重置确认帧数（warmup 闭锁拍数）"),
     "aim.vision_nominal_fps": Spec(30.0, _F, "fps", 1.0, 120.0, "视觉名义帧率（丢帧计数换算）"),
+    # ---- ★ 卡 t24：云台扫描单写者 / 巡迹锁止（t13 的四把键，此前只在 AimTask 里读默认值）----
+    "aim.gimbal_lock_enabled": Spec(True, _B, "", None, None,
+                                    "★云台扫描**单写者**开关：true（默认）= 只有 AimTask 写 "
+                                    "/nav/scan_request（巡迹段 0 锁止、最佳射击点停站 2 起转、"
+                                    "离开/FINISH 回 0），MissionTask 一个值都不发；"
+                                    "false = 旧行为（Mission 按 mission.scan_mode 下发）"),
+    "aim.gimbal_lock_scan_request": Spec(0, _I, "", 0, 2,
+                                         "锁止态下发的 scan_request 值（0=停扫；车端 C++ 收到 0 "
+                                         "进 AIM_IDLE 并每帧归位到车头正前）"),
+    "aim.gimbal_seek_scan_request": Spec(2, _I, "", 0, 2,
+                                         "起转寻靶下发的 scan_request 值（2=持续扫描；"
+                                         "绝不发 1，会被降级成单趟）"),
+    "aim.gimbal_seek_on_shoot_stop_only": Spec(True, _B, "", None, None,
+                                               "只在 StopKind.SHOOT 停站起转（false 时 SCAN 类停站也可起转）"),
 
     # ---------------- 误差修正（L2：位置） ----
     "fix.anchor_at_waypoint": Spec(True, _B, "", None, None, "到位后把位姿锚回格心"),

@@ -562,6 +562,10 @@ void turn_on_robot::advanceScanIndex()
   if (scan_pass_done_ >= scan_passes_ * pitchLevelCount())
   {
     scan_finished_ = true; // 一轮扫完
+    // ★t25：连续扫描轮数记账 —— 扫满 scan_continuous_cycles_ 轮仍无目标就回 IDLE 归位。
+    //   为什么必须设上限（用户口径）：旧版 scan_continuous_ 无轮数上限 ⇒ 云台会一直往复扫下去，
+    //   在"靶不在视野/已打完"的场合白耗电、白磨损、并让现场误以为"云台在乱转"。
+    ++scan_cycles_done_;
   }
 }
 
@@ -592,6 +596,12 @@ void turn_on_robot::publishAimStatus()
 // 启动一次全向扫描（左一趟 + 右一趟）。
 // continuous=true 时扫完一轮会自动从头再来，直到确认目标
 // —— 用于"行进中持续扫描直到找到目标"。
+//
+// ★★ 卡 t25（用户口径）：**进入扫描前先归位到"正前方 + 水平"**，归位到位（或超时）后才真正开扫。
+//   为什么：旧版 startScan() 直接 applyScanTarget()，即"从当前任意角度直接朝第一个端点扫"——
+//   若上一轮 TRACK 结束时云台指在侧向（甚至 ±150° 端），第一个横扫点会立刻"反向"，
+//   扫描行程与耗时都不可预测。归位段把起点钉在已知姿态（yaw=0、pitch=0）。
+//   归位由**本节点自己**下发（与 IDLE 归位同一套 Position 语义），不依赖外部指令。
 void turn_on_robot::startScan(bool continuous)
 {
   scan_continuous_ = continuous;
@@ -599,17 +609,63 @@ void turn_on_robot::startScan(bool continuous)
   scan_yaw_dir_ = 1;
   scan_pitch_idx_ = 0;
   scan_pass_done_ = 0;
+  scan_cycles_done_ = 0;              // ★t25：新的连续扫描序列，轮数从 0 起
   scan_finished_ = false;
   last_scan_step_time_ = this->now();
-  applyScanTarget(); // 立即下发第一个扫描点
+
+  // ★t25：先归位，不立刻开扫；归位段在 CaremaMontorControl() 里跑（aim_state_ 仍是 IDLE，
+  //   于是 IDLE 分支的"每帧归位"正好就是归位段的执行体，二者共用一套逻辑）。
+  scan_homing_ = true;
+  scan_home_deadline_ = this->now() + rclcpp::Duration::from_seconds(
+      std::max(1, scan_home_timeout_ms_) / 1000.0);
+  std::cout << "==> 进入扫描前先归位（正前方 + 水平），超时 " << scan_home_timeout_ms_
+            << " ms" << std::endl;
+}
+
+// ★t25：归位段的一拍。返回 true = 归位完成（到位或超时），调用方随后 enterScanPhase()。
+// 判据：水平/俯仰反馈刻度与"零位 + 0°"的距离 ≤ scan_arrive_tol_（同"到位"口径）；
+// 超时兜底用 scan_home_timeout_ms_ —— 电机卡住/反馈缺失时也**绝不**卡在归位段。
+bool turn_on_robot::scanHomingStep()
+{
+  if (!scan_homing_)
+  {
+    return false;
+  }
+  const double yaw_home_tick = static_cast<double>(gimbal_center_tick_);
+  const double pitch_home_tick = static_cast<double>(gimbal_center_tick_);
+  const double d_yaw = std::fabs(static_cast<double>(curYuntai_feedback_data.Position_1) - yaw_home_tick);
+  const double d_pitch = std::fabs(static_cast<double>(curYuntai_feedback_data.Position_0) - pitch_home_tick);
+  const bool arrived = (d_yaw <= static_cast<double>(scan_arrive_tol_)) &&
+                       (d_pitch <= static_cast<double>(scan_arrive_tol_));
+  const bool timeout = (this->now() >= scan_home_deadline_);
+  if (arrived || timeout)
+  {
+    std::cout << "==> 归位段结束（" << (arrived ? "已到位" : "超时兜底")
+              << "）：yaw偏差 " << d_yaw << " tick / pitch偏差 " << d_pitch
+              << " tick ⇒ 开始扫描" << std::endl;
+    scan_homing_ = false;
+    return true;
+  }
+  // 尚未到位：本拍仍由 IDLE 归位逻辑下发目标（回正 + 水平），不做别的事
+  return false;
+}
+
+// ★t25：真正进入扫描阶段（下发第一个横扫点并切状态）。
+void turn_on_robot::enterScanPhase()
+{
+  scan_homing_ = false;
+  last_scan_step_time_ = this->now();
+  applyScanTarget(); // 立即下发第一个扫描点（yaw = 端点、pitch = 基准）
   setAimState(AIM_SCAN);
 }
 
 // 扫描请求 /nav/scan_request（UInt8）：
-//   2 及以上 -> 持续扫描：一轮扫完自动重来；锁定后转跟随；目标脱离视野再自动重开
-//   1        -> 单次扫描：扫完两趟就回 IDLE（循迹到达点位时用这个）
+//   2 及以上 -> 持续扫描：一轮扫完自动重来，**最多 scan_continuous_cycles_ 轮**（t25，默认 3），
+//               到达上限仍无目标 ⇒ 回 IDLE 归位；锁定后转跟随；目标脱离视野再自动重开
+//   1        -> 单次扫描：扫完 scan_passes_ 趟就回 IDLE（循迹到达点位时用这个）★t25 语义未变
 //   0        -> 停止扫描，回到 IDLE
 //   已在 AIM_TRACK 时一律忽略，不打断跟随。
+//   ★t25：无论 1 还是 2，**进入扫描前都先走归位段**（正前方 + 水平，超时兜底）。
 void turn_on_robot::callback_scan_request(const std_msgs::msg::UInt8::SharedPtr msg)
 {
   if (aim_state_ == AIM_TRACK)
@@ -671,6 +727,15 @@ void turn_on_robot::CaremaMontorControl()
   //   每帧持续下发是安全的：下位机是位置控制，到位后自然停住，不会抖。
   if (aim_state_ != AIM_SCAN)
   {
+    // ★★ 卡 t25：**进入扫描前的归位段**。
+    //   归位段期间 aim_state_ 仍是 IDLE ⇒ 就靠本分支的"每帧归位"当执行体（目标 yaw=行程中点=0°、
+    //   pitch=基准=0°），与用户要求的"先复位到正前 + 水平"完全一致；归位完成（到位或超时）后
+    //   由 scanHomingStep() 返回 true，这里立刻转进真正的扫描阶段。
+    if (scan_homing_ && scanHomingStep())
+    {
+      enterScanPhase();
+      return;                              // 本拍已切到 SCAN，下一拍起走扫描分支
+    }
     const double yaw_mid_deg = (scan_yaw_min_deg_ + scan_yaw_max_deg_) / 2.0;
     moveBaseControl.Position_1 = clampYawToScan(gimbal_center_tick_ +
         static_cast<int>(std::lround(yaw_mid_deg * yaw_ticks_per_deg_ * yaw_deg_sign_)));
@@ -713,12 +778,22 @@ void turn_on_robot::CaremaMontorControl()
         scan_finished_ = false;
         if (scan_continuous_)
         {
+          // ★t25：连续扫描**轮数上限**（用户口径：最多 3 轮，找不到就回 IDLE 归位，不无限扫）。
+          //   scan_continuous_cycles_ <= 0 表示"不限"（= 旧行为，保留可回退）。
+          if (scan_continuous_cycles_ > 0 && scan_cycles_done_ >= scan_continuous_cycles_)
+          {
+            setAimState(AIM_IDLE);   // 回 IDLE ⇒ 下一拍起由 IDLE 分支每帧归位到正前+水平
+            std::cout << "==> 连续扫描已达上限 " << scan_continuous_cycles_
+                      << " 轮仍无目标 ⇒ 回空闲归位（不再无限扫描）" << std::endl;
+            return;
+          }
           // 持续扫描模式：立刻从头再来一轮，不停下来
           scan_yaw_idx_ = 0;
           scan_yaw_dir_ = 1;
           scan_pitch_idx_ = 0;
           last_scan_step_time_ = this->now();
-          std::cout << "==> 一轮扫描结束未发现目标，继续扫描" << std::endl;
+          std::cout << "==> 一轮扫描结束未发现目标，继续扫描（第 " << (scan_cycles_done_ + 1)
+                    << "/" << scan_continuous_cycles_ << " 轮）" << std::endl;
         }
         else
         {
@@ -963,6 +1038,9 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->declare_parameter("scan_dwell_ms", 300);		  // 每点最短驻留(ms)
   this->declare_parameter("scan_arrive_tol", 30);		  // 到位容差(刻度)
   this->declare_parameter("scan_passes", 2);			  // 全向扫描趟数(1左+1右=2)
+  // ★卡 t25：连续扫描轮数上限（默认 3，用户口径"最多 3 循环"）与进入扫描前的归位超时
+  this->declare_parameter("scan_continuous_cycles", 3);  // 连续扫描最多几轮；<=0 = 不限(旧行为)
+  this->declare_parameter("scan_home_timeout_ms", 1500); // 进扫描前归位段超时(ms)：卡住也要进扫描
   this->declare_parameter("lost_frames_to_rescan", 60);	  // 跟踪中丢帧回扫描阈值
   this->declare_parameter("vision_timeout_ms", 1000);	  // 视觉静默超时(ms)
   this->declare_parameter("ema_alpha", 0.3);			  // 视觉一阶低通滤波系数
@@ -1033,6 +1111,13 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   if (scan_passes_ < 1)
   {
     scan_passes_ = 1; // 至少扫一趟，否则永远扫不完
+  }
+  // ★卡 t25：连续扫描轮数上限 + 进扫描前归位超时（<=0 的轮数 = 不限，保持旧行为可回退）
+  this->get_parameter("scan_continuous_cycles", scan_continuous_cycles_);
+  this->get_parameter("scan_home_timeout_ms", scan_home_timeout_ms_);
+  if (scan_home_timeout_ms_ < 1)
+  {
+    scan_home_timeout_ms_ = 1; // 至少 1ms，避免"0 超时"导致归位段完全不生效
   }
   this->get_parameter("lost_frames_to_rescan", lost_frames_to_rescan_);
   this->get_parameter("vision_timeout_ms", vision_timeout_ms_);
@@ -1158,6 +1243,15 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   RCLCPP_INFO(this->get_logger(),
               "自瞄: 状态机 IDLE/SCAN/TRACK | 点位全向扫描 %d 趟 | 扫描速度 %d | 循迹请求 /nav/scan_request | 状态上报 /aim/status",
               scan_passes_, patrolSpeed());
+
+  // ★卡 t25：扫描升级口径必须在开机横幅里可见（"静默失败"是本项目最大的坑）——
+  //   进扫描先归位 + 连续扫描轮数上限 + 扫描范围/速度。
+  RCLCPP_INFO(this->get_logger(),
+              "扫描(t25): 巡航 %+.0f..%+.0f° 速度比 %.2f (=%d tick/s) 俯仰偏置 %+.1f° | "
+              "进入扫描先归位到正前+水平(超时 %dms) | 连续扫描最多 %d 轮"
+              "(<=0=不限) | 找到目标即转 TRACK",
+              scan_yaw_min_deg_, scan_yaw_max_deg_, patrol_speed_ratio_, patrolSpeed(),
+              scan_pitch_offset_deg_, scan_home_timeout_ms_, scan_continuous_cycles_);
 
   // ★新版本补丁：两键开火 + 提前量（开机横幅必须能一眼看清是否生效 —— "静默失败"是本项目最大的坑）
   RCLCPP_INFO(this->get_logger(),
