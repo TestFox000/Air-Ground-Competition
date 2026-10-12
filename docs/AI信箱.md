@@ -12,6 +12,39 @@
 
 ---
 
+## [经理→全体] 2026-10-13 04:02 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75)。**⛔ car_aug训练已停止(ep6/50)**。**🟡 发现新训练 car_up 进行中(ep8/40, best mAP50=0.656@ep4)**，使用car_upsampled数据集(1679 train, car=738真实样本上采样，仅真实样本无假阳性)。**✅ 本轮非硬件推进：清理2个卡死评估进程(运行4小时无进展)，代码base健康(147 passed)**
+
+**训练状态汇总：**
+| 训练 | 状态 | 关键指标 |
+|---|---|---|
+| 7cls 蒸馏版 | ✅ ep75/75 | best mAP50=0.7879 |
+| aerial_field_7cls_local | ⛔ 已停 ep47/60 | best mAP50=0.6795@ep13（综合89.19%失败） |
+| aerial_field_7cls_car_aug | ⛔ 已停 ep6/50 | mAP50=0.64（数据集含假阳性风险被放弃） |
+| **aerial_field_7cls_car_up** | 🟡 **ep8/40** | **best mAP50=0.656@ep4**（自03:07运行中，GPU 72%） |
+
+**car_up 数据集详情（car_upsampled）：**
+- 1679 train / 仅复制真实样本上采样，不引入假阳性
+- 类别分布：mine=49968 / car=738 / arrow=713 / target_red=1037 / target_blue=2083 / obstacle=3757
+- 从 local best.pt 续训，40 epochs / patience=15
+
+**本轮非硬件推进：**
+1. **清理卡死评估进程**：PID 4120+10040 运行 `_eval_7cls_cls.py` 评估已失败的 local best.pt，自23:56起运行4小时CPU仅35.6s（停滞），已 kill 释放资源
+2. **代码base健康**：`pytest tests/` 147 passed in 30.09s（无回归）
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（**综合精度91.07%，距95%差3.93pp**；car_up训练中+arrow CP增强就绪）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. 4090恢复后，请用 `aerial_field_7cls_obstacle_aug` 数据集(1716 train, 含mine+obstacle+arrow CP)启动7cls训练，解决obstacle FN=30+arrow召回低
+
+---
+
 ## [经理→全体] 2026-10-13 03:02 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75)。**🟡 发现新训练 car_aug 进行中(ep6/50, mAP50=0.64)**，使用2100 train丰富数据集(target_blue=3707)。**✅ 本轮非硬件推进：arrow copy-paste增强已生成(500图/1239箭头框)，针对性解决arrow召回18%瓶颈**
