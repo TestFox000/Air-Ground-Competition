@@ -85,6 +85,69 @@ def test_fire_guard_moving_target():
     assert decide_fire(snap_red, "D9").denied       # 红面可见：友方，全场禁火
 
 
+def test_fire_guard_mixed_targets_risk():
+    """红蓝双邻：停靠格同时正交邻到蓝靶和红靶时拒绝开火（误伤友方风险）。"""
+    blue, red = CellRef(3, 1), CellRef(3, 3)   # D2 蓝敌, D4 红友
+    snap = snapshot_with_targets(blue, red)
+    # D3 同时邻 D2(蓝) 和 D4(红) → 混合风险，禁火
+    d = decide_fire(snap, "D3")
+    assert d.denied
+    assert d.reason == "mixed_targets_risk"
+
+
+def test_fire_guard_reason_codes():
+    """各禁火/允火原因码正确。"""
+    blue, red = CellRef(3, 1), CellRef(7, 9)   # D2 蓝, H10 红
+    snap = snapshot_with_targets(blue, red)
+    assert decide_fire(snap, "D3").reason == "enemy_blue_adjacent"
+    assert decide_fire(snap, "G10").reason == "friendly_red_adjacent"
+    assert decide_fire(snap, "K9").reason == "no_target_adjacent"
+
+
+def test_fire_guard_boundary_cells():
+    """边界/角落格的邻居计算正确，不会越界。"""
+    from ag_integrate.fire_guard import neighbor_names
+    # 角落 A1：只有 B1、A2 两个邻居
+    assert set(neighbor_names("A1")) == {"B1", "A2"}
+    # 角落 N11：只有 M11、N10
+    assert set(neighbor_names("N11")) == {"M11", "N10"}
+    # 顶边中部 F1：E1、G1、F2
+    assert set(neighbor_names("F1")) == {"E1", "G1", "F2"}
+    # 左边中部 A6：A5、A7、B6
+    assert set(neighbor_names("A6")) == {"A5", "A7", "B6"}
+
+
+def test_fire_guard_moving_target_vertical():
+    """垂直轨道移动靶：蓝面朝东/西时仅东/西侧正对端点允许开火。"""
+    from ag_integrate.world_model import TargetRef, WorldSnapshot
+
+    a, b = CellRef(3, 7), CellRef(3, 8)   # D8-D9 垂直轨道，蓝面朝东
+    blue_e = TargetRef(a, True, (a, b), "E")
+    snap_e = WorldSnapshot(0, (), (), (), (blue_e,))
+    assert decide_fire(snap_e, "E8").allowed    # 东侧正对 D8
+    assert decide_fire(snap_e, "E9").allowed    # 东侧正对 D9
+    assert decide_fire(snap_e, "C8").denied     # 西侧（红面侧），禁
+    assert decide_fire(snap_e, "D7").denied     # 顺路端点外，非停靠位
+
+    # 蓝面朝西
+    blue_w = TargetRef(a, True, (a, b), "W")
+    snap_w = WorldSnapshot(0, (), (), (), (blue_w,))
+    assert decide_fire(snap_w, "C8").allowed    # 西侧正对 D8
+    assert decide_fire(snap_w, "E8").denied     # 东侧（红面侧），禁
+
+
+def test_fire_guard_moving_target_north_face():
+    """水平轨道蓝面朝北时，北侧正对端点允许开火，南侧禁。"""
+    from ag_integrate.world_model import TargetRef, WorldSnapshot
+
+    a, b = CellRef(3, 7), CellRef(4, 7)   # D8-E8 水平轨道，蓝面朝北
+    blue = TargetRef(a, True, (a, b), "N")
+    snap = WorldSnapshot(0, (), (), (), (blue,))
+    assert decide_fire(snap, "D7").allowed    # 北侧正对 D8
+    assert decide_fire(snap, "E7").allowed    # 北侧正对 E8
+    assert decide_fire(snap, "D9").denied     # 南侧（红面侧），禁
+
+
 # ---------- 适配器端到端 ----------
 
 def test_adapt_emits_reset_route_and_filters_shoot():
