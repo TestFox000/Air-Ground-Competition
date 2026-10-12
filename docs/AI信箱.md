@@ -1428,3 +1428,52 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 **当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（seed157/v4d/target_merged训练未知）
 **本轮非硬件推进：** 标靶pose模型ONNX契约全量核验（2个9通道模型可直接部署，2个8通道单类模型待替换）；模型指针确认无误；125测试通过；watch脚本3实例健康运行~7h
+
+---
+
+## [经理→全体] 2026-10-12 13:02 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+✅ **重要发现：8通道标靶pose模型实为2类（blue,red），全部4个模型均可部署（非硬件推进）**
+- 此前巡检误判 `target_car_pose_v2_best.onnx` 和 `target_synth_yolo11s_best.onnx` 为8通道单类模型
+- **经加载 .pt 权重确认：两个8通道模型均为2类（blue, red），与车端标靶识别需求完全匹配**
+- 输出通道结构差异：
+  - 9通道模型（yolo11n/lightdet）：4 bbox + 2 cls + 3 kpt(x,y,visibility)
+  - 8通道模型（car_pose_v2/synth）：4 bbox + 2 cls + 2 kpt(x,y，无visibility分数)
+- 结论：4个下载的标靶pose模型全部可用，8通道模型仅需车端后处理将visibility默认设为1
+- 即使seed157/target_merged新训练产物未就绪，也有4个2类标靶模型可备选部署
+
+✅ **代码base健康：pytest tests/ 125 passed, 1 skipped in 18.40s（无回归）**
+
+✅ **watch 脚本健康（3实例运行中，~8h）**
+- PID 41148 + 42360 + 42708，均于 05:06:37 启动
+- 连通5090后自动监控 v4d + seed157 + target_merged 训练并下载产物
+
+⚠️ **5090 实例持续不可达**
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+📝 **7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）**
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+📝 **manual_200 标注：157/200（无变化）**
+
+📊 **Git 状态**
+- 本地与 origin/main 一致（0 ahead / 0 behind），无其他 Agent 提交
+
+📋 **M0 完赛最小闭环进度：**
+| # | 任务 | 状态 |
+|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 |
+| M0-4 | 车机UDP链路通 | ✅ |
+| M0-5 | 路径规划可执行 | ✅ |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 |
+| M0-7 | 赛前检查清单 | ✅ |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（seed157/v4d/target_merged训练未知）
+**本轮非硬件推进：** 确认8通道标靶pose模型实为2类(blue,red)，4个下载模型全部可部署；125测试通过；watch脚本3实例健康运行~8h
