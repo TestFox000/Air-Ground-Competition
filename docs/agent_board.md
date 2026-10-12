@@ -150,9 +150,60 @@
 
 ---
 
-*最后更新：2026-10-12 11:05 经理（每小时巡检）*
+*最后更新：2026-10-12 12:02 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 11:05）
+## 7. 本轮巡检非硬件推进（2026-10-12 12:02）
+
+### ✅ 标靶pose模型ONNX契约全量核验（非硬件推进）
+- 对 `E:\ml_datasets\downloaded\` 中4个标靶pose ONNX模型做输入/输出契约核验（air_ground venv onnxruntime）：
+
+  | 模型 | 输入 | 输出 | 车端契约匹配 | 部署就绪 |
+  |---|---|---|---|---|
+  | `target_pose_yolo11n_best.onnx` | [1,3,1280,1280] | [1,9,33600] | ✅ 9通道(4bbox+2cls+3kpt) | 转640→RKNN即可部署 |
+  | `target_pose_lightdet_best.onnx` | [1,3,1280,1280] | [1,9,33600] | ✅ 9通道(4bbox+2cls+3kpt) | 转640→RKNN即可部署 |
+  | `target_car_pose_v2_best.onnx` | [1,3,1280,1280] | [1,8,33600] | ⚠️ 8通道(4bbox+1cls+3kpt) | 单类，需确认类别后决定 |
+  | `target_synth_yolo11s_best.onnx` | [1,3,1280,1280] | [1,8,33600] | ⚠️ 8通道(4bbox+1cls+3kpt) | 单类，需确认类别后决定 |
+
+- 车端现役 `light_det.rknn` 契约为 `[1,9,8400]`（640分辨率），9通道模型转RKNN后可直接替换
+- 8通道模型疑似单类（仅blue或仅red），与车端2类(blue/red)契约不符，待seed157/target_merged新训练产物替换
+- 5090恢复后watch脚本自动下载seed157(2类)产物，届时可用2类模型替换8通道单类模型
+
+### ✅ 代码base健康
+- `pytest tests/` 125 passed, 1 skipped in 15.98s（无回归，跳过项为onnx库未安装）
+
+### ✅ watch 脚本健康（3 实例运行中）
+- PID 41148 + 42360 + 42708，均于 05:06:37 启动（已运行 ~7h）
+- 连通 5090 后自动监控 v4d + seed157 + target_merged 三个训练并下载产物
+
+### ✅ 模型指针确认无误
+- `current_hbb_detector` → `hbb_detector_7cls_distill_20261011.onnx`
+- `current_cell_classifier` → `cell_classifier_v4c_ft_20261010.onnx`
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/200（无变化）
+
+### 📋 M0 完赛最小闭环进度（重点关注）
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | 无（待硬件） |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | 无（待硬件） |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 11:05）
 
 ### ✅ 端到端管线实跑验证通过（M0-3 软件就绪确认）
 - `render_field_matrix.py --image frame_00124.jpg` 全链路跑通：
