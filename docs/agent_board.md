@@ -144,15 +144,50 @@
 | R1 | Orin 不在线 | Agent-4 | 确认WiFi连接；同时推进训练 |
 | R2 | 车仍画圆 | Agent-3 | align已就绪，待实车 |
 | R3 | 7cls训练中断 | Agent-4 | ✅ 训练已于15:38完成epoch 75并发布 hbb_detector_7cls_distill_20261011.onnx；本地ONNX冒烟测试通过。建议禁用Modern Standby防止再次中断 |
-| R7 | 5090连接不稳定 | Agent-4 | 5090实例持续不可达（connect.bjb2.seetacloud.com:37113 与 106.38.204.136:52238 均 TcpTestSucceeded=False）。seed157/v4d/target_merged 训练状态未知。两个 watch_5090_v4d_seed.py 后台运行中（PID 33984 + 37436），连通即自动监控+下载。需用户在 AutoDL 控制台检查实例状态 |
+| R7 | 5090连接不稳定 | Agent-4 | 5090实例持续不可达（connect.bjb2.seetacloud.com:37113 与 106.38.204.136:52238 均 TcpTestSucceeded=False）。seed157/v4d/target_merged 训练状态未知。watch_5090_v4d_seed.py 已于 18:04 重启（旧实例被系统休眠杀掉），连通即自动监控+下载。需用户在 AutoDL 控制台检查实例状态 |
 | R4 | 0x4002帧未广播 | Agent-4 | 代码完成，待Orin编译 |
 | R6 | E盘（项目存储） | 经理 | ✅ 已恢复（7cls续训成功读取E:\ml_datasets），持续监控 |
 
 ---
 
-*最后更新：2026-10-12 17:14 经理（每小时巡检）*
+*最后更新：2026-10-12 18:04 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 17:14）
+## 7. 本轮巡检非硬件推进（2026-10-12 18:04）
+
+### ✅ watch_5090 监控脚本重启（非硬件推进，保障 seed157/v4d/target_merged 产物自动回收）
+- **问题**：巡检发现上轮启动的 3 个 watch 实例（PID 41148 + 42360 + 42708）已全部消失，系统中仅余 X-AnyLabeling 进程。判定为系统休眠再次杀掉后台进程（累计第 6 次休眠杀进程事件）
+- **修复**：以 air_ground venv 重新启动 `watch_5090_v4d_seed.py`（后台 job-7ab4100e），启动日志确认 `[10-12 18:04] 未就绪: NoValidConnectionsError`，脚本进入每 60s 重试循环
+- **价值**：5090 一旦恢复，watch 脚本将自动检测 v4d/seed157/target_merged 三个训练的 best.pt 并 SFTP 下载至 `E:\ml_datasets\downloaded\`，无需人工值守
+- ⚠️ 持续风险：系统休眠已累计杀进程 6 次，强烈建议禁用 Modern Standby / 合盖休眠
+
+### ✅ 代码base健康
+- `pytest tests/` 139 passed in 22.81s（无回归，较上轮 136+3）
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/200（无变化，X-AnyLabeling 进程运行中 PID 25784+27244）
+
+### 📋 M0 完赛最小闭环进度（重点关注）
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | 无（待硬件） |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | 无（待硬件，标靶模型640契约已就绪） |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 17:14）
 
 ### ✅ 标靶pose模型重导出为640分辨率，匹配车端契约（非硬件推进，服务 M0-6）
 - **问题**：4 个下载的标靶 pose ONNX 模型（target_car_pose_v2 / target_pose_lightdet / target_pose_yolo11n / target_synth_yolo11s）均为 1280 分辨率，输出 `[1,C,33600]`；车端 det_node 现役 `light_det.rknn` 契约为 `[1,9,8400]`（640 分辨率），直接转 RKNN 会因 anchor 数不匹配无法使用
