@@ -150,9 +150,58 @@
 
 ---
 
-*最后更新：2026-10-12 16:01 经理（每小时巡检）*
+*最后更新：2026-10-12 17:14 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 16:01）
+## 7. 本轮巡检非硬件推进（2026-10-12 17:14）
+
+### ✅ 标靶pose模型重导出为640分辨率，匹配车端契约（非硬件推进，服务 M0-6）
+- **问题**：4 个下载的标靶 pose ONNX 模型（target_car_pose_v2 / target_pose_lightdet / target_pose_yolo11n / target_synth_yolo11s）均为 1280 分辨率，输出 `[1,C,33600]`；车端 det_node 现役 `light_det.rknn` 契约为 `[1,9,8400]`（640 分辨率），直接转 RKNN 会因 anchor 数不匹配无法使用
+- **修复**：用 ultralytics 将 4 个 `.pt` 权重以 `imgsz=640, dynamic=False, opset=17` 重新导出 ONNX，存放于 `E:\ml_datasets\downloaded\car640\`
+- **契约核验**（onnx 加载 + onnxruntime 推理）：
+
+  | 模型 | 输入 | 输出 | 通道 | 车端契约匹配 |
+  |---|---|---|---|---|
+  | `target_pose_lightdet_best_640.onnx` | [1,3,640,640] | [1,9,8400] | 9(4+2+3) | ✅ |
+  | `target_pose_yolo11n_best_640.onnx` | [1,3,640,640] | [1,9,8400] | 9(4+2+3) | ✅ |
+  | `target_car_pose_v2_best_640.onnx` | [1,3,640,640] | [1,8,8400] | 8(4+2+2) | ✅（prelabel自动补v=1.0） |
+  | `target_synth_yolo11s_best_640.onnx` | [1,3,640,640] | [1,8,8400] | 8(4+2+2) | ✅（prelabel自动补v=1.0） |
+
+- **推理冒烟测试**：`target_pose_lightdet_best_640.onnx` CPU 推理 OK，输出 `(1,9,8400)` float32
+- **解码测试**：prelabel_rknn 6 项 decode 测试全过（含 8 通道无 visibility 自动补 1.0）
+- **价值**：M0-6 车端标靶识别的 4 个备选模型现在全部符合车端 640/8400 契约，可直接 `rknn_convert.py` 转 RKNN 部署，不再阻塞标靶射击链路
+
+### ✅ 代码base健康
+- `pytest tests/` 136 passed, 1 skipped in 34.58s（无回归）
+
+### ✅ watch 脚本健康（3 实例运行中）
+- PID 41148 + 42360 + 42708，均于 05:06:37 启动（已运行 ~12h）
+- 连通 5090 后自动监控 v4d + seed157 + target_merged 三个训练并下载产物
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/200（无变化，X-AnyLabeling 进程运行中 PID 43764+49868）
+
+### 📋 M0 完赛最小闭环进度（重点关注）
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | 无（待硬件） |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | ✅ 4个标靶pose模型重导出为640分辨率，匹配车端[1,C,8400]契约，可直接转RKNN部署 |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 16:01）
 
 ### ✅ lattice_ransac 核心函数回归测试（非硬件推进，服务 M0-3）
 - **背景**：`onboard/dzuav/src/MapLocalizer.cpp` 的 `solve()` 在上轮巡检新增了单应拟合兜底（PnP 失败时用 `cv::findHomography` 直接拟合世界坐标↔图像坐标），这是 M0-3「无人机出情报」的关键定位兜底路径
