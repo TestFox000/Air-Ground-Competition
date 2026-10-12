@@ -150,9 +150,57 @@
 
 ---
 
-*最后更新：2026-10-12 15:02 经理（每小时巡检）*
+*最后更新：2026-10-12 16:01 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 15:02）
+## 7. 本轮巡检非硬件推进（2026-10-12 16:01）
+
+### ✅ lattice_ransac 核心函数回归测试（非硬件推进，服务 M0-3）
+- **背景**：`onboard/dzuav/src/MapLocalizer.cpp` 的 `solve()` 在上轮巡检新增了单应拟合兜底（PnP 失败时用 `cv::findHomography` 直接拟合世界坐标↔图像坐标），这是 M0-3「无人机出情报」的关键定位兜底路径
+- **问题**：`tools/ml/lattice_ransac.py` 作为该单应逻辑的 Python 参考实现（`fit_lattice`/`apply_lattice`/`invert_lattice`/`ransac_lattice`/`_any3_collinear`），此前完全没有单元测试覆盖，且模块级硬依赖 `ultralytics`/`torch`/`PIL` 导致无法在测试环境导入
+- **修复 1 — 模块解耦**：将 `PIL`/`ultralytics`/`cell_classifier.predictor`（需 torch）的导入从模块级移入 `process_frame()`/`main()` 函数内部，模块级仅保留 `cv2`+`numpy`+标准库，纯函数可被测试直接导入
+- **修复 2 — 新增 10 项回归测试**（`tests/test_lattice_ransac.py`）：
+  - `cell_to_idx`/`idx_to_cell` 全格号 A1~N11 往返一致性 + 越界拒绝
+  - `_any3_collinear` 共线检测（直线 True / 四边形 False）
+  - `fit_lattice`+`apply_lattice` 合成正射网格往返重投影误差 < 1e-3 px
+  - `invert_lattice` 图像坐标反推格号误差 < 1e-2
+  - `fit_lattice` 对 4 点全共线返回 None（退化拒绝）
+  - `ransac_lattice` 内点提取 + 离群点剔除（5 个随机离群点全部被拒）
+  - `ransac_lattice` 少于 4 点返回 None
+  - `ransac_lattice` 内点重拟合后中位重投影误差 < 2px
+- **价值**：MapLocalizer 单应兜底的几何正确性现在有 Python 级回归测试守护，C++ 侧逻辑可参照该测试集验证，Orin 编译后定位兜底有保障
+
+### ✅ 代码base健康
+- `pytest tests/` 136 passed, 1 skipped in 18.23s（+10 新增测试，无回归）
+
+### ✅ watch 脚本健康（3 实例运行中）
+- PID 41148 + 42360 + 42708，均于 05:06:37 启动（已运行 ~11h）
+- 连通 5090 后自动监控 v4d + seed157 + target_merged 三个训练并下载产物
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/200（无变化）
+
+### 📋 M0 完赛最小闭环进度（重点关注）
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | ✅ MapLocalizer单应兜底的Python参考逻辑新增10项回归测试，几何正确性有守护 |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | 无（待硬件） |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 15:02）
 
 ### ✅ MapLocalizer 新增单应拟合兜底（非硬件推进，服务 M0-3）
 - **问题**：`onboard/dzuav/src/MapLocalizer.cpp` 的 `solve()` 仅使用 PnP 定位，当相机内参偏差或地标几何不佳时 PnP 失败 → `localized=false` → 无人机不广播情报 → M0-3 直接断链

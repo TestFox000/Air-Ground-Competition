@@ -25,8 +25,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image
-from ultralytics import YOLO
 
 ROOT = Path(r"e:\OneDrive - mails.qust.edu.cn\桌面\air_ground")
 YOLO_WEIGHTS = ROOT / r"runs\detect\runs\detect\aerial_field_finetuned_v2\weights\best.pt"
@@ -34,9 +32,6 @@ CELL_WEIGHTS = ROOT / r"runs\cell_classifier_v4c\best.pt"
 VAL_DIR = ROOT / r"capture\datasets\aerial_field_mixed\images\val"
 OUT_DIR = ROOT / "runs\lattice_ransac"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-sys.path.insert(0, str(ROOT / "reference" / "onboard" / "dzuav" / "src"))
-from cell_classifier.predictor import CellIdRecognizer  # noqa: E402
 
 CELL_LABEL_CLS = 1
 CONF_DET = 0.25
@@ -132,7 +127,8 @@ def ransac_lattice(points: np.ndarray, tol: float) -> tuple[np.ndarray | None, n
     return best_model, best_mask
 
 
-def process_frame(img_path: Path, yolo: YOLO, recognizer: CellIdRecognizer) -> dict:
+def process_frame(img_path: Path, yolo: "YOLO", recognizer: "CellIdRecognizer") -> dict:
+    from PIL import Image
     results = yolo.predict(source=str(img_path), conf=CONF_DET, iou=IOU_DET,
                            classes=[CELL_LABEL_CLS], verbose=False, device=DEVICE)
     boxes = results[0].boxes
@@ -283,6 +279,9 @@ def process_frame(img_path: Path, yolo: YOLO, recognizer: CellIdRecognizer) -> d
 
 
 def main() -> None:
+    from ultralytics import YOLO
+    sys.path.insert(0, str(ROOT / "reference" / "onboard" / "dzuav" / "src"))
+    from cell_classifier.predictor import CellIdRecognizer
     print("[1/3] 加载模型...")
     yolo = YOLO(str(YOLO_WEIGHTS))
     recognizer = CellIdRecognizer(str(CELL_WEIGHTS), device=DEVICE, half=False,

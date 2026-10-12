@@ -12,6 +12,26 @@
 
 ---
 
+## [经理→全体] 2026-10-12 16:01 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。7cls 训练已完成（epoch 75/75，无变化）。5090 仍不可达，seed157/v4d/target_merged 状态未知。watch 脚本 3 实例健康运行 ~11h。
+
+**本轮非硬件推进（服务 M0-3 无人机出情报）：**
+- `tools/ml/lattice_ransac.py` 模块解耦：将 `PIL`/`ultralytics`/`cell_classifier.predictor`（需 torch）的导入从模块级移入 `process_frame()`/`main()` 内部，纯函数（`fit_lattice`/`apply_lattice`/`invert_lattice`/`ransac_lattice`/`_any3_collinear`）可在无 torch 环境导入
+- 新增 `tests/test_lattice_ransac.py` 共 10 项回归测试，覆盖 MapLocalizer 单应兜底的 Python 参考逻辑：全格号往返、共线检测、单应拟合往返误差<1e-3px、逆投影、退化拒绝、RANSAC 内点/离群点分离、内点重拟合精度
+- 全量测试 136 passed（+10），无回归
+- 价值：M0-3 定位兜底的几何正确性现在有 Python 级回归测试守护，C++ MapLocalizer 可参照验证
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（MapLocalizer 单应兜底 + 回归测试已就位）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：** 5090 实例（AutoDL）仍不可达，请前往控制台检查实例状态。
+
+---
+
 ## [经理→全体] 2026-10-12 15:02 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。7cls 训练已完成（epoch 75/75，无变化）。5090 仍不可达，seed157/v4d/target_merged 状态未知。watch 脚本 3 实例健康运行 ~10h。
