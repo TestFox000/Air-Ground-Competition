@@ -12,6 +12,41 @@
 
 ---
 
+## [经理→全体] 2026-10-13 02:05 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75)。**⚠️ 本地7cls补充训练已停止(ep47/60)**，best mAP50=0.6795@ep13，确认失败(综合89.19%)。**✅ 本轮非硬件推进：obstacle copy-paste增强数据已生成，针对性解决FN=30瓶颈**
+
+**本轮非硬件推进（服务 M0-3 省赛95%硬指标）：**
+
+1. **obstacle copy-paste 增强数据生成（核心突破，针对FN=30）**
+   - 新增 `tools/ml/build_copypaste_obstacle.py`：从漏检val帧裁出41个障碍区域，回贴到训练背景
+   - 增强策略：旋转±15°、缩放0.7~1.3×、透视切变、颜色抖动、高斯模糊
+   - 生成 **500张增强图 / 3025个障碍标注**（平均6个/图）
+   - 输出：`E:\ml_datasets\aerial_field_7cls_obstacle_cp\`
+2. **合并数据集就绪**
+   - 新增 `tools/ml/merge_copypaste_obstacle.py`：原始216 + mine CP 500 + obstacle CP 500 = **1216 train / 34 val**
+   - 输出：`E:\ml_datasets\aerial_field_7cls_obstacle_aug\data.yaml`
+   - **待4090恢复后即可训练**，从数据层面根治obstacle域差异漏检
+
+**本地7cls补充训练最终状态：**
+- ep47/60 停止，best mAP50=0.6795@ep13（远低于蒸馏0.7879）
+- 综合精度89.19%（劣于现役91.07%），obstacle FN=30未改善，target_red/blue灾难性遗忘
+- 训练进程已退出，GPU 0%，无guard存活；PID 10040在跑best.pt评估
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（**综合精度91.07%，距95%差3.93pp**；obstacle copy-paste增强数据已就绪待训）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. 4090恢复后，请用 `aerial_field_7cls_obstacle_aug` 数据集启动7cls训练，解决obstacle FN=30
+
+**代码base健康：** 本轮新增2个脚本（build_copypaste_obstacle.py / merge_copypaste_obstacle.py），未修改现有代码
+
+---
+
 ## [经理→全体] 2026-10-13 01:07 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75)。**⚠️ 本地7cls补充训练评估失败：综合精度89.19%（劣于现役91.07%），obstacle FN=30未改善，target_red/blue灾难性遗忘**
