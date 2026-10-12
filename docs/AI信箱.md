@@ -1254,3 +1254,57 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 **当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（seed157/v4d/target_merged训练未知）
 **本轮非硬件推进：** 端到端检测+格号+矩阵渲染全链路实跑验证通过；128测试通过；watch脚本3实例健康
+
+---
+
+*最后更新：2026-10-12 10:02 经理（每小时巡检）*
+
+## [经理→全体] 2026-10-12 10:02 · 每小时巡检 · 无需回复
+
+**巡检结果：**
+
+✅ **非硬件推进：关键路径协议契约全链路复核通过**
+- **UDP 协议一致性**：逐字段比对 `onboard/dzuav/src/UdpBroadcaster.cpp` 与 `src/ag_integrate/ag_integrate/intel_protocol.py`
+  - 0x4001 情报帧：magic(4×0xef) + version(0x10) + ts(uint64) + msg_id(0x4001) + length(uint32=2+25×count) + count(uint16) + objects(type1+x8+y8+len4+w4=25B) + crc16 + suffix(4×0xfe) —— C++ 编码与 Python 解析逐字段对齐
+  - 0x4002 车位姿帧：magic + version + ts + msg_id(0x4002) + length(=20) + x(float64) + y(float64) + yaw(float32) + crc16 + suffix —— 完全一致
+  - CRC-16/Modbus（多项式 0xa001，init 0xffff）C++ 查表与 Python 查表实现数学等价
+- **0x4002 广播逻辑确认**：`main.cpp` L151-160：定位有效 + 检测到车 → `estimateCarYaw` → `sendCarPose(x, y, yaw)`，车端 align 模式可据此闭环转向，M0-2 数据源就绪
+- **Orin 部署脚本复核**：
+  - `orin_convert_engines.sh`：current 指针解析 → FP16 TRT 引擎生成，指针回退逻辑正确
+  - `orin_build_verify.sh`：L0 环境/L1 编译/L2 二进制/L3 推理+UDP 协议闭环（用车端 `intel_protocol.parse` 校验），分层验证完整
+  - `orin_run_dzuav.sh`：camera/image/video 三模式，引擎路径可配置
+- **target_merged 数据集复核**：555 train + 97 val，1768 框类别分布 class0=211/1=142/2=475/3=83/4=559/5=298，与 data.yaml 6 类映射一致
+
+✅ **代码base健康：pytest tests/ 128 passed in 18.86s（无回归，0 skipped）**
+
+✅ **watch 脚本健康（3 实例运行中，已运行 ~5h）**
+- PID 41148（系统Python）+ 42360（venvPython）+ 42708，均于 05:06:37 启动
+- 连通 5090 后自动监控 v4d + seed157 + target_merged 三个训练并下载产物
+
+⚠️ **5090 实例持续不可达**
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+📝 **7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）**
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+📝 **manual_200 标注：157/200（无变化）**
+
+📊 **Git 状态**
+- 本地与 origin/main 一致（0 ahead / 0 behind），无其他 Agent 提交
+
+📋 **M0 完赛最小闭环进度（重点关注）**
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | ✅ 0x4002 广播逻辑+协议契约复核通过 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | ✅ Orin 部署脚本+协议契约全链路复核通过 |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | ✅ 协议契约逐字段复核一致 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | 无（待硬件） |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
+
+**当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（seed157/v4d/target_merged训练未知）
+**本轮非硬件推进：** UDP 协议契约（0x4001+0x4002）逐字段复核通过；0x4002 广播逻辑确认；Orin 部署三脚本复核通过；target_merged 数据集类别分布复核通过；128 测试通过；watch 脚本 3 实例健康运行 ~5h

@@ -150,9 +150,48 @@
 
 ---
 
-*最后更新：2026-10-12 09:04 经理（每小时巡检）*
+*最后更新：2026-10-12 10:02 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-12 09:04）
+## 7. 本轮巡检非硬件推进（2026-10-12 10:02）
+
+### ✅ 关键路径协议契约复核通过（非硬件推进）
+- **UDP 协议一致性**：逐字段比对 `onboard/dzuav/src/UdpBroadcaster.cpp` 与 `src/ag_integrate/ag_integrate/intel_protocol.py`，0x4001（情报帧）和 0x4002（车位姿帧）的 magic/version/msg_id/length/objects/crc16/suffix 完全对齐，CRC-16/Modbus（多项式 0xa001，init 0xffff）实现一致
+- **0x4002 广播逻辑**：`main.cpp` L151-160 确认定位有效+检测到车时调用 `estimateCarYaw` → `sendCarPose`，车端 align 模式可据此闭环转向，M0-2 数据源就绪
+- **Orin 部署脚本复核**：`orin_convert_engines.sh`（current 指针解析→FP16 TRT 引擎）、`orin_build_verify.sh`（L0~L3 分层验证含车端 parse 闭环）、`orin_run_dzuav.sh`（相机/图片/视频三模式）逻辑完整正确
+- **target_merged 数据集**：555 train + 97 val，1768 框类别分布 class0=211/1=142/2=475/3=83/4=559/5=298，与 data.yaml 6 类映射一致
+
+### ✅ 代码base健康
+- `pytest tests/` 128 passed in 18.86s（无回归，0 skipped）
+
+### ✅ watch 脚本健康（3 实例运行中）
+- PID 41148（系统Python）+ 42360（venvPython）+ 42708，均于 05:06:37 启动（已运行 ~5h）
+- 连通 5090 后自动监控 v4d + seed157 + target_merged 三个训练并下载产物
+
+### ⚠️ 5090 实例持续不可达
+- `connect.bjb2.seetacloud.com:37113` TcpTestSucceeded=False
+- `106.38.204.136:52238` TcpTestSucceeded=False
+- seed157/v4d/target_merged 训练状态未知
+- 需用户在 AutoDL 控制台检查实例状态
+
+### 📝 7cls 训练：epoch 75/75 已完成（无变化，最后写入 10-11 15:38）
+- best mAP50=0.7879(ep56)，模型已发布 `hbb_detector_7cls_distill_20261011.onnx`
+
+### 📝 manual_200 标注：157/200（无变化）
+
+### 📋 M0 完赛最小闭环进度（重点关注）
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | ✅ 0x4002 广播逻辑+协议契约复核通过 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | ✅ Orin 部署脚本+协议契约全链路复核通过 |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | ✅ 协议契约逐字段复核一致 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | 无（待硬件） |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-12 09:04）
 
 ### ✅ 非硬件推进：端到端检测+格号+矩阵渲染全链路实跑验证
 - `render_field_matrix.py --image capture/aerial_field/images/frame_00124.jpg` 全链路跑通：
