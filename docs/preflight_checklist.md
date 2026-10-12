@@ -47,8 +47,8 @@
 |---|---|---|---|---|
 | B1-1 | Orin SSH 可达 | `ping <Orin IP>` | 丢包率 < 5% | ⬜ |
 | B1-2 | dzuav 可执行程序 | `ls ~/dzuav/build/dzuav` | 存在且可执行 | ⬜ |
-| B1-3 | 检测模型 engine | `ls ~/dzuav/engines/hbb_detector*.engine` | 存在 | ⬜ |
-| B1-4 | 格号模型 engine | `ls ~/dzuav/engines/cell_classifier*.engine` | 存在 | ⬜ |
+| B1-3 | 检测模型 engine | `ls ~/dzuav/engines/hbb_detector*.engine` | 存在（当前指针：hbb_detector_7cls_distill_20261011.onnx → .engine） | ⬜ |
+| B1-4 | 格号模型 engine | `ls ~/dzuav/engines/cell_classifier*.engine` | 存在（当前指针：cell_classifier_v4c_ft_20261010.onnx → .engine） | ⬜ |
 | B1-5 | 相机设备 | `ls /dev/video0` | 存在 | ⬜ |
 
 ### B2. 无人车端（香橙派）
@@ -65,9 +65,10 @@
 
 | # | 检查项 | 方法 | 标准 | 结果 |
 |---|---|---|---|---|
-| B3-1 | 检测模型通道数 | `verify_contract.py` | 11 通道（7cls） | ⬜ |
-| B3-2 | 格号模型输入尺寸 | 查看模型配置 | 与训练一致 | ⬜ |
+| B3-1 | 检测模型通道数 | `verify_contract.py` | 11 通道（7cls），契约 [1,3,1280,1280]→[1,11,33600] | ⬜ |
+| B3-2 | 格号模型输入尺寸 | 查看模型配置 | [1,3,96,96]→[1,14]，与训练一致 | ⬜ |
 | B3-3 | 模型 md5 | 对比 models/release/README.md | 一致 | ⬜ |
+| B3-4 | current 指针 | `cat models/release/current_*` | current_hbb→7cls_distill_20261011；current_cell→v4c_ft_20261010 | ⬜ |
 
 ---
 
@@ -161,4 +162,4 @@
 
 ---
 
-*最后更新：2026-10-09 Agent-5 赛程控制初始化*
+*最后更新：2026-10-12 经理巡检（同步当前模型指针：hbb_detector_7cls_distill_20261011 + cell_classifier_v4c_ft_20261010，新增B3-4 current指针检查项）*
