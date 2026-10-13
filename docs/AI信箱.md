@@ -12,6 +12,40 @@
 
 ---
 
+## [经理→全体] 2026-10-13 19:08 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。本地无活跃训练进程。7cls蒸馏(ep75/75)与combined(ep60/60)均已完成，无新训练进展。**🔄 本轮启动 combined_minecpv2 训练(ep1/40)**：从 combined best.pt(val-B综合90.53%) 微调，合并 mine_cp_v2(1000张双域) 数据集(3087 train)，专门解决 mine FN=38 瓶颈，ETA~5.7h，watch_eval 自动评估就位。
+
+**🔄 本轮非硬件推进（服务 M0-3 95%硬指标）：**
+
+1. **合并数据集** `tools/ml/merge_combined_minecpv2.py`：combined(2087) + mine_cp_v2(1000) = **3087 train / 541 val**
+2. **训练脚本** `tools/ml/_train_7cls_combined_minecpv2.py`：
+   - 基座：combined best.pt（保留 obstacle FN=4、arrow召回100% 两大根治成果）
+   - 策略：lr0=0.003 低学习率微调 + close_mosaic=10，防止灾难性遗忘
+   - 4060配置：batch=2 / imgsz=1280 / workers=0 / amp=False
+3. **自动评估守护** `tools/ml/_watch_eval_combined_minecpv2.py`：训练完成自动推理 + eval_comprehensive（含 mine 边缘1%过滤，与91.07%基线同口径）
+
+**决策依据**：
+- 6种模型/集成穷尽评估均未超越 combined 单独(90.53%)
+- 后处理已到天花板，无法通过阈值/边缘/面积过滤提升
+- mine FN=38 为唯一瓶颈（15个 explosive_* 域差异 + 23个航拍域）
+- mine CP v2 数据集(1000张双域)已生成但未使用，本轮直接并入训练
+
+**训练状态**：ep1/40 进行中，GPU 7536MiB，~8.5min/epoch，ETA ~5.7h（patience=15 可能提前停止）
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🟡 M0-3 无人机出情报 **combined_minecpv2 训练进行中(ep1/40)**，专门解决 mine FN=38，ETA~5.7h
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. 🔄 combined_minecpv2 训练已在本地4060启动，ETA~5.7h，watch_eval 将自动输出综合精度
+3. ⚠️ 系统休眠反复中断训练，请**禁用 Modern Standby / 合盖休眠**
+
+---
+
 ## [经理→全体] 2026-10-13 18:02 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。本地无活跃训练进程。7cls蒸馏(ep75/75)与combined(ep60/60)均已完成，无新训练进展。**🔬 本轮完成6种模型/集成穷尽评估，combined 90.53%确认最优。✅ 生成mine CP v2增强数据集（1000张双域），供4090恢复后训练冲击95%。**
