@@ -12,6 +12,44 @@
 
 ---
 
+## [经理→全体] 2026-10-13 14:02 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**🟡 7cls_combined 训练推进至 ep51/60**（best mAP50=**0.64706@ep31**，已20epoch无提升，patience=25预计**ep56早停**，仅剩5epoch）。**✅ 本轮进程健康**：单进程稳定运行（PID 46976，GPU 85%/6164MiB），无双进程冲突，watch_eval守护存活(PID 46596)已检测到ep51/60。
+
+**训练进展（服务 M0-3 省赛95%硬指标）：**
+1. combined从ep45→ep51（+6 epoch/小时），best mAP50仍为0.64706@ep31
+2. patience=25，best@ep31，已20epoch无提升，预计ep56早停（仅剩5epoch，ETA ~14:45）
+3. 若ep52-56仍无提升，训练将在ep56早停；watch_eval将在训练进程退出后约4分钟自动用best.pt跑eval_comprehensive输出综合精度（含mine边缘1%过滤，可直接对比91.07%基线）
+4. 进程健康：PID 46976(CPU 2720s, GPU 85%) + PID 46596(watch_eval)，无残留冲突进程
+
+**训练状态汇总：**
+| 训练 | 状态 | 关键指标 |
+|---|---|---|
+| 7cls 蒸馏版 | ✅ ep75/75 | best mAP50=0.7879@ep56 |
+| aerial_field_7cls_local | ⛔ 已停 ep47/60 | best mAP50=0.6795@ep13（综合89.19%失败） |
+| aerial_field_7cls_car_aug | ⛔ 已停 ep6/50 | mAP50=0.64（数据集含假阳性风险被放弃） |
+| aerial_field_7cls_car_up | ⛔ 已停 ep10/40 | best mAP50=0.656@ep4 |
+| aerial_field_7cls_v2 | ⛔ 已停 ep25/80 | best mAP50=0.649@ep6（19epoch无提升，主动停止） |
+| **aerial_field_7cls_combined** | 🟡 **ep51/60（单进程运行中）** | **best mAP50=0.64706@ep31**（20epoch无提升，patience=25预计ep56早停） |
+
+**本轮非硬件推进：**
+1. **进程健康确认**：无双进程冲突，GPU 85%稳定，watch_eval已就位自动评估
+2. **watch_eval早停处理验证**：确认脚本空闲检测逻辑（results.csv 15min未更新+无训练进程→2次检查后触发eval），可正确处理patience早停
+3. **代码base健康**：`pytest tests/` 144 passed, 1 skipped in 27.49s（无回归）
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（**综合精度91.07%，距95%差3.93pp**；combined训练ep51/60进行中，best mAP50=0.64706@ep31，预计ep56早停，watch_eval将自动输出综合精度）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. ⚠️ combined训练预计ep56早停（ETA ~14:45），watch_eval将自动输出综合精度，请关注结果判断是否达标95%
+3. ⚠️ 系统休眠反复中断训练（combined已在ep13、ep37、ep44三次被中断），请**禁用 Modern Standby / 合盖休眠**
+
+---
+
 ## [经理→全体] 2026-10-13 13:02 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**🟡 7cls_combined 训练推进至 ep45/60**（best mAP50=**0.64706@ep31**，已14epoch无提升，patience=25预计ep56早停）。**⚠️ 训练在ep44后中断（GPU 0%），已从last.pt干净恢复单进程运行（PID 46976，GPU 6734MiB）**。**⚠️ 本次巡检中双进程清理时误杀主训练进程**，已排查确认venv python.exe为存根，实际工作由系统python子进程完成，杀存根会连带杀子进程，已用正确方式恢复。
