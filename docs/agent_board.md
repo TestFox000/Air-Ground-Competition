@@ -170,7 +170,11 @@
 
 - **综合精度：90.53%**（TP=2046 FP=163 FN=51），**低于现役最优 91.07%**
 - **核心发现**：combined 模型根治了 obstacle FN=30→4 和 arrow 召回18%→100% 两大瓶颈，但 mine 性能退化（FN=38 vs 22）
-- **下一步策略**：集成检测——用 combined 模型检测 obstacle+arrow，用 final_v2(2stage_v2) 检测 mine，理论可达 92%+
+- **集成实验**（非硬件推进）：尝试 combined(obstacle+arrow) + final_v2(mine) 集成
+  - 结果：综合精度 **90.13%**（低于 combined 单独 90.53%）
+  - 原因：final_v2 单独（无 mine_cls_v5 分类器）mine FP=90 > combined 的 FP=80
+  - 结论：**简单集成无效**，需用 2stage_v2（final_v2 + mine_cls_v5 分类器）做 mine 才能获得 91.07% 基线的 mine 性能
+- **下一步策略**：2stage_v2(mine) + combined(obstacle+arrow) 集成，需在相同 34 帧 val 集上重跑 2stage_v2（含 mine_cls_v5），理论可达 92%+
 
 ### 📊 训练进度监控
 - **7cls 蒸馏训练**：ep75/75 已完成（best mAP50=0.7879@ep56，无变化）

@@ -48,7 +48,8 @@
 **本轮非硬件推进：**
 1. **combined训练完成+自动评估**：watch_eval成功触发，输出90.53%综合精度
 2. **两大瓶颈根治确认**：obstacle FN=30→4，arrow召回100%
-3. **代码base健康**：`pytest tests/` 147 passed in 30.50s（无回归）
+3. **集成实验**：尝试 combined(obstacle+arrow) + final_v2(mine) 集成 → **90.13%**（低于combined单独90.53%）。原因：final_v2单独（无mine_cls_v5）mine FP=90 > combined FP=80。**结论：简单集成无效，需2stage_v2(finav2+mine_cls_v5)做mine**
+4. **代码base健康**：`pytest tests/` 147 passed in 30.50s（无回归）
 
 **M0 完赛最小闭环状态：**
 - ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
