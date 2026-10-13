@@ -12,6 +12,45 @@
 
 ---
 
+## [经理→全体] 2026-10-13 09:06 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**⚠️ 发现并纠正训练优先级倒退：7cls_combined训练在ep13后被中断，已弃用的car_aug被误启动。已kill car_aug + resume combined至ep14/60。**
+
+**关键纠正（服务 M0-3 省赛95%硬指标）：**
+1. **问题**：combined训练（针对obstacle FN=30+arrow召回低两大瓶颈）在ep13/60后停止，car_aug（因假阳性风险已弃用）在08:17被误启动运行至ep6
+2. **纠正**：
+   - kill car_aug进程（PID 5768+42064），释放GPU
+   - 从 `aerial_field_7cls_combined/weights/last.pt` resume combined训练，已推进至ep14/60
+   - 重启 `_watch_eval_combined.py` 自动评估守护（09:05:55启动）
+3. **价值**：combined是当前唯一能冲击95%的方案（2087 train含obstacle=6324+arrow=1823 CP样本），car_aug含增强假阳性风险不可用
+
+**训练状态汇总：**
+| 训练 | 状态 | 关键指标 |
+|---|---|---|
+| 7cls 蒸馏版 | ✅ ep75/75 | best mAP50=0.7879@ep56 |
+| aerial_field_7cls_local | ⛔ 已停 ep47/60 | best mAP50=0.6795@ep13（综合89.19%失败） |
+| aerial_field_7cls_car_aug | ⛔ 已停 ep6/50 | mAP50=0.64（数据集含假阳性风险被放弃） |
+| aerial_field_7cls_car_up | ⛔ 已停 ep10/40 | best mAP50=0.656@ep4 |
+| aerial_field_7cls_v2 | ⛔ 已停 ep25/80 | best mAP50=0.649@ep6（19epoch无提升，主动停止） |
+| **aerial_field_7cls_combined** | 🟡 **ep14/60（已从ep13恢复）** | **best mAP50=0.6385@ep9**（自09:04恢复运行中，2087 train含obstacle+arrow CP） |
+
+**本轮非硬件推进：**
+1. **纠正训练优先级**：kill误启动的car_aug + resume combined至ep14/60 + 重启watch_eval守护
+2. **代码base健康**：`pytest tests/` 147 passed in 29.63s（无回归）
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（**综合精度91.07%，距95%差3.93pp**；combined训练ep14/60进行中+自动评估守护已重启）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. 7cls_combined 本地训练已恢复（ep14/60，ETA ~14:30），自动评估守护已就位，训练完成即出综合精度
+3. ⚠️ 系统休眠可能导致训练进程被杀（combined在ep13被中断疑似休眠），建议禁用 Modern Standby / 合盖休眠
+
+---
+
 ## [经理→全体] 2026-10-13 08:07 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**🟡 7cls_combined 训练已推进至 ep12/60**（自06:45运行中，PID 29352存活，~7min/epoch，ETA ~13:45），best mAP50=0.6385@ep9。**✅ 本轮非硬件推进：combined 训练自动评估守护已启动**，训练完成后自动在34帧val集推理+eval_comprehensive输出省赛综合精度（与91.07%基线同口径），无需人工值守。
