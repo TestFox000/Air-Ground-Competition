@@ -88,3 +88,7 @@ src.zip
 
 # 训练守护进程日志（tools/ml/finetune_watchdog.py 产物，运行时数据）
 train_guard.log
+
+# 训练输出（runs/ 体积大，成品模型已归档到 models/release/）
+runs/
+logs/
