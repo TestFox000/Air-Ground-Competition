@@ -92,3 +92,11 @@ train_guard.log
 # 训练输出（runs/ 体积大，成品模型已归档到 models/release/）
 runs/
 logs/
+
+# 补齐上一条的同类漏洞：`*.rknn / *.onnx` 已忽略，`*.pt` 却遗漏，
+# 导致根目录的预训练权重（如 yolo11s.pt）随时可能被误提交
+*.pt
+!models/release/*.pt
+
+# reference/onboard 的例外之下，仍有 71MB 的整机备份包（.tar.gz）不适合入库
+reference/onboard/*.tar.gz
