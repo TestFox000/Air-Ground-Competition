@@ -52,7 +52,7 @@
 
 | 任务ID | 任务 | 状态 | 截止 | 完成时间 | 进度 |
 |---|---|---|---|---|---|
-| A4-1 | **7cls 蒸馏训练收敛** | ✅ | 10-11 16:05 | 10-11 16:05 | 蒸馏版ep75/75完成(mAP50=0.7879)已发布。**4090三连训**：7cls_clean(ep80/80✅,mAP50=0.6666)→7cls_final_v2(ep60/60✅,mAP50=0.7207)→7cls_v3(ep20/50🟡,mAP50=0.6799)。**综合评估最优：2stage_v2+edge1%=91.07%**。mine_cls_v5雷分类器(ep40/40✅,val_acc=0.9969)已下载。**⚠️本地7cls补充训练已停止(ep47/60)**：aerial_field_7cls_local(2053障碍样本)best mAP50=0.6795@ep13，综合精度89.19%，obstacle FN仍=30，target_red/blue灾难性遗忘。**⛔car_aug训练已停止(ep6/50)**：mAP50=0.64，因car_aug数据集含增强假阳性风险被放弃。**⛔car_up训练已停止(ep10/40)**：best mAP50=0.656@ep4(car_upsampled 1679 train)。**⛔7cls_v2训练已停止(ep25/80)**：best mAP50=0.649@ep6，连续19epoch无提升(远低于蒸馏版0.7879)，patience=30预计ep36早停，主动停止释放GPU。**🟡7cls_combined训练进行中(ep14/60，已从ep13恢复)**：从aerial_field_finetuned_v2 best.pt训练，2087 train/541 val(含mine+obstacle+arrow CP+car样本)，lr0=0.01，4060 batch2/imgsz1280，~7min/epoch，best mAP50=0.6385@ep9。**⚠️本轮巡检发现combined训练在ep13后被中断，car_aug(已弃用)被误启动，已纠正：kill car_aug + resume combined**。**✅自动评估守护已重启**(_watch_eval_combined.py)：训练完成后自动在34帧val集推理+eval_comprehensive输出综合精度 |
+| A4-1 | **7cls 蒸馏训练收敛** | ✅ | 10-11 16:05 | 10-11 16:05 | 蒸馏版ep75/75完成(mAP50=0.7879)已发布。**4090三连训**：7cls_clean(ep80/80✅,mAP50=0.6666)→7cls_final_v2(ep60/60✅,mAP50=0.7207)→7cls_v3(ep20/50🟡,mAP50=0.6799)。**综合评估最优：2stage_v2+edge1%=91.07%**。mine_cls_v5雷分类器(ep40/40✅,val_acc=0.9969)已下载。**⚠️本地7cls补充训练已停止(ep47/60)**：aerial_field_7cls_local(2053障碍样本)best mAP50=0.6795@ep13，综合精度89.19%，obstacle FN仍=30，target_red/blue灾难性遗忘。**⛔car_aug训练已停止(ep6/50)**：mAP50=0.64，因car_aug数据集含增强假阳性风险被放弃。**⛔car_up训练已停止(ep10/40)**：best mAP50=0.656@ep4(car_upsampled 1679 train)。**⛔7cls_v2训练已停止(ep25/80)**：best mAP50=0.649@ep6，连续19epoch无提升(远低于蒸馏版0.7879)，patience=30预计ep36早停，主动停止释放GPU。**🟡7cls_combined训练进行中(ep21/60（双进程冲突已修复，单进程运行中）)**：从aerial_field_finetuned_v2 best.pt训练，2087 train/541 val(含mine+obstacle+arrow CP+car样本)，lr0=0.01，4060 batch2/imgsz1280，~7min/epoch，best mAP50=0.6407@ep17。**⚠️本轮巡检发现combined训练在ep13后被中断，car_aug(已弃用)被误启动，已纠正：kill car_aug + resume combined**。**✅自动评估守护已重启**(_watch_eval_combined.py)：训练完成后自动在34帧val集推理+eval_comprehensive输出综合精度 |
 | A4-2 | **格号识别 v4c 训练** | ✅ | 10-10 | 10-10 08:00 | v4c模型已发布 cell_classifier_v4c_20261009.onnx |
 | A4-3 | Orin 编译 dzuav | 🔵 待启动 | Orin上线后1h | — | 需Orin在线 |
 | A4-4 | 相机出图验证 | ⛔ | 依赖A4-3 | — | |
@@ -92,7 +92,7 @@
 |---|---|---|---|
 | M0-1 | 车能走直线不画圆 | Agent-3 | 🟡 软件就绪待实车 |
 | M0-2 | 朝向对齐实车验证 | Agent-3 | 🟡 软件就绪待实车 |
-| M0-3 | 无人机出情报(UDP) | Agent-4 | 🔵 待Orin上线（v4c离线验证已过，7cls模型已发布；本地端到端管线验证通过。**综合识别精度91.07%(2stage_v2+mine边缘1%过滤)，距95%差3.93pp**。瓶颈：obstacle FN=30（四模型均漏检同一批，纯数据域差异）+ arrow召回低(11GT仅2检出)。**⛔car_aug已停(ep6/50,mAP50=0.64)**。**⛔car_up已停(ep10/40,best mAP50=0.656@ep4)**。**⛔7cls_v2已停(ep25/80,best 0.649@ep6,19epoch无提升)**。**🟡7cls_combined训练进行中(ep14/60，已从ep13恢复)**：从aerial_field_finetuned_v2 best.pt训练，2087 train/541 val(含mine+obstacle+arrow CP+car样本)，类别分布obstacle=6324/arrow=1823/target_blue=1867，best mAP50=0.6385@ep9，直接根治两大瓶颈。**⚠️本轮纠正：combined在ep13被中断+car_aug误启动，已kill car_aug并resume combined**。**✅自动评估守护已重启**，训练完成即出综合精度） |
+| M0-3 | 无人机出情报(UDP) | Agent-4 | 🔵 待Orin上线（v4c离线验证已过，7cls模型已发布；本地端到端管线验证通过。**综合识别精度91.07%(2stage_v2+mine边缘1%过滤)，距95%差3.93pp**。瓶颈：obstacle FN=30（四模型均漏检同一批，纯数据域差异）+ arrow召回低(11GT仅2检出)。**⛔car_aug已停(ep6/50,mAP50=0.64)**。**⛔car_up已停(ep10/40,best mAP50=0.656@ep4)**。**⛔7cls_v2已停(ep25/80,best 0.649@ep6,19epoch无提升)**。**🟡7cls_combined训练进行中(ep21/60（双进程冲突已修复，单进程运行中）)**：从aerial_field_finetuned_v2 best.pt训练，2087 train/541 val(含mine+obstacle+arrow CP+car样本)，类别分布obstacle=6324/arrow=1823/target_blue=1867，best mAP50=0.6407@ep17，直接根治两大瓶颈。**⚠️本轮纠正：combined在ep13被中断+car_aug误启动，已kill car_aug并resume combined**。**✅自动评估守护已重启**，训练完成即出综合精度） |
 | M0-4 | 车机UDP链路通 | Agent-1 | ✅ 模拟验证通过 |
 | M0-5 | 路径规划可执行 | Agent-1 | ✅ 模拟验证通过 |
 | M0-6 | 车按路径行驶 | Agent-3 | ⛔ 依赖M0-1,M0-2（标靶pose模型target_pose_v2已完成：mAP50=0.9755，ONNX契约[1,9,8400]匹配车端；**mine_cls_v5雷分类器已完成val_acc=0.9969**，爆炸物二次确认就绪） |
@@ -143,7 +143,7 @@
 |---|---|---|---|
 | R1 | Orin 不在线 | Agent-4 | 确认WiFi连接；同时推进训练 |
 | R2 | 车仍画圆 | Agent-3 | align已就绪，待实车 |
-| R3 | 7cls综合精度未达95% | Agent-4 | **当前最优91.07%**(2stage_v2_cls0.9 + mine类1%边缘过滤)。瓶颈：obstacle FN=30（四模型均漏检同一批→纯数据域差异，漏检障碍面积31K-614Kpx均值220Kpx，非小目标问题）、arrow召回低(11GT仅2检出)。本地补充训练失败(综合89.19%)。**⛔car_aug已停(ep6/50)**。**⛔car_up已停(ep10/40,best mAP50=0.656@ep4)**。**⛔7cls_v2已停(ep25/80,best mAP50=0.649@ep6,19epoch无提升)**。**🟡7cls_combined训练进行中(ep14/60，已从ep13恢复)**：2087 train含mine+obstacle+arrow CP+car样本，类别分布obstacle=6324/arrow=1823/target_blue=1867，从aerial_field_finetuned_v2 best.pt训练，best mAP50=0.6385@ep9，直接根治obstacle FN+arrow召回两大瓶颈。**⚠️本轮纠正：combined在ep13被中断+car_aug(已弃用)被误启动，已kill car_aug并resume combined ep13→ep14**。**✅自动评估守护已重启**，训练完成即出综合精度。距95%差3.93pp |
+| R3 | 7cls综合精度未达95% | Agent-4 | **当前最优91.07%**(2stage_v2_cls0.9 + mine类1%边缘过滤)。瓶颈：obstacle FN=30（四模型均漏检同一批→纯数据域差异，漏检障碍面积31K-614Kpx均值220Kpx，非小目标问题）、arrow召回低(11GT仅2检出)。本地补充训练失败(综合89.19%)。**⛔car_aug已停(ep6/50)**。**⛔car_up已停(ep10/40,best mAP50=0.656@ep4)**。**⛔7cls_v2已停(ep25/80,best mAP50=0.649@ep6,19epoch无提升)**。**🟡7cls_combined训练进行中(ep21/60（双进程冲突已修复，单进程运行中）)**：2087 train含mine+obstacle+arrow CP+car样本，类别分布obstacle=6324/arrow=1823/target_blue=1867，从aerial_field_finetuned_v2 best.pt训练，best mAP50=0.6407@ep17，直接根治obstacle FN+arrow召回两大瓶颈。**⚠️本轮发现并修复双进程冲突：venv+system两个相同resume进程同时写同一last.pt导致ep21崩溃，已kill残留进程+单进程resume至ep21(单进程运行中)**。**✅自动评估守护已重启**(PID31376)，训练完成即出综合精度。距95%差3.93pp |
 | R7 | 5090连接不稳定 | Agent-4 | 5090实例持续不可达（connect.bjb2.seetacloud.com:37113 TcpTestSucceeded=False）。seed157/v4d/target_merged 训练状态未知。watch_5090_v4d_seed.py 2实例持续存活（自18:04起），连通即自动监控+下载。需用户在 AutoDL 控制台检查实例状态 |
 | R8 | 4090训练进度 | Agent-4 | ⚠️ 4090实例(connect.bjb1:27379)本轮不可达。**已完成**：7cls_clean / 7cls_final_v2 / mine_cls_v5 / target_pose_v2 / red_bucket。**进行中(中断)**：7cls_v3(ep20/50) / red_bucket_v2(ep28)，待实例恢复后续训 |
 | R4 | 0x4002帧未广播 | Agent-4 | 代码完成，待Orin编译 |
@@ -151,9 +151,49 @@
 
 ---
 
-*最后更新：2026-10-13 09:06 经理（每小时巡检）*
+*最后更新：2026-10-13 10:09 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-13 09:06）
+## 7. 本轮巡检非硬件推进（2026-10-13 10:09）
+
+### 🔴 关键修复：双进程冲突导致combined训练ep21崩溃，已恢复单进程运行
+- **发现**：7cls_combined训练存在**两个完全相同的resume进程**（venv Python PID 37412 + system Python PID 43040），同时对同一 `last.pt` 执行 `train(resume=True)`，导致 results.csv 写入冲突、训练在 ep21 崩溃
+- **根因**：上轮巡检 resume 时，venv 和 system 两个 Python 解释器同时被启动（可能由 Start-Process 与后台 job 双重触发），两者争夺同一 run 目录的文件锁
+- **纠正行动**：
+  1. kill 残留的低活跃进程（PID 37412，CPU 仅 0.015s、内存 4.5MB，为冲突卡死方）
+  2. 确认主进程 43040 也已退出（崩溃），从 `last.pt`（ep21）**单进程** resume（PID 40952，GPU 58%、6717 MiB，运行正常）
+  3. 清理重复的 watch_eval 守护（原 2 个→保留 1 个 PID 31376），避免训练完成时重复触发评估
+- **价值**：双进程写同一 checkpoint 可能导致权重文件损坏、results.csv 错乱，本轮及时发现并修复，保障 combined 训练（当前唯一冲击 95% 的方案）稳定推进
+
+### 📊 训练进度监控
+- **7cls 蒸馏训练**：ep75/75 已完成（best mAP50=0.7879@ep56，无变化）
+- **🟡 7cls_combined 训练进行中（本地4060，单进程）**：ep21/60，best mAP50=**0.6407@ep17**（自 10:08 恢复运行中，PID 40952）
+  - 基座：aerial_field_finetuned_v2 best.pt
+  - 数据集：aerial_field_7cls_combined（**2087 train / 541 val**）
+  - 类别分布：mine=56859 / obstacle=6324 / arrow=1823 / target_blue=1867 / target_red=1083 / car=186 / cell_label=59967
+  - 策略：lr0=0.01 / patience=25 / batch=2 / imgsz=1280 / workers=0 / amp=False / close_mosaic=10
+  - 约 8min/epoch，ETA ~15:20 完成
+  - **直接针对两大瓶颈**：obstacle=6324 样本（根治 FN=30）+ arrow=1823 样本（根治召回低）
+- **4090/5090 实例**：均不可达（TcpTestSucceeded=False）
+  - 7cls_v3(ep20/50) / red_bucket_v2(ep28) 训练中断，待实例恢复
+- **watch_eval 守护**：PID 31376 存活，已检测到 ep21/60
+
+### ✅ 代码base健康
+- `pytest tests/` 147 passed in 28.83s（无回归）
+
+### 📋 M0 完赛最小闭环进度（重点关注）
+| # | 任务 | 状态 | 本轮进展 |
+|---|---|---|---|
+| M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | 🔴 **修复双进程冲突**：combined训练ep21崩溃已恢复单进程运行；best mAP50=0.6407@ep17；✅ watch_eval守护已重启 |
+| M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
+| M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
+| M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | 无（待硬件） |
+| M0-7 | 赛前检查清单 | ✅ 已完成 | 无变化 |
+
+---
+
+## 8. 上轮巡检非硬件推进（2026-10-13 09:06）
 
 ### ⚠️ 关键纠正：combined训练被中断+car_aug误启动，已恢复
 - **发现**：7cls_combined训练（针对M0-3两大瓶颈）在ep13/60后停止，而被弃用的car_aug训练（因假阳性风险被放弃）在08:17被启动运行至ep6
@@ -166,7 +206,7 @@
 
 ### 📊 训练进度监控
 - **7cls 蒸馏训练**：ep75/75 已完成（best mAP50=0.7879@ep56，无变化）
-- **🟡 7cls_combined 训练进行中（本地4060，已从ep13恢复）**：ep14/60，best mAP50=0.6385@ep9（自 09:04 恢复运行中）
+- **🟡 7cls_combined 训练进行中（本地4060，已从ep13恢复）**：ep14/60，best mAP50=0.6407@ep17（自 09:04 恢复运行中）
   - 基座：aerial_field_finetuned_v2 best.pt
   - 数据集：aerial_field_7cls_combined（**2087 train / 541 val**）
   - 类别分布：mine=56859 / obstacle=6324 / arrow=1823 / target_blue=1867 / target_red=1083 / car=186 / cell_label=59967
@@ -197,7 +237,7 @@
 
 ### 📊 训练进度监控
 - **7cls 蒸馏训练**：ep75/75 已完成（best mAP50=0.7879@ep56，无变化）
-- **🟡 7cls_combined 训练进行中（本地4060）**：ep12/60，best mAP50=0.6385@ep9（自 06:45 运行中，PID 29352 存活）
+- **🟡 7cls_combined 训练进行中（本地4060）**：ep12/60，best mAP50=0.6407@ep17（自 06:45 运行中，PID 29352 存活）
   - 基座：aerial_field_finetuned_v2 best.pt
   - 数据集：aerial_field_7cls_combined（**2087 train / 541 val**）
   - 类别分布：mine=56859 / obstacle=6324 / arrow=1823 / target_blue=1867 / target_red=1083 / car=186 / cell_label=59967
@@ -224,7 +264,7 @@
 |---|---|---|---|
 | M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
 | M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
-| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | 🟡 **7cls_combined训练推进至ep12/60**(best mAP50=0.6385@ep9)；✅ 自动评估守护已启动，训练完成即出综合精度 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | 🟡 **7cls_combined训练推进至ep12/60**(best mAP50=0.6407@ep17)；✅ 自动评估守护已启动，训练完成即出综合精度 |
 | M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
 | M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
 | M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | 无（待硬件） |

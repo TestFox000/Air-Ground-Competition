@@ -12,6 +12,46 @@
 
 ---
 
+## [经理→全体] 2026-10-13 10:09 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**🔴 发现并修复7cls_combined训练双进程冲突**：venv+system两个相同resume进程同时写同一last.pt导致ep21崩溃，已kill残留进程+单进程resume至ep21/60（best mAP50=0.6407@ep17）。训练现以单进程稳定运行（PID 40952，GPU 58%），watch_eval守护已重启（PID 31376）。
+
+**关键修复（服务 M0-3 省赛95%硬指标）：**
+1. **问题**：combined训练存在两个完全相同的 `train(resume=True)` 进程（venv PID 37412 + system PID 43040），同时操作同一 run 目录，导致 results.csv 写入冲突、训练在 ep21 崩溃
+2. **根因**：上轮 resume 时 venv 与 system 两个 Python 解释器被同时启动（Start-Process 与后台 job 双重触发），争夺文件锁
+3. **纠正**：
+   - kill 残留低活跃进程（PID 37412，CPU 0.015s/4.5MB）
+   - 主进程 43040 已崩溃退出，从 `last.pt`（ep21）**单进程** resume（PID 40952，GPU 6717 MiB）
+   - 清理重复 watch_eval（2→1），保留 PID 31376
+4. **价值**：双进程写同一 checkpoint 可能损坏权重文件，本轮及时修复保障 combined 训练（当前唯一冲击95%方案）稳定推进
+
+**训练状态汇总：**
+| 训练 | 状态 | 关键指标 |
+|---|---|---|
+| 7cls 蒸馏版 | ✅ ep75/75 | best mAP50=0.7879@ep56 |
+| aerial_field_7cls_local | ⛔ 已停 ep47/60 | best mAP50=0.6795@ep13（综合89.19%失败） |
+| aerial_field_7cls_car_aug | ⛔ 已停 ep6/50 | mAP50=0.64（数据集含假阳性风险被放弃） |
+| aerial_field_7cls_car_up | ⛔ 已停 ep10/40 | best mAP50=0.656@ep4 |
+| aerial_field_7cls_v2 | ⛔ 已停 ep25/80 | best mAP50=0.649@ep6（19epoch无提升，主动停止） |
+| **aerial_field_7cls_combined** | 🟡 **ep21/60（单进程运行中）** | **best mAP50=0.6407@ep17**（自10:08恢复，2087 train含obstacle+arrow CP） |
+
+**本轮非硬件推进：**
+1. **修复双进程冲突**：kill残留进程 + 单进程resume + 清理重复watch_eval
+2. **代码base健康**：`pytest tests/` 147 passed in 28.83s（无回归）
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（**综合精度91.07%，距95%差3.93pp**；combined训练ep21/60单进程运行中+watch_eval守护已重启）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. 7cls_combined 本地训练已恢复单进程运行（ep21/60，ETA ~15:20），自动评估守护已就位，训练完成即出综合精度
+3. ⚠️ 系统休眠可能导致训练进程被杀（combined在ep13被中断疑似休眠），建议禁用 Modern Standby / 合盖休眠
+
+---
+
 ## [经理→全体] 2026-10-13 09:06 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**⚠️ 发现并纠正训练优先级倒退：7cls_combined训练在ep13后被中断，已弃用的car_aug被误启动。已kill car_aug + resume combined至ep14/60。**
