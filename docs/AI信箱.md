@@ -12,6 +12,67 @@
 
 ---
 
+## [经理→全体] 2026-10-13 16:02 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。本地无活跃训练进程。**⚠️ 重大发现：91.07%基线与combined不可直接比较（val集GT标签空间不同）。在val-B（更贴近比赛，含obstacle=88/cell_label=1032）上，combined模型90.53%为当前最优。4种集成策略均未超越combined单独。mine_cls_v5在航拍域无效。**
+
+**val集口径修正（关键发现）：**
+- val-A（91.07%基线，32帧）：mine=1059, car=1175, arrow=16, target_red=16, target_blue=4, **obstacle=0, cell_label=0**
+- val-B（combined评估，34帧）：mine=966, obstacle=88, cell_label=1032, arrow=11, **target_red=0, target_blue=0**
+- val-A无obstacle/cell_label GT → 91.07%基线未包含obstacle瓶颈，虚高
+- val-B更贴近比赛场景，combined 90.53%为真实最优
+
+**val-B上4种集成策略对比（combined单独=90.53%为基准）：**
+
+| 方案 | 综合精度 | mine TP | mine FP | mine FN | vs combined |
+|---|---|---|---|---|---|
+| **combined单独(conf=0.25+edge)** | **90.53%** | 928 | 80 | 38 | **基准** |
+| combined + mine_cls_v5 | 90.52% | 925 | 77 | 41 | -0.01pp |
+| combined非mine + final_v2 mine(edge+cls) | 90.37% | 927 | 83 | 39 | -0.16pp |
+| mine联合(distill+combined, IoU去重+cls) | 90.38% | 931 | 87 | 35 | -0.15pp |
+| combined TTA | 90.35% | 930 | 84 | 36 | -0.18pp |
+| combined conf=0.15 | 89.95% | 929 | 84 | 37 | -0.58pp |
+
+**mine_cls_v5航拍域无效确认：**
+- mine_cls_v5训练于官方近景图，航拍域泛化有限
+- 仅移除6/86个mine FP，同时损失3个TP，净效果为负
+- 与历史结论一致，集成进pipeline无收益
+
+**当前瓶颈：mine FN=38**（val-B共966 mine GT）
+- obstacle FN=4（已根治，原30）✅
+- arrow FN=0（已根治）✅
+- cell_label FN=9
+- mine FN=38为最大短板❌
+
+**训练状态汇总：**
+| 训练 | 状态 | 关键指标 |
+|---|---|---|
+| 7cls 蒸馏版 | ✅ ep75/75 | best mAP50=0.7879@ep56 |
+| aerial_field_7cls_local | ⛔ 已停 ep47/60 | best mAP50=0.6795@ep13 |
+| aerial_field_7cls_car_aug | ⛔ 已停 ep6/50 | 假阳性风险弃用 |
+| aerial_field_7cls_car_up | ⛔ 已停 ep10/40 | best mAP50=0.656@ep4 |
+| aerial_field_7cls_v2 | ⛔ 已停 ep25/80 | best mAP50=0.649@ep6 |
+| **aerial_field_7cls_combined** | ✅ **ep60/60 已完成** | **val-B综合90.53%（当前最优）** |
+
+**本轮非硬件推进：**
+1. **val集口径修正**：发现91.07%基线(val-A)与combined(val-B)不可直接比较，val-B更贴近比赛
+2. **4种集成策略实验**：均未超越combined单独(90.53%)，mine_cls_v5航拍域无效
+3. **蒸馏模型val-B评估**：90.30%（mine FN=36略好但FP=89更差）
+4. **代码base健康**：`pytest tests/` 147 passed in 26.43s（无回归）
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（**val-B综合精度90.53%为当前最优，距95%差4.47pp**；obstacle+arrow两大瓶颈已根治；mine FN=38为新瓶颈）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. ⚠️ mine FN=38为当前最大瓶颈，4090恢复后可针对性优化mine模型（更大batch/更长训练/针对性数据增强）
+3. ⚠️ 系统休眠反复中断训练（combined已在ep13、ep37、ep44三次被中断），请**禁用 Modern Standby / 合盖休眠**
+
+---
+
 ## [经理→全体] 2026-10-13 15:08 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**✅ 7cls_combined 训练已完成(ep60/60)**，**watch_eval自动评估完成：综合精度90.53%**（低于现役91.07%）。**两大瓶颈根治**：obstacle FN=30→4，arrow召回18%→100%。**新瓶颈**：mine退化(FN=38)，需集成策略。
