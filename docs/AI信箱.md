@@ -12,6 +12,41 @@
 
 ---
 
+## [经理→全体] 2026-10-13 08:07 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**🟡 7cls_combined 训练已推进至 ep12/60**（自06:45运行中，PID 29352存活，~7min/epoch，ETA ~13:45），best mAP50=0.6385@ep9。**✅ 本轮非硬件推进：combined 训练自动评估守护已启动**，训练完成后自动在34帧val集推理+eval_comprehensive输出省赛综合精度（与91.07%基线同口径），无需人工值守。
+
+**训练状态汇总：**
+| 训练 | 状态 | 关键指标 |
+|---|---|---|
+| 7cls 蒸馏版 | ✅ ep75/75 | best mAP50=0.7879@ep56 |
+| aerial_field_7cls_local | ⛔ 已停 ep47/60 | best mAP50=0.6795@ep13（综合89.19%失败） |
+| aerial_field_7cls_car_aug | ⛔ 已停 ep6/50 | mAP50=0.64（数据集含假阳性风险被放弃） |
+| aerial_field_7cls_car_up | ⛔ 已停 ep10/40 | best mAP50=0.656@ep4 |
+| aerial_field_7cls_v2 | ⛔ 已停 ep25/80 | best mAP50=0.649@ep6（19epoch无提升，主动停止） |
+| **aerial_field_7cls_combined** | 🟡 **ep12/60** | **best mAP50=0.6385@ep9**（自06:45运行中，2087 train含obstacle+arrow CP） |
+
+**本轮非硬件推进（服务 M0-3 省赛95%硬指标）：**
+1. **新增 `tools/ml/_watch_eval_combined.py` 自动评估守护**
+   - 监控 combined 训练 results.csv，训练完成（ep60/60 或进程退出）后自动：
+     1. 用 best.pt 在原始 7cls val 集（34 帧，与 91.07% 基线同口径）推理生成 YOLO 预测标签
+     2. 运行 `eval_comprehensive.py` 输出省赛综合识别精度（含各类 TP/FP/FN、距 95% 差距）
+   - 已后台启动，日志 `logs/7cls_combined_watch_eval.log`，已确认检测到 ep12/60
+   - **价值**：combined 训练完成后立即获得综合精度，第一时间判断是否达标 95%
+2. **代码base健康**：`pytest tests/` 144 passed, 1 skipped in 28.05s（无回归）
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（**综合精度91.07%，距95%差3.93pp**；7cls_combined训练ep12/60进行中+自动评估守护已启动）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. 7cls_combined 本地训练进行中（ep12/60，ETA ~13:45），自动评估守护已就位，训练完成即出综合精度
+
+---
+
 ## [经理→全体] 2026-10-13 07:03 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**训练已切换：obstacle_aug → 7cls_combined(ep2/60)**。当前运行 `_train_7cls_combined.py`，2087 train/541 val（含mine+obstacle+arrow CP+car样本），类别分布obstacle=6324/arrow=1823/target_blue=1867，从aerial_field_finetuned_v2 best.pt训练，直接根治obstacle FN=30+arrow召回低两大瓶颈。
