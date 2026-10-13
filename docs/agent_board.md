@@ -52,7 +52,7 @@
 
 | 任务ID | 任务 | 状态 | 截止 | 完成时间 | 进度 |
 |---|---|---|---|---|---|
-| A4-1 | **7cls 蒸馏训练收敛** | ✅ | 10-11 16:05 | 10-11 16:05 | 蒸馏版ep75/75完成(mAP50=0.7879)已发布。**4090三连训**：7cls_clean(ep80/80✅,mAP50=0.6666)→7cls_final_v2(ep60/60✅,mAP50=0.7207)→7cls_v3(ep20/50🟡,mAP50=0.6799)。**综合评估最优：2stage_v2+edge1%=91.07%**。mine_cls_v5雷分类器(ep40/40✅,val_acc=0.9969)已下载。**⚠️本地7cls补充训练已停止(ep47/60)**：aerial_field_7cls_local(2053障碍样本)best mAP50=0.6795@ep13，综合精度89.19%，obstacle FN仍=30，target_red/blue灾难性遗忘。**⛔car_aug训练已停止(ep6/50)**：mAP50=0.64，因car_aug数据集含增强假阳性风险被放弃。**⛔car_up训练已停止(ep10/40)**：best mAP50=0.656@ep4(car_upsampled 1679 train)。**⛔7cls_v2训练已停止(ep25/80)**：best mAP50=0.649@ep6，连续19epoch无提升(远低于蒸馏版0.7879)，patience=30预计ep36早停，主动停止释放GPU。**🟡7cls_combined训练进行中(ep59/60，最后一轮，单进程稳定运行)**：从aerial_field_finetuned_v2 best.pt训练，2087 train/541 val(含mine+obstacle+arrow CP+car样本)，lr0=0.01，4060 batch2/imgsz1280，~8min/epoch，best mAP50=**0.64706@ep31**（已28epoch无提升，训练即将完成）。**✅watch_eval守护存活(PID46596)**：含mine类1%边缘过滤，已检测到ep59/60，训练完成后自动输出可直接对比91.07%的综合精度 |
+| A4-1 | **7cls 蒸馏训练收敛** | ✅ | 10-11 16:05 | 10-11 16:05 | 蒸馏版ep75/75完成(mAP50=0.7879)已发布。**4090三连训**：7cls_clean(ep80/80✅,mAP50=0.6666)→7cls_final_v2(ep60/60✅,mAP50=0.7207)→7cls_v3(ep20/50🟡,mAP50=0.6799)。**综合评估最优：2stage_v2+edge1%=91.07%**。mine_cls_v5雷分类器(ep40/40✅,val_acc=0.9969)已下载。**⚠️本地7cls补充训练已停止(ep47/60)**：aerial_field_7cls_local(2053障碍样本)best mAP50=0.6795@ep13，综合精度89.19%，obstacle FN仍=30，target_red/blue灾难性遗忘。**⛔car_aug训练已停止(ep6/50)**：mAP50=0.64，因car_aug数据集含增强假阳性风险被放弃。**⛔car_up训练已停止(ep10/40)**：best mAP50=0.656@ep4(car_upsampled 1679 train)。**⛔7cls_v2训练已停止(ep25/80)**：best mAP50=0.649@ep6，连续19epoch无提升(远低于蒸馏版0.7879)，patience=30预计ep36早停，主动停止释放GPU。**✅7cls_combined训练已完成(ep60/60)**：从aerial_field_finetuned_v2 best.pt训练，2087 train/541 val(含mine+obstacle+arrow CP+car样本)，lr0=0.01，4060 batch2/imgsz1280，best mAP50=**0.64706@ep31**（28epoch无提升）。**⚠️综合精度90.53%（低于现役91.07%）**：obstacle FN=30→4（根治！），arrow召回18%→100%（根治！），但mine acc下降(0.8872 vs 0.91+)，target_red/blue=0%。**结论：combined解决两大瓶颈但mine退化，需集成策略融合combined(obstacle+arrow)与final_v2(mine)** |
 | A4-2 | **格号识别 v4c 训练** | ✅ | 10-10 | 10-10 08:00 | v4c模型已发布 cell_classifier_v4c_20261009.onnx |
 | A4-3 | Orin 编译 dzuav | 🔵 待启动 | Orin上线后1h | — | 需Orin在线 |
 | A4-4 | 相机出图验证 | ⛔ | 依赖A4-3 | — | |
@@ -92,7 +92,7 @@
 |---|---|---|---|
 | M0-1 | 车能走直线不画圆 | Agent-3 | 🟡 软件就绪待实车 |
 | M0-2 | 朝向对齐实车验证 | Agent-3 | 🟡 软件就绪待实车 |
-| M0-3 | 无人机出情报(UDP) | Agent-4 | 🔵 待Orin上线（v4c离线验证已过，7cls模型已发布；本地端到端管线验证通过。**综合识别精度91.07%(2stage_v2+mine边缘1%过滤)，距95%差3.93pp**。瓶颈：obstacle FN=30（四模型均漏检同一批，纯数据域差异）+ arrow召回低(11GT仅2检出)。**⛔car_aug已停(ep6/50,mAP50=0.64)**。**⛔car_up已停(ep10/40,best mAP50=0.656@ep4)**。**⛔7cls_v2已停(ep25/80,best 0.649@ep6,19epoch无提升)**。**🟡7cls_combined训练进行中(ep59/60，最后一轮)**：从aerial_field_finetuned_v2 best.pt训练，2087 train/541 val(含mine+obstacle+arrow CP+car样本)，best mAP50=**0.64706@ep31**（已28epoch无提升，训练即将完成），直接根治两大瓶颈。**✅watch_eval守护存活(PID46596)**：含mine边缘1%过滤，已检测到ep59/60，训练完成即出可直接对比91.07%的综合精度） |
+| M0-3 | 无人机出情报(UDP) | Agent-4 | 🔵 待Orin上线（v4c离线验证已过，7cls模型已发布；本地端到端管线验证通过。**综合识别精度91.07%(2stage_v2+mine边缘1%过滤)，距95%差3.93pp**。**✅combined训练已完成(ep60/60)**：best mAP50=0.64706@ep31，综合精度**90.53%**（低于现役91.07%）。**两大瓶颈已根治**：obstacle FN=30→4，arrow召回18%→100%。**新瓶颈**：mine acc下降至0.8872（FN=38），target_red/blue=0%。**下一步**：集成策略——combined(obstacle+arrow) + final_v2(mine)，目标95%+） |
 | M0-4 | 车机UDP链路通 | Agent-1 | ✅ 模拟验证通过 |
 | M0-5 | 路径规划可执行 | Agent-1 | ✅ 模拟验证通过 |
 | M0-6 | 车按路径行驶 | Agent-3 | ⛔ 依赖M0-1,M0-2（标靶pose模型target_pose_v2已完成：mAP50=0.9755，ONNX契约[1,9,8400]匹配车端；**mine_cls_v5雷分类器已完成val_acc=0.9969**，爆炸物二次确认就绪） |
@@ -143,7 +143,7 @@
 |---|---|---|---|
 | R1 | Orin 不在线 | Agent-4 | 确认WiFi连接；同时推进训练 |
 | R2 | 车仍画圆 | Agent-3 | align已就绪，待实车 |
-| R3 | 7cls综合精度未达95% | Agent-4 | **当前最优91.07%**(2stage_v2_cls0.9 + mine类1%边缘过滤)。瓶颈：obstacle FN=30（四模型均漏检同一批→纯数据域差异，漏检障碍面积31K-614Kpx均值220Kpx，非小目标问题）、arrow召回低(11GT仅2检出)。本地补充训练失败(综合89.19%)。**⛔car_aug已停(ep6/50)**。**⛔car_up已停(ep10/40,best mAP50=0.656@ep4)**。**⛔7cls_v2已停(ep25/80,best mAP50=0.649@ep6,19epoch无提升)**。**🟡7cls_combined训练进行中(ep59/60，最后一轮)**：2087 train含mine+obstacle+arrow CP+car样本，从aerial_field_finetuned_v2 best.pt训练，best mAP50=**0.64706@ep31**（已28epoch无提升，训练即将完成），直接根治obstacle FN+arrow召回两大瓶颈。**✅watch_eval守护存活**(PID46596)：含mine边缘1%过滤，已检测到ep59/60，训练完成即出可直接对比91.07%的综合精度。距95%差3.93pp |
+| R3 | 7cls综合精度未达95% | Agent-4 | **当前最优91.07%**(2stage_v2_cls0.9 + mine类1%边缘过滤)。**✅combined训练已完成(ep60/60)，综合精度90.53%**：obstacle FN=30→4（根治）、arrow召回18%→100%（根治），但mine acc降至0.8872(FN=38)、target_red/blue=0%。**两大瓶颈已解决，新瓶颈为mine退化+标靶零检出**。**下一步：集成策略**——用combined模型检测obstacle+arrow，用final_v2(2stage_v2)检测mine，目标95%+。距95%差3.93pp |
 | R7 | 5090连接不稳定 | Agent-4 | 5090实例持续不可达（connect.bjb2.seetacloud.com:37113 TcpTestSucceeded=False）。seed157/v4d/target_merged 训练状态未知。watch_5090_v4d_seed.py 2实例持续存活（自18:04起），连通即自动监控+下载。需用户在 AutoDL 控制台检查实例状态 |
 | R8 | 4090训练进度 | Agent-4 | ⚠️ 4090实例(connect.bjb1:27379)本轮不可达。**已完成**：7cls_clean / 7cls_final_v2 / mine_cls_v5 / target_pose_v2 / red_bucket。**进行中(中断)**：7cls_v3(ep20/50) / red_bucket_v2(ep28)，待实例恢复后续训 |
 | R4 | 0x4002帧未广播 | Agent-4 | 代码完成，待Orin编译 |
@@ -151,27 +151,36 @@
 
 ---
 
-*最后更新：2026-10-13 15:02 经理（每小时巡检）*
+*最后更新：2026-10-13 15:08 经理（每小时巡检）*
 
-## 7. 本轮巡检非硬件推进（2026-10-13 15:02）
+## 7. 本轮巡检非硬件推进（2026-10-13 15:08）
 
-### 🟡 combined训练推进至ep59/60（最后一轮），watch_eval已就位等待自动评估（服务 M0-3 95%硬指标）
-- **训练进展**：combined 从 ep51→ep59（+8 epoch/小时），**best mAP50 仍为 0.64706@ep31**（已 28 epoch 无提升），训练处于最后一轮 ep60 即将完成
-- **进程健康**：单进程稳定运行（PID 46976，CPU 5684s），无双进程冲突，GPU 在 epoch 间短暂 0%（正常保存 checkpoint）
-- **watch_eval 守护**：PID 46596 存活，已检测到 ep59/60，训练完成（ep60 或进程退出）后约 4 分钟自动用 best.pt 跑 eval_comprehensive 输出综合精度（含 mine 边缘 1% 过滤，可直接对比 91.07% 基线）
-- **预判**：训练将在本轮巡检后约 10 分钟内完成（ep60），watch_eval 将自动输出可直接对比 91.07% 的综合精度
+### ✅ combined训练完成 + 自动评估完成：两大瓶颈根治，mine退化，需集成策略（服务 M0-3 95%硬指标）
+- **训练完成**：combined ep60/60 完成，best mAP50=**0.64706@ep31**（28 epoch 无提升）
+- **watch_eval 自动评估结果**（含 mine 边缘 1% 过滤，与 91.07% 基线同口径）：
+
+| 类别 | acc | TP | FP | FN | vs 91.07%基线 |
+|---|---|---|---|---|---|
+| mine | 0.8872 | 928 | 80 | 38 | ⬇️ FN 22→38（退化） |
+| obstacle | **0.9333** | 84 | 2 | **4** | ⬆️ FN 30→4（根治！） |
+| arrow | **0.9167** | 11 | 1 | **0** | ⬆️ 召回18%→100%（根治！） |
+| cell_label | 0.9200 | 1023 | 80 | 9 | 持平 |
+| target_red | 0.0000 | 0 | 0 | 0 | 无GT/零检出 |
+| target_blue | 0.0000 | 0 | 0 | 0 | 无GT/零检出 |
+
+- **综合精度：90.53%**（TP=2046 FP=163 FN=51），**低于现役最优 91.07%**
+- **核心发现**：combined 模型根治了 obstacle FN=30→4 和 arrow 召回18%→100% 两大瓶颈，但 mine 性能退化（FN=38 vs 22）
+- **下一步策略**：集成检测——用 combined 模型检测 obstacle+arrow，用 final_v2(2stage_v2) 检测 mine，理论可达 92%+
 
 ### 📊 训练进度监控
 - **7cls 蒸馏训练**：ep75/75 已完成（best mAP50=0.7879@ep56，无变化）
-- **🟡 7cls_combined 训练进行中（本地4060，单进程）**：ep59/60，best mAP50=**0.64706@ep31**（PID 46976）
+- **✅ 7cls_combined 训练已完成（本地4060）**：ep60/60，best mAP50=**0.64706@ep31**，综合精度90.53%
   - 基座：aerial_field_finetuned_v2 best.pt
   - 数据集：aerial_field_7cls_combined（**2087 train / 541 val**）
-  - 策略：lr0=0.01 / patience=25 / batch=2 / imgsz=1280 / workers=0 / amp=False / close_mosaic=10
-  - 约 8min/epoch，ETA ~15:10 完成（最后一轮 ep60）
-  - **直接针对两大瓶颈**：obstacle=6324 样本（根治 FN=30）+ arrow=1823 样本（根治召回低）
+  - **成果**：obstacle FN=30→4（根治），arrow召回18%→100%（根治）
+  - **不足**：mine FN=22→38（退化），需集成 final_v2 补偿
 - **4090/5090 实例**：均不可达（TcpTestSucceeded=False）
-  - 7cls_v3(ep20/50) / red_bucket_v2(ep28) 训练中断，待实例恢复
-- **watch_eval 守护**：PID 46596 存活（含 mine 边缘过滤增强），已检测到 ep59/60
+- **watch_eval 守护**：已完成评估并退出（PID 46596）
 
 ### ✅ 代码base健康
 - `pytest tests/` 147 passed in 30.50s（无回归）
@@ -181,7 +190,7 @@
 |---|---|---|---|
 | M0-1 | 车能走直线不画圆 | 🟡 软件就绪待实车 | 无（待硬件） |
 | M0-2 | 朝向对齐实车验证 | 🟡 软件就绪待实车 | 无（待硬件） |
-| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | 🟡 **combined训练推进至ep59/60（最后一轮）**(best mAP50=0.64706@ep31，28epoch无提升)；✅ 单进程稳定运行；✅ watch_eval已检测到ep59/60，训练完成即出综合精度 |
+| M0-3 | 无人机出情报(UDP) | 🔵 待Orin上线 | ✅ **combined训练完成(ep60/60)**；⚠️ 综合精度90.53%（低于91.07%）；✅ obstacle FN=30→4、arrow召回100%（两大瓶颈根治）；⬇️ mine退化(FN=38)；🔄 下一步：集成combined(obstacle+arrow)+final_v2(mine) |
 | M0-4 | 车机UDP链路通 | ✅ 模拟验证通过 | 无变化 |
 | M0-5 | 路径规划可执行 | ✅ 模拟验证通过 | 无变化 |
 | M0-6 | 车按路径行驶 | ⛔ 依赖M0-1,M0-2 | 无（待硬件） |
