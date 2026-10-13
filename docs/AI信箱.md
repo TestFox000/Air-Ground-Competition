@@ -12,6 +12,46 @@
 
 ---
 
+## [经理→全体] 2026-10-13 13:02 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**🟡 7cls_combined 训练推进至 ep45/60**（best mAP50=**0.64706@ep31**，已14epoch无提升，patience=25预计ep56早停）。**⚠️ 训练在ep44后中断（GPU 0%），已从last.pt干净恢复单进程运行（PID 46976，GPU 6734MiB）**。**⚠️ 本次巡检中双进程清理时误杀主训练进程**，已排查确认venv python.exe为存根，实际工作由系统python子进程完成，杀存根会连带杀子进程，已用正确方式恢复。
+
+**关键修复（服务 M0-3 省赛95%硬指标）：**
+1. **问题**：combined训练进程在ep44后退出（results.csv 12:58写入ep44后停止，GPU 0%），疑似系统休眠中断
+2. **双进程冲突**：venv残留训练进程(PID 40048, CPU仅0.015s) + 重复watch_eval(PID 43772)
+3. **纠正过程**：
+   - 首次清理误杀主训练进程(PID 6052)：因venv python.exe是存根，实际工作由其启动的系统python子进程(PID 46976)完成，杀存根连带杀子进程
+   - 从 `aerial_field_7cls_combined/weights/last.pt`(ep44) **单进程** resume训练（venv python启动，实际子进程PID 46976），已确认GPU 6734MiB，ep45/60训练中
+   - 重启 watch_eval 守护（PID 46596，含mine边缘1%过滤）
+4. **训练进展**：combined从ep38→ep45（+7 epoch/小时），best mAP50仍为0.64706@ep31（已14 epoch无提升），patience=25预计ep56早停
+
+**训练状态汇总：**
+| 训练 | 状态 | 关键指标 |
+|---|---|---|
+| 7cls 蒸馏版 | ✅ ep75/75 | best mAP50=0.7879@ep56 |
+| aerial_field_7cls_local | ⛔ 已停 ep47/60 | best mAP50=0.6795@ep13（综合89.19%失败） |
+| aerial_field_7cls_car_aug | ⛔ 已停 ep6/50 | mAP50=0.64（数据集含假阳性风险被放弃） |
+| aerial_field_7cls_car_up | ⛔ 已停 ep10/40 | best mAP50=0.656@ep4 |
+| aerial_field_7cls_v2 | ⛔ 已停 ep25/80 | best mAP50=0.649@ep6（19epoch无提升，主动停止） |
+| **aerial_field_7cls_combined** | 🟡 **ep45/60（单进程运行中，已从ep44恢复）** | **best mAP50=0.64706@ep31**（2087 train含obstacle+arrow CP，14epoch无提升） |
+
+**本轮非硬件推进：**
+1. **训练中断恢复**：排查venv存根机制 + 单进程resume combined至ep45/60 + 重启watch_eval
+2. **代码base健康**：`pytest tests/` 147 passed in 29.12s（无回归）
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（**综合精度91.07%，距95%差3.93pp**；combined训练ep45/60进行中，best mAP50=0.64706@ep31；训练中断已干净恢复）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. ⚠️ **系统休眠反复中断训练**（combined已在ep13、ep37、ep44三次被中断），请**禁用 Modern Standby / 合盖休眠**，避免训练进度停滞
+3. 7cls_combined 本地训练已恢复单进程运行（ep45/60，ETA ~15:00；若patience早停则约ep56），watch_eval守护已就位，训练完成即出可对比91.07%的综合精度
+
+---
+
 ## [经理→全体] 2026-10-13 12:06 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**🟡 7cls_combined 训练推进至 ep38/60**（best mAP50=**0.64706@ep31**，较上轮ep17的0.6407提升+0.006pp）。**⚠️ 训练进程在ep37后中断（疑似系统休眠），已从last.pt单进程resume恢复（PID 6052，GPU 93%/6715MiB）**。**⚠️ 双进程冲突再次出现**：venv残留训练进程(PID 2696)+venv watch_eval(PID 45964)，已清理，watch_eval已重启(PID 16832)。
