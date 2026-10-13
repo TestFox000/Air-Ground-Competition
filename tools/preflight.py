@@ -4,6 +4,7 @@
 逐项点亮，绿灯放行、红灯给修法：
 
     python tools/preflight.py          # 本地：模型契约/md5/配置/标定
+    python tools/preflight.py --match  # 本地·比赛模式：dry_run/标定/指针 判为致命
     python tools/preflight.py --car   # 车端(SSH)：包/UDP/黑匣子/检测模型
     python tools/preflight.py --orin  # 机载(SSH)：TRT/引擎/相机/二进制
     python tools/preflight.py --all   # 三端全查
@@ -34,8 +35,9 @@ def report(status: int, msg: str, fix: str = "") -> None:
           + (f"\n      修法: {fix}" if fix and status != PASSED else ""))
 
 
-def check_local() -> None:
-    print("\n===== 本地（发布物 / 配置 / 标定）=====")
+def check_local(match: bool = False) -> None:
+    print("\n===== 本地（发布物 / 配置 / 标定）"
+          + ("  [比赛模式：关键项红灯即禁赛]" if match else "") + " =====")
     rel = REPO / "models" / "release"
 
     # 1. ONNX 契约
@@ -51,7 +53,9 @@ def check_local() -> None:
     for pointer in ("current_hbb_detector", "current_cell_classifier"):
         p = rel / pointer
         if not p.is_file():
-            report(WARN, f"无 {pointer} 指针（orin_convert_engines.sh 会回退旧名）")
+            report(FAILED if match else WARN,
+                   f"无 {pointer} 指针（orin_convert_engines.sh 会回退旧名）",
+                   "确认 models/release/ 下 current_* 指针文件存在且指向本次要上场的模型")
             continue
         target = rel / p.read_text(encoding="utf-8").strip()
         report(PASSED if target.is_file() else FAILED,
@@ -79,7 +83,11 @@ def check_local() -> None:
         report(PASSED, f"match_params.yaml: {data.get('start_cell')}->{data.get('goal_cell')} "
                        f"head={data.get('start_heading')} dry_run={dry}")
         if data.get("dry_run"):
-            report(WARN, "dry_run=true，正式比赛记得改 false", "vim match_params.yaml 后 car_deploy.py")
+            report(FAILED if match else WARN,
+                   "dry_run=true"
+                   + ("（比赛模式致命：车不动=完赛失败，必须改 false）" if match
+                      else "，正式比赛记得改 false"),
+                   "把 src/ag_integrate/config/match_params.yaml 的 dry_run 改 false")
     else:
         report(FAILED, "缺 match_params.yaml")
 
@@ -96,7 +104,10 @@ def check_local() -> None:
                + ("" if same else "，MapLocalizer.cpp 内参与标定不一致！"),
                "python tools/calibrate_camera.py inject")
     else:
-        report(WARN, "尚未做相机标定（PnP 精度根基）", "python tools/calibrate_camera.py board 起")
+        report(FAILED if match else WARN,
+               "尚未做相机标定（PnP 精度根基）"
+               + ("（比赛模式致命：无内参则 PnP 定位不可用）" if match else ""),
+               "python tools/calibrate_camera.py board 起（board→capture→calibrate→inject）")
 
 
 def ssh_run(host, user, password, cmd, port=22, timeout=30):
@@ -197,6 +208,8 @@ def check_orin(args) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--match", action="store_true",
+                    help="比赛模式：dry_run=true / 无标定 / 无 current 指针 判为致命")
     ap.add_argument("--all", action="store_true", help="三端全查")
     ap.add_argument("--car", action="store_true")
     ap.add_argument("--orin", action="store_true")
@@ -208,7 +221,7 @@ def main() -> int:
     ap.add_argument("--ws", default="~/ag_ws", help="车端工作空间")
     args = ap.parse_args()
 
-    check_local()
+    check_local(args.match)
     if args.car or args.all:
         try:
             check_car(args)
@@ -221,7 +234,11 @@ def main() -> int:
         except Exception as exc:
             report(FAILED, f"机载 SSH 连不上: {exc}", "Type-C NCM 连接，确认 192.168.55.1 可 ping")
 
-    print(f"\n{'=' * 40}\n{'有致命项，必须处理！' if bad_total else '全部关键项通过，可以上场。'}")
+    if bad_total:
+        tail = "有致命项，必须处理！" + ("（比赛模式：红灯未清不得上场）" if args.match else "")
+    else:
+        tail = "全部关键项通过，可以上场。" + ("（含比赛模式防呆三项）" if args.match else "")
+    print(f"\n{'=' * 40}\n{tail}")
     return 1 if bad_total else 0
 
 
