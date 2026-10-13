@@ -12,6 +12,43 @@
 
 ---
 
+## [经理→全体] 2026-10-13 11:06 · 每小时巡检
+
+**巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**🟡 7cls_combined 训练推进至 ep29/60**（best mAP50=0.6407@ep17，PID 40952，GPU 94%/6627MiB，单进程稳定运行）。**✅ 本轮非硬件推进：watch_eval 增强 mine 边缘过滤并重启**，训练完成后自动输出的综合精度可直接与 91.07% 基线对比。
+
+**关键改进（服务 M0-3 省赛95%硬指标）：**
+1. **问题**：原 `_watch_eval_combined.py` 推理后直接跑 eval_comprehensive，**未应用 mine 类 1% 边缘过滤**（91.07% 基线的关键 +0.76pp 来源），导致输出的综合精度无法直接对比
+2. **修复**：新增 `_apply_mine_edge_filter()` 函数，推理后过滤中心点距边缘<1%的 mine(cls=0) 检测框，逻辑与 `prelabel_onnx.py::filter_edge_boxes()` 完全一致
+3. **重启守护**：kill 旧 watch_eval(PID 31376) → 启动增强版(PID 45964)，已确认检测到 ep29/60
+4. **价值**：combined 训练完成后自动输出可直接对比 91.07% 的综合精度，第一时间判断是否达标 95%
+
+**训练状态汇总：**
+| 训练 | 状态 | 关键指标 |
+|---|---|---|
+| 7cls 蒸馏版 | ✅ ep75/75 | best mAP50=0.7879@ep56 |
+| aerial_field_7cls_local | ⛔ 已停 ep47/60 | best mAP50=0.6795@ep13（综合89.19%失败） |
+| aerial_field_7cls_car_aug | ⛔ 已停 ep6/50 | mAP50=0.64（数据集含假阳性风险被放弃） |
+| aerial_field_7cls_car_up | ⛔ 已停 ep10/40 | best mAP50=0.656@ep4 |
+| aerial_field_7cls_v2 | ⛔ 已停 ep25/80 | best mAP50=0.649@ep6（19epoch无提升，主动停止） |
+| **aerial_field_7cls_combined** | 🟡 **ep29/60（单进程运行中）** | **best mAP50=0.6407@ep17**（2087 train含obstacle+arrow CP） |
+
+**本轮非硬件推进：**
+1. **watch_eval 增强**：集成 mine 边缘 1% 过滤，与 91.07% 基线同口径
+2. **代码base健康**：`pytest tests/` 147 passed in 29.82s（无回归）
+
+**M0 完赛最小闭环状态：**
+- ✅ M0-4 车机UDP链路 / M0-5 路径规划 / M0-7 赛前检查 已完成
+- 🟡 M0-1 车走直线 / M0-2 朝向对齐 软件就绪待实车
+- 🔵 M0-3 无人机出情报 待 Orin 上线（**综合精度91.07%，距95%差3.93pp**；combined训练ep29/60进行中+watch_eval已增强mine边缘过滤）
+- ⛔ M0-6 车按路径行驶 依赖 M0-1/M0-2
+
+**待用户处理：**
+1. 4090（connect.bjb1:27379）和 5090（connect.bjb2:37113）仍不可达，请前往 AutoDL 控制台检查并重启实例
+2. 7cls_combined 本地训练进行中（ep29/60，ETA ~15:30；若 patience=25 早停则约 ep42，ETA ~13:30），watch_eval 守护已就位，训练完成即出可对比综合精度
+3. ⚠️ 系统休眠可能导致训练进程被杀，建议禁用 Modern Standby / 合盖休眠
+
+---
+
 ## [经理→全体] 2026-10-13 10:09 · 每小时巡检
 
 **巡检结论：** 无其他 Agent 提交活动（git 0/0）。⚠️ 4090/5090 仍不可达。7cls蒸馏训练无变化(ep75/75, best mAP50=0.7879)。**🔴 发现并修复7cls_combined训练双进程冲突**：venv+system两个相同resume进程同时写同一last.pt导致ep21崩溃，已kill残留进程+单进程resume至ep21/60（best mAP50=0.6407@ep17）。训练现以单进程稳定运行（PID 40952，GPU 58%），watch_eval守护已重启（PID 31376）。

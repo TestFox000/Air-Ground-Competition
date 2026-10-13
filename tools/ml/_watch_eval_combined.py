@@ -76,6 +76,36 @@ def is_training_running() -> bool:
         return False
 
 
+def _apply_mine_edge_filter(pred_dir: Path, edge_thr: float = 0.01,
+                            mine_cls: int = 0) -> int:
+    """过滤预测标签中位于图像边缘的 mine(cls=0) 检测框。
+
+    与 91.07% 基线同口径：mine 类 81.5% FP 集中在边缘 1% 区域（letterbox
+    填充伪影），过滤后综合精度 +0.76pp。
+
+    Returns: 移除的框数。
+    """
+    removed = 0
+    for lbl_f in pred_dir.glob("*.txt"):
+        lines = lbl_f.read_text(encoding="utf-8").strip().splitlines()
+        kept = []
+        for line in lines:
+            if not line.strip():
+                continue
+            parts = line.split()
+            cls = int(parts[0])
+            if cls != mine_cls:
+                kept.append(line)
+                continue
+            cx, cy = float(parts[1]), float(parts[2])
+            if cx < edge_thr or cx > 1 - edge_thr or cy < edge_thr or cy > 1 - edge_thr:
+                removed += 1
+                continue
+            kept.append(line)
+        lbl_f.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+    return removed
+
+
 def run_eval() -> None:
     """推理 + eval_comprehensive。"""
     if not BEST_PT.exists():
@@ -105,8 +135,13 @@ def run_eval() -> None:
         return
     log("推理完成")
 
-    # 2. 综合精度评估（ultralytics save_txt 标签在 {save_dir}/labels/）
+    # 1.5 应用 mine 类 1% 边缘过滤（与 91.07% 基线同口径，净收益 +0.76pp）
     pred_labels = PRED_DIR / "labels"
+    if pred_labels.exists():
+        removed = _apply_mine_edge_filter(pred_labels, edge_thr=0.01)
+        log(f"mine 边缘过滤: 移除 {removed} 个边缘 mine 检测框")
+
+    # 2. 综合精度评估
     log(f"运行 eval_comprehensive.py (pred={pred_labels})")
     eval_cmd = [
         PYTHON, str(EVAL_SCRIPT),
