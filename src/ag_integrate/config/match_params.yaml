@@ -43,3 +43,12 @@ integrate_node:
     target_blue_face: "S"           # 蓝面朝向 S/N(水平轨道)/E/W(垂直轨道)
     # ---- 中途重规划 ----
     replan_on_update: false         # path_executor 换路线行为实车验证后改 true
+    # ---- 时间预算门控（官方硬顶 180s、同分比用时；route_time）----
+    # 规划出解后折算预估执行秒数；超软预算且有射击位时砍射击停靠重规划
+    # （打击带 −5 误击风险，是唯一可砍任务；纯排雷链超预算只报警不砍雷）。
+    # 以下四个是占位保守值，实车标定（直行速度/加减速/射击停靠）后回填。
+    time_soft_cap_s: 165.0          # 软预算 s（留 15s 余量）；<=0 关闭门控
+    time_cruise_mps: 0.25           # 巡航速度 m/s
+    time_accel_overhead_s: 0.4      # 每条直线段的加减速附加 s
+    time_mine_slow_s: 0.6           # 过雷格的减速附加 s
+    time_shoot_stop_s: 4.0          # 每射击位：停靠+瞄准+开火+确认 s

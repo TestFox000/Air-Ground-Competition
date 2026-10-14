@@ -88,6 +88,15 @@ class IntegrateNode(Node):
         # 行为未验证（从头执行？当前段接续？），实车确认前保持一次性规划。
         # 置 true 后：态势变化导致路线变化时自动重发新路线。
         self.declare_parameter("replan_on_update", False)
+        # ---- 时间预算门控（route_time，官方硬顶 180s、同分比用时）----
+        # 规划出解后折算执行秒数；超软预算且有射击位时砍射击停靠重规划
+        # （打击是唯一带 −5 负分风险的可砍任务）。参数是占位值，
+        # 实车标定（直行速度/加减速/射击停靠）后回填 match_params.yaml。
+        self.declare_parameter("time_soft_cap_s", 165.0)   # 软预算秒数；<=0 关闭门控
+        self.declare_parameter("time_cruise_mps", 0.25)    # 巡航速度 m/s
+        self.declare_parameter("time_accel_overhead_s", 0.4)  # 每直线段加减速附加 s
+        self.declare_parameter("time_mine_slow_s", 0.6)    # 过雷格减速附加 s
+        self.declare_parameter("time_shoot_stop_s", 4.0)   # 每射击位停靠+瞄准+开火 s
         # 态势矩阵输出（教员建议的矩阵形式）：
         # 每收到一帧识别结果，把爆炸物/障碍物/靶等落成 11×14 场地矩阵并
         # 打印精确坐标明细。可靠性设计：
@@ -127,6 +136,14 @@ class IntegrateNode(Node):
         bf = str(p("target_blue_face")).strip().upper()
         self.target_blue_face = bf if bf in ("S", "N", "E", "W") else None
         self.replan_on_update = bool(p("replan_on_update"))
+        self.time_soft_cap_s = float(p("time_soft_cap_s"))
+        from .route_time import RouteTimeParams
+        self._time_params = RouteTimeParams(
+            cruise_mps=float(p("time_cruise_mps")),
+            accel_overhead_s=float(p("time_accel_overhead_s")),
+            mine_slow_s=float(p("time_mine_slow_s")),
+            shoot_stop_s=float(p("time_shoot_stop_s")),
+        )
         self.matrix_log = bool(p("matrix_log"))
         self._matrix_sig: tuple | None = None  # 上次打印的矩阵签名
         self._matrix_last_ts: float = -1e9     # 上次打印时刻（节流）
@@ -408,13 +425,28 @@ class IntegrateNode(Node):
             self.cross_gates, self.mid_boundary,
             target_track=self.target_track,
             target_blue_face=self.target_blue_face,
+            time_params=self._time_params,
+            soft_cap_s=self.time_soft_cap_s,
         )
         if commands.route == self.last_route:
             return
         self.last_route = commands.route
+        # 时间预算门控结果：砍射击位 / 超硬顶都要显眼
+        if commands.shed_shooting:
+            self.get_logger().warning(
+                f"路线超软预算 {self.time_soft_cap_s:.0f}s，已砍射击位重规划: "
+                f"预估 {commands.est_seconds:.0f}s"
+            )
+        elif commands.est_seconds > 180.0:
+            self.get_logger().error(
+                f"纯排雷链预估 {commands.est_seconds:.0f}s 已超 180s 硬顶——"
+                f"完赛无望，请人工压缩任务"
+            )
         self._blog(EV.PLAN_BUILT, reset=commands.reset, route=commands.route,
                    shoot=",".join(commands.shoot_cells),
-                   heading=start_heading)
+                   heading=start_heading,
+                   est_s=round(commands.est_seconds, 1),
+                   shed=commands.shed_shooting)
 
         if self.dry_run:
             self.get_logger().info(

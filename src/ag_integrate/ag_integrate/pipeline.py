@@ -40,12 +40,20 @@ def build_mission(
     *,
     target_track: tuple[str, str] | None = None,
     target_blue_face: str | None = None,
+    time_params: "RouteTimeParams | None" = None,
+    soft_cap_s: float | None = None,
 ) -> CarCommands:
     """态势 -> reset + route 两条命令。
 
     target_track/target_blue_face：移动靶（全场仅一个）的轨道两端格号与
     蓝面朝向。这是裁判系统每局固定的先验，无人机只识别瞬时哪面可见，
     因此由本节点参数注入，而不是从识别帧推导。
+
+    时间预算门控（soft_cap_s 传入才启用，官方硬顶 180s、同分比用时）：
+    规划出解后用 route_time.estimate_seconds 折算执行秒数（写入
+    commands.est_seconds）；超软预算且有射击位时，砍掉射击停靠重规划
+    （打击是唯一带 −5 负分风险的可砍任务），并置 commands.shed_shooting。
+    纯排雷链超预算不自动砍雷——少排几颗雷是人的决策，不是规划器的。
     """
     start = _parse_name(start_cell)
     goal = _parse_name(goal_cell)
@@ -56,7 +64,36 @@ def build_mission(
         snapshot, start, goal, gates, mid_boundary,
         start_heading=start_heading, final_heading=final_heading,
     )
-    return adapt(snapshot, ordered, start_cell, start_heading, final_heading)
+    commands = adapt(snapshot, ordered, start_cell, start_heading, final_heading)
+
+    if soft_cap_s is None or soft_cap_s <= 0:
+        return commands
+
+    from .route_time import RouteTimeParams, estimate_seconds
+    params = time_params or RouteTimeParams()
+    mine_names = {c.name for c in snapshot.mines}
+    est = estimate_seconds(ordered, shoot_cells=commands.shoot_cells,
+                           mine_cells=mine_names, params=params)
+    commands = replace(commands, est_seconds=est.seconds)
+    if est.seconds <= soft_cap_s or not commands.shoot_cells:
+        return commands
+
+    # 超软预算：砍射击位重规划（靶格物理仍在、仍不可踩，只是不停靠开火）
+    shed_snapshot = replace(snapshot, targets=tuple(
+        replace(t, is_blue=False) for t in snapshot.targets))
+    try:
+        ordered2 = plan_route(
+            shed_snapshot, start, goal, gates, mid_boundary,
+            start_heading=start_heading, final_heading=final_heading,
+        )
+    except ValueError:
+        return commands   # 同一地图可达性不变，理论上不会到这里；防御性保底
+    commands2 = adapt(shed_snapshot, ordered2, start_cell, start_heading, final_heading)
+    est2 = estimate_seconds(ordered2, shoot_cells=commands2.shoot_cells,
+                            mine_cells=mine_names, params=params)
+    if est2.seconds < est.seconds:
+        return replace(commands2, est_seconds=est2.seconds, shed_shooting=True)
+    return commands
 
 
 def _inject_track(
