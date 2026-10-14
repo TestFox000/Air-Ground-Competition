@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import heapq
+import warnings
 from itertools import count, product
 from math import gcd
 
@@ -39,10 +40,13 @@ _DIRS = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1))
 _HEADING_IDX = {"x": 0, "y": 6}
 _ALL_HEADINGS = tuple(range(8))
 
-# 中场横向挡板：位于第6行与第7行的边界线上（row5↔row6 之间），
-# 向上占第6行底部1/4、向下占第7行顶部1/4，总高半格。
-# 第6行、第7行格子本身可通行，但跨边界的竖向移动被阻挡，桥洞缺口除外。
-_MID_BOUNDARY = 6  # row5(第6行) ↔ row6(第7行) 之间
+# 中场横向挡板：位于第5行与第6行的边界线上（row4↔row5 之间），
+# 半场划分 A段=第1~5行 / B段=第6~11行（接手说明 §5.7：桥洞 A段 K1~K5、B段 K6~K11）。
+# 决定性证据：比赛配置 goal=N6 + final_heading=y（朝北到达 N6 须经 N7→N6，
+# N 列在挡板列内）只在 mid_boundary=5 下可行——=6 时该配置在空地图上即不可达。
+# 若现场核对挡板实际在第6/7行边界，改 match_params.yaml 的 mid_boundary 即可
+# （三处口径由 test_field_config_consistency 锁死，yaml/节点/本常量须同步）。
+_MID_BOUNDARY = 5  # row4(第5行) ↔ row5(第6行) 之间
 
 # 横向挡板覆盖 D(3)~N(13) 列，A、B、C 列无挡板可自由穿越。
 # 桥洞列由 passable（ARROW）动态确定，每局随机。
@@ -355,8 +359,14 @@ def _assemble(
     turn_45: float,
     allow_diagonal: bool,
     cache: dict | None = None,
+    fallback_any_heading: bool = False,
 ) -> tuple[tuple[str, ...] | None, float]:
-    """按给定顺序逐段拼接（真实朝向链 + 顺路避让），返回 (路线, 真实总代价)。"""
+    """按给定顺序逐段拼接（真实朝向链 + 顺路避让），返回 (路线, 真实总代价)。
+
+    fallback_any_heading：终点朝向约束（h_final）物理不可达时
+    （例：终点格是口袋入口，朝向到达须先踩终点），允许以任意朝向进终点——
+    放弃终点朝向分，保住完赛。严格模式（False）下不可达即整段返回 None。
+    """
     used: set[CellRef] = {nodes[0]}
     segments: list[list[CellRef]] = []
     total = 0.0
@@ -371,6 +381,8 @@ def _assemble(
         total += c
         cur, entry = w, (h,)
     seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, h_final, turn_45, allow_diagonal, cache)
+    if seg is None and fallback_any_heading and h_final is not None:
+        seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal, cache)
     if seg is None:
         return None, _INF
     segments.append(seg)
@@ -393,8 +405,10 @@ def _plan_core(
 ) -> tuple[tuple[str, ...], float]:
     """给定障碍集与必经点，输出（最优路线, 真实总代价）。"""
     dist0, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
-    if _arrival_state(dist0, goal, h_final)[0] >= _INF:
+    if _arrival_state(dist0, goal, None)[0] >= _INF:
         raise ValueError("goal cell unreachable from start")
+    # 注意：可达性检查必须按"任意朝向"——朝向到达不可行由拼装层降级兜底，
+    # 若在此按 h_final 判不可达，会把"丢 5 分朝向"误升级成"整局崩溃"。
 
     # 剔除不可达必经点（与旧语义一致：跳过）；nodes[0] 恒为起点。
     nodes = [start] + [c for c in required.values() if _arrival_state(dist0, c, None)[0] < _INF]
@@ -415,6 +429,11 @@ def _plan_core(
             if j != i:
                 W[i][j] = _arrival_state(dists[i], nodes[j], None)[0]
     dgoal = [_arrival_state(dists[i], goal, h_final)[0] for i in range(n + 1)]
+    if h_final is not None and all(d >= _INF for d in dgoal):
+        # 终点朝向到达全局不可行（口袋地形）：TSP 排序改用任意朝向界，
+        # 朝向降级由拼装层兜底——否则 dgoal 全 INF 会导致回溯出空顺序，
+        # 退化成"起点直奔终点、跳过全部雷"的灾难路线。
+        dgoal = [_arrival_state(dists[i], goal, None)[0] for i in range(n + 1)]
 
     # Held-Karp：dp[mask][i] = 从起点出发、恰好经过 mask 集合内的必经点、
     # 当前停在必经点 i 的最少总代价（必经点编号 0..n-1 对应 nodes[1..n]）。
@@ -469,7 +488,29 @@ def _plan_core(
         # 真实代价达到乐观下界且零重复，不可能更好了
         if best_cost_true <= best_cost + _EPS and best_dup == 0:
             break
-    assert best_route is not None  # 保底顺序必然可拼接
+    if best_route is None and h_final is not None:
+        # 终点朝向到达物理不可行（如终点格是口袋入口，朝向到达须先踩终点）。
+        # 降级：任意朝向进终点——放弃终点朝向分，保住完赛（崩溃 = 整局 0 分）。
+        warnings.warn(
+            f"goal {goal.name} 以朝向到达不可行，降级为任意朝向进终点"
+            "（终点朝向 5 分不保）",
+            RuntimeWarning, stacklevel=3,
+        )
+        for order in candidates[:64]:
+            route, cost_true = _assemble(
+                order, nodes, goal, blocked, cross_gates, mid_boundary,
+                entry0, h_final, turn_45, allow_diagonal, cache,
+                fallback_any_heading=True,
+            )
+            if route is None:
+                continue
+            dup = len(route) - len(set(route))
+            key_better = cost_true < best_cost_true - _EPS or (
+                abs(cost_true - best_cost_true) <= _EPS and dup < best_dup
+            )
+            if best_route is None or key_better:
+                best_route, best_cost_true, best_dup = route, cost_true, dup
+    assert best_route is not None  # 保底顺序必然可拼接（终点朝向不可达时已降级）
     return best_route, best_cost_true
 
 
@@ -586,6 +627,10 @@ def plan_route(
     )
     # 桥洞可通行格优先于桥洞墙（同一格不可能既是缺口又是墙）。
     blocked = frozenset(c for c in blocked if c.name not in passable_names)
+    # 起点/终点格免疫封锁：车物理上就站在起点，终点是固定方框——
+    # 这两格上的"障碍"只能是误检（边缘误检是 documented 顽疾），
+    # 信任它会让规划器在自家脚下看到一堵墙。
+    blocked = frozenset(c for c in blocked if c != start and c != goal)
 
     # 中场横向挡板的穿越缺口：
     # 1. 挡板范围外的列（A、B、I~N）可自由穿越边界；
@@ -625,6 +670,18 @@ def plan_route(
             cand_lists.append(cands)
         # 无候选 = 该靶被围死无处停靠，跳过（与不可达必经点语义一致）
 
+    # 射击位候选按"起点可达性"预过滤：不可达候选直接移出组合枚举。
+    # 否则某组合的候选不可达会被当成"该靶无可停靠"静默跳过，
+    # 可能挤掉另一组合中可达候选的路线——白丢整组打击分。
+    dist0 = None
+    if cand_lists:
+        dist0, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
+        cand_lists = [
+            [c for c in cl if _arrival_state(dist0, c, None)[0] < _INF]
+            for cl in cand_lists
+        ]
+        cand_lists = [cl for cl in cand_lists if cl]
+
     if not cand_lists:
         route, _ = _plan_core(start, goal, blocked, base_required, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
         return route
@@ -636,7 +693,6 @@ def plan_route(
         combos: list[tuple[CellRef, ...]] = list(product(*cand_lists))
     else:
         # 退化：逐靶选离起点最近的候选（大场景保护，实际靶数少不会触发）
-        dist0, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
         combos = [tuple(
             min(cl, key=lambda c: (_arrival_state(dist0, c, None)[0], c.name)) for cl in cand_lists
         )]

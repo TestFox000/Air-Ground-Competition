@@ -54,11 +54,12 @@ def test_unreachable_required_is_skipped_but_goal_reached():
 
 
 def test_goal_unreachable_raises():
-    start = CellRef(0, 0)             # A1
-    goal = CellRef(1, 0)              # B1
-    # 封死 A1 唯二的出路 B1 / A2
-    wall = [obj(CellRef(1, 0), ObjectType.OBSTACLE),
-            obj(CellRef(0, 1), ObjectType.OBSTACLE)]
+    start = CellRef(1, 1)             # B2
+    goal = CellRef(0, 0)              # A1（角落格，唯二出路 A2/B1）
+    # 封死 A1 的出路 A2 / B1（注意：直接给目标格标障碍已不触发不可达——
+    # 起终点格对封锁免疫，那里的障碍报告按误检处理，见 test_router_robustness）
+    wall = [obj(CellRef(0, 1), ObjectType.OBSTACLE),
+            obj(CellRef(1, 0), ObjectType.OBSTACLE)]
     snap = make_snapshot(wall)
     with pytest.raises(ValueError):
         plan_route(snap, start, goal)
