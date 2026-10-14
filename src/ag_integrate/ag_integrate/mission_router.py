@@ -48,6 +48,45 @@ _MID_BOUNDARY = 6  # row5(第6行) ↔ row6(第7行) 之间
 # 桥洞列由 passable（ARROW）动态确定，每局随机。
 _BARRIER_COLS: frozenset[int] = frozenset(range(3, COLS))  # D..N
 
+# ---- 静态几何表（模块级一次性构建）：整数编码 (格, 航向) 状态空间 ----
+# 格索引 ci = row*COLS + col；状态索引 si = ci*8 + h。
+# Dijkstra 内循环只碰整数与预构边表，不再逐邻居构造 CellRef/元组哈希
+# （2026-10-14 沙箱审计：旧实现单次 ~60ms，其中大半是 CellRef.__init__/__hash__）。
+_N_CELLS = ROWS * COLS
+_CELLS: tuple[CellRef, ...] = tuple(
+    CellRef(c, r) for r in range(ROWS) for c in range(COLS)
+)
+# 8×8 航向差（几个 45°）查表
+_TURNS: tuple[tuple[int, ...], ...] = tuple(
+    tuple(min(abs(a - b), 8 - abs(a - b)) for b in range(8)) for a in range(8)
+)
+
+
+def _build_edges() -> tuple[tuple[tuple[int, int, float, bool, int, int, int, int], ...], ...]:
+    """_EDGES[ci] = ((n_ci, nh, step, diag, o1_ci, o2_ci, dr, n_row), ...)
+
+    o1/o2 为对角移动防切角的两侧正交格（非对角时为 -1）；dr/n_row 供中场
+    挡板跨界判定（mid_boundary 是运行期参数，不能烧进表里）。
+    """
+    edges = []
+    for r in range(ROWS):
+        for c in range(COLS):
+            lst = []
+            for nh, (dc, dr) in enumerate(_DIRS):
+                nc, nr = c + dc, r + dr
+                if not (0 <= nc < COLS and 0 <= nr < ROWS):
+                    continue
+                diag = dc != 0 and dr != 0
+                o1 = r * COLS + nc if diag else -1   # (nc, r)
+                o2 = nr * COLS + c if diag else -1   # (c, nr)
+                lst.append((nr * COLS + nc, nh, _SQRT2 if diag else 1.0,
+                            diag, o1, o2, dr, nr))
+            edges.append(tuple(lst))
+    return tuple(edges)
+
+
+_EDGES = _build_edges()
+
 
 def _turn_units(h1: int, h2: int) -> int:
     """两个航向之间相差几个 45°。"""
@@ -75,44 +114,72 @@ def _dijkstra(
     entry_headings 里的朝向以 0 代价起步（自由进入 = 不罚第一步转向）。
     terminal 指定时，该格成为终点态：进入即停、不许穿过再离开
     （避免“路过目标又折返”的路径）。
+
+    实现：整数态 (si = ci*8+h) + 预构边表 + 位图障碍，出口处物化为
+    原 {(CellRef, h): ...} 字典接口（消费方 _arrival_state/_trace_states 不变）。
     """
+    blocked_bits = bytearray(_N_CELLS)
+    for c in blocked:
+        blocked_bits[c.row * COLS + c.col] = 1
+    gates_bits: bytearray | None = None
+    if cross_gates is not None:
+        gates_bits = bytearray(_N_CELLS)
+        for c in cross_gates:
+            gates_bits[c.row * COLS + c.col] = 1
+    term_ci = terminal.row * COLS + terminal.col if terminal is not None else -1
+    start_ci = start.row * COLS + start.col
+
+    dist_i = [_INF] * (_N_CELLS * 8)
+    prev_i = [-1] * (_N_CELLS * 8)
+    tick = count()
+    pq: list[tuple[float, int, int]] = []
+    for h in entry_headings:
+        si = start_ci * 8 + h
+        dist_i[si] = 0.0
+        heapq.heappush(pq, (0.0, next(tick), si))
+    push, pop = heapq.heappush, heapq.heappop
+    while pq:
+        d, _, si = pop(pq)
+        if dist_i[si] < d - 1e-12:
+            continue
+        ci = si >> 3
+        if ci == term_ci:
+            continue  # 终点态：不再向外扩展
+        h = si & 7
+        row = ci // COLS
+        for nci, nh, step, diag, o1, o2, dr, nrow in _EDGES[ci]:
+            if blocked_bits[nci]:
+                continue
+            if diag:
+                if not allow_diagonal:
+                    continue
+                # 防切角：对角移动要求两侧正交格均非障碍
+                if blocked_bits[o1] or blocked_bits[o2]:
+                    continue
+            if (
+                dr and gates_bits is not None
+                and ((row < mid_boundary <= nrow) or (nrow < mid_boundary <= row))
+            ):
+                # 桥洞一格宽：只能正交穿越，且必须贴着 gate 格
+                if diag or not (gates_bits[ci] or gates_bits[nci]):
+                    continue
+            nd = d + step + _TURNS[h][nh] * turn_45
+            nsi = nci * 8 + nh
+            if nd < dist_i[nsi] - 1e-12:
+                dist_i[nsi] = nd
+                prev_i[nsi] = si
+                push(pq, (nd, next(tick), nsi))
+
     dist: dict[tuple[CellRef, int], float] = {}
     prev: dict[tuple[CellRef, int], tuple[CellRef, int]] = {}
-    tick = count()
-    pq: list[tuple[float, int, CellRef, int]] = []
-    for h in entry_headings:
-        dist[(start, h)] = 0.0
-        heapq.heappush(pq, (0.0, next(tick), start, h))
-    while pq:
-        d, _, cur, h = heapq.heappop(pq)
-        state = (cur, h)
-        if dist.get(state, _INF) < d - 1e-12:
-            continue
-        if terminal is not None and cur == terminal:
-            continue  # 终点态：不再向外扩展
-        for nh, (dc, dr) in enumerate(_DIRS):
-            diag = dc != 0 and dr != 0
-            if diag and not allow_diagonal:
-                continue
-            nxt = CellRef(cur.col + dc, cur.row + dr)
-            if not (0 <= nxt.col < COLS and 0 <= nxt.row < ROWS) or nxt in blocked:
-                continue
-            # 防切角：对角移动要求两侧正交格均非障碍
-            if diag and (
-                CellRef(cur.col + dc, cur.row) in blocked
-                or CellRef(cur.col, cur.row + dr) in blocked
-            ):
-                continue
-            if cross_gates is not None and dr != 0 and _crosses_mid(cur.row, nxt.row, mid_boundary):
-                # 桥洞一格宽：只能正交穿越，且必须贴着 gate 格
-                if diag or (cur not in cross_gates and nxt not in cross_gates):
-                    continue
-            nd = d + (_SQRT2 if diag else 1.0) + _turn_units(h, nh) * turn_45
-            nstate = (nxt, nh)
-            if nd < dist.get(nstate, _INF) - 1e-12:
-                dist[nstate] = nd
-                prev[nstate] = state
-                heapq.heappush(pq, (nd, next(tick), nxt, nh))
+    for si in range(_N_CELLS * 8):
+        dd = dist_i[si]
+        if dd < _INF:
+            st = (_CELLS[si >> 3], si & 7)
+            dist[st] = dd
+            p = prev_i[si]
+            if p >= 0:
+                prev[st] = (_CELLS[p >> 3], p & 7)
     return dist, prev
 
 
@@ -140,6 +207,31 @@ def _trace_states(prev: dict, end_state: tuple[CellRef, int]) -> list[CellRef]:
     return cells
 
 
+def _cached_dijkstra(
+    cache: dict | None,
+    start: CellRef,
+    blocked: frozenset[CellRef],
+    cross_gates: frozenset[CellRef] | None,
+    mid_boundary: int,
+    entry_headings: tuple[int, ...],
+    turn_45: float,
+    allow_diagonal: bool,
+    terminal: CellRef | None = None,
+) -> tuple[dict, dict]:
+    """_dijkstra 的缓存封装：键 = (起点, 进入朝向集, 终点态, 障碍集)。
+
+    cross_gates/mid_boundary/turn_45/allow_diagonal 在一次 plan_route 调用内
+    不变，由调用方保证；避让重算的 blocked 会变，故必须进键。
+    """
+    key = (start, entry_headings, terminal, blocked)
+    if cache is not None and key in cache:
+        return cache[key]
+    result = _dijkstra(start, blocked, cross_gates, mid_boundary, entry_headings, turn_45, allow_diagonal, terminal=terminal)
+    if cache is not None:
+        cache[key] = result
+    return result
+
+
 def _route_leg(
     frm: CellRef,
     to: CellRef,
@@ -151,22 +243,44 @@ def _route_leg(
     want_arrival: int | None,
     turn_45: float,
     allow_diagonal: bool,
+    cache: dict | None = None,
 ) -> tuple[list[CellRef] | None, int | None, float]:
-    """frm→to 单段路由：优先走避开已踩格子的等代价路径。返回 (cells, 到达航向, 代价)。"""
+    """frm→to 单段路由：优先走避开已踩格子的等代价路径。返回 (cells, 到达航向, 代价)。
+
+    性能（2026-10-14 沙箱审计修复）：等最优顺序枚举最多 256 条，每条 9+ 段，
+    逐段两次 Dijkstra 曾导致单局规划 30s+（ARM 车端会放大到分钟级，直接
+    吃掉 180s 计时）。三处提速：
+      1. Dijkstra 结果按 (frm, entry, terminal, blocked) 缓存——跨顺序/跨组合
+         大量重复；中间段一律用全场图（terminal=None），使同一起点+进入朝向的
+         所有段共享同一次计算；
+      2. want_arrival=None 时不指定 terminal 是安全的：最省到达态的回溯链
+         不可能中途先穿过 to（穿过意味着存在更便宜的到达，与"最省"矛盾），
+         只有末段 h_final 约束才需要终点态防折返；
+      3. 自由路径若本就零重复踩格，跳过避让重算（多数段的实际情况）。
+    """
     if frm == to:
         h0 = entry[0] if len(entry) == 1 else (want_arrival if want_arrival is not None else 0)
         return [frm], h0, 0.0
-    d_free, p_free = _dijkstra(frm, blocked, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=to)
+
+    term = to if want_arrival is not None else None
+    d_free, p_free = _cached_dijkstra(cache, frm, blocked, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term)
     cost, end = _arrival_state(d_free, to, want_arrival)
     if end is None or cost >= _INF:
         return None, None, _INF
-    avoid = frozenset(blocked | (used - {frm, to}))
+
+    avoid_cells = used - {frm, to}
+    free_cells = _trace_states(p_free, end)
+    if avoid_cells and not (set(free_cells) & avoid_cells):
+        # 自由路径没有踩任何已踩格：避让重算的结果必然相同，直接返回
+        return free_cells, end[1], cost
+
+    avoid = frozenset(blocked | avoid_cells)
     if avoid != blocked:
-        d_av, p_av = _dijkstra(frm, avoid, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=to)
+        d_av, p_av = _cached_dijkstra(cache, frm, avoid, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term)
         c_av, e_av = _arrival_state(d_av, to, want_arrival)
         if e_av is not None and c_av <= cost + _EPS:
             return _trace_states(p_av, e_av), e_av[1], c_av
-    return _trace_states(p_free, end), end[1], cost
+    return free_cells, end[1], cost
 
 
 def _flatten(segments: list[list[CellRef]]) -> tuple[str, ...]:
@@ -240,6 +354,7 @@ def _assemble(
     h_final: int | None,
     turn_45: float,
     allow_diagonal: bool,
+    cache: dict | None = None,
 ) -> tuple[tuple[str, ...] | None, float]:
     """按给定顺序逐段拼接（真实朝向链 + 顺路避让），返回 (路线, 真实总代价)。"""
     used: set[CellRef] = {nodes[0]}
@@ -248,14 +363,14 @@ def _assemble(
     cur, entry = nodes[0], entry0
     for i in order:
         w = nodes[i + 1]
-        seg, h, c = _route_leg(cur, w, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal)
+        seg, h, c = _route_leg(cur, w, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal, cache)
         if seg is None:
             return None, _INF
         segments.append(seg)
         used.update(seg)
         total += c
         cur, entry = w, (h,)
-    seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, h_final, turn_45, allow_diagonal)
+    seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, h_final, turn_45, allow_diagonal, cache)
     if seg is None:
         return None, _INF
     segments.append(seg)
@@ -274,9 +389,10 @@ def _plan_core(
     h_final: int | None,
     turn_45: float,
     allow_diagonal: bool,
+    cache: dict | None = None,
 ) -> tuple[tuple[str, ...], float]:
     """给定障碍集与必经点，输出（最优路线, 真实总代价）。"""
-    dist0, _ = _dijkstra(start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
+    dist0, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
     if _arrival_state(dist0, goal, h_final)[0] >= _INF:
         raise ValueError("goal cell unreachable from start")
 
@@ -284,12 +400,12 @@ def _plan_core(
     nodes = [start] + [c for c in required.values() if _arrival_state(dist0, c, None)[0] < _INF]
     n = len(nodes) - 1
     if n == 0:
-        seg, _h, _c = _route_leg(start, goal, blocked, set(), cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal)
+        seg, _h, _c = _route_leg(start, goal, blocked, set(), cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
         return _flatten([seg]), _c
 
     # 每个节点做一次自由进入朝向的 Dijkstra，得两两边权（乐观界）。
     dists = [dist0] + [
-        _dijkstra(c, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)[0]
+        _cached_dijkstra(cache, c, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)[0]
         for c in nodes[1:]
     ]
     W = [[_INF] * (n + 1) for _ in range(n + 1)]
@@ -330,15 +446,17 @@ def _plan_core(
             best_cost, best_last = c, i
 
     def assemble(order: list[int]) -> tuple[tuple[str, ...] | None, float]:
-        return _assemble(order, nodes, goal, blocked, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal)
+        return _assemble(order, nodes, goal, blocked, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
 
     # 保底顺序 + 枚举其余等代价顺序，取（真实代价, 重复踩格）最小者。
+    # 拼接数硬上限：对称场景下等代价顺序可达 256 条，每条的避让重算是
+    # 剩余耗时大头；64 次足以覆盖真实的并列分支（实测场景 <10 次即收敛）。
     best_route: tuple[str, ...] | None = None
     best_cost_true: float = _INF
     best_dup = 1 << 30
     candidates = [_reconstruct_order(parent, full - 1, best_last)]
     candidates += _enumerate_optimal_orders(dp, W, dgoal, n, best_cost)
-    for order in candidates:
+    for order in candidates[:64]:
         route, cost_true = assemble(order)
         if route is None:
             continue
@@ -487,6 +605,10 @@ def plan_route(
             cross_gates = frozenset(gates)
 
     # 雷为普通必经点；蓝靶的必经点是其停靠射击格（每靶一组候选）。
+    # cache 在本次 plan_route 内共享：blocked/cross_gates 已定型，
+    # 等最优顺序枚举与射击位组合会大量重复同一段 Dijkstra。
+    cache: dict = {}
+
     base_required: dict[str, CellRef] = {}
     for c in snapshot.mines:
         base_required.setdefault(c.name, c)
@@ -504,7 +626,7 @@ def plan_route(
         # 无候选 = 该靶被围死无处停靠，跳过（与不可达必经点语义一致）
 
     if not cand_lists:
-        route, _ = _plan_core(start, goal, blocked, base_required, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal)
+        route, _ = _plan_core(start, goal, blocked, base_required, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
         return route
 
     total = 1
@@ -514,7 +636,7 @@ def plan_route(
         combos: list[tuple[CellRef, ...]] = list(product(*cand_lists))
     else:
         # 退化：逐靶选离起点最近的候选（大场景保护，实际靶数少不会触发）
-        dist0, _ = _dijkstra(start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
+        dist0, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
         combos = [tuple(
             min(cl, key=lambda c: (_arrival_state(dist0, c, None)[0], c.name)) for cl in cand_lists
         )]
@@ -527,7 +649,7 @@ def plan_route(
         for c in combo:
             req.setdefault(c.name, c)
         try:
-            route, cost = _plan_core(start, goal, blocked, req, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal)
+            route, cost = _plan_core(start, goal, blocked, req, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
         except ValueError:
             continue
         dup = len(route) - len(set(route))
