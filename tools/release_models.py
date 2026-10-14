@@ -10,13 +10,19 @@ orin_convert_engines.sh 读 current 指针取最新版，机上 git pull 后重�
 
 用法（虚拟环境 C:\\Users\\a\\venvs\\air_ground）:
   python tools/release_models.py --cell runs/cell_classifier_v4c/best.pt --tag v4c
-  python tools/release_models.py --hbb "runs/detect/runs/detect/aerial_field_finetuned_v2/weights/best.pt" --tag v2
+  python tools/release_models.py --hbb "runs/detect/runs/detect/aerial_field_finetuned_v2/weights/best.pt" --tag v2 \
+      --generalization-images "E:\\...\\1-爆炸物\\B-爆炸物"
   python tools/release_models.py --cell ... --hbb ... --tag v4c   # 两个都发
+
+hbb 检测器发布强制过泛化门禁（tools/ml/eval_generalization.py，官方明牌考
+"训练集没有的同类雷图"）：留出图集目录经 --generalization-images 或环境变量
+AIC_MINE_HOLDOUT 给出；紧急绕过用 --skip-generalization（醒目警告+记录留痕）。
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import shutil
 import sys
@@ -109,12 +115,44 @@ def register(kind: str, src: Path, tag: str) -> Path:
     return dst
 
 
+def run_generalization_gate(pt: Path, images: Path | None, skip: bool) -> None:
+    """hbb 发布强制关：跨域留出泛化评估（官方明牌考点）。
+
+    判定失败即 SystemExit 拒绝入库；--skip-generalization 为紧急绕过，
+    打印醒目警告并留痕（登记表/信箱可追溯）。
+    """
+    if skip:
+        print("⚠️⚠️ --skip-generalization：泛化门禁被人工绕过，"
+              "本次发布未做留出评估——请在信箱说明原因 ⚠️⚠️")
+        return
+    if images is None:
+        raise SystemExit(
+            "发布 hbb 检测器必须先过泛化门禁，但未给出留出图集目录。\n"
+            "  用法：--generalization-images <官方爆炸物图集目录>\n"
+            "  或设环境变量 AIC_MINE_HOLDOUT；紧急绕过用 --skip-generalization"
+        )
+    script = REPO / "tools" / "ml" / "eval_generalization.py"
+    import subprocess
+    rc = subprocess.call(
+        [sys.executable, str(script), "--weights", str(pt),
+         "--images", str(images), "--record"]
+    )
+    if rc != 0:
+        raise SystemExit("泛化门禁拒绝放行（留出评估未过），发布中止")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cell", type=Path, help="格号分类器 .pt（cell_classifier 训练产物）")
     ap.add_argument("--hbb", type=Path, help="YOLO 检测器 .pt（aerial_field 训练产物）")
     ap.add_argument("--tag", required=True, help="版本标签（如 v4c / v2）")
+    ap.add_argument("--generalization-images", type=Path,
+                    default=(Path(os.environ["AIC_MINE_HOLDOUT"])
+                             if os.environ.get("AIC_MINE_HOLDOUT") else None),
+                    help="泛化门禁留出图集目录（默认读环境变量 AIC_MINE_HOLDOUT）")
+    ap.add_argument("--skip-generalization", action="store_true",
+                    help="紧急绕过泛化门禁（醒目警告+记录留痕，赛后需补评）")
     args = ap.parse_args()
     if not args.cell and not args.hbb:
         ap.error("至少指定 --cell 或 --hbb 之一")
@@ -125,6 +163,8 @@ def main() -> int:
             print(f"==> 导出格号分类器: {args.cell}")
             register("cell", export_cell(args.cell, tmp), args.tag)
         if args.hbb:
+            run_generalization_gate(args.hbb, args.generalization_images,
+                                    args.skip_generalization)
             print(f"==> 导出主检测器: {args.hbb}")
             register("hbb", export_hbb(args.hbb, tmp), args.tag)
 

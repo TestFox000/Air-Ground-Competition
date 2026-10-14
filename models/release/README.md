@@ -25,6 +25,11 @@
 3. **别用同名文件覆盖**：版本变了就换名字（如 `light_det_20261002.rknn`），
    否则 `git log` 分不清谁是哪一版
 4. 入库前看一眼体积：单个建议 **< 50 MB**（Gitee 免费仓库有容量上限）
+5. **hbb 检测器发布必须先过泛化门禁**（官方明牌考"训练集没有的同类雷图"）：
+   `tools/release_models.py --hbb` 会自动调用 `tools/ml/eval_generalization.py`，
+   留出图集用 `--generalization-images` 或环境变量 `AIC_MINE_HOLDOUT` 指定；
+   判定 = 绝对底线召回 + 相对现役基线的回归容忍（`generalization_baseline.json`），
+   每次评估记录追加到本文末尾的「泛化评估记录」表
 
 ## 登记表
 
@@ -61,3 +66,8 @@ ONNX 契约（与 onboard/dzuav/src C++ 逐字对应）：
 
 车端 `.rknn`（`light_det.rknn`）输出必须是 `[1,9,8400]`，否则 `det_node` 解不出来。
 契约校验同时在 pytest（`tests/test_model_contract.py`）里持续守护。
+
+**泛化门禁（2026-10-14 起强制）**：hbb 发布除契约校验外，还必须跨域留出评估
+不退化才放行（`tests/test_release_gate.py` 守护判定逻辑）。门禁指标见文末
+「泛化评估记录」表——发布即留痕，谁在什么留出集上、召回多少、比现役基线
+差多少，一目了然。
