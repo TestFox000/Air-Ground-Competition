@@ -36,7 +36,7 @@ def build_mission(
     start_heading: str,
     final_heading: str | None,
     cross_gates: tuple[str, ...] = (),
-    mid_boundary: int = 6,
+    mid_boundary: int = 5,
     *,
     target_track: tuple[str, str] | None = None,
     target_blue_face: str | None = None,

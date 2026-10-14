@@ -19,10 +19,13 @@ integrate_node:
     min_mines: 1                    # 至少识别到几颗雷才发车
     require_face: true              # 必须先看清靶面敌我再发车
     # ---- 中场约束（留空：桥洞墙由 ARROW 自动推导） ----
-    # mid_boundary：白色长挡板(D7..N7)在第6/7行之界，=6；
-    # 与 mission_router._MID_BOUNDARY 的一致性由 test_field_config_consistency 锁定。
+    # mid_boundary：白色长挡板在第5/6行之界，=5（接手说明§5.7：桥洞 A段K1~K5、
+    # B段K6~K11；且比赛配置 goal=N6+final_heading=y 只在 =5 下物理可行——
+    # =6 时朝北到达 N6 须经 N7 穿越 N 列挡板，空地图上即报不可达）。
+    # 与 mission_router._MID_BOUNDARY 的一致性由 test_field_config_consistency 锁定；
+    # 若现场核对挡板在第6/7行之界，三处一起改 6（见 preflight C0-1/D0）。
     cross_gates: [""]
-    mid_boundary: 6
+    mid_boundary: 5
     # ---- 朝向补偿（根除画圆：reset 断言朝向 vs 真实朝向的固定偏差）----
     #   none  : 不补偿，靠人工把车摆正（不推荐）
     #   udp   : 用 0x4002 真实朝向取最近坐标轴，残差 ≤ 45°，不挪车

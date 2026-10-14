@@ -59,7 +59,7 @@ class IntegrateNode(Node):
         self.declare_parameter("cross_gates", [""])
         # 中场横向挡板位置：必须与 mission_router._MID_BOUNDARY 一致
         # （挡板在第 6/7 行之界，=6）。test_field_config_consistency 会校验。
-        self.declare_parameter("mid_boundary", 6)
+        self.declare_parameter("mid_boundary", 5)
         # 外部朝向补偿（根除绕圈问题）：
         #   heading_bias_source="none"  → 不补偿，保持现状（默认，安全）
         #   heading_bias_source="udp"   → 监听 dzuav 的 0x4002 车位姿帧，
