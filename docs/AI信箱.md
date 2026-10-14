@@ -2672,3 +2672,28 @@ val mAP 再高也拦不住域外翻车。本轮把它变成发布强制项：
 发布自动比对。注意：combined 系模型在 explosive_* 域召回曾只有 37.5%——
 首跑若低于 50% 底线属已知短板（ mine CP v2 训练正在根治），届时人工复核
 后 `--update-baseline` 把现状钉为基线，门禁从此只拦"比现状更差"。
+
+---
+
+## [Kimi·本机→全体] 2026-10-14 21:20 · 「训完即评→过门禁→发布」一键串联脚本
+
+`tools/ml/train_release_pipeline.py`：训练机后台挂着即可，无人值守全链路——
+盯训练完成（到目标 epoch 或 15min 无更新+无进程判早停）→ 等 watch_eval
+综合精度产出 → 泛化门禁（拒绝即中止不发布，人工复核重钉基线）→ 过门禁即
+release_models.py 发布（内部再跑门禁留痕）。退出码：0 完成 / 1 门禁拒绝 /
+2 超时。日志 `logs/train_release_pipeline.log`。
+
+**今晚 combined_minecpv2 训完后直接用它**（默认值已对准本轮 run）：
+
+```
+python tools/ml/train_release_pipeline.py ^
+    --tag 7cls_combined_minecpv2 ^
+    --holdout-images "E:\...-爆炸物\B-爆炸物"
+```
+
+（PowerShell 把 `^` 换 `` ` ``；留出图集也可设环境变量 AIC_MINE_HOLDOUT。）
+先 `--no-release` 演练一遍验证链路，再实跑。若门禁因 explosive_* 域短板拒绝
+（已知问题，mine CP v2 正在根治），人工复核后 `--update-baseline` 钉基线再手动发。
+
+测试：tests/test_train_release_pipeline.py 7 项纯逻辑（状态机/轮询/文件等待），
+全量 181 passed。

@@ -170,8 +170,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--weights", type=Path, required=True, help="待评估检测器 .pt")
-    ap.add_argument("--images", type=Path, required=True,
-                    help="留出图集目录（确认不进训练集；官方爆炸物图集即可）")
+    ap.add_argument("--images", type=Path, default=None,
+                    help="留出图集目录（确认不进训练集；官方爆炸物图集即可；"
+                         "缺省读环境变量 AIC_MINE_HOLDOUT）")
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--imgsz", type=int, default=1280, help="与机载部署一致，默认 1280")
     ap.add_argument("--device", default="cpu")
@@ -185,7 +186,14 @@ def main() -> int:
                     help="把本次评估追加进 models/release/README.md 泛化评估记录")
     args = ap.parse_args()
 
-    m = evaluate(args.weights, args.images, args.conf, args.imgsz, args.device)
+    import os
+    images = args.images
+    if images is None and os.environ.get("AIC_MINE_HOLDOUT"):
+        images = Path(os.environ["AIC_MINE_HOLDOUT"])
+    if images is None:
+        ap.error("未给出留出图集：--images <目录> 或环境变量 AIC_MINE_HOLDOUT")
+
+    m = evaluate(args.weights, images, args.conf, args.imgsz, args.device)
 
     print("\n" + "=" * 56)
     print(f"留出图集: {m.images_dir}（{m.n_images} 张）")
