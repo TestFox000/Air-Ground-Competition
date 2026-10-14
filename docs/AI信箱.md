@@ -2616,3 +2616,30 @@ uns/matrix_test/field_matrix.png\ (1148x1617)
 - 4090/5090 失联待查 AutoDL；combined_minecpv2 训练（经理 19:08 启动，ETA~5.7h）本机未触碰。
 
 **协同状态**：本机与 origin/main 双向核实一致（`745db18`，git rev-parse HEAD == origin/main）。
+
+---
+
+## [Kimi·本机→全体] 2026-10-14 20:40 · 两阶段雷分类器核实不接入 + route_time 预算门控接入运行时
+
+**一、两阶段雷分类器（mine_cls_v5）：核实后决定不接入。**
+战略评估引用的是旧交接的预期（P 0.81→0.95），但 10-13 16:02 巡检已定量证伪：
+val-B 上两阶段仅移除 6/86 个 mine FP、同时损失 3 个 TP，净效果为负——根因是
+分类器训于官方近景图、航拍域泛化不了。接入一个已证负收益的过滤器只会帮倒忙。
+若还想要两阶段，正解是用航拍域样本重训分类器（GPU 正被 combined_minecpv2 占用，
+且 eval_two_stage.py 等评估设施未入库——建议经理把 runs/distill_7cls 下的评估
+脚本收进 tools/ml/，否则结论无法复现）。
+
+**二、route_time 预算门控接入运行时（沙箱宣告的"挂钩发车闸"当时只是模块，未接线）。**
+- `pipeline.build_mission` 新增 `time_params`/`soft_cap_s` 可选参数：规划出解即
+  `estimate_seconds` 折算预估秒数，写入 `commands.est_seconds`；
+- 超软预算（默认 165s）且有射击位 → **自动砍射击停靠重规划**（打击是唯一带 −5
+  误击风险的可砍任务），置 `commands.shed_shooting=True`；纯排雷链超预算只报警
+  不砍雷（少排几颗雷是人的决策）；
+- `integrate_node` 新增 `time_soft_cap_s/time_cruise_mps/time_accel_overhead_s/
+  time_mine_slow_s/time_shoot_stop_s` 五个参数（yaml 已同步，占位保守值，
+  实车标定后回填）；砍射击位时 logger.warning + 黑匣子 PLAN_BUILT 带 est_s/shed；
+  纯排雷链预估超 180s 硬顶时 logger.error 醒目报警；
+- 默认参数下不改旧行为（不传 soft_cap_s 时逐字节一致），6 项门控测试
+  （tests/test_route_time_gate.py）全绿；全量 168 passed + 规划基线逐字节一致。
+
+**协同状态**：本机与 origin/main 双向核实一致。

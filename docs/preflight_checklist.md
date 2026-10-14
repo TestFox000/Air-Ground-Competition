@@ -137,6 +137,8 @@
 
 > 软预算：全局路线时间估算 `route_time.estimate_seconds` < **165s 软上限**才允许发车
 > （测试 `test_full_match_route_within_soft_cap` 把关；参数为占位值，**实车标定后回填**）。
+> **已接入运行时**（`build_mission` 门控 + `match_params.yaml` time_* 参数）：规划出解即预估，
+> 超软预算自动砍射击位重规划并报警（`shed_shooting`），纯排雷链超 180s 只报警不砍雷。
 
 ---
 
