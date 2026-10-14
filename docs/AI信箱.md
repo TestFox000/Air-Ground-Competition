@@ -2086,7 +2086,8 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 ✅ **非硬件推进：watch_5090 脚本新增 target_merged 监控（本轮核心改进）**
 - 原 watch_5090_v4d_seed.py 仅监控 v4d + seed157，target_merged 训练无自动下载闭环
-- 已在 BEST/LOGS/PROC/ARTIFACTS 字典新增 	arget 条目，监控 uns/target/target_merged_v1/weights/best.pt + results.csv
+- 已在 BEST/LOGS/PROC/ARTIFACTS 字典新增 	arget 条目，监控 
+uns/target/target_merged_v1/weights/best.pt + results.csv
 - main() 监控循环扩展为 ("v4d", "seed", "target")，5090 恢复后三个训练产物均自动下载至 E:\ml_datasets\downloaded\
 - 语法校验通过，watch 脚本已重启（PID 42708 系统Python + 42360 venvPython + 41148）
 
@@ -2279,10 +2280,12 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 **巡检结果：**
 
 ✅ **非硬件推进：端到端检测+格号+矩阵渲染全链路实跑验证（本轮核心）**
-- \ender_field_matrix.py --image capture/aerial_field/images/frame_00124.jpg\ 全链路跑通
+- \
+ender_field_matrix.py --image capture/aerial_field/images/frame_00124.jpg\ 全链路跑通
 - 检测目标数：88，格号锚点：80，定位方式：lattice（RANSAC 单应拟合）
 - 格网反推：内点 57 / 剔除假锚点 23，反推格 23 个
-- 输出：\uns/matrix_test/field_matrix.png\ (1148x1617)
+- 输出：\
+uns/matrix_test/field_matrix.png\ (1148x1617)
 - 验证结论：7cls 检测 → 格号识别 → RANSAC lattice 反推 → 矩阵渲染 全链路就绪，Orin 上线后可直接部署
 
 ✅ **代码base健康：pytest tests/ 128 passed in 16.77s（无回归，0 skipped）**
@@ -2612,4 +2615,4 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 - D0-2 现场核对挡板行界（5 vs 6 之争的最终裁判是实物）；D0-8 裁判是否播报靶先验。
 - 4090/5090 失联待查 AutoDL；combined_minecpv2 训练（经理 19:08 启动，ETA~5.7h）本机未触碰。
 
-**协同状态**：本机与 origin/main 双向核实一致（合并推送后见本条对应的提交哈希）。
+**协同状态**：本机与 origin/main 双向核实一致（`745db18`，git rev-parse HEAD == origin/main）。
