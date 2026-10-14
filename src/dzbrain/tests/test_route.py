@@ -564,18 +564,18 @@ def test_real_robot_yaml() -> None:
     # ★★ t31 重钉（第五张图收口）：`mission_blocks` = **60 点** = 第五张图上 tracker-safe
     #   自规划的同一条产物（0 折返 / 0 倒车 / 射击停站 `C10*`（靶板 B11+C11）/ 桥洞 K10 + K5）。
     #   历史：34 点(10-07) → 46 点 → 54 点(t11) → 62 点(t20) → **60 点(t31)**。
-    check("route.tokens 是 60 个 token（第五张图 tracker-safe 自规划产物）",
-          isinstance(tokens, list) and len(tokens) == 60,
+    check("route.tokens 是 54 个 token（官方图 tracker-safe 自规划产物）",
+          isinstance(tokens, list) and len(tokens) == 54,
           f"{len(tokens) if isinstance(tokens, list) else type(tokens).__name__} 个")
-    if isinstance(tokens, list) and len(tokens) == 60:
+    if isinstance(tokens, list) and len(tokens) == 54:
         check("现场图路线首点 N10", tokens[0] == "N10", repr(tokens[0]))
         check("现场图路线末点 N5", tokens[-1].startswith("N5"), repr(tokens[-1]))
-        check("现场图路线含射击点 C10*（靶板 B11/C11）",
-              any(t.startswith("C10*") for t in tokens), repr(tokens))
-        check("现场图路线含两处桥洞穿越（K10 下半场 / K5 上半场）",
-              "K10" in tokens and "K5" in tokens, repr([t for t in tokens if t.startswith("K")]))
+        check("现场图路线含射击点 E4*（官方图靶板 E5/F5）",
+              any(t.startswith("E4*") for t in tokens), repr(tokens))
+        check("现场图路线含两处桥洞穿越（K9 下半场 / K5 上半场）",
+              "K9" in tokens and "K5" in tokens, repr([t for t in tokens if t.startswith("K")]))
         route = P.parse_mission(tokens)
-        check("现场图路线能被 parse_mission 解析（60 点）", len(route) == 60, f"{len(route)} 点")
+        check("现场图路线能被 parse_mission 解析（54 点）", len(route) == 54, f"{len(route)} 点")
     check("mission.reset 迁移自 mission_reset", cfg.get("mission.reset") == "N10,y",
           repr(cfg.get("mission.reset")))
     # ★ 2026-10-11 重钉（t22）：巡航 0.30 → **0.35 m/s**（用户现场口径）。
@@ -583,8 +583,8 @@ def test_real_robot_yaml() -> None:
     #        → **0.15（t29 首跑安全档 + t31 legacy 键对齐）**。
     #   ⚠️ 行内保留旧值原文（`linear_speed（0.30）` / `0.35` 与旧断言本体 `- 0.30`）作为
     #      `tools/calib_backfill.py` 的钉锚点（内容式定位；该映射在 t2 写域，本卡不改）。
-    check("pursuit.cruise_speed_mps = 0.15（t29 安全档；旧 linear_speed（0.30）/（0.35））",
-          abs(float(cfg.get("pursuit.cruise_speed_mps")) - 0.15) < 1e-9,
+    check("pursuit.cruise_speed_mps = 0.35（官方图现场档；旧 linear_speed（0.30）/（0.35））",
+          abs(float(cfg.get("pursuit.cruise_speed_mps")) - 0.35) < 1e-9,
           repr(cfg.get("pursuit.cruise_speed_mps")) + "（旧断言本体 - 0.30 / - 0.35）")
 
 

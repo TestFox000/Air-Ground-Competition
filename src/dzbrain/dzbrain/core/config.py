@@ -290,8 +290,9 @@ SCHEMA: dict[str, Spec] = {
     "aim.max_shots_total": Spec(10, _I, "发", 1, 10, "全场弹药上限"),
     "aim.max_shots_per_target": Spec(3, _I, "发", 1, 10, "单靶发数上限"),
     "aim.shot_cooldown_ms": Spec(500, _I, "ms", 100, 5000, "两发最小间隔"),
-    "aim.fire_box_far_px": Spec(14.0, _F, "px", 2.0, 100.0, "远处开火框（须 > 云台机械精度约 12px）"),
-    "aim.fire_box_near_px": Spec(26.0, _F, "px", 2.0, 200.0, "近处开火框"),
+    "aim.fire_box_far_px": Spec(3.5, _F, "px", 2.0, 100.0, "远处开火框（须 > 云台机械精度约 12px）"),
+# ★t43（用户 2026-10-14 规格优先）：7×7px(半宽 3.5) 小于云台机械精度 ~12px，下面这条『须 > 机械精度』的不变量已【注释放宽】；风险=确认框小于机械精度时确认概率可能下降（已在 t43 报告量化）。
+    "aim.fire_box_near_px": Spec(3.5, _F, "px", 2.0, 200.0, "近处开火框"),
     "aim.lost_frames_to_rescan": Spec(180, _I, "帧", 10, 600,
                                       "★丢帧回扫阈值；旧版 180 帧≈6s 会让云台在丢失期间冻结"),
     "aim.scan_pitch_offset_deg": Spec(6.0, _F, "°", -60.0, 30.0,

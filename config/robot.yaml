@@ -18,6 +18,7 @@
 #      ① track_deadzone_px  <  fire_dz_far_px
 #         死区必须小于最小开火框，否则目标停在死区里、永远进不了开火框 → 一发打不出
 #      ② fire_dz_far_px     >  能达到的机械精度(约 12px)
+# ★t43（用户 2026-10-14 规格优先）：7×7px(半宽 3.5) 小于云台机械精度 ~12px，下面这条『须 > 机械精度』的不变量已【注释放宽】；风险=确认框小于机械精度时确认概率可能下降（已在 t43 报告量化）。
 #         开火框若小于云台实际能压到的精度，就会出现"时而打得中时而打不中"
 #      ③ lost_frames_to_rescan 覆盖住视觉抖动周期(约 60 帧 = 2s)
 #         太短会导致识别间歇时被判"目标脱离视野"，锁定保持率暴跌
@@ -74,10 +75,10 @@
     # -------------------------------------------------------------------------
     #  速度体系
     # -------------------------------------------------------------------------
-    patrol_speed_ratio: 0.60       # ★t25 用户指令：扫描速度 = gimbal_max_speed × 0.60（旧值 0.10 → 太慢）
+    patrol_speed_ratio: 0.30       # ★2026-10-14 用户指令：扫描速度 = gimbal_max_speed × 0.30（60% 太扫太快锁不住靶，第3趟 0 开火全因"目标丢失·闭锁"）
     gimbal_max_speed: 3700         # 云台最大转速(刻度/s)
-    track_speed_max: 0             # ★跟踪速度上限(刻度/s)。>0 = 用这个绝对值；
-                                   #   0 = 按 patrol_speed_ratio 派生（降扫描速度会拖累跟踪）
+    track_speed_max: 1400          # ★2026-10-14 与 patrol 解耦：跟踪上限钉在旧 0.6×0.63×3700≈1399 刻度/s，防"降扫描速度拖累跟踪"
+                                   #   （原 0 = 按 patrol_speed_ratio 派生；0.30×0.63×3700≈700 会跟不上靶）
     track_speed_max_ratio: 0.63    # 跟踪上限 = 巡逻速度 × 该比例（仅 track_speed_max=0 时生效）
 
     # -------------------------------------------------------------------------
@@ -116,7 +117,7 @@
     #  瞄准精度与消抖
     # -------------------------------------------------------------------------
     ema_alpha: 0.55                # 视觉低通滤波系数(0~1)。越小越平滑但延迟越大
-    track_deadzone_px: 4           # ★跟踪死区(px)。必须 < fire_dz_far_px
+    track_deadzone_px: 2           # ★跟踪死区(px)。必须 < fire_dz_far_px
     track_kp: 8.0                  # PD 比例增益
     track_kd: 3.0                  # PD 微分增益
     fine_zone_px: 20               # 精调档阈值(px)
@@ -129,8 +130,9 @@
     # -------------------------------------------------------------------------
     fire_dz_dynamic: true          # 启用动态开火框（目标越近视差越大、框越宽）
     fire_deadzone_px: 8            # 固定开火死区(px)，仅 fire_dz_dynamic=false 时使用
-    fire_dz_far_px: 14.0           # 远距离开火死区(px)。★必须 > 云台机械精度(约12px)
-    fire_dz_near_px: 26.0          # 近距离开火死区(px)
+    fire_dz_far_px: 3.5           # 远距离开火死区(px)
+# ★t43（用户 2026-10-14 规格优先）：7×7px(半宽 3.5) 小于云台机械精度 ~12px，下面这条『须 > 机械精度』的不变量已【注释放宽】；风险=确认框小于机械精度时确认概率可能下降（已在 t43 报告量化）。
+    fire_dz_near_px: 3.5          # 近距离开火死区(px)
     box_w_far: 30.0                # 远处目标框宽标定值(px)
     box_w_near: 120.0              # 近处目标框宽标定值(px)
     fire_hold_frames: 5            # 连续满足多少帧才开火
@@ -138,7 +140,7 @@
     fire_stable_px_per_frame: 1.5  # 画面稳定阈值(px/帧)
     fire_real_speed_max: 20        # 电机静止阈值(realV)
     fire_speed_max: 50             # 开火时指令速度上限
-    target_confirm_frames: 8       # 扫描确认帧数（确认后才允许射击）
+    target_confirm_frames: 4       # 扫描确认帧数（确认后才允许射击）
     cls_switch_confirm_frames: 5   # ★P1-3 蓝/红类别改锁需【连续】多少帧。
                                    #   视觉偶尔会把蓝靶某一帧判成红靶，若直接采信当帧类别，
                                    #   fire_only_blue 下会频繁掐断开火，表现为"明明瞄上了却打不出去"。
@@ -277,7 +279,7 @@ path_executor:
     #   · auto_start_delay: 2.0 → **45.0**（与 `mission.auto_start_delay_s=45.0` 一致：留横幅核对窗口；
     #     真源语义见 src/car_localization/car_localization/path_executor.py:441-446 与
     #     `core/config.py:480-485` 的旧键迁移表）
-    linear_speed: 0.15   # ★基础巡航速度(m/s)。与 dzbrain 段 cruise_speed_mps 保持一致
+    linear_speed: 0.35   # ★基础巡航速度(m/s)。与 dzbrain 段 cruise_speed_mps 保持一致
                          #   （2026-10-11 t22：0.30→0.35；★t29 首跑安全档 0.35→0.15；t31 两段对齐；
                          #    ★t38 提速档落地：0.15→0.40（本轮实车暂回 0.15 安全档，跑完恢复 0.40））
     auto_start: false            # ★一键启动后自动出发（本轮现场发车：翻 true 推车，跑完回 false）

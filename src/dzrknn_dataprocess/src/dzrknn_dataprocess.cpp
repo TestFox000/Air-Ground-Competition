@@ -60,6 +60,7 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
       std::cout << "==> 发现目标，进入边走边跟随" << std::endl;
     }
     lost_target_count_ = 0; // 检测到就清零丢帧计数
+    lost_since_valid_ = false;   // ★t42 见到了 ⇒ 去抖计时作废（【连续】未见由此保证）
 
     // ===== 扫描确认：连续识别到目标达到 target_confirm_frames_ 帧才算"确认有目标" =====
     // 确认之前只跟踪、绝不开火 —— 云台横扫时扫过目标的一两帧偶发检出不足以触发射击。
@@ -237,6 +238,24 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
     // ★P0-4 仅攻击蓝色靶：确认类别为蓝(cls==1)才允许开火
     //   （红靶仍会被跟踪/显示，但不浪费弹药）
     const bool cls_fire_ok = (!fire_only_blue_) || (locked_cls_ == 1);
+  // ★t42（④）类别原因诊断：区分【没看到目标】与【看到了但不允许打】。t41 实车 E4* 停站
+  //   30s 内 Python 侧 `类别未确认` 4 次 / `类别不允许(fire_only_blue)` 1 次，而 C++ 侧
+  //   只报状态不报原因 ⇒ 现场判断不了是视觉没看见，还是看见了但不允许。
+  if (isTracking() && !cls_fire_ok)
+  {
+    const double cls_diag_ms = (this->now() - cls_diag_last_).seconds() * 1000.0;
+    if (cls_diag_ms >= 1000.0)   // 1s 限流，别刷屏
+    {
+      cls_diag_last_ = this->now();
+      std::cout << "==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=" << locked_cls_
+                << "（1=蓝 2=红）cls_candidate=" << cls_candidate_
+                << " raw_cls=" << static_cast<int>(raw_cls)
+                << " fire_only_blue=" << (fire_only_blue_ ? 1 : 0) << " ⇒ "
+                << (locked_cls_ == 0 ? "类别未确认(还没连续 N 帧同一类别)"
+                                     : "类别不允许(fire_only_blue)")
+                << std::endl;
+    }
+  }
     // ★P0-2 单目标连发上限：防止在同一个靶上把全程弹药一次性倾泻
     const bool per_target_ok =
         (max_shots_per_target_ <= 0) || (shots_on_target_ < max_shots_per_target_);
@@ -308,7 +327,21 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
     {
       // 跟踪中丢帧：累计到阈值才放弃，避免单帧漏检导致跟踪中断
       lost_target_count_++;
-      if (lost_target_count_ >= lost_frames_to_rescan_)
+      // ★t42 去抖滞回（①）：第一次未见时起表，本拍算【连续未见】时长
+      if (!lost_since_valid_)
+      {
+        lost_since_ = this->now();
+        lost_since_valid_ = true;
+      }
+      const double lost_ms = lost_since_valid_
+                                 ? (this->now() - lost_since_).seconds() * 1000.0
+                                 : 0.0;
+      const int need_frames = std::min(std::max(1, lost_frames_to_rescan_),
+                                       std::max(1, rescan_min_frames_));
+      const bool rescan_debounce_ok =
+          (lost_target_count_ >= need_frames) &&
+          (lost_ms >= static_cast<double>(std::max(1, rescan_debounce_ms_)));
+      if (rescan_debounce_ok)
       {
         lost_target_count_ = 0;
         locked_cls_ = 0;   // ★P1-3 目标丢了，类别重新确认
@@ -316,9 +349,12 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
         cls_candidate_ = 0;
         if (scan_continuous_)
         {
-          // 持续扫描模式：目标脱离视野 → 立刻重新开始扫描
-          std::cout << "==> 目标脱离视野，重新开始扫描" << std::endl;
-          startScan(true);
+          // ★t42（②）：目标脱离视野后【接续扫掠】，不再重跑 1500ms 归位段
+          //   （t41 实车：30s 内 31 次归位仅 1 次成功 ⇒ 归位段把扫掠覆盖率吃光）
+          std::cout << "==> 目标脱离视野（连续 " << need_frames << " 帧 / "
+                    << static_cast<int>(lost_ms) << " ms 未见）→ 接续扫掠（不重归位）"
+                    << std::endl;
+          startScan(true, /*home=*/false);
         }
         else
         {
@@ -602,9 +638,23 @@ void turn_on_robot::publishAimStatus()
 //   若上一轮 TRACK 结束时云台指在侧向（甚至 ±150° 端），第一个横扫点会立刻"反向"，
 //   扫描行程与耗时都不可预测。归位段把起点钉在已知姿态（yaw=0、pitch=0）。
 //   归位由**本节点自己**下发（与 IDLE 归位同一套 Position 语义），不依赖外部指令。
-void turn_on_robot::startScan(bool continuous)
+// ★t42（②）home=false = 重扫接续：不重跑归位段、保留扫掠进度、重置轮数预算，直接进扫描相。
+//   为什么：t41 实车 30s 内触发 31 次归位段、仅 1 次到位 ⇒ 云台在【归位→丢靶→再归位】
+//   里空转、扫掠覆盖率≈0；现场表现即用户说的【到场时云台没有开始扫描】。
+//   轮数预算必须重置：否则 t25 的 3 轮上限会立刻把状态打回 IDLE ⇒ 又走一遍归位段（改不动）。
+void turn_on_robot::startScan(bool continuous, bool home)
 {
   scan_continuous_ = continuous;
+  if (!home)
+  {
+    scan_cycles_done_ = 0;      // 接续扫掠：给满 3 轮预算，避免立刻回落 IDLE 再归位
+    scan_finished_ = false;
+    last_scan_step_time_ = this->now();
+    std::cout << "==> 重扫接续（跳过归位段）：从 yaw 点 #" << scan_yaw_idx_
+              << " 继续（轮数预算已重置）" << std::endl;
+    enterScanPhase();
+    return;
+  }
   scan_yaw_idx_ = 0;
   scan_yaw_dir_ = 1;
   scan_pitch_idx_ = 0;
@@ -705,7 +755,10 @@ void turn_on_robot::CaremaMontorControl()
       lost_target_count_ = 0;
       if (scan_continuous_)
       {
-        startScan(true); // 视觉彻底静默，同样视为"脱离视野"，重新开始扫描
+        // ★t42（②）：视觉静默同样只【接续扫掠】（不重归位）
+        std::cout << "==> 视觉静默 " << static_cast<int>(silent_ms)
+                  << " ms → 接续扫掠（不重归位）" << std::endl;
+        startScan(true, /*home=*/false);
       }
       else
       {
@@ -792,8 +845,14 @@ void turn_on_robot::CaremaMontorControl()
           scan_yaw_dir_ = 1;
           scan_pitch_idx_ = 0;
           last_scan_step_time_ = this->now();
-          std::cout << "==> 一轮扫描结束未发现目标，继续扫描（第 " << (scan_cycles_done_ + 1)
-                    << "/" << scan_continuous_cycles_ << " 轮）" << std::endl;
+          // ★t42（③）每轮扫掠一条进度日志（轮次 + 扫掠角度）：现场一眼可判【云台在扫】
+          //   （t41 之前只有一句轮次、没有角度，【在扫 / 在归位】分不清）
+          std::cout << "==> 扫描进度：完成第 " << scan_cycles_done_ << " 轮，开始第 "
+                    << (scan_cycles_done_ + 1) << " / "
+                    << (scan_continuous_cycles_ > 0 ? scan_continuous_cycles_ : 0)
+                    << " 轮（0=不限）；扫掠范围 yaw [" << scan_yaw_min_deg_ << ", "
+                    << scan_yaw_max_deg_ << "]° · " << scan_yaw_dirs_
+                    << " 点 · pitch " << scan_pitch_offset_deg_ << "°" << std::endl;
         }
         else
         {
@@ -1012,8 +1071,8 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
 
   // 瞄准扫描参数
   this->declare_parameter("scan_yaw_dirs", 8);			// 水平横扫点数
-  this->declare_parameter("scan_yaw_min_deg", -90.0);	// 水平最小角(度)
-  this->declare_parameter("scan_yaw_max_deg", 90.0);	// 水平最大角(度)
+  this->declare_parameter("scan_yaw_min_deg", -160.0);	// 水平最小角(度)
+  this->declare_parameter("scan_yaw_max_deg", 160.0);	// 水平最大角(度)
   // 竖直角度列表：只做水平扫描，竖直轴固定在 0°(水平)。如需多层扫描可改成 {15.0, 0.0, -10.0}
 
   this->declare_parameter("scan_pitch_levels",
@@ -1034,17 +1093,19 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->declare_parameter("max_shots_per_target", 3);  // P0-2 单目标连发上限(<0 不限)
   this->declare_parameter("fire_only_blue", true);     // P0-4 仅攻击蓝色靶
   this->declare_parameter("track_speed_max", 0);       // P2-2 tracking cap (ticks/s, 0=derive)
-  this->declare_parameter("patrol_speed_ratio", 0.35);	  // 巡逻(扫描)速度占最大转速比例
+  this->declare_parameter("patrol_speed_ratio", 0.3);	  // 巡逻(扫描)速度占最大转速比例
   this->declare_parameter("scan_dwell_ms", 300);		  // 每点最短驻留(ms)
   this->declare_parameter("scan_arrive_tol", 30);		  // 到位容差(刻度)
-  this->declare_parameter("scan_passes", 2);			  // 全向扫描趟数(1左+1右=2)
+  this->declare_parameter("scan_passes", 3);			  // 全向扫描趟数(1左+1右=2)
   // ★卡 t25：连续扫描轮数上限（默认 3，用户口径"最多 3 循环"）与进入扫描前的归位超时
   this->declare_parameter("scan_continuous_cycles", 3);  // 连续扫描最多几轮；<=0 = 不限(旧行为)
   this->declare_parameter("scan_home_timeout_ms", 1500); // 进扫描前归位段超时(ms)：卡住也要进扫描
-  this->declare_parameter("lost_frames_to_rescan", 60);	  // 跟踪中丢帧回扫描阈值
+  this->declare_parameter("lost_frames_to_rescan", 60);
+  this->declare_parameter("rescan_min_frames", 10);    // ★t42 去抖：连续未见帧数下限
+  this->declare_parameter("rescan_debounce_ms", 400);  // ★t42 去抖：连续未见时长下限(ms)	  // 跟踪中丢帧回扫描阈值
   this->declare_parameter("vision_timeout_ms", 1000);	  // 视觉静默超时(ms)
   this->declare_parameter("ema_alpha", 0.3);			  // 视觉一阶低通滤波系数
-  this->declare_parameter("track_deadzone_px", 12);		  // 跟踪死区(像素)
+  this->declare_parameter("track_deadzone_px", 2);		  // 跟踪死区(像素)
   this->declare_parameter("fine_zone_px", 20);			  // 进入精调档的偏差阈值(像素)
   this->declare_parameter("fine_kp_scale", 0.5);		  // 精调档 Kp 缩放
   this->declare_parameter("fine_kd_scale", 2.0);		  // 精调档 Kd 放大
@@ -1053,8 +1114,8 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->declare_parameter("track_speed_max_ratio", 0.6);  // 跟踪速度上限占巡逻速度比例
   this->declare_parameter("fire_deadzone_px", 8);		  // 固定开火死区(像素)
   this->declare_parameter("fire_dz_dynamic", true);		  // 启用动态开火框(按距离)
-  this->declare_parameter("fire_dz_far_px", 6.0);		  // 远距离开火死区(像素)
-  this->declare_parameter("fire_dz_near_px", 18.0);		  // 近距离开火死区(像素)
+  this->declare_parameter("fire_dz_far_px", 3.5);		  // 远距离开火死区(像素)
+  this->declare_parameter("fire_dz_near_px", 3.5);		  // 近距离开火死区(像素)
   this->declare_parameter("box_w_far", 30.0);			  // 远处目标框宽(标定值)
   this->declare_parameter("box_w_near", 120.0);			  // 近处目标框宽(标定值)
   this->declare_parameter("fire_real_speed_max", 20);	  // 实际速度静止阈值
@@ -1072,7 +1133,7 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->declare_parameter("shot_cooldown_ms", 500);		  // 两发之间的最小间隔(ms)
   this->declare_parameter("aspect_min", 0.75);			  // 目标框宽高比下限(只跟踪近似1:1)
   this->declare_parameter("aspect_max", 1.35);			  // 目标框宽高比上限
-  this->declare_parameter("target_confirm_frames", 8);	  // 连续识别多少帧才算"扫描确认"(之后才允许射击)
+  this->declare_parameter("target_confirm_frames", 4);	  // 连续识别多少帧才算"扫描确认"(之后才允许射击)
   this->declare_parameter("cls_switch_confirm_frames", 5); // ★P1-3 类别改锁需连续多少帧
   this->declare_parameter("loop_hz_track", 100);	  // ★流畅度 跟踪时主循环频率(Hz)
   this->declare_parameter("loop_hz_idle", 50);	  // ★流畅度 扫描/空闲时主循环频率(Hz)
@@ -1120,6 +1181,16 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
     scan_home_timeout_ms_ = 1; // 至少 1ms，避免"0 超时"导致归位段完全不生效
   }
   this->get_parameter("lost_frames_to_rescan", lost_frames_to_rescan_);
+  this->get_parameter("rescan_min_frames", rescan_min_frames_);
+  this->get_parameter("rescan_debounce_ms", rescan_debounce_ms_);
+  if (rescan_min_frames_ < 1)
+  {
+    rescan_min_frames_ = 1;
+  }
+  if (rescan_debounce_ms_ < 1)
+  {
+    rescan_debounce_ms_ = 1;
+  }
   this->get_parameter("vision_timeout_ms", vision_timeout_ms_);
   this->get_parameter("ema_alpha", ema_alpha_);
   this->get_parameter("track_deadzone_px", track_deadzone_px_);

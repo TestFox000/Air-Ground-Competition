@@ -163,16 +163,16 @@ check("来源路径正确", cfg.source.endswith("robot.yaml"))
 #     旧断言本体 == 0.30（linear_speed 那条）
 #     旧断言本体 == 0.30（cruise_speed_mps 那条）
 #      历史：0.15（t18 前）→ 0.30（t18）→ 0.35（t22）→ **0.15（t29 安全档 + t31 两段对齐）**。
-check("旧键 path_executor.linear_speed 可读（0.15，与 cruise 同步）",
-      cfg.get("path_executor.linear_speed") == 0.15)
-check("新键 pursuit.cruise_speed_mps 与旧键同值（0.15）",
-      cfg.get("pursuit.cruise_speed_mps") == 0.15)
+check("旧键 path_executor.linear_speed 可读（0.35，与 cruise 同步）",
+      cfg.get("path_executor.linear_speed") == 0.35)
+check("新键 pursuit.cruise_speed_mps 与旧键同值（0.35）",
+      cfg.get("pursuit.cruise_speed_mps") == 0.35)
 # ★★ t31 重钉（第五张图）：换图 + tracker-safe 自规划出解 ⇒ `mission_blocks` = **60 点**
 #   （= 第五张图上的自规划产物；旧 62 点是第四张图手工 v3，在新图上有 12 条 error ⇒ 已替换）。
 #   点数仍由 mission_blocks 唯一定义、Config 迁移到 `route.tokens`（点数不是凑的）。
 #   历史：34 点(10-07) → 46 → 54(t11) → 62(t20) → **60(t31)**。
-check("route.tokens 由 mission_blocks 迁移（第五张图自规划，60 点）",
-      len(cfg.get("route.tokens") or []) == 60)
+check("route.tokens 由 mission_blocks 迁移（官方图自规划，54 点）",
+      len(cfg.get("route.tokens") or []) == 54)
 # ★ 2026-10-11 重钉（t20）：第三次换图**关闭**了"桥洞强制直行保护"（`bridge_blocks: []`，
 #   见 robot.yaml 该行注释：保护窗含 90° 拐时锁错航向，改用纯追踪 + 转角减速过洞）
 #   ⇒ 旧断言"整列 K1~K11 共 11 个保护点"不再成立。
@@ -191,7 +191,7 @@ check("真实配置无 error", not errs, "; ".join(str(i) for i in errs))
 # ★★ t31 重钉：穿洞兜底格随第五张图改为 **K10**(下半场) / **K5**(上半场)（第三张图是 K11/K1）。
 #   为什么这算"语义未放宽"：`_default_cross()` 要求 default ∈ 候选集合，第五张图的候选集合就是
 #   ["K10"]/["K5"] ⇒ K11/K1 是**失效值**（只会让 validate 报 warn、让开机横幅打错通口名）。
-check("配置摘要包含穿洞兜底格（第五张图 K10）", "K10" in cfg.summary(), repr(cfg.summary()[:120]))
+check("配置摘要包含穿洞兜底格（官方图 K9）", "K9" in cfg.summary(), repr(cfg.summary()[:120]))
 
 section("Config：校验真的会拦（负例）")
 bad = Config.from_dict({

@@ -293,11 +293,11 @@ def test_real_product_and_replan() -> None:
     #     （设计如此：出车后不现场改路线）。所以这里把心跳与情报一起发。
     rig2 = Link(cfg_of())
     rig2.send(hb(seq=1))
-    rig2.send(bp("lower", "K9", 0.95, seq=2))
+    rig2.send(bp("lower", "K11", 0.95, seq=2))   # CFG/GOT: K11 在 7~11 行段内且 ≠ 默认 K9（恢复换洞语义）
     rig2.ticks(3)
     check("1.5 ★ 管线构造器造的 bridge_passable 能过 DroneTask 解析（half/block 归一化）",
           rig2.drone.bridge_updates == 1 and rig2.drone.bridge_half == "lower"
-          and rig2.drone.bridge_block == "K9",
+          and rig2.drone.bridge_block == "K11",
           f"updates={rig2.drone.bridge_updates} half={rig2.drone.bridge_half!r} "
           f"block={rig2.drone.bridge_block!r}")
 
@@ -305,17 +305,17 @@ def test_real_product_and_replan() -> None:
     base = _base_cells()                              # 现场 token 逐格（剥前后缀）
     removed = sorted(set(base) - set(blocks))
     added = sorted(set(blocks) - set(base))
-    check("1.6 ★★ 端到端换洞生效：情报 K9 进路线（默认 %s 被换掉）" % LOWER_DEFAULT,
-          "K9" in rig2.k_blocks() and LOWER_DEFAULT not in rig2.k_blocks(),
+    check("1.6 ★★ 端到端换洞生效：情报 K11 进路线（默认 %s 被换掉）" % LOWER_DEFAULT,
+          "K11" in rig2.k_blocks() and LOWER_DEFAULT not in rig2.k_blocks(),
           f"K 列格={rig2.k_blocks()}")
     check("1.7 ★ 只动穿洞**三连**那一行（进洞口-K 列格-出洞口），其余航点逐格不变",
-          removed == ["J10", "K10", "L10"] and added == ["J9", "K9", "L9"]
+          removed == ["J9", "K9", "L9"] and added == ["J11", "K11", "L11"]
           and len(blocks) == len(base),
           f"−{removed} +{added} / 点数 {len(blocks)} vs {len(base)}")
-    check("1.8 遥测 `used.lower` = K9（本局实际装进路线的格）",
-          rig2.used().get("lower") == "K9", str(rig2.used()))
-    check("1.9 遥测 `seen.lower.cell` = K9（原始情报留痕，排障口径）",
-          (rig2.seen().get("lower") or {}).get("cell") == "K9", str(rig2.seen()))
+    check("1.8 遥测 `used.lower` = K11（本局实际装进路线的格）",
+          rig2.used().get("lower") == "K11", str(rig2.used()))
+    check("1.9 遥测 `seen.lower.cell` = K11（原始情报留痕，排障口径）",
+          (rig2.seen().get("lower") or {}).get("cell") == "K11", str(rig2.seen()))
     check("1.10 全程照常发车（阶段 DRIVE），没有被情报拖住",
           rig2.phase() == "DRIVE", rig2.phase())
 
@@ -328,7 +328,7 @@ def test_both_halves_single_slot() -> None:
 
     rig = Link(cfg_of())
     rig.send(hb(seq=1))                              # 链路先在线（否则 Mission 用默认洞出发）
-    rig.send(bp("lower", "K9", 0.9, seq=2))           # 同一拍先下半场
+    rig.send(bp("lower", "K11", 0.9, seq=2))           # CFG: 2.2 同源改注入 K11           # 同一拍先下半场
     rig.send(bp("upper", "K4", 0.9, seq=3))           # 再上半场（DroneTask 逐条处理，后者覆盖单槽）
     rig.ticks(3)
 
@@ -337,12 +337,12 @@ def test_both_halves_single_slot() -> None:
           str(getattr(st, "bridge_half", "")) == "upper"
           and str(getattr(st, "bridge_block", "")) == "K4",
           f"half={getattr(st, 'bridge_half', None)!r} block={getattr(st, 'bridge_block', None)!r}")
-    check("2.2 ★★ 先到的下半场情报**没被覆盖丢失**：K9 与 K4 同时生效（D3 回归护栏）",
-          "K9" in rig.k_blocks() and "K4" in rig.k_blocks()
+    check("2.2 ★★ 先到的下半场情报**没被覆盖丢失**：K11 与 K4 同时生效（D3 回归护栏）",
+          "K11" in rig.k_blocks() and "K4" in rig.k_blocks()
           and LOWER_DEFAULT not in rig.k_blocks() and UPPER_DEFAULT not in rig.k_blocks(),
           f"K 列格={rig.k_blocks()}")
     check("2.3 两半场遥测 `used` 各自独立",
-          rig.used() == {"lower": "K9", "upper": "K4"}, str(rig.used()))
+          rig.used() == {"lower": "K11", "upper": "K4"}, str(rig.used()))
     check("2.4 遥测 `seen` 里两半场都有原始情报留痕",
           set(rig.seen()) == {"lower", "upper"}, str(rig.seen()))
 

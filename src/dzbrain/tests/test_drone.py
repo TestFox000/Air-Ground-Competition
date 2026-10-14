@@ -315,8 +315,8 @@ check("不传 local_map → 自动读仓库默认地图（loaded=True）", task.
       f"got {task.map_loaded} source={task._map_source}")
 # ★★ t31 重钉（第五张图收口）：靶板 = **B11 + C11**（横向相邻 ⇒ 一块 35×70 跨格板）；
 #   第三张图是 E4 + E5（纵向相邻）。判据本身（"靶区从 map.yaml 读出、且是两格一块"）不变。
-check("靶区从 map.yaml 读出 = {B11,C11}（第五张图跨格靶板）",
-      task.targets == frozenset({"B11", "C11"}),
+check("靶区从 map.yaml 读出 = {E5,F5}（官方图跨格靶板）",
+      task.targets == frozenset({"E5", "F5"}),
       f"got {sorted(task.targets)}")
 check("雷 8 个、障 8 个被读出",
       len(task.mines) == 8 and len(task.obstacles) == 8,

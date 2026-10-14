@@ -59,7 +59,9 @@ const CELLS = field.grid.cols * field.grid.rows
 check('产出 SVG 且 viewBox 覆盖 14×11 格（477×375）',
   /viewBox="0 0 477 375"/.test(svg), (svg.match(/viewBox="[^"]+"/) || [''])[0])
 check(`格背景 rect = 14×11 = ${CELLS} 个`, count(/stroke="#c9ced8"/g) === CELLS, 'rects=' + count(/stroke="#c9ced8"/g))
-check(`每格格名标签 ${CELLS} 个（A1…N11）`, count(/font-size="8.5"/g) === CELLS, 'labels=' + count(/font-size="8.5"/g))
+// ★ t28：靶板改成"一块并板"（横/竖朝向可选），多出一个朝向标注（font-size 8.5，与格名同号）
+check(`每格格名标签 ${CELLS} 个（A1…N11）+ 1 个靶板朝向标注`,
+  count(/font-size="8.5"/g) === CELLS + 1, 'labels=' + count(/font-size="8.5"/g))
 check('四角格名都在（A1 / N1 / A11 / N11）',
   ['>A1<', '>N1<', '>A11<', '>N11<'].every(s => svg.includes(s)), 'missing 角标')
 check('横置方向：A 在左（x=0）、N 在第 14 列（x=442）',
@@ -72,7 +74,10 @@ check(`障：${field.obstacles.length} 个灰块 + 「障」字`,
 check(`桥洞：青色 + 「洞」字 ×${field.bridges.length}（= map.bridges）`,
   count(/>洞</g) === field.bridges.length && svg.includes('#7fe3ea'), 'bridges')
 check('封闭桥室：K 列非开放格浅灰', svg.includes('#d9d9d9'), 'closed bridge rooms')
-check(`靶：粉色 + 「靶」字 ×${field.targets.length}`, count(/>靶</g) === field.targets.length && svg.includes('#e8a0c8'), 'targets')
+// ★ t28：靶板并成一块（粉色描边矩形 + 「靶板」字 + 朝向标注），不再是每格一个「靶」字
+check(`靶板：一块并板（${field.targets.join('+')}）+「靶板」字`,
+  count(/>靶板</g) === 1 && count(/>靶</g) === 1 && /stroke="#8a2f5f"/.test(svg), 'target board')
+check('靶板朝向标注（横向/竖向）', /横向|竖向/.test(svg), 'target yaw label')
 check('隔板：第 6/7 行之间 D~N 黑条 + 标注', svg.includes('隔板 D~N') && svg.includes('fill="#111111"'), 'barrier')
 check('起点 N10：绿底 + 「起」', svg.includes('#b2f2bb') && svg.includes('>起<'), 'start')
 check('终点 N5：金底 + 「终」', svg.includes('#ffe066') && svg.includes('>终<'), 'end')

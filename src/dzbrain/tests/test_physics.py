@@ -191,8 +191,8 @@ def test_config_values() -> None:
     want = {"vehicle.length_m": 0.28, "vehicle.width_m": 0.135,
             "vehicle.coverage_radius_m": 0.035, "field.obstacle_radius_m": 0.1275,
             "field.mine_pad_m": 0.12, "field.barrier_width_m": 0.02,
-            "planner.obstacle_margin_m": 0.02, "pursuit.cruise_speed_mps": 0.15,
-            "path_executor.linear_speed": 0.15, "dzactuator.ticksPer2PI": 2680.0,
+            "planner.obstacle_margin_m": 0.02, "pursuit.cruise_speed_mps": 0.35,
+            "path_executor.linear_speed": 0.35, "dzactuator.ticksPer2PI": 2680.0,
             "dzactuator.ticksPerMeter": 3280.0,
             # ★ 卡 t11：现场卷尺实测的参考点偏移（后轴中心 → 车体几何中心）
             "vehicle.ref_offset_m": 0.075}

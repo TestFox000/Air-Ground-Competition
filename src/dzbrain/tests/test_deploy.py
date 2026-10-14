@@ -177,17 +177,19 @@ check("★ 变化的行全部是 auto_start 行（不误伤别的配置）",
       len(_syn_diff) >= 1 and all(a.strip().startswith("auto_start:")
                                   and "delay" not in a for a, _ in _syn_diff),
       f"合成样本改了 {len(_syn_diff)} 行：{_syn_diff}")
-check("★ 真实文件：两段已 false ⇒ 强制改写是幂等空操作（基准 = 原始字节逐位）",
-      dep.sha256_bytes(_expected) == dep.sha256_bytes(_raw_bytes),
-      "★t31：`path_executor.auto_start`/`mission.auto_start` 均为 false（F-t29-2 对齐）")
+check("★ 真实文件：auto_start 现为 true ⇒ 强制改写确实改变内容（不再是空操作）",
+      dep.sha256_bytes(_expected) != dep.sha256_bytes(_raw_bytes),
+      "GOT：robot.yaml:283/514 现均 auto_start: true（现场发车档）⇒ 归一化把 true→false，基准≠原始字节")
 _raw_text = _raw_bytes.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 _exp_text = _expected.decode("utf-8")
 check("归一化不增删行（只改行内内容）",
       len(_exp_text.splitlines()) == len(_raw_text.splitlines()),
       f"{len(_exp_text.splitlines())} vs {len(_raw_text.splitlines())}")
 _diff_lines = [(a, b) for a, b in zip(_raw_text.splitlines(), _exp_text.splitlines()) if a != b]
-check("★ 真实文件空操作 ⇒ 0 行变化（含注释，全文逐位相同）",
-      _diff_lines == [], f"改了 {len(_diff_lines)} 行")
+check("★ 真实文件改动仅限 auto_start 配置行（1 行；注释与其它键逐位不变）",
+      len(_diff_lines) == 1 and _diff_lines[0][0].strip().startswith("auto_start:")
+      and _diff_lines[0][1].strip().startswith("auto_start:"),
+      f"改了 {len(_diff_lines)} 行：{_diff_lines}")
 # ★★ t31 重钉：计数只数**配置行**（`#` 注释行不算）——注释里出现同名键字面串会污染
 #   `text.count(...)`，本卡就踩过一次（注释里的自动出发键把 false 计数抬到 4 ⇒ 假红）。
 _bare_cfg = [ln for ln in _exp_text.splitlines()

@@ -549,27 +549,27 @@ def main() -> int:
     #   ⚠️ 注意：**tour 引擎**的产物在新图上带 2 处 180° 折返（`C10*` 同时是射击停站），
     #      而车端用的是 tracker-safe 引擎（60 token / 20.65 m / 0 折返，见 robot.yaml 注释）
     #      —— 两者不是同一条路线，这里钉的是 tour 引擎自身的黄金值。
-    check("[无倒车] 53 token / 里程 19.25 m（0 段 R:，:PIVOT 两处 I11/C10）",
-          len(nr.tokens) == 53 and abs(nr.polyline_m - 19.25) < 0.02,
+    check("[无倒车] 42 token / 里程 15.75 m（0 段 R:，:PIVOT 两处 I11/C10）",
+          len(nr.tokens) == 42 and abs(nr.polyline_m - 15.75) < 0.02,
           f"{len(nr.tokens)} token / {nr.polyline_m:.2f} m")
 
     # ---- ① 折返点清单：几何判据 vs :PIVOT 声明，逐一对应 ----
     geo_pivots = P.pivot_vertices(nr.route)
     declared = [(i, wp.block) for i, wp in enumerate(nr.route.waypoints) if wp.pivot]
-    # ★★ t31 重钉（第五张图）：180° 折返顶点 = **2 处（I11 / C10）**（第三张图是 D8/I2）。
-    check("[折返点] 现场无倒车路线实测 2 处 180° 折返（I11、C10，corner_turn_deg=180°）",
-          [(b, round(a)) for _i, b, a in geo_pivots] == [("I11", 180), ("C10", 180)],
+    # ★★ t31 重钉（第五张图）：180° 折返顶点 = **1 处（F4）**（官方图实测；第三张图是 D8/I2）。
+    check("[折返点] 现场无倒车路线实测 1 处 180° 折返（F4，corner_turn_deg=180°）",
+          [(b, round(a)) for _i, b, a in geo_pivots] == [("F4", 180)],
           str([(i, b, round(a)) for i, b, a in geo_pivots]))
     check("[折返点] 每一处几何折返顶点都带 :PIVOT（无漏报）",
           [(i, b) for i, b, _a in geo_pivots] == declared, str(declared))
-    check("[折返点] token 里确实写着 `:PIVOT`，且只有这两处（I11 / C10）",
-          [t for t in nr.tokens if t.endswith(":PIVOT")] == ["I11:PIVOT", "C10*:PIVOT"],
+    check("[折返点] token 里确实写着 `:PIVOT`，且只有这一处（F4）",
+          [t for t in nr.tokens if t.endswith(":PIVOT")] == ["F4*:PIVOT"],
           str([t for t in nr.tokens if t.endswith(":PIVOT")]))
     # ★ 2026-10-11 重钉（t18）：config/robot.yaml 的 planner 段新增 `pivot_penalty: 5.0`
     #   （t9 复审 F1 的收口：让"配置里的路线"与"车上实际规划"用同一组参数），
     #   故 nr 不再走 plan_route 的缺省 0.0，而是与 P.PIVOT_PENALTY 一致。
     check("[折返点] PlanResult 清单与是否无倒车模式一致",
-          nr.pivot_count == 2 and nr.allow_reverse is False
+          nr.pivot_count == 1 and nr.allow_reverse is False
           and nr.pivot_penalty == P.PIVOT_PENALTY,
           f"count={nr.pivot_count} allow_reverse={nr.allow_reverse} "
           f"penalty={nr.pivot_penalty}")
@@ -672,8 +672,8 @@ def main() -> int:
     print("        " + " ".join(pen.tokens))
     # ★ 2026-10-11 重钉（t17）：第三张图上折返点是 **2 处（D8 / I2）**，且都已到"唯一通路"的
     #   最小值 ⇒ 惩罚再加也消不掉，惩罚版与基线**同长**（同一条路线）。
-    check("[惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 2 处（2 → 2）",
-          nr.pivot_count == 2 and pen.pivot_count == 2,
+    check("[惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 1 处（1 → 1）",
+          nr.pivot_count == 1 and pen.pivot_count == 1,
           f"惩罚前 {nr.pivot_count} → 惩罚后 {pen.pivot_count}")
     check("[惩罚] 惩罚版与基线同长（折返已到最小，顺序搜索无从再优化）= 24.85 m",
           abs(pen.polyline_m - nr.polyline_m) < 1e-9,
@@ -681,7 +681,7 @@ def main() -> int:
     check("[惩罚] 惩罚版仍 0 段 R: 且仍合法",
           pen.reverse_segments == 0 and pen.pivot_penalty == P.PIVOT_PENALTY, "0 段 R:")
     # ★ 2026-10-11 重钉（t17）：换成**第三张图**上真能构成 1 处原路折返的三格
-    #   （`A1→A2→B1`：进 A2 后原路退回再东出 ⇒ entry 与 leave 反向）。
+    #   （`D1→D2→E1`：进 D2 后原路退回再东出 ⇒ entry 与 leave 反向。★t54 换图重钉：原 `A1→A2→B1` 的 A1 在第五张官方图成为障碍，A2→B1 只能绕 B2 东出 ⇒ 不构成反向）。
     a1, a2, b1 = P._cell("A1"), P._cell("A2"), P._cell("B1")      # noqa: SLF001
     g_nr = P.Grid(spec, bridge_rows=(11, 1), allow_reverse=False)
     t5 = P._Tour(g_nr, 1e9, pivot_penalty=P.PIVOT_PENALTY)        # noqa: SLF001
@@ -705,13 +705,13 @@ def main() -> int:
     section("⑧ 通口贴边（K10）：U 形单回路硬约束")
     # ★★ t31 重钉（第五张图）：本图通口 = **K10（下半场，第 10 行）/ K5（上半场，第 5 行）**；
     #   第三张图是 K11（第 11 行 = 最外一行）/ K1。历史：K1+K7 → K1+K11 → **K5+K10**。
-    check("⑧.0 回归前提：本图下半场通口在 K10",
-          "K10" in spec.bridges, f"bridges={spec.bridges}")
+    check("⑧.0 回归前提：本图下半场通口在 K9",
+          "K9" in spec.bridges, f"bridges={spec.bridges}")
     _runs = list(V.crossing_entries(nr.route.blocks()))
     _lo = [r for r in _runs if V.LOWER_HALF_ROWS[0] <= round(r[2][0]) <= V.LOWER_HALF_ROWS[1]]
     _up = [r for r in _runs if V.UPPER_HALF_ROWS[0] <= round(r[2][0]) <= V.UPPER_HALF_ROWS[1]]
-    check("⑧.1 下半场恰好 1 次穿洞，且落在本图通口行 K10（第 10 行）",
-          len(_lo) == 1 and round(_lo[0][2][0]) == 10,
+    check("⑧.1 下半场恰好 1 次穿洞，且落在本图通口行 K9（第 9 行）",
+          len(_lo) == 1 and round(_lo[0][2][0]) == 9,
           f"下洞 {[(r[0], r[1], round(r[2][0])) for r in _lo]}")
     check("⑧.2 上半场恰好 1 次穿洞（K5，第 5 行）",
           len(_up) == 1 and round(_up[0][2][0]) == 5,

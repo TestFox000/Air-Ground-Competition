@@ -222,15 +222,15 @@ def main() -> int:
     # ★ 2026-10-11 重钉（t22）：第三次换图落盘的标定值里 ld_max 0.40 / 62 点路线 /
     #   ticksPerMeter 3280 不变，**巡航 0.30 → 0.35**（用户现场口径）。
     # ★★ t31 重钉（第五张图收口）：**巡航 0.35 → 0.15**（t29 首跑安全档）、
-    #   路线 **62 → 60 点**（第五张图 tracker-safe 自规划产物）；ld_max 0.40 与
+    #   路线 **62 → 60 → 54 点**（官方图 tracker-safe 自规划产物）；ld_max 0.40 与
     #   ticksPerMeter 3280 不变。
     #   ⚠️ 行内保留历史值原文（`ticksPerMeter 3280）` / 旧断言本体 `- 0.30` / `- 0.35`）作为
     #      `tools/calib_backfill.py` 的钉锚点（内容式定位；该映射在 t2 写域，本卡不改）。
-    ok("5.3 落盘值（cruise 0.15 / ld_max 0.40 / 第五张图路线 60 点 / ticksPerMeter 3280）"
+    ok("5.3 落盘值（cruise 0.35 / ld_max 0.40 / 官方图路线 54 点 / ticksPerMeter 3280）"
        "（旧 cruise 0.30 / 0.35）",
-       abs(real.get("pursuit.cruise_speed_mps") - 0.15) < 1e-12
+       abs(real.get("pursuit.cruise_speed_mps") - 0.35) < 1e-12
        and abs(real.get("pursuit.lookahead_max_m") - 0.40) < 1e-12
-       and len(real.get("route.tokens") or []) == 60
+       and len(real.get("route.tokens") or []) == 54
        and abs(real.get("dzactuator.ticksPerMeter") - 3280.0) < 1e-9,
        f"cruise={real.get('pursuit.cruise_speed_mps')} ld_max={real.get('pursuit.lookahead_max_m')} "
        f"tokens={len(real.get('route.tokens') or [])} ticks={real.get('dzactuator.ticksPerMeter')}")

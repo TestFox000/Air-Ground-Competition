@@ -783,8 +783,8 @@ check("10.10 ★ engine=tracker-safe → 规划成功且走的是新引擎",
 check("10.11 ★ 新引擎产物无 `:PIVOT`（仿真/真车都不建模原地折返，t7 的硬规则）",
       len(_out_ts.tokens) >= 2 and not any("PIVOT" in t for t in _out_ts.tokens),
       f"{sum(1 for t in _out_ts.tokens if 'PIVOT' in t)} 处")
-check("10.12 ★ 新引擎路线长度 = 20.65 m（第五张图 tracker-safe 实测；t31 重钉）",
-      0.0 < _out_ts.route_len_m <= 21.0 and abs(_out_ts.route_len_m - 20.65) < 0.02,
+check("10.12 ★ 新引擎路线长度 = 18.55 m（官方图 tracker-safe 实测；t44 重钉）",
+      0.0 < _out_ts.route_len_m <= 19.0 and abs(_out_ts.route_len_m - 18.55) < 0.02,
       f"{_out_ts.route_len_m:.2f} m vs tour {_out_tour.route_len_m:.2f} m"
       f"（第五张图上 tour 反而短 1.40 m，但它的产物带 2 处 :PIVOT、且 C10* 同时是折返顶点"
       f" —— 仿真/真车都不建模折返 ⇒ 不可发货；判据从『不比 tour 长』改为『等于新图实测值』）")

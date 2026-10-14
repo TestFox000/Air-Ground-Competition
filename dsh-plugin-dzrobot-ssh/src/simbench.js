@@ -94,6 +94,9 @@ const DRONE_FALLBACK = { takeoff: 'N8', land: 'M2' }
 const CELL_RE = /^[A-N](?:[1-9]|1[01])$/
 const FIELD_MAX_CELLS = 40
 
+/** ★ t28：`fieldSpec()` 单次调用内解析出的靶格（`targetBoard()` 从它判横竖）。 */
+const TARGET_CACHE = { cells: [] }
+
 /** 一次只跑一个仿真：并发会互相踩 artifacts/sim 的输出。 */
 let running = false
 
@@ -201,6 +204,7 @@ export function fieldSpec() {
   const droneLine = (text.match(/^#.*无人机点.*$/m) ?? [''])[0]
   const droneCells = (droneLine.match(/[A-N]\d{1,2}/g) ?? []).map(normalizeCell).filter(Boolean)
   const colFrom = scalarOf(text, 'barrier_col_from').toUpperCase().slice(0, 1)
+  TARGET_CACHE.cells = normalizeCells(listOf(text, 'targets'))
   return {
     ok: true,
     root: SIM_ROOT,
@@ -213,7 +217,7 @@ export function fieldSpec() {
     end: normalizeCell(scalarOf(text, 'end')),
     mines: normalizeCells(listOf(text, 'mines')),
     obstacles: normalizeCells(listOf(text, 'obstacles')),
-    targets: normalizeCells(listOf(text, 'targets')),
+    targets: TARGET_CACHE.cells.slice(),
     bridges: normalizeCells(listOf(text, 'bridges')),
     barrier: {
       colFrom: /^[A-N]$/.test(colFrom) ? colFrom : 'D',
@@ -225,8 +229,31 @@ export function fieldSpec() {
       land: droneCells[1] || DRONE_FALLBACK.land,
       source: droneCells.length >= 2 ? 'map-comment' : 'builtin-fallback',
     },
+    // ★ t28：靶板由 targets 的相邻两格并成一块；按两格几何关系自动判横/竖（页面可覆盖）。
+    target: targetBoard(),
     editable: FIELD_KEYS,
   }
+}
+
+/**
+ * 靶板几何（t28）：把 `map.targets` 的格名按**屏幕坐标**判横竖。
+ *
+ * 横置屏幕坐标：列 → x、行 → y。两块靶格若列号不同 = 横向（长边沿列），
+ * 行号不同 = 竖向（长边沿行）。只认两块；多于两块时按首两块判并如实报数量。
+ */
+function targetBoard() {
+  return { yaw: targetYawOfCells(TARGET_CACHE.cells), cells: TARGET_CACHE.cells }
+}
+
+/** 由格名列表判横/竖（'h' | 'v' | ''，空 = 无法判定）。 */
+function targetYawOfCells(cells) {
+  const list = (Array.isArray(cells) ? cells : []).map(normalizeCell).filter(Boolean)
+  if (list.length < 2) return ''
+  const colIdx = c => GRID.colLetters.indexOf(String(c)[0].toUpperCase())
+  const rowNum = c => Number(String(c).slice(1))
+  const a = list[0]; const b = list[1]
+  if (colIdx(a) < 0 || colIdx(b) < 0) return ''
+  return colIdx(a) !== colIdx(b) ? 'h' : 'v'
 }
 
 /** 只读路线 token（给页面画参考路线）。
@@ -306,6 +333,9 @@ function sanitizeParams(body = {}) {
   const maxSteps = Number.isInteger(body.maxSteps) && body.maxSteps > 0 ? body.maxSteps : 0
   // ★ t25：seed 留空 = sim_cli 的 SimConfig 默认（不传 `--seed`，与改动前逐字一致）。
   const seed = Number.isInteger(body.seed) && body.seed >= 0 ? body.seed : null
+  // ★ t28：靶板朝向（'h' 横向 / 'v' 竖向 / '' 跟随地图）——**只用于渲染与台账**，
+  //   不写 config、不进 sim_cli 参数（仿真物理不感知靶板朝向）。
+  const targetYaw = body.targetYaw === 'h' || body.targetYaw === 'v' ? body.targetYaw : null
   // ★ t25：三类点位若要改，就在运行目录里生成 override（config/** 零写入）。
   const field = {}
   let fieldTouched = false
@@ -318,7 +348,7 @@ function sanitizeParams(body = {}) {
       fieldTouched = true
     }
   }
-  return { overrides, inject, label, maxSteps, seed, field: fieldTouched ? field : null }
+  return { overrides, inject, label, maxSteps, seed, targetYaw, field: fieldTouched ? field : null }
 }
 
 /** 把参数拼成 sim_cli 的 argv（数组，不经 shell）。 */
@@ -437,6 +467,7 @@ export async function runSim(body) {
     inject: params.inject,
     maxSteps: params.maxSteps,
     seed: params.seed,
+    targetYaw: params.targetYaw,
     simRoot: SIM_ROOT,
     simRootSource: SIM_ROOT_SOURCE,
     configMd5: md5Of(ROBOT_FILE),

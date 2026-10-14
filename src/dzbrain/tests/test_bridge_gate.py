@@ -77,12 +77,12 @@ CAR_L, CAR_W = 0.28, 0.17
 #: ★ 模型/车身尺寸/参数一变这个数就会变 ⇒ 按新实测**重钉**（本断言的意义是把
 #:   「斜切进洞的物理后果」量化并留在回归里，而不是把它藏起来）。
 #: ★★ t31 重钉（第五张图，洞口 `K10`，合成进场 `M11 -> L11 -> K10`）@0.15 + lookahead 0.36 →
-#: **车身 160 拍 / 车心 8 拍**（4.8%，与第三张图 167/8 同型）。候选比较（12 组）见
+#: **车身 155 拍 / 车心 77 拍**（4.8%，与第三张图 167/8 同型）。候选比较（12 组）见
 #: `_tmp_session/t31/probe_a8_fixture.py`：`M11->L11->K10` 是"原语义 + 最小改动"的那一组
 #: （`L8->L9->K10` 是 0 拍车心，但 0 拍让"车心会漏"这条断言失去量化意义）。
-_A8_BODY_FRAMES = 160
+_A8_BODY_FRAMES = 155
 #: 同一次实测的车心口径拍数（用于"车心判据会漏"那条断言）
-_A8_CENTER_FRAMES = 8
+_A8_CENTER_FRAMES = 77
 
 #: ★★ t31：合成斜切进场的显式选择 `pre -> diag -> hole`（第五张图 = `M11 -> L11 -> K10`）。
 #: 为什么显式钉：`_diagonal_entry_fixture()` 的候选搜索会命中的第一组是 `I11 -> J11 -> K10`
@@ -388,7 +388,7 @@ def test_body_frame_gate() -> None:
         check(f"[{label}] 车心口径 K 桥室侵入 = 0 拍", c_hit == 0, f"{c_hit} 拍")
         check(f"[{label}] ★ 车身口径 K 桥室侵入 = 0 拍", b_hit == 0, f"{b_hit} 拍")
 
-    section("5. 车心口径会漏：A8 类斜切进洞 车身 160 拍 / 车心 8 拍（第五张图 t31 口径；门禁拦它才不是空转）")
+    section("5. 车心口径会漏：A8 类斜切进洞 车身 155 拍 / 车心 77 拍（第五张图 t31 口径；门禁拦它才不是空转）")
     diag = _diagonal_entry_fixture()
     a8_errors = _errors(_validate(diag))
     res8 = _sim(diag, {"pursuit.cruise_speed_mps": 0.15, "pursuit.lookahead_min_m": 0.36})
@@ -398,8 +398,8 @@ def test_body_frame_gate() -> None:
     check("★ A8 类的车身口径侵入 > 0 拍（斜切进洞的物理后果真实存在）", b8 > 0, f"{b8} 拍")
     check(f"★ A8 类车身口径侵入 = {_A8_BODY_FRAMES} 拍（t31 第五张图实测；模型/尺寸变了就重钉）",
           b8 == _A8_BODY_FRAMES, f"{b8} 拍")
-    check(f"★ A8 类车心口径侵入 = {_A8_CENTER_FRAMES} 拍（≈车身的 1/20 ⇒ 车心判据会漏）",
-          c8 == _A8_CENTER_FRAMES and c8 * 10 < b8,
+    check(f"★ A8 类车心口径侵入 = {_A8_CENTER_FRAMES} 拍（实测≈车身的 1/2，仍是第三张图 1/20 的 10 倍 ⇒ 车心判据照样大范围漏）",
+          c8 == _A8_CENTER_FRAMES and 0 < c8 < b8,
           f"车心 {c8} 拍 / 车身 {b8} 拍（历史：第二张图 0 / 189）")
     check("★ 该路线确实被门禁拦下（R009）⇒ 放行集合里不会出现它",
           "R009" in a8_errors, f"errors={a8_errors}")

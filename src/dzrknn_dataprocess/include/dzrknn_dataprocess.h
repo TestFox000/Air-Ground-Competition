@@ -195,6 +195,13 @@ public:
 	bool scan_homing_ = false;         // true = 当前处于"进扫描前先归位"阶段（此时 aim_state_ 仍是 IDLE）
 	int scan_cycles_done_ = 0;         // 本次连续扫描已完成的轮数（用于 3 轮上限）
 	int lost_frames_to_rescan_ = 60;  // 跟踪中连续丢帧超过该值才放弃追踪回到扫描
+  // ★t42（t41 台账 §3 主因 H1）丢靶去抖滞回：重启扫掠前必须【连续未见 >= rescan_min_frames_
+  //   帧】且【持续 >= rescan_debounce_ms_】；旧行为（单帧即重扫）可把两参数设 1 / 0 回退。
+  int rescan_min_frames_ = 10;      // ★t42 连续未见帧数下限（10 帧 @33fps ~= 300ms）
+  int rescan_debounce_ms_ = 400;    // ★t42 连续未见时长下限（ms，>=300ms 口径）
+  rclcpp::Time lost_since_;         // ★t42 本轮【第一次未见】的时刻（见到即作废）
+  bool lost_since_valid_ = false;   // ★t42 lost_since_ 是否有效
+  rclcpp::Time cls_diag_last_ = rclcpp::Time(0, 0, RCL_ROS_TIME);  // ★t42 类别诊断限流
 	int vision_timeout_ms_ = 1000;	  // 追踪中多久收不到视觉结果就强制回扫描(ms)
 	// ===== 视觉滤波与消抖 =====
 	double ema_alpha_ = 0.3;	  // 一阶低通滤波系数(0~1)，越小越平滑但延迟越大
@@ -297,7 +304,7 @@ public:
 	bool aspectRatioOk(const std_msgs::msg::Int32MultiArray &msg) const;
 	void applyScanTarget();
 	void advanceScanIndex();
-	void startScan(bool continuous); // 启动全向扫描；continuous=true 时扫完自动重来
+	void startScan(bool continuous, bool home = true);   // ★t42 重扫传 home=false：不重跑归位段 // 启动全向扫描；continuous=true 时扫完自动重来
 	bool scanHomingStep();           // ★t25：进扫描前的归位段；返回 true = 归位完成，可以开扫
 	void enterScanPhase();           // ★t25：真正进入扫描阶段（下发第一个横扫点）
 	int trackSpeedFor(double abs_err, double d_abs_err, double eff) const;

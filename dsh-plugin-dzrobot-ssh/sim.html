@@ -191,15 +191,26 @@
 
       <div class="chips"><span>雷（必须全部压过）</span><span id="minesCount" class="grow">—</span>
         <button type="button" data-reset="mines">恢复默认</button></div>
-      <textarea id="mines" rows="3" spellcheck="false" placeholder="B1 G2 H3 A4 D8 F9 I10 E11"></textarea>
+      <textarea id="mines" rows="3" spellcheck="false" placeholder="C1 A3 E3 G4 I6 B7 D9 H10"></textarea>
 
       <div class="chips"><span>障碍（不可通行）</span><span id="obstaclesCount" class="grow">—</span>
         <button type="button" data-reset="obstacles">恢复默认</button></div>
-      <textarea id="obstacles" rows="3" spellcheck="false" placeholder="D1 F4 A5 H5 B7 C9 E10 G11"></textarea>
+      <textarea id="obstacles" rows="3" spellcheck="false" placeholder="A1 E2 H4 D8 I8 G9 B11 F11"></textarea>
 
       <div class="chips"><span>桥洞（本局开放，其余 K 格封死）</span><span id="bridgesCount" class="grow">—</span>
         <button type="button" data-reset="bridges">恢复默认</button></div>
-      <textarea id="bridges" rows="2" spellcheck="false" placeholder="K5 K10"></textarea>
+      <textarea id="bridges" rows="2" spellcheck="false" placeholder="K5 K9"></textarea>
+
+      <div class="chips"><span>靶板朝向<span class="hint">只影响地图/轨迹渲染与提示，不写 config</span></span>
+        <span id="targetYawCount" class="grow">—</span>
+        <button type="button" data-reset="targetYaw">恢复默认</button></div>
+      <select id="targetYaw">
+        <option value="">跟随地图（不指定）</option>
+        <option value="h">横向（长边沿 A~N 列方向）</option>
+        <option value="v">竖向（长边沿 1~11 行方向）</option>
+      </select>
+      <div class="foot">靶板由 <code>map.targets</code> 的相邻两格并成一块；<b>横向</b>=两格左右相邻（如 B11+C11），
+        <b>竖向</b>=两格上下相邻。选"跟随地图"时按两格实际几何关系自动判定。</div>
 
       <div class="warnline" id="fieldWarn" style="display:none"></div>
       <div class="foot">改了任一类就会：① 在运行目录生成 <code>map_override/</code>（改后 map.yaml + robot.yaml 副本）；
@@ -336,6 +347,10 @@ function readForm() {
   if (steps !== '' && Number(steps) > 0) body.maxSteps = Math.floor(Number(steps));
   if (seedRaw !== '' && Number(seedRaw) >= 0) body.seed = Math.floor(Number(seedRaw));
   var field = fieldFromForm();                    // 改了点位才带 field（否则与改动前逐字一致）
+  if (field) body.field = field;
+  // ★ t28：靶板朝向（渲染/提示用，宿主不据此改 config，只记台账）
+  var tYaw = targetYawMode();
+  if (tYaw) body.targetYaw = tYaw;
   if (field) body.field = field;
   return body;
 }
@@ -535,6 +550,92 @@ var FIELD = null;            // GET /sim/map 的返回
 var FIELD_CELL_RE = /^[A-N](?:[1-9]|1[01])$/;
 var MAP_S = 34;              // 每格像素（横置：14 列水平 × 11 行垂直）
 var TRACE = null;            // 本次/所选 run 的 traj.csv 轨迹（屏幕坐标数组）
+var FIELD_GRID_BLOCK = 0.35; // 每格米数（t28：车身/位姿换算用）
+
+/* ── ★ t28：路径折线 + 小车位姿 + 靶板朝向 ───────────────────────────────── */
+
+/** 靶板朝向（t28）：h=横向（长边沿列）/ v=竖向（长边沿行）/ ''=按两格几何自动判。 */
+function targetYawMode() {
+  var v = String($('targetYaw') ? $('targetYaw').value : '').toLowerCase();
+  return (v === 'h' || v === 'v') ? v : '';
+}
+/** 靶格的并板矩形（屏幕坐标）：按朝向返回 [x0, y0, w, h]；单格时退回整格。 */
+function targetBoardRect(cells, mode) {
+  var pts = cells.map(cellCenter).filter(Boolean);
+  if (pts.length === 0) return null;
+  if (pts.length === 1) return [pts[0][0] - MAP_S / 2, pts[0][1] - MAP_S / 2, MAP_S, MAP_S];
+  var xs = pts.map(function (p) { return p[0]; });
+  var ys = pts.map(function (p) { return p[1]; });
+  var x0 = Math.min.apply(null, xs) - MAP_S / 2;
+  var x1 = Math.max.apply(null, xs) + MAP_S / 2;
+  var y0 = Math.min.apply(null, ys) - MAP_S / 2;
+  var y1 = Math.max.apply(null, ys) + MAP_S / 2;
+  if (!mode) mode = (x1 - x0) >= (y1 - y0) ? 'h' : 'v';
+  return [x0, y0, x1 - x0, y1 - y0];
+}
+
+/** token → 修饰标记（与 route/parser.py 同口径：R: 倒车 / * 射击 / :PIVOT 折返）。 */
+function tokenFlags(token) {
+  var raw = String(token).trim();
+  return {
+    reverse: /^R:/i.test(raw),
+    shoot: /\*$/.test(raw),
+    pivot: /:PIVOT/i.test(raw),
+    cell: tokenCell(raw),
+  };
+}
+
+/**
+ * 格心序列 → **真实路径折线**（相邻格之间补中间点）。
+ *
+ * ★ 为什么不再直接连格心：两点间画直线，会让"绕着桶走 L 形"的路线看起来像切角；
+ *   官方渲染器 tools/sim_map_render.py 同样画逐段折线。这里在相邻格之间补
+ *   "先列后行 / 先行后列"的过渡点，视觉与物理走向一致（每步仍是一格）。
+ */
+function routePolyline(cells) {
+  var out = [];
+  for (var i = 0; i < cells.length; i += 1) {
+    var p = cellCenter(cells[i]);
+    if (!p) continue;
+    if (out.length === 0) { out.push(p); continue; }
+    var prev = out[out.length - 1];
+    var pc = cellCenter(cells[i - 1]);
+    if (!pc) { out.push(p); continue; }
+    var dc = p[0] - pc[0];                        // 列方向位移（>0 = 向东）
+    var dr = p[1] - pc[1];                        // 行方向位移（>0 = 向南）
+    if (Math.abs(dc) > 1 && Math.abs(dr) > 1) {   // 对角：补一个切角过渡点
+      out.push([p[0], pc[1]]);
+    } else if (Math.abs(dr) > 1) {                // 纵向多格：逐格补点
+      var stepR = dr > 0 ? MAP_S : -MAP_S;
+      for (var k = 1; k < Math.abs(dr) / MAP_S; k += 1) out.push([pc[0], pc[1] + stepR * k]);
+    } else if (Math.abs(dc) > 1) {                // 横向多格：逐格补点
+      var stepC = dc > 0 ? MAP_S : -MAP_S;
+      for (var m = 1; m < Math.abs(dc) / MAP_S; m += 1) out.push([pc[0] + stepC * m, pc[1]]);
+    }
+    out.push(p);
+  }
+  return out;
+}
+
+/** 车身矩形四角（屏幕坐标）。尺寸 = 现场真值车长 0.28 m × 车宽 0.135 m。 */
+var CAR_LEN_PX = 0.28 * MAP_S / FIELD_GRID_BLOCK;
+var CAR_WID_PX = 0.135 * MAP_S / FIELD_GRID_BLOCK;
+function carPolygon(sx, sy, yawCode) {
+  var th = yawCode + Math.PI / 2;                  // 代码 yaw → 屏幕角（与官方渲染器一致）
+  var hx = Math.cos(th), hy = Math.sin(th);        // 车头方向
+  var rx = -hy, ry = hx;                           // 车体右侧
+  var L = CAR_LEN_PX / 2, W = CAR_WID_PX / 2;
+  return [[sx + hx * L + rx * W, sy + hy * L + ry * W],
+          [sx + hx * L - rx * W, sy + hy * L - ry * W],
+          [sx - hx * L - rx * W, sy - hy * L - ry * W],
+          [sx - hx * L + rx * W, sy - hy * L + ry * W]];
+}
+/** 代码坐标 → 屏幕坐标（与 loadTrace 同口径：col = 13.5 - y/block，row = 10.5 - x/block）。 */
+function codeToScreen(x, y) {
+  var col = 13.5 - y / FIELD_GRID_BLOCK;
+  var row = 10.5 - x / FIELD_GRID_BLOCK;
+  return [col * MAP_S, row * MAP_S];
+}
 
 function colIdxOf(col) { return FIELD.grid.colLetters.indexOf(col); }
 /** 格名 → 格中心（横置屏幕坐标：A 在左、N 在右；1 行在上、11 行在下）。 */
@@ -618,6 +719,17 @@ function renderMap() {
     var p = cellCenter(cell); if (!p) return;
     svg.push(text(p[0], p[1] + 4, '靶', 11, '#8a2f5f', 'bold', 'middle'));
   });
+  // ★ t28：靶板按"一块并板"画（横/竖朝向可选），不再每格一个「靶」字
+  (function () {
+    var cells = FIELD.targets || [];
+    var r = targetBoardRect(cells, targetYawMode());
+    if (!r) return;
+    svg.push(rect(r[0], r[1], r[2], r[3], '#e8a0c8', ' stroke="#8a2f5f" stroke-width="1.6"'));
+    var mode = targetYawMode() || ((r[2] >= r[3]) ? 'h' : 'v');
+    svg.push(text(r[0] + r[2] / 2, r[1] + r[3] / 2 + 4, '靶板', 10, '#5d1f42', 'bold', 'middle'));
+    svg.push(text(r[0] + r[2] / 2, r[1] - 5,
+      (mode === 'h' ? '横向' : '竖向') + ' ' + cells.join('+'), 8.5, '#8a2f5f', 'bold', 'middle'));
+  })();
   form.bridges.forEach(function (cell) {
     var p = cellCenter(cell); if (!p) return;
     svg.push(text(p[0], p[1] + 4, '洞', 11, '#0b6b73', 'bold', 'middle'));
@@ -634,19 +746,61 @@ function renderMap() {
     svg.push('<circle cx="' + landP[0] + '" cy="' + landP[1] + '" r="' + (MAP_S * 0.30) + '" fill="#4d8fd6" fill-opacity="0.25" stroke="#1c5aa8" stroke-width="1.4"/>');
     svg.push(text(landP[0], landP[1] + 4, 'H', 12, '#1c5aa8', 'bold', 'middle'));
   }
-  // 参考路线（默认路线或本局重规划路线）
+  // 参考路线（真实折线 + 航点 + 射击星标 + PIVOT 菱标）
   if ($('showRoute').checked) {
     var tokens = (TRACE && TRACE.route) || (FIELD && FIELD.route) || [];
-    var pts = tokens.map(tokenCell).map(function (cell) { return cell ? cellCenter(cell) : null; }).filter(Boolean);
+    var cells = tokens.map(tokenCell).filter(Boolean);
+    var pts = routePolyline(cells);
     if (pts.length > 1) {
       svg.push('<polyline points="' + pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ')
-        + '" fill="none" stroke="#2f7fd0" stroke-width="1.8" stroke-linejoin="round" opacity="0.85"/>');
+        + '" fill="none" stroke="#2f7fd0" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>');
     }
+    // 航点圆点 + 修饰标记（与官方渲染器同口径：PIVOT 菱 / 射击星）
+    tokens.forEach(function (token) {
+      var f = tokenFlags(token);
+      if (!f.cell) return;
+      var p = cellCenter(f.cell);
+      if (!p) return;
+      if (f.pivot) {
+        svg.push('<path d="M ' + p[0] + ' ' + (p[1] - 5.5) + ' L ' + (p[0] + 5.5) + ' ' + p[1]
+          + ' L ' + p[0] + ' ' + (p[1] + 5.5) + ' L ' + (p[0] - 5.5) + ' ' + p[1] + ' Z" '
+          + 'fill="#8b5cf6" stroke="#3b1f7a" stroke-width="0.8"/>');
+      }
+      if (f.shoot) {
+        svg.push('<path d="M ' + p[0] + ' ' + (p[1] - 7) + ' L ' + (p[0] + 2) + ' ' + (p[1] - 2.2)
+          + ' L ' + (p[0] + 7) + ' ' + (p[1] - 2) + ' L ' + (p[0] + 3) + ' ' + (p[1] + 2)
+          + ' L ' + (p[0] + 4.5) + ' ' + (p[1] + 7) + ' L ' + p[0] + ' ' + (p[1] + 4)
+          + ' L ' + (p[0] - 4.5) + ' ' + (p[1] + 7) + ' L ' + (p[0] - 3) + ' ' + (p[1] + 2)
+          + ' L ' + (p[0] - 7) + ' ' + (p[1] - 2) + ' L ' + (p[0] - 2) + ' ' + (p[1] - 2.2)
+          + ' Z" fill="#d946ef" stroke="#701a75" stroke-width="0.8"/>');
+      }
+      if (!f.pivot && !f.shoot) {
+        svg.push('<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="2.4" '
+          + 'fill="#2f7fd0" stroke="#ffffff" stroke-width="0.7"/>');
+      }
+    });
   }
   // 仿真轨迹（traj.csv 的 truth 列）
   if (TRACE && TRACE.points && TRACE.points.length > 1) {
     svg.push('<polyline points="' + TRACE.points.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ')
       + '" fill="none" stroke="#d64545" stroke-width="1.5" stroke-linejoin="round" opacity="0.9"/>');
+  }
+  // ★ t28：小车位姿标注（车身矩形 + 车头箭头），沿轨迹抽样
+  if (TRACE && TRACE.poses && TRACE.poses.length > 0) {
+    TRACE.poses.forEach(function (pose, idx) {
+      var poly = carPolygon(pose[0], pose[1], pose[2]);
+      var d = poly.map(function (q, qi) { return (qi ? 'L ' : 'M ') + q[0].toFixed(1) + ' ' + q[1].toFixed(1); }).join(' ')
+        + ' Z';
+      svg.push('<path d="' + d + '" fill="#1f2933" fill-opacity="0.34" stroke="#0b1727" stroke-width="0.9"/>');
+      // 车头朝向箭头（从车心指向车头方向）
+      var th = pose[2] + Math.PI / 2;
+      var tip = [pose[0] + Math.cos(th) * (CAR_LEN_PX * 0.62), pose[1] + Math.sin(th) * (CAR_LEN_PX * 0.62)];
+      svg.push('<line x1="' + pose[0].toFixed(1) + '" y1="' + pose[1].toFixed(1) + '" x2="' + tip[0].toFixed(1)
+        + '" y2="' + tip[1].toFixed(1) + '" stroke="#0b1727" stroke-width="1.5"/>');
+      if (idx === 0) {
+        svg.push(text(pose[0], pose[1] - CAR_LEN_PX * 0.62 - 4, '起点位姿', 8.5, '#0b1727', 'bold', 'middle'));
+      }
+    });
   }
   $('map').innerHTML = '<svg viewBox="0 0 ' + (W + 1) + ' ' + (H + 1) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="场地横置图">'
     + svg.join('') + '</svg>';
@@ -694,6 +848,14 @@ function refreshFieldHints() {
     var chip = $(key + 'Count');
     if (chip) chip.textContent = form[key].length + ' 格' + (now === base ? '（默认）' : '（已改）');
   });
+  // ★ t28：靶板朝向 chip
+  var yawChip = $('targetYawCount');
+  if (yawChip) {
+    var mode = targetYawMode();
+    var auto = targetBoardRect(FIELD.targets || [], '');
+    var autoTxt = auto ? ((auto[2] >= auto[3]) ? '横向' : '竖向') : '未知';
+    yawChip.textContent = mode ? (mode === 'h' ? '横向（指定）' : '竖向（指定）') : ('跟随地图：' + autoTxt);
+  }
   var bad = [];
   ['mines', 'obstacles', 'bridges'].forEach(function (key) {
     String($(key).value).split(/[\s,;|]+/).forEach(function (item) {
@@ -746,9 +908,9 @@ function loadField() {
   });
 }
 
-/** 拉一次 traj.csv，取 truth 轨迹（每 4 拍取一点）画到场地上。 */
+/** 拉一次 traj.csv，取 truth 轨迹（每 4 拍取一点）+ 位姿（每 125 拍≈2.5s 一个车身）画到场地上。 */
 function loadTrace(record) {
-  TRACE = { route: (record && record.route) || (FIELD && FIELD.route) || [], points: [] };
+  TRACE = { route: (record && record.route) || (FIELD && FIELD.route) || [], points: [], poses: [] };
   renderMap();
   if (!record || !record.id) return Promise.resolve();
   var url = artifactUrl(record.id + '/traj.csv');
@@ -756,19 +918,24 @@ function loadTrace(record) {
   return fetch(url).then(function (response) { return response.text(); }).then(function (text) {
     var lines = text.split('\n');
     var head = (lines[0] || '').split(',');
-    var ix = head.indexOf('truth_x'); var iy = head.indexOf('truth_y');
+    var ix = head.indexOf('truth_x'); var iy = head.indexOf('truth_y'); var iw = head.indexOf('truth_yaw');
     if (ix < 0 || iy < 0) return;
     var pts = [];
+    var poses = [];
     for (var i = 1; i < lines.length; i += 4) {
       var parts = lines[i].split(',');
       if (parts.length <= ix || parts.length <= iy) continue;
       var x = Number(parts[ix]); var y = Number(parts[iy]);      // 代码坐标（m）
       if (!isFinite(x) || !isFinite(y)) continue;
-      var col = 13.5 - y / FIELD.grid.blockM;                     // 与 geometry.block_to_meters 同源
-      var row = 10.5 - x / FIELD.grid.blockM;
-      pts.push([col * MAP_S, row * MAP_S]);
+      pts.push([(13.5 - y / FIELD_GRID_BLOCK) * MAP_S, (10.5 - x / FIELD_GRID_BLOCK) * MAP_S]);
+      // 车身抽样：与官方渲染器同口径（i % 125 ≈ 每 2.5 s 一个）；首拍必画（起点位姿）
+      if (iw >= 0 && parts.length > iw && (i === 1 || i % 125 === 0)) {
+        var yaw = Number(parts[iw]);
+        if (isFinite(yaw)) poses.push([(13.5 - y / FIELD_GRID_BLOCK) * MAP_S, (10.5 - x / FIELD_GRID_BLOCK) * MAP_S, yaw]);
+      }
     }
     TRACE.points = pts;
+    TRACE.poses = poses;
     renderMap();
   }).catch(function () { /* 拉不到就不画轨迹，不影响指标 */ });
 }
@@ -933,7 +1100,7 @@ function runSimulation() {
     .then(function (payload) {
       renderResult(payload);
       // 地图叠加：本局的参考路线（改点位时是重规划后的）+ 可选的真值轨迹
-      TRACE = { route: (payload.record && payload.record.route) || [], points: [] };
+      TRACE = { route: (payload.record && payload.record.route) || [], points: [], poses: [] };
       renderMap();
       if ($('showTrace').checked) loadTrace(payload.record);
       var m = payload.record && payload.record.metrics || {};
