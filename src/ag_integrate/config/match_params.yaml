@@ -9,6 +9,8 @@ integrate_node:
     dry_run: true                   # 只算不发；实车联调通过后改 false
     publish_reset: true
     # ---- 本局摆位（现场确定） ----
+    # ⚠️ 开赛前必须对照场地喷绘核对这两个格号：
+    #    裁判布置完场地后、2分钟准备期内确认，错了整个航位推算基准就偏一格。
     start_cell: "N11"
     start_heading: "y"              # 车头朝向断言 x(东)/y(北)
     goal_cell: "N6"
@@ -17,8 +19,10 @@ integrate_node:
     min_mines: 1                    # 至少识别到几颗雷才发车
     require_face: true              # 必须先看清靶面敌我再发车
     # ---- 中场约束（留空：桥洞墙由 ARROW 自动推导） ----
+    # mid_boundary：白色长挡板(D7..N7)在第6/7行之界，=6；
+    # 与 mission_router._MID_BOUNDARY 的一致性由 test_field_config_consistency 锁定。
     cross_gates: [""]
-    mid_boundary: 5
+    mid_boundary: 6
     # ---- 朝向补偿（根除画圆：reset 断言朝向 vs 真实朝向的固定偏差）----
     #   none  : 不补偿，靠人工把车摆正（不推荐）
     #   udp   : 用 0x4002 真实朝向取最近坐标轴，残差 ≤ 45°，不挪车

@@ -63,6 +63,23 @@ def estimate_bias(
     return ProbeResult(wrap_pi(observed_heading - expected_heading), distance)
 
 
+def nearest_axis(yaw: float) -> str:
+    """真实 yaw 最近的坐标轴断言：'x'(东,0) 或 'y'(北,π/2)。
+
+    path_executor 的 reset 只能断言 x/y 两个**方向**；本函数把任意真实朝向
+    吸附到误差最小的那个。注意必须按环绕角比较：旧实现
+    `yaw∈[45°,135°)→y 否则 x` 在车朝西（135°~225°）时会错选 x，
+    残差最高 135°（画圆根因同款）。
+
+    ⚠️ 操作约束：断言集合只有 {0°, 90°} 两个方向，残差 ≤45° 只在车头
+    落在东/北半圆（-45°~135°）时成立。摆车必须让车头大致朝东或朝北；
+    朝南/朝西的车，最优残差也有 45°~135°，必须先人工转车或走 align 闭环。
+    """
+    d_x = abs(wrap_pi(yaw))
+    d_y = abs(wrap_pi(yaw - math.pi / 2))
+    return "x" if d_x <= d_y else "y"
+
+
 def corrected_heading(bias: float) -> float:
     """需要原地反转的角度（把固定偏置抵消）。"""
     return wrap_pi(-bias)

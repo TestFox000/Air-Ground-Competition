@@ -301,3 +301,38 @@ def test_align_no_yaw_keeps_stopped():
         assert node._align_state == "aligning"  # 仍在等
     finally:
         node.destroy_node()
+
+
+def test_external_yaw_west_facing_picks_y_not_x():
+    """朝西的车（yaw=180°）：最近轴是 y(90°差)，不是 x(180°差)。
+
+    旧实现 `yaw∈[45°,135°)→y 否则 x` 在此场景错选 x，等效重新引入
+    画圆根因（断言与真实朝向差 135°+）。
+    """
+    node = make_node(heading_bias_source="udp", start_heading="x")
+    try:
+        node._car_true_yaw = math.pi          # 正西
+        assert node._effective_start_heading() == "y"
+        node._car_true_yaw = math.radians(200)
+        assert node._effective_start_heading() == "y"
+        node._car_true_yaw = math.radians(270)  # 正南 -> x
+        assert node._effective_start_heading() == "x"
+    finally:
+        node.destroy_node()
+
+
+def test_align_starts_on_car_pose_before_gate_passes():
+    """对齐与侦察并行：0x4002 车位姿一到即启动对齐，不等情报门控（min_mines）。
+
+    180s 硬顶下，对齐（最长 heading_align_timeout 秒）不能压在发车关键路径上。
+    """
+    node = make_node(heading_bias_source="align", start_heading="y", min_mines=8)
+    try:
+        assert node._align_state is None
+        node._car_true_yaw = math.radians(158.6)   # 无人机已看到车
+        node.tick()                                # 无任何态势帧（门控不过）
+        assert node._align_state == "aligning"     # 但对齐已启动
+        assert node.topic("/cmd_vel").published    # 且在发角速度
+        assert node.topic("/nav/waypoint").published == []  # 路线仍等门控
+    finally:
+        node.destroy_node()

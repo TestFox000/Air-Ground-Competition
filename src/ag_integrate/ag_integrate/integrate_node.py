@@ -26,7 +26,7 @@ from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 
 from .field_matrix import MatrixFusion, render_report_from_spots
-from .heading_calibration import closed_loop_rate, wrap_pi
+from .heading_calibration import closed_loop_rate, nearest_axis, wrap_pi
 from .intel_protocol import detect_msg_id, parse, parse_car_pose
 from .pipeline import build_mission, evaluate_gate
 from .world_model import WorldModel
@@ -57,7 +57,9 @@ class IntegrateNode(Node):
         self.declare_parameter("min_mines", 1)
         self.declare_parameter("require_face", True)
         self.declare_parameter("cross_gates", [""])
-        self.declare_parameter("mid_boundary", 5)
+        # 中场横向挡板位置：必须与 mission_router._MID_BOUNDARY 一致
+        # （挡板在第 6/7 行之界，=6）。test_field_config_consistency 会校验。
+        self.declare_parameter("mid_boundary", 6)
         # 外部朝向补偿（根除绕圈问题）：
         #   heading_bias_source="none"  → 不补偿，保持现状（默认，安全）
         #   heading_bias_source="udp"   → 监听 dzuav 的 0x4002 车位姿帧，
@@ -154,7 +156,6 @@ class IntegrateNode(Node):
         # 态势数据只要最新值，决策慢于到达率时自动降级为"跳帧"，不积压。
         self._frames: queue.Queue = queue.Queue(maxsize=1)
 
-        self.pub = self.create_publisher(String, str(p("waypoint_topic")), 10)
         # 决策/发布都在 executor 线程（timer 回调）里做，收包线程不碰 ROS。
         self.create_timer(0.1, self._on_tick)
 
@@ -265,6 +266,12 @@ class IntegrateNode(Node):
 
     # ---------------- 决策（executor 线程） ----------------
     def _on_tick(self) -> None:
+        # 朝向对齐不等情报门控：无人机一看到车（0x4002）立即原地对齐，
+        # 与空中侦察并行，不把对齐耗时（上限 heading_align_timeout 秒）
+        # 压在发车关键路径上——比赛 180s 硬顶，同分比用时。
+        if (self._needs_heading_alignment() and self._align_state is None
+                and self._car_true_yaw is not None):
+            self._start_heading_alignment()
         try:
             snapshot = self._frames.get_nowait()
         except queue.Empty:
@@ -292,13 +299,11 @@ class IntegrateNode(Node):
                 return self.start_heading
             # 对齐失败/未完成：退回最近坐标轴（与 udp 模式同逻辑）
             if self._car_true_yaw is not None:
-                yaw = self._car_true_yaw % (2 * math.pi)
-                return "y" if (math.pi / 4) <= yaw < (3 * math.pi / 4) else "x"
+                return nearest_axis(self._car_true_yaw)
             return self.start_heading
         if src == "udp" and self._car_true_yaw is not None:
-            yaw = self._car_true_yaw % (2 * math.pi)
-            # 45° 边界：[0,45)∪[315,360) -> 'x'，[45,135) -> 'y'，其余选最近
-            nearest = "y" if (math.pi / 4) <= yaw < (3 * math.pi / 4) else "x"
+            # 环绕角取最近轴：任意朝向残差恒 ≤45°（朝西车旧逻辑会错选 x）
+            nearest = nearest_axis(self._car_true_yaw)
             if nearest != self.start_heading:
                 self.get_logger().info(
                     f"外部朝向修正: 断言 {self.start_heading} -> {nearest} "

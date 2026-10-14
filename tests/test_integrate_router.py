@@ -101,19 +101,20 @@ def test_cross_gates_without_gate_makes_goal_unreachable():
 
 def test_cross_gates_route_crosses_only_at_gate():
     start, goal = CellRef(0, 0), CellRef(0, 10)   # A1 -> A11
-    gate = CellRef(5, 5)                          # F6：跨入北半场的第一格
+    gate = CellRef(5, 5)                          # F6：紧贴挡板边界的南侧格
     snap = make_snapshot(())
-    route = plan_route(snap, start, goal, cross_gates=frozenset({gate}), mid_boundary=5)
+    # mid_boundary=6 = 真实场地（白色挡板 D7..N7 在第 6/7 行之界）
+    route = plan_route(snap, start, goal, cross_gates=frozenset({gate}), mid_boundary=6)
     assert route[0] == "A1"
     assert route[-1] == "A11"
     assert "F6" in route
-    # 全路线里跨越 行号5↔6 的相邻对只能有一处，且两格都在 F 列
+    # 全路线里跨越 行号6↔7 的相邻对只能有一处，且两格都在 F 列
     crossings = [
         (a, b)
         for a, b in zip(route, route[1:])
-        if a[0] == b[0] and {int(a[1:]), int(b[1:])} == {5, 6}
+        if a[0] == b[0] and {int(a[1:]), int(b[1:])} == {6, 7}
     ]
-    assert crossings == [("F5", "F6")]
+    assert crossings == [("F6", "F7")]
 
 
 def test_compress_route_removes_collinear_middle_cells():
