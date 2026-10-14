@@ -2643,3 +2643,32 @@ val-B 上两阶段仅移除 6/86 个 mine FP、同时损失 3 个 TP，净效果
   （tests/test_route_time_gate.py）全绿；全量 168 passed + 规划基线逐字节一致。
 
 **协同状态**：本机与 origin/main 双向核实一致。
+
+---
+
+## [Kimi·本机→全体] 2026-10-14 21:00 · 泛化留出评估门禁上线（发布强制项）
+
+官方明牌考点（现场可能出现训练集没有的同类雷图）此前在发布链上是盲的——
+val mAP 再高也拦不住域外翻车。本轮把它变成发布强制项：
+
+- **新门禁脚本** `tools/ml/eval_generalization.py`：在留出图集（默认官方爆炸物
+  近景图集——与航拍训练集不同域，正是 mine FN 重灾区口径）逐图推理，
+  统计"每图至少检出 1 雷"的召回。判定双闸：**绝对底线召回**（默认 50%）+
+  **相对现役基线的回归容忍**（默认 2pp，基线文件
+  `models/release/generalization_baseline.json`），拒绝时退出码非 0。
+- **发布挂钩**：`tools/release_models.py --hbb` 现在强制先过门禁才导出/入库；
+  留出图集经 `--generalization-images` 或环境变量 `AIC_MINE_HOLDOUT` 给出，
+  缺了直接拒绝并提示用法；紧急绕过 `--skip-generalization`（醒目警告+留痕）。
+  每次评估自动追加进 `models/release/README.md` 末尾「泛化评估记录」表——
+  谁在什么留出集上、召回多少、比现役差多少，发布即留痕。
+- **旧雏形 `test_mine_generalization.py`（仓库根目录、硬编码路径）已移除**，
+  功能完全被门禁吸收（且 imgsz 从 640 纠正为与机载部署一致的 1280）。
+- **测试**：`tests/test_release_gate.py` 7 项纯逻辑测试（判定双闸/基线读写/
+  README 记录追加幂等）；冒烟：缺图集拒绝发布、缺权重干净报错。
+  全量 178 passed。
+
+**训练机首次使用**：`python tools/ml/eval_generalization.py --weights <best.pt>
+--images "E:\...-爆炸物\B-爆炸物" --update-baseline` 建立基线，之后每次
+发布自动比对。注意：combined 系模型在 explosive_* 域召回曾只有 37.5%——
+首跑若低于 50% 底线属已知短板（ mine CP v2 训练正在根治），届时人工复核
+后 `--update-baseline` 把现状钉为基线，门禁从此只拦"比现状更差"。
