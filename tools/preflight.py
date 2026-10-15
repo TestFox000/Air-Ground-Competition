@@ -139,7 +139,12 @@ def check_car(args) -> None:
     print(f"\n===== 车端（{args.user}@{args.host}）=====")
     pw = get_password("AG_CAR_PASS", args, "password")
     ws = args.ws
-    pre = f"source /opt/ros/$(ls /opt/ros | head -1)/setup.bash; source {ws}/install/setup.bash 2>/dev/null"
+    # dzros.env = 车上 ROS 域真源（默认导 ROS_DOMAIN_ID=118）：远程命令经 SSH
+    # 非交互执行不读 .bashrc，不显式 source 会落域 0 看不到车上节点——必需而非
+    # 保险；文件不存在静默跳过，保持可移植
+    pre = (f"source /opt/ros/$(ls /opt/ros | head -1)/setup.bash; "
+           f"source {ws}/install/setup.bash 2>/dev/null; "
+           f"[ -f ~/dzrobot/dzros.env ] && source ~/dzrobot/dzros.env || true")
 
     def run(cmd, timeout=60):
         return ssh_run(args.host, args.user, pw, f"{pre}; {cmd}", timeout=timeout)

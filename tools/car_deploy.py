@@ -38,6 +38,11 @@ REPO = Path(__file__).resolve().parent.parent
 SRC_ROOT = REPO / "src"
 PACKAGES = ("ag_integrate", "ag_core")  # ag_core: 黑匣子依赖
 
+# 车上 ROS 域真源（默认导 ROS_DOMAIN_ID=118）：远程命令经 SSH 非交互执行，
+# 不读 .bashrc——不显式 source 会落域 0，ros2/colcon 看不到车上域内节点，
+# 这是必需而非保险；文件不存在静默跳过，保持可移植
+DZROS_ENV = "[ -f ~/dzrobot/dzros.env ] && source ~/dzrobot/dzros.env || true"
+
 try:
     import paramiko
 except ImportError:
@@ -185,6 +190,7 @@ def main() -> int:
         step(f"colcon build（工作空间 {ws}）")
         build_cmd = (
             f"source {ros_setup} && "
+            f"{DZROS_ENV} && "
             f"cd {ws} && "
             f"colcon build --packages-select {' '.join(PACKAGES)} --symlink-install 2>&1"
         )
@@ -199,6 +205,7 @@ def main() -> int:
         verify_cmd = (
             f"source {ros_setup} && "
             f"source {ws}/install/setup.bash && "
+            f"{DZROS_ENV} && "
             f"ros2 pkg list | grep -E '{'|'.join(PACKAGES)}'"
         )
         rc, out = run(ssh, verify_cmd, timeout=60)
@@ -214,6 +221,7 @@ def main() -> int:
             test_cmd = (
                 f"source {ros_setup} && "
                 f"source {ws}/install/setup.bash && "
+                f"{DZROS_ENV} && "
                 f"timeout 5 ros2 run ag_integrate integrate_node "
                 f"--ros-args -p dry_run:=true -p udp_port:=50099 2>&1 || true"
             )

@@ -5,21 +5,42 @@ importlib 只读加载）-> pursuitAngle -> DzActuatorSim -> ChassisSim（真值
 -> SerialReaderSim -> /odom/localization -> 回到 path_executor。
 无人机侧：DronePoseFeed 按 10Hz 给 integrate_node 喂 0x4002 车位姿帧。
 
-=== 保真边界（先读我）===
+=== 被测真码出处（先读我）===
+path_executor 加载的是**现役快照**
+`reference/car_src_20261015/car_localization/car_localization/path_executor.py`
+（md5 25db4022f3，2644 行，2026-10-15 经 tools/remote_run.py --get 从比赛车
+192.168.137.241 只读拉取；出处与全目录 md5 清单见
+reference/car_src_20261015/README.md）。旧基线 reference/car_src（md5
+6d31d068c1，2026-09-27）仅留作历史对照，不再参与仿真。
+现役版相对旧基线的仿真相关差异：
+- 控制环 50Hz（create_timer(0.02)）—— 本仿真节拍随之取 20ms；
+- linear_speed 默认 0.15 m/s（旧 0.3），巡航更慢，路线耗时约翻倍；
+- 模块级 AUTO_START=True + 内置 MISSION_BLOCKS：起栈 8s 后会自动跑题外路线
+  —— 本模块加载前已强制 DZ_AUTO_START=0 待命（见 load_path_executor_module）；
+- 配置中心读 ~/dzrobot/config/robot.yaml，本机没有该文件会静默回退内置值
+  —— 仿真强制 ROBOT_CONFIG 指向不存在路径，隔绝真机配置意外渗入；
+- 扫描模式默认 continuous（边走边扫）：scan_flags 全 False，无逐点停站；
+  GimbalSim 据此模拟"持续横扫 + 停站锁定开火"（见 GimbalSim 注释）；
+- 新增越界急停（MAP_SAFETY_MARGIN=0.60m）：信念位姿出地图即刹车，
+  对照组画圈若漂出地图会被它兜底（旧版无此保护，会无限画下去）。
+
+=== 保真边界 ===
 本仿真验证的是"契约 + 控制逻辑"，不是动力学参数辨识：
 - 底盘为理想 Ackermann 运动学（轴距 L=0.157m，与 path_executor 标定一致），
   无滑移、无电机响应滞后、速度瞬时到位（物理上限 0.33m/s）；
 - serial_reader 侧理想定位：IMU 无漂移、编码器无量化误差（留 noise 口，
-  默认全零）；
+  默认全零）—— 因此信念位置恒等于真位置（平移无误差），信念航向与
+  真航向差恒定偏置，这正是画圆机理所需的最小保真集；
 - dzactuator 只复刻"话题 -> 执行量"的译码与双通道模式仲裁
   （dzactuator.cpp 实测契约）；串口 23 字节帧打包、smoothValueAdaptive
   速度平滑不建模；
 - 时钟为步进仿真时钟（ros_stub.SIM）：节点里所有 get_clock() 读同一
-  全局时间，测试按 0.05s 节拍快进。
+  全局时间，测试按 0.02s 节拍快进。注意现役版若干停站计时读的是
+  seconds_nanoseconds()[0]（整秒），停站时长按整秒粒度对齐，与真机一致。
 
 能抓的 bug 类：reset 断言偏置导致的画圆、dzactuator 模式仲裁互斥吞命令、
-对齐状态机不收敛/超时、路线命令语义错位。抓不到的：动力学参数错、
-滑移、通信抖动、串口丢帧。
+对齐状态机不收敛/超时、路线命令语义错位、越界急停失灵。抓不到的：
+动力学参数错、滑移、通信抖动、串口丢帧。
 
 === 画圆机理（2026-10-01 事故复现，δ=68.6°）===
 车 IMU 开机时朝向 θ_boot（≈90°，+Y），被搬到起点后真实朝向 158.6°：
@@ -38,12 +59,13 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import os
 import random
 from pathlib import Path
 
 import ros_stub
 from ros_stub import BUS, SIM, Odometry, String, Twist
-from std_msgs.msg import Int32, UInt8  # 经 ros_stub 安装的桩模块
+from std_msgs.msg import Int32, Int32MultiArray, UInt8  # 经 ros_stub 安装的桩模块
 
 from ag_integrate.intel_protocol import (
     CarPose, IntelFrame, build, build_car_pose,
@@ -59,7 +81,8 @@ ACTIVITY_TIMEOUT = 0.5  # dzactuator ACTIVITY_TIMEOUT：0.5s 无消息判通道�
 PURSUIT_LOW_TIMEOUT = 3.0  # dzactuator PURSUIT_LOW_TIMEOUT
 MIN_STEP_M = 0.0005     # serial_reader 最小积分步长
 
-_DT = 0.05              # 仿真节拍 50ms（path_executor 控制环标称 20Hz）
+_DT = 0.02              # 仿真节拍 20ms —— 与现役 path_executor 控制环 50Hz
+                        # （create_timer(0.02)）对齐；旧基线标称 20Hz 时用 0.05
 
 
 def wrap_pi(a: float) -> float:
@@ -200,13 +223,18 @@ class SerialReaderSim:
     """
 
     def __init__(self, theta_boot: float, start_block=(1.5, 0.5),
-                 noise_yaw_rad: float = 0.0, seed: int = 1) -> None:
+                 noise_yaw_rad: float = 0.0, seed: int = 1,
+                 theta_true0: float | None = None) -> None:
         self.theta_boot = theta_boot
         self.dr_x_m = start_block[0] * BLOCK   # 约定起点 N10 中心 (1.5, 0.5) block
         self.dr_y_m = start_block[1] * BLOCK
         self.noise_yaw_rad = noise_yaw_rad
         self._rng = random.Random(seed)
-        self._yaw_rel = 0.0
+        # 真机 IMU 从开机起就是活的：首帧的 yaw_rel 已是当前真实相对转角。
+        # 不传 theta_true0 时退化为 0（旧行为：首帧朝向滞后一拍，仅在
+        # "reset 抢在首帧之后立刻下达"的测试时序里可观察到差别）。
+        self._yaw_rel = (wrap_pi(theta_true0 - theta_boot)
+                         if theta_true0 is not None else 0.0)
 
     def yaw_rel(self, theta_true: float) -> float:
         return wrap_pi(theta_true - self.theta_boot)
@@ -276,35 +304,79 @@ class DronePoseFeed:
 class GimbalSim:
     """云台自瞄/射击握手替身（挂在 rig 节点上，走总线）。
 
-    - /nav/scan_request -> +0.2s 发 aim=1(SCAN)，+0.5s 回 aim=0(IDLE)，
-      正好踩中 path_executor 扫描停站放行条件②（见过 SCAN 后回 IDLE）；
-    - path_executor 进入 shoot_wait -> +0.5s 补 10 发 /shoot_count。
+    按现役 path_executor 的 continuous 扫描模式建模（旧版逐点停站已废弃）：
+    - /nav/scan_request data==2 -> 进入持续横扫：每 0.5s 在 SCAN(1)/IDLE(0)
+      间交替（模拟云台左一趟+右一趟的周期），行进途中不停车；
+      data==0 -> 停止持续横扫；data==1 -> 单次脉冲（+0.2s SCAN、+0.5s IDLE，
+      兼容旧握手与终点到点后的那次全向扫描请求）；
+    - path_executor 进入 shoot_wait（射击停站）-> 模拟云台在停站点锁定目标：
+      持续喂 /offset_center（cls=1、居中）并把 /aim/status 钉在 TRACK(2)，
+      满足现役三段式状态机的"看到靶+瞄准稳"判据；进入开火窗口（phase 3，
+      stop_signal=1 已放行）后每 0.25s 补 1 发 /shoot_count，打满
+      SHOOT_COUNT_TARGET 发后 executor 自行收站继续循迹。
     """
+
+    #: 持续横扫半周期（s）：SCAN 0.5s -> IDLE 0.5s 为一趟
+    SCAN_HALF_PERIOD = 0.5
+    #: 开火窗口内每发弹的间隔（s）
+    FIRE_INTERVAL = 0.25
 
     def __init__(self, rig: "ros_stub.FakeNode", pe) -> None:
         self._pe = pe
         self._aim_pub = rig.create_publisher(Int32, "/aim/status", 10)
         self._shoot_pub = rig.create_publisher(Int32, "/shoot_count", 10)
+        self._offset_pub = rig.create_publisher(
+            Int32MultiArray, "/offset_center", 10)
         self._events: list[tuple[float, object]] = []
-        self._shoot_pending = False
+        self._continuous = False        # 持续横扫开关（data==2 置位）
+        self._scan_on = False           # 当前半周期是否在 SCAN
+        self._next_toggle = 0.0         # 下一次翻转时刻
+        self._shots_fired = 0           # 本次停站已补的弹数
+        self._next_shot_t = 0.0         # 下一发弹时刻
         rig.create_subscription(UInt8, "/nav/scan_request", self._on_scan_req, 10)
 
-    def _on_scan_req(self, _msg) -> None:
-        t = SIM.t
-        self._events.append((t + 0.2, lambda: self._pub(self._aim_pub, 1)))
-        self._events.append((t + 0.5, lambda: self._pub(self._aim_pub, 0)))
+    def _on_scan_req(self, msg) -> None:
+        data = int(msg.data)
+        if data == 2:                       # 请求持续横扫
+            if not self._continuous:
+                self._continuous = True
+                self._scan_on = False
+                self._next_toggle = SIM.t   # 立即开始第一个 SCAN 半周期
+        elif data == 0:                     # 停止持续横扫
+            self._continuous = False
+            self._pub(self._aim_pub, 0)
+        else:                               # data==1：单次全向扫描脉冲
+            t = SIM.t
+            self._events.append((t + 0.2, lambda: self._pub(self._aim_pub, 1)))
+            self._events.append((t + 0.5, lambda: self._pub(self._aim_pub, 0)))
 
     @staticmethod
     def _pub(pub, data: int) -> None:
         pub.publish(Int32(data=data))
 
     def tick(self, t: float) -> None:
-        if self._pe.shoot_wait and not self._shoot_pending:
-            self._shoot_pending = True
-            n = self._pe.shoot_count_at_arrival + self._pe.SHOOT_COUNT_TARGET
-            self._events.append((t + 0.5, lambda: self._pub(self._shoot_pub, n)))
-        if not self._pe.shoot_wait:
-            self._shoot_pending = False
+        pe = self._pe
+        if pe.shoot_wait:
+            # 停站打靶：钉住 TRACK + 喂居中视觉帧（现役三段式状态机的输入）
+            self._pub(self._aim_pub, 2)
+            self._offset_pub.publish(
+                Int32MultiArray(data=[0, 0, 1, 100, 100, 0, 0, 0]))
+            # 开火窗口（phase 3，executor 已发 stop_signal=1）补弹
+            if getattr(pe, "shoot_phase", 0) == 3:
+                if self._next_shot_t == 0.0:
+                    self._next_shot_t = t + self.FIRE_INTERVAL  # 装填第一发
+                if t >= self._next_shot_t - 1e-9:
+                    self._shots_fired += 1
+                    self._next_shot_t = t + self.FIRE_INTERVAL
+                    self._pub(self._shoot_pub,
+                              pe.shoot_count_at_arrival + self._shots_fired)
+        else:
+            self._shots_fired = 0
+            self._next_shot_t = 0.0
+            if self._continuous and t >= self._next_toggle - 1e-9:
+                self._scan_on = not self._scan_on
+                self._next_toggle = t + self.SCAN_HALF_PERIOD
+                self._pub(self._aim_pub, 1 if self._scan_on else 0)
         due = [e for e in self._events if e[0] <= t]
         self._events = [e for e in self._events if e[0] > t]
         for _tf, fn in due:
@@ -312,16 +384,33 @@ class GimbalSim:
 
 
 # ---------------------------------------------------------------- reference 真码加载
+# 现役快照（2026-10-15 从比赛车 192.168.137.241 只读拉取）：
+# md5 25db4022f335e717e22d412d2ade25b2，2644 行。
+# 旧基线 reference/car_src（md5 6d31d068c1，2026-09-27）仅留作历史对照。
+# 出处与全目录 md5 清单：reference/car_src_20261015/README.md
 _PE_PATH = (Path(__file__).resolve().parents[1]
-            / "reference" / "car_src" / "car_localization_full"
-            / "car_localization" / "car_localization" / "path_executor.py")
+            / "reference" / "car_src_20261015" / "car_localization"
+            / "car_localization" / "path_executor.py")
 
 
 def load_path_executor_module():
     """从 reference 只读加载真 path_executor；模块级 import 由 ros_stub 满足。
 
     每次调用重新 exec_module，测试间互不留状态。
+
+    加载前强制两项环境隔离（都是现役版新增的模块级/构造期行为）：
+    - DZ_AUTO_START=0：现役版 AUTO_START=True，起栈 8s 后会自动 reset 到
+      M10 并跑内置 MISSION_BLOCKS —— 仿真里必须强制待命，否则它会自己
+      跑题外路线毁掉所有场景。该变量在 PathExecutorNode.__init__ 时读取，
+      优先级高于代码默认与配置中心，这里直接写死保证确定性；
+    - ROBOT_CONFIG 指向不存在路径：配置中心 _load_config_center 在模块
+      import 时读 ~/dzrobot/config/robot.yaml，读不到会静默回退内置默认值。
+      显式指到不存在路径，防止本机哪天真的冒出该文件（或换机跑仿真时）
+      把真机参数渗进仿真。
     """
+    os.environ["DZ_AUTO_START"] = "0"
+    os.environ["ROBOT_CONFIG"] = str(
+        Path(__file__).resolve().parent / "_nonexistent_robot_config.yaml")
     spec = importlib.util.spec_from_file_location("ref_path_executor", _PE_PATH)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -387,6 +476,10 @@ class TrackingWorld:
         self.align_done_t: float | None = None
         self.route_pub_t: float | None = None
         self.arrived_t: float | None = None
+        # 轨迹留痕：车端栈上线后每拍一条
+        #   (t, 真x, 真y, 真朝向rad, 信念x, 信念y, 信念朝向rad, 执行v, 执行舵角deg)
+        # 供事故复现类回归做事后分析（对比真/信念分歧、净转角扫描等）
+        self.trace: list[tuple] = []
 
     # ---- 装配 ----
     def attach_integrate(self, node, intel_objects) -> None:
@@ -398,7 +491,10 @@ class TrackingWorld:
     def start_car_stack(self) -> None:
         """两阶段启动的第二阶段：serial_reader + path_executor 上线。"""
         assert self.serial is None, "车端栈只能起一次"
-        self.serial = SerialReaderSim(self.theta_boot)
+        # theta_true0：让首帧定位的 yaw_rel 即为真值（真机 IMU 开机即活），
+        # 否则首帧 yaw_rel=0 会让紧随其后的 reset 算出不带偏置的 snap
+        self.serial = SerialReaderSim(self.theta_boot,
+                                      theta_true0=self.chassis.theta)
         self._odom_pub = self.rig.create_publisher(
             Odometry, "/odom/localization", 10)
         self.pe = self._pe_cls()
@@ -439,6 +535,10 @@ class TrackingWorld:
         # --- 指标 ---
         self.steps += 1
         if self.pe is not None:
+            self.trace.append((
+                t, self.chassis.x, self.chassis.y, self.chassis.theta,
+                self.pe.current_x, self.pe.current_y, self.pe.current_yaw,
+                self.actuator.out_v, self.actuator.out_steer_deg))
             if self.pe.corner_mode:
                 self.pivot_seen = True
             if self.pe.arrived and self.arrived_t is None:
@@ -462,6 +562,12 @@ class TrackingWorld:
         assert self.goal_xy is not None
         return math.hypot(self.chassis.x - self.goal_xy[0],
                           self.chassis.y - self.goal_xy[1])
+
+    @property
+    def oof_stop(self) -> bool:
+        """现役版越界急停是否已触发（信念位姿出地图即刹车，_oof_warned 置位）。"""
+        return bool(self.pe is not None
+                    and getattr(self.pe, "_oof_warned", False))
 
     def yaw_err_to(self, deg: float) -> float:
         """真朝向与目标角度（度）的短弧差（度）。"""
