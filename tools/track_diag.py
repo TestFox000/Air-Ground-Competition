@@ -324,7 +324,16 @@ class BeliefTracker:
       位置 = 锚格中心 + 之后 raw 位移增量（×0.35），yaw ≈ 断言向（x=0/y=π/2）。
       车上真正用于控制的是 path_executor 内部 snap 后的 yaw，采样器拿不到，
       故复算 yaw 直接取断言向；对照诊断以 est 为主、raw 备查。
+    - est-snap 感知：path_executor 在射击/扫描停站与到点时会中途"锚定"信念位姿，
+      裸信念在两次采样间出现瞬时跳变。路线活跃时检测到 >SNAP_JUMP_M 的瞬时跳变
+      （两帧间隔 ≤SNAP_MAX_DT_S；间隔更长的位移无法与真实运动区分，按运动处理），
+      把 est 锚点同步平移到跳变后的位置（保持 est 连续、防 POS_DRIFT 误报），
+      事件记入 snaps 日志，不报警。
     """
+
+    SNAP_JUMP_M = 0.3    # 裸信念两帧间瞬时跳变阈值（米），超过视为车上中途锚定
+    SNAP_MAX_DT_S = 0.5  # "瞬时"的判定窗（秒）：10Hz 采样下车速 ≤0.35m/s 不可能
+                         # 在此窗内位移 0.3m；间隔更长的大位移按真实运动处理
 
     def __init__(self) -> None:
         self.route: str | None = None
@@ -333,6 +342,7 @@ class BeliefTracker:
         self.pending_anchor = False       # reset 已到、raw 首帧未到的等待态
         self.raw_blk: tuple[float, float, float] | None = None
         self.last_t: float | None = None  # 本机收到最近信念帧的时刻
+        self.snaps: list[dict] = []       # 中途锚定事件日志 {"t","dx_m","dy_m","dist_m"}
 
     def update(self, t: float, belief: tuple[float, float, float] | None,
                route: str | None) -> None:
@@ -344,7 +354,25 @@ class BeliefTracker:
                 self.pending_anchor = True
                 self.anchor_blk = None
         if belief is not None:
-            self.raw_blk = (float(belief[0]), float(belief[1]), float(belief[2]))
+            new_raw = (float(belief[0]), float(belief[1]), float(belief[2]))
+            # est-snap 检测：路线活跃且已有上一帧时，裸信念瞬时跳变 >0.3m 说明车上
+            # path_executor 中途锚定（射击/扫描停站、到点）。reset 后的首帧大跳变
+            # 是预期锚定（pending_anchor 等待态），不算 snap；两帧间隔超过
+            # SNAP_MAX_DT_S 的大位移无法与真实运动区分，同样按运动处理。
+            if self.raw_blk is not None and self.route is not None \
+                    and not self.pending_anchor:
+                dt = t - self.last_t
+                dx_blk = new_raw[0] - self.raw_blk[0]
+                dy_blk = new_raw[1] - self.raw_blk[1]
+                dist_m = math.hypot(dx_blk * CELL_M, dy_blk * CELL_M)
+                if dist_m > self.SNAP_JUMP_M and 0.0 <= dt <= self.SNAP_MAX_DT_S:
+                    if self.anchor_blk is not None:
+                        # 锚点跟随跳变 → est 复算保持连续，不发散出 POS_DRIFT 误报
+                        self.anchor_blk = (self.anchor_blk[0] + dx_blk,
+                                           self.anchor_blk[1] + dy_blk)
+                    self.snaps.append({"t": t, "dx_m": dx_blk * CELL_M,
+                                       "dy_m": dy_blk * CELL_M, "dist_m": dist_m})
+            self.raw_blk = new_raw
             self.last_t = t
             if self.pending_anchor:
                 self.anchor_blk = (self.raw_blk[0], self.raw_blk[1])
@@ -362,7 +390,8 @@ class BeliefTracker:
             dx = (self.raw_blk[0] - self.anchor_blk[0]) * CELL_M
             dy = (self.raw_blk[1] - self.anchor_blk[1]) * CELL_M
             est = (cx + dx, cy + dy, heading_to_yaw(self.reset[1]))
-        return {"raw": raw, "est": est, "route": self.route, "reset": self.reset}
+        return {"raw": raw, "est": est, "route": self.route, "reset": self.reset,
+                "snaps": list(self.snaps)}
 
 
 # ---------------------------------------------------------------- 规则引擎
@@ -554,8 +583,8 @@ def main():
         def __init__(self):
             super().__init__("track_diag_sampler")
             # pursuit/cmd_vel 是 BEST_EFFORT 发布，订阅端必须同档否则收不到
-            be = QoSProfile(depth=1)
-            be.reliability(ReliabilityPolicy.BEST_EFFORT)
+            # ⚠️ reliability 是 QoSProfile 构造参数不是方法：当方法调上车即崩
+            be = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
             self.create_subscription(
                 Odometry, "/odom/localization",
                 lambda m: state.__setitem__("belief", [
@@ -596,6 +625,19 @@ if __name__ == "__main__":
 SAMPLER_REMOTE = "/tmp/track_diag_sampler.py"
 
 
+def sampler_launch_cmd() -> str:
+    """车端采样器启动命令（bash -lc 非交互 shell，不读 ~/.bashrc）。
+
+    先 source ~/dzrobot/dzros.env（车上 ROS_DOMAIN_ID=118 等域配置，与车上
+    start_all.sh 同款顺序，文件不存在时静默跳过），再 source 两个 setup.bash；
+    漏掉 dzros.env 会落在默认域 0，永远看不到车上 118 域的节点。
+    """
+    return ("bash -lc '[ -f ~/dzrobot/dzros.env ] && source ~/dzrobot/dzros.env || true; "
+            "source /opt/ros/humble/setup.bash && "
+            "source ~/dzrobot/install/setup.bash && "
+            f"setsid python3 -u {SAMPLER_REMOTE}'")
+
+
 def read_password(args) -> str:
     """密码优先级：--password > AG_CAR_PASS 环境变量 > 交互提问。
 
@@ -619,7 +661,8 @@ class CarLink(threading.Thread):
     """SSH 信念链路：上传采样器 → setsid 流式跑 → NDJSON 入队。
 
     远程用 setsid 自成进程组，stop() 时 pkill 整组回收（docs 里有孤儿进程教训）。
-    非交互 shell 不 source ~/.bashrc，跑 ROS 前必须显式 source 两个 setup.bash。
+    启动命令见 sampler_launch_cmd()：非交互 shell 不 source ~/.bashrc，dzros.env
+    （车上域配置）与两个 setup.bash 都必须显式 source，否则跨不到车上 ROS 域。
     """
 
     def __init__(self, host: str, user: str, password: str, port: int = 22) -> None:
@@ -647,9 +690,7 @@ class CarLink(threading.Thread):
             with sftp.open(SAMPLER_REMOTE, "w") as f:
                 f.write(SAMPLER_SRC)
             sftp.close()
-            cmd = ("bash -lc 'source /opt/ros/humble/setup.bash && "
-                   "source ~/dzrobot/install/setup.bash && "
-                   f"setsid python3 -u {SAMPLER_REMOTE}'")
+            cmd = sampler_launch_cmd()
             _, stdout, stderr = cli.exec_command(cmd, get_pty=False)
             for line in iter(stdout.readline, ""):
                 if self.stop_evt.is_set():
@@ -696,7 +737,11 @@ class UvcCam:
         return frame if ok else None
 
     def release(self) -> None:
-        self.cap.release()
+        # 相机中途被拔掉时 release 也可能抛错，退出回收阶段一律降级为警告
+        try:
+            self.cap.release()
+        except Exception as e:  # noqa: BLE001
+            print(f"[相机] UVC 回收异常（已忽略）: {type(e).__name__}: {e}")
 
 
 class RealSenseCam:
@@ -705,10 +750,12 @@ class RealSenseCam:
     def __init__(self) -> None:
         import pyrealsense2 as rs  # 守护式 import：没装/没接设备时抛给上层回退
         self._rs = rs
+        self._started = False  # start 成功前 stop 会直接抛错，必须先落状态
         self.pipe = rs.pipeline()
         cfg = rs.config()
         cfg.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
         self.pipe.start(cfg)
+        self._started = True
 
     def read(self):
         frames = self.pipe.wait_for_frames(5000)
@@ -718,7 +765,16 @@ class RealSenseCam:
         return np.asanyarray(color.get_data())
 
     def release(self) -> None:
-        self.pipe.stop()
+        # 只在成功 start 过才 stop（否则抛 "pipe.stop() cannot be called before
+        # start()"）；相机已断开时 stop 同样会抛，回收阶段一律降级为警告
+        if not getattr(self, "_started", False):
+            return
+        try:
+            self.pipe.stop()
+        except Exception as e:  # noqa: BLE001
+            print(f"[相机] RealSense 回收异常（已忽略）: {type(e).__name__}: {e}")
+        finally:
+            self._started = False
 
 
 def open_camera(args):
@@ -897,6 +953,7 @@ def cmd_run(args) -> int:
     dyaw_stat: list[float] = []
     last_print = 0.0
     sampler_err_shown = False
+    snap_shown = 0                  # 已提示过的中途锚定事件数（tracker.snaps 前缀）
     center_hint_last = 0.0
     last_truth = None           # (t, x, y, yaw)
     last_pursuit = last_cmdvel = None
@@ -972,6 +1029,13 @@ def cmd_run(args) -> int:
                 snap = tracker.snapshot()
                 belief = snap["est"] or snap["raw"]
 
+                # path_executor 中途锚定（射击/扫描停站、到点）造成的信念快照跳变：
+                # est 锚点已在 BeliefTracker 内跟随保持连续，这里只提示不报警
+                for ev in tracker.snaps[snap_shown:]:
+                    print(f"[车端] 信念快照跳变 {ev['dist_m']:.2f}m"
+                          f"——path_executor 中途锚定，est 锚点已跟随（不报警）")
+                snap_shown = len(tracker.snaps)
+
                 # ---- 配对（1s 时间窗内最新信念/真值）→ Δ → 规则引擎
                 truth_fresh = None
                 if last_truth is not None and t - last_truth[0] <= 1.0:
@@ -1010,6 +1074,7 @@ def cmd_run(args) -> int:
                         "truth": truth_fresh,
                         "delta": delta,
                         "alerts": [a["rule"] for a in fired],
+                        "snaps": len(snap["snaps"]),
                     }
                     log.write(json.dumps(line, ensure_ascii=False) + "\n")
                     log.flush()

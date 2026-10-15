@@ -10,7 +10,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import math
+import re
 import sys
+import types
 from pathlib import Path
 
 import numpy as np
@@ -378,3 +380,189 @@ def test_print_markers_roundtrip(tmp_path):
 
 def test_main_rejects_unknown_subcommand():
     assert td.main(["bogus"]) == 2
+
+
+# ---------------------------------------------------------------- 车端采样器契约（真车修复回归）
+
+def test_sampler_qos_matches_car_topics():
+    src = td.SAMPLER_SRC
+    # 真车修复回归：QoS reliability 必须走构造参数——QoSProfile.reliability 是
+    # 属性不是方法，当方法调上车即崩（TypeError）
+    assert "QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)" in src
+    assert ".reliability(" not in src
+    # 话题 QoS 与车上发布端匹配：/odom/localization、/nav/waypoint 用 reliable
+    # （默认深度档 10），/pursuitAngle、/cmd_vel 用 BEST_EFFORT（be）
+    pat = re.compile(r'create_subscription\(\s*\w+,\s*"(/[^"]+)".{0,250}?,\s*(be|10)\s*\)',
+                     re.S)
+    got = dict(pat.findall(src))
+    assert got == {"/odom/localization": "10", "/nav/waypoint": "10",
+                   "/pursuitAngle": "be", "/cmd_vel": "be"}
+
+
+def test_sampler_launch_cmd_sources_car_domain():
+    cmd = td.sampler_launch_cmd()
+    # 真车修复回归：必须先 source 车上域配置 dzros.env（ROS_DOMAIN_ID=118），
+    # 与车上 start_all.sh 同款顺序；文件不存在时静默跳过（否则整句失败上不了车）
+    assert "[ -f ~/dzrobot/dzros.env ] && source ~/dzrobot/dzros.env || true" in cmd
+    assert cmd.index("dzros.env") < cmd.index("/opt/ros/humble/setup.bash") \
+        < cmd.index("dzrobot/install/setup.bash") < cmd.index("setsid python3")
+    # 外层 bash -lc 单引号包裹，内层不得再出现单引号
+    assert cmd.startswith("bash -lc '") and cmd.endswith("'")
+    assert cmd.count("'") == 2
+
+
+# ---------------------------------------------------------------- 相机回收保护
+
+class _FakeRsPipeline:
+    """最小 RealSense 管线替身：记录 start/stop 次数，可配置 stop 抛错（模拟掉线）。"""
+
+    def __init__(self, stop_raises: bool = False) -> None:
+        self.stop_raises = stop_raises
+        self.started = False
+        self.stop_calls = 0
+
+    def start(self, _cfg) -> None:
+        self.started = True
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+        if self.stop_raises:
+            raise RuntimeError("pipe.stop() cannot be called before start()")
+
+
+class _FakeRsModule:
+    """最小 pyrealsense2 替身（只覆盖 RealSenseCam 用到的接口）。"""
+
+    def __init__(self, pipe) -> None:
+        self._pipe = pipe
+        self.stream = types.SimpleNamespace(color="color")
+        self.format = types.SimpleNamespace(bgr8="bgr8")
+
+    def pipeline(self):
+        return self._pipe
+
+    def config(self):
+        return types.SimpleNamespace(enable_stream=lambda *a: None)
+
+
+def test_realsense_release_never_started():
+    # 相机从未启动成功（start 未跑过的半成品对象）：回收不得调 stop、不得抛
+    # "pipe.stop() cannot be called before start()"
+    pipe = _FakeRsPipeline()
+    cam = td.RealSenseCam.__new__(td.RealSenseCam)
+    cam._rs, cam.pipe = None, pipe
+    cam.release()
+    assert pipe.stop_calls == 0
+
+
+def test_realsense_release_after_disconnect(monkeypatch, capsys):
+    # start 成功后相机被拔掉：stop 抛错也必须吞掉并降级为警告，且 release 幂等
+    pipe = _FakeRsPipeline(stop_raises=True)
+    monkeypatch.setitem(sys.modules, "pyrealsense2", _FakeRsModule(pipe))
+    cam = td.RealSenseCam()
+    assert pipe.started
+    cam.release()
+    cam.release()  # 第二次不再调 stop
+    assert pipe.stop_calls == 1
+    assert "回收异常" in capsys.readouterr().out
+
+
+def test_uvc_release_after_disconnect(monkeypatch, capsys):
+    # UVC 相机中途掉线，release 抛错同样降级为警告
+    class _Cap:
+        def isOpened(self):
+            return True
+
+        def release(self):
+            raise RuntimeError("device disconnected")
+
+    monkeypatch.setattr(td, "cv2",
+                        types.SimpleNamespace(VideoCapture=lambda _i: _Cap()))
+    cam = td.UvcCam(0)
+    cam.release()
+    assert "回收异常" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- est-snap（车上中途锚定）感知
+
+def test_belief_tracker_snap_reanchors_est():
+    tr = td.BeliefTracker()
+    cx, cy = td.cell_to_field("N10")
+    bx, by = cx / td.CELL_M, cy / td.CELL_M  # 与锚格中心一致的 raw（block 单位）
+    tr.update(0.0, (bx, by, 0.0), "reset:N10,y")
+    est0 = tr.snapshot()["est"]
+    assert est0 == pytest.approx((cx, cy, math.pi / 2))
+    # path_executor 中途锚定：裸信念瞬跳 0.5m（>0.3m 阈值）
+    jump = 0.5 / td.CELL_M
+    tr.update(0.1, (bx + jump, by, 0.0), None)
+    # est 保持连续（锚点已跟随跳变），且记一条 snap 事件（不报警）
+    assert tr.snapshot()["est"] == pytest.approx(est0)
+    assert len(tr.snaps) == 1
+    assert tr.snaps[0]["dist_m"] == pytest.approx(0.5)
+    assert tr.snapshot()["snaps"] == tr.snaps
+    # 之后在跳后位置上正常累计位移，不得重复记 snap
+    tr.update(0.2, (bx + jump + 0.1 / td.CELL_M, by, 0.0), None)
+    assert len(tr.snaps) == 1
+    assert tr.snapshot()["est"] == pytest.approx((cx + 0.1, cy, math.pi / 2))
+
+
+def test_snap_sequence_no_pos_drift_false_alarm():
+    """带中途锚定的信念序列驱动规则引擎：est 不发散 → 无 POS_DRIFT，只有 snap 记录。"""
+    tr = td.BeliefTracker()
+    engine = td.RuleEngine()
+    cx, cy = td.cell_to_field("N10")
+    bx, by = cx / td.CELL_M, cy / td.CELL_M
+    truth = (cx, cy, math.pi / 2)
+    tr.update(0.0, (bx, by, 0.0), "reset:N10,y")
+    jump = 0.5 / td.CELL_M
+    fired = []
+    # t=1s 时车上锚定（raw 瞬跳 0.5m），之后 6s 车停在新位置不动
+    for i in range(70):
+        t = 0.1 + i * 0.1
+        raw = (bx + (jump if t >= 1.0 else 0.0), by, 0.0)
+        tr.update(t, raw, None)
+        est = tr.snapshot()["est"]
+        delta = td.compute_delta(est, truth)
+        fired.extend(engine.update(t, est, truth, delta))
+    assert "POS_DRIFT" not in {a["rule"] for a in fired}
+    assert len(tr.snaps) == 1
+
+
+def test_belief_tracker_small_motion_not_snap():
+    tr = td.BeliefTracker()
+    tr.update(0.0, (1.0, 1.0, 0.0), "reset:N10,y")
+    anchor0 = tr.anchor_blk
+    # 正常行驶：每帧位移 0.02m，远小于 0.3m 阈值 → 不记 snap、锚点不动
+    for i in range(1, 10):
+        tr.update(i * 0.1, (1.0 + 0.02 * i / td.CELL_M, 1.0, 0.0), None)
+    assert tr.snaps == []
+    assert tr.anchor_blk == anchor0
+
+
+def test_belief_tracker_reset_teleport_not_snap():
+    # reset 后的首帧大跳变是预期锚定（pending_anchor 等待态），不得误记为 snap
+    tr = td.BeliefTracker()
+    tr.update(0.0, (1.0, 1.0, 0.0), "reset:N10,y")
+    tr.update(1.0, (1.5, 1.2, 0.0), None)
+    tr.update(2.0, (9.0, 9.0, 0.0), "reset:B3,x")  # 瞬移到 B3
+    assert tr.snaps == []
+    cx, cy = td.cell_to_field("B3")
+    assert tr.snapshot()["est"] == pytest.approx((cx, cy, 0.0))
+
+
+def test_belief_tracker_no_route_jump_not_snap():
+    # 路线未活跃（还没收到任何路线）时的跳变不记 snap（est 本就未建立）
+    tr = td.BeliefTracker()
+    tr.update(0.0, (1.0, 1.0, 0.0), None)
+    tr.update(0.1, (3.0, 3.0, 0.0), None)
+    assert tr.snaps == []
+
+
+def test_belief_tracker_slow_gap_jump_treated_as_motion():
+    # 两帧间隔 >0.5s 的大位移无法与真实运动区分，按运动处理（不记 snap、不动锚）
+    tr = td.BeliefTracker()
+    tr.update(0.0, (1.0, 1.0, 0.0), "reset:N10,y")
+    anchor0 = tr.anchor_blk
+    tr.update(1.0, (2.0, 1.0, 0.0), None)  # 1s 走 1 格：慢速大位移
+    assert tr.snaps == []
+    assert tr.anchor_blk == anchor0
