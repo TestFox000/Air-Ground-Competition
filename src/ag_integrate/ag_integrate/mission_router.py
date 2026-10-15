@@ -658,6 +658,11 @@ def plan_route(
     base_required: dict[str, CellRef] = {}
     for c in snapshot.mines:
         base_required.setdefault(c.name, c)
+    # 可通行桥洞格也是必经点：规则里"桥洞通道协同穿梭"每段 10 分（一区域 5 选 1、
+    # 二区域 6 选 1，每区只计一次）——无人机读到的箭头格不穿过去就是白丢分。
+    # 此前代码漏了这条（docstring 写了但实现没加），2026-10-15 随机图复盘发现补上。
+    for c in snapshot.passable:
+        base_required.setdefault(c.name, c)
 
     cand_lists: list[list[CellRef]] = []
     for t in snapshot.targets:
