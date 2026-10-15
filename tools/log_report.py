@@ -55,12 +55,18 @@ def describe(e: Event) -> str:
     """把一条事件写成一行能看懂的话（时间轴用）。"""
     ev, g = e.ev, e.get
     if ev == EV.SESSION_BEGIN:
-        return (f"开局 {g('start_cell')}->{g('goal_cell')} "
+        # 现役 integrate_node 写 start/goal；start_cell/goal_cell 是旧栈键名，保留回退兼容旧日志
+        start = g('start') or g('start_cell')
+        goal = g('goal') or g('goal_cell')
+        return (f"开局 {start}->{goal} "
                 f"dry_run={g('dry_run')} budget={g('budget_s')}s")
     if ev == EV.NODE_READY:
         return f"{e.node} 启动 pid={g('pid')} host={g('host')}"
     if ev == EV.NODE_ARGS:
-        keys = ("cols", "rows", "min_votes", "dry_run", "allow_classes", "enable_fire")
+        # 与 integrate_node.py 的 EV.NODE_ARGS 实际 emit 字段保持一致
+        # （旧白名单 cols/rows/min_votes/allow_classes/enable_fire 是已下线的旧栈参数）
+        keys = ("dry_run", "start", "goal", "heading", "final",
+                "udp_port", "bias", "track", "replan")
         kv = ", ".join(f"{k}={g(k)}" for k in keys if g(k) is not None)
         return kv or "(无关键参数)"
     if ev == EV.INTEL_RECV:

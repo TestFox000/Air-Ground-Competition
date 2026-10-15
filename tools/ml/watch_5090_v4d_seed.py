@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -18,7 +19,9 @@ import paramiko
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-HOST, PORT, USER, PWD = "connect.bjb2.seetacloud.com", 37113, "root", "Zip83Urbyglp"
+# 密码不再硬编码，从环境变量 AG_5090_PASS 读取（同 tools/train_on_5090.py 范式）
+HOST, PORT, USER = "connect.bjb2.seetacloud.com", 37113, "root"
+PWD = os.environ.get("AG_5090_PASS", "")
 REMOTE = "/root/autodl-tmp"
 DL = Path(r"E:\ml_datasets\downloaded")
 RENDER = Path(r"e:\OneDrive - mails.qust.edu.cn\桌面\air_ground\runs\cell_recog_render")
@@ -54,6 +57,8 @@ ARTIFACTS = {  # tag -> [(remote, local)] 仅在对应训练完成时下载
 
 
 def connect() -> paramiko.SSHClient:
+    if not PWD:
+        raise SystemExit("错误: 未设置环境变量 AG_5090_PASS（5090 实例 root 密码），请先设置后再运行")
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     c.connect(HOST, port=PORT, username=USER, password=PWD, timeout=15)

@@ -24,8 +24,12 @@ PAD = 1.3          # 裁剪留边比例
 SHEET_CELL = 170   # contact sheet 中每格显示尺寸
 COLS = 5
 
-font_big = ImageFont.truetype(r"C:\Windows\Fonts\arialbd.ttf", 22)
-font_idx = ImageFont.truetype(r"C:\Windows\Fonts\arialbd.ttf", 30)
+try:
+    font_big = ImageFont.truetype(r"C:\Windows\Fonts\arialbd.ttf", 22)
+    font_idx = ImageFont.truetype(r"C:\Windows\Fonts\arialbd.ttf", 30)
+except OSError:
+    # 非 Windows / 无该字体时回退 Pillow 默认字体，避免直接崩溃
+    font_big = font_idx = ImageFont.load_default()
 
 img = Image.open(IMG / f"{FRAME}.jpg").convert("RGB")
 W, H = img.size

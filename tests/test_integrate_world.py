@@ -71,3 +71,49 @@ def test_pipeline_from_bytes():
     model = WorldModel()
     snap = model.update(parse(raw))
     assert snap.mines[0].name == "A1"
+
+
+def test_red_target_sticky_veto_ttl():
+    """红靶粘性否决（禁火铁律）：红靶出现后消失，TTL 内仍留在态势参与
+    否决（扛单帧漏检/遮挡/落格残差丢弃），TTL 后恢复。"""
+    model = WorldModel(red_veto_ttl_s=5.0)
+    red = obj_at(CellRef(4, 1), ObjectType.TARGET_RED)   # E2
+    s1 = model.update(IntelFrame(1000, (red,)))
+    assert {(t.cell.name, t.is_blue) for t in s1.targets} == {("E2", False)}
+
+    # 3s 时红靶消失：距最后见到 2s ≤ TTL，粘性补回，仍否决
+    s2 = model.update(IntelFrame(3000, ()))
+    assert {(t.cell.name, t.is_blue) for t in s2.targets} == {("E2", False)}
+
+    # 恰好 TTL 边界（6s，距 5s）：仍否决
+    s3 = model.update(IntelFrame(6000, ()))
+    assert {(t.cell.name, t.is_blue) for t in s3.targets} == {("E2", False)}
+
+    # 9.5s（距 8.5s > TTL 5s）：恢复，不再否决
+    s4 = model.update(IntelFrame(9500, ()))
+    assert s4.targets == ()
+
+
+def test_sticky_red_fail_safe_same_cell_as_blue():
+    """fail-safe 方向只增不减：粘性红与本帧蓝同格时，红靶保留否决，
+    不因本帧报蓝而删除。"""
+    model = WorldModel(red_veto_ttl_s=5.0)
+    model.update(IntelFrame(1000, (obj_at(CellRef(3, 1), ObjectType.TARGET_RED),)))
+    snap = model.update(
+        IntelFrame(2000, (obj_at(CellRef(3, 1), ObjectType.TARGET_BLUE),))
+    )
+    assert {(t.cell.name, t.is_blue) for t in snap.targets} == {
+        ("D2", True), ("D2", False)
+    }
+
+
+def test_sticky_red_tracks_latest_sighting():
+    """红靶持续可见时计时不断刷新，消失后从最后一次见到起算 TTL。"""
+    model = WorldModel(red_veto_ttl_s=5.0)
+    red = obj_at(CellRef(4, 1), ObjectType.TARGET_RED)   # E2
+    model.update(IntelFrame(1000, (red,)))
+    model.update(IntelFrame(5000, (red,)))   # 5s 时仍可见，刷新计时
+    # 9s（距首次 8s 但距末次 4s）：仍否决
+    assert any(not t.is_blue for t in model.update(IntelFrame(9000, ())).targets)
+    # 11s（距末次 6s > TTL）：恢复
+    assert model.update(IntelFrame(11000, ())).targets == ()

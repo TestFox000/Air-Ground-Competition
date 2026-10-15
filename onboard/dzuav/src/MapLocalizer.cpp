@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 
 #include <opencv2/calib3d.hpp>
@@ -146,6 +147,11 @@ bool MapLocalizer::solve(const std::vector<std::pair<CellId, cv::Point2f>>& l, c
 }
 cv::Point2d MapLocalizer::project(const cv::Point2f& p) const
 {
+    // 防御性检查：solve() 未成功时 Hinv_ 为空，直接乘会触发 OpenCV 断言崩溃；
+    // 现主流程只在 localized 后调用，此检查防未来误用（抛出比静默返回 (0,0)
+    // 安全——(0,0) 恰是场地角点，会被当成合法坐标）。
+    if (!ready_)
+        throw std::runtime_error("MapLocalizer::project called before solve() succeeded");
     cv::Mat q = (cv::Mat_<double>(3, 1) << p.x, p.y, 1);
     q = Hinv_ * q;
     return {q.at<double>(0) / q.at<double>(2), q.at<double>(1) / q.at<double>(2)};

@@ -10,7 +10,11 @@ SUSPECTS = [8, 11, 12, 13, 18, 22, 25, 30, 31, 35, 42, 44, 47, 52, 53, 54,
 
 SHEET_CELL = 300
 COLS = 4
-font = ImageFont.truetype(r"C:\Windows\Fonts\arialbd.ttf", 40)
+try:
+    font = ImageFont.truetype(r"C:\Windows\Fonts\arialbd.ttf", 40)
+except OSError:
+    # 非 Windows / 无该字体时回退 Pillow 默认字体，避免直接崩溃
+    font = ImageFont.load_default()
 
 per_sheet = 16  # 4x4
 n_sheets = (len(SUSPECTS) + per_sheet - 1) // per_sheet

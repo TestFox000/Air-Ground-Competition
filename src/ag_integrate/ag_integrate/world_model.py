@@ -41,10 +41,20 @@ class WorldSnapshot:
 
 
 class WorldModel:
-    """累积/替换最新态势。dzuav 每帧是全场结果，因此采用整帧替换。"""
+    """累积/替换最新态势。dzuav 每帧是全场结果，因此采用整帧替换。
 
-    def __init__(self) -> None:
+    红靶粘性否决（禁火铁律 fail-safe）：红面（友方）靶单帧漏检/遮挡/
+    落格残差过大被丢弃的那一帧，若恰好触发规划就会误击友方。因此见过
+    红靶的格子在 red_veto_ttl_s 秒内持续以红靶身份留在态势里参与否决
+    ——粘性只增加否决，绝不减少（TTL 用帧时间戳计量，帧停了粘性自然
+    冻结在最后已知态势上，方向同样安全）。
+    """
+
+    def __init__(self, red_veto_ttl_s: float = 5.0) -> None:
         self._snapshot: WorldSnapshot | None = None
+        self.red_veto_ttl_s = float(red_veto_ttl_s)
+        # 红靶格 -> 最后一次见到的时刻（秒，取情报帧时间戳）
+        self._red_seen: dict[CellRef, float] = {}
 
     @property
     def snapshot(self) -> WorldSnapshot | None:
@@ -78,6 +88,21 @@ class WorldModel:
             elif obj.type is ObjectType.TARGET_RED:
                 targets.append(TargetRef(cell, False))
             # CAR / CELL_LABEL：忽略
+
+        # 红靶粘性否决：本帧红靶登记时刻；TTL 内见过但本帧消失的红靶格
+        # 补回态势（fail-safe：只增加否决），过期的清出历史表。
+        now_s = frame.timestamp_ms / 1000.0
+        red_cells = {t.cell for t in targets if not t.is_blue}
+        for c in red_cells:
+            self._red_seen[c] = now_s
+        expired = []
+        for c, ts in self._red_seen.items():
+            if now_s - ts > self.red_veto_ttl_s:
+                expired.append(c)
+            elif c not in red_cells:
+                targets.append(TargetRef(c, False))
+        for c in expired:
+            del self._red_seen[c]
 
         self._snapshot = WorldSnapshot(
             frame.timestamp_ms,

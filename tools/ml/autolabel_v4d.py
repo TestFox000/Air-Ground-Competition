@@ -180,7 +180,9 @@ def main():
               f"保存={len(saved)} (hi={n_hi} mid={n_mid} 修正={n_corr} 远弃={n_far})",
               flush=True)
 
-    (ROOT / "runs/cell_recog_render/autolabel_v4d.json").write_text(
+    out_json = ROOT / "runs/cell_recog_render/autolabel_v4d.json"
+    out_json.parent.mkdir(parents=True, exist_ok=True)  # 目录可能尚未存在，写前先建
+    out_json.write_text(
         json.dumps(stats, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"\n=== 汇总 ===")
     print(f"标注帧: {stats['frames_labeled']}/{stats['frames_total']} "

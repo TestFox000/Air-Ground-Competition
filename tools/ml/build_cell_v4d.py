@@ -24,6 +24,17 @@ AUG_PER = 20
 AUTO_AUG = None  # set in main
 
 
+def _aug_init(aug_per, auto_aug, apply_dr):
+    """Pool 子进程初始化：把增广参数注入子进程全局。
+
+    Windows 多进程是 spawn 语义（重新 import 本模块），不继承父进程 main()
+    里赋的全局值，直接在子进程用 AUG_PER/AUTO_AUG/_apply_dr 会 NameError；
+    fork 的 Linux 上也只是恰好能跑。显式 initializer 传参两种平台都正确。
+    """
+    global AUG_PER, AUTO_AUG, _apply_dr
+    AUG_PER, AUTO_AUG, _apply_dr = aug_per, auto_aug, apply_dr
+
+
 def _aug(task):
     src, stem, cid = task
     with Image.open(src) as im:
@@ -77,7 +88,9 @@ def main():
     print(f"自动标注原图: {len(auto_rows)} 张, 增广 x{AUG_PER} = {len(aug_specs) * AUG_PER} 张")
 
     if args.aug_workers > 1:
-        with Pool(args.aug_workers) as pool:
+        # 通过 initializer 向子进程传参（spawn 下子进程拿不到父进程 main() 里的全局赋值）
+        with Pool(args.aug_workers, initializer=_aug_init,
+                  initargs=(AUG_PER, AUTO_AUG, apply_domain_randomization)) as pool:
             groups = pool.map(_aug, aug_specs, chunksize=16)
     else:
         groups = [_aug(t) for t in aug_specs]

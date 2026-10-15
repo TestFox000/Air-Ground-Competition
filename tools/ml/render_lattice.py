@@ -13,9 +13,9 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(r"e:\OneDrive - mails.qust.edu.cn\桌面\air_ground")
-RESULTS = ROOT / "runs\lattice_ransac\lattice_ransac_results.json"
+RESULTS = ROOT / "runs/lattice_ransac/lattice_ransac_results.json"
 VAL_DIR = ROOT / r"capture\datasets\aerial_field_mixed\images\val"
-OUT_DIR = ROOT / "runs\lattice_ransac"
+OUT_DIR = ROOT / "runs/lattice_ransac"
 
 FRAMES = ["frame_00175.jpg", "frame_00168.jpg"]  # 覆盖提升最大 + 检出最多
 MAX_W = 900

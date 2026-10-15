@@ -21,6 +21,41 @@ def make_object(type_index: int = 0) -> IntelObject:
     return IntelObject(ObjectType(type_index), 0.12 * type_index, -0.34, 0.35, 0.35)
 
 
+def test_intel_frame_golden_bytes():
+    """0x4001 黄金帧：逐字节锁定布局，任何一端（C++ UdpBroadcaster 或本模块）
+    改了字段顺序/大小/偏移都会在这里炸——机上协议不可静默漂移。
+
+    布局（小端，1 个目标共 52 字节）：
+        magic4 + version1 + ts8 + msgid2(0x4001) + len4(=2+25*count) + count2
+        + [type1 + x double8 + y double8 + length float4 + width float4] * count
+        + crc2 + suffix4
+    """
+    # length/width 是 float32：选二进制可精确表示的值，避免往返误差干扰断言
+    obj = IntelObject(ObjectType.TARGET_BLUE, 1.25, -2.5, 0.5, 0.25)
+    frame = IntelFrame(1_700_000_000_123, (obj,))
+    raw = build(frame)
+
+    assert len(raw) == HEADER_SIZE + OBJECT_SIZE + 2 + 4 == 52
+    assert raw[0:4] == b"\xef\xef\xef\xef"
+    assert raw[4] == 0x10
+    ts, msg_id, declared, count = struct.unpack_from("<QHIH", raw, 5)
+    assert (ts, msg_id, declared, count) == (frame.timestamp_ms, 0x4001, 27, 1)
+    type_index, x, y, length, width = struct.unpack_from("<Bddff", raw, HEADER_SIZE)
+    assert type_index == int(ObjectType.TARGET_BLUE)
+    assert (x, y, length, width) == (1.25, -2.5, 0.5, 0.25)
+    body_end = HEADER_SIZE + OBJECT_SIZE
+    (received_crc,) = struct.unpack_from("<H", raw, body_end)
+    assert received_crc == crc16(raw[4:body_end])
+    assert raw[body_end + 2 :] == b"\xfe\xfe\xfe\xfe"
+
+    # 往返一致
+    decoded = parse(raw)
+    assert decoded.timestamp_ms == frame.timestamp_ms
+    got = decoded.objects[0]
+    assert got.type is ObjectType.TARGET_BLUE
+    assert (got.x, got.y, got.length, got.width) == (1.25, -2.5, 0.5, 0.25)
+
+
 def test_car_pose_golden_bytes():
     """0x4002 黄金帧：逐字节锁定布局，任何一端（C++ UdpBroadcaster 或本模块）
     改了字段顺序/大小/偏移都会在这里炸——机上机上协议不可静默漂移。

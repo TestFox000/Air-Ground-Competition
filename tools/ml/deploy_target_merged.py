@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """部署合并后的标靶数据集(target_merged, 652帧)到5090并启动训练。"""
+import os
 import time, zipfile
 from pathlib import Path
 import paramiko
 
-HOST, PORT, USER, PWD = "connect.bjb2.seetacloud.com", 37113, "root", "Zip83Urbyglp"
+# 密码不再硬编码，从环境变量 AG_5090_PASS 读取（同 tools/train_on_5090.py 范式）
+HOST, PORT, USER = "connect.bjb2.seetacloud.com", 37113, "root"
+PWD = os.environ.get("AG_5090_PASS", "")
 DATA_DIR = Path(r"E:\ml_datasets\target_merged")
 ZIP = Path(r"E:\ml_datasets\target_merged_upload.zip")
 REMOTE = "/root/autodl-tmp"
@@ -33,6 +36,8 @@ def run_bg(c, cmd):
     c.exec_command(full)
 
 def main():
+    if not PWD:
+        raise SystemExit("错误: 未设置环境变量 AG_5090_PASS（5090 实例 root 密码），请先设置后再运行")
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     c.connect(HOST, port=PORT, username=USER, password=PWD, timeout=15)

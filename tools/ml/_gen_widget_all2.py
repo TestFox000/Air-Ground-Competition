@@ -1,4 +1,4 @@
-﻿import base64, json, os
+import base64, json, os
 from PIL import Image
 import io
 
@@ -83,4 +83,8 @@ next.addEventListener("click",()=>{{if(page<pages-1){{page++;render()}}}});
 render();
 </script>'''
 
-print(f"widget size: {len(html)} chars")
+# 与 _gen_widget_all.py 同款：拼好的 html 要落盘，否则只 print 没法用
+out = r"e:\OneDrive - mails.qust.edu.cn\桌面\air_ground\capture\mine_official\_widget_all2.html"
+with open(out, "w", encoding="utf-8") as f:
+    f.write(html)
+print(f"widget saved: {out}, size={len(html)} chars")

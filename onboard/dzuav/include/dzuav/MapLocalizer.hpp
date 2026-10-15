@@ -28,7 +28,7 @@ private:
     cv::Mat rvec_;
     cv::Mat tvec_;
     cv::Mat Hinv_;    // 地面平面 单应的逆，像素 -> 世界
-    bool ready_ = false;
+    bool ready_ = false;   // solve() 是否已成功：仅作 project() 的防御性检查（防空调用读空 Hinv_）
     // 畸变矫正缓存：cv::undistort 内部即 initUndistortRectifyMap+remap，
     // 映射只与分辨率相关——同尺寸帧只算一次，每帧只做 remap（输出逐位等价）。
     mutable cv::Mat map_x_;

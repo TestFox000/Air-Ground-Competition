@@ -11,6 +11,8 @@
 #include <sstream>
 #include <string>
 
+#include <unistd.h>
+
 #include <opencv2/opencv.hpp>
 
 #include "dzuav/CellClassifier.hpp"
@@ -128,9 +130,12 @@ void processFrame(const cv::Mat& frame, HbbDetector& hbb, CellClassifier& cell, 
             cv::Point2f point{detection.box.x + detection.box.width * .5F,
                               detection.box.y + detection.box.height * .5F};
             const auto world = map.project(point);
+            // 注意：length/width 字段填的是像素框宽/高，并非契约所写的"米"
+            // （车端 Python 目前忽略这两个字段，无实害；契约待更新，字节布局不变）。
             objects.push_back({detection.type,
                                cv::Point3f(float(world.x), float(world.y), 0.F),
-                               detection.box.width, detection.box.height, detection.confidence});
+                               static_cast<float>(detection.box.width),
+                               static_cast<float>(detection.box.height), detection.confidence});
             if (annotate)
                 label += cv::format(" (%.3f,%.3f)", world.x, world.y);
         }
@@ -172,8 +177,8 @@ void processFrame(const cv::Mat& frame, HbbDetector& hbb, CellClassifier& cell, 
     if (car_pose_ok)
         std::cout << " car_pose=(" << car_x << ',' << car_y << ",yaw=" << car_yaw << ')';
     std::cout << "\n";   // 不用 endl：省一次流刷新（30fps 下可观）
-    if (annotate)
-        cv::imwrite(output.string(), visual);
+    if (annotate && !cv::imwrite(output.string(), visual))
+        std::cerr << "cannot write " << output.string() << '\n';
 }
 
 // MIPI CSI 相机（经 Jetson ISP / libargus）。
@@ -215,6 +220,22 @@ void parseSpec(const std::string& spec, int& width, int& height, int& fps)
     }
 }
 
+// 解析 UDP 端口：纯数字且在 1~65535 内才接受。stoi+static_cast<uint16_t>
+// 会让 ">65535" 静默截断、非法输入直接抛异常终止，这里显式拒绝。
+bool parsePort(const char* text, uint16_t& port)
+{
+    if (text == nullptr || *text == '\0')
+        return false;
+    for (const char* p = text; *p != '\0'; ++p)
+        if (!std::isdigit(static_cast<unsigned char>(*p)))
+            return false;
+    const long v = std::strtol(text, nullptr, 10);
+    if (v <= 0 || v > 65535)
+        return false;
+    port = static_cast<uint16_t>(v);
+    return true;
+}
+
 int runCamera(const std::string& source, const std::string& hbb_path,
               const std::string& cell_path, uint16_t port, const std::string& spec)
 {
@@ -230,7 +251,8 @@ int runCamera(const std::string& source, const std::string& hbb_path,
     {
         std::string device = source.substr(4);
         if (!device.empty() &&
-            std::all_of(device.begin(), device.end(), [](char ch) { return std::isdigit(ch); }))
+            std::all_of(device.begin(), device.end(),
+                        [](char ch) { return std::isdigit(static_cast<unsigned char>(ch)); }))
         {
             device = "/dev/video" + device;
         }
@@ -260,6 +282,8 @@ int runCamera(const std::string& source, const std::string& hbb_path,
     cv::Mat frame;
     uint64_t frame_index = 0;
     uint64_t empty_frames = 0;
+    unsigned frame_errors = 0;   // 连续处理异常计数（成功即清零）
+    bool reopened = false;       // 断流后只重开一次，防无限重试
     while (g_running.load())
     {
         if (!capture.read(frame) || frame.empty())
@@ -267,10 +291,51 @@ int runCamera(const std::string& source, const std::string& hbb_path,
             ++empty_frames;
             if (empty_frames < 30)
                 std::cerr << "empty frame\n";
+            // 断流空转防护：让出 CPU（约一拍帧间隔），否则 read 立即 false 会
+            // 100% 占核永不退出。
+            usleep(33000);
+            if (empty_frames >= 300)
+            {
+                if (!reopened)
+                {
+                    reopened = true;
+                    empty_frames = 0;
+                    std::cerr << "camera stream lost; reopening pipeline\n";
+                    capture.open(pipeline, cv::CAP_GSTREAMER);
+                    if (!capture.isOpened())
+                    {
+                        std::cerr << "camera reopen failed\n";
+                        return 4;
+                    }
+                }
+                else
+                {
+                    std::cerr << "camera stream did not recover after reopen\n";
+                    return 4;
+                }
+            }
             continue;
         }
         empty_frames = 0;
-        processFrame(frame, hbb, cell, map, udp, {});
+        // 单帧推理/图像处理异常不终结整个侦察进程：打印后继续；
+        // 连续异常超上限（故障大概率是持久的）才非零退出。
+        try
+        {
+            processFrame(frame, hbb, cell, map, udp, {});
+        }
+        catch (const std::exception& e)
+        {
+            ++frame_errors;
+            std::cerr << "frame processing error (" << frame_errors
+                      << " consecutive): " << e.what() << '\n';
+            if (frame_errors >= 30)
+            {
+                std::cerr << "too many consecutive frame errors; aborting\n";
+                return 5;
+            }
+            continue;
+        }
+        frame_errors = 0;
         ++frame_index;
     }
     std::cout << "stopped after " << frame_index << " processed frames\n";
@@ -297,10 +362,14 @@ int main(int argc, char** argv)
     }
 
     const std::string source(argv[1]);
+    uint16_t port = 50000;
+    if (argc > 4 && !parsePort(argv[4], port))
+    {
+        std::cerr << "invalid udp port: " << argv[4] << " (expect 1-65535)\n";
+        return 2;
+    }
     if (source.rfind("argus:", 0) == 0 || source.rfind("uvc:", 0) == 0)
     {
-        const uint16_t port =
-            argc > 4 ? static_cast<uint16_t>(std::stoi(argv[4])) : uint16_t(50000);
         const std::string spec = argc > 5 ? argv[5] : "1920x1080@30";
         return runCamera(source, argv[2], argv[3], port, spec);
     }
@@ -313,7 +382,7 @@ int main(int argc, char** argv)
     HbbDetector hbb(argv[2], .25F, .45F);
     CellClassifier cell(argv[3]);
     MapLocalizer map;
-    UdpBroadcaster udp(argc > 4 ? std::stoi(argv[4]) : 50000);
+    UdpBroadcaster udp(port);
     const auto outputFor = [&](size_t index)
     { return output_dir / (input.stem().string() + "_" + std::to_string(index) + ".jpg"); };
     cv::Mat image = cv::imread(input.string());

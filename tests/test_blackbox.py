@@ -132,6 +132,92 @@ def test_write_failure_never_raises(tmp_path):
     bb.close()
 
 
+def test_open_failure_leaves_path_none(tmp_path):
+    """打开失败时 path 必须是 None，不能指向一个从未成功打开的文件。"""
+    not_a_dir = tmp_path / "file"
+    not_a_dir.write_text("x", encoding="utf-8")
+    bb = BlackBox("n", log_dir=str(not_a_dir), session="s")
+    assert bb.enabled is False
+    assert bb.path is None
+
+
+def test_flush_every_controls_when_records_hit_disk(tmp_path):
+    """`flush_every=N` 累计 N 条才落盘 —— 行缓冲已去掉，这个参数不再被架空。
+
+    默认 `flush_every=1` 仍是逐条 flush，"进程被杀不丢日志"的约束不变。
+    """
+    bb = BlackBox("n", log_dir=str(tmp_path), session="s", flush_every=3)
+    bb.log(EV.INTEL_RECV, seq=1)
+    bb.log(EV.INTEL_RECV, seq=2)
+    f = next(tmp_path.rglob("*.jsonl"))
+    assert f.read_text(encoding="utf-8") == ""       # 不足 3 条，还在用户态缓冲
+    bb.log(EV.INTEL_RECV, seq=3)
+    assert f.read_text(encoding="utf-8").count("\n") == 3
+    bb.close()
+
+
+def test_attach_twice_does_not_double_wrap(tmp_path):
+    """重复 attach：logger 只套一层 _LoggerMirror（套两层会各记一遍、去重状态分裂）。"""
+    from ag_core.blackbox import _LoggerMirror, attach
+
+    class _Node:
+        def __init__(self):
+            self._logger = type("L", (), {"info": lambda self, m: None})()
+
+        def get_logger(self):
+            return self._logger
+
+    node = _Node()
+    attach(node, BlackBox("n", log_dir=str(tmp_path), session="s"))
+    first = node.get_logger()
+    assert isinstance(first, _LoggerMirror)
+    attach(node, BlackBox("n", log_dir=str(tmp_path), session="s"))
+    assert node.get_logger() is first                # 没有叠第二层
+
+
+def test_set_target_resets_warned(tmp_path, capsys):
+    """换目标后再次失败必须重新告警 —— _warned 跟着旧目标走会吞掉唯一一次提示。"""
+    bad1 = tmp_path / "f1"
+    bad1.write_text("x", encoding="utf-8")
+    bb = BlackBox("n", log_dir=str(bad1), session="s")
+    assert bb.errors >= 1
+    assert "[blackbox]" in capsys.readouterr().err   # 第一次告警
+
+    bb.enabled = True                                # 测试场景显式复活
+    bb.set_target(log_dir=str(tmp_path / "good"), session="s")
+    assert bb.path is not None
+    capsys.readouterr()
+
+    bad2 = tmp_path / "f2"
+    bad2.write_text("x", encoding="utf-8")
+    bb.set_target(log_dir=str(bad2), session="s")    # 再坏：要重新告警
+    assert bb.enabled is False
+    assert "[blackbox]" in capsys.readouterr().err
+
+
+def test_find_log_dirs_only_lists_dirs_with_files(tmp_path):
+    """同一批文件不再让 root 与各级子目录重复上榜：只有直接含 .jsonl 的目录出现。"""
+    from ag_core.blackbox import find_log_dirs
+    BlackBox("a", log_dir=str(tmp_path), session="s1").close()
+    dirs = find_log_dirs(tmp_path)
+    assert dirs == [tmp_path / "s1"]                 # root 没有直属文件，不上榜
+
+
+def test_read_events_skip_bad_false_raises(tmp_path):
+    """skip_bad=False 是校验语义：坏行直接抛 ValueError，而不是计数后当没发生。"""
+    bb = BlackBox("n", log_dir=str(tmp_path), session="s")
+    bb.log(EV.INTEL_RECV, seq=1)
+    bb.close()
+    f = next(tmp_path.rglob("*.jsonl"))
+    with open(f, "a", encoding="utf-8") as fh:
+        fh.write("{不是 json}\n")
+
+    events, bad = read_events(tmp_path)              # 默认 skip_bad=True：计数不抛
+    assert bad == 1 and len(events) == 1
+    with pytest.raises(ValueError):
+        read_events(tmp_path, skip_bad=False)
+
+
 def test_rotation_keeps_bounded_files(tmp_path):
     bb = BlackBox("n", log_dir=str(tmp_path), session="s",
                   max_bytes=300, keep=2, flush_every=1)
@@ -155,11 +241,20 @@ def test_default_session_from_env(monkeypatch):
 
 
 def test_required_key_is_dropped_instead_of_written(tmp_path):
-    """每次 log 都会补 `_log`，所以这里直接依赖节点侧不传该名字。"""
+    """`ev` 是 log() 的位置形参，payload 根本传不进来 —— 记录里永远是框架写的值。
+
+    顺带锁定另一条边界：业务payload若撞上框架保留键（如 lvl），
+    会被挪进 data 子对象，事件等级不被劫持（否则按等级过滤/统计全会错）。
+    """
     bb = BlackBox("n", log_dir=str(tmp_path), session="s")
-    bb.log(EV.AIM_PASS, cls=1)
+    bb.log(EV.AIM_PASS, level="warn", cls=1, lvl="业务字段")
     bb.close()
-    assert _lines(tmp_path)[0]["ev"] == EV.AIM_PASS
+
+    r = _lines(tmp_path)[0]
+    assert r["ev"] == EV.AIM_PASS       # 框架字段由位置参数写入，不受 payload 影响
+    assert r["lvl"] == "warn"           # 事件等级由 level= 参数写
+    assert r["data"] == {"lvl": "业务字段"}   # 撞名的业务值被挪进 data，不覆盖框架 lvl
+    assert r["cls"] == 1
 
 
 # ------------------------------------------------------------------ 读取端
@@ -237,9 +332,14 @@ def test_logger_mirror_writes_text_and_dedups(tmp_path):
 
 # ------------------------------------------------------------------ 诊断规则
 def _events(tmp_path: Path, records, session=None) -> list:
-    """把 (事件名, 字段dict) 列表写成日志再读回来（顺带验证读回路径）。"""
-    bb = BlackBox("car_node", log_dir=str(tmp_path), session="s")
-    bb.log(EV.SESSION_BEGIN, start_cell="N10", goal_cell="N11", **(session or {}))
+    """把 (事件名, 字段dict) 列表写成日志再读回来（顺带验证读回路径）。
+
+    节点名与 session.begin 字段对齐现役 `integrate_node` 的 `_blog` 调用点
+    （start/goal/dry_run/publish_reset）——用旧事件流喂规则，
+    规则改错了也抓不到（本文件曾经就这样盲了 147 个测试）。
+    """
+    bb = BlackBox("integrate_node", log_dir=str(tmp_path), session="s")
+    bb.log(EV.SESSION_BEGIN, start="N10", goal="N11", **(session or {}))
     for ev, fields in records:
         bb.log(ev, **fields)
     bb.close()
@@ -259,16 +359,17 @@ def test_diagnose_empty_log_is_critical():
 
 
 def test_diagnose_missing_intel(tmp_path):
-    events = _events(tmp_path, [(EV.ROUTE_BLOCKED, {})])
+    events = _events(tmp_path, [(EV.ROUTE_BLOCKED, {"reason": REASON.MIN_MINES})])
     m = summarize(events)
     assert m["intel_recv"] == 0
     assert "no-intel" in _codes(diagnose(events))
 
 
-def test_diagnose_stable_but_no_route_lists_reason(tmp_path):
+def test_diagnose_intel_but_blocked_lists_reason(tmp_path):
+    """情报在收、门控评估过，但路线一直没发：报告要点名被拦原因。"""
     events = _events(tmp_path, [
-        (EV.INTEL_STABLE, {"mines": ["C3"]}),
-        (EV.ROUTE_BLOCKED, {"reason": REASON.FACE_UNKNOWN, "detail": "face=None"}),
+        (EV.INTEL_RECV, {"n": 1, "mines": 1}),
+        (EV.ROUTE_BLOCKED, {"reason": REASON.FACE_UNKNOWN}),
     ])
     findings = diagnose(events)
     codes = _codes(findings)
@@ -278,15 +379,64 @@ def test_diagnose_stable_but_no_route_lists_reason(tmp_path):
     assert f.hint                              # 且必须给出下一步动作
 
 
+def test_diagnose_intel_no_decision_is_critical(tmp_path):
+    """情报在收，但 blocked/plan/publish 一个都没有 —— 收包到决策之间断了。
+
+    （旧规则盯 intel.stable：其生产者 IntelVoter 已随旧栈删除，条件恒真、
+    每局必误报；现役语义看决策链有没有任何输出。）
+    """
+    events = _events(tmp_path, [(EV.INTEL_RECV, {"n": 2, "mines": 0})])
+    findings = diagnose(events)
+    f = next(f for f in findings if f.code == "intel-no-decision")
+    assert f.severity == "critical"
+
+
+def test_diagnose_healthy_session_has_no_critical(tmp_path):
+    """端到端：健康局事件流（现役词汇）跑 diagnose，零 critical 误报。
+
+    这是本文件的定盘星：规则收敛到现役语义后，一局正常跑车
+    （收情报 -> 门控放行 -> plan.built -> 发 reset+route）不该报任何严重。
+    """
+    events = _events(tmp_path, [
+        (EV.NODE_ARGS, {"dry_run": False, "start": "N10", "goal": "N11"}),
+        (EV.INTEL_RECV, {"n": 3, "mines": 1}),
+        (EV.PLAN_BUILT, {"reset": "reset:N10,y", "route": "D2 E5* N11,x",
+                         "shoot": "E5", "heading": "y"}),
+        (EV.ROUTE_PUBLISH, {"kind": "reset", "cmd": "reset:N10,y"}),
+        (EV.ROUTE_PUBLISH, {"kind": "route", "cmd": "D2 E5* N11,x"}),
+    ])
+    m = summarize(events)
+    assert m["reset_sent"] == 1 and m["route_sent"] == 1
+    assert m["shoot_stops"] == ["E5"]          # plan.built 的逗号串 shoot= 也要认
+    findings = diagnose(events)
+    criticals = [f for f in findings if f.severity == "critical"]
+    assert criticals == [], [f"{f.code}: {f.title}" for f in criticals]
+
+
 def test_diagnose_repeated_route_and_missing_reset(tmp_path):
     events = _events(tmp_path, [
-        (EV.INTEL_STABLE, {"mines": ["C3"]}),
+        (EV.INTEL_RECV, {"n": 1, "mines": 1}),
+        (EV.PLAN_BUILT, {"route": "A"}),
         (EV.ROUTE_PUBLISH, {"kind": "route", "cmd": "A", "shoot_stops": ["D2"]}),
         (EV.ROUTE_PUBLISH, {"kind": "route", "cmd": "B", "shoot_stops": ["D2"]}),
     ])
     codes = _codes(diagnose(events))
     assert "route-repeated" in codes      # 车端会从头重跑
     assert "no-reset" in codes            # 里程计没复位
+
+
+def test_diagnose_no_reset_respects_publish_reset_flag(tmp_path):
+    """publish_reset=false 是"由人手动 reset"的合法配置：只能报 info，不能报 critical。
+
+    标志从 session.begin 读（现役 integrate_node 开局就写）。
+    """
+    events = _events(tmp_path, [
+        (EV.INTEL_RECV, {"n": 1, "mines": 1}),
+        (EV.PLAN_BUILT, {"route": "A"}),
+        (EV.ROUTE_PUBLISH, {"kind": "route", "cmd": "A"}),
+    ], session={"publish_reset": False})
+    f = next(f for f in diagnose(events) if f.code == "no-reset")
+    assert f.severity == "info"
 
 
 def test_diagnose_aim_guard_blocking_enemy_is_critical(tmp_path):
@@ -308,8 +458,8 @@ def test_diagnose_aim_guard_blocking_friend_is_ok(tmp_path):
 
 
 def test_diagnose_reports_stall(tmp_path):
-    bb = BlackBox("car_node", log_dir=str(tmp_path), session="s")
-    bb.log(EV.SESSION_BEGIN, start_cell="N10")
+    bb = BlackBox("integrate_node", log_dir=str(tmp_path), session="s")
+    bb.log(EV.SESSION_BEGIN, start="N10", goal="N11")
     bb.log(EV.ROUTE_PUBLISH, kind="route", cmd="x")
     bb.close()
     # 手工把两条记录的时间拉开，模拟"发完车就没动静了"
@@ -331,7 +481,8 @@ def test_diagnose_dry_run_does_not_report_missing_route(tmp_path):
     这条是真机踩出来的：车端干跑一圈，报告第一行就是"情报已收敛，但没有发出任何路线"，
     而实际一切正常 —— 误报会让人不再信任报告。
     """
-    events = _events(tmp_path, [(EV.INTEL_STABLE, {"mines": ["C3"]})],
+    events = _events(tmp_path, [(EV.INTEL_RECV, {"n": 1, "mines": 1}),
+                                (EV.ROUTE_BLOCKED, {"reason": REASON.MIN_MINES})],
                      session={"dry_run": True})
     codes = _codes(diagnose(events))
     assert "no-route" not in codes
@@ -356,7 +507,8 @@ def test_diagnose_no_referee_separates_absent_from_silent(tmp_path):
 
 def test_summarize_counts_route_and_shots(tmp_path):
     events = _events(tmp_path, [
-        (EV.INTEL_STABLE, {"mines": ["C3"]}),
+        (EV.INTEL_RECV, {"n": 1, "mines": 1}),
+        (EV.PLAN_BUILT, {"route": "A D2* N11,y", "shoot": "D2"}),
         (EV.ROUTE_PUBLISH, {"kind": "reset", "cmd": "reset:N10,y"}),
         (EV.ROUTE_PUBLISH, {"kind": "route", "cmd": "A D2* N11,y", "shoot_stops": ["D2"]}),
         (EV.SHOOT_COUNT, {"value": 7}),
@@ -370,12 +522,14 @@ def test_summarize_counts_route_and_shots(tmp_path):
 # ------------------------------------------------------------------ 报告工具
 def test_report_cli_prints_and_flags_critical(tmp_path, capsys):
     tool = _load_tool("log_report")
-    events = [(EV.INTEL_STABLE, {"mines": ["C3"]})]   # 收敛了却没发车 -> critical
+    # 情报在收、门控拦下、路线没发 -> no-route critical
+    events = [(EV.INTEL_RECV, {"n": 1, "mines": 1}),
+              (EV.ROUTE_BLOCKED, {"reason": REASON.MIN_MINES})]
     _events(tmp_path, events)
 
     assert tool.main(["--dir", str(tmp_path)]) == 0
     out = capsys.readouterr().out
-    assert "情报已收敛，但没有发出任何路线" in out
+    assert "情报到了、门控也评估过，但没有发出任何路线" in out
 
     assert tool.main(["--dir", str(tmp_path), "--strict"]) == 1
     capsys.readouterr()
@@ -402,12 +556,15 @@ def test_report_cli_missing_dir_is_actionable(tmp_path, capsys):
 def test_report_markdown_contains_timeline_and_metrics(tmp_path):
     tool = _load_tool("log_report")
     events = _events(tmp_path, [
-        (EV.INTEL_RECV, {"seq": 1, "ok": True, "mines": ["C3"]}),
-        (EV.INTEL_STABLE, {"mines": ["C3"], "target_face": "blue"}),
-        (EV.ROUTE_PUBLISH, {"kind": "route", "cmd": "C3 D2* N11,y", "shoot_stops": ["D2"]}),
+        (EV.INTEL_RECV, {"n": 1, "ts": 1, "mines": 1}),
+        (EV.PLAN_BUILT, {"reset": "reset:N10,y", "route": "C3 D2* N11,y",
+                         "shoot": "D2", "heading": "y"}),
+        (EV.ROUTE_PUBLISH, {"kind": "reset", "cmd": "reset:N10,y"}),
+        (EV.ROUTE_PUBLISH, {"kind": "route", "cmd": "C3 D2* N11,y",
+                            "shoot_stops": ["D2"]}),
     ])
     md = tool.render_markdown(sorted(tmp_path.rglob("*.jsonl")), events, 0, 30.0, 300)
     assert "## 一、结论" in md
     assert "## 三、时间轴" in md
     assert "D2* N11,y" in md            # 路线原文要能直接看到
-    assert "intel.stable" in md
+    assert "plan.built" in md

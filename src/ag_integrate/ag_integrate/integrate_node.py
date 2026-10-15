@@ -18,16 +18,17 @@ import math
 import queue
 import socket
 import threading
-import time
 
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 
+from .car_commands import parse_cell
 from .field_matrix import MatrixFusion, render_report_from_spots
-from .heading_calibration import closed_loop_rate, wrap_pi
+from .heading_calibration import closed_loop_rate
 from .intel_protocol import detect_msg_id, parse, parse_car_pose
+from .mission_router import _MID_BOUNDARY
 from .pipeline import build_mission, evaluate_gate
 from .world_model import WorldModel
 
@@ -40,6 +41,20 @@ try:
     _HAS_BB = True
 except ImportError:
     _HAS_BB = False
+
+    class _StubNS:
+        """ag_core 缺失时的占位命名空间：任何属性名都解析为空串。
+
+        收包线程/timer 回调里 EV.XXX 作为实参直接求值，没有占位命名空间
+        会在 ag_core 缺失时 NameError 杀线程/崩节点；空串事件名被 _blog
+        直接丢弃，等价于黑匣子关闭。
+        """
+
+        def __getattr__(self, _name: str) -> str:
+            return ""
+
+    EV = AIM_BLOCK_WHY = REASON = _StubNS()  # type: ignore[assignment]
+    BlackBox = None  # type: ignore[assignment]
 
 
 class IntegrateNode(Node):
@@ -56,8 +71,11 @@ class IntegrateNode(Node):
         self.declare_parameter("publish_reset", True)
         self.declare_parameter("min_mines", 1)
         self.declare_parameter("require_face", True)
+        # 红靶粘性否决 TTL（秒，禁火铁律 fail-safe）：见过红靶的格子在该
+        # 时长内持续参与禁火否决，扛单帧漏检/遮挡/落格残差丢弃。
+        self.declare_parameter("red_veto_ttl_s", 5.0)
         self.declare_parameter("cross_gates", [""])
-        self.declare_parameter("mid_boundary", 5)
+        self.declare_parameter("mid_boundary", _MID_BOUNDARY)
         # 外部朝向补偿（根除绕圈问题）：
         #   heading_bias_source="none"  → 不补偿，保持现状（默认，安全）
         #   heading_bias_source="udp"   → 监听 dzuav 的 0x4002 车位姿帧，
@@ -66,16 +84,25 @@ class IntegrateNode(Node):
         #   heading_bias_source="align" → 用 0x4002 真实朝向闭环原地转向，
         #                                  把车头转到与 start_heading 断言一致
         #                                  （零残差，需发 /cmd_vel 角速度）
-        #   heading_bias（弧度）         → 手动偏置（=真实朝向 - 断言朝向），
-        #                                  优先级低于 udp/align 自动补偿
         self.declare_parameter("heading_bias_source", "none")
-        self.declare_parameter("heading_bias", 0.0)
         # ---- 朝向对齐（align 模式）参数 ----
+        # ⚠️ 底盘契约（dzactuator.cpp 实测）：
+        #   1) cmd_vel 只在"模式1(DWA)"被执行——path_executor 的 20Hz
+        #      pursuitAngle 保活会把模式钉死在 2(Pursuit)，所以 align 必须在
+        #      path_executor 启动之前做（见 tools/car_match_bringup.sh 两阶段
+        #      启动），否则 cmd_vel 在回调首行被静默丢弃；
+        #   2) v==0 时 TargetAngle=0（舵机回中、车不动）——Ackermann 车不能
+        #      原地转，必须带爬行速度；v≠0 时 TargetAngle=atan(CARL*w/v)*57.3°，
+        #      即 angular.z 语义是 yaw 角速度 rad/s，与 closed_loop_rate 一致。
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
+        self.declare_parameter("align_creep_speed", 0.05)  # 对齐爬行速度 m/s（v≠0 舵机才生效；0.05 时摆正 68.6° 漂移 ~0.21m，离线仿真验证有裕度）
         self.declare_parameter("heading_align_tolerance", 0.05)   # rad ≈ 3°
         self.declare_parameter("heading_align_max_rate", 0.5)    # rad/s
         self.declare_parameter("heading_align_timeout", 15.0)    # s
         self.declare_parameter("heading_align_settle_ticks", 3)  # 连续 N tick 在容差内才算对齐
+        # 发路线前等待 /nav/waypoint 出现订阅者（path_executor 上线）。
+        # 两阶段启动时路线比 path_executor 早发会整条丢失（话题无滞留）。
+        self.declare_parameter("wait_waypoint_consumer", True)
         # 移动靶先验（全场仅一个，裁判系统每局固定）：
         #   target_track = ["D8", "E8"]  轨道两端格号
         #   target_blue_face = "S"      蓝面朝向 S/N(水平轨道)/E/W(垂直轨道)
@@ -111,11 +138,13 @@ class IntegrateNode(Node):
         self.publish_reset = bool(p("publish_reset"))
         self.min_mines = int(p("min_mines"))
         self.require_face = bool(p("require_face"))
+        self.red_veto_ttl_s = float(p("red_veto_ttl_s"))
         self.cross_gates = tuple(n.strip() for n in p("cross_gates") if n.strip())
         self.mid_boundary = int(p("mid_boundary"))
         self.heading_bias_source = str(p("heading_bias_source")).strip().lower()
-        self.heading_bias = float(p("heading_bias"))
         self.cmd_vel_topic = str(p("cmd_vel_topic"))
+        self.align_creep_speed = float(p("align_creep_speed"))
+        self.wait_waypoint_consumer = bool(p("wait_waypoint_consumer"))
         self.heading_align_tolerance = float(p("heading_align_tolerance"))
         self.heading_align_max_rate = float(p("heading_align_max_rate"))
         self.heading_align_timeout = float(p("heading_align_timeout"))
@@ -134,10 +163,21 @@ class IntegrateNode(Node):
         )
         self._matrix_min_interval = float(p("matrix_min_interval"))
 
-        self.model = WorldModel()
+        # 启动参数 fail-fast 自检：非法格号/朝向在启动时立刻抛错暴露，
+        # 不留到赛中规划时才炸（parse_cell 抛 CommandError，ValueError 子类）。
+        parse_cell(self.start_cell)
+        parse_cell(self.goal_cell)
+        if self.start_heading not in ("x", "y"):
+            raise ValueError(
+                f"start_heading 只支持 'x'/'y'，收到 {self.start_heading!r}"
+            )
+
+        self.model = WorldModel(red_veto_ttl_s=self.red_veto_ttl_s)
         self.reset_sent = False
         self.last_route = ""
-        # 无人机观测到的车真实朝向（0x4002 帧），None 表示尚未收到
+        # 无人机观测到的车真实朝向（0x4002 帧），None 表示尚未收到。
+        # 跨线程读写（收包线程写、executor 线程读）：依赖 CPython GIL 对
+        # 单属性赋值的天然原子性，读到的只会是 None 或某个完整 float，不加锁。
         self._car_true_yaw: float | None = None
 
         # ---- 朝向对齐状态机（align 模式）----
@@ -147,24 +187,44 @@ class IntegrateNode(Node):
         self._align_start_time: float | None = None
 
         self.pub = self.create_publisher(String, str(p("waypoint_topic")), 10)
-        # 朝向对齐时直接发底盘角速度（path_executor 无路线时不占 /cmd_vel）
+        self.waypoint_topic = str(p("waypoint_topic"))
+        # 朝向对齐时直接发底盘 Twist。⚠️ 契约：path_executor 的 pursuitAngle
+        # 保活会把 dzactuator 钉在模式2、/cmd_vel 被静默丢弃——align 必须在
+        # path_executor 启动前完成（tools/car_match_bringup.sh 两阶段启动）。
         self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
 
         # 收包线程 -> 决策回调的最新帧交接：容量 1，满了丢旧帧。
         # 态势数据只要最新值，决策慢于到达率时自动降级为"跳帧"，不积压。
         self._frames: queue.Queue = queue.Queue(maxsize=1)
 
-        self.pub = self.create_publisher(String, str(p("waypoint_topic")), 10)
+        # UDP socket 在构造函数里先 bind 好再交给收包线程：端口被占/权限
+        # 不足时在启动时直接抛错（节点起不来、问题当场暴露），而不是收包
+        # 线程静默死亡、节点照常"就绪"。
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            self._sock.bind(("", int(p("udp_port"))))
+        except OSError as exc:
+            self._sock.close()
+            fatal = getattr(self.get_logger(), "fatal", self.get_logger().error)
+            fatal(f"UDP 端口 {p('udp_port')} 绑定失败: {exc}")
+            raise
+        self._sock.settimeout(0.5)
+
         # 决策/发布都在 executor 线程（timer 回调）里做，收包线程不碰 ROS。
         self.create_timer(0.1, self._on_tick)
 
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._receive, args=(int(p("udp_port")),), daemon=True)
+        self._thread = threading.Thread(target=self._receive, daemon=True)
         self._thread.start()
 
         # 黑匣子挂载 + 关键参数快照（复盘一局"为什么这么走"的依据）
         self.bb = BlackBox.from_params(self) if _HAS_BB else None
-        self._blog(EV.NODE_ARGS if _HAS_BB else "", dry_run=self.dry_run,
+        # 一局开始：复盘工具按 session.begin 切局
+        self._blog(EV.SESSION_BEGIN, dry_run=self.dry_run,
+                   publish_reset=self.publish_reset,
+                   start=self.start_cell, goal=self.goal_cell)
+        self._blog(EV.NODE_ARGS, dry_run=self.dry_run,
                    start=self.start_cell, goal=self.goal_cell,
                    heading=self.start_heading, final=self.final_heading,
                    udp_port=int(p("udp_port")), bias=self.heading_bias_source,
@@ -180,18 +240,17 @@ class IntegrateNode(Node):
     # ---------------- 黑匣子 ----------------
     def _blog(self, ev: str, level: str = "info", **fields) -> None:
         """黑匣子软接口：没挂上（ag_core 缺失/写盘失败）就是空操作。"""
-        if self.bb is not None and ev:
+        if self.bb is None:
+            return
+        if ev:
             self.bb.log(ev, level=level, **fields)
 
     # ---------------- UDP 接收（后台线程，只解析不入 ROS） ----------------
-    def _receive(self, port: int) -> None:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("", port))
-        sock.settimeout(0.5)
+    def _receive(self) -> None:
+        sock = self._sock   # 构造函数里已 bind 好；这里只收包
         while not self._stop.is_set():
             try:
-                data, _addr = sock.recvfrom(4096)
+                data, _addr = sock.recvfrom(65535)  # UDP 报文上限，绝不截断
             except socket.timeout:
                 continue
             except OSError:
@@ -367,7 +426,15 @@ class IntegrateNode(Node):
             self._publish_cmd_vel_angular(rate)
 
     def _publish_cmd_vel_angular(self, rate: float) -> None:
+        """对齐转向命令：yaw 角速度(rad/s) + 爬行线速度。
+
+        dzactuator 的 cmd_vel 分支（模式1）：v==0 时舵机直接回中且车不动，
+        所以必须带爬行；v≠0 时 TargetAngle=atan(CARL*w/v)*57.3°，产生的
+        实际 yaw 率就是 w（逆映射）。爬行期间车会挪一点（0.1m/s × 几秒
+        ≈ 0.2m 内），对齐后的 reset 会重新锚定位置，首段纯追踪吸收残差。
+        """
         msg = Twist()
+        msg.linear.x = self.align_creep_speed
         msg.angular.z = rate
         self.cmd_vel_pub.publish(msg)
 
@@ -397,15 +464,33 @@ class IntegrateNode(Node):
             return
 
         start_heading = self._effective_start_heading()
-        commands = build_mission(
-            snapshot, self.start_cell, self.goal_cell,
-            start_heading, self.final_heading,
-            self.cross_gates, self.mid_boundary,
-            target_track=self.target_track,
-            target_blue_face=self.target_blue_face,
-        )
+        try:
+            commands = build_mission(
+                snapshot, self.start_cell, self.goal_cell,
+                start_heading, self.final_heading,
+                self.cross_gates, self.mid_boundary,
+                target_track=self.target_track,
+                target_blue_face=self.target_blue_face,
+            )
+        except (ValueError, IndexError, KeyError) as exc:
+            # 规划失败（goal 不可达、桥洞未识别全等）：记日志 + 黑匣子，
+            # 保持门控等待下拍重试——绝不让异常穿透 timer 杀死整个节点。
+            self.get_logger().error(f"规划失败，等待下拍重试: {exc}")
+            self._blog(EV.NODE_ERROR, level="error",
+                       where="build_mission", msg=str(exc))
+            return
         if commands.route == self.last_route:
             return
+
+        # 路线发布闸门：/nav/waypoint 无滞留，path_executor 未订阅时发出的
+        # 路线会整条丢失（两阶段启动时 path_executor 比节点晚起几秒）。
+        if (not self.dry_run and self.wait_waypoint_consumer
+                and not self._waypoint_consumer_ready()):
+            self._log_hold_once("等待 path_executor 订阅 /nav/waypoint")
+            self._blog(EV.ROUTE_BLOCKED, level="warn",
+                       reason="no_waypoint_consumer")
+            return
+
         self.last_route = commands.route
         self._blog(EV.PLAN_BUILT, reset=commands.reset, route=commands.route,
                    shoot=",".join(commands.shoot_cells),
@@ -420,10 +505,21 @@ class IntegrateNode(Node):
         if self.publish_reset and not self.reset_sent:
             self._publish(commands.reset)
             self.reset_sent = True
+            self._blog(EV.ROUTE_PUBLISH, cmd=commands.reset, kind="reset")
         self._publish(commands.route)
         self._blog(EV.ROUTE_PUBLISH, cmd=commands.route, kind="route",
                    reset_sent=self.reset_sent)
         self.get_logger().info(f"已下发路线: {commands.route}")
+
+    def _waypoint_consumer_ready(self) -> bool:
+        """/nav/waypoint 是否已有订阅者（path_executor 上线）。
+
+        ros_stub 测试环境没有 count_subscribers 时按"已就绪"处理。
+        """
+        try:
+            return self.count_subscribers(self.waypoint_topic) > 0
+        except Exception:
+            return True
 
     def _log_hold_once(self, reason: str) -> None:
         if reason != getattr(self, "_last_hold", None):

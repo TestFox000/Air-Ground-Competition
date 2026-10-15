@@ -20,6 +20,9 @@ COLS, ROWS = 14, 11
 LETTERS = "ABCDEFGHIJKLMN"
 
 img = cv2.imread(str(SRC))
+if img is None:
+    # imread 失败返回 None 而非抛异常，直接用 .shape 会报误导性的 AttributeError
+    raise SystemExit(f"读取图片失败（不存在或已损坏）: {SRC}")
 H, W = img.shape[:2]
 gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 

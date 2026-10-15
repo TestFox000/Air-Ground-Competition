@@ -3,9 +3,10 @@
 输入：X-AnyLabeling 标注目录（每图一个 .json，shapes 含 rectangle）。
 输出：YOLO 标签目录（每图一个 .txt，class cx cy w h，归一化）。
 
-标注类别 → YOLO 类号映射（默认针对 7cls 检测模型）：
-    red bucket / green bucket / blue bucket → obstacle (1)
-    car                                      → car (4)
+标注类别 → YOLO 类号映射（默认针对 7cls 检测模型，类号契约见
+docs/interface_contract.md §2.4 与 tools/ml/prelabel_onnx.py）：
+    red bucket / green bucket / blue bucket → obstacle (6)
+    car                                      → car (1)
     plane                                    → 跳过（无人机本体，非检测目标）
     target                                   → target_blue (5)  [⚠️ 颜色未定，见下]
 
@@ -37,11 +38,13 @@ import sys
 from pathlib import Path
 
 # 7cls 检测模型类号映射（标签名 → 类号；None 表示跳过）
+# 类号契约：docs/interface_contract.md §2.4（0=mine 1=car 2=arrow 3=target_red
+#           4=cell_label 5=target_blue 6=obstacle），与 prelabel_onnx.py 一致
 LABEL_MAP_7CLS: dict[str, int | None] = {
-    "red bucket": 1,
-    "green bucket": 1,
-    "blue bucket": 1,
-    "car": 4,
+    "red bucket": 6,
+    "green bucket": 6,
+    "blue bucket": 6,
+    "car": 1,
     "plane": None,        # 无人机本体，非 7cls 检测目标
     "target": 5,          # ⚠️ 默认 target_blue，颜色待确认
 }
@@ -56,10 +59,10 @@ LABEL_MAP_SEED: dict[str, int | None] = {
     "target": 5,
 }
 
-# 类名（仅用于统计打印）
+# 类名（仅用于统计打印），与 LABEL_MAP_7CLS 同一契约顺序
 CLASS_NAMES = {
-    0: "mine", 1: "obstacle", 2: "arrow", 3: "cell_label",
-    4: "car", 5: "target_blue", 6: "target_red",
+    0: "mine", 1: "car", 2: "arrow", 3: "target_red",
+    4: "cell_label", 5: "target_blue", 6: "obstacle",
 }
 
 CLASS_NAMES_SEED = {

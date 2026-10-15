@@ -26,12 +26,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-ROOT = Path(r"e:\OneDrive - mails.qust.edu.cn\桌面\air_ground")
+# 仓库根：本文件位于 tools/ml/ 下，上两级即仓库根（不再硬编码个人绝对路径，
+# 否则换机器后 import 期就炸，tests/test_lattice_ransac.py 会 exec_module 本文件）
+ROOT = Path(__file__).resolve().parents[2]
 YOLO_WEIGHTS = ROOT / r"runs\detect\runs\detect\aerial_field_finetuned_v2\weights\best.pt"
 CELL_WEIGHTS = ROOT / r"runs\cell_classifier_v4c\best.pt"
 VAL_DIR = ROOT / r"capture\datasets\aerial_field_mixed\images\val"
-OUT_DIR = ROOT / "runs\lattice_ransac"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+OUT_DIR = ROOT / "runs/lattice_ransac"
 
 CELL_LABEL_CLS = 1
 CONF_DET = 0.25
@@ -280,6 +281,7 @@ def process_frame(img_path: Path, yolo: "YOLO", recognizer: "CellIdRecognizer") 
 
 def main() -> None:
     from ultralytics import YOLO
+    OUT_DIR.mkdir(parents=True, exist_ok=True)  # 只在真正运行时建目录，import 期无副作用
     sys.path.insert(0, str(ROOT / "reference" / "onboard" / "dzuav" / "src"))
     from cell_classifier.predictor import CellIdRecognizer
     print("[1/3] 加载模型...")

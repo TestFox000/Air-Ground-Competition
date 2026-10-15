@@ -29,8 +29,12 @@ SHEET_CELL = 200   # 200px 大格, 便于人工读图
 COLS = 5
 ROWS_PER_SHEET = 6
 
-font_big = ImageFont.truetype(r"C:\Windows\Fonts\arialbd.ttf", 26)
-font_idx = ImageFont.truetype(r"C:\Windows\Fonts\arialbd.ttf", 34)
+try:
+    font_big = ImageFont.truetype(r"C:\Windows\Fonts\arialbd.ttf", 26)
+    font_idx = ImageFont.truetype(r"C:\Windows\Fonts\arialbd.ttf", 34)
+except OSError:
+    # 非 Windows / 无该字体时回退 Pillow 默认字体，避免直接崩溃
+    font_big = font_idx = ImageFont.load_default()
 
 img = Image.open(IMG / f"{FRAME}.jpg").convert("RGB")
 W, H = img.size

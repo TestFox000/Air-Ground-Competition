@@ -4,6 +4,12 @@
 解决域差异：让检测器直接学习"航拍视角下漏检障碍的纹理/外观"。
 针对 obstacle FN=30 瓶颈（四模型均漏检同一批障碍，纯数据域差异问题）。
 
+⚠️ 历史泄漏警示：本脚本旧版本直接从 val 切分取材（MISSED_FRAMES 全部位于
+   images/val），贴进 train 后造成 train/val 泄漏，基于该数据集得到的评估
+   指标（val mAP / FN 数）均不可信，需用干净 val 重新切分数据集后重测。
+   现已加断言：取材帧若落在当前 val/test 切分内将直接拒绝运行，
+   须先把这些帧移出 val（或改用 train 帧取材）再使用本脚本。
+
 输出：新的训练图片+标签，追加到7cls数据集train。
 用法: python tools/ml/build_copypaste_obstacle.py [--n 500]
 """
@@ -34,8 +40,25 @@ OBSTACLE_CLS = 6  # 7cls中obstacle的类号
 random.seed(42)
 
 
+def assert_sources_not_in_eval_split(stems):
+    """禁止取材帧落在 val/test 切分（参照 build_copypaste_mine_v2.py 排除 val 帧的写法）。
+
+    历史版本直接从 val 帧取材贴回 train，造成评估泄漏；这里按 val/test 目录的
+    实际帧集合做硬断言，一旦重叠立即拒绝运行。
+    """
+    eval_stems = set()
+    for split_dir in (VAL_IMG, VAL_IMG.parent / "test"):  # images/val 与 images/test
+        if split_dir.is_dir():
+            eval_stems |= {p.stem for p in split_dir.iterdir() if p.is_file()}
+    leaked = sorted(set(stems) & eval_stems)
+    assert not leaked, (
+        f"取材帧落在 val/test 切分内，会造成 train/val 泄漏: {leaked[:5]} ..."
+        " 请先把这些帧移出 val/test（重新切分）或改用 train 帧取材")
+
+
 def crop_obstacles_from_val():
-    """从漏检val帧裁出障碍区域（带padding）。"""
+    """从漏检帧裁出障碍区域（带padding）。"""
+    assert_sources_not_in_eval_split(MISSED_FRAMES)
     obstacles = []
     for stem in MISSED_FRAMES:
         img_file = VAL_IMG / f"{stem}.jpg"

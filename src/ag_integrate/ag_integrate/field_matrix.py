@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 
-from .field_frame import COLS, ROWS, world_to_cell
+from .field_frame import COLS, LETTERS, ROWS, world_to_cell
 from .intel_protocol import IntelFrame, ObjectType
 
 SYMBOLS: dict[ObjectType, str] = {
@@ -54,6 +54,9 @@ _PRIORITY: dict[ObjectType, int] = {
     ObjectType.CAR: 5,
 }
 
+# 符号 -> 优先级的反查表（_priority_of 用，避免每次遍历两个字典）
+_PRIORITY_OF_SYMBOL: dict[str, int] = {sym: _PRIORITY[k] for k, sym in SYMBOLS.items()}
+
 # 会移动的类别：超过 window 帧未复现则从矩阵清除（防移动靶拖影）
 _MOVING_KINDS = {ObjectType.TARGET_BLUE, ObjectType.TARGET_RED,
                  ObjectType.CAR}
@@ -72,7 +75,7 @@ class ObjectSpot:
     def cell(self) -> str | None:
         if self.col is None or self.row is None:
             return None
-        return f"{'ABCDEFGHIJKLMN'[self.col]}{self.row + 1}"
+        return f"{LETTERS[self.col]}{self.row + 1}"
 
     @property
     def kind_name(self) -> str:
@@ -205,16 +208,13 @@ def build_grid(spots: list[ObjectSpot]) -> list[list[str]]:
 
 
 def _priority_of(symbol: str) -> int:
-    for k, sym in SYMBOLS.items():
-        if sym == symbol:
-            return _PRIORITY[k]
-    return len(_PRIORITY)
+    return _PRIORITY_OF_SYMBOL.get(symbol, len(_PRIORITY))
 
 
 def render_matrix(spots: list[ObjectSpot]) -> str:
     """带表头的矩阵文本。"""
     grid = build_grid(spots)
-    lines = ["     " + "  ".join("ABCDEFGHIJKLMN")]
+    lines = ["     " + "  ".join(LETTERS)]
     for r in range(ROWS):
         lines.append(f" {r + 1:>2}  " + "  ".join(grid[r]))
     lines.append("图例: M=爆炸物 O=障碍 B=蓝靶(敌) R=红靶(友) "

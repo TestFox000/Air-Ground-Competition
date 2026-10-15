@@ -17,9 +17,9 @@ setup(
     ],
     install_requires=["setuptools"],
     zip_safe=True,
-    maintainer="team",
-    maintainer_email="team@example.com",
-    description="绕标靶圆周录像",
+    maintainer="air_ground team",
+    maintainer_email="air_ground@todo.todo",
+    description="绕标靶圆周录像（支线数据采集工具）",
     license="Apache-2.0",
     entry_points={
         "console_scripts": [

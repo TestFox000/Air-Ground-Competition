@@ -4,15 +4,44 @@
 #include <opencv2/imgproc.hpp>
 namespace dzuav
 {
+namespace
+{
+// 引擎输出形状契约校验用：Dims 打印成 "[1,14]" 便于定位换错引擎的问题。
+// 模板形参兼容 TRT 8.x 的 Dims（int32）与 10.x 的 Dims64。
+template <class DimsT>
+std::string dimsToString(const DimsT& d)
+{
+    std::string s = "[";
+    for (int i = 0; i < d.nbDims; ++i)
+    {
+        if (i > 0)
+            s += ',';
+        s += std::to_string(d.d[i]);
+    }
+    s += ']';
+    return s;
+}
+
+void checkOutputShape(nvinfer1::IExecutionContext* context, const char* name, int d0, int d1)
+{
+    const auto dims = context->getTensorShape(name);
+    if (dims.nbDims != 2 || dims.d[0] != d0 || dims.d[1] != d1)
+        throw std::runtime_error(std::string("cell_classifier ") + name +
+                                 " shape mismatch: expect [" + std::to_string(d0) + "," +
+                                 std::to_string(d1) + "], got " + dimsToString(dims));
+}
+}  // namespace
 CellClassifier::CellClassifier(const std::string& p) : TensorRtEngine(p)
 {
     if (!context_->setInputShape("images", nvinfer1::Dims4{1, 3, 96, 96}))
         throw std::runtime_error("cannot set cell_classifier input shape");
-    cudaMalloc(&input_, 3 * 96 * 96 * sizeof(float));
-    cudaMalloc(&letters_, 14 * sizeof(float));
-    cudaMalloc(&rows_, 11 * sizeof(float));
-    if (cudaMallocHost(reinterpret_cast<void**>(&h_input_), 3 * 96 * 96 * sizeof(float)) != cudaSuccess)
-        throw std::runtime_error("cannot allocate pinned host buffer for cell_classifier");
+    // 输出形状契约校验：不符即抛错并打印实际形状，防换引擎后静默读垃圾。
+    checkOutputShape(context_, "letter_logits", 1, 14);
+    checkOutputShape(context_, "row_logits", 1, 11);
+    cudaCheck(cudaMalloc(&input_, 3 * 96 * 96 * sizeof(float)));
+    cudaCheck(cudaMalloc(&letters_, 14 * sizeof(float)));
+    cudaCheck(cudaMalloc(&rows_, 11 * sizeof(float)));
+    cudaCheck(cudaMallocHost(reinterpret_cast<void**>(&h_input_), 3 * 96 * 96 * sizeof(float)));
     // 张量地址构造期绑定一次，每个 ROI 推理只 enqueue。
     if (!context_->setTensorAddress("images", input_) ||
         !context_->setTensorAddress("letter_logits", letters_) ||
@@ -55,13 +84,14 @@ CellId CellClassifier::infer(const cv::Mat& crop)
                 for (int c = 0; c < 3; c++)
                     v[c * 9216 + y * 96 + x0] =
                         (rgb.at<cv::Vec3f>(y, x0)[c] - mean[c]) / standard_deviation[c];
-        cudaMemcpyAsync(input_, h_input_, 3 * 96 * 96 * sizeof(float), cudaMemcpyHostToDevice, stream_);
+        cudaCheck(cudaMemcpyAsync(input_, h_input_, 3 * 96 * 96 * sizeof(float),
+                                  cudaMemcpyHostToDevice, stream_));
         if (!context_->enqueueV3(stream_))
             throw std::runtime_error("cell_classifier inference failed");
         float a[14], r[11];
-        cudaMemcpyAsync(a, letters_, sizeof(a), cudaMemcpyDeviceToHost, stream_);
-        cudaMemcpyAsync(r, rows_, sizeof(r), cudaMemcpyDeviceToHost, stream_);
-        cudaStreamSynchronize(stream_);
+        cudaCheck(cudaMemcpyAsync(a, letters_, sizeof(a), cudaMemcpyDeviceToHost, stream_));
+        cudaCheck(cudaMemcpyAsync(r, rows_, sizeof(r), cudaMemcpyDeviceToHost, stream_));
+        cudaCheck(cudaStreamSynchronize(stream_));
         // logits -> softmax，累加到概率和
         auto softmax_accum = [](float* logits, float* prob, int n)
         {
