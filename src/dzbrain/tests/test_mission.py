@@ -1246,6 +1246,7 @@ def t6_cfg(*, tokens=None, wait: float = 0.0, auto_plan: bool = False,
                   "cross_lower_candidates": list(lower_cand),
                   "cross_upper_candidates": list(upper_cand),
                   "cross_lower_default": "K10", "cross_upper_default": "K5"},
+        "path_executor": {"shoot_distance_min": 0.70, "shoot_distance_max": 0.90},
         "planner": {"auto_plan_enabled": auto_plan, "map_path": str(_T6_MAP),
                     "engine": engine, "fallback_to_tokens": True},
         "drone": {"enabled": drone_enabled, "info_stale_s": 30.0},
@@ -1306,7 +1307,7 @@ def test_bridge_intel() -> None:
     added = sorted(set(blocks) - set(_T6_BASE))
     check("14.1 ★ 情报注入：下半场穿洞格 K9 → K11（换洞生效）",
           "K11" in blocks and "K9" not in blocks, f"K 列格={t6_kblocks(rig)}")
-    check("14.2 ★ 只改了穿洞**三连**那一行（L9/K9/J9 → L11/K11/J11，实测 54 点不变），其余航点逐格不变",
+    check("14.2 ★ 只改了穿洞**三连**那一行（L9/K9/J9 → L11/K11/J11，实测 44 点不变），其余航点逐格不变",
           removed == ["J9", "K9", "L9"] and added == ["J11", "K11", "L11"]
           and len(blocks) == len(_T6_BASE),
           f"−{removed} +{added} / 点数 {len(blocks)} vs {len(_T6_BASE)}")
@@ -1332,7 +1333,7 @@ def test_bridge_intel() -> None:
           str([s for s in rig.logs if "穿洞格来源" in s]))
     # 与框架判据等价性：我判"新鲜" ⇔ `DroneState.bridge_of()` 有值
     check("14.10 ★ 新鲜度判据与 `DroneState.bridge_of()` 等价（同源：now-bridge_ts > stale_s）",
-          state.bridge_of("lower", now=rig.clock.now(), stale_s=30.0) == "K9"
+          state.bridge_of("lower", now=rig.clock.now(), stale_s=30.0) == "K11"
           and rig.task._intel["lower"].source == "drone",
           f"bridge_of={state.bridge_of('lower', now=rig.clock.now(), stale_s=30.0)!r} / "
           f"source={rig.task._intel['lower'].source}")
@@ -1426,8 +1427,8 @@ def test_bridge_intel() -> None:
         t6_drone_round(rig_bad, lower=cell)
         rig_bad.ticks(3)
         st_bad = rig_bad.task.state()["bridge"]["lower"]
-        check(f"14.23 t31 仍拒：下半场情报 {cell}（{expect}）→ rejected + 回落默认 K9",
-              st_bad["source"] == "rejected" and st_bad["cell"] == "K9"
+        check(f"14.23 t31 仍拒：下半场情报 {cell}（{expect}）→ rejected + 回落默认 K10",
+              st_bad["source"] == "rejected" and st_bad["cell"] == "K10"
               and expect in st_bad["reason"]
               and list(rig_bad.task.route.blocks()) == _T6_BASE
               and rig_bad.task.health().errors == 0, str(st_bad))
@@ -1448,8 +1449,8 @@ def test_bridge_intel() -> None:
           rig7.task.phase == MissionPhase.DRIVE
           and not any("等待无人机桥洞情报" in s for s in rig7.logs),
           f"phase={rig7.task.phase} t={rig7.clock.now() - 1000.0:.2f}s")
-    check("14.25 ★ 无无人机时路线与接线前**逐 token 一致**（54/54 全等）",
-          list(rig7.task.route.blocks()) == _T6_BASE and len(_T6_BASE) == 60,
+    check("14.25 ★ 无无人机时路线与接线前**逐 token 一致**（44/44 全等）",
+          list(rig7.task.route.blocks()) == _T6_BASE and len(_T6_BASE) == 44,
           f"{len(rig7.task.route)} 点 vs 基线 {len(_T6_BASE)} 点")
     check("14.26 无无人机时来源记为 no_link，且 used = 默认格",
           rig7.task.state()["bridge"]["lower"]["source"] == "no_link"
@@ -1535,10 +1536,10 @@ def test_bridge_intel() -> None:
 
     # ---------------- ④ 纯函数：`rewrite_crossing_tokens` 的形状判据 ----------------
     toks = ["N10", "M10", "L9", "K9", "J9", "I10"]
-    check("14.33 `rewrite_crossing_tokens`：标准三连 L10/K10/J10 → L9/K9/J9",
-          rewrite_crossing_tokens(toks, "lower", "K10", "K9")
-          == ["N10", "M10", "L9", "K9", "J9", "I10"],
-          str(rewrite_crossing_tokens(toks, "lower", "K10", "K9")))
+    check("14.33 `rewrite_crossing_tokens`：标准三连 L9/K9/J9 → L11/K11/J11",
+          rewrite_crossing_tokens(toks, "lower", "K9", "K11")
+          == ["N10", "M10", "L11", "K11", "J11", "I10"],
+          str(rewrite_crossing_tokens(toks, "lower", "K9", "K11")))
     check("14.34 进/出洞口与洞**不同行** → 拒（返回 None，交给调用方走默认洞）",
           rewrite_crossing_tokens(["L9", "K10", "J10"], "lower", "K10", "K9") is None,
           "None")
@@ -1619,10 +1620,10 @@ def test_bridge_intel() -> None:
 
     # ---------------- ⑦ ★卡 t13：默认穿洞格 = 现场真值 K10/K5（robot.yaml:513-521） ----------------
     real = Config.load(str(_T6_ROBOT))
-    check("14.44 ★ 现役 `config/robot.yaml`：兜底穿洞格 K10(下)/K5(上)，且都在候选集合里",
-          real.get("route.cross_lower_default") == "K10"
+    check("14.44 ★ 现役 `config/robot.yaml`：兜底穿洞格 K9(下)/K5(上)，且都在候选集合里",
+          real.get("route.cross_lower_default") == "K9"
           and real.get("route.cross_upper_default") == "K5"
-          and list(real.get("route.cross_lower_candidates") or []) == ["K10"]
+          and list(real.get("route.cross_lower_candidates") or []) == ["K9"]
           and list(real.get("route.cross_upper_candidates") or []) == ["K5"],
           f"default={real.get('route.cross_lower_default')}/{real.get('route.cross_upper_default')} "
           f"cand={real.get('route.cross_lower_candidates')}/{real.get('route.cross_upper_candidates')}")
@@ -1751,7 +1752,7 @@ def test_bridge_hold_t32() -> None:
     rig5.ticks(3)
     entered5 = drive_to_hold(rig5)
     idx5 = rig5.bb.get(P_ROUTE_INDEX)
-    t6_drone_round(rig5, lower="K9")                 # 迟到：下半场 K9（执行路线此刻是默认 K10）
+    t6_drone_round(rig5, lower="K11")                 # 迟到：下半场注入 K11（现行路线穿洞格 = K9，注入同值不构成改道）
     rig5.ticks(5)
     check("15.10 只到一半 → 仍在 HOLD（没到点不放行）",
           entered5 and rig5.task.phase == MissionPhase.HOLD and idx5 > 0,
@@ -1759,11 +1760,11 @@ def test_bridge_hold_t32() -> None:
     t6_drone_round(rig5, upper="K4")                 # 齐 → 放行 + 决策点前改道
     rig5.ticks(3)
     note5 = rig5.task.state()["bridge"]["note"]
-    check("15.11 ★ 决策点前迟到情报 → 换洞（K10→K9）且**保留段索引**（不是从 N10 重来）",
-          rig5.task.phase == MissionPhase.DRIVE and "K9" in blockers(rig5)
+    check("15.11 ★ 决策点前迟到情报 → 换洞（K9→K11）且**保留段索引**（不是从 N10 重来）",
+          rig5.task.phase == MissionPhase.DRIVE and "K11" in blockers(rig5)
           and rig5.bb.get(P_ROUTE_INDEX) == idx5
           and isinstance(note5.get("reroute"), dict) and note5["reroute"]["count"] == 1
-          and note5["reroute"]["old"] == "K10" and note5["reroute"]["new"] == "K9",
+          and note5["reroute"]["old"] == "K9" and note5["reroute"]["new"] == "K11",
           f"idx={rig5.bb.get(P_ROUTE_INDEX)} vs {idx5} k={[b for b in blockers(rig5) if b.startswith('K')]} "
           f"reroute={note5.get('reroute')}")
     check("15.12 改道只动穿洞格：决策点及其之前的航点顺序不变（前缀一致）",
@@ -1786,16 +1787,22 @@ def test_bridge_hold_t32() -> None:
     t6_drone(rig6, half=None, block=None, online=True)
     rig6.ticks(3)
     drive_to_hold(rig6)
-    t6_drone_round(rig6, lower="K9")                 # 第一次改道（下半场）
+    # t56 重钉（依据 CFG+MAP+GOT）：新图（官方重掷图）下半场穿洞格 = K9（config/robot.yaml:
+    # route.cross_lower_default="K9" / candidates=["K9"]）⇒ 注入 K9 与现行穿洞格相同 = 无变化 = 不产生
+    # reroute。故本场景改为注入 **K11**（与 15.11 同口径：K11 ∈ K 列下半场行段 K7~K11，t31 权威门按
+    # 「K 列 + 本半场行段」采纳池外合法格），使第一次改道真实发生；断言同步钉住 old/new（只加强不放宽）。
+    t6_drone_round(rig6, lower="K11")                # 第一次改道（下半场）：K9 → K11
     rig6.ticks(3)
     t6_drone_round(rig6, upper="K4")                 # 同时给上半场
     rig6.ticks(3)
     first = blockers(rig6)
     t6_drone_round(rig6, upper="K4")                 # 再报一次（不应触发第二次改道）
     rig6.ticks(3)
-    check("15.14 ★ 全程改道上限 1 次：上半场未换洞（仍 K5）、计数仍是 1",
+    check("15.14 ★ 全程改道上限 1 次：下半场已改 K9→K11、上半场未换洞（仍 K5）、计数仍是 1",
           blockers(rig6) == first
           and rig6.task.state()["bridge"]["note"]["reroute"]["count"] == 1
+          and rig6.task.state()["bridge"]["note"]["reroute"]["old"] == "K9"
+          and rig6.task.state()["bridge"]["note"]["reroute"]["new"] == "K11"
           and "K5" in blockers(rig6),
           f"k={[b for b in blockers(rig6) if b.startswith('K')]} "
           f"reroutes={rig6.task.state()['bridge']['note']['reroute']['count']}")

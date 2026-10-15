@@ -171,8 +171,8 @@ check("新键 pursuit.cruise_speed_mps 与旧键同值（0.35）",
 #   （= 第五张图上的自规划产物；旧 62 点是第四张图手工 v3，在新图上有 12 条 error ⇒ 已替换）。
 #   点数仍由 mission_blocks 唯一定义、Config 迁移到 `route.tokens`（点数不是凑的）。
 #   历史：34 点(10-07) → 46 → 54(t11) → 62(t20) → **60(t31)**。
-check("route.tokens 由 mission_blocks 迁移（官方图自规划，54 点）",
-      len(cfg.get("route.tokens") or []) == 54)
+check("route.tokens 由 mission_blocks 迁移（官方图自规划，44 点；t50）",
+      len(cfg.get("route.tokens") or []) == 44)
 # ★ 2026-10-11 重钉（t20）：第三次换图**关闭**了"桥洞强制直行保护"（`bridge_blocks: []`，
 #   见 robot.yaml 该行注释：保护窗含 90° 拐时锁错航向，改用纯追踪 + 转角减速过洞）
 #   ⇒ 旧断言"整列 K1~K11 共 11 个保护点"不再成立。

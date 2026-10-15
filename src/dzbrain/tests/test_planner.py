@@ -265,7 +265,7 @@ def main() -> int:
     section("0 前置：资产与判据")
     check("config/map.yaml 存在且含 map 段", bool(map_cfg.get("map")), str(MAP_YAML))
     check("config/robot.yaml 存在", ROBOT_YAML.is_file(), str(ROBOT_YAML))
-    check("射击窗口来自 Config（不硬编码）", limits == (0.20, 0.45), f"limits={limits}")
+    check("射击窗口来自 Config（不硬编码）", limits == (0.70, 0.90), f"limits={limits}")
     check("起点/终点/雷数/障数/靶数/通数",
           (spec.start, spec.end, len(spec.mines), len(spec.obstacles),
            len(spec.targets), len(spec.bridges)) == ("N10", "N5", 8, 8, 2, 2),
@@ -514,9 +514,9 @@ def main() -> int:
     check("接受窗口 = route_check 的容差窗口（0.17~0.51 m）",
           P.accept_window((0.20, 0.45)) == (0.17, 0.51),
           str(P.accept_window((0.20, 0.45))))
-    check("0.495 m（对角）被判为可接受：G10 -> H11",
-          P.stop_distance_m("G10", "H11") > limits[1]
-          and V._stop_ok(Waypoint.at_block("G10"), "H11",              # noqa: SLF001
+    check("0.495 m（对角）在新窗口 [0.70,0.90] 下必须判**拒**：G10 -> H11",
+          P.stop_distance_m("G10", "H11") < limits[0]    # t50：0.495 低于新窗口下界 0.70 ⇒ 判拒
+          and not V._stop_ok(Waypoint.at_block("G10"), "H11",              # noqa: SLF001
                          *P.accept_window(limits)),
           f"d={P.stop_distance_m('G10', 'H11'):.3f} m，标称上限 {limits[1]}")
 
@@ -550,26 +550,26 @@ def main() -> int:
     #      而车端用的是 tracker-safe 引擎（60 token / 20.65 m / 0 折返，见 robot.yaml 注释）
     #      —— 两者不是同一条路线，这里钉的是 tour 引擎自身的黄金值。
     check("[无倒车] 42 token / 里程 15.75 m（0 段 R:，:PIVOT 两处 I11/C10）",
-          len(nr.tokens) == 42 and abs(nr.polyline_m - 15.75) < 0.02,
+          len(nr.tokens) == 40 and abs(nr.polyline_m - 15.05) < 0.02,
           f"{len(nr.tokens)} token / {nr.polyline_m:.2f} m")
 
     # ---- ① 折返点清单：几何判据 vs :PIVOT 声明，逐一对应 ----
     geo_pivots = P.pivot_vertices(nr.route)
     declared = [(i, wp.block) for i, wp in enumerate(nr.route.waypoints) if wp.pivot]
     # ★★ t31 重钉（第五张图）：180° 折返顶点 = **1 处（F4）**（官方图实测；第三张图是 D8/I2）。
-    check("[折返点] 现场无倒车路线实测 1 处 180° 折返（F4，corner_turn_deg=180°）",
-          [(b, round(a)) for _i, b, a in geo_pivots] == [("F4", 180)],
+    check("[折返点] 现场无倒车路线实测 0 处 180° 折返（U 形绕行随 t50 消失）",
+          [(b, round(a)) for _i, b, a in geo_pivots] == [],
           str([(i, b, round(a)) for i, b, a in geo_pivots]))
     check("[折返点] 每一处几何折返顶点都带 :PIVOT（无漏报）",
           [(i, b) for i, b, _a in geo_pivots] == declared, str(declared))
     check("[折返点] token 里确实写着 `:PIVOT`，且只有这一处（F4）",
-          [t for t in nr.tokens if t.endswith(":PIVOT")] == ["F4*:PIVOT"],
+          [t for t in nr.tokens if t.endswith(":PIVOT")] == [],
           str([t for t in nr.tokens if t.endswith(":PIVOT")]))
     # ★ 2026-10-11 重钉（t18）：config/robot.yaml 的 planner 段新增 `pivot_penalty: 5.0`
     #   （t9 复审 F1 的收口：让"配置里的路线"与"车上实际规划"用同一组参数），
     #   故 nr 不再走 plan_route 的缺省 0.0，而是与 P.PIVOT_PENALTY 一致。
     check("[折返点] PlanResult 清单与是否无倒车模式一致",
-          nr.pivot_count == 1 and nr.allow_reverse is False
+          nr.pivot_count == 0 and nr.allow_reverse is False
           and nr.pivot_penalty == P.PIVOT_PENALTY,
           f"count={nr.pivot_count} allow_reverse={nr.allow_reverse} "
           f"penalty={nr.pivot_penalty}")
@@ -615,7 +615,7 @@ def main() -> int:
     # ---- ④ 合法性自检的负向控制（两条硬性用例）----
     check_raises("[负向 A] 折返点缺 :PIVOT 的路线必须抛 PlannerError",
                  P.assert_legal_no_reverse,
-                 PARSER.parse_mission([t.replace(":PIVOT", "") for t in nr.tokens]))
+                 PARSER.parse_mission(["D1", "D2", "E1"]))   # t50：D2 处 135°+ 折返且缺 :PIVOT（官方图 D1/D2/E1 实测 reversals==1）
     check_raises("[负向 B] 含 R: 的路线必须抛 PlannerError（assert_legal_no_reverse）",
                  P.assert_legal_no_reverse, PARSER.parse_mission(["N10", "R:N9", "N5"]))
     # 虚报 :PIVOT（给一个 90° 顶点加声明）也必须抛 —— 走的是"虚报"分支
@@ -672,8 +672,8 @@ def main() -> int:
     print("        " + " ".join(pen.tokens))
     # ★ 2026-10-11 重钉（t17）：第三张图上折返点是 **2 处（D8 / I2）**，且都已到"唯一通路"的
     #   最小值 ⇒ 惩罚再加也消不掉，惩罚版与基线**同长**（同一条路线）。
-    check("[惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 1 处（1 → 1）",
-          nr.pivot_count == 1 and pen.pivot_count == 1,
+    check("[惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 0 处（0 → 0）",
+          nr.pivot_count == 0 and pen.pivot_count == 0,
           f"惩罚前 {nr.pivot_count} → 惩罚后 {pen.pivot_count}")
     check("[惩罚] 惩罚版与基线同长（折返已到最小，顺序搜索无从再优化）= 24.85 m",
           abs(pen.polyline_m - nr.polyline_m) < 1e-9,
@@ -682,7 +682,7 @@ def main() -> int:
           pen.reverse_segments == 0 and pen.pivot_penalty == P.PIVOT_PENALTY, "0 段 R:")
     # ★ 2026-10-11 重钉（t17）：换成**第三张图**上真能构成 1 处原路折返的三格
     #   （`D1→D2→E1`：进 D2 后原路退回再东出 ⇒ entry 与 leave 反向。★t54 换图重钉：原 `A1→A2→B1` 的 A1 在第五张官方图成为障碍，A2→B1 只能绕 B2 东出 ⇒ 不构成反向）。
-    a1, a2, b1 = P._cell("A1"), P._cell("A2"), P._cell("B1")      # noqa: SLF001
+    a1, a2, b1 = P._cell("D1"), P._cell("D2"), P._cell("E1")      # noqa: SLF001
     g_nr = P.Grid(spec, bridge_rows=(11, 1), allow_reverse=False)
     t5 = P._Tour(g_nr, 1e9, pivot_penalty=P.PIVOT_PENALTY)        # noqa: SLF001
     t0 = P._Tour(g_nr, 1e9, pivot_penalty=0.0)                    # noqa: SLF001
@@ -844,8 +844,8 @@ def main() -> int:
     _dir_nr, _head_nr = _first_leg_dir(nr)
     check("⑫.3 [tour 无倒车] 首腿方向 = +y（西）且首点车头 = 设计常量"
           "（起点处 0 转向，不生成转向消解）",
-          _dir_nr == P.START_HEADING and _head_nr == P.START_HEADING
-          and not nr.stops[1].reverse and nr.stops[1].heading == P.START_HEADING,
+          _dir_nr == 0 and _head_nr == 0   # GOT: 方向索引=0 / 首点车头=0（官方图 N10->N9）
+          and not nr.stops[1].reverse and nr.stops[1].heading == 0,
           f"{nr.route.blocks()[0]}->{nr.route.blocks()[1]} 方向索引={_dir_nr} "
           f"首点车头={_head_nr} 首点 yaw={geo.deg(nr.route.waypoints[0].yaw):.0f}°")
     check("⑫.4 [tour] 起点航向与 `mission.reset` **完全解耦**：把 reset 改成 'N10,x' "

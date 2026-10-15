@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """路线规划器 —— **换一张 `map.yaml` 就能自动生成路线**，不再手写 token。
 
 用户诉求原话："我只要把地图点位（map.yaml）替换掉就行了，小车会自己算路径然后跑起来。"
@@ -918,31 +918,123 @@ def turn_angle_deg(start: tuple[int, int], mid: tuple[int, int],
     return math.degrees(math.acos(cosv))
 
 
-def shoot_candidates(spec: MapSpec, grid: Grid, limits: tuple[float, float]) -> list[str]:
-    """靶区的候选射击点：各靶格的**正交邻居**里、距离落在窗口内的可通行格。
+def plate_center_m(spec: MapSpec) -> tuple[float, float]:
+    """靶板中心（★ 卡 t57）= **各靶格中心的算术中点**（米制，地图帧）。
 
-    格距 0.35 m 时正交相邻恰为 0.35 m（窗口 0.20~0.45 内），对角 0.495 m 超限
-    —— 几何决定的，与 `tools/shoot_planner.py` 的结论一致。
-    `targets` 是**相连两格 = 一处轨道靶区**，所以候选取各靶格邻居的并集：
-    一个能同时服务两格的点（如 `G10` 到 `G11`/`H11` 各 0.35 m）天然被包含。
-    返回按格名排序（确定性）。
+    现场靶区是**一块跨格薄板**（第五张图 = `E5`+`F5` 两格 ⇒ 中心 = 两格心中点
+    `(2.2750, 3.1500)`）。旧口径取"到**靶格**的距离"，而实际打的是**板心**：
+    实测 `E4` 到 E5 格心 0.35 m（看着合规），到板心只有 **0.3913 m** ⇒ 旧口径
+    选出的停站点其实比标称近得多。本函数给新口径提供唯一的板心真源。
+
+    `targets` 为单格时退化为该格中心（与旧口径在该退化情形下一致）。
     """
-    lo, hi = accept_window(limits)
-    blocked = set(spec.obstacles)
-    out: set[str] = set()
-    for target in spec.targets:
-        row_idx, col_idx = geo.block_to_index(target)
-        row = row_idx + 1
-        for drow, dcol in DIRS:
-            nrow, ncol = row + drow, col_idx + dcol
-            if not grid.passable(nrow, ncol):
-                continue
-            block = geo.index_to_block(nrow - 1, ncol)
-            if block in blocked:
-                continue
-            if lo - 1e-9 <= stop_distance_m(block, target) <= hi + 1e-9:
-                out.add(block)
-    return sorted(out)
+    pts = [geo.block_to_meters(t) for t in spec.targets]
+    if not pts:
+        return (0.0, 0.0)
+    return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+
+
+#: ★ 卡 t57：SHOOT 停站点到**靶板中心**的距离窗口（米）。现场真源 =
+#: `config/robot.yaml` 的 `route.shoot_distance_m` / `route.shoot_distance_tol_m`
+#: （默认 0.80 / 0.10 ⇒ **[0.70, 0.90]**）；缺键时用本常量兜底（不硬编码第二份真源）。
+SHOOT_DISTANCE_M_DEFAULT = 0.80
+SHOOT_DISTANCE_TOL_M_DEFAULT = 0.10
+
+
+def shoot_distance_window(accept: tuple[float, float] | None = None) -> tuple[float, float]:
+    """停站点到板心的接受窗口 `(lo, hi)`（米，升序）。
+
+    `accept` 可以是 `(目标距离, 半宽)`；缺省用 `SHOOT_DISTANCE_*` 常量。
+    恒满足 `lo <= 目标 <= hi`（半宽为负时夹到 0）。
+    """
+    if accept is None:
+        mid, tol = SHOOT_DISTANCE_M_DEFAULT, SHOOT_DISTANCE_TOL_M_DEFAULT
+    else:
+        mid, tol = float(accept[0]), abs(float(accept[1]))
+    return mid - tol, mid + tol
+
+
+def plate_bisector_axis_m(spec: MapSpec) -> tuple[float, float]:
+    """轨道**垂直平分线**在网格坐标里的表达（★ 卡 t57 的排序依据）。
+
+    靶板是**两格相连**的一处轨道靶区 ⇒ 两个格心连线就是轨道轴；其**垂直平分线**
+    经过板心。网格上一般**不存在正好落在平分线上的格心**，所以口径是"**离平分线最近**"
+    而不是"在平分线上"。返回 `(nx, ny)`：平分线的**法向**（= 轨道轴方向），
+    `|(P − 板心)·n|` 就是点 P 到平分线的距离。
+
+    单格靶区（无轴可言）返回 `(0, 0)` ⇒ 该项恒 0，不影响排序。
+    """
+    pts = [geo.block_to_meters(t) for t in spec.targets]
+    if len(pts) < 2:
+        return (0.0, 0.0)
+    ax = (pts[-1][0] - pts[0][0], pts[-1][1] - pts[0][1])
+    n = math.hypot(*ax)
+    return (0.0, 0.0) if n < 1e-12 else (ax[0] / n, ax[1] / n)
+
+
+def shoot_candidates(spec: MapSpec, grid: Grid,
+                     accept: tuple[float, float] | None = None,
+                     *, pool: Sequence[str] | None = None) -> list[str]:
+    """SHOOT 停站点的候选格（★ 卡 t57 新口径）：到**靶板中心**距离落在窗口内的可通行格。
+
+    ## 与旧口径的差别（本卡要点）
+
+    旧口径（t21 起）：候选 = 各靶格的**正交邻居**，且到**该靶格中心**的距离落在
+    `accept_window(0.20~0.45)` 内 —— 现役图命中 `E4`（到 E5 0.35 m）。
+    新口径（t57）：候选 = **任意**可通行格，且到**板心**距离落在
+    `[目标 − 半宽, 目标 + 半宽]`（默认 **[0.70, 0.90]**）内；再排序取首选。
+
+    ## 排序（定序三键，全序、确定性）
+
+    1. **离轨道垂直平分线最近**（`|(P−板心)·n|`）—— 车停在平分线上时，靶沿轨道
+       摆动带来的距离变化**最小**（扫掠区间最窄）；
+    2. **距离误差最小**（`|到板心距离 − 目标距离|`）—— 落在标称距离附近；
+    3. **格名序**（`sorted`）—— 兜底，保证可复现。
+
+    ## 排除项
+
+    `grid.passable()` 已含障碍/雷格/隔板/K 列桥洞约束（与规划器同源）；
+    另显式剔除 `spec.obstacles` 与 `spec.mines`，避免"贴靶的雷格"被选中
+    （实测：第五张图 `E3` 到板心 0.7215 m，与 `F3` 同距，但 `E3` 是**雷**必须排除）。
+
+    :param accept: `(目标距离, 半宽)`；缺省 = `SHOOT_DISTANCE_M_DEFAULT/TOL_M_DEFAULT`。
+    :param pool: 限制候选集（如"现役路线上的格"）；缺省 = 整张图扫格。
+    :returns: 按上述三键排好序的候选格名列表（**首选在前**）。
+    """
+    lo, hi = shoot_distance_window(accept)
+    ctr_x, ctr_y = plate_center_m(spec)
+    bis_x, bis_y = plate_bisector_axis_m(spec)
+    blocked = set(spec.obstacles) | set(spec.mines)
+    mid = 0.5 * (lo + hi)
+
+    if pool is not None:
+        cells: list[str] = []
+        for name in pool:
+            text = str(name).strip().upper().rstrip("*")
+            if text and text not in cells:
+                cells.append(text)
+    else:
+        cells = [geo.index_to_block(r - 1, c)
+                 for r in range(1, geo.MAP_ROWS + 1) for c in range(geo.MAP_COLS)]
+
+    ranked: list[tuple[float, float, str]] = []
+    for block in cells:
+        if block in blocked:
+            continue
+        try:
+            row_idx, col_idx = geo.block_to_index(block)
+        except ValueError:
+            continue
+        if not grid.passable(row_idx + 1, col_idx):
+            continue
+        x, y = geo.block_to_meters(block)
+        dist = math.hypot(x - ctr_x, y - ctr_y)
+        if not (lo - 1e-9 <= dist <= hi + 1e-9):
+            continue
+        off_bisector = abs((x - ctr_x) * bis_x + (y - ctr_y) * bis_y)
+        ranked.append((round(off_bisector, 9), round(abs(dist - mid), 9), block))
+    ranked.sort()
+    return [block for _off, _err, block in ranked]
 
 
 def accept_window(limits: tuple[float, float]) -> tuple[float, float]:
@@ -956,18 +1048,23 @@ def accept_window(limits: tuple[float, float]) -> tuple[float, float]:
 
 
 def covering_stops(spec: MapSpec, pool: Sequence[str],
-                   limits: tuple[float, float]) -> dict[str, tuple[str, ...]]:
+                   accept: tuple[float, float] | None = None) -> dict[str, tuple[str, ...]]:
     """每个候选射击点**能覆盖到哪些靶格**（`block -> (靶格, ...)`），按接受窗口判。
 
-    ★ 为什么必须"全覆盖"：`targets` 是**相连两格 = 一处轨道靶区**，
-    `tools/route_check.py` 会逐格判覆盖（"靶覆盖 N/M"）。只覆盖一格就是 "1/2 失败"
-    —— 本轮实测踩过：射击点 `I11` 到 `H11` 0.35 m 合格、到 `G11` 0.70 m 超限。
-    `validate.py` 的 R006 只要求"至少覆盖一个"，口径更松；这里按**更严的那个**来，
-    否则过得了 dzbrain 预检、过不了出车前的 `route_check`。
+    ★ 卡 t57 口径变更（与 `shoot_candidates()` 同步）：判据从「到**靶格中心** ∈
+    0.20~0.45（`accept_window(_limits(cfg))`）」改为「到**靶格中心** ∈ **板心窗口**
+    `[目标 − 半宽, 目标 + 半宽]`」（默认 **[0.70, 0.90]**）。
+    为什么必须同步：新口径把停站点推到离**板心** 0.70~0.90 m ⇒ 到"较远那个靶格"
+    的距离必然 ≈ 0.70 m 以上（实测 `F3` 到 `E5` 0.7826 / 到 `F5` 0.7000），
+    用旧窗口（≤0.51）判会得出「覆盖 0/2」而把**正确落点**判死。
+
+    覆盖语义 = **逐个靶格**判"本停站点是否落在该靶的有效射击距离内"（与
+    `tools/route_check.py` 的任务层口径一致：它也是"存在某个射击点到该靶 ∈ 区间"，
+    不要求同一个点同时贴住两个格心）。默认取首选候选即可满足全覆盖。
     """
-    lo, hi = accept_window(limits)
+    lo, hi = shoot_distance_window(accept)
     return {block: tuple(t for t in spec.targets
-                         if V._stop_ok(Waypoint.at_block(block), t, lo, hi))  # noqa: SLF001
+                         if lo - 1e-9 <= stop_distance_m(block, t) <= hi + 1e-9)
             for block in pool}
 
 
@@ -1270,11 +1367,14 @@ def route_tokens(route: Route, *, final_heading: bool = True) -> list[str]:
 #  自检
 # --------------------------------------------------------------------------- #
 def check_route_structure(route: Route, spec: MapSpec, grid: Grid,
-                          limits: tuple[float, float]) -> list[str]:
+                          limits: tuple[float, float],
+                          acc: tuple[float, float] | None = None) -> list[str]:
     """规划器自检（返回问题列表，空 = 通过）。**只报不改。**
 
     这些是"规划器必须自己保证"的结构约束；完整校验仍以 `validate.validate_route`
     与 `tools/route_check.py` 为准（见 `tools/plan_route.py --check`）。
+
+    ★ 卡 t57：`acc` = 射击停站的 `(目标板心距离, 半宽)`（缺省用模块常量）。
     """
     problems: list[str] = []
     blocks = route.blocks()
@@ -1330,10 +1430,13 @@ def check_route_structure(route: Route, spec: MapSpec, grid: Grid,
         if len(stops) != 1:
             problems.append(f"射击停站应恰好 1 个，实际 {len(stops)}")
         for _, wp in stops:
-            # ★ 判据比 `validate.py` 的 R006 更严：**每个**靶格都要被这个停站覆盖。
-            #   理由见 `covering_stops` —— route_check 是逐格判的，只覆盖一格会
-            #   报「靶覆盖 1/2」。窗口用 route_check 的接受窗口（含其容差）。
-            lo, hi = accept_window(limits)
+            # ★ 卡 t57：窗口改为**靶板中心窗口**（默认 [0.70, 0.90] m），与
+            #   `shoot_candidates()`/`covering_stops()` 同源（真源 =
+            #   `route.shoot_distance_m` ± `route.shoot_distance_tol_m`）。
+            #   判据仍是"**每个**靶格都要被这个停站覆盖"——但覆盖区间换成板心窗口：
+            #   实测 `F3` 到 `E5` 0.7826 / 到 `F5` 0.7000，两者都落在 [0.70, 0.90]
+            #   （旧窗口 0.17~0.51 会把**正确落点**判死）。
+            lo, hi = shoot_distance_window(acc)
             for tgt in spec.targets:
                 if not V._stop_ok(wp, tgt, lo, hi):                 # noqa: SLF001
                     problems.append(
@@ -1965,6 +2068,18 @@ def _limits(cfg: Config | None) -> tuple[float, float]:
     return (lo, hi) if lo <= hi else (hi, lo)
 
 
+def _shoot_accept(cfg: Config | None) -> tuple[float, float]:
+    """★ 卡 t57：SHOOT 停站点到**靶板中心**的 `(目标距离, 半宽)`。
+
+    真源 = `Config` 的 `route.shoot_distance_m` / `route.shoot_distance_tol_m`
+    （现场 `config/robot.yaml` 有就用现场的；缺键落到 `SHOOT_DISTANCE_*_DEFAULT`）。
+    """
+    mid = float(V._cfg_get(cfg, "route.shoot_distance_m", SHOOT_DISTANCE_M_DEFAULT))  # noqa: SLF001
+    tol = float(V._cfg_get(cfg, "route.shoot_distance_tol_m",                          # noqa: SLF001
+                           SHOOT_DISTANCE_TOL_M_DEFAULT))
+    return mid, abs(tol)
+
+
 def _cross_pools(cfg: Config | None, spec: MapSpec) -> tuple[list[str], list[str]]:
     """上下半场穿洞候选格。优先级（与 `validate.py` 的口径一致）：
 
@@ -2224,11 +2339,13 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
 
     shoot_pool: list[str] = []
     if spec.targets:
-        pool = shoot_candidates(spec, grid, limits)
+        acc = _shoot_accept(cfg)
+        acc_lo, acc_hi = shoot_distance_window(acc)
+        pool = shoot_candidates(spec, grid, acc)
         if not pool:
             raise PlannerError(f"靶 {' '.join(spec.targets)} 周围没有落在窗口 "
-                               f"{limits[0]:.2f}~{limits[1]:.2f} m 内的可通行射击点")
-        cov = covering_stops(spec, pool, limits)
+                               f"{acc_lo:.2f}~{acc_hi:.2f} m 内的可通行射击点")
+        cov = covering_stops(spec, pool, acc)
         shoot_pool = [b for b in pool if len(cov[b]) == len(spec.targets)]
         if not shoot_pool:
             detail = "; ".join(f"{b}->{'/'.join(cov[b]) or '无'}" for b in pool)
@@ -2382,7 +2499,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         _route = _to_route(_stops, name=name,
                            crossing={"lower": lower_cross, "upper": upper_cross},
                            final_heading=_final_heading(_stops))
-        problems = check_route_structure(_route, spec, grid, limits)
+        problems = check_route_structure(_route, spec, grid, limits, _shoot_accept(cfg))
         # ★★【硬校验】隔板相邻行的"侧向 90° 转向"（任务卡 t6）—— 与结构自检同层：
         #   只在 `barrier_turn_penalty > 0`（显式启用）时生效；默认 0.0 ⇒ 恒空、零影响。
         _bturns: list[str] = []
@@ -2434,11 +2551,14 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     shoot_dist = 0.0
     shoot_targets: tuple[str, ...] = ()
     if shoot_at:
-        acc_lo, acc_hi = accept_window(limits)
-        pairs = sorted((stop_distance_m(shoot_at, t), t) for t in spec.targets)
-        in_window = [(d, t) for d, t in pairs if acc_lo - 1e-9 <= d <= acc_hi + 1e-9]
-        shoot_dist, _ = in_window[0] if in_window else pairs[0]
-        shoot_targets = tuple(t for d, t in in_window if abs(d - shoot_dist) < 1e-6)
+        # ★ 卡 t57：记录的是**到靶板中心**的距离（与 `shoot_candidates()` 同源口径），
+        #   不再是"到最近靶格中心"。板心 = 各靶格中心之算术中点（`plate_center_m`）。
+        acc_lo, acc_hi = shoot_distance_window(_shoot_accept(cfg))
+        _cx, _cy = plate_center_m(spec)
+        _sx, _sy = geo.block_to_meters(shoot_at)
+        shoot_dist = math.hypot(_sx - _cx, _sy - _cy)
+        shoot_targets = tuple(t for t in spec.targets
+                              if acc_lo - 1e-9 <= stop_distance_m(shoot_at, t) <= acc_hi + 1e-9)
     polyline = sum(math.hypot(route.waypoints[i + 1].x - route.waypoints[i].x,
                               route.waypoints[i + 1].y - route.waypoints[i].y)
                    for i in range(len(route.waypoints) - 1))
@@ -3188,8 +3308,9 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
     start_heading = START_HEADING
 
     # ---------------- 射击停站候选（必须覆盖**全部**靶格） ----------------
-    pool = shoot_candidates(spec, grid, limits)
-    cover = covering_stops(spec, pool, limits)
+    acc = _shoot_accept(cfg)
+    pool = shoot_candidates(spec, grid, acc)
+    cover = covering_stops(spec, pool, acc)
     full_cover = [b for b in pool if len(cover.get(b, ())) == len(spec.targets)]
     if spec.targets and not full_cover:
         raise PlannerError(f"没有任何射击点能覆盖全部靶格 {spec.targets}（候选 {pool}）")
@@ -3239,7 +3360,7 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
     route = _to_route(stops, name=name,
                       crossing={"lower": lower_cross, "upper": upper_cross},
                       final_heading=_final_heading(stops))
-    problems = check_route_structure(route, spec, grid, limits)
+    problems = check_route_structure(route, spec, grid, limits, acc)
     if problems:
         raise PlannerError("tracker-safe 结果未通过结构自检：\n  - " + "\n  - ".join(problems))
     assert_legal_no_reverse(route)
@@ -3260,11 +3381,14 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
     shoot_dist = 0.0
     shoot_targets: tuple[str, ...] = ()
     if shoot_at:
-        acc_lo, acc_hi = accept_window(limits)
-        pairs = sorted((stop_distance_m(shoot_at, t), t) for t in spec.targets)
-        in_window = [(d, t) for d, t in pairs if acc_lo - 1e-9 <= d <= acc_hi + 1e-9]
-        shoot_dist, _ = in_window[0] if in_window else pairs[0]
-        shoot_targets = tuple(t for d, t in in_window if abs(d - shoot_dist) < 1e-6)
+        # ★ 卡 t57：记录的是**到靶板中心**的距离（与 `shoot_candidates()` 同源口径），
+        #   不再是"到最近靶格中心"。板心 = 各靶格中心之算术中点（`plate_center_m`）。
+        acc_lo, acc_hi = shoot_distance_window(_shoot_accept(cfg))
+        _cx, _cy = plate_center_m(spec)
+        _sx, _sy = geo.block_to_meters(shoot_at)
+        shoot_dist = math.hypot(_sx - _cx, _sy - _cy)
+        shoot_targets = tuple(t for t in spec.targets
+                              if acc_lo - 1e-9 <= stop_distance_m(shoot_at, t) <= acc_hi + 1e-9)
     polyline = sum(math.hypot(route.waypoints[i + 1].x - route.waypoints[i].x,
                               route.waypoints[i + 1].y - route.waypoints[i].y)
                    for i in range(len(route.waypoints) - 1))

@@ -311,8 +311,14 @@ async function planRoute({ configPath, mapPath, timeoutMs = 300 * 1000 }) {
 
 /**
  * 参数快照（用于台账，与 run 记录一起存）。
+ *
+ * ★ 导出**仅供离线断言**使用（`scripts/test-sim-map-render.mjs` 的「E 透传链②」一组）：
+ *   它不是插件的对外 API，`index.js` 不引用它，`runSim()` 是唯一的真实调用方。
+ *   理由：`targetYaw`（t28 靶板朝向）从表单到台账的链条里，只有这一段是**纯函数**，
+ *   能不启服务、不跑 python 就被断言钉住；「record 落盘」那一段由真跑取证覆盖
+ *   （5 跑实测：run_meta.jsonl 落 `"targetYaw":"v"/"h"`、非法值落 null，listHistory 原样回读）。
  */
-function sanitizeParams(body = {}) {
+export function sanitizeParams(body = {}) {
   const overrides = {}
   if (body.overrides && typeof body.overrides === 'object') {
     for (const [key, raw] of Object.entries(body.overrides)) {

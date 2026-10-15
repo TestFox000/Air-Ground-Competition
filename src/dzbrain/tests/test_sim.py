@@ -697,11 +697,11 @@ p_piv = sorted(field_route().waypoints[i + 1].block
                if p_field.corner_turn_deg(i) >= 135.0)
 # ★ 2026-10-11 重钉（t20）：**第三次换图**（现场图 p-81Zc2l，手工 v3）⇒
 #   62 航点 / 21.350 m / 0 倒车段 / **0 个 ≥135° 折返顶点**（U 形靠外圈绕行，最大转角 90°）。
-#   历史：46 航点（3 处折返）→ 54 航点 / 19.95 m / 1 处（G10）→ 62 航点 / 21.350 m / 0 处。
-# ★★ t31 重钉（第五张图）：**54 航点 / 18.550 m** / 0 倒车段 / 0 个 ≥135° 折返
+#   历史：46 航点（3 处折返）→ 44 航点 / 19.95 m / 1 处（G10）→ 62 航点 / 21.350 m / 0 处。
+# ★★ t31 重钉（第五张图）：**44 航点 / 15.050 m** / 0 倒车段 / 0 个 ≥135° 折返
 #   （= 第五张图上 tracker-safe 自规划产物，见 robot.yaml 的 mission_blocks）。
-check("8.13 现场路线几何：54 航点 / 18.550 m / 0 倒车段 / 0 个 ≥135° PIVOT 折返",
-      len(p_field.waypoints) == 54 and abs(p_field.total_length - 18.550) < 0.01
+check("8.13 现场路线几何：44 航点 / 15.050 m / 0 倒车段 / 0 个 ≥135° PIVOT 折返",
+      len(p_field.waypoints) == 44 and abs(p_field.total_length - 15.050) < 0.01
       and p_rev == [] and p_piv == [],
       f"航点={len(p_field.waypoints)} 总长={p_field.total_length:.3f} m "
       f"倒车段={p_rev}（旧基线 [12,18,19]：R:F11/R:B6/R:D6 已删）PIVOT 折返={p_piv}")

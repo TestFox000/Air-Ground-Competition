@@ -107,7 +107,7 @@ cfg = Config.load(str(_CFG_PATH))          # ★ 只用出厂配置，绝不 ove
 FIELD = parse_mission(list(cfg.get("route.tokens")), name="robot.yaml:route.tokens")
 FIELD_PATH = S.Path(FIELD)
 
-FIELD_WAYPOINTS = 54
+FIELD_WAYPOINTS = 44
 # ★ 2026-10-11 重钉（t20）：**第三次换图**（现场图 p-81Zc2l、手工 v3、62 点）——
 #   U 形改走外圈绕行 ⇒ 全程**没有 ≥135° 折返顶点**（最大转角 90°），故 PIVOT 折返 = 空元组。
 # ★★ t31 重钉（第五张图收口）：现役 `route.tokens` = **60 点** = 第五张图上 tracker-safe
@@ -115,9 +115,9 @@ FIELD_WAYPOINTS = 54
 FIELD_PIVOT_BLOCKS = ()
 # ★★ t31 重钉：射击停站由 F4* 改为 **C10***（第五张图靶板 B11+C11 的横向跨格板），
 #   末点仍是 N5；索引按 60 点路线实测（29 = C10*、59 = N5）。
-FIELD_STOP_INDICES = (31, 53)
+FIELD_STOP_INDICES = (31, 43)
 # ★★ t31 重钉：总长 21.350 → **20.650 m**（第五张图 60 点自规划路线实测）。
-FIELD_LENGTH_M = 18.55
+FIELD_LENGTH_M = 15.05
 
 STRAIGHT = parse_mission(["N10", "M10"])   # 两格直线，0.35 m
 MID = parse_mission(["M10", "M8", "K8", "K10", "I10", "I8"])   # 4 个 90 度拐角 / 3.50 m
@@ -220,8 +220,8 @@ check("2.3b ★第三张图无 ≥135° 折返顶点（U 形靠外圈绕行，�
 check("2.4 停站点索引 = %s" % (FIELD_STOP_INDICES,),
       tuple(FIELD_PATH.stop_indices) == FIELD_STOP_INDICES,
       f"got {tuple(FIELD_PATH.stop_indices)}")
-check("2.5 E4 是射击停站（官方图靶板 E5/F5）",
-      FIELD.waypoints[FIELD_STOP_INDICES[0]].block == "E4"
+check("2.5 F3 是射击停站（官方图靶板 E5/F5）",
+      FIELD.waypoints[FIELD_STOP_INDICES[0]].block == "F3"
       and FIELD.waypoints[FIELD_STOP_INDICES[0]].shoot is True,
       f"block={FIELD.waypoints[FIELD_STOP_INDICES[0]].block} "
       f"shoot={FIELD.waypoints[FIELD_STOP_INDICES[0]].shoot}")
@@ -809,7 +809,7 @@ else:
     _guard_check(
         "10.3 现役路线零注入：**8/8 盖雷（官方图全覆盖）**，且硬违规仍全 0"
         "（垫片口径：车心 3.5 cm 圆 ∩ 12×12 cm）",
-        _with_field.metrics["mine_pressed_count"] == 7.0
+        _with_field.metrics["mine_pressed_count"] == 8.0
         and _with_field.metrics["mine_total"] == 8.0
         and all(v == 0.0 for v in _hb.values()),
         f"盖雷 {int(_with_field.metrics['mine_pressed_count'])}/"

@@ -620,9 +620,24 @@ function routePolyline(cells) {
 /** 车身矩形四角（屏幕坐标）。尺寸 = 现场真值车长 0.28 m × 车宽 0.135 m。 */
 var CAR_LEN_PX = 0.28 * MAP_S / FIELD_GRID_BLOCK;
 var CAR_WID_PX = 0.135 * MAP_S / FIELD_GRID_BLOCK;
+/**
+ * 车头单位方向（屏幕系）。θs = yaw_code + 90°（与官方渲染器 sim_map_render.py 同角）。
+ *
+ * ★ 为什么 sin 取负：官方渲染器是 matplotlib（y 轴**向上**），它用 (cos θs, sin θs)；
+ *   本页 SVG 的 y 轴**向下**，而场地朝向与官方图逐格相同（A 左 N 右、1 上行 11 下行），
+ *   所以方向向量必须对 y 取反，否则车身/车头箭头相对真值**上下镜像**。
+ *   官方自检锚点「代码 yaw=+90°（面朝 A 列）画出来是朝左」在两式下都成立（水平分量同号），
+ *   只有非水平朝向才暴露：实测真 artifacts/sim/traj.csv 29 个抽样位姿，
+ *   「车头方向 vs 真值 yaw 推出的屏幕方向」夹角中位数 61.91°、最大 176.34°（修后 0.00°/0.00°）。
+ *   修后同口径复算：yaw=0（朝 1 行）→ (0,-1) 屏幕向上；yaw=+90°（朝 A 列）→ (-1,0) 屏幕向左。
+ */
+function headVec(yawCode) {
+  var th = yawCode + Math.PI / 2;
+  return [Math.cos(th), -Math.sin(th)];
+}
 function carPolygon(sx, sy, yawCode) {
-  var th = yawCode + Math.PI / 2;                  // 代码 yaw → 屏幕角（与官方渲染器一致）
-  var hx = Math.cos(th), hy = Math.sin(th);        // 车头方向
+  var h = headVec(yawCode);
+  var hx = h[0], hy = h[1];                        // 车头方向（屏幕系，y 向下）
   var rx = -hy, ry = hx;                           // 车体右侧
   var L = CAR_LEN_PX / 2, W = CAR_WID_PX / 2;
   return [[sx + hx * L + rx * W, sy + hy * L + ry * W],
@@ -630,10 +645,20 @@ function carPolygon(sx, sy, yawCode) {
           [sx - hx * L - rx * W, sy - hy * L - ry * W],
           [sx - hx * L + rx * W, sy - hy * L + ry * W]];
 }
-/** 代码坐标 → 屏幕坐标（与 loadTrace 同口径：col = 13.5 - y/block，row = 10.5 - x/block）。 */
+/**
+ * 代码坐标（米）→ 屏幕坐标（px）。**与 cellCenter 同口径：给的是格中心**。
+ *
+ * ★ t28 修复：原式 `13.5 - y/block` / `10.5 - x/block` 少了半格 —— 官方 S(x,y)=(4.9-y, x)
+ *   把场地**角**映射到边缘（N 列中心 y=0.175 → 13.5 格 = 459 px），而 13.5 只到 13 格 = 442 px
+ *   （N 格西缘）。于是整条 traj 轨迹/车身比格心、比参考路线折线偏 (17,17) px = 0.175 m = 半格。
+ *   实测：真 traj.csv 首拍 truth=(0.525,0.175)=geometry.block_to_meters('N10')=N10 格心，
+ *   原式 → (442,306)，cellCenter('N10') → (459,323)，154 格最大偏差 24.04 px。
+ */
 function codeToScreen(x, y) {
-  var col = 13.5 - y / FIELD_GRID_BLOCK;
-  var row = 10.5 - x / FIELD_GRID_BLOCK;
+  var cols = (FIELD && FIELD.grid ? FIELD.grid.cols : 14);
+  var rows = (FIELD && FIELD.grid ? FIELD.grid.rows : 11);
+  var col = cols - y / FIELD_GRID_BLOCK;           // N 列中心 → 13.5（格心）；原 13.5 → 13（格角）
+  var row = rows - x / FIELD_GRID_BLOCK;           // 行 10 中心 → 9.5（格心）；原 10.5 → 9（格角）
   return [col * MAP_S, row * MAP_S];
 }
 
@@ -715,10 +740,6 @@ function renderMap() {
     svg.push(rect(p[0] - MAP_S * 0.26, p[1] - MAP_S * 0.26, MAP_S * 0.52, MAP_S * 0.52, '#4a4a4a'));
     svg.push(text(p[0], p[1] + 4, '障', 10, '#ffffff', 'bold', 'middle'));
   });
-  FIELD.targets.forEach(function (cell) {
-    var p = cellCenter(cell); if (!p) return;
-    svg.push(text(p[0], p[1] + 4, '靶', 11, '#8a2f5f', 'bold', 'middle'));
-  });
   // ★ t28：靶板按"一块并板"画（横/竖朝向可选），不再每格一个「靶」字
   (function () {
     var cells = FIELD.targets || [];
@@ -792,9 +813,9 @@ function renderMap() {
       var d = poly.map(function (q, qi) { return (qi ? 'L ' : 'M ') + q[0].toFixed(1) + ' ' + q[1].toFixed(1); }).join(' ')
         + ' Z';
       svg.push('<path d="' + d + '" fill="#1f2933" fill-opacity="0.34" stroke="#0b1727" stroke-width="0.9"/>');
-      // 车头朝向箭头（从车心指向车头方向）
-      var th = pose[2] + Math.PI / 2;
-      var tip = [pose[0] + Math.cos(th) * (CAR_LEN_PX * 0.62), pose[1] + Math.sin(th) * (CAR_LEN_PX * 0.62)];
+      // 车头朝向箭头（从车心指向车头方向；与 carPolygon 共用 headVec，防两处口径各自漂移）
+      var hv = headVec(pose[2]);
+      var tip = [pose[0] + hv[0] * (CAR_LEN_PX * 0.62), pose[1] + hv[1] * (CAR_LEN_PX * 0.62)];
       svg.push('<line x1="' + pose[0].toFixed(1) + '" y1="' + pose[1].toFixed(1) + '" x2="' + tip[0].toFixed(1)
         + '" y2="' + tip[1].toFixed(1) + '" stroke="#0b1727" stroke-width="1.5"/>');
       if (idx === 0) {
@@ -908,7 +929,7 @@ function loadField() {
   });
 }
 
-/** 拉一次 traj.csv，取 truth 轨迹（每 4 拍取一点）+ 位姿（每 125 拍≈2.5s 一个车身）画到场地上。 */
+/** 拉一次 traj.csv，取 truth 轨迹（每 4 行取一点）+ 位姿（每 125 数据行 = 2.5 s @50 Hz 一个车身）画到场地上。 */
 function loadTrace(record) {
   TRACE = { route: (record && record.route) || (FIELD && FIELD.route) || [], points: [], poses: [] };
   renderMap();
@@ -922,16 +943,28 @@ function loadTrace(record) {
     if (ix < 0 || iy < 0) return;
     var pts = [];
     var poses = [];
-    for (var i = 1; i < lines.length; i += 4) {
+    for (var i = 1; i < lines.length; i += 4) {                 // 轨迹：50 Hz → 12.5 Hz 抽样
       var parts = lines[i].split(',');
       if (parts.length <= ix || parts.length <= iy) continue;
       var x = Number(parts[ix]); var y = Number(parts[iy]);      // 代码坐标（m）
       if (!isFinite(x) || !isFinite(y)) continue;
-      pts.push([(13.5 - y / FIELD_GRID_BLOCK) * MAP_S, (10.5 - x / FIELD_GRID_BLOCK) * MAP_S]);
-      // 车身抽样：与官方渲染器同口径（i % 125 ≈ 每 2.5 s 一个）；首拍必画（起点位姿）
-      if (iw >= 0 && parts.length > iw && (i === 1 || i % 125 === 0)) {
-        var yaw = Number(parts[iw]);
-        if (isFinite(yaw)) poses.push([(13.5 - y / FIELD_GRID_BLOCK) * MAP_S, (10.5 - x / FIELD_GRID_BLOCK) * MAP_S, yaw]);
+      pts.push(codeToScreen(x, y));                              // ★ 与 cellCenter 同口径（格心）
+    }
+    // ★ 车身抽样**独立成趟**，不能与上面 `i += 4` 的轨迹循环共用一个 index：
+    //   共用时实际只会在「i ≡ 1 (mod 4) 且 i ≡ 0 (mod 125)」的拍上画车身，而 125 % 4 = 1
+    //   ⇒ 只有 125 / 625 / 1125… 命中 ⇒ 变成每 10 s 一个，不是每 2.5 s 一个。
+    //   这里按**规格相位**取：数据行 0 / 125 / 250 …（首行必画 = 起点位姿）。
+    //   ☆ 官方 tools/sim_map_render.py:276-283 把 `i % 125 == 0` 嵌在 `i % 4 == 0` 里，
+    //     125 % 4 = 1 ⇒ 它实际只在 i = 0/500/1000…（每 10 s）画车身，与它自己注释写的
+    //     「每 2.5 s 画一个车身」不符。本页照注释声明的意图实现，不复制那个嵌套相位错。
+    if (iw >= 0) {
+      for (var j = 1; j < lines.length; j += 125) {              // j=1,126,251… = 数据行 0,125,250…
+        var prow = lines[j].split(',');
+        if (prow.length <= ix || prow.length <= iy || prow.length <= iw) continue;
+        var px = Number(prow[ix]); var py = Number(prow[iy]); var pyaw = Number(prow[iw]);
+        if (!isFinite(px) || !isFinite(py) || !isFinite(pyaw)) continue;
+        var sp = codeToScreen(px, py);
+        poses.push([sp[0], sp[1], pyaw]);
       }
     }
     TRACE.points = pts;
@@ -1149,10 +1182,18 @@ $('refresh').addEventListener('click', function () {
 ['mines', 'obstacles', 'bridges'].forEach(function (key) {
   $(key).addEventListener('input', function () { refreshFieldHints(); renderMap(); });
 });
+// ★ t28-F3：靶板朝向是 <select>（'' = 跟随地图）——必须绑 change（不是 input），否则改完地图不重绘、提示不刷新
+$('targetYaw').addEventListener('change', function () { refreshFieldHints(); renderMap(); });
 Array.prototype.forEach.call(document.querySelectorAll('button[data-reset]'), function (button) {
   button.addEventListener('click', function () {
     var key = button.getAttribute('data-reset');
     if (FIELD && FIELD.ok) {
+      if (key === 'targetYaw') {          // ★ t28-F3：<select> 的默认项是 ''（跟随地图），不能走 join(' ')
+        $(key).value = '';
+        refreshFieldHints(); renderMap();
+        message($('runMsg'), 'ok', '靶板朝向已恢复「跟随地图」');
+        return;
+      }
       $(key).value = (FIELD[key] || []).join(' ');
       refreshFieldHints(); renderMap();
       message($('runMsg'), 'ok', key + ' 已恢复现场默认值');

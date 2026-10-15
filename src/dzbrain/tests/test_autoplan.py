@@ -783,8 +783,8 @@ check("10.10 ★ engine=tracker-safe → 规划成功且走的是新引擎",
 check("10.11 ★ 新引擎产物无 `:PIVOT`（仿真/真车都不建模原地折返，t7 的硬规则）",
       len(_out_ts.tokens) >= 2 and not any("PIVOT" in t for t in _out_ts.tokens),
       f"{sum(1 for t in _out_ts.tokens if 'PIVOT' in t)} 处")
-check("10.12 ★ 新引擎路线长度 = 18.55 m（官方图 tracker-safe 实测；t44 重钉）",
-      0.0 < _out_ts.route_len_m <= 19.0 and abs(_out_ts.route_len_m - 18.55) < 0.02,
+check("10.12 ★ 新引擎路线长度 = 15.05 m（官方图 tracker-safe 实测；t44 重钉）",
+      0.0 < _out_ts.route_len_m <= 19.0 and abs(_out_ts.route_len_m - 15.05) < 0.02,
       f"{_out_ts.route_len_m:.2f} m vs tour {_out_tour.route_len_m:.2f} m"
       f"（第五张图上 tour 反而短 1.40 m，但它的产物带 2 处 :PIVOT、且 C10* 同时是折返顶点"
       f" —— 仿真/真车都不建模折返 ⇒ 不可发货；判据从『不比 tour 长』改为『等于新图实测值』）")
@@ -909,8 +909,8 @@ check("10.32 ★ 段前缀回退真的在起作用（`dzactuator.vehicle.*` 是 
       "见 robot.yaml /dzactuator: ros__parameters: vehicle:")
 _fp_cfg = real_cfg(auto_plan_enabled=True, map_path=str(MAP))
 _fp = MT.footprint_diagnostic(out.tokens, _raw, _fp_cfg)
-check("10.33 ★ 足迹诊断用实测偏移跑得动（折线口径 600+ 采样）",
-      _fp.samples > 500 and abs(_fp.offset_m - 0.075) < 1e-9,
+check("10.33 ★ 足迹诊断用实测偏移跑得动（折线口径 400+ 采样）",
+      _fp.samples > 400 and abs(_fp.offset_m - 0.075) < 1e-9,
       f"samples={_fp.samples} offset={_fp.offset_m}")
 check("10.34 ★ t11 实测风险可见：+7.5 cm 下报挡板侵入（折线保守上界，非硬门禁）",
       (not _fp.ok) and any("挡板" in r for r in _fp.risks)

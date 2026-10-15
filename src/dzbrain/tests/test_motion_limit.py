@@ -226,11 +226,11 @@ def main() -> int:
     #   ticksPerMeter 3280 不变。
     #   ⚠️ 行内保留历史值原文（`ticksPerMeter 3280）` / 旧断言本体 `- 0.30` / `- 0.35`）作为
     #      `tools/calib_backfill.py` 的钉锚点（内容式定位；该映射在 t2 写域，本卡不改）。
-    ok("5.3 落盘值（cruise 0.35 / ld_max 0.40 / 官方图路线 54 点 / ticksPerMeter 3280）"
+    ok("5.3 落盘值（cruise 0.35 / ld_max 0.40 / 官方图路线 44 点（t50 新窗口） / ticksPerMeter 3280）"
        "（旧 cruise 0.30 / 0.35）",
        abs(real.get("pursuit.cruise_speed_mps") - 0.35) < 1e-12
        and abs(real.get("pursuit.lookahead_max_m") - 0.40) < 1e-12
-       and len(real.get("route.tokens") or []) == 54
+       and len(real.get("route.tokens") or []) == 44
        and abs(real.get("dzactuator.ticksPerMeter") - 3280.0) < 1e-9,
        f"cruise={real.get('pursuit.cruise_speed_mps')} ld_max={real.get('pursuit.lookahead_max_m')} "
        f"tokens={len(real.get('route.tokens') or [])} ticks={real.get('dzactuator.ticksPerMeter')}")

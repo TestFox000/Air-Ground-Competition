@@ -230,6 +230,24 @@ SCHEMA: dict[str, Spec] = {
                                       "未收到无人机情报时的兜底穿洞格（第五张图下半场 = K10）"),
     "route.cross_upper_default": Spec("K5", _S, "", None, None,
                                       "未收到无人机情报时的兜底穿洞格（第五张图上半场 = K5）"),
+    # ---- ★ 卡 t57：SHOOT 停站点的**靶板中心距离窗口**（取代"靶格 1 格邻居"口径）----
+    #   旧口径：候选 = 各靶格的**正交邻居**且到该靶格距离 ∈ `accept_window(0.20~0.45)`
+    #           ⇒ 现役图命中 `E4`（到 E5 0.35 m），但那是"到靶**格**"的距离，
+    #             而实际打的是**靶板中心**（E5/F5 两格中点），E4 到板心只有 0.3913 m。
+    #   新口径：候选 = 到**靶板中心**距离 ∈ [shoot_distance_m − tol, + tol] 的可通行格
+    #           （默认 0.80 ± 0.10 ⇒ [0.70, 0.90]），再按"离轨道垂直平分线最近 +
+    #             距离误差最小 + 格名序"定序取首选 ⇒ 现役图命中 `F3`（0.7215 m）。
+    #   为什么用两个键：`shoot_distance_m` 是**现场标定值**（靶板到停站点的目标距离），
+    #   `_tol_m` 是**窗口半宽**（靶会摆动/标定有误差）。改其一即可（只改常数）。
+    #   ⚠️ 与 `path_executor.shoot_distance_target/min/max`（0.35 / 0.20 / 0.45）**语义不同**：
+    #      那三键是**视觉侧**"哪一帧算命中"的口径（`route/validate.py` 与 `tools/route_check.py`
+    #      的射击点距离判据），本两键管的是"**车停哪儿**"（规划期挑停站点）。两套不要互相抄。
+    #   消费者：`route/planner.py` 的 `shoot_distance_window()`（缺键时回落到**同值**常量
+    #      `SHOOT_DISTANCE_M_DEFAULT / SHOOT_DISTANCE_TOL_M_DEFAULT` = 0.80 / 0.10）。
+    "route.shoot_distance_m": Spec(0.80, _F, "m", 0.0, 5.0,
+                                   "★t57：SHOOT 停站点到**靶板中心**的目标距离（靶板中心 = 各靶格中心之中点）"),
+    "route.shoot_distance_tol_m": Spec(0.10, _F, "m", 0.0, 2.0,
+                                       "★t57：上述距离的窗口半宽（候选区间 = 目标距离 ± 本值 ⇒ 默认 [0.70, 0.90]）"),
     "mission.auto_start": Spec(True, _B, "", None, None, "起栈后自动出发"),
     "mission.auto_start_delay_s": Spec(10.0, _F, "s", 0.0, 120.0, "出发前初始化等待"),
     "mission.reset": Spec("N10,y", _S, "", None, None, "起步复位（格,航向）"),

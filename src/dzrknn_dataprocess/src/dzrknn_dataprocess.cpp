@@ -462,7 +462,8 @@ int turn_on_robot::pitchLevelCount() const
 }
 
 // 当前竖直层对应的角度(相对水平面，上为正) = 层列表角度 + 整体俯仰偏移。
-// scan_pitch_offset_deg_ 默认 -6°：整体向下压，让画面中心对准稍近处的靶标。
+// scan_pitch_offset_deg_ 兜底默认 -10.0（t52，用户 2026-10-14 指令"水平扫描向下压约 10°"；
+//   负=向下压）：整体向下压，让画面中心对准稍近处/地面上的靶标。真源是 robot.yaml。
 double turn_on_robot::scanPitchDeg() const
 {
   double base = 0.0;
@@ -1089,7 +1090,7 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->declare_parameter("gimbal_pitch_tick_min", 950);	  // 竖直轴刻度下限(下位机钳位)
   this->declare_parameter("gimbal_pitch_tick_max", 2400); // 竖直轴刻度上限(下位机钳位)
   this->declare_parameter("gimbal_max_speed", 3700);		  // 云台最大转速
-  this->declare_parameter("scan_pitch_offset_deg", -8.0); // 俯仰整体偏移(度，负=向下)
+  this->declare_parameter("scan_pitch_offset_deg", -10.0); // 俯仰整体偏移(度，负=向下压；t52 与 robot.yaml 单一真源对齐)
   this->declare_parameter("max_shots_per_target", 3);  // P0-2 单目标连发上限(<0 不限)
   this->declare_parameter("fire_only_blue", true);     // P0-4 仅攻击蓝色靶
   this->declare_parameter("track_speed_max", 0);       // P2-2 tracking cap (ticks/s, 0=derive)

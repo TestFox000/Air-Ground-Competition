@@ -108,8 +108,8 @@ def field_cfg() -> Config:
     """
     return Config.from_dict({
         "path_executor": {
-            "shoot_distance_min": 0.20,
-            "shoot_distance_max": 0.45,
+            "shoot_distance_min": 0.70,
+            "shoot_distance_max": 0.90,
         },
         "route": {
             "tokens": ["N10", "N5"],
@@ -379,6 +379,8 @@ def test_validate_field_route() -> None:
     route = P.parse_mission(str(ROUTE_FIELD))
     map_cfg = load_map_field()
     cfg = field_cfg()
+    cfg = cfg.override("path_executor.shoot_distance_min", 0.70)   # CFG: t50 新窗口
+    cfg = cfg.override("path_executor.shoot_distance_max", 0.90)
     issues = V.validate_route(route, map_cfg=map_cfg, cfg=cfg)
     show(issues, "现场路线")
     errs, wns = errors(issues), warns(issues)
@@ -470,7 +472,7 @@ def test_validate_negatives() -> None:
           any("列内" in i.msg for i in iss_along if i.code == "R009"),
           str([i.msg for i in iss_along if i.code == "R009"]))
 
-    # --- R013：射击点到靶 0.7 m（超窗口上限 0.45）---
+    # --- R013：射击点到靶 0.35 m（低于窗口下界 0.70）---
     #   K9 -> L9 -> L11 -> K11 -> K1 -> L1 -> L3 -> K3 -> J3 -> C4 -> A6 -> D6 -> D7
     #   -> G7 -> J7 -> K7 -> L7 -> F7 -> G7 -> G9* （G9 到靶 G11 = 2 格 = 0.70 m）
     #   -> F9 -> F11 -> E11 -> F8 -> B8 -> B6 -> A6 -> N5
@@ -482,18 +484,18 @@ def test_validate_negatives() -> None:
     iss = V.validate_route(r, map_cfg=map_cfg, cfg=cfg)
     show(iss, "R013 负例（G9* 到靶 G11 = 0.70 m）")
     check("R013 触发（射击点距靶超窗口）", "R013" in errors(iss), str(errors(iss)))
-    check("R013 消息给出实际距离 0.700",
-          any("0.700" in i.msg for i in iss if i.code == "R013"),
+    check("R013 消息给出实际距离 0.350",
+          any("0.350" in i.msg for i in iss if i.code == "R013"),
           next((i.msg for i in iss if i.code == "R013"), "（无）"))
     good = P.parse_mission(str(ROUTE_FIELD))
     iss_good = V.validate_route(good, map_cfg=map_cfg, cfg=cfg)
-    check("R013 不误伤现场路线（G10* 到 G11 = 0.35 m）", "R013" not in errors(iss_good),
+    check("R013 不误伤现场路线（G10* 到 G8 = 0.700 m）", "R013" not in errors(iss_good),
           f"errors={errors(iss_good)}")
     iss = V.validate_route(r, map_cfg=map_cfg, cfg=cfg)
-    show(iss, "R013 负例（G13* 到靶 G11 = 0.70 m）")
+    show(iss, "R013 负例（G9* 到靶 G11 = 0.70 m）")
     check("R013 触发（射击点距靶超窗口）", "R013" in errors(iss), str(errors(iss)))
-    check("R013 消息给出实际距离 0.700",
-          any("0.700" in i.msg for i in iss if i.code == "R013"),
+    check("R013 消息给出实际距离 0.350",
+          any("0.350" in i.msg for i in iss if i.code == "R013"),
           next((i.msg for i in iss if i.code == "R013"), "（无）"))
     good = P.parse_mission(str(ROUTE_FIELD))
     iss_good = V.validate_route(good, map_cfg=map_cfg, cfg=cfg)
@@ -564,18 +566,18 @@ def test_real_robot_yaml() -> None:
     # ★★ t31 重钉（第五张图收口）：`mission_blocks` = **60 点** = 第五张图上 tracker-safe
     #   自规划的同一条产物（0 折返 / 0 倒车 / 射击停站 `C10*`（靶板 B11+C11）/ 桥洞 K10 + K5）。
     #   历史：34 点(10-07) → 46 点 → 54 点(t11) → 62 点(t20) → **60 点(t31)**。
-    check("route.tokens 是 54 个 token（官方图 tracker-safe 自规划产物）",
-          isinstance(tokens, list) and len(tokens) == 54,
+    check("route.tokens 是 44 个 token（官方图 tracker-safe 自规划产物；t50 新窗口后 54→44）",
+          isinstance(tokens, list) and len(tokens) == 44,
           f"{len(tokens) if isinstance(tokens, list) else type(tokens).__name__} 个")
-    if isinstance(tokens, list) and len(tokens) == 54:
+    if isinstance(tokens, list) and len(tokens) == 44:
         check("现场图路线首点 N10", tokens[0] == "N10", repr(tokens[0]))
         check("现场图路线末点 N5", tokens[-1].startswith("N5"), repr(tokens[-1]))
-        check("现场图路线含射击点 E4*（官方图靶板 E5/F5）",
-              any(t.startswith("E4*") for t in tokens), repr(tokens))
+        check("现场图路线含射击点 F3*（官方图靶板 E5/F5；t50 新窗口 0.70~0.90 m）",
+              any(t.startswith("F3*") for t in tokens), repr(tokens))
         check("现场图路线含两处桥洞穿越（K9 下半场 / K5 上半场）",
               "K9" in tokens and "K5" in tokens, repr([t for t in tokens if t.startswith("K")]))
         route = P.parse_mission(tokens)
-        check("现场图路线能被 parse_mission 解析（54 点）", len(route) == 54, f"{len(route)} 点")
+        check("现场图路线能被 parse_mission 解析（44 点）", len(route) == 44, f"{len(route)} 点")
     check("mission.reset 迁移自 mission_reset", cfg.get("mission.reset") == "N10,y",
           repr(cfg.get("mission.reset")))
     # ★ 2026-10-11 重钉（t22）：巡航 0.30 → **0.35 m/s**（用户现场口径）。
