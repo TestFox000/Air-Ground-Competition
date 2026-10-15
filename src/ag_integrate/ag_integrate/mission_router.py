@@ -99,6 +99,16 @@ def _turn_units(h1: int, h2: int) -> int:
     return min(d, 8 - d)
 
 
+def _zone_of(cell: CellRef, mid_boundary: int) -> str:
+    """格号所属功能区（2026-10-15 现场确认的三区划分）。
+
+    西区 = A~C 通长走廊（自由穿行）；东南区 = D~N 第 1~6 行；东北区 = D~N 第 7~11 行。
+    """
+    if cell.col <= 2:
+        return "西"
+    return "东南" if cell.row < mid_boundary else "东北"
+
+
 def _crosses_mid(row_a: int, row_b: int, boundary: int) -> bool:
     """一条竖向边是否跨越中场分界（boundary 指上半区行数，如 5 = row4↔row5 之间）。"""
     return (row_a < boundary <= row_b) or (row_b < boundary <= row_a)
@@ -113,8 +123,18 @@ def _dijkstra(
     turn_45: float,
     allow_diagonal: bool,
     terminal: CellRef | None = None,
+    cross_penalty: float = 0.0,
+    tunnel_axes: frozenset[int] | None = None,
+    tunnel_req: dict[int, int] | None = None,
 ) -> tuple[dict, dict]:
     """(格, 航向) 状态空间的 Dijkstra；返回 (dist, prev)。
+
+    cross_penalty：每次跨越挡板边界附加的代价当量（默认 0=关闭，向后兼容），
+    分区策略软约束——"一区扫完再转场"天然优于反复跨区。
+    tunnel_axes：桥洞隧道格集合——进出必须同行正交（沿隧道轴东西向）、
+    洞内禁止转向；一格宽桥洞斜进斜出 = 撞桥边（阿克曼底盘物理约束）。
+    tunnel_req：隧道单向约束 {格索引: 行驶朝向}（0=向东 4=向西），
+    通行方向=桥顶箭头指向，逆向入洞禁边。依据 docs/分区规划与感知约束-20261015.md。
 
     entry_headings 里的朝向以 0 代价起步（自由进入 = 不罚第一步转向）。
     terminal 指定时，该格成为终点态：进入即停、不许穿过再离开
@@ -168,7 +188,25 @@ def _dijkstra(
                 # 桥洞一格宽：只能正交穿越，且必须贴着 gate 格
                 if diag or not (gates_bits[ci] or gates_bits[nci]):
                     continue
-            nd = d + step + _TURNS[h][nh] * turn_45
+            # 桥洞隧道轴向约束：斜进斜出/洞内转向=撞桥边（物理必修）
+            if tunnel_axes is not None:
+                if nci in tunnel_axes and dr != 0:
+                    continue            # 进出隧道格只允许同行正交（东西向）
+                if ci in tunnel_axes:
+                    rev = (h + 4) % 8
+                    if dr != 0 or (nh != h and nh != rev):
+                        continue        # 出洞只许直行穿洞或原路倒出（倒车=4×45°转向代价）
+            # 隧道单向：逆向入洞禁边（规则方向=桥顶箭头指向）
+            if tunnel_req is not None:
+                req_h = tunnel_req.get(nci, -1)
+                if req_h >= 0 and nh != req_h:
+                    continue
+            # 穿越挡板边界附加代价：分区策略软约束（docs/分区规划与感知约束）
+            extra = 0.0
+            if cross_penalty and dr and (
+                    (row < mid_boundary <= nrow) or (nrow < mid_boundary <= row)):
+                extra = cross_penalty
+            nd = d + step + _TURNS[h][nh] * turn_45 + extra
             nsi = nci * 8 + nh
             if nd < dist_i[nsi] - 1e-12:
                 dist_i[nsi] = nd
@@ -222,16 +260,21 @@ def _cached_dijkstra(
     turn_45: float,
     allow_diagonal: bool,
     terminal: CellRef | None = None,
+    cross_penalty: float = 0.0,
+    tunnel_axes: frozenset[int] | None = None,
+    tunnel_req: dict[int, int] | None = None,
 ) -> tuple[dict, dict]:
     """_dijkstra 的缓存封装：键 = (起点, 进入朝向集, 终点态, 障碍集)。
 
     cross_gates/mid_boundary/turn_45/allow_diagonal 在一次 plan_route 调用内
     不变，由调用方保证；避让重算的 blocked 会变，故必须进键。
+    cross_penalty/tunnel_axes/tunnel_req 同属本约定（一次调用内不变），不进键。
     """
     key = (start, entry_headings, terminal, blocked)
     if cache is not None and key in cache:
         return cache[key]
-    result = _dijkstra(start, blocked, cross_gates, mid_boundary, entry_headings, turn_45, allow_diagonal, terminal=terminal)
+    result = _dijkstra(start, blocked, cross_gates, mid_boundary, entry_headings, turn_45, allow_diagonal, terminal=terminal,
+                       cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
     if cache is not None:
         cache[key] = result
     return result
@@ -249,6 +292,9 @@ def _route_leg(
     turn_45: float,
     allow_diagonal: bool,
     cache: dict | None = None,
+    cross_penalty: float = 0.0,
+    tunnel_axes: frozenset[int] | None = None,
+    tunnel_req: dict[int, int] | None = None,
 ) -> tuple[list[CellRef] | None, int | None, float]:
     """frm→to 单段路由：优先走避开已踩格子的等代价路径。返回 (cells, 到达航向, 代价)。
 
@@ -268,7 +314,8 @@ def _route_leg(
         return [frm], h0, 0.0
 
     term = to if want_arrival is not None else None
-    d_free, p_free = _cached_dijkstra(cache, frm, blocked, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term)
+    d_free, p_free = _cached_dijkstra(cache, frm, blocked, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term,
+                                      cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
     cost, end = _arrival_state(d_free, to, want_arrival)
     if end is None or cost >= _INF:
         return None, None, _INF
@@ -281,7 +328,8 @@ def _route_leg(
 
     avoid = frozenset(blocked | avoid_cells)
     if avoid != blocked:
-        d_av, p_av = _cached_dijkstra(cache, frm, avoid, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term)
+        d_av, p_av = _cached_dijkstra(cache, frm, avoid, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term,
+                                  cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
         c_av, e_av = _arrival_state(d_av, to, want_arrival)
         if e_av is not None and c_av <= cost + _EPS:
             return _trace_states(p_av, e_av), e_av[1], c_av
@@ -361,6 +409,9 @@ def _assemble(
     allow_diagonal: bool,
     cache: dict | None = None,
     fallback_any_heading: bool = False,
+    cross_penalty: float = 0.0,
+    tunnel_axes: frozenset[int] | None = None,
+    tunnel_req: dict[int, int] | None = None,
 ) -> tuple[tuple[str, ...] | None, float]:
     """按给定顺序逐段拼接（真实朝向链 + 顺路避让），返回 (路线, 真实总代价)。
 
@@ -374,16 +425,19 @@ def _assemble(
     cur, entry = nodes[0], entry0
     for i in order:
         w = nodes[i + 1]
-        seg, h, c = _route_leg(cur, w, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal, cache)
+        seg, h, c = _route_leg(cur, w, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal, cache,
+                               cross_penalty, tunnel_axes, tunnel_req)
         if seg is None:
             return None, _INF
         segments.append(seg)
         used.update(seg)
         total += c
         cur, entry = w, (h,)
-    seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, h_final, turn_45, allow_diagonal, cache)
+    seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, h_final, turn_45, allow_diagonal, cache,
+                               cross_penalty, tunnel_axes, tunnel_req)
     if seg is None and fallback_any_heading and h_final is not None:
-        seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal, cache)
+        seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal, cache,
+                               cross_penalty, tunnel_axes, tunnel_req)
     if seg is None:
         return None, _INF
     segments.append(seg)
@@ -403,24 +457,45 @@ def _plan_core(
     turn_45: float,
     allow_diagonal: bool,
     cache: dict | None = None,
+    cross_penalty: float = 0.0,
+    tunnel_axes: frozenset[int] | None = None,
+    tunnel_req: dict[int, int] | None = None,
 ) -> tuple[tuple[str, ...], float]:
     """给定障碍集与必经点，输出（最优路线, 真实总代价）。"""
-    dist0, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
+    dist0, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal,
+                     cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
     if _arrival_state(dist0, goal, None)[0] >= _INF:
         raise ValueError("goal cell unreachable from start")
     # 注意：可达性检查必须按"任意朝向"——朝向到达不可行由拼装层降级兜底，
     # 若在此按 h_final 判不可达，会把"丢 5 分朝向"误升级成"整局崩溃"。
 
     # 剔除不可达必经点（与旧语义一致：跳过）；nodes[0] 恒为起点。
-    nodes = [start] + [c for c in required.values() if _arrival_state(dist0, c, None)[0] < _INF]
+    # 但不再静默：逐格告警并按功能分区标注——整区被跳过大概率是唯一通道
+    # （桥洞/走廊口）被障碍误检堵死（交界格误检是 documented 顽疾）。
+    reachable_required = []
+    dropped = []
+    for c in required.values():
+        (reachable_required if _arrival_state(dist0, c, None)[0] < _INF else dropped).append(c)
+    if dropped:
+        by_zone: dict[str, list[str]] = {}
+        for c in dropped:
+            by_zone.setdefault(_zone_of(c, mid_boundary), []).append(c.name)
+        detail = "；".join(f"{z}区[{','.join(sorted(ns))}]" for z, ns in sorted(by_zone.items()))
+        warnings.warn(
+            f"{len(dropped)} 个必经点不可达被跳过：{detail}。",
+            RuntimeWarning, stacklevel=3,
+        )
+    nodes = [start] + reachable_required
     n = len(nodes) - 1
     if n == 0:
-        seg, _h, _c = _route_leg(start, goal, blocked, set(), cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
+        seg, _h, _c = _route_leg(start, goal, blocked, set(), cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
+                             cross_penalty, tunnel_axes, tunnel_req)
         return _flatten([seg]), _c
 
     # 每个节点做一次自由进入朝向的 Dijkstra，得两两边权（乐观界）。
     dists = [dist0] + [
-        _cached_dijkstra(cache, c, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)[0]
+        _cached_dijkstra(cache, c, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal,
+                          cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)[0]
         for c in nodes[1:]
     ]
     W = [[_INF] * (n + 1) for _ in range(n + 1)]
@@ -466,7 +541,8 @@ def _plan_core(
             best_cost, best_last = c, i
 
     def assemble(order: list[int]) -> tuple[tuple[str, ...] | None, float]:
-        return _assemble(order, nodes, goal, blocked, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
+        return _assemble(order, nodes, goal, blocked, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
+                         cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
 
     # 保底顺序 + 枚举其余等代价顺序，取（真实代价, 重复踩格）最小者。
     # 拼接数硬上限：对称场景下等代价顺序可达 256 条，每条的避让重算是
@@ -502,6 +578,7 @@ def _plan_core(
                 order, nodes, goal, blocked, cross_gates, mid_boundary,
                 entry0, h_final, turn_45, allow_diagonal, cache,
                 fallback_any_heading=True,
+                cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req,
             )
             if route is None:
                 continue
@@ -576,8 +653,16 @@ def plan_route(
     final_heading: str | None = None,
     turn_45: float = 0.75,
     allow_diagonal: bool = True,
+    crossing_penalty: float = 0.0,
+    tunnel_dirs: dict[str, str] | None = None,
 ) -> tuple[str, ...]:
     """输出有序格号；转向按 turn_45/45° 计费，起点/终点朝向可约束。
+
+    crossing_penalty：每次跨越挡板边界的附加代价（格当量，默认 0=关闭）。
+    tunnel_dirs：桥洞隧道方向约束 {格号: 'E'/'W'/'EW'}——规则方向=桥顶箭头
+    指向（E=西向东）；'EW'=方向未知时仍强制轴向（东西直行、洞内不转向）。
+    默认 None=对 snapshot.passable 的全部隧道格自动施加 'EW' 轴向约束
+    （物理必修：斜进一格宽桥洞会撞桥边）；传 {} 可完全关闭（遗留行为）。
 
     标靶格（红/蓝）物理上立着靶体，一律不可踩；每个蓝色敌方靶必须在
     其正交邻格停靠射击（车头正对靶心，UDP 朝向对准即打得准），
@@ -589,6 +674,36 @@ def plan_route(
         raise ValueError(f"final_heading 只支持 'x'/'y'，收到 {final_heading!r}")
     entry0 = (_HEADING_IDX[start_heading],) if start_heading else _ALL_HEADINGS
     h_final = _HEADING_IDX[final_heading] if final_heading else None
+
+    # 隧道约束解析：方向 'E'/'W'（单向）或 'EW'（双向但强制轴向）。
+    # 默认对所有 passable 隧道格强制 'EW'（物理上斜进必撞边，无需等规则方向）。
+    tunnel_req: dict[int, int] | None = None
+    tunnel_axes: frozenset[int] | None = None
+    if tunnel_dirs is None:
+        axes = {c.row * COLS + c.col for c in snapshot.passable}
+        tunnel_axes = frozenset(axes) if axes else None
+    elif tunnel_dirs:
+        axes = set()
+        tunnel_req = {}
+        for name, d in tunnel_dirs.items():
+            cn = name.strip().upper()
+            dd = str(d).strip().upper()
+            if dd not in ("E", "W", "EW"):
+                raise ValueError(f"tunnel_dirs[{name!r}] 只支持 'E'/'W'/'EW'，收到 {d!r}")
+            cell = CellRef(LETTERS.index(cn[0]), int(cn[1:]) - 1)
+            if not (0 <= cell.row < ROWS and 0 <= cell.col < COLS):
+                raise ValueError(f"tunnel_dirs 格号越界: {name!r}")
+            ci = cell.row * COLS + cell.col
+            axes.add(ci)
+            if dd != "EW":
+                tunnel_req[ci] = 0 if dd == "E" else 4
+        tunnel_axes = frozenset(axes)
+        if not tunnel_req:
+            tunnel_req = None
+    else:
+        tunnel_axes = None     # 显式 {} = 全关（遗留行为，不推荐）
+
+    cross_penalty = crossing_penalty  # 内部链路简称（对外参数 crossing_penalty）
 
     # 桥洞列推导：passable（ARROW）所在列即桥洞列。
     # 桥洞列物理上每格都有缺口，但规则上只有带箭头的格子允许通过，
@@ -605,13 +720,10 @@ def plan_route(
         for c in passable_cells:
             if c.col != col:
                 continue
-            open_rows.add(c.row)            # 箭头格本身
-            # 引道只在朝向边界的一侧：南侧箭头(row>=mid)引道向北(row-1)，
-            # 北侧箭头(row<mid)引道向南(row+1)。
-            dr = -1 if c.row >= mid_boundary else 1
-            r = c.row + dr
-            if 0 <= r < ROWS:
-                open_rows.add(r)
+            open_rows.add(c.row)            # 箭头格本身（隧道口）
+            # 2026-10-15 现场模型修正：桥体其余格全部是结构体（不可踩），
+            # 不再设"引道"——引道概念属于旧的"桥洞格南北穿越中线"模型，
+            # 实测隧道是东西向穿越桥体（docs/分区规划与感知约束-20261015.md）。
         for row in range(ROWS):
             c = CellRef(col, row)
             if row in open_rows:
@@ -681,7 +793,8 @@ def plan_route(
     # 可能挤掉另一组合中可达候选的路线——白丢整组打击分。
     dist0 = None
     if cand_lists:
-        dist0, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
+        dist0, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal,
+                     cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
         cand_lists = [
             [c for c in cl if _arrival_state(dist0, c, None)[0] < _INF]
             for cl in cand_lists
@@ -689,7 +802,8 @@ def plan_route(
         cand_lists = [cl for cl in cand_lists if cl]
 
     if not cand_lists:
-        route, _ = _plan_core(start, goal, blocked, base_required, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
+        route, _ = _plan_core(start, goal, blocked, base_required, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
+                              cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
         return route
 
     total = 1
@@ -711,7 +825,8 @@ def plan_route(
         for c in combo:
             req.setdefault(c.name, c)
         try:
-            route, cost = _plan_core(start, goal, blocked, req, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
+            route, cost = _plan_core(start, goal, blocked, req, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
+                                     cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
         except ValueError:
             continue
         dup = len(route) - len(set(route))

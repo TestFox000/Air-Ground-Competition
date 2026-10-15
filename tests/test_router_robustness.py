@@ -37,19 +37,16 @@ def test_match_config_self_consistent():
 
 
 def test_goal_heading_infeasible_degrades_not_crashes():
-    """口袋地形：终点朝向到达须先踩终点——必须降级完赛，不允许断言崩溃。
+    """终点朝向不可达 → 降级任意朝向完赛，不允许崩溃。
 
-    场景来自 fuzz 首案（种子 20261014 rand0）：障碍 M7 + K 列墙把 N6 以南
-    围成口袋，朝北到达 N6 物理不可行。
-    （2026-10-15 mb=6 几何适配：门移到 6/7 边界的 K7，L7→H7 保持东侧封锁，
-    否则门格东侧引道被堵、场景从"朝向不可达"变成"整格不可达"。）
+    （2026-10-15 按新物理模型重写场景：桥体墙是 K 列整列、隧道只东西向穿行，
+    挡板跨界只能走西区走廊。场景：障碍封死 N7（N6 的北向入位被堵），
+    朝北到达 N6 不可行、朝东可达——应降级完赛、雷一颗不少。）
     """
-    mines = ["A9", "J7", "A6", "D11", "I5", "A11", "M11", "H9"]
-    obstacles = ["G7", "H7", "A4", "E6", "M7", "C10", "I9", "F10"]
+    mines = ["E6", "H9", "A6"]
     snap = _snap(
         mines=[_c(n) for n in mines],
-        passable=[_c("K7")],   # mb=6 几何：门在 6/7 边界上（K5 是 mb=5 时代的位置）
-        obstacles=[_c(n) for n in obstacles],
+        obstacles=[_c("N7")],   # 封死 N7→N6 的朝北进位
     )
     with pytest.warns(RuntimeWarning, match="降级"):
         route = plan_route(snap, _c("N11"), _c("N6"),

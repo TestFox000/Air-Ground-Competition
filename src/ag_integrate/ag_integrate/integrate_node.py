@@ -78,6 +78,11 @@ class IntegrateNode(Node):
         # 中场横向挡板位置：唯一来源是 mission_router._MID_BOUNDARY，
         # test_field_config_consistency 锁死 yaml/节点/常量三处口径一致。
         self.declare_parameter("mid_boundary", _MID_BOUNDARY)
+        # 穿越挡板边界的附加代价（格当量）：分区策略软约束，0=关闭（默认兼容）
+        self.declare_parameter("crossing_penalty", 0.0)
+        # 桥洞隧道方向：["K9:E"] 形如 格号:E|W|EW——规则方向=桥顶箭头指向；
+        # 缺省（[""]）= 对所有隧道格强制轴向直行（物理约束，无需方向）
+        self.declare_parameter("tunnel_dirs", [""])
         # 外部朝向补偿（根除绕圈问题）：
         #   heading_bias_source="none"  → 不补偿，保持现状（默认，安全）
         #   heading_bias_source="udp"   → 监听 dzuav 的 0x4002 车位姿帧，
@@ -152,6 +157,19 @@ class IntegrateNode(Node):
         self.red_veto_ttl_s = float(p("red_veto_ttl_s"))
         self.cross_gates = tuple(n.strip() for n in p("cross_gates") if n.strip())
         self.mid_boundary = int(p("mid_boundary"))
+        self.crossing_penalty = float(p("crossing_penalty"))
+        # "K9:E" 列表 -> {"K9": "E"}；[""] 占位 -> None（全部隧道格自动轴向约束）
+        self.tunnel_dirs: dict[str, str] | None = None
+        td = {}
+        for item in p("tunnel_dirs"):
+            item = item.strip()
+            if not item:
+                continue
+            cell, _sep, d = item.partition(":")
+            if _sep:
+                td[cell.strip()] = d.strip()
+        if td:
+            self.tunnel_dirs = td
         self.heading_bias_source = str(p("heading_bias_source")).strip().lower()
         self.cmd_vel_topic = str(p("cmd_vel_topic"))
         self.align_creep_speed = float(p("align_creep_speed"))
@@ -496,6 +514,8 @@ class IntegrateNode(Node):
                 target_blue_face=self.target_blue_face,
                 time_params=self._time_params,
                 soft_cap_s=self.time_soft_cap_s,
+                crossing_penalty=self.crossing_penalty,
+                tunnel_dirs=self.tunnel_dirs,
             )
         except (ValueError, IndexError, KeyError) as exc:
             # 规划失败（goal 不可达、桥洞未识别全等）：记日志 + 黑匣子，
