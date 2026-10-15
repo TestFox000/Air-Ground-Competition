@@ -22,12 +22,16 @@ def cell(name: str) -> CellRef:
     return CellRef(col, row)
 
 
-def build_snapshot() -> WorldSnapshot:
-    """从图片解析的场地态势。"""
+def build_snapshot(bridge_col: str = "L") -> WorldSnapshot:
+    """从图片解析的场地态势。
+
+    桥洞列默认 L（与 docs/interface_contract.md 一致；现场拓扑待核实，
+    历史上这里写成 K3/K7——若实际场地桥洞在 K 列，用 --bridge-col K）。
+    """
     mines = [cell(n) for n in [
         "A2", "I2", "E5", "E6", "F7", "H7", "B9", "H9",
     ]]
-    passable = [cell(n) for n in ["K3", "K7"]]
+    passable = [cell(f"{bridge_col}3"), cell(f"{bridge_col}7")]
     obstacles = [cell(n) for n in [
         "A3", "A4", "G4", "J6", "I8", "C10", "E10", "D11",
     ]]
@@ -139,7 +143,12 @@ def render(snapshot: WorldSnapshot, route: tuple[str, ...], out_path: str) -> No
 
 
 def main() -> int:
-    snapshot = build_snapshot()
+    import argparse
+    ap = argparse.ArgumentParser(description="根据场地态势生成路径规划并渲染场地图")
+    ap.add_argument("--bridge-col", default="L",
+                    help="桥洞所在列字母（默认 L，与契约一致；现场拓扑待核实）")
+    args = ap.parse_args()
+    snapshot = build_snapshot(args.bridge_col.upper())
     start = cell("N10")
     goal = cell("N5")
     route = plan_route(snapshot, start, goal)

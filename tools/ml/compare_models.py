@@ -29,6 +29,10 @@ except ImportError:
     print("需要 opencv-python / numpy", file=sys.stderr)
     raise SystemExit(2)
 
+# np.trapezoid 是 numpy>=2.0 的新名字；requirements.txt 只要求 numpy>=1.24，
+# 旧版本只有 np.trapz（两者算法相同），用 getattr 回退兼容
+_trapezoid = getattr(np, "trapezoid", None) or np.trapz
+
 
 # ---------------------------------------------------------------- 纯函数（离线可测）
 
@@ -85,7 +89,7 @@ def average_precision(predictions, ground_truths, iou_threshold: float) -> float
     # 补上 recall=0 起点（否则首检之前的区间丢失，AP 系统性偏低）
     recall = np.concatenate(([0.0], recall))
     precision = np.concatenate(([precision[0]], precision))
-    return float(np.trapezoid(precision, recall)) if len(recall) > 1 else 0.0
+    return float(_trapezoid(precision, recall)) if len(recall) > 1 else 0.0
 
 
 def mean_average_precision(predictions, ground_truths, iou_threshold: float,

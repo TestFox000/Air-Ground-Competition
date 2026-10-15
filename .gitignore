@@ -100,3 +100,6 @@ logs/
 
 # reference/onboard 的例外之下，仍有 71MB 的整机备份包（.tar.gz）不适合入库
 reference/onboard/*.tar.gz
+
+# 循迹诊断：本机小车 IP 缓存（密码约定走 AG_CAR_PASS 环境变量，永不落盘）
+tools/track_diag.local.env

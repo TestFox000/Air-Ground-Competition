@@ -4,7 +4,7 @@
 本模块在新链路中独立实现，不再依赖 ag_car/ag_core）：
 
     "reset:N10,y"            里程计锚定：格号 + 摆放朝向（每局先发一次）
-    "G8 A10 D2* E2 ,y"       路线：空格分隔格号；`*`=停靠射击；末尾 ,x/,y=终点朝向
+    "G8 A10 D2* E2,y"        路线：空格分隔格号；`*`=停靠射击；末尾 ,x/,y=终点朝向
 
 非法 token 车端会整条丢弃，所以所有输入在此先校验，宁错不发。
 """
@@ -30,7 +30,7 @@ class RoutePlan:
 
 
 def parse_cell(cell: str) -> str:
-    """校验并返回规范格号 'D11'；非法抛 CommandError。"""
+    """校验并返回规范格号 'D11'（前导零归一：'A01' -> 'A1'）；非法抛 CommandError。"""
     s = (cell or "").strip().upper().rstrip("*")
     if len(s) < 2 or s[0] not in COL_LETTERS or not s[1:].isdigit():
         raise CommandError(f"非法格号 {cell!r}：应为 字母A~N + 数字1~11")
@@ -40,7 +40,7 @@ def parse_cell(cell: str) -> str:
         raise CommandError(f"格号 {cell!r} 行号超出 1~{MAP_ROWS}")
     if not (0 <= col < MAP_COLS):
         raise CommandError(f"格号 {cell!r} 列号超出 A~{COL_LETTERS[-1]}")
-    return s
+    return f"{s[0]}{row + 1}"
 
 
 def reset_command(start_cell: str, heading: str) -> str:

@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(r"e:\OneDrive - mails.qust.edu.cn\桌面\air_ground")
-OUT = ROOT / "runs\lattice_ransac"
+OUT = ROOT / "runs/lattice_ransac"
 frames = [
     ("lattice_frame_00175.jpg", "frame_00175：覆盖 65.9%→78.0%（lattice 补全/纠正 10 格）"),
     ("lattice_frame_00168.jpg", "frame_00168：覆盖 85.5%→91.3%（69 格全场视角）"),

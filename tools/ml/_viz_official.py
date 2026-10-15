@@ -32,8 +32,8 @@ for stem in targets:
             p = line.split()
             if p and p[0] == "0":
                 cx, cy, w, h = map(float, p[1:5])
-                x1, y1, x2, y2 = (cx-w/2)*W, (cy-h/2)*H, (cx+w/2)*H*0+W*(cx+w/2), (cy+h/2)*H
-                x2 = (cx + w/2) * W
+                # 原式 x2 写成 (cx+w/2)*H*0+W*(cx+w/2)，*H*0 是废表达式，直接按 W 算
+                x1, y1, x2, y2 = (cx-w/2)*W, (cy-h/2)*H, (cx+w/2)*W, (cy+h/2)*H
                 dr.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=6)
                 dr.text((x1+4, y1+4), "GT", fill=(0, 255, 0), font=font)
     r = model.predict(str(IMG / f"{stem}.jpg"), conf=0.05, imgsz=1280, verbose=False, device=0)[0]

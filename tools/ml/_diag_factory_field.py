@@ -51,7 +51,8 @@ for tag in ["场地帧", "室内帧", "官方图"]:
 # 场地帧上 car/靶 框的中心像素分布（看是否同一物体的重复检出）
 print("\n===== 场地帧 car 检出明细 =====")
 for name, boxes in sorted(car_boxes.items()):
-    if name not in field_frames:
+    stem = Path(name).stem  # field_frames 以 stem 为键，records 的 key 带 .jpg 后缀
+    if stem not in field_frames:
         continue
     for cls, conf, xyxy in boxes:
         cx, cy = (xyxy[0]+xyxy[2])/2, (xyxy[1]+xyxy[3])/2
@@ -59,7 +60,8 @@ for name, boxes in sorted(car_boxes.items()):
 
 print("\n===== 场地帧 靶 检出明细 =====")
 for name, boxes in sorted(tgt_boxes.items()):
-    if name not in field_frames:
+    stem = Path(name).stem  # 同上：必须用 stem 查 field_frames
+    if stem not in field_frames:
         continue
     for cls, conf, xyxy in boxes:
         cx, cy = (xyxy[0]+xyxy[2])/2, (xyxy[1]+xyxy[3])/2

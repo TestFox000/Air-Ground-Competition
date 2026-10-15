@@ -18,12 +18,15 @@ with CSV.open("r", encoding="utf-8-sig", newline="") as f:
         records.append(row)
 
 random.seed(42)
+np.random.seed(42)  # np.random.normal 也要播种，否则噪声不可复现
 new_records = []
 aug_count = 0
+n_train_src = 0  # 实际参与增强的 train 原图数（用于末尾统计打印）
 
 for r in records:
     if r["split"] != "train":
         continue
+    n_train_src += 1
     src = CROPS / f"{r['cell_id']}.png"
     im = Image.open(src).convert("RGB")
     # 原图保留
@@ -71,8 +74,10 @@ for r in records:
         aug_count += 1
 
 # val 记录直接保留（用原图）
+n_val = 0
 for r in records:
     if r["split"] == "val":
+        n_val += 1
         new_records.append({**r, "crop_path": f"crops/{r['cell_id']}.png"})
 
 # 写新 CSV
@@ -82,6 +87,7 @@ with new_csv.open("w", encoding="utf-8-sig", newline="") as f:
     w.writeheader()
     w.writerows(new_records)
 
-print(f"原始 train: 132, 增强后 train: {132 + aug_count}, val: 22")
+# 打印实际统计值，不再硬编码 132/22（数据集会变动，硬编码必然失真）
+print(f"原始 train: {n_train_src}, 增强后 train: {n_train_src + aug_count}, val: {n_val}")
 print(f"总样本: {len(new_records)}")
 print(f"增强 CSV: {new_csv}")

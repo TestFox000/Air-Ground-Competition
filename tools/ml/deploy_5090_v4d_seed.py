@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
 import sys
 import time
 import zipfile
@@ -19,7 +20,9 @@ from pathlib import Path
 
 import paramiko
 
-HOST, PORT, USER, PWD = "connect.bjb2.seetacloud.com", 37113, "root", "Zip83Urbyglp"
+# 密码不再硬编码，从环境变量 AG_5090_PASS 读取（同 tools/train_on_5090.py 范式）
+HOST, PORT, USER = "connect.bjb2.seetacloud.com", 37113, "root"
+PWD = os.environ.get("AG_5090_PASS", "")
 V4D_ZIP = Path(r"E:\ml_datasets\cellv4d_upload_v2.zip")  # v2: 正确 cell_labels/ 结构 + merged_v4d.csv
 SEED_DIR = Path(r"E:\ml_datasets\seed_157")
 SEED_ZIP = Path(r"E:\ml_datasets\seed_157_upload.zip")
@@ -63,6 +66,8 @@ def run(c, cmd: str, timeout: int = 120) -> str:
 
 
 def deploy(skip_seed: bool, skip_v4d: bool) -> bool:
+    if not PWD:
+        raise SystemExit("错误: 未设置环境变量 AG_5090_PASS（5090 实例 root 密码），请先设置后再运行")
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     c.connect(HOST, port=PORT, username=USER, password=PWD, timeout=15)

@@ -67,3 +67,54 @@ def test_build_mission_cross_gates_from_names():
     assert tokens[0] == "A1"
     assert tokens[-1] == "A11"
     assert "F6" in tokens
+
+
+def test_inject_track_only_hits_targets_on_track():
+    """移动靶轨道先验只注入落在轨道上的靶：固定红靶不触发全局禁火，
+    轨道上的蓝靶按轨道几何停靠（D9/E9 蓝面侧正对端点）。"""
+    s = snapshot(
+        (
+            obj(CellRef(0, 5), ObjectType.MINE),           # A6
+            obj(CellRef(3, 7), ObjectType.TARGET_BLUE),    # D8：轨道上
+            obj(CellRef(13, 1), ObjectType.TARGET_RED),    # N2：固定红靶
+        )
+    )
+    cmds = build_mission(s, "A1", "A11", "y", None,
+                         target_track=("D8", "E8"), target_blue_face="S")
+    tokens = cmds.route.split()
+    stars = [t.rstrip("*") for t in tokens if t.endswith("*")]
+    # 移动靶按轨道几何停靠：D9/E9 之一带 *（固定红靶 N2 若被误注入轨道
+    # 会触发全局禁火，这里能打出 * 即证明未注入）
+    assert any(c in stars for c in ("D9", "E9"))
+    assert "N2" not in tokens     # 固定红靶格不可踩
+
+
+def test_inject_track_leaves_fixed_blue_on_fixed_geometry():
+    """不在轨道上的固定蓝靶保持固定语义：停靠格仍是其正交邻格，
+    不被轨道几何带偏；与移动靶各自命中、各记一次。"""
+    s = snapshot(
+        (
+            obj(CellRef(0, 5), ObjectType.MINE),           # A6
+            obj(CellRef(3, 7), ObjectType.TARGET_BLUE),    # D8：移动靶
+            obj(CellRef(13, 8), ObjectType.TARGET_BLUE),   # N9：固定蓝靶
+        )
+    )
+    cmds = build_mission(s, "A1", "A11", "y", None,
+                         target_track=("D8", "E8"), target_blue_face="S")
+    stars = [t.rstrip("*") for t in cmds.route.split() if t.endswith("*")]
+    assert len(cmds.shoot_cells) == 2
+    assert any(c in stars for c in ("D9", "E9"))            # 移动靶轨道停靠
+    assert any(c in stars for c in ("M9", "N8", "N10"))     # 固定靶邻格停靠
+
+
+def test_parse_name_boundary_validation():
+    """_parse_name 边界校验：非法格号（字母越界/行号越界/空串）抛 ValueError，
+    在规划入口就炸，不留到路由深处。"""
+    import pytest
+    s = snapshot(())
+    with pytest.raises(ValueError):
+        build_mission(s, "A1", "A11", "y", None, cross_gates=("Z9",))
+    with pytest.raises(ValueError):
+        build_mission(s, "A1", "A11", "y", None, cross_gates=("F99",))
+    with pytest.raises(ValueError):
+        build_mission(s, "A1", "A11", "y", None, cross_gates=("",))

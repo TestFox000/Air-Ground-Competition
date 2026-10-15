@@ -1338,6 +1338,8 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 ✅ **非硬件推进：render_field_matrix.py 场地约束先验修正**
 - 修复未提交工作中的两处场地格位约束 bug：
   - 桥洞 K1-K11 → **K1-K9**（项目硬约束：桥洞仅在K1-K9）
+    【已过时 2026-10-14：桥洞列已改为 `--bridge-col` 参数（默认 L，行范围 1-9），
+    不再写死 K 列；运行时路由由 ARROW 识别动态推导，见 interface_contract.md §7】
   - 雷区 M2-M9 → **M3-M9**（M2 为无人机终点，非雷区）
 - 新增 `_build_gt_targets()` 从场地真值构建对比 targets，GT 校验通过：mines=81 / obstacles=5 / arrows=9
 - 新增 `--show-gt` 参数输出检测矩阵与 GT 真值矩阵并排对比

@@ -12,7 +12,6 @@ YOLO_WEIGHTS = ROOT / r"runs\detect\runs\detect\aerial_field\weights\best.pt"
 CELL_WEIGHTS = ROOT / r"runs\cell_classifier_v3\best.pt"
 VAL_DIR = ROOT / r"capture\datasets\aerial_field_mixed\images\val"
 OUT = ROOT / r"runs\cell_recog_render\diag"
-OUT.mkdir(parents=True, exist_ok=True)
 
 sys.path.insert(0, str(ROOT / "reference" / "onboard" / "dzuav" / "src"))
 from cell_classifier.predictor import CellIdRecognizer  # noqa: E402
@@ -44,6 +43,7 @@ results = yolo.predict(source=str(img_path), conf=0.25, iou=0.45,
 boxes = results[0].boxes
 
 crops = []
+OUT.mkdir(parents=True, exist_ok=True)  # 推迟到首次写文件前建目录，import 期无副作用
 for i, box in enumerate(boxes[:15]):
     x1, y1, x2, y2 = box.xyxy[0].tolist()
     crop = square_crop(img, x1, y1, x2, y2, pad=1.15)

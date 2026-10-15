@@ -17,6 +17,10 @@ public:
     explicit UdpBroadcaster(uint16_t port = 50000);
     ~UdpBroadcaster();
 
+    // 独占持有 socket fd，禁止拷贝（防 double-close）。
+    UdpBroadcaster(const UdpBroadcaster&) = delete;
+    UdpBroadcaster& operator=(const UdpBroadcaster&) = delete;
+
     void send(uint64_t timestamp_ms, const std::vector<WorldObject>& objects);
 
     // 车真实位姿帧（msg_id=0x4002，根除车端绕圈问题）：

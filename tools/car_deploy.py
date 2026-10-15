@@ -82,7 +82,9 @@ def make_tarball() -> bytes:
                 if path.suffix in (".pyc", ".bak"):
                     continue
                 if path.is_file():
-                    tar.add(path, arcname=str(Path(pkg) / rel))
+                    # tar 条目名必须用 POSIX 正斜杠：str(Path(...)) 在 Windows 会产出
+                    # 反斜杠，Linux 端解压后目录结构错乱，colcon build 必败
+                    tar.add(path, arcname=f"{pkg}/{rel.as_posix()}")
     buf.seek(0)
     return buf.read()
 

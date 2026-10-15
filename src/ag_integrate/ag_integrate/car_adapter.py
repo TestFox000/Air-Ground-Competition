@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .car_commands import RoutePlan, reset_command, route_command
-from .fire_guard import decide_fire, neighbor_names
-from .world_model import WorldSnapshot
+from .fire_guard import blue_targets_hit, decide_fire
+from .world_model import TargetRef, WorldSnapshot
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,15 @@ class CarCommands:
     shed_shooting: bool = False    # True = 超软预算已砍射击位重规划
 
 
+def _target_key(t: TargetRef) -> tuple:
+    """靶身份键：移动靶以轨道为身份（全场仅一个，靶在轨上换格不换身份）；
+    固定靶以落点格为身份。served 去重必须按身份，按格名会让移动靶
+    换格后被重复记/漏记。"""
+    if t.track is not None:
+        return ("track", t.track)
+    return ("fixed", t.cell.name)
+
+
 def adapt(
     snapshot: WorldSnapshot,
     ordered_cells: tuple[str, ...],
@@ -31,24 +40,21 @@ def adapt(
     final_heading: str | None = None,
 ) -> CarCommands:
     # 禁火保险过滤 + 每靶一次：只有蓝敌格保留 '*'，且每个蓝靶
-    # 只在其首个邻接停靠点开火一次（顺路再次经过邻格不重复开火）。
+    # 只在其首个合法开火格开火一次（顺路再次经过不重复开火）。
+    # 命中判定复用 decide_fire 的同一套几何（blue_targets_hit）：
+    # 移动靶按轨道端点+蓝面朝向判定，不按瞬时落点的格名邻接。
     shoot: list[str] = []
     shoot_set: set[str] = set()
-    served: set[str] = set()
+    served: set[tuple] = set()
     for cell in ordered_cells:
         name = cell.strip().upper()
-        decision = decide_fire(snapshot, name)
-        if decision.denied:
+        if decide_fire(snapshot, name).denied:
             continue
-        hit = [
-            t.cell.name
-            for t in snapshot.targets
-            if t.is_blue and t.cell.name in neighbor_names(name)
-        ]
-        fresh = [t for t in hit if t not in served]
+        fresh = [t for t in blue_targets_hit(snapshot, name)
+                 if _target_key(t) not in served]
         if not fresh:
             continue
-        served.update(fresh)
+        served.update(_target_key(t) for t in fresh)
         if name not in shoot_set:
             shoot_set.add(name)
             shoot.append(name)

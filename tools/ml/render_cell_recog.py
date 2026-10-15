@@ -216,13 +216,15 @@ def main() -> None:
     total_gt = sum(r["gt_cell_labels"] for r in all_results)
     total_det = sum(r["detected"] for r in all_results)
     total_rec = sum(r["recognized"] for r in all_results)
+    # total_det 可能为 0（一帧都没检出），防零除
+    rec_rate = f"{total_rec/total_det*100:.1f}%" if total_det else "N/A(无检出)"
     html_parts.append(
         f'<div class="stats">'
         f'<div>帧数：<span>{len(all_results)}</span></div>'
         f'<div>真值格号总数：<span>{total_gt}</span></div>'
         f'<div>YOLO 检出：<span>{total_det}</span></div>'
         f'<div>识别成功：<span>{total_rec}</span></div>'
-        f'<div>识别率（检出中）：<span>{total_rec/total_det*100:.1f}%</span></div>'
+        f'<div>识别率（检出中）：<span>{rec_rate}</span></div>'
         f'</div><div class="grid">'
     )
 

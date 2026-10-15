@@ -92,13 +92,9 @@ def cmd_install_hook(args) -> int:
     machine = args.machine or "A"
     hook_path = REPO_ROOT / ".git" / "hooks" / "post-commit"
 
-    if os.name == "nt":
-        hook_content = f"""#!/bin/sh
-# 提交即推送到 Gitee
-git push origin main || true
-"""
-    else:
-        hook_content = f"""#!/bin/sh
+    # post-commit 钩子两平台同一份内容（git on Windows 也用 sh 跑钩子），
+    # 原来的 if os.name if/else 两分支逐字相同，是死分支，已合并
+    hook_content = """#!/bin/sh
 # 提交即推送到 Gitee
 git push origin main || true
 """
@@ -113,16 +109,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="air_ground 仓库同步")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("status", help="查看本地与远端差异")
+    status = sub.add_parser("status", help="查看本地与远端差异")
+    status.set_defaults(func=cmd_status)
     pull = sub.add_parser("pull-only", help="只拉取，不动工作区")
     pull.set_defaults(func=cmd_pull_only)
 
     hook = sub.add_parser("install-hook", help="安装 post-commit 钩子")
     hook.add_argument("--machine", default="A", help="机器代号（A/B）")
     hook.set_defaults(func=cmd_install_hook)
-
-    status = sub.add_parser("status", help="查看状态")
-    status.set_defaults(func=cmd_status)
 
     # 兼容旧参数风格
     parser.add_argument("--pull-only", action="store_true", help="只拉取")

@@ -31,13 +31,19 @@ integrate_node:
     #   udp   : 用 0x4002 真实朝向取最近坐标轴，残差 ≤ 45°，不挪车
     #   align : 用 0x4002 真实朝向闭环原地转向到断言朝向，零残差（推荐）
     heading_bias_source: "align"
-    heading_bias: 0.0
     # ---- 朝向对齐（align 模式）参数 ----
-    cmd_vel_topic: "/cmd_vel"           # 底盘角速度话题（path_executor 无路线时不占）
+    # ⚠️ 底盘契约（dzactuator 源码实测）：
+    #   1) path_executor 的 pursuitAngle 保活会把 dzactuator 钉在模式2，
+    #      此时 /cmd_vel 被静默丢弃——align 必须在 path_executor 启动前完成
+    #      （用 tools/car_match_bringup.sh 两阶段启动）；
+    #   2) Ackermann 车不能原地转：v==0 时舵机回中不动，必须带爬行速度。
+    cmd_vel_topic: "/cmd_vel"
+    align_creep_speed: 0.05           # 对齐爬行速度 m/s（v≠0 舵机才生效；0.05 摆正 68.6° 漂移 ~0.21m，仿真验证有裕度）
     heading_align_tolerance: 0.05       # 对齐容差 rad ≈ 3°
     heading_align_max_rate: 0.5         # 最大角速度 rad/s
     heading_align_timeout: 15.0         # 对齐超时 s（超时退回最近轴）
     heading_align_settle_ticks: 3       # 连续 N tick 在容差内才算对齐
+    wait_waypoint_consumer: true        # 等 /nav/waypoint 有订阅者再发路线（话题无滞留）
     # ---- 移动靶先验（全场唯一靶，裁判系统每局固定） ----
     target_track: ["D8", "E8"]      # 轨道两端格号
     target_blue_face: "S"           # 蓝面朝向 S/N(水平轨道)/E/W(垂直轨道)

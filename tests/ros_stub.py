@@ -5,7 +5,7 @@
 
 用法：
     import ros_stub            # 必须在 import 节点模块之前
-    from ag_mission.mission_node import MissionNode
+    from ag_integrate.integrate_node import IntegrateNode
 """
 
 from __future__ import annotations
@@ -28,6 +28,13 @@ def make_msg_class(name: str, fields: Dict[str, object]):
         _fields = fields
 
         def __init__(self, **kw):
+            # 真 ROS 消息对未知字段名抛 TypeError；桩若静默吞掉，
+            # 字段名写错的测试会一路绿灯到实机才炸。
+            unknown = sorted(set(kw) - set(fields))
+            if unknown:
+                raise TypeError(
+                    f"{name}() 没有字段 {unknown}（与真 ROS 消息行为一致）"
+                )
             for f, d in fields.items():
                 val = kw.get(f, d() if callable(d) else d)
                 setattr(self, f, val)
@@ -86,28 +93,31 @@ class PoseStamped:
         self.pose = _Pose()
 
 
+class _PoseWithCovariance:
+    def __init__(self) -> None:
+        self.pose = _Pose()
+        self.covariance = [0.0] * 36
+
+
+class _TwistWithCovariance:
+    def __init__(self) -> None:
+        self.twist = Twist()
+        self.covariance = [0.0] * 36
+
+
+class Odometry:
+    """nav_msgs/Odometry 替身：path_executor 只读 pose.pose 的 position/
+    orientation，协方差等字段占位即可。"""
+
+    def __init__(self) -> None:
+        self.header = Header()
+        self.child_frame_id = ""
+        self.pose = _PoseWithCovariance()
+        self.twist = _TwistWithCovariance()
+
+
 def _pose_msg_class():
     return PoseStamped
-Detection = make_msg_class(
-    "Detection",
-    {"cls": 0, "score": 0.0, "x1": 0.0, "y1": 0.0, "x2": 0.0, "y2": 0.0,
-     "kpt_x": 0.0, "kpt_y": 0.0, "kpt_conf": 0.0},
-)
-DetectionArray = make_msg_class("DetectionArray", {"header": Header, "detections": list})
-FieldIntelMsg = make_msg_class(
-    "FieldIntelMsg",
-    {"header": Header, "mines": list, "obstacles": list, "bridge_a": "", "bridge_b": "",
-     "target_cells": list, "target_face": "", "seq": 0},
-)
-GimbalCommand = make_msg_class(
-    "GimbalCommand", {"header": Header, "yaw_delta": 0.0, "pitch_delta": 0.0,
-                      "fire": False, "reason": ""},
-)
-RefereeStateMsg = make_msg_class(
-    "RefereeStateMsg",
-    {"header": Header, "ammo": 0, "shots": 0, "enemy_count": 0, "friend_count": 0,
-     "illuminated": 0, "hp": 0},
-)
 
 
 def _install(name: str, module: types.ModuleType) -> None:
@@ -129,6 +139,10 @@ def _package(pkg: str, mapping: Dict[str, object]) -> None:
 class FakeLogger:
     def __init__(self) -> None:
         self.records: List[tuple] = []
+        self.level = None  # set_level 仅记录，不过滤（测试要断言低级别日志）
+
+    def set_level(self, level) -> None:
+        self.level = level
 
     def _log(self, level, msg):
         self.records.append((level, str(msg)))
@@ -138,6 +152,35 @@ class FakeLogger:
     def warning(self, msg): self._log("warning", msg)
     def error(self, msg): self._log("error", msg)
     def debug(self, msg): self._log("debug", msg)
+    def fatal(self, msg): self._log("fatal", msg)
+
+
+class SimClock:
+    """全局可控仿真时钟（默认关闭）。
+
+    启用后所有 FakeClock.now() 都读同一个全局时间，不再自动推进，
+    由仿真循环调用 advance() 步进 —— path_executor 的 PIVOT 相位计时、
+    integrate_node 的对齐超时等都吃同一个时间源，才能离线快进。
+    """
+
+    def __init__(self) -> None:
+        self.enabled = False
+        self.t = 0.0
+
+    def enable(self, start: float = 0.0) -> None:
+        self.enabled = True
+        self.t = float(start)
+
+    def disable(self) -> None:
+        self.enabled = False
+
+    def advance(self, dt: float) -> float:
+        self.t += float(dt)
+        return self.t
+
+
+#: 全局仿真时钟单例
+SIM = SimClock()
 
 
 class FakeClock:
@@ -145,9 +188,14 @@ class FakeClock:
         self._ns = 1_000_000_000  # 1s 起步，单调递增
 
     def now(self):
-        self._ns += 100_000_000  # 每次调用推进 0.1s
+        if SIM.enabled:
+            ns = int(SIM.t * 1e9)  # 仿真模式：读全局时间，不自动推进
+        else:
+            self._ns += 100_000_000  # 每次调用推进 0.1s（旧行为，保持不变）
+            ns = self._ns
         return types.SimpleNamespace(
-            nanoseconds=self._ns, to_msg=lambda: None,
+            nanoseconds=ns, to_msg=lambda: None,
+            seconds_nanoseconds=lambda: (ns // 1_000_000_000, ns % 1_000_000_000),
         )
 
 
@@ -158,6 +206,60 @@ class FakePublisher:
 
     def publish(self, msg) -> None:
         self.published.append(msg)
+        if BUS.active:
+            BUS.dispatch(self.topic, msg)
+
+
+class TopicBus:
+    """进程内 topic 总线（默认关闭，仿真测试用 fixture 打开）。
+
+    打开后：create_publisher/create_subscription 登记到总线，publish 时
+    同步调用同 topic 的所有订阅回调；count_subscribers/count_publishers
+    返回真实数量（integrate_node 的 wait_waypoint_consumer 闸门因此
+    走真逻辑）。关闭时这两个 API 抛 RuntimeError —— 兼容
+    integrate_node._waypoint_consumer_ready 的 except 兜底（老测试环境
+    无订阅者概念，按"已就绪"放行，行为不变）。
+    """
+
+    def __init__(self) -> None:
+        self.active = False
+        self.subs: Dict[str, List[Callable]] = {}
+        self.pubs: Dict[str, List[FakePublisher]] = {}
+
+    def reset(self) -> None:
+        self.active = True
+        self.subs.clear()
+        self.pubs.clear()
+
+    def disable(self) -> None:
+        self.active = False
+        self.subs.clear()
+        self.pubs.clear()
+
+    def register_sub(self, topic: str, cb: Callable) -> None:
+        self.subs.setdefault(topic, []).append(cb)
+
+    def register_pub(self, topic: str, pub: FakePublisher) -> None:
+        self.pubs.setdefault(topic, []).append(pub)
+
+    def dispatch(self, topic: str, msg) -> None:
+        # 拷一份订阅列表再回调：回调里可能再注册/发布，避免迭代中被改
+        for cb in list(self.subs.get(topic, [])):
+            cb(msg)
+
+    def count_subscribers(self, topic: str) -> int:
+        if not self.active:
+            raise RuntimeError("ros_stub: topic 总线未启用，无法统计订阅者")
+        return len(self.subs.get(topic, []))
+
+    def count_publishers(self, topic: str) -> int:
+        if not self.active:
+            raise RuntimeError("ros_stub: topic 总线未启用，无法统计发布者")
+        return len(self.pubs.get(topic, []))
+
+
+#: 全局 topic 总线单例
+BUS = TopicBus()
 
 
 #: 参数覆盖表：用于在实例化节点前改写 declare_parameter 的默认值
@@ -181,12 +283,26 @@ class FakeNode:
         self.publishers: Dict[str, FakePublisher] = {}
         self.subscriptions: Dict[str, Callable] = {}
         self.timers: List[Callable] = []
-        self.logger = FakeLogger()
+        # 与真 rclpy 一致：logger 存 _logger，get_logger() 返回它。
+        # （旧桩用独立的 self.logger 属性，blackbox attach() 写 node._logger
+        # 时镜像链路静默失效 —— get_logger() 永远拿不到镜像。）
+        self._logger = FakeLogger()
         self.clock = FakeClock()
+
+    @property
+    def logger(self) -> FakeLogger:
+        """兼容测试直读 node.logger.records；与 get_logger() 同一对象。
+
+        attach() 之后拿到的是 _LoggerMirror，records 经 __getattr__ 透传到
+        被包裹的 FakeLogger，断言照旧成立。
+        """
+        return self._logger
 
     # ---- 参数 ----
     def declare_parameter(self, name: str, value=None):
         self._params[name] = _OVERRIDES.get(name, value)
+        # 真 rclpy 返回 Parameter 对象（.value 取值），别返回 None
+        return types.SimpleNamespace(name=name, value=self._params[name])
 
     def get_parameter(self, name: str):
         if name not in self._params:
@@ -198,14 +314,26 @@ class FakeNode:
         self._params[name] = value
 
     # ---- 通信 ----
-    def create_publisher(self, msg_type, topic: str, qos: int):
+    def create_publisher(self, msg_type, topic: str, qos):
         pub = FakePublisher(topic)
         self.publishers[topic] = pub
+        if BUS.active:
+            BUS.register_pub(topic, pub)
         return pub
 
-    def create_subscription(self, msg_type, topic: str, cb: Callable, qos: int):
+    def create_subscription(self, msg_type, topic: str, cb: Callable, qos):
         self.subscriptions[topic] = cb
+        if BUS.active:
+            BUS.register_sub(topic, cb)
         return cb
+
+    def count_subscribers(self, topic: str) -> int:
+        """总线启用时返回真实订阅数；未启用抛 RuntimeError，
+        由调用方（如 _waypoint_consumer_ready）的 except 兜底。"""
+        return BUS.count_subscribers(topic)
+
+    def count_publishers(self, topic: str) -> int:
+        return BUS.count_publishers(topic)
 
     def create_timer(self, period: float, cb: Callable):
         self.timers.append(cb)
@@ -213,7 +341,10 @@ class FakeNode:
 
     # ---- 其它 ----
     def get_logger(self):
-        return self.logger
+        return self._logger
+
+    def get_name(self) -> str:
+        return self.node_name
 
     def get_clock(self):
         return self.clock
@@ -254,8 +385,41 @@ def install() -> None:
     node_mod.Node = FakeNode
     rclpy_mod.node = node_mod
 
+    # QoS 替身：path_executor 模块级会构造 CMD_QOS = QoSProfile(...)，
+    # 桩只记录参数，不做任何传输语义。
+    qos_mod = types.ModuleType("rclpy.qos")
+
+    class QoSProfile:
+        def __init__(self, depth: int = 10, reliability=None, **kw) -> None:
+            self.depth = depth
+            self.reliability = reliability
+            self.extra = kw
+
+    class ReliabilityPolicy:
+        RELIABLE = 1
+        BEST_EFFORT = 2
+
+    qos_mod.QoSProfile = QoSProfile
+    qos_mod.ReliabilityPolicy = ReliabilityPolicy
+    rclpy_mod.qos = qos_mod
+
+    # 日志级别替身：path_executor 调 get_logger().set_level(LoggingSeverity.WARN)
+    logging_mod = types.ModuleType("rclpy.logging")
+
+    class LoggingSeverity:
+        DEBUG = 10
+        INFO = 20
+        WARN = 30
+        ERROR = 40
+        FATAL = 50
+
+    logging_mod.LoggingSeverity = LoggingSeverity
+    rclpy_mod.logging = logging_mod
+
     _install("rclpy", rclpy_mod)
     _install("rclpy.node", node_mod)
+    _install("rclpy.qos", qos_mod)
+    _install("rclpy.logging", logging_mod)
     _package("std_msgs", {"String": String, "Header": Header,
                           "Int32": make_msg_class("Int32", {"data": 0}),
                           "Int32MultiArray": make_msg_class("Int32MultiArray", {"data": list}),
@@ -266,16 +430,7 @@ def install() -> None:
     _package("geometry_msgs", {"PoseStamped": PoseStamped, "Point": _Point,
                                "Quaternion": _Quaternion, "Pose": _Pose,
                                "Twist": Twist, "Vector3": _Vector3})
-    _package(
-        "ag_interfaces",
-        {
-            "Detection": Detection,
-            "DetectionArray": DetectionArray,
-            "FieldIntelMsg": FieldIntelMsg,
-            "GimbalCommand": GimbalCommand,
-            "RefereeStateMsg": RefereeStateMsg,
-        },
-    )
+    _package("nav_msgs", {"Odometry": Odometry})
 
 
 install()

@@ -5,17 +5,40 @@
 #include <opencv2/imgproc.hpp>
 namespace dzuav
 {
+namespace
+{
+// 引擎输出形状契约校验用：Dims 打印成 "[1,11,33600]" 便于定位换错引擎的问题。
+// 模板形参兼容 TRT 8.x 的 Dims（int32）与 10.x 的 Dims64。
+template <class DimsT>
+std::string dimsToString(const DimsT& d)
+{
+    std::string s = "[";
+    for (int i = 0; i < d.nbDims; ++i)
+    {
+        if (i > 0)
+            s += ',';
+        s += std::to_string(d.d[i]);
+    }
+    s += ']';
+    return s;
+}
+}  // namespace
 HbbDetector::HbbDetector(const std::string& p, float c, float n)
     : TensorRtEngine(p), confidence_(c), nms_(n)
 {
     if (!context_->setInputShape("images", nvinfer1::Dims4{1, 3, 1280, 1280}))
         throw std::runtime_error("cannot set hbb_detector input shape");
-    cudaMalloc(&input_, 3 * 1280 * 1280 * sizeof(float));
-    cudaMalloc(&output_, 11 * 33600 * sizeof(float));
+    // 输出形状契约校验：不符即抛错并打印实际形状，防换引擎后静默读垃圾。
+    const auto out_dims = context_->getTensorShape("output0");
+    if (out_dims.nbDims != 3 || out_dims.d[0] != 1 || out_dims.d[1] != 11 ||
+        out_dims.d[2] != 33600)
+        throw std::runtime_error("hbb_detector output0 shape mismatch: expect [1,11,33600], got " +
+                                 dimsToString(out_dims));
+    cudaCheck(cudaMalloc(&input_, 3 * 1280 * 1280 * sizeof(float)));
+    cudaCheck(cudaMalloc(&output_, 11 * 33600 * sizeof(float)));
     // 页锁定主机缓冲：H2D/D2H DMA 直传，免驱动临时中转（NVIDIA TRT 性能建议）。
-    if (cudaMallocHost(reinterpret_cast<void**>(&h_input_), 3 * 1280 * 1280 * sizeof(float)) != cudaSuccess ||
-        cudaMallocHost(reinterpret_cast<void**>(&h_output_), 11 * 33600 * sizeof(float)) != cudaSuccess)
-        throw std::runtime_error("cannot allocate pinned host buffers for hbb_detector");
+    cudaCheck(cudaMallocHost(reinterpret_cast<void**>(&h_input_), 3 * 1280 * 1280 * sizeof(float)));
+    cudaCheck(cudaMallocHost(reinterpret_cast<void**>(&h_output_), 11 * 33600 * sizeof(float)));
     // blob_ 包住 pinned 内存：blobFromImage 对同形状 OutputArray 不重新分配（Mat::create
     // 契约），直接写入；即使个别 OpenCV 版本内部重新分配，后续拷贝也总是从 blob_.ptr()
     // 取址，正确性不受影响（只是退回普通内存路径）。
@@ -34,13 +57,13 @@ std::vector<Detection> HbbDetector::infer(const cv::Mat& image)
     cv::copyMakeBorder(r, r, 0, 1280 - r.rows, 0, 1280 - r.cols, cv::BORDER_CONSTANT,
                        cv::Scalar(114, 114, 114));
     cv::dnn::blobFromImage(r, blob_, 1 / 255.f, cv::Size(1280, 1280), {}, true, false);
-    cudaMemcpyAsync(input_, blob_.ptr<float>(), blob_.total() * sizeof(float), cudaMemcpyHostToDevice,
-                    stream_);
+    cudaCheck(cudaMemcpyAsync(input_, blob_.ptr<float>(), blob_.total() * sizeof(float),
+                              cudaMemcpyHostToDevice, stream_));
     if (!context_->enqueueV3(stream_))
         throw std::runtime_error("hbb_detector inference failed");
-    cudaMemcpyAsync(h_output_, output_, 11 * 33600 * sizeof(float), cudaMemcpyDeviceToHost,
-                    stream_);
-    cudaStreamSynchronize(stream_);
+    cudaCheck(cudaMemcpyAsync(h_output_, output_, 11 * 33600 * sizeof(float),
+                              cudaMemcpyDeviceToHost, stream_));
+    cudaCheck(cudaStreamSynchronize(stream_));
     const float* raw = h_output_;
     std::vector<cv::Rect> boxes;
     std::vector<float> scores;

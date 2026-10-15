@@ -36,6 +36,7 @@ except ImportError:
 class TensorSpec:
     name: str
     dims: tuple  # int=固定维；str=符号维（动态批等）
+    dtype: str = "FLOAT"  # ONNX elem_type 名；契约所有张量均为 FLOAT（见模块 docstring）
 
 
 @dataclass(frozen=True)
@@ -74,9 +75,16 @@ def _dims(shape) -> tuple:
     return tuple(dims)
 
 
-def _onnx_tensors(model) -> dict[str, tuple]:
-    return {value.name: _dims(value.type.tensor_type.shape) for value in model.graph.output} | {
-        value.name: _dims(value.type.tensor_type.shape) for value in model.graph.input
+def _onnx_tensors(model) -> dict[str, tuple[tuple, str]]:
+    """张量名 -> (形状, dtype 名)，输出在前、输入在后（同名时输入覆盖输出）。"""
+
+    def _info(value) -> tuple[tuple, str]:
+        tt = value.type.tensor_type
+        dtype = onnx.TensorProto.DataType.Name(tt.elem_type)
+        return _dims(tt.shape), dtype
+
+    return {value.name: _info(value) for value in model.graph.output} | {
+        value.name: _info(value) for value in model.graph.input
     }
 
 
@@ -119,9 +127,15 @@ def verify(path: str | Path) -> tuple[bool, str]:
         if spec.name not in tensors:
             problems.append(f"缺少张量 {spec.name!r}")
             continue
-        if not _match(spec, tensors[spec.name]):
+        dims, dtype = tensors[spec.name]
+        if not _match(spec, dims):
             problems.append(
-                f"张量 {spec.name!r} 形状 {tensors[spec.name]} != 契约 {spec.dims}"
+                f"张量 {spec.name!r} 形状 {dims} != 契约 {spec.dims}"
+            )
+        # dtype 也是契约的一部分：C++ 按 float 读张量，INT8/FP16 模型会解出乱码
+        if dtype != spec.dtype:
+            problems.append(
+                f"张量 {spec.name!r} dtype {dtype} != 契约 {spec.dtype}"
             )
 
     if problems:

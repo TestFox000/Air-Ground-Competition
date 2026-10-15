@@ -12,7 +12,6 @@ ROOT = Path(r"E:/OneDrive - mails.qust.edu.cn/桌面/air_ground")
 DATASET = ROOT / "capture/datasets/aerial_field_mixed"
 FACTORY = ROOT / "models/release/hbb_detector.onnx"
 OUT = ROOT / "runs/distill_7cls"
-OUT.mkdir(exist_ok=True)
 
 NAMES = ["mine", "car", "arrow", "target_red", "cell_label", "target_blue", "obstacle"]
 COLORS = [(0, 0, 255), (255, 0, 255), (0, 165, 255), (0, 0, 255), (0, 255, 255), (255, 0, 0), (128, 0, 128)]
@@ -42,6 +41,7 @@ for img in frames:
 
 print("best frames:", {NAMES[c]: v[1] for c, v in best.items()})
 
+OUT.mkdir(parents=True, exist_ok=True)  # 推迟到首次写文件前建目录，import 期无副作用
 with open(OUT / "_factory_boxes.json", "w") as fp:
     json.dump(records, fp)
 

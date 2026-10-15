@@ -124,8 +124,13 @@ def fit_lattice(anchors, min_inliers=6):
 
 
 def detect_and_localize(image_path, yolo_pt, cell_pt,
-                        conf=0.45, anchor_conf=0.80):
-    """跑识别 + 格号锚点定位，返回目标列表、带框原图、定位元信息。"""
+                        conf=0.45, anchor_conf=0.80, bridge_col: str = "L"):
+    """跑识别 + 格号锚点定位，返回目标列表、带框原图、定位元信息。
+
+    bridge_col: 桥洞所在列字母，默认 L（与 docs/interface_contract.md §2 一致；
+    现场拓扑待核实，若实际桥洞在其他列用 --bridge-col 指定）。
+    """
+    bcol = LETTERS.index(bridge_col.upper())
     frame = cv2.imdecode(np.fromfile(str(image_path), dtype=np.uint8),
                          cv2.IMREAD_COLOR)
     args = SimpleNamespace(conf=conf, anchor_conf=anchor_conf,
@@ -147,13 +152,11 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
         clss.append(NAME2TYPE[name])
         confs.append(float(k))
 
-    # ---- 桥洞：场地约束先验（K1-K9 固定为桥洞）----
-    # 7cls 模型对 ARROW 类检测失效，根据比赛规则桥洞仅在 K 列，
-    # 直接标记 K1-K9 为桥洞。
-    arrow_cells = set((10, r) for r in range(9))  # K1-K9 (row 0-8)
-
-    # K 列的 mine 是误检，后续在 targets 阶段过滤
-    boxes, clss, confs = boxes, clss, confs
+    # ---- 桥洞：场地约束先验（桥洞列 1~9 行固定为桥洞）----
+    # 7cls 模型对 ARROW 类检测失效，按场地约束把桥洞列直接标记为桥洞。
+    # 列由 bridge_col 参数决定（默认 L，见契约；行范围 1-9 是历史经验值，
+    # 现场拓扑待核实——若桥洞列贯通行数不同需同步调整）。
+    arrow_cells = set((bcol, r) for r in range(9))  # 桥洞列 row 0-8（即 X1-X9）
 
     # ---- 格号识别 ----
     cell_idx = [i for i, t in enumerate(clss) if t == ObjectType.CELL_LABEL]
@@ -211,7 +214,7 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
             continue
         x1, y1, x2, y2 = boxes[i]
         if t == ObjectType.ARROW:
-            # 桥洞仅在 K 列（场地约束），按覆盖范围采样但只保留 K 列
+            # 桥洞仅在桥洞列（场地约束），按覆盖范围采样但只保留桥洞列
             step = 50
             seen = set()
             for yy in range(int(y1), int(y2), step):
@@ -220,7 +223,7 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
                     if cr is None or cr in seen:
                         continue
                     col, row = cr
-                    if col != 10:  # 只保留 K 列
+                    if col != bcol:  # 只保留桥洞列
                         continue
                     seen.add(cr)
                     targets.append({"kind": t, "cell": to_cid(col, row),
@@ -233,8 +236,8 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
         if cr is None:
             continue
         col, row = cr
-        # K 列是桥洞，过滤掉 K 列的 mine 误检
-        if t == ObjectType.MINE and col == 10:
+        # 桥洞列的 mine 是误检（桥洞物理上不埋雷），按参数列过滤
+        if t == ObjectType.MINE and col == bcol:
             continue
         if (col, row) not in direct_cells:
             inferred_cells.add((col, row))  # 格号反推所得
@@ -242,7 +245,7 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
                         "col": col, "row": row, "px": px, "py": py,
                         "conf": cf})
 
-    # 加入场地先验桥洞 K1-K9
+    # 加入场地先验桥洞（桥洞列 1-9 行）
     for (col, row) in arrow_cells:
         targets.append({"kind": ObjectType.ARROW, "cell": to_cid(col, row),
                         "col": col, "row": row, "px": 0, "py": 0, "conf": 1.0})
@@ -407,8 +410,12 @@ def render_field_matrix(targets, title="", cell_px=80, special=None,
     return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
 
 
-def _build_gt_targets():
-    """从用户提供的 GT 构建 targets 列表，用于对比渲染。"""
+def _build_gt_targets(bridge_col: str = "L"):
+    """从用户提供的 GT 构建 targets 列表，用于对比渲染。
+
+    桥洞列默认 L（与契约一致；本 GT 手工转录自桥洞在 K 列的旧裁判图，
+    用旧图对比时请传 --bridge-col K。现场拓扑待核实）。
+    """
     def expand(spec):
         cells = set()
         for part in spec.replace("，", ",").split(","):
@@ -431,7 +438,7 @@ def _build_gt_targets():
              expand("I1,I2") | expand("I5-I9") |
              expand("J1-J9") | expand("M3-M9") | expand("N1-N4,N6-N7"))
     obstacles = expand("B2,H2,I4,H9,F1")
-    arrows = expand("K1-K9")
+    arrows = expand(f"{bridge_col}1-{bridge_col}9")  # 桥洞列 1-9 行（行范围为历史经验值）
 
     targets = []
     for cid in mines:
@@ -460,13 +467,16 @@ def main():
                     default=REPO / "runs/matrix_test/field_matrix.png")
     ap.add_argument("--title", type=str, default="")
     ap.add_argument("--cell-px", type=int, default=80, help="矩阵每格像素")
+    ap.add_argument("--bridge-col", default="L",
+                    help="桥洞所在列字母（默认 L，与契约一致；现场拓扑待核实）")
     ap.add_argument("--show-gt", action="store_true",
                     help="同时输出 GT 真值矩阵对比")
     args = ap.parse_args()
 
     yolo = REPO / "runs/detect/runs/detect/runs/detect/aerial_field_7cls/weights/best.pt"
     cell = REPO / "runs/cell_classifier_v4c/best.pt"
-    targets, render_img, meta = detect_and_localize(args.image, yolo, cell)
+    targets, render_img, meta = detect_and_localize(args.image, yolo, cell,
+                                                    bridge_col=args.bridge_col)
     if args.title:
         title = args.title
     elif meta["method"] == "lattice":
@@ -482,7 +492,7 @@ def main():
                                      inferred=set(meta["inferred"]))
 
     if args.show_gt:
-        gt_targets = _build_gt_targets()
+        gt_targets = _build_gt_targets(args.bridge_col)
         gt_matrix = render_field_matrix(gt_targets, "[GT 真值]",
                                         cell_px=args.cell_px,
                                         special=GT_SPECIAL)

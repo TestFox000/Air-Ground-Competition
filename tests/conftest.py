@@ -13,6 +13,13 @@ os.environ["AG_LOG_SESSION"] = "pytest"
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 
+# ---------------------------------------------------------------------------
+# 循迹链路 SIL 仿真（tests/sim_car.py + tests/test_sim_tracking.py）保真边界：
+# 验证的是"契约 + 控制逻辑"（命令语义、dzactuator 模式仲裁、对齐状态机、
+# reset 断言偏置的画圆机理），不是动力学参数辨识 —— 理想定位、无滑移、
+# 速度瞬时到位、串口打包与速度平滑不建模。详见 sim_car.py 文件头。
+# ---------------------------------------------------------------------------
+
 # ROS2 的 Python 包采用 src/<pkg>/<pkg>/ 结构，因此每个包目录都要单独入 path，
 # 才能在 Windows 上直接 import ag_core / ag_mission / ag_referee / ag_bridge。
 paths = [SRC]

@@ -15,6 +15,18 @@ find_path(TENSORRT_INCLUDE NvInfer.h PATHS /usr/include/aarch64-linux-gnu /usr/i
 find_library(TENSORRT_LIB nvinfer PATHS /usr/lib/aarch64-linux-gnu)
 find_library(CUDART_LIB cudart PATHS /usr/local/cuda/lib64 /usr/local/cuda/targets/aarch64-linux/lib)
 
+# 前置依赖缺失时给出明确报错（本程序须在 Jetson 上构建：
+# JetPack >= 5，自带 TensorRT 8.5+ 与 CUDA 工具链）。
+if(NOT TENSORRT_INCLUDE)
+  message(FATAL_ERROR "NvInfer.h not found; install the JetPack TensorRT dev package (tensorrt-dev / libnvinfer-dev)")
+endif()
+if(NOT TENSORRT_LIB)
+  message(FATAL_ERROR "libnvinfer not found; install the JetPack TensorRT runtime (libnvinfer8)")
+endif()
+if(NOT CUDART_LIB)
+  message(FATAL_ERROR "libcudart not found; install the JetPack CUDA toolkit (cuda-cudart-dev)")
+endif()
+
 add_executable(dzuav
   src/main.cpp
   src/HbbDetector.cpp
@@ -27,6 +39,8 @@ target_include_directories(dzuav PRIVATE
   ${OpenCV_INCLUDE_DIRS}
   ${TENSORRT_INCLUDE}
   /usr/local/cuda/include)
+
+target_compile_options(dzuav PRIVATE -Wall -Wextra)
 
 target_link_libraries(dzuav PRIVATE ${OpenCV_LIBS} ${TENSORRT_LIB} ${CUDART_LIB})
 

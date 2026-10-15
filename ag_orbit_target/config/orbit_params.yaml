@@ -5,6 +5,7 @@ orbit_node:
     target_real_width: 0.20          # 标靶实际宽度（米），上车后实测
     focal_length: 600.0              # 相机焦距（像素），640x480 典型值，需标定
     target_cls: 1                    # 1=蓝靶(敌) 2=红靶(友)
+    det_freshness: 0.5               # 目标新鲜度（秒），超时视为无目标
 
     # ---- 绕行 ----
     best_distance: 1.0               # 最佳打击距离（米）
@@ -18,6 +19,7 @@ orbit_node:
     k_dist: 0.5                      # 距离误差→线速度增益
 
     # ---- 安全限制 ----
+    enable: false                    # 安全闸：false 时不发任何 /cmd_vel（只录像、打日志）
     max_angular: 0.8
     max_linear: 0.25
     lost_timeout: 3.0
@@ -26,6 +28,7 @@ orbit_node:
 
     # ---- 录像 ----
     record_dir: ~/orbit_videos
+    record_fps: 20.0                 # 录像帧率（fps）
     image_topic: /image_raw
     detection_topic: /offset_center
     cmd_vel_topic: /cmd_vel

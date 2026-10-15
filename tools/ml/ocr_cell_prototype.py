@@ -31,8 +31,7 @@ ROOT = Path(r"e:\OneDrive - mails.qust.edu.cn\桌面\air_ground")
 YOLO_WEIGHTS = ROOT / r"runs\detect\runs\detect\aerial_field_finetuned_v2\weights\best.pt"
 VAL_DIR = ROOT / r"capture\datasets\aerial_field_mixed\images\val"
 V4C_JSON = ROOT / r"runs\cell_recog_render\cell_recog_val_v4c.json"
-OUT_DIR = ROOT / "runs\ocr_prototype"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+OUT_DIR = ROOT / "runs/ocr_prototype"
 
 CELL_LABEL_CLS = 1
 CONF_DET = 0.25
@@ -255,6 +254,7 @@ def ocr_cell_id(crop: Image.Image, templates: dict) -> dict:
 # ---------- 主流程 ----------
 
 def main() -> None:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)  # 只在真正运行时建目录，import 期无副作用
     print("[1/5] 渲染整字模板（154 格号 × 11 角度）...")
     templates = render_cell_templates()
 

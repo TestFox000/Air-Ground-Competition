@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .field_frame import LETTERS
-from .world_model import WorldSnapshot
+from .field_frame import COLS, LETTERS, ROWS, CellRef
+from .world_model import TargetRef, WorldSnapshot
 
 
 @dataclass(frozen=True)
@@ -34,8 +34,44 @@ def neighbor_names(name: str) -> tuple[str, ...]:
     out = []
     for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         c, r = col + dc, row + dr
-        if 0 <= c < len(LETTERS) and 0 <= r < 11:
+        if 0 <= c < COLS and 0 <= r < ROWS:
             out.append(f"{LETTERS[c]}{r + 1}")
+    return tuple(out)
+
+
+def _track_fire_cells(t: TargetRef) -> tuple[CellRef, ...]:
+    """移动靶的合法开火格：轨道两端在蓝面朝向一侧的正交邻格（越界剔除）。
+
+    轨道水平（两端同行）时 blue_face='S'(row+1)/'N'(row-1)；
+    垂直（两端同列）时 'E'(col+1)/'W'(col-1)。
+    """
+    a, b = t.track
+    if a.row == b.row:       # 水平轨道
+        dr = 1 if t.blue_face == "S" else -1
+        cells = (CellRef(a.col, a.row + dr), CellRef(b.col, b.row + dr))
+    else:                    # 垂直轨道
+        dc = 1 if t.blue_face == "E" else -1
+        cells = (CellRef(a.col + dc, a.row), CellRef(b.col + dc, b.row))
+    return tuple(c for c in cells if 0 <= c.col < COLS and 0 <= c.row < ROWS)
+
+
+def blue_targets_hit(snapshot: WorldSnapshot, shoot_cell: str) -> tuple[TargetRef, ...]:
+    """停靠在 shoot_cell 开火会打中的蓝靶集合（与 decide_fire 同一套几何）。
+
+    固定靶：停靠格正交邻靶格；移动靶：停靠格是轨道端点在蓝面朝向侧的
+    正交邻格——与靶当前瞬时在轨位置无关（轨道几何判定，不是格名邻接）。
+    """
+    name = shoot_cell.strip().upper()
+    around = set(neighbor_names(name))
+    out = []
+    for t in snapshot.targets:
+        if not t.is_blue:
+            continue
+        if t.track is not None:
+            if any(name == c.name for c in _track_fire_cells(t)):
+                out.append(t)
+        elif t.cell.name in around:
+            out.append(t)
     return tuple(out)
 
 
@@ -48,29 +84,14 @@ def decide_fire(snapshot: WorldSnapshot, shoot_cell: str) -> FireDecision:
     """
     name = shoot_cell.strip().upper()
     around = set(neighbor_names(name))
-    col = LETTERS.index(name[0])
-    row = int(name[1:]) - 1
-    has_blue = has_red = False
+    has_blue = bool(blue_targets_hit(snapshot, name))
+    has_red = False
     for t in snapshot.targets:
-        if t.track is not None:
-            a, b = t.track
-            if not t.is_blue:
-                has_red = True        # 红面可见：友方，禁火
-                continue
-            # 蓝面可见：停靠格须正对轨道端点且在蓝面侧
-            if a.row == b.row:       # 水平轨道
-                dr = 1 if t.blue_face == "S" else -1
-                ok = row == a.row + dr and col in (a.col, b.col)
-            else:                    # 垂直轨道
-                dc = 1 if t.blue_face == "E" else -1
-                ok = col == a.col + dc and row in (a.row, b.row)
-            if ok:
-                has_blue = True
+        if t.is_blue:
             continue
-        # 固定靶
-        if t.is_blue and t.cell.name in around:
-            has_blue = True
-        if (not t.is_blue) and t.cell.name in around:
+        if t.track is not None:
+            has_red = True        # 红面可见：友方，禁火（不论停在轨道何处）
+        elif t.cell.name in around:
             has_red = True
     if has_blue and has_red:
         return FireDecision(False, "mixed_targets_risk")

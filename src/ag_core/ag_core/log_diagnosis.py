@@ -13,8 +13,15 @@
 
 不是"看到某个词就报警"，而是按**跑车这件事的真实卡点**倒推：
 一局要跑通，必须依次发生
-   情报收到 → 投票收敛 → 路线发出 → 车端复位 → 到停靠点打击 → 回终点
+   情报收到 → 门控放行 → 路线发出（reset+route） → 车端执行 → 到停靠点打击 → 回终点
 中间任何一环断了，报告要直接指出"断在哪一环、为什么、去看哪个参数"。
+
+## 现役栈与旧栈
+
+10-01 官方栈重构后，事件生产者只有 `ag_integrate.integrate_node`
+（情报/门控/路线）与黑匣子自身。凡是生产者已删除的规则（裁判、瞄准闸门、
+视觉看门狗、单向链路等）保留不动、逐条标注「旧栈兼容保留」——复盘**旧日志**
+时它们依然有用，对现役事件流则自然不触发。
 """
 
 from __future__ import annotations
@@ -31,15 +38,20 @@ __all__ = ["Finding", "diagnose", "summarize", "SEVERITY_ORDER"]
 SEVERITY_ORDER = {"critical": 0, "warn": 1, "info": 2, "ok": 3}
 
 #: `route.blocked` 的 reason -> 现场排查提示。
-#: 节点写入的 reason 必须来自 `blackbox.REASON`，否则这里查不到提示。
+#: 键必须与生产者写进事件流的字面量一致（现役生产者：
+#: `ag_integrate.pipeline.evaluate_gate` 的 not_enough_mines / face_unknown，
+#: 即 `blackbox.REASON`；其余键是旧栈保留，生产者已删除，仅为读懂旧日志而留）。
 BLOCK_HINT = {
-    "min_mines": "确认的雷数不够 —— 看 intel.recv 里的 mines 是「没拍到」还是「投票被过滤」",
-    "face_unknown": "敌我未判决 —— 检查视觉能否看到敌我识别区（/offset_center 的 cls 是否恒为 0）",
-    "no_cells": "任务序列为空 —— 情报里既没有雷也没有终点，看 IntelVoter 的 stable 内容",
+    # ---- 现役 ----
+    "not_enough_mines": "确认的雷数不够 —— 看 intel.recv 里的 mines 是「没拍到」还是「融合未确认」",
+    "face_unknown": "敌我未判决 —— 现役敌我判决来自 dzuav 0x4001 帧的 "
+                    "TARGET_BLUE/RED 识别，查无人机画面里靶是否可见、识别是否稳定",
+    # ---- 旧栈保留（生产者已删除）----
+    "no_cells": "任务序列为空 —— 情报里既没有雷也没有终点（旧栈规划器语义）",
     "min_shoot_stops": "打击停靠点少于 min_shoot_stops，被主动拦下",
     "route_error": "路线串拼装失败 —— 大概率是格号越界（14 列 A~N x 11 行 1~11）",
     "bridge_reject": "桥洞布点与推断区域不符且开了 strict_bridge_zone",
-    "bridge_zone": "桥洞自检告警（非阻断）",
+    "bridge_zone": "桥洞自检告警（非阻断；旧栈 reason，无对应 REASON 常量）",
 }
 
 
@@ -66,9 +78,9 @@ def summarize(events: Sequence[Event], nodes_all: Optional[Sequence[str]] = None
 
     `nodes_all` 是**未切局**的节点集合，用来判断"某个节点到底有没有在跑"。
     为什么需要它：报告默认只统计"最后一局"（从 `session.begin` 往后切），
-    而 `referee_node` 这类节点比 `car_node` 先启动 —— 它的 `node.ready` 落在窗口之前，
-    只按窗口算就会误判成"referee_node 没在跑"，进而漏掉"整局拿不到血量/弹药"这条真结论
-    （2026-09-28 实测踩到）。指标仍只看窗口内的，只有节点集合用全量。
+    而辅助节点可能比主节点先启动 —— 它的 `node.ready` 落在窗口之前，
+    只按窗口算就会误判成"没在跑"，进而漏掉真结论（2026-09-28 实测踩到）。
+    指标仍只看窗口内的，只有节点集合用全量。
     """
     s: Dict[str, Any] = {
         "events": len(events),
@@ -103,7 +115,8 @@ def summarize(events: Sequence[Event], nodes_all: Optional[Sequence[str]] = None
         "homography_bad": 0,           # 单应未标定/无效（情报链在这里断）
         "vision_stale": 0,             # 相机断流/从没收到图像
         "vision_never": False,         # 一帧图像都没收到过（相机没起 / 话题不对）
-        "car_node_present": False,     # 实车路径（发 /nav/waypoint）
+        "car_node_present": False,     # 旧栈实车路径（发 /nav/waypoint）
+        "integrate_node_present": False,  # 现役路径（integrate_node 发 /nav/waypoint）
         "shots": None,
         "aim_pass": 0,
         "aim_block": 0,
@@ -156,8 +169,10 @@ def summarize(events: Sequence[Event], nodes_all: Optional[Sequence[str]] = None
                 s["max_gap_prev"] = f"{prev.node}/{prev.ev}"
         prev = e
 
-        if ev == EV.SESSION_BEGIN:
-            # 开局那一行里带着"这局是按什么配置跑的"：很多结论要看它才判得准
+        if ev == EV.SESSION_BEGIN or ev == EV.NODE_ARGS:
+            # 开局/参数快照里都带着"这局是按什么配置跑的"：很多结论要看它才判得准。
+            # 现役 integrate_node：session.begin 带 dry_run/publish_reset，
+            # node.args 带 dry_run（没有 publish_reset）；两处都读，谁有谁补。
             if e.get("dry_run") is not None:
                 s["dry_run"] = bool(e.get("dry_run"))
             if e.get("publish_reset") is not None:
@@ -185,7 +200,10 @@ def summarize(events: Sequence[Event], nodes_all: Optional[Sequence[str]] = None
             if e.get("ok") is False:
                 s["homography_bad"] += 1
         elif ev == EV.VISION_STALE:
-            if e.get("level") != "info" and e.text("note", "") != "图像恢复":
+            # 等级在框架字段 lvl 里（不在 data 负载里）：读 e.lvl。
+            # 历史上这里读 e.get("level") —— 该键两侧都不存在，条件恒 True，
+            # "图像恢复"的 info 事件也被计成断流。
+            if e.lvl != "info" and e.text("note", "") != "图像恢复":
                 s["vision_stale"] += 1
                 if e.get("never"):
                     s["vision_never"] = True
@@ -193,6 +211,9 @@ def summarize(events: Sequence[Event], nodes_all: Optional[Sequence[str]] = None
             s["plan_built"] += 1
             if e.get("shoot_stops") is not None:
                 s["shoot_stops"] = list(e.get("shoot_stops") or [])
+            elif e.text("shoot"):
+                # 现役 integrate_node 的 plan.built 写的是逗号串 shoot=（不是列表）
+                s["shoot_stops"] = [x for x in e.text("shoot").split(",") if x]
         elif ev == EV.ROUTE_PUBLISH:
             s["route_publish"] += 1
             kind = e.text("kind", "route")
@@ -243,10 +264,12 @@ def summarize(events: Sequence[Event], nodes_all: Optional[Sequence[str]] = None
             elif lvl == "warn":
                 s["ros_warnings"] += 1
 
-    # 走的哪条路径，决定哪些规则适用（实车 car_node 发 /nav/waypoint；
-    # 自研/仿真走 mission_node + chassis_node，不发路线）—— 不做这个区分就会误报。
+    # 走的哪条路径，决定哪些规则适用（现役：integrate_node 直接发 /nav/waypoint；
+    # 旧栈：实车 car_node、自研/仿真 mission_node + chassis_node）——
+    # 不做这个区分就会误报。car_node/mission_node 是旧栈节点名，仅为读旧日志保留。
     s["car_node_present"] = _has_node(events, "car_node")
     s["mission_node_present"] = _has_node(events, "mission_node")
+    s["integrate_node_present"] = _has_node(events, "integrate_node")
     s["block_reasons"] = dict(block_reasons)
     s["reject_reasons"] = dict(reject_reasons)
     s["link_drop_reasons"] = dict(drop_reasons)
@@ -269,11 +292,11 @@ def _has_ev(events: Sequence[Event], ev: str) -> bool:
 
 def _rule_sanity(ev: Sequence[Event], m: Dict[str, Any]) -> List[Finding]:
     out: List[Finding] = []
-    if not _has_ev(ev, EV.SESSION_BEGIN):   # 车端 car_node / 自研路径的 mission_node 都会写
+    if not _has_ev(ev, EV.SESSION_BEGIN):   # 现役 integrate_node 启动时写（旧栈 car_node/mission_node 也写）
         out.append(Finding(
             "no-session-begin", "info", "没有 session.begin（可能只跑了机载端）",
             "报告按全部事件统计，可能混入别的时段。",
-            "车端 car_node 启动会写这条；只调试机载端时可以忽略。",
+            "车端 integrate_node 启动会写这条；只调试机载端时可以忽略。",
         ))
     if m["blackbox_errors"]:
         out.append(Finding(
@@ -286,36 +309,46 @@ def _rule_sanity(ev: Sequence[Event], m: Dict[str, Any]) -> List[Finding]:
 
 def _rule_intel(ev: Sequence[Event], m: Dict[str, Any]) -> List[Finding]:
     out: List[Finding] = []
-    car_present = _has_node(ev, "car_node") or _has_ev(ev, EV.ROUTE_PUBLISH) \
+    # 现役车端节点是 integrate_node；car_node 等是旧栈名字，仅为读旧日志保留。
+    car_present = _has_node(ev, "integrate_node") or _has_node(ev, "car_node") \
+        or _has_ev(ev, EV.ROUTE_PUBLISH) \
         or _has_ev(ev, EV.INTEL_RECV) or _has_ev(ev, EV.ROUTE_BLOCKED)
     air_present = any(_has_node(ev, n) for n in
                       ("air_link_node", "intel_fusion_node", "vision_node", "fake_intel_node"))
 
     if m["homography_bad"]:
+        # 旧栈兼容保留（homography 事件的生产者随旧机载端下线）。
         # 单应没标定 = 像素落不到格号 = 机载端**根本产不出情报**。
         # 这时"车端没收到情报"只是表象，报 no-intel 会把人引去查网卡和端口，方向全错。
         out.append(Finding(
             "no-homography", "critical", "单应矩阵没标定 / 无效",
             "像素坐标换算不出格号，机载端即使看到目标也发不出情报 —— "
             "情报链在这里就断了，跟 UDP 链路无关。",
-            "用 `tools/calib_homography.py` 标定（残差 < 5 cm），把 9 个数填进 "
-            "params.yaml 的 homography；**换场地必须重标**。",
+            "旧机载端标定流程已随重构下线，历史方法见 docs/archive/实机接口对照.md；"
+            "现役链路的格号解算在机载 dzuav 侧（PnP），换场地要重标相机外参。",
         ))
     elif car_present and m["intel_recv"] == 0:
         out.append(Finding(
             "no-intel", "critical", "车端一帧情报都没收到",
-            "链路层断了：车端 car_node 起了，但 /link/field_intel 上没有任何一帧。",
-            "查三样：① 机载端 air_link_node 是否在跑；② 两端是否同网段"
-            "（车是 DHCP，IP 会变，见 docs/实机接口对照.md §9）；"
+            "链路层断了：车端 integrate_node 起了，但 UDP:50000 上没有任何一帧。",
+            "查三样：① 机上 dzuav UdpBroadcaster 是否在广播；② 两端是否同网段"
+            "（车是 DHCP，IP 会变，历史踩坑见 docs/archive/实机接口对照.md §9）；"
             "③ UDP 端口是否被防火墙挡。",
         ))
-    if m["intel_recv"] > 0 and m["intel_stable"] == 0:
+    # 旧规则是 intel_recv>0 且 intel.stable==0 —— intel.stable 的生产者
+    # （车端 IntelVoter 多帧投票）已随旧栈删除，条件恒真、每局必误报。
+    # 现役语义：情报在收，但决策链整局没有任何输出（门控未拦、规划未成、
+    # 路线未发）——说明收包线程到 timer 决策之间断了，而不是"投票没收敛"。
+    decided = (m["route_blocked"] + m["route_reject"]
+               + m["plan_built"] + m["route_publish"]) > 0
+    if m["intel_recv"] > 0 and not decided:
         out.append(Finding(
-            "intel-not-stable", "critical",
-            f"收到 {m['intel_recv']} 帧情报，但投票始终没收敛",
-            "车端 IntelVoter 要求连续多帧一致才认；抖动说明要么视觉误检，要么链路误码。",
-            "把 intel.recv 里各帧的 mines 摆一起看是否在抖；"
-            "必要时降 min_votes、看 link.drop 是否有坏帧。",
+            "intel-no-decision", "critical",
+            f"收到 {m['intel_recv']} 次情报，但决策链整局没有任何输出",
+            "route.blocked / plan.built / route.publish 一个都没有 —— "
+            "不是被门控拦下，而是收包到 timer 决策之间断了。",
+            "看 node.error / ros.log 里 timer 回调是否被异常杀死；"
+            "确认交接队列（容量 1）有人在消费。",
         ))
     if m["intel_recv_bad"]:
         out.append(Finding(
@@ -323,6 +356,8 @@ def _rule_intel(ev: Sequence[Event], m: Dict[str, Any]) -> List[Finding]:
             "乱序 / 重复 / 过期帧。少量正常，占比高就要查链路。",
             "看 intel.recv 的 why 字段与 link.drop 的原因分布。",
         ))
+    # 旧栈兼容保留：link.tx 的生产者（air_link_node）已随旧机载端删除，
+    # 现役链路是 dzuav 直接 UDP 广播，车端看不到对端的发送计数。
     if air_present and m["link_tx"] > 0 and m["link_rx"] == 0 and car_present:
         out.append(Finding(
             "link-one-way", "critical",
@@ -335,20 +370,26 @@ def _rule_intel(ev: Sequence[Event], m: Dict[str, Any]) -> List[Finding]:
 
 def _rule_route(ev: Sequence[Event], m: Dict[str, Any]) -> List[Finding]:
     out: List[Finding] = []
-    # 这条规则只对**实车路径**（car_node → /nav/waypoint）成立：
+    # 这条规则只对**会发路线的路径**成立（现役 integrate_node / 旧栈实车 car_node
+    # → /nav/waypoint）：
     #   * dry_run 下本来就一条都不会发；
-    #   * 自研/仿真路径（mission_node + chassis_node）根本不发路线，只发 /mission/waypoints，
+    #   * 旧栈自研/仿真路径（mission_node + chassis_node）根本不发路线，
     #     在这儿报"没发路线"就是纯误报。
-    if (m["car_node_present"] and m["intel_stable"] > 0
+    # 旧条件要求 car_node 在场且 intel.stable>0 —— 两者都随旧栈删除，
+    # 双重永不触发。现役判据：节点在跑、情报在收、门控评估过（有 blocked /
+    # reject / plan 记录），却一条路线都没发出去。
+    route_node_present = m["integrate_node_present"] or m["car_node_present"]
+    decided = (m["route_blocked"] + m["route_reject"] + m["plan_built"]) > 0
+    if (route_node_present and m["intel_recv"] > 0 and decided
             and m["route_publish"] == 0 and m["dry_run"] is not True):
         reasons = m["block_reasons"] or m["reject_reasons"] or {}
         top = ", ".join(f"{k}x{v}" for k, v in
                         sorted(reasons.items(), key=lambda kv: -kv[1])) or "（没有记录到原因）"
         hint = "；".join(BLOCK_HINT.get(k, "") for k in reasons if BLOCK_HINT.get(k))
         out.append(Finding(
-            "no-route", "critical", "情报已收敛，但没有发出任何路线",
+            "no-route", "critical", "情报到了、门控也评估过，但没有发出任何路线",
             f"被拦下的原因分布：{top}",
-            hint or "看 ROUTE_BLOCKED 事件上游的节点日志，确认是哪一步 return 了。",
+            hint or "看 ROUTE_BLOCKED 事件与节点日志，确认是哪一步拦的。",
         ))
     if m["route_sent"] > 1:
         out.append(Finding(
@@ -413,6 +454,9 @@ def _rule_shoot(ev: Sequence[Event], m: Dict[str, Any]) -> List[Finding]:
 
 
 def _rule_aim(ev: Sequence[Event], m: Dict[str, Any]) -> List[Finding]:
+    """旧栈兼容保留：aim.*/fire.* 的生产者（aim_guard_node / 开火闸门）
+    已随 10-01 官方栈重构删除，现役栈开火由官方栈负责。规则留着是为了
+    复盘重构前的旧日志；对现役事件流自然不触发（计数全为 0）。"""
     out: List[Finding] = []
     blue_blocked = m["aim_block_cls"].get("1", 0)
     red_blocked = m["aim_block_cls"].get("2", 0)
@@ -445,6 +489,8 @@ def _rule_aim(ev: Sequence[Event], m: Dict[str, Any]) -> List[Finding]:
 
 
 def _rule_referee(ev: Sequence[Event], m: Dict[str, Any]) -> List[Finding]:
+    """旧栈兼容保留：referee.state 的生产者（referee_node）已随旧栈删除，
+    现役裁判数据不走黑匣子。规则留着复盘旧日志用。"""
     out: List[Finding] = []
     if m["referee_updates"] == 0:
         # 分清"节点跑了但读不到数据"（真问题）与"这次压根没起裁判节点"（联调常态），
@@ -530,7 +576,9 @@ def _rule_stall(ev: Sequence[Event], m: Dict[str, Any], max_gap_s: float) -> Lis
 
 
 def _rule_vision(ev: Sequence[Event], m: Dict[str, Any]) -> List[Finding]:
-    """相机断流。
+    """相机断流。**旧栈兼容保留**：vision.*/homography 的生产者
+    （vision_node / usb_cam 看门狗）已随旧机载端删除；现役视觉在机上 dzuav
+    闭环，断流会直接表现为"没有情报"，由 no-intel 兜底。
 
     为什么要单独一条规则：`usb_cam` 是**官方节点**，它崩了我们这边不会有任何异常，
     `det_node` 也只会无限刷 "waiting for /image_raw"。

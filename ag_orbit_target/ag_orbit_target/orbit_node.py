@@ -12,6 +12,8 @@
     /image_raw      (sensor_msgs/Image)  用于录像
 发布：
     /cmd_vel        (geometry_msgs/Twist)  底盘速度
+
+安全：enable 参数默认 false，未启用时不发布任何 /cmd_vel（只录像、打日志）。
 """
 
 from __future__ import annotations
@@ -59,6 +61,7 @@ class OrbitNode(Node):
         super().__init__("orbit_node")
 
         # ---- 参数 ----
+        self.declare_parameter("enable", False)             # 安全闸：false 时不发任何 /cmd_vel
         self.declare_parameter("target_real_width", 0.20)   # 标靶实际宽度 m
         self.declare_parameter("focal_length", 600.0)       # 相机焦距 px（640x480 典型值）
         self.declare_parameter("best_distance", 1.0)        # 最佳打击距离 m
@@ -74,12 +77,15 @@ class OrbitNode(Node):
         self.declare_parameter("search_timeout", 30.0)      # 总搜索超时 s（超时停车）
         self.declare_parameter("max_runtime", 120.0)        # 最大运行时长 s
         self.declare_parameter("record_dir", "~/orbit_videos")
+        self.declare_parameter("record_fps", 20.0)          # 录像帧率 fps
+        self.declare_parameter("det_freshness", 0.5)        # 目标新鲜度 s（超时视为无目标）
         self.declare_parameter("image_topic", "/image_raw")
         self.declare_parameter("detection_topic", "/offset_center")
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
         self.declare_parameter("target_cls", 1)             # 1=蓝靶 2=红靶
 
         p = lambda k: self.get_parameter(k).value
+        self.enabled = bool(p("enable"))
         self.target_real_width = float(p("target_real_width"))
         self.focal_length = float(p("focal_length"))
         self.best_distance = float(p("best_distance"))
@@ -95,6 +101,8 @@ class OrbitNode(Node):
         self.search_timeout = float(p("search_timeout"))
         self.max_runtime = float(p("max_runtime"))
         self.record_dir = os.path.expanduser(str(p("record_dir")))
+        self.record_fps = float(p("record_fps"))
+        self.det_freshness = float(p("det_freshness"))
         self.image_topic = str(p("image_topic"))
         self.detection_topic = str(p("detection_topic"))
         self.cmd_vel_topic = str(p("cmd_vel_topic"))
@@ -108,18 +116,22 @@ class OrbitNode(Node):
         self.start_time: float = time.time()
         self.last_distance: float = 0.0
         self._recording = False
+        self._last_enable_warn: float = 0.0   # "等待启用"日志节流
+        self._last_bad_det_warn: float = 0.0  # 畸形帧日志节流
 
         # ---- 通信 ----
         self.cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
         self.det_sub = self.create_subscription(
             Int32MultiArray, self.detection_topic, self._on_detection, 10
         )
+        # 无条件初始化：无 cv2 环境下 _stop_recording/destroy_node 也能安全判 None
+        self._video_writer = None
+        self._video_failed = False  # 录像打开失败（codec 缺失）后不再每帧重试
         if _HAS_CV:
             self.bridge = CvBridge()
             self.img_sub = self.create_subscription(
                 Image, self.image_topic, self._on_image, 10
             )
-            self._video_writer: cv2.VideoWriter | None = None
             os.makedirs(self.record_dir, exist_ok=True)
         else:
             self.bridge = None
@@ -129,13 +141,19 @@ class OrbitNode(Node):
         self.get_logger().info(
             f"orbit_node 就绪: 目标类={self.target_cls} "
             f"最佳距离={self.best_distance}m 焦距={self.focal_length}px "
-            f"录像={'开' if _HAS_CV else '关'} 目录={self.record_dir}"
+            f"录像={'开' if _HAS_CV else '关'} 目录={self.record_dir} "
+            f"enable={'是' if self.enabled else '否（只录像不发 /cmd_vel）'}"
         )
 
     # ---------------- 检测回调 ----------------
     def _on_detection(self, msg: Int32MultiArray) -> None:
         data = msg.data
-        if len(data) < 5:
+        if len(data) < 8:
+            # 协议约定 8 项，畸形帧直接丢弃（节流防刷日志）
+            now = time.time()
+            if now - self._last_bad_det_warn > 2.0:
+                self._last_bad_det_warn = now
+                self.get_logger().warn(f"畸形检测帧: len={len(data)}，协议应为 8 项，已丢弃")
             return
         cls = data[2]
         valid = cls == self.target_cls and data[3] > 0 and data[4] > 0
@@ -158,11 +176,19 @@ class OrbitNode(Node):
         except Exception:
             return
         if self._video_writer is None:
+            if self._video_failed:
+                return
             h, w = frame.shape[:2]
             ts = time.strftime("%Y%m%d_%H%M%S")
             path = os.path.join(self.record_dir, f"orbit_{ts}.mp4")
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            self._video_writer = cv2.VideoWriter(path, fourcc, 20.0, (w, h))
+            writer = cv2.VideoWriter(path, fourcc, self.record_fps, (w, h))
+            if not writer.isOpened():
+                writer.release()
+                self._video_failed = True
+                self.get_logger().warn(f"录像打开失败（可能缺 mp4 编码器），本次运行不再录像: {path}")
+                return
+            self._video_writer = writer
             self._recording = True
             self.get_logger().info(f"开始录像: {path}")
         if self._video_writer is not None:
@@ -191,8 +217,15 @@ class OrbitNode(Node):
     def _on_tick(self) -> None:
         now = time.time()
 
-        # 全局超时保护
-        if now - self.start_time > self.max_runtime:
+        # 安全闸：未启用时不发任何 /cmd_vel，周期提示等待启用
+        if not self.enabled:
+            if now - self._last_enable_warn > 5.0:
+                self._last_enable_warn = now
+                self.get_logger().warn("enable=false，不发 /cmd_vel；确认安全后以 -p enable:=true 启用")
+            return
+
+        # 全局超时保护（进入 STOP 后不再重复触发）
+        if self.state != State.STOP and now - self.start_time > self.max_runtime:
             self.state = State.STOP
             self._publish_zero()
             self._stop_recording()
@@ -202,7 +235,7 @@ class OrbitNode(Node):
         has_target = (
             self.latest_det is not None
             and self.latest_det.valid
-            and (now - self.last_det_time) < 0.5
+            and (now - self.last_det_time) < self.det_freshness
         )
 
         if self.state == State.SEARCH:
@@ -313,7 +346,8 @@ class OrbitNode(Node):
             self.get_logger().info("录像已停止并保存")
 
     def destroy_node(self) -> bool:
-        self._publish_zero()
+        if self.enabled:
+            self._publish_zero()  # 启用过才可能发过速度，退出前补零停车
         self._stop_recording()
         return super().destroy_node()
 

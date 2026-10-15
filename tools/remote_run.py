@@ -159,10 +159,16 @@ def sftp_put(host: str, user: str, password: str, local: str, remote: str,
         sftp = cli.open_sftp()
 
         def mkdirs(path: str) -> None:
-            parts = path.strip("/").split("/")
+            absolute = path.startswith("/")
+            parts = [p for p in path.split("/") if p]
+            # "~/x" 形式：SFTP 协议不展开 ~，若按绝对路径拼会建出字面目录 /~。
+            # SFTP 的相对路径默认落在登录家目录，故去掉 "~" 段按相对路径逐级建。
+            if parts and parts[0] == "~":
+                parts = parts[1:]
+                absolute = False
             cur = ""
             for p in parts:
-                cur += "/" + p
+                cur = f"{cur}/{p}" if cur else (f"/{p}" if absolute else p)
                 try:
                     sftp.stat(cur)
                 except IOError:
@@ -259,7 +265,10 @@ def main(argv=None) -> int:
         import base64
 
         payload = base64.b64encode(text.encode("utf-8")).decode("ascii")
-        cmd = (f"echo {payload} | base64 -d > {remote} && chmod +x {remote} && bash {remote}")
+        # 远程文件名必须加引号：脚本名带空格/特殊字符时裸拼会被 shell 截断
+        import shlex
+        qremote = shlex.quote(remote)
+        cmd = (f"echo {payload} | base64 -d > {qremote} && chmod +x {qremote} && bash {qremote}")
     else:
         cmd = args.cmd
 

@@ -31,6 +31,10 @@ public:
 
     CellId infer(const cv::Mat& crop);
 
+    // 独占持有 CUDA 缓冲，禁止拷贝（防 double-free）。
+    CellClassifier(const CellClassifier&) = delete;
+    CellClassifier& operator=(const CellClassifier&) = delete;
+
 private:
     void* input_ = nullptr;
     void* letters_ = nullptr;

@@ -25,7 +25,6 @@ from cell_classifier.predictor import CellIdRecognizer  # noqa: E402
 
 LETTERS = "ABCDEFGHIJKLMN"
 OUTDIR = ROOT / "runs/cell_recog_render/bootstrap"
-OUTDIR.mkdir(parents=True, exist_ok=True)
 
 
 def to_grid(cid):
@@ -164,6 +163,7 @@ def bootstrap_frame(rec, fp, lp, anchor_conf, conf_pass):
 
 
 def main():
+    OUTDIR.mkdir(parents=True, exist_ok=True)  # 只在真正运行时建目录，import 期无副作用
     ap = argparse.ArgumentParser()
     ap.add_argument("--weights", type=Path,
                    default=ROOT / "runs/cell_classifier_v4/best.pt")

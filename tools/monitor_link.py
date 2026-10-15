@@ -195,6 +195,21 @@ def render_ascii(snap: Snapshot, stats: LinkStats, car_ev: str) -> str:
     return "\n".join(L)
 
 
+def _tail_lines(path: Path, max_bytes: int = 65536) -> list[str]:
+    """只从文件尾回溯读最后一段（默认 64KB），避免每帧全量 readlines 的 O(n²)。
+
+    黑匣子 .jsonl 随比赛持续增长，监测循环每帧都调本函数，全量读会越跑越慢。
+    """
+    size = path.stat().st_size
+    with open(path, "rb") as fh:
+        fh.seek(max(0, size - max_bytes))
+        data = fh.read()
+    lines = data.decode("utf-8", errors="replace").splitlines()
+    if size > max_bytes and lines:
+        lines = lines[1:]  # 首行可能只读到半截，丢弃
+    return lines
+
+
 def tail_latest_event(log_dir: Path) -> str:
     """读车端黑匣子最后一条事件（取最新修改的 .jsonl）。"""
     if not log_dir.exists():
@@ -203,9 +218,7 @@ def tail_latest_event(log_dir: Path) -> str:
     if not files:
         return ""
     try:
-        with open(files[-1], "r", encoding="utf-8", errors="replace") as fh:
-            lines = fh.readlines()
-        for line in reversed(lines):
+        for line in reversed(_tail_lines(files[-1])):
             line = line.strip()
             if not line:
                 continue
@@ -246,6 +259,10 @@ def main() -> int:
     sock.bind(("", args.port))
     sock.settimeout(1.0)
     print(f"[monitor] 监听 UDP:{args.port}（Ctrl+C 退出）")
+    if os.name == "nt":
+        # 一次性开启 Windows 控制台的 ANSI 转义支持（空命令触发 conhost 初始化），
+        # 之后清屏直接用 \033[2J\033[H，不再每帧 os.system("cls") 起进程
+        os.system("")
 
     snap = Snapshot()
     stats = LinkStats()
@@ -293,7 +310,9 @@ def main() -> int:
                 except ValueError:
                     continue
                 snap.car_pose = pose
-                stats.record(True, pose.timestamp_ms, recv_ts, True)
+                # 0x4002 是车位姿帧，不含场上目标：has_objects 必须为 False，
+                # 否则每个位姿帧都被误计入"定位成功"帧数，虚增定位成功率
+                stats.record(True, pose.timestamp_ms, recv_ts, False)
             else:
                 continue
 
@@ -311,11 +330,9 @@ def main() -> int:
                 fig.canvas.draw_idle()
                 fig.canvas.flush_events()
             else:
-                # 清屏重绘
-                if os.name == "nt":
-                    os.system("cls")
-                else:
-                    sys.stdout.write("\033[2J\033[H")
+                # 清屏重绘：统一用 ANSI 转义（Windows 已在启动时开启 VT 支持），
+                # 不再每帧 os.system("cls") 起进程
+                sys.stdout.write("\033[2J\033[H")
                 print(render_ascii(snap, stats, last_car_ev))
     except KeyboardInterrupt:
         print("\n[monitor] 停止")

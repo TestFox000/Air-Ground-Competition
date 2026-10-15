@@ -176,7 +176,9 @@ def main():
     if tot_acc_n:
         print(f"lattice几何校验: {tot_acc_n} 框, 预测与几何一致: {tot_acc_ok} "
               f"({tot_acc_ok/tot_acc_n*100:.1f}%)")
-    (ROOT / "runs/cell_recog_render/eval_frames.json").write_text(
+    out_json = ROOT / "runs/cell_recog_render/eval_frames.json"
+    out_json.parent.mkdir(parents=True, exist_ok=True)  # 目录可能尚未存在，写前先建
+    out_json.write_text(
         json.dumps(per_frame, ensure_ascii=False, indent=1), encoding="utf-8")
 
 

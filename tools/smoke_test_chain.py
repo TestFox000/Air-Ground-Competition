@@ -54,7 +54,8 @@ def main():
     assert route[0] == "N10" and route[-1] == "N11"
     assert "D11" in route and "B7" in route  # 雷必经
     assert "F6" not in route  # 障碍不踩
-    print(f"[3/5 路径规划] OK, {len(route)}点, 经L9桥洞")
+    assert "K9" in route  # 场景里唯一的桥洞(ARROW)在 K9，路线必须过
+    print(f"[3/5 路径规划] OK, {len(route)}点, 经K9桥洞")
 
     # 4. 车端命令
     reset_cmd = reset_command("N10", "y")

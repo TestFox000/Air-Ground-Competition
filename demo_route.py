@@ -20,11 +20,14 @@ def cell(name: str) -> CellRef:
 # === 裁判系统地图（按用户标注图重设）===
 # 雷（黄）
 MINES = ["I1", "A2", "G3", "B4", "H5", "E6", "C7", "G11"]
-# 障碍（红"障"）——注意：L 列桥洞墙不写死，由 passable 自动推导
+# 障碍（红"障"）——注意：桥洞列的墙不写死，由 passable 自动推导
 OBSTACLES = ["C2", "F4", "D7", "H8", "A9", "G9", "B10", "J11"]
-# 桥洞可通行格（带箭头，每局随机）——router 自动把桥洞列其余格推为墙。
-# 当前情报：桥洞在 K 列（接手说明 §5.7，矩阵交接 §4.1），箭头贴挡板格才开门。
-PASSABLE = ["K5"]
+# 桥洞列：K（2026-10-15 现场确认：K 列两段桥体——下段 K1~K6、上段 K7~K11，
+# 每段随机 1 格隧道、方向=桥顶箭头；详见 docs/分区规划与感知约束-20261015.md。
+# 注意 interface_contract.md 写 L 列，与此冲突，以现场为准，契约文档待修订）
+BRIDGE_COL = "K"
+# 桥洞可通行格（带箭头，每局随机）——router 自动把桥洞列其余格推为墙
+PASSABLE = [f"{BRIDGE_COL}4", f"{BRIDGE_COL}9"]  # 官方布置说明书图例值（图8/图7）
 # 移动靶（全场仅一个）：双面靶，蓝面=敌（打），红面=友（不打），
 # 沿轨道在两格间匀速往返。轨道两端与蓝面朝向每局由裁判系统地图/现场标定。
 TRACK = ("D8", "E8")   # 轨道两端格（水平轨道）
@@ -109,11 +112,11 @@ print(f"\n排雷覆盖: {'全部覆盖 ✓' if not missing else f'缺失 {missin
 print(f"障碍避让: {'未穿障 ✓' if not violations else f'穿障 {violations}'}")
 print(f"轨道避让: {'未踩轨道 ✓' if not tread else f'踩轨道 {tread}'}")
 print(f"射击停靠: {shoot_spots} ✓" if shoot_spots else "射击停靠: 缺失 ✗")
-# 验证穿越 L 列只走 L2/L11
+# 验证穿越桥洞列只走 PASSABLE 格
 crossings = [(a, b) for a, b in zip(route, route[1:])
-             if (a[0] == 'L' or b[0] == 'L') and a[0] != b[0]]
-gate_crossings = [c for pair in crossings for c in pair if c[0] == 'L' and c not in PASSABLE]
-print(f"桥洞穿越: {'仅走 L2/L11 ✓' if not gate_crossings else f'违规穿越 {gate_crossings}'}")
+             if (a[0] == BRIDGE_COL or b[0] == BRIDGE_COL) and a[0] != b[0]]
+gate_crossings = [c for pair in crossings for c in pair if c[0] == BRIDGE_COL and c not in PASSABLE]
+print(f"桥洞穿越: {'仅走 ' + '/'.join(PASSABLE) + ' ✓' if not gate_crossings else f'违规穿越 {gate_crossings}'}")
 
 # === 可视化 ===
 CELL_PX = 60
@@ -174,11 +177,11 @@ for name in OBSTACLES:
     draw.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], fill=(180, 40, 40))
     draw.text((x + CELL_PX // 2, y + CELL_PX // 2), "障", fill="white", font=font, anchor="mm")
 
-# 画 L 列桥洞：passable 格为可通行（浅紫"洞"），其余为墙（深灰"墙"）
+# 画桥洞列：passable 格为可通行（浅紫"洞"），其余为墙（深灰"墙"）
 L_GATES = set(PASSABLE)
-L_COL = LETTERS.index("L")
+L_COL = LETTERS.index(BRIDGE_COL)
 for r in range(ROWS):
-    name = f"L{r + 1}"
+    name = f"{BRIDGE_COL}{r + 1}"
     c = cell(name)
     x, y = cell_xy(c)
     if name in L_GATES:
@@ -195,8 +198,10 @@ for name in MINES:
     draw.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], fill=(220, 200, 30))
     draw.text((x + CELL_PX // 2, y + CELL_PX // 2 - 6), "雷", fill="black", font=font, anchor="mm")
 
-# 画桥洞通行箭头标记（K2、K11 的"通"指向 L2、L11）
-for name in ("K2", "K11"):
+# 画桥洞通行箭头标记（桥洞列前一列、与门同行的"通"指向桥洞格）
+APPROACH_COL = LETTERS[L_COL - 1]  # 桥洞列西侧相邻列（默认 L → K）
+for gate in PASSABLE:
+    name = f"{APPROACH_COL}{int(gate[1:])}"
     c = cell(name)
     x, y = cell_xy(c)
     draw.text((x + CELL_PX // 2, y + CELL_PX // 2), "→", fill=(40, 200, 80), font=font, anchor="mm")
@@ -285,7 +290,7 @@ draw.text((gx + CELL_PX // 2, gy + CELL_PX - 8), "终点", fill=(255, 100, 0), f
 legend_y = H - 20
 draw.text((PAD, legend_y), "绿→黄→红 = 路径先后顺序", fill="white", font=font_sm)
 draw.text((PAD + 250, legend_y), "×N = 该格经过次数", fill=(255, 255, 100), font=font_sm)
-draw.text((PAD + 430, legend_y), "L列: 墙=挡板/洞=桥洞通行格", fill=(200, 180, 255), font=font_sm)
+draw.text((PAD + 430, legend_y), f"{BRIDGE_COL}列: 墙=挡板/洞=桥洞通行格", fill=(200, 180, 255), font=font_sm)
 legend_y2 = H + 2
 draw.text((PAD, legend_y2), "轨=移动靶轨道(双面:蓝面朝准星侧,红面朝对侧) ⊕=停靠射击格(箭头指向正对端点)", fill=(255, 200, 100), font=font_sm)
 

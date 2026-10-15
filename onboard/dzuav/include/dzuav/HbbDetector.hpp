@@ -31,6 +31,10 @@ public:
 
     std::vector<Detection> infer(const cv::Mat& image);
 
+    // 独占持有 CUDA 缓冲，禁止拷贝（防 double-free）。
+    HbbDetector(const HbbDetector&) = delete;
+    HbbDetector& operator=(const HbbDetector&) = delete;
+
 private:
     float confidence_;
     float nms_;

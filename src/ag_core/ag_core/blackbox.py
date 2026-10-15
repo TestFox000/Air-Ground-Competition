@@ -21,6 +21,9 @@ stdout 是管道 → C 层全缓冲 → 进程被 kill 时缓冲整体丢失（�
    日志把节点搞崩，比没有日志更糟。
 2. **进程被 kill 也不能丢** —— 默认每条 `flush`（`flush_every=1`），
    对齐上面"spdlog 缓冲丢失"那个坑。
+   （实现上曾经用 `buffering=1` 行缓冲，但那会把 `flush_every` 架空——
+   每条记录都以 `\n` 结尾，行缓冲等于永远逐条 flush。现在是普通块缓冲 +
+   显式按 `flush_every` flush：默认值下仍是逐条落盘，"被杀不丢"不变。）
 3. **默认不写家目录** —— 落到 `AG_LOG_DIR` 或系统临时目录下的 `ag_logs/`，
    与项目"只用 /tmp、不动车端家目录"的约定一致。
 
@@ -123,10 +126,16 @@ class REASON:
 
     节点写、复盘读，两边必须用同一套字面量；否则报告里只剩一个没人认识的字符串，
     提示（`log_diagnosis.BLOCK_HINT`）也挂不上。
+
+    现役生产者只有 `ag_integrate.pipeline.evaluate_gate`（NOT_ENOUGH_MINES /
+    FACE_UNKNOWN），字面量以它实际写进事件流的为准；其余常量是旧栈
+    （mission/planner 时代）保留值，生产者已删除，仅为读懂旧日志而留。
     """
 
-    MIN_MINES = "min_mines"              # 确认的雷数不够
+    # ---- 现役（ag_integrate.pipeline 实际产出）----
+    MIN_MINES = "not_enough_mines"       # 确认的雷数不够（与 pipeline 字面量一致）
     FACE_UNKNOWN = "face_unknown"        # 敌我还没判决
+    # ---- 旧栈保留（生产者已删除，仅兼容旧日志）----
     BRIDGE_REJECT = "bridge_reject"      # 桥洞布点不符（严格模式）
     NO_CELLS = "no_cells"                # 任务序列为空
     MIN_SHOOT_STOPS = "min_shoot_stops"  # 打击点少于要求
@@ -225,6 +234,7 @@ class BlackBox:
         self._base = self._dir / self.session
         self._file: Optional[Path] = None
         self._fh = None
+        self._written = 0   # 当前文件已写入字节数（轮转判定；不调 tell()，见上）
         self._seq = 0
         self._since_flush = 0
         self._lock = threading.Lock()
@@ -244,8 +254,14 @@ class BlackBox:
     def _open(self) -> None:
         try:
             self._base.mkdir(parents=True, exist_ok=True)
-            self._file = self._base / f"{self.node}-{os.getpid()}.jsonl"
-            self._fh = open(self._file, "a", encoding="utf-8", buffering=1)
+            target = self._base / f"{self.node}-{os.getpid()}.jsonl"
+            # 先开成功再赋值：失败路径下 self._file 必须保持 None，
+            # 否则 path 属性会指向一个从未成功打开的文件，误导复盘。
+            fh = open(target, "a", encoding="utf-8")
+            # 追加模式下已写入字节从现有文件大小起算（轮转判定用，不调 tell()）
+            self._written = target.stat().st_size
+            self._file = target
+            self._fh = fh
         except Exception as e:  # noqa: BLE001
             self._fail(f"打开日志文件失败: {type(e).__name__}: {e}")
 
@@ -263,11 +279,13 @@ class BlackBox:
         """超过 max_bytes 就滚一份（.1 最新），只保留 keep 份。
 
         现场一局可能跑十几分钟、含高频事件，不轮转会把 /tmp 写满。
+        大小判断用自维护的 _written 计数：TextIOWrapper.tell() 会顺手把
+        用户态缓冲 flush 下去，每条一调，flush_every 就又被架空了。
         """
         if self._fh is None or self._file is None or self.max_bytes <= 0:
             return
         try:
-            if self._fh.tell() < self.max_bytes:
+            if self._written < self.max_bytes:
                 return
             self._fh.close()
             # 已有的 .1 -> .2 -> ... 依次后退，超出 keep 的直接删
@@ -280,7 +298,8 @@ class BlackBox:
                     else:
                         os.replace(src, dst)
             os.replace(self._file, self._file.with_suffix(".1.jsonl"))
-            self._fh = open(self._file, "a", encoding="utf-8", buffering=1)
+            self._fh = open(self._file, "a", encoding="utf-8")
+            self._written = 0
         except Exception as e:  # noqa: BLE001
             self._fail(f"日志轮转失败: {type(e).__name__}: {e}")
 
@@ -300,6 +319,9 @@ class BlackBox:
             self._file = None
             self._fh = None
             self._since_flush = 0
+            # 换目标等于换了一条新日志链：上次"已提示过"的标记要一并清掉，
+            # 否则新目标打不开时连唯一一次 stderr 提示都被吞掉。
+            self._warned = False
             if self.enabled:
                 self._open()
 
@@ -334,8 +356,9 @@ class BlackBox:
                 self._rotate_if_needed()
                 if self._fh is None:
                     return
-                self._fh.write(json.dumps(rec, ensure_ascii=False,
-                                          default=_json_default) + "\n")
+                line = json.dumps(rec, ensure_ascii=False, default=_json_default) + "\n"
+                self._fh.write(line)
+                self._written += len(line.encode("utf-8"))
                 self._since_flush += 1
                 if self._since_flush >= self.flush_every:
                     self._since_flush = 0
@@ -349,18 +372,22 @@ class BlackBox:
         """限流闸：同一 key 每 `period_s` 秒只放行一次。
 
         初值取 0.0 是故意的 —— **第一次必定放行**，现场才能确认这条链路活着。
+        check-then-set 走 `self._lock`：收包线程与 timer 线程可能同时调用，
+        不加锁会让两个线程同时跨过闸门（多放行一条事小，计数漂移事烦）。
         """
-        now = time.monotonic()
-        if now - self._last.get(key, 0.0) >= period_s:
-            self._last[key] = now
-            return True
-        return False
+        with self._lock:
+            now = time.monotonic()
+            if now - self._last.get(key, 0.0) >= period_s:
+                self._last[key] = now
+                return True
+            return False
 
     def every(self, key: str, n: int) -> bool:
         """抽样闸：同一 key 每 n 次放行一次（`n<=1` 时全放行）。"""
         n = max(1, int(n))
-        self._count[key] = self._count.get(key, 0) + 1
-        return self._count[key] % n == 0
+        with self._lock:
+            self._count[key] = self._count.get(key, 0) + 1
+            return self._count[key] % n == 0
 
     def close(self) -> None:
         with self._lock:
@@ -493,6 +520,9 @@ def attach(node: Any, bb: BlackBox, mirror: bool = True) -> BlackBox:
 
     镜像靠替换 `get_logger()` 的返回对象实现（rclpy 里就是返回 `self._logger`）。
     万一某个版本不是这个实现，这里静默跳过 —— **只丢文本镜像，结构化事件照写**。
+
+    重复调用是安全的：已是 `_LoggerMirror` 就不再叠层（套两层会让去重状态
+    分裂、同一条文本被两个镜像各记一遍）。
     """
     try:
         node.bb = bb
@@ -500,7 +530,9 @@ def attach(node: Any, bb: BlackBox, mirror: bool = True) -> BlackBox:
         pass
     if mirror and bb.enabled:
         try:
-            node._logger = _LoggerMirror(node.get_logger(), bb)
+            current = node.get_logger()
+            if not isinstance(current, _LoggerMirror):
+                node._logger = _LoggerMirror(current, bb)
         except Exception:  # noqa: BLE001
             pass
     return bb
@@ -580,22 +612,24 @@ def find_log_dirs(root: Any = None) -> List[Path]:
     """列出含日志的目录（自身或子目录），按**最后写入时间**倒序。
 
     现场最常见的困惑是"日志到底写哪去了"，所以报告工具会把它打出来。
+
+    每个 .jsonl 只归到自己直接所在的目录：旧实现对每层目录都 rglob 一遍，
+    同一批文件会让 root 与各级 session 子目录重复上榜（而且每层都重复扫描）。
     """
     root = Path(root) if root else default_log_dir()
-    scored: List[Tuple[float, Path]] = []
     if not root.exists():
         return []
-    for d in [root] + [x for x in root.rglob("*") if x.is_dir()]:
-        files = collect_jsonl(d)
-        if not files:
+    newest: Dict[Path, float] = {}
+    for f in root.rglob("*.jsonl"):
+        if not f.is_file():
             continue
         try:
-            newest = max(f.stat().st_mtime for f in files)
+            mtime = f.stat().st_mtime
         except OSError:
             continue
-        scored.append((newest, d))
-    scored.sort(key=lambda t: t[0], reverse=True)
-    return [d for _, d in scored]
+        if mtime > newest.get(f.parent, -1.0):
+            newest[f.parent] = mtime
+    return [d for d, _ in sorted(newest.items(), key=lambda kv: -kv[1])]
 
 
 def read_events(paths: Any, skip_bad: bool = True) -> Tuple[List[Event], int]:
@@ -603,6 +637,10 @@ def read_events(paths: Any, skip_bad: bool = True) -> Tuple[List[Event], int]:
 
     返回坏行数是刻意的：**日志本身损坏**也是一条要复盘的线索
     （写盘被打断、磁盘满、手工编辑过），不能悄悄吞掉。
+
+    `skip_bad=False` 用于校验场景（测试/回放帧核对）：遇到坏行直接抛
+    ValueError，而不是计数后继续 —— 调用方要明确二选一，不存在"数了坏行
+    又当没发生"的第三种行为。
     """
     if isinstance(paths, (str, Path)):
         paths = [paths]
@@ -615,23 +653,31 @@ def read_events(paths: Any, skip_bad: bool = True) -> Tuple[List[Event], int]:
     for f in files:
         try:
             with open(f, "r", encoding="utf-8", errors="replace") as fh:
-                for line in fh:
+                for lineno, line in enumerate(fh, 1):
                     line = line.strip()
                     if not line:
                         continue
                     try:
                         rec = json.loads(line)
-                    except Exception:  # noqa: BLE001
+                    except Exception as e:  # noqa: BLE001
                         bad += 1
+                        if not skip_bad:
+                            raise ValueError(
+                                f"{f}:{lineno} 不是合法 JSON 行: {e}") from e
                         continue
                     if not isinstance(rec, dict):
                         bad += 1
+                        if not skip_bad:
+                            raise ValueError(
+                                f"{f}:{lineno} 不是 JSON 对象行: {line[:80]!r}")
                         continue
                     events.append(Event.from_record(rec, src=f.name))
-        except Exception:  # noqa: BLE001
+        except ValueError:
+            raise
+        except Exception as e:  # noqa: BLE001
             bad += 1
             if not skip_bad:
-                continue
+                raise ValueError(f"读取日志文件失败: {f}: {e}") from e
     events.sort(key=lambda e: (e.ts, e.seq))
     return events, bad
 

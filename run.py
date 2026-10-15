@@ -44,6 +44,8 @@ def cmd_test(args) -> int:
     cmd = [sys.executable, "-m", "pytest", "tests", "-q"]
     if args.keyword:
         cmd += ["-k", args.keyword]
+    # 透传未识别的 pytest 参数（如 -x / --lf / -m），由 parse_known_args 收集
+    cmd += getattr(args, "pytest_extra", [])
     return subprocess.call(cmd, cwd=str(ROOT))
 
 
@@ -101,10 +103,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     ap = build_parser()
-    args = ap.parse_args(argv)
+    args, extra = ap.parse_known_args(argv)
     if not getattr(args, "func", None):
         # 不带子命令 = 跑测试
-        args = ap.parse_args(["test"] + list(argv or []))
+        args, extra = ap.parse_known_args(["test"] + list(argv or []))
+    args.pytest_extra = extra  # 未识别的参数（如 -x/--lf）透传给 pytest
     return int(args.func(args) or 0)
 
 
