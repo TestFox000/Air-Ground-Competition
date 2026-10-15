@@ -25,6 +25,11 @@
 3. **别用同名文件覆盖**：版本变了就换名字（如 `light_det_20261002.rknn`），
    否则 `git log` 分不清谁是哪一版
 4. 入库前看一眼体积：单个建议 **< 50 MB**（Gitee 免费仓库有容量上限）
+5. **hbb 检测器发布必须先过泛化门禁**（官方明牌考"训练集没有的同类雷图"）：
+   `tools/release_models.py --hbb` 会自动调用 `tools/ml/eval_generalization.py`，
+   留出图集用 `--generalization-images` 或环境变量 `AIC_MINE_HOLDOUT` 指定；
+   判定 = 绝对底线召回 + 相对现役基线的回归容忍（`generalization_baseline.json`），
+   每次评估记录追加到本文末尾的「泛化评估记录」表
 
 ## 登记表
 
@@ -48,6 +53,31 @@
 | `cell_classifier_v4c_20261008.onnx` | `4F1838BEBFC951BC62170D821D56EC22` | 4.34 MB | 本次训练产物（tag=v4c） | 格号分类器，见 current_cell_classifier 指针 | 2026-10-08 |
 | `cell_classifier_v4c_20261009.onnx` | `850AE9376BD5AC7BDFE44D6BD550A920` | 4.34 MB | 本次训练产物（tag=v4c） | 格号分类器，见 current_cell_classifier 指针 | 2026-10-09 |
 | `hbb_detector_7cls_distill_20261011.onnx` | `E93DEC04F9C7D8F272CC11624261741D` | 38.44 MB | 本次训练产物（tag=7cls_distill） | 无人机主检测器，见 current_hbb_detector 指针 | 2026-10-11 |
+| `cell_classifier_v4c_ft_20261010.onnx` | `11BE1A3CD2780F67CBB8273B8AA0A410` | 4.34 MB | v4c 微调产物 | **格号分类器现役**，见 current_cell_classifier 指针（补登记，原漏登） | 2026-10-15 |
+| `hbb_detector_7cls_local_20261013.onnx` | `E4B0FCE3E78062182C6C46F6E8A762E5` | 38.44 MB | 本地补充训练导出 | ⚠️ **评估失败品（val-B 89.19% 劣于现役），勿部署**，仅留档 | 2026-10-15 |
+| `hbb_detector_7cls_local_20261013.pt` | `B84DE1A3CA87DA24BFD2D290CAFD1F75` | 19.37 MB | 同上 | ⚠️ 同上（.pt 属中间产物，按规则本不该入库，留档备查） | 2026-10-15 |
+| `aerial_field_detector.pt` | `E28A3165B14793A78710FF9197579D38` | 76.09 MB | 早期航拍检测器权重 | ⚠️ 历史留档（超出 50MB 建议，勿部署，勿再传此类 .pt） | 2026-10-15 |
+
+## 当前建议部署组合（无人机 Orin）
+
+| 用途 | 模型（current 指针） | 依据 |
+|---|---|---|
+| 主检测器 | `hbb_detector_7cls_distill_20261011.onnx` | val-B 综合 90.30% 的已发布最优；**注意：combined 90.53% 尚未发布**（best.pt 在训练机，未导出入库），发布后此表以新指针为准 |
+| 格号分类器 | `cell_classifier_v4c_ft_20261010.onnx` | joint_acc=0.8588 已发布（v4d 卡在 5090 失联） |
+
+Orin 上部署/换模型三步（仓库 git pull 后）：
+
+```bash
+tools/orin_convert_engines.sh                              # ONNX -> FP16 引擎（按 current 指针）
+bash tools/orin_build_verify.sh --run ~/dzuav/engines <测试图>   # 编译+真图验证
+bash tools/orin_run_dzuav.sh camera                        # 上场
+```
+
+训练机发布最优模型到本通道一行命令（泛化门禁已挂钩，过闸才入库）：
+
+```bash
+python tools/release_models.py --hbb <best.pt 路径> --tag <版本标签> --generalization-images "E:\...\1-爆炸物\B-爆炸物"
+```
 
 **新模型上车前必须过契约校验**：
 
@@ -61,3 +91,8 @@ ONNX 契约（与 onboard/dzuav/src C++ 逐字对应）：
 
 车端 `.rknn`（`light_det.rknn`）输出必须是 `[1,9,8400]`，否则 `det_node` 解不出来。
 契约校验同时在 pytest（`tests/test_model_contract.py`）里持续守护。
+
+**泛化门禁（2026-10-14 起强制）**：hbb 发布除契约校验外，还必须跨域留出评估
+不退化才放行（`tests/test_release_gate.py` 守护判定逻辑）。门禁指标见文末
+「泛化评估记录」表——发布即留痕，谁在什么留出集上、召回多少、比现役基线
+差多少，一目了然。

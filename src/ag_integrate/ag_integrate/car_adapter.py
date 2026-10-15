@@ -18,6 +18,18 @@ class CarCommands:
     reset: str
     route: str
     shoot_cells: tuple[str, ...]
+    # 时间预算（route_time 门控，默认未启用时为 -1/False，不影响旧调用方）：
+    est_seconds: float = -1.0      # 路线预估执行秒数；-1 = 未估算
+    shed_shooting: bool = False    # True = 超软预算已砍射击位重规划
+
+
+def _target_key(t: TargetRef) -> tuple:
+    """靶身份键：移动靶以轨道为身份（全场仅一个，靶在轨上换格不换身份）；
+    固定靶以落点格为身份。served 去重必须按身份，按格名会让移动靶
+    换格后被重复记/漏记。"""
+    if t.track is not None:
+        return ("track", t.track)
+    return ("fixed", t.cell.name)
 
 
 def _target_key(t: TargetRef) -> tuple:

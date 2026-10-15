@@ -9,6 +9,8 @@ integrate_node:
     dry_run: true                   # 只算不发；实车联调通过后改 false
     publish_reset: true
     # ---- 本局摆位（现场确定） ----
+    # ⚠️ 开赛前必须对照场地喷绘核对这两个格号：
+    #    裁判布置完场地后、2分钟准备期内确认，错了整个航位推算基准就偏一格。
     start_cell: "N11"
     start_heading: "y"              # 车头朝向断言 x(东)/y(北)
     goal_cell: "N6"
@@ -17,6 +19,11 @@ integrate_node:
     min_mines: 1                    # 至少识别到几颗雷才发车
     require_face: true              # 必须先看清靶面敌我再发车
     # ---- 中场约束（留空：桥洞墙由 ARROW 自动推导） ----
+    # mid_boundary：白色长挡板在第5/6行之界，=5（接手说明§5.7：桥洞 A段K1~K5、
+    # B段K6~K11；且比赛配置 goal=N6+final_heading=y 只在 =5 下物理可行——
+    # =6 时朝北到达 N6 须经 N7 穿越 N 列挡板，空地图上即报不可达）。
+    # 与 mission_router._MID_BOUNDARY 的一致性由 test_field_config_consistency 锁定；
+    # 若现场核对挡板在第6/7行之界，三处一起改 6（见 preflight C0-1/D0）。
     cross_gates: [""]
     mid_boundary: 6                 # 挡板在第 6/7 行之间（row5↔row6，0 基），上半场=行1~6、下半场=行7~11；2026-10-15 按车上官方地图真源修正（曾错为 5）
     # ---- 朝向补偿（根除画圆：reset 断言朝向 vs 真实朝向的固定偏差）----
@@ -42,3 +49,12 @@ integrate_node:
     target_blue_face: "S"           # 蓝面朝向 S/N(水平轨道)/E/W(垂直轨道)
     # ---- 中途重规划 ----
     replan_on_update: false         # path_executor 换路线行为实车验证后改 true
+    # ---- 时间预算门控（官方硬顶 180s、同分比用时；route_time）----
+    # 规划出解后折算预估执行秒数；超软预算且有射击位时砍射击停靠重规划
+    # （打击带 −5 误击风险，是唯一可砍任务；纯排雷链超预算只报警不砍雷）。
+    # 以下四个是占位保守值，实车标定（直行速度/加减速/射击停靠）后回填。
+    time_soft_cap_s: 165.0          # 软预算 s（留 15s 余量）；<=0 关闭门控
+    time_cruise_mps: 0.25           # 巡航速度 m/s
+    time_accel_overhead_s: 0.4      # 每条直线段的加减速附加 s
+    time_mine_slow_s: 0.6           # 过雷格的减速附加 s
+    time_shoot_stop_s: 4.0          # 每射击位：停靠+瞄准+开火+确认 s

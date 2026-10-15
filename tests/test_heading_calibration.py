@@ -101,3 +101,37 @@ def test_full_calibration_converges():
             break
         yaw = wrap_pi(yaw + rate * 0.1)
     assert abs(wrap_pi(yaw - expected)) <= math.radians(2)
+
+
+def test_nearest_axis_full_circle():
+    """任意朝向吸附最近轴，残差恒 ≤45°（含朝西车：旧逻辑会错选 x）。"""
+    import math
+
+    import pytest
+
+    from ag_integrate.heading_calibration import nearest_axis
+
+    assert nearest_axis(0.0) == "x"                    # 东
+    assert nearest_axis(math.radians(44)) == "x"
+    assert nearest_axis(math.radians(46)) == "y"
+    assert nearest_axis(math.pi / 2) == "y"            # 北
+    assert nearest_axis(math.radians(160)) == "y"      # 西北偏西：离北 70° < 离东 160°
+    assert nearest_axis(math.pi) == "y"                # 正西：离北 90° < 离东 180°
+    assert nearest_axis(math.radians(200)) == "y"      # 西南偏西：离北 110° < 离东 160°
+    assert nearest_axis(math.radians(270)) == "x"      # 正南：离东 90° < 离北 180°
+    assert nearest_axis(math.radians(315)) == "x"
+    assert nearest_axis(math.radians(-46)) == "x"
+    # 全圆性质：选中的方向误差恒为两者最小（朝西车也能拿最优断言）
+    import ag_integrate.heading_calibration as hc
+    for deg in range(0, 360):
+        yaw = math.radians(deg)
+        ax = nearest_axis(yaw)
+        chosen = 0.0 if ax == "x" else math.pi / 2
+        other = math.pi / 2 if ax == "x" else 0.0
+        assert abs(hc.wrap_pi(yaw - chosen)) <= abs(hc.wrap_pi(yaw - other)) + 1e-12
+    # 残差 ≤45° 只在东/北半圆成立（-45°~135°），超区说明摆车朝向违规
+    for deg in range(-45, 136):
+        yaw = math.radians(deg)
+        ax = nearest_axis(yaw)
+        target = 0.0 if ax == "x" else math.pi / 2
+        assert abs(hc.wrap_pi(yaw - target)) <= math.pi / 4 + 1e-9

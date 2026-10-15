@@ -26,7 +26,7 @@ from std_msgs.msg import String
 
 from .car_commands import parse_cell
 from .field_matrix import MatrixFusion, render_report_from_spots
-from .heading_calibration import closed_loop_rate
+from .heading_calibration import closed_loop_rate, nearest_axis
 from .intel_protocol import detect_msg_id, parse, parse_car_pose
 from .mission_router import _MID_BOUNDARY
 from .pipeline import build_mission, evaluate_gate
@@ -75,6 +75,8 @@ class IntegrateNode(Node):
         # 时长内持续参与禁火否决，扛单帧漏检/遮挡/落格残差丢弃。
         self.declare_parameter("red_veto_ttl_s", 5.0)
         self.declare_parameter("cross_gates", [""])
+        # 中场横向挡板位置：唯一来源是 mission_router._MID_BOUNDARY，
+        # test_field_config_consistency 锁死 yaml/节点/常量三处口径一致。
         self.declare_parameter("mid_boundary", _MID_BOUNDARY)
         # 外部朝向补偿（根除绕圈问题）：
         #   heading_bias_source="none"  → 不补偿，保持现状（默认，安全）
@@ -113,6 +115,15 @@ class IntegrateNode(Node):
         # 行为未验证（从头执行？当前段接续？），实车确认前保持一次性规划。
         # 置 true 后：态势变化导致路线变化时自动重发新路线。
         self.declare_parameter("replan_on_update", False)
+        # ---- 时间预算门控（route_time，官方硬顶 180s、同分比用时）----
+        # 规划出解后折算执行秒数；超软预算且有射击位时砍射击停靠重规划
+        # （打击是唯一带 −5 负分风险的可砍任务）。参数是占位值，
+        # 实车标定（直行速度/加减速/射击停靠）后回填 match_params.yaml。
+        self.declare_parameter("time_soft_cap_s", 165.0)   # 软预算秒数；<=0 关闭门控
+        self.declare_parameter("time_cruise_mps", 0.25)    # 巡航速度 m/s
+        self.declare_parameter("time_accel_overhead_s", 0.4)  # 每直线段加减速附加 s
+        self.declare_parameter("time_mine_slow_s", 0.6)    # 过雷格减速附加 s
+        self.declare_parameter("time_shoot_stop_s", 4.0)   # 每射击位停靠+瞄准+开火 s
         # 态势矩阵输出（教员建议的矩阵形式）：
         # 每收到一帧识别结果，把爆炸物/障碍物/靶等落成 11×14 场地矩阵并
         # 打印精确坐标明细。可靠性设计：
@@ -154,6 +165,14 @@ class IntegrateNode(Node):
         bf = str(p("target_blue_face")).strip().upper()
         self.target_blue_face = bf if bf in ("S", "N", "E", "W") else None
         self.replan_on_update = bool(p("replan_on_update"))
+        self.time_soft_cap_s = float(p("time_soft_cap_s"))
+        from .route_time import RouteTimeParams
+        self._time_params = RouteTimeParams(
+            cruise_mps=float(p("time_cruise_mps")),
+            accel_overhead_s=float(p("time_accel_overhead_s")),
+            mine_slow_s=float(p("time_mine_slow_s")),
+            shoot_stop_s=float(p("time_shoot_stop_s")),
+        )
         self.matrix_log = bool(p("matrix_log"))
         self._matrix_sig: tuple | None = None  # 上次打印的矩阵签名
         self._matrix_last_ts: float = -1e9     # 上次打印时刻（节流）
@@ -324,6 +343,12 @@ class IntegrateNode(Node):
 
     # ---------------- 决策（executor 线程） ----------------
     def _on_tick(self) -> None:
+        # 朝向对齐不等情报门控：无人机一看到车（0x4002）立即原地对齐，
+        # 与空中侦察并行，不把对齐耗时（上限 heading_align_timeout 秒）
+        # 压在发车关键路径上——比赛 180s 硬顶，同分比用时。
+        if (self._needs_heading_alignment() and self._align_state is None
+                and self._car_true_yaw is not None):
+            self._start_heading_alignment()
         try:
             snapshot = self._frames.get_nowait()
         except queue.Empty:
@@ -351,13 +376,11 @@ class IntegrateNode(Node):
                 return self.start_heading
             # 对齐失败/未完成：退回最近坐标轴（与 udp 模式同逻辑）
             if self._car_true_yaw is not None:
-                yaw = self._car_true_yaw % (2 * math.pi)
-                return "y" if (math.pi / 4) <= yaw < (3 * math.pi / 4) else "x"
+                return nearest_axis(self._car_true_yaw)
             return self.start_heading
         if src == "udp" and self._car_true_yaw is not None:
-            yaw = self._car_true_yaw % (2 * math.pi)
-            # 45° 边界：[0,45)∪[315,360) -> 'x'，[45,135) -> 'y'，其余选最近
-            nearest = "y" if (math.pi / 4) <= yaw < (3 * math.pi / 4) else "x"
+            # 环绕角取最近轴：任意朝向残差恒 ≤45°（朝西车旧逻辑会错选 x）
+            nearest = nearest_axis(self._car_true_yaw)
             if nearest != self.start_heading:
                 self.get_logger().info(
                     f"外部朝向修正: 断言 {self.start_heading} -> {nearest} "
@@ -471,6 +494,8 @@ class IntegrateNode(Node):
                 self.cross_gates, self.mid_boundary,
                 target_track=self.target_track,
                 target_blue_face=self.target_blue_face,
+                time_params=self._time_params,
+                soft_cap_s=self.time_soft_cap_s,
             )
         except (ValueError, IndexError, KeyError) as exc:
             # 规划失败（goal 不可达、桥洞未识别全等）：记日志 + 黑匣子，
@@ -492,9 +517,22 @@ class IntegrateNode(Node):
             return
 
         self.last_route = commands.route
+        # 时间预算门控结果：砍射击位 / 超硬顶都要显眼
+        if commands.shed_shooting:
+            self.get_logger().warning(
+                f"路线超软预算 {self.time_soft_cap_s:.0f}s，已砍射击位重规划: "
+                f"预估 {commands.est_seconds:.0f}s"
+            )
+        elif commands.est_seconds > 180.0:
+            self.get_logger().error(
+                f"纯排雷链预估 {commands.est_seconds:.0f}s 已超 180s 硬顶——"
+                f"完赛无望，请人工压缩任务"
+            )
         self._blog(EV.PLAN_BUILT, reset=commands.reset, route=commands.route,
                    shoot=",".join(commands.shoot_cells),
-                   heading=start_heading)
+                   heading=start_heading,
+                   est_s=round(commands.est_seconds, 1),
+                   shed=commands.shed_shooting)
 
         if self.dry_run:
             self.get_logger().info(

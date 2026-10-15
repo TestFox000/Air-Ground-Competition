@@ -22,11 +22,12 @@ def cell(name: str) -> CellRef:
 MINES = ["I1", "A2", "G3", "B4", "H5", "E6", "C7", "G11"]
 # 障碍（红"障"）——注意：桥洞列的墙不写死，由 passable 自动推导
 OBSTACLES = ["C2", "F4", "D7", "H8", "A9", "G9", "B10", "J11"]
-# 桥洞列：默认 L（与 docs/interface_contract.md 一致；现场拓扑待核实，
-# 若实际场地桥洞在其他列，改 BRIDGE_COL 与 PASSABLE 即可）
-BRIDGE_COL = "L"
+# 桥洞列：K（2026-10-15 现场确认：K 列两段桥体——下段 K1~K6、上段 K7~K11，
+# 每段随机 1 格隧道、方向=桥顶箭头；详见 docs/分区规划与感知约束-20261015.md。
+# 注意 interface_contract.md 写 L 列，与此冲突，以现场为准，契约文档待修订）
+BRIDGE_COL = "K"
 # 桥洞可通行格（带箭头，每局随机）——router 自动把桥洞列其余格推为墙
-PASSABLE = [f"{BRIDGE_COL}2", f"{BRIDGE_COL}11"]
+PASSABLE = [f"{BRIDGE_COL}4", f"{BRIDGE_COL}9"]  # 官方布置说明书图例值（图8/图7）
 # 移动靶（全场仅一个）：双面靶，蓝面=敌（打），红面=友（不打），
 # 沿轨道在两格间匀速往返。轨道两端与蓝面朝向每局由裁判系统地图/现场标定。
 TRACK = ("D8", "E8")   # 轨道两端格（水平轨道）

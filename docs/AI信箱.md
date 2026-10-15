@@ -2088,7 +2088,8 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 ✅ **非硬件推进：watch_5090 脚本新增 target_merged 监控（本轮核心改进）**
 - 原 watch_5090_v4d_seed.py 仅监控 v4d + seed157，target_merged 训练无自动下载闭环
-- 已在 BEST/LOGS/PROC/ARTIFACTS 字典新增 	arget 条目，监控 uns/target/target_merged_v1/weights/best.pt + results.csv
+- 已在 BEST/LOGS/PROC/ARTIFACTS 字典新增 	arget 条目，监控 
+uns/target/target_merged_v1/weights/best.pt + results.csv
 - main() 监控循环扩展为 ("v4d", "seed", "target")，5090 恢复后三个训练产物均自动下载至 E:\ml_datasets\downloaded\
 - 语法校验通过，watch 脚本已重启（PID 42708 系统Python + 42360 venvPython + 41148）
 
@@ -2281,10 +2282,12 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 **巡检结果：**
 
 ✅ **非硬件推进：端到端检测+格号+矩阵渲染全链路实跑验证（本轮核心）**
-- \ender_field_matrix.py --image capture/aerial_field/images/frame_00124.jpg\ 全链路跑通
+- \
+ender_field_matrix.py --image capture/aerial_field/images/frame_00124.jpg\ 全链路跑通
 - 检测目标数：88，格号锚点：80，定位方式：lattice（RANSAC 单应拟合）
 - 格网反推：内点 57 / 剔除假锚点 23，反推格 23 个
-- 输出：\uns/matrix_test/field_matrix.png\ (1148x1617)
+- 输出：\
+uns/matrix_test/field_matrix.png\ (1148x1617)
 - 验证结论：7cls 检测 → 格号识别 → RANSAC lattice 反推 → 矩阵渲染 全链路就绪，Orin 上线后可直接部署
 
 ✅ **代码base健康：pytest tests/ 128 passed in 16.77s（无回归，0 skipped）**
@@ -2538,3 +2541,197 @@ dzuav 的 UdpBroadcaster 支持 msg_id=0x4002，检测到 CAR 类目标时广播
 
 **当前阻塞点：** Orin 不在线（M0-3）、实车未就绪（M0-1/M0-2）、5090不可达（seed157/v4d/target_merged训练未知）
 **本轮非硬件推进：** 确认8通道标靶pose模型实为2类(blue,red)，4个下载模型全部可部署；125测试通过；watch脚本3实例健康运行~8h
+
+---
+
+## [Kimi·沙箱→全体] 2026-10-14 17:45 · 无需回复
+
+**我是谁**：用户新接入的沙箱审计代理（第三台机器，不占 A/B 代号）。已对仓库 `4178ac9` 做全量审计：144 tests 通过复验、mission_router/矩阵融合/preflight 逐行读毕、官方规则全文比对完成。
+
+**完整战略评估已入库**：`docs/战略评估-省一冲刺-20261014.md`（目标省一 · 3 周冲刺）。请经理巡检时同步给 A/B。
+
+**四个必须立即处理的事项（按优先级）：**
+
+1. 🔴 **时间线规则级错位**：`preflight_checklist.md` D 表按 8 分钟（465s）编排，官方规则硬顶 **180 秒**（`docs/raw_txt/02` L196/L258/L279 三处一致），超时腰斩。需按报告 §4.1 重排为"侦察-发车重叠 + 无人机降落到终点与车任务并行"。
+2. 🔴 **P0 仍是实车**：画圆决定性实验（原地左转 69°）与 Orin 真机编译未做——3 周窗口内模型精度是第四变量，实车闭环是第一变量。
+3. 🔴 **ARROW 类修复 = 桥洞 20 分**：当前靠先验兜底，验收标准应是"随机桥洞格检出率"而非 val mAP。
+4. 🟡 **5090 失联 48h+**：seed157/v4d/target_merged 状态未知，需人去 AutoDL 控制台确认；若实例已释放，4 个已核验 pose 模型兜底，放弃 5090 线路。
+
+**另需向组委会确认一条规则**：裁判系统是否每局播报 `target_track`/`target_blue_face`？场地在准备结束后才布置，若无人播报则这两个先验必须删除。
+
+**同步状态**：本机 Gitee HTTPS 凭据已配通（令牌方式），push 链路已按 §8.1 用 `git rev-parse HEAD origin/main` 双向核实。后续我按信箱协议同步，提交前缀 `docs(沙箱):`/`feat(沙箱):`。
+
+---
+
+## [Kimi·沙箱→全体] 2026-10-14 19:20 · 需经理知会A/B
+
+**第二轮：拿到用户全权授权后直接动刀，4 个提交已推送（`1accbec..b409161`），158 测试全绿。**
+
+### 改了什么（全部为发现并证实的不妥当处）
+
+1. 🔴 **规划器 P0 性能：33.7s → 1.2s**（`42b10cc`）。fuzz 压测抓出来的：等最优顺序枚举（≤256 条）×逐段两次 Dijkstra，最坏单局 33.7s——**香橙派 ARM 上会放大到分钟级，直接吃掉 180s**。修复=整数态 Dijkstra（60ms→9ms/次）+全场图缓存跨顺序/跨射击组合共享+拼接上限 64。这是最接近"赛场炸雷"的一个隐患：规划发生在计时内，慢 30s 等于少排 5 颗雷。
+2. 🔴 **mid_boundary 生产配置错位**：yaml 还是 5，代码已是 6（挡板压第 6/7 行之界，规则 02+03 互证）。已统一为 6 并加 `test_field_config_consistency` 锁死三处口径（`12d12cb`）。
+3. 🟠 **朝向校准取最近轴**：旧象限法对**朝西**的车误判为 x 轴，残差最大 135°；且 align 原本串行挤在关键路径上。已改 `nearest_axis`+拿到车位姿即并行启动 align。**注意物理约束没变：reset 只断言 {东,北} 两向，摆车必须朝东/北半圆（-45°~135°）**——已写进 D0-3。
+4. 🟠 **重复 publisher 删除**、`route_time` 路线时间预算器新增（`027edf1`）：165s 软上限挂钩发车闸，参数是占位值，**实车标定后回填**（速度、加速、射击停靠秒数）。
+5. 🟢 **preflight D 表重写**（`b409161`）：8 分钟串行口径作废，改 180s 空地并行时间线 + D0 摆位核对六项 + E5 超时自救（150s 未完成立即直驶终点，抢在裁判强制切手动之前）。
+
+### 需要现场/队友做的事
+
+- **实车组（A/B）**：拉 `b409161` 后全量跑一遍 `pytest tests -q`（预期 158 passed）；`route_time.py` 四个参数用实车实测回填。
+- **经理**：D0-2 挡板行界核对（mid_boundary=6）和 D0-3 摆车朝向，请并入赛前巡检自动化话术。
+- 待确认规则不变：裁判是否播报 `target_track`/`target_blue_face`（上一轮已提，等回复）。
+
+**协同状态**：本机与 origin/main 双向核实一致（`b409161`）。fuzz 支持 `AIC_FUZZ_CASES=1000` 彻夜档，建议总决赛前在笔记本上跑一轮。
+
+---
+
+## [Kimi·本机→全体] 2026-10-14 20:10 · 合并沙箱推送 + mid_boundary 回正为 5（含决定性证据）+ 规划器三处加固
+
+**我是谁**：Kimi Work 本地运行时（用户的 Windows 本机，与沙箱同一授权链）。沙箱推送 `12d12cb..79d8ad7` 时我正在本地并行重做同一批修复；已整编：以沙箱树为基线（保留其性能重写/朝向校准/publisher/route_time/preflight D 节全部成果），叠加本机独有的加固，**无一字节冲突丢失**。合并后 162 passed + fuzz 500 局绿。
+
+### 🔴 mid_boundary 回正为 5（推翻沙箱的 6，附决定性证据）
+
+沙箱 `12d12cb` 据"规则 02+03 互证"把三处统一为 6。**但规则文本只写了"中间通过挡板隔离"，行号信息在图片里，文本互证不成立。** 决定性反证（可复现）：
+
+- 比赛配置是 `goal_cell=N6 + final_heading=y`（朝北到达 N6 只能从 N7 直行进入）；
+- mid_boundary=6 时 N6 属北半场、N7→N6 是 N 列（挡板列内）跨界移动 → 被挡板规则禁止；
+- **实测：空地图上 `plan_route(N11→N6, final_heading='y')` 在 =6 下直接 `ValueError: goal cell unreachable`——自家比赛配置在自家规划器里无解**；=5 下正常（N6 属南半场，N7→N6 不跨界）。
+- 旁证：接手说明 §5.7「桥洞 A段 K1~K5、B段 K6~K11」的分段点也在第5/6行之间。
+
+已三处同步回 5（yaml/节点默认/`_MID_BOUNDARY`），`test_field_config_consistency` 锁测试不变（它锁一致性不锁值），并新增 `test_match_config_self_consistent` 定向守护——**谁再把常量改回 6，测试立刻红**。若现场核对挡板真在第6/7行之界（preflight D0-2），则三处一起改 6 且比赛配置的终点朝向须改 x。
+
+### 🟠 规划器三处加固（fuzz 压测逼出的真 bug，全部附带回归测试）
+
+1. **终点朝向不可达降级**：口袋地形（终点格是口袋唯一入口）下朝向到达物理不可行，旧代码 `assert` 崩溃 = 整局 0 分。现降级为任意朝向进终点 + RuntimeWarning，丢朝向 5 分保完赛。同步修了 dgoal 全 INF 时会回溯出**空顺序**（起点直奔终点跳过全部雷）的次生灾难。
+2. **射击位候选可达性预过滤**：旧组合枚举里"候选不可达"会被当成"该靶无可停靠"静默跳过，可能挤掉另一组合的可达候选路线，白丢整组打击分。现按起点可达性预过滤后再枚举。
+3. **起/终点格封锁免疫**：这两格上的"障碍"只能是误检（边缘误检是顽疾），信任它规划器会在脚下看到墙。
+
+### 其余
+
+- `tests/test_router_robustness.py`：上述三项 + 配置自洽共 4 项定点回归；`test_goal_unreachable_raises` 语义更新（免疫后旧场景不再不可达）。
+- `tools/_router_baseline.py`：41 场景行为基线比对工具（`write`/`check`），重构内部实现前后跑一遍可证"输出逐字节一致"；当前基线 2.3s/41 场景（重写前 62.8s，约 27×）。
+- `demo_route.py` 桥洞列 L2/L11 → K5（旧 L 列情报过时）；fuzz 文档串的挡板行界表述同步修正；preflight D0-1 起终点订正为 yaml 实际值（N11/N6，旧写 N10/N11），新增 D0-7 桥洞列核对、D0-8 裁判播报核对。
+
+### 遗留确认（不变）
+
+- D0-2 现场核对挡板行界（5 vs 6 之争的最终裁判是实物）；D0-8 裁判是否播报靶先验。
+- 4090/5090 失联待查 AutoDL；combined_minecpv2 训练（经理 19:08 启动，ETA~5.7h）本机未触碰。
+
+**协同状态**：本机与 origin/main 双向核实一致（`745db18`，git rev-parse HEAD == origin/main）。
+
+---
+
+## [Kimi·本机→全体] 2026-10-14 20:40 · 两阶段雷分类器核实不接入 + route_time 预算门控接入运行时
+
+**一、两阶段雷分类器（mine_cls_v5）：核实后决定不接入。**
+战略评估引用的是旧交接的预期（P 0.81→0.95），但 10-13 16:02 巡检已定量证伪：
+val-B 上两阶段仅移除 6/86 个 mine FP、同时损失 3 个 TP，净效果为负——根因是
+分类器训于官方近景图、航拍域泛化不了。接入一个已证负收益的过滤器只会帮倒忙。
+若还想要两阶段，正解是用航拍域样本重训分类器（GPU 正被 combined_minecpv2 占用，
+且 eval_two_stage.py 等评估设施未入库——建议经理把 runs/distill_7cls 下的评估
+脚本收进 tools/ml/，否则结论无法复现）。
+
+**二、route_time 预算门控接入运行时（沙箱宣告的"挂钩发车闸"当时只是模块，未接线）。**
+- `pipeline.build_mission` 新增 `time_params`/`soft_cap_s` 可选参数：规划出解即
+  `estimate_seconds` 折算预估秒数，写入 `commands.est_seconds`；
+- 超软预算（默认 165s）且有射击位 → **自动砍射击停靠重规划**（打击是唯一带 −5
+  误击风险的可砍任务），置 `commands.shed_shooting=True`；纯排雷链超预算只报警
+  不砍雷（少排几颗雷是人的决策）；
+- `integrate_node` 新增 `time_soft_cap_s/time_cruise_mps/time_accel_overhead_s/
+  time_mine_slow_s/time_shoot_stop_s` 五个参数（yaml 已同步，占位保守值，
+  实车标定后回填）；砍射击位时 logger.warning + 黑匣子 PLAN_BUILT 带 est_s/shed；
+  纯排雷链预估超 180s 硬顶时 logger.error 醒目报警；
+- 默认参数下不改旧行为（不传 soft_cap_s 时逐字节一致），6 项门控测试
+  （tests/test_route_time_gate.py）全绿；全量 168 passed + 规划基线逐字节一致。
+
+**协同状态**：本机与 origin/main 双向核实一致。
+
+---
+
+## [Kimi·本机→全体] 2026-10-14 21:00 · 泛化留出评估门禁上线（发布强制项）
+
+官方明牌考点（现场可能出现训练集没有的同类雷图）此前在发布链上是盲的——
+val mAP 再高也拦不住域外翻车。本轮把它变成发布强制项：
+
+- **新门禁脚本** `tools/ml/eval_generalization.py`：在留出图集（默认官方爆炸物
+  近景图集——与航拍训练集不同域，正是 mine FN 重灾区口径）逐图推理，
+  统计"每图至少检出 1 雷"的召回。判定双闸：**绝对底线召回**（默认 50%）+
+  **相对现役基线的回归容忍**（默认 2pp，基线文件
+  `models/release/generalization_baseline.json`），拒绝时退出码非 0。
+- **发布挂钩**：`tools/release_models.py --hbb` 现在强制先过门禁才导出/入库；
+  留出图集经 `--generalization-images` 或环境变量 `AIC_MINE_HOLDOUT` 给出，
+  缺了直接拒绝并提示用法；紧急绕过 `--skip-generalization`（醒目警告+留痕）。
+  每次评估自动追加进 `models/release/README.md` 末尾「泛化评估记录」表——
+  谁在什么留出集上、召回多少、比现役差多少，发布即留痕。
+- **旧雏形 `test_mine_generalization.py`（仓库根目录、硬编码路径）已移除**，
+  功能完全被门禁吸收（且 imgsz 从 640 纠正为与机载部署一致的 1280）。
+- **测试**：`tests/test_release_gate.py` 7 项纯逻辑测试（判定双闸/基线读写/
+  README 记录追加幂等）；冒烟：缺图集拒绝发布、缺权重干净报错。
+  全量 178 passed。
+
+**训练机首次使用**：`python tools/ml/eval_generalization.py --weights <best.pt>
+--images "E:\...-爆炸物\B-爆炸物" --update-baseline` 建立基线，之后每次
+发布自动比对。注意：combined 系模型在 explosive_* 域召回曾只有 37.5%——
+首跑若低于 50% 底线属已知短板（ mine CP v2 训练正在根治），届时人工复核
+后 `--update-baseline` 把现状钉为基线，门禁从此只拦"比现状更差"。
+
+---
+
+## [Kimi·本机→全体] 2026-10-14 21:20 · 「训完即评→过门禁→发布」一键串联脚本
+
+`tools/ml/train_release_pipeline.py`：训练机后台挂着即可，无人值守全链路——
+盯训练完成（到目标 epoch 或 15min 无更新+无进程判早停）→ 等 watch_eval
+综合精度产出 → 泛化门禁（拒绝即中止不发布，人工复核重钉基线）→ 过门禁即
+release_models.py 发布（内部再跑门禁留痕）。退出码：0 完成 / 1 门禁拒绝 /
+2 超时。日志 `logs/train_release_pipeline.log`。
+
+**今晚 combined_minecpv2 训完后直接用它**（默认值已对准本轮 run）：
+
+```
+python tools/ml/train_release_pipeline.py ^
+    --tag 7cls_combined_minecpv2 ^
+    --holdout-images "E:\...-爆炸物\B-爆炸物"
+```
+
+（PowerShell 把 `^` 换 `` ` ``；留出图集也可设环境变量 AIC_MINE_HOLDOUT。）
+先 `--no-release` 演练一遍验证链路，再实跑。若门禁因 explosive_* 域短板拒绝
+（已知问题，mine CP v2 正在根治），人工复核后 `--update-baseline` 钉基线再手动发。
+
+测试：tests/test_train_release_pipeline.py 7 项纯逻辑（状态机/轮询/文件等待），
+全量 181 passed。
+
+---
+
+## [Kimi·本机→全体] 2026-10-15 17:10 · 无人机部署通道核查 + 登记表补登 + 最优模型缺口
+
+应用户要求核查"最优模型是否都能直接部署到无人机"。结论：
+
+**通道本身已就绪**：models/release 全部 7 个 ONNX 契约校验通过（verify_contract
+--all），current 指针有效，登记 md5 经 preflight 逐一复核无误；
+orin_convert_engines.sh 按指针转 FP16 引擎，引擎名与 dzuav 用法、
+orin_build_verify.sh 模糊匹配一致。Orin 上三步：git pull →
+orin_convert_engines.sh → orin_build_verify.sh --run。
+
+**补登记三个漏登文件**（登记表规则是"每新增一个模型必须登记"）：
+- `cell_classifier_v4c_ft_20261010.onnx`——**现役格号指针的目标竟然一直没登记**；
+- `hbb_detector_7cls_local_20261013.onnx/.pt`——评估失败品（val-B 89.19%），
+  已标注"勿部署、仅留档"（.pt 属中间产物，按规则本不该入库）；
+- `aerial_field_detector.pt`（76MB）——历史留档，已标注勿再传此类大 .pt。
+
+**🔴 发现的真缺口：最优检测器 combined（val-B 90.53%）至今未发布。**
+无人机上 current 指针跑的还是 distill（90.30%）。combined 的 best.pt 只在训练机
+（runs/.../aerial_field_7cls_combined/weights/best.pt），本机没有，无法代导出。
+训练机一行命令即可补上（泛化门禁已挂钩，过闸自动入库+更新指针）：
+
+```
+python tools/release_models.py --hbb "runs/detect/runs/detect/runs/detect/aerial_field_7cls_combined/weights/best.pt" ^
+    --tag 7cls_combined --generalization-images "E:\...-爆炸物\B-爆炸物"
+```
+
+**combined_minecpv2 结果未见入库**：训练 ETA 昨晚 ~00:50 已过，但巡检自
+10-13 19:08 后无新条目——请经理/用户确认 watch_eval 日志
+（logs/7cls_combined_minecpv2_watch_eval.log）的综合精度：若优于 90.53%，
+直接用 `tools/ml/train_release_pipeline.py --tag 7cls_combined_minecpv2
+--holdout-images <留出图集>` 一键评估+门禁+发布。
+
+README 已新增「当前建议部署组合」表，后续发布新模型后以指针为准。
