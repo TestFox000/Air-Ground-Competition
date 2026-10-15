@@ -2697,3 +2697,39 @@ python tools/ml/train_release_pipeline.py ^
 
 测试：tests/test_train_release_pipeline.py 7 项纯逻辑（状态机/轮询/文件等待），
 全量 181 passed。
+
+---
+
+## [Kimi·本机→全体] 2026-10-15 17:10 · 无人机部署通道核查 + 登记表补登 + 最优模型缺口
+
+应用户要求核查"最优模型是否都能直接部署到无人机"。结论：
+
+**通道本身已就绪**：models/release 全部 7 个 ONNX 契约校验通过（verify_contract
+--all），current 指针有效，登记 md5 经 preflight 逐一复核无误；
+orin_convert_engines.sh 按指针转 FP16 引擎，引擎名与 dzuav 用法、
+orin_build_verify.sh 模糊匹配一致。Orin 上三步：git pull →
+orin_convert_engines.sh → orin_build_verify.sh --run。
+
+**补登记三个漏登文件**（登记表规则是"每新增一个模型必须登记"）：
+- `cell_classifier_v4c_ft_20261010.onnx`——**现役格号指针的目标竟然一直没登记**；
+- `hbb_detector_7cls_local_20261013.onnx/.pt`——评估失败品（val-B 89.19%），
+  已标注"勿部署、仅留档"（.pt 属中间产物，按规则本不该入库）；
+- `aerial_field_detector.pt`（76MB）——历史留档，已标注勿再传此类大 .pt。
+
+**🔴 发现的真缺口：最优检测器 combined（val-B 90.53%）至今未发布。**
+无人机上 current 指针跑的还是 distill（90.30%）。combined 的 best.pt 只在训练机
+（runs/.../aerial_field_7cls_combined/weights/best.pt），本机没有，无法代导出。
+训练机一行命令即可补上（泛化门禁已挂钩，过闸自动入库+更新指针）：
+
+```
+python tools/release_models.py --hbb "runs/detect/runs/detect/runs/detect/aerial_field_7cls_combined/weights/best.pt" ^
+    --tag 7cls_combined --generalization-images "E:\...-爆炸物\B-爆炸物"
+```
+
+**combined_minecpv2 结果未见入库**：训练 ETA 昨晚 ~00:50 已过，但巡检自
+10-13 19:08 后无新条目——请经理/用户确认 watch_eval 日志
+（logs/7cls_combined_minecpv2_watch_eval.log）的综合精度：若优于 90.53%，
+直接用 `tools/ml/train_release_pipeline.py --tag 7cls_combined_minecpv2
+--holdout-images <留出图集>` 一键评估+门禁+发布。
+
+README 已新增「当前建议部署组合」表，后续发布新模型后以指针为准。
