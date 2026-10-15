@@ -16,8 +16,16 @@
 """
 
 import math
+from pathlib import Path
 
 import pytest
+
+# 循迹 SIL 依赖车上取回的官方源码（reference/car_src，51MB，gitignore 不入库）。
+# 没有这份参考实现的副本（如新克隆）上跳过整套测试，而不是在收集期炸 FileNotFoundError。
+_CAR_SRC = Path(__file__).resolve().parents[1] / "reference" / "car_src"
+if not _CAR_SRC.exists():
+    pytest.skip("reference/car_src 未取回（gitignore 不入库的车端官方源码）",
+                allow_module_level=True)
 
 import ros_stub  # noqa: F401  必须先于被测节点模块导入
 
