@@ -1,5 +1,6 @@
 #!/bin/bash
 # 比赛两阶段启动（循迹对齐版）——在车上执行，或经 remote_run.py --script 上传执行。
+# 本流程对应车上 LEGACY_PATH=1 回退核（车上 start_all.sh 默认新核 dzbrain）。
 #
 # 为什么必须两阶段（dzactuator.cpp 源码实测契约）：
 #   dzactuator 有模式仲裁：cmd_vel 只在模式1(DWA)被执行；path_executor 一旦
@@ -37,6 +38,9 @@ source /opt/ros/humble/setup.bash
 source ~/dzrobot/install/setup.bash
 # shellcheck source=/dev/null
 source "$AG_WS/install/setup.bash"
+# 车上 ROS 域真源（默认导 ROS_DOMAIN_ID=118）：非交互 SSH 不读 .bashrc，
+# 不 source 会落域 0 看不到车上节点；文件不存在静默跳过，保持可移植
+[ -f ~/dzrobot/dzros.env ] && source ~/dzrobot/dzros.env || true
 
 PIDS=()
 cleanup() {
@@ -82,7 +86,10 @@ done
 step "阶段2: 启动 path_executor（pursuitAngle 通道接管底盘）"
 EXEC_PY=$(find ~/dzrobot/src -name path_executor.py 2>/dev/null | head -1)
 [ -z "$EXEC_PY" ] && { warn "未找到 path_executor.py"; exit 1; }
-setsid python3 "$EXEC_PY" >"$LOG_DIR/path_executor.log" 2>&1 &
+# DZ_AUTO_START=0：现役 executor 启动约 8~45s 后会自动 reset 并跑内置任务路线
+# （环境变量优先级最高，=0 强制待命）——我们经 /nav/waypoint 下发路线，
+# 绝不能让它先自己跑
+setsid env DZ_AUTO_START=0 python3 "$EXEC_PY" >"$LOG_DIR/path_executor.log" 2>&1 &
 PIDS+=($!)
 
 step "全部就绪。日志目录: $LOG_DIR"

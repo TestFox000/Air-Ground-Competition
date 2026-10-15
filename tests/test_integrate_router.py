@@ -55,8 +55,10 @@ def test_unreachable_required_is_skipped_but_goal_reached():
 
 def test_goal_unreachable_raises():
     start = CellRef(0, 0)             # A1
-    goal = CellRef(1, 0)              # B1
-    # 封死 A1 唯二的出路 B1 / A2
+    goal = CellRef(2, 0)              # C1（与起点不相邻）
+    # 封死 A1 唯二的出路 B1 / A2。
+    # 注意：不能往起点/终点格上放障碍——上游加固后这两格对封锁免疫
+    # （站在上面的车证明那是误检），放上去会被规则直接丢弃、测试失真。
     wall = [obj(CellRef(1, 0), ObjectType.OBSTACLE),
             obj(CellRef(0, 1), ObjectType.OBSTACLE)]
     snap = make_snapshot(wall)

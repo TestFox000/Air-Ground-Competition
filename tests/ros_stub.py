@@ -274,6 +274,26 @@ def clear_overrides() -> None:
     _OVERRIDES.clear()
 
 
+class FakeTimer:
+    """rclpy Timer 替身：可调用、可取消（cancel()）。
+
+    真 rclpy 的 create_timer 返回 Timer 句柄；现役 path_executor 的
+    _auto_start_mission 会调 timer.cancel()（一次性定时器触发即取消）。
+    tick() 跳过已取消的定时器，与真语义一致。
+    """
+
+    def __init__(self, period: float, cb: Callable) -> None:
+        self.timer_period_ns = int(period * 1e9)
+        self._cb = cb
+        self.cancelled = False
+
+    def __call__(self) -> None:
+        self._cb()
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+
 class FakeNode:
     """节点基类替身：记录参数、发布器、订阅回调与定时器。"""
 
@@ -336,8 +356,11 @@ class FakeNode:
         return BUS.count_publishers(topic)
 
     def create_timer(self, period: float, cb: Callable):
-        self.timers.append(cb)
-        return cb
+        # 真 rclpy 返回 Timer 对象（带 cancel()）；现役 path_executor 的
+        # 自动发车一次性定时器用到 cancel()，桩必须同款语义。
+        t = FakeTimer(period, cb)
+        self.timers.append(t)
+        return t
 
     # ---- 其它 ----
     def get_logger(self):
@@ -361,9 +384,10 @@ class FakeNode:
         cb(msg)
 
     def tick(self) -> None:
-        """依次触发所有定时器回调。"""
+        """依次触发所有定时器回调（已 cancel 的跳过，与真 rclpy 一致）。"""
         for cb in self.timers:
-            cb()
+            if not getattr(cb, "cancelled", False):
+                cb()
 
     def topic(self, name: str) -> FakePublisher:
         return self.publishers[name]

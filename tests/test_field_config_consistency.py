@@ -25,9 +25,10 @@ def test_mid_boundary_consistent_everywhere():
     """mid_boundary：yaml == 节点默认值 == mission_router._MID_BOUNDARY。"""
     yaml_val = int(_yaml_params()["mid_boundary"])
     src = NODE_PATH.read_text(encoding="utf-8")
-    m = re.search(r'declare_parameter\("mid_boundary",\s*(\d+)\)', src)
+    m = re.search(r'declare_parameter\("mid_boundary",\s*(\d+|_MID_BOUNDARY)\)', src)
     assert m, "integrate_node.py 找不到 mid_boundary 默认值声明"
-    node_default = int(m.group(1))
+    # 节点用常量引用声明时一致性由构造保证；字面量则按值校验
+    node_default = _MID_BOUNDARY if m.group(1) == "_MID_BOUNDARY" else int(m.group(1))
     assert yaml_val == _MID_BOUNDARY, (
         f"yaml mid_boundary={yaml_val} 与 mission_router._MID_BOUNDARY="
         f"{_MID_BOUNDARY} 不一致——路线将按错误的中场挡板位置规划")

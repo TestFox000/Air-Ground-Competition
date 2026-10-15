@@ -427,12 +427,14 @@ def test_build_mission_failure_keeps_node_alive(tmp_path):
     """build_mission 抛错（goal 不可达）：记 ROS 日志 + node.error 事件、
     不发路线、保持门控等下拍；节点存活，态势恢复后正常发车。"""
     from ag_core.blackbox import EV, read_events
-    node = make_node(log_dir=str(tmp_path))
+    # 终点换成 M11：N10 是本测试的默认起点，对封锁免疫（上游规则：
+    # 起/终点格上的障碍报告必为误检），堵它永远堵不出"不可达"。
+    node = make_node(log_dir=str(tmp_path), goal_cell="M11")
     try:
-        # 终点 N11 的唯二入口 M11/N10 全堵 -> build_mission 抛 ValueError
+        # 终点 M11 的三个入口 L11/N11/M10 全堵 -> build_mission 抛 ValueError
         node._submit(snapshot_of(
             mine_at("D2"), blue_target_at("F5"),
-            obstacle_at("M11"), obstacle_at("N10"),
+            obstacle_at("L11"), obstacle_at("N11"), obstacle_at("M10"),
         ))
         node.tick()
         assert node.topic("/nav/waypoint").published == []

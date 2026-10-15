@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import heapq
+import warnings
 from itertools import count, product
 from math import gcd
 
@@ -39,15 +40,57 @@ _DIRS = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1))
 _HEADING_IDX = {"x": 0, "y": 6}
 _ALL_HEADINGS = tuple(range(8))
 
-# 中场横向挡板：位于第 6/7 行之间（row5↔row6，0 基），上半场=行1~6、
-# 下半场=行7~11；2026-10-15 按车上官方地图真源修正（曾错为 5）。
-# 向上占第6行底部1/4、向下占第7行顶部1/4，总高半格。
-# 第6行、第7行格子本身可通行，但跨边界的竖向移动被阻挡，桥洞缺口除外。
+# 中场横向挡板：位于第5行与第6行的边界线上（row4↔row5 之间），
+# 向上占第5行底部1/4、向下占第6行顶部1/4，总高半格。
+# 第5行、第6行格子本身可通行，但跨边界的竖向移动被阻挡，桥洞缺口除外。
+# 2026-10-15 终裁：挡板实体在 D7~N7 格带（第 6/7 行边界）——车上官方地图真源
+# + 现场核实（I6→I7/K6→K7/L6→L7 全封死）双重确认，mid_boundary=6。
+# 注意：旧"决定性证据"（goal=N6+heading=y 只在 =5 可行）建立在旧门模型上，
+# 与现场物理冲突的归一问题见 docs/分区规划与感知约束-20261015.md 问题1。
 _MID_BOUNDARY = 6  # 唯一默认值来源：row5(第6行) ↔ row6(第7行) 之间
 
 # 横向挡板覆盖 D(3)~N(13) 列，A、B、C 列无挡板可自由穿越。
 # 桥洞列由 passable（ARROW）动态确定，每局随机。
 _BARRIER_COLS: frozenset[int] = frozenset(range(3, COLS))  # D..N
+
+# ---- 静态几何表（模块级一次性构建）：整数编码 (格, 航向) 状态空间 ----
+# 格索引 ci = row*COLS + col；状态索引 si = ci*8 + h。
+# Dijkstra 内循环只碰整数与预构边表，不再逐邻居构造 CellRef/元组哈希
+# （2026-10-14 沙箱审计：旧实现单次 ~60ms，其中大半是 CellRef.__init__/__hash__）。
+_N_CELLS = ROWS * COLS
+_CELLS: tuple[CellRef, ...] = tuple(
+    CellRef(c, r) for r in range(ROWS) for c in range(COLS)
+)
+# 8×8 航向差（几个 45°）查表
+_TURNS: tuple[tuple[int, ...], ...] = tuple(
+    tuple(min(abs(a - b), 8 - abs(a - b)) for b in range(8)) for a in range(8)
+)
+
+
+def _build_edges() -> tuple[tuple[tuple[int, int, float, bool, int, int, int, int], ...], ...]:
+    """_EDGES[ci] = ((n_ci, nh, step, diag, o1_ci, o2_ci, dr, n_row), ...)
+
+    o1/o2 为对角移动防切角的两侧正交格（非对角时为 -1）；dr/n_row 供中场
+    挡板跨界判定（mid_boundary 是运行期参数，不能烧进表里）。
+    """
+    edges = []
+    for r in range(ROWS):
+        for c in range(COLS):
+            lst = []
+            for nh, (dc, dr) in enumerate(_DIRS):
+                nc, nr = c + dc, r + dr
+                if not (0 <= nc < COLS and 0 <= nr < ROWS):
+                    continue
+                diag = dc != 0 and dr != 0
+                o1 = r * COLS + nc if diag else -1   # (nc, r)
+                o2 = nr * COLS + c if diag else -1   # (c, nr)
+                lst.append((nr * COLS + nc, nh, _SQRT2 if diag else 1.0,
+                            diag, o1, o2, dr, nr))
+            edges.append(tuple(lst))
+    return tuple(edges)
+
+
+_EDGES = _build_edges()
 
 
 def _turn_units(h1: int, h2: int) -> int:
@@ -57,7 +100,7 @@ def _turn_units(h1: int, h2: int) -> int:
 
 
 def _crosses_mid(row_a: int, row_b: int, boundary: int) -> bool:
-    """一条竖向边是否跨越中场分界（boundary 指上半区行数，如 6 = row5↔row6 之间）。"""
+    """一条竖向边是否跨越中场分界（boundary 指上半区行数，如 5 = row4↔row5 之间）。"""
     return (row_a < boundary <= row_b) or (row_b < boundary <= row_a)
 
 
@@ -76,44 +119,72 @@ def _dijkstra(
     entry_headings 里的朝向以 0 代价起步（自由进入 = 不罚第一步转向）。
     terminal 指定时，该格成为终点态：进入即停、不许穿过再离开
     （避免“路过目标又折返”的路径）。
+
+    实现：整数态 (si = ci*8+h) + 预构边表 + 位图障碍，出口处物化为
+    原 {(CellRef, h): ...} 字典接口（消费方 _arrival_state/_trace_states 不变）。
     """
+    blocked_bits = bytearray(_N_CELLS)
+    for c in blocked:
+        blocked_bits[c.row * COLS + c.col] = 1
+    gates_bits: bytearray | None = None
+    if cross_gates is not None:
+        gates_bits = bytearray(_N_CELLS)
+        for c in cross_gates:
+            gates_bits[c.row * COLS + c.col] = 1
+    term_ci = terminal.row * COLS + terminal.col if terminal is not None else -1
+    start_ci = start.row * COLS + start.col
+
+    dist_i = [_INF] * (_N_CELLS * 8)
+    prev_i = [-1] * (_N_CELLS * 8)
+    tick = count()
+    pq: list[tuple[float, int, int]] = []
+    for h in entry_headings:
+        si = start_ci * 8 + h
+        dist_i[si] = 0.0
+        heapq.heappush(pq, (0.0, next(tick), si))
+    push, pop = heapq.heappush, heapq.heappop
+    while pq:
+        d, _, si = pop(pq)
+        if dist_i[si] < d - 1e-12:
+            continue
+        ci = si >> 3
+        if ci == term_ci:
+            continue  # 终点态：不再向外扩展
+        h = si & 7
+        row = ci // COLS
+        for nci, nh, step, diag, o1, o2, dr, nrow in _EDGES[ci]:
+            if blocked_bits[nci]:
+                continue
+            if diag:
+                if not allow_diagonal:
+                    continue
+                # 防切角：对角移动要求两侧正交格均非障碍
+                if blocked_bits[o1] or blocked_bits[o2]:
+                    continue
+            if (
+                dr and gates_bits is not None
+                and ((row < mid_boundary <= nrow) or (nrow < mid_boundary <= row))
+            ):
+                # 桥洞一格宽：只能正交穿越，且必须贴着 gate 格
+                if diag or not (gates_bits[ci] or gates_bits[nci]):
+                    continue
+            nd = d + step + _TURNS[h][nh] * turn_45
+            nsi = nci * 8 + nh
+            if nd < dist_i[nsi] - 1e-12:
+                dist_i[nsi] = nd
+                prev_i[nsi] = si
+                push(pq, (nd, next(tick), nsi))
+
     dist: dict[tuple[CellRef, int], float] = {}
     prev: dict[tuple[CellRef, int], tuple[CellRef, int]] = {}
-    tick = count()
-    pq: list[tuple[float, int, CellRef, int]] = []
-    for h in entry_headings:
-        dist[(start, h)] = 0.0
-        heapq.heappush(pq, (0.0, next(tick), start, h))
-    while pq:
-        d, _, cur, h = heapq.heappop(pq)
-        state = (cur, h)
-        if dist.get(state, _INF) < d - 1e-12:
-            continue
-        if terminal is not None and cur == terminal:
-            continue  # 终点态：不再向外扩展
-        for nh, (dc, dr) in enumerate(_DIRS):
-            diag = dc != 0 and dr != 0
-            if diag and not allow_diagonal:
-                continue
-            nxt = CellRef(cur.col + dc, cur.row + dr)
-            if not (0 <= nxt.col < COLS and 0 <= nxt.row < ROWS) or nxt in blocked:
-                continue
-            # 防切角：对角移动要求两侧正交格均非障碍
-            if diag and (
-                CellRef(cur.col + dc, cur.row) in blocked
-                or CellRef(cur.col, cur.row + dr) in blocked
-            ):
-                continue
-            if cross_gates is not None and dr != 0 and _crosses_mid(cur.row, nxt.row, mid_boundary):
-                # 桥洞一格宽：只能正交穿越，且必须贴着 gate 格
-                if diag or (cur not in cross_gates and nxt not in cross_gates):
-                    continue
-            nd = d + (_SQRT2 if diag else 1.0) + _turn_units(h, nh) * turn_45
-            nstate = (nxt, nh)
-            if nd < dist.get(nstate, _INF) - 1e-12:
-                dist[nstate] = nd
-                prev[nstate] = state
-                heapq.heappush(pq, (nd, next(tick), nxt, nh))
+    for si in range(_N_CELLS * 8):
+        dd = dist_i[si]
+        if dd < _INF:
+            st = (_CELLS[si >> 3], si & 7)
+            dist[st] = dd
+            p = prev_i[si]
+            if p >= 0:
+                prev[st] = (_CELLS[p >> 3], p & 7)
     return dist, prev
 
 
@@ -141,6 +212,31 @@ def _trace_states(prev: dict, end_state: tuple[CellRef, int]) -> list[CellRef]:
     return cells
 
 
+def _cached_dijkstra(
+    cache: dict | None,
+    start: CellRef,
+    blocked: frozenset[CellRef],
+    cross_gates: frozenset[CellRef] | None,
+    mid_boundary: int,
+    entry_headings: tuple[int, ...],
+    turn_45: float,
+    allow_diagonal: bool,
+    terminal: CellRef | None = None,
+) -> tuple[dict, dict]:
+    """_dijkstra 的缓存封装：键 = (起点, 进入朝向集, 终点态, 障碍集)。
+
+    cross_gates/mid_boundary/turn_45/allow_diagonal 在一次 plan_route 调用内
+    不变，由调用方保证；避让重算的 blocked 会变，故必须进键。
+    """
+    key = (start, entry_headings, terminal, blocked)
+    if cache is not None and key in cache:
+        return cache[key]
+    result = _dijkstra(start, blocked, cross_gates, mid_boundary, entry_headings, turn_45, allow_diagonal, terminal=terminal)
+    if cache is not None:
+        cache[key] = result
+    return result
+
+
 def _route_leg(
     frm: CellRef,
     to: CellRef,
@@ -152,22 +248,44 @@ def _route_leg(
     want_arrival: int | None,
     turn_45: float,
     allow_diagonal: bool,
+    cache: dict | None = None,
 ) -> tuple[list[CellRef] | None, int | None, float]:
-    """frm→to 单段路由：优先走避开已踩格子的等代价路径。返回 (cells, 到达航向, 代价)。"""
+    """frm→to 单段路由：优先走避开已踩格子的等代价路径。返回 (cells, 到达航向, 代价)。
+
+    性能（2026-10-14 沙箱审计修复）：等最优顺序枚举最多 256 条，每条 9+ 段，
+    逐段两次 Dijkstra 曾导致单局规划 30s+（ARM 车端会放大到分钟级，直接
+    吃掉 180s 计时）。三处提速：
+      1. Dijkstra 结果按 (frm, entry, terminal, blocked) 缓存——跨顺序/跨组合
+         大量重复；中间段一律用全场图（terminal=None），使同一起点+进入朝向的
+         所有段共享同一次计算；
+      2. want_arrival=None 时不指定 terminal 是安全的：最省到达态的回溯链
+         不可能中途先穿过 to（穿过意味着存在更便宜的到达，与"最省"矛盾），
+         只有末段 h_final 约束才需要终点态防折返；
+      3. 自由路径若本就零重复踩格，跳过避让重算（多数段的实际情况）。
+    """
     if frm == to:
         h0 = entry[0] if len(entry) == 1 else (want_arrival if want_arrival is not None else 0)
         return [frm], h0, 0.0
-    d_free, p_free = _dijkstra(frm, blocked, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=to)
+
+    term = to if want_arrival is not None else None
+    d_free, p_free = _cached_dijkstra(cache, frm, blocked, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term)
     cost, end = _arrival_state(d_free, to, want_arrival)
     if end is None or cost >= _INF:
         return None, None, _INF
-    avoid = frozenset(blocked | (used - {frm, to}))
+
+    avoid_cells = used - {frm, to}
+    free_cells = _trace_states(p_free, end)
+    if avoid_cells and not (set(free_cells) & avoid_cells):
+        # 自由路径没有踩任何已踩格：避让重算的结果必然相同，直接返回
+        return free_cells, end[1], cost
+
+    avoid = frozenset(blocked | avoid_cells)
     if avoid != blocked:
-        d_av, p_av = _dijkstra(frm, avoid, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=to)
+        d_av, p_av = _cached_dijkstra(cache, frm, avoid, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term)
         c_av, e_av = _arrival_state(d_av, to, want_arrival)
         if e_av is not None and c_av <= cost + _EPS:
             return _trace_states(p_av, e_av), e_av[1], c_av
-    return _trace_states(p_free, end), end[1], cost
+    return free_cells, end[1], cost
 
 
 def _flatten(segments: list[list[CellRef]]) -> tuple[str, ...]:
@@ -241,22 +359,31 @@ def _assemble(
     h_final: int | None,
     turn_45: float,
     allow_diagonal: bool,
+    cache: dict | None = None,
+    fallback_any_heading: bool = False,
 ) -> tuple[tuple[str, ...] | None, float]:
-    """按给定顺序逐段拼接（真实朝向链 + 顺路避让），返回 (路线, 真实总代价)。"""
+    """按给定顺序逐段拼接（真实朝向链 + 顺路避让），返回 (路线, 真实总代价)。
+
+    fallback_any_heading：终点朝向约束（h_final）物理不可达时
+    （例：终点格是口袋入口，朝向到达须先踩终点），允许以任意朝向进终点——
+    放弃终点朝向分，保住完赛。严格模式（False）下不可达即整段返回 None。
+    """
     used: set[CellRef] = {nodes[0]}
     segments: list[list[CellRef]] = []
     total = 0.0
     cur, entry = nodes[0], entry0
     for i in order:
         w = nodes[i + 1]
-        seg, h, c = _route_leg(cur, w, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal)
+        seg, h, c = _route_leg(cur, w, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal, cache)
         if seg is None:
             return None, _INF
         segments.append(seg)
         used.update(seg)
         total += c
         cur, entry = w, (h,)
-    seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, h_final, turn_45, allow_diagonal)
+    seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, h_final, turn_45, allow_diagonal, cache)
+    if seg is None and fallback_any_heading and h_final is not None:
+        seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal, cache)
     if seg is None:
         return None, _INF
     segments.append(seg)
@@ -275,22 +402,25 @@ def _plan_core(
     h_final: int | None,
     turn_45: float,
     allow_diagonal: bool,
+    cache: dict | None = None,
 ) -> tuple[tuple[str, ...], float]:
     """给定障碍集与必经点，输出（最优路线, 真实总代价）。"""
-    dist0, _ = _dijkstra(start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
-    if _arrival_state(dist0, goal, h_final)[0] >= _INF:
+    dist0, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
+    if _arrival_state(dist0, goal, None)[0] >= _INF:
         raise ValueError("goal cell unreachable from start")
+    # 注意：可达性检查必须按"任意朝向"——朝向到达不可行由拼装层降级兜底，
+    # 若在此按 h_final 判不可达，会把"丢 5 分朝向"误升级成"整局崩溃"。
 
     # 剔除不可达必经点（与旧语义一致：跳过）；nodes[0] 恒为起点。
     nodes = [start] + [c for c in required.values() if _arrival_state(dist0, c, None)[0] < _INF]
     n = len(nodes) - 1
     if n == 0:
-        seg, _h, _c = _route_leg(start, goal, blocked, set(), cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal)
+        seg, _h, _c = _route_leg(start, goal, blocked, set(), cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
         return _flatten([seg]), _c
 
     # 每个节点做一次自由进入朝向的 Dijkstra，得两两边权（乐观界）。
     dists = [dist0] + [
-        _dijkstra(c, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)[0]
+        _cached_dijkstra(cache, c, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)[0]
         for c in nodes[1:]
     ]
     W = [[_INF] * (n + 1) for _ in range(n + 1)]
@@ -300,6 +430,11 @@ def _plan_core(
             if j != i:
                 W[i][j] = _arrival_state(dists[i], nodes[j], None)[0]
     dgoal = [_arrival_state(dists[i], goal, h_final)[0] for i in range(n + 1)]
+    if h_final is not None and all(d >= _INF for d in dgoal):
+        # 终点朝向到达全局不可行（口袋地形）：TSP 排序改用任意朝向界，
+        # 朝向降级由拼装层兜底——否则 dgoal 全 INF 会导致回溯出空顺序，
+        # 退化成"起点直奔终点、跳过全部雷"的灾难路线。
+        dgoal = [_arrival_state(dists[i], goal, None)[0] for i in range(n + 1)]
 
     # Held-Karp：dp[mask][i] = 从起点出发、恰好经过 mask 集合内的必经点、
     # 当前停在必经点 i 的最少总代价（必经点编号 0..n-1 对应 nodes[1..n]）。
@@ -331,15 +466,17 @@ def _plan_core(
             best_cost, best_last = c, i
 
     def assemble(order: list[int]) -> tuple[tuple[str, ...] | None, float]:
-        return _assemble(order, nodes, goal, blocked, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal)
+        return _assemble(order, nodes, goal, blocked, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
 
     # 保底顺序 + 枚举其余等代价顺序，取（真实代价, 重复踩格）最小者。
+    # 拼接数硬上限：对称场景下等代价顺序可达 256 条，每条的避让重算是
+    # 剩余耗时大头；64 次足以覆盖真实的并列分支（实测场景 <10 次即收敛）。
     best_route: tuple[str, ...] | None = None
     best_cost_true: float = _INF
     best_dup = 1 << 30
     candidates = [_reconstruct_order(parent, full - 1, best_last)]
     candidates += _enumerate_optimal_orders(dp, W, dgoal, n, best_cost)
-    for order in candidates:
+    for order in candidates[:64]:
         route, cost_true = assemble(order)
         if route is None:
             continue
@@ -352,7 +489,29 @@ def _plan_core(
         # 真实代价达到乐观下界且零重复，不可能更好了
         if best_cost_true <= best_cost + _EPS and best_dup == 0:
             break
-    assert best_route is not None  # 保底顺序必然可拼接
+    if best_route is None and h_final is not None:
+        # 终点朝向到达物理不可行（如终点格是口袋入口，朝向到达须先踩终点）。
+        # 降级：任意朝向进终点——放弃终点朝向分，保住完赛（崩溃 = 整局 0 分）。
+        warnings.warn(
+            f"goal {goal.name} 以朝向到达不可行，降级为任意朝向进终点"
+            "（终点朝向 5 分不保）",
+            RuntimeWarning, stacklevel=3,
+        )
+        for order in candidates[:64]:
+            route, cost_true = _assemble(
+                order, nodes, goal, blocked, cross_gates, mid_boundary,
+                entry0, h_final, turn_45, allow_diagonal, cache,
+                fallback_any_heading=True,
+            )
+            if route is None:
+                continue
+            dup = len(route) - len(set(route))
+            key_better = cost_true < best_cost_true - _EPS or (
+                abs(cost_true - best_cost_true) <= _EPS and dup < best_dup
+            )
+            if best_route is None or key_better:
+                best_route, best_cost_true, best_dup = route, cost_true, dup
+    assert best_route is not None  # 保底顺序必然可拼接（终点朝向不可达时已降级）
     return best_route, best_cost_true
 
 
@@ -469,6 +628,10 @@ def plan_route(
     )
     # 桥洞可通行格优先于桥洞墙（同一格不可能既是缺口又是墙）。
     blocked = frozenset(c for c in blocked if c.name not in passable_names)
+    # 起点/终点格免疫封锁：车物理上就站在起点，终点是固定方框——
+    # 这两格上的"障碍"只能是误检（边缘误检是 documented 顽疾），
+    # 信任它会让规划器在自家脚下看到一堵墙。
+    blocked = frozenset(c for c in blocked if c != start and c != goal)
 
     # 中场横向挡板的穿越缺口：
     # 1. 挡板范围外的列（A、B、I~N）可自由穿越边界；
@@ -488,6 +651,10 @@ def plan_route(
             cross_gates = frozenset(gates)
 
     # 雷为普通必经点；蓝靶的必经点是其停靠射击格（每靶一组候选）。
+    # cache 在本次 plan_route 内共享：blocked/cross_gates 已定型，
+    # 等最优顺序枚举与射击位组合会大量重复同一段 Dijkstra。
+    cache: dict = {}
+
     base_required: dict[str, CellRef] = {}
     for c in snapshot.mines:
         base_required.setdefault(c.name, c)
@@ -504,8 +671,20 @@ def plan_route(
             cand_lists.append(cands)
         # 无候选 = 该靶被围死无处停靠，跳过（与不可达必经点语义一致）
 
+    # 射击位候选按"起点可达性"预过滤：不可达候选直接移出组合枚举。
+    # 否则某组合的候选不可达会被当成"该靶无可停靠"静默跳过，
+    # 可能挤掉另一组合中可达候选的路线——白丢整组打击分。
+    dist0 = None
+    if cand_lists:
+        dist0, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
+        cand_lists = [
+            [c for c in cl if _arrival_state(dist0, c, None)[0] < _INF]
+            for cl in cand_lists
+        ]
+        cand_lists = [cl for cl in cand_lists if cl]
+
     if not cand_lists:
-        route, _ = _plan_core(start, goal, blocked, base_required, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal)
+        route, _ = _plan_core(start, goal, blocked, base_required, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
         return route
 
     total = 1
@@ -515,7 +694,6 @@ def plan_route(
         combos: list[tuple[CellRef, ...]] = list(product(*cand_lists))
     else:
         # 退化：逐靶选离起点最近的候选（大场景保护，实际靶数少不会触发）
-        dist0, _ = _dijkstra(start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal)
         combos = [tuple(
             min(cl, key=lambda c: (_arrival_state(dist0, c, None)[0], c.name)) for cl in cand_lists
         )]
@@ -528,7 +706,7 @@ def plan_route(
         for c in combo:
             req.setdefault(c.name, c)
         try:
-            route, cost = _plan_core(start, goal, blocked, req, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal)
+            route, cost = _plan_core(start, goal, blocked, req, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache)
         except ValueError:
             continue
         dup = len(route) - len(set(route))

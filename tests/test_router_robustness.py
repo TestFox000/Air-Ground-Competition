@@ -41,12 +41,14 @@ def test_goal_heading_infeasible_degrades_not_crashes():
 
     场景来自 fuzz 首案（种子 20261014 rand0）：障碍 M7 + K 列墙把 N6 以南
     围成口袋，朝北到达 N6 物理不可行。
+    （2026-10-15 mb=6 几何适配：门移到 6/7 边界的 K7，L7→H7 保持东侧封锁，
+    否则门格东侧引道被堵、场景从"朝向不可达"变成"整格不可达"。）
     """
     mines = ["A9", "J7", "A6", "D11", "I5", "A11", "M11", "H9"]
-    obstacles = ["G7", "L7", "A4", "E6", "M7", "C10", "I9", "F10"]
+    obstacles = ["G7", "H7", "A4", "E6", "M7", "C10", "I9", "F10"]
     snap = _snap(
         mines=[_c(n) for n in mines],
-        passable=[_c("K5")],
+        passable=[_c("K7")],   # mb=6 几何：门在 6/7 边界上（K5 是 mb=5 时代的位置）
         obstacles=[_c(n) for n in obstacles],
     )
     with pytest.warns(RuntimeWarning, match="降级"):
