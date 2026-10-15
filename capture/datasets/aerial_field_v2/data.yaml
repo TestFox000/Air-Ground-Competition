@@ -1,0 +1,17 @@
+path: .
+train: images/train
+val: images/val
+test: images/test
+
+nc: 10
+names:
+  0: mine
+  1: cell_label
+  2: arrow
+  3: car_start
+  4: car_end
+  5: uav_start
+  6: uav_end
+  7: bucket_red
+  8: bucket_green
+  9: bucket_cyan

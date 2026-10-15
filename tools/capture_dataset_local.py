@@ -39,14 +39,19 @@ def list_cameras(max_index: int = 5):
 
 
 def find_ar0234(max_index: int = 5) -> int:
-    """自动找 AR0234 相机（分辨率 1920x1200 或更高）。"""
+    """自动找 AR0234 相机：实测哪个 index 能出 1920x1200 帧。
+
+    注意不能只看默认分辨率（很多 UVC 相机默认都报 640x480），
+    必须实际 set 1920x1200 并取一帧验证。
+    """
     for i in range(max_index):
         cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
         if cap.isOpened():
-            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1200)
+            ok, frame = cap.read()
             cap.release()
-            if w >= 1280:  # AR0234 通常 1920x1200，笔记本摄像头一般 640x480
+            if ok and frame.shape[1] >= 1920 and frame.shape[0] >= 1200:
                 return i
     return -1
 
@@ -88,10 +93,28 @@ def main() -> int:
         print(f"无法打开相机 index={cam_idx}", file=sys.stderr)
         return 1
 
-    real_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    real_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    real_fps = cap.get(cv2.CAP_PROP_FPS) or args.cam_fps
-    print(f"相机已打开: {real_w}x{real_h} @ {real_fps:.1f}fps")
+    # 预热：DSHOW 流刚启动时取帧可能失败、属性可能返回 -1，
+    # 必须重试等第一帧到位，并以实际帧尺寸为准
+    warm, t0 = None, time.time()
+    while time.time() - t0 < 5.0:
+        ok, warm = cap.read()
+        if ok:
+            break
+        time.sleep(0.05)
+    if warm is None:
+        print("相机取帧失败（5 秒无帧），请检查 USB 连接", file=sys.stderr)
+        cap.release()
+        return 1
+
+    real_h, real_w = warm.shape[:2]
+    # 实测帧率：该相机 CAP_PROP_FPS 常返回 -1，用 1 秒计数代替
+    n, t1 = 0, time.time()
+    while time.time() - t1 < 1.0:
+        ok, _ = cap.read()
+        if ok:
+            n += 1
+    real_fps = n / (time.time() - t1) if n else float(args.cam_fps)
+    print(f"相机已打开: {real_w}x{real_h} @ 实测 {real_fps:.1f}fps")
 
     out_dir = Path(args.out)
     img_dir = out_dir / "images"
