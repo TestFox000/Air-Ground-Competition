@@ -6,7 +6,8 @@
 无滑移；不做动力学参数辨识）。
 
 被测 path_executor 为**现役快照** reference/car_src_20261015（md5
-25db4022f3，2026-10-15 从比赛车拉取；50Hz 控制环、巡航 0.15m/s、
+010981ef7a，2026-10-16 PIVOT 过冲修复版：接近点图缘防御 + 终点过冲恢复
+分支，已部署车上并 md5 对齐；50Hz 控制环、巡航 0.15m/s、
 continuous 扫描、越界急停）。加载隔离（DZ_AUTO_START=0、ROBOT_CONFIG
 指向不存在路径）见 sim_car.load_path_executor_module。
 
@@ -128,16 +129,6 @@ def _make_integrate(world: TrackingWorld, **params) -> IntegrateNode:
 
 
 # ---------------------------------------------------------------- 主证明
-@pytest.mark.xfail(
-    strict=True,
-    reason="现役 executor（2026-10-16 md5 02c531a113）PIVOT 调参回归："
-           "CORNER_TRIGGER_M 0.25→0.40 + CORNER_ALIGN_RAD 15°→22° 后，"
-           "终点边沿接近段（本场景 N11,x 的 90° 接近拐角，顶点被钳在图缘 x=0.05）"
-           "在顶点前 0.40m 即起转，0.08m/s 满舵爬行弧（r≈0.27m）把车带过终点、"
-           "纯追踪不倒退 → 东向出图 → 越界急停。旧参数（0.25/15°）同场景 72.7s 到点。"
-           "分析与轨迹证据见 docs/SIL发现-PIVOT过冲-20261016.md；"
-           "车上参数修复后本测试转 XPASS（strict）即摘标记。",
-)
 def test_align_then_route_arrives(world_factory):
     """158.6° 摆放 + align：先对齐（<15s、误差 <3°），再发车真到终点。"""
     world = world_factory(start_cell="N10", true_yaw_deg=TRUE_YAW_DEG,

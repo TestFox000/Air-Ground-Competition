@@ -8,9 +8,12 @@ importlib 只读加载）-> pursuitAngle -> DzActuatorSim -> ChassisSim（真值
 === 被测真码出处（先读我）===
 path_executor 加载的是**现役快照**
 `reference/car_src_20261015/car_localization/car_localization/path_executor.py`
-（md5 25db4022f3，2644 行，2026-10-15 经 tools/remote_run.py --get 从比赛车
-192.168.137.241 只读拉取；出处与全目录 md5 清单见
-reference/car_src_20261015/README.md）。旧基线 reference/car_src（md5
+（md5 010981ef7a，2722 行；2026-10-16 PIVOT 过冲修复版：接近点图缘防御 +
+终点过冲恢复分支，SIL 全套件 282 passed 后经 tools/remote_run.py --put
+部署上车并双向 md5 对齐。版本沿革：25db4022f3（10-15 拉取）→ 02c531a113
+（10-16 车端 PIVOT 调参，引入终点过冲回归）→ 010981ef7a（本修复版）。
+出处与全目录 md5 清单见 reference/car_src_20261015/README.md）。
+旧基线 reference/car_src（md5
 6d31d068c1，2026-09-27）仅留作历史对照，不再参与仿真。
 现役版相对旧基线的仿真相关差异：
 - 控制环 50Hz（create_timer(0.02)）—— 本仿真节拍随之取 20ms；
@@ -384,8 +387,8 @@ class GimbalSim:
 
 
 # ---------------------------------------------------------------- reference 真码加载
-# 现役快照（2026-10-15 从比赛车 192.168.137.241 只读拉取）：
-# md5 25db4022f335e717e22d412d2ade25b2，2644 行。
+# 现役快照（2026-10-16 PIVOT 过冲修复版，已部署比赛车 192.168.137.241 并 md5 对齐）：
+# md5 010981ef7abc4094efbcac4ee1bc0d2c，2722 行。
 # 旧基线 reference/car_src（md5 6d31d068c1，2026-09-27）仅留作历史对照。
 # 出处与全目录 md5 清单：reference/car_src_20261015/README.md
 _PE_PATH = (Path(__file__).resolve().parents[1]
