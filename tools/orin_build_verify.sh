@@ -105,7 +105,10 @@ check_jetson() {
     if [[ "$arch" != "arm64" && "$arch" != "aarch64" ]]; then
         fail "架构是 $arch（应为 arm64）——本脚本面向 Jetson Orin，请在机载电脑上运行"
     fi
-    if ! ldconfig -p | grep -q 'libnvinfer\.so'; then
+    # 注意不能用 grep -q：本脚本 set -o pipefail，grep -q 匹配后提前退出会让
+    # ldconfig 收 SIGPIPE(141)，整条管道被误判失败（2026-10-16 Orin 实测踩坑，
+    # 概率性"未找到 TensorRT"误报）。改为读完全部输入再丢弃输出，管道状态即 grep 状态。
+    if ! ldconfig -p | grep 'libnvinfer\.so' >/dev/null; then
         fail "未找到 TensorRT (libnvinfer.so)：TRT/CUDA 不在 apt 仓库、只随 JetPack 刷机提供，请先用 SDK Manager 或 sdcard 镜像刷机后再跑本脚本"
     fi
     [[ -d /usr/local/cuda ]] || fail "未找到 /usr/local/cuda（CUDA 同样只随 JetPack 提供）"
@@ -202,8 +205,10 @@ import sys
 sys.path.insert(0, os.path.join(os.environ["REPO_DIR"], "src", "ag_integrate"))
 from ag_integrate.intel_protocol import parse  # 车端解析器：与车机共用同一实现
 
-names = {0: "mine", 1: "car", 2: "arrow", 3: "target_red",
-         4: "cell_label", 5: "target_blue", 6: "obstacle"}
+names = {0: "paper", 1: "cell_label", 2: "car", 3: "target_red",
+         4: "target_blue", 5: "obstacle", 6: "bucket_red",
+         7: "bucket_green", 8: "bucket_cyan", 9: "car_start",
+         10: "car_end", 11: "uav_start", 12: "uav_end"}
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
