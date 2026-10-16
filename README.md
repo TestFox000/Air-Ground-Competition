@@ -35,6 +35,7 @@
 | `tools/remote_run.py` | SSH 上传/执行/取回（paramiko） |
 | `tools/log_report.py` | 黑匣子复盘报告 |
 | `tools/track_diag.py` | 循迹"信念 vs 真实"对照诊断：SSH 抓车上信念位姿/命令 + 相机 ArUco 解算场上真值，实时对照 + 规则报警（画圈/定位停更/执行器未动等）。现场用：双击根目录 `循迹诊断.bat`，手册 `docs/track_diag现场手册.md`，打印标记在 `docs/track_diag/markers/` |
+| `tools/uav_link.py` | 无人机地面站：run 只读遥测+黑匣子（/fmu/out/* 自描述采样，8 条告警）、ctl 调控（arm/kill 等，--yes 闸门）、logs 取回机载日志、report 离线复盘分级。密码走 `AG_ORIN_PASS` |
 | `docs/` | 规则原文(`raw_txt/`)、现场证据(`probe/`)、当前架构说明；重构前的旧文档统一在 `docs/archive/`（带过时标注） |
 
 ## 常用命令
