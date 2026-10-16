@@ -34,7 +34,7 @@ def mine_at(cell: str) -> IntelObject:
     row = int(cell[1:]) - 1
     x = 0.065 + col * 0.35
     y = 0.295 + (10 - row) * 0.35
-    return IntelObject(ObjectType.MINE, x, y, 0.35, 0.35)
+    return IntelObject(ObjectType.PAPER, x, y, 0.35, 0.35)
 
 
 def blue_target_at(cell: str) -> IntelObject:

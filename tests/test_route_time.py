@@ -71,9 +71,9 @@ def test_full_match_route_within_soft_cap():
     """代表性全局任务（8 雷跨两场 + K4/K9 桥洞 + 蓝靶）在默认参数下 < 软预算。"""
     mines = [CellRef(*c) for c in
              ((0, 1), (3, 10), (6, 0), (1, 8), (12, 2), (13, 5), (9, 7), (5, 9))]
-    objects = [_obj(m, ObjectType.MINE) for m in mines]
-    objects += [_obj(CellRef(10, 3), ObjectType.ARROW),    # K4 桥洞
-                _obj(CellRef(10, 8), ObjectType.ARROW)]    # K9 桥洞
+    objects = [_obj(m, ObjectType.PAPER) for m in mines]
+    objects += [_obj(CellRef(10, 3), ObjectType.PAPER),    # K4 桥洞
+                _obj(CellRef(10, 8), ObjectType.PAPER)]    # K9 桥洞
     objects += [_obj(CellRef(3, 1), ObjectType.TARGET_BLUE)]  # D2 敌靶
     snap = _snap(objects)
     route = plan_route(snap, CellRef(13, 9), CellRef(13, 10))  # N10 -> N11
@@ -100,9 +100,9 @@ def test_worst_case_planning_speed():
 
     mines = [CellRef(*c) for c in
              ((7, 5), (0, 5), (13, 7), (2, 9), (13, 4), (0, 8), (0, 2), (13, 3))]
-    objects = [_obj(m, ObjectType.MINE) for m in mines]
-    objects += [_obj(CellRef(10, 4), ObjectType.ARROW),
-                _obj(CellRef(10, 6), ObjectType.ARROW)]
+    objects = [_obj(m, ObjectType.PAPER) for m in mines]
+    objects += [_obj(CellRef(10, 4), ObjectType.PAPER),
+                _obj(CellRef(10, 6), ObjectType.PAPER)]
     objects += [_obj(CellRef(2, 6), ObjectType.TARGET_BLUE)]
     snap = _snap(objects)
     t0 = time.monotonic()

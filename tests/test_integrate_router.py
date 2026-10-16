@@ -20,9 +20,9 @@ def obj(cell, t):
 def test_simple_open_route():
     start, goal = CellRef(13, 9), CellRef(13, 10)   # N10 -> N11
     snap = make_snapshot(
-        (obj(CellRef(3, 10), ObjectType.MINE),       # D11
-         obj(CellRef(1, 6), ObjectType.MINE),        # B7
-         obj(CellRef(10, 8), ObjectType.ARROW),     # K9 passable
+        (obj(CellRef(3, 10), ObjectType.PAPER),       # D11
+         obj(CellRef(1, 6), ObjectType.PAPER),        # B7
+         obj(CellRef(10, 8), ObjectType.PAPER),     # K9 passable
          obj(CellRef(5, 5), ObjectType.OBSTACLE),   # F6 blocked
          obj(CellRef(3, 1), ObjectType.TARGET_BLUE),  # D2 enemy
          )
@@ -46,7 +46,7 @@ def test_unreachable_required_is_skipped_but_goal_reached():
     # 围住 C1：左 B1、右 D1、下 C2 均为障碍
     wall = [CellRef(1, 0), CellRef(3, 0), CellRef(2, 1)]
     objects = [obj(w, ObjectType.OBSTACLE) for w in wall]
-    objects.append(obj(CellRef(2, 0), ObjectType.MINE))   # C1 被困，不可达
+    objects.append(obj(CellRef(2, 0), ObjectType.PAPER))   # C1 被困，不可达
     snap = make_snapshot(objects)
     route = plan_route(snap, start, goal)
     assert "C1" not in route          # 不可达必经点被跳过

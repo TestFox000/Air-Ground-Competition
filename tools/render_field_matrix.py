@@ -30,22 +30,31 @@ from sim_match import SimChain, NAME2TYPE, ObjectType  # noqa: E402
 from eval_cell_frames import to_cid  # noqa: E402
 from ag_integrate.field_frame import COLS, ROWS  # noqa: E402
 
-# 类别配色 (RGB)
+# 类别配色 (RGB)（D 方案 13 类；paper 落格后语义：普通格=雷、K 列=桥洞箭头）
 COLORS = {
-    ObjectType.MINE: (230, 0, 0),           # 红 爆炸物
+    ObjectType.PAPER: (230, 0, 0),          # 红 纸片（雷图卡/箭头标志）
     ObjectType.OBSTACLE: (255, 140, 0),     # 橙 障碍
     ObjectType.TARGET_BLUE: (0, 120, 230),  # 蓝 敌方
     ObjectType.TARGET_RED: (230, 230, 0),   # 黄 友方
-    ObjectType.ARROW: (0, 210, 0),          # 绿 桥洞
     ObjectType.CAR: (220, 0, 220),          # 紫 车
+    ObjectType.BUCKET_RED: (180, 30, 30),   # 深红 红桶
+    ObjectType.BUCKET_GREEN: (30, 150, 60), # 深绿 绿桶
+    ObjectType.BUCKET_CYAN: (0, 170, 170),  # 青 青桶
 }
 CN_NAMES = {
-    ObjectType.MINE: "爆炸物",
+    ObjectType.PAPER: "纸片",
     ObjectType.OBSTACLE: "障碍",
     ObjectType.TARGET_BLUE: "蓝靶",
     ObjectType.TARGET_RED: "红靶",
-    ObjectType.ARROW: "桥洞",
     ObjectType.CAR: "车",
+    ObjectType.BUCKET_RED: "红桶",
+    ObjectType.BUCKET_GREEN: "绿桶",
+    ObjectType.BUCKET_CYAN: "青桶",
+    ObjectType.CELL_LABEL: "格号",
+    ObjectType.CAR_START: "车起点",
+    ObjectType.CAR_END: "车终点",
+    ObjectType.UAV_START: "机起点",
+    ObjectType.UAV_END: "机终点",
 }
 LETTERS = "ABCDEFGHIJKLMN"
 

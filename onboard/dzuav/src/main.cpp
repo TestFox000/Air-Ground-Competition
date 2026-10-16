@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cctype>
@@ -33,10 +34,33 @@ void handleSignal(int)
 
 const char* className(ObjectClass type)
 {
-    static const char* names[] = {"mine",       "car",         "arrow",   "target_red",
-                                  "cell_label", "target_blue", "obstacle"};
+    static const char* names[] = {"paper",     "cell_label", "car",        "target_red",
+                                  "target_blue", "obstacle", "bucket_red", "bucket_green",
+                                  "bucket_cyan", "car_start", "car_end",    "uav_start",
+                                  "uav_end"};
     return names[static_cast<int>(type)];
 }
+
+// D 方案 13 类部署参数（2026-10-16 四方对比口径 + 功能类默认值）。
+// paper=0.25 为验证工作点（mine R98.3%/arrow R88.9% P100%）；cell=0.5 与
+// 旧部署一致；靶标/车/起止点用 0.25 保召回；obstacle/桶 0.4。
+std::array<float, kObjectClassCount> kDeployConf = {
+    0.25F,  // paper
+    0.50F,  // cell_label
+    0.25F,  // car
+    0.25F,  // target_red
+    0.25F,  // target_blue
+    0.40F,  // obstacle
+    0.40F,  // bucket_red
+    0.40F,  // bucket_green
+    0.40F,  // bucket_cyan
+    0.25F,  // car_start
+    0.25F,  // car_end
+    0.25F,  // uav_start
+    0.25F,  // uav_end
+};
+constexpr float kDeployNms = 0.45F;
+constexpr float kEdgePaperThr = 0.005F;
 
 // 车头朝向估计：车顶贴红色方向标记（车头一侧），标记质心相对车框中心的
 // 偏移方向即车头方向。图像方向经 map.project 投到场地世界坐标后取 atan2。
@@ -274,7 +298,9 @@ int runCamera(const std::string& source, const std::string& hbb_path,
         return 3;
     }
 
-    HbbDetector hbb(hbb_path, .25F, .45F);
+    std::array<float, kObjectClassCount> nms_per_class;
+    nms_per_class.fill(kDeployNms);
+    HbbDetector hbb(hbb_path, kDeployConf, nms_per_class, kEdgePaperThr);
     CellClassifier cell(cell_path);
     MapLocalizer map;
     UdpBroadcaster udp(port);
@@ -379,7 +405,9 @@ int main(int argc, char** argv)
     const std::filesystem::path output_dir = argc > 5 ? argv[5] : "";
     if (!output_dir.empty())
         std::filesystem::create_directories(output_dir);
-    HbbDetector hbb(argv[2], .25F, .45F);
+    std::array<float, kObjectClassCount> nms_per_class;
+    nms_per_class.fill(kDeployNms);
+    HbbDetector hbb(argv[2], kDeployConf, nms_per_class, kEdgePaperThr);
     CellClassifier cell(argv[3]);
     MapLocalizer map;
     UdpBroadcaster udp(port);

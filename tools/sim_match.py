@@ -45,11 +45,14 @@ from ag_integrate.intel_protocol import (  # noqa: E402
 )
 from cell_classifier.predictor import CellIdRecognizer  # noqa: E402
 
-# 与 C++ className/ObjectType 顺序一致的类别名映射
-NAME2TYPE = {"mine": ObjectType.MINE, "car": ObjectType.CAR,
-             "arrow": ObjectType.ARROW, "target_red": ObjectType.TARGET_RED,
-             "cell_label": ObjectType.CELL_LABEL, "target_blue": ObjectType.TARGET_BLUE,
-             "obstacle": ObjectType.OBSTACLE}
+# 与 C++ className/ObjectType 顺序一致的类别名映射（D 方案 13 类）
+NAME2TYPE = {"paper": ObjectType.PAPER, "cell_label": ObjectType.CELL_LABEL,
+             "car": ObjectType.CAR, "target_red": ObjectType.TARGET_RED,
+             "target_blue": ObjectType.TARGET_BLUE, "obstacle": ObjectType.OBSTACLE,
+             "bucket_red": ObjectType.BUCKET_RED, "bucket_green": ObjectType.BUCKET_GREEN,
+             "bucket_cyan": ObjectType.BUCKET_CYAN, "car_start": ObjectType.CAR_START,
+             "car_end": ObjectType.CAR_END, "uav_start": ObjectType.UAV_START,
+             "uav_end": ObjectType.UAV_END}
 LETTERS = "ABCDEFGHIJKLMN"
 CELL, X0, Y0 = 0.35, 0.065, 0.295
 

@@ -69,8 +69,8 @@ def test_golden_frame_messages():
     node = make_node()
     try:
         feed(node,
-             obj_at(ObjectType.ARROW, "K9"),
-             obj_at(ObjectType.MINE, "A2"),
+             obj_at(ObjectType.PAPER, "K9"),
+             obj_at(ObjectType.PAPER, "A2"),
              obj_at(ObjectType.OBSTACLE, "B4"),
              obj_at(ObjectType.TARGET_BLUE, "E5"))
         node.tick()
@@ -103,7 +103,7 @@ def test_upper_half_arrow_reports_upper():
     """上半场 ARROW（K5，第 5 行）→ half="upper"。"""
     node = make_node()
     try:
-        feed(node, obj_at(ObjectType.ARROW, "K5"))
+        feed(node, obj_at(ObjectType.PAPER, "K5"))
         node.tick()
         bridge = by_type(node, "bridge_passable")
         assert len(bridge) == 1
@@ -117,8 +117,8 @@ def test_half_boundary_rows():
     """半场分界：第 6 行→upper、第 7 行→lower（挡板在 6/7 行界）。"""
     node = make_node()
     try:
-        feed(node, obj_at(ObjectType.ARROW, "K6"),
-             obj_at(ObjectType.ARROW, "K7"))
+        feed(node, obj_at(ObjectType.PAPER, "K6"),
+             obj_at(ObjectType.PAPER, "K7"))
         node.tick()
         got = {b["block"]: b["half"] for b in by_type(node, "bridge_passable")}
         assert got == {"K6": "upper", "K7": "lower"}
@@ -155,18 +155,18 @@ def test_change_triggers_immediate_and_refresh_periodic():
     """同一情报不连刷；情报变化立即发；无变化到刷新周期补发。"""
     node = make_node(refresh_period_s=0.5)
     try:
-        feed(node, obj_at(ObjectType.ARROW, "K9"))
+        feed(node, obj_at(ObjectType.PAPER, "K9"))
         node.tick()                        # t=1.1：首发 K9
         assert len(by_type(node, "bridge_passable")) == 1
 
         # 同一情报再来一帧：签名未变，不连刷
-        feed(node, obj_at(ObjectType.ARROW, "K9"))
+        feed(node, obj_at(ObjectType.PAPER, "K9"))
         node.tick()                        # t=1.2
         node.tick()                        # t=1.3
         assert len(by_type(node, "bridge_passable")) == 1
 
         # 情报变化（桥洞格移动 K9->K8）：不等刷新周期，立即发
-        feed(node, obj_at(ObjectType.ARROW, "K8"))
+        feed(node, obj_at(ObjectType.PAPER, "K8"))
         node.tick()                        # t=1.4
         bridges = by_type(node, "bridge_passable")
         assert len(bridges) == 2
@@ -202,7 +202,7 @@ def test_empty_target_zone_not_sent():
     field_verify 空列表照发（"全场干净"是有效情报）。"""
     node = make_node()
     try:
-        feed(node, obj_at(ObjectType.MINE, "A2"))
+        feed(node, obj_at(ObjectType.PAPER, "A2"))
         node.tick()
         assert by_type(node, "target_zone") == []
         verify = by_type(node, "field_verify")
@@ -254,7 +254,7 @@ def test_bad_crc_frame_rejected_node_survives():
     """UDP 坏帧（CRC 错）：拒收、记告警、不崩；后续好帧照常处理。"""
     node = make_node()
     try:
-        good = build(IntelFrame(1, (obj_at(ObjectType.ARROW, "K9"),)))
+        good = build(IntelFrame(1, (obj_at(ObjectType.PAPER, "K9"),)))
         bad = bytearray(good)
         bad[-6] ^= 0xFF      # 破坏 CRC（suffix 前 2 字节是 CRC）
         node._process_packet(bytes(bad))
@@ -282,9 +282,9 @@ def test_wire_compatibility_with_drone_task_parser():
     node = make_node()
     try:
         feed(node,
-             obj_at(ObjectType.ARROW, "K9"),
-             obj_at(ObjectType.ARROW, "K5"),
-             obj_at(ObjectType.MINE, "A2"),
+             obj_at(ObjectType.PAPER, "K9"),
+             obj_at(ObjectType.PAPER, "K5"),
+             obj_at(ObjectType.PAPER, "A2"),
              obj_at(ObjectType.OBSTACLE, "B4"),
              obj_at(ObjectType.TARGET_BLUE, "E5"),
              obj_at(ObjectType.TARGET_RED, "F6"))
@@ -386,7 +386,7 @@ def test_blackbox_events(tmp_path):
     from ag_core.blackbox import read_events
     node = make_node(log_dir=str(tmp_path))
     try:
-        feed(node, obj_at(ObjectType.ARROW, "K9"))
+        feed(node, obj_at(ObjectType.PAPER, "K9"))
         node.tick()
     finally:
         node.destroy_node()

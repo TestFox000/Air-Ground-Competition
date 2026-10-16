@@ -21,13 +21,13 @@ def test_gate_decisions():
     s = snapshot((obj(CellRef(3, 1), ObjectType.TARGET_BLUE),))
     assert not evaluate_gate(s, min_mines=1, require_face=True).ok
     # 有雷但无敌我判决 -> face_unknown
-    s = snapshot((obj(CellRef(3, 10), ObjectType.MINE),))
+    s = snapshot((obj(CellRef(3, 10), ObjectType.PAPER),))
     assert evaluate_gate(s, 1, require_face=True).reason == "face_unknown"
     assert evaluate_gate(s, 1, require_face=False).ok
     # 雷 + 靶 -> 开门
     s = snapshot(
         (
-            obj(CellRef(3, 10), ObjectType.MINE),
+            obj(CellRef(3, 10), ObjectType.PAPER),
             obj(CellRef(3, 1), ObjectType.TARGET_BLUE),
         )
     )
@@ -38,8 +38,8 @@ def test_gate_decisions():
 def test_build_mission_full():
     s = snapshot(
         (
-            obj(CellRef(3, 10), ObjectType.MINE),       # D11
-            obj(CellRef(10, 8), ObjectType.ARROW),      # K9
+            obj(CellRef(3, 10), ObjectType.PAPER),       # D11
+            obj(CellRef(10, 8), ObjectType.PAPER),      # K9
             obj(CellRef(5, 5), ObjectType.OBSTACLE),    # F6
             obj(CellRef(3, 1), ObjectType.TARGET_BLUE),  # D2 敌
         )
@@ -74,7 +74,7 @@ def test_inject_track_only_hits_targets_on_track():
     轨道上的蓝靶按轨道几何停靠（D9/E9 蓝面侧正对端点）。"""
     s = snapshot(
         (
-            obj(CellRef(0, 5), ObjectType.MINE),           # A6
+            obj(CellRef(0, 5), ObjectType.PAPER),           # A6
             obj(CellRef(3, 7), ObjectType.TARGET_BLUE),    # D8：轨道上
             obj(CellRef(13, 1), ObjectType.TARGET_RED),    # N2：固定红靶
         )
@@ -94,7 +94,7 @@ def test_inject_track_leaves_fixed_blue_on_fixed_geometry():
     不被轨道几何带偏；与移动靶各自命中、各记一次。"""
     s = snapshot(
         (
-            obj(CellRef(0, 5), ObjectType.MINE),           # A6
+            obj(CellRef(0, 5), ObjectType.PAPER),           # A6
             obj(CellRef(3, 7), ObjectType.TARGET_BLUE),    # D8：移动靶
             obj(CellRef(13, 8), ObjectType.TARGET_BLUE),   # N9：固定蓝靶
         )

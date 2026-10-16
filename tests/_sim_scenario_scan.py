@@ -28,7 +28,7 @@ def obj(cell, typ):
 
 
 def run_scenario(mines, seed=42, budget=90.0):
-    objs = tuple(obj(c, ObjectType.MINE) for c in mines) + (
+    objs = tuple(obj(c, ObjectType.PAPER) for c in mines) + (
         obj("D8", ObjectType.TARGET_BLUE),)
     w = TrackingWorld(start_cell="N10", true_yaw_deg=158.6,
                       theta_boot_deg=90.0, seed=seed)

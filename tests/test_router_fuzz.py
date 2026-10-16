@@ -55,9 +55,9 @@ def _random_scene(rng):
     obstacles = pool[8:16]
     blue = pool[16] if rng.random() < 0.5 else None
 
-    objects = [_obj(m, ObjectType.MINE) for m in mines]
+    objects = [_obj(m, ObjectType.PAPER) for m in mines]
     objects += [_obj(o, ObjectType.OBSTACLE) for o in obstacles]
-    objects += [_obj(a, ObjectType.ARROW) for a in arrows]
+    objects += [_obj(a, ObjectType.PAPER) for a in arrows]
     if blue is not None:
         objects.append(_obj(blue, ObjectType.TARGET_BLUE))
     return objects, mines, arrows, blue
@@ -132,9 +132,9 @@ def test_random_maps_invariants():
         for m in mines:
             if m.name in in_route:
                 continue
-            solo_objects = [_obj(m, ObjectType.MINE)]
+            solo_objects = [_obj(m, ObjectType.PAPER)]
             solo_objects += [_obj(o, ObjectType.OBSTACLE) for o in obstacles]
-            solo_objects += [_obj(a, ObjectType.ARROW) for a in arrows]
+            solo_objects += [_obj(a, ObjectType.PAPER) for a in arrows]
             if blue is not None:
                 # 靶格在全局场景同样是 blocked，单独验证时不可漏掉，
                 # 否则会出现"单独可达（走了穿靶的路）却误判全局误剔"的假阳性

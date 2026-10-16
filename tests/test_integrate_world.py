@@ -39,10 +39,10 @@ def test_world_model_classifies_and_dedups():
     frame = IntelFrame(
         1234,
         (
-            obj_at(m1, ObjectType.MINE),
-            obj_at(m1, ObjectType.MINE),        # 重复，去重
-            obj_at(m2, ObjectType.MINE),
-            obj_at(a1, ObjectType.ARROW),
+            obj_at(m1, ObjectType.PAPER),
+            obj_at(m1, ObjectType.PAPER),        # 重复，去重
+            obj_at(m2, ObjectType.PAPER),
+            obj_at(a1, ObjectType.PAPER),
             obj_at(o1, ObjectType.OBSTACLE),
             obj_at(blue, ObjectType.TARGET_BLUE),
             obj_at(red, ObjectType.TARGET_RED),
@@ -67,7 +67,7 @@ def test_world_model_classifies_and_dedups():
 def test_pipeline_from_bytes():
     """协议字节 -> 解析 -> 世界模型 端到端。"""
     cell = CellRef(0, 0)
-    raw = build(IntelFrame(99, (obj_at(cell, ObjectType.MINE),)))
+    raw = build(IntelFrame(99, (obj_at(cell, ObjectType.PAPER),)))
     model = WorldModel()
     snap = model.update(parse(raw))
     assert snap.mines[0].name == "A1"

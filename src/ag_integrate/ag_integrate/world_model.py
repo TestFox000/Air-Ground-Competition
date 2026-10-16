@@ -77,17 +77,21 @@ class WorldModel:
                 # 出界/无法吸附的点不纳入态势（CAR/CELL_LABEL 也走这条忽略）
                 continue
 
-            if obj.type is ObjectType.MINE:
-                mines.setdefault(cell.name, cell)
-            elif obj.type is ObjectType.ARROW:
-                passable.setdefault(cell.name, cell)
+            if obj.type is ObjectType.PAPER:
+                # D 方案（2026-10-16）：paper 语义由落格判定——
+                # K 列桥洞区的纸片 = 通行箭头（每段桥洞有且只有一个）；
+                # 其余格的纸片 = 雷（官方规则：雷即 12cm 图片粘贴）。
+                if cell.name[:1] == "K":
+                    passable.setdefault(cell.name, cell)
+                else:
+                    mines.setdefault(cell.name, cell)
             elif obj.type is ObjectType.OBSTACLE:
                 obstacles.setdefault(cell.name, cell)
             elif obj.type is ObjectType.TARGET_BLUE:
                 targets.append(TargetRef(cell, True))
             elif obj.type is ObjectType.TARGET_RED:
                 targets.append(TargetRef(cell, False))
-            # CAR / CELL_LABEL：忽略
+            # CAR / CELL_LABEL / BUCKET_* / 起止点：不进态势（与旧版一致）
 
         # 红靶粘性否决：本帧红靶登记时刻；TTL 内见过但本帧消失的红靶格
         # 补回态势（fail-safe：只增加否决），过期的清出历史表。

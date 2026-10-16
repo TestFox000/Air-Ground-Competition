@@ -86,7 +86,7 @@ def _obj(cell: str, typ: ObjectType) -> IntelObject:
 
 
 def intel_objects() -> tuple:
-    return tuple(_obj(c, ObjectType.MINE) for c in MINES) + (
+    return tuple(_obj(c, ObjectType.PAPER) for c in MINES) + (
         _obj(TARGET_CELL, ObjectType.TARGET_BLUE),)
 
 
