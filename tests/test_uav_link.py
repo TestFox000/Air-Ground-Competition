@@ -165,7 +165,9 @@ def test_blackbox_append_mode_keeps_history(tmp_path):
 # ---------------------------------------------------------------- QoS 选择
 
 def test_choose_qos():
-    assert ul.choose_qos([]) == "reliable"               # 无发布端信息按默认
+    # 空列表 = DDS 发现未跑完的竞态态：订阅端按 best_effort 永远兼容
+    # （reliable 订阅收不到 best_effort 发布——2026-10-16 实机静默踩坑）
+    assert ul.choose_qos([]) == "best_effort"
     assert ul.choose_qos(["reliable"]) == "reliable"
     assert ul.choose_qos(["system_default"]) == "reliable"
     assert ul.choose_qos(["best_effort"]) == "best_effort"
@@ -423,7 +425,14 @@ def test_render_command_map():
     assert ul.COMMAND_MAP["takeoff"]["cmd"] == 22
     assert ul.COMMAND_MAP["land"]["cmd"] == 21
     assert ul.COMMAND_MAP["return"]["cmd"] == 20
-    assert ul.COMMAND_MAP["kill"]["cmd"] == 185
+    # kill 与 flight_console 同语义：400 + 强制断解锁魔法字 param2=21196
+    # （185 DO_FLIGHTTERMINATION 受 CBRK_FLIGHTTERM 影响可能被降级，2026-10-16 修正）
+    assert ul.COMMAND_MAP["kill"]["cmd"] == 400
+    assert ul.COMMAND_MAP["kill"]["params"].get("param1") == 0.0
+    assert ul.COMMAND_MAP["kill"]["params"].get("param2") == 21196.0
+    # 采样器内嵌映射表必须同源（文件头警告：改一边同步另一边）
+    assert '"kill":    {"cmd": 400' in ul.SAMPLER_SRC
+    assert "21196" in ul.SAMPLER_SRC
 
 
 # ---------------------------------------------------------------- 机载采样器源码契约
@@ -652,3 +661,288 @@ def test_cmd_report_endtoend(tmp_path, capsys):
     assert "[严重] FAILSAFE" in out and "[注意]" in out and "[信息]" in out
     # 不存在的文件 → 清晰报错
     assert ul.main(["report", str(tmp_path / "nope.jsonl")]) == 2
+
+
+# ================================================================ flight_bb 双格式
+# 并行会话机载黑匣子 tools/orin_flight_blackbox.py 的 JSONL（ev 键判别）。
+# 行形：{"ts","mono","seq","node":"flight_bb","ev","lvl","session",<事件字段>}
+
+FB_T0 = 1792144000.0   # 样例 ts 基准（report 统一时间归零，断言用相对秒）
+
+
+def _fb(t, ev, lvl="info", **fields):
+    """构造一条 flight_bb 行（形状与 _emit 落盘一致）。"""
+    row = {"ts": FB_T0 + t, "mono": t, "seq": 0, "node": "flight_bb",
+           "ev": ev, "lvl": lvl, "session": "pytest"}
+    row.update(fields)
+    return row
+
+
+def test_classify_blackbox_row():
+    assert ul.classify_blackbox_row({"ev": "flight.att"}) == "flight_bb"
+    assert ul.classify_blackbox_row({"topic": "/x"}) == "sample"
+    # 两键都在时 ev 优先（实际不存在，但判别顺序要锚定）
+    assert ul.classify_blackbox_row({"ev": "x", "topic": "/y"}) == "flight_bb"
+    assert ul.classify_blackbox_row({"hello": 1}) == "other"
+    assert ul.classify_blackbox_row({}) == "other"
+
+
+def test_flight_bb_status_timeline_onchange_heartbeat():
+    """flight.status 是 on-change + 每秒保底心跳：时间线按变化段，心跳不产生新条目。"""
+    rows = [
+        _fb(0.0, "flight.status", arming=1, arming_name="STANDBY", nav=0,
+            nav_name="MANUAL", failsafe=0, prev=None),
+        _fb(1.0, "flight.status", lvl="warn", arming=2, arming_name="ARMED",
+            nav=0, nav_name="MANUAL", failsafe=0, prev={"arming": 1, "nav": 0,
+                                                        "failsafe": 0}),
+        _fb(2.0, "flight.status", lvl="warn", arming=2, nav=14,
+            nav_name="OFFBOARD", failsafe=0),
+        # 保底心跳：同值 info，不得进时间线
+        _fb(3.0, "flight.status", arming=2, nav=14, nav_name="OFFBOARD", failsafe=0),
+        _fb(4.0, "flight.status", arming=2, nav=14, nav_name="OFFBOARD", failsafe=0),
+        _fb(5.0, "flight.status", lvl="warn", arming=2, nav=14,
+            nav_name="OFFBOARD", failsafe=1),
+        _fb(6.0, "flight.status", arming=2, nav=14, nav_name="OFFBOARD", failsafe=1),
+        _fb(7.0, "flight.status", lvl="warn", arming=2, nav=14,
+            nav_name="OFFBOARD", failsafe=0),
+        _fb(9.0, "flight.status", lvl="warn", arming=1, arming_name="STANDBY",
+            nav=0, nav_name="MANUAL", failsafe=0),
+    ]
+    rep = ul.build_report(rows)
+    # 解锁时间线只记 armed 变化段（首帧 + 1s 解锁 + 9s 上锁），心跳/模式变化不进
+    assert rep["armed_timeline"] == [(0.0, False, "MANUAL"), (1.0, True, "MANUAL"),
+                                     (9.0, False, "MANUAL")]
+    assert rep["mode_switches"] == [(2.0, "OFFBOARD"), (9.0, "MANUAL")]
+    # failsafe 0→1 跳变一次（心跳重复 failsafe=1 不重复计）
+    assert rep["failsafe_events"] == [(5.0, "OFFBOARD")]
+    # warn 行（变化行）5 条，心跳（info）不计
+    assert rep["status_flips"] == 5
+    findings = ul.build_findings(rep)
+    assert any(f["severity"] == "critical" and "FAILSAFE" in f["title"]
+               for f in findings)
+
+
+def test_flight_bb_att_stats_and_target_pairing():
+    """flight.att（弧度）→ 姿态统计（度）；与 fmu.target 配对（1s 窗口）出偏差段。"""
+    rows = []
+    for i in range(7):  # att yaw=80° vs target yaw=50° → 偏差 30° 持续 3s
+        t = i * 0.5
+        rows.append(_fb(t, "flight.att", q=[1, 0, 0, 0],
+                        roll=math.radians(5), pitch=math.radians(-3),
+                        yaw=math.radians(80)))
+        rows.append(_fb(t, "fmu.target", target_x=0.0, target_y=0.0,
+                        target_z=-2.0, yaw=math.radians(50)))
+    rep = ul.build_report(rows)
+    assert rep["att_abs_roll"][0] == pytest.approx(5.0)     # 弧度→度
+    assert rep["att_abs_pitch"][0] == pytest.approx(3.0)
+    assert len(rep["att_divergence"]) == 1
+    assert rep["att_divergence"][0][2] == pytest.approx(30.0, abs=0.01)
+    findings = ul.build_findings(rep)
+    assert any("姿态-目标偏差" in f["title"] for f in findings)
+
+
+def test_flight_bb_pair_window_respected():
+    """att 与 target 相隔 >1s 不配对：不出偏差段。"""
+    rows = [
+        _fb(0.0, "flight.att", roll=0.0, pitch=0.0, yaw=math.radians(80)),
+        _fb(2.5, "fmu.target", target_x=None, target_y=None, target_z=None,
+            yaw=math.radians(10)),
+    ]
+    rep = ul.build_report(rows)
+    assert rep["att_divergence"] == []
+
+
+def test_flight_bb_pos_speed_stats_and_pos_err():
+    """flight.pos → 速度/高度统计；与 fmu.target 位置配对出三维误差。"""
+    rows = []
+    for i in range(6):
+        t = i * 0.2
+        rows.append(_fb(t, "flight.pos", x=1.0, y=2.0, z=-3.0,
+                        vx=3.0, vy=4.0, vz=0.0, yaw=0.0, xy_valid=1, z_valid=1))
+        rows.append(_fb(t, "fmu.target", target_x=2.0, target_y=2.0,
+                        target_z=-2.0, yaw=None))
+    rep = ul.build_report(rows)
+    assert rep["speed"][0] == pytest.approx(5.0)            # 3-4-5 三角形
+    assert rep["alt"] == [-3.0] * 6
+    # (1,2,-3) vs (2,2,-2)：dx=1, dz=-1 → sqrt(2)
+    assert rep["pos_err"][0] == pytest.approx(math.sqrt(2.0))
+    lines = ul.render_report(rep)
+    assert any("速度(m/s)" in ln for ln in lines)
+    assert any("位置-目标误差(m)" in ln for ln in lines)
+
+
+def test_flight_bb_cmd_audit_merged_into_timeline():
+    """ctrl.cmd/fmu.cmd/goto.state 合并进解锁时间线（cmd: 前缀，按时间交错）。"""
+    rows = [
+        _fb(0.0, "flight.status", arming=1, nav=0, nav_name="MANUAL", failsafe=0),
+        _fb(1.0, "ctrl.cmd", lvl="warn", cmd=2, name="ARM",
+            dx=None, dy=None, dz=None),
+        _fb(1.2, "flight.status", lvl="warn", arming=2, nav=0,
+            nav_name="MANUAL", failsafe=0),
+        _fb(5.0, "fmu.cmd", lvl="warn", command=21, name="NAV_LAND",
+            p1=None, p2=None, p3=None, p4=None, p7=None),
+        _fb(6.0, "goto.state", lvl="warn", enabled=1),
+    ]
+    rep = ul.build_report(rows)
+    labels = [la for _t, la in rep["cmd_audit"]]
+    assert labels == ["ctrl.cmd ARM", "fmu.cmd NAV_LAND", "goto ON"]
+    lines = ul.render_report(rep)
+    tl = [ln for ln in lines if "armed 时间线" in ln][0]
+    assert "cmd:ctrl.cmd ARM" in tl and "cmd:fmu.cmd NAV_LAND" in tl
+    assert "cmd:goto ON" in tl
+    assert any("命令审计 3 条" in ln for ln in lines)
+    # GOTO 翻转（lvl=warn 留痕语义）→ [注意]
+    findings = ul.build_findings(rep)
+    assert any(f["severity"] == "warn" and "GOTO" in f["title"] for f in findings)
+
+
+def test_flight_bb_kill_is_critical():
+    """KILL（400 p1=0 p2=21196，lvl=error）→ [严重]；普通 arm/disarm 不算。"""
+    rows = [
+        _fb(0.0, "flight.status", arming=2, nav=14, nav_name="OFFBOARD", failsafe=0),
+        _fb(1.0, "fmu.cmd", lvl="error", command=400, name="ARM_DISARM",
+            p1=0.0, p2=21196.0, p3=None, p4=None, p7=None),
+        _fb(2.0, "fmu.cmd", lvl="warn", command=400, name="ARM_DISARM",
+            p1=1.0, p2=None, p3=None, p4=None, p7=None),
+    ]
+    rep = ul.build_report(rows)
+    assert len(rep["kill_events"]) == 1
+    findings = ul.build_findings(rep)
+    crit = [f for f in findings if f["severity"] == "critical"]
+    assert any("KILL" in f["title"] for f in crit)
+    # KILL 不得再被 error_rows 聚合重复报一次
+    assert not [f for f in crit if f["title"].startswith("error 级事件")]
+    # 普通 ARM_DISARM（p1=1，warn 级）只进审计不进结论
+    assert "ARM_DISARM(p1=1)" in [la for _t, la in rep["cmd_audit"]][1]
+    # 分级顺序：严重必须在注意之前
+    lines = ul.render_report(rep)
+    idx = [i for i, ln in enumerate(lines)
+           if ln.startswith("[严重]") or ln.startswith("[注意]")]
+    assert idx == sorted(idx) and any(ln.startswith("[严重]") for ln in lines)
+
+
+def test_flight_bb_batt_error_critical_no_duplicate():
+    """flight.batt lvl=error（remaining<15%）→ [严重]，与最低电量规则去重。"""
+    rows = [
+        _fb(0.0, "flight.batt", lvl="error", remaining=0.12, voltage=20.1,
+            warning=3),
+        _fb(5.0, "flight.batt", remaining=0.11, voltage=20.0),
+    ]
+    rep = ul.build_report(rows)
+    findings = ul.build_findings(rep)
+    batt = [f for f in findings if "电池" in f["title"]]
+    assert len(batt) == 1 and batt[0]["severity"] == "critical"
+    assert rep["battery"]["min_remaining"] == pytest.approx(0.11)
+
+
+def test_flight_bb_slam_gap_no_vibe_no_exit():
+    """armed 期间 >5s 无 slam.odom → [注意] SLAM 断流；无振动通道明示；无 bb.exit 提醒。"""
+    rows = [
+        _fb(0.0, "flight.status", arming=2, nav=14, nav_name="OFFBOARD",
+            failsafe=0),
+        _fb(1.0, "slam.odom", x=0, y=0, z=0, qw=1, qx=0, qy=0, qz=0),
+        _fb(9.5, "slam.odom", x=0.1, y=0, z=0, qw=1, qx=0, qy=0, qz=0),
+    ]
+    rep = ul.build_report(rows)
+    assert len(rep["slam_gaps"]) == 1
+    assert rep["slam_gaps"][0][2] == pytest.approx(8.5)
+    findings = ul.build_findings(rep)
+    assert any(f["severity"] == "warn" and "SLAM 断流" in f["title"]
+               for f in findings)
+    assert any("bb.exit" in f["title"] + f["detail"] for f in findings)
+    lines = ul.render_report(rep)
+    assert any("未含振动通道" in ln for ln in lines)
+
+
+def test_flight_bb_slam_gap_closed_by_disarm():
+    """回归：断流段以 disarm 为界闭合（armed 中断流 6s 后 disarm、slam 未恢复）。
+
+    旧实现只在下一条 slam.odom 到达时用"当前 armed"判定——disarm 后 slam 才来
+    会漏报（2026-10-16 手写样例冒烟抓到）。
+    """
+    rows = [
+        _fb(0.0, "flight.status", arming=2, nav=14, nav_name="OFFBOARD",
+            failsafe=0),
+        _fb(1.0, "slam.odom", x=0, y=0, z=0, qw=1, qx=0, qy=0, qz=0),
+        # 1.0 之后 slam 再没来过；7.5 disarm（armed 期间断流 6.5s）
+        _fb(7.5, "flight.status", lvl="warn", arming=1, nav=0,
+            nav_name="MANUAL", failsafe=0),
+        _fb(9.0, "slam.odom", x=0, y=0, z=0, qw=1, qx=0, qy=0, qz=0),
+    ]
+    rep = ul.build_report(rows)
+    assert len(rep["slam_gaps"]) == 1
+    assert rep["slam_gaps"][0] == pytest.approx((1.0, 7.5, 6.5))
+    findings = ul.build_findings(rep)
+    assert any("SLAM 断流" in f["title"] for f in findings)
+    # disarm 后的 1.5s（7.5→9.0）不算断流，不得多出第二段
+    assert len(rep["slam_gaps"]) == 1
+
+
+def test_flight_bb_no_slam_at_all_while_armed():
+    """全程一条 slam.odom 都没有且解锁过 → [注意]（FAST-LIO 没起/话题名变了）。"""
+    rows = [
+        _fb(0.0, "flight.status", arming=2, nav=14, nav_name="OFFBOARD",
+            failsafe=0),
+        _fb(1.0, "flight.att", roll=0.0, pitch=0.0, yaw=0.0),
+        _fb(2.0, "bb.exit", force=True, counts={}),
+    ]
+    rep = ul.build_report(rows)
+    findings = ul.build_findings(rep)
+    assert any("全程无 slam.odom" in f["title"] for f in findings)
+    # 有 bb.exit → 不报"未正常收尾"
+    assert not any("bb.exit" in f["detail"] for f in findings)
+
+
+def test_flight_bb_bb_hb_health_summary():
+    rows = [
+        _fb(0.0, "flight.att", roll=0.0, pitch=0.0, yaw=0.0),
+        _fb(3.0, "bb.hb", up=30.0,
+            counts={"flight.pos": 150, "flight.att": 60, "slam.odom": 150,
+                    "fmu.cmd": 2, "ctrl.cmd": 1}),
+        _fb(3.5, "bb.exit", counts={}),
+    ]
+    rep = ul.build_report(rows)
+    lines = ul.render_report(rep)
+    hb = [ln for ln in lines if "链路健康(bb.hb)" in ln]
+    assert hb and "pos=5.0Hz" in hb[0] and "att=2.0Hz" in hb[0]
+    assert "fmu.cmd=2" in hb[0]
+
+
+def test_report_mixed_formats():
+    """双格式混合文件：采样行与 flight_bb 行共用时间线与统计维度。"""
+    rows = [
+        {"recv": FB_T0, "t": FB_T0, "topic": "/fmu/out/vehicle_status",
+         "ch": "status", "hz": 1.0,
+         "data": {"armed": True, "nav_state": 5, "failsafe": False}},
+        _fb(1.0, "flight.status", arming=2, nav=14, nav_name="OFFBOARD",
+            failsafe=0),
+        _fb(2.0, "flight.att", roll=0.1, pitch=0.0, yaw=0.0),
+        {"recv": FB_T0 + 3, "t": FB_T0 + 3, "topic": "/fmu/out/battery_status",
+         "ch": "battery", "hz": 1.0, "data": {"voltage": 23.0, "remaining": 0.8}},
+    ]
+    rep = ul.build_report(rows)
+    assert rep["formats"]["sample"] == 2
+    assert rep["formats"]["flight_bb"] == 2
+    # 时间线跨格式合并（时间已归零）
+    assert rep["armed_timeline"][0] == (0.0, True, 5)
+    assert rep["armed_timeline"][1] == (1.0, True, "OFFBOARD")
+    assert rep["att_abs_roll"]           # flight.att（弧度）进了姿态统计
+    assert rep["battery"]["min_voltage"] == pytest.approx(23.0)
+    lines = ul.render_report(rep)
+    assert any("识别格式" in ln for ln in lines)
+
+
+def test_flight_bb_lvl_respect_error_aggregated():
+    """lvl=error 的非 KILL/非电池事件 → [严重] 聚合，不静默。"""
+    rows = [
+        _fb(0.0, "flight.att", roll=0.0, pitch=0.0, yaw=0.0),
+        _fb(1.0, "flight.status", lvl="error", arming=2, nav=17,
+            nav_name="LANDENGFAIL", failsafe=1),
+        _fb(2.0, "bb.exit", counts={}),
+    ]
+    rep = ul.build_report(rows)
+    findings = ul.build_findings(rep)
+    crit_titles = [f["title"] for f in findings if f["severity"] == "critical"]
+    assert any("error 级事件" in t for t in crit_titles)
+    # failsafe=1 同样走 FAILSAFE 专条
+    assert any("FAILSAFE" in t for t in crit_titles)

@@ -107,6 +107,17 @@ def run(host: str, user: str, password: str, cmd: str, timeout: float,
         cli.close()
 
 
+def _expand_tilde(sftp, remote: str) -> str:
+    """SFTP 协议不展开 `~`：服务器把 '~/x' 当字面目录名 -> ENOENT（2026-10-16
+    orin_deploy 首传踩到：mkdirs 建好了真目录，put 却用 ~ 字面路径，文件全 404）。
+    在会话内用 normalize('.') 拿真实家目录后展开首个 ~，让 mkdirs/put/get 同坐标系。"""
+    if remote.startswith("~"):
+        home = sftp.normalize(".")  # 登录用户的家目录绝对路径
+        rest = remote[1:].lstrip("/")
+        return f"{home}/{rest}"
+    return remote
+
+
 def sftp_get(host: str, user: str, password: str, remote: str, local: str,
              port: int = 22, timeout: float = 60.0) -> int:
     """把远程文件/目录（递归）取回本地，返回文件数。"""
@@ -116,6 +127,7 @@ def sftp_get(host: str, user: str, password: str, remote: str, local: str,
     n = 0
     try:
         sftp = cli.open_sftp()
+        remote = _expand_tilde(sftp, remote)
         src = Path(remote)
         dst = Path(local)
 
@@ -157,6 +169,7 @@ def sftp_put(host: str, user: str, password: str, local: str, remote: str,
     n = 0
     try:
         sftp = cli.open_sftp()
+        remote = _expand_tilde(sftp, remote)
 
         def mkdirs(path: str) -> None:
             absolute = path.startswith("/")
