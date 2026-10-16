@@ -127,3 +127,40 @@ def test_zoned_none_is_global():
     a = plan_route_zoned(s, c("N10"), c("N5"), None, start_heading="y", final_heading="y")
     b = plan_route(s, c("N10"), c("N5"), start_heading="y", final_heading="y")
     assert a == b
+
+
+# ---------------- 朝向零转向打击点 ----------------
+
+
+def test_shoot_leg_pivot_priced_and_aligned():
+    """朝向零转向机制（单元级锚定）：
+
+    1. 给 face 朝向时，停靠段代价 = 路程 + 原地转身（G6→G5 朝西开火：
+       直进 1 步 + 90° 转身 2×0.75 = 2.5）；
+    2. 已有便宜正对路径时优先选正对到达（H5→G5 朝西：1 步、零转身、1.0）；
+    3. 不给 face 朝向时同段不计转身（1.0）。
+    """
+    from ag_integrate.mission_router import _route_leg, _ALL_HEADINGS
+
+    cells, h, cost = _route_leg(c("G6"), c("G5"), frozenset(), set(), None, 6,
+                                _ALL_HEADINGS, None, 0.75, True, face_idx=4)
+    assert cost == pytest.approx(2.5)          # 1 步 + 90° 转身
+    assert h == 6                              # 最优到达是直进朝北（转身 90°）
+
+    cells2, h2, cost2 = _route_leg(c("H5"), c("G5"), frozenset(), set(), None, 6,
+                                   _ALL_HEADINGS, None, 0.75, True, face_idx=4)
+    assert cost2 == pytest.approx(1.0)         # 朝西直达、零转身
+    assert h2 == 4                             # 到达朝向即开火朝向
+
+    cells3, h3, cost3 = _route_leg(c("G6"), c("G5"), frozenset(), set(), None, 6,
+                                   _ALL_HEADINGS, None, 0.75, True)
+    assert cost3 == pytest.approx(1.0)         # 无 face 不加转身
+
+
+def test_shoot_stop_face_in_full_route():
+    """整链路：起点 H5、蓝靶 F5、终点 N1——射击停靠 G5 应朝西正对到达。"""
+    from ag_integrate.world_model import TargetRef
+    s = WorldSnapshot(0, (), (), (), (TargetRef(c("F5"), True),))
+    route = plan_route(s, c("H5"), c("N1"))
+    i = route.index("G5")
+    assert route[i - 1] == "H5"     # 前驱 H5，朝西正对（到达朝向=开火朝向）

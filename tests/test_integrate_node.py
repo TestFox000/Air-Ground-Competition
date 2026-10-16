@@ -178,6 +178,42 @@ def test_replan_enabled_republishes_changed_route():
         node.destroy_node()
 
 
+def test_replan_guard_far_obstacle_no_replan():
+    """重规划守卫：远处新障碍（不在路线 ±1 格内）不触发重算，路线不重发。"""
+    node = make_node(replan_on_update=True)
+    try:
+        node._submit(snapshot_of(mine_at("D2"), blue_target_at("F5")))
+        node.tick()
+        assert len(node.topic("/nav/waypoint").published) == 2
+
+        node._submit(snapshot_of(mine_at("D2"), blue_target_at("F5"),
+                                 obstacle_at("A11")))   # 远角，与路线无关
+        node.tick()
+        assert len(node.topic("/nav/waypoint").published) == 2
+    finally:
+        node.destroy_node()
+
+
+def test_replan_guard_route_obstacle_replans():
+    """重规划守卫：新障碍落在路线上（雷格被堵）→ 触发重算并重发新路线。"""
+    node = make_node(replan_on_update=True)
+    try:
+        node._submit(snapshot_of(mine_at("D2"), blue_target_at("F5")))
+        node.tick()
+        first_route = node.topic("/nav/waypoint").published[1].data
+        assert "D2" in first_route
+
+        # D2 雷位被障碍报告覆盖 -> 该雷不可达被剔除，路线必变
+        node._submit(snapshot_of(mine_at("D2"), blue_target_at("F5"),
+                                 obstacle_at("D2")))
+        node.tick()
+        published = node.topic("/nav/waypoint").published
+        assert len(published) == 3
+        assert published[2].data != first_route
+    finally:
+        node.destroy_node()
+
+
 def test_car_pose_udp_frame_sets_true_yaw():
     """msg_id=0x4002 车位姿帧：接收并存储车的真实朝向。"""
     node = make_node(heading_bias_source="udp")

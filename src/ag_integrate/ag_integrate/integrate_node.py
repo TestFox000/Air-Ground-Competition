@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import math
 import queue
+import re
 import socket
 import threading
 
@@ -364,6 +365,57 @@ class IntegrateNode(Node):
                 pass
 
     # ---------------- 决策（executor 线程） ----------------
+    _CELL_RE = re.compile(r"[A-N](?:[1-9]|1[01])")
+
+    @staticmethod
+    def _snap_signature(snapshot):
+        """重规划守卫的快照签名：(雷集, 隧道格集, 靶面集), 障碍集。"""
+        sig = (
+            frozenset(c.name for c in snapshot.mines),
+            frozenset(c.name for c in snapshot.passable),
+            frozenset((t.cell.name, t.is_blue) for t in snapshot.targets),
+        )
+        obstacles = frozenset(c.name for c in snapshot.obstacles)
+        return sig, obstacles
+
+    def _route_needs_replan(self, snapshot) -> bool:
+        """重规划守卫（replan_on_update=True 时生效）。
+
+        只在"与当前路线相关"的情报变化时放行重算，其余新帧沿用旧路线——
+        防每帧重算的 CPU 开销（ARM）与路线抖动：
+        - 雷/隧道格/靶面集合变化（双向）→ 触发；
+        - 障碍增删且落在当前路线 ±1 格内 → 触发；
+        - 首拍只记录签名，不触发（首条路线由 last_route=None 放行）。
+        """
+        sig, obstacles = self._snap_signature(snapshot)
+        if self.last_route is None:
+            return True   # 首发：签名随路线发布时一并记录（见 last_route 赋值处）
+        # last_route 可能是空格串（"N10 M9 ..."）或格号元组——统一成文本再匹配
+        route_text = self.last_route if isinstance(self.last_route, str) else " ".join(self.last_route)
+        cells = set(self._CELL_RE.findall(route_text))
+        near = set(cells)
+        for name in cells:
+            col, row = ord(name[0]) - 65, int(name[1:]) - 1
+            for dc in (-1, 0, 1):
+                for dr in (-1, 0, 1):
+                    cc, rr = col + dc, row + dr
+                    if 0 <= cc < 14 and 0 <= rr < 11:
+                        near.add(f"{chr(65 + cc)}{rr + 1}")
+        if not hasattr(self, "_replan_sig"):
+            self._replan_sig = (sig, obstacles)   # 兜底（正常流程发布时已记录）
+            return False
+        last_sig, last_obstacles = self._replan_sig
+        if sig != last_sig:
+            self._replan_sig = (sig, obstacles)
+            return True
+        # 障碍增/删都要看（新增绕不开要绕；消失的旧障碍值得抄回近路）
+        delta = (obstacles - last_obstacles) | (last_obstacles - obstacles)
+        if delta and (set(delta) & near):
+            self._replan_sig = (sig, obstacles)
+            return True
+        return False
+
+
     def _on_tick(self) -> None:
         # 朝向对齐不等情报门控：无人机一看到车（0x4002）立即原地对齐，
         # 与空中侦察并行，不把对齐耗时（上限 heading_align_timeout 秒）
@@ -505,8 +557,12 @@ class IntegrateNode(Node):
 
         # 默认关：首条路线发出后不再重规划（一次性规划模式），
         # 跳过 build_mission 也省掉每帧规划开销。
-        if self.last_route and not self.replan_on_update:
-            return
+        # 开启时也不是每帧都算——重规划守卫只放行"与当前路线相关"的变化。
+        if self.last_route:
+            if not self.replan_on_update:
+                return
+            if not self._route_needs_replan(snapshot):
+                return
 
         start_heading = self._effective_start_heading()
         try:
@@ -542,6 +598,7 @@ class IntegrateNode(Node):
             return
 
         self.last_route = commands.route
+        self._replan_sig = self._snap_signature(snapshot)  # 守卫基线随路线更新
         # 时间预算门控结果：砍射击位 / 超硬顶都要显眼
         if commands.shed_shooting:
             self.get_logger().warning(
