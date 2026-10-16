@@ -49,6 +49,8 @@ def build_mission(
     target_blue_face: str | None = None,
     time_params: "RouteTimeParams | None" = None,
     soft_cap_s: float | None = None,
+    crossing_penalty: float = 0.0,
+    tunnel_dirs: dict[str, str] | None = None,
 ) -> CarCommands:
     """态势 -> reset + route 两条命令。
 
@@ -70,6 +72,7 @@ def build_mission(
     ordered = plan_route(
         snapshot, start, goal, gates, mid_boundary,
         start_heading=start_heading, final_heading=final_heading,
+        crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
     )
     commands = adapt(snapshot, ordered, start_cell, start_heading, final_heading)
 
@@ -92,6 +95,7 @@ def build_mission(
         ordered2 = plan_route(
             shed_snapshot, start, goal, gates, mid_boundary,
             start_heading=start_heading, final_heading=final_heading,
+            crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
         )
     except ValueError:
         return commands   # 同一地图可达性不变，理论上不会到这里；防御性保底
