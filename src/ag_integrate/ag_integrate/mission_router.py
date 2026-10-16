@@ -295,8 +295,13 @@ def _route_leg(
     cross_penalty: float = 0.0,
     tunnel_axes: frozenset[int] | None = None,
     tunnel_req: dict[int, int] | None = None,
+    face_idx: int | None = None,
 ) -> tuple[list[CellRef] | None, int | None, float]:
     """frm→to 单段路由：优先走避开已踩格子的等代价路径。返回 (cells, 到达航向, 代价)。
+
+    face_idx：射击停靠段的正对朝向（_DIRS 索引）。给出时按
+    "到达朝向 + 停靠转身"联合最省选择到达态（朝向零转向准则：
+    绕一格正对到达优于直进后原地 90° 转身），代价含转身。
 
     性能（2026-10-14 沙箱审计修复）：等最优顺序枚举最多 256 条，每条 9+ 段，
     逐段两次 Dijkstra 曾导致单局规划 30s+（ARM 车端会放大到分钟级，直接
@@ -316,7 +321,24 @@ def _route_leg(
     term = to if want_arrival is not None else None
     d_free, p_free = _cached_dijkstra(cache, frm, blocked, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term,
                                       cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
-    cost, end = _arrival_state(d_free, to, want_arrival)
+
+    def _pick(dist_map) -> tuple[float, tuple[CellRef, int] | None]:
+        if face_idx is not None and want_arrival is None:
+            # 停靠段：全部到达朝向按"路程+停靠转身"联合计价取最省
+            # （朝向零转向准则：绕一格正对到达优于直进后原地 90° 转身）
+            best = None
+            for hh in _ALL_HEADINGS:
+                c0 = dist_map.get((to, hh), _INF)
+                if c0 >= _INF:
+                    continue
+                c1 = c0 + _TURNS[hh][face_idx] * turn_45
+                if best is None or c1 < best[0] - 1e-12:
+                    best = (c1, (to, hh))
+            if best is not None:
+                return best
+        return _arrival_state(dist_map, to, want_arrival)
+
+    cost, end = _pick(d_free)
     if end is None or cost >= _INF:
         return None, None, _INF
 
@@ -330,7 +352,7 @@ def _route_leg(
     if avoid != blocked:
         d_av, p_av = _cached_dijkstra(cache, frm, avoid, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term,
                                   cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
-        c_av, e_av = _arrival_state(d_av, to, want_arrival)
+        c_av, e_av = _pick(d_av)
         if e_av is not None and c_av <= cost + _EPS:
             return _trace_states(p_av, e_av), e_av[1], c_av
     return free_cells, end[1], cost
@@ -412,8 +434,13 @@ def _assemble(
     cross_penalty: float = 0.0,
     tunnel_axes: frozenset[int] | None = None,
     tunnel_req: dict[int, int] | None = None,
+    face_req: dict[str, int] | None = None,
 ) -> tuple[tuple[str, ...] | None, float]:
     """按给定顺序逐段拼接（真实朝向链 + 顺路避让），返回 (路线, 真实总代价)。
+
+    face_req：射击停靠格的"正对朝向"要求（格名 -> _DIRS 朝向索引）——
+    到达这类格后车头须原地转向该朝向才能开火，转身代价计入总代价
+    （朝向零转向准则：到达朝向已正对靶心的停靠格天然最便宜）。
 
     fallback_any_heading：终点朝向约束（h_final）物理不可达时
     （例：终点格是口袋入口，朝向到达须先踩终点），允许以任意朝向进终点——
@@ -425,14 +452,17 @@ def _assemble(
     cur, entry = nodes[0], entry0
     for i in order:
         w = nodes[i + 1]
+        fidx = face_req.get(w.name) if face_req else None
         seg, h, c = _route_leg(cur, w, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal, cache,
-                               cross_penalty, tunnel_axes, tunnel_req)
+                               cross_penalty, tunnel_axes, tunnel_req, face_idx=fidx)
         if seg is None:
             return None, _INF
         segments.append(seg)
         used.update(seg)
         total += c
-        cur, entry = w, (h,)
+        # 射击停靠后车头已转向正对朝向（打完后从该朝向继续行驶）
+        cur = w
+        entry = (face_req[w.name],) if (face_req and w.name in face_req) else (h,)
     seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, h_final, turn_45, allow_diagonal, cache,
                                cross_penalty, tunnel_axes, tunnel_req)
     if seg is None and fallback_any_heading and h_final is not None:
@@ -460,6 +490,7 @@ def _plan_core(
     cross_penalty: float = 0.0,
     tunnel_axes: frozenset[int] | None = None,
     tunnel_req: dict[int, int] | None = None,
+    face_req: dict[str, int] | None = None,
 ) -> tuple[tuple[str, ...], float]:
     """给定障碍集与必经点，输出（最优路线, 真实总代价）。"""
     dist0, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal,
@@ -542,7 +573,7 @@ def _plan_core(
 
     def assemble(order: list[int]) -> tuple[tuple[str, ...] | None, float]:
         return _assemble(order, nodes, goal, blocked, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
-                         cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
+                         cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, face_req=face_req)
 
     # 保底顺序 + 枚举其余等代价顺序，取（真实代价, 重复踩格）最小者。
     # 拼接数硬上限：对称场景下等代价顺序可达 256 条，每条的避让重算是
@@ -579,6 +610,7 @@ def _plan_core(
                 entry0, h_final, turn_45, allow_diagonal, cache,
                 fallback_any_heading=True,
                 cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req,
+                face_req=face_req,
             )
             if route is None:
                 continue
@@ -593,6 +625,16 @@ def _plan_core(
 
 
 _ORTHO_STEPS = ((1, 0), (-1, 0), (0, 1), (0, -1))
+
+
+_FACE_OPP = {"S": 6, "N": 2, "E": 4, "W": 0}   # 蓝面朝向 → 车需正对的方向（_DIRS 索引）
+
+
+def _face_heading(frm: CellRef, to: CellRef) -> int:
+    """frm→to 的正交朝向索引（射击停靠后车头应正对的朝向，_DIRS 索引）。"""
+    dc = (to.col > frm.col) - (to.col < frm.col)
+    dr = (to.row > frm.row) - (to.row < frm.row)
+    return _DIRS.index((dc, dr))
 _SHOOT_COMBO_CAP = 64  # 蓝靶射击位组合枚举上限，超过则退化为逐靶就近
 
 
@@ -777,15 +819,19 @@ def plan_route(
         base_required.setdefault(c.name, c)
 
     cand_lists: list[list[CellRef]] = []
+    cand_faces: list[dict[str, int]] = []   # 与 cand_lists 平行：停靠格 -> 需正对朝向
     for t in snapshot.targets:
         if not t.is_blue:
             continue   # 红面可见（友方）或红靶：不打不停靠
         if t.track is not None:
             cands = _shoot_candidates_moving(t, blocked)
+            faces = {s.name: _FACE_OPP[t.blue_face] for s in cands}
         else:
             cands = _shoot_candidates(t.cell, blocked, target_cells)
+            faces = {s.name: _face_heading(s, t.cell) for s in cands}
         if cands:
             cand_lists.append(cands)
+            cand_faces.append(faces)
         # 无候选 = 该靶被围死无处停靠，跳过（与不可达必经点语义一致）
 
     # 射击位候选按"起点可达性"预过滤：不可达候选直接移出组合枚举。
@@ -824,9 +870,12 @@ def plan_route(
         req = dict(base_required)
         for c in combo:
             req.setdefault(c.name, c)
+        # 该组合停靠格的朝向要求表：转身代价进成本，朝向零转向的停靠组合天然最便宜
+        face_req = {c.name: cf[c.name] for cf in cand_faces for c in combo if c.name in cf}
         try:
             route, cost = _plan_core(start, goal, blocked, req, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
-                                     cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
+                                     cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req,
+                                     face_req=face_req)
         except ValueError:
             continue
         dup = len(route) - len(set(route))
