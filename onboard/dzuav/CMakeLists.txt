@@ -42,6 +42,20 @@ target_include_directories(dzuav PRIVATE
 
 target_compile_options(dzuav PRIVATE -Wall -Wextra)
 
+# 架构优化：Orin Nano（Orin 系列 SoC）的 CPU 是 Cortex-A78AE——本程序绑死
+# Jetson 平台本来就是事实（TensorRT/CUDA/GStreamer 管线都离不了），无需伪装可移植。
+# 注意 JetPack 5 默认 GCC 9.4 还不认识 cortex-a78ae（GCC 10.1 才加入），
+# 故先探测：支持则 -mcpu=cortex-a78ae，不支持退回 -mtune=cortex-a76
+# （mtune 只影响指令调度、不改 ISA，GCC 8+ 都认识，安全兜底）。
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag("-mcpu=cortex-a78ae" DZUAV_HAS_MCPU_A78AE)
+if(DZUAV_HAS_MCPU_A78AE)
+  target_compile_options(dzuav PRIVATE -mcpu=cortex-a78ae)
+else()
+  message(STATUS "compiler does not know -mcpu=cortex-a78ae (e.g. GCC 9.4); falling back to -mtune=cortex-a76")
+  target_compile_options(dzuav PRIVATE -mtune=cortex-a76)
+endif()
+
 target_link_libraries(dzuav PRIVATE ${OpenCV_LIBS} ${TENSORRT_LIB} ${CUDART_LIB})
 
 install(TARGETS dzuav DESTINATION lib/dzuav)

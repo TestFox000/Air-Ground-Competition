@@ -42,7 +42,10 @@ private:
     void* output_ = nullptr;   // 设备侧输出
     float* h_input_ = nullptr;   // 页锁定主机输入（H2D 免驱动中转）
     float* h_output_ = nullptr;  // 页锁定主机输出（D2H 免驱动中转）
-    cv::Mat blob_;               // 包住 h_input_ 的 CHW float 缓冲，跨帧复用
+    cv::Mat letterbox_;          // 1280x1280 letterbox 画布，跨帧复用（warpAffine 单步写入）
+    // h_input_ 归一化有效区域尺寸（宽/高）；变化时 padding 区需重填 114/255
+    int norm_w_ = -1;
+    int norm_h_ = -1;
 };
 
 }  // namespace dzuav

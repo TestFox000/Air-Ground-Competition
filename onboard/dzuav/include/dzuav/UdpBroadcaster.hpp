@@ -2,6 +2,8 @@
 
 #include "dzuav/types.hpp"
 
+#include <netinet/in.h>
+
 #include <cstdint>
 #include <vector>
 
@@ -28,12 +30,21 @@ public:
     // 与车端 ag_integrate/intel_protocol.py 的 parse_car_pose 严格对应。
     void sendCarPose(uint64_t timestamp_ms, double x, double y, float yaw);
 
+    // 健康行统计（main.cpp 周期健康行读取，均为累计值）
+    unsigned long sendFailures() const { return send_failures_; }   // sendto 失败次数
+    unsigned long filteredCount() const { return filtered_; }       // 非有限值被过滤的目标/帧数
+
 private:
-    void sendBuf();   // 把 buf_ 广播出去（send/sendCarPose 共用）
+    void sendBuf();   // 把 buf_ 发往所有目标（send/sendCarPose 共用）
 
     int fd_ = -1;
     uint16_t port_ = 0;
     std::vector<uint8_t> buf_;   // 发送缓冲跨帧复用（clear 保留容量，免每帧分配）
+    // 发送目标列表：默认枚举所有 UP+BROADCAST 接口的定向广播地址（多网卡全接口
+    // 覆盖）；DZUAV_TARGET_IP 设置时为单个单播地址。构造期确定后不变。
+    std::vector<sockaddr_in> targets_;
+    unsigned long send_failures_ = 0;
+    unsigned long filtered_ = 0;
 };
 
 }  // namespace dzuav

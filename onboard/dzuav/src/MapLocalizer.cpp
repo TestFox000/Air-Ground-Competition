@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <stdexcept>
 #include <vector>
 
@@ -32,13 +33,24 @@ cv::Mat MapLocalizer::undistort(const cv::Mat& i) const
     // 此处显式缓存映射后每帧仅 remap，输出与逐帧 undistort 逐位等价。
     if (cached_size_ != i.size())
     {
+        // 内参只有 1920x1080 基准标定：其他分辨率（如断流降规格到 720p）是
+        // 线性缩放近似，精度打折——提醒一次即可，刷屏无意义。
+        if (i.size() != cv::Size(1920, 1080) && !scale_warned_)
+        {
+            scale_warned_ = true;
+            std::fprintf(stderr,
+                         "warning: frame size %dx%d != 1920x1080; intrinsics are a "
+                         "linear-scaled approximation\n",
+                         i.cols, i.rows);
+        }
         const cv::Mat K = scaledIntrinsics(K_, i.size());
         cv::initUndistortRectifyMap(K, dist_, cv::noArray(), K, i.size(), CV_16SC2, map_x_, map_y_);
         cached_size_ = i.size();
     }
-    cv::Mat o;
-    cv::remap(i, o, map_x_, map_y_, cv::INTER_LINEAR);
-    return o;
+    // 输出写进成员缓冲（跨帧复用，免每帧 ~6MB 分配）；返回的 Mat 与其共享数据，
+    // 调用方须在下次 undistort 前用完（主流程单线程逐帧处理，满足）。
+    cv::remap(i, undistorted_, map_x_, map_y_, cv::INTER_LINEAR);
+    return undistorted_;
 }
 cv::Point3f MapLocalizer::world(const CellId& id) const
 {
@@ -47,6 +59,7 @@ cv::Point3f MapLocalizer::world(const CellId& id) const
 bool MapLocalizer::solve(const std::vector<std::pair<CellId, cv::Point2f>>& l, cv::Size sz)
 {
     ready_ = false;
+    last_solve_ = {};   // path=none；各路径尝试时填 inliers/median，成功时填 path
     if (l.size() < 4)
         return false;
     std::vector<cv::Point3f> w;
@@ -89,6 +102,8 @@ bool MapLocalizer::solve(const std::vector<std::pair<CellId, cv::Point2f>>& l, c
             std::vector<float> sorted(e2);
             std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
             const float median = sorted[sorted.size() / 2];
+            last_solve_.inliers = static_cast<int>(in.size());
+            last_solve_.median_px = median;
             const std::size_t need = std::max<std::size_t>(12, p.size() * 3 / 10);
             if (in.size() >= need && median <= 10.f)
             {
@@ -99,14 +114,22 @@ bool MapLocalizer::solve(const std::vector<std::pair<CellId, cv::Point2f>>& l, c
                 R.col(1).copyTo(H.col(1));
                 tvec_.copyTo(H.col(2));
                 H = K * H;
-                Hinv_ = H.inv();
-                pnp_ok = true;
+                // cv::invert 返回行列式（默认 LU），0=奇异：数值退化的单应
+                // 不能用，放弃 PnP 路径让下面的 homography 兜底。
+                if (cv::invert(H, Hinv_) != 0.0)
+                    pnp_ok = true;
             }
         }
     }
     if (pnp_ok)
     {
         ready_ = true;
+        last_solve_.path = 1;
+        // 刷新 pose hold 缓存（见 hold()）。必须深拷贝：Mat 赋值只共享数据，
+        // 后续 solve 里 cv::invert 写 Hinv_ 会把共享的缓存一起改掉。
+        Hinv_.copyTo(hold_Hinv_);
+        hold_time_ = std::chrono::steady_clock::now();
+        hold_valid_ = true;
         return true;
     }
     // ---- 兜底：直接单应拟合（无需内参，格号世界坐标↔图像坐标）----
@@ -138,14 +161,39 @@ bool MapLocalizer::solve(const std::vector<std::pair<CellId, cv::Point2f>>& l, c
     std::vector<float> sorted(e2);
     std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
     const float median = sorted[sorted.size() / 2];
+    last_solve_.inliers = inlier;
+    last_solve_.median_px = median;
     const std::size_t need = std::max<std::size_t>(8, p.size() * 3 / 10);
     if (static_cast<std::size_t>(inlier) < need || median > 15.f)
         return false;   // 单应解也不可信 -> localized=0
-    Hinv_ = H.inv();
+    // 奇异检查同 PnP 路径（0=不可逆）
+    if (cv::invert(H, Hinv_) == 0.0)
+        return false;
+    ready_ = true;
+    last_solve_.path = 2;
+    // 刷新 pose hold 缓存（见 hold()）。必须深拷贝：Mat 赋值只共享数据，
+    // 后续 solve 里 cv::invert 写 Hinv_ 会把共享的缓存一起改掉。
+    Hinv_.copyTo(hold_Hinv_);
+    hold_time_ = std::chrono::steady_clock::now();
+    hold_valid_ = true;
+    return true;
+}
+bool MapLocalizer::hold(double max_age_s)
+{
+    // pose hold：当前帧 solve 失败时，用最近一次成功定位的位姿顶替，投影当前帧
+    // 检测继续下发（态势不中断）。龄期超过 max_age_s 不用——陈旧位姿比没有更危险。
+    if (!hold_valid_)
+        return false;
+    const double age = std::chrono::duration<double>(std::chrono::steady_clock::now() - hold_time_)
+                           .count();
+    if (age > max_age_s)
+        return false;
+    // 深拷贝回 Hinv_（缓存本体独立持有，project 期间的后续 solve 不会改到它）
+    hold_Hinv_.copyTo(Hinv_);
     ready_ = true;
     return true;
 }
-cv::Point2d MapLocalizer::project(const cv::Point2f& p) const
+std::optional<cv::Point2d> MapLocalizer::project(const cv::Point2f& p) const
 {
     // 防御性检查：solve() 未成功时 Hinv_ 为空，直接乘会触发 OpenCV 断言崩溃；
     // 现主流程只在 localized 后调用，此检查防未来误用（抛出比静默返回 (0,0)
@@ -154,6 +202,19 @@ cv::Point2d MapLocalizer::project(const cv::Point2f& p) const
         throw std::runtime_error("MapLocalizer::project called before solve() succeeded");
     cv::Mat q = (cv::Mat_<double>(3, 1) << p.x, p.y, 1);
     q = Hinv_ * q;
-    return {q.at<double>(0) / q.at<double>(2), q.at<double>(1) / q.at<double>(2)};
+    // 齐次尺度退化：|q2|~0 表示像素点被投到无穷远，除法会爆出任意值。
+    const double q2 = q.at<double>(2);
+    if (std::abs(q2) < 1e-12)
+        return std::nullopt;
+    const double x = q.at<double>(0) / q2;
+    const double y = q.at<double>(1) / q2;
+    // 非有限结果不可信（NaN/Inf 到车端会整帧丢弃，还会污染 atan2 等下游）
+    if (!std::isfinite(x) || !std::isfinite(y))
+        return std::nullopt;
+    // 场地量程 sanity：场地约 4.9x4.2m，留足余量；超界即错误投影，丢弃
+    // （调用方计数进健康行）。宁可少发一个目标，不发一个假目标。
+    if (x < -1.0 || x > 6.0 || y < -1.0 || y > 5.0)
+        return std::nullopt;
+    return cv::Point2d(x, y);
 }
 }  // namespace dzuav

@@ -40,7 +40,12 @@ protected:
             throw std::runtime_error("cannot create TensorRT runtime");
         engine_ = runtime_->deserializeCudaEngine(data.data(), data.size());
         if (engine_ == nullptr)
-            throw std::runtime_error("cannot deserialize engine: " + engine_path);
+            // 反序列化失败多为引擎与 TRT 版本不配套：消息带文件大小与本机
+            // TRT 版本（getInferLibVersion，如 8.5.x -> 850x），便于对账。
+            throw std::runtime_error("cannot deserialize engine: " + engine_path +
+                                     " (file size " + std::to_string(file_size) +
+                                     " bytes, TensorRT lib version " +
+                                     std::to_string(nvinfer1::getInferLibVersion()) + ")");
         context_ = engine_->createExecutionContext();
         if (context_ == nullptr)
             throw std::runtime_error("cannot create execution context");
