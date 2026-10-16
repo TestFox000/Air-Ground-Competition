@@ -211,6 +211,16 @@ SCHEMA: dict[str, Spec] = {
                                   "挡板厚度（第 6/7 行之间的细条；半厚 0.01 进触线判据）"),
     "field.barrier_cols": Spec("D..N", _S, "", None, None,
                                "挡板覆盖的列（含两端；现场 D..N = 11 列 = 3.85 m）"),
+    # ★★ 卡 t4：桥洞**进洞侧**冗余长度（虚拟墙延长段）。
+    #   设计规格（用户 2026-10-16）：只加进洞侧，长度 = **1/4 格** = 0.35 × 0.25 = 0.0875 m。
+    #   为什么给上限 0.35：超过一整格时"冗余墙"会伸进邻格、与邻格语义打架（1/4 格是设计值，
+    #   上限留到一整格只为现场微调；真的需要更长就该改桥洞几何而不是抬这个键）。
+    #   消费者：`route/physics.py: bridge_entry_walls()`（几何）与
+    #   `route/planner.py: _TSGrid`（tracker-safe 引擎的进洞侧判据，兜底常量
+    #   `planner.BRIDGE_ENTRY_REDUNDANCY_M` 与本默认值同值）。
+    #   ⚠️ 这段墙**现实不存在**（设计冗余），**不得**加进 `tools/route_check.py` 的用户侧判据。
+    "field.bridge_entry_redundancy_m": Spec(0.0875, _F, "m", 0.0, 0.35,
+                                            "桥洞进洞侧冗余长度（= 1/4 格，虚拟墙延长）"),
     "planner.obstacle_margin_m": Spec(0.02, _F, "m", 0.0, 0.30,
                                       "障碍净空余量（规划/校验共用；判据 = r + 车半宽 + 此值）"),
 
@@ -565,6 +575,20 @@ class Config:
             "aim.fire_box_near_px": ["dzrknn_dataprocess.fire_dz_near_px"],
             "aim.lost_frames_to_rescan": ["dzrknn_dataprocess.lost_frames_to_rescan"],
             "aim.scan_pitch_offset_deg": ["dzrknn_dataprocess.scan_pitch_offset_deg"],
+            # ---- ★ 物理几何真源迁移（真 bug 修复，2026-10-16）----
+            #   真源在 `/dzactuator` 段（vehicle.* / field.*，见 robot.yaml:749-769），
+            #   而 planner.py / sim.py / route_check 读**规范名** `vehicle.*` / `field.*`。
+            #   缺这组映射时规范名恒吃 SCHEMA 默认（0.28/0.135/0.1275…）⇒ 现场改尺寸被静默忽略（P0）。
+            #   仅 mission.py 曾用 `_f((dzactuator.*, vehicle.*))` 双键兜底读对，其余消费者全断。
+            #   迁移后规范名从 dzactuator 段取真值，两端一致，零行为变化（现值恰等于默认）。
+            "vehicle.length_m": ["dzactuator.vehicle.length_m"],
+            "vehicle.width_m": ["dzactuator.vehicle.width_m"],
+            "vehicle.coverage_radius_m": ["dzactuator.vehicle.coverage_radius_m"],
+            "vehicle.ref_offset_m": ["dzactuator.vehicle.ref_offset_m"],
+            "field.obstacle_radius_m": ["dzactuator.field.obstacle_radius_m"],
+            "field.mine_pad_m": ["dzactuator.field.mine_pad_m"],
+            "field.barrier_width_m": ["dzactuator.field.barrier_width_m"],
+            "field.barrier_cols": ["dzactuator.field.barrier_cols"],
         }
         for new_key, olds in legacy_map.items():
             if new_key in self._flat:

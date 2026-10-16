@@ -1327,6 +1327,14 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
     final_belief_err = math.hypot(result.x[-1] - final.x, result.y[-1] - final.y)
 
     # ---- 逐段峰值表（定位"是哪几个拐角在吃误差"）----
+    # ★ 2026-10-16 修（known-red 5.6「峰值段归组口径」）：`corner_deg` 原只报**段末端**
+    #   顶点转角（`corner_angle_deg(i)`）。但横向误差峰值经常出现在**拐角出边**上
+    #   （车切弯甩外，超调落进弯后那段），而出边的**末端**顶点是下一段直段顶点（转角 0°）
+    #   ⇒ 旧口径把"90° 弯的出边"记成 normal+0°，调参者误判为"直段蹭的误差"。
+    #   改为报告**该段两端顶点的最大转角**（进弯 `corner_angle_deg(i-1)` ∪ 出弯
+    #   `corner_angle_deg(i)`）：峰值无论来自进弯切内还是出弯甩外，这段都会被正确标成
+    #   "拐角相关"，`corner_deg` 与 `pursuit.Path.corner_turn_deg` 的口径分歧随之消失。
+    #   （修口径而非放宽断言：5.6 的判据 `corner_deg > 30°` 原样保留。）
     stats: list[SegmentStat] = []
     for i in range(path.segment_count):
         a = path.waypoints[i]
@@ -1338,7 +1346,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
             length_m=path.segments[i][4],
             kind="reverse" if path.segment_is_reverse(i) else "normal",
             peak_m=peak, peak_t=slot["t"], peak_s=slot["s"],
-            corner_deg=path.corner_angle_deg(i),
+            corner_deg=max(path.corner_angle_deg(i - 1), path.corner_angle_deg(i)),
         ))
     result.segments = stats
 

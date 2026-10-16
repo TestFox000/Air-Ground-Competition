@@ -186,9 +186,15 @@ check("归一化不增删行（只改行内内容）",
       len(_exp_text.splitlines()) == len(_raw_text.splitlines()),
       f"{len(_exp_text.splitlines())} vs {len(_raw_text.splitlines())}")
 _diff_lines = [(a, b) for a, b in zip(_raw_text.splitlines(), _exp_text.splitlines()) if a != b]
-check("★ 真实文件改动仅限 auto_start 配置行（1 行；注释与其它键逐位不变）",
-      len(_diff_lines) == 1 and _diff_lines[0][0].strip().startswith("auto_start:")
-      and _diff_lines[0][1].strip().startswith("auto_start:"),
+# ★ 2026-10-16 修（名单外新红）：发车档下两段（legacy `path_executor.auto_start` + dzbrain
+#   `mission.auto_start`）均 `true` ⇒ 归一化把**两处**都翻 false，改动行数是 2 不是 1。
+#   原断言硬钉 `== 1`（写于 t31「两段均 false」稳态），发车档下必红。语义不变式是「改动
+#   仅限 auto_start 配置行、不误伤别的配置」，行数随真值 true 数动态变化 —— 故改为：
+#   至少 1 行、且**每一**改动行两侧都是 `auto_start:` 配置行（`auto_start_delay` 前缀不匹配）。
+check("★ 真实文件改动仅限 auto_start 配置行（发车档两段均 true → 2 行；注释与其它键逐位不变）",
+      len(_diff_lines) >= 1
+      and all(a.strip().startswith("auto_start:") and b.strip().startswith("auto_start:")
+              for a, b in _diff_lines),
       f"改了 {len(_diff_lines)} 行：{_diff_lines}")
 # ★★ t31 重钉：计数只数**配置行**（`#` 注释行不算）——注释里出现同名键字面串会污染
 #   `text.count(...)`，本卡就踩过一次（注释里的自动出发键把 false 计数抬到 4 ⇒ 假红）。

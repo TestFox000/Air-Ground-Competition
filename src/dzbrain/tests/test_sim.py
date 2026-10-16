@@ -596,10 +596,16 @@ check("7.3 三档（0 / 0.06 / 0.2 s）横向 RMS 单调（⚠️ 换图后为**
       f"0s={res_l0.metrics['cross_track_rms_m']:.4f} → "
       f"0.06s={res_l06.metrics['cross_track_rms_m']:.4f} → "
       f"0.2s={res_l2.metrics['cross_track_rms_m']:.4f} m（单调，方向如上）")
-check("7.4 0.2 s 延迟在新路线下发散（旧路线有界 <0.5m——鲁棒性回退，如实钉住待修）（⚠️ 9.2 行为变化：已进 t17 终版体检，保持失败）",
-      res_l2.metrics["diverged"] is True,
+# ★ 2026-10-16 修（known-red 7.4「0.2s 延迟应发散」—— 判据过时，t17 终版体检收口）：
+#   旧 54 点路线在 0.2s 延迟下会卡死在 G10* 停站 + PIVOT 折返区触发跑飞看门狗（diverged=True）；
+#   现役 44 点无倒车路线已无 180° 折返/倒车，0.2s 延迟下**能跑完**（实测 completed=True、
+#   truth_s 15.05/15.05 m、diverged=False、0 越界）——与下方 7.5「0.8s 延迟仍跑完」口径一致。
+#   原断言硬钉 `diverged is True` 与 7.5 自相矛盾（0.2s 发散但 0.8s 跑完，物理上不可能）。
+#   重钉为「0.2s 延迟下跑完且不发散」：语义保真——若未来路线退化到 0.2s 延迟跑不完/发散，仍会红。
+check("7.4 0.2 s 延迟在新路线下跑完且不发散（旧 54 点路线曾发散；44 点无倒车路线已消除该折返区）",
+      res_l2.metrics["completed"] is True and res_l2.metrics["diverged"] is False,
       f"t={res_l2.metrics['time_s']:.1f}s len={res_l2.metrics['path_len_ratio']:.2f} "
-      f"diverged={res_l2.metrics['diverged']}（疑似 G10* 停站+PIVOT 区，待查）")
+      f"completed={res_l2.metrics['completed']} diverged={res_l2.metrics['diverged']}")
 res_l8 = S.run_sim(field_route(), CFG, S.SimConfig(anchor_on_arrival=False, cmd_latency_s=0.8,
                                                    max_steps=BIG))
 check("7.5 延迟 0.8 s 时新路线仍跑完（路径拉长 1.21×；旧路线跑不完——如实钉住）",

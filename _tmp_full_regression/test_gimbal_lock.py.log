@@ -1,0 +1,65 @@
+
+=== 1. ★巡迹段：云台锁止（不下发任何转台/扫描指令） ===
+  PASS  1.1 巡迹中只下发**锁止** 0（scan_request 序列 = [0]）   [[0]]
+  PASS  1.2 巡迹段**绝不出现** 2（持续扫描 = 转台寻靶）   [[0]]
+  PASS  1.3 锁止是「只在变化时发」，不是每拍刷话题（20 拍只 1 条）   [条数=1]
+  PASS  1.4 锁止拍数在累积（遥测可核对）   [lock=20 seek=0]
+  PASS  1.5 日志写明「云台锁止」（可复盘）   [['云台锁止：scan_request=0（巡迹/非射击停站；阶段=DRIVE；累计切换 1 次）']]
+  PASS  1.6 巡迹中即使视觉里有靶，也**不**解锁转台（仍只有 0）   [[0]]
+
+=== 2. ★到最佳射击点停站：这才起转搜索 ===
+  PASS  2.1 ★进入 SHOOT 停站 → 下发 2（起转寻靶），序列 = [0, 2]   [[0, 2]]
+  PASS  2.2 日志写明「云台起转搜索」+ 停站名   [['云台起转搜索：scan_request=2（最佳射击点停站 G10（kind=SHOOT）；阶段=STOP；累计切换 2 次）']]
+  PASS  2.3 seek 拍数累积、lock 拍数停增   [seek=10 lock=10]
+  PASS  2.4 停站期间**不重复**下发（20 拍只 1 条切换）   [[0, 2]]
+
+=== 3. ★停站结束（含 30 s 超时放行）→ 回到锁止 ===
+  PASS  3.1 ★停站 DONE / 回到 DRIVE → 重新锁止（序列 = [0, 2, 0]，边沿只多一条 0）   [[0, 2, 0]]
+  PASS  3.2 回到锁止后 seek 拍数不再增长   [seek_flag=False]
+  PASS  3.3 三次停站往返 → 0/2 交替出现，且永远不在巡迹中留 2   [[0, 2, 0, 2, 0, 2, 0]]
+
+=== 4. 非射击停站 / 异常输入：一律保持锁止（本卡只认 SHOOT） ===
+  PASS  4.1 SCAN 类停站（默认只认 SHOOT）→ 仍锁止   [[0]]
+  PASS  4.2 显式关掉「只认 SHOOT」后，SCAN 类停站也可起转（可配置回退）   [[2]]
+  PASS  4.3 P_STOP_POINT 为 None（还没到任何停站）→ 锁止，不炸   [[0]]
+  PASS  4.4 停站上下文类型异常 → 按锁止处理（失败偏安全），不抛异常   [[0]]
+  PASS  4.5 `gimbal_lock_enabled=False` → 本方法完全不动（旧行为可回退）   [[]]
+
+=== 5. 不破坏既有链路：停站判定 / 30 s 超时 / 发弹统计仍由原逻辑管 ===
+  PASS  5.1 停站内目标在框、无冷却 → 仍能拿到许可（fire_ready 未被锁止逻辑破坏）   [ready=False 长度=26]
+  PASS  5.2 许可计数（发弹统计）仍在累积（本卡未碰 _account/permits）   [permits=1]
+  PASS  5.3 aim **绝不**写 fire_gate（仍是 Mission 的钥匙）   [[]]
+  PASS  5.4 遥测能读到云台锁止状态（gimbal_seek 字段）   [keys=['actual_shots', 'ammo', 'at', 'blocked_reason', 'box_px', 'cls', 'cls_run', 'cool_left_s', 'dt', 'dx', 'dy', 'est_armed', 'est_armed_run', 'est_flips', 'est_jumps', 'est_reason', 'est_resets', 'est_samples', 'est_warmup', 'gimbal_cmd', 'gimbal_home_cmds', 'gimbal_last_home_at', 'gimbal_lock_ticks', 'gimbal_seek', 'gimbal_seek_ticks', 'hit_latched', 'hits', 'lead_px', 'lost_s', 'max_per_target', 'max_total', 'permits', 'permits_total', 'policy', 'pred_px', 'ready', 'rescan_requested', 'seen', 'shots_seen', 'status', 'v_error', 'v_px_s']]
+  PASS  5.5 超时放行（Mission 置 DONE）后 → 云台回到锁止   [[0, 2, 0]]
+
+=== 6. ★★ 单写者端到端（t24）：Mission(continuous) + Aim(lock) 同车协作 ===
+  PASS  6.0 前置：Mission 与 Aim 共用同一 bridge/bb（单写者可被观测）
+  PASS  6.0b ★A1 巡迹段（进射击点之前）：aim 已发 0 锁止、当前下发值 = 0   [scans=[0] cmd=0 lock_ticks=1]
+  PASS  6.0c ★A1 遥测可读回正台账（gimbal_home_cmds / gimbal_last_home_at）   [home_cmds=0]
+  PASS  6.1 巡迹段：Aim 下发锁止 0，且 Mission **一条都不发**   [scans=[0]]
+  PASS  6.2 巡迹段 Mission 的扫描台账为空（单写者真源）   [_scans=[]]
+  PASS  6.3 到达射击停站并进入 STOP（P_STOP_POINT.active）   [phase=STOP stop=StopPointState(index=8, block='G10', kind='SHOOT', phase='SETTLE', group=None, started_at=1002.8999999999974, phase_started_at=1002.8999999999974, shots_at_arrival=0, shots_needed=10, detail='到站（距离 0.145 m，累计发数 0）')]
+  PASS  6.4 该停站 kind = SHOOT（只有射击停站才允许起转）   [kind=SHOOT]
+  PASS  6.5 ① 巡迹段序列首值 = 0（锁止），且**从未**出现 2   [scans=[0, 2]]
+  PASS  6.5b ★A1 巡迹段长期维持锁止（lock_ticks 持续累积，只在停站内才 seek）   [lock_ticks=59 seek_ticks=1]
+  PASS  6.6 ② 进入 SHOOT 停站 → Aim 下发 2（C++ 开始扫描寻靶）   [scans=[0, 2]]
+  PASS  6.6b ② Mission 仍未写 topic（单写者：0 与 2 全部来自 Aim）   [_scans=[]]
+  PASS  6.7 ③ 云台状态 = TRACK（寻到目标即追）   [2]
+  PASS  6.8 ③ 追踪期间持续下发云台指令（lead/位置序列非空）   [leads=96 末值=0.0]
+  PASS  6.9 ③ 追踪期间扫描开关**保持** 2（不来回切）   [scans=[0, 2]]
+  PASS  6.10 ③ aim 绝不写 fire_gate（仍是 Mission 的钥匙）   [gate=[True]]
+  PASS  6.11 ③ aim 侧许可：fire_ready=True（追稳即给许可）   [fire_ready 末值=True]
+  PASS  6.12 ③ 黑盒 P_AIM.fire_gate = True（遥测可读）   [AimState(status=2, fire_gate=True, lead_px=0.0, shots_fired=2, hits=0, ammo=None, cooled_until=1004.4833333333297, last_reason='ok')]
+  PASS  6.13 ④ Mission fire gate 打开（放行门）   [gate=[True]]
+  PASS  6.14 ④ 两把钥匙同时为真 ⇒ 具备开火条件（aim fire_ready=True 且在 FIRE 段）   [ready=True gate=True]
+  PASS  6.15 ④ 发数增量被 Mission 记账并完成停站（shots_per_stop=10 = t26 口径）   [mission 日志尾=['停站点 8 G10 完成：发数增量 10 ≥ 10 → 命中窗口结束', '阶段 STOP → DRIVE']]
+  PASS  6.16 ⑤ 离开射击停站 → 扫描回到 0（锁止）   [scans=[0, 2, 0]]
+  PASS  ★ 6.17 单写者终局断言：整串 scan_request 只含 {0,2} 且每段值都由 Aim 产生（Mission 台账始终为空）   [scans=[0, 2, 0] mission_scans=[]]
+  PASS  ★ 6.19 A2 离开射击点：锁止边沿强制重发 0（序列尾 = [2, 0]，不是停在 2）   [scans=[0, 2, 0]]
+  PASS  ★ 6.20 A2 回正台账计数 ≥1（每次 TRACK→锁止 边沿 +1；遥测可读）   [home_cmds=1]
+  PASS  ★ 6.21 A2 回正日志留痕（含「回正锁止」与 C++ 归位说明，便于现场复盘）   [aim 日志尾=['云台回正锁止：scan_request=0（巡迹/非射击停站；阶段=DRIVE；累计切换 3 次；★TRACK→锁止 边沿回正：C++ IDLE 每帧归位到车头正前（累计回正 1 次））', '不开火：目标丢失（闭锁）']]
+  PASS  6.18 对照档 lock=false：Mission 照旧按 scan_mode 下发 2（旧行为回退可用）   [mission_scans=[2]]
+
+======================================================================
+结果：49/49 全部通过 ✅
+======================================================================

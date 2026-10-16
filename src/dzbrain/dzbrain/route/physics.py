@@ -73,6 +73,10 @@ __all__ = [
     "body_obstacle_clearance_m",
     "body_barrier_clearance_m",
     "body_rect_clearance_m",
+    # ★★ 卡 t4：**桥洞进洞侧冗余墙**（虚拟墙，现实不存在，规划器当真实墙）
+    "BRIDGE_ENTRY_LOWER_ROW_IDX",
+    "bridge_entry_walls",
+    "body_bridge_wall_clearance_m",
 ]
 
 #: 格边长（= `geometry.BLOCK_SIZE`，只在这里取一次，避免各处重复写 0.35）
@@ -305,6 +309,95 @@ def k_cells_sealed_along_column() -> bool:
       （U 形赛道的两处过洞），**不**意味着列内可以纵向移动。
     """
     return True
+
+
+# --------------------------------------------------------------------------- #
+#  ★★ 卡 t4：桥洞**进洞侧**冗余墙（虚拟墙 / 设计冗余，现实不存在）
+# --------------------------------------------------------------------------- #
+#  用户设计规格（2026-10-16）：在桥洞的**进洞侧**加一段 1/4 格长的冗余长度，
+#  逼规划器让车"进洞前摆正、不碰桥室侧壁"。
+#
+#  为什么需要（物理根据）：K 列每格是一个**桥室** —— 东西向（y 方向）横向贯通，
+#  南北向（x 方向）有侧壁、格间封死（见 `k_cells_sealed_along_column`）。车东西穿洞时
+#  车身长边沿 y、**车宽 0.135 m 沿 x**，所以真正会撞的是**桥室南北壁**（x = 格心 ± 半格）。
+#  现状：`Grid` 的 R007/R009 只保证"在桥洞行水平进出"，**不保证进洞瞬间车已摆正** ——
+#  车若带着偏航角在进洞前就开始斜切，半个车身会扫到进洞侧的壁。把南北壁沿 y 向
+#  进洞侧**虚拟延长** 0.0875 m（= 0.35 × 0.25），就等价于要求"进洞前 1/4 格内已经摆正"。
+#
+#  ⚠️ 这段墙**现实中不存在**（桥室外侧没有墙），它是**设计冗余**：规划器必须当真实墙
+#     对待（判据用 `>= 0`），但**不要**把它加进 `tools/route_check.py` 的用户侧判据 ——
+#     否则现场实跑路线会被莫须有的墙判红（本卡明文：只改规划器这一侧）。
+#
+#  进洞侧方向（真源 = `config/robot.yaml` 的 `bridge_order`，两处取值在**同一次改动**内
+#  必须一致，刻意不另开配置键以免两处漂移）：
+#    · 下半场 row 7~11 → `L -> K -> J`（向西穿，**y 小侧**进洞）；
+#    · 上半场 row 1~6  → `J -> K -> L`（向东穿，**y 大侧**进洞）。
+#: `block_to_index()` 的 0-based `row_idx` 分界：`>= 本值` ⇒ 行号 7~11 ⇒ 下半场。
+#: （row 7 的 row_idx = 6；上半场 row 1~6 的 row_idx = 0~5。）
+BRIDGE_ENTRY_LOWER_ROW_IDX = 6
+
+
+def bridge_entry_walls(block: str, redundancy_m: float
+                       ) -> tuple[tuple[float, float, float, float],
+                                  tuple[float, float, float, float]]:
+    """某桥洞格**进洞侧**的两段虚拟墙：`((北壁), (南壁))`，每段 = `(x0,y0,x1,y1)`。
+
+    * 桥室南北壁：`x_hi = cx + 0.175`（北 / x 大侧）、`x_lo = cx - 0.175`（南 / x 小侧），
+      其中 `cx` = `geo.block_to_meters(block)` 的 x，`cy` = 其 y（K 列恒 1.225）。
+    * 进洞侧边界 `y_entry`：下半场（`row_idx >= BRIDGE_ENTRY_LOWER_ROW_IDX`）`cy - 0.175`
+      （向西穿 ⇒ y 小侧）；上半场 `cy + 0.175`（向东穿 ⇒ y 大侧）。
+    * 冗余墙 = 把两条壁从 `y_entry` 往进洞侧再延长 `redundancy_m`：
+        下半场 `y ∈ [y_entry - redundancy, y_entry]`；
+        上半场 `y ∈ [y_entry, y_entry + redundancy]`。
+      它们是**竖线段**（x 恒定 = `x_hi` / `x_lo`，y 走上面那段区间）。
+
+    :param redundancy_m: 冗余长度（米）。`0.0` ⇒ 退化成"桥室口那一条线"（等价于只判
+        "进洞瞬间车体不压壁"）。**负值按 0 处理**（调用方传负值不当"反向入侵"）。
+    :raises ValueError: `block` 不是合法格名。
+    """
+    cx, cy = geo.block_to_meters(block)
+    half = CELL_M / 2.0                                   # 0.175：桥室半格宽
+    x_hi, x_lo = cx + half, cx - half
+    row_idx = geo.block_to_index(block)[0]
+    y_entry = (cy - half) if row_idx >= BRIDGE_ENTRY_LOWER_ROW_IDX else (cy + half)
+    red = max(0.0, float(redundancy_m))
+    if row_idx >= BRIDGE_ENTRY_LOWER_ROW_IDX:             # 下半场：向 y 小侧（西）延长
+        y_a, y_b = y_entry - red, y_entry
+    else:                                                 # 上半场：向 y 大侧（东）延长
+        y_a, y_b = y_entry, y_entry + red
+    return ((x_hi, y_a, x_hi, y_b), (x_lo, y_a, x_lo, y_b))
+
+
+def body_bridge_wall_clearance_m(px: float, py: float, yaw: float, walls, *,
+                                 length_m: float = 0.28, width_m: float = 0.135,
+                                 offset_m: float = DEFAULT_REF_OFFSET_M) -> float:
+    """车体（旋转矩形）4 边 → 全部**桥洞冗余墙线段**的最短距离（米；重叠 = 0）。
+
+    ★ 用 `body_corners()` 的真实旋转矩形（含 `offset_m`，默认 0.0 ⇒ 老调用方行为不变），
+      逐边与每段墙做 `_seg_seg_distance`（相交 = 0）取最小 —— 与 `body_barrier_clearance_m`
+      同一套"多边形 vs 线段"口径，所以"斜着蹭墙"不会被漏掉。
+
+    :param walls: `bridge_entry_walls()` 的返回值，或任意 `(x0,y0,x1,y1)` 段的可迭代集合；
+        空集合 ⇒ 返回 `inf`（"没有墙"⇒ 无约束）。
+    :return: 间隙（米），**永远 ≥ 0**：`0` = 碰到或压进墙里，`> 0` = 没碰到。
+    ⚠️ 因为"重叠 = 0"是本模块（`polygon_distance_m` / `_seg_seg_distance`）的既有口径，
+      **判据必须写成"间隙 > 0"**：写成 `>= 0` 会**恒真**（重叠也返回 0）⇒ 判据形同虚设。
+      这是本函数与 `body_barrier_clearance_m()` 共同的坑，t4 实测确认（见 planner 侧注释）。
+    """
+    segs = [tuple(float(v) for v in seg) for seg in (walls or ())]
+    if not segs:
+        return float("inf")
+    poly = body_corners(px, py, yaw, length_m=length_m, width_m=width_m, offset_m=offset_m)
+    best = float("inf")
+    n = len(poly)
+    for i in range(n):
+        ax, ay = poly[i]
+        bx, by = poly[(i + 1) % n]
+        for (cx0, cy0, cx1, cy1) in segs:
+            d = _seg_seg_distance(ax, ay, bx, by, cx0, cy0, cx1, cy1)
+            if d < best:
+                best = d
+    return best
 
 
 # --------------------------------------------------------------------------- #

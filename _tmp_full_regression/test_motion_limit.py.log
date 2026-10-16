@@ -1,0 +1,31 @@
+
+--- 1. 共享键收口（写侧/读侧同一个字符串常量） ---
+PASS  core.blackboard.P_MOTION_LIMIT == 'motion_limit'   ['motion_limit']
+PASS  ★ 写侧 localization.P_MOTION_LIMIT == 读侧 core.blackboard.P_MOTION_LIMIT   [写侧 'motion_limit' / 收口处 'motion_limit']
+
+--- 2. 无信号 = 完全 no-op ---
+PASS  2.1 ★ 空黑板（键不存在）→ 逐位等于不传限速
+PASS  2.2 键存在但值为 None → 逐位 no-op
+PASS  2.3 ★ 与改动前黄金值逐位一致（4 姿态含贴站减速/带偏航）   [0.3/0.0/cruise; 0.3/0.0/cruise; 0.3/-26.046484966389414/cruise; 0.05/0.0/stop_approach]
+PASS  2.4 ★ 12 种非法载荷 → helper 返回 None 且指令逐位 no-op   [12 种全过]
+PASS  2.5 speed_profile(motion_limit_mps=None) == 不传该参
+
+--- 3. 限速生效（只降不升；0.0 = 真停） ---
+PASS  3.1 巡航 0.30 → 限速 0.08   [0.300 → 0.080，reason='motion_limit']
+PASS  3.2 限速高于巡航 → 不变（只降不升）   [0.300，reason='cruise']
+PASS  3.3 ★ 限速 0.0 = 真给 0（不被 min_speed 蠕动下限顶回）   [v=0.0（min_speed=0.05）reason='motion_limit']
+
+--- 4. compute_command 走黑板 + 倒车按绝对值钳 ---
+PASS  4.1 走黑板 == 显式传参（同一读侧路径）   [bb=0.0800/motion_limit arg=0.0800/motion_limit]
+PASS  4.2 巡航 0.30 被钳到 0.08 且 reason=motion_limit   [0.0800 m/s / motion_limit]
+PASS  4.3 倒车：|v| ≤ 限速 且保号（负）   [无信号 -0.1800 → 限速 -0.0500]
+PASS  4.4 倒车 + 限速 0.0 → 0.0（正零，不被 max(min_speed,…) 顶回）   [linear_x=0.0 reason='motion_limit']
+
+--- 5. 配置对账：config/robot.yaml 的 localization: 段 == 代码默认值（t12 §T12-B） ---
+PASS  5.1 12 个键都在 robot.yaml 里   [12/12]
+PASS  5.2 ★ 逐条等于代码默认值   [12/12 一致]
+PASS  5.3 落盘值（cruise 0.35 / ld_max 0.40 / 官方图路线 44 点（t50 新窗口） / ticksPerMeter 3280）（旧 cruise 0.30 / 0.35）   [cruise=0.35 ld_max=0.4 tokens=44 ticks=3280.0]
+
+========================================================================
+结果：17/17 通过
+全部通过 ✅

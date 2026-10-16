@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """路线规划器 —— **换一张 `map.yaml` 就能自动生成路线**，不再手写 token。
 
 用户诉求原话："我只要把地图点位（map.yaml）替换掉就行了，小车会自己算路径然后跑起来。"
@@ -128,6 +128,9 @@ __all__ = [
     "TS_MAX_SECONDS",
     # ★ t19：顺序 DP 的到达状态上限（Pareto 截断，现役图恒不触发）
     "TS_PARETO_KEEP",
+    # ★★ 卡 t4：桥洞进洞侧冗余墙（规划器侧判据 + 兜底长度）
+    "BRIDGE_ENTRY_REDUNDANCY_M",
+    "BRIDGE_ENTRY_CLEAR_EPS",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -598,7 +601,8 @@ def _phys_params(cfg: "Config | None") -> dict:
 
     `None`（无 config，例如纯单元测试）⇒ 用 `physics.py` 的默认形参，行为等价于现场值。
     :return: ``{length_m, width_m, coverage_radius_m, obstacle_radius_m, mine_pad_m,
-        barrier_width_m, barrier_cols, obstacle_margin_m, wheelbase_m, max_steer_deg}``
+        barrier_width_m, barrier_cols, obstacle_margin_m, wheelbase_m, max_steer_deg,
+        bridge_entry_redundancy_m}``
     """
     def g(key: str, fallback: float | str) -> Any:
         if cfg is None:
@@ -615,6 +619,9 @@ def _phys_params(cfg: "Config | None") -> dict:
         "obstacle_margin_m": float(g("planner.obstacle_margin_m", 0.02)),
         "wheelbase_m": float(g("pursuit.wheelbase_m", 0.157)),
         "max_steer_deg": float(g("pursuit.max_steer_deg", 30.0)),
+        # ★★ 卡 t4：桥洞进洞侧冗余长度（= 1/4 格）；缺 key ⇒ 兜底常量（与 YAML 同值）
+        "bridge_entry_redundancy_m": float(
+            g("field.bridge_entry_redundancy_m", BRIDGE_ENTRY_REDUNDANCY_M)),
     }
 
 
@@ -2880,8 +2887,7 @@ TS_TURNED_MINES = ("A4", "D8")
 #: 2 出现 8 次）⇒ 本图恒不触发、是等价变换；它只是给"到达状态更多"的图兜一个上限。
 #: A/B：`keep=2` 与不截断在现役图/异地图上**逐候选产物逐 token 相同**（`_tmp_session/t19/`）。
 TS_PARETO_KEEP = 2
-#: tracker-safe 引擎的默认时间预算（秒）。这是**签名兜底值**，车上的真源是
-#: `config/robot.yaml: planner.tracker_max_seconds`（两者同值，且 `tools/plan_route.py`
+#: tracker-safe 引擎的默认时间预算（秒）。这是**签名兜底值**，车上的真源是#: `config/robot.yaml: planner.tracker_max_seconds`（两者同值，且 `tools/plan_route.py`
 #: 的 `--max-seconds` 缺省直接引用本常量 ⇒ 改一处三处同步）。
 #: ★ t19 重定：**ARM 车端实测**（RK3588S，8 核，现场 `~/dzrobot` 同一份地图/配置）——
 #:   提速前 6515/6693/6752 ms（settled 470118，`_ts_phase` 16 次）；
@@ -2890,11 +2896,34 @@ TS_PARETO_KEEP = 2
 #:   （旧值 5.0 s 是 PC 实测 1.5 s 年代的；第七趟实车就是被这个 5 s 卡住而回退手工路线。）
 TS_MAX_SECONDS = 10.0
 
+#: ★★ 卡 t4：桥洞**进洞侧冗余墙**的兜底长度（米）= **1/4 格** = 0.35 × 0.25 = 0.0875。
+#: 语义与几何见 `physics.bridge_entry_walls()`：把桥室南北壁沿 y 向进洞侧虚拟延长这段长度，
+#: 逼车"进洞前 1/4 格内已经摆正"。**这段墙现实中不存在**（设计冗余）。
+#: 真源是 `config/robot.yaml: field.bridge_entry_redundancy_m`（本常量只在缺 config 时兜底，
+#: 与 `planner.obstacle_margin_m` / `barrier_width_m` 等键同一套"签名兜底值"惯例）。
+BRIDGE_ENTRY_REDUNDANCY_M = 0.0875
+#: ★ 判据容差（米）：间隙必须 **> 本值**才算通过。
+#: ⚠️ 为什么必须严格大于 0 而不是 `>= 0`：本模块的距离口径是"**重叠 = 0**"
+#:   （`physics._seg_seg_distance` / `polygon_distance_m` 都这么写）⇒ 写成 `>= 0` 会
+#:   **恒真**、判据形同虚设（t4 落地时实测踩过：`>= 0` 版本对旧路线逐 token 不变，
+#:   即判据从未生效）。取 1e-9 与既有代码（`< req - 1e-12`）同量级的数值卫生。
+BRIDGE_ENTRY_CLEAR_EPS = 1e-9
+
 
 def _ts_unit(v: tuple[int, int]) -> tuple[int, int]:
     """方向向量约到最简（本引擎只有单格移动，直接返回）。"""
     g = math.gcd(abs(v[0]), abs(v[1])) or 1
     return (v[0] // g, v[1] // g)
+
+
+def _ts_map_yaw(d: tuple[int, int]) -> float:
+    """栅格步方向 `(drow, dcol)` → **地图 yaw**（车头指向的弧度）。
+
+    `x = (10.5−row)·0.35`、`y = (13.5−col)·0.35` ⇒ 一步 `(drow,dcol)` 的米制位移是
+    `(−drow, −dcol)·0.35`，故 `yaw = atan2(−dcol, −drow)`。自检：
+    `DIRS[1]=(0,-1)`（西/+y）→ `+π/2 = HEADING_Y`；`DIRS[0]=(-1,0)`（北/+x）→ `0 = HEADING_X`。
+    """
+    return math.atan2(-d[1], -d[0])
 
 
 def _ts_turn_deg(a: tuple[int, int], b: tuple[int, int]) -> float:
@@ -2948,9 +2977,77 @@ class _TSGrid:
         self.bar_x, self.bar_y0, self.bar_y1 = _phys.barrier_centerline(
             col_from=c0, col_to=c1, row_hi=self.spec.barrier_row_hi,
             row_lo=self.spec.barrier_row_lo)
+        # ---------- ★★ 卡 t4：桥洞进洞侧冗余墙 ----------
+        #   只对**本图两个穿洞格**建墙（`cross_lower`/`cross_upper` 由 map/route 决定），
+        #   不把 K 列每格都当洞 —— K 列其它格根本不许横向进出（`Grid` 的 R007 已拦）。
+        self.entry_redundancy_m = float(
+            self.phys.get("bridge_entry_redundancy_m", BRIDGE_ENTRY_REDUNDANCY_M))
+        _bridges = set(self.grid.bridge_rows)
+        self.entry_walls: dict[tuple[int, int], tuple] = {}
+        if self.entry_redundancy_m > 0.0:
+            for _r in _bridges:
+                _blk = geo.index_to_block(int(_r) - 1, _CROSS_COL)
+                self.entry_walls[(_r, _CROSS_COL)] = _phys.bridge_entry_walls(
+                    _blk, self.entry_redundancy_m)
         self._legal: dict[tuple, bool] = {}
         self._turn: dict[tuple, tuple[bool, float, float]] = {}
         self.settled = 0
+
+    # ---------------- ★★ 卡 t4：桥洞进洞侧冗余墙判据 ----------------
+    def _entry_walls_of(self, cell: tuple[int, int]):
+        """该格若是**桥洞格**则返回其进洞侧冗余墙（两段竖线段），否则 `None`。"""
+        return self.entry_walls.get(cell)
+
+    def _entry_clear_ok(self, px: float, py: float, yaw: float, walls) -> bool:
+        """车体（以 `(px,py,yaw)` 摆正）与冗余墙的间隙是否 **> 0**。
+
+        ⚠️ 必须严格大于 0：距离口径是"重叠 = 0"（见 `BRIDGE_ENTRY_CLEAR_EPS` 的说明）。
+        """
+        if not walls:
+            return True
+        return _phys.body_bridge_wall_clearance_m(
+            px, py, yaw, walls, length_m=self.length_m,
+            width_m=self.width_m) > BRIDGE_ENTRY_CLEAR_EPS
+
+    def entry_gate_segment(self, a: tuple[int, int], b: tuple[int, int]) -> bool:
+        """段 `a→b` **水平直穿进入**某桥洞格时，沿途车身是否不碰该洞的进洞侧冗余墙。
+
+        触发条件（两条同时成立才判，出洞侧一律不判 —— 用户只要进洞侧）：
+          ① `b` 是桥洞格（`cross_lower`/`cross_upper` 之一，= `grid.bridge_rows` 的列 K 格）；
+          ② `a` 与 `b` **同行**（`drow == 0`）⇒ 这就是"水平直穿进入"，
+             与 `Grid.move_ok` 的"只在桥洞行进出 K 列"口径一致。
+        取点 = 段两端点 + 中点（三个位姿），车头一律按**段方向**摆正（`_ts_map_yaw`）。
+        """
+        walls = self._entry_walls_of(b)
+        if not walls or a[0] != b[0]:
+            return True
+        yaw = _ts_map_yaw((b[0] - a[0], b[1] - a[1]))
+        ax, ay = geo.block_to_meters(geo.index_to_block(a[0] - 1, a[1]))
+        bx, by = geo.block_to_meters(geo.index_to_block(b[0] - 1, b[1]))
+        for t in (0.0, 0.5, 1.0):
+            if not self._entry_clear_ok(ax + t * (bx - ax), ay + t * (by - ay), yaw, walls):
+                return False
+        return True
+
+    def entry_gate_turn(self, cell: tuple[int, int], d_out: tuple[int, int]) -> bool:
+        """顶点 `cell` 处**下一步进入桥洞格**时，转弯扫掠车身是否不碰冗余墙。
+
+        触发条件：`cell + d_out` 是桥洞格（即"这一转向把车带进洞"）。
+        判据用**顶点处的实际位姿**：车头取 `d_out`（进洞方向）—— 顶点转向时车身绕
+        顶点转，取"出向已摆正"是**保守**的一侧（车正对洞口时车身最宽占用沿 x）。
+        沿途取点同 `entry_gate_segment`（顶点 + 半程 + 入洞点）。
+        """
+        nxt = (cell[0] + d_out[0], cell[1] + d_out[1])
+        walls = self._entry_walls_of(nxt)
+        if not walls:
+            return True
+        yaw = _ts_map_yaw(d_out)
+        cx, cy = geo.block_to_meters(geo.index_to_block(cell[0] - 1, cell[1]))
+        nx, ny = geo.block_to_meters(geo.index_to_block(nxt[0] - 1, nxt[1]))
+        for t in (0.0, 0.5, 1.0):
+            if not self._entry_clear_ok(cx + t * (nx - cx), cy + t * (ny - cy), yaw, walls):
+                return False
+        return True
 
     # ---------------- 段级 ----------------
     def move_ok(self, a: tuple[int, int], b: tuple[int, int]) -> bool:
@@ -2982,6 +3079,10 @@ class _TSGrid:
             if _phys.segment_rect_distance_m(ax, ay, bx, by, cx, cy, half) \
                     < self.board_seg_req - 1e-12:
                 return False
+        # ★★ 卡 t4：把"水平直穿进入桥洞"的那一步也按**进洞侧冗余墙**判一次
+        #   （只在进洞侧判；出洞侧的 `a` 是桥洞格、`b` 不是 ⇒ 天然不触发）。
+        if not self.entry_gate_segment(a, b):
+            return False
         return True
 
     # ---------------- 顶点级 ----------------
@@ -3025,6 +3126,12 @@ class _TSGrid:
                             < self.board_corner_req - 1e-12:
                         ok = False
                         break
+        # ★★ 卡 t4：顶点处"下一步进洞"⇒ 按**进洞侧冗余墙**判转弯扫掠车身
+        #   （不限于 deg>10°：即使直着进洞，`entry_gate_segment` 已经判过同一件事，
+        #     但顶点路径（`turn_gate` 是唯一能拦"进洞前那一次转向"的地方）必须独立判 ——
+        #     否则 A* 可以"在顶点先转向摆平、下一步直着进洞"绕过段级判据）。
+        if ok and not self.entry_gate_turn(cell, d_out):
+            ok = False
         out = (ok, deg, extra)
         self._turn[key] = out
         return out
@@ -3245,6 +3352,172 @@ def _ts_search(ts: _TSGrid, spec: MapSpec, *, cross_lower_cell: tuple[int, int],
                             collect=collect)[shoot_cell]
 
 
+# =========================================================================== #
+#  ★ 卡 t53：拐角**条件切角**（90° 直角 → 45° 斜段；纯格名 token，零语法改动）
+# =========================================================================== #
+#  为什么是"删顶点"而不是"插半格偏移点"（卡面写的是后者）：
+#    ① 全库**没有**"格心+米制偏移"的 token 语法（`parser.normalize_token()` 要求格名后
+#       全部是数字，`F3+0.175` 直接 `ValueError: 无法解析的 token`）；而路线是**以 token 串**
+#       传给车侧（`tasks/mission.py` → `parse_mission`、`main.py` 回写 `route.tokens`）
+#       ⇒ 偏移点要么解析失败、要么被静默丢回格心 ⇒ **到不了车上**；
+#    ② 删掉 90° 顶点后，前后两点（对角相邻）之间**本身就是 45° 斜段**，
+#       等价于"把 90° 转角分成两段 45°"，且 token 仍是纯格名 ⇒ 往返/门禁/车侧全兼容。
+#  实测（现役 44 点，`_tmp_session/t53_corner/`）：切 6 个角 → 38 点，
+#    顶点超调 0.04912→0.03887 m（−20.9%）、拐角 RMS 0.0532→0.0466、急转弯 18→11 处、
+#    靶板净空 0.1441→0.2048 m（净空不足拍 49→0）、挡板净距 0.0783→0.1361 m，
+#    雷覆盖 8/8、硬违规全 0、`route_check` exit 0、`config_selfcheck` 0 error/0 warn。
+#  默认**关闭**（`planner.corner_cut`，缺省 False）⇒ 现役发车路线逐 token 不变；
+#  开启 = 一行配置（`config/robot.yaml`，本卡写域之外，待队长裁决）。
+CORNER_CUT_MIN_TURN_DEG = 88.0     # 只切"直角"（90°±2°）：其它转角切了没有 45° 语义
+CORNER_CUT_MAX_TURN_DEG = 92.0
+CORNER_CUT_MINE_CLEAR_M = 0.15     # 卡面硬规则②：内切路径离最近雷心 < 0.15 m ⇒ 不切
+
+
+def corner_cut_enabled(cfg: "Config | None") -> bool:
+    """切角开关。缺省 **False**（= 现役发车路线逐 token 不变，零行为变化）。"""
+    if cfg is None:
+        return False
+    try:
+        return bool(cfg.get("planner.corner_cut", False))
+    except Exception:                       # noqa: BLE001 —— 老调用方/坏配置一律当关闭
+        return False
+
+
+def _seg_point_dist(px: float, py: float, ax: float, ay: float,
+                    bx: float, by: float) -> float:
+    """点 (px,py) 到线段 AB 的距离。"""
+    vx, vy = bx - ax, by - ay
+    l2 = vx * vx + vy * vy
+    if l2 < 1e-12:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * vx + (py - ay) * vy) / l2))
+    return math.hypot(px - (ax + t * vx), py - (ay + t * vy))
+
+
+def _min_clear(centers: Sequence[tuple[str, tuple[float, float]]],
+               segs: Sequence[tuple[float, float, float, float]]) -> float:
+    """一组圆心到一组线段的最近距离。"""
+    best = float("inf")
+    for _nm, (cx, cy) in centers:
+        for (ax, ay, bx, by) in segs:
+            best = min(best, _seg_point_dist(cx, cy, ax, ay, bx, by))
+    return best
+
+
+def _barrier_line_clear(segs: Sequence[tuple[float, float, float, float]],
+                        row_hi: float, col_from: str) -> float:
+    """到"挡板细条"（第 row_hi/row_hi+1 行之间、col_from..N 列）的最近距离。
+
+    挡板是**线**不是点，所以按 0.02 m 步长采样连线（够密；判据本身就是毫米量级余量）。
+    """
+    y_mid = (row_hi + 0.5) * geo.BLOCK_SIZE
+    cols = {chr(c) for c in range(ord(col_from), ord("N") + 1)}
+    best = float("inf")
+    for (ax, ay, bx, by) in segs:
+        for i in range(101):
+            t = i / 100.0
+            x = ax + t * (bx - ax)
+            y = ay + t * (by - ay)
+            if geo.meters_to_block(x, y)[0] in cols:
+                best = min(best, abs(y - y_mid))
+    return best
+
+
+def corner_cut_cells(cells: Sequence[tuple[int, int]], spec: MapSpec,
+                     *, barrier_row_hi: float, barrier_col_from: str,
+                     mine_clear_m: float = CORNER_CUT_MINE_CLEAR_M,
+                     stop_cells: Sequence[tuple[int, int]] = (),
+                     crossings: Sequence[tuple[int, int]] = ()) \
+        -> tuple[list[tuple[int, int]], list[tuple[int, int]], list[str]]:
+    """对格列表做**条件切角**：删除被"七条硬规则"放行的 90° 直角顶点。
+
+    规则（① ② ③ 来自卡面；④–⑦ 是实测**必须补**的，缺一条就会打红门禁或丢雷）：
+      ① 拐角格本身是雷格 → 不切；
+      ② 切后线段（prev→next）离任一雷心 < `mine_clear_m`，或比切前的两条腿更近 → 不切；
+      ③ 切后线段对 障心 / 挡板细条 / 靶格心 的最近距离比切前更近 → 不切（净空不放松）；
+      ④ 拐角格是某雷的**进点/出点**（prev 或 next 是雷格）→ 不切（保护「进点—雷格—出点」三连）；
+      ⑤ 拐角格紧邻桥洞三连（prev 或 next 在 K 列 / 是桥洞格）→ 不切（保护 R007/R009 水平直穿）；
+      ⑥ 只切 90°±2° 的直角；相邻两个拐角（索引差 ≤ 1）不同时切；
+      ⑦ 起点/终点/雷格/桥洞格/射击或扫描停站/PIVOT 顶点一律不切（token 后缀严格保留）。
+
+    :return: `(新格列表, 被删的格列表, 逐角原因说明)` —— 纯函数，同入参必同出参。
+    """
+    cells = list(cells)
+    mine_pts = [(m, geo.block_to_meters(m)) for m in spec.mines]
+    obst_pts = [(o, geo.block_to_meters(o)) for o in spec.obstacles]
+    tgt_pts = [(t, geo.block_to_meters(t)) for t in spec.targets]
+    mine_set = {m for m, _ in mine_pts}
+    bridge_set = set(spec.bridges)
+    cross_set = set(crossings)
+    stop_set = set(stop_cells)
+    notes: list[str] = []
+    drop: list[int] = []
+    last_cut = -10
+
+    for i in range(1, len(cells) - 1):
+        if i - last_cut <= 1:
+            continue
+        a, v, c = cells[i - 1], cells[i], cells[i + 1]
+        blk = geo.index_to_block(v[0] - 1, v[1])
+        blk_a = geo.index_to_block(a[0] - 1, a[1])
+        blk_c = geo.index_to_block(c[0] - 1, c[1])
+        ax, ay = geo.block_to_meters(blk_a)
+        vx, vy = geo.block_to_meters(blk)
+        cx, cy = geo.block_to_meters(blk_c)
+        h_in = math.atan2(vy - ay, vx - ax)
+        h_out = math.atan2(cy - vy, cx - vx)
+        turn = abs(math.degrees(geo.ang_diff(h_out, h_in)))
+        if not (CORNER_CUT_MIN_TURN_DEG <= turn <= CORNER_CUT_MAX_TURN_DEG):
+            continue
+        if v in stop_set:
+            notes.append(f"{blk}:⑦停站/指令格")
+            continue
+        if blk in mine_set:
+            notes.append(f"{blk}:①拐角格是雷")
+            continue
+        if blk in bridge_set or v in cross_set:
+            notes.append(f"{blk}:⑤桥洞格")
+            continue
+        if blk_a in mine_set or blk_c in mine_set:
+            notes.append(f"{blk}:④雷三连（{blk_a}/{blk_c} 是雷）")
+            continue
+        if blk_a in bridge_set or blk_c in bridge_set or a in cross_set or c in cross_set:
+            notes.append(f"{blk}:⑤桥洞三连（{blk_a}/{blk_c}）")
+            continue
+        seg_old = [(ax, ay, vx, vy), (vx, vy, cx, cy)]
+        seg_new = [(ax, ay, cx, cy)]
+        d_mine_new = _min_clear(mine_pts, seg_new)
+        d_mine_old = _min_clear(mine_pts, seg_old)
+        if d_mine_new < mine_clear_m - 1e-9:
+            notes.append(f"{blk}:②切后离雷 {d_mine_new:.3f} < {mine_clear_m:.2f}")
+            continue
+        if d_mine_new < d_mine_old - 1e-9:
+            notes.append(f"{blk}:②切后比切前更近雷（{d_mine_old:.3f}→{d_mine_new:.3f}）")
+            continue
+        d_bar_new = _barrier_line_clear(seg_new, barrier_row_hi, barrier_col_from)
+        d_bar_old = _barrier_line_clear(seg_old, barrier_row_hi, barrier_col_from)
+        if d_bar_new < d_bar_old - 1e-9:
+            notes.append(f"{blk}:③挡板更近（{d_bar_old:.3f}→{d_bar_new:.3f}）")
+            continue
+        d_ob_new = _min_clear(obst_pts, seg_new)
+        d_ob_old = _min_clear(obst_pts, seg_old)
+        if d_ob_new < d_ob_old - 1e-9:
+            notes.append(f"{blk}:③障碍更近（{d_ob_old:.3f}→{d_ob_new:.3f}）")
+            continue
+        d_tg_new = _min_clear(tgt_pts, seg_new)
+        d_tg_old = _min_clear(tgt_pts, seg_old)
+        if d_tg_new < d_tg_old - 1e-9:
+            notes.append(f"{blk}:③靶板更近（{d_tg_old:.3f}→{d_tg_new:.3f}）")
+            continue
+        drop.append(i)
+        last_cut = i
+        notes.append(f"{blk}:✅切（转角 {turn:.0f}° / 离雷 {d_mine_new:.3f} / "
+                     f"离障 {d_ob_new:.3f} / 离靶 {d_tg_new:.3f}）")
+
+    kept = [cell for j, cell in enumerate(cells) if j not in set(drop)]
+    return kept, [cells[j] for j in drop], notes
+
+
 def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
                             cross_lower: str | None = None,
                             cross_upper: str | None = None,
@@ -3340,27 +3613,55 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
     cost, cells, n_bad_u, shoot = best
     warnings: list[str] = []
 
+    # ---------------- ★ t53：条件切角（默认关闭；切不过 ⇒ 安全回退）----------------
+    cells_uncut = list(cells)
+    cut_report: list[str] = []
+    if corner_cut_enabled(cfg) and len(cells) > 2:
+        kept, dropped, cut_report = corner_cut_cells(
+            cells, spec,
+            barrier_row_hi=float(spec.barrier_row_hi),
+            barrier_col_from=str(spec.barrier_col_from),
+            mine_clear_m=CORNER_CUT_MINE_CLEAR_M,
+            stop_cells=[shoot_cell for _s, shoot_cell in zip(shots, shoot_cells)]
+            + [phase, start_cell, end_cell],
+            crossings=[cross_lower_cell, cross_upper_cell])
+        if dropped:
+            cells = kept
+
     # ---------------- 编译成航点 / Route ----------------
-    stops: list[_Stop] = []
-    for row, col in cells:
-        blk = geo.index_to_block(row - 1, col)
-        tag = ("start" if (row, col) == start_cell else
-               "end" if (row, col) == end_cell else
-               "mine" if blk in set(spec.mines) else
-               "lower_bridge" if (row, col) == cross_lower_cell else
-               "upper_bridge" if (row, col) == cross_upper_cell else
-               "shoot" if blk == shoot else "path")
-        stops.append(_Stop(row, col, blk, shoot=(blk == shoot), tag=tag))
-    stops[0].heading = start_heading
-    _refresh_headings(stops)
-    marked = mark_pivots(stops)
-    if marked:
-        raise PlannerError("tracker-safe 引擎内部错误：路线里出现了折返点 "
-                           + " ".join(b for _i, b, _d in marked))
-    route = _to_route(stops, name=name,
-                      crossing={"lower": lower_cross, "upper": upper_cross},
-                      final_heading=_final_heading(stops))
-    problems = check_route_structure(route, spec, grid, limits, acc)
+    def _compile(_cells: list) -> tuple[list, Any, list]:
+        _stops: list[_Stop] = []
+        for row, col in _cells:
+            blk = geo.index_to_block(row - 1, col)
+            tag = ("start" if (row, col) == start_cell else
+                   "end" if (row, col) == end_cell else
+                   "mine" if blk in set(spec.mines) else
+                   "lower_bridge" if (row, col) == cross_lower_cell else
+                   "upper_bridge" if (row, col) == cross_upper_cell else
+                   "shoot" if blk == shoot else "path")
+            _stops.append(_Stop(row, col, blk, shoot=(blk == shoot), tag=tag))
+        _stops[0].heading = start_heading
+        _refresh_headings(_stops)
+        _marked = mark_pivots(_stops)
+        if _marked:
+            raise PlannerError("tracker-safe 引擎内部错误：路线里出现了折返点 "
+                               + " ".join(b for _i, b, _d in _marked))
+        _route = _to_route(_stops, name=name,
+                           crossing={"lower": lower_cross, "upper": upper_cross},
+                           final_heading=_final_heading(_stops))
+        return _stops, _route, check_route_structure(_route, spec, grid, limits, acc)
+
+    stops, route, problems = _compile(cells)
+    if problems and cells != cells_uncut:            # 切角不放过结构自检 ⇒ 回退（绝不影响可规划性）
+        warnings.append("切角后结构自检未过 ⇒ 已回退未切角路线： "
+                        + "；".join(problems[:2]))
+        cells = cells_uncut
+        cut_report = []
+        stops, route, problems = _compile(cells)
+    if cut_report:
+        _cuts = [n for n in cut_report if "✅切" in n]
+        if _cuts:
+            warnings.append("拐角条件切角 %d 处（%s）" % (len(_cuts), "，".join(_cuts)))
     if problems:
         raise PlannerError("tracker-safe 结果未通过结构自检：\n  - " + "\n  - ".join(problems))
     assert_legal_no_reverse(route)

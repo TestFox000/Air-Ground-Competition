@@ -47,7 +47,7 @@
     #   2026-10-03 起：跟踪模式已改走机械限位（不再被本值钳住）；
     #     但【扫描模式】仍以本值为基准 —— 若扫描时看不到地面靶，
     #     把本值改回负数（-20 ~ -26 之间试），不要盲调 tracking_pitch_margin_deg。
-    scan_pitch_offset_deg: -10.0   # ★t52 用户指令（2026-10-14）：水平扫描时把视角【向下压约 10°】⇒ 取 -10.0
+    scan_pitch_offset_deg: +10.0   # ★t52 用户指令（2026-10-14）：水平扫描向下压约 10°；★2026-10-15 现场实测：-10.0 实际【向上抬】（符号约定反了）⇒ 改 +10.0
                                    #   【符号约定：负 = 向下压，正 = 抬头】——与 C++ 侧注释和 scanPitchDeg() 一致。
                                    #   沿革：+6.0 →（2026-10-11 t25"复位水平"）0.0 →（本次）**-10.0**。
                                    #   本值是扫描模式的俯仰基准：实际俯仰 = scan_pitch_levels[i] + 本值（cpp:474）。
@@ -285,7 +285,7 @@ path_executor:
     linear_speed: 0.35   # ★基础巡航速度(m/s)。与 dzbrain 段 cruise_speed_mps 保持一致
                          #   （2026-10-11 t22：0.30→0.35；★t29 首跑安全档 0.35→0.15；t31 两段对齐；
                          #    ★t38 提速档落地：0.15→0.40（本轮实车暂回 0.15 安全档，跑完恢复 0.40））
-    auto_start: false            # ★一键启动后自动出发（本轮现场发车：翻 true 推车，跑完回 false）
+    auto_start: true             # ★一键启动后自动出发（本轮现场发车：翻 true 推车，跑完回 false）
     auto_start_delay: 45.0        # ★t31 对齐 dzbrain 段 mission.auto_start_delay_s=45.0（旧值 2.0）
     mission_scan_mode: continuous # continuous = 边走边扫 | waypoint = 到点停车扫描 | none
     mission_reset: "N10,y"
@@ -655,7 +655,7 @@ path_executor:
       max_shots_per_target: 10
       shot_cooldown_ms: 500
       lost_frames_to_rescan: 60       # ★旧值 180 帧≈6s，丢靶期间云台会冻结；这里收紧
-      scan_pitch_offset_deg: -10.0    # ★t52 与 /dzrknn_dataprocess 段对齐为 -10.0（负 = 向下压；
+      scan_pitch_offset_deg: +10.0    # ★t52 与 /dzrknn_dataprocess 段对齐为 +10.0（★2026-10-15 现场实测：+ 才向下压、
                                       #   用户 2026-10-14 指令"水平扫描时视角向下压约 10°"）。
                                       #   此键在 dzbrain 中无消费者（仅 schema 登记），真源是 dzrknn 段；对齐只为杜绝口径歧义。
 
@@ -767,6 +767,14 @@ path_executor:
       mine_pad_m: 0.12          # 雷垫片边长（0.12×0.12 正方形，中心在雷格格心）
       barrier_width_m: 0.02     # 挡板厚度（第 6/7 行之间、D..N 列的细条；半厚 0.01）
       barrier_cols: "D..N"      # 挡板覆盖列（含两端 = 11 列 = 3.85 m）
+      # ★★ 卡 t4：桥洞**进洞侧冗余长度**（虚拟墙延长，**现实不存在**的设计冗余）。
+      #   设计规格（用户 2026-10-16）：只加进洞侧，长度 = 1/4 格 = 0.35 × 0.25 = 0.0875 m。
+      #   用途：把桥室南北壁沿 y 向进洞侧虚拟延长，逼规划器让车"进洞前 1/4 格内已摆正"。
+      #   几何真源 `route/physics.py: bridge_entry_walls()`（按 row 判进洞侧：row 7~11 向西、
+      #   row 1~6 向东，与 path_executor.bridge_order 同源）；判据在 tracker-safe 引擎。
+      #   ⚠️ 只影响**规划**：`tools/route_check.py` 的用户侧判据刻意不含这段墙（否则现场
+      #      实跑路线会被莫须有的墙判红）。设 0.0 = 关闭该冗余（回到 t4 之前的行为）。
+      bridge_entry_redundancy_m: 0.0875
 
     # ---- 抖动抑制窗口（调试期先别动）----
     smooth_window_speed: 20

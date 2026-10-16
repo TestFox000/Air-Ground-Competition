@@ -171,7 +171,7 @@ public:
 	int scan_yaw_dirs_ = 8;				// (保留兼容) 旧逐点模式的点数，连续扫描下不再参与计算
 	double scan_yaw_min_deg_ = -90.0;	// 水平最小角(相对车体前方，右为正)
 	double scan_yaw_max_deg_ = 90.0;	// 水平最大角
-	double scan_pitch_offset_deg_ = -10.0; // 俯仰整体偏移(度，负 = 向下压；t52 与 robot.yaml 对齐)
+	double scan_pitch_offset_deg_ = +10.0; // 俯仰整体偏移(度，★实测：+向下压、-向上抬；t52 与 robot.yaml 对齐)
 	double yaw_deg_sign_ = 1.0;			// 水平角度正方向->刻度增减(反了就改-1)
 	double pitch_deg_sign_ = 1.0;		// 竖直角度正方向->刻度增减(反了就改-1)
 	int gimbal_center_tick_ = 2047;		// 零位(正前方/水平)对应刻度

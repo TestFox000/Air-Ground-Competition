@@ -1,0 +1,78 @@
+
+=== 话题表完整性（防手写话题名） ===
+  PASS  odom 已登记   [/odom/localization]
+  PASS  pursuit_angle 已登记   [pursuitAngle]
+  PASS  scan_request 已登记   [/nav/scan_request]
+  PASS  offset_center 已登记   [/offset_center]
+  PASS  aim_status 已登记   [/aim/status]
+  PASS  shoot_count 已登记   [/shoot_count]
+  PASS  aim_fire_gate 已登记   [/aim/fire_gate]
+  PASS  drone_in 已登记   [/dzlink/drone_to_car]
+  PASS  drone_out 已登记   [/dzlink/car_to_drone]
+  PASS  referee_hit 已登记   [/referee/hit]
+  PASS  拼错的话题键会抛 KeyError
+  PASS  未登记键报错（不静默）   [抛出 KeyError: "未登记的话题键: 'odomm'（可选: aim_fire_gate, aim_fire_ready, aim_lead, aim_status, drone_in, drone_out, imu, manual_gimbal, manual_override, motion_state, odom, offset_center, pursuit_angle, referee_ammo, referee_hit, referee_hp, scan_request, shoot_count, stop_signal, voice_switch, waypoint_cmd）"]
+  PASS  manual_gimbal 历史名字无前导斜杠（原样保留）
+  PASS  pursuitAngle 大小写原样保留
+
+=== QoS 契约 ===
+  PASS  pursuitAngle 是 depth1/BEST_EFFORT
+  PASS  odom 是 BEST_EFFORT
+  PASS  QoS 描述可读
+
+=== ★ 里程计换算（格 → 米 + yaw +π/2）—— 两处历史踩坑点 ===
+  PASS  格单位 → 米 x   [got 0.5249999999999999, want 0.525 (tol 1e-12)]
+  PASS  格单位 → 米 y   [got 0.175, want 0.175 (tol 1e-12)]
+  PASS  原始 yaw=0 → 地图 yaw=+90°   [got 1.5707963267948966, want 1.5707963267948966 (tol 1e-12)]
+  PASS  换算后落回 N10 格   [N10]
+  PASS  原始 -90° → 地图 0°   [got 0.0, want 0.0 (tol 1e-12)]
+  PASS  raw -170° → map  -80.0°
+  PASS  raw  -90° → map   +0.0°
+  PASS  raw   +0° → map  +90.0°
+  PASS  raw  +45° → map +135.0°
+  PASS  raw  +90° → map -180.0°
+  PASS  raw +170° → map -100.0°
+
+=== ★ 控制量语义（angular.z 是【度】不是 rad/s） ===
+  PASS  linear.x 原样为 m/s   [got 0.15, want 0.15 (tol 1e-09)]
+  PASS  angular.z 是度（不做弧度换算）   [got -7.5, want -7.5 (tol 1e-09)]
+  PASS  零指令 = 刹车
+  PASS  非零指令不算刹车
+  PASS  底盘限幅：请求 40° 被夹到 ≤35°
+  PASS  底盘限幅：请求 20° 原样通过   [got 20.0, want 20.0 (tol 1e-09)]
+
+=== 底盘速度量化（旧侧 |v·23/0.33| 截断） ===
+  PASS  0.15 m/s → 10 计数（旧实现少 4.3%）   [counts=10]
+  PASS  0.30 m/s → 20 计数
+  PASS  1 计数 ≈ 0.0143 m/s   [got 0.014347826086956523, want 0.0143478 (tol 1e-06)]
+  PASS  补偿默认 1.0（可改 1.043）   [comp=1.0]
+  PASS  补偿后计数提升   [0.1565→10]
+
+=== 枚举与阶段 ===
+  PASS  云台状态名
+  PASS  未知状态名不崩
+  PASS  任务阶段齐全（★t32：+HOLD = 9）
+  PASS  靶类别编码（0 无 / 1 蓝 / 2 红）
+
+=== 契约摘要可渲染（启动横幅用） ===
+  PASS  至少 15 行   [lines=22]
+  PASS  含 pursuitAngle
+
+=== ★ 视觉报文解码（含长度守卫，旧代码在此越界读过） ===
+  PASS  解码成功且字段对齐
+  PASS  有目标判定（蓝=1）
+  PASS  红靶也算目标
+  PASS  cls=0 表示无目标
+  PASS  不足 5 字段 → None（不猜）
+  PASS  空/None → None
+  PASS  非序列 → None
+  PASS  云台状态解码
+
+=== ros_io 惰性导入（无 ROS 的机器也能 import） ===
+  PASS  ros_io 可 import（rclpy 未安装也不报错）
+  PASS  RosBridge 有发布/读取接口
+  PASS  无 ROS 时实例化即失败（而不是静默跑空）   [抛出 ModuleNotFoundError: No module named 'rclpy']
+
+======================================================================
+结果：56/56 全部通过 ✅
+======================================================================

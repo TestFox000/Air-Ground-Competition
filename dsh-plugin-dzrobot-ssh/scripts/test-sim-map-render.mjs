@@ -494,7 +494,7 @@ check('G1-1：F3 监听已注册 —— #targetYaw 绑 change、button[data-rese
   'reg=' + JSON.stringify(g1.reg.map(r => r.id + ':' + r.type)))
 {
   g1.el('map').innerHTML = '<sentinel/>'
-  g1.els.targetYaw.value = 'v'
+  g1.el('targetYaw').value = 'v'
   if (g1Change) g1Change.fn()                        // 真触发：refreshFieldHints() + renderMap()
   check('G1-2：触发 targetYaw change → renderMap 重绘（哨兵被真 SVG 覆盖、viewBox 复位）',
     !g1.el('map').innerHTML.includes('sentinel') && /viewBox="0 0 477 375"/.test(g1.el('map').innerHTML),
@@ -502,19 +502,19 @@ check('G1-1：F3 监听已注册 —— #targetYaw 绑 change、button[data-rese
 }
 const g3 = freshApiWithDom()
 const g3Reset = g3.reg.find(r => r.id === 'button[data-reset=targetYaw]' && r.type === 'click')
-g3.els.targetYaw.value = 'h'                         // 先改脏
+g3.el('targetYaw').value = 'h'                        // 先改脏（变异体删掉注册时 el 不会被创建，必须走 gEl 工厂）
 if (g3Reset) g3Reset.fn()
 check("G1-3：targetYaw 恢复默认 → value 回 ''（跟随地图）+ runMsg 类含 ok + 专属文案「靶板朝向已恢复」",
-  g3.els.targetYaw.value === '' && g3.els.runMsg.className.includes('ok')
-  && g3.els.runMsg.textContent === '靶板朝向已恢复「跟随地图」',
-  'value=' + JSON.stringify(g3.els.targetYaw.value) + ' class=' + g3.els.runMsg.className
-  + ' msg=' + g3.els.runMsg.textContent)
+  g3.el('targetYaw').value === '' && g3.el('runMsg').className.includes('ok')
+  && g3.el('runMsg').textContent === '靶板朝向已恢复「跟随地图」',
+  'value=' + JSON.stringify(g3.el('targetYaw').value) + ' class=' + g3.el('runMsg').className
+  + ' msg=' + g3.el('runMsg').textContent)
 const g4 = freshApiWithDom()
 const g4Reset = g4.reg.find(r => r.id === 'button[data-reset=mines]' && r.type === 'click')
 if (g4Reset) g4Reset.fn()
 check("G1-4（对照）：mines 恢复默认仍走 join(' ') 文案（专属分流只给 targetYaw，不是全体静默空串）",
-  g4.els.mines.value === field.mines.join(' ') && g4.els.runMsg.textContent === 'mines 已恢复现场默认值',
-  'value=' + JSON.stringify(g4.els.mines.value) + ' msg=' + g4.els.runMsg.textContent)
+  g4.el('mines').value === field.mines.join(' ') && g4.el('runMsg').textContent === 'mines 已恢复现场默认值',
+  'value=' + JSON.stringify(g4.el('mines').value) + ' msg=' + g4.el('runMsg').textContent)
 
 // ── ★ t7（R4）：**接线级**断言 —— 前面单测的是 routePolyline 本体，这里测 renderMap 的调用点 ──
 //    规格：FIELD.route = 跨格合成路线 A1→C1→C4（3 token：跨 2 列 + 跨 3 行）时必须逐格补点

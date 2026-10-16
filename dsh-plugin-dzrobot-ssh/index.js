@@ -36,6 +36,8 @@ import {
   listDirectory, readTextFile, statPath, uploadFile,
 } from './src/files.js'
 import { fieldSpec, listHistory, routeTokens, runChecks, runSim, serveArtifact, SIM_ROOT } from './src/simbench.js'
+import { runStress, stressResult, stressStatus } from './src/stressbench.js'
+import { droneHistory, runDroneSim } from './src/dronesim.js'
 
 export const name = 'dzrobot-ssh'
 
@@ -347,6 +349,35 @@ export function apply(ctx, config = {}) {
       // 场地真值（只读）；页面用它画横置地图 + 预填改点位表单
       if (method === 'GET' && route === '/sim/map') {
         return send(200, { ...fieldSpec(), route: routeTokens() })
+      }
+      // ── 50 图压测（卡2；规格 §D 表的 3 个端点，跑批在后台、状态/结果轮询）──────
+      if (method === 'POST' && route === '/sim/stress') {
+        const body = await readJson(req) ?? {}
+        // background:true = 同步段（参数校验 + N 图生成 + 状态置位）后立即返回 202 {batchId}，
+        // 整批在后台按并发池跑；忙时 runStress 回 {ok:false,code:409} 原样转出。
+        const result = await runStress({ ...body, background: true })
+        if (!result.ok) return send(result.code ?? 500, { error: result.error })
+        return send(202, { batchId: result.batchId, total: result.total })
+      }
+      if (method === 'GET' && route === '/sim/stress/status') {
+        return send(200, stressStatus())
+      }
+      if (method === 'GET' && route === '/sim/stress/result') {
+        const result = stressResult(url.searchParams.get('id') ?? '')
+        return result.ok
+          ? send(200, { batch: result.batch, stats: result.stats, records: result.records })
+          : send(result.code ?? 404, { error: result.error })
+      }
+      // ── 无人机协同（卡3；规格 §D 表的 2 个端点，排卡2 之后写 index.js）────────────
+      if (method === 'POST' && route === '/sim/drone/run') {
+        const body = await readJson(req) ?? {}
+        // 同步单跑：409（上跑/压测中）与 422（规划不过）原样转出，与 /sim/run 同语义
+        const result = await runDroneSim(body)
+        if (!result.ok) return send(result.code ?? 500, { error: result.error })
+        return send(200, { ok: true, timeline: result.timeline, reroutes: result.reroutes, confirmed: result.confirmed, record: result.record })
+      }
+      if (method === 'GET' && route === '/sim/drone/history') {
+        return send(200, droneHistory())
       }
       if (method === 'GET' && route.startsWith('/novnc/')) {
         return serveNovnc(res, route.slice('/novnc/'.length), send)

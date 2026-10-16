@@ -1,0 +1,227 @@
+==============================================================================
+t2 标定参数回填工具链 —— 自检与判定对拍
+==============================================================================
+工具      : D:\User\Desktop\比赛存档\v1\dzrobot_v2\tools\calib_backfill.py  (65651 bytes)
+模板      : D:\User\Desktop\比赛存档\v1\dzrobot_v2\tools\calib_backfill_template.yaml  (2286 bytes)
+真配置    : D:\User\Desktop\比赛存档\v1\dzrobot_v2\config\robot.yaml  (60965 bytes)
+临时目录  : C:\Users\TestFox\AppData\Local\Temp\t2_calib_backfill_k5_o_yv5
+
+--- 1. 映射表自洽：键可读 + YAML 行锚点唯一 ---
+PASS  1.1 通道 id 唯一   [['ticksPerMeter', 'ticksPer2PI', 'yaw_trim_deg', 'wheelbase_m', 'wheel_track_m', 'cruise_speed_mps', 'px_per_m_rail']]
+PASS  1.2 [ticksPerMeter] dzactuator.ticksPerMeter 可读且为数值   [3280.0]
+PASS  1.3 [ticksPerMeter] YAML 叶子键 ticksPerMeter 唯一命中
+PASS  1.4 [ticksPerMeter] 行锚点与 Config 读数一致   [yaml:737 '3280.0' vs config 3280.0]
+PASS  1.5 [ticksPerMeter] 输入声明非空   [inputs=('r3.belief_travel_m', 'r3.long_residual_cm', 'r3.residual_measured_by')]
+PASS  1.2 [ticksPer2PI] dzactuator.ticksPer2PI 可读且为数值   [2680.0]
+PASS  1.3 [ticksPer2PI] YAML 叶子键 ticksPer2PI 唯一命中
+PASS  1.4 [ticksPer2PI] 行锚点与 Config 读数一致   [yaml:746 '2680.0' vs config 2680.0]
+PASS  1.5 [ticksPer2PI] 输入声明非空   [inputs=('r4.runs[].delta_counts', 'r4.runs[].yaw_gyro_deg', 'r4.turns', 'geometry.wheel_track_m')]
+PASS  1.2 [yaw_trim_deg] localization.yaw_trim_deg 可读且为数值   [-0.6]
+PASS  1.3 [yaw_trim_deg] YAML 叶子键 yaw_trim_deg 唯一命中
+PASS  1.4 [yaw_trim_deg] 行锚点与 Config 读数一致   [yaml:691 '-0.6' vs config -0.6]
+PASS  1.5 [yaw_trim_deg] 输入声明非空   [inputs=('r3.lat_drift_cm', 'r3.belief_travel_m', 'r3.lat_drift_confirmed')]
+PASS  1.2 [wheelbase_m] pursuit.wheelbase_m 可读且为数值   [0.157]
+PASS  1.3 [wheelbase_m] YAML 叶子键 wheelbase_m 唯一命中
+PASS  1.4 [wheelbase_m] 行锚点与 Config 读数一致   [yaml:491 '0.157' vs config 0.157]
+PASS  1.5 [wheelbase_m] 输入声明非空   [inputs=('geometry.wheelbase_m',)]
+PASS  1.2 [wheel_track_m] 无 yaml 键（几何输入，只进判据）
+PASS  1.5 [wheel_track_m] 输入声明非空   [inputs=('geometry.wheel_track_m',)]
+PASS  1.2 [cruise_speed_mps] pursuit.cruise_speed_mps 可读且为数值   [0.35]
+PASS  1.3 [cruise_speed_mps] YAML 叶子键 cruise_speed_mps 唯一命中
+PASS  1.4 [cruise_speed_mps] 行锚点与 Config 读数一致   [yaml:499 '0.35' vs config 0.35]
+PASS  1.5 [cruise_speed_mps] 输入声明非空   [inputs=()]
+PASS  1.2 [px_per_m_rail] aim.px_per_m_rail 可读且为数值   [140.0]
+PASS  1.3 [px_per_m_rail] YAML 叶子键 px_per_m_rail 唯一命中
+PASS  1.4 [px_per_m_rail] 行锚点与 Config 读数一致   [yaml:651 '140.0' vs config 140.0]
+PASS  1.5 [px_per_m_rail] 输入声明非空   [inputs=()]
+
+--- 2. selfcheck：钉新鲜度 + 覆盖缺口 ---
+PASS  2.1 selfcheck error 0
+================================================================================================
+自检：keys / 行锚点 / 钉新鲜度 / 覆盖缺口 / 交叉一致性
+================================================================================================
+  · [ticksPerMeter] dzactuator.ticksPerMeter = 3280.0  ← r3.belief_travel_m, r3.long_residual_cm, r3.residual_measured_by
+  · [ticksPerMeter] yaml 行锚点 = robot.yaml:737（ticksPerMeter: 3280.0）
+  · [ticksPerMeter] src/dzbrain/tests/test_core.py 钉由行 164 内容式定位到行 182（目标文件中部插行，自动跟随）
+  · [ticksPerMeter] src/dzbrain/tests/test_core.py 钉由行 165 内容式定位到行 183（目标文件中部插行，自动跟随）
+  · [ticksPerMeter] src/dzbrain/tests/test_motion_limit.py 钉由行 220 内容式定位到行 227（目标文件中部插行，自动跟随）
+  · [ticksPerMeter] src/dzbrain/tests/test_motion_limit.py 钉由行 224 内容式定位到行 234（目标文件中部插行，自动跟随）
+  · [ticksPer2PI] dzactuator.ticksPer2PI = 2680.0  ← r4.runs[].delta_counts, r4.runs[].yaw_gyro_deg, r4.turns, geometry.wheel_track_m
+  · [ticksPer2PI] yaml 行锚点 = robot.yaml:746（ticksPer2PI: 2680.0）
+  · [yaw_trim_deg] localization.yaw_trim_deg = -0.6  ← r3.lat_drift_cm, r3.belief_travel_m, r3.lat_drift_confirmed
+  · [yaw_trim_deg] yaml 行锚点 = robot.yaml:691（yaw_trim_deg: -0.6）
+  · [wheelbase_m] pursuit.wheelbase_m = 0.157  ← geometry.wheelbase_m
+  · [wheelbase_m] yaml 行锚点 = robot.yaml:491（wheelbase_m: 0.157）
+  · [wheelbase_m] src/dzbrain/tests/test_core.py 钉由行 168 内容式定位到行 186（目标文件中部插行，自动跟随）
+  · [wheel_track_m] 无 yaml 键（几何输入）：轮距（左右轮中心距，几何校核用）
+  · [cruise_speed_mps] pursuit.cruise_speed_mps = 0.35  ← （无输入）
+  · [cruise_speed_mps] yaml 行锚点 = robot.yaml:499（cruise_speed_mps: 0.35）
+  · [cruise_speed_mps] src/dzbrain/tests/test_core.py 钉由行 154 内容式定位到行 161（目标文件中部插行，自动跟随）
+  · [cruise_speed_mps] src/dzbrain/tests/test_core.py 钉由行 155 内容式定位到行 163（目标文件中部插行，自动跟随）
+  · [cruise_speed_mps] src/dzbrain/tests/test_core.py 钉由行 156 内容式定位到行 162（目标文件中部插行，自动跟随）
+  · [cruise_speed_mps] src/dzbrain/tests/test_core.py 钉由行 157 内容式定位到行 163（目标文件中部插行，自动跟随）
+  · [cruise_speed_mps] src/dzbrain/tests/test_motion_limit.py 钉由行 221 内容式定位到行 227（目标文件中部插行，自动跟随）
+  · [cruise_speed_mps] src/dzbrain/tests/test_route.py 钉由行 568 内容式定位到行 586（目标文件中部插行，自动跟随）
+  · [cruise_speed_mps] src/dzbrain/tests/test_route.py 钉由行 569 内容式定位到行 586（目标文件中部插行，自动跟随）
+  · [px_per_m_rail] aim.px_per_m_rail = 140.0  ← （无输入）
+  · [px_per_m_rail] yaml 行锚点 = robot.yaml:651（px_per_m_rail: 140.0）
+  · [交叉] 几何预期 ticksPer2PI = 2π·0.157·3280.0 = 3235.6；现值 2680.0 ⇒ ×0.828
+  · [交叉] 巡航双键同步：0.35 == 0.35 ✓
+  · [交叉] 轮距来源 dzactuator.h CARW = 0.157
+------------------------------------------------------------------------------------------------
+  ⚠ WARN  [ticksPer2PI] dzactuator.ticksPer2PI 无任何测试断言钉住 ⇒ 回填后测试不会红（原地一圈计数（航向））
+  ⚠ WARN  [yaw_trim_deg] localization.yaw_trim_deg 无任何测试断言钉住 ⇒ 回填后测试不会红（横向漂移补偿角）
+  ⚠ WARN  [px_per_m_rail] aim.px_per_m_rail 无任何测试断言钉住 ⇒ 回填后测试不会红（轨道 px/m（打靶标定））
+  ⚠ WARN  [yaw_trim_deg] 不在 core/config.py 的 SCHEMA 里 ⇒ 无范围校验（写错不报错）；工具内的 ±10° 护栏是本卡新加的
+------------------------------------------------------------------------------------------------
+结论：error 0 / warn 4   ✅ 干净
+PASS  2.2 CLI --selfcheck exit 0
+PASS  2.3 yaw_trim_deg 的 ±10° 护栏由本卡提供（SCHEMA 里没有它）
+PASS  2.4 每个有 yaml 键的通道：有钉 或 有覆盖缺口告警（自洽）   [有钉=['cruise_speed_mps', 'ticksPerMeter', 'wheelbase_m'] 报警=['px_per_m_rail', 'ticksPer2PI', 'yaw_trim_deg']]
+PASS  2.5 ticksPer2PI 的覆盖缺口被如实报出（dzbrain 测试里 0 处钉它）
+PASS  2.6 无钉的键给出可粘贴的补钉片段
+
+--- 3. 断言重钉清单：所有钉（含公式夹具）当前都命中 ---
+PASS  3.1 映射表里每条钉都能内容式定位（漂移 ≤ 工具窗口 ±40）
+PASS  3.2 钉位规模   [硬钉 13 处 / 公式夹具 16 处]
+PASS  3.3 [ticksPerMeter] 重钉清单 4 条全部 OK（可安全回填）   [src/dzbrain/tests/test_core.py:182=OK; src/dzbrain/tests/test_core.py:183=OK; src/dzbrain/tests/test_motion_limit.py:227=OK; src/dzbrain/tests/test_motion_limit.py:234=OK]
+PASS  3.4 [ticksPerMeter] 每条重钉都真的改变了该行（不是空操作）   [new=3280.2 check("旧 dzactuator 段可读（2026-10-11 实车直线标定 → 3280.2）",;       cfg.get("dzactuator.ticksPerMeter") == 3280.2);     #   ⚠️ 行内保留历史值原文（`ticksPerMeter 3280.2）` / 旧断言本体 `- 0.30` / `- 0.35`）作为;        and abs(real.get("dzactuator.ticksPerMeter") - 3280.2) < 1e-9,]
+PASS  3.3 [wheelbase_m] 重钉清单 2 条全部 OK（可安全回填）   [src/dzbrain/tests/test_core.py:186=OK; src/dzbrain/dzbrain/core/config.py:65=OK]
+PASS  3.4 [wheelbase_m] 每条重钉都真的改变了该行（不是空操作）   [new=0.159 check("新版默认值可读（SCHEMA 默认）", cfg.get("pursuit.wheelbase_m") == 0.159);     "pursuit.wheelbase_m": Spec(0.159, _F, "m", 0.05, 0.60,]
+PASS  3.3 [cruise_speed_mps] 重钉清单 7 条全部 OK（可安全回填）   [src/dzbrain/tests/test_core.py:161=OK; src/dzbrain/tests/test_core.py:163=OK; src/dzbrain/tests/test_core.py:162=OK; src/dzbrain/tests/test_core.py:163=OK; src/dzbrain/tests/test_motion_limit.py:227=OK; src/dzbrain/tests/test_route.py:586=OK; src/dzbrain/tests/test_route.py:586=OK]
+PASS  3.4 [cruise_speed_mps] 每条重钉都真的改变了该行（不是空操作）   [new=0.37 #     旧键 path_executor.linear_speed 可读（0.37，与 cruise 同步）; #     旧断言本体 == 0.37（linear_speed 那条）; #     新键 pursuit.cruise_speed_mps 由旧键迁移（0.37）; #     旧断言本体 == 0.37（linear_speed 那条）;     #   ⚠️ 行内保留历史值原文（`ticksPerMeter 3280）` / 旧断言本体 `- 0.37` / `- 0.35`）作为;     #   ⚠️ 行内保留旧值原文（`linear_speed（0.37）` / `0.35` 与旧断言本体 `- 0.30`）作为;     #   ⚠️ 行内保留旧值原文（`linear_speed（0.30）` / `0.35` 与旧断言本体 `- 0.37`）作为]
+
+--- 4. 判定：R3 纵向 → ticksPerMeter ---
+PASS  4.1 |欠程| ≤4 cm ⇒ KEEP（冻结，不改配置）   [|欠程| 3.0 cm ≤ 4 cm ⇒ 冻结 3280.0，不改配置、不动断言]
+PASS  4.2 欠程 10 cm ⇒ SET   [回填 3280.0 → 3353.7（+2.25%）]
+PASS  4.3 公式 new = old × 信念/实走（4.55→4.45）   [got=3353.7078651685392 want=3353.7078651685392 tol=0.05]
+PASS  4.4 信念侧取数（log）⇒ REFUSE（吸附会抹平，R3_verdict §③）   [用**卷尺**量纵向残差后重填 r3.residual_measured_by=tape]
+PASS  4.5 改动超护栏 ±25% ⇒ REFUSE（先机械核查）   [先做机械核查（改动 +49.2% 超护栏 ±25%）]
+PASS  4.6 缺实测数 ⇒ PENDING（只给一个动作）
+
+--- 5. 判定：R4 → ticksPer2PI（四档 + 方向差 + 几何） ---
+PASS  5.1 r_A=1.000 ⇒ KEEP（收敛，冻结）   [|r−1|=0.00% ≤ 2% ⇒ 收敛，冻结 2680.0，不改配置]
+PASS  5.2 r_A=1.04（2~5%）⇒ REFUSE 重测该方向 1 趟   [|r−1|=4.00% 落在 2~5%：重测该方向 1 趟取中位（此档不许改配置）]
+PASS  5.3 r_A=1.40（>5%）默认 ⇒ REFUSE 机械核查   [|r−1|=40.0% > 5%：先做一次机械/轮距核查（方案 §3.2），核查结论先于任何配置改动；若确认稳定偏离再加 --allow-mechanical-fix]
+PASS  5.4 加 --allow-mechanical-fix ⇒ SET 到 ≈1.4×现值 量级   [回填 2680.0 → 3752.0（+40.00%，已按 §3.2 认定「配置值错」）]
+PASS  5.5 new = 现值 × r_A 中位   [got=3751.9999999999995 want=3751.9999999999995 tol=0.2]
+PASS  5.6 几何差 >10% 被显式记入依据（刮擦/滑移需解释）   [⚠ 实测与几何差 16.0% > 10%：原地转有横向刮擦、滑移会计入，需在报告中解释（方案 §0.1 提醒）; 交叉：★ 「编码器配置错」指纹（r_A 偏、r_B≈1）]
+PASS  5.7 几何预期 = 2π·0.157·3280   [got=3235.5891057852 want=3235.5891057852 tol=0.5]
+PASS  5.8 CW/CCW 方向差 >5% ⇒ REFUSE（单侧滑移，先修机械）   [先解决机械问题（CW/CCW 方向差 >5% ⇒ 单侧滑移/阻力），再谈标定值]
+PASS  5.9 无计数 ⇒ PENDING   [补 r4.runs[].delta_counts（每趟原始计数增量，CW/CCW 各 2 趟）]
+PASS  5.10 r_A≈1 但 r_B 偏 ⇒ 陀螺另立标定项（不当基准）   [CW  ΔN=    5360 ticks/720° ⇒ meas=  2680.0 r_A=1.0000  yaw_gyro=684.0° r_B=0.9500; CW  ΔN=    5360 ticks/720° ⇒ meas=  2680.0 r_A=1.0000  yaw_gyro=684.0° r_B=0.9500; CCW ΔN=    5360 ticks/720° ⇒ meas=  2680.0 r_A=1.0000  yaw_gyro=684.0° r_B=0.9500; CCW ΔN=    5360 ticks/720° ⇒ meas=  2680.0 r_A=1.0000  yaw_gyro=684.0° r_B=0.9500; CW 中位 r_A=1.0000（n=2） / CCW 中位 r_A=1.0000（n=2） ⇒ 方向差 0.0%; 全体中位 r_A=1.0000，四趟离散度 0.0%; 交叉：r_A≈1 但 r_B 偏离 ⇒ 陀螺/航向通道有问题（或零偏）：以源 A vs 源 C 为准，陀螺另立标定项]
+
+--- 6. 判定：yaw_trim / 轴距 / 轮距 ---
+PASS  6.1 符号未确认 ⇒ REFUSE（符号反了会放大漂移）   [现场确认符号约定后把 r3.lat_drift_confirmed 置 true（+ = 车偏右 ⇒ 取负）]
+PASS  6.2 已确认 ⇒ SET（右漂为正输入、取负角）   [回填 -1.4 → -2.5（Δ -1.10°）]
+PASS  6.3 suggested = −atan(0.20/4.55)   [got=-2.5 want=-2.5 tol=0.06]
+PASS  6.4 改动超 ±3.0° ⇒ REFUSE（复核符号/行程）   [改动 4.90° 超护栏 3.0°：复核符号约定与行程（疑似反号或量错），确认后加 --force]
+PASS  6.5 漂移变小（5 cm）⇒ 补偿角相应减小到 −0.6 量级   [SET -0.6]
+PASS  6.6 轴距差 ≤2 mm ⇒ KEEP   [|Δ| ≤ 2 mm ⇒ 不改]
+PASS  6.7 轴距 0.150 ⇒ SET   [回填 0.157 → 0.150（Δ -0.007 m）]
+PASS  6.8 轴距差 >10% ⇒ REFUSE（别把轮距当轴距）   [改动 36.3% 超护栏 ⇒ 复核卷尺（别把轮距当轴距）]
+PASS  6.9 轮距 0.111 ≠ CARW(0.157) ⇒ REFUSE（复核卷尺/C++）   [实测 0.111 ≠ CARW=0.157 ⇒ 复核卷尺；若实测无误则**另开卡**改车端 C++（本卡不碰 dzactuator）]
+PASS  6.10 轮距实测=0.157=CARW ⇒ KEEP 几何判据可用（用户卷尺实测闭环）   [实测与 CARW=0.157 一致（Δtolerance 5 mm）⇒ 几何判据可用]
+
+--- 7. 干跑不改任何文件；--apply-* 先校验后写、先备份 ---
+PASS  7.1 真配置：干跑给出改动预览   [{'file': 'D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\robot.yaml', 'line': 737, 'leaf': 'ticksPerMeter', 'old_scalar': '3280.0', 'new_scalar': '3353.7', 'old_line': '    ticksPerMeter: 3280.0', 'new_line': '    ticksPerMeter: 3353.7'}]
+PASS  7.2 干跑后真配置字节未变
+PASS  7.3 预览行号落在 ticksPerMeter 行
+PASS  7.4 重钉清单全部 OK（真仓库）
+PASS  7.5 回填只改 1 行且就是 ticksPerMeter 行   [[736]]
+PASS  7.6 回填后 Config 读到新值且等于公式值   [got 3353.7]
+PASS  7.7 有备份文件   [['robot.yaml', 'robot.yaml.bak_20261016_181412']]
+PASS  7.8 真仓库配置依旧未变
+PASS  7.9 回填保留原行尾（CRLF 数不变）   [before=0 after=0]
+PASS  7.10 回填只改了标量本身（字节增量 = 新旧标量长度差）   [Δbytes=0 Δscalar=0]
+PASS  7.11 改前校验失败（文件已变）⇒ 拒绝写入   [RuntimeError: C:\Users\TestFox\AppData\Local\Temp\t2_calib_backfill_k5_o_yv5\robot2.yaml:737 改前校验失败（文件已变），拒绝写入]
+
+--- 8. 重钉：先校验后写；STALE 直接拒绝 ---
+PASS  8.1 plan 命中且状态 OK   [OK]
+PASS  8.2 空操作不会发生（行确实变化）   [check("a", cfg.get("dzactuator.ticksPerMeter") == 3353.7)]
+PASS  8.3 重钉真的写进去了
+PASS  8.4 重钉有备份
+PASS  8.4a 中部插行后钉自动跟随（内容式定位，不再误报 STALE）   [status=OK line=3 drift=1]
+PASS  8.4b 跟随定位后重钉写对行   [# 新插行 / # 行1 / check("a", cfg.get("dzactuator.ticksPerMeter") == 3353.7) / # 行3 / ]
+PASS  8.5 行号漂了 ⇒ 标 STALE   [全文已不含约定原文（行号漂了）]
+PASS  8.6 STALE 清单 ⇒ 拒绝写入   [RuntimeError: 有 1 条钉不是 OK 状态（行号漂移），拒绝写入：test_fake.py:5(STALE)]
+PASS  8.7 拒绝后文件未被破坏
+
+--- 9. 模板：可解析、空模板全 PENDING/MANUAL、exit 0 ---
+PASS  9.1 模板可被 YAML 解析且含 r3/r4/geometry   [['geometry', 'meta', 'r3', 'r4']]✗ 找不到实测值文件：C:\Users\TestFox\AppData\Local\Temp\t2_calib_backfill_k5_o_yv5\nope.yaml
+
+PASS  9.2 模板文件与 build_template() 同源
+PASS  9.3 空模板 ⇒ 只有 PENDING/MANUAL（绝不 SET）   [{'PENDING': 5, 'MANUAL': 2}]
+================================================================================================
+标定回填 · 干跑   config=D:\User\Desktop\比赛存档\v1\dzrobot_v2\config\robot.yaml
+================================================================================================
+
+[ticksPerMeter] 直线里程刻度   现值=3280.0 tick/m
+  ⏳ 待实测  补 r3.belief_travel_m（日志信念行程）与 r3.long_residual_cm（卷尺纵向残差）
+         缺实测数：纵向通道未闭环
+  需同步文档/注释：robot.yaml:553-563 的标定说明段落需同步改写（本工具只改标量行）
+
+[ticksPer2PI] 原地一圈计数（航向）   现值=2680.0 tick/360°
+  ⏳ 待实测  补 r4.runs[].delta_counts（每趟原始计数增量，CW/CCW 各 2 趟）
+         缺实测数：航向通道未闭环（s 通道与航向通道不可互代）
+  ★ 建议补钉（当前无断言钉住该键）：
+      check("★ 标定回填：dzactuator.ticksPer2PI（R4 实测/裁决）",
+            cfg.get("dzactuator.ticksPer2PI") == 2680.0)
+  需同步文档/注释：robot.yaml:565-572 的 3236/2309.4 说明段需同步改写
+
+[yaw_trim_deg] 横向漂移补偿角   现值=-0.6 deg
+  ⏳ 待实测  补 r3.lat_drift_cm（卷尺横向漂移 cm）与 r3.belief_travel_m（行程 m）
+         缺实测数：横向通道未闭环
+  ★ 建议补钉（当前无断言钉住该键）：
+      check("★ 标定回填：localization.yaw_trim_deg（R3 实测/裁决）",
+            cfg.get("localization.yaw_trim_deg") == -0.6)
+  需同步文档/注释：robot.yaml:515-517 的「直线4.55m 右偏 10/11 cm ≈ 1.4°」与 tasks/localization.py:172-177 的同段注释需按实测改写
+
+[wheelbase_m] 轴距（自行车模型）   现值=0.157 m
+  ⏳ 待实测  卷尺量轴距（前后轮中心距）后填 geometry.wheelbase_m；不量就保持 0.157
+         轴距不是轮距；轮距只进几何校核
+  需同步文档/注释：robot.yaml:422 的注释（旧代码硬编码 path_executor.py:629）+ core/config.py:66 的说明
+
+[wheel_track_m] 轮距（左右轮中心距，几何校核用）   现值=— m
+  ⏳ 待实测  卷尺量左右轮中心距后填 geometry.wheel_track_m（当前几何源：dzactuator.h CARW=0.157）
+         轮距不进 yaml；用于验算 ticksPer2PI 的几何下界
+
+[cruise_speed_mps] 巡航速度（G1 裁决项）   现值=0.35 m/s
+  ▷ 另开卡  本卡不回填（另开卡）；下面只登记需要同步的钉位
+         现值 = 0.35
+  （另开卡时要同步的钉位）
+      src/dzbrain/tests/test_core.py:154  含 '（0.30，与 cruise 同步）'
+      src/dzbrain/tests/test_core.py:155  含 '== 0.30'
+      src/dzbrain/tests/test_core.py:156  含 '由旧键迁移（0.30）'
+      src/dzbrain/tests/test_core.py:157  含 '== 0.30'
+      src/dzbrain/tests/test_motion_limit.py:221  含 '- 0.30'
+      src/dzbrain/tests/test_route.py:568  含 'linear_speed（0.30）'
+      src/dzbrain/tests/test_route.py:569  含 '- 0.30'
+
+[px_per_m_rail] 轨道 px/m（打靶标定）   现值=140.0 px/m
+  ▷ 另开卡  本卡不回填（另开卡）；下面只登记需要同步的钉位
+         现值 = 140.0
+
+================================================================================================
+汇总：MANUAL 2 / PENDING 5
+⏳ 有 PENDING 通道：等队长实测数（本工具此刻不改任何文件）。
+================================================================================================
+PASS  9.4 空模板干跑 exit 0（等实测数，不是错误）
+PASS  9.5 无钉的键在空模板下也给出补钉片段（队长可直接粘）
+
+--- 10. 旧值引用扫描（提示，不自动改） ---
+PASS  10.1 能列出未登记的旧值引用 + 干扰副本/历史快照不进命中（t16 口径对拍）   [工具扫描 15 个 / 旧口径 298 个（其中 _tmp_* 150 个）；判据合成串自检=True]
+PASS  10.2 已登记的钉不再重复列出   [config/robot.yaml（4 处）; docs/agent_archive.md（2 处）; docs/agent_archive/v1_循迹收官.md（1 处）; docs/agent_archive/v2-全量整理-2026-10-12.md（5 处）]
+PASS  10.3 工具自身/模板/目标配置不再自报（去噪）   [config/robot.yaml（4 处）; docs/agent_archive.md（2 处）; docs/agent_archive/v1_循迹收官.md（1 处）; docs/agent_archive/v2-全量整理-2026-10-12.md（5 处）; docs/上下文快照.md（1 处）; docs/仿真复验_第五张图44token基线_t2.md（1 处）; docs/标定需求卡.md（11 处）; docs/版本号台账.md（1 处）; docs/算法归纳规则.md（4 处）; docs/路线加固盘点与候选方案.md（1 处）; src/dzbrain/tests/test_calib_backfill.py（17 处）; src/dzbrain/tests/test_physics.py（1 处）; src_v1/navigation2/nav2_smac_planner/lattice_primitives/sample_primitives/5cm_resolution/1m_turning_radius/ackermann/output.json（1 处）; src_v1/navigation2/nav2_smac_planner/lattice_primitives/sample_primitives/5cm_resolution/1m_turning_radius/diff/output.json（1 处）; src_v1/navigation2/nav2_smac_planner/lattice_primitives/sample_primitives/5cm_resolution/1m_turning_radius/omni/output.json（1 处）]
+
+--- 11. CLI 冒烟：--help / --list / --template 都能渲染（help 里的 % 必须写成 %%） ---
+PASS  11.1 --help 不炸（argparse 会把 help 里的 % 当格式符）
+PASS  11.2 --help 走 argparse 正常退出（SystemExit 0）并打印用法   [SystemExit: 0 | ['usage: calib_backfill.py [-h] [--config CONFIG] [--root ROOT]']]
+PASS  11.3 --template 渲染模板且 exit 0
+PASS  11.4 --list 渲染映射总表且含全部通道
+PASS  11.5 找不到实测值文件 ⇒ exit 3（不是 crash）
+PASS  12.1 收尾：真仓库配置自始至终未被本测试改动
+
+==============================================================================
+结果：101/101 通过
+全部通过 ✅

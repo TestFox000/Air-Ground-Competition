@@ -1,0 +1,56 @@
+
+=== 坐标锚点（与旧 block_to_meters 逐字一致） ===
+  PASS  N11 中心 x   [got 0.175, want 0.175 (tol 1e-09)]
+  PASS  N11 中心 y   [got 0.175, want 0.175 (tol 1e-09)]
+  PASS  A1 中心 x   [got 3.675, want 3.675 (tol 1e-09)]
+  PASS  A1 中心 y   [got 4.725, want 4.725 (tol 1e-09)]
+  PASS  N10 中心 x   [got 0.5249999999999999, want 0.525 (tol 1e-09)]
+  PASS  N10 中心 y   [got 0.175, want 0.175 (tol 1e-09)]
+  PASS  N10 格单位 u   [got 1.4999999999999998, want 1.5 (tol 1e-12)]
+  PASS  N10 格单位 v   [got 0.5, want 0.5 (tol 1e-12)]
+  PASS  格单位 ↔ 米制往返   [got 0.525, want 0.525 (tol 1e-12)]
+  PASS  格边 BLOCK_SIZE   [got 0.35, want 0.35 (tol 1e-09)]
+
+=== 格名 ↔ 索引 ↔ 米制 双向一致（全 154 格） ===
+  PASS  154 格 米制→格名 往返全对   [失败 []]
+  PASS  非法列字母 Z3   [抛出 ValueError: 非法列字母: 'Z3'（应为 A~N）]
+  PASS  非法行号 K99   [抛出 ValueError: 行号越界: 'K99'（应为 1~11）]
+  PASS  空串   [抛出 ValueError: 非法格名: '']
+  PASS  小写也可解析 k9
+
+=== 角度工具 ===
+  PASS  normalize_angle(3π/2)   [got -1.5707963267948966, want -1.5707963267948966 (tol 1e-09)]
+  PASS  normalize_angle(-3π/2)   [got 1.5707963267948966, want 1.5707963267948966 (tol 1e-09)]
+  PASS  ang_diff(10°, 350°)   [got 0.3490658503988655, want 0.3490658503988659 (tol 1e-12)]
+  PASS  heading_token_to_yaw('y')   [got 1.5707963267948966, want 1.5707963267948966 (tol 1e-09)]
+  PASS  heading_token_to_yaw('x')   [got 0.0, want 0.0 (tol 1e-09)]
+  PASS  heading_token_to_yaw('Y')   [got 1.5707963267948966, want 1.5707963267948966 (tol 1e-09)]
+  PASS  heading_of 朝 +y   [got 1.5707963267948966, want 1.5707963267948966 (tol 1e-09)]
+
+=== 四元数 ===
+  PASS  yaw 90 → qz   [got 0.7071067811865476, want 0.7071067811865476 (tol 1e-09)]
+  PASS  yaw 90 → qw   [got 0.7071067811865476, want 0.7071067811865476 (tol 1e-09)]
+  PASS  四元数往返 yaw   [got 1.5707963267948968, want 1.5707963267948966 (tol 1e-12)]
+
+=== 地图边界与越界判定 ===
+  PASS  无余量边界
+  PASS  N11 在界内
+  PASS  地图外 +∞ 不在界内
+  PASS  余量 0.6 后 (-0.4, 0.0) 在界内
+  PASS  余量 0.6 后 (-0.5, 0.0) 出界
+
+=== Pose ===
+  PASS  Pose.block() = N10
+  PASS  offset_to dx   [got 0.35, want 0.35 (tol 1e-09)]
+  PASS  offset_to 距离   [got 0.35, want 0.35 (tol 1e-09)]
+  PASS  translated 保持 yaw   [got 1.5707963267948966, want 1.5707963267948966 (tol 1e-09)]
+  PASS  rotated 折绕   [got -3.0415926535897926, want -3.0415926535897935 (tol 1e-12)]
+  PASS  Pose 不可变（frozen）
+
+=== K 列整列（桥洞保护的格号来源） ===
+  PASS  K1~K11 全部解析成功
+  PASS  K 列 x 随行号单调
+
+======================================================================
+结果：38/38 全部通过 ✅
+======================================================================

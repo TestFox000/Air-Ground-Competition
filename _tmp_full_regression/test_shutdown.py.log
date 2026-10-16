@@ -1,0 +1,57 @@
+
+=== ① 信号接管：SIGINT/SIGTERM 都显式接管，处理器只置位 + 记信号名 ===
+  PASS  ① 装上了 SIGINT 与 SIGTERM 两个信号   [got ['SIGINT', 'SIGTERM']]
+  PASS  ① SIGINT 处理器已换成可调用的自定义处理器（M3：去掉接管即在此红）   [got <function install_stop_signals.<locals>._handler at 0x000002DE891EB740>]
+  PASS  ① SIGINT 处理器置位停机标志
+  PASS  ① SIGINT 处理器记下信号名（供主循环留痕）   [got SIGINT]
+  PASS  ① SIGTERM 处理器已换成可调用的自定义处理器（M3：去掉接管即在此红）   [got <function install_stop_signals.<locals>._handler at 0x000002DE891EB7E0>]
+  PASS  ① SIGTERM 处理器置位停机标志
+  PASS  ① SIGTERM 处理器记下信号名（供主循环留痕）   [got SIGTERM]
+  PASS  ① 处理器内**不 print**（信号上下文里不碰 stdout 锁）   [got []]
+  PASS  ★ SIGTERM 在显式接管清单里（漏接 = 回到僵尸态）   [got ['SIGINT', 'SIGTERM']]
+
+=== ② 主循环：上下文失效 → 立刻退出（不再空转刷 RCLError） ===
+  PASS  ② 退出原因 = context_dead   [got 'context_dead'（timeout=False exit=0 stderr=''）]
+  PASS  ★ ≤1 拍即退出（只问了 1 次判活）   [got 1]
+  PASS  ② 打了一条明确的上下文失效留痕   [['‼️ ROS 上下文已失效（rclpy.ok()=False）→ 立即停止主循环、准备收尾（不再空转刷 RCLError）']]
+  PASS  ② 留痕里点名了 rclpy.ok()（排障时能一眼认出判据）   [['‼️ ROS 上下文已失效（rclpy.ok()=False）→ 立即停止主循环、准备收尾（不再空转刷 RCLError）']]
+  PASS  ② 不把 FINISH 当退出原因（没到终点就是异常退出）
+  PASS  ② 单例耗时远小于超时（真退出，不是压着超时线跑）   [dt=0.0007]
+
+=== ③ 主循环：判活正常时**不**误退；信号置位走 stop 路径并留痕 ===
+  PASS  ③ 退出原因 = stop（不是 context_dead；子进程正常收口、不挂死）   [got 'stop' timeout=False err='']
+  PASS  ③ 判活被每拍调用（说明判活确实在循环里）   [got 4]
+  PASS  ③ 信号留痕写明信号名 + 走了安全收尾（收栈后能追是谁发的）   [['收到信号 SIGTERM：开始安全收尾（刹车 → 停线程 → 退出报告）']]
+  PASS  ③ 已置位时直接退出（不空转）   [why=stop logs=['收到停机请求：开始安全收尾（刹车 → 停线程 → 退出报告）']]
+  PASS  ③ 没有信号时**不**假称信号（文案区分）   [['收到停机请求：开始安全收尾（刹车 → 停线程 → 退出报告）']]
+
+=== ④ 判活默认实现：无 ROS 环境不误杀（bench/开发机） ===
+  PASS  ④ ros_context_alive() 在无 rclpy 时返回 True（没有上下文可失）   [got True]
+
+=== ⑤ 源码级钉死：RosBridge 显式传 signal_handler_options（不用默认信号处理） ===
+  PASS  ⑤ RosBridge 调 rclpy.init 时显式传 signal_handler_options
+  PASS  ⑤ 真实代码里 SignalHandlerOptions.ALL 一个都不许出现   [got []]
+  PASS  ⑤ 真实代码里出现取值 NO（SignalHandlerOptions.NO 或 getattr(opts, 'NO')）   [no NO token]
+  PASS  ⑤ 源码里**调用**过 _live_loop（不是只有定义；t14 新增）   [occurrences=3]
+
+=== ⑥ 真发一次 SIGTERM：显式接管必须真的接住（不是只在测试里调处理器） ===
+  PASS  ⑥ Windows 平台跳过真发 SIGTERM（os.kill 走 TerminateProcess，不经处理器）   [platform=win32]
+  PASS  ⑥ 但仍确认 SIGTERM 已显式接管（车端 POSIX 上真发即走这条）   [got ['SIGINT', 'SIGTERM']]
+
+=== ⑦ RosBridge：init 显式传 NO + 上下文失效时的刹车/收尾行为（替身 rclpy） ===
+  PASS  ⑦ rclpy.init 被调用且显式传了 signal_handler_options   [got [{'signal_handler_options': 'NO'}]]
+  PASS  ★ 传的值是 SignalHandlerOptions.NO（不是 ALL/None）   [got {'signal_handler_options': 'NO'}]
+  PASS  ⑦ 顺带确认没有用默认信号处理（ALL 会重新交给 C++ rcl_shutdown）   [got [{'signal_handler_options': 'NO'}]]
+  PASS  ⑦ 上下文正常时刹车发出去了（zero_commands=1）   [got 1]
+  PASS  ★ 上下文失效时 publish_brake 抛异常（旧实现会静默成功）   [got RuntimeError]
+  PASS  ⑦ 失效时不再累加 zero_commands（没发出去就不算发）   [got 1]
+  PASS  ★ 上下文已死时 shutdown 返回 rc=1（调用方据此写 teardown 留痕）   [got 1]
+  PASS  ⑦ 跳过刹车时有明确留痕（说明不再刷 RCLError）   [['收尾：ROS 上下文已失效 → 跳过刹车指令（发不出去，不再刷 RCLError）']]
+  PASS  ⑦ 上下文正常时 shutdown 先刹车（zero_commands=1）且 rc=0   [zero=1 rc=0]
+  PASS  ⑦ 正常收尾确实调了 rclpy.shutdown（不留上下文）   [got 1]
+  PASS  ⑦ 取不到 SignalHandlerOptions 时桥照样建起来（不抛）
+  PASS  ★ 此路径**不传** signal_handler_options（传 None 等于又把默认处理器装回来，与修复目的相反）   [got [{}]]
+
+======================================================================
+结果：39/39 全部通过 ✅
+======================================================================

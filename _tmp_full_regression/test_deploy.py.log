@@ -1,0 +1,108 @@
+
+=== ① package.xml：邮箱合法性 + build_type 位置（catkin_pkg 的硬要求） ===
+  PASS  能解析出 maintainer 邮箱   [['duzhong@example.com']]
+  PASS  maintainer 邮箱合法：duzhong@example.com   [非法邮箱会让 catkin_pkg 抛 InvalidPackage → colcon 退回 python 构建类型]
+  PASS  ★ 反例确认：@local 这种写法必须被判非法
+  PASS  ★ 反例确认：duzhong@example.com 必须合法
+  PASS  maintainer 标签成对闭合
+  PASS  <export> 段存在
+  PASS  ★ build_type 在 <export> 内（放外面 colcon-ros 认不出）
+  PASS  package format=3
+  PASS  本地 package.xml 无维护者邮箱回归（曾出现 @local）
+
+=== ② 目录推送：tar 流就地替换，杜绝 scp 嵌套 ===
+  PASS  tarball 非空   [78 个成员]
+  PASS  ★ 归档成员与本地清单 1:1（多一层壳就会破坏相等）   [78 vs 78]
+  PASS  ★ 顶层文件落在归档顶层（有壳层时会变成 dzbrain/package.xml）
+  PASS  ★ 归档里不存在被套一层的形态 dzbrain/package.xml
+  PASS  核心模块在包内
+  PASS  resource 标记在包内（setup.py data_files 依赖它）
+  PASS  tests 在包内
+  PASS  ★ __pycache__ 不打进包（不污染车端）
+  PASS  .pyc 不打进包
+  PASS  替换脚本用 tar 解流（-C 指定目标）
+  PASS  替换脚本先解到 .dznew 再原子 mv（不留半截目录）   [set -e; mkdir -p /home/duzhong/dzrobot/src; rm -rf /home/duzhong/dzrobot/src/dzb]
+  PASS  替换脚本 set -e（失败即停，不静默继续）
+  PASS  ★ 全工具里不再出现 `scp -r`（嵌套元凶）
+  PASS  文件推送仍是 scp（单文件覆盖语义正确）
+  PASS  推送清单里 dzbrain 指向车的 src/dzbrain
+
+=== ③ 对账闸门：漏推/推错位置必须被抓住（否则「没推上去」会伪装成「已部署」） ===
+  PASS  本地清单含 main.py
+  PASS  本地清单不含 __pycache__
+  PASS  sha256 是 64 位十六进制
+  PASS  本地 == 车端 → 三项全空（通过）
+  PASS  ★ 嵌套推送必须被判为「全部缺失」   [missing=78/78]
+  PASS  ★ 嵌套推送同时暴露「车端多出」
+  PASS  ★ 内容不一致必须被点名
+  PASS  内容不一致时 missing 为空（区分「没推」与「推错」）
+  PASS  ★ 少推一个文件必须被点名
+  PASS  少推文件时 mismatch 为空
+  PASS  单文件清单用文件名做 key
+
+=== ③b auto_start 改写：默认不碰，只有 --force-no-autostart 才归一化（2026-10-11 定版） ===
+  PASS  归一化只把 auto_start: true 改成 false
+  PASS  归一化不动 auto_start: false（幂等）
+  PASS  归一化不碰别的键
+  PASS  POST_PUSH_TRANSFORM 只登记被推送且会被车端改写的文件
+  PASS  ★ 默认不碰 auto_start：原始字节（CRLF 也保留）就是对账基准
+  PASS  ★ 强制改写且有改动 → 期望内容是 LF 且已归一化
+  PASS  ★ 强制改写但无改动 → 期望内容原样保留（车端不写回，CRLF 也得保留）
+  PASS  未登记归一化的文件按原始字节对账（即便 apply_transform=True）
+  PASS  ★ 本地 robot.yaml 含 auto_start 键（任一取值；默认 push 不再改它）   [两段 auto_start 现均为 false（t31 F-t29-2 对齐）]
+  PASS  ★ 默认对账基准 = 原始字节（push 不碰 auto_start）
+  PASS  ★ 强制改写时对账基准用归一化内容，不是原始字节（合成样本含 true ⇒ 必须变）   [若相等说明归一化没生效 → 会重现'假警报'或'假通过']
+  PASS  ★ 变化的行全部是 auto_start 行（不误伤别的配置）   [合成样本改了 1 行：[('auto_start: true', 'auto_start: false')]]
+  PASS  ★ 真实文件：auto_start 现为 true ⇒ 强制改写确实改变内容（不再是空操作）   [GOT：robot.yaml:283/514 现均 auto_start: true（现场发车档）⇒ 归一化把 true→false，基准≠原始字节]
+  PASS  归一化不增删行（只改行内内容）   [773 vs 773]
+  PASS  ★ 真实文件改动仅限 auto_start 配置行（发车档两段均 true → 2 行；注释与其它键逐位不变）   [改了 2 行：[('    auto_start: true             # ★一键启动后自动出发（本轮现场发车：翻 true 推车，跑完回 false）', '    auto_start: false             # ★一键启动后自动出发（本轮现场发车：翻 true 推车，跑完回 false）'), ('      auto_start: true   # 实车自规划跑：一键启动后自动出发', '      auto_start: false   # 实车自规划跑：一键启动后自动出发')]]
+  PASS  ★ 每处 auto_start 都被归一化成 false（配置行恰好 2 处、全文无 true）   [true=0 / 配置行 false=2（★t31：本仓两段都已显式 false ⇒ 归一化是幂等空操作，本条仍守『不得残留 true』不变式）]
+  PASS  注释与其它键原样保留
+
+=== ④ 包完整性：整包替换后车端能直接编译（少一个文件就会把车端搞挂） ===
+  PASS  src/dzbrain/package.xml 存在
+  PASS  src/dzbrain/setup.py 存在
+  PASS  src/dzbrain/setup.cfg 存在
+  PASS  src/dzbrain/resource/dzbrain 存在
+  PASS  src/dzbrain/dzbrain/__init__.py 存在
+  PASS  setup.py 里 maintainer_email 也合法（setuptools 元数据）
+  PASS  setup.py 注册了 console_scripts 入口
+  PASS  setup.py 打包 resource 标记
+  PASS  本地文件缺失时 local_manifest 抛错（不静默返回空）   [抛出 FileNotFoundError: 本地路径不存在：src/dzbrain/不存在的文件.py]
+
+=== ⑤ 出车体检脚本必须覆盖**新核心**契约（旧脚本只体检旧架构 = 假全绿） ===
+  PASS  healthcheck.sh 覆盖 dzbrain（必须识别新核心节点（否则新核心没起来也报全绿））
+  PASS  healthcheck.sh 覆盖 /aim/fire_gate（双钥匙门控第一把钥匙）
+  PASS  healthcheck.sh 覆盖 /aim/fire_ready（双钥匙门控第二把钥匙（缺它就永远不开火））
+  PASS  healthcheck.sh 覆盖 /HpAndHitmsg（裁判回传真源（命中即停火 / 弹药对账））
+  PASS  healthcheck.sh 覆盖 pursuitAngle（底盘 1s 看门狗的保活指令）
+  PASS  healthcheck.sh 覆盖 LEGACY_PATH（走旧核时必须降级为提示，而不是误报失败）
+  PASS  healthcheck.sh 覆盖 --pre（--pre 模式（节点未起）不得报错）
+  PASS  healthcheck.sh 语法基本自洽：if/then/fi 数量配平   [if=51 fi=48]
+
+=== ⑥ start_all.sh 必须「默认新核 + 可回退 + 保住现场适配 + 起栈前不跑自检」 ===
+  PASS  start_all.sh 覆盖 python3 -u -m dzbrain.main（节点 7 默认必须是新核（否则重启回到旧核））
+  PASS  start_all.sh 覆盖 LEGACY_PATH（必须留一键回退旧核的开关）
+  PASS  start_all.sh 覆盖 ros2 run car_localization path_executor_node（回退路径要指向 install 入口）
+  PASS  start_all.sh 覆盖 dzros.env（★现场适配：ROS 域号必须钉住（否则无人机/网页静默看不见））
+  PASS  start_all.sh 覆盖 PYTHONUNBUFFERED（★现场适配：无缓冲（否则日志 0 字节被误判卡死））
+  PASS  ★ 起栈前不跑任何自检门禁（自检只在发车前 10s 窗口，2026-10-11 用户定版）   [SKIP_PRECHECK / --dry-run / 启动门禁 必须都已从 start_all.sh 删除]
+  PASS  ★ python3 -u -m dzbrain.main 只在节点 7 真启动处出现 1 次（门禁已删，不再有 dry-run 那次）   [count=1]
+  PASS  ★ YAML 可解析守卫保留（瞬时、防三节点 abort，不算自检）
+  PASS  ★节点 7 是二选一分支：旧核入口 + 新核启动都在同一块里   [块长度 1881]
+  PASS  ★节点 7 分支只启动**一个**（不是顺序起两个）   [spawn7=2 if=1]
+
+=== ⑦ 自检简化契约：all 不跑 verify / push 默认不碰 auto_start（2026-10-11 用户定版） ===
+  PASS  ★ verify 不再跑配置+路线门禁（config_selfcheck --quiet 命令已移除）
+  PASS  ★ verify 不再跑 bench 冒烟
+  PASS  verify 保留 dzbrain 包/入口存在性检查
+  PASS  verify 保留云台补丁符号检查（证明补丁已编入）
+  PASS  ★ all --dry-run 正常走完（exit 0）   [rc=0]
+  PASS  ★ all 不再自动跑 verify（输出里无配置门禁/bench 步骤）
+  PASS  all 以 backup→push→build 收尾（部署完成横幅）
+  PASS  ★ push 默认不强制 auto_start=false
+  PASS  ★ --force-no-autostart 显式触发强制改写
+
+======================================================================
+结果：88/88 全部通过 ✅
+======================================================================

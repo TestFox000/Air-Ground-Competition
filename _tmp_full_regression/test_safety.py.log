@@ -1,0 +1,236 @@
+
+=== ① 正常状态：ok=True、不刹车、无原因 ===
+  PASS  写入了 P_SAFETY
+  PASS  ok == True   [got SafetyState(ok=True, reasons=(), since=1000.0, stops=0)]
+  PASS  reasons 为空   [got ()]
+  PASS  刹车次数 0   [got 0]
+  PASS  未发 EV_SAFETY_STOP
+  PASS  task.stopped == False
+  PASS  20 拍（含 1 s 时间流逝）仍不刹车   [got 0]
+  PASS  20 拍后 ok 仍为 True
+  PASS  里程计一直新鲜（age 仅为本拍间隔 0.05 s）   [got 0.049999999999954525]
+
+=== ★ ①' 启动宽限：冷启动第一拍不得误刹（两个任务独立起线程的真实竞态） ===
+  PASS  确认此刻 P_ODOM_AGE 键不存在
+  PASS  确认此刻 bridge 也没有位姿
+  PASS  宽限期内 ok 仍为 True（不误刹）   [got SafetyState(ok=True, reasons=(), since=1000.0, stops=0)]
+  PASS  宽限期内不刹车   [got 0]
+  PASS  宽限期内不锁存
+  PASS  但标记为 DEGRADED（不是在正常发车）
+  PASS  P_SAFETY 仍被写出来（下游能读到 ok）
+  PASS  ★P_ODOM_AGE=inf（键存在）时同样进宽限：不误刹   [got SafetyState(ok=True, reasons=(), since=1000.0, stops=0)]
+  PASS  ★P_ODOM_AGE=inf 时不刹车（否则车永远不动）   [got 0]
+  PASS  ★P_ODOM_AGE=inf 时不锁存（stopped=False）
+  PASS  ★确实进了 DEGRADED（不是在正常发车）
+  PASS  ★宽限过后仍无数据 → 判失联（宽限不是免死金牌）   [got SafetyState(ok=False, reasons=('pose_lost:里程计无数据（age=inf）',), since=1004.0, stops=1)]
+  PASS  原因含 pose_lost   [got ('pose_lost:里程计无数据（age=inf）',)]
+  PASS  宽限期内不刹车（startup_grace_s=1.0）   [got 0]
+  PASS  1000.99 s 时仍未越界（边界确认）
+  PASS  宽限过后仍无数据 → 判失联   [got SafetyState(ok=False, reasons=('pose_lost:里程计无数据（age=inf）',), since=1001.5, stops=1)]
+  PASS  原因含 pose_lost   [got ('pose_lost:里程计无数据（age=inf）',)]
+  PASS  宽限过后刹车 ≥ 1   [got 1]
+  PASS  DEGRADED 标记被清掉
+  PASS  ③a 首拍两来源都 inf → 进宽限、不刹车   [got 0]
+  PASS  ★③b 桥已有帧 + P_ODOM_AGE=inf（差一拍）→ 不得判失联   [got SafetyState(ok=True, reasons=(), since=1000.0, stops=0)]
+  PASS  ★③c 差一拍时不得刹车（否则车永远不动）   [got 0]
+  PASS  ★③d 差一拍时不得锁存 SAFE_STOP
+  PASS  ③e 两来源都健康 → 正常放行
+  PASS  ③f 记下『本进程见过定位』
+  PASS  ★③g 运行期桥失联 → 立刻致命（设计未被削弱）   [got SafetyState(ok=False, reasons=('pose_lost:里程计无数据（age=inf）',), since=1000.0, stops=1)]
+  PASS  ③h 原因含 pose_lost   [got ('pose_lost:里程计无数据（age=inf）',)]
+  PASS  第一拍（无数据）不刹   [got 0]
+  PASS  第一拍处于 DEGRADED
+  PASS  见到数据后 ok
+  PASS  见到数据后 DEGRADED 解除   [got False]
+  PASS  运行期断流立刻停车（不受宽限保护）
+  PASS  运行期断流刹车 ≥ 1   [got 1]
+  PASS  运行期断流原因含 pose_lost   [('pose_lost:里程计无数据（age=inf）',)]
+
+=== ★ ①'' Safety 不得把自己判成『停滞』（看门狗不盯自己） ===
+  PASS  组里只有自己时不会 task_stalled   [got ()]
+  PASS  组里只有自己时 ok == True   [got SafetyState(ok=True, reasons=(), since=1000.0, stops=0)]
+  PASS  5 s 后仍不把自己判成停滞   [got ('pose_stale:里程计 5.00s > 1.00s',)]
+
+=== ② 定位失联（bridge.pose_frozen）→ 刹车 + ok=False + 原因含 pose ===
+  PASS  先确认健康（不刹车）
+  PASS  ok == False   [got SafetyState(ok=False, reasons=('pose_lost:里程计无数据（age=inf）',), since=1000.0, stops=1)]
+  PASS  原因里含 pose   [got ('pose_lost:里程计无数据（age=inf）',)]
+  PASS  原因文本 = 里程计无数据   [got 'pose_lost:里程计无数据（age=inf）']
+  PASS  刹车 ≥ 1 次   [got 1]
+  PASS  发过 EV_SAFETY_STOP（1 条）
+  PASS  持续故障期间每拍都发零速（11 拍 = 11 次，底盘 1s 看门狗）   [got 11]
+  PASS  P_SAFETY.stops 记录了实际刹车数   [got 11]
+
+=== ②b 定位失联（P_ODOM_AGE 大 / 键缺失）→ 同样刹车 ===
+  PASS  P_ODOM_AGE=5 即判失联
+  PASS  原因含 pose_stale   [got ('pose_stale:P_ODOM_AGE 5.00s > 1.00s',)]
+  PASS  刹车 ≥ 1
+  PASS  先健康
+  PASS  ★P_ODOM_AGE=inf 单拍**不**判失联（差一拍是必然竞态）   [SafetyState(ok=True, reasons=(), since=1000.0, stops=0)]
+  PASS  ★P_ODOM_AGE=inf 持续 > pose_timeout_s → 判失联（fail-safe 未削弱）   [SafetyState(ok=False, reasons=('pose_lost:里程计无数据（age=inf）',), since=1001.5, stops=1)]
+  PASS  原因含 pose_lost   [('pose_lost:里程计无数据（age=inf）',)]
+  PASS  刹车 ≥ 1
+
+=== ③ 越界：x=-0.5、margin=0.6 → 出界 → 刹车且 ok=False ===
+  PASS  确认这个坐标确实在地图外
+  PASS  x 下界 = -0.425（0.175 - 0.6）   [got -0.425]
+  PASS  确认它离边界只差 0.075 m（不是离谱值）   [got 0.07500000000000001]
+  PASS  ok == False   [got SafetyState(ok=False, reasons=('out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]',), since=1000.0, stops=1)]
+  PASS  原因含 out_of_bounds   [got ('out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]',)]
+  PASS  刹车 ≥ 1 次   [got 1]
+  PASS  发过 EV_SAFETY_STOP
+  PASS  x 下界 (-0.5, 0.5) 被判越界   [got ('out_of_bounds:(-0.500, 0.500) 超出 x[-0.425,4.275] y[-0.425,5.325]',)]
+  PASS  x 下界 原因确为 out_of_bounds   [got ('out_of_bounds:(-0.500, 0.500) 超出 x[-0.425,4.275] y[-0.425,5.325]',)]
+  PASS  x 上界 (4.4, 0.5) 被判越界   [got ('out_of_bounds:(4.400, 0.500) 超出 x[-0.425,4.275] y[-0.425,5.325]',)]
+  PASS  x 上界 原因确为 out_of_bounds   [got ('out_of_bounds:(4.400, 0.500) 超出 x[-0.425,4.275] y[-0.425,5.325]',)]
+  PASS  y 下界 (0.5, -0.5) 被判越界   [got ('out_of_bounds:(0.500, -0.500) 超出 x[-0.425,4.275] y[-0.425,5.325]',)]
+  PASS  y 下界 原因确为 out_of_bounds   [got ('out_of_bounds:(0.500, -0.500) 超出 x[-0.425,4.275] y[-0.425,5.325]',)]
+  PASS  y 上界 (0.5, 5.4) 被判越界   [got ('out_of_bounds:(0.500, 5.400) 超出 x[-0.425,4.275] y[-0.425,5.325]',)]
+  PASS  y 上界 原因确为 out_of_bounds   [got ('out_of_bounds:(0.500, 5.400) 超出 x[-0.425,4.275] y[-0.425,5.325]',)]
+  PASS  界内（-0.40 > -0.425）不报越界   [got ()]
+  PASS  界内不刹车
+
+=== ★ 越界只有 Safety 一处生效（Localization 照实写，不拦） ===
+  PASS  Localization 照实把越界位姿写进 P_POSE（不拦）   [got Pose(x=-0.5, y=0.175, yaw=0.0)]
+  PASS  Localization 没有把越界当异常（仍报有限 age）   [got 0.0]
+  PASS  Localization 绝不刹车（刹车权只在 Safety）   [got 0]
+  PASS  加上 Safety 之后同一份数据立刻被拦（刹车 ≥ 1）   [got 1]
+  PASS  同一份数据 P_SAFETY.ok == False
+  PASS  原因就是 out_of_bounds   [got ('out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]',)]
+
+=== ④ 任务 FAULT：FakeTask 真的进 FAULT → 刹车 ===
+  PASS  健康任务的心跳被设为当前时刻
+  PASS  故障任务状态确为 FAULT   [got FAULT]
+  PASS  健康任务状态不是 FAULT   [got INIT]
+  PASS  任务 FAULT 被检出 → ok=False   [got SafetyState(ok=False, reasons=('task_fault:TrackerFake state=FAULT err=-',), since=1000.0, stops=1)]
+  PASS  原因含 task_fault   [got ('task_fault:TrackerFake state=FAULT err=-',)]
+  PASS  原因里点名了 TrackerFake   [got ('task_fault:TrackerFake state=FAULT err=-',)]
+  PASS  刹车 ≥ 1 次   [got 1]
+  PASS  P_SAFETY 写在 group 共用的黑盒上
+
+=== ④b 收到 EV_TASK_FAULT 事件 → 刹车（订阅路径） ===
+  PASS  先健康
+  PASS  事件路径也触发停车   [got SafetyState(ok=False, reasons=('task_fault_event:AimTask where=tick err=RuntimeError: 炸了',), since=1000.0, stops=1)]
+  PASS  原因含 task_fault_event   [got ('task_fault_event:AimTask where=tick err=RuntimeError: 炸了',)]
+  PASS  原因里带来源任务名   [got ('task_fault_event:AimTask where=tick err=RuntimeError: 炸了',)]
+  PASS  计数 fault_events_seen == 1   [got 1]
+  PASS  刹车 ≥ 1
+  PASS  同一任务重复故障不产生重复原因   [got ('task_fault_event:AimTask where=tick err=又炸了',)]
+
+=== ⑤ 任务心跳停滞 → 刹车 ===
+  PASS  先有正常心跳（= 注入时钟当前时刻）
+  PASS  心跳新鲜时不报停滞   [got SafetyState(ok=True, reasons=(), since=1000.0, stops=0)]
+  PASS  心跳 10 s > task_stall 1 s → 停车   [got SafetyState(ok=False, reasons=('task_stalled:StuckFake 心跳 10.05s > 1.00s（ticks=0 state=INIT）',), since=1000.0, stops=1)]
+  PASS  原因含 task_stalled   [got ('task_stalled:StuckFake 心跳 10.05s > 1.00s（ticks=0 state=INIT）',)]
+  PASS  原因里带年龄（约 10.05 s，含 0.05 时钟偏斜容差）   [got ('task_stalled:StuckFake 心跳 10.05s > 1.00s（ticks=0 state=INIT）',)]
+  PASS  刹车 ≥ 1
+
+=== ⑤c ★RUNNING 但从未 tick 的任务：宽限期内不得判停滞（实车启动竞态） ===
+  PASS  ★RUNNING 且从未 tick：宽限期内 ok 仍为 True（不误刹）   [got SafetyState(ok=True, reasons=(), since=1000.0, stops=0)]
+  PASS  ★不刹车（刹车会让车永远不动）   [brakes=0]
+  PASS  ★原因里没有 task_stalled:SlowFake   [got ()]
+  PASS  宽限期内（+2s）仍不判**任务停滞**（此时可能因别的检查而 ok=False，只看停滞原因）   [got ('pose_stale:里程计 2.00s > 1.00s',)]
+  PASS  ★宽限过后仍从未 tick → 判停滞（宽限不是免死金牌）   [got SafetyState(ok=False, reasons=('pose_stale:里程计 3.50s > 1.00s', 'task_stalled:SlowFake 心跳 infs > 1.00s（ticks=0 state=RUNNING）'), since=1002.0, stops=2)]
+  PASS  原因含 task_stalled:SlowFake   [got ('pose_stale:里程计 3.50s > 1.00s', 'task_stalled:SlowFake 心跳 infs > 1.00s（ticks=0 state=RUNNING）')]
+
+=== ⑤d ★Localization 从未 tick + 桥已有帧：宽限期内不得判 pose_stalled（t27 实车锁存根因） ===
+  PASS  ★Localization 从未 tick：首拍不得 pose_stalled（不误刹）   [got ()]
+  PASS  ★首拍不锁存（ok=True）   [got SafetyState(ok=True, reasons=(), since=1000.0, stops=0)]
+  PASS  ★首拍不刹车（刹车会让车永远不动）   [brakes=0]
+  PASS  ★宽限过后仍从未 tick → 判 pose_stalled（宽限不是免死金牌）   [got SafetyState(ok=False, reasons=('pose_stale:里程计 4.00s > 1.00s', 'pose_stalled:Localization 心跳 infs 未更新', 'task_stalled:Localization 心跳 infs > 1.00s（ticks=0 state=RUNNING）'), since=1004.0, stops=1)]
+  PASS  原因含 pose_stalled:Localization   [got ('pose_stale:里程计 4.00s > 1.00s', 'pose_stalled:Localization 心跳 infs 未更新', 'task_stalled:Localization 心跳 infs > 1.00s（ticks=0 state=RUNNING）')]
+  PASS  ★tick 后条件解除但锁存不自动恢复（stopped 仍 True）   [stopped=True]
+
+=== ⑤b group=None → 跳过检查④并说明；其余检查照常 ===
+  PASS  group 确实没注入
+  PASS  group=None 时正常状态仍为 ok
+  PASS  group=None 不影响越界检查   [got SafetyState(ok=False, reasons=('out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]',), since=1000.0, stops=1)]
+  PASS  可正常清场
+
+=== ⑥ 遥控接管 → 不产生安全故障（人比机器优先）；但越界照报 ===
+  PASS  接管期间 ok 仍为 True   [got SafetyState(ok=True, reasons=(), since=1000.0, stops=0)]
+  PASS  接管不产生原因   [got ()]
+  PASS  接管不刹车   [got 0]
+  PASS  接管不发 EV_SAFETY_STOP
+  PASS  ★ 但**记录**了接管状态（不是静默）   [logs=['遥控接管：ON（人接管底盘，安全判据继续生效）', '未注入 TaskGroup → **跳过检查③（任务健康/停滞）**；检查①②④照常生效', '安全系统就绪：P_SAFETY.ok=True（越界余量 ±0.60 m / 定位超时 1.00 s）']]
+  PASS  只在状态变化时记录（5 拍 1 条）   [logs=['遥控接管：ON（人接管底盘，安全判据继续生效）', '未注入 TaskGroup → **跳过检查③（任务健康/停滞）**；检查①②④照常生效', '安全系统就绪：P_SAFETY.ok=True（越界余量 ±0.60 m / 定位超时 1.00 s）']]
+  PASS  交回自动后仍 ok
+  PASS  解除接管不刹车
+  PASS  解除接管也留痕（共 2 条）   [logs=['遥控接管：ON（人接管底盘，安全判据继续生效）', '未注入 TaskGroup → **跳过检查③（任务健康/停滞）**；检查①②④照常生效', '安全系统就绪：P_SAFETY.ok=True（越界余量 ±0.60 m / 定位超时 1.00 s）', '遥控接管：OFF（交回自动）']]
+  PASS  接管期间越界照样停车   [got SafetyState(ok=False, reasons=('out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]',), since=1000.0, stops=1)]
+  PASS  接管期间越界照样刹车
+
+=== ⑦ clear_safety() → ok=True 且发过 EV_SAFETY_CLEAR（且不自动恢复） ===
+  PASS  先进入停车
+  PASS  刹车 1 次   [got 1]
+  PASS  条件解除后**不自动恢复**（仍 ok=False）   [got SafetyState(ok=False, reasons=('out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]',), since=1000.0, stops=1)]
+  PASS  不自动恢复期间不发新的 EV_SAFETY_STOP
+  PASS  auto_recover_count 在累加（已记录'其实可恢复'）   [got 10]
+  PASS  仍在锁存态
+  PASS  刹车已停止（不再每拍发零速）   [got 1]
+  PASS  clear_safety 返回 ok=True   [got SafetyState(ok=True, reasons=(), since=1000.0, stops=1)]
+  PASS  P_SAFETY 被写为 ok=True
+  PASS  P_SAFETY.reasons 已清空
+  PASS  发过 EV_SAFETY_CLEAR（1 条）
+  PASS  clear_events == 1
+  PASS  stopped 已解除
+  PASS  清场后仍不自动踩油门（刹车计数不再增长）   [got 1]
+  PASS  清场后继续 tick 保持 ok
+  PASS  无故障时 clear 幂等（不重复发事件）   [got 1]
+
+=== ⑧ 同一原因连续 50 拍只发 1 次 EV_SAFETY_STOP（限流生效） ===
+  PASS  前置：已见过定位（本拍健康、不刹）   [got 0]
+  PASS  50 拍只发 1 条 EV_SAFETY_STOP   [got 1]
+  PASS  stop_events == 1   [got 1]
+  PASS  但 50 拍都在刹车（安全态持续压住）   [got 50]
+  PASS  事件带 reasons 元组   [{'reasons': ('pose_lost:里程计无数据（age=inf）',), 'added': ('pose_lost:里程计无数据（age=inf）',), 'removed': (), 'first': True}]
+  PASS  事件 first=True（首次进入停车）   [{'reasons': ('pose_lost:里程计无数据（age=inf）',), 'added': ('pose_lost:里程计无数据（age=inf）',), 'removed': (), 'first': True}]
+  PASS  原因集合变化时补发一条（新增越界）   [got 1]
+  PASS  新增原因里有 out_of_bounds   [{'reasons': ('out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]',), 'added': ('out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]',), 'removed': ('pose_lost:里程计无数据（age=inf）',), 'first': False}]
+  PASS  added 里恰好只有这 1 项新增   [{'reasons': ('out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]',), 'added': ('out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]',), 'removed': ('pose_lost:里程计无数据（age=inf）',), 'first': False}]
+  PASS  removed 里记录了被解除的 pose_lost   [{'reasons': ('out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]',), 'added': ('out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]',), 'removed': ('pose_lost:里程计无数据（age=inf）',), 'first': False}]
+  PASS  stop_events 累计为 2   [got 2]
+  PASS  两拍都刹车（累计 51）   [got 51]
+
+=== ⑨ 抖动熔断：反复'解除又触发'达上限打横幅（仍不自动恢复） ===
+  PASS  先停车
+  PASS  抖动计数达到上限   [got 7]
+  PASS  仍然没有自动恢复   [got SafetyState(ok=False, reasons=('pose_lost:里程计无数据（age=inf）',), since=1000.0, stops=1)]
+  PASS  闸门标语未误报（不影响 ok/reasons 语义）   [got ('pose_lost:里程计无数据（age=inf）',)]
+
+=== ⑩ brake_on_fault=False → 只报不刹（配置生效） ===
+  PASS  ok 仍被判 False
+  PASS  但不发零速指令   [got 0]
+  PASS  仍然发布 EV_SAFETY_STOP（让上层知道）
+
+=== ⑪ 锁存后刹车**逐拍续发**（底盘 1 s 看门狗要求刷新，不能只发一次） ===
+  PASS  ⑪ 锁存后第 1 拍发了零速（brakes==1）   [got 1]
+  PASS  ★ 锁存后 5 拍共续发 5 次（brakes==6，不是只发一次）   [got 6]
+  PASS  ⑪ 全程 6 拍仍在锁存态
+  PASS  ⑪ 强制停车只计数 1 次（锁存语义没被逐拍续发破坏）   [got 1]
+  PASS  ⑪ 仍在安全停车中（原因未解除）
+
+=== ⑫ 真刹失效独立告警：连续 ≥3 拍发布失败 → 独立 alarm + 成功计数不增（t8 C 项） ===
+  PASS  ⑫ 第 1 拍失败：成功计数仍为 0（旧实现这里会变 1）   [got 0]
+  PASS  ⑫ 第 1 拍失败：失败计数 1   [got 1]
+  PASS  ⑫ 连续失败计数 1   [got 1]
+  PASS  ⑫ 未达阈值（2 拍）**不**告警   [['遥控接管：OFF（交回自动）', '未注入 TaskGroup → **跳过检查③（任务健康/停滞）**；检查①②④照常生效', '安全系统就绪：P_SAFETY.ok=True（越界余量 ±0.60 m / 定位超时 1.00 s）', "🛑 安全停车：1 项原因（新增 ['out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]']）", '    · out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]', '★ 强制停车（第 1 次）：开始逐拍续发零速指令', "… 仍在安全停车中：['out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]']"]]
+  PASS  ⑫ 连续 3 拍失败 → 出独立告警（恰好 1 条）   [["🚨 真刹失效告警（独立 alarm，不是'已发零速指令'）：连续 3 拍零速指令**一条都没发出去**（累计失败 3 次）→ 唯一真刹手段已失效，只剩底盘 1 s 看门狗兜底；上下文/发布链需要立刻人工介入"]]
+  PASS  ⑫ 告警文案明确写'不是已发零速指令'   [["🚨 真刹失效告警（独立 alarm，不是'已发零速指令'）：连续 3 拍零速指令**一条都没发出去**（累计失败 3 次）→ 唯一真刹手段已失效，只剩底盘 1 s 看门狗兜底；上下文/发布链需要立刻人工介入"]]
+  PASS  ⑫ 告警带连续失败拍数 3   [["🚨 真刹失效告警（独立 alarm，不是'已发零速指令'）：连续 3 拍零速指令**一条都没发出去**（累计失败 3 次）→ 唯一真刹手段已失效，只剩底盘 1 s 看门狗兜底；上下文/发布链需要立刻人工介入"]]
+  PASS  ★ 失败期间**不**出现'已发零速指令'   [['遥控接管：OFF（交回自动）', '未注入 TaskGroup → **跳过检查③（任务健康/停滞）**；检查①②④照常生效', '安全系统就绪：P_SAFETY.ok=True（越界余量 ±0.60 m / 定位超时 1.00 s）', "🛑 安全停车：1 项原因（新增 ['out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]']）", '    · out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]', '★ 强制停车（第 1 次）：开始逐拍续发零速指令', "… 仍在安全停车中：['out_of_bounds:(-0.500, 0.175) 超出 x[-0.425,4.275] y[-0.425,5.325]']", "🚨 真刹失效告警（独立 alarm，不是'已发零速指令'）：连续 3 拍零速指令**一条都没发出去**（累计失败 3 次）→ 唯一真刹手段已失效，只剩底盘 1 s 看门狗兜底；上下文/发布链需要立刻人工介入"]]
+  PASS  ⑫ 3 拍后成功计数仍为 0   [got 0]
+  PASS  ⑫ 失败计数 3   [got 3]
+  PASS  ⑫ 失败原因被留痕（不是空字符串）   [got 'RuntimeError: 模拟：ROS 上下文已失效，零速指令发布失败']
+  PASS  ⑫ 告警只在'跨过阈值'那一次打（后续 4 拍不再打）   [["🚨 真刹失效告警（独立 alarm，不是'已发零速指令'）：连续 3 拍零速指令**一条都没发出去**（累计失败 3 次）→ 唯一真刹手段已失效，只剩底盘 1 s 看门狗兜底；上下文/发布链需要立刻人工介入"]]
+
+=== ⑬ 发布恢复：连续失败计数清零、成功计数从 0 重新累加（不静默、不误报） ===
+  PASS  ⑬ 恢复后这一拍真的发出去了（brakes==1）   [got 1]
+  PASS  ⑬ 连续失败计数清零   [got 0]
+  PASS  ⑬ 失败总计数在恢复后不再增长（停在 7 = 3+4）   [got 7]
+  PASS  ⑬ 恢复这一拍不打新告警   [["🚨 真刹失效告警（独立 alarm，不是'已发零速指令'）：连续 3 拍零速指令**一条都没发出去**（累计失败 3 次）→ 唯一真刹手段已失效，只剩底盘 1 s 看门狗兜底；上下文/发布链需要立刻人工介入"]]
+  PASS  ⑬ 恢复后逐拍续发照旧（再 2 拍 → brakes==3）   [got 3]
+
+======================================================================
+结果：190/190 全部通过 ✅
+======================================================================

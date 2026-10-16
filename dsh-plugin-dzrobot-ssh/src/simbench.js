@@ -87,8 +87,8 @@ const ROBOT_FILE = path.join(SIM_ROOT, 'config', 'robot.yaml')
 const PLAN_CLI = path.join(SIM_ROOT, 'tools', 'plan_route.py')
 /** 场地网格（`core/geometry.py:27-30`：COL_LETTERS / MAP_COLS=14 / MAP_ROWS=11 / BLOCK_SIZE=0.35）。 */
 const GRID = { cols: 14, rows: 11, blockM: 0.35, colLetters: 'ABCDEFGHIJKLMN' }
-/** 页面允许编辑的三类点位（其余要素保持现场值）。 */
-const FIELD_KEYS = ['mines', 'obstacles', 'bridges']
+/** 页面允许编辑的四类点位（t6：+targets —— 其余要素保持现场值）。 */
+const FIELD_KEYS = ['mines', 'obstacles', 'bridges', 'targets']
 /** 无人机起/降点：map.yaml 的 t28 识图注释里写着；读不到时用这两个（蓝 + H 图标）。 */
 const DRONE_FALLBACK = { takeoff: 'N8', land: 'M2' }
 const CELL_RE = /^[A-N](?:[1-9]|1[01])$/
@@ -99,6 +99,17 @@ const TARGET_CACHE = { cells: [] }
 
 /** 一次只跑一个仿真：并发会互相踩 artifacts/sim 的输出。 */
 let running = false
+
+/**
+ * 压测批次忙标志（规格 §B.4）：压测期间手动单跑 `/sim/run` 仍要 409，文案含「压测进行中」。
+ * 置位入口放本模块（`setStressBusy`）是为了 **simbench 不 import stressbench** —— 反向会成环。
+ */
+let stressBusy = false
+
+/** 压测方（src/stressbench.js）在批次开/结束时调用：true=压测中，false=空闲。 */
+export function setStressBusy(on) {
+  stressBusy = on === true
+}
 
 /** 允许注入的误差参数（与 sim_cli 参数一一对应）。 */
 const INJECT_KEYS = {
@@ -440,7 +451,8 @@ function runChild(command, argv, { cwd, timeoutMs, env = {} }) {
   })
 }
 
-function appendMeta(record) {
+/** 追加一条台账记录（导出给 stressbench：压测自产的 invalid/error 记录进同一 run_meta.jsonl）。 */
+export function appendMeta(record) {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true })
   fs.appendFileSync(META_FILE, `${JSON.stringify(record)}\n`, 'utf8')
 }
@@ -452,9 +464,10 @@ function readMeta() {
   } catch { return [] }
 }
 
-/** 主接口：跑一次仿真。 */
+/** 主接口：跑一次仿真（锁检查 + runSimJob；对外行为逐字不变 —— 规格 §B.4 的拆分只挪不改）。 */
 export async function runSim(body) {
   if (running) return { ok: false, code: 409, error: '上一次仿真还在跑，稍候再试' }
+  if (stressBusy) return { ok: false, code: 409, error: '压测进行中，单跑请稍候再试' }
   if (!looksLikeWorkspace(SIM_ROOT)) {
     return {
       ok: false, code: 409,
@@ -462,13 +475,28 @@ export async function runSim(body) {
         + `${ROOT_POINTER_FILE}（内容 {"root":"<dzrobot_v2 绝对路径>"}）`,
     }
   }
+  return runSimJob(body, { lock: true })
+}
+
+/**
+ * 仿真执行体（规格 §B.4 拆分产物，供压测走内部通道）：
+ *   · `lock=true`（手动单跑）：持/放模块级 `running`，409 互斥语义原样保留；
+ *   · `lock=false`（压测子跑）：完全绕开 `running` —— 池互斥由 stressbench 自管，
+ *     run id 带 seq 保证同图不同批也不写同一个 outDir；
+ *   · `runId` 覆盖默认 `${Date.now()}_${label}`：压测用规格字面
+ *     `${Date.now()}_${batchId}_${seq}_${label}`（并发同毫秒互踩防护，§B.5）；
+ *   · `batch` 非空才往 record 写 `batchId/seq`（手动记录形状不变）。
+ */
+export async function runSimJob(body, { lock = true, runId = null, batch = null } = {}) {
   const params = sanitizeParams(body)
-  const id = `${Date.now()}_${params.label}`
+  const id = runId ?? `${Date.now()}_${params.label}`
   const outDir = path.join(ARTIFACT_DIR, id)
   const record = {
     id,
     at: new Date().toISOString(),
     label: params.label,
+    ...(batch && batch.batchId !== undefined && batch.batchId !== null
+      ? { batchId: String(batch.batchId), seq: Number(batch.seq) } : {}),
     overrides: params.overrides,
     inject: params.inject,
     maxSteps: params.maxSteps,
@@ -480,7 +508,7 @@ export async function runSim(body) {
     mapMd5: md5Of(MAP_FILE),
     status: 'running',
   }
-  running = true
+  if (lock) running = true
   try {
     const started = Date.now()
     // ---- ★ t25：改点位 → 运行目录里生成 override（地图 + 配置副本 + 重规划路线）----
@@ -497,11 +525,15 @@ export async function runSim(body) {
       // 配置**逐字复制**（只读真源的副本）：`load_field_spec(cfg_source=…)` 会优先取同目录的
       // map.yaml，所以这一对文件放在同一目录就是"这次跑的是哪张图"的完整证据。
       fs.copyFileSync(ROBOT_FILE, overrideRobot)
+      // ★ 规格 §B.6：路径规划计算时间（用户点名的统计项）—— Date.now 包住 plan_route，
+      //   手动带 field 的跑同样落 record.plan.ms（压测均值分母 = 有该字段的记录数）。
+      const planStartedAt = Date.now()
       const planned = await planRoute({ configPath: overrideRobot, mapPath: overrideMap })
       record.field = params.field
       record.override = { dir: overrideDir, map: overrideMap, robot: overrideRobot }
       record.plan = {
         exitCode: planned.exitCode, timedOut: planned.timedOut,
+        ms: Date.now() - planStartedAt,
         tokenCount: planned.tokens.length,
         crossing: planned.plan?.crossing ?? null,
         polyline_m: planned.plan?.polylength_m ?? null,
@@ -564,7 +596,7 @@ export async function runSim(body) {
     appendMeta(record)
     return { ok: true, record, stdoutTail: String(stdout).split('\n').filter(line => line.trim() !== '').slice(-40).join('\n') }
   } finally {
-    running = false
+    if (lock) running = false
   }
 }
 

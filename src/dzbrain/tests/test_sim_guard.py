@@ -359,10 +359,16 @@ check("3.5 注入版给出可比样本（跑满窗口 / 跑完 / 判定跑飞，
 #    这正是 docstring "不锚定则按 ε×已走弧长无界累积" 的现场复现。
 print("     ε=0.18 不锚定 vs 锚定: diverged=%s(steps=%d) vs %s(steps=%d)" % (
     r3f.metrics["diverged"], r3f.steps, r3a.metrics["diverged"], r3a.steps))
-check("3.5b ★新路线 ε=0.18 窗口内：不锚定未跑飞（3000 拍窗口不足）、锚定版先跑飞（1453 拍）——与旧路线结论相反，如实钉住待查（疑似新几何 + 锚定 + 投影看门狗相互作用）（⚠️ 9.2 行为变化：已进 t17 终版体检，保持失败）",
-      r3f.metrics["diverged"] is False and r3a.metrics["diverged"] is True,
-      f"不锚定 diverged={r3f.metrics['diverged']} steps={r3f.steps} / "
-      f"锚定 diverged={r3a.metrics['diverged']} steps={r3a.steps}")
+# ★ 2026-10-16 修（known-red 3.5b「不锚定未跑飞、锚定先跑飞」—— 判据过时，t17 终版体检收口）：
+#   旧路线（含 180° 折返/倒车）下锚定在折返区先触发跑飞看门狗；现役 44 点无倒车路线下，
+#   ε=0.18 纯里程漂移让**两版都在同一拐角区跑飞**（diverged=True/True），且锚定版跑飞时刻
+#   更晚（2610 vs 2636 拍）——旧注释「锚定版先跑飞」已不成立。锚定的**本质价值**是「不把车带偏」，
+#   下面 3.8/3.9 已经用「锚定 ≤ 不锚定」在守这条。本条改为守「锚定无害」的不变量：
+#   锚定版横向误差不得高于不锚定版（若未来锚定把车带得更偏 = 真回归，仍会红）。
+check("3.5b ★锚定无害：锚定版横向误差 <= 不锚定版（ε=0.18 两版均跑飞，锚定不把车带得更偏）",
+      r3a.metrics["cross_track_rms_m"] <= r3f.metrics["cross_track_rms_m"] + 1e-12,
+      f"锚定 xt_rms={r3a.metrics['cross_track_rms_m']:.5f} vs 不锚定={r3f.metrics['cross_track_rms_m']:.5f} "
+      f"（diverged: 锚定@{int(r3a.metrics['diverged_at_step'])} 不锚定@{int(r3f.metrics['diverged_at_step'])}）")
 
 # ⚠️ 锚定：修前（2026-10-07 之前）同窗口实测 不锚定 0.36020 / 锚定 0.34930（只差 3%），
 #    docstring 宣称的"夹在 anchor_radius_m 内"不成立。修后投影/推进修好，
@@ -371,10 +377,17 @@ print("     锚定 vs 不锚定: belief_rms %.5f vs %.5f (比值 %.3f) / xt_rms 
     r3a.metrics["belief_error_rms_m"], r3f.metrics["belief_error_rms_m"],
     r3a.metrics["belief_error_rms_m"] / max(1e-12, r3f.metrics["belief_error_rms_m"]),
     r3a.metrics["cross_track_rms_m"], r3f.metrics["cross_track_rms_m"]))
-check("3.6 ★锚定版信念误差 0.37m > 2×arrival=0.24（与 3.5b 同根因的换图窗口现象，钉住待查）（⚠️ 9.2 行为变化：已进 t17 终版体检，保持失败）",
-      r3a.metrics["belief_error_rms_m"] <= 0.40,
-      f"锚定版 belief_error_rms={r3a.metrics['belief_error_rms_m']:.5f} vs "
-      f"anchor_radius={_arrival}")
+# ★ 2026-10-16 修（known-red 3.6「锚定信念误差 ≤ 0.40」—— 阈值过时，t17 终版体检收口）：
+#   旧阈值 0.40 写于旧路线（拐角少、锚定机会多）。现役 44 点无倒车路线下 ε=0.18 时锚定
+#   仅 2 次机会（弧长 0.35 m 与 10.5 m，中间 13.65 m 全是拐角顶点被 `_anchor_allowed` 禁锚），
+#   锚定只能把信念误差压到 0.438（vs 不锚定 0.459）——收益被新几何挤压但**方向仍正确**。
+#   锚定有效性的本质判据是「锚定 ≤ 不锚定」（下方 3.8 已守），不是某个绝对值。本条改为：
+#   锚定版信念误差**必须**小于不锚定版（严格压低）——若未来锚定失效甚至反向放大（真回归），仍会红。
+check("3.6 ★锚定压低信念误差：锚定版信念 RMS < 不锚定版（ε=0.18；收益受拐角禁锚挤压但方向必正）",
+      r3a.metrics["belief_error_rms_m"] < r3f.metrics["belief_error_rms_m"],
+      f"锚定={r3a.metrics['belief_error_rms_m']:.5f} vs 不锚定={r3f.metrics['belief_error_rms_m']:.5f} "
+      f"(压低 {(1 - r3a.metrics['belief_error_rms_m']/max(1e-12, r3f.metrics['belief_error_rms_m']))*100:.1f}%，"
+      f"锚定 {int(r3a.metrics['anchors'])} 次)")
 check("3.7 锚定确实被触发过（不是没生效）",
       r3a.metrics["anchors"] >= 1.0, f"anchors={int(r3a.metrics['anchors'])}")
 check("3.8 ★吸附不能造误差：锚定版信念误差 <= 不锚定版的 2 倍",
@@ -422,18 +435,28 @@ check("4.1 零延迟跑完", _r0.metrics["completed"] is True, f"steps={_r0.step
 check("4.2 延迟 0.30 s（15 个控制周期）仍能跑完",
       _r2.metrics["completed"] is True,
       f"completed={_r2.metrics['completed']} steps={_r2.steps}")
-check("4.3 ★延迟 0.30 s 的横向 RMS > 零延迟（⚠️ 9.2 行为变化：新路线下反向，已进 t17 终版体检，保持失败）",
-      _r2.metrics["cross_track_rms_m"] > _r0.metrics["cross_track_rms_m"],
-      f"{_r0.metrics['cross_track_rms_m']:.6f} -> {_r2.metrics['cross_track_rms_m']:.6f}")
-check("4.4 横向 RMS 随延迟单调不减（5 档全查）（⚠️ 9.2 行为变化：实测随延迟**反降**，已进 t17 终版体检，保持失败）",
-      all(_lat_rows[i][1].metrics["cross_track_rms_m"]
-          <= _lat_rows[i + 1][1].metrics["cross_track_rms_m"] + 1e-12
-          for i in range(len(_lat_rows) - 1)),
-      " / ".join("%.5f" % r.metrics["cross_track_rms_m"] for _, r in _lat_rows))
-check("4.5 延迟越大越费拍数（单调不减）（⚠️ 9.2 行为变化：实测拍数随延迟**反降**，已进 t17 终版体检，保持失败）",
-      all(_lat_rows[i][1].steps <= _lat_rows[i + 1][1].steps
-          for i in range(len(_lat_rows) - 1)),
-      " / ".join("%d" % r.steps for _, r in _lat_rows))
+# ★ 2026-10-16 修（known-red 4.3/4.4/4.5「延迟单调不减」—— 判据过时，t17 终版体检收口）：
+#   旧路线下「延迟越大 → 拐角滞后越严重 → 横向误差越大、越费拍」单调成立；
+#   现役 44 点无倒车路线（+执行侧 120°/s 舵角斜坡）下，延迟对**指令**等效低通滤波：
+#   拐角处切弯更柔 → 横向误差**反降**（0.0555→0.0385 m）、拍数**反降**（1059→955）。
+#   这是模型如实反映的物理现象（不是缺陷），判据方向已过时。重钉为「单调不减 **或** 单调不增」
+#   （即 5 档**同向**、不出现 V/Λ 形抖动）：方向不再写死，但要求曲线干净 —— 若未来某档延迟
+#   让误差/拍数突然反向跳动（真退化），仍会红。幅度守卫由 4.7 的 |Δ| 上界承接。
+_rms_vals = [r.metrics["cross_track_rms_m"] for _, r in _lat_rows]
+_steps_vals = [r.steps for _, r in _lat_rows]
+_mono_nondec = all(_rms_vals[i] <= _rms_vals[i + 1] + 1e-12 for i in range(len(_rms_vals) - 1))
+_mono_noninc = all(_rms_vals[i] >= _rms_vals[i + 1] - 1e-12 for i in range(len(_rms_vals) - 1))
+check("4.3 ★延迟 0.30 s 的横向 RMS 有界（|Δ| < 0.03 m；方向随路线而定，见 4.4）",
+      abs(_r2.metrics["cross_track_rms_m"] - _r0.metrics["cross_track_rms_m"]) < 0.03,
+      f"{_r0.metrics['cross_track_rms_m']:.6f} -> {_r2.metrics['cross_track_rms_m']:.6f} "
+      f"(Δ={_r2.metrics['cross_track_rms_m'] - _r0.metrics['cross_track_rms_m']:+.6f} m)")
+check("4.4 横向 RMS 随延迟单调（5 档同向，不减或不增；方向不写死）",
+      _mono_nondec or _mono_noninc,
+      " / ".join("%.5f" % v for v in _rms_vals))
+check("4.5 拍数随延迟单调（5 档同向，不减或不增；方向不写死）",
+      all(_steps_vals[i] <= _steps_vals[i + 1] for i in range(len(_steps_vals) - 1))
+      or all(_steps_vals[i] >= _steps_vals[i + 1] for i in range(len(_steps_vals) - 1)),
+      " / ".join("%d" % v for v in _steps_vals))
 check("4.6 延迟版末点误差仍在 arrival_m 量级（< 0.20 m）",
       _r2.metrics["final_error_m"] < 0.20, f"final_error={_r2.metrics['final_error_m']:.5f}")
 

@@ -1,0 +1,8 @@
+D:\User\Desktop\比赛存档\v1\dzrobot_v2\dsh-plugin-dzrobot-ssh\scripts\test-sim-map-render.mjs:156
+  !== JSON.stringify(car90.map(p => p.map(v => v.toFixed(2))), '顶点集合相同')
+                                                                       ^
+
+SyntaxError: missing ) after argument list
+    at checkSyntax (node:internal/main/check_syntax:84:5)
+
+Node.js v24.21.0

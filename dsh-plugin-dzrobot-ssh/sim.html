@@ -67,7 +67,7 @@
   .foot { color: var(--dim); font-size: 12px; margin-top: 8px; }
   code { font-family: var(--mono); color: #cfe3ff; }
   /* ── 横置地图视图 + 改点位（t25）────────────────────────────────────── */
-  .mapwrap { overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 6px; }
+  .mapwrap { position: relative; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 6px; }
   .mapwrap svg { display: block; width: 100%; height: auto; }
   .legend { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 8px; font-size: 12px; color: var(--dim); }
   .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 5px;
@@ -82,6 +82,23 @@
   .chips button { padding: 3px 9px; font-size: 12px; border-radius: 6px; }
   .warnline { color: var(--warn); font-size: 12px; margin-top: 6px; }
   .cpu { color: var(--dim); font-size: 12px; margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+  /* ── t6：棋盘拖拽编辑（棋子 palette + 幽灵元素 + 命中层）────────────────────── */
+  .pieces { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 4px; }
+  .piece { touch-action: none; cursor: grab; padding: 6px 14px; }
+  .piece[data-piece="mines"] { border-color: #7a3232; color: #ff9d97; }
+  .piece[data-piece="obstacles"] { border-color: #5b6270; }
+  .piece[data-piece="targets"] { border-color: #8a2f5f; color: #f3b8d4; }
+  .piece[data-piece="bridges"] { border-color: #2b7a80; color: #9fe8ef; }
+  .dragGhost { position: fixed; z-index: 99; pointer-events: none; display: none;
+               padding: 4px 10px; border-radius: 8px; border: 1px solid var(--accent);
+               background: #1d2b3d; color: #cfe3ff; font-size: 12.5px; }
+  /* 命中层（t6 落格）：装饰层不吃指针事件，elementFromPoint 才能落到带 data-cell 的基格 rect */
+  #map svg text, #map svg circle, #map svg line, #map svg polyline, #map svg path { pointer-events: none; }
+  textarea[readonly] { opacity: .8; cursor: default; }
+  /* ── t10（卡4）：运行仿真动画层 —— 与 #map 同框的绝对定位覆盖层（viewBox 同口径）。
+        pointer-events:none ⇒ 不吃指针事件：t6 落格命中（elementFromPoint）与地图点击不受影响。 */
+  #anim { position: absolute; left: 6px; top: 6px; right: 6px; bottom: 6px; pointer-events: none; }
+  #anim svg { display: block; width: 100%; height: 100%; }
   /* 横置 traj.svg：旋转 90° 后按容器自适应（宽高比在载入时用 naturalWidth/Height 定） */
   .rot90 { position: relative; overflow: hidden; background: #fff; border-radius: 8px; margin-top: 10px; }
   .rot90 > img { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-90deg); }
@@ -184,22 +201,35 @@
         真机上无人机的 YOLO 推理属 Jetson 阶段，不在仿真台范围内。</div>
     </section>
 
-    <!-- ── 改点位（t25）：只落运行目录，config/** 与 src/dzbrain/** 零写入 ── -->
+    <!-- ── 改点位（t25 → t6）：棋盘拖拽为主编辑通道；只落运行目录，config/** 零写入 ── -->
     <section style="margin-top:16px">
-      <h2>改点位<span class="hint">雷 / 障 / 桥洞；保存只写 <code>artifacts/sim/&lt;id&gt;/map_override/</code></span></h2>
+      <h2>改点位<span class="hint">拖棋子落格即改点位（文本框为只读镜像）；保存只写 <code>artifacts/sim/&lt;id&gt;/map_override/</code></span></h2>
       <div id="fieldMeta" class="foot">正在读场地…</div>
 
-      <div class="chips"><span>雷（必须全部压过）</span><span id="minesCount" class="grow">—</span>
+      <!-- t6：四类棋子 palette = 主编辑通道；按住拖到棋盘格放下，点棋盘上已有棋子移除 -->
+      <div class="chips"><span>棋盘拖拽<span class="hint">按住棋子拖到棋盘格 = 加；点棋盘上已有棋子 = 移除（靶整对移除，至少留 1 枚）</span></span></div>
+      <div class="pieces">
+        <button type="button" class="piece" data-piece="mines" title="雷：拖到空格放下">雷</button>
+        <button type="button" class="piece" data-piece="obstacles" title="障碍：拖到空格放下">障</button>
+        <button type="button" class="piece" data-piece="targets" title="靶板：双格整对，拖到空格整体换位">靶（双格）</button>
+        <button type="button" class="piece" data-piece="bridges" title="桥洞：只能落 K 列">通</button>
+      </div>
+
+      <div class="chips"><span>雷（必须全部压过）· 只读镜像</span><span id="minesCount" class="grow">—</span>
         <button type="button" data-reset="mines">恢复默认</button></div>
-      <textarea id="mines" rows="3" spellcheck="false" placeholder="C1 A3 E3 G4 I6 B7 D9 H10"></textarea>
+      <textarea id="mines" rows="3" readonly spellcheck="false" placeholder="C1 A3 E3 G4 I6 B7 D9 H10"></textarea>
 
-      <div class="chips"><span>障碍（不可通行）</span><span id="obstaclesCount" class="grow">—</span>
+      <div class="chips"><span>障碍（不可通行）· 只读镜像</span><span id="obstaclesCount" class="grow">—</span>
         <button type="button" data-reset="obstacles">恢复默认</button></div>
-      <textarea id="obstacles" rows="3" spellcheck="false" placeholder="A1 E2 H4 D8 I8 G9 B11 F11"></textarea>
+      <textarea id="obstacles" rows="3" readonly spellcheck="false" placeholder="A1 E2 H4 D8 I8 G9 B11 F11"></textarea>
 
-      <div class="chips"><span>桥洞（本局开放，其余 K 格封死）</span><span id="bridgesCount" class="grow">—</span>
+      <div class="chips"><span>桥洞（本局开放，其余 K 格封死）· 只读镜像</span><span id="bridgesCount" class="grow">—</span>
         <button type="button" data-reset="bridges">恢复默认</button></div>
-      <textarea id="bridges" rows="2" spellcheck="false" placeholder="K5 K9"></textarea>
+      <textarea id="bridges" rows="2" readonly spellcheck="false" placeholder="K5 K9"></textarea>
+
+      <div class="chips"><span>靶板两格（自动相邻合并）· 只读镜像</span><span id="targetsCount" class="grow">—</span>
+        <button type="button" data-reset="targets">恢复默认</button></div>
+      <textarea id="targets" rows="1" readonly spellcheck="false" placeholder="E5 F5"></textarea>
 
       <div class="chips"><span>靶板朝向<span class="hint">只影响地图/轨迹渲染与提示，不写 config</span></span>
         <span id="targetYawCount" class="grow">—</span>
@@ -211,6 +241,11 @@
       </select>
       <div class="foot">靶板由 <code>map.targets</code> 的相邻两格并成一块；<b>横向</b>=两格左右相邻（如 B11+C11），
         <b>竖向</b>=两格上下相邻。选"跟随地图"时按两格实际几何关系自动判定。</div>
+
+      <div class="btns" style="margin-top:10px">
+        <!-- t6：整图恢复**不带 data-reset**（避免被通用 data-reset 循环二次绑定）；独立 listener → loadField() 重读 /sim/map -->
+        <button type="button" id="resetAll">整图恢复（重读 /sim/map）</button>
+      </div>
 
       <div class="warnline" id="fieldWarn" style="display:none"></div>
       <div class="foot">改了任一类就会：① 在运行目录生成 <code>map_override/</code>（改后 map.yaml + robot.yaml 副本）；
@@ -229,7 +264,7 @@
     <!-- ── 横置地图视图（t25）：14 列水平 × 11 行垂直，格名 + 异色注释 ── -->
     <section>
       <h2>场地（横置）<span class="hint">14 列 A~N 水平 × 11 行 1~11 垂直 · 每格 0.35 m</span></h2>
-      <div class="mapwrap"><div id="map"><span style="color:var(--dim)">正在画场地…</span></div></div>
+      <div class="mapwrap"><div id="map"><span style="color:var(--dim)">正在画场地…</span></div><div id="anim" aria-hidden="true"></div></div>
       <div class="legend">
         <span><i style="background:#e5484d"></i>雷（必须压过）</span>
         <span><i style="background:#4a4a4a"></i>障（水桶）</span>
@@ -245,7 +280,9 @@
       </div>
       <div class="chips" style="margin-top:8px">
         <label class="check" style="margin:0"><input id="showRoute" type="checkbox" checked><span>参考路线</span></label>
-        <label class="check" style="margin:0"><input id="showTrace" type="checkbox"><span>本次轨迹（traj.csv）</span></label>
+        <label class="check" style="margin:0"><input id="showTrace" type="checkbox" checked><span>本次轨迹（traj.csv）</span></label>
+        <button type="button" id="replay" disabled title="t10 回放本次 run 的真实轨迹；车体 0.28×0.135 m 真值按 0.35 m/格（GRID.blockM）等比换算成棋盘像素">回放</button>
+        <span id="animState">未回放</span>
         <span id="mapMeta" class="grow"></span>
       </div>
     </section>
@@ -253,6 +290,13 @@
     <section style="margin-top:16px">
       <h2>结果<span id="resTitle" class="hint"></span></h2>
       <div id="result"><span style="color:var(--dim)">还没跑过。左边点「运行仿真」。</span></div>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>空地协同<span class="hint">无人机 U 形扫描 + 小车并行开跑（t=0 双发、不建模打靶）</span></h2>
+      <button id="droneRun" class="primary" type="button">跑空地协同</button>
+      <div id="droneMsg" class="msg" style="display:none"></div>
+      <div id="droneTimeline"><span style="color:var(--dim)">还没跑过空地协同。</span></div>
     </section>
 
     <section style="margin-top:16px">
@@ -435,7 +479,7 @@ var picked = [];
 function fieldSummary(record) {
   var parts = [];
   if (record.field) {
-    ['mines', 'obstacles', 'bridges'].forEach(function (key) {
+    ['mines', 'obstacles', 'bridges', 'targets'].forEach(function (key) {
       var cells = record.field[key] || [];
       if (cells.length) parts.push(key + '×' + cells.length);
     });
@@ -701,7 +745,11 @@ function renderMap() {
   var bridgeSet = {}; form.bridges.forEach(function (c) { bridgeSet[c] = 1; });
   var mineSet = {}; form.mines.forEach(function (c) { mineSet[c] = 1; });
   var obstSet = {}; form.obstacles.forEach(function (c) { obstSet[c] = 1; });
-  var targetSet = {}; FIELD.targets.forEach(function (c) { targetSet[c] = 1; });
+  // ★ t6：靶格渲染用「表单当前值优先、FIELD.targets 兜底」——测试桩/未加载时表单为空，
+  //   回落真源保证靶板恒画出来（R5「恰 2 格」断言靠这条保绿；UI 侧移除靶=整对移除且阻止清到 0 枚，
+  //   所以真实页面里回落分支只在「尚未加载」时生效，不会形成清空↔取回循环）。
+  var tCells = form.targets.length ? form.targets : (FIELD.targets || []);
+  var targetSet = {}; tCells.forEach(function (c) { targetSet[c] = 1; });
 
   for (var row = 1; row <= g.rows; row += 1) {
     for (var ci = 0; ci < g.cols; ci += 1) {
@@ -715,13 +763,14 @@ function renderMap() {
       if (cell === FIELD.start) fill = '#b2f2bb';                        // 起 N10
       if (cell === FIELD.end) fill = '#ffe066';                          // 终 N5
       if (cell === FIELD.drone.takeoff || cell === FIELD.drone.land) fill = '#cfe2f7';  // 无人机蓝
-      svg.push(rect(x, y, MAP_S, MAP_S, fill, ' stroke="#c9ced8" stroke-width="0.6"'));
+      // ★ t6：基格 rect 带 data-cell（落格命中层 closest('[data-cell]') 的唯一目标）
+      svg.push(rect(x, y, MAP_S, MAP_S, fill, ' stroke="#c9ced8" stroke-width="0.6" data-cell="' + cell + '"'));
     }
   }
   // 隔板：第 rowHi/rowLo 行之间、从 colFrom 到 N 整条（不可跨越）
   var by = FIELD.barrier.rowHi * MAP_S;
   var bx0 = colIdxOf(FIELD.barrier.colFrom) * MAP_S;
-  svg.push(rect(bx0, by - 3, W - bx0, 6, '#111111'));
+  svg.push(rect(bx0, by - 3, W - bx0, 6, '#111111', ' pointer-events="none"'));
   svg.push(text((bx0 + W) / 2, by - 6, '隔板 ' + FIELD.barrier.colFrom + '~N（不可触碰/跨越）', 10, '#111111', 'bold', 'middle'));
   // 每格格名（左上角小字）
   for (var r2 = 1; r2 <= g.rows; r2 += 1) {
@@ -737,15 +786,16 @@ function renderMap() {
   });
   form.obstacles.forEach(function (cell) {
     var p = cellCenter(cell); if (!p) return;
-    svg.push(rect(p[0] - MAP_S * 0.26, p[1] - MAP_S * 0.26, MAP_S * 0.52, MAP_S * 0.52, '#4a4a4a'));
+    svg.push(rect(p[0] - MAP_S * 0.26, p[1] - MAP_S * 0.26, MAP_S * 0.52, MAP_S * 0.52, '#4a4a4a', ' pointer-events="none"'));
     svg.push(text(p[0], p[1] + 4, '障', 10, '#ffffff', 'bold', 'middle'));
   });
   // ★ t28：靶板按"一块并板"画（横/竖朝向可选），不再每格一个「靶」字
+  //   ★ t6：并板取「表单当前值优先、FIELD.targets 兜底」（与 targetSet 同源，防两处口径漂移）
   (function () {
-    var cells = FIELD.targets || [];
+    var cells = tCells;
     var r = targetBoardRect(cells, targetYawMode());
     if (!r) return;
-    svg.push(rect(r[0], r[1], r[2], r[3], '#e8a0c8', ' stroke="#8a2f5f" stroke-width="1.6"'));
+    svg.push(rect(r[0], r[1], r[2], r[3], '#e8a0c8', ' stroke="#8a2f5f" stroke-width="1.6" pointer-events="none"'));
     var mode = targetYawMode() || ((r[2] >= r[3]) ? 'h' : 'v');
     svg.push(text(r[0] + r[2] / 2, r[1] + r[3] / 2 + 4, '靶板', 10, '#5d1f42', 'bold', 'middle'));
     svg.push(text(r[0] + r[2] / 2, r[1] - 5,
@@ -804,7 +854,7 @@ function renderMap() {
   // 仿真轨迹（traj.csv 的 truth 列）
   if (TRACE && TRACE.points && TRACE.points.length > 1) {
     svg.push('<polyline points="' + TRACE.points.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ')
-      + '" fill="none" stroke="#d64545" stroke-width="1.5" stroke-linejoin="round" opacity="0.9"/>');
+      + '" fill="none" stroke="#2f9e44" stroke-width="1.5" stroke-linejoin="round" opacity="0.9"/>');
   }
   // ★ t28：小车位姿标注（车身矩形 + 车头箭头），沿轨迹抽样
   if (TRACE && TRACE.poses && TRACE.poses.length > 0) {
@@ -828,12 +878,13 @@ function renderMap() {
   text($('mapMeta'), 'md5 ' + String(FIELD.md5).slice(0, 8) + ' · ' + FIELD.source);
 }
 
-/** 表单里的三类点位（空文本 = 该项不覆盖）。 */
+/** 表单里的四类点位（只读镜像文本框；空文本 = 该项不覆盖）。 */
 function fieldLists() {
   return {
     mines: parseCells($('mines').value),
     obstacles: parseCells($('obstacles').value),
     bridges: parseCells($('bridges').value),
+    targets: parseCells($('targets').value),
   };
 }
 function parseCells(text) {
@@ -851,7 +902,9 @@ function fieldFromForm() {
   if (!FIELD || !FIELD.ok) return null;
   var form = fieldLists();
   var out = {}; var changed = false;
-  ['mines', 'obstacles', 'bridges'].forEach(function (key) {
+  ['mines', 'obstacles', 'bridges', 'targets'].forEach(function (key) {
+    // ★ t6：targets 空值 = 不生效（未加载/测试桩不带该键；与宿主 sanitizeParams 空数组 continue 同口径）
+    if (key === 'targets' && !(form[key] || []).length) return;
     var base = (FIELD[key] || []).join(' ');
     var now = (form[key] || []).join(' ');
     if (now !== base) { out[key] = form[key]; changed = true; }
@@ -861,7 +914,8 @@ function fieldFromForm() {
 function refreshFieldHints() {
   if (!FIELD || !FIELD.ok) return;
   var form = fieldLists();
-  ['mines', 'obstacles', 'bridges'].forEach(function (key) {
+  var KEYS = ['mines', 'obstacles', 'bridges', 'targets'];
+  KEYS.forEach(function (key) {
     var node = $(key);
     node.style.borderColor = '';                       // 清掉上次拦截留下的红边
     var base = (FIELD[key] || []).join(' ');
@@ -878,23 +932,36 @@ function refreshFieldHints() {
     yawChip.textContent = mode ? (mode === 'h' ? '横向（指定）' : '竖向（指定）') : ('跟随地图：' + autoTxt);
   }
   var bad = [];
-  ['mines', 'obstacles', 'bridges'].forEach(function (key) {
+  KEYS.forEach(function (key) {
     String($(key).value).split(/[\s,;|]+/).forEach(function (item) {
       var cell = item.trim().toUpperCase();
       if (cell !== '' && !FIELD_CELL_RE.test(cell)) bad.push(cell);
     });
   });
-  var warn = $('fieldWarn');
+  // ★ t6：软警告 —— 非法格名（硬拦仍在 fieldInputErrors）+ 数量偏离默认（终判交 plan_route --check）。
+  //   雷 8/障 8/通 2/靶 2 为 map.yaml 现值；拖多拖少只警告不拦截（规格 §A.2 数量软口径）。
+  var parts = [];
   if (bad.length) {
+    parts.push('非法格名将被忽略：' + bad.join(' ') + '（格名形如 A1..N11；整类都非法时点「运行仿真」会被拦下）');
+  }
+  ['mines', 'obstacles', 'bridges', 'targets'].forEach(function (key) {
+    if (!form[key].length) parts.push('至少留 1 枚：' + key + ' 已清空（该类本次不覆盖，按默认图跑）');
+    else if (form[key].length !== (FIELD[key] || []).length) {
+      parts.push(key + ' ' + form[key].length + '/' + (FIELD[key] || []).length
+        + ' 格（与默认数量不同，终判以 plan_route --check 为准）');
+    }
+  });
+  var warn = $('fieldWarn');
+  if (parts.length) {
     warn.style.display = '';
-    warn.textContent = '非法格名将被忽略：' + bad.join(' ') + '（格名形如 A1..N11；整类都非法时点「运行仿真」会被拦下）';
+    warn.textContent = parts.join('；');
   } else warn.style.display = 'none';
 }
 
 /** ★ t26-L1：哪一类"填了东西但一格合法都没有"（这种必须拦下，不能让宿主宰成"没改点位"）。 */
 function fieldInputErrors() {
   var out = [];
-  ['mines', 'obstacles', 'bridges'].forEach(function (key) {
+  ['mines', 'obstacles', 'bridges', 'targets'].forEach(function (key) {
     var raw = String($(key).value).split(/[\s,;|]+/).map(function (item) { return item.trim(); })
       .filter(function (item) { return item !== ''; });
     if (raw.length && parseCells($(key).value).length === 0) out.push({ key: key, raw: raw });
@@ -905,7 +972,7 @@ function fieldInputErrors() {
 /** 被忽略的非法条目（部分非法时给出"已忽略 …"提示；全非法走 fieldInputErrors 拦截）。 */
 function droppedSummary() {
   var out = [];
-  ['mines', 'obstacles', 'bridges'].forEach(function (key) {
+  ['mines', 'obstacles', 'bridges', 'targets'].forEach(function (key) {
     String($(key).value).split(/[\s,;|]+/).forEach(function (item) {
       var cell = item.trim();
       if (cell !== '' && !FIELD_CELL_RE.test(cell.toUpperCase())) out.push(key + ':' + cell);
@@ -913,20 +980,161 @@ function droppedSummary() {
   });
   return out.join(' ');
 }
+/* ── ★ t6：棋盘拖拽编辑（palette → 落格校验 → 同步只读镜像）─────────────────────
+   命中层：elementFromPoint + closest('[data-cell]')（基格 rect 渲染时带 data-cell；
+   装饰层在页面 CSS 里 pointer-events:none，障/靶板/隔板 rect 显式关掉）。
+   数据真源仍是只读 textarea 镜像：落格只改 value，再走既有 refreshFieldHints/renderMap/
+   fieldFromForm 通路 —— 「运行仿真」即用新点位 body.field 走宿主 override + plan_route 重规划。 */
+var PIECE_LABEL = { mines: '雷', obstacles: '障', targets: '靶', bridges: '通' };
+var dragKey = '';
+var dragGhost = null;
+var lastDropAt = 0;                                 // 拖放结束时间戳：抑制其后的那次误点被当成移除
+
+function pieceLabel(key) { return PIECE_LABEL[key] || key; }
+/** 该格当前被哪类棋子占据（'mines'|'obstacles'|'bridges'|'targets'，空 = 无）。 */
+function occupiedBy(cell, lists) {
+  var keys = ['mines', 'obstacles', 'bridges', 'targets'];
+  for (var i = 0; i < keys.length; i += 1) {
+    if ((lists[keys[i]] || []).indexOf(cell) !== -1) return keys[i];
+  }
+  return '';
+}
+/** 禁落格：起点/终点/无人机点（map.yaml 注释四黄框 N10/N5/N8/M2，取真源而非写死）。 */
+function forbiddenCell(cell) {
+  if (!FIELD || !FIELD.ok) return false;
+  return cell === FIELD.start || cell === FIELD.end
+    || cell === (FIELD.drone && FIELD.drone.takeoff) || cell === (FIELD.drone && FIELD.drone.land);
+}
+/** 隔板同侧（行 1~6 上半场 / 7~11 下半场）—— 靶板是实体跨格板，不能骑缝在隔板上。 */
+function sameHalf(a, b) {
+  var hi = (FIELD && FIELD.barrier) ? FIELD.barrier.rowHi : 6;
+  return (Number(String(a).slice(1)) <= hi) === (Number(String(b).slice(1)) <= hi);
+}
+/** 靶的第二格：右/下/左/上取第一个「合法 + 同侧 + 非禁落 + 不被异类占据」的空格。 */
+function pickPartner(cell, lists) {
+  var ci = String(cell).charCodeAt(0) - 65;
+  var row = Number(String(cell).slice(1));
+  var cand = [[ci + 1, row], [ci, row + 1], [ci - 1, row], [ci, row - 1]];
+  for (var i = 0; i < cand.length; i += 1) {
+    var name = String.fromCharCode(65 + cand[i][0]) + cand[i][1];
+    if (!FIELD_CELL_RE.test(name) || name === cell || forbiddenCell(name)) continue;
+    if (!sameHalf(cell, name)) continue;
+    var occ = occupiedBy(name, lists);
+    if (occ && occ !== 'targets') continue;          // 靶旧对整对替换 ⇒ 其原格视为可用
+    return name;
+  }
+  return '';
+}
+function setCells(key, cells) { $(key).value = cells.join(' '); }
+function afterFieldChange() { refreshFieldHints(); renderMap(); }
+
+/** 落格（拖拽终点）：按规格 §A.2 硬拒 + 靶=相邻两格整对合并。 */
+function placePiece(key, cell) {
+  if (!FIELD || !FIELD.ok) return false;
+  if (!FIELD_CELL_RE.test(cell)) { message($('runMsg'), 'bad', '非法格名 ' + cell + '（格名形如 A1..N11）'); return false; }
+  if (forbiddenCell(cell)) { message($('runMsg'), 'bad', cell + ' 是起点/终点/无人机点，禁落棋子'); return false; }
+  var lists = fieldLists();
+  var occ = occupiedBy(cell, lists);
+  if (occ === key) {
+    message($('runMsg'), 'ok', cell + ' 已有' + pieceLabel(key)
+      + (key === 'targets' ? '（拖到其他空格可整对换位）' : ''));
+    return true;
+  }
+  if (occ) { message($('runMsg'), 'bad', cell + ' 已被' + pieceLabel(occ) + '占据（一格至多一类棋子）'); return false; }
+  if (key === 'bridges' && String(cell)[0] !== 'K') { message($('runMsg'), 'bad', '桥洞只能落 K 列（其余列不是桥）'); return false; }
+  if (key === 'targets') {
+    var partner = pickPartner(cell, lists);
+    if (!partner) { message($('runMsg'), 'bad', '找不到与 ' + cell + ' 横竖相邻且同侧的空格放靶板另一半（靶须整对相邻）'); return false; }
+    setCells('targets', parseCells(cell + ' ' + partner));   // 整对替换（拖任一格另一格跟随保相邻）
+    afterFieldChange();
+    message($('runMsg'), 'ok', '靶板换位 → ' + cell + '+' + partner + '（点「运行仿真」即重规划）');
+    return true;
+  }
+  setCells(key, parseCells((lists[key] || []).concat([cell]).join(' ')));
+  afterFieldChange();
+  message($('runMsg'), 'ok', pieceLabel(key) + ' 已放到 ' + cell + '（点「运行仿真」即按新点位重规划）');
+  return true;
+}
+/** 点棋盘已有棋子 = 移除；靶整对移除但阻止清到 0 枚（恰 2 格硬约束 + 防渲染回落循环）。 */
+function removeAt(cell) {
+  if (!FIELD || !FIELD.ok) return;
+  var lists = fieldLists();
+  var key = occupiedBy(cell, lists);
+  if (!key) return;
+  if (key === 'targets') {
+    message($('runMsg'), 'bad', '靶板至少留 1 枚（两格整对）—— 直接拖「靶」棋子整对换位');
+    return;
+  }
+  setCells(key, lists[key].filter(function (c) { return c !== cell; }));
+  afterFieldChange();
+  message($('runMsg'), 'ok', pieceLabel(key) + ' 已移除 ' + cell
+    + (lists[key].length ? '' : '（该类已清空：本次不覆盖，按默认图跑）'));
+}
+function cellFromPoint(x, y) {
+  var node = document.elementFromPoint ? document.elementFromPoint(x, y) : null;
+  if (!node || !node.closest) return '';
+  var hit = node.closest('[data-cell]');
+  return hit ? (hit.getAttribute('data-cell') || '') : '';
+}
+function startDrag(key, event) {
+  if (!FIELD || !FIELD.ok) return;
+  dragKey = key;
+  if (!dragGhost) {                                 // 懒创建：只在真实浏览器事件里走到（测试桩不触发）
+    dragGhost = document.createElement('div');
+    dragGhost.className = 'dragGhost';
+    document.body.appendChild(dragGhost);
+  }
+  dragGhost.textContent = pieceLabel(key) + '（拖到棋盘格放下）';
+  dragGhost.style.display = 'block';
+  onDragMove(event);
+  document.addEventListener('pointermove', onDragMove);
+  document.addEventListener('pointerup', onDragUp);
+  if (event.preventDefault) event.preventDefault();
+}
+function onDragMove(event) {
+  if (!dragGhost) return;
+  dragGhost.style.left = (event.clientX + 12) + 'px';
+  dragGhost.style.top = (event.clientY + 12) + 'px';
+}
+function onDragUp(event) {
+  document.removeEventListener('pointermove', onDragMove);
+  document.removeEventListener('pointerup', onDragUp);
+  var key = dragKey; dragKey = '';
+  if (dragGhost) dragGhost.style.display = 'none';
+  lastDropAt = Date.now();
+  var cell = cellFromPoint(event.clientX, event.clientY);
+  if (key && cell) placePiece(key, cell);
+}
+
 function loadField() {
   return api('/sim/map').then(function (body) {
     FIELD = body;
-    if (!body.ok) { renderMap(); text($('fieldMeta'), ''); return; }
+    if (!body.ok) { renderMap(); text($('fieldMeta'), ''); return false; }
     $('mines').value = (body.mines || []).join(' ');
     $('obstacles').value = (body.obstacles || []).join(' ');
     $('bridges').value = (body.bridges || []).join(' ');
+    $('targets').value = (body.targets || []).join(' ');   // ★ t6：靶两格镜像一起回填（整图恢复还原棋盘）
     text($('fieldMeta'), '真源 ' + body.source + '（md5 ' + String(body.md5).slice(0, 8) + '）· 可改 '
-      + (body.editable || []).join('/') + '；其余要素（靶/起终/隔板）保持现场值');
+      + (body.editable || []).join('/') + '；其余要素（起终/隔板/无人机点）保持现场值');
     refreshFieldHints();
     renderMap();
+    return true;
   }).catch(function (problem) {
     text($('fieldMeta'), '读场地失败：' + problem.message);
+    return false;
   });
+}
+
+/** ★ t6 恢复默认补丁：同步回填（G1 断言可见）之后异步 GET /sim/map 刷新真源；
+ *   只回填该类，不冲掉用户对其他类的改动。真源刷新失败时保留同步回填的旧值。 */
+function refreshFieldTruth(onlyKey) {
+  return api('/sim/map').then(function (body) {
+    if (!body.ok) return;
+    FIELD = body;
+    if (onlyKey && $(onlyKey)) $(onlyKey).value = (body[onlyKey] || []).join(' ');
+    refreshFieldHints();
+    renderMap();
+  }).catch(function () { /* 真源刷新失败：不打断操作 */ });
 }
 
 /** 拉一次 traj.csv，取 truth 轨迹（每 4 行取一点）+ 位姿（每 125 数据行 = 2.5 s @50 Hz 一个车身）画到场地上。 */
@@ -973,6 +1181,154 @@ function loadTrace(record) {
   }).catch(function () { /* 拉不到就不画轨迹，不影响指标 */ });
 }
 
+/* ── ★ t10（卡4）：运行仿真动画 —— 车比例方块起点循迹 + 渐进路径线（trail）─────────
+   · 数据真源 = 本次 run 的 traj.csv（truth_x/truth_y 真实坐标 → codeToScreen，与格心同口径）；
+     traj 缺失（plan-failed/422、无产物、拉取失败、无有效点）⇒ 回退 record.route（没有则
+     参考路线 FIELD.route）折线，animState 明确标注「回放路线 · traj 缺失」；
+   · 方块尺寸 = 现场真值车长 0.28 m × 车宽 0.135 m（与 carPolygon/CAR_LEN_PX 同一来源：
+     sim.html t28 注释「尺寸 = 现场真值车长 0.28 m × 车宽 0.135 m」）按 GRID.blockM=0.35 m/格
+     （FIELD_GRID_BLOCK）× MAP_S=34 px/格 等比换算 —— 不是固定像素，改格宽/格像素会一起变；
+   · 动画画在 #anim 覆盖层（与 #map 分离、同 viewBox 口径）：renderMap 重写 #map.innerHTML
+     不打断回放；#anim pointer-events:none ⇒ t6 落格命中与 t8 时间线面板互不干扰；
+   · 播完自动停在末点（animFinish），「回放」按钮走 onReplayClick 重播（不重取数据）。 */
+var ANIM = { points: [], mode: '', idx: 0, timer: null, playing: false, lastRecord: null };
+
+/** 回放模式的中文标注（animState 文案共用，回退状态必须可见）。 */
+function animModeLabel() {
+  return ANIM.mode === 'traj' ? '轨迹回放 · traj.csv 真实坐标' : '回放路线 · traj 缺失，按路线折线';
+}
+/** 车比例方块尺寸（px）：真值 0.28×0.135 m × (MAP_S / FIELD_GRID_BLOCK) —— 与 CAR_LEN_PX/CAR_WID_PX 同式。 */
+function animBlockSize() {
+  return { L: 0.28 * MAP_S / FIELD_GRID_BLOCK, W: 0.135 * MAP_S / FIELD_GRID_BLOCK };
+}
+/** traj.csv 文本 → 回放轨迹（屏幕坐标；>240 点等距抽样，末点必保留 —— 只抽稀不改坐标值）。 */
+function animTrackFromCsv(csvText) {
+  var lines = String(csvText || '').split('\n');
+  var head = (lines[0] || '').split(',');
+  var ix = head.indexOf('truth_x'); var iy = head.indexOf('truth_y');
+  if (ix < 0 || iy < 0) return [];
+  var all = [];
+  for (var i = 1; i < lines.length; i += 1) {
+    var parts = lines[i].split(',');
+    if (parts.length <= ix || parts.length <= iy) continue;
+    var x = Number(parts[ix]); var y = Number(parts[iy]);
+    if (!isFinite(x) || !isFinite(y)) continue;
+    all.push(codeToScreen(x, y));                 // 与 cellCenter 同口径（格心）
+  }
+  if (all.length <= 240) return all;
+  var stride = Math.ceil(all.length / 240);
+  var out = [];
+  for (var k = 0; k < all.length; k += stride) out.push(all[k]);
+  if (out.length && out[out.length - 1] !== all[all.length - 1]) out.push(all[all.length - 1]);
+  return out;
+}
+/** 回退轨迹：本次 run 的重规划路线 → 没有则参考路线；格序列 → 真实路径折线（补中间格心）。 */
+function animRouteFallback(record) {
+  var tokens = (record && record.route) || (FIELD && FIELD.route) || [];
+  var cells = tokens.map(tokenCell).filter(Boolean);
+  return routePolyline(cells);
+}
+/** 画一帧：渐进 trail 折线（0..idx）+ 按行进方向旋转的车比例方块。 */
+function animFrame(idx) {
+  var layer = $('anim');
+  if (!layer) return;
+  var pts = ANIM.points;
+  if (!pts.length) { layer.innerHTML = ''; return; }
+  var i = Math.max(0, Math.min(idx, pts.length - 1));
+  var p = pts[i];
+  var prev = pts[Math.max(0, i - 1)];
+  var next = pts[Math.min(pts.length - 1, i + 1)];
+  var ang = Math.atan2(next[1] - prev[1], next[0] - prev[0]) * 180 / Math.PI;
+  var size = animBlockSize();
+  var trail = pts.slice(0, i + 1).map(function (pt) { return pt[0].toFixed(1) + ',' + pt[1].toFixed(1); }).join(' ');
+  var W = ((FIELD && FIELD.grid) ? FIELD.grid.cols : 14) * MAP_S + 1;   // 与 renderMap 的 viewBox 同口径
+  var H = ((FIELD && FIELD.grid) ? FIELD.grid.rows : 11) * MAP_S + 1;
+  var trailColor = ANIM.mode === 'traj' ? '#2f9e44' : '#e8590c';
+  layer.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
+    + '<polyline points="' + trail + '" fill="none" stroke="' + trailColor + '" stroke-width="2.2"'
+    + ' stroke-linejoin="round" stroke-linecap="round"/>'
+    + '<rect x="' + (p[0] - size.L / 2).toFixed(2) + '" y="' + (p[1] - size.W / 2).toFixed(2)
+    + '" width="' + size.L.toFixed(2) + '" height="' + size.W.toFixed(2)
+    + '" fill="#14161a" fill-opacity="0.88" stroke="' + trailColor + '" stroke-width="1.4"'
+    + ' transform="rotate(' + ang.toFixed(1) + ' ' + p[0].toFixed(2) + ' ' + p[1].toFixed(2) + ')"/>'
+    + '</svg>';
+}
+function stopAnimTimer() {
+  if (ANIM.timer) { clearInterval(ANIM.timer); ANIM.timer = null; }
+}
+function stopReplay() {
+  stopAnimTimer();
+  ANIM.playing = false;
+}
+/** 播放当前 ANIM.points：idx 从 0（起点格）推进到末点（终点）后自动停。 */
+function animPlay() {
+  stopAnimTimer();
+  if (!ANIM.points.length) { text($('animState'), '无可回放数据（无轨迹也无路线）'); return; }
+  ANIM.playing = true;
+  ANIM.idx = 0;
+  animFrame(0);
+  text($('animState'), '回放中 · ' + animModeLabel()
+    + ' · 车体 0.28×0.135 m 真值按 ' + FIELD_GRID_BLOCK + ' m/格等比换算');
+  if (ANIM.points.length < 2) { animFinish(); return; }
+  var stride = Math.max(1, Math.ceil(ANIM.points.length / 120));        // ≈120 帧，6 s 上限
+  var frames = Math.ceil(ANIM.points.length / stride);
+  var interval = Math.max(25, Math.min(120, Math.floor(6000 / frames)));
+  ANIM.timer = setInterval(function () {
+    ANIM.idx = Math.min(ANIM.idx + stride, ANIM.points.length - 1);
+    animFrame(ANIM.idx);
+    if (ANIM.idx >= ANIM.points.length - 1) animFinish();
+  }, interval);
+}
+function animFinish() {
+  stopAnimTimer();
+  ANIM.playing = false;
+  var replay = $('replay'); if (replay) replay.disabled = false;
+  text($('animState'), '回放完成 · 停在终点（' + animModeLabel() + ' · ' + ANIM.points.length + ' 点）· 点「回放」可重播');
+}
+/** 装载回放数据并开播：traj.csv 真实坐标优先，任何缺失走路线折线回退（状态可见）。 */
+function startReplay(record) {
+  stopReplay();
+  ANIM.lastRecord = record || null;
+  var layer = $('anim'); if (layer) layer.innerHTML = '';
+  var replay = $('replay'); if (replay) replay.disabled = true;
+  text($('animState'), '回放数据加载中…');
+  if (!record || !record.id) {                    // 失败/plan-failed 无产物：直接回退路线折线
+    beginReplay(animRouteFallback(record), 'route');
+    return Promise.resolve('route');
+  }
+  var url = artifactUrl(record.id + '/traj.csv');
+  countArtifact('轨迹回放 ' + record.id);
+  return fetch(url).then(function (response) {
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.text();
+  }).then(function (csvText) {
+    var pts = animTrackFromCsv(csvText);
+    if (pts.length < 2) throw new Error('traj 无有效点');
+    beginReplay(pts, 'traj');
+    return 'traj';
+  }).catch(function () {
+    beginReplay(animRouteFallback(record), 'route');   // traj 缺失 ⇒ 回退 + animState 标注
+    return 'route';
+  });
+}
+function beginReplay(pts, mode) {
+  ANIM.points = pts || [];
+  ANIM.mode = mode || 'route';
+  var replay = $('replay');
+  if (!ANIM.points.length) {
+    if (replay) replay.disabled = true;
+    text($('animState'), '无可回放数据（无轨迹也无路线）');
+    return;
+  }
+  if (replay) replay.disabled = false;
+  animPlay();
+}
+/** 「回放」按钮：有数据直接重播（不重取 traj）；没有则按 lastRecord 重新装载。 */
+function onReplayClick() {
+  if (ANIM.points.length) { animPlay(); return; }
+  if (ANIM.lastRecord) startReplay(ANIM.lastRecord);
+}
+
 /** 结果区里的横置 traj.svg（旋转 90°；宽高比在载入时按 naturalWidth/Height 定）。 */
 function rotSvgBox(src) {
   return '<div class="rot90" id="rotBox">'
@@ -1005,10 +1361,12 @@ function artifactUrl(relative) {                     // 只在 openShot / 结果
   return API + '/sim/artifact?path=' + encodeURIComponent(relative);
 }
 /**
- * 记一次"页面发起的 artifact 图/数据请求"。**只有三个地方会调它**：
- *   ① openShot() 取历史图（本卡的功能；同一 run 再点走缓存 ⇒ 不再计数）；
+ * 记一次"页面发起的 artifact 图/数据请求"。**只有四个地方会调它**：
+ *   ① openShot() 取历史图（同一 run 再点走缓存 ⇒ 不再计数）；
  *   ② renderResult() 画本局结果预览的 traj.svg（跑完一次 = 一次，非历史预取）；
- *   ③ loadTrace() 拉本局 traj.csv（仅在勾了「本次轨迹」时）。
+ *   ③ loadTrace() 拉本局 traj.csv（仅在勾了「本次轨迹」时）；
+ *   ④ startReplay() 拉本局 traj.csv 做轨迹回放（t10；每次「运行仿真」成功后一次，
+ *     「回放」重播走内存数据不再取 —— 同样只在显式动作后发生）。
  * 历史渲染循环（renderHistory）与页面初始化**一处都不调** —— 这就是"不预取"的可判定证据。
  */
 function countArtifact(what) {
@@ -1127,6 +1485,10 @@ function runSimulation() {
   var body = readForm();
   var button = $('run');
   button.disabled = true; $('check').disabled = true; $('refresh').disabled = true;
+  // ★ t10：清掉上一局回放（停表 + 清覆盖层），完成后自动播新一局
+  stopReplay();
+  var layer0 = $('anim'); if (layer0) layer0.innerHTML = '';
+  text($('animState'), '仿真运行中…完成后自动回放');
   message($('runMsg'), 'ok', '仿真运行中…（本机约 1–3 分钟，跑完自动刷新历史）');
   $('result').innerHTML = '<span style="color:var(--dim)">运行中…</span>';
   api('/sim/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -1136,6 +1498,7 @@ function runSimulation() {
       TRACE = { route: (payload.record && payload.record.route) || [], points: [], poses: [] };
       renderMap();
       if ($('showTrace').checked) loadTrace(payload.record);
+      startReplay(payload.record);                 // ★ t10：本次 run 真实轨迹动画（traj 缺失自动回退路线折线）
       var m = payload.record && payload.record.metrics || {};
       var dropped = droppedSummary();
       message($('runMsg'), 'ok', '完成：exitCode=' + payload.record.exitCode + '，用时 ' + num(payload.record.seconds, 1) +
@@ -1149,7 +1512,11 @@ function runSimulation() {
       var hint = problem.status === 409 ? '（上一次还在跑）'
         : (problem.status === 422 ? '（改点位后规划/校验未过：见任务栏与台账 plan 字段）' : '');
       message($('runMsg'), 'bad', '仿真失败：' + problem.message + hint);
-      if (problem.status === 422) return loadHistory();     // plan-failed 也进了台账
+      if (problem.status === 422) {
+        // ★ t10：plan-failed 也回放 —— 无 traj ⇒ 回退路线折线并标注「回放路线」
+        startReplay(problem.body && problem.body.record ? problem.body.record : null);
+        return loadHistory();                      // plan-failed 也进了台账
+      }
     })
     .then(function () { button.disabled = false; $('check').disabled = false; $('refresh').disabled = false; });
 }
@@ -1178,8 +1545,8 @@ $('check').addEventListener('click', runChecks);
 $('refresh').addEventListener('click', function () {
   loadHistory().then(function (count) { message($('runMsg'), 'ok', '历史已刷新（' + count + ' 条）'); });
 });
-// ★ t25：改点位即时预览 + 恢复默认 + 地图叠加开关
-['mines', 'obstacles', 'bridges'].forEach(function (key) {
+// ★ t25：改点位即时预览 + 恢复默认 + 地图叠加开关（t6：四类含 targets；文本框为只读镜像）
+['mines', 'obstacles', 'bridges', 'targets'].forEach(function (key) {
   $(key).addEventListener('input', function () { refreshFieldHints(); renderMap(); });
 });
 // ★ t28-F3：靶板朝向是 <select>（'' = 跟随地图）——必须绑 change（不是 input），否则改完地图不重绘、提示不刷新
@@ -1197,7 +1564,25 @@ Array.prototype.forEach.call(document.querySelectorAll('button[data-reset]'), fu
       $(key).value = (FIELD[key] || []).join(' ');
       refreshFieldHints(); renderMap();
       message($('runMsg'), 'ok', key + ' 已恢复现场默认值');
+      refreshFieldTruth(key);             // ★ t6：同步回填（上面文案 G1 断言可见）后异步刷新真源，只回填该类
     }
+  });
+});
+// ★ t6：palette 拖拽 + 棋盘点选移除 + 整图恢复（桩安全：querySelectorAll 空集返回 []、$() 自动建桩、
+//   顶层不 createElement —— 幽灵元素只在 startDrag 的真实事件里懒创建）
+Array.prototype.forEach.call(document.querySelectorAll('.piece[data-piece]'), function (piece) {
+  piece.addEventListener('pointerdown', function (event) { startDrag(piece.getAttribute('data-piece'), event); });
+});
+$('map').addEventListener('click', function (event) {
+  if (Date.now() - lastDropAt < 350) return;         // 拖放结束的那次误点不当成移除
+  var node = event.target;
+  var hit = node && node.closest ? node.closest('[data-cell]') : null;
+  if (hit) removeAt(hit.getAttribute('data-cell'));
+});
+$('resetAll').addEventListener('click', function () {   // 整图恢复：重读 /sim/map 全量还原棋盘
+  loadField().then(function (ok) {
+    message($('runMsg'), ok ? 'ok' : 'bad',
+      ok ? '整图恢复：已重读 /sim/map 并还原棋盘' : '重读 /sim/map 失败，棋盘未还原');
   });
 });
 $('showRoute').addEventListener('change', renderMap);
@@ -1205,6 +1590,8 @@ $('showTrace').addEventListener('change', function () {
   if ($('showTrace').checked && TRACE) renderMap();
   else renderMap();
 });
+// ★ t10（卡4）：回放按钮（重播当前回放数据）—— 只写 #anim 覆盖层，不碰 #map/时间线面板
+$('replay').addEventListener('click', onReplayClick);
 // ★ t27：看图 modal 的关法与竖版切换
 $('shotClose').addEventListener('click', closeShot);
 $('shotPortrait').addEventListener('change', function () { if (shotCurrent) renderShot(shotCurrent); });
@@ -1217,6 +1604,69 @@ document.addEventListener('keydown', function (event) {
 window.addEventListener('error', function (event) {
   message($('runMsg'), 'bad', '页面脚本异常：' + (event && event.message ? event.message : '未知'));
 });
+
+// ★ t8（卡3）：空地协同时间线 —— 双轨并行推进（无人机逐点扫描 vs 小车先验行驶）。
+//   纯 innerHTML，不碰 #map；data-track 双轨、data-role 标记并行窗与小车进度条。
+function renderDroneTimeline(payload) {
+  var tl = (payload && payload.timeline) || [];
+  var record = (payload && payload.record) || {};
+  var m = record.metrics || {};
+  var finishT = Number(m.time_s) || 0;
+  var landT = 0;
+  tl.forEach(function (event) {
+    if (event.actor === 'drone' && event.event === 'land') landT = Number(event.t) || 0;
+  });
+  var span = Math.max(finishT, landT, 1);
+  var parallel = (finishT > 0 && landT > 0) ? Math.min(finishT, landT) : Math.max(finishT, landT);
+  var html = '<div class="kv">';
+  html += '<dt>并行窗 s</dt><dd data-role="parallel">' + esc(num(parallel, 1)) + '</dd>';
+  html += '<dt>小车完赛 s</dt><dd data-role="car-finish">' + esc(num(finishT, 1)) + '</dd>';
+  html += '<dt>无人机降落 s</dt><dd data-role="drone-land">' + esc(num(landT, 1)) + '</dd>';
+  html += '<dt>重规划 / 确认</dt><dd>' + esc(String(payload && payload.reroutes || 0)) + ' / ' + esc(String(payload && payload.confirmed || 0)) + '</dd>';
+  html += '<dt>车状态</dt><dd>' + esc(String(record.status || '—')) + ' · ' + esc(String(record.id || '')) + '</dd>';
+  html += '</div>';
+  // 双轨进度条：宽度 = 该轨事件终点 / 时间跨度（data-role 供断言与样式定位）
+  html += '<div class="tlBars" style="margin:6px 0">'
+    + '<div data-track="drone" data-role="drone-progress" style="height:6px;background:#4d8fd6;width:' + Math.round(Math.min(landT / span, 1) * 100) + '%"></div>'
+    + '<div data-track="car" data-role="car-progress" style="height:6px;background:#2f7fd0;width:' + Math.round(Math.min(finishT / span, 1) * 100) + '%"></div>'
+    + '</div>';
+  html += '<div class="scroll" style="max-height:220px"><table><tbody>';
+  tl.forEach(function (event) {
+    var track = event.actor === 'drone' ? 'drone' : 'car';
+    html += '<tr data-track="' + track + '"><td class="num">' + esc(num(event.t, 1)) + 's</td>'
+      + '<td>' + (track === 'drone' ? '无人机' : '小车') + '</td>'
+      + '<td>' + esc(String(event.event || '')) + '</td>'
+      + '<td>' + esc(String(event.cell || '')) + '</td>'
+      + '<td>' + esc(String(event.detail || '')) + '</td></tr>';
+  });
+  html += '</tbody></table></div>';
+  $('droneTimeline').innerHTML = html;
+}
+function runDroneSimulation() {
+  var body = readForm();
+  body.label = (body.label && body.label !== 'run') ? body.label + '-drone' : 'drone';
+  var button = $('droneRun');
+  button.disabled = true;
+  message($('droneMsg'), 'ok', '空地协同运行中…（小车先验开跑 + 无人机扫描，本机约 1–3 分钟）');
+  $('droneTimeline').innerHTML = '<span style="color:var(--dim)">运行中…</span>';
+  api('/sim/drone/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function (payload) {
+      renderDroneTimeline(payload);
+      var m = (payload.record && payload.record.metrics) || {};
+      message($('droneMsg'), 'ok', '完成：重规划 ' + payload.reroutes + ' 次、确认 ' + payload.confirmed
+        + ' 次，小车' + (m.finished === true ? '跑完全程' : '状态 ' + (payload.record.status || '—'))
+        + '（情报未到/被拒一律走先验默认，见时间线）');
+      return loadHistory();
+    })
+    .catch(function (problem) {
+      $('droneTimeline').innerHTML = '<span style="color:var(--dim)">未完成。</span>';
+      message($('droneMsg'), 'bad', '空地协同失败：' + problem.message
+        + (problem.status === 409 ? '（上一次还在跑）' : problem.status === 422 ? '（规划/校验未过，见台账）' : ''));
+      if (problem.status === 422) return loadHistory();
+    })
+    .then(function () { button.disabled = false; });
+}
+$('droneRun').addEventListener('click', runDroneSimulation);
 
 // ★ t27：深链 `#view=<run id>` → 打开该 run 的图（**显式动作**，不是预取；普通打开仍是 0 请求）
 function openFromHash() {

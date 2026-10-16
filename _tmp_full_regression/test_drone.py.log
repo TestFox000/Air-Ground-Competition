@@ -1,0 +1,92 @@
+
+=== ① 合法 bridge_passable → P_DRONE.bridge_of('lower') == 'K9' ===
+  PASS  P_DRONE 类型是 DroneState   [DroneState]
+  PASS  bridge_of('lower') == 'K9'   [got 'K9']
+  PASS  半场不匹配时返回 None（'upper' 没有情报）
+  PASS  confidence 落盘 0.92   [got 0.92]
+  PASS  bridge_ts == 本拍时钟   [got 1000.2 now=1000.2]
+  PASS  心跳让 online=True
+  PASS  消息计数 messages == 2   [got 2]
+  PASS  last_type == 'bridge_passable'   [got 'bridge_passable']
+  PASS  发过 EV_BRIDGE_INFO（Mission 用它选穿洞格）
+  PASS  便捷直读 task.bridge_of('lower') 同值
+
+=== ② 心跳超时 → online=False 且只发一次 EV_DRONE_OFFLINE（再跑 20 拍不重复） ===
+  PASS  首次心跳只发 ONLINE、不发 OFFLINE   [events=[]]
+  PASS  2.0 s 无心跳时仍在线   [silent=2.0000000000004547]
+  PASS  未超时前不发离线事件
+  PASS  超时后 online=False
+  PASS  发出 1 条 EV_DRONE_OFFLINE   [got 1]
+  PASS  事件带 silent_s / timeout_s 证据   [got {'silent_s': 3.0, 'timeout_s': 3.0}]
+  PASS  ★ 再跑 20 拍不重复发（只在状态变化时发一次）   [got 0 条]
+  PASS  持续离线时 P_DRONE.online 保持 False
+
+=== ③ 恢复 → EV_DRONE_ONLINE ===
+  PASS  恢复发出 1 条 EV_DRONE_ONLINE   [got 1]
+  PASS  online 回到 True
+  PASS  事件带离线时长 silent_s >= 3 s（★ 顺序 bug 回归：不能恒为 0）   [got {'silent_s': 7.4}]
+  PASS  在线期间再收心跳不重复发 ONLINE
+
+=== ④ 情报过期 → bridge_of() 返回 None ===
+  PASS  新鲜时可用（29 s < info_stale_s 30 s）
+  PASS  过期时返回 None（31 s > 30 s）
+  PASS  此刻任务直读也为 None（内部用同一个判据）
+  PASS  情报含未在地图内的格名（K4 在本地图里）也能落地——无人机是权威   [got 'K4']
+
+=== ⑤ 非法 JSON / 未知 type / 缺字段 / 非字符串 → 不崩、记日志 ===
+  PASS  非法 JSON 计数 bad_messages >= 2（含非字符串）   [got 2]
+  PASS  未知 type 被登记（不是静默丢弃）   [got {'weather_report': 1}]
+  PASS  缺字段计数 == 3（半场非法 / 缺 block / target_zone 缺 blocks）   [got 3]
+  PASS  合法消息计数 = 解析成功的 JSON 对象（4 条 bridge_passable + 1 条 target_zone）   [got 5]
+  PASS  半场取值的合法性仍是硬判据（'middle' 被拒，保留上一次合法半场）   [got 'lower']
+  PASS  ★ 不校验'格名在不在本地地图'：Z9 在场地外，但无人机是权威 → 不丢   [got 'Z9']
+  PASS  未知 type 也尝试回执（带 seq）无异常
+  PASS  坏消息之后任务照常跑（P_DRONE 仍在更新）
+
+=== ⑥ target_zone 与本地 map 不一致 → field_diff 有内容 ===
+  PASS  一致时 field_diff 为空   [got ()]
+  PASS  一致时也不发 EV_FIELD_VERIFY
+  PASS  畸形条目计入 missing_fields（不静默）   [got 1]
+  PASS  畸形条目被剔除后剩下的 {G11} 与本地 {F11,G11} 确实不同 → 如实报差异   [got ("target_zone:仅无人机[] 仅本地['F11']（无人机 ['G11'] / 本地 ['F11', 'G11']）",)]
+  PASS  不一致时 field_diff 有 1 条   [got ("target_zone:仅无人机['H12'] 仅本地['F11']（无人机 ['G11', 'H12'] / 本地 ['F11', 'G11']）",)]
+  PASS  差异文本含两侧证据（仅无人机 / 仅本地）   [got "target_zone:仅无人机['H12'] 仅本地['F11']（无人机 ['G11', 'H12'] / 本地 ['F11', 'G11']）"]
+  PASS  发出 EV_FIELD_VERIFY（tag/remote/local 齐备）   [got {'tag': 'target_zone', 'remote': ['G11', 'H12'], 'local': ['F11', 'G11'], 'only_remote': ['H12'], 'only_local': ['F11']}]
+
+=== ⑥b field_verify：雷/障差异同样记进 field_diff ===
+  PASS  雷一致 + 障不一致 → 只多 1 条差异   [got ("target_zone:仅无人机['H12'] 仅本地['F11']（无人机 ['G11', 'H12'] / 本地 ['F11', 'G11']）", "field_verify.obstacles:仅无人机['Z3'] 仅本地['B3']（无人机 ['D1', 'Z3'] / 本地 ['B3', 'D1']）")]
+  PASS  雷一致时不产生差异（只有 obstacles 那条）   [got ("target_zone:仅无人机['H12'] 仅本地['F11']（无人机 ['G11', 'H12'] / 本地 ['F11', 'G11']）", "field_verify.obstacles:仅无人机['Z3'] 仅本地['B3']（无人机 ['D1', 'Z3'] / 本地 ['B3', 'D1']）")]
+  PASS  障差异定位到 field_verify.obstacles   [got "field_verify.obstacles:仅无人机['Z3'] 仅本地['B3']（无人机 ['D1', 'Z3'] / 本地 ['B3', 'D1']）"]
+  PASS  差异列表有上限（diff_max=8）   [got 2]
+
+=== ⑦ 车状态上报被发出（合法 JSON、type=='car_state'） ===
+  PASS  drone_out 非空   [got ['{"type":"car_state","block":"N10","yaw_deg":90.0,"phase":"DRIVE","ts":1000.2,"seq":1}']]
+  PASS  是合法 JSON 且 type == 'car_state'   [got {'type': 'car_state', 'block': 'N10', 'yaw_deg': 90.0, 'phase': 'DRIVE', 'ts': 1000.2, 'seq': 1}]
+  PASS  block 从 P_POSE 推出（N10）   [got {'type': 'car_state', 'block': 'N10', 'yaw_deg': 90.0, 'phase': 'DRIVE', 'ts': 1000.2, 'seq': 1}]
+  PASS  含 yaw_deg（地图朝向 90°）   [got 90.0]
+  PASS  含 phase（从 P_MISSION_PHASE 读）   [got DRIVE]
+  PASS  含 ts 与 seq   [got {'type': 'car_state', 'block': 'N10', 'yaw_deg': 90.0, 'phase': 'DRIVE', 'ts': 1000.2, 'seq': 1}]
+  PASS  按 drone.car_state_period_s 节流（0.8 s 只多 1 条）   [got 1 条]
+  PASS  阶段变化立即补发一条（不等周期）   [got {"type":"car_state","block":"N10","yaw_deg":90.0,"phase":"STOP","ts":1001.05,"seq":3}]
+
+=== ⑦b 收到带 seq 的消息 → 回 ack ===
+  PASS  发出 1 条 ack   [got [{'type': 'ack', 'of': 1234, 'ts': 1000.2}]]
+  PASS  ack.of == 1234   [got [{'type': 'ack', 'of': 1234, 'ts': 1000.2}]]
+  PASS  没带 seq 的消息不回执（省链路）   [got ['{"type":"car_state","block":"N10","yaw_deg":90.0,"phase":"DRIVE","ts":1000.2,"seq":1}']]
+
+=== ⑧ drone.enabled=False → 整任务空转（不读不发不写） ===
+  PASS  没有写 P_DRONE
+  PASS  没有发任何车状态   [got []]
+  PASS  没有消费收件箱（消息还在）
+  PASS  黑盒写入次数没变（一个键都没写）   [writes 2 → 2]
+  PASS  没有发上线/离线事件
+
+=== ⑨ 本地地图三级来源 ===
+  PASS  默认路径指向 <repo>/config/map.yaml 且存在   [got D:\User\Desktop\比赛存档\v1\dzrobot_v2\config\map.yaml]
+  PASS  不传 local_map → 自动读仓库默认地图（loaded=True）   [got True source=D:\User\Desktop\比赛存档\v1\dzrobot_v2\config\map.yaml]
+  PASS  靶区从 map.yaml 读出 = {E5,F5}（官方图跨格靶板）   [got ['E5', 'F5']]
+  PASS  雷 8 个、障 8 个被读出   [mines=8 obstacles=8]
+  PASS  构造参数优先（显式注入覆盖文件）   [got ['A1']]
+
+======================================================================
+结果：66/66 全部通过 ✅
+======================================================================
