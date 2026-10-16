@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 
 from .car_adapter import CarCommands, adapt
 from .field_frame import LETTERS, CellRef
-from .mission_router import _MID_BOUNDARY, plan_route
+from .mission_router import _MID_BOUNDARY, plan_route, plan_route_zoned
 from .world_model import WorldSnapshot
 
 # 门控 reason 是黑匣子事件流契约（route.blocked 的 reason 字段），字面量
@@ -51,6 +51,7 @@ def build_mission(
     soft_cap_s: float | None = None,
     crossing_penalty: float = 0.0,
     tunnel_dirs: dict[str, str] | None = None,
+    zone_order: tuple[str, ...] | None = None,
 ) -> CarCommands:
     """态势 -> reset + route 两条命令。
 
@@ -69,8 +70,8 @@ def build_mission(
     gates = frozenset(_parse_name(name) for name in cross_gates) or None
     if target_track is not None:
         snapshot = _inject_track(snapshot, target_track, target_blue_face)
-    ordered = plan_route(
-        snapshot, start, goal, gates, mid_boundary,
+    ordered = plan_route_zoned(
+        snapshot, start, goal, zone_order, cross_gates=gates, mid_boundary=mid_boundary,
         start_heading=start_heading, final_heading=final_heading,
         crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
     )
@@ -92,8 +93,8 @@ def build_mission(
     shed_snapshot = replace(snapshot, targets=tuple(
         replace(t, is_blue=False) for t in snapshot.targets))
     try:
-        ordered2 = plan_route(
-            shed_snapshot, start, goal, gates, mid_boundary,
+        ordered2 = plan_route_zoned(
+            shed_snapshot, start, goal, zone_order, cross_gates=gates, mid_boundary=mid_boundary,
             start_heading=start_heading, final_heading=final_heading,
             crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
         )

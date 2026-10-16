@@ -838,6 +838,110 @@ def plan_route(
     return best_route
 
 
+_ZONE_NAMES = ("西", "东南", "东北")
+_CORRIDOR_CROSS = ("A6", "A7", "B6", "B7", "C6", "C7")  # 挡板穿越可用的走廊格（6/7 行界两侧）
+
+
+def _dist(a: CellRef, b: CellRef) -> int:
+    """格间曼哈顿距离（转场启发式用）。"""
+    return abs(a.col - b.col) + abs(a.row - b.row)
+
+
+def plan_route_zoned(
+    snapshot: WorldSnapshot,
+    start: CellRef,
+    goal: CellRef,
+    zone_order: tuple[str, ...] | None,
+    **kwargs,
+) -> tuple[str, ...]:
+    """分区排序规划：按指定区域顺序逐区执行，再缝合为一条路线。
+
+    语义（docs/分区规划与感知约束-20261015.md）：
+    - zone_order=None 时退化为全局 plan_route（向后兼容）；
+    - 区域名限 "西"/"东南"/"东北"（2026-10-15 现场确认的三区）；
+    - 每区内部仍用 plan_route 求该区最优（含雷/隧道/射击位）；
+    - 东南↔东北 之间只经西区走廊格（A6~C7）转场；西区进出自由（C|D 无墙）；
+    - 终点所在区自动排到最后执行（车必须停在终点）；
+    - zone_order 未覆盖所有含必经点的区时报 ValueError（防配置漏区）。
+    """
+    if not zone_order:
+        return plan_route(snapshot, start, goal, **kwargs)
+    mid_boundary = kwargs.get("mid_boundary", _MID_BOUNDARY)
+    unknown = set(zone_order) - set(_ZONE_NAMES)
+    if unknown:
+        raise ValueError(f"zone_order 含未知区域名 {sorted(unknown)}，只支持 {_ZONE_NAMES}")
+
+    # 必经点按区分桶（障碍物全局保留——物理墙处处生效）
+    mine_z: dict[str, list[CellRef]] = {}
+    pas_z: dict[str, list[CellRef]] = {}
+    tgt_z: dict[str, list] = {}
+    for c in snapshot.mines:
+        mine_z.setdefault(_zone_of(c, mid_boundary), []).append(c)
+    for c in snapshot.passable:
+        pas_z.setdefault(_zone_of(c, mid_boundary), []).append(c)
+    for t in snapshot.targets:
+        tgt_z.setdefault(_zone_of(t.cell, mid_boundary), []).append(t)
+
+    have_req = set(mine_z) | set(pas_z) | set(tgt_z)
+    missing = have_req - set(zone_order)
+    if missing:
+        raise ValueError(f"zone_order 漏覆盖区域 {sorted(missing)}：其中的必经点永远不会被执行")
+
+    # 只排有任务的区；终点所在区强制排最后（车必须停在终点）
+    order = [z for z in zone_order if z in have_req]
+    goal_zone = _zone_of(goal, mid_boundary)
+    if goal_zone in order and order[-1] != goal_zone:
+        order.append(order.pop(order.index(goal_zone)))
+        warnings.warn(f"zone_order 已将终点所在区({goal_zone}区)调整到最后执行",
+                      RuntimeWarning, stacklevel=2)
+
+    def pick_transit(cur: CellRef, next_z: str | None) -> CellRef:
+        """中区转场目标格：跨挡板时选西区走廊格（代价最小者），否则直奔下一区最近必经点。"""
+        if next_z is None:
+            return goal
+        next_req = mine_z.get(next_z, []) + pas_z.get(next_z, [])
+        if _zone_of(cur, mid_boundary) != "西" and next_z != "西":
+            # 东南↔东北：必须从西区走廊格转场（D7~N7 挡板不能直穿）
+            best = None
+            for name in _CORRIDOR_CROSS:
+                cc = CellRef(LETTERS.index(name[0]), int(name[1:]) - 1)
+                d = _dist(cur, cc) + min((_dist(cc, r) for r in next_req), default=0)
+                if best is None or (d, cc.name) < (best[0], best[1].name):
+                    best = (d, cc)
+            assert best is not None
+            return best[1]
+        # 涉西区（C|D 无墙）：直奔下一区最近必经点
+        if next_req:
+            return min(next_req, key=lambda r: (_dist(cur, r), r.name))
+        return goal
+
+    parts: list[tuple[str, ...]] = []
+    cur = start
+    for i, z in enumerate(order):
+        last = i == len(order) - 1
+        sub_goal = goal if (last and z == goal_zone) else pick_transit(
+            cur, order[i + 1] if not last else None)
+        sub = WorldSnapshot(
+            snapshot.timestamp_ms,
+            tuple(mine_z.get(z, [])),
+            tuple(pas_z.get(z, [])),
+            snapshot.obstacles,
+            tuple(tgt_z.get(z, [])),
+        )
+        r = plan_route(sub, cur, sub_goal, **kwargs)
+        parts.append(r if not parts else r[1:])
+        cur = CellRef(LETTERS.index(r[-1][0]), int(r[-1][1:]) - 1)  # 路线格名 -> CellRef
+
+    # 终点不在任何已执行的区（终点区无任务）→ 补最后一程
+    if cur != goal:
+        tail = plan_route(
+            WorldSnapshot(snapshot.timestamp_ms, (), (), snapshot.obstacles, ()),
+            cur, goal, **kwargs,
+        )
+        parts.append(tail[1:])
+    return tuple(c for part in parts for c in part)
+
+
 def _norm_dir(a: tuple[int, int], b: tuple[int, int]) -> tuple[int, int]:
     """a→b 位移归一化到最简整数方向，用于共线判断。"""
     dx, dy = b[0] - a[0], b[1] - a[1]

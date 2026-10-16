@@ -83,6 +83,9 @@ class IntegrateNode(Node):
         # 桥洞隧道方向：["K9:E"] 形如 格号:E|W|EW——规则方向=桥顶箭头指向；
         # 缺省（[""]）= 对所有隧道格强制轴向直行（物理约束，无需方向）
         self.declare_parameter("tunnel_dirs", [""])
+        # 分区排序：["东北","西","东南"] 逐区执行（跨挡板自动走西区走廊）；
+        # [""] = 全局 TSP（默认）。区域名限 西/东南/东北。
+        self.declare_parameter("zone_order", [""])
         # 外部朝向补偿（根除绕圈问题）：
         #   heading_bias_source="none"  → 不补偿，保持现状（默认，安全）
         #   heading_bias_source="udp"   → 监听 dzuav 的 0x4002 车位姿帧，
@@ -170,6 +173,7 @@ class IntegrateNode(Node):
                 td[cell.strip()] = d.strip()
         if td:
             self.tunnel_dirs = td
+        self.zone_order = tuple(n.strip() for n in p("zone_order") if n.strip()) or None
         self.heading_bias_source = str(p("heading_bias_source")).strip().lower()
         self.cmd_vel_topic = str(p("cmd_vel_topic"))
         self.align_creep_speed = float(p("align_creep_speed"))
@@ -516,6 +520,7 @@ class IntegrateNode(Node):
                 soft_cap_s=self.time_soft_cap_s,
                 crossing_penalty=self.crossing_penalty,
                 tunnel_dirs=self.tunnel_dirs,
+                zone_order=self.zone_order,
             )
         except (ValueError, IndexError, KeyError) as exc:
             # 规划失败（goal 不可达、桥洞未识别全等）：记日志 + 黑匣子，

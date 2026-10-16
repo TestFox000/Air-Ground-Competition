@@ -86,3 +86,44 @@ def test_zone_helper_west_corridor():
     assert _zone_of(c("C1"), 6) == "西"
     assert _zone_of(c("D6"), 6) == "东南"
     assert _zone_of(c("N7"), 6) == "东北"
+
+
+# ---------------- 分区排序编排（plan_route_zoned） ----------------
+
+
+def _referee_like():
+    """2026-10-15 裁判随机图同款（要素已在渲染复盘中核过）。"""
+    mines = [c(n) for n in ["B6", "B10", "D8", "E1", "F5", "H3", "I6", "I8"]]
+    obstacles = [c(n) for n in ["B2", "B9", "C1", "D11", "E4", "F9", "H11", "I7"]]
+    passable = [c("K2"), c("K8")]
+    return snap(mines=mines, passable=passable, obstacles=obstacles)
+
+
+def test_zoned_order_respected():
+    """东北→西→东南：分区顺序必须被遵守，终点区自动收尾。"""
+    from ag_integrate.mission_router import plan_route_zoned
+    s = _referee_like()
+    r = plan_route_zoned(s, c("N10"), c("N5"), ("东北", "西", "东南"),
+                         start_heading="y", final_heading="y")
+    assert r[0] == "N10" and r[-1] == "N5"
+    # 东北区隧道 K8 先于西区雷 B10，西区雷先于东南区雷 E1
+    assert r.index("K8") < r.index("B10") < r.index("E1")
+    for n in ["B6", "B10", "D8", "E1", "F5", "H3", "I6", "I8", "K2", "K8"]:
+        assert n in r          # 分区执行不漏一个必经点
+
+
+def test_zoned_missing_zone_raises():
+    """zone_order 漏覆盖含必经点的区：必须报错而不是静默跳过。"""
+    from ag_integrate.mission_router import plan_route_zoned
+    s = snap(mines=[c("N9")])           # N9 在东北区
+    with pytest.raises(ValueError, match="漏覆盖"):
+        plan_route_zoned(s, c("A1"), c("A2"), ("东南",))
+
+
+def test_zoned_none_is_global():
+    """zone_order=None 与全局 plan_route 逐格一致（向后兼容）。"""
+    from ag_integrate.mission_router import plan_route_zoned
+    s = _referee_like()
+    a = plan_route_zoned(s, c("N10"), c("N5"), None, start_heading="y", final_heading="y")
+    b = plan_route(s, c("N10"), c("N5"), start_heading="y", final_heading="y")
+    assert a == b
