@@ -24,6 +24,7 @@ setup(
     entry_points={
         "console_scripts": [
             "integrate_node = ag_integrate.integrate_node:main",
+            "dzbrain_bridge = ag_integrate.dzbrain_bridge:main",
         ],
     },
 )

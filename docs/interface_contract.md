@@ -219,7 +219,44 @@ align 模式只有**一个**超时参数 `heading_align_timeout`（默认 15s，
 | 2026-10-09 | 初始版本 | 定义全部接口 | Agent-3, Agent-4 |
 | 2026-10-14 | 文档对齐代码现状：路线命令逗号紧贴格号（§4.2）、§7 桥洞拓扑按 mission_router 重写（含 cross_gates 陷阱）、§5.2/§5.3 对齐超时改为单一 15s、§2.3 length/width 改注像素语义 | 仅文档修正，字节布局与命令语法不变 | Agent-3, Agent-4 |
 | 2026-10-15 | §5.2 循迹契约修正：align 必须先于 path_executor 完成（dzactuator 模式仲裁实测）、对齐命令带爬行速度（v≠0 舵机才生效）、新增 wait_waypoint_consumer 闸门 | 车端行为变化：对齐走 cmd_vel 爬行转向；两阶段启动 tools/car_match_bringup.sh；字节布局不变 | Kimi Code |
+## 9. dzbrain 链路（车上现役默认核心的情报接口）
+
+> 2026-10-15 起入库。真源：车上 `~/dzrobot/src/dzbrain/dzbrain/tasks/drone.py`
+> （只读快照 `reference/car_src_20261015/dzbrain/`）。legacy 链路（§1~§8）不变，
+> 两模式互斥：launch 侧 `mode:=legacy`（默认）或 `mode:=dzbrain` 二选一。
+
+**话题**（std_msgs/String，JSON 文本）：
+
+| 方向 | 话题 | 说明 |
+|---|---|---|
+| 我方 → 车 | `/dzlink/drone_to_car` | 无人机情报（dzbrain DroneTask 消费） |
+| 车 → 我方 | `/dzlink/car_to_drone` | ack 回执 + car_state 周期上报（1~2Hz） |
+
+**报文**（字段以 DroneTask 解析逻辑为准；带 `seq` 的报文会收到 `{"type":"ack","of":N}` 回执）：
+
+| type | 载荷 | 说明 |
+|---|---|---|
+| `heartbeat` | `{type, ts, seq}` | 心跳；丢失 >3s 判离线（`drone.heartbeat_timeout_s`）。我方 1Hz 恒定发 |
+| `bridge_passable` | `{type, half, block, confidence, ts, seq}` | 桥洞可通行格（ARROW，无人机是权威）；`half`：lower=行7~11、upper=行1~6（挡板在 6/7 行界） |
+| `target_zone` | `{type, blocks:[...]}` | 靶区格号列表（红+蓝都报），车上与本地 map.yaml 核对 |
+| `field_verify` | `{type, mines:[...], obstacles:[...]}` | 雷/障格号核对；空列表="全场干净"（有效情报） |
+
+车上消费端韧性约定：未知 type/非法 JSON/缺字段一律记日志不崩；情报过期
+>`drone.info_stale_s`（30s）自动失效（`bridge_of()` 返回 None）。
+我方实现：`src/ag_integrate/ag_integrate/dzbrain_bridge.py`（变化即发 + 2s 周期刷新；
+任何异常不崩；不驱动车、无 dry_run 概念）。车→机回包（ack/car_state）当前只记日志。
+
+---
+
+## 8. 接口变更记录
+
+| 日期 | 变更 | 影响 | 通知对象 |
+|---|---|---|---|
+| 2026-10-09 | 初始版本 | 定义全部接口 | Agent-3, Agent-4 |
+| 2026-10-14 | 文档对齐代码现状：路线命令逗号紧贴格号（§4.2）、§7 桥洞拓扑按 mission_router 重写（含 cross_gates 陷阱）、§5.2/§5.3 对齐超时改为单一 15s、§2.3 length/width 改注像素语义 | 仅文档修正，字节布局与命令语法不变 | Agent-3, Agent-4 |
+| 2026-10-15 | §5.2 循迹契约修正：align 必须先于 path_executor 完成（dzactuator 模式仲裁实测）、对齐命令带爬行速度（v≠0 舵机才生效）、新增 wait_waypoint_consumer 闸门 | 车端行为变化：对齐走 cmd_vel 爬行转向；两阶段启动 tools/car_match_bringup.sh；字节布局不变 | Kimi Code |
 | 2026-10-15 | §7 中场挡板行号修正：第 5/6 行 → 第 6/7 行（0 基 row5↔row6，上半场行1~6、下半场行7~11），按车上官方地图真源；代码侧见提交 3e87f95 | 仅文档修正，接口不变 | Agent-3, Agent-4 |
+| 2026-10-15 | 新增 §9：车上现役默认核心 dzbrain 的无人机情报接口（/dzlink JSON 双话题）与我方桥接节点 dzbrain_bridge | 新增可选链路（mode:=dzbrain）；legacy 链路不变 | Kimi Code |
 
 ---
 

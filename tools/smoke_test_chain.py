@@ -72,7 +72,8 @@ def main():
         assert decision.allowed is False
         print(f"[5/5 禁火保险] OK, 靶格本身拒绝开火")
 
-    print("\n✅ 车端全链路烟雾测试通过")
+    # ✅ 是 GBK 控制台编码不了的字符，直接用 ASCII（Windows 车端/笔记本默认 GBK）
+    print("\n[OK] 车端全链路烟雾测试通过")
 
 
 if __name__ == "__main__":
