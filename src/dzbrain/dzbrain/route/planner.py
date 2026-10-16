@@ -131,6 +131,7 @@ __all__ = [
     # ★★ 卡 t4：桥洞进洞侧冗余墙（规划器侧判据 + 兜底长度）
     "BRIDGE_ENTRY_REDUNDANCY_M",
     "BRIDGE_ENTRY_CLEAR_EPS",
+    "BRIDGE_ENTRY_SAMPLES",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -2908,6 +2909,9 @@ BRIDGE_ENTRY_REDUNDANCY_M = 0.0875
 #:   **恒真**、判据形同虚设（t4 落地时实测踩过：`>= 0` 版本对旧路线逐 token 不变，
 #:   即判据从未生效）。取 1e-9 与既有代码（`< req - 1e-12`）同量级的数值卫生。
 BRIDGE_ENTRY_CLEAR_EPS = 1e-9
+#: 段级/顶点级判据沿"进洞那一步"的**采样点数**（含两端点）。7 点 ⇒ 步长 = 0.35/6 ≈ 58 mm，
+#: 远小于车宽 135 mm（见 `_TSGrid._entry_sweep_ok` 关于"离散化不是解析最小"的说明）。
+BRIDGE_ENTRY_SAMPLES = 7
 
 
 def _ts_unit(v: tuple[int, int]) -> tuple[int, int]:
@@ -3001,13 +3005,35 @@ class _TSGrid:
     def _entry_clear_ok(self, px: float, py: float, yaw: float, walls) -> bool:
         """车体（以 `(px,py,yaw)` 摆正）与冗余墙的间隙是否 **> 0**。
 
-        ⚠️ 必须严格大于 0：距离口径是"重叠 = 0"（见 `BRIDGE_ENTRY_CLEAR_EPS` 的说明）。
+        ⚠️ 必须严格大于 0：`body_bridge_wall_clearance_m()` 的距离口径是"**重叠 = 0**"
+        （与 `polygon_distance_m` / `_seg_seg_distance` 一致），返回值**恒 ≥ 0**
+        ⇒ 写成 `>= 0` 会**恒真**、判据形同虚设（卡面写的就是 `>= 0`，t4 落地时实测确认
+        它是空判据，故按物理语义收严成 `> 0`；见 `BRIDGE_ENTRY_CLEAR_EPS` 的说明）。
         """
         if not walls:
             return True
         return _phys.body_bridge_wall_clearance_m(
             px, py, yaw, walls, length_m=self.length_m,
             width_m=self.width_m) > BRIDGE_ENTRY_CLEAR_EPS
+
+    def _entry_sweep_ok(self, x0: float, y0: float, x1: float, y1: float,
+                        yaw: float, walls) -> bool:
+        """从 `(x0,y0)` 到 `(x1,y1)`（直线）**姿态恒定 `yaw`** 扫一遍，全程间隙 > 0？
+
+        采样 = 沿线均匀 `BRIDGE_ENTRY_SAMPLES` 个位姿（含两端点）。
+        ⚠️ 这是**离散化**而非解析最小：每个角点到固定线段的距离是 t 的**凸**函数，但
+          "4 角点取 min" 之后不保证凸 ⇒ 极小值理论上可能落在两个采样点之间。取 7 个点
+          （步长 = 0.35/6 ≈ 58 mm，远小于车宽 135 mm）足以覆盖本几何；且对本图的
+          "沿 y 直进" 情形，极小值就在**端点**上（x 恒定 ⇒ 横向距离与 t 无关）。
+        """
+        if not walls:
+            return True
+        n = BRIDGE_ENTRY_SAMPLES
+        for i in range(n):
+            t = i / (n - 1)
+            if not self._entry_clear_ok(x0 + t * (x1 - x0), y0 + t * (y1 - y0), yaw, walls):
+                return False
+        return True
 
     def entry_gate_segment(self, a: tuple[int, int], b: tuple[int, int]) -> bool:
         """段 `a→b` **水平直穿进入**某桥洞格时，沿途车身是否不碰该洞的进洞侧冗余墙。
@@ -3016,7 +3042,12 @@ class _TSGrid:
           ① `b` 是桥洞格（`cross_lower`/`cross_upper` 之一，= `grid.bridge_rows` 的列 K 格）；
           ② `a` 与 `b` **同行**（`drow == 0`）⇒ 这就是"水平直穿进入"，
              与 `Grid.move_ok` 的"只在桥洞行进出 K 列"口径一致。
-        取点 = 段两端点 + 中点（三个位姿），车头一律按**段方向**摆正（`_ts_map_yaw`）。
+
+        ★ 为什么"出洞侧天然不判"：进洞是 `a` 在洞口外、`b` 是桥洞格（触发）；出洞是
+          `a` 是桥洞格、`b` 在洞口外（`b` 不是桥洞格 ⇒ 不触发）。**不需要**额外判方向，
+          且冗余墙本身只向进洞侧延伸（`physics.bridge_entry_walls()`），双重保证。
+
+        车头一律按**段方向**摆正（`_ts_map_yaw`）—— 判据问的就是"沿段方向摆正的车体"。
         """
         walls = self._entry_walls_of(b)
         if not walls or a[0] != b[0]:
@@ -3024,18 +3055,15 @@ class _TSGrid:
         yaw = _ts_map_yaw((b[0] - a[0], b[1] - a[1]))
         ax, ay = geo.block_to_meters(geo.index_to_block(a[0] - 1, a[1]))
         bx, by = geo.block_to_meters(geo.index_to_block(b[0] - 1, b[1]))
-        for t in (0.0, 0.5, 1.0):
-            if not self._entry_clear_ok(ax + t * (bx - ax), ay + t * (by - ay), yaw, walls):
-                return False
-        return True
+        return self._entry_sweep_ok(ax, ay, bx, by, yaw, walls)
 
     def entry_gate_turn(self, cell: tuple[int, int], d_out: tuple[int, int]) -> bool:
         """顶点 `cell` 处**下一步进入桥洞格**时，转弯扫掠车身是否不碰冗余墙。
 
         触发条件：`cell + d_out` 是桥洞格（即"这一转向把车带进洞"）。
         判据用**顶点处的实际位姿**：车头取 `d_out`（进洞方向）—— 顶点转向时车身绕
-        顶点转，取"出向已摆正"是**保守**的一侧（车正对洞口时车身最宽占用沿 x）。
-        沿途取点同 `entry_gate_segment`（顶点 + 半程 + 入洞点）。
+        顶点转，取"出向已摆正"是**保守**的一侧（车正对洞口时车身横向占用 = 车宽；
+        取"入向"则横向占用 = 车长，反而更松）。沿途取点同 `entry_gate_segment`。
         """
         nxt = (cell[0] + d_out[0], cell[1] + d_out[1])
         walls = self._entry_walls_of(nxt)
@@ -3044,10 +3072,7 @@ class _TSGrid:
         yaw = _ts_map_yaw(d_out)
         cx, cy = geo.block_to_meters(geo.index_to_block(cell[0] - 1, cell[1]))
         nx, ny = geo.block_to_meters(geo.index_to_block(nxt[0] - 1, nxt[1]))
-        for t in (0.0, 0.5, 1.0):
-            if not self._entry_clear_ok(cx + t * (nx - cx), cy + t * (ny - cy), yaw, walls):
-                return False
-        return True
+        return self._entry_sweep_ok(cx, cy, nx, ny, yaw, walls)
 
     # ---------------- 段级 ----------------
     def move_ok(self, a: tuple[int, int], b: tuple[int, int]) -> bool:

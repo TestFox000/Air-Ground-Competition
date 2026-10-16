@@ -543,6 +543,18 @@ path_executor:
       shoot_distance_m: 0.80          # 停站点 → **靶板中心** 的目标距离（现场卷尺标定值）
       shoot_distance_tol_m: 0.10      # 窗口半宽 ⇒ 候选区间 [0.70, 0.90]（靶板行走/标定误差都吃在这里）
 
+    # ★★ 卡 t4：桥洞**进洞侧冗余长度**（虚拟墙延长，**现实不存在**的设计冗余）。
+    #   设计规格（用户 2026-10-16）：只加进洞侧，长度 = 1/4 格 = 0.35 × 0.25 = 0.0875 m。
+    #   用途：把桥室南北壁沿 y 向进洞侧虚拟延长，逼规划器让车"进洞前 1/4 格内已摆正"。
+    #   几何真源：`route/physics.py: bridge_entry_walls()`（按 row 判进洞侧 —— row 7~11 向西、
+    #     row 1~6 向东，与 `path_executor.bridge_order` 同一次改动内一致）。
+    #   判据消费者：`route/planner.py` 的 tracker-safe 引擎 `_TSGrid`（段级 `entry_gate_segment`
+    #     + 顶点级 `entry_gate_turn`），兜底常量 `planner.BRIDGE_ENTRY_REDUNDANCY_M` 与本值同值。
+    #   ⚠️ 只影响**规划**：`tools/route_check.py` 的用户侧判据刻意**不含**这段墙（否则现场
+    #      实跑路线会被莫须有的墙判红）。`0.0` = 关闭该冗余（回到 t4 之前的行为）。
+    field:
+      bridge_entry_redundancy_m: 0.0875
+
     mission:
       auto_start: true   # 实车自规划跑：一键启动后自动出发
       auto_start_delay_s: 10.0   # 实车：等 10s 即发车；原注释：★t29 首跑档：给队长留横幅核对窗口（旧值 2.0；SCHEMA 类型 float，必须写 45.0）
@@ -767,14 +779,6 @@ path_executor:
       mine_pad_m: 0.12          # 雷垫片边长（0.12×0.12 正方形，中心在雷格格心）
       barrier_width_m: 0.02     # 挡板厚度（第 6/7 行之间、D..N 列的细条；半厚 0.01）
       barrier_cols: "D..N"      # 挡板覆盖列（含两端 = 11 列 = 3.85 m）
-      # ★★ 卡 t4：桥洞**进洞侧冗余长度**（虚拟墙延长，**现实不存在**的设计冗余）。
-      #   设计规格（用户 2026-10-16）：只加进洞侧，长度 = 1/4 格 = 0.35 × 0.25 = 0.0875 m。
-      #   用途：把桥室南北壁沿 y 向进洞侧虚拟延长，逼规划器让车"进洞前 1/4 格内已摆正"。
-      #   几何真源 `route/physics.py: bridge_entry_walls()`（按 row 判进洞侧：row 7~11 向西、
-      #   row 1~6 向东，与 path_executor.bridge_order 同源）；判据在 tracker-safe 引擎。
-      #   ⚠️ 只影响**规划**：`tools/route_check.py` 的用户侧判据刻意不含这段墙（否则现场
-      #      实跑路线会被莫须有的墙判红）。设 0.0 = 关闭该冗余（回到 t4 之前的行为）。
-      bridge_entry_redundancy_m: 0.0875
 
     # ---- 抖动抑制窗口（调试期先别动）----
     smooth_window_speed: 20
