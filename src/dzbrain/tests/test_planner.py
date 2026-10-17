@@ -964,6 +964,59 @@ def main() -> int:
           f"first_dir 后首步方向 {sorted(_firsts)} / 不限时 {sorted(_raw_firsts)}")
 
     # ----------------------------------------------------------------------- #
+    #  ⑫b 卡 t7：**双射击停站**（对侧互备）—— 自动规划不允许悄悄只剩一个停站
+    # ----------------------------------------------------------------------- #
+    #  背景（现场事故）：靶板一面蓝一面红、蓝面朝向每局随机且恒定，只打蓝、打红扣分。
+    #  所以路线必须在靶板**两侧各留一个射击停站**；而"落第二个星号"在引擎里是非对称的：
+    #    · tracker-safe：编译期顺手落标（`_compile`），落不上**旧版完全静默**；
+    #    · tour（缺省引擎）：`plan_route()` 压根没有这段 ⇒ 只有主停站。
+    #  本节把两处缺口都钉成"缺了就红"。
+    section("⑫b t7：双射击停站（D3* + G3*）+ 引擎无关的收口")
+    check("⑫.9 [tracker-safe] 两个射击停站 = D3 + G3（板面两侧各一个）",
+          _ts.shoot_blocks() == ["D3", "G3"] and _ts.shoot_stop2 == "G3",
+          f"shoot_blocks={_ts.shoot_blocks()} shoot_stop2={_ts.shoot_stop2!r}")
+    check("⑫.10 [tracker-safe] 对侧停站到板心 = 0.875 m（与主停站镜像）",
+          abs(_ts.shoot_distance_m2 - 0.875) < 1e-6,
+          f"{_ts.shoot_distance_m2:.4f} m")
+
+    _ts_stars = [t for t in nr.tokens if "*" in t]
+    _closed, _marked, _note = P.ensure_second_shoot_stop(nr.tokens, map_cfg, cfg)
+    check("⑫.11 ★[收口] tour 产物只有 `D3*` ⇒ 补上 `G3*`（token 数/块名序列逐位不变）",
+          _ts_stars == ["D3*"] and _marked == "G3" and len(_closed) == len(nr.tokens)
+          and [t.replace("*", "") for t in _closed] == [t.replace("*", "") for t in nr.tokens],
+          f"补前 {_ts_stars} → 补后 {[t for t in _closed if '*' in t]}｜{_note}")
+    check("⑫.12 [收口] 补出来的星号是真停站：parser 解析出 SHOOT = [D3, G3]",
+          [w.block for _i, w in PARSER.parse_mission(_closed).shoot_points()] == ["D3", "G3"],
+          str([w.block for _i, w in PARSER.parse_mission(_closed).shoot_points()]))
+    _closed2, _marked2, _note2 = P.ensure_second_shoot_stop(_ts.tokens, map_cfg, cfg)
+    check("⑫.13 [收口] 幂等：tracker-safe 产物已有两颗星 ⇒ 一个字节都不改",
+          _marked2 == "" and _closed2 == _ts.tokens,
+          f"marked={_marked2!r}｜{_note2}")
+
+    # 判定活体 A：候选被强行指到"不在路线上的格" ⇒ 收口必须如实说补不了（绝不静默加减停站）
+    _orig_second = P.second_shoot_stop
+    P.second_shoot_stop = lambda *_a, **_k: "N11"        # N11 不在任何一条现役路线上
+    try:
+        _c_off, _m_off, _n_off = P.ensure_second_shoot_stop(nr.tokens, map_cfg, cfg)
+    finally:
+        P.second_shoot_stop = _orig_second
+    check("⑫.14 ★[收口] 候选不在路线上 ⇒ 如实报「补不了」且路线一字不动（不静默降级）",
+          _m_off == "" and _c_off == list(nr.tokens) and "不在本路线上" in _n_off, _n_off)
+
+    # 判定活体 B：同一个"落不上"发生在引擎内部 ⇒ tracker-safe 必须把它变成 warning
+    #   （旧版这段是 **完全静默** 的：候选算出来、落不到航点上、日志一个字都没有）
+    P.second_shoot_stop = lambda *_a, **_k: "N11"
+    try:
+        _ts_bad = P.plan_route_tracker_safe(map_cfg, cfg, max_seconds=TEST_PLAN_BUDGET_S)
+    finally:
+        P.second_shoot_stop = _orig_second
+    check("⑫.15 ★[tracker-safe] 第二停站落不上 ⇒ warnings 里**报出来**（缺这段就静默丢停站）",
+          _ts_bad.shoot_blocks() == ["D3"]
+          and any("第二射击停站未落标" in w for w in _ts_bad.warnings),
+          f"{_ts_bad.shoot_blocks()} / "
+          f"{[w for w in _ts_bad.warnings if '第二射击停站' in w]}")
+
+    # ----------------------------------------------------------------------- #
     #  ⑬ 卡 t6：**桥洞进洞提前对正**（消除"洞口前 1 格 90° 拐弯"）
     # ----------------------------------------------------------------------- #
     section("⑬ t6：桥洞进洞提前对正（进洞前 ≥1 格直线对正段）")

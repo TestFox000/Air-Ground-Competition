@@ -1137,4 +1137,88 @@ check("11.17 无人机离线 → 自动规划用默认洞 K10",
       and rig_offl.state()["bridge"]["lower"]["source"] == "offline",
       f"k={kcells(rig_offl)}")
 
+# =========================================================================== #
+section("12. ★t7 自动规划必须保留所有 `*` 停站（双射击停站收口）")
+# =========================================================================== #
+#  靶板一面蓝一面红、蓝面朝向**每局随机且恒定**，只打蓝、打红扣分 ⇒ 自动规划给出
+#  "单停站路线"就等于把那一局的一半概率判成 0 发。两处真缺口（**都是静默的**）：
+#    ① `tour` 引擎（缺省引擎）的 `plan_route()` 压根没有"落第二个星号"这段；
+#    ② tracker-safe 只在"候选格恰好是本路线普通航点"时落标，落不上旧版**一条 warning 都没有**。
+#  12.1/12.3 是判据本体；12.5 是"把收口关掉 ⇒ 12.3 必红"的反证。
+
+def _stars(toks) -> list[str]:
+    """路线 token 里的射击停站（`*`）串。"""
+    return [t for t in toks if parse_token(t)["shoot"]]
+
+
+check("12.1 ★ tracker-safe（车上现役引擎）：D3* 与 G3* **同时存在**",
+      _stars(_out_ts.tokens) == ["D3*", "G3*"], str(_stars(_out_ts.tokens)))
+check("12.2 PlanOutcome 的射击停站 = ('D3','G3')，且是引擎自带（second_stop_added 为空）",
+      _out_ts.shoot_stops == ("D3", "G3") and _out_ts.second_stop_added == "",
+      f"{_out_ts.shoot_stops} / added={_out_ts.second_stop_added!r}")
+check("12.3 ★ tour（缺省引擎）自动规划**也**必须有 G3*（引擎自己不会落这颗星）",
+      _stars(_out_tour.tokens) == ["D3*", "G3*"],
+      f"{_stars(_out_tour.tokens)} / {len(_out_tour.tokens)} token、{_out_tour.route_len_m:.2f} m")
+_raw_tour = PL.plan_route(_raw, real_cfg(auto_plan_enabled=True),
+                          allow_reverse=False, max_seconds=10.0)
+check("12.4 tour 的补标只加一个星号：token 数/块名序列与裸引擎产物逐位相同（零路径改动）",
+      _stars(_raw_tour.tokens) == ["D3*"]
+      and _out_tour.second_stop_added == "G3"
+      and len(_out_tour.tokens) == len(_raw_tour.tokens)
+      and [parse_token(t)["block"] for t in _out_tour.tokens]
+      == [parse_token(t)["block"] for t in _raw_tour.tokens],
+      f"裸引擎 {_stars(_raw_tour.tokens)} → 收口后 {_stars(_out_tour.tokens)}｜"
+      f"added={_out_tour.second_stop_added!r}｜两边都是 {len(_raw_tour.tokens)} token")
+_ensure_real = PL.ensure_second_shoot_stop
+PL.ensure_second_shoot_stop = lambda toks, *_a, **_k: (list(toks), "", "（测试：收口被关掉）")
+try:
+    _out_tour_off = plan_route_from_config(
+        real_cfg(auto_plan_enabled=True, map_path=str(MAP), engine=ENGINE_TOUR),
+        log=lambda s: None)
+finally:
+    PL.ensure_second_shoot_stop = _ensure_real
+check("12.5 ★反证：把收口关掉 ⇒ tour 自动规划只剩 D3*（证明 12.3 的绿只来自收口本身）",
+      _stars(_out_tour_off.tokens) == ["D3*"], str(_stars(_out_tour_off.tokens)))
+check("12.6 收口已还原（后续用例/其它套件不受污染）",
+      PL.ensure_second_shoot_stop is _ensure_real, str(PL.ensure_second_shoot_stop))
+
+# ---- 12.B 任务级：tour 自动规划上车后真的装了两个射击停站 ----
+rig_t7 = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP),
+                      engine=ENGINE_TOUR, fallback_to_tokens=True))
+rig_t7.ticks(3)
+st_t7 = rig_t7.state()
+check("12.7 ★ 上车执行（tour 自动规划）：两个射击停站都真的装在执行路线里",
+      rig_t7.task.phase == MissionPhase.DRIVE
+      and [w.block for w in rig_t7.task.route.waypoints if w.shoot] == ["D3", "G3"],
+      str([w.block for w in rig_t7.task.route.waypoints if w.shoot]))
+check("12.8 遥测 plan.shoot_stops / second_stop_added 与产物同源",
+      st_t7["plan"]["shoot_stops"] == ["D3", "G3"]
+      and st_t7["plan"]["second_stop_added"] == "G3",
+      f"{st_t7['plan']['shoot_stops']} / added={st_t7['plan']['second_stop_added']!r}")
+
+# ---- 12.C 停站台账：SHOOT 与终点必须分开（终点不是"第二个打靶停站"）----
+check("12.9 ★ 停站台账区分 SHOOT 与终点：射击 2 / 终点 1，逐点 kind",
+      st_ts["stops"]["counts"] == {"shoot": 2, "scan": 0, "end": 1}
+      and [p["block"] for p in st_ts["stops"]["points"]] == ["D3", "G3", "N5"]
+      and [p["kind"] for p in st_ts["stops"]["points"]] == ["SHOOT", "SHOOT", "END"],
+      str(st_ts["stops"]))
+_ledger_line = next((ln for ln in rig_ts.logs if ln.startswith("停站点 ")), "")
+check("12.10 横幅台账一行看清类型：'停站点 3 个（射击 2 / 终点 1）' + 逐点标注",
+      _ledger_line.startswith("停站点 3 个（射击 2 / 终点 1）")
+      and "29:D3(射击)" in _ledger_line and "32:G3(射击)" in _ledger_line
+      and "43:N5(终点)" in _ledger_line, _ledger_line)
+# 反向控制：把 G3* 退回普通航点（单停站路线）⇒ 台账必须如实变"射击 1 / 终点 1"
+#   为什么需要：防止台账把"射击 2"写死（那样 12.9 会变成永远绿的假证据）。
+_one = ["G3" if (parse_token(t)["block"] == "G3" and parse_token(t)["shoot"]) else t
+        for t in (cfg_off.get("route.tokens") or [])]
+_cfg_one = real_cfg(auto_plan_enabled=False)
+_cfg_one.override("route.tokens", _one)
+rig_one = Rig(_cfg_one)
+rig_one.ticks(3)
+check("12.11 反向控制：单停站路线 ⇒ 台账如实变'停站点 2 个（射击 1 / 终点 1）'",
+      rig_one.state()["stops"]["counts"] == {"shoot": 1, "scan": 0, "end": 1}
+      and "停站点 2 个（射击 1 / 终点 1）" in rig_one.text(),
+      str(rig_one.state()["stops"]["counts"]) + " / "
+      + next((ln for ln in rig_one.logs if ln.startswith("停站点 ")), ""))
+
 finish()

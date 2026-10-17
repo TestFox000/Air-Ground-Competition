@@ -92,6 +92,15 @@ BLOCKED_PHASES: tuple[str, ...] = (MissionPhase.IDLE, MissionPhase.STOP, Mission
 
 _EPS = 1e-9
 
+#: ★ 跟丢自愈的"大跳跃"分界（米）：跳跃不超过它就直接采纳（正常追回冻结的几厘米）。
+_RELOCK_MAX_JUMP_M = 0.50
+#: ★ 大跳跃时的**可信离线距离**（米）：全路线重投影给出的新位置若离车超过这么远，说明车
+#: 已不在任何一条路线腿上，"更近"只是几何上的稍近一点（很可能是 10 m 之外的另一支/终点段）。
+#: 2026-10-17 14:59 实车：s 从 1.288 瞬移到 14.112（+12.824 m）、新段离线 0.683 m，而车到
+#: 当时那条腿离线 0.717 m —— 只近 0.03 m 就换了腿 ⇒ 前视点指到终点段、转角减速失效
+#: （0.12→0.35 m/s），车直线冲出边界。取 0.45 m（一个整格 0.35 m 的 1.3 倍）。
+_RELOCK_TRUST_DIST_M = 0.45
+
 
 class TrackerTask(TaskThread):
     """循迹任务（50 Hz）。"""
@@ -385,7 +394,11 @@ class TrackerTask(TaskThread):
             #   · 地板正确、只是车横向离线（F11 过渡期 0.5 m）→ 重投影会退到上一段 ✗ 拒绝
             #   后者如果也采用，就等于把"地板"整个绕过去了 —— test_tracker 第 9 组立刻红
             #   （翻转 2 → 11、s 只推进到 1.05）。
-            if (proj_relock.dist < proj.dist - 1e-6
+            jump = float(proj_relock.s) - float(proj.s)
+            trusted = (abs(jump) <= _RELOCK_MAX_JUMP_M
+                       or float(proj_relock.dist) <= _RELOCK_TRUST_DIST_M)
+            if (trusted
+                    and proj_relock.dist < proj.dist - 1e-6
                     and proj_relock.s >= self._s_floor - 1e-9):
                 proj = proj_relock
                 self._s_floor = path.s_at_waypoint(proj.seg_index)   # 地板跟到新位置的本段起点

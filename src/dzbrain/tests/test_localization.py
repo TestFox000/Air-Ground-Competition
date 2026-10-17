@@ -12,6 +12,9 @@ r"""LocalizationTask 测试（纯脚本，无 pytest）。
   6. 关掉 fix.anchor_at_waypoint → 不锚定
   7. 漂移 0.5 m > drift_warn 0.30 m → EV_DRIFT_WARNING
   8. 同一航点反复吸附只算一次（防"越锚越偏"）；路线更换后 hint 重置
+  9. 投影卡死自愈（离开走廊后 P_ROUTE_S 跟得上全局投影）
+ 10. 尺度疑似闸（吸附掩盖尺度误差的可见化）
+ 11. ★ 2026-10-17 14:59 实车 +12.82 m 投影误锁的回归：大跳跃必须"新投影贴在车上"
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ from dzbrain.core.events import (EV_DRIFT_WARNING, EV_POSE_ANCHORED,          # 
 from dzbrain.core.state import FixState                                       # noqa: E402
 from dzbrain.pursuit.path import Path                                         # noqa: E402
 from dzbrain.route.model import Route, Waypoint, make_route                   # noqa: E402
+from dzbrain.route.parser import parse_mission                                # noqa: E402
 from dzbrain.tasks.localization import LocalizationTask                       # noqa: E402
 from fakes import FakeBridge, FakeClock                                       # noqa: E402
 from harness import check, check_close, finish, section                       # noqa: E402
@@ -523,6 +527,65 @@ check("真实尺度误差：anchor_refused == 1 且 scale_suspect 置位",
       task2.anchor_refused == 1 and task2.scale_suspect is True,
       f"refused={task2.anchor_refused} suspect={task2.scale_suspect}")
 
+
+# --------------------------------------------------------------------------- #
+#  ⑪ ★ 2026-10-17 14:59 实车 +12.82 m 投影误锁：大跳跃必须"新投影贴在车上"才可信
+# --------------------------------------------------------------------------- #
+# 真实事故（_tmp_session/run_20261017_1504/7_path_utf8.txt，UTF-8 行号）：
+#   行 207 TrackerTask：「投影跟丢自愈：窗口内最近点离线 0.70 m，全路线重投影 → 段40 s=14.11」
+#   行 210 Localization：「投影卡死自愈：s 冻在 1.290（第 3 段，离线 0.78 m）→ 全路线重投影得
+#          14.110（第 40 段，离线 0.62 m，+12.820 m）」
+# 为什么是"误锁"：车在 K9 桥洞蹭墙偏航后驶向 +x，投影链一直认为 s≈1.29（第 3~4 段）；
+# 当车走到 u≈4.65（两条路线腿之间）时，终点段 K5→L5 离线 0.62 m 只比当前段 0.78 m
+# "近 0.16 m" ⇒ 全路线重投影就把 s 瞬移到 12.7 m 之外。控制器的前视点随后指到终点段上，
+# 转角减速层同时失效（0.12→0.35 m/s），车直线冲出边界。
+#
+# 本用例喂**事故时刻的真实里程计位姿**（3_localization.log 的 pos，格单位×0.35 m），
+# 断言修复后单拍 s 不再被瞬移；并当场把可信闸关掉，证明"关掉就红"。
+INCIDENT_TOKENS = ("N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 "
+                   "A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3 G4 G5 G6 H6 I6 I5 J5 "
+                   "K5 L5 M5 N5,y").split()
+#: 2026-10-17 15:00:32~40 的真实位姿（t 从 serial_reader 首帧算起，5 Hz 采样）
+INCIDENT_POSES = [
+    (0.911, 1.105), (0.945, 1.113), (0.980, 1.113), (1.015, 1.240),
+    (1.043, 1.296), (1.065, 1.295), (1.099, 1.192), (1.133, 1.153),
+    (1.181, 1.126), (1.242, 1.109), (1.288, 1.105), (1.330, 1.106),
+    (1.372, 1.109), (1.414, 1.109), (1.459, 1.109), (1.505, 1.113),
+    (1.547, 1.113), (1.592, 1.113), (1.620, 1.113), (1.662, 1.116),
+]
+
+
+def _replay_incident(disable_gate: bool) -> tuple[list[float], object]:
+    """把事故位姿按顺序喂进 LocalizationTask，返回 (每拍 P_ROUTE_S, task)。"""
+    route = parse_mission(list(INCIDENT_TOKENS))
+    task, bridge, bb, bus, clock = build(
+        overrides={"fix": {"anchor_at_waypoint": False}}, route=route, seed_pose=False)
+    if disable_gate:                      # 关掉可信闸 = 修复前行为（带牙对照）
+        task.stuck_trust_dist_m = float("inf")
+    out: list[float] = []
+    for x, y in INCIDENT_POSES:
+        bridge.set_pose(x, y, 0.0)
+        clock.advance(0.2)                # 真实里程计 5 Hz
+        task.tick()
+        out.append(float(bb.get(P_ROUTE_S)))
+    return out, task
+
+
+s_ok, task_ok = _replay_incident(disable_gate=False)
+step_max = max(abs(b - a) for a, b in zip(s_ok, s_ok[1:]))
+check("修复后：单拍 P_ROUTE_S 最大变化 < 0.5 m（旧行为 12.82 m）", step_max < 0.5,
+      f"max step = {step_max:.3f} m；s 序列 = {[round(v, 3) for v in s_ok]}")
+check("修复后：末拍 s 仍在第 3/4 段附近（< 2.0 m），没被瞬移到 14.11",
+      s_ok[-1] < 2.0, f"got {s_ok[-1]:.3f}")
+check("修复后：拒绝计数 ≥ 1（闸确实被触发，不是「恰好没判卡死」）",
+      task_ok.stuck_heal_refused >= 1, f"refused={task_ok.stuck_heal_refused}")
+
+s_old, task_old = _replay_incident(disable_gate=True)
+old_max = max(s_old)
+check("★ 带牙对照：关掉可信闸（= 修复前）后，同一段位姿确实被瞬移到 > 10 m",
+      old_max > 10.0, f"max s = {old_max:.3f}；序列 = {[round(v, 3) for v in s_old]}")
+check("★ 带牙对照：修复前那一跳 ≈ +12.8 m（与 7_path 行 210 的 +12.820 m 同量级）",
+      11.0 < old_max < 15.0, f"max s = {old_max:.3f}")
 finish()
 
 

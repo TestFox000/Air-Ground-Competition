@@ -213,6 +213,12 @@ ROUTE_SOURCE_MANUAL = "手动配置"
 #: 外部命令（/nav/waypoint）载入的路线
 ROUTE_SOURCE_COMMAND = "外部命令"
 
+#: ★t7 停站台账的**类型**口径：`SHOOT` / `SCAN` 来自 `core.state.StopKind`，
+#: 末点单独标 `END` —— 终点也要停车（减速/判定），但它**绝不是一个打靶点**。
+#: 旧版横幅只印 `停站点 N 个：索引:格名`，15:04 现场就把"终点 N5"误读成"第 2 个射击停站"，
+#: 于是"两个打靶停站"的验收被一条错账糊过去了（实测真正生效的只有 D3*）。
+STOP_KIND_END = "END"
+
 #: 默认地图路径（相对配置文件目录 / 相对工作区，二者按序解析）
 DEFAULT_MAP_PATH = "config/map.yaml"
 _DEFAULT_PLAN_SECONDS = 2.0
@@ -829,6 +835,11 @@ class PlanOutcome:
     #: 本次**实际采用**的穿洞格（来自 `PlanResult.crossing`；失败时为空）
     cross_lower: str = ""
     cross_upper: str = ""
+    #: ★t7 本路线**射击**停站格名（按路线序；双停站 = `[主停站, 对侧停站]`）。
+    #: 唯一口径 = token 里的 `*`（`ensure_second_shoot_stop()` 收口后），不另记一份账。
+    shoot_stops: tuple[str, ...] = ()
+    #: ★t7 事后补标的对侧停站（非空 = 引擎自己没落标，由收口函数补上的；见其 docstring）
+    second_stop_added: str = ""
 
     @property
     def source(self) -> str:
@@ -963,6 +974,26 @@ def plan_route_from_config(cfg: Any, *, map_path: str | None = None,
         tokens = [str(t) for t in (res.tokens or [])]
         if not tokens:
             raise ValueError("规划器返回了空 token 列表")
+        # ★★ t7（用户口径"自动规划必须保留所有 `*` 停站"）：靶板一面蓝一面红、蓝面朝向
+        #   每局随机且恒定，只打蓝、打红扣分 ⇒ 路线必须在**靶板两侧各留一个射击停站**。
+        #   但"落第二颗星"在两个引擎里是**非对称**的：
+        #     · tracker-safe：编译期顺手落标（`_compile`），落不上只 warn；
+        #     · tour（缺省引擎）：`plan_route()` **压根没有这段**，只标主停站。
+        #   所以在这里做**引擎无关**的收口：用规划器同一份判据（`second_shoot_stop`）算出
+        #   对侧候选，候选确实在路线上就把那颗星补上 —— **零路径改动**（token 数/顺序/里程
+        #   一个都不变，只多一个"到站停车"）。补不上就**报警**，绝不静默单停站。
+        tokens, _second_added, _second_note = PL.ensure_second_shoot_stop(
+            tokens, raw, cfg, source=map_text)
+        _shoot_stops = tuple(parse_token(t)["block"] for t in tokens if parse_token(t)["shoot"])
+        if log is not None:
+            if _second_added:
+                log(f"★ 双射击停站已补齐：{_second_note}"
+                    f"（对侧互备；零路径改动 ⇒ token 数/里程不变）")
+            elif len(_shoot_stops) < 2:
+                log(f"⚠️ 自动规划路线只有 {len(_shoot_stops)} 个射击停站（{_second_note}）"
+                    f"：靶板蓝面朝另一侧那局会打不到")
+            else:
+                log(f"双射击停站：{' + '.join(_shoot_stops)}（引擎自带，未改动）")
         crossing = dict(getattr(res, "crossing", None) or {})
         if want_lower or want_upper:
             if log is not None:
@@ -998,6 +1029,8 @@ def plan_route_from_config(cfg: Any, *, map_path: str | None = None,
             footprint=footprint_text, footprint_ok=footprint_ok,
             cross_lower=str(crossing.get("lower") or ""),
             cross_upper=str(crossing.get("upper") or ""),
+            shoot_stops=_shoot_stops,
+            second_stop_added=_second_added,
         )
     except Exception as exc:                       # noqa: BLE001  ★ 规划失败一律回退，不崩
         msg = f"{type(exc).__name__}: {exc}"
@@ -1235,6 +1268,10 @@ class MissionTask(TaskThread):
         # 停站点（含末点）的弧长前缀与目标索引，路线载入时算一次
         self._stop_s: dict[int, float] = {}
         self._stop_blocks: list[str] = []
+        #: ★t7 停站点**类型**台账（索引 → `SHOOT` / `SCAN` / `END`）：横幅与遥测共用。
+        #:  为什么必须单开一份：`_stop_s` 里"末点"与"射击停站"混在一起（末点只是减速/判定锚点），
+        #:  旧横幅直接印个数 ⇒ 现场把终点当成"第 2 个射击停站"（15:04 那趟的错账）。
+        self._stop_kind: dict[int, str] = {}
         self._last_s = 0.0
         # ---- 拐角绕圈兜底的状态 ----
         self._stall_since: float | None = None       # 弧长开始停滞的时刻（None = 没在停滞）
@@ -1304,6 +1341,8 @@ class MissionTask(TaskThread):
             "phase": self._phase, "route_len": self._waypoint_count,
             "next_wp": self._next_wp, "arrived": self._arrived,
             "handled_stops": sorted(self._handled_stops),
+            # ★t7 停站台账（机器可读）：count/shoot/scan/end + 逐点 kind
+            "stops": self.stop_ledger(),
             "stop_index": self._stopctx.index if self._stopctx else -1,
             "stop_block": self._stopctx.block if self._stopctx else "",
             "stop_phase": self._stopctx.phase if self._stopctx else StopPhase.DONE,
@@ -2112,6 +2151,9 @@ class MissionTask(TaskThread):
             # 穿洞格（请求的 + 规划产物实际采用的），现场对账用
             "cross_requested": {"lower": cross["lower"] or "", "upper": cross["upper"] or ""},
             "cross_lower": out.cross_lower, "cross_upper": out.cross_upper,
+            # ★t7 双射击停站证据（遥测/现场一眼看出"这趟有几个打靶停站、第二个是不是补的"）
+            "shoot_stops": list(out.shoot_stops),
+            "second_stop_added": out.second_stop_added,
         }
         if out.ok:
             self._route_source = ROUTE_SOURCE_AUTO
@@ -2212,8 +2254,8 @@ class MissionTask(TaskThread):
             f"【任务开始】路线 {len(route)} 点 / {route.path_length():.2f} m / 穿洞 {route.crossing}",
             # 穿洞格的**来源**（无人机情报 / 默认 / 拒收原因）——现场第一个要看的行
             f"穿洞格来源：{self._cross_source_line()}｜情报 {self._intel_summary_line()}",
-            f"停站点 {len(self._stop_s)} 个："
-            + " ".join(f"{i}:{b}" for i, b in sorted(self._stop_s.items())),
+            # ★t7：停站台账按类型分列（射击/扫描/终点），不再把终点混进"第二个停站"
+            self._stop_ledger_line(),
             (f"扫描模式 {self._scan_mode or '未设置'}（lock 模式**inert**："
              f"单写者=AimTask）" if self._gimbal_lock_enabled
              else f"扫描模式 {self._scan_mode or '未设置'}（continuous → scan_request=2）"),
@@ -2326,6 +2368,7 @@ class MissionTask(TaskThread):
             self._stop_s = {i: self._path.s_at_waypoint(i) for i, _ in route.stop_points()}
             if (len(route) - 1) not in self._stop_s:     # 末点一定是一个"停站点"（终点）
                 self._stop_s[len(route) - 1] = self._path.total_length
+        self._stop_kind = self._classify_stops(route)
         self._stop_blocks = [route[i].block for i in sorted(self._stop_s)]
         # 本局**实际装进执行路线**的穿洞格（`Route.crossing` 由 parse/planner 填）。
         #   一旦路线载入就**冻结**：发车后晚到的情报只进遥测，不再改路线。
@@ -2345,6 +2388,71 @@ class MissionTask(TaskThread):
         # ★ 清掉上一轮残留的 PIVOT 通知：旧通知对新路线毫无意义，
         #   留着会（在最坏的同几何重载场景）把新轮次航点开局误判成"已到达"。
         self.bb.update(self.name, **{PIVOT_DONE_KEY: None})
+
+    def _classify_stops(self, route: Route) -> dict[int, str]:
+        """★t7 把 `_stop_s` 里的每个索引归到 `SHOOT` / `SCAN` / `END`。
+
+        `END` = **末点**：它也在 `_stop_s` 里（终点减速/到点判定的锚），但
+        `_next_stop_candidate()` 明确把它排除在三段式停站之外（由 FINISH 处理）——
+        所以台账必须把它与"打靶停站"分开，否则现场会把终点误读成第二个射击停站。
+        """
+        last = len(route) - 1
+        kinds: dict[int, str] = {}
+        for idx in sorted(self._stop_s):
+            wp = route[idx] if 0 <= idx < len(route) else None
+            if idx == last:
+                kinds[idx] = STOP_KIND_END
+            elif wp is not None and wp.shoot:
+                kinds[idx] = StopKind.SHOOT
+            elif wp is not None and wp.scan:
+                kinds[idx] = StopKind.SCAN
+            else:                                   # 理论不可达：stop_points() 只产出 shoot/scan
+                kinds[idx] = StopKind.SHOOT
+        return kinds
+
+    def stop_kinds(self) -> dict[int, str]:
+        """停站点类型台账（索引 → `SHOOT`/`SCAN`/`END`）；测试与遥测共用一份口径。"""
+        return dict(self._stop_kind)
+
+    def stop_ledger(self) -> dict[str, Any]:
+        """★t7 停站台账（机器可读）：`{索引: (格名, 类型)}` + 分类计数。
+
+        `shoot` 才是"这趟有几个打靶停站"的答案；`end` 永远单独计数。
+        """
+        route = self._route
+        items = []
+        for idx in sorted(self._stop_s):
+            block = route[idx].block if (route is not None and idx < len(route)) else ""
+            items.append({"index": idx, "block": block,
+                          "kind": self._stop_kind.get(idx, StopKind.SHOOT)})
+        counts = {"shoot": 0, "scan": 0, "end": 0}
+        for it in items:
+            if it["kind"] == StopKind.SHOOT:
+                counts["shoot"] += 1
+            elif it["kind"] == StopKind.SCAN:
+                counts["scan"] += 1
+            elif it["kind"] == STOP_KIND_END:
+                counts["end"] += 1
+        return {"count": len(items), "counts": counts, "points": items}
+
+    def _stop_ledger_line(self) -> str:
+        """横幅用的停站台账行：**数量按类型分列 + 逐点标类型**。
+
+        例：`停站点 3 个（射击 2 / 终点 1）：29:D3(SHOOT) 32:G3(SHOOT) 43:N5(终点)`
+        —— 现场一眼就能判断"两个打靶停站到底生不生效"，不必再回去数 token 里的星号。
+        """
+        ledger = self.stop_ledger()
+        labels = {StopKind.SHOOT: "射击", StopKind.SCAN: "扫描", STOP_KIND_END: "终点"}
+        counts = ledger["counts"]
+        parts = []
+        for key, kind in (("shoot", StopKind.SHOOT), ("scan", StopKind.SCAN),
+                          ("end", STOP_KIND_END)):
+            if counts.get(key):
+                parts.append(f"{labels[kind]} {counts[key]}")
+        body = " ".join("%d:%s(%s)" % (it["index"], it["block"],
+                                       labels.get(it["kind"], it["kind"]))
+                        for it in ledger["points"])
+        return f"停站点 {ledger['count']} 个（{' / '.join(parts) or '无'}）：{body}"
 
     # ------------------------------------------------------------------ #
     #  `SHOOT@<靶标>` 的候选链计算

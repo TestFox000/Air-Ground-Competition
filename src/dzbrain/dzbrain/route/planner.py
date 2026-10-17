@@ -87,7 +87,8 @@ from ..core.config import Config
 from . import physics as _phys
 from . import validate as V
 from .model import Route, RouteBuilder, Waypoint
-from .parser import PIVOT_SUFFIX as _PIVOT_SUFFIX, parse_token
+from .parser import (PIVOT_SUFFIX as _PIVOT_SUFFIX, SCAN_CANON as _SCAN_CANON,
+                     SHOOT_SUFFIX as _SHOOT_SUFFIX, parse_token)
 
 __all__ = [
     "PlannerError",
@@ -101,6 +102,11 @@ __all__ = [
     "assert_legal_no_reverse",
     "check_route_structure",
     "shoot_candidates",
+    # 双射击停站（对侧互备）：候选判据 + 引擎无关的 token 落标（t7，自动规划收口）
+    "second_shoot_stop",
+    "ensure_second_shoot_stop",
+    "shoot_stop_distance",
+    "plate_side_of",
     "stop_distance_m",
     "turn_angle_deg",
     "route_tokens",
@@ -1204,6 +1210,89 @@ def second_shoot_stop(spec: MapSpec, grid: Grid, primary: str,
     return ""
 
 
+def shoot_stop_distance(block: str, map_cfg: Any, *, source: str = "") -> float:
+    """停站格到**靶板中心**的距离（米）—— 与 `shoot_candidates()` 同一口径。
+
+    板心 = 各靶格中心之算术中点（`plate_center_m`）。`PlanResult.shoot_distance_m`
+    用的是同一个式子，所以"事后补标的第二停站"也能给出可对账的数字，而不是 0。
+    """
+    spec = map_cfg if isinstance(map_cfg, MapSpec) else load_map(map_cfg, source=source)
+    ctr_x, ctr_y = plate_center_m(spec)
+    x, y = geo.block_to_meters(block)
+    return math.hypot(x - ctr_x, y - ctr_y)
+
+
+def ensure_second_shoot_stop(tokens: Sequence[str], map_cfg: Any,
+                             cfg: "Config | None" = None, *,
+                             source: str = "") -> tuple[list[str], str, str]:
+    """★ 自动规划产物的「双射击停站」落标 —— **零路径改动**，只补一个 `*`（t7）。
+
+    ## 为什么需要这一层（现场事故的根因链）
+
+    靶板一面蓝一面红、蓝面朝向**每局随机但恒定**，只打蓝、打红扣分 ⇒ 路线必须在靶板
+    **两侧各留一个射击停站**（`second_shoot_stop()` 的判据）。但"两个停站"在引擎里的
+    实现形态是**编译期顺手落标**（tracker-safe 的 `_compile`）——
+      · `tour` 引擎（缺省引擎）**没有这段落标**：它的 `plan_route()` 只标主停站；
+      · tracker-safe 的落标只在"候选格恰好是本路线上的普通航点"时生效，落不上只 warn。
+    ⇒ 任何一处退化，自动规划就**静默**给出"单停站路线"，蓝面朝错方向那一局整场打不到靶。
+    本函数是**引擎无关**的收口：拿一条已经规划好的 token 串，用与 `second_shoot_stop()`
+    完全同一份判据算出对侧候选；候选确实在路线上时，把那个 token 标成 `BLOCK*`。
+
+    ★ 为什么"零路径改动"是硬约束：候选格本来就是路线上的普通航点（现图 = `G3`，
+    夹在 `F3` 与 `G4` 之间），标星只改"到站停不停"，**不动 token 个数/顺序/里程** ⇒
+    不会引入新的穿洞/折返/贴墙风险（那三样的判据全在规划搜索里，这里一概不碰）。
+
+    ★ 为什么可以直接 `Grid(spec)` 而不用引擎那套 `bridge_rows` 参数：
+    `shoot_candidates()` 只用到 `Grid.passable()`，而它 = `in_bounds() and not blocked`
+    （见 `Grid.passable`），`bridge_rows` 只在 `move_ok()` 的 K 列进出判据里使用 ⇒
+    候选集与两个引擎各自构造的网格**逐格相同**。
+
+    :param tokens: 已规划好的路线 token（`parse_mission` 能吃的那一套写法）
+    :param map_cfg: 该次规划用的 `map.yaml` 原始 dict（也接受 `MapSpec`）
+    :param cfg: `core.config.Config`（取板心窗口 `route.shoot_distance_m/tol_m`）
+    :param source: 地图来源（只进错误/证据文案）
+    :return: ``(tokens2, marked_block, note)`` —— `marked_block` 非空 = 本次真的补了星号；
+        `note` 恒为一句可直接进日志的**原因/证据**（补标成功就写补了哪格、多远）
+    """
+    out = [str(t) for t in (tokens or ())]
+    if not out:
+        return out, "", "路线为空"
+    parsed: list[dict] = []
+    for token in out:
+        try:
+            parsed.append(parse_token(token))
+        except ValueError as exc:           # 坏 token 不在这里判死（parse_mission 会给出正式报错）
+            return out, "", f"token 无法解析（{token!r}）：{exc}"
+    shoot_pos = [i for i, info in enumerate(parsed) if info["shoot"]]
+    if not shoot_pos:
+        return out, "", "路线没有任何射击停站（不补：补星号等于凭空加一个停车点）"
+    if len(shoot_pos) >= 2:
+        return out, "", ("已有 %d 个射击停站：%s"
+                         % (len(shoot_pos), " ".join(parsed[i]["block"] for i in shoot_pos)))
+    primary = parsed[shoot_pos[0]]["block"]
+    spec = map_cfg if isinstance(map_cfg, MapSpec) else load_map(map_cfg, source=source)
+    if not spec.targets:
+        return out, "", "地图没有靶格（不需要射击停站）"
+    second = second_shoot_stop(spec, Grid(spec), primary, _shoot_accept(cfg))
+    if not second:
+        return out, "", ("第二停站无解：板面另一侧没有能覆盖全部靶格 %s 的候选格"
+                         % "/".join(spec.targets))
+    idx = next((i for i, info in enumerate(parsed) if info["block"] == second), None)
+    if idx is None:
+        return out, "", f"对侧候选 {second} 不在本路线上（不擅自改路线 ⇒ 仍是单停站）"
+    info = parsed[idx]
+    token = ("R:" if info["reverse"] else "") + info["block"] + _SHOOT_SUFFIX
+    if info["scan"]:
+        token += _SCAN_CANON
+    if info["pivot"]:
+        token += _PIVOT_SUFFIX
+    if info["heading"]:
+        token += "," + str(info["heading"]).lower()
+    out[idx] = token
+    return out, second, ("第二射击停站 %s（板面另一侧，到板心 %.4f m）"
+                         % (second, shoot_stop_distance(second, spec)))
+
+
 # --------------------------------------------------------------------------- #
 #  编译：A* 路径 -> Route
 # --------------------------------------------------------------------------- #
@@ -1767,6 +1856,9 @@ class PlanResult:
     #: 两侧各停一次是"蓝面朝向每局随机"的物理对策：至少一侧必见蓝面、必能打。
     shoot_stop2: str = ""
     shoot_distance_m2: float = 0.0
+    #: ★t7 本次**事后补标**的第二射击停站（非空 = 引擎本身没落标，由
+    #:  `ensure_second_shoot_stop()` 在规划后补上的；空 = 引擎自己已落标或压根不需要）
+    second_stop_added: str = ""
     cost: float = 0.0
     expanded: int = 0
     elapsed_ms: float = 0.0
@@ -1805,6 +1897,14 @@ class PlanResult:
     def pivot_count(self) -> int:
         return len(self.pivots)
 
+    def shoot_blocks(self) -> list[str]:
+        """全部**射击**停站格名（按路线序）—— 双停站时是 `[主停站, 对侧停站]`。
+
+        口径唯一来自 `Route.shoot_points()`（= token 里的 `*`），不另记一份，
+        避免"PlanResult 说有 2 个停站、真路线只有 1 个"这种两套账。
+        """
+        return [wp.block for _i, wp in self.route.shoot_points()]
+
     def as_dict(self) -> dict:
         return {
             "map": self.map_name, "map_file": self.map_source,
@@ -1814,6 +1914,11 @@ class PlanResult:
             "crossing": dict(self.crossing),
             "shoot_stop": self.shoot_stop,
             "shoot_distance_m": round(self.shoot_distance_m, 4),
+            # ★t7：双停站必须能一眼看见（同侧 + 对侧各一个；JSON 里不再只有主停站）
+            "shoot_stops": self.shoot_blocks(),
+            "shoot_stop2": self.shoot_stop2,
+            "shoot_distance_m2": round(self.shoot_distance_m2, 4),
+            "second_stop_added": self.second_stop_added,
             "shoot_targets": list(self.shoot_targets),
             "cost": round(self.cost, 4),
             "polylength_m": round(self.polyline_m, 4),
@@ -1838,6 +1943,8 @@ class PlanResult:
     def summary(self) -> str:
         shoot = (f"射击停站 {self.shoot_stop} 到靶 {self.shoot_distance_m:.3f} m"
                  f"（{'/'.join(self.shoot_targets)}）" if self.shoot_stop else "无射击停站")
+        if self.shoot_stop2:
+            shoot += f" + 对侧停站 {self.shoot_stop2}（板心 {self.shoot_distance_m2:.3f} m）"
         pivots = (" ".join(f"{b} {d:.0f}°" for _, b, d in self.pivots) or "无")
         lines = [
             f"路线[{self.route.name}] {len(self.tokens)} token / {self.polyline_m:.2f} m"
@@ -4090,6 +4197,11 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
             cells = kept
 
     # ---------------- 编译成航点 / Route ----------------
+    #   ★ t7：第二射击停站候选**只由地图/靶板/窗口决定**（与路线形状无关）⇒ 在这里算一次；
+    #     编译闭包里只判"落不落得上"。落不上/无解都必须在 warnings 里留痕 ——
+    #     旧版"候选算出来却没落到路线上"是**完全静默**的，等于把双停站悄悄退化成单停站。
+    _second_stop = second_shoot_stop(spec, grid, shoot, acc) if shoot else ""
+
     def _compile(_cells: list) -> tuple[list, Any, list]:
         _stops: list[_Stop] = []
         for row, col in _cells:
@@ -4108,11 +4220,11 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
         _refresh_headings(_stops)
         # ---- 第二射击停站（对侧）----
         #   只在"该格本来就是这条路线上的普通航点"时才落标（现图 = `G3`），
-        #   否则**不改路线**、只留 warning（宁可少一个停站，也不擅自改穿洞/折返形态）。
-        _second = second_shoot_stop(spec, grid, shoot, acc) if shoot else ""
-        if _second:
+        #   否则**不改路线**（宁可少一个停站，也不擅自改穿洞/折返形态），
+        #   但落不上/无解会在下面统一变成一条**显式 warning**（绝不静默）。
+        if _second_stop:
             for _st in _stops:
-                if _st.block == _second and not _st.shoot and _st.tag == "path":
+                if _st.block == _second_stop and not _st.shoot and _st.tag == "path":
                     _st.shoot = True
                     _st.tag = "shoot"
                     break
@@ -4155,6 +4267,16 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
         warnings.append("仍有 %d 处紧凑 U 形折返（已被搜遍仍无法避开）" % n_bad_u)
     if shoot:
         warnings.append("射击停站由『覆盖全部靶格』精确筛出：%s" % shoot)
+    # ★★ t7 双停站台账（**报警线**，不是装饰）：落不上 / 无解都必须在日志里看得见。
+    #   为什么必须是 warning 而不是静默：靶板两面蓝/红随机，单停站意味着"蓝面朝错那局整场打不到"，
+    #   而 15:04 现场那次丢停站在日志里**一个字都没有**，靠人肉比对 token 串才发现。
+    _shoot_hit = [wp.block for _i, wp in route.shoot_points()]
+    if shoot and _second_stop and _second_stop not in _shoot_hit:
+        warnings.append("⚠️ 第二射击停站未落标：对侧候选 %s 不在本路线航点上 ⇒ 本路线只有 %d 个"
+                        "射击停站（蓝面朝另一侧那局会打不到）" % (_second_stop, len(_shoot_hit)))
+    elif shoot and not _second_stop:
+        warnings.append("⚠️ 第二射击停站无解：板面另一侧没有能覆盖全部靶格的候选格 ⇒ "
+                        "本路线只有 %d 个射击停站" % len(_shoot_hit))
     # 增量续算必须在产物里**显式留痕**（现场/日志一眼看出这不是整线路线）
     if incremental:
         _inc_name = geo.index_to_block(inc_start[0] - 1, inc_start[1])

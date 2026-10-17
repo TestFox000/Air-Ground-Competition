@@ -60,7 +60,8 @@ from dzbrain.core.config import Config                                # noqa: E4
 from dzbrain.core.events import EV_BRIDGE_INFO, EventBus              # noqa: E402
 from dzbrain.core.state import SafetyState                            # noqa: E402
 from dzbrain.route.parser import parse_token                          # noqa: E402
-from dzbrain.tasks.drone import DroneTask                             # noqa: E402
+from dzbrain.tasks.drone import (P_DRONE_COVERAGE, P_FIELD_VERIFY,  # noqa: E402
+                                 DroneTask)
 from dzbrain.tasks.mission import MissionTask                         # noqa: E402
 from fakes import FakeBridge, FakeClock                               # noqa: E402
 from harness import check, finish, section                            # noqa: E402
@@ -519,6 +520,119 @@ def test_robustness() -> None:
           "rclpy" not in sys.modules, "rclpy 未被加载")
 
 
+# --------------------------------------------------------------------------- #
+#  6. 覆盖语义 + EV_FIELD_VERIFY 消费方（G5-2 / G5-3，端到端）
+# --------------------------------------------------------------------------- #
+def fv(mines=None, obstacles=None, *, coverage=None, slice_=None,
+       scan_id=None, seq=None) -> str:
+    """造 `field_verify`：优先用感知管线**自己的构造器**（不手写新键 schema）。"""
+    proto = _perception()
+    if proto is not None and coverage is not None:
+        return proto.encode(proto.build_field_verify(
+            mines, obstacles, coverage=coverage, slice=slice_, scan_id=scan_id,
+            ts=1791805124.744, seq=seq))
+    msg: dict = {"type": "field_verify", "ts": 1791805124.744}
+    if mines is not None:
+        msg["mines"] = list(mines)
+    if obstacles is not None:
+        msg["obstacles"] = list(obstacles)
+    if coverage is not None:
+        msg["coverage"] = dict(coverage)
+        if slice_ is not None:
+            msg["slice"] = dict(slice_)
+        if scan_id is not None:
+            msg["scan_id"] = scan_id
+    if seq is not None:
+        msg["seq"] = seq
+    return json.dumps(msg, ensure_ascii=False, separators=(",", ":"))
+
+
+def test_coverage_and_field_verify_consumer() -> None:
+    section("6. 覆盖语义 + EV_FIELD_VERIFY 消费方（机侧构造器 → 车侧账本）")
+
+    # ---- 6a 旧报文（现场真源的无 coverage 形状）→ 零副作用 ----
+    rig = Link(cfg_of())
+    rig.ticks(3)                                  # 走完 auto_start 装线（与其它小节同手法）
+    base_blocks = list(rig.route().blocks())
+    rig.send(hb(seq=1))
+    legacy = {"type": "field_verify", "mines": sorted(rig.drone.mines),
+              "obstacles": sorted(rig.drone.obstacles),
+              "ts": 1791805124.744, "seq": 2}
+    rig.send(json.dumps(legacy, ensure_ascii=False, separators=(",", ":")))
+    rig.ticks(2)
+    check("6.1 旧 field_verify（无 coverage）照旧解析：不写覆盖键、无差异、路线不动",
+          rig.bb.get(P_DRONE_COVERAGE) is None
+          and rig.drone_state().field_diff == ()
+          and list(rig.route().blocks()) == base_blocks,
+          f"cov={rig.bb.get(P_DRONE_COVERAGE)} diffs={rig.drone_state().field_diff}")
+
+    # ---- 6b 片级 coverage：两片拼一次扫描 + complete 门控 + 幂等 ----
+    rig = Link(cfg_of())
+    rig.ticks(3)
+    base_blocks = list(rig.route().blocks())
+    rig.send(hb(seq=1))
+    scan = "20261017T1800_t3"
+    rig.send(fv([], [], coverage={"cells": ["N1", "N2", "M1"], "complete": True,
+                                  "mode": "strip"},
+                slice_={"id": "S1", "index": 1, "of": 2, "route": "N1>N2>M1"},
+                scan_id=scan, seq=2))
+    rig.ticks(2)
+    cov = rig.bb.get(P_DRONE_COVERAGE)
+    check("6.2 首片：完整片 3 格计入已探明、done=False、分母 154",
+          isinstance(cov, dict) and cov["cells_done"] == 3 and cov["done"] is False
+          and cov["cells_total"] == 154, f"{cov}")
+    check("6.3 ★ 片内既无本地要素也无报出 ⇒ 不产生『本地消失』差异（旧口径会误报）",
+          rig.drone_state().field_diff == (), f"{rig.drone_state().field_diff}")
+    rig.send(fv(["A3"], [], coverage={"cells": ["A3"], "complete": True},
+                slice_={"id": "S2", "index": 2, "of": 2, "route": "A3"},
+                scan_id=scan, seq=3))
+    rig.ticks(2)
+    cov = rig.bb.get(P_DRONE_COVERAGE)
+    check("6.4 两片齐全且都 complete ⇒ done=True、已探明 4/154",
+          cov["done"] is True and cov["cells_done"] == 4
+          and cov["complete_slices"] == 2, f"{cov}")
+    rig.send(fv(["A3"], [], coverage={"cells": ["A3"], "complete": True},
+                slice_={"id": "S2", "index": 2, "of": 2, "route": "A3"},
+                scan_id=scan, seq=4))
+    rig.ticks(2)
+    check("6.5 ★ 同 (scan_id,slice.id) 重发幂等：duplicates=1 且不重复记差异",
+          rig.drone.coverage_duplicates == 1 and rig.drone_state().field_diff == (),
+          f"dup={rig.drone.coverage_duplicates} diffs={rig.drone_state().field_diff}")
+
+    # ---- 6c 完整片里的新雷/障 → 消费方汇总（默认只记录、不改路线） ----
+    rig.send(fv(["N3"], ["N4"], coverage={"cells": ["N3", "N4"], "complete": True},
+                slice_={"id": "S1", "index": 1, "of": 1,
+                        "route": "N3>N4"},
+                scan_id="20261017T1805_t3", seq=5))
+    rig.ticks(2)
+    st = rig.bb.get(P_FIELD_VERIFY)
+    check("6.6 ★ 消费方拿到生产事件：hazard_new={N3,N4}、verdict=diff、severity=risk",
+          isinstance(st, dict) and st["hazard_new"] == ["N3", "N4"]
+          and st["verdict"] == "diff" and st["severity"] == "risk", f"{st}")
+    check("6.7 默认 policy=record ⇒ hold=False；路线逐 token 不变（不阻断）",
+          st["hold"] is False and list(rig.route().blocks()) == base_blocks
+          and rig.phase() == "DRIVE", f"hold={st.get('hold')} phase={rig.phase()}")
+    check("6.8 差异留痕进 P_DRONE.field_diff（旧遥测 '!差异N' 仍可见）",
+          any("N3" in d for d in rig.drone_state().field_diff),
+          f"{rig.drone_state().field_diff}")
+    check("6.9 已探明覆盖累计 6 格（前 4 + 新 2）",
+          rig.bb.get(P_DRONE_COVERAGE)["cells_done"] == 6,
+          f"{rig.bb.get(P_DRONE_COVERAGE)}")
+
+    # ---- 6d 感知管线真实产物（无 coverage）：不产生覆盖键 ----
+    lines = product_lines()
+    if lines:
+        rig2 = Link(cfg_of())
+        for ln in lines:
+            rig2.send(ln)
+        rig2.ticks(3)
+        check("6.10 真实产物（无 coverage）→ 不写覆盖键，旧解析路径照旧",
+              rig2.bb.get(P_DRONE_COVERAGE) is None
+              and rig2.drone_state() is not None
+              and rig2.drone.messages >= len(lines),
+              f"cov={rig2.bb.get(P_DRONE_COVERAGE)} msgs={rig2.drone.messages}")
+
+
 def main() -> None:
     section("卡 t5 端到端离线联调（bench）")
     print(f"  现场真源   : {_ROBOT.name}（默认穿洞格 lower={LOWER_DEFAULT} "
@@ -534,6 +648,7 @@ def main() -> None:
     test_degrade_matrix()
     test_event_channel()
     test_robustness()
+    test_coverage_and_field_verify_consumer()
     finish()
 
 

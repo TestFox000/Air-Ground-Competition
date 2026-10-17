@@ -163,6 +163,26 @@ def grep_route_check(text: str) -> list[str]:
 # --------------------------------------------------------------------------- #
 #  规划
 # --------------------------------------------------------------------------- #
+def _close_dual_shoot_stop(res: PL.PlanResult, map_cfg: dict, cfg: Config,
+                          map_path: pathlib.Path) -> PL.PlanResult:
+    """★t7：与车上自动规划**同一段收口** —— 两条引擎产物都补齐"对侧第二射击停站"。
+
+    为什么 CLI 也要接：本工具是"生成给车端填进 robot.yaml 的路线"的入口，
+    如果它输出的星号与车上自动规划不一致，就会出现"页面/CLI 说两个停站、车只停一个"
+    （靶板蓝面随机 ⇒ 那一局整场打不到）。收口本体在 `planner.ensure_second_shoot_stop()`，
+    这里只负责把证据写回 `PlanResult`（JSON/summary 都看得见），**不改路线几何**。
+    """
+    tokens, marked, note = PL.ensure_second_shoot_stop(
+        res.tokens, map_cfg, cfg, source=str(map_path))
+    res.tokens = tokens
+    if marked:
+        res.second_stop_added = marked
+        res.shoot_stop2 = marked
+        res.shoot_distance_m2 = PL.shoot_stop_distance(marked, map_cfg)
+        res.warnings = tuple(res.warnings) + (note,)
+    return res
+
+
 def plan_once(map_cfg: dict, cfg: Config, args, *, cross_lower: str | None,
               cross_upper: str | None, map_path: pathlib.Path) -> PL.PlanResult:
     """规划一次。`--engine` 选引擎（默认 `tour` = 历史行为，逐字节不变）。
@@ -176,18 +196,20 @@ def plan_once(map_cfg: dict, cfg: Config, args, *, cross_lower: str | None,
         turned = tuple(args.turned_mines.split(",")) if args.turned_mines else ()
         covered = (tuple(c.strip() for c in args.already_covered.split(",") if c.strip())
                    if getattr(args, "already_covered", None) else ())
-        return PL.plan_route_tracker_safe(
+        res = PL.plan_route_tracker_safe(
             map_cfg, cfg, cross_lower=cross_lower, cross_upper=cross_upper,
             phase_cell=args.phase_cell, turn_w=args.t7_turn_w,
             turned_mines=turned,
             from_cell=getattr(args, "from_cell", None), already_covered=covered,
             max_seconds=args.max_seconds, name=map_path.stem or "route",
             source=str(map_path))
-    return PL.plan_route(
+        return _close_dual_shoot_stop(res, map_cfg, cfg, map_path)
+    res = PL.plan_route(
         map_cfg, cfg, cross_lower=cross_lower, cross_upper=cross_upper,
         allow_reverse=bool(args.allow_reverse), pivot_penalty=args.pivot_penalty,
         name=map_path.stem or "route", source=str(map_path),
         max_seconds=args.max_seconds)
+    return _close_dual_shoot_stop(res, map_cfg, cfg, map_path)
 
 
 def crossing_combinations(map_cfg: dict, cfg: Config) -> list[tuple[str, str]]:

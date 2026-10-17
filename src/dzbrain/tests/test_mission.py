@@ -2048,6 +2048,47 @@ def test_dual_stop_t14() -> None:
           f"早退日志={len(red_logs)} 完赛={rig5.count(EV_MISSION_FINISHED)} "
           f"到站={rig5.count(EV_ARRIVED_STOP_POINT)} 航线末点=D9")
 
+# --------------------------------------------------------------------------- #
+#  18. ★t7 停站台账：SHOOT 与终点分开记（终点不是"第二个打靶停站"）
+# --------------------------------------------------------------------------- #
+def test_stop_ledger_t7() -> None:
+    section("18. ★t7 停站台账：射击停站与终点分开记（15:04 现场错账的根因）")
+    ws = pathlib.Path(__file__).resolve().parents[3]
+    cfg = Config.load(str(ws / "config" / "robot.yaml"))
+    cfg.override("planner.auto_plan_enabled", False)     # 走 route.tokens（现役 44 点手路线）
+    cfg.override("mission.auto_start", True)
+    cfg.override("mission.auto_start_delay_s", 0.0)
+    toks = [str(t) for t in (cfg.get("route.tokens") or [])]
+    rig = Rig(cfg=cfg, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig.ticks(3)
+    route = rig.bb.get(P_ROUTE)
+    ledger = rig.task.stop_ledger()
+    check("18.0 前置：现役路线 44 点、两个射击停站（D3* / G3*）",
+          len(toks) == 44 and len(route) == 44
+          and [w.block for w in route.waypoints if w.shoot] == ["D3", "G3"],
+          f"{len(route)} 点 / {[w.block for w in route.waypoints if w.shoot]}")
+    check("18.1 ★ 台账分类：射击 2 + 终点 1（末端单独记 END，不再混进停站个数）",
+          ledger["count"] == 3 and ledger["counts"] == {"shoot": 2, "scan": 0, "end": 1},
+          str(ledger["counts"]))
+    check("18.2 逐点 kind：D3/G3 = SHOOT，末点 = END 且就是路线末航点",
+          [p["block"] for p in ledger["points"]] == ["D3", "G3", "N5"]
+          and [p["kind"] for p in ledger["points"]] == ["SHOOT", "SHOOT", "END"]
+          and ledger["points"][-1]["index"] == len(route) - 1,
+          str(ledger["points"]))
+    text = "\n".join(rig.logs)
+    check("18.3 横幅一行可读：'停站点 3 个（射击 2 / 终点 1）' + 'N5(终点)' 标注",
+          "停站点 3 个（射击 2 / 终点 1）" in text
+          and "N5(终点)" in text and "(射击)" in text,
+          next((ln for ln in rig.logs if ln.startswith("停站点 ")), ""))
+    first_shoot = ledger["points"][0]["index"]
+    nxt = rig.task._next_stop_candidate()                # noqa: SLF001
+    check("18.4 ★ 终点不参与三段式：`_next_stop_candidate()` 只会给射击停站（不是末点）",
+          nxt == first_shoot and nxt != len(route) - 1,
+          f"next={nxt}（首个射击停站={first_shoot}、末点={len(route) - 1}）")
+    tele = (rig.bb.get(P_TELEMETRY) or {}).get("mission_state", {}).get("stops")
+    check("18.5 遥测 mission_state.stops 与台账同源（counts/points 逐字一致）",
+          tele == ledger, str(tele))
+
 
 def main() -> int:
     print("=" * 72)
@@ -2072,6 +2113,7 @@ def main() -> int:
     test_bridge_hold_t32()
     test_dual_stop_t13()
     test_dual_stop_t14()
+    test_stop_ledger_t7()
     finish()
     return 0
 

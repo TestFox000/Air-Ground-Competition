@@ -56,6 +56,22 @@ _INF = float("inf")
 #: 自愈判定的"有没有变"容差（米）：全扫与窗口投影的差异小于它就算一致（浮点噪声/顶点归属）。
 _EPS_S = 1e-9
 
+#: ★ 自愈跳跃的"大小"分界（米）：跳跃不超过它就直接采纳（正常追回冻结的几厘米）。
+_STUCK_MAX_JUMP_M = 0.50
+#: ★ 大跳跃时的**可信离线距离**（米）：全路线重投影给出的新位置若离车超过这么远，
+#: 说明车已经不在任何一条路线上，"最近的那条腿"只是几何上稍近一点（很可能是路线的
+#: 另一支/终点段），采纳它等于把上报弧长瞬移到 10 m 之外。取 0.45 m（一个整格 0.35 m
+#: 的 1.3 倍，与 pursuit.corner_slow_dist_m 同量级）：实测合法自愈（车已贴在新走廊上）
+#: 离线 0.33 m，而 2026-10-17 实车那次误锁离线 0.68 m —— 取两者之间的最保守分界。
+#:
+#: ★ 2026-10-17 14:59 趟的实证（_tmp_session/run_20261017_1504/7_path_utf8.txt）：
+#:   行 207 TrackerTask 先按"更近 + 不倒退"接受了 s 1.288 → 14.112 m（+12.824 m，
+#:   新段离线 0.683 m）；行 210 本任务的 _heal_stuck 同拍也接受 1.290 → 14.110
+#:   （+12.820 m）。两处都只判"新投影更近"，**没有任何跳跃上限** —— 于是车在 K9 桥洞
+#:   蹭墙偏航后，投影把"稍近一点"的终点段当成真值，前视点瞬间指到 12.7 m 之外，
+#:   转角减速层同时失效（0.12 → 0.35 m/s），车直线冲出场地边界。
+_STUCK_TRUST_DIST_M = 0.45
+
 #: 末点（路线最后一个航点）的**吸附半径**（米）：对齐 `tools/sim.py` 的 `_GOAL_STOP_M`。
 #: 末点吸附若沿用 `arrival_m`(0.12)，信念会在离终点 0.118 m 处被提前拽到格心（车端
 #: 7_path.log 实测"到位吸附 A10 偏差 0.118 m → 锚回格心"）→ Mission 见信念已到 →
@@ -121,6 +137,10 @@ class LocalizationTask(TaskThread):
         self.stuck_ticks = max(2, int(cfg.get("localization.stuck_ticks") or 5))
         self.stuck_eps_m = float(cfg.get("localization.stuck_eps_m") or 0.01)
         self.stuck_dist_m = float(cfg.get("localization.stuck_dist_m") or 0.20)
+        #: ★ 大跳跃可信闸的离线距离阈值（米，2026-10-17 实车 12.8 m 误锁的修复）：
+        #: 大跳跃且新投影离车 > 它 ⇒ 拒绝采纳（理由与取值见模块常量 _STUCK_TRUST_DIST_M）。
+        #: 现场若要调，改这一行即可（未登记 SCHEMA 是刻意的：本轮写域不含 core/config.py）。
+        self.stuck_trust_dist_m = float(_STUCK_TRUST_DIST_M)
 
         # ---- ★实车漂移护栏（2026-10-11 首跑 SAFE_STOP@B1 的证据：13 m 里漂 0.65 m）----
         # 全部走"代码默认值"（config/*.yaml 统一维护；清单已回报队长，待并入）。
@@ -198,6 +218,7 @@ class LocalizationTask(TaskThread):
         self.drift_warnings = 0
         self.stuck_scans = 0        # 判定卡死 → 全路线重投影的次数（含"全局在身后"的）
         self.projection_heals = 0   # 其中真正改了上报值（全局投影更靠前）的次数
+        self.stuck_heal_refused = 0  # ★ 因"大跳跃且新投影离车太远"被**拒绝**的自愈次数
         # ---- ★漂移护栏的计数与状态----
         self.anchor_refused = 0          # 因"误差会变大/超上限"**拒绝**吸附的次数（显式记账）
         self.drift_run = 0               # 连续"有漂移、未纠回"的拍数
@@ -286,7 +307,8 @@ class LocalizationTask(TaskThread):
     def teardown(self) -> None:
         self._log(f"定位退出：{self.ticks} 拍 / 缺位姿 {self.missing_pose_ticks} 拍 / "
                   f"吸附 {self.anchored} 次 / 漂移告警 {self.drift_warnings} 次 / "
-                  f"投影卡死自愈 {self.projection_heals} 次（判定 {self.stuck_scans} 次）")
+                  f"投影卡死自愈 {self.projection_heals} 次（判定 {self.stuck_scans} 次 / "
+                  f"拒绝 {self.stuck_heal_refused} 次）")
         # 漂移护栏台账（"吸附失败要显式记账"的收尾口径）
         self._log(f"漂移护栏：吸附被拒 {self.anchor_refused} 次 / 限速或停机 "
                   f"{self.motion_limited_ticks} 拍（下发 {self.motion_limit_published} 次）/ "
@@ -404,7 +426,22 @@ class LocalizationTask(TaskThread):
         #   窗口给到整条路线长度 = 全扫；候选集是窗口投影的**超集** ⇒ dist 只会变好不会变差。
         glob = self._path.project(x, y, s_hint=self._s_hint,
                                   window_m=self._path.total_length, allow_backward=True)
-        if abs(glob.s - proj.s) > _EPS_S:
+        jump = float(glob.s) - float(proj.s)
+        # ---- ★大跳跃可信闸（2026-10-17 实车 +12.82 m 误锁的修复）----
+        # 只判"新投影更近"是不够的：车跑到两条路线腿**之间**时，两条腿都离车 0.6~0.8 m，
+        # "稍近一点"的那条完全可能是 10 m 之外的终点段（实车实证：离线 0.68 m 的段 40
+        # 比离线 0.78 m 的当前段"近 0.10 m"⇒ 上报 s 从 1.29 跳到 14.11）。跳跃小（≤1.4 格）
+        # 视为正常追回；跳跃大就必须"新投影确实贴在车上"才可信，否则保留窗口投影。
+        if abs(jump) > _EPS_S:
+            if abs(jump) > _STUCK_MAX_JUMP_M and float(glob.dist) > self.stuck_trust_dist_m:
+                self.stuck_heal_refused += 1
+                if self._warn.allow("proj_heal_reject", self.clock()):
+                    self._log(f"⛔ 投影自愈被拒：全路线重投影会跳 {jump:+.3f} m"
+                              f"（第 {glob.seg_index} 段，离线 {glob.dist:.2f} m > 可信 "
+                              f"{self.stuck_trust_dist_m:.2f} m）→ 车已不在任何一条路线腿上，"
+                              f"保留窗口投影 {proj.s:.3f}（累计拒绝 {self.stuck_heal_refused} 次）")
+                self._stuck_s, self._stuck_x, self._stuck_y, self._stuck_n = proj.s, x, y, 0
+                return proj
             self.projection_heals += 1
             self._stuck_s, self._stuck_x, self._stuck_y, self._stuck_n = glob.s, x, y, 0
             if self._warn.allow("proj_heal", self.clock()):

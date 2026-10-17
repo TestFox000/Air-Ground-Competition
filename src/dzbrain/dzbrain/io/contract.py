@@ -257,6 +257,190 @@ def decode_aim_status(value) -> str:
         return "UNKNOWN"
 
 
+# --------------------------------------------------------------------------- #
+#  无人机覆盖语义（coverage / slice / scan_id）—— G5-2 车侧契约
+# --------------------------------------------------------------------------- #
+#: `coverage.mode` 白名单（与机侧 `dzsmartscout/tools/perception/protocol.py`
+#: 的 `COVERAGE_MODES` 同源；车侧只做透传/校验，不用它改变判据）。
+COVERAGE_MODES: tuple[str, ...] = ("strip", "point", "full")
+
+#: `scan_id` 长度上限（与机侧 `protocol.SCAN_ID_MAX_LEN` 同源）。
+SCAN_ID_MAX_LEN = 64
+
+
+@dataclass(frozen=True)
+class SliceInfo:
+    """片标识（幂等键的一半）：`{id,index,of,route}`。
+
+    它是"这条 field_verify 属于哪一片"的自描述；与 `scan_id` 合成
+    `(scan_id, slice.id)` 去重键 —— BEST_EFFORT 链路上同一片必须周期重发，
+    车侧必须幂等（决策层方案 §5.1 第 4 条）。
+    """
+
+    id: str = ""
+    index: int = 0
+    of: int = 0
+    route: str = ""
+
+    @property
+    def valid(self) -> bool:
+        return bool(self.id) and 1 <= self.index <= self.of
+
+    def to_dict(self) -> dict:
+        out = {"id": self.id, "index": int(self.index), "of": int(self.of)}
+        if self.route:
+            out["route"] = self.route
+        return out
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """一条 `field_verify` 的片级覆盖（负证据语义的唯一载体）。
+
+    ★ 语义边界（与决策层方案 §4.2 / 机侧 `coverage.py` 逐字对齐）：
+
+    - `cells` = 本片**判读范围**（格名，已归一化去重，按 payload 顺序保留）；
+    - `complete=True`  ⇒ 片内 `cells` 已判读完毕，**未在 mines/obstacles/targets
+      里出现的格 = ABSENT**（这是「扫过且为空」的唯一来源）；
+    - `complete=False` ⇒ 只报看得见的，片内其余仍是 **UNKNOWN**，**不得**当 ABSENT；
+    - 缺 `complete` 键 ⇒ 按 `False`（UNKNOWN）处理，绝不猜成"空的"。
+
+    `problems` 只是"结构有问题、车侧已降级处理"的诊断，不表示整条报文非法
+    （非法形状由 :func:`decode_coverage` 返回 `None`）。
+    """
+
+    cells: tuple[str, ...] = ()
+    complete: bool = False
+    mode: str = "strip"
+    scan_id: str = ""
+    slice: SliceInfo | None = None
+    dropped: int = 0                 # 畸形/越界/重复格名被剔除的个数
+    problems: tuple[str, ...] = ()
+
+    @property
+    def key(self) -> tuple[str, str] | None:
+        """幂等键 `(scan_id, slice.id)`；任一为空 ⇒ `None`（无法去重）。"""
+        if self.scan_id and self.slice is not None and self.slice.id:
+            return (self.scan_id, self.slice.id)
+        return None
+
+    def to_dict(self) -> dict:
+        out = {"cells": list(self.cells), "complete": bool(self.complete),
+               "mode": self.mode, "n_cells": len(self.cells)}
+        if self.scan_id:
+            out["scan_id"] = self.scan_id
+        if self.slice is not None:
+            out["slice"] = self.slice.to_dict()
+        if self.dropped:
+            out["dropped"] = int(self.dropped)
+        if self.problems:
+            out["problems"] = list(self.problems)
+        return out
+
+
+def _norm_coverage_cells(items) -> tuple[tuple[str, ...], int]:
+    """覆盖格清单归一化：大写去空格、去重、丢越界/非字符串（`dropped` 计数）。
+
+    ★ 与 `drone.py` 对雷/障格名的"不校验是否在地图内"原则**不同**：
+      coverage 是**本车网格**的覆盖进度，分母固定 154 格；放进 Z9 这种越界名
+      会把比例算到 >1。所以这里按 `geometry.block_to_index` 校验本地网格。
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    dropped = 0
+    for item in items:
+        if not isinstance(item, str):
+            dropped += 1
+            continue
+        text = item.strip().upper()
+        if not text:
+            dropped += 1
+            continue
+        try:
+            geo.block_to_index(text)
+        except (TypeError, ValueError):
+            dropped += 1
+            continue
+        if text in seen:
+            dropped += 1
+            continue
+        seen.add(text)
+        out.append(text)
+    return tuple(out), dropped
+
+
+def decode_slice_info(value) -> SliceInfo | None:
+    """`slice:{id,index,of,route?}` → :class:`SliceInfo`；形状非法返回 `None`。"""
+    if not isinstance(value, dict):
+        return None
+    sid = str(value.get("id") or "").strip().upper()
+    if not sid or len(sid) > 16:
+        return None
+    index, of = value.get("index"), value.get("of")
+    if isinstance(index, bool) or isinstance(of, bool):
+        return None
+    if not isinstance(index, int) or not isinstance(of, int):
+        return None
+    if not (1 <= index <= of):
+        return None
+    route = str(value.get("route") or "").strip().upper()
+    return SliceInfo(id=sid, index=index, of=of, route=route)
+
+
+def decode_coverage(value, *, scan_id=None, slice_info=None) -> Coverage | None:
+    """`field_verify.coverage` → :class:`Coverage`；旧报文（无该键）/形状非法返回 `None`。
+
+    ★ 向后兼容：旧机侧不发 coverage ⇒ 本函数不被调用（或返回 `None`），
+      车侧行为与加此特性前**逐位一致**（见 `test_drone.py` ⑬ 的 A/B 证据）。
+
+    ★ 容错优先级（宁可保守，不可把"没扫"当"空的"）：
+      1. `cells` 必须是 list/tuple，否则整条 coverage 视为非法（`None`）；
+      2. 缺/非 bool 的 `complete` ⇒ `False`（UNKNOWN）+ 记 problems；
+      3. `mode` 非法 ⇒ 回退 `strip` + 记 problems；
+      4. `scan_id` 超长 ⇒ 丢弃去重键 + 记 problems（不丢数据）；
+      5. `slice` 形状非法 ⇒ `slice=None` + 记 problems（不丢数据）。
+    """
+    if not isinstance(value, dict):
+        return None
+    raw_cells = value.get("cells")
+    if not isinstance(raw_cells, (list, tuple)):
+        return None
+    cells, dropped = _norm_coverage_cells(raw_cells)
+
+    problems: list[str] = []
+    complete_raw = value.get("complete")
+    if isinstance(complete_raw, bool):
+        complete = complete_raw
+    else:
+        complete = False
+        problems.append("complete 缺失/非 bool → 按 UNKNOWN（不产生 ABSENT）")
+
+    mode = str(value.get("mode") or "").strip().lower()
+    if mode not in COVERAGE_MODES:
+        if mode:
+            problems.append(f"mode 非法({mode!r}) → 按 strip")
+        mode = "strip"
+
+    sid = str(scan_id or "").strip()
+    if len(sid) > SCAN_ID_MAX_LEN:
+        problems.append(f"scan_id 超长({len(sid)}>{SCAN_ID_MAX_LEN}) → 只丢弃去重键")
+        sid = ""
+
+    sl = None
+    if slice_info is not None:
+        sl = decode_slice_info(slice_info)
+        if sl is None:
+            problems.append("slice 形状非法 → 无去重键（数据仍保留）")
+
+    if not cells:
+        problems.append("cells 为空 → 不产生负证据")
+    if dropped:
+        problems.append(f"剔除 {dropped} 个畸形/越界/重复格名")
+
+    return Coverage(cells=cells, complete=complete, mode=mode, scan_id=sid,
+                    slice=sl, dropped=dropped, problems=tuple(problems))
+
+
 @dataclass(frozen=True)
 class ContractSummary:
     """给启动横幅/文档用的一页纸摘要。"""
