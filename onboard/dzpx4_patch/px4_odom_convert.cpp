@@ -347,15 +347,25 @@ void Px4OdomConvert::publishVehicleVisualOdometry(
   // 试飞实测（2026-10-16）：/localization 单步跳变 37~62m、z 漂 5m 会瞬间
   // 打崩 EKF（解锁坐标漂走、ARM 目标跑到 5m 外）。小位移放行；大位移先
   // hold（重发上一有效位姿 + 放大方差）；地面待命时连续 jump_confirm_n_
-  // 帧仍大 -> 判定真实大位移（被搬运/换场），接受新位置并 bump reset_counter
-  // 平滑重锚。armed 时永不接受（见 fcu_armed_）。
+  // 帧候选落点一致 -> 判定真实大位移（被搬运/换场），接受新位置并 bump
+  // reset_counter 平滑重锚。armed 时永不接受（见 fcu_armed_）。
   bool gate_holding = false;
   if (gate_has_prev_) {
     const double gate_dp = (position_ned - gate_prev_pos_).norm();
     const double gate_dy =
       std::fabs(wrapPi(yawFromQuat(q_px4) - yawFromQuat(gate_prev_quat_)));
     if (gate_dp > jump_hold_m_ || gate_dy > jump_yaw_rad_) {
-      ++gate_hold_count_;
+      // 候选一致性（2026-10-17 取证实锤，flight2/20261016_200254）：
+      // 只要求"连续 N 帧都大"会被 SLAM 跟丢后的持续乱跳击穿——该会话落地后
+      // /localization 单步 15→491→920m 且方向每次都不同，旧逻辑 8 帧后就会
+      // 误判成"真实位移"接受，把 EKF 反复重锚到垃圾位姿。真实被搬运的特征
+      // 是"位移大且落点一致"：候选与上一候选相距 < jump_accept_dist_m_
+      // 才累计确认计数，否则重新计数（乱跳序列永远确认不了）。
+      const bool cand_consistent = gate_has_cand_ &&
+        (position_ned - gate_cand_pos_).norm() < jump_accept_dist_m_;
+      gate_hold_count_ = cand_consistent ? gate_hold_count_ + 1 : 1;
+      gate_cand_pos_ = position_ned;
+      gate_has_cand_ = true;
       // armed 时永不接受：无人机物理上不可能 0.2s 内移动数米，armed 大
       // 位移 100% 是 SLAM 跟丢——hold 到底保 EKF，SLAM 恢复后自然放行。
       // 仅地面待命（disarmed）允许"被搬运"式重锚（连续 N 帧一致才接受）。
@@ -368,6 +378,7 @@ void Px4OdomConvert::publishVehicleVisualOdometry(
           "for EKF re-anchor",
           gate_dp, gate_dy * 180.0 / M_PI, gate_hold_count_);
         gate_hold_count_ = 0;
+        gate_has_cand_ = false;
         gate_prev_pos_ = position_ned;
         gate_prev_quat_ = q_px4;
         ++ev_reset_counter_;  // EKF 重锚到新位姿（uint8 自动回绕）
@@ -384,6 +395,7 @@ void Px4OdomConvert::publishVehicleVisualOdometry(
       }
     } else {
       gate_hold_count_ = 0;
+      gate_has_cand_ = false;  // 回到正常跟踪：候选序列作废
       gate_prev_pos_ = position_ned;
       gate_prev_quat_ = q_px4;
     }

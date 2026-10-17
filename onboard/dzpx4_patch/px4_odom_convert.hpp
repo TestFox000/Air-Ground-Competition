@@ -5,7 +5,9 @@
 //
 // 与官方原版的差异（全部来自两天四轮实飞的实测证据，见注释）：
 //   1) auto-align：SLAM 位姿直通 + EV reset_counter 一次重锚（团队实验版）
-//   2) jump guard：单步大位移 hold 防护（实测 SLAM 跟丢跳变 37~62m）
+//   2) jump guard：单步大位移 hold 防护（实测 SLAM 跟丢跳变 37~62m）；
+//      接受条件 = 连续 N 帧大位移**且候选落点一致**（2026-10-17 增补，
+//      防跟丢乱跳击穿确认计数，实测乱跳序列 15→491→920m 方向不定）
 //   3) armed 门控：解锁状态下跳变永不接受（物理不可能 = 100% 跟丢）
 //   4) z 换源：高度用 EKF 反馈 z（气压计主导），SLAM z（漂 5.56/8.9m）绝缘
 //
@@ -116,17 +118,22 @@ private:
   // 2026-10-16 试飞实测：FAST-LIO 在被搬运/剧烈晃动时跟丢重捕，/localization
   // 单步输出 37~62m 跳变、z 漂 5m；直通策略让 EKF 瞬间被打崩、解锁坐标漂走。
   // 分级处理：小位移放行；大位移先 hold（重发上一有效位姿 + 放大方差，
-  // EKF 视角=静止且不可信）；地面待命时连续 jump_confirm_n_ 帧仍大 ->
-  // 判定真实大位移（被搬运/换场），接受新位置并 bump EV reset_counter 让
-  // EKF 平滑重锚。armed 状态永不接受（见 fcu_armed_）。
+  // EKF 视角=静止且不可信）；地面待命时连续 jump_confirm_n_ 帧候选落点
+  // 一致（两两 < jump_accept_dist_m_）-> 判定真实大位移（被搬运/换场），
+  // 接受新位置并 bump EV reset_counter 让 EKF 平滑重锚。armed 状态永不
+  // 接受（见 fcu_armed_）。
   double jump_hold_m_{0.5};     // 单步位置跳变阈值（米）
   double jump_yaw_rad_{0.8};   // 单步 yaw 跳变阈值（弧度，~46°）
   int jump_confirm_n_{8};       // 连续多少帧大位移才判定"真实大位移"（43Hz 下约 0.2s）
+  double jump_accept_dist_m_{1.0};  // 候选一致性半径：相邻候选须落在此半径内才累计确认
 
   bool gate_has_prev_{false};
   int gate_hold_count_{0};
   Eigen::Vector3d gate_prev_pos_{Eigen::Vector3d::Zero()};
   Eigen::Quaterniond gate_prev_quat_{Eigen::Quaterniond::Identity()};
+  // 跳变候选一致性跟踪（防持续乱跳击穿确认计数，见 cpp 注释）
+  bool gate_has_cand_{false};
+  Eigen::Vector3d gate_cand_pos_{Eigen::Vector3d::Zero()};
 
   // 飞控解锁状态（2026-10-16）：armed 时 jump 永不接受——无人机物理上
   // 不可能在 0.2s 内移动数米，armed 大位移 100% 是 SLAM 跟丢，hold 到底
