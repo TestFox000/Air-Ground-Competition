@@ -264,8 +264,12 @@ class IntegrateNode(Node):
         # UDP socket 在构造函数里先 bind 好再交给收包线程：端口被占/权限
         # 不足时在启动时直接抛错（节点起不来、问题当场暴露），而不是收包
         # 线程静默死亡、节点照常"就绪"。
+        # ⚠️ 刻意不设 SO_REUSEADDR：重复 bind 即 fail-fast 是与 dzbrain_bridge
+        # 互斥的防线——两节点同抢 UDP:50000，"绝不同时跑"靠的是第二个 bind
+        # 当场炸（Linux 下 SO_REUSEADDR 会让双方重复 bind 且各收一份副本，
+        # 双决策核心并行驱动车）。UDP 无 TIME_WAIT，进程死掉端口即释放，
+        # 去掉它重启不受阻（2026-10-17 审查修正）。
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             self._sock.bind(("", int(p("udp_port"))))
         except OSError as exc:

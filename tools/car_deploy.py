@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import io
-import os
 import sys
 import tarfile
 import time
@@ -48,6 +47,10 @@ try:
 except ImportError:
     print("缺少 paramiko，请先执行: python -m pip install paramiko", file=sys.stderr)
     raise SystemExit(2)
+
+TOOLS = Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOLS))
+import remote_run  # noqa: E402  统一密码守卫 read_password（2026-10-17 收编）
 
 
 # ---------------------------------------------------------------- 输出辅助
@@ -105,17 +108,9 @@ def run(ssh: paramiko.SSHClient, cmd: str, timeout: int = 300) -> tuple[int, str
 
 
 def get_password(args) -> str:
-    pw = args.password or os.environ.get("AG_CAR_PASS")
-    if pw:
-        return pw
-    import getpass
-    if not sys.stdin.isatty():
-        raise SystemExit(
-            "缺少车端密码（无交互终端）：\n"
-            "  ① 设环境变量：set AG_CAR_PASS=<密码>\n"
-            "  ② 或 --password <密码>"
-        )
-    return getpass.getpass(f"{args.user}@{args.host} 的密码: ")
+    """密码守卫已收编到 remote_run.read_password（2026-10-17 横切扫描）；
+    本壳保留仅为向后兼容，语义不变：--password > AG_CAR_PASS > 交互提问。"""
+    return remote_run.read_password(args, env_name="AG_CAR_PASS")
 
 
 # ---------------------------------------------------------------- 主流程

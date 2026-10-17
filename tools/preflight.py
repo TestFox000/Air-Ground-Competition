@@ -114,6 +114,9 @@ def ssh_run(host, user, password, cmd, port=22, timeout=30):
     import paramiko
     cli = paramiko.SSHClient()
     cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    # 注意：look_for_keys=True 是全仓库孤例（remote_run.connect 等其它 SSH
+    # 入口都不传，即默认 False 纯密码认证）。2026-10-17 密码守卫收编时仅标注
+    # 不改行为：本机恰好配了 SSH 密钥时它会兜底尝试密钥，暂无对齐计划。
     cli.connect(host, port=port, username=user, password=password, timeout=timeout,
                 banner_timeout=timeout, look_for_keys=True)
     try:
@@ -125,14 +128,16 @@ def ssh_run(host, user, password, cmd, port=22, timeout=30):
 
 
 def get_password(env_name: str, args, flag: str) -> str:
-    import os
-    pw = getattr(args, flag) or os.environ.get(env_name)
-    if pw:
-        return pw
-    if not sys.stdin.isatty():
-        raise SystemExit(f"无交互终端，设环境变量 {env_name}=<密码> 或用 {flag} 传入")
-    import getpass
-    return getpass.getpass(f"{args.user}@{args.host} 密码: ")
+    """密码守卫已收编到 remote_run.read_password（2026-10-17 横切扫描）；
+    本壳保留原参数形态（env_name/flag 直传，env 变量名语义不变）。
+
+    延迟导入 remote_run：它顶层即 import paramiko，而本地检查段（CI 也只跑
+    本地段）不需要 paramiko——只有走到车端/机载 SSH 段才会调本函数。"""
+    _TOOLS = str(REPO / "tools")
+    if _TOOLS not in sys.path:
+        sys.path.insert(0, _TOOLS)
+    import remote_run
+    return remote_run.read_password(args, env_name=env_name, flag=flag)
 
 
 def check_car(args) -> None:

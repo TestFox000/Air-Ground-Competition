@@ -378,6 +378,59 @@ def test_destroy_node_stops_receive_thread():
     assert not node._thread.is_alive()
 
 
+def test_period_params_must_be_positive():
+    """heartbeat_period_s/refresh_period_s <=0：构造即抛——非法周期会让
+    心跳/刷新每拍连发刷爆话题（对齐 integrate_node 启动自检范式）。"""
+    with pytest.raises(ValueError):
+        make_node(heartbeat_period_s=0.0)
+    with pytest.raises(ValueError):
+        make_node(heartbeat_period_s=-0.5)
+    with pytest.raises(ValueError):
+        make_node(refresh_period_s=0.0)
+
+
+# ---------------- UDP 互斥防线（M4：刻意不设 SO_REUSEADDR，重复 bind 即 fail-fast） ----------------
+
+def _hold_udp_port() -> tuple:
+    """占住一个 UDP 端口（通配地址，与节点 bind("", port) 同架），返回 (sock, port)。"""
+    import socket as _socket
+    hold = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+    hold.bind(("", 0))
+    return hold, hold.getsockname()[1]
+
+
+def test_second_bridge_same_port_fails_fast():
+    """M4：同一 UDP 端口已被占时第二个桥构造即抛——"绝不同时跑"靠 bind
+    fail-fast 兜底（Linux 下 SO_REUSEADDR 会让双方重复 bind 且各收一份副本，
+    双决策核心并行驱动车；UDP 无 TIME_WAIT，去掉它重启不受阻）。"""
+    hold, port = _hold_udp_port()
+    try:
+        with pytest.raises(OSError):
+            make_node(udp_port=port)
+    finally:
+        hold.close()
+
+
+def test_bridge_and_integrate_node_mutual_exclusion():
+    """M4 跨节点互斥：integrate_node 在跑时 dzbrain_bridge 绑同一端口即抛
+    （两节点同抢 UDP:50000，决策核心只能有一个）。"""
+    import socket as _socket
+
+    from ag_integrate.integrate_node import IntegrateNode
+
+    probe = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+    probe.bind(("", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    ros_stub.set_overrides(udp_port=port)
+    n1 = IntegrateNode()          # legacy 决策核心先起（默认参数即合法）
+    try:
+        with pytest.raises(OSError):
+            DzbrainBridgeNode()   # dzbrain 决策核心后起 → 当场炸
+    finally:
+        n1.destroy_node()
+
+
 # ---------------- 黑匣子事件 ----------------
 
 def test_blackbox_events(tmp_path):

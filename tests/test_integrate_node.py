@@ -531,6 +531,22 @@ def test_udp_bind_failure_raises_at_startup(monkeypatch):
         make_node()
 
 
+def test_second_node_same_port_fails_fast():
+    """M4 互斥防线：刻意不设 SO_REUSEADDR——同一 UDP 端口已被占时第二个节点
+    构造即抛（与 dzbrain_bridge "绝不同时跑"靠 bind fail-fast 兜底，而不是靠
+    约定；Linux 下 SO_REUSEADDR 会让双方重复 bind 且各收一份副本，双决策核心
+    并行驱动车。UDP 无 TIME_WAIT，进程死掉端口即释放，重启不受阻）。"""
+    import socket as _socket
+    hold = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+    hold.bind(("", 0))
+    port = hold.getsockname()[1]
+    try:
+        with pytest.raises(OSError):
+            make_node(udp_port=port)
+    finally:
+        hold.close()
+
+
 # ---------------- 规划异常保护 ----------------
 
 def test_build_mission_failure_keeps_node_alive(tmp_path):

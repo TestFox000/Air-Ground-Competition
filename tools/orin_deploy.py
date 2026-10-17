@@ -8,7 +8,9 @@ build_verify 产物在仓库内）。本脚本统一约定为【仓库形状】�
         onboard/dzuav/**                    dzuav C++ 源码（全量，build/ 除外）
         models/release/                     current 指针 + 指针指向的 ONNX
         tools/orin_*.sh                     编译验证/引擎转换/全栈拉起
-        tools/orin_flight_blackbox.py       飞行黑匣子（flight_console.py 自动上传，此处兜底）
+        tools/orin_*.py                     机载 Python 工具全量（名单见 ORIN_PY_TOOLS：
+                                            黑匣子/双看门狗/日志采集/数据采集，
+                                            漏传会让 orin_bringup.sh 的 wdog/flight_wd 窗口必死）
 
 三个 orin_* 脚本都从 $0 自推 REPO 路径，落位后原位即用（无需搬动）；
 引擎目录沿用 orin_run_dzuav.sh / orin_convert_engines.sh 的默认
@@ -46,20 +48,31 @@ REMOTE_ROOT = "~/dzuav_deploy/air_ground"
 # 与 preflight_checklist.md B3-4 / models/release/README.md 对齐的指针名
 POINTER_FILES = ("current_hbb_detector", "current_cell_classifier")
 
+# 机载 Python 工具全量名单（显式登记，新增 orin_*.py 时同步加进来）：
+#   orin_flight_blackbox.py   飞行黑匣子：PX4 遥测/控制指令 JSONL 落盘 + UDP 镜像
+#                             （flight_console.py 也会自动上传，此处兜底）
+#   orin_watchdog.py          orin_bringup.sh 的 flight_wd 窗口：断流/掉 OFFBOARD/
+#                             位置跳变 -> 机上本地自动 LAND
+#   orin_agent_watchdog.py    orin_bringup.sh 的 wdog 窗口：飞控重上电/会话死亡
+#                             自动重启 MicroXRCEAgent
+#   orin_log_capture.py       dzuav stdout -> JSONL（uav_link 健康通道优先读它；
+#                             main.cpp 的日志行格式与之严格对应）
+#   orin_capture_dataset.py   机上数据采集（标定/训练素材，uvc/argus/视频源）
+# 2026-10-17 横切扫描发现：旧清单只传 orin_flight_blackbox.py，全新机器按标准
+# 流程部署后 bringup 的 wdog/flight_wd 两窗口因缺文件必死——故改为全量显式名单。
+ORIN_PY_TOOLS = (
+    "orin_flight_blackbox.py",
+    "orin_watchdog.py",
+    "orin_agent_watchdog.py",
+    "orin_log_capture.py",
+    "orin_capture_dataset.py",
+)
+
 
 def read_password(args) -> str:
-    """密码优先级：--password > AG_ORIN_PASS > 交互提问（无 tty 时明确报错）。"""
-    pw = getattr(args, "password", None) or os.environ.get("AG_ORIN_PASS")
-    if pw:
-        return pw
-    import getpass
-    if not sys.stdin.isatty():
-        raise SystemExit(
-            "缺少 Orin 密码（当前没有交互终端）：\n"
-            "  ① 设环境变量：set AG_ORIN_PASS=<密码>\n"
-            "  ② 或命令行传入：--password <密码>"
-        )
-    return getpass.getpass(f"{args.user}@{args.host} 的密码: ")
+    """密码守卫已收编到 remote_run.read_password（2026-10-17 横切扫描）；
+    本壳保留仅为向后兼容，语义不变：--password > AG_ORIN_PASS > 交互提问。"""
+    return remote_run.read_password(args, env_name="AG_ORIN_PASS")
 
 
 def resolve_current_models() -> list[tuple[Path, str]]:
@@ -119,11 +132,12 @@ def main(argv=None) -> int:
     print("==> 部署 onboard/dzuav 源码")
     put(REPO / "onboard" / "dzuav", f"{REMOTE_ROOT}/onboard/dzuav")
 
-    # ---- 2. orin 工具链（自推 REPO，落位即用） ----
+    # ---- 2. orin 工具链（自推 REPO，落位即用；.py 名单见 ORIN_PY_TOOLS 注释） ----
     print("==> 部署 orin 工具链")
-    orin_tools = sorted(TOOLS.glob("orin_*.sh")) + sorted(TOOLS.glob("orin_flight_blackbox.py"))
-    if not orin_tools:
-        raise SystemExit("tools/ 下没有 orin_*.sh —— 仓库状态异常")
+    orin_tools = sorted(TOOLS.glob("orin_*.sh")) + [TOOLS / n for n in ORIN_PY_TOOLS]
+    missing = [t.name for t in orin_tools if not t.is_file()]
+    if not orin_tools or missing:
+        raise SystemExit(f"tools/ 下缺少 orin 工具: {missing or 'orin_*.sh'} —— 仓库状态异常")
     for t in orin_tools:
         put(t, f"{REMOTE_ROOT}/tools/{t.name}")
     # SFTP put 不保留权限位：.sh 落盘成 0644，机上第一条 tools/orin_*.sh

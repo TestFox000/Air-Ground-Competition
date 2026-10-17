@@ -35,8 +35,30 @@ except ImportError:  # pragma: no cover - 仅在缺依赖时触发
     raise SystemExit(2)
 
 
-def read_password(args) -> str:
-    pw = args.password or os.environ.get("AG_CAR_PASS")
+# remote_run 自用：非交互报错尾部附加的车端密码文档指引（其它工具经
+# 参数化 env_name/hint 复用 read_password，见该函数 docstring）
+_CAR_DOCS_HINT = "密码见 docs/raw_txt/05_VNC远程桌面使用方法.txt（车端默认用户名 duzhong）"
+
+
+def read_password(args, env_name: str = "AG_CAR_PASS", flag: str = "password",
+                  prompt_user: str | None = None,
+                  fallback_envs: tuple = (), hint: str = "") -> str:
+    """统一密码守卫：`--password`（即 args.<flag>）> 环境变量 > 交互提问。
+
+    参数化是为了让 patch_deploy/orin_deploy/car_deploy/preflight 共用这一套
+    非交互兜底（2026-10-17 收编：此前五处各抄一份，报错文案各异）：
+      env_name      主环境变量名（车端 AG_CAR_PASS / 机载 AG_ORIN_PASS）
+      flag          argparse 属性名（preflight 机载侧是 orin_password）
+      prompt_user   getpass 提示语的身份串，默认 "<user>@<host>"
+      fallback_envs 主变量缺失时的兜底环境变量（patch_deploy 兼容 AG_CAR_PASS）
+      hint          非交互报错尾部追加的指引（remote_run 自用：车端密码文档位置）
+    """
+    pw = getattr(args, flag, None) or os.environ.get(env_name)
+    if not pw:
+        for name in fallback_envs:
+            pw = os.environ.get(name)
+            if pw:
+                break
     if pw:
         return pw
     import getpass
@@ -46,13 +68,16 @@ def read_password(args) -> str:
     #    这里，被误判成"车不通"，其实一个字都没发到车上）。
     #    这里直接退出并说清该给什么，宁可报错也不要静默挂起。
     if not sys.stdin.isatty():
-        raise SystemExit(
-            "缺少车端密码（当前没有交互终端，无法弹出密码提问）：\n"
-            "  ① 设环境变量：set AG_CAR_PASS=<密码>\n"
-            "  ② 或命令行传入：--password <密码>\n"
-            "密码见 docs/raw_txt/05_VNC远程桌面使用方法.txt（车端默认用户名 duzhong）"
+        msg = (
+            f"缺少密码（当前没有交互终端，无法弹出密码提问）：\n"
+            f"  ① 设环境变量：set {env_name}=<密码>\n"
+            f"  ② 或命令行传入：--password <密码>"
         )
-    return getpass.getpass(f"{args.user}@{args.host} 的密码: ")
+        if hint:
+            msg += f"\n{hint}"
+        raise SystemExit(msg)
+    who = prompt_user or f"{getattr(args, 'user', '')}@{getattr(args, 'host', '')}"
+    return getpass.getpass(f"{who} 的密码: ")
 
 
 def connect(host: str, user: str, password: str, port: int = 22,
@@ -246,7 +271,7 @@ def main(argv=None) -> int:
         if not args.to:
             ap.error("--get 需要同时给 --to")
         try:
-            cnt = sftp_get(args.host, args.user, read_password(args), args.get, args.to,
+            cnt = sftp_get(args.host, args.user, read_password(args, hint=_CAR_DOCS_HINT), args.get, args.to,
                            args.port, args.timeout)
         except paramiko.AuthenticationException:
             print("认证失败：用户名或密码不对", file=sys.stderr)
@@ -261,7 +286,7 @@ def main(argv=None) -> int:
         if not args.dest:
             ap.error("--put 需要同时给 --dest")
         try:
-            cnt = sftp_put(args.host, args.user, read_password(args), args.put, args.dest,
+            cnt = sftp_put(args.host, args.user, read_password(args, hint=_CAR_DOCS_HINT), args.put, args.dest,
                            args.port, args.timeout)
         except paramiko.AuthenticationException:
             print("认证失败：用户名或密码不对", file=sys.stderr)
@@ -303,7 +328,7 @@ def main(argv=None) -> int:
         cmd = "; ".join(parts) + "; " + cmd
 
     try:
-        code, out, err = run(args.host, args.user, read_password(args), cmd, args.timeout, args.port)
+        code, out, err = run(args.host, args.user, read_password(args, hint=_CAR_DOCS_HINT), cmd, args.timeout, args.port)
     except paramiko.AuthenticationException:
         print("认证失败：用户名或密码不对（车端默认用户名 duzhong，密码见 05_VNC远程桌面使用方法）",
               file=sys.stderr)

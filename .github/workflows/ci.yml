@@ -25,12 +25,19 @@ jobs:
           pip install -r requirements.txt
           # tools/preflight.py 本地检查段用到 onnx（verify_contract）与 yaml（读配置）
           pip install onnx PyYAML
+          # 随机序防线（与 requirements-extra.txt 同步 pin）：第二轮 pytest 靠它洗牌
+          pip install pytest-randomly==3.16.0
 
       - name: 全部源文件语法检查（src / tools / 根目录脚本）
         run: python -m compileall -q src tools *.py
 
-      - name: 单元测试
-        run: python -m pytest tests -q
+      - name: 单元测试（两轮）
+        run: |
+          # 第一轮：固定顺序基线（-p no:randomly 关掉洗牌，复现问题时顺序确定）
+          python -m pytest tests -q -p no:randomly
+          # 第二轮：默认随机序（pytest-randomly 自动洗牌）——专杀"上个测试留了
+          # 全局状态才让下个测试过"的顺序依赖，种子打在日志里可复现
+          python -m pytest tests -q
 
       - name: 赛前自检（纯本地检查段：模型契约/指针/md5/配置）
         run: python tools/preflight.py

@@ -101,6 +101,9 @@ def test_parse_sampler_line_hello_error_ctl():
     c2 = ul.parse_sampler_line(json.dumps({"src": "ctl", "action": "land",
                                            "ok": False, "detail": "x"}))
     assert c2["kind"] == "ctl" and c2["action"] == "land" and c2["ok"] is False
+    # 采样器醒目提示行（M1 直发警告等，执行前打印）
+    w = ul.parse_sampler_line(json.dumps({"warn": "直发飞控，绕过状态机防护"}))
+    assert w["kind"] == "warn" and "直发" in w["msg"]
 
 
 def test_parse_sampler_line_tolerates_bad_rows():
@@ -148,6 +151,36 @@ def test_blackbox_roundtrip(tmp_path):
     assert len(rows) == 2
     assert rows[0]["recv"] == 100.0 and rows[0]["topic"] == "/x"
     assert rows[1]["topics_found"] == ["/x"]
+
+
+def test_blackbox_write_oserror_disables_not_kills(tmp_path, capsys):
+    """M2：写盘失败（盘满/权限）响亮警告一次后停用黑匣子，遥测流程不被杀死
+    （对齐 orin_flight_blackbox"落盘失败绝不拖死节点"语义）。"""
+    p = tmp_path / "bb.jsonl"
+    box = ul.BlackboxWriter(p)
+    box.write({"a": 1}, recv=1.0)
+
+    class _BadFH:   # 模拟盘满：write/flush 都抛 OSError
+        def write(self, _s):
+            raise OSError(28, "No space left on device")
+
+        def flush(self):
+            raise OSError(28, "No space left on device")
+
+        def close(self):
+            pass
+
+    box._fh.close()                    # 换掉真句柄，避免 Windows 文件锁残留
+    box._fh = _BadFH()
+    box.write({"b": 2}, recv=2.0)      # 不抛，响亮警告一次
+    box.write({"c": 3}, recv=3.0)      # 已停用：静默空操作，不再刷屏
+    box.close()                        # 停用后 close 不抛
+    err = capsys.readouterr().err
+    assert err.count("黑匣子写盘失败") == 1
+    assert "遥测继续" in err
+    # 失败前的行还在盘上，失败行没写进去也没炸
+    rows = ul.read_blackbox(p)
+    assert len(rows) == 1 and rows[0]["a"] == 1
 
 
 def test_blackbox_append_mode_keeps_history(tmp_path):
@@ -238,6 +271,58 @@ def test_rule_ekf_degraded_needs_sustain():
     assert _drive(e3, [{}] * 30) == []
 
 
+def test_estimator_flags_ok_ignores_solution_status():
+    """S2：solution_status_flags 是"哪些状态输出有效"的位掩码（健康飞行恒非零），
+    绝不参与零判定；ok 只由 filter_fault_flags + innovation_check_flags 决定。"""
+    # 健康飞行假消息：solution_status_flags 非零、坏 flag 全零 → 健康
+    healthy = {"filter_fault_flags": 0, "innovation_check_flags": 0,
+               "solution_status_flags": 0x1FF, "control_mode_flags": 0x7FFF}
+    assert ul.estimator_flags_ok(healthy) is True
+    # 坏 flag 任一非零 → 坏（即使 solution_status_flags 也在）
+    assert ul.estimator_flags_ok({**healthy, "filter_fault_flags": 4}) is False
+    assert ul.estimator_flags_ok({**healthy, "innovation_check_flags": 1}) is False
+    # 只有 solution_status_flags（没有坏 flag 字段）→ 信息不足 None，不评
+    assert ul.estimator_flags_ok({"solution_status_flags": 0}) is None
+    assert ul.estimator_flags_ok({}) is None
+    # 采样器源码必须同源（内嵌副本，无 rclpy 跑不了 slim 单测）
+    assert "estimator_flags_ok 同源" in ul.SAMPLER_SRC or \
+        "solution_status_flags" in ul.SAMPLER_SRC
+
+
+def test_ekf_healthy_flight_flags_no_alert_via_feed():
+    """S2 整合：健康飞行的 estimator 采样行（solution_status_flags 非零）
+    经 TelemetryState.feed → 引擎，不得触发 EKF_DEGRADED。"""
+    st = ul.TelemetryState()
+    e = _quiet_engine()
+    fired = []
+    for i in range(40):
+        t = i * 0.1
+        st.feed(t, {"kind": "sample", "t": t, "topic": "/fmu/out/estimator_status",
+                    "ch": "estimator", "hz": 1.0,
+                    "data": {"flags": {"filter_fault_flags": 0,
+                                       "innovation_check_flags": 0,
+                                       "solution_status_flags": 479},
+                             "ok": True}})
+        fired.extend(e.update(t, st.engine_input()))
+    assert [a for a in fired if a["rule"] == "EKF_DEGRADED"] == []
+    assert st.estimator_ok is True
+    # 对照：filter_fault_flags 非零持续 2s → 报
+    st2 = ul.TelemetryState()
+    e2 = _quiet_engine()
+    fired2 = []
+    for i in range(40):
+        t = i * 0.1
+        st2.feed(t, {"kind": "sample", "t": t, "topic": "/fmu/out/estimator_status",
+                     "ch": "estimator", "hz": 1.0,
+                     "data": {"flags": {"filter_fault_flags": 8,
+                                        "innovation_check_flags": 0,
+                                        "solution_status_flags": 479},
+                              "ok": True}})   # ok 字段说谎也要被 flags 纠正
+        fired2.extend(e2.update(t, st2.engine_input()))
+    ekf = [a for a in fired2 if a["rule"] == "EKF_DEGRADED"]
+    assert len(ekf) == 1 and st2.estimator_ok is False
+
+
 def test_rule_att_diverge():
     e = _quiet_engine()
     st = {"att_deg": (0.0, 0.0, 0.0), "att_target_deg": (20.0, 0.0, 0.0)}
@@ -308,6 +393,42 @@ def test_rule_dzuav_silent():
     assert _drive(e3, [{"dzuav_t": None}] * 70) == []
 
 
+def test_dzuav_null_rows_trigger_silent_and_null_alert():
+    """S1 整合：采样器每秒都发 dzuav.health 行（即使 data=null）——feed 必须只在
+    data 非空时刷新活跃时间戳，否则 dzuav 真挂了告警永不触发；同时 data 持续
+    null 要有独立的 DZUAV_NULL 告警（dzuav 活着但健康源缺席，宁可误报不可漏报）。"""
+    st = ul.TelemetryState()
+    e = ul.UavRuleEngine()
+    fired = []
+    for i in range(9):                          # 9 秒 null 心跳（1Hz，同采样器）
+        t = float(i)
+        st.feed(t, {"kind": "sample", "t": t, "topic": "dzuav.health",
+                    "ch": "dzuav", "hz": 1.0, "data": {}})
+        fired.extend(e.update(t, st.engine_input()))
+    rules = {a["rule"] for a in fired}
+    assert "DZUAV_SILENT" in rules              # null 行不得糊住 SILENT
+    assert "DZUAV_NULL" in rules                # 独立告警：通道在、数据空
+    # 对照：data 非空的正常健康行 → 两条都不报
+    st2 = ul.TelemetryState()
+    e2 = ul.UavRuleEngine()
+    fired2 = []
+    for i in range(9):
+        t = float(i)
+        st2.feed(t, {"kind": "sample", "t": t, "topic": "dzuav.health",
+                     "ch": "dzuav", "hz": 1.0,
+                     "data": {"localized": True, "landmarks": 3}})
+        fired2.extend(e2.update(t, st2.engine_input()))
+    assert fired2 == []
+    assert st2.dzuav_null_since is None and st2.dzuav_t == 8.0
+    # null → 恢复：null 计时清零，告警停
+    st3 = ul.TelemetryState()
+    st3.feed(0.0, {"kind": "sample", "t": 0.0, "topic": "dzuav.health",
+                   "ch": "dzuav", "hz": 1.0, "data": {}})
+    st3.feed(1.0, {"kind": "sample", "t": 1.0, "topic": "dzuav.health",
+                   "ch": "dzuav", "hz": 1.0, "data": {"localized": False}})
+    assert st3.dzuav_null_since is None and st3.dzuav_t == 1.0
+
+
 def test_rule_link_lag():
     # 声明 10Hz（期望间隔 0.1s），实际 0.25s 一帧 → p95 超 2 倍期望 → 报
     e = _quiet_engine()
@@ -353,12 +474,48 @@ def test_rule_healthy_flight_silent():
 # ---------------------------------------------------------------- ctl 闸门 / 倒计时 / 通道
 
 def test_gate_requires_yes_for_high_risk():
-    for a in ("arm", "takeoff", "stack-restart"):
+    # kill 已升到最高风险级（S3）：--yes 之外另有全词确认，见 test_kill_word_confirm
+    for a in ("arm", "takeoff", "stack-restart", "kill"):
         assert ul.check_gate(a, False) is not None   # 无 --yes 拒
         assert ul.check_gate(a, True) is None        # 有 --yes 放行
-    # disarm/land/return/kill 免 --yes（靠倒计时兜底），stack-status 只读
-    for a in ("disarm", "land", "return", "kill", "stack-status"):
+    # disarm/land/return 免 --yes（靠倒计时兜底），stack-status 只读
+    for a in ("disarm", "land", "return", "stack-status"):
         assert ul.check_gate(a, False) is None
+    # kill 的拒绝文本要点名第二道闸门
+    assert "kill" in ul.check_gate("kill", False)
+
+
+def test_kill_word_confirm():
+    """S3：kill 在 --yes 之外必须逐字输入全词 "kill"（对齐 flight_console 强度：
+    shell 历史里 `ctl land --yes` 与 `ctl kill --yes` 只差一个上翻键）。"""
+    lines = []
+    # 逐字全词 → 放行；警告文本点名动作语义
+    assert ul.confirm_word("kill", ask=lambda _p: "kill",
+                           out=lines.append, is_tty=True) is True
+    assert any("最后手段" in ln for ln in lines)
+    # 前后空白宽容，错词/缩写/空输入 → 拒
+    assert ul.confirm_word("kill", ask=lambda _p: " kill ",
+                           out=lines.append, is_tty=True) is True
+    for bad in ("k", "KILL", "kil", "y", ""):
+        assert ul.confirm_word("kill", ask=lambda _p, b=bad: b,
+                               out=lines.append, is_tty=True) is False
+    # Ctrl-C / EOF 中断 → 拒
+    def _interrupt(_p):
+        raise KeyboardInterrupt
+    assert ul.confirm_word("kill", ask=_interrupt, out=lines.append,
+                           is_tty=True) is False
+    # 无交互终端 → 拒（默认什么都不做）
+    assert ul.confirm_word("kill", ask=lambda _p: "kill",
+                           out=lines.append, is_tty=False) is False
+    # 非 WORD_CONFIRM 动作直通
+    assert ul.confirm_word("land", is_tty=False) is True
+    assert ul.confirm_word("arm", is_tty=False) is True
+
+
+def test_gate_blocks_kill_via_main(capsys):
+    # kill 没 --yes：碰网络之前就拒（回归：旧版 kill 只靠倒计时，--yes 直接跳）
+    assert ul.main(["ctl", "kill"]) == 2
+    assert "--yes" in capsys.readouterr().err
 
 
 def test_gate_blocks_arm_via_main(capsys):
@@ -377,9 +534,18 @@ def test_countdown_skipped_with_yes():
 
 def test_countdown_runs_without_yes():
     slept, lines = [], []
-    ul.countdown("kill", yes=False, out=lines.append, sleep=slept.append)
+    ul.countdown("land", yes=False, out=lines.append, sleep=slept.append)
     assert slept == [1.0, 1.0, 1.0]                # 3s 逐秒倒数
-    assert any("kill" in ln for ln in lines)       # 醒目警告里点名动作
+    assert any("land" in ln for ln in lines)       # 醒目警告里点名动作
+
+
+def test_countdown_not_for_kill():
+    # S3：kill 已移出倒计时动作（改 --yes + 全词确认双闸门）
+    slept, lines = [], []
+    ul.countdown("kill", yes=False, out=lines.append, sleep=slept.append)
+    assert slept == [] and lines == []
+    assert "kill" not in ul.COUNTDOWN_ACTIONS
+    assert ul.WORD_CONFIRM.get("kill") == "kill"
 
 
 def test_countdown_not_for_arm():
@@ -395,6 +561,44 @@ def test_find_command_channel():
     assert ul.find_command_channel(found) == "/fmu/in/vehicle_command"
     assert ul.find_command_channel(["/fmu/out/vehicle_status"]) is None
     assert ul.find_command_channel([]) is None
+
+
+def test_choose_command_route_split():
+    """M1 映射分路：发现 /px4_control/command 时优先走状态机防护的安全通道；
+    找不到才直发 /fmu/in/vehicle_command；kill/return 恒直发；都没有→None。"""
+    both = ["/fmu/out/vehicle_status", "/px4_control/command",
+            "/fmu/in/vehicle_command"]
+    for a in ("arm", "disarm", "takeoff", "land"):
+        assert ul.choose_command_route(a, both) == ("px4_control",
+                                                    "/px4_control/command")
+    # kill（穿透状态机）与 return（无对应码）恒直发，即使安全通道在场
+    assert ul.choose_command_route("kill", both) == ("fmu_direct",
+                                                     "/fmu/in/vehicle_command")
+    assert ul.choose_command_route("return", both) == ("fmu_direct",
+                                                       "/fmu/in/vehicle_command")
+    # 安全通道不在场 → 有映射的动作回退直发（笔记本端会醒目提示绕过防护）
+    direct = ["/fmu/in/vehicle_command", "/fmu/out/vehicle_status"]
+    assert ul.choose_command_route("arm", direct) == ("fmu_direct",
+                                                      "/fmu/in/vehicle_command")
+    # 两个通道都没有 → None（响亮失败，绝不盲发）
+    assert ul.choose_command_route("arm", ["/fmu/out/vehicle_status"]) is None
+    assert ul.choose_command_route("arm", []) is None
+    # 采样器内嵌同款分路逻辑（同源契约）
+    assert "choose_command_route" in ul.SAMPLER_SRC
+    assert "px4_control/command" in ul.SAMPLER_SRC
+    # 数据驱动契约：ctrl 码只能是 None 或 px4_control 已核实码（2/3/4）
+    for a, spec in ul.COMMAND_MAP.items():
+        assert spec["ctrl"] in (None, 2, 3, 4), a
+    assert ul.COMMAND_MAP["kill"]["ctrl"] is None
+    assert ul.COMMAND_MAP["return"]["ctrl"] is None
+
+
+def test_clamp_alt():
+    """--alt 夹到 0.5~10m（过低撞地效区、过高超侦察剖面）。"""
+    assert ul.clamp_alt(2.0) == 2.0
+    assert ul.clamp_alt(0.1) == 0.5
+    assert ul.clamp_alt(0.0) == 0.5
+    assert ul.clamp_alt(99.0) == 10.0
 
 
 def test_render_channel_failure_lists_found_topics():
@@ -465,8 +669,15 @@ def test_sampler_src_self_describing():
     for action, spec in ul.COMMAND_MAP.items():
         assert f'"{action}"' in src
         assert f'"cmd": {spec["cmd"]}' in src
-    # dzuav 健康通道：jsonl 与 tmux capture-pane 双路
+    # dzuav 健康通道：jsonl 与 tmux capture-pane 双路；jsonl 只读尾 64KB（M3）
     assert "capture-pane" in src and "dzuav-*.jsonl" in src
+    assert "65536" in src
+    # 内嵌 RateLimiter 的 cap<=0 除零守卫与笔记本端同步
+    assert "period = 1.0 / cap if cap > 0 else 0.0" in src
+    # M1：采样器端同款命令分路（优先 px4_control 安全通道，找不到才直发）
+    assert "choose_command_route" in src and "px4_control/command" in src
+    # S2：estimator ok 只由故障/创新检验 flag 决定，solution_status_flags 仅留痕
+    assert "filter_fault_flags" in src and "innovation_check_flags" in src
     # 限速档位与笔记本端一致
     assert '"attitude": 10.0' in src and '"position": 5.0' in src
 
@@ -504,6 +715,19 @@ def test_host_cache_roundtrip(tmp_path):
     assert ul.load_cached_host(p) is None
     ul.save_cached_host("10.0.0.8", p)
     assert ul.load_cached_host(p) == "10.0.0.8"
+
+
+def test_host_cache_flag_wired(tmp_path):
+    """--host-cache 不再是死旋钮：CLI 接线后 resolve_host 读指定路径。"""
+    p = tmp_path / "custom.env"
+    ul.save_cached_host("10.9.9.9", p)
+    args = ul.build_parser().parse_args(["run", "--host-cache", str(p)])
+    assert args.host_cache == str(p)
+    assert ul.resolve_host(args) == "10.9.9.9"
+    # 命令行 --host 仍优先于缓存
+    args2 = ul.build_parser().parse_args(["run", "--host", "10.1.1.1",
+                                          "--host-cache", str(p)])
+    assert ul.resolve_host(args2) == "10.1.1.1"
 
 
 def test_main_rejects_unknown_subcommand():
@@ -679,10 +903,17 @@ def _fb(t, ev, lvl="info", **fields):
 
 
 def test_classify_blackbox_row():
-    assert ul.classify_blackbox_row({"ev": "flight.att"}) == "flight_bb"
+    assert ul.classify_blackbox_row({"ev": "flight.att", "node": "flight_bb"}) \
+        == "flight_bb"
     assert ul.classify_blackbox_row({"topic": "/x"}) == "sample"
-    # 两键都在时 ev 优先（实际不存在，但判别顺序要锚定）
-    assert ul.classify_blackbox_row({"ev": "x", "topic": "/y"}) == "flight_bb"
+    # 两键都在时 ev+node 优先（实际不存在，但判别顺序要锚定）
+    assert ul.classify_blackbox_row({"ev": "x", "topic": "/y",
+                                     "node": "flight_bb"}) == "flight_bb"
+    # node 条件防误判（2026-10-17 审查修正）：ag_core 黑匣子行同样带 ev 键，
+    # node 不是 flight_bb 的一律不当 flight_bb 解析
+    assert ul.classify_blackbox_row({"ev": "x"}) == "other"
+    assert ul.classify_blackbox_row({"ev": "session.begin", "node": "ag_core"}) \
+        == "other"
     assert ul.classify_blackbox_row({"hello": 1}) == "other"
     assert ul.classify_blackbox_row({}) == "other"
 
@@ -876,6 +1107,37 @@ def test_flight_bb_slam_gap_closed_by_disarm():
     assert any("SLAM 断流" in f["title"] for f in findings)
     # disarm 后的 1.5s（7.5→9.0）不算断流，不得多出第二段
     assert len(rep["slam_gaps"]) == 1
+
+
+def test_flight_bb_rearm_resets_slam_timer():
+    """M5 回归：armed False→True（rearm）时 last_slam_t 重置为 rearm 时刻——
+    注释承诺"rearm 后重新连续 5s"，上一个架次的静默期不得带进新架次。
+
+    无此修复时：disarm(10s) 把 last_slam_t 归 10，rearm(12s) 后 slam 16s 才来，
+    断流被算成 10→16=6s>5s 且阈值跨越点 15s 已 armed → 误报。
+    """
+    rows = [
+        _fb(0.0, "flight.status", arming=1, nav=0, nav_name="MANUAL", failsafe=0),
+        _fb(1.0, "flight.status", lvl="warn", arming=2, nav=14,
+            nav_name="OFFBOARD", failsafe=0),          # 解锁
+        _fb(2.0, "slam.odom", x=0, y=0, z=0, qw=1, qx=0, qy=0, qz=0),
+        _fb(5.0, "slam.odom", x=0, y=0, z=0, qw=1, qx=0, qy=0, qz=0),
+        _fb(9.0, "slam.odom", x=0, y=0, z=0, qw=1, qx=0, qy=0, qz=0),
+        _fb(10.0, "flight.status", lvl="warn", arming=1, nav=0,
+            nav_name="MANUAL", failsafe=0),            # disarm（此架次无断流）
+        _fb(12.0, "flight.status", lvl="warn", arming=2, nav=14,
+            nav_name="OFFBOARD", failsafe=0),          # rearm：last_slam_t 归 12
+        _fb(16.0, "slam.odom", x=0, y=0, z=0, qw=1, qx=0, qy=0, qz=0),
+        # rearm 后仅 4s 无 slam → 不算断流
+    ]
+    rep = ul.build_report(rows)
+    assert rep["slam_gaps"] == []
+    # 对照：rearm 后 7s 无 slam → 断流从 rearm 时刻（12s）起算
+    rows2 = rows[:-1] + [
+        _fb(19.0, "slam.odom", x=0, y=0, z=0, qw=1, qx=0, qy=0, qz=0)]
+    rep2 = ul.build_report(rows2)
+    assert len(rep2["slam_gaps"]) == 1
+    assert rep2["slam_gaps"][0] == pytest.approx((12.0, 19.0, 7.0))
 
 
 def test_flight_bb_no_slam_at_all_while_armed():

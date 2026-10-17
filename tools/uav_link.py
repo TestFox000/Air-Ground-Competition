@@ -7,9 +7,18 @@
           2Hz 终端仪表盘 + 规则引擎实时告警（FAILSAFE/EKF/姿态发散/速率饱和/
           振动削波/低电/dzuav 静默/链路滞后）。Ctrl-C 优雅退出并写收尾统计。
   ctl     调控支配（全部显式闸门，默认什么都不做）：
-          arm/takeoff/stack-restart 必须 --yes；disarm/land/return/kill
-          免 --yes 但醒目警告 + 3s 倒计时（--yes 跳过）；stack-status 只读。
-          找不到预期命令通道时响亮失败（列出实际发现的话题），绝不盲发。
+          arm/takeoff/stack-restart/kill 必须 --yes；kill 在 --yes 之外还要
+          再输入全词 "kill" 确认（对齐 flight_console.py 的双确认强度——shell
+          历史上 `ctl land --yes` 与 `ctl kill --yes` 只差一个上翻键，3s 倒计时
+          挡不住肌肉记忆回车）；disarm/land/return 免 --yes 但醒目警告 +
+          3s 倒计时（--yes 跳过，倒计时内 Ctrl-C 友好中止）；stack-status 只读。
+          命令通道分层（对齐 flight_console 设计）：采样器发现
+          /px4_control/command 时 arm/disarm/takeoff/land 优先走 px4_control
+          状态机防护的安全通道（空中拒 DISARM、地面才 ARM）；找不到安全通道
+          才直发 /fmu/in/vehicle_command，且执行前打印醒目提示；kill 恒直发
+          （最后手段必须穿透一切状态机）；return 无对应 ControlCommand 码，
+          保持直发（RTL 本身是安全动作）。找不到任何命令通道时响亮失败
+          （列出实际发现的话题），绝不盲发。
   logs    取回日志：dzuav jsonl、ROS log 近况、tmux 各窗口 capture-pane，
           打包到 logs/uav_link/<时间戳>/ 并列清单。
   report  离线复盘：读一个黑匣子 jsonl，按 严重/注意/信息 分级输出
@@ -22,7 +31,9 @@
 现场架构（已核实，勿重查）：
   Orin 上官方栈 dzpx4：Livox MID360 → FASTLIO2 → PX4（MicroXRCEAgent DDS 桥，
   **不是裸 MAVLink**），另有我们的 dzuav 侦察进程；tools/orin_bringup.sh 用
-  tmux 编排（会话 agup，窗口 dzuav/livox/fastlio/px4/odom/imu/control/path/teleop）。
+  tmux 编排（会话 agup，窗口 dzuav/livox/fastlio/px4/wdog/odom/imu/control/
+  flight_wd/path/teleop——wdog 是飞控链路看门狗、flight_wd 是机载自治 LAND
+  守卫，恰是坠机复盘最要的证据窗口）。
   ROS 域号真源 ~/dzrobot/dzros.env（默认 118）——所有机载 ROS 命令必须先 source 它。
   PX4 经 XRCE 的话题通常是 /fmu/out/*，但具体话题名无法离线验证，采样器自描述发现。
 
@@ -59,8 +70,8 @@ DZROS_ENV = "~/dzrobot/dzros.env"     # ROS 域号真源（默认 118），不 s
 ROS_SETUP = "/opt/ros/humble/setup.bash"
 ORIN_WS_SETUPS = ("~/dzrobot/install/setup.bash", "~/dzpx4/install/setup.bash")
 TMUX_SESSION = "agup"                 # orin_bringup.sh 编排的全栈会话
-TMUX_WINDOWS = ("dzuav", "livox", "fastlio", "px4", "odom", "imu",
-                "control", "path", "teleop")
+TMUX_WINDOWS = ("dzuav", "livox", "fastlio", "px4", "wdog", "odom", "imu",
+                "control", "flight_wd", "path", "teleop")
 ORIN_REPO = "~/dzuav_deploy/air_ground"   # Orin 上仓库路径（orin_deploy.py REMOTE_ROOT）
 
 # 通道候选清单：话题名无法离线核实，采样器运行期自描述枚举后按子串匹配。
@@ -83,28 +94,45 @@ RATE_DEFAULT_HZ = 1.0
 # 命令映射表（数据驱动）：action → MAVLink VehicleCommand。
 # cmd 编号：400=COMPONENT_ARM_DISARM 22=NAV_TAKEOFF 21=NAV_LAND
 #          20=NAV_RETURN_TO_LAUNCH
+# ctrl 字段 = px4_control ControlCommand 码（安全通道分路，M1）：
+#   2=CMD_ARM（px4_control 的 ARM 自带"起飞到机载配置高度"）3=CMD_DISARM
+#   4=CMD_LAND；None=无对应码（return：RTL 本身是安全动作；kill：最后手段
+#   必须穿透一切状态机，恒直发）。采样器发现 /px4_control/command 且 ctrl
+#   非 None 时优先走安全通道，找不到才直发 /fmu/in/vehicle_command。
 # kill 与 flight_console 同语义：400 param1=0 param2=21196（强制断解锁=电机立即
 # 停转）。不用 185 DO_FLIGHTTERMINATION——它受 CBRK_FLIGHTTERM 参数影响，
 # 可能被降级成普通 failsafe 而非真正停转（2026-10-16 审查修正）。
 COMMAND_MAP = {
-    "arm":     {"cmd": 400, "params": {"param1": 1.0}, "desc": "解锁（电机可转）"},
-    "disarm":  {"cmd": 400, "params": {"param1": 0.0}, "desc": "上锁"},
-    "takeoff": {"cmd": 22, "params": {"param7": 2.0},
-                "desc": "起飞到 --alt 米（param7，默认 2.0）"},
-    "land":    {"cmd": 21, "params": {}, "desc": "原地降落"},
-    "return":  {"cmd": 20, "params": {}, "desc": "返航（Return-to-Launch）"},
+    "arm":     {"cmd": 400, "params": {"param1": 1.0}, "ctrl": 2,
+                "desc": "解锁（电机可转；走 px4_control 时=ARM+起飞到配置高度）"},
+    "disarm":  {"cmd": 400, "params": {"param1": 0.0}, "ctrl": 3, "desc": "上锁"},
+    "takeoff": {"cmd": 22, "params": {"param7": 2.0}, "ctrl": 2,
+                "desc": "起飞到 --alt 米（param7，默认 2.0；走 px4_control 时高度"
+                        "由机载 takeoff_height 参数定，--alt 不生效）"},
+    "land":    {"cmd": 21, "params": {}, "ctrl": 4, "desc": "原地降落"},
+    "return":  {"cmd": 20, "params": {}, "ctrl": None,
+                "desc": "返航（Return-to-Launch，px4_control 无对应码，直发）"},
     "kill":    {"cmd": 400, "params": {"param1": 0.0, "param2": 21196.0},
-                "desc": "急停（强制断解锁=电机立即停转，空中=坠机，仅撞人前止损）"},
+                "ctrl": None,
+                "desc": "急停（强制断解锁=电机立即停转，空中=坠机，仅撞人前止损；"
+                        "恒直发穿透状态机）"},
 }
 # 栈生命周期动作（tmux / orin_bringup.sh，不走 ROS）
 STACK_ACTIONS = ("stack-status", "stack-restart")
 ALL_ACTIONS = tuple(COMMAND_MAP) + STACK_ACTIONS
 
-COMMAND_TOPIC_HINT = "vehicle_command"   # 期望 /fmu/in/vehicle_command
+COMMAND_TOPIC_HINT = "vehicle_command"        # 期望 /fmu/in/vehicle_command
+SAFE_CHANNEL_HINT = "px4_control/command"     # px4_control 状态机防护的安全通道
 
-# 安全闸门：高风险动作必须 --yes；次高风险免 --yes 但倒计时 3s
-YES_REQUIRED = {"arm", "takeoff", "stack-restart"}
-COUNTDOWN_ACTIONS = {"disarm", "land", "return", "kill"}
+# 安全闸门（对齐 flight_console.py 的强度分层）：
+#   高风险（arm/takeoff/stack-restart/kill）必须显式 --yes——默认什么都不做；
+#   kill 在 --yes 之外还要再输入全词 "kill" 确认（WORD_CONFIRM）：shell 历史上
+#   `ctl land --yes` 与 `ctl kill --yes` 只差一个上翻键，倒计时挡不住肌肉记忆，
+#   故 kill 移出倒计时、改全词确认（flight_console.py:619 同款强度）；
+#   次高风险（disarm/land/return）免 --yes 但醒目警告 + 倒计时 3s。
+YES_REQUIRED = {"arm", "takeoff", "stack-restart", "kill"}
+WORD_CONFIRM = {"kill": "kill"}
+COUNTDOWN_ACTIONS = {"disarm", "land", "return"}
 COUNTDOWN_S = 3
 
 SAMPLER_REMOTE = "/tmp/uav_sampler.py"
@@ -186,6 +214,23 @@ def find_command_channel(found_topics) -> str | None:
     return None
 
 
+def choose_command_route(action: str, found_topics) -> tuple[str, str] | None:
+    """命令路径分路（M1，与机载采样器 run_do 同源逻辑，改一边同步另一边）：
+
+      有 /px4_control/command 且该动作有对应 ControlCommand 码
+          → ("px4_control", 话题)   优先走状态机防护的安全通道
+      否则有 vehicle_command
+          → ("fmu_direct", 话题)    直发飞控（绕过防护，执行前醒目提示）
+      都没有 → None（响亮失败，绝不盲发）
+    """
+    if COMMAND_MAP[action].get("ctrl") is not None:
+        for t in found_topics:
+            if SAFE_CHANNEL_HINT in str(t):
+                return ("px4_control", str(t))
+    ch = find_command_channel(found_topics)
+    return ("fmu_direct", ch) if ch is not None else None
+
+
 def render_channel_failure(action: str, found_topics) -> str:
     """找不到命令通道时的响亮失败文本（列出实际发现的话题帮助用户改映射）。"""
     lines = [
@@ -209,8 +254,9 @@ def render_command_map() -> str:
                      f"{params:<14s} {spec['desc']}")
     lines.append(f"  stack-status / stack-restart -> tmux 会话 {TMUX_SESSION} "
                  f"+ {ORIN_REPO}/tools/orin_bringup.sh（不走 ROS）")
-    lines.append(f"命令通道期望话题名含 {COMMAND_TOPIC_HINT!r}"
-                 "（实际以采样器 --print-caps 发现为准）")
+    lines.append(f"命令通道分层：arm/disarm/takeoff/land 优先走 "
+                 f"{SAFE_CHANNEL_HINT!r}（px4_control 状态机防护）；找不到才直发 "
+                 f"{COMMAND_TOPIC_HINT!r}（执行前醒目提示）；kill/return 恒直发")
     return "\n".join(lines)
 
 
@@ -229,6 +275,7 @@ def parse_sampler_line(line: str) -> dict | None:
     返回规范形：
       {"kind": "hello",  "topics_found": [...]}
       {"kind": "error",  "error": "..."}                      采样器主动报错
+      {"kind": "warn",   "msg": "..."}                        采样器醒目提示（直发警告等）
       {"kind": "sample", "t": float|None, "topic": str, "ch": str|None,
        "hz": float|None, "data": dict}
       {"kind": "ctl",    "action": str, "ok": bool, "detail": str}
@@ -244,6 +291,8 @@ def parse_sampler_line(line: str) -> dict | None:
         return None
     if obj.get("error"):
         return {"kind": "error", "error": str(obj["error"])}
+    if obj.get("warn"):
+        return {"kind": "warn", "msg": str(obj["warn"])}
     if "hello" in obj:
         tf = obj.get("topics_found")
         return {"kind": "hello", "hello": str(obj["hello"]),
@@ -269,6 +318,9 @@ class BlackboxWriter:
     """黑匣子写入器：每行 NDJSON，盖本机接收时刻 recv，逐行 flush（断电也尽量少丢）。
 
     ⚠️ 必须 newline="\\n"：Windows 默认会把 \\n 翻译成 \\r\\n（remote_run.py 踩过的坑）。
+    ⚠️ 写盘失败（盘满/权限）响亮警告一次后停用黑匣子、遥测照常——
+       对齐 orin_flight_blackbox 的"落盘失败绝不拖死节点"语义（M2）：
+       黑匣子是证据通道，绝不允许它杀死遥测主链路。
     """
 
     def __init__(self, path, append: bool = False):
@@ -276,14 +328,30 @@ class BlackboxWriter:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._fh = open(self.path, "a" if append else "w",
                         encoding="utf-8", newline="\n")
+        self._disabled = False     # 写盘失败后置 True，后续 write 变空操作
 
     def write(self, row: dict, recv: float | None = None) -> None:
+        if self._disabled:
+            return
         out = {"recv": time.time() if recv is None else float(recv)}
         out.update(row)
-        self._fh.write(json.dumps(out, ensure_ascii=False) + "\n")
-        self._fh.flush()
+        try:
+            self._fh.write(json.dumps(out, ensure_ascii=False) + "\n")
+            self._fh.flush()
+        except OSError as e:
+            # 盘满/权限问题：响亮警告一次，停用黑匣子继续遥测（不再刷屏）
+            print(f"[警告] 黑匣子写盘失败（{type(e).__name__}: {e}）——"
+                  f"黑匣子已停用，遥测继续；尽快检查磁盘空间/权限: {self.path}",
+                  file=sys.stderr)
+            self._disabled = True
+            try:
+                self._fh.close()
+            except Exception:  # noqa: BLE001 - 收尾异常不掩盖主流程
+                pass
 
     def close(self) -> None:
+        if self._disabled:
+            return
         try:
             self._fh.close()
         except Exception:  # noqa: BLE001 - 收尾阶段异常不掩盖主流程
@@ -312,12 +380,51 @@ def read_blackbox(path) -> list[dict]:
 def check_gate(action: str, yes: bool) -> str | None:
     """安全闸门：返回 None=放行；否则返回拒绝原因（调用方打印后退出）。
 
-    arm/takeoff/stack-restart 属高风险，必须显式 --yes——默认什么都不做。
+    arm/takeoff/stack-restart/kill 属高风险，必须显式 --yes——默认什么都不做。
+    kill 在 --yes 之外另有全词确认（confirm_word，WORD_CONFIRM）。
     """
     if action in YES_REQUIRED and not yes:
-        return (f"动作 {action} 属高风险，必须显式加 --yes 才会执行"
+        extra = "，且 kill 还要再输入全词 'kill' 确认" if action == "kill" else ""
+        return (f"动作 {action} 属高风险，必须显式加 --yes 才会执行{extra}"
                 f"（默认什么都不做）。确认无人机周围安全后重试。")
     return None
+
+
+def confirm_word(action: str, ask=input, out=print, is_tty=None) -> bool:
+    """全词确认闸门（kill 专用）：--yes 之外还必须逐字输入全词才放行。
+
+    对齐 flight_console.py:619 ask_confirm("kill", ...) 的强度：倒计时挡不住
+    shell 历史肌肉记忆（`ctl land --yes` 上翻一格就是 `ctl kill --yes`），
+    只有"手动敲出全词"能证明操作员此刻想的就是这个动作。
+    无交互终端时拒绝执行（没法确认 = 默认什么都不做）。
+    """
+    word = WORD_CONFIRM.get(action)
+    if word is None:
+        return True
+    if is_tty is None:
+        is_tty = sys.stdin.isatty()
+    if not is_tty:
+        out(f"[拒绝] {action} 需要交互终端逐字输入 '{word}' 确认"
+            f"（当前没有交互终端，默认什么都不做）")
+        return False
+    out("!" * 60)
+    out(f"!! {action} = {COMMAND_MAP[action]['desc']}")
+    out(f"!! 这是最后手段：逐字输入 {word} 回车才会执行，其他任何输入都取消")
+    out("!" * 60)
+    try:
+        typed = ask(f"输入 '{word}' 确认: ")
+    except (EOFError, KeyboardInterrupt):
+        out("\n[中止] 确认被中断，未执行")
+        return False
+    if typed.strip() != word:
+        out(f"[中止] 输入 {typed.strip()!r} ≠ {word!r}，未执行")
+        return False
+    return True
+
+
+def clamp_alt(alt: float) -> float:
+    """takeoff --alt 夹到 0.5~10m：过低撞地效区/过高超侦察剖面，现场手滑常见。"""
+    return min(10.0, max(0.5, float(alt)))
 
 
 def countdown(action: str, seconds: int = COUNTDOWN_S, yes: bool = False,
@@ -401,6 +508,22 @@ def probe_ssh(host: str, port: int = 22, timeout: float = 3.0) -> str | None:
 
 # ---------------------------------------------------------------- 告警规则引擎（纯逻辑、可测）
 
+def estimator_flags_ok(flags: dict) -> bool | None:
+    """estimator flags 字典 → 健康判定（S2，与机载采样器 slim("estimator") 同源）。
+
+    ok 只由 filter_fault_flags / innovation_check_flags 决定（非零=坏）。
+    ⚠️ solution_status_flags 是"哪些状态输出有效"的位掩码——健康飞行恒非零，
+    它绝不参与零判定（旧逻辑"全部 flags 为零=健康"恰好搞反，真机上每次健康
+    飞行都会全程轰炸 EKF_DEGRADED 误报，2026-10-17 审查修正）。
+    两类坏 flag 一个都不存在时返回 None（信息不足，调用方自然不评 EKF 规则）。
+    """
+    bad = [flags[n] for n in ("filter_fault_flags", "innovation_check_flags")
+           if isinstance(flags.get(n), (int, float))]
+    if not bad:
+        return None
+    return all(v == 0 for v in bad)
+
+
 class UavRuleEngine:
     """无人机遥测告警规则状态机（照 track_diag RuleEngine 范式：冷却 + 持续判定）。
 
@@ -412,7 +535,10 @@ class UavRuleEngine:
       rate_dps: (x,y,z)         角速度（度/秒）
       clip_count: int           sensor_combined 加速度计削波累计计数
       battery_remaining: float  0..1
-      dzuav_t: float|None       最近一次 dzuav 健康行时刻（本机钟）
+      dzuav_t: float|None       最近一次 data 非空的 dzuav 健康行时刻（本机钟；
+                                data=null 的通道行不刷新——否则 dzuav 真挂了
+                                DZUAV_SILENT 永不触发，S1 审查修正）
+      dzuav_null_since: float|None  dzuav 通道行 data 持续为 null 的起始时刻
     note_sample(t, topic, hz)：每条采样行到达时调用（LINK_LAG 用）。
     命中返回 [{"rule","t","msg"}]。
     """
@@ -438,6 +564,7 @@ class UavRuleEngine:
         "VIBE_CLIP": "加速度计削波计数上升——振动过大，查桨/机架松动/减震",
         "BAT_LOW": "电池剩余 <20%——尽快降落",
         "DZUAV_SILENT": "dzuav 健康 5s 无更新——侦察进程可能挂了",
+        "DZUAV_NULL": "dzuav 通道有行但数据持续为空——dzuav 活着但健康不可见",
         "LINK_LAG": "遥测链路滞后——采样间隔 p95 超期望 2 倍，查 Wi-Fi/串口桥",
     }
 
@@ -550,12 +677,24 @@ class UavRuleEngine:
                 and self._cooled("BAT_LOW", t):
             alerts.append(self._fire("BAT_LOW", t, f"（剩余 {rem * 100:.0f}%）"))
 
-        # DZUAV_SILENT：健康 5s 无更新（从未见过也算，自 start_t 起计）
+        # DZUAV_SILENT：健康 5s 无更新（从未见过也算，自 start_t 起计；
+        # dzuav_t 只被 data 非空行刷新，data=null 心跳糊弄不了这条规则）
         if self.expect_dzuav:
             last = st.get("dzuav_t")
             last = last if last is not None else self.start_t
             if t - last > self.DZUAV_SILENT_S and self._cooled("DZUAV_SILENT", t):
                 alerts.append(self._fire("DZUAV_SILENT", t))
+
+        # DZUAV_NULL：dzuav 通道行在来、但 data 持续 null 超 5s——采样器活着，
+        # 健康源（orin_log_capture jsonl / tmux capture-pane）不在场。
+        # 取舍（S1 审查）：dzuav 进程本身可能活得好好的，只是健康采集缺席；
+        # 宁可误报不可漏报——"健康通道全程空"与"侦察进程死了"在笔记本端
+        # 无法区分，此时告警让人去机上看一眼，比静默可信。
+        null_since = st.get("dzuav_null_since")
+        if self.expect_dzuav and null_since is not None \
+                and t - null_since > self.DZUAV_SILENT_S \
+                and self._cooled("DZUAV_NULL", t):
+            alerts.append(self._fire("DZUAV_NULL", t))
 
         # LINK_LAG：快通道采样间隔 p95 > 期望 2 倍
         lag = self._link_lag_ratio(t)
@@ -618,14 +757,19 @@ TOPIC_CANDIDATES = (
 RATE_CAPS_HZ = {"attitude": 10.0, "position": 5.0}
 RATE_DEFAULT_HZ = 1.0
 COMMAND_MAP = {
-    "arm":     {"cmd": 400, "params": {"param1": 1.0}},
-    "disarm":  {"cmd": 400, "params": {"param1": 0.0}},
-    "takeoff": {"cmd": 22, "params": {"param7": 2.0}},
-    "land":    {"cmd": 21, "params": {}},
-    "return":  {"cmd": 20, "params": {}},
-    "kill":    {"cmd": 400, "params": {"param1": 0.0, "param2": 21196.0}},
+    "arm":     {"cmd": 400, "params": {"param1": 1.0}, "ctrl": 2},
+    "disarm":  {"cmd": 400, "params": {"param1": 0.0}, "ctrl": 3},
+    "takeoff": {"cmd": 22, "params": {"param7": 2.0}, "ctrl": 2},
+    "land":    {"cmd": 21, "params": {}, "ctrl": 4},
+    "return":  {"cmd": 20, "params": {}, "ctrl": None},
+    "kill":    {"cmd": 400, "params": {"param1": 0.0, "param2": 21196.0},
+                "ctrl": None},
 }
 COMMAND_TOPIC_HINT = "vehicle_command"
+# px4_control 状态机防护的安全通道（M1）：发现且动作有 ctrl 码时优先走它
+# （空中拒 DISARM、地面才 ARM），找不到才直发 vehicle_command；
+# kill/return 无对应码（ctrl=None），恒直发。
+SAFE_CHANNEL_HINT = "px4_control/command"
 TMUX_SESSION = "agup"
 
 
@@ -724,8 +868,13 @@ def slim(channel, msg):
         return {"voltage": _g(msg, "voltage_v", _g(msg, "voltage")),
                 "remaining": _g(msg, "remaining")}
     if channel == "estimator":
-        # estimator_status*/estimator_status_flags 版本差异大：把 *_flags 数值全收，
-        # ok = 全部为零（一个都不存在时 ok=None，笔记本端自然不评 EKF 规则）
+        # estimator_status*/estimator_status_flags 版本差异大：把 *_flags 数值全收
+        # 留痕。⚠️ S2 审查修正：ok 只由 filter_fault_flags / innovation_check_flags
+        # 决定（非零=坏）；solution_status_flags 是"哪些状态输出有效"的位掩码
+        # （健康飞行恒非零），绝不参与零判定——旧逻辑"全部为零=健康"恰好搞反，
+        # 真机上健康飞行会全程误报 EKF_DEGRADED。两类坏 flag 都不存在时 ok=None
+        # （信息不足，笔记本端自然不评 EKF 规则）。与笔记本端
+        # estimator_flags_ok 同源（改一边同步另一边）。
         flags = {}
         for name in ("filter_fault_flags", "innovation_check_flags",
                      "solution_status_flags", "control_mode_flags", "fault_flags"):
@@ -733,7 +882,9 @@ def slim(channel, msg):
             if isinstance(v, (int, float)):
                 flags[name] = int(v)
         out = {"flags": flags}
-        out["ok"] = all(v == 0 for v in flags.values()) if flags else None
+        bad = [flags[n] for n in ("filter_fault_flags", "innovation_check_flags")
+               if n in flags]
+        out["ok"] = all(v == 0 for v in bad) if bad else None
         return out
     if channel == "imu":
         out = {}
@@ -777,6 +928,18 @@ def find_command_channel(found_topics):
     return None
 
 
+def choose_command_route(action, found_topics):
+    # 命令路径分路（M1，与笔记本端 uav_link.choose_command_route 同源，
+    # 改一边同步另一边）：有 px4_control 安全通道且动作有对应码 → 优先走
+    # 状态机防护；否则直发 vehicle_command；都没有 → None（响亮失败）
+    if COMMAND_MAP[action].get("ctrl") is not None:
+        for t in found_topics:
+            if SAFE_CHANNEL_HINT in t:
+                return ("px4_control", t)
+    ch = find_command_channel(found_topics)
+    return ("fmu_direct", ch) if ch is not None else None
+
+
 def read_dzuav_health():
     """dzuav 健康通道：先 orin_log_capture 的 jsonl，再 tmux capture-pane；没有 None。"""
     import glob
@@ -791,12 +954,17 @@ def read_dzuav_health():
             files.extend(glob.glob(p))
         if files:
             newest = max(files, key=os.path.getmtime)
+            # M3：只读文件尾 64KB 找最后一条 JSON 行——旧版每秒整读 jsonl，
+            # 文件涨到几百 MB 后每秒全量扫描纯属浪费
+            size = os.path.getsize(newest)
+            with open(newest, "rb") as fh:
+                fh.seek(max(0, size - 65536))
+                tail = fh.read().decode("utf-8", "replace")
             last = None
-            with open(newest, "r", encoding="utf-8", errors="replace") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if line.startswith("{"):
-                        last = line
+            for line in tail.splitlines():
+                line = line.strip()
+                if line.startswith("{"):
+                    last = line
             if last:
                 obj = json.loads(last)
                 return {"src": "jsonl", "file": newest,
@@ -833,8 +1001,10 @@ class RateLimiter:
             self._last[key] = t
             return True
         cap = self.caps.get(key, self.default_hz)
+        # cap<=0 除零守卫（与笔记本端 RateLimiter 同步）：period=0 = 不限速
+        period = 1.0 / cap if cap > 0 else 0.0
         last = self._last.get(key)
-        if last is None or t - last >= 1.0 / cap - 1e-9:
+        if last is None or t - last >= period - 1e-9:
             self._last[key] = t
             return True
         return False
@@ -939,17 +1109,19 @@ def run_do(args):
     found, matched = discover(node)
     emit({"hello": "uav_sampler", "topics_found": found,
           "matched": {ch: t for ch, (t, _ty) in matched.items()}})
-    channel = find_command_channel(found)
-    if channel is None:
+    route = choose_command_route(args.do, found)
+    if route is None:
         # 响亮失败：列出实际发现的话题，绝不盲发
         emit({"ctl": args.do, "ok": False,
-              "detail": "未发现命令通道（期望话题名含 %r）；实际发现: %s"
-                        % (COMMAND_TOPIC_HINT, ", ".join(found) or "（空）")})
+              "detail": "未发现命令通道（期望话题名含 %r 或 %r）；实际发现: %s"
+                        % (SAFE_CHANNEL_HINT, COMMAND_TOPIC_HINT,
+                           ", ".join(found) or "（空）")})
         node.destroy_node()
         rclpy.shutdown()
         sys.exit(4)
+    via, channel = route
     spec = COMMAND_MAP[args.do]
-    # 找到该话题的类型（vehicle_command 一定在枚举里，否则上面已退出）
+    # 找到该话题的类型（命令通道一定在枚举里，否则上面已退出）
     type_str = None
     for name, types in node.get_topic_names_and_types():
         if name == channel and types:
@@ -963,14 +1135,33 @@ def run_do(args):
         rclpy.shutdown()
         sys.exit(5)
     msg = cls()
-    params = dict(spec["params"])
-    if args.do == "takeoff":
-        params["param7"] = float(args.alt)
-    # 宽松赋值：字段存在才写（px4_msgs 版本差异靠这个扛）
-    for name, val in [("command", spec["cmd"]), ("target_system", 1),
-                      ("target_component", 1), ("source_system", 1),
-                      ("source_component", 1), ("from_external", True),
-                      ("timestamp", int(time.time() * 1e6))] + list(params.items()):
+    if via == "px4_control":
+        # 安全通道：px4_control/msg/ControlCommand（uint8 cmd, float32 dx/dy/dz），
+        # 状态机守门（ARM 需地面+Offboard+定位有效、DISARM 空中拒绝、LAND 按状态机）
+        fields = [("cmd", spec["ctrl"]), ("dx", 0.0), ("dy", 0.0), ("dz", 0.0)]
+        detail = ("已向 %s 连发 10 帧 ControlCommand cmd=%d"
+                  "（px4_control 状态机防护通道）" % (channel, spec["ctrl"]))
+        if args.do == "takeoff":
+            detail += "；起飞高度由机载 takeoff_height 参数定（--alt 不生效）"
+    else:
+        # 直发飞控。该动作有安全通道映射但没找到时：执行前醒目提示（M1）——
+        # 绕过 px4_control 状态机防护，空中 DISARM 被拒等保护全部失效。
+        if spec["ctrl"] is not None:
+            emit({"warn": "未发现 px4_control 安全通道（期望话题名含 %r）——"
+                          "ctl %s 将直发飞控 %s，绕过状态机防护，"
+                          "确认当前高度/姿态安全"
+                          % (SAFE_CHANNEL_HINT, args.do, channel)})
+        params = dict(spec["params"])
+        if args.do == "takeoff":
+            params["param7"] = float(args.alt)
+        # 宽松赋值：字段存在才写（px4_msgs 版本差异靠这个扛）
+        fields = [("command", spec["cmd"]), ("target_system", 1),
+                  ("target_component", 1), ("source_system", 1),
+                  ("source_component", 1), ("from_external", True),
+                  ("timestamp", int(time.time() * 1e6))] + list(params.items())
+        detail = ("已向 %s 连发 10 帧 VehicleCommand cmd=%d params=%s（直发飞控）"
+                  % (channel, spec["cmd"], params))
+    for name, val in fields:
         if hasattr(msg, name):
             try:
                 setattr(msg, name, type(getattr(msg, name))(val)
@@ -985,9 +1176,7 @@ def run_do(args):
         pub.publish(msg)
         time.sleep(0.05)
     time.sleep(0.2)
-    emit({"ctl": args.do, "ok": True,
-          "detail": "已向 %s 连发 10 帧 VehicleCommand cmd=%d params=%s"
-                    % (channel, spec["cmd"], params)})
+    emit({"ctl": args.do, "ok": True, "detail": detail})
     node.destroy_node()
     rclpy.shutdown()
 
@@ -1042,7 +1231,8 @@ class TelemetryState:
         self.estimator_ok: bool | None = None
         self.clip_count: int | None = None
         self.dzuav: dict | None = None
-        self.dzuav_t: float | None = None    # 本机钟：最近一次 dzuav 健康行
+        self.dzuav_t: float | None = None    # 本机钟：最近 data 非空的 dzuav 健康行
+        self.dzuav_null_since: float | None = None  # data 持续 null 的起始时刻
         self.last_lag_ms: float | None = None
         self.counts: Counter = Counter()     # 每通道消息计数
 
@@ -1075,14 +1265,30 @@ class TelemetryState:
         elif ch == "battery":
             self.battery = data
         elif ch == "estimator":
-            if data.get("ok") is not None:
+            # S2：采样器给了 flags 字典就笔记本端重算 ok（estimator_flags_ok：
+            # solution_status_flags 不参与零判定）；老采样器只有 ok 字段时沿用
+            flags = data.get("flags")
+            if isinstance(flags, dict) and flags:
+                ok = estimator_flags_ok(flags)
+                if ok is not None:
+                    self.estimator_ok = ok
+            elif data.get("ok") is not None:
                 self.estimator_ok = bool(data["ok"])
         elif ch == "imu":
             if data.get("clip") is not None:
                 self.clip_count = int(data["clip"])
         elif ch == "dzuav":
-            self.dzuav = data or None
-            self.dzuav_t = t_recv   # 通道行到达即算活跃（data 可为 null）
+            # S1：只有 data 非空才算 dzuav 活跃（采样器每秒都发 dzuav.health 行，
+            # 即使 data=null——若行到达即刷新，dzuav 真挂了 DZUAV_SILENT 永不触发）；
+            # data 持续 null 的起始时刻另记，给 DZUAV_NULL 独立告警用
+            if data:
+                self.dzuav = data
+                self.dzuav_t = t_recv
+                self.dzuav_null_since = None
+            else:
+                self.dzuav = None
+                if self.dzuav_null_since is None:
+                    self.dzuav_null_since = t_recv
 
     def engine_input(self) -> dict:
         rem = None
@@ -1095,7 +1301,8 @@ class TelemetryState:
                 "rate_dps": self.rate_dps,
                 "clip_count": self.clip_count,
                 "battery_remaining": rem,
-                "dzuav_t": self.dzuav_t}
+                "dzuav_t": self.dzuav_t,
+                "dzuav_null_since": self.dzuav_null_since}
 
 
 def render_dashboard(st: TelemetryState, active: str, now: float | None = None) -> str:
@@ -1259,7 +1466,7 @@ def _link_preflight(args) -> tuple[str, str] | tuple[None, None]:
         print(f"[失败] {bad}", file=sys.stderr)
         return None, None
     pw = read_password(args)
-    save_cached_host(host)
+    save_cached_host(host, getattr(args, "host_cache", HOST_CACHE))
     return host, pw
 
 
@@ -1294,7 +1501,7 @@ def cmd_run(args) -> int:  # pragma: no cover - 主流程需要真实无人机�
         print(f"[失败] {bad}", file=sys.stderr)
         return 4
     pw = read_password(args)
-    save_cached_host(host)
+    save_cached_host(host, getattr(args, "host_cache", HOST_CACHE))
 
     sampler_args = " --no-dzuav" if args.no_dzuav else ""
     link = OrinLink(host, args.orin_user, pw, args.port, sampler_args)
@@ -1384,22 +1591,35 @@ def cmd_ctl(args) -> int:  # pragma: no cover - 远端交互不测，闸门/映�
         return 2
     action = args.action
     if action:
-        # 安全闸门：高风险没 --yes 直接拒；次高风险醒目警告 + 倒计时
+        # 安全闸门第一关：高风险没 --yes 直接拒（碰网络之前就拒）
         deny = check_gate(action, args.yes)
         if deny:
             print(f"[拒绝] {deny}", file=sys.stderr)
             return 2
-        countdown(action, yes=args.yes)
 
     host, pw = _link_preflight(args)
     if not host:
         return 4
-    box = BlackboxWriter(Path("logs") / "uav_link" / "ctl_receipts.jsonl", append=True)
+    if action:
+        # 倒计时挪到 preflight 之后：主机都够不着就别吓人倒数；
+        # Ctrl-C 友好中止——倒数期间反悔随时可以
+        try:
+            countdown(action, yes=args.yes)
+        except KeyboardInterrupt:
+            print("\n[中止] Ctrl-C，未执行任何动作")
+            return 130
+        # kill 双闸门第二关：--yes 之外再逐字输入全词 "kill"
+        # （对齐 flight_console.py:619；shell 历史里 land/kill 只差一个上翻键）
+        if not confirm_word(action):
+            return 2
+
+    # SSH 成功后才建回执黑匣子（连接失败路径不留未关闭的句柄）
     try:
         cli = _connect(host, args.orin_user, pw, args.port)
     except Exception as e:  # noqa: BLE001 - 网络层异常原样报出便于现场判断
         print(f"[失败] SSH 连接失败: {type(e).__name__}: {e}", file=sys.stderr)
         return 4
+    box = BlackboxWriter(Path("logs") / "uav_link" / "ctl_receipts.jsonl", append=True)
 
     try:
         if args.print_caps:
@@ -1417,7 +1637,10 @@ def cmd_ctl(args) -> int:  # pragma: no cover - 远端交互不测，闸门/映�
             _upload_sampler(cli)
             extra = f" --do {action}"
             if action == "takeoff":
-                extra += f" --alt {args.alt}"
+                alt = clamp_alt(args.alt)
+                if alt != args.alt:
+                    print(f"[注意] --alt {args.alt} 超出 0.5~10m，已夹到 {alt}m")
+                extra += f" --alt {alt}"
             rc, out, err = _exec_collect(cli, sampler_launch_cmd(extra), timeout=90)
             ctl_row = None
             found_topics: list[str] = []
@@ -1429,6 +1652,11 @@ def cmd_ctl(args) -> int:  # pragma: no cover - 远端交互不测，闸门/映�
                     found_topics = obj["topics_found"]
                 elif obj["kind"] == "ctl":
                     ctl_row = obj
+                elif obj["kind"] == "warn":
+                    # 采样器执行前的醒目提示（直发飞控绕过状态机防护等）
+                    print("!" * 60, file=sys.stderr)
+                    print(f"!! [机载警告] {obj['msg']}", file=sys.stderr)
+                    print("!" * 60, file=sys.stderr)
                 elif obj["kind"] == "error":
                     print(f"[机载] {obj['error']}", file=sys.stderr)
             ok = bool(ctl_row and ctl_row["ok"])
@@ -1577,9 +1805,13 @@ FLIGHT_BB_PAIR_WINDOW_S = 1.0  # 姿态/位置与 fmu.target 配对窗口
 
 
 def classify_blackbox_row(row: dict) -> str:
-    """黑匣子行格式判别：有 ev → flight_bb；有 topic → 现行采样格式；
-    其余 → other（走现行坏行容错路径：ctl/hello/alert/summary/垃圾行）。"""
-    if "ev" in row:
+    """黑匣子行格式判别：有 ev 且 node=="flight_bb" → flight_bb；有 topic → 现行
+    采样格式；其余 → other（走现行坏行容错路径：ctl/hello/alert/summary/垃圾行）。
+
+    ⚠️ node 条件不可省：ag_core.blackbox 的行同样带 ev 键，没有 node 判别会把
+    车端黑匣子误当 flight_bb 解析（2026-10-17 审查修正）。
+    """
+    if "ev" in row and row.get("node") == "flight_bb":
         return "flight_bb"
     if "topic" in row:
         return "sample"
@@ -1674,6 +1906,10 @@ def _feed_flight_bb_row(rep: dict, fb: dict, row: dict, t: float | None) -> None
         if t is not None and armed != fb["armed"]:
             if armed:
                 fb["armed_since"] = t
+                # M5：rearm（False→True）时 SLAM 断流计时也归零——注释承诺
+                # "rearm 后重新连续 5s"：上一段断流是上一个架次的事，rearm 后
+                # 给 SLAM 重新连续 5s 的机会，不把旧静默期带进新架次
+                fb["last_slam_t"] = t
             else:
                 if fb["armed_since"] is not None:
                     fb["armed_intervals"].append((fb["armed_since"], t))
@@ -1817,6 +2053,7 @@ def build_report(rows: list[dict]) -> dict:
     t0 = t1 = None
     last_status: tuple | None = None        # (armed, nav_state, failsafe)
     last_att = last_tgt = None
+    last_att_t = last_tgt_t = None          # 采样格式姿态/目标的各自时刻（新鲜度窗用）
     div_seg = None                          # [t_start, t_end, max_deg]（采样格式）
     last_clip = None
     prev_t = None
@@ -1884,11 +2121,11 @@ def build_report(rows: list[dict]) -> dict:
             if rpy:
                 rep["att_abs_roll"].append(abs(rpy[0]))
                 rep["att_abs_pitch"].append(abs(rpy[1]))
-                last_att = rpy
+                last_att, last_att_t = rpy, t
         elif ch == "attitude_target":
             tgt = TelemetryState._num3(data.get("rpy_deg"))
             if tgt:
-                last_tgt = tgt
+                last_tgt, last_tgt_t = tgt, t
         elif ch == "rates":
             dps = TelemetryState._num3(data.get("dps"))
             if dps:
@@ -1915,8 +2152,14 @@ def build_report(rows: list[dict]) -> dict:
             if not data:
                 rep["dzuav"]["null_rows"] += 1
 
-        # 姿态-目标偏差时段（>15°，阈值与实时规则一致）
-        if t is not None and last_att is not None and last_tgt is not None:
+        # 姿态-目标偏差时段（>15°，阈值与实时规则一致）。
+        # 1s 新鲜度窗（与 flight_bb 侧 FLIGHT_BB_PAIR_WINDOW_S 一致）：姿态/目标
+        # 任一停滞超过 1s 就不许再配对——拿三分钟前的目标比当前姿态是假偏差。
+        fresh = (last_att_t is not None and last_tgt_t is not None
+                 and abs(t - last_att_t) <= FLIGHT_BB_PAIR_WINDOW_S
+                 and abs(t - last_tgt_t) <= FLIGHT_BB_PAIR_WINDOW_S) \
+            if t is not None else False
+        if t is not None and last_att is not None and last_tgt is not None and fresh:
             dev = max(abs(_wrap_deg(a - b)) for a, b in zip(last_att, last_tgt))
             if dev > UavRuleEngine.ATT_DIVERGE_DEG:
                 if div_seg is None:
@@ -2156,6 +2399,9 @@ def _add_link_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--port", type=int, default=22)
     p.add_argument("--password", default=None,
                    help="机载密码；更推荐 AG_ORIN_PASS 环境变量")
+    p.add_argument("--host-cache", default=str(HOST_CACHE),
+                   help="--host 缓存文件路径（默认 logs/uav_link/uav_link.local.env；"
+                        "换机/换网段测试时可指向别处，避免互相覆盖）")
 
 
 def build_parser() -> argparse.ArgumentParser:

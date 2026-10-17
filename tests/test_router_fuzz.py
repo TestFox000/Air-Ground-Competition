@@ -149,7 +149,9 @@ def test_random_maps_invariants():
             assert plan_route(snap, _START, _GOAL) == route
 
     elapsed = time.monotonic() - t0
-    # 性能回归守卫按局数缩放：均值超 1s/局 即视为退化（2026-10-14 P0 修复前
-    # 最坏单局 33.7s——等最优顺序枚举×逐段两次 Dijkstra；修复后最坏 ~1.2s）。
-    assert elapsed < 1.0 * n_cases, (
+    # 性能回归守卫按局数缩放（2026-10-14 P0 修复前最坏单局 33.7s——等最优顺序
+    # 枚举×逐段两次 Dijkstra；修复后最坏 ~1.2s）。
+    # ⚠️ 墙钟断言是机器速度相关的：慢 CI/老机器上 1s/局 会假阳性，放宽到 3 倍
+    # 余量——本断言只防"灾难性回退"（数量级退化），不做精细性能回归。
+    assert elapsed < 3.0 * n_cases, (
         f"{n_cases} 局 fuzz 耗时 {elapsed:.1f}s（均值 {elapsed / n_cases:.2f}s/局），规划性能退化")

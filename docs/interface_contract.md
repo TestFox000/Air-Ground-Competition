@@ -219,6 +219,11 @@ align 模式只有**一个**超时参数 `heading_align_timeout`（默认 15s，
 | 2026-10-09 | 初始版本 | 定义全部接口 | Agent-3, Agent-4 |
 | 2026-10-14 | 文档对齐代码现状：路线命令逗号紧贴格号（§4.2）、§7 桥洞拓扑按 mission_router 重写（含 cross_gates 陷阱）、§5.2/§5.3 对齐超时改为单一 15s、§2.3 length/width 改注像素语义 | 仅文档修正，字节布局与命令语法不变 | Agent-3, Agent-4 |
 | 2026-10-15 | §5.2 循迹契约修正：align 必须先于 path_executor 完成（dzactuator 模式仲裁实测）、对齐命令带爬行速度（v≠0 舵机才生效）、新增 wait_waypoint_consumer 闸门 | 车端行为变化：对齐走 cmd_vel 爬行转向；两阶段启动 tools/car_match_bringup.sh；字节布局不变 | Kimi Code |
+| 2026-10-15 | §7 中场挡板行号修正：第 5/6 行 → 第 6/7 行（0 基 row5↔row6，上半场行1~6、下半场行7~11），按车上官方地图真源；代码侧见提交 3e87f95 | 仅文档修正，接口不变 | Agent-3, Agent-4 |
+| 2026-10-15 | 新增 §9：车上现役默认核心 dzbrain 的无人机情报接口（/dzlink JSON 双话题）与我方桥接节点 dzbrain_bridge | 新增可选链路（mode:=dzbrain）；legacy 链路不变 | Kimi Code |
+
+---
+
 ## 9. dzbrain 链路（车上现役默认核心的情报接口）
 
 > 2026-10-15 起入库。真源：车上 `~/dzrobot/src/dzbrain/dzbrain/tasks/drone.py`
@@ -248,16 +253,4 @@ align 模式只有**一个**超时参数 `heading_align_timeout`（默认 15s，
 
 ---
 
-## 8. 接口变更记录
-
-| 日期 | 变更 | 影响 | 通知对象 |
-|---|---|---|---|
-| 2026-10-09 | 初始版本 | 定义全部接口 | Agent-3, Agent-4 |
-| 2026-10-14 | 文档对齐代码现状：路线命令逗号紧贴格号（§4.2）、§7 桥洞拓扑按 mission_router 重写（含 cross_gates 陷阱）、§5.2/§5.3 对齐超时改为单一 15s、§2.3 length/width 改注像素语义 | 仅文档修正，字节布局与命令语法不变 | Agent-3, Agent-4 |
-| 2026-10-15 | §5.2 循迹契约修正：align 必须先于 path_executor 完成（dzactuator 模式仲裁实测）、对齐命令带爬行速度（v≠0 舵机才生效）、新增 wait_waypoint_consumer 闸门 | 车端行为变化：对齐走 cmd_vel 爬行转向；两阶段启动 tools/car_match_bringup.sh；字节布局不变 | Kimi Code |
-| 2026-10-15 | §7 中场挡板行号修正：第 5/6 行 → 第 6/7 行（0 基 row5↔row6，上半场行1~6、下半场行7~11），按车上官方地图真源；代码侧见提交 3e87f95 | 仅文档修正，接口不变 | Agent-3, Agent-4 |
-| 2026-10-15 | 新增 §9：车上现役默认核心 dzbrain 的无人机情报接口（/dzlink JSON 双话题）与我方桥接节点 dzbrain_bridge | 新增可选链路（mode:=dzbrain）；legacy 链路不变 | Kimi Code |
-
----
-
-*最后更新：2026-10-14 文档对齐代码现状（无接口变更）*
+*最后更新：2026-10-15 双 §8 去重（变更记录保全量表，§8 复位到 §9 之前）；无接口变更*

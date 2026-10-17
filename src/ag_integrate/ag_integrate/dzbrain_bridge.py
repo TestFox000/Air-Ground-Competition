@@ -5,7 +5,9 @@ reference/car_src_20261015/dzbrain/），它的无人机情报接口是 ROS 话�
 JSON 报文（std_msgs/String），不再是 integrate_node -> path_executor 的
 legacy 路线串路径。本节点就是 dzbrain 模式下的链路胶水。**两模式互斥**：
 dzbrain 模式起本节点，legacy 模式起 integrate_node，launch 侧二选一，
-绝不同时跑（同抢 UDP:50000，且决策核心只能有一个）。
+绝不同时跑（同抢 UDP:50000，且决策核心只能有一个）。互斥由工程防线兜底：
+两边都不设 SO_REUSEADDR，重复 bind 同一端口时第二个节点构造即抛
+（UDP 无 TIME_WAIT，进程死掉端口即释放，重启不受阻）。
 
     UDP 广播 (dzuav UdpBroadcaster, 0x4001 态势帧)
         -> 后台收包线程（只做 收包/解析/态势归并入 WorldModel）
@@ -112,6 +114,15 @@ class DzbrainBridgeNode(Node):
         self.car_to_drone_topic = str(p("car_to_drone_topic"))
         self.heartbeat_period_s = float(p("heartbeat_period_s"))
         self.refresh_period_s = float(p("refresh_period_s"))
+        # 周期参数 fail-fast 校验（对齐 integrate_node 启动自检范式）：
+        # <=0 会让心跳/刷新每拍连发刷爆话题，且 DroneTask 离线判定/刷新兜底
+        # 的时序假设全部失效——非法值构造即抛，不留到赛中
+        if self.heartbeat_period_s <= 0:
+            raise ValueError(
+                f"heartbeat_period_s 必须 >0，收到 {self.heartbeat_period_s}")
+        if self.refresh_period_s <= 0:
+            raise ValueError(
+                f"refresh_period_s 必须 >0，收到 {self.refresh_period_s}")
 
         self.model = WorldModel(red_veto_ttl_s=float(p("red_veto_ttl_s")))
 
@@ -126,8 +137,12 @@ class DzbrainBridgeNode(Node):
         # UDP socket 在构造函数里先 bind 好再交给收包线程：端口被占/权限
         # 不足时在启动时直接抛错（fail-fast，同 integrate_node 范式），
         # 而不是收包线程静默死亡、节点照常"就绪"。
+        # ⚠️ 刻意不设 SO_REUSEADDR：重复 bind 即 fail-fast 是与 integrate_node
+        # 互斥的防线——两节点同抢 UDP:50000，文件头承诺的"绝不同时跑"靠的是
+        # 第二个 bind 当场炸（Linux 下 SO_REUSEADDR 会让双方重复 bind 且各收
+        # 一份副本，双决策核心并行驱动车）。UDP 无 TIME_WAIT，进程死掉端口
+        # 即释放，去掉它重启不受阻（2026-10-17 审查修正）。
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             self._sock.bind(("", int(p("udp_port"))))
         except OSError as exc:
@@ -146,11 +161,9 @@ class DzbrainBridgeNode(Node):
         # 决策/发布都在 executor 线程（timer 回调）里做，收包线程不碰 ROS。
         self.create_timer(0.1, self._on_tick)
 
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._receive, daemon=True)
-        self._thread.start()
-
-        # 黑匣子挂载 + 关键参数快照（复盘一局"为什么这么发"的依据）
+        # 黑匣子挂载 + 关键参数快照（复盘一局"为什么这么发"的依据）。
+        # 必须在收包线程启动之前挂好：收包线程的 _process_packet/_blog 引用
+        # self.bb，线程先起跑会在早窗口收包时 AttributeError（2026-10-17 审查修正）。
         self.bb = BlackBox.from_params(self) if _HAS_BB else None
         self._blog(EV.SESSION_BEGIN, mode="dzbrain_bridge",
                    udp_port=int(p("udp_port")))
@@ -160,6 +173,10 @@ class DzbrainBridgeNode(Node):
                    heartbeat_period_s=self.heartbeat_period_s,
                    refresh_period_s=self.refresh_period_s,
                    log_file=str(self.bb.path) if self.bb else "")
+
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._receive, daemon=True)
+        self._thread.start()
 
         self.get_logger().info(
             f"dzbrain_bridge 就绪: 监听 UDP:{p('udp_port')} -> "

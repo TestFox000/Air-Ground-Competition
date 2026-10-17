@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """把 runs/capture_20261014_1918 的 YOLO 预标注转成 X-AnyLabeling JSON。
 
-改编自仓库 convert_yolo_to_xanylabeling_json.py：
+改编自 tools/attic/convert_yolo_to_xanylabeling_json.py（2026-10-17 归档，零引用）：
 - 路径指向本次采集目录
 - 类别 id 映射回真实类名（原版硬编码为 mine）
 - JSON 写到 images/ 同目录（X-AnyLabeling 默认在图片旁找同名 json）

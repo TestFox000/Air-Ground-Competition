@@ -10,5 +10,10 @@ opencv-python>=4.8          # 图像预处理 / 标定 / debug 可视化
 pyserial>=3.5               # 裁判系统串口
 PyYAML>=6.0                 # 读取离线配置文件
 
+# ---- 测试工具 ----
+# 随机序跑测试，防"测试顺序依赖"型 flaky（此前文档宣称有这道防线但根本没装，
+# 2026-10-17 横切扫描发现）。pin 死版本：CI 矩阵 3.10/3.12 + pytest>=7.4 均验证可装。
+pytest-randomly==3.16.0
+
 # ---- 板端（RK3588S）需单独安装，不能用 pip 源 ----
 # rknn-toolkit2-lite  : pip install rknn_toolkit2_lite-*.whl（瑞芯微官方 SDK 提供）

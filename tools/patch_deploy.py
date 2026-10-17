@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import time
 from pathlib import Path
@@ -84,13 +83,11 @@ def rollback_cmd() -> str:
 
 
 def read_password(args) -> str:
-    pw = args.password or os.environ.get("AG_ORIN_PASS") or os.environ.get("AG_CAR_PASS")
-    if pw:
-        return pw
-    import getpass
-    if not sys.stdin.isatty():
-        raise SystemExit("缺少 Orin 密码：set AG_ORIN_PASS=******（或 --password）")
-    return getpass.getpass(f"{args.user}@{args.host} 的密码: ")
+    """密码守卫已收编到 remote_run.read_password（2026-10-17 横切扫描）；
+    本壳保留仅为向后兼容，语义不变：--password > AG_ORIN_PASS >（兜底
+    AG_CAR_PASS）> 交互提问。"""
+    return remote_run.read_password(args, env_name="AG_ORIN_PASS",
+                                    fallback_envs=("AG_CAR_PASS",))
 
 
 def step(host, user, pw, port, desc, cmd, timeout=60, expect=None, refuse=None):
