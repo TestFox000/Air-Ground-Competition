@@ -19,6 +19,7 @@ import queue
 import re
 import socket
 import threading
+import warnings
 
 import rclpy
 from rclpy.node import Node
@@ -75,6 +76,10 @@ class IntegrateNode(Node):
         # 红靶粘性否决 TTL（秒，禁火铁律 fail-safe）：见过红靶的格子在该
         # 时长内持续参与禁火否决，扛单帧漏检/遮挡/落格残差丢弃。
         self.declare_parameter("red_veto_ttl_s", 5.0)
+        # 障碍多帧确认：连续 N 帧检出才进入态势/连续 N 帧消失才移出（对称
+        # 滞回，N=1 为旧行为）。交界格（走廊口/桥洞）障碍误检会堵死唯一
+        # 通道触发整区降级——单帧幽灵必须先被多帧否决（分区规划问题1 ⚠️）。
+        self.declare_parameter("obstacle_confirm_frames", 1)
         self.declare_parameter("cross_gates", [""])
         # 中场横向挡板位置：唯一来源是 mission_router._MID_BOUNDARY，
         # test_field_config_consistency 锁死 yaml/节点/常量三处口径一致。
@@ -87,6 +92,16 @@ class IntegrateNode(Node):
         # 分区排序：["东北","西","东南"] 逐区执行（跨挡板自动走西区走廊）；
         # [""] = 全局 TSP（默认）。区域名限 西/东南/东北。
         self.declare_parameter("zone_order", [""])
+        # ---- 路径代价平衡（步数 vs 姿态，2026-10-17）----
+        # turn_45：每 45° 转向的代价当量（格）。对角步按 √2 计、正交步按 1 计，
+        #   对角线距离天然更短（走对角线优先）；turn_45 决定"少转向"值多少距离：
+        #   0.75 = 阿克曼底盘物理标定（45° 转向 ≈ 0.27m 弧长 ≈ 0.76 格），时间等价；
+        #   0   = 纯距离最短（对角/步数最大化），同代价平局自动取转向最少的最平直形态；
+        #   越大越偏向少转向（姿态平滑优先、步数放宽）。
+        self.declare_parameter("turn_45", 0.75)
+        # 对角移动开关：true 时 8 邻域（对角 √2 < 两正交 2.0，距离/步数双省）；
+        # 实车对角追踪不稳（漂移/切角风险）时改 false 退化为纯正交路线。
+        self.declare_parameter("allow_diagonal", True)
         # 外部朝向补偿（根除绕圈问题）：
         #   heading_bias_source="none"  → 不补偿，保持现状（默认，安全）
         #   heading_bias_source="udp"   → 监听 dzuav 的 0x4002 车位姿帧，
@@ -159,6 +174,7 @@ class IntegrateNode(Node):
         self.min_mines = int(p("min_mines"))
         self.require_face = bool(p("require_face"))
         self.red_veto_ttl_s = float(p("red_veto_ttl_s"))
+        self.obstacle_confirm_frames = max(1, int(p("obstacle_confirm_frames")))
         self.cross_gates = tuple(n.strip() for n in p("cross_gates") if n.strip())
         self.mid_boundary = int(p("mid_boundary"))
         self.crossing_penalty = float(p("crossing_penalty"))
@@ -175,6 +191,8 @@ class IntegrateNode(Node):
         if td:
             self.tunnel_dirs = td
         self.zone_order = tuple(n.strip() for n in p("zone_order") if n.strip()) or None
+        self.turn_45 = float(p("turn_45"))
+        self.allow_diagonal = bool(p("allow_diagonal"))
         self.heading_bias_source = str(p("heading_bias_source")).strip().lower()
         self.cmd_vel_topic = str(p("cmd_vel_topic"))
         self.align_creep_speed = float(p("align_creep_speed"))
@@ -214,9 +232,12 @@ class IntegrateNode(Node):
                 f"start_heading 只支持 'x'/'y'，收到 {self.start_heading!r}"
             )
 
-        self.model = WorldModel(red_veto_ttl_s=self.red_veto_ttl_s)
+        self.model = WorldModel(red_veto_ttl_s=self.red_veto_ttl_s,
+                                obstacle_confirm_frames=self.obstacle_confirm_frames)
         self.reset_sent = False
         self.last_route = ""
+        # 已入日志的降级告警文本（同文本只报一次，防每帧重规划刷屏）
+        self._degraded_logged: set[str] = set()
         # 无人机观测到的车真实朝向（0x4002 帧），None 表示尚未收到。
         # 跨线程读写（收包线程写、executor 线程读）：依赖 CPython GIL 对
         # 单属性赋值的天然原子性，读到的只会是 None 或某个完整 float，不加锁。
@@ -566,18 +587,22 @@ class IntegrateNode(Node):
 
         start_heading = self._effective_start_heading()
         try:
-            commands = build_mission(
-                snapshot, self.start_cell, self.goal_cell,
-                start_heading, self.final_heading,
-                self.cross_gates, self.mid_boundary,
-                target_track=self.target_track,
-                target_blue_face=self.target_blue_face,
-                time_params=self._time_params,
-                soft_cap_s=self.time_soft_cap_s,
-                crossing_penalty=self.crossing_penalty,
-                tunnel_dirs=self.tunnel_dirs,
-                zone_order=self.zone_order,
-            )
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always", RuntimeWarning)
+                commands = build_mission(
+                    snapshot, self.start_cell, self.goal_cell,
+                    start_heading, self.final_heading,
+                    self.cross_gates, self.mid_boundary,
+                    target_track=self.target_track,
+                    target_blue_face=self.target_blue_face,
+                    time_params=self._time_params,
+                    soft_cap_s=self.time_soft_cap_s,
+                    crossing_penalty=self.crossing_penalty,
+                    tunnel_dirs=self.tunnel_dirs,
+                    zone_order=self.zone_order,
+                    turn_45=self.turn_45,
+                    allow_diagonal=self.allow_diagonal,
+                )
         except (ValueError, IndexError, KeyError) as exc:
             # 规划失败（goal 不可达、桥洞未识别全等）：记日志 + 黑匣子，
             # 保持门控等待下拍重试——绝不让异常穿透 timer 杀死整个节点。
@@ -585,6 +610,14 @@ class IntegrateNode(Node):
             self._blog(EV.NODE_ERROR, level="error",
                        where="build_mission", msg=str(exc))
             return
+        # 规划降级（必经点不可达被跳过/终点朝向降级）：mission_router 用
+        # RuntimeWarning 上报，赛中默认没人看得见——捞出来进控制台日志，
+        # 被跳过的区在复盘里必须找得到原因（分区规划问题1 降级策略要求）。
+        degraded = [str(w.message) for w in caught]
+        for text in degraded:
+            if text not in self._degraded_logged:
+                self._degraded_logged.add(text)
+                self.get_logger().warning(f"规划降级: {text}")
         if commands.route == self.last_route:
             return
 
@@ -614,7 +647,8 @@ class IntegrateNode(Node):
                    shoot=",".join(commands.shoot_cells),
                    heading=start_heading,
                    est_s=round(commands.est_seconds, 1),
-                   shed=commands.shed_shooting)
+                   shed=commands.shed_shooting,
+                   degraded="; ".join(degraded))
 
         if self.dry_run:
             self.get_logger().info(

@@ -52,12 +52,18 @@ def build_mission(
     crossing_penalty: float = 0.0,
     tunnel_dirs: dict[str, str] | None = None,
     zone_order: tuple[str, ...] | None = None,
+    turn_45: float = 0.75,
+    allow_diagonal: bool = True,
 ) -> CarCommands:
     """态势 -> reset + route 两条命令。
 
     target_track/target_blue_face：移动靶（全场仅一个）的轨道两端格号与
     蓝面朝向。这是裁判系统每局固定的先验，无人机只识别瞬时哪面可见，
     因此由本节点参数注入，而不是从识别帧推导。
+
+    turn_45/allow_diagonal：路径代价平衡（步数 vs 姿态）——对角步按 √2
+    计价天然"距离更短走对角线"；turn_45 是每 45° 转向的代价当量，
+    0.75=阿克曼底盘物理标定，0=纯最短路+最平直平局，越大越姿态优先。
 
     时间预算门控（soft_cap_s 传入才启用，官方硬顶 180s、同分比用时）：
     规划出解后用 route_time.estimate_seconds 折算执行秒数（写入
@@ -74,6 +80,7 @@ def build_mission(
         snapshot, start, goal, zone_order, cross_gates=gates, mid_boundary=mid_boundary,
         start_heading=start_heading, final_heading=final_heading,
         crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
+        turn_45=turn_45, allow_diagonal=allow_diagonal,
     )
     commands = adapt(snapshot, ordered, start_cell, start_heading, final_heading)
 
@@ -97,6 +104,7 @@ def build_mission(
             shed_snapshot, start, goal, zone_order, cross_gates=gates, mid_boundary=mid_boundary,
             start_heading=start_heading, final_heading=final_heading,
             crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
+            turn_45=turn_45, allow_diagonal=allow_diagonal,
         )
     except ValueError:
         return commands   # 同一地图可达性不变，理论上不会到这里；防御性保底

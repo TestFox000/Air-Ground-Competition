@@ -60,3 +60,22 @@ def test_target_track_prior_well_formed():
     for name in track:
         assert re.fullmatch(r"[A-N](?:[1-9]|1[01])", name.strip().upper())
     assert face in ("S", "N", "E", "W"), f"target_blue_face={face!r} 非法"
+
+
+def test_turn_balance_params_consistent():
+    """步数-姿态平衡参数：yaml == 节点默认值 == 路由层默认值。
+
+    turn_45/allow_diagonal 是 match_params.yaml -> integrate_node ->
+    build_mission -> plan_route_zoned 整链透传的新配置；三处默认值
+    必须一致（否则"没写 yaml 就改行为"的静默分裂会复发——mid_boundary 事故同款）。
+    """
+    params = _yaml_params()
+    src = NODE_PATH.read_text(encoding="utf-8")
+    m_t = re.search(r'declare_parameter\("turn_45",\s*([\d.]+)\)', src)
+    assert m_t, "integrate_node.py 找不到 turn_45 默认值声明"
+    assert float(params["turn_45"]) == float(m_t.group(1)), (
+        f"yaml turn_45={params['turn_45']} 与节点默认 {m_t.group(1)} 不一致")
+    # 节点读到的是布尔；yaml 用 true/false
+    assert bool(params["allow_diagonal"]) is True, "yaml allow_diagonal 应为 true"
+    m_d = re.search(r'declare_parameter\("allow_diagonal",\s*(True|False)\)', src)
+    assert m_d and m_d.group(1) == "True", "integrate_node.py allow_diagonal 默认应为 True"

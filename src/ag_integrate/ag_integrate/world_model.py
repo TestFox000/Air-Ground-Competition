@@ -19,7 +19,7 @@ from .intel_protocol import IntelFrame, ObjectType
 @dataclass(frozen=True)
 class TargetRef:
     cell: CellRef          # 检测落点（移动靶=该帧瞬时位置）
-    is_blue: bool          # True=敌方蓝面可见 False=友方红面可见
+    is_blue: bool | None   # True=敌方蓝面可见 False=友方红面可见 None=发现态（红蓝未辨）
     # 移动靶专用（全场仅一个）：track=轨道两端格，blue_face=蓝面朝向。
     # 轨道水平（两端同行）时 blue_face='S'(朝南)/'N'；垂直时 'E'/'W'。
     # 轨道两端由裁判系统地图确定（每局固定），蓝面朝向由无人机识别/现场标定。
@@ -48,13 +48,23 @@ class WorldModel:
     红靶的格子在 red_veto_ttl_s 秒内持续以红靶身份留在态势里参与否决
     ——粘性只增加否决，绝不减少（TTL 用帧时间戳计量，帧停了粘性自然
     冻结在最后已知态势上，方向同样安全）。
+
+    障碍多帧确认（obstacle_confirm_frames）：障碍格连续 N 帧检出才进入
+    态势、连续 N 帧消失才移出（对称滞回）。N=1 精确退化为旧行为。
+    动机（docs/分区规划与感知约束-20261015 问题1 ⚠️）：交界格（走廊口/
+    桥洞）的障碍误检会堵死唯一通道，整区必经点被降级跳过——单帧幽灵
+    必须先被多帧否决。真障碍只晚 N-1 帧（5fps 下 0.2s）进入，代价可忽略。
     """
 
-    def __init__(self, red_veto_ttl_s: float = 5.0) -> None:
+    def __init__(self, red_veto_ttl_s: float = 5.0,
+                 obstacle_confirm_frames: int = 1) -> None:
         self._snapshot: WorldSnapshot | None = None
         self.red_veto_ttl_s = float(red_veto_ttl_s)
+        self.obstacle_confirm_frames = max(1, int(obstacle_confirm_frames))
         # 红靶格 -> 最后一次见到的时刻（秒，取情报帧时间戳）
         self._red_seen: dict[CellRef, float] = {}
+        # 障碍多帧确认状态：格名 -> (CellRef, 连续检出计, 连续漏检计)
+        self._ob_state: dict[str, tuple[CellRef, int, int]] = {}
 
     @property
     def snapshot(self) -> WorldSnapshot | None:
@@ -104,11 +114,36 @@ class WorldModel:
         for c in expired:
             del self._red_seen[c]
 
+        # 障碍多帧确认（对称滞回）：连续 N 帧检出进入态势、连续 N 帧消失移出。
+        # N=1 精确退化为旧行为（本帧检出即在态势）。
+        n = self.obstacle_confirm_frames
+        if n <= 1:
+            confirmed_obs = list(obstacles.values())
+        else:
+            confirmed_obs: list[CellRef] = []
+            for name, cell in obstacles.items():
+                st = self._ob_state.get(name)
+                seen = (st[1] + 1) if st else 1
+                self._ob_state[name] = (cell, seen, 0)
+                if seen >= n:
+                    confirmed_obs.append(cell)
+            for name in list(self._ob_state):
+                if name in obstacles:
+                    continue
+                cell, seen, miss = self._ob_state[name]
+                miss += 1
+                if miss >= n:
+                    del self._ob_state[name]   # 连续 N 帧未检出：彻底移出
+                else:
+                    self._ob_state[name] = (cell, seen, miss)
+                    if seen >= n:
+                        confirmed_obs.append(cell)   # 滞回期：已确认障碍保持
+
         self._snapshot = WorldSnapshot(
             frame.timestamp_ms,
             tuple(mines.values()),
             tuple(passable.values()),
-            tuple(obstacles.values()),
+            tuple(confirmed_obs),
             tuple(targets),
         )
         return self._snapshot

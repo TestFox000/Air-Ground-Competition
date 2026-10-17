@@ -23,6 +23,13 @@ continuous 扫描、越界急停）。加载隔离（DZ_AUTO_START=0、ROBOT_CON
 5. test_corner_window_right_sweep【拐角窗口回归】：2026-10-15 实车事故
    形态（M10 断言 y、真实偏差 22.1°、路线 M10→D8→E5→M5、无 align）——
    现役 executor 右扫约 200° 后自报到点，固化该行为防回归。
+
+规划硬化验收（2026-10-16 执行层深优化/分区规划分派项，三个场景）：
+6. test_replan_mid_route_detours_and_arrives：中途重规划+绕行验收；
+7. test_boundary_obstacle_detour_acceptance：交界障碍（走廊格被堵）
+   绕行验收，含 obstacle_confirm_frames=2 多帧确认；
+8. test_mine_center_pass_trajectory：雷格过心验收——拐点雷补过心
+   穿越点后，真轨迹距雷心 ≤6cm（判分圆半径）。
 """
 
 import math
@@ -380,3 +387,153 @@ def test_corner_window_right_sweep(world_factory):
           f"净转角 {math.degrees(sweep):.0f}°（实车 -183°），"
           f"终点真误差 {d:.3f}m（实车 0.24m），"
           f"偏置均值 {mean_off:.1f}°，trace {len(world.trace)} 条")
+
+
+# ================================================================
+# 规划硬化验收（2026-10-16 执行层深优化 / 分区规划 分派项）
+# ================================================================
+
+def _min_dist_to(world: "TrackingWorld", cell: str) -> float:
+    """真轨迹到指定格心的最近距离（米）。"""
+    gx, gy = world.block_to_meters(cell)
+    return min(math.hypot(r[1] - gx, r[2] - gy) for r in world.trace)
+
+
+def _published_routes(ig) -> list[str]:
+    """所有已发布的 /nav/waypoint 消息文本。"""
+    return [m.data for m in ig.topic("/nav/waypoint").published]
+
+
+def test_replan_mid_route_detours_and_arrives(world_factory):
+    """【中途重规划 + 绕行验收】发车后注入路线障碍 → 重规划改道、绝不穿越。
+
+    replan_on_update=True（比赛配置）：现役 path_executor 换路线后按
+    "最近航段"从当前位置接续（follow_route_command 提交新路线 +
+    current_target_idx=0，find_nearest_segment 只向前找）。防抖守卫
+    _route_needs_replan 保证只在"路线 ±1 格内障碍增删"时重算。
+    验收口径（docs/执行层深优化-20261016 问题1）：车必须绕行或停车，
+    不得穿越障碍格。
+    """
+    world = world_factory(start_cell="N10", true_yaw_deg=90.0,
+                          theta_boot_deg=90.0)
+    # align 不参与（起点已对正），replan 打开
+    ig = _make_integrate(world, heading_bias_source="none",
+                         replan_on_update=True)
+    world.start_car_stack()
+
+    # 路线已发（reset+路线两条），让车先走出 2 格
+    assert world.run_until(lambda: world.route_pub_t is not None, 10.0)
+    base_msgs = _published_routes(ig)
+    assert base_msgs[1] == EXPECTED_ROUTE
+    world.run_until(lambda: world.t > world.route_pub_t + 3.0, 10.0)
+
+    # 注入路线中段障碍 I8（H8→G8 腿上，距车 3+ 格）
+    world._intel_objects = world._intel_objects + (
+        _obj("I8", ObjectType.OBSTACLE),)
+
+    arrived = world.run_until(lambda: world.pe.arrived, 120.0)
+
+    msgs = _published_routes(ig)
+    # 重规划真的发生：第 3 条消息是新路线（≠原路线）
+    assert len(msgs) >= 3, "障碍注入后没有重发路线 —— replan 守卫没触发？"
+    assert msgs[2] != EXPECTED_ROUTE
+    # 验收：车从未驶入障碍格（半格 0.175m 界内视为穿越）
+    d_obs = _min_dist_to(world, "I8")
+    assert d_obs > 0.17, f"轨迹距障碍格 I8 心 {d_obs:.3f}m —— 疑似穿越"
+    assert arrived, (
+        f"120s 内未到终点：真=({world.chassis.x:.2f},{world.chassis.y:.2f}) "
+        f"信念=({world.pe.current_x:.2f},{world.pe.current_y:.2f})")
+    assert abs(world.chassis.yaw_traveled) < math.radians(360), "疑似画圈"
+
+    print(f"\n[重规划绕行] 到点 t={world.arrived_t:.1f}s，"
+          f"路线消息 {len(msgs)} 条，轨迹距 I8 心 {d_obs:.3f}m")
+
+
+def test_boundary_obstacle_detour_acceptance(world_factory):
+    """【交界障碍验收】走廊穿越格被堵 → 经备用走廊格绕行，不得穿越。
+
+    场景跨挡板：东北区雷（L8/J9）→ 西区走廊 C7→C6 → 东南区雷（H3）→
+    终点 N6。发车后在情报里注入走廊格 C7 障碍（连续 2 帧确认，
+    obstacle_confirm_frames=2 与比赛配置一致）→ 重规划改走 B/A 列走廊。
+    验收：车不进 C7、仍到终点（docs/执行层深优化-20261016 新增验收场景）。
+    """
+    world = world_factory(start_cell="N10", true_yaw_deg=90.0,
+                          theta_boot_deg=90.0)
+    ig = _make_integrate(world, heading_bias_source="none",
+                         replan_on_update=True, obstacle_confirm_frames=2,
+                         require_face=False, goal_cell="N6", final_heading="",
+                         crossing_penalty=5.0)
+    world.attach_integrate(ig, tuple(
+        _obj(c, ObjectType.MINE) for c in ("L8", "J9", "H3")))
+    world.start_car_stack()
+
+    assert world.run_until(lambda: world.route_pub_t is not None, 10.0)
+    first_route = _published_routes(ig)[1]
+    corridor = {"A6", "A7", "B6", "B7", "C6", "C7"}
+    used = [c for c in first_route.split() if c in corridor]
+    assert used, f"首条路线未走走廊：{first_route}"
+    blocked_cell = used[0]                      # 路线将穿入的第一个走廊格
+    world.run_until(lambda: world.t > world.route_pub_t + 3.0, 10.0)
+
+    # 注入交界障碍（2 帧确认 → 约 2s 后进态势，车还在东北区扫雷）
+    world._intel_objects = world._intel_objects + (
+        _obj(blocked_cell, ObjectType.OBSTACLE),)
+
+    arrived = world.run_until(lambda: world.pe.arrived, 180.0)
+
+    msgs = _published_routes(ig)
+    assert len(msgs) >= 3, "交界障碍注入后没有重发路线"
+    last_route = msgs[-1]
+    assert blocked_cell not in last_route, f"新路线仍穿过被堵走廊格 {blocked_cell}"
+    # 改走备用走廊列（A/B 列）完成穿越
+    detour = {"A6", "A7", "B6", "B7"} & set(last_route.split())
+    assert detour, f"新路线没有经备用走廊格穿越：{last_route}"
+    d_obs = _min_dist_to(world, blocked_cell)
+    assert d_obs > 0.17, f"轨迹距被堵走廊格 {blocked_cell} 心 {d_obs:.3f}m —— 疑似穿越"
+    assert arrived, (
+        f"180s 内未到 N6：真=({world.chassis.x:.2f},{world.chassis.y:.2f}) "
+        f"信念=({world.pe.current_x:.2f},{world.pe.current_y:.2f})")
+
+    print(f"\n[交界障碍] {blocked_cell} 被堵，改经 {sorted(detour)} 绕行，"
+          f"到点 t={world.arrived_t:.1f}s，轨迹距其心 {d_obs:.3f}m")
+
+
+def test_mine_center_pass_trajectory(world_factory):
+    """【雷格过心验收】90° 拐点雷补过心穿越点后：真轨迹距雷心 ≤ 6cm。
+
+    排雷判据"任意轮中心进入雷标 12cm 圆"（半径 6cm）。executor 的
+    arrival_threshold≈0.157m + PIVOT 停在顶点前 0.40m：>45° 拐点雷的
+    顶点（雷心）不再保证到达——ensure_mine_center_pass 在雷后插入沿
+    进入方向的过心穿越点，雷格变为直线段中间点，纯追踪贴线过心。
+
+    情报组合 (K10, D10)：D10 为天然 90° 拐点雷（西进、北拐，过心穿越
+    点 C10，距起点 3.5m——纯追踪起步瞬态已收敛），K10 为直线途经雷
+    （对照，位置形态与主证明 K8 同构）。45° 拐点不补点（拐角保护自然
+    过弯）；K 列补点被桥列规则拒绝（车端 BRIDGE_BLOCKS 强制直行保护，
+    SIL 实测在 K7 转向会被直行接管后失控出图——发现即修）。
+    """
+    world = world_factory(start_cell="N10", true_yaw_deg=90.0,
+                          theta_boot_deg=90.0)
+    ig = _make_integrate(world, heading_bias_source="none")
+    world.attach_integrate(ig, tuple(
+        _obj(c, ObjectType.MINE) for c in ("K10", "D10"))
+        + (_obj("D8", ObjectType.TARGET_BLUE),))
+    world.start_car_stack()
+
+    assert world.run_until(lambda: world.route_pub_t is not None, 10.0)
+    route = _published_routes(ig)[1]
+    # 过心穿越点 C10 已插入：D10 不再是拐点（E10→D10→C10 向西共线）
+    assert "D10 C10 D9*" in route, f"90° 拐点雷 D10 没有过心穿越点：{route}"
+    assert " K7 " not in f" {route} ", f"K 列出现补点/穿越（桥列保护）：{route}"
+
+    arrived = world.run_until(lambda: world.pe.arrived, 120.0)
+    assert arrived, (
+        f"120s 内未到终点：真=({world.chassis.x:.2f},{world.chassis.y:.2f}) "
+        f"信念=({world.pe.current_x:.2f},{world.pe.current_y:.2f}) "
+        f"越界急停={'是' if world.oof_stop else '否'}")
+
+    for mine in ("D10", "K10"):
+        d = _min_dist_to(world, mine)
+        assert d <= 0.06, (
+            f"雷 {mine} 轨迹最近距离 {d*100:.1f}cm > 6cm —— 轮心可能未进判分圆")
+        print(f"\n[雷格过心] {mine} 轨迹最近距离 {d*100:.1f}cm（≤6cm 达标）")

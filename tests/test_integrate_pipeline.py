@@ -69,6 +69,40 @@ def test_build_mission_cross_gates_from_names():
     assert "F6" in tokens
 
 
+def test_build_mission_turn_balance_plumbed_through():
+    """步数-姿态平衡参数透传：build_mission 的 turn_45/allow_diagonal
+    必须一路传到 plan_route_zoned/plan_route（配置层 match_params.yaml ->
+    integrate_node -> build_mission -> 路由层整链生效）。"""
+    s = snapshot(())
+
+    def _moves(route_tokens):
+        cells = [t.rstrip("*").rstrip(",x").rstrip(",y") for t in route_tokens]
+        cells = [t for t in cells if t and t[0] in "ABCDEFGHIJKLMN"]
+        return [
+            (ord(b[0]) - ord(a[0]), int(b[1:]) - int(a[1:]))
+            for a, b in zip(cells, cells[1:])
+        ]
+
+    # 默认（allow_diagonal=True）：E2->G4 两步对角直达
+    cmds = build_mission(s, "E2", "G4", "x", None)
+    moves = _moves(cmds.route.split())
+    assert sum(1 for dc, dr in moves if dc and dr) == 2
+
+    # allow_diagonal=False 透传关闭对角：退化为 4 步纯正交
+    cmds_orth = build_mission(s, "E2", "G4", "x", None, allow_diagonal=False)
+    moves_orth = _moves(cmds_orth.route.split())
+    assert len(moves_orth) == 4
+    assert all((dc == 0) != (dr == 0) for dc, dr in moves_orth)
+
+    # turn_45=0 透传生效：纯最短距 = 两步对角、中途零转向（形态键 (0, 2)；
+    # _route_shape 不计首步起步转向——各候选口径一致，比较公平性不变）
+    from ag_integrate.mission_router import _route_shape
+    cmds_t0 = build_mission(s, "E2", "G4", "x", None, turn_45=0.0)
+    cells = [t.rstrip("*").rstrip(",x").rstrip(",y") for t in cmds_t0.route.split()]
+    cells = [t for t in cells if t and t[0] in "ABCDEFGHIJKLMN"]
+    assert _route_shape(tuple(cells)) == (0, 2)
+
+
 def test_inject_track_only_hits_targets_on_track():
     """移动靶轨道先验只注入落在轨道上的靶：固定红靶不触发全局禁火，
     轨道上的蓝靶按轨道几何停靠（D9/E9 蓝面侧正对端点）。"""

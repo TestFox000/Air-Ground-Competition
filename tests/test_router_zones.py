@@ -112,12 +112,20 @@ def test_zoned_order_respected():
         assert n in r          # 分区执行不漏一个必经点
 
 
-def test_zoned_missing_zone_raises():
-    """zone_order 漏覆盖含必经点的区：必须报错而不是静默跳过。"""
+def test_zoned_missing_zone_auto_appends():
+    """zone_order 漏覆盖含必经点的区：自动追加到末尾并告警（不抛异常）。
+
+    部分场域下无人机只侦察到 1/3 区域，配置的 zone_order 可能不全；
+    自动追加保证不漏必经点，告警提示配置问题。
+    """
     from ag_integrate.mission_router import plan_route_zoned
+    import warnings
     s = snap(mines=[c("N9")])           # N9 在东北区
-    with pytest.raises(ValueError, match="漏覆盖"):
-        plan_route_zoned(s, c("A1"), c("A2"), ("东南",))
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        r = plan_route_zoned(s, c("A1"), c("A2"), ("东南",))
+    assert any("自动追加" in str(x.message) for x in w)
+    assert "N9" in r                    # 漏覆盖区的必经点仍被执行
 
 
 def test_zoned_none_is_global():
@@ -164,3 +172,77 @@ def test_shoot_stop_face_in_full_route():
     route = plan_route(s, c("H5"), c("N1"))
     i = route.index("G5")
     assert route[i - 1] == "H5"     # 前驱 H5，朝西正对（到达朝向=开火朝向）
+
+
+# ---------------- 对角线与步数-姿态平衡（2026-10-17） ----------------
+
+
+def _moves(route):
+    """相邻格位移列表 [(dc, dr), ...]。"""
+    return [
+        (ord(b[0]) - ord(a[0]), int(b[1:]) - int(a[1:]))
+        for a, b in zip(route, route[1:])
+    ]
+
+
+def test_long_offset_uses_max_diagonals():
+    """长斜距走对角线：D2→N6（dx=+10, dy=+4）几何最优 = 4 对角 + 6 正交。
+
+    对角步 √2 < 两正交步 2.0，任何距离最优路线对角步数已达几何上限；
+    总步数同时取最小值 10（纯正交要 14 步）。
+    """
+    s = snap()
+    route = plan_route(s, c("D2"), c("N6"))
+    moves = _moves(route)
+    diag = sum(1 for dc, dr in moves if dc and dr)
+    assert diag == 4                       # 对角步数取到几何上限
+    assert len(moves) == 10                # 步数最少（14-4 换对角）
+
+
+def test_small_offset_prefers_diagonal():
+    """1 格斜偏移（E2→F3，车头朝东起步）：一步对角直达。
+
+    对角 = 1.41 + 45° 转向 0.75 = 2.16；正交绕行 = 2.0 + 90° 转向 1.5 = 3.5。
+    即使 turn_45 拉满（姿态极端优先），45°+45°=90° 转向当量不劣于正交
+    90° 且距离更短——对角线永远胜出。
+    """
+    s = snap()
+    route = plan_route(s, c("E2"), c("F3"), start_heading="x")
+    assert route == ("E2", "F3")
+    # turn_45 极端放大（姿态权重拉满）也不改对角选择
+    route_hot = plan_route(s, c("E2"), c("F3"), start_heading="x", turn_45=50.0)
+    assert route_hot == ("E2", "F3")
+
+
+def test_turn45_zero_picks_straightest_among_ties():
+    """turn_45=0（纯最短路）时同代价形态全平局：必须取转向最少的最平直形态。
+
+    D2→N6 无转向计费时，任何"4 对角 + 6 正交"的排列代价相同（含锯齿形态）；
+    平局裁决要求总转向 = 1 个 45° 单位（先直线后斜线，不锯齿）。
+    """
+    from ag_integrate.mission_router import _route_shape
+    s = snap()
+    route = plan_route(s, c("D2"), c("N6"), turn_45=0.0)
+    turns, steps = _route_shape(route)
+    assert steps == 10                      # 步数最少
+    assert turns == 1                       # 转向最少：一段直线 + 一段斜线
+
+
+def test_allow_diagonal_false_forces_orthogonal():
+    """allow_diagonal=False：退化为纯正交路线（对角追踪不稳时的安全开关）。"""
+    s = snap()
+    route = plan_route(s, c("E2"), c("G4"), allow_diagonal=False)
+    moves = _moves(route)
+    assert all((dc and not dr) or (dr and not dc) for dc, dr in moves)
+    assert len(moves) == 4                  # 纯正交步数 = |dx|+|dy|
+
+
+def test_route_shape_counts_turns_and_steps():
+    """_route_shape 单元锚定：直线 0 转向；L 形 90° = 2 单位；对角锯齿最劣。"""
+    from ag_integrate.mission_router import _route_shape
+    straight = ("A1", "B1", "C1", "D1")
+    l_shape = ("A1", "B1", "B2", "B3")
+    zigzag = ("A1", "B2", "C1", "D2")       # NE→SE→NE：每次 90° 当量 = 2 单位
+    assert _route_shape(straight) == (0, 3)
+    assert _route_shape(l_shape) == (2, 3)
+    assert _route_shape(zigzag) == (4, 3)   # 锯齿 4 单位 > L 形 2 单位：平局裁决弃锯齿
