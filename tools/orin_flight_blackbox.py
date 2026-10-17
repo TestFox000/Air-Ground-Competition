@@ -48,8 +48,13 @@ try:
     import rclpy
     from rclpy.node import Node
     from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
-except ImportError:  # pragma: no cover - Orin 上没 ROS 时给出明确指引
-    raise SystemExit("缺少 rclpy：本脚本必须在 Orin 的 ROS2 环境里运行（source /opt/ros/*/setup.bash）")
+except ImportError:  # 无 ROS 的环境（地面笔记本）也要能 --help / 被单测加载
+    rclpy = None
+
+    class Node:  # type: ignore[no-redef]  占位基类：main() 会在初始化前响亮拦下
+        def __init__(self, *_a, **_kw):
+            raise SystemExit(
+                "缺少 rclpy：本脚本必须在 Orin 的 ROS2 环境里运行（source /opt/ros/*/setup.bash）")
 
 NODE_NAME = "flight_bb"
 
@@ -86,6 +91,33 @@ def _b(v):
         return None
 
 
+def parse_udp_mirror(text: str) -> tuple[str, int]:
+    """解析 --udp-mirror 的 IP:PORT。缺冒号/端口非数字要响亮报错——
+    旧写法 rpartition(':') 缺冒号时 int('') 抛 ValueError 裸栈，现场看不懂。"""
+    host, sep, port = text.rpartition(":")
+    if not sep or not host or not port.isdigit():
+        raise SystemExit(f"--udp-mirror 需要 IP:PORT 形式（如 192.168.50.100:7447），"
+                         f"收到: {text!r}")
+    return host, int(port)
+
+
+def reclaim_disk(log_root: Path, min_free_mb: float, keep_session: str) -> list[str]:
+    """磁盘水位防护：剩余空间低于 min_free_mb 时，从最老会话目录开始删
+    （当前会话除外），返回删掉的会话名。会话名是时间戳，名字序即新旧序。"""
+    import shutil
+    removed: list[str] = []
+    if min_free_mb <= 0 or not log_root.is_dir():
+        return removed
+    while shutil.disk_usage(log_root).free < min_free_mb * 1024 * 1024:
+        victims = sorted(p for p in log_root.iterdir()
+                         if p.is_dir() and p.name != keep_session)
+        if not victims:
+            break
+        shutil.rmtree(victims[0], ignore_errors=True)
+        removed.append(victims[0].name)
+    return removed
+
+
 def quat_to_euler(q0, q1, q2, q3):
     """四元数(w,x,y,z) → (roll, pitch, yaw)，弧度。与 PX4 机体约定一致。"""
     try:
@@ -108,17 +140,23 @@ class FlightBlackbox(Node):
         self.start_mono = time.monotonic()
 
         # ---- 落盘文件 ----
-        log_dir = Path(args.log_dir).expanduser() / args.session
+        log_root = Path(args.log_dir).expanduser()
+        # 磁盘水位检查：机上存储有限，低于阈值时从最老会话日志开始腾位
+        # （当前会话永不删），删了哪些留痕到 bb.disk_reclaim
+        removed = reclaim_disk(log_root, args.min_free_mb, args.session)
+        log_dir = log_root / args.session
         log_dir.mkdir(parents=True, exist_ok=True)
         self.log_file = log_dir / f"flight-{os.getpid()}.jsonl"
         self.fh = open(self.log_file, "a", encoding="utf-8", buffering=1)
         self.last_fsync = time.monotonic()
+        if removed:
+            self.get_logger().warn(f"磁盘水位不足，已删最老会话日志: {removed}")
+            self._emit("bb.disk_reclaim", lvl="warn", removed=removed)
 
         # ---- UDP 镜像 ----
         self.mirror = None
         if args.udp_mirror:
-            host, _, port = args.udp_mirror.rpartition(":")
-            self.mirror = (host, int(port))
+            self.mirror = parse_udp_mirror(args.udp_mirror)
             self.mirror_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.mirror_sock.setblocking(False)
 
@@ -163,9 +201,10 @@ class FlightBlackbox(Node):
         r = self.args
         px4_msgs = nav_msgs = std_msgs = px4_control = None
 
+        # 消息类在 .msg 子模块（2026-10-16 实机踩坑：顶层 import 成功但 getattr 全失败）
         try:
-            import px4_msgs.msg as px4_msgs  # 消息类在 .msg 子模块（2026-10-16 实机踩坑：
-        except ImportError:                 # 顶层 import 成功但 getattr 全失败）
+            import px4_msgs.msg as px4_msgs
+        except ImportError:
             self.get_logger().warn("缺 px4_msgs：飞控话题全部跳过（source 工作空间了吗？）")
         try:
             import nav_msgs.msg as nav_msgs
@@ -401,9 +440,17 @@ def main() -> int:
     ap.add_argument("--rate-slam", type=float, default=5.0, help="SLAM 里程计频率 Hz（默认 5）")
     ap.add_argument("--rate-target", type=float, default=5.0, help="控制目标频率 Hz（默认 5）")
     ap.add_argument("--rate-batt", type=float, default=0.2, help="电池记录频率 Hz（默认 0.2）")
+    ap.add_argument("--min-free-mb", type=float, default=500.0,
+                    help="磁盘剩余低于此值时删最老会话日志腾位（默认 500MB，0=关闭）")
     ap.add_argument("--list-topics", action="store_true",
                     help="只打印订阅注册情况后退出（部署自检用）")
     args = ap.parse_args()
+
+    if rclpy is None:
+        raise SystemExit(
+            "缺少 rclpy：本脚本必须在 Orin 的 ROS2 环境里运行（source /opt/ros/*/setup.bash）")
+    if args.udp_mirror:
+        parse_udp_mirror(args.udp_mirror)   # 提前响亮报错，别等节点起来才炸
 
     rclpy.init()
     node = FlightBlackbox(args)

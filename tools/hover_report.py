@@ -8,8 +8,8 @@ SLAM/EKF 一致性这些数字才能回答"定位到底准不准、要不要动 
     python tools/hover_report.py <hover_ekf.csv>                    # 基础报告
     python tools/hover_report.py <ekf.csv> --slam <slam.csv>        # 加 SLAM 一致性
     python tools/hover_report.py <ekf.csv> --window 30              # 指定分析最近 30s
-判据（与试飞方案对齐）:
-    10s 位移<0.3m  漂移<3cm/s  突跳=0  z波动σ<5cm  一致性<5cm -> PASS
+判据（与试飞方案对齐；分析窗默认全窗，--window N 时只取最近 N 秒）:
+    窗内位移<0.3m  漂移<3cm/s  突跳=0  z波动σ<5cm  一致性<5cm -> PASS
 """
 from __future__ import annotations
 
@@ -43,9 +43,10 @@ def read_topic_csv(path: Path) -> list[dict]:
 
 
 def _col(row: dict, key_sub: str):
-    """按列名后缀取值（ros2 --csv 的列名形如 'VehicleLocalPosition.x'）。"""
+    """按列名精确取值：列名就是 key（裸列），或 ros2 --csv 的 'Type.字段' 形式
+    末段恰好等于 key。旧写法 endswith('.'+key) 会漏掉无前缀的裸列名 'x'。"""
     for k, v in row.items():
-        if k.endswith("." + key_sub):
+        if k == key_sub or k.rsplit(".", 1)[-1] == key_sub:
             return v
     return None
 
@@ -130,6 +131,8 @@ def main() -> int:
     args = ap.parse_args()
 
     pts = samples(read_topic_csv(Path(args.ekf_csv)), need_valid=True)
+    if not pts:
+        raise SystemExit("有效样本为 0——检查 CSV 是否录上（或 xy_valid 全为 false）")
     if args.window:
         t_end = pts[-1][0]
         pts = [p for p in pts if p[0] >= t_end - args.window]

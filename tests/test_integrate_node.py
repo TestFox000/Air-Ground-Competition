@@ -214,6 +214,80 @@ def test_replan_guard_route_obstacle_replans():
         node.destroy_node()
 
 
+def test_replan_guard_is_pure_query():
+    """（M1 回归）守卫纯查询：同一变化快照重复查询结果一致——
+    旧实现放行时原地消费基线，第二次查询即返回 False。"""
+    node = make_node(replan_on_update=True)
+    try:
+        snap0 = snapshot_of(mine_at("D2"), blue_target_at("F5"))
+        node._submit(snap0)
+        node.tick()
+        assert len(node.topic("/nav/waypoint").published) == 2
+
+        snap1 = snapshot_of(mine_at("D2"), mine_at("E2"), blue_target_at("F5"))
+        assert node._route_needs_replan(snap1) is True
+        assert node._route_needs_replan(snap1) is True   # 不消费：结果可复现
+    finally:
+        node.destroy_node()
+
+
+def test_replan_guard_not_consumed_when_build_fails():
+    """（M1 回归场景）守卫放行后 build_mission 失败：下拍同签名必须再次
+    放行重试——旧实现基线已被消费，节点永久滞留（不再规划、态势恢复
+    也不重发）。基线只在"发布成功/新旧路线相同"时更新。"""
+    node = make_node(replan_on_update=True, goal_cell="M11")
+    try:
+        node._submit(snapshot_of(mine_at("D2"), blue_target_at("F5")))
+        node.tick()
+        assert len(node.topic("/nav/waypoint").published) == 2
+
+        # 新雷 E2（签名变化 → 守卫放行），但终点 M11 入口全堵 → 规划失败
+        bad = snapshot_of(mine_at("D2"), mine_at("E2"), blue_target_at("F5"),
+                          obstacle_at("L11"), obstacle_at("N11"), obstacle_at("M10"))
+        node._submit(bad)
+        node.tick()
+        fails = [m for lvl, m in node.logger.records if "规划失败" in m]
+        assert len(fails) == 1
+
+        # 同一态势再拍：必须再次尝试（再记一次规划失败），而非静默滞留
+        node._submit(bad)
+        node.tick()
+        fails = [m for lvl, m in node.logger.records if "规划失败" in m]
+        assert len(fails) == 2, "守卫基线被失败消费，节点滞留不再重试"
+
+        # 障碍消失：恢复发车，发布含 E2 的新路线
+        node._submit(snapshot_of(mine_at("D2"), mine_at("E2"), blue_target_at("F5")))
+        node.tick()
+        published = [m.data for m in node.topic("/nav/waypoint").published]
+        assert len(published) == 3 and "E2" in published[2]
+    finally:
+        node.destroy_node()
+
+
+def test_replan_guard_interpolates_compressed_route():
+    """（M2 回归）压缩路线的 ±1 守卫盲区：障碍落在航段中间格（不在路线
+    文本里）也必须触发重规划——邻域构建前先把每条航段按格线插值展开。"""
+    node = make_node(replan_on_update=True)
+    try:
+        snap0 = snapshot_of(mine_at("D2"), blue_target_at("F5"))
+        node._submit(snap0)
+        node.tick()
+        assert len(node.topic("/nav/waypoint").published) == 2
+
+        # 伪造压缩路线：N10→J6 对角航段的中间格 M9/L8/K7 不在文本里
+        node.last_route = "N10 J6,x"
+        node._replan_sig = node._snap_signature(snap0)
+        # L8 距文本格 N10/J6 均为 2 格（±1 膨胀够不着），但在物理轨迹上
+        snap1 = snapshot_of(mine_at("D2"), blue_target_at("F5"), obstacle_at("L8"))
+        assert node._route_needs_replan(snap1) is True, \
+            "航段中间格新障碍未触发重规划（压缩盲区）"
+        # 对照：远处障碍仍不触发
+        snap2 = snapshot_of(mine_at("D2"), blue_target_at("F5"), obstacle_at("A11"))
+        assert node._route_needs_replan(snap2) is False
+    finally:
+        node.destroy_node()
+
+
 def test_car_pose_udp_frame_sets_true_yaw():
     """msg_id=0x4002 车位姿帧：接收并存储车的真实朝向。"""
     node = make_node(heading_bias_source="udp")

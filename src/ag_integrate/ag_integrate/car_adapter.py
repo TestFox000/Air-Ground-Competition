@@ -32,15 +32,6 @@ def _target_key(t: TargetRef) -> tuple:
     return ("fixed", t.cell.name)
 
 
-def _target_key(t: TargetRef) -> tuple:
-    """靶身份键：移动靶以轨道为身份（全场仅一个，靶在轨上换格不换身份）；
-    固定靶以落点格为身份。served 去重必须按身份，按格名会让移动靶
-    换格后被重复记/漏记。"""
-    if t.track is not None:
-        return ("track", t.track)
-    return ("fixed", t.cell.name)
-
-
 def adapt(
     snapshot: WorldSnapshot,
     ordered_cells: tuple[str, ...],

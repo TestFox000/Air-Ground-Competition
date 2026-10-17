@@ -116,6 +116,10 @@ class WorldModel:
 
         # 障碍多帧确认（对称滞回）：连续 N 帧检出进入态势、连续 N 帧消失移出。
         # N=1 精确退化为旧行为（本帧检出即在态势）。
+        # "连续"必须名实相符（M3）：检出计数遇漏检即断（重新从 1 计），
+        # 否则 N=2 时"检出→漏检→检出"也会确认（累计≠连续）；
+        # 已确认身份的格不受检出侧重置影响——移出只看连续漏检计数，
+        # 避免"漏 1 帧 + 检出 1 帧"把真障碍闪出态势。
         n = self.obstacle_confirm_frames
         if n <= 1:
             confirmed_obs = list(obstacles.values())
@@ -123,7 +127,14 @@ class WorldModel:
             confirmed_obs: list[CellRef] = []
             for name, cell in obstacles.items():
                 st = self._ob_state.get(name)
-                seen = (st[1] + 1) if st else 1
+                if st is None:
+                    seen = 1                      # 全新检出
+                elif st[2] == 0:
+                    seen = st[1] + 1              # 连续检出：累计 +1
+                elif st[1] >= n:
+                    seen = st[1]                  # 已确认：保持确认身份（检出只清零漏检）
+                else:
+                    seen = 1                      # 未确认：漏检断连续，重新计数
                 self._ob_state[name] = (cell, seen, 0)
                 if seen >= n:
                     confirmed_obs.append(cell)

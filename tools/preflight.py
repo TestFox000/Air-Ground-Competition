@@ -197,7 +197,9 @@ def check_orin(args) -> None:
     report(PASSED if "/dev/video" in out else FAILED,
            f"相机设备: {' '.join(out.split()) or '无（检查 USB/CSI 连接）'}")
 
-    rc, out = run("ls ~/ag_test/dzuav/build/dzuav 2>/dev/null")
+    # 部署口径已统一为 orin_deploy.py 的仓库形状布局 ~/dzuav_deploy/air_ground/
+    # （旧路径 ~/ag_test/dzuav/build/dzuav 随人肉 scp 时代作废，不再查）
+    rc, out = run("ls ~/dzuav_deploy/air_ground/onboard/dzuav/build/dzuav 2>/dev/null")
     report(PASSED if "dzuav" in out else FAILED, "dzuav 二进制在位" if out else "dzuav 未编译",
            "tools/orin_build_verify.sh")
 

@@ -10,7 +10,7 @@
     set AG_ORIN_PASS=******
     python tools/patch_deploy.py --host 10.171.116.104 --user duzhong
     python tools/patch_deploy.py --host ... --no-restart   # 只推+编译，不动运行中节点
-    python tools/patch_deploy.py --host ... --rollback     # 恢复机上 .bak 原版
+    python tools/patch_deploy.py --host ... --rollback     # 按回滚索引恢复原版备份（指纹校验后重编）
 
 流程：备份机上现版(.bak_patch_<时刻>) -> 推送增强版 -> 强制 colcon 重编
       -> 重启 px4_odom_convert 节点 -> 验证（韧性层横幅 + 进程 + delta 流）。
@@ -33,7 +33,54 @@ PATCH = REPO / "onboard" / "dzpx4_patch"
 
 REMOTE_CPP = "~/dzpx4/src/px4_odom_convert/src/px4_odom_convert.cpp"
 REMOTE_HPP = "~/dzpx4/src/px4_odom_convert/include/px4_odom_convert.hpp"
+# 回滚索引：部署时写入"备份路径+指纹"，回滚只按索引取件（绝不再用 ls -t 猜）
+REMOTE_INDEX = "~/dzpx4/src/px4_odom_convert/.patch_deploy_index"
 BUILD_LOG = "/tmp/patch_build.log"
+
+
+def backup_cmd(stamp: str) -> str:
+    """备份机上现版 + 写回滚索引（备份路径与 md5 指纹落档）。
+
+    索引的意义：*.bak_* 里会混进手工备份（.bak_local_*），且二次部署的备份
+    本身就是补丁版——回滚若靠 ls -t 挑"最新"，既可能拿错别人的备份，也可能
+    把补丁版当原版"回滚"回去。指纹用于回滚前校验备份没被改动过。"""
+    return (
+        f"cp {REMOTE_CPP} {REMOTE_CPP}.bak_patch_{stamp} && "
+        f"cp {REMOTE_HPP} {REMOTE_HPP}.bak_patch_{stamp} && "
+        f"C={REMOTE_CPP}.bak_patch_{stamp} && H={REMOTE_HPP}.bak_patch_{stamp} && "
+        "{ "
+        'echo "CPP_BAK=$C"; echo "HPP_BAK=$H"; '
+        'echo "CPP_MD5=$(md5sum "$C" | cut -d\' \' -f1)"; '
+        'echo "HPP_MD5=$(md5sum "$H" | cut -d\' \' -f1)"; '
+        f"}} > {REMOTE_INDEX} && echo BACKUP_OK")
+
+
+def rollback_cmd() -> str:
+    """按索引回滚：全程 && 串联（任一环节失败链条即断，ROLLBACK_DONE 不再假阳性）。
+
+    校验顺序：索引在 -> 索引指向的备份文件在 -> 备份 md5 与索引指纹一致 ->
+    才 cp 回原位并重编。任一不满足打印 ROLLBACK_REFUSED + 现场证据后退出，
+    绝不盲滚（对端确定性拒绝，step() 的 refuse 分支会立即中止不重试）。"""
+    return (
+        f"IDX={REMOTE_INDEX}; "
+        # 索引缺失 = 不是本工具部署的（或部署不完整）：拒绝盲选，亮现场证据
+        '[ -f "$IDX" ] || { echo "ROLLBACK_REFUSED: 无回滚索引 $IDX"; '
+        "ls -la ~/dzpx4/src/px4_odom_convert/src/ ~/dzpx4/src/px4_odom_convert/include/ 2>&1; "
+        "exit 1; }; "
+        '. "$IDX" && '
+        # 只认索引记录的 .bak_patch_* 备份；显式校验非空且存在
+        '[ -n "$CPP_BAK" ] && [ -f "$CPP_BAK" ] && [ -n "$HPP_BAK" ] && [ -f "$HPP_BAK" ] '
+        '|| { echo "ROLLBACK_REFUSED: 索引指向的备份缺失"; cat "$IDX"; exit 1; }; '
+        # 指纹校验：备份必须还是部署时那一份（被覆盖/污染过的备份不能当原版）
+        '[ "$(md5sum "$CPP_BAK" | cut -d\' \' -f1)" = "$CPP_MD5" ] && '
+        '[ "$(md5sum "$HPP_BAK" | cut -d\' \' -f1)" = "$HPP_MD5" ] '
+        '|| { echo "ROLLBACK_REFUSED: 备份指纹与索引不符"; cat "$IDX"; '
+        'md5sum "$CPP_BAK" "$HPP_BAK"; exit 1; }; '
+        'echo "ROLLBACK_FROM=$CPP_BAK" && '
+        f'cp "$CPP_BAK" {REMOTE_CPP} && cp "$HPP_BAK" {REMOTE_HPP} && '
+        "cd ~/dzpx4 && source /opt/ros/humble/setup.bash && "
+        f"colcon build --packages-select px4_odom_convert > {BUILD_LOG} 2>&1 && "
+        f"tail -1 {BUILD_LOG} && echo ROLLBACK_DONE")
 
 
 def read_password(args) -> str:
@@ -46,15 +93,25 @@ def read_password(args) -> str:
     return getpass.getpass(f"{args.user}@{args.host} 的密码: ")
 
 
-def step(host, user, pw, port, desc, cmd, timeout=60, expect=None):
-    """一步远程操作，断链自动重试；expect 不中则重试整步。"""
+def step(host, user, pw, port, desc, cmd, timeout=60, expect=None, refuse=None):
+    """一步远程操作，断链自动重试；expect 不中则重试整步。
+
+    refuse 命中 = 对端**确定性拒绝**（如回滚校验不过），重试不会有不同结果：
+    原样打印对端输出（现场证据）后立即失败退出。"""
     for attempt in range(1, 6):
         try:
             code, out, err = remote_run.run(host, user, pw, cmd, timeout=timeout, port=port)
+            if refuse and refuse in out:
+                print(out.strip())
+                raise SystemExit(f"[失败] {desc}：远端明确拒绝（{refuse}），按上面证据处理")
             if expect is None or expect in out:
                 print(f"[OK] {desc}" + (f"（{attempt} 次尝试）" if attempt > 1 else ""))
                 return out
-            print(f"[..] {desc}: 未见到期望标志，重试（{attempt}/5）")
+            tail = (out + err).strip()
+            print(f"[..] {desc}: 未见到期望标志，重试（{attempt}/5）"
+                  + (f"\n     输出尾部: {tail[-200:]}" if tail else ""))
+        except SystemExit:
+            raise
         except Exception as e:  # noqa: BLE001 - 断链是常态，重试是本工具存在的意义
             print(f"[..] {desc}: {type(e).__name__}（{attempt}/5）")
         time.sleep(6)
@@ -70,29 +127,21 @@ def main(argv=None) -> int:
     ap.add_argument("--port", type=int, default=22)
     ap.add_argument("--no-restart", action="store_true", help="只部署编译，不重启运行中节点")
     ap.add_argument("--rollback", action="store_true",
-                    help="回滚到机上 .bak 原版（找最近的备份）并重启")
+                    help="回滚到部署时索引记录的原版备份（校验指纹后重编并重启）")
     args = ap.parse_args(argv)
     pw = read_password(args)
     host, user, port = args.host, args.user, args.port
 
     if args.rollback:
-        step(host, user, pw, port, "查找最近备份并回滚",
-             "C=$(ls -t ~/dzpx4/src/px4_odom_convert/src/*.bak_* 2>/dev/null | head -1); "
-             "H=$(ls -t ~/dzpx4/src/px4_odom_convert/include/*.bak_* 2>/dev/null | head -1); "
-             "echo ROLLBACK_FROM=$C; "
-             "cp $C ~/dzpx4/src/px4_odom_convert/src/px4_odom_convert.cpp && "
-             "cp $H ~/dzpx4/src/px4_odom_convert/include/px4_odom_convert.hpp && "
-             "cd ~/dzpx4 && source /opt/ros/humble/setup.bash && "
-             "colcon build --packages-select px4_odom_convert 2>&1 | tail -1; "
-             "echo ROLLBACK_DONE", timeout=300, expect="ROLLBACK_DONE")
+        step(host, user, pw, port, "按回滚索引校验并回滚",
+             rollback_cmd(), timeout=300, expect="ROLLBACK_DONE",
+             refuse="ROLLBACK_REFUSED")
         return 0
 
-    # 1. 备份机上现版
+    # 1. 备份机上现版 + 写回滚索引（备份指纹落档，回滚只按索引取件）
     stamp = time.strftime("%Y%m%d_%H%M%S")
-    step(host, user, pw, port, f"备份机上现版（.bak_patch_{stamp}）",
-        f"cp {REMOTE_CPP} {REMOTE_CPP}.bak_patch_{stamp} && "
-        f"cp {REMOTE_HPP} {REMOTE_HPP}.bak_patch_{stamp} && echo BACKUP_OK",
-        expect="BACKUP_OK")
+    step(host, user, pw, port, f"备份机上现版（.bak_patch_{stamp}）并写回滚索引",
+         backup_cmd(stamp), expect="BACKUP_OK")
 
     # 2. 推送增强版
     for name, remote in [("px4_odom_convert.cpp", REMOTE_CPP),
@@ -123,7 +172,6 @@ def main(argv=None) -> int:
             _, out, _ = remote_run.run(host, user, pw, f"tail -2 {BUILD_LOG}",
                                         timeout=45, port=port)
             if "rc=" in out:
-                rc = out.strip().splitlines()[-2] if "Summary" not in out else "done"
                 print(f"[OK] 编译完成（{i + 1} 轮等待）\n{out.strip()[-200:]}")
                 if "rc=0" not in out:
                     raise SystemExit("[失败] 编译报错，见机上 " + BUILD_LOG)
@@ -139,7 +187,10 @@ def main(argv=None) -> int:
     if not args.no_restart:
         step(host, user, pw, port, "重启 px4_odom_convert（setsid）",
             "pkill -f 'ros2 launch px4_odom_convert' 2>/dev/null; "
-            "pkill -f px4_odom_convert 2>/dev/null; sleep 1; "
+            # 只杀装好的二进制本体：裸 pkill -f px4_odom_convert 会误杀
+            # colcon/编辑器等同名串进程（包名匹配太宽）
+            'pkill -f "$HOME/dzpx4/install/px4_odom_convert/lib/px4_odom_convert/px4_odom_convert" '
+            "2>/dev/null; sleep 1; "
             "L=~/drone_logs/node_odom_$(date +%H%M%S).log; "
             "nohup setsid bash -lc 'source /opt/ros/humble/setup.bash; "
             "source ~/dzpx4/install/setup.bash; "
@@ -151,7 +202,7 @@ def main(argv=None) -> int:
                    "pgrep -f px4_odom_convert >/dev/null && echo PROC_OK; "
                    "grep -h 'Resilience layer\\|jump guard' ~/drone_logs/node_odom_*.log 2>/dev/null | tail -1; "
                    "grep -c 'position delta' ~/drone_logs/node_odom_*.log 2>/dev/null | tail -1",
-                   timeout=60)
+                   timeout=60, expect="PROC_OK")
         print(out)
 
     print(

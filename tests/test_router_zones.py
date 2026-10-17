@@ -90,6 +90,10 @@ def test_zone_helper_west_corridor():
 
 # ---------------- 分区排序编排（plan_route_zoned） ----------------
 
+# 全路径合法性公共断言（逐对格展开检查：不踩障碍/靶体/桥墙、挡板不穿、
+# 隧道只东西向进出）——与 test_zoned_planning 同一套口径。
+from test_zoned_planning import _assert_zoned_route_legal
+
 
 def _referee_like():
     """2026-10-15 裁判随机图同款（要素已在渲染复盘中核过）。"""
@@ -110,6 +114,7 @@ def test_zoned_order_respected():
     assert r.index("K8") < r.index("B10") < r.index("E1")
     for n in ["B6", "B10", "D8", "E1", "F5", "H3", "I6", "I8", "K2", "K8"]:
         assert n in r          # 分区执行不漏一个必经点
+    _assert_zoned_route_legal(r, s)
 
 
 def test_zoned_missing_zone_auto_appends():
@@ -126,6 +131,7 @@ def test_zoned_missing_zone_auto_appends():
         r = plan_route_zoned(s, c("A1"), c("A2"), ("东南",))
     assert any("自动追加" in str(x.message) for x in w)
     assert "N9" in r                    # 漏覆盖区的必经点仍被执行
+    _assert_zoned_route_legal(r, s)
 
 
 def test_zoned_none_is_global():
@@ -135,6 +141,18 @@ def test_zoned_none_is_global():
     a = plan_route_zoned(s, c("N10"), c("N5"), None, start_heading="y", final_heading="y")
     b = plan_route(s, c("N10"), c("N5"), start_heading="y", final_heading="y")
     assert a == b
+    _assert_zoned_route_legal(a, s)
+
+
+def test_zoned_tunnel_dirs_validated_like_plan_route():
+    """分区路径的 tunnel_dirs 解析与 plan_route 同款校验：非法方向/越界
+    格号抛 ValueError（此前分区层静默吞掉非法方向，与全局口径分裂）。"""
+    from ag_integrate.mission_router import plan_route_zoned
+    s = snap(mines=[c("N9")])
+    with pytest.raises(ValueError, match="tunnel_dirs"):
+        plan_route_zoned(s, c("A1"), c("A2"), ("东北",), tunnel_dirs={"K2": "X"})
+    with pytest.raises(ValueError, match="tunnel_dirs"):
+        plan_route_zoned(s, c("A1"), c("A2"), ("东北",), tunnel_dirs={"K20": "E"})
 
 
 # ---------------- 朝向零转向打击点 ----------------

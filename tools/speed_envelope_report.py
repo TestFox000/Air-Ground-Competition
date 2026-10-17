@@ -33,9 +33,10 @@ def parse_csv(path: str | Path) -> list[tuple[float, float, float]]:
     """读轨迹 CSV -> [(t, x, y), ...]。
 
     接受两种形态：带表头（自动跳过非数字行）或裸三列。
+    utf-8-sig：Excel 另存的 CSV 带 BOM，不剥掉首列 float() 会炸。
     """
     rows: list[tuple[float, float, float]] = []
-    with open(path, "r", encoding="utf-8", errors="replace") as fp:
+    with open(path, "r", encoding="utf-8-sig", errors="replace") as fp:
         for line in fp:
             parts = [p.strip() for p in line.split(",")]
             if len(parts) < 3:
@@ -85,9 +86,18 @@ def analyze_speed_run(rows: list[tuple[float, float, float]],
     }
 
 
+def _speed_key(label: str):
+    """档位排序键：数字标签按数值排；非数字标签（如默认的 CSV 文件名）
+    退回字符串序排在数值档之后——不给 --speed 时裁决也不许崩。"""
+    try:
+        return (0, float(label), "")
+    except ValueError:
+        return (1, 0.0, label)
+
+
 def envelope_verdict(runs: dict[str, dict]) -> tuple[str, str]:
     """包线裁决：通过档的最大速度；全部失格给出结论。"""
-    speeds = sorted(runs, key=lambda s: float(s))
+    speeds = sorted(runs, key=_speed_key)
     passed = [s for s in speeds if not runs[s]["fail"]]
     if not passed:
         worst = speeds[0] if speeds else "?"
@@ -112,7 +122,8 @@ def main(argv=None) -> int:
                     help="命令直线两端点 x1,y1,x2,y2（车端 odom 系；"
                          "取 reset 锚定格心与目标格心，见方案文档 §1）")
     ap.add_argument("--speed", nargs="*", default=None,
-                    help="与 --csv 对应的档位标签（m/s），如 0.2 0.3 0.4")
+                    help="与 --csv 对应的档位标签（m/s），如 0.2 0.3 0.4；"
+                         "不给则取 CSV 文件名（去扩展名）作标签")
     args = ap.parse_args(argv)
 
     parts = args.line.replace(";", ",").split(",")
@@ -122,7 +133,8 @@ def main(argv=None) -> int:
     p1 = (float(parts[0]), float(parts[1]))
     p2 = (float(parts[2]), float(parts[3]))
 
-    labels = args.speed or [f"档{i+1}" for i in range(len(args.csv))]
+    # 默认标签取 CSV 文件名（去扩展名）：旧默认"档1"会让裁决的 float(标签) 直接崩
+    labels = args.speed or [Path(p).stem for p in args.csv]
     if args.speed and len(args.speed) != len(args.csv):
         print("--speed 数量须与 --csv 一致", file=sys.stderr)
         return 2

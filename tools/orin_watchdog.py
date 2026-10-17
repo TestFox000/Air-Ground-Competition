@@ -208,7 +208,7 @@ class WatchdogNode:
             enable_kill=args.enable_kill,
             land_on_offboard_loss=not args.no_land_on_offboard_loss,
             blind_timeout_s=args.blind_timeout_s,
-            jump_streak_need=2, tilt_kill_deg=args.tilt_kill_deg,
+            jump_streak_need=args.jump_streak_need, tilt_kill_deg=args.tilt_kill_deg,
             tilt_sustain_s=args.tilt_sustain_s, batt_crit=args.batt_crit)
         self.rclpy = rclpy
         self.node = Node(NODE_NAME)
@@ -401,7 +401,10 @@ class WatchdogNode:
                       f"nav={self.st['nav_state']} z={self.st['z']} "
                       f"seen={None if self.last_seen_t is None else round(now - self.last_seen_t, 1)}",
                       flush=True)
-        self._emit("wd.exit", force=True)
+        # 本类 _emit 没有 orin_flight_blackbox 那个 force= 形参（那里 force=立即
+        # fsync；这里传进去只会变成一个同名的记录字段，同名不同义，别留）——
+        # 退出落盘由下面显式 fsync 兜底
+        self._emit("wd.exit")
         try:
             os.fsync(self.fh.fileno())
             self.fh.close()
@@ -420,7 +423,9 @@ def main() -> int:
     ap.add_argument("--blind-timeout-s", type=float, default=1.5,
                     help="遥测断流介入阈值秒（默认 1.5）")
     ap.add_argument("--jump-threshold-m", type=float, default=2.0,
-                    help="位置跳变阈值米（默认 2.0，需连续 2 帧）")
+                    help="位置跳变阈值米（默认 2.0；连续帧数由 --jump-streak-need 控制）")
+    ap.add_argument("--jump-streak-need", type=int, default=2,
+                    help="位置跳变需连续多少帧才介入（默认 2，抗单帧毛刺）")
     ap.add_argument("--tilt-kill-deg", type=float, default=60.0,
                     help="倾覆判定角度（默认 60°）")
     ap.add_argument("--tilt-sustain-s", type=float, default=0.8,

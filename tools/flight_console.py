@@ -139,15 +139,31 @@ class KeyReader(threading.Thread):
                 pass
 
 
-class MirrorListener(threading.Thread):
-    """收黑匣子 UDP 镜像：维护 latest 状态 + 事件率 + 告警/指令流水。"""
+# 黑匣子镜像事件白名单（与 orin_flight_blackbox.py 的 _emit 事件一一对应）：
+# 无鉴权 UDP 链路上的最低防线，白名单外的事件名一律丢弃
+KNOWN_EVENTS = frozenset({
+    "flight.pos", "flight.att", "flight.status", "flight.batt",
+    "slam.odom", "fmu.cmd", "fmu.target", "ctrl.cmd",
+    "goto.state", "bb.hb", "bb.ready", "bb.exit", "bb.disk_reclaim",
+})
 
-    def __init__(self, port: int):
+
+class MirrorListener(threading.Thread):
+    """收黑匣子 UDP 镜像：维护 latest 状态 + 事件率 + 告警/指令流水。
+
+    镜像无鉴权，同网段任何人都能伪造遥测/告警（假数据比没数据更危险），
+    所以收包时校验两点：来源 IP 必须是 --host 的解析值、事件名必须在
+    KNOWN_EVENTS 白名单内；非法包直接丢弃并计数、节流告警到流水区。"""
+
+    def __init__(self, port: int, allowed_ip: str | None = None):
         super().__init__(daemon=True)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind(("0.0.0.0", port))
         self.sock.settimeout(0.5)
+        self.allowed_ip = allowed_ip        # None = 不做来源过滤（--host 解析失败时退化）
+        self.dropped = 0                    # 被丢弃的非法包计数
+        self._last_drop_warn = 0.0
         self.latest: dict[str, dict] = {}
         self.stamps: dict[str, deque] = {}
         self.flow: deque = deque(maxlen=10)          # (时刻, 等级, 文本)
@@ -158,26 +174,45 @@ class MirrorListener(threading.Thread):
     def run(self):
         while not self._stop.is_set():
             try:
-                data, _ = self.sock.recvfrom(65536)
+                data, addr = self.sock.recvfrom(65536)
             except socket.timeout:
                 continue
             except OSError:
                 break
-            now = time.monotonic()
-            self.last_mirror_ts = now
-            for line in data.decode("utf-8", "replace").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                ev = rec.get("ev", "")
-                self.latest[ev] = rec
-                dq = self.stamps.setdefault(ev, deque(maxlen=64))
-                dq.append(now)
-                self._check_alerts(ev, rec)
+            self.handle_packet(data, addr)
+
+    def handle_packet(self, data: bytes, addr) -> None:
+        """单包处理（与收包线程解耦，可单测）：来源/事件名过滤 -> 状态更新。"""
+        if self.allowed_ip and addr[0] != self.allowed_ip:
+            self._drop(f"来源 {addr[0]} != {self.allowed_ip}")
+            return
+        now = time.monotonic()
+        self.last_mirror_ts = now
+        for line in data.decode("utf-8", "replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ev = rec.get("ev", "")
+            if ev not in KNOWN_EVENTS:
+                self._drop(f"未知事件 {ev!r}")
+                continue
+            self.latest[ev] = rec
+            dq = self.stamps.setdefault(ev, deque(maxlen=64))
+            dq.append(now)
+            self._check_alerts(ev, rec)
+
+    def _drop(self, why: str):
+        """非法镜像包：丢 + 计数 + 节流告警（10s 一次，伪造包洪泛也不刷屏）。"""
+        self.dropped += 1
+        now = time.monotonic()
+        if now - self._last_drop_warn >= 10.0:
+            self._last_drop_warn = now
+            self.flow.appendleft((time.strftime("%H:%M:%S"), "warn",
+                                  f"丢弃非法镜像包 ×{self.dropped}（{why}）"))
 
     def _check_alerts(self, ev: str, rec: dict):
         """镜像事件流上的告警检测（翻转/电池/定位失效），限每类 10s 一次。"""
@@ -192,7 +227,7 @@ class MirrorListener(threading.Thread):
         if ev == "flight.status" and rec.get("prev") is not None:
             prev, cur = rec["prev"], rec
             if prev.get("nav") != cur.get("nav"):
-                once(f"nav", "warn" if not cur.get("failsafe") else "error",
+                once("nav", "warn" if not cur.get("failsafe") else "error",
                      f"模式翻转 {prev.get('nav')} -> {cur.get('nav_name')}")
             if prev.get("arming") != cur.get("arming"):
                 once("arming", "info",
@@ -231,7 +266,13 @@ class FlightConsole:
     def __init__(self, args):
         self.args = args
         self.host = args.host
+        try:
+            # 镜像来源校验的基准：--host 的解析 IP（伪造包来源必然不是它）
+            self.host_ip: str | None = socket.gethostbyname(args.host)
+        except OSError:
+            self.host_ip = None           # 解析失败则来源过滤退化关闭（SSH 阶段会另行报错）
         self.cli = None                      # 持久 SSH 连接（发命令延迟低）
+        self.ssh_lock = threading.Lock()     # cli 的惰性连接/断线重置互斥（多 worker 并发）
         self.cmd_log: deque = deque(maxlen=10)   # (时刻, 文本, 等级)
         self.mode = "view"                   # view / move / confirm
         self.pending = None                  # 待确认动作描述
@@ -239,17 +280,28 @@ class FlightConsole:
         self.confirm_need = ""
         self.confirm_buf = ""
         self.status_line = "就绪"
-        self.keys = KeyReader()
-        self.mirror = MirrorListener(args.mirror_port)
+        # KeyReader 延迟到 run_panel() 里创建：__init__ 就 tty.setcbreak 的话，
+        # --stop/--fetch 这类不开面板的路径提前 return，终端会留在 cbreak 无回显
+        self.keys: KeyReader | None = None
+        self.mirror = MirrorListener(args.mirror_port, allowed_ip=self.host_ip)
         self.lock = threading.Lock()
 
     # ------------------------------------------------------------ SSH 基础
     def ssh(self):
-        """惰性连接 + 断线自动重连（复用 remote_run.connect 的 3 次重试）。"""
-        if self.cli is None:
-            self.cli = remote_run.connect(self.host, self.args.user, self.args.password,
-                                          port=self.args.port, timeout=15.0)
-        return self.cli
+        """惰性连接 + 断线自动重连（复用 remote_run.connect 的 3 次重试）。
+
+        多个发包 worker 共享 self.cli：连接/重置全程持锁，避免一个 worker
+        刚把 cli 置 None、另一个正拿着旧连接发命令的竞态。"""
+        with self.ssh_lock:
+            if self.cli is None:
+                self.cli = remote_run.connect(self.host, self.args.user, self.args.password,
+                                              port=self.args.port, timeout=15.0)
+            return self.cli
+
+    def _reset_ssh(self):
+        """断线后重置连接（持锁，与 ssh() 配对）。"""
+        with self.ssh_lock:
+            self.cli = None
 
     def exec(self, cmd: str, timeout: float = 20.0) -> tuple[int, str, str]:
         cli = self.ssh()
@@ -290,7 +342,7 @@ class FlightConsole:
             f"&& (tmux has-session -t {TMUX_SESSION} 2>/dev/null || tmux new-session -d -s {TMUX_SESSION} -n hold 'read') "
             f"&& tmux kill-window -t {TMUX_SESSION}:{TMUX_WIN} 2>/dev/null; "
             f"tmux new-window -d -t {TMUX_SESSION} -n {TMUX_WIN} 'bash {BB_REMOTE_LOGROOT}/bb_start.sh' "
-            f"&& echo BB_STARTED")
+            "&& echo BB_STARTED")
         if "BB_STARTED" not in out:
             self.note(f"黑匣子启动异常 rc={code}: {(err or out).strip()[:120]}", "error")
             return False
@@ -311,15 +363,25 @@ class FlightConsole:
         return ('source "$(ls -d /opt/ros/*/setup.bash 2>/dev/null | head -1)" 2>/dev/null; '
                 'source "$HOME/dzpx4/install/setup.bash" 2>/dev/null; ')
 
+    def _ctrl_pub_cmd(self, cmd: int, dx: float, dy: float, dz: float) -> str:
+        """拼 /px4_control/command 的远程发布命令（独立成方法便于单测连发次数）。
+
+        ros2 topic pub --once 有 DDS 发现竞态（对端未匹配时首帧可能丢），
+        幂等命令（OFFBOARD/ARM/DISARM/LAND/GOTO 开关：状态机守门，重复执行
+        同结果）连发 3 次兜底；MOVE/YAW 是**累加**语义（px4_control_node
+        handle_move: target_ += dx，handle_yaw 同理），连发会三倍步进——
+        按一次 W 实走 1.5m 而非标称 0.5m，只能单发，丢帧风险由操作员
+        再按一次承担（比三倍超调安全得多）。"""
+        yaml = f"{{cmd: {cmd}, dx: {dx}, dy: {dy}, dz: {dz}}}"
+        repeat = 1 if cmd in (CMD_MOVE, CMD_YAW) else 3
+        return (f'bash -lc \'{self._ros_env_prefix()}'
+                f'for i in $(seq {repeat}); do ros2 topic pub --once /px4_control/command '
+                f'px4_control/msg/ControlCommand "{yaml}"; sleep 0.3; done\'')
+
     def send_ctrl_async(self, cmd: int, name: str, dx: float = 0.0, dy: float = 0.0,
                         dz: float = 0.0):
         """经 px4_control 安全通道发指令（异步，避免 SSH 往返卡住面板）。"""
-        yaml = f"{{cmd: {cmd}, dx: {dx}, dy: {dy}, dz: {dz}}}"
-        # ros2 topic pub --once 有 DDS 发现竞态（对端未匹配时首帧可能丢），
-        # 连发 3 次兜底；px4_control 侧命令幂等（状态机守门），重复无害
-        remote_cmd = (f'bash -lc \'{self._ros_env_prefix()}'
-                      f'for i in 1 2 3; do ros2 topic pub --once /px4_control/command '
-                      f'px4_control/msg/ControlCommand "{yaml}"; sleep 0.3; done\'')
+        remote_cmd = self._ctrl_pub_cmd(cmd, dx, dy, dz)
         self.note(f"[地面台] {name} -> px4_control", "warn")
 
         def worker():
@@ -331,7 +393,7 @@ class FlightConsole:
                     self.note(f"[回执] {name} 失败 rc={code}: {(err or out).strip()[-100:]}",
                              "error")
             except Exception as e:  # noqa: BLE001
-                self.cli = None  # 下次重连
+                self._reset_ssh()  # 下次重连
                 self.note(f"[回执] {name} SSH 异常: {type(e).__name__}（已重置连接）", "error")
 
         threading.Thread(target=worker, daemon=True).start()
@@ -342,10 +404,10 @@ class FlightConsole:
         yaml = ("{command: 400, param1: 0.0, param2: 21196.0, param3: 0.0, param4: 0.0, "
                 "param5: 0.0, param6: 0.0, param7: 0.0, target_system: 1, target_component: 1, "
                 "source_system: 1, source_component: 1, from_external: true}")
-        # 同 send_ctrl_async：--once 有 DDS 发现竞态，连发 3 次兜底（KILL 幂等，
-        # 第一帧生效后电机已停，后续帧不改变结果）
+        # 同 _ctrl_pub_cmd 的幂等命令：--once 有 DDS 发现竞态，连发 3 次兜底
+        # （KILL 幂等，第一帧生效后电机已停，后续帧不改变结果）
         remote_cmd = (f'bash -lc \'{self._ros_env_prefix()}'
-                      f'for i in 1 2 3; do ros2 topic pub --once /fmu/in/vehicle_command '
+                      'for i in 1 2 3; do ros2 topic pub --once /fmu/in/vehicle_command '
                       f'px4_msgs/msg/VehicleCommand "{yaml}"; sleep 0.3; done\'')
         self.note("[!!] KILL 已发出：电机停转指令 -> /fmu/in/vehicle_command", "error")
 
@@ -358,7 +420,7 @@ class FlightConsole:
                     self.note(f"[回执] KILL 失败 rc={code}: {(err or out).strip()[-80:]}",
                               "error")
             except Exception as e:  # noqa: BLE001
-                self.cli = None
+                self._reset_ssh()
                 self.note(f"[回执] KILL SSH 异常: {type(e).__name__}", "error")
 
         threading.Thread(target=worker, daemon=True).start()
@@ -372,11 +434,15 @@ class FlightConsole:
         self.pending = desc
 
     def confirm_key(self, ch: str) -> bool:
-        """确认模式按键处理。恒返回 True（确认模式下 q 是取消而非退出，防误操作）。"""
+        """确认模式按键处理。**恒返回 False**（返回 True 会被 run_panel 当成
+        退出面板）：确认中的任何键——含误触——都只作用于确认输入本身，
+        绝不能把面板关掉（旧实现恒 True 的教训：按 L 再敲第一个确认字符，
+        程序直接退出，LAND/DISARM/KILL 全部永远执行不到，应急时最致命）。
+        确认模式下 q 仍是取消而非退出，防误操作。"""
         if ch in ("\x1b", "q"):
             self.mode, self.pending = "view", None
             self.note("已取消")
-            return True
+            return False
         if ch == "\r" or ch == "\n":
             if self.confirm_buf.strip().lower() == self.confirm_need:
                 self.mode, self.pending = "view", None
@@ -384,13 +450,13 @@ class FlightConsole:
             else:
                 self.mode, self.pending = "view", None
                 self.note("确认词不符，已取消", "warn")
-            return True
-        if ch == "\x7f":  # backspace
+            return False
+        if ch in ("\x7f", "\x08"):  # backspace（\x7f=POSIX，\x08=Windows conhost）
             self.confirm_buf = self.confirm_buf[:-1]
-            return True
+            return False
         if ch.isprintable():
             self.confirm_buf += ch
-        return True
+        return False
 
     # ------------------------------------------------------------ 面板
     def draw(self) -> str:
@@ -402,7 +468,7 @@ class FlightConsole:
         slam = m.latest.get("slam.odom", {})
         batt = m.latest.get("flight.batt", {})
         hb = m.latest.get("bb.hb", {})
-        up = m.latest.get("goto.state", {})
+        goto_state = m.latest.get("goto.state", {})
 
         armed = st.get("arming_name", "?")
         nav = st.get("nav_name", "?")
@@ -419,7 +485,7 @@ class FlightConsole:
                  f"  {ANSI_DIM}镜像端口 {self.args.mirror_port}{ANSI_RESET}")
         L.append("")
         L.append(f" 状态 : {head_color}● {armed}  {nav}{'   FAILSAFE!' if fs else ''}{ANSI_RESET}"
-                 f"     GOTO: {'开' if up.get('enabled') else '关' if up else '—'}")
+                 f"     GOTO: {'开' if goto_state.get('enabled') else '关' if goto_state else '—'}")
         z = pos.get("z")
         alt = f"{-z:.2f}" if isinstance(z, (int, float)) else "?"
         yaw = pos.get("yaw")
@@ -496,6 +562,8 @@ class FlightConsole:
                 s.reconfigure(encoding="utf-8", errors="replace")
             except Exception:  # noqa: BLE001
                 pass
+        # KeyReader 在这里才创建（进 cbreak）：--stop/--fetch 不走到这，终端不受影响
+        self.keys = KeyReader()
         self.keys.start()
         self.mirror.start()
         try:

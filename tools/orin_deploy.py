@@ -5,7 +5,7 @@
 build_verify 产物在仓库内）。本脚本统一约定为【仓库形状】远端布局：
 
     ~/dzuav_deploy/air_ground/          仓库侧内容
-        onboard/dzuav/**                    dzuav C++ 源码（13 文件）
+        onboard/dzuav/**                    dzuav C++ 源码（全量，build/ 除外）
         models/release/                     current 指针 + 指针指向的 ONNX
         tools/orin_*.sh                     编译验证/引擎转换/全栈拉起
         tools/orin_flight_blackbox.py       飞行黑匣子（flight_console.py 自动上传，此处兜底）
@@ -115,7 +115,7 @@ def main(argv=None) -> int:
                                 port=port, timeout=args.timeout)
         print(f"[已上传] {n} 个文件 -> {remote}")
 
-    # ---- 1. dzuav 源码（13 文件，build/ 目录留在机上不回传不覆盖） ----
+    # ---- 1. dzuav 源码（build/ 目录留在机上不回传不覆盖；实际文件数以 [已上传] 计数为准） ----
     print("==> 部署 onboard/dzuav 源码")
     put(REPO / "onboard" / "dzuav", f"{REMOTE_ROOT}/onboard/dzuav")
 
@@ -126,6 +126,14 @@ def main(argv=None) -> int:
         raise SystemExit("tools/ 下没有 orin_*.sh —— 仓库状态异常")
     for t in orin_tools:
         put(t, f"{REMOTE_ROOT}/tools/{t.name}")
+    # SFTP put 不保留权限位：.sh 落盘成 0644，机上第一条 tools/orin_*.sh
+    # 指令就是 Permission denied——上传后显式补可执行位
+    # （flight_console 对 bb_start.sh 也是同一做法）
+    code, _, cerr = remote_run.run(host, user, pw,
+                                   f"chmod +x {REMOTE_ROOT}/tools/orin_*.sh",
+                                   timeout=30, port=port)
+    if code != 0:
+        raise SystemExit(f"[失败] 远端 chmod +x 工具脚本失败: {cerr.strip()[:120]}")
 
     # ---- 3. 模型：默认只推 current 指针 + 指向的 ONNX ----
     if args.skip_models:

@@ -11,6 +11,7 @@
 #   odom     px4_odom_convert（SLAM -> NED）
 #   imu      px4_imu_bridge（飞控 IMU -> ROS）
 #   control  px4_control 状态机（Offboard 起飞/返航）
+#   flight_wd 机载自治守卫（断流/掉 OFFBOARD/位置跳变 -> 机上本地自动 LAND）
 #   path     px4_path 航点跟随
 #   teleop   键盘遥控（人工接管用，可选 --no-teleop 跳过）
 #
@@ -78,6 +79,11 @@ up() {
     # 4. 控制栈
     win control "ros2 launch px4_control px4_control.launch.py"
     ok "control"
+    # 机载自治守卫：默认只开 LAND 级介入（走 px4_control 安全通道，状态机守门）。
+    # 故意不带 --enable-kill：KILL=空中电机停转=坠机，这项授权必须人在
+    # 现场显式给（手动起窗口加开关），启动脚本不替人做这个决定。
+    win flight_wd "python3 $REPO/tools/orin_watchdog.py"
+    ok "flight_wd(LAND级守卫)"
     win path "ros2 launch px4_path px4_path.launch.py"
     ok "path"
 
@@ -98,7 +104,7 @@ up() {
 status() {
     tmux has-session -t "$SESSION" 2>/dev/null || { echo "会话 $SESSION 不存在"; exit 1; }
     tmux list-windows -t "$SESSION" -F "#{window_name}: #{session_windows}窗 #{?window_active,ACTIVE,} #{pane_current_command}"
-    for w in dzuav livox fastlio px4 wdog odom imu control path teleop; do
+    for w in dzuav livox fastlio px4 wdog odom imu control flight_wd path teleop; do
         alive=$(tmux list-panes -t "$SESSION:$w" -F "#{pane_dead}" 2>/dev/null)
         [[ -z $alive ]] && continue
         [[ $alive == 0 ]] && echo "  [活] $w" || echo "  [死] $w"
@@ -107,6 +113,10 @@ status() {
 
 down() {
     tmux kill-session -t "$SESSION" 2>/dev/null && ok "已停止 $SESSION" || warn "会话不存在"
+    # 孤儿 Agent 兜底：wdog 看门狗重启 Agent 时用 setsid 把它拉出 tmux
+    # （脱离守护生命周期，见 orin_agent_watchdog.py），kill-session 够不着；
+    # 不清掉的话下次 up 会新旧两个 Agent 抢同一串口
+    pkill -f "MicroXRCEAgent serial" 2>/dev/null && ok "孤儿 MicroXRCEAgent 已清" || true
 }
 
 case "${1:-}" in

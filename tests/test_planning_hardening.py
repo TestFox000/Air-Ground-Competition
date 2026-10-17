@@ -197,6 +197,35 @@ def test_obstacle_confirm_one_is_legacy():
     assert m.snapshot.obstacles == ()
 
 
+def test_obstacle_flicker_breaks_consecutive_count():
+    """检出→漏检→检出 不算连续（M3）：漏检打断检出计数——注释宣称"连续
+    N 帧检出才确认"，旧实现是累计计数，N=2 时闪断序列第 3 帧即误确认。"""
+    m = WorldModel(obstacle_confirm_frames=2)
+    real = obj(CellRef(5, 5), ObjectType.OBSTACLE)       # F6
+    m.update(IntelFrame(1, (real,)))
+    m.update(IntelFrame(2, ()))                          # 漏检：断连续
+    m.update(IntelFrame(3, (real,)))                     # 重新计 1，不得确认
+    assert m.snapshot.obstacles == ()
+    m.update(IntelFrame(4, (real,)))                     # 连续第 2 帧：确认
+    assert [c.name for c in m.snapshot.obstacles] == ["F6"]
+
+
+def test_obstacle_confirmed_survives_miss_then_redetect():
+    """已确认障碍的滞回不回归（M3 边界）：漏 1 帧后再次检出不清空确认身份
+    ——移出只看连续漏检计数，真障碍不会被"漏 1 + 检出 1"闪出态势。"""
+    m = WorldModel(obstacle_confirm_frames=2)
+    real = obj(CellRef(5, 5), ObjectType.OBSTACLE)
+    m.update(IntelFrame(1, (real,)))
+    m.update(IntelFrame(2, (real,)))                     # 连续 2 帧：确认
+    assert [c.name for c in m.snapshot.obstacles] == ["F6"]
+    m.update(IntelFrame(3, ()))                          # 漏检 1 帧：滞回保持
+    m.update(IntelFrame(4, (real,)))                     # 再检出：仍在态势
+    assert [c.name for c in m.snapshot.obstacles] == ["F6"]
+    m.update(IntelFrame(5, ()))
+    m.update(IntelFrame(6, ()))                          # 连续 2 帧消失：移出
+    assert m.snapshot.obstacles == ()
+
+
 # ---------------------------------------------------------------- 发现态靶
 
 def test_unknown_target_never_allows_fire():

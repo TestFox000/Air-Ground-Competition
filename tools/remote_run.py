@@ -161,8 +161,12 @@ def sftp_get(host: str, user: str, password: str, remote: str, local: str,
 
 def sftp_put(host: str, user: str, password: str, local: str, remote: str,
              port: int = 22, timeout: float = 60.0,
-             skip: tuple = ("__pycache__", ".pytest_cache", ".git")) -> int:
-    """把本地文件/目录（递归）上传到远程，返回文件数。"""
+             skip: tuple = ("__pycache__", ".pytest_cache", ".git", "build")) -> int:
+    """把本地文件/目录（递归）上传到远程，返回文件数。
+
+    skip 里的目录名任何层级都跳过：build/ 是机上编译产物（cmake/colcon），
+    推它既慢又会用本机架构的烂产物污染机上构建目录（orin_deploy 的约定就是
+    "build/ 留在机上不回传不覆盖"）。"""
     import stat as stat_mod
 
     cli = connect(host, user, password, port=port, timeout=timeout)

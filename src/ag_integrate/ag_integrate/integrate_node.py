@@ -27,6 +27,7 @@ from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 
 from .car_commands import parse_cell
+from .field_frame import COLS, LETTERS, ROWS
 from .field_matrix import MatrixFusion, render_report_from_spots
 from .heading_calibration import closed_loop_rate, nearest_axis
 from .intel_protocol import detect_msg_id, parse, parse_car_pose
@@ -386,7 +387,9 @@ class IntegrateNode(Node):
                 pass
 
     # ---------------- 决策（executor 线程） ----------------
-    _CELL_RE = re.compile(r"[A-N](?:[1-9]|1[01])")
+    # 格号正则：10/11 行的两位行号分支必须在前——[1-9] 优先会把 "N10"
+    # 截成 "N1"，守卫的格集/邻域整片错位（起点 N10/N11 是常用值）。
+    _CELL_RE = re.compile(r"[A-N](?:1[01]|[1-9])")
 
     @staticmethod
     def _snap_signature(snapshot):
@@ -400,41 +403,58 @@ class IntegrateNode(Node):
         return sig, obstacles
 
     def _route_needs_replan(self, snapshot) -> bool:
-        """重规划守卫（replan_on_update=True 时生效）。
+        """重规划守卫（replan_on_update=True 时生效）——纯查询，不改守卫基线。
 
         只在"与当前路线相关"的情报变化时放行重算，其余新帧沿用旧路线——
         防每帧重算的 CPU 开销（ARM）与路线抖动：
         - 雷/隧道格/靶面集合变化（双向）→ 触发；
         - 障碍增删且落在当前路线 ±1 格内 → 触发；
-        - 首拍只记录签名，不触发（首条路线由 last_route=None 放行）。
+        - 首拍只记录签名，不触发（首条路线由 last_route 为空放行）。
+
+        基线 _replan_sig 只在路线真正发布（或新旧路线相同）时更新
+        （见 _handle 两处赋值）。守卫自身绝不原地消费：放行后若 build_mission
+        失败或被发布闸门拦截，下拍同签名必须再次放行，否则永久滞留（M1）。
         """
         sig, obstacles = self._snap_signature(snapshot)
-        if self.last_route is None:
-            return True   # 首发：签名随路线发布时一并记录（见 last_route 赋值处）
         # last_route 可能是空格串（"N10 M9 ..."）或格号元组——统一成文本再匹配
         route_text = self.last_route if isinstance(self.last_route, str) else " ".join(self.last_route)
-        cells = set(self._CELL_RE.findall(route_text))
+        # 压缩路线（compress_route）只留拐点/必经点，物理轨迹途经的中间格
+        # 不在文本里——先按格线插值展开成途经格再膨胀，否则航段中段（交界格）
+        # 新增障碍不触发重规划（M2 盲区）。压缩只删同向共线中间格，相邻格
+        # 必共线：gcd 归一步长逐格铺开（Bresenham 的共线特例）。
+        cells: set[str] = set()
+        prev: tuple[int, int] | None = None
+        for name in self._CELL_RE.findall(route_text):
+            col, row = ord(name[0]) - 65, int(name[1:]) - 1
+            if prev is None:
+                cells.add(name)
+            else:
+                dc, dr = col - prev[0], row - prev[1]
+                g = math.gcd(abs(dc), abs(dr)) or 1
+                sc, sr = dc // g, dr // g
+                cc, rr = prev
+                for _ in range(g):
+                    cc += sc
+                    rr += sr
+                    cells.add(f"{LETTERS[cc]}{rr + 1}")
+            prev = (col, row)
         near = set(cells)
         for name in cells:
             col, row = ord(name[0]) - 65, int(name[1:]) - 1
             for dc in (-1, 0, 1):
                 for dr in (-1, 0, 1):
                     cc, rr = col + dc, row + dr
-                    if 0 <= cc < 14 and 0 <= rr < 11:
-                        near.add(f"{chr(65 + cc)}{rr + 1}")
-        if not hasattr(self, "_replan_sig"):
-            self._replan_sig = (sig, obstacles)   # 兜底（正常流程发布时已记录）
-            return False
-        last_sig, last_obstacles = self._replan_sig
+                    if 0 <= cc < COLS and 0 <= rr < ROWS:
+                        near.add(f"{LETTERS[cc]}{rr + 1}")
+        last = getattr(self, "_replan_sig", None)
+        if last is None:
+            return False   # 兜底：无基线不放行（正常流程发布时已记录）
+        last_sig, last_obstacles = last
         if sig != last_sig:
-            self._replan_sig = (sig, obstacles)
             return True
         # 障碍增/删都要看（新增绕不开要绕；消失的旧障碍值得抄回近路）
         delta = (obstacles - last_obstacles) | (last_obstacles - obstacles)
-        if delta and (set(delta) & near):
-            self._replan_sig = (sig, obstacles)
-            return True
-        return False
+        return bool(delta) and bool(set(delta) & near)
 
 
     def _on_tick(self) -> None:
@@ -619,6 +639,9 @@ class IntegrateNode(Node):
                 self._degraded_logged.add(text)
                 self.get_logger().warning(f"规划降级: {text}")
         if commands.route == self.last_route:
+            # 新旧路线相同：无需重发，但守卫基线随本拍更新
+            # （守卫是纯查询不消费，基线只在"发布成功/路线相同"时推进——M1）
+            self._replan_sig = self._snap_signature(snapshot)
             return
 
         # 路线发布闸门：/nav/waypoint 无滞留，path_executor 未订阅时发出的

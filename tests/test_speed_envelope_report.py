@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from speed_envelope_report import (  # noqa: E402
-    analyze_speed_run, envelope_verdict, lateral_deviations, parse_csv,
+    analyze_speed_run, envelope_verdict, lateral_deviations, main, parse_csv,
 )
 
 # 命令直线：车端 odom 系一段东西向直线（y=1.2）
@@ -50,3 +50,39 @@ def test_parse_csv_skips_header(tmp_path):
     p.write_text("t,x,y\n0.0,0.5,1.2\n0.1,0.53,1.2\n", encoding="utf-8")
     rows = parse_csv(p)
     assert len(rows) == 2 and math.isclose(rows[1][1], 0.53)
+
+
+def test_parse_csv_tolerates_utf8_bom(tmp_path):
+    """Excel 另存的 CSV 带 BOM：裸三列（无表头）时旧代码会把首行静默丢掉
+    （float('\\ufeff0.0') 失败被当成表头跳过），utf-8-sig 剥 BOM 后必须全收。"""
+    p = tmp_path / "bom.csv"
+    p.write_bytes(b"\xef\xbb\xbf0.0,0.5,1.2\n0.1,0.53,1.2\n")
+    rows = parse_csv(p)
+    assert len(rows) == 2 and math.isclose(rows[0][0], 0.0)
+
+
+def test_envelope_verdict_with_non_numeric_labels():
+    """不给 --speed 时标签是 CSV 文件名（非数字）：裁决不许 float() 崩。"""
+    runs = {"seg_a": {"fail": False}, "seg_b": {"fail": True}}
+    best, note = envelope_verdict(runs)
+    assert best == "seg_a"
+    assert "seg_b" in note
+
+
+def test_envelope_verdict_mixed_numeric_and_name_labels():
+    """数字标签按数值序，非数字标签排其后且不崩（混合输入的防御）。"""
+    runs = {"0.2": {"fail": False}, "seg_x": {"fail": False}}
+    best, _ = envelope_verdict(runs)
+    assert best == "seg_x"      # 非数字排在数值档之后，视为"更高档"
+
+
+def test_main_without_speed_uses_csv_filename_labels(tmp_path, capsys):
+    """不给 --speed：默认标签取 CSV 文件名（旧默认"档1"会让裁决直接崩）。"""
+    p = tmp_path / "seg_0.2.csv"
+    p.write_text("t,x,y\n" + "\n".join(f"{i*0.1},{0.5+i*0.1},1.2"
+                                       for i in range(20)) + "\n",
+                 encoding="utf-8")
+    rc = main(["--csv", str(p), "--line", "0.5,1.2,3.5,1.2"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "seg_0.2" in out

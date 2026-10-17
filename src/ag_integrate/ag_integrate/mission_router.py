@@ -17,18 +17,21 @@
       取（真实代价, 重复踩格）最小者；
     - 不可达必经点剔除（跳过）；终点不可达报错。
 
-中场挡板：默认不建模；现场证实"只能从可通行格穿越半场"后传入 cross_gates
-（允许穿越的格）。桥洞一格宽，穿越中线的移动限定正交且贴着 gate 格。
+中场挡板：cross_gates=None（默认）时自动推导穿越缺口（挡板范围外的 A~C 列
+边界格 + 桥洞列边界附近的可通行格）；显式传入时以传入为准。桥洞一格宽，
+穿越中线的移动限定正交且贴着 gate 格。
 """
 
 from __future__ import annotations
 
 import heapq
 import warnings
+from dataclasses import replace
 from itertools import count, product
 from math import gcd
 
 from .field_frame import CellRef, ROWS, COLS, LETTERS
+from .fire_guard import decide_fire
 from .world_model import WorldSnapshot
 
 _SQRT2 = 2.0 ** 0.5
@@ -1003,7 +1006,7 @@ def plan_route(
     blocked = frozenset(c for c in blocked if c != start and c != goal)
 
     # 中场横向挡板的穿越缺口：
-    # 1. 挡板范围外的列（A、B、I~N）可自由穿越边界；
+    # 1. 挡板范围外的列（A、B、C，即非 _BARRIER_COLS 的列）可自由穿越边界；
     # 2. 桥洞列中位于边界附近的可通行格（箭头+引道）可穿越。
     # 若调用方未显式指定 cross_gates，则自动推导。
     if cross_gates is None:
@@ -1121,7 +1124,19 @@ def plan_route(
 
 
 _ZONE_NAMES = ("西", "东南", "东北")
-_CORRIDOR_CROSS = ("A6", "A7", "B6", "B7", "C6", "C7")  # 挡板穿越可用的走廊格（6/7 行界两侧）
+
+
+def _corridor_cross_cells(mid_boundary: int) -> tuple[CellRef, ...]:
+    """挡板穿越可用的走廊格：挡板范围外的列（A~C）在边界线两侧的格子。
+
+    行号由 mid_boundary 推导（边界上/下各一行），不再硬编码 6/7 行——
+    mid_boundary 可调后两处口径不会分裂。
+    """
+    return tuple(
+        CellRef(col, row)
+        for col in range(COLS) if col not in _BARRIER_COLS
+        for row in (mid_boundary - 1, mid_boundary)
+    )
 
 
 def _dist(a: CellRef, b: CellRef) -> int:
@@ -1130,10 +1145,12 @@ def _dist(a: CellRef, b: CellRef) -> int:
 
 
 def _transit_blocked(snapshot: WorldSnapshot) -> frozenset[CellRef]:
-    """全局 blocked 集（供中转 Dijkstra 用）：障碍 + 桥洞墙 + 靶格 + 轨道格。
+    """全局 blocked 集（供中转 Dijkstra / 接缝过心校验用）：障碍 + 桥洞墙 + 靶格 + 轨道格。
 
-    passable（桥洞隧道）格不封——中转可能途经隧道；起点/终点格免疫。
-    与 plan_route 内部 blocked 计算同口径，保证中转代价与实际行驶一致。
+    passable（桥洞隧道）格不封——中转可能途经隧道。
+    注意：与 plan_route 内部 blocked 不同，本函数**不做**起点/终点格免疫
+    （它拿不到起终点）；调用方若需免疫请自行剔除。
+    其余口径与 plan_route 一致，保证中转代价与实际行驶一致。
     """
     passable_cells = tuple(snapshot.passable)
     passable_names = {c.name for c in passable_cells}
@@ -1151,11 +1168,17 @@ def _transit_blocked(snapshot: WorldSnapshot) -> frozenset[CellRef]:
     return frozenset(c for c in blocked if c.name not in passable_names)
 
 
-def _required_keep(snapshot: WorldSnapshot) -> frozenset[str]:
-    """收集所有必须保留为显式途经点的格名（雷/桥洞/靶）。
+def _required_keep(
+    snapshot: WorldSnapshot,
+    route: tuple[str, ...] = (),
+) -> frozenset[str]:
+    """收集所有必须保留为显式途经点的格名（雷/桥洞/靶 + 射击停靠格）。
 
     compress_route 会跳过同向共线的中间格，但必经点必须保留，
     否则车端直线段可能不经过该格心导致漏扫。
+    射击停靠格同样不可丢：被压缩掉后 adapt 找不到停靠格，'*' 丢失、
+    打击分静默丢失。停靠格判定走 fire_guard.decide_fire 唯一判定口
+    （固定靶=正交邻格∩路线，移动靶=轨道端点几何），与开火标记同口径。
     """
     keep: set[str] = set()
     for c in snapshot.mines:
@@ -1164,7 +1187,27 @@ def _required_keep(snapshot: WorldSnapshot) -> frozenset[str]:
         keep.add(c.name)
     for t in snapshot.targets:
         keep.add(t.cell.name)
+    for name in route:
+        if decide_fire(snapshot, name).allowed:
+            keep.add(name.strip().upper())
     return frozenset(keep)
+
+
+def _degraded_snapshot(snapshot: WorldSnapshot) -> WorldSnapshot:
+    """分区降级/补程重规划用的快照：只摘除雷，其余全保留。
+
+    passable 必须保留——桥洞列由它推导桥墙，摘除后降级路线会穿桥墙；
+    靶保留但一律置红：物理靶体仍是障碍（不可踩），但不再规划停靠射击
+    （发现态靶的确认点同理不再派生）。雷摘除：降级语义是"直奔终点"，
+    不再为排雷绕路。
+    """
+    return WorldSnapshot(
+        snapshot.timestamp_ms,
+        (),
+        snapshot.passable,
+        snapshot.obstacles,
+        tuple(replace(t, is_blue=False) for t in snapshot.targets),
+    )
 
 
 def _derive_cross_gates(snapshot: WorldSnapshot, mid_boundary: int) -> frozenset[CellRef]:
@@ -1243,8 +1286,7 @@ def _pick_transit_dijkstra(
     # 东南↔东北：必须经西区走廊格转场（D7~N7 挡板不能直穿）
     if cur_zone != "西" and next_z != "西":
         best: tuple[tuple, int, str, CellRef] | None = None
-        for name in _CORRIDOR_CROSS:
-            cc = CellRef(LETTERS.index(name[0]), int(name[1:]) - 1)
+        for cc in _corridor_cross_cells(mid_boundary):
             k1 = _cost(cur, cc)
             if k1[0] >= _INF:
                 continue
@@ -1253,7 +1295,7 @@ def _pick_transit_dijkstra(
                 continue
             k2 = min(k2_candidates)
             total = (k1[0] + k2[0], k1[1] + k2[1], k1[2] + k2[2])
-            key = (total, _dist(cur, cc) + min(_dist(cc, r) for r in next_req), name, cc)
+            key = (total, _dist(cur, cc) + min(_dist(cc, r) for r in next_req), cc.name, cc)
             if best is None or key < best:
                 best = key
         if best is not None:
@@ -1391,7 +1433,7 @@ def plan_route_zoned(
     blocked = _transit_blocked(snapshot)
     gates_param = kwargs.get("cross_gates", None)
     cross_gates = gates_param if gates_param is not None else _derive_cross_gates(snapshot, mid_boundary)
-    # 隧道约束解析（与 plan_route 同口径）
+    # 隧道约束解析（与 plan_route 同口径，含同款入参校验）
     tunnel_axes: frozenset[int] | None = None
     tunnel_req: dict[int, int] | None = None
     if tunnel_dirs is None:
@@ -1403,19 +1445,67 @@ def plan_route_zoned(
         for name, d in tunnel_dirs.items():
             cn = name.strip().upper()
             dd = str(d).strip().upper()
+            if dd not in ("E", "W", "EW"):
+                raise ValueError(f"tunnel_dirs[{name!r}] 只支持 'E'/'W'/'EW'，收到 {d!r}")
             cell = CellRef(LETTERS.index(cn[0]), int(cn[1:]) - 1)
+            if not (0 <= cell.row < ROWS and 0 <= cell.col < COLS):
+                raise ValueError(f"tunnel_dirs 格号越界: {name!r}")
             ci = cell.row * COLS + cell.col
             axes.add(ci)
-            if dd in ("E", "W"):
+            if dd != "EW":
                 tunnel_req[ci] = 0 if dd == "E" else 4
-        tunnel_axes = frozenset(axes) if axes else None
+        tunnel_axes = frozenset(axes)
+        if not tunnel_req:
+            tunnel_req = None
+    else:
+        tunnel_axes = None     # 显式 {} = 全关（遗留行为，不推荐）
+
+    # 朝向只挂真正的首尾程（审查 M4）：start_heading 是车端 reset 断言，
+    # 仅第一程携带；final_heading 仅"最后一区且即终点区"的末程携带——
+    # 中转格被强加终点朝向会逼出无谓绕转/朝向降级。
+    start_heading = kwargs.get("start_heading")
+    final_heading = kwargs.get("final_heading")
+
+    # 接缝过心校验用的 blocked：与 plan_route 同口径补起点/终点格免疫
+    # （这两格上的"障碍"只能是误检，信任它会误杀合法的补点）。
+    blocked_check = frozenset(c for c in blocked if c != start and c != goal)
+    tunnel_names = ({_CELLS[ci].name for ci in tunnel_axes}
+                    if tunnel_axes else None)
 
     parts: list[tuple[str, ...]] = []
     cur = start
+
+    def _finish() -> tuple[str, ...]:
+        """缝合 -> 接缝雷过心 -> 共线压缩（keep 含射击停靠格）。
+
+        接缝雷（S3）：逐区 plan_route 内部的 ensure_mine_center_pass 只处理
+        各自路线的中间格，接缝处雷格（上一段尾格 = 下一段首格）两段都看不
+        到——缝合后以全量雷集 + 全局 blocked/gates/tunnel 再跑一次。
+        压缩（S1）：keep 集必须含 decide_fire 放行的路线格（射击停靠格），
+        否则共线中间格被删后 '*' 丢失、打击分静默丢失。
+        """
+        full = tuple(c for part in parts for c in part)
+        if not full:
+            full = (cur.name,)
+        full = ensure_mine_center_pass(
+            full, {c.name for c in snapshot.mines}, blocked_check,
+            mid_boundary=mid_boundary, cross_gates=cross_gates,
+            tunnel_names=tunnel_names)
+        return compress_route(full, _required_keep(snapshot, full))
+
+    def _leg_kwargs(is_goal_leg: bool) -> dict:
+        """逐程 kwargs：start_heading 仅首程（parts 为空 = 尚未缝合任何段），
+        final_heading 仅终点程。"""
+        kw = dict(kwargs)
+        kw["start_heading"] = start_heading if not parts else None
+        kw["final_heading"] = final_heading if is_goal_leg else None
+        return kw
+
     for i, z in enumerate(order):
         last = i == len(order) - 1
         next_z = order[i + 1] if not last else None
-        sub_goal = goal if (last and z == goal_zone) else _pick_transit_dijkstra(
+        is_goal_leg = last and z == goal_zone
+        sub_goal = goal if is_goal_leg else _pick_transit_dijkstra(
             cur, z, next_z, goal, mine_z, pas_z, mid_boundary, blocked, cross_gates,
             turn_45, allow_diagonal, cross_penalty, tunnel_axes, tunnel_req,
         )
@@ -1427,19 +1517,27 @@ def plan_route_zoned(
             tuple(tgt_z.get(z, [])),
         )
         try:
-            r = plan_route(sub, cur, sub_goal, **kwargs)
+            r = plan_route(sub, cur, sub_goal, **_leg_kwargs(is_goal_leg))
         except ValueError:
             # 该区到中转点不可达（障碍堵死）：降级——跳过该区任务直奔终点，
-            # 保住完赛（崩溃 = 整局 0 分，跳过区 = 丢该区分数但能完赛）
+            # 保住完赛（崩溃 = 整局 0 分，跳过区 = 丢该区分数但能完赛）。
+            # 降级快照保留 passable（桥墙建模）与靶体（障碍物），只摘除雷（S2）。
             warnings.warn(
                 f"{z}区规划失败（到 {sub_goal.name} 不可达），"
                 f"降级跳过该区任务直奔终点",
                 RuntimeWarning, stacklevel=2,
             )
-            r = plan_route(
-                WorldSnapshot(snapshot.timestamp_ms, (), (), snapshot.obstacles, ()),
-                cur, goal, **kwargs,
-            )
+            try:
+                r = plan_route(_degraded_snapshot(snapshot), cur, goal,
+                               **_leg_kwargs(True))
+            except ValueError:
+                # 直奔终点也不可达（终点被障碍/桥墙真正隔断）：
+                # 保住已规划部分，等下拍重规划（绝不穿墙编造路线）
+                warnings.warn(
+                    f"降级直奔终点 {goal.name} 也不可达，返回已规划部分路线",
+                    RuntimeWarning, stacklevel=2,
+                )
+                return _finish()
             parts.append(r if not parts else r[1:])
             cur = CellRef(LETTERS.index(r[-1][0]), int(r[-1][1:]) - 1)
             break   # 已直奔终点，不再处理后续区
@@ -1449,23 +1547,20 @@ def plan_route_zoned(
         cur = CellRef(LETTERS.index(r[-1][0]), int(r[-1][1:]) - 1)  # 路线格名 -> CellRef
 
     # 终点不在任何已执行的区（终点区无任务）→ 补最后一程
+    # （降级快照同款：保留桥墙/靶体建模，只摘除雷——S2）
     if cur != goal:
         try:
-            tail = plan_route(
-                WorldSnapshot(snapshot.timestamp_ms, (), (), snapshot.obstacles, ()),
-                cur, goal, **kwargs,
-            )
+            tail = plan_route(_degraded_snapshot(snapshot), cur, goal,
+                              **_leg_kwargs(True))
         except ValueError:
             # 终点不可达：返回已规划的部分（至少完成了已扫区）
             warnings.warn(
                 f"终点 {goal.name} 不可达，返回已规划部分路线",
                 RuntimeWarning, stacklevel=2,
             )
-            full = tuple(c for part in parts for c in part)
-            return compress_route(full, _required_keep(snapshot))
+            return _finish()
         parts.append(tail[1:])
-    full = tuple(c for part in parts for c in part)
-    return compress_route(full, _required_keep(snapshot))
+    return _finish()
 
 
 def _norm_dir(a: tuple[int, int], b: tuple[int, int]) -> tuple[int, int]:

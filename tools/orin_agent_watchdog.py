@@ -18,7 +18,7 @@
 用法（Orin 上，一般由 tmux 窗口 wdog 常驻；也可手动前台跑观察）:
     python3 orin_agent_watchdog.py                    # 默认 ttyACM0
     python3 orin_agent_watchdog.py --device /dev/ttyACM1
-    python3 orin_agent_watchdog.py --restart-once     # 一键恢复模式（不守护，干完就退）
+    python3 orin_agent_watchdog.py --restart-once     # 一键恢复模式（不守护，干完就退；无需 ROS 环境）
 
 日志: ~/drone_logs/agent_watchdog.log（每次重启留痕）+ 每 30s 健康行。
 """
@@ -31,16 +31,8 @@ import subprocess
 import time
 from pathlib import Path
 
-try:
-    import rclpy
-    from rclpy.node import Node
-    from rclpy.qos import QoSProfile, ReliabilityPolicy
-except ImportError:
-    raise SystemExit("缺少 rclpy：需要在 Orin 的 ROS2 环境里运行")
-try:
-    from px4_msgs.msg import VehicleLocalPosition
-except ImportError:
-    raise SystemExit("缺 px4_msgs：需 source ~/dzpx4/install/setup.bash（看门狗依赖遥测话题判活）")
+# 注意：rclpy/px4_msgs 不在这里顶层 import——只有常驻守护分支需要 ROS，
+# --restart-once 一键恢复在无 ROS 的环境（如应急登录的裸 shell）也必须能跑
 
 LOG_DIR = Path("~/drone_logs").expanduser()
 WATCH_LOG = LOG_DIR / "agent_watchdog.log"
@@ -70,11 +62,27 @@ def agent_alive() -> bool:
     return r.returncode == 0
 
 
+def wait_agent_gone(timeout_s: float = 5.0) -> bool:
+    """pgrep 轮询等旧 Agent 真退净（不能拍脑袋 sleep：没死透就起新的，
+    两个 Agent 抢同一串口）。超时返回 False，调用方补 SIGKILL。"""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if not agent_alive():
+            return True
+        time.sleep(0.2)
+    return not agent_alive()
+
+
 def restart_agent(dev: str) -> None:
     """杀旧起新：新 Agent 用 setsid 后台 + 日志续写（与手工恢复流程一致）。"""
     subprocess.run(["pkill", "-f", "MicroXRCEAgent serial"], capture_output=True)
-    time.sleep(1.0)
-    # 不经 tmux（避免嵌套引号/窗口生命周期耦合），setsid 脱离守护进程生命周期
+    if not wait_agent_gone():
+        log("旧 Agent 5s 未退净，补 SIGKILL")
+        subprocess.run(["pkill", "-9", "-f", "MicroXRCEAgent serial"],
+                       capture_output=True)
+        wait_agent_gone()
+    # 不经 tmux（避免嵌套引号/窗口生命周期耦合），setsid 脱离守护进程生命周期。
+    # 代价：Agent 成 tmux 外孤儿，orin_bringup.sh down 已补 pkill 兜底清理
     cmd = (f"setsid MicroXRCEAgent serial --dev {dev} -b 921600 "
            f">> {AGENT_LOG} 2>&1")
     subprocess.Popen(["bash", "-lc", cmd],
@@ -83,67 +91,61 @@ def restart_agent(dev: str) -> None:
     log(f"Agent 已重启（{dev}），旧日志见 {AGENT_LOG}")
 
 
-class Watchdog(Node):
-    def __init__(self, args):
-        super().__init__("fmu_agent_watchdog")
-        self.args = args
-        self.last_msg = time.monotonic()      # 启动即计时：飞控若已上电但会话死，15s 内自动修
-        self.last_restart = 0.0
-        self.restarts = 0
-        qos = QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT)
-        # 消息不做任何解析，只当"飞控会话活着"的信号
-        self.create_subscription(VehicleLocalPosition, HEARTBEAT_TOPIC,
-                                 self._on_msg, qos)
-        self.last_hb = 0.0
+def run_daemon(args) -> int:
+    """常驻守护分支（只有这里需要 ROS；--restart-once 在 main 里直接返回，不经过这）。"""
+    try:
+        import rclpy
+        from rclpy.node import Node
+        from rclpy.qos import QoSProfile, ReliabilityPolicy
+    except ImportError:
+        raise SystemExit("缺少 rclpy：需要在 Orin 的 ROS2 环境里运行")
+    try:
+        from px4_msgs.msg import VehicleLocalPosition
+    except ImportError:
+        raise SystemExit("缺 px4_msgs：需 source ~/dzpx4/install/setup.bash（看门狗依赖遥测话题判活）")
 
-    def _on_msg(self, _msg) -> None:
-        self.last_msg = time.monotonic()
+    class Watchdog(Node):
+        def __init__(self, args):
+            super().__init__("fmu_agent_watchdog")
+            self.args = args
+            self.last_msg = time.monotonic()      # 启动即计时：飞控若已上电但会话死，15s 内自动修
+            self.last_restart = 0.0
+            self.restarts = 0
+            qos = QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT)
+            # 消息不做任何解析，只当"飞控会话活着"的信号
+            self.create_subscription(VehicleLocalPosition, HEARTBEAT_TOPIC,
+                                     self._on_msg, qos)
+            self.last_hb = 0.0
 
-    def spin_loop(self, stopping: dict) -> None:
-        while rclpy.ok() and not stopping["flag"]:
-            rclpy.spin_once(self, timeout_sec=self.args.check_every)
-            now = time.monotonic()
-            silent = now - self.last_msg
-            if now - self.last_hb >= 30.0:
-                self.last_hb = now
-                dev = "在" if device_alive(self.args.device) else "无"
-                ag = "活" if agent_alive() else "死"
-                log(f"健康: 串口{dev} Agent{ag} 遥测静默{silent:.0f}s 重启{self.restarts}次")
-            if not device_alive(self.args.device):
-                continue  # 飞控没上电：等待，不动 Agent
-            if now - self.last_restart < self.args.cooldown:
-                continue  # 重启冷却期：给 PX4 客户端连接时间
-            if not agent_alive():
-                log("Agent 进程消失，直接拉起")
-                self._do_restart()
-            elif silent > self.args.silence_sec:
-                log(f"遥测静默 {silent:.0f}s（会话死），重启 Agent 重建会话")
-                self._do_restart()
+        def _on_msg(self, _msg) -> None:
+            self.last_msg = time.monotonic()
 
-    def _do_restart(self) -> None:
-        restart_agent(self.args.device)
-        self.restarts += 1
-        self.last_restart = time.monotonic()
-        self.last_msg = time.monotonic()  # 重置计时，进入新一轮静默观察
+        def spin_loop(self, stopping: dict) -> None:
+            while rclpy.ok() and not stopping["flag"]:
+                rclpy.spin_once(self, timeout_sec=self.args.check_every)
+                now = time.monotonic()
+                silent = now - self.last_msg
+                if now - self.last_hb >= 30.0:
+                    self.last_hb = now
+                    dev = "在" if device_alive(self.args.device) else "无"
+                    ag = "活" if agent_alive() else "死"
+                    log(f"健康: 串口{dev} Agent{ag} 遥测静默{silent:.0f}s 重启{self.restarts}次")
+                if not device_alive(self.args.device):
+                    continue  # 飞控没上电：等待，不动 Agent
+                if now - self.last_restart < self.args.cooldown:
+                    continue  # 重启冷却期：给 PX4 客户端连接时间
+                if not agent_alive():
+                    log("Agent 进程消失，直接拉起")
+                    self._do_restart()
+                elif silent > self.args.silence_sec:
+                    log(f"遥测静默 {silent:.0f}s（会话死），重启 Agent 重建会话")
+                    self._do_restart()
 
-
-def main() -> int:
-    ap = argparse.ArgumentParser(description="飞控 uXRCE 链路看门狗（会话死自动重启 Agent）")
-    ap.add_argument("--device", default="/dev/ttyACM0", help="飞控串口（默认 /dev/ttyACM0）")
-    ap.add_argument("--silence-sec", type=float, default=15.0,
-                    help="遥测静默多少秒判定会话死（默认 15）")
-    ap.add_argument("--cooldown", type=float, default=60.0,
-                    help="一次重启后的冷却期秒数（默认 60）")
-    ap.add_argument("--check-every", type=float, default=2.0,
-                    help="巡检间隔秒（默认 2）")
-    ap.add_argument("--restart-once", action="store_true",
-                    help="一键恢复模式：立即重启 Agent 后退出（不常驻守护）")
-    args = ap.parse_args()
-
-    if args.restart_once:
-        log("一键恢复：重启 Agent 后退出")
-        restart_agent(args.device)
-        return 0
+        def _do_restart(self) -> None:
+            restart_agent(self.args.device)
+            self.restarts += 1
+            self.last_restart = time.monotonic()
+            self.last_msg = time.monotonic()  # 重置计时，进入新一轮静默观察
 
     stopping = {"flag": False}
 
@@ -163,6 +165,27 @@ def main() -> int:
         log("看门狗退出")
         rclpy.try_shutdown()
     return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="飞控 uXRCE 链路看门狗（会话死自动重启 Agent）")
+    ap.add_argument("--device", default="/dev/ttyACM0", help="飞控串口（默认 /dev/ttyACM0）")
+    ap.add_argument("--silence-sec", type=float, default=15.0,
+                    help="遥测静默多少秒判定会话死（默认 15）")
+    ap.add_argument("--cooldown", type=float, default=60.0,
+                    help="一次重启后的冷却期秒数（默认 60）")
+    ap.add_argument("--check-every", type=float, default=2.0,
+                    help="巡检间隔秒（默认 2）")
+    ap.add_argument("--restart-once", action="store_true",
+                    help="一键恢复模式：立即重启 Agent 后退出（不常驻守护，无需 ROS 环境）")
+    args = ap.parse_args()
+
+    if args.restart_once:
+        log("一键恢复：重启 Agent 后退出")
+        restart_agent(args.device)
+        return 0
+
+    return run_daemon(args)
 
 
 if __name__ == "__main__":
