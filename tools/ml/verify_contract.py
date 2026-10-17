@@ -12,6 +12,13 @@ C++ 后处理代码的硬假设一致。防止「换了模型但代码解不出�
       输出  letter_logits [N,14]           FLOAT   (列 A~N)
       输出  row_logits    [N,11]           FLOAT   (行 1~11)
 
+  target_pose（车端靶标 pose，契约来自 docs/probe/car_models_contract.txt
+              的 det_node 期望，而非 dzuav C++）
+      输入  images        [N,3,640,640]    FLOAT   (yolo11n-pose 640)
+      输出  output0       [N,9,8400]       FLOAT   (9 = 4 bbox + 2 类 + 1x3 关键点)
+
+注意：hbb 与 target_pose 的输出同名 output0，靠形状分流（11/17 通道 vs 9 通道）。
+
 用法：
     python tools/ml/verify_contract.py --model models/release/hbb_detector.onnx
     python tools/ml/verify_contract.py --all models/release
@@ -59,12 +66,15 @@ CELL_CONTRACT = Contract(
      TensorSpec("row_logits", ("N", 11))),
 )
 
-# 按输出张量名识别模型类型（比按文件名稳，文件名可能被改过）。
-_CONTRACT_BY_OUTPUT = {
-    spec.name: HBB_CONTRACT for spec in HBB_CONTRACT.outputs
-} | {
-    spec.name: CELL_CONTRACT for spec in CELL_CONTRACT.outputs
-}
+TARGET_POSE_CONTRACT = Contract(
+    "target_pose",
+    (TensorSpec("images", ("N", 3, 640, 640)),),
+    (TensorSpec("output0", ("N", 9, 8400)),),
+)
+
+# 按输出张量名找候选契约（比按文件名稳，文件名可能被改过）。
+# hbb 与 target_pose 输出同名 output0，候选会有多个，verify() 里再按形状分流。
+_CONTRACTS = (HBB_CONTRACT, CELL_CONTRACT, TARGET_POSE_CONTRACT)
 
 
 def _dims(shape) -> tuple:
@@ -112,14 +122,20 @@ def verify(path: str | Path) -> tuple[bool, str]:
     tensors = _onnx_tensors(model)
 
     contract = None
-    for name, candidate in _CONTRACT_BY_OUTPUT.items():
-        if name in tensors:
-            contract = candidate
-            break
+    candidates = [c for c in _CONTRACTS
+                  if all(spec.name in tensors for spec in c.outputs)]
+    if candidates:
+        # 名字命中多个契约（hbb/target_pose 共用 output0）时按形状精确分流；
+        # 全都不匹配则保留第一个候选，让下方逐张量对比给出具体差异。
+        contract = next(
+            (c for c in candidates
+             if all(_match(spec, tensors[spec.name][0])
+                    for spec in (*c.inputs, *c.outputs))),
+            candidates[0])
     if contract is None:
         return False, (
             f"无法识别模型类型：输出张量 {sorted(t for t in tensors)} 均不在已知契约内 "
-            f"(hbb: output0 / cell: letter_logits,row_logits)"
+            f"(hbb: output0 / cell: letter_logits,row_logits / target_pose: output0)"
         )
 
     problems = []

@@ -724,9 +724,9 @@ class CarLink(threading.Thread):
 # ---------------------------------------------------------------- 相机
 
 class UvcCam:
-    """普通 UVC 相机（cv2.VideoCapture）。"""
+    """普通 UVC 相机 / 网络视频流源（cv2.VideoCapture，索引或 URL 均可）。"""
 
-    def __init__(self, index: int) -> None:
+    def __init__(self, index: "int | str") -> None:
         _need_cv2()
         self.cap = cv2.VideoCapture(index)
         if not self.cap.isOpened():
@@ -778,10 +778,13 @@ class RealSenseCam:
 
 
 def open_camera(args):
-    """按参数开相机：--camera 指定 UVC；--realsense 强制 RealSense；
-    默认自动（先 RealSense，失败回退 UVC 0）。打不开返回 None。"""
+    """按参数开相机：--camera 指定 UVC；--camera-url 指定网络流（如手机 IP Webcam）；
+    --realsense 强制 RealSense；默认自动（先 RealSense，失败回退 UVC 0）。
+    打不开返回 None。"""
     if args.camera is not None:
         return UvcCam(args.camera)
+    if args.camera_url:
+        return UvcCam(args.camera_url)
     if args.realsense:
         return RealSenseCam()
     try:
@@ -959,6 +962,9 @@ def cmd_run(args) -> int:
     last_pursuit = last_cmdvel = None
 
     print(f"[日志] {out_path}")
+    if args.car_marker_id != CAR_MARKER_ID:
+        print(f"[配置] 车顶标记使用 ID {args.car_marker_id}（默认 {CAR_MARKER_ID}），"
+              f"中心校验已让位关闭")
     try:
         with open(out_path, "w", encoding="utf-8", newline="\n") as log:
             while True:
@@ -977,14 +983,16 @@ def cmd_run(args) -> int:
                         Hnew = corners_homography(dets, corners)
                         if Hnew is not None:
                             H = Hnew
-                    if CAR_MARKER_ID in dets:
-                        truth_px = tuple(dets[CAR_MARKER_ID].mean(axis=0))
+                    if args.car_marker_id in dets:
+                        truth_px = tuple(dets[args.car_marker_id].mean(axis=0))
                         if H is not None:
                             x, y, yaw = solve_car_pose(
-                                H, dets[CAR_MARKER_ID], args.car_marker_yaw_offset)
+                                H, dets[args.car_marker_id], args.car_marker_yaw_offset)
                             truth = (x, y, yaw)
                             last_truth = (t, x, y, yaw)
-                    if CENTER_MARKER_ID in dets and H is not None \
+                    # 车顶标记顶替 id5 时，id5 已不再是中心校验点，跳过避免误报
+                    if CENTER_MARKER_ID != args.car_marker_id \
+                            and CENTER_MARKER_ID in dets and H is not None \
                             and t - center_hint_last > 5.0:
                         cx, cy = homography_apply(
                             H, dets[CENTER_MARKER_ID].mean(axis=0))
@@ -1118,13 +1126,26 @@ def build_parser() -> argparse.ArgumentParser:
     rn.add_argument("--car-port", type=int, default=22)
     rn.add_argument("--password", default=None,
                     help="车端密码；更推荐 AG_CAR_PASS 环境变量")
-    rn.add_argument("--camera", type=int, default=None, help="UVC 相机索引")
+    rn.add_argument("--camera", type=int,
+                    default=(int(os.environ["TRACK_DIAG_CAMERA_INDEX"])
+                             if os.environ.get("TRACK_DIAG_CAMERA_INDEX") else None),
+                    help="UVC 相机索引（DroidCam/Iriun 等虚拟摄像头通常是 1，"
+                         "笔记本自带相机占 0；也可设 TRACK_DIAG_CAMERA_INDEX）")
+    rn.add_argument("--camera-url", default=os.environ.get("TRACK_DIAG_CAMERA_URL"),
+                    help="网络流相机源 URL（安卓 IP Webcam 免费且 1080p："
+                         "http://手机IP:8080/video；也可设 TRACK_DIAG_CAMERA_URL，"
+                         "bat 菜单自动生效；--camera 优先于本参数）")
     rn.add_argument("--realsense", action="store_true", help="强制用 RealSense")
     rn.add_argument("--corners", default=None,
                     help='场角场地米制坐标，如 "1:0,0 2:3.85,0 3:3.85,4.9 4:0,4.9"')
     rn.add_argument("--corner-config", default=None, help="场角 JSON 配置文件")
     rn.add_argument("--car-marker-yaw-offset", type=float, default=0.0,
                     help="车顶标记贴歪修正（度，逆时针为正）")
+    rn.add_argument("--car-marker-id", type=int,
+                    default=int(os.environ.get("TRACK_DIAG_CAR_MARKER_ID", "0")),
+                    help="车顶标记的 ArUco ID（默认 0。id0 打印件缺失时可把富余的 "
+                         "id5（中心校验，可选件）贴车顶，并在 tools/track_diag.local.env "
+                         "写 TRACK_DIAG_CAR_MARKER_ID=5——此时中心校验自动让位关闭）")
     rn.add_argument("--show", action="store_true", help="显示诊断画面（网格+双箭头）")
     rn.add_argument("--out", default=None, help="jsonl 日志路径（默认 logs/track_diag/<时间戳>.jsonl）")
     rn.add_argument("--no-car", action="store_true", help="只跑相机侧")
