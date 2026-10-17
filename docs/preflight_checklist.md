@@ -49,7 +49,7 @@
 | # | 检查项 | 命令/方法 | 标准 | 结果 |
 |---|---|---|---|---|
 | B1-1 | Orin SSH 可达 | `ping <Orin IP>` | 丢包率 < 5% | ⬜ |
-| B1-2 | dzuav 可执行程序 | `ls ~/dzuav/build/dzuav` | 存在且可执行 | ⬜ |
+| B1-2 | dzuav 可执行程序 | `ls ~/dzuav_deploy/air_ground/onboard/dzuav/build/dzuav` | 存在且可执行（2026-10-16 起统一布局，`tools/orin_deploy.py` 部署；旧 `~/dzuav/build` 口径作废） | ⬜ |
 | B1-3 | 检测模型 engine | `ls ~/dzuav/engines/hbb_detector*.engine` | 存在（当前指针：hbb_detector_7cls_distill_20261011.onnx → .engine） | ⬜ |
 | B1-4 | 格号模型 engine | `ls ~/dzuav/engines/cell_classifier*.engine` | 存在（当前指针：cell_classifier_v4c_ft_20261010.onnx → .engine） | ⬜ |
 | B1-5 | 相机设备 | `ls /dev/video0` | 存在 | ⬜ |
