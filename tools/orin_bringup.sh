@@ -7,6 +7,7 @@
 #   livox    激光雷达驱动
 #   fastlio  FAST-LIO 定位（依赖 livox）
 #   px4      MicroXRCEAgent（飞控串口桥，依赖 /dev/ttyACM0）
+#   wdog     飞控链路看门狗（飞控重上电后会话死自动重启 Agent）
 #   odom     px4_odom_convert（SLAM -> NED）
 #   imu      px4_imu_bridge（飞控 IMU -> ROS）
 #   control  px4_control 状态机（Offboard 起飞/返航）
@@ -64,7 +65,11 @@ up() {
 
     # 3. 飞控桥 -> 里程计/IMU 桥
     win px4 "MicroXRCEAgent serial --dev /dev/ttyACM0 -b 921600"
-    ok "px4(MicroXRCE)"; sleep 2
+    ok "px4(MicroXRCE)"
+    # 飞控链路看门狗：飞控重上电后会话静默 -> 自动重启 Agent 重建（2026-10-16 实机踩坑）
+    win wdog "python3 $REPO/tools/orin_agent_watchdog.py"
+    ok "wdog(看门狗)"
+    sleep 2
     win odom "ros2 launch px4_odom_convert px4_odom_convert.launch.py"
     ok "odom"
     win imu "ros2 launch px4_imu_bridge sensor_combined_to_imu.launch.py"
@@ -93,7 +98,7 @@ up() {
 status() {
     tmux has-session -t "$SESSION" 2>/dev/null || { echo "会话 $SESSION 不存在"; exit 1; }
     tmux list-windows -t "$SESSION" -F "#{window_name}: #{session_windows}窗 #{?window_active,ACTIVE,} #{pane_current_command}"
-    for w in dzuav livox fastlio px4 odom imu control path teleop; do
+    for w in dzuav livox fastlio px4 wdog odom imu control path teleop; do
         alive=$(tmux list-panes -t "$SESSION:$w" -F "#{pane_dead}" 2>/dev/null)
         [[ -z $alive ]] && continue
         [[ $alive == 0 ]] && echo "  [活] $w" || echo "  [死] $w"
