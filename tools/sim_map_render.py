@@ -92,10 +92,6 @@ def col_sx(letter: str) -> float:
     return 0.175 + 0.35 * (ord(letter) - 65)
 
 
-def row_sy(row: int) -> float:
-    return (11.5 - row) * CELL
-
-
 def parse_tokens(text: str) -> list[str]:
     """token 串 → 列表；末点 ,x/,y 后缀剥掉（文件模式也一样，这里统一处理）。"""
     toks = [t for t in re.split(r"\s+", text.strip()) if t]

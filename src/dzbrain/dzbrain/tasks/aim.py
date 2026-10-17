@@ -86,13 +86,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ..core.blackboard import (P_AIM, P_MISSION_PHASE, P_SAFETY, P_STOP_POINT,  # noqa: F401
-                               P_TARGET, P_TELEMETRY, Blackboard)
+from ..core.blackboard import (P_AIM, P_AIM_RED, P_MISSION_PHASE, P_SAFETY,  # noqa: F401
+                               P_STOP_POINT, P_TARGET, P_TELEMETRY, Blackboard)
 from ..core.config import SCHEMA, Config
 from ..core.events import (EV_AMMO_CHANGED, EV_FIRE_ALLOWED, EV_FIRE_BLOCKED,
                            EV_HIT_CONFIRMED, EV_TARGET_FIRST_SEEN, EV_TARGET_LOST, EventBus)
 from ..core.logging import Throttle
-from ..core.state import AimState, SafetyState, StopKind, StopPointState, TargetState  # noqa: E402
+from ..core.state import (AimState, SafetyState, StopKind, StopPhase,  # noqa: E402
+                          StopPointState, TargetState)
 from ..core.task import TaskThread
 from ..io.contract import AimStatus, OffsetObservation, ShotClass
 
@@ -550,6 +551,14 @@ class AimTask(TaskThread):
                                                  5))))
         self._fire_only_blue = bool(g("aim.fire_only_blue",
                                       cfg.get("dzrknn_dataprocess.fire_only_blue", False)))
+        # ---- ★★ 卡 t13：红面早退（≥N 秒锁定红 ⇒ 置黑盒标志，Mission 提前离站）----
+        #   为什么放在 Aim：类别锁定（`_update_class`）与"连续 N 帧同类"是这里独占的知识，
+        #   Mission 只该看到"结论"（确认红面）而不是自己重算一遍类别抖动逻辑。
+        #   阈值缺省 3.0 s = 用户口径；`run_s` 只在**射击停站的 ACQUIRE/FIRE 段**累计，
+        #   离开停站立即归零（否则第二个停站一进去就被误判早退，见 `P_AIM_RED` 契约）。
+        self._red_early_leave_s = max(0.0, float(g("aim.red_early_leave_s", 3.0)))
+        self._red_run_s = 0.0               # 本次停站内"锁定红"累计秒数
+        self._red_confirmed = False         # 是否已到达阈值（写 `P_AIM_RED`）
         self._hit_hold_s = float(g("aim.hit_hold_s", self._cooldown_s))
         self._rescan_on_lost = bool(g("aim.rescan_on_lost", False))
         # ---- ★★ 卡 t13：云台巡迹锁止（用户 2026-10-11 指令）----
@@ -722,6 +731,9 @@ class AimTask(TaskThread):
 
         # ---- 3b. 类别锁定（连续 N 帧同类才改锁；单帧抖动只吞当拍许可） ----
         self._update_class(obs, has_target)
+
+        # ---- 3c. ★红面早退（t13）：锁定红持续 ≥ aim.red_early_leave_s ----
+        self._update_red_confirmed(dt)
 
         # ---- 4. 可见性台账（seen / lost_since / 事件） ----
         self._track_visibility(obs, has_target, now)
@@ -1264,6 +1276,44 @@ class AimTask(TaskThread):
                           f"（连续 {self._cls_run} 帧 ≥ {self._cls_confirm}）")
             self._locked_cls = cls
         self._last_class = cls
+
+    # ------------------------------------------------------------------ #
+    #  ★ 红面早退（卡 t13）
+    # ------------------------------------------------------------------ #
+    def _update_red_confirmed(self, dt: float) -> None:
+        """锁定红**持续** ≥ `aim.red_early_leave_s` ⇒ 写 `P_AIM_RED`（Mission 据此早退）。
+
+        只在**射击停站的 ACQUIRE / FIRE 段**累计：巡迹途中（无停站）看到红面不该有任何
+        副作用，否则"路过时瞄到一眼红"就会把下一个停站的开火窗口提前掐掉。
+        离开停站（`phase` 变成 SETTLE/DONE 或键消失）或类别不再是红 → 累计清零、标志撤下。
+        """
+        stop = self.bb.get(P_STOP_POINT)
+        phase = str(getattr(stop, "phase", "") or "")
+        kind = str(getattr(stop, "kind", "") or "")
+        in_stop_fire = (kind == StopKind.SHOOT
+                        and phase in (StopPhase.ACQUIRE, StopPhase.FIRE))
+        red = bool(self._fire_only_blue and self._locked_cls == ShotClass.RED)
+
+        if in_stop_fire and red:
+            self._red_run_s += max(0.0, dt)
+        else:
+            self._red_run_s = 0.0
+
+        confirmed = bool(in_stop_fire and red
+                         and self._red_run_s >= self._red_early_leave_s - 1e-9)
+        if confirmed and not self._red_confirmed:
+            block = str(getattr(stop, "block", "") or "")
+            self._log(f"红面确认：锁定红已持续 {self._red_run_s:.2f}s ≥ "
+                      f"{self._red_early_leave_s:.1f}s（停站点 {block}）"
+                      f" ⇒ 置红面标志，Mission 可提前离站")
+        self._red_confirmed = confirmed
+        self.bb.set(P_AIM_RED, {
+            "confirmed": confirmed,
+            "run_s": round(self._red_run_s, 4),
+            "threshold_s": round(self._red_early_leave_s, 4),
+            "cls": int(self._locked_cls),
+            "block": str(getattr(stop, "block", "") or ""),
+        }, source=self.name)
 
     # ------------------------------------------------------------------ #
     #  生命周期

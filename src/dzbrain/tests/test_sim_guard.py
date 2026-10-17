@@ -115,8 +115,18 @@ FIELD_WAYPOINTS = 44
 FIELD_PIVOT_BLOCKS = ()
 # ★★ t31 重钉：射击停站由 F4* 改为 **C10***（第五张图靶板 B11+C11 的横向跨格板），
 #   末点仍是 N5；索引按 60 点路线实测（29 = C10*、59 = N5）。
-FIELD_STOP_INDICES = (31, 43)
+# ★★ t3 一版（2026-10-16）：停站点推远到板心 1.00±0.11 m ⇒ `F3*` → `F2*`，路线 44 → 50 点，
+#   停站索引 (31, 43) → (32, 49)。
+# ★★ **t3-A 裁决重钉**：1.00 档作废（`F2` 到站把靶板甩到车尾 170.5°，云台 ∓150° 扫不到），
+#   停站退到主线上的 `D3`（板心 0.875 m）⇒ 路线回到 **44 点**，停站索引 **(29, 43)**。
+# ★★ **t13 重钉（2026-10-17）**：双射击停站 —— 靶板一面蓝一面红、蓝面朝向每局随机但恒定，
+#   只打蓝 ⇒ 两侧各停一次才保证必见蓝面。现役 44 点路线上 `G3`（板心另一侧 0.875 m，
+#   与 `D3` 镜像：D3→E5/F5 = 0.7826/0.9899，G3 = 0.9899/0.7826）被标成第二个停站 `G3*`
+#   ⇒ 停站索引 **(29, 32, 43)**（29=D3*、32=G3*、43=末点 N5）；**总长/航点数不变**。
+FIELD_STOP_INDICES = (29, 32, 43)
 # ★★ t31 重钉：总长 21.350 → **20.650 m**（第五张图 60 点自规划路线实测）。
+# ★★ t3 一版：15.05 → 17.15 m（`F2` 不在主线上 ⇒ 多绕 `F1→G1→H1→H2→H3` 一段）。
+# ★★ **t3-A**：绕行消失 ⇒ 回到 **15.05 m**（与 t50/t57 同值）。
 FIELD_LENGTH_M = 15.05
 
 STRAIGHT = parse_mission(["N10", "M10"])   # 两格直线，0.35 m
@@ -203,9 +213,9 @@ print("     结构: %d 点 / %.2f m / 倒车段 %s / 停站点 %s / 拐角(>45°
     sum(1 for i in range(FIELD_PATH.segment_count) if FIELD_PATH.corner_angle_deg(i) > 45.0),
     sorted(FIELD.waypoints[i + 1].block for i in range(FIELD_PATH.segment_count - 1)
            if FIELD_PATH.corner_turn_deg(i) >= 135.0)))
-check("2.1 解析出 60 个航点", len(FIELD.waypoints) == FIELD_WAYPOINTS,
+check("2.1 解析出 44 个航点（t3-A：板心 0.90 m 停站 D3）", len(FIELD.waypoints) == FIELD_WAYPOINTS,
       f"got {len(FIELD.waypoints)}")
-check_close("2.2 路线总长 = 20.650 m", FIELD_PATH.total_length, FIELD_LENGTH_M, 1e-9)
+check_close("2.2 路线总长 = 15.050 m（t3-A）", FIELD_PATH.total_length, FIELD_LENGTH_M, 1e-9)
 _rev = tuple(i for i in range(FIELD_PATH.segment_count)
              if FIELD_PATH.segment_is_reverse(i))
 check("2.3 ★现场图已无倒车段（2026-10-09 底盘不支持倒车，R: 腿全删）", _rev == (),
@@ -220,11 +230,17 @@ check("2.3b ★第三张图无 ≥135° 折返顶点（U 形靠外圈绕行，�
 check("2.4 停站点索引 = %s" % (FIELD_STOP_INDICES,),
       tuple(FIELD_PATH.stop_indices) == FIELD_STOP_INDICES,
       f"got {tuple(FIELD_PATH.stop_indices)}")
-check("2.5 F3 是射击停站（官方图靶板 E5/F5）",
-      FIELD.waypoints[FIELD_STOP_INDICES[0]].block == "F3"
+check("2.5 D3 是射击停站（官方图靶板 E5/F5；t3-A 板心 0.90 m 停站）",
+      FIELD.waypoints[FIELD_STOP_INDICES[0]].block == "D3"
       and FIELD.waypoints[FIELD_STOP_INDICES[0]].shoot is True,
       f"block={FIELD.waypoints[FIELD_STOP_INDICES[0]].block} "
       f"shoot={FIELD.waypoints[FIELD_STOP_INDICES[0]].shoot}")
+# ★ t13：第二个射击停站必须是 `G3`（板面另一侧），否则"蓝面随机"就没被覆盖
+check("2.5b ★t13 第二射击停站 = G3（与 D3 分居板面两侧，镜像 0.875 m）",
+      FIELD.waypoints[FIELD_STOP_INDICES[1]].block == "G3"
+      and FIELD.waypoints[FIELD_STOP_INDICES[1]].shoot is True,
+      f"block={FIELD.waypoints[FIELD_STOP_INDICES[1]].block} "
+      f"shoot={FIELD.waypoints[FIELD_STOP_INDICES[1]].shoot}")
 
 # ---- 零注入 + 关锚定 ⇒ 信念必须**逐位**等于真值 ----
 r2z = _run(FIELD, anchor_on_arrival=False, max_steps=FIELD_HARD_CAP)

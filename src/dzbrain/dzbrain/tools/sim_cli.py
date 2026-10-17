@@ -38,10 +38,6 @@ __all__ = ["build_parser", "main"]
 _WS_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
 
-def _default_route_path() -> str:
-    return os.path.join(_WS_ROOT, "src", "dzbrain", "tests", "fixtures", "route_field.txt")
-
-
 def build_parser() -> argparse.ArgumentParser:
     """构造参数解析器（`main(argv)` 可注入 argv，便于测试）。"""
     ap = argparse.ArgumentParser(

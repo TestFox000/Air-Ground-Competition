@@ -1,5 +1,11 @@
 # 仿真复验报告 · 第五张图 tracker-safe 44 token 路线基线（卡 t2 / w2）
 
+> ⚠️ **历史快照（docs 口径收口 2026-10-17 追加，不改原文数据）**：本报告绑定 2026-10-16 的 `config/robot.yaml`
+> sha256 `F8BDEC15…`（**t57 时代：`F3*` 单停站、板心 0.7215 m、窗口 `0.70–0.90`**）。
+> 其后路线口径两次变更：**t3-A（2026-10-16）单停站 `D3*`（0.875 m）** → **t13（2026-10-17）双停站 `D3*`+`G3*`（均 0.875 m）**；
+> 本报告的 44 token 串、`射击停站 ['F3*']`、`0.70~0.90` 窗口均属**当时快照**，勿当现役。
+> 现役（`0.90 / 0.12`、窗口 `[0.78, 1.02]`、双停站、44 token / 15.05 m）见 [`发车门禁口径.md`](发车门禁口径.md) §6。
+
 > 执行人：sim-operator（仿真员）　attempt 1　日期：2026-10-16
 > 范围：**只写** `artifacts/sim/t2_baseline_44tok/**` 与本文件；未改 `config/**`、未改 `src/dzbrain/**`、未跑车、未连车。
 > 依赖：t1（w1 发车基线核对，只读）。
@@ -35,7 +41,7 @@ route.tokens（Config.load 实测）= 44 token：
 N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1
 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y
 ```
-- 15.05 m / 43 航段 / 唯一射击停站 `F3*` / 倒车段 0 / 折返点 0
+- 15.05 m / 43 航段 / 唯一射击停站 `F3*`（**t57 历史档，0.7215 m**；现役已变为双停站 `D3*`+`G3*`，见文首） / 倒车段 0 / 折返点 0
 - `planner.engine = tracker-safe`；`route.cross_lower_candidates=['K9']`、`cross_upper_candidates=['K5']`
 - `pursuit.cruise_speed_mps = 0.35`（落盘值；0.15/0.40 为 `--set` 对照档）
 - 地图：`config/map.yaml` 第五张新地图官方贴图重掷版，雷 8 / 障 8 / 靶 `E5+F5` / 桥洞 `K5,K9`

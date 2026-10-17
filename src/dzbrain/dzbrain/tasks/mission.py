@@ -166,8 +166,9 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ..core import geometry as geo
-from ..core.blackboard import (P_DRONE, P_MISSION_PHASE, P_POSE, P_ROUTE, P_ROUTE_INDEX,
-                               P_ROUTE_S, P_SAFETY, P_STOP_POINT, P_TELEMETRY, Blackboard)
+from ..core.blackboard import (P_AIM_RED, P_DRONE, P_MISSION_PHASE, P_POSE, P_ROUTE,
+                               P_ROUTE_INDEX, P_ROUTE_S, P_SAFETY, P_STOP_POINT,
+                               P_TELEMETRY, Blackboard)
 from ..core.config import Config, pivot_dist_eff
 from ..core.events import (EV_BRIDGE_INFO, EV_MISSION_FINISHED, EV_MISSION_STARTED,
                            EV_ARRIVED_STOP_POINT, EV_ROUTE_LOADED, EV_STOP_POINT_DONE,
@@ -1078,6 +1079,17 @@ class MissionTask(TaskThread):
         #  只有显式 `aim.gimbal_lock_enabled=false`（旧行为/对照档）时，Mission 才照旧发。
         self._gimbal_lock_enabled = bool(cfg.get("aim.gimbal_lock_enabled", True))
         self._shots_per_stop = int(cfg.get("mission.shots_per_stop", 3) or 3)
+        # ---- ★★ 卡 t13：双射击停站 + 红面早退 ----
+        #   ① `_red_early_leave_s` 与 AimTask 用**同一个键**（`aim.red_early_leave_s`），
+        #      保证"标志成立"和"Mission 允许早退"不会因两份默认值而打架；
+        #      Mission 这边再核一次"已停留 ≥ 阈值"，是防止陈旧标志（对上一停站点成立的）
+        #      把新停站点一进去就踢出来 —— 双保险，缺一不可。
+        #   ② `_hit_this_stop` 由 `_phase_fire` 在"发数增量达标"那一路置位；`_complete_stop`
+        #      据此跳过后续射击停站（第二个停站只为"看另一面"而设，已经打出去了就不必绕）。
+        self._red_early_leave_s = float(cfg.get("aim.red_early_leave_s", 3.0) or 3.0)
+        self._skip_second_after_hit = bool(
+            cfg.get("mission.skip_second_stop_after_hit", True))
+        self._hit_this_stop = False
         self._settle_time_s = float(cfg.get("mission.settle_time_s", 0.8))
         self._settle_eps_m = float(cfg.get("mission.settle_eps_m", 0.02))
         self._settle_speed_mps = float(cfg.get("mission.settle_speed_mps", 0.02))
@@ -1214,6 +1226,11 @@ class MissionTask(TaskThread):
         self._finish_latched = False
         self._finish_done = False
         self._finish_info: dict[str, Any] = {}
+        # ★ 需求2：本进程内是否已到过终点。True 后 auto_start 计时器不再自动发车
+        #   （到终点复位回 IDLE 后，若不拦，auto_start=true 会在下一拍又自动出发 → 无限循环）。
+        self._auto_start_consumed = False
+        # ★ 需求2：FINISH 后延迟一拍复位（让 FINISH 阶段/结算横幅至少可见一次，再回 IDLE）。
+        self._finish_pending_reset = False
         self._scans: list[int] = []
         self._cmd_stats: dict[str, int] = {"total": 0, "rejected": 0}
         self._log_throttle = Throttle(self._rate_limit_s)
@@ -1978,7 +1995,13 @@ class MissionTask(TaskThread):
 
         self._maybe_auto_start()
         if self._phase == MissionPhase.FINISH:
-            pass                                    # ★ 锁存：FINISH 后不再推进（也不重复发事件）
+            # ★★ 需求2（用户 2026-10-16）：到终点后延迟一拍复位回 IDLE，进入"准备发车"状态。
+            #   `_check_finish` 设置 FINISH 的**那一拍**已经完成结算（横幅+事件+刹车），
+            #   这里下一拍才复位 —— 让 FINISH 阶段/结算横幅至少可见一次，遥测也能读到成绩。
+            if self._finish_pending_reset:
+                self._reset_for_next_run()
+            else:
+                self._finish_pending_reset = True
         elif self._phase in _DRIVING_PHASES:
             self._drive()
             self._maybe_enter_bridge_hold()         # ★ t32：到 L10 决策点 → 可能进 HOLD
@@ -1994,6 +2017,8 @@ class MissionTask(TaskThread):
     # ------------------------------------------------------------------ #
     def _maybe_auto_start(self) -> None:
         if not self._auto_start or self._phase != MissionPhase.IDLE:
+            return
+        if self._auto_start_consumed:               # ★ 需求2：到过终点后不再自动发车
             return
         elapsed = self._clock() - self._created_at
         if elapsed < self._auto_start_delay_s:
@@ -2693,6 +2718,7 @@ class MissionTask(TaskThread):
         now = self._clock()
         kind = StopKind.SCAN if (wp.scan and not wp.shoot) else StopKind.SHOOT
         shots = int(self.bridge.shoot_count())
+        self._hit_this_stop = False          # ★ 卡 t13：每个停站点独立计"是否已打出去"
         self._stopctx = _StopContext(
             index=idx, block=wp.block, kind=kind, phase=StopPhase.SETTLE,
             started_at=now, phase_started_at=now,
@@ -2731,9 +2757,28 @@ class MissionTask(TaskThread):
                       f" → 强制离站（0 发也不例外）")
             self._publish_stop_state(now)
             return
+        # ---- ★★ 卡 t13：红面早退（先于三段判定；到站硬死线仍在最上面）----
+        #   语义：靶板一面蓝一面红、蓝面朝向每局随机但恒定 ⇒ 本侧只见红面时，等到 30s 硬死线
+        #   也只会白等。锁定红累计 ≥ 阈值的**结论**由 AimTask 写进 `P_AIM_RED`
+        #   （它知道类别抖动/确认帧数），Mission 只做两件事：读标志 + 自己再核"已停留够久"。
+        #   ⚠️ 只在 ACQUIRE/FIRE 段生效：SETTLE 段还没开始看靶，早退会把"还没瞄"当成"红面"。
+        if (stop.kind == StopKind.SHOOT
+                and stop.phase in (StopPhase.ACQUIRE, StopPhase.FIRE)):
+            red = self.bb.get(P_AIM_RED)
+            if isinstance(red, dict) and red.get("confirmed"):
+                dwell = now - stop.started_at
+                if dwell >= self._red_early_leave_s - 1e-9:
+                    self._abandon_stop(
+                        stop, f"红面早退：锁定红已持续 {float(red.get('run_s', 0.0)):.2f}s"
+                              f" ≥ {self._red_early_leave_s:.2f}s，"
+                              f"本停站点 {stop.block} 已停留 {dwell:.2f}s"
+                              f" → 提前离站去下一个射击停站")
+                    self._publish_stop_state(now)
+                    return
         if stop.kind == StopKind.SCAN:
             self._run_scan_stop(stop, now)
-        elif stop.phase == StopPhase.SETTLE:
+            return
+        if stop.phase == StopPhase.SETTLE:
             self._phase_settle(stop, now)
         elif stop.phase == StopPhase.ACQUIRE:
             self._phase_acquire(stop, now)
@@ -2797,6 +2842,9 @@ class MissionTask(TaskThread):
         self._set_fire_gate(True)                   # ★ 放行门：进本段即打开（幂等）
         delta = int(self.bridge.shoot_count()) - stop.shots_at_arrival
         if delta >= stop.shots_needed:
+            # ★ 卡 t13：这一路是"真的打出去了"的唯一证据（发数增量达标），
+            #   第二个射击停站据此跳过（见 `_complete_stop`）。
+            self._hit_this_stop = True
             self._complete_stop(stop, f"发数增量 {delta} ≥ {stop.shots_needed} → 命中窗口结束")
             return
         if (now - stop.phase_started_at) >= self._shot_timeout_s:
@@ -2832,7 +2880,33 @@ class MissionTask(TaskThread):
         self._set_fire_gate(False)
         stop.detail = detail
         self._log(f"停站点 {stop.index} {stop.block} 完成：{detail}")
+        skip_next = bool(self._hit_this_stop and self._skip_second_after_hit
+                         and stop.kind == StopKind.SHOOT)
+        self._hit_this_stop = False
         self._close_stop_point(stop)
+        if skip_next:
+            self._skip_following_shoot_stop(stop)
+
+    def _skip_following_shoot_stop(self, done: _StopContext) -> None:
+        """★ 卡 t13：本停站点已打出去 ⇒ 跳过**下一个射击停站**（第二个站只为看另一面）。
+
+        只跳"射击停站"，扫描停站（`F2:SCAN_STOP` 之类）照常执行 —— 它的作用是定向扫描，
+        与"已经打过靶"无关。找不到下一个射击停站就什么都不做（末点/单停站路线=零副作用）。
+        """
+        route = self._route
+        if route is None:
+            return
+        for idx in sorted(self._stop_s):
+            if idx <= done.index or idx in self._handled_stops:
+                continue
+            wp = route[idx]
+            if not wp.shoot:
+                continue
+            self._handled_stops.add(idx)
+            self._log(f"跳过射击停站 {idx} {wp.block}："
+                      f"停站点 {done.index} {done.block} 已打出去（发数增量达标）"
+                      f" ⇒ 不再为看另一面绕行")
+            return
 
     def _abandon_stop(self, stop: _StopContext, detail: str) -> None:
         self._set_fire_gate(False)
@@ -2954,6 +3028,7 @@ class MissionTask(TaskThread):
             return
 
         self._finish_latched = True
+        self._auto_start_consumed = True            # ★ 到终点后不再自动发车（回 IDLE 待命）
         self._close_ledger()                        # ★ 收尾：把"还悬着"的航点显式记账
         elapsed = (self._clock() - self._started_at) if self._started_at is not None else 0.0
         drift = 0.0
@@ -3010,6 +3085,23 @@ class MissionTask(TaskThread):
                           f"⇒ 车体未必盖住格心）："
                           + " ".join(f"#{i}{route.waypoints[i].block}={v:.3f}m"
                                      for i, v in uncovered))
+
+    def _reset_for_next_run(self) -> None:
+        """★ 需求2（用户 2026-10-16）：终点结算后回 IDLE，进入"准备发车"状态。
+
+        **只回阶段 + 重开终点锁存，不清空路线数据** —— 这样：
+          · 阶段 FINISH → IDLE（车停住、不再推进），满足"到达 N5 后进入准备发车状态"；
+          · `_route`/`_passed`/`_finish_info` 全保留，终点台账与成绩遥测复位后仍可查，
+            也**不破坏**依赖"FINISH 后 `_passed` 仍存在"的回归哨兵（test_goal_stop §3）；
+          · `_auto_start_consumed=True`（`_check_finish` 里已置）保证 auto_start=true 不会
+            在复位后立刻又自动发车（`_route is not None` 也拦一次，双保险）。
+        下一发车靠外部命令（`reset:`/`load:`/`单点`/`多点`）覆盖旧路线，或重启栈。
+        """
+        self._write_phase(MissionPhase.IDLE)
+        self._finish_latched = False
+        self._finish_done = False
+        self._finish_pending_reset = False
+        self._log("已复位：回到 IDLE 准备发车状态（路线/成绩保留；下一发车靠外部命令或重启栈）")
 
     def _close_ledger(self) -> None:
         """收尾清账：任务结束时若还有航点"悬着"（s 越过但没到判跳过的余量），显式记账。

@@ -30,6 +30,8 @@
     # 指定穿洞格（无人机情报：下半场 K10、上半场 K3），并遍历所有合法组合
     python tools/plan_route.py --cross-lower K10 --cross-upper K3
     python tools/plan_route.py --all-crossings
+    python tools/plan_route.py --engine tracker-safe --from-cell M9 --already-covered C1,A3
+                                 # t12：增量续算（G4）——从 M9 接着算、C1/A3 视为已压雷
 
 --------------------------------------------------------------------------------
 参数来源（真源唯一性，本工具不新造任何一份配置）
@@ -115,11 +117,15 @@ def load_yaml(path: pathlib.Path) -> dict:
 #  校验（复用 tools/route_check.py，不复制规则）
 # --------------------------------------------------------------------------- #
 def run_route_check(tokens: list[str], cfg_path: pathlib.Path,
-                    map_path: pathlib.Path) -> tuple[int, str]:
+                    map_path: pathlib.Path,
+                    already_covered: tuple[str, ...] | None = None) -> tuple[int, str]:
     """调用 `tools/route_check.py --route "..."`。
 
     地图不在默认位置时把 `ROBOT_MAP` 传进子进程 —— 这是该工具自带的入口，
     比复制一份路径逻辑更可靠（换了 `--map` 之后校验的必须还是同一张图）。
+
+    `already_covered`（t12 增量续算）：已压雷格 → `--already-covered` 透传给
+    route_check，覆盖判据不要求这些雷重压；缺省不传、校验口径逐字节不变。
     """
     script = HERE / "route_check.py"
     if not script.is_file():
@@ -132,6 +138,8 @@ def run_route_check(tokens: list[str], cfg_path: pathlib.Path,
     env["PYTHONUTF8"] = "1"
     cmd = [sys.executable, str(script), "--route", " ".join(tokens),
            "--config", str(cfg_path)]
+    if already_covered:
+        cmd += ["--already-covered", *already_covered]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
                               cwd=str(WS), env=env, encoding="utf-8", errors="replace")
@@ -166,10 +174,13 @@ def plan_once(map_cfg: dict, cfg: Config, args, *, cross_lower: str | None,
     """
     if getattr(args, "engine", "tour") == "tracker-safe":
         turned = tuple(args.turned_mines.split(",")) if args.turned_mines else ()
+        covered = (tuple(c.strip() for c in args.already_covered.split(",") if c.strip())
+                   if getattr(args, "already_covered", None) else ())
         return PL.plan_route_tracker_safe(
             map_cfg, cfg, cross_lower=cross_lower, cross_upper=cross_upper,
             phase_cell=args.phase_cell, turn_w=args.t7_turn_w,
             turned_mines=turned,
+            from_cell=getattr(args, "from_cell", None), already_covered=covered,
             max_seconds=args.max_seconds, name=map_path.stem or "route",
             source=str(map_path))
     return PL.plan_route(
@@ -238,7 +249,18 @@ def main(argv: list[str] | None = None) -> int:
                     help="tracker-safe 引擎的转角权重（米/90°，默认 0.10）")
     ap.add_argument("--turned-mines", default=None,
                     help="tracker-safe 引擎里允许 90° 拐过的『口袋雷』（逗号分隔，默认 D8）")
+    # ★★ t12：增量续算（G4）CLI 出口——只对 tracker-safe 引擎生效
+    ap.add_argument("--from-cell", default=None,
+                    help="增量续算起点格（如 M9）：从当前格接着算，不再要求车在地图起点"
+                         "（仅 --engine tracker-safe）")
+    ap.add_argument("--already-covered", default=None,
+                    help="已压格集合，逗号分隔（如 C1,A3；只对雷生效，写进来的雷不再要求重压）"
+                         "（仅 --engine tracker-safe）")
     args = ap.parse_args(argv)
+    if (args.from_cell or args.already_covered) and args.engine != "tracker-safe":
+        print("❌ --from-cell / --already-covered 只支持 --engine tracker-safe（增量续算 G4）",
+              file=sys.stderr)
+        return EXIT_USAGE
     if args.engine == "tracker-safe":
         if args.phase_cell is None:
             args.phase_cell = PL.TS_PHASE_CELL
@@ -313,8 +335,14 @@ def main(argv: list[str] | None = None) -> int:
     worst = EXIT_OK
     checked: dict[int, tuple[int, str]] = {}
     if args.check:
+        # ★ t12：增量续算口径——已压雷透传给 route_check（不要求重压）
+        covered: tuple[str, ...] = ()
+        if getattr(args, "already_covered", None):
+            covered = tuple(c.strip().upper()
+                            for c in args.already_covered.split(",") if c.strip())
         for idx, (_, _, res) in enumerate(results):
-            code, text = run_route_check(res.tokens, cfg_path, map_path)
+            code, text = run_route_check(res.tokens, cfg_path, map_path,
+                                         already_covered=covered or None)
             checked[id(res)] = (code, text)
             if code != 0:
                 worst = EXIT_FAIL

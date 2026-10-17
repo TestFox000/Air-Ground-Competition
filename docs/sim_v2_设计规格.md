@@ -95,3 +95,58 @@ simbench.js 内部配合项（不新增端点）：`runSimJob(body,{lock})` 拆�
 | 卡3 无人机协同 | `src/dronesim.js` | `index.js`（2 端点，排卡2 之后）、`sim.html`（时间线面板，排卡1 之后） | 同上 + v3 档案 §4 | 同卡1 |
 
 冲突规则：`simbench.js` 卡1→卡2 串行、`sim.html` 卡1→卡3 串行、`index.js` 卡2→卡3 串行；三卡其余文件互不相交。理由：本工作区有并发写入者前科（v2 档案 §5），同文件并行写必产竞态。
+
+## E. t12 增补 — 四条新需求的可验收规格（唯一判据）
+
+> 本章为 t12 纯增补（原章节一字未改）：**与 §A~§D 冲突处以本章为准**，显式取代仅限 §A.2 第 5 条「数量软口径」一行。每条给：验收判据 / 真源 / 边界·非目标 / verify 命令建议。
+
+### E1. 需求1 — 硬约束优先级最高，不得放宽（障碍/隔板/桥洞含冗余）
+
+- **验收判据**：
+  1. 三类硬约束（障碍、隔板、桥洞含冗余墙）在**一切路径**上优先级高于通过性/效率/长度：拖拽图、压测 50 图、无人机开关联动均不得为「跑通/更短/更快」放宽任何一条，复审发现放宽实现 = reject；
+  2. **规划器侧审计清单（现状 文件:行，只读取证）**——障碍：`src/dzbrain/dzbrain/route/planner.py:347`（Grid 通行栅格含障碍占格）、`:429`（move_ok① 目标格可通行）、`:1403`（check_route_structure 踩障碍格报错）、`:2945`（tracker-safe 物理净空）+ `tools/route_check.py:840-859`（障碍净空，error 级 t22）；隔板：`planner.py:416`（仅列索引 < barrier_col_from 可跨越）、`:430`（move_ok②）、`:1433`（非法跨越第 hi/lo 行报错）、`:2511-2520`（隔板旁行侧向 90° 硬校验）+ `route_check.py:304/711`（barrier_crossings / barrier_touch_min）；桥洞含冗余：`planner.py:431-433`（move_ok③④，R007/R009）、`:443-447`（正交相邻前置断言）、`:624-625`（冗余取值）、`:2984-2995` 与 `:3000/:3039/:3061`（_TSGrid 段级+顶点级冗余墙判据）+ `route/physics.py:606 bridge_entry_walls()`；
+  3. **回归验收口径**：改动前后 `plan_route --check` 与 `route_check.py` 全量基线 exit 不得变差；三类各留 1 条**变异必须变红**的探针（例：放开 `:416` 跨隔板、删 `:443` 断言、冗余置 0），红→恢复绿双向实测记档；现有守卫断言（G1/T8-1/T8-2）判据零变化。
+- **真源**：`config/robot.yaml:549-557`（冗余设计注记与「route_check 刻意不含」）、`src/dzbrain/dzbrain/core/config.py:214-223`（Spec 0.0875，明文不得进 route_check 用户侧判据）。
+- **边界·非目标**：不改 planner / route_check / config 任何行；不为压测生成图开豁免层；审计时不得把冗余墙「顺手补进」`route_check.py`（现实不存在）。
+- **verify 建议**：`python tools/route_check.py --check <样例>` 基线 exit=0；`Select-String -Path src/dzbrain/dzbrain/route/planner.py -Pattern 'barrier|redundancy|障碍' | Measure-Object | Select-Object -Expand Count`（审计锚点在位）；三条变异探针红/绿双向实测。
+
+### E2. 需求2 — 棋子槽定容与靶板交互（升级 §A.2 软警告为硬拦）
+
+- **验收判据**：
+  1. **棋子槽硬顶 8/8/2/1**：雷 8、障 8、通 2、靶板 1（整对恰 2 格）为**硬顶**——槽满后第 N+1 枚落格**直接拒绝**并提示「槽已满」，原 §A.2「只警告不拦截」升级为硬拦（提示语保留，拦截为准）；
+  2. **只拖拽放置**：palette 点击仅选中棋子类型，**palette 点击不落子**，落子唯一途径 = 拖拽；移除 = 拖回 palette 或拖出棋盘；
+  3. **已放置靶板点击 = 顺时针旋转** 90°（横↔竖换向），**不等于移除**——棋子不消失、恒 2 格；旋转后仍须过「相邻 + 隔板同侧」校验，非法旋转拒绝并回弹原状；
+  4. **靶板蓝红两色分半渲染**：沿长边对半、蓝红各半且色值固定不随机；**整图仿真象棋观感**：四类棋子统一「棋子形（圆/方子 + 投影）+ 格位对齐」渲染，不再是裸色块；
+- **真源**：数量现值 `config/map.yaml:53-60`（雷 8/障 8/靶 E5+F5 横向两格/通 K5+K9），「恢复默认」一律回读该真源（§A.6 原样）；硬顶数值本身是赛场规则、写在本规格，**不落 config/**。
+- **边界·非目标**：不改 map.yaml、route_check 六层；压测生成器（§B.1）同受 8/8/2/1 **硬顶**约束（生成即合法）；旋转/落子不改变 `body.field` 提交结构（§A.3/A.4 原样）。
+- **verify 建议**：`Select-String -Path docs/sim_v2_设计规格.md -Pattern '棋子槽|硬顶|顺时针' | Measure-Object | Select-Object -Expand Count`；UI 手测四连击：槽满拖入被拒 / palette 点击不落子 / 靶板点击顺时针换向不消失 / 蓝红分半截图存证。
+
+### E3. 需求3 — 冗余墙渲染值 == 规划器取值（逐字相等）
+
+- **验收判据**：
+  1. 仿真器渲染桥洞进洞侧冗余墙，取值唯一真源 = `config/robot.yaml:559 field.bridge_entry_redundancy_m: 0.0875`（= 1/4 格 = 0.35×0.25）；
+  2. **一致性链**：规划器 `planner.py:624-625`（`g("field.bridge_entry_redundancy_m", …)`）与 `:2987-2988` → 仿真 `tools/sim.py:934-935`（`cfg.get("field.bridge_entry_redundancy_m", 0.0875)`）→ `sim.py:1516-1519`（`shape.bridge_redundancy_m` 与判据同源）→ `sim.py:551-552`（`metrics.bridge_entry_redundancy_m`）；
+  3. **断言口径**：渲染层只读 run 结果同一 JSON 字段，断言 `shape.bridge_redundancy_m === metrics.bridge_entry_redundancy_m === 0.0875`（严格 `===`，禁四舍五入/字符串化往返）；渲染侧**禁止出现 `0.0875` 字面量**（注释豁免），改真源值时渲染必须自动跟随；
+- **真源**：`config/robot.yaml:559`；兜底常量 `planner.py:2900-2903 BRIDGE_ENTRY_REDUNDANCY_M` 仅在缺 config 时兜底、与 YAML 同值。
+- **边界·非目标**：`field.bridge_entry_redundancy_m = 0.0` ⇒ 判据整体关闭（`sim.py:347/:390 bridge_modeled=0`），此时**不渲染**该墙；冗余墙不进 `route_check.py`（现实不存在）；不新增配置键。
+- **verify 建议**：`Select-String -Path <渲染文件> -Pattern '0\.0875' | Measure-Object | Select-Object -Expand Count`（字面量应为 0 处）；跑一次 `/sim/run` 后对响应 JSON 断言两字段 `=== 0.0875`；`Select-String -Path config/robot.yaml -Pattern 'bridge_entry_redundancy_m'` 核真源。
+
+### E4. 需求5 — 无人机选项（开关联动 + 约束清单 + 与 t8 共存）
+
+- **验收判据**：
+  1. **开关默认态 = 关闭**。理由：`/sim/run` 纯车语义是守卫断言与 §B 统计口径的覆盖区，默认开会在无预告下改变全部基线；开启须是显式选择（若用户点名默认开，只翻转本行，联动语义不变）；
+  2. **开关联动**：无人机选项开启时，本次 `/sim/run` 除车路线外**同时生成无人机航线并纳入本次规划与约束判定**，响应 `record` 追加 `drone` 段与 `constraints[]`（每条 `{id, ok, detail}`）；任一 `ok:false` ⇒ 记 `constraints_failed`，不得静默继续；
+  3. **约束清单（四条，规格列明）**：`bounds` 越界——车+机全部航线点 ∈ 14×11 格网与黄框边界内；`takeoff_land` 起降点——takeoff/land == map 注释 N8/M2（`fieldSpec().drone`，兜底 `dronesim.js:21`）且属禁落格（sim.html:1027-1031）；`bridge_gate` 通口——扫描走廊行由 `field.bridges` 推导（`dronesim.js:69-70` 六段正交），须与两半场通口一致；`intel_link` 情报衔接——报文与 §C.3 同构，adopted/rejected 判定走 `intelAt`（`dronesim.js:108`），rejected ⇒ 按默认路线完赛、不触发重规划；
+  4. **与 t8 时间线共存**：t8「跑空地协同」按钮与 `renderDroneTimeline`（sim.html:321-324、:1633-1694）**原样保留**，端点 `/sim/drone/run` 契约不变；选项开的普通 run **不替换**该时间线面板，结果只附在自身 record（label 加后缀区分，沿 §B.5 思路），两入口各跑各的、互不覆盖；
+- **真源**：起飞点 `config/map.yaml:19` 注释 + `simbench.js:93/:204-231`；t8 已验收实现 = `src/dronesim.js`（scanPlan/intelAt/runDroneSim，§D 签名原样）；手册 §0/§2.1/§7、v3 档案 §4。
+- **边界·非目标**：不建模打靶（§C.6 原样）；不改 `dronesim.js` 已验收导出签名与 t8 端点；**关闭态与今日基线逐字节一致**（守卫断言零变化）。
+- **verify 建议**：关态跑 `/sim/run` 断言 record 无 `drone` 段（基线不变）；开态断言 `constraints` 四 id 齐全且 `ok:true`、`drone` 段含 takeoff/land/points；`Select-String -Path sim.html -Pattern 'droneRun|renderDroneTimeline' | Measure-Object | Select-Object -Expand Count`（t8 入口在位）。
+
+### E5. 增补文件归属（并入附录矩阵；单写者串行规则不变）
+
+| 需求 | 落点 | 改动文件（同文件串行） | 只读依据 |
+|---|---|---|---|
+| E1 硬约束审计 | 审计/复验卡 | 无（纯取证） | planner.py、route_check.py、robot.yaml、config.py |
+| E2 棋子槽硬顶+旋转 | 卡1 拖拽棋盘 | `sim.html`、`src/simbench.js`（排卡2 前） | map.yaml:53-60、本章 E2 |
+| E3 冗余墙渲染一致 | 卡1（渲染侧） | `sim.html`/`src/simbench.js` 同文件串行 | robot.yaml:559、sim.py:551/:1516 |
+| E4 无人机选项 | 卡3（+卡1 开关 UI） | `sim.html`（排卡1 后）、`index.js`（若增端点排卡2 后） | dronesim.js、手册、v3 档案 |

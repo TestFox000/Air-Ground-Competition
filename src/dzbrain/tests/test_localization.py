@@ -454,4 +454,76 @@ check("静止时 P_ROUTE_S 保持不变（车没动，没有跑掉的真值要�
       bb_s.get(P_ROUTE_S) == s_park, f"{s_park} → {bb_s.get(P_ROUTE_S)}")
 check("静止时也没吸附/没崩（ticks == 41）", task_s.ticks == 41, f"got {task_s.ticks}")
 
+# --------------------------------------------------------------------------- #
+#  ⑩ 尺度疑似闸（闸③）：固定到位偏移放行 —— 2026-10-17 实车 N5 多跑 10 cm 的根因
+# --------------------------------------------------------------------------- #
+# 实车指纹：每次吸附都在 arrival_m 边缘触发，沿程修正量恒 ~0.10 m（同号），
+# 隐含尺度 = 修正量 ÷ 距上次吸附弧长，随分母增长一路衰减（44.7% → 0.2%）。
+# 旧闸只看「连续同号 + 中位 ≥ 0.06 m」→ 34 连拒 → 信念不再纠偏 → 终点物理多跑 10 cm。
+# 修复：隐含尺度必须 ≥ localization.anchor_scale_max(8%) 才拦 ——
+#   固定偏移被长分母稀释到 8% 以下时放行，真实尺度误差（比值不衰减）仍被拦。
+section("⑩ 尺度疑似闸：固定偏移（隐含尺度 < 8%）放行；真实尺度误差仍拦")
+
+def _walk(task, bridge, clock, x0, y0, x1, y1, step=0.05):
+    """从 (x0,y0) 沿直线走到 (x1,y1)，每步 tick 一次（模拟车连续行驶）。"""
+    seg = math.hypot(x1 - x0, y1 - y0)
+    n = max(1, int(round(seg / step)))
+    for i in range(1, n + 1):
+        t = i / n
+        bridge.set_pose(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, 0.0)
+        clock.advance(0.1)
+        task.tick()
+
+# ⑩.1 固定偏移：N10→M10→M9→L9→K9→J9→I9→H9（每段 0.35 m，均在格心前 0.10 m 触发吸附；
+#   H9 只是收尾占位，保证 I9 是非末点、用 arrival_m 半径）
+route_scale = make_route([Waypoint.at_block(b) for b in
+                          ("N10", "M10", "M9", "L9", "K9", "J9", "I9", "H9")])
+task, bridge, bb, bus, clock = build(route=route_scale, seed_pose=False)
+c = {b: geo.block_to_meters(b)
+     for b in ("N10", "M10", "M9", "L9", "K9", "J9", "I9", "H9")}
+
+def _toward(a, b, t):
+    return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+
+def _to_offset(a, prev, off):
+    """沿 prev→a 方向、停在 a 格心前 off 米的点。"""
+    d = math.hypot(a[0] - prev[0], a[1] - prev[1])
+    t = max(0.0, 1.0 - off / d)
+    return _toward(prev, a, t)
+
+pos = c["N10"]
+for prev, nxt in (("N10", "M10"), ("M10", "M9"), ("M9", "L9"),
+                  ("L9", "K9"), ("K9", "J9"), ("J9", "I9")):
+    end = _to_offset(c[nxt], c[prev], 0.10)
+    _walk(task, bridge, clock, *pos, *end)
+    pos = end
+check("固定偏移：L9/K9/J9 三次同向大修正被拦（隐含尺度 40%/16.7%/10.5% ≥ 8%）",
+      task.anchor_refused == 3, f"refused={task.anchor_refused}")
+check("固定偏移：I9 隐含尺度衰减到 7.7% < 8% → 放行，吸附链恢复（anchored == 3）",
+      task.anchored == 3, f"anchored={task.anchored}")
+check("固定偏移：last_anchor == 'I9'（不再 34 连拒）",
+      getattr(bb.get(P_FIX), "last_anchor", None) == "I9",
+      f"{getattr(bb.get(P_FIX), 'last_anchor', None)!r}")
+check("固定偏移：scale_suspect 仍记账（闸确实看见过疑似模式）", task.scale_suspect is True)
+check_close("固定偏移：scale_suspect_max ≈ 40%（L9 那次）", task.scale_suspect_max, 0.40, 0.02)
+
+# ⑩.2 对照：真实尺度误差（同号 + 中位 ≥ 0.06m + 隐含尺度 ≥ 8%）仍被拦。
+#   N10→M10→M9→L9→K9，前两段正常吸附，第三段隐含尺度 0.10/0.25 = 40% ≥ 8% → 拒绝。
+#   （K9 只是收尾占位，保证 L9 是非末点、用 arrival_m 半径）
+route_grow = make_route([Waypoint.at_block(b) for b in ("N10", "M10", "M9", "L9", "K9")])
+task2, bridge2, bb2, bus2, clock2 = build(route=route_grow, seed_pose=False)
+pos = c["N10"]
+for prev, nxt in (("N10", "M10"), ("M10", "M9"), ("M9", "L9")):
+    end = _to_offset(c[nxt], c[prev], 0.10)
+    _walk(task2, bridge2, clock2, *pos, *end)
+    pos = end
+check("真实尺度误差：第 3 次同向大修正仍被拦（anchored 停在 2）", task2.anchored == 2,
+      f"anchored={task2.anchored}")
+check("真实尺度误差：anchor_refused == 1 且 scale_suspect 置位",
+      task2.anchor_refused == 1 and task2.scale_suspect is True,
+      f"refused={task2.anchor_refused} suspect={task2.scale_suspect}")
+
+finish()
+
+
 finish()

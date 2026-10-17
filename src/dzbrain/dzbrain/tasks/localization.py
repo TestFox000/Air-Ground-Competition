@@ -549,7 +549,7 @@ class LocalizationTask(TaskThread):
         return float(after.s) - float(proj.s)
 
     def _scale_suspected(self, target, proj) -> tuple[float, str] | None:
-        """★★"吸附掩盖尺度误差"判别（闸③）：**符号一致 + 幅度接近到位半径**才算疑似。
+        """★★"吸附掩盖尺度误差"判别（闸③）：**同号 + 幅度到位半径级 + 隐含尺度越上限**才疑似。
 
         为什么不用"修正量 ÷ 段长"：段长只有 0.35 m，而单次吸附的沿程修正量天然可以到
         `arrival_m`(0.12) —— 噪声级的一次修正除以短段长就是 30%+，会**误杀正常吸附**
@@ -557,8 +557,13 @@ class LocalizationTask(TaskThread):
         真正区分"里程尺度误差"与"正常到位噪声"的是**模式**：
         ・连续 ≥3 次吸附的沿程修正量**同号**（总是往同一个方向拽）；
         ・幅度中位数 ≥ `0.5 × arrival_m`（不是噪声级，而是稳定地差一大截）。
-        这正是实车那趟（4.55 m 里每段都往前拽、累计 69 cm）的指纹；
-        而健康车的修正量是零均值的小噪声，凑不出"连续同号 + 大偏差"。
+        ・★（2026-10-17 实车追加，N5 多跑 10cm 的根因）隐含尺度 |est| ≥ `anchor_scale_max`：
+          实车那趟 34 连拒的"连续同向 + 0.104m"其实是**到位边界偏移**（吸附总在
+          arrival_m 边缘触发，修正量恒 ~0.1m 且不随距离增长），它的隐含尺度随分母
+          增长一路衰减（44.7%→0.2%）——真实尺度误差的比值不会衰减。所以必须再用
+          `anchor_scale_max`(8%) 这道门把"固定偏移"放行，只拦真正成比例的尺度误差。
+          这正是实车那趟（4.55 m 里每段都往前拽、累计 69 cm）的指纹；
+          而健康车的修正量是零均值的小噪声，凑不出"连续同号 + 大偏差"。
         返回 `(隐含尺度误差估计, 理由文本)`；不疑似返回 None。
         """
         ds = self._along_ds(target, proj)
@@ -572,9 +577,17 @@ class LocalizationTask(TaskThread):
         if not same_sign or size < 0.5 * self.arrival_m:
             return None
         ratio = self._implied_scale(target, proj)
-        est = ratio if ratio is not None else (ds / max(self.arrival_m, 1e-9))
+        if ratio is None:
+            # 无法判定（第一次吸附/段长太短/投影失败）→ 不拦（`_implied_scale` 同口径）
+            return None
+        est = ratio
+        if abs(est) < self.anchor_scale_max:
+            # 固定偏移（到位边界效应）会被长分母稀释到 8% 以下，放行；
+            # 真实尺度误差的比值不会随距离衰减，会稳稳越过 8%。
+            return None
         return est, (f"连续 {len(window)} 次同向、幅度中位 {size:.3f} m ≥ "
-                     f"{0.5 * self.arrival_m:.3f} m；隐含尺度≈{est:+.1%}")
+                     f"{0.5 * self.arrival_m:.3f} m；隐含尺度≈{est:+.1%} ≥ "
+                     f"上限 {self.anchor_scale_max:.0%}")
 
     def _implied_scale(self, target, proj) -> float | None:
         """★隐含尺度误差 = 本次吸附的**沿程修正量** ÷ 距上次吸附走过的弧长。

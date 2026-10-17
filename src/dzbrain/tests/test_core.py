@@ -170,8 +170,12 @@ check("新键 pursuit.cruise_speed_mps 与旧键同值（0.35）",
 # ★★ t31 重钉（第五张图）：换图 + tracker-safe 自规划出解 ⇒ `mission_blocks` = **60 点**
 #   （= 第五张图上的自规划产物；旧 62 点是第四张图手工 v3，在新图上有 12 条 error ⇒ 已替换）。
 #   点数仍由 mission_blocks 唯一定义、Config 迁移到 `route.tokens`（点数不是凑的）。
-#   历史：34 点(10-07) → 46 → 54(t11) → 62(t20) → **60(t31)**。
-check("route.tokens 由 mission_blocks 迁移（官方图自规划，44 点；t50）",
+#   历史：34 点(10-07) → 46 → 54(t11) → 62(t20) → 60(t31) → 44(t50) → 50(t3 一版) → **44(t3-A)**。
+#   ★ t3 一版（2026-10-16）：射击停站点推远到板心 1.00±0.11 m ⇒ `F3*` → `F2*`，
+#     `F2` 不在 `D3→E3→F3→G3` 主线上 ⇒ 多绕 `F2→F1→G1→H1→H2→H3→G3` ⇒ 44 → 50 点。
+#   ★ t3-A 裁决（同日）：1.00 档因"靶在车尾 170.5°"作废 ⇒ 停站退到 `D3`（板心 0.875 m），
+#     `D3` 在主线上 ⇒ 绕行消失 ⇒ **44 点**（与 t50/t57 同长，仅星号前移两格）。
+check("route.tokens 由 mission_blocks 迁移（官方图自规划，44 点；t3-A）",
       len(cfg.get("route.tokens") or []) == 44)
 # ★ 2026-10-11 重钉（t20）：第三次换图**关闭**了"桥洞强制直行保护"（`bridge_blocks: []`，
 #   见 robot.yaml 该行注释：保护窗含 90° 拐时锁错航向，改用纯追踪 + 转角减速过洞）
@@ -181,8 +185,8 @@ check("桥洞强制直行保护已按第三张图关闭（bridge_blocks 为空�
       f"got {cfg.get('pursuit.bridge_blocks')!r}")
 check("旧 dzactuator 段可读（2026-10-11 实车直线标定 → 3280.0）",
       cfg.get("dzactuator.ticksPerMeter") == 3280.0)
-check("新版参数段 /dzbrain 生效（非 SCHEMA 默认）",
-      cfg.get("aim.lead_time_s") == 0.35 and cfg.get("pursuit.curvature_gain") == 1.0)
+check("新版参数段 /dzbrain 生效（curvature_gain 非默认；lead_time_s 已 t53 归零）",
+      cfg.get("aim.lead_time_s") == 0.0 and cfg.get("pursuit.curvature_gain") == 1.0)
 check("新版默认值可读（SCHEMA 默认）", cfg.get("pursuit.wheelbase_m") == 0.157)
 check("case: 未知键给出告警", True)
 issues = cfg.validate(strict=False)

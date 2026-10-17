@@ -212,10 +212,54 @@ public:
 	// ===== PD 跟踪控制 =====
 	double track_kp_ = 8.0;				 // 比例增益(原 track_speed_per_px，已调低)
 	double track_kd_ = 3.0;				 // 微分增益(阻尼，抑制超调振荡)
+	double track_inc_gain_ = 0.5;		 // ★t55 位置增量增益(px→ticks/帧)：旧版硬编码 eff/2.0
+	int track_speed_floor_ = 100;		 // ★t55 跟踪速度下限(ticks/s)：旧版硬编码 100
 	double track_speed_max_ratio_ = 0.6; // 跟踪速度上限 = 巡逻速度 x 该比例
 	// P2-2 tracking speed cap decoupled: if >0 use this absolute tick value,
 	//      else derive from patrolSpeed()*ratio (old behavior).
 	int track_speed_max_ = 0;	// ===== 开火判定：绝对静止 + 动态框 + 弹药管理 =====
+	// ===== ★跟踪模式选择（2026-10-17）=====
+	//   "v1"    = 参考 D:\User\Desktop\src_v1\dzrknn_dataprocess（上游 2026-09-28 版）的自瞄模式：
+	//             位置增量 = 有效偏差×0.5 + 预判0.5；速度 = PD(8/3) + 精调档；死区 12px；滤波 0.3；
+	//             水平轴用**整量程** clampYawTick（不限制在扫描区间内）。
+	//   "tuned" = 真源此前整定（t55 v4：inc_gain 1.2 / kp 20 / kd 15 / 死区 5）。
+	//   "pid"   = 增量式 PID（上一轮上车那套；需 pid_enable=true）。
+	//   ⚠️ v1 原文俯仰写的是 `+eff_y/2`（不过 pitch_deg_sign_），实车已证方向相反
+	//      （"靶被顶到画面下沿、调参无效"）⇒ 这里保留 v1 的**幅值**、俯仰**符号**沿用已修正约定。
+	std::string track_mode_ = "v1";
+	double v1_inc_gain_ = 0.5;         // 位置增量：tick/像素/帧（v1 原文 eff/2.0）
+	double v1_predict_ = 0.5;          // 预判：按像素/帧提前的帧数
+	double v1_kp_ = 8.0;               // 速度 P（tick/s 每像素）
+	double v1_kd_ = 3.0;               // 速度 D
+	double v1_ema_alpha_ = 0.3;        // 视觉滤波
+	int v1_deadzone_px_ = 12;          // 跟踪死区（v1 默认 12px）
+	int v1_fine_zone_px_ = 20;         // 精调档阈值
+	double v1_fine_kp_scale_ = 0.5;    // 精调档 Kp 缩放
+	double v1_fine_kd_scale_ = 2.0;    // 精调档 Kd 放大
+	int v1_speed_floor_ = 100;         // 速度地板（v1 硬编码 100）
+	double v1_speed_max_ratio_ = 0.63; // 速度上限 = patrol × 该比例（v1 默认 0.63）
+	int v1_speed_max_abs_ = 0;         // >0 直接用它当速度上限（覆盖比例，便于恢复 v1 实测上限）
+	bool v1_yaw_full_range_ = true;    // 水平轴用整量程（v1=true；tuned 用扫描区间）
+	// ===== ★增量式 PID 跟踪（2026-10-17；pid_enable=false 时**与旧路径逐位一致**）=====
+	//   为什么"增量式"：执行器吃的是**绝对位置刻度**（CameMo_Conl.Position_*），每帧只应改变
+	//   一个"位置增量"。增量式 PID 输出的正是 Δθ，不必维护一个会随绝对位置漂移的积分项。
+	//   本实现用**速度型等价写法**：u = Kp·e + Ki·∫e + Kd·ė（单位 ticks/s），
+	//   再 Δθ = u·dt（限速用与下发速度**同一个** cap）⇒"位置增量"与"速度"同源，不会互相打架。
+	//   ⚠️ e 取的是**死区处理后的 eff_x/eff_y**（沿用旧语义：死区内 u=0，云台完全不动），
+	//      所以死区仍然是"控制器输入死区"，不会因为加了 I 而在死区里持续爬。
+	bool pid_enable_ = false;        // 总开关：false = 完全走旧代码（零回归）
+	double pid_kp_ = 15.0;           // 比例：ticks/s 每像素（≈旧 track_inc_gain/dt = 0.5/0.0333）
+	double pid_ki_ = 0.0;            // 积分：ticks/s 每(像素·秒)；先给 0，现场按"稳态残差"再加
+	double pid_kd_ = 0.0;            // 微分：ticks 每(像素/秒)；用滤波后误差差分，默认先关
+	double pid_i_clamp_ = 600.0;     // 积分项输出限幅(ticks/s)：抗积分饱和
+	double pid_d_alpha_ = 0.3;       // 微分一阶低通(0=不滤，1=等效关闭 D)
+	int pid_min_step_ = 1;           // 最小位置步长(ticks)：小于它本帧不动，压死区附近点动
+	// —— 每轴运行时状态（进入 TRACK 时清零，见 resetPid()）——
+	double pid_yaw_e1_ = 0.0, pid_yaw_e2_ = 0.0, pid_yaw_i_ = 0.0, pid_yaw_d_ = 0.0;
+	double pid_pitch_e1_ = 0.0, pid_pitch_e2_ = 0.0, pid_pitch_i_ = 0.0, pid_pitch_d_ = 0.0;
+	bool pid_yaw_inited_ = false, pid_pitch_inited_ = false;
+	double pid_rate_yaw_ = 0.0;      // 本帧 PID 输出的速率(ticks/s)，供 Speed_* 下发
+	double pid_rate_pitch_ = 0.0;
 	int fire_deadzone_px_ = 8;		// 固定开火死区(未启用动态框时使用)
 	bool fire_dz_dynamic_ = true;	// 启用动态开火框：目标越近视差越大，框越宽
 	double fire_dz_far_px_ = 6.0;	// 远距离(约35cm)开火死区
@@ -308,6 +352,12 @@ public:
 	bool scanHomingStep();           // ★t25：进扫描前的归位段；返回 true = 归位完成，可以开扫
 	void enterScanPhase();           // ★t25：真正进入扫描阶段（下发第一个横扫点）
 	int trackSpeedFor(double abs_err, double d_abs_err, double eff) const;
+	int v1TrackSpeedFor(double abs_err, double d_abs_err, double eff) const;  // ★v1 模式速度律
+	int v1SpeedCap() const;                                                 // ★v1 模式速度上限
+	int trackSpeedCap() const;                              // ★增量式PID：位置/速度共用的速率上限
+	void resetPid();                                        // ★增量式PID：进入 TRACK 时清状态
+	double pidStep(double e, double dt, bool yaw_axis);      // ★增量式PID：返回速率(ticks/s)
+	int pidSpeedFor(double rate_abs, double eff) const;      // ★增量式PID：速率→下发速度(含地板/上限)
 	int fireDeadzonePx(double box_w) const;
 	// ===================== 瞄准扫描参数结束 =====================
 

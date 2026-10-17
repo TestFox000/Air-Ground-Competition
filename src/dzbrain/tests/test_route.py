@@ -566,14 +566,20 @@ def test_real_robot_yaml() -> None:
     # ★★ t31 重钉（第五张图收口）：`mission_blocks` = **60 点** = 第五张图上 tracker-safe
     #   自规划的同一条产物（0 折返 / 0 倒车 / 射击停站 `C10*`（靶板 B11+C11）/ 桥洞 K10 + K5）。
     #   历史：34 点(10-07) → 46 点 → 54 点(t11) → 62 点(t20) → **60 点(t31)**。
-    check("route.tokens 是 44 个 token（官方图 tracker-safe 自规划产物；t50 新窗口后 54→44）",
+    # ★★ t3 一版（2026-10-16）：射击停站点推远到板心 1.00±0.11 m ⇒ `F3*` → `F2*`；
+    #   `F2` 不在 `D3→E3→F3→G3` 主线上 ⇒ 多绕 `F1→G1→H1→H2→H3` ⇒ 44 → 50 点 / 17.15 m。
+    # ★★ **t3-A 裁决再重钉**：`F2` 到站让靶板落在**车尾 170.5°**（云台 ∓150° 扫不到）⇒ 作废，
+    #   停站退一档到 `D3`（板心 0.875 m、偏离车头 36.9°）。`D3` 也在主线上 ⇒ 绕行消失 ⇒
+    #   回到 **44 点 / 15.05 m**（与 t50/t57 同值，只是星号从 `F3` 前移到 `D3`）。
+    #   历史：34 点(10-07) → 46 → 54(t11) → 62(t20) → 60(t31) → 44(t50) → 50(t3一版) → **44(t3-A)**。
+    check("route.tokens 是 44 个 token（官方图 tracker-safe 自规划产物；t3-A 板心 0.90 m 停站）",
           isinstance(tokens, list) and len(tokens) == 44,
           f"{len(tokens) if isinstance(tokens, list) else type(tokens).__name__} 个")
     if isinstance(tokens, list) and len(tokens) == 44:
         check("现场图路线首点 N10", tokens[0] == "N10", repr(tokens[0]))
         check("现场图路线末点 N5", tokens[-1].startswith("N5"), repr(tokens[-1]))
-        check("现场图路线含射击点 F3*（官方图靶板 E5/F5；t50 新窗口 0.70~0.90 m）",
-              any(t.startswith("F3*") for t in tokens), repr(tokens))
+        check("现场图路线含射击点 D3*（官方图靶板 E5/F5；t3-A 板心窗口 0.78~1.02 m）",
+              any(t.startswith("D3*") for t in tokens), repr(tokens))
         check("现场图路线含两处桥洞穿越（K9 下半场 / K5 上半场）",
               "K9" in tokens and "K5" in tokens, repr([t for t in tokens if t.startswith("K")]))
         route = P.parse_mission(tokens)

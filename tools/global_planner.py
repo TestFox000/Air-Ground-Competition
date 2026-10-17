@@ -63,19 +63,22 @@ import sys
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 # =============================================================================
-#  地图常量（与 path_executor.py 严格一致，改一处必须改两处）
+#  地图常量 —— ★ 唯一真源 = `src/dzbrain/dzbrain/core/geometry.py`
 # =============================================================================
-COL_LETTERS = "ABCDEFGHIJKLMN"      # 14 列，A(西) .. N(东)
-MAP_COLS = 14
-MAP_ROWS = 11                       # 行 1(远) .. 行 11(近)
-BLOCK_SIZE = 0.35                   # 格边长(m)
-
-# ★挡板约束：第 6 行与第 7 行之间，横跨 D~N 列，强制不可通行。
+# 不再在本文件抄数字：`_field_const` 把 `src/dzbrain` 自举进 sys.path，再从
+# `core.geometry` 取常量。脚本口径不变 —— `python tools/global_planner.py`
+# 直接跑，不需要 PYTHONPATH、不需要 pip 装包。
+# ★挡板约束（值在 geometry）：第 6 行与第 7 行之间，横跨 D~N 列，强制不可通行。
 #   含义是"跨越 6<->7 行"这个动作在 D~N 列被禁止 —— 不是禁止整列。
 #   所以上下半场之间只有 A/B/C 三列能穿行。
-BARRIER_ROW_HI = 6                  # 挡板上侧行号
-BARRIER_ROW_LO = 7                  # 挡板下侧行号
-BARRIER_COL_FROM = "D"              # 从 D 列开始封死（含 D）
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
+from _field_const import (                                    # noqa: E402
+    BARRIER_COL_FROM, BARRIER_ROW_HI, BARRIER_ROW_LO,
+    BLOCK_SIZE, COL_LETTERS, MAP_COLS, MAP_ROWS,
+)
 
 # 通行为 1，不可通行为 0
 PASSABLE, BLOCKED = 1, 0
@@ -84,7 +87,9 @@ PASSABLE, BLOCKED = 1, 0
 COST_FORWARD = 1.0
 COST_TURN = 1.6                     # 一次 90° 原地/行进转向
 COST_BACKWARD = 1.9                 # 倒车一格
-COST_BACKWARD_TURN = 2.4            # 倒车中转向（比单纯倒车更贵）
+# ⚠️ 本文件 COST_TURN/COST_BACKWARD（1.6/1.9）与 src/dzbrain/dzbrain/route/planner.py:172-173
+# 的 2.2/1.4 不同，属历史口径。n1 对照实验（_tmp_verify/n1_const/cost_compare.json，2026-10-17）：
+# 四组取值下可下发路线串完全相同，仅 A* 自报代价不同。统一前须重跑实验并复核现役图路线。
 
 # 第 2 层任务顺序的代价权重（单位：格）
 W_DIRECTION = 0.55                  # 方向惩罚：连续同向行进有惯性优势，掉头代价高
@@ -97,7 +102,6 @@ SHOOT_CAND_KEEP = 2                 # 每个靶标保留的候选射击点数（
 # 方向索引：0=北(行号减小) 1=西(列号减小) 2=南(行号增大) 3=东(列号增大)
 DIRS = [(-1, 0), (0, -1), (1, 0), (0, 1)]
 DIR_NAME = ["北(+X)", "西(+Y)", "南(-X)", "东(-Y)"]
-DIR_ARROW = ["↑", "←", "↓", "→"]
 
 
 # =============================================================================

@@ -226,7 +226,9 @@ def main() -> int:
     #   ticksPerMeter 3280 不变。
     #   ⚠️ 行内保留历史值原文（`ticksPerMeter 3280）` / 旧断言本体 `- 0.30` / `- 0.35`）作为
     #      `tools/calib_backfill.py` 的钉锚点（内容式定位；该映射在 t2 写域，本卡不改）。
-    ok("5.3 落盘值（cruise 0.35 / ld_max 0.40 / 官方图路线 44 点（t50 新窗口） / ticksPerMeter 3280）"
+    #   ★ t3-A（2026-10-16）：停站退到 `D3`（板心 0.875 m）⇒ 路线回到 **44 点**（t3 一版的
+    #     50 点是 `F2*` 绕行产物，随 1.00 档一起作废）。
+    ok("5.3 落盘值（cruise 0.35 / ld_max 0.40 / 官方图路线 44 点（t3-A 板心 0.90 m 停站 D3） / ticksPerMeter 3280）"
        "（旧 cruise 0.30 / 0.35）",
        abs(real.get("pursuit.cruise_speed_mps") - 0.35) < 1e-12
        and abs(real.get("pursuit.lookahead_max_m") - 0.40) < 1e-12

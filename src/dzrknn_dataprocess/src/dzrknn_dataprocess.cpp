@@ -39,6 +39,16 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
   // 目标类别：视觉端做了 +1 偏移 —— 1=蓝靶、2=红靶，0 表示无目标
   const bool is_target_cls = (temp_msg.data[2] == 1) || (temp_msg.data[2] == 2);
 
+  // ★★ 需求3（用户 2026-10-16）：纯 IDLE（非"进扫描前归位段"）时**忽略视觉 TRACK**。
+  //   旧行为：视觉一帧命中就直接 setAimState(AIM_TRACK)。跑完全程后 Mission 已把云台
+  //   回 IDLE 归位，但视觉仍在发布目标 → 云台被反复从 IDLE 拽回 TRACK，表现为"跑完乱动"。
+  //   修法：只有 SCAN 中或"正被要求归位后进扫描"（scan_homing_）时才允许视觉拉进 TRACK；
+  //   纯 IDLE（终局归位 / 待机）无视视觉命中，云台保持归位姿态不再乱转。
+  if (aim_state_ == AIM_IDLE && !scan_homing_)
+  {
+    return;
+  }
+
   // 长宽比过滤：只跟踪接近正方形(1:1)的目标，长方形的描边目标直接忽略
   const bool is_target = is_target_cls && aspectRatioOk(temp_msg);
 
@@ -57,6 +67,7 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
       cls_streak_ = 0;
       locked_cls_ = 0;
       setAimState(AIM_TRACK);
+      resetPid();             // ★增量式PID：新目标 = 新一段跟踪，积分/差分状态清零
       std::cout << "==> 发现目标，进入边走边跟随" << std::endl;
     }
     lost_target_count_ = 0; // 检测到就清零丢帧计数
@@ -73,6 +84,8 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
     }
 
     // ===== 第一步：一阶低通滤波(EMA)，压制视觉检测 ±2~5px 的跳变 =====
+    //   ★v1 模式用 v1_ema_alpha（0.3）；其它模式用 ema_alpha（现役 0.25）
+    const double ema_a = (track_mode_ == "v1") ? v1_ema_alpha_ : ema_alpha_;
     const double dx_raw = static_cast<double>(temp_msg.data[0]);
     const double dy_raw = static_cast<double>(temp_msg.data[1]);
     if (!filt_inited_)
@@ -87,11 +100,11 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
       abs_y_last_ = std::abs(dy_filt_);
       filt_inited_ = true;
     }
-    dx_filt_ = ema_alpha_ * dx_raw + (1.0 - ema_alpha_) * dx_filt_;
-    dy_filt_ = ema_alpha_ * dy_raw + (1.0 - ema_alpha_) * dy_filt_;
+    dx_filt_ = ema_a * dx_raw + (1.0 - ema_a) * dx_filt_;
+    dy_filt_ = ema_a * dy_raw + (1.0 - ema_a) * dy_filt_;
 
     // ===== 第二步：跟踪死区，滤波后仍落在死区内就完全不动位置 =====
-    const double dz = static_cast<double>(track_deadzone_px_);
+    const double dz = static_cast<double>((track_mode_ == "v1") ? v1_deadzone_px_ : track_deadzone_px_);
     double eff_x = 0.0;
     double eff_y = 0.0;
     if (std::abs(dx_filt_) > dz)
@@ -129,15 +142,39 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
       ff_x = -imu_omega_z_ * 57.2957795 * yaw_ticks_per_deg_ * dt * gyro_ff_gain_ * gyro_ff_sign_;
     }
 
-    if (eff_y != 0.0)
+    if (eff_y != 0.0 || pid_enable_)
     {
+      // ★★ 增量式 PID（pid_enable_）：u(ticks/s) → Δθ = u·dt；未开启时**完全走旧式**
+      //   （旧式 = eff_y·track_inc_gain_ + vy·predict_gain_，此处逐字保留，保证零回归）
+      //   预判项 vy·predict_gain_ 两条路都保留：它补的是"视觉→串口→下位机"的**链路延迟**，
+      //   与 PID 的 D 项（抑制超调）不是一回事，删了会让移动靶更跟不上。
+      double pitch_delta = 0.0; // 正 = 与 eff_y 同号（目标在画面下方 ⇒ 需要低头）
+      if (track_mode_ == "v1")
+      {
+        // ★v1 模式（参考上游 src_v1）：增量 = 有效偏差×v1_inc_gain(0.5) + 预判×v1_predict(0.5)
+        pitch_delta = eff_y * v1_inc_gain_ + vy * v1_predict_;
+      }
+      else if (pid_enable_ && track_mode_ == "pid")
+      {
+        const double u = pidStep(eff_y, dt, false);
+        pid_rate_pitch_ = std::abs(u);
+        pitch_delta = u * dt + vy * predict_gain_;
+      }
+      else
+      {
+        pitch_delta = eff_y * track_inc_gain_ + vy * predict_gain_;
+      }
+      const int pitch_inc = static_cast<int>(std::lround(pitch_delta * pitch_deg_sign_));
       // ★俯仰修正方向必须与扫描路径(applyScanTarget)一致 —— 两者都过 pitch_deg_sign_。
-      //   坐标系约定：dy > 0 表示目标在画面【下方】-> 需要【低头】-> 角度增量为负。
-      //   旧版直接写 +eff_y/2，方向与扫描路径正好相反：
-      //   一旦进入 TRACK，云台就被往错误方向推，靶被顶到画面边缘再也出不来 ——
-      //   这正是"目标始终贴在画面下沿、调参无效"的直接原因。
-      const int pitch_inc = static_cast<int>(std::lround(
-          -(eff_y / 2.0 + vy * predict_gain_) * pitch_deg_sign_));
+      // ★2026-10-17 修复（实车现象"追踪时总朝目标上方看"）：原式多一个负号。
+      //   实测锚点（2026-10-15 现场）：pitch_deg_sign=+1、scan_pitch_offset_deg=+10°
+      //   → tick +113.78 → 云台【向下压(低头)】 ⇒ 本车 **tick 增大 = 低头**。
+      //   追踪需求：dy>0（目标在画面下方）⇒ 需要低头 ⇒ pitch_delta>0 ⇒ pitch_inc 必须为正。
+      //   2026-10-15 把扫描偏移从 -10 翻成 +10（"符号约定反了"）时，跟踪侧负号没跟着翻 ⇒
+      //   正反馈：该低头时反而抬头，靶被压到画面下沿、云台"追着目标头顶看"。
+      //   旧负号来由（2026-10-03）：当时以为 tick 减小 = 低头，且 clampPitchToScan 的
+      //   [0°,12°] 区间把"想往下走的 tick"钳在 lo=2047，负号错误被钳位掩盖；
+      //   换成 clampPitchTick 全量程(950~2400)后，负号错误才彻底暴露。
       // ★★ 修复（2026-10-03，实车故障）：跟踪俯仰改用【机械限位】而不是【扫描区间】。
       //   故障现象：云台只能左右跟靶，俯仰完全跟不上，总在"追着目标头顶看"。
       //   根因：clampPitchToScan 的允许区间 = offset ± margin。本车实配
@@ -150,23 +187,69 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
       //   修复思路：跟踪的语义是"把靶送进画面中心"，俯仰必须能覆盖整个可视范围，
       //   所以跟踪走 clampPitchTick（950~2400，约 -96°~+31°，下位机机械限位）；
       //   扫描模式仍保留 clampPitchToScan —— 那边要的就是"只在扫描层之间走"。
-      moveBaseControl.Position_0 = clampPitchTick(
-          curYuntai_feedback_data.Position_0 + pitch_inc);
+      //   ★PID 分支多一道"最小步长"闸：|Δθ| < pid_min_step_ 就不下发，压死区边缘的点动。
+      const bool apply_pitch = (!(track_mode_ == "pid" && pid_enable_)) ||
+                               (std::abs(pitch_inc) >= pid_min_step_);
+      if (apply_pitch)
+      {
+        moveBaseControl.Position_0 = clampPitchTick(
+            curYuntai_feedback_data.Position_0 + pitch_inc);
+      }
     }
     // 注意：水平轴即使 eff_x == 0（目标已在死区中心）也要处理 ——
     // 车体仍在转动时前馈量不为零，漏掉会把转弯中的目标甩出画面。
-    const int inc_x = static_cast<int>(std::lround(eff_x / 2.0 + vx * predict_gain_ + ff_x));
-    if (eff_x != 0.0 || inc_x != 0)
+    double yaw_delta = 0.0;
+    double yaw_lead = 0.0;
+    if (track_mode_ == "v1")
     {
-      moveBaseControl.Position_1 = clampYawToScan(     // ★P0-1 限制在扫描水平范围内
-          curYuntai_feedback_data.Position_1 + inc_x);
+      yaw_delta = eff_x * v1_inc_gain_;   // ★v1：0.5 tick/px/帧
+      yaw_lead = vx * v1_predict_;
+    }
+    else if (pid_enable_ && track_mode_ == "pid")
+    {
+      const double u = pidStep(eff_x, dt, true);
+      pid_rate_yaw_ = std::abs(u);
+      yaw_delta = u * dt;
+      yaw_lead = vx * predict_gain_;
+    }
+    else
+    {
+      yaw_delta = eff_x * track_inc_gain_;
+      yaw_lead = vx * predict_gain_;
+    }
+    const int inc_x = static_cast<int>(std::lround(yaw_delta + yaw_lead + ff_x));
+    const bool use_pid = (track_mode_ == "pid") && pid_enable_;
+    const bool apply_yaw = (!use_pid) || (std::abs(inc_x) >= pid_min_step_);
+    if ((eff_x != 0.0 || inc_x != 0) && apply_yaw)
+    {
+      // ★v1 模式水平轴用**整量程** clampYawTick（上游行为）；其余模式仍限制在扫描水平区间
+      const int yaw_next = curYuntai_feedback_data.Position_1 + inc_x;
+      const bool v1_full = (track_mode_ == "v1") && v1_yaw_full_range_;
+      moveBaseControl.Position_1 = v1_full ? clampYawTick(yaw_next)   // ★P0-1 限制在扫描水平范围内
+                                           : clampYawToScan(yaw_next);
     }
 
-    // ===== 第四步：PD 速度（死区内速度直接为 0）=====
+    // ===== 第四步：速度下发 =====
+    //   pid 模式：速度 = 同一个 u 的幅值（含地板/上限），与位置增量**同源**。
+    //   v1 模式：上游速度律（PD 8/3 + 精调档 + 地板 100 + 上限 patrol×0.63）。
+    //   tuned  ：现役 PD 速度 + 死区内为 0。
     const double abs_x = std::abs(dx_filt_);
     const double abs_y = std::abs(dy_filt_);
-    moveBaseControl.Speed_0 = trackSpeedFor(abs_y, abs_y - abs_y_last_, eff_y);
-    moveBaseControl.Speed_1 = trackSpeedFor(abs_x, abs_x - abs_x_last_, eff_x);
+    if (use_pid)
+    {
+      moveBaseControl.Speed_0 = pidSpeedFor(pid_rate_pitch_, eff_y);
+      moveBaseControl.Speed_1 = pidSpeedFor(pid_rate_yaw_, eff_x);
+    }
+    else if (track_mode_ == "v1")
+    {
+      moveBaseControl.Speed_0 = v1TrackSpeedFor(abs_y, abs_y - abs_y_last_, eff_y);
+      moveBaseControl.Speed_1 = v1TrackSpeedFor(abs_x, abs_x - abs_x_last_, eff_x);
+    }
+    else
+    {
+      moveBaseControl.Speed_0 = trackSpeedFor(abs_y, abs_y - abs_y_last_, eff_y);
+      moveBaseControl.Speed_1 = trackSpeedFor(abs_x, abs_x - abs_x_last_, eff_x);
+    }
     abs_x_last_ = abs_x;
     abs_y_last_ = abs_y;
 
@@ -336,7 +419,10 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
       const double lost_ms = lost_since_valid_
                                  ? (this->now() - lost_since_).seconds() * 1000.0
                                  : 0.0;
-      const int need_frames = std::min(std::max(1, lost_frames_to_rescan_),
+      // ★2026-10-17 实车修复：min→max。旧 min(180,10)=10 帧(≈421ms) 让视觉识别间歇
+      //   被误判"脱离视野"→ TRACK↔SCAN 高频抖动 + 每次重进 TRACK 清类别锁 → 永不开火。
+      //   （现场观察：模型标注正确但云台锁不住、乱抖；日志 10 帧/421ms 即回扫）
+      const int need_frames = std::max(std::max(1, lost_frames_to_rescan_),
                                        std::max(1, rescan_min_frames_));
       const bool rescan_debounce_ok =
           (lost_target_count_ >= need_frames) &&
@@ -522,16 +608,152 @@ int turn_on_robot::trackSpeedFor(double abs_err, double d_abs_err, double eff) c
   }
 
   double sp = kp * abs_err + kd * d_abs_err;
-  if (sp < 100.0)
+  if (sp < static_cast<double>(track_speed_floor_))
   {
-    sp = 100.0; // 电机最小速度，保证能起步
+    sp = static_cast<double>(track_speed_floor_); // 电机最小速度，保证能起步
   }
 
   // P2-2 跟踪速度上限：优先用显式配置的绝对刻度值；未配置(<=0)才按巡逻速度派生，
   //      避免"降扫描速度把跟踪也一起拖慢"。
-  const double limit = (track_speed_max_ > 0)
-                           ? static_cast<double>(track_speed_max_)
-                           : static_cast<double>(patrolSpeed()) * track_speed_max_ratio_;
+  const double limit = static_cast<double>(trackSpeedCap());
+  if (sp > limit)
+  {
+    sp = limit;
+  }
+  return static_cast<int>(sp);
+}
+
+// ★增量式 PID：速率上限的唯一真源（位置增量与下发速度**共用**，否则两处限速会打架）
+int turn_on_robot::trackSpeedCap() const
+{
+  return (track_speed_max_ > 0)
+             ? track_speed_max_
+             : static_cast<int>(std::lround(static_cast<double>(patrolSpeed()) * track_speed_max_ratio_));
+}
+
+// ★增量式 PID：进入 TRACK（或重新锁定目标）时清零，避免拿上一轮残留的积分/差分继续算
+void turn_on_robot::resetPid()
+{
+  pid_yaw_e1_ = pid_yaw_e2_ = pid_yaw_i_ = pid_yaw_d_ = 0.0;
+  pid_pitch_e1_ = pid_pitch_e2_ = pid_pitch_i_ = pid_pitch_d_ = 0.0;
+  pid_yaw_inited_ = false;
+  pid_pitch_inited_ = false;
+  pid_rate_yaw_ = 0.0;
+  pid_rate_pitch_ = 0.0;
+}
+
+// ★增量式 PID 的单轴一步：输入死区后的像素误差 e，输出**速率** u(ticks/s)。
+//
+//   u = Kp·e + Ki·∫e·dt + Kd·(de/dt)        ← 位置式写法，但输出的是"速率"不是"位置"
+//   Δθ = u·dt                              ← 调用方执行；这就是"增量"的来源
+//
+//   为什么不用教科书的 Δu = Kp(e_k − e_{k−1}) + Ki·e_k·dt + Kd(e_k − 2e_{k−1} + e_{k−2})/dt：
+//   那个式子等价于"输出本身是位置"，适合位置伺服（云台确实吃位置），但它把 P 项变成
+//   "误差的变化量"，恒定误差下位置不再推进 —— 对"把靶拉回画面中心"是错的。
+//   本车执行器协议是 Position+Speed（速度只做限速），所以取"速率为输出、位置为积分"这一支：
+//   等效闭环仍是"角度环里带一个积分"，但**限速与速度下发只算一次**，不会出现
+//   "位置增量按 A 限、速度按 B 限"的两套口径（旧代码就是两套）。
+double turn_on_robot::pidStep(double e, double dt, bool yaw_axis)
+{
+  if (dt <= 1e-6 || dt > 0.5)
+  {
+    dt = 0.0333; // 与视觉帧间隔同量级的兜底，防除零/防异常 dt 放大 D 项
+  }
+  double &e1 = yaw_axis ? pid_yaw_e1_ : pid_pitch_e1_;
+  double &e2 = yaw_axis ? pid_yaw_e2_ : pid_pitch_e2_;
+  double &integ = yaw_axis ? pid_yaw_i_ : pid_pitch_i_;
+  double &dfilt = yaw_axis ? pid_yaw_d_ : pid_pitch_d_;
+  bool &inited = yaw_axis ? pid_yaw_inited_ : pid_pitch_inited_;
+  (void)e2; // 保留两帧历史，便于将来切到二阶滤波
+  if (!inited)
+  {
+    e1 = e;
+    e2 = e;
+    dfilt = 0.0;
+    integ = 0.0;
+    inited = true;
+  }
+  // D：对**滤波后**误差做差分（px/s），再过一阶低通 —— 视觉 30Hz + 端到端 0.26s 延迟，
+  //    裸 D 会把检测噪声放大成抖动，这是这类系统上"D 项反而变差"的典型原因。
+  const double d_raw = (e - e1) / dt;
+  dfilt = pid_d_alpha_ * dfilt + (1.0 - pid_d_alpha_) * d_raw;
+
+  const double u_pd = pid_kp_ * e + pid_kd_ * dfilt;
+  // I：**条件积分** —— 只有 PD 输出没顶到限速时才累积，否则饱和后会越积越多、
+  //    目标反向时要先"卸掉"积分才动，表现为明显滞后。
+  const double cap = static_cast<double>(trackSpeedCap());
+  if (std::abs(u_pd) < 0.95 * cap)
+  {
+    integ += pid_ki_ * e * dt;
+    if (integ > pid_i_clamp_)
+    {
+      integ = pid_i_clamp_;
+    }
+    if (integ < -pid_i_clamp_)
+    {
+      integ = -pid_i_clamp_;
+    }
+  }
+  e2 = e1;
+  e1 = e;
+  return u_pd + integ;
+}
+
+// ★增量式 PID：速率(ticks/s) → 下发速度(ticks/s)。死区内 eff==0 ⇒ 速度 0（沿用旧语义：
+//   死区内云台绝对不动，否则会以地板速度在中心附近来回点动，反而更糟）。
+int turn_on_robot::pidSpeedFor(double rate_abs, double eff) const
+{
+  if (eff == 0.0)
+  {
+    return 0;
+  }
+  double sp = rate_abs;
+  const double cap = static_cast<double>(trackSpeedCap());
+  if (sp > cap)
+  {
+    sp = cap;
+  }
+  if (sp < static_cast<double>(track_speed_floor_))
+  {
+    sp = static_cast<double>(track_speed_floor_);
+  }
+  return static_cast<int>(std::lround(sp));
+}
+
+// ★v1 模式速度上限：v1_speed_max_abs>0 时直接用绝对值（便于恢复上游实配的 ~1748 tick/s），
+//   否则按上游口径 patrol(最大速度×patrol_ratio) × v1_speed_max_ratio(0.63)。
+int turn_on_robot::v1SpeedCap() const
+{
+  if (v1_speed_max_abs_ > 0)
+  {
+    return v1_speed_max_abs_;
+  }
+  const double v = static_cast<double>(patrolSpeed()) * v1_speed_max_ratio_;
+  return static_cast<int>(std::lround(v));
+}
+
+// ★v1 模式速度律：逐字复刻上游 src_v1（2026-09-28）的 trackSpeedFor ——
+//   精调档（abs_err < v1_fine_zone_px）降 Kp、加 Kd；地板 100；上限 = v1SpeedCap()。
+//   注意上游地板是**硬编码 100**（不是参数），这里做成 v1_speed_floor 以便现场回调。
+int turn_on_robot::v1TrackSpeedFor(double abs_err, double d_abs_err, double eff) const
+{
+  if (eff == 0.0)
+  {
+    return 0; // 死区内完全不动（上游同语义）
+  }
+  double kp = v1_kp_;
+  double kd = v1_kd_;
+  if (abs_err < static_cast<double>(v1_fine_zone_px_))
+  {
+    kp *= v1_fine_kp_scale_;
+    kd *= v1_fine_kd_scale_;
+  }
+  double sp = kp * abs_err + kd * d_abs_err;
+  if (sp < static_cast<double>(v1_speed_floor_))
+  {
+    sp = static_cast<double>(v1_speed_floor_);
+  }
+  const double limit = static_cast<double>(v1SpeedCap());
   if (sp > limit)
   {
     sp = limit;
@@ -542,8 +764,7 @@ int turn_on_robot::trackSpeedFor(double abs_err, double d_abs_err, double eff) c
 // 动态开火死区：用目标框宽估算距离 —— 框越大说明目标越近、视差越大，死区随之放宽。
 // 框宽在 [box_w_far_, box_w_near_] 内线性映射到 [fire_dz_far_px_, fire_dz_near_px_]。
 int turn_on_robot::fireDeadzonePx(double box_w) const
-{
-  if (!fire_dz_dynamic_)
+{  if (!fire_dz_dynamic_)
   {
     return fire_deadzone_px_;
   }
@@ -1112,7 +1333,35 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->declare_parameter("fine_kd_scale", 2.0);		  // 精调档 Kd 放大
   this->declare_parameter("track_kp", 8.0);				  // PD 比例增益
   this->declare_parameter("track_kd", 3.0);				  // PD 微分增益(阻尼)
+  this->declare_parameter("track_inc_gain", 0.5);		  // ★t55 位置增量增益(px→ticks/帧)；旧版硬编码 eff/2.0
+  this->declare_parameter("track_speed_floor", 100);	  // ★t55 跟踪速度下限(ticks/s)；旧版硬编码 100
   this->declare_parameter("track_speed_max_ratio", 0.6);  // 跟踪速度上限占巡逻速度比例
+  // ===== ★增量式 PID 跟踪控制（2026-10-17；默认关闭 ⇒ 与旧路径逐位一致）=====
+  //   开法：robot.yaml 的 /dzrknn_dataprocess 段写 pid_enable: true（改 yaml 即可，无需重编）
+  //   整定顺序：先 kp（复现旧跟随手感）→ 再看稳态残差加 ki → 抖动就降 kp/加死区，别急着上 kd。
+  // ===== ★跟踪模式（2026-10-17）：v1 = 参考上游 src_v1 自瞄 / tuned = 之前整定 / pid = 增量式PID =====
+  //   改这里只影响"位置增量+速度"的算法，状态机/扫描/开火门控一律不动。
+  this->declare_parameter("track_mode", "v1");       // v1 | tuned | pid
+  this->declare_parameter("v1_inc_gain", 0.5);       // 位置增量 tick/px/帧（上游 eff/2）
+  this->declare_parameter("v1_predict", 0.5);        // 预判（帧）
+  this->declare_parameter("v1_kp", 8.0);             // 速度 P
+  this->declare_parameter("v1_kd", 3.0);             // 速度 D
+  this->declare_parameter("v1_ema_alpha", 0.3);      // 视觉滤波
+  this->declare_parameter("v1_deadzone_px", 12);     // 死区
+  this->declare_parameter("v1_fine_zone_px", 20);    // 精调档阈值
+  this->declare_parameter("v1_fine_kp_scale", 0.5);  // 精调档 Kp 缩放
+  this->declare_parameter("v1_fine_kd_scale", 2.0);  // 精调档 Kd 放大
+  this->declare_parameter("v1_speed_floor", 100);    // 速度地板
+  this->declare_parameter("v1_speed_max_ratio", 0.63);// 速度上限 = patrol × 比例
+  this->declare_parameter("v1_speed_max_abs", 0);    // >0 直接用绝对值当上限
+  this->declare_parameter("v1_yaw_full_range", true);// 水平用整量程
+  this->declare_parameter("pid_enable", false);           // 总开关
+  this->declare_parameter("pid_kp", 15.0);                // 比例：ticks/s 每像素
+  this->declare_parameter("pid_ki", 0.0);                 // 积分：ticks/s 每(像素·秒)
+  this->declare_parameter("pid_kd", 0.0);                 // 微分：ticks 每(像素/秒)
+  this->declare_parameter("pid_i_clamp", 600.0);          // 积分输出限幅(ticks/s)
+  this->declare_parameter("pid_d_alpha", 0.3);            // 微分一阶低通系数
+  this->declare_parameter("pid_min_step", 1);             // 最小位置步长(ticks)
   this->declare_parameter("fire_deadzone_px", 8);		  // 固定开火死区(像素)
   this->declare_parameter("fire_dz_dynamic", true);		  // 启用动态开火框(按距离)
   this->declare_parameter("fire_dz_far_px", 3.5);		  // 远距离开火死区(像素)
@@ -1200,7 +1449,43 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->get_parameter("fine_kd_scale", fine_kd_scale_);
   this->get_parameter("track_kp", track_kp_);
   this->get_parameter("track_kd", track_kd_);
+  this->get_parameter("track_inc_gain", track_inc_gain_);
+  this->get_parameter("track_speed_floor", track_speed_floor_);
   this->get_parameter("track_speed_max_ratio", track_speed_max_ratio_);
+  // ===== ★跟踪模式 =====
+  this->get_parameter("track_mode", track_mode_);
+  this->get_parameter("v1_inc_gain", v1_inc_gain_);
+  this->get_parameter("v1_predict", v1_predict_);
+  this->get_parameter("v1_kp", v1_kp_);
+  this->get_parameter("v1_kd", v1_kd_);
+  this->get_parameter("v1_ema_alpha", v1_ema_alpha_);
+  this->get_parameter("v1_deadzone_px", v1_deadzone_px_);
+  this->get_parameter("v1_fine_zone_px", v1_fine_zone_px_);
+  this->get_parameter("v1_fine_kp_scale", v1_fine_kp_scale_);
+  this->get_parameter("v1_fine_kd_scale", v1_fine_kd_scale_);
+  this->get_parameter("v1_speed_floor", v1_speed_floor_);
+  this->get_parameter("v1_speed_max_ratio", v1_speed_max_ratio_);
+  this->get_parameter("v1_speed_max_abs", v1_speed_max_abs_);
+  this->get_parameter("v1_yaw_full_range", v1_yaw_full_range_);
+  if (track_mode_ != "v1" && track_mode_ != "tuned" && track_mode_ != "pid")
+  {
+    RCLCPP_WARN(this->get_logger(), "track_mode='%s' 非法，回落为 v1", track_mode_.c_str());
+    track_mode_ = "v1";
+  }
+  if (v1_ema_alpha_ <= 0.0) { v1_ema_alpha_ = 0.01; }
+  if (v1_ema_alpha_ > 1.0) { v1_ema_alpha_ = 1.0; }
+  // ===== ★增量式 PID 跟踪控制 =====
+  this->get_parameter("pid_enable", pid_enable_);
+  this->get_parameter("pid_kp", pid_kp_);
+  this->get_parameter("pid_ki", pid_ki_);
+  this->get_parameter("pid_kd", pid_kd_);
+  this->get_parameter("pid_i_clamp", pid_i_clamp_);
+  this->get_parameter("pid_d_alpha", pid_d_alpha_);
+  this->get_parameter("pid_min_step", pid_min_step_);
+  if (pid_i_clamp_ < 0.0) { pid_i_clamp_ = -pid_i_clamp_; }      // 限幅取绝对值，防手滑写负
+  if (pid_d_alpha_ < 0.0) { pid_d_alpha_ = 0.0; }                // 0=不滤
+  if (pid_d_alpha_ > 0.95) { pid_d_alpha_ = 0.95; }              // 1=等效关 D，夹到 0.95 防除零感
+  if (pid_min_step_ < 0) { pid_min_step_ = 0; }
   this->get_parameter("fire_deadzone_px", fire_deadzone_px_);
   this->get_parameter("fire_dz_dynamic", fire_dz_dynamic_);
   this->get_parameter("fire_dz_far_px", fire_dz_far_px_);
@@ -1315,6 +1600,32 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   RCLCPP_INFO(this->get_logger(),
               "自瞄: 状态机 IDLE/SCAN/TRACK | 点位全向扫描 %d 趟 | 扫描速度 %d | 循迹请求 /nav/scan_request | 状态上报 /aim/status",
               scan_passes_, patrolSpeed());
+
+  // ★跟踪控制横幅：当前用哪套模式、参数多少，开机一眼可见（本项目最大的坑就是"静默没生效"）
+  if (track_mode_ == "v1")
+  {
+    RCLCPP_INFO(this->get_logger(),
+                "跟踪控制: ★v1模式(参考 src_v1 上游自瞄) | 增量 %.2f tick/px/帧 + 预判 %.2f | "
+                "速度 PD %.1f/%.1f(精调 %dpx ×%.2f/×%.2f) 地板 %d 上限 %d | 死区 %dpx 滤波 %.2f | "
+                "水平 %s",
+                v1_inc_gain_, v1_predict_, v1_kp_, v1_kd_, v1_fine_zone_px_,
+                v1_fine_kp_scale_, v1_fine_kd_scale_, v1_speed_floor_, v1SpeedCap(),
+                v1_deadzone_px_, v1_ema_alpha_,
+                (v1_yaw_full_range_ ? "整量程 clampYawTick" : "扫描区间 clampYawToScan"));
+  }
+  else if (track_mode_ == "pid" && pid_enable_)
+  {
+    RCLCPP_INFO(this->get_logger(),
+                "跟踪控制: ★增量式PID | kp=%.2f ki=%.3f kd=%.3f i_clamp=%.0f d_alpha=%.2f min_step=%d "
+                "| 速率上限 %d tick/s",
+                pid_kp_, pid_ki_, pid_kd_, pid_i_clamp_, pid_d_alpha_, pid_min_step_, trackSpeedCap());
+  }
+  else
+  {
+    RCLCPP_INFO(this->get_logger(),
+                "跟踪控制: tuned模式 | 增量 %.2f tick/px/帧 + 预判 %.2f | 速度 PD %.1f/%.1f 地板 %d 上限 %d",
+                track_inc_gain_, predict_gain_, track_kp_, track_kd_, track_speed_floor_, trackSpeedCap());
+  }
 
   // ★卡 t25：扫描升级口径必须在开机横幅里可见（"静默失败"是本项目最大的坑）——
   //   进扫描先归位 + 连续扫描轮数上限 + 扫描范围/速度。

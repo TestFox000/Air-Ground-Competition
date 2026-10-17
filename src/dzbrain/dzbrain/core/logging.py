@@ -60,26 +60,6 @@ class Throttle:
             self._last.pop(key, None)
 
 
-class EventLog:
-    """结构化事件行：`[EV] ts=... task=... type=... k=v ...`。
-
-    设计目的：复盘时用 grep 就能拉出时间线，不依赖人工描述的日志措辞。
-    """
-
-    def __init__(self, log: Callable[[str], None] = print) -> None:
-        self._log = log
-        self.records: list[str] = []
-
-    def write(self, task: str, ev_type: str, **fields: Any) -> str:
-        parts = [f"[EV] ts={time.time():.3f}", f"task={task}", f"type={ev_type}"]
-        for k, v in fields.items():
-            parts.append(f"{k}={v}")
-        line = " ".join(parts)
-        self.records.append(line)
-        self._log(line)
-        return line
-
-
 class FaultGuard:
     """一次性日志/动作守卫（替代散落各处的 `logged_xxx` 标志位）。"""
 

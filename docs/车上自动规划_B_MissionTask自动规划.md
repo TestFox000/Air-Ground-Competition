@@ -1,5 +1,8 @@
 # 任务卡 B —— MissionTask 自动规划（读 map.yaml 自算路线）+ planner 配置段 + `--plan-only`
 
+> ⚠️ **历史报告（t7 复审标注 2026-10-17）**：本文是 2026-10-11 的验收快照（43 token / 17.15 m / 上洞 K4），
+> 正文数字**不代表现役**。现役 = **44 token / 15.05 m / 双停站 `D3*`+`G3*`**（2026-10-17 t13，上洞 K5），真源见 `docs/发车门禁口径.md` §6。
+
 - 工作区：`D:\User\Desktop\dzrobot_v2`（Windows，**Windows PowerShell 5.1**，`python` = 3.12）
 - 执行者：`mission-autoplan-v5`（attempt 12，接手 attempt 11 的落盘产物并补完/返工）
 - 一次性验证批次：**2026-10-11 07:58:03 → 07:59:13**，批次内 8 个受关注文件的头尾 sha256 **全部一致**

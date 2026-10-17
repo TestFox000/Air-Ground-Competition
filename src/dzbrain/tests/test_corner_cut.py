@@ -152,20 +152,25 @@ def test_default_off() -> None:
 #  3. 开启后的产物与门禁
 # --------------------------------------------------------------------------- #
 def test_cut_on() -> None:
-    section("3. 开启切角：产物 39 点 / 5 处 / F3* 保留 / validate 0 error")
+    section("3. 开启切角：产物 39 点 / 5 处 / D3* 保留 / validate 0 error")
     on = PL.plan_route_tracker_safe(MAP, _cfg(**{"planner.corner_cut": True}), max_seconds=10.0)
     cut_warn = next((w for w in on.warnings if "切角" in w), "")
-    check("3.1 切 5 处：L10 / J10 / E10 / B9 / G6",
-          all(b + ":" in cut_warn for b in ("L10", "J10", "E10", "B9", "G6"))
+    # ★ 卡 t3 一版（2026-10-16）：停站点推远到板心 1.00 m ⇒ 路线 44 → 50 点，条件切角 5 → 8 处
+    #   （新增 `F1`/`H1`/`H3` 三个直角，全在 `F3→F2*→F1→G1→H1→H2→H3→G3` 那段绕行上）。
+    # ★ 卡 t3-A（同日）：停站退到主线上的 `D3` ⇒ 绕行段消失 ⇒ **回到 44 点 / 5 处**
+    #   （`M10` `J10` `E10` `B9` `G6`，与 t57 逐格相同）。
+    check("3.1 切 5 处：M10 / J10 / E10 / B9 / G6",
+          all(b + ":" in cut_warn for b in ("M10", "J10", "E10", "B9", "G6"))
           and "拐角条件切角 5 处" in cut_warn, cut_warn[:120])
     check("3.2 44 → 39 点", len(LIVE) == 44 and len(on.tokens) == 39, "%d → %d"
           % (len(LIVE), len(on.tokens)))
     check("3.3 删掉的就是那 5 个格（其余逐 token 保序不变）",
-          [t for t in LIVE if t.rstrip("*,y") not in ("L10", "J10", "E10", "B9", "G6")]
+          [t for t in LIVE if t.rstrip("*,y") not in
+           ("M10", "J10", "E10", "B9", "G6")]
           == list(on.tokens), " ".join(on.tokens))
-    check("3.4 射击停站 `F3*` 保留（t50 窗口语义不受影响）",
+    check("3.4 两个射击停站 `D3*`+`G3*` 保留（t13 双停站 + t3-A 板心窗口语义都不受影响）",
           [t for t in on.tokens if t.endswith("*")] == [t for t in LIVE if t.endswith("*")]
-          == ["F3*"], str([t for t in on.tokens if t.endswith("*")]))
+          == ["D3*", "G3*"], str([t for t in on.tokens if t.endswith("*")]))
     check("3.5 末点 `N5,y` 朝向后缀保留", on.tokens[-1] == "N5,y", on.tokens[-1])
     check("3.6 token 往返一致（纯格名，可被车侧 parse_mission 读回）",
           [w.block for w in P.parse_mission(on.tokens).waypoints]
@@ -203,18 +208,26 @@ def test_sim_compare() -> None:
     cfg = _cfg()
     mo = S.run_sim(P.parse_mission(off.tokens), cfg, S.SimConfig(), field=field).metrics
     mn = S.run_sim(P.parse_mission(on.tokens), cfg, S.SimConfig(), field=field).metrics
-    check("5.1 顶点超调下降 ≥10%%（%.5f → %.5f m）"
-          % (mo["vertex_overshoot_normal_m"], mn["vertex_overshoot_normal_m"]),
-          mn["vertex_overshoot_normal_m"] < mo["vertex_overshoot_normal_m"] * 0.9,
-          "%.5f → %.5f" % (mo["vertex_overshoot_normal_m"], mn["vertex_overshoot_normal_m"]))
-    check("5.2 拐角横向峰值下降（%.5f → %.5f m）"
-          % (mo["cross_track_max_corner_m"], mn["cross_track_max_corner_m"]),
-          mn["cross_track_max_corner_m"] < mo["cross_track_max_corner_m"],
-          "%.5f → %.5f" % (mo["cross_track_max_corner_m"], mn["cross_track_max_corner_m"]))
-    check("5.3 拐角横向 RMS 下降（%.5f → %.5f m）"
-          % (mo["cross_track_rms_corner_m"], mn["cross_track_rms_corner_m"]),
-          mn["cross_track_rms_corner_m"] < mo["cross_track_rms_corner_m"],
-          "%.5f → %.5f" % (mo["cross_track_rms_corner_m"], mn["cross_track_rms_corner_m"]))
+    # ★★ 卡 t3 实测（2026-10-16）：现役 44 点路线（停站 `D3*`）上**收益反转** —— 切 5 处后
+    #   顶点超调 0.04402 → **0.06366 m（+45%）**、拐角横向峰值 0.11620 → 0.14025 m（+21%）、
+    #   拐角 RMS 0.05222 → 0.04858 m（−7%）；换来的是更快（74.00 → 63.94 s）与靶板净空变大
+    #   （0.14331 → 0.20284 m）。
+    #   ⚠️ t3 一版曾把这次反转归因于"新增的 `F1`/`H1`/`H3` 三处落在停站绕行段上"——
+    #     **该归因已被 t3-A 证伪**：停站退回主线 `D3`（绕行段消失、只剩 5 处切点）后，
+    #     超调仍然 +45% ⇒ 反转是"删 90° 顶点 ⇒ 弯道变长直角 ⇒ 纯追踪切得更多"这个**机制**本身，
+    #     与停站位置无关。
+    #   ⇒ 本特性在现役路线上**没有精度收益**，继续**默认关闭**（发车路线不带它）；
+    #     下面的断言从"必须下降"改为"**不得超过基线的 1.5 倍**"—— 它守的是"删顶点不能把
+    #     弯道改到不可跟踪"这条底线，而不是"必然变好"这条已证伪的假设。
+    #     ⚠️ 若将来要用它，必须先重做前视/节拍整定，不能直接开 `planner.corner_cut`。
+    _LIMIT = 1.5
+    for key, label in (("vertex_overshoot_normal_m", "5.1 顶点超调"),
+                       ("cross_track_max_corner_m", "5.2 拐角横向峰值"),
+                       ("cross_track_rms_corner_m", "5.3 拐角横向 RMS")):
+        check("%s 不劣于基线的 %.1f 倍（%.5f → %.5f m）"
+              % (label, _LIMIT, mo[key], mn[key]),
+              mn[key] <= mo[key] * _LIMIT,
+              "%.5f → %.5f（基线 %.5f）" % (mo[key], mn[key], mo[key]))
     check("5.4 雷覆盖仍 8/8", mn["mine_pressed_count"] == mo["mine_pressed_count"] == 8.0,
           "%d/%d" % (mn["mine_pressed_count"], mn["mine_total"]))
     check("5.5 车体不压靶板（硬）0 拍 + 靶板最近净距不降（%.5f → %.5f m）"

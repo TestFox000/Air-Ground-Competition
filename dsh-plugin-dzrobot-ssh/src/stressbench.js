@@ -15,14 +15,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  appendMeta, fieldSpec, normalizeCells, runSimJob, setStressBusy, SIM_ROOT,
+  appendMeta, CELL_RE, COL_LETTERS, fieldSpec, normalizeCells, runSimJob, setStressBusy, SIM_ROOT,
 } from './simbench.js'
 
 /** 压测产物根（§B.8：地图/统计只落这里，config/**、src/dzbrain/** 零写入）。 */
 const STRESS_DIR = path.join(SIM_ROOT, 'artifacts', 'sim', 'stress')
 
-const CELL_RE = /^[A-N](?:[1-9]|1[01])$/
-const COLS = 'ABCDEFGHIJKLMN'
 /** 规格 §B.1：雷 8 / 障 8 / 靶 2（相邻对）/ 通 2（K 列每半场 1）。 */
 const DRAW_COUNT = { mines: 8, obstacles: 8, targets: 2, bridges: 2 }
 /** 合同/规格硬边界：count 1..200；并发池规格 §B.3 ≤4（>4 收益递减且同毫秒撞 id 概率上升）。 */
@@ -75,8 +73,8 @@ function horizontalPairs(cells) {
   const set = new Set(cells)
   const out = []
   for (const cell of cells) {
-    const idx = COLS.indexOf(cell[0])
-    const next = idx >= 0 && idx + 1 < COLS.length ? `${COLS[idx + 1]}${cell.slice(1)}` : ''
+    const idx = COL_LETTERS.indexOf(cell[0])
+    const next = idx >= 0 && idx + 1 < COL_LETTERS.length ? `${COL_LETTERS[idx + 1]}${cell.slice(1)}` : ''
     if (next && set.has(next)) out.push([cell, next])
   }
   return out
@@ -113,8 +111,8 @@ function checkField(field, forbidden) {
     ? Math.abs(Number(a.slice(1)) - Number(b.slice(1))) === 1
       && !((Number(a.slice(1)) === 6 && Number(b.slice(1)) === 7)
         || (Number(a.slice(1)) === 7 && Number(b.slice(1)) === 6))
-    : COLS.indexOf(a[0]) >= 0 && COLS.indexOf(b[0]) >= 0
-      && a.slice(1) === b.slice(1) && Math.abs(COLS.indexOf(a[0]) - COLS.indexOf(b[0])) === 1
+    : COL_LETTERS.indexOf(a[0]) >= 0 && COL_LETTERS.indexOf(b[0]) >= 0
+      && a.slice(1) === b.slice(1) && Math.abs(COL_LETTERS.indexOf(a[0]) - COL_LETTERS.indexOf(b[0])) === 1
   if (!adjacent) return fail(`靶须横/竖相邻且同侧（得 ${a}+${b}）`)
   return { ok: true, error: '' }
 }
@@ -125,7 +123,7 @@ function drawOnce(rng, forbidden) {
   // 不可压不可停，雷/障/靶一律不落 K（通口才配 K 格）。理由：否则该图必 plan-failed，
   // 属结构性不可行而非"难度"，会把完赛率污染成与 seed 无关的常数。
   const land = []
-  for (const col of COLS) {
+  for (const col of COL_LETTERS) {
     for (let row = 1; row <= 11; row += 1) {
       const cell = `${col}${row}`
       if (!forbidden.has(cell) && cell[0] !== 'K') land.push(cell)
@@ -246,12 +244,12 @@ const state = { running: false, batchId: null, done: 0, total: 0 }
  *     默认（false）仍 await 全批返回完整结果，合同签名不变。
  *   · 仿真 seed = `(seed*1000+i) mod 2^31`（§B.7，与地图生成同源可复现）。
  */
-export async function runStress({ count = 50, seed, concurrency = 4, label = 'stress', background = false } = {}) {
+export async function runStress({ count = 64, seed, concurrency = 4, label = 'stress', background = false } = {}) {
   if (state.running) return { ok: false, code: 409, error: '压测批次正在进行，稍候再试' }
   if (!fs.existsSync(path.join(SIM_ROOT, 'src', 'dzbrain'))) {
     return { ok: false, code: 503, error: `工作区不可用（${SIM_ROOT} 下没有 src/dzbrain）` }
   }
-  const total = clampInt(count, LIMITS.count, 50)
+  const total = clampInt(count, LIMITS.count, 64)
   const pool = clampInt(concurrency, LIMITS.concurrency, 4)
   const cleanLabel = String(label ?? '').replace(/[^\w一-龥-]/g, '').slice(0, 40) || 'stress'
   const parsedSeed = Number(seed)

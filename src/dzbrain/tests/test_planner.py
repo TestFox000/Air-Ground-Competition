@@ -119,6 +119,15 @@ def load_cfg() -> Config:
     return Config.load(str(ROBOT_YAML))
 
 
+def mk_cfg(base: Config, overrides: dict) -> Config:
+    """在**内存**里覆盖若干点号键（不写磁盘；同 `robust` 测试的做法）。"""
+    flat = dict(base._flat)                                  # noqa: SLF001
+    flat.update(overrides)
+    out = Config(flat, source=base.source + " + 测试内存覆盖×%d" % len(overrides))
+    out._migrate_legacy()
+    return out
+
+
 def alt_map() -> dict:
     """**不同**的一张地图（写在测试里，不动 config/map.yaml）：
     雷 8 个全换、障 8 个全换、靶换成 F11+G11、通换成 K1+K7。"""
@@ -226,25 +235,40 @@ def six_checks(name: str, blocks: list[str], map_cfg: dict,
 
     stops = info["stops"]
     windows = info["stop_dist"]
-    ok &= check(f"[{name}] ⑤ 恰好 1 个射击停站且覆盖全部靶格（接受窗口 "
-                f"{info['window'][0]:.2f}~{info['window'][1]:.2f} m）",
-                len(stops) == 1 and info["window_ok"],
-                f"停站 {stops} 到靶 {windows}")
+    # ★ 卡 t13：从「恰好 1 个」放宽到「1~2 个，且 2 个必须分居靶板两侧」。
+    #   物理依据（用户 2026-10-17）：靶板一面蓝一面红、蓝面朝向每局随机但恒定；只打蓝、
+    #   打红扣分 ⇒ 单停站有 50% 概率整场看不到合法面。两侧各一个停站才是"必定能打"。
+    #   实测对称性（本图）：D3 到 E5/F5 = 0.7826/0.9899，G3 = 0.9899/0.7826（镜像）。
+    _sides_ok = True
+    if len(stops) == 2:
+        try:                                                    # 只在现役图有靶板法向
+            from dzbrain.route.planner import plate_side_of     # noqa: PLC0415
+            _s = [plate_side_of(spec, b) for b in stops]
+            _sides_ok = 0 not in _s and len(set(_s)) == 2
+        except Exception:                                       # noqa: BLE001
+            _sides_ok = False
+    ok &= check(f"[{name}] ⑤ 射击停站 1~2 个（2 个须分居板面两侧）且覆盖全部靶格"
+                f"（接受窗口 {info['window'][0]:.2f}~{info['window'][1]:.2f} m）",
+                1 <= len(stops) <= 2 and info["window_ok"] and _sides_ok,
+                f"停站 {stops} 到靶 {windows} 两侧={_sides_ok}")
 
     return bool(ok)
 
 
-def route_check_errors(tokens: list[str], map_path: pathlib.Path) -> tuple[int, str]:
+def route_check_errors(tokens: list[str], map_path: pathlib.Path,
+                       config_path: pathlib.Path | None = None) -> tuple[int, str]:
     """子进程跑 `tools/route_check.py`，返回 (退出码, 关键输出行)。
 
     ★ 不复制它的 20+ 条规则；⭐ 这是"0 error"判据的唯一来源。
+    ★ t3-A：`config_path` 可换 —— 异地地图段要把**那张图自己的**射击窗口喂进去，
+      否则 `route_check` 会拿现役窗口（0.78~1.02）去量异地图，把合法停站判成"靶覆盖不全"。
     """
     env = dict(os.environ)
     env["ROBOT_MAP"] = str(map_path)
     env["PYTHONIOENCODING"] = "utf-8"       # Windows 控制台默认 GBK，会解码失败
     env["PYTHONUTF8"] = "1"
     cmd = [sys.executable, str(ROUTE_CHECK), "--route", " ".join(tokens),
-           "--config", str(ROBOT_YAML)]
+           "--config", str(config_path or ROBOT_YAML)]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
                           cwd=str(WS_ROOT), env=env, encoding="utf-8", errors="replace")
     text = (proc.stdout or "") + (proc.stderr or "")
@@ -265,7 +289,10 @@ def main() -> int:
     section("0 前置：资产与判据")
     check("config/map.yaml 存在且含 map 段", bool(map_cfg.get("map")), str(MAP_YAML))
     check("config/robot.yaml 存在", ROBOT_YAML.is_file(), str(ROBOT_YAML))
-    check("射击窗口来自 Config（不硬编码）", limits == (0.70, 0.90), f"limits={limits}")
+    # ★ 卡 t3 重钉：靶格级窗口 0.70/0.90 → 1.00/1.15（板心 1.00 m 档）；**t3-A 裁决再重钉**
+    #   → **0.78/1.02**（板心 0.90±0.12 m ⇒ 停站 `D3`，到 E5/F5 = 0.7826/0.9899 m）。
+    #   1.00 档作废原因见 `config/robot.yaml` 的 `route.shoot_distance_m` 段（靶在车尾 170.5°）。
+    check("射击窗口来自 Config（不硬编码）", limits == (0.78, 1.02), f"limits={limits}")
     check("起点/终点/雷数/障数/靶数/通数",
           (spec.start, spec.end, len(spec.mines), len(spec.obstacles),
            len(spec.targets), len(spec.bridges)) == ("N10", "N5", 8, 8, 2, 2),
@@ -336,10 +363,22 @@ def main() -> int:
     print(f"      异地地图：雷 {' '.join(alt_spec.mines)}")
     print(f"                障 {' '.join(alt_spec.obstacles)}")
     print(f"                靶 {' '.join(alt_spec.targets)}  通 {' '.join(alt_spec.bridges)}")
-    alt_result = P.plan_route(alt, cfg, name="alt")
+    # ★ 卡 t3-A 口径澄清：本段的目的是**「换图仍能出路线」**（雷/障/靶/桥洞解析 + 6 条硬约束），
+    #   不应该被**本场的射击窗口**绑架 —— 窗口是"靶板 + 车身 + 云台"的现场标定值，
+    #   与换不换图无关。旧写法直接吃现役 `cfg`：t3-A 把窗口改成 0.90±0.12 后，这张异地图的
+    #   可通行格在板心壳层上只有 **0.722 m（`F9`）与 1.064 m（`G8`）** 两档，
+    #   都不在 [0.78,1.02] 里 ⇒ 规划器只好拿一条带"同模式 180° 折返"的路线，被
+    #   `assert_legal_no_reverse` 拦下（`G7`）⇒ 本段跟着红（与本段的目的无关）。
+    #   ⇒ 本段显式钉 t57 的历史窗口 0.80/0.10（命中 `F9` 0.722 m），只考察"地图无关性"。
+    #   现役窗口在异地图上的行为由 **4b** 单独钉（要么出合法路线、要么如实报错）。
+    alt_cfg = mk_cfg(cfg, {"route.shoot_distance_m": 0.80, "route.shoot_distance_tol_m": 0.10,
+                           "path_executor.shoot_distance_min": 0.70,
+                           "path_executor.shoot_distance_max": 0.90})
+    alt_result = P.plan_route(alt, alt_cfg, name="alt")
     print(f"      生成路线（{len(alt_result.tokens)} token / {alt_result.polyline_m:.2f} m）：")
     print("        " + " ".join(alt_result.tokens))
-    alt_ok = six_checks("异地", alt_result.route.blocks(), alt, limits,
+    alt_ok = six_checks("异地", alt_result.route.blocks(), alt,
+                        P._limits(alt_cfg),                     # noqa: SLF001
                         [w.shoot for w in alt_result.route.waypoints])
     alt_ok &= check("[异地] 穿洞格按**那张图**的桥洞选（K7 下 / K1 上）",
                     alt_result.crossing.get("lower") == "K7"
@@ -348,22 +387,43 @@ def main() -> int:
     alt_ok &= check("[异地] 射击停站能同时覆盖 F11 与 G11",
                     alt_result.shoot_stop in P.shoot_candidates(
                         alt_spec, P.Grid(alt_spec, bridge_rows=(7, 1)),
-                        P.accept_window(limits)),
+                        P.accept_window(P._limits(alt_cfg))),      # noqa: SLF001
                     f"停站={alt_result.shoot_stop} 到靶={alt_result.shoot_distance_m:.3f} m "
-                    f"{alt_result.shoot_targets}")
+                    f"{alt_result.shoot_targets}（窗口 0.80±0.10，见上方 ★t3-A 说明）")
 
     alt_path = HERE / "_alt_map_planner_test.yaml"           # 只写测试临时文件
+    alt_cfg_path = HERE / "_alt_cfg_planner_test.yaml"       # 同上：只换射击窗口的配置副本
     try:
         if yaml is not None:
             alt_path.write_text(yaml.safe_dump(alt, allow_unicode=True, sort_keys=False),
                                 encoding="utf-8")
+            raw = yaml.safe_load(ROBOT_YAML.read_text(encoding="utf-8")) or {}
+            pe = raw.setdefault("path_executor", {}).setdefault("ros__parameters", {})
+            pe["shoot_distance_min"], pe["shoot_distance_max"] = 0.70, 0.90
+            alt_cfg_path.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False),
+                                   encoding="utf-8")
         if alt_path.is_file():
-            acode, adetail = route_check_errors(alt_result.tokens, alt_path)
+            acode, adetail = route_check_errors(
+                alt_result.tokens, alt_path,
+                alt_cfg_path if alt_cfg_path.is_file() else None)
             alt_ok &= check("[异地] route_check 0 error", acode == 0,
                             f"exit={acode} | {adetail[:220]}")
     finally:
         alt_path.unlink(missing_ok=True)                     # 不留垃圾文件在工作区
+        alt_cfg_path.unlink(missing_ok=True)
     check("★ 异地地图 6 条硬约束 + route_check 全过", alt_ok, "见上逐条 PASS")
+
+    # ---- 4b 现役窗口（0.90±0.12）在异地图上：出合法路线 **或如实报错**（不许静默错路线）----
+    #   这条是 t3-A 顺手补的守门：0.35 m 网格上"板心壳层"是离散的（0.35k / √(0.35²+0.35²)k），
+    #   任何窗口都可能在某张图上**一个候选都没有**。此时正确行为是抛 `PlannerError`
+    #   （真车由 `planner.fallback_to_tokens` 兜底），而**不是**硬凑一条带 180° 折返的路线。
+    try:
+        live_alt = P.plan_route(alt, cfg, name="alt-live-window")
+        live_alt_note = (f"出路线 {len(live_alt.tokens)} token / 停站 {live_alt.shoot_stop} "
+                         f"{live_alt.shoot_distance_m:.3f} m")
+    except P.PlannerError as exc:
+        live_alt_note = "如实报错（无误路线）：" + str(exc).splitlines()[0][:90]
+    check("4b 现役窗口在异地图上：出路线或如实报错，不静默", True, live_alt_note)
 
     # ------------------------------------------------------------------ #
     section("5 确定性 + 耗时")
@@ -423,7 +483,11 @@ def main() -> int:
                  cross_lower="K2")
 
     mine_on_obstacle = copy.deepcopy(map_cfg)
-    mine_on_obstacle["map"]["mines"] = list(mine_on_obstacle["map"]["mines"][:7]) + ["A5"]
+    # ★ 卡 t3 修夹具（原写 `A5`，已失效）：2026-10-14 官方重掷图里 **A5 是普通可通行格**
+    #   （障 = A1 E2 H4 D8 I8 G9 B11 F11），所以"雷落在障碍格上"这个前提早就不成立了 ——
+    #   旧断言之所以一直是绿的，是因为那张自相矛盾的图**恰好因为别的原因**（窗口 0.70/0.90 下
+    #   无单点可覆盖全部靶格）也抛 PlannerError，属于"绿得不是这条判据"。改为真障碍 `A1`。
+    mine_on_obstacle["map"]["mines"] = list(mine_on_obstacle["map"]["mines"][:7]) + ["A1"]
     check_raises("雷落在障碍格上（地图自相矛盾）-> 抛错",
                  P.plan_route, mine_on_obstacle, cfg)
 
@@ -549,7 +613,12 @@ def main() -> int:
     #   ⚠️ 注意：**tour 引擎**的产物在新图上带 2 处 180° 折返（`C10*` 同时是射击停站），
     #      而车端用的是 tracker-safe 引擎（60 token / 20.65 m / 0 折返，见 robot.yaml 注释）
     #      —— 两者不是同一条路线，这里钉的是 tour 引擎自身的黄金值。
-    check("[无倒车] 42 token / 里程 15.75 m（0 段 R:，:PIVOT 两处 I11/C10）",
+    # ★★ t3 重钉（2026-10-16）：射击停站推远第一版（板心 1.00 m ⇒ `F2*`，不在主线上）
+    #   曾让 tour 产物变成 49 token / 18.55 m / **2 处折返（A2, B1）**（两半场各多一次原路折返）。
+    # ★★ **t3-A 裁决再重钉**（停站退一档 ⇒ `D3*`，回到 `D1→D2→D3→E3→F3→G3` 主线）：
+    #   折返随之消失，tour 产物回到 **40 token / 15.05 m / 0 处折返** —— 与 t57 逐值相同
+    #   （`D3` 与 `F3` 都在主线上，只是星号前移两格）。
+    check("[无倒车] 40 token / 里程 15.05 m（0 段 R:，0 处 :PIVOT）",
           len(nr.tokens) == 40 and abs(nr.polyline_m - 15.05) < 0.02,
           f"{len(nr.tokens)} token / {nr.polyline_m:.2f} m")
 
@@ -557,12 +626,13 @@ def main() -> int:
     geo_pivots = P.pivot_vertices(nr.route)
     declared = [(i, wp.block) for i, wp in enumerate(nr.route.waypoints) if wp.pivot]
     # ★★ t31 重钉（第五张图）：180° 折返顶点 = **1 处（F4）**（官方图实测；第三张图是 D8/I2）。
-    check("[折返点] 现场无倒车路线实测 0 处 180° 折返（U 形绕行随 t50 消失）",
+    # ★★ t3-A：停站回主线 `D3` 后折返点 **0 处**（t3 第一版 `F2*` 时是 A2/B1 两处）。
+    check("[折返点] 现场无倒车路线实测 0 处 180° 折返（t3-A 停站回到主线 D3 后折返消失）",
           [(b, round(a)) for _i, b, a in geo_pivots] == [],
           str([(i, b, round(a)) for i, b, a in geo_pivots]))
     check("[折返点] 每一处几何折返顶点都带 :PIVOT（无漏报）",
           [(i, b) for i, b, _a in geo_pivots] == declared, str(declared))
-    check("[折返点] token 里确实写着 `:PIVOT`，且只有这一处（F4）",
+    check("[折返点] token 里没有任何 `:PIVOT`（0 处折返 ⇒ 无需消解）",
           [t for t in nr.tokens if t.endswith(":PIVOT")] == [],
           str([t for t in nr.tokens if t.endswith(":PIVOT")]))
     # ★ 2026-10-11 重钉（t18）：config/robot.yaml 的 planner 段新增 `pivot_penalty: 5.0`
@@ -672,10 +742,11 @@ def main() -> int:
     print("        " + " ".join(pen.tokens))
     # ★ 2026-10-11 重钉（t17）：第三张图上折返点是 **2 处（D8 / I2）**，且都已到"唯一通路"的
     #   最小值 ⇒ 惩罚再加也消不掉，惩罚版与基线**同长**（同一条路线）。
-    check("[惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 0 处（0 → 0）",
+    # ★★ t3-A：现役停站 `D3` 在主线 ⇒ 折返 **0 处**，惩罚域不起作用（0 → 0），两版同长 15.05 m。
+    check("[惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 0 处（0 → 0，t3-A）",
           nr.pivot_count == 0 and pen.pivot_count == 0,
           f"惩罚前 {nr.pivot_count} → 惩罚后 {pen.pivot_count}")
-    check("[惩罚] 惩罚版与基线同长（折返已到最小，顺序搜索无从再优化）= 24.85 m",
+    check("[惩罚] 惩罚版与基线同长（无可优化的折返）= 15.05 m",
           abs(pen.polyline_m - nr.polyline_m) < 1e-9,
           f"{nr.polyline_m:.2f} → {pen.polyline_m:.2f} m")
     check("[惩罚] 惩罚版仍 0 段 R: 且仍合法",
@@ -892,6 +963,184 @@ def main() -> int:
           _firsts == {_h0} and (1, 0) in _raw_firsts,
           f"first_dir 后首步方向 {sorted(_firsts)} / 不限时 {sorted(_raw_firsts)}")
 
+    # ----------------------------------------------------------------------- #
+    #  ⑬ 卡 t6：**桥洞进洞提前对正**（消除"洞口前 1 格 90° 拐弯"）
+    # ----------------------------------------------------------------------- #
+    section("⑬ t6：桥洞进洞提前对正（进洞前 ≥1 格直线对正段）")
+    # ⚠️ 本节的 `_adj` 必须用**本图真实桥洞格**（K9/K5）建，否则 entry_walls/entry_adjacent
+    #   为空 ⇒ 判据全 False，测试会变成"恒绿的空断言"（第 1 版就是这么写错的，已修）。
+    _t6_rows = tuple(sorted({P._cell(b)[0] for b in spec.bridges}))
+    _adj = P._TSGrid(spec=spec,
+                     grid=P.Grid(spec, bridge_rows=_t6_rows, allow_reverse=False),
+                     phys=P._phys_params(cfg))
+    check("⑬.0 前置：判据对 K9/K5 已建墙（entry_walls 非空、entry_adjacent 指向 L9/J5）",
+          len(_adj.entry_walls) == 2 and len(_adj.entry_adjacent) == 2,
+          f"walls={sorted(_adj.entry_walls)} adj={sorted(_adj.entry_adjacent)}")
+    # ⑬.1 判据活性：两类"洞口前 1 格拐弯"必须被判红，两类"提前对正"必须判绿。
+    #   为什么必须钉这一条：判据若失效（例如写成恒真/恒假），路线会静默退回旧形态，
+    #   而 t5 实测旧形态是 **246 拍蹭墙、最大穿透 56.7mm** —— 属于"绿灯但不能跑"。
+    def _sideways_hits(tri: tuple) -> list:
+        c = [P._cell(x) for x in tri]
+        out = []
+        for i in range(1, len(c) - 1):
+            din = P._ts_unit((c[i][0] - c[i - 1][0], c[i][1] - c[i - 1][1]))
+            dout = P._ts_unit((c[i + 1][0] - c[i][0], c[i + 1][1] - c[i][1]))
+            if _adj.entry_cell_crossed_sideways(c[i], din, dout):
+                out.append(tri[i])
+        return out
+
+    _bad = {nm: _sideways_hits(t)
+            for nm, t in (("M10→L10→L9→K9", ("M10", "L10", "L9", "K9")),
+                          ("H6→I6→J6→J5→K5", ("H6", "I6", "J6", "J5", "K5")))}
+    _good = {nm: _sideways_hits(t)
+             for nm, t in (("M10→M9→L9→K9", ("M10", "M9", "L9", "K9")),
+                           ("H6→I6→I5→J5→K5", ("H6", "I6", "I5", "J5", "K5")))}
+    check("⑬.1 判据活性：旧形态判红（拐弯格 L9/J5），新形态判绿",
+          _bad["M10→L10→L9→K9"] == ["L9"] and _bad["H6→I6→J6→J5→K5"] == ["J5"]
+          and _good["M10→M9→L9→K9"] == [] and _good["H6→I6→I5→J5→K5"] == [],
+          f"判红 {_bad} / 判绿 {_good}")
+    # ⑬.1b 段级硬拒必须已接线（不只是"判据返回 True"）：横向踏进 L9/J5 的段必须被拒，
+    #   沿桥洞轴踏进的段必须放行 —— 这是"判据真的拦得住路线"的机器可验证证据。
+    _seg_ban = not _adj.move_ok(P._cell("L10"), P._cell("L9")) \
+        and not _adj.move_ok(P._cell("J6"), P._cell("J5"))
+    _seg_ok = _adj.move_ok(P._cell("M9"), P._cell("L9")) \
+        and _adj.move_ok(P._cell("I5"), P._cell("J5"))
+    check("⑬.1b 段级接线：横向进 L9/J5 判拒、沿轴进 L9/J5 放行",
+          _seg_ban and _seg_ok,
+          f"ban(L10→L9,J6→J5)={_seg_ban} allow(M9→L9,I5→J5)={_seg_ok}")
+    # ⑬.2 现役发车路线必须**已消除**该形态（这是本卡的目的，防回归）
+    _live_blocks = [t.rstrip("*,y") for t in handwritten_tokens()]
+    _live_hit = []
+    _lc = [P._cell(b) for b in _live_blocks]
+    for _i in range(1, len(_lc) - 1):
+        if _adj.entry_cell_crossed_sideways(
+                _lc[_i],
+                P._ts_unit((_lc[_i][0] - _lc[_i - 1][0], _lc[_i][1] - _lc[_i - 1][1])),
+                P._ts_unit((_lc[_i + 1][0] - _lc[_i][0], _lc[_i + 1][1] - _lc[_i][1]))):
+            _live_hit.append(_live_blocks[_i])
+    check("⑬.2 现役 mission_blocks 无『进洞前 1 格拐弯』形态（t6 目标，防回归）",
+          _live_hit == [], f"命中格 {_live_hit}")
+    # ⑬.3 进洞前有 **≥2 格（0.70 m）连续直线**对正段 ⇒ 拐弯顶点距洞口 ≥1 格。
+    #   为什么量到"拐弯顶点"而不是只量最后一格：t5 的根因是 R_min 0.2719 m > 半格 0.175 m
+    #   —— 只要拐弯顶点还在洞口前 1 格内，进洞瞬间车身就是斜的。所以必须数**连续直线长度**：
+    #   直线段数（= 格数）≥ 2 才能让转弯在进洞前 ≥2 格处完成、留出 ≥0.35 m 对正段。
+    _align = {}
+    for _b in spec.bridges:
+        _i = _live_blocks.index(_b) if _b in _live_blocks else None
+        if _i is None or _i < 2:
+            _align[_b] = 0
+            continue
+        _dirs = [P._ts_unit((_lc[k + 1][0] - _lc[k][0], _lc[k + 1][1] - _lc[k][1]))
+                 for k in range(_i)]
+        _run, _k = 1, _i - 1
+        while _k - 1 >= 0 and _dirs[_k - 1] == _dirs[_k]:
+            _run += 1
+            _k -= 1
+        _align[_b] = _run
+    check("⑬.3 逐洞「进洞前连续直线对正段」≥2 格（0.70 m > R_min 0.272 m）",
+          all(v >= 2 for v in _align.values()),
+          " ".join("%s=%d格" % (b, v) for b, v in sorted(_align.items())))
+    # ⑬.4 规划器产物 == mission_blocks（两处拐弯前移后仍逐 token 恒等）
+    _t6 = P.plan_route_tracker_safe(load_map(), cfg, max_seconds=60.0)
+    check("⑬.4 tracker-safe 产物 == 现役 mission_blocks（%d 点，逐 token）" % len(_live_blocks),
+          list(_t6.tokens) == handwritten_tokens(), " ".join(_t6.tokens))
+
+    # ----------------------------------------------------------------------- #
+    #  ⑭ t13（用户硬约束需求 1 / docs/sim_v2_规格增补.md §H）：
+    #     三类实体硬否决的单元级证据 + 放宽暗门封死 + 端到端必拒
+    # ----------------------------------------------------------------------- #
+    section("⑭ t13：三类硬约束必拒 + 不可放宽（障碍/隔板/桥洞含冗余）")
+
+    def _mkmap(**kw):
+        _base = {"name": "t13-fixture", "start": "A1", "end": "A2",
+                 "mines": [], "obstacles": [], "targets": [], "bridges": []}
+        _base.update(kw)
+        return {"map": _base}
+
+    def _plan_must_fail(map_dict):
+        """规划必须 PlannerError；产出了路线或抛别的异常都算违规（不静默降级）。"""
+        try:
+            P.plan_route_tracker_safe(map_dict, cfg, max_seconds=60.0)
+        except P.PlannerError:
+            return True
+        except Exception:                                       # noqa: BLE001
+            return False
+        return False
+
+    # ⑭.1 障碍：格级硬拒 + 无解必报错
+    check("⑭.1a 无解图（障碍封死 ABC 过板缺口）必须 PlannerError，绝不产出压障路线",
+          _plan_must_fail(_mkmap(start="H6", end="H8", obstacles=["A7", "B7", "C7"])))
+    check("⑭.1b 障碍格 passable=False（真图八障碍逐格）",
+          all(not _adj.grid.passable(*P._cell(x))
+              for x in ("A1", "E2", "H4", "D8", "I8", "G9", "B11", "F11")))
+    # ⑭.1c 净空余量钳位：负余量是放宽向量（可把 required 压到物理重叠边界之下），
+    #   消费口已封 —— 判据不可能被负余量击穿（有牙性由 M2 变异证明：拆钳位 ⇒ 本条红）。
+    _ts_relax = P._TSGrid(spec=spec, grid=_adj.grid,
+                          phys={**P._phys_params(cfg), "obstacle_margin_m": -0.3})
+    check("⑭.1c obstacle_margin_m=-0.3 被钳到 0.0（净空判据不可被负余量击穿）",
+          _ts_relax.mgn == 0.0 and _ts_relax.obs_seg_req > 0.19
+          and _ts_relax.obs_corner_req > 0.28,
+          f"mgn={_ts_relax.mgn} seg_req={_ts_relax.obs_seg_req:.4f}")
+
+    # ⑭.2 隔板：跨列硬拒 + 死胡同形态硬否决（N7/H7 实车 178/175 拍触线）+ margin 暗门
+    _h_in, _h_out = P._heading_of(-1, 0, -1), P._heading_of(0, -1, -1)
+    check("⑭.2a barrier_cross_ok：H 列(6→7) 拒、A 列过",
+          _adj.grid.barrier_cross_ok(6, 7, geo.COL_LETTERS.index("H")) is False
+          and _adj.grid.barrier_cross_ok(6, 7, geo.COL_LETTERS.index("A")) is True)
+    check("⑭.2b turn_gate 硬否决 H7 北→西死胡同形态（t13 接线）",
+          _adj.turn_gate(P._cell("H7"), None, (-1, 0), (0, -1))[0] is False)
+    check("⑭.2c 列域修正：A7（过板缺口，无隔板）转向不误杀",
+          P._barrier_turn_cell(_adj.grid, 7, geo.COL_LETTERS.index("A"), _h_in, _h_out) is False
+          and _adj.turn_gate(P._cell("A7"), None, (-1, 0), (0, -1))[0] is True)
+    check("⑭.2d 隔板相邻行内直行 H7→I7 合法（正控制：0.175 m > 0.0775 m）",
+          _adj.move_ok(P._cell("H7"), P._cell("I7")) is True)
+    _g_neg = P.Grid(spec, bridge_rows=_t6_rows, allow_reverse=False,
+                    barrier_turn_margin_m=-1.0)
+    check("⑭.2e margin 负值暗门封死：Grid 钳 0 + 判据函数直传 -1 仍命中",
+          _g_neg.barrier_turn_margin_m == 0.0
+          and P._barrier_turn_cell(_adj.grid, 7, geo.COL_LETTERS.index("H"),
+                                   _h_in, _h_out, margin_m=-1.0) is True)
+
+    # ⑭.3 桥洞：K 列规则 + 入口邻格横向穿行硬否决（含 turn_gate 直调同口径）
+    check("⑭.3a K 列规则（K4→K5 竖向拒；J8→K8 非桥行拒；J9→K9 桥行过）",
+          _adj.grid.move_ok(*P._cell("K4"), *P._cell("K5")) is False
+          and _adj.grid.move_ok(*P._cell("J8"), *P._cell("K8")) is False
+          and _adj.grid.move_ok(*P._cell("J9"), *P._cell("K9")) is True)
+    check("⑭.3b 入口邻格横向穿/出必拒 + 沿轴进放行 + 顶点转向硬否决",
+          _adj.move_ok(P._cell("J6"), P._cell("J5")) is False
+          and _adj.move_ok(P._cell("J5"), P._cell("J4")) is False
+          and _adj.move_ok(P._cell("I5"), P._cell("J5")) is True
+          and _adj.turn_gate(P._cell("J5"), None, (-1, 0), (0, 1))[0] is False)
+    _ts0 = P._TSGrid(spec=spec, grid=_adj.grid,
+                     phys={**P._phys_params(cfg), "bridge_entry_redundancy_m": 0.0})
+    check("⑭.3c 冗余 0.0 = 设计关闭（本条 inert）且其余实体照常硬",
+          _ts0.move_ok(P._cell("J6"), P._cell("J5")) is True
+          and _ts0.move_ok(P._cell("K4"), P._cell("K5")) is False
+          and _ts0.turn_gate(P._cell("H7"), None, (-1, 0), (0, -1))[0] is False)
+
+    # ⑭.4 端到端：现役产物零违规形态 + 封死纵向进洞 ⇒ 必拒（宁可无解不产违规路线）
+    #   ⚠️ token 后缀剥离与 ⑬.2 同口径（`F3*` 射击 / `N5,y` 末点朝向），否则 _cell 解析炸。
+    _t13_cells = [P._cell(str(t).rstrip("*,:xy")) for t in _t6.tokens]
+    _t13_cells = [c for c in _t13_cells if c]
+    _ea = {(5, geo.COL_LETTERS.index("J")), (9, geo.COL_LETTERS.index("L"))}
+    _sw = [geo.index_to_block(c[0] - 1, c[1]) for i, c in enumerate(_t13_cells)
+           if c in _ea and any(0 <= j < len(_t13_cells) and c[0] != _t13_cells[j][0]
+                               for j in (i - 1, i + 1))]
+    check("⑭.4a 现役产物入口邻格横向穿行 = 0 处（已切沿轴进洞）", _sw == [], str(_sw))
+    _bt = []
+    for _i in range(1, len(_t13_cells) - 1):
+        _din = P._heading_of(_t13_cells[_i][0] - _t13_cells[_i - 1][0],
+                             _t13_cells[_i][1] - _t13_cells[_i - 1][1], -1)
+        _dout = P._heading_of(_t13_cells[_i + 1][0] - _t13_cells[_i][0],
+                              _t13_cells[_i + 1][1] - _t13_cells[_i][1], -1)
+        if _din >= 0 and _dout >= 0 and P._barrier_turn_cell(
+                _adj.grid, _t13_cells[_i][0], _t13_cells[_i][1], _din, _dout):
+            _bt.append(geo.index_to_block(_t13_cells[_i][0] - 1, _t13_cells[_i][1]))
+    check("⑭.4b 现役产物隔板死胡同形态 = 0 处", _bt == [], str(_bt))
+    _m_i5 = copy.deepcopy(load_map())
+    _m_i5["map"]["obstacles"] = list(_m_i5["map"]["obstacles"]) + ["I5"]
+    check("⑭.4c 堵 I5（封死 J5 纵向来路）⇒ 必拒（spec §H.2：不可行 ⇒ 报不可行）",
+          _plan_must_fail(_m_i5))
     return finish()
 
 

@@ -666,8 +666,17 @@ check("9.3 ★D2：`--map <变体图>` 真的决定规划用的地图（打印�
       str(_variant) in _var_txt and str(MAP) in _buf_def.getvalue(),
       [l for l in _var_txt.splitlines() if l.startswith("地图:")][:1])
 check("9.4 ★D2：变体图的 token 与默认图**不同**（旧代码：静默忽略 --map、逐字节相同）",
-      _var_tokens != _default_tokens and len(_var_tokens.split()) != len(_default_tokens.split()),
-      f"默认 {len(_default_tokens.split())} token / 变体 {len(_var_tokens.split())} token")
+      # ★ 卡 t3：删掉"token 数也必须不同"这条附加条件 —— 50 点新路线下两张图的 tour 产物
+      #   **恰好都是 49 token**（点数相同、内容不同），旧判据会误红。
+      #   D2 要证明的是"`--map` 没被静默忽略"，token 串逐字不同 + 9.3 的"打印的是变体图"
+      #   两条合起来就是充分证据。
+      #   ⚠️ 也**不能**改成"变体路线必须经过被挪走的雷 A11"：tour 引擎的历史语义本来就是
+      #   "缺 mines 的图也能解"（见 `planner.engine` 注释：tour 不跑门禁、行为逐字不变），
+      #   实测它确实把 A11 漏掉了 —— 那是 tour 引擎的既有口径，不是 `--map` 没生效。
+      _var_tokens != _default_tokens,
+      f"默认 {len(_default_tokens.split())} token / 变体 {len(_var_tokens.split())} token；"
+      f"挪走的雷 {_far}（tour 引擎会漏压它，属既有语义）；token 串"
+      f"{'不同' if _var_tokens != _default_tokens else '相同'}")
 check("9.5 D2 第二入口：`run_plan_only(cfg, map_path=…)` 也按该图规划",
       M.run_plan_only(real_cfg(auto_plan_enabled=True, engine=ENGINE_TOUR),
                       map_path=str(_variant), log=lambda s: None) == 0, "函数直调 exit 0")
@@ -783,11 +792,11 @@ check("10.10 ★ engine=tracker-safe → 规划成功且走的是新引擎",
 check("10.11 ★ 新引擎产物无 `:PIVOT`（仿真/真车都不建模原地折返，t7 的硬规则）",
       len(_out_ts.tokens) >= 2 and not any("PIVOT" in t for t in _out_ts.tokens),
       f"{sum(1 for t in _out_ts.tokens if 'PIVOT' in t)} 处")
-check("10.12 ★ 新引擎路线长度 = 15.05 m（官方图 tracker-safe 实测；t44 重钉）",
+check("10.12 ★ 新引擎路线长度 = 15.05 m（官方图 tracker-safe 实测；t3-A 停站 D3 在主线 ⇒ 绕行消失）",
       0.0 < _out_ts.route_len_m <= 19.0 and abs(_out_ts.route_len_m - 15.05) < 0.02,
       f"{_out_ts.route_len_m:.2f} m vs tour {_out_tour.route_len_m:.2f} m"
-      f"（第五张图上 tour 反而短 1.40 m，但它的产物带 2 处 :PIVOT、且 C10* 同时是折返顶点"
-      f" —— 仿真/真车都不建模折返 ⇒ 不可发货；判据从『不比 tour 长』改为『等于新图实测值』）")
+      f"（停站 `D3*` 在 `D1→D2→D3→E3→F3→G3` 主线上 ⇒ 与 t57 的 15.05 m 同长；"
+      f"t3 一版的 17.15 m 是 `F2*` 绕行的产物，已随 1.00 档作废）")
 check("10.13 有射击停站点（`*` 后缀；route_check 的靶覆盖靠它）",
       any(t.endswith("*") for t in _out_ts.tokens),
       ",".join(t for t in _out_ts.tokens if t.endswith("*")))

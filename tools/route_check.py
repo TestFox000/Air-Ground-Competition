@@ -45,7 +45,7 @@
     ./route_check.py
 
     # 校验一条手工路线
-    ./route_check.py --route "M10 K7 F2* R:K9 N5"
+    ./route_check.py --route "M10 K7 D3* R:K9 N5"
 
     # 一条命令跑完「规划器 -> 校验」全链路
     ./route_check.py --from-planner \
@@ -71,16 +71,20 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 WS = os.path.dirname(HERE)
 
 # =============================================================================
-#  地图常量（与 path_executor.py 保持一致）
+#  地图常量 —— ★ 唯一真源 = `src/dzbrain/dzbrain/core/geometry.py`
 # =============================================================================
-COL_LETTERS = "ABCDEFGHIJKLMN"
-MAP_COLS = 14
-MAP_ROWS = 11
-BLOCK_SIZE = 0.35
+# 不再在本文件抄数字（四份副本漂移曾让"规划器 14 列 / 校验器另一套"成为隐患）：
+# `_field_const` 从 `__file__` 推出 `src/dzbrain` 插进 sys.path，再从 `core.geometry`
+# 取常量。因此 `python tools/route_check.py` 仍可**直接跑**：不设 PYTHONPATH、
+# 不 pip 装 dzbrain 包（只要求仓库源码树在场）。
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
 
-BARRIER_ROW_HI = 6
-BARRIER_ROW_LO = 7
-BARRIER_COL_FROM = "D"
+from _field_const import (                                    # noqa: E402
+    BARRIER_COL_FROM, BARRIER_ROW_HI, BARRIER_ROW_LO,
+    BLOCK_SIZE, COL_LETTERS, MAP_COLS, MAP_ROWS,
+    MAP_X_MAX, MAP_X_MIN, MAP_Y_MAX, MAP_Y_MIN,
+)
 
 # 判定阈值
 BARRIER_MIN_MARGIN = 0.10        # 过挡板缺口时离挡板边缘的最小余量(m)
@@ -89,8 +93,10 @@ OBSTACLE_WARN_M = 0.30           # 航段离障碍的告警距离(m)
 #: ★★物理几何（t22：用户 2026-10-11 现场口径）—— 与 `config/robot.yaml` 的
 #: `vehicle.*` / `field.*` / `planner.obstacle_margin_m` 逐项对应，`load_cfg()` 会用配置值
 #: **覆盖**这里的默认值（默认值与 `core/config.py` SCHEMA 一致）。
-#: 公式与 `dzbrain/route/physics.py` 是**同一套**——本工具刻意不 import dzbrain（车端没装包
-#: 也要能单跑），所以由 `src/dzbrain/tests/test_physics.py` 的**对拍断言**钉住两份实现不许分叉。
+#: 公式与 `dzbrain/route/physics.py` 是**同一套**——本工具**不复用那份实现**（物理判据要能
+#: 脱离 dzbrain 包独立演进），所以由 `src/dzbrain/tests/test_physics.py` 的**对拍断言**钉住
+#: 两份实现不许分叉。★ 场地常量（格边/行列数/挡板行列）**不在此列**：它们已统一由
+#: `core/geometry.py` 单点供源（见上方 `_field_const` import）。
 VEHICLE_LENGTH_M = 0.28          # 车体长
 VEHICLE_WIDTH_M = 0.135          # 车体宽（半宽 0.0675 进挡板/障碍判据）
 COVERAGE_RADIUS_M = 0.035        # 车心假设圆半径（压雷判据）
@@ -108,10 +114,6 @@ SHARP_CORNER_DEG = 45.0          # 超过此角度算"急转弯"（提示级；�
 #   **不改变** `pursuit/**` 与 `tasks/tracker.py` 的任何行为。
 PIVOT_DECL_DEG = 135.0
 
-MAP_X_MIN = 0.5 * BLOCK_SIZE
-MAP_X_MAX = 10.5 * BLOCK_SIZE
-MAP_Y_MIN = 0.5 * BLOCK_SIZE
-MAP_Y_MAX = 13.5 * BLOCK_SIZE
 MAP_SAFETY_MARGIN = 0.60
 
 FAIL, WARN, OK, INFO = [], [], [], []
@@ -352,8 +354,9 @@ def seg_obstacle_min(pts, obstacles):
 
 
 #: 「进洞角」上限（度）。真源是 `src/dzbrain/dzbrain/route/validate.py` 的
-#: `MAX_CROSS_ANGLE_DEG`（R009）—— 本工具**刻意不 import dzbrain**（用户侧脚本，
-#: 车端没装 dzbrain 包时也要能单跑），所以在这里复写一份常量，值必须与真源一致。
+#: `MAX_CROSS_ANGLE_DEG`（R009）—— 本工具**不 import `route.validate`**（那是校验规则的实现，
+#: 与本工具的六层判据各管一段），所以在这里复写一份常量，值必须与真源一致。
+#: （场地几何常量不在此列：已由 `core/geometry.py` 单点供源，见文件头 `_field_const`。）
 R009_MAX_ANGLE_DEG = 10.0
 
 #: ★「车心压过靶板」的几何判据半径（米）= **半格**（0.35/2 = 0.175）。
@@ -367,53 +370,60 @@ TARGET_RUNOVER_TOL_M = BLOCK_SIZE / 2.0
 def _bridge_group_check(bridges, pts):
     """桥洞穿越检查（支持"整列都是桥洞"）。
 
-    ★ 三层口径（第 ②③ 层为 t7 新增，2026-10-11）：
+    ★ 三层口径（t7 硬化，2026-10-17，与 dzbrain.route.validate R007/R008/R009 同口径）：
 
-    ① **水平直穿**（段严格同行 `x1 == x2`）：唯一合法形态，判定与旧版逐字一致；
+    ① **水平直穿**（段严格同行 `x1 == x2`）：唯一合法形态。**把连续相接的穿越段并成
+       一次"过洞"**（`L9->K9` 与 `K9->J9` 是同一次穿越的两段，旧版算成 2 段计数翻倍）；
+       **不按 map.bridges 行区间过滤**（区间外的穿越正该报错，滤掉就再也看不见）；
+       下半场（行 7~11）恰 1 次且方向**向西**（列号减小 `L*->K*->J*`，= y 增大），
+       上半场（行 1~6）恰 1 次且方向**向东**（列号增大 `J*->K*->L*`，= y 减小）。
     ② **斜切进洞**（段与桥洞列**相交**、但行号在变，例如 `L8 -> K7`）：进洞角
        `atan2(|Δ列|, |Δ行|)`（口径与 R009 相同），> `R009_MAX_ANGLE_DEG` 即"斜切" ——
        桥洞只有单格宽，斜着切进去**会蹭侧壁**；
     ③ **列内行驶**（`y` 恒等于桥洞列、`x` 在变，例如 `K9 -> K10`）：格与格之间有侧壁，
        在洞里沿列挪格同样必撞（与 R009 的「列内」判据同义）。
 
-    ★ 为什么必须补 ②：旧版这一段只统计 `abs(x1-x2) <= 1e-6` 的段，其余 `continue` ——
-      于是**对角线进洞段被整段吞掉**（A8 的 `L8->K7` 45° 斜切完全不可见，
-      A8 反而只报"直穿 3 次"、`0 error`）。实证见
-      `_tmp_session/t3_verify/t3_报告_全量回归与复核.md` §5.2（那里同时给了物理后果：
-      A8 真值轨迹车身 ∩ 未开放 K 桥室 = **189 拍**，而车心口径 0 拍）。
-
-    ★ 判级：② ③ 都只报 ⚠️ 警告（**不改退出码**）——**硬拦由真源
-      `dzbrain.route.validate` 的 R009 负责**（那里是 ❌ error），本工具不抢判决权。
-      若确实要让本工具也硬拦，把下面两处 `warn(` 换成 `bad(` 即可（一行改动）。
+    ★ 判级：① 的次数/方向违规报 ❌（改退出码）；② ③ 只报 ⚠️ 警告（硬拦由真源
+      `dzbrain.route.validate` 的 R009 负责，本工具不抢判决权）。
+      —— 硬化背景：t7 实测旧版对「区间外穿越」「只穿 1 次」rc=0 假绿
+        （`_tmp_session/t7_review/p14_bridge_count.py`），而 dzbrain 复合门禁能拦。
     """
     if not bridges:
         info("桥洞覆盖", "未提供，跳过")
         return
     cols = sorted({str(b)[0].upper() for b in bridges})
-    rows = [int(str(b)[1:]) for b in bridges if str(b)[1:].isdigit()]
     if not cols:
         info("桥洞覆盖", "未提供，跳过")
         return
     tol = BLOCK_SIZE * 0.45
     tol_plane = 1e-6                       # "正好落在桥洞列上"的容差（同一表达式算出的坐标是逐位相等的）
-    n_cross = 0
-    detail = []
+    runs = []                              # 每次物理过洞：{row, dy(+1 向西 / -1 向东), segs:[段号], index, end}
     diag = []                              # ② 斜切进洞：(段号, 行号, 角度)
     along = []                             # ③ 列内行驶：(段号, 起行, 止行)
     for col in cols:
         cx = (13.5 - COL_LETTERS.index(col)) * BLOCK_SIZE
+        prev = None
         for i in range(len(pts) - 1):
             (x1, y1), (x2, y2) = pts[i], pts[i + 1]
             # ★注意坐标轴：x 对应"行"，y 对应"列"。
             #   穿 K 列 = 在同一行内跨越 y 方向 -> 应筛"x 不变"的段。
-            #   （之前写成筛 y 不变，方向正好反了，导致明明穿了却判"未直穿"。）
             if abs(x1 - x2) <= 1e-6:                       # ① 水平直穿
                 if min(y1, y2) - tol <= cx <= max(y1, y2) + tol:
                     r = round(10.5 - x1 / BLOCK_SIZE) + 1
-                    if not rows or min(rows) <= r <= max(rows):
-                        n_cross += 1
-                        detail.append("段#%d(行%d)" % (i, r))
+                    dy = 1 if y2 > y1 else -1              # y 增大 = 列号减小 = 向西
+                    # 与前一段**相接且同行同向** → 合并成同一次过洞（L->K 与 K->J 并 1 次）
+                    if (prev is not None and prev["row"] == r and prev["dy"] == dy
+                            and prev["end"] == (x1, y1)):
+                        prev["segs"].append(i)
+                        prev["end"] = (x2, y2)
+                    else:
+                        run = {"row": r, "dy": dy, "segs": [i], "index": i, "end": (x2, y2)}
+                        runs.append(run)
+                        prev = run
+                else:
+                    prev = None
                 continue
+            prev = None
             # ②/③ 的入口判据：这一段到底有没有"碰到桥洞列"（含正好落在列上）
             if not (min(y1, y2) - tol_plane <= cx <= max(y1, y2) + tol_plane):
                 continue
@@ -427,13 +437,37 @@ def _bridge_group_check(bridges, pts):
             r = round(10.5 - xc / BLOCK_SIZE) + 1
             ang = math.degrees(math.atan2(abs(y2 - y1), abs(x2 - x1)))
             diag.append((i, r, ang))
-    if n_cross >= 2:
-        ok("桥洞水平直穿 %d 次" % n_cross,
-           "%s 列  %s" % ("/".join(cols), " ".join(detail[:4])))
-    elif n_cross == 1:
-        warn("桥洞只直穿 1 次", "本场有 2 个通口，应各穿一次")
+
+    lower = [r for r in runs if 7 <= r["row"] <= 11]
+    upper = [r for r in runs if 1 <= r["row"] <= 6]
+    other = [r for r in runs if r["row"] < 1 or r["row"] > 11]
+
+    def _fmt(runs, sym):
+        return " ".join("段#%d(行%d%s)" % (r["index"], r["row"], sym) for r in runs[:4])
+
+    n_ok = 0
+    if len(lower) != 1:
+        bad("下半场桥洞穿越 %d 次" % len(lower),
+            "行 7~11 应恰 1 次（%s）" % (_fmt(lower, "") or "无"))
+    elif lower[0]["dy"] <= 0:
+        bad("下半场桥洞穿越方向错", "必须向西（L* -> K* -> J*，列号减小）")
     else:
-        bad("桥洞未直穿", "%s 列上没有水平穿越段" % "/".join(cols))
+        n_ok += 1
+    if len(upper) != 1:
+        bad("上半场桥洞穿越 %d 次" % len(upper),
+            "行 1~6 应恰 1 次（%s）" % (_fmt(upper, "") or "无"))
+    elif upper[0]["dy"] >= 0:
+        bad("上半场桥洞穿越方向错", "必须向东（J* -> K* -> L*，列号增大）")
+    else:
+        n_ok += 1
+    if other:
+        bad("桥洞穿越行号异常 %d 次" % len(other),
+            "%s 列  %s" % ("/".join(cols), _fmt(other, "")))
+    if n_ok == 2 and not other:
+        ok("桥洞穿越（下半场向西 / 上半场向东 各 1 次）",
+           "%s 列  下%s · 上%s"
+           % ("/".join(cols),
+              _fmt(lower, "向西"), _fmt(upper, "向东")))
 
     steep = [d for d in diag if d[2] > R009_MAX_ANGLE_DEG + 1e-9]
     if steep:
@@ -738,6 +772,7 @@ def run_check(route: str, cfg: dict) -> int:
     mines = cfg.get('mines') or []
     targets = cfg.get('targets') or []
     bridges = cfg.get('bridges') or []
+    covered = {str(x).strip().upper() for x in (cfg.get('already_covered') or [])}
 
     print("=" * 78)
     print("  路线全链路校验   planner -> dispatch -> geometry")
@@ -899,19 +934,23 @@ def run_check(route: str, cfg: dict) -> int:
         if not lst:
             info("%s覆盖" % name, "未提供，跳过")
             continue
+        req = [x for x in lst if str(x).strip().upper() not in covered]
+        skipped = [x for x in lst if str(x).strip().upper() in covered]
+        if skipped:
+            info("%s覆盖（增量口径）" % name, "已压不再要求重压：%s" % " ".join(sorted(skipped)))
         miss, worst = [], []
-        for x in lst:
+        for x in req:
             d = mine_clearance_by_route(pts, x)
             if d > COVERAGE_RADIUS_M + 1e-12:
                 miss.append("%s(离垫片 %.3fm)" % (x, d))
             else:
                 worst.append(d)
         if miss:
-            bad("%s覆盖 %d/%d" % (name, len(lst) - len(miss), len(lst)),
+            bad("%s覆盖 %d/%d" % (name, len(req) - len(miss), len(req)),
                 "未压到（车心 %.3fm 圆 ∩ %.2fm 垫片）: %s"
                 % (COVERAGE_RADIUS_M, MINE_PAD_M, " ".join(miss)))
         else:
-            ok("%s覆盖 %d/%d（车心 %.3fm 圆 ∩ %.2fm 垫片）" % (name, len(lst), len(lst),
+            ok("%s覆盖 %d/%d（车心 %.3fm 圆 ∩ %.2fm 垫片）" % (name, len(req), len(req),
                                                               COVERAGE_RADIUS_M, MINE_PAD_M),
                "最差 %.4f m（阈值 %.3f）" % (max(worst), COVERAGE_RADIUS_M))
 
@@ -1336,6 +1375,9 @@ def main(argv=None) -> int:
     ap.add_argument('--obstacles', nargs='*', default=[])
     ap.add_argument('--targets', nargs='*', default=[])
     ap.add_argument('--bridges', nargs='*', default=[])
+    ap.add_argument('--already-covered', nargs='*', default=[],
+                    help='已压雷格（t12 增量续算口径）：这些雷不再要求本路线重压，'
+                         '仅从覆盖判据里剔除，其余校验不变')
     args = ap.parse_args(argv)
 
     cfg = load_cfg(args.config)
@@ -1374,6 +1416,8 @@ def main(argv=None) -> int:
             cfg['targets'] = args.targets
         if args.bridges:
             cfg['bridges'] = args.bridges
+        if args.already_covered:
+            cfg['already_covered'] = args.already_covered
     else:
         mb = cfg.get('mission_blocks') or []
         if not mb:

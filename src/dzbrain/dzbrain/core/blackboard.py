@@ -20,7 +20,6 @@ from typing import Any, Iterable
 # --------------------------------------------------------------------------- #
 P_POSE = "pose"                       # Pose：信念位姿（米 + 地图 yaw）
 P_POSE_RAW = "pose_raw"               # Pose：未加修正的原始融合位姿
-P_POSE_UPDATED = "pose_updated_at"    # float：视觉/里程计更新时间
 P_ODOM_AGE = "odom_age"               # float：最近一帧里程计距今秒数
 P_ROUTE = "route"                     # Route：当前路线（不可变）
 P_ROUTE_INDEX = "route_index"         # int：当前航段索引
@@ -29,12 +28,28 @@ P_MISSION_PHASE = "mission_phase"     # str：IDLE/DRIVE/APPROACH/STOP/WAIT/FINI
 P_STOP_POINT = "stop_point"           # StopPointState：当前停站点上下文
 P_TARGET = "target"                   # TargetState：移动靶估计状态
 P_AIM = "aim"                         # AimState：云台与开火状态
+# --------------------------------------------------------------------------- #
+#  ★ 共享键 `aim_red_face`（红面早退，卡 t13）—— 读写契约
+# --------------------------------------------------------------------------- #
+#: `P_AIM_RED`：**AimTask 写、MissionTask 读**（唯一消费者）。
+#:
+#: 背景（物理事实）：靶板一面蓝一面红，蓝面朝向每局随机但**恒定**；只打蓝、打红扣分。
+#: 两个射击停站分居板面两侧 ⇒ 若本侧只见红面，等再久也不会变成蓝面，早退去对侧更划算。
+#:
+#: 取值语义（读侧必须严格按此实现）：
+#:   · 键不存在 / `None` → **no-op**：Mission 行为与未加本特性时**逐位一致**（正常停站）；
+#:   · `{"confirmed": False, "run_s": float, "cls": int, "threshold_s": float, "since": float}`
+#:     → 只是观测（累计锁定红秒数），不得据此早退；
+#:   · `{"confirmed": True, ...}` → 锁定红**连续累计** ≥ `aim.red_early_leave_s`
+#:     ⇒ Mission 在射击停站内提前离站（`ACQUIRE`/`FIRE` 两段）。
+#:   写侧纪律：**离开停站（`P_STOP_POINT.phase` 不再是 ACQUIRE/FIRE）或类别不再是红**
+#:   时立即把 `run_s` 归零、`confirmed` 置 False —— 否则第二个停站一进去就被误判早退。
+P_AIM_RED = "aim_red_face"            # dict：红面确认（AimTask 写 / MissionTask 读）
 P_DRONE = "drone"                     # DroneState：无人机情报
 P_FIX = "fix"                         # FixState：误差修正量（Localization 写：吸附/漂移台账）
 P_FIX_EST = "fix_est"                 # FixState：**估计量**（FixTask 写：比例误差估计/漂移统计）
 P_SAFETY = "safety"                   # SafetyState：安全状态
 P_TELEMETRY = "telemetry"             # dict：遥测快照
-P_CONFIG = "config"                   # dict：配置快照（只读）
 
 # --------------------------------------------------------------------------- #
 #  ★ 共享键 `pursuit_gear`（动态档选择，t36）—— 读写契约

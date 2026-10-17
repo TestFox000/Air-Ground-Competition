@@ -340,6 +340,16 @@ class FieldObs:
     barrier_cols: str = "D..N"
     obstacle_margin_m: float = 0.02
     stop_on_violation: bool = False          # True = 第一次物理违规即结束（对照组用）
+    # ---- ★★ 卡 t5：桥洞**进洞侧冗余墙**（设计冗余，现实不存在）----
+    #: 冗余长度（米）：真源 = config `field.bridge_entry_redundancy_m`
+    #: （缺省 0.0875 = 0.35 × 1/4 格，与 `planner.BRIDGE_ENTRY_REDUNDANCY_M` **同源同值**；
+    #: `run_sim` 一律 `cfg.get(key, 本默认)` 取值 —— 与上面 8 个键同一约定）。
+    #: `<= 0` ⇒ 判据**整体关闭**（指标 `bridge_redundancy_modeled = 0`），
+    #: 让"判据关了"与"建了墙但零违规"（modeled=1 / steps=0）在指标上长得**不一样**。
+    bridge_entry_redundancy_m: float = 0.0875
+    #: 车体矩形相对参考点（后轴中心 = 仿真积分点）的纵向偏移：真源 = `vehicle.ref_offset_m`
+    #: （本仓实测 +0.075）。默认 `physics.DEFAULT_REF_OFFSET_M = 0.0` ⇒ 老调用方口径不变。
+    ref_offset_m: float = ph.DEFAULT_REF_OFFSET_M
 
     def __post_init__(self) -> None:
         self.mine_xy = {b: geo.block_to_meters(b) for b in self.spec.mines}
@@ -369,6 +379,25 @@ class FieldObs:
         self.k_col_steps = 0
         self.k_seal_steps = 0
         self.k_solid_steps = 0
+        # ---- ★★ 卡 t5：桥洞进洞侧**冗余墙**（第三种 K 列判据，与上面三条并列）----
+        #   ⚠️ `<= 0` ⇒ **不建墙**（`modeled = 0`）。为什么不靠"把墙退化成零长度线段"来关：
+        #      零长墙刚好落在**洞口边线上**，而车正摆着穿洞时车体横向边缘离该线仅
+        #      0.175 − 0.0675 = 0.1075 m ⇒ 横向偏移 ≥ 0.1075 m（= 贴壁）就报 0。
+        #      t5 实测：横向 dx ≥ 0.1075 时零长墙**全部**返回 0.000000（假阳性），
+        #      而正摆穿洞的轨迹横向偏移本就在 ±0.05 m 内 ⇒ 全轨迹恰好 0 拍而"看着没事"，
+        #      这个陷阱是**潜伏**的（换个横向偏一点的路线立刻假绿翻红）。
+        #      所以关闭必须走"不建墙 + modeled=0"，让"没测"与"测了没事"可区分。
+        self.bridge_modeled = 1 if (self.spec.bridges and self.bridge_entry_redundancy_m > 0.0) \
+            else 0
+        self.bridge_entry_walls: dict[str, tuple] = {}
+        if self.bridge_modeled:
+            for _b in self.spec.bridges:
+                _walls = ph.bridge_entry_walls(_b, self.bridge_entry_redundancy_m)
+                if _walls:
+                    self.bridge_entry_walls[_b] = _walls
+        self.bridge_steps = 0                                   # 冗余墙违规拍数（累计）
+        self.bridge_min: dict[str, tuple[float, float]] = {
+            b: (9e9, 0.0) for b in self.bridge_entry_walls}
         self.steps = 0
         self.first: dict[str, tuple[float, str, float]] = {}
         self._prev_row: int | None = None
@@ -468,6 +497,26 @@ class FieldObs:
                                                                     self.k_col), 0.0)
                 violated = True
         self._prev_row, self._prev_col = row_idx, col_idx
+        # ---- ⑥ ★★ 卡 t5：桥洞**进洞侧冗余墙**（车体旋转矩形 ∩ 虚拟墙）----
+        #   ★ 为什么单列一条判据（不与 ⑤ 合并）：⑤ 判的是"车心在哪一格"（格级事实），
+        #     本条判的是"车身摆没摆正"（连续几何）—— 车心完全可以规规矩矩走在桥洞格中心线上，
+        #     而车身**斜着**在洞前 1/4 格就扫到进洞侧的壁（这正是设计冗余要拦的东西）。
+        #   ★ 为什么必须**精确旋转车体**（`body_bridge_wall_clearance_m`，含 ref_offset）
+        #     而不是"车心到墙的距离"：洞前 1/4 格内车身横向占用可达车长 0.28 m（斜着时），
+        #     拿车心距离判会把 20 mm 级的侵入整个漏掉（t4 实测该函数修过一个同源漏判）。
+        #   ★ 判据 = 间隙 `> 0`：本模块（route/physics.py）距离口径是"**重叠 = 0**"、
+        #     返回值恒 ≥ 0 ⇒ 写成 `>= 0` 会**恒真**、判据形同虚设（t4 落地时实测确认过）。
+        if self.bridge_entry_walls:
+            for _blk, _walls in self.bridge_entry_walls.items():
+                _clr = ph.body_bridge_wall_clearance_m(
+                    x, y, yaw, _walls, length_m=self.length_m, width_m=self.width_m,
+                    offset_m=self.ref_offset_m)
+                if _clr < self.bridge_min[_blk][0]:
+                    self.bridge_min[_blk] = (_clr, t)
+                if _clr <= 0.0:
+                    self.bridge_steps += 1
+                    self._first("桥洞进洞侧蹭冗余墙", t, _blk, _clr)
+                    violated = True
         return violated
 
     def metrics(self) -> dict[str, float]:
@@ -491,6 +540,16 @@ class FieldObs:
             "k_column_steps": float(self.k_col_steps),
             "k_seal_violation_steps": float(self.k_seal_steps),
             "k_solid_cell_steps": float(self.k_solid_steps),
+            # ---- ★★ 卡 t5：桥洞进洞侧冗余墙 ----
+            # ⚠️ `modeled = 0`（关判据 / 本图无桥洞）时下面三条**照样存在**但语义是
+            #    "没测"：`bridge_redundancy_steps` 恒 0、`bridge_..._min_clearance_m = inf`。
+            #    报告里必须与 `modeled` 一起读 —— 单独看 steps=0 会误读成"不蹭墙"。
+            "bridge_redundancy_modeled": float(self.bridge_modeled),
+            "bridge_redundancy_steps": float(self.bridge_steps),
+            "bridge_redundancy_min_clearance_m": min(
+                (v[0] for v in self.bridge_min.values()), default=float("inf")),
+            "bridge_entry_redundancy_m": (
+                float(self.bridge_entry_redundancy_m) if self.bridge_modeled else 0.0),
         }
         return out
 
@@ -870,6 +929,13 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
             barrier_cols=str(cfg.get("field.barrier_cols", "D..N")),
             obstacle_margin_m=float(cfg.get("planner.obstacle_margin_m", 0.02)),
             stop_on_violation=bool(sim.stop_on_field_violation),
+            # ★★ t5：桥洞进洞侧冗余墙。`bridge_entry_redundancy_m` 的缺省值 = FieldObs 的
+            #   形参默认（0.0875）—— 与 `planner.BRIDGE_ENTRY_REDUNDANCY_M` 同值同源。
+            bridge_entry_redundancy_m=float(
+                cfg.get("field.bridge_entry_redundancy_m", 0.0875)),
+            # ★★ t5：车体几何中心相对参考点的偏移。与 `vehicle.ref_offset_m` 同源；
+            #   缺省 `ph.DEFAULT_REF_OFFSET_M`(=0.0) ⇒ 老配置/手搓配置行为不变。
+            ref_offset_m=float(cfg.get("vehicle.ref_offset_m", ph.DEFAULT_REF_OFFSET_M)),
         )
 
     # ---- 期望值（契约指标名，见 docs/P0接口约定.md §5）----
@@ -1447,6 +1513,11 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
                 "barrier_cols": obs.barrier_cols,
                 "k_col": obs.k_col,
                 "open_rows": tuple(obs.open_rows),
+                # ★★ t5：进洞侧冗余墙的**几何**（渲染直接用，尺寸与判据同源 —— 不另抄一份）。
+                #    `{桥洞格名: ((x0,y0,x1,y1) 北壁, (…) 南壁)}`；关判据时 = {}。
+                "bridge_entry_walls": {b: tuple(w) for b, w in obs.bridge_entry_walls.items()},
+                "bridge_redundancy_m": float(obs.bridge_entry_redundancy_m)
+                if obs.bridge_modeled else 0.0,
                 "rows": geo.MAP_ROWS,
                 "cols": geo.MAP_COLS,
                 "block_m": geo.BLOCK_SIZE,
@@ -1725,16 +1796,6 @@ def _clamp_forward(path: Path, proj, s_floor: float, x: float, y: float,
                       passed_end=proj.passed_end)
 
 
-def _segment_hint(path: Path, target_idx: int) -> float:
-    """当前航段中点（`Path.project` 的 `s_hint`）。保留给无状态调用方使用。"""
-    n = len(path.waypoints)
-    if target_idx <= 0:
-        return 0.0
-    if target_idx >= n:
-        return path.total_length
-    return 0.5 * (path.s_at_waypoint(target_idx - 1) + path.s_at_waypoint(target_idx))
-
-
 def _anchor_allowed(path: Path, idx: int) -> bool:
     """该航点是否允许被吸附？**拐角顶点不允许**。
 
@@ -1767,23 +1828,6 @@ def _advance_anchor(path: Path, anchor_idx: int, s_belief: float) -> int:
     while anchor_idx < n and path.s_at_waypoint(anchor_idx) < s_belief - _END_EPS_M:
         anchor_idx += 1
     return anchor_idx
-
-
-def _anchor_to_waypoint(path: Path, bx: float, by: float, s_belief: float,
-                        radius: float) -> tuple[float, float] | None:
-    """【诊断用】信念是否落在"当前目标航点"的吸附球内？是则返回该航点格心。
-
-    ⚠️ 主循环**不用**这个函数（它每次调用都会重新挑最近的合格航点，会把信念钉死）；
-       主循环用的是"当前瞄准航点 + `_advance_anchor` 推进"的一次性版本。
-       保留它只为离线排查"某一拍的信念到底该不该被吸附"。
-    """
-    idx = _advance_anchor(path, 0, s_belief)
-    if idx >= len(path.waypoints):
-        return None
-    wp = path.waypoints[idx]
-    if math.hypot(wp.x - bx, wp.y - by) <= radius:
-        return (wp.x, wp.y)
-    return None
 
 
 def _schedule(queue: deque[tuple[float, float, float]], at: float,
@@ -1923,6 +1967,10 @@ _FIELD_TABLE: tuple[tuple[str, str, str, int], ...] = (
     ("k_column_steps",          "K 列拍数",       "",  0),
     ("k_seal_violation_steps",  "K 列封死违规拍", "",  0),
     ("k_solid_cell_steps",      "K 列非通格拍",   "",  0),
+    # ---- ★★ t5：桥洞进洞侧冗余墙（第三种 K 列判据；`modeled` 行必须一起读）----
+    ("bridge_redundancy_modeled", "桥洞冗余墙判据", "", 0),
+    ("bridge_redundancy_steps", "桥洞冗余墙违规拍", "", 0),
+    ("bridge_redundancy_min_clearance_m", "冗余墙最小间隙", "m", 4),
 )
 
 
@@ -2212,6 +2260,27 @@ def write_svg(result: SimResult, path: str, route: Route,
                 parts.append(f'  <line class="kwall" x1="{sx(x0):.2f}" y1="{sy(k_y0):.2f}" '
                              f'x2="{sx(x0):.2f}" y2="{sy(k_y1):.2f}" stroke="#212529" '
                              f'stroke-width="2.5"/>\n')
+        # ---- ★★ t5：桥洞**进洞侧冗余墙**（细竖线，进洞侧，醒目色；几何与判据同源）----
+        #   ★ 为什么必须画出来：这段墙**现实不存在**，是设计冗余 —— 不看图的话，
+        #     "车有没有在洞前 1/4 格蹭到它"只能靠一个数字猜；画出来才能一眼看出
+        #     "墙在哪、车从哪个位置斜过去"。颜色取 t5 专属青紫，与既有图层都不撞。
+        _walls_shape = dict(shape.get("bridge_entry_walls") or {})
+        for _b in sorted(_walls_shape):
+            for _seg in _walls_shape[_b]:
+                _x0, _y0, _x1, _y1 = (float(v) for v in _seg)
+                parts.append(
+                    f'  <line class="bridge-entry-wall" x1="{sx(_x0):.2f}" y1="{sy(_y0):.2f}" '
+                    f'x2="{sx(_x1):.2f}" y2="{sy(_y1):.2f}" stroke="#7048e8" '
+                    f'stroke-width="3" stroke-dasharray="2 2" stroke-linecap="round"/>\n')
+        if _walls_shape:
+            _clr = float(result.metrics.get("bridge_redundancy_min_clearance_m", 9e9))
+            _clr_txt = "inf" if _clr > 8e8 else f"{_clr:.4f}"
+            _red_m = float(shape.get("bridge_redundancy_m", 0.0))
+            _gate_steps = int(m.get("bridge_redundancy_steps", 0) or 0)
+            _note = (f"紫虚墙 = 桥洞进洞侧冗余 {_red_m:.4f} m/侧（现实不存在·设计冗余）"
+                     f"  本趟最小车体间隙 {_clr_txt} m  违规 {_gate_steps} 拍")
+            parts.append(f'  <text x="{_SVG_PAD:.0f}" y="52" font-family="monospace" '
+                         f'font-size="14" fill="#7048e8">{_xml_escape(_note)}</text>\n')
     # ① 路线折线（底层参考）
     parts.append(polyline(route_pts, _COLOR_ROUTE, _COLOR_ROUTE_W, dash="6 4"))
     # ② 真值轨迹（主角）

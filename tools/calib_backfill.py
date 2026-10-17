@@ -347,10 +347,6 @@ def _as_bool(v) -> bool:
     return str(v).strip().lower() in _TRUE
 
 
-def get_ws() -> pathlib.Path:
-    return _WS
-
-
 def carw_m() -> float | None:
     """读车端头文件里的轮距（只读，取现场真源）。"""
     try:

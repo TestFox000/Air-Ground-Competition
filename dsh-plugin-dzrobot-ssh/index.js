@@ -374,7 +374,12 @@ export function apply(ctx, config = {}) {
         // 同步单跑：409（上跑/压测中）与 422（规划不过）原样转出，与 /sim/run 同语义
         const result = await runDroneSim(body)
         if (!result.ok) return send(result.code ?? 500, { error: result.error })
-        return send(200, { ok: true, timeline: result.timeline, reroutes: result.reroutes, confirmed: result.confirmed, record: result.record })
+        return send(200, {
+          ok: true, timeline: result.timeline, reroutes: result.reroutes,
+          confirmed: result.confirmed, record: result.record,
+          // ★ 拟真（卡3+）：透传无人机航线 + 情报命中，前端据此在场地地图上画飞行/扫描/采纳。
+          scan: result.scan, intel: result.intel,
+        })
       }
       if (method === 'GET' && route === '/sim/drone/history') {
         return send(200, droneHistory())

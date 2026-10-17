@@ -38,11 +38,13 @@ except Exception:                              # pragma: no cover
 
 from harness import check, check_close, close, finish, run_case, section   # noqa: E402
 
-from dzbrain.core.blackboard import (P_AIM, P_SAFETY, P_STOP_POINT, P_TARGET,  # noqa: E402
+from dzbrain.core.blackboard import (P_AIM, P_AIM_RED, P_SAFETY, P_STOP_POINT,  # noqa: E402
+                                     P_TARGET,
                                      P_TELEMETRY, Blackboard)
 from dzbrain.core.config import SCHEMA, Config                            # noqa: E402
 from dzbrain.core.events import EV_TARGET_FIRST_SEEN, EV_TARGET_LOST, EventBus  # noqa: E402
-from dzbrain.core.state import SafetyState, StopPointState                # noqa: E402
+from dzbrain.core.state import (SafetyState, StopKind, StopPhase,            # noqa: E402
+                               StopPointState)
 from dzbrain.io.contract import AimStatus, ShotClass                      # noqa: E402
 from dzbrain.tasks.aim import (AIM_TELEMETRY_KEY, FirePolicy, RailEstimator,  # noqa: E402
                                REASON_AMMO_EMPTY, REASON_BUDGET_PER_TARGET, REASON_COOLDOWN,
@@ -919,11 +921,126 @@ def test_10_thread() -> None:
 
 
 # =========================================================================== #
+def test_11_red_early() -> None:
+    """★ 卡 t13：红面确认（锁定红**持续** ≥ `aim.red_early_leave_s` ⇒ 写 `P_AIM_RED`）。
+
+    物理：靶板一面蓝一面红，蓝面朝向每局随机但恒定；只打蓝。本侧只见红时，等 30s 也白等
+    ⇒ AimTask 把"锁定红已持续够久"的**结论**写进黑盒，Mission 据此提前离站去对侧。
+    三条纪律：① 不到阈值不置位（不得把"刚到站"当"红面"）；② 离开停站立即撤下（否则
+    第二个停站一进去就被误判早退）；③ 只见蓝永远不置位。
+    """
+    section("11. ★t13 红面确认：锁定红持续 ≥3s ⇒ P_AIM_RED.confirmed")
+    cfg = cfg_of(fire_only_blue=True, red_early_leave_s=3.0)
+    rig = Rig(cfg=cfg)
+    rig.bb.set(P_STOP_POINT, StopPointState(index=29, block="D3", kind=StopKind.SHOOT,
+                                            phase=StopPhase.FIRE), "test")
+
+    # ① 只喂 ~2.5s 红帧 → 未到阈值
+    for _ in range(25):
+        rig.frame(dx=30, cls=ShotClass.RED, dt=0.1)
+    st = rig.bb.get(P_AIM_RED) or {}
+    check("11.1 锁定红 2.5s < 3.0s ⇒ 未确认（run_s 在累计，confirmed=False）",
+          bool(st) and st.get("confirmed") is False and 2.0 <= float(st.get("run_s", 0)) < 3.0,
+          f"{st}")
+
+    # ② 再过 ~1.0s → 确认
+    for _ in range(10):
+        rig.frame(dx=30, cls=ShotClass.RED, dt=0.1)
+    st = rig.bb.get(P_AIM_RED) or {}
+    check("11.2 锁定红累计 ≥3.0s ⇒ confirmed=True（Mission 可早退）",
+          st.get("confirmed") is True and float(st.get("run_s", 0)) >= 3.0,
+          f"{st}")
+    check("11.3 置位时打了一条日志（含停站点格名）",
+          any("红面确认" in s and "D3" in s for s in rig.logs),
+          f"{[s for s in rig.logs if '红面' in s][-1:]}"[:120])
+
+    # ③ 离开停站（DONE）→ 立即撤下并清零
+    rig.bb.set(P_STOP_POINT, StopPointState(index=29, block="D3", kind=StopKind.SHOOT,
+                                            phase=StopPhase.DONE), "test")
+    rig.frame(dx=30, cls=ShotClass.RED, dt=0.1)
+    st = rig.bb.get(P_AIM_RED) or {}
+    check("11.4 离开停站（phase=DONE）⇒ 标志撤下、run_s 归零（第二停站不被误判）",
+          st.get("confirmed") is False and float(st.get("run_s", 0)) == 0.0, f"{st}")
+
+    # ④ 只见蓝：40 帧（4s）也永不置位
+    rig2 = Rig(cfg=cfg)
+    rig2.bb.set(P_STOP_POINT, StopPointState(index=29, block="D3", kind=StopKind.SHOOT,
+                                             phase=StopPhase.FIRE), "test")
+    for _ in range(40):
+        rig2.frame(dx=30, cls=ShotClass.BLUE, dt=0.1)
+    st2 = rig2.bb.get(P_AIM_RED) or {}
+    check("11.5 只见蓝（fire_only_blue）⇒ 永不置位（正常停站行为不受影响）",
+          st2.get("confirmed") is False and float(st2.get("run_s", 0)) == 0.0, f"{st2}")
+
+
+def test_12_red_cfg_t14() -> None:
+    """★ 卡 t14：红面确认的**配置/边界/清零**补充（独立于 §11 的另三条断言）。"""
+    section("12. ★t14 红面确认：阈值取自配置 + 红→蓝清零 + SETTLE 段不累计")
+
+    def _stop(phase: str) -> StopPointState:
+        return StopPointState(index=29, block="D3", kind=StopKind.SHOOT, phase=phase)
+
+    # ① 阈值来自配置 1.0s：确认发生在 run_s≈1.0（而不是 3.0）；确认前一刻仍未确认
+    cfg = cfg_of(fire_only_blue=True, red_early_leave_s=1.0)
+    rig = Rig(cfg=cfg)
+    rig.bb.set(P_STOP_POINT, _stop(StopPhase.FIRE), "test")
+    seq: list[dict] = []
+    for _ in range(40):
+        rig.frame(dx=30, cls=ShotClass.RED, dt=0.1)
+        seq.append(dict(rig.bb.get(P_AIM_RED) or {}))
+        if seq[-1].get("confirmed") is True:
+            break
+    first_conf = next((s for s in seq if s.get("confirmed") is True), None)
+    before = seq[seq.index(first_conf) - 1] if first_conf is not None and seq.index(first_conf) > 0 else {}
+    check("12.1 阈值取自配置：run_s≈1.0s 才确认（若硬编码 3.0 此处永远 False）",
+          first_conf is not None and 1.0 - 1e-9 <= float(first_conf.get("run_s", 0)) < 1.5,
+          f"首次确认 run_s={first_conf.get('run_s') if first_conf else None}（阈值 1.0）")
+    check("12.2 确认前一刻仍未确认（边界：未到阈值不置位）",
+          bool(before) and before.get("confirmed") is False
+          and float(before.get("run_s", -1)) < 1.0,
+          f"{before}")
+
+    # ② 红 → 蓝：类别切到蓝后累计清零、标志撤下（否则同停站会误早退）
+    #    注：类别切换要过 `cls_switch_confirm_frames`（5 帧）才生效，故给 10 帧余量。
+    rig2 = Rig(cfg=cfg)
+    rig2.bb.set(P_STOP_POINT, _stop(StopPhase.FIRE), "test")
+    for _ in range(40):
+        rig2.frame(dx=30, cls=ShotClass.RED, dt=0.1)
+        if (rig2.bb.get(P_AIM_RED) or {}).get("confirmed") is True:
+            break
+    st_red = rig2.bb.get(P_AIM_RED) or {}
+    frames_to_blue = None
+    for k in range(1, 11):
+        rig2.frame(dx=30, cls=ShotClass.BLUE, dt=0.1)
+        st_now = rig2.bb.get(P_AIM_RED) or {}
+        if st_now.get("confirmed") is False and float(st_now.get("run_s", -1)) == 0.0:
+            frames_to_blue = k
+            break
+    st_blue = rig2.bb.get(P_AIM_RED) or {}
+    check("12.3 红→蓝（同停站）⇒ 类别切到蓝后 run_s 归零、confirmed 撤下（不残留红面结论）",
+          st_red.get("confirmed") is True
+          and st_blue.get("confirmed") is False and float(st_blue.get("run_s", -1)) == 0.0
+          and frames_to_blue is not None and frames_to_blue <= 8,
+          f"红={st_red.get('confirmed')} 蓝={st_blue.get('confirmed')}/{st_blue.get('run_s')} "
+          f"切换耗帧={frames_to_blue}")
+
+    # ③ SETTLE 段（还没开始看靶）红帧不累计（防止"刚进站就判红面"）
+    rig3 = Rig(cfg=cfg)
+    rig3.bb.set(P_STOP_POINT, _stop(StopPhase.SETTLE), "test")
+    for _ in range(15):
+        rig3.frame(dx=30, cls=ShotClass.RED, dt=0.1)
+    st3 = rig3.bb.get(P_AIM_RED) or {}
+    check("12.4 SETTLE 段红帧不累计（只在 ACQUIRE/FIRE 段计时）",
+          st3.get("confirmed") is False and float(st3.get("run_s", -1)) == 0.0,
+          f"{st3}")
+
+
 def main() -> None:
     for name, fn in (("00", test_00_pure), ("01", test_01_estimator), ("02", test_02_lead),
                      ("03", test_03_turnaround), ("04", test_04_criteria), ("05", test_05_hit),
                      ("06", test_06_budget), ("07", test_07_lost), ("08", test_08_safety),
-                     ("09", test_09_keys), ("10", test_10_thread)):
+                     ("09", test_09_keys), ("10", test_10_thread),
+                     ("11", test_11_red_early), ("12", test_12_red_cfg_t14)):
         run_case(f"test_{name}", fn)
     finish()
 

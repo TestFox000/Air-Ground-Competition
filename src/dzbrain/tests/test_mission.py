@@ -36,9 +36,9 @@ except Exception:                              # pragma: no cover
 from harness import check, finish, section                     # noqa: E402
 
 from dzbrain.core import geometry as geo                       # noqa: E402
-from dzbrain.core.blackboard import (P_DRONE, P_MISSION_PHASE, P_POSE, P_ROUTE,  # noqa: E402
-                             P_ROUTE_INDEX,
-                                     P_ROUTE_S, P_SAFETY, P_STOP_POINT, P_TELEMETRY, Blackboard)
+from dzbrain.core.blackboard import (P_AIM_RED, P_DRONE, P_MISSION_PHASE, P_POSE,  # noqa: E402
+                                     P_ROUTE, P_ROUTE_INDEX, P_ROUTE_S, P_SAFETY,
+                                     P_STOP_POINT, P_TELEMETRY, Blackboard)
 from dzbrain.core.config import Config                         # noqa: E402
 from dzbrain.core.events import (EV_ARRIVED_STOP_POINT, EV_BRIDGE_INFO,  # noqa: E402
                                  EV_MISSION_FINISHED,
@@ -1246,7 +1246,13 @@ def t6_cfg(*, tokens=None, wait: float = 0.0, auto_plan: bool = False,
                   "cross_lower_candidates": list(lower_cand),
                   "cross_upper_candidates": list(upper_cand),
                   "cross_lower_default": "K10", "cross_upper_default": "K5"},
-        "path_executor": {"shoot_distance_min": 0.70, "shoot_distance_max": 0.90},
+        # ★ 卡 t3 一版：靶格级射击窗口必须跟随出厂配置（0.70/0.90 → 1.00/1.15），
+        #   否则换洞门禁（`validate_route` 的 R006/R013）会把现役停站 `F2`（到 E5=1.107 /
+        #   F5=1.050 m）判成"不在窗口内"⇒ 每条换洞情报都被拒绝，14.x 全线误红。
+        # ★ 卡 t3-A 重钉：停站退一档到 `D3`（板心 0.875 m，到 E5/F5 = 0.7826/0.9899 m）
+        #   ⇒ 窗口必须同步为 **0.78/1.02**（与 `config/robot.yaml` 同值；1.00/1.15 会把
+        #   `D3` 判出窗 ⇒ 同一种误红）。
+        "path_executor": {"shoot_distance_min": 0.78, "shoot_distance_max": 1.02},
         "planner": {"auto_plan_enabled": auto_plan, "map_path": str(_T6_MAP),
                     "engine": engine, "fallback_to_tokens": True},
         "drone": {"enabled": drone_enabled, "info_stale_s": 30.0},
@@ -1449,7 +1455,7 @@ def test_bridge_intel() -> None:
           rig7.task.phase == MissionPhase.DRIVE
           and not any("等待无人机桥洞情报" in s for s in rig7.logs),
           f"phase={rig7.task.phase} t={rig7.clock.now() - 1000.0:.2f}s")
-    check("14.25 ★ 无无人机时路线与接线前**逐 token 一致**（44/44 全等）",
+    check("14.25 ★ 无无人机时路线与接线前**逐 token 一致**（44/44 全等；t3-A 停站 D3 ⇒ 回到 44 点）",
           list(rig7.task.route.blocks()) == _T6_BASE and len(_T6_BASE) == 44,
           f"{len(rig7.task.route)} 点 vs 基线 {len(_T6_BASE)} 点")
     check("14.26 无无人机时来源记为 no_link，且 used = 默认格",
@@ -1809,6 +1815,240 @@ def test_bridge_hold_t32() -> None:
 
 
 # --------------------------------------------------------------------------- #
+def test_dual_stop_t13() -> None:
+    """★ 卡 t13：双射击停站 + 红面早退（用户 2026-10-17 口径）。
+
+    物理：靶板一面蓝一面红，蓝面朝向每局随机但恒定；只打蓝、打红扣分。
+    实现：路线两侧各一个射击停站；本侧只见红 ⇒ 锁定红持续 ≥ 阈值就提前离站去对侧；
+          本侧真打出去了 ⇒ 第二个射击停站直接跳过（不为"看另一面"白绕一趟）。
+    """
+    section("16. ★t13 双射击停站（对侧互备）+ 红面早退 + 命中即跳过第二停站")
+
+    # 两个射击停站：G10*（第一个）与 E9*（第二个，模拟"板面另一侧"）
+    dual = ["N10", "M10", "L10", "L9", "K9", "J9", "J10", "I10", "H10",
+            "G10*", "F10", "F9", "E9*", "D9"]
+
+    def _dual_cfg(**mission_extra) -> Config:
+        mission = {"auto_start": True, "auto_start_delay_s": 0.1, "reset": "N10,y",
+                   "shots_per_stop": 3, "settle_time_s": 0.3, "settle_eps_m": 0.02,
+                   "lock_timeout_s": 5.0, "shot_timeout_s": 6.0}
+        mission.update(mission_extra)
+        return cfg_of(mission=mission, route={"tokens": list(dual)},
+                      aim={"red_early_leave_s": 3.0})
+
+    # ---- (a) 红面早退：标志成立 + 已停留 ≥ 3s ⇒ 提前离站（远早于 6s 开火超时）----
+    rig = Rig(cfg=_dual_cfg(), pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig.ticks(3)
+    rig.walk(step=0.1, max_steps=60)
+    check("16.1 到达第一个射击停站 G10*", rig.task.phase == MissionPhase.STOP
+          and rig.task.stop_context is not None and rig.task.stop_context.block == "G10",
+          f"phase={rig.task.phase!r} block={getattr(rig.task.stop_context, 'block', None)!r}")
+    rig.bridge.set_aim_status(AimStatus.TRACK)
+    rig.bridge.set_vision(dx=5, dy=3, cls=2)        # 只见红面（只打蓝 ⇒ 永远打不出去）
+    rig.ticks(6, dt=0.1)                            # 走完 SETTLE，推进到 ACQUIRE/FIRE
+    dwell0 = rig.clock.now() - rig.task.stop_context.started_at
+    # 标志：AimTask 才会写它（本夹具直接注入"锁定红已持续 3.2s"）
+    rig.bb.set(P_AIM_RED, {"confirmed": True, "run_s": 3.2, "threshold_s": 3.0,
+                           "cls": 2, "block": "G10"}, "test")
+    rig.ticks(28, dt=0.1)                           # +2.8s ⇒ 累计停留 > 3s
+    dwell1 = rig.clock.now() - rig.task.stop_context.started_at if rig.task.stop_context else dwell0
+    red_logs = [s for s in rig.logs if "红面早退" in s]
+    check("16.2 红面早退：锁定红 ≥3s 且已停留 ≥3s ⇒ 停站被提前放弃（阶段 DONE）",
+          rig.stop_phase() == StopPhase.DONE and rig.task.phase == MissionPhase.DRIVE
+          and bool(red_logs),
+          f"phase={rig.stop_phase()!r} mission={rig.task.phase!r} 停留={dwell1:.2f}s "
+          f"日志={red_logs[-1][:70] if red_logs else '无'}")
+    check("16.3 早退日志带「停站名 + 已停留秒数」（现场可复盘）",
+          any("G10" in s and "已停留" in s for s in red_logs),
+          f"{red_logs[-1][:110] if red_logs else '无'}")
+
+    # ---- (b) 未达阈值 ⇒ 不得早退（正常停站行为逐位不变）----
+    rig2 = Rig(cfg=_dual_cfg(), pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig2.ticks(3)
+    rig2.walk(step=0.1, max_steps=60)
+    rig2.bridge.set_aim_status(AimStatus.TRACK)
+    rig2.bridge.set_vision(dx=5, dy=3, cls=2)
+    rig2.ticks(6, dt=0.1)
+    rig2.bb.set(P_AIM_RED, {"confirmed": True, "run_s": 3.2, "threshold_s": 3.0,
+                            "cls": 2, "block": "G10"}, "test")
+    rig2.ticks(8, dt=0.1)                            # 只停留 ~0.8s，远不到 3s
+    check("16.4 停留 < 3s 时红面标志不触发早退（正常停站）",
+          rig2.stop_phase() in (StopPhase.SETTLE, StopPhase.ACQUIRE, StopPhase.FIRE)
+          and rig2.task.phase == MissionPhase.STOP,
+          f"phase={rig2.stop_phase()!r} mission={rig2.task.phase!r}")
+
+    # ---- (c) 标志不存在（= 未开红面早退/只见蓝）⇒ 行为与旧版一致 ----
+    rig3 = Rig(cfg=_dual_cfg(), pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig3.ticks(3)
+    rig3.walk(step=0.1, max_steps=60)
+    rig3.bridge.set_aim_status(AimStatus.TRACK)
+    rig3.bridge.set_vision(dx=5, dy=3, cls=1)        # 蓝面
+    rig3.ticks(10, dt=0.1)
+    check("16.5 无 `P_AIM_RED` 键 ⇒ no-op（停站照常进行，不被早退机制影响）",
+          rig3.task.phase == MissionPhase.STOP and rig3.stop_phase() != StopPhase.DONE,
+          f"phase={rig3.stop_phase()!r} mission={rig3.task.phase!r}")
+
+    # ---- (d) 第一停站打出去 ⇒ 跳过第二个射击停站 ----
+    rig4 = Rig(cfg=_dual_cfg(), pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig4.ticks(3)
+    rig4.walk(step=0.1, max_steps=60)
+    rig4.bridge.set_aim_status(AimStatus.TRACK)
+    rig4.bridge.set_vision(dx=5, dy=3, cls=1)
+    for _ in range(40):                              # 等到真的进 FIRE 段
+        if rig4.stop_phase() == StopPhase.FIRE:
+            break
+        rig4.bridge.set_vision(dx=5, dy=3, cls=1)    # 视觉 0.5s 新鲜度窗口：每拍续上
+        rig4.bridge.set_aim_status(AimStatus.TRACK)
+        rig4.tick(dt=0.1)
+    rig4.bridge.add_shots(3)                         # 发数增量达标 = 真打出去了
+    rig4.tick(dt=0.05)
+    skip_logs = [s for s in rig4.logs if "跳过射击停站" in s]
+    check("16.6 停站1 已打出去 ⇒ 第二个射击停站被跳过（记 handled + 日志）",
+          bool(skip_logs) and 12 in rig4.task.handled_stops,
+          f"handled={sorted(rig4.task.handled_stops)} 日志={skip_logs[-1][:90] if skip_logs else '无'}")
+    n_arrive_before = rig4.count(EV_ARRIVED_STOP_POINT)
+    rig4.walk(step=0.1, max_steps=120)               # 继续开过 E9 也不该再停
+    check("16.7 跳过之后确实不再停第二个点（EV_ARRIVED_STOP_POINT 不增加）",
+          rig4.count(EV_ARRIVED_STOP_POINT) == n_arrive_before
+          and "E9" not in {getattr(rig4.task.stop_context, "block", "")},
+          f"arrived={rig4.count(EV_ARRIVED_STOP_POINT)}（前 {n_arrive_before}）")
+
+    # ---- (e) 第一停站没打出去 ⇒ 第二个停站照常停（这是双停站的本意）----
+    rig5 = Rig(cfg=_dual_cfg(shot_timeout_s=3.0, lock_timeout_s=1.0),
+               pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig5.ticks(3)
+    rig5.walk(step=0.1, max_steps=60)
+    rig5.ticks(60, dt=0.1)                           # 0 发 → 到站硬死线放行
+    rig5.walk(step=0.1, max_steps=200)
+    check("16.8 停站1 没打出去 ⇒ 第二个射击停站照常进站（两站都到过）",
+          rig5.count(EV_ARRIVED_STOP_POINT) >= 2,
+          f"arrived={rig5.count(EV_ARRIVED_STOP_POINT)} phase={rig5.task.phase!r}")
+
+
+# --------------------------------------------------------------------------- #
+def test_dual_stop_t14() -> None:
+    """★ 卡 t14：红面早退**闭环**的量化验证（独立于 §16 的另一组断言，离线纯脚本）。
+
+    只验 t13 已落地的现役行为，不引入新语义：
+      ① 注入"锁定红已确认" ⇒ 第一停站停留到 ≈阈值即离站（远早于硬死线）；
+      ② 早退后**照常开进第二个射击停站**并进入正常射击三段；
+      ③ 不注入（只见蓝）⇒ 不误触发早退；
+      ④ 阈值来自配置（1.0s）而不是硬编码 3.0s；
+      ⑤ `mission.skip_second_stop_after_hit=False` ⇒ 即便第一站打出去，第二站照常进；
+      ⑥ **两站皆红** ⇒ 各早退一次后照常跑完全程（队长裁决：无"直冲终点"模式）。
+    """
+    section("17. ★t14 红面早退闭环（注入点→离站时刻 / 第二停站 / 阈值来自配置 / 两站皆红）")
+
+    dual = ["N10", "M10", "L10", "L9", "K9", "J9", "J10", "I10", "H10",
+            "G10*", "F10", "F9", "E9*", "D9"]
+
+    def _cfg(thr: float = 3.0, **mission_extra) -> Config:
+        mission = {"auto_start": True, "auto_start_delay_s": 0.1, "reset": "N10,y",
+                   "shots_per_stop": 3, "settle_time_s": 0.3, "settle_eps_m": 0.02,
+                   "lock_timeout_s": 5.0, "shot_timeout_s": 6.0}
+        mission.update(mission_extra)
+        return cfg_of(mission=mission, route={"tokens": list(dual)},
+                      aim={"red_early_leave_s": thr})
+
+    def _to_first_stop(cfg: Config) -> Rig:
+        rig = Rig(cfg=cfg, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+        rig.ticks(3)
+        rig.walk(step=0.1, max_steps=60)
+        return rig
+
+    def _inject_red(rig: Rig) -> float:
+        """把停站推进到 ACQUIRE/FIRE 后注入"锁定红已确认"，返回注入时刻。"""
+        rig.bridge.set_aim_status(AimStatus.TRACK)
+        rig.bridge.set_vision(dx=5, dy=3, cls=2)
+        rig.ticks(6, dt=0.1)
+        t_inj = rig.clock.now()
+        rig.bb.set(P_AIM_RED, {"confirmed": True, "run_s": 3.2, "threshold_s": 3.0,
+                               "cls": 2, "block": ""}, "test")
+        return t_inj
+
+    def _tick_until_done(rig: Rig, *, dt: float = 0.1, max_ticks: int = 80) -> float | None:
+        for _ in range(max_ticks):
+            if rig.stop_phase() == StopPhase.DONE:
+                return rig.clock.now()
+            rig.bridge.set_vision(dx=5, dy=3, cls=2)
+            rig.bridge.set_aim_status(AimStatus.TRACK)
+            rig.tick(dt=dt)
+        return None
+
+    # ---- (a) 注入 ⇒ 停留到 ≈阈值即离站（dwell 与阈值吻合，且远早于 6s 硬死线）----
+    rig = _to_first_stop(_cfg(3.0))
+    at_stop = (rig.task.phase == MissionPhase.STOP and rig.task.stop_context is not None
+               and rig.task.stop_context.block == "G10")
+    _inject_red(rig)
+    dwell_t0 = rig.task.stop_context.started_at if rig.task.stop_context is not None else None
+    t_exit = _tick_until_done(rig)
+    dwell = (t_exit - dwell_t0) if (t_exit is not None and dwell_t0 is not None) else None
+    check("17.1 红面确认 ⇒ 第一停站停留到 ≈阈值 3.0s 即离站（3.0~3.4s，远早于 6s 硬死线）",
+          at_stop and t_exit is not None and dwell is not None and 3.0 - 1e-6 <= dwell <= 3.4,
+          f"到站={at_stop} 停留={dwell if dwell is None else round(dwell, 2)}s 上限=6.0s")
+
+    # ---- (b) 早退后照常开进第二停站，进入正常射击三段 ----
+    rig.walk(step=0.1, max_steps=120)
+    at2 = (rig.task.phase == MissionPhase.STOP and rig.task.stop_context is not None
+           and rig.task.stop_context.block == "E9")
+    check("17.2 早退后照常开进第二个射击停站 E9*，并进入正常射击流程（SETTLE/ACQUIRE/FIRE）",
+          at2 and rig.stop_phase() in (StopPhase.SETTLE, StopPhase.ACQUIRE, StopPhase.FIRE),
+          f"phase={getattr(rig.task.stop_context, 'block', None)!r} 停站段={rig.stop_phase()!r}")
+
+    # ---- (c) 只见蓝、不注入 ⇒ 停站照常（无早退日志、未在阈值前离站）----
+    rig2 = _to_first_stop(_cfg(3.0))
+    rig2.bridge.set_aim_status(AimStatus.TRACK)
+    rig2.bridge.set_vision(dx=5, dy=3, cls=1)
+    rig2.ticks(12, dt=0.1)
+    no_red_log = not any("红面早退" in s for s in rig2.logs)
+    check("17.3 只见蓝（不注入）⇒ 不误触发早退（仍停站、无「红面早退」日志）",
+          no_red_log and rig2.task.phase == MissionPhase.STOP
+          and rig2.stop_phase() in (StopPhase.SETTLE, StopPhase.ACQUIRE, StopPhase.FIRE),
+          f"日志={'无' if no_red_log else '有'} mission={rig2.task.phase!r} 停站段={rig2.stop_phase()!r}")
+
+    # ---- (d) 阈值来自配置：改成 1.0s ⇒ 约 1.0s 就离站（不是硬编码 3.0）----
+    rig3 = _to_first_stop(_cfg(1.0))
+    _inject_red(rig3)
+    dwell_t0b = rig3.task.stop_context.started_at if rig3.task.stop_context is not None else None
+    t_exit3 = _tick_until_done(rig3)
+    dwell3 = (t_exit3 - dwell_t0b) if (t_exit3 is not None and dwell_t0b is not None) else None
+    check("17.4 阈值取自 aim.red_early_leave_s=1.0 ⇒ 停留 1.0~1.4s 离站（证明非硬编码 3.0s）",
+          t_exit3 is not None and dwell3 is not None and 1.0 - 1e-6 <= dwell3 <= 1.4,
+          f"停留={dwell3 if dwell3 is None else round(dwell3, 2)}s（若硬编码 3.0 会 ≥3.0）")
+
+    # ---- (e) skip_second_stop_after_hit=False ⇒ 第一站打出去后第二站照常进 ----
+    rig4 = _to_first_stop(_cfg(3.0, skip_second_stop_after_hit=False))
+    rig4.bridge.set_aim_status(AimStatus.TRACK)
+    rig4.bridge.set_vision(dx=5, dy=3, cls=1)
+    for _ in range(40):
+        if rig4.stop_phase() == StopPhase.FIRE:
+            break
+        rig4.bridge.set_vision(dx=5, dy=3, cls=1)
+        rig4.bridge.set_aim_status(AimStatus.TRACK)
+        rig4.tick(dt=0.1)
+    rig4.bridge.add_shots(3)
+    rig4.tick(dt=0.05)
+    rig4.walk(step=0.1, max_steps=200)
+    check("17.5 `mission.skip_second_stop_after_hit=False` ⇒ 第一站已开火仍照常进第二站（开关被尊重）",
+          rig4.count(EV_ARRIVED_STOP_POINT) >= 2,
+          f"到站次数={rig4.count(EV_ARRIVED_STOP_POINT)}（=2 表示第二站也进了）")
+
+    # ---- (f) 两站皆红 ⇒ 各早退一次后照常跑完全程（无「直冲终点」模式）----
+    rig5 = _to_first_stop(_cfg(3.0))
+    _inject_red(rig5)
+    _tick_until_done(rig5)
+    rig5.walk(step=0.1, max_steps=120)                 # → E9*
+    _inject_red(rig5)
+    _tick_until_done(rig5)
+    rig5.walk(step=0.1, max_steps=200)                 # → D9（终点）
+    red_logs = [s for s in rig5.logs if "红面早退" in s]
+    check("17.6 两站皆红 ⇒ 各早退一次（日志 2 条）后照常跑完全程（EV_MISSION_FINISHED 出现）",
+          len(red_logs) >= 2 and rig5.count(EV_MISSION_FINISHED) >= 1
+          and rig5.count(EV_ARRIVED_STOP_POINT) >= 2,
+          f"早退日志={len(red_logs)} 完赛={rig5.count(EV_MISSION_FINISHED)} "
+          f"到站={rig5.count(EV_ARRIVED_STOP_POINT)} 航线末点=D9")
+
+
 def main() -> int:
     print("=" * 72)
     print("dzbrain MissionTask 自测（纯脚本）")
@@ -1830,6 +2070,8 @@ def main() -> int:
     test_waypoint_ledger()
     test_bridge_intel()
     test_bridge_hold_t32()
+    test_dual_stop_t13()
+    test_dual_stop_t14()
     finish()
     return 0
 
