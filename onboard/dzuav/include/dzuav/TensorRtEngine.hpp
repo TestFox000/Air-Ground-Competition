@@ -1,6 +1,9 @@
 #pragma once
 
 #include <NvInferRuntime.h>
+#include <NvInferVersion.h>  // getInferLibVersion(): TRT8/TRT10 都在此声明为全局 extern "C"
+                              //（2026-10-16 实机踩坑：JetPack6/TRT10 把它移出 nvinfer1 命名空间，
+                              //  写 nvinfer1::getInferLibVersion 直接编不过）
 #include <cuda_runtime_api.h>
 
 #include <fstream>
@@ -45,7 +48,7 @@ protected:
             throw std::runtime_error("cannot deserialize engine: " + engine_path +
                                      " (file size " + std::to_string(file_size) +
                                      " bytes, TensorRT lib version " +
-                                     std::to_string(nvinfer1::getInferLibVersion()) + ")");
+                                     std::to_string(::getInferLibVersion()) + ")");
         context_ = engine_->createExecutionContext();
         if (context_ == nullptr)
             throw std::runtime_error("cannot create execution context");

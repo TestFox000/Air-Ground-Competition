@@ -27,7 +27,8 @@ done
 
 TRTEXEC=""
 for candidate in /usr/src/tensorrt/bin/trtexec /usr/local/bin/trtexec; do
-    if [[ -x "$candidate" ]]; then TRTEXEC="$candidate"; break fi
+    # 2026-10-16 实机踩坑：`break fi` 之间缺分号是 bash 语法错误，机上首跑即暴露
+    if [[ -x "$candidate" ]]; then TRTEXEC="$candidate"; break; fi
 done
 if [[ -z "$TRTEXEC" ]]; then
     echo "找不到 trtexec：请确认已刷 JetPack（TensorRT 组件），或 locate trtexec" >&2
