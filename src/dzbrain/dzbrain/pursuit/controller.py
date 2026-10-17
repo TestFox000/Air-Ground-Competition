@@ -49,7 +49,7 @@ class PursuitCommand:
 
 
 # --------------------------------------------------------------------------- #
-#  ★ 限速请求读侧（t20）：`motion_limit` 黑板键 → 线速度上限
+#  ★ 限速请求读侧：`motion_limit` 黑板键 → 线速度上限
 # --------------------------------------------------------------------------- #
 def motion_limit_speed_limit(bb) -> float | None:
     """读黑板键 `P_MOTION_LIMIT` → 线速度上限（m/s）；**无信号一律返回 `None`（读侧 no-op）**。
@@ -96,7 +96,7 @@ def speed_profile(*, curvature: float, dist_to_stop: float | None,
     - `motion_limit_mps`：外部限速请求（`None` = 无信号 → **完全 no-op**）。它是**最后一层**，
       **在 `min_speed` 下限之后**施加，所以 `0.0` 能真正压到 0（"请求停车"不被蠕动下限顶回去）。
 
-    ★★ t30 新增：**加减速斜坡**（"直线上猛加速、拐角照样减速"的落地件）
+    ★★ **加减速斜坡**（"直线上猛加速、拐角照样减速"的落地件）
       · 两个点号键（**缺省 0.0 = 本层完全不参与**，行为与历史逐位一致）：
           `pursuit.accel_up_mps2`   —— 升速上限（m/s²），建议 0.6~0.8
           `pursuit.accel_down_mps2` —— 降速上限（m/s²），建议 1.0~1.2
@@ -108,13 +108,13 @@ def speed_profile(*, curvature: float, dist_to_stop: float | None,
       · **首拍/无历史（`last_speed_mps is None`）或没给 `dt` ⇒ 本层不参与**（返回 `reason` 不变）。
         为什么不是"当成 0"：调用方若不传历史，每一拍都会被当成首拍 ⇒ 速度被永久压在
         `accel_up·dt`（0.7×0.02 = 0.014 m/s）⇒ **车根本不会动**。所以"无历史 = 不限"是唯一安全语义，
-        并且**调用方有责任播种历史**（`sim.py` 已在本卡里接上；真车侧见
-        `_tmp_session/t30/patch.md` 的接线清单）。
+        并且**调用方有责任播种历史**（`sim.py` 已接上；真车侧见
+        历史接线清单）。
       · 施加位置：**在 `min_speed` 下限之前**（先斜坡、再兜底），因此
         "运动中速度 ≥ min_speed" 这条既有不变量不变；而 `motion_limit`（安全层）仍在**最后**，
         所以"请求停车 = 0"不会被斜坡或下限顶回去。
 
-    ★★ t36 新增：`cruise_mps` —— **动态档**的注入点。默认 `None` = 用
+    ★★ `cruise_mps` —— **动态档**的注入点。默认 `None` = 用
       `pursuit.cruise_speed_mps`（与历史**逐位一致**）；给值就只换"巡航那一层"的基准速度，
       其余层（曲率/停站/转角/斜坡/下限/motion_limit）一字不改。
 
@@ -142,7 +142,7 @@ def speed_profile(*, curvature: float, dist_to_stop: float | None,
 
     v *= cfg.get("pursuit.speed_quant_comp")
 
-    # ---- ★ t30 加减速斜坡（缺省 0.0 ⇒ 整层 no-op） ----
+    # ---- ★ 加减速斜坡（缺省 0.0 ⇒ 整层 no-op） ----
     accel_up = cfg.get("pursuit.accel_up_mps2", 0.0) or 0.0
     accel_down = cfg.get("pursuit.accel_down_mps2", 0.0) or 0.0
     if last_speed_mps is not None and dt is not None and dt > 0.0 \
@@ -189,7 +189,7 @@ def _corner_dist(path: Path, proj: Projection, cfg: Config) -> float | None:
 
 
 def dynamic_gear_speed(cfg: Config, dist_to_cross_m: float | None) -> float | None:
-    """★ t36 动态档：按"离下一个桥洞（K 列格）的距离"在**近/远两档**间选巡航速度。
+    """★ 动态档：按"离下一个桥洞（K 列格）的距离"在**近/远两档**间选巡航速度。
 
     **默认关闭**（`pursuit.dynamic_gear_enabled=false`）⇒ 本函数返回 `None`，
     调用方（`tasks/tracker.py`）就不给 `compute_command` 传覆盖值 ⇒ 与历史逐位一致。
@@ -230,14 +230,14 @@ def compute_command(pose, path: Path, proj: Projection, cfg: Config, *,
       倒车只做两件事：速度取负 × `reverse_speed_ratio`、舵角 × `reverse_steer_sign`。
     ★ 前视距离由**巡航速度**决定（不随瞬时速度变化）：否则"减速 → 前视变短 → 转向变猛"
       会形成正反馈，低速贴站时反而摆头。
-    ★ `motion_limit_mps` / `bb`（t20 读侧）：限速请求来源二选一 —— 显式传 `motion_limit_mps`
+    ★ `motion_limit_mps` / `bb`（读侧）：限速请求来源二选一 —— 显式传 `motion_limit_mps`
       优先；否则从黑板 `bb` 读 `P_MOTION_LIMIT`。**两者都没有信号时逐位等价于旧行为**
       （`speed_profile` 收到 `None` 就整层不参与）。
-    ★★ t30：`last_speed_mps` = 上一拍**控制器输出**的速度（命令量）。传了就启用加减速斜坡
+    `last_speed_mps` = 上一拍**控制器输出**的速度（命令量）。传了就启用加减速斜坡
       （限值来自 `pursuit.accel_up_mps2` / `pursuit.accel_down_mps2`，**缺省 0.0 = 不参与**）；
       `None` = 首拍/无历史 ⇒ 不参与（原因见 `speed_profile` 的"为什么不是当成 0"）。
       `dt` 同时是斜坡的时间基准（默认 0.02 s）。
-    ★★ t36：`cruise_mps` = **动态档**的巡航速度覆盖（`None` = 不覆盖 ⇒ 逐位同历史；
+    `cruise_mps` = **动态档**的巡航速度覆盖（`None` = 不覆盖 ⇒ 逐位同历史；
       只换 `speed_profile` 的巡航那一层，**前视距离仍按配置巡航速度**算，几何不变）。
     """
     limit = motion_limit_mps if motion_limit_mps is not None else motion_limit_speed_limit(bb)
@@ -297,9 +297,9 @@ def compute_command(pose, path: Path, proj: Projection, cfg: Config, *,
         speed_scale=path.segment_speed_scale(proj.seg_index),
         cfg=cfg,
         motion_limit_mps=limit,
-        last_speed_mps=last_speed_mps,      # ★ t30：上一拍**命令**速度（None = 首拍/无历史 ⇒ 不参与）
+        last_speed_mps=last_speed_mps,      # ★ 上一拍**命令**速度（None = 首拍/无历史 ⇒ 不参与）
         dt=dt,
-        cruise_mps=cruise_mps,              # ★ t36：动态档（None = 不覆盖 ⇒ 逐位同历史）
+        cruise_mps=cruise_mps,              # ★ 动态档（None = 不覆盖 ⇒ 逐位同历史）
     )
     if rev:
         min_speed = cfg.get("pursuit.min_speed_mps")

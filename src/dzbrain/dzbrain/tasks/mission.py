@@ -18,7 +18,7 @@
   → `parse_mission(route.tokens)` → 写 `P_ROUTE` → `EV_ROUTE_LOADED` → 阶段 `DRIVE`（§3.3）。
 - 开机跨帧一致性：`mission.scan_mode == 'continuous'` 时开局发 `publish_scan_request(2)`
   （**持续**扫描）。readme【十】第 31 条：绝不能在到点时发 `1` 把它降级成单趟。
-- ★★ **云台扫描单写者**（卡 t24，与 AimTask 的 t13 锁止配套）：`aim.gimbal_lock_enabled=true`
+- ★★ **云台扫描单写者**（与 AimTask 的锁止配套）：`aim.gimbal_lock_enabled=true`
   （默认）时，云台扫描开关**由 AimTask 独家掌管**（巡迹段 0 锁止 / 最佳射击点停站 2 起转 /
   离开停站与 FINISH 回 0），**Mission 一个值都不发** —— 本文件的 `_request_scan()` 直接返回，
   `mission.scan_mode` 在该模式下 **inert**（只影响横幅文案）。理由见 `_request_scan` docstring
@@ -35,7 +35,7 @@
 ★ 时间来源一律走构造注入的 `clock`（默认真实 `time.monotonic`），三段超时全部基于它，
   测试用 `FakeClock` 快进即可 —— 任务内**不得**直接调 `time.time()`。
 
-★ 自动规划（任务卡 B，2026-10-08）：`planner.auto_plan_enabled: true` 时**启动即自己算路** ——
+★ 自动规划（2026-10-08）：`planner.auto_plan_enabled: true` 时**启动即自己算路** ——
   读 `planner.map_path` 的地图 → `route.planner.plan_route(..., allow_reverse=...)` →
   成功就用 `PlanResult.tokens` 当执行路线（日志打**完整 token 列表 + 规划耗时(ms)**，
   横幅标「路线来源：自动规划」）。失败语义按 `planner.fallback_to_tokens`：
@@ -43,29 +43,29 @@
   `false` → error + **停在 IDLE 不出发**（绝不 publish `EV_MISSION_STARTED`）。
   规划入口 `plan_route_from_config()` 与 `python -m dzbrain --plan-only` **共用同一段代码**
   —— 否则"静态规划通过"不等于"车上规划通过"，那种绿灯毫无意义。
-  ⚠️ `planner.*` 目前**未登记进 `core/config.py` 的 SCHEMA**（不在本卡允许改动范围内）：
+  ⚠️ `planner.*` 目前**未登记进 `core/config.py` 的 SCHEMA**（不在改动范围内）：
   `Config.validate()` 会给这 5 个键各记一条 "未知配置段" warn（不是 error，门禁仍过），
   且键名拼错不会被 SCHEMA 兜住 —— 建议收口时补进 SCHEMA 并把 `planner.` 加进
   `known_prefixes`。
 
-★★★★ 卡 t6：**无人机桥洞情报接线**（`EV_BRIDGE_INFO` / `P_DRONE` → 穿洞格选择）
+**无人机桥洞情报接线**（`EV_BRIDGE_INFO` / `P_DRONE` → 穿洞格选择）
   缺口：`tasks/drone.py` 收到 `bridge_passable{half,block}` 时写 `P_DRONE`（`DroneState`，
   `bridge_of(half, now, stale_s)` 已含"半场匹配 + 情报过期 `>drone.info_stale_s`"判据），
   但**接线前 Mission 全文不读它** ⇒ 情报到车即弃，穿洞格永远走 `route.cross_*_default`。
-  ── ★★ 卡 t13（按 t4 的 D3 风险修正）：情报的**唯一真源 = `EV_BRIDGE_INFO` 事件流** ──
-  ⚠️ D3（t4 实测）：`DroneState` 只有**一组** `bridge_half/bridge_block/bridge_ts` 槽，
+  ── （按早期实现的覆盖式赋值缺陷风险修正）：情报的**唯一真源 = `EV_BRIDGE_INFO` 事件流** ──
+  ⚠️ D3（实测）：`DroneState` 只有**一组** `bridge_half/bridge_block/bridge_ts` 槽，
     `DroneTask._on_bridge_passable` 每收一条 `bridge_passable` 就**覆盖式赋值**（drone.py:283）。
     无人机每轮按 **lower → upper** 顺序发，于是稳态下槽里恒是 `upper`：只看 `P_DRONE` 快照，
-    `bridge_of("lower")` **恒为 None** —— t6 第一版"读槽 + 按半场累积"虽然凑出了两半场，
+    `bridge_of("lower")` **恒为 None** —— 第一版"读槽 + 按半场累积"虽然凑出了两半场，
     但它把"能不能同时拿到两半场"绑在了**轮询时机**上（槽被覆盖的那一拍正好没 tick 就丢）。
-  修法（t13 采选项①）：**订阅 `EV_BRIDGE_INFO`**，每条事件自带 `half/block/ts`，
+  修法（采选项①）：**订阅 `EV_BRIDGE_INFO`**，每条事件自带 `half/block/ts`，
     按半场各存一份（`_intel_seen`），**后到的 upper 事件永远顶不掉先到的 lower 记录**。
     事件载荷里的 `ts` 就是 `DroneTask` 写 `bridge_ts` 用的**同一个数**（drone.py:283-287），
     所以过期判据 `now - ts > drone.info_stale_s` 与 `DroneState.bridge_of()` **逐字同源**。
     `P_DRONE` 仍要读，但只用来判**链路状态**（是否存在 / 是否在线）—— 那是黑盒事实，不是情报值；
     `DroneTask` 的"写槽"与"发事件"在同一段代码里（drone.py:283-287），
     故 `事件覆盖 ⊇ 槽覆盖`：生产上不存在"槽里有、事件没有"的情报 —— 槽位不再是情报真源。
-  采纳顺序（**两个半场各自独立判定**，任一半场失败不影响另一半场；★ t7 已通过的 5 道门 + 过期判据
+  采纳顺序（**两个半场各自独立判定**，任一半场失败不影响另一半场；已通过的 5 道门 + 过期判据
   **逐点未改**，只换了"原始格与 ts 从哪儿来"）：
     ① `drone.enabled=false` → 默认格；② 无 `P_DRONE`（DroneTask 未运行/被禁用）→ 默认格；
     ③ 无人机离线（`DroneState.online=False`，心跳超 `drone.heartbeat_timeout_s`）→ 默认格
@@ -73,7 +73,7 @@
     ④ 情报过期（`now - 事件 ts > drone.info_stale_s`）/ 该半场从未收到事件 → 默认格；
     ⑤ 格名非法（`Z9`/`ZZ9`）、不在 K 列（`A1`）、或不在本半场行段
        （下 K7~K11 / 上 K1~K6）→ 默认格
-       —— **★ t31 权威门放宽**：判据从"候选集合 ∩ `map.bridges`"（`planner._cross_pools`
+       —— **★ 权威门放宽**：判据从"候选集合 ∩ `map.bridges`"（`planner._cross_pools`
        同口径）改为**K 列 + 本半场行段**，于是无人机的新鲜情报可以**纠正过期地图**
        （地图/候选还停在上一局、只开了别的洞时，行段内别的 K 列格照样采纳）；
        池外但在行段内 → 采纳，并把口径写进 `reason`/日志（"池外…纠正过期地图"）。
@@ -87,13 +87,13 @@
       整体挪到新行（`rewrite_crossing_tokens`：只认规划器生成的那种形状），且结果**必须**过
       `validate_route`(0 error) 才允许执行；形状不符/校验不过 → 原样不动（走默认洞）。
   默认穿洞格的**信号源**＝配置 `route.cross_{half}_default`：
-    ★ 现场真值（`config/robot.yaml:520-521`，t4 实测）＝ **lower `K10` / upper `K5`**，
+    ★ 现场真值（`config/robot.yaml:520-521`，实测）＝ **lower `K10` / upper `K5`**，
       与候选集合（robot.yaml:513-514 ＝ `["K10"]` / `["K5"]`）、现役 `route.tokens` 的穿洞三连
       （`L10→K10→J10` / `J5→K5→L5`）三者一致。
-    ✅ `core/config.py` 的 SCHEMA 缺省**已同步为 `K10`/`K5`**（卡 t17 收口；t13 报告里"SCHEMA 仍是
+    ✅ `core/config.py` 的 SCHEMA 缺省**已同步为 `K10`/`K5`**（收口；取证报告里"SCHEMA 仍是
       K9/K4"那句已失效）。本文件不做"临时兜底改默认值"：兜底一律以配置为唯一真源，
       否则现场翻不出到底走的哪个洞。
-  等待窗口（★ 卡 t20 按 t14-F1 裁决**收回判据**）：`mission.bridge_info_wait_s`（现场 2s）内，
+  等待窗口（按 F1 裁决**收回判据**）：`mission.bridge_info_wait_s`（现场 2s）内，
   只有"**等得到东西**"才推迟发车 —— 需要同时满足：
     · 车侧有无人机链路（`P_DRONE` 存在）**且 `online=True`**（离线即情报不可信）；
     · 并且**手上已经有一半场的有效新鲜情报**（>=1 个半场 `source=drone`，即 age ≤ `info_stale_s`
@@ -102,13 +102,13 @@
   硬上限仍是 `auto_start_delay_s + bridge_info_wait_s`（兜底：到点必发车，绝不卡死），
   窗口耗尽时用"已得情报 + 默认格"。
   ⚠️ 为什么要收回：`DroneTask` **每拍都写 `P_DRONE`**（无论在线与否），所以"有 link"这条判据
-  恒真 —— 只看 link 会让无人机离线时也白等到硬上限（t14 审出的 F1）。
+  恒真 —— 只看 link 会让无人机离线时也白等到硬上限（审出的 F1）。
   窗口耗尽照常出发（用已得情报 + 默认格）。**无 `P_DRONE` 时不等、不换，行为与接线前逐字一致。**
   边界（刻意不改，见 `_handle_command`）：外部命令（`/nav/waypoint` 的 `多点`/`单点`/`load:`）
   按操作者原意执行，不做换洞；发车后晚到的情报只进遥测（`state()["bridge"]`，其中 `used`
   是**冻结**的实际用格），路线已冻结不再换洞。
 
-★★★★ 卡 t32：**L10 桥前等待 + 迟到情报改道一次**（机制设计段先行，按 t11 §10 建议②⑤ / t23 复核）
+**L10 桥前等待 + 迟到情报改道一次**（机制设计段先行，按设计建议②⑤ / 复核）
 
   ① 保持/让位仲裁（**不新增第二个驱动指令写者**）：新增 `MissionPhase.HOLD`（`io/contract.py`）。
      `tracker.ACTIVE_PHASES` 是**白名单**（只有 DRIVE/APPROACH），且 `_blocked_reason_now()` 里
@@ -119,12 +119,12 @@
      `_decision_point()` 返回"第一个**洞口尚未过**的穿洞三连"，取 `(决策点下标, 洞口下标, 半场)`。
      ⇒ 不写死 L10：换一张图/换一个洞，决策点自动跟着走。
   ③ 等待条件（缺一不可，全部满足才进 HOLD；**任一条不满足 = 不等**）：
-     · 车侧**有**链路（`P_DRONE` 存在）且 `online=True`（离线/无链路 = 情报不可信，**逐拍与 t20 后版本一致**）；
+     · 车侧**有**链路（`P_DRONE` 存在）且 `online=True`（离线/无链路 = 情报不可信，**逐拍与当前版本一致**）；
      · 两个半场**没有**都拿到新鲜情报（都齐 ⇒ 直接决策，不停车）；
      · 上限 `cap > 0`（见 ④）。
   ④ 上限口径：`cap = min(mission.bridge_wait_max_s(默认 12s), 预算余量)`，
-     预算余量 = `mission.race_budget_s(默认 180s，t11 的 3 分钟口径) − (now − 本局 DRIVE 起点)`，
-     取 `max(0, …)`。**到点必发车**（t20 语义不变）：`waited ≥ cap` 那一拍立刻放行，绝不再等；
+     预算余量 = `mission.race_budget_s(默认 180s，3 分钟口径) − (now − 本局 DRIVE 起点)`，
+     取 `max(0, …)`。**到点必发车**（语义不变）：`waited ≥ cap` 那一拍立刻放行，绝不再等；
      `cap ≤ 0`（预算已耗尽 / 等待上限为 0）⇒ **不进 HOLD**，直接带已得情报走。
   ⑤ 迟到情报改道（**全程 ≤ `mission.bridge_reroute_max`(默认 1) 次**）：
      · **决策点前**（洞口未过）到达的新鲜情报 → 用 `_apply_intel_to_tokens()`（形状 + `validate_route`
@@ -133,22 +133,20 @@
        与黑盒 `P_ROUTE_INDEX/P_ROUTE_S`（修掉"重装路线 = 进度归零 = 车回 N10"这条阻断）；
        换洞只动穿洞三连的 3 个 token ⇒ 决策点及其之前的**下标一一对应**，所以保留索引是自洽的。
      · **决策点后**（洞口已过 / 改道次数用尽 / 情报不新鲜）→ **维持原 token**（只进遥测）。
-  ⑥ 起点窗口（t20 的 `bridge_info_wait_s`）**语义保留但默认关闭**：`mission.bridge_wait_at_start`
-     （默认 false）—— 等情报这件事从起点**移到** L10 决策点（t11 建议②）；要复现 t20 起点等待的
+  ⑥ 起点窗口（`bridge_info_wait_s`）**语义保留但默认关闭**：`mission.bridge_wait_at_start`
+     （默认 false）—— 等情报这件事从起点**移到** L10 决策点（设计建议②）；要复现起点等待的
      对照档，把它显式置 true（`tests/test_mission.py` 的 14.30/14.31/14.31b 就是这么钉的）。
   ⑦ 遥测：`bridge.note.hold = {active, cap_s, waited_s, half, reroutes}`（现场看"为什么停着"）。
 
-⚠️ SCHEMA 缺键（**t20 实测更正**：下面这些键多数已在 t26/t31 收口时补进 SCHEMA，只剩一个仍缺）：
+⚠️ SCHEMA 缺键（只剩一个仍缺）：
   仍缺：`mission.shot_timeout_s`（本文件用 `cfg.get(key, 30.0)` 兜底）。缺它 ⇒ `Config.validate()`
   看不到这个键，键名拼错不会被"未知配置段"告警兜住。
   已登记（无需再改）：`mission.shots_per_stop` / `settle_time_s` / `settle_eps_m` /
   `settle_speed_mps` / `lock_timeout_s` / `scan_stop_timeout_s` / `bridge_info_wait_s`
   / `drone.*` / `route.cross_*`。
-  （t13 报告里"这 7 个键都没进 SCHEMA"那句已失效 —— 那是我当时未核对 SCHEMA 的转述，
-   t20 逐键实测后更正；勿照旧文去补。）
 
-★ 规划引擎开关（卡 t11）：`planner.engine`（`tour` 缺省 / `tracker-safe`）。
-  `tracker-safe`（t7 新引擎，"真车能跟住"）的产物**必须**过双门禁
+★ 规划引擎开关：`planner.engine`（`tour` 缺省 / `tracker-safe`）。
+  `tracker-safe`（"真车能跟住"）的产物**必须**过双门禁
   （`tools/route_check.py` 0 error + `route.validate_route` 0 error/0 warn），
   否则按 `fallback_to_tokens` 回退现役手工路线并打印原因。缺省 `tour` = 历史行为逐字节不变。
   门禁实现见 `check_planned_route()` / `GateResult`（同一段代码也被 `--plan-only` 复用）。
@@ -185,14 +183,14 @@ from .tracker import PIVOT_DONE_KEY, TRACKER_CMD_KEY, PivotPhase
 
 __all__ = ["MissionTask", "MISSION_STATE_KEY", "plan_route_from_config", "resolve_map_path",
            "PlanOutcome", "AutoPlanBlocked", "ROUTE_SOURCE_AUTO", "ROUTE_SOURCE_MANUAL",
-           # ★ 卡 t11：引擎开关 + 规划产物双门禁
+           # 引擎开关 + 规划产物双门禁
            "ENGINE_TOUR", "ENGINE_TRACKER_SAFE", "DEFAULT_PLAN_ENGINE", "PLAN_ENGINES",
            "resolve_plan_engine", "plan_budget_seconds", "GateResult", "check_planned_route",
            "route_check_script", "load_route_check_module",
-           # ★ 卡 t11：参考点偏移感知足迹（挡板/障碍/靶板顾问级诊断）
+           # 参考点偏移感知足迹（挡板/障碍/靶板顾问级诊断）
            "FootprintReport", "footprint_diagnostic", "vehicle_geometry",
            "FOOTPRINT_GATE_MODES", "DEFAULT_FOOTPRINT_GATE",
-           # ★ 卡 t6：无人机桥洞情报（EV_BRIDGE_INFO → 穿洞格）
+           # 无人机桥洞情报（EV_BRIDGE_INFO → 穿洞格）
            "BRIDGE_HALVES", "BridgeIntel", "rewrite_crossing_tokens", "retag_block_token"]
 
 #: 遥测键：Mission 的当前上下文（停站点/航点/用时）
@@ -207,7 +205,7 @@ MISSION_STATE_KEY = "mission_state"
 _GOAL_STOP_M = 0.03
 
 # --------------------------------------------------------------------------- #
-#  ★ 自动规划（任务卡 B）：路线来源标注 + 规划入口
+#  ★ 自动规划：路线来源标注 + 规划入口
 # --------------------------------------------------------------------------- #
 #: 横幅/日志里的"路线来源"字样（验收项要求原文出现这两个词）
 ROUTE_SOURCE_AUTO = "自动规划"
@@ -220,26 +218,26 @@ DEFAULT_MAP_PATH = "config/map.yaml"
 _DEFAULT_PLAN_SECONDS = 2.0
 
 # --------------------------------------------------------------------------- #
-#  ★★ 卡 t11：规划引擎开关（`planner.engine`）+ 规划产物"双门禁"
+#  规划引擎开关（`planner.engine`）+ 规划产物"双门禁"
 # --------------------------------------------------------------------------- #
-#  背景：t7 交付了 `route.planner.plan_route_tracker_safe()`（"真车能跟住"的新引擎，
-#  现役图 62 token / 21.35 m，追平手工 62 点），但它在车上**没有任何入口** ——
-#  只有 `tools/plan_route.py --engine tracker-safe` 手动跑。本卡把它接进车上入口，
-#  并且**默认零影响**：`planner.engine` 缺省 `tour` ⇒ 走的还是老引擎、同一条路线。
+#  背景：`route.planner.plan_route_tracker_safe()`（"真车能跟住"的新引擎，现役图
+#  44 token / 15.05 m，追平现役手工路线）原来只有 `tools/plan_route.py --engine
+#  tracker-safe` 手动跑；现在接进车上入口，并且**默认零影响**：`planner.engine`
+#  缺省 `tour` ⇒ 走的还是老引擎、同一条路线。
 #
 #  为什么 tracker-safe 要额外过"双门禁"才允许装车执行：
-#    t8 的教训是"门禁绿 ≠ 真车过得去"（纯追踪在顶点切角，折线口径看不见），
-#    但反过来"没门禁就上车"更危险（旧自动 65 点路线静态全绿、物理链漏压 3 个雷、
+#    实测教训："门禁绿 ≠ 真车过得去"（纯追踪在顶点切角，折线口径看不见），
+#    但反过来"没门禁就上车"更危险（自动规划路线曾静态全绿、物理链却漏压 3 个雷、
 #    还撞 D7）。所以新引擎的产物必须同时过 `tools/route_check.py`(0 error) 与
 #    `route.validate_route`(0 error/0 warn)，否则按 `fallback_to_tokens` 回退现役
 #    手工路线（回退 = 出车，不是停摆）。
 #  为什么 tour **不加**这道门禁：它的历史行为必须逐字节不变 —— 例：`test_autoplan`
 #    的 1.12「缺 mines 的图其实能解」就是被既有语义钉住的用例，给它加门禁会改变
-#    "什么算规划成功"的定义（那是另一张卡的事）。
+#    "什么算规划成功"的定义（不在本开关的职责内）。
 # --------------------------------------------------------------------------- #
-#: 历史引擎（`planner.plan_route`）：行为与 t7 之前逐字节一致
+#: 历史引擎（`planner.plan_route`）：保持既有行为逐字节一致
 ENGINE_TOUR = "tour"
-#: t7 新引擎（`planner.plan_route_tracker_safe`）：禁 180°/禁紧凑 U/雷直线穿心
+#: tracker-safe 新引擎（`planner.plan_route_tracker_safe`）：禁 180°/禁紧凑 U/雷直线穿心
 ENGINE_TRACKER_SAFE = "tracker-safe"
 DEFAULT_PLAN_ENGINE = ENGINE_TOUR
 PLAN_ENGINES = (ENGINE_TOUR, ENGINE_TRACKER_SAFE)
@@ -261,11 +259,11 @@ DEFAULT_FOOTPRINT_GATE = "warn"
 _FOOTPRINT_SAMPLE_M = 0.05
 
 # --------------------------------------------------------------------------- #
-#  ★★ 卡 t6 / t13：无人机桥洞情报（EV_BRIDGE_INFO 事件流 → 穿洞格；P_DRONE 只判链路）
+#  无人机桥洞情报（EV_BRIDGE_INFO 事件流 → 穿洞格；P_DRONE 只判链路）
 # --------------------------------------------------------------------------- #
 #: 两个半场（与 `tasks/drone.py` 的 `_BRIDGE_HALVES` 同名同义：lower=下半场 / upper=上半场）
 BRIDGE_HALVES: tuple[str, ...] = ("lower", "upper")
-#: `EV_BRIDGE_INFO` 订阅队列长度（★ 卡 t13）：情报是**低频**事件（每轮两半场各一条），
+#: `EV_BRIDGE_INFO` 订阅队列长度：情报是**低频**事件（每轮两半场各一条），
 #: 64 足够；真被灌满时 `Subscription.dropped` 会计数并进遥测 `bridge.events_dropped`，
 #: 不静默丢（"最后一条"语义下最坏结局也只是回落默认格，绝不卡死）。
 _BRIDGE_SUB_MAXSIZE = 64
@@ -281,7 +279,7 @@ class BridgeIntel:
     #: `route.cross_{half}_default`（回落目标；日志里用来对照"本来会走哪个洞"）
     default: str = ""
     #: 来源：`drone`（采纳情报）/ `default` / `stale` / `missing` / `offline` / `disabled`
-    #: / `no_link` / `rejected`（情报非法：坏格名 / 非 K 列 / 不在本半场行段；t31 起不再要求"在候选集合"）
+    #: / `no_link` / `rejected`（情报非法：坏格名 / 非 K 列 / 不在本半场行段；不再要求"在候选集合"）
     source: str = "no_link"
     #: 无人机原始报格（未采纳时留证据；采纳时与 `cell` 相同）
     raw: str = ""
@@ -298,7 +296,7 @@ class BridgeIntel:
     def describe(self) -> str:
         if self.from_drone:
             age = "（ts 差未知）" if self.age_s is None else f"（新鲜度 {self.age_s:.2f}s）"
-            # ★ t31：reason 里可能带"池外但在行段内 ⇒ 采纳、纠正过期地图"的口径，日志要带上
+            # reason 里可能带"池外但在行段内 ⇒ 采纳、纠正过期地图"的口径，日志要带上
             #   （现场排"这个洞怎么跟我记的候选不一样"时要能直接看出来）。
             extra = f"；{self.reason}" if self.reason else ""
             return f"{self.half} → {self.cell} ★无人机情报{age}{extra}；默认 {self.default}"
@@ -412,7 +410,7 @@ def plan_budget_seconds(cfg: Any, engine: str = DEFAULT_PLAN_ENGINE,
 
     · `tour` → `planner.max_seconds`（缺省 `_DEFAULT_PLAN_SECONDS`）—— **与历史同一行代码**；
     · `tracker-safe` → `planner.tracker_max_seconds`（缺省 `planner.TS_MAX_SECONDS`）——
-      新引擎本机实测 1.59~1.67 s，共用 2.0 s 会踩 t8 那类 flake（见 robot.yaml 注释）。
+      新引擎本机实测 1.59~1.67 s，共用 2.0 s 会踩那类 flake（见 robot.yaml 注释）。
     """
     try:
         if engine == ENGINE_TRACKER_SAFE:
@@ -442,11 +440,11 @@ class GateResult:
     route_check_rc: int | None = None
     route_check_errors: list[str] = field(default_factory=list)
     route_check_warns: list[str] = field(default_factory=list)
-    #: ★ 卡 t11：双门禁结果
+    #: 双门禁结果
     validate_errors: list[str] = field(default_factory=list)
     validate_warns: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
-    #: ★ 卡 t11：偏移感知足迹诊断（折线口径，顾问级）
+    #: 偏移感知足迹诊断（折线口径，顾问级）
     footprint: "FootprintReport | None" = None
 
     @property
@@ -547,7 +545,7 @@ def check_planned_route(tokens: Any, map_cfg: Any, cfg: Any,
     :returns: `GateResult`。**本函数永不抛异常** —— 任何内部错误都记进 `notes`，
         并按"该门禁不可用"处理（绝不允许门禁自己把 Mission 线程炸掉）。
 
-    语义（卡 t11 第 4 条）：
+    语义（第 4 条）：
       · 任一 error（或 `validate_route` 的 warn）→ `ok=False` ⇒ 调用方**不得**执行这条路线；
       · `tools/route_check.py` 找不到/加载失败 → **不算失败**（车端 `tools/` 不随包部署，
         这是已知事实，`docs/部署清单` 里只有 3 个 tools 脚本），但 `notes` 里留痕；
@@ -618,7 +616,7 @@ class FootprintReport:
       "航段方向"给 yaw —— 在 `J8→J7→I7` 这种"垂直进、水平出"的拐角上，它会把
       "车头正对挡板"那一瞬间算进去（保守 ~5 cm），而真值轨迹里车到那一点时 yaw 已经
       转到 ~45°（实测侵入只有 5 mm 级）。所以本报告用来**暴露风险**，授权判据仍是
-      `route_check` + `validate_route`（真值轨迹级结论见 `_tmp_session/t11/`）。
+      `route_check` + `validate_route`（真值轨迹级结论见历史证据目录）。
     """
 
     offset_m: float = 0.0
@@ -652,7 +650,7 @@ class FootprintReport:
 def vehicle_geometry(cfg: Any) -> dict[str, float]:
     """`vehicle.*` 三个尺寸 + **参考点偏移**（读不到就退 SCHEMA 默认，绝不抛异常）。
 
-    ★ 键路径口径（t11 实测的坑，必须写明）：尺寸/偏移的真源写在
+    ★ 键路径口径（实测的坑，必须写明）：尺寸/偏移的真源写在
       `config/robot.yaml` 的 **`/dzactuator: ros__parameters: vehicle:`** 段里
       （与 `length_m`/`width_m` 同一个段），`Config._flatten()` 之后是
       **`dzactuator.vehicle.*`**；而 `SCHEMA` 里的规范名是 `vehicle.*`。
@@ -819,16 +817,16 @@ class PlanOutcome:
     route_len_m: float = 0.0
     reverse_segments: int = 0
     cost: float = 0.0
-    #: ★ 卡 t11：这次用的引擎（`tour` / `tracker-safe`）
+    #: 这次用的引擎（`tour` / `tracker-safe`）
     engine: str = DEFAULT_PLAN_ENGINE
-    #: ★ 卡 t11：双门禁结论（只有 `tracker-safe` 会跑门禁；tour 恒为"未跑 = True"）
+    #: 双门禁结论（只有 `tracker-safe` 会跑门禁；tour 恒为"未跑 = True"）
     gate_ok: bool = True
     gate_detail: str = ""
-    #: ★ 卡 t11：参考点偏移感知的足迹诊断（一行结论；折线口径，顾问级）
+    #: 参考点偏移感知的足迹诊断（一行结论；折线口径，顾问级）
     footprint: str = ""
-    #: ★ 卡 t11：足迹诊断是否有侵入（决定 `planner.footprint_gate: error` 时是否硬拦）
+    #: 足迹诊断是否有侵入（决定 `planner.footprint_gate: error` 时是否硬拦）
     footprint_ok: bool = True
-    #: ★ 卡 t6：本次**实际采用**的穿洞格（来自 `PlanResult.crossing`；失败时为空）
+    #: 本次**实际采用**的穿洞格（来自 `PlanResult.crossing`；失败时为空）
     cross_lower: str = ""
     cross_upper: str = ""
 
@@ -870,7 +868,7 @@ def config_dir(cfg: Any) -> pathlib.Path | None:
 
 
 def resolve_map_path(cfg: Any = None, spec: str | None = None) -> pathlib.Path:
-    """地图路径解析顺序（任务卡 B 规格）：**绝对路径 → 相对配置文件目录 → 相对工作区**。
+    """地图路径解析顺序：**绝对路径 → 相对配置文件目录 → 相对工作区**。
 
     三个候选按序 `is_file()`；都不存在时返回**工作区候选**（调用方据此报"地图文件不存在"，
     错误信息里能看到实际尝试的路径）。本函数不抛异常、也不读文件内容。
@@ -909,18 +907,18 @@ def plan_route_from_config(cfg: Any, *, map_path: str | None = None,
                            cross_upper: str | None = None) -> PlanOutcome:
     """按 `planner.*` 配置规划一条路线 —— **永不抛异常**（失败 → `ok=False` + `error`）。
 
-    调用契约（与任务卡 A 冻结的规划器 API 一致，本文件**只消费不修改** `route/`）：
+    调用契约（与规划器 API 契约一致，本文件**只消费不修改** `route/`）：
         `plan_route(map_cfg, cfg, allow_reverse=bool, max_seconds=float, source=str) -> PlanResult`
         `plan_route_tracker_safe(map_cfg, cfg, *, max_seconds=float, source=str) -> PlanResult`
         `PlanResult.tokens: list[str]` / `.elapsed_ms: float` —— 失败抛 `PlannerError`。
 
-    :param cross_lower: ★卡 t6：下半场穿洞格（**新鲜无人机情报**），`None` = 用
-        `route.cross_lower_default`（与接线前逐字节一致）。★t31 后规划器的硬门 = **K 列 +
+    :param cross_lower: 下半场穿洞格（**新鲜无人机情报**），`None` = 用
+        `route.cross_lower_default`（与接线前逐字节一致）。后规划器的硬门 = **K 列 +
         本半场行段**（候选集合只用来挑缺省洞），行段外/非 K 列/坏格名才抛 `PlannerError`；
         调用方（MissionTask）仍先做一次同口径校验，绝不把坏格喂进来。
     :param cross_upper: 同上，上半场。
 
-    ★ 卡 t11 引擎开关（`planner.engine`，默认 `tour`）：
+    引擎开关（`planner.engine`，默认 `tour`）：
       · `tour`（缺省）→ `plan_route(...)` + `planner.max_seconds`：**与历史逐字节一致**；
       · `tracker-safe` → `plan_route_tracker_safe(...)` + `planner.tracker_max_seconds`，
         且产物**必须过双门禁**（`tools/route_check.py` 0 error + `validate_route` 0-0），
@@ -931,7 +929,7 @@ def plan_route_from_config(cfg: Any, *, map_path: str | None = None,
     """
     engine = resolve_plan_engine(cfg, log)
     want_reverse = bool(cfg.get("planner.allow_reverse", False))
-    # ★ 卡 t6：只在"真的采纳了情报"时把格透传下去；`None` 走的还是规划器自己的默认路径。
+    # 只在"真的采纳了情报"时把格透传下去；`None` 走的还是规划器自己的默认路径。
     want_lower = str(cross_lower or "").strip().upper() or None
     want_upper = str(cross_upper or "").strip().upper() or None
     try:
@@ -1065,20 +1063,20 @@ class MissionTask(TaskThread):
         self._auto_start_delay_s = float(cfg.get("mission.auto_start_delay_s") or 0.0)
         self._reset_spec = str(cfg.get("mission.reset") or "")
         self._scan_mode = str(cfg.get("mission.scan_mode") or "").strip().lower()
-        # ---- ★★ 卡 t24：云台扫描**单写者**铁律（与 AimTask 的 t13 锁止配套）----
+        # ---- 云台扫描**单写者**铁律（与 AimTask 的锁止配套）----
         #  为什么 Mission 必须放权（run11 日志实证的顺序）：
         #      云台锁止 scan_request=0（阶段=None）
         #   →  mission「扫描模式 continuous（continuous → scan_request=2）」
         #   →  云台起转搜索（最佳射击点 F4）
         #  即：Mission 在**巡迹全程**用 2 压住了 Aim 的 0；而 C++ 侧 `scan_request` 是
         #  **电平保持**语义，Aim 又有 `_gimbal_cmd` 去重（值没变就不再重发 0）
-        #  ⇒ 云台实际一直在转 —— 正是用户要杜绝的形态（t13 死灰复燃的洞）。
+        #  ⇒ 云台实际一直在转 —— 正是用户要杜绝的形态（死灰复燃的洞）。
         #  因此：`aim.gimbal_lock_enabled=true`（默认）时，**Mission 一个值都不发**
         #  （路线就绪的 2、FINISH 的 0 全部交给 Aim 按 P_STOP_POINT/阶段决定）；
         #  只有显式 `aim.gimbal_lock_enabled=false`（旧行为/对照档）时，Mission 才照旧发。
         self._gimbal_lock_enabled = bool(cfg.get("aim.gimbal_lock_enabled", True))
         self._shots_per_stop = int(cfg.get("mission.shots_per_stop", 3) or 3)
-        # ---- ★★ 卡 t13：双射击停站 + 红面早退 ----
+        # ---- 双射击停站 + 红面早退 ----
         #   ① `_red_early_leave_s` 与 AimTask 用**同一个键**（`aim.red_early_leave_s`），
         #      保证"标志成立"和"Mission 允许早退"不会因两份默认值而打架；
         #      Mission 这边再核一次"已停留 ≥ 阈值"，是防止陈旧标志（对上一停站点成立的）
@@ -1095,11 +1093,11 @@ class MissionTask(TaskThread):
         self._lock_timeout_s = float(cfg.get("mission.lock_timeout_s", 18.0))
         self._shot_timeout_s = float(cfg.get("mission.shot_timeout_s", 30.0))
         self._scan_stop_timeout_s = float(cfg.get("mission.scan_stop_timeout_s", 8.0))
-        # ★★ t26（2026-10-11 用户指令 4）：**到站级硬死线**（秒）—— 自"到站那一刻"起累计超过它
+        # ★★ **到站级硬死线**（秒）—— 自"到站那一刻"起累计超过它
         #   就强制离站（0 发也一样），口径 = "最佳射击点停留最长 30s"。
         #   为什么必须单独有一条：三段式各自超时是**按段**计时的（SETTLE 0.4×30=12s +
         #   ACQUIRE 6s + FIRE 30s = 最长 48s），与用户口径"到站起 30s"不符；"0 发"时旧实现
-        #   要等完三段才放行。真源沿用 `mission.shoot_timeout_s`（现场 30.0，本卡不动它），
+        #   要等完三段才放行。真源沿用 `mission.shoot_timeout_s`（现场 30.0，不动它），
         #   另给一个可选覆盖键 `mission.stop_deadline_s`（未写入 robot.yaml，避免两个同义键）。
         try:
             self._stop_deadline_s = float(cfg.get("mission.stop_deadline_s",
@@ -1115,7 +1113,7 @@ class MissionTask(TaskThread):
         # ---- 拐角绕圈兜底（仿真实测噪声 0.01m/拍会让车原地转圈、末点误差 2.96m）----
         self._stall_timeout_s = float(cfg.get("mission.stall_timeout_s", 12.0))
         self._stall_yaw_deg = float(cfg.get("mission.stall_yaw_deg", 360.0))
-        # ---- ★自动规划（任务卡 B）：全部走 `planner.*`，缺键用显式默认 ----
+        # ---- ★自动规划：全部走 `planner.*`，缺键用显式默认 ----
         self._auto_plan_enabled = bool(cfg.get("planner.auto_plan_enabled", False))
         self._planner_map_path = str(cfg.get("planner.map_path") or DEFAULT_MAP_PATH)
         self._planner_fallback = bool(cfg.get("planner.fallback_to_tokens", True))
@@ -1126,13 +1124,13 @@ class MissionTask(TaskThread):
                                               or _DEFAULT_PLAN_SECONDS)
         except (TypeError, ValueError):
             self._planner_max_seconds = _DEFAULT_PLAN_SECONDS
-        # ★ 卡 t11：引擎开关（缺省 `tour` ⇒ 与历史逐字节一致）。这里只**读**一次；
+        # 引擎开关（缺省 `tour` ⇒ 与历史逐字节一致）。这里只**读**一次；
         #   真正的分派与门禁在 `plan_route_from_config()`（与 `--plan-only` 共用同一段代码）。
         self._planner_engine = resolve_plan_engine(cfg, self._log)
         #: 本次实际用的时间预算（tour=`planner.max_seconds`；tracker-safe=`planner.tracker_max_seconds`）
         self._planner_budget_s = plan_budget_seconds(cfg, self._planner_engine, self._log)
 
-        # ---- ★★ 卡 t6：无人机桥洞情报（EV_BRIDGE_INFO / P_DRONE → 穿洞格）----
+        # ---- 无人机桥洞情报（EV_BRIDGE_INFO / P_DRONE → 穿洞格）----
         #   配置（`drone.*` / `mission.bridge_info_wait_s` / `route.cross_*` 都已在 SCHEMA 里）
         self._drone_link_enabled = bool(cfg.get("drone.enabled", True))
         try:
@@ -1143,15 +1141,15 @@ class MissionTask(TaskThread):
             self._bridge_wait_s = max(0.0, float(cfg.get("mission.bridge_info_wait_s") or 0.0))
         except (TypeError, ValueError):
             self._bridge_wait_s = 0.0
-        # ---- ★ 卡 t32：桥前等待（L10 决策点）+ 赛事预算 + 迟到改道上限 ----
-        #: 起点是否仍为情报推迟发车（默认 False = 等移到 L10 决策点，t11 建议②）
+        # ---- 桥前等待（L10 决策点）+ 赛事预算 + 迟到改道上限 ----
+        #: 起点是否仍为情报推迟发车（默认 False = 等移到 L10 决策点，设计建议②）
         self._bridge_wait_at_start = bool(cfg.get("mission.bridge_wait_at_start", False))
         #: L10 桥前等待上限（与预算余量取 min）
         try:
             self._bridge_wait_max_s = max(0.0, float(cfg.get("mission.bridge_wait_max_s") or 0.0))
         except (TypeError, ValueError):
             self._bridge_wait_max_s = 0.0
-        #: 本局总预算（t11 的 3 分钟口径）—— 桥前等待"预算余量"的数据源
+        #: 本局总预算（3 分钟口径）—— 桥前等待"预算余量"的数据源
         try:
             self._race_budget_s = max(0.0, float(cfg.get("mission.race_budget_s") or 0.0))
         except (TypeError, ValueError):
@@ -1174,9 +1172,9 @@ class MissionTask(TaskThread):
                                              or "").strip().upper()
         #: 最近一次（每拍刷新）的情报结论：half → `BridgeIntel`
         self._intel: dict[str, BridgeIntel] = {}
-        #: ★ 卡 t13：按半场存**原始情报**（half → (格, 该条情报的 ts)），真源 = `EV_BRIDGE_INFO`。
+        #: 按半场存**原始情报**（half → (格, 该条情报的 ts)），真源 = `EV_BRIDGE_INFO`。
         #:   两半场各占一个键 ⇒ 后到的 `upper` 事件**顶不掉**先到的 `lower` 记录
-        #:   （t6 第一版读 `P_DRONE` 单槽时，覆盖式赋值会让另一半天永久丢失 —— t4 的 D3）
+        #:   （第一版读 `P_DRONE` 单槽时，覆盖式赋值会让另一半天永久丢失 —— 早期实现的覆盖式赋值缺陷）
         self._intel_seen: dict[str, tuple[str, float]] = {}
         #: `EV_BRIDGE_INFO` 订阅句柄（惰性创建；`setup()` 里先建好，遥测也能看到队列状态）
         self._bridge_sub: Subscription | None = None
@@ -1257,7 +1255,7 @@ class MissionTask(TaskThread):
             pivot_dist_eff(cfg, float(cfg.get("pursuit.cruise_speed_mps"))) * 3.0,
             self._arrival_m * 6.0)
 
-        # ---- ★逐点到达台账（卡 D finding D1：绝不静默丢点）----
+        # ---- ★逐点到达台账（硬约束：绝不静默丢点）----
         #: 每个待推进航点的**历史最近距离**（米）。几何复核用：s 一步跨过航点时，
         #: 只看"当拍"的距离会误判 —— 车常在几拍前就从格心旁穿过（此时 s 还没到），
         #: 等到 s 跳过去那一拍，车已经走远了。历史最近距离能如实回答"它到底来没来过"。
@@ -1316,16 +1314,16 @@ class MissionTask(TaskThread):
             # ★路线来源与自动规划证据（横幅同源；遥测/测试据此断言「自动规划」/「手动配置」）
             "route_source": self._route_source,
             "plan": dict(self._plan_info),
-            # ★逐点到达台账（卡 D finding D1）：`unexplained` 恒为 0 才叫"无静默丢点"
+            # ★逐点到达台账（硬约束）：`unexplained` 恒为 0 才叫"无静默丢点"
             "accounting": self.accounting(),
-            # ★卡 t6：无人机桥洞情报（实时结论 + 本局**冻结**的实际用格）
+            # 无人机桥洞情报（实时结论 + 本局**冻结**的实际用格）
             "bridge": self.bridge_state(),
         }
 
     def accounting(self) -> dict[str, Any]:
         """逐点到达台账（遥测/测试/结束横幅共用同一份口径）。
 
-        口径（与任务卡 D 的验收一致，**不放宽**）：
+        口径（验收口径，**不放宽**）：
           · 分母 = `len(route) - 1`（起点不计）；
           · `arrived` = 登记到达数（含"最近接近"几何复核、含 PIVOT 通知判达）；
           · `skipped` = 显式跳过数（停滞兜底 + s 越窗），每一条都有事件与日志；
@@ -1358,14 +1356,14 @@ class MissionTask(TaskThread):
     def closest_approaches(self) -> dict[int, float]:
         """每个航点的**历史最近距离**（米，-1 表示还没测到）。
 
-        只读接口，供"车体到底有没有盖住格心"的复核（t8 的雷 A9 / t10 的雷覆盖对账）——
+        只读接口，供"车体到底有没有盖住格心"的复核（雷 A9 / 雷覆盖对账）——
         本方法**不改变**任何到达/跳过判定，只是把 Mission 已经算出来的距离摊开给人看。
         """
         return {i: (round(v, 4) if v != math.inf else -1.0)
                 for i, v in enumerate(self._min_dist)}
 
     # ------------------------------------------------------------------ #
-    #  ★ 卡 t6 / t13：无人机桥洞情报（EV_BRIDGE_INFO 事件流 → 穿洞格；P_DRONE 只判链路）
+    #  无人机桥洞情报（EV_BRIDGE_INFO 事件流 → 穿洞格；P_DRONE 只判链路）
     # ------------------------------------------------------------------ #
     def bridge_state(self) -> dict[str, Any]:
         """桥洞情报的遥测快照（`state()["bridge"]`；现场不翻日志也能看到结论与来源）。"""
@@ -1376,7 +1374,7 @@ class MissionTask(TaskThread):
             "waited_s": (None if self._intel_waited_s is None
                          else round(self._intel_waited_s, 3)),
             "link": self._drone_state() is not None,
-            # ★ 卡 t13：情报通道的证据（订阅在听 + 已消费条数 + 队列溢出计数）
+            # 情报通道的证据（订阅在听 + 已消费条数 + 队列溢出计数）
             "subscribed": self._bridge_sub is not None,
             "events": self._intel_events,
             "events_dropped": (self._bridge_sub.dropped if self._bridge_sub is not None else 0),
@@ -1475,9 +1473,9 @@ class MissionTask(TaskThread):
         return pool
 
     def _intel_cell_ok(self, half: str, cell: str) -> tuple[bool, str]:
-        """无人机报的格是否可用（★ t31 权威门放宽：**列 → 本半场行段** 两道即可）。
+        """无人机报的格是否可用（★ 权威门放宽：**列 → 本半场行段** 两道即可）。
 
-        ★ t31（按 t11 §10 建议①、t23 复核）：判据从"候选集合 ∩ `map.bridges`"放宽为
+        （按设计建议①、复核）：判据从"候选集合 ∩ `map.bridges`"放宽为
         **K 列 + 本半场行段**（下 K7~K11 / 上 K1~K6）—— 新鲜情报即可**纠正过期地图**：
         地图/候选停在上一局（例如只开 K10）时，无人机报的同半场行段内别的洞仍被采纳。
 
@@ -1503,7 +1501,7 @@ class MissionTask(TaskThread):
                            f"{'下' if half == 'lower' else '上'}半场（{band[0]}~{band[1]} 行）")
         pool = self._bridge_pool(half)
         if text not in pool:
-            # ★ t31：池外**但**在本半场行段内 ⇒ 采纳（这就是"纠正过期地图"那条路）
+            # 池外**但**在本半场行段内 ⇒ 采纳（这就是"纠正过期地图"那条路）
             return True, (f"池外但在 K 列第 {row} 行（{band[0]}~{band[1]} 行）内 ⇒ 采纳，"
                           f"纠正过期地图（本半场候选/桥洞 {' '.join(pool)}）")
         return True, ""
@@ -1530,7 +1528,7 @@ class MissionTask(TaskThread):
         ★ 为什么用载荷里的 `ts` 而不是 `Event.ts`：`Event.ts` 默认是 `time.time()`（**墙钟**），
         而全部任务线程统一用注入时钟（车上是 `time.monotonic`）—— 两者不同源，混用会让
         "新鲜度"永远算错。载荷 `ts` 与 `P_DRONE.bridge_ts` 是**同一个数**（drone.py:283-287），
-        所以这里的过期判据与 `DroneState.bridge_of()` **逐字同源**（t7 已核验的 14.10/14.17）。
+        所以这里的过期判据与 `DroneState.bridge_of()` **逐字同源**（已核验的 14.10/14.17）。
         载荷没带 / 非法（外部脚本手发的事件）→ 用本拍时钟兜底（等价于"刚收到"）。
         """
         try:
@@ -1556,7 +1554,7 @@ class MissionTask(TaskThread):
         return True
 
     def _drain_bridge_events(self, now: float, max_items: int = _BRIDGE_SUB_MAXSIZE) -> int:
-        """★ 卡 t13：消费本拍到达的 `EV_BRIDGE_INFO`（**桥洞情报的唯一真源**）。
+        """消费本拍到达的 `EV_BRIDGE_INFO`（**桥洞情报的唯一真源**）。
 
         每条事件自带 `half/block/ts`（`drone.py:286-287`），所以**不受 `P_DRONE` 单槽的
         覆盖式赋值影响**（D3：先 lower 后 upper 时槽里只剩 upper）。
@@ -1618,7 +1616,7 @@ class MissionTask(TaskThread):
         if not ok:
             return BridgeIntel(half, default, default, "rejected", cell,
                                f"情报 {cell} 不可用（{why}）→ 用默认格", age)
-        # ★ t31：`why` 非空 = 池外但在本半场行段内被采纳（纠正过期地图），把口径带进遥测/日志
+        # `why` 非空 = 池外但在本半场行段内被采纳（纠正过期地图），把口径带进遥测/日志
         note = (f"新鲜情报（{self._fmt_age(age)} < 过期阈值 "
                 f"{self._drone_info_stale_s:g}s）")
         if why:
@@ -1628,7 +1626,7 @@ class MissionTask(TaskThread):
     def _refresh_intel(self, *, log: bool = True) -> dict[str, BridgeIntel]:
         """刷新两个半场的情报结论；`log=True` 时**只在结论变化时**记一条（限流兜底）。
 
-        ★ 每拍先消费 `EV_BRIDGE_INFO`（t13：情报真源），再算两半场的结论 —— 顺序不能反。
+        ★ 每拍先消费 `EV_BRIDGE_INFO`（情报真源），再算两半场的结论 —— 顺序不能反。
         """
         now = self._clock()
         self._drain_bridge_events(now)
@@ -1659,7 +1657,7 @@ class MissionTask(TaskThread):
     def _has_fresh_half(self, snap: dict[str, BridgeIntel] | None = None) -> bool:
         """是否**已经有一半场拿到了可用的新鲜情报**（`source=drone` = 在线 + 新鲜 + 过 5 道门）。
 
-        ★ 卡 t20（t14-F1）：这就是"等得到东西"的判据 —— 等待窗口只为"再等另一半"而开。
+        （F1）：这就是"等得到东西"的判据 —— 等待窗口只为"再等另一半"而开。
         """
         snap = self._intel if snap is None else snap
         return any(bool(snap.get(half) and snap[half].from_drone) for half in BRIDGE_HALVES)
@@ -1667,7 +1665,7 @@ class MissionTask(TaskThread):
     def _should_wait_for_intel(self, elapsed: float) -> bool:
         """是否该为情报推迟发车（`mission.bridge_info_wait_s` 窗口内，见模块 docstring）。
 
-        ★ 卡 t20（按 t14-F1 裁决**收回判据**）：只有"**等得到东西**"才推迟发车，六条缺一不可：
+        （按 F1 裁决**收回判据**）：只有"**等得到东西**"才推迟发车，六条缺一不可：
           ① 窗口 ≤ 0；
           ② 硬上限未到（`elapsed < auto_start_delay_s + bridge_info_wait_s`，到点必发车，不卡死）；
           ③ 配置没关掉无人机链路（`drone.enabled=false` → 不等）；
@@ -1695,10 +1693,10 @@ class MissionTask(TaskThread):
         return self._has_fresh_half()                    # ⑥ 至少要有一半可用的新鲜情报
 
     # ------------------------------------------------------------------ #
-    #  ★ 卡 t32：L10 桥前等待 + 迟到情报改道一次（机制见模块 docstring t32 段）
+    #  L10 桥前等待 + 迟到情报改道一次（机制见模块 docstring 的桥前等待段）
     # ------------------------------------------------------------------ #
     def _bridge_wait_cap(self) -> float:
-        """桥前等待上限 = `min(bridge_wait_max_s, 预算余量)`（★ t32 ④，恒 ≥ 0）。"""
+        """桥前等待上限 = `min(bridge_wait_max_s, 预算余量)`（★ ④，恒 ≥ 0）。"""
         if self._bridge_wait_max_s <= 0.0:
             return 0.0
         base = self._started_at if self._started_at is not None else self._created_at
@@ -1731,14 +1729,14 @@ class MissionTask(TaskThread):
         return None
 
     def _link_online(self) -> bool:
-        """车侧有链路且无人机在线（**无链路/离线 = 不等待、不改道**，逐拍与 t20 后版本一致）。"""
+        """车侧有链路且无人机在线（**无链路/离线 = 不等待、不改道**，逐拍与当前版本一致）。"""
         if not self._drone_link_enabled:
             return False
         state = self._drone_state()
         return state is not None and bool(getattr(state, "online", False))
 
     def _maybe_enter_bridge_hold(self) -> None:
-        """到达决策点这一拍做决策（★ t32 ③④）：该等就进 HOLD，否则直接带已得情报走。"""
+        """到达决策点这一拍做决策（★ ③④）：该等就进 HOLD，否则直接带已得情报走。"""
         if self._phase != MissionPhase.DRIVE:
             return
         dp = self._decision_point()
@@ -1771,7 +1769,7 @@ class MissionTask(TaskThread):
                   f"upper={self._intel.get('upper', BridgeIntel('upper')).describe()}")
 
     def _run_bridge_hold(self) -> None:
-        """HOLD 每拍：两半场齐 或 到点 → 放行（**到点必发车**，t20 语义不变）。"""
+        """HOLD 每拍：两半场齐或到点 → 放行（**到点必发车**，语义不变）。"""
         if self._hold_started_at is None:            # 异常兜底：没有起点信息就立刻恢复 DRIVE
             self._write_phase(MissionPhase.DRIVE)
             return
@@ -1804,7 +1802,7 @@ class MissionTask(TaskThread):
                   f"upper={self._intel.get('upper', BridgeIntel('upper')).describe()}")
 
     def _reroute_at_decision(self, half: str, *, why: str = "") -> bool:
-        """决策点前换洞一次（★ t32 ⑤）：**保留当前段索引**，绝不把车送回起点。
+        """决策点前换洞一次（★ ⑤）：**保留当前段索引**，绝不把车送回起点。
 
         :returns: 是否真的换了洞。任何一步不满足（次数用尽/情报不新鲜/形状不符/校验不过）
             都原样保留旧路线 —— 与"改道失败就按原 token 走"的纪律一致。
@@ -1941,12 +1939,12 @@ class MissionTask(TaskThread):
     # ------------------------------------------------------------------ #
     def setup(self) -> None:
         self._write_phase(MissionPhase.IDLE)
-        # ★ 卡 t13：桥洞情报的订阅在这里建好（**必须在任何 tick 之前**：事件总线不重放历史）。
+        # 桥洞情报的订阅在这里建好（**必须在任何 tick 之前**：事件总线不重放历史）。
         #   惰性兜底见 `_bridge_subscription()`。
         self._bridge_subscription()
         self._log(f"就绪：auto_start={self._auto_start} 延时={self._auto_start_delay_s:g}s "
                   f"复位={self._reset_spec!r} 扫描模式={self._scan_mode or '未设置'}")
-        # ★ 卡 t6/t13：把桥洞情报的配置口径打全（现场一眼看出"情报从哪来、会不会等、默认走哪个洞"）
+        # 把桥洞情报的配置口径打全（现场一眼看出"情报从哪来、会不会等、默认走哪个洞"）
         self._log(f"桥洞情报：来源=EV_BRIDGE_INFO 事件流（半场各自独立） "
                   f"drone.enabled={self._drone_link_enabled} "
                   f"过期阈值={self._drone_info_stale_s:g}s 等待窗口={self._bridge_wait_s:g}s "
@@ -1959,7 +1957,7 @@ class MissionTask(TaskThread):
 
     def teardown(self) -> None:
         try:
-            if self._bridge_sub is not None:            # ★ 卡 t13：退订（别在总线上留悬挂队列）
+            if self._bridge_sub is not None:            # 退订（别在总线上留悬挂队列）
                 self._bridge_sub.unsubscribe()
                 self._bridge_sub = None
         except Exception:                            # noqa: BLE001
@@ -1979,7 +1977,7 @@ class MissionTask(TaskThread):
     def tick(self) -> None:
         now = self._clock()
         self._drain_commands()
-        # ★ 卡 t13：每拍消费 `EV_BRIDGE_INFO` 事件流并刷新两半场结论（10 Hz；非阻塞 `poll`
+        # 每拍消费 `EV_BRIDGE_INFO` 事件流并刷新两半场结论（10 Hz；非阻塞 `poll`
         #   + 缓存的候选集合，**无文件 I/O**）。结论变化时才记一条日志（`_refresh_intel` 内部
         #   限流），所以不会告警风暴。
         self._refresh_intel()
@@ -2003,9 +2001,9 @@ class MissionTask(TaskThread):
                 self._finish_pending_reset = True
         elif self._phase in _DRIVING_PHASES:
             self._drive()
-            self._maybe_enter_bridge_hold()         # ★ t32：到 L10 决策点 → 可能进 HOLD
+            self._maybe_enter_bridge_hold()         # 到 L10 决策点 → 可能进 HOLD
         elif self._phase == MissionPhase.HOLD:
-            self._run_bridge_hold()                 # ★ t32：保持中（Tracker 每拍自刹，见 t32 段①）
+            self._run_bridge_hold()                 # 保持中（Tracker 每拍自刹，见段①）
         elif self._phase == MissionPhase.STOP:
             self._run_stop_point()
         self._check_finish()
@@ -2026,10 +2024,10 @@ class MissionTask(TaskThread):
             return
         if self._autoplan_blocked:                  # ★硬失败已定格（error 日志出过一次）→ 不再重试
             return
-        # ★★ 卡 t6：情报等待窗口（`mission.bridge_info_wait_s`）。
+        # 情报等待窗口（`mission.bridge_info_wait_s`）。
         #   只在"车侧确实有无人机链路 + 两半场情报未齐"时推迟发车；窗口耗尽照常出发。
-        #   ★ 卡 t32：默认**不在起点等**（`mission.bridge_wait_at_start=false`，等移到 L10 决策点）；
-        #   置 true 即回到 t20 起点窗口语义（对照档/回归用）。
+        #   默认**不在起点等**（`mission.bridge_wait_at_start=false`，等移到 L10 决策点）；
+        #   置 true 即回到起点窗口语义（对照档/回归用）。
         if self._bridge_wait_at_start and self._should_wait_for_intel(elapsed):
             if self._intel_wait_started is None:
                 self._intel_wait_started = self._clock()
@@ -2070,17 +2068,17 @@ class MissionTask(TaskThread):
     def _load_startup_route(self) -> None:
         """启动路线来源：`planner.auto_plan_enabled` 决定"自动规划"还是"读 route.tokens"。
 
-        ★ 失败语义（任务卡 B 规格，两条分支都有独立测试）：
+        ★ 失败语义（两条分支都有独立测试）：
           - `planner.fallback_to_tokens: true` → warn（含异常类型+消息）后回退 `route.tokens`，
             **仍进入 DRIVE**（宁可路线不是最优，也要出车）；
           - `false` → error 日志 + 抛 `AutoPlanBlocked` → `_maybe_auto_start` 捕获后**停在 IDLE**，
             绝不 publish `EV_MISSION_STARTED`。
 
-        ★ 卡 t11：`planner.engine: tracker-safe` 时"门禁未过"也走**同一条**失败路径
+        `planner.engine: tracker-safe` 时"门禁未过"也走**同一条**失败路径
           （`plan_route_from_config` 返回 `ok=False` + error 里带门禁报文）——
           回退到现役手工路线并打印原因，绝不把没过门禁的路线装上执行。
 
-        ★ 卡 t6：穿洞格优先用**新鲜无人机情报**（`self._intel`，本拍已刷新）：
+        穿洞格优先用**新鲜无人机情报**（`self._intel`，本拍已刷新）：
           · 自动规划 → 作为 `cross_lower/cross_upper` 透传（未采纳的半场传 `None`）；
           · 手动路线 → 换洞三连改写 + `validate_route` 0 error 才执行；
           两半场各自独立。所有分支都在这里收口，`out.tokens` 之外没有第二个真源。
@@ -2107,11 +2105,11 @@ class MissionTask(TaskThread):
             "error": out.error, "allow_reverse": out.allow_reverse,
             "max_seconds": self._planner_budget_s, "token_count": len(out.tokens),
             "fallback_to_tokens": self._planner_fallback,
-            # ★ 卡 t11：引擎与门禁证据（遥测/测试据此断言"走的是哪个引擎、门禁过没过"）
+            # 引擎与门禁证据（遥测/测试据此断言"走的是哪个引擎、门禁过没过"）
             "engine": out.engine, "gate_ok": out.gate_ok, "gate_detail": out.gate_detail,
-            # ★ 卡 t11：足迹诊断（现场卷尺实测偏移下的挡板/障碍/靶板余量）
+            # 足迹诊断（现场卷尺实测偏移下的挡板/障碍/靶板余量）
             "footprint": out.footprint, "footprint_ok": out.footprint_ok,
-            # ★ 卡 t6：穿洞格（请求的 + 规划产物实际采用的），现场对账用
+            # 穿洞格（请求的 + 规划产物实际采用的），现场对账用
             "cross_requested": {"lower": cross["lower"] or "", "upper": cross["upper"] or ""},
             "cross_lower": out.cross_lower, "cross_upper": out.cross_upper,
         }
@@ -2133,7 +2131,7 @@ class MissionTask(TaskThread):
             self._log(f"⚠️ {detail}；fallback_to_tokens=true → 回退 route.tokens/mission_blocks 并继续出发")
             self._route_source = ROUTE_SOURCE_MANUAL
             tokens = self.cfg.get("route.tokens") or self.cfg.get("mission_blocks")
-            # ★ 卡 t6：回退路线**也是要执行**的路线，所以同样吃情报换洞（否则"规划失败"
+            # 回退路线**也是要执行**的路线，所以同样吃情报换洞（否则"规划失败"
             #   会把穿洞格悄悄退回默认，而现场恰恰最需要这条兜底路线是安全的）。
             tokens, accepted = self._apply_intel_to_tokens(tokens, snap)
             self._intel_note["manual_substituted"] = {
@@ -2149,7 +2147,7 @@ class MissionTask(TaskThread):
     def _start_mission(self) -> None:
         """路线就绪 → 阶段 DRIVE + 事件 + 扫描下发（见模块 docstring）。
 
-        ★ t24：lock 模式下这一句 `_request_scan` 会被单写者守卫直接吞掉（只留一条日得），
+        lock 模式下这一句 `_request_scan` 会被单写者守卫直接吞掉（只留一条日得），
         值由 AimTask 独家下发。
         """
         self.bus.publish(EV_MISSION_STARTED, source=self.name,
@@ -2207,12 +2205,12 @@ class MissionTask(TaskThread):
         if self._plan_info.get("ok"):
             src_line += (f"（map={self._plan_info.get('map_path')} "
                          f"耗时 {float(self._plan_info.get('elapsed_ms') or 0.0):.1f} ms "
-                         # ★ 卡 t11：横幅里看得见引擎与门禁结论（缺省 tour 不额外占字）
+                         # 横幅里看得见引擎与门禁结论（缺省 tour 不额外占字）
                          f"{self._engine_banner_text()} "
                          f"{'允许倒车' if self._plan_info.get('allow_reverse') else '无倒车'}）")
         banner([
             f"【任务开始】路线 {len(route)} 点 / {route.path_length():.2f} m / 穿洞 {route.crossing}",
-            # ★ 卡 t6：穿洞格的**来源**（无人机情报 / 默认 / 拒收原因）——现场第一个要看的行
+            # 穿洞格的**来源**（无人机情报 / 默认 / 拒收原因）——现场第一个要看的行
             f"穿洞格来源：{self._cross_source_line()}｜情报 {self._intel_summary_line()}",
             f"停站点 {len(self._stop_s)} 个："
             + " ".join(f"{i}:{b}" for i, b in sorted(self._stop_s.items())),
@@ -2285,7 +2283,7 @@ class MissionTask(TaskThread):
                        keep_progress: bool = False) -> None:
         """装上执行路线（**唯一的路线真源**）。
 
-        ★ 卡 t32：`keep_progress=True` = **保留当前段进度**的中途换洞（决策点前改道）——
+        `keep_progress=True` = **保留当前段进度**的中途换洞（决策点前改道）——
         旧行为把 `P_ROUTE_INDEX/P_ROUTE_S` 与全部进度台账复位成 0，等于"把车送回起点"。
         这里在复位前快照、复位后回填；`_route/_path/_stop_s` 仍按新路线重算（换洞只动
         穿洞三连 ⇒ 决策点及其之前的航点下标一一对应，保留进度自洽）。
@@ -2329,12 +2327,12 @@ class MissionTask(TaskThread):
             if (len(route) - 1) not in self._stop_s:     # 末点一定是一个"停站点"（终点）
                 self._stop_s[len(route) - 1] = self._path.total_length
         self._stop_blocks = [route[i].block for i in sorted(self._stop_s)]
-        # ★ 卡 t6：本局**实际装进执行路线**的穿洞格（`Route.crossing` 由 parse/planner 填）。
+        # 本局**实际装进执行路线**的穿洞格（`Route.crossing` 由 parse/planner 填）。
         #   一旦路线载入就**冻结**：发车后晚到的情报只进遥测，不再改路线。
         self._intel_used = {str(k): str(v) for k, v in (route.crossing or {}).items()}
         self.bb.update(self.name, **{P_ROUTE: route})
         self.bb.update(self.name, **{P_ROUTE_INDEX: 0, P_ROUTE_S: 0.0})
-        # ★ t32：新一轮/新图都要把"已决策过的洞"清掉（下标会变）
+        # 新一轮/新图都要把"已决策过的洞"清掉（下标会变）
         self._hold_decided_for = None
         if keep_progress:
             for name, value in snapshot.items():
@@ -2717,7 +2715,7 @@ class MissionTask(TaskThread):
         now = self._clock()
         kind = StopKind.SCAN if (wp.scan and not wp.shoot) else StopKind.SHOOT
         shots = int(self.bridge.shoot_count())
-        self._hit_this_stop = False          # ★ 卡 t13：每个停站点独立计"是否已打出去"
+        self._hit_this_stop = False          # 每个停站点独立计"是否已打出去"
         self._stopctx = _StopContext(
             index=idx, block=wp.block, kind=kind, phase=StopPhase.SETTLE,
             started_at=now, phase_started_at=now,
@@ -2742,7 +2740,7 @@ class MissionTask(TaskThread):
             self._write_phase(MissionPhase.DRIVE)
             return
         now = self._clock()
-        # ★★ t26（2026-10-11 用户指令 4）：**到站级 30s 硬死线**，先于三段判定执行。
+        # ★★ 用户指令 4（2026-10-11）：**到站级 30s 硬死线**，先于三段判定执行。
         #   口径："发数增量 ≥ shots_needed（=10，打完全部弹药）或 到站起 30s，两者先到即离站；
         #   即使 0 发，30s 到点也必须离站。"
         #   放行出口与三段超时**同一条**：`_abandon_stop` → `_close_stop_point`
@@ -2756,7 +2754,7 @@ class MissionTask(TaskThread):
                       f" → 强制离站（0 发也不例外）")
             self._publish_stop_state(now)
             return
-        # ---- ★★ 卡 t13：红面早退（先于三段判定；到站硬死线仍在最上面）----
+        # ---- 红面早退（先于三段判定；到站硬死线仍在最上面）----
         #   语义：靶板一面蓝一面红、蓝面朝向每局随机但恒定 ⇒ 本侧只见红面时，等到 30s 硬死线
         #   也只会白等。锁定红累计 ≥ 阈值的**结论**由 AimTask 写进 `P_AIM_RED`
         #   （它知道类别抖动/确认帧数），Mission 只做两件事：读标志 + 自己再核"已停留够久"。
@@ -2841,7 +2839,7 @@ class MissionTask(TaskThread):
         self._set_fire_gate(True)                   # ★ 放行门：进本段即打开（幂等）
         delta = int(self.bridge.shoot_count()) - stop.shots_at_arrival
         if delta >= stop.shots_needed:
-            # ★ 卡 t13：这一路是"真的打出去了"的唯一证据（发数增量达标），
+            # 这一路是"真的打出去了"的唯一证据（发数增量达标），
             #   第二个射击停站据此跳过（见 `_complete_stop`）。
             self._hit_this_stop = True
             self._complete_stop(stop, f"发数增量 {delta} ≥ {stop.shots_needed} → 命中窗口结束")
@@ -2887,7 +2885,7 @@ class MissionTask(TaskThread):
             self._skip_following_shoot_stop(stop)
 
     def _skip_following_shoot_stop(self, done: _StopContext) -> None:
-        """★ 卡 t13：本停站点已打出去 ⇒ 跳过**下一个射击停站**（第二个站只为看另一面）。
+        """本停站点已打出去 ⇒ 跳过**下一个射击停站**（第二个站只为看另一面）。
 
         只跳"射击停站"，扫描停站（`F2:SCAN_STOP` 之类）照常执行 —— 它的作用是定向扫描，
         与"已经打过靶"无关。找不到下一个射击停站就什么都不做（末点/单停站路线=零副作用）。
@@ -2958,7 +2956,7 @@ class MissionTask(TaskThread):
         self._fire_gate_state = allow
 
     def _request_scan(self, mode: int) -> None:
-        """下发 `scan_request`；**lock 模式下 Mission 不是写者**（t24 单写者铁律）。
+        """下发 `scan_request`；**lock 模式下 Mission 不是写者**（单写者铁律）。
 
         返回值/记录语义未变（`_scans` 仍只记"本任务真的发出去的"），
         所以"Mission 在 lock 模式下从不写 scan_request"可以**用 `_scans` 空/非空直接断言**。
@@ -3040,7 +3038,7 @@ class MissionTask(TaskThread):
                              "drift_m": round(drift, 3), "waypoints": len(route)}
         self._write_phase(MissionPhase.FINISH)
         self.bridge.publish_brake()
-        # ★ t24 单写者：lock 模式下 FINISH 的"停扫 0"也归 AimTask（它看到阶段=FINISH 就回锁止）。
+        # ★ 单写者：lock 模式下 FINISH 的"停扫 0"也归 AimTask（它看到阶段=FINISH 就回锁止）。
         #   这里若照旧直发 0，就又是"Mission 覆写 Aim"的第二处洞（`_scans` 也不再记账）。
         if self._gimbal_lock_enabled:
             pass
@@ -3068,15 +3066,15 @@ class MissionTask(TaskThread):
             unexplained = acc["unexplained"]
             if unexplained:
                 # ★ 不变量被破坏才会走到这里：说明还有航点既没登记到达、也没显式记账。
-                #   修复前（t4 finding D1）这里会列出 7 个"静默丢点"；修复后应恒为空。
+                #   修复前（finding D1）这里会列出 7 个"静默丢点"；修复后应恒为空。
                 banner([f"❌ 存在 {len(unexplained)} 个**无主航点**（既非到达、也非显式跳过）："
                         f"{' '.join(f'{route.waypoints[i].block}#{i}' for i in unexplained)}"],
                        char="!", log=self._log)
             else:
                 self._log("✅ 逐点台账闭合：全部航点要么登记到达、要么显式跳过（无静默丢点）")
-            # ★ 车体覆盖复核（只报不改）：t8 提出"雷 A9 心在 PIVOT 顶点差 12.7 cm、
+            # ★ 车体覆盖复核（只报不改）：实测提出"雷 A9 心在 PIVOT 顶点差 12.7 cm、
             #   车体没盖住"。Mission 只知道"车离航点最近到过多少"，把这份数据摊开，
-            #   供 t8/t10 用 0.127 m 之类的阈值逐雷对账 —— 本行**不影响**任何判定。
+            #   供用 0.127 m 之类的阈值逐雷对账 —— 本行**不影响**任何判定。
             uncovered = [(i, v) for i, v in self.closest_approaches().items()
                          if i >= 1 and v >= 0.0 and v > self._arrival_m]
             if uncovered:
@@ -3255,7 +3253,7 @@ class MissionTask(TaskThread):
         self._finish_latched = False
         self._finish_done = False
         self._finish_info = {}
-        self._intel_used = {}                       # ★ 卡 t6：路线清空 → 用格证据也清空
+        self._intel_used = {}                       # 路线清空 → 用格证据也清空
         self._last_s = 0.0
         self._route_s = 0.0
         self._set_fire_gate(False)

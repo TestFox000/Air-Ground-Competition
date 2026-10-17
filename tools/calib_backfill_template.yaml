@@ -1,5 +1,5 @@
 # =============================================================================
-#  标定实测值模板（t2 / n2）—— 由队长填写；null = 还没测
+#  标定实测值模板—— 由队长填写；null = 还没测
 #  用法：python tools\calib_backfill.py --values tools\calib_backfill_template.yaml
 #        真写：加 --apply-config（改 config/robot.yaml）与/或 --apply-tests（重钉断言）
 #  ⚠ 只有"卷尺/对线"实测数才算数；日志信念侧取数（residual_measured_by: log）会被

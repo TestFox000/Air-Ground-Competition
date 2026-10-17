@@ -27,7 +27,7 @@ from ..core import geometry as geo
 def _signal_handler_options():
     """rclpy 的 `SignalHandlerOptions.NO`；老/假 rclpy 上没有就返回 **None**（= 不传该参数）。
 
-    ★ 为什么要 NO（实车血证，t6 §2）：`rclpy.init()` 默认 `SignalHandlerOptions.ALL`
+    ★ 为什么要 NO（实车血证，§2）：`rclpy.init()` 默认 `SignalHandlerOptions.ALL`
       会在 **C++ 层**给 SIGINT **和 SIGTERM** 装处理器，而它只做 `rcl_shutdown`
       （上下文失效）—— **不抛 Python 异常、不退进程**。2026-10-11 16:18 收栈时
       `start_all.sh stop` 发的 SIGTERM 正是被它接走的：上下文当拍死掉，而 dzbrain
@@ -90,7 +90,7 @@ class RosBridge:
         self._rclpy = rclpy
         if not rclpy.ok():
             # ★ 显式关闭 rclpy 的默认信号处理（否则 SIGTERM 走 C++ 的 rcl_shutdown：
-            #   上下文死、进程活、任务线程刷 RCLError 风暴 —— t6 取证报告 §2）。
+            #   上下文死、进程活、任务线程刷 RCLError 风暴 —— 取证报告 §2）。
             #   取不到 SignalHandlerOptions（老版本/测试替身）时**不传该参数**：
             #   传 None 反而等于"装默认处理器"，与修复目的相反。
             _opts = _signal_handler_options()
@@ -387,7 +387,7 @@ class RosBridge:
     def publish_brake(self) -> None:
         """零 Twist = 刹车（所有安全路径都走这里）。
 
-        ★ 上下文已死时**必须抛异常**（t8 修复点 C）：`publisher.publish()` 抛的是
+        ★ 上下文已死时**必须抛异常**（修复点 C）：`publisher.publish()` 抛的是
           `RCLError`，而 Safety 过去用 `_safe_call` 把它吞成 None、照样打"已发零速指令"
           ⇒ 日志自证安全、实际一条零速都没出去（唯一真刹手段静默失效，只剩底盘 1 s 看门狗）。
           这里显式判活，让"发不出去"这件事**不可能被误读成发出去了**。
@@ -469,7 +469,7 @@ class RosBridge:
     def shutdown(self, *, brake: bool = True) -> None:
         """收尾：默认先发零指令（刹车是唯一安全的默认动作）。
 
-        ★ 上下文已死时**不再试**刹车（t8）：那只会再抛一串 RCLError（t6 的血证里
+        ★ 上下文已死时**不再试**刹车：那只会再抛一串 RCLError（实车血证里
           收栈阶段就是这么刷屏的），而且发不出去是**已知**的 —— 省掉这 1 条噪声。
           `rc` 留给调用方写 teardown 留痕（0=干净收尾 / 1=上下文先死）。
         """

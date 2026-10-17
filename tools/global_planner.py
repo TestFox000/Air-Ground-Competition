@@ -501,10 +501,9 @@ SHOOT_ALIGN_DIAGONAL = 2.4
 def shoot_alignment_penalty(cd: Tuple[int, int], target: Tuple[int, int]) -> float:
     """候选射击点相对靶标的朝向代价（越小越优先）。
 
-    ★ 这条权重是 2026-10-03 补上的（修 #75）：原先排序只看"离雷序折线多远"，
-      完全没考虑云台要转多少角度，于是把【对角】点(0.495m)排到了【同列】点(0.35m)
-      前面 —— 而对角点其实既超出射击距离上限、又最难瞄。readme 第28/29条
-      早就写明"优先同列，示例最佳点就是 G10 而不是对角的 H10"。
+    ★ 这条权重必须保留：只按"离雷序折线多远"排序会把【对角】点(0.495 m)排到
+      【同列】点(0.35 m)前面 —— 而对角点既超出射击距离上限、又最难瞄。
+      ⇒ 排序必须显式优先同列（车头正对靶）。
     """
     if cd[1] == target[1]:
         return SHOOT_ALIGN_SAME_COL      # 同列：车头正对靶
@@ -728,7 +727,7 @@ def load_from_config(path: str):
     with open(path, encoding="utf-8") as fp:
         d = yaml.safe_load(fp) or {}
 
-    # 优先：显式的 map 段（旧写法，已不推荐 —— 会破坏 ROS params 文件结构）
+    # 优先：显式的 map 段（不推荐 —— 会破坏 ROS params 文件结构）
     m = d.get("map") or {}
     if m:
         return {

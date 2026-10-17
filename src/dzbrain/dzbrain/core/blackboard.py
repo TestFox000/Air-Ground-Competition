@@ -29,7 +29,7 @@ P_STOP_POINT = "stop_point"           # StopPointState：当前停站点上下�
 P_TARGET = "target"                   # TargetState：移动靶估计状态
 P_AIM = "aim"                         # AimState：云台与开火状态
 # --------------------------------------------------------------------------- #
-#  ★ 共享键 `aim_red_face`（红面早退，卡 t13）—— 读写契约
+#  ★ 共享键 `aim_red_face`（红面早退）—— 读写契约
 # --------------------------------------------------------------------------- #
 #: `P_AIM_RED`：**AimTask 写、MissionTask 读**（唯一消费者）。
 #:
@@ -52,7 +52,7 @@ P_SAFETY = "safety"                   # SafetyState：安全状态
 P_TELEMETRY = "telemetry"             # dict：遥测快照
 
 # --------------------------------------------------------------------------- #
-#  ★ 共享键 `pursuit_gear`（动态档选择，t36）—— 读写契约
+#  ★ 共享键 `pursuit_gear`（动态档选择）—— 读写契约
 # --------------------------------------------------------------------------- #
 #: `P_PURSUIT_GEAR`：**Tracker 写、遥测/诊断读**（本轮起只作为"当前档"的观测面；
 #:   实际生效路径是 `tasks/tracker.py` 把档值直接喂给 `pursuit.controller.compute_command(cruise_mps=…)`，
@@ -65,13 +65,13 @@ P_TELEMETRY = "telemetry"             # dict：遥测快照
 P_PURSUIT_GEAR = "pursuit_gear"
 
 # --------------------------------------------------------------------------- #
-#  ★ 共享键 `motion_limit`（限速/停机请求）—— 读写契约（t20 收口，双方引用此处）
+#  ★ 共享键 `motion_limit`（限速/停机请求）—— 读写契约（收口，双方引用此处）
 # --------------------------------------------------------------------------- #
 #: `P_MOTION_LIMIT`：**Localization 写**、**执行侧（pursuit 速度钳制 / 将来 Tracker）读**。
 #:
 #: 取值语义（读侧必须严格按此实现，否则会破坏"无漂移时逐位一致"的承诺）：
 #:   · `None`（或键不存在）→ **完全 no-op**：读侧一行行为都不该因此改变 ——
-#:     这是为了 t11 的"零注入大扫描"与现版本**逐位一致**；
+#:     这是为了 "零注入大扫描"与现版本**逐位一致**；
 #:   · `{"speed_mps": float, "reason": str, "drift_run": int, "anchor_refused": int,
 #:       "distance_to_boundary_m": float | None, "since": float}`
 #:     → 把线速度**钳到 `speed_mps` 以内**：只降不升；倒车/负速度**按绝对值钳**（保号）；

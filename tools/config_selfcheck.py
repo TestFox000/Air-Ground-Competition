@@ -93,8 +93,8 @@ def main() -> int:
 
     errors = [i for i in cfg_issues if i.level == "error"] + \
              [i for i in issues if i.level == "error"]
-    # ★ t7 复核修正（2026-10-17）：配置校验的 warn 也要进结论行——此前只看路线 warn，
-    #   屏幕上"20 条非 info"与"warn 0 ✅"自相矛盾（假绿）。
+    # ★ 配置校验的 warn 也必须进结论行 —— 只看路线 warn 会让屏幕上的
+    #   "20 条非 info"与"warn 0 ✅"自相矛盾（假绿）。
     warn = [i for i in cfg_issues if i.level == "warn"] + \
            [i for i in issues if i.level == "warn"]
     print("-" * 72)

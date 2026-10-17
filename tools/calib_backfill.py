@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-r"""标定参数回填工具链（任务卡 t2 / n2）—— 实测值 → `config/robot.yaml` 键 → 测试断言重钉清单。
+r"""标定参数回填工具链—— 实测值 → `config/robot.yaml` 键 → 测试断言重钉清单。
 
 ## 这个工具解决什么问题
 
@@ -111,7 +111,7 @@ def _resolve_pin_line(lines: list[str], p: dict, window: int = 40) -> tuple[int 
 #     yaml_key  : Config 点号键（读）
 #     yaml_leaf : YAML 里的叶子键名（写：用行锚点唯一命中）
 #     pins      : 钉住该值的测试断言（写：手写清单，行锚点）
-#     manual    : True = 只登记钉位、本卡不回填（需另开卡）
+#     manual    : True = 只登记钉位、不回填（需另行处理）
 # --------------------------------------------------------------------------- #
 CHANNELS: tuple[dict, ...] = (
     {
@@ -128,7 +128,7 @@ CHANNELS: tuple[dict, ...] = (
         "note": ("公式（robot.yaml:557-563 的实测口径）：new = old × 信念行程 / 实走行程，"
                  "实走行程 = 信念行程 − 欠程。容差 |欠程| ≤ 4 cm ⇒ 冻结不改。"
                  "⚠车端 C++ 另有内置默认值 dzactuator.cpp:1127 `declare_parameter(\"ticksPerMeter\", 1000.0)` —— "
-                 "只在参数没传进去时才会用到（本卡不碰 C++）。"),
+                 "只在参数没传进去时才会用到（不碰 C++）。"),
         "comment_note": "robot.yaml:553-563 的标定说明段落需同步改写（本工具只改标量行）",
         "pins": (
             _pin("src/dzbrain/tests/test_core.py", 164, "→ 3280.0）", "→ {v}）",
@@ -156,7 +156,7 @@ CHANNELS: tuple[dict, ...] = (
         "note": ("r_A = (ΔN/turns)/现值；判档见 R4 方案 §2（≤2% 收敛 / 2~5% 重测 / >5% 机械核查）。"
                  "几何下界：ticksPer2PI_geo = 2π · 轮距 · ticksPerMeter。"
                  "⚠车端 C++ 另有内置默认值 dzactuator.cpp:1128 `declare_parameter(\"ticksPer2PI\", 3200.0)` —— "
-                 "只在参数没传进去时才会用到（本卡不碰 C++）。"),
+                 "只在参数没传进去时才会用到（不碰 C++）。"),
         "comment_note": "robot.yaml:565-572 的 3236/2309.4 说明段需同步改写",
         "pins": (),   # ★ dzbrain 测试里 0 处钉它（只有 route/validate.py:10 注释）—— 见 --selfcheck 的"覆盖缺口"
     },
@@ -218,7 +218,7 @@ CHANNELS: tuple[dict, ...] = (
             _pin("src/dzbrain/tests/test_sim.py", 197, "0.02, 0.157)", "0.02, {v})"),
         ),
     },
-    # ---- 几何输入（不是 yaml 键；只进判据，指向车端 C++，本卡不动）----
+    # ---- 几何输入（不是 yaml 键；只进判据，指向车端 C++，不动）----
     {
         "id": "wheel_track_m",
         "title": "轮距（左右轮中心距，几何校核用）",
@@ -231,14 +231,14 @@ CHANNELS: tuple[dict, ...] = (
         "guard_pct": None,
         "inputs": ("geometry.wheel_track_m",),
         "note": ("只用于 ticksPer2PI 的几何下界校核，**没有 yaml 键可回填**；"
-                 "若实测 ≠ dzactuator.h 的 CARW，需要**另开卡改车端 C++**（本卡不碰）。"),
+                 "若实测 ≠ dzactuator.h 的 CARW，需要**另行处理需改车端 C++**（不碰）。"),
         "pins": (),
     },
-    # ---- 本卡不回填、只登记钉位（另开卡）----
+    # ---- 不回填、只登记钉位（另行处理）----
     {
         "id": "cruise_speed_mps",
         "title": "巡航速度（G1 裁决项）",
-        "card": "G1（另开卡）",
+        "card": "G1（另行处理）",
         "manual": True,
         "yaml_key": "pursuit.cruise_speed_mps",
         "yaml_leaf": "cruise_speed_mps",
@@ -262,7 +262,7 @@ CHANNELS: tuple[dict, ...] = (
     {
         "id": "px_per_m_rail",
         "title": "轨道 px/m（打靶标定）",
-        "card": "打靶卡（另开卡）",
+        "card": "打靶卡（另行处理）",
         "manual": True,
         "yaml_key": "aim.px_per_m_rail",
         "yaml_leaf": "px_per_m_rail",
@@ -290,17 +290,17 @@ _SCAN_SKIP = {".git", "build", "install", "log", "backup", "artifacts", "__pycac
 def _skip_dir(name: str) -> bool:
     """该目录名是否属于"草稿/临时"（不参与旧值引用扫描）。
 
-    ★ 为什么必须按**路径上任意一段**判、而不是只判文件名前缀（t16 根因）：
+    ★ 为什么必须按**路径上任意一段**判、而不是只判文件名前缀（根因说明）：
       `_SCAN_SKIP` 列了 `_tmp_session`，但**后缀不同的兄弟目录**（如 `_tmp_verify/`）会漏掉；
       而"只判文件名 `startswith('_tmp_')`"更漏 —— 变异副本里**被扫的是 `tests/test_core.py`**，
-      文件名根本不带 `_tmp_`。于是 `_tmp_verify/t9/mut/*/tests/test_core.py`（t9 变异测试的
+      文件名根本不带 `_tmp_`。于是 `_tmp_verify/（变异副本）/mut/*/tests/test_core.py`（变异测试的
       临时副本，与 src 下的真 test_core 同名）被当成"已登记钉的重复引用"⇒ test 10.2 假红。
       ⇒ 统一口径：路径上任意一段以 `_tmp_` 开头，或命中 `_SCAN_SKIP`，即跳过。
     """
     return name.startswith("_tmp_") or name in _SCAN_SKIP
 
 
-#: ★ 历史部署快照/草稿的**注册表**（卡 t16）——扫描时按"整条相对路径"豁免。
+#: ★ 历史部署快照/草稿的**注册表**——扫描时按"整条相对路径"豁免。
 #  为什么用独立注册表而不是塞进 `CHANNELS[*].pins`：pins 的语义是"**会被回填的钉位**"
 #  （`manual=False` 的通道会真的 `plan_repins` 改文件；test 3.1/3.3 还要求每条钉都能
 #  内容式定位、且重钉后文本必变）。把"历史快照"塞进 pins 会让它们出现在"待回填清单"里，
@@ -675,7 +675,7 @@ def calc_wheel_track(values: dict, current_cfg: dict) -> dict:
         return dict(verdict="KEEP", new=carw,
                     action=f"实测与 CARW={carw} 一致（Δtolerance 5 mm）⇒ 几何判据可用", detail=detail)
     return dict(verdict="REFUSE", new=None,
-                action=f"实测 {meas:.3f} ≠ CARW={carw} ⇒ 复核卷尺；若实测无误则**另开卡**改车端 C++（本卡不碰 dzactuator）",
+                action=f"实测 {meas:.3f} ≠ CARW={carw} ⇒ 复核卷尺；若实测无误则**另行处理**改车端 C++（不碰 dzactuator）",
                 detail=detail + [f"2π·{meas:.3f}·ticksPerMeter 与 2π·{carw}·ticksPerMeter 差 "
                                  f"{(meas - carw) / carw * 100:+.1f}%"])
 
@@ -703,7 +703,7 @@ def evaluate(values: dict, config_path: pathlib.Path, root: pathlib.Path,
                  "pins": [dict(p) for p in spec.get("pins", ())],
                  "formula_fixtures": [dict(p) for p in spec.get("formula_fixtures", ())]}
         if spec.get("manual"):
-            entry.update(verdict="MANUAL", new=None, action="本卡不回填（另开卡）；下面只登记需要同步的钉位",
+            entry.update(verdict="MANUAL", new=None, action="不回填（另行处理）；下面只登记需要同步的钉位",
                          detail=[f"现值 = {current[cid]!r}"])
             result["channels"].append(entry)
             continue
@@ -789,7 +789,7 @@ def plan_repins(spec: dict, r: dict, root: pathlib.Path) -> list[dict]:
 def proposed_pin_snippet(spec: dict, current, r: dict) -> str | None:
     """无钉（或需新增钉）的键：给出可直接粘进测试的补钉片段。"""
     if not spec.get("yaml_key") or spec.get("manual"):
-        return None          # 另开卡的键由那张卡自己补钉（本卡只登记钉位）
+        return None          # 另行处理的键由对应流程自己补钉（这里只登记钉位）
     if spec.get("pins"):
         return None
     value = r["new"] if r.get("verdict") == "SET" else current
@@ -934,7 +934,7 @@ def selfcheck(config_path: pathlib.Path, root: pathlib.Path) -> dict:
     # yaw_trim 无 SCHEMA
     if "localization.yaw_trim_deg" not in _schema_keys():
         warns.append("[yaw_trim_deg] 不在 core/config.py 的 SCHEMA 里 ⇒ 无范围校验（写错不报错）；"
-                     "工具内的 ±10° 护栏是本卡新加的")
+                     "工具内的 ±10° 护栏是新加的")
     return {"errors": errors, "warns": warns, "info": info}
 
 
@@ -952,7 +952,7 @@ def scan_untracked_refs(old_literal: str, root: pathlib.Path,
 
     跳过（口径 = **按路径判**，不靠"临时目录里恰好没有副本"）：
       · 路径上任意一段命中 `_SCAN_SKIP` 或以 `_tmp_` 开头（含 `_tmp_verify/` 等兄弟目录，
-        以及其中形如 `tests/test_core.py` 的变异副本 —— 文件名本身不带 `_tmp_`，见 t16）；
+        以及其中形如 `tests/test_core.py` 的变异副本 —— 文件名本身不带 `_tmp_`，见根因说明）；
       · 已登记的钉文件、`_HISTORICAL_SNAPSHOTS` 注册的历史快照/草稿、本工具自身与模板。
     """
     files = {(root / p["file"]).resolve() for p in pins}
@@ -983,7 +983,7 @@ def scan_untracked_refs(old_literal: str, root: pathlib.Path,
 # --------------------------------------------------------------------------- #
 TEMPLATE_TEXT = """\
 # =============================================================================
-#  标定实测值模板（t2 / n2）—— 由队长填写；null = 还没测
+#  标定实测值模板—— 由队长填写；null = 还没测
 #  用法：python tools\\calib_backfill.py --values tools\\calib_backfill_template.yaml
 #        真写：加 --apply-config（改 config/robot.yaml）与/或 --apply-tests（重钉断言）
 #  ⚠ 只有"卷尺/对线"实测数才算数；日志信念侧取数（residual_measured_by: log）会被
@@ -1031,7 +1031,7 @@ def print_list() -> None:
     print("标定回填映射总表（本工具的唯一真源）")
     print("=" * 96)
     for spec in CHANNELS:
-        kind = "MANUAL（另开卡）" if spec.get("manual") else ("几何输入" if not spec.get("yaml_key") else "可回填")
+        kind = "MANUAL（另行处理）" if spec.get("manual") else ("几何输入" if not spec.get("yaml_key") else "可回填")
         print(f"[{spec['id']}] {spec['title']}  卡={spec['card']}  类型={kind}")
         print(f"    yaml 键   : {spec['yaml_key'] or '（无）'}")
         print(f"    输入      : {', '.join(spec['inputs']) or '（无）'}")
@@ -1073,7 +1073,7 @@ def print_result(res: dict, old_literals: dict | None = None) -> None:
     print("=" * 96)
     for e in res["channels"]:
         mark = {"KEEP": "✅ 冻结", "SET": "→ 回填", "PENDING": "⏳ 待实测",
-                "REFUSE": "⛔ 拒绝", "MANUAL": "▷ 另开卡"}[e["verdict"]]
+                "REFUSE": "⛔ 拒绝", "MANUAL": "▷ 另行处理"}[e["verdict"]]
         cur = "—" if e["current"] is None else repr(e["current"])
         print(f"\n[{e['id']}] {e['title']}   现值={cur} {e['unit']}")
         print(f"  {mark}  {e['action']}")
@@ -1098,7 +1098,7 @@ def print_result(res: dict, old_literals: dict | None = None) -> None:
         if e.get("comment_note"):
             print(f"  需同步文档/注释：{e['comment_note']}")
         if e.get("manual") and e.get("pins"):
-            print("  （另开卡时要同步的钉位）")
+            print("  （另行处理时要同步的钉位）")
             for p in e["pins"]:
                 print(f"      {p['file']}:{p['line']}  含 {p['find']!r}")
     if old_literals:

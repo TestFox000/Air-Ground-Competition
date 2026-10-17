@@ -255,7 +255,7 @@ def _is_cross(a: str, b: str) -> bool:
     于是 `K9 -> J9` 与 `K9 -> L9` 被正确区分开：两者几何相同，**方向相反** ——
     前者是"穿过 K 继续走"，后者是"离开 K 往外走"。
 
-    ★★ 2026-10-11 修正（t7；实证见 `_tmp_session/t3_verify/t3_报告_全量回归与复核.md` §5.1）：
+    ★★ 2026-10-11 修正（实证见 `_tmp_session/t3_verify/t3_报告_全量回归与复核.md` §5.1）：
       旧判据写成 `min(c1, c2) < k_col <= max(c1, c2)` —— 一端**恰好压在 K 列上**时
       `min == k_col` ⇒ `min < k_col` 恒假 ⇒ **东侧进洞（`L→K`）整类漏判**：
       不仅 `L8 -> K7` 这种 45° 斜切永远进不了 R009，连 docstring 自举的第一个例子
@@ -346,13 +346,13 @@ def crossing_entries(blocks: Sequence[str]
                      ) -> list[tuple[str, str, tuple[float, float, float, float]]]:
     """逐段给出**一次过洞各一条**的命中记录：`(a, b, (行号, 入洞角, 出洞角, Δ列))`。
 
-    ★ 为什么需要它（2026-10-11 t7 新增）：`_crossing_at_column` 对**一次过洞的两段**
+    ★ 为什么需要它（2026-10-11 新增）：`_crossing_at_column` 对**一次过洞的两段**
       都返回非 None —— 进洞那一半（`L7 -> K7`）与出洞那一半（`K7 -> J7`）；
       `validate_route` 靠 run 合并（同格、同行、`prev["dir"]` 同向）把它们拼回**一次**（R007）。
       需要"**一次过洞 = 一条记录**"的调用方（规划器自检 `planner.check_route_structure`、
       测试 `test_planner.audit`）请用本函数，**不要**各自重新发明"只数进洞那一半"的规则 ——
       两套口径必然打架（本模块前几版反复踩的坑）。
-      ⚠️ 背景：t7 把"东侧进洞 `L→K`"从整类漏判改成算数之后，两半都可见了；
+      ⚠️ 背景：把"东侧进洞 `L→K`"从整类漏判改成算数之后，两半都可见了；
       那些"按段数计过洞次数"的调用方若不换用本函数，现场路线会被数成 **2 次**。
 
     口径：只收**起点不在 `CROSS_COLUMN` 列上**的那一段 —— 它正是"朝 K 列推进 / 跨过 K"
@@ -562,7 +562,7 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
         run["cells"] |= set(crossed)
         run["k_cells"] = sorted(set(crossed))
         row = int(round(run["row"]))
-        # ★ t31 权威门放宽（按 t11 §10 建议①、t23 复核）：穿洞行的硬门 = **本半场行段**
+        # ★ 权威门放宽（按设计建议①、复核）：穿洞行的硬门 = **本半场行段**
         #   （下 7~11 / 上 1~6），不再要求"落在候选行"上 —— 候选集合 / `map.bridges`
         #   只用于挑**缺省洞**，可以过期，由无人机的新鲜情报纠正（见 R008 报文与
         #   `tasks/mission.py::_intel_cell_ok`、`route/planner.py` 的同口径硬门）。
@@ -579,9 +579,9 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     lower_runs = [r for r in runs if r["half"] == "lower"]
     upper_runs = [r for r in runs if r["half"] == "upper"]
 
-    # ★ R008（t31 后语义）：**只**看"穿洞行是否在 K 列本半场行段内"（下半场 7~11 /
+    # ★ R008（当前语义）：**只**看"穿洞行是否在 K 列本半场行段内"（下半场 7~11 /
     #   上半场 1~6），候选行/候选集合不再当硬门；报文里仍打印候选行供现场对账。
-    #   "不在候选集合"因此**不再是 error** —— 那正是本卡要放开的（无人机情报可纠正过期地图）。
+    #   "不在候选集合"因此**不再是 error** —— 那正是要放开的（无人机情报可纠正过期地图）。
 
     # ★ R009：**每一次**过洞都要看夹角，不能只查 R007 那个"唯一一次"——
     #   现场一旦多了一次斜切（例如某段折线斜着蹭过 K 列），只查唯一一次就会漏掉。
@@ -623,8 +623,8 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
 
     for run in runs:
         if not run["band_ok"]:
-            # ★ t31：报文写"行段"（硬门），候选行只作参考 —— 旧文"而候选行只有 …"会让现场
-            #   以为是候选集合把关（已放开：无人机新鲜情报可纠正过期地图）。
+            # 报文必须写"行段"（硬门），候选行只作参考 —— 否则现场会以为是候选
+            #   集合把关（已放开：无人机新鲜情报可纠正过期地图）。
             issues.append(Issue("error", "R008",
                                 f"第 {run['index']} 段 {run['a']}->{run['b']} 在 {CROSS_COLUMN} 列第 "
                                 f"{run['row']:.0f} 行穿行，不在本半场行段"

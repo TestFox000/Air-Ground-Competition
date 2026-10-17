@@ -36,7 +36,7 @@ from .core.task import TaskGroup
 
 LOG = print
 
-#: 显式接管的退出信号。**SIGTERM 必须自己接**（t8 / t6 取证报告 §2）：
+#: 显式接管的退出信号。**SIGTERM 必须自己接**（取证报告 §2）：
 #: 车端 rclpy 默认 `SignalHandlerOptions.ALL` 会在 C++ 层接走 SIGTERM，
 #: 它只做 `rcl_shutdown`（上下文失效）—— **不抛异常、不退进程** ⇒ 上下文死、任务线程活、
 #: RCLError 刷屏（2026-10-11 16:18 收栈就是这么变成"假崩溃"的）。
@@ -104,7 +104,7 @@ def load_and_check(config_path: str | None, map_path: str | None,
                    *, force: bool = False, announce: bool = True) -> tuple[Config, dict, list[str]]:
     """加载配置 + 路线校验。返回 (cfg, map_cfg, errors)。
 
-    ★ `announce=False`（卡 D finding D3）：调用方自己会把错误**带来源标注**打印一次。
+    ★ `announce=False`：调用方自己会把错误**带来源标注**打印一次。
       否则 `--plan-only` 下门禁报文会打印两遍（`load_and_check` 一遍 + 调用方一遍），
       而且读者分不清那些 error 是针对手写 `route.tokens` 还是针对规划结果。
     """
@@ -267,9 +267,9 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
         # bench 专用覆盖：立即出发（否则要等 auto_start_delay）
         cfg.override("mission.auto_start", True).override("mission.auto_start_delay_s", 0.3)
 
-    # ★ 自动规划（任务卡 B）：bench 的虚拟小车按 `route.tokens` 建 Path / 统计"走到第 N 点"，
+    # ★ 自动规划：bench 的虚拟小车按 `route.tokens` 建 Path / 统计"走到第 N 点"，
     #   而 MissionTask 在 `planner.auto_plan_enabled=true` 时执行的是**规划结果** ——
-    #   两者必须一致，否则统计口径与实际走的路线整段错位（"走到第 20/34 点"是假数字）。
+    #   两者必须一致，否则统计口径与实际走的路线整段错位（"走到第 20/44 点"是假数字）。
     #   这里先把规划结果回写到 cfg.route.tokens；MissionTask 自己还会再规划一次（同一份配置
     #   ⇒ 同一条路线），所以这不是"绕过规划"，只是让 bench 的观测口径对齐。
     if bool(cfg.get("planner.auto_plan_enabled", False)):
@@ -302,7 +302,7 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
         log(f"  (跳过未实现的任务) {s}")
 
     stop_flag: dict = {"stop": False, "signal": None}
-    # ★ 与上车运行用同一套信号接管（t8）：bench 只接了 SIGINT，且处理器里直接 print
+    # ★ 与上车运行用同一套信号接管：bench 只接了 SIGINT，且处理器里直接 print
     #   —— 漏了 SIGTERM，也让"留痕"发生在信号上下文里（见 install_stop_signals 注释）。
     install_stop_signals(stop_flag, log)
 
@@ -343,7 +343,7 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
             #  ★ 统计这条投影链**必须和 Tracker 一样能"跟丢自愈"**：`s_hint` 每拍跟随上一拍的
             #    s，窗口（±0.6 m）会把错误的 s 变成自洽不动点 —— 一旦锁死，`proj.dist` 会随
             #    车开远而无限增大、`reached` 永远停在锁死处。实测（bench_relock 之前）：
-            #    同一条跑动里 Tracker 报"到点 31"，而这里报"走到第 18/34 点、最大横向偏差
+            #    同一条跑动里 Tracker 报"到点 31"，而这里报"走到第 18/44 点、最大横向偏差
             #    4.098 m" —— 车其实一直在路线上（到点判据要求"车贴近路径"），
             #    4.098 m 是**统计口径**的假值，不是车跑飞了。
             try:
@@ -407,9 +407,9 @@ def run_plan_only(cfg: Config, *, map_path: str | None = None,
       不起线程、不建 Bridge、不发任何指令、不 import ROS —— 所以它可以在没有 ROS
       的机器上跑，也可以当"这条路线能不能算出来"的离线体检。
       规划失败返回 1（退出码非 0 才有人会去看日志）。
-    ★ `map_path`（卡 D finding D2）：`--map <图>` 必须真的决定**规划用的地图**。
-      此前只作用于门禁（`load_and_check`），规划仍走 `planner.map_path` ⇒ 同一条命令里
-      两套地图口径并存，`--plan-only --map 变体图` 打印的还是配置里的图。
+    ★ `map_path`：`--map <图>` 必须真的决定**规划用的地图**。
+      只作用于门禁（`load_and_check`）而规划仍走 `planner.map_path` ⇒ 同一条命令里
+      两套地图口径并存，`--plan-only --map 变体图` 会打印配置里的图。
     """
     from .tasks.mission import plan_route_from_config
     out = plan_route_from_config(cfg, map_path=map_path, log=log)
@@ -427,7 +427,7 @@ def run_plan_only(cfg: Config, *, map_path: str | None = None,
         f"模式: {out.mode}（planner.allow_reverse={out.allow_reverse}）",
         f"token 数: {len(out.tokens)} / 折线 {out.route_len_m:.2f} m / 倒车段 {out.reverse_segments}",
         f"A* 代价: {out.cost:.2f}",
-        # ★ 卡 t11：参考点偏移感知的足迹诊断（现场卷尺实测 offset 下的挡板/障碍/靶板余量）
+        # 参考点偏移感知的足迹诊断（现场卷尺实测 offset 下的挡板/障碍/靶板余量）
         (f"足迹: {'✅' if out.footprint_ok else '⚠️'} {out.footprint}"
          if out.footprint else "足迹: 未诊断"),
     ], log=log)
@@ -444,7 +444,7 @@ def _live_loop(stop_flag: dict, *, bb: Blackboard, alive: Callable[[], bool] = r
                finish_wait_s: float = 2.0) -> str:
     """上车运行的主循环：返回退出原因 `stop` / `context_dead` / `finish`。
 
-    ★ 三条退出路径缺一不可（t8）：
+    ★ 三条退出路径缺一不可：
       1. `stop_flag` —— 显式信号（SIGINT/SIGTERM）置位；
       2. **上下文失效** —— `alive()` 为假时 ≤1 拍退出（poll_s=0.2 s 一拍）。
          这是本次 P0：旧循环只看 stop_flag/FINISH，SIGTERM 把 rclpy 上下文
@@ -497,7 +497,7 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
     # 安全兜底：任务组出现 FAULT 时，Safety 会刹；这里只做退出条件判断
     try:
         why = _live_loop(stop_flag, bb=bb, alive=alive, log=log)
-        # ★ teardown 留痕（t6 指出收栈时**一条都没有**，事后无法判断是正常收尾还是被打死）
+        # ★ teardown 留痕（实测指出收栈时**一条都没有**，事后无法判断是正常收尾还是被打死）
         log(f"退出原因 = {why}（运行 {time.time() - t0:.1f}s；"
             f"信号={stop_flag.get('signal')}；rclpy.ok()={alive()}）")
         if why == "context_dead":
@@ -536,9 +536,9 @@ def main(argv: list[str] | None = None) -> int:
     # ★ --map 透传（2026-10-11 修复）：planner.map_path 的相对解析以 workspace_root() 为基准；
     #   install 拷贝树里 workspace_root() = install/dzbrain/lib → config/map.yaml 永远找不到
     #   → 自动规划静默失败、回退手写路线（车端 verify/bench 走 src 导入，看不出此问题，
-    #   真起栈才暴露 —— 卡D验收第2步前查实）。start_all.sh 起栈时传 --map，这里用
+    #   真起栈才暴露）。start_all.sh 起栈时传 --map，这里用
     #   绝对路径钉死 planner.map_path，与 resolve_map_path 的「绝对路径直接采用」分支闭环。
-    #   同时修复卡D finding D2：--plan-only --map <图> 此前静默用 config 里的图。
+    #   --plan-only --map <图> 必须用同一张图，否则会静默用 config 里的图。
     if args.map_path:
         cfg.override("planner.map_path", str(pathlib.Path(args.map_path).resolve()))
 
@@ -553,10 +553,10 @@ def main(argv: list[str] | None = None) -> int:
     #   已调整顺序，`test_autoplan.py` 7.13/7.14 用"坏 route.tokens + --plan-only"钉住它。
     #   `--dry-run` / `--bench` / live 的门禁语义**未变**（仍是 errors → return 2）。
     #
-    #   ★ 卡 D finding D3：这段报文此前会**打印两遍**（`load_and_check` 一遍 + 这里一遍），
-    #     而且没写清那些 error 是**针对手写 `route.tokens`** 的 —— 读者很容易以为
-    #     "规划结果也有这些错"。现在改为：`load_and_check(announce=False)` 不打印，
-    #     这里只打印**一次**，并显式标注来源与"与规划结果无关"。
+    #   ★ 这段报文**只能打印一遍**（`load_and_check` + 这里会打印两遍），且必须写清
+    #     error 是**针对手写 `route.tokens`** 的 —— 否则读者很容易以为"规划结果也有
+    #     这些错"。⇒ `load_and_check(announce=False)` 不打印，这里只打印**一次**，
+    #     并显式标注来源与"与规划结果无关"。
     if args.plan_only:
         if errors:
             banner([

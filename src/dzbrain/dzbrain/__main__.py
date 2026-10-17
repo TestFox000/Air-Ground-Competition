@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 r"""`python -m dzbrain` 的包入口 —— 只做转发，逻辑一律留在 `main.py`。
 
-★ 为什么必须有这个文件（任务卡 B 验收项）：
+★ 为什么必须有这个文件：
     文档、`tools/` 与验收命令里用的都是 `python -m dzbrain ...`，而**缺 `__main__.py`
     时该命令直接失败**（`No module named dzbrain.__main__; 'dzbrain' is a package and
     cannot be directly executed`）—— 也就是说 `--plan-only` / `--dry-run` 这些入口

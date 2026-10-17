@@ -64,19 +64,19 @@ _EPS_S = 1e-9
 _GOAL_STOP_M = 0.03
 
 # --------------------------------------------------------------------------- #
-#  ★★ 新黑板键：限速/停机请求（卡 t12 的对外接口）
+#  ★★ 新黑板键：限速/停机请求（对外接口）
 # --------------------------------------------------------------------------- #
 #: `P_MOTION_LIMIT`：Localization **写**、执行侧（Tracker / pursuit 的速度钳制）**读**。
 #:
 #: 取值语义（读侧必须严格按此实现，否则会破坏"无漂移时逐位一致"的承诺）：
 #:   · `None`（或键不存在）→ **完全 no-op**：执行侧一行代码都不该因此改变 ——
-#:     这是为了 t11 的"零注入大扫描"能与现版本**逐位一致**；
+#:     这是为了 "零注入大扫描"能与现版本**逐位一致**；
 #:   · `{"speed_mps": float, "reason": str, "drift_run": int, "anchor_refused": int,
 #:       "distance_to_boundary_m": float|None, "since": float}` → 把线速度**钳到
 #:     `speed_mps` 以内**（只降不升；负速度/倒车段按绝对值钳），`reason` 仅供日志。
 #:   本键**不**取代 Safety：`P_SAFETY` 仍是唯一的强制停车者，这里只是"提前一脚刹车"。
 #:
-#: ⚠️ 键名字符串按写域要求定义在本文件（`core/blackboard.py` 不在本卡 In scope）；
+#: ⚠️ 键名字符串按写域要求定义在本文件（`core/blackboard.py` 不在本次改动范围）；
 #: 建议队长收口时把它登记进 `core/blackboard.py` 并加进"共享键表"文档。
 P_MOTION_LIMIT = "motion_limit"
 
@@ -122,8 +122,8 @@ class LocalizationTask(TaskThread):
         self.stuck_eps_m = float(cfg.get("localization.stuck_eps_m") or 0.01)
         self.stuck_dist_m = float(cfg.get("localization.stuck_dist_m") or 0.20)
 
-        # ---- ★实车漂移护栏（卡 t12，2026-10-11 首跑 SAFE_STOP@B1 的证据：13 m 里漂 0.65 m）----
-        # 全部走"代码默认值"（config/*.yaml 由 t11 专写；清单已回报队长，待并入）。
+        # ---- ★实车漂移护栏（2026-10-11 首跑 SAFE_STOP@B1 的证据：13 m 里漂 0.65 m）----
+        # 全部走"代码默认值"（config/*.yaml 统一维护；清单已回报队长，待并入）。
         #: 单次吸附允许把信念挪动的**上限**（米）。吸附只在 `arrival_m` 半径内触发，
         #: 所以这个上限是"双保险"：超过它说明不是"到位纠偏"而是"被外力拽走"。
         self.anchor_max_pull_m = float(cfg.get("localization.anchor_max_pull_m")
@@ -154,7 +154,7 @@ class LocalizationTask(TaskThread):
         #: 本闸把每次吸附的**沿程修正量**除以"距上次吸附走了多远"，得到**隐含尺度误差**；
         #: 超过 `anchor_scale_max`（默认 8%）就**拒绝这次吸附**（不再替里程计掩盖），
         #: 记进台账并参与限速升级 ⇒ 尺度误差从"被掩盖"变成"看得见 + 会降速"。
-        #: ⚠️ 本卡**不**硬编码任何 ticks/scale 标定值（标定归队长），只做健康度判别。
+        #: ⚠️ **不**硬编码任何 ticks/scale 标定值（标定归队长），只做健康度判别。
         self.anchor_scale_max = float(cfg.get("localization.anchor_scale_max") or 0.08)
         #: 隐含尺度误差的滑动窗口长度（取中位数上报，抗单次噪声）
         self.implied_scale_window = max(1, int(cfg.get("localization.implied_scale_window") or 4))
@@ -198,7 +198,7 @@ class LocalizationTask(TaskThread):
         self.drift_warnings = 0
         self.stuck_scans = 0        # 判定卡死 → 全路线重投影的次数（含"全局在身后"的）
         self.projection_heals = 0   # 其中真正改了上报值（全局投影更靠前）的次数
-        # ---- ★漂移护栏的计数与状态（t12）----
+        # ---- ★漂移护栏的计数与状态----
         self.anchor_refused = 0          # 因"误差会变大/超上限"**拒绝**吸附的次数（显式记账）
         self.drift_run = 0               # 连续"有漂移、未纠回"的拍数
         self.healthy_run = 0             # 连续干净拍数（用于撤销限速）
@@ -257,7 +257,7 @@ class LocalizationTask(TaskThread):
         unhealthy = False
         if anchored_pose is None and proj is not None and self.anchor_enabled:
             gate = self._warning_gate(proj)
-            # ---------------- ④b ★横向重锚（t12）：只在"已知顶点窗口内"动手 ----------------
+            # ---------------- ④b ★横向重锚：只在"已知顶点窗口内"动手 ----------------
             anchored_pose = self._reanchor(proj, cyaw, gate, now)
             if anchored_pose is None and gate is not None:
                 gidx, gwp = gate
@@ -266,7 +266,7 @@ class LocalizationTask(TaskThread):
                 # ★"有漂移、没纠回来"= 不健康的一拍（驱动限速/停机）
                 unhealthy = gwp.distance_to(cx, cy) > self.drift_warn_m
 
-        # ---------------- ⑤ ★信念漂移护栏（t12） ---------------- #
+        # ---------------- ⑤ ★信念漂移护栏 ---------------- #
         # 先算信念离安全边界还有多远（`geo.in_bounds/map_bounds` 与 Safety 同源，不重复实现），
         # 再据此 + 吸附健康度下发 `P_MOTION_LIMIT`。★ 读侧在无信号时必须完全 no-op。
         belief = anchored_pose if anchored_pose is not None else geo.Pose(cx, cy, cyaw)
@@ -287,7 +287,7 @@ class LocalizationTask(TaskThread):
         self._log(f"定位退出：{self.ticks} 拍 / 缺位姿 {self.missing_pose_ticks} 拍 / "
                   f"吸附 {self.anchored} 次 / 漂移告警 {self.drift_warnings} 次 / "
                   f"投影卡死自愈 {self.projection_heals} 次（判定 {self.stuck_scans} 次）")
-        # ★ t12：漂移护栏台账（"吸附失败要显式记账"的收尾口径）
+        # 漂移护栏台账（"吸附失败要显式记账"的收尾口径）
         self._log(f"漂移护栏：吸附被拒 {self.anchor_refused} 次 / 限速或停机 "
                   f"{self.motion_limited_ticks} 拍（下发 {self.motion_limit_published} 次）/ "
                   f"边界护栏 {self.boundary_alerts} 拍 / 最终连续不健康 {self.drift_run} 拍")
@@ -446,7 +446,7 @@ class LocalizationTask(TaskThread):
           `arrival_m`(0.12) 远小于 `drift_warn_m`(0.30)，横向漂了 0.5 m 的车
           永远进不了吸附半径 ⇒ 既不纠偏、也永远报不出漂移（漂移这件事"报不出来"）。
 
-        ★★ 卡 t12（2026-10-11 实车 SAFE_STOP@B1，13 m 漂 0.65 m）新增**施加前的两道闸**，
+        ★★ 实测（2026-10-11 实车 SAFE_STOP@B1，13 m 漂 0.65 m）新增**施加前的两道闸**，
         针对早期发现#1「吸附在制造误差（只有让误差变小时才该施加）」：
           ① 上限闸：`drift > anchor_max_pull_m` ⇒ 拒绝（这不是"到位纠偏"，是被拽走）；
           ② 误差闸：把信念挪到格心后，**离折线的距离不能变大**（`_error_shrinks`）⇒
@@ -523,7 +523,7 @@ class LocalizationTask(TaskThread):
         return geo.Pose(target.x, target.y, yaw)
 
     def _error_shrinks(self, target, proj) -> bool:
-        """★"误差不变大"判据（t12 闸②）：把信念挪到 `target` 之后，离折线不许更远。
+        """★"误差不变大"判据（闸②）：把信念挪到 `target` 之后，离折线不许更远。
 
         · 用**离线距离**（`Path.project().dist`）而不是"离格心距离"：格心只是格的几何中心，
           车真正该在的位置是折线；吸附把点推离折线 = 制造误差。
@@ -613,7 +613,7 @@ class LocalizationTask(TaskThread):
 
     def _refuse_anchor(self, block: str, index: int, drift: float, now: float,
                        reason: str) -> None:
-        """★吸附/重锚被拒 = **显式记账**（t12）：计数 + 日志 + 遥测。
+        """★吸附/重锚被拒 = **显式记账**：计数 + 日志 + 遥测。
 
         ⚠️ 刻意**不**复用 `EV_DRIFT_WARNING`：那是"漂移告警"的语义，且带"每航点至多一条"
         的去重约定（test_localization ⑦ 直接断言它）。拒绝是**另一件事**（本可纠偏但没纠），
@@ -657,7 +657,7 @@ class LocalizationTask(TaskThread):
         }
 
     def _reanchor(self, proj, yaw: float, gate, now: float):
-        """★横向重锚（t12 的"重锚/自愈"路径）：在**顶点窗口内**把信念的横向分量拉回折线。
+        """★横向重锚（"重锚/自愈"路径）：在**顶点窗口内**把信念的横向分量拉回折线。
 
         为什么只在顶点窗口内动手：**"误差变小才施加"**这条规则要落地，必须先知道
         "车此刻应该在哪"。唯一可靠的这类时刻就是"正在过一个已知顶点"（`_warning_gate`
@@ -696,7 +696,7 @@ class LocalizationTask(TaskThread):
         return geo.Pose(proj.x, proj.y, yaw)
 
     # ------------------------------------------------------------------ #
-    #  ★信念漂移护栏（t12）：P_MOTION_LIMIT 的**写**侧
+    #  ★信念漂移护栏：P_MOTION_LIMIT 的**写**侧
     # ------------------------------------------------------------------ #
     def _distance_to_boundary(self, pose) -> float | None:
         """信念离**安全边界**还有多远（米）；边界本身用与 Safety 同源的 `geo.map_bounds`。
@@ -716,7 +716,7 @@ class LocalizationTask(TaskThread):
         ★ 语义约定（读侧必须遵守，见模块 `P_MOTION_LIMIT` 注释）：
           · 键**存在且非空** → 把线速度钳到 `speed_mps` 以内（只降不升）；
           · 键**不存在 None** → 完全 no-op，执行侧行为与没有本功能时**逐位一致**。
-        这样做是为了让 t11 的零注入大扫描在"无漂移"时拿到与现版本完全相同的结果。
+        这样做是为了让零注入大扫描在"无漂移"时拿到与现版本完全相同的结果。
         """
         self.drift_run = self.drift_run + 1 if unhealthy else 0
         self.healthy_run = 0 if unhealthy else self.healthy_run + 1

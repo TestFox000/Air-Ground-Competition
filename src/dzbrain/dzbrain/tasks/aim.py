@@ -14,7 +14,7 @@
 就是 bug —— 测试第 9 组会断言 `bridge.fire_gate` **全程为空**。
 
 ===============================================================================
-★★ 云台扫描开关的**单写者**（卡 t24；与 t13 锁止配套）
+★★ 云台扫描开关的**单写者**（与锁止配套）
 ===============================================================================
 | 话题                     | 唯一写者        | 语义                                                      |
 |--------------------------|-----------------|-----------------------------------------------------------|
@@ -503,7 +503,7 @@ class AimTask(TaskThread):
         "aim.box_w_far_px", "aim.box_w_near_px", "aim.cls_switch_confirm_frames",
         "aim.vision_nominal_fps", "aim.fire_only_blue", "aim.hit_hold_s",
         "aim.rescan_on_lost", "aim.lead_eps_px", "aim.hold_min_s",
-        # ★ 卡 t24：云台锁止四键已登记进 SCHEMA（core/config.py），这里同步登记以便自检一致
+        # 云台锁止四键已登记进 SCHEMA（core/config.py），这里同步登记以便自检一致
         "aim.gimbal_lock_enabled", "aim.gimbal_lock_scan_request",
         "aim.gimbal_seek_scan_request", "aim.gimbal_seek_on_shoot_stop_only",
     )
@@ -551,7 +551,7 @@ class AimTask(TaskThread):
                                                  5))))
         self._fire_only_blue = bool(g("aim.fire_only_blue",
                                       cfg.get("dzrknn_dataprocess.fire_only_blue", False)))
-        # ---- ★★ 卡 t13：红面早退（≥N 秒锁定红 ⇒ 置黑盒标志，Mission 提前离站）----
+        # ---- 红面早退（≥N 秒锁定红 ⇒ 置黑盒标志，Mission 提前离站）----
         #   为什么放在 Aim：类别锁定（`_update_class`）与"连续 N 帧同类"是这里独占的知识，
         #   Mission 只该看到"结论"（确认红面）而不是自己重算一遍类别抖动逻辑。
         #   阈值缺省 3.0 s = 用户口径；`run_s` 只在**射击停站的 ACQUIRE/FIRE 段**累计，
@@ -561,7 +561,7 @@ class AimTask(TaskThread):
         self._red_confirmed = False         # 是否已到达阈值（写 `P_AIM_RED`）
         self._hit_hold_s = float(g("aim.hit_hold_s", self._cooldown_s))
         self._rescan_on_lost = bool(g("aim.rescan_on_lost", False))
-        # ---- ★★ 卡 t13：云台巡迹锁止（用户 2026-10-11 指令）----
+        # ---- 云台巡迹锁止（用户 2026-10-11 指令）----
         # 用户原话：「循迹期间云台保持不动（锁止），到达最佳射击点（停站）之后云台才开始旋转、
         # 寻找目标」。实车首跑失败形态：`mission.scan_mode='continuous'` 让 mission 开局就发
         # `scan_request=2`，整趟巡迹云台一直在转（瞄 SCAN 全程）→ 视觉不稳 + 到站 G10 打 3 发 0 命中。
@@ -641,11 +641,11 @@ class AimTask(TaskThread):
         self._last_lead = 0.0
         self._last_tick_at: float | None = None
         self._last_cmd: dict[str, Any] = {}
-        # ---- ★云台巡迹锁止的状态（t13）----
+        # ---- ★云台巡迹锁止的状态----
         self._gimbal_seek = False           # 当前是否允许转台搜索（= 在最佳射击点停站内）
         self._gimbal_cmd: int | None = None  # 上次下发的 scan_request（None = 还没下发过）
         self.gimbal_lock_ticks = 0          # 处于锁止的拍数（遥测/验收用）
-        #: ★ t24：进入锁止的**边沿**计数（每次 TRACK→锁止 都会 +1 并强制发一次 0 ⇒ C++ 回正）
+        #: 进入锁止的**边沿**计数（每次 TRACK→锁止 都会 +1 并强制发一次 0 ⇒ C++ 回正）
         self.gimbal_home_cmds = 0
         self._gimbal_was_seeking = False     # 上一拍是否在"起转搜索"（用于识别锁止边沿）
         self._gimbal_last_home_at: float = 0.0
@@ -732,7 +732,7 @@ class AimTask(TaskThread):
         # ---- 3b. 类别锁定（连续 N 帧同类才改锁；单帧抖动只吞当拍许可） ----
         self._update_class(obs, has_target)
 
-        # ---- 3c. ★红面早退（t13）：锁定红持续 ≥ aim.red_early_leave_s ----
+        # ---- 3c. ★红面早退：锁定红持续 ≥ aim.red_early_leave_s ----
         self._update_red_confirmed(dt)
 
         # ---- 4. 可见性台账（seen / lost_since / 事件） ----
@@ -747,7 +747,7 @@ class AimTask(TaskThread):
             manual = False
         self._aim_status = int(self.bridge.aim_status())
 
-        # ---- 5b. ★云台巡迹锁止（t13）：行进中锁止，只有最佳射击点停站才起转 ----
+        # ---- 5b. ★云台巡迹锁止：行进中锁止，只有最佳射击点停站才起转 ----
         self._update_gimbal_gate(now)
 
         # ---- 6. 开火判据 ----
@@ -1057,7 +1057,7 @@ class AimTask(TaskThread):
         self._emit_ready(True)
 
     def _update_gimbal_gate(self, now: float) -> None:
-        """★★云台巡迹锁止（卡 t13）：**行进中不动，到最佳射击点才起转寻靶**。
+        """★★云台巡迹锁止：**行进中不动，到最佳射击点才起转寻靶**。
 
         判据只看两样**已经存在**的事实（不新增状态机、不抢 Mission 的停站判定）：
           · `P_STOP_POINT`（Mission 写、本任务读）：`active` 且 `kind == StopKind.SHOOT`
@@ -1095,7 +1095,7 @@ class AimTask(TaskThread):
         else:
             self.gimbal_lock_ticks += 1
         want = int(self.gimbal_seek_scan if seeking else self.gimbal_lock_scan)
-        # ★★ t24-A1/A2：**每次 TRACK→锁止 的边沿必须再发一次 0**（车端 C++ 收到 0 → `AIM_IDLE`
+        # ★★ **每次 TRACK→锁止的边沿必须再发一次 0**（车端 C++ 收到 0 → `AIM_IDLE`
         #   → `CaremaMontorControl()` 每帧主动归位到"扫描行程中点 + 基准俯仰"= 相对车头回正）。
         #   为什么不能被 `_gimbal_cmd` 值去重吞掉：TRACK→锁止 时 `want(0)` 与缓存里的锁止值相同
         #   （都是 0），按值去重就会漏发 ⇒ 云台停在 TRACK 结束时的目标方向（可能侧向大角度），
@@ -1103,8 +1103,7 @@ class AimTask(TaskThread):
         #   每拍重发会把话题刷爆（与 1.3「20 拍只 1 条」的既有契约冲突），而 C++ IDLE 自己
         #   每帧都在归位，边沿发一次就足够。
         #   C++ 证据：`src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp:662-684`
-        #   （IDLE 分支每帧下发 Position_1/Position_0；注释原文「旧版在 IDLE 时直接 return，
-        #   于是云台【冻结在最后一次的任意姿态】上」）。
+        #   （IDLE 分支每帧下发 Position_1/Position_0：绝不能让云台冻结在最后一次姿态上）。
         lock_edge = self._gimbal_was_seeking and not seeking
         self._gimbal_was_seeking = bool(seeking)
         if lock_edge:
@@ -1213,12 +1212,12 @@ class AimTask(TaskThread):
             "ammo": self._ammo_prev,
             "cool_left_s": self._permit.cooldown_left(now, self._cooldown_s),
             "rescan_requested": bool(self._rescan_requested),
-            # ★卡 t13：云台巡迹锁止状态（遥测/验收可读；`scan_request` 的当前下发值也在里面）
+            # 云台巡迹锁止状态（遥测/验收可读；`scan_request` 的当前下发值也在里面）
             "gimbal_seek": bool(self._gimbal_seek),
             "gimbal_cmd": self._gimbal_cmd,
             "gimbal_lock_ticks": int(self.gimbal_lock_ticks),
             "gimbal_seek_ticks": int(self.gimbal_seek_ticks),
-            # ★ t24：锁止边沿回正台账（每次 TRACK→锁止 强发一次 0；回正由 C++ IDLE 每帧执行）
+            # 锁止边沿回正台账（每次 TRACK→锁止 强发一次 0；回正由 C++ IDLE 每帧执行）
             "gimbal_home_cmds": int(self.gimbal_home_cmds),
             "gimbal_last_home_at": float(self._gimbal_last_home_at),
             "dt": float(dt),
@@ -1233,7 +1232,7 @@ class AimTask(TaskThread):
         if (self._lost_at is not None and not self._rescan_requested
                 and (now - self._lost_at) >= self._lost_s):
             self._rescan_requested = True
-            # ★卡 t13：**只有已到最佳射击点、云台允许起转搜索时**才重发扫描。
+            # **只有已到最佳射击点、云台允许起转搜索时**才重发扫描。
             #   巡迹途中丢靶重发 2 会把刚锁止的云台重新解锁 —— 正是用户要消灭的行为。
             if self._rescan_on_lost and self._gimbal_seek:
                 # ⚠️ 只发 2（持续），**绝不发 1**（readme【十】31：到点发 1 会把持续扫描降级成单趟）；
@@ -1278,7 +1277,7 @@ class AimTask(TaskThread):
         self._last_class = cls
 
     # ------------------------------------------------------------------ #
-    #  ★ 红面早退（卡 t13）
+    #  ★ 红面早退
     # ------------------------------------------------------------------ #
     def _update_red_confirmed(self, dt: float) -> None:
         """锁定红**持续** ≥ `aim.red_early_leave_s` ⇒ 写 `P_AIM_RED`（Mission 据此早退）。

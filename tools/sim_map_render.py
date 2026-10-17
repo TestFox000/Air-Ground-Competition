@@ -214,7 +214,7 @@ def render(map_path, route, csv_path, bench_log, out, title):
         ax.add_patch(plt.Rectangle((sx - CELL / 2, sy - CELL / 2), CELL, CELL,
                                    facecolor="0.35", edgecolor="black", lw=0.6, zorder=3))
 
-    # ---- 靶：F11+G11 = 【一块跨格靶板】（t8 定版：两格画成一整块橙色，不是两块独立靶）----
+    # ---- 靶：F11+G11 = 【一块跨格靶板】（定版：两格画成一整块橙色，不是两块独立靶）----
     if m["targets"]:
         cells = [cell_center(b) for b in m["targets"]]
         sx_min = min(p[0] for p in cells) - CELL / 2
@@ -233,8 +233,7 @@ def render(map_path, route, csv_path, bench_log, out, title):
         ax.plot(sx, sy, marker="o", ms=10, mfc="red", mec="darkred", mew=1.8, ls="none", zorder=6)
 
     # ---- 起终点（★★ 一整个格子：35×35 cm，与场地格完全重合 —— 用户 2026-10-11 口径）----
-    #   ⚠️ 以前画的是"绿点 / 金星"（点状标记），用户明确要求"起点终点都是一整个格子"，
-    #      所以改成整格色块 + 格心上写标签（再大的轨迹压上去也认得出是哪一格）。
+    #   ⚠️ 必须画成整格色块 + 格心标签：点状标记在轨迹密集时认不出是哪一格。
     for cell, face, edge, tag in ((m["start"], "#b2f2bb", "#2b8a3e", "起点"),
                                   (m["end"], "#ffe066", "#e8590c", "终点")):
         cx, cy = cell_center(cell)
@@ -253,7 +252,7 @@ def render(map_path, route, csv_path, bench_log, out, title):
         ax.plot(xs, ys, color="royalblue", lw=2.2, alpha=0.85, zorder=3, label="参考路线")
         for wp in route.waypoints:
             sx, sy = S(wp.x, wp.y)
-            # t8 定版：G10 同时是「射击停站 G10*」和「:PIVOT」→ 两个标记都要画
+            # 一格可能同时是射击停站与 :PIVOT ⇒ 两个标记都要画（不能只画一个）
             if wp.pivot:
                 ax.plot(sx, sy, marker="D", ms=7, mfc="darkviolet", mec="black",
                         mew=0.8, ls="none", zorder=8)
@@ -300,9 +299,8 @@ def render(map_path, route, csv_path, bench_log, out, title):
     for sx, sy, yaw in car_poses:
         ax.add_patch(car_patch(ax, sx, sy, yaw))
 
-    # ★ 2026-10-11：图例里的三处**旧图硬编码**改成从地图/路线派生
-    #   （以前写死 "靶 = F11+G11 / 桥洞 K1/K7 / 射击停站 G10* / :PIVOT(G10/A9/F3)"，
-    #    换到第三张图后这些字全是错的 —— 图上一眼看到的说明反而比不写更糟）。
+    # ★ 图例三处必须从地图/路线派生：靶 / 桥洞 / 射击停站 / 折返点都随图变，
+    #   写死会在换图后立刻变成错字 —— 图上一眼看到的说明反而比不写更糟。
     _tgt = "+".join(m["targets"]) or "?"
     _brg = "/".join(m["bridges"]) or "?"
     _piv = [wp.block for wp in route.waypoints if wp.pivot] if route is not None else []
@@ -327,7 +325,7 @@ def render(map_path, route, csv_path, bench_log, out, title):
         plt.Rectangle((0, 0), 1, 1, facecolor="0.25", alpha=0.45,
                       label=f"车身占位 {CAR_LEN_M:.2f}×{CAR_WID_M:.2f} m(待实测)"),
     ]
-    # t8 定版：图例移到画布【右侧外部】，不再遮挡场地右上角（K 列桥 K1 与 N 列路线）
+    # 定版：图例移到画布【右侧外部】，不再遮挡场地右上角（K 列桥 K1 与 N 列路线）
     ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1.005, 1.0),
               fontsize=8.5, framealpha=0.95, borderpad=0.7)
     ax.set_title(title or "仿真路线图（横版场地 14列A~N × 11行1~11）", fontsize=14, pad=8)

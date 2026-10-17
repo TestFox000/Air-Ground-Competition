@@ -4,13 +4,13 @@
 
 兼容性依据：`docs/survey_path_executor.md` §3「航点 token 语义」，行号级证据逐条对应。
 
-语法总表（与旧实现一致，★ = 新增的显式报错）：
+语法总表（兼容旧协议，★ = 显式报错）：
 
-| 写法 | 含义 | 旧实现行号 |
+| 写法 | 含义 | 旧协议行号 |
 |---|---|---|
 | `K9` | 普通航点，直线连到下一个点 | 1192, 1204 |
-| `G10*` | 射击停站（到达后停车、找靶、稳定后放行开火） | 1182-1183, 1206 |
-| `G10:SHOOT_STOP` / `G10:SHOOT` | 等价于 `G10*`（可读性写法，内部归一成 `*`） | 1174-1178 |
+| `D3*` | 射击停站（到达后停车、找靶、稳定后放行开火） | 1182-1183, 1206 |
+| `D3:SHOOT_STOP` / `D3:SHOOT` | 等价于 `D3*`（可读性写法，内部归一成 `*`） | 1174-1178 |
 | `F2:SCAN_STOP` / `F2:SCAN` | 纯扫描停站（**不射击**） | 1179-1180 |
 | `F8:PIVOT` | ★ 折返点**声明**（该顶点车头需转过 ≥135°，循迹层自动 PIVOT）—— 不是停车指令 | 新增 |
 | `R:B5` | 倒车到位（该段线速度为负，车尾朝目标摆） | 1167-1169, 1208 |
@@ -18,14 +18,14 @@
 | `SHOOT@G11` | **指令而非坐标**：调 shoot_planner 算候选链并整链插入，共用一个组号 | 1136-1161 |
 | `N5,y` / `N5,x` | 终点朝向后缀，**只有最后一个 token 允许带** | 1108-1117；校验 375-380 |
 
-旧实现的坑，本模块的对策：
+边界写法的坑，本模块的对策：
 
-- ⚠️ 旧解析器对"非法 token"基本**静默忽略**（认不出的写法当普通格名往下走，
-  越界格名要到几何计算时才炸，或干脆当成一个不存在的点）。本模块一律抛 `ValueError`，
-  并由 `validate.py` 的 R002 兜住"没经过 parser 的路线"。
-- ⚠️ 旧代码"去重"只在相邻同格时合并，且**把射击标记搬来搬去**（1200-1203）。
-  本模块合并时对 shoot/scan **取并集**，`reverse` 不同则**绝不合并**（否则倒车段丢失）。
-- ⚠️ 旧代码插入 `SHOOT@` 候选链时要在 5 个数组上各 `insert` 一次（1246-1253），漏一个就静默错位。
+- ⚠️ 非法 token **必须显式报错**：认不出的写法不能当普通格名往下走（越界格名要到几何
+  计算时才炸，或干脆当成不存在的点）。本模块一律抛 `ValueError`，并由 `validate.py`
+  的 R002 兜住"没经过 parser 的路线"。
+- ⚠️ "去重"只在相邻同格时合并，且 shoot/scan **取并集**、`reverse` 不同则**绝不合并**
+  （否则倒车段丢失）；射击标记不能搬来搬去。
+- ⚠️ 插入 `SHOOT@` 候选链**不能在多个平行数组上各 insert 一次**（漏一个就静默错位）。
   本模块先算出整数索引区间，再对**已经构建好的** Waypoint 列表做一次切片拼接，天然不会错位。
 """
 
@@ -57,9 +57,9 @@ REVERSE_PREFIX = "R:"
 SHOOT_SUFFIX = "*"
 SHOOT_AT_PREFIX = "SHOOT@"
 
-#: 归一化时一律折成 `*` 的射击后缀（旧实现 1174-1178）
+#: 归一化时一律折成 `*` 的射击后缀
 SHOOT_SUFFIXES = frozenset({":SHOOT_STOP", ":SHOOT"})
-#: 纯扫描停站后缀（旧实现 1179-1180）—— 只剥后缀，**不射击**
+#: 纯扫描停站后缀 —— 只剥后缀，**不射击**
 SCAN_SUFFIXES = frozenset({":SCAN_STOP", ":SCAN"})
 #: 扫描后缀的归一形态（`:SCAN_STOP` / `:SCAN` 都折成它，回写时短一档）
 SCAN_CANON = ":SCAN"
@@ -68,7 +68,7 @@ SCAN_CANON = ":SCAN"
 #: 不改变 `pursuit/**` 与 `tasks/tracker.py` 的任何行为（那些模块不读这个字段）。
 #: 回写顺序：`R:` → 格名 → `*` → `:SCAN` → `:PIVOT` → `,x|,y`（朝向恒在最后）。
 PIVOT_SUFFIX = ":PIVOT"
-#: 终点朝向后缀（旧实现 1108-1117）
+#: 终点朝向后缀
 HEADING_SUFFIXES = frozenset({",X", ",Y"})
 #: 兼容写法：`,y` 也可被写成 `:y`（旧文档同时出现过；两者语义一致）
 _HEADING_ALT = (":Y", ":X")
@@ -135,7 +135,7 @@ def normalize_token(token: str) -> str:
     if not head:
         raise ValueError(f"token 缺少格名: {token!r}")
     if not head[0].isalpha():
-        # `*B5` / `,yN5` 这类"后缀跑到前面"的写法：旧实现会静默产出垃圾点，这里直接拦
+        # `*B5` / `,yN5` 这类"后缀跑到前面"的写法：若不拦会静默产出垃圾点，这里直接拦
         raise ValueError(f"格名必须以列字母开头: {token!r}")
 
     # ③ 组分隔符（`G:10`）折掉；剩下的非法残留（如 `K9:FOO`）必须报错，不许静默忽略
@@ -309,7 +309,7 @@ def parse_mission(tokens, *, shoot_planner: Callable[[str], Any] | None = None,
 
     :param tokens: token 序列；也接受**路线文件路径**或空格/逗号分隔的字符串。
     :param shoot_planner: `SHOOT@<靶标>` 的候选点计算器，返回候选格名序列。
-        缺省 = 靶标自身一格（旧实现 `_load_shoot_planner` 失败时的降级行为，1812-1840）。
+        缺省 = 靶标自身一格（shoot_planner 不可用时的降级行为）。
     :param name: 路线名（日志/回溯用）。
 
     非法 token、越界格名、**中间点带朝向后缀**一律抛 `ValueError`。
@@ -383,9 +383,9 @@ def parse_mission(tokens, *, shoot_planner: Callable[[str], Any] | None = None,
 def _dedup_waypoints(route: Route) -> Route:
     """相邻同格 **且 reverse 相同** → 合并（shoot/scan/pivot 取并集）；reverse 不同绝不合并。
 
-    以现场路线 `F11 / E11 / R:F11 / F10` 为例：`R:F11` 与它前面的 `E11` 不同格（不合并），
+    以 `F11 / E11 / R:F11 / F10` 为例：`R:F11` 与它前面的 `E11` 不同格（不合并），
     与它后面的 `F10` 也不同格；而同格的 `R:F11` 出现在 `E11` 之后，段 `E11 -> F11` 才是倒车段。
-    旧实现（1195-1196）明说：`B5 R:B5` 若合并，倒车段就丢了。
+    `B5 R:B5` 若合并，倒车段就丢了（所以绝不合并）。
     """
     merged: list[Waypoint] = []
     for wp in route.waypoints:
@@ -441,7 +441,7 @@ def detect_crossing(route: Route) -> dict:
 def parse_reset(spec: str) -> tuple[str, float]:
     """``'N10,y'`` -> ``('N10', π/2)``；``'N10'`` / ``'N10,x'`` -> ``('N10', 0.0)``。
 
-    与 `reset:BLOCK,HEAD` 的旧语义一致（旧实现 972-1006）：belief = 目标格心 + 目标朝向。
+    与 `reset:BLOCK,HEAD` 的语义一致：belief = 目标格心 + 目标朝向。
     非法格名抛 `ValueError`；`R:` / `*` / 扫描后缀出现在复位串里同样视为非法。
     """
     if not isinstance(spec, str) or not spec.strip():

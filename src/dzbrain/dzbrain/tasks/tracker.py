@@ -83,8 +83,8 @@ PIVOT_DONE_KEY = "pivot_done"
 #: 允许循迹的阶段（★ 白名单而不是黑名单：将来新增的阶段默认**不动车**，失败偏安全）
 ACTIVE_PHASES: tuple[str, ...] = (MissionPhase.DRIVE, MissionPhase.APPROACH)
 
-#: 明令刹车的阶段（`P1接口约定.md` §3.2 列出的六个 + ★t32 的桥前等待 HOLD）
-#: ★ t32 的仲裁就靠这张表：`HOLD` **不在** `ACTIVE_PHASES`（白名单）里 ⇒ Mission 一切到 HOLD，
+#: 明令刹车的阶段（`P1接口约定.md` §3.2 列出的六个 + ★桥前等待 HOLD）
+#: ★ 仲裁就靠这张表：`HOLD` **不在** `ACTIVE_PHASES`（白名单）里 ⇒ Mission 一切到 HOLD，
 #:   Tracker 每拍都走 `_hold()` → `publish_brake()`；驱动指令仍只有 Tracker 一个写者。
 BLOCKED_PHASES: tuple[str, ...] = (MissionPhase.IDLE, MissionPhase.STOP, MissionPhase.SHOOT,
                                    MissionPhase.WAIT_SCAN, MissionPhase.HOLD,
@@ -120,7 +120,7 @@ class TrackerTask(TaskThread):
         self._max_steer_rate_deg_s = float(cfg.get("pursuit.max_steer_rate_deg_s"))
         self._min_speed_mps = float(cfg.get("pursuit.min_speed_mps"))
         self._cruise_mps = float(cfg.get("pursuit.cruise_speed_mps"))
-        # ★ t36 动态档：**默认关闭**（False ⇒ 下面 _gear_cruise() 恒返回 None
+        # ★ 动态档：**默认关闭**（False ⇒ 下面 _gear_cruise() 恒返回 None
         #   ⇒ compute_command 收到的 cruise_mps 就是 None ⇒ 与历史逐位一致）
         self._gear_enabled = bool(cfg.get("pursuit.dynamic_gear_enabled", False))
         self._gear_last: tuple[str, float] | None = None
@@ -132,7 +132,7 @@ class TrackerTask(TaskThread):
         self._route_id: int | None = None
         self._seg_s: float | None = None            # 上一拍投影弧长（下一拍 s_hint）
         self._last_steer_deg: float | None = None
-        #: ★t38：上一拍**命令**速度（m/s，恒 ≥0；倒车取 abs）。喂给 `speed_profile()` 的
+        #: 上一拍**命令**速度（m/s，恒 ≥0；倒车取 abs）。喂给 `speed_profile()` 的
         #: `last_speed_mps` ⇒ 让 `pursuit.accel_up_mps2/accel_down_mps2` 的加减速斜坡真正生效
         #: （两键缺省 0.0 时该层不参与，与旧版逐位一致）。首拍 = None ⇒ 整层不参与。
         self._last_cmd_speed: float | None = None
@@ -373,7 +373,7 @@ class TrackerTask(TaskThread):
         #  没有这个出口会怎样（实闭环 bench 实测，最严重的后果）：
         #    tracker 的 s 冻在 **7.70**（第 16 段）而车实际已在 **16.30**（第 32 段）——
         #    同一个信念位姿、两个写入者差 **8.6 m**；tracker 于是追着幻影目标开，
-        #    虚拟小车**最大横向偏差 4.101 m**、只走到第 18/34 点。
+        #    虚拟小车**最大横向偏差 4.101 m**、只走到第 18/44 点。
         #  机制：`s_hint` 每拍跟随上一拍的 s ⇒ 窗口（±0.6 m）+ 地板一起把错误的 s
         #  变成自洽的不动点，车走多远都拉不回来。
         #  仿真的 `_project_with_floor` 一直有同样的出口（`release_dist`），实车代码此前没有
@@ -409,10 +409,10 @@ class TrackerTask(TaskThread):
                 self._s_floor = v_s
 
         is_rev = path.segment_is_reverse(proj.seg_index)
-        # ★ t36 动态档（**默认关闭**）：开启时按"车到下一个桥洞格的直线距离"选 0.35/0.40；
+        # ★ 动态档（**默认关闭**）：开启时按"车到下一个桥洞格的直线距离"选 0.35/0.40；
         #   关闭时 `gear is None` ⇒ `compute_command(cruise_mps=None)` ⇒ 与历史**逐位一致**。
         gear = self._gear_cruise(pose, route, proj, now)
-        # ★ t21：把黑板交给速度剖面 —— `P_MOTION_LIMIT`（Localization 写的限速/停机请求）
+        # 把黑板交给速度剖面 —— `P_MOTION_LIMIT`（Localization 写的限速/停机请求）
         #   由此真正生效。**无信号（键不存在/None/载荷非法）时读侧完全 no-op**，命令与
         #   不传 `bb` 时逐位一致（`pursuit.controller.motion_limit_speed_limit` 的契约、
         #   `tests/test_tracker.py §11` 与 `tests/test_motion_limit.py` 双重钉住）。
@@ -422,7 +422,7 @@ class TrackerTask(TaskThread):
                                               dt=dt, bb=self.bb,
                                               last_speed_mps=self._last_cmd_speed,
                                               cruise_mps=gear)
-        #: ★t38：记下本拍**控制器输出**的命令速度（t37 规格 §④ 的字面口径 `abs(cmd.linear_x)`），
+        #: 记下本拍**控制器输出**的命令速度（规格 §④ 的字面口径 `abs(cmd.linear_x)`），
         #:  供下一拍斜坡用；`abs` 兼容倒车（倒车命令为负）。位置紧跟调用点：只记"速度剖面产物"，
         #:  不掺 align 分支的定点速度（否则会与斜坡历史混源）。
         self._last_cmd_speed = abs(cmd.linear_x)
@@ -501,7 +501,7 @@ class TrackerTask(TaskThread):
             "dist_to_path": float(proj.dist), "curvature": float(cmd.curvature),
             "speed_reason": cmd.speed_reason, "reason_tag": reason_tag,
             "lookahead_m": float(lookahead_distance(self._cruise_mps, self.cfg)),
-            # ★ t36 动态档：当拍档位也进遥测（关闭时恒为 None / "off"，与历史一致）
+            # ★ 动态档：当拍档位也进遥测（关闭时恒为 None / "off"，与历史一致）
             "gear_mps": (None if gear is None else float(gear)),
             "gear": ("off" if gear is None else str((self._gear_last or ("?",))[0])),
             "align_segments": sorted(self._align_segs),
@@ -529,7 +529,7 @@ class TrackerTask(TaskThread):
     def _dist_to_next_cross(self, pose, route: Route | None, proj: Projection | None):
         """车到**前方最近一个桥洞格（K 列）**的直线距离；前方没有桥洞 / 缺信息 → `None`。
 
-        ★ t36：判据只看"洞"（`route.crossing` 的格心），不看路线弧长 —— 距离是现场可量的、
+        判据只看"洞"（`route.crossing` 的格心），不看路线弧长 —— 距离是现场可量的、
           也是无人机情报（洞的位置）直接对应的量；用弧长会把"绕行逼近"算成很远。
         """
         if pose is None or route is None or proj is None:
@@ -549,7 +549,7 @@ class TrackerTask(TaskThread):
 
     def _gear_cruise(self, pose, route: Route | None, proj: Projection | None,
                      now: float) -> float | None:
-        """★ t36 动态档：返回本拍要用的巡航速度（`None` = 不覆盖 ⇒ 逐位同历史）。
+        """★ 动态档：返回本拍要用的巡航速度（`None` = 不覆盖 ⇒ 逐位同历史）。
 
         关闭时**一行都不写黑板、不算距离**（`self._gear_enabled` 为 False 直接返回 None）；
         开启时按桥洞远近选档，并把"当拍档位"写进遥测与黑板观测键 `P_PURSUIT_GEAR`（日志限流）。

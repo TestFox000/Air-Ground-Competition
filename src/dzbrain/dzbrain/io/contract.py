@@ -188,10 +188,10 @@ class MissionPhase:
     STOP = "STOP"
     SHOOT = "SHOOT"
     WAIT_SCAN = "WAIT_SCAN"
-    #: ★ 卡 t32：桥前等待（到达 L10 决策点后、两半场情报未齐时**保持**）。
+    #: 桥前等待（到达 L10 决策点后、两半场情报未齐时**保持**）。
     #:   语义 = "Mission 让位、车停着等情报"：不在 `tracker.ACTIVE_PHASES` 里
     #:   ⇒ TrackerTask 每拍走它自己的 `_hold()` 分支（`publish_brake()`），
-    #:   不需要第二个驱动指令写者（arbitration 见 `tasks/mission.py` 卡 t32 段）。
+    #:   不需要第二个驱动指令写者（arbitration 见 `tasks/mission.py` 的桥前等待段）。
     HOLD = "HOLD"
     FINISH = "FINISH"
     SAFE_STOP = "SAFE_STOP"

@@ -39,7 +39,7 @@
 * `h_cost[(a, b)][ha][hb]` = 带朝向的精确代价（朝向轮用）。
 
 两者交替优化（顺序 → 朝向 → 顺序 …，最多 3 轮），起点朝向 = **设计常量 `START_HEADING`**
-（车头 +y，见常量区「卡 t13」说明），与 `mission.reset` 无关。
+（车头 +y，见常量区「起始航向」说明），与 `mission.reset` 无关。
 2-opt 反转子段时，两端的朝向选择会自动重新评估（成本函数里每次都取当前朝向）。
 
 --------------------------------------------------------------------------------
@@ -108,7 +108,7 @@ __all__ = [
     "mark_pivots",
     "DIRS",
     "DEFAULT_MAX_SECONDS",
-    # ★ 卡 t13：起始航向 = 设计常量（+y），两引擎共用；见常量区的说明
+    # 起始航向 = 设计常量（+y），两引擎共用；见常量区的说明
     "START_HEADING",
     "START_HEADING_YAW",
     "PIVOT_MARK_DEG",
@@ -117,7 +117,7 @@ __all__ = [
     "MINE_TURN_PENALTY",
     "BARRIER_TURN_PENALTY",
     "straighten_mines",
-    # ★★ t7 tracker-safe 引擎（自动规划追平手工 62 点；见文件末尾那一节）
+    # tracker-safe 引擎（自动规划追平现役图路线；见文件末尾那一节）
     "plan_route_tracker_safe",
     "TS_TURN_W",
     "TS_MINE_TURN_PENALTY_M",
@@ -126,15 +126,15 @@ __all__ = [
     "TS_MAX_TURN_DEG",
     "TS_MINE_STRAIGHT_DEG",
     "TS_MAX_SECONDS",
-    # ★ t19：顺序 DP 的到达状态上限（Pareto 截断，现役图恒不触发）
+    # 顺序 DP 的到达状态上限（Pareto 截断，现役图恒不触发）
     "TS_PARETO_KEEP",
-    # ★★ 卡 t4：桥洞进洞侧冗余墙（规划器侧判据 + 兜底长度）
+    # 桥洞进洞侧冗余墙（规划器侧判据 + 兜底长度）
     "BRIDGE_ENTRY_REDUNDANCY_M",
     "BRIDGE_ENTRY_CLEAR_EPS",
     "BRIDGE_ENTRY_SAMPLES",
-    # ★★ 卡 t6：进洞前对正惩罚（洞口前 1 格 90° 拐弯 ⇒ 罚，驱动拐弯顶点前移）
+    # 进洞前对正惩罚（洞口前 1 格 90° 拐弯 ⇒ 罚，驱动拐弯顶点前移）
     "BRIDGE_APPROACH_ALIGN_PENALTY_M",
-    # ★★ 卡 t3：停站点视线判据（隔板背后的格不算候选）
+    # 停站点视线判据（隔板背后的格不算候选）
     "barrier_sight_blocked",
     "SHOOT_DISTANCE_M_DEFAULT",
     "SHOOT_DISTANCE_TOL_M_DEFAULT",
@@ -150,17 +150,17 @@ DIRS: tuple[tuple[int, int], ...] = ((-1, 0), (0, -1), (1, 0), (0, 1))
 TURN_LEFT, TURN_RIGHT = -1, +1
 HEAD_NAMES = ("北(行号减小)", "西(列号减小)", "南(行号增大)", "东(列号增大)")
 
-#: ★★ 卡 t13：**起始航向 = 设计常量**（用户定案；不再由 `mission.reset` 反推）。
+#: **起始航向 = 设计常量**（用户定案；不再由 `mission.reset` 反推）。
 #:
 #: 现场约定：每次发车，车都摆在起点格（现场图 = `N10`）、**车头水平朝图左** ——
 #: 即朝 K 列桥洞方向、列号减小方向，也就是地图 `+y`（`geometry.HEADING_Y`）
 #: = `HEAD_NAMES[1]`「西」。**摆位由现场用户保证**，判据里不需要、也不允许有
-#: "摆错就拒绝发车"这类校验（卡 t13 明文）。
+#: "摆错就拒绝发车"这类校验（用户定案）。
 #:
 #: 规划器把这个常量当**设计输入**：**不为起点生成任何转向消解** ——
 #: ① 不按 `mission.reset` 反推朝向（旧实现把 `reset_yaw` 当起点朝向真源）；
 #: ② 不再在"起点朝西不可行"时把起点朝向改成朝 X+（那是一条静默的朝向改写）。
-#: 现场图 `N10 → M10` 本来就是 +y ⇒ 输出与历史**逐字节一致**（本卡零影响契约）。
+#: 现场图 `N10 → M10` 本来就是 +y ⇒ 输出与历史**逐字节一致**（零影响契约）。
 START_HEADING: int = 1                     # DIRS 索引：1 = 西 = 列号减小 = +y
 START_HEADING_YAW: float = geo.HEADING_Y   # 同一朝向的地图 yaw（+π/2）
 
@@ -203,7 +203,7 @@ PIVOT_PENALTY = 5.0
 #: ★★ 雷心必须被**车心**压过（用户 2026-10-11 口径）：参考折线到每个雷格中心的
 #: 最近距离 ≤ 该容差（米）。实现见 `straighten_mines()` —— 把雷格做成"进—雷—出"
 #: 三点直线的**中点**，纯追踪于是沿直线穿过雷心；不这么做的后果有实测依据：
-#: ① 90° 拐角处的雷被切角"擦过"（t8 报告 §3.5：C5 差 3.1 cm、I8 差 2.7 cm）；
+#: ① 90° 拐角处的雷被切角"擦过"（取证报告 §3.5：C5 差 3.1 cm、I8 差 2.7 cm）；
 #: ② 180° 折返顶点上的雷更糟：`pursuit.pivot_dist_m=0.25` 让车在距顶点 0.25 m 处
 #:    就掉头，车心**根本到不了**雷心（A9 实测差 12.7 cm）。
 MINE_PRESS_TOL_M = 0.03
@@ -220,29 +220,29 @@ MINE_TURN_PENALTY = 2.0
 #: 访问顺序与段路径一起改掉，而不是"便宜就认了"。
 #: ★ 默认值（`plan_route` 的键缺失回落到 **0.0**）刻意是 **0.0**：关闭 = 与历史
 #: `route.tokens` / 四处逐 token 恒等式逐字一致。启用由 `planner.barrier_turn_penalty`
-#: 决定（本模块不替现场做启用决定，见任务卡 t6 的写域限制）。
+#: 决定（本模块不替现场做启用决定）。
 BARRIER_TURN_PENALTY = 8.0
 
-#: ★★ t23：**过门转弯点**离隔板东端的**几何**要求（取代 t21 的固定 0.5 m 阈值）。
+#: **过门转弯点**离隔板东端的**几何**要求（几何推导，不是固定阈值）。
 #: 用户 2026-10-11 口径：`所需余量 ≥ R·sinθ + w/2·cosθ`，其中
 #:   · `R = wheelbase / tan(max_steer)` —— **同源取 `pursuit.wheelbase_m` / `pursuit.max_steer_deg`**，
 #:     绝不在本模块写常量（现场 `0.157/tan30° = 0.27193 m`）；
 #:   · `w/2` = 车半宽（`vehicle.width_m / 2`，现场 0.0675 m）；
 #:   · `θ` = 过门那次转弯的角度（现场 90° ⇒ 所需 0.2719 m）。
-#: ★ 与 t21 的差别（本卡要点）：t21 用固定 **0.5 m** ⇒ 只有 A(1.050)/B(0.700) 合规、C(0.350) 判红；
+#: ★ 与固定阈值方案的差别：固定 **0.5 m** ⇒ 只有 A(1.050)/B(0.700) 合规、C(0.350) 判红；
 #:   几何化后 90° 只需 **0.2719 m** ⇒ **C 列其实合规**（0.350 > 0.2719）。
 #:   用户要求"按几何推导取代固定阈值"正是为此。默认权重 0.0 ⇒ 零影响。
 DOOR_TURN_PENALTY = 6.0
 
-#: ★ t21 / t16 约束②：最外行/列的雷，**进入该行/列的那次转弯**必须离雷 ≥ 该格数。
-#: 理由（t16 §4）：转弯点贴着外行/列的雷时，纯追踪以 0.18~0.21 m 横向偏移骑到边界外侧
+#: ★ 约束②：最外行/列的雷，**进入该行/列的那次转弯**必须离雷 ≥ 该格数。
+#: 理由（§4）：转弯点贴着外行/列的雷时，纯追踪以 0.18~0.21 m 横向偏移骑到边界外侧
 #: （hand_v1 出场地车心 3.2 cm 就是这么来的）；"先长直再横穿"的走法偏移只有 0.065 m。
 EDGE_MINE_TURN_MIN_CELLS = 2
 #: 约束② 的软代价权重（等效代价单位/处）。**0.0（默认）= 关闭**。
 EDGE_MINE_TURN_PENALTY = 6.0
 
 #: 单次规划的时间预算（秒）。超了抛 `PlannerError`，绝不静默给半成品路线。
-#: ★★ t7 修正（t8 门禁抓到的 flake）：0.8 → **2.0 s**。
+#: ★★ 预算修正（门禁负载下曾出现 flake）：0.8 → **2.0 s**。
 #:   实测（本机，现役图 config/map.yaml）`plan_route(allow_reverse=False, pivot_penalty=5.0)`
 #:   单次耗时 **0.55 s**（8/8 次跑在 548~569 ms），离旧默认 0.8 s 只有 0.25 s 余量；
 #:   在 4 忙核下 `test_planner.py:647` 那次调用稳定超时（单跑 5/5 绿 ⇒ 纯负载敏感 flake）。
@@ -259,8 +259,8 @@ MAX_2OPT_PASSES = 6
 MAX_HOP_BLOCKS = 2
 #: ★ 出车前校验器 `tools/route_check.py` 的**实际接受窗口**（该文件第 579 / 615-618 行）：
 #:     ``SHOOT_DIST_MIN - 0.03 <= d <= SHOOT_DIST_MAX + 0.06``
-#: 即 0.17 ~ 0.51 m。现场手写路线的 `G10*` 正是靠这个容差才算"同时覆盖 G11 与 H11"
-#: （`G10`→`G11` 0.35 m、`G10`→`H11` 0.495 m > 0.45 m 的标称上限）。
+#: 即 0.17 ~ 0.51 m。一个停站格能同时服务两个靶格，正是靠这个容差
+#: （例如到两靶格分别 0.35 m / 0.495 m，后者超过 0.45 m 的标称上限）。
 #: 本规划器把它作为**唯一真相的接受判据**（显式写出，不是偷偷放宽）：规划器自己不发明
 #: 阈值，接受窗口由"最终会被执行的那条校验规则"决定。
 ROUTE_CHECK_TOL_LO = 0.03
@@ -368,12 +368,12 @@ class Grid:
         #: 180° 折返 = 正向开进死格、原地转向（2×COST_TURN）后正向开出 ——
         #: 顶点处由 TrackerTask 自动 PIVOT。默认 True = 旧行为（允许倒车）。
         self.allow_reverse = bool(allow_reverse)
-        #: ★★ 隔板相邻行"行内 90° 转向"的**最小安全裕度**（米，任务卡 t6）：
+        #: ★★ 隔板相邻行"行内 90° 转向"的**最小安全裕度**（米）：
         #: 行心到隔板只有半格（0.175 m），这个值就是"行内必须留出的摆动空间"。
         #: `0.0`（默认）= 判据按纯几何生效。
         #: 放在 `Grid` 上而不是多开一个函数参数：判据 `_barrier_turn_cell()` 与
         #: 代价函数 `_moves()` 都要用它，挂在地图对象上最不容易漏传。
-        #: ★★ t13（spec 增补 §H.2）：负值不再"关闭该判据" —— 旧文档的"负值 = 只报不拦"
+        #: ★★ 负值不再"关闭该判据" —— 旧文档的"负值 = 只报不拦"
         #:   是一个放宽开关，与"硬约束不得放宽"冲突，已在构造口钳位为 0.0。
         #:   想关判据请改判据本身（并给出物理依据），不允许留暗门。
         self.barrier_turn_margin_m = max(0.0, float(barrier_turn_margin_m))
@@ -381,7 +381,7 @@ class Grid:
         for cell in spec.obstacles:
             row_idx, col_idx = geo.block_to_index(cell)
             self.blocked.add((row_idx + 1, col_idx))
-        # ---------- ★★ 跨格靶板 = 占两格的**实体**，同样不可压过（任务卡 t10） ----------
+        # ---------- ★★ 跨格靶板 = 占两格的**实体**，同样不可压过 ----------
         # 用户 2026-10-11 裁定：「C1+D1 是一块跨格靶板，**所有靶子都是一个占用两格的跨格靶板**」。
         # 为什么必须"拉黑"而不是"加代价"：靶板是**物理实体**，压过去就是撞板；加代价只能表达
         # "尽量别压"。现场实测（`_tmp_session/n8_newmap/报告_跨格靶板约束.md`）现路线在新图确实
@@ -391,7 +391,7 @@ class Grid:
         #   · **通行**判据问"车能不能开进这一格" → 靶板是实体，答案永远是不能；
         #   · **停站**判据问"站在这儿能不能打到靶板" → 停站是靶格的**正交邻居**，
         #     本来就不是靶格自身（`shoot_candidates()` 取的正是 `DIRS` 邻居；
-        #     现场图 `G10` 同时服务 `G11`/`H11` 就是这种点）。
+        #     现场图 `D3`/`G3` 分居 `E5`/`F5` 靶板两侧就是这种点）。
         #   ⇒ 拉黑靶格**自动**把靶格剔出射击候选（`shoot_candidates` 用 `grid.passable()` 筛邻居），
         #     而"邻近停站仍能打到靶板"这条完全不受影响（见 `shoot_candidates` 的注释）。
         #
@@ -445,7 +445,7 @@ class Grid:
          ④ **只在桥洞行进出 K 列**（R007：每半场恰好一次穿越；非桥洞行进出会多算穿越，
             行为上也是撞桥墩）。K 邻列的斜切同时被本条拦掉（R009 的 10° 上限）。
 
-        ★★ 前置断言（任务卡 t17 / t14 建议）：**每一步必须是正交相邻的一格**，
+        ★★ 前置断言：**每一步必须是正交相邻的一格**，
         即 `abs(drow) + abs(dcol) == 1`。为什么加：现在"恒正交相邻"是靠调用链
         （`_moves()` 只按 `DIRS` 产出单位步）**隐式**保证的；一旦将来有人在这里塞
         "跳格移动"（例如为了走对角线而直接跳到隔一格），下面的 ③/④ 判据全部只在
@@ -478,15 +478,14 @@ class Grid:
     def _build_danger(self) -> list[list[float]]:
         """障碍安全势场。**只由 `hazard_cells`（= 障碍）生成，不由靶板生成。**
 
-        ★★ 为什么必须分开（任务卡 t10 的关键）：靶板与障碍虽然**都不可通行**，
+        ★★ 为什么必须分开：靶板与障碍虽然**都不可通行**，
         但它们的"势场语义"不同：
           · 障碍（水桶）：会挡视线、蹭上去风险高 → 附近加软代价让路线离远点；
-          · 靶板：是**该去打的目标**，射击停站本来就必须紧贴它（现场图 `F10`/`G10`
-            服务 `F11`/`G11`）—— 给靶板加同样的"离远点"势场，等于**反着用力**。
+          · 靶板：是**该去打的目标**，射击停站本来就必须紧贴它（现场图 `D3`/`G3`
+            分居 `E5`/`F5` 靶板两侧）—— 给靶板加同样的"离远点"势场，等于**反着用力**。
         实测踩到的后果：把靶格并进 `blocked` 后，`F10` 的势场从 0.4 抬到 0.9
         （它同时被 `F11`+`G11` 两个"假障碍"覆盖），于是 `E9→F10`/`F10→E10` 的腿各贵
-        0.5 —— 射击停站从 `G10` 被挤到 `F10`，现图路线 54→53 token，
-        且新路线仿真 **越界 196 拍**（`_tmp_session/t11_target_block/probe_delta.txt`）。
+        0.5 —— 射击停站被挤离原位，且新路线仿真**越界**（`_tmp_session/t11_target_block/probe_delta.txt`）。
         ⇒ **可通行性与势场必须解耦**：`blocked` 管"能不能走"（含靶板），
           `hazard_cells` 管"想不想靠近"（只有障碍）。
         """
@@ -511,7 +510,7 @@ class Grid:
 
 
 # --------------------------------------------------------------------------- #
-#  ★ 隔板相邻行的"死胡同式 90° 转向"（任务卡 t6 / n6）
+#  ★ 隔板相邻行的"死胡同式 90° 转向"
 # --------------------------------------------------------------------------- #
 #: ★★ 规划器的搜索状态：``(row, col, head)`` 在**开了隔板避让**时扩成
 #: ``(row, col, head, prev_head, prev_head_valid)`` —— 多带"上一段的行进朝向"，
@@ -522,7 +521,7 @@ _STATE_START = -1
 
 def _barrier_turn_cell(grid: Grid, row: int, col: int, prev_head: int, head: int,
                        margin_m: float | None = None) -> bool:
-    """★★ 当前格是不是"隔板相邻行的侧向 90° 转向"顶点（任务卡 t6）。
+    """★★ 当前格是不是"隔板相邻行的侧向 90° 转向"顶点。
 
     ---------- 现场机理（逐事件实测，见 `_tmp_session/t6_planner/probe_corner2.txt`） ----------
     隔板下方那一行（本图 = 第 7 行）只有 **0.175 m** 净宽（行心 `x=1.575` 到隔板 `x=1.75`），
@@ -530,10 +529,10 @@ def _barrier_turn_cell(grid: Grid, row: int, col: int, prev_head: int, head: int
     （`R = 0.157/tan30° = 0.272 m`，见 `docs/路线加固盘点与候选方案.md` §3）
     —— 走廊半格**物理上装不下**，车会甩进隔板。
 
-    `base_v015`（现 54 点路线 @0.15）实测 353 拍触线 = **2 个事件，全部**落在同一形态上：
+    `base_v015`（现场手工路线 @0.15）实测 353 拍触线 = **2 个事件，全部**落在同一形态上：
       · `N7`：车从 `N8` 沿行主轴（西）开到 `N7`，再转向南     —— 178 拍
       · `H7`：车从 `H8` 沿行主轴（西）开到 `H7`，再转向南     —— 175 拍
-    `A11_v015` 219 拍 = 1 个事件，同样是这一形态（`H7`）—— 这就是任务卡 ①
+    `A11_v015` 219 拍 = 1 个事件，同样是这一形态（`H7`）—— 这就是该约束①
     "A11 单独上车反而更差"的几何原因：A11 只是把另一处挪到了行 8，没消掉这一处。
     同行的另两类拐角（`J7` 西→北、`E7` 西→北）实测**都不触线**：车从行 8 北上进入行 7、
     再折向西，摆动被行 8 吸收 —— 所以判据必须**区分"来向"**，不能只按"在第 7 行转向"一刀切。
@@ -565,9 +564,9 @@ def _barrier_turn_cell(grid: Grid, row: int, col: int, prev_head: int, head: int
     bar_row = grid.barrier_lo                          # 隔板紧邻行（本图 = 第 7 行）
     if row != bar_row or grid.barrier_col <= 0:
         return False
-    # ★ t13 根因修正：隔板只存在于 barrier_col..N 列 —— A/B/C 列是**过板缺口**，那里
+    # 根因修正：隔板只存在于 barrier_col..N 列 —— A/B/C 列是**过板缺口**，那里
     #   没有隔板，行内转向物理上不可能蹭板。旧判据漏了列域，会把缺口处的合法转向
-    #   误判成危险形态（tour 侧 penalty 默认 0 所以从未暴露；t13 把判据接进
+    #   误判成危险形态（tour 侧 penalty 默认 0 所以从未暴露；把判据接进
     #   tracker-safe 的 turn_gate 硬否决前必须修，否则 ABC 走廊的转向全被误杀）。
     if col < grid.barrier_col:
         return False
@@ -590,7 +589,7 @@ def _barrier_turn_cell(grid: Grid, row: int, col: int, prev_head: int, head: int
         return False
     margin = (float(margin_m) if margin_m is not None
               else float(getattr(grid, "barrier_turn_margin_m", 0.0)))
-    if margin < 0.0:                                 # ★ t13：负值=关闭的旧暗门已封（钳到 0）
+    if margin < 0.0:                                 # ★ 负值=关闭的旧暗门已封（钳到 0）
         margin = 0.0
     # ★ 判据方向（本轮在这里踩了两次）：`margin_m ≥ 0` ⇒ **认定行内装不下侧向 90° 转向**
     #   （行内可用净宽只有半格 0.175 m，而侧向转向要吃掉整行可用宽度）⇒ 命中、拦下。
@@ -599,7 +598,7 @@ def _barrier_turn_cell(grid: Grid, row: int, col: int, prev_head: int, head: int
 
 
 def _door_turn_margin_m(grid: Grid, row: int, col: int) -> float:
-    """★★ 约束①（t16）：该格作为**过门转弯点**时，离隔板东端的余量（米）。
+    """★★ 约束①：该格作为**过门转弯点**时，离隔板东端的余量（米）。
 
     = `(index(barrier_col_from) − col) × 格宽`；现场 D 列 ⇒ A 1.050 / B 0.700 / C 0.350 /
     D 0.000 m。**只在隔板相邻行（`barrier_row_lo`，现场第 7 行）有意义**；其它行返回 +inf
@@ -617,7 +616,7 @@ def _door_turn_margin_m(grid: Grid, row: int, col: int) -> float:
 
 
 def _phys_params(cfg: "Config | None") -> dict:
-    """★ t23：从 config 读**物理几何**参数（真源在 `config/robot.yaml`，公式在 `physics.py`）。
+    """★ 从 config 读**物理几何**参数（真源在 `config/robot.yaml`，公式在 `physics.py`）。
 
     `None`（无 config，例如纯单元测试）⇒ 用 `physics.py` 的默认形参，行为等价于现场值。
     :return: ``{length_m, width_m, coverage_radius_m, obstacle_radius_m, mine_pad_m,
@@ -639,17 +638,17 @@ def _phys_params(cfg: "Config | None") -> dict:
         "obstacle_margin_m": float(g("planner.obstacle_margin_m", 0.02)),
         "wheelbase_m": float(g("pursuit.wheelbase_m", 0.157)),
         "max_steer_deg": float(g("pursuit.max_steer_deg", 30.0)),
-        # ★★ 卡 t4：桥洞进洞侧冗余长度（= 1/4 格）；缺 key ⇒ 兜底常量（与 YAML 同值）
+        # 桥洞进洞侧冗余长度（= 1/4 格）；缺 key ⇒ 兜底常量（与 YAML 同值）
         "bridge_entry_redundancy_m": float(
             g("field.bridge_entry_redundancy_m", BRIDGE_ENTRY_REDUNDANCY_M)),
-        # ★★ 卡 t6：进洞前 1 格拐弯的惩罚（米）；缺 key ⇒ 兜底常量（与 YAML 同值）
+        # 进洞前 1 格拐弯的惩罚（米）；缺 key ⇒ 兜底常量（与 YAML 同值）
         "bridge_approach_align_penalty_m": float(
             g("planner.bridge_approach_align_penalty_m", BRIDGE_APPROACH_ALIGN_PENALTY_M)),
     }
 
 
 def _door_turn_required_margin_m(turn_deg: float, phys: dict) -> float:
-    """★ t23：过门转弯所需的**最小余量**（几何推导，取代 t21 的固定 0.5 m）。
+    """★ 过门转弯所需的**最小余量**（几何推导，不是固定 0.5 m）。
 
     `所需余量 ≥ R·sinθ + w/2·cosθ`，其中 `R = wheelbase/tan(max_steer)`（与 `pursuit.*` 同源）、
     `w/2` = 车半宽、`θ` = 转弯角。
@@ -682,13 +681,13 @@ def _turn_deg_from_dirs(entry: int, leave: int) -> float:
 def _door_turn_margin_m(grid: Grid, row: int, col: int, *,
                         turn_deg: float = 90.0,
                         phys: "dict | None" = None) -> float:
-    """★★ t23（取代 t21）：该格作为**过门转弯点**时的**可用余量**（米）。
+    """★★ 该格作为**过门转弯点**时的**可用余量**（米）。
 
     = `(index(barrier_col_from) − col) × 格宽`；现场 D 列 ⇒ A 1.050 / B 0.700 / C 0.350 /
     D 0.000 m。**只在隔板相邻行（`barrier_row_lo`）有意义**；其它行返回 `inf`（不构成过门转弯）。
 
-    ⚠️ t21 版本返回的就是这个**可用余量**，而判据侧的阈值是**固定 0.5 m**；
-    t23 起阈值改成 `_door_turn_required_margin_m(turn_deg, phys)`（几何推导）——
+    ⚠️ 早期版本返回的就是这个**可用余量**，而判据侧的阈值是**固定 0.5 m**；
+    现在阈值改成 `_door_turn_required_margin_m(turn_deg, phys)`（几何推导）——
     调用方要比较 `可用余量 >= 所需余量`，**不要再写死 0.5**。
     """
     if row != grid.barrier_lo:
@@ -699,7 +698,7 @@ def _door_turn_margin_m(grid: Grid, row: int, col: int, *,
 def _obstacle_turn_clearance_m(grid: Grid, cell: tuple[int, int],
                               obstacles: Iterable[tuple[int, int]], *,
                               at_corner: bool = True, phys: "dict | None" = None) -> float:
-    """★ t23：该转弯点到最近**障碍柱心**的距离（米）—— 判据 `>= 所需中心距`。
+    """★ 该转弯点到最近**障碍柱心**的距离（米）—— 判据 `>= 所需中心距`。
 
     所需中心距 = `柱半径 + 车身半径 + 余量`（`physics.required_obstacle_center_distance_m`）：
       · **直段** `车身半径 = 车半宽 0.0675` ⇒ **0.215 m**；
@@ -719,7 +718,7 @@ def _obstacle_turn_clearance_m(grid: Grid, cell: tuple[int, int],
 
 
 def _required_obstacle_clearance_m(phys: dict, *, at_corner: bool) -> float:
-    """★ t23：障碍净空门槛（米）——直段用车身半径、拐角用扫掠半径，**不写常量**。"""
+    """★ 障碍净空门槛（米）——直段用车身半径、拐角用扫掠半径，**不写常量**。"""
     sweep, _r = _phys.sweep_radius(length_m=phys["length_m"], width_m=phys["width_m"],
                                    wheelbase_m=phys["wheelbase_m"],
                                    max_steer_deg=phys["max_steer_deg"])
@@ -731,7 +730,7 @@ def _required_obstacle_clearance_m(phys: dict, *, at_corner: bool) -> float:
 
 def _mine_pressed_at(cell: tuple[int, int], mine_cell: tuple[int, int],
                      phys: dict) -> bool:
-    """★ t23：车心在 `cell`（1-based 行）时，`mine_pad` 是否被压到（`physics.mine_pressed`）。
+    """★ 车心在 `cell`（1-based 行）时，`mine_pad` 是否被压到（`physics.mine_pressed`）。
 
     判据 = 车心 3.5 cm 圆与 **0.12×0.12 垫片**（中心在雷格格心）产生过重叠
     ⇔ 车心到垫片最近距离 ≤ `coverage_radius_m`。
@@ -746,7 +745,7 @@ def _mine_pressed_at(cell: tuple[int, int], mine_cell: tuple[int, int],
 
 def _edge_mine_turn_gap(seq_cell: tuple[int, int],
                         edge_mines: Iterable[tuple[int, int]]) -> int:
-    """★★ 约束②（t16）：该转弯点到"最外行/列雷"的最小曼哈顿格距。
+    """★★ 约束②：该转弯点到"最外行/列雷"的最小曼哈顿格距。
 
     返回格数（>=0）；`edge_mines` 为空时返回一个大数（= 无约束）。
     """
@@ -949,7 +948,7 @@ def turn_angle_deg(start: tuple[int, int], mid: tuple[int, int],
 
 
 def plate_center_m(spec: MapSpec) -> tuple[float, float]:
-    """靶板中心（★ 卡 t57）= **各靶格中心的算术中点**（米制，地图帧）。
+    """靶板中心 = **各靶格中心的算术中点**（米制，地图帧）。
 
     现场靶区是**一块跨格薄板**（第五张图 = `E5`+`F5` 两格 ⇒ 中心 = 两格心中点
     `(2.2750, 3.1500)`）。旧口径取"到**靶格**的距离"，而实际打的是**板心**：
@@ -964,10 +963,9 @@ def plate_center_m(spec: MapSpec) -> tuple[float, float]:
     return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
 
 
-#: ★ 卡 t57：SHOOT 停站点到**靶板中心**的距离窗口（米）。现场真源 =
+#: SHOOT 停站点到**靶板中心**的距离窗口（米）。现场真源 =
 #: `config/robot.yaml` 的 `route.shoot_distance_m` / `route.shoot_distance_tol_m`
-#: （t3 一版 1.00 / 0.11 ⇒ `F2`；★t3-A 裁决退一档 **0.90 / 0.12 ⇒ [0.78, 1.02]**，命中 `D3`，
-#: 板心 0.8750 m —— 1.00 档作废原因是 `F2` 把靶板甩到**车尾 170.5°**，超出云台 `∓150°`）；
+#: 现役值 **0.90 / 0.12 ⇒ 窗口 [0.78, 1.02]**（命中 `D3`，板心 0.8750 m）。
 #: 缺键时用本常量兜底（不硬编码第二份真源 ⇒ 必须与 `robot.yaml` 同值，`test_planner` 会钉）。
 SHOOT_DISTANCE_M_DEFAULT = 0.90
 SHOOT_DISTANCE_TOL_M_DEFAULT = 0.12
@@ -987,7 +985,7 @@ def shoot_distance_window(accept: tuple[float, float] | None = None) -> tuple[fl
 
 
 def plate_bisector_axis_m(spec: MapSpec) -> tuple[float, float]:
-    """轨道**垂直平分线**在网格坐标里的表达（★ 卡 t57 的排序依据）。
+    """轨道**垂直平分线**在网格坐标里的表达（排序依据）。
 
     靶板是**两格相连**的一处轨道靶区 ⇒ 两个格心连线就是轨道轴；其**垂直平分线**
     经过板心。网格上一般**不存在正好落在平分线上的格心**，所以口径是"**离平分线最近**"
@@ -1006,24 +1004,22 @@ def plate_bisector_axis_m(spec: MapSpec) -> tuple[float, float]:
 
 def barrier_sight_blocked(spec: MapSpec, p: tuple[float, float],
                           q: tuple[float, float]) -> bool:
-    """线段 `p→q` 是否被**隔板**挡住（★ 卡 t3）。
+    """线段 `p→q` 是否被**隔板**挡住。
 
     隔板 = 第 `barrier_row_hi` 与 `barrier_row_hi+1` 行之间、`barrier_col_from`~`N` 列
     的**一条连续直线**（现场 = 第 6/7 行之间 D~N，无缺口；见 `config/map.yaml`）。
     判据 = 线段在 x 方向**跨越**隔板所在 x（两行格心中点）且交点 y 落在隔板 y 区间内
     —— 与 `validate._barrier_crossing` 同一几何口径，只是这里判的是**视线**而不是行驶。
 
-    ★ 为什么需要它（卡 t3 实测，不是预防性设计）：
-      停站点从「板心 0.80 ± 0.10 m」推到「0.90 ± 0.12 m」（现役窗口 [0.78, 1.02]）后，落进窗口的可通行格里
-      同时出现了**隔板另一侧**的 `E8` / `F8`（到板心同样是 1.0645 m）。规划器原来只判
-      "距离 + `grid.passable()`"，会**优先选中它们**（在下半场走顺路、代价更低）；
-      而靶板在上半场、中间是 D~N 连续无缺口的隔板 ⇒ 视线被挡，物理上打不到。
+    ★ 为什么需要它（实测，不是预防性设计）：
+      窗口放宽后，落进窗口的可通行格里会同时出现**隔板另一侧**的 `E8` / `F8`
+      （到板心距离同样在窗口内）。规划器原来只判"距离 + `grid.passable()`"，
+      会**优先选中它们**（在下半场走顺路、代价更低）；而靶板在上半场、中间是
+      D~N 连续无缺口的隔板 ⇒ 视线被挡，物理上打不到。
       `tools/route_check.py` 与 `validate_route` 都**只查距离**，这种"看得见数字、
-      看不见墙"的停站点照样全绿（旧值 0.80 时唯一候选 `F3` 恰好在同侧，所以这个洞
-      一直没暴露）。故判据必须由规划器自己兜住。
-      ★ t3-A 之后窗口退到 [0.78,1.02]（停站 `D3`），**同侧候选已回到窗口内**、
-      `E8`/`F8` 也都在窗外 ⇒ 本判据在当前配置下"不触发"。但它是**窗口的函数**：
-      任何人再把窗口推远的档位都会立刻需要它（t3 一版的 1.00 档就是靠它才没选错点）
+      看不见墙"的停站点照样全绿 ⇒ 判据必须由规划器自己兜住。
+      现役窗口 [0.78,1.02]（停站 `D3`）下**同侧候选已在窗口内**、`E8`/`F8` 都在窗外
+      ⇒ 本判据当前"不触发"；但它是**窗口的函数**：任何人把窗口推远都会立刻需要它
       ⇒ 保留，不因"当前不触发"删掉。回归里由 `test_planner` 的 4b 段守"不许静默选错点"。
     """
     try:
@@ -1050,13 +1046,13 @@ def barrier_sight_blocked(spec: MapSpec, p: tuple[float, float],
 def shoot_candidates(spec: MapSpec, grid: Grid,
                      accept: tuple[float, float] | None = None,
                      *, pool: Sequence[str] | None = None) -> list[str]:
-    """SHOOT 停站点的候选格（★ 卡 t57 新口径）：到**靶板中心**距离落在窗口内的可通行格。
+    """SHOOT 停站点的候选格（新口径）：到**靶板中心**距离落在窗口内的可通行格。
 
-    ## 与旧口径的差别（本卡要点）
+    ## 口径说明
 
-    旧口径（t21 起）：候选 = 各靶格的**正交邻居**，且到**该靶格中心**的距离落在
+    旧口径（早期）：候选 = 各靶格的**正交邻居**，且到**该靶格中心**的距离落在
     `accept_window(0.20~0.45)` 内 —— 现役图命中 `E4`（到 E5 0.35 m）。
-    新口径（t57）：候选 = **任意**可通行格，且到**板心**距离落在
+    新口径：候选 = **任意**可通行格，且到**板心**距离落在
     `[目标 − 半宽, 目标 + 半宽]`（默认 **[0.70, 0.90]**）内；再排序取首选。
 
     ## 排序（定序三键，全序、确定性）
@@ -1071,7 +1067,7 @@ def shoot_candidates(spec: MapSpec, grid: Grid,
     `grid.passable()` 已含障碍/雷格/隔板/K 列桥洞约束（与规划器同源）；
     另显式剔除 `spec.obstacles` 与 `spec.mines`，避免"贴靶的雷格"被选中
     （实测：第五张图 `E3` 到板心 0.7215 m，与 `F3` 同距，但 `E3` 是**雷**必须排除）。
-    ★ 卡 t3 再剔除**视线被隔板挡住**的格（`barrier_sight_blocked()`）—— 否则窗口放宽后
+    ★ 再剔除**视线被隔板挡住**的格（`barrier_sight_blocked()`）—— 否则窗口放宽后
     隔板另一侧的 `E8`/`F8`（板心同样 1.0645 m）会被当成合法停站点，而那堵墙
     `route_check` / `validate_route` **都不判**。
 
@@ -1131,7 +1127,7 @@ def covering_stops(spec: MapSpec, pool: Sequence[str],
                    accept: tuple[float, float] | None = None) -> dict[str, tuple[str, ...]]:
     """每个候选射击点**能覆盖到哪些靶格**（`block -> (靶格, ...)`），按接受窗口判。
 
-    ★ 卡 t57 口径变更（与 `shoot_candidates()` 同步）：判据从「到**靶格中心** ∈
+    ★ 口径（与 `shoot_candidates()` 同步）：判据从「到**靶格中心** ∈
     0.20~0.45（`accept_window(_limits(cfg))`）」改为「到**靶格中心** ∈ **板心窗口**
     `[目标 − 半宽, 目标 + 半宽]`」（默认 **[0.70, 0.90]**）。
     为什么必须同步：新口径把停站点推到离**板心** 0.70~0.90 m ⇒ 到"较远那个靶格"
@@ -1154,7 +1150,7 @@ def plate_side_of(spec: MapSpec, block: str) -> int:
     判据 = 该格相对板心的位移在 `plate_bisector_axis_m()` 上的投影符号。该轴垂直于靶板
     轨道（= 板面法向）⇒ 同一侧看到同一个板面；两侧看到**相反**的板面。
 
-    ★ 卡 t13 的物理依据：靶板一面蓝一面红，**蓝面朝向每局随机但恒定**。只打蓝、
+    ★ 物理依据：靶板一面蓝一面红，**蓝面朝向每局随机但恒定**。只打蓝、
     打红扣分 ⇒ 必须两侧各留一个停站，保证至少一侧必见蓝面（见 `second_shoot_stop`）。
     """
     if not block:
@@ -1175,7 +1171,7 @@ def plate_side_of(spec: MapSpec, block: str) -> int:
 
 def second_shoot_stop(spec: MapSpec, grid: Grid, primary: str,
                       accept: tuple[float, float] | None = None) -> str:
-    """★ 卡 t13：与主射击停站**分居板面两侧**的第二个停站候选（无解返回 `""`）。
+    """★ 与主射击停站**分居板面两侧**的第二个停站候选（无解返回 `""`）。
 
     筛选与排序完全复用 `shoot_candidates()`（窗口 / 可通行 / 视线不被隔板挡 / 三键定序），
     只多两条：① 必须在主停站的**对侧**（`plate_side_of` 符号相反）；② 必须与主停站一样
@@ -1372,7 +1368,7 @@ def _merge_duplicate_stops(stops: list[_Stop]) -> list[_Stop]:
 
 
 def _barrier_turn_stops(grid: Grid, stops: Sequence["_Stop"]) -> list[str]:
-    """★★ 在**编译后的逐点路线**里找出"隔板相邻行死胡同式 90° 转向"的顶点（任务卡 t6）。
+    """★★ 在**编译后的逐点路线**里找出"隔板相邻行死胡同式 90° 转向"的顶点。
 
     与 `_Tour.penalty_of()` 的同类判据相比，这一版**不依赖 `head_cost` 里的标称腿**，
     而是直接看编译出来的航点序列：对每个内部点，取"上一点的来向"与"下一点的去向"，
@@ -1402,7 +1398,7 @@ def mark_pivots(stops: list[_Stop], *,
 
     ★ 调用时机：必须在 `_merge_duplicate_stops` **之后**（否则索引会变），
       且只在**无倒车模式**下调用 —— 允许倒车模式下折返由 `R:` 完成，
-      不应出现 `:PIVOT` 声明（这也是 `--allow-reverse` 与卡 A 基线逐字节一致的结构性保证）。
+      不应出现 `:PIVOT` 声明（这也是 `--allow-reverse` 与历史基线逐字节一致的结构性保证）。
     ★ `:PIVOT` 只是声明：不打车、不停车、不改 `pursuit/**` 与 `tracker.py` 的行为。
     """
     marked: list[tuple[int, str, float]] = []
@@ -1518,9 +1514,9 @@ def check_route_structure(route: Route, spec: MapSpec, grid: Grid,
     这些是"规划器必须自己保证"的结构约束；完整校验仍以 `validate.validate_route`
     与 `tools/route_check.py` 为准（见 `tools/plan_route.py --check`）。
 
-    ★ 卡 t57：`acc` = 射击停站的 `(目标板心距离, 半宽)`（缺省用模块常量）。
+    `acc` = 射击停站的 `(目标板心距离, 半宽)`（缺省用模块常量）。
 
-    ★ 卡 t9（增量续算，**全部关键字参数，缺省 = 与旧行为逐位一致**）：
+    ★ 增量续算（**全部关键字参数，缺省 = 与旧行为逐位一致**）：
         · `expected_start`  —— 本轮起点（缺省 = `spec.start`）。增量续算时是 `from_cell`，
           车并不在地图起点，故不能拿 `spec.start` 判"起点错位"。
         · `already_covered` —— 已压格（只对**雷**生效）：已在其中 ⇒ 不再计入"雷漏压"。
@@ -1554,11 +1550,11 @@ def check_route_structure(route: Route, spec: MapSpec, grid: Grid,
     #   起点就在 K 列上）—— `validate._is_cross` 把**两半都算**成"朝 K 列推进/穿过它"。
     #   所以这里必须用 `validate.crossing_entries()`（**一次过洞 = 一条记录**，与 R007 的
     #   run 计数等价）来数次数；直接用 `_crossing_at_column` 会把现场路线
-    #   `L7->K7` + `K7->J7` 数成 2 次 ⇒ 自检误红（t7 2026-10-11 实测）。
+    #   `L7->K7` + `K7->J7` 数成 2 次 ⇒ 自检误红（2026-10-11 实测）。
     runs: list[tuple[str, str, tuple]] = list(V.crossing_entries(blocks))   # noqa: SLF001
     lower = [r for r in runs if V.LOWER_HALF_ROWS[0] <= round(r[2][0]) <= V.LOWER_HALF_ROWS[1]]
     upper = [r for r in runs if V.UPPER_HALF_ROWS[0] <= round(r[2][0]) <= V.UPPER_HALF_ROWS[1]]
-    # ★ 卡 t9：`crossing_halves=False` 的半场 = 穿越已在本轮之前完成 ⇒ 允许 0 次；
+    # `crossing_halves=False` 的半场 = 穿越已在本轮之前完成 ⇒ 允许 0 次；
     #   一旦路线里仍出现，下面的次数/方向判据照旧生效（不会因为开关而放过斜切/反向）。
     if crossing_halves[0]:
         if len(lower) != 1:
@@ -1588,7 +1584,7 @@ def check_route_structure(route: Route, spec: MapSpec, grid: Grid,
 
     stops = route.shoot_points()
     if spec.targets:
-        # ★ 卡 t13：射击停站从「恰好 1 个」放宽到「1~2 个」，且 2 个时必须**分居板面两侧**。
+        # 射击停站从「恰好 1 个」放宽到「1~2 个」，且 2 个时必须**分居板面两侧**。
         #   为什么放宽：靶板一面蓝一面红、蓝面朝向每局随机但恒定，只打蓝 ⇒ 单侧停站有
         #   50% 概率整场看不到合法面（现场实测就是这个坑）。两个停站 = 至少一侧必见蓝面。
         #   为什么不能更多：每多一个停站就多一次停站（30s 硬死线）+ 一段绕行，收益边际递减，
@@ -1602,7 +1598,7 @@ def check_route_structure(route: Route, spec: MapSpec, grid: Grid,
                     "2 个射击停站必须分居靶板两侧（实际同一侧/含板心平面: "
                     + " ".join(wp.block for _i, wp in stops) + "）")
         for _, wp in stops:
-            # ★ 卡 t57：窗口改为**靶板中心窗口**（默认 [0.70, 0.90] m），与
+            # 窗口改为**靶板中心窗口**（默认 [0.70, 0.90] m），与
             #   `shoot_candidates()`/`covering_stops()` 同源（真源 =
             #   `route.shoot_distance_m` ± `route.shoot_distance_tol_m`）。
             #   判据仍是"**每个**靶格都要被这个停站覆盖"——但覆盖区间换成板心窗口：
@@ -1767,7 +1763,7 @@ class PlanResult:
     shoot_stop: str = ""
     shoot_distance_m: float = 0.0
     shoot_targets: tuple[str, ...] = ()
-    #: ★ 卡 t13：第二射击停站（与 `shoot_stop` **分居板面两侧**；无解 = `""`）。
+    #: 第二射击停站（与 `shoot_stop` **分居板面两侧**；无解 = `""`）。
     #: 两侧各停一次是"蓝面朝向每局随机"的物理对策：至少一侧必见蓝面、必能打。
     shoot_stop2: str = ""
     shoot_distance_m2: float = 0.0
@@ -1791,7 +1787,7 @@ class PlanResult:
     pivot_penalty: float = 0.0
     #: "雷格不得作拐点"的惩罚权重（等效代价单位）；0.0 = 未启用
     mine_turn_penalty: float = 0.0
-    #: ★★ 隔板相邻行"死胡同式 90° 转向"的惩罚权重（任务卡 t6）；0.0 = 未启用
+    #: ★★ 隔板相邻行"死胡同式 90° 转向"的惩罚权重；0.0 = 未启用
     barrier_turn_penalty: float = 0.0
     #: ★★ 编译后路线里**实际残留**的隔板死胡同转向格名（启用惩罚时应为空；
     #: 非空即抛 `PlannerError`，这里只是留证据字段）
@@ -1888,22 +1884,22 @@ class _Tour:
         #: ★ 折返惩罚（等效代价单位/处）。0.0 = 关闭（允许倒车模式的默认值，
         #: 也是"加惩罚前 vs 后"对比实验的对照组）。
         self.pivot_penalty = max(0.0, float(pivot_penalty))
-        #: ★★ 隔板相邻行"死胡同式 90° 转向"的软代价（任务卡 t6）。0.0（默认）
+        #: ★★ 隔板相邻行"死胡同式 90° 转向"的软代价。0.0（默认）
         #: = 关闭（= `route.tokens`/历史逐 token 一致）；> 0 = 规划器主动避开这种转向
         #: （见 `_barrier_turn_cell`）。它同时进**洪泛代价**与**顺序惩罚** ——
         #: 前者决定"段路径往哪绕"，后者决定"访问顺序怎么排"，
         #: 两个都得看得到它，否则会出现"顺序层以为占了便宜、段路径层再偷偷加价"。
         self.barrier_turn_penalty = max(0.0, float(barrier_turn_penalty))
-        #: ★ t21 / t16 约束①：过门转弯点离隔板东端余量不足的软代价（0.0 = 关闭）。
+        #: ★ 约束①：过门转弯点离隔板东端余量不足的软代价（0.0 = 关闭）。
         self.door_turn_penalty = max(0.0, float(door_turn_penalty))
-        #: ★ t21 / t16 约束②：最外行/列雷附近转弯的软代价（0.0 = 关闭）。
+        #: ★ 约束②：最外行/列雷附近转弯的软代价（0.0 = 关闭）。
         self.edge_mine_turn_penalty = max(0.0, float(edge_mine_turn_penalty))
         #: 约束② 的作用对象（最外行/列的雷格，1-based 行）
         self.edge_mine_cells: set[tuple[int, int]] = set(edge_mine_cells)
-        #: ★ t23：圆柱障碍在**转弯点**的软代价（0.0 = 关闭）与作用格集合
+        #: 圆柱障碍在**转弯点**的软代价（0.0 = 关闭）与作用格集合
         self.obstacle_turn_penalty = max(0.0, float(obstacle_turn_penalty))
         self.obstacle_cells: set[tuple[int, int]] = set(obstacle_cells)
-        #: ★ t23：物理几何参数（`config` 的 vehicle/field/planner.* 键；见 `_phys_params`）
+        #: 物理几何参数（`config` 的 vehicle/field/planner.* 键；见 `_phys_params`）
         self.phys: dict = dict(phys) if phys else _phys_params(None)
         #: 是否记录"每对访问点最短腿的起步/末步朝向"——折返惩罚与
         #: `straighten_mines()`（雷心直线穿越）都要用它，故默认开启。
@@ -2037,12 +2033,12 @@ class _Tour:
 
     def penalty_of(self, seq: Sequence[tuple[int, int]]) -> float:
         """顺序里"不该有的动作"的总代价：折返 + 雷格作拐点 + 隔板死胡同转向
-        + **过门转弯余量不足**（t16 约束①） + **外行雷转弯贴太近**（t16 约束②）。
+        + **过门转弯余量不足**（约束①） + **外行雷转弯贴太近**（约束②）。
 
-        ★ 第三项（任务卡 t6）：顺序层里 `a → b → c` 若在 `b` 处构成
+        ★ 第三项：顺序层里 `a → b → c` 若在 `b` 处构成
         "横着切进隔板相邻行、再在行内 90° 转向"（`_barrier_turn_cell`），
         按 `barrier_turn_penalty` 计价。只用顺序相邻两点判据。
-        ★ 第四/五项（任务卡 t21）：见 `_door_turn_margin_m()` 与 `_edge_mine_turn_gap()`。
+        ★ 第四/五项：见 `_door_turn_margin_m()` 与 `_edge_mine_turn_gap()`。
         两者同结构：都是"顺序里某个**转弯点**违反了一条几何约束"⇒ 按次数计价；
         权重缺省 0.0 ⇒ 本函数与 v2.3 逐字节等价（零影响契约）。
         """
@@ -2078,7 +2074,7 @@ class _Tour:
                     continue                    # 非转弯点不问
                 if self.door_turn_penalty > 0.0:
                     row, col = seq[i]
-                    # ★ t23：阈值走**几何推导**（R·sinθ + w/2·cosθ），不再是固定 0.5 m
+                    # 阈值走**几何推导**（R·sinθ + w/2·cosθ），不再是固定 0.5 m
                     need = _door_turn_required_margin_m(
                         _turn_deg_from_dirs(entry, leave), self.phys)
                     if _door_turn_margin_m(self.grid, row, col) < need - 1e-12:
@@ -2088,7 +2084,7 @@ class _Tour:
                             < EDGE_MINE_TURN_MIN_CELLS:
                         total += self.edge_mine_turn_penalty
         if self.obstacle_turn_penalty > 0.0 and self.obstacle_cells:
-            # ★ t23：圆柱障碍在**转弯点**的净空（拐角用扫掠半径 ⇒ 门槛 0.3029 m）
+            # 圆柱障碍在**转弯点**的净空（拐角用扫掠半径 ⇒ 门槛 0.3029 m）
             threshold = _required_obstacle_clearance_m(self.phys, at_corner=True)
             for i in range(1, len(seq) - 1):
                 entry = self._entry_dir.get((seq[i - 1], seq[i]))
@@ -2185,7 +2181,7 @@ class _Tour:
                       fixed: dict[tuple[int, int], int] | None = None) -> list[int]:
         """给定顺序，最小化 `Σ pair_cost(i, i+1)` 的朝向序列（坐标下降）。
 
-        起点朝向 = 设计常量 `START_HEADING`（放在 `fixed` 里，卡 t13）；终点朝向自由
+        起点朝向 = 设计常量 `START_HEADING`（放在 `fixed` 里）；终点朝向自由
         （可在终点原地转向，代价由 `pair_cost` 的 `COST_TURN` 体现）。
         """
         fixed = dict(fixed or {})
@@ -2245,7 +2241,7 @@ def _limits(cfg: Config | None) -> tuple[float, float]:
 
 
 def _shoot_accept(cfg: Config | None) -> tuple[float, float]:
-    """★ 卡 t57：SHOOT 停站点到**靶板中心**的 `(目标距离, 半宽)`。
+    """★ SHOOT 停站点到**靶板中心**的 `(目标距离, 半宽)`。
 
     真源 = `Config` 的 `route.shoot_distance_m` / `route.shoot_distance_tol_m`
     （现场 `config/robot.yaml` 有就用现场的；缺键落到 `SHOOT_DISTANCE_*_DEFAULT`）。
@@ -2314,10 +2310,10 @@ def _u_shape_order(tour: "_Tour", start: tuple[int, int], end: tuple[int, int],
                    mines_lower: Sequence[tuple[int, int]], mines_upper: Sequence[tuple[int, int]],
                    cross_lower: tuple[int, int], cross_upper: tuple[int, int],
                    *, seed_from_cross: bool = False) -> list[tuple[int, int]]:
-    """★★ U 形单回路顺序（任务卡 t17）：把两个穿洞格**钉在各自半场的边界**上。
+    """★★ U 形单回路顺序：把两个穿洞格**钉在各自半场的边界**上。
 
     为什么需要它：`_Tour.polish()`（= 顺序↔朝向交替 2-opt）会在**整条 order** 上反转
-    任意子段，于是把 `cross_upper` 从"本半场末尾"挪到半场中间。实测（t17，第三张图
+    任意子段，于是把 `cross_upper` 从"本半场末尾"挪到半场中间。实测（第三张图
     K1+K11 那张）：
 
         polish 前  N10 K11 I7 D8 E10 C4 G4 F3 H2 B2 K1 N5   ← 合规形状
@@ -2325,7 +2321,7 @@ def _u_shape_order(tour: "_Tour", start: tuple[int, int], end: tuple[int, int],
         编译结果   … H1 I1 J1 K1 L1 … 且 `J1→K1` 出现两次
                    ⇒ `上半场应恰好穿洞 1 次，实际 2 次`
 
-    现场的手工路线（`_tmp_session/n11_newmap2/route_v3.txt`，62 token、`route_check` 0 error）
+    现役手工路线（`config/robot.yaml` 的 `route.tokens`，44 token、`route_check` 0 error）
     正是这个拓扑：**`cross_lower` 是本半场离开东区后的第一跳、`cross_upper` 是本半场
     回到东区前的最后一跳**。
 
@@ -2377,9 +2373,9 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
 
     :param map_cfg: `config/map.yaml` 的原始 dict（`{'map': {...}}`）；也接受 `MapSpec`
     :param cfg: `core.config.Config`；提供射击窗口、穿洞候选集合、代价项等
-        （★ 卡 t13 起**不再**从它读起点朝向：起始航向是设计常量 `START_HEADING`）
+        （**不再**从它读起点朝向：起始航向是设计常量 `START_HEADING`）
     :param cross_lower/cross_upper: 指定穿洞格（通常由无人机情报给出）；
-        ★t31：缺省用 `route.cross_*_default`；硬门 = **K 列 + 本半场行段**（下 7~11 / 上 1~6），行段外/非 K 列/坏格名才抛 `PlannerError`（候选集合只用来挑缺省洞，无人机情报可纠正过期地图）
+        缺省用 `route.cross_*_default`；硬门 = **K 列 + 本半场行段**（下 7~11 / 上 1~6），行段外/非 K 列/坏格名才抛 `PlannerError`（候选集合只用来挑缺省洞，无人机情报可纠正过期地图）
     :param max_seconds: 时间预算；超出抛 `PlannerError`
     :param allow_reverse: **False = 无倒车模式**（车上 dzbrain 的默认用法）。
         真车底盘不支持倒车（实测：负速度方向位被 STM32 无视），所以无倒车模式：
@@ -2388,12 +2384,12 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         ④ 合法性断言换成 `assert_legal_no_reverse`（0 段 `R:` + 折返声明完整且不虚报）。
         True = 旧行为（`R:` 倒车段处理死角），**默认值不变**（签名向后兼容）。
     :param pivot_penalty: 顺序搜索的折返惩罚（等效代价单位/处）。`None`（缺省）=
-        **跟随配置** `planner.pivot_penalty`（键缺失 → 0.0，行为与卡 A 基线一致）。
+        **跟随配置** `planner.pivot_penalty`（键缺失 → 0.0，行为与历史基线一致）。
     :param mine_turn_penalty: 顺序搜索里"**雷格不得作为拐点**"的惩罚权重。
         `None`（缺省）= 跟随配置 `planner.mine_turn_penalty`（键缺失 → `MINE_TURN_PENALTY`）。
         每压一个雷都要多 2 格路（进点/出点），这一项保证"宁可多绕一格，也不让雷被切角擦过"。
     :param barrier_turn_penalty: ★★ **隔板相邻行的行内 90° 转向** 的惩罚权重
-        （任务卡 t6）。`None`（缺省）= 跟随配置 `planner.barrier_turn_penalty`
+        `None`（缺省）= 跟随配置 `planner.barrier_turn_penalty`
         （**键缺失 → 0.0，行为与历史逐 token 一致**）。> 0 时：洪泛代价与顺序代价
         都会避开"横着切进隔板相邻行、再在行内 90° 转向"这一形态；规划结束后
         再做一次**硬校验**，若结果里仍存在该形态则抛 `PlannerError`（绝不静默降级）。
@@ -2425,7 +2421,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         barrier_turn_margin_m = float(V._cfg_get(                                      # noqa: SLF001
             cfg, "planner.barrier_turn_margin_m", 0.0) or 0.0)
     barrier_turn_margin_m = float(barrier_turn_margin_m)
-    # ★ t21 / t16 两条硬约束的权重（缺省 0.0 ⇒ 零影响，与 v2.3 逐字节一致）
+    # ★ 两条硬约束的权重（缺省 0.0 ⇒ 零影响，与 v2.3 逐字节一致）
     if door_turn_penalty is None:
         door_turn_penalty = float(V._cfg_get(                                          # noqa: SLF001
             cfg, "planner.door_turn_penalty", 0.0) or 0.0)
@@ -2434,7 +2430,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         edge_mine_turn_penalty = float(V._cfg_get(                                     # noqa: SLF001
             cfg, "planner.edge_mine_turn_penalty", 0.0) or 0.0)
     edge_mine_turn_penalty = max(0.0, float(edge_mine_turn_penalty))
-    # ★ t23：物理几何参数与"障碍转弯净空"权重（缺省 0.0 ⇒ 零影响）
+    # 物理几何参数与"障碍转弯净空"权重（缺省 0.0 ⇒ 零影响）
     phys = _phys_params(cfg)
     if obstacle_turn_penalty is None:
         obstacle_turn_penalty = float(V._cfg_get(                                       # noqa: SLF001
@@ -2444,7 +2440,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     start_cell, end_cell = _cell(spec.start), _cell(spec.end)
 
     # ---------------- 穿洞格（先定，再建带桥洞约束的栅格） ----------------
-    # ★ t31：权威门放宽（按 t11 §10 建议①、t23 复核）—— 判据从"必须在
+    # 权威门放宽 —— 判据从"必须在
     #   `route.cross_{half}_candidates ∩ map.bridges` 的池子里"放宽为
     #   **K 列 + 本半场行段**（下 K7~K11 / 上 K1~K6）：这样无人机的新鲜情报可以
     #   **纠正过期地图**（地图/候选还停在上一局、只开了别的洞时，行段内别的洞照样能走）。
@@ -2484,9 +2480,9 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         if not grid.passable(*cell):
             raise PlannerError(f"{half}穿洞格 {name} 是障碍格，无法通行")
 
-    # ---------------- 起点朝向 = 设计常量（卡 t13） ----------------
+    # ---------------- 起点朝向 = 设计常量 ----------------
     #   ★ 真源不再是 `mission.reset`（旧实现按 `reset_yaw` 反推，还会在"朝西不可行"时
-    #     把起点朝向改成朝 X+）—— 那正是本卡要删掉的"为起点生成转向消解"：
+    #     把起点朝向改成朝 X+）—— 那正是要删掉的"为起点生成转向消解"：
     #     现场约定车每次都摆在起点、车头恒定朝 +y（图左 / K 列方向），摆位由用户保证。
     #   ⇒ 只读设计常量：不校验、不拒绝、不改写（见 `START_HEADING` 的说明）。
     start_heading = START_HEADING
@@ -2563,9 +2559,9 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     order, heads, _ = tour.polish(order, heads, rounds=MAX_TOUR_ROUNDS - 1)
     if order[0] != start_cell or order[-1] != end_cell:
         raise PlannerError("内部错误：优化后起点/终点被挪动")
-    heads[0] = start_heading                          # 起点朝向 = 设计常量（卡 t13）
+    heads[0] = start_heading                          # 起点朝向 = 设计常量
     order_candidates: list[list[tuple[int, int]]] = [list(order)]
-    # ★★ U 形单回路**硬约束**兜底候选（任务卡 t17）——见 `_u_shape_order()` 的说明。
+    # ★★ U 形单回路**硬约束**兜底候选 ——见 `_u_shape_order()` 的说明。
     #   只在候选 1（现有行为：polish 整条）**结构自检失败**时才会被用到 ⇒
     #   对已经合规的地图（n8 图等）零影响。
     #   ★ 两个变体都试：`nearest(start, …)` 与 `nearest(cross_lower, …)` 的下半场顺序
@@ -2578,7 +2574,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                                            cross_lower_cell, cross_upper_cell,
                                            seed_from_cross=True))
 
-    # ---------------- 顺序候选（任务卡 t17：U 形单回路硬约束）----------------
+    # ---------------- 顺序候选（U 形单回路硬约束）----------------
     #   候选 1 = 现有行为（polish 整条）；候选 2 = U 形单回路（穿洞格钉在本半场边界）。
     #   依次编译并跑**结构自检**，取第一个通过的；两者都不通过 ⇒ 抛错（不静默降级）。
     #   ⇒ 对已经合规的地图（历史现图/n8 图）行为**逐字节不变**（候选 1 就通过，不会走到候选 2）。
@@ -2675,7 +2671,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                            crossing={"lower": lower_cross, "upper": upper_cross},
                            final_heading=_final_heading(_stops))
         problems = check_route_structure(_route, spec, grid, limits, _shoot_accept(cfg))
-        # ★★【硬校验】隔板相邻行的"侧向 90° 转向"（任务卡 t6）—— 与结构自检同层：
+        # ★★【硬校验】隔板相邻行的"侧向 90° 转向"—— 与结构自检同层：
         #   只在 `barrier_turn_penalty > 0`（显式启用）时生效；默认 0.0 ⇒ 恒空、零影响。
         _bturns: list[str] = []
         if barrier_turn_penalty > 0.0 and not problems:
@@ -2710,7 +2706,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
             warnings.append(
                 "雷心压过风险：%d/%d 个雷的进点前共线不足 2 格（%s）—— "
                 "纯追踪要 ~2 格（0.7 m）才贴回参考线，这些雷会被切角，"
-                "车心到雷心实测可差 3~8 cm（t8/t11 口径）。"
+                "车心到雷心实测可差 3~8 cm。"
                 "要真正消除需要改访问顺序（会额外增加 PIVOT/里程），"
                 "当前按『不动路线』处理，仅提示。"
                 % (len(short), len(mine_runs),
@@ -2726,7 +2722,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     shoot_dist = 0.0
     shoot_targets: tuple[str, ...] = ()
     if shoot_at:
-        # ★ 卡 t57：记录的是**到靶板中心**的距离（与 `shoot_candidates()` 同源口径），
+        # 记录的是**到靶板中心**的距离（与 `shoot_candidates()` 同源口径），
         #   不再是"到最近靶格中心"。板心 = 各靶格中心之算术中点（`plate_center_m`）。
         acc_lo, acc_hi = shoot_distance_window(_shoot_accept(cfg))
         _cx, _cy = plate_center_m(spec)
@@ -2816,7 +2812,7 @@ def _axis_pass_ok(grid: Grid, cell: tuple[int, int], d: tuple[int, int]
 
     ★ 曾经还要求"雷前第 2 格（起跑点）也通行"并把它插进航点序列，实测**更差**：
       A* 会先绕到起跑点再折回，PIVOT 从 1 个涨到 5 个、里程 19.95→23.45 m。
-      车心到雷心的真值偏差改用"速度/前视"扫描来压（t11 报告 §A3），不靠插起跑点。
+      车心到雷心的真值偏差改用"速度/前视"扫描来压（取证报告 §A3），不靠插起跑点。
     """
     m_in = (cell[0] - d[0], cell[1] - d[1])
     m_out = (cell[0] + d[0], cell[1] + d[1])
@@ -2854,9 +2850,9 @@ def _mine_aligned_runs(stops: Sequence["_Stop"], spec: MapSpec) -> list[tuple[st
     `>= 2` = 车进雷格之前已经有 ~0.7 m 直线，够贴回参考线。
 
     为什么放在规划器里：这条是**真车丢分的直接原因**（漏压雷 = 直接丢分），
-    但以前只有跑完仿真才知道（t8 §3.5 / t11 §A3 都是事后测量）。现在规划器自己
+    但以前只有跑完仿真才知道（§3.5 / §A3 都是事后测量）。现在规划器自己
     把风险报出来（`PlanResult.mine_runs` + 一条 warning），新地图不用先上车就能看出
-    哪几个雷压不实。判据本身不发明阈值：`MINE_PRESS_TOL_M` 与 t11 的实测口径一致。
+    哪几个雷压不实。判据本身不发明阈值：`MINE_PRESS_TOL_M` 与实测口径一致。
     """
     cells = [(stop.row, stop.col) for stop in stops]
     out: list[tuple[str, int]] = []
@@ -2965,12 +2961,12 @@ def straighten_mines(order: list[tuple[int, int]], spec: MapSpec, grid: Grid,
 
 
 # =========================================================================== #
-#  ★★ t7：**tracker-safe 引擎** —— "自动规划追平手工 62 点"
+#  **tracker-safe 引擎** —— "自动规划追平现役图路线（44 token）"
 # --------------------------------------------------------------------------- #
-#  为什么另起一个引擎（t7 实测的差距根因，全部有数字）：
+#  为什么另起一个引擎（实测的差距根因，全部有数字）：
 #   ① **原地转向（PIVOT）不可仿真**：旧引擎用 180° 折返 + `:PIVOT` 处理死角，
 #      而 `tools/sim.py` 与真车循迹层都**不建模 PIVOT** ⇒ 真值轨迹只能画一个大弧兜回
-#      去：实测自动 65 点路线峰值横向误差 **0.4292 m**（段 `D8→F8`，90° 折返）。
+#      去：实测峰值横向误差可达 **0.4292 m**（段 `D8→F8`，90° 折返）。
 #   ② **紧凑 U 形折返会被整段切掉**：两条反向腿之间只隔 1 格时（如
 #      `D10→E10→E11→D11→C11`），前视 0.36~0.40 m ≥ 单格 0.35 m ⇒ 车在 `E10` 就已经
 #      瞄到 `D11` 之后；实测车心离 `D11` 顶点最近只有 **0.240 m**（峰值 0.2467 m）。
@@ -2981,7 +2977,7 @@ def straighten_mines(order: list[tuple[int, int]], spec: MapSpec, grid: Grid,
 #       · **禁 180°**（转角 ≤ 90°）⇒ 路线里**不含 `:PIVOT`**；
 #       · **禁紧凑 U 形折返**（反向腿之间只隔 1 格）；
 #       · **雷必须直线穿心**（转角 ≤ 10°），"口袋雷"（正交下无法穿心，默认 `D8`）
-#         允许 90° 拐过并给重罚 —— 现场手工 62 点路线正是这么压 `D8` 的（实测 9.2 mm）；
+#         允许 90° 拐过并给重罚 —— 现场手工路线正是这么压 `D8` 的（实测 9.2 mm）；
 #       · 净空用**物理口径**（障碍段 ≥ 0.215 / 拐角顶点 ≥ 0.3029、靶板 ≥ 0.0675 / 0.1554、
 #         挡板细条 ≥ 0.0775）。
 #  搜索：朝向感知 Dijkstra（状态 = 格 × 本腿方向 × 上一腿方向，后者用于判紧凑 U）
@@ -2993,45 +2989,45 @@ def straighten_mines(order: list[tuple[int, int]], spec: MapSpec, grid: Grid,
 TS_TURN_W = 0.10
 #: 雷格"被拐过去"的重罚（米/90°）：强烈偏好直线穿心，只在口袋雷上让位
 TS_MINE_TURN_PENALTY_M = 1.5
-#: 单格移动集（正交）—— 与手工 62 点路线同族（实测：加入对角/跃迁会让峰值误差涨到 0.24 m）
+#: 单格移动集（正交）—— 与现场手工路线同族（实测：加入对角/跃迁会让峰值误差涨到 0.24 m）
 TS_ORTHO = ((1, 0), (-1, 0), (0, 1), (0, -1))
 #: 顶点转角上限（> 该值即禁）：90° = 禁 180° 折返（真车靠 PIVOT，仿真不建模）
 TS_MAX_TURN_DEG = 90.0
 #: 雷"直线穿心"的转角容差（度）
 TS_MINE_STRAIGHT_DEG = 10.0
-#: 隔板过渡格（两半场之间的过渡航点）。★t31（第五张图）：`C6` → **`A6`**。
-#: 为什么换：第五张图上 `C6` 相位出的 58 token / 19.95 m 解**在 C9 撞障碍**（FootprintObs 真值足迹：
-#: @0.15 603 拍、@0.35 453 拍，净空 −0.00013 m；`tools/route_check.py` 的折线口径在该处乐观、判"0.350 ≥ 0.215"）。
-#: `A6`（与 `B6` 数值完全一致）出的 60 token / 20.65 m 解双档全绿（0 碰撞 / 0 硬违规 / 越界 0 / K 穿越 2 次）。
-#: 证据：`_tmp_session/t29/报告.md` §3/§4（24 组 phase×turned 矩阵 + `diag_collision.py` 定位）。
+#: 隔板过渡格（两半场之间的过渡航点）。第五张图：`C6` → **`A6`**。
+#: 为什么换：`C6` 相位的解**在 C9 撞障碍**（FootprintObs 真值足迹净空 −0.00013 m；
+#: `tools/route_check.py` 的折线口径在该处乐观、判"0.350 ≥ 0.215"）；
+#: `A6`（与 `B6` 数值完全一致）的解双档全绿（0 碰撞 / 0 硬违规 / 越界 0 / K 穿越 2 次）。
+#: 证据：历史报告 §3/§4（24 组 phase×turned 矩阵 + `diag_collision.py` 定位）。
 TS_PHASE_CELL = "A6"
 #: "口袋雷"：正交移动集下无法直线穿心，允许 90° 拐过。
-#: ★t31（第五张图）：加入 **`A4`** —— 新图上 `A4` 是口袋雷（西侧出界、南侧 `A5` 是障碍 ⇒ 正交移动集
+#: 第五张图：加入 **`A4`** —— 新图上 `A4` 是口袋雷（西侧出界、南侧 `A5` 是障碍 ⇒ 正交移动集
 #: 下不可能直线穿心）；不加它 `plan_route_tracker_safe()` 直接 `PlannerError: 无解`
-#: （车上自规划失败 → 回退旧 62 点 → 新图上 `config_selfcheck` 12 error、不可发车）。
-#: `D8` 仍在新图雷位里，保留。证据：`_tmp_session/t29/报告.md` §5（24 组矩阵：不含 A4 的组合全无解）。
-#: ★★ t13（spec 增补 §H）：加入 **`I6`** —— t13 把"桥洞入口邻格横向穿行"接成硬失败后，`I6`
+#: （车上自规划失败 → 回退现役手工路线 → 新图上 `config_selfcheck` 12 error、不可发车）。
+#: `D8` 仍在新图雷位里，保留。证据：历史报告 §5（24 组矩阵：不含 A4 的组合全无解）。
+#: ★★ spec 增补 §H：加入 **`I6`** —— 把"桥洞入口邻格横向穿行"接成硬失败后，`I6`
 #:   的唯一直线穿心走法（`H6→I6→J6` 东西向）在 `J6` 死端（`J6→J5` 横向进洞已禁、`K6` 竖向
 #:   禁、`J7` 跨板禁），南北向又止于隔板 ⇒ `I6` 变成"准口袋雷"：只能带罚 90° 拐过
-#:   （`H6→I6→I5→J5→K5`，其中 `I5→J5→K5` 恰是 t6 实测 **0 拍**的沿轴进洞形态）。
+#:   （`H6→I6→I5→J5→K5`，其中 `I5→J5→K5` 恰是实测 **0 拍**的沿轴进洞形态）。
 #:   不加它：硬约束下全图 `PlannerError: 无解`（二分定位见 `_tmp_session/t13_bisect.py`）。
-#:   盖雷有效性由仿真验证（盖雷 8/8、桥墙 0 拍 —— 见 t13 台账）。
+#:   盖雷有效性由仿真验证（盖雷 8/8、桥墙 0 拍 —— 见台账）。
 TS_TURNED_MINES = ("A4", "D8", "I6")
-#: ★★ t19：顺序 DP 每个节点保留的**到达状态上限**（Pareto 截断；`None` = 不截断）。
+#: 顺序 DP 每个节点保留的**到达状态上限**（Pareto 截断；`None` = 不截断）。
 #: 依据：`_ts_phase` 的到达前沿在现役图实测 **max=2**（16 次调用：前沿 1 出现 8 次、
 #: 2 出现 8 次）⇒ 本图恒不触发、是等价变换；它只是给"到达状态更多"的图兜一个上限。
-#: A/B：`keep=2` 与不截断在现役图/异地图上**逐候选产物逐 token 相同**（`_tmp_session/t19/`）。
+#: A/B：`keep=2` 与不截断在现役图/异地图上**逐候选产物逐 token 相同**（历史证据目录）。
 TS_PARETO_KEEP = 2
 #: tracker-safe 引擎的默认时间预算（秒）。这是**签名兜底值**，车上的真源是#: `config/robot.yaml: planner.tracker_max_seconds`（两者同值，且 `tools/plan_route.py`
 #: 的 `--max-seconds` 缺省直接引用本常量 ⇒ 改一处三处同步）。
-#: ★ t19 重定：**ARM 车端实测**（RK3588S，8 核，现场 `~/dzrobot` 同一份地图/配置）——
+#: ★ **ARM 车端实测**（RK3588S，8 核，现场 `~/dzrobot` 同一份地图/配置）——
 #:   提速前 6515/6693/6752 ms（settled 470118，`_ts_phase` 16 次）；
 #:   提速后 **2788/2788/2786 ms**（settled 200811，`_ts_phase` 5 次）。
-#:   取值规则（卡 t19 第 3 条）= max(实测中位 × 3, 实测中位 + 5 s) = max(8.36, 7.79) ⇒ **10.0 s**。
+#:   取值规则 = max(实测中位 × 3, 实测中位 + 5 s) = max(8.36, 7.79) ⇒ **10.0 s**。
 #:   （旧值 5.0 s 是 PC 实测 1.5 s 年代的；第七趟实车就是被这个 5 s 卡住而回退手工路线。）
 TS_MAX_SECONDS = 10.0
 
-#: ★★ 卡 t4：桥洞**进洞侧冗余墙**的兜底长度（米）= **1/4 格** = 0.35 × 0.25 = 0.0875。
+#: 桥洞**进洞侧冗余墙**的兜底长度（米）= **1/4 格** = 0.35 × 0.25 = 0.0875。
 #: 语义与几何见 `physics.bridge_entry_walls()`：把桥室南北壁沿 y 向进洞侧虚拟延长这段长度，
 #: 逼车"进洞前 1/4 格内已经摆正"。**这段墙现实中不存在**（设计冗余）。
 #: 真源是 `config/robot.yaml: field.bridge_entry_redundancy_m`（本常量只在缺 config 时兜底，
@@ -3040,23 +3036,23 @@ BRIDGE_ENTRY_REDUNDANCY_M = 0.0875
 #: ★ 判据容差（米）：间隙必须 **> 本值**才算通过。
 #: ⚠️ 为什么必须严格大于 0 而不是 `>= 0`：本模块的距离口径是"**重叠 = 0**"
 #:   （`physics._seg_seg_distance` / `polygon_distance_m` 都这么写）⇒ 写成 `>= 0` 会
-#:   **恒真**、判据形同虚设（t4 落地时实测踩过：`>= 0` 版本对旧路线逐 token 不变，
+#:   **恒真**、判据形同虚设（落地时实测踩过：`>= 0` 版本对旧路线逐 token 不变，
 #:   即判据从未生效）。取 1e-9 与既有代码（`< req - 1e-12`）同量级的数值卫生。
 BRIDGE_ENTRY_CLEAR_EPS = 1e-9
 #: 段级/顶点级判据沿"进洞那一步"的**采样点数**（含两端点）。7 点 ⇒ 步长 = 0.35/6 ≈ 58 mm，
 #: 远小于车宽 135 mm（见 `_TSGrid._entry_sweep_ok` 关于"离散化不是解析最小"的说明）。
 BRIDGE_ENTRY_SAMPLES = 7
 
-#: ★★ 卡 t6：**桥洞进洞前对正**惩罚（米；与 `_ts_leg` 的代价同单位）。
+#: **桥洞进洞前对正**惩罚（米；与 `_ts_leg` 的代价同单位）。
 #: 触发形态：转弯顶点 = **桥洞格的前一格**，且该转弯的 `d_out` **直接通向桥洞格**
 #:   ⇒ 就是"洞口前 1 格 90° 拐弯"，按本值加罚，驱动 A* 把拐弯顶点前移 1 格。
 #:
-#: 为什么需要（t5 判定性结论，`docs/仿真复验_桥洞冗余墙_t5.md` §4）：
-#:   t4 的 `entry_gate_*` 把车头**恒取段方向**（= 假设进洞时已摆正），所以对"进洞前还在
+#: 为什么需要（判定性结论，`docs/仿真复验_桥洞冗余墙_t5.md` §4）：
+#:   早期的 `entry_gate_*` 把车头**恒取段方向**（= 假设进洞时已摆正），所以对"进洞前还在
 #:   转弯"的路线判绿；但真车 `R_min = wheelbase/tan(max_steer) = 0.157/tan30° = 0.2719 m`
 #:   **大于**洞口可用带宽 0.175 m ⇒ 在洞口前 1 格起转的车，进洞瞬间车身必然还是斜的
 #:   （实测摆正误差 38~52°），车体角点斜插冗余带，最大穿透 **56.7 mm@K9 / 44.4 mm@K5**。
-#:   t5 实测对照：现役形态（洞口前 1 格拐弯）**246 拍**；拐弯顶点前移 1 格
+#:   实测对照：现役形态（洞口前 1 格拐弯）**246 拍**；拐弯顶点前移 1 格
 #:   （`M10→M9→L9→K9`，对正段 2 格 = 0.70 m ≥ R_min）降到 **6 拍**。
 #:
 #: 为什么用**惩罚**而不是硬禁：惩罚**不可能让图无解** —— 真没有替代走法时仍出路线
@@ -3117,7 +3113,7 @@ class _TSGrid:
         self.obs_r = float(self.phys["obstacle_radius_m"])
         self.width_m = float(self.phys["width_m"])
         self.length_m = float(self.phys["length_m"])
-        # ★ t13（spec 增补 §H.2）：净空余量只能**加**安全，不能**减**——负余量会把
+        # ★ spec 增补 §H.2：净空余量只能**加**安全，不能**减**——负余量会把
         #   required_obstacle_center_distance_m 压到物理重叠边界之下（甚至负数 ⇒ 判据
         #   恒真），等于关掉障碍净空检查。消费口钳位 ≥ 0，配置/直传都封死这条放宽向量。
         self.mgn = max(0.0, float(self.phys["obstacle_margin_m"]))
@@ -3138,14 +3134,14 @@ class _TSGrid:
         self.bar_x, self.bar_y0, self.bar_y1 = _phys.barrier_centerline(
             col_from=c0, col_to=c1, row_hi=self.spec.barrier_row_hi,
             row_lo=self.spec.barrier_row_lo)
-        # ---------- ★★ 卡 t4：桥洞进洞侧冗余墙 ----------
+        # ---------- 桥洞进洞侧冗余墙 ----------
         #   只对**本图两个穿洞格**建墙（`cross_lower`/`cross_upper` 由 map/route 决定），
         #   不把 K 列每格都当洞 —— K 列其它格根本不许横向进出（`Grid` 的 R007 已拦）。
         self.entry_redundancy_m = float(
             self.phys.get("bridge_entry_redundancy_m", BRIDGE_ENTRY_REDUNDANCY_M))
         _bridges = set(self.grid.bridge_rows)
         self.entry_walls: dict[tuple[int, int], tuple] = {}
-        #: ★★ 卡 t6：**进洞入口邻格** → 该格的桥洞格。
+        #: **进洞入口邻格** → 该格的桥洞格。
         #:   冗余墙把桥室南北壁向进洞侧延长，落点正好压进这个邻格里（K9⇒`L9`、K5⇒`J5`）
         #:   ⇒ 车在这个格里**横向**穿行/拐弯时余量只剩 ~2 cm，必然蹭墙（见
         #:   `entry_cell_crossed_sideways()` 的实测证据）。沿桥洞轴（y）穿行则余量 0.1075 m。
@@ -3164,7 +3160,7 @@ class _TSGrid:
         self._turn: dict[tuple, tuple[bool, float, float]] = {}
         self.settled = 0
 
-    # ---------------- ★★ 卡 t4：桥洞进洞侧冗余墙判据 ----------------
+    # ---------------- 桥洞进洞侧冗余墙判据 ----------------
     def _entry_walls_of(self, cell: tuple[int, int]):
         """该格若是**桥洞格**则返回其进洞侧冗余墙（两段竖线段），否则 `None`。"""
         return self.entry_walls.get(cell)
@@ -3174,7 +3170,7 @@ class _TSGrid:
 
         ⚠️ 必须严格大于 0：`body_bridge_wall_clearance_m()` 的距离口径是"**重叠 = 0**"
         （与 `polygon_distance_m` / `_seg_seg_distance` 一致），返回值**恒 ≥ 0**
-        ⇒ 写成 `>= 0` 会**恒真**、判据形同虚设（卡面写的就是 `>= 0`，t4 落地时实测确认
+        ⇒ 写成 `>= 0` 会**恒真**、判据形同虚设（卡面写的就是 `>= 0`，落地时实测确认
         它是空判据，故按物理语义收严成 `> 0`；见 `BRIDGE_ENTRY_CLEAR_EPS` 的说明）。
         """
         if not walls:
@@ -3241,19 +3237,19 @@ class _TSGrid:
         nx, ny = geo.block_to_meters(geo.index_to_block(nxt[0] - 1, nxt[1]))
         return self._entry_sweep_ok(cx, cy, nx, ny, yaw, walls)
 
-    # ---------------- ★★ 卡 t6：进洞前"对正段"约束 ----------------
+    # ---------------- 进洞前"对正段"约束 ----------------
     def bridge_approach_penalty(self, cell: tuple[int, int], d_out: tuple[int, int]) -> float:
         """顶点 `cell` 的转弯**把车直接带进桥洞格**时，返回进洞前对正惩罚（米）。
 
         触发条件（两条同时成立）：`cell + d_out` 是桥洞格（本转弯即进洞那一步）。
         ⇒ 顶点 `cell` 就是"桥洞格的前一格"，车在离洞口 **1 格（0.35 m）** 处做这次转弯。
 
-        ★ 为什么这个形态必须罚（t5 判定性结论）：
+        ★ 为什么这个形态必须罚（判定性结论）：
           真车最小转弯半径 `R_min = 0.157/tan(30°) = 0.2719 m`。在距洞口 0.35 m 处起转，
           车沿圆弧**只能横向走完 0.272 m 才转正**，而洞口可用带宽只有半格 0.175 m
-          ⇒ 车体进入冗余带时必然还是斜的（t5 实测摆正误差 38~52°，最大穿透 56.7 mm）。
+          ⇒ 车体进入冗余带时必然还是斜的（实测摆正误差 38~52°，最大穿透 56.7 mm）。
           把转弯顶点前移 1 格后，进洞前有 **2 格 = 0.70 m > R_min** 的纯直线段
-          ⇒ 进洞瞬间已经摆正（t5 夹具 `M10→M9→L9→K9`：246 → **6** 拍）。
+          ⇒ 进洞瞬间已经摆正（夹具 `M10→M9→L9→K9`：246 → **6** 拍）。
 
         ★ 为什么返回"惩罚"而不是"禁"：见 `BRIDGE_APPROACH_ALIGN_PENALTY_M` 的说明 ——
           惩罚**不可能造成无解**，这对"只换地图就自动生成路线"的目标是硬要求。
@@ -3270,7 +3266,7 @@ class _TSGrid:
                                     d_out: tuple[int, int]) -> bool:
         """**桥洞入口邻格**（K9 的 `L9` / K5 的 `J5`）是否被**横向**（沿 x / 换行）穿行。
 
-        ★ 这是 t6 挖到的**第二条独立判据**，也是 K5/K9 违规的共同真因（t5 §5 + 本卡实测）：
+        ★ 这是实测挖到的**第二条独立判据**，也是 K5/K9 违规的共同真因（§5 + 实测）：
           冗余墙把桥室南北壁向进洞侧延长，落点正好压进**入口邻格**里 ——
           K9 的墙 `y∈[0.9625,1.05]` 落在 `L9` 格内、K5 的墙 `y∈[1.4000,1.4875]` 落在 `J5` 格内。
           于是车只要**横向**穿行该格（或在该格拐弯），车身与墙的余量只剩
@@ -3278,7 +3274,7 @@ class _TSGrid:
           ⇒ **必然**蹭墙。
           反之，沿桥洞轴（y）穿行时余量是 `0.175 − 0.0675 = 0.1075 m` ≫ 0.05 m ⇒ 安全。
 
-          实测印证（全部来自 t5 夹具/本卡扫描，见 artifacts）：
+          实测印证（全部来自夹具/实测扫描，见 artifacts）：
             · `L10→L9→K9`（L9 横向进）= **124 拍**；`M10→M9→L9→K9`（L9 纵向进）= **0 拍**；
             · `J6→J5→K5`（J5 横向进）  = **122 拍**；`I5→J5→K5`（J5 纵向进）  = **0 拍**；
             · `H6→H5→I5→J5→K5`（J5 纵向进）= **3 拍**；`J4→I4→H4→H5→I5→J5→K5` 里
@@ -3322,15 +3318,15 @@ class _TSGrid:
             if _phys.segment_rect_distance_m(ax, ay, bx, by, cx, cy, half) \
                     < self.board_seg_req - 1e-12:
                 return False
-        # ★★ 卡 t4：把"水平直穿进入桥洞"的那一步也按**进洞侧冗余墙**判一次
+        # 把"水平直穿进入桥洞"的那一步也按**进洞侧冗余墙**判一次
         #   （只在进洞侧判；出洞侧的 `a` 是桥洞格、`b` 不是 ⇒ 天然不触发）。
         if not self.entry_gate_segment(a, b):
             return False
-        # ★★ t13（用户硬约束 · spec 增补 §H）：桥洞**入口邻格**（K9 的 L9 / K5 的 J5）
-        #   禁止横向（行号变化）穿行。t6 决定性实测（见 entry_cell_crossed_sideways 注释）：
+        # ★★ 用户硬约束 · spec 增补 §H：桥洞**入口邻格**（K9 的 L9 / K5 的 J5）
+        #   禁止横向（行号变化）穿行。决定性实测（见 entry_cell_crossed_sideways 注释）：
         #   横向穿行该格 = 车身与戳进格内的冗余墙余量仅 ~0.02 m < 纯追踪横向误差
         #   RMS ~0.05 m ⇒ 122/124 拍必然蹭墙；沿桥洞轴（列向）穿行余量 0.1075 m ⇒ 0 拍。
-        #   判据由 t6 落地但此前未接线；本处接成**硬失败** —— 硬约束优先级最高，
+        #   判据由实测落地但此前未接线；本处接成**硬失败** —— 硬约束优先级最高，
         #   不得为通过性/效率/路径长度放宽（现役路线 I6→J6→J5→K5 的 J6→J5 即此形态，
         #   修后自动改走 I5→J5→K5 纵向进洞，实测 0 拍）。冗余 0.0（设计关闭）时
         #   entry_adjacent 为空 ⇒ 本条 inert，其余实体照常硬。
@@ -3381,17 +3377,17 @@ class _TSGrid:
                             < self.board_corner_req - 1e-12:
                         ok = False
                         break
-        # ★★ 卡 t4：顶点处"下一步进洞"⇒ 按**进洞侧冗余墙**判转弯扫掠车身
+        # 顶点处"下一步进洞"⇒ 按**进洞侧冗余墙**判转弯扫掠车身
         #   （不限于 deg>10°：即使直着进洞，`entry_gate_segment` 已经判过同一件事，
         #     但顶点路径（`turn_gate` 是唯一能拦"进洞前那一次转向"的地方）必须独立判 ——
         #     否则 A* 可以"在顶点先转向摆平、下一步直着进洞"绕过段级判据）。
         if ok and not self.entry_gate_turn(cell, d_out):
             ok = False
-        # ★★ t13（用户硬约束 · spec 增补 §H）：隔板相邻行的"死胡同式 90° 转向"
+        # ★★ 用户硬约束 · spec 增补 §H：隔板相邻行的"死胡同式 90° 转向"
         #   （N7/H7 形态：实车 178/175 拍触线，`_barrier_turn_cell` 的实测归因）从
         #   tour 侧的"软惩罚（默认 penalty=0 ⇒ 实际不生效）+ 事后报告（penalty>0 才跑）"
-        #   升格为 tracker-safe 的**硬失败**。判据复用 `_barrier_turn_cell`（t6 经验判据，
-        #   同一函数两条链路不分叉）；`_barrier_turn_cell` 已在 t13 补上隔板列域
+        #   升格为 tracker-safe 的**硬失败**。判据复用 `_barrier_turn_cell`（经验判据，
+        #   同一函数两条链路不分叉）；`_barrier_turn_cell` 已在补上隔板列域
         #   （只对 barrier_col..N 列生效，A/B/C 缺口处的行内转向不误杀）。
         if ok:
             _h_in = _heading_of(d_in[0], d_in[1], -1)
@@ -3399,17 +3395,17 @@ class _TSGrid:
             if _h_in >= 0 and _h_out >= 0 \
                     and _barrier_turn_cell(self.grid, cell[0], cell[1], _h_in, _h_out):
                 ok = False
-        # ★★ 卡 t6：**进洞前 1 格做 90° 拐弯** ⇒ 加进洞对正惩罚，驱动 A* 把拐弯顶点前移 1 格。
+        # **进洞前 1 格做 90° 拐弯** ⇒ 加进洞对正惩罚，驱动 A* 把拐弯顶点前移 1 格。
         #   为什么要 `deg > 0` 这一条：本顶点若"直着进洞"（`d_in == d_out`，例如
         #   `M9→L9→K9` 里的 `L9`）就是**我们要的形状**（进洞前已有 ≥1 格直线对正段），
-        #   绝不能罚；只有"进洞这一步本身还在转"（`d_in != d_out`）才是 t5 判红的那种形态。
+        #   绝不能罚；只有"进洞这一步本身还在转"（`d_in != d_out`）才是判红的那种形态。
         if ok and deg > 1e-9:
             extra += self.bridge_approach_penalty(cell, d_out)
-        # ★★ 卡 t6 → t13 升格：**桥洞入口邻格被横向穿行**（含在该格拐弯）⇒ 硬否决。
-        #   这是 t6 挖到的第二条独立根因：冗余墙向进洞侧延长后压进入口邻格（K9⇒L9、K5⇒J5），
+        # ★★ 判据升格：**桥洞入口邻格被横向穿行**（含在该格拐弯）⇒ 硬否决。
+        #   这是实测挖到的第二条独立根因：冗余墙向进洞侧延长后压进入口邻格（K9⇒L9、K5⇒J5），
         #   横向穿行时余量只剩 ~2 cm < 纯追踪 RMS 0.05 m ⇒ 必然蹭墙；沿轴穿行余量 0.1075 m。
         #   实测：`H6→I6→J6→J5→K5`（J5 横向进）129 拍 vs `…→I5→J5→K5`（J5 沿轴进）0 拍。
-        #   t13 按 spec 增补 §H 把它从 2.0 m 软罚升格为硬失败（段级 `_move_ok_raw` 同步
+        #   按 spec 增补 §H 把它从 2.0 m 软罚升格为硬失败（段级 `_move_ok_raw` 同步
         #   接了同一条判据 —— 两层同源，直调 turn_gate 的语义也与搜索一致）。
         if ok and self.entry_cell_crossed_sideways(cell, d_in, d_out):
             ok = False
@@ -3437,7 +3433,7 @@ def _ts_leg(ts: _TSGrid, a: tuple[int, int], b: tuple[int, int],
             first_dir: tuple[int, int] | None = None) -> dict:
     """从 ``a``（进入方向 `h_in`）到 ``b`` 的全部**到达朝向** Pareto 腿。
 
-    :param first_dir: ★ 卡 t13：只允许**第一步**朝这个方向走（`None` = 不限）。
+    :param first_dir: 只允许**第一步**朝这个方向走（`None` = 不限）。
         「起点朝向 = 设计常量」的硬含义：车头朝 `+y` 时**不许在起点转向** ——
         第一步必须沿 `+y` 直行，否则等代价的"先右转 90° 再走"会在 tie-break 下胜出，
         产出一条"起步就掉头"的路线，那正是"为起点生成转向消解"。
@@ -3489,7 +3485,7 @@ def _ts_leg(ts: _TSGrid, a: tuple[int, int], b: tuple[int, int],
 
 
 def _ts_cut(out: dict, keep: int | None) -> dict:
-    """★ t19：Pareto 截断 —— 只保留代价最小的前 `keep` 个到达状态（`None` = 不截断）。
+    """Pareto 截断 —— 只保留代价最小的前 `keep` 个到达状态（`None` = 不截断）。
 
     ⚠️ 这是**启发式**（不保证与不截断时同解），因此只在"实测前沿本来就 ≤ keep"的图上
     才是恒等变换。本图的实测前沿见 `TS_PARETO_KEEP` 的注释。
@@ -3504,7 +3500,7 @@ def _ts_phase(ts: _TSGrid, cache: dict, order: Sequence[tuple[int, int]],
               deadline: float, *, keep: int | None = TS_PARETO_KEEP) -> list[tuple[float, list, tuple]]:
     """分阶段顺序 DP：从 `cur`（进入朝向 `hpair`）访问 `order` 全部，最后到 `last`。
 
-    ★ t19 两处**不改产物**的提速（各自都有 A/B 证据，见 `_tmp_session/t19/`）：
+    ★ 两处**不改产物**的提速（各自都有 A/B 证据，见 历史证据目录）：
 
     ① **记忆键去掉 `h_prev`**（`key = (mask, node, hp[0])`）。
        为什么精确等价：本 DP 往下的每一次 `_ts_leg(ts, node, target, h, cache)` 只读
@@ -3557,27 +3553,27 @@ def _ts_search_multi(ts: _TSGrid, spec: MapSpec, *,
                      deadline: float, collect: int = 24,
                      keep: int | None = TS_PARETO_KEEP,
                      ) -> dict[tuple[int, int], list[tuple[float, list, int]]]:
-    """★ t19：**多候选共享**的两阶段顺序搜索 —— `{射击点格: [(cost, cells, 紧凑U个数), …]}`。
+    """**多候选共享**的两阶段顺序搜索 —— `{射击点格: [(cost, cells, 紧凑U个数), …]}`。
 
-    与 t7 版"**逐候选各跑一遍 `_ts_search`**"的差别只有一处：把**候选无关**的部分
+    与原版"**逐候选各跑一遍 `_ts_search`**"的差别只有一处：把**候选无关**的部分
     （`legs0`：起点→下半场穿洞格；下半场 `_ts_phase`）提到候选循环外**只算一次**，
     候选循环里只剩"上半场 DP（雷 + 该候选射击点）→ 上半场穿洞格 → 终点"。
 
     * 为什么这样改：射击停站只改变**上半场 DP 的最后一个必访点**，其它一切与候选无关；
-      t7 的实现把 4 个候选的完整搜索各跑一遍（settled 累加 470118），其中约 3/4 是纯重复。
+      原实现把 4 个候选的完整搜索各跑一遍（settled 累加 470118），其中约 3/4 是纯重复。
       A/B：现役图 1412 ms → 581 ms（**2.43×**），**逐候选产物逐 token 相同**。
     * ★ 为什么不按"取第一个可行候选即停"来省：实测候选代价 = F4 **24.95** / D4 = D5 25.85 /
       F5 28.15，而 `full_cover` 顺序的第一个是 D4 ⇒ 提前停在第一个可行解会把产物换成
-      D4 那条（+0.90 m、62→64 格），违反本卡"产物逐 token 不变"的硬门禁。
-      证据：`_tmp_session/t19/probe.py` 的逐候选表。
-    * 迭代顺序与 t7 版**逐层相同**（legs0 顺序 → 下半场结果按代价序 → 上半场结果按代价序），
+      D4 那条（+0.90 m、62→64 格），违反"产物逐 token 不变"的硬门禁。
+      证据：历史证据目录的逐候选表脚本 的逐候选表。
+    * 迭代顺序与原版**逐层相同**（legs0 顺序 → 下半场结果按代价序 → 上半场结果按代价序），
       因此 `out` 的插入顺序、`sort` 的稳定性、以及最终 `collect` 截断都一致。
     """
     start, end = _cell(spec.start), _cell(spec.end)
     lower = [_cell(m) for m in spec.mines if _cell(m)[0] >= spec.barrier_row_lo]
     upper = [_cell(m) for m in spec.mines if _cell(m)[0] <= spec.barrier_row_hi]
     cache: dict = {}
-    # ★ 卡 t13：起点朝向 = **设计常量**（车头 +y），不再是"从起点指向下半场穿洞格的方向"
+    # 起点朝向 = **设计常量**（车头 +y），不再是"从起点指向下半场穿洞格的方向"
     #   —— 旧写法 `_ts_unit((cross_lower - start))` 在斜向时给出的是 (1,-3) 这类**斜向量**，
     #   当朝向用等于给车一个 ~108° 的虚拟车头（实测它让"起步先向南 90° 掉头"比直行更便宜）。
     #   同时禁止起点转向：第一步必须沿设计朝向直行（见 `_ts_leg(first_dir=…)`）。
@@ -3625,7 +3621,7 @@ def _ts_search(ts: _TSGrid, spec: MapSpec, *, cross_lower_cell: tuple[int, int],
                cross_upper_cell: tuple[int, int], shoot_cell: tuple[int, int],
                phase_cell: tuple[int, int], start_heading: int,
                deadline: float, collect: int = 24) -> list[tuple[float, list, int]]:
-    """单候选包装（保留 t7 的调用形态；内部走 t19 的多候选实现）。"""
+    """单候选包装（保留原调用形态；内部走多候选实现）。"""
     return _ts_search_multi(ts, spec, cross_lower_cell=cross_lower_cell,
                             cross_upper_cell=cross_upper_cell,
                             shoot_cells=[shoot_cell], phase_cell=phase_cell,
@@ -3634,7 +3630,7 @@ def _ts_search(ts: _TSGrid, spec: MapSpec, *, cross_lower_cell: tuple[int, int],
 
 
 # =========================================================================== #
-#  ★ 卡 t53：拐角**条件切角**（90° 直角 → 45° 斜段；纯格名 token，零语法改动）
+#  拐角**条件切角**（90° 直角 → 45° 斜段；纯格名 token，零语法改动）
 # =========================================================================== #
 #  为什么是"删顶点"而不是"插半格偏移点"（卡面写的是后者）：
 #    ① 全库**没有**"格心+米制偏移"的 token 语法（`parser.normalize_token()` 要求格名后
@@ -3648,7 +3644,7 @@ def _ts_search(ts: _TSGrid, spec: MapSpec, *, cross_lower_cell: tuple[int, int],
 #    靶板净空 0.1441→0.2048 m（净空不足拍 49→0）、挡板净距 0.0783→0.1361 m，
 #    雷覆盖 8/8、硬违规全 0、`route_check` exit 0、`config_selfcheck` 0 error/0 warn。
 #  默认**关闭**（`planner.corner_cut`，缺省 False）⇒ 现役发车路线逐 token 不变；
-#  开启 = 一行配置（`config/robot.yaml`，本卡写域之外，待队长裁决）。
+#  开启 = 一行配置（`config/robot.yaml`，写域之外，待队长裁决）。
 CORNER_CUT_MIN_TURN_DEG = 88.0     # 只切"直角"（90°±2°）：其它转角切了没有 45° 语义
 CORNER_CUT_MAX_TURN_DEG = 92.0
 CORNER_CUT_MINE_CLEAR_M = 0.15     # 卡面硬规则②：内切路径离最近雷心 < 0.15 m ⇒ 不切
@@ -3800,16 +3796,16 @@ def corner_cut_cells(cells: Sequence[tuple[int, int]], spec: MapSpec,
 
 
 # =========================================================================== #
-#  ★ 卡 t9：增量续算（G4）—— `from_cell` + `already_covered`
+#  增量续算（G4）—— `from_cell` + `already_covered`
 # =========================================================================== #
-#  为什么必须**新增入参**，而不是"把 `MapSpec.start` 改成当前格"（t5 §E4 的失败路径）：
+#  为什么必须**新增入参**，而不是"把 `MapSpec.start` 改成当前格"（§E4 的失败路径）：
 #    · `MapSpec` 是**地图**（map.yaml 解析产物）。起点进地图 ⇒ 任何同时读 `spec.start`
 #      的地方（结构自检首点、落盘 token 首点、现场回写、备份对账）都会跟着漂；
 #    · 实测（docs §11 E4）：把 start 改到 E10 / F2 之后，规划器直接
 #      `PlannerError: 起点 ... 不在下半场桥洞 ... 以东` —— 那条路**走不通**，
 #      也**不该**走通：R007「每半场恰好一次穿洞」依赖"车在洞东 ⇒ 必须且只能往西穿一次"
 #      这个几何事实；把起点挪到洞西再要求穿一次，等于要求穿两次。
-#  本卡的**起点硬门降级规则**（= docs §6 第 6 条）：原硬门「起点在洞东、必须穿一次」
+#  **起点硬门降级规则**（= docs §6 第 6 条）：原硬门「起点在洞东、必须穿一次」
 #  在 `from_cell` 位于**洞已穿过**的位置时**降级为"已满足"**：
 #    · `from_cell` 在下半场、K 列以东  ⇒ 仍是原硬门（下半场要穿一次）；
 #    · `from_cell` 在下半场、K 列以西  ⇒ 下半场穿洞**已发生**，本轮不再要求（允许 0 次）；
@@ -3971,7 +3967,7 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
                             source: str = "",
                             from_cell: str | None = None,
                             already_covered: Sequence[str] = ()) -> PlanResult:
-    """★★ t7：**tracker-safe 引擎** —— 生成"真车能跟踪"的最短路线（自动追平手工 62 点）。
+    """**tracker-safe 引擎** —— 生成"真车能跟踪"的最短路线（自动追平现役图路线，44 token）。
 
     与 `plan_route()` 的差别只有一处**策略**：本引擎把"真车能不能跟住这条折线"当成
     硬约束（禁 180°/禁紧凑 U/雷穿心），代价只由"实走长度 + 转角重量"决定；
@@ -3981,12 +3977,12 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
     :param phase_cell: 两半场之间的过渡航点（默认 `C6`，与现场手工路线同点）。
     :param turned_mines: 允许 90° 拐过的"口袋雷"（正交移动集下无法直线穿心的那些）。
     :param turn_w: 转角权重（米/90°）。
-    :param from_cell: ★ 卡 t9：**增量续算的当前格**（缺省 `None` = 从 `spec.start` 整线规划）。
+    :param from_cell: **增量续算的当前格**（缺省 `None` = 从 `spec.start` 整线规划）。
         给出后：路线首点 = `from_cell`（不再要求车在地图起点），且按"洞已穿过则不再要求穿洞"
         的降级规则装配段（详见上方 `_inc_shape()` 的说明）。
-        ⚠️ 增量**只能**走本入参：把 `MapSpec.start` 改成中途格是 t5 §E4 的失败路径，
+        ⚠️ 增量**只能**走本入参：把 `MapSpec.start` 改成中途格是 §E4 的失败路径，
         那条路至今仍然失败（结构自检 / 起点可达性会拦），不要"修"它。
-    :param already_covered: ★ 卡 t9：**已压格集合**（只对雷生效）——写进来的雷不再要求重压。
+    :param already_covered: **已压格集合**（只对雷生效）——写进来的雷不再要求重压。
     :return: `PlanResult`（字段与 `plan_route` 同构；`allow_reverse=False`、
         `pivots` 恒为空 —— 本引擎不产生折返）
     :raises PlannerError: 无解 / 超时 / 增量续算位置不可行
@@ -4001,7 +3997,7 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
     lower_pool, upper_pool = _cross_pools(cfg, spec)
     lower_cross = (cross_lower or _default_cross(cfg, lower_pool, "lower")).strip().upper()
     upper_cross = (cross_upper or _default_cross(cfg, upper_pool, "upper")).strip().upper()
-    # ★ t31：与 `plan_route` 同口径 —— 硬门 = K 列 + 本半场行段（候选池只用来挑缺省洞）
+    # 与 `plan_route` 同口径 —— 硬门 = K 列 + 本半场行段（候选池只用来挑缺省洞）
     for cell_name, half, band in ((lower_cross, "下半场", V.LOWER_HALF_ROWS),
                                   (upper_cross, "上半场", V.UPPER_HALF_ROWS)):
         try:
@@ -4025,7 +4021,7 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
     ts = _TSGrid(spec=spec, grid=grid, phys=phys, turn_w=turn_w,
                  turned_mines=tuple(turned_mines))
 
-    # ---------------- 起点朝向 = 设计常量（卡 t13） ----------------
+    # ---------------- 起点朝向 = 设计常量 ----------------
     #   与 `plan_route` 同源：车摆在起点格、车头恒定 +y（图左 / K 列方向），
     #   摆位由现场用户保证 ⇒ 不读 `mission.reset`、不校验、不生成转向消解。
     start_heading = START_HEADING
@@ -4039,12 +4035,12 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
         raise PlannerError(f"没有任何射击点能覆盖全部靶格 {spec.targets}（候选 {pool}）")
     shots = full_cover or [""]
 
-    # ---------------- 逐候选搜索（★ t19：共享候选无关部分；语义仍是"取代价最小者"）----
+    # ---------------- 逐候选搜索（共享候选无关部分；语义仍是"取代价最小者"）----
     #   为什么不能"取第一个可行候选即停"：实测候选代价 F4=24.95 / D4=D5=25.85 / F5=28.15，
     #   而 full_cover 的第一个是 D4 ⇒ 提前停会把产物换成 D4（+0.90 m、62→64 格）。
-    #   见 `_ts_search_multi()` 的说明与 `_tmp_session/t19/probe.py` 的逐候选表。
+    #   见 `_ts_search_multi()` 的说明与 历史证据目录的逐候选表脚本 的逐候选表。
     shoot_cells = [_cell(s) if s else cross_upper_cell for s in shots]
-    # ---------------- ★ 卡 t9：增量续算分支（缺省 = 走原路，逐位不变） ----------------
+    # ---------------- 增量续算分支（缺省 = 走原路，逐位不变） ----------------
     incremental = bool(from_cell) or bool(already_covered)
     inc_start = start_cell
     covered: frozenset[str] = frozenset()
@@ -4078,7 +4074,7 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
     cost, cells, n_bad_u, shoot = best
     warnings: list[str] = []
 
-    # ---------------- ★ t53：条件切角（默认关闭；切不过 ⇒ 安全回退）----------------
+    # ---------------- 条件切角（默认关闭；切不过 ⇒ 安全回退）----------------
     cells_uncut = list(cells)
     cut_report: list[str] = []
     if corner_cut_enabled(cfg) and len(cells) > 2:
@@ -4105,12 +4101,12 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
                    "upper_bridge" if (row, col) == cross_upper_cell else
                    "shoot" if blk == shoot else "path")
             _stops.append(_Stop(row, col, blk, shoot=(blk == shoot), tag=tag))
-        # ★ 卡 t9：只有"真的从地图起点出发"时才把首点朝向钉成设计常量；
+        # 只有"真的从地图起点出发"时才把首点朝向钉成设计常量；
         #   增量续算的首点朝向由第一段行进方向决定（车头已由上一段决定，不该被改写）。
         if inc_start == start_cell:
             _stops[0].heading = start_heading
         _refresh_headings(_stops)
-        # ---- ★ 卡 t13：第二射击停站（对侧）----
+        # ---- 第二射击停站（对侧）----
         #   只在"该格本来就是这条路线上的普通航点"时才落标（现图 = `G3`），
         #   否则**不改路线**、只留 warning（宁可少一个停站，也不擅自改穿洞/折返形态）。
         _second = second_shoot_stop(spec, grid, shoot, acc) if shoot else ""
@@ -4159,7 +4155,7 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
         warnings.append("仍有 %d 处紧凑 U 形折返（已被搜遍仍无法避开）" % n_bad_u)
     if shoot:
         warnings.append("射击停站由『覆盖全部靶格』精确筛出：%s" % shoot)
-    # ★ 卡 t9：增量续算必须在产物里**显式留痕**（现场/日志一眼看出这不是整线路线）
+    # 增量续算必须在产物里**显式留痕**（现场/日志一眼看出这不是整线路线）
     if incremental:
         _inc_name = geo.index_to_block(inc_start[0] - 1, inc_start[1])
         _skip = [h for h, need in (("下半场", shape["need_lower"]),
@@ -4175,13 +4171,13 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
     shoot_at = next((wp.block for _i, wp in route.shoot_points()), "")
     shoot_dist = 0.0
     shoot_targets: tuple[str, ...] = ()
-    # ★ 卡 t13：第二个射击停站（对侧）——从**最终路线**里取，避免与编译闭包耦合；
+    # 第二个射击停站（对侧）——从**最终路线**里取，避免与编译闭包耦合；
     #   没有就是 `""`，PlanResult 的其余字段与单停站版本逐位一致。
     shoot_at2 = next((wp.block for _i, wp in route.shoot_points()
                       if wp.block != shoot_at), "")
     shoot_dist2 = 0.0
     if shoot_at:
-        # ★ 卡 t57：记录的是**到靶板中心**的距离（与 `shoot_candidates()` 同源口径），
+        # 记录的是**到靶板中心**的距离（与 `shoot_candidates()` 同源口径），
         #   不再是"到最近靶格中心"。板心 = 各靶格中心之算术中点（`plate_center_m`）。
         acc_lo, acc_hi = shoot_distance_window(_shoot_accept(cfg))
         _cx, _cy = plate_center_m(spec)

@@ -22,7 +22,7 @@
 
     # ★ 倒车开关：默认**无倒车**（真车底盘不支持倒车，180° 折返由循迹层 PIVOT 完成）
     python tools/plan_route.py --emit tokens          # 默认：0 段 R: + 折返点 :PIVOT
-    python tools/plan_route.py --allow-reverse        # 旧行为：允许 R: 倒车段（卡 A 基线）
+    python tools/plan_route.py --allow-reverse        # 旧行为：允许 R: 倒车段（历史基线，逐字节兼容）
 
     # ★ 折返惩罚（顺序搜索里给"进去再原路退出来"记 5.0 等效代价/处）
     python tools/plan_route.py --pivot-penalty 5.0    # 现场图实测：折返点 2 → 0
@@ -31,7 +31,7 @@
     python tools/plan_route.py --cross-lower K10 --cross-upper K3
     python tools/plan_route.py --all-crossings
     python tools/plan_route.py --engine tracker-safe --from-cell M9 --already-covered C1,A3
-                                 # t12：增量续算（G4）——从 M9 接着算、C1/A3 视为已压雷
+                                 # 增量续算（G4）——从 M9 接着算、C1/A3 视为已压雷
 
 --------------------------------------------------------------------------------
 参数来源（真源唯一性，本工具不新造任何一份配置）
@@ -41,7 +41,7 @@
 * 约束（射击窗口、穿洞候选、起点朝向）：`--config` 指定的 `robot.yaml`
   经 `dzbrain.core.config.Config` 读取，键名与 `docs/P0接口约定.md` 一致
 * **倒车/折返**：`--no-reverse`（默认）走 `plan_route(allow_reverse=False)` —— 0 段 `R:`、
-  每个 180° 折返顶点带 `:PIVOT` 声明；`--allow-reverse` 是旧行为（卡 A 基线逐字节一致）
+  每个 180° 折返顶点带 `:PIVOT` 声明；`--allow-reverse` 是旧行为（历史基线逐字节一致）
 * 校验：`tools/route_check.py`（**子进程调用原文件**，不复制它的规则）
 * 规划本体：`src/dzbrain/dzbrain/route/planner.py`
 
@@ -124,7 +124,7 @@ def run_route_check(tokens: list[str], cfg_path: pathlib.Path,
     地图不在默认位置时把 `ROBOT_MAP` 传进子进程 —— 这是该工具自带的入口，
     比复制一份路径逻辑更可靠（换了 `--map` 之后校验的必须还是同一张图）。
 
-    `already_covered`（t12 增量续算）：已压雷格 → `--already-covered` 透传给
+    `already_covered`（增量续算）：已压雷格 → `--already-covered` 透传给
     route_check，覆盖判据不要求这些雷重压；缺省不传、校验口径逐字节不变。
     """
     script = HERE / "route_check.py"
@@ -167,10 +167,10 @@ def plan_once(map_cfg: dict, cfg: Config, args, *, cross_lower: str | None,
               cross_upper: str | None, map_path: pathlib.Path) -> PL.PlanResult:
     """规划一次。`--engine` 选引擎（默认 `tour` = 历史行为，逐字节不变）。
 
-    ★★ t7：`--engine tracker-safe` 走 `plan_route_tracker_safe()` —— 把"真车能跟住"
+    `--engine tracker-safe` 走 `plan_route_tracker_safe()` —— 把"真车能跟住"
       当硬约束（禁 180° / 禁紧凑 U / 雷直线穿心），代价只由"实走长度 + 转角"决定。
-      实测（现役图）：新引擎给出 **62 token / 21.35 m**，双档仿真与物理在环
-      **逐项追平或优于手工 62 点路线**（对比表见 `_tmp_session/t7/报告.md`）。
+      实测（现役图）：新引擎给出 **44 token / 15.05 m**，双档仿真与物理在环
+      **逐项追平或优于现役手工路线**。
     """
     if getattr(args, "engine", "tour") == "tracker-safe":
         turned = tuple(args.turned_mines.split(",")) if args.turned_mines else ()
@@ -229,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
                      help="无倒车模式（**默认**）：0 段 R:，180° 折返顶点带 :PIVOT 声明")
     rev.add_argument("--allow-reverse", dest="allow_reverse", action="store_true",
                      default=False,
-                     help="旧行为：允许 R: 倒车段处理死角（与卡 A 基线逐字节一致）")
+                     help="旧行为：允许 R: 倒车段处理死角（与历史基线逐字节一致）")
     ap.add_argument("--pivot-penalty", type=float, default=None,
                     help=f"顺序搜索的折返惩罚（等效代价单位/处）。缺省=**跟随配置** "
                          f"planner.pivot_penalty（键缺失 → 0.0）；现场图用 {PL.PIVOT_PENALTY}")
@@ -238,18 +238,18 @@ def main(argv: list[str] | None = None) -> int:
                          f"planner.mine_turn_penalty（键缺失 → {PL.MINE_TURN_PENALTY}）；"
                          f"0 = 关闭「雷心直线穿越」的排序偏好")
     ap.add_argument("--quiet", action="store_true", help="只输出结果，不打印过程信息")
-    # ★★ t7：引擎选择（默认 tour = 历史行为，逐字节不变）
+    # 引擎选择（默认 tour = 历史行为，逐字节不变）
     ap.add_argument("--engine", choices=("tour", "tracker-safe"), default="tour",
                     help="规划引擎：tour=历史『顺序+朝向联合优化』（默认，行为不变）；"
-                         "tracker-safe=t7 新增『真车可跟踪』引擎（禁 180°/禁紧凑 U/"
-                         "雷直线穿心，实测追平手工 62 点）")
+                         "tracker-safe=『真车可跟踪』引擎（禁 180°/禁紧凑 U/"
+                         "雷直线穿心，实测追平现役手工路线）")
     ap.add_argument("--phase-cell", default=None,
                     help="tracker-safe 引擎的隔板过渡航点（默认跟随 PL.TS_PHASE_CELL=C6）")
     ap.add_argument("--t7-turn-w", type=float, default=None,
                     help="tracker-safe 引擎的转角权重（米/90°，默认 0.10）")
     ap.add_argument("--turned-mines", default=None,
                     help="tracker-safe 引擎里允许 90° 拐过的『口袋雷』（逗号分隔，默认 D8）")
-    # ★★ t12：增量续算（G4）CLI 出口——只对 tracker-safe 引擎生效
+    # 增量续算（G4）CLI 出口——只对 tracker-safe 引擎生效
     ap.add_argument("--from-cell", default=None,
                     help="增量续算起点格（如 M9）：从当前格接着算，不再要求车在地图起点"
                          "（仅 --engine tracker-safe）")
@@ -335,7 +335,7 @@ def main(argv: list[str] | None = None) -> int:
     worst = EXIT_OK
     checked: dict[int, tuple[int, str]] = {}
     if args.check:
-        # ★ t12：增量续算口径——已压雷透传给 route_check（不要求重压）
+        # 增量续算口径——已压雷透传给 route_check（不要求重压）
         covered: tuple[str, ...] = ()
         if getattr(args, "already_covered", None):
             covered = tuple(c.strip().upper()

@@ -350,7 +350,7 @@ export function apply(ctx, config = {}) {
       if (method === 'GET' && route === '/sim/map') {
         return send(200, { ...fieldSpec(), route: routeTokens() })
       }
-      // ── 50 图压测（卡2；规格 §D 表的 3 个端点，跑批在后台、状态/结果轮询）──────
+      // ── 50 图压测（规格 §D 表的 3 个端点，跑批在后台、状态/结果轮询）──────
       if (method === 'POST' && route === '/sim/stress') {
         const body = await readJson(req) ?? {}
         // background:true = 同步段（参数校验 + N 图生成 + 状态置位）后立即返回 202 {batchId}，
@@ -368,7 +368,7 @@ export function apply(ctx, config = {}) {
           ? send(200, { batch: result.batch, stats: result.stats, records: result.records })
           : send(result.code ?? 404, { error: result.error })
       }
-      // ── 无人机协同（卡3；规格 §D 表的 2 个端点，排卡2 之后写 index.js）────────────
+      // ── 无人机协同（规格 §D 表的 2 个端点）────────────────────────
       if (method === 'POST' && route === '/sim/drone/run') {
         const body = await readJson(req) ?? {}
         // 同步单跑：409（上跑/压测中）与 422（规划不过）原样转出，与 /sim/run 同语义
@@ -377,7 +377,7 @@ export function apply(ctx, config = {}) {
         return send(200, {
           ok: true, timeline: result.timeline, reroutes: result.reroutes,
           confirmed: result.confirmed, record: result.record,
-          // ★ 拟真（卡3+）：透传无人机航线 + 情报命中，前端据此在场地地图上画飞行/扫描/采纳。
+          // ★ 拟真：透传无人机航线 + 情报命中，前端据此在场地地图上画飞行/扫描/采纳。
           scan: result.scan, intel: result.intel,
         })
       }

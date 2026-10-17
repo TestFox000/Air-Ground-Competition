@@ -78,7 +78,7 @@ const META_FILE = path.join(ARTIFACT_DIR, 'run_meta.jsonl')
 const ARTIFACT_EXTS = new Set(['.svg', '.csv', '.json', '.txt'])
 const ARTIFACT_MAX_BYTES = 8 * 1024 * 1024
 
-// ── 场地（★ t25：全部**只读**；`config/**` 与 `src/dzbrain/**` 零写入）─────────
+// ── 场地（全部**只读**；`config/**` 与 `src/dzbrain/**` 零写入）─────────
 /** 现场地图真源（只读）。 */
 const MAP_FILE = path.join(SIM_ROOT, 'config', 'map.yaml')
 /** 现场配置真源（只读）——改点位的运行时用它的**运行目录副本**，不动这份。 */
@@ -86,22 +86,22 @@ const ROBOT_FILE = path.join(SIM_ROOT, 'config', 'robot.yaml')
 /** 规划器 CLI：只读调用，`--map` 指 override 地图 ⇒ 路线随新点位重规划。 */
 const PLAN_CLI = path.join(SIM_ROOT, 'tools', 'plan_route.py')
 /** 场地列字母（`core/geometry.py:27-30` 的 COL_LETTERS）—— **插件进程内唯一字面量**。
- *  ★ t17：dronesim 的 `LETTERS`、stressbench 的 `COLS` 此前各抄一份 `'ABCDEFGHIJKLMN'`；
+ *  dronesim 的 `LETTERS`、stressbench 的 `COLS` 此前各抄一份 `'ABCDEFGHIJKLMN'`；
  *    现统一从这里取（页面侧不 import 模块，走 `/sim/map` 的 `grid.colLetters`，跨进程不共享）。 */
 export const COL_LETTERS = 'ABCDEFGHIJKLMN'
 /** 场地网格（COL_LETTERS / MAP_COLS=14 / MAP_ROWS=11 / BLOCK_SIZE=0.35）。 */
 const GRID = { cols: 14, rows: 11, blockM: 0.35, colLetters: COL_LETTERS }
-/** 页面允许编辑的四类点位（t6：+targets —— 其余要素保持现场值）。 */
+/** 页面允许编辑的四类点位（+targets —— 其余要素保持现场值）。 */
 const FIELD_KEYS = ['mines', 'obstacles', 'bridges', 'targets']
-/** 无人机起/降点：map.yaml 的 t28 识图注释里写着；读不到时用这两个（蓝 + H 图标）。
- *  ★ t17：dronesim 此前另抄一份同值兜底（注释还写着"与 simbench 内建兜底同值"）——
+/** 无人机起/降点：map.yaml 的识图注释里写着；读不到时用这两个（蓝 + H 图标）。
+ *  dronesim 此前另抄一份同值兜底（注释还写着"与 simbench 内建兜底同值"）——
  *    现由本常量单点供给，改兜底只改这里。 */
 export const DRONE_FALLBACK = { takeoff: 'N8', land: 'M2' }
 /** 单格名正则（A~N 列 × 1~11 行），`normalizeCell` 与 stressbench 的图生成共用一份。 */
 export const CELL_RE = /^[A-N](?:[1-9]|1[01])$/
 const FIELD_MAX_CELLS = 40
 
-/** ★ t28：`fieldSpec()` 单次调用内解析出的靶格（`targetBoard()` 从它判横竖）。 */
+/** `fieldSpec()` 单次调用内解析出的靶格（`targetBoard()` 从它判横竖）。 */
 const TARGET_CACHE = { cells: [] }
 
 /** 一次只跑一个仿真：并发会互相踩 artifacts/sim 的输出。 */
@@ -131,7 +131,7 @@ function md5Of(file) {
   try { return crypto.createHash('md5').update(fs.readFileSync(file)).digest('hex') } catch { return '' }
 }
 
-// ── 场地读取 / 改点位 override（★ t25；只读现场真源，产物只落运行目录）──────────
+// ── 场地读取 / 改点位 override（只读现场真源，产物只落运行目录）──────────
 
 /** 去掉 YAML 标量的引号与行尾注释。 */
 function unquote(raw) {
@@ -144,7 +144,7 @@ function scalarOf(text, key) {
   return found ? unquote(found[1]) : ''
 }
 
-/** 现场 YAML 是 CRLF：解析前先把行尾归一，否则 `$` 行尾锚点/`- item` 匹配全废（t25 实测踩过）。 */
+/** 现场 YAML 是 CRLF：解析前先把行尾归一，否则 `$` 行尾锚点/`- item` 匹配全废（实测踩过）。 */
 function normalizeNewlines(text) {
   return String(text ?? '').replace(/\r\n?/g, '\n')
 }
@@ -229,7 +229,7 @@ export function fieldSpec() {
     source: MAP_FILE,
     md5: md5Of(MAP_FILE),
     robot: { path: ROBOT_FILE, md5: md5Of(ROBOT_FILE) },
-    // ★ t15：桥洞进洞侧冗余墙长度（米）——真源 config/robot.yaml `field.bridge_entry_redundancy_m`
+    // 桥洞进洞侧冗余墙长度（米）——真源 config/robot.yaml `field.bridge_entry_redundancy_m`
     //   （bridgeEntryRedundancyOf 只读解析 dzbrain 段；缺键/读不到兜底 0.0875，与
     //   planner.BRIDGE_ENTRY_REDUNDANCY_M / physics.bridge_entry_walls 同源链）。
     //   /sim/map 透传给 sim.html 画 K 列桥洞格进洞侧两段短墙——页面端零第二份硬编码。
@@ -252,14 +252,14 @@ export function fieldSpec() {
       land: droneCells[1] || DRONE_FALLBACK.land,
       source: droneCells.length >= 2 ? 'map-comment' : 'builtin-fallback',
     },
-    // ★ t28：靶板由 targets 的相邻两格并成一块；按两格几何关系自动判横/竖（页面可覆盖）。
+    // 靶板由 targets 的相邻两格并成一块；按两格几何关系自动判横/竖（页面可覆盖）。
     target: targetBoard(),
     editable: FIELD_KEYS,
   }
 }
 
 /**
- * 靶板几何（t28）：把 `map.targets` 的格名按**屏幕坐标**判横竖。
+ * 靶板几何：把 `map.targets` 的格名按**屏幕坐标**判横竖。
  *
  * 横置屏幕坐标：列 → x、行 → y。两块靶格若列号不同 = 横向（长边沿列），
  * 行号不同 = 竖向（长边沿行）。只认两块；多于两块时按首两块判并如实报数量。
@@ -281,8 +281,8 @@ function targetYawOfCells(cells) {
 
 /** 只读路线 token（给页面画参考路线）。
  *
- * ★ 文件里的形状是 `route:` 段下的 `tokens: [...]`（展平后才叫 `route.tokens`），
- *   所以这里找的是 `tokens:`，旧版 `mission_blocks:` 作兜底。
+ * 文件里的形状是 `route:` 段下的 `tokens: [...]`（展平后才叫 `route.tokens`）；
+ *   更早的 `mission_blocks:` 块序列形状仍作兼容兜底。
  */
 export function routeTokens() {
   try {
@@ -309,7 +309,7 @@ export function applyFieldToMapText(text, field) {
   return out
 }
 
-/** ★ t3（规格 §D.2）：无人机协同 —— 把无人机起降格注入 override 图的 obstacles 列表。
+/** 无人机协同（规格 §D.2）—— 把无人机起降格注入 override 图的 obstacles 列表。
  *
  * 为什么注 obstacles：dzbrain 地图格式只有 mines/obstacles/targets/bridges 四键，没有专门的
  * 「避让」键；规划器禁行集 = obstacles|mines（`route/planner.py` 的 blocked）⇒ obstacles 是
@@ -330,13 +330,13 @@ export function injectDroneAvoidToMapText(text, cells) {
   if (add.length === 0) return raw
   const merged = normalizeCells([...listOf(raw, 'obstacles'), ...add])
   const line = `obstacles: ["${merged.join('", "')}"]`
-  // ★ `m` 标志不能少：obstacles 行在 map.yaml 中部，^$ 不按行锚就会整串匹配失败（误抛）。
+  // `m` 标志不能少：obstacles 行在 map.yaml 中部，^$ 不按行锚就会整串匹配失败（误抛）。
   const pattern = /^([ \t]*)obstacles:[ \t]*\[[^\]]*\][ \t]*$/m
   if (!pattern.test(raw)) throw new Error('地图里没有 obstacles: [...] 这一行，拒绝注入（避免写出坏地图）')
   return raw.replace(pattern, `$1${line}`)
 }
 
-/** ★ t3（规格 §D.3）：无人机扫描**走廊行**（上半场 top / 下半场 bottom，1-based 行号）。
+/** 无人机扫描**走廊行**（上半场 top / 下半场 bottom，1-based 行号；规格 §D.3）。
  *  推导从 src/dronesim.js 的 scanPlan **原样平移**（行为逐点不变；dronesim 改为 import 本函数，
  *  全仓恰一份 —— 规格「边界与已知取舍」明示走廊行推导不得有第二真源）：
  *    bridges 里的 K 列格按行分半场（行 ≥7 下半场 / ≤6 上半场），各取排序后的**首个**命中行
@@ -359,7 +359,7 @@ export function corridorRows(field) {
  *
  *  为什么不再在插件里写死 `['tour','tracker-safe']`：写死等于维护**第二份引擎白名单**，
  *  车侧一旦加/改引擎名（例如 `tracker-safe-v2`），页面这边会静默判成"不认识 ⇒ 不传
- *  --engine"，于是又退回 `plan_route.py` 的默认 `tour` —— 也就是 t73「乱算」原样复发，
+ *  --engine"，于是又退回 `plan_route.py` 的默认 `tour` —— 也就是「乱算」原样复发，
  *  而且**不报错、看不出来**。真源只有一个：CLI 的 argparse 定义。
  *  读不到 CLI / 形状认不出（改写成变量拼装等）→ 兜底用历史上的两项，行为与改动前逐字节
  *  一致（既不会少传也不会给 argparse 塞未知值）。进程内缓存一次（CLI 是只读文件，运行期
@@ -383,24 +383,19 @@ function plannerEngineChoices() {
 }
 
 /** 读 robot.yaml 里 planner 块下的 engine（车上自动规划用的引擎）。
- *  ★ 修「乱算」：页面重规划此前不传 --engine ⇒ plan_route.py 默认 tour，而车端 robot.yaml
- *    配的是 tracker-safe —— 同一张图页面和车算出**两条不同的路线**。实测两次快照
- *    （`--map config/map.yaml` + `--check`，robot.yaml md5 见括注）：
- *      · md5 `4FFC53D6…`（t3 改射击距离之前）：tracker-safe **44 token**
- *        `N10 M10 M9 L9 K9 … F3* … N5,y`（与 `mission_blocks` 逐 token 相等）
- *        ｜不传 --engine（改前页面行为）**40 token** `N10 N9 M9 … C7 B7 A7 … H5 …`
- *      · md5 `23DBE758…`（t3 改完 shoot_distance 1.00 之后）：tracker-safe **50 token**
- *        ｜不传 --engine **49 token，且带 2 处 `:PIVOT` 折返**（`A2:PIVOT`/`B1:PIVOT`）
- *    ⇒ 结论与 token 数无关：**只有跟车端同引擎才逐 token 相等**。
+ *  为什么必须传 --engine：页面重规划此前不传 ⇒ plan_route.py 默认 tour，而车端配置的是
+ *    tracker-safe —— 同一张图页面和车算出**两条不同的路线**（实测 token 数与路线形状都
+ *    不同，tour 产物还可能带 `:PIVOT` 折返，而仿真不建模 PIVOT）。
+ *    ⇒ **只有跟车端同引擎才逐 token 相等**。
  *    这里以车端配置为唯一真源：配什么引擎，页面就传什么。
  *  形状：`planner:` 块（与 route:/mission: 同级）下的 `engine: tracker-safe`，允许行内注释与
  *  YAML 引号（`engine: "tracker-safe"` 也认）。
  *  找不到 / 值不在 plan_route.py 的 choices 里 → 返回 null（不传 --engine，保持其历史
  *  默认 tour，与改动前逐字节一致）。导出仅供离线断言（同 sanitizeParams 的先例）。
  *
- *  ✅ 已闭环（2026-10-17 队长直改）：`src/dronesim.js` 的 `truthPlanEvidence()` 已复用
- *    本函数拼 `--engine`（同引擎取证，无人机协同时间线与车端口径一致）；t12 起它的
- *    `from_cell` / `already_covered` 也走同一条白名单链路（`appendIncrementalArgs()`）。 */
+ *  ✅ 已闭环：`src/dronesim.js` 的 `truthPlanEvidence()` 已复用本函数拼 `--engine`
+ *  （同引擎取证，无人机协同时间线与车端口径一致）；`from_cell` / `already_covered`
+ *  也走同一条白名单链路（`appendIncrementalArgs()`）。 */
 export function plannerEngineOf(configPath) {
   try {
     const lines = fs.readFileSync(configPath, 'utf8').split(/\r?\n/)
@@ -415,7 +410,7 @@ export function plannerEngineOf(configPath) {
       if (indent <= blockIndent) break                       // planner 块结束
       const hit = line.match(/^[ \t]*engine:[ \t]*([^\s#]+)/)
       if (hit) {
-        // 去 YAML 引号（`engine: "tour"` 与 `engine: tour` 同义；带引号时旧实现会误判未知）
+        // 去 YAML 引号（`engine: "tour"` 与 `engine: tour` 同义；带引号时会误判未知）
         const value = hit[1].replace(/^['"]|['"]$/g, '')
         return plannerEngineChoices().includes(value) ? value : null
       }
@@ -424,20 +419,17 @@ export function plannerEngineOf(configPath) {
   return null
 }
 
-/* ── ★ t12：增量规划透传（`from_cell` / `already_covered`）────────────────────
+/* ── 增量规划透传（`from_cell` / `already_covered`）────────────────────
  *
- * 车端 t9 在 **planner 层**加了这两个入参（`plan_route_tracker_safe(..., from_cell=, already_covered=)`）；
+ * 车端 planner 层支持这两个入参（`plan_route_tracker_safe(..., from_cell=, already_covered=)`），
  * 仿真台要透传上去，口径与 `--engine` **完全同链路**：
  *   ① 真源 = `tools/plan_route.py` 的 argparse（`plannerIncrementalSupport()` 现场读，不抄第二份）；
  *   ② **声明了才传**，一个字节不多传 —— 给 argparse 塞未知参数会 exit 2，页面侧只表现为
  *      "改点位后规划失败（422）"，比不传更难查；
  *   ③ 缺省不传 ⇒ argv 与改动前**逐字节相同**（整线规划语义不变）。
  *
- * ⚠ 状态史（2026-10-17）：t12 开工时 `tools/plan_route.py` 里**还没有**这两条 add_argument
- *   （t9 的交付只到 `planner.py` + `tests/test_incremental_plan.py`），当时透传按 ② 如实降级为
- *   "不传"、台账 `incremental.dropped` 记诉求（不静默吞），E2E 由守卫的影子 CLI 钉住。
- *   t12 收口时队长已给车端 CLI 接线：现役 CLI `supported = 2/2`，守卫 E 段自动转实跑。
- *   若未来接线被回退，`plannerIncrementalSupport()` 自动变空，降级路径原样生效。
+ * 现役 CLI `supported = 2/2`，守卫 E 段实跑；若未来接线被回退，`plannerIncrementalSupport()`
+ * 自动变空，降级为"不传"、台账 `incremental.dropped` 记诉求（不静默吞）。
  */
 const INCREMENTAL_OPTIONS = [
   { key: 'fromCell', option: '--from-cell', aliases: ['--from_cell'], kind: 'cell' },
@@ -507,12 +499,12 @@ export function appendIncrementalArgs(argv, { fromCell = null, alreadyCovered = 
   return { argv, applied }
 }
 
-/** ★ t15：`field.bridge_entry_redundancy_m` 的缺省兜底（米）。
+/** `field.bridge_entry_redundancy_m` 的缺省兜底（米）。
  *  与 `route/planner.py` 的兜底常量 `BRIDGE_ENTRY_REDUNDANCY_M` **同源同值**
  *  （0.0875 = 0.35 × 1/4 格，用户 2026-10-16 设计规格）；真源是 config/robot.yaml。 */
 const BRIDGE_ENTRY_REDUNDANCY_FALLBACK_M = 0.0875
 
-/** ★ t15：robot.yaml 里 dzbrain 段 `field:` 块下的 `bridge_entry_redundancy_m`
+/** robot.yaml 里 dzbrain 段 `field:` 块下的 `bridge_entry_redundancy_m`
  *  （桥洞**进洞侧冗余墙**长度，米）——只读解析，绝不写 config。
  *
  *  同源链（单一真源，页面端禁止再抄第二份 0.0875）：
@@ -530,7 +522,7 @@ const BRIDGE_ENTRY_REDUNDANCY_FALLBACK_M = 0.0875
  *  `dzactuator.field.bridge_entry_redundancy_m` 不存在。
  *
  *  读不到文件 / 没有 dzbrain 段 / 段内缺键 / 值非数值 → 兜底 0.0875（与 planner 缺
- *  config 时同口径）。`0.0` 是**合法值**（= 关冗余，回到 t4 之前的行为），只有**取不到值**
+ *  config 时同口径）。`0.0` 是**合法值**（= 关冗余），只有**取不到值**
  *  才兜底；负值原样返回，由消费方按 physics `max(0.0, ·)` 口径钳 0。
  *  导出仅供离线断言（同 sanitizeParams/plannerEngineOf 的先例；index.js 不引用它）。 */
 export function bridgeEntryRedundancyOf(configPath) {
@@ -580,21 +572,21 @@ export function bridgeEntryRedundancyOf(configPath) {
  *    在测试里自己复制一份 `--engine` 拼装，测的是复制品而不是线上代码。
  *    跑法（工作区根目录，node ≥ 20）：
  *      node --input-type=module -e "import {planRoute, routeTokens} from './dsh-plugin-dzrobot-ssh/src/simbench.js'; ..."
- *    见本卡交付的回归输出：44 ↔ 44 逐 token 相等。
+ *    验收口径：页面与车端 44 ↔ 44 逐 token 相等（见回归输出）。
  *
- *  ★ t12 入参：`fromCell`（增量续算起点）/ `alreadyCovered`（已压格，只对雷生效）——
- *    车端 t9 的 planner 入参，按 `appendIncrementalArgs` 白名单化后追加到 `--engine` 之后；
+ *  入参：`fromCell`（增量续算起点）/ `alreadyCovered`（已压格，只对雷生效）——
+ *    车端 planner 入参，按 `appendIncrementalArgs` 白名单化后追加到 `--engine` 之后；
  *    缺省 `null/[]` ⇒ argv 与改动前**逐字节相同**（整线规划语义不变）。
  *    `cliPath` 缺省 = 工作区 `tools/plan_route.py`；仅在离线断言里指向**影子 CLI**（%TEMP% 副本），
- *    用来在车端还没接线时钉住"声明后真的会传、产物 == 车端 planner"这条 E2E。 */
+ *    用来钉住"声明后真的会传、产物 == 车端 planner"这条 E2E。 */
 export async function planRoute({ configPath, mapPath, timeoutMs = 300 * 1000, fromCell = null, alreadyCovered = [], cliPath = PLAN_CLI }) {
   const argv = [cliPath === PLAN_CLI ? 'tools/plan_route.py' : cliPath,
                 '--config', configPath, '--map', mapPath,
                 '--emit', 'json', '--check', '--quiet']
-  // ★ 修「乱算」：与车端同引擎（robot.yaml planner.engine；读不到就不传，保持历史默认）。
+  // 修「乱算」：与车端同引擎（robot.yaml planner.engine；读不到就不传，保持历史默认）。
   const engine = plannerEngineOf(configPath)
   if (engine) argv.push('--engine', engine)
-  // ★ t12：增量规划透传（from_cell / already_covered）——**声明了才传**，缺省逐字节不变。
+  // 增量规划透传（from_cell / already_covered）——**声明了才传**，缺省逐字节不变。
   //   与 --engine 同链路：先引擎、后增量，白名单来自 CLI 真源，诉求/降级都进台账。
   const incremental = appendIncrementalArgs(argv, { fromCell, alreadyCovered }, { cliPath }).applied
   const run = await runChild('python', argv, { cwd: SIM_ROOT, timeoutMs })
@@ -608,7 +600,7 @@ export async function planRoute({ configPath, mapPath, timeoutMs = 300 * 1000, f
     exitCode: run.exitCode,
     timedOut: run.timedOut,
     engine,
-    // ★ t12：取证用（离线断言/台账都要能回答"这一趟到底带了哪些参数"）
+    // 取证用（离线断言/台账都要能回答"这一趟到底带了哪些参数"）
     argv: argv.slice(),
     incremental,
     tokens: Array.isArray(plan?.tokens) ? plan.tokens : [],
@@ -623,9 +615,9 @@ export async function planRoute({ configPath, mapPath, timeoutMs = 300 * 1000, f
 /**
  * 参数快照（用于台账，与 run 记录一起存）。
  *
- * ★ 导出**仅供离线断言**使用（`scripts/test-sim-map-render.mjs` 的「E 透传链②」一组）：
+ * 导出**仅供离线断言**使用（`scripts/test-sim-map-render.mjs` 的「E 透传链②」一组）：
  *   它不是插件的对外 API，`index.js` 不引用它，`runSim()` 是唯一的真实调用方。
- *   理由：`targetYaw`（t28 靶板朝向）从表单到台账的链条里，只有这一段是**纯函数**，
+ *   理由：`targetYaw`（靶板朝向）从表单到台账的链条里，只有这一段是**纯函数**，
  *   能不启服务、不跑 python 就被断言钉住；「record 落盘」那一段由真跑取证覆盖
  *   （5 跑实测：run_meta.jsonl 落 `"targetYaw":"v"/"h"`、非法值落 null，listHistory 原样回读）。
  */
@@ -648,24 +640,24 @@ export function sanitizeParams(body = {}) {
   }
   const label = String(body.label ?? 'run').replace(/[^\w\u4e00-\u9fa5\-]/g, '').slice(0, 40) || 'run'
   const maxSteps = Number.isInteger(body.maxSteps) && body.maxSteps > 0 ? body.maxSteps : 0
-  // ★ t25：seed 留空 = sim_cli 的 SimConfig 默认（不传 `--seed`，与改动前逐字一致）。
+  // seed 留空 = sim_cli 的 SimConfig 默认（不传 `--seed`，与改动前逐字一致）。
   const seed = Number.isInteger(body.seed) && body.seed >= 0 ? body.seed : null
-  // ★ t28：靶板朝向（'h' 横向 / 'v' 竖向 / '' 跟随地图）——**只用于渲染与台账**，
+  // 靶板朝向（'h' 横向 / 'v' 竖向 / '' 跟随地图）——**只用于渲染与台账**，
   //   不写 config、不进 sim_cli 参数（仿真物理不感知靶板朝向）。
   const targetYaw = body.targetYaw === 'h' || body.targetYaw === 'v' ? body.targetYaw : null
-  // ★ t14：靶板蓝红面（'blue' | 'red'）——仿 targetYaw 先例：只用于渲染与台账，
+  // 靶板蓝红面（'blue' | 'red'）——仿 targetYaw 先例：只用于渲染与台账，
   //   不写 config、不进 sim_cli 参数。与 targetYaw 的差别只有一处：targetYaw 恒在返回
-  //   键表里（t28 先例，scripts/test-sim-map-render.mjs E 组钉死 sp({}) 恰 7 键），
+  //   键表里（先例：scripts/test-sim-map-render.mjs E 组钉死 sp({}) 恰 7 键），
   //   targetFace 仅在请求体**带了该键**时才挂进返回对象 —— 页面 readForm 恒带 ⇒ 真跑
   //   台账恒有该字段；压测/无人机体不带 ⇒ 记录形状与改动前逐字一致。
   const targetFace = body.targetFace === 'blue' || body.targetFace === 'red' ? body.targetFace : null
-  // ★ t3（规格 §D）：无人机协同开关 —— 仅 `true` 通过（false/字符串/其它一律 null 丢弃），
+  // 无人机协同开关（规格 §D）—— 仅 `true` 通过（false/字符串/其它一律 null 丢弃），
   //   **带键才挂**（targetFace 同款先例）：页面不勾时请求体不带 drone 键 ⇒ params 无该键，
-  //   sp({}) 键表保持 t28 的 7 键（守卫 E 组钉死）、台账形状与 OFF 现状逐字一致（§D.1）。
+  //   sp({}) 键表保持 7 键（守卫 E 组钉死）、台账形状与 OFF 现状逐字一致（§D.1）。
   //   开启语义 = 车路线硬避让无人机起降格：runSimJob 里经 override 图 obstacles 注入 +
   //   planRoute 重规划（插件层唯一硬禁行键），不进 sim_cli 参数（仿真物理不感知）。
   const drone = body.drone === true ? true : null
-  // ★ t25：三类点位若要改，就在运行目录里生成 override（config/** 零写入）。
+  // 三类点位若要改，就在运行目录里生成 override（config/** 零写入）。
   const field = {}
   let fieldTouched = false
   if (body.field && typeof body.field === 'object') {
@@ -678,9 +670,9 @@ export function sanitizeParams(body = {}) {
     }
   }
   const params = { overrides, inject, label, maxSteps, seed, targetYaw, field: fieldTouched ? field : null }
-  // ★ t14：带键才挂 —— sp({}) 的键表保持 t28 的 7 键不变（守卫 E 组钉死），不破 61/61。
+  // 带键才挂 —— sp({}) 的键表保持 7 键不变（守卫 E 组钉死），不破 61/61。
   if (body.targetFace !== undefined) params.targetFace = targetFace
-  // ★ t3：同款带键才挂 —— 不带 drone 键的请求（压测/无人机体/OFF）params 形状不变。
+  // 同款带键才挂 —— 不带 drone 键的请求（压测/无人机体/OFF）params 形状不变。
   if (body.drone !== undefined) params.drone = drone
   return params
 }
@@ -706,7 +698,7 @@ function buildSimArgv({ overrides, inject, maxSteps, seed, id, configPath, route
 /**
  * 从 sim 的 stdout 里抓 zh/en 双语的指标数字。
  *
- * ★ 这两条是**照着 sim_cli 的真实排版**钉的（t21 实测：不这么写会抓错行）：
+ * 这两条是**照着 sim_cli 的真实排版**钉的（实测：不这么写会抓错行）：
  *   · 横向 RMS：`sim_cli` 会打好几行 —— `横向RMS(真值)`、`横向RMS(信念)`、
  *     `信念↔真值RMS`、`横向RMS 直段/倒车段/拐角`。旧正则 `(?:横向RMS|RMS)[：:\s]*(数字)`
  *     因为 `(真值)` 挡在中间而**匹配不到真值那行**，最后抓到 `信念↔真值RMS` 的 6 位小数 ——
@@ -775,8 +767,8 @@ export function appendMeta(record) {
 }
 
 /** 台账尾部记录（`run_meta.jsonl`）：`kind` 给了就只留该类的最近 50 条。
- *  ★ t17：`droneHistory()` 原先自己重抄一遍「读文件→逐行 parse→按 kind 过滤→slice(-50)」，
- *    现统一走这里（`listHistory` 不带 kind、`droneHistory` 带 `kind:'drone'`）。 */
+ *  统一入口：`listHistory` 不带 kind、`droneHistory` 带 `kind:'drone'`，
+ *    避免各写一份「读文件→逐行 parse→按 kind 过滤→slice(-50)」的过滤逻辑。 */
 export function readMeta({ kind = null } = {}) {
   try {
     const records = fs.readFileSync(META_FILE, 'utf8').split('\n').filter(line => line.trim() !== '')
@@ -823,7 +815,7 @@ export async function runSimJob(body, { lock = true, runId = null, batch = null 
     maxSteps: params.maxSteps,
     seed: params.seed,
     targetYaw: params.targetYaw,
-    // ★ t14：靶板蓝红面（页面恒带 'blue'/'red'；压测/无人机体不带时 undefined ⇒ JSON 序列化自然省略）
+    // 靶板蓝红面（页面恒带 'blue'/'red'；压测/无人机体不带时 undefined ⇒ JSON 序列化自然省略）
     targetFace: params.targetFace,
     simRoot: SIM_ROOT,
     simRootSource: SIM_ROOT_SOURCE,
@@ -834,8 +826,8 @@ export async function runSimJob(body, { lock = true, runId = null, batch = null 
   if (lock) running = true
   try {
     const started = Date.now()
-    // ---- ★ t25：改点位 → 运行目录里生成 override（地图 + 配置副本 + 重规划路线）----
-    // ★ t3（§D.2）：无人机协同也走 override 路径 —— drone 开 ⇒ 起降格注入 override 图
+    // ---- 改点位 → 运行目录里生成 override（地图 + 配置副本 + 重规划路线）----
+    // 无人机协同也走 override 路径（§D.2）—— drone 开 ⇒ 起降格注入 override 图
     //   obstacles 后重规划（规划层硬避让），哪怕棋盘没改。OFF（无 drone 键且无 field）
     //   ⇒ 分支不进，record 形状/argv/行为与现状逐字一致（§D.1）。
     let configPath = null
@@ -847,7 +839,7 @@ export async function runSimJob(body, { lock = true, runId = null, batch = null 
       const mapText = fs.readFileSync(MAP_FILE, 'utf8')
       const overrideMap = path.join(overrideDir, 'map.yaml')
       const overrideRobot = path.join(overrideDir, 'robot.yaml')
-      // ★ t3：field 变换（棋盘改点）先做，drone 避让注入**叠在其产物上**（同一张图）。
+      // field 变换（棋盘改点）先做，drone 避让注入**叠在其产物上**（同一张图）。
       //   起降格取 fieldSpec().drone（真源 + fallback，禁硬编码字面量）；仅 drone 开才多读
       //   一次 fieldSpec（field-only 跑与 OFF 现状零额外开销）。顺序保持 [takeoff, land] ——
       //   规格增补 §D.3 的台账形状 hardAvoid: ["N8","M2"]（起在前落在后；两格必异，无需排序去重）。
@@ -861,11 +853,11 @@ export async function runSimJob(body, { lock = true, runId = null, batch = null 
       // 配置**逐字复制**（只读真源的副本）：`load_field_spec(cfg_source=…)` 会优先取同目录的
       // map.yaml，所以这一对文件放在同一目录就是"这次跑的是哪张图"的完整证据。
       fs.copyFileSync(ROBOT_FILE, overrideRobot)
-      // ★ 规格 §B.6：路径规划计算时间（用户点名的统计项）—— Date.now 包住 plan_route，
+      // 规格 §B.6：路径规划计算时间（用户点名的统计项）—— Date.now 包住 plan_route，
       //   手动带 field 的跑同样落 record.plan.ms（压测均值分母 = 有该字段的记录数）。
       const planStartedAt = Date.now()
       const planned = await planRoute({ configPath: overrideRobot, mapPath: overrideMap })
-      if (params.field) record.field = params.field        // ★ t3：drone-only 跑不落 null field 键
+      if (params.field) record.field = params.field        // drone-only 跑不落 null field 键
       record.override = { dir: overrideDir, map: overrideMap, robot: overrideRobot }
       record.plan = {
         exitCode: planned.exitCode, timedOut: planned.timedOut,
@@ -879,7 +871,7 @@ export async function runSimJob(body, { lock = true, runId = null, batch = null 
         failures: planned.failures,
         stderrTail: planned.stderrTail,
       }
-      // ★ t3（§D.3）：drone 台账字段 —— **规划成败都落**（422 plan-failed 也在，证约束在场）。
+      // drone 台账字段（§D.3）—— **规划成败都落**（422 plan-failed 也在，证约束在场）。
       //   hardAvoid = 实际注入 override 图 obstacles 的格（[takeoff, land] 保序）；corridorRow =
       //   本局有效棋盘（真源 + 用户改点，与 dronesim.runDroneSim 的 board 同构）经 corridorRows
       //   推导 —— **全仓恰一份**（外来基线重写后 scanPlan 已不推导走廊行，本函数是唯一真源；
@@ -903,9 +895,9 @@ export async function runSimJob(body, { lock = true, runId = null, batch = null 
         }
       }
       routePath = path.join(overrideDir, 'route.tokens.txt')
-      // ★ `--route` 的文件解析按空格/逗号切词，末点的朝向后缀 `,x`/`,y` 会被切成独立 token
+      // `--route` 的文件解析按空格/逗号切词，末点的朝向后缀 `,x`/`,y` 会被切成独立 token
       //   （实测 `❌ 无法解析的 token: 'y'`）。仿真对末点朝向不敏感（剥掉后缀后 traj.csv
-      //   与带后缀**逐字节相同**，t25 实测），所以给 `--route` 的那份剥掉后缀，
+      //   与带后缀**逐字节相同**），所以给 `--route` 的那份剥掉后缀，
       //   规划器原样 token 另存一份备查。
       const routeArgv = planned.tokens.slice()
       let routeNote = ''

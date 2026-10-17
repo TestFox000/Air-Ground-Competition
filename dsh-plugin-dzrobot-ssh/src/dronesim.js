@@ -1,7 +1,7 @@
 /**
- * dronesim.js — 卡3：无人机协同仿真（规格 §C；报文契约 = 空地指挥链路手册 §2.1，降级语义 = §7）。
+ * dronesim.js — 无人机协同仿真（规格 §C；报文契约 = 空地指挥链路手册 §2.1，降级语义 = §7）。
  *
- * ★ 决策已拍板（2026-10-17，docs/无人机拟真与动态规划_方案.md §7）：
+ * 决策已拍板（2026-10-17，docs/无人机拟真与动态规划_方案.md §7）：
  *   1. 全量重规划：车随情报用**整张 truth override 图**重算整条路线（雷障靶差异也触发），
  *      非只换穿洞三连。落地 = runSim 的 field override 通道（runSimJob 内部 plan_route 全量重规划）。
  *   2. 重规划上限 2：对应 lower/upper 两个桥洞 checkpoint；land 封口不规划。
@@ -9,7 +9,7 @@
  *   4. 航线 = 桥洞优先短程（3 直线段 / 2 拐弯，≤4 段）；雷点「顺路覆盖」不单独拐弯。
  *   5. 先仿真台全绿，再动车端 mission.py 滚动重规划（本轮只动仿真台侧）。
  *
- * ★ 有意边界：
+ * 有意边界：
  *   a. 三关采纳（K 列 → 半场行段 → ∈robot.yaml cross_*_candidates）是超集、结论不放宽（手册 §7:237）。
  *   b. 不建模打靶：target_zone 只进 field_diff，无射击动作/耗时/得分（规格 §C.6）。
  *   c. 情报缺失/被拒 → bridges 回落先验默认完赛（铁律「宁可漏打不可卡死」不破）。
@@ -21,7 +21,7 @@ import { appendIncrementalArgs, appendMeta, applyFieldToMapText, COL_LETTERS, DR
 
 /** 扫描节拍：每点 TICK_S 秒（时间线与并行窗的最小刻度）。 */
 export const TICK_S = 0.5
-/** ★ t17：起降格兜底的 `DRONE_FALLBACK` 与列字母 `COL_LETTERS` 一律从 simbench 取（原先各抄一份）。 */
+/** 起降格兜底的 `DRONE_FALLBACK` 与列字母 `COL_LETTERS` 一律从 simbench 取（原先各抄一份）。 */
 const LETTERS = COL_LETTERS.split('')
 
 const colIdx = cell => LETTERS.indexOf(String(cell)[0].toUpperCase())
@@ -125,7 +125,7 @@ export function scanPlan({ field, drone } = {}) {
  *   · bridge_passable：truth 桥格归属半场（行 ≥7 lower / ≤6 upper），且 ∈ 该半场 K 穿越点视场才发；
  *   · target_zone / field_verify：扫描覆盖并集过滤，非空才发（车侧行为=field_diff，只报差异）。
  *
- * ★ 增量交付（决策 #3 情报先导）：每条 `bridge_passable` 带 `checkpoint` + `t` ——
+ * 增量交付（决策 #3 情报先导）：每条 `bridge_passable` 带 `checkpoint` + `t` ——
  *   = 该桥洞首次被累积视场覆盖到的 checkpoint（来自 `plan.checkpoints`）与时刻，
  *     让车端能「按批次」滚动重规划，而不是一次拿全。
  * 返回报文数组；每条附 decision/reason/default/scanAt（手册明示：新增字段安全、新增类型不安全）。
@@ -170,7 +170,7 @@ export function intelAt({ plan, truthBridges, field } = {}) {
       type: 'bridge_passable', half, block,
       confidence: 0.9, ts, seq: next(),
       decision, reason, default: halfDefault, scanAt: crossing.cell,
-      // ★ 增量交付：首次覆盖到它的 checkpoint（决策 #3 情报先导）
+      // 增量交付：首次覆盖到它的 checkpoint（决策 #3 情报先导）
       ...(cp ? { checkpoint: cp.id, t: cp.t } : {}),
     })
   }
@@ -197,13 +197,13 @@ export function intelAt({ plan, truthBridges, field } = {}) {
 }
 
 /** 真值 override 图上跑 plan_route --check（重规划取证；失败由调用方降级走默认、不计数）。
- *  ★ t3（规格 §D）：drone 开时取证图同样注入起降格硬避让（与最终 runSim 实跑的同一约束）——
+ *  无人机协同（规格 §D）：drone 开时取证图同样注入起降格硬避让（与最终 runSim 实跑的同一约束）——
  *    否则时间线里的 token 数/穿洞来自「可穿 N8/M2 的图」，与车实际跑的避让路线不同口径。
- *  ★ t12：增量规划透传口 —— `fromCell` / `alreadyCovered`（车端 t9 的 planner 入参）与
+ *  增量规划透传口 —— `fromCell` / `alreadyCovered`（车端 planner 入参）与
  *    `--engine` **同链路**：由 `appendIncrementalArgs()` 按 `tools/plan_route.py` 的 argparse
  *    真源白名单化后追加。缺省 `null/[]` ⇒ argv 与改动前逐字节相同（决策 #1 仍是全量重规划）。
- *    ⚠ 现役 CLI 尚未声明这两条开关（t9 只改到 planner 层）⇒ 如实降级为"不传"，
- *    诉求记在返回的 `incremental.dropped` 里（不静默吞）；车端接线后自动生效。 */
+ *    ⚠ CLI 若未声明这两条开关 ⇒ 如实降级为"不传"，
+ *    诉求记在返回的 `incremental.dropped` 里（不静默吞）。 */
 export function truthPlanEvidence({ board, truth, id, label, drone, fromCell = null, alreadyCovered = [] }) {
   const dir = path.join(SIM_ROOT, 'artifacts', 'sim', 'drone', id, `truth_override_${label ?? 'x'}`)
   const out = { dir, exitCode: null, tokenCount: null, crossing: null, checkExit: null, stderrTail: '', tokens: [], argv: [], incremental: null }
@@ -223,13 +223,13 @@ export function truthPlanEvidence({ board, truth, id, label, drone, fromCell = n
     return Promise.resolve(out)
   }
   return new Promise(resolve => {
-    // ★ 与页面/车端同引擎（t1 根因修复的收尾）：truth 取证也拼 --engine，
+    // 与页面/车端同引擎（根因修复的收尾）：truth 取证也拼 --engine，
     //   否则时间线用 plan_route 默认 tour、车实跑 tracker-safe，token/穿洞口径分裂。
     const argv = ['tools/plan_route.py', '--config', path.join(dir, 'robot.yaml'),
       '--map', path.join(dir, 'map.yaml'), '--emit', 'json', '--check', '--quiet']
     const engine = plannerEngineOf(path.join(dir, 'robot.yaml'))
     if (engine) argv.push('--engine', engine)
-    // ★ t12：增量参数同链路透传（白名单化；未声明 ⇒ 不加，诉求进 dropped）
+    // 增量参数同链路透传（白名单化；未声明 ⇒ 不加，诉求进 dropped）
     out.incremental = appendIncrementalArgs(argv, { fromCell, alreadyCovered }).applied
     out.argv = argv.slice()
     execFile('python', argv, {
@@ -332,11 +332,11 @@ export async function runDroneSim({ field, seed, truthBridges, carDefaultBridges
   }
 
   // 决策 #3：车等「情报封口」后才出发。最终路线 = 用 truth 图全量重规划的路线。
-  // ★ 落地方式 = runSim 的 field override 通道：传 field（四键 + bridges=truth）⇒
+  // 落地方式 = runSim 的 field override 通道：传 field（四键 + bridges=truth）⇒
   //   runSimJob 内部生成 override 图 + plan_route **全量重规划** + 用新路线跑 ——
   //   这正是决策 #1「全量重规划」（雷障靶差异也重算整条路线，非只换桥洞）的正确语义。
   //   情报全部缺失/被拒（无采纳）时，bridges 回落先验默认，行为 = 走默认完赛（铁律兜底不破）。
-  // ★ t3（规格 §D / 修订后验收 4）：drone 开时把开关**转发给 runSim**（带键才挂——runSimJob
+  // 无人机协同开关转发（规格 §D / 验收 4）：drone 开时把开关**转发给 runSim**（带键才挂——runSimJob
   //   里起降格经同一 override 图 obstacles 注入 + record.plan.drone 台账 + 路线硬避让取证），
   //   参数贯通 = 页面 → /sim/drone/run → runDroneSim → runSim(runSimJob) 全链一致。
   const finalBridges = truth.length ? truth : [prior.lower, prior.upper]
@@ -359,7 +359,7 @@ export async function runDroneSim({ field, seed, truthBridges, carDefaultBridges
   const meta = {
     id, kind: 'drone', at: new Date().toISOString(), label,
     seed: Number.isFinite(Number(seed)) ? Number(seed) : null,
-    drone: drone === true,                       // ★ t3：无人机台账留痕（车台账在 record.plan.drone）
+    drone: drone === true,                       // 无人机台账留痕（车台账在 record.plan.drone）
     status: carResult.record.status, carRecordId: carResult.record.id,
     prior, truth, reroutes, confirmed,
     intel: bridgeMsgs.map(m => ({ half: m.half, block: m.block, decision: m.decision, checkpoint: m.checkpoint })),
@@ -370,18 +370,18 @@ export async function runDroneSim({ field, seed, truthBridges, carDefaultBridges
     ok: true, timeline, reroutes, confirmed, record: carResult.record,
     scan: {
       takeoff: plan.takeoff, land: plan.land, points: plan.points.length,
-      // ★ 拟真（卡3+）：给前端画航线/扫描覆盖的完整格序列（含每点 3×3 覆盖）。
+      // 拟真：给前端画航线/扫描覆盖的完整格序列（含每点 3×3 覆盖）。
       //   index.js 原样透传；此前只回 points 计数，前端没有画图的素材。
       path: plan.points.map(p => p.cell),
       cells: plan.points.map(p => ({ cell: p.cell, covers: p.covers })),
-      // ★ 增量交付（决策 #3）：checkpoint 序列，前端画「情报交付点 + 车改道时刻」。
+      // 增量交付（决策 #3）：checkpoint 序列，前端画「情报交付点 + 车改道时刻」。
       checkpoints,
     },
     intel, plans, id,
   }
 }
 
-/** 无人机协同台账：台账读/过滤统一走 `simbench.readMeta({ kind:'drone' })`（t17：不再自拼一遍）。 */
+/** 无人机协同台账：台账读/过滤统一走 `simbench.readMeta({ kind:'drone' })`（不再自拼一遍）。 */
 export function droneHistory() {
   return { ok: true, runs: readMeta({ kind: 'drone' }) }
 }

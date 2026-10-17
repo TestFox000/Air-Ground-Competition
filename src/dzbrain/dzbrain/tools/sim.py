@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """离线纯追踪仿真器（C 线，`docs/P0接口约定.md` §5）——**不碰车就能调参与回归**。
 
-为什么要它（旧流程的痛点）
+为什么要它（离线调参的痛点）
 ------------------------------------------------------------------
-旧版调一个循迹参数要：改 YAML → 推到车 → colcon restart → 遥控摆位 → 跑完看横偏。
+没有仿真时调一个循迹参数要：改 YAML → 推到车 → colcon restart → 遥控摆位 → 跑完看横偏。
 一轮十分钟起，还受电池/场地/云台误差干扰，**同一组参数跑不出可比结果**。
 本模块把"车 + 里程计误差 + 到下位机的链路延迟"压成一个确定性模型，
 同一组参数永远得到同一条曲线 —— 于是"A 参数 vs B 参数"的对照实验才成立。
@@ -27,7 +27,7 @@
 ======================  ==================================================
 
 ★ **零误差不变量**（这是"模型可信"的定义）：`ε = 0`、零漂 = 0、噪声 = 0 时，
-  两条轨迹**逐位相同**（差 = 0，不是"很小"）。⚠️ 这条不变量以前不成立：老实现里
+  两条轨迹**逐位相同**（差 = 0，不是"很小"）。⚠️ 这条不变量必须由实现保证：早期实现里
   真值用的是"执行量"、信念用的是"指令量 + 另一套积分顺序"，零误差下就有
   0.34 m 的系统性偏差 —— 于是所有注入实验都失去基准（"误差 0.34 m" 是模型自己的错）。
   ⚠️ 唯一的例外是**到位吸附**（见下），它按定义就是"外部把信念拽过去"。
@@ -65,15 +65,14 @@
 4. `metrics` 的键名是契约（`docs/P0接口约定.md` §5），只增不改。
 5. 指标**按段类型分组**（`normal` / `reverse` / `corner`）：不分组的话一个 90° 拐角的
    0.3 m 会淹没整条路线的 RMS，参数调优就看不出方向（详见 `SegmentStat`）。
-6. ★ 卡 t13：**起拍位姿 = 现场摆位约定**（设计常量：设计起点格 + 车头 `+y`），
+6. **起拍位姿 = 现场摆位约定**（设计常量：设计起点格 + 车头 `+y`），
    不从路线反推（见 `DESIGN_START_BLOCK` / `DESIGN_START_YAW` / `SimConfig.init_yaw`）。
 
-★★ 2026-10-07：现场图"跑不完"的根因已修（历史：822.5 s / 41127 拍 / ratio 5.32 未完成）
+## 投影/推进的四个关键修正（互补，缺一不可）
 ------------------------------------------------------------------
-修完后的出厂实测：**completed=True / 6751 拍 / 135.0 s / ratio 1.04 / 末点 0.029 m**。
-根因**不是**几何（把 `max_steer_deg` 放到 60°、最小转弯半径 0.09 m 也跑不完 ——
-见 `_project_sticky` 的说明），而是**投影在折返交汇处选错了段**，
-连带把 Mission 的推进判据、前视点、前进/倒车决策全部带偏。四处改动（互补，缺一不可）：
+这类"跑不完"的根因**不是**几何（把 `max_steer_deg` 放到 60°、最小转弯半径 0.09 m
+也跑不完 —— 见 `_project_sticky` 的说明），而是**投影在折返交汇处选错了段**，
+连带把 Mission 的推进判据、前视点、前进/倒车决策全部带偏：
 
 1. **投影候选比距离**（`_candidates` / `_pick_candidate`）：原 `Path.project` 的
    "先到先得"会让**被夹在段端点的候选**赢过真正最近的点 —— 车头已伸过顶点，
@@ -105,22 +104,22 @@ from ..pursuit.path import Path, Projection
 from ..route import physics as ph
 from ..route.model import Route
 
-# ⚠️ 刻意不做的事（t9 复核定稿，别再当 bug 报）：
+# ⚠️ 刻意不做的事（复核定稿，别再当 bug 报）：
 #   本仿真**不建模 PIVOT**（状态机在 tasks/tracker.py，sim 不 import tasks/）。
 #   后果：① config 里所有 `pivot_*` 键在本仿真**恒为 no-op**（推极端也不改轨迹）；
 #         ② 由 180° 折返点主导的指标（A6/A1 大弧、横向 MAX 等）**不可迁移实车**；
 #         ③ 千万别用本仿真验证/调 PIVOT 行为 —— 只能实车或闭环 bench 验。
-#   对照实验卫生：两次运行之间不许改 config；各臂显式 --set 被测键（t9/n8 教训）。
+#   对照实验卫生：两次运行之间不许改 config；各臂显式 --set 被测键（教训）。
 
 # --------------------------------------------------------------------------- #
-#  ★ 场地物理要素（t24，2026-10-11）：把 `route/physics.py` 的口径接进仿真
+#  ★ 场地物理要素（2026-10-11）：把 `route/physics.py` 的口径接进仿真
 # --------------------------------------------------------------------------- #
 # 分层（单一真源，不许分叉）：
 #     `config/robot.yaml` 存**数**  →  `route/physics.py` 存**公式**  →  本节只**调用**
 #
 # ⚠️ 本节的硬约束：**只观测、不改动力学**。同一路线、同一注入参数下，加不加场地，
-#    真值/信念轨迹必须**逐位不变**（t24 有硬断言）—— 否则"换一套判定"就不可比，
-#    历史上所有基线（RMS 0.1168 / 6751 拍 …）全部失效。
+#    真值/信念轨迹必须**逐位不变**（有硬断言）—— 否则"换一套判定"就不可比，
+#    既有基线全部失效。
 #    需要"撞上就停"的对照时，显式开 `SimConfig.stop_on_field_violation=True`。
 #
 # 判据（用户 2026-10-11 现场澄清，以澄清为准）：
@@ -132,7 +131,7 @@ from ..route.model import Route
 #   · K 列：通格横向贯通；**纵向相邻格之间全部封死**（`physics.k_cells_sealed_along_column`）。
 #   · 靶板：35×35 cm/格、心在格心 ⇒ 车体 28×13.5 不许与靶板矩形 overlap。
 #   · 车体：28 × 13.5 cm（**注意**：宽度由 17 cm 更正为 13.5 cm —— 老后处理脚本按 17 cm 算，偏保守）。
-#   · 越界：**维持现口径**（`pursuit.map_safety_margin_m`，本卡不动）。
+#   · 越界：**维持现口径**（`pursuit.map_safety_margin_m`，不动）。
 
 
 @dataclass(frozen=True)
@@ -307,7 +306,7 @@ def body_point_clearance_m(x: float, y: float, yaw: float, px: float, py: float,
     """**点 P 到车体矩形**的最近距离（m；点在车内 = 0）。
 
     ★ 做法：把 P 变到**车体系**，再套 `physics.point_rect_distance_m()` 的同一个公式 ——
-      是"换坐标系"，不是"另写一套几何"（两份实现迟早分叉，t22 的教训）。
+      是"换坐标系"，不是"另写一套几何"（两份实现迟早分叉，的教训）。
     """
     dx, dy = px - x, py - y
     c, s = math.cos(yaw), math.sin(yaw)
@@ -340,7 +339,7 @@ class FieldObs:
     barrier_cols: str = "D..N"
     obstacle_margin_m: float = 0.02
     stop_on_violation: bool = False          # True = 第一次物理违规即结束（对照组用）
-    # ---- ★★ 卡 t5：桥洞**进洞侧冗余墙**（设计冗余，现实不存在）----
+    # ---- 桥洞**进洞侧冗余墙**（设计冗余，现实不存在）----
     #: 冗余长度（米）：真源 = config `field.bridge_entry_redundancy_m`
     #: （缺省 0.0875 = 0.35 × 1/4 格，与 `planner.BRIDGE_ENTRY_REDUNDANCY_M` **同源同值**；
     #: `run_sim` 一律 `cfg.get(key, 本默认)` 取值 —— 与上面 8 个键同一约定）。
@@ -379,11 +378,11 @@ class FieldObs:
         self.k_col_steps = 0
         self.k_seal_steps = 0
         self.k_solid_steps = 0
-        # ---- ★★ 卡 t5：桥洞进洞侧**冗余墙**（第三种 K 列判据，与上面三条并列）----
+        # ---- 桥洞进洞侧**冗余墙**（第三种 K 列判据，与上面三条并列）----
         #   ⚠️ `<= 0` ⇒ **不建墙**（`modeled = 0`）。为什么不靠"把墙退化成零长度线段"来关：
         #      零长墙刚好落在**洞口边线上**，而车正摆着穿洞时车体横向边缘离该线仅
         #      0.175 − 0.0675 = 0.1075 m ⇒ 横向偏移 ≥ 0.1075 m（= 贴壁）就报 0。
-        #      t5 实测：横向 dx ≥ 0.1075 时零长墙**全部**返回 0.000000（假阳性），
+        #      实测：横向 dx ≥ 0.1075 时零长墙**全部**返回 0.000000（假阳性），
         #      而正摆穿洞的轨迹横向偏移本就在 ±0.05 m 内 ⇒ 全轨迹恰好 0 拍而"看着没事"，
         #      这个陷阱是**潜伏**的（换个横向偏一点的路线立刻假绿翻红）。
         #      所以关闭必须走"不建墙 + modeled=0"，让"没测"与"测了没事"可区分。
@@ -453,7 +452,7 @@ class FieldObs:
         #   ① `board_overlap_steps`：**物理重叠**（精确的"旋转后车体矩形 ∩ 35×35 靶板矩形"= 0）
         #      —— 这是硬事实，车真的压上去了；
         #   ② `board_breach_steps`：**设计判据不足**（间隙 < 车半宽 0.0675 / 拐角 0.1554）
-        #      —— 与 route_check/t22 同一条规则，只是这里喂的是**实测轨迹**的间隙。
+        #      —— 与 route_check 的物理判据同一条规则，只是这里喂的是**实测轨迹**的间隙。
         #   ⚠️ 不要把 physics.target_body_overlap() 套在"已有精确车体距离"上：那个函数
         #      的输入是**折线/顶点**的间隙（把扫掠包络折算成间隙门槛），套在精确车体距离上
         #      会把扫掠算两遍、虚报违规。
@@ -497,15 +496,15 @@ class FieldObs:
                                                                     self.k_col), 0.0)
                 violated = True
         self._prev_row, self._prev_col = row_idx, col_idx
-        # ---- ⑥ ★★ 卡 t5：桥洞**进洞侧冗余墙**（车体旋转矩形 ∩ 虚拟墙）----
+        # ---- ⑥ 桥洞**进洞侧冗余墙**（车体旋转矩形 ∩ 虚拟墙）----
         #   ★ 为什么单列一条判据（不与 ⑤ 合并）：⑤ 判的是"车心在哪一格"（格级事实），
         #     本条判的是"车身摆没摆正"（连续几何）—— 车心完全可以规规矩矩走在桥洞格中心线上，
         #     而车身**斜着**在洞前 1/4 格就扫到进洞侧的壁（这正是设计冗余要拦的东西）。
         #   ★ 为什么必须**精确旋转车体**（`body_bridge_wall_clearance_m`，含 ref_offset）
         #     而不是"车心到墙的距离"：洞前 1/4 格内车身横向占用可达车长 0.28 m（斜着时），
-        #     拿车心距离判会把 20 mm 级的侵入整个漏掉（t4 实测该函数修过一个同源漏判）。
+        #     拿车心距离判会把 20 mm 级的侵入整个漏掉（实测该函数修过一个同源漏判）。
         #   ★ 判据 = 间隙 `> 0`：本模块（route/physics.py）距离口径是"**重叠 = 0**"、
-        #     返回值恒 ≥ 0 ⇒ 写成 `>= 0` 会**恒真**、判据形同虚设（t4 落地时实测确认过）。
+        #     返回值恒 ≥ 0 ⇒ 写成 `>= 0` 会**恒真**、判据形同虚设（落地时实测确认过）。
         if self.bridge_entry_walls:
             for _blk, _walls in self.bridge_entry_walls.items():
                 _clr = ph.body_bridge_wall_clearance_m(
@@ -520,7 +519,7 @@ class FieldObs:
         return violated
 
     def metrics(self) -> dict[str, float]:
-        """汇总指标（键名只增不改；`field_*` 前缀 = 本卡新增）。"""
+        """汇总指标（键名只增不改；`field_*` 前缀 = 新增）。"""
         pressed = sorted(b for b, n in self.press_steps.items() if n > 0)
         out: dict[str, float] = {
             "field_modeled": 1.0,
@@ -540,7 +539,7 @@ class FieldObs:
             "k_column_steps": float(self.k_col_steps),
             "k_seal_violation_steps": float(self.k_seal_steps),
             "k_solid_cell_steps": float(self.k_solid_steps),
-            # ---- ★★ 卡 t5：桥洞进洞侧冗余墙 ----
+            # ---- 桥洞进洞侧冗余墙 ----
             # ⚠️ `modeled = 0`（关判据 / 本图无桥洞）时下面三条**照样存在**但语义是
             #    "没测"：`bridge_redundancy_steps` 恒 0、`bridge_..._min_clearance_m = inf`。
             #    报告里必须与 `modeled` 一起读 —— 单独看 steps=0 会误读成"不蹭墙"。
@@ -680,7 +679,7 @@ _COLOR_BY_ERROR = [
 _COLOR_WORST = "#c92a2a"    # 偏得离谱 —— 红
 
 # --------------------------------------------------------------------------- #
-#  ★★ 卡 t13：起拍位姿 = **现场摆位约定**（设计常量，不从路线反推）
+#  起拍位姿 = **现场摆位约定**（设计常量，不从路线反推）
 # --------------------------------------------------------------------------- #
 #: 设计起点格：每次发车车都摆在这一格（现场图 = `N10`）。
 DESIGN_START_BLOCK = "N10"
@@ -709,7 +708,7 @@ class SimConfig:
     trace_every: int = 1                # 每 N 拍记一条轨迹（1 = 全记）
     stop_on_completion: bool = True     # 到终点即停（False = 跑到步数上限，用来看"冲过去"）
     bounds_margin_m: float = 0.0        # 越界判据余量；0 = 用 `pursuit.map_safety_margin_m`
-    #: ★★ 卡 t13：起拍航向来源。**默认 = 现场摆位约定**（见 `DESIGN_START_BLOCK/YAW`）：
+    #: 起拍航向来源。**默认 = 现场摆位约定**（见 `DESIGN_START_BLOCK/YAW`）：
     #:   · `"start"`（默认）= 车摆在设计起点格、车头 `+y`（图左 / K 列方向）—— 与实车
     #:     摆位一致；**不从路线推**，所以"首段方向≠+y"的路线也能如实反映"车要先把头转过去"。
     #:     ⚠️ 只对**从设计起点格出发**的路线生效；不从那里出发的合成夹具（实验室画的短
@@ -720,7 +719,7 @@ class SimConfig:
     actuator_rate_limit: bool = True    # 执行侧舵角斜坡跟随（关掉 = 复位老实现"一步到位"）
     command_rate_limit: bool = True     # 控制器侧速率限幅（关闭仅用于"暴露未限幅后果"的对照）
     trace_hook: object = None           # 可选：每拍回调 (step:int, state:dict) —— 排障用（默认 None）
-    # ★ t24：场地物理观测（默认关 —— 只有显式传入 FieldSpec 才启用，见 run_sim 的 field 形参）。
+    # 场地物理观测（默认关 —— 只有显式传入 FieldSpec 才启用，见 run_sim 的 field 形参）。
     #   True = 本拍出现物理违规（压到雷以外的硬违规：障碍碰撞/挡板触线/压靶板/K 列封死）即结束。
     #   ⚠️ 刻意**默认 False**：加场地不许改轨迹（历史基线可比），"撞上就停"是对照组实验。
     stop_on_field_violation: bool = False
@@ -777,10 +776,10 @@ class SimResult:
     reverse: list[bool] = field(default_factory=list)          # 这一拍在倒车段吗
     metrics: dict = field(default_factory=dict)
     segments: list[SegmentStat] = field(default_factory=list)
-    #: ★ t24：场地物理观测明细（逐雷盖雷拍数 / 最近距离 / 首次违规位置 …）；无场地时 = {}。
+    #: 场地物理观测明细（逐雷盖雷拍数 / 最近距离 / 首次违规位置 …）；无场地时 = {}。
     #:   刻意不复用 `metrics`：那里只放**数值**（CSV/表都按数值格式化），明细走这里。
     field_report: dict = field(default_factory=dict)
-    #: ★ t13：本想起拍航向**是哪条规则给出的**（"设计常量…" / "首段方向" / "waypoint…"）。
+    #: 本想起拍航向**是哪条规则给出的**（"设计常量…" / "首段方向" / "waypoint…"）。
     #:   只作诊断与测试证据，不参与任何指标计算。
     init_yaw_src: str = ""
 
@@ -912,8 +911,8 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
     max_steps = sim.max_steps or auto_max_steps(path, cfg, sim)
     trace_every = max(1, sim.trace_every)
 
-    # ---- ★ 场地物理观测（t24）：公式全在 route/physics.py，参数全在 config，这里只取数 ----
-    # ⚠️ 一律 `cfg.get(key, 默认)`：这 8 个键由 t22 落进 SCHEMA/robot.yaml，但**老配置**
+    # ---- ★ 场地物理观测：公式全在 route/physics.py，参数全在 config，这里只取数 ----
+    # ⚠️ 一律 `cfg.get(key, 默认)`：这 8 个键已落进 SCHEMA/robot.yaml，但**老配置**
     #    （或测试里手搓的最小配置）没有它们时也必须能跑 —— 默认值与 physics.py 的形参默认**同源**。
     obs: FieldObs | None = None
     if field is not None:
@@ -928,11 +927,11 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
             barrier_cols=str(cfg.get("field.barrier_cols", "D..N")),
             obstacle_margin_m=float(cfg.get("planner.obstacle_margin_m", 0.02)),
             stop_on_violation=bool(sim.stop_on_field_violation),
-            # ★★ t5：桥洞进洞侧冗余墙。`bridge_entry_redundancy_m` 的缺省值 = FieldObs 的
+            # 桥洞进洞侧冗余墙。`bridge_entry_redundancy_m` 的缺省值 = FieldObs 的
             #   形参默认（0.0875）—— 与 `planner.BRIDGE_ENTRY_REDUNDANCY_M` 同值同源。
             bridge_entry_redundancy_m=float(
                 cfg.get("field.bridge_entry_redundancy_m", 0.0875)),
-            # ★★ t5：车体几何中心相对参考点的偏移。与 `vehicle.ref_offset_m` 同源；
+            # 车体几何中心相对参考点的偏移。与 `vehicle.ref_offset_m` 同源；
             #   缺省 `ph.DEFAULT_REF_OFFSET_M`(=0.0) ⇒ 老配置/手搓配置行为不变。
             ref_offset_m=float(cfg.get("vehicle.ref_offset_m", ph.DEFAULT_REF_OFFSET_M)),
         )
@@ -946,7 +945,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
         metrics[key] = 0.0
 
     # ---- 初始位姿：信念 = 真值 = 路线首点 ----
-    # 朝向默认 = **现场摆位约定**（设计常量 +y，卡 t13）：车摆在本图起点格、车头朝图左。
+    # 朝向默认 = **现场摆位约定**（设计常量 +y）：车摆在本图起点格、车头朝图左。
     # 为什么不能用 `Route` 首点的 yaw 字段：那是"整条路线走完后该有的朝向"
     # （例如现场路线末尾 `N5` 无后缀 → yaw = 0 = 朝 X+），拿它当初朝向 = 开局就让车横着
     # 90°，纯追踪要绕 0.3 m 半径的圆弧去救 —— 那是在测"起步摆正能力"，不是测循迹质量。
@@ -954,7 +953,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
     head = path.waypoints[0]
     tx, ty = head.x, head.y
     bx, by = head.x, head.y
-    # ★★ 卡 t13：起拍航向的**默认来源 = 现场摆位约定**（设计常量），不是从路线反推：
+    # 起拍航向的**默认来源 = 现场摆位约定**（设计常量），不是从路线反推：
     #   车摆在设计起点格、车头 `+y`（图左 / K 列方向）—— 现场用户保证摆位。
     #   ⚠️ 只对"从设计起点格出发"的路线生效；合成夹具（从别处出发的短路线）保持历史
     #      行为「对齐首段方向」，见 `SimConfig.init_yaw` 的说明。
@@ -989,7 +988,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
     steer_exec = 0.0            # 舵机实际舵角（斜坡跟随后的物理量）
     brake_hold = False          # 上一次指令是否"零速刹车"（刹车期间舵机保持原位）
     last_cmd_steer: float | None = None   # 控制器上一拍输出（速率限幅的输入）
-    #: ★ t30：控制器上一拍**命令速度**（加减速斜坡的输入）。
+    #: 控制器上一拍**命令速度**（加减速斜坡的输入）。
     #: 语义与 `last_cmd_steer` 对称：`None` = 首拍（斜坡层不参与）；
     #: 限值来自 `pursuit.accel_up_mps2` / `pursuit.accel_down_mps2`（缺省 0.0 ⇒ 整层 no-op，
     #: 因此**不落配置时本改动对既有基线逐位无影响**）。
@@ -1041,7 +1040,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
     stall = 0
     last_s = -1.0
     t = 0.0
-    field_stop_t: float | None = None    # ★ t24：stop_on_field_violation 触发时的时刻
+    field_stop_t: float | None = None    # stop_on_field_violation 触发时的时刻
 
     while steps < max_steps:
         # ================== ① 真值 + 信念：**同一执行量、同一积分器、同一拍** ==================
@@ -1221,7 +1220,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
             if cmd_rate > cmd_rate_peak:
                 cmd_rate_peak = cmd_rate
         last_cmd_steer = cmd.steer_deg
-        # ---- ★ t30：命令速度历史（加减速斜坡的输入；同时也是"斜坡拍数"读数）----
+        # ---- 命令速度历史（加减速斜坡的输入；同时也是"斜坡拍数"读数）----
         #   ⚠️ 用**命令量**而不是执行量：斜坡建模的是"控制器给下位机的速度指令变化率"，
         #      下位机侧还有延迟队列（`cmd_latency_s`）单独建模。
         if cmd.speed_reason in ("ramp_up", "ramp_down"):
@@ -1276,9 +1275,9 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
                 slot["t"] = t
                 slot["s"] = proj_t.s
 
-        # ================== ⑦' ★ 场地物理观测（t24） ==================
+        # ================== ⑦' ★ 场地物理观测 ==================
         # ★ 用**真值**位姿（物理世界）：地图上的事实不能跟着里程计漂移走。
-        # ⚠️ 本块**只读** `(tx, ty, tyaw)` 并累加计数 —— 对轨迹零影响（t24 有硬断言）。
+        # ⚠️ 本块**只读** `(tx, ty, tyaw)` 并累加计数 —— 对轨迹零影响（有硬断言）。
         field_violation = False
         if obs is not None:
             field_violation = obs.observe(t, tx, ty, tyaw, kind=kind)
@@ -1339,7 +1338,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
         #   保证末拍的真值就停在终点上（`final_error_m` 才有意义）。
         if sim.stop_on_completion and reached_end:
             break
-        # ★ t24 对照组：撞上场地要素（障碍/挡板/靶板/K 列封死）即结束。
+        # ★ 对照组：撞上场地要素（障碍/挡板/靶板/K 列封死）即结束。
         #   ⚠️ 默认关闭：本仿真测的是"循迹能力"，加了硬停就不再与历史基线可比。
         if sim.stop_on_field_violation and field_violation:
             field_stop_t = t
@@ -1366,8 +1365,8 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
     final = path.waypoints[-1]
     # "顶点冲过头"：真值轨迹在某个顶点处**离格心最近**时的超出量（超过到位半径的部分）。
     # 严格沿路线走的车该值是 0；信念领先（ε>0）或转弯半径不够时车会在拐角外侧掠过顶点 → 出现正值。
-    # ★ 按段类型分开统计：老实现把 34 个点混在一起取 max，于是 0.5552 m 里
-    #   "倒车折返 R:F11 在原地掉头"和"90° 弯切角"分不开 —— 前者不用修，后者要调参。
+    # ★ 按段类型分开统计：不分组时"倒车折返在原地掉头"和"90° 弯切角"会混在同一个
+    #   max 里（曾出现 0.5552 m 的假峰值）—— 前者不用修，后者要调参。
     vertex_off = {"normal": 0.0, "reverse": 0.0}
     overshoot = 0.0
     for idx, wp in enumerate(path.waypoints):
@@ -1485,7 +1484,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
         "reverse_segment_count": float(sum(1 for i in range(path.segment_count)
                                           if path.segment_is_reverse(i))),
     })
-    # ---- ★ 场地物理指标（t24，只增不改）----
+    # ---- ★ 场地物理指标（只增不改）----
     # ⚠️ 未建模场地时 `field_modeled = 0.0`，`format_metrics` 据此**整块不打印** ——
     #    这样"没接地图"与"接了地图但零违规"在控制台上不会长得一样（不说谎）。
     if obs is not None:
@@ -1510,7 +1509,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
                 "barrier_cols": obs.barrier_cols,
                 "k_col": obs.k_col,
                 "open_rows": tuple(obs.open_rows),
-                # ★★ t5：进洞侧冗余墙的**几何**（渲染直接用，尺寸与判据同源 —— 不另抄一份）。
+                # 进洞侧冗余墙的**几何**（渲染直接用，尺寸与判据同源 —— 不另抄一份）。
                 #    `{桥洞格名: ((x0,y0,x1,y1) 北壁, (…) 南壁)}`；关判据时 = {}。
                 "bridge_entry_walls": {b: tuple(w) for b, w in obs.bridge_entry_walls.items()},
                 "bridge_redundancy_m": float(obs.bridge_entry_redundancy_m)
@@ -1524,7 +1523,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
         metrics["field_modeled"] = 0.0
     metrics["field_stopped"] = 1.0 if field_stop_t is not None else 0.0
     metrics["field_stop_t"] = float(field_stop_t) if field_stop_t is not None else -1.0
-    #: ★ t30：本趟里有几拍的**命令速度被加减速斜坡改写**（`ramp_up`/`ramp_down`）。
+    #: 本趟里有几拍的**命令速度被加减速斜坡改写**（`ramp_up`/`ramp_down`）。
     #: 缺省配置（两个 accel 键为 0.0）时恒为 0 ⇒ 该键只是诊断读数，不影响任何既有指标。
     metrics["speed_ramp_steps"] = float(speed_ramp_steps)
     # ⚠️ `completed` / `anchor_on_arrival` 是 bool，其余指标是 float —— 混类型是刻意的：
@@ -1945,7 +1944,7 @@ _GROUP_TABLE: tuple[tuple[str, str, str, int], ...] = (
     ("steer_delivered_jump_steps", "执行侧越限跳变拍", "", 0),
 )
 
-#: ★ t24 场地物理表：(键, 中文标题, 单位, 小数位)。
+#: 场地物理表：(键, 中文标题, 单位, 小数位)。
 #: ⚠️ **只在接了地图时打印**（`metrics["field_modeled"] > 0`）—— 否则"没建模"与"零违规"
 #:    在控制台上长得一模一样，那是在说谎。
 _FIELD_TABLE: tuple[tuple[str, str, str, int], ...] = (
@@ -1964,7 +1963,7 @@ _FIELD_TABLE: tuple[tuple[str, str, str, int], ...] = (
     ("k_column_steps",          "K 列拍数",       "",  0),
     ("k_seal_violation_steps",  "K 列封死违规拍", "",  0),
     ("k_solid_cell_steps",      "K 列非通格拍",   "",  0),
-    # ---- ★★ t5：桥洞进洞侧冗余墙（第三种 K 列判据；`modeled` 行必须一起读）----
+    # ---- 桥洞进洞侧冗余墙（第三种 K 列判据；`modeled` 行必须一起读）----
     ("bridge_redundancy_modeled", "桥洞冗余墙判据", "", 0),
     ("bridge_redundancy_steps", "桥洞冗余墙违规拍", "", 0),
     ("bridge_redundancy_min_clearance_m", "冗余墙最小间隙", "m", 4),
@@ -2009,7 +2008,7 @@ def format_metrics(result: SimResult, sim: SimConfig | None = None,
     lines.append("  分组指标（按真值投影的段类型）:")
     for key, label, unit, nd in _GROUP_TABLE:
         lines.append(_fmt_row(key, label, unit, nd, m))
-    # ---- ★ t24 场地物理表（只有接了地图才出现；见 _FIELD_TABLE 的 ⚠️）----
+    # ---- 场地物理表（只有接了地图才出现；见 _FIELD_TABLE 的 ⚠️）----
     if m.get("field_modeled", 0.0):
         rep = result.field_report or {}
         lines.append("-" * 46)
@@ -2137,7 +2136,7 @@ def write_svg(result: SimResult, path: str, route: Route,
     """写轨迹 SVG（路线折线 + 航点 + 真值轨迹 + 信念轨迹）。返回绝对路径。
 
     ★ 手写 SVG：车上/CI 都没有 matplotlib，而"看图找问题"是调参的主要手段。
-    ★ t24：给了 `field` 就**按物理形状**把场地画出来（雷 = 12×12 cm 方、障碍 = r12.75 cm 圆、
+    给了 `field` 就**按物理形状**把场地画出来（雷 = 12×12 cm 方、障碍 = r12.75 cm 圆、
       挡板 = 2 cm 细条、K 列桥室 = 格间封死横线、靶板 = 35×35 cm 块），形状尺寸取自
       `result.field_report["shape"]`（与碰撞判据**同源**，不另抄一份数字）。
     """
@@ -2198,7 +2197,7 @@ def write_svg(result: SimResult, path: str, route: Route,
     head = title or f"pure-pursuit sim ({os.path.basename(target)})"
     parts.append(f'  <text x="{_SVG_PAD:.0f}" y="30" font-family="monospace" '
                  f'font-size="18" fill="#212529">{_xml_escape(head)}</text>\n')
-    # ---- ★ t24：场地物理底图（画在所有轨迹**下面**；形状尺寸与碰撞判据同源）----
+    # ---- 场地物理底图（画在所有轨迹**下面**；形状尺寸与碰撞判据同源）----
     if field is not None and shape:
         block = float(shape["block_m"])
         rows, cols = int(shape["rows"]), int(shape["cols"])
@@ -2257,10 +2256,10 @@ def write_svg(result: SimResult, path: str, route: Route,
                 parts.append(f'  <line class="kwall" x1="{sx(x0):.2f}" y1="{sy(k_y0):.2f}" '
                              f'x2="{sx(x0):.2f}" y2="{sy(k_y1):.2f}" stroke="#212529" '
                              f'stroke-width="2.5"/>\n')
-        # ---- ★★ t5：桥洞**进洞侧冗余墙**（细竖线，进洞侧，醒目色；几何与判据同源）----
+        # ---- 桥洞**进洞侧冗余墙**（细竖线，进洞侧，醒目色；几何与判据同源）----
         #   ★ 为什么必须画出来：这段墙**现实不存在**，是设计冗余 —— 不看图的话，
         #     "车有没有在洞前 1/4 格蹭到它"只能靠一个数字猜；画出来才能一眼看出
-        #     "墙在哪、车从哪个位置斜过去"。颜色取 t5 专属青紫，与既有图层都不撞。
+        #     "墙在哪、车从哪个位置斜过去"。颜色取专属青紫，与既有图层都不撞。
         _walls_shape = dict(shape.get("bridge_entry_walls") or {})
         for _b in sorted(_walls_shape):
             for _seg in _walls_shape[_b]:
