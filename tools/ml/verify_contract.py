@@ -3,9 +3,13 @@ C++ 后处理代码的硬假设一致。防止「换了模型但代码解不出�
 
 契约（逐字对应 onboard/dzuav/src/ 下的 C++ 代码，不可单方面改动）：
 
-  hbb_detector
+  hbb_detector（7 类，11 = 4 bbox + 7 类）
       输入  images        [N,3,1280,1280]  FLOAT   (HbbDetector 构造)
-      输出  output0       [N,11,33600]     FLOAT   (11 = 4 bbox + 7 类；33600 候选)
+      输出  output0       [N,11,33600]     FLOAT   (33600 候选)
+
+  hbb_detector_d13（13 类，17 = 4 bbox + 13 类；fe1d9df 起机载现役）
+      输入  images        [N,3,1280,1280]  FLOAT
+      输出  output0       [N,17,33600]     FLOAT   (单帧批固定 1 也合规)
 
   cell_classifier
       输入  images        [N,3,96,96]      FLOAT   (CellClassifier 构造)
@@ -59,6 +63,12 @@ HBB_CONTRACT = Contract(
     (TensorSpec("output0", ("N", 11, 33600)),),
 )
 
+HBB_D13_CONTRACT = Contract(
+    "hbb_detector_d13",
+    (TensorSpec("images", ("N", 3, 1280, 1280)),),
+    (TensorSpec("output0", ("N", 17, 33600)),),
+)
+
 CELL_CONTRACT = Contract(
     "cell_classifier",
     (TensorSpec("images", ("N", 3, 96, 96)),),
@@ -73,8 +83,8 @@ TARGET_POSE_CONTRACT = Contract(
 )
 
 # 按输出张量名找候选契约（比按文件名稳，文件名可能被改过）。
-# hbb 与 target_pose 输出同名 output0，候选会有多个，verify() 里再按形状分流。
-_CONTRACTS = (HBB_CONTRACT, CELL_CONTRACT, TARGET_POSE_CONTRACT)
+# hbb / hbb_d13 / target_pose 输出同名 output0，候选会有多个，verify() 里再按形状分流。
+_CONTRACTS = (HBB_CONTRACT, HBB_D13_CONTRACT, CELL_CONTRACT, TARGET_POSE_CONTRACT)
 
 
 def _dims(shape) -> tuple:
