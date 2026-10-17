@@ -906,7 +906,6 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
 
     wheelbase = float(cfg.get("pursuit.wheelbase_m"))
     arrival = float(cfg.get("pursuit.arrival_m"))
-    overshoot_tol = float(cfg.get("pursuit.overshoot_tol_m"))
     margin = float(sim.bounds_margin_m or cfg.get("pursuit.map_safety_margin_m"))
     ld = lookahead_distance(cfg.get("pursuit.cruise_speed_mps"), cfg)
     dt = sim.dt
@@ -1035,8 +1034,6 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
     time_by_kind: dict[str, float] = {"normal": 0.0, "reverse": 0.0, "corner": 0.0}
     steps_by_kind: dict[str, int] = {"normal": 0, "reverse": 0, "corner": 0}
     seg_peak: list[dict] = [{"peak": -1.0, "t": 0.0, "s": 0.0} for _ in path.segments]
-    # "顶点冲过头"按段类型分开（老实现的 0.5552 m 里混着倒车折返，分不开就没法调参）
-    vert_off: dict[str, float] = {"normal": 0.0, "reverse": 0.0}
     steps = 0
     reached_end = False
     diverged = False
@@ -1570,7 +1567,7 @@ def _record_final(result: SimResult, t: float, bx: float, by: float, byaw: float
 
 def _project_with_seg(path: Path, seg: int, x: float, y: float):
     """把点投影到**指定段**（返回 `Projection`；段退化时退化为端点距）。"""
-    x0, y0, x1, y1, length, heading = path.segments[seg]
+    x0, y0, x1, y1, length, _heading = path.segments[seg]
     if length <= 1e-9:
         return _projection_at(path, seg, path.s_at_waypoint(seg), x, y)
     ux = (x1 - x0) / length

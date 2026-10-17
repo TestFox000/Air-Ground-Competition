@@ -15,8 +15,6 @@ r"""`python -m dzbrain` 的包入口 —— 只做转发，逻辑一律留在 `m
 
 from __future__ import annotations
 
-import sys
-
 from .main import main
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable
 
 from ..core import geometry as geo
 from .model import Route, RouteBuilder, Waypoint
@@ -259,7 +259,7 @@ def _read_token_file(path: str) -> list[str]:
         raise ValueError(f"路线文件不存在: {path}")
     out: list[str] = []
     with open(path, "r", encoding="utf-8") as fh:
-        for lineno, line in enumerate(fh, 1):
+        for line in fh:
             body = line.split("#", 1)[0].strip()
             if not body:
                 continue

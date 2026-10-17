@@ -11,7 +11,6 @@ P0 四项专项验证器
 
 用法:  nohup python3 -u p0_verify.py > ~/robot_logs/p0_verify.log 2>&1 &
 """
-import math
 import sys
 import time
 

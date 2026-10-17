@@ -183,7 +183,7 @@ def render(map_path, route, csv_path, bench_log, out, title):
     open_blocks = set(m["bridges"])
     for r in ROWS:
         blk = f"K{r}"
-        y0, y1 = (11.5 - r) * CELL - CELL / 2, (11.5 - r) * CELL + CELL / 2
+        y0 = (11.5 - r) * CELL - CELL / 2
         if blk in open_blocks:
             ax.add_patch(plt.Rectangle((kx_w, y0), CELL, CELL,
                                        facecolor="cyan", alpha=0.45, edgecolor="none", zorder=2))

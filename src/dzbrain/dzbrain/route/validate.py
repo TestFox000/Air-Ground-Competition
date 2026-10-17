@@ -23,7 +23,6 @@ from typing import Any, Iterable, Sequence
 
 from ..core import geometry as geo
 from ..core.config import Config
-from .model import Route
 
 __all__ = [
     "Issue", "validate_route", "summary", "crossing_entries",
@@ -68,8 +67,6 @@ _KEY_SHOOT_MIN = "path_executor.shoot_distance_min"
 _KEY_SHOOT_MAX = "path_executor.shoot_distance_max"
 _KEY_CROSS_LOWER = "route.cross_lower_candidates"
 _KEY_CROSS_UPPER = "route.cross_upper_candidates"
-_KEY_CROSS_LOWER_DEFAULT = "route.cross_lower_default"
-_KEY_CROSS_UPPER_DEFAULT = "route.cross_upper_default"
 _KEY_BRIDGE_BLOCKS = "pursuit.bridge_blocks"
 
 _FALLBACK_CFG: Config | None = None
@@ -143,30 +140,6 @@ def _cross_rows(cfg: Config | None,
     if not upper:
         upper = list(range(CROSS_UPPER_ROWS[0], CROSS_UPPER_ROWS[1] + 1))
     return lower, upper
-
-
-def _candidates(cfg: Config | None, cross_candidates: Iterable[str] | None) -> set[str]:
-    if cross_candidates:
-        return {str(c).upper() for c in cross_candidates}
-    pool = set(_as_list(_cfg_get(cfg, _KEY_CROSS_LOWER, None)))
-    pool |= set(_as_list(_cfg_get(cfg, _KEY_CROSS_UPPER, None)))
-    if pool:
-        return pool
-    lower, upper = _cross_rows(cfg)
-    pool = {f"{CROSS_COLUMN}{r}" for r in lower}
-    pool |= {f"{CROSS_COLUMN}{r}" for r in upper}
-    # ★ t20（t14-F3）：这里**不再写第二份兜底穿洞格**（旧代码硬编码 "K9"/"K4"，属第四张图，
-    #   与现役真值 K10/K5 不符 —— 过期值只会把人误导到失效的洞）。
-    #   改为**读配置**：`_cfg_get(..., None)` 在键缺失时会走 `Config.get()` 的 SCHEMA 缺省
-    #   （`core/config.py` 现值 K10/K5，与 `config/robot.yaml:520-521` 同源），
-    #   所以"候选与兜底都拿不到"时补进池子的仍是配置里的兜底穿洞格。
-    #   ⚠️ 本分支只在 `route.cross_{half}_candidates` 全空/非列表时才走到（现场两者都非空 ⇒ 不生效），
-    #   且此处已按 K 列上下半场行段建池，故这是一次**只去旧值、不改判定**的收口。
-    for key in (_KEY_CROSS_LOWER_DEFAULT, _KEY_CROSS_UPPER_DEFAULT):
-        cell = str(_cfg_get(cfg, key, None) or "").strip().upper()
-        if cell:
-            pool.add(cell)
-    return pool
 
 
 # --------------------------------------------------------------------------- #
@@ -440,10 +413,7 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     obstacles = _cells(merged, "obstacles")
     targets = _cells(merged, "targets")
     lower_rows, upper_rows = _cross_rows(cfg, cross_candidates)
-    cross_pool = _candidates(cfg, cross_candidates)
     lo_m, hi_m = _window(cfg)
-    #: 两个半场的行号并集 —— R007 之外的检查里只用来判断"某行是否属于某个半场"
-    cross_rows = set(lower_rows) | set(upper_rows)
     k_col = geo.COL_LETTERS.index(CROSS_COLUMN)
 
     # ---------------------------------------------------------------- R002

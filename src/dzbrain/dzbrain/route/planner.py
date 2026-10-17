@@ -1193,7 +1193,6 @@ def second_shoot_stop(spec: MapSpec, grid: Grid, primary: str,
     lo, hi = shoot_distance_window(accept)
     cover = covering_stops(spec, shoot_candidates(spec, grid, accept), accept)
     ctr_x, ctr_y = plate_center_m(spec)
-    bis_x, bis_y = plate_bisector_axis_m(spec)
     for cand in shoot_candidates(spec, grid, accept):
         if cand == primary:
             continue
@@ -1251,7 +1250,7 @@ def _collapse(path: Sequence[tuple[int, int, int, int]],
     moving = _path_reverse(path)
 
     steps: list[tuple[int, int, int, bool]] = []
-    for i, (row, col, head, action) in enumerate(path):
+    for i, (row, col, head, _) in enumerate(path):
         if i == 0:
             steps.append((row, col, head, False))
             continue
@@ -2583,7 +2582,6 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     #   候选 1 = 现有行为（polish 整条）；候选 2 = U 形单回路（穿洞格钉在本半场边界）。
     #   依次编译并跑**结构自检**，取第一个通过的；两者都不通过 ⇒ 抛错（不静默降级）。
     #   ⇒ 对已经合规的地图（历史现图/n8 图）行为**逐字节不变**（候选 1 就通过，不会走到候选 2）。
-    pcost = 0.0
     route: Route | None = None
     uturn_fixes = 0
     marked: list[tuple[int, str, float]] = []
@@ -2695,7 +2693,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         if problems:
             raise PlannerError("规划结果未通过结构自检：\n  - " + "\n  - ".join(problems))
         # ---- 该候选通过，固化为最终结果 ----
-        tour, order, heads, stops, shoot_block = _tour, _order, _heads, _stops, _shoot
+        tour, order, heads, stops, _ = _tour, _order, _heads, _stops, _shoot
         cost, uturn_fixes, marked, mine_axes = _cost, _fixes, _marked, _axes
         barrier_turns = _bturns
         route = _route
@@ -2918,8 +2916,6 @@ def straighten_mines(order: list[tuple[int, int]], spec: MapSpec, grid: Grid,
         block = geo.index_to_block(cell[0] - 1, cell[1])
         prev_cell = order[idx - 1] if idx > 0 else None
         next_cell = order[idx + 1] if idx + 1 < len(order) else None
-        entry = tour._entry_dir.get((prev_cell, cell)) if prev_cell else None   # noqa: SLF001
-        leave = tour._exit_dir.get((cell, next_cell)) if next_cell else None    # noqa: SLF001
         chosen: tuple[tuple[int, float, int], tuple[int, int], tuple[int, int]] | None = None
         for axis in range(4):
             ok, m_in, m_out = _axis_pass_ok(grid, cell, DIRS[axis])

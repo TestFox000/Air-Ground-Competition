@@ -65,7 +65,7 @@ import math
 import os
 import subprocess
 import sys
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List, Optional, Tuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WS = os.path.dirname(HERE)
@@ -81,7 +81,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 from _field_const import (                                    # noqa: E402
-    BARRIER_COL_FROM, BARRIER_ROW_HI, BARRIER_ROW_LO,
+    BARRIER_ROW_HI, BARRIER_ROW_LO,
     BLOCK_SIZE, COL_LETTERS, MAP_COLS, MAP_ROWS,
     MAP_X_MAX, MAP_X_MIN, MAP_Y_MAX, MAP_Y_MIN,
 )
@@ -804,7 +804,7 @@ def run_check(route: str, cfg: dict) -> int:
 
     # ---------------- ② 解析层 ----------------
     sec("2/6 解析层")
-    pts, shoot_f, scan_f, rev_f, pivot_f = parse_route(toks)
+    pts, shoot_f, _, rev_f, pivot_f = parse_route(toks)
     if len(pts) < 2:
         bad("解析出的航点不足 2 个，无法构成路线")
         return summarise()

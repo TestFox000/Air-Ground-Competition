@@ -153,7 +153,7 @@ def cmd_diff(args) -> int:
             bad += 1
             continue
         for local, r in files:
-            rc, out = ssh(f"md5sum {REMOTE_WS}/{r} 2>/dev/null | cut -d' ' -f1")
+            _, out = ssh(f"md5sum {REMOTE_WS}/{r} 2>/dev/null | cut -d' ' -f1")
             remote = out.strip().splitlines()[0] if out.strip() else ""
             same = (remote == md5_local(local)) if remote else False
             flag = "SAME" if same else ("缺失" if not remote else "DIFF")

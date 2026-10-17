@@ -64,7 +64,7 @@ from __future__ import annotations
 import math
 from typing import Any, Callable
 
-from ..core.blackboard import P_FIX_EST, P_POSE, P_POSE_RAW, P_ROUTE_S, Blackboard  # noqa: F401
+from ..core.blackboard import P_FIX_EST, P_POSE, P_ROUTE_S, Blackboard
 from ..core.config import Config
 from ..core.events import EV_DRIFT_WARNING, EV_POSE_ANCHORED, EventBus
 from ..core.logging import Throttle

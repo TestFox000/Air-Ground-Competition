@@ -286,8 +286,6 @@ class Path:
         # 抽成闭包是为"顶点前瞻重投影"（见本函数末尾）复用 —— 两遍投影必须**逐字同一套**
         # 窗口/等距裁决规则，否则第二遍会引入与第一遍不一致的语义。
         hint_ref: list[float | None] = [s_hint]      # 当前用于"连续性裁决"的参考弧长
-        i_first = 0
-        i_last = n - 1
 
         def _search_window() -> tuple[int, int, float]:
             """(i_first, i_last, t_floor)。窗口下界必须在**弧长**上生效，不能只按"段"生效。"""

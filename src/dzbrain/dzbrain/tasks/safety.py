@@ -253,7 +253,6 @@ class SafetyTask(TaskThread):
         #       ⇒ **完全没有宽限**，直接 `pose_lost` 并锁存 SAFE_STOP
         #     · 而安全是**刻意不自动恢复**的 ⇒ 车一动不动（这正是"起不来"的第二个原因）
         #   ⇒ 判据改为"**桥没有帧** 且 `P_ODOM_AGE` 缺失或为 inf"（= 两种写法都算"从未有数据"）。
-        never_had_pose = pose_age == _INF and (odom_age is None or odom_age == _INF)  # noqa: F841 (保留给日志排查)
         # ★ 桥有**新鲜位姿** ⇒ 记下"本进程见过定位"（此后任何失联都是运行期真故障）。
         #   为什么以桥为准而不是"两来源都健康"：`P_ODOM_AGE` 是 **Localization 自报**的
         #   心跳，而它与本任务读的是**同一个桥** —— "桥有帧、它却写 inf" 必然只是

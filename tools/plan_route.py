@@ -340,7 +340,7 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "already_covered", None):
             covered = tuple(c.strip().upper()
                             for c in args.already_covered.split(",") if c.strip())
-        for idx, (_, _, res) in enumerate(results):
+        for _, _, res in results:
             code, text = run_route_check(res.tokens, cfg_path, map_path,
                                          already_covered=covered or None)
             checked[id(res)] = (code, text)

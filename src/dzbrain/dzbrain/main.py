@@ -29,11 +29,10 @@ from typing import Any, Callable
 
 from .core import geometry as geo
 from .core.blackboard import Blackboard
-from .core.config import Config, ConfigError
-from .core.events import (EV_MISSION_FINISHED, EV_SAFETY_STOP, EV_TASK_FAULT, EventBus)
+from .core.config import Config
+from .core.events import EventBus
 from .core.logging import banner, kv_lines
-from .core.state import Telemetry
-from .core.task import TaskGroup, TaskState, TaskThread
+from .core.task import TaskGroup
 
 LOG = print
 

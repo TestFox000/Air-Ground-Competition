@@ -112,9 +112,7 @@ def main():
         for gap in intervals:
             for k in range(args.n):
                 before_s = node.state['shots']
-                before_a = node.state['ammo']
                 node.pub.publish(UInt8(data=1))
-                t0 = time.time()
                 time.sleep(gap / 1000.0)
                 # 等裁判把新状态报上来
                 node.wait_refresh(timeout=3.0)

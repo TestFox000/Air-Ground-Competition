@@ -295,7 +295,7 @@ def path_to_waypoints(path, start_heading: int = 0, force_keep=None):
         return []
 
     out = []           # [(row, col, heading, action)]
-    for i, (r, c, h, act) in enumerate(path):
+    for i, (r, c, h, _) in enumerate(path):
         if i == 0:
             out.append((r, c, h, "起点"))
             continue
@@ -354,9 +354,9 @@ def convert_uturn_to_reverse(grid: Grid, waypoints):
     out = list(waypoints)
     n_fix = 0
     for i in range(1, len(out) - 1):
-        pr, pc, ph, pact = out[i - 1]
-        cr, cc, ch, cact = out[i]
-        nr, nc, nh, nact = out[i + 1]
+        pr, pc, _, pact = out[i - 1]
+        cr, cc, _, cact = out[i]
+        nr, nc, nh, _ = out[i + 1]
 
         # ③ 只处理两段都是前进的
         if pact != "前进" or cact != "前进":
@@ -581,7 +581,7 @@ def plan_tour(grid: Grid, start: Tuple[int, int], end: Tuple[int, int],
         print("  [阶段2] 靶/桥洞最优插入 + 射击点选择")
 
     best = None
-    for rank, (base_cost, perm) in enumerate(scored[:TOP_K_LEI_ORDERS]):
+    for rank, (_, perm) in enumerate(scored[:TOP_K_LEI_ORDERS]):
         if verbose and rank and rank % 60 == 0:
             print("         已精算 %d/%d 条候选雷序..." % (rank, TOP_K_LEI_ORDERS))
 
@@ -666,7 +666,7 @@ def path_to_route_string(grid: Grid, waypoints, shoot_points, bridges,
     marked = set()          # ★只在【首次】到达时标 '*'
     toks = []
 
-    for (r, c, h, act) in waypoints:
+    for (r, c, _, act) in waypoints:
         name = block_name(r, c)
         # 踩过的坑：A* 路径可能两次经过同一个射击点（例如先西行到 A1 打点，
         # 再东行回 K1 时又路过 F1）。若每次经过都标 '*'，车会在同一个位置

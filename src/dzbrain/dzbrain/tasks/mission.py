@@ -158,7 +158,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 import pathlib
 import re
@@ -1433,7 +1432,7 @@ class MissionTask(TaskThread):
         for cell in (geo_map.get("bridges") or []):
             text = str(cell).strip().upper()
             try:
-                row_idx, col_idx = geo.block_to_index(text)
+                _, col_idx = geo.block_to_index(text)
             except ValueError:
                 continue
             if col_idx == geo.COL_LETTERS.index(CROSS_COLUMN):

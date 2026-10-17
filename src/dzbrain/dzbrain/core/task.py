@@ -20,7 +20,7 @@ import enum
 import threading
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 from .blackboard import Blackboard

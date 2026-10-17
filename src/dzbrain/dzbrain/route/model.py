@@ -105,7 +105,7 @@ class Route:
 
     def reverse_segments(self) -> list[int]:
         """倒车段的**起点索引**集合（段 i = 点 i → 点 i+1）。"""
-        return [i for i, w in enumerate(self.waypoints)
+        return [i for i, _ in enumerate(self.waypoints)
                 if i + 1 < len(self.waypoints) and self.waypoints[i + 1].reverse]
 
     def pivot_points(self) -> list[tuple[int, "Waypoint"]]:
