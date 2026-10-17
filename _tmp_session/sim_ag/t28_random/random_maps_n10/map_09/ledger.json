@@ -1,0 +1,395 @@
+{
+  "arm_id": "m09",
+  "world": "B-桥洞K11/K4(随机),靶蓝面东",
+  "description": "随机地图 seed=20261021：桥 K11/K4，φ=-90°（t28 ④ 批量）",
+  "executed_tokens": [
+    "N10",
+    "M10",
+    "M11",
+    "L11",
+    "K11",
+    "J11",
+    "I11",
+    "I10",
+    "I9",
+    "I8",
+    "H8",
+    "G8",
+    "F8",
+    "F9",
+    "F10",
+    "F11",
+    "E11",
+    "D11",
+    "D10",
+    "D9",
+    "D8",
+    "D7",
+    "C7",
+    "C6",
+    "B6",
+    "A6",
+    "A7",
+    "A8",
+    "A9",
+    "A10",
+    "B10",
+    "C10*",
+    "D10",
+    "D9",
+    "D8",
+    "D7",
+    "C7",
+    "C6",
+    "C5",
+    "C4",
+    "B4",
+    "A4",
+    "A3",
+    "A2",
+    "A1",
+    "B1",
+    "C1",
+    "C2",
+    "D2",
+    "E2",
+    "F2",
+    "G2",
+    "H2",
+    "H3",
+    "H4",
+    "I4",
+    "J4",
+    "K4",
+    "L4",
+    "M4",
+    "N4",
+    "N5,x"
+  ],
+  "versions": [
+    {
+      "kind": "baseline",
+      "n": 62,
+      "crosses": {},
+      "note": "手动三连换洞（形状不符的半场不换）",
+      "tokens": "N10 M10 M11 L11 K11 J11 I11 I10 I9 I8 H8 G8 F8 F9 F10 F11 E11 D11 D10 D9 D8 D7 C7 C6 B6 A6 A7 A8 A9 A10 B10 C10* D10 D9 D8 D7 C7 C6 C5 C4 B4 A4 A3 A2 A1 B1 C1 C2 D2 E2 F2 G2 H2 H3 H4 I4 J4 K4 L4 M4 N4 N5,x"
+    }
+  ],
+  "car": {
+    "completed": true,
+    "time_s": 147.48000000000164,
+    "cross_track_rms_m": 0.045845019656370486,
+    "cross_track_max_m": 0.10665652538045745,
+    "overshoot_max_m": 0.030188218794467953,
+    "final_error_m": 0.05158765169858069,
+    "out_of_bounds_steps": 0.0,
+    "anchors": 38.0,
+    "path_len_ratio": 0.9076589011754215,
+    "field_stop_t": -1.0,
+    "field_stopped": 0.0,
+    "steps": 7374.0
+  },
+  "field_metrics": {
+    "mine_total": 8.0,
+    "mine_pressed_count": 7.0,
+    "mine_press_steps": 601.0,
+    "mine_worst_clearance_m": 0.05228156047383562,
+    "obstacle_hit_steps": 0.0,
+    "obstacle_breach_steps": 0.0,
+    "barrier_min_distance_m": 0.09538556377943382,
+    "barrier_breach_steps": 0.0,
+    "board_overlap_steps": 0.0,
+    "board_breach_steps": 976.0,
+    "k_column_steps": 234.0,
+    "k_seal_violation_steps": 0.0,
+    "k_solid_cell_steps": 0.0
+  },
+  "commit_t": 2.0,
+  "intel_complete_t": null,
+  "wait_lower_s": 0.0,
+  "wait_upper_s": 0.0,
+  "reroute_count": 0,
+  "adopted_changes": 2,
+  "gate_events": [
+    {
+      "t": 0.077,
+      "half": "lower",
+      "source": "missing",
+      "cell": "K10",
+      "default": "K10",
+      "reason": "该半场从未收到 bridge_passable → 用默认格"
+    },
+    {
+      "t": 0.077,
+      "half": "upper",
+      "source": "missing",
+      "cell": "K5",
+      "default": "K5",
+      "reason": "该半场从未收到 bridge_passable → 用默认格"
+    }
+  ],
+  "gap": {
+    "gap_ticks": 5973,
+    "gap_cells": 46,
+    "gap_by_cell": {
+      "N10": 77,
+      "M10": 116,
+      "M11": 70,
+      "L11": 122,
+      "J11": 141,
+      "I11": 93,
+      "I9": 140,
+      "I8": 93,
+      "H8": 120,
+      "G8": 141,
+      "F8": 96,
+      "F10": 140,
+      "F11": 93,
+      "D11": 120,
+      "D10": 281,
+      "D9": 250,
+      "D7": 235,
+      "C7": 151,
+      "C6": 216,
+      "B6": 143,
+      "A6": 102,
+      "A7": 118,
+      "A8": 117,
+      "A9": 141,
+      "A10": 93,
+      "B10": 169,
+      "C10": 164,
+      "C5": 140,
+      "C4": 92,
+      "B4": 142,
+      "A3": 124,
+      "A2": 141,
+      "A1": 98,
+      "C1": 130,
+      "C2": 73,
+      "D2": 121,
+      "E2": 117,
+      "F2": 117,
+      "H2": 94,
+      "H4": 82,
+      "I4": 122,
+      "J4": 118,
+      "L4": 117,
+      "M4": 141,
+      "N4": 147,
+      "N5": 115
+    },
+    "gap_key_ticks": 0,
+    "gap_key_cells": 0,
+    "gap_key_by_cell": {}
+  },
+  "lead_rows": [
+    {
+      "cell": "A4",
+      "reveal_joint": 25.61,
+      "arrival_joint": 99.93999999999765,
+      "lead_s": 74.33
+    },
+    {
+      "cell": "A5",
+      "reveal_joint": 24.91,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "B1",
+      "reveal_joint": 27.86,
+      "arrival_joint": 108.7799999999959,
+      "lead_s": 80.92
+    },
+    {
+      "cell": "B11",
+      "reveal_joint": 22.11,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "B7",
+      "reveal_joint": 22.11,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "C11",
+      "reveal_joint": 21.41,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "C9",
+      "reveal_joint": 20.709999999999997,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "D1",
+      "reveal_joint": 29.11,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "D8",
+      "reveal_joint": 20.16,
+      "arrival_joint": 49.54000000000183,
+      "lead_s": 29.38
+    },
+    {
+      "cell": "E10",
+      "reveal_joint": 19.459999999999997,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "E11",
+      "reveal_joint": 20.009999999999998,
+      "arrival_joint": 37.94000000000002,
+      "lead_s": 17.93
+    },
+    {
+      "cell": "F4",
+      "reveal_joint": 29.959999999999997,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "F9",
+      "reveal_joint": 18.61,
+      "arrival_joint": 30.899999999999473,
+      "lead_s": 12.29
+    },
+    {
+      "cell": "G11",
+      "reveal_joint": 18.61,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "G2",
+      "reveal_joint": 30.66,
+      "arrival_joint": 122.77999999999311,
+      "lead_s": 92.12
+    },
+    {
+      "cell": "H3",
+      "reveal_joint": 31.209999999999997,
+      "arrival_joint": 127.47999999999217,
+      "lead_s": 96.27
+    },
+    {
+      "cell": "H5",
+      "reveal_joint": 31.91,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "I10",
+      "reveal_joint": 2.5100000000000002,
+      "arrival_joint": 16.719999999999775,
+      "lead_s": 14.21
+    },
+    {
+      "cell": "K11",
+      "reveal_joint": 2.5211169548069527,
+      "arrival_joint": 9.699999999999925,
+      "lead_s": 7.179
+    },
+    {
+      "cell": "K4",
+      "reveal_joint": 7.411160998053612,
+      "arrival_joint": 136.75999999999513,
+      "lead_s": 129.349
+    }
+  ],
+  "shoot": {
+    "planned_stop": "C10",
+    "chosen_stop": "D10",
+    "reached": true,
+    "sector_fail": false,
+    "blue_hits": 10,
+    "red_hits": 0,
+    "misses": 0,
+    "dwell_s": 7.4,
+    "penalties": 0,
+    "score": 10,
+    "true_phi_deg": -90.0,
+    "judged_phi_deg": -90.0,
+    "chosen_theta_deg": -56.31,
+    "sector_deg": 45.0,
+    "panel_speed_mps": 0.1,
+    "anchor_t": 43.2
+  },
+  "budget": {
+    "drive_s": 147.48000000000164,
+    "wait_lower_s": 0.0,
+    "dwell_s": 7.4,
+    "commit_s": 2.0,
+    "total_s": 156.88,
+    "budget_s": 180.0,
+    "within": true,
+    "margin_s": 23.12,
+    "note": "commit+drive+wait+dwell"
+  },
+  "link": "LinkStats(sent=485, delivered=485, dropped=0, delay_sum=33.9543061155686)",
+  "drone": {
+    "flight_len_m": 18.55,
+    "flight_end_t": 37.1,
+    "recon_done_s": 37.1,
+    "speed_mps": 0.5,
+    "takeoff_delay_s": 0.0,
+    "radius_cells": 2.5,
+    "reveal_entrance": {
+      "K11": 2.45,
+      "K4": 7.35
+    },
+    "arrows": [
+      {
+        "cell": "K11",
+        "direction": "W",
+        "t": 2.45,
+        "confidence": 1.0
+      },
+      {
+        "cell": "K4",
+        "direction": "E",
+        "t": 7.35,
+        "confidence": 1.0
+      }
+    ],
+    "arrow_h1": {
+      "lower": "K11",
+      "upper": "K4"
+    },
+    "arrow_h1_matches_bridge_passable": {
+      "lower": true,
+      "upper": true
+    },
+    "recon_deadlines": {
+      "lower": {
+        "approach": "L10",
+        "deadline_s": null,
+        "intel_recv_s": 2.52,
+        "ok": false,
+        "margin_s": null
+      },
+      "upper": {
+        "approach": "I5",
+        "deadline_s": null,
+        "intel_recv_s": 7.41,
+        "ok": false,
+        "margin_s": null
+      }
+    }
+  },
+  "artifacts": {
+    "traj_csv": "_tmp_session\\sim_ag\\t28_random\\random_maps_n10\\map_09\\traj.csv",
+    "traj_sha256": "c2da918cfc47a43594ed0458babd8fa6716a822403ee5d43f274413e13f4b5e1",
+    "route_map": "D:\\User\\Desktop\\比赛存档\\v1\\_tmp_session\\sim_ag\\t28_random\\random_maps_n10\\map_09\\route_map.png",
+    "v1_observe_sha256": "c2da918cfc47a43594ed0458babd8fa6716a822403ee5d43f274413e13f4b5e1"
+  },
+  "notes": []
+}

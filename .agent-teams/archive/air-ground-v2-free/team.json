@@ -1,0 +1,761 @@
+{
+  "name": "air-ground-v2-free",
+  "id": "air-ground-v2-free",
+  "description": "无人机↔小车端到端指挥链路（本轮以发车/跑图为主）。无人机摄像头感知场地，经 DDS 双通道指挥小车 dzbrain 完赛；成员统一 CodeBuddy 中国版 Flash v4.1（deepseek-v4.1-flash）。",
+  "captainSessionId": "session-957e7e8b-2dd9-40d3-a81c-2049ed4311df",
+  "createdAt": 1792142297732,
+  "phase": "running",
+  "members": [
+    {
+      "id": "2494768f-a92b-4db5-8325-ddd1192bf355",
+      "name": "car-integrator",
+      "role": "车侧集成工程师",
+      "provider": "buddy",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "high",
+      "joinedAt": 1792142297732,
+      "status": "removed"
+    },
+    {
+      "id": "0bde3a34-1adc-499e-8de4-e855343411a1",
+      "name": "reviewer",
+      "role": "审查员（车侧改动复核 + 发车门禁 + 文档）",
+      "provider": "buddy",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "high",
+      "joinedAt": 1792142297732,
+      "status": "removed"
+    },
+    {
+      "id": "",
+      "name": "drone-perception",
+      "role": "无人机感知工程师（场地感知管线）",
+      "provider": "buddy",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "high",
+      "joinedAt": 1792142297732,
+      "status": "removed"
+    },
+    {
+      "id": "",
+      "name": "drone-link",
+      "role": "空地链路工程师（无人机侧指挥节点 + DDS）",
+      "provider": "buddy",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "high",
+      "joinedAt": 1792142297732,
+      "status": "removed"
+    },
+    {
+      "id": "1442613f-aa7e-4802-a1b6-7aab107e645f",
+      "name": "sim-operator",
+      "role": "仿真员（跑地图 + 路线证据）",
+      "provider": "buddy",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "high",
+      "joinedAt": 1792142297732,
+      "status": "removed"
+    },
+    {
+      "id": "",
+      "name": "plugin-ui",
+      "role": "仿真台/插件 UI 工程师（sim.html/simbench.js/stressbench.js/dronesim.js）",
+      "provider": "buddy",
+      "model": "deepseek-v4-pro",
+      "reasoningEffort": "xhigh",
+      "joinedAt": 1792203342344,
+      "status": "removed"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "profileSeedId": "w1",
+      "subject": "发车基线核对：车端 config/robot.yaml 与 map.yaml 现役口径逐项核查（只读，不跑车）",
+      "description": "只读核对 dzrobot_v2/config/robot.yaml 与 config/map.yaml 的现役口径：起点 N10、终点 N5、雷 8/障 8/靶 E5+F5、桥洞 K5/K9、auto_start、mission_reset=\"N10,y\"、planner.engine=tracker-safe、俯仰与 SHOOT 停站窗口，逐项给出取值与行号，确认与发车清单一致或标出差异。",
+      "status": "completed",
+      "assignee": "car-integrator",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1792142297732,
+      "updatedAt": 1792143110457,
+      "attemptId": "cd8a1a0f-640e-4112-ab1b-06dbb57b2337",
+      "reassigning": false,
+      "output": "t1 [w1] 发车基线核对（只读）已完成：config/robot.yaml + config/map.yaml 逐项核查，给出行号与实测取值；主口径与发车清单一致（原生门禁 0 error/0 warn），另标出 5 处须裁决的差异/风险。\n\n## A. 与发车清单一致项（逐项，取值 + 行号）\n\n| 项 | 取值 | 出处 |\n|---|---|---|\n| 起点 | `N10` | map.yaml:43 |\n| 终点 | `N5` | map.yaml:44 |\n| 雷 8 | `C1 A3 E3 G4 I6 B7 D9 H10`（len=8 实测） | map.yaml:54 |\n| 障 8 | `A1 E2 H4 D8 I8 G9 B11 F11`（len=8 实测） | map.yaml:56 |\n| 靶 | `E5`+`F5`（横向相邻 = 一块 35×70 跨格板） | map.yaml:58 |\n| 桥洞 | `K5` / `K9` | map.yaml:60 |\n| 桥洞候选/默认 | lower `[\"K9\"]`/`K9`、upper `[\"K5\"]`/`K5` | robot.yaml:520/521/527/528 |\n| auto_start（新核） | `true` | robot.yaml:547 |\n| auto_start（legacy） | `true` | robot.yaml:288 |\n| mission_reset | `\"N10,y\"`（两段同值） | robot.yaml:549 / :291 |\n| planner.engine | `tracker-safe` | robot.yaml:586 |\n| auto_plan_enabled / fallback_to_tokens | `true` / `true` | robot.yaml:612 / :619 |\n| 规划预算 | tour `max_seconds=2.0`；tracker-safe `tracker_max_seconds=10.0` | robot.yaml:621 / :611 |\n| allow_reverse | `false`（无倒车） | robot.yaml:620 |\n| SHOOT 窗口（靶格级 R006/R013） | `target=0.35 / min=0.70 / max=0.90` | robot.yaml:325/336/337 |\n| SHOOT 窗口（板心级，定\"车停哪儿\"） | `0.80 ± 0.10` ⇒ [0.70,0.90] | robot.yaml:543/544 |\n| 俯仰（两段对齐） | `scan_pitch_offset_deg=+10.0` | robot.yaml:50 / :658 |\n| 现役路线 | 44 token，唯一射击停站 `F3*`，0 段 `R:` | robot.yaml:430-474 |\n| 标定 | `ticksPerMeter=3280.0` / `ticksPer2PI=2680.0` | robot.yaml:737 / :746 |\n\n**几何复核（自算，与注释逐位吻合）**：`F3→E5=0.7826`、`F3→F5=0.7000`、`F3→板心=0.7215`（∈[0.70,0.90] ✓）；`E4→板心=0.3913`（旧口径已出窗 ✓）。靶板心 `(2.2750, 3.1500)` 与 robot.yaml:530 注释一致。\n\n**门禁实测**：`tools/config_selfcheck.py` → `error 0 / warn 0 ✅ 通过`（44 点路线在当前图上合法）；`test_core.py` 50/50；`test_route.py` 162/162。\n\n## B. 差异 / 风险（须裁决，均未修改任何文件）\n\n1. **【中】auto_start_delay 双真源分叉 35 s**：legacy `auto_start_delay=45.0`（:289）vs 新核 `mission.auto_start_delay_s=10.0`（:548），但 :282-284 注释断言\"与 mission.auto_start_delay_s=45.0 一致\"。t31 的\"两段对齐\"已在 :548 被 10.0 覆盖而注释未同步。影响：若 `LEGACY_PATH=1` 回退，发车等待 45 s；默认新核 10 s。现场倒计时口径须先确认走哪核。\n2. **【中】`path_executor.obstacle_blocks` 与 map.yaml 完全不匹配**：:367 = `A5 G5 B6 D7 C8 E9 I9 H10`（属旧图），map.yaml:56 = `A1 E2 H4 D8 I8 G9 B11 F11`。:368-370 注释宣称\"必须与 map.yaml 一致\"且\"route_check.py 会校验一致性\"——**该一致性门禁不存在**：route_check.py:1244 读它之后在 :1284-1286 用 map.yaml **直接覆盖**，全程无比较；`validate.py:7-8` 也声明\"只认 map_cfg\"。该陈旧表仍被 legacy 消费（path_executor.py:1856 `MapGrid(self._obstacle_blocks)`，用于打靶视线遮挡评分）⇒ 仅 `LEGACY_PATH=1` 时生效。\n3. **【中】`vehicle.*` / `field.*` 键路径断裂（已知 P0，仍存活）**：尺寸真源写在 `/dzactuator: ros__parameters:` 段（robot.yaml:749-769），展平后是 `dzactuator.vehicle.*`；而 `planner.py:608-614`、`sim.py:864-871` 读规范名 `vehicle.length_m` / `field.obstacle_radius_m` ⇒ **读不到 YAML，恒吃 SCHEMA 默认**；`tools/route_check.py:1260` 又从 `/dzbrain` 段找 `vehicle`/`field`（该段没有）⇒ 三方分叉。实测证明：把 `/dzactuator` 段写成 `length_m=0.99 / width_m=0.50 / obstacle_radius_m=0.30`，规范名仍返回 `0.28 / 0.135 / 0.1275`（SCHEMA 默认）。当前**无行为错误**仅因 SCHEMA 默认与 YAML 现值恰好相等 ⇒ 一旦现场量出新尺寸改 robot.yaml，planner/sim/route_check 会静默忽略。仅 `mission.py:679-681` 正确按 `dzactuator.vehicle.*` 优先读。\n4. **【中】`test_deploy.py` 1 条新红，台账未登记**：实测 **87/88 通过、exit 1**，失败断言 = `test_deploy.py:189-192`（期望\"归一化只改 1 行 auto_start\"）。真因正是**发车档**：两段 `auto_start` 现均为 `true`（:288/:547）⇒ 归一化实际改 **2** 行。而 `docs/回归守护_known_reds.md:20` 的现行口径写\"31 套 / 红 2 / 唯一失败 7 项 ⇒ 名单外新增红 = 0\"，名单只含 `test_sim` 5.6/7.4 与 `test_sim_guard` 3.5b/3.6/4.3/4.4/4.5 ⇒ 本条属**名单外新增红**，与台账声明冲突（跑完回 `auto_start=false` 即自动转绿，说明它是发车档的伴随现象而非代码缺陷）。\n5. **【低-中】扫描俯仰可达范围 vs 新射击站位**：`scan_pitch_levels=[0.0]`（:65）+ `scan_pitch_offset_deg=+10.0`（:50）+ `tracking_pitch_margin_deg=6.0`（:110）⇒ 扫描俯仰走廊 = `[4.0, 16.0]`（向下为正口径，对齐 cpp:1082-1093 的\"+ 才向下压\"）。按仓库自用靶高 0.30 m（:57-58 `atan(0.30/0.35)≈40°`）折算：t57 把停站点从 0.35 m 推到 0.72 m 后，所需俯角由 **40.6° 降到 22.6°**，但仍 > 走廊上限 16.0°。**不确定项**：靶实际离地高度与相机安装俯角未核实，且跟踪模式走机械限位不受该走廊钳制——故记为风险而非阻断。\n   附：:51 注释\"【符号约定：负 = 向下压，正 = 抬头】\"与 :50 结尾\"⇒ 改 +10.0\"（+ 才向下压）**自相矛盾**，:52 沿革又写 `-10.0`；C++ 侧（cpp:465-466、:1093）口径为\"+ 向下压\"，即 YAML 注释 :51 这一行是错的。\n6. **【低】`planner.*` 11 个键未登记进 SCHEMA**：`config_selfcheck` 报 11 条 warn（`planner.engine` / `tracker_max_seconds` / `fallback_to_tokens` / `pivot_penalty` … 仅 `planner.obstacle_margin_m` 在册）。值仍可从 `_flat` 读到、`mission.py` 正常消费，门禁只数 error 故通过；但 `strict=True` 会被判\"未知配置段\"。\n7. **【低】陈旧注释**：robot.yaml:315 \"两个通口：K4+K5 … K10 是另一个\"、`validate.py:36` \"bridge_blocks 覆盖整列 K1~K11\" 均属第四/五张图口径；现役 `bridge_blocks: []`（:307/:510，直行保护已关闭）。`docs/空地指挥链路_协议与运行手册.md` §3 矩阵仍写 `mission.auto_start=false`（:125）与 delay `45.0`（:126），与当前发车档 `true`/`10.0` 不符。\n\n## C. 工具限制（如实声明）\n`tools/route_check.py` 在 Windows 本机无法跑完：先因无 `rclpy` 走降级分支，再在 `route_check.py:198` 打印时被 GBK 编码 `\\u26a0` 触发 `UnicodeEncodeError`（非配置问题）。其等价的新核原生门禁 `config_selfcheck.py`（`validate_route` 全六层）已跑通 0 error/0 warn，故 A 节结论有门禁支撑。\n\n## D. 结论\n**发车关键项（起点/终点/雷8/障8/靶 E5+F5/桥洞 K5+K9/auto_start/mission_reset=N10,y/engine=tracker-safe/44 点 F3\\* 路线/SHOOT 窗口 0.70-0.90）全部一致且过门禁 ⇒ 默认（dzbrain）路径具备发车条件。**需裁决的是 B1（发车倒计时 10 vs 45 s 取哪核）、B2/B3（两处\"声称有、实际无\"的键一致性守卫）、B4（台账未登记新红）与 B5（俯仰走廊是否够用）。",
+      "changedPaths": [],
+      "acceptanceResults": [
+        {
+          "criterion": "逐项给出 robot.yaml / map.yaml 现役取值与行号",
+          "status": "passed",
+          "evidence": "A 节表：起点 map.yaml:43、终点 :44、雷8 :54、障8 :56、靶 :58、桥洞 :60、auto_start robot.yaml:547/288、mission_reset :549/291、planner.engine :586、SHOOT 窗口 :325/336/337 与 :543/544、俯仰 :50/:658。数值均由 Config.load 实测打印（非抄注释）。"
+        },
+        {
+          "criterion": "确认与发车清单一致或标出差异",
+          "status": "passed",
+          "evidence": "A 节全部一致；B 节标出 7 条差异/风险（含 5 条须裁决），每条带行号与实测证据。"
+        },
+        {
+          "criterion": "route.tokens 与 map.yaml 当前图一致（雷 8/8、靶覆盖、射击点入窗、两处穿洞）",
+          "status": "passed",
+          "evidence": "tools/config_selfcheck.py 实测：[配置校验] 0 error、[路线校验] 0 error/0 warn、结论 'error 0 / warn 0 ✅ 通过'；路线 44 点、射击停站 ['F3*']、倒车 0。"
+        },
+        {
+          "criterion": "只读约束（未跑车、未改配置）",
+          "status": "passed",
+          "evidence": "git status 仅显示本卡之前既存的并发改动（robot.yaml 的 t52/t39 档与既有 untracked），本卡未新增/修改任何仓库文件；未连接小车、未发车、未写配置。临时探针文件写在 %TEMP%，不在工作区。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "python tools\\config_selfcheck.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "error 0 / warn 0 ✅ 通过；关键键与标定回显：cruise 0.35、cross K9/K5、auto_start True、shots_per_stop 10、ticksPerMeter 3280.0、ticksPer2PI 2680.0、路线 44 点 / 停站 ['F3*'] / 倒车 []。"
+        },
+        {
+          "command": "python src\\dzbrain\\tests\\test_core.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "总计 50/50 全部通过；含 'route.tokens 由 mission_blocks 迁移（官方图自规划，44 点；t50）'、'ticksPerMeter 3280.0' 断言。"
+        },
+        {
+          "command": "python src\\dzbrain\\tests\\test_route.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "总计 162/162 通过（前次 127/129 为控制台 GBK 截断造成的假象，UTF-8 重跑后 162/162 全绿）。"
+        },
+        {
+          "command": "python src\\dzbrain\\tests\\test_deploy.py",
+          "status": "failed",
+          "exitCode": 1,
+          "evidence": "总计 87/88 通过、1 失败：test_deploy.py:189-192 '真实文件改动仅限 auto_start 配置行(1 行)' 实得 2 行（robot.yaml:288 与 :547 现均为 auto_start: true 的发车档）。台账 docs/回归守护_known_reds.md:20 未登记本条 ⇒ 名单外新增红。"
+        },
+        {
+          "command": "python tools\\route_check.py",
+          "status": "failed",
+          "exitCode": 1,
+          "evidence": "环境限制而非配置问题：无 rclpy 走降级分支后，在 route_check.py:198 打印 '⚠️' 时被 Windows GBK 编码触发 UnicodeEncodeError。等价新核门禁 config_selfcheck 已 0 error/0 warn。"
+        },
+        {
+          "command": "python -c \"Config.load('config/robot.yaml') 键路径探针：向 /dzactuator 段注入 length_m=0.99 / width_m=0.50 / obstacle_radius_m=0.30\"",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "规范名 vehicle.length_m/vehicle.width_m/field.obstacle_radius_m 仍返回 0.28/0.135/0.1275（SCHEMA 默认），而段前缀名 dzactuator.vehicle.length_m 反映注入值 ⇒ 证实 planner.py:608-614 / sim.py:864-871 读不到 YAML 真源（B3）。"
+        },
+        {
+          "command": "python -c \"geometry.block_to_meters 复核 F3/E4/E5/F5 到靶格心与板心距离\"",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "F3→E5=0.7826 / F3→F5=0.7000 / F3→板心=0.7215（∈[0.70,0.90]）；E4→板心=0.3913（旧口径出窗）；与 robot.yaml:333-334/:530 注释逐位吻合。"
+        }
+      ]
+    },
+    {
+      "id": "t2",
+      "profileSeedId": "w2",
+      "subject": "仿真复验：第五张图 tracker-safe 44 token 路线 + 发车前门禁基线（三档串行，不越界）",
+      "description": "跑 sim_cli 复验第五张图 tracker-safe 引擎 44 token 路线，route_check 0 error；给出轨迹指标基线（time_s/rms_m/length_ratio/out_of_bounds），只写 artifacts/sim/** 与新建 docs 报告，不改 config/** 与 src/dzbrain/**。",
+      "status": "completed",
+      "assignee": "sim-operator",
+      "dependencies": [
+        "t1"
+      ],
+      "attempt": 1,
+      "createdAt": 1792142297732,
+      "updatedAt": 1792144597917,
+      "attemptId": "7a2b0a5f-c1c9-4a06-9d9b-3528780868de",
+      "reassigning": false,
+      "output": "t2 [w2] 仿真复验完成：第五张图 tracker-safe 44 token 路线三档串行复跑（0.15/0.35/0.40），route_check 0 error + config_selfcheck 0 error/0 warn + 规划器重算逐 token 恒等；轨迹指标基线与场地物理全表已落盘。\n\n## 交付物\n- 报告：docs/仿真复验_第五张图44token基线_t2.md（331 行，sha256 7929643D…）\n- 产物：artifacts/sim/t2_baseline_44tok/**（三档 traj.csv/traj.svg/by_segment.csv/stdout.txt/route_map.png + repeat/ 复跑对照 + err_arms/ 误差臂 + 场地/独立复核脚本与 JSON，.gitignore:18 忽略）\n\n## 轨迹指标基线（三档串行，seed=20261012，理想车+锚定）\n| 指标 | 0.15 | 0.35 | 0.40 |\n|---|---|---|---|\n| 跑完 | 是 | 是 | 是 |\n| time_s | 101.70 | 76.44 | 74.40 |\n| cross_track_rms_m | 0.0484 | 0.0532 | 0.0531 |\n| path_len_ratio | 0.8805 | 0.8661 | 0.8663 |\n| out_of_bounds_steps(margin=0.60) | 0 | 0 | 0 |\n| traj.csv sha256 | 9839BA29… | DB951683… | 053172DA… |\n三档原地复跑 traj.csv 逐字节一致（可复现）。\n\n## 门禁（全 exit 0）\n- route_check.py：全部通过，1 项提醒（急转弯 18 处）；六层逐条过\n- config_selfcheck.py：error 0 / warn 0 ✅；44 点 / 停站 ['F3*'] / 倒车 []\n- plan_route.py --engine tracker-safe --check：重算 44 token 与 route.tokens **逐 token 恒等**（EQUAL: True），route_check 0 error\n- 回归：test_sim 111/113、test_sim_guard 104/109 —— **与 known_reds 台账逐项一致，名单外新增红 0**\n\n## 场地物理（内联 run_sim(field=...)，轨迹与 sim_cli 逐位同一）\n盖雷 8/8（三档）、障碍碰撞 0、车体压靶板 0、挡板触线（现口径）0、K 列封死违规 0、撞停 0。两处\"净空不足\"是设计判据贴边非碰撞（实测车体→H4 +0.0437 / →E2 +0.0710 / →靶板 +0.1441 m）。\n\n## ⚠️ 须裁决：sim 的\"挡板触线\"是弱口径（本卡核心发现）\nphysics.py:543 的 body_barrier_clearance_m() 自述比\"车心↔中心线\"严格（后者把旋转车身当半宽细条），但 sim.py:416-421 用的正是弱的那条，且 sim.py **全程零引用**那个更严的函数（grep 实证），组 FieldObs 时也**未读 vehicle.ref_offset_m**（机器人真源 = +0.075 m）。用精确口径复算同一轨迹：\n| 判据 | 0.15 | 0.35 | 0.40 |\n|---|---|---|---|\n| A 车心↔中心线（sim 现口径） | 0 | 0 | 0 |\n| B 精确旋转车体↔细条 offset=0 | 101 | 72 | 62 |\n| C 同上 offset=+0.075（现场口径） | 112 | 69 | 63 |\n命中段：seg#35 G6→H6 / #36 H6→I6 / #37 I6→J6；根因是 G6/H6/I6/J6 格心 x=1.925 距挡板中心线 1.75 **仅半格 0.175 m**，而车体前向占位 = 半长 0.14 + 偏移 0.075 = **0.215 m > 0.175**；最坏 v=0.35 t=61.96 s，角点 x 伸到 1.7392 越过细条近侧 [1.740,1.760]，SAT 穿透 20.00 mm（= 细条全厚；offset=0 时 14.94 mm ⇒ 忽略偏移低估约 25%）。与巡航速度无关、路线折线本身也不合规。\n**已获项目自身工具佐证**：tasks/mission.py footprint_diagnostic（折线口径 +0.075）同报 4 条侵入、逐条 20.0 mm，位置 G5->G6 / G6拐角(进) / J6拐角(出)；robot.yaml:590-597 的 planner.footprint_gate: warn 正是这条路径的处置口径（warn=只报不拦 / error=回退 fallback_to_tokens）。**本卡未改该键。**\n\n## 自我更正（已在报告中留痕）\n初稿曾把\"出格心框 margin=0 的 274~441 拍 / 最大 4.1 cm\"误报为\"车体裁到场地净空外沿\"。经复核几何.map_bounds(0) 是**格心框** x∈[0.175,3.675] y∈[0.175,4.725]，而**物理墙**是 x∈[0,3.85] y∈[0,4.90]（差半格 0.175）。按物理墙复算：**越墙拍 0**，车心离墙余量 ≥13.4 cm。该错误结论已作废并在 §6 顶部标注。\n\n## 低风险观察（不拦发车）\n1) 车体**角点**在**终点停位**压过南墙 1.2 cm（16 拍，t≈74~102 s，仅 offset=+0.075 口径；offset=0 时最小余量 +0.035 m）——N5 距南墙仅 0.175 m < 半长 0.14+偏移 0.075，几何必然；仅停车瞬间、仅终点格，行进段无越墙。请裁决现场 N5 南侧是否紧贴护栏。\n2) 误差臂：ε=+3.5% 且关锚定时横向 RMS 翻倍（0.0532→0.1237）、末点误差 0.36 m，但**仍跑完、仍不越界** ⇒ 路线容错够，锚定是精度主源（开锚定同注入 RMS 仅 0.0589）。\n\n## 未修改任何 config/** 与 src/dzbrain/**\ngit status -- config src/dzbrain 仅显示本卡之前既存的并发改动（M config/robot.yaml、M route/planner.py、?? tests/test_corner_cut.py）。输入哈希：robot.yaml F8BDEC15…、map.yaml D5D7903D…、sim.py C5FC13C6…、route_check.py 841CF1B2…（会话内复核未变）。",
+      "changedPaths": [
+        "docs/仿真复验_第五张图44token基线_t2.md",
+        "artifacts/sim/t2_baseline_44tok/"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "跑 sim_cli 复验第五张图 tracker-safe 引擎 44 token 路线",
+          "status": "passed",
+          "evidence": "route.tokens 实测 44 token（N10…F3*…N5,y，15.05 m/43 航段）；planner.engine=tracker-safe。三条 sim_cli 命令串行执行、各 exit 0：0.15→101.70s/5085拍、0.35→76.44s/3822拍、0.40→74.40s/3720拍，三档全部跑完。三档原地复跑 traj.csv sha256 逐字节一致（9839BA29…/DB951683…/053172DA…）。"
+        },
+        {
+          "criterion": "route_check 0 error",
+          "status": "passed",
+          "evidence": "python tools\\route_check.py → exit 0，六层全过（语法44/0/1/0、解析44航点、几何边界+挡板穿越1次余量0.700+不触线0.1750≥0.0775+障碍净空、任务桥洞4次+雷覆盖8/8+靶覆盖2/2、安全15.05m+桥洞保护K5K9、折返0处），仅1项提醒（急转弯18处）。另 config_selfcheck exit 0 = error 0/warn 0；plan_route --engine tracker-safe --check exit 0 且重算 44 token 与 route.tokens 逐 token 恒等。"
+        },
+        {
+          "criterion": "给出轨迹指标基线（time_s/rms_m/length_ratio/out_of_bounds）",
+          "status": "passed",
+          "evidence": "time_s = 101.70/76.44/74.40 s；cross_track_rms_m = 0.0484/0.0532/0.0531 m（cross_track_max_m 0.1123/0.1192/0.1196）；path_len_ratio = 0.8805/0.8661/0.8663；out_of_bounds_steps(margin=0.60) = 0/0/0（另实测出物理墙 0/0/0、出格心框 441/288/274）。落盘 artifacts/sim/t2_baseline_44tok/{v015,v035,v040}/ 与 baseline_summary.json。"
+        },
+        {
+          "criterion": "只写 artifacts/sim/** 与新建 docs 报告",
+          "status": "passed",
+          "evidence": "新增 docs/仿真复验_第五张图44token基线_t2.md（新建，sha256 7929643D…）+ artifacts/sim/t2_baseline_44tok/**（含 field_check.py/verify_independent.py，均落在 artifacts/sim/** 内，被 .gitignore:18 忽略）。git status -- config src/dzbrain 仅显示本卡之前既存的并发改动（M robot.yaml、M route/planner.py、?? tests/test_corner_cut.py），本卡零新增/修改。"
+        },
+        {
+          "criterion": "不改 config/** 与 src/dzbrain/**",
+          "status": "passed",
+          "evidence": "会话内两次哈希复核一致：robot.yaml F8BDEC15…、map.yaml D5D7903D…、sim.py C5FC13C6…、route_check.py 841CF1B2…。sim_cli 的 --set 只改内存 Config（sim_cli.py:135-143 _apply_overrides），不写磁盘。未跑车、未连车。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "python -m dzbrain.tools.sim_cli --out-dir artifacts/sim/t2_baseline_44tok/v015 --set pursuit.cruise_speed_mps=0.15 --seed 20261012",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "跑完全程=是；总时长 101.70 s；横向RMS 0.0484 m；路径长度比 0.8805；越界拍数 0。traj.csv sha256 9839BA299A6444B5E7A28A38B3B12294271CA67C5D5FE52E26A8B09706CC8AAD。"
+        },
+        {
+          "command": "python -m dzbrain.tools.sim_cli --out-dir artifacts/sim/t2_baseline_44tok/v035 --set pursuit.cruise_speed_mps=0.35 --seed 20261012",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "跑完全程=是；总时长 76.44 s；横向RMS 0.0532 m；路径长度比 0.8661；越界拍数 0。traj.csv sha256 DB9516835FB8C45326467CAB6E74833D787E8C35CBC0DD2D78C3D1EEADA3F201。"
+        },
+        {
+          "command": "python -m dzbrain.tools.sim_cli --out-dir artifacts/sim/t2_baseline_44tok/v040 --set pursuit.cruise_speed_mps=0.40 --seed 20261012",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "跑完全程=是；总时长 74.40 s；横向RMS 0.0531 m；路径长度比 0.8663；越界拍数 0。traj.csv sha256 053172DACC69E3BBB2E829FE231C422974FDE1B4D19F79483ED2D6F414E64E39。"
+        },
+        {
+          "command": "python tools\\route_check.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "全部通过，1 项提醒（急转弯 18 处）。44 token；挡板不触线 0.1750 ≥ 0.0775 m；障碍净空 直段 0.350 ≥ 0.215 / 拐角 0.350 ≥ 0.303；桥洞水平直穿 4 次（K 列 段#3/#4 行9、#39/#40 行5）；雷覆盖 8/8；靶覆盖 2/2；车体不压靶板；折返 0 处。"
+        },
+        {
+          "command": "python tools\\config_selfcheck.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "结论 error 0 / warn 0 ✅ 通过；路线 44 点 | 射击停站 ['F3*'] | 倒车 []；cruise 0.35、ticksPerMeter 3280.0、ticksPer2PI 2680.0、cross_lower/upper_candidates K9/K5。"
+        },
+        {
+          "command": "python tools\\plan_route.py --map config\\map.yaml --engine tracker-safe --check",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "规划+出车前校验全部通过（route_check 0 error）；A* 代价 16.85 / 展开 152344 次 / 412.2 ms；重算 44 token 与 route.tokens 逐 token 相等（EQUAL: True）；提醒 雷心压过风险 C1 E3 G4 D9。"
+        },
+        {
+          "command": "python artifacts\\sim\\t2_baseline_44tok\\field_check.py（内联 run_sim(field=load_field_spec)，同参数同种子）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "轨迹同一性：time_s/steps 三档 101.70/5085、76.44/3822、74.40/3720 与 sim_cli 控制台逐位一致。盖雷 8/8（三档）、障碍碰撞 0、车体压靶板 0、挡板触线（车心口径）0、K 列封死违规 0、撞停 0；障碍净空不足 169/134/130（全为拐角口径，车体实测间隙 H4 +0.0437 m 为正）。"
+        },
+        {
+          "command": "python artifacts\\sim\\t2_baseline_44tok\\verify_independent.py（自写 SAT，不 import 项目模块，只读 traj.csv）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "独立复算与 physics 口径逐值吻合：车体∩挡板拍数 offset=0 → 101/72/62、offset=+0.075 → 112/69/63；最大穿透 10.92/14.94/14.66 mm 与 20.00 mm（全厚）。另核 sim.body_corners() 与 physics.body_corners(offset=0) 四点坐标逐位相同。"
+        },
+        {
+          "command": "python src\\dzbrain\\tests\\test_sim.py",
+          "status": "failed",
+          "exitCode": 1,
+          "evidence": "111/113，失败 5.6、7.4 —— 与 docs/回归守护_known_reds.md 台账逐项一致（已登记为永久 known-red），名单外新增红 0。"
+        },
+        {
+          "command": "python src\\dzbrain\\tests\\test_sim_guard.py",
+          "status": "failed",
+          "exitCode": 1,
+          "evidence": "104/109，失败 3.5b、3.6、4.3、4.4、4.5 —— 与 known_reds 台账逐项一致（2+5=7 项），名单外新增红 0。"
+        }
+      ]
+    },
+    {
+      "id": "t3",
+      "profileSeedId": "w3",
+      "subject": "车侧发车前最后复核：w1 差异项处置 + 发车清单逐条确认（verdict 制，只读）",
+      "description": "独立复核 w1 口径与 w2 仿真基线，逐条对照发车清单给出 pass/needs_revision 结论，标出任何未达放行条件项。只读，不改源码/配置，不打 tag。",
+      "status": "failed",
+      "assignee": "reviewer",
+      "dependencies": [
+        "t1",
+        "t2"
+      ],
+      "attempt": 2,
+      "createdAt": 1792142297732,
+      "updatedAt": 1792155876010,
+      "attemptId": "bcbbab45-d7c7-4d95-9ce2-1e7d5b8040a0",
+      "reassigning": false,
+      "output": "t3 [w3] 车侧发车前最后复核 = needs_revision（只读完成，未改仓库任何文件/配置，未打 tag）。**结论：当前工作树不具备\"发车清单逐条确认\"条件，不放行。**\n\n## 一、w1/w2 复核：结论可信，但有 3 项被本复核翻转/收窄\n- w1 主口径核对 **复现成立**（起点 N10 / 终点 N5 / 雷8 / 障8 / 靶 E5+F5 / 桥洞 K5+K9 / 候选与 default / engine=tracker-safe / 44 token 停站 F3* / 窗口 0.70–0.90 / 俯仰 +10.0 / 标定 3280·2680 全部实测一致，行号逐条对上）。几何自算亦复现：F3→板心 **0.7215 m**、F3→E5 0.7826、F3→F5 0.7000，窗口 [0.70,0.90]。\n- w2 产物**可复现性 100% 通过**：三档 traj.csv sha256 逐字节复现（`9839BA29…/DB951683…/053172DA…`），repeat/ 目录与之逐字节相同；我用 `run_sim` 原地重跑三档，同样三档全 MATCH；报告 sha256 `7929643D…` 一致。\n- **w1 的 B3 只修了一半**（见 F4）：新核 `Config.get(\"vehicle.length_m\")` 确实已能跟随 `/dzactuator` 真源（a8c500b 的 8 条迁移有效，我用哨兵 0.99/0.50 验证通过），但 **`tools/route_check.py` 仍读 `/dzbrain` 段**，真源改成 0.99/0.50 时它的判据输出**逐字节不变**——\"尺寸随配置走\"的门禁承诺在旧核工具上没落地。\n- **w1 的 B4 已闭环**：`test_deploy` 现为 **88/88 rc=0**（我复跑确认）。\n- **w2 的核心发现\"sim 挡板判据是弱口径\"完全成立**，且我进一步证明 **t6 的改动并没有解决它**（F3）。\n\n## 二、本复核新挖到的阻断项（都发生在发车窗口内）\n### F1【blocker】路线恒等门禁已破：planner 现产物 ≠ 落盘 route.tokens\n`tools/plan_route.py --engine tracker-safe` 当前产出 **45 token `N10 M10 M9 L9 K9 …`**，落盘 `route.tokens`/`mission_blocks` 是 **44 token `N10 M10 L10 L9 K9 …`**；**首个内容分歧 #2：`M9` vs `L10`**。成因已隔离到新键 `planner.bridge_approach_align_penalty_m`（robot.yaml:653 = 2.0）：置 0.0 时产物回到 `L10`。\n因 `planner.auto_plan_enabled=true`：**开车时真正下发的是 planner 的 M9 版路线**，`route.tokens` 只在规划失败时回退 ⇒ **t2 的全部仿真基线（sha DB951683…）描述的不是车要跑的那条路线**，t2 卡片里\"重算与落盘逐 token 恒等（EQUAL: True）\"这条证据在现树上已失效。发车清单里\"现役路线 = 44 token F3*\"这一条**现在无法确认**。\n\n### F2【blocker】`test_corner_cut` 5 红 = 名单外新增红\n现树 `test_corner_cut` **29/34 rc=1**（2.3 / 3.1 / 3.3 / 4.3 / 5.2 失败），而**干净 HEAD 导出树同一套件 rc=0**（`git archive HEAD` 实测）⇒ 红是**未提交的并发改动引入**，且不在 `docs/回归守护_known_reds.md` 名单内。该台账 §6b.3 声称\"32 套 exit 全 0 / 名单外新增红 0\"——**在现树上不成立**。\n\n### F3【high】挡板 20 mm 侵入未处置，t6 也没有消除它\n独立 SAT 复算（自写，不 import 项目模块）对 v035 轨迹：`offset=+0.075` → **69 拍重叠、持续 1.38 s、最大穿透 20.00 mm = 挡板全厚、其中 40 拍穿透≥19 mm**，命中 seg#35/#36（`G5→G6`、`G6→H6`），首拍 t≈61.84 s。项目自身 `footprint_diagnostic`（折线口径 +0.075）独立同报 4 条：`G5->G6 t=1.00` / `G6拐角(进)` / `J6拐角(出)` 各 **20.0 mm**。\n`sim.py` 至今**只调弱口径**：`barrier_distance_point_m` 出现 1 次、`body_barrier_clearance_m` 与 `barrier_distance_segment_m` 各 **0 次** ⇒ t2 的 `barrier_breach_steps=0` 是弱口径的 0。\n根因是**路线几何本身**：`G6/H6/I6/J6` 格心 x=1.925，挡板中心线 x=1.75，|Δx|=0.175 < 前向占位 半长0.14+偏移0.075=**0.215 m** ⇒ 在这四格转弯，车身必然横扫挡板（简单端部判据即报 50 mm）。\n**关键**：我用同一 SAT 方法复算 **t6 的 M9 新路线**，结果**一模一样（72/69 拍、20.00 mm、同样 seg#35/#36）** ⇒ t6 换路线**没有解决**这个物理碰撞级风险，而 `planner.footprint_gate: warn` 照样不拦。\n\n## 三、其余须处置项\n- **F4【medium】**`route_check.py`：\"尺寸全部随配置走\"（:1258-1259）承诺未落地——它从 **/dzbrain** 段取 vehicle/field（:1260-1261），该段没有这两个键。**实测**：真源 `/dzactuator` 注入 0.99/0.50 → 判据输出**逐字节不变**；注入 `/dzbrain` → 判据变（rc=1）。\n- **F5【medium】复核窗口内并发写入**：`config/robot.yaml` 复核中途由 `A79ECC47…`(20:04) 变成 `DB52A229…`(20:44)，另有 planner.py/sim.py/config.py/test_core.py/simbench.js/sim.html 被改。**违反 known_reds §4 第 5 步\"被复核文件哈希清单\"纪律** ⇒ 本复核只能给出\"某个未提交中间态\"的判定，**任何 pass 都不可持久**；门禁必须在冻结提交上重跑。\n- **F6【medium】**台账 §6b.3 的\"32 套 exit 全 0 / 新增红 0\"与现状冲突（见 F2）。\n- **F9【medium】t6 键注释与兜底常量自相矛盾**：robot.yaml:642 写\"缺省 **0.0 = 关闭**，回到 t6 之前的行为\"，但 `planner.py:2939 BRIDGE_APPROACH_ALIGN_PENALTY_M = 2.0`。**删掉该键 = 惩罚以 2.0 生效**（我实测：删行后产物就是 M9 版），与注释完全相反。\n- **F7【low】**w1 的 B1 仍存活：legacy `auto_start_delay=45.0`(:292) vs 新核 `mission.auto_start_delay_s=10.0`(:563)，:282-284 注释仍断言 45.0。默认新核 ⇒ 现场倒计时 **10 s**（start_all.sh:205）。\n- **F8【low】**`planner.*` 11 键 + `vehicle.*`/`field.*` 8 键（含 t4/t6 的两个新键）**未登记进 SCHEMA/known_prefixes** ⇒ `config_selfcheck` 隐藏 20 条 warn 却报\"warn 0\"；`strict=True` 会失败。门禁比它宣称的窄。\n- **F10【low】**终点停位车体角点**压过南墙 1.2 cm**（独立复算：末拍 truth (2.2747, 0.2045, −91.81°)，offset=+0.075 → 车体最小 y = **−0.0125 m**；offset=0 → +0.0625 m）。仅停车瞬间、仅 N5。需现场确认 N5 南侧 ≥1.3 cm 余量。\n- **F11【low】**文档/注释未同步：`空地指挥链路_协议与运行手册.md` §3 仍写 `auto_start=false`、delay 45.0；robot.yaml:315/:318 仍是旧图 K4+K5/K10 口径。\n\n## 四、我可复现的命令（全部在当前工作树执行，只读）\n`config_selfcheck` 0 error/0 warn rc=0；`route_check --config config/robot.yaml` rc=0（1 提醒）；`plan_route --engine tracker-safe --check` rc=0 但**产物 ≠ 落盘**；32 套全量回归：31 套 rc=0，**test_corner_cut rc=1**；干净 HEAD 导出树：test_corner_cut / test_planner(110) / test_physics(103) / test_sim / test_sim_guard / test_core(50) **全 rc=0**。\n\n**放行判断**：主口径（地图/标定/窗口/路线内容）本身没错，但 ① 车实际要跑的路线与全部仿真证据不一致（F1）② 有名单外新增红（F2）③ 挡板 20 mm 侵入这条已声明的 blocker 仍在且未被 t6 修复（F3）④ 被复核文件在窗口内被并发修改、无冻结快照（F5）——**四条中任意一条都足以挡住发车门禁，故判 needs_revision。** 建议：先冻结一个提交（含 t5/t6 收口），重跑 planner 恒等 + 全量回归 + 精确口径挡板复算，再复核。\n\n只读声明：本卡**未修改** `dzrobot_v2/**` 任何被跟踪文件；所有探针脚本与产物写在 gitignored 的 `_tmp_session/`（`git status` 中的改动全部来自并发写入者，非本卡）。",
+      "verdict": "needs_revision",
+      "findings": [
+        {
+          "id": "T3-F1",
+          "severity": "blocker",
+          "problem": "路线恒等门禁已破：当前工作树上 `plan_route.py --engine tracker-safe` 产出 45 token（N10 M10 M9 L9 K9 …），而 config/robot.yaml 的 route.tokens / path_executor.mission_blocks 是 44 token（N10 M10 L10 L9 K9 …），首个内容分歧在 #2：M9 vs L10。成因已隔离到新键 planner.bridge_approach_align_penalty_m（robot.yaml:653 = 2.0）：置 0.0 时产物回到 L10。因 planner.auto_plan_enabled=true 且 engine=tracker-safe，开车时真正下发的是 planner 的 M9 版路线，route.tokens 只在规划失败时回退；因此 t2 交付的全部仿真基线（traj sha256 DB951683… 等）描述的不是车要跑的路线，t2 卡片里“重算与落盘逐 token 恒等（EQUAL: True）”这条证据在现树上已失效，发车清单“现役路线 = 44 token F3*”无法确认。",
+          "requiredFix": "二选一并留下证据：(A) 冻结提交后把 route.tokens/mission_blocks 同步为 planner 当前产物（重新落盘 44/45 点并对新路线重跑 route_check + config_selfcheck + 三档仿真 + 精确口径挡板复算，重建基线）；或 (B) 明确把 t6 新键置 0.0（或删除并把兜底常量改回 0.0），恢复“planner 产物 == 落盘 route.tokens”的恒等式，再重跑 test_corner_cut 2.3/4.3 与 t2 复现性。无论走哪条，必须把“planner 产物 == 落盘路线”作为放行必过项重新取证。",
+          "file": "src/dzbrain/dzbrain/route/planner.py",
+          "line": 3135
+        },
+        {
+          "id": "T3-F2",
+          "severity": "blocker",
+          "problem": "名单外新增红：当前工作树 test_corner_cut 29/34 rc=1，失败 2.3 / 3.1 / 3.3 / 4.3 / 5.2（其中 2.3 就是“规划器产物 == 冻结 mission_blocks 逐 token 44 点”，报出 M9 版路线）。用 `git archive HEAD` 导出干净树复跑，同一套件 rc=0 ⇒ 红是未提交的并发改动引入，且不在 docs/回归守护_known_reds.md 名单内；该台账 §6b.3 声称“32 套 exit 全 0 / 名单外新增红 0”在现树上不成立。",
+          "requiredFix": "在冻结提交上重跑全量回归；把 test_corner_cut 的 5 条红逐条定性（真回归 or 判据过时）并按台账“只增不改”追加登记（或修复代码/几何使其转绿），并把 known_reds §6b.3 的“32 套 exit 全 0”改成带日期与出处的现行口径。不得在未定性前以“发车档伴随现象”名义放行。",
+          "file": "src/dzbrain/tests/test_corner_cut.py",
+          "line": 2
+        },
+        {
+          "id": "T3-F3",
+          "severity": "high",
+          "problem": "挡板侵入这条已声明的 blocker 仍在，且 t6 换路线没有解决它。独立 SAT 复算（自写、不 import 项目模块）对 t2 的 v035 轨迹：offset=+0.075 → 69 拍重叠、持续 1.38 s、最大穿透 20.00 mm（= 挡板全厚）、其中 40 拍穿透 ≥19 mm，命中 seg#35/#36（G5→G6、G6→H6），首拍 t≈61.84 s；项目自身 footprint_diagnostic（折线口径 +0.075）独立同报 G5->G6 t=1.00 / G6拐角(进) / J6拐角(出) 各 20.0 mm。sim.py 至今只调弱口径：barrier_distance_point_m 出现 1 次、body_barrier_clearance_m 与 barrier_distance_segment_m 各 0 次，故 t2 的 barrier_breach_steps=0 是弱口径的 0。根因是路线几何：G6/H6/I6/J6 格心 x=1.925，挡板中心线 x=1.75，|Δx|=0.175 < 前向占位 半长0.14+偏移0.075=0.215 m。我用同一 SAT 方法复算 t6 的 M9 新路线，结果逐项相同（72/69 拍、20.00 mm、同样 seg#35/#36）。",
+          "requiredFix": "在冻结提交上二选一收口：(A) 改路线几何，使行 6 南下纵走廊（G6/H6/I6/J6）不再出现“格心距挡板中心线 < 0.215 m 处转弯”——把该段拐点/走廊外移到 x ≥ 1.975（或改由 G5 直接南下、避开行 6 南沿）；(B) 经现场实测挡板实际位置/宽度确认静态余量足够后，把 planner.footprint_gate 维持 warn 并出具现场量测证据。同时必须把 sim.py 的“挡板触线”判据切到精确车体口径（body_barrier_clearance_m，含 vehicle.ref_offset_m），并重跑三档基线——否则后续任何 sim 的“挡板 0 拍”都不可信。",
+          "file": "src/dzbrain/dzbrain/tools/sim.py",
+          "line": 445
+        },
+        {
+          "id": "T3-F4",
+          "severity": "medium",
+          "problem": "route_check.py 的“尺寸全部随配置走”（:1258-1259 注释承诺）未落地：它从 /dzbrain 段取 vehicle/field（:1260-1261），而该段不存在这两个键（只有 field.bridge_entry_redundancy_m）。实测：把真源 /dzactuator 段的 length_m/width_m 注入哨兵 0.99/0.50，route_check 输出的挡板/障碍/靶板判据阈值逐字节不变（仍 0.215 / 0.303 / 0.0675 / 0.1554，rc=0）；把同样哨兵注入 /dzbrain 段，判据随之变化（rc=1）。即现场量出新尺寸改真源时，这个门禁工具会静默忽略。",
+          "requiredFix": "让 route_check.py 从新核已迁移的规范名（Config.get(\"vehicle.*\"/\"field.*\")）或直接从 /dzactuator 段取几何，并加回归断言：注入哨兵尺寸后 route_check 打印的阈值必须随之变化（否则该门禁不算“随配置走”）。w1 的 B3 因此只算半闭环，请在 t3 的后续修订里一并收口。",
+          "file": "tools/route_check.py",
+          "line": 1260
+        },
+        {
+          "id": "T3-F5",
+          "severity": "medium",
+          "problem": "被复核文件在复核窗口内被并发修改，无冻结快照：config/robot.yaml 由 SHA256 A79ECC47…（20:04）变为 DB52A229…（20:44），并新增 t6 键 planner.bridge_approach_align_penalty_m: 2.0（:653）与 docs/sim_v2_设计规格.md 改动；同时 src/dzbrain/dzbrain/route/planner.py、tools/sim.py、core/config.py、tests/test_core.py、dsh-plugin-dzrobot-ssh/simbench.js 亦被改。HEAD（0eb3570）不含 t6 键，即 pass/fail 对象是一个未提交中间态，违反 docs/回归守护_known_reds.md §4 第 5 步“被复核文件哈希清单”纪律。",
+          "requiredFix": "先冻结一个提交（含 t5/t6 收口），在冻结提交上重跑门禁，并以“路径 + mtime + SHA256 前 16 位 + 是否=交付版”的哈希清单随报告提交。在此之前任何“通过”结论都不具备持久性；本卡的 verdict 只能按未冻结树给出。",
+          "file": "config/robot.yaml",
+          "line": 653
+        },
+        {
+          "id": "T3-F9",
+          "severity": "medium",
+          "problem": "t6 新键的注释与兜底常量自相矛盾：config/robot.yaml:642 写“缺省 0.0 = 关闭，回到 t6 之前的行为”，:652 又写“0.0 = 关闭”，但模块兜底常量 BRIDGE_APPROACH_ALIGN_PENALTY_M = 2.0（planner.py:2939），_phys_params 缺键时即取该值（:629-630）。实测：把 YAML 中该行整行删除后，planner 产物仍是 M9 版（惩罚以 2.0 生效），与“缺省 = 关闭”完全相反。这会让“删键以回退旧行为”的标准运维动作变成静默启用新惩罚。",
+          "requiredFix": "要么把兜底常量改为 0.0（与注释一致，新特性默认关闭，符合本仓“缺省零影响”惯例），要么把注释改成“缺省 = 2.0（启用）”。两种改法都要同步 SCHEMA 登记并对“删键/缺键”行为加一条断言测试。",
+          "file": "src/dzbrain/dzbrain/route/planner.py",
+          "line": 2939
+        },
+        {
+          "id": "T3-F6",
+          "severity": "medium",
+          "problem": "台账 §6b.3“全量回归证据（2026-10-16）：32 套全部 exit=0 / 名单外新增红 0”与现状冲突：现树 32 套里 test_corner_cut 为 rc=1（29/34）。同时 §6b.2 记录的两条“附带真修”中，test_deploy 的新红确已修复（我复跑 88/88 rc=0），但 vehicle.*/field.* 键路径只修了新核消费者，route_check 仍未跟随（见 T3-F4）。",
+          "requiredFix": "把 §6b.3 的 32/0 口径改为带日期+出处+被复核哈希的现行记录，并在出现新红（test_corner_cut）后按“只增不改”追加 §6b.4 条目定性；不得让“全绿入档”的表述继续覆盖已被打破的状态。",
+          "file": "docs/回归守护_known_reds.md",
+          "line": 203
+        },
+        {
+          "id": "T3-F7",
+          "severity": "low",
+          "problem": "w1 的 B1 仍存活（未处置）：legacy path_executor.auto_start_delay=45.0（:292）vs 新核 mission.auto_start_delay_s=10.0（:563），而 :282-284 注释仍断言“与 mission.auto_start_delay_s=45.0 一致”。默认走新核（start_all.sh:205 默认 dzbrain，LEGACY_PATH=1 才回退）⇒ 现场发车倒计时为 10 s，不是 45 s。",
+          "requiredFix": "按走哪核把两段值对齐并同步注释（现场倒计时口径写进发车横幅或手册）；若保留 45.0 的 legacy 值，注释必须改成“legacy 专用、新核为 10.0”，并明确回退时倒计时会变。",
+          "file": "config/robot.yaml",
+          "line": 292
+        },
+        {
+          "id": "T3-F8",
+          "severity": "low",
+          "problem": "config_selfcheck 报出的“error 0 / warn 0 ✅ 通过”比它宣称的窄：Config.validate(strict=False) 实际产生 21 条 warn（planner.engine / tracker_max_seconds / auto_plan_enabled / footprint_gate / map_path / fallback_to_tokens / allow_reverse / max_seconds / pivot_penalty / mine_turn_penalty / obstacle_margin_m / bridge_approach_align_penalty_m + vehicle.* ×4 + field.* ×5），原因是 known_prefixes（config.py:673-676）缺 planner./vehicle./field. 三个前缀——虽然这些键大多已在 SCHEMA 里。自检脚本只统计 route 校验的 warn，故把这 20 条隐藏了；strict=True 会直接失败。",
+          "requiredFix": "把 planner. / vehicle. / field. 加入 known_prefixes（或在自检里把 config 级 warn 一并计数并打印），使门禁输出与真实配置健康度一致；t4/t6 新增的 field.bridge_entry_redundancy_m、planner.bridge_approach_align_penalty_m 也应登记进 SCHEMA。",
+          "file": "src/dzbrain/dzbrain/core/config.py",
+          "line": 673
+        },
+        {
+          "id": "T3-F10",
+          "severity": "low",
+          "problem": "终点停位车体角点压过南墙 1.2 cm（独立复算确认 t2 §6 观察②）：末拍真值位姿 (2.2747, 0.2045, yaw −91.81°)，offset=+0.075 口径下车体最小 y = −0.0125 m（南缘 y=0），offset=0 口径为 +0.0625 m；仅停车瞬间、仅 N5 格，行进段（含 offset=+0.075）最小 y = +0.035 m 不越墙。几何上 N5 距南墙 0.175 m < 半长0.14+偏移0.075=0.215 m，属必然。",
+          "requiredFix": "现场确认 N5 南侧有 ≥1.3 cm 净空（无护栏/围挡贴边）；若现场确为紧贴护栏，需把终点停位向北偏一点或把 ref_offset 计入终点停位判据，并在发车清单里记录该确认结果。",
+          "file": "config/robot.yaml",
+          "line": 433
+        },
+        {
+          "id": "T3-F11",
+          "severity": "low",
+          "problem": "文档/注释口径未同步：手册 §3 仍写 mission.auto_start=false 与 delay 45.0（与现行 true / 10.0 不符）；config/robot.yaml:315-318 仍是旧图“K4+K5 算一个通口、K10 是另一个”的口径（现行桥洞为 K5/K9，bridge_blocks 为 []）；robot.yaml:738-761 的标定注释里 2723/2850 的旧沿革值仍与现役 2680 并存（已注明但易误读）。",
+          "requiredFix": "发车前把这些陈旧口径一次性改齐（或显式标注“历史沿革，现役值见 X 行”），避免现场按错值核对。",
+          "file": "docs/空地指挥链路_协议与运行手册.md",
+          "line": 125
+        }
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "独立复核 w1 口径（逐条对照发车清单，行号+实测取值）",
+          "status": "passed",
+          "evidence": "主口径全部复现：起点 N10 / 终点 N5 / 雷 8 (C1 A3 E3 G4 I6 B7 D9 H10) / 障 8 (A1 E2 H4 D8 I8 G9 B11 F11) / 靶 E5+F5 / 桥洞 K5+K9 / 候选与 default / engine=tracker-safe / allow_reverse=false / 俯仰 +10.0 两段对齐 / 标定 3280·2680 / 44 token 停站 F3*；几何自算 F3→板心 0.7215∈[0.70,0.90]、F3→E5 0.7826、F3→F5 0.7000 与注释逐位吻合。w1 的 B4（test_deploy 新红）已确认闭环（88/88 rc=0）。"
+        },
+        {
+          "criterion": "独立复核 w2 仿真基线（三档可复现性 + 门禁）",
+          "status": "passed",
+          "evidence": "三档 traj sha256 逐字节 MATCH 且 repeat/ 相同；我原地 run_sim 重跑三档亦全 MATCH。config_selfcheck 0 error/0 warn、route_check 0 error、tracker-safe --check 0 error 均复现。w2 的核心发现（sim 挡板弱口径）逐值复现成立。"
+        },
+        {
+          "criterion": "逐条对照发车清单给出 pass/needs_revision 结论",
+          "status": "failed",
+          "evidence": "判 needs_revision。清单中“现役路线 = 44 token F3*（且 tracker-safe 重算恒等）”这一条在现树上无法确认：planner 产物已是 M9 版 45 token，与落盘 44 token 首个分歧 #2（T3-F1）；且 test_corner_cut 的“规划器产物==冻结 mission_blocks 44 点”断言同因失败（T3-F2）。"
+        },
+        {
+          "criterion": "标出任何未达放行条件项",
+          "status": "failed",
+          "evidence": "未达放行条件四条（每条单独即足以挡住发车门禁）：① 车实际要跑的路线与全部仿真证据不一致（T3-F1）；② 存在名单外新增红 test_corner_cut 5 条（T3-F2）；③ 挡板 20 mm 物理侵入仍在且 t6 未修复、sim 至今用弱口径（T3-F3）；④ 被复核文件在复核窗口内被并发修改、无冻结提交快照（T3-F5）。另有 medium 2 项（route_check 几何不随真源走 T3-F4、台账 §6b.3 口径失效 T3-F6）与 low 若干。"
+        },
+        {
+          "criterion": "只读：不改源码/配置、不打 tag",
+          "status": "passed",
+          "evidence": "未对 dzrobot_v2/** 任何被跟踪文件写入，未打 tag、未建 worktree（仅用 git archive HEAD 导出到临时目录）。所有探针脚本与中间产物写在 gitignored 的 _tmp_session/；`git status` 中的全部改动来自并发写入者，非本卡。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "python tools/config_selfcheck.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "结论：error 0 / warn 0 ✅ 通过；路线: 44 点 | 射击停站 ['F3*'] | 倒车 []。注意：Config.validate 另隐藏 21 条 warn（见 T3-F8）。"
+        },
+        {
+          "command": "python tools/route_check.py --config config/robot.yaml",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "全部通过，但有 1 项提醒（急转弯 18 处）；六层逐条过：边界/挡板穿越 1 次（B 列 0.700 m）/挡板不触线 0.1750 ≥ 0.0775/障碍净空 0.350 ≥ 0.215 与 0.303/雷覆盖 8/8/靶覆盖 2/2/射击点 0.70~0.90/桥洞保护 K5 K9/折返 0 处。"
+        },
+        {
+          "command": "python tools/plan_route.py --config config/robot.yaml --engine tracker-safe --check --quiet",
+          "status": "failed",
+          "exitCode": 0,
+          "evidence": "rc=0 且 route_check 0 error，但产物与落盘不一致（恒等门禁破）：生成 N10 M10 M9 L9 K9 …（45 token），落盘 N10 M10 L10 L9 K9 …（44 token），首个内容分歧 #2 M9 vs L10。"
+        },
+        {
+          "command": "python tools/plan_route.py --config <探针: t6键=0.0/删行> --engine tracker-safe --check --quiet",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "t6 键=0.0 时首段回到 L10（与落盘一致）；整行删除时仍为 M9 ⇒ 成因确认，且兜底常量 2.0 与注释“缺省 0.0=关闭”矛盾（T3-F9）。"
+        },
+        {
+          "command": "32 套全量回归（python src/dzbrain/tests/test_*.py，逐个记录 rc）",
+          "status": "failed",
+          "exitCode": 1,
+          "evidence": "31 套 rc=0；test_corner_cut rc=1（29/34，失败 2.3/3.1/3.3/4.3/5.2）。test_deploy 88/88 rc=0（w1 的 B4 已闭环）；test_sim 113/113、test_sim_guard 109/109、test_planner 110 项、test_physics 103/103、test_core 50/50、test_route 162/162 均 rc=0。"
+        },
+        {
+          "command": "git archive HEAD | 干净树复跑 test_corner_cut / test_planner / test_physics / test_sim / test_sim_guard / test_core",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "HEAD 干净树上六套全部 rc=0（test_corner_cut rc=0、test_planner 110 项、test_physics 103/103、test_core 50/50）⇒ 现树的 test_corner_cut 5 红是未提交并发改动引入的名单外新增红（T3-F2）。同时确认 HEAD 的 physics.py 可正常 import、planner 110 项全过，故 t4 报告的“HEAD 无法 import physics”在执行时已由 0eb3570 修复。"
+        },
+        {
+          "command": "独立复现三档基线：run_sim 原地重跑 0.15/0.35/0.40 并比 sha256",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "三档 traj.csv sha256 全部 MATCH（9839BA29…/DB951683…/053172DA…），repeat/ 目录逐字节相同 ⇒ w2 产物可复现性成立。"
+        },
+        {
+          "command": "独立 SAT 挡板复算（自写，不 import 项目模块）对 v015/v035/v040 轨迹",
+          "status": "failed",
+          "exitCode": 0,
+          "evidence": "offset=+0.075：0.15 档 112 拍、0.35 档 69 拍、0.40 档 63 拍重叠；v035 最大 SAT 穿透 20.00 mm（=挡板全厚）、40 拍穿透≥19 mm、命中 seg#35/#36、首拍 t≈61.84 s。与 w2 的 B/C 列计数逐值吻合（B: 101/72/62；C: 112/69/63），复现成立。"
+        },
+        {
+          "command": "项目自身 footprint_diagnostic(route.tokens, map.yaml, cfg)",
+          "status": "failed",
+          "exitCode": 0,
+          "evidence": "412 采样 / offset 0.075 / min_barrier 0.000000 @ J6拐角(出)；RISK：车体侵入挡板 0.0 mm @ G5->G6 t=0.86、20.0 mm @ G5->G6 t=1.00、20.0 mm @ G6拐角(进)、20.0 mm @ J6拐角(出)。项目自身工具独立佐证该侵入，且属 t2 交付范围内但未收口。"
+        },
+        {
+          "command": "对 t6 新路线（M9 版）做同一 SAT 复算 + run_sim",
+          "status": "failed",
+          "exitCode": 0,
+          "evidence": "新路线 @0.35 跑完、时长 75.76 s、横向 RMS 0.0534、越界 0；但 SAT 挡板结果与旧路线逐项相同（offset0 72 拍 / offset0.075 69 拍、20.00 mm、同样 seg#35/#36）⇒ t6 没有消除该 blocker（T3-F3），且新路线 traj sha256 983FBED2… ≠ t2 基线 DB951683…（T3-F1）。"
+        },
+        {
+          "command": "几何哨兵注入探针：真源 /dzactuator 与 /dzbrain 各注入 length_m=0.99/width_m=0.50 后跑 route_check",
+          "status": "failed",
+          "exitCode": 0,
+          "evidence": "注入真源 /dzactuator → route_check 三项判据（挡板不触线/障碍净空/车体不压靶板）输出逐字节不变（rc=0）；注入 /dzbrain → 判据随之变化（障碍净空 0.350 < 0.398、rc=1）⇒ route_check 的几何不随真源走（T3-F4）。另：Config.get(\"vehicle.length_m\") 经 a8c500b 的 8 条迁移已正确跟随真源（哨兵返回 0.99），故新核消费者已修、旧核工具未修。"
+        },
+        {
+          "command": "SCHEMA 登记核对 + Config.validate(strict=False)",
+          "status": "failed",
+          "exitCode": 0,
+          "evidence": "planner.engine / tracker_max_seconds / auto_plan_enabled / footprint_gate / map_path / fallback_to_tokens / allow_reverse / max_seconds / pivot_penalty / mine_turn_penalty / bridge_approach_align_penalty_m 均不在 SCHEMA；known_prefixes 缺 planner./vehicle./field. ⇒ error 0 / warn 21 / info 18（T3-F8）。"
+        },
+        {
+          "command": "路线双真源与终点停位复算",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "route.tokens(44) == path_executor.mission_blocks(44) 逐 token 恒等 True；末拍 truth (2.2747, 0.2045, −91.81°)，offset=+0.075 → 车体最小 y=−0.0125 m（压南墙），offset=0 → +0.0625 m（T3-F10）。"
+        },
+        {
+          "command": "并发写入检测：复核前后对 8 个关键文件取 SHA256 快照",
+          "status": "failed",
+          "exitCode": 0,
+          "evidence": "config/robot.yaml A79ECC47…(20:04) → DB52A229…(20:44)，并新增 t6 键 :653；另有 planner.py / sim.py / core/config.py / test_core.py / simbench.js / sim.html 在窗口内被改；最后一次快照括号式重跑（前/后）显示稳定，但整体树未冻结（T3-F5）。"
+        }
+      ]
+    },
+    {
+      "id": "t4",
+      "subject": "桥洞入口冗余：physics 虚拟墙几何 + tracker-safe 判据 + config 参数 + 路线重生成",
+      "description": "目标：让路径规划器「算上桥洞进洞侧的 1/4 格冗余长度」，逼车进桥洞前摆正、不碰桥室侧壁。用户设计规格：只加进洞侧，冗余 = 1/4 格 = 0.35 × 0.25 = 0.0875 m；这段墙现实中不存在，是设计冗余，但规划器必须当真实墙对待。\n\n工作目录：dzrobot_v2（真源）。只改下述文件，不要碰 tools/route_check.py 和其它未列文件。\n\n一、物理背景（先读通）：\n- 坐标系在 core/geometry.py：x=(10.5-row)*0.35，y=(13.5-col)*0.35。K 列 col_idx=10，K 列所有格心 y=1.225。\n- K 列每格是一个「桥室」，东西向（y 方向）横向贯通，南北向（x 方向）有侧壁、格间封死（physics.k_cells_sealed_along_column）。\n- 车东西穿洞：车身长边沿 y，车宽 0.135 m 沿 x，会碰桥室南北壁（x = 桥洞格上/下边界）。\n- 穿洞方向（config/robot.yaml bridge_order）：下半场（row 7~11）向西穿 L→K→J，进洞侧=西=y 小侧；上半场（row 1~6）向东穿 J→K→L，进洞侧=东=y 大侧。\n- 桥洞格南北壁：x_hi = cx + 0.175（北，x 大侧），x_lo = cx - 0.175（南，x 小侧），cx = block_to_meters(block) 的 x。\n- 进洞侧边界：下半场 y_entry = cy - 0.175；上半场 y_entry = cy + 0.175（cy = 1.225）。\n- 「冗余墙」= 把南北壁从 y_entry 向进洞侧虚拟延长 redundancy_m：\n  - 下半场：y ∈ [y_entry - redundancy, y_entry]\n  - 上半场：y ∈ [y_entry, y_entry + redundancy]\n  冗余墙是两条竖线段（北壁 x=x_hi、南壁 x=x_lo，y 在上述区间）。\n\n二、改动点：\n1. src/dzbrain/dzbrain/core/config.py：SCHEMA 加 `field.bridge_entry_redundancy_m`（float，默认 0.0875，范围 [0.0, 0.35]，说明「桥洞进洞侧冗余长度=1/4格，虚拟墙延长」），放 field.barrier_width_m 附近。\n2. src/dzbrain/dzbrain/route/physics.py：新增纯函数并加进 __all__：\n   - bridge_entry_walls(block, redundancy_m) -> ((x0,y0,x1,y1),(x0,y0,x1,y1))：该桥洞格进洞侧两段虚拟墙（北壁+南壁竖线段）。进洞侧方向按 row 判断：row_idx = block_to_index(block)[0]；row_idx >= 6（即行 7~11，下半场）→ 进洞侧 y 小（向西）；否则上半场 → 进洞侧 y 大（向东）。\n   - body_bridge_wall_clearance_m(px, py, yaw, walls, length_m=0.28, width_m=0.135, offset_m=0.0) -> float：车体旋转矩形（body_corners）4 边到全部墙线段的最短距离（复用 _seg_seg_distance；重叠=0）。\n3. src/dzbrain/dzbrain/route/planner.py（tracker-safe 引擎 _TSGrid）：\n   - _move_ok_raw：段 a→b，若「b 是桥洞格（cross_lower/upper 之一）且 a 与 b 同行（水平直穿进入）」→ 判「沿段方向摆正的车体 vs 该桥洞格冗余墙」间隙 >= 0（至少判段两端点 + 中点）。不通过 → 段非法。\n   - turn_gate：顶点 cell，若「下一步进入桥洞格」（d_out 使下一格是桥洞格）→ 判「顶点处转弯扫掠车身 vs 冗余墙」间隙 >= 0。不通过 → 禁该转向。\n   - 只在「进洞侧」判（进入桥洞的段/顶点），出洞侧不判（用户只要进洞侧）。\n4. config/robot.yaml：/dzbrain 段显式加 `field.bridge_entry_redundancy_m: 0.0875`。\n5. 路线重生成：用改后的 planner 跑 `python tools/plan_route.py --check`（PYTHONPATH 用 src/dzbrain），把新 mission_blocks 写回 robot.yaml 的 path_executor.mission_blocks（保持 N10 起、N5,y 终）。若新路线与现役 44 token 逐字相同也如实报告（说明现役路线已满足冗余，不改 mission_blocks）。\n\n三、验收证据（必须给出）：\n- python tools/route_check.py 对（重）生成路线 0 error\n- python src/dzbrain/tests/test_planner.py 全绿（exit 0）\n- python src/dzbrain/tests/test_physics.py 全绿（exit 0）\n- 报告：新路线 token 序列一行；桥洞段形态（进洞侧拐点离洞几格、入洞段是否水平直穿）；redundancy 参数是否已进 config。\n\n回报 ≤30 行，含上述证据与改动文件清单。",
+      "status": "completed",
+      "assignee": "car-integrator",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1792147844719,
+      "updatedAt": 1792150778639,
+      "kind": "work",
+      "attemptId": "ab6a40e1-ef61-4b9d-9c23-31440309d0c1",
+      "reassigning": false,
+      "output": "t4 完成：进洞侧冗余墙几何 + tracker-safe 判据 + config 键 + 路线重生成。\n\n改动 4 个文件（全部在卡面 in-scope 内；tools/route_check.py 未触碰）：\n1. route/physics.py：新增 BRIDGE_ENTRY_LOWER_ROW_IDX / bridge_entry_walls() / body_bridge_wall_clearance_m()，全部进 __all__。\n2. route/planner.py：_TSGrid 加 entry_walls 构建 + entry_gate_segment()（段级）+ entry_gate_turn()（顶点级）+ _entry_sweep_ok()；接进 _move_ok_raw 与 turn_gate；常量 BRIDGE_ENTRY_REDUNDANCY_M=0.0875 / BRIDGE_ENTRY_CLEAR_EPS / BRIDGE_ENTRY_SAMPLES=7；_phys_params 带出 bridge_entry_redundancy_m。\n3. core/config.py：SCHEMA 加 \"field.bridge_entry_redundancy_m\": Spec(0.0875, _F, \"m\", 0.0, 0.35, ...)。\n4. config/robot.yaml：/dzbrain 段加 field.bridge_entry_redundancy_m: 0.0875。\n\n路线重生成结果：**与现役 44 token 逐字相同**（含 polyline 15.05 m、expanded 152344、shoot_stop F3、crossing K9/K5 全部一致；冗余 0 vs 0.0875 的 A/B 产物逐位相同、耗时 420.5 vs 417.9 ms）⇒ 按卡面约定**不改 mission_blocks**。原因（实测，非推断）：栅格路线的车心恒在行心，而桥洞格中心线就是通道中心 ⇒ 沿 y 直进的 x 向间隙恒 = 0.175 − 0.0675 = 0.1075 m，与冗余长度无关（冗余只沿 y 延伸）；正交搜索又只产出\"同行水平直穿\"进洞（L9→K9、J5→K5），进洞前最后一拐在上一行，离洞 1 格。故本图现役路线**本来就满足**进洞侧冗余。\n\n★ 落地时发现并修掉两个真 bug（都会让判据失效，故必须报告）：\n(a) 卡面写\"间隙 >= 0\"，但本模块距离口径是\"重叠 = 0\"、返回值恒 ≥ 0 ⇒ `>=0` **恒真**、判据形同虚设。已按物理语义收严为 `> 0`（eps 1e-9）并在两处 docstring 写明理由。实测分歧样本：车心 dx=+0.11/0.115/0.12/0.13 时 clr=0.000000，`>=0` 全判 True、`>0` 全判 False。\n(b) body_bridge_wall_clearance_m 的初版直接用\"4 边 vs 墙段\"最近距离：墙段整段落在车体矩形**内部**时与任何一条边都不相交，退化成\"端点↔边\"距离 ⇒ **错报正间隙**。实测 K9 进洞线 y=1.05、车心 x=cx+0.13 时错报 0.0225 m（真值 0）。已加显式包含检测（任一端点或中点落在车身体内 ⇒ 返回 0）；修后该样本 0.000000。此漏判正好漏掉最严重侵入，必须修。\n\n判据活性证据（不是空判据）：对横向偏移敏感（dx=+0.105→0.0025 通过；dx=+0.108→0.000000 拒绝）；对车宽敏感（0.3499→0.00005 通过；0.35→0.000000 拒绝）。\n\n⚠️ 阻塞性发现（需队长裁决，不在本卡 in-scope、我未改动）：仓库 HEAD = a8c500b（2026-10-16 19:16:30「v3.7_体检存档…全绿入档」）**已经包含我这次 t4 工作的中途态**（physics.py 的 t4 函数被放在 DEFAULT_REF_OFFSET_M 定义之前、planner.py 的 entry_gate 已在），导致**该提交在干净检出上无法 import physics.py**：\n  git worktree + python -c \"import dzbrain.route.physics\" → NameError: name 'DEFAULT_REF_OFFSET_M' is not defined（physics.py:373）\n  python src/dzbrain/tests/test_physics.py → rc=1，同一个 NameError\n即\"全绿入档\"这个基线提交实际连 test_physics 都起不来。（我当前工作树已修好该问题——t4 段已移到文件末尾——但修正在工作树里、未提交；HEAD 仍是坏的。注意 HEAD 里 _tmp_full_regression/test_physics.py.log 却记着 103/103 全绿且不含 t4 字样，说明日志取自提交前的旧态。）",
+      "changedPaths": [
+        "dzrobot_v2/src/dzbrain/dzbrain/route/physics.py",
+        "dzrobot_v2/src/dzbrain/dzbrain/route/planner.py",
+        "dzrobot_v2/src/dzbrain/dzbrain/core/config.py",
+        "dzrobot_v2/config/robot.yaml"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "python tools/route_check.py 对（重）生成路线 0 error",
+          "status": "passed",
+          "evidence": "route_check rc=0：'全部 token 合法 普通 44 | 倒车 0 | 射击 1 | 折返 0'、'✅ 规划 + 出车前校验全部通过（route_check 0 error）'；重生成路线 = 现役 44 token，两者同一串。"
+        },
+        {
+          "criterion": "python src/dzbrain/tests/test_planner.py 全绿（exit 0）",
+          "status": "passed",
+          "evidence": "🎉 全部通过：110 项，EXIT=0（含 ⑫.6 tracker-safe 与 mission.reset 解耦、⑫.8 起段搜索原语）。"
+        },
+        {
+          "criterion": "python src/dzbrain/tests/test_physics.py 全绿（exit 0）",
+          "status": "passed",
+          "evidence": "结果：103/103 全部通过 ✅，EXIT=0。"
+        },
+        {
+          "criterion": "报告：新路线 token 序列一行",
+          "status": "passed",
+          "evidence": "N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y（44 token / 15.05 m）"
+        },
+        {
+          "criterion": "报告：桥洞段形态（进洞侧拐点离洞几格、入洞段是否水平直穿）",
+          "status": "passed",
+          "evidence": "两处进洞均为**同行水平直穿**、无拐点：下半场 L9→K9→J9（行 9），上半场 J5→K5→L5（行 5）。进洞前最后一拐在其**上一行**（L10→L9 / J6→J5），即进洞段起点恰为洞格西/东邻格心，离洞 1 格（0.35 m）；gate 实测沿途最小间隙 0.1075 m（= 半格 0.175 − 车半宽 0.0675）。"
+        },
+        {
+          "criterion": "报告：redundancy 参数是否已进 config",
+          "status": "passed",
+          "evidence": "已进两处：SCHEMA `field.bridge_entry_redundancy_m` = Spec(0.0875, float, [0.0,0.35])（config.py:222，紧邻 field.barrier_width_m）；YAML `/dzbrain` 段 `field.bridge_entry_redundancy_m: 0.0875`（robot.yaml:556）。Config.load 实测读得 0.0875；config_selfcheck error 0 / warn 0。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "python tools/route_check.py --route \"<44 token>\" --config config/robot.yaml",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "rc=0，0 error；唯一提醒为既有的'无法导入 path_executor，改用内置副本校验'。"
+        },
+        {
+          "command": "python src/dzbrain/tests/test_planner.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "110/110 全部通过。"
+        },
+        {
+          "command": "python src/dzbrain/tests/test_physics.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "103/103 全部通过。"
+        },
+        {
+          "command": "python tools/plan_route.py --engine tracker-safe --check",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "44 token / 15.05 m / 0 折返 / 穿洞 下=K9 上=K5 / 射击停站 F3 到靶 0.722 m；A* 展开 152344 次 / 423.7 ms；route_check 0 error。"
+        },
+        {
+          "command": "python tools/config_selfcheck.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "结论：error 0 / warn 0 ✅ 通过。"
+        },
+        {
+          "command": "全量回归 29 个 test_*.py（可跑集）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "29/29 rc=0：core 50、route 162、geometry 38、contract 56、bridge_gate 47、autoplan 160、corner_cut 34、path_overlap 32、deploy 88、sim 113、mission 202、referee 81、localization 95、goal_stop 26、pivot 47、link_e2e 34、drone 66、tracker 81、fix 74、aim 122、drift 21、gimbal_lock 49、shutdown 39、telemetry 80、sim_guard 109、pursuit/dynamic_gear/motion_limit/calib_backfill 全通过。"
+        }
+      ]
+    },
+    {
+      "id": "t5",
+      "subject": "仿真体现桥洞入口冗余墙 + 三档复跑验证进洞摆正",
+      "description": "目标：在仿真台里把「桥洞进洞侧 1/4 格冗余墙」体现出来，并验证 t4 重生成的路线进洞前确实摆正、不碰冗余墙。只做仿真侧；几何公式复用 t4 在 physics.py 里新增的 bridge_entry_walls（不要另写一套墙）。\n\n工作目录：dzrobot_v2。只改 src/dzbrain/dzbrain/tools/sim.py（+ 如需要，仿真报告/SVG 输出，落在 artifacts/sim/ 或 docs/，不碰 t4 的 physics/planner/config/robot.yaml）。\n\n一、背景（先读通）：\n- 桥洞冗余墙 = K 列桥室南北壁沿「进洞侧」向外虚拟延长 0.0875 m（1/4 格）。现实中不存在，是设计冗余，但仿真要把车撞上它判成物理违规。\n- 进洞侧：下半场（row 7~11，向西穿 L→K→J）进洞侧 = 西 = y 小；上半场（row 1~6，向东穿 J→K→L）进洞侧 = 东 = y 大。\n- sim.py 现有 K 列判据在 ObstacleObserver.observe() 第 450~471 行附近（k_col_steps / k_solid_steps / k_seal_steps）。冗余墙是第三种判据，加在旁边，别动现有逻辑。\n- 复用 physics.bridge_entry_walls(block, redundancy_m) 拿墙线段；复用 physics.body_corners + physics._seg_seg_distance（或已有的 body 边距离函数）算「车体旋转矩形 vs 墙线段」间隙。\n- redundancy_m 真源 = config 的 field.bridge_entry_redundancy_m（t4 会加进 SCHEMA，默认 0.0875）。\n\n二、改动点：\n1. sim.py 的仿真配置读入 field.bridge_entry_redundancy_m（缺省 0.0875，与 t4 同源）。\n2. observe() 里加冗余墙判据：车体矩形（body_corners，含 ref_offset）4 边到每个桥洞格（spec.bridges）进洞侧冗余墙线段的最短距离 < 0（或 < 极小阈值）→ 记一次违规（新增累计量 + first 记录，命名 bridge_redundancy_steps / 首次定位），与 k_solid_steps 并列。\n3. SVG 输出（render 段）把冗余墙画出来（细竖线，进洞侧，用醒目色 + 图例说明），让报告一眼能看到「墙在哪、车有没有蹭」。\n4. 仿真复跑：对 t4 重生成并写回 robot.yaml 的路线，跑三档 0.15 / 0.35 / 0.40（与 t2 同口径），输出 traj.csv/traj.svg/by_segment 到 artifacts/sim/t5_bridge_redundancy_*/。\n\n三、验收证据（必须给出，要有牙）：\n- 新路线三档：bridge_redundancy_steps = 0 拍，且障碍/挡板/靶板/K封死/越界硬违规仍全 0。\n- 对照（证明墙生效，不能是空断言）：把冗余墙判据临时关掉 vs 打开，或对「进洞前 1 格拐弯」的旧路线（现役 44 token 的桥洞段）跑一次，报告冗余墙判据是否报出「进洞侧蹭墙/拐点过近」的差异拍数。\n- 报告：每档桥洞段最小间隙（车体到冗余墙）、冗余墙违规拍数、进洞侧拐点离洞几格。\n\n回报 ≤30 行，含证据与改动文件清单。",
+      "status": "failed",
+      "assignee": "sim-operator",
+      "dependencies": [
+        "t4"
+      ],
+      "attempt": 2,
+      "createdAt": 1792147901916,
+      "updatedAt": 1792153292088,
+      "kind": "work",
+      "attemptId": "6fbce2bb-b433-4494-9c7f-f6b943cb77c4",
+      "reassigning": false,
+      "output": "t5 仿真侧**已落地**（判据可测/可关/可画图，复用 physics 不另写墙），但**卡面验收条件未达成**：三档 bridge_redundancy_steps = 250/246/244 ≠ 0 ⇒ 判 failed。\n\n改动：src/dzbrain/dzbrain/tools/sim.py **+96/−0（纯增量）**；artifacts/sim/t5_bridge_redundancy_main/**（46 文件）；docs/仿真复验_桥洞冗余墙_t5.md。五类既有硬违规三档仍全 0（越界/碰撞/压靶/K封死/K非通格），既有 K 列逻辑一行未动。\n\n★ 根因（判定性实验，非推断）：**不是参数取值，是口径**。t4 的 entry_gate_segment 把车头**恒取段方向（=假设已摆正）**；真车在洞口前 0.175 m 做 90° 转弯，R_min = 0.157/tan(30°) = **0.2719 m > 0.175 m** ⇒ 车身在冗余带内**必然还在转**（实测摆正误差 38~52°，最大穿透 56.74 mm @K9 / 44.38 mm @K5）。\n同一路线同一几何：折线口径 0 违规航段(间隙恒 0.10750)，仿真口径 246 拍。冗余扫描 0→0.175：折线**恒\"通过\"**，仿真**任何正值都违规**(15/178/246/278/303)。\n判据**可满足**（不是坏门禁）：纯直线进洞夹具 L9→K9→J9 与 J5→K5→L5 均 **0 拍**；洞口前1格拐弯 M10→L10→L9→K9 **159 拍**（现役形态）。\n\n★ 第二条独立发现：**K5 的墙戳进 J5 格 0.0875 m**（K9 不越格）。沿 J 行中线 y=1.575 正常通行时余量仅 **0.020 m**，夹具 J7→J6→J5→K5→L5 报 86 拍且违规发生在车心未到 J5 时 ⇒ 同一条墙管了\"进洞摆正\"+\"沿行姿态余量\"两件事，需裁决是否裁到桥洞格内。\n\n★ 自我更正：初稿假设\"关判据若建零长墙会满拍假阳性\"——实测零长墙 tx≥0.1075 确实报 0，但正摆轨迹横向偏移 ±0.05 内 ⇒ 全轨迹恰 0 拍，是**潜伏**陷阱（换横向偏的路线立刻假绿翻红）；sim.py 注释已按实测改写，关闭仍走\"不建墙+modeled=0\"。\n\n门禁/回归全绿：route_check 0 error、config_selfcheck 0/0、plan_route tracker-safe 44 token 一致、test_sim **113/113**、test_sim_guard **109/109**（vs v3.7 台账，名单外新增红 0）。\n\n建议（均需裁决，未动手）：a) t4 判据改用转弯扫掠真实姿态，或加\"进洞前对正段 ≥ R_min\"硬约束；b) 或改路线把攻角段提前（M10→M9→… 已把 159 压到 6）；c) K5 墙是否裁到格内；d) (a)/(b) 落地前不建议以\"冗余墙通过\"为由发车。",
+      "changedPaths": [
+        "src/dzbrain/dzbrain/tools/sim.py",
+        "docs/仿真复验_桥洞冗余墙_t5.md",
+        "artifacts/sim/t5_bridge_redundancy_main/field_check.py",
+        "artifacts/sim/t5_bridge_redundancy_main/diagnose_polyline_vs_traj.py",
+        "artifacts/sim/t5_bridge_redundancy_main/satisfiability.py",
+        "artifacts/sim/t5_bridge_redundancy_main/satisfiable_fixtures.py",
+        "artifacts/sim/t5_bridge_redundancy_main/teeth_check.py",
+        "artifacts/sim/t5_bridge_redundancy_main/zero_wall_and_direction.py",
+        "artifacts/sim/t5_bridge_redundancy_main/robustness.py",
+        "artifacts/sim/t5_bridge_redundancy_main/critical_angle.py",
+        "artifacts/sim/t5_bridge_redundancy_main/wall_pokes_into_j5.py",
+        "artifacts/sim/t5_bridge_redundancy_main/why_k5_straight.py",
+        "artifacts/sim/t5_bridge_redundancy_main/field_metrics.json",
+        "artifacts/sim/t5_bridge_redundancy_main/satisfiability.json",
+        "artifacts/sim/t5_bridge_redundancy_main/teeth_check.json",
+        "artifacts/sim/t5_bridge_redundancy_main/robustness.json",
+        "artifacts/sim/t5_bridge_redundancy_main/v015/traj.svg",
+        "artifacts/sim/t5_bridge_redundancy_main/v035/traj.svg",
+        "artifacts/sim/t5_bridge_redundancy_main/v040/traj.svg"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "新路线三档：bridge_redundancy_steps = 0 拍；障碍/挡板/靶板/K封死/越界硬违规仍全 0",
+          "status": "failed",
+          "evidence": "硬违规全 0 达成（三档 out_of_bounds=0/obstacle_hit=0/board_overlap=0/k_seal=0/k_solid=0，barrier_breach=0）。但 bridge_redundancy_steps 实测 v015=250 / v035=246 / v040=244 拍（≠0），逐桥洞最小间隙 K9=K5=0.000000 m。实测值见 artifacts/sim/t5_bridge_redundancy_main/field_metrics.json 与 field_check.out.txt；独立复核（手写几何，不调 physics/sim 任何距离函数）复现 124+122=246 与 101+101=202，逐位一致。"
+        },
+        {
+          "criterion": "对照（证明墙生效，不能是空断言）：关掉 vs 打开，或旧路线，报告差异拍数",
+          "status": "passed",
+          "evidence": "三条对照臂均实测：A 冗余=0 ⇒ modeled=0/steps=0/min=inf（'没测'与'测了没事'可区分）；B 冗余=0.175 ⇒ 303 拍（更严）；C ref_offset=0 ⇒ 202 拍。冗余扫描 0→0.02→0.04375→0.0875→0.13125→0.175 对应违规 0/15/178/246/278/303 拍，而折线口径最小值**恒 0.10750 通过**。方向特异性：墙人为镜像到出洞侧 ⇒ 0 拍（进洞侧 246）。活性：姿态 0→90° 探针 0.1075→0.0000；横向 dx≥0.1075 → 0.000000，与解析式 0.175−0.0675−dx 逐位吻合。见 teeth_check.json / robustness.json / zero_wall_and_direction.json。"
+        },
+        {
+          "criterion": "报告：每档桥洞段最小间隙（车体到冗余墙）、冗余墙违规拍数、进洞侧拐点离洞几格",
+          "status": "passed",
+          "evidence": "docs/仿真复验_桥洞冗余墙_t5.md 已交付：每档逐桥洞最小间隙（K9/K5 各 0.000000 m）、违规拍数（250/246/244）、进洞侧拐点离洞格距（K9←L9=1 格、K5←J5=1 格，且与桥洞同行 prev_is_other_row=false）。另附判定性实验（折线 0 违规航段 vs 仿真 246 拍）、可满足性夹具（纯直线进洞 0 拍）、K5 墙越格、SVG 产物自检（三档各 4 条紫虚墙线段）。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "python tools\\route_check.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "全部通过，1 项提醒（急转弯 18 处）。注：route_check 按 t4 设计**不含**冗余墙判据。"
+        },
+        {
+          "command": "python tools\\config_selfcheck.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "error 0 / warn 0 ✅ 通过"
+        },
+        {
+          "command": "python tools\\plan_route.py --map config\\map.yaml --engine tracker-safe --check",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "A* 代价 16.85 / 展开 152344 / 425.5 ms；重规划 44 token 与 route.tokens 一致；route_check 0 error"
+        },
+        {
+          "command": "python src\\dzbrain\\tests\\test_sim.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "结果：113/113 全部通过 ✅（含 10.3a-f 逐位不变断言：加地图不改轨迹、契约指标不受影响）"
+        },
+        {
+          "command": "python src\\dzbrain\\tests\\test_sim_guard.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "结果：109/109 全部通过 ✅（含 10.2 五类硬违规全 0 护栏）。与 docs/回归守护_known_reds.md 台帐一致，名单外新增红 0"
+        },
+        {
+          "command": "python artifacts\\sim\\t5_bridge_redundancy_main\\field_check.py（三档 + 3 对照臂，内联 run_sim(field=...)）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "三档与 t2 同口径复现（time_s 101.70/76.44/74.40、RMS 0.0484/0.0532/0.0531、path_len_ratio 0.8805/0.8661/0.8663）；冗余墙违规 250/246/244；对照臂 A/B/C = 0/303/202"
+        },
+        {
+          "command": "python artifacts\\sim\\t5_bridge_redundancy_main\\satisfiability.py + satisfiable_fixtures.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "判定性：同一路线折线 0 违规 vs 仿真 246；可满足性：纯直线进洞夹具 0 拍、洞口前1格拐弯 49~159 拍"
+        }
+      ]
+    },
+    {
+      "id": "t6",
+      "subject": "t6 桥洞进洞提前对正（方案a）：规划器消除进洞前1格90°拐弯",
+      "description": "背景（t5 failed 的判定性结论，已实证，务必先读 docs/仿真复验_桥洞冗余墙_t5.md）：\n\n现役 44 token 路线有两处「洞口前 1 格 90° 拐弯」：\n- 上半场进洞 K9：`... M10 L10 L9 K9 ...`（L10→L9 是纵向拐弯，L9→K9 才直进洞；拐弯顶点距洞仅 1 格）\n- 下半场进洞 K5：`... J6 J5 K5 ...`（J6→J5 是纵向拐弯，J5→K5 才直进洞；拐弯顶点距洞仅 1 格）\n\nt4 的 entry_gate_turn/entry_gate_segment 判据把车头恒取段方向（=假设进洞时已摆正），所以对这条「进洞前还在转弯」的路线判绿。但真实轨迹（R_min=0.157/tan30°=0.2719m > 冗余带 0.175m）在洞口前 1 格转弯时，车身在冗余带内必然还是斜的（实测摆正误差 38~52°），最大穿透 56.7mm。\n\nt5 的夹具已给出解的方向：`M10→M9→L9→K9`（提前 2 格在 M9 拐弯，拐弯顶点距洞 0.525m）把违规从 159 拍压到 6 拍。\n\n施工要求（方案 a，二选一，优先 A）：\nA. 改 planner 代价/约束，让 A* 自动在进洞前提前对正 —— 符合「只换地图就能自动生成路线」目标。建议在 turn_gate 里识别「d_out 进入桥洞格 且 d_in≠d_out（进洞前在转弯）」的情形，加足够大的代价惩罚（或硬禁止「进洞格的前一格是拐弯顶点」），驱动 A* 把拐弯顶点前移 1 格。\nB. 若 A 改动过大或导致无解，退而求其次：手工调整 route.tokens/mission_blocks 把两处拐弯顶点前移 1 格（上半场 M10→M9→L9→K9、下半场对称），并在 test_planner 里钉住这条新路线作为回归基线。\n\n铁律：\n- 只改 in-scope 文件，route_check.py / sim.py 一行都不许碰（它们的冗余墙判据是 t5 的验证基准，改了会污染对拍）。\n- 改完必须跑 verify 全清单，并把 t5 的 bridge_redundancy_steps 复测证据（可用 artifacts/sim/t5_bridge_redundancy_main 里的脚本对新路线重跑）写进 output。\n- 若方案 A 实现后发现 bridge_redundancy_steps 仍 >6 拍，如实报告，不要为了绿灯放宽判据或改 sim.py 的墙几何。",
+      "status": "failed",
+      "assignee": "car-integrator",
+      "dependencies": [
+        "t4"
+      ],
+      "attempt": 1,
+      "createdAt": 1792153732545,
+      "updatedAt": 1792194629159,
+      "kind": "implementation",
+      "objective": "让 tracker-safe 规划器生成的路线，在进入桥洞格（K9/K5）之前有 ≥1 格（0.35m ≥ R_min 0.272m）的直线对正段，消除「洞口前 1 格做 90° 拐弯」导致的车身斜插冗余带蹭墙（t5 实证 bridge_redundancy_steps=246 拍、最大穿透 56.7mm@K9 / 44.4mm@K5）。",
+      "inScope": [
+        "src/dzbrain/dzbrain/route/planner.py",
+        "src/dzbrain/dzbrain/route/physics.py",
+        "config/robot.yaml",
+        "src/dzbrain/tests/test_planner.py",
+        "src/dzbrain/tests/test_physics.py"
+      ],
+      "outOfScope": [
+        "tools/route_check.py",
+        "tools/sim.py",
+        "src/dzbrain/dzbrain/tools/sim.py",
+        "docs/**",
+        "src/dzrknn_dataprocess/**",
+        "config/map.yaml"
+      ],
+      "acceptance": [
+        "route_check 对重生成路线 0 error（44 点或更优，F3* 保留、K9/K5 各穿一次）",
+        "test_planner / test_physics / test_sim / test_sim_guard 全部 exit 0，名单外新增红 0",
+        "t5 仿真判据 bridge_redundancy_steps 从 246 拍降到 ≤6 拍（或 0 拍），逐桥洞最小间隙 > 0",
+        "雷 8/8 覆盖、障碍 0 命中、射击停站 F3* 保留、桥洞 K9/K5 直穿、隔板不触线，全部不变",
+        "确定性：同输入同输出（重生成两次逐 token 一致）"
+      ],
+      "verify": [
+        "$env:PYTHONPATH='src/dzbrain'; python src/dzbrain/tests/test_planner.py",
+        "$env:PYTHONPATH='src/dzbrain'; python src/dzbrain/tests/test_physics.py",
+        "$env:PYTHONPATH='src/dzbrain'; python src/dzbrain/tests/test_sim.py",
+        "$env:PYTHONPATH='src/dzbrain'; python src/dzbrain/tests/test_sim_guard.py",
+        "$env:PYTHONPATH='src/dzbrain'; python tools/route_check.py",
+        "python _run_full_regression.py"
+      ],
+      "attemptId": "420789a8-56e9-4db0-a508-b2f9085e928c",
+      "reassigning": false,
+      "output": "buddy: transport error: fetch failed (code TRANSPORT)"
+    },
+    {
+      "id": "t7",
+      "subject": "t8 射击点调远 1.0m：route.shoot_distance_m 改 1.00 + 重规划 + 门禁 + 仿真三档",
+      "description": "用户指令 3：「最佳射击点设计的再离远一点」。当前 `route.shoot_distance_m=0.80`（窗口 0.70~0.90），停站点 F3 到靶板中心 E5/F5 0.7215m。要求调远。\n\n施工步骤（严格按序）：\n1. 改 config/robot.yaml：`route.shoot_distance_m: 0.80 → 1.00`（`shoot_distance_tol_m` 保持 0.10 ⇒ 新窗口 [0.90, 1.10]）。同时核对 `path_executor.shoot_distance_min/max`（0.70/0.90）是否也要同步——按 t57 注释它们是「靶格级判据」、与板心窗口语义不同但取值同向，需判断是否一起调到 0.90/1.10，避免 R006/R013 门禁把新停站点判死。\n2. 重跑规划器（tracker-safe 引擎）得新 44 点路线（停站点会从 F3 迁移到更远的合法格，如 E3/F2 等——由规划器实测给出，禁手抄）。\n3. 跑 route_check.py 全链路校验（R006 靶覆盖 / R013 射击点距离 / 雷 8/8 / 桥洞 / 挡板不触线）→ 必须 0 error。\n4. 跑 config_selfcheck.py → exit 0。\n5. 三档仿真（0.15/0.35/0.40）复跑新路线，落盘 traj.csv/metrics。\n6. 输出：新 44 点 token 序列 + 新停站点名 + 到靶板中心实测距离 + 门禁/仿真结论。\n\n写域：config/robot.yaml、artifacts/sim/、docs/、_tmp_session/。禁改 tools/route_check.py、src/dzbrain 除 route/planner.py 之外的逻辑（规划器不改，只跑）。\n验收：route_check 0 error + config_selfcheck 0 warn + 三档仿真 completed 且新停站点到板心 ∈ [0.90,1.10]。",
+      "status": "pending",
+      "dependencies": [
+        "t6"
+      ],
+      "attempt": 0,
+      "createdAt": 1792156556561,
+      "updatedAt": 1792203902179,
+      "kind": "implementation",
+      "objective": "把最佳射击停站点从距靶板中心 0.80m 调远到 1.00m（窗口 0.90~1.10），重规划出合法新路线并通过全部门禁与三档仿真。",
+      "inScope": [
+        "config/robot.yaml",
+        "artifacts/sim/",
+        "docs/",
+        "_tmp_session/"
+      ],
+      "acceptance": [
+        "config/robot.yaml 中 route.shoot_distance_m=1.00 且 shoot_distance_tol_m=0.10",
+        "规划器重跑输出新 44 点 token（停站点不再等于旧 F3），新停站点到靶板中心距离 ∈ [0.90,1.10] m",
+        "tools/route_check.py 0 error（含 R006 靶覆盖 2/2、R013 射击点距离）",
+        "tools/config_selfcheck.py exit 0 且 0 warn",
+        "三档仿真(0.15/0.35/0.40) completed=1、越界0/碰撞0/压靶0、雷8/8"
+      ],
+      "verify": [
+        "cd dzrobot_v2; $env:PYTHONPATH='src/dzbrain'; python tools/route_check.py --config config/robot.yaml --map config/map.yaml",
+        "cd dzrobot_v2; $env:PYTHONPATH='src/dzbrain'; python tools/config_selfcheck.py",
+        "cd dzrobot_v2; $env:PYTHONPATH='src/dzbrain'; python src/dzbrain/tests/test_planner.py",
+        "cd dzrobot_v2; $env:PYTHONPATH='src/dzbrain'; python src/dzbrain/tests/test_route.py"
+      ],
+      "handoffId": "93f7a066-a1b7-45a9-a9da-0e19c5634f78",
+      "reassigning": false
+    }
+  ],
+  "taskSeq": 7,
+  "approvedAt": 1792142491259
+}

@@ -1,0 +1,10 @@
+﻿[domain] ROS_DOMAIN_ID=118 (来源: envfile)
+[intel] ← bridge_passable[bridge_passable:lower]: {"half": "lower", "block": "K9", "confidence": 0.9}  (cli)
+[intel] ← bridge_passable[bridge_passable:upper]: {"half": "upper", "block": "K4", "confidence": 0.9}  (cli)
+[dry-run] 域=118 心跳=1.00s bridge周期=2.0s ttl=30.0s repeat=3
+  → /dzlink/drone_to_car     qos=best_effort  x1  {"type":"heartbeat","ts":1791804811.431,"seq":1}
+  → /dzlink/drone_to_car     qos=best_effort  x3  {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791804811.431,"seq":2}
+  → /dzlink/drone_to_car     qos=best_effort  x3  {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791804811.431,"seq":3}
+[dry-run] 共 3 类事件（不连 ROS，不发任何东西）
+
+### exit=0

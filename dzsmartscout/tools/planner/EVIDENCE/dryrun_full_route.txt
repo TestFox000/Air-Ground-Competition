@@ -1,0 +1,20 @@
+=== 整线干跑（不发车、不连 ROS）===
+★ 引擎 = planner.engine = 'tracker-safe'（与 tasks/mission.py:906 同源口径；plan_route.py 的 --engine 默认 tour，必须显式传）
+planner 退出码=0
+路线（44 token）= N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y
+
+--- dzlink_supervisor.py route --dry-run（无人机侧常驻节点的下发路径） ---
+$ C:\Users\TestFox\AppData\Local\Programs\Python\Python312\python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dzlink_supervisor.py route N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y --dry-run
+[route] 入队（发 3 遍）: N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6  … 共 44 个格点
+  → /nav/waypoint qos=reliable x3  N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y
+[stderr] [domain] ROS_DOMAIN_ID=118 (来源: builtin)
+[domain] ⚠️  ~/dzlink_tools/dzlink.env 读不到 ROS_DOMAIN_ID，回退内置 118
+EXIT=0
+
+--- dz_send_waypoint.py route --dry-run（一次性发送器） ---
+$ C:\Users\TestFox\AppData\Local\Programs\Python\Python312\python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dz_send_waypoint.py route N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y --dry-run
+[dry-run] topic=/nav/waypoint qos=reliable depth=10
+  N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y
+EXIT=0
+
+结论：两条下发路径都能干跑输出**整线报文**（含完整 44 token，引擎 tracker-safe）✅

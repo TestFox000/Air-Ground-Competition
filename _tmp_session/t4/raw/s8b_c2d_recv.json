@@ -1,0 +1,59 @@
+{
+  "role": "recv",
+  "host": "dzsmart",
+  "group": "225.0.0.1",
+  "port": 49150,
+  "tag": "dzsmart",
+  "received": 11,
+  "senders": [
+    "10.29.122.188:38477"
+  ],
+  "bodies": [
+    {
+      "from": "10.29.122.188:38477",
+      "data": "DZ t4 mcast car-c2d #0"
+    },
+    {
+      "from": "10.29.122.188:38477",
+      "data": "DZ t4 mcast car-c2d #2"
+    },
+    {
+      "from": "10.29.122.188:38477",
+      "data": "DZ t4 mcast car-c2d #4"
+    },
+    {
+      "from": "10.29.122.188:38477",
+      "data": "DZ t4 mcast car-c2d #9"
+    },
+    {
+      "from": "10.29.122.188:38477",
+      "data": "DZ t4 mcast car-c2d #18"
+    },
+    {
+      "from": "10.29.122.188:38477",
+      "data": "DZ t4 mcast car-c2d #19"
+    },
+    {
+      "from": "10.29.122.188:38477",
+      "data": "DZ t4 mcast car-c2d #24"
+    },
+    {
+      "from": "10.29.122.188:38477",
+      "data": "DZ t4 mcast car-c2d #25"
+    },
+    {
+      "from": "10.29.122.188:38477",
+      "data": "DZ t4 mcast car-c2d #26"
+    },
+    {
+      "from": "10.29.122.188:38477",
+      "data": "DZ t4 mcast car-c2d #27"
+    },
+    {
+      "from": "10.29.122.188:38477",
+      "data": "DZ t4 mcast car-c2d #28"
+    }
+  ],
+  "elapsed": 25.3,
+  "t_start": 1791804577.3971202
+}

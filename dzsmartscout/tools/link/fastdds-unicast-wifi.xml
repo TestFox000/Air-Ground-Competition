@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FastDDS 跨机直连兜底配置（无人机 <-> 小车）
+  仅在「组播被 AP 拦截导致 DDS 发现失败」时使用。
+
+  用法（两端都要设，且地址按本机实际 WiFi 地址改）:
+    export FASTRTPS_DEFAULT_PROFILES_FILE=/tmp/dzlink-fastdds.xml
+    # 然后正常启动 ros2 程序
+
+  要点:
+  1. interfaceWhiteList 把 DDS 收发钉在 WiFi 网卡上
+     —— 无人机有 3 个网卡(eno1 雷达 / wlP1p1s0 WiFi / docker0)，不钉住可能选错网卡；
+  2. initialPeersList 用单播把对端地址告诉 DDS，绕过组播发现。
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>dzlink_udp_wifi</transport_id>
+        <type>UDPv4</type>
+        <interfaceWhiteList>
+          <!-- 【本机 WiFi 地址】无人机填 10.240.174.104；小车填 10.240.174.188 -->
+          <address>__SELF_WIFI_IP__</address>
+        </interfaceWhiteList>
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="dzlink_participant" is_default_profile="true">
+      <rtps>
+        <name>dzlink</name>
+        <userTransports>
+          <transport_id>dzlink_udp_wifi</transport_id>
+        </userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+        <builtin>
+          <metatrafficUnicastLocatorList>
+            <locator><udpv4><address>0.0.0.0</address></udpv4></locator>
+          </metatrafficUnicastLocatorList>
+          <initialPeersList>
+            <!-- 【对端地址】无人机侧填小车 10.240.174.188；小车侧填无人机 10.240.174.104 -->
+            <locator><udpv4><address>__PEER_IP__</address></udpv4></locator>
+          </initialPeersList>
+        </builtin>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

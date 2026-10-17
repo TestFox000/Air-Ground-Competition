@@ -1,0 +1,40 @@
+[subs] publishers on /dzlink/drone_to_car = 2 @50.48s
+[rx BAD] {"raw": "CONTRACT#52", "error": "bad_json:JSONDecodeError", "t_recv": 1791804074.871, "valid": false, "note": "bad_json"}
+[rx BAD] {"raw": "CONTRACT#53", "error": "bad_json:JSONDecodeError", "t_recv": 1791804075.873, "valid": false, "note": "bad_json"}
+[rx OK ] {"raw": "{\"type\":\"bridge_passable\",\"half\":\"lower\",\"block\":\"K9\",\"confidence\":0.9,\"ts\":1791804073.999,\"seq\":101}", "type": "bridge_passable", "seq": 101, "ts": 1791804073.999, "half": "lower", "block": "K9", "confidence": 0.9, "t_recv": 1791804076.121, "valid": true, "note": "ok"}
+[rx OK ] {"raw": "{\"type\":\"bridge_passable\",\"half\":\"upper\",\"block\":\"K4\",\"confidence\":0.9,\"ts\":1791804073.999,\"seq\":101}", "type": "bridge_passable", "seq": 101, "ts": 1791804073.999, "half": "upper", "block": "K4", "confidence": 0.9, "t_recv": 1791804076.17, "valid": true, "note": "ok"}
+[rx OK ] {"raw": "{\"type\":\"bridge_passable\",\"half\":\"lower\",\"block\":\"K9\",\"confidence\":0.9,\"ts\":1791804073.999,\"seq\":101}", "type": "bridge_passable", "seq": 101, "ts": 1791804073.999, "half": "lower", "block": "K9", "confidence": 0.9, "t_recv": 1791804076.721, "valid": true, "note": "ok"}
+[rx OK ] {"raw": "{\"type\":\"bridge_passable\",\"half\":\"upper\",\"block\":\"K4\",\"confidence\":0.9,\"ts\":1791804073.999,\"seq\":101}", "type": "bridge_passable", "seq": 101, "ts": 1791804073.999, "half": "upper", "block": "K4", "confidence": 0.9, "t_recv": 1791804076.774, "valid": true, "note": "ok"}
+[rx BAD] {"raw": "CONTRACT#54", "error": "bad_json:JSONDecodeError", "t_recv": 1791804076.887, "valid": false, "note": "bad_json"}
+[rx OK ] {"raw": "{\"type\":\"bridge_passable\",\"half\":\"lower\",\"block\":\"K9\",\"confidence\":0.9,\"ts\":1791804073.999,\"seq\":101}", "type": "bridge_passable", "seq": 101, "ts": 1791804073.999, "half": "lower", "block": "K9", "confidence": 0.9, "t_recv": 1791804077.326, "valid": true, "note": "ok"}
+[rx OK ] {"raw": "{\"type\":\"bridge_passable\",\"half\":\"upper\",\"block\":\"K4\",\"confidence\":0.9,\"ts\":1791804073.999,\"seq\":101}", "type": "bridge_passable", "seq": 101, "ts": 1791804073.999, "half": "upper", "block": "K4", "confidence": 0.9, "t_recv": 1791804077.381, "valid": true, "note": "ok"}
+[subs] publishers on /dzlink/drone_to_car = 1 @53.27s
+[rx BAD] {"raw": "CONTRACT#55", "error": "bad_json:JSONDecodeError", "t_recv": 1791804077.872, "valid": false, "note": "bad_json"}
+[rx BAD] {"raw": "CONTRACT#56", "error": "bad_json:JSONDecodeError", "t_recv": 1791804078.881, "valid": false, "note": "bad_json"}
+[rx BAD] {"raw": "CONTRACT#57", "error": "bad_json:JSONDecodeError", "t_recv": 1791804079.886, "valid": false, "note": "bad_json"}
+== SUMMARY ==
+{
+  "host": "duzhong",
+  "topic": "/dzlink/drone_to_car",
+  "qos_requested": "best_effort",
+  "domain_id": "118",
+  "rmw": "<default>",
+  "t_start": 1791804024.161,
+  "counts": {
+    "?": 56,
+    "heartbeat": 30,
+    "bridge_passable": 6
+  },
+  "valid": 36,
+  "invalid": 56,
+  "received": 92,
+  "publishers_max": 2,
+  "multi_publisher_seen": true,
+  "notes": {
+    "bad_json": 56,
+    "ok": 36
+  },
+  "publishers_final": 1,
+  "t_end": 1791804080.191,
+  "verdict": "RECEIVED"
+}

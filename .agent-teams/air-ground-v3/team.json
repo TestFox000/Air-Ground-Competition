@@ -1,0 +1,187 @@
+{
+  "name": "air-ground-v3",
+  "id": "air-ground-v3",
+  "description": "空地协同完赛 + 插件接管收口（v3）。无人机全要素感知（桥洞/靶/障/雷）→ DDS 双通道指挥小车 dzbrain 黑图探索→动态规划→循迹完赛；同时接管原「项目插件」对话未完成的插件收口（sim.html/simbench.js 场地/UI/规则 + t73 乱算叠加 bug + 靶板分色 + 无人机开关）。成员统一 deepseek-official/deepseek-flash（reasoning high）。",
+  "captainSessionId": "session-957e7e8b-2dd9-40d3-a81c-2049ed4311df",
+  "createdAt": 1792203959356,
+  "phase": "running",
+  "members": [
+    {
+      "id": "117a1837-66e9-4ef6-a05f-c1fa64103f6f",
+      "name": "plugin-ui",
+      "role": "插件前端工程师（sim.html 场地/UI/规则）",
+      "provider": "deepseek-official",
+      "model": "deepseek-flash",
+      "reasoningEffort": "high",
+      "joinedAt": 1792203959356,
+      "status": "working"
+    },
+    {
+      "id": "30d52288-5a23-406c-8cad-befd0ebea3ba",
+      "name": "plugin-engine",
+      "role": "插件引擎工程师（simbench.js/stressbench.js/dronesim.js 渲染/路线引擎/压测）",
+      "provider": "deepseek-official",
+      "model": "deepseek-flash",
+      "reasoningEffort": "high",
+      "joinedAt": 1792203959356,
+      "status": "working"
+    },
+    {
+      "id": "a9145cc7-225b-4ea8-9de9-b611fa8bd220",
+      "name": "car-planner",
+      "role": "车侧规划工程师（robot.yaml/route/规划器收尾）",
+      "provider": "deepseek-official",
+      "model": "deepseek-flash",
+      "reasoningEffort": "high",
+      "joinedAt": 1792203959356,
+      "status": "working"
+    },
+    {
+      "id": "428656a8-0b32-4502-b841-e2d065a0230c",
+      "name": "drone-perception",
+      "role": "无人机感知工程师（全要素识别：桥洞/靶/障/雷）",
+      "provider": "deepseek-official",
+      "model": "deepseek-flash",
+      "reasoningEffort": "high",
+      "joinedAt": 1792203959356,
+      "status": "working"
+    },
+    {
+      "id": "",
+      "name": "air-link",
+      "role": "空地链路工程师（DDS 双通道 + 黑图探索 + 动态规划循环）",
+      "provider": "deepseek-official",
+      "model": "deepseek-flash",
+      "reasoningEffort": "high",
+      "joinedAt": 1792203959356,
+      "status": "idle"
+    },
+    {
+      "id": "",
+      "name": "sim-operator",
+      "role": "仿真验证员（三档复跑 + 路线证据）",
+      "provider": "deepseek-official",
+      "model": "deepseek-flash",
+      "reasoningEffort": "high",
+      "joinedAt": 1792203959356,
+      "status": "idle"
+    },
+    {
+      "id": "",
+      "name": "reviewer",
+      "role": "审查员（跨卡复核 + 发车门禁 + 文档）",
+      "provider": "deepseek-official",
+      "model": "deepseek-flash",
+      "reasoningEffort": "high",
+      "joinedAt": 1792203959356,
+      "status": "idle"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "profileSeedId": "t1",
+      "subject": "插件引擎：t73 乱算+叠加 bug 修复（引擎一致 + 渲染重复应用根因）",
+      "description": "修复 t73「地图复杂就乱算+叠加+乱跑」的剩余根因。已定位一半：dzrobot_v2/dsh-plugin-dzrobot-ssh/src/simbench.js 的 planRoute 不传 --engine，页面重规划与车端 robot.yaml 的 tracker-safe 不一致。任务：① 页面重规划与车端同引擎（传入 engine=tracker-safe，或与车端口径对齐）；② 定位并修复「叠加/乱跑」渲染层重复应用根因（实例重复初始化/路线重复绘制），须给判定性实验证据；③ 用第五张图 tracker-safe 44 token 路线回归验证页面与车端一致。写入范围仅限 dzrobot_v2/dsh-plugin-dzrobot-ssh/src/simbench.js；stressbench.js/dronesim.js 只读，发现问题只报不改。交付：根因报告 + 回归输出。",
+      "status": "in_progress",
+      "assignee": "plugin-engine",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1792203959356,
+      "updatedAt": 1792204000359,
+      "attemptId": "038cc70f-0ba0-4256-a8f8-2925eef5a35f",
+      "reassigning": false
+    },
+    {
+      "id": "t2",
+      "profileSeedId": "t2",
+      "subject": "插件前端：靶板分色修正（长边对半蓝红）+ 无人机开关收口",
+      "description": "只写 dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html：① 靶板分色修正：长边对半蓝红两色，废除旋转翻面交互；② 无人机协同开关收口：核实已落地代码与规格 §D.1 一致（起降格经 override 图 obstacles 硬避让 + corridorRow 台账），补齐缺口；③ 不得回退棋盘棋子槽（8障/8雷/2通/1靶硬顶）与桥洞冗余墙同源渲染。交付：改动行号清单 + 静态校验证据 + 截图。",
+      "status": "in_progress",
+      "assignee": "plugin-ui",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1792203959356,
+      "updatedAt": 1792203981249,
+      "attemptId": "9c90de9b-053f-4fee-b243-e2843867b172",
+      "reassigning": false
+    },
+    {
+      "id": "t3",
+      "profileSeedId": "t3",
+      "subject": "车侧收尾：冗余墙归零 + 进洞提前对正 + 射击点调远 1.0m",
+      "description": "旧队未完成项三合一（工作区 dzrobot_v2/）：① 桥洞冗余墙三档 bridge_redundancy_steps 250/246/244≠0 的归零处置（判定实验找根因 + 修正或验收口径裁决）；② 进洞前 1 格 90° 拐弯消除（方案a）；③ route.shoot_distance_m 改 1.00 + 重规划 + 门禁 + 仿真三档。可写：dzrobot_v2/src/dzbrain/**、dzrobot_v2/route/**、dzrobot_v2/config/robot.yaml；dzrobot_v2/tools/route_check.py 只读不碰。交付：route_check 0 error + config_selfcheck 0 error + 三档仿真证据。",
+      "status": "in_progress",
+      "assignee": "car-planner",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1792203959356,
+      "updatedAt": 1792203982237,
+      "attemptId": "3f83f30b-533f-48b2-9d32-2af673cd2d5b",
+      "reassigning": false
+    },
+    {
+      "id": "t4",
+      "profileSeedId": "t4",
+      "subject": "无人机全要素感知盘点：桥洞/靶/障/雷 现状与补齐方案",
+      "description": "只读盘点（不动代码）。针对新需求「无人机扫全要素」：现役无人机侧感知代码能识别哪些要素、缺哪些、与桥洞候选选择（cross_*_candidates）及雷/障/靶台账的对接现状。输出缺口清单与补齐方案。交付：dzrobot_v2/docs/无人机全要素感知_现状与方案.md。",
+      "status": "in_progress",
+      "assignee": "drone-perception",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1792203959356,
+      "updatedAt": 1792203982860,
+      "attemptId": "5d40dd62-7a60-4096-968b-a43a7f691ec2",
+      "reassigning": false
+    },
+    {
+      "id": "t5",
+      "profileSeedId": "t5",
+      "subject": "空地决策层：黑图探索 + 动态规划循环 方案",
+      "description": "基于 t4 的感知要素清单，设计决策层方案：小车初始全黑地图 → U形探索逐片报告 → 情报更新后重规划-循迹 → 动态规划循环。明确 DDS 双通道上报路径、重规划触发条件、锁存与回退。本轮出方案 + 只读验证现有代码可行性；涉及车端改动的部分只报方案给队长裁决，不改代码。交付：dzrobot_v2/docs/黑图探索与动态规划_决策层方案.md。",
+      "status": "pending",
+      "assignee": "air-link",
+      "dependencies": [
+        "t4"
+      ],
+      "attempt": 0,
+      "createdAt": 1792203959356,
+      "updatedAt": 1792203959356
+    },
+    {
+      "id": "t6",
+      "profileSeedId": "t6",
+      "subject": "仿真联合复验：t1/t2/t3 落地后的三档复跑 + 路线证据",
+      "description": "对 t1（插件引擎）、t2（插件前端）、t3（车侧）的交付做三档（0.15/0.35/0.40）仿真联合复验：route_check 0 error、config_selfcheck 0 error、页面重规划与车端引擎一致、无叠加渲染、第五张图 44 token 路线可复现。交付：dzrobot_v2/artifacts/sim/t6_* 证据目录 + dzrobot_v2/docs/仿真联合复验_t6.md。",
+      "status": "pending",
+      "assignee": "sim-operator",
+      "dependencies": [
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "attempt": 0,
+      "createdAt": 1792203959356,
+      "updatedAt": 1792203959356
+    },
+    {
+      "id": "t7",
+      "profileSeedId": "t7",
+      "subject": "联合复审 + 发车门禁口径 + 文档收口",
+      "description": "复核 t1-t3 交付与 t6 仿真证据（verdict 制）：逐条核对验收、复跑可复现命令、检查插件与车侧改动无互相冲突；确认发车门禁口径（route_check/config_selfcheck 0 error 0 warn）并更新发车清单与阶段文档。只读复核，不改代码。",
+      "status": "pending",
+      "assignee": "reviewer",
+      "dependencies": [
+        "t1",
+        "t2",
+        "t3",
+        "t6"
+      ],
+      "attempt": 0,
+      "createdAt": 1792203959356,
+      "updatedAt": 1792203959356
+    }
+  ],
+  "taskSeq": 7,
+  "approvedAt": 1792203977572
+}

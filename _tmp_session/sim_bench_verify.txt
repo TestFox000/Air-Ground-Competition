@@ -1,0 +1,239 @@
+﻿[t21 sim bench verify] 2026-10-12 20:25:11
+
+== 0. 部署：5 个文件 → 安装副本 + 安装来源副本 ==
+src  = D:\User\Desktop\比赛存档\v1\dzrobot_v2\dsh-plugin-dzrobot-ssh
+inst = C:\Users\TestFox\.dsh\profiles\desktop\node_modules\dsh-dzrobot-ssh
+orig = D:\User\Desktop\dzrobot_v2\dsh-plugin-dzrobot-ssh
+
+== md5 对照（源 / 安装副本 / 安装来源副本）==
+index.js         src=984989c830f4855e9c9e87dbd3b0defb inst=984989c830f4855e9c9e87dbd3b0defb orig=984989c830f4855e9c9e87dbd3b0defb  3way_equal=True
+src\simbench.js  src=52470b91772c68d838047911f9c1434f inst=52470b91772c68d838047911f9c1434f orig=52470b91772c68d838047911f9c1434f  3way_equal=True
+sim.html         src=38eebe160053c5feaf7f0adcd4137b44 inst=38eebe160053c5feaf7f0adcd4137b44 orig=38eebe160053c5feaf7f0adcd4137b44  3way_equal=True
+client.js        src=3da43f87ba263687bfcb837fc9ca88d8 inst=3da43f87ba263687bfcb837fc9ca88d8 orig=3da43f87ba263687bfcb837fc9ca88d8  3way_equal=True
+package.json     src=d3df9e7b2a073bc3b896842957274626 inst=d3df9e7b2a073bc3b896842957274626 orig=d3df9e7b2a073bc3b896842957274626  3way_equal=True
+sim-root.json (仅安装副本) 内容 = {   "root": "D:\\User\\Desktop\\dzrobot_v2\\dsh-plugin-dzrobot-ssh",   "note": "鎻掍欢琚嫹璐濆畨瑁呭埌 node_modules 鏃剁敤瀹冩寚鍥?dzbrain 宸ヤ綔鍖猴紱婧愮爜鏍戦噷鐨勫壇鏈笉闇€瑕侊紙涓婁竴绾у氨鏄伐浣滃尯锛? }
+sim-root.json (安装副本专用指针) = {      "root":  "D:\\User\\Desktop\\dzrobot_v2",      "note":  "鎻掍欢琚嫹璐濆畨瑁呭埌 node_modules 鏃讹紝鐢ㄥ畠鎸囧洖 dzbrain 宸ヤ綔鍖猴紱婧愮爜鏍戦噷鐨勫壇鏈笉闇€瑕侊紙涓婁竴绾у氨鏄伐浣滃尯锛屼紭鍏堢骇鏇撮珮锛夈€?  }
+
+== 1. 宿主热换：POST /reload ==
+POST /reload -> HTTP 200 body={"ok":true,"fibers":1,"evicted":9,"busted":false}
+
+== H1: GET /sim.html ==
+HTTP 200 content-type=text/html; charset=utf-8 bytes=22319
+特征串1 (<title>dzbrain 仿真台 · dzrobot-ssh</title>) 命中 = True
+特征串2 (api/dzrobot-ssh/sim.html) 命中 = True
+特征串3 (id="hist") 命中 = True
+首行 = <!DOCTYPE html>
+
+== H2: GET /sim/root ==
+HTTP 200 raw={"root":"D:\\User\\Desktop\\dzrobot_v2","ok":true}
+ok=True root=D:\User\Desktop\dzrobot_v2 绝对路径=True 非空=True
+
+== H4: POST /sim/check（config_selfcheck + route_check）==
+HTTP 200 用时 0.5s ok=True 工具数=2
+  - config_selfcheck（配置自检）: exitCode=0 timedOut=False
+      stdout 关键行:    ⚠️ planner.obstacle_margin_m: 未知配置段（拼写错误？新版本未登记？） | ✅ 路线校验通过：0 error / 0 warn | 结论：error 0 / warn 0  ✅ 通过
+  - route_check（路线六层校验）: exitCode=0 timedOut=False
+      stdout 关键行:   [32m✅[0m 射击点距离                          1 个射击点都能服务于某个靶（0.20~0.45 m 内） |   [32m✅[0m 桥洞保护点覆盖                        K5 K10 |   [33m[1m⚠️  全部通过，但有 1 项提醒[0m
+
+== H3: POST /sim/run body={"label":"smoke","maxSteps":300} ==
+HTTP 200 用时 0.2s ok=True exitCode=0 status=done id=1791807947581_smoke
+record.seconds=0.2  simRoot=D:\User\Desktop\dzrobot_v2  simRootSource=pointer
+record.metrics = {"finished":false,"time_s":6,"rms_m":0,"length_ratio":0.043}
+record.files = [{"name":"by_segment.csv","size":3302},{"name":"traj.csv","size":35330},{"name":"traj.svg","size":14932}]
+stdoutTail 末 6 行:
+        8     H8     G8   0.350  normal      0.0   0.0000     0.00
+        9     G8     F8   0.350  normal     90.0   0.0000     0.00
+    ----------------------------------------------
+    CSV    : D:\User\Desktop\dzrobot_v2\artifacts\sim\1791807947581_smoke\traj.csv
+    SVG    : D:\User\Desktop\dzrobot_v2\artifacts\sim\1791807947581_smoke\traj.svg
+    分段CSV: D:\User\Desktop\dzrobot_v2\artifacts\sim\1791807947581_smoke\by_segment.csv
+
+== 2. 指标解析修正后重新部署 + reload ==
+src/simbench.js @ D:\User\Desktop\比赛存档\v1\dzrobot_v2\dsh-plugin-dzrobot-ssh = 04c21047afbe1c4a3057fad458bc7513
+src/simbench.js @ C:\Users\TestFox\.dsh\profiles\desktop\node_modules\dsh-dzrobot-ssh = 04c21047afbe1c4a3057fad458bc7513
+src/simbench.js @ D:\User\Desktop\dzrobot_v2\dsh-plugin-dzrobot-ssh = 04c21047afbe1c4a3057fad458bc7513
+POST /reload -> HTTP 200 {"ok":true,"fibers":1,"evicted":10,"busted":false}
+GET /sim/root -> {"root":"D:\\User\\Desktop\\dzrobot_v2","ok":true}
+H3 POST /sim/run {label:smoke,maxSteps:300} -> HTTP 200 exitCode=0 status=done id=1791808006701_smoke seconds=0.4
+   metrics = {"finished":false,"time_s":6,"rms_m":0,"out_of_bounds":0,"length_ratio":0.043}
+   files = [{"name":"by_segment.csv","size":3302},{"name":"traj.csv","size":35330},{"name":"traj.svg","size":14932}]
+
+== H3b: 全程仿真（不截断，用于 6 指标 + 越界=0 + 与基线同口径）==
+HTTP 200 用时 1s exitCode=0 status=done id=1791808015037_full 墙钟=0.9s
+metrics = {"finished":true,"time_s":142.14,"rms_m":0.0438,"out_of_bounds":0,"length_ratio":0.9071}
+simRoot=D:\User\Desktop\dzrobot_v2 source=pointer configMd5=35f5bc36 mapMd5=16e76d4c
+files = [{"name":"by_segment.csv","size":3403},{"name":"traj.csv","size":880623},{"name":"traj.svg","size":203436}]
+  执行速率P95                 18.6 °/s
+  倒车符号翻转拍                    0 
+  执行侧越限跳变拍                   0 
+----------------------------------------------
+逐段横向误差峰值（TOP10）
+    段     起点     终点    长(m)      类型    转角(°)    峰值(m)    时刻(s)
+   53     I4     I5   0.350  normal     90.0   0.1100   127.18
+   52     H4     I4   0.350  normal     90.0   0.1083   127.16
+   19     D7     C7   0.350  normal     90.0   0.1072    49.50
+   20     C7     C6   0.350  normal     90.0   0.1060    49.52
+   45     C2     D2   0.350  normal      0.0   0.1013   109.04
+   40     A3     A2   0.350  normal      0.0   0.1012    97.38
+   38     B4     A4   0.350  normal     90.0   0.1007    94.62
+   34     C7     C6   0.350  normal      0.0   0.1007    83.42
+   33     D7     C7   0.350  normal     90.0   0.1001    83.40
+   44     C1     C2   0.350  normal     90.0   0.1001   109.02
+----------------------------------------------
+CSV    : D:\User\Desktop\dzrobot_v2\artifacts\sim\1791808015037_full\traj.csv
+SVG    : D:\User\Desktop\dzrobot_v2\artifacts\sim\1791808015037_full\traj.svg
+分段CSV: D:\User\Desktop\dzrobot_v2\artifacts\sim\1791808015037_full\by_segment.csv
+
+== H5: GET /sim/history ==
+HTTP 200 ok=True runs=3 含 label=smoke: 2 条 / label=full: 1 条
+最后一条 = id=1791808015037_full label=full exitCode=0 metrics={"finished":true,"time_s":142.14,"rms_m":0.0438,"out_of_bounds":0,"length_ratio":0.9071}
+台账 run_meta.jsonl 行数：本次测试前 3 → 后 3（追加，不覆盖）
+
+== H6: GET /sim/artifact?path=<run>/traj.svg ==
+[smoke] http://127.0.0.1:19387/api/dzrobot-ssh/sim/artifact?path=1791808006701_smoke%2Ftraj.svg
+    -> HTTP 200 content-type=image/svg+xml; charset=utf-8 bytes=14932 含<svg: True
+[full] http://127.0.0.1:19387/api/dzrobot-ssh/sim/artifact?path=1791808015037_full%2Ftraj.svg
+    -> HTTP 200 content-type=image/svg+xml; charset=utf-8 bytes=203436 含<svg: True
+守卫 path=../run_meta.jsonl -> HTTP 403
+守卫 path=..%2F..%2Fconfig%2Frobot.yaml -> HTTP 403
+守卫 path=x/y.txt -> HTTP 404
+
+== 3. 台账追加证据（id + 时间递增）==
+  id=1791807947581_smoke at=2026-10-12T12:25:47.582Z label=smoke exitCode=0 metrics={"finished":false,"time_s":6,"rms_m":0,"length_ratio":0.043}
+  id=1791808006701_smoke at=2026-10-12T12:26:46.701Z label=smoke exitCode=0 metrics={"finished":false,"time_s":6,"rms_m":0,"out_of_bounds":0,"length_ratio":0.043}
+  id=1791808015037_full at=2026-10-12T12:26:55.037Z label=full exitCode=0 metrics={"finished":true,"time_s":142.14,"rms_m":0.0438,"out_of_bounds":0,"length_ratio":0.9071}
+
+== 4. 客户端半边静态核对（新工具行/图标/origin/external 分支/双语文案）==
+  PASS TOOLS 第 5 行 sim（external）
+  PASS ToolGlyph 有 sim 图标（烧瓶）
+  PASS open() 有 external 分支
+  PASS external 用 store 的 origin 拼 URL
+  PASS 被拦截时写 rowMsg（simOpenHint）
+  PASS /status 回调写入 store.origin
+  PASS zh viewSim
+  PASS zh simToolDesc
+  PASS zh simOpenHint
+  PASS en viewSim
+  PASS en simToolDesc
+  PASS en simOpenHint
+静态核对：12/12 通过
+OK    package.json#files declares src/metrics.js
+OK    package.json#files declares src/store.js
+OK    installed copy contains vnc-app.html
+OK    installed copy contains novnc
+OK    installed copy contains float.html
+OK    installed copy contains src/metrics.js
+OK    installed copy contains src/store.js
+OK    the installed VNC page matches the source tree
+OK    the installed copy contains package.json
+OK    the installed plugin matches the source tree
+
+PACKAGE FILES TEST PASSED
+node scripts\test-package-files.mjs -> exit=0
+FAIL  profile declares dsh-dzrobot-ssh from this tree  declared="file:D:/User/Desktop/dzrobot_v2/dsh-plugin-dzrobot-ssh" expected=file:D:/User/Desktop/比赛存档/v1/dzrobot_v2/dsh-plugin-dzrobot-ssh
+FAIL  pnpm-lock.yaml names no foreign copy of this plugin  foreign: ["D:/User/Desktop/dzrobot_v2/dsh-plugin-dzrobot-ssh"]
+FAIL  node_modules\.modules.yaml names no foreign copy of this plugin  foreign: ["D:/User/Desktop/dzrobot_v2/dsh-plugin-dzrobot-ssh"]
+FAIL  node_modules\.pnpm\lock.yaml names no foreign copy of this plugin  foreign: ["D:/User/Desktop/dzrobot_v2/dsh-plugin-dzrobot-ssh"]
+
+NOTE  archive tree D:\User\Desktop\小车存档\dzrobot_v3.2\dsh-plugin-dzrobot-ssh
+      only-here=3 only-there=0 differing=6
+
+DIVERGENCE CHECK FAILED (4)
+node scripts\check-divergence.mjs -> exit=1
+
+== 5. 插件自带 check-divergence.mjs（本树 vs profile 声明）==
+从**归档树**跑：exit=1（4 条 FAIL 均为『profile/lock 声明的是另一棵树』—— 归档树是副本，非本卡引入）
+从**原树**跑：exit=0
+OK    pnpm-lock.yaml names no foreign copy of this plugin  1 ref(s) OK
+OK    node_modules\.modules.yaml names no foreign copy of this plugin  1 ref(s) OK
+OK    node_modules\.pnpm\lock.yaml names no foreign copy of this plugin  1 ref(s) OK
+
+NOTE  archive tree D:\User\Desktop\小车存档\dzrobot_v3.2\dsh-plugin-dzrobot-ssh
+      only-here=3 only-there=0 differing=6
+
+DIVERGENCE CHECK PASSED
+FAIL  profile declares dsh-dzrobot-ssh from this tree  declared="file:D:/User/Desktop/dzrobot_v2/dsh-plugin-dzrobot-ssh" expected=file:D:/User/Desktop/比赛存档/v1/dzrobot_v2/dsh-plugin-dzrobot-ssh
+FAIL  pnpm-lock.yaml names no foreign copy of this plugin  foreign: ["D:/User/Desktop/dzrobot_v2/dsh-plugin-dzrobot-ssh"]
+FAIL  node_modules\.modules.yaml names no foreign copy of this plugin  foreign: ["D:/User/Desktop/dzrobot_v2/dsh-plugin-dzrobot-ssh"]
+FAIL  node_modules\.pnpm\lock.yaml names no foreign copy of this plugin  foreign: ["D:/User/Desktop/dzrobot_v2/dsh-plugin-dzrobot-ssh"]
+
+== H7: 参数档位 + 误差注入实测（面板表单走的同一条路：overrides/inject → --set/--xxx）==
+请求体 = {"label":"speed040","overrides":{"pursuit.cruise_speed_mps":"0.40"},"inject":{"speed_scale_err":0.01,"yaw_drift":1.5,"pos_noise":0.005,"anchor":"on"},"maxSteps":300}
+HTTP 200 exitCode=0 id=1791808079434_speed040
+record.overrides = {"pursuit.cruise_speed_mps":"0.40"}   record.inject = {"speed_scale_err":0.01,"yaw_drift":1.5,"pos_noise":0.005,"anchor":true}
+metrics = {"finished":false,"time_s":6,"rms_m":0.0149,"out_of_bounds":0,"length_ratio":0.0908}
+stdout 速度相关行 = 
+history 里 speed040: 存在=True overrides={"pursuit.cruise_speed_mps":"0.40"} inject={"speed_scale_err":0.01,"yaw_drift":1.5,"pos_noise":0.005,"anchor":true} maxSteps=300
+
+== 6. 最终验收汇总（20:28:13）==
+最终 md5（本次交付的 5 个文件，三处副本逐文件相等）：
+  index.js         src=984989c830f4855e9c9e87dbd3b0defb inst=984989c830f4855e9c9e87dbd3b0defb orig=984989c830f4855e9c9e87dbd3b0defb equal=True
+  src\simbench.js  src=04c21047afbe1c4a3057fad458bc7513 inst=04c21047afbe1c4a3057fad458bc7513 orig=04c21047afbe1c4a3057fad458bc7513 equal=True
+  sim.html         src=38eebe160053c5feaf7f0adcd4137b44 inst=38eebe160053c5feaf7f0adcd4137b44 orig=38eebe160053c5feaf7f0adcd4137b44 equal=True
+  client.js        src=3da43f87ba263687bfcb837fc9ca88d8 inst=3da43f87ba263687bfcb837fc9ca88d8 orig=3da43f87ba263687bfcb837fc9ca88d8 equal=True
+  package.json     src=d3df9e7b2a073bc3b896842957274626 inst=d3df9e7b2a073bc3b896842957274626 orig=d3df9e7b2a073bc3b896842957274626 equal=True
+sim-root.json = 仅安装副本（内容 root=D:\User\Desktop\dzrobot_v2，note 说明用途）
+
+H1 GET /sim.html      : 200 text/html 24649 字节（22319 字符）；特征串命中 = '<title>dzbrain 仿真台 · dzrobot-ssh</title>' / 'api/dzrobot-ssh/sim.html' / 'id="hist"'（三处）
+H2 GET /sim/root      : 200 {"root":"D:\\User\\Desktop\\dzrobot_v2","ok":true}（绝对路径、非空）
+H3 POST /sim/run      : 200 {"label":"smoke","maxSteps":300} exitCode=0 status=done
+                        metrics={"finished":false,"time_s":6,"rms_m":0,"out_of_bounds":0,"length_ratio":0.043}
+                        ★ 说明：只跑 300 拍 ⇒ 没跑完、RMS=0（起步直段）；"6 个数值字段"只有**全程**跑才有意义，见 H3b
+H3b 全程（label=full）: 200 exitCode=0 finished=true time_s=142.14 rms_m=0.0438 out_of_bounds=0 length_ratio=0.9071
+                        ★ 与 t20 基线**逐位相同**（142.14 / 0.0438 / 0.9071 / 越界 0）⇒ 同口径对照通过
+H4 POST /sim/check    : 200，两工具 exitCode=0（config_selfcheck: error 0/warn 0 ✅；route_check: 六层全过 + 1 项既有提醒）
+H5 GET /sim/history   : 200 ok=true runs=4，含 label=smoke×2 / full×1 / speed040×1；台账 run_meta.jsonl **追加**（3 条 id+时间戳递增）
+H6 GET /sim/artifact  : path=<H3 的 record.id>/traj.svg -> 200 image/svg+xml 14932B（含 <svg）；full 那条 -> 200 203436B
+                        守卫：path=../run_meta.jsonl -> 403；双重编码逃逸 -> 403；非白名单扩展名 -> 404
+H7 参数档位+注入实测   : {"overrides":{"pursuit.cruise_speed_mps":"0.40"},"inject":{speed_scale_err:0.01,yaw_drift:1.5,pos_noise:0.005,anchor:on}}
+                        -> 200 exitCode=0，record.overrides/inject 原样回显、进入台账与 history；metrics rms=0.0149（注入生效）
+
+【本卡修掉的一个真 bug（活）】src/simbench.js 的指标正则与实际排版不符（改前实测）：
+  · 横向RMS：旧正则匹配不到 '横向RMS(真值)'，最终抓到 '信念↔真值RMS' 的 6 位小数 ⇒ 指标表里的"横向RMS"是**另一个量**
+  · 越界：标签是 '越界拍数 0'，旧正则要求"越界"后直接跟数字 ⇒ 恒不匹配（H3 首跑 metrics 里确实没有 out_of_bounds）
+  已按真实排版重钉（横向RMS(真值) 行、越界(拍数) 行），复核：rms_m=0.0438（= 真值横向 RMS）、out_of_bounds=0。
+
+【已知边界 / 非本卡引入】
+  1. 插件自带 scripts/check-divergence.mjs 在**归档树**里 exit=1（4 条 FAIL 全是"profile/pnpm-lock 声明的是
+     D:/User/Desktop/dzrobot_v2"）——因为本团队在归档副本里干活，profile 装的是原树；从原树跑该脚本 exit=0。
+     本卡的做法是把同一份代码**同步到三处**（源 / 安装副本 / 安装来源副本）并逐文件 md5 校验，从而与"运行时到底
+     加载哪一份"无关。未改 profile / pnpm-lock（那是 DSH 安装配置，不在边界内）。
+  2. 页面刷新由用户执行：面板第 5 行（仿真台）与图标属 client.js，浏览器需刷新后才会看到 —— **待用户刷新验证**，
+     不是"打开即生效"。
+  3. 部署根指针 sim-root.json 只在安装副本里（源码树副本用不上）；若插件被 pnpm 重装，该文件会丢，
+     那时 /sim/root 会如实 ok:false（可见失败，不静默）。
+
+
+== 7. attempt 2 复查（20:29:21）==
+  index.js         src=984989c830f4855e9c9e87dbd3b0defb inst=984989c830f4855e9c9e87dbd3b0defb orig=984989c830f4855e9c9e87dbd3b0defb equal3=True
+  src\simbench.js  src=04c21047afbe1c4a3057fad458bc7513 inst=04c21047afbe1c4a3057fad458bc7513 orig=04c21047afbe1c4a3057fad458bc7513 equal3=True
+  sim.html         src=38eebe160053c5feaf7f0adcd4137b44 inst=38eebe160053c5feaf7f0adcd4137b44 orig=38eebe160053c5feaf7f0adcd4137b44 equal3=True
+  client.js        src=3da43f87ba263687bfcb837fc9ca88d8 inst=3da43f87ba263687bfcb837fc9ca88d8 orig=3da43f87ba263687bfcb837fc9ca88d8 equal3=True
+  package.json     src=d3df9e7b2a073bc3b896842957274626 inst=d3df9e7b2a073bc3b896842957274626 orig=d3df9e7b2a073bc3b896842957274626 equal3=True
+  H1 sim.html -> 200 字节=24649 特征串=True
+  H2 sim/root -> {"root":"D:\\User\\Desktop\\dzrobot_v2","ok":true}
+  H3 sim/run {label:smoke2,maxSteps:300} -> HTTP 200 exitCode=0 id=1791808161872_smoke2 metrics={"finished":false,"time_s":6,"rms_m":0,"out_of_bounds":0,"length_ratio":0.043}
+  H6 sim/artifact?path=1791808161872_smoke2/traj.svg -> HTTP 200 image/svg+xml; charset=utf-8 字节=14932
+  H5 sim/history -> ok=True runs=5 含 smoke2=True
+  日志/文档字节修正：H1 = 24649 字节 / 22319 字符（UTF-8 中文 3 字节/字）
+
+== 8. 指针改指权威真源（队长指令；t24 §11.2）20:32:50 ==
+  sim-root.json @ D:\User\Desktop\比赛存档\v1\dzrobot_v2\dsh-plugin-dzrobot-ssh md5=3c5d12abd3de947f044894e65f8b197a
+  sim-root.json @ C:\Users\TestFox\.dsh\profiles\desktop\node_modules\dsh-dzrobot-ssh md5=3c5d12abd3de947f044894e65f8b197a
+  sim-root.json @ D:\User\Desktop\dzrobot_v2\dsh-plugin-dzrobot-ssh md5=3c5d12abd3de947f044894e65f8b197a
+  POST /reload -> HTTP 200 {"ok":true,"fibers":1,"evicted":10,"busted":false}
+  GET /sim/root -> {"root":"D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2","ok":true}  == 权威真源? True
+  POST /sim/run {label:pointer,maxSteps:300} -> HTTP 200 exitCode=0 id=1791808370230_pointer
+     metrics = {"finished":false,"time_s":6,"rms_m":0,"out_of_bounds":0,"length_ratio":0.043}
+     record.simRoot = D:\User\Desktop\比赛存档\v1\dzrobot_v2  source=pointer
+
+== 9. 队长两条 low 文档补丁（K1/K2）+ 调用形状统一 + 指针改指后复核 20:34:06 ==
+  K1 §2：台账 run_meta.jsonl 不可经 /sim/artifact 下载（它是 run 子目录的兄弟文件）→ 走 /sim/history
+  K2 §6-2：metrics = finished(bool)+time_s/rms_m/length_ratio/out_of_bounds（数值），exitCode/status 在 record 顶层；历史对比勿把缺键当 0（首条历史无 out_of_bounds 键）
+  形状统一：文档/代码里 /sim/artifact 一律 ?path=<run>/<file>（?run=&name=、?id= → 404）
+  index.js         md5=984989c830f4855e9c9e87dbd3b0defb equal3=True
+  src\simbench.js  md5=04c21047afbe1c4a3057fad458bc7513 equal3=True
+  sim.html         md5=38eebe160053c5feaf7f0adcd4137b44 equal3=True
+  client.js        md5=3da43f87ba263687bfcb837fc9ca88d8 equal3=True
+  package.json     md5=d3df9e7b2a073bc3b896842957274626 equal3=True
+  sim-root.json    md5=3c5d12abd3de947f044894e65f8b197a equal3=True

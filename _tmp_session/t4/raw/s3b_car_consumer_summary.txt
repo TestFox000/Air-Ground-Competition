@@ -1,0 +1,18 @@
+[t4_rosenv] host=duzhong ROS_DISTRO=humble ROS_DOMAIN_ID=118 RMW=default
+== t4_car_consumer == host=duzhong topic=/dzlink/drone_to_car qos=best_effort domain=118 duration=50.0s
+[subs] publishers on /dzlink/drone_to_car = 0 @0.05s
+[subs] publishers on /dzlink/drone_to_car = 1 @7.76s
+[rx OK ] {"raw": "{\"type\":\"target_zone\",\"blocks\":[\"G10\",\"H10\"],\"ts\":1791804229.398}", "type": "target_zone", "seq": null, "ts": 1791804229.398, "blocks": ["G10", "H10"], "t_recv": 1791804231.52, "valid": true, "note": "ok"}
+[rx OK ] {"raw": "{\"type\":\"target_zone\",\"blocks\":[\"G10\",\"H10\"],\"ts\":1791804229.398}", "type": "target_zone", "seq": null, "ts": 1791804229.398, "blocks": ["G10", "H10"], "t_recv": 1791804232.073, "valid": true, "note": "ok"}
+[rx OK ] {"raw": "{\"type\":\"target_zone\",\"blocks\":[\"G10\",\"H10\"],\"ts\":1791804229.398}", "type": "target_zone", "seq": null, "ts": 1791804229.398, "blocks": ["G10", "H10"], "t_recv": 1791804232.624, "valid": true, "note": "ok"}
+[subs] publishers on /dzlink/drone_to_car = 0 @10.45s
+[subs] publishers on /dzlink/drone_to_car = 1 @12.35s
+[rx OK ] {"raw": "{\"type\":\"field_verify\",\"ts\":1791804233.992,\"mines\":[\"A3\",\"B4\"],\"obstacles\":[\"K7\"]}", "type": "field_verify", "seq": null, "ts": 1791804233.992, "mines": ["A3", "B4"], "obstacles": ["K7"], "diff": null, "t_recv": 1791804236.104, "valid": true, "note": "ok"}
+[rx OK ] {"raw": "{\"type\":\"field_verify\",\"ts\":1791804233.992,\"mines\":[\"A3\",\"B4\"],\"obstacles\":[\"K7\"]}", "type": "field_verify", "seq": null, "ts": 1791804233.992, "mines": ["A3", "B4"], "obstacles": ["K7"], "diff": null, "t_recv": 1791804236.662, "valid": true, "note": "ok"}
+[rx OK ] {"raw": "{\"type\":\"field_verify\",\"ts\":1791804233.992,\"mines\":[\"A3\",\"B4\"],\"obstacles\":[\"K7\"]}", "type": "field_verify", "seq": null, "ts": 1791804233.992, "mines": ["A3", "B4"], "obstacles": ["K7"], "diff": null, "t_recv": 1791804237.212, "valid": true, "note": "ok"}
+[subs] publishers on /dzlink/drone_to_car = 0 @15.04s
+[subs] publishers on /dzlink/drone_to_car = 1 @16.96s
+[rx OK ] {"raw": "{\"type\":\"field_verify\",\"ts\":1791804238.576,\"mines\":[\"A3,B4\"],\"obstacles\":[\"K7\"]}", "type": "field_verify", "seq": null, "ts": 1791804238.576, "mines": ["A3,B4"], "obstacles": ["K7"], "diff": null, "t_recv": 1791804240.732, "valid": true, "note": "ok"}
+[rx OK ] {"raw": "{\"type\":\"field_verify\",\"ts\":1791804238.576,\"mines\":[\"A3,B4\"],\"obstacles\":[\"K7\"]}", "type": "field_verify", "seq": null, "ts": 1791804238.576, "mines": ["A3,B4"], "obstacles": ["K7"], "diff": null, "t_recv": 1791804241.291, "valid": true, "note": "ok"}
+[rx OK ] {"raw": "{\"type\":\"field_verify\",\"ts\":1791804238.576,\"mines\":[\"A3,B4\"],\"obstacles\":[\"K7\"]}", "type": "field_verify", "seq": null, "ts": 1791804238.576, "mines": ["A3,B4"], "obstacles": ["K7"], "diff": null, "t_recv": 1791804241.843, "valid": true, "note": "ok"}
+[subs] publishers on /dzlink/drone_to_car = 0 @19.62s

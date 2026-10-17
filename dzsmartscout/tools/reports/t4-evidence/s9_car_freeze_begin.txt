@@ -1,0 +1,47 @@
+### mode=begin host=duzhong time=2026-10-12T19:15:49+08:00
+### 关键文件 md5
+0a84d86eafbcb01ef6a98f48b17a28f5  /home/duzhong/dzrobot/start_all.sh
+2592dd5252b1dc0c6f678dfd1b2dc32b  /home/duzhong/dzrobot/config/robot.yaml
+43e35e36ab6b5cd58e9d3cb574e4f33a  /home/duzhong/dzrobot/dzros.env
+28addcce99bbf9f15efb5e370292b70c  /home/duzhong/.bashrc
+4877dd8e92ce8b08978ec15c553961ef  /home/duzhong/dzrobot/src/dzbrain/dzbrain/io/contract.py
+d2a9a1bddd312425b6231410a467973a  /home/duzhong/dzrobot/src/dzbrain/dzbrain/tasks/drone.py
+### ~/dzrobot 顶层（名字/大小/mtime，排序稳定）
+10012 2026-10-03T14:27:16 start_all.sh.bak_pre_adapt
+1142 2026-10-07T19:56:04 dzros.env
+12451 2026-10-11T21:17:17 start_all.sh
+12786 2026-10-07T19:56:04 start_all.sh.bak_20261009_190852
+14723 2026-10-09T19:09:02 start_all.sh.bak2_192202
+1864 2026-10-03T14:27:16 monitor_aim.sh.bak_pre_adapt
+2312 2026-10-07T19:56:04 monitor_aim.sh
+3224 2026-10-07T08:37:18 ADAPT_README.md
+4096 2026-10-06T20:07:40 models
+4096 2026-10-11T20:04:29 build
+4096 2026-10-11T20:04:29 install
+4096 2026-10-11T20:08:05 src
+4096 2026-10-11T21:14:24 _backups
+4096 2026-10-11T21:17:19 tools
+4096 2026-10-11T21:17:21 docs
+4096 2026-10-11T21:22:36 log
+4096 2026-10-11T21:23:14 config
+### 全盘 HOME 下文件数（排除 .cache/.ros/log 这类易变目录）
+138709
+### /tmp 下属于本次会话的探针
+-rwxrwxr-x 1 duzhong duzhong  6387 2026-10-12T19:14:45 /tmp/t4_car_consumer.py
+-rw-rw-r-- 1 duzhong duzhong  5532 2026-10-12T19:10:50 /tmp/t4_car_dzsmartscout\tools\link\probe\t4_env.sh
+-rwxrwxr-x 1 duzhong duzhong  1393 2026-10-12T19:15:45 /tmp/t4_car_freeze.sh
+-rwxrwxr-x 1 duzhong duzhong  4599 2026-10-12T19:14:46 /tmp/t4_car_sender.py
+-rwxrwxr-x 1 duzhong duzhong  2125 2026-10-12T19:13:00 /tmp/t4_car_t4_contract.sh
+-rwxrwxr-x 1 duzhong duzhong  5532 2026-10-12T19:11:17 /tmp/t4_car_t4_env.sh
+-rwxrwxr-x 1 duzhong duzhong  2133 2026-10-12T19:11:46 /tmp/t4_car_t4_recon2.sh
+-rw-rw-r-- 1 duzhong duzhong  1364 2026-10-12T19:16:11 /tmp/t4_freeze_begin.txt
+-rw-rw-r-- 1 duzhong duzhong    73 2026-10-12T19:16:00 /tmp/t4_matrix_sub_d2c_pub-reli_sub-best.log
+-rw-rw-r-- 1 duzhong duzhong 11674 2026-10-12T19:15:53 /tmp/t4_matrix_sub_d2c_pub-reli_sub-reli.json
+-rw-rw-r-- 1 duzhong duzhong 11748 2026-10-12T19:15:53 /tmp/t4_matrix_sub_d2c_pub-reli_sub-reli.log
+-rwxrwxr-x 1 duzhong duzhong  3465 2026-10-12T19:14:45 /tmp/t4_mcast_count.py
+-rw-rw-r-- 1 duzhong duzhong     0 2026-10-12T19:13:09 /tmp/t4_mcast_outer.log
+-rw-rw-r-- 1 duzhong duzhong   238 2026-10-12T19:13:19 /tmp/t4_mcast_recv.log
+-rw-rw-r-- 1 duzhong duzhong   606 2026-10-12T19:13:02 /tmp/t4_mcast.sh
+-rwxrwxr-x 1 duzhong duzhong  5846 2026-10-12T19:14:45 /tmp/t4_qos_probe.py
+-rwxrwxr-x 1 duzhong duzhong  1077 2026-10-12T19:14:45 /tmp/t4_rosenv.sh
+-rwxrwxr-x 1 duzhong duzhong   909 2026-10-12T19:15:45 /tmp/t4_topicinfo.sh

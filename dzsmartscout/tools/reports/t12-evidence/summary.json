@@ -1,0 +1,15 @@
+{
+  "s2": {
+    "intel_emitted": 10,
+    "bridge_lines": 52,
+    "target_lines": 8,
+    "field_lines": 8
+  },
+  "s3": {
+    "unbound": false,
+    "exit0": true,
+    "count_line": [
+      "[listen] 收到 13 条（ack 1 / car_state 12）"
+    ]
+  }
+}

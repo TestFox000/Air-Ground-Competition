@@ -1,0 +1,451 @@
+{
+  "arm_id": "m04",
+  "world": "B-桥洞K8/K6(随机),靶蓝面东",
+  "description": "随机地图 seed=20261016：桥 K8/K6，φ=180°（t28 ④ 批量）",
+  "executed_tokens": [
+    "N10",
+    "M10",
+    "L10",
+    "L9",
+    "L8",
+    "K8",
+    "J8",
+    "J9",
+    "J10",
+    "I10",
+    "H10",
+    "H9",
+    "H8",
+    "G8",
+    "F8",
+    "F9",
+    "F10",
+    "F11",
+    "E11",
+    "D11",
+    "D10",
+    "D9",
+    "D8",
+    "D7",
+    "C7",
+    "C6",
+    "B6",
+    "A6",
+    "A7",
+    "A8",
+    "A9",
+    "A10",
+    "B10",
+    "C10*",
+    "D10",
+    "D9",
+    "D8",
+    "D7",
+    "C7",
+    "C6",
+    "C5",
+    "C4",
+    "B4",
+    "A4",
+    "A3",
+    "A2",
+    "A1",
+    "B1",
+    "C1",
+    "C2",
+    "D2",
+    "E2",
+    "F2",
+    "G2",
+    "H2",
+    "H3",
+    "H4",
+    "I4",
+    "I5",
+    "I6",
+    "J6",
+    "K6",
+    "L6",
+    "M6",
+    "N6",
+    "N5,x"
+  ],
+  "versions": [
+    {
+      "kind": "baseline",
+      "n": 66,
+      "crosses": {},
+      "note": "手动三连换洞（形状不符的半场不换）",
+      "tokens": "N10 M10 L10 L9 L8 K8 J8 J9 J10 I10 H10 H9 H8 G8 F8 F9 F10 F11 E11 D11 D10 D9 D8 D7 C7 C6 B6 A6 A7 A8 A9 A10 B10 C10* D10 D9 D8 D7 C7 C6 C5 C4 B4 A4 A3 A2 A1 B1 C1 C2 D2 E2 F2 G2 H2 H3 H4 I4 I5 I6 J6 K6 L6 M6 N6 N5,x"
+    }
+  ],
+  "car": {
+    "completed": true,
+    "time_s": 157.70000000000687,
+    "cross_track_rms_m": 0.04779335366940229,
+    "cross_track_max_m": 0.10960150499520704,
+    "overshoot_max_m": 0.035217949110640606,
+    "final_error_m": 0.052787930634041885,
+    "out_of_bounds_steps": 0.0,
+    "anchors": 38.0,
+    "path_len_ratio": 0.9017413522852908,
+    "field_stop_t": -1.0,
+    "field_stopped": 0.0,
+    "steps": 7885.0
+  },
+  "field_metrics": {
+    "mine_total": 8.0,
+    "mine_pressed_count": 7.0,
+    "mine_press_steps": 613.0,
+    "mine_worst_clearance_m": 0.05224568706874635,
+    "obstacle_hit_steps": 0.0,
+    "obstacle_breach_steps": 0.0,
+    "barrier_min_distance_m": 0.09535937553644004,
+    "barrier_breach_steps": 0.0,
+    "board_overlap_steps": 0.0,
+    "board_breach_steps": 976.0,
+    "k_column_steps": 262.0,
+    "k_seal_violation_steps": 0.0,
+    "k_solid_cell_steps": 0.0
+  },
+  "commit_t": 1.127,
+  "intel_complete_t": 1.1272972824894383,
+  "wait_lower_s": 0.0,
+  "wait_upper_s": 0.0,
+  "reroute_count": 0,
+  "adopted_changes": 8,
+  "gate_events": [
+    {
+      "t": 0.077,
+      "half": "lower",
+      "source": "missing",
+      "cell": "K10",
+      "default": "K10",
+      "reason": "该半场从未收到 bridge_passable → 用默认格"
+    },
+    {
+      "t": 0.077,
+      "half": "upper",
+      "source": "missing",
+      "cell": "K5",
+      "default": "K5",
+      "reason": "该半场从未收到 bridge_passable → 用默认格"
+    },
+    {
+      "t": 0.422,
+      "half": "lower",
+      "source": "drone",
+      "cell": "K8",
+      "default": "K10",
+      "reason": "新鲜情报（0.00s < 过期阈值 30s）"
+    },
+    {
+      "t": 1.127,
+      "half": "upper",
+      "source": "drone",
+      "cell": "K6",
+      "default": "K5",
+      "reason": "新鲜情报（0.00s < 过期阈值 30s）"
+    },
+    {
+      "t": 5.187,
+      "half": "lower",
+      "source": "offline",
+      "cell": "K10",
+      "default": "K10",
+      "reason": "无人机离线（心跳超 3s）→ 用默认格"
+    },
+    {
+      "t": 5.187,
+      "half": "upper",
+      "source": "offline",
+      "cell": "K5",
+      "default": "K5",
+      "reason": "无人机离线（心跳超 3s）→ 用默认格"
+    },
+    {
+      "t": 0.077,
+      "half": "lower",
+      "source": "drone",
+      "cell": "K8",
+      "default": "K10",
+      "reason": "新鲜情报（-0.35s < 过期阈值 30s）"
+    },
+    {
+      "t": 0.077,
+      "half": "upper",
+      "source": "drone",
+      "cell": "K6",
+      "default": "K5",
+      "reason": "新鲜情报（-1.05s < 过期阈值 30s）"
+    }
+  ],
+  "gap": {
+    "gap_ticks": 6433,
+    "gap_cells": 50,
+    "gap_by_cell": {
+      "N10": 62,
+      "M10": 141,
+      "L10": 94,
+      "L9": 141,
+      "L8": 83,
+      "J8": 118,
+      "J9": 141,
+      "J10": 87,
+      "H10": 116,
+      "H9": 140,
+      "H8": 87,
+      "G8": 145,
+      "F8": 115,
+      "F10": 140,
+      "F11": 93,
+      "D11": 120,
+      "D10": 281,
+      "D9": 251,
+      "D7": 235,
+      "C7": 152,
+      "C6": 215,
+      "B6": 143,
+      "A6": 102,
+      "A7": 118,
+      "A8": 118,
+      "A9": 141,
+      "A10": 93,
+      "B10": 168,
+      "C10": 164,
+      "C5": 140,
+      "C4": 92,
+      "B4": 142,
+      "A3": 124,
+      "A2": 141,
+      "A1": 98,
+      "C1": 130,
+      "C2": 73,
+      "D2": 122,
+      "E2": 117,
+      "F2": 116,
+      "H2": 94,
+      "H4": 98,
+      "I4": 70,
+      "I5": 147,
+      "I6": 85,
+      "J6": 121,
+      "L6": 117,
+      "M6": 141,
+      "N6": 146,
+      "N5": 115
+    },
+    "gap_key_ticks": 0,
+    "gap_key_cells": 0,
+    "gap_key_by_cell": {}
+  },
+  "lead_rows": [
+    {
+      "cell": "A4",
+      "reveal_joint": 25.61,
+      "arrival_joint": 105.32729728248584,
+      "lead_s": 79.717
+    },
+    {
+      "cell": "A5",
+      "reveal_joint": 24.91,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "B1",
+      "reveal_joint": 27.86,
+      "arrival_joint": 114.16729728248409,
+      "lead_s": 86.307
+    },
+    {
+      "cell": "B11",
+      "reveal_joint": 22.11,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "B7",
+      "reveal_joint": 22.11,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "C11",
+      "reveal_joint": 21.41,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "C9",
+      "reveal_joint": 20.709999999999997,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "D1",
+      "reveal_joint": 29.11,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "D8",
+      "reveal_joint": 20.16,
+      "arrival_joint": 54.92729728249225,
+      "lead_s": 34.767
+    },
+    {
+      "cell": "E10",
+      "reveal_joint": 19.459999999999997,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "E11",
+      "reveal_joint": 20.009999999999998,
+      "arrival_joint": 43.327297282490434,
+      "lead_s": 23.317
+    },
+    {
+      "cell": "F4",
+      "reveal_joint": 29.959999999999997,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "F9",
+      "reveal_joint": 18.61,
+      "arrival_joint": 36.30729728248934,
+      "lead_s": 17.697
+    },
+    {
+      "cell": "G11",
+      "reveal_joint": 18.61,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "G2",
+      "reveal_joint": 30.66,
+      "arrival_joint": 128.16729728248131,
+      "lead_s": 97.507
+    },
+    {
+      "cell": "H3",
+      "reveal_joint": 31.209999999999997,
+      "arrival_joint": 132.86729728248304,
+      "lead_s": 101.657
+    },
+    {
+      "cell": "H5",
+      "reveal_joint": 31.91,
+      "arrival_joint": null,
+      "lead_s": "车未到"
+    },
+    {
+      "cell": "I10",
+      "reveal_joint": 2.5100000000000002,
+      "arrival_joint": 21.367297282489094,
+      "lead_s": 18.857
+    },
+    {
+      "cell": "K6",
+      "reveal_joint": 1.1272972824894383,
+      "arrival_joint": 146.12729728248982,
+      "lead_s": 145.0
+    },
+    {
+      "cell": "K8",
+      "reveal_joint": 0.4221785126063899,
+      "arrival_joint": 11.547297282489305,
+      "lead_s": 11.125
+    }
+  ],
+  "shoot": {
+    "planned_stop": "C10",
+    "chosen_stop": "C10",
+    "reached": true,
+    "sector_fail": true,
+    "blue_hits": 0,
+    "red_hits": 0,
+    "misses": 0,
+    "dwell_s": 30.0,
+    "penalties": 0,
+    "score": 0,
+    "true_phi_deg": 180.0,
+    "judged_phi_deg": 180.0,
+    "chosen_theta_deg": 0.0,
+    "sector_deg": 45.0,
+    "panel_speed_mps": 0.1,
+    "anchor_t": 81.19
+  },
+  "budget": {
+    "drive_s": 157.70000000000687,
+    "wait_lower_s": 0.0,
+    "dwell_s": 30.0,
+    "commit_s": 1.1272972824894383,
+    "total_s": 188.827,
+    "budget_s": 180.0,
+    "within": false,
+    "margin_s": -8.827,
+    "note": "commit+drive+wait+dwell"
+  },
+  "link": "LinkStats(sent=486, delivered=486, dropped=0, delay_sum=34.0278117486448)",
+  "drone": {
+    "flight_len_m": 18.55,
+    "flight_end_t": 37.1,
+    "recon_done_s": 37.1,
+    "speed_mps": 0.5,
+    "takeoff_delay_s": 0.0,
+    "radius_cells": 2.5,
+    "reveal_entrance": {
+      "K8": 0.35,
+      "K6": 1.05
+    },
+    "arrows": [
+      {
+        "cell": "K8",
+        "direction": "W",
+        "t": 0.35,
+        "confidence": 1.0
+      },
+      {
+        "cell": "K6",
+        "direction": "E",
+        "t": 1.05,
+        "confidence": 1.0
+      }
+    ],
+    "arrow_h1": {
+      "lower": "K8",
+      "upper": "K6"
+    },
+    "arrow_h1_matches_bridge_passable": {
+      "lower": true,
+      "upper": true
+    },
+    "recon_deadlines": {
+      "lower": {
+        "approach": "L10",
+        "deadline_s": 5.19,
+        "intel_recv_s": 0.42,
+        "ok": true,
+        "margin_s": 4.77
+      },
+      "upper": {
+        "approach": "I5",
+        "deadline_s": 139.07,
+        "intel_recv_s": 1.13,
+        "ok": true,
+        "margin_s": 137.94
+      }
+    }
+  },
+  "artifacts": {
+    "traj_csv": "_tmp_session\\sim_ag\\t28_random\\random_maps_n50\\map_04\\traj.csv",
+    "traj_sha256": "d27b504d4fec6b905f7fad53b0622bf4f7b304b97a543dd9e8739b03b5e7b75a",
+    "route_map": "D:\\User\\Desktop\\比赛存档\\v1\\_tmp_session\\sim_ag\\t28_random\\random_maps_n50\\map_04\\route_map.png",
+    "v1_observe_sha256": "d27b504d4fec6b905f7fad53b0622bf4f7b304b97a543dd9e8739b03b5e7b75a"
+  },
+  "notes": []
+}

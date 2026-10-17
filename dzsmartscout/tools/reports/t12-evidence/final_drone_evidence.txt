@@ -1,0 +1,51 @@
+﻿=== A) 单测：只取结论行 ===
+--- test_dzlink_supervisor.py ---
+Ran 77 tests in 0.096s
+OK
+--- test_dz_send_waypoint.py ---
+Ran 24 tests in 0.081s
+OK
+
+=== B) _run_ros 修复点行号（udp_src 必须在 try 之前）===
+def _run_ros 在第 1722 行
+   1733:     udp_src = None
+   1734:     try:
+   1735:         if mode == "listen":
+
+=== C) run 分支注入调用（第 1913 行往下）===
+    if args.cmd == "run":
+        core = _core_from_args(args)
+        if args.dry_run:
+            return cmd_dry_run(args)
+        # ★ t4 真机缺陷 D2：run 子命令声明了 --bridge/--target/--mines/--obstacles
+        #   （见 build_argparser 的 run 分支），但这里原先没有调用注入函数 →
+        #   argparse 照收、真跑 intel_emitted=0、零提示（"以为发了其实没发"）。
+        #   注意必须放在 dry_run 之后：cmd_dry_run 内部自己会注入一次，不能重复。
+        _add_samples_from_args(core, args)
+        return _run_ros(args, core, "run")
+
+    ap.print_help()
+    return 0
+
+
+=== D) 发送器：target/field 关键行 ===
+    p.add_argument("--duration", type=float, default=30.0)
+    p.add_argument("--hz", type=float, default=1.0)
+    common(p)
+
+    p = sub.add_parser("target", help="发靶区（blocks）")
+    p.add_argument("blocks", nargs="*", help="格名，空格分隔，如 G10 H10")
+    # ★ D4：以前只有位置参数，`target --blocks G10,H10` 会 argparse 报错 exit 2，
+    #   而两份在库文档写的正是这个错用法。现在两种写法都支持，逗号也会被拆开。
+    p.add_argument("--blocks", nargs="*", default=None, dest="blocks_opt",
+                   help="同上（别名；逗号/分号也会被拆开，如 --blocks G10,H10）")
+    common(p)
+
+    p = sub.add_parser("field", help="发雷/障核对")
+    p.add_argument("--mines", nargs="*", default=None,
+                   help="雷格名，可空格或逗号分隔（如 --mines A3 B4 / --mines A3,B4）")
+    p.add_argument("--obstacles", nargs="*", default=None,
+                   help="障碍格名，同上")
+### done
+
+### uploaded /tmp/t4_drone_t12_drone_final2.sh (1179 bytes, CR-normalized)  exit=0

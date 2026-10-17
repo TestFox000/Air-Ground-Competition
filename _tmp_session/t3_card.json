@@ -1,0 +1,17 @@
+﻿{
+ "id": "t3",
+ "profileSeedId": "w3",
+ "subject": "车侧发车前最后复核：w1 差异项处置 + 发车清单逐条确认（verdict 制，只读）",
+ "description": "独立复核 w1 口径与 w2 仿真基线，逐条对照发车清单给出 pass/needs_revision 结论，标出任何未达放行条件项。只读，不改源码/配置，不打 tag。",
+ "status": "in_progress",
+ "assignee": "reviewer",
+ "dependencies": [
+  "t1",
+  "t2"
+ ],
+ "attempt": 2,
+ "createdAt": 1792142297732,
+ "updatedAt": 1792152445850,
+ "attemptId": "bcbbab45-d7c7-4d95-9ce2-1e7d5b8040a0",
+ "reassigning": false
+}

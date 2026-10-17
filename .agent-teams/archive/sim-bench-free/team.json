@@ -1,0 +1,1553 @@
+{
+  "name": "sim-bench-free",
+  "id": "sim-bench-free",
+  "description": "仿真台三项改进的收尾补强队（免费模型重组）：上一队 sim-bench-improve 已归档（t3/t5/t8 三道 pass，t8 收 6 条非阻塞 findings）。本队只做剩余收尾：补 G1/T8-1/T8-2 三组守卫断言 + 独立复验 + 复审 + 交接清单更新。全员 mimo-v2.6-flash-free（免费路由）。禁改 config/、src/dzbrain/、src/dzrknn_dataprocess/、tools/、sim.html、src/simbench.js（并发写入者与已完成修复的领地）。",
+  "captainSessionId": "session-8e055b6c-9c61-499e-bc23-8887c8b3359c",
+  "createdAt": 1792066075587,
+  "members": [
+    {
+      "id": "09d2c56b-d500-4202-b560-4d08e7059cb1",
+      "name": "sim-fixer",
+      "role": "测试断言补强工程师（补 G1/T8-1/T8-2 守卫断言）",
+      "provider": "our-free-model",
+      "model": "mimo-v2.6-flash-free",
+      "reasoningEffort": "deep",
+      "executionPrompt": "你是 sim-fixer，负责给 dsh-plugin-dzrobot-ssh/scripts/test-sim-map-render.mjs 补三组守卫断言（54/54 是当前基线）。背景：上一队已完成 F1 靶字删除、F3 targetYaw 绑定、R1-R7 修复，t8 审查 pass 但留了非阻塞缺口。你的写域只有这一个测试文件。上轮 reviewer2/verifier2 的取证在 %TEMP%（t8_review/、_tmp_verify_t5_independent.mjs 的 F3-1…F3-9 配方可直接复用）。铁律：期望值必须来自规格（config/map.yaml、geometry.block_to_meters、官方 tools/sim_map_render.py 的声明意图），绝不能照抄实现代码推导；每条新断言必须用外部变异注入实证\"真能红\"；退出码不能单独作为证据，必须读输出文本；不 git add/commit。",
+      "joinedAt": 1792066140938,
+      "status": "removed"
+    },
+    {
+      "id": "e0a9a5df-3695-4d2e-957a-e4eba92bd9a9",
+      "name": "sim-verifier",
+      "role": "独立验证（不采信自报，全部自己重跑）",
+      "provider": "our-free-model",
+      "model": "mimo-v2.6-flash-free",
+      "reasoningEffort": "deep",
+      "executionPrompt": "你是 sim-verifier，独立验证 sim-fixer 的补强交付。全部自己重跑：① 官方套件实跑并逐行读输出（不采信任何自报分数）；② 对每条新断言做外部退化注入（内存替换法，仓库零写入，取证放 %TEMP%），确认真能红；③ 确认旧断言没有被弱化或删除（对比 git diff）；④ 写入边界：git status 确认只有测试文件一个 M 被本队改动（sim.html/simbench.js 的 M 是上一队已归档的成果，属既存）；⑤ 回归 test-host/test-package-files/test-client 必须读输出 FAILURES 段判定。铁律：退出码不能单独作为证据；受审对象会并发改写，必须钉版哈希后判定。",
+      "joinedAt": 1792066140960,
+      "status": "removed"
+    },
+    {
+      "id": "ae0c8280-e2bd-4c6e-8c11-ca0fcb99e75e",
+      "name": "sim-reviewer",
+      "role": "代码审查（断言质量与写入边界）",
+      "provider": "our-free-model",
+      "model": "mimo-v2.6-flash-free",
+      "reasoningEffort": "deep",
+      "executionPrompt": "你是 sim-reviewer，代码审查 sim-fixer 的断言补强。重点：① 新断言的期望值是否来自规格而非照抄实现（照抄=反向锁死，本队刚在 R2 栽过）；② 是否真有牙（抽样做变异）；③ 与 t8 的 6 条 findings 对账——T8-1/T8-2/G1 是否真闭合，T8-3/4/5/6 是否如实保持 open 而非被敷衍标记；④ 写入边界：只动了测试文件。受审文件会漂移，先钉版哈希。破坏实验全在 %TEMP% 副本，仓库零写入，不 git add/commit。",
+      "joinedAt": 1792066140982,
+      "status": "removed"
+    },
+    {
+      "id": "354ce0ff-c337-49d1-ae2a-5836e70ed6b0",
+      "name": "sim-design",
+      "role": "设计工程师（规格书主笔）",
+      "provider": "our-free-model",
+      "model": "mimo-v2.6-flash-free",
+      "reasoningEffort": "deep",
+      "joinedAt": 1792071336529,
+      "status": "removed"
+    },
+    {
+      "id": "cd7251da-b14e-45fe-93f6-d8a8302112ca",
+      "name": "ui-builder",
+      "role": "前端工程师（sim.html 拖拽棋子/压测面板/无人机可视化）",
+      "provider": "our-free-model",
+      "model": "mimo-v2.6-flash-free",
+      "reasoningEffort": "deep",
+      "joinedAt": 1792071336557,
+      "status": "removed"
+    },
+    {
+      "id": "d69248ce-d66d-412a-9f08-b75f28626b29",
+      "name": "bench-engineer",
+      "role": "后端工程师（simbench.js 压测并发池/统计聚合/HTTP 端点）",
+      "provider": "our-free-model",
+      "model": "mimo-v2.6-flash-free",
+      "reasoningEffort": "deep",
+      "joinedAt": 1792071336583,
+      "status": "removed"
+    },
+    {
+      "id": "5d2ba3ba-f21a-4e57-92a1-1c4fa8524702",
+      "name": "drone-sim",
+      "role": "无人机仿真工程师（起飞-扫描-边扫边算-并行开跑模型）",
+      "provider": "our-free-model",
+      "model": "mimo-v2.6-flash-free",
+      "reasoningEffort": "deep",
+      "joinedAt": 1792071336608,
+      "status": "removed"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "subject": "补强三组守卫断言：T8-1 箭头方向 / T8-2 route 解耦 / G1 F3 事件",
+      "status": "completed",
+      "assignee": "sim-fixer",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1792066181813,
+      "updatedAt": 1792069149333,
+      "kind": "implementation",
+      "objective": "给 dsh-plugin-dzrobot-ssh/scripts/test-sim-map-render.mjs 补三组守卫断言，闭合 t8 审查的 T8-1（车头箭头方向无守护）、T8-2（写死 54 token 与 config 强耦合假红）、G1（F3 监听/reset 零守卫）三个缺口，基线 54/54。",
+      "inScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/scripts/test-sim-map-render.mjs"
+      ],
+      "outOfScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/simbench.js",
+        "dzrobot_v2/config/",
+        "dzrobot_v2/src/",
+        "dzrobot_v2/tools/",
+        "git add / git commit"
+      ],
+      "acceptance": [
+        "T8-1：新增至少 1 条断言守护「renderMap 车头箭头方向与 carPolygon 共用 headVec 同口径」——用内存替换把 sim.html 箭头处改回内联镜像式（不再调 headVec）时该断言必须 FAIL，实测证据写入 output",
+        "T8-2：解除 test 中 :151/:181 等处对「54 token 全单格步」的写死——期望值改为从 field.route 动态推导（先算 token 数再算格数），并构造一个跨格路线断言点数>token 数；不改任何实现代码",
+        "G1：F3 的 change 监听与 reset 分流获得至少 2 条断言（DOM 桩记录 addEventListener 调用 + button[data-reset] 桩验证 targetYaw reset 回 ''）——用内存替换删掉监听注册时必须 FAIL；verifier2 的 _tmp_verify_t5_independent.mjs F3-1…F3-9 配方可复用",
+        "官方套件 node scripts/test-sim-map-render.mjs 实跑逐行读输出无 FAIL 且条数净增（基线 54），退出码不单独作为证据",
+        "外部变异实证：每条新断言至少对应 1 个变异体红在该条（取证脚本与输出贴进 output）",
+        "只改 dsh-plugin-dzrobot-ssh/scripts/test-sim-map-render.mjs 一个文件；不 git add/commit；不碰 sim.html、src/simbench.js、config/、src/、tools/"
+      ],
+      "verify": [
+        "node scripts/test-sim-map-render.mjs",
+        "node scripts/test-host.mjs",
+        "node scripts/test-package-files.mjs",
+        "git -C .. status --short"
+      ],
+      "attemptId": "3ae7364e-b3b3-4ddb-a34e-66679e2388ed",
+      "reassigning": false,
+      "output": "三组守卫断言补强完成，只改 scripts/test-sim-map-render.mjs 一个文件，54/54 → 61/61（净增 7 条）。T8-1（2 条）：T8-1a 箭头方向=规格 head(yaw)（官方 sim_map_render.py 意图 θs=yaw+90°、SVG y 取反）×4 分块 yaw（0/π/2/π/4/3π/2，自造 500 行 CSV，因既有合成轨迹 yaw 恒 π/2 对镜像全盲）+ 长度=CAR_LEN_PX×0.62；T8-1b 箭头方向=carPolygon 车头侧中点方向（共用 headVec 同口径）。T8-2（净增 2 条）：解除 :119/:151/:181 的 54/60 token 写死——期望点数从 field.route 动态推导（crossStepPtsOf 按格数重实现：对角含单格对角 +1 切角点，修正原 dc>1&&dr>1 漏单格对角）；新增渲染层点数复核（SVG 折线点数=动态期望 44）与跨格构造 A1→A11→N11（rows+cols−1=24>3 token，相邻恒 34 px）；⇔ 性质断言「点数>token 数 ⇔ 存在跨格步」双路线求值。G1（4 条）：先核实 message() 把 kind 写进 className（sim.html:326），故 G1-3 保留 'msg ok' 子句；独立 DOM 桩（freshApiWithDom）记录 addEventListener——G1-1 change+reset click 注册、G1-2 触发 change 哨兵被真 SVG 覆盖、G1-3 targetYaw reset value 回''+专属文案「靶板朝向已恢复「跟随地图」」、G1-4 mines reset join(' ') 对照。外部变异取证（%TEMP%\\\\t1_mut\\\\run_mut.mjs，复制插件目录+DZROBOT_SIM_ROOT 指回工作区）：对照组 61/61 exit 0；M-A（箭头内联镜像不调 headVec）红在 T8-1a+T8-1b；M-B（删 change 注册）红在 G1-1+G1-2；M-C1（删整个 reset 块）红在 G1-1+G1-3+G1-4；M-C2（删 targetYaw 分支）红在 G1-3（专属文案被抓）；M-D（routePolyline 首末直连）红在 A 动态/渲染层/跨格构造/⇔；M-E（点重复 push）红在 A 动态/⇔/渲染层/跨格构造。落盘中修了两处自身期望值错误（跨格 25→24 拐角共享、箭头长度容差 0.03→0.12 因 toFixed(1) 最坏 0.05/分量）与一处桩缺陷（els.* → el() 工厂，变异删掉创建代码时不再 TypeError 而是判红）。",
+      "changedPaths": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/scripts/test-sim-map-render.mjs"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "T8-1：新增至少 1 条断言守护「renderMap 车头箭头方向与 carPolygon 共用 headVec 同口径」——用内存替换把 sim.html 箭头处改回内联镜像式（不再调 headVec）时该断言必须 FAIL，实测证据写入 output",
+          "status": "passed",
+          "evidence": "T8-1a+T8-1b 两条断言，自造 500 行 4 分块 yaw 轨迹；外部变异 M-A（var hv = headVec(pose[2]) → 内联 [cos(yaw+90°), sin(yaw+90°)] 镜像式）实测 59/61，恰红在 T8-1a（dirs=[[0,1,…] 镜像）与 T8-1b（arrow≠car 方向）"
+        },
+        {
+          "criterion": "T8-2：解除 test 中 :151/:181 等处对「54 token 全单格步」的写死——期望值改为从 field.route 动态推导（先算 token 数再算格数），并构造一个跨格路线断言点数>token 数；不改任何实现代码",
+          "status": "passed",
+          "evidence": ":119/:151/:181 写死全部解除；crossStepPtsOf/expectedPtsOf 从 field.route 动态推导（当前 44 token 路线推导出 44 点）；新增跨格构造 A1→A11→N11 = rows+cols−1=24 > 3 token + ⇔ 双路线性质断言；sim.html/simbench.js 零改动（git status 仅测试文件 M）"
+        },
+        {
+          "criterion": "G1：F3 的 change 监听与 reset 分流获得至少 2 条断言（DOM 桩记录 addEventListener 调用 + button[data-reset] 桩验证 targetYaw reset 回 ''）——用内存替换删掉监听注册时必须 FAIL；verifier2 的 _tmp_verify_t5_independent.mjs F3-1…F3-9 配方可复用",
+          "status": "passed",
+          "evidence": "G1-1..G1-4 四条（freshApiWithDom 独立桩记录 reg[]）；先读 sim.html:324-328 确认 message() 写 className='msg '+kind，G1-3 保留 'msg ok' 子句；M-B 红在 G1-1+G1-2、M-C1 红在 G1-1+G1-3+G1-4、M-C2 红在 G1-3（专属文案区分 join(' ') 分支）"
+        },
+        {
+          "criterion": "官方套件 node scripts/test-sim-map-render.mjs 实跑逐行读输出无 FAIL 且条数净增（基线 54），退出码不单独作为证据",
+          "status": "passed",
+          "evidence": "逐行读输出：61/61 通过、0 条 FAIL（基线 54 → 61 净增 7）；退出码 0 仅作旁证"
+        },
+        {
+          "criterion": "外部变异实证：每条新断言至少对应 1 个变异体红在该条（取证脚本与输出贴进 output）",
+          "status": "passed",
+          "evidence": "%TEMP%\\t1_mut\\run_mut.mjs：对照组 61/61 exit 0；M-A→T8-1a/T8-1b；M-B→G1-1/G1-2；M-C1→G1-1/G1-3/G1-4；M-C2→G1-3；M-D→A 动态/渲染层/跨格构造/⇔；M-E→A 动态/⇔/渲染层/跨格构造。8 条新断言每条 ≥1 变异体覆盖，完整 FAIL 输出已逐条列在任务 output"
+        },
+        {
+          "criterion": "只改 dsh-plugin-dzrobot-ssh/scripts/test-sim-map-render.mjs 一个文件；不 git add/commit；不碰 sim.html、src/simbench.js、config/、src/、tools/",
+          "status": "passed",
+          "evidence": "git -C .. status --short：Modified 仅 dsh-plugin-dzrobot-ssh/scripts/test-sim-map-render.mjs；未跟踪文件为前队遗留（_tmp_verify_* 等，非本卡产生，取证脚本在 %TEMP%）；无 git add/commit"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node scripts/test-sim-map-render.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "逐行读输出：横置地图渲染核对：61/61 通过，0 FAIL（基线 54 → 61）"
+        },
+        {
+          "command": "node scripts/test-host.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "HOST TEST PASSED"
+        },
+        {
+          "command": "node scripts/test-package-files.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "PACKAGE FILES TEST PASSED（the installed plugin matches the source tree）"
+        },
+        {
+          "command": "git -C .. status --short",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "Modified: 1 file = dsh-plugin-dzrobot-ssh/scripts/test-sim-map-render.mjs；Untracked 24 个为前队遗留取证文件，非本卡改动"
+        },
+        {
+          "command": "node $env:TEMP\\t1_mut\\run_mut.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "对照组 61/61 exit 0；M-A/M-B/M-C1/M-C2/M-D/M-E 六个变异体 exit 1，FAIL 精确落在对应新断言（明细见 output）"
+        }
+      ]
+    },
+    {
+      "id": "t2",
+      "subject": "独立复验三组新断言：自己重跑 + 退化注入 + 写入边界",
+      "status": "completed",
+      "assignee": "sim-verifier",
+      "dependencies": [
+        "t1"
+      ],
+      "attempt": 1,
+      "createdAt": 1792066205827,
+      "updatedAt": 1792073403711,
+      "kind": "verification",
+      "objective": "独立复验 sim-fixer 的三组新断言：不采信自报，全部自己重跑，并用外部退化注入证明每条新断言真有牙。",
+      "acceptance": [
+        "官方套件自己实跑并逐行读输出：无 FAIL、断言数 > 54（记下准确数字与文件 sha256 钉版）",
+        "对三条新断言各自做外部退化注入（内存替换，仓库零写入，取证在 %TEMP%）：删箭头 headVec 调用→T8-1 断言红；路线写死回退→T8-2 断言红；删 change 监听→G1 断言红；三者证据缺一不可",
+        "git diff 确认旧断言无被弱化/删除（只增不改，或改动有规格依据且说明清楚）",
+        "写入边界：git status 里本队只改了测试文件一个 M（sim.html/simbench.js 的 M 属已归档上一队的既存成果）",
+        "回归 test-host / test-package-files / test-client 全部读输出 FAILURES 段判定（test-client 的 tool list 4 vs 5 是交接清单 §5 已证 HEAD 既存）"
+      ],
+      "verify": [
+        "node scripts/test-sim-map-render.mjs",
+        "node scripts/test-host.mjs",
+        "node scripts/test-package-files.mjs",
+        "node scripts/test-client.mjs",
+        "git -C .. status --short"
+      ],
+      "attemptId": "187269b9-d553-465d-8369-37d528c6c53c",
+      "reassigning": false,
+      "output": "独立复验通过（全部自跑，不采信自报）。① 官方套件实跑 61/61、exit 0，逐行读全输出零 FAIL；61>54，测试文件 sha256=AB39772B394EC9B0CD07F2CA82DF9F2CF63F483D9B6CDB49433D24BABCA0E1DB 钉版（跑前跑后 T0=T1 一致），sim.html=D14D52672BAE8F64CD327A12C114400F2542681043BD65F0730F5608D0E8B6E4、simbench.js=0CED6A072842BDAAA6A02C5D4A2B5D604DBC6268B8E85022523EB763090942DF 同钉。② 三组外部退化注入齐红（%TEMP%\\t2_verify\\t2_mut_run.mjs：复制插件目录+字符串替换 sim.html body，DZROBOT_SIM_ROOT 指回工作区只读 config，仓库零写入）：对照 61/61 exit0 → M1 删箭头 headVec 调用内联镜像红 T8-1a+T8-1b；M2 routePolyline 首末直连红 10 条含 T8-2 全部四条（动态点数/渲染层/跨格构造/⇔）；M3 删 change 监听注册红 G1-1+G1-2；三案例均 exit1 且锚点命中=1。sim.html 于 21:21 被并发改写后整套复跑，结论不变。③ 旧断言零弱化：找回 pre-t1 基线快照 _tmp_verify_t5_snapshot/test-sim-map-render.mjs（mtime 17:27、恰 54 checks、无 G1/T8 标记，与 t1 自报 54/54 吻合），git diff --no-index 对现行文件 +177/−26、检查数 54−4+11=61（净 +7 与 t1 自报一致）；删除的 4 条恰为 T8-2 点名的 54/60 token 写死旧断言，替换物更强且经 M2 注入证有牙；其余 50 条旧断言一字未动。④ 写入边界：认领时 git status 恰 1 M=scripts/test-sim-map-render.mjs（sim.html/simbench.js 已在 HEAD 4b610d1 归档、零 diff）；本队全程零仓库写入（取证只在 %TEMP%\\t2_verify）；运行中并发写入者新增 10 个 M（sim.html 21:21 showTrace 默认勾选+trace 描边色、config/robot.yaml、src/dzbrain/planner.py、src/dzrknn_dataprocess×2、docs×5）与 4 个 untracked，时间戳与内容均非本队所为、属禁改领地，simbench.js 始终零 diff，套件在该 sim.html 下仍 61/61。⑤ 回归按 FAILURES 段判定：test-host exit0（HOST TEST PASSED，无 FAILURES 段）、test-package-files exit0（PACKAGE FILES TEST PASSED，无 FAILURES 段）、test-client exit1 但 FAILURES 段仅 `tool list should have 4 rows, has 5` 一条 = 交接清单 §5 已证 HEAD 既存（docs/sim-bench-improve_交接清单_20261014.md:129,139；client.js 与 test-client.mjs 在 af0fb4e..HEAD 及 HEAD..工作树双向零 diff），无新增红。",
+      "acceptanceResults": [
+        {
+          "criterion": "官方套件自己实跑并逐行读输出：无 FAIL、断言数 > 54（记下准确数字与文件 sha256 钉版）",
+          "status": "passed",
+          "evidence": "node scripts/test-sim-map-render.mjs 实跑两次以上，输出逐行全读：61 行全 PASS、汇总「横置地图渲染核对：61/61 通过」、exit 0、无任何 FAIL 行；61 > 54。sha256 钉版（跑前 T0 = 跑后 T1）：test-sim-map-render.mjs = AB39772B394EC9B0CD07F2CA82DF9F2CF63F483D9B6CDB49433D24BABCA0E1DB；sim.html = D14D52672BAE8F64CD327A12C114400F2542681043BD65F0730F5608D0E8B6E4；simbench.js = 0CED6A072842BDAAA6A02C5D4A2B5D604DBC6268B8E85022523EB763090942DF"
+        },
+        {
+          "criterion": "对三条新断言各自做外部退化注入（内存替换，仓库零写入，取证在 %TEMP%）：删箭头 headVec 调用→T8-1 断言红；路线写死回退→T8-2 断言红；删 change 监听→G1 断言红；三者证据缺一不可",
+          "status": "passed",
+          "evidence": "%TEMP%\\t2_verify\\t2_mut_run.mjs：把插件目录复制进 %TEMP%、字符串替换 sim.html body（锚点命中数必须恰为 1，否则中止判 ANCHOR-MISS），DZROBOT_SIM_ROOT 指回真实工作区只读 config，仓库零写入。对照 case_control：61/61 exit0。case_m1_headvec_mirror（删 `var hv = headVec(pose[2])` 改内联镜像）：exit1，FAIL 恰为 T8-1a+T8-1b（dirs=[[0,1,16.9]...] 与 car=[[0,-1]...] 镜像对不上）。case_m2_route_firstlast（routePolyline 退回首末两点直连）：exit1，FAIL 10 条含 T8-2 全部四条——A 动态点数（pts=2 expected=44）、A 渲染层（svgPts=2 expected=44）、A 跨格构造（pts=2 expected=24）、⇔ 性质断言。case_m3_no_change_listener（删 targetYaw change 注册行）：exit1，FAIL 恰为 G1-1+G1-2（reg 列表无 targetYaw:change、sentinel 未被覆盖）。三组证据齐；在并发改 sim.html（21:21）之后整套复跑，结论不变"
+        },
+        {
+          "criterion": "git diff 确认旧断言无被弱化/删除（只增不改，或改动有规格依据且说明清楚）",
+          "status": "passed",
+          "evidence": "找回 t1 起点基线快照 _tmp_verify_t5_snapshot/test-sim-map-render.mjs（mtime 2026-10-15 17:27，grep 计恰 54 个 check(、G1-/T8-1/T8-2 标记各 0，与 t1 自报基线 54/54 吻合）。git diff --no-index 对现行文件：+177/−26，检查数 54−4+11=61，净 +7 与 t1 自报一致。删除行全清单 = 头注释 1 行 + 旧 A 组 4 条断言（`参考路线折线已画（60 token）` 硬编码标签、`真实路线（54 token 全逐格正交）折线点数 = token 数`、`折线点数 = 格心数 + 多格跳步补点数（可复算）`、`真实路线 54 token 的每一步都恰好跨 1 格`）——恰为 t1 任务点名的 :119/:151/:181 写死解除目标，替换物为动态推导/渲染层点数复核/跨格构造/⇔ 四条更强断言且经 M2 注入证有牙；其余 50 条旧断言（B/C/D/E/R4/R5 组）零改动。HEAD..工作树的 8/8 行未提交差异仅是 G1 组内部 els.*→el() 工厂修正（t1 自报桩缺陷修复，且 G1 为 t1 新增组，不涉旧断言）"
+        },
+        {
+          "criterion": "写入边界：git status 里本队只改了测试文件一个 M（sim.html/simbench.js 的 M 属已归档上一队的既存成果）",
+          "status": "passed",
+          "evidence": "认领时刻 git status --short 恰为 1 个 M：dsh-plugin-dzrobot-ssh/scripts/test-sim-map-render.mjs（t1 交付物），sim.html/simbench.js 当时零 diff（其既存改动已被 HEAD 4b610d1 归档）。本队（sim-verifier）全程零仓库写入：所有注入与取证仅落 %TEMP%\\t2_verify\\。复验过程中并发写入者于 21:01/21:21 起新增 10 个 M（sim.html 的 showTrace 默认勾选与 trace 描边色 #d64545→#2f9e44、config/robot.yaml、src/dzbrain/route/planner.py +236、src/dzrknn_dataprocess ×2、docs ×5）与 4 个 untracked——时间戳、内容均属禁改领地的并发写入者，非本队所为；simbench.js 自始至终零 diff；并发 sim.html 下套件仍 61/61"
+        },
+        {
+          "criterion": "回归 test-host / test-package-files / test-client 全部读输出 FAILURES 段判定（test-client 的 tool list 4 vs 5 是交接清单 §5 已证 HEAD 既存）",
+          "status": "passed",
+          "evidence": "test-host：exit0，输出无 FAILURES 段，尾行 HOST TEST PASSED。test-package-files：exit0，无 FAILURES 段，尾行 PACKAGE FILES TEST PASSED。test-client：exit1，但 FAILURES 段仅一行 `tool list should have 4 rows, has 5`（scripts/test-client.mjs:472 判 client.__test.TOOLS.length）——交接清单 §5 已证 HEAD 既存（docs/sim-bench-improve_交接清单_20261014.md:129 与 :139 记 CLEAN_TEST_CLIENT_EXIT=1 同一 FAIL 行），且 git diff 对 client.js 与 test-client.mjs 在 af0fb4e..HEAD 及 HEAD..工作树两向均零输出（未被任何人改动），除该既存项外无任何新增红"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node scripts/test-sim-map-render.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "逐行全读输出：61 行全 PASS、零 FAIL，汇总「横置地图渲染核对：61/61 通过」；断言数 61>54；跑前后 sha256 一致（AB39772B…）且并发改写 sim.html 后复跑仍 61/61 exit0"
+        },
+        {
+          "command": "node scripts/test-host.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "读输出：无 FAILURES 段，全部 OK 行，尾行 HOST TEST PASSED"
+        },
+        {
+          "command": "node scripts/test-package-files.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "读输出：无 FAILURES 段，全部 OK 行，尾行 PACKAGE FILES TEST PASSED"
+        },
+        {
+          "command": "node scripts/test-client.mjs",
+          "status": "passed",
+          "exitCode": 1,
+          "evidence": "读 FAILURES 段：仅 `tool list should have 4 rows, has 5` 一条 = 交接清单 §5 已证 HEAD 既存（client.js/test-client.mjs 双向零 diff），无新增红"
+        },
+        {
+          "command": "git -C .. status --short",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "认领时恰 1 M=scripts/test-sim-map-render.mjs（本队 t1 交付物）；收尾时 11 M 中 10 个为并发写入者中途产生（sim.html/config/planner/dzrknn/docs，时间戳 21:01/21:21），本队仍只对应测试文件一个 M，simbench.js 零 diff，仓库写入仅此一处且非本验证所写"
+        }
+      ]
+    },
+    {
+      "id": "t3",
+      "subject": "复审补强交付：期望值来源 + 有牙性 + findings 对账",
+      "status": "completed",
+      "assignee": "sim-reviewer",
+      "dependencies": [
+        "t1"
+      ],
+      "attempt": 1,
+      "createdAt": 1792066205852,
+      "updatedAt": 1792070488128,
+      "kind": "review",
+      "objective": "审查 sim-fixer 的断言补强质量：期望值是否来自规格、断言是否有牙、t8 findings 对账是否诚实、写入边界。",
+      "acceptance": [
+        "新断言期望值来自规格（geometry/map.yaml/官方渲染器声明意图），未照抄实现代码——逐条给出规格出处；发现照抄即 reject",
+        "抽样至少 2 个新断言做变异实证其有牙（%TEMP% 副本，仓库零写入）",
+        "与 t8 的 6 条 findings 逐条对账：T8-1/T8-2/G1 应闭合，T8-3/4/5/6 如实标注 open 或按本卡范围说明为何不做",
+        "写入边界合规：仅测试文件被改，无 git add/commit",
+        "钉版哈希后判定（受审文件可能并发改写，先取 sha256）"
+      ],
+      "verify": [
+        "node scripts/test-sim-map-render.mjs",
+        "git -C .. status --short"
+      ],
+      "reviewedTaskId": "t1",
+      "attemptId": "735c0a52-dbd1-43c8-986f-862ccdbbea17",
+      "reassigning": false,
+      "output": "t3 复审 verdict=pass（无阻塞；3 条非阻塞 low findings 留档）。受审钉版（首尾各取一次，逐字节未漂）：test-sim-map-render.mjs AB39772B / sim.html CB19FDF4（=t8 钉版逐字节相同）/ simbench.js 0CED6A07（同 t8）。①期望值来源：方向类 specHead=[cos(yaw+π/2),−sin(yaw+π/2)] 出自官方 tools/sim_map_render.py:13/:300（θs=yaw+90°、matplotlib y-up→SVG y 取反），测试侧独立重推、不调 headVec；点数类 44/24=rows+cols−1/相邻 34px 出自几何+map.yaml，crossStepPtsOf 按格数重实现（与 sim.html 像素分支语义核对一致：单格对角亦 +1）；G1 的 value 回''（select 默认项）、注册接口（#targetYaw change、button[data-reset=targetYaw] click）出自 HTML 契约。两处实现锚定（箭头长度×0.62、两条文案字面量）判为「已验收行为冻结守卫」非 R2 类反向锁死（无外部规格可违背、不掩盖功能缺陷、可证伪），已记 finding R3-1/R3-2。②有牙性（独立变异，%TEMP%\\t3_mut_*，与 t1 的 M 系列锚点不同）：对照 61/61 exit0；N1 箭头角度符号翻转→恰红 T8-1a+T8-1b；N2 首点重复 push→红含 T8-2 全部四条（动态/渲染层/跨格构造/⇔）；N3 专属文案改词→恰红 G1-3；N4 删 change 注册行→恰红 G1-1+G1-2；还原 61/61。③t8 对账：T8-1 闭（N1）、T8-2 闭（写死 54/60 全解除，且并发写入者已把 config 路线改成 44 token、套件仍 61/61 全绿=真实漂移下零假红的现场实证）、T8-5(a) 顺带闭（断言名 :129 动态化）；G1 闭（N3/N4）；T8-3（对角分支折点顺序 sim.html:606）、T8-4（轨迹抽样密度）、T8-5(b)（sim.html:592 注释）、T8-6（sim.html:573 死赋值）如实保持 open——sim.html 与本卡写域外，逐条已验证现状未变（sim.html 哈希=t8 钉版）。④写入边界：工作区受审文件仅 test 一处 M；HEAD 前进至 4b610d1（20:56:42 v3.6 发布提交，含 config/src/dzbrain/dzrknn 等本队禁改路径内容=并发使用者发布动作把 t1 落盘中途快照扫入，其 blob 缺 el() 修复而 t1 末次写盘 20:56:25 早于提交 ⇒ 非 t1 提交；暂存区空、无 stash）；我本人零仓内写入。Verify 两条命令按契约原文执行（git -C .. 在插件目录下运行）。",
+      "verdict": "pass",
+      "changedPaths": [],
+      "acceptanceResults": [
+        {
+          "criterion": "新断言期望值来自规格（geometry/map.yaml/官方渲染器声明意图），未照抄实现代码——逐条给出规格出处；发现照抄即 reject",
+          "status": "passed",
+          "evidence": "核心守卫性质全部独立出处：T8-1a 方向 specHead=[cos(yaw+π/2),−sin(yaw+π/2)]（test:354）出自官方 tools/sim_map_render.py:13「θ_s=θ_code+90°」+:300（matplotlib y-up→本页 SVG y 取反，t8 round-2 曾独立复核同一推导），测试不调 headVec；T8-1b 为 t8 finding 原文点名要守的「箭头与 carPolygon 共用 headVec」不变量；T8-2 期望点数由 field.route（config/map.yaml→routeTokens）动态推导，crossStepPtsOf 按格数重实现（与 sim.html:595-618 像素分支语义逐案核对一致，含单格对角 +1），跨格构造 24=rows+cols−1、相邻恒 34px 为纯几何；G1 注册接口出自 HTML 契约（sim.html:206/#targetYaw）、value 回'' 出自 select 默认项。两处锚定实现的次级子句（箭头长度 ×0.62、G1-3/4 文案字面量）测试注释如实自认来源=sim.html 画法声明/文案；判定为「已验收行为冻结守卫」而非 R2 类反向锁死（无外部规格可违背、不掩盖功能缺陷、变异可证伪——N1/N3 实证），按字面口径的处置权已写入 finding R3-1/R3-2 交队长裁量。"
+        },
+        {
+          "criterion": "抽样至少 2 个新断言做变异实证其有牙（%TEMP% 副本，仓库零写入）",
+          "status": "passed",
+          "evidence": "%TEMP%\\t3_mut_*（复制插件目录+DZROBOT_SIM_ROOT 指回工作区）：对照 61/61 exit0；N1（sim.html:817 箭头改内联角度翻转，独立于 t1 的 M-A 锚点）→59/61 恰红 T8-1a+T8-1b；N2（routePolyline 首点重复 push）→51/61 红含 T8-2 全部四条新断言；N3（专属文案改词）→60/61 恰红 G1-3；N4（删 #targetYaw change 注册行）→59/61 恰红 G1-1+G1-2；还原 61/61。抽样覆盖 7 条新断言，超过合同要求的 2 条。"
+        },
+        {
+          "criterion": "与 t8 的 6 条 findings 逐条对账：T8-1/T8-2/G1 应闭合，T8-3/4/5/6 如实标注 open 或按本卡范围说明为何不做",
+          "status": "passed",
+          "evidence": "T8-1 闭（N1 变异恰红两条新断言）；T8-2 闭（:119/:151/:181 写死全解除，且并发写入者已在 20:43 把 config 路线 54→44 token、套件仍 61/61 全绿——真实漂移下零假红的现场实证）；T8-5(a) 顺带闭（断言名 :129 动态化）；G1 闭（N3/N4）。T8-3 open：无对角折点坐标断言（sim.html:606 选边仍无守护，sim.html 禁改）；T8-4 open：无 TRACE.points 密度断言（卡面未要求）；T8-5(b) open：sim.html:592 过期注释未动（sim.html 哈希=t8 钉版 CB19FDF4，逐字节未变可证）；T8-6 open：sim.html:573 死赋值仍在。open 四条均因 sim.html/卡面范围所限，t4 交接清单卡须按此记账，其中 T8-5 应记「半闭」（a 已闭、b open）。"
+        },
+        {
+          "criterion": "写入边界合规：仅测试文件被改，无 git add/commit",
+          "status": "passed",
+          "evidence": "t1 的写域内改动仅 dsh-plugin-dzrobot-ssh/scripts/test-sim-map-render.mjs 一处 M；sim.html CB19FDF4 / simbench.js 0CED6A07 与 t8 钉版逐字节相同；config/、tools/ 不在 status；暂存区空、无 stash。HEAD 由 af0fb4e 前进至 4b610d1（20:56:42，作者 dzrobot，v3.6 台账式发布，内容含 config/robot.yaml、src/dzbrain/**、dzrknn 等本队禁改路径=并发使用者的发布提交）：该提交内测试文件 blob 缺 el() 修复而 t1 末次写盘 mtime 20:56:25 早于提交时刻 ⇒ 提交方的 add 发生在 t1 最后写盘之前，判定为外部发布动作扫入、非 t1 git add/commit。审查期间（20:59 起）并发写入者继续活动（docs/*5 个+planner.py 新增 M、HEAD 上再改动），均非本卡所为；我本人零仓内写入，变异全在 %TEMP%。"
+        },
+        {
+          "criterion": "钉版哈希后判定（受审文件可能并发改写，先取 sha256）",
+          "status": "passed",
+          "evidence": "审查开始与结束各取一次 SHA256，逐字节相同（drift=False）：test=AB39772B394EC9B0CD07F2CA82DF9F2CF63F483D9B6CDB49433D24BABCA0E1DB、sim.html=CB19FDF4C3698CD6E039920D5AA826C121B4B27DFFF90C39468BDB018DCF771C、simbench.js=0CED6A072842BDAAA6A02C5D4A2B5D604DBC6268B8E85022523EB763090942DF。本 pass 只对这组哈希成立。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node scripts/test-sim-map-render.mjs（workdir=dzrobot_v2/dsh-plugin-dzrobot-ssh）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "输出末行「横置地图渲染核对：61/61 通过」，逐行无 FAIL（读输出内容而非只看退出码）；另在 %TEMP% 副本对照组复跑同为 61/61 exit0"
+        },
+        {
+          "command": "git -C .. status --short（workdir=dzrobot_v2/dsh-plugin-dzrobot-ssh，即契约原文 Verify 命令）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "插件内仅 dsh-plugin-dzrobot-ssh/scripts/test-sim-map-render.mjs 一处 M；其余 M（docs/*5、src/dzbrain/.../planner.py）为审查期间并发写入者的活动，untracked 全为 _tmp_* 取证残留；暂存区空、stash 空、HEAD=4b610d1"
+        }
+      ]
+    },
+    {
+      "id": "t4",
+      "subject": "更新交接清单：修正过期数字与作废结论",
+      "description": "更新交接清单 + 给仿真员写对接说明（两份文档，同一写域 docs/）。\n\n【A. 交接清单修订】docs/sim-bench-improve_交接清单_20261014.md（或按现态新建 20261015 版）：修正过期数字（21→54→62 断言、simbench.js 零改动→+7/−1、测试 +386/−6）；作废 §4「变异无法在被测闭包内自证」结论（t7 已落地可运行自证段，reviewer2 实测锚点失配响亮读红）；记录本队 t1-t3 的新断言与变异取证结果；tools/sim_map_render.py:276-283 的 10s 车身抽样 bug 留档（不在写域，仅上报待裁）；T8-3/4/5/6 四条 low 如实保持 open。\n\n【B. 仿真员对接说明】新建 docs/仿真台对接说明_仿真员.md——仿真员是操作仿真台跑仿真线的工作成员，必须能只读这份文档就对齐：① 当前钉版哈希与自检方法（sim.html / test-sim-map-render.mjs，改后以本队最终交付哈希为准）；② 仿真台页面行为变化清单：位姿抽样每 125 数据行(2.5s)、坐标半格修正、车头朝向镜像修正——与旧版截图/官方图逐格对照时的已知差异及其原因；③ 官方 tools/sim_map_render.py 与本页车身疏密不同的口径说明（官方嵌套 bug 每 10s，本页按注释意图每 2.5s）；④ GPU 口径：仿真链路是确定性 CPU 计算、无推理负载，不加假开关，GPU 仅在真机无人机 YOLO 阶段用；⑤ 改点位流程：写运行目录 override、config 零写入；⑥ 测试跑法：node scripts/test-sim-map-render.mjs，期望值来自规格不照实现，route 变化不应再假红。\n\n边界：只写 docs/ 下这两个文档；不碰 sim.html/simbench.js/测试文件/config/src/tools；不 git add/commit。完成后在交付报告里给出两份文档路径，由队长转交仿真员侧。",
+      "status": "completed",
+      "assignee": "sim-fixer",
+      "dependencies": [
+        "t2",
+        "t3"
+      ],
+      "attempt": 1,
+      "createdAt": 1792066230892,
+      "updatedAt": 1792073911462,
+      "kind": "work",
+      "attemptId": "deaf2e42-3142-459a-94c7-2d46ad5a16dc",
+      "reassigning": false,
+      "output": "两份文档已落盘（同一写域 docs/）：A. docs/sim-bench-free_交接清单_20261015.md（取代 1014 版，7 节）——§2 数字勘误表（断言 21→36→54→61，卡面「62」判笔误；simbench.js「零改动」勘为前队 t1 实际 +7/−1，:321 现存 export function sanitizeParams；卡面「+386/−6」未复现，改用实测 +538/−7 vs af0fb4e、+8/−8 vs HEAD）；§3 整节作废 1014 版「变异无法在被测闭包内自证」结论（三次脚手架 bug 误判为原理不可能；t7 已落地成对谓词+锚点命中护栏的可运行自证段；本队三层独立变异 M/M/N 系列全部实证有牙）；§4 本队 t1-t3 新断言 8 条逐条对应变异体 + 复验复审结论；§5 遗留 open（T8-3/4/5/6 四条 low 如实保持 open + sim_map_render.py:276-283 10s 抽样 bug 上报待裁 + 旧疑点 2/F7）；§6 回归现状（61/61 在 21:21 并发改版 sim.html 下复跑仍绿）；§1 钉版哈希（sim.html=D14D5267 并发改版、测试=AB39772B、simbench.js=0CED6A07）。B. docs/仿真台对接说明_仿真员.md——①-⑥ 六节齐备：钉版哈希+自检法、五行页面行为差异表（朝向镜像 61.91°→0.00°、半格 24.04px→0、抽样密度、靶板并板、折线补点）、官方工具 10s 嵌套 bug 与本页 2.5s 口径（本页密 4 倍是预期）、GPU 口径（确定性 CPU、不加假开关、仅真机 YOLO 用 GPU）、改点位走 override/表单 config 零写入、测试跑法（读输出内容、61/61 为绿、期望值动态推导不再假红、四类红的定位指引）。",
+      "changedPaths": [
+        "dzrobot_v2/docs/sim-bench-free_交接清单_20261015.md",
+        "dzrobot_v2/docs/仿真台对接说明_仿真员.md"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "A. 修正过期数字（21→54→62 断言、simbench.js 零改动→+7/−1、测试 +386/−6）",
+          "status": "passed",
+          "evidence": "新交接清单 §2 设勘误表，逐条给实测值与证据：断言数实为 21→36→54→61（卡面「62」判笔误，四方实跑均为 61）；simbench.js「零改动」对前队 t1 不成立，实为 +7/−1（sanitizeParams 加 export，simbench.js:321 现存 export function sanitizeParams）；卡面「+386/−6」未能复现，改用 git diff --numstat 实测 +538/−7（vs af0fb4e）/ +8/−8（vs HEAD 4b610d1）"
+        },
+        {
+          "criterion": "作废 §4「变异无法在被测闭包内自证」结论（t7 已落地可运行自证段，reviewer2 实测锚点失配响亮读红）",
+          "status": "passed",
+          "evidence": "新交接清单 §3 单节作废：指明旧结论源自三次脚手架 bug（判据写错/输入不一致/谓词恒假）误判为原理不可能；记 t7 可运行自证段写法（同谓词同输入双侧求值 + 锚点命中恰为 1 护栏）与本队三层独立变异 M/N/M 系列；约定内置自证段管观测面内、外部变异管跨文件链与真跑层"
+        },
+        {
+          "criterion": "记录本队 t1-t3 的新断言与变异取证结果",
+          "status": "passed",
+          "evidence": "新交接清单 §4 表格逐条列 8 条新断言（T8-1a/T8-1b/A 动态点数/A 渲染层/A 跨格构造/A ⇔/G1-1..4）守护什么 + 每条对应哪些变异体（M-A..M-E、M1-M3、N1-N4）；并记 t2 独立复验与 t3 verdict=pass 结论、期望值来源"
+        },
+        {
+          "criterion": "tools/sim_map_render.py:276-283 的 10s 车身抽样 bug 留档（不在写域，仅上报待裁）",
+          "status": "passed",
+          "evidence": "新交接清单 §5「上报待裁」行 + 对接说明 ③ 详述机理：`if i%125==0` 嵌在 `if i%4==0` 里，125%4=1 ⇒ 每 500 数据行=10s 才画车身，与其注释「每 2.5s」不符；tools/ 不在写域，未修，仅留档上报"
+        },
+        {
+          "criterion": "T8-3/4/5/6 四条 low 如实保持 open",
+          "status": "passed",
+          "evidence": "新交接清单 §5 表格四行如实标 open 并附现状（sim.html:606 折点顺序 / :592 注释措辞 / :573 死赋值 / 抽样密度有意偏离待官方修复）；均属 sim.html 写域外，本轮只读核过未变，未当已修"
+        },
+        {
+          "criterion": "B. 新建 docs/仿真台对接说明_仿真员.md，六项齐备（钉版哈希/页面行为差异/官方工具口径/GPU 口径/改点位流程/测试跑法）",
+          "status": "passed",
+          "evidence": "文档已建，①-⑥ 六节齐备：①三个 sha256 + Get-FileHash 自检（跑前跑后各取一次）；②五行行为变化表（朝向镜像修正含 61.91°→0.00° 实测、半格修正 24.04px→0、抽样密度、靶板并板、折线补点）；③官方 10s bug 机理与「本页密 4 倍是预期」；④GPU 口径含「不加假开关、真机 YOLO 才用」；⑤override/表单改点位、config 零写入；⑥测试跑法含读输出内容、61/61 为绿、期望值动态推导不再假红"
+        },
+        {
+          "criterion": "边界：只写 docs/ 下这两个文档；不碰 sim.html/simbench.js/测试文件/config/src/tools；不 git add/commit",
+          "status": "passed",
+          "evidence": "本轮 changedPaths 恰为 docs/sim-bench-free_交接清单_20261015.md 与 docs/仿真台对接说明_仿真员.md；未碰任何 sim/config/src/tools 文件（哈希钉版前后一致：sim.html=D14D5267、simbench.js=0CED6A07、测试=AB39772B）；无 git add/commit（暂存区空，未跑 add/commit 命令）"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "Get-FileHash -Algorithm SHA256（sim.html / test-sim-map-render.mjs / simbench.js）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "测试=AB39772B（=t1 末态）、simbench.js=0CED6A07（全程零 diff）、sim.html=D14D5267（21:21 并发改版，与 t2 所见一致）"
+        },
+        {
+          "command": "git -C dzrobot_v2 diff --numstat HEAD / af0fb4e -- dsh-plugin-dzrobot-ssh/scripts/test-sim-map-render.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "vs HEAD 4b610d1 = +8/−8；vs af0fb4e = +538/−7（据此勘正卡面「+386/−6」）"
+        },
+        {
+          "command": "node scripts/test-sim-map-render.mjs（读输出内容）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "NODE_EXIT=0、末行「横置地图渲染核对：61/61 通过」、FAIL 行数=0，且是在 21:21 并发改版 sim.html 下复跑"
+        },
+        {
+          "command": "git -C dzrobot_v2 status --short",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "M 清单与 §1 一致（config/robot.yaml、planner.py、dzrknn ×2、sim.html、docs ×5 全为并发写入者）；本轮新增 2 个 docs 文件"
+        },
+        {
+          "command": "read tools/sim_map_render.py:1-16 / :268-289",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "确认 :13 θ_s=θ_code+90°（T8-1 期望值规格锚点）与 :276-283 嵌套抽样 bug（每 500 行=10s）原文"
+        }
+      ]
+    },
+    {
+      "id": "t5",
+      "subject": "t5 规格书：拖拽棋子地图 + 50图压测 + 无人机协同仿真",
+      "description": "用户需求原文要点：①雷/障/靶/通做成可移动棋子，拖到棋盘格上地图配置即刻生效，点运行仿真自动重规划最佳路线，替代点位文本框；②一键生成50张随机不同地图同时跑仿真，汇总平均完赛时间、路径规划计算时间等统计；③按最新地图规则把无人机加入仿真：起飞→按路线扫描点位→计算最佳路径→边扫描边算路径、小车边开始跑；仿真内暂不考虑打靶。允许新增成员加快进度。",
+      "status": "completed",
+      "assignee": "sim-design",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1792071563114,
+      "updatedAt": 1792072159284,
+      "kind": "requirements",
+      "objective": "产出《sim_v2 设计规格》写入 docs/sim_v2_设计规格.md，把用户三大需求固化为可实现、可验证的语义与模块契约（纯规格，不改任何代码）。",
+      "inScope": [
+        "dzrobot_v2/docs/sim_v2_设计规格.md"
+      ],
+      "outOfScope": [
+        "dzrobot_v2/config/**",
+        "dzrobot_v2/src/dzbrain/**",
+        "dzrobot_v2/tools/**",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/**（本轮只读参考）"
+      ],
+      "acceptance": [
+        "规格覆盖四大必答：A.拖拽棋子数据模型（四类棋子+落格规则+靶=相邻两格合并+与现有 runSim body.field 通道的映射+恢复默认+文本框去留）；B.压测语义（50图随机生成规则与合法性判据、并发池大小与理由、单跑 running 锁不得破坏、统计口径公式：平均完赛时间/规划耗时/仿真墙钟/完赛率/长度比、seed 可复现）；C.无人机协同时序（起飞点取 map 注释的 N8、扫描覆盖模型、边扫边算的重规划节奏、小车并行开跑语义、明确不建模打靶）；D.模块契约（新文件 src/stressbench.js、src/dronesim.js 的导出函数签名与 index.js 新端点清单，供三张实现卡零沟通对接）",
+        "每条设计决策附一句理由；引用 config/map.yaml 与 docs/空地指挥链路_协议与运行手册.md、docs/agent_archive/v3-空地协同闭环-2026-10-14.md 的现有事实作为依据",
+        "文档 ≤200 行、中文、Markdown，含「实现卡对接附录」一节列出各卡的文件归属矩阵"
+      ],
+      "verify": [
+        "powershell 测试-Path 'docs/sim_v2_设计规格.md' 且行数≤200",
+        "grep 检查规格含四个必答锚点（棋子模型/压测/无人机/模块契约）与文件归属矩阵"
+      ],
+      "attemptId": "d943b613-378c-41ac-9eb4-c44e7ad31e94",
+      "reassigning": false,
+      "output": "《sim_v2 设计规格》已写入 dzrobot_v2/docs/sim_v2_设计规格.md（97 行 ≤200，中文 Markdown，纯规格零代码）。四大必答齐全：A 拖拽棋子模型（四类棋子+落格规则+靶双格合并+FIELD_KEYS 追加 targets 的 body.field 映射+恢复默认重读 /sim/map+文本框下线）；B 压测语义（mulberry32(seed+i) 生成 8雷/8障/靶相邻对/通 K 列分半场，静态+plan_route --check 两级判据，池=4 含理由，runSim running 锁 409 语义原样保留+runSimJob(lock:false) 拆分，五项统计公式显式分母与 missing 口径，--seed=(seed*1000+i) 可复现）；C 无人机协同（起飞点取 map 注释 N8，U 形航线步长1格+3×3 覆盖，bridge_passable/target_zone/field_verify 同构报文+采纳校验，t=0 双发+每半场最多 2 次途中重规划并标注与车侧\"出发前换洞\"(手册L153) 的有意差异，明确不建模打靶）；D 模块契约（stressbench.js/dronesim.js 导出签名 + index.js 5 个新端点表）。每条决策附理由；引用 config/map.yaml、空地指挥链路手册、v3 档案行号级事实；附录文件归属矩阵按 卡1/卡2/卡3 给出新增/修改/只读/禁区与同文件串行冲突规则。",
+      "verdict": "pass",
+      "acceptanceResults": [
+        {
+          "criterion": "A. 拖拽棋子数据模型（四类棋子+落格规则+靶=相邻两格合并+body.field 映射+恢复默认+文本框去留）",
+          "status": "passed",
+          "evidence": "§A 条目 1-7；FIELD_KEYS 缺 targets 的事实与一行追加方案（simbench.js:91、applyFieldToMapText 按 FIELD_KEYS 循环）"
+        },
+        {
+          "criterion": "B. 压测语义（50图生成/合法性、并发池与理由、running 锁不破坏、五项统计公式、seed 可复现）",
+          "status": "passed",
+          "evidence": "§B 条目 1-8；池=4 理由、runSimJob(lock:false) 拆分保留 409、完赛率/平均完赛时间/规划耗时/仿真墙钟/长度比公式带显式分母"
+        },
+        {
+          "criterion": "C. 无人机协同时序（N8 起飞点、扫描覆盖模型、边扫边算节奏、小车并行、不建模打靶）",
+          "status": "passed",
+          "evidence": "§C 条目 1-6；N8/M2 依据 map.yaml:19+simbench.js:93，U 形航线手册:24，先验默认 K9/K5 手册:128-130，出发前换洞差异标注手册:153"
+        },
+        {
+          "criterion": "D. 模块契约（stressbench.js/dronesim.js 导出签名 + index.js 新端点清单）",
+          "status": "passed",
+          "evidence": "§D：两文件各 4/3 个导出签名 + 5 端点表（/sim/stress start|status|result、/sim/drone run|history）+ simbench.js 内部配合项"
+        },
+        {
+          "criterion": "每条设计决策附理由；引用三份指定文档的现有事实",
+          "status": "passed",
+          "evidence": "全文各决策条目行内「理由：」；§5 事实依据列出 config/map.yaml、空地指挥链路手册、v3 档案的行号级引用"
+        },
+        {
+          "criterion": "文档 ≤200 行、中文 Markdown、含实现卡对接附录文件归属矩阵",
+          "status": "passed",
+          "evidence": "[System.IO.File]::ReadAllLines = 97 行；grep 命中四锚点+「实现卡对接附录 — 文件归属矩阵」共 6 处"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "Test-Path 'dzrobot_v2/docs/sim_v2_设计规格.md'; [System.IO.File]::ReadAllLines(...).Count",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "True / 97（≤200）"
+        },
+        {
+          "command": "grep -E '棋子模型|压测语义|无人机协同时序|模块契约|文件归属矩阵' dzrobot_v2/docs/sim_v2_设计规格.md",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "6 处命中：行3/13/28/45/54/89，四大必答锚点与文件归属矩阵齐全"
+        }
+      ]
+    },
+    {
+      "id": "t6",
+      "subject": "卡1 拖拽棋子地图：sim.html 棋盘编辑 + FIELD_KEYS 追加 targets",
+      "status": "completed",
+      "assignee": "ui-builder",
+      "dependencies": [
+        "t5"
+      ],
+      "attempt": 1,
+      "createdAt": 1792072282213,
+      "updatedAt": 1792074925490,
+      "kind": "implementation",
+      "objective": "按 docs/sim_v2_设计规格.md §A（棋子模型）与附录矩阵卡1，把仿真台的地图编辑从文本框改为棋盘拖拽：四类棋子（雷/障/靶/通）做成可拖动棋子，用户拖到棋盘格即改点位，「恢复默认」重读 /sim/map，「运行仿真」即用新点位重规划跑线；靶双格自动合并；simbench.js 的 FIELD_KEYS 数组追加 'targets'（一行改动，使 body.field 支持 targets 通道）。",
+      "inScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/simbench.js"
+      ],
+      "outOfScope": [
+        "config/**",
+        "src/dzbrain/**",
+        "tools/**",
+        "src/index.js",
+        "src/stressbench.js",
+        "src/dronesim.js"
+      ],
+      "acceptance": [
+        "sim.html 不再有 mines/obstacles/bridges 文本输入框作为主编辑通道（可留只读展示）",
+        "拖拽棋子落格后点运行仿真，生成的 map_override/map.yaml 里对应点位已更新且路线重规划（有 run_meta 记录）",
+        "靶棋子落一格时按规格 §A 合并相邻两格逻辑处理，FIELD_KEYS 含 targets 且 applyFieldToMapText/sanitizeParams 通路通过",
+        "恢复默认按钮重读 /sim/map 并还原棋盘",
+        "node scripts/test-sim-map-render.mjs 全绿（61+ 不回退），node --check src/simbench.js exit=0"
+      ],
+      "verify": [
+        "node scripts/test-sim-map-render.mjs",
+        "node --check src/simbench.js",
+        "node --check dsh-plugin-dzrobot-ssh/src/simbench.js || node --check <工作区 simbench.js 实际路径>"
+      ],
+      "attemptId": "90f30dd8-e056-4c2c-8e32-ceacb330d918",
+      "reassigning": false,
+      "output": "卡1 完成：sim.html 地图编辑改为棋盘拖拽（palette 四枚棋子 pointer 拖放 + elementFromPoint/closest('[data-cell]') 落格 + #map click 移除，lastDropAt 抑制拖放误点），mines/obstacles/bridges 三文本框降为只读镜像并新增只读 targets 镜像，按 §A.2 落格硬校验（禁落格 N10/N5/N8/M2 取真源、四类互斥、桥限 K 列、靶同侧相邻整对合并、清空/数量软警告进 fieldWarn），per-class 恢复默认先同步回填（G1 文案逐字不动）再异步 GET /sim/map 刷新真源，新增 #resetAll 整图恢复（无 data-reset，独立 listener → loadField 全量重读）；simbench.js FIELD_KEYS 追加 'targets'（:91 一行）。守卫零回退：test-sim-map-render.mjs 61/61 全绿（G1/T8/R4/R5/变异自证①~④全活，四锚点各恰一次），node --check ×2 exit 0。取证脚本 %TEMP%\\t6_verify.mjs 26 项全 PASS，含真跑 drag-smoke（field 含拖拽后 targets 对 G5+H5 → override/map.yaml targets 行改写、plan exit=0/50 token/checkExit=0、run_meta status=done 落账），一次成功无 422。仅改两个 in-scope 文件；真跑产物落 artifacts/sim/（gitignore），config/** 零写入（git diff config/robot.yaml 的 21:40 改动系其他写入者，早于本卡 22:21 起的任何操作）。",
+      "changedPaths": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/simbench.js"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "sim.html 不再有 mines/obstacles/bridges 文本输入框作为主编辑通道（可留只读展示）",
+          "status": "passed",
+          "evidence": "grep sim.html：mines/obstacles/bridges/targets 四个 textarea 全部带 readonly（:216/:220/:224/:228），主编辑通道 = palette 四枚 [data-piece] 棋子（:208-211）+ pointer 拖放 startDrag/placePiece + #map click 委托移除；标签注明「只读镜像」"
+        },
+        {
+          "criterion": "拖拽棋子落格后点运行仿真，生成的 map_override/map.yaml 里对应点位已更新且路线重规划（有 run_meta 记录）",
+          "status": "passed",
+          "evidence": "t6_verify.mjs：placePiece('targets','G5') → readForm().field 含 targets；真跑 runSim({label:'drag-smoke', maxSteps:20, field:{targets:['G5','H5'], mines/obstacles/bridges: 拖拽后镜像值}}) → ok，override/map.yaml 行变为 `  targets: [\"G5\", \"H5\"]`，record.plan {exitCode:0, tokenCount:50, checkExit:0, crossing:{lower:K9,upper:K5}}，status=done；run_meta.jsonl 最后一条 drag-smoke 落 field.targets+plan.tokenCount+route（id 1792074613673_drag-smoke）"
+        },
+        {
+          "criterion": "靶棋子落一格时按规格 §A 合并相邻两格逻辑处理，FIELD_KEYS 含 targets 且 applyFieldToMapText/sanitizeParams 通路通过",
+          "status": "passed",
+          "evidence": "t6_verify.mjs A2/A3：落 G5 → 整对 [G5,H5]（右邻自动合并）；落 N6 → [M6,N6]（右越界、下跨隔板的伙伴被拒，仍同侧相邻）；互斥/禁落格硬拒；simbench.js:91 FIELD_KEYS=['mines','obstacles','bridges','targets']；sanitizeParams(rb).field.targets=['G5','H5']，applyFieldToMapText 改写 flow 形式 targets 行（正则命中）——同通路由真跑 B 复证"
+        },
+        {
+          "criterion": "恢复默认按钮重读 /sim/map 并还原棋盘",
+          "status": "passed",
+          "evidence": "t6_verify.mjs A4：refreshFieldTruth('mines') 异步 GET /sim/map 后回填真源值；loadField 全量重读后四类镜像全部还原真源（含 targets）；#resetAll「整图恢复」按钮（sim.html:243，无 data-reset 属性）独立 listener → loadField()；per-class 按钮先同步 FIELD 回填（G1-4 文案逐字保留）再异步刷新真源"
+        },
+        {
+          "criterion": "node scripts/test-sim-map-render.mjs 全绿（61+ 不回退），node --check src/simbench.js exit=0",
+          "status": "passed",
+          "evidence": "改后实测：test-sim-map-render.mjs「横置地图渲染核对：61/61 通过」exit 0（与基线 61/61 持平，G1-1~4/T8-1/T8-2/R4/R5/变异自证①~④全活）；node --check src/simbench.js exit 0；node --check dsh-plugin-dzrobot-ssh/src/simbench.js（dzrobot_v2 cwd）exit 0"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node scripts/test-sim-map-render.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "cwd=dsh-plugin-dzrobot-ssh：横置地图渲染核对：61/61 通过（基线 61/61，不回退；改后复跑两次均 61/61）"
+        },
+        {
+          "command": "node --check src/simbench.js",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "cwd=dsh-plugin-dzrobot-ssh，语法检查无输出 exit 0"
+        },
+        {
+          "command": "node --check dsh-plugin-dzrobot-ssh/src/simbench.js || node --check <工作区 simbench.js 实际路径>",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "左分支（cwd=dzrobot_v2）exit 0；实际路径分支即 node --check src/simbench.js（cwd=dsh-plugin-dzrobot-ssh）exit 0，两分支同一文件同一结论"
+        },
+        {
+          "command": "node %TEMP%\\t6_verify.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "26 项取证全 PASS：落格规则 9 项（靶合并/同侧/禁落格/互斥/K列/数量软/移除）、通路 5 项（fieldFromForm/readForm/sanitizeParams/applyFieldToMapText/空值跳过）、恢复默认 2 项、真跑 B1~B5（drag-smoke ok，override targets 行 + plan 50 token checkExit=0 + run_meta 落账）"
+        }
+      ]
+    },
+    {
+      "id": "t7",
+      "subject": "卡2 50图压测：stressbench.js 随机图生成 + 并发池 + 统计聚合 + 3 端点",
+      "status": "completed",
+      "assignee": "bench-engineer",
+      "dependencies": [
+        "t6"
+      ],
+      "attempt": 1,
+      "createdAt": 1792072330526,
+      "updatedAt": 1792076429475,
+      "kind": "implementation",
+      "objective": "按 docs/sim_v2_设计规格.md §B（压测语义）与附录矩阵卡2，新建 src/stressbench.js：mulberry32(seed+i) 确定性生成 50 张随机地图（8雷/8障/靶相邻对/通 K 列分半场），两级判据（静态合法 + plan_route --check），并发池=4 逐图跑仿真；simbench.js 内部配合项（runSimJob(body,{lock}) 拆分、record.plan.ms、压测 run id 带 batchId/seq）；index.js 追加 3 个压测端点。聚合统计：平均完赛时间、平均路径规划耗时、成功率等五项（公式按规格 §B 的显式分母），全部 --seed 可复现；一次 runSim 的 running 409 锁语义原样保留（压测走 runSimJob(lock:false) 但同图不并发写同 outDir）。",
+      "inScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/stressbench.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/simbench.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/index.js"
+      ],
+      "outOfScope": [
+        "config/**",
+        "src/dzbrain/**",
+        "tools/**",
+        "sim.html",
+        "src/dronesim.js"
+      ],
+      "acceptance": [
+        "src/stressbench.js 存在并导出规格 §B 指定签名，node --check 通过",
+        "同一 seed 两次压测生成的 50 张地图逐字节相同（可复现）",
+        "压测记录含 batchId/seq，run_meta.jsonl 可追溯每张图的参数快照",
+        "统计五项指标按规格公式计算，分母显式（如失败图不计入平均完赛时间时注明）",
+        "index.js 新增 3 端点且 node --check 通过；单图 runSim 409 锁语义不回退",
+        "node scripts/test-sim-map-render.mjs 全绿"
+      ],
+      "verify": [
+        "node --check src/stressbench.js",
+        "node --check src/simbench.js",
+        "node scripts/test-sim-map-render.mjs",
+        "node -e \"import('./src/stressbench.js').then(m=>console.log(Object.keys(m)))\""
+      ],
+      "attemptId": "85d4645a-9709-4568-b08b-be37df0e1e0a",
+      "reassigning": false,
+      "revisions": [
+        {
+          "at": 1792076387064,
+          "by": "captain",
+          "reason": "卡面 in-scope 写的 `dzrobot_v2/dsh-plugin-dzrobot-ssh/src/index.js` 不存在——插件入口实际在 `dzrobot_v2/dsh-plugin-dzrobot-ssh/index.js`（t5 规格书 §D 也写的是 index.js，卡面转写时多加了 src/ 前缀）。工作已按实际路径完成（stressbench.js 新建 + simbench.js 拆分 + index.js 3 端点），verify 全绿，仅结清被路径声明卡住；订正后与规格 §D 文件归属一致。",
+          "fields": [
+            "inScope"
+          ],
+          "previous": {
+            "inScope": [
+              "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/stressbench.js",
+              "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/index.js",
+              "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/simbench.js"
+            ]
+          }
+        }
+      ],
+      "output": "卡2 落地：新建 src/stressbench.js（mulberry32(seed+i) 确定性生成 + 静态自检重掷≤3 + 池≤4 并发跑 runSimJob(lock:false) + stressStats 显式分母/missing + stressStatus/stressResult + runStress background 选项）；simbench.js 拆出 runSimJob(body,{lock,runId,batch})（runSim = running 409 原文案 → stressBusy 409「压测进行中」→ workspace 检查 → runSimJob(lock:true)），新增 setStressBusy/appendMeta 导出，record.plan.ms 用 Date.now 包 planRoute；index.js 加 3 端点 POST /sim/stress→202/409、GET /sim/stress/status、GET /sim/stress/result?id=。verify 全过：4 条合同命令 exit 0（守卫 61/61），e2e %TEMP%\\t7_verify.mjs 24 项全 PASS（手动跑 plan.ms=737、running 409 文案逐字、压测期 409 含「压测进行中」、批次忙 409、count=2 批 batchId/seq/run id 落 stress/<batchId>/、sim seed=seed*1000+i、run_meta.jsonl 每图可追溯、stats 六组单测），50 图生成两进程 SHA256 逐字节相同，两次真跑 count=50（seed=20261015）逐图 fields/statuses/metrics 全等（仅 avgPlanMs/avgWallS 两个计时项随墙钟浮动）。仅改 3 个 in-scope 文件；禁区零写入（sim.html 22:21、config 21:40 均早于本卡 22:49 起的操作）。非阻塞观察：随机图 plan-failed 27/50（规划器权威判据照实进台账/分母）、finishedRate=0.3，如需更高完赛率需规格层把雷/障改半场 4+4 抽取，不在本卡范围。",
+      "changedPaths": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/stressbench.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/simbench.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/index.js"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "src/stressbench.js 存在并导出规格 §B 指定签名，node --check 通过",
+          "status": "passed",
+          "evidence": "node --check src/stressbench.js exit 0；node -e import 输出 ['generateMap','runStress','stressResult','stressStats','stressStatus']（§D 四签名 + D 表端点回读用 stressResult）"
+        },
+        {
+          "criterion": "同一 seed 两次压测生成的 50 张地图逐字节相同（可复现）",
+          "status": "passed",
+          "evidence": "两独立进程各 gen seed=424242 ×50 图 → SHA256 同为 B8B0DF8F473AB6EFDF657FD4EA539D2EF1C1474EF344525FD8505FE6F3EDB574（7683 B，notOk=0，50 张全 unique），seed=424243 哈希不同；另两次真跑 count=50（seed=20261015，batchId 1792076078097/1792076093015_t7full）digest 逐图 fields JSON 全等、statuses/metrics 全等"
+        },
+        {
+          "criterion": "压测记录含 batchId/seq，run_meta.jsonl 可追溯每张图的参数快照",
+          "status": "passed",
+          "evidence": "count=2 批（batchId=1792076036055_t7smoke）两记录 batchId/seq 对号 [batch,0]/[batch,1]，run id=stress/<batchId>/<ts_batchId_seq_label>；run_meta.jsonl 该批恰 2 行，均含 seq + field 快照（mines 8 格/bridges 2 格）；50 图批每图一行照实进同一台账"
+        },
+        {
+          "criterion": "统计五项指标按规格公式计算，分母显式（如失败图不计入平均完赛时间时注明）",
+          "status": "passed",
+          "evidence": "stressStats 输出 counts（各均值分母）+ missing（不进均值的记录数）；单测 6.1-6.6：finishedRate=0.6667=f/n、avgFinishS=15=Σ30/count(finished 且有值=2)、avgPlanMs=150=300/2、avgWallS=1.5、avgLengthRatio=0.9 且 missing.lengthRatio=2、statusCounts 用原词 plan-failed；真 50 图批 stats：n=50、counts{total:50,finished:15,finishS:15,planMs:50,wallS:23,lengthRatio:23}、missing{time_s:35,planMs:0,wallS:27,lengthRatio:27} ⇒ 27 plan-failed + 8 未完赛不进 avgFinishS 分母（15/50）"
+        },
+        {
+          "criterion": "index.js 新增 3 端点且 node --check 通过；单图 runSim 409 锁语义不回退",
+          "status": "passed",
+          "evidence": "node --check index.js exit 0 + import 冒烟 name=dzrobot-ssh（新 import 解析成功）；三端点 POST /sim/stress→202 {batchId}/忙 409、GET /sim/stress/status、GET /sim/stress/result?id=（经 runStress(background)/stressStatus/stressResult 直测：e2e 3.8-3.10、4.1）；e2e 2.1 running 409 文案逐字「上一次仿真还在跑，稍候再试」、2.2 锁释放后恢复、3.1 压测期 409「压测进行中，单跑请稍候再试」、4.1 批次忙 {ok:false,code:409}"
+        },
+        {
+          "criterion": "node scripts/test-sim-map-render.mjs 全绿",
+          "status": "passed",
+          "evidence": "终态复跑 exit 0，横置地图渲染核对 61/61 通过（G1/T8/R4/R5/变异自证①~④全活）"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node --check src/stressbench.js",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "无输出 exit 0（终态复跑）"
+        },
+        {
+          "command": "node --check src/simbench.js",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "无输出 exit 0（拆分后终态复跑）"
+        },
+        {
+          "command": "node scripts/test-sim-map-render.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "横置地图渲染核对：61/61 通过，exit=0（改动后复跑两次均绿）"
+        },
+        {
+          "command": "node -e \"import('./src/stressbench.js').then(m=>console.log(Object.keys(m)))\"",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "[ 'generateMap', 'runStress', 'stressResult', 'stressStats', 'stressStatus' ]"
+        },
+        {
+          "command": "node --check index.js",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "无输出 exit 0；另 import 冒烟输出 'index import OK name= dzrobot-ssh inject= []'"
+        },
+        {
+          "command": "node %TEMP%\\t7_verify.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "24 项全 PASS → ALL PASS (0 failed)：手动跑 plan.ms=737、running/压测期/批次忙三类 409、count=2 批 batchId/seq/run id/sim seed=seed*1000+i、summary.json+stressResult 回读、run_meta 可追溯、stats 六组分母单测"
+        },
+        {
+          "command": "node %TEMP%\\t7_batch.mjs gen 424242 <out> ×2 + Get-FileHash",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "同 seed 两文件 SHA256 相同=B8B0DF8F…B574（7683B）；seed 424243 哈希不同；notOk=0 unique=50"
+        },
+        {
+          "command": "node %TEMP%\\t7_batch.mjs full 20261015 <out> ×2",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "两批 wallMs 14746/15396；statusCounts 均 {plan-failed:27,done:23}、finishedRate 0.3、avgFinishS 95.71、avgLengthRatio 0.7677、counts/missing 全等；仅 avgPlanMs(873.7/914.8) 与 avgWallS(1.52/1.59) 随墙钟浮动；fields/statuses/metrics 逐图全等"
+        }
+      ]
+    },
+    {
+      "id": "t8",
+      "subject": "卡3 无人机协同：dronesim.js 起飞-扫描-边扫边算 + 小车并行开跑 + 时间线面板",
+      "status": "completed",
+      "assignee": "sim-fixer",
+      "dependencies": [
+        "t6",
+        "t7"
+      ],
+      "attempt": 4,
+      "createdAt": 1792072330565,
+      "updatedAt": 1792147540037,
+      "kind": "implementation",
+      "objective": "按 docs/sim_v2_设计规格.md §C（无人机）与附录矩阵卡3，新建 src/dronesim.js：无人机从起飞点（map.yaml 注释 N8，兜底 DRONE_FALLBACK）沿 U 形俯瞰航线扫描（步长1格、3×3 覆盖），边扫描边用已扫情报增量重规划（每半场≤2 次途中重规划），产出 bridge_passable/target_zone/field_verify 三种与车侧契约同构的情报报文并照搬采纳校验（被拒走默认）；小车 t=0 按先验默认路线出发不等情报（用户明确的并行语义），等不到/被拒走默认完赛。仿真内不建模打靶。index.js 追加 2 个端点（排在卡2 之后写 index.js），sim.html 加时间线可视化面板（排在卡1 之后写 sim.html，展示无人机/小车并行时间线）。",
+      "inScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/dronesim.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/index.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html"
+      ],
+      "outOfScope": [
+        "config/**",
+        "src/dzbrain/**",
+        "tools/**",
+        "src/stressbench.js"
+      ],
+      "acceptance": [
+        "src/dronesim.js 存在并导出规格 §C 指定签名，node --check 通过",
+        "报文三种 type 字段与 docs/空地指挥链路_协议与运行手册.md §2.1 契约一致，采纳校验拒绝路径走默认（有测试或断言取证）",
+        "小车并行开跑：无人机情报未到/被拒时车仍完赛（降级矩阵最坏完赛语义，有验证记录）",
+        "index.js 新增 2 端点 node --check 通过，且不与卡2 的 3 端点冲突",
+        "sim.html 时间线面板能展示无人机扫描与小车行驶的并行推进",
+        "node scripts/test-sim-map-render.mjs 全绿"
+      ],
+      "verify": [
+        "node --check src/dronesim.js",
+        "node --check index.js",
+        "node scripts/test-sim-map-render.mjs",
+        "node --check sim.html || <用脚本提取 <script> 做语法检查>"
+      ],
+      "reassigning": false,
+      "revisions": [
+        {
+          "at": 1792077887326,
+          "by": "captain",
+          "reason": "与 t7 同一处笔误：卡面 in-scope 写的 `dzrobot_v2/dsh-plugin-dzrobot-ssh/src/index.js` 不存在——插件入口实际在 `dzrobot_v2/dsh-plugin-dzrobot-ssh/index.js`（t5 规格 §D 与卡2 实际改动均为该文件）。t8 两端点须追加进同一实际入口，按实际路径交付并在 changedPaths 如实列出，避免重蹈 t7 结清被拒。",
+          "fields": [
+            "inScope"
+          ],
+          "previous": {
+            "inScope": [
+              "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/dronesim.js",
+              "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/index.js",
+              "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html"
+            ]
+          }
+        },
+        {
+          "at": 1792077909976,
+          "by": "captain",
+          "reason": "与 in-scope 同一处笔误：verify 第二条 `node --check src/index.js` 指向不存在的文件（该命令必然 exit≠0，合同自败）。改为对实际插件入口 `index.js` 做语法检查（相对工作目录为 dsh-plugin-dzrobot-ssh/index.js），其余三条不变。",
+          "fields": [
+            "verify"
+          ],
+          "previous": {
+            "verify": [
+              "node --check src/dronesim.js",
+              "node --check src/index.js",
+              "node scripts/test-sim-map-render.mjs",
+              "node --check sim.html || <用脚本提取 <script> 做语法检查>"
+            ]
+          }
+        }
+      ],
+      "attemptId": "52db3bed-cca1-4ece-a62b-8f3c86be884f",
+      "output": "卡3 无人机协同落地，三个 in-scope 文件，验证全绿。【新建 src/dronesim.js】scanPlan 六段正交 U 形航线（走廊行由 field.bridges 推：下半场 K 行≥7 缺省 9、上半场≤6 缺省 5；默认 N8/M2 恰 36 点，逐步 |Δcol|+|Δrow|==1，每点 3×3 裁剪 14×11，路径含 K9/K5 双通口）；intelAt 三报文同构手册 §2.1（bridge_passable{half,block,confidence,ts,seq}、target_zone{blocks 非空}、field_verify{mines|obstacles 非空}，附 decision/reason/default/scanAt）+ 三关采纳（K 列→半场行段→∈robot.yaml cross_*_candidates 只读正则，兜底 K9/K5；注释记与车侧两关的已知差异、出处 §7:237）+ 覆盖并集过滤非空才发（K7/K2 覆盖外=missing 不产报文）；runDroneSim t=0 双发（车按先验不等情报）→采纳且≠先验→每半场 1 次、总 ≤2 的真值 override plan_route --check 取证（产物落 artifacts/sim/drone/<id>/truth_override/，PYTHONPATH/UTF8 环境、300s 超时，失败降级不计数）→相同 confirmed→rejected/missing 走默认；appendMeta({kind:'drone'})；droneHistory 自拼 run_meta.jsonl 过滤；头注记有意边界（sim_cli 不支持中途换 token、车 record=先验单跑）。只 import simbench 现有导出，simbench.js 零碰。【index.js】卡2 三端点后追加 POST /sim/drone/run（200 {ok,timeline,reroutes,confirmed,record}，409/422 转 code）与 GET /sim/drone/history，import 一行。【sim.html】结果段后加 section（#droneRun+#droneMsg+#droneTimeline）；openFromHash 注释前插 renderDroneTimeline（纯 innerHTML 双轨/进度条/并行窗/事件日志）+ runDroneSimulation（readForm 带棋盘 field）+ 绑定；四硬约束全守（无新增 script、四变异锚点各恰一次、R5 图例一字未动、顶层无 location、$() 自动建桩、不碰 #map）。【修正过程】落盘后取证抓到自身两处断言错误（G1.5 期望列写错+未同步 lexicographic sort、G2.9 集合顺序）与一处真 bug（--emit json 真源形状为 {plans:[{tokens,crossing}],route_check:[{exit}]}，初版按 {tokens,plan,check} 解析致重规划取证恒失败）——均按实测修正，终态 32/32。【验证】四条合同命令全 exit 0（守卫 61/61 逐行零 FAIL）+ 取证七组 32/32：四场景真跑 A=done/confirmed2、B=reroutes1（先验 plan 38 token crossing K10+K5 与背书一致，真值取证 40 token exit0）、C=K10 rejected/reroutes0/K9 完赛、D=missing 无情报仍 done；G7 时间线桩 3 断言过。台账新增 4 条 kind=drone 记录（droneHistory 断言 ≥4）。",
+      "changedPaths": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/dronesim.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/index.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "src/dronesim.js 存在并导出规格 §C 指定签名，node --check 通过",
+          "status": "passed",
+          "evidence": "新建 src/dronesim.js（约 300 行）导出 scanPlan({field,drone})/intelAt({plan,truthBridges,field})/runDroneSim({field,seed,truthBridges,carDefaultBridges,label})/droneHistory()/TICK_S=0.5；node --check src/dronesim.js exit 0；证据 G8.1/G8.2（签名与返回形状断言）在 %TEMP%\\t8_verify\\t8_evidence.mjs 中 PASS"
+        },
+        {
+          "criterion": "报文三种 type 字段与 docs/空地指挥链路_协议与运行手册.md §2.1 契约一致，采纳校验拒绝路径走默认（有测试或断言取证）",
+          "status": "passed",
+          "evidence": "三关采纳（K 列→半场行段→∈robot.yaml cross_*_candidates 只读正则，兜底 K9/K5，模块注释记与车侧两关的已知差异及出处 §7:237）；证据 G2.1-G2.9（9 断言）：type/必填字段同构（bridge_passable{half,block,confidence,ts,seq}、target_zone{blocks 非空}、field_verify{mines|obstacles 非空}）、K10/K8 第③关 rejected 且带 default=K9、L5 第①关 rejected、K9/K5 adopted、K7/K2 覆盖外 missing 不产报文、target_zone=[E5,F5]、field_verify 覆盖集合=雷 G4/I6/B7/D9/H10+障 H4/D8/I8/G9（C1/A3/E3/A1/E2/B11/F11 出列）、rejected 场景真跑 reroutes=0（G5）"
+        },
+        {
+          "criterion": "小车并行开跑：无人机情报未到/被拒时车仍完赛（降级矩阵最坏完赛语义，有验证记录）",
+          "status": "passed",
+          "evidence": "四个真跑场景入 run_meta.jsonl：A 默认（truth=先验）status=done/finished=true/reroutes=0/confirmed=2/双方 t=0 出发/扫描 36 事件；B 先验 K10/K5→K9 采纳≠先验→reroutes=1 且重规划取证 plan exit=0/40 token/crossing K9+K5（车先验图 plan exit=0/check=0/tokenCount=38/crossing K10+K5 与背书一致）；C truth=K10/K5→K10 rejected/reroutes=0/车按先验 K9 完赛 done；D truth=K2/K7 全 missing→无情报 reroutes=0/confirmed=0/车仍 done（timeline 2 条 no-intel 走默认）。四跑 finished=true 全完赛"
+        },
+        {
+          "criterion": "index.js 新增 2 端点 node --check 通过，且不与卡2 的 3 端点冲突",
+          "status": "passed",
+          "evidence": "卡2 三端点（/sim/stress、/sim/stress/status、/sim/stress/result）原样保留，其后追加 POST /sim/drone/run（200 {ok,timeline,reroutes,confirmed,record}，409/422 转 code）与 GET /sim/drone/history；import 加一行 droneHistory/runDroneSim；node --check index.js exit 0"
+        },
+        {
+          "criterion": "sim.html 时间线面板能展示无人机扫描与小车行驶的并行推进",
+          "status": "passed",
+          "evidence": "新增 #droneRun/#droneMsg/#droneTimeline section + renderDroneTimeline（双轨 data-track=drone/car、进度条 data-role=car-progress/drone-progress、并行窗 data-role=parallel=min(landT,finishT)、事件日志）+ runDroneSimulation（走 readForm 带棋盘 field）；证据 G7.1-G7.3 桩调用断言全 PASS（双轨行、进度条宽度、并行窗 17.5=min(103.0,17.5)）；四硬约束满足：无新增 <script>、顶层不引用 location、绑定走 $() 自动建桩、未碰 #map，提取 <script> node --check exit 0"
+        },
+        {
+          "criterion": "node scripts/test-sim-map-render.mjs 全绿",
+          "status": "passed",
+          "evidence": "逐行读输出：横置地图渲染核对：61/61 通过、FAIL 行数=0、NODE_EXIT=0（四变异锚点 routePolyline/headVec/j += 125 各恰一次未被新代码污染、R5 图例未动）"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node --check src/dronesim.js",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "语法通过，无输出（最终轮 D=0）"
+        },
+        {
+          "command": "node --check index.js",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "语法通过，无输出（最终轮 I=0）"
+        },
+        {
+          "command": "node scripts/test-sim-map-render.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "逐行读输出：末行「横置地图渲染核对：61/61 通过」，FAIL 行数=0（不以退出码单独作证据）"
+        },
+        {
+          "command": "node --check sim.html || <用脚本提取 <script> 做语法检查>",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "sim.html 非纯 JS，按合同允许的后路：node 正则提取首 <script> 块写 %TEMP%\\t8_body.mjs → node --check exit 0（最终轮 S=0）"
+        },
+        {
+          "command": "node %TEMP%\\t8_verify\\t8_evidence.mjs（取证七组，含四场景真跑）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "32/32 通过、FAIL 0；日志 %TEMP%\\t8_verify\\t8_evidence.txt；含 G4 重规划两份 plan（先验 K10 图 38 token、真值 K9 图 40 token）与四跑 run_meta.jsonl 落账"
+        }
+      ]
+    },
+    {
+      "id": "t9",
+      "subject": "三卡联合复审：规格对齐 + 串行写入边界 + 全量守卫不回退",
+      "status": "completed",
+      "assignee": "sim-reviewer",
+      "dependencies": [
+        "t6",
+        "t7",
+        "t8",
+        "t10"
+      ],
+      "attempt": 1,
+      "createdAt": 1792072365267,
+      "updatedAt": 1792150162225,
+      "kind": "review",
+      "objective": "对卡1(t6)/卡2(t7)/卡3(t8) 三卡交付做联合复审：对照 docs/sim_v2_设计规格.md 逐条核对实现是否符合 §A/§B/§C 与模块契约 §D；核对文件归属矩阵（simbench.js 卡1→卡2 串行、sim.html 卡1→卡3 串行、index.js 卡2→卡3 串行，各卡未越界写入对方文件）；独立重跑全部守卫测试确认 61+ 断言不回退；抽查拖拽→override、压测可复现、无人机报文同构三条关键链路的真实产物（不是只看代码）。",
+      "acceptance": [
+        "逐条对照规格 §A/§B/§C/§D 给出符合/偏差清单，偏差分级",
+        "哈希钉版：三卡改动文件首尾哈希，确认串行规则未被并发破坏",
+        "独立重跑 node scripts/test-sim-map-render.mjs 与 node --check 三件套并贴真实输出",
+        "抽查链路①：一次拖拽仿真的 run_meta.jsonl 记录含 targets 字段与重规划 plan.ms；链路②：同一 seed 两次压测 50 图逐字节相同；链路③：一条被拒无人机报文走默认路径的取证"
+      ],
+      "reviewedTaskId": "t8",
+      "description": "对卡1(t6)/卡2(t7)/卡3(t8)/卡4(t10) 四卡交付做联合复审：对照 docs/sim_v2_设计规格.md 逐条核对 §A/§B/§C/§D；卡4 无规格（用户后加需求），按卡面验收逐条核对（车比例换算/traj.csv 真实轨迹/回退标注/守卫 61/61）。核对文件归属矩阵（simbench.js 卡1→卡2 串行、sim.html 卡1→卡3→卡4 串行、index.js 卡2→卡3 串行，各卡未越界写入对方文件）；独立重跑全部守卫测试确认 61+ 断言不回退；抽查拖拽→override、压测可复现、无人机报文同构、动画真实轨迹回放四条关键链路的真实产物（不是只看代码）。",
+      "attemptId": "990f2102-492a-4c57-ac28-bcf6a434c7f9",
+      "reassigning": false,
+      "output": "四卡联合复审 verdict=pass（6 条非阻塞 findings）。守卫独立重跑 61/61 exit 0、node --check 四件全 exit 0。规格逐条对账：§A 八条全合（A.7 textarea「下线」实现为只读镜像=F1 低级偏差，已记档）；§B 八条全合（mulberry32 无 Math.random、重掷≤3、池=4、409 原文案逐字、run id 含 batchId/seq、seed 公式 (20261015*1000)%2^31=933662168 与台账吻合、统计显式分母/missing）；§C 六条全合（独立探针：N8/M2 36 点全相邻、3×3 裁剪、truth K5/K10 → upper adopted / lower K10 第③关 rejected 带 reason、默认真值双 adopted）；§D 五端点+导出签名全合（仅增 total/confirmed 等附加字段）。卡4 验收：独立探针 10/10（0.28×0.34/0.35=27.2×13.1141 等比、真实 droneD traj.csv 3808 行→239 点首末保留、回退文案「traj 缺失」可见）。链路抽查：①drag-smoke 记录 field.targets=[G5,H5]+override 目录+plan exit0/50token/checkExit0，plan.ms 机制由 117 条含两者的记录+代码证实（无单条 drag+ms 记录=F4 时序注记）；②两批 t7full(seed=20261015) fields/status sha 逐位相同、剔批次路径与计时后 0/50 差异；③droneC 被拒报文走默认铁证（reroutes0/confirmed1/done + robot.yaml:520 候选集 [\"K9\"]）。串行边界：simbench 卡1→卡2、index.js 卡2→卡3、sim.html 卡1→卡3→卡4 时间戳递进成立；禁区文件 mtime 均不在卡窗口内，robot.yaml 现行 diff 属并发写入者「卡 t4」桥洞冗余。首尾哈希七文件零漂移；审查期间外部发布者提交 a8c500b（19:16:30 v3.7）扫入卡产物，git diff a8c500b -- 插件目录 = 0 行，字节与钉版一致，非本队卡提交。审查零仓写入，探针全在 %TEMP%。",
+      "verdict": "pass",
+      "acceptanceResults": [
+        {
+          "criterion": "逐条对照规格 §A/§B/§C/§D 给出符合/偏差清单，偏差分级",
+          "status": "passed",
+          "evidence": "§A: A.1 四类棋子 palette+FIELD_KEYS 一致；A.2 禁落格取真源 forbiddenCell(FIELD.start/end/drone)+四类互斥 occupiedBy+桥限 K 列+靶整对 pickPartner 同侧，硬拒文案齐（sim.html:1031-1057）；A.3 靶整对替换+targetBoardRect 渲染（R5 守卫绿）；A.4 simbench.js:91 FIELD_KEYS 含 targets；A.5 清空=不生效+「至少留 1 枚」警告（:948）；A.6 per-class 恢复 refreshFieldTruth+resetAll 重读 /sim/map（:1554-1582）；A.7 偏差 F1（low）：textarea 未删除而降只读镜像，t6 已记档，单一写通道保持。§B: B.1 mulberry32(seed+i)（:164，Math.random 仅出现在注释）；B.2 两级判据+重掷≤3（:167）+plan-failed 照实进分母（27/50 进 stats.statusCounts）；B.3 池=4（:255）；B.4 running 锁原文案逐字保留+stressBusy「压测进行中」409（simbench:469-470）+runSimJob(lock:false)（:490）；B.5 run id `${Date.now()}_${batchId}_${seq}_${label}`（批次目录名实证）；B.6 统计显式 counts/missing（summary.json stats 实证）；B.7 seed 公式 :274 且记录 seed=933662168=(20261015*1000)%2^31 实测吻合；B.8 产物只落 artifacts/sim/stress/<batchId>/。§C: C.1 起飞 N8 终点 M2（探针实证）；C.2 36 点全相邻步、3×3 裁剪（探针）；C.3 三类报文+三关采纳带 reason（探针：K10→「第③关失败：不在候选集合」）；C.4 上限双口径 perHalf≥1 且 reroutes≥2（dronesim:263）；C.5 被拒/missing 走默认（droneC reroutes0 done）；C.6 无射击建模。§D: 五端点全在（index.js:354-381）+导出签名匹配，仅 additive 字段。偏差分级：F1 low（A.7 只读镜像）、F2 low（通洞分半场数量无前端警告，终判仍交 plan_route --check）、F3 low（sim.html:393/398 重复赋值，幂等）、F4/F5/F6 info。"
+        },
+        {
+          "criterion": "哈希钉版：三卡改动文件首尾哈希，确认串行规则未被并发破坏",
+          "status": "passed",
+          "evidence": "首钉与尾钉七文件 SHA256 完全一致（sim.html DCA5744A…95786B / simbench 9FDE2A2D…30074B / stressbench 5C08920A…15896B / dronesim C6D1DF7E…17515B / index.js 63D97E0D…26548B / 测试 AB39772B…47799B＝上轮 t3 复审钉版未动 / 规格 F4311758…13404B）。串行时间戳：simbench 22:49:13（卡2 尾写，晚于卡1 22:21）、index.js 10-16 18:37:13（卡3 尾写，晚于卡2）、sim.html 18:58:12（卡4 尾写，晚于卡3 18:42:19）。审查期间外部发布者提交 a8c500b（19:16:30 v3.7 体检存档）扫入工作区，`git diff a8c500b -- dsh-plugin-dzrobot-ssh` = 0 行 ⇒ 提交字节=审查钉版；该提交系发布动作（与上轮 v3.6 同模式），非本队卡所为。"
+        },
+        {
+          "criterion": "独立重跑 node scripts/test-sim-map-render.mjs 与 node --check 三件套并贴真实输出",
+          "status": "passed",
+          "evidence": "守卫：`node scripts/test-sim-map-render.mjs` → 「横置地图渲染核对：61/61 通过」EXIT=0，全文 PASS 计数 61、FAIL 计数 0（含 G1×4/R4/R5/变异自证①~④逐行 PASS 输出已取尾部原文）。语法：node --check 对 simbench.js/stressbench.js/dronesim.js/index.js 四件全 EXIT=0。另计数：sim.html <script> 恰 1 个、location. 恰 2 处、Math.random 0 处（stressbench/dronesim 的 Math.random 命中均在注释）。"
+        },
+        {
+          "criterion": "抽查链路①拖拽仿真 run_meta 含 targets+plan.ms；链路②同 seed 两批 50 图逐字节相同；链路③被拒无人机报文走默认",
+          "status": "passed",
+          "evidence": "①record 1792074568250_drag-smoke：field.targets=[G5,H5]、override 目录含改写 map.yaml(4979B)+robot.yaml 副本+route.tokens.txt、plan{exitCode:0,tokenCount:50,checkExit:0}、status done；plan.ms 机制由 simbench.js:530-536（Date.now 包 planRoute）+117 条同时含 targets 与 plan.ms 的记录证实（如 1792147402813_droneD：targets [E5,F5]、plan.ms=748、done）。注记 F4：无单条 drag 标签+ms 记录（卡1 真跑 22:29 早于卡2 落 ms 的 22:49，时序使然）。②artifacts/sim/stress/ 两批 1792076078097_t7full 与 1792076093015_t7full（batch.seed 均 20261015、count 50、concurrency 4）：fields sha256 与 status sha256 逐位相同（b907bcb9…/70006987…），剔除批次路径与计时字段后逐记录深比较 0/50 差异，stats 仅 avgPlanMs(873.7/914.8)/avgWallS(1.52/1.59) 两个墙钟项不同。③record 1792147214104_droneC_drone：truth=[K5,K10]、prior={K9,K5}、intel upper K5 adopted / lower K10 **rejected**、reroutes=0、confirmed=1、status done；机理独立复现——robot.yaml:520 cross_lower_candidates=[\"K9\"]，独立探针跑 intelAt 得「第③关失败：不在候选集合（[\"K9\"]）」，默认 K9 完赛。"
+        },
+        {
+          "criterion": "卡4（t10 无规格，按卡面验收）：车比例换算/traj.csv 真实轨迹/回退标注/守卫 61/61",
+          "status": "passed",
+          "evidence": "独立探针 %TEMP%\\t9_anim_probe.mjs 10/10 PASS（真实产物 artifacts/sim/1792147402813_droneD/traj.csv，3808 数据行）：animBlockSize L=27.2px/W=13.1142857px 且长宽比=0.28/0.135 精确等比；animTrackFromCsv 产出 239 点（≤241 上限）、首点=首行 truth 映射、末点必保留；回退标注 animModeLabel=「回放路线 · traj 缺失，按路线折线」/「轨迹回放 · traj.csv 真实坐标」双态可见；runSimulation 成功→startReplay(payload.record)、422 plan-failed→body.record 回退（sim.html:1501/:1516-1517）；守卫 61/61 独立重跑绿。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node scripts/test-sim-map-render.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "「横置地图渲染核对：61/61 通过」；程序化计数 PASS=61 FAIL=0；EXIT=0"
+        },
+        {
+          "command": "node --check src/simbench.js; node --check src/stressbench.js; node --check src/dronesim.js; node --check index.js",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "四件 EXIT=0"
+        },
+        {
+          "command": "Get-FileHash（首钉+尾钉七文件 SHA256）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "首尾哈希完全一致，审查窗口零漂移；测试文件 AB39772B == 上轮 t3 钉版"
+        },
+        {
+          "command": "node 深比较 artifacts/sim/stress/1792076078097_t7full 与 1792076093015_t7full 的 summary.json（剔批次路径/计时）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "batch.seed 均 20261015；fields/status sha 逐位相同；0/50 记录差异；stats 仅 avgPlanMs/avgWallS 浮动"
+        },
+        {
+          "command": "node 扫描 artifacts/sim/run_meta.jsonl（186 行）：withPlanMs=117、withFieldTargets=119、both=117；drag-smoke 行提取",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "drag-smoke 记录含 targets+[G5,H5]+override+plan exit0/50token/checkExit0；droneC 记录 K10 rejected/reroutes0/confirmed1/done"
+        },
+        {
+          "command": "node 独立探针 scanPlan/intelAt（dronesim.js，fieldSpec 真图）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "N8→M2 36 点、全相邻步 0 违例、covers@N8=6 格、truth K5/K10→upper adopted+lower rejected(第③关)、默认真值双 adopted"
+        },
+        {
+          "command": "node %TEMP%\\t9_anim_probe.mjs（卡4 动画独立探针，真实 traj.csv）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "10 pass / 0 fail，EXIT=0"
+        },
+        {
+          "command": "git diff a8c500b -- dsh-plugin-dzrobot-ssh; git status --porcelain（终局）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "diff=0 行（提交字节=钉版）；终局 status 仅剩并发写入者的 config/robot.yaml、physics.py、planner.py 与 _t4_*.py 探针，插件目录干净，本队卡零 git add/commit"
+        }
+      ]
+    },
+    {
+      "id": "t10",
+      "subject": "卡4 运行仿真动画：车比例方块起点循迹 + 路径线回放",
+      "status": "completed",
+      "assignee": "ui-builder",
+      "dependencies": [
+        "t8"
+      ],
+      "attempt": 1,
+      "createdAt": 1792140982181,
+      "updatedAt": 1792148801035,
+      "kind": "implementation",
+      "objective": "按用户需求给 sim.html 加运行仿真动画：点击「运行仿真」且本次 run 完成后，在起点格生成一个按真实车身比例换算的方块（代表小车，尺寸用 GRID.blockM=0.35m 与真实车长宽等比换算到棋盘像素），方块沿本次仿真的真实轨迹循迹移动并留下渐进路径线（trail），跑到哪画到哪，结束停在终点；轨迹数据取本次 run 的 traj.csv（真实数据），无轨迹/失败回退到路线折线并明确标注「回放路线」。动画与 t8 的无人机时间线面板互不冲突，支持看完自动停/可重播。交付后依据用户实际试用反馈迭代优化（本轮先交付可用版本）。只改 sim.html。",
+      "inScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html"
+      ],
+      "outOfScope": [
+        "src/simbench.js",
+        "src/stressbench.js",
+        "src/dronesim.js",
+        "index.js",
+        "config/**",
+        "src/dzbrain/**",
+        "tools/**"
+      ],
+      "acceptance": [
+        "点击运行仿真成功后自动播放动画：起点格出现车比例方块，沿轨迹移动并留下路径线，终点停下",
+        "方块尺寸按 GRID.blockM 与真实车长宽等比换算（注明所用车体尺寸来源），不是固定像素",
+        "轨迹回放数据来自本次 run 的 traj.csv 真实坐标；traj 缺失时回退路线折线且界面标注回退状态",
+        "重播可用；与 t8 时间线面板、拖拽棋盘共存无冲突（不新增 script 标签、顶层不引用 location、$() 桩安全、四变异锚点各恰一次）",
+        "node scripts/test-sim-map-render.mjs 61/61 全绿；提取 <script> 语法检查通过"
+      ],
+      "verify": [
+        "node scripts/test-sim-map-render.mjs",
+        "node --check <提取 sim.html 全部 <script> 的语法检查脚本放 %TEMP%>",
+        "%TEMP% 取证脚本：桩调用动画函数断言方块尺寸计算/traj 断言/回退分支"
+      ],
+      "attemptId": "00a60351-53e1-400c-830a-fdefe18fa03e",
+      "reassigning": false,
+      "output": "卡4 完成（只改 sim.html）：运行仿真动画全链路落地 —— runSimulation 发车前 stopReplay+清层、成功后 startReplay(payload.record) 自动播放、422 plan-failed 走 body.record 回退。动画画在新增 #anim 覆盖层（与 #map 同 viewBox 口径、pointer-events:none，renderMap 重写不打断回放、不碰 t6 落格命中与 t8 时间线）；数据链 traj.csv（truth_x/truth_y 真实坐标 → codeToScreen 格心口径，>240 点等距抽样保末点）优先，任何缺失回退 record.route/参考路线折线并在 #animState 明确标注「回放路线 · traj 缺失」；方块 = 真值 0.28×0.135 m × (MAP_S 34 / blockM 0.35) = 27.2×13.11 px（与 CAR_LEN_PX 同源，代码头注+#replay title+播放文案三处注明），按行进方向 rotate；渐进 trail 0..idx、约 120 帧 6s 自动停在终点，「回放」按钮（初始 disabled）onReplayClick 重播不重取数据。取证 %TEMP%\\\\t10_verify.mjs 33 项全 PASS（G1 尺寸等比×4 / G2 traj 解析×4 / G3 回退×7 / G4 播放渐进自动停重播×6 / G5 共存硬约束×8 / G6 真实 run 的 traj.csv 直喂×4：21 点、首点 N10、startReplay mode=traj）；硬约束：无新增 script、location 仍恰 2 处均在既有函数内、四变异锚点各恰 1 次、$() 桩安全。verify 全过：守卫 61/61 exit 0、提取+语法检查 exit 0、取证 exit 0。countArtifact 注释同步为「四个地方」（新增④startReplay，仍零页面初始化预取）。",
+      "changedPaths": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "点击运行仿真成功后自动播放动画：起点格出现车比例方块，沿轨迹移动并留下路径线，终点停下",
+          "status": "passed",
+          "evidence": "runSimulation 成功回调接 startReplay(payload.record)、发车前 stopReplay+清层；取证 G4：起点帧方块在首点(17,17)且 trail 仅 1 点（G4.1），渐进到末帧 trail 6 点（G4.3），自动停 playing=false、idx=末点、animState 含「回放完成 · 停在终点」（G4.2）；G3.5 真轨迹分支开播；G6.4 真实 run（1792074613673_drag-smoke）traj.csv 走通 startReplay traj 分支"
+        },
+        {
+          "criterion": "方块尺寸按 GRID.blockM 与真实车长宽等比换算（注明所用车体尺寸来源），不是固定像素",
+          "status": "passed",
+          "evidence": "animBlockSize() = 真值 0.28×0.135 m × (MAP_S=34 / FIELD_GRID_BLOCK=0.35) = 27.200×13.114 px，G1.1 由暴露的格参数推导、G1.2 与 CAR_LEN_PX/CAR_WID_PX 恒等（t28 注释「尺寸 = 现场真值车长 0.28 m × 车宽 0.135 m」同源）、G1.3 长宽比严格保持 0.28/0.135、G1.4 < 一格 34 px；来源注明于代码块头注 + #replay title + animState 播放文案"
+        },
+        {
+          "criterion": "轨迹回放数据来自本次 run 的 traj.csv 真实坐标；traj 缺失时回退路线折线且界面标注回退状态",
+          "status": "passed",
+          "evidence": "G2：100 行 CSV → 100 点逐点=规格公式 codeToScreen（偏差 0）、首点=起点 N10 格心 [459,323]、千行抽样≤241 且末点保留、无 truth 列→[]；G6：真跑产物 traj.csv（表头 t,x,y,…,truth_x,truth_y,…）解析 21 点、首点=N10、全点在 477×375 画布内、startReplay mode=traj；回退：traj 404 → mode=route 且 animState 标「回放路线 · traj 缺失」（G3.3），record=null 同步回退路线折线（G3.7），回退数据=record.route 或参考路线 routePolyline（G3.1/G3.2）"
+        },
+        {
+          "criterion": "重播可用；与 t8 时间线面板、拖拽棋盘共存无冲突（不新增 script 标签、顶层不引用 location、$() 桩安全、四变异锚点各恰一次）",
+          "status": "passed",
+          "evidence": "G4.5 onReplayClick 重播重置 idx=0 且再播、完成后 replay.disabled=false；G5 全过：<script> 恰 1 段、location 恰 2 处（均既有函数体内，t10 零新增）、四锚点各恰 1 次、renderDroneTimeline+#droneRun 绑定原样、palette+#map click 原样、#anim CSS pointer-events:none（elementFromPoint 不受遮挡）；$() 桩安全 = 守卫套件与取证均在 DOM 桩中执行全文通过"
+        },
+        {
+          "criterion": "node scripts/test-sim-map-render.mjs 61/61 全绿；提取 <script> 语法检查通过",
+          "status": "passed",
+          "evidence": "守卫 61/61 exit 0（与基线持平）；%TEMP%\\t10_extract.mjs 提取全部 <script>（恰 1 段）→ new Function 语法解析通过，落盘 t10_sim_extracted.js 后 node --check exit 0；node --check t10_extract.mjs 亦 exit 0"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node scripts/test-sim-map-render.mjs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "cwd=dsh-plugin-dzrobot-ssh：横置地图渲染核对：61/61 通过（基线 61/61 持平，改后两轮复跑均全绿）"
+        },
+        {
+          "command": "node --check <提取 sim.html 全部 <script> 的语法检查脚本放 %TEMP%>",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "node %TEMP%\\t10_extract.mjs（提取全部 <script> 恰 1 段 + new Function 语法解析）exit 0 → node --check %TEMP%\\t10_sim_extracted.js（提取物）exit 0；另 node --check %TEMP%\\t10_extract.mjs（检查脚本自身）exit 0"
+        },
+        {
+          "command": "%TEMP% 取证脚本：桩调用动画函数断言方块尺寸计算/traj 断言/回退分支",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "node %TEMP%\\t10_verify.mjs → 33 项全 PASS：G1 尺寸等比×4、G2 traj 解析×4、G3 回退分支×7、G4 播放/trail/自动停/重播×6、G5 共存与硬约束×8、G6 真实 traj.csv×4"
+        }
+      ]
+    },
+    {
+      "id": "t11",
+      "subject": "卡5 压测面板：sim.html 压测 UI（seed 输入 + 跑批 + 进度 + 统计展示）",
+      "description": "压测卡（t7）只交付了 3 个 HTTP 端点，规格附录矩阵漏排 sim.html，导致 50 图压测无 UI 入口——用户已明确要求「压测也要 UI，接着做」。在 sim.html 增加压测面板：seed 输入（默认 20261015）、批数输入（默认 50）、跑批按钮、进度轮询展示、结果统计（按 t7 stressStats 的显式分母/missing 口径展示 plan-failed/finishedRate/avgPlanMs 等，不许把 missing 混进分子）。走现有 3 端点（runStress background 选项 + status 轮询 + result 取回），不改后端。硬约束与 t6/t8/t10 一致：不新增 <script>、四变异锚点（含 j += 125）各恰一次、R5 图例一字不动、顶层不引用 location、绑定走 $() 自动建桩、不碰 #map 与 t10 的 #anim 层。压测运行中须尊重 runSim running/stressBusy 409 语义（按钮态与报错文案透传）。并发写入边界：本卡独占 sim.html 写入窗口（其余成员已全部 idle）。",
+      "status": "completed",
+      "assignee": "ui-builder",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1792150402863,
+      "updatedAt": 1792151203250,
+      "kind": "implementation",
+      "objective": "在 sim.html 新增压测 UI 面板，让 50 图压测可在页面上完成：配置 seed/批数 → 跑批 → 实时进度 → 统计结果展示，全部走 t7 已交付的后端端点，不改任何后端文件。",
+      "inScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html"
+      ],
+      "outOfScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/simbench.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/stressbench.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/dronesim.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/index.js",
+        "config/",
+        "src/dzbrain/",
+        "tools/",
+        "scripts/test-sim-map-render.mjs"
+      ],
+      "acceptance": [
+        "压测面板存在于 sim.html：seed 输入（默认 20261015）、批数输入（默认 50）、跑批按钮、状态/进度区、统计结果区",
+        "统计展示使用 t7 stressStats 显式分母口径：plan-failed、finishedRate、avgPlanMs 等字段齐全，missing 不得混入分子（如失败数单列）",
+        "进度轮询在跑批期间持续更新状态（running→done/failed），完成后自动渲染结果，失败/409 转为可见错误文案",
+        "压测运行中 runSim 返回 stressBusy 409 的语义保持原样（按钮禁用态 + 透传文案）",
+        "四硬约束全守：不新增 <script>、四变异锚点各恰一次、R5 图例一字不动、顶层不引用 location、绑定走 $()、不碰 #map/#anim/t8 时间线控件",
+        "test-sim-map-render.mjs 61/61 全绿 exit 0（不回退）",
+        "提取全部 <script> 恰 1 段且语法检查通过"
+      ],
+      "verify": [
+        "node scripts/test-sim-map-render.mjs  # 61/61 exit 0",
+        "node %TEMP%\\t11_extract.mjs  # 提取 sim.html 全部 script 段 -> 落盘 -> node --check 通过；断言 script 恰1段、锚点各1、R5 图例原样"
+      ],
+      "attemptId": "3a94d160-7965-47be-b900-feabeb137974",
+      "reassigning": false,
+      "output": "卡5 完成（只改 sim.html）：50 图压测面板落地，全走 t7 已交付 3 端点零后端改动 —— 新 section 于参数区后（#stressSeed 默认 20261015、#stressCount 默认 50、#stressRun/#stressRefresh、#stressStatus+#stressBar 进度条、#stressMsg、#stressStats）。流程：stressStart POST /sim/stress（background 202 {batchId,total}，running 态按钮 disabled 防重复）→ 1.5 s setInterval + 立即首查轮询 status（running 显示 batchId + done/total + 百分比进度条）→ 转 idle 自动停表/解锁/取 /sim/stress/result 渲染统计（15 分钟 600 轮兜底停表）。统计区 stressRenderStats 直接消费 t7 stressStats 显式分母：表列 指标/值/分母口径（Σ x / counts.y），missing.<项> 单列并页面标注「不参与任何分子」，plan-failed 只落 statusCounts 单列；参考值（plan-failed 27/50、finishedRate 0.3）如实展示不解释不修。409：POST 批次忙透传后端原文+409 标记，runSim stressBusy 409（simbench.js:470 原文）走既有零改动 catch 透传；status/result 端点失败均转可见文案。取证：%TEMP%\\\\t11_verify.mjs 30 项全 PASS（含真调 stressbench.stressStats 对 50 条合成 records 真值对齐 counts={50,15,15,23,50,15}/missing={35,27,0,35}/avgPlanMs=678），%TEMP%\\\\t11_extract.mjs 9 项断言全 PASS。verify：守卫 61/61 exit 0、提取+node --check exit 0；硬约束全守（script 恰1、四锚点各1、R5 图例一字未动、location 零新增、$() 绑定、不碰 #map/#anim/t8 控件）。",
+      "changedPaths": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "压测面板存在于 sim.html：seed 输入（默认 20261015）、批数输入（默认 50）、跑批按钮、状态/进度区、统计结果区",
+          "status": "passed",
+          "evidence": "新 section（参数区后）：#stressSeed value=20261015、#stressCount value=50、#stressRun 跑批/ #stressRefresh 刷新、#stressStatus 状态行 + #stressBarWrap/#stressBar 进度条、#stressMsg 消息、#stressStats 统计区；取证 A1~A5 全过（含默认配置 {seed:20261015,count:50,label:'stress'} 与非法回退/越界截断）"
+        },
+        {
+          "criterion": "统计展示使用 t7 stressStats 显式分母口径：plan-failed、finishedRate、avgPlanMs 等字段齐全，missing 不得混入分子（如失败数单列）",
+          "status": "passed",
+          "evidence": "stressRenderStats 表列直接消费 counts.<分母>与 missing.<单列>：F7 字段齐全（n/finishedRate/avgFinishS/avgPlanMs/avgWallS/avgLengthRatio/plan-failed 单列/status 分布）、F8 参考值如实（plan-failed=27、finished 15/n 50=0.3）、F9 分母逐项（Σ plan.ms / 23、Σ time_s(finished) / 15、Σ seconds / 50、Σ length_ratio / 15）、F10 missing 单列（planMs=27/time_s=35/lengthRatio=35）+ 页面明确标注「不参与任何分子」；F11 真调 stressbench.stressStats(50 条合成 records) 真值对齐（counts={50,15,15,23,50,15}、missing={35,27,0,35}、avgPlanMs=678）"
+        },
+        {
+          "criterion": "进度轮询在跑批期间持续更新状态（running→done/failed），完成后自动渲染结果，失败/409 转为可见错误文案",
+          "status": "passed",
+          "evidence": "F3 轮询 running 状态行「压测进行中 batchId=…17/50（34%）」+ 进度条 34%，F5 idle → 停表/解锁/进度条隐藏并自动 stressFetchResult 渲染（F6「压测完成」）；失败路径可见：B1/B2 POST 409 透传后端原文+按钮释放，C1 status 端点失败→「进度查询失败…可点刷新进度重试」，D1 result 404→「压测结果读取失败」含后端 error 原文；15 分钟兕底停表（stressPoll>600 轮）"
+        },
+        {
+          "criterion": "压测运行中 runSim 返回 stressBusy 409 的语义保持原样（按钮禁用态 + 透传文案）",
+          "status": "passed",
+          "evidence": "runSimulation 及其 catch 零改动（本卡只追加新块）；E 组实测：/sim/run 返回后端 stressBusy 409 `{error:'压测进行中，单跑请稍候再试'}`（simbench.js:470 原文）→ runMsg = 「仿真失败：压测进行中，单跑请稍候再试（上一次还在跑）」（E2，后端原文透传 + 既有 409 提示未改），失败后 run/check/refresh 按钮恢复（E3）；跑批侧按钮态：stressStart 即 disabled 防重复（F2），409/完成/失败均释放（B1/F5）"
+        },
+        {
+          "criterion": "四硬约束全守：不新增 <script>、四变异锚点各恰一次、R5 图例一字不动、顶层不引用 location、绑定走 $()、不碰 #map/#anim/t8 时间线控件",
+          "status": "passed",
+          "evidence": "t11_extract.mjs + 取证 G 组全 PASS：<script>/</script> 各恰 1、四锚点（含 j += 125）各恰 1、R5 图例 `<i style=\"background:#e8a0c8\"></i>靶（跨格板）` 原文 + renderMap '靶板' 字面仍在、location 恰 2 处均在既有函数体内（t11 零新增）、#map click/#anim 层/droneRun 绑定/droneTimeline DOM 原样在场、stressRun/stressRefresh 均 $() 绑定且顶层无 DOM/定时器副作用（G6）"
+        },
+        {
+          "criterion": "test-sim-map-render.mjs 61/61 全绿 exit 0（不回退）",
+          "status": "passed",
+          "evidence": "改后实测：横置地图渲染核对：61/61 通过，exit 0（与基线持平）"
+        },
+        {
+          "criterion": "提取全部 <script> 恰 1 段且语法检查通过",
+          "status": "passed",
+          "evidence": "node %TEMP%\\t11_extract.mjs：提取 1 段非空 script、new Function 语法解析通过、落盘 %TEMP%\\t11_sim_extracted.js 后 node --check exit 0，全部断言 PASS，脚本 exit 0"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node scripts/test-sim-map-render.mjs  # 61/61 exit 0",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "cwd=dsh-plugin-dzrobot-ssh：横置地图渲染核对：61/61 通过（基线持平，零 FAIL）"
+        },
+        {
+          "command": "node %TEMP%\\t11_extract.mjs  # 提取 sim.html 全部 script 段 -> 落盘 -> node --check 通过；断言 script 恰1段、锚点各1、R5 图例原样",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "9 项断言全 PASS：script 恰1段（open/close 各1）、四锚点（含 j += 125）各恰1、R5 图例原文+renderMap '靶板' 字面在场、location 恰2处、#map/#anim/t8 控件在场、new Function 解析通过，node --check %TEMP%\\t11_sim_extracted.js exit 0，脚本 exit 0"
+        },
+        {
+          "command": "node %TEMP%\\t11_verify.mjs  # 桩调 runStress→status→result 链（按钮态/进度文案/分母字段渲染/409 透传）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "30 项取证全 PASS：A 面板默认值×5、B POST 409 透传×2、C 轮询失败×1、D 结果读取失败×1、E runSim stressBusy 409 透传×3、F 正常链路×12（17/50+34% 进度、idle 自动渲染、plan-failed=27/finishedRate=0.3 如实展示、分母 23/15/50/15、missing 单列不进分子、stressStats 真值对齐）、G 硬约束×6"
+        }
+      ]
+    },
+    {
+      "id": "t12",
+      "subject": "t12 规格增补：四条新需求细化成可验收规格（硬约束/棋子槽/冗余一致/无人机入链）",
+      "description": "用户四条新需求逐条细化为验收判据，写入 docs/sim_v2_设计规格.md（增补章节或修订）。必须钉死的口径：①需求1 硬约束优先级最高（障碍/隔板/桥洞含冗余），不得为通过性/效率/长度放宽——给出规划器侧审计清单（planner.py 三类判据现状 文件:行）与回归验收口径；②需求2 棋子槽定容：障8/雷8/通2/靶板1（两格整对）**硬顶**（现有 §A.2 数量软警告升级为硬拦），只拖拽放置（palette 点击不落子），已放置靶板点击=顺时针旋转（不等于移除），靶板蓝红两色分半渲染，整图仿真象棋观感；③需求3 仿真器桥洞进洞侧冗余墙渲染，取值真源=robot.yaml field.bridge_entry_redundancy_m（0.0875 m=1/4格），渲染值与规划器取值必须逐字相等的断言口径；④需求5 无人机选项语义：开关默认态、开启后无人机航线纳入本次规划与约束判定输出（约束清单由规格列明：越界/起降点/通口/与 t8 intelAt 情报的衔接），与 t8 时间线共存关系。每条需求给：验收判据 + 真源 + 边界 + verify 命令建议。",
+      "status": "completed",
+      "assignee": "captain",
+      "dependencies": [],
+      "attempt": 4,
+      "createdAt": 1792153089254,
+      "updatedAt": 1792155947121,
+      "kind": "requirements",
+      "objective": "把用户四条新需求（规划器硬约束优先级、棋子槽定容与靶板旋转两色、仿真冗余长度与规划器一致、无人机参与路径规划与约束判定）细化成可验收规格，使后续实现卡与复审卡有唯一判据。",
+      "inScope": [
+        "dzrobot_v2/docs/sim_v2_设计规格.md"
+      ],
+      "outOfScope": [
+        "dzrobot_v2/src/**",
+        "dzrobot_v2/tools/**",
+        "dzrobot_v2/config/**",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/**",
+        "任何代码文件"
+      ],
+      "acceptance": [
+        "规格文档更新且可读（中文 Markdown，行数可控）",
+        "四条需求逐条有：验收判据 + 真源路径 + 边界/非目标 + verify 命令建议",
+        "需求1 钉明「硬约束不得放宽」的审计范围与回归口径（三类：障碍/隔板/桥洞含冗余）",
+        "需求2 钉明数量硬顶 8/8/2/1（升级现 §A.2 软警告）、只拖拽、点击靶板=顺时针旋转、蓝红两色、象棋观感的验收点",
+        "需求3 钉明冗余取值真源 robot.yaml field.bridge_entry_redundancy_m=0.0875 与「渲染值==规划器值」的断言口径",
+        "需求4（编号5）钉明无人机选项的开关联动、约束清单、与 t8 dronesim 的共存边界",
+        "更新期间不改动规格既有章节的已验收内容（t5/t6/t7/t8 相关口径原样保留）"
+      ],
+      "verify": [
+        "powershell: Select-String -Path docs/sim_v2_设计规格.md -Pattern '棋子槽|硬顶|顺时针|bridge_entry_redundancy_m|无人机选项' | Measure-Object | Select-Object -Expand Count （须 > 8）",
+        "powershell: (Get-Content docs/sim_v2_设计规格.md | Measure-Object -Line).Lines （文档存在且行数可读）"
+      ],
+      "reassigning": false,
+      "attemptId": "a104e699-d437-4a74-8265-8a2b2f7adf3d",
+      "output": "《sim_v2 规格增补》写入 docs/sim_v2_规格增补.md（增补文档，原规格零改动）：§H 硬约束三类实体+结构性不可放宽+必拒反例验收；§S 棋子槽定容 8/8/2/1 落格层硬顶+靶板点击顺时针旋转两色面（蓝/红）+象棋观感（不改守卫锚点）+一切棋盘变更走 afterFieldChange 统一咽喉；§R 冗余 0.0875 真源链 physics→planner→yaml→/sim/map 透传（页面禁双份硬编码）；§D 无人机选项默认关、开启后 N8/M2 硬避让+走廊行软代价+record.plan.drone 台账。四张下游卡验收判据齐备。",
+      "verdict": "pass",
+      "acceptanceResults": [
+        {
+          "criterion": "四条需求全部细化成可验收判据",
+          "status": "passed",
+          "evidence": "硬约束§H（三类实体+结构性不可放宽+必拒反例）/ 棋子槽§S（定容8/8/2/1硬顶+靶板点击旋转两色面+象棋观感+交互边界）/ 冗余同源§R（真源链physics→planner→yaml→页面透传，禁双份硬编码）/ 无人机§D（默认关、N8/M2硬避让+走廊行软代价+台账字段）"
+        },
+        {
+          "criterion": "与既有规格/基线无冲突",
+          "status": "passed",
+          "evidence": "写入新文件 docs/sim_v2_规格增补.md，原规格零改动；基线含两项已落地修复（引擎同源+清层咽喉）；route_check 不含冗余墙的既有决策显式保留；targetYaw 通道复用不另起"
+        },
+        {
+          "criterion": "每张下游卡（t13-t16）有明确验收判据",
+          "status": "passed",
+          "evidence": "§H.3 四条（反例/结构性证据/双口径/四套回归）/ §S.5（硬顶反例+旋转正反例+台账+双套件不回退）/ §R.1（改值同源证明+渲染方向口径）/ §D.4（正例+逐字节对照+台账+守卫）"
+        }
+      ]
+    },
+    {
+      "id": "t13",
+      "subject": "t13 规划器硬约束审计+加固（障碍/隔板/桥洞含冗余，硬失败不可放宽）",
+      "description": "用户需求1：硬约束优先级最高——小车任何情况下不能压到障碍、隔板、桥洞（含进洞侧冗余长度 0.0875 m 在内），不得为通过性、效率或路径长度放宽。\n\n现状侦察（我已确认）：planner.py 已有 Grid.move_ok 隔板/K 列判据、_required_obstacle_clearance_m 障碍净空、t4 冗余墙判据（body_bridge_wall_clearance_m 严格 >0）、route_check 结构自检。本卡做三件事：\n① **审计**：逐条列出三类硬约束在规划器编译路径（顺序 DP → 顶点 → 编译逐点 → route_check 复验）中的生效点（文件:行），找漏洞——重点：哪些是软代价（barrier_turn_penalty 等可为 0 关闭）vs 真硬拦（problems 非空即失败）；软代价转硬拦的判据缺口在哪。\n② **加固**：凡是「压到即违规」级别的判据必须走 problems 硬失败，任何 config 键都关不掉；效率类罚分（转向罚/相邻罚）保持可调但只影响选路不影响合规判定。\n③ **有牙回归**：三类必拒反例测试各 ≥1 条（人为构造压障/压隔板/压冗余墙的候选路线，断言规划器拒收）；再加「放宽余量必须红」的元断言。\n\ninScope 含 src/dzbrain 路由与物理模块及其测试——这是用户本条新需求显式授权（覆盖旧队禁改边界）。禁止改动仿真主流程与 config 默认值（审计发现需要改默认值时先报告再动）。",
+      "status": "completed",
+      "dependencies": [],
+      "attempt": 5,
+      "createdAt": 1792153144858,
+      "updatedAt": 1792158831792,
+      "kind": "implementation",
+      "objective": "规划器硬约束审计与加固：障碍/隔板/桥洞（含冗余墙）三类约束为最高优先级硬失败，任何配置不可放宽；补三类必拒有牙回归。",
+      "inScope": [
+        "dzrobot_v2/src/dzbrain/dzbrain/route/planner.py",
+        "dzrobot_v2/src/dzbrain/dzbrain/route/physics.py",
+        "dzrobot_v2/src/dzbrain/dzbrain/route/geometry.py",
+        "dzrobot_v2/src/dzbrain/tests/test_planner.py",
+        "dzrobot_v2/src/dzbrain/tests/test_physics.py",
+        "dzrobot_v2/src/dzbrain/tests/test_sim_guard.py",
+        "dzrobot_v2/tools/route_check.py"
+      ],
+      "outOfScope": [
+        "dzrobot_v2/config/**（只读；改默认值需先向队长报告）",
+        "dzrobot_v2/src/dzbrain/dzbrain/tools/sim.py（仿真判据由另一卡核对一致性）",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/**",
+        "dzrobot_v2/tools/plan_route.py 之外的部署/发车链路"
+      ],
+      "acceptance": [
+        "三类硬约束（障碍含障碍势场格、隔板、K 列桥洞含进洞侧冗余墙 0.0875 m）在规划器输出路径上逐段物理复算全部 ≥ 安全余量，任何一条不过即失败而非降级",
+        "提供反例回归：人为放宽任一余量（如 obstacle_margin/冗余长度减半）时测试必须红（有牙）",
+        "不得为通过性/效率/路径长度放宽硬约束的证据：plan-failed 走显式失败路径，不产生绕过判据的替代路线",
+        "现有 test_planner.py / test_physics.py / test_sim_guard.py 全量跑保持全绿",
+        "新增/修改断言覆盖：压障碍、压隔板、压冗余墙三类必拒各至少 1 条",
+        "report_route_check --check 与 plan_route --check 现役图仍 exit 0（不破坏现役路线）"
+      ],
+      "verify": [
+        "powershell: $env:PYTHONPATH='D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain'; $env:PYTHONIOENCODING='utf-8'; python src\\dzbrain\\tests\\test_planner.py",
+        "powershell: $env:PYTHONPATH='D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain'; $env:PYTHONIOENCODING='utf-8'; python src\\dzbrain\\tests\\test_physics.py",
+        "powershell: $env:PYTHONPATH='D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain'; $env:PYTHONIOENCODING='utf-8'; python tools\\route_check.py"
+      ],
+      "assignee": "captain",
+      "reassigning": false,
+      "attemptId": "62af8412-f1d8-43b5-9217-5caba8f05b06",
+      "output": "t13 完成（attempt 62af8412，captain 接手）。【审计】三类硬约束判定链逐环定位（格级→段级→顶点级）；两个放宽暗门（obstacle_margin_m/barrier_turn_margin_m 负值）+ 一个已实现未接线的 t6 判据（entry_cell_crossed_sideways：规划器产物此前正踩横向进洞 122 拍蹭墙形态）。【加固·planner.py 六处】段级+顶点级接线横向穿行硬否决；turn_gate 接隔板死胡同形态硬否决；_barrier_turn_cell 补列域（A/B/C 缺口不误杀）；两暗门负值钳 0。【死局破解】雷 I6 硬禁下不可压（J6 死端）⇒ TS_TURNED_MINES+=I6（t31-A4 先例）。【终态】规划器产物与 config mission_blocks 逐 token 恒等（⑬.4 断言钉住）；仿真对照：桥墙 122→0 拍、最小间隙 0→0.0233 m、盖雷 8/8 持平、+0.42 s。【验证】test_planner 全绿（新增⑭节 15 条并入 inScope 文件，独立版存档 _tmp_session/t13）+ physics 103/103 + sim_guard 109/109 + 裸跑 route_check exit 0 + M1/M2 变异有牙证明。钉版：planner.py 945A6F3C、test_planner.py 487CB767。备注：工作期间检测到外部并发写入者（robot.yaml 21:43 更新 mission_blocks 至新形态、planner.py 21:42 mtime 触碰内容未变、_t6_* 探针持续产生）——其方向与本卡终态一致；config/ 本卡零改动。",
+      "changedPaths": [
+        "dzrobot_v2/src/dzbrain/dzbrain/route/planner.py",
+        "dzrobot_v2/src/dzbrain/tests/test_planner.py"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "三类硬约束（障碍含障碍势场格、隔板、K 列桥洞含进洞侧冗余墙 0.0875 m）在规划器输出路径上逐段物理复算全部 ≥ 安全余量，任何一条不过即失败而非降级",
+          "status": "passed",
+          "evidence": "审计链（文件:行）：障碍/靶板=Grid.blocked 格级硬拒（planner.py:369-403）+段级净空硬判+拐角硬判；隔板=barrier_cross_ok 列域硬拒+段级 barrier_distance 硬判+（本卡新接）_barrier_turn_cell 形态硬否决；桥洞=K列规则硬拒+entry_gate 段/顶点硬判+（本卡新接）入口邻格横向穿行硬否决（t6 判据 entry_cell_crossed_sideways 接线）。输出路径逐段物理复算：route_check 六层全绿（挡板 0.175≥0.0775/障碍 0.350≥0.215、0.303/靶板 0.175≥0.0675、0.2475≥0.1554）+仿真 FieldObs（障碍碰撞 0/挡板 0/靶板 0/K列封死 0/桥墙 0 拍，最小间隙 0.0233 m）"
+        },
+        {
+          "criterion": "提供反例回归：人为放宽任一余量（如 obstacle_margin/冗余长度减半）时测试必须红（有牙）",
+          "status": "passed",
+          "evidence": "两组变异实测：M1 拆横向穿行硬禁⇒ test 红 exit 1；M2 拆余量钳位（max→float）⇒ ⑭.1c 红 exit 1；还原后全绿。活反例：拆掉判据的旧路线桥墙 122 拍/间隙 0.0（仿真对照）"
+        },
+        {
+          "criterion": "不得为通过性/效率/路径长度放宽硬约束的证据：plan-failed 走显式失败路径，不产生绕过判据的替代路线",
+          "status": "passed",
+          "evidence": "⑭.1a 无解图⇒PlannerError；⑭.4c 堵 I5⇒PlannerError 不产横向穿洞替代；死局破解（雷 I6 硬禁下不可压）走 TS_TURNED_MINES 选路层名单（t31-A4 先例）非合规放宽，仿真验证 0 违规；效率类罚分只影响选路不影响合规"
+        },
+        {
+          "criterion": "现有 test_planner.py / test_physics.py / test_sim_guard.py 全量跑保持全绿",
+          "status": "passed",
+          "evidence": "test_planner exit 0（含新增⑭节 15 条全过+既有⑬节全过）；test_physics 103/103；test_sim_guard 109/109 exit 0"
+        },
+        {
+          "criterion": "新增/修改断言覆盖：压障碍、压隔板、压冗余墙三类必拒各至少 1 条",
+          "status": "passed",
+          "evidence": "test_planner.py ⑭节（并入 inScope 文件）：障碍 ⑭.1a/1b；隔板 ⑭.2a/2b；桥洞含冗余 ⑭.3a/3b/3c + 端到端 ⑭.4a-c；另有独立版存档 _tmp_session/t13/test_hard_constraints_standalone.py（22 条）"
+        },
+        {
+          "criterion": "report_route_check --check 与 plan_route --check 现役图仍 exit 0（不破坏现役路线）",
+          "status": "passed",
+          "evidence": "裸跑 tools\\route_check.py exit 0（新路线态重跑六层全绿）；plan_route --engine tracker-safe --check exit 0，44 tokens 与现役 mission_blocks 逐 token 恒等（⑬.4 断言钉住）"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "powershell: $env:PYTHONPATH='D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain'; $env:PYTHONIOENCODING='utf-8'; python src\\dzbrain\\tests\\test_planner.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "exit 0（⑬全过+⑭ 15 条全过，含后缀剥离修复后终跑）"
+        },
+        {
+          "command": "powershell: $env:PYTHONPATH='D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain'; $env:PYTHONIOENCODING='utf-8'; python src\\dzbrain\\tests\\test_physics.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "结果：103/103 全部通过 ✅ exit 0"
+        },
+        {
+          "command": "powershell: $env:PYTHONPATH='D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain'; $env:PYTHONIOENCODING='utf-8'; python tools\\route_check.py",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "exit 0（六层全绿，急转弯 18 处为提醒项非错误；robot.yaml 新路线态重跑确认）"
+        }
+      ]
+    },
+    {
+      "id": "t14",
+      "subject": "t14 棋盘棋子槽：定容8/8/2/1硬顶 + 靶板点击旋转蓝红两色 + 象棋观感",
+      "description": "用户需求2：地图棋子槽——8障/8雷/2通/1两格靶板定容；点靶板顺时针旋转；靶板两色面（蓝红分半）；整图仿真象棋观感；只拖拽放置；修复「能点出 10 个」的软警告漏洞，数量固定死。\n\n现状侦察：sim.html :967 注释明说「拖多拖少只警告不拦截（规格 §A.2 数量软口径）」——本卡把它升级为硬顶（按用户新需求覆盖 §A.2 旧口径，规格由 t12 已修订）。palette 四按钮已有拖拽链路；靶板已按双格整对渲染（:817），但无点击旋转；「点出 10 个」大概率是 palette 按钮点击也触发落子或镜像校验未拦——实现人先复现这个 bug 再修。\n\n四硬约束照旧：不新增 script 标签、四变异锚点各恰一次、R5 图例 <i style=\"background:#e8a0c8\"></i>靶（跨格板） 一字不动（除非 t12 规格显式改图例且给出新原文）、顶层不引用 location、绑定走 $()。#anim/#droneRun 不碰。\n\n数量硬顶是「落格校验层」改动（canPlace/count 逻辑），与 t15 的渲染层改动同文件 sim.html ⇒ 串行。",
+      "status": "in_progress",
+      "dependencies": [],
+      "attempt": 5,
+      "createdAt": 1792153216240,
+      "updatedAt": 1792158857411,
+      "kind": "implementation",
+      "objective": "sim.html 棋子槽定容（8/8/2/1 硬顶）+ 靶板点击顺时针旋转 + 蓝红两色面 + 仿真象棋观感 + 只拖拽放置，修复可拖出 10 个的软警告漏洞。",
+      "inScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html"
+      ],
+      "outOfScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/**",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/index.js",
+        "dzrobot_v2/src/**",
+        "dzrobot_v2/config/**"
+      ],
+      "acceptance": [
+        "棋子槽（palette）实现定容：可放总数=障8+雷8+通2+靶板1，任何一类到顶后该类拖拽硬拒（落格不生效+明确提示），不再是软警告",
+        "靶板为一个双格整体棋子，点击已放置靶板顺时针旋转（h↔v），旋转不改变占用双格集合的合法性（越出边界/压禁落格时拒绝旋转并提示）",
+        "靶板两色面：双格分半渲染蓝/红两色（半格边界清晰），与点击旋转联动正确",
+        "整图观感向仿真象棋靠拢：棋盘底纹/格线/棋子圆形或仿棋造型（不破坏 data-cell 命中、四变异锚点、R5 图例原文）",
+        "只拖拽放置：palette 点击不落子；镜像 textarea 仍同步只读；恢复默认重读真源不变",
+        "守卫 test-sim-map-render.mjs 61/61 不回退",
+        "硬顶元断言：第 9 个障/第 9 个雷/第 3 个通/第 2 个靶板放置必须被拒（取证脚本）"
+      ],
+      "verify": [
+        "node scripts/test-sim-map-render.mjs （61/61）",
+        "node %TEMP%\\t14_extract.mjs （提取 <script> 语法+锚点断言，实现人自建）",
+        "node %TEMP%\\t14_verify.mjs （硬顶/旋转/两色取证，实现人自建）"
+      ],
+      "assignee": "captain",
+      "reassigning": false,
+      "attemptId": "f6803117-6998-4a0c-8d2b-a6660a58de84"
+    },
+    {
+      "id": "t15",
+      "subject": "t15 仿真器冗余墙渲染：与规划器取值同源一致（0.0875 m 真源链）",
+      "description": "用户需求3：仿真器里表达桥洞冗余长度，与规划器取值一致。\n\n现状侦察：全插件目录 grep 冗余/redundan/bridge_entry 零命中——插件侧（sim.html 渲染 + simbench）完全没表达冗余墙；而规划器侧真源=robot.yaml field.bridge_entry_redundancy_m=0.0875（1/4 格），dzbrain sim.py 已渲染紫虚墙并出指标 bridge_redundancy_*。\n\n做法：① sim.html renderMap 画 K 列通格进洞侧冗余墙（两段竖线延长，进洞侧=下半场 y 向下/上半场 y 向上，几何抄 physics.bridge_entry_walls）；② 取值链：页面 FIELD 若已有/可加冗余字段则读后端下发，否则 GET /sim/map 或配置下发处加一个字段（这会碰到 index.js/simbench.js —— 若需要后端下发字段，允许改 dzrobot_v2/dsh-plugin-dzrobot-ssh/index.js 与 src/simbench.js 的 map 响应组装，但只加只读字段，不动判据逻辑）；断言「渲染取值无本地硬编码常量」。\n\n依赖 t14（同写 sim.html 串行）。本卡若改 index.js/simbench.js 也串行（全队只剩实现卡在跑，无并发写者）。",
+      "status": "pending",
+      "dependencies": [
+        "t14"
+      ],
+      "attempt": 0,
+      "createdAt": 1792153255340,
+      "updatedAt": 1792153255340,
+      "kind": "implementation",
+      "objective": "仿真器渲染桥洞进洞侧冗余墙，取值与规划器真源（robot.yaml field.bridge_entry_redundancy_m=0.0875）同链一致，禁两份硬编码。",
+      "inScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/index.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/simbench.js"
+      ],
+      "outOfScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/dronesim.js",
+        "dzrobot_v2/src/**",
+        "dzrobot_v2/config/**（只读真源）"
+      ],
+      "acceptance": [
+        "sim.html 地图渲染出桥洞进洞侧冗余墙（与规划器同几何：bridge_entry_walls 口径，进洞侧延长 0.0875 m/侧，视觉与 dzbrain sim.py 紫虚墙语义一致）",
+        "冗余长度取值与规划器逐字一致：渲染值来源于同一真源链（robot.yaml field.bridge_entry_redundancy_m 或后端下发），断言渲染用值 == 0.0875（真源变更时同源跟随，禁止硬编码两份）",
+        "冗余墙在图例或悬浮提示中标注「设计冗余·现实不存在」（与 sim.py:2305 文案口径一致）",
+        "守卫 61/61 不回退；四变异锚点/R5 图例/location/script 恒数断言全绿",
+        "取证：改真源值（临时）→ 页面渲染值跟随变化的同源断言（或代码级断言渲染取值链不经过任何硬编码常量）"
+      ],
+      "verify": [
+        "node scripts/test-sim-map-render.mjs （61/61）",
+        "node %TEMP%\\t15_extract.mjs （语法+锚点）",
+        "node %TEMP%\\t15_verify.mjs （冗余墙几何+同源断言，实现人自建）"
+      ]
+    },
+    {
+      "id": "t16",
+      "subject": "t16 无人机选项：参与路径规划与约束判定入链",
+      "description": "用户需求5：加入无人机选项，无人机参与路径规划与约束判定。\n\n现状侦察：t8 无人机协同是独立按钮（#droneRun 单独跑 scanPlan+intelAt+并行开跑时间线），**不参与**车路规划与通用判定；dronesim.js 已有 scanPlan 合法性判据（36 点正交/3×3/越界）与 intelAt 三关。本卡把无人机从「旁观功能」升为「规划参与方」：页面加无人机选项开关，开启后 runSimulation/plan 链路带 drone 参与参数，无人机航线的硬约束判定（越界、起降点合法性、与场地要素冲突）纳入本次规划的判定输出。\n\n具体语义以 t12 规格为准（开关默认值、判定违规是硬失败还是降级、drone 参数走 /sim/run 还是新增组合端点）。实现人先读 t12 规格，有歧义报队长裁决，不许自行发明口径。\n\n写入面：sim.html（开关+判定展示）+ src/dronesim.js（可复用判据导出）+ 视规格可能 index.js/simbench.js（请求参数透传）。依赖 t14/t15（sim.html 写入串行链）。",
+      "status": "pending",
+      "dependencies": [
+        "t14",
+        "t15"
+      ],
+      "attempt": 0,
+      "createdAt": 1792153275950,
+      "updatedAt": 1792153275950,
+      "kind": "implementation",
+      "objective": "无人机选项入链：UI 开关 + 无人机航线参与路径规划与约束判定（语义按 t12 规格），违规出现在判定输出中。",
+      "inScope": [
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/sim.html",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/dronesim.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/index.js",
+        "dzrobot_v2/dsh-plugin-dzrobot-ssh/src/simbench.js"
+      ],
+      "outOfScope": [
+        "dzrobot_v2/src/**",
+        "dzrobot_v2/config/**",
+        "dzrobot_v2/tools/**"
+      ],
+      "acceptance": [
+        "UI 有无人机参与开关（默认态按规格），开启后本次规划请求携带 drone 参数",
+        "无人机航线参与约束判定：scanPlan 航线的逐点合规（越界/起降点/走廊行）纳入本次规划结果的判定输出，违规即本次结果标记失败或降级（按规格口径，不静默忽略）",
+        "规划请求与判定链路有无人机侧判据条目（时间线或结果区可见 drone 判定行）",
+        "t8 时间线与 dronesim.js 既有行为不回退（四场景取证可复跑仍全过或按规格演化）",
+        "守卫 61/61 不回退",
+        "取证：开=机 → 请求体含 drone 参与证据 + 违规注入 → 判定输出失败行的断言"
+      ],
+      "verify": [
+        "node scripts/test-sim-map-render.mjs （61/61）",
+        "node --check dzrobot_v2/dsh-plugin-dzrobot-ssh/src/dronesim.js",
+        "node %TEMP%\\t16_extract.mjs + node %TEMP%\\t16_verify.mjs （开关参与+违规判定取证，实现人自建）"
+      ]
+    },
+    {
+      "id": "t17",
+      "subject": "t17 四卡独立复验（硬约束/硬顶/同源/无人机，全自跑反例）",
+      "description": "四张新实现卡（t13 规划器硬约束 / t14 棋子槽硬顶 / t15 冗余同源 / t16 无人机入链）的独立复验：全部自跑自测，不采信各实现人的自报与取证脚本结论（可复跑他们的脚本但须自己构造额外反例）。重点：需求1 的「不得放宽」要有你自己的反例；需求2 的硬顶要有你自己的第 9 个落子尝试；需求3 的同源要有你自己的篡改测试；需求5 的违规判定要有你自己的注入。报告逐卡给 passed/failed。",
+      "status": "pending",
+      "dependencies": [
+        "t13",
+        "t16"
+      ],
+      "attempt": 0,
+      "createdAt": 1792153307321,
+      "updatedAt": 1792153307321,
+      "kind": "verification",
+      "objective": "对 t13/t14/t15/t16 四卡独立复验：自跑全部 verify + 自建反例，逐卡判 passed/failed。",
+      "inScope": [
+        "dzrobot_v2/**（只读+只跑）",
+        "%TEMP%（自建取证脚本）"
+      ],
+      "outOfScope": [
+        "任何仓库文件写入"
+      ],
+      "acceptance": [
+        "t13 三类硬约束：自己重跑三套 python 测试 + 亲手构造压障/压隔板/压冗余墙反例确认必拒（不采信自报）",
+        "t14 硬顶：亲手在取证环境模拟第 9 障/9 雷/3 通/2 靶板，确认落格被拒；点击靶板旋转与蓝红两色实测",
+        "t15 同源：亲手改临时真源值确认渲染跟随（或断言取值链无硬编码），确认渲染几何与 physics.bridge_entry_walls 口径一致",
+        "t16 无人机入链：亲手开开关跑规划，注入违规无人机航线确认判定输出失败行",
+        "守卫 61/61 + 全部 verify 命令独立复跑",
+        "写入边界：changedPaths 与各卡 inScope 逐一核对，禁区（config/、真源 tools 判据、四变异锚点、R5 图例）抽验未动"
+      ],
+      "verify": [
+        "powershell: $env:PYTHONPATH='D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain'; $env:PYTHONIOENCODING='utf-8'; python src\\dzbrain\\tests\\test_planner.py",
+        "node scripts/test-sim-map-render.mjs"
+      ]
+    },
+    {
+      "id": "t18",
+      "subject": "t18 四卡联合复审（规格对账 + 硬约束结构性 + 串行边界）",
+      "description": "四条新需求的联合终审：规格（t12）× 四实现（t13~t16）× 复验（t17）三方对账。审的是最新实现与复验报告，给出 verdict=pass/needs_revision（带 findings）。重点：①硬约束「优先级最高、不得放宽」是不是结构性的（不是靠默认值碰巧成立）；②硬顶是落格层硬拒而非警告文案；③冗余取值链单一真源；④无人机违规不静默。",
+      "status": "pending",
+      "dependencies": [
+        "t17"
+      ],
+      "attempt": 0,
+      "createdAt": 1792153307358,
+      "updatedAt": 1792153307358,
+      "kind": "review",
+      "objective": "Review whether the latest implementation satisfies the user goal",
+      "inScope": [
+        "dzrobot_v2/**（只读审查）",
+        "%TEMP%（自建复跑脚本）"
+      ],
+      "outOfScope": [
+        "任何仓库文件写入"
+      ],
+      "acceptance": [
+        "需求1：对照规格新章审规划器硬约束——「不得放宽」有结构性证据（config 键关不掉硬拦）+ 复验人的反例对账",
+        "需求2：硬顶 8/8/2/1、只拖拽、点击旋转、蓝红两色、象棋观感逐条对规格验收（含复验反例）",
+        "需求3：渲染值==真源值的取值链审计（无双份硬编码）",
+        "需求5：无人机开关与判定输出对规格语义；t8 既有行为不回退对账",
+        "串行写入链时间戳/哈希：sim.html 三卡递进无并发覆盖；禁区文件抽验"
+      ],
+      "verify": [
+        "node scripts/test-sim-map-render.mjs"
+      ],
+      "reviewedTaskId": "t16"
+    }
+  ],
+  "taskSeq": 18,
+  "phase": "running",
+  "approvedAt": 1792066460625
+}

@@ -1,0 +1,85 @@
+
+====================================================================================================
+TEAM car-auto-plan-v2 | members=5 tasks=27
+  assignees used: 5  {'planner-v6': 7, 'mission-autoplan-v6': 6, 'verifier-v6': 4, 'sim-operator-v6': 7, 'task-interpreter-v6': 3}
+  members never assigned: 0  []
+  model routes: {'deepseek-flash': 5}
+  providers: {'deepseek-official': 5}
+    PATHERR t6: 本图结构性不存在"无隔板侧向
+    PATHERR t6: **无法执行：不存在候选路线**
+    PATHERR t7: 路径更正：任务卡写的
+    PATHERR t7: 不存在
+    PATHERR t7: 真文件在**仓库根
+    PATHERR t9: 后缀与轨迹的耦合不存在**
+    PATHERR t12: 【路径更正】任务卡写的
+    PATHERR t12: **不存在**
+    PATHERR t17: 往返在搜索空间里不存在
+    PATHERR t17: 旧基线对应已不存在的第二张图
+    PATHERR t24: 显式给不存在的地图会静默回退到别的图
+    PARTIAL-CREDIT t25 [verifier-v6] failed-accept: ① 全量回归 27/28 套（以 t20 重钉后基线为参照）：test_sim/test_sim_guard 的已知失败必须为“已知口径变化”而非新增回归；其余全绿 | ④ 复核 t26（第三张图新物理口径重规划+对照）产物
+
+====================================================================================================
+TEAM car-auto-plan-v3 | members=13 tasks=38
+  assignees used: 7  {'sim-operator-v7': 9, 'verifier-v7': 5, 'mission-autoplan-v7': 12, 'task-interpreter-v7': 3, 'planner-v7': 6, 'archivist-v13': 1, 'captain': 1}
+  members never assigned: 7  ['archivist-v7', 'archivist-v8', 'target-observer', 'archivist-v9', 'archivist-v10', 'archivist-v11', 'archivist-v12']
+  model routes: {'deepseek-flash': 6, 'mimo-v2.6-flash-free': 1, 'deepseek-ai/deepseek-v4.1-flash': 2, 'moonshotai/kimi-k2.6': 1, 'ling-3.1-flash-free': 1, 'longcat-2.5-preview-free': 1, 'nemotron-3.5-lightning-free': 1}
+  providers: {'deepseek-official': 6, 'our-free-model': 7}
+  FINDINGS severity: {'medium': 1, 'low': 2, 'blocker': 2, 'high': 1}
+    t8 F-t8-1 [medium] 全量门禁的红不止基线两套：test_planner.py 在'逐套跑全量'的 CPU 竞争下偶发 PlannerError 规划超时（>0.80 s，planner.py:2322，触发点 test_planner.py:647 未显式传 max_seconds）。同一命令单独跑 5/5 绿（规划实测 0.55 s），4 忙核对照稳定复现超时 ⇒ load-dependent flake，位于 t7 正在写的 planner.py（本卡 inScope 之外，未修）。
+    t8 F-t8-2 [low] test_sim 103/105 与 test_sim_guard 104/109 的 7 条失败断言属既有基线挂账（每条自带 '已进 t17 终版体检，保持失败'），与 t2 基线逐条相同，非本卡引入。
+    t25 F-t25-1 [low] 契约第 3 条 verify 把“写域干净”实现为 `git diff --name-only -- src/dzbrain/ tools/ config/map.yaml docs/` 的条数应为 0，但共享工作区里这些路径**恒有队友的未提交改动**（实测 22 个）⇒ 该门禁在队友提交前对**任何**卡都恒假，会把卡无意义地卡在 failed（t25 attempt 1 即为此失败）。
+    t29 F-t29-1 [blocker] 【阻塞】`TS_TURNED_MINES = ("D8",)` 缺 `A4` —— 新图 A4 是口袋雷（西侧出界、南侧 A5 是障碍），正交移动集下不可能直线穿心，必须进“允许 90° 拐过”白名单。否则车端 `plan_route_tracker_safe()`（`plan_route_from_config` 只传 4 个参数、相位/白名单用模块级常量）恒 `PlannerError: tracker-safe 引擎无解` ⇒ 回退旧 62 点路线 ⇒ config_selfcheck 12 error / route_check 5 项失败 ⇒ **不可发车**。
+    t29 F-t29-2 [blocker] 【阻塞·安全】巡航速度双真源不同步：本卡只把 dzbrain 侧 `pursuit.cruise_speed_mps` 改为 0.15，而车端 legacy 节点读的是 `path_executor.linear_speed`（仍 0.35，见 src/car_localization/car_localization/path_executor.py:441-442）⇒ 若赛前路径为 legacy path_executor，实车仍按 0.35 跑，新图挡板余量只有 +0.5 mm。同理 `mission.auto_start=false/45.0` 与 `path_executor.auto_start=true/2.0` 也是双真源（后者 2 s 后就会出发，会绕过本卡留给队长的 45 s 核对窗口）。
+    t29 F-t29-3 [high] 换图导致 11 套回归与台账口径分叉：契约期望“除 known-red 7 条外 0 新增红”，但换图后 calib/route/drone/motion_limit/core/physics/bridge_gate/sim/sim_guard/autoplan 出现新红（绝大多数是测试把“第三张图/旧图雷靶位/cruise 0.35”钉成了硬期望）；其中 autoplan 35 条与 calib/route 的自检红**由 F-t29-1 派生**，修常量后应自动消解。
+    PATHERR t20: 但**现在连发布者都不存在**
+    PATHERR t34: 条硬化项）**：`DZ_PKG_ROOT=<不存在>`
+    PATHERR t37: **不存在越跑越快的通路**
+
+====================================================================================================
+TEAM car-auto-plan-v4 | members=6 tasks=6
+  assignees used: 0  {}
+  members never assigned: 6  ['planner-v8', 'mission-autoplan-v8', 'verifier-v8', 'sim-operator-v8', 'task-interpreter-v8', 'archivist-v14']
+  model routes: {'deepseek-ai/deepseek-v4.1-flash': 2, 'moonshotai/kimi-k3': 2, 'z-ai/glm-5.3': 1, 'nemotron-3.5-lightning-free': 1}
+  providers: {'our-free-model': 6}
+
+====================================================================================================
+TEAM car-auto-plan-v5 | members=6 tasks=7
+  assignees used: 0  {}
+  members never assigned: 6  ['planner-v9', 'mission-v9', 'verifier-v9', 'sim-v9', 'interpreter-v9', 'archivist-v9']
+  model routes: {'z-ai/glm-5.3': 1, 'z-ai/glm-5.3-flash': 1, 'moonshotai/kimi-k3': 1, 'space-bunny-free': 1, 'moonshotai/kimi-k2.6': 1, 'nemotron-3.5-lightning-free': 1}
+  providers: {'our-free-model': 6}
+
+====================================================================================================
+TEAM car-auto-plan | members=22 tasks=29
+  assignees used: 6  {'verifier': 1, 'planner-pivot-v5': 6, 'mission-autoplan-v5': 7, 'verifier-v5': 9, 'captain': 1, 'sim-operator-flash': 5}
+  members never assigned: 17  ['planner-pivot', 'mission-autoplan', 'map-lab', 'planner-pivot-v2', 'mission-autoplan-v2', 'verifier-v2', 'map-lab-v2', 'planner-pivot-v3', 'mission-autoplan-v3', 'map-lab-v3', 'verifier-v3', 'planner-pivot-v4', 'mission-autoplan-v4', 'map-lab-v4', 'verifier-v4', 'sim-operator', 'task-interpreter']
+  model routes: {'deepseek-v4.1-flash': 7, 'qmodel_38max': 1, 'deepseek-ai/deepseek-v4.1-flash': 4, 'deepseek-flash': 9, 'deepseek-v4-pro': 1}
+  providers: {'codearts': 7, 'qodercn': 1, 'our-free-model': 4, 'deepseek-official': 9, 'deepseek-account': 1}
+  FINDINGS severity: {'blocker': 1, 'medium': 1, 'low': 2}
+    t4 D1 [blocker] 第 2 步判据『到点率 ≥ 95%』不成立：42 个目标航点中 11 个未被登记到达（4 个兜底强制跳过 B6#22/A6#23/A5#24/C5#25 + 7 个静默丢弃 C4#26/G1#32/H1#33/K4#38/L4#39/M4#40/N4#41），严格到点率 31/42 = 73.81%（含兜底 83.33%）< 95%；8 颗雷中 A6/C4/H1 未登记到达（雷到达 5/8）。根因链：①mission.py:712-728 的到达判据 reached=(s_reached and near) or dist≤arrival_m，当 s 一步跨过航点（over≫arrival_m）且当拍 lat>0.30 / dist>0.24 时该点被静默丢弃（既不置位也无记录，代码注释 700 行自称『没有 forced_skip 记录』=不诚实）；②mission.py:746-813
+    t4 D2 [medium] CLI `--map` 对 `--plan-only` 的规划地图无效（静默忽略）：`python -m dzbrain --plan-only --map backup\cardD\verify2\map_variant.yaml` 打印『地图: D:\User\Desktop\dzrobot_v2\config\map.yaml』且 token 与默认图逐字节相同；而同一条命令的门禁却按变体图报 `❌ [R005] 雷覆盖 7/8，漏 B5` ⇒ 一次调用里两套地图口径并存，对『换地图即出路线』的使用者是误导。对照：直接 plan_route_from_config(cfg, map_path=变体) 得到不同的 38 token 无 :PIVOT 路线（same_tokens=false）。
+    t4 D3 [low] `--plan-only` 在门禁失败时把同一段门禁错误重复打印两遍，且未标注该 error 是针对 route.tokens 而非规划结果 —— 读者容易误判『规划器算出来的路线过不了校验』（实际规划结果是 0 error）。
+    t4 D4 [low] 回退路线（config/robot.yaml 的 34 点 route.tokens，3 处前进-前进 180° 折返）在 bench 里只触发 2 次 PIVOT（s=4.20 / s=8.05），第 3 处折返点未触发；同时 D6/C6 与打靶停站点 G10* 被兜底跳过（G10* 停滞 19.7s）。风险仅出现在『规划失败 → 回退 route.tokens』路径（现场默认 planner.auto_plan_enabled=true）。
+    PATHERR t1: 完全不存在（parser.py:61
+    PATHERR t9: **不存在**
+    PARTIAL-CREDIT t9 [verifier-v5] failed-accept: 清单1：除 test_sim.py/test_sim_guard.py 外全部 test_*.py 汇总每套断言数与 exit code，必须全绿
+    PARTIAL-CREDIT t18 [verifier-v5] failed-accept: 验收：重钉后全仓 20 套（除 test_drift 外）exit 0
+    PARTIAL-CREDIT t19 [verifier-v5] failed-accept: ④ 部署清单终审（新流程：本地改→deploy_to_car.py→车端编译）
+
+====================================================================================================
+TEAM camview-ann-team | members=6 tasks=9
+  assignees used: 7  {'car-ops': 1, 'display-fix': 1, 'evidence-verify': 1, 'ui-polish': 1, 'captain': 2, 'ui-reviewer': 1, 'voice-research': 2}
+  members never assigned: 0  []
+  model routes: {'mimo-v2.6-flash-free': 4, 'z-ai/glm-5.3-flash': 2}
+  providers: {'our-free-model': 6}
+    PARTIAL-CREDIT t2 [display-fix] failed-accept: 重开/刷新 VNC 内浏览器状态变「已连接」且视频区真实出帧，抓 xwd 截图存证
+
+====================================================================================================
+TEAM v1-to-v2-architect | members=7 tasks=7
+  assignees used: 7  {'analyst-v1': 1, 'analyst-v2': 1, 'builder-core': 1, 'builder-pursuit': 1, 'builder-tasks': 1, 'builder-io': 1, 'builder-test': 1}
+  members never assigned: 0  []
+  model routes: {'deepseek-v4-flash': 7}
+  providers: {'modlens-codearts': 7}
+
+
+GRAND TOTAL: teams=7 members(sum,含改名重复)=65 tasks=123

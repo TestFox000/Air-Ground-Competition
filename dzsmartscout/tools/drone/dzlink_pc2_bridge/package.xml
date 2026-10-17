@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dzlink_pc2_bridge</name>
+  <version>0.1.0</version>
+  <description>
+    Livox CustomMsg -> sensor_msgs/PointCloud2 桥接 + 单调序号信标。
+    用途：让未安装 livox_ros_driver2 的跨机消费方（小车）以标准消息类型开箱即用地点云，
+    同时不改变 /livox/lidar 原有的 CustomMsg 契约（无人机自身 FAST-LIO 栈不受影响）。
+  </description>
+  <maintainer email="dev@dzsmart.local">dzsmart</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>livox_ros_driver2</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

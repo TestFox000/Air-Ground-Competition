@@ -1,0 +1,308 @@
+{
+  "arm_id": "MC3",
+  "world": "B-桥洞K11/K5(随机),靶蓝面东",
+  "description": "蒙特卡洛抽样 3/4：真值桥洞 K11/K5、无情报直冲 → 中断（解析概率 29/30）",
+  "executed_tokens": [
+    "N10",
+    "M10",
+    "L10",
+    "K10",
+    "J10",
+    "I10",
+    "H10",
+    "H9",
+    "H8",
+    "G8",
+    "F8",
+    "F9",
+    "F10",
+    "F11",
+    "E11",
+    "D11",
+    "D10",
+    "D9",
+    "D8",
+    "D7",
+    "C7",
+    "C6",
+    "B6",
+    "A6",
+    "A7",
+    "A8",
+    "A9",
+    "A10",
+    "B10",
+    "C10*",
+    "D10",
+    "D9",
+    "D8",
+    "D7",
+    "C7",
+    "C6",
+    "C5",
+    "C4",
+    "B4",
+    "A4",
+    "A3",
+    "A2",
+    "A1",
+    "B1",
+    "C1",
+    "C2",
+    "D2",
+    "E2",
+    "F2",
+    "G2",
+    "H2",
+    "H3",
+    "H4",
+    "I4",
+    "I5",
+    "J5",
+    "K5",
+    "L5",
+    "M5",
+    "N5,y"
+  ],
+  "versions": [
+    {
+      "kind": "baseline",
+      "n": 60,
+      "crosses": {
+        "lower": "K10",
+        "upper": "K5"
+      },
+      "note": "tracker-safe 规划（60 token）穿洞 K10/K5",
+      "tokens": "N10 M10 L10 K10 J10 I10 H10 H9 H8 G8 F8 F9 F10 F11 E11 D11 D10 D9 D8 D7 C7 C6 B6 A6 A7 A8 A9 A10 B10 C10* D10 D9 D8 D7 C7 C6 C5 C4 B4 A4 A3 A2 A1 B1 C1 C2 D2 E2 F2 G2 H2 H3 H4 I4 I5 J5 K5 L5 M5 N5,y"
+    }
+  ],
+  "car": {
+    "completed": false,
+    "time_s": 5.919999999999962,
+    "cross_track_rms_m": 1.8813683649992057e-17,
+    "cross_track_max_m": 1.1102230246251565e-16,
+    "overshoot_max_m": 4.719501627233945,
+    "final_error_m": 1.957006898301587,
+    "out_of_bounds_steps": 0.0,
+    "anchors": 2.0,
+    "path_len_ratio": 0.0424213075060532,
+    "field_stop_t": 5.919999999999962,
+    "field_stopped": 1.0,
+    "steps": 296.0
+  },
+  "field_metrics": {
+    "mine_total": 8.0,
+    "mine_pressed_count": 0.0,
+    "mine_press_steps": 0.0,
+    "mine_worst_clearance_m": 4.494640808785504,
+    "obstacle_hit_steps": 0.0,
+    "obstacle_breach_steps": 0.0,
+    "barrier_min_distance_m": 1.225,
+    "barrier_breach_steps": 0.0,
+    "board_overlap_steps": 0.0,
+    "board_breach_steps": 0.0,
+    "k_column_steps": 1.0,
+    "k_seal_violation_steps": 0.0,
+    "k_solid_cell_steps": 1.0
+  },
+  "commit_t": 2.0,
+  "intel_complete_t": null,
+  "wait_lower_s": 0.0,
+  "wait_upper_s": 0.0,
+  "reroute_count": 0,
+  "adopted_changes": 2,
+  "gate_events": [
+    {
+      "t": 2.0,
+      "half": "lower",
+      "source": "no_link",
+      "cell": "K10",
+      "default": "K10",
+      "reason": "未收到任何无人机报文（无链路）→ 用默认格"
+    },
+    {
+      "t": 2.0,
+      "half": "upper",
+      "source": "no_link",
+      "cell": "K5",
+      "default": "K5",
+      "reason": "未收到任何无人机报文（无链路）→ 用默认格"
+    }
+  ],
+  "gap": {
+    "gap_ticks": 297,
+    "gap_cells": 4,
+    "gap_by_cell": {
+      "N10": 62,
+      "M10": 116,
+      "L10": 117,
+      "K10": 2
+    },
+    "gap_key_ticks": 0,
+    "gap_key_cells": 0,
+    "gap_key_by_cell": {}
+  },
+  "lead_rows": [
+    {
+      "cell": "A4",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "A5",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "B1",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "B11",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "B7",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "C11",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "C9",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "D1",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "D8",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "E10",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "E11",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "F4",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "F9",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "G11",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "G2",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "H3",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "H5",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "I10",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "K11",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    },
+    {
+      "cell": "K5",
+      "reveal_joint": null,
+      "arrival_joint": null,
+      "lead_s": null
+    }
+  ],
+  "shoot": {
+    "planned_stop": "C10",
+    "chosen_stop": "C10",
+    "reached": false,
+    "sector_fail": false,
+    "blue_hits": 0,
+    "red_hits": 0,
+    "misses": 10,
+    "dwell_s": 30.0,
+    "penalties": 0,
+    "score": 0,
+    "true_phi_deg": -90.0,
+    "judged_phi_deg": -90.0,
+    "chosen_theta_deg": -26.57,
+    "sector_deg": 45.0,
+    "panel_speed_mps": 0.1,
+    "anchor_t": 2.0
+  },
+  "budget": {
+    "drive_s": 5.919999999999962,
+    "wait_lower_s": 0.0,
+    "dwell_s": 0.0,
+    "commit_s": 2.0,
+    "total_s": 7.92,
+    "budget_s": 180.0,
+    "within": true,
+    "margin_s": 172.08,
+    "note": "未跑完（撞封死桥室/硬违规中断），驻留不计"
+  },
+  "link": {
+    "sent": 0,
+    "delivered": 0,
+    "dropped": 0
+  },
+  "drone": {},
+  "artifacts": {
+    "traj_csv": "D:\\User\\Desktop\\比赛存档\\v1\\_tmp_session\\sim_ag\\full2\\mc3\\traj.csv",
+    "traj_sha256": "56a8568800047aff646bcfaea2282273fb2c605d138ea507b742d230e2f503b9",
+    "route_map": "D:\\User\\Desktop\\比赛存档\\v1\\_tmp_session\\sim_ag\\full2\\mc3\\route_map.png"
+  },
+  "notes": []
+}

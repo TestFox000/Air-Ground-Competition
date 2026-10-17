@@ -1,0 +1,417 @@
+﻿# 发车监控 启动 2026-10-15T21:34:45.5118791+08:00
+== 21:34:46 ==
+[T] L10 DRIVE (0.584,0.804) yaw54.7 v0.120 st-26.8 | 段2 s0.76/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] L10 DRIVE (0.618,0.847) yaw46.2 v0.120 st-10.1 | 段2 s0.79/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] L10 DRIVE (0.699,0.922) yaw41.0 v0.120 st+2.8 | 段2 s0.87/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+[T] L9 DRIVE (0.740,0.959) yaw42.7 v0.120 st+7.8 | 段2 s0.91/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+---GIMBAL---
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:34:58 ==
+不开火：目标丢失（闭锁）
+[T] E10 DRIVE (0.536,3.188) yaw66.7 v0.120 st-25.8 | 段10 s3.71/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+⛔ 吸附被拒（疑似尺度误差（连续 3 次同向、幅度中位 0.115 m ≥ 0.060 m；隐含尺度≈+3.9%）—— 不再用吸附把它掩盖掉）：E10（航点 #11）偏差 0.119 m → 保留当前信念（累计拒绝 7 次）
+到点 11/43 E10（s=3.85 m，依据 s+近路径）
+已走完航点 #11（投影已在其之后、且已离开判定窗口） → 下一个航点可再次吸附
+⚠️ 段位移不可信：本窗口 ds=0.142 m 远超位姿位移 0.011 m（上限 0.050 m = 位移×2 与 0.050 m 取大）→ 不计入几何弧长（已丢弃 11 拍 / 2.036 m）
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+⚠️ 漂移告警：E9 偏差 0.305 m > 0.300 m（未吸附（未进入到位半径），累计 4 次）
+---GIMBAL---
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:35:11 ==
+到点 18/43 B6（s=6.30 m，依据 s+近路径）
+⛔ 吸附被拒（疑似尺度误差（连续 3 次同向、幅度中位 0.113 m ≥ 0.060 m；隐含尺度≈+1.9%）—— 不再用吸附把它掩盖掉）：B6（航点 #18）偏差 0.118 m → 保留当前信念（累计拒绝 13 次）
+不开火：目标丢失（闭锁）
+⚠️ 漂移告警：A6 偏差 0.309 m > 0.300 m（未吸附（未进入到位半径），累计 6 次）
+⚠️ 段位移不可信：本窗口 ds=0.163 m 远超位姿位移 0.011 m（上限 0.050 m = 位移×2 与 0.050 m 取大）→ 不计入几何弧长（已丢弃 19 拍 / 3.417 m）
+[T] B6 DRIVE (1.857,4.449) yaw33.9 v0.120 st+20.7 | 段18 s6.37/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+---GIMBAL---
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:35:24 ==
+⚠️ 漂移告警：C1 偏差 0.310 m > 0.300 m（未吸附（未进入到位半径），累计 8 次）
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+[T] C1 DRIVE (3.667,4.175) yaw-69.3 v0.350 st-15.2 | 段25 s8.95/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+⛔ 吸附被拒（疑似尺度误差（连续 3 次同向、幅度中位 0.113 m ≥ 0.060 m；隐含尺度≈+1.3%）—— 不再用吸附把它掩盖掉）：C1（航点 #26）偏差 0.105 m → 保留当前信念（累计拒绝 19 次）
+到点 26/43 C1（s=9.10 m，依据 s+近路径）
+已走完航点 #26（投影已在其之后、且已离开判定窗口） → 下一个航点可再次吸附
+[T] C1 DRIVE (3.703,4.023) yaw-85.1 v0.120 st-13.9 | 段26 s9.10/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+---GIMBAL---
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:35:36 ==
+[T] F3 STOP (2.922,3.123) yaw-82.1 v0.000 st+0.0 | 段30 s10.70/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+停站点 31 F3：停稳 0.50s ≥ 0.40s → ACQUIRE
+不开火：目标丢失（闭锁）
+[T] F3 STOP (2.922,3.123) yaw-82.0 v0.000 st+0.0 | 段30 s10.70/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 STOP 不允许循迹
+[T] F3 STOP (2.922,3.123) yaw-81.9 v0.000 st+0.0 | 段30 s10.70/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+---GIMBAL---
+[dzactuator_node-1] ==> 进入扫描前先归位（正前方 + 水平），超时 1500 ms
+[dzactuator_node-1] ==> 归位段结束（超时兜底）：yaw偏差 5 tick / pitch偏差 116 tick ⇒ 开始扫描
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:35:49 ==
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] G5 DRIVE (2.449,2.562) yaw169.2 v0.350 st+1.0 | 段33 s11.73/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+⛔ 吸附被拒（疑似尺度误差（连续 3 次同向、幅度中位 0.113 m ≥ 0.060 m；隐含尺度≈+0.8%）—— 不再用吸附把它掩盖掉）：G5（航点 #34）偏差 0.101 m → 保留当前信念（累计拒绝 26 次）
+到点 34/43 G5（s=11.90 m，依据 s+近路径）
+已走完航点 #34（投影已在其之后、且已离开判定窗口） → 下一个航点可再次吸附
+不开火：目标丢失（闭锁）
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责[T] G5 DRIVE (2.188,2.605) yaw175.8 v0.120 st+19.7 | 段34 s11.99/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+
+---GIMBAL---
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 收到停止扫描请求
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:36:02 ==
+不开火：目标丢失（闭锁）
+⛔ 吸附被拒（疑似尺度误差（连续 3 次同向、幅度中位 0.115 m ≥ 0.060 m；隐含尺度≈+0.8%）—— 不再用吸附把它掩盖掉）：M5（航点 #42）偏差 0.116 m → 保留当前信念（累计拒绝 33 次）
+到点 42/43 M5（s=14.70 m，依据 s+近路径）
+已走完航点 #42（投影已在其之后、且已离开判定窗口） → 下一个航点可再次吸附
+⚠️ 段位移不可信：本窗口 ds=0.116 m 远超位姿位移 0.015 m（上限 0.050 m = 位移×2 与 0.050 m 取大）→ 不计入几何弧长（已丢弃 46 拍 / 8.021 m）
+[T] M5 DRIVE (2.284,0.612) yaw-91.0 v0.133 st-0.2 | 段42 s14.70/44 | 瞄IDLE 靶none 发0/中0 弹10 | 安全OK | 无人机offline
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+---GIMBAL---
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 收到停止扫描请求
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:36:14 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 收到停止扫描请求
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:36:27 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 收到停止扫描请求
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:36:39 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:36:52 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:37:04 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:37:17 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:37:29 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:37:42 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:37:55 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:38:07 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:38:20 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:38:32 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:38:45 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:38:57 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:39:10 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:39:23 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:39:35 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:39:48 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!
+== 21:40:01 ==
+  [STOPPED ] Localization   ticks=2058    errors=0 overruns=0 max_tick=6.13ms
+  [STOPPED ] Safety         ticks=2057    errors=0 overruns=0 max_tick=30.97ms
+  [STOPPED ] TrackerTask    ticks=5135    errors=0 overruns=24 max_tick=17.9ms
+  [STOPPED ] MissionTask    ticks=983     errors=0 overruns=2 max_tick=4732.07ms
+  [STOPPED ] AimTask        ticks=5135    errors=0 overruns=25 max_tick=49.97ms
+  [STOPPED ] FixTask        ticks=1029    errors=0 overruns=0 max_tick=3.28ms
+  [STOPPED ] DroneTask      ticks=515     errors=0 overruns=0 max_tick=1.11ms
+  [STOPPED ] TelemetryTask  ticks=206     errors=0 overruns=0 max_tick=45.86ms
+---GIMBAL---
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+---JUDGE---
+[dzjudgment-1] [dzjudgment-->]Serial initialize start!
+[dzjudgment-1] [dzjudgment-->]Serial initialize successfully!

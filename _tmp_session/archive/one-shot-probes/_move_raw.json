@@ -1,0 +1,210 @@
+[
+ {
+  "old": "dzsmartscout/_pdf_arena.py",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/_pdf_arena.py",
+  "size": 766,
+  "md5": "18258092fbf0f3b4f513aa026e748946",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/_pdf_arena_img.py",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/_pdf_arena_img.py",
+  "size": 1077,
+  "md5": "1493014a62bde7d73805d51483d2a0c4",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/_pdf_arena_sheet.py",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/_pdf_arena_sheet.py",
+  "size": 1139,
+  "md5": "f17fd8f0fa9fa7b1daaf52638bd7c8a8",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/_pdf_arena_sheet2.py",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/_pdf_arena_sheet2.py",
+  "size": 1252,
+  "md5": "d32d3cdcdd4c1309c56d5e2c7b8a6a54",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/_pdf_arena_sheet3.py",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/_pdf_arena_sheet3.py",
+  "size": 1246,
+  "md5": "741474f4c06b6702b74414bd86a85c8f",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/_pdf_extract.py",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/_pdf_extract.py",
+  "size": 877,
+  "md5": "a94b8e5bd0fb9d8d13a0ee5e1c9c49af",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/_pdf_vnc.py",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/_pdf_vnc.py",
+  "size": 757,
+  "md5": "6cb8e10db2d431d87d55979519b26740",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/_probe_thermal.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/_probe_thermal.sh",
+  "size": 233,
+  "md5": "bfe36cdd8abf5d7adb5387d5305d287f",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_car_chassis_src.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_car_chassis_src.sh",
+  "size": 637,
+  "md5": "c5d091c4eb32ead5c3800b4c28178e2c",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_car_code.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_car_code.sh",
+  "size": 947,
+  "md5": "3c3e3de37ee9fad433a1932076dd60bc",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_car_logs.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_car_logs.sh",
+  "size": 923,
+  "md5": "1494ad97940ab7888b3aede2c0fe43e4",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_car_logs2.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_car_logs2.sh",
+  "size": 388,
+  "md5": "f710bf976274c22d6e6c0fe4d84bf2bf",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_car_preflight.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_car_preflight.sh",
+  "size": 923,
+  "md5": "44ef4be36b6bd62951f919888e294668",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_car_reset.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_car_reset.sh",
+  "size": 578,
+  "md5": "7e11bee6e5de899b0a4b2e8b6d4ab667",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_car_src.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_car_src.sh",
+  "size": 585,
+  "md5": "722620541c9d28d33f81dbf7e3981963",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_car_src2.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_car_src2.sh",
+  "size": 503,
+  "md5": "e564983bd343c1736f193506b0bc5a5a",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_car_traj.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_car_traj.sh",
+  "size": 1213,
+  "md5": "408d7aa85a77cee63e4b84e30a3131bd",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_car_where.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_car_where.sh",
+  "size": 919,
+  "md5": "efeaf6c9548e22fe3d9eba59f42ba45f",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_drone_gates.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_drone_gates.sh",
+  "size": 1029,
+  "md5": "3818db5ff8ad6b80e349dfd1d26c1b54",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_drone_hist.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_drone_hist.sh",
+  "size": 395,
+  "md5": "1703418cd2fb92897e0e521ae4306c09",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_drone_topics.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_drone_topics.sh",
+  "size": 410,
+  "md5": "56884068696a3389a6e6ca0817241cb0",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_drone_values.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_drone_values.sh",
+  "size": 1017,
+  "md5": "7c7691cf0b4ce5ea486ab85cb5cf2f57",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp_probe_auth.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp_probe_auth.sh",
+  "size": 573,
+  "md5": "09d06ec1811ae692b7cf3dec18babf55",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp/car_cfg.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp/car_cfg.sh",
+  "size": 670,
+  "md5": "b2d74ba0c739301a612dc8eca889884c",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp/car_probe_run.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp/car_probe_run.sh",
+  "size": 259,
+  "md5": "09dd78b7fa91d20f5c389de90af8da28",
+  "moved_ok": true,
+  "source_gone": true
+ },
+ {
+  "old": "dzsmartscout/tools/_tmp/dzsend.sh",
+  "new": "_tmp_session/archive/one-shot-probes/dzsmartscout/tools/_tmp/dzsend.sh",
+  "size": 324,
+  "md5": "39c3cff681c075fdb2b1b205e5a0ce38",
+  "moved_ok": true,
+  "source_gone": true
+ }
+]

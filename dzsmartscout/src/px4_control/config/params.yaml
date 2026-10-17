@@ -1,0 +1,23 @@
+px4_control_node:
+  ros__parameters:
+    takeoff_height: 0.5
+    step_xy: 0.5
+    step_z: 0.1
+    loop_rate_hz: 20
+    arrive_tol: 0.15
+    heartbeat_before_offboard: 20
+
+    land_control: false
+    land_fast_speed: 0.4
+    land_slow_speed: 0.2
+    land_slow_alt: 0.5
+    land_touch_z: 0.05
+
+    yaw_step_rad: 0.15
+    pursuit_goto_timeout: 1.0
+
+px4_teleop_node:
+  ros__parameters:
+    step_xy: 0.5
+    step_z: 0.1
+    yaw_step_rad: 0.15

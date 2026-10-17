@@ -1,0 +1,9 @@
+30
+  "notes": {
+    "ok": 30
+  },
+  "acks_sent": 30,
+  "publishers_final": 0,
+  "t_end": 1791804518.484,
+  "verdict": "RECEIVED"
+}

@@ -1,0 +1,10 @@
+ 127.0.0.1/8
+ 192.168.3.50/24
+10.29.122.104/24 10.29.122.104/24
+10.29.122.104/24 172.17.0.1/16
+	Interface wlP1p1s0
+		ssid testfox
+		ssid testfox
+Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
+ face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22
+wlP1p1s0: 0000   53.  -57.  -256        0      0      0      0      0        0

@@ -1,0 +1,59 @@
+{
+  "role": "recv",
+  "host": "duzhong",
+  "group": "225.0.0.1",
+  "port": 49150,
+  "tag": "duzhong",
+  "received": 11,
+  "senders": [
+    "10.29.122.104:35533"
+  ],
+  "bodies": [
+    {
+      "from": "10.29.122.104:35533",
+      "data": "DZ t4 mcast drone-d2c #0"
+    },
+    {
+      "from": "10.29.122.104:35533",
+      "data": "DZ t4 mcast drone-d2c #3"
+    },
+    {
+      "from": "10.29.122.104:35533",
+      "data": "DZ t4 mcast drone-d2c #4"
+    },
+    {
+      "from": "10.29.122.104:35533",
+      "data": "DZ t4 mcast drone-d2c #5"
+    },
+    {
+      "from": "10.29.122.104:35533",
+      "data": "DZ t4 mcast drone-d2c #6"
+    },
+    {
+      "from": "10.29.122.104:35533",
+      "data": "DZ t4 mcast drone-d2c #8"
+    },
+    {
+      "from": "10.29.122.104:35533",
+      "data": "DZ t4 mcast drone-d2c #10"
+    },
+    {
+      "from": "10.29.122.104:35533",
+      "data": "DZ t4 mcast drone-d2c #11"
+    },
+    {
+      "from": "10.29.122.104:35533",
+      "data": "DZ t4 mcast drone-d2c #12"
+    },
+    {
+      "from": "10.29.122.104:35533",
+      "data": "DZ t4 mcast drone-d2c #21"
+    },
+    {
+      "from": "10.29.122.104:35533",
+      "data": "DZ t4 mcast drone-d2c #26"
+    }
+  ],
+  "elapsed": 25.2,
+  "t_start": 1791804538.9605515
+}

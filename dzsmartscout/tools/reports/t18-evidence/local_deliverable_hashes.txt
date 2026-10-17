@@ -1,0 +1,4 @@
+﻿dzlink_supervisor.py  5c7426d6b619da2f4b69bb3149de2d53  5899a44b318f0031fb99
+dz_send_waypoint.py  eb41dbf4b944bc7e8af8e61ec940a228  c2aafbd157f6e62eab55
+test_dzlink_supervisor.py  558f40a2c4cd77c5a0fc7769e6ddcfa4  24e270c37b0ddf259739
+test_dz_send_waypoint.py  a95a49ff4b43cc0c8e01161088d69975  b8f694d4bd4a99b9afb2

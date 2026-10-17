@@ -1,0 +1,21 @@
+[t4_rosenv] host=duzhong ROS_DISTRO=humble ROS_DOMAIN_ID=118 RMW=default
+Publisher count: 2
+
+Node name: dzlink_supervisor
+Node namespace: /
+Topic type: std_msgs/msg/String
+Endpoint type: PUBLISHER
+GID: 01.0f.2f.38.4e.29.9c.a8.00.00.00.00.00.00.12.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+--
+Endpoint type: PUBLISHER
+GID: 01.0f.2f.38.7f.29.76.77.00.00.00.00.00.00.11.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
