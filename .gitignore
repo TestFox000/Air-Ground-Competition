@@ -103,3 +103,7 @@ reference/onboard/*.tar.gz
 
 # 循迹诊断：本机小车 IP 缓存（密码约定走 AG_CAR_PASS 环境变量，永不落盘）
 tools/track_diag.local.env
+
+# 现场补丁工具的本地备份（回滚证据留机载/本机，不入库）
+*.bak_local_*
+*.bak_patch_*
