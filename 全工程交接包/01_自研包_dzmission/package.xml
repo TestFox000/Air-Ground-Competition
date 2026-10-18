@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dzmission</name>
+  <version>0.1.0</version>
+  <description>
+    地面车任务编排层：接收无人机/裁判系统下发的任务指令，完成路径规划、运动仲裁、
+    自身定位补偿、近距离避碰、云台识别标靶、激光发射打击，并与车载裁判板/裁判系统闭环交互。
+    本包不修改现有 dzactuator / dztrack / dzjudgment / dzrknn_dataprocess 的行为，
+    只通过话题与服务接入。
+  </description>
+  <maintainer email="dev@duzhong.local">duzhong robot</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>serial</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

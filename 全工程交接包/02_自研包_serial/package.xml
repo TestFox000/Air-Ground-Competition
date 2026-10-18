@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>serial</name>
+  <version>1.2.2</version>
+  <description>
+    极简串口库（POSIX termios 实现），接口与原 wjwwood/serial 兼容。
+    自建原因：原库是 ROS 1 catkin 包，ROS 2 Humble 无对应 apt 包，
+    且从源码编译需 GitHub 可达（本环境不通）。
+    dzmission / raw_transport / referee_board / cmd_link 均依赖
+    `serial/serial.h` 与 `serial::Serial`。
+  </description>
+  <maintainer email="team@example.com">dz team</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <build_depend>cmake</build_depend>
+  <exec_depend>cmake</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

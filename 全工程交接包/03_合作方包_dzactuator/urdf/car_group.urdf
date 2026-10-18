@@ -1,0 +1,53 @@
+<?xml version="1.0" ?>
+<robot name="robot1">
+
+    <link name="robot1/base_link">
+        <visual>
+            <origin xyz=" 0 0 0" rpy="0 0 0" />
+            <geometry>
+                <cylinder length="0.01" radius="0.01"/>
+            </geometry>
+            <material name="yellow">
+                <color rgba="1 0.4 0 1"/>
+            </material>
+        </visual>
+    </link>
+
+    <link name="robot1/imu_link">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <cylinder radius="0.06" length = "0.025"/>
+            </geometry>
+            <material name="white">
+                <color rgba="1 1 1 0.9"/>
+            </material>
+        </visual>
+    </link>
+
+    <link name="robot1/laser">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <cylinder radius="0.06" length = "0.025"/>
+            </geometry>
+            <material name="white">
+                <color rgba="1 1 1 0.9"/>
+            </material>
+        </visual>
+    </link>
+
+
+    <joint name="imu_to_base" type="fixed">
+        <origin xyz="0 0 0.08" rpy="0 0 0"/>
+        <parent link="robot1/base_link"/>
+        <child link="robot1/imu_link"/>
+    </joint>
+
+    <joint name="laser_to_base" type="fixed">
+        <origin xyz="0.015 -0.004 0.13" rpy="0 0 3.14"/>
+        <parent link="robot1/base_link"/>
+        <child link="robot1/laser"/>
+    </joint>
+
+</robot>

@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>det_node</name>
+  <version>0.0.0</version>
+  <description>RKNN detection node</description>
+  <maintainer email="duzhong@example.com">duzhong</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
+  <!-- ★ 删除了 <depend>image_transport</depend>：代码里零引用。
+       det_node.cc 直接用 rclcpp 的 create_subscription<sensor_msgs::Image>
+       订阅图像话题，没有用 image_transport 的 CameraSubscriber。
+       cv_bridge 是**真用的**（det_node.cc: #include <cv_bridge/cv_bridge.h>，
+       并用 cv_bridge::toCvShare），所以保留。 -->
+  <depend>ament_index_cpp</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
