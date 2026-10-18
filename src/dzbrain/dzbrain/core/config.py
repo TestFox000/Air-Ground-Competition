@@ -535,6 +535,16 @@ SCHEMA: dict[str, Spec] = {
                                       "启动等待无人机布局的上限；超时 exit 3"),
     "step.wait_timeout_s": Spec(0.0, _F, "s", 0.0, 3600.0,
                                     "WAIT_INFO 等待上限；0=不限时（一直等下一份布局）"),
+    # ★2026-10-18 现场 pose_stale 事故：布局模式下若 /odom/localization 没进决策层，
+    #   任务层会带着种子位姿照常发指令（车一步不动、排障两分钟）。下面两个键让
+    #   "半死图"当场变成"退出码 5 + 三条排查命令"。
+    "step.pose_ready_wait_s": Spec(8.0, _F, "s", 0.0, 120.0,
+                                    "★位姿就绪门：出发前最多等多少秒 /odom/localization 首帧；"
+                                    "超时 exit 5；0=关闭（测试/bench）"),
+    "step.odom_watch_s": Spec(6.0, _F, "s", 0.0, 120.0,
+                               "★运行期位姿看门狗：DRIVING 中连续多少秒无新 odom 帧即判 ROS_LOST"
+                               "（停段+刹车+exit 5）；0=关闭"),
+
     "drone.map_path": Spec("", _S, "", None, None,
                            "本地地图路径（空 = 自动定位 <repo>/config/map.yaml）"),
 

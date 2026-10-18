@@ -46,6 +46,10 @@ r"""dzbrain 主进程 —— 单进程多线程任务架构的入口。
 
 ★ v1 布局（没有 `known` 键，旧机端）行为**逐字节不变**：仍走"规划一次"的旧路径
 （`test_drone` §⑯ 的 exit 3/4/成功路径就是这条兼容证据）。
+
+★ 退出码：0=正常；3=无布局/装配失败；4=布局规划失败；**5=ROS 图/位姿管线未就绪**
+（域号冲突 DZ_ROS_DOMAIN≠ROS_DOMAIN_ID、重复 dzbrain 实例、/odom/localization 无首帧、
+运行期断流）。5 的现场判据与三条照抄命令见 `_ROS_DIAG_COMMANDS`。
 """
 
 from __future__ import annotations
@@ -344,6 +348,9 @@ STEP_PHASE_SEGMENT_DONE = "SEGMENT_DONE"
 STEP_PHASE_FINISH = "FINISH"
 STEP_PHASE_SAFE_STOP = "SAFE_STOP"
 STEP_PHASE_WAIT_TIMEOUT = "WAIT_INFO_TIMEOUT"
+#: ★2026-10-18 现场事故：DRIVING 中 /odom/localization 断流 ⇒ 任务层拿着旧信念空跑。
+#: 运行期位姿看门狗判死后的阶段（main 退出码 5；不自动恢复，必须人查图/域号后重起）。
+STEP_PHASE_ROS_LOST = "ROS_LOST"
 
 #: belief 连续落在未知格的确认拍数（10 Hz ⇒ 0.3 s）。单拍投影抖动不判死；
 #: 连续 3 拍仍不在 known 里 ⇒ SAFE_STOP（docs/step_loop.md §3.5 的"实际投影落入未知格"）。
@@ -604,6 +611,16 @@ class StepLoop:
             self._wait_timeout_s = max(0.0, float(cfg.get("step.wait_timeout_s", 0) or 0))
         except (TypeError, ValueError):
             self._wait_timeout_s = 0.0
+        # ★2026-10-18 现场防线③：运行期位姿看门狗（DRIVING 中连续这么多秒没新帧 ⇒ ROS_LOST）
+        try:
+            self._odom_watch_s = max(0.0, float(cfg.get("step.odom_watch_s", 6.0) or 0.0))
+        except (TypeError, ValueError):
+            self._odom_watch_s = 6.0
+        try:
+            self._odom_fresh_s = max(1.0, float(cfg.get("safety.pose_timeout_s", 1.5) or 1.5))
+        except (TypeError, ValueError):
+            self._odom_fresh_s = 1.5
+        self._odom_bad_since: float | None = None
 
         self._phase = STEP_PHASE_WAIT_LAYOUT
         self._layout: dict[str, Any] | None = None
@@ -717,6 +734,8 @@ class StepLoop:
                 return "timeout"
             if phase == STEP_PHASE_SAFE_STOP:
                 return "safe_stop"
+            if phase == STEP_PHASE_ROS_LOST:
+                return "ros_lost"
             sleep(poll_s)
         sig = stop_flag.get("signal")
         log(f"收到信号 {sig}：步进循环停止（刹车由收尾统一发）" if sig
@@ -814,6 +833,9 @@ class StepLoop:
                   + (("｜⚠️ " + "；".join(plan.warnings)) if plan.warnings else ""))
 
     def _drive_tick(self, now: float) -> None:
+        # ★ 防线③：运行期位姿看门狗（先于任何"用旧位姿判完成"的判定）
+        if self._odom_watch(now):
+            return
         st = self.mission.segment_status() if hasattr(self.mission, "segment_status") else {}
         err = str(st.get("error") or "")
         if err:
@@ -906,6 +928,51 @@ class StepLoop:
             pass
         self._publish_car_state(now)
         self._log(f"🏁 步进循环终点：{self._last_done_block} == end → FINISH")
+
+    # ------------------------------------------------------------------ #
+    #  运行期位姿看门狗（2026-10-18 现场事故防线③）
+    # ------------------------------------------------------------------ #
+    def _odom_watch(self, now: float) -> bool:
+        """DRIVING 中连续 step.odom_watch_s 秒没有新 /odom/localization ⇒ 判死。
+
+        为什么不在 Safety 里做：Safety 的 pose_stale 只负责"刹住"，它不知道步进循环会
+        继续用旧信念规划/发段；现场就是这样 78 秒空跑（指令在发、车不动）。
+        阈值语义：起步计时累计，任何一帧新 odom 都把计时清零（间歇断流不误杀）。
+        """
+        if self._odom_watch_s <= 0.0:
+            return False
+        try:
+            age = float(self.bridge.pose_age())
+        except Exception:                                # noqa: BLE001
+            age = float("inf")
+        if age <= self._odom_fresh_s:
+            self._odom_bad_since = None
+            return False
+        if self._odom_bad_since is None:
+            self._odom_bad_since = now
+            return False
+        if now - self._odom_bad_since < self._odom_watch_s:
+            return False
+        self._to_ros_lost(now, age)
+        return True
+
+    def _to_ros_lost(self, now: float, age: float) -> None:
+        """位姿断流 → 停段 + 刹车 + 诊断 + 阶段 ROS_LOST（main 退出码 5，不自动恢复）。"""
+        try:
+            self.mission.stop_segment("运行期位姿断流（ROS_LOST）")
+        except Exception:                                # noqa: BLE001
+            pass
+        try:
+            self.bridge.publish_brake()
+        except Exception:                                # noqa: BLE001
+            pass
+        self._phase = STEP_PHASE_ROS_LOST
+        self._reason = (f"/odom/localization 断流 {age:.2f}s"
+                        f"（> step.odom_watch_s={self._odom_watch_s:g}s）")
+        self._publish_car_state(now)
+        self._log(f"⛔ 运行期位姿看门狗：{self._reason} ⇒ 已停段+刹车；"
+                  "退出码 5（不再用旧信念半死跑）")
+        _ros_diagnosis(self.bridge, log=self._log)
 
     def _to_safe_stop(self, reason: str, now: float) -> None:
         try:
@@ -1028,6 +1095,180 @@ def _start_layout_listener(bridge: Any, bb: Blackboard, bus: EventBus,
     task = DroneTask(bridge, bb, bus, cfg, log=log)
     task.start()
     return task
+
+
+# --------------------------------------------------------------------------- #
+#  启动自检 + 转场门（2026-10-18 现场 pose_stale 事故的防线）
+# --------------------------------------------------------------------------- #
+#  现场形态（7_path_step.log 可复核）：/dzlink 全程通，/odom/localization 只在开头到、
+#  之后断 13s→22s→271s；Tracker/Aim 的 tick 被阻塞 14.8s/22.1s（Mission 仅 3.9ms）；
+#  dzactuator 报 3.7s 未收到速度指令。⇒ 车端 ROS 图（同机 DDS 发现/传输）失配，
+#  而决策层**没有任何自检**：它照常规划、照常发 v=0.120，车一步不动，直到 Safety
+#  用 1.5s pose_stale 锁 SAFE_STOP —— 排障要两分钟且看不出根因。
+#  下面三道门把这类"半死图"变成"当场大声失败 + 给出排查命令"：
+#    ① 启动自检（env 域号/RMW + 订阅清单 + 关键话题 pub/sub 计数 + 重复实例）；
+#    ② 位姿就绪门（限时等首帧 /odom/localization，超时 exit 5 不出发）；
+#    ③ 运行期位姿看门狗（DRIVING 中连续 step.odom_watch_s 秒无新帧 ⇒ exit 5）。
+
+#: 现场排障三条命令（位姿门/看门狗失败时原样打印，现场可直接照抄）
+_ROS_DIAG_COMMANDS: tuple[str, ...] = (
+    "ros2 topic info /odom/localization -v | head -30   # 订阅者应含 /dzbrain",
+    "ros2 node list | grep -E 'dzbrain|serial_reader'   # 两个节点都该在",
+    "tr '\\0' '\\n' < /proc/self/environ | grep -E 'ROS_DOMAIN_ID|DZ_ROS_DOMAIN|ROS_LOCALHOST_ONLY|RMW'",
+)
+
+
+def _ros_diagnosis(bridge: Any, *, log: Callable[[str], None] = LOG) -> None:
+    """打印可落盘的 ROS 现场诊断（env + 计数 + 最近一帧年龄 + 三条命令）。"""
+    from .io.ros_io import format_env_line
+
+    log(format_env_line())
+    try:
+        counts = bridge.topic_counts()
+    except Exception as exc:                             # noqa: BLE001
+        counts = {}
+        log(f"（话题计数读取失败：{type(exc).__name__}: {exc}）")
+    for key, item in (counts or {}).items():
+        log(f"  话题计数 {key}: publishers={item.get('publishers')} "
+            f"subscribers={item.get('subscribers')}")
+    try:
+        age = float(bridge.pose_age())
+        log(f"  最近一帧 /odom/localization 年龄：{age:.2f}s")
+    except Exception:                                    # noqa: BLE001
+        pass
+    for line in _ROS_DIAG_COMMANDS:
+        log("   " + line)
+
+
+def _log_subscriptions(bridge: Any, *, log: Callable[[str], None] = LOG) -> None:
+    """打印决策层真实创建了的订阅清单（与 required_subscription_topics 对账）。"""
+    from .io.ros_io import required_subscription_topics
+
+    try:
+        actual = list(bridge.subscription_topics())
+    except Exception:                                    # noqa: BLE001
+        actual = []
+    required = required_subscription_topics()
+    missing = [key for key, topic in required.items() if topic not in set(actual)]
+    log("订阅清单：" + (", ".join(actual) if actual else "<空：ROS 图里不会有本节点订阅>"))
+    if missing:
+        log(f"⚠️ 订阅清单缺 {missing}（与 required_subscription_topics 对账失败）")
+
+
+def _startup_self_check(bridge: Any, *, log: Callable[[str], None] = LOG) -> bool:
+    """启动自检（env + 订阅清单 + 关键话题计数）。返回 False ⇒ 不出发（exit 5）。"""
+    from .io.ros_io import env_problems, format_env_line
+
+    log(format_env_line())
+    errors, warnings = env_problems()
+    for item in warnings:
+        log("⚠️ ROS 环境：" + item)
+    for item in errors:
+        log("⛔ ROS 环境自检失败：" + item)
+    _log_subscriptions(bridge, log=log)
+    try:
+        counts = bridge.topic_counts()
+    except Exception as exc:                             # noqa: BLE001
+        counts = {}
+        log(f"⚠️ 话题计数读取失败：{type(exc).__name__}: {exc}")
+    for key, item in (counts or {}).items():
+        log(f"话题计数 {key}: publishers={item.get('publishers')} "
+            f"subscribers={item.get('subscribers')}")
+    if errors:
+        log("⛔ 不规划、不出发（退出码 5）：域号/RMW 不一致时 DDS 图会静默分裂 ——"
+            "典型表现是收得到跨机 /dzlink、收不到同机 /odom/localization，车一步不动")
+        return False
+    return True
+
+
+def _duplicate_dzbrain_instances() -> list[str]:
+    """同机**重复 dzbrain 实例**（同一 ROS 图里同名节点会互抢话题/QoS 匹配）。
+
+    只在有 pgrep 的机器上检查（Windows/测试机返回空表）；查询失败一律返回空表 ——
+    这是"安全网"不是"硬依赖"，绝不因为外部命令不可用而拒绝启动。
+    """
+    import shutil
+    import subprocess
+
+    pgrep = shutil.which("pgrep")
+    if not pgrep:
+        return []
+    try:
+        proc = subprocess.run([pgrep, "-af", "dzbrain"], capture_output=True,
+                              text=True, timeout=2.0)
+        out = proc.stdout or ""
+    except Exception:                                    # noqa: BLE001
+        return []
+    me = os.getpid()
+    others: list[str] = []
+    for line in out.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) < 2 or not parts[0].isdigit():
+            continue
+        pid = int(parts[0])
+        cmd = parts[1]
+        if pid == me:
+            continue
+        if "dzbrain.main" in cmd or cmd.rstrip().endswith("dzbrain"):
+            others.append(line.strip())
+    return others
+
+
+def _wait_for_pose_ready(bridge: Any, cfg: Config, *, stop_flag: dict,
+                         alive: Callable[[], bool] = ros_context_alive,
+                         log: Callable[[str], None] = LOG,
+                         sleep: Callable[[float], None] = time.sleep,
+                         now: Callable[[], float] = time.monotonic) -> bool:
+    """位姿就绪门：限时等**第一帧** /odom/localization 进决策层；超时 ⇒ False（不出发）。
+
+    窗口 = step.pose_ready_wait_s（缺省 8s；<=0 关闭 —— 测试/bench 用）。
+    判据 = bridge.pose() 非空 且 pose_age <= max(1.0, safety.pose_timeout_s)。
+    现场教训见文件头注释：没有这道门时，缺 odom 的车会带着**种子位姿**照常下发指令。
+    """
+    try:
+        wait_s = max(0.0, float(cfg.get("step.pose_ready_wait_s", 8.0) or 0.0))
+    except (TypeError, ValueError):
+        wait_s = 8.0
+    try:
+        fresh_s = max(1.0, float(cfg.get("safety.pose_timeout_s", 1.5) or 1.5))
+    except (TypeError, ValueError):
+        fresh_s = 1.5
+    if wait_s <= 0.0:
+        log("位姿就绪门：已关闭（step.pose_ready_wait_s<=0）")
+        return True
+    t0 = now()
+    deadline = t0 + wait_s
+    last_note = t0
+    while True:
+        pose = None
+        age = float("inf")
+        try:
+            pose = bridge.pose()
+            age = float(bridge.pose_age())
+        except Exception:                                # noqa: BLE001
+            pose, age = None, float("inf")
+        if pose is not None and age <= fresh_s:
+            log(f"✅ 位姿就绪门通过：/odom/localization 已进决策层（age={age:.2f}s）")
+            return True
+        if stop_flag.get("stop"):
+            return False
+        try:
+            alive_now = bool(alive())
+        except Exception:                                # noqa: BLE001
+            alive_now = True
+        if not alive_now:
+            return False
+        if now() - last_note >= 2.0:
+            last_note = now()
+            log(f"… 位姿就绪门：/odom/localization 还没进来"
+                f"（已等 {now() - t0:.1f}/{wait_s:.0f}s，"
+                f"pose={'有' if pose is not None else '无'}，age={age:.2f}s）")
+        if now() >= deadline:
+            break
+        sleep(0.1)
+    log("⛔ 位姿就绪门超时：窗口内 /odom/localization 没有进入决策层 ⇒ 不规划、不出发（退出码 5）")
+    _ros_diagnosis(bridge, log=log)
+    return False
 
 
 def _wait_for_field_layout(bb: Blackboard, cfg: Config, *, stop_flag: dict,
@@ -1430,6 +1671,22 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
     log(f"信号接管：{'/'.join(installed) or '无'} → 只置停机标志；"
         f"ROS 上下文判活 = rclpy.ok()（默认信号处理已在 RosBridge 里关闭）")
 
+    # ★ 启动自检（2026-10-18 pose_stale 事故防线①）：
+    #   重复实例 / ROS 域号 / 订阅清单 / 关键话题 pub-sub 计数，全部进启动横幅。
+    dups = _duplicate_dzbrain_instances()
+    if dups:
+        log("⛔ 检测到重复的 dzbrain 实例（同一 ROS 图里同名节点会互抢话题/QoS 匹配，"
+            "表现为『收不到里程计/指令不到底盘』）：")
+        for line in dups:
+            log("    " + line)
+        log("⛔ 拒绝启动（退出码 5）：先 pkill -f dzbrain.main（或 start_all.sh stop），"
+            "确认只剩一个实例再起")
+        bridge.shutdown(brake=True)
+        return 5
+    if not _startup_self_check(bridge, log=log):
+        bridge.shutdown(brake=True)
+        return 5
+
     # ---------------- 车端不留地图文件：先等布局，再构造任务组 ----------------
     # ★ 顺序是**功能前提**：MissionTask 的路线在构造/启动时就要定下来，所以布局规划
     #   必须发生在 build_tasks 之前；等布局期间只起一个独立 DroneTask（不进任务组，
@@ -1511,6 +1768,12 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
                                   "aim_fire_ready", "drone_in")))
     if layout_task is None:
         bridge.spin_async(threads=4)
+    # ★ 防线② 位姿就绪门（两种模式都过）：宁可当场退出 5，也不带着种子位姿空跑。
+    if not _wait_for_pose_ready(bridge, cfg, stop_flag=stop_flag, alive=alive, log=log):
+        if layout_task is not None:
+            layout_task.stop(timeout=2.0)
+        bridge.shutdown(brake=True)
+        return 5
     group.start_all()
     t0 = time.time()
     rc = 0
@@ -1522,7 +1785,9 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
             why = _run_step_loop(step_loop, stop_flag=stop_flag, alive=alive, log=log)
             log(f"退出原因 = {why}（步进循环；运行 {time.time() - t0:.1f}s；"
                 f"信号={stop_flag.get('signal')}；rclpy.ok()={alive()}）")
-            rc = 1 if why in ("context_dead", "safe_stop") else (4 if why == "timeout" else 0)
+            rc = (1 if why in ("context_dead", "safe_stop")
+                  else 5 if why == "ros_lost"
+                  else 4 if why == "timeout" else 0)
         else:
             why = _live_loop(stop_flag, bb=bb, alive=alive, log=log)
             # ★ teardown 留痕（实测指出收栈时**一条都没有**，事后无法判断是正常收尾还是被打死）

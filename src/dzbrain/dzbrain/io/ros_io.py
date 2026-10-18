@@ -14,6 +14,7 @@ r"""ROS 接线（rclpy）—— 唯一允许 import rclpy 的地方之一。
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -22,6 +23,92 @@ from typing import Any, Callable
 from . import contract as ct
 from .referee import RefereeTracker
 from ..core import geometry as geo
+
+#: ★ 决策层**必须**订阅的会话句柄（逻辑名）——单一清单：创建订阅与启动自检/离线测试共用。
+#:   2026-10-18 现场事故的教训：新构建起栈后"图里有没有 /odom/localization 订阅"
+#:   没人当场知道，只能事后猜；现在启动横幅会用它把订阅清单逐条打出来。
+REQUIRED_SUBSCRIPTIONS: tuple[str, ...] = (
+    "odom", "imu", "offset_center", "aim_status", "shoot_count",
+    "manual_override", "manual_gimbal", "drone_in", "waypoint_cmd",
+)
+
+
+def required_subscription_topics() -> dict[str, str]:
+    """逻辑名 → 实际话题名（**纯函数，无 rclpy**）：离线测试/现场自检共用一份口径。"""
+    return {key: ct.topic(key).name for key in REQUIRED_SUBSCRIPTIONS}
+
+
+#: 启动自检要打点数的关键话题（逻辑名）：收（odom / drone_in）+ 发（pursuit_angle）。
+#: 现场排障只要看这一行就知道"决策层站在图里了吗"（count_publishers/subscribers）。
+WATCHED_TOPICS: tuple[str, ...] = ("odom", "drone_in", "pursuit_angle")
+
+
+def watched_topic_names() -> dict[str, str]:
+    return {key: ct.topic(key).name for key in WATCHED_TOPICS}
+
+
+def ros_env() -> dict[str, str]:
+    """当前进程的 ROS 环境快照（**纯函数，无 rclpy**）。
+
+    ★ 为什么必须有：2026-10-18 15:00 现场起栈用裸 python3 -m dzbrain.main（绕过
+    start_all.sh）——dzros.env 写得明白"外部已显式 export 的 ROS_DOMAIN_ID 仍然优先
+    （临时 A/B 用）"，而那条告警只印在 start_all.sh 的横幅里：域号一旦被历史 shell
+    继承成 0，界面/SSH/网页全通，只有 ROS 图静默分裂（跨机 /dzlink 可能通、同机
+    /odom/localization 收不到，车一步不动且不报错）。
+    """
+    return {
+        "ROS_DOMAIN_ID": os.environ.get("ROS_DOMAIN_ID", ""),
+        "ROS_LOCALHOST_ONLY": os.environ.get("ROS_LOCALHOST_ONLY", ""),
+        "RMW_IMPLEMENTATION": os.environ.get("RMW_IMPLEMENTATION", ""),
+        "DZ_ROS_DOMAIN": os.environ.get("DZ_ROS_DOMAIN", ""),
+    }
+
+
+def env_problems(env: dict[str, str] | None = None) -> tuple[list[str], list[str]]:
+    """ROS 环境自检 → (errors, warnings)（**纯函数**，live/测试共用）。
+
+    errors（**不出发**）：ROS_DOMAIN_ID 与车标准域 DZ_ROS_DOMAIN 不一致 —— 这正是
+      "同一条 SSH 会话里 export 过 0 后忘了退"的形态，DDS 静默分裂。
+    warnings（照常出发但必须进日志）：
+      · DZ_ROS_DOMAIN 未设置 ⇒ 没 source dzros.env（域号落到 ROS 默认 0）；
+      · ROS_LOCALHOST_ONLY=1 ⇒ 跨机无人机链路必断。
+    """
+    env = dict(env if env is not None else ros_env())
+    errors: list[str] = []
+    warnings: list[str] = []
+    domain = str(env.get("ROS_DOMAIN_ID", "") or "").strip()
+    dz_domain = str(env.get("DZ_ROS_DOMAIN", "") or "").strip()
+    if dz_domain:
+        if domain and domain != dz_domain:
+            errors.append(
+                f"ROS_DOMAIN_ID={domain} 与车标准域 DZ_ROS_DOMAIN={dz_domain} 不一致"
+                "（外部已 export 的域号优先于 dzros.env）⇒ DDS 图会分裂："
+                "跨机 /dzlink 可能通、同机 /odom/localization 收不到，车不会动")
+        elif not domain:
+            warnings.append(f"ROS_DOMAIN_ID 未设置（车标准域 ={dz_domain}）")
+    else:
+        warnings.append("DZ_ROS_DOMAIN 未设置：本进程没 source dzros.env"
+                        "（域号按 ROS 默认 0；与车上其它节点可能不在同一图）")
+    if str(env.get("ROS_LOCALHOST_ONLY", "0") or "0").strip() == "1":
+        warnings.append("ROS_LOCALHOST_ONLY=1：跨机（无人机 /dzlink）链路不可能建立")
+    return errors, warnings
+
+
+def format_env_line(env: dict[str, str] | None = None) -> str:
+    """启动横幅用的一行环境摘要（域号 + 来源 + localhost/RMW）。"""
+    env = dict(env if env is not None else ros_env())
+    domain = str(env.get("ROS_DOMAIN_ID", "") or "").strip() or "<未设置>"
+    dz = str(env.get("DZ_ROS_DOMAIN", "") or "").strip()
+    if dz and domain == dz:
+        source = "dzros.env 一致"
+    elif dz:
+        source = "外部 export 覆盖"
+    else:
+        source = "未 source dzros.env"
+    return (f"ROS 环境：ROS_DOMAIN_ID={domain}（{source}） "
+            f"DZ_ROS_DOMAIN={dz or '<未设置>'} "
+            f"ROS_LOCALHOST_ONLY={env.get('ROS_LOCALHOST_ONLY') or '<未设置>'} "
+            f"RMW={env.get('RMW_IMPLEMENTATION') or '<默认>'}")
 
 
 def _signal_handler_options():
@@ -497,6 +584,35 @@ class RosBridge:
         except Exception:
             pass
         return rc
+
+    def topic_counts(self) -> dict[str, dict[str, int]]:
+        """关键话题的 count_publishers/count_subscribers（**启动自检用**；异常安全）。
+
+        为什么打这两个数：2026-10-18 现场"/odom/localization 订阅者 0"只能靠人肉
+        ros2 topic info 才发现；决策层自己每趟启动就把这三个数打进横幅，
+        "收不到里程计"与"没人订阅我的指令"当场就能区分。
+        """
+        out: dict[str, dict[str, int]] = {}
+        for key, name in watched_topic_names().items():
+            try:
+                out[key] = {"publishers": int(self.node.count_publishers(name)),
+                            "subscribers": int(self.node.count_subscribers(name))}
+            except Exception:                                 # noqa: BLE001
+                out[key] = {"publishers": -1, "subscribers": -1}
+        return out
+
+    def subscription_topics(self) -> list[str]:
+        """当前**真实创建**的订阅话题名（启动自检/现场排障用；异常安全）。
+
+        与 `required_subscription_topics()` 对账：少一条就说明装配没走完，
+        现场不必再猜"图里为什么没有 /odom/localization 订阅者"。
+        """
+        out: list[str] = []
+        for sub in (getattr(self, "_subs", None) or ()):
+            name = getattr(sub, "topic_name", "")
+            if name:
+                out.append(str(name))
+        return out
 
     def summary(self) -> dict[str, Any]:
         # ★ 持锁内**不得**再调 pose_age() 等也要 self._lock 的访问器
