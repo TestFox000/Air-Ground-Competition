@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""plan.py 外挂脚本模板 —— 重命名为 plan.py 即被应用接管航迹规划阶段。
+
+约定：
+  --detections  detections.json 路径（输入：识别结果，可能由内置引擎生成）
+  --meta        meta.json 路径（输入：视频元数据）
+  --out         path.json 输出路径
+
+把你们真实的规划算法（A*/RRT/覆盖路径等）填进 run()，保持输出结构不变即可。
+"""
+import argparse
+import json
+
+
+def run(detections: dict, meta: dict) -> dict:
+    # TODO: 替换为真实规划。示例：起飞后直飞再返航。
+    return {
+        "path": {
+            "home": {"x": 10, "y": 10},
+            "groundWidthM": 140,
+            "groundHeightM": 79,
+            "waypoints": [
+                {"seq": 1, "x": 10, "y": 10, "alt": 0, "speed": 0, "action": "takeoff", "note": "起飞"},
+                {"seq": 2, "x": 70, "y": 40, "alt": 60, "speed": 8, "action": "transit", "note": "巡航"},
+                {"seq": 3, "x": 10, "y": 10, "alt": 60, "speed": 8, "action": "return", "note": "返航"},
+                {"seq": 4, "x": 10, "y": 10, "alt": 0, "speed": 0, "action": "land", "note": "降落"},
+            ],
+            "obstacles": [],
+            "distanceM": 144.2,
+            "etaS": 40,
+        }
+    }
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--detections", required=True)
+    ap.add_argument("--meta", required=True)
+    ap.add_argument("--out", required=True)
+    args = ap.parse_args()
+    with open(args.detections, "r", encoding="utf-8") as f:
+        detections = json.load(f)
+    with open(args.meta, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+    result = run(detections, meta)
+    with open(args.out, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False)
+
+
+if __name__ == "__main__":
+    main()
