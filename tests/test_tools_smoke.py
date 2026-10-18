@@ -188,6 +188,9 @@ def test_monitor_link_kind_falls_back_for_unknown_type():
 # 扫出一批早期开发脚本的幽灵引用，逐条登记。
 _DOCS_OWE = "早期开发脚本，仅 docs/archive 历史文档引用，未随仓"
 _CORE_OWE = "ag_core 诊断/黑匣子提示语引用的早期脚本，未随仓"
+_HJY_OWE = ("胡锦宇交接材料自引的车端线工具（材料在 reference/members/hjy 与 "
+            "docs/成员交接/hu-jinyu），本体副本在 reference/members/hjy/tools/，"
+            "正源 preserve/members/hjy-handover-20261018，不落本仓 tools/")
 KNOWN_MISSING_TOOLS = {
     # --- 从未落地（代码里的活跃提示语仍会指到它们）---
     "tools/dznav_calib.py": "dznav 转向线性表现场标定器从未落地（servo.py 提示语引用）",
@@ -228,6 +231,12 @@ KNOWN_MISSING_TOOLS = {
     # --- attic 归档自引 ---
     "tools/autolabel_yolo.py": "202b346 归档至 tools/attic/，attic 文件内历史路径自引",
     "tools/b9_test.py": "202b346 归档至 tools/attic/，attic 文件内历史路径自引",
+    # --- 胡锦宇交接材料自引（2026-10-18 收编，agents/trae-glm/absorb-members-20261018）---
+    "tools/plan_route.py": _HJY_OWE,
+    "tools/gimbal_filter_sim.py": _HJY_OWE,
+    "tools/drone_sim.py": _HJY_OWE,
+    "tools/gen_map.py": _HJY_OWE,
+    "tools/sim_selftest.py": _HJY_OWE,
 }
 
 # 前置否定：`~/drone_tools/localization_watchdog.py` 是**机载远端路径**，不是本仓
