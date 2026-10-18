@@ -703,6 +703,314 @@ def test_motion_limit_wiring() -> None:
           f"v={c5.get('speed')!r} reason={c5.get('speed_reason')!r}")
 
 
+
+def test_rev_push_closed_loop() -> None:
+    """★12. 倒车入口闭环推车（卡 t17）：底盘速度一阶平滑下仍必须进倒车段。
+
+    背景（2026-10-18 实车 H8 卡死）：base_driver 速度平滑窗 smooth_window_speed=20
+    （≈0.4 s），旧"推一把"只在 dist_to_vertex ≤ 0.20 时推几拍 —— 负速度还没填满平滑窗，
+    车继续前冲 0.44 m；过冲后旧判据永不成立 ⇒ s 冻死、mission 每 12 s 跳点
+    （7_path.log：⛔ 投影方向不一致 ×1695，s 冻在 2.800）。
+
+    本组用**带一阶速度平滑（τ=0.35 s）的假车**闭环驱动真实 TrackerTask，验证：
+      12.1 正常接近顶点：能进入倒车段并把回程走完（HEAD 逻辑会卡在顶点附近）；
+      12.2 起点已越过顶点 0.40 m：仍能补推进倒车段；
+      12.3 车不动（推不动的极端）：3 s 超时告警退出，不无限推。
+    """
+    section("12. ★倒车入口闭环推车：速度平滑假车 / 已过冲 0.40m / 3s 超时")
+
+    wheelbase = 0.157
+
+    class SmoothCar:
+        """一阶速度平滑 + 自行车模型：命令反转后 ~0.35s 实际速度才反向（对齐实车）。"""
+
+        def __init__(self, x, y, yaw, *, tau=0.35, v0=0.0):
+            self.x, self.y, self.yaw = x, y, yaw
+            self.v = v0
+            self.tau = tau
+
+        def step(self, cmd_v: float, cmd_steer_deg: float, dt: float) -> None:
+            a = dt / (self.tau + dt)
+            self.v += (cmd_v - self.v) * a
+            self.yaw += (self.v / wheelbase) * math.tan(math.radians(cmd_steer_deg)) * dt
+            self.x += self.v * math.cos(self.yaw) * dt
+            self.y += self.v * math.sin(self.yaw) * dt
+
+    def drive(rig, car, n, dt=0.02):
+        trace = []
+        for _ in range(n):
+            rig.task.tick()
+            v, steer = rig.bridge.commands[-1]
+            car.step(v, steer, dt)
+            rig.set_pose(car.x, car.y, car.yaw)
+            rig.clock.advance(dt)
+            info = rig.task.telemetry()
+            trace.append({"s": rig.bb.get(P_ROUTE_S), "rev": bool(info.get("reverse")),
+                          "push": bool(info.get("rev_push")), "v": v,
+                          "reason": info.get("reason_tag"), "y": car.y})
+        return trace
+
+    tokens = ["N10", "M10", "R:N10"]          # 0.35 m 去程 + 0.35 m 倒车回程
+    n10 = geo.block_to_meters("N10")
+    m10 = geo.block_to_meters("M10")
+    cfg = cfg_of(pivot_enabled=True, bridge_blocks=[])
+
+    # ---- 12.1 正常接近：平滑假车必须能进倒车段并走完回程 ----
+    rig = Rig(cfg=cfg, route=parse_mission(tokens), pose=(n10[0], n10[1], geo.HEADING_Y))
+    car = SmoothCar(n10[0], n10[1], geo.HEADING_Y)
+    trace = drive(rig, car, 450)              # 9 s @ 50 Hz
+    s_seq = [t["s"] for t in trace if isinstance(t["s"], (int, float))]
+    rev_frames = [i for i, t in enumerate(trace) if t["rev"]]
+    check("12.1a ★平滑假车：倒车入口推车被触发（rev_push_count ≥ 1）",
+          rig.task.rev_push_count >= 1,
+          f"rev_push_count={rig.task.rev_push_count} timeouts={rig.task.rev_push_timeouts} "
+          f"logs={[l for l in rig.logs if '推车' in l][:2]}")
+    check("12.1b ★平滑假车：投影切到倒车段（reverse=True 出现过）",
+          bool(rev_frames), f"reverse 帧数={len(rev_frames)} 最大 s={max(s_seq) if s_seq else -1}")
+    check("12.1c ★平滑假车：回程走完（max s ≥ 0.60 m，全长 0.70 m；HEAD 逻辑停在 ~0.35）",
+          bool(s_seq) and max(s_seq) >= 0.60, f"max s={max(s_seq) if s_seq else -1:.3f}")
+    check("12.1d ★平滑假车：车确实退回到顶点以南（末 y < M10.y）",
+          car.y < m10[1] - 0.05, f"末 y={car.y:.3f}（M10.y={m10[1]:.3f}）")
+
+    # ---- 12.2 起点已越过顶点 0.40 m（旧逻辑的"死区"）→ 仍能补推进倒车段 ----
+    over_y = m10[1] + 0.40
+    rig2 = Rig(cfg=cfg, route=parse_mission(tokens), pose=(m10[0], over_y, geo.HEADING_Y))
+    car2 = SmoothCar(m10[0], over_y, geo.HEADING_Y, v0=0.10)   # 还在前冲
+    trace2 = drive(rig2, car2, 450)
+    s2 = [t["s"] for t in trace2 if isinstance(t["s"], (int, float))]
+    rev2 = [i for i, t in enumerate(trace2) if t["rev"]]
+    check("12.2a ★已过冲 0.40m：推车状态机被触发（rev_push_count ≥ 1）",
+          rig2.task.rev_push_count >= 1,
+          f"rev_push_count={rig2.task.rev_push_count} timeouts={rig2.task.rev_push_timeouts}")
+    check("12.2b ★已过冲 0.40m：投影切到倒车段并把回程走出一段（max s ≥ 0.45）",
+          bool(rev2) and bool(s2) and max(s2) >= 0.45,
+          f"reverse 帧={len(rev2)} max s={max(s2) if s2 else -1:.3f}")
+    check("12.2c ★已过冲 0.40m：车最终退到顶点以南（y < M10.y）",
+          car2.y < m10[1], f"末 y={car2.y:.3f}")
+
+    # ---- 12.3 推不动的车：3 s 超时告警退出（不许无限推）----
+    # ★ 为什么这里**注入**推车状态而不是走自然进入：自然进入会把弧长地板抬到顶点，
+    #   下一拍投影必然切到倒车段（is_rev=True ⇒ 立刻"成功"），3 s 超时分支根本走不到。
+    #   超时是给"进入后投影迟迟切不过去（横向偏离/窗口异常）"兜底的，所以直接注入
+    #   "已进入推车但车完全不动"的状态来测这一条；入口/成功条件由 12.1/12.2 覆盖。
+    near_y = m10[1] - 0.18                    # 顶点前 0.18 m（不抬地板，投影留在前段）
+    rig3 = Rig(cfg=cfg, route=parse_mission(tokens), pose=(m10[0], near_y, geo.HEADING_Y))
+    rig3.task.tick()                          # 先跑一拍建立投影/方向
+    task3 = rig3.task
+    task3._rev_push_active = True
+    task3._rev_push_started_at = rig3.clock.now()
+    task3._rev_push_xy = (m10[0], near_y)
+    task3._rev_push_heading = geo.HEADING_Y
+    task3._rev_push_seg = 0
+    task3.rev_push_ticks = 0
+    cmd_seq = []
+    for _ in range(250):                      # 5 s @ 50 Hz，车**完全不动**
+        task3.tick()
+        cmd_seq.append(rig3.bridge.commands[-1][0])
+        rig3.clock.advance(0.02)
+    check("12.3a ★推不动：3 s 后超时退出（rev_push_timeouts == 1）",
+          rig3.task.rev_push_timeouts == 1,
+          f"timeouts={rig3.task.rev_push_timeouts} push_ticks={rig3.task.rev_push_ticks}")
+    check("12.3b ★推不动：超时后不再持续倒车（末 20 拍不再全是负速度）",
+          not all(v < 0 for v in cmd_seq[-20:]),
+          f"末 20 拍={[round(v, 3) for v in cmd_seq[-20:]]}")
+    check("12.3c ★推不动：超时告警可查（日志含「推车超时」）",
+          any("推车超时" in ln for ln in rig3.logs), f"logs_tail={rig3.logs[-2:]}")
+
+def test_rev_push_safety_gates() -> None:
+    """★13. 推车安全闸（task-21 修 verifier F1/F2/F3）。
+
+    F1：推车分支必须走既有 P_MOTION_LIMIT 读侧（limit=0 ⇒ 刹车 0；0.05 ⇒ |v|≤0.05）。
+    F2：超时后冷却 ≥2s、连续 2 次超时 ⇒ 放弃闩锁 + 刹车（冻结投影 10s 不许 500 拍 -0.08）。
+    F3：进入判定**总是先算 _over**：0.60 m 可进；0.66 m / 2.0 m 不得进（显式刹车+告警）。
+    """
+    section("13. 推车安全闸：F1 限速 / F2 超时闩锁 / F3 过冲上限")
+    tokens = ["N10", "M10", "R:N10"]
+    m10 = geo.block_to_meters("M10")
+    cfg = cfg_of(pivot_enabled=True, bridge_blocks=[])
+
+    def _inject_push(y_before: float = 0.18):
+        """把车放在顶点前 y_before 米，并注入「已进入推车」状态（同 §12.3）。"""
+        y = m10[1] - y_before
+        rig = Rig(cfg=cfg, route=parse_mission(tokens), pose=(m10[0], y, geo.HEADING_Y))
+        rig.task.tick()
+        t = rig.task
+        t._rev_push_active = True
+        t._rev_push_started_at = rig.clock.now()
+        t._rev_push_xy = (m10[0], y)
+        t._rev_push_heading = geo.HEADING_Y
+        t._rev_push_seg = 0
+        t.rev_push_ticks = 0
+        return rig, y
+
+    # ---- 13.1 F1：推车分支尊重 P_MOTION_LIMIT ----
+    cases = ((None, -0.08, "无信号照旧"), (0.0, 0.0, "limit=0 必须刹车"),
+             (0.05, -0.05, "limit=0.05 钳到 -0.05"))
+    for lim, expect, label in cases:
+        rig, _ = _inject_push(0.18)
+        rig.bb.set(P_MOTION_LIMIT,
+                   None if lim is None else {"speed_mps": float(lim), "reason": "test"},
+                   "test")
+        rig.task.tick()
+        v, _steer = rig.bridge.commands[-1]
+        check(f"13.1 F1 推车 + P_MOTION_LIMIT={lim!r}（{label}）：指令 {expect:.2f}",
+              abs(v - expect) <= 1e-9, f"v={v!r} reason={rig.task.telemetry().get('reason_tag')!r}")
+
+    # ---- 13.2 F2：冻结投影 10s → 冷却 + 连续 2 次超时放弃闩锁，不再持续倒车 ----
+    rig2, _ = _inject_push(0.03)          # 顶点前 0.03m（入口范围内，会自然重入）
+    base = rig2.bb.get(P_POSE)
+    orig_project = Path.project
+    frozen = {"x": base.x, "y": base.y, "s": float(rig2.bb.get(P_ROUTE_S))}
+
+    def _frozen_project(self, x, y, **kw):        # 冻结投影：永远返回前段（推不动）
+        return orig_project(self, frozen["x"], frozen["y"], s_hint=frozen["s"],
+                            window_m=kw.get("window_m", 0.6), allow_backward=True)
+
+    Path.project = _frozen_project
+    rec = []                                       # (命令速度, 本拍之后是否已闩锁)
+    try:
+        for _ in range(500):                       # 10 s @ 50 Hz
+            rig2.task.tick()
+            rec.append((rig2.bridge.commands[-1][0], bool(rig2.task._rev_push_gave_up)))
+            rig2.clock.advance(0.02)
+    finally:
+        Path.project = orig_project
+    neg = [v for v, _g in rec]
+    post = [v for v, g in rec if g]                # 闩锁生效之后的命令序列
+    check("13.2a F2 冻结投影 10s：超时次数有界（==2，旧行为 3 次）",
+          rig2.task.rev_push_timeouts == 2,
+          f"timeouts={rig2.task.rev_push_timeouts}")
+    check("13.2b F2 连续 2 次超时 → 放弃闩锁生效",
+          rig2.task._rev_push_gave_up is True and rig2.task.rev_push_gave_up == 1,
+          f"gave_up={rig2.task._rev_push_gave_up} seg={rig2.task._rev_push_gave_up_seg}")
+    check("13.2c F2 闩锁后不再持续倒车（闩锁后的命令全 ≥0；旧行为 500/500 拍 -0.08）",
+          bool(post) and all(v >= -1e-9 for v in post),
+          f"闩锁后 {len(post)} 拍 min={min(post) if post else None} / "
+          f"全程负速度拍数={sum(1 for v in neg if v < 0)}（=两个推车周期，非 500）")
+    check("13.2d F2 放弃闩锁告警可查（日志含「放弃该段推车」）",
+          any("放弃该段推车" in ln for ln in rig2.logs), f"logs_tail={rig2.logs[-2:]}")
+
+    # ---- 13.3 F3：过冲上限边界（0.60 可进 / 0.66 与 2.0 不得进） ----
+    for over, should_enter in ((0.60, True), (0.66, False), (2.0, False)):
+        rig3 = Rig(cfg=cfg, route=parse_mission(tokens),
+                   pose=(m10[0], m10[1] + over, geo.HEADING_Y))
+        cmds = []
+        for _ in range(5):
+            rig3.task.tick()
+            cmds.append(rig3.bridge.commands[-1][0])
+            rig3.clock.advance(0.02)
+        if should_enter:
+            check(f"13.3a F3 过冲 {over:.2f}m ≤ 0.65：可进推车（rev_push_count≥1 且有倒车指令）",
+                  rig3.task.rev_push_count >= 1 and any(v < 0 for v in cmds),
+                  f"count={rig3.task.rev_push_count} cmds={[round(v, 3) for v in cmds]}")
+        else:
+            check(f"13.3b F3 过冲 {over:.2f}m > 0.65：不得推车（无 rev_push / 无负速度）",
+                  rig3.task.rev_push_count == 0 and not rig3.task._rev_push_active
+                  and not any(v < -1e-9 for v in cmds),
+                  f"count={rig3.task.rev_push_count} active={rig3.task._rev_push_active} "
+                  f"cmds={[round(v, 3) for v in cmds]}")
+            check(f"13.3c F3 过冲 {over:.2f}m：显式刹车 + 告警一次（含「过冲」「上限」）",
+                  all(abs(v) <= 1e-9 for v in cmds)
+                  and any(("过冲" in ln and "上限" in ln) for ln in rig3.logs),
+                  f"cmds={[round(v, 3) for v in cmds]} logs_tail={rig3.logs[-1:]}")
+
+def test_rev_push_cooldown_brake() -> None:
+    """★14. F4：推车超时后的 2s 冷却窗口必须刹车（禁止 stop_approach 正速度）。
+
+    verifier T22 证据：push#1 结束后 ticks[151:251] 命令回到普通纯追踪，冻结投影时
+    stop_approach 给 +0.099 m/s —— 实车会朝过冲方向再前进 ~0.2 m（或顶障碍）。
+    本组：
+      14.1/14.2 冷却窗命令全 0、无 stop_approach 正速度（关掉冷却分支要红）；
+      14.3 遥测 rev_push_cooldown 在窗口内为 True；
+      14.4/14.5 冷却期 _seg_s 冻结，即使投影弧长在前进（车在溜/倒）也不许被推进。
+    """
+    section("14. F4 推车冷却期刹车：命令全 0、禁止 stop_approach 正速度、_seg_s 冻结")
+    tokens = ["N10", "M10", "R:N10"]
+    m10 = geo.block_to_meters("M10")
+    cfg = cfg_of(pivot_enabled=True, bridge_blocks=[])
+    y0 = m10[1] - 0.03
+    rig = Rig(cfg=cfg, route=parse_mission(tokens), pose=(m10[0], y0, geo.HEADING_Y))
+    rig.task.tick()
+    t = rig.task
+    t._rev_push_active = True
+    t._rev_push_started_at = rig.clock.now()
+    t._rev_push_xy = (m10[0], y0)
+    t._rev_push_heading = geo.HEADING_Y
+    t._rev_push_seg = 0
+    t.rev_push_ticks = 0
+    base = rig.bb.get(P_POSE)
+    orig_project = Path.project
+    frozen = {"x": base.x, "y": base.y, "s": float(rig.bb.get(P_ROUTE_S))}
+
+    def _frozen_project(self, x, y, **kw):        # 冻结投影：推不动（与 F2 同一构型）
+        return orig_project(self, frozen["x"], frozen["y"], s_hint=frozen["s"],
+                            window_m=kw.get("window_m", 0.6), allow_backward=True)
+
+    Path.project = _frozen_project
+    try:
+        steps = 0
+        while t.rev_push_timeouts == 0 and steps < 400:
+            t.tick()
+            rig.clock.advance(0.02)
+            steps += 1
+        s_timeout = t._seg_s
+        cool = []
+        for _ in range(95):                        # 1.9 s < 2.0 s 冷却窗
+            t.tick()
+            v, _st = rig.bridge.commands[-1]
+            info = t.telemetry()
+            cool.append((v, info.get("reason_tag"), bool(info.get("rev_push_cooldown")),
+                         t._seg_s))
+            rig.clock.advance(0.02)
+    finally:
+        Path.project = orig_project
+    check("14.1 F4 冷却窗命令全 0（旧行为 stop_approach +0.099）",
+          all(abs(v) <= 1e-9 for v, _r, _c, _s in cool),
+          f"命令集合={sorted({round(v, 3) for v, _r, _c, _s in cool})}")
+    check("14.2 F4 冷却窗没有 stop_approach 正速度",
+          not any(r == "stop_approach" and v > 1e-9 for v, r, _c, _s in cool),
+          f"reasons={sorted({r for _v, r, _c, _s in cool})}")
+    check("14.3 F4 遥测 rev_push_cooldown 在窗口内为 True",
+          all(c for _v, _r, c, _s in cool), f"flags={[c for _v,_r,c,_s in cool][:5]}...")
+    check("14.4 F4 冷却期 _seg_s 冻结（不随工程/hint 推进）",
+          all(abs(s - s_timeout) <= 1e-12 for _v, _r, _c, s in cool),
+          f"s_timeout={s_timeout!r} 冷却期取值={sorted({round(s, 4) for _v,_r,_c,s in cool})}")
+
+    # ---- 14.5 强版本：冷却期车真的在倒（投影弧长前进）时 _seg_s 仍必须冻结 ----
+    # 做法：用**真实投影**、把车沿倒车方向挪 0.002 m/拍（溜车/底盘余速），
+    # 断言 P_ROUTE_S 前进了、但 _seg_s 原地不动（关掉 F4 的冻结条件要红）。
+    y2 = m10[1] - 0.06                    # 离顶点 0.06m：不抬地板（vertex_floor=0.05），
+    #                                       且注入态不走入口 ⇒ 真实投影能停在正向段直到超时
+    rig2 = Rig(cfg=cfg, route=parse_mission(tokens), pose=(m10[0], y2, geo.HEADING_Y))
+    rig2.task.tick()
+    t2 = rig2.task
+    t2._rev_push_active = True
+    t2._rev_push_started_at = rig2.clock.now()
+    t2._rev_push_xy = (m10[0], y2)
+    t2._rev_push_heading = geo.HEADING_Y
+    t2._rev_push_seg = 0
+    t2.rev_push_ticks = 0
+    steps = 0
+    while t2.rev_push_timeouts == 0 and steps < 400:
+        t2.tick()
+        rig2.clock.advance(0.02)
+        steps += 1
+    s_t2 = t2._seg_s
+    yy = y2
+    seg_s_seq = []
+    for _ in range(60):                            # 1.2 s 冷却内沿原行进方向溜 0.002 m/拍
+        yy += 0.002                                # （顶障碍/余速场景；投影 s 会前进）
+        rig2.set_pose(m10[0], yy, geo.HEADING_Y)
+        t2.tick()
+        seg_s_seq.append(t2._seg_s)
+        rig2.clock.advance(0.02)
+    s_bb = rig2.bb.get(P_ROUTE_S)
+    check("14.5 F4 冷却期投影弧长在前进（车在溜）但 _seg_s 冻结",
+          isinstance(s_bb, (int, float)) and float(s_bb) > float(s_t2) + 0.05
+          and all(abs(s - s_t2) <= 1e-12 for s in seg_s_seq),
+          f"s_timeout={s_t2!r} P_ROUTE_S={s_bb!r} seg_s取值={sorted({round(s, 4) for s in seg_s_seq})}")
+
+
 def main() -> int:
     print("=" * 72)
     print("dzbrain TrackerTask 自测（纯脚本）")
@@ -718,6 +1026,9 @@ def main() -> int:
     test_projection_relock()
     test_motion_limit_wiring()
     test_rate()
+    test_rev_push_closed_loop()
+    test_rev_push_safety_gates()
+    test_rev_push_cooldown_brake()
     finish()
     return 0
 
