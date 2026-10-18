@@ -75,15 +75,30 @@
 
 ### 2.4 目标类别枚举
 
+> 2026-10-16 起切换 D 方案 13 类统一模型（hbb_d13_best.pt，17 通道输出），
+> 旧 7 类枚举（MINE/ARROW/CELL_LABEL...）作废。枚举顺序与机载
+> `onboard/dzuav/include/dzuav/types.hpp` ObjectClass、车端 `intel_protocol.ObjectType`
+> 严格一致。
+
 | 值 | 名称 | 说明 | 车端处理 |
 |---|---|---|---|
-| 0 | MINE | 地雷 | 排雷目标 |
-| 1 | CAR | 无人车 | 用于定位车的位置 |
-| 2 | ARROW | 桥洞箭头/可通行标记 | 桥洞通行判断 |
+| 0 | PAPER | 场地纸片（雷图卡/桥顶箭头标志） | **落格判语义**：普通格=雷（排雷目标）；K 列桥洞区=通行箭头（桥洞通行判断） |
+| 1 | CELL_LABEL | 地面格号 | PnP 定位用 |
+| 2 | CAR | 无人车 | 用于定位车的位置 |
 | 3 | TARGET_RED | 红色友方靶 | **禁火**（误击 -5） |
-| 4 | CELL_LABEL | 地面格号 | PnP 定位用 |
-| 5 | TARGET_BLUE | 蓝色敌方靶 | **打击目标**（标 `*`） |
-| 6 | OBSTACLE | 障碍物 | 路径避障 |
+| 4 | TARGET_BLUE | 蓝色敌方靶 | **打击目标**（标 `*`） |
+| 5 | OBSTACLE | 障碍物 | 路径避障 |
+| 6 | BUCKET_RED | 红桶 | **禁火** |
+| 7 | BUCKET_GREEN | 绿桶 | 态势展示 |
+| 8 | BUCKET_CYAN | 青桶 | 态势展示 |
+| 9 | CAR_START | 智能车起点 | 态势展示 |
+| 10 | CAR_END | 智能车终点 | 态势展示 |
+| 11 | UAV_START | 无人机起点 | 态势展示 |
+| 12 | UAV_END | 无人机终点 | 态势展示 |
+
+**PAPER 落格判语义注记**：机载只检测"纸片"不区分雷/箭头（机载无格位置信息，
+HbbDetector 边缘过滤对 paper 一律生效）；车端 world_model 按落格分流——
+非 K 列格的 PAPER 记为雷，K 列桥洞区的 PAPER 记为通行箭头。
 
 ---
 
@@ -221,6 +236,7 @@ align 模式只有**一个**超时参数 `heading_align_timeout`（默认 15s，
 | 2026-10-15 | §5.2 循迹契约修正：align 必须先于 path_executor 完成（dzactuator 模式仲裁实测）、对齐命令带爬行速度（v≠0 舵机才生效）、新增 wait_waypoint_consumer 闸门 | 车端行为变化：对齐走 cmd_vel 爬行转向；两阶段启动 tools/car_match_bringup.sh；字节布局不变 | Kimi Code |
 | 2026-10-15 | §7 中场挡板行号修正：第 5/6 行 → 第 6/7 行（0 基 row5↔row6，上半场行1~6、下半场行7~11），按车上官方地图真源；代码侧见提交 3e87f95 | 仅文档修正，接口不变 | Agent-3, Agent-4 |
 | 2026-10-15 | 新增 §9：车上现役默认核心 dzbrain 的无人机情报接口（/dzlink JSON 双话题）与我方桥接节点 dzbrain_bridge | 新增可选链路（mode:=dzbrain）；legacy 链路不变 | Kimi Code |
+| 2026-10-18 | §2.4 目标类别枚举切换 D 方案 13 类统一模型（hbb_d13_best.pt，2026-10-16 起现役）：旧 7 类 MINE/ARROW 删除，新增 PAPER（落格判语义：普通格=雷、K 列桥洞区=通行箭头）、桶类与起止点类 | 字节布局不变；type 字段取值域 0~12，旧枚举值含义全部作废 | Agent-3, Agent-4 |
 
 ---
 

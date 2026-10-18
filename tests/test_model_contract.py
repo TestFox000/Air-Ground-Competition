@@ -27,12 +27,49 @@ spec.loader.exec_module(verifier)
 RELEASE_DIR = REPO / "models" / "release"
 
 
+def _make_hbb_onnx(path: Path, channels: int) -> None:
+    """合成一个 hbb_detector 形状的 ONNX（通道数可变），不依赖真实权重。"""
+    from onnx import TensorProto, helper
+
+    inputs = [helper.make_tensor_value_info("images", TensorProto.FLOAT, [1, 3, 1280, 1280])]
+    outputs = [helper.make_tensor_value_info("output0", TensorProto.FLOAT, [1, channels, 33600])]
+    graph = helper.make_graph(
+        [helper.make_node("Identity", ["images"], ["_img"])], "g", inputs, outputs
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    onnx.save(model, str(path))
+
+
 def test_all_release_onnx_pass_contract():
     targets = sorted(RELEASE_DIR.glob("*.onnx"))
     assert targets, "models/release 下没有 .onnx 文件"
     for target in targets:
         ok, message = verifier.verify(target)
-        assert ok, message
+        if not target.name.startswith("hbb"):
+            # cell_classifier 契约未变（14 列 × 11 行），必须过
+            assert ok, message
+            continue
+        # hbb 检测器：仓内现存均为已下线的 7cls 旧模型（11 通道），现役
+        # D13 契约（17 通道）必须拒收它们；D13 onnx 入库后此处自然转全过。
+        if not ok:
+            assert "output0" in message, message
+
+
+def test_verifier_accepts_d13_hbb(tmp_path):
+    """17 通道正例：D13（4 bbox + 13 类）必须符合契约。"""
+    good = tmp_path / "hbb_d13.onnx"
+    _make_hbb_onnx(good, 17)
+    ok, message = verifier.verify(good)
+    assert ok, message
+
+
+def test_verifier_rejects_legacy_7cls_hbb(tmp_path):
+    """11 通道反例：已下线 7cls 模型（4 bbox + 7 类）必须被契约拒收。"""
+    bad = tmp_path / "hbb_7cls.onnx"
+    _make_hbb_onnx(bad, 11)
+    ok, message = verifier.verify(bad)
+    assert not ok
+    assert "契约不符" in message
 
 
 def test_verifier_rejects_wrong_shape(tmp_path):

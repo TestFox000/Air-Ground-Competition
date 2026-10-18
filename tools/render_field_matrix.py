@@ -176,14 +176,16 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
 
     bridge_col: 桥洞所在列字母，默认 K（2026-10-15 现场核实，与 world_model/
     mission_router 的桥列口径一致；若实际桥洞在其他列用 --bridge-col 指定）。
+
+    注：7cls 时代的"场地先验桥洞注入"（无条件把桥洞列 1-9 行标成 conf=1.0
+    箭头）已删除——D13 下它与"桥洞列非箭头格=桥体墙"的语义冲突；桥洞箭头
+    现在完全由 PAPER 检出按落格分派（见 _kind）。
     """
-    bcol = LETTERS.index(bridge_col.upper())
     frame = cv2.imdecode(np.fromfile(str(image_path), dtype=np.uint8),
                          cv2.IMREAD_COLOR)
     args = SimpleNamespace(conf=conf, anchor_conf=anchor_conf,
                            no_lattice=False, port=50000, device="auto")
     chain = SimChain(yolo_pt, cell_pt, args)
-
     K = chain._scaled_k((frame.shape[1], frame.shape[0]))
     img = cv2.undistort(frame, K, chain.dist, None, K)
     pred = chain.yolo.predict(img, conf=0.15, iou=0.45, imgsz=1280,
@@ -198,12 +200,6 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
         boxes.append(b)
         clss.append(NAME2TYPE[name])
         confs.append(float(k))
-
-    # ---- 桥洞：场地约束先验（桥洞列 1~9 行固定为桥洞）----
-    # 7cls 模型对 ARROW 类检测失效，按场地约束把桥洞列直接标记为桥洞。
-    # 列由 bridge_col 参数决定（默认 L，见契约；行范围 1-9 是历史经验值，
-    # 现场拓扑待核实——若桥洞列贯通行数不同需同步调整）。
-    arrow_cells = set((bcol, r) for r in range(9))  # 桥洞列 row 0-8（即 X1-X9）
 
     # ---- 格号识别 ----
     cell_idx = [i for i, t in enumerate(clss) if t == ObjectType.CELL_LABEL]
@@ -277,11 +273,6 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
         targets.append({"kind": kind, "cell": to_cid(col, row),
                         "col": col, "row": row, "px": px, "py": py,
                         "conf": cf})
-
-    # 加入场地先验桥洞（桥洞列 1-9 行）
-    for (col, row) in arrow_cells:
-        targets.append({"kind": "arrow", "cell": to_cid(col, row),
-                        "col": col, "row": row, "px": 0, "py": 0, "conf": 1.0})
 
     # ---- 带检测框的原图（中文标注）----
     render = img.copy()
@@ -513,7 +504,10 @@ def main():
                     help="同时输出 GT 真值矩阵对比")
     args = ap.parse_args()
 
-    yolo = REPO / "runs/detect/runs/detect/runs/detect/aerial_field_7cls/weights/best.pt"
+    # 现役模型是 D13（hbb_d13_best.pt，13 类），权重未随仓发布；仓内实际存在
+    # 的最新检测权重是 7cls 留档（其 mine/arrow 类名不在 D13 枚举内，会被
+    # NAME2TYPE 过滤丢弃）。拿到 D13 权重后把这一行换掉。
+    yolo = REPO / "models/release/hbb_detector_7cls_local_20261013.pt"
     cell = REPO / "runs/cell_classifier_v4c/best.pt"
     targets, render_img, meta = detect_and_localize(args.image, yolo, cell,
                                                     bridge_col=args.bridge_col)

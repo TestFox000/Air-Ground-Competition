@@ -27,6 +27,7 @@ def name(c):
 
 def scenarios():
     # 1) 代表性赛局（桥洞 K5 + 移动靶 D8-E8 蓝南）
+    # 注：D8-E8 为历史场景轨道——2026-10-17 官方地图已改 D7-E7，此处不改行为
     yield "demo", dict(
         mines=["I1", "A2", "G3", "B4", "H5", "E6", "C7", "G11"],
         obstacles=["C2", "F4", "D7", "H8", "A9", "G9", "B10", "J11"],

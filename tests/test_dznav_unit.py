@@ -251,6 +251,55 @@ class TestPursuit:
         assert tr.rebuilds == 1
         assert tr.path.length < 3.0    # 重建为当前位置到终点直连
 
+    def test_rebuild_tick_stops_to_regroup(self):
+        """M3：重建成功当拍返回零命令（停车重整一拍）。
+
+        旧代码重建后继续用旧路径投影 pr 与新路径混算前馈/反馈，
+        当拍舵角是新旧路径的拼接垃圾；现改为交零命令，下一拍在
+        新路径上重投影再闭环。
+        """
+        tr, _ = _straight_tracker()
+        cmd, ev = tr.update(0.5, 0.5, 0.0, 0.02)
+        assert any(e["ev"] == "rebuild" for e in ev)
+        assert cmd.v == 0.0 and cmd.steer_deg == 0.0
+        # 下一拍在新路径上恢复闭环（朝新首段方向打舵）
+        cmd, _ev = tr.update(0.5, 0.5, 0.0, 0.02)
+        assert not any(e["ev"] == "rebuild" for e in _ev)
+
+    def test_shoot_stop_skip_emits_event(self):
+        """M4：射击停站掠过（过点偏差超触发半径）必须发 shoot_skipped 事件，
+        让"少打一个靶"在日志里可见，而不是静默永久跳过。"""
+        sv = ServoModel(steer_limit_deg=30.0)
+        wps = [Waypoint(0, 0), Waypoint(1.5, 0, label="D2", shoot_stop=True),
+               Waypoint(3, 0)]
+        rp = build_reference(wps, sv, PathOptions())
+        tr = Tracker(rp, sv, TrackerConfig())
+        skipped = []
+        # 车沿 y=0.20 偏差掠过停站（0.17 触发半径之外、0.30 重建阈值之内）
+        for i in range(200):
+            _cmd, ev = tr.update(min(i * 0.05, 3.0), 0.20, 0.0, 0.02)
+            skipped += [e for e in ev if e["ev"] == "shoot_skipped"]
+            if tr.arrived:
+                break
+        assert tr.arrived, "掠过不应卡死路线（宁可漏打不可卡死）"
+        assert len(skipped) == 1, "同一停站格只报一次"
+        assert skipped[0]["label"] == "D2"
+        assert skipped[0]["d"] == pytest.approx(0.20, abs=0.05)
+        # 对照：正压过停站（偏差 < 0.17）仍正常触发，不误报掠过
+        sv2 = ServoModel(steer_limit_deg=30.0)
+        rp2 = build_reference(
+            [Waypoint(0, 0), Waypoint(1.5, 0, label="D2", shoot_stop=True),
+             Waypoint(3, 0)], sv2, PathOptions())
+        tr2 = Tracker(rp2, sv2, TrackerConfig())
+        saw_stop, saw_skip = False, False
+        for _ in range(3000):
+            _c, ev = tr2.update(tr2.s_prog + 0.05, 0.0, 0.0, 0.02)
+            saw_stop |= any(e["ev"] == "shoot_stop" for e in ev)
+            saw_skip |= any(e["ev"] == "shoot_skipped" for e in ev)
+            if saw_stop:
+                break
+        assert saw_stop and not saw_skip
+
     def test_arc_mechanism(self):
         sv = ServoModel(steer_limit_deg=30.0)
         wps = [Waypoint(0, 0), Waypoint(1, 0), Waypoint(0, 0)]   # 180°掉头

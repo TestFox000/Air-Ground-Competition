@@ -1,4 +1,4 @@
-"""按类别置信度 + mine 边缘过滤阈值扫描，搜索综合精度最优组合。
+"""按类别置信度 + paper 边缘过滤阈值扫描，搜索综合精度最优组合。
 
 综合精度口径（与省赛评估一致，类别+IoU≥0.5 全对才算正确）：
     TP = 预测与某 GT 同类且 IoU≥0.5
@@ -15,8 +15,9 @@
 
 用法（在训练机上，模型推理出带分数的预测标签后）：
     python tools/ml/sweep_thresholds.py \
-        --preds runs/pred_labels --gts E:/ml_datasets/aerial_field_7cls/labels/val \
-        --images E:/ml_datasets/aerial_field_7cls/images/val --top 10
+        --preds runs/pred_labels --gts E:/ml_datasets/aerial_field_d13/labels/val \
+        --images E:/ml_datasets/aerial_field_d13/images/val --top 10
+    # 旧 7cls 留档数据：--num-classes 7 --class-names mine,car,arrow,...
 """
 
 from __future__ import annotations
@@ -28,9 +29,10 @@ from pathlib import Path
 
 import numpy as np
 
-CLASS_NAMES = ["mine", "car", "arrow", "target_red",
-               "cell_label", "target_blue", "obstacle"]
-NUM_CLASSES = 7
+# D13 十三类（2026-10-16 起现役；与 types.hpp ObjectClass 顺序一致）
+D13_CLASS_NAMES = ["paper", "cell_label", "car", "target_red", "target_blue",
+                   "obstacle", "bucket_red", "bucket_green", "bucket_cyan",
+                   "car_start", "car_end", "uav_start", "uav_end"]
 
 
 # ---------------------------------------------------------------- IO
@@ -80,29 +82,39 @@ def _to_xyxy(cx, cy, w, h):
 
 
 def evaluate(preds_by_image, gts_by_image,
-             conf_per_class, edge_mine_thr, iou_thr=0.5):
-    """给定阈值组合，计算各类 TP/FP/FN 与综合精度。"""
-    tp = np.zeros(NUM_CLASSES, dtype=int)
-    fp = np.zeros(NUM_CLASSES, dtype=int)
-    fn = np.zeros(NUM_CLASSES, dtype=int)
+             conf_per_class, edge_paper_thr, iou_thr=0.5, num_classes=13):
+    """给定阈值组合，计算各类 TP/FP/FN 与综合精度。
+
+    num_classes: 类别数（决定 TP/FP/FN 向量长度与 conf_per_class 长度）；
+    标签里 cls >= num_classes 的框（如旧线数据混入新类别表）直接跳过并计数，
+    不再 IndexError。边缘过滤仅作用 cls=0（paper，与 HbbDetector.cpp 同语义）。
+    """
+    tp = np.zeros(num_classes, dtype=int)
+    fp = np.zeros(num_classes, dtype=int)
+    fn = np.zeros(num_classes, dtype=int)
+    skipped = 0
 
     for img_id in gts_by_image:
-        gts = gts_by_image[img_id]
+        gts = [g for g in gts_by_image[img_id] if g[0] < num_classes]
+        skipped += len(gts_by_image[img_id]) - len(gts)
         preds = preds_by_image.get(img_id, [])
 
-        # 按类别置信度过滤 + mine 边缘过滤
+        # 按类别置信度过滤 + paper 边缘过滤
         filtered = []
         for cls, cx, cy, w, h, score in preds:
+            if cls >= num_classes:
+                skipped += 1
+                continue
             if score < conf_per_class[cls]:
                 continue
-            if cls == 0 and edge_mine_thr > 0.0:
-                if (cx < edge_mine_thr or cx > 1 - edge_mine_thr
-                        or cy < edge_mine_thr or cy > 1 - edge_mine_thr):
+            if cls == 0 and edge_paper_thr > 0.0:
+                if (cx < edge_paper_thr or cx > 1 - edge_paper_thr
+                        or cy < edge_paper_thr or cy > 1 - edge_paper_thr):
                     continue
             filtered.append((cls, cx, cy, w, h, score))
 
         # 同类内按 score 降序，贪心匹配 GT
-        for c in range(NUM_CLASSES):
+        for c in range(num_classes):
             cls_preds = sorted(
                 [(cx, cy, w, h, s) for (cc, cx, cy, w, h, s) in filtered if cc == c],
                 key=lambda x: -x[4])
@@ -129,7 +141,7 @@ def evaluate(preds_by_image, gts_by_image,
     total_fn = int(fn.sum())
     denom = total_tp + total_fp + total_fn
     comp = total_tp / denom if denom > 0 else 0.0
-    return comp, tp, fp, fn
+    return comp, tp, fp, fn, skipped
 
 
 # ---------------------------------------------------------------- 扫描
@@ -145,12 +157,29 @@ def main() -> int:
     ap.add_argument("--conf-step", type=float, default=0.05)
     ap.add_argument("--edge-values", type=float, nargs="+",
                     default=[0.0, 0.005, 0.01, 0.015, 0.02],
-                    help="mine 边缘过滤阈值候选（归一化）")
+                    help="paper 边缘过滤阈值候选（归一化；仅作用 cls=0）")
     ap.add_argument("--per-class", action="store_true",
                     help="按类别独立扫描 conf（默认全局统一 conf）")
     ap.add_argument("--top", type=int, default=10)
     ap.add_argument("--iou", type=float, default=0.5)
+    ap.add_argument("--num-classes", type=int, default=13,
+                    help="类别数（默认 13=D13 现役；旧 7cls 留档数据用 7）")
+    ap.add_argument("--class-names", default=None,
+                    help="逗号分隔类别名表（默认取 D13 前 --num-classes 个）")
     args = ap.parse_args()
+
+    num_classes = args.num_classes
+    if args.class_names:
+        class_names = [n.strip() for n in args.class_names.split(",") if n.strip()]
+        if len(class_names) != num_classes:
+            print(f"--class-names 给了 {len(class_names)} 个名，"
+                  f"与 --num-classes {num_classes} 不一致", file=sys.stderr)
+            return 2
+    elif num_classes <= len(D13_CLASS_NAMES):
+        class_names = D13_CLASS_NAMES[:num_classes]
+    else:
+        class_names = D13_CLASS_NAMES + [f"cls{i}" for i in range(
+            len(D13_CLASS_NAMES), num_classes)]
 
     preds_dir = Path(args.preds)
     gts_dir = Path(args.gts)
@@ -174,43 +203,49 @@ def main() -> int:
     conf_values = list(np.arange(args.conf_min, args.conf_max + 1e-9, args.conf_step))
 
     results = []
+    skipped_total = 0
     if args.per_class:
-        # 7 类独立扫描：组合爆炸，限制每类候选数
+        # 按类别独立扫描：组合爆炸，限制每类候选数
         if len(conf_values) > 6:
             conf_values = list(np.linspace(args.conf_min, args.conf_max, 6))
         print(f"按类别扫描：每类 {len(conf_values)} 个候选 × "
               f"{len(args.edge_values)} edge = "
-              f"{len(conf_values)**7 * len(args.edge_values):,} 组合（可能较慢）")
-        for conf_combo in product(conf_values, repeat=7):
+              f"{len(conf_values)**num_classes * len(args.edge_values):,} 组合（可能较慢）")
+        for conf_combo in product(conf_values, repeat=num_classes):
             for edge in args.edge_values:
-                comp, tp, fp, fn = evaluate(
+                comp, tp, fp, fn, skipped = evaluate(
                     preds_by_image, gts_by_image,
-                    list(conf_combo), edge, args.iou)
+                    list(conf_combo), edge, args.iou, num_classes)
+                skipped_total = max(skipped_total, skipped)
                 results.append((comp, list(conf_combo), edge, tp, fp, fn))
     else:
         # 全局统一 conf（快速）
         for conf in conf_values:
             for edge in args.edge_values:
-                comp, tp, fp, fn = evaluate(
+                comp, tp, fp, fn, skipped = evaluate(
                     preds_by_image, gts_by_image,
-                    [conf] * 7, edge, args.iou)
-                results.append((comp, [conf] * 7, edge, tp, fp, fn))
+                    [conf] * num_classes, edge, args.iou, num_classes)
+                skipped_total = max(skipped_total, skipped)
+                results.append((comp, [conf] * num_classes, edge, tp, fp, fn))
+    if skipped_total:
+        print(f"注意：{skipped_total} 个框的类别号 >= {num_classes}，已跳过"
+              f"（检查 --num-classes 是否与标签类别表一致）")
 
     results.sort(key=lambda r: -r[0])
     print(f"\n共 {len(results)} 组合，Top {args.top}：")
     print("-" * 100)
     header = f"{'comp':>7} {'conf':>6} {'edge':>6}  "
-    header += "  ".join(f"{n[:4]:>10}" for n in CLASS_NAMES)
+    header += "  ".join(f"{n[:4]:>10}" for n in class_names)
     print(header)
     for comp, conf, edge, tp, fp, fn in results[:args.top]:
         per_cls = "  ".join(f"{tp[c]}/{fp[c]}/{fn[c]:>10}"
-                            for c in range(NUM_CLASSES))
+                            for c in range(num_classes))
         print(f"{comp*100:6.2f}% {conf[0]:6.3f} {edge:6.3f}  {per_cls}")
 
     if results:
         best = results[0]
         print(f"\n最优：综合精度 {best[0]*100:.2f}%  "
-              f"conf={best[1][0]:.3f}  edge_mine={best[2]:.3f}")
+              f"conf={best[1][0]:.3f}  edge_paper={best[2]:.3f}")
     return 0
 
 

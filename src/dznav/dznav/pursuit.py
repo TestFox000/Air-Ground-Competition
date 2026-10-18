@@ -118,6 +118,16 @@ class Tracker:
         while (self.passed + 1 < len(path.waypoints)
                and self.s_prog > path.vertex_s[self.passed + 1] + 0.02):
             self.passed += 1
+            w_pass = path.waypoints[self.passed]
+            if w_pass.shoot_stop and not w_pass.served:
+                # 射击停站被掠过：过点时偏差超触发半径，本格永远不再触发。
+                # 发事件让 executor 打 error 日志（含格号与偏差）——
+                # "少打一个靶"必须在日志里可见，不能静默漏掉（评审 M4）。
+                # 降级补触发（如 0.17→0.25m 容差带）未做：带内停车会停在
+                # 偏靶位，补打价值存疑，是否补打应交任务层决策。
+                ev.append({"ev": "shoot_skipped", "idx": self.passed,
+                           "label": w_pass.label,
+                           "d": math.hypot(x - w_pass.x, y - w_pass.y)})
             if cfg.anchor_pass and self.passed < len(path.waypoints) - 1:
                 ev.append({"ev": "pass_wp", "idx": self.passed})
 
@@ -162,6 +172,10 @@ class Tracker:
                 self.arrived = True
                 ev.append({"ev": "arrived", "d": d_final, "forced": True})
                 return Command(0.0, 0.0)
+            # 重建成功当拍停车重整（评审 M3）：pr/k_ff 都是旧路径的投影，
+            # 继续往下走会拿旧投影与新路径混算出一拍拼接垃圾舵角；
+            # 返回零命令，下一拍在新路径上重新投影再闭环。
+            return Command(0.0, 0.0)
 
         # ---- 前馈 + 反馈 ----
         k_ff = self.path.at_s(
@@ -248,7 +262,7 @@ class Tracker:
         if self._arc is not None and self._arc["travel_start"] is None:
             self._arc["travel_start"] = travel
 
-    def _update_arc(self, x, y, th, dt, now, ev) -> tuple[Command]:
+    def _update_arc(self, x, y, th, dt, now, ev) -> tuple[Command, list[dict]]:
         a = self._arc
         cfg = self.cfg
         sign = a["sign"]

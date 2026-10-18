@@ -22,11 +22,11 @@ def cell(name: str) -> CellRef:
     return CellRef(col, row)
 
 
-def build_snapshot(bridge_col: str = "L") -> WorldSnapshot:
+def build_snapshot(bridge_col: str = "K") -> WorldSnapshot:
     """从图片解析的场地态势。
 
-    桥洞列默认 L（与 docs/interface_contract.md 一致；现场拓扑待核实，
-    历史上这里写成 K3/K7——若实际场地桥洞在 K 列，用 --bridge-col K）。
+    桥洞列默认 K（2026-10-15 现场核实真源，与 world_model/mission_router
+    同口径；契约文档旧值 L 已过时）。
     """
     mines = [cell(n) for n in [
         "A2", "I2", "E5", "E6", "F7", "H7", "B9", "H9",
@@ -145,8 +145,8 @@ def render(snapshot: WorldSnapshot, route: tuple[str, ...], out_path: str) -> No
 def main() -> int:
     import argparse
     ap = argparse.ArgumentParser(description="根据场地态势生成路径规划并渲染场地图")
-    ap.add_argument("--bridge-col", default="L",
-                    help="桥洞所在列字母（默认 L，与契约一致；现场拓扑待核实）")
+    ap.add_argument("--bridge-col", default="K",
+                    help="桥洞所在列字母（默认 K，2026-10-15 现场核实真源）")
     args = ap.parse_args()
     snapshot = build_snapshot(args.bridge_col.upper())
     start = cell("N10")

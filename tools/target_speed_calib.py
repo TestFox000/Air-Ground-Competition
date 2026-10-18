@@ -64,9 +64,15 @@ def hue_dist(h: np.ndarray, c: float) -> np.ndarray:
 
 
 def circular_mean(h: np.ndarray) -> float:
-    s = np.sin(np.deg2rad(h.astype(np.float64))).mean()
-    c = np.cos(np.deg2rad(h.astype(np.float64))).mean()
-    return float(np.degrees(np.arctan2(s, c)) % 180.0)
+    """环形色相均值（OpenCV 色相 0~180 环绕）。
+
+    倍角公式 atan2(⟨sin2h⟩,⟨cos2h⟩)/2：h 的周期是 180°，直接对 h 取
+    sin/cos 在红色档必坏——{170°,10°}（真值 0°）会输出 90°（审查数值实证）。
+    先倍角把环绕点拼合，平均后再折回半角。
+    """
+    a2 = np.deg2rad(h.astype(np.float64)) * 2.0
+    return float(np.degrees(np.arctan2(np.sin(a2).mean(),
+                                       np.cos(a2).mean())) / 2.0 % 180.0)
 
 
 def theil_sen(xs: np.ndarray, ys: np.ndarray) -> tuple[float, float]:
@@ -177,11 +183,12 @@ class Tracker:
         half_new = float(np.percentile(hue_dist(h, h_c_new), 92)) + 8.0
         half_new = min(half_new, MAX_H_HALF)
         a = 0.4  # EMA
-        # 环形均值混合
-        rad = math.radians(self.hsv_rng[0]), math.radians(h_c_new)
+        # 环形均值混合（倍角公式，同 circular_mean：红色横跨 0° 环绕，
+        # 直接混合 h 会把 {170°,10°} 拉向 90°）
+        rad = math.radians(self.hsv_rng[0]) * 2, math.radians(h_c_new) * 2
         blended = math.degrees(math.atan2(
             (1 - a) * math.sin(rad[0]) + a * math.sin(rad[1]),
-            (1 - a) * math.cos(rad[0]) + a * math.cos(rad[1]))) % 180.0
+            (1 - a) * math.cos(rad[0]) + a * math.cos(rad[1]))) / 2 % 180.0
         self.hsv_rng[0] = blended
         self.hsv_rng[1] = min((1 - a) * self.hsv_rng[1] + a * half_new, MAX_H_HALF)
         self.hsv_rng[2] = int(max(30, (1 - a) * self.hsv_rng[2] + a * max(30, np.percentile(s, 8) - 15)))

@@ -224,7 +224,10 @@ def _restart_legacy(cli, snap: dict) -> None:
         return
     for _pat, procs in running.items():
         for _pid, cmd0 in procs:
-            _run(cli, f"nohup {cmd0} > /tmp/dznav_rb_{_pid}.log 2>&1 &")
+            # 留档命令行是裸命令（如 ros2 run ...）：SSH 非交互执行不读
+            # .bashrc，不 source ROS 环境会起不来——回放必须套 ENV_TMPL
+            _run(cli, f"{ENV_TMPL} && nohup {cmd0} "
+                      f"> /tmp/dznav_rb_{_pid}.log 2>&1 &")
     time.sleep(3.0)
 
 

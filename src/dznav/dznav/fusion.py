@@ -40,7 +40,11 @@ class Localizer:
         # 信念位姿（米，地图系）
         self.x = start_block[0] * BLOCK
         self.y = start_block[1] * BLOCK
-        # th = yaw_rel + yaw_anchor；开机默认朝 Y+（与原版一致）
+        # yaw 原点差异：IMU 的 yaw_rel 零点在"上电时刻朝向"（任意），地图
+        # 航向原点在 X+（东）。两者差由 yaw_anchor 吸收：th = yaw_rel +
+        # yaw_anchor。开机默认 anchor=+π/2（对齐原版"yaw_rel+π/2"惯例，
+        # 即默认朝 Y+）；reset:BLOCK,HEAD 时按断言朝向反解 yaw_anchor，
+        # 从此 IMU 相对转角与地图航向只差一个被锚定的常量。
         self.yaw_anchor = RAW_YAW_TO_MAP_YAW_OFFSET
         self.th = 0.0
         # IMU

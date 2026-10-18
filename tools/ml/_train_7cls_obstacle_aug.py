@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# ⚠️ 留档脚本：7cls/旧线，2026-10-16 起已切换 D13 十三类统一模型（hbb_d13_best.pt），仅供追溯，勿用于现役训练/评估 ⚠️
 """4090 训练脚本：obstacle_aug 数据集（mine+obstacle+arrow copy-paste增强）。
 
 针对 M0-3 省赛95%硬指标的两大瓶颈：

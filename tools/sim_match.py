@@ -105,6 +105,7 @@ class SimChain:
                                      rotation_tta=True, confidence_threshold=0.0)
         self.K, self.dist, self.base = load_intrinsics()
         self.args = args
+        self._unknown_warned = False   # 未知类别检出的一次性告警锁（见 process）
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
@@ -124,15 +125,24 @@ class SimChain:
         pred = self.yolo.predict(img, conf=0.25, iou=0.45, imgsz=1280,
                                  verbose=False, device=self.device)[0]
         boxes, clss, confs = [], [], []
+        unknown: dict[str, int] = {}
         for b, c, k in zip(pred.boxes.xyxy.cpu().numpy(),
                            pred.boxes.cls.cpu().numpy().astype(int),
                            pred.boxes.conf.cpu().numpy()):
             name = self.yolo.names[c]
             if name not in NAME2TYPE:
+                # 类别名不在 D13 协议枚举内（典型：旧 7cls 权重的 mine/arrow）——
+                # 透传会发语义错误的帧，只能丢弃；累计后一次性告警（见下）。
+                unknown[name] = unknown.get(name, 0) + 1
                 continue
             boxes.append(b)
             clss.append(NAME2TYPE[name])
             confs.append(float(k))
+        if unknown and not self._unknown_warned:
+            self._unknown_warned = True
+            print(f"[sim] 警告：丢弃 {sum(unknown.values())} 个未知类别检出 "
+                  f"{sorted(unknown)}——不在 D13 协议枚举内（旧 7cls 权重的 "
+                  f"mine/arrow 即此类），请换 hbb_d13 权重", file=sys.stderr)
 
         # ---- 格号识别 + lattice 扩散 ----
         cell_idx = [i for i, t in enumerate(clss) if t == ObjectType.CELL_LABEL]
@@ -203,17 +213,24 @@ class SimChain:
         if len(marks) >= 4:
             pts = np.array([p for _, p in marks], np.float32)
             hull = cv2.convexHull(pts)
-            if abs(cv2.contourArea(hull)) >= 0.02 * img.shape[1] * img.shape[0]:
+            # 凸包面积门 0.005（与 MapLocalizer.cpp:66 一致，2026-10-17 live
+            # 事故修订）：原 0.02 是 88 格全景帧设定，live 近距视野地标可集中
+            # 在画面不足 2% 区域 → localized 恒 0；0.005 仍足以拦截共线退化。
+            if abs(cv2.contourArea(hull)) >= 0.005 * img.shape[1] * img.shape[0]:
                 w = np.array([world_of(c) for c, _ in marks], np.float32)
                 ok, rvec, tvec, inl = cv2.solvePnPRansac(
                     w, pts, K, None, iterationsCount=100, reprojectionError=5.0,
                     confidence=0.995, flags=cv2.SOLVEPNP_P3P)
-                # 解质量门槛：错误内参下 P3P 会"7 内点假成功"（诊断实测全点中位
-                # 误差 ~250px vs 正确内参 <3px），垃圾解的投影会把目标投到场外。
+                # 解质量门槛（与 MapLocalizer.cpp:99 一致）：错误内参下 P3P 会
+                # "7 内点假成功"（诊断实测全点中位误差 ~250px vs 正确内参 <3px），
+                # 垃圾解的投影会把目标投场外。
                 if ok and len(inl) >= 4:
                     proj, _ = cv2.projectPoints(w, rvec, tvec, K, None)
                     err = np.linalg.norm(proj[:, 0, :] - pts, axis=1)
-                    if len(inl) >= max(12, 0.3 * len(marks)) and np.median(err) <= 10.0:
+                    # 内点下限 max(4, 30%)（同 C++：原绝对下限 12 在近距视野
+                    # 地标仅 5~6 个时数学上不可能满足）；垃圾解防线不变：
+                    # 全点重投影中位误差 ≤10px。
+                    if len(inl) >= max(4, len(marks) * 3 // 10) and np.median(err) <= 10.0:
                         method = "pnp"
         project = None
         if method == "pnp":
@@ -302,8 +319,12 @@ def main() -> int:
     src.add_argument("--video", type=Path)
     src.add_argument("--image", type=Path)
     src.add_argument("--camera", type=int)
+    # 现役模型是 D13（hbb_d13_best.pt，13 类），但其权重未随仓发布；
+    # 仓内实际存在的最新检测权重是 7cls 留档（其类别名不在 D13 枚举内，
+    # 检出会被 NAME2TYPE 过滤并一次性告警）。拿到 D13 权重后用
+    # --weights-yolo 显式指定。
     ap.add_argument("--weights-yolo", type=Path,
-                    default=REPO / "runs/detect/runs/detect/aerial_field_finetuned_v2/weights/best.pt")
+                    default=REPO / "models/release/hbb_detector_7cls_local_20261013.pt")
     ap.add_argument("--weights-cell", type=Path,
                     default=REPO / "runs/cell_classifier_v4c/best.pt")
     ap.add_argument("--port", type=int, default=50000)

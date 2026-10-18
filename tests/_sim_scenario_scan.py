@@ -38,6 +38,8 @@ def run_scenario(mines, seed=42, budget=90.0):
     ros_stub.set_overrides(
         udp_port=0, dry_run=False, publish_reset=True,
         start_cell="N10", goal_cell="N11", start_heading="y", final_heading="y",
+        # target_track D8-E8 为历史场景轨道：2026-10-17 官方地图已改 D7-E7，
+        # 此处不改行为（场景扫描脚本，与现役赛道口径无关）
         heading_bias_source="align", target_track=["D8", "E8"],
         target_blue_face="S", matrix_log=False, align_creep_speed=0.05)
     # final_heading 'y'（2026-10-18）：executor 路线尾标只认 x/y，'x' 会产出

@@ -5,7 +5,10 @@ C++ 后处理代码的硬假设一致。防止「换了模型但代码解不出�
 
   hbb_detector
       输入  images        [N,3,1280,1280]  FLOAT   (HbbDetector 构造)
-      输出  output0       [N,11,33600]     FLOAT   (11 = 4 bbox + 7 类；33600 候选)
+      输出  output0       [N,17,33600]     FLOAT   (17 = 4 bbox + 13 类；33600 候选)
+
+  注：2026-10-16 起现役模型为 D 方案 13 类统一模型（hbb_d13_best.pt，17 通道），
+  旧 7 类模型（11 通道）已下线——本契约只认 17 通道，旧模型一律拒收。
 
   cell_classifier
       输入  images        [N,3,96,96]      FLOAT   (CellClassifier 构造)
@@ -49,7 +52,8 @@ class Contract:
 HBB_CONTRACT = Contract(
     "hbb_detector",
     (TensorSpec("images", ("N", 3, 1280, 1280)),),
-    (TensorSpec("output0", ("N", 11, 33600)),),
+    # 17 = 4 bbox + 13 类（D13，与 HbbDetector.cpp kOutChannels 一致）
+    (TensorSpec("output0", ("N", 17, 33600)),),
 )
 
 CELL_CONTRACT = Contract(

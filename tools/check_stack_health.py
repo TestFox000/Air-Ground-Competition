@@ -49,12 +49,21 @@ REMOTE_ENV = ("source /opt/ros/humble/setup.bash; "
               "source ~/dzpx4/install/setup.bash 2>/dev/null; ")
 
 
-def run(host, user, pw, port, cmd, timeout=60):
+def run(host, user, pw, port, cmd, timeout=60, allow_nonzero=False):
+    """远程执行一条命令。
+
+    两种"失败"必须分开：
+      - SSH 连接异常（连不上/中途断）：重试 3 次后 SystemExit——这才叫"无响应"；
+      - 命令非零退出码：默认仍按旧行为重试后 SystemExit；但诊断命令的非零退出
+        往往正是要诊断的症状（`ros2 topic echo --once` 超时=124、`grep` 无匹配
+        =1），这时调用方传 allow_nonzero=True，本函数返回 (code, out) 由各检查
+        项自判 FAIL——否则"话题无响应"分支永远不可达（自杀式诊断）。
+    """
     for attempt in range(1, 4):
         try:
             code, out, err = remote_run.run(host, user, pw, cmd, timeout=timeout, port=port)
-            if code == 0:
-                return out
+            if code == 0 or allow_nonzero:
+                return (code, out) if allow_nonzero else out
         except Exception as e:  # noqa: BLE001
             print(f"[..] 连接重试（{attempt}/3）: {type(e).__name__}")
             time.sleep(5)
@@ -99,7 +108,9 @@ def main(argv=None) -> int:
                 # 保留最早启动（PID 最小），杀其余
                 victims = pids[1:]
                 for v in victims:
-                    run(host, user, pw, port, f"kill {v} 2>/dev/null")
+                    # kill 非零（进程已退出等）不算连接故障，忽略退出码继续
+                    run(host, user, pw, port, f"kill {v} 2>/dev/null",
+                        allow_nonzero=True)
                     print(f"         [kill-dup] 已 kill 较新实例 PID {v}（保留 {pids[0]}）")
                 time.sleep(2)
                 n2 = run(host, user, pw, port, f"pgrep -xc {proc} 2>/dev/null || echo 0")
@@ -109,7 +120,10 @@ def main(argv=None) -> int:
                 # autostart v3（flight-link only）模式下定位栈需手动启动：
                 # 体检发现未跑时用 --start-cmd 提供的命令一键拉起并复检
                 print(f"         [start-cmd] {label} 未运行，执行拉起：{args.start_cmd}")
-                run(host, user, pw, port, args.start_cmd, timeout=90)
+                # 拉起命令非零由复检自判（下方 n2 != expect → FAIL"拉起失败"），
+                # 不能当连接故障 SystemExit
+                run(host, user, pw, port, args.start_cmd, timeout=90,
+                    allow_nonzero=True)
                 time.sleep(10)
                 out2 = run(host, user, pw, port,
                            f"pgrep -xc {proc} 2>/dev/null || echo 0")
@@ -129,8 +143,10 @@ def main(argv=None) -> int:
     print("[2/4] 话题发布者数检查（应恰好 1 —— 双发布者=双实例打架）")
     print("=" * 62)
     for label, topic in TOPIC_CHECKS:
-        out = run(host, user, pw, port,
-                  f"{REMOTE_ENV} ros2 topic info {topic} 2>/dev/null | grep 'Publisher count'")
+        # grep 无匹配（退出码 1）就是"话题无响应"症状本身，必须放行给下方自判
+        _code, out = run(host, user, pw, port,
+                         f"{REMOTE_ENV} ros2 topic info {topic} 2>/dev/null | grep 'Publisher count'",
+                         allow_nonzero=True)
         m = re.search(r"Publisher count:\s*(\d+)", out)
         n = int(m.group(1)) if m else -1
         if n == 1:

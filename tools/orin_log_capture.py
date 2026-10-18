@@ -35,9 +35,14 @@ EV_VISION = "vision.detect"
 EV_INTEL = "intel.recv"
 EV_LINK = "link.tx"
 
+# D13 十三类（与 onboard/dzuav main.cpp className 逐字一致，2026-10-16 起）。
+# 旧 7 类映射（mine=0/car=1/arrow=2...）在 D13 下全错——car 实为 2 而非 1，
+# 且 mine/arrow 两名已删除（都是 paper，落格分流在车端 world_model 侧）。
 CLASS_MAP = {
-    "mine": 0, "car": 1, "arrow": 2, "target_red": 3,
-    "cell_label": 4, "target_blue": 5, "obstacle": 6,
+    "paper": 0, "cell_label": 1, "car": 2, "target_red": 3,
+    "target_blue": 4, "obstacle": 5, "bucket_red": 6, "bucket_green": 7,
+    "bucket_cyan": 8, "car_start": 9, "car_end": 10,
+    "uav_start": 11, "uav_end": 12,
 }
 
 
@@ -99,7 +104,8 @@ def parse_line(line: str) -> Optional[dict]:
         except ValueError:
             pass
 
-    # 按类别计数
+    # 按类别计数（D13：雷/箭头同为 paper，落格分流在车端 world_model 侧；
+    # 本文件的 mines 字段口径 = paper 总数，含桥洞箭头，机载无格位置信息无法细分）
     counts = {}
     for o in objects:
         counts[o["cls_name"]] = counts.get(o["cls_name"], 0) + 1
@@ -167,7 +173,7 @@ def run_capture(dzuav_cmd: list[str], log_dir: Path, session: str) -> int:
                     seq += 1
                     if parsed["localized"]:
                         write_event(fh, seq, ts, EV_INTEL, "dzuav", session,
-                                    ok=True, mines=parsed["counts"].get("mine", 0),
+                                    ok=True, mines=parsed["counts"].get("paper", 0),
                                     obstacles=parsed["counts"].get("obstacle", 0),
                                     targets=parsed["counts"].get("target_blue", 0)
                                             + parsed["counts"].get("target_red", 0),
@@ -221,7 +227,7 @@ def replay_log(input_file: Path, log_dir: Path, session: str) -> int:
                 seq += 1
                 if parsed["localized"]:
                     write_event(fh, seq, ts, EV_INTEL, "dzuav", session,
-                                ok=True, mines=parsed["counts"].get("mine", 0),
+                                ok=True, mines=parsed["counts"].get("paper", 0),
                                 obstacles=parsed["counts"].get("obstacle", 0),
                                 targets=parsed["counts"].get("target_blue", 0)
                                         + parsed["counts"].get("target_red", 0),

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# ⚠️ 留档脚本：7cls/旧线，2026-10-16 起已切换 D13 十三类统一模型（hbb_d13_best.pt），仅供追溯，勿用于现役训练/评估 ⚠️
 """评估 7cls 模型各类 mAP，重点看 car 类。"""
 from ultralytics import YOLO
 import sys

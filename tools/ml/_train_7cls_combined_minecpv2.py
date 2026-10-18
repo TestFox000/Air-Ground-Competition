@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# ⚠️ 留档脚本：7cls/旧线，2026-10-16 起已切换 D13 十三类统一模型（hbb_d13_best.pt），仅供追溯，勿用于现役训练/评估 ⚠️
 """combined + mine_cp_v2 微调训练（3087 train）。
 
 从 combined best.pt (val-B综合90.53%, obstacle FN=4, arrow召回100%) 微调，

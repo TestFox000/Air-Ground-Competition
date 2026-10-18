@@ -11,7 +11,8 @@
       移动靶（B/R）换格后最多滞后 1 帧重新确认，属可接受延迟。
 
 矩阵符号（场地规则：一格至多一个目标，同格冲突取票数最高者，
-平票障碍优先——安全考虑，规划宁可绕开）：
+平票障碍优先——安全考虑，规划宁可绕开；单帧 build_grid 同格冲突
+同样障碍优先，见 _grid_beats）：
     M=mine(爆炸物)  O=obstacle(障碍物)  B=蓝靶(敌方)  R=红靶(友方)
     A=arrow(桥洞)   C=car(车)           .=空
 CELL_LABEL 是定位基础设施（每帧数百个），默认不进矩阵/明细，参数可开。
@@ -199,6 +200,21 @@ class MatrixFusion:
                 for k, (x, y) in self._outside.items()]
 
 
+def _grid_beats(kind: ObjectType, cur_symbol: str) -> bool:
+    """单帧落格覆盖裁决：新目标类别 kind 是否覆盖格内现有符号 cur_symbol。
+
+    障碍优先（与 MatrixFusion._tie_break 平票裁决同口径，2026-10-18 统一）：
+    同格障碍与纸雷冲突时一律留障碍——安全方向，规划宁可绕开障碍，也不许
+    把障碍覆盖成雷压过去。此前单帧路径按 _PRIORITY 是 PAPER(0) 压
+    OBSTACLE(1)，与融合路径相反，已对齐。其余冲突仍按 _PRIORITY 显示优先级。
+    """
+    if cur_symbol == "O":
+        return kind is ObjectType.OBSTACLE     # 障碍不被非障碍覆盖
+    if kind is ObjectType.OBSTACLE:
+        return True                            # 障碍压一切非障碍
+    return _PRIORITY[kind] < _priority_of(cur_symbol)
+
+
 def build_grid(spots: list[ObjectSpot]) -> list[list[str]]:
     """11×14 符号矩阵（row0=第1行，col0=A）。"""
     grid = [["." for _ in range(COLS)] for _ in range(ROWS)]
@@ -206,7 +222,7 @@ def build_grid(spots: list[ObjectSpot]) -> list[list[str]]:
         if s.col is None or s.row is None or s.kind not in SYMBOLS:
             continue
         cur = grid[s.row][s.col]
-        if cur == "." or _PRIORITY[s.kind] < _priority_of(cur):
+        if cur == "." or _grid_beats(s.kind, cur):
             grid[s.row][s.col] = _symbol_of(s)
     return grid
 

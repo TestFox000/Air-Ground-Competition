@@ -18,7 +18,7 @@ dzbrain 模式起本节点，legacy 模式起 integrate_node，launch 侧二选�
                     1Hz 恒定发（无论有无情报）；DroneTask 丢失 >3s 判离线
     bridge_passable {"type":"bridge_passable","half":"lower"|"upper",
                      "block":"K9","confidence":1.0,"ts":...,"seq":N}
-                    桥洞可通行格（ARROW，无人机是权威）。按行分半场：
+                    桥洞可通行格（K 列 PAPER 落格判=通行箭头，无人机是权威）。按行分半场：
                     行7~11→lower、行1~6→upper（挡板在 6/7 行界），每半场一条；
                     变化即发 + 无变化每 refresh_period_s 刷新一次
                     （dzbrain info_stale_s=30s 兜底，刷新周期须远小于它）。
@@ -273,7 +273,7 @@ class DzbrainBridgeNode(Node):
 
     # ---- 情报：变化即发 + 周期刷新 ----
     def _publish_intel(self, snapshot, now: float) -> None:
-        # 桥洞可通行格（ARROW，无人机是权威）：按行分半场，行7~11→lower、
+        # 桥洞可通行格（K 列 PAPER 落格判=通行箭头，无人机是权威）：按行分半场，行7~11→lower、
         # 行1~6→upper。挡板在 6/7 行界，_MID_BOUNDARY 是 0 基的第 7 行下标
         # （mission_router/场地 yaml/本节点三处口径一致）。
         halves: dict[str, list[str]] = {h: [] for h in _BRIDGE_HALVES}

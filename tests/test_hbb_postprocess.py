@@ -1,9 +1,10 @@
 """HbbDetector 后处理 Python 等价实现测试（tools/ml/hbb_postprocess.py）。
 
-守护点：
-  - 解码 + 按类别置信度过滤
+守护点（2026-10-16 起 D13 13 类统一模型，17 通道契约）：
+  - 解码 + 按类别置信度过滤（13 类）
   - 按类别 NMS
-  - mine 边缘过滤（与 prelabel_onnx.filter_edge_boxes 同口径）
+  - paper 边缘过滤（cls=0，与 HbbDetector.cpp:152-155 同语义）
+  - 17 通道接受 / 11 通道（旧 7cls）拒绝
   - 默认阈值 = 旧版单一阈值行为（向后兼容）
 """
 
@@ -31,14 +32,17 @@ def _load(name, file):
 hbbpp = _load("hbb_postprocess", ML / "hbb_postprocess.py")
 cv2 = pytest.importorskip("cv2")
 
+# D13 类别号（与 types.hpp ObjectClass / main.cpp className 一致）
+PAPER, CELL_LABEL, OBSTACLE, BUCKET_GREEN = 0, 1, 5, 7
+
 
 def _raw_one(cls_score_pairs):
-    """构造 [1,11,N]：每个 anchor 给 (cx,cy,w,h) + 7 类分数。
+    """构造 [1,17,N]：每个 anchor 给 (cx,cy,w,h) + 13 类分数。
 
     cls_score_pairs: list of (cx, cy, w, h, cls, score)
     """
     n = len(cls_score_pairs)
-    arr = np.zeros((11, n), dtype=np.float32)
+    arr = np.zeros((17, n), dtype=np.float32)
     for i, (cx, cy, w, h, cls, score) in enumerate(cls_score_pairs):
         arr[0, i] = cx
         arr[1, i] = cy
@@ -48,38 +52,49 @@ def _raw_one(cls_score_pairs):
     return arr[None]
 
 
+def test_class_table_is_d13():
+    """类别表 = D13 十三类（顺序与 C++ className 逐字一致）。"""
+    assert hbbpp.NUM_CLASSES == 13
+    assert hbbpp.CLASS_NAMES == [
+        "paper", "cell_label", "car", "target_red", "target_blue",
+        "obstacle", "bucket_red", "bucket_green", "bucket_cyan",
+        "car_start", "car_end", "uav_start", "uav_end"]
+
+
 def test_decode_and_conf_filter():
-    # anchor 0: mine cls=0 score=0.9 → 保留
-    # anchor 1: mine cls=0 score=0.1 → 过滤（< 0.25）
-    # anchor 2: obstacle cls=6 score=0.8 → 保留
+    # anchor 0: paper cls=0 score=0.9 → 保留
+    # anchor 1: paper cls=0 score=0.1 → 过滤（< 0.25）
+    # anchor 2: obstacle cls=5 score=0.8 → 保留
     raw = _raw_one([
-        (100, 100, 20, 20, 0, 0.9),
-        (200, 200, 20, 20, 0, 0.1),
-        (300, 300, 30, 30, 6, 0.8),
+        (100, 100, 20, 20, PAPER, 0.9),
+        (200, 200, 20, 20, PAPER, 0.1),
+        (300, 300, 30, 30, OBSTACLE, 0.8),
     ])
     dets = hbbpp.postprocess(raw, orig_w=1280, orig_h=1280)
     classes = sorted(d.cls for d in dets)
-    assert classes == [0, 6]
+    assert classes == [PAPER, OBSTACLE]
     assert len(dets) == 2
 
 
 def test_per_class_conf_threshold():
-    """mine 阈值 0.5，obstacle 阈值 0.2：mine 0.4 被滤，obstacle 0.3 保留。"""
+    """paper 阈值 0.5、obstacle 阈值 0.2：paper 0.4 被滤，obstacle 0.3 保留。"""
     raw = _raw_one([
-        (100, 100, 20, 20, 0, 0.4),   # mine 0.4 < 0.5 → 过滤
-        (300, 300, 30, 30, 6, 0.3),   # obstacle 0.3 > 0.2 → 保留
+        (100, 100, 20, 20, PAPER, 0.4),     # paper 0.4 < 0.5 → 过滤
+        (300, 300, 30, 30, OBSTACLE, 0.3),  # obstacle 0.3 > 0.2 → 保留
     ])
-    conf = [0.5, 0.25, 0.25, 0.25, 0.25, 0.25, 0.2]
+    conf = [0.25] * 13
+    conf[PAPER] = 0.5
+    conf[OBSTACLE] = 0.2
     dets = hbbpp.postprocess(raw, orig_w=1280, orig_h=1280, conf_per_class=conf)
     assert len(dets) == 1
-    assert dets[0].cls == 6
+    assert dets[0].cls == OBSTACLE
 
 
 def test_nms_same_class_suppresses():
     """同类两个重叠框，NMS 只留高分。"""
     raw = _raw_one([
-        (100, 100, 40, 40, 0, 0.9),
-        (102, 102, 40, 40, 0, 0.5),   # 重叠 → 被抑制
+        (100, 100, 40, 40, PAPER, 0.9),
+        (102, 102, 40, 40, PAPER, 0.5),   # 重叠 → 被抑制
     ])
     dets = hbbpp.postprocess(raw, orig_w=1280, orig_h=1280)
     assert len(dets) == 1
@@ -89,59 +104,72 @@ def test_nms_same_class_suppresses():
 def test_nms_different_class_both_kept():
     """不同类重叠框都保留（C++ 按类别分别 NMS）。"""
     raw = _raw_one([
-        (100, 100, 40, 40, 0, 0.9),
-        (100, 100, 40, 40, 6, 0.8),
+        (100, 100, 40, 40, PAPER, 0.9),
+        (100, 100, 40, 40, OBSTACLE, 0.8),
     ])
     dets = hbbpp.postprocess(raw, orig_w=1280, orig_h=1280)
     classes = sorted(d.cls for d in dets)
-    assert classes == [0, 6]
+    assert classes == [PAPER, OBSTACLE]
 
 
-def test_mine_edge_filter_removes_edge():
-    """mine 中心距左边缘 0.5% < 1% → 剔除。"""
+def test_paper_edge_filter_removes_edge():
+    """paper 中心距左边缘 0.4% < 0.5% → 剔除（C++ kEdgePaperThr=0.005）。"""
     raw = _raw_one([
-        (6, 640, 12, 12, 0, 0.9),    # cx=6px on 1280 wide = 0.47% → 边缘
-        (640, 640, 20, 20, 0, 0.9),  # 中心 → 保留
+        (5, 640, 10, 10, PAPER, 0.9),    # cx=5px on 1280 wide ≈ 0.39% → 边缘
+        (640, 640, 20, 20, PAPER, 0.9),  # 中心 → 保留
     ])
-    dets = hbbpp.postprocess(raw, orig_w=1280, orig_h=1280, edge_mine_thr=0.01)
+    dets = hbbpp.postprocess(raw, orig_w=1280, orig_h=1280, edge_paper_thr=0.005)
     assert len(dets) == 1
     assert dets[0].cx == pytest.approx(640)
 
 
-def test_mine_edge_filter_disabled():
-    """edge_mine_thr=0 → 不过滤。"""
+def test_paper_edge_filter_disabled():
+    """edge_paper_thr=0 → 不过滤。"""
     raw = _raw_one([
-        (6, 640, 12, 12, 0, 0.9),
+        (5, 640, 10, 10, PAPER, 0.9),
     ])
-    dets = hbbpp.postprocess(raw, orig_w=1280, orig_h=1280, edge_mine_thr=0.0)
+    dets = hbbpp.postprocess(raw, orig_w=1280, orig_h=1280, edge_paper_thr=0.0)
     assert len(dets) == 1
 
 
-def test_edge_filter_only_affects_mine():
-    """obstacle 在边缘不受 mine 边缘过滤影响。"""
+def test_edge_filter_only_affects_paper():
+    """obstacle 在边缘不受 paper 边缘过滤影响。"""
     raw = _raw_one([
-        (6, 640, 30, 30, 6, 0.9),    # obstacle 边缘 → 保留
+        (5, 640, 30, 30, OBSTACLE, 0.9),    # obstacle 边缘 → 保留
     ])
-    dets = hbbpp.postprocess(raw, orig_w=1280, orig_h=1280, edge_mine_thr=0.01)
+    dets = hbbpp.postprocess(raw, orig_w=1280, orig_h=1280, edge_paper_thr=0.005)
     assert len(dets) == 1
-    assert dets[0].cls == 6
+    assert dets[0].cls == OBSTACLE
 
 
 def test_default_thresholds_equal_legacy():
-    """默认 conf=0.25 nms=0.45 edge=0.01 与旧版单一阈值行为一致（仅多了边缘过滤）。"""
+    """默认 conf=0.25 nms=0.45 edge=0.005 与 C++ 部署默认值一致。"""
     raw = _raw_one([
-        (100, 100, 20, 20, 0, 0.26),   # > 0.25 保留
-        (200, 200, 20, 20, 0, 0.24),   # < 0.25 过滤
+        (100, 100, 20, 20, PAPER, 0.26),   # > 0.25 保留
+        (200, 200, 20, 20, PAPER, 0.24),   # < 0.25 过滤
     ])
     dets = hbbpp.postprocess(raw, orig_w=1280, orig_h=1280)
     assert len(dets) == 1
     assert dets[0].score == pytest.approx(0.26)
 
 
+def test_deploy_conf_matches_main_cpp():
+    """DEPLOY_CONF 与 main.cpp kDeployConf 逐项一致（13 类）。"""
+    assert hbbpp.DEPLOY_CONF == (0.25, 0.50, 0.25, 0.25, 0.25, 0.40, 0.40,
+                                 0.40, 0.40, 0.25, 0.25, 0.25, 0.25)
+
+
 def test_empty_output():
-    raw = np.zeros((1, 11, 33600), dtype=np.float32)
+    raw = np.zeros((1, 17, 33600), dtype=np.float32)
     dets = hbbpp.postprocess(raw, orig_w=1280, orig_h=1280)
     assert dets == []
+
+
+def test_rejects_legacy_7cls_channels():
+    """11 通道（旧 7cls 模型输出）必须拒绝——通道数不符即 ValueError。"""
+    raw = np.zeros((1, 11, 33600), dtype=np.float32)
+    with pytest.raises(ValueError):
+        hbbpp.postprocess(raw, orig_w=1280, orig_h=1280)
 
 
 def test_rejects_bad_channels():

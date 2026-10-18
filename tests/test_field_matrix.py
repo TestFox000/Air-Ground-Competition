@@ -139,6 +139,30 @@ def test_paper_symbol_split_by_k_column():
     assert grid[5][5] == "O"
 
 
+def test_build_grid_obstacle_beats_paper_same_cell():
+    """单帧同格冲突裁决与融合路径统一：障碍优先（安全方向）。
+
+    2026-10-18 前单帧 build_grid 按 _PRIORITY 是 PAPER(0) 压 OBSTACLE(1)，
+    与融合路径的平票障碍优先相反——同格既有雷又有障碍时会把障碍盖成雷，
+    规划可能直接压过去。两种到达顺序都必须留 O。
+    """
+    from ag_integrate.field_matrix import spots_from_frame
+    for first, second in ((ObjectType.PAPER, ObjectType.OBSTACLE),
+                          (ObjectType.OBSTACLE, ObjectType.PAPER)):
+        frame = _frame(1, _obj(first, "D4"), _obj(second, "D4"))
+        grid = build_grid(spots_from_frame(frame))
+        assert grid[3][3] == "O"
+
+
+def test_build_grid_obstacle_beats_k_column_arrow():
+    """K 列桥洞格：箭头(A)同样不许覆盖障碍（A 是可通行语义，覆盖更危险）。"""
+    from ag_integrate.field_matrix import spots_from_frame
+    frame = _frame(1, _obj(ObjectType.PAPER, "K5"),
+                   _obj(ObjectType.OBSTACLE, "K5"))
+    grid = build_grid(spots_from_frame(frame))
+    assert grid[4][10] == "O"
+
+
 def test_out_of_bounds_spot_not_fused_but_reported():
     """出界目标不落格、不参与融合，但保留最近坐标供明细展示。"""
     fusion = MatrixFusion(window=5, confirm=2)

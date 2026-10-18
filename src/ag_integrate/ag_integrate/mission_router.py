@@ -61,7 +61,7 @@ _ALL_HEADINGS = tuple(range(8))
 _MID_BOUNDARY = 6  # 唯一默认值来源：row5(第6行) ↔ row6(第7行) 之间
 
 # 横向挡板覆盖 D(3)~N(13) 列，A、B、C 列无挡板可自由穿越。
-# 桥洞列由 passable（ARROW）动态确定，每局随机。
+# 桥洞列由 passable（K 列 PAPER 落格判=通行箭头）动态确定，每局随机。
 _BARRIER_COLS: frozenset[int] = frozenset(range(3, COLS))  # D..N
 
 # ---- 静态几何表（模块级一次性构建）：整数编码 (格, 航向) 状态空间 ----
@@ -1108,7 +1108,7 @@ def plan_route(
 
     cross_penalty = crossing_penalty  # 内部链路简称（对外参数 crossing_penalty）
 
-    # 桥洞列推导：passable（ARROW）所在列即桥洞列。
+    # 桥洞列推导：passable（K 列 PAPER 落格判=通行箭头）所在列即桥洞列。
     # 桥洞列物理上每格都有缺口，但规则上只有带箭头的格子允许通过，
     # 其余格视为墙。箭头位置每场随机。多个箭头之间不默认连通。
     # bridge_cols / passable_cells 已在占用过滤处算好（门被占用时桥列不变）。

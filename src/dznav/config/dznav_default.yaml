@@ -5,6 +5,14 @@
 # 注意：本文件里的未知键会被忽略但**会打 warn 日志**，改键名请看车端日志。
 
 # ---- 舵机-曲率模型 ----
+# ★servo_mode 与实车的关系（2026-10-18 评审 M6）：默认 ideal 不是"实车就是
+#   对称舵机"，而是 SIL 全链路（tests/sim_car.py ChassisSim）按理想对称模型
+#   标定，仿真必须同源。实车舵机左右不对称是实测结论（fxxy 档案：左满舵
+#   R≈0.15m / 右满舵 R≈0.44m，见 servo.py 档首）。上实车前请切：
+#     servo_mode: fxxy      # 保守备选（发学员实测分段线性档案）
+#     servo_mode: custom    # tools/dznav_calib.py 现场标定产物（推荐）
+#   切档案属控制律变更，需重跑 tests/test_sim_tracking_dznav.py 的
+#   fxxy S 弯回归 + 实车低速验证后再投入比赛。
 servo_mode: ideal          # ideal | fxxy | custom（tools 现场标定后换 custom）
 servo_limit_deg: 30.0      # 控制层打角上限（物理 35°）
 wheelbase: 0.157           # m，现役标定
@@ -16,8 +24,11 @@ a_lat_max: 0.22            # m/s² 侧向加速度预算（弯道限速 v=sqrt(a
 
 # ---- 任务 ----
 nav_timeout: 180.0         # s 单路线硬超时（比赛总预算）
-shoot_target: 10           # 每停站发弹数
-shoot_timeout: 150.0       # s 停站等弹超时
+shoot_target: 3            # 每停站发弹数（对齐现役 SHOOT_COUNT_TARGET=3）。
+                           #   预算约束：停站数 × shoot_target ≤ 弹药总量（全场 10 发）；
+                           #   旧值 10 抄自 legacy 过期 docstring，第二站起必然干等超时
+shoot_timeout: 20.0        # s 停站等弹超时（对齐现役 SHOOT_TIMEOUT=20.0：
+                           #   超时降级放行，宁可漏打不可卡死路线）
 blend_anchor: 0.5          # 途经点位置锚增益
 blend_th: 0.25             # 途经点航向锚增益（小于位置增益：防跟踪滞后污染）
 anchor_delay_m: 0.35       # 出弯后再锚（跟踪收敛区，测量干净）
@@ -28,7 +39,10 @@ builtin_route: ""          # 自动发车路线串（如 "N10 M9 L8 ... ,y"）
 
 # ---- 参考路径 ----
 dev_cap: 0.08              # m 普通弯对顶点偏差预算（< 17.5cm 失格线）
-dev_cap_critical: 0.03     # m 关键途经点（雷格）偏差预算
+dev_cap_critical: 0.03     # m 关键途经点（雷格）偏差预算。
+                           #   注意：雷格收紧当前未接线——/nav/waypoint 语法无雷格
+                           #   标记，生成的 Waypoint 一律 critical=False（详见
+                           #   refpath.py Waypoint.critical 注释）；此键暂仅单测覆盖
 arc_fallback_deg: 125.0    # 超此转角回落 ARC 机动（更大转角的 fillet 切角会逼近失格线）
 
 # ---- 安全（2026-10-17 评审整改新增）----

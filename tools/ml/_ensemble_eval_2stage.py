@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# ⚠️ 留档脚本：7cls/旧线，2026-10-16 起已切换 D13 十三类统一模型（hbb_d13_best.pt），仅供追溯，勿用于现役训练/评估 ⚠️
 """2stage 集成检测评估：combined(obstacle+arrow+其他) + final_v2(mine w/ mine_cls_v5)。
 
 策略（服务 M0-3 省赛95%硬指标）：

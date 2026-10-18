@@ -7,12 +7,13 @@ serial_reader + path_executor 组合（契约兼容，可一键切换/回滚）�
   订阅 /odom          dzactuator 原始里程（只取步长距离）
   订阅 /imu_data      IMU 航向
   订阅 /shoot_count   累计弹数
+  订阅 /estop         外部急停（默认 QoS；True 闩锁 / False 解除，软件自持）
   发布 /odom/localization  信念位姿（格；yaw+π/2=地图航向）
   发布 pursuitAngle         linear.x=m/s，angular.z=舵机角(度)，BEST_EFFORT
   发布 /move_base/stop_signal  1=放行云台瞄准射击
 
 行为差异（结构更优，均向后兼容）：
-1. 待命静默：无路线时不发 pursuitAngle（不像 legacy 一启动就 20Hz 保活
+1. 待命静默：无路线时不发 pursuitAngle（不像 legacy 一启动就 50Hz 保活
    把 dzactuator 钉死模式2）—— 朝向对齐（align）可在 dznav 启动后任意
    时刻进行，两阶段启动不再是硬约束；配置 keepalive_idle=true 可还原
    legacy 行为。
@@ -44,8 +45,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import (QoSProfile, ReliabilityPolicy, DurabilityPolicy,
-                       HistoryPolicy)
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
@@ -63,11 +63,11 @@ from .refpath import (ReferencePath, Waypoint, build_reference, PathOptions)
 from .servo import ServoModel
 
 CMD_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
-#: 急停用 TRANSIENT_LOCAL：晚启动的节点也能立刻收到已闩锁的急停状态。
-ESTOP_QOS = QoSProfile(depth=1,
-                       reliability=ReliabilityPolicy.RELIABLE,
-                       durability=DurabilityPolicy.TRANSIENT_LOCAL,
-                       history=HistoryPolicy.KEEP_LAST)
+# 注：/estop 曾用 TRANSIENT_LOCAL 订阅，但任何默认 VOLATILE 发布者
+# （ros2 topic pub、上位机脚本）与它 durability 不兼容 = 零投递，急停
+# 端到端不成立（2026-10-18 评审 S3）。现订阅改默认 QoS，闩锁改由本节点
+# 软件层自持（_estop_cmd：收到 True 闩锁、收到 False 解除），不依赖
+# DDS 滞留重发，也就不需要 TRANSIENT_LOCAL。
 
 DEFAULTS = {
     # servo
@@ -80,8 +80,14 @@ DEFAULTS = {
     "a_lat_max": 0.22,
     # mission
     "nav_timeout": 180.0,
-    "shoot_target": 10,
-    "shoot_timeout": 150.0,
+    # shoot_target 是"每站"发数（对齐现役 path_executor SHOOT_COUNT_TARGET=3
+    # 与 robot.yaml 云台 max_shots_per_target 默认 3）。预算约束：
+    # 停站数 × shoot_target ≤ 弹药总量（全场 10 发）——旧值 10 抄自 legacy
+    # 过期 docstring，意味着第二站起永远干等超时。
+    "shoot_target": 3,
+    # 停站等弹超时（对齐现役 SHOOT_TIMEOUT=20.0：宁可漏打不可卡死路线；
+    # 旧值 150s 同为过期 docstring 产物）。
+    "shoot_timeout": 20.0,
     "blend_anchor": 0.5,       # 途经点位置锚增益
     "blend_th": 0.25,          # 途经点航向锚增益（小于位置：防跟踪滞后污染）
     "anchor_delay_m": 0.35,    # 出弯后再锚（跟踪收敛区，测量干净）
@@ -163,7 +169,9 @@ class DzNavNode(Node):
                                  self._cb_waypoint, 10)
         self.create_subscription(Int32, TOPIC_SHOOT_COUNT,
                                  self._cb_shoot, 10)
-        self.create_subscription(Bool, TOPIC_ESTOP, self._cb_estop, ESTOP_QOS)
+        # /estop 用默认 QoS（RELIABLE + VOLATILE，深度 10）：与任何默认
+        # 发布者兼容；TRANSIENT_LOCAL 只会让默认发布者的帧零投递。
+        self.create_subscription(Bool, TOPIC_ESTOP, self._cb_estop, 10)
         self.pub_loc = self.create_publisher(Odometry, TOPIC_ODOM_LOC, 10)
         self.pub_cmd = self.create_publisher(Twist, TOPIC_PURSUIT, CMD_QOS)
         self.pub_stop = self.create_publisher(UInt8, TOPIC_STOP_SIGNAL, 10)
@@ -194,15 +202,26 @@ class DzNavNode(Node):
         self._imu_last_arrival = None
         self._odom_last_stamp = None     # 消息头时间戳，仅用于乱序剔除
         self._imu_last_stamp = None
+        # seen 位语义 = "开机以来是否收到过至少一帧"的闩锁位，只用于路线
+        # 放行门禁（无定位输入不放行）；它**不代表新鲜度**——断流判定是
+        # 链路看门狗的 _X_last_arrival（link_timeout），两者别混用。
         self._imu_seen = False
         self._odom_seen = False
 
         self.create_timer(self._dt_nominal, self._control)
         self.create_timer(3.0, self._check_pubs)
 
+        # 自动发车是一次性动作：create_timer 全是周期定时器，无守卫会每
+        # auto_delay 秒重建 tracker 重发内置路线——行驶中急停重启、覆盖
+        # 上游 replan 路线、打断射击/ARC（2026-10-18 评审 S1）。 fired 守卫
+        # + 触发即 cancel，对照 reference/car_src_20261015/.../path_executor.py
+        # 的 _auto_started + timer.cancel() 范式。
+        self._auto_started = False
+        self._auto_timer = None
         auto = os.environ.get("DZ_AUTO_START", "0") == "1"
         if auto and cfg.get("builtin_route"):
-            self.create_timer(float(cfg["auto_delay"]), self._auto_mission)
+            self._auto_timer = self.create_timer(
+                float(cfg["auto_delay"]), self._auto_mission)
 
         self.get_logger().info(
             f"dznav 就绪 [待命] servo={cfg['servo_mode']} "
@@ -307,6 +326,12 @@ class DzNavNode(Node):
         x, y = block_to_meters(parts[0])
         th = HEADING_YAWS[parts[1].lower()]
         self._abort_route()
+        # 行驶中 reset 的盲滑窗口（2026-10-18 评审 S2）：转入待命静默后，
+        # dzactuator 要等 CMD_WATCHDOG_S=1.0s 无指令才强制停车——旧命令
+        # 会继续执行 ~1s（0.30m/s 下 ~30cm，图缘足够出格）。静默前先连发
+        # 3 帧零 Twist 把旧命令顶出看门狗窗口（BEST_EFFORT/depth=1 有丢包
+        # 可能，重发是廉价保险；与退出路径 _zero_and_stop 同一发法）。
+        _zero_and_stop(self)
         self.loc.reset(x, y, th)
         if self._estop_cmd:
             self.state = "ESTOP"
@@ -328,7 +353,11 @@ class DzNavNode(Node):
             + (f"，解除 {cleared} 急停闩锁" if cleared else ""))
 
     def _cmd_load(self, path: str):
-        wps = [Waypoint(*START_BLOCK, label="START")]
+        # 起点取当前信念位姿（米制，与 _cmd_route 一致）。旧代码用
+        # START_BLOCK——那是"格"单位，当米用会把起点错钉到 (1.5, 0.5)m
+        # （N10 格心应为 (0.525, 0.175)m），整段参考路径从错误位置生成。
+        x0, y0, _th0 = self.loc.pose
+        wps = [Waypoint(x0, y0, label="START")]
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -373,6 +402,11 @@ class DzNavNode(Node):
         self._start_route(wps, heading, data)
 
     def _start_route(self, wps, heading, label):
+        # 新路线 = 立即停止一切射击放行：路线中途换路线（replan/手动改单）
+        # 若不清 stop_signal，云台会以为仍在停站窗口继续开火（评审 M5）。
+        sig = UInt8()
+        sig.data = 0
+        self.pub_stop.publish(sig)
         # 放行前传感器门禁：没有 IMU 就没有航向，跟踪器的 e_th 是垃圾；
         # 没有里程就没有弧长，纯跟踪的 lookahead 也是垃圾。旧版直接放行，
         # 结果是"路线启动了、车按错误航向满舵跑"，现场极难归因。
@@ -386,6 +420,9 @@ class DzNavNode(Node):
             self.get_logger().error(
                 f"拒绝路线 {label}: 尚未收到 {missing}，无定位输入")
             return
+        # 替换旧路线前显式作废旧路线全部状态：旧代码直接覆盖 tracker，
+        # _pending_anchor/_final_arc 跨路线残留（评审 M1）。
+        self._abort_route()
         warns = []
         path = build_reference(wps, self.servo, self.popts,
                                warn=lambda m: warns.append(m))
@@ -403,9 +440,13 @@ class DzNavNode(Node):
         e0 = wrap_pi(th0 - th_now)
         if abs(e0) > math.radians(100.0):
             from .pursuit import _AlignCorner
+            ev: list[dict] = []
             self.tracker._enter_arc(_AlignCorner(1.0 if e0 > 0 else -1.0),
-                                    x0, y0, th_now, self._t, [],
+                                    x0, y0, th_now, self._t, ev,
                                     at_vertex=False, target_th=th0)
+            # 旧代码这里传字面量 []：arc_begin 事件被静默吞掉（评审 L5）。
+            for e in ev:
+                self._handle_event(e)
             self.get_logger().warning(
                 f"首段方向在身后({math.degrees(e0):+.0f}deg)，先对齐弧")
         self.get_logger().info(
@@ -416,8 +457,21 @@ class DzNavNode(Node):
     def _abort_route(self):
         self.tracker = None
         self._final_arc = None
+        # 出弯延迟锚点随路线作废：否则换路线后旧锚点会在新 tracker 的
+        # s_prog 越过旧 s_target 时触发，把信念拉向已废弃路径上的点。
+        self._pending_anchor = None
 
     def _auto_mission(self):
+        """自动发车（只执行一次）。fired 守卫在前（桩环境/句柄失效时
+        cancel 可能不可用），cancel 在后只是省回调的保险。"""
+        if self._auto_started:
+            return
+        self._auto_started = True
+        if self._auto_timer is not None:
+            try:
+                self._auto_timer.cancel()   # 一次性定时器，触发后立即取消
+            except Exception:  # noqa: BLE001 - 桩环境句柄可能为 None/无效
+                pass
         route = self.cfg.get("builtin_route", "")
         self.get_logger().warning(f"自动发车（DZ_AUTO_START=1）: {route}")
         msg = String()
@@ -484,8 +538,8 @@ class DzNavNode(Node):
         # ACTIVE
         if self.nav_start is not None and \
                 self._t - self.nav_start > self.cfg["nav_timeout"]:
-            self.get_logger().error("路线超时，强制收车")
-            self._finish()
+            self.get_logger().error("路线超时，强制收车（非到点，不放行射击）")
+            self._finish(fire=False)
             return
         if self.tracker is None:
             return
@@ -539,8 +593,18 @@ class DzNavNode(Node):
             self.pub_stop.publish(sig)
             self.get_logger().info(
                 f"射击停站 {w.label}: 等 {self.cfg['shoot_target']} 发")
+        elif ev == "shoot_skipped":
+            # 停站格被掠过（过点时偏差超触发半径）：宁可漏打不可卡死是
+            # 路线层原则，但"少打一个靶"必须在日志里可见（评审 M4）。
+            self.get_logger().error(
+                f"射击停站 {e.get('label') or e['idx']} 掠过未触发：过点时"
+                f"偏差 {e['d']:.2f}m 超触发半径 "
+                f"{self.tcfg.shoot_stop_radius:.2f}m —— 少打一个靶，"
+                "请查该段跟踪精度")
         elif ev == "arrived":
             self._on_arrived(e.get("d", 0.0))
+        elif ev == "arc_begin":
+            self.get_logger().info(f"ARC 机动开始（{e.get('mode')}）")
         elif ev == "arc_exit":
             self.loc.anchor(e["x"], e["y"], e["th"],
                             blend=self.cfg["blend_arc"],
@@ -574,15 +638,28 @@ class DzNavNode(Node):
         self._finish()
 
     def _final_arc_feasible(self) -> bool:
+        """终点朝向机动可行性探针：沿满舵弧包络采样，逐点查出场。
+
+        旧两点探针（出口点 + 侧向点）会放过"弧中段扫出图缘"的几何——
+        例：西图缘从 +y 转向 -x，出/入口都在 10cm 容差带内，弧中段
+        x≈-0.17m 已明显出图（评审 M7）。改为沿满舵弧（R = 1/κ_max(转向)，
+        ideal 档案 ≈0.272m）按目标转角均布 5 点采样，任一点出图（容差
+        0.10m，与旧出口点探针同量级）即判不可行。容差内（<10cm）的贴边
+        弧仍放行：终点对正朝向的收益大于贴边风险，0.60m 越界急停兜底。
+        """
         fw = self.tracker.path.waypoints[-1]
-        th = self.final_heading
-        ex = fw.x + 0.15 * math.cos(th)
-        ey = fw.y + 0.15 * math.sin(th)
-        err = wrap_pi(th - self.loc.th)
+        x0, y0, th0 = fw.x, fw.y, self.loc.th
+        err = wrap_pi(self.final_heading - th0)
         side = 1.0 if err > 0 else -1.0
-        mx = fw.x + 0.30 * side * (-math.sin(th))
-        my = fw.y + 0.30 * side * (math.cos(th))
-        return in_field(ex, ey, 0.10) and in_field(mx, my, 0.05)
+        radius = 1.0 / max(0.05, self.servo.kappa_max(side))
+        sweep = abs(err)
+        for j in range(1, 6):
+            a = th0 + side * sweep * j / 5.0
+            px = x0 + side * radius * (math.sin(a) - math.sin(th0))
+            py = y0 - side * radius * (math.cos(a) - math.cos(th0))
+            if not in_field(px, py, 0.10):
+                return False
+        return True
 
     def _final_arc_step(self):
         a = self._final_arc
@@ -613,16 +690,20 @@ class DzNavNode(Node):
             self.state = "ACTIVE"
             self.nav_start = self._t     # 停站不占路线预算
 
-    def _finish(self):
+    def _finish(self, fire: bool = True):
+        """收车。fire=True（正常到点）发 stop_signal=1 放行云台；
+        nav_timeout 强制收车传 False——超时点不一定是射击位，
+        放行等于让云台对空地开火（评审 M5）。"""
         self.state = "ARRIVED"
         self._publish(0.0, 0.0)
-        sig = UInt8()
-        sig.data = 1
-        self.pub_stop.publish(sig)
+        if fire:
+            sig = UInt8()
+            sig.data = 1
+            self.pub_stop.publish(sig)
         x, y, th = self.loc.pose
         self.get_logger().info(
             f"ARRIVED ({x:.2f},{y:.2f})m yaw={math.degrees(th):+.0f}deg "
-            f"stop_signal=1")
+            f"stop_signal={1 if fire else 0}")
 
     # ---- 工具 ----
     def _link_stale(self, now: float) -> str:
@@ -712,9 +793,10 @@ def _sigterm_handler(_signum, _frame):
     里的归零根本不会执行 —— 而 dznav_deploy.py:137,152 正是用 pkill
     （SIGTERM）收车的。抛 SystemExit 把控制权交回 finally。
 
-    注：dzactuator 自带 ACTIVITY_TIMEOUT=0.5s，pursuitAngle 断流 0.5s
-    会自行失活，所以这不是"车永不停"，而是"车还会带着最后一次的舵角
-    再跑 ~15cm，且 stop_signal 停留在 1（云台继续开火）"。
+    注：dzactuator 的最后防线是 CMD_WATCHDOG_S=1.0s（dzactuator.h：
+    超 1.0s 没有任何速度指令才强制停车），所以这不是"车永不停"，
+    而是"车还会带着最后一次的舵角盲滑 ~30cm（0.30m/s × 1.0s），
+    且 stop_signal 停留在 1（云台继续开火）"。
     """
     raise SystemExit(0)
 

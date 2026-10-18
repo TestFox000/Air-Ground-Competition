@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# ⚠️ 留档脚本：7cls/旧线，2026-10-16 起已切换 D13 十三类统一模型（hbb_d13_best.pt），仅供追溯，勿用于现役训练/评估 ⚠️
 """在 val-A (capture/datasets/aerial_field) 上评估 combined 模型，与 91.07% 基线公平对比。
 
 用法:

@@ -46,12 +46,21 @@ def read_password(args) -> str:
     return getpass.getpass(f"{args.user}@{args.host} 的密码: ")
 
 
-def run(host, user, pw, port, cmd, timeout=90):
+def run(host, user, pw, port, cmd, timeout=90, allow_nonzero=False):
+    """远程执行一条命令。
+
+    两种"失败"必须分开：
+      - SSH 连接异常（连不上/中途断）：重试 3 次后 SystemExit——这才叫"无响应"；
+      - 命令非零退出码：诊断命令的非零退出往往正是要诊断的症状
+        （`ros2 topic echo --once` 超时=124、`grep` 无匹配=1），调用方传
+        allow_nonzero=True 时本函数返回 (code, out) 由各检查项自判 FAIL——
+        否则"话题无输出"分支永远不可达（自杀式诊断）。
+    """
     for attempt in range(1, 4):
         try:
             code, out, err = remote_run.run(host, user, pw, cmd, timeout=timeout, port=port)
-            if code == 0:
-                return out
+            if code == 0 or allow_nonzero:
+                return (code, out) if allow_nonzero else out
         except Exception as e:  # noqa: BLE001
             print(f"[..] 连接重试（{attempt}/3）: {type(e).__name__}")
             time.sleep(5)
@@ -76,8 +85,10 @@ def main(argv=None) -> int:
     print("=" * 64)
     print("[1/5] 飞控状态（解锁拒绝原因 + pre-flight）")
     print("=" * 64)
-    st = run(host, user, pw, port,
-             f"{REMOTE_ENV} timeout 8 ros2 topic echo --once /fmu/out/vehicle_status 2>/dev/null")
+    # topic echo 超时（退出码 124）即"无输出"症状，放行给下方 if 自判 FAIL
+    _code, st = run(host, user, pw, port,
+                    f"{REMOTE_ENV} timeout 8 ros2 topic echo --once /fmu/out/vehicle_status 2>/dev/null",
+                    allow_nonzero=True)
     if "arming_state" in st:
         print(f"  arming_state          = {field(st, 'arming_state')}  (1=disarmed 2=armed)")
         print(f"  nav_state             = {field(st, 'nav_state')}  (14=position 15=altitude 17=stabilized...)")
@@ -94,15 +105,17 @@ def main(argv=None) -> int:
     print("=" * 64)
     print("[2/5] EKF 估计有效性（3s 采样两次）")
     print("=" * 64)
-    lp = run(host, user, pw, port,
-             f"{REMOTE_ENV} timeout 8 ros2 topic echo --once /fmu/out/vehicle_local_position 2>/dev/null")
+    _code, lp = run(host, user, pw, port,
+                    f"{REMOTE_ENV} timeout 8 ros2 topic echo --once /fmu/out/vehicle_local_position 2>/dev/null",
+                    allow_nonzero=True)
     if "z_valid" in lp:
         print(f"  第1帧: z={field(lp, 'z')}  z_valid={field(lp, 'z_valid')}  "
               f"xy_valid={field(lp, 'xy_valid')}  xy_reset={field(lp, 'xy_reset_counter')}  "
               f"z_reset={field(lp, 'z_reset_counter')}")
         time.sleep(1)
-        lp2 = run(host, user, pw, port,
-                  f"{REMOTE_ENV} timeout 8 ros2 topic echo --once /fmu/out/vehicle_local_position 2>/dev/null")
+        lp2_code, lp2 = run(host, user, pw, port,
+                            f"{REMOTE_ENV} timeout 8 ros2 topic echo --once /fmu/out/vehicle_local_position 2>/dev/null",
+                            allow_nonzero=True)
         print(f"  第2帧: z={field(lp2, 'z')}  xy_reset={field(lp2, 'xy_reset_counter')}")
         z1, z2 = field(lp, "z"), field(lp2, "z")
         try:
@@ -119,16 +132,18 @@ def main(argv=None) -> int:
     print("=" * 64)
     print("[3/5] 关键：出厂代码是否在喂 VIO？内容是否正常？")
     print("=" * 64)
-    info = run(host, user, pw, port,
-               f"{REMOTE_ENV} ros2 topic info /fmu/in/vehicle_visual_odometry 2>/dev/null | grep 'Publisher count'")
+    _code, info = run(host, user, pw, port,
+                      f"{REMOTE_ENV} ros2 topic info /fmu/in/vehicle_visual_odometry 2>/dev/null | grep 'Publisher count'",
+                      allow_nonzero=True)
     m = re.search(r"Publisher count:\s*(\d+)", info)
     n_pub = int(m.group(1)) if m else -1
     print(f"  VIO 发布者数: {n_pub}")
     if n_pub == 0:
         print("  -> 无人发 VIO。若飞控 EV 融合开着：EKF 等视觉超时后回退，属'断粮'（相对安全）")
     elif n_pub >= 1:
-        vio = run(host, user, pw, port,
-                  f"{REMOTE_ENV} timeout 8 ros2 topic echo --once /fmu/in/vehicle_visual_odometry 2>/dev/null")
+        _code, vio = run(host, user, pw, port,
+                         f"{REMOTE_ENV} timeout 8 ros2 topic echo --once /fmu/in/vehicle_visual_odometry 2>/dev/null",
+                         allow_nonzero=True)
         pos = re.search(r"position:\s*\[([^\]]+)\]", vio)
         q = re.search(r"q:\s*\[([^\]]+)\]", vio)
         rc = field(vio, "reset_counter")
@@ -145,8 +160,9 @@ def main(argv=None) -> int:
     print("=" * 64)
     print("[4/5] 气压计原始高度（若话题已暴露）")
     print("=" * 64)
-    air = run(host, user, pw, port,
-              f"{REMOTE_ENV} timeout 8 ros2 topic echo --once /fmu/out/vehicle_air_data 2>/dev/null")
+    _code, air = run(host, user, pw, port,
+                     f"{REMOTE_ENV} timeout 8 ros2 topic echo --once /fmu/out/vehicle_air_data 2>/dev/null",
+                     allow_nonzero=True)
     if "baro_altitude" in air or "pressure" in air:
         print(f"  baro_altitude = {field(air, 'baro_altitude')}  "
               f"temperature = {field(air, 'temperature')}")

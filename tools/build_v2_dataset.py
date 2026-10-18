@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# ⚠️⚠️ 留档脚本：2026-10-16 起已切换 D 方案 13 类统一模型（hbb_d13_best.pt），
+# 本脚本构建的 10 类 aerial_field_v2 数据集仅供留档追溯，勿用于训练现役模型 ⚠️⚠️
 """构建 aerial_field_v2 数据集：去 bridge 类（11→10 类）+ 并入地面采集新批次。
 
 类别映射（旧 11 类 -> 新 10 类）：
@@ -12,6 +14,9 @@
             block 划分：帧号>=245 进 val，其余进 train；test 保持纯航拍）
 
 输出 capture/datasets/aerial_field_v2/{images,labels}/{train,val,test} + data.yaml（path: . 相对路径，AutoDL 可用）
+
+构建安全性：先完整建到同级临时目录（aerial_field_v2.tmp_build），全部成功后
+一次性替换正式目录——中途异常只留临时目录残骸，不会在正式路径留"半个数据集"。
 """
 from __future__ import annotations
 
@@ -43,8 +48,22 @@ def remap_line(line: str) -> str | None:
 
 
 def main() -> None:
+    # 先建临时目录再原子替换：中途异常只留 tmp 残骸，正式路径不留空数据集
+    tmp = DST.with_name(DST.name + ".tmp_build")
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    try:
+        _build_into(tmp)
+    except BaseException:
+        print(f"构建中断，临时目录保留在 {tmp}（{DST} 未被动过）")
+        raise
     if DST.exists():
         shutil.rmtree(DST)
+    tmp.rename(DST)   # 同分区 rename，原子
+    print(f"数据集已就位: {DST}")
+
+
+def _build_into(DST: Path) -> None:
     for s in ("train", "val", "test"):
         (DST / "images" / s).mkdir(parents=True)
         (DST / "labels" / s).mkdir(parents=True)

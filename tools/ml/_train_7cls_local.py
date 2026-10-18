@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# ⚠️ 留档脚本：7cls/旧线，2026-10-16 起已切换 D13 十三类统一模型（hbb_d13_best.pt），仅供追溯，勿用于现役训练/评估 ⚠️
 """本地 7cls 训练（RTX 4060 8GB）。
 数据 = aerial_field_7cls_supplemented（car=82，各数据集中最多）。
 预训练 = aerial_field_finetuned_v2/best.pt（航拍域骨干，nc=11→7 自动重建 cls 头）。

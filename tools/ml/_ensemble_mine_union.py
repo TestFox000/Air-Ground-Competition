@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# ⚠️ 留档脚本：7cls/旧线，2026-10-16 起已切换 D13 十三类统一模型（hbb_d13_best.pt），仅供追溯，勿用于现役训练/评估 ⚠️
 """mine 联合集成：distill + combined 双模型 mine 预测取并集(最大化召回)，
 经 IoU 去重 + 边缘过滤 + mine_cls_v5 二次确认。
 obstacle/arrow/cell_label/target_red/target_blue 取自 combined。

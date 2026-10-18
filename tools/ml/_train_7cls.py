@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# ⚠️ 留档脚本：7cls/旧线，2026-10-16 起已切换 D13 十三类统一模型（hbb_d13_best.pt），仅供追溯，勿用于现役训练/评估 ⚠️
 """蒸馏 7 类模型训练：官方 7 类本体（与 C++ className 契约一致）。
 数据 = 航拍人工真值(mine/cell_label/arrow/bucket→obstacle) + 厂家伪标注(car/target_red/obstacle) + 官方74精确雷。
 从 v2 best.pt 起训（骨干已航拍域适配，nc=11→7 时 ultralytics 自动重建 cls 头、迁移骨干+box 头；

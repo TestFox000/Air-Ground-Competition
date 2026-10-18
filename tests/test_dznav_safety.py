@@ -28,7 +28,7 @@ from std_msgs.msg import Bool, Int32, String, UInt8
 from dznav.contract import (FIELD_X_MAX, OOB_MARGIN, TOPIC_ESTOP, TOPIC_IMU,
                             TOPIC_ODOM_RAW, TOPIC_PURSUIT, TOPIC_SHOOT_COUNT,
                             TOPIC_STOP_SIGNAL, TOPIC_WAYPOINT)
-from dznav.executor_node import (DEFAULTS, DzNavNode, ESTOP_QOS, _deep_update,
+from dznav.executor_node import (DEFAULTS, DzNavNode, _deep_update,
                                  _sigterm_handler, _zero_and_stop)
 
 NAN = float("nan")
@@ -255,13 +255,54 @@ def test_estop_topic_blocks_new_route():
     assert node.tracker is None
 
 
-def test_estop_subscribed_with_transient_local_qos():
-    """TRANSIENT_LOCAL：晚启动的节点也要立刻收到已闩锁的急停。"""
+def test_estop_subscription_uses_default_volatile_qos():
+    """S3：/estop 订阅必须是默认 QoS（VOLATILE durability）。
+
+    旧代码用 TRANSIENT_LOCAL 订阅：与任何默认 VOLATILE 发布者
+    （ros2 topic pub /estop、上位机脚本）durability 不兼容 = 零投递，
+    急停端到端不成立。闩锁由 dznav 软件层自持（_estop_cmd，见上面两条
+    闩锁测试），不依赖 DDS 滞留，订阅侧因此不需要也不许再用
+    TRANSIENT_LOCAL。
+    """
     node = DzNavNode()
     sub = node.sub_for(TOPIC_ESTOP)
-    assert sub.qos is ESTOP_QOS
-    assert getattr(ESTOP_QOS, "durability", None) is not None, \
-        "急停订阅必须声明 durability，否则 late-join 收不到闩锁状态"
+    # 传 int 深度 = rclpy 默认 QoS（RELIABLE + VOLATILE + KEEP_LAST）。
+    # 桩下 QoSProfile 是 auto-vivify 替身，getattr 探 durability 恒真，
+    # 所以这里认"int 深度"这一可判据形态，不认对象属性。
+    assert isinstance(sub.qos, int), \
+        "急停订阅应传默认深度（如 10），不得再构造 TRANSIENT_LOCAL QoSProfile"
+
+
+def test_estop_volatile_subscription_receives_default_publisher_real_dds():
+    """真实 QoS 语义端到端：默认 VOLATILE 发布者的 /estop 必须送达。
+
+    桩环境没有 DDS 传输语义，这条在桩下 skip 而不是假装通过——
+    S3 的失效（TRANSIENT_LOCAL 订阅收不到 VOLATILE 发布者）只有在
+    真 DDS 下才能证伪/证真。
+    """
+    rclpy = pytest.importorskip("rclpy")
+    if getattr(rclpy, "__file__", None) is None:
+        pytest.skip("桩 rclpy 无 DDS 传输语义，不假装通过")
+    import time as _time
+
+    rclpy.init(args=None)
+    node = DzNavNode()
+    pub_node = rclpy.create_node("estop_test_pub")
+    pub = pub_node.create_publisher(Bool, TOPIC_ESTOP, 10)  # 默认 VOLATILE
+    try:
+        deadline = _time.monotonic() + 5.0
+        while _time.monotonic() < deadline and not node._estop_cmd:
+            pub.publish(Bool(data=True))
+            rclpy.spin_once(node, timeout_sec=0.1)
+        assert node._estop_cmd, "默认 QoS 发布者的 /estop=True 必须送达并闩锁"
+        while _time.monotonic() < deadline and node._estop_cmd:
+            pub.publish(Bool(data=False))
+            rclpy.spin_once(node, timeout_sec=0.1)
+        assert not node._estop_cmd, "/estop=False 必须解除闩锁"
+    finally:
+        node.destroy_node()
+        pub_node.destroy_node()
+        rclpy.shutdown()
 
 
 def test_reset_clears_link_latch():
@@ -464,3 +505,169 @@ def test_localization_belief_published_every_tick():
     node._control()
     node._control()
     assert len(node.publishers["/odom/localization"].sent) == 2
+
+
+# =============================================================== 2026-10-18 评审整改回归
+def test_auto_mission_fires_once_and_ignores_retrigger(monkeypatch):
+    """S1 回归：自动发车只触发一次（起栈 20s 内周期定时器重触发不得重发）。
+
+    旧代码 create_timer(auto_delay, _auto_mission) 是无守卫周期定时器：
+    DZ_AUTO_START=1 时每 8s 重建 tracker 重发内置路线——行驶中急停重启、
+    覆盖上游 replan 路线、打断射击/ARC。
+    """
+    monkeypatch.setenv("DZ_AUTO_START", "1")
+    node = DzNavNode(overrides={"builtin_route": "M9,y", "auto_delay": 8.0})
+    _feed(node)
+    node.inject(TOPIC_WAYPOINT, String(data="reset:N10,y"))
+    node._auto_mission()                  # t=8s 第一次触发：发车
+    assert node.state == "ACTIVE"
+    # 上游 replan 改路线（比赛中的动态重规划），随后定时器第 2、3 次触发
+    node.inject(TOPIC_WAYPOINT, String(data="M8,y"))
+    tracker_after_replan = node.tracker
+    assert tracker_after_replan is not None
+    node._auto_mission()                  # t=16s
+    node._auto_mission()                  # t=24s
+    assert node.tracker is tracker_after_replan, \
+        "自动发车重发会重建 tracker、覆盖 replan 后的路线"
+    assert len(node.get_logger().text("warning", "自动发车")) == 1
+
+
+def test_reset_during_motion_publishes_zero_frames():
+    """S2 回归：行驶中 reset → 静默前连发零 Twist，下一拍命令即 0。
+
+    转入待命静默后，dzactuator 要等 CMD_WATCHDOG_S=1.0s 无指令才强制
+    停车，旧命令会继续执行 ~1s（0.30m/s 下 ~30cm 盲滑，图缘足够出格）。
+    reset 必须主动把零命令顶进看门狗窗口。
+    """
+    node = DzNavNode()
+    _armed(node)
+    node._control()
+    v, s = _cmd(node)
+    assert v != 0.0 or s != 0.0, "前置：车确实在动"
+    pub = node.publishers[TOPIC_PURSUIT]
+    pub.clear()
+    node.inject(TOPIC_WAYPOINT, String(data="reset:N10,y"))
+    assert node.state == "STANDBY"
+    assert len(pub.sent) >= 3, "BEST_EFFORT/depth=1 有丢包可能，须重发"
+    assert all(m.linear.x == 0.0 and m.angular.z == 0.0 for m in pub.sent)
+    # 下一拍（STANDBY 静默）不再发非零命令：执行器看到的最后命令是 0
+    node._control()
+    assert pub.last.linear.x == 0.0 and pub.last.angular.z == 0.0
+    assert node.publishers[TOPIC_STOP_SIGNAL].last.data == 0
+
+
+def test_pending_anchor_dropped_on_route_switch():
+    """M1 回归：换路线必须作废旧路线的出弯延迟锚点。
+
+    旧代码 _start_route 直接覆盖 tracker，_pending_anchor 跨路线残留：
+    新 tracker 的 s_prog 越过旧 s_target 时，信念被拉向已废弃路径上的点。
+    """
+    node = DzNavNode()
+    _armed(node, "M9,y")
+    node._pending_anchor = 0.0            # 旧路线遗留锚点（下一拍即触发）
+    node.inject(TOPIC_WAYPOINT, String(data="M8,y"))
+    assert node._pending_anchor is None, "换路线必须丢弃旧锚点"
+    anchored = []
+    orig_anchor = node.loc.anchor
+    node.loc.anchor = lambda *a, **k: (anchored.append(a),
+                                       orig_anchor(*a, **k))[1]
+    for _ in range(10):
+        _feed(node)
+        node._control()
+    assert not anchored, "旧锚点不得在新路线上作祟"
+
+
+def test_load_route_starts_from_belief_pose(tmp_path):
+    """M2 回归：load: 起点必须是当前信念位姿（米制）。
+
+    旧代码用 START_BLOCK（格单位）当米用，起点被错钉到 (1.5, 0.5)m
+    而非信念位置——整段参考路径从错误位置生成。
+    """
+    node = DzNavNode()
+    _feed(node)
+    node.inject(TOPIC_WAYPOINT, String(data="reset:K5,x"))   # 信念不在 N10
+    p = tmp_path / "route.txt"
+    p.write_text("1.0,1.0,0\n2.0,2.0,0\n", encoding="utf-8")
+    node.inject(TOPIC_WAYPOINT, String(data=f"load:{p}"))
+    assert node.tracker is not None
+    sx, sy, _ = node.loc.pose
+    w0 = node.tracker.path.waypoints[0]
+    assert (w0.x, w0.y) == pytest.approx((sx, sy), abs=1e-9)
+
+
+def test_shoot_skip_event_logs_error_with_block_and_deviation():
+    """M4：射击停站掠过必须 error 级可见（含格号与偏差）。"""
+    node = DzNavNode()
+    _armed(node)
+    node._handle_event({"ev": "shoot_skipped", "idx": 1,
+                        "label": "E9", "d": 0.21})
+    msgs = node.get_logger().text("error", "掠过未触发")
+    assert msgs and "E9" in msgs[0] and "0.21" in msgs[0]
+
+
+def test_new_route_revokes_stop_signal():
+    """M5：新路线开头必须收回云台放行位。
+
+    路线中途换路线（replan/手动改单）时若不清 stop_signal，云台会以为
+    仍在停站窗口，对着行进中的车继续开火。
+    """
+    node = DzNavNode()
+    _feed(node)
+    node.publishers[TOPIC_STOP_SIGNAL].sent.append(UInt8(data=1))  # 残留放行位
+    node.inject(TOPIC_WAYPOINT, String(data="M9,y"))
+    assert node.state == "ACTIVE"
+    assert node.publishers[TOPIC_STOP_SIGNAL].last.data == 0
+
+
+def test_nav_timeout_finish_does_not_release_gimbal():
+    """M5：nav_timeout 强制收车不是到点，不得发 stop_signal=1。
+
+    超时点不一定是射击位，放行等于让云台对空地开火。
+    """
+    node = DzNavNode()
+    _armed(node)
+    node.nav_start = node._t - DEFAULTS["nav_timeout"] - 1.0
+    _feed(node)                           # 喂饱链路看门狗，隔离变量
+    node._control()
+    assert node.state == "ARRIVED"
+    sigs = [m.data for m in node.publishers[TOPIC_STOP_SIGNAL].sent]
+    assert 1 not in sigs, "超时收车放行云台 = 对空地开火"
+
+
+def test_final_arc_probe_samples_arc_envelope():
+    """M7 回归：终点朝向机动探针必须查弧包络中段，不只看出/入口两点。
+
+    判别场景：西图缘 (0.10, 1.0)m 从 +y 转向 -x——出/入口都在 10cm
+    容差带内（旧两点探针判可行），但满舵弧中段 x≈-0.17m 明显出图，
+    新探针必须判不可行；同起点转向 +x（弧扫向图内）必须判可行。
+    """
+    node = DzNavNode()
+    _armed(node, "M11 N11,x")
+    # 把终点机动探针摆到西图缘（直接改末途经点 + 重锚信念位姿）
+    node.tracker.path.waypoints[-1].x = 0.10
+    node.tracker.path.waypoints[-1].y = 1.0
+    node.final_heading = math.pi                   # 目标 -x（朝图外）
+    node.loc.reset(0.10, 1.0, math.pi / 2)         # 当前朝 +y
+    assert not node._final_arc_feasible(), "弧中段出图 17cm 必须判不可行"
+    node.final_heading = 0.0                       # 目标 +x（弧扫向图内）
+    assert node._final_arc_feasible()
+    # 边界钉死：主证明场景 N11,x（-y→+x）弧中段 y≈-0.097m，在 10cm 贴边
+    # 容差内必须放行——该场景靠终点机动把终点误差收进 0.35m
+    node2 = DzNavNode()
+    _armed(node2, "M11 N11,x")
+    node2.final_heading = 0.0
+    node2.loc.reset(0.175, 0.175, -math.pi / 2)
+    assert node2._final_arc_feasible(), "N11,x 贴边弧（9.7cm）不得误伤"
+
+
+def test_shoot_budget_matches_field_tuning():
+    """S4：射击参数对齐现役调参（3 发/20s）。
+
+    旧值 10 发/150s 抄自 legacy 过期 docstring：全场只有 10 发弹，
+    每站等 10 发意味着第二站起永远干等到超时；150s 超时违背现役
+    SHOOT_TIMEOUT=20s 的"宁可漏打不可卡死"原则。
+    """
+    assert DEFAULTS["shoot_target"] == 3
+    assert DEFAULTS["shoot_timeout"] == pytest.approx(20.0)
+    # 预算约束：每站发数 × 停站数 ≤ 弹药总量（全场 10 发）
+    assert DEFAULTS["shoot_target"] * 3 <= 10

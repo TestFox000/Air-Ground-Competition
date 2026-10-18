@@ -8,11 +8,12 @@
 完全对应 reference/onboard/dzuav/src/UdpBroadcaster.cpp）。
 
 用法：
-    # 默认场景：1 个雷 + 1 个蓝靶（满足 min_mines=1, require_face=True 门控）
+    # 默认场景：1 个雷（B3 普通格 paper，落格判语义=雷）+ 1 个蓝靶
+    # （满足 min_mines=1, require_face=True 门控）
     tools/fake_udp_sender.py
 
     # 自定义场景，用格号:类别 列表
-    tools/fake_udp_sender.py --scenario "B3:mine,D5:obstacle,H7:target_blue"
+    tools/fake_udp_sender.py --scenario "B3:paper,D5:obstacle,H7:target_blue"
 
     # 单发后退出（集成测试用）
     tools/fake_udp_sender.py --once
@@ -20,7 +21,11 @@
     # 改端口/频率
     tools/fake_udp_sender.py --port 50000 --rate 10
 
-类别名（对应 ObjectType）：mine car arrow target_red cell_label target_blue obstacle
+类别名（对应 ObjectType，2026-10-16 起 D13 十三类）：
+    paper cell_label car target_red target_blue obstacle
+    bucket_red bucket_green bucket_cyan car_start car_end uav_start uav_end
+注意：paper 语义由车端 world_model 按落格判定——普通格=雷，K 列桥洞区=通行箭头；
+旧类别名 mine/arrow 已删除，直接写会报"未知类别"。
 """
 from __future__ import annotations
 
@@ -41,7 +46,9 @@ from ag_integrate.intel_protocol import (  # noqa: E402
     build,
 )
 
-DEFAULT_SCENARIO = "B3:mine,H7:target_blue"
+# 默认场景：B3 普通格 paper（落格判=雷）+ H7 蓝靶。
+# D13 后 "mine" 已非法（枚举删除），旧默认 B3:mine 会在 parse_scenario 直接崩。
+DEFAULT_SCENARIO = "B3:paper,H7:target_blue"
 
 
 def parse_scenario(text: str) -> list[IntelObject]:

@@ -83,7 +83,9 @@ def probe(host, user, pw, port):
     out = run(host, user, pw, port, "pgrep -xc MicroXRCEAgent 2>/dev/null || echo 0")
     if out is None:
         return PROBE_FAIL, {"error": "SSH 不通"}
-    d["agent_procs"] = int(out.strip().splitlines()[-1] or 0)
+    # 远端命令异常时 out 可能是空串：splitlines() 为空列表，[-1] 会 IndexError
+    tail = out.strip().splitlines()
+    d["agent_procs"] = int(tail[-1]) if tail and tail[-1].isdigit() else 0
 
     # 2) fmu 数据流（vehicle_status 一帧，6s 超时）
     out = run(host, user, pw, port,

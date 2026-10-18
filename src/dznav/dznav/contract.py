@@ -32,8 +32,6 @@ OOB_MARGIN = 0.60
 WHEELBASE = 0.157            # m（现役标定；发学员版为 0.17，配置可覆盖）
 STEER_LIMIT_DEG = 35.0       # 舵机行程 ±35°（TargetAngle 钳位）
 MAX_SPEED = 0.33             # m/s 物理上限
-#: dzactuator ACTIVITY_TIMEOUT=0.5s：pursuitAngle 停发 0.5s 即失活丢模式
-CMD_KEEPALIVE_S = 0.2
 
 # ---- 话题 ----
 TOPIC_WAYPOINT = "/nav/waypoint"           # String：reset:/load:/路线串（下发）
@@ -43,7 +41,7 @@ TOPIC_ODOM_LOC = "/odom/localization"      # Odometry：信念位姿（格），
 TOPIC_PURSUIT = "pursuitAngle"             # Twist：舵机角(度)/速度
 TOPIC_STOP_SIGNAL = "/move_base/stop_signal"   # UInt8：1=放行云台瞄准射击
 TOPIC_SHOOT_COUNT = "/shoot_count"         # Int32：累计已发弹数
-TOPIC_ESTOP = "/estop"                     # Bool：外部急停（TRANSIENT_LOCAL 闩锁）
+TOPIC_ESTOP = "/estop"                     # Bool：外部急停（默认 QoS；闩锁由 dznav 软件层自持）
 
 #: RAW_YAW_TO_MAP_YAW_OFFSET：raw yaw + 该偏移 = 地图航向（历史契约）
 RAW_YAW_TO_MAP_YAW_OFFSET = math.pi / 2

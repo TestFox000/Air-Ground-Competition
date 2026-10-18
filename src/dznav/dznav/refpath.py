@@ -37,7 +37,13 @@ class Waypoint:
     y: float
     label: str = ""
     shoot_stop: bool = False          # '*' 射击停站
-    critical: bool = False            # 关键途经点（雷格）：收紧偏差预算
+    critical: bool = False            # 关键途经点（雷格）：收紧偏差预算。
+                                      # 注意当前未接线：/nav/waypoint 语法
+                                      # 没有雷格标记，executor 生成的
+                                      # Waypoint 一律 critical=False，
+                                      # dev_cap_critical 预算暂仅单测覆盖；
+                                      # 接线点 = executor._cmd_route（需先
+                                      # 约定雷格来源，如情报帧落格清单）
     served: bool = False              # 停站已服务（防复驶入半径内反复触发）
 
 

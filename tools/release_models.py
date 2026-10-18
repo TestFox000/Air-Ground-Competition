@@ -66,7 +66,7 @@ def export_cell(pt: Path, out_dir: Path) -> Path:
 
 
 def export_hbb(pt: Path, out_dir: Path) -> Path:
-    """YOLO 检测器 .pt -> ONNX（契约: images[N,3,1280,1280] -> output0[N,11,33600]）。"""
+    """YOLO 检测器 .pt -> ONNX（契约: images[N,3,1280,1280] -> output0[N,17,33600]，17=4+13类）。"""
     from ultralytics import YOLO
 
     YOLO(str(pt)).export(format="onnx", imgsz=1280, dynamic=False, opset=17)
