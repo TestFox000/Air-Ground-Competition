@@ -91,6 +91,23 @@ def main():
         if not (ROOT / d).exists():
             fail.append("缺少真相文件: %s" % d)
 
+    # 文档链接健康：docs 与历史索引断链 = 文档与真源漂移，直接判红（2026-10-18 并入）
+    link_status = ""
+    lc = Path(__file__).resolve().parent / "check_links.py"
+    if lc.exists():
+        try:
+            r = subprocess.run([sys.executable, str(lc)], capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", timeout=120)
+            out = (r.stdout or "").strip()
+            if r.returncode != 0:
+                fail.append("文档断链:\n%s" % out)
+            else:
+                link_status = out.splitlines()[0] if out else ""
+        except Exception as e:  # noqa: BLE001
+            fail.append("文档链接检查执行失败: %s" % e)
+    else:
+        warn.append("缺少 tools/wf/check_links.py（文档链接检查跳过）")
+
     files, err = git_status()
     if err:
         fail.append(err)
@@ -145,6 +162,8 @@ def main():
         for f in dirty_frozen:
             mark = "OK " if f in reg else "RED"
             print("  [%s] %s" % (mark, f))
+        if link_status:
+            print("  [OK ] 文档链接 %s" % link_status)
         if unregistered:
             print("未登记（阻断）: %d" % len(unregistered))
         for w in warn:
