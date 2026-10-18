@@ -11,6 +11,7 @@ r"""DroneTask —— 无人机链路（5 Hz），架构 §7.2 / §7.3 的车侧�
 | 收 | `bridge_passable` `{half,block,confidence,ts}` | 写 `P_DRONE`（`bridge_of()` 供 Mission 取格） |
 | 收 | `target_zone` `{blocks:[...]}` | 与本地 `config/map.yaml` 的 `targets` 比对 → `field_diff` |
 | 收 | `field_verify` `{mines,obstacles,targets?,coverage?,slice?,scan_id?}` | 同上（雷/障/靶差异）；带 `coverage` 时按**片内作用域**判定负证据 + 记覆盖账本（G5-2） |
+| 收 | `field_layout` `{version,start,end,mines,obstacles,targets,bridges,barrier_*}` | 校验后写 `P_FIELD_LAYOUT`（**规划真源**；车端不再读地图文件，见下节） |
 | 收 | 未知 `type` / 非法 JSON / 缺字段 | **记日志不崩**（旧代码"一条坏消息杀一个回调"的教训） |
 | 发 | `car_state` `{type,block,yaw_deg,phase,ts,seq}` | 1~2 Hz 周期上报（block 从 `P_POSE` 推） |
 | 发 | `ack` `{type:"ack",of:seq}` | 对带 `seq` 的消息回执 |
@@ -39,6 +40,29 @@ r"""DroneTask —— 无人机链路（5 Hz），架构 §7.2 / §7.3 的车侧�
   （"宁可漏打，不可卡死"）。情报过期 > `drone.info_stale_s` → `bridge_of()` 返回 None
   （由 `DroneState.bridge_of` 现成实现，本任务只负责把 `bridge_ts` 写准）。
 ★ `drone.enabled=False` → **整任务空转**：不读 `bridge`、不发 `bridge`、不写 `P_DRONE`。
+
+## 场地布局 `field_layout`（车端不留地图文件）
+
+用户 2026-10-18 定版：「车机内不留地图文件，跑图的规划依据由无人机下发信息」。
+本任务只做**接收 + 校验 + 落黑盒**（`P_FIELD_LAYOUT`）；规划是装配侧/任务侧的职责
+（`main.plan_route_from_field_layout()` 读该键 → `planner.load_map(dict)` → `plan_route`）。
+**没有布局就不规划、不出发**；绝不回退到本地 `config/map.yaml` / 旧 `route.tokens`。
+
+报文（JSON over `drone_in`，未知字段忽略）：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `type` | str | ✅ | 固定 `"field_layout"` |
+| `version` | int | - | 布局协议版本（缺省 0；高于车端支持版本只告警，已知字段照收） |
+| `ts` | float | - | 机侧时间戳（仅证据；坏值按 0 处理，不影响接收） |
+| `start` / `end` | 格名 | ✅ | 起终点（必须在 A~N × 1~11 内） |
+| `mines` / `obstacles` / `targets` | [格名] | ✅ | 可为空列表，但**键必须存在**（半张布局不能拿去规划） |
+| `bridges` | [格名] | ✅ | **至少 1 个**（本局穿洞格） |
+| `barrier_col_from` | "D" | - | 隔板起始列（缺省 `geo.BARRIER_COL_FROM`） |
+| `barrier_row_hi` / `barrier_row_lo` | int | - | 隔板两侧行号（缺省 6/7；必须 1~11 且 `hi < lo`） |
+
+★ 拒收语义：任一必填/格式字段非法 ⇒ **整份拒收**（`layout_rejects+1` + 节流日志），
+  **保留上一份好布局**（坏报文绝不清空、不覆盖）。校验纯内存、不依赖本地地图。
 
 ## 本地地图从哪来（★ 接口现状，需要装配侧知道）
 
@@ -74,11 +98,12 @@ from ..io import contract
 
 __all__ = ["DroneTask", "DRONE_PAYLOAD_TYPES", "default_map_path",
            "CoverageLedger", "FieldVerifyConsumer",
-           "FIELD_VERIFY_POLICIES", "P_FIELD_VERIFY", "P_DRONE_COVERAGE"]
+           "FIELD_VERIFY_POLICIES", "P_FIELD_VERIFY", "P_DRONE_COVERAGE",
+           "P_FIELD_LAYOUT", "FIELD_LAYOUT_VERSION", "normalize_field_layout"]
 
 #: 已知的无人机报文类型（其余一律"未知类型"，记日志不崩）
 DRONE_PAYLOAD_TYPES: tuple[str, ...] = (
-    "heartbeat", "bridge_passable", "target_zone", "field_verify",
+    "heartbeat", "bridge_passable", "target_zone", "field_verify", "field_layout",
 )
 
 _BRIDGE_HALVES = ("lower", "upper")
@@ -99,6 +124,116 @@ def default_map_path() -> pathlib.Path:
         if candidate.is_file():
             return candidate
     return here.parents[4] / "config" / "map.yaml"
+
+
+# --------------------------------------------------------------------------- #
+#  场地布局 field_layout（车端不留地图文件 → 规划依据由无人机下发）
+# --------------------------------------------------------------------------- #
+#: 车侧黑盒键：无人机下发的**完整场地布局**（dict，形状见 `normalize_field_layout`）。
+#: ★ 键名常量暂时放在本模块（与 `P_FIELD_VERIFY` 同一做法，本卡写域不含
+#:   `core/blackboard.py`）；语义稳定后应迁到那里统一登记。
+P_FIELD_LAYOUT = "field_layout"
+
+#: 车端认识的 `field_layout` 协议版本上限。更高版本**只告警**并照收已知字段
+#: （前向兼容：新增字段默认被忽略，不会让整车停摆）。
+FIELD_LAYOUT_VERSION = 1
+
+#: `field_layout` 里必须出现（可为空表）的格名列表键：半张布局不能拿去规划，
+#: 缺键 = 拒收，而不是"按空表猜"。
+_LAYOUT_CELL_KEYS: tuple[str, ...] = ("mines", "obstacles", "targets")
+
+
+def _layout_cells(value: Any, key: str, *,
+                  allow_empty: bool = True) -> tuple[list[str] | None, str]:
+    """归一化一个格名列表字段 → `(大写去重列表, 错误原因)`；非法返回 `(None, 原因)`。"""
+    if not isinstance(value, (list, tuple)):
+        return None, f"{key} 必须是格名列表（收到 {type(value).__name__}）"
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            return None, f"{key} 含非字符串条目 {item!r}"
+        text = item.strip().upper()
+        if not text:
+            return None, f"{key} 含空格名"
+        try:
+            geo.block_to_index(text)
+        except ValueError as exc:
+            return None, f"{key} 含非法格名 {text!r}（{exc}）"
+        if text not in seen:
+            seen.add(text)
+            out.append(text)
+    if not out and not allow_empty:
+        return None, f"{key} 不能为空"
+    return out, ""
+
+
+def normalize_field_layout(payload: Any) -> tuple[dict[str, Any] | None, str]:
+    """校验并归一化 `field_layout` 报文 → `(layout, reason)`（成功时 reason == ""）。
+
+    ★ 纯内存、无 I/O、不依赖本地地图（车端可以完全没有 `config/map.yaml`）。
+    ★ 只取规划需要的字段；**未知字段一律忽略**（机侧加字段不该让车侧拒收）。
+    ★ 任一必填/格式字段非法 ⇒ 整份拒收（返回 `None` + 原因）：宁可不更新布局，
+      也不要把"缺了雷/障的半张图"喂给规划器（那会产出漏压雷/撞桶的路线）。
+    """
+    if not isinstance(payload, dict):
+        return None, f"报文不是 JSON 对象（{type(payload).__name__}）"
+    out: dict[str, Any] = {}
+
+    raw_version = payload.get("version", 0)
+    try:
+        out["version"] = int(raw_version if raw_version is not None else 0)
+    except (TypeError, ValueError):
+        return None, f"version 不是整数: {raw_version!r}"
+
+    try:                                        # ts 只作证据，坏值不拒整份布局
+        out["ts"] = round(float(payload.get("ts") or 0.0), 3)
+    except (TypeError, ValueError):
+        out["ts"] = 0.0
+
+    for key in ("start", "end"):
+        raw = payload.get(key)
+        if not isinstance(raw, str) or not raw.strip():
+            return None, f"缺少 {key}"
+        text = raw.strip().upper()
+        try:
+            geo.block_to_index(text)
+        except ValueError as exc:
+            return None, f"{key} 非法: {text!r}（{exc}）"
+        out[key] = text
+
+    for key in _LAYOUT_CELL_KEYS:
+        cells, err = _layout_cells(payload.get(key), key)
+        if cells is None:
+            return None, err
+        out[key] = cells
+
+    cells, err = _layout_cells(payload.get("bridges"), "bridges", allow_empty=False)
+    if cells is None:
+        return None, err
+    out["bridges"] = cells
+
+    col = str(payload.get("barrier_col_from") or geo.BARRIER_COL_FROM).strip().upper()
+    if col not in geo.COL_LETTERS:
+        return None, f"barrier_col_from 非法: {col!r}（应为 A~{geo.COL_LETTERS[-1]}）"
+    out["barrier_col_from"] = col
+
+    for key, fallback in (("barrier_row_hi", geo.BARRIER_ROW_HI),
+                          ("barrier_row_lo", geo.BARRIER_ROW_LO)):
+        raw = payload.get(key)
+        raw = fallback if raw is None else raw          # 显式 null = 用缺省，不整份拒收
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return None, f"{key} 不是整数: {raw!r}"
+        if not 1 <= value <= geo.MAP_ROWS:
+            return None, f"{key} 越界: {value}（应为 1~{geo.MAP_ROWS}）"
+        out[key] = value
+    if out["barrier_row_hi"] >= out["barrier_row_lo"]:
+        return None, (f"barrier_row_hi({out['barrier_row_hi']}) 必须小于 "
+                      f"barrier_row_lo({out['barrier_row_lo']})")
+
+    return out, ""
 
 
 # --------------------------------------------------------------------------- #
@@ -382,6 +517,13 @@ class DroneTask(TaskThread):
         self.obstacles: frozenset[str] = frozenset()
         self.bridges: frozenset[str] = frozenset()
 
+        # ---------------- 场地布局（field_layout，车端不留地图文件） ----------------
+        #: 最近一份**已校验**的布局（dict；原样写黑盒，供 main/任务侧规划）。
+        self.field_layout: dict | None = None
+        self.layout_updates = 0
+        self.layout_rejects = 0
+        self.layout_ts = 0.0
+
         # ---------------- 链路状态 ----------------
         self.online = False
         self.last_heartbeat = 0.0
@@ -444,6 +586,9 @@ class DroneTask(TaskThread):
                      f" 片 {self.coverage_updates}（重发 {self.coverage_duplicates}"
                      f"/坏 {self.coverage_bad}）"
                      f" ｜核对事件 {self.field_verify.events if self.field_verify else 0}")
+        if self.layout_updates or self.layout_rejects:
+            line += (f" ｜场地布局 {self.layout_updates} 份"
+                     f"（拒收 {self.layout_rejects}）")
         self._log(line)
 
     # ------------------------------------------------------------------ #
@@ -564,6 +709,8 @@ class DroneTask(TaskThread):
             self._on_target_zone(payload, now)
         elif msg_type == "field_verify":
             self._on_field_verify(payload, now)
+        elif msg_type == "field_layout":
+            self._on_field_layout(payload, now)
         else:
             self.unknown_types[msg_type] = self.unknown_types.get(msg_type, 0) + 1
             if self._warn.allow(f"unknown:{msg_type}", now):
@@ -633,6 +780,30 @@ class DroneTask(TaskThread):
                                payload, now)
         if got:
             self._diff("target_zone", got, self.targets, now)
+
+    # ---- 完整场地布局（field_layout；车端不留地图文件） ----
+    def _on_field_layout(self, payload: dict, now: float) -> None:
+        """校验并落 `P_FIELD_LAYOUT`。坏报文只记日志：**不清空、不覆盖上一份好布局**。"""
+        layout, reason = normalize_field_layout(payload)
+        if layout is None:
+            self.layout_rejects += 1
+            if self._warn.allow("layout_bad", now):
+                self._log(f"⚠️ 无人机 field_layout 非法（已整份忽略，保留上一份布局；"
+                          f"累计拒收 {self.layout_rejects}）：{reason}")
+            return
+        if int(layout.get("version") or 0) > FIELD_LAYOUT_VERSION:
+            if self._warn.allow("layout_ver", now):
+                self._log(f"⚠️ field_layout version={layout.get('version')} 高于车端支持 "
+                          f"{FIELD_LAYOUT_VERSION} → 只按已知字段解析（未知字段忽略）")
+        self.field_layout = layout
+        self.layout_updates += 1
+        self.layout_ts = float(now)
+        self.bb.set(P_FIELD_LAYOUT, layout, source=self.name, ts=now)
+        self._log(f"场地布局：起 {layout['start']} 终 {layout['end']} "
+                  f"雷 {len(layout['mines'])} 障 {len(layout['obstacles'])} "
+                  f"靶 {len(layout['targets'])} 桥洞 {layout['bridges']} "
+                  f"隔板 {layout['barrier_col_from']}{layout['barrier_row_hi']}/"
+                  f"{layout['barrier_row_lo']}（第 {self.layout_updates} 份，v{layout['version']}）")
 
     # ---- 雷/障/靶核对（+ 可选的片级覆盖） ----
     def _on_field_verify(self, payload: dict, now: float) -> None:

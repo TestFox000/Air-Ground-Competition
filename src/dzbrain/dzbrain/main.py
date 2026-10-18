@@ -12,6 +12,20 @@ r"""dzbrain 主进程 —— 单进程多线程任务架构的入口。
     python -m dzbrain.main --dry-run                 # 只做启动门禁（配置+路线校验），不起线程
     python -m dzbrain.main                           # 正常上车运行（需要 ROS 环境）
     python -m dzbrain.main --bench --seconds 5       # 无车/无 ROS 的联调：FakeBridge 上跑真实任务线程
+
+## 车端不留地图文件（2026-10-18 用户定版）
+
+「车机内不留地图文件，跑图的规划依据由无人机下发信息」：
+车端**不再部署 `config/map.yaml`**（`tools/deploy_to_car.py` 已把它从推送清单移除）。
+无人机用 `field_layout` 报文下发本局场地布局 → `DroneTask` 校验后写黑盒
+`P_FIELD_LAYOUT` → 本模块 `plan_route_from_field_layout()` 用**内存 dict** 规划
+（`planner.load_map(dict)`，不读任何文件）→ 产物写回 `route.tokens` 交给 MissionTask 执行。
+**没有布局就不规划、不出发**，绝不回退本地地图文件或旧 `route.tokens`。
+
+* `--map <图>`：**仅开发/仿真入口**（显式传参才用文件；该文件不部署到车）。
+* 车端（无可用的地图文件、且 `planner.auto_plan_enabled=true`）→ 启动时先起无人机线程等布局：
+  超时（`drone.field_layout_wait_s`，缺省 30 s）/ 布局非法 ⇒ 退出码 3（不规划、不出发）；
+  布局规划失败 ⇒ 退出码 4（同样不出发）。
 """
 
 from __future__ import annotations
@@ -25,7 +39,7 @@ import signal
 import sys
 import threading
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from .core import geometry as geo
 from .core.blackboard import Blackboard
@@ -101,12 +115,17 @@ def default_config_path() -> str:
 #  启动门禁
 # --------------------------------------------------------------------------- #
 def load_and_check(config_path: str | None, map_path: str | None,
-                   *, force: bool = False, announce: bool = True) -> tuple[Config, dict, list[str]]:
+                   *, force: bool = False, announce: bool = True,
+                   allow_missing_map: bool = False) -> tuple[Config, dict, list[str]]:
     """加载配置 + 路线校验。返回 (cfg, map_cfg, errors)。
 
     ★ `announce=False`：调用方自己会把错误**带来源标注**打印一次。
       否则 `--plan-only` 下门禁报文会打印两遍（`load_and_check` 一遍 + 调用方一遍），
       而且读者分不清那些 error 是针对手写 `route.tokens` 还是针对规划结果。
+    ★ `allow_missing_map=True`（车端"布局模式"）：**没有地图文件不算启动错误** ——
+      车端本来就不留 `config/map.yaml`，规划依据由无人机 `field_layout` 下发；
+      本轮门禁的 `route.tokens` 也只是占位（真正执行的是布局规划产物）。
+      只对 `planner.auto_plan_enabled=true` 生效；关自动规划时仍按"地图缺失=拒绝启动"。
     """
     cfg = Config.load(config_path or default_config_path())
     issues = cfg.validate(strict=False)
@@ -130,6 +149,13 @@ def load_and_check(config_path: str | None, map_path: str | None,
             map_cfg = yaml.safe_load(map_file.read_text(encoding="utf-8")) or {}
         except Exception as exc:               # 地图坏了也要报出来，不能当没事
             errors.append(f"地图文件读取失败: {map_file}: {exc}")
+    elif allow_missing_map and bool(cfg.get("planner.auto_plan_enabled", False)):
+        # ★ 车端不留地图文件：布局由无人机下发，启动门禁不再因"没有 map.yaml"拒绝启动。
+        #   注意这里**不猜任何默认地图**（map_cfg 保持空）—— 后续规划只认 P_FIELD_LAYOUT。
+        if announce:
+            LOG("")
+            LOG(f"地图：车端无地图文件（{map_file} 不存在）→ 规划依据由无人机 "
+                f"field_layout 下发（启动后等待布局，未收到则不起任务、不出发）")
     else:
         errors.append(f"地图文件不存在: {map_file}")
 
@@ -154,14 +180,206 @@ def load_and_check(config_path: str | None, map_path: str | None,
 
 
 # --------------------------------------------------------------------------- #
+#  车端不留地图文件：无人机 field_layout → 内存 MapSpec → 自规划
+# --------------------------------------------------------------------------- #
+#: 与 `tasks.drone.P_FIELD_LAYOUT` 同值（这里不 import 任务模块，避免装配前加载无人机链）。
+P_FIELD_LAYOUT = "field_layout"
+
+
+def load_field_layout(bb: Blackboard | None) -> dict[str, Any] | None:
+    """读黑盒 `P_FIELD_LAYOUT` 并**再校验一次**；没有 / 非法 → `None`（调用方据此"不规划"）。
+
+    为什么要二次校验：黑盒对写入方没有类型约束（测试/别处也可能写），而这份 dict
+    直接喂给规划器 —— 一次防御性归一化比"相信上游"便宜得多。
+    """
+    if bb is None:
+        return None
+    from .tasks.drone import normalize_field_layout
+
+    raw = bb.get(P_FIELD_LAYOUT)
+    if not isinstance(raw, dict):
+        return None
+    layout, _reason = normalize_field_layout(raw)
+    return layout
+
+
+def plan_route_from_field_layout(cfg: Config, layout: dict[str, Any], *,
+                                 log: Callable[[str], None] | None = None,
+                                 cross_lower: str | None = None,
+                                 cross_upper: str | None = None) -> Any:
+    """用无人机下发的**内存布局**规划路线（**永不抛异常**；失败 → `PlanOutcome.ok=False`）。
+
+    与 `tasks.mission.plan_route_from_config()` 的**唯一区别**是地图来源：
+    这里直接 `{"map": layout}` → `planner.load_map(dict)`，**不读任何文件**；
+    引擎选择 / 预算 / 双射击停站 / 双门禁 / 足迹诊断复用同一组 helper，
+    保证"同一张图、同一份配置"下与文件入口 **逐 token 相同**（`test_drone` §⑮ 钉住）。
+
+    ★ 失败时**绝不**回退地图文件或旧 `route.tokens`：调用方据此拒绝发车。
+    """
+    from .route import planner as PL
+    from .route.parser import parse_token
+    from .tasks.mission import (DEFAULT_PLAN_ENGINE, ENGINE_TRACKER_SAFE, GateResult,
+                                PlanOutcome, check_planned_route, footprint_diagnostic,
+                                plan_budget_seconds, resolve_plan_engine)
+
+    # 形状与 map.yaml 的 `map:` 段一致（展平 dict 会丢 barrier_* 键，见 validate._map_section）
+    map_cfg = {"map": dict(layout)}
+    map_text = "drone:field_layout"
+    engine = resolve_plan_engine(cfg, log)
+    want_reverse = bool(cfg.get("planner.allow_reverse", False))
+    want_lower = str(cross_lower or "").strip().upper() or None
+    want_upper = str(cross_upper or "").strip().upper() or None
+    try:
+        budget = plan_budget_seconds(cfg, engine, log)
+    except (TypeError, ValueError):
+        budget = 2.0
+    try:
+        pivot_penalty = float(cfg.get("planner.pivot_penalty", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        pivot_penalty = 0.0
+    gate = GateResult()
+    gate_ran = False
+    try:
+        PL.load_map(map_cfg)                       # 提前校验：坏布局不进规划器
+        if engine == ENGINE_TRACKER_SAFE:
+            res = PL.plan_route_tracker_safe(map_cfg, cfg, cross_lower=want_lower,
+                                             cross_upper=want_upper,
+                                             max_seconds=budget, source=map_text)
+        else:
+            res = PL.plan_route(map_cfg, cfg, cross_lower=want_lower,
+                                cross_upper=want_upper, allow_reverse=want_reverse,
+                                pivot_penalty=pivot_penalty,
+                                max_seconds=budget, source=map_text)
+        tokens = [str(t) for t in (res.tokens or [])]
+        if not tokens:
+            raise ValueError("规划器返回了空 token 列表")
+        tokens, second_added, _second_note = PL.ensure_second_shoot_stop(
+            tokens, map_cfg, cfg, source=map_text)
+        gate_detail = f"缺省引擎 {DEFAULT_PLAN_ENGINE} 不跑门禁（历史行为逐字节不变）"
+        if engine == ENGINE_TRACKER_SAFE:
+            gate = check_planned_route(tokens, map_cfg, cfg, log=log)
+            gate_ran = True
+            gate_detail = gate.summary
+            if not gate.ok:
+                raise ValueError(f"新引擎 {engine} 产出未过门禁：{gate_detail}")
+        fp = (gate.footprint if (engine == ENGINE_TRACKER_SAFE and gate.footprint is not None)
+              else footprint_diagnostic(tokens, map_cfg, cfg))
+        crossing = dict(getattr(res, "crossing", None) or {})
+        shoot_stops = tuple(parse_token(t)["block"] for t in tokens if parse_token(t)["shoot"])
+        return PlanOutcome(
+            ok=True, tokens=tokens,
+            elapsed_ms=float(getattr(res, "elapsed_ms", 0.0) or 0.0),
+            error="", map_path=map_text, allow_reverse=want_reverse,
+            route_len_m=float(getattr(res, "polyline_m", 0.0) or 0.0),
+            reverse_segments=int(getattr(res, "reverse_segments", 0) or 0),
+            cost=float(getattr(res, "cost", 0.0) or 0.0),
+            engine=engine, gate_ok=gate.ok, gate_detail=gate_detail,
+            footprint=(fp.summary if fp is not None else ""),
+            footprint_ok=(fp.ok if fp is not None else True),
+            cross_lower=str(crossing.get("lower") or ""),
+            cross_upper=str(crossing.get("upper") or ""),
+            shoot_stops=shoot_stops, second_stop_added=second_added,
+        )
+    except Exception as exc:                       # noqa: BLE001  ★ 规划失败一律不许崩
+        msg = f"{type(exc).__name__}: {exc}"
+        if log is not None:
+            log(f"布局规划失败：{msg}（不会回退地图文件/旧路线）")
+        return PlanOutcome(ok=False, tokens=[], elapsed_ms=0.0, error=msg,
+                           map_path=map_text, allow_reverse=want_reverse, engine=engine,
+                           gate_ok=(gate.ok if gate_ran else True),
+                           gate_detail=(gate.summary if gate_ran else ""))
+
+
+def plan_startup_route(cfg: Config, bb: Blackboard | None, *,
+                       log: Callable[[str], None] | None = None) -> Any:
+    """启动自规划的唯一入口：**只认内存布局**。
+
+    没有布局（或布局非法）→ 返回 `None`：不调规划器、不用 `route.tokens`、不读地图文件
+    ——"不规划"是上车前的硬语义，不是"失败后回退"。
+    """
+    layout = load_field_layout(bb)
+    if layout is None:
+        if log is not None:
+            log("未收到无人机 field_layout → 不规划（车端不留地图文件，绝不回退 route.tokens）")
+        return None
+    return plan_route_from_field_layout(cfg, layout, log=log)
+
+
+def _layout_mode_enabled(cfg: Config, map_path: str | None) -> bool:
+    """车端"布局模式"：自动规划开启、且**没有可用的地图文件**。
+
+    · `--map <存在的文件>` ⇒ 文件模式（开发/仿真唯一入口；该文件不部署到车）；
+    · `--map <不存在的文件>`（start_all.sh 的历史参数在车端就是这种形态）⇒ 布局模式；
+    · 不传 `--map` ⇒ 布局模式。
+    `planner.auto_plan_enabled=false` 时仍走旧手写路线分支（不需要地图文件）。
+    """
+    if map_path and pathlib.Path(map_path).is_file():
+        return False
+    return bool(cfg.get("planner.auto_plan_enabled", False))
+
+
+def _start_layout_listener(bridge: Any, bb: Blackboard, bus: EventBus,
+                           cfg: Config, *, log: Callable[[str], None] = LOG) -> Any:
+    """先起一个独立 DroneTask 专等 `field_layout`（规划要在 MissionTask 构造前完成）。"""
+    from .tasks.drone import DroneTask
+
+    task = DroneTask(bridge, bb, bus, cfg, log=log)
+    task.start()
+    return task
+
+
+def _wait_for_field_layout(bb: Blackboard, cfg: Config, *, stop_flag: dict,
+                           alive: Callable[[], bool] = ros_context_alive,
+                           log: Callable[[str], None] = LOG,
+                           sleep: Callable[[float], None] = time.sleep,
+                           now: Callable[[], float] = time.monotonic) -> dict | None:
+    """阻塞等待无人机下发布局（缺省 30 s），超时/停机/上下文失效 → `None`（不规划）。"""
+    wait_s = float(cfg.get("drone.field_layout_wait_s", 30.0) or 30.0)
+    wait_s = max(0.0, wait_s)
+    t0 = now()
+    deadline = t0 + wait_s
+    last_note = t0
+    while True:
+        layout = load_field_layout(bb)
+        if layout is not None:
+            log(f"收到无人机场地布局（起 {layout['start']} 终 {layout['end']} "
+                f"雷 {len(layout['mines'])} 障 {len(layout['obstacles'])} "
+                f"靶 {len(layout['targets'])} 桥洞 {layout['bridges']}）"
+                f"→ 开始内存地图规划")
+            return layout
+        if stop_flag.get("stop"):
+            log("等待场地布局期间收到停机信号 → 不规划、不出发")
+            return None
+        try:
+            alive_now = bool(alive())
+        except Exception:                          # noqa: BLE001  判活本身出错不误杀
+            alive_now = True
+        if not alive_now:
+            log("等待场地布局期间 ROS 上下文失效 → 不规划、不出发")
+            return None
+        t = now()
+        if t >= deadline:
+            log(f"⚠️ 等待无人机 field_layout 超时（{wait_s:g}s）→ 不规划、不出发")
+            return None
+        if t - last_note >= 5.0:
+            log(f"等待无人机下发场地布局…（已 {t - t0:.0f}/{wait_s:.0f}s）")
+            last_note = t
+        sleep(0.1)
+
+
+# --------------------------------------------------------------------------- #
 #  任务装配（可选任务缺失只告警，不阻断）
 # --------------------------------------------------------------------------- #
 def build_tasks(bridge: Any, bb: Blackboard, bus: EventBus, cfg: Config,
-                *, log: Callable[[str], None] = LOG) -> tuple[TaskGroup, list[str]]:
+                *, log: Callable[[str], None] = LOG,
+                skip: Iterable[str] | None = None) -> tuple[TaskGroup, list[str]]:
     group = TaskGroup(bus, bb, logger=log)
     skipped: list[str] = []
+    skip_set = {str(x) for x in (skip or ())}
 
     def add(module: str, cls_name: str, label: str) -> None:
+        if module in skip_set:                   # 布局模式：DroneTask 已在装配前单独启动
+            return
         try:
             # ★ 不能用 __import__（函数内没有包上下文，会报 "'__name__' not in globals"）
             mod = importlib.import_module(f".tasks.{module}", package=__package__)
@@ -188,25 +406,39 @@ def build_tasks(bridge: Any, bb: Blackboard, bus: EventBus, cfg: Config,
     return group, skipped
 
 
-def start_banner(cfg: Config, group: TaskGroup) -> None:
+def start_banner(cfg: Config, group: TaskGroup, *, plan: Any = None,
+                 layout_mode: bool = False) -> None:
     tokens = cfg.get("route.tokens") or []
     plan_on = bool(cfg.get("planner.auto_plan_enabled", False))
-    if plan_on:
+    if plan is not None:
+        route_source = "无人机布局自规划"
+        route_line = (f"{len(plan.tokens)} token（引擎 {plan.engine}，{plan.mode}，"
+                      f"耗时 {plan.elapsed_ms:.1f} ms，{plan.route_len_m:.2f} m；"
+                      f"已写入 route.tokens 交任务执行）")
+    elif plan_on:
+        route_source = "自动规划"
         route_line = (f"自动规划（map_path={cfg.get('planner.map_path')}，"
                       f"{'允许倒车' if cfg.get('planner.allow_reverse') else '无倒车'}，"
                       f"预算 {cfg.get('planner.max_seconds')}s；实际 token 见任务开始横幅）")
     else:
+        route_source = "手动配置"
         route_line = (f"{len(tokens)} 点（穿洞 {cfg.get('route.cross_lower_default')} / "
                       f"{cfg.get('route.cross_upper_default')}）")
+    map_line = ("无人机 field_layout（车端不留地图文件）" if layout_mode
+                else str(cfg.get("planner.map_path")))
+    task_line = " ".join(f"{t.name}@{t.rate_hz:g}Hz" for t in group._tasks)  # noqa: SLF001
+    if layout_mode:
+        task_line += " + Drone(布局监听，先于任务组启动)"
     lines = ["dzbrain 启动 · 多线程任务架构"] + kv_lines({
         "配置文件": cfg.source,
-        "路线来源": "自动规划" if plan_on else "手动配置",
+        "地图": map_line,
+        "路线来源": route_source,
         "路线": route_line,
         "巡航速度": f"{cfg.get('pursuit.cruise_speed_mps')} m/s",
         "自动出发": f"{cfg.get('mission.auto_start')}（延时 {cfg.get('mission.auto_start_delay_s')}s）",
         "越界余量": f"{cfg.get('pursuit.map_safety_margin_m')} m",
         "开火策略": f"{cfg.get('aim.fire_policy')}（提前量 {cfg.get('aim.lead_time_s')}s）",
-        "任务线程": " ".join(f"{t.name}@{t.rate_hz:g}Hz" for t in group._tasks),  # noqa: SLF001
+        "任务线程": task_line,
     }, indent=2)
     banner(lines, log=LOG)
 
@@ -470,26 +702,74 @@ def _live_loop(stop_flag: dict, *, bb: Blackboard, alive: Callable[[], bool] = r
 
 
 def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
-             alive: Callable[[], bool] = ros_context_alive) -> int:
+             alive: Callable[[], bool] = ros_context_alive,
+             map_path: str | None = None) -> int:
     from .io.ros_io import RosBridge          # 只在真跑时导入（无 ROS 的机器 import 会失败但惰性）
     from .io import contract as ct
 
     bb, bus = Blackboard(), EventBus()
     bridge = RosBridge("dzbrain", log=log)
-    group, skipped = build_tasks(bridge, bb, bus, cfg, log=log)
-    for s in skipped:
-        log(f"  (跳过未实现的任务) {s}")
 
     stop_flag: dict = {"stop": False, "signal": None}
     installed = install_stop_signals(stop_flag, log)
     log(f"信号接管：{'/'.join(installed) or '无'} → 只置停机标志；"
         f"ROS 上下文判活 = rclpy.ok()（默认信号处理已在 RosBridge 里关闭）")
 
-    start_banner(cfg, group)
+    # ---------------- 车端不留地图文件：先等布局，再构造任务组 ----------------
+    # ★ 顺序是**功能前提**：MissionTask 的路线在构造/启动时就要定下来，所以布局规划
+    #   必须发生在 build_tasks 之前；等布局期间只起一个独立 DroneTask（不进任务组，
+    #   否则 start_all 会对已启动的线程二次 start）。
+    layout_mode = _layout_mode_enabled(cfg, map_path)
+    layout_task = None
+    layout_plan = None
+    if layout_mode:
+        log("车端无可用的地图文件（未传 --map 或 --map 指向的文件不存在）→ 布局模式："
+            "先起无人机线程等 field_layout，收到布局才规划、才起任务组")
+        if not bool(cfg.get("drone.enabled", True)):
+            log("⛔ 布局模式需要无人机链路，但 drone.enabled=False → 永远收不到布局，"
+                "不规划、不出发")
+            bridge.shutdown(brake=True)
+            return 3
+        try:
+            layout_task = _start_layout_listener(bridge, bb, bus, cfg, log=log)
+        except Exception as exc:                     # noqa: BLE001  起不来就别硬等
+            log(f"⛔ 无人机布局监听启动失败（{type(exc).__name__}: {exc}）→ 不规划、不出发")
+            bridge.shutdown(brake=True)
+            return 3
+        bridge.spin_async(threads=4)
+        layout = _wait_for_field_layout(bb, cfg, stop_flag=stop_flag, alive=alive, log=log)
+        if layout is None:
+            layout_task.stop(timeout=2.0)
+            bridge.shutdown(brake=True)
+            log("⛔ 未收到无人机场地布局 → 不规划、不出发"
+                "（绝不用地图文件/旧 route.tokens 兜底）")
+            return 3
+        layout_plan = plan_route_from_field_layout(cfg, layout, log=log)
+        if not layout_plan.ok:
+            layout_task.stop(timeout=2.0)
+            bridge.shutdown(brake=True)
+            log(f"⛔ 布局规划失败（{layout_plan.error}）→ 不出发"
+                f"（绝不回退地图文件/旧 route.tokens）")
+            return 4
+        # ★ 把规划产物写回 route.tokens，并关掉任务侧的"再规划"：MissionTask 走
+        #   既有手动路线分支执行这条**由布局算出**的路线（不会去碰 planner.map_path）。
+        cfg.override("route.tokens", list(layout_plan.tokens))
+        cfg.override("planner.auto_plan_enabled", False)
+        log(f"✅ 布局自规划成功：{len(layout_plan.tokens)} token / "
+            f"{layout_plan.route_len_m:.2f} m / 引擎 {layout_plan.engine} / "
+            f"{layout_plan.elapsed_ms:.1f} ms → 已写入 route.tokens 交任务执行")
+
+    group, skipped = build_tasks(bridge, bb, bus, cfg, log=log,
+                                 skip={"drone"} if layout_task is not None else None)
+    for s in skipped:
+        log(f"  (跳过未实现的任务) {s}")
+
+    start_banner(cfg, group, plan=layout_plan, layout_mode=layout_mode)
     log("ROS 契约：" + " | ".join(f"{k}={ct.topic(k).name}" for k in
                                  ("pursuit_angle", "scan_request", "aim_fire_gate",
                                   "aim_fire_ready", "drone_in")))
-    bridge.spin_async(threads=4)
+    if layout_task is None:
+        bridge.spin_async(threads=4)
     group.start_all()
     t0 = time.time()
     rc = 0
@@ -506,10 +786,17 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
         stuck = group.stop_all(timeout=2.0)
         if stuck:
             log(f"⚠️ 未按时退出的任务: {stuck}")
+        if layout_task is not None and not layout_task.stop(timeout=2.0):
+            log("⚠️ 无人机布局监听任务未按时退出")
         shutdown_rc = bridge.shutdown(brake=True)      # ★ 退出必刹车（上下文已死则跳过）
         log(f"收尾：ros 上下文{'已失效' if shutdown_rc else '正常'}，"
             f"刹车已尝试={'否' if shutdown_rc else '是'}，任务线程已停")
         finish_report(bb, group, bus, elapsed=time.time() - t0)
+        if layout_task is not None:
+            h = layout_task.health()
+            log(f"  [无人机/布局监听] ticks={h.ticks} errors={h.errors} "
+                f"布局份数={getattr(layout_task, 'layout_updates', '?')} "
+                f"拒收={getattr(layout_task, 'layout_rejects', '?')}")
     return rc
 
 
@@ -530,8 +817,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--force", action="store_true", help="门禁不通过也启动（现场应急）")
     args = ap.parse_args(argv)
 
-    cfg, _map_cfg, errors = load_and_check(args.config, args.map_path, force=args.force,
-                                           announce=not args.plan_only)
+    cfg, _map_cfg, errors = load_and_check(
+        args.config, args.map_path, force=args.force, announce=not args.plan_only,
+        # ★ 车端不留地图文件：地图缺失时由无人机 field_layout 顶替（只在
+        #   planner.auto_plan_enabled=true 时生效；见 load_and_check 的 docstring）。
+        #   注意 start_all.sh 仍按历史习惯传 `--map $WS/config/map.yaml` —— 车端没有
+        #   该文件时就属于这个分支：**允许启动，等布局**（run_live 会判布局模式）。
+        allow_missing_map=True)
 
     # ★ --map 透传（2026-10-11 修复）：planner.map_path 的相对解析以 workspace_root() 为基准；
     #   install 拷贝树里 workspace_root() = install/dzbrain/lib → config/map.yaml 永远找不到
@@ -573,12 +865,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         LOG("")
         LOG(f"启动门禁通过：配置 {cfg.source}")
+        if _layout_mode_enabled(cfg, args.map_path):
+            LOG("提示：车端布局模式（无可用的地图文件：未传 --map 或 --map 指向的文件不存在）"
+                "→ 实际运行会先等无人机 field_layout；未收到布局就不起任务组、不发车"
+                "（--dry-run 不等布局）")
         LOG(f"  {cfg.summary()}")
         return 0
 
     if args.bench:
         return run_bench(cfg, seconds=args.seconds, drive=args.drive, speed_factor=args.speed_factor)
-    return run_live(cfg)
+    return run_live(cfg, map_path=args.map_path)
 
 
 if __name__ == "__main__":
