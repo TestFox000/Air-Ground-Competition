@@ -136,6 +136,8 @@
   .stressBadge { padding: 0 5px; border-radius: 4px; border: 1px solid var(--line); color: var(--dim); font-size: 11px; }
   .stressBadge.done { color: #7bd88f; border-color: #2f6f45; }
   .stressBadge.plan-failed, .stressBadge.error { color: var(--bad); border-color: #7a2f2f; }
+.stressBadge.planned { color: #7bd88f; border-color: #2f6f45; }
+.stressBadge.generator-unsolvable { color: var(--warn); border-color: #7a6325; }
   .stressBadge.invalid, .stressBadge.timeout { color: var(--warn); border-color: #7a6325; }
   .stressCard .meta { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 4px; }
   .stressCard .why { color: #ff9a9a; font-size: 10.5px; line-height: 1.45; margin-top: 4px; word-break: break-word; }
@@ -254,7 +256,8 @@
 
     <!-- ── 64 图压测面板 —— 只走 3 个 /sim/stress 端点，后端零改动 ── -->
     <section style="margin-top:16px">
-      <h2>64 图压测<span class="hint">stressbench 随机图并行跑（池≤4）· 统计分母显式、missing 单列</span></h2>
+      <h2>随机图压测<span class="hint">stressbench 并行跑（池≤4）· 跟踪/规划两种模式 · 统计分母显式、missing 单列</span></h2>
+      <div class="foot">压测固定使用仓库 <code>config/robot.yaml</code> + <code>config/map.yaml</code>（当前第六张图）；上方「场地来源」只影响单跑/改点位，不改变压测输入。要压实车第七张图，需先把 source 支持接进 stress（未做）。</div>
       <div class="row">
         <div>
           <label for="stressSeed">随机种子 seed（同 seed ⇒ 同批图可复现）</label>
@@ -265,6 +268,34 @@
           <input id="stressCount" type="number" step="1" min="1" max="500" value="64">
         </div>
       </div>
+      <div class="row">
+        <div>
+          <label for="stressMode">压测模式<span class="hint">跟踪=规划+仿真；规划=只规划（量化规划器）</span></label>
+          <select id="stressMode">
+            <option value="track">跟踪压测（规划 + 仿真跑车）</option>
+            <option value="plan">规划压测（只规划，不跑车）</option>
+          </select>
+        </div>
+        <div>
+          <label for="stressEngine">规划引擎<span class="hint">默认跟随 robot.yaml</span></label>
+          <select id="stressEngine">
+            <option value="">跟随 robot.yaml</option>
+            <option value="tour">tour（能接管 :PIVOT 折返图）</option>
+            <option value="tracker-safe">tracker-safe（车端当前默认）</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="stressResample">补图<span class="hint">规划失败就换图，只用于跟踪压测</span></label>
+          <input id="stressResample" type="checkbox" style="width:auto">
+        </div>
+        <div>
+          <label for="stressMaxAttempts">补图重试上限</label>
+          <input id="stressMaxAttempts" type="number" step="1" min="1" max="20" value="8">
+        </div>
+      </div>
+      <div class="warnline" id="stressEngineWarn" style="display:none"></div>
       <div class="btns">
         <button id="stressRun" class="primary" type="button">跑压测批次</button>
         <button id="stressRefresh" type="button">刷新进度</button>
@@ -390,6 +421,44 @@
     </section>
 
     <section style="margin-top:16px">
+      <h2>步进侦察<span class="hint">T28/T29 · tools/scout_sim.py --json（只读）→ 布局 v2 时间线（known / version / target_cell）</span></h2>
+      <div class="row">
+        <div>
+          <label for="scoutStartT">起飞时刻 t（s）</label>
+          <input id="scoutStartT" type="number" step="1" value="-30">
+        </div>
+        <div>
+          <label for="scoutFrameHz">帧频 Hz</label>
+          <input id="scoutFrameHz" type="number" step="0.5" min="0.5" value="2">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="scoutCarBlock">车当前格（决定 target_cell）</label>
+          <input id="scoutCarBlock" type="text" maxlength="3" placeholder="留空 = 图上的起点">
+        </div>
+        <div>
+          <label for="scoutHeartbeat">心跳重发 s</label>
+          <input id="scoutHeartbeat" type="number" step="0.5" min="0.1" value="1">
+        </div>
+      </div>
+      <div class="btns">
+        <button id="scoutRun" class="primary" type="button">跑侦察</button>
+      </div>
+      <div id="scoutMsg" class="msg" style="display:none"></div>
+      <div id="scoutResult"><span style="color:var(--dim)">还没跑过。点「跑侦察」调用 tools/scout_sim.py（只读，不连车）。</span></div>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>十批步进成果<span class="hint">T34 · _tmp_session/step_loop/batch10（只读）· 指标 / 逐批 / 等待归因 / 甘特图</span></h2>
+      <div class="btns">
+        <button id="stepLoopLoad" type="button">读十批成果</button>
+      </div>
+      <div id="stepLoopMsg" class="msg" style="display:none"></div>
+      <div id="stepLoopResult"><span style="color:var(--dim)">还没读。点「读十批成果」加载 metrics.json / batches.csv / analysis.md。</span></div>
+    </section>
+
+    <section style="margin-top:16px">
       <h2>预检<span class="hint">config_selfcheck + route_check（只读）</span></h2>
       <div id="checks"><span style="color:var(--dim)">还没跑过预检。</span></div>
     </section>
@@ -424,7 +493,7 @@
 <div id="stressModal" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="stressModalTitle">
   <div class="modalBox">
     <div class="modalHead">
-      <h3 id="stressModalTitle">64 图压测 · 路线结果</h3>
+      <h3 id="stressModalTitle">随机图压测 · 路线结果</h3>
       <span class="grow"></span>
       <button id="stressModalClose" type="button">关闭</button>
     </div>
@@ -1555,6 +1624,7 @@ function loadField() {
     refreshFieldHints();
     renderMap();
     refreshEngineHint();          // 车端引擎可能随来源目录变化；显式 what-if 提示同步刷新
+    refreshStressEngineHint();    // 压测面板：引擎/图冲突提示同步刷新
     return true;
   }).catch(function (problem) {
     text($('fieldMeta'), '读场地失败：' + problem.message
@@ -2424,6 +2494,144 @@ function runDroneSimulation() {
 }
 $('droneRun').addEventListener('click', runDroneSimulation);
 
+/* ── 步进侦察（T28/T29）：POST /sim/scout → tools/scout_sim.py --json ── */
+function scoutBody() {
+  var body = {};
+  var st = String($('scoutStartT').value || '').trim();
+  if (st !== '') body.startT = Number(st);
+  var hz = String($('scoutFrameHz').value || '').trim();
+  if (hz !== '') body.frameHz = Number(hz);
+  var hb = String($('scoutHeartbeat').value || '').trim();
+  if (hb !== '') body.heartbeatS = Number(hb);
+  var cb = String($('scoutCarBlock').value || '').trim();
+  if (cb) body.carBlock = cb;
+  return body;
+}
+function renderScout(payload) {
+  var stats = payload.stats || {};
+  var truth = payload.truth || {};
+  var html = '<div class="stressSum"><div class="row">'
+    + '<b>覆盖</b> ' + esc((stats.coverage_cells || 0) + '/' + (stats.cells_total || 0))
+    + ' · <b>帧</b> ' + esc(stats.frames || 0) + ' / ' + esc(num(stats.duration_s, 1)) + ' s'
+    + ' · <b>相邻帧面积重叠 min</b> ' + esc(num((stats.overlap_area_min || 0) * 100, 1)) + '%'
+    + ' · <b>known</b> ' + esc(payload.knownCount || 0)
+    + ' · <b>心跳</b> ' + esc(payload.heartbeatCount || 0) + ' 条'
+    + ' · 用时 ' + esc(num(payload.elapsedMs / 1000, 1)) + ' s</div>';
+  if (truth.name) {
+    html += '<div class="foot">真值图：' + esc(truth.name) + ' · 起 ' + esc(truth.start || '—')
+      + ' / 终 ' + esc(truth.end || '—') + ' · 雷 ' + (truth.mines || []).length
+      + ' / 障 ' + (truth.obstacles || []).length + ' / 靶 ' + (truth.targets || []).length + '</div>';
+  }
+  var layouts = payload.layouts || [];
+  html += '<div class="scroll" style="max-height:220px;margin-top:6px"><table><thead><tr>'
+    + '<th>v</th><th class="num">t</th><th class="num">known</th><th>target</th>'
+    + '<th class="num">雷</th><th class="num">障</th><th class="num">靶</th></tr></thead><tbody>';
+  if (!layouts.length) html += '<tr><td colspan="7" style="color:var(--dim)">无布局</td></tr>';
+  layouts.slice(-60).forEach(function (item) {
+    html += '<tr><td>' + esc(item.version) + '</td><td class="num">' + esc(num(item.ts, 1)) + '</td>'
+      + '<td class="num">' + esc(item.knownCount) + '</td><td>' + esc(item.targetCell || '—') + '</td>'
+      + '<td class="num">' + esc(item.mineCount) + '</td><td class="num">' + esc(item.obstacleCount) + '</td>'
+      + '<td class="num">' + esc(item.targetCount) + '</td></tr>';
+  });
+  html += '</tbody></table></div>';
+  var cmp = payload.comparison || {};
+  var rows = [];
+  [['generated', '推荐路线'], ['user_route', '用户手绘'], ['user_route_same_step', '用户手绘 0.7m']].forEach(function (pair) {
+    var item = cmp[pair[0]];
+    if (item) rows.push(pair[1] + '：' + item.frames + ' 帧 / ' + num(item.duration_s, 1) + ' s / '
+      + item.coverage_cells + '/' + item.cells_total);
+  });
+  if (rows.length) html += '<div class="foot">对照：' + esc(rows.join(' · ')) + '</div>';
+  html += '</div>';
+  $('scoutResult').innerHTML = html;
+}
+function runScout() {
+  var button = $('scoutRun');
+  button.disabled = true;
+  message($('scoutMsg'), 'ok', '侦察仿真中…（scout_sim.py --json，纯离线）');
+  api('/sim/scout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(scoutBody()) })
+    .then(function (payload) {
+      renderScout(payload);
+      message($('scoutMsg'), 'ok', '完成：' + (payload.layouts || []).length + ' 份布局 / '
+        + (payload.heartbeatCount || 0) + ' 条心跳');
+    })
+    .catch(function (problem) {
+      $('scoutResult').innerHTML = '<span style="color:var(--dim)">未完成。</span>';
+      message($('scoutMsg'), 'bad', '侦察失败：' + problem.message);
+    })
+    .then(function () { button.disabled = false; });
+}
+$('scoutRun').addEventListener('click', runScout);
+
+/* ── 十批步进成果（T34）：GET /sim/step-loop → metrics/batches/analysis ── */
+function renderStepLoop(payload) {
+  var m = payload.metrics || {};
+  var files = payload.files || [];
+  var html = '<div class="stressSum"><div class="row">'
+    + '<b>阶段</b> ' + esc(m.phase || '—')
+    + ' · <b>任务时长</b> ' + esc(num(m.total_time_s, 1)) + ' s'
+    + ' · <b>等待</b> ' + esc(num(m.wait_total_s, 1)) + ' s'
+    + ' · <b>段/重规划</b> ' + esc(m.segments_done || 0) + '/' + esc(m.replans || 0)
+    + ' · <b>known</b> ' + esc(m.known_count || 0)
+    + '</div><div class="row">'
+    + '<b>雷</b> ' + esc(m.mines_pressed_count || 0) + '/' + esc(m.mines_total || 0)
+    + ' · <b>射击停站</b> ' + esc(m.shoot_stops_visited || 0)
+    + ' · <b>桥洞</b> ' + esc((m.bridge_cells || []).join('/') || '—')
+    + ' · <b>未知格</b> ' + esc((m.unknown_entries_plan || 0) + '/' + (m.unknown_entries_truth || 0))
+    + ' · <b>route_check</b> ' + esc(m.task_route_check_errors || 0)
+    + ' · <b>批次</b> ' + esc(m.batches || (payload.batches || []).length)
+    + '</div>';
+  if (m.bottleneck) html += '<div class="foot">瓶颈：' + esc(m.bottleneck) + '</div>';
+  html += '</div>';
+  var batches = payload.batches || [];
+  if (batches.length) {
+    html += '<div class="scroll" style="max-height:220px;margin-top:6px"><table><thead><tr>'
+      + '<th class="num">批</th><th class="num">t</th><th class="num">新增</th><th class="num">known</th>'
+      + '<th>车格</th><th>target</th><th>等?</th><th>原因</th></tr></thead><tbody>';
+    batches.forEach(function (row) {
+      html += '<tr><td class="num">' + esc(row.id) + '</td><td class="num">' + esc(num(row.t, 2)) + '</td>'
+        + '<td class="num">' + esc(row.cells_added) + '</td><td class="num">' + esc(row.known_count) + '</td>'
+        + '<td>' + esc(row.car_cell || '—') + '</td><td>' + esc(row.target || '—') + '</td>'
+        + '<td>' + esc(row.waiting) + '</td><td class="why">' + esc(row.reason || '') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+  if (files.length) {
+    html += '<div class="foot" style="margin-top:6px">产物：';
+    files.forEach(function (name) {
+      html += '<a style="margin-right:10px" target="_blank" href="' + API + '/sim/step-loop/artifact?dir='
+        + encodeURIComponent(payload.dir || '') + '&name=' + encodeURIComponent(name) + '">' + esc(name) + '</a>';
+    });
+    html += '</div>';
+  }
+  if (files.indexOf('gantt.png') !== -1) {
+    html += '<div style="margin-top:6px"><img style="max-width:100%;border:1px solid var(--line);border-radius:6px" src="'
+      + API + '/sim/step-loop/artifact?dir=' + encodeURIComponent(payload.dir || '')
+      + '&name=gantt.png" alt="十批步进甘特图"></div>';
+  }
+  if (payload.analysis) {
+    html += '<details style="margin-top:6px"><summary>analysis.md（' + payload.analysis.length
+      + ' 字符）</summary><pre style="white-space:pre-wrap">' + esc(payload.analysis) + '</pre></details>';
+  }
+  $('stepLoopResult').innerHTML = html;
+}
+function loadStepLoop() {
+  var button = $('stepLoopLoad');
+  button.disabled = true;
+  message($('stepLoopMsg'), 'ok', '读取十批步进成果…');
+  api('/sim/step-loop')
+    .then(function (payload) {
+      renderStepLoop(payload);
+      message($('stepLoopMsg'), 'ok', '已加载 ' + (payload.dir || '') + '（只读）');
+    })
+    .catch(function (problem) {
+      $('stepLoopResult').innerHTML = '<span style="color:var(--dim)">未加载。</span>';
+      message($('stepLoopMsg'), 'bad', '读取失败：' + problem.message);
+    })
+    .then(function () { button.disabled = false; });
+}
+$('stepLoopLoad').addEventListener('click', loadStepLoop);
+
 /* ── 50 图压测面板 —— POST /sim/stress（background 202）→ status 轮询 →
      result 取回渲染。后端零改动，只消费 3 个 /sim/stress 端点。
    · 统计口径 = stressStats 的**显式分母**字段：counts.<项> 即各均值分母原样、
@@ -2433,6 +2641,7 @@ $('droneRun').addEventListener('click', runDroneSimulation);
      stressBusy（simbench 409 '压测进行中，单跑请稍候再试'，走既有 runSimulation catch）
      均原文可见；跑批期间 stressRun 按钮 disabled 防重复点击。 */
 var STRESS = { batchId: '', timer: null, total: 0, done: 0, polls: 0 };
+var STRESS_BASE = null;   // 压测固定用仓库 config 的 /sim/map 快照（不吃「场地来源」）
 
 /** 表单 → 请求体（默认与输入框初值一致：seed=20261015、count=64；非法/越界自动回退）。 */
 function stressConfig() {
@@ -2442,7 +2651,53 @@ function stressConfig() {
   var count = /^\d+$/.test(countRaw) ? Number(countRaw) : 64;
   if (count < 1) count = 1;
   if (count > 500) count = 500;
-  return { seed: seed, count: count, label: 'stress' };
+  var mode = ($('stressMode') && String($('stressMode').value) === 'plan') ? 'plan' : 'track';
+  var engine = $('stressEngine') ? String($('stressEngine').value || '') : '';
+  var resample = $('stressResample') ? !!$('stressResample').checked : false;
+  if (mode === 'plan') resample = false;      // 规划压测补图会把 plan-failed 选择掉，成功率失真
+  var attemptsRaw = $('stressMaxAttempts') ? String($('stressMaxAttempts').value || '').trim() : '';
+  var maxAttempts = /^\d+$/.test(attemptsRaw) ? Number(attemptsRaw) : 8;
+  if (maxAttempts < 1) maxAttempts = 1;
+  if (maxAttempts > 20) maxAttempts = 20;
+  var body = { seed: seed, count: count, label: 'stress', mode: mode,
+               resample: resample, maxAttempts: maxAttempts };
+  if (engine) body.engine = engine;           // 不带 engine = 跟随 robot.yaml（与单跑同口径）
+  return body;
+}
+/** 压测引擎/模式提示：把「tracker-safe 与 :PIVOT 图结构性冲突」显式写出来，不静默。 */
+function refreshStressEngineHint() {
+  var box = $('stressEngineWarn');
+  if (!box) return;
+  var mode = ($('stressMode') && String($('stressMode').value) === 'plan') ? 'plan' : 'track';
+  var want = $('stressEngine') ? String($('stressEngine').value || '') : '';
+  var base = STRESS_BASE || FIELD || {};
+  var car = (base.planner && base.planner.engine) || null;
+  var route = base.route || [];
+  var pivots = route.filter(function (t) { return /:PIVOT/i.test(String(t)); }).length;
+  var lines = [];
+  var planMode = mode === 'plan';
+  if ($('stressResample')) $('stressResample').disabled = planMode;
+  if ($('stressMaxAttempts')) $('stressMaxAttempts').disabled = planMode;
+  if (mode === 'plan') {
+    lines.push('规划压测只跑 plan_route，不进入仿真；plan-failed = 规划器真实失败率（不补图、不掩盖）。');
+  } else {
+    lines.push('跟踪压测跑完整仿真；「补图」会先规划再跑，plan-failed 被选择掉并单列 generator-unsolvable。');
+  }
+  if (!want && car === 'tracker-safe' && pivots > 0) {
+    lines.push('⚠️ robot.yaml planner.engine=tracker-safe，而本图路线含 ' + pivots
+      + ' 个 :PIVOT；tracker-safe 明确禁 180°/禁紧凑 U（route/planner.py）⇒ 规划结构性无解。'
+      + '压测请显式选 tour；车端自动规划要跑通需负责人把 planner.engine 改 tour（本页不改配置）。');
+  } else if (!want && car) {
+    lines.push('当前跟随 robot.yaml planner.engine=' + car + (pivots ? '；本图含 ' + pivots + ' 个 :PIVOT。' : '；本图无 :PIVOT。'));
+  }
+  box.style.display = '';
+  box.textContent = lines.join(' ');
+}
+/** 压测输入固定是仓库 config/（不吃「场地来源」）——单独取一份 base map 供引擎冲突提示用。 */
+function loadStressBase() {
+  api('/sim/map').then(function (body) {
+    if (body && body.ok) { STRESS_BASE = body; refreshStressEngineHint(); }
+  }).catch(function () { /* 取不到就退回 FIELD；提示文案仍说明「跟随 robot.yaml」 */ });
 }
 function stressStopPoll() {
   if (STRESS.timer) { clearInterval(STRESS.timer); STRESS.timer = null; }
@@ -2471,6 +2726,10 @@ function stressRenderStats(payload) {
   var pf = sc['plan-failed'] !== undefined ? sc['plan-failed']
     : (sc.plan_failed !== undefined ? sc.plan_failed : 0);
   var ratio = function (value) { return value === null || value === undefined ? '—' : String(value); };
+  var plan = s.plan || {};
+  var planMode = (batch.mode || 'track') === 'plan';
+  var engineText = Object.keys(plan.engines || {}).map(function (k) { return k + '×' + plan.engines[k]; }).join(' ');
+  var topText = (plan.topReasons || []).map(function (r) { return r.reason + '×' + r.count; }).join(' ; ');
   var rows = [
     ['批图数 n', ratio(s.n), '本批记录总数（所有比率的分母基准）'],
     ['完赛率 finishedRate', ratio(s.finishedRate),
@@ -2485,6 +2744,15 @@ function stressRenderStats(payload) {
     ['平均长度比 avgLengthRatio', ratio(s.avgLengthRatio),
       'Σ length_ratio / ' + ratio(c.lengthRatio) + '（missing.lengthRatio=' + ratio(miss.lengthRatio) + ' 单列）'],
     ['status 分布', esc(JSON.stringify(sc)), '照实（plan-failed/超时/exit* 各自单列计数）'],
+    ['模式 mode', planMode ? '规划压测（只规划）' : '跟踪压测（规划+仿真）', 'batch.mode；plan 模式不进入物理仿真'],
+    ['规划成功 planned', planMode ? ratio(plan.ok) : '—（跟踪模式不产生 planned）', 'status=planned 的记录数（仅规划压测产生）'],
+    ['规划失败 plan-failed', ratio(plan.fail), '规划器真实失败，单列（不并入其它均值分子）'],
+    ['规划成功率 plan.okRate', planMode ? ratio(plan.okRate) : '—', 'planned / n（仅规划压测口径；跟踪压测有补图偏差，不要横比）'],
+    ['平均 token（规划成功）', plan.tokens ? ratio(plan.tokens.avg) : '—',
+      plan.tokens && plan.tokens.avg !== null ? ('min ' + plan.tokens.min + ' / max ' + plan.tokens.max + '，分母 ' + ratio(plan.ok)) : '无 planned 记录'],
+    ['生成器无解 generator-unsolvable', ratio(plan.genUnsolved), '补图耗尽后仍无可行图；单列，不并入规划失败率'],
+    ['引擎分布', engineText || '—', 'record.plan.engine（显式选择或 robot.yaml）'],
+    ['失败主因 top', topText || '—', '规划器 stderr 末行，最多 5 条'],
   ];
   var html = '<table><thead><tr><th>指标</th><th class="num">值</th><th>分母 / 口径（t7 stressStats 显式）</th></tr></thead><tbody>';
   rows.forEach(function (row) {
@@ -2511,8 +2779,9 @@ function stressRenderStats(payload) {
         「不是弹窗没显示，是这一批没有图规划出路线」。 */
 var STRESS_MODAL = { currentId: '' };
 var ST_MAP_S = 16;                                   // 缩略图每格像素（主图 34）
-var ST_STATUS_CN = { done: '完成', 'plan-failed': '规划失败', invalid: '图非法', error: '错误', timeout: '超时' };
-var ST_STATUS_ORDER = ['done', 'plan-failed', 'invalid', 'error', 'timeout'];
+var ST_STATUS_CN = { planned: '规划通过', done: '完成', 'plan-failed': '规划失败',
+  'generator-unsolvable': '生成器无解', invalid: '图非法', error: '错误', timeout: '超时' };
+var ST_STATUS_ORDER = ['planned', 'done', 'plan-failed', 'generator-unsolvable', 'invalid', 'error', 'timeout'];
 function stStatusCn(s) { return ST_STATUS_CN[s] || String(s || '?'); }
 function stStatusClass(s) { return String(s || 'other').replace(/[^a-zA-Z-]/g, '') || 'other'; }
 /** 从 record 里摘出最好读的一条失败原因：`plan.stderrTail` 的末行（规划器的 `· …` 明细）优先。 */
@@ -2632,9 +2901,15 @@ function stressCardHtml(record, i, miniCellCenter) {
     + '<span class="stressBadge ' + stStatusClass(st) + '">' + esc(stStatusCn(st)) + '</span></div>';
   var note;
   if (routeCells.length > 1) {
-    note = '<div class="meta">' + num(m.time_s, 1) + ' s · ' + (m.finished ? '完赛' : '未完赛')
-      + ' · RMS ' + num(m.rms_m, 2) + ' m'
-      + (Number(m.out_of_bounds) > 0 ? ' · 越界 ' + num(m.out_of_bounds, 0) : '') + '</div>';
+    if (String(record && record.mode) === 'plan') {
+      note = '<div class="meta">规划 ' + num(record.plan && record.plan.ms, 1) + ' ms · '
+        + esc(String((record.plan && record.plan.tokenCount) || tokens.length)) + ' token · '
+        + esc(String((record.plan && record.plan.engine) || '')) + '</div>';
+    } else {
+      note = '<div class="meta">' + num(m.time_s, 1) + ' s · ' + (m.finished ? '完赛' : '未完赛')
+        + ' · RMS ' + num(m.rms_m, 2) + ' m'
+        + (Number(m.out_of_bounds) > 0 ? ' · 越界 ' + num(m.out_of_bounds, 0) : '') + '</div>';
+    }
   } else {
     note = '<div class="why">' + esc(stressReasonOf(record) || '无路线（该记录没有 route，详见状态）') + '</div>';
   }
@@ -2646,6 +2921,9 @@ function stressRenderModal(payload) {
   var records = (payload && payload.records) || [];
   var stats = (payload && payload.stats) || {};
   var batch = (payload && payload.batch) || {};
+  var planMode = (batch.mode || 'track') === 'plan';
+  var title = $('stressModalTitle');
+  if (title) title.textContent = planMode ? '规划压测 · 路线结果' : '随机图压测 · 路线结果';
   var g = (FIELD && FIELD.grid) || { cols: 14, rows: 11, colLetters: 'ABCDEFGHIJKLMN' };
   var miniCellCenter = function (cell) {
     var ci = g.colLetters.indexOf(String(cell)[0].toUpperCase());
@@ -2663,14 +2941,25 @@ function stressRenderModal(payload) {
     : records.filter(function (r) { return r && r.metrics && r.metrics.finished; }).length;
   var denPlan = Number.isFinite(Number(cnt.planMs)) ? Number(cnt.planMs)
     : records.filter(function (r) { return r && r.plan && r.plan.ms !== undefined; }).length;
-  $('stressModalFoot').innerHTML =
-    '<span>平均完赛时间 <b class="big">' + esc(avgFinish) + ' s</b>'
-    + '<span style="color:var(--dim);font-size:12px"> / 分母 ' + esc(String(denFinish)) + ' 张完赛</span></span>'
-    + '<span>路线规划平均计算时间 <b class="big">' + esc(avgPlan) + ' ms</b>'
-    + '<span style="color:var(--dim);font-size:12px"> / 分母 ' + esc(String(denPlan)) + ' 张有规划耗时</span></span>'
+  var planFoot;
+  if (planMode) {
+    var sp = stats.plan || {};
+    planFoot = '<span>规划成功 <b class="big">' + esc(String(sp.ok === undefined ? '—' : sp.ok)) + '</b>'
+      + '<span style="color:var(--dim);font-size:12px"> / ' + records.length + ' 张 · 失败 '
+      + esc(String(sp.fail === undefined ? '—' : sp.fail)) + ' · 生成器无解 '
+      + esc(String(sp.genUnsolved === undefined ? '—' : sp.genUnsolved)) + '</span></span>'
+      + '<span>平均规划耗时 <b class="big">' + esc(avgPlan) + ' ms</b>'
+      + '<span style="color:var(--dim);font-size:12px"> / 分母 ' + esc(String(denPlan)) + ' 张</span></span>';
+  } else {
+    planFoot = '<span>平均完赛时间 <b class="big">' + esc(avgFinish) + ' s</b>'
+      + '<span style="color:var(--dim);font-size:12px"> / 分母 ' + esc(String(denFinish)) + ' 张完赛</span></span>'
+      + '<span>路线规划平均计算时间 <b class="big">' + esc(avgPlan) + ' ms</b>'
+      + '<span style="color:var(--dim);font-size:12px"> / 分母 ' + esc(String(denPlan)) + ' 张有规划耗时</span></span>';
+  }
+  $('stressModalFoot').innerHTML = planFoot
     + '<span class="grow" style="color:var(--dim)">batchId ' + esc(String(batch.batchId || STRESS.batchId || '—'))
     + ' · seed ' + esc(batch.seed === undefined ? '—' : String(batch.seed))
-    + ' · ' + records.length + ' 图</span>';
+    + ' · ' + records.length + ' 图 · ' + esc((batch.mode || 'track') === 'plan' ? '规划模式' : '跟踪模式') + '</span>';
   STRESS_MODAL.currentId = batch.batchId || STRESS.batchId || '';
   modal.style.display = 'flex';
 }
@@ -2719,7 +3008,8 @@ function stressStart() {
   STRESS.polls = 0;
   $('stressRun').disabled = true;                  // running 态按钮 disabled（防重复点击）
   $('stressStats').innerHTML = '<span style="color:var(--dim)">压测进行中…完成后自动渲染统计。</span>';
-  message($('stressMsg'), 'ok', '压测提交中…（seed=' + cfg.seed + ' count=' + cfg.count + '）');
+  message($('stressMsg'), 'ok', '压测提交中…（' + (cfg.mode === 'plan' ? '规划' : '跟踪')
+    + ' · seed=' + cfg.seed + ' · count=' + cfg.count + ' · engine=' + (cfg.engine || '跟随配置') + '）');
   api('/sim/stress', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cfg) })
     .then(function (payload) {
       STRESS.batchId = payload.batchId;
@@ -2740,6 +3030,9 @@ function stressStart() {
 }
 $('stressRun').addEventListener('click', stressStart);
 $('stressRefresh').addEventListener('click', stressPoll);
+if ($('stressMode')) $('stressMode').addEventListener('change', refreshStressEngineHint);
+if ($('stressEngine')) $('stressEngine').addEventListener('change', refreshStressEngineHint);
+refreshStressEngineHint();
 
 // 深链 `#view=<run id>` → 打开该 run 的图（**显式动作**，不是预取；普通打开仍是 0 请求）
 function openFromHash() {
@@ -2752,6 +3045,7 @@ function openFromHash() {
 updateFetchCount();     // 画上计数器（此时必须为 0）
 loadRoot();
 loadField();            // 先拿场地：地图视图 + 改点位表单的默认值
+loadStressBase();       // 压测输入固定是仓库 config（与「场地来源」解耦）
 loadHistory().then(openFromHash);   // 历史就绪后再按 hash 打开（避免 findRun 找不到）
 </script>
 </body>

@@ -16,6 +16,7 @@
 import { spawn } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -504,7 +505,7 @@ export function corridorRows(field) {
  *  不变；真改了要重启宿主，与此前 `PLAN_CLI` 常量同口径）。 */
 const ENGINE_FALLBACK_CHOICES = ['tour', 'tracker-safe']
 let engineChoicesCache = null
-function plannerEngineChoices() {
+export function plannerEngineChoices() {
   if (engineChoicesCache) return engineChoicesCache
   let choices = ENGINE_FALLBACK_CHOICES
   try {
@@ -789,6 +790,60 @@ export async function planRoute({ configPath, mapPath, timeoutMs = 300 * 1000, f
 }
 
 /**
+ * 轻量规划检查（不跑仿真、不落运行目录）：给「规划压测」和「补图预筛」用。
+ *
+ * 与 runSimJob 的区别：只把本次 field 写进**系统临时目录**（用完即删），
+ *   config/ 与 artifacts/sim/ 都零写入；返回结构足够做成功率/token/耗时统计。
+ * 为什么不在 artifacts 里建 run 目录：64 张图 × 预筛会制造大量只含 map_override
+ *   的「僵尸 run」，污染历史列表；规划结果本身只需要摘要。
+ */
+export async function checkPlan({ field = null, engine = null } = {}) {
+  const started = Date.now()
+  let tmp = null
+  try {
+    let configPath = ROBOT_FILE
+    let mapPath = MAP_FILE
+    if (field) {
+      tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dzsim-plan-'))
+      const overrideMap = path.join(tmp, 'map.yaml')
+      const overrideRobot = path.join(tmp, 'robot.yaml')
+      fs.writeFileSync(overrideMap, applyFieldToMapText(fs.readFileSync(MAP_FILE, 'utf8'), field), 'utf8')
+      fs.copyFileSync(ROBOT_FILE, overrideRobot)
+      configPath = overrideRobot
+      mapPath = overrideMap
+    }
+    const planned = await planRoute({ configPath, mapPath, engine })
+    const ok = !planned.engineError && planned.exitCode === 0 && !planned.timedOut
+      && planned.tokens.length > 0
+    const firstFailure = Array.isArray(planned.failures) && planned.failures.length > 0
+      ? String(planned.failures[0]?.message ?? planned.failures[0] ?? '')
+      : ''
+    return {
+      ok,
+      ms: Date.now() - started,
+      tokens: planned.tokens,
+      plan: planned.plan ?? null,
+      check: planned.check ?? null,
+      failures: planned.failures ?? [],
+      exitCode: planned.exitCode,
+      timedOut: planned.timedOut,
+      engine: planned.engine,
+      engineRequested: planned.engineRequested,
+      engineSource: planned.engineSource,
+      engineError: planned.engineError,
+      stderrTail: planned.stderrTail,
+      stdoutTail: planned.stdoutTail,
+      error: planned.engineError || (ok ? '' : (firstFailure
+        || planned.stderrTail || ('plan_route exit=' + planned.exitCode))),
+    }
+  } finally {
+    if (tmp) {
+      try { fs.rmSync(tmp, { recursive: true, force: true }) } catch { /* 清理失败不改变结论 */ }
+    }
+  }
+}
+
+/**
  * 参数快照（用于台账，与 run 记录一起存）。
  *
  * 导出**仅供离线断言**使用（`scripts/test-sim-map-render.mjs` 的「E 透传链②」一组）：
@@ -964,7 +1019,7 @@ function parseMetrics(text) {
 }
 
 /** 跑一个子进程，返回 {exitCode, stdout, stderr, timedOut}。 */
-function runChild(command, argv, { cwd, timeoutMs, env = {} }) {
+export function runChild(command, argv, { cwd, timeoutMs, env = {} }) {
   return new Promise(resolve => {
     const child = spawn(command, argv, {
       cwd,

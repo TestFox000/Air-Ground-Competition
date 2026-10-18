@@ -38,6 +38,7 @@ import {
 import { fieldSpec, listHistory, resolveFieldSource, routeTokens, routeTokensFromFile, routeTokensOf, runChecks, runSim, serveArtifact, SIM_ROOT } from './src/simbench.js'
 import { runStress, stressResult, stressStatus } from './src/stressbench.js'
 import { droneHistory, runDroneSim } from './src/dronesim.js'
+import { runScoutSim, stepLoopArtifact, stepLoopResults } from './src/scoutsim.js'
 
 export const name = 'dzrobot-ssh'
 
@@ -413,6 +414,24 @@ export function apply(ctx, config = {}) {
       }
       if (method === 'GET' && route === '/sim/drone/history') {
         return send(200, droneHistory())
+      }
+      // ── 步进侦察（T28/T29）与十批步进成果（T34）——只读 ───────────────
+      if (method === 'POST' && route === '/sim/scout') {
+        const body = await readJson(req) ?? {}
+        const result = await runScoutSim(body)
+        return send(result.ok ? 200 : (result.code ?? 500), result)
+      }
+      if (method === 'GET' && route === '/sim/step-loop') {
+        const result = stepLoopResults({ dir: url.searchParams.get('dir') || undefined })
+        return send(result.ok ? 200 : (result.code ?? 500), result)
+      }
+      if (method === 'GET' && route === '/sim/step-loop/artifact') {
+        const found = stepLoopArtifact({
+          dir: url.searchParams.get('dir') || undefined,
+          name: url.searchParams.get('name') || undefined,
+        })
+        if (!found) return send(404, { error: 'artifact not found' })
+        return serveFile(res, send, found.file, found.type)
       }
       if (method === 'GET' && route.startsWith('/novnc/')) {
         return serveNovnc(res, route.slice('/novnc/'.length), send)
