@@ -41,8 +41,11 @@ except Exception:                              # pragma: no cover
 from harness import check, finish, section                     # noqa: E402
 
 from dzbrain.core import geometry as geo                       # noqa: E402
-from dzbrain.core.blackboard import (Blackboard, P_MISSION_PHASE, P_POSE,  # noqa: E402
-                                     P_ROUTE, P_SAFETY, P_STOP_POINT)
+from dzbrain.core.blackboard import (Blackboard, P_MISSION_PHASE, P_ODOM_AGE,  # noqa: E402
+                                     P_POSE, P_POSE_RAW, P_ROUTE, P_SAFETY, P_STOP_POINT)
+from dzbrain.io import contract as CT                          # noqa: E402
+from dzbrain.io import ros_io as RIO                           # noqa: E402
+from dzbrain.tasks.localization import LocalizationTask         # noqa: E402
 from dzbrain.core.config import Config                         # noqa: E402
 from dzbrain.core.events import EV_MISSION_FINISHED, EventBus  # noqa: E402
 from dzbrain.core.state import SafetyState, StopKind, StopPhase  # noqa: E402
@@ -470,9 +473,14 @@ import dzbrain.io.ros_io as _rz                                          # noqa:
 
 
 class _FakeLiveBridge:
+    """run_live 的 RosBridge 替身（NO ROS）：_ready 控制位姿就绪门的放行。"""
+
+    READY = True
+
     def __init__(self, *a, **k):
         self.shutdown_brakes: list[bool] = []
         self.spun = 0
+        self._ready = bool(self.READY)
 
     def spin_async(self, threads: int = 4):
         self.spun += 1
@@ -480,6 +488,24 @@ class _FakeLiveBridge:
     def shutdown(self, *, brake: bool = True):
         self.shutdown_brakes.append(brake)
         return 0
+
+    # ---- 启动自检 / 位姿就绪门接口（与 RosBridge 同名同义）----
+    def subscription_topics(self):
+        return list(RIO.required_subscription_topics().values())
+
+    def topic_counts(self):
+        return {"odom": {"publishers": 1 if self._ready else 0, "subscribers": 1},
+                "drone_in": {"publishers": 1, "subscribers": 1},
+                "pursuit_angle": {"publishers": 1, "subscribers": 1}}
+
+    def pose(self):
+        return geo.Pose(*geo.block_to_meters("N10"), geo.HEADING_Y) if self._ready else None
+
+    def pose_age(self):
+        return 0.05 if self._ready else float("inf")
+
+    def publish_brake(self):
+        return None
 
 
 class _FakeLiveDrone:
@@ -553,7 +579,9 @@ try:
     M.plan_route_from_field_layout = _fake_one_shot
     M._run_step_loop = _fake_step_loop
     cfg_live = Config.from_dict({"planner": {"auto_plan_enabled": True},
-                                 "route": {"tokens": ["N10", "N5,y"]}})
+                                 "route": {"tokens": ["N10", "N5,y"]},
+                                 # §11 只验接线：位姿门关闭（位姿门由 §13 单独钉）
+                                 "step": {"pose_ready_wait_s": 0.0}})
     rc = M.run_live(cfg_live, log=lambda s: None)
     check("11.1 v2 布局 → run_live 走步进循环（_run_step_loop 调 1 次）",
           calls["step"] == 1, str(calls))
@@ -758,4 +786,148 @@ check("12.18 空段（车已在 C9）也报 stop_kind='shoot'：机端不会把'
       str(_done15[-1] if _done15 else None))
 rig15.close()
 
+# =========================================================================== #
+# 13. ★2026-10-18 现场回归：ROS 图自检 / 位姿就绪门 / 运行期位姿看门狗
+# =========================================================================== #
+section("13. ★现场 pose_stale 回归防线：订阅契约 / 唯一 bridge / odom 覆盖信念 / 无 odom⇒exit5")
+
+_req = RIO.required_subscription_topics()
+_topic_odom = CT.topic("odom")
+check("13.1 订阅契约：/odom/localization 在必订清单里（QoS=best_effort depth=10，与旧构建逐字相同）",
+      _req.get("odom") == "/odom/localization"
+      and _topic_odom.name == "/odom/localization"
+      and _topic_odom.qos.reliability == "best_effort"
+      and _topic_odom.qos.depth == 10,
+      f"{_req.get('odom')} / {_topic_odom.qos}")
+
+cfg13 = cfg_of()
+_clock13 = FakeClock()
+bridge13 = FakeBridge(_clock13)
+bb13, bus13 = Blackboard(), EventBus()
+group13, skipped13 = M.build_tasks(bridge13, bb13, bus13, cfg13,
+                                   log=lambda _s: None, skip={"drone"})
+names13 = [t.name for t in group13._tasks]
+check("13.2 布局模式装配：Localization/Safety/Tracker/Mission 都在组内（skip 只跳 drone）",
+      {"Localization", "Safety", "TrackerTask", "MissionTask"} <= set(names13)
+      and "DroneTask" not in names13,
+      f"{names13} / skipped={skipped13}")
+_holders = [t for t in group13._tasks if hasattr(t, "bridge")]
+check("13.3 ★ 组内任务拿到的是同一个 bridge 实例（无二次构造 → 不会丢订阅）",
+      bool(_holders) and all(t.bridge is bridge13 for t in _holders),
+      f"{len(_holders)} 个任务持有 bridge；全部同一实例="
+      f"{all(t.bridge is bridge13 for t in _holders)}")
+
+# ---- 13.4 注入一帧 odom ⇒ P_POSE 被覆盖（钉死"P_POSE 从未写过"那类回归）----
+_clock14 = FakeClock()
+bridge14 = FakeBridge(_clock14)
+bb14, bus14 = Blackboard(), EventBus()
+bb14.set(P_SAFETY, SafetyState(ok=True), "test")
+_seed14 = geo.Pose(*geo.block_to_meters("N10"), geo.HEADING_Y)      # 种子 yaw=90°
+bb14.set(P_POSE, _seed14, "test")
+bridge14.set_pose_at_block("N10", yaw=0.0)                           # 注入一帧 odom（yaw=0）
+loc14 = LocalizationTask(bridge14, bb14, bus14, cfg13, log=lambda _s: None)
+loc14.setup()
+loc14.tick()
+_pose14 = bb14.get(P_POSE)
+check("13.4 ★ 注入一帧 odom ⇒ P_POSE 被写入且 belief 从种子(90°)被覆盖成 odom(0°)",
+      isinstance(_pose14, geo.Pose) and abs(_pose14.yaw) < 1e-9
+      and abs(_pose14.x - geo.block_to_meters("N10")[0]) < 1e-9,
+      f"种子 yaw=90.0° → P_POSE yaw="
+      f"{geo.deg(_pose14.yaw) if isinstance(_pose14, geo.Pose) else 'None'}")
+check("13.5 P_POSE_RAW / P_ODOM_AGE 同时落盘（排障能分辨原始帧与信念）",
+      bb14.get(P_POSE_RAW) is not None and bb14.get(P_ODOM_AGE) is not None,
+      f"raw={bb14.get(P_POSE_RAW)} age={bb14.get(P_ODOM_AGE)}")
+
+# ---- 13.6 无 odom ⇒ 位姿就绪门 False + 打印三条照抄命令 ----
+_cfg_gate = cfg_of().override("step.pose_ready_wait_s", 0.3)
+_logs13: list[str] = []
+_ok_none = M._wait_for_pose_ready(FakeBridge(FakeClock()), _cfg_gate,
+                                  stop_flag={"stop": False},
+                                  log=_logs13.append, sleep=lambda _s: None)
+_text13 = "\n".join(_logs13)
+check("13.6 ★ 无 odom ⇒ 位姿就绪门 False，且打印 topic info / node list / /proc/self/environ 三条命令",
+      _ok_none is False and "位姿就绪门超时" in _text13
+      and "ros2 topic info" in _text13 and "ros2 node list" in _text13
+      and "/proc/self/environ" in _text13,
+      _text13[-260:])
+
+# ---- 13.7 env 自检 ----
+_errors13, _warns13 = RIO.env_problems({"ROS_DOMAIN_ID": "0", "DZ_ROS_DOMAIN": "118",
+                                        "ROS_LOCALHOST_ONLY": "0", "RMW_IMPLEMENTATION": ""})
+check("13.7 ★ 域号分叉（ROS_DOMAIN_ID=0 vs DZ_ROS_DOMAIN=118）⇒ env 自检报 error",
+      bool(_errors13) and "不一致" in _errors13[0], str(_errors13))
+_errors_ok, _warns_ok = RIO.env_problems({"ROS_DOMAIN_ID": "118", "DZ_ROS_DOMAIN": "118",
+                                          "ROS_LOCALHOST_ONLY": "0", "RMW_IMPLEMENTATION": ""})
+_errors_none, _warns_none = RIO.env_problems({"ROS_DOMAIN_ID": "", "DZ_ROS_DOMAIN": "",
+                                              "ROS_LOCALHOST_ONLY": "", "RMW_IMPLEMENTATION": ""})
+check("13.8 域号一致 ⇒ 无 error；没 source dzros.env ⇒ 只告警（不阻断 test/bench）",
+      _errors_ok == [] and bool(_warns_none) and _errors_none == [],
+      f"ok_errs={_errors_ok} none_warns={_warns_none}")
+
+# ---- 13.9 运行期位姿看门狗：DRIVING 中断流 ⇒ ROS_LOST ----
+rig15 = Rig(cfg=cfg_of().override("step.odom_watch_s", 0.3))
+rig15.start(layout_of(known=["N10", "M10", "L10"], target="M10", version=1, segment_id=1))
+rig15.step(3)
+_phase15 = rig15.loop.phase
+rig15.step(40)                                  # 冻结位姿：pose_age 单调增长
+check("13.9 ★ DRIVING 中 /odom 断流 ⇒ 运行期看门狗判 ROS_LOST（不再半死跑）",
+      _phase15 == M.STEP_PHASE_DRIVING and rig15.loop.phase == M.STEP_PHASE_ROS_LOST
+      and bool(rig15.logs_with("运行期位姿看门狗")),
+      f"{_phase15} → {rig15.loop.phase}")
+_why15 = rig15.loop.run(stop_flag={"stop": False}, sleep=lambda _s: None)
+check("13.10 ROS_LOST 后主循环返回 ros_lost（run_live 映射退出码 5）",
+      _why15 == "ros_lost", str(_why15))
+rig15.close()
+
+# ---- 13.11/13.12 run_live 端到端：缺 odom ⇒ exit 5；odom 就绪 ⇒ 正常进步进循环 ----
+
+
+def _run_live_fake(ready: bool, *, wait_s: float = 0.3):
+    """用 NO-ROS 替身跑一遍 run_live 的布局分支（返回 rc / 步进调用次数 / 日志）。"""
+    calls = {"step": 0}
+    logs: list[str] = []
+    names = ("install_stop_signals", "build_tasks", "start_banner", "finish_report",
+             "_start_layout_listener", "_wait_for_field_layout", "_run_step_loop")
+    saved = {name: getattr(M, name) for name in names}
+    saved_bridge = _rz.RosBridge
+
+    class _Bridge(_FakeLiveBridge):
+        READY = ready
+
+    def _step(loop, *, stop_flag, alive=None, log=None):
+        calls["step"] += 1
+        return "finish"
+
+    try:
+        _rz.RosBridge = _Bridge
+        M.install_stop_signals = lambda *a, **k: []
+        M.finish_report = lambda *a, **k: None
+        M.start_banner = lambda *a, **k: None
+        M._start_layout_listener = lambda *a, **k: _FakeLiveDrone()
+        _lay = M.normalize_step_layout(
+            layout_of(known=["N10", "M10"], target="M10"))[0]
+        M._wait_for_field_layout = lambda *a, **k: dict(_lay)
+        M.build_tasks = lambda *a, **k: (_FakeGroup(), [])
+        M._run_step_loop = _step
+        cfg = Config.from_dict({"planner": {"auto_plan_enabled": True},
+                                "route": {"tokens": ["N10", "N5,y"]},
+                                "step": {"pose_ready_wait_s": wait_s}})
+        rc = M.run_live(cfg, log=logs.append)
+    finally:
+        _rz.RosBridge = saved_bridge
+        for name, value in saved.items():
+            setattr(M, name, value)
+    return rc, calls, logs
+
+
+rc_bad, calls_bad, logs_bad = _run_live_fake(False)
+check("13.11 ★ 布局模式缺 odom ⇒ run_live 退出码 5、不启动步进循环、日志给诊断",
+      rc_bad == 5 and calls_bad["step"] == 0
+      and any("位姿就绪门超时" in s for s in logs_bad),
+      f"rc={rc_bad} step_calls={calls_bad['step']}")
+rc_ok, calls_ok, logs_ok = _run_live_fake(True)
+check("13.12 同一装配下 odom 就绪 ⇒ 位姿门放行、进入步进循环并正常收尾",
+      rc_ok == 0 and calls_ok["step"] == 1
+      and any("位姿就绪门通过" in s for s in logs_ok),
+      f"rc={rc_ok} step_calls={calls_ok['step']}")
 finish()

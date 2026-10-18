@@ -822,6 +822,19 @@ class _FakeLiveBridge:
         self.shutdown_brakes.append(brake)
         return 0
 
+    # ---- 2026-10-18 新增的启动自检/位姿就绪门接口（run_live 会调；T-FIX）----
+    def subscription_topics(self):
+        return ["/odom/localization"]
+
+    def topic_counts(self):
+        return {"odom": {"publishers": 1, "subscribers": 1}}
+
+    def pose(self):
+        return object()
+
+    def pose_age(self):
+        return 0.05
+
 
 class _FakeLiveDrone:
     def __init__(self, *a, **k):
