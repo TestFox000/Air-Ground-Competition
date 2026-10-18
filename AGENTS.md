@@ -37,6 +37,18 @@ powershell -ExecutionPolicy Bypass -File tools/agent_publish.ps1 `
 FF 合入枢纽 `members/yu-binghuan` → **打印可直接发群的分享链接**（分支/文件/提交/PR 入口）。
 `.md` 交付文档推完即把脚本打印的 blob 链接发群里，队友点开就是最新版。
 
+## 网页上传禁令（2026-10-18 两次事故的教训，必读）
+
+**禁止用 Gitee 网页上传文件夹/zip**——网页上传会把目录分隔写成文件名内反斜杠、或给每个
+路径组件尾部塞回车符，全仓路径损坏、Windows 端全员无法合并（当天两次事故，均已修复）。
+
+- 文件入库一律走 git：onboard / agent_sync / agent_publish 脚本，或手动 git 命令
+- 单个文档确需网页编辑：只在已建目录内逐文件操作，不上传本地文件夹
+- **发现路径污染**（合并报 `invalid path` / 文件名带 `?`）：跑
+  `python tools/repair_web_upload.py origin/<分支>` 检查，加 `--push` 自动修复
+  （blob 零改动的纯路径重建）；开工脚本 agent_sync.ps1 会自动检测并提示
+- CI 有 `tests/test_repo_paths.py` 拦截：带污染路径的 PR 必红，别绕过
+
 ## PR 门禁（合入 main 前）
 
 CI 固定序+随机序双轮绿；测试基线只升不降；协议类目不回退（13 类为真源）；

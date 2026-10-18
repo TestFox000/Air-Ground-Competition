@@ -11,6 +11,7 @@
 # 退出码：0 = 基底新鲜，可以开工
 #         2 = 基底过期，必须先同步再动手（多副本协作公约铁律 2）
 #         3 = 当前在 main/master/枢纽上，禁止直接开发，先切任务分支
+#         4 = 远端路径污染（Gitee 网页上传事故）——先跑 tools/repair_web_upload.py 修复
 #         1 = 错误（fetch 失败/不在仓库内等，先修环境）
 # ============================================================
 
@@ -37,14 +38,38 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "[提示] fetch 失败——网络/凭据问题。仍输出本地已知态势，但远端信息可能陈旧" -ForegroundColor Yellow
 }
 
-# 2) 当前分支与上下游
+# 1) 当前分支与上下游
 $cur = git rev-parse --abbrev-ref HEAD
 Write-Host ""
-Write-Host "[1/4] 当前分支：$cur"
+Write-Host "[1/5] 当前分支：$cur"
+
+# 2) 远端路径污染检测（Gitee 网页上传事故防线，2026-10-18 两次事故后建制）
+$polluted = @()
+foreach ($ref in @("origin/members/yu-binghuan", "origin/main")) {
+    $t = git -c core.quotepath=false ls-tree -r $ref 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        # 只查路径部分（首个制表符之后）；\x09/\x0A 无法与分隔符区分，从正则中排除
+        $bad = @()
+        foreach ($line in $t) {
+            $parts = $line -split "`t", 2
+            if ($parts.Count -eq 2 -and $parts[1] -match '[\x00-\x08\x0B-\x1F<>:"|?*\\]') { $bad += $line }
+        }
+        if ($bad) {
+            $firstPath = (($bad | Select-Object -First 1) -split "`t", 2)[1]
+            $polluted += ("    {0} ：{1} 条污染（首条：{2}）" -f $ref, $bad.Count, $firstPath)
+        }
+    }
+}
+if ($polluted) {
+    Write-Host ""
+    Write-Host "[污染] 检测到 Gitee 网页上传造成的路径污染——不要在此基底开工！" -ForegroundColor Red
+    $polluted | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+    Write-Host "    修复：python tools/repair_web_upload.py <上述分支> --push（blob 零改动，纯路径重建）" -ForegroundColor Yellow
+}
 
 # 3) 远端关键分支态势表
 Write-Host ""
-Write-Host "[2/4] 远端分支态势（主干/枢纽/canonical/成员/智能体）："
+Write-Host "[3/5] 远端分支态势（主干/枢纽/canonical/成员/智能体）："
 $refs = git for-each-ref --format="%(refname:short)|%(objectname:short)|%(contents:subject)" refs/remotes/origin/ |
     Where-Object { $_ -match '^origin/(main$|merge/|members/|agents/)' }
 foreach ($r in $refs) {
@@ -55,12 +80,12 @@ foreach ($r in $refs) {
 
 # 4) 枢纽近期动态（谁在推进什么）
 Write-Host ""
-Write-Host "[3/4] 枢纽 members/yu-binghuan 最近 5 条（他人进展速览）："
+Write-Host "[4/5] 枢纽 members/yu-binghuan 最近 5 条（他人进展速览）："
 git log --oneline -5 origin/members/yu-binghuan 2>$null | ForEach-Object { Write-Host "    $_" }
 
 # 5) 基底判定
 Write-Host ""
-Write-Host "[4/4] 基底判定："
+Write-Host "[5/5] 基底判定："
 $exit = 0
 if ($cur -eq "main" -or $cur -eq "master" -or $cur -eq "members/yu-binghuan") {
     Write-Host "    [禁止] 你正坐在 $cur 上——主干/枢纽不允许直接开发" -ForegroundColor Red
@@ -108,4 +133,5 @@ if ($Agent -and $Task) {
 
 Write-Host ""
 Write-Host "下一步：干活 → 收工执行 tools/agent_publish.ps1（署名提交+推送验证+合枢纽+分享链接）"
+if ($polluted) { exit 4 }
 exit $exit
