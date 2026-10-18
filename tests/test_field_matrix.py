@@ -1,14 +1,17 @@
-"""field_matrix.MatrixFusion 滑窗时序融合测试。
+"""field_matrix.MatrixFusion 滑窗时序融合测试（13 类协议）。
 
 融合器的可靠性承诺（也是这里锁的语义）：
     - 滑窗收敛：窗口内出现 ≥confirm 帧才上矩阵（单帧误检进不来、偶发漏检不闪断）；
     - 过期淘汰：移动类（靶/车）超过 window 帧未复现即清除，静态类（雷）永久保留；
     - 优先级裁决：一格至多一个目标，票数高者优先，平票障碍优先（安全）。
+
+13 类协议：雷 = 非 K 列 PAPER（落格判语义，fixture 里 C3/D4/E6 都是非 K
+列，故 PAPER 即雷）；矩阵层 K 列 PAPER 渲染为箭头 A（见 test_paper_symbol）。
 """
 
 import pytest
 
-from ag_integrate.field_matrix import MatrixFusion
+from ag_integrate.field_matrix import MatrixFusion, build_grid
 from ag_integrate.intel_protocol import IntelFrame, IntelObject, ObjectType
 
 _LETTERS = "ABCDEFGHIJKLMN"
@@ -44,9 +47,9 @@ def test_bad_window_confirm_rejected():
 def test_confirm_after_enough_votes():
     """滑窗收敛：第 1 帧是"嫌疑人"，第 confirm 帧才上矩阵。"""
     fusion = MatrixFusion(window=5, confirm=2)
-    spots = fusion.add_frame(_frame(1, _obj(ObjectType.MINE, "C3")))
+    spots = fusion.add_frame(_frame(1, _obj(ObjectType.PAPER, "C3")))
     assert _cells(spots) == set()                  # 单帧误检不进门
-    spots = fusion.add_frame(_frame(2, _obj(ObjectType.MINE, "C3")))
+    spots = fusion.add_frame(_frame(2, _obj(ObjectType.PAPER, "C3")))
     assert _cells(spots) == {"C3"}                 # 第 2 票确认
 
     # 偶发漏检不闪断：第 3 帧没拍到，确认目标仍在
@@ -60,7 +63,7 @@ def test_median_coordinates_suppress_jitter():
     x0, y0 = _xy("D4")
     jit = [0.0, 0.10, -0.10]     # 三次观测的 x 偏移（仍在格心残差容忍内）
     for i, dx in enumerate(jit):
-        fusion.add_frame(_frame(i, IntelObject(ObjectType.MINE, x0 + dx, y0, 0.35, 0.35)))
+        fusion.add_frame(_frame(i, IntelObject(ObjectType.PAPER, x0 + dx, y0, 0.35, 0.35)))
     (spot,) = fusion.fused_spots()
     assert spot.cell == "D4"
     assert spot.x == pytest.approx(x0)             # 中值是 0 偏移那一帧
@@ -71,9 +74,9 @@ def test_moving_target_ages_out_but_mine_stays():
     """过期淘汰：移动靶超过 window 帧未复现即清除（防拖影）；静态雷永久保留。"""
     fusion = MatrixFusion(window=3, confirm=2)
     fusion.add_frame(_frame(1, _obj(ObjectType.TARGET_BLUE, "F5"),
-                            _obj(ObjectType.MINE, "C3")))
+                            _obj(ObjectType.PAPER, "C3")))
     spots = fusion.add_frame(_frame(2, _obj(ObjectType.TARGET_BLUE, "F5"),
-                                    _obj(ObjectType.MINE, "C3")))
+                                    _obj(ObjectType.PAPER, "C3")))
     assert _cells(spots) == {"F5", "C3"}
 
     # 之后目标消失：空帧喂到超过 window
@@ -104,20 +107,36 @@ def test_same_cell_priority_arbitration():
     fusion = MatrixFusion(window=5, confirm=2)
     # 同格 D4：雷 3 票 vs 障碍 2 票 -> 票数高的雷赢
     for ts in range(3):
-        objs = [_obj(ObjectType.MINE, "D4")]
+        objs = [_obj(ObjectType.PAPER, "D4")]
         if ts < 2:
             objs.append(_obj(ObjectType.OBSTACLE, "D4"))
         fusion.add_frame(_frame(ts, *objs))
     (spot,) = [s for s in fusion.fused_spots() if s.cell == "D4"]
-    assert spot.kind is ObjectType.MINE
+    assert spot.kind is ObjectType.PAPER
 
     # 同格 E6：雷与障碍同票 -> 平票障碍优先（规划宁可绕开，别撞桶）
     fusion2 = MatrixFusion(window=5, confirm=2)
     for ts in range(2):
-        fusion2.add_frame(_frame(ts, _obj(ObjectType.MINE, "E6"),
+        fusion2.add_frame(_frame(ts, _obj(ObjectType.PAPER, "E6"),
                                  _obj(ObjectType.OBSTACLE, "E6")))
     (spot,) = [s for s in fusion2.fused_spots() if s.cell == "E6"]
     assert spot.kind is ObjectType.OBSTACLE
+
+
+def test_paper_symbol_split_by_k_column():
+    """13 类落格判语义在矩阵层的分流：K 列 PAPER=箭头(A)，非 K 列=雷(M)。"""
+    from ag_integrate.field_matrix import spots_from_frame
+    frame = _frame(
+        1,
+        _obj(ObjectType.PAPER, "K9"),   # K 列桥洞
+        _obj(ObjectType.PAPER, "D4"),   # 非 K 列雷
+        _obj(ObjectType.OBSTACLE, "F6"),
+    )
+    grid = build_grid(spots_from_frame(frame))
+    # 行/列 0 基：K9 -> grid[8][10]，D4 -> grid[3][3]，F6 -> grid[5][5]
+    assert grid[8][10] == "A"
+    assert grid[3][3] == "M"
+    assert grid[5][5] == "O"
 
 
 def test_out_of_bounds_spot_not_fused_but_reported():

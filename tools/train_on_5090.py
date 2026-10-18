@@ -30,8 +30,10 @@ try:
     import paramiko
     from scp import SCPClient
 except ImportError:
-    print("缺少依赖: pip install paramiko scp", file=sys.stderr)
-    raise SystemExit(2)
+    # 缺依赖不许在 import 期退出（tests/test_tools_smoke 的 import 冒烟会
+    # 判死刑）：延迟到真正 main() 时才报错退出，提示语不变。
+    paramiko = None
+    SCPClient = None
 
 
 def connect(host, port, user, password):
@@ -83,6 +85,9 @@ def download_results(cli, remote_workdir: str, name: str, local_out: Path):
 
 
 def main() -> int:
+    if paramiko is None:
+        print("缺少依赖: pip install paramiko scp", file=sys.stderr)
+        return 2
     ap = argparse.ArgumentParser(description="AutoDL 5090 训练：上传 + 训练 + 下载")
     ap.add_argument("--host", required=True, help="AutoDL SSH 地址")
     ap.add_argument("--port", type=int, default=22, help="SSH 端口")

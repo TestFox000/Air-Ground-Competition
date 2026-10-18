@@ -1,4 +1,4 @@
-﻿import json
+import json
 
 with open(r"e:\OneDrive - mails.qust.edu.cn\桌面\air_ground\capture\mine_official\_b64_all.json") as f:
     items = json.load(f)

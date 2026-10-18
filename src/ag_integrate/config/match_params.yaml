@@ -8,12 +8,23 @@ integrate_node:
     waypoint_topic: "/nav/waypoint"  # 官方 path_executor 订阅的话题
     dry_run: true                   # 只算不发；实车联调通过后改 false
     publish_reset: true
+    # 0x4002 车位姿有效期 s：超期即视为无车朝向，对齐闭环立即停发角速度、
+    # 退回 start_heading。机上是 time.monotonic() 计时（不受机载时钟回跳影响），
+    # 0 表示关闭 TTL 检查（不推荐：断链后会拿几分钟前的 yaw 去闭环转向）。
+    # 取值依据：dzuav ~5fps 广播，1.0s = 连丢 5 帧才判过期。
+    car_pose_ttl_s: 1.0
     # ---- 本局摆位（现场确定） ----
     # ⚠️ 开赛前必须对照场地喷绘核对这两个格号：
     #    裁判布置完场地后、2分钟准备期内确认，错了整个航位推算基准就偏一格。
-    start_cell: "N11"
+    # 2026-10-17 按官方裁判地图更新：车起点 N10（非 N11）、终点 N5（非 N6）。
+    # ⚠️ 这两个朝向 token 是**本机坐标架**的字面量（x=列 A→N，y=行 11→1）。
+    #    车端（官方 path_executor / dznav）用的是另一套坐标架，两架相差 90°，
+    #    car_commands 在下发时自动翻译，所以 ros2 topic echo 看到的 reset 串
+    #    与这里写的字不一定同字——那是正常的，别"手动改回来"。
+    #    推导与回归：tests/test_heading_frame.py。
+    start_cell: "N10"
     start_heading: "y"              # 车头朝向断言 x(东)/y(北)
-    goal_cell: "N6"
+    goal_cell: "N5"
     final_heading: "y"              # 终点朝向计 5 分；最底行格只能 x
     # ---- 发车门控 ----
     min_mines: 1                    # 至少识别到几颗雷才发车
@@ -59,14 +70,25 @@ integrate_node:
     heading_align_settle_ticks: 3       # 连续 N tick 在容差内才算对齐
     wait_waypoint_consumer: true        # 等 /nav/waypoint 有订阅者再发路线（话题无滞留）
     # ---- 移动靶先验（全场唯一靶，裁判系统每局固定） ----
-    target_track: ["D8", "E8"]      # 轨道两端格号
+    # 2026-10-17 按官方裁判地图更新：轨道 D7-E7（非 D8-E8）；蓝面朝向地图未标，
+    # 按 S 假设——发车前看一眼靶面，若朝 N 改这里（路线自动切 E6* 版）。
+    target_track: ["D7", "E7"]      # 轨道两端格号
     target_blue_face: "S"           # 蓝面朝向 S/N(水平轨道)/E/W(垂直轨道)
     # ---- 中途重规划 ----
-    # 开启：态势相关变化（雷/隧道/靶面集变化、路线 ±1 格内障碍增删）触发
-    # 重规划并重发路线；path_executor 换路线后按"最近航段"从当前位置接续
-    # （SIL 验证见 tests/test_sim_tracking.py 交界障碍验收场景）。
+    # 开启后：态势相关变化（雷/隧道/靶面集变化、路线 ±1 格内障碍增删）触发
+    # 重规划并重发路线；path_executor 换路线后按"最近航段"从当前位置接续。
     # 防抖由 _route_needs_replan 守卫保证（无关帧不重算、路线不变不发）。
-    replan_on_update: true
+    #
+    # ⚠️ 2026-10-17 评审整改：此处由 true 改回 false，理由三条——
+    #   1. 原注释声称"SIL 验证见 tests/test_sim_tracking.py"，但该文件
+    #      全仓 find 无任何命中，验证依据不存在；
+    #   2. integrate_node.py:141 的 declare_parameter 默认值就是 False，
+    #      yaml 单方面改 true 会造成"默认值与实际生效值不一致"；
+    #   3. 上机包原注释写明"path_executor 换路线行为实车验证后改 true"，
+    #      实车验证尚未做过。赛中换路线是不可逆动作，先保守。
+    # 开启前置条件：实车验证 path_executor 收到第二条路线时的接续行为，
+    # 并补上 test_sim_tracking.py（交界障碍验收场景）。
+    replan_on_update: false
     # ---- 障碍多帧确认（分区规划问题1 ⚠️：交界格误检堵死唯一通道）----
     # 连续 2 帧检出才进入态势、连续 2 帧消失才移出；单帧幽灵不再触发
     # 整区降级。真障碍只晚 0.2s（5fps）进入，重规划守卫照常接手绕行。

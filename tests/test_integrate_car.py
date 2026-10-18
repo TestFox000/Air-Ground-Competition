@@ -1,48 +1,21 @@
-"""ag_integrate car_commands / fire_guard / car_adapter 测试。"""
+"""ag_integrate fire_guard / car_adapter 测试（13 类协议，2026-10-18 裁剪版）。
 
-import pytest
+裁剪注记：旧版里 reset/route 命令字符串类测试（编码、去重、校验、'*' 标记、
+前导零归一）已由 13 类套件等价覆盖——朝向 token 翻译后的上线字节
+（reset:N10,x / N11,-y）金线在 tests/test_heading_frame.py，整链命令语义
+（reset + 射击 '*' + 终点朝向）在 tests/test_integrate_pipeline.py，此处
+不再重复。本文件保留 fire_guard 禁火几何与移动靶轨道语义的独占覆盖：
+    - 固定靶：蓝邻格允火、红邻格禁火、混合风险拒绝、原因码、边界邻居；
+    - 移动靶：轨道端点 + 蓝面朝向决定停靠开火格（水平/垂直/朝北），
+              served 以轨道身份为键只开一次火；
+    - 红靶粘性否决进 fire_guard（sticky red + recv_mono 时基）。
+"""
 
-from ag_integrate.car_commands import (
-    CommandError,
-    RoutePlan,
-    reset_command,
-    route_command,
-)
 from ag_integrate.car_adapter import adapt
 from ag_integrate.field_frame import CellRef, cell_to_world
 from ag_integrate.intel_protocol import IntelFrame, IntelObject, ObjectType
 from ag_integrate.world_model import WorldModel
 from ag_integrate.fire_guard import decide_fire
-
-
-# ---------- 命令编码 ----------
-
-def test_reset_command():
-    assert reset_command("n10", "y") == "reset:N10,y"
-    with pytest.raises(CommandError):
-        reset_command("N12", "y")
-    with pytest.raises(CommandError):
-        reset_command("N10", "z")
-
-
-def test_route_command_basic():
-    plan = RoutePlan(("g8", "a10", "d2", "e2"), frozenset({"D2"}), "y")
-    assert route_command(plan) == "G8 A10 D2* E2,y"
-
-
-def test_route_command_dedup_and_validation():
-    assert route_command(RoutePlan(("d2", "D2", "e3"))) == "D2 E3"
-    with pytest.raises(CommandError):
-        route_command(RoutePlan(("Z9",)))
-    with pytest.raises(CommandError):
-        route_command(RoutePlan(()))
-    with pytest.raises(CommandError):
-        route_command(RoutePlan(("D2",), frozenset(), "z"))
-
-
-def test_shoot_mark_only_for_present_cells():
-    plan = RoutePlan(("D2",), frozenset({"E9"}), None)
-    assert route_command(plan) == "D2"   # E9 不在路线，不加 *
 
 
 # ---------- 禁火保险 ----------
@@ -125,7 +98,7 @@ def test_fire_guard_moving_target_vertical():
     blue_e = TargetRef(a, True, (a, b), "E")
     snap_e = WorldSnapshot(0, (), (), (), (blue_e,))
     assert decide_fire(snap_e, "E8").allowed    # 东侧正对 D8
-    assert decide_fire(snap_e, "E9").allowed    # 东侧正对 D9
+    assert decide_fire(snap_e, "E9").allowed     # 东侧正对 D9
     assert decide_fire(snap_e, "C8").denied     # 西侧（红面侧），禁
     assert decide_fire(snap_e, "D7").denied     # 顺路端点外，非停靠位
 
@@ -144,35 +117,8 @@ def test_fire_guard_moving_target_north_face():
     blue = TargetRef(a, True, (a, b), "N")
     snap = WorldSnapshot(0, (), (), (), (blue,))
     assert decide_fire(snap, "D7").allowed    # 北侧正对 D8
-    assert decide_fire(snap, "E7").allowed    # 北侧正对 E8
+    assert decide_fire(snap, "E7").allowed     # 北侧正对 E8
     assert decide_fire(snap, "D9").denied     # 南侧（红面侧），禁
-
-
-# ---------- 适配器端到端 ----------
-
-def test_adapt_emits_reset_route_and_filters_shoot():
-    blue, red = CellRef(3, 1), CellRef(7, 9)   # D2 蓝敌, H10 红友
-    snap = snapshot_with_targets(blue, red)
-    # 路线同时经过蓝靶停靠格（D3 邻 D2）与红靶旁格（I10 邻 H10）：只有前者保留 '*'
-    cmds = adapt(
-        snap,
-        ("G8", "D3", "I10", "N11"),
-        start_cell="N10",
-        start_heading="y",
-        final_heading="y",
-    )
-    assert cmds.reset == "reset:N10,y"
-    assert cmds.route == "G8 D3* I10 N11,y"
-    assert cmds.shoot_cells == ("D3",)
-
-
-def test_parse_cell_normalizes_leading_zero():
-    """前导零格号归一化：'A01' -> 'A1'，保证路线/命令里的格号字面量唯一。"""
-    from ag_integrate.car_commands import parse_cell
-    assert parse_cell("a01") == "A1"
-    assert parse_cell(" D11* ") == "D11"
-    with pytest.raises(CommandError):
-        parse_cell("A12")
 
 
 # ---------- 移动靶：命中判定用轨道几何（与 decide_fire 一致） ----------
@@ -217,7 +163,11 @@ def test_adapt_moving_red_never_fires():
 
 
 def test_sticky_red_consumed_by_fire_guard():
-    """红靶消失帧恰好触发规划：粘性红靶仍否决其邻格开火（误击 −5 铁律）。"""
+    """红靶消失帧恰好触发规划：粘性红靶仍否决其邻格开火（误击 −5 铁律）。
+
+    粘性 TTL 时基是本地 monotonic 收包时刻（recv_mono），故显式传时刻：
+    100 -> 102（2s ≤ TTL 5s，粘性补回） -> 106（> TTL，否决过期）。
+    """
     model = WorldModel(red_veto_ttl_s=5.0)
 
     def obj(cell, t):
@@ -226,11 +176,11 @@ def test_sticky_red_consumed_by_fire_guard():
 
     blue = obj(CellRef(3, 1), ObjectType.TARGET_BLUE)   # D2
     red = obj(CellRef(3, 3), ObjectType.TARGET_RED)     # D4
-    model.update(IntelFrame(1000, (blue, red)))
+    model.update(IntelFrame(1000, (blue, red)), recv_mono=100.0)
     # 红靶消失帧（漏检/遮挡）：D3 邻 D2 蓝 + 邻 D4 粘性红 → 混合风险禁火
-    snap = model.update(IntelFrame(2000, (blue,)))
+    snap = model.update(IntelFrame(2000, (blue,)), recv_mono=102.0)
     d = decide_fire(snap, "D3")
     assert d.denied and d.reason == "mixed_targets_risk"
     # TTL 后恢复：纯蓝邻，允许开火
-    snap2 = model.update(IntelFrame(9000, (blue,)))
+    snap2 = model.update(IntelFrame(9000, (blue,)), recv_mono=106.0)
     assert decide_fire(snap2, "D3").allowed

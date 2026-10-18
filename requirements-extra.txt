@@ -6,6 +6,10 @@ onnx>=1.15
 onnxruntime>=1.16
 opencv-python>=4.8          # 图像预处理 / 标定 / debug 可视化
 
+# ---- PC 端部署工具链 ----
+paramiko>=3.4                # remote_run/uav_link/patch_deploy 等 SSH 工具
+Pillow>=10.0                 # 标注转换 / 场地渲染工具
+
 # ---- 车端 ----
 pyserial>=3.5               # 裁判系统串口
 PyYAML>=6.0                 # 读取离线配置文件

@@ -1,4 +1,4 @@
-﻿import base64, os, math
+import base64, os, math
 from PIL import Image
 import io
 

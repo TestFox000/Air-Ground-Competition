@@ -1,20 +1,23 @@
-"""dzbrain_bridge 测试：UDP 0x4001 -> dzbrain JSON 话题桥接。
+"""dzbrain_bridge 测试：UDP 0x4001 -> dzbrain JSON 话题桥接（13 类协议）。
 
-不碰真实网络：udp_port=0（绑定临时端口，永远收不到包），
-直接向 _process_packet() 喂帧、tick() 触发定时器、deliver() 喂车端回报，
+不碰真实网络：udp_port=0（绑定临时端口，永远收不到包），直接向
+_process_packet() 喂帧、tick() 触发定时器、inject_str() 喂车端回报，
 断言发到 /dzlink/drone_to_car 的 JSON 内容。
 
-时间源：ros_stub.FakeClock 每次 now() 推进 0.1s，节点每 tick 只读一次，
-所以 tick 序号即时间（第 k 拍 t=1.1+0.1*(k-1) 秒），周期断言据此排拍。
+13 类协议（canonical）：雷 = 非 K 列 PAPER，桥洞箭头 = K 列 PAPER
+（落格判语义，见 intel_protocol.ObjectType）。桥的 WorldModel 用默认
+obstacle_confirm_frames=2（单帧幻影障碍不进态势），所以含障碍的场景
+喂两帧确认——这也是"多帧共识"语义的一部分。
+
+时间源：_node_stub_utils.tick() 每拍推进假时钟 0.1s，第 k 拍 t=k*0.1s，
+周期断言（心跳/刷新）据此排拍。
 """
 
 import json
-import types
-
-import ros_stub  # noqa: F401  必须先于节点模块导入
 
 import pytest
 
+import _node_stub_utils as stub
 from ag_integrate.dzbrain_bridge import DzbrainBridgeNode
 from ag_integrate.intel_protocol import (
     IntelFrame, IntelObject, ObjectType, build,
@@ -33,47 +36,39 @@ def obj_at(obj_type: ObjectType, cell: str) -> IntelObject:
 
 
 def feed(node: DzbrainBridgeNode, *objects: IntelObject, ts: int = 1) -> None:
-    """走真实收包路径喂一帧 0x4001：字节编码 -> 解析 -> 入队。"""
+    """走真实收包路径喂一帧 0x4001：字节编码 -> 解析 -> 态势 -> 入队。"""
     node._process_packet(build(IntelFrame(ts, tuple(objects))))
 
 
 def published_json(node: DzbrainBridgeNode) -> list[dict]:
     return [json.loads(m.data)
-            for m in node.topic("/dzlink/drone_to_car").published]
+            for m in stub.pub(node, "/dzlink/drone_to_car").sent]
 
 
 def by_type(node: DzbrainBridgeNode, msg_type: str) -> list[dict]:
     return [p for p in published_json(node) if p.get("type") == msg_type]
 
 
-@pytest.fixture(autouse=True)
-def _overrides():
-    """基线参数覆盖（fixture 里设置，避免 import 期污染全局 _OVERRIDES）。"""
-    ros_stub.set_overrides(udp_port=0)
-    yield
-    ros_stub.clear_overrides()
-
-
-def make_node(**overrides) -> DzbrainBridgeNode:
-    params = dict(udp_port=0)
+def make_node(monkeypatch, **overrides) -> DzbrainBridgeNode:
+    params = dict(udp_port=0, log_enabled=False)
     params.update(overrides)
-    ros_stub.set_overrides(**params)
-    return DzbrainBridgeNode()
+    return stub.make_node(monkeypatch, DzbrainBridgeNode, **params)
 
 
 # ---------------- 黄金报文 ----------------
 
-def test_golden_frame_messages():
-    """黄金报文：ARROW(K9)+雷(A2)+障(B4)+蓝靶(E5) 一帧喂入，
-    发布到 drone_to_car 的 JSON 逐字段核对。"""
-    node = make_node()
+def test_golden_frame_messages(monkeypatch):
+    """黄金报文：桥洞(K9 PAPER)+雷(A2 PAPER)+障(B4)+蓝靶(E5) 一帧喂入，
+    发布到 drone_to_car 的 JSON 逐字段核对。障碍喂两帧（默认 N=2 确认）。"""
+    node = make_node(monkeypatch)
     try:
-        feed(node,
-             obj_at(ObjectType.ARROW, "K9"),
-             obj_at(ObjectType.MINE, "A2"),
-             obj_at(ObjectType.OBSTACLE, "B4"),
-             obj_at(ObjectType.TARGET_BLUE, "E5"))
-        node.tick()
+        for _ in range(2):
+            feed(node,
+                 obj_at(ObjectType.PAPER, "K9"),    # K 列 → 桥洞
+                 obj_at(ObjectType.PAPER, "A2"),    # 非 K 列 → 雷
+                 obj_at(ObjectType.OBSTACLE, "B4"),
+                 obj_at(ObjectType.TARGET_BLUE, "E5"))
+        stub.tick(node)
 
         bridge = by_type(node, "bridge_passable")
         assert len(bridge) == 1
@@ -99,12 +94,12 @@ def test_golden_frame_messages():
         node.destroy_node()
 
 
-def test_upper_half_arrow_reports_upper():
-    """上半场 ARROW（K5，第 5 行）→ half="upper"。"""
-    node = make_node()
+def test_upper_half_arrow_reports_upper(monkeypatch):
+    """上半场桥洞（K5，第 5 行）→ half="upper"。"""
+    node = make_node(monkeypatch)
     try:
-        feed(node, obj_at(ObjectType.ARROW, "K5"))
-        node.tick()
+        feed(node, obj_at(ObjectType.PAPER, "K5"))
+        stub.tick(node)
         bridge = by_type(node, "bridge_passable")
         assert len(bridge) == 1
         assert bridge[0]["half"] == "upper"
@@ -113,13 +108,13 @@ def test_upper_half_arrow_reports_upper():
         node.destroy_node()
 
 
-def test_half_boundary_rows():
+def test_half_boundary_rows(monkeypatch):
     """半场分界：第 6 行→upper、第 7 行→lower（挡板在 6/7 行界）。"""
-    node = make_node()
+    node = make_node(monkeypatch)
     try:
-        feed(node, obj_at(ObjectType.ARROW, "K6"),
-             obj_at(ObjectType.ARROW, "K7"))
-        node.tick()
+        feed(node, obj_at(ObjectType.PAPER, "K6"),
+             obj_at(ObjectType.PAPER, "K7"))
+        stub.tick(node)
         got = {b["block"]: b["half"] for b in by_type(node, "bridge_passable")}
         assert got == {"K6": "upper", "K7": "lower"}
     finally:
@@ -128,14 +123,14 @@ def test_half_boundary_rows():
 
 # ---------------- 心跳 ----------------
 
-def test_heartbeat_period_and_increasing_seq():
+def test_heartbeat_period_and_increasing_seq(monkeypatch):
     """heartbeat 以配置周期恒定发（无情报也发），seq 严格递增。"""
-    node = make_node(heartbeat_period_s=0.3)
+    node = make_node(monkeypatch, heartbeat_period_s=0.3)
     try:
-        for _ in range(10):       # 每 tick 推进 0.1s：t=1.1 .. 2.0
-            node.tick()
+        for _ in range(10):       # 每拍推进 0.1s：t=0.1 .. 1.0
+            stub.tick(node)
         beats = by_type(node, "heartbeat")
-        # t=1.1 首发（下一拍 1.4），之后 1.4/1.7/2.0 各一条
+        # t=0.1 首发（下一拍 0.4），之后 0.4/0.7/1.0 各一条
         assert len(beats) == 4
         for b in beats:
             assert b["type"] == "heartbeat"
@@ -151,30 +146,30 @@ def test_heartbeat_period_and_increasing_seq():
 
 # ---------------- 变化触发 vs 周期刷新 ----------------
 
-def test_change_triggers_immediate_and_refresh_periodic():
+def test_change_triggers_immediate_and_refresh_periodic(monkeypatch):
     """同一情报不连刷；情报变化立即发；无变化到刷新周期补发。"""
-    node = make_node(refresh_period_s=0.5)
+    node = make_node(monkeypatch, refresh_period_s=0.5)
     try:
-        feed(node, obj_at(ObjectType.ARROW, "K9"))
-        node.tick()                        # t=1.1：首发 K9
+        feed(node, obj_at(ObjectType.PAPER, "K9"))
+        stub.tick(node)                        # t=0.1：首发 K9
         assert len(by_type(node, "bridge_passable")) == 1
 
         # 同一情报再来一帧：签名未变，不连刷
-        feed(node, obj_at(ObjectType.ARROW, "K9"))
-        node.tick()                        # t=1.2
-        node.tick()                        # t=1.3
+        feed(node, obj_at(ObjectType.PAPER, "K9"))
+        stub.tick(node)                        # t=0.2
+        stub.tick(node)                        # t=0.3
         assert len(by_type(node, "bridge_passable")) == 1
 
         # 情报变化（桥洞格移动 K9->K8）：不等刷新周期，立即发
-        feed(node, obj_at(ObjectType.ARROW, "K8"))
-        node.tick()                        # t=1.4
+        feed(node, obj_at(ObjectType.PAPER, "K8"))
+        stub.tick(node)                        # t=0.4
         bridges = by_type(node, "bridge_passable")
         assert len(bridges) == 2
         assert bridges[-1]["block"] == "K8"
 
-        # 无变化但超过刷新周期（0.5s）：t=1.9 补发一次同内容
-        for _ in range(6):                 # t=1.5 .. 2.0
-            node.tick()
+        # 无变化但超过刷新周期（0.5s）：t=0.9 补发一次同内容
+        for _ in range(6):                     # t=0.5 .. 1.0
+            stub.tick(node)
         bridges = by_type(node, "bridge_passable")
         assert len(bridges) == 3
         assert bridges[-1]["block"] == "K8"
@@ -182,14 +177,14 @@ def test_change_triggers_immediate_and_refresh_periodic():
         node.destroy_node()
 
 
-def test_target_zone_includes_red_and_blue():
+def test_target_zone_includes_red_and_blue(monkeypatch):
     """target_zone 红+蓝靶都报（车上与本地地图核对用）。"""
-    node = make_node()
+    node = make_node(monkeypatch)
     try:
         feed(node,
              obj_at(ObjectType.TARGET_BLUE, "E5"),
              obj_at(ObjectType.TARGET_RED, "F6"))
-        node.tick()
+        stub.tick(node)
         zone = by_type(node, "target_zone")
         assert len(zone) == 1
         assert set(zone[0]["blocks"]) == {"E5", "F6"}
@@ -197,13 +192,13 @@ def test_target_zone_includes_red_and_blue():
         node.destroy_node()
 
 
-def test_empty_target_zone_not_sent():
+def test_empty_target_zone_not_sent(monkeypatch):
     """无靶时 target_zone 整条不发（空 blocks 会触发 DroneTask 缺字段告警）；
     field_verify 空列表照发（"全场干净"是有效情报）。"""
-    node = make_node()
+    node = make_node(monkeypatch)
     try:
-        feed(node, obj_at(ObjectType.MINE, "A2"))
-        node.tick()
+        feed(node, obj_at(ObjectType.PAPER, "A2"))
+        stub.tick(node)
         assert by_type(node, "target_zone") == []
         verify = by_type(node, "field_verify")
         assert len(verify) == 1
@@ -215,29 +210,28 @@ def test_empty_target_zone_not_sent():
 
 # ---------------- 车端回报（/dzlink/car_to_drone） ----------------
 
-def test_car_to_drone_ack_and_bad_messages_never_crash():
+def test_car_to_drone_ack_and_bad_messages_never_crash(monkeypatch):
     """喂 ack/car_state/坏 JSON/非对象/非字符串：不抛异常，坏消息 warn。"""
-    node = make_node()
+    node = make_node(monkeypatch)
     try:
-        def deliver_raw(data):
-            node.deliver("/dzlink/car_to_drone",
-                         types.SimpleNamespace(data=data))
-
-        deliver_raw('{"type":"ack","of":3,"ts":1.0}')
-        deliver_raw('{"type":"car_state","block":"N10","yaw_deg":90.0,'
-                    '"phase":"scout","ts":1.0,"seq":2}')
-        deliver_raw("not json{")            # 非法 JSON
-        deliver_raw("[1,2,3]")              # 合法 JSON 但非对象
-        deliver_raw('{"type":"mystery"}')   # 未知类型
-        deliver_raw(123)                    # 非字符串
+        stub.inject_str(node, "/dzlink/car_to_drone",
+                        '{"type":"ack","of":3,"ts":1.0}')
+        stub.inject_str(node, "/dzlink/car_to_drone",
+                        '{"type":"car_state","block":"N10","yaw_deg":90.0,'
+                        '"phase":"scout","ts":1.0,"seq":2}')
+        stub.inject_str(node, "/dzlink/car_to_drone", "not json{")   # 非法 JSON
+        stub.inject_str(node, "/dzlink/car_to_drone", "[1,2,3]")     # 非对象
+        stub.inject_str(node, "/dzlink/car_to_drone",
+                        '{"type":"mystery"}')                        # 未知类型
+        stub.inject_str(node, "/dzlink/car_to_drone", 123)           # 非字符串
 
         # 节点存活：照常发心跳
-        node.tick()
+        stub.tick(node)
         assert by_type(node, "heartbeat")
 
-        records = node.logger.records
-        debugs = [m for lvl, m in records if lvl == "debug"]
-        warns = [m for lvl, m in records if lvl == "warning"]
+        log = node.get_logger()
+        debugs = log.text(level="debug")
+        warns = log.text(level="warning")
         assert any("ack" in m for m in debugs)
         assert any("车端状态" in m for m in debugs)
         assert any("非法 JSON" in m for m in warns)
@@ -250,21 +244,21 @@ def test_car_to_drone_ack_and_bad_messages_never_crash():
 
 # ---------------- UDP 坏帧 ----------------
 
-def test_bad_crc_frame_rejected_node_survives():
+def test_bad_crc_frame_rejected_node_survives(monkeypatch):
     """UDP 坏帧（CRC 错）：拒收、记告警、不崩；后续好帧照常处理。"""
-    node = make_node()
+    node = make_node(monkeypatch)
     try:
-        good = build(IntelFrame(1, (obj_at(ObjectType.ARROW, "K9"),)))
+        good = build(IntelFrame(1, (obj_at(ObjectType.PAPER, "K9"),)))
         bad = bytearray(good)
         bad[-6] ^= 0xFF      # 破坏 CRC（suffix 前 2 字节是 CRC）
         node._process_packet(bytes(bad))
-        node.tick()
+        stub.tick(node)
         assert by_type(node, "bridge_passable") == []
-        assert any("丢弃坏帧" in m for _lvl, m in node.logger.records)
+        assert any("丢弃坏帧" in m for m in node.get_logger().text())
 
         # 节点存活：好帧照常桥接
         node._process_packet(good)
-        node.tick()
+        stub.tick(node)
         assert len(by_type(node, "bridge_passable")) == 1
     finally:
         node.destroy_node()
@@ -272,23 +266,24 @@ def test_bad_crc_frame_rejected_node_survives():
 
 # ---------------- 报文兼容性金线（对照 DroneTask 解析逻辑） ----------------
 
-def test_wire_compatibility_with_drone_task_parser():
+def test_wire_compatibility_with_drone_task_parser(monkeypatch):
     """逐条对照 dzbrain DroneTask 的解析逻辑（字段名/类型/取值域）。
 
     真源：reference/car_src_20261015/dzbrain/dzbrain/tasks/drone.py。
     这里任何一项不符，车端那边就会计 missing_fields 丢消息——
     本测试是我们发出报文与车端解析器之间的金线。
     """
-    node = make_node()
+    node = make_node(monkeypatch)
     try:
-        feed(node,
-             obj_at(ObjectType.ARROW, "K9"),
-             obj_at(ObjectType.ARROW, "K5"),
-             obj_at(ObjectType.MINE, "A2"),
-             obj_at(ObjectType.OBSTACLE, "B4"),
-             obj_at(ObjectType.TARGET_BLUE, "E5"),
-             obj_at(ObjectType.TARGET_RED, "F6"))
-        node.tick()
+        for _ in range(2):   # 障碍 B4 需两帧确认（默认 N=2）
+            feed(node,
+                 obj_at(ObjectType.PAPER, "K9"),
+                 obj_at(ObjectType.PAPER, "K5"),
+                 obj_at(ObjectType.PAPER, "A2"),
+                 obj_at(ObjectType.OBSTACLE, "B4"),
+                 obj_at(ObjectType.TARGET_BLUE, "E5"),
+                 obj_at(ObjectType.TARGET_RED, "F6"))
+        stub.tick(node)
         msgs = published_json(node)
         assert msgs, "节点必须发出报文"
 
@@ -313,7 +308,6 @@ def test_wire_compatibility_with_drone_task_parser():
             assert isinstance(b["ts"], (int, float))
 
         # _on_target_zone：blocks 必须是非空 list，条目经 _norm_blocks
-        # （str.strip().upper() 非空，畸形条目计 missing_fields）
         zone = by_type(node, "target_zone")
         assert len(zone) == 1
         blocks = zone[0]["blocks"]
@@ -351,9 +345,6 @@ def test_udp_bind_failure_raises_at_startup(monkeypatch):
     import ag_integrate.dzbrain_bridge as m
 
     class _BadSock:
-        def setsockopt(self, *a):
-            pass
-
         def bind(self, *a):
             raise OSError("address already in use")
 
@@ -362,34 +353,34 @@ def test_udp_bind_failure_raises_at_startup(monkeypatch):
 
     fake_socket_mod = _types.SimpleNamespace(
         AF_INET=_socket.AF_INET, SOCK_DGRAM=_socket.SOCK_DGRAM,
-        SOL_SOCKET=_socket.SOL_SOCKET, SO_REUSEADDR=_socket.SO_REUSEADDR,
         timeout=_socket.timeout, socket=lambda *a, **k: _BadSock(),
     )
     monkeypatch.setattr(m, "socket", fake_socket_mod)
     with pytest.raises(OSError):
-        make_node()
+        make_node(monkeypatch)
 
 
-def test_destroy_node_stops_receive_thread():
+def test_destroy_node_stops_receive_thread(monkeypatch):
     """优雅关闭：destroy_node 停收包线程、关 socket。"""
-    node = make_node()
+    node = make_node(monkeypatch)
     assert node._thread.is_alive()
     node.destroy_node()
     assert not node._thread.is_alive()
 
 
-def test_period_params_must_be_positive():
+def test_period_params_must_be_positive(monkeypatch):
     """heartbeat_period_s/refresh_period_s <=0：构造即抛——非法周期会让
-    心跳/刷新每拍连发刷爆话题（对齐 integrate_node 启动自检范式）。"""
+    心跳/刷新每拍连发刷爆话题（对齐 integrate_node 启动自检范式；
+    2026-10-18 合并分支从 main 移植该 fail-fast 校验）。"""
     with pytest.raises(ValueError):
-        make_node(heartbeat_period_s=0.0)
+        make_node(monkeypatch, heartbeat_period_s=0.0)
     with pytest.raises(ValueError):
-        make_node(heartbeat_period_s=-0.5)
+        make_node(monkeypatch, heartbeat_period_s=-0.5)
     with pytest.raises(ValueError):
-        make_node(refresh_period_s=0.0)
+        make_node(monkeypatch, refresh_period_s=0.0)
 
 
-# ---------------- UDP 互斥防线（M4：刻意不设 SO_REUSEADDR，重复 bind 即 fail-fast） ----------------
+# ---------------- UDP 互斥防线（刻意不设 SO_REUSEADDR，重复 bind 即 fail-fast） ----------------
 
 def _hold_udp_port() -> tuple:
     """占住一个 UDP 端口（通配地址，与节点 bind("", port) 同架），返回 (sock, port)。"""
@@ -399,20 +390,20 @@ def _hold_udp_port() -> tuple:
     return hold, hold.getsockname()[1]
 
 
-def test_second_bridge_same_port_fails_fast():
-    """M4：同一 UDP 端口已被占时第二个桥构造即抛——"绝不同时跑"靠 bind
+def test_second_bridge_same_port_fails_fast(monkeypatch):
+    """同一 UDP 端口已被占时第二个桥构造即抛——"绝不同时跑"靠 bind
     fail-fast 兜底（Linux 下 SO_REUSEADDR 会让双方重复 bind 且各收一份副本，
     双决策核心并行驱动车；UDP 无 TIME_WAIT，去掉它重启不受阻）。"""
     hold, port = _hold_udp_port()
     try:
         with pytest.raises(OSError):
-            make_node(udp_port=port)
+            make_node(monkeypatch, udp_port=port)
     finally:
         hold.close()
 
 
-def test_bridge_and_integrate_node_mutual_exclusion():
-    """M4 跨节点互斥：integrate_node 在跑时 dzbrain_bridge 绑同一端口即抛
+def test_bridge_and_integrate_node_mutual_exclusion(monkeypatch):
+    """跨节点互斥：integrate_node 在跑时 dzbrain_bridge 绑同一端口即抛
     （两节点同抢 UDP:50000，决策核心只能有一个）。"""
     import socket as _socket
 
@@ -422,25 +413,25 @@ def test_bridge_and_integrate_node_mutual_exclusion():
     probe.bind(("", 0))
     port = probe.getsockname()[1]
     probe.close()
-    ros_stub.set_overrides(udp_port=port)
-    n1 = IntegrateNode()          # legacy 决策核心先起（默认参数即合法）
+    n1 = stub.make_node(monkeypatch, IntegrateNode, udp_port=port,
+                        matrix_log=False, log_enabled=False)
     try:
         with pytest.raises(OSError):
-            DzbrainBridgeNode()   # dzbrain 决策核心后起 → 当场炸
+            make_node(monkeypatch, udp_port=port)   # 第二决策核心 → 当场炸
     finally:
         n1.destroy_node()
 
 
 # ---------------- 黑匣子事件 ----------------
 
-def test_blackbox_events(tmp_path):
+def test_blackbox_events(monkeypatch, tmp_path):
     """黑匣子关键事件：启动 session.begin/node.args + 发报 dzbrain.send
     （EV 表无 dzbrain 桥专用常量，字面量事件名见 dzbrain_bridge 注释）。"""
     from ag_core.blackbox import read_events
-    node = make_node(log_dir=str(tmp_path))
+    node = make_node(monkeypatch, log_enabled=True, log_dir=str(tmp_path))
     try:
-        feed(node, obj_at(ObjectType.ARROW, "K9"))
-        node.tick()
+        feed(node, obj_at(ObjectType.PAPER, "K9"))
+        stub.tick(node)
     finally:
         node.destroy_node()
     events, bad = read_events(tmp_path)

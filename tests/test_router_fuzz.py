@@ -55,9 +55,9 @@ def _random_scene(rng):
     obstacles = pool[8:16]
     blue = pool[16] if rng.random() < 0.5 else None
 
-    objects = [_obj(m, ObjectType.MINE) for m in mines]
+    objects = [_obj(m, ObjectType.PAPER) for m in mines]
     objects += [_obj(o, ObjectType.OBSTACLE) for o in obstacles]
-    objects += [_obj(a, ObjectType.ARROW) for a in arrows]
+    objects += [_obj(a, ObjectType.PAPER) for a in arrows]
     if blue is not None:
         objects.append(_obj(blue, ObjectType.TARGET_BLUE))
     return objects, mines, arrows, blue
@@ -97,7 +97,8 @@ def test_random_maps_invariants():
     n_cases = int(os.environ.get("AIC_FUZZ_CASES", "120"))
     for trial in range(n_cases):
         objects, mines, arrows, blue = _random_scene(rng)
-        snap = WorldModel().update(IntelFrame(trial, tuple(objects)))
+        # 路由器模糊测试：单帧直出态势，显式关闭障碍多帧确认（默认 N=2 是运行时防幻影行为）
+        snap = WorldModel(obstacle_confirm_frames=1).update(IntelFrame(trial, tuple(objects)))
         route = plan_route(snap, _START, _GOAL)
         names = list(route)
         obstacles = _cells_of(objects, ObjectType.OBSTACLE)
@@ -132,14 +133,15 @@ def test_random_maps_invariants():
         for m in mines:
             if m.name in in_route:
                 continue
-            solo_objects = [_obj(m, ObjectType.MINE)]
+            solo_objects = [_obj(m, ObjectType.PAPER)]
             solo_objects += [_obj(o, ObjectType.OBSTACLE) for o in obstacles]
-            solo_objects += [_obj(a, ObjectType.ARROW) for a in arrows]
+            solo_objects += [_obj(a, ObjectType.PAPER) for a in arrows]
             if blue is not None:
                 # 靶格在全局场景同样是 blocked，单独验证时不可漏掉，
                 # 否则会出现"单独可达（走了穿靶的路）却误判全局误剔"的假阳性
                 solo_objects.append(_obj(blue, ObjectType.OBSTACLE))
-            solo_snap = WorldModel().update(IntelFrame(trial, tuple(solo_objects)))
+            solo_snap = WorldModel(obstacle_confirm_frames=1).update(
+                IntelFrame(trial, tuple(solo_objects)))
             solo_route = plan_route(solo_snap, _START, _GOAL)
             assert m.name not in solo_route, (
                 f"trial {trial}: 雷 {m.name} 单独可达却被全局路线剔除")
@@ -149,9 +151,7 @@ def test_random_maps_invariants():
             assert plan_route(snap, _START, _GOAL) == route
 
     elapsed = time.monotonic() - t0
-    # 性能回归守卫按局数缩放（2026-10-14 P0 修复前最坏单局 33.7s——等最优顺序
-    # 枚举×逐段两次 Dijkstra；修复后最坏 ~1.2s）。
-    # ⚠️ 墙钟断言是机器速度相关的：慢 CI/老机器上 1s/局 会假阳性，放宽到 3 倍
-    # 余量——本断言只防"灾难性回退"（数量级退化），不做精细性能回归。
-    assert elapsed < 3.0 * n_cases, (
+    # 性能回归守卫按局数缩放：均值超 1s/局 即视为退化（2026-10-14 P0 修复前
+    # 最坏单局 33.7s——等最优顺序枚举×逐段两次 Dijkstra；修复后最坏 ~1.2s）。
+    assert elapsed < 1.0 * n_cases, (
         f"{n_cases} 局 fuzz 耗时 {elapsed:.1f}s（均值 {elapsed / n_cases:.2f}s/局），规划性能退化")

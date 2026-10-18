@@ -20,12 +20,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ag_integrate.ag_integrate.field_matrix import (  # noqa: E402
-    KIND_NAMES, render_report, spots_from_frame,
-)
-from ag_integrate.ag_integrate.intel_protocol import (  # noqa: E402
-    detect_msg_id, parse,
-)
+try:  # src/ 外层布局（直跑 python tools/matrix_report.py，本文件上方注入的路径）
+    from ag_integrate.ag_integrate.field_matrix import (  # noqa: E402
+        KIND_NAMES, render_report, spots_from_frame,
+    )
+    from ag_integrate.ag_integrate.intel_protocol import (  # noqa: E402
+        detect_msg_id, parse,
+    )
+except ImportError:  # src/ag_integrate 内层布局（conftest 注入 / ROS 安装形态）
+    from ag_integrate.field_matrix import (  # noqa: E402
+        KIND_NAMES, render_report, spots_from_frame,
+    )
+    from ag_integrate.intel_protocol import (  # noqa: E402
+        detect_msg_id, parse,
+    )
 
 
 def main() -> int:

@@ -22,11 +22,10 @@ jobs:
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          # tools/preflight.py 本地检查段用到 onnx（verify_contract）与 yaml（读配置）
-          pip install onnx PyYAML
-          # 随机序防线（与 requirements-extra.txt 同步 pin）：第二轮 pytest 靠它洗牌
-          pip install pytest-randomly==3.16.0
+          # 2026-10-18 合并分支起全量装：tests/test_tools_smoke 会逐个 import
+          # tools/*.py（remote_run 要 paramiko、标注渲染要 Pillow/cv2），
+          # 只装核心 requirements 会让 import 冒烟在 CI 判红。
+          pip install -r requirements.txt -r requirements-extra.txt
 
       - name: 全部源文件语法检查（src / tools / 根目录脚本）
         run: python -m compileall -q src tools *.py

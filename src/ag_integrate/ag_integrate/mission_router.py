@@ -12,32 +12,39 @@
 做法（近似全局最优）：
     - 障碍格为 blocked；必经点 = 雷 + 可通行桥洞格 + 蓝色敌靶格（开过去才能打击）；
     - 各必经点间用朝向感知 Dijkstra（状态 = 格 + 航向）求最省代价路径作边权，
-      Held-Karp 位压 DP 求访问顺序（边权对"进入朝向"取乐观界，≤12 点毫秒级）；
+      Held-Karp 位压 DP 求访问顺序（边权对"进入朝向"取乐观界；n 超过
+      _TSP_EXACT_MAX_NODES 时退化为多起点最近邻，避免 2^n 卡死）；
     - 枚举所有达到乐观最优的顺序，逐段按真实朝向链拼接、顺路避让已踩格，
       取（真实代价, 重复踩格）最小者；
-    - 不可达必经点剔除（跳过）；终点不可达报错。
+    - 不可达必经点剔除（跳过）；终点不可达报错并附连通性诊断
+      （封锁点分类 + 开放桥门，2026-10-17）。
 
-中场挡板：cross_gates=None（默认）时自动推导穿越缺口（挡板范围外的 A~C 列
-边界格 + 桥洞列边界附近的可通行格）；显式传入时以传入为准。桥洞一格宽，
-穿越中线的移动限定正交且贴着 gate 格。
+中场挡板：默认不建模；现场证实"只能从可通行格穿越半场"后传入 cross_gates
+（允许穿越的格）。桥洞一格宽，穿越中线的移动限定正交且贴着 gate 格。
 """
 
 from __future__ import annotations
 
 import heapq
 import warnings
-from dataclasses import replace
 from itertools import count, product
 from math import gcd
 
 from .field_frame import CellRef, ROWS, COLS, LETTERS
-from .fire_guard import decide_fire
 from .world_model import WorldSnapshot
 
 _SQRT2 = 2.0 ** 0.5
 _INF = float("inf")
 _BIG_INT = 1 << 30      # 累计转向/步数的"未触达"哨兵（平局裁决数组）
 _EPS = 1e-6
+
+# Held-Karp 精确解的必经点数上限。DP 是 2^n × n 状态：本机实测
+# n=12 → 0.03s、n=14 → 0.17s、n=16 → 0.86s，再往上按 4 倍/点增长
+# （n=20 约 4 分钟、2^20×20 ≈ 2000 万个表项，几百 MB，直接 OOM）。
+# 正常对局走 plan_route_zoned 按区分桶，单次 _plan_core 的 n 通常 ≤8；
+# 超过 14 说明感知把大片格误判成必经点，此时卡死 = 整局 0 分，
+# 宁可退化为最近邻次优顺序（见 _greedy_orders）。
+_TSP_EXACT_MAX_NODES = 14
 
 # 航向索引（顺时针，0=正东）：车端 'x'=东(0)、'y'=北(6)
 _DIRS = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1))
@@ -531,6 +538,130 @@ def _assemble(
     return _flatten(segments), total
 
 
+def _classify_blocked(cell: CellRef, diag: dict | None) -> str:
+    """封锁格归类（诊断用）：障碍/靶体/轨道/桥墙/封锁。"""
+    if diag:
+        if cell.name in diag.get("obstacles", ()):
+            return "障碍"
+        if cell.name in diag.get("targets", ()):
+            return "靶体"
+        if cell.name in diag.get("tracks", ()):
+            return "轨道"
+        if cell.col in diag.get("bridge_cols", ()):
+            return "桥墙"
+    return "封锁"
+
+
+def _unreachable_detail(start: CellRef, goal: CellRef, dist0: dict,
+                        blocked: frozenset[CellRef],
+                        cross_gates: frozenset[CellRef] | None,
+                        mid_boundary: int, diag: dict | None) -> str:
+    """不可达诊断（2026-10-17 修复）：起点连通域规模 + 封锁点分类 +
+    开放桥门——现场拿到报错就知道该查哪块板/哪个桶。
+
+    封锁点 = 与起点连通域 8 邻接的 blocked 格；连通域取自 Dijkstra
+    dist0（任意朝向可达即算）。"""
+    reach = {c for (c, _h), d in dist0.items() if d < _INF} or {start}
+    sealing: dict[str, set[str]] = {}
+    for c in reach:
+        for dc in (-1, 0, 1):
+            for dr in (-1, 0, 1):
+                if dc == dr == 0:
+                    continue
+                col, row = c.col + dc, c.row + dr
+                if not (0 <= col < COLS and 0 <= row < ROWS):
+                    continue
+                n = CellRef(col, row)
+                if n in reach or n not in blocked:
+                    continue
+                sealing.setdefault(_classify_blocked(n, diag), set()).add(n.name)
+    parts = [f"goal {goal.name} 不可达：起点 {start.name} 连通域仅 {len(reach)} 格"]
+    for kind in ("障碍", "靶体", "轨道", "桥墙", "封锁"):
+        if sealing.get(kind):
+            names = sorted(sealing[kind])
+            parts.append(f"{kind}[{','.join(names[:8])}{'…' if len(names) > 8 else ''}]")
+    if diag:
+        open_gates = sorted(diag.get("open_gates", ()))
+        if open_gates:
+            parts.append(f"桥门开放[{','.join(open_gates)}]")
+        elif diag.get("bridge_cols"):
+            parts.append("桥门全部关闭（箭头格缺失或被实物占用）")
+    if cross_gates is not None:
+        parts.append(f"中线穿越口 {len(cross_gates)} 格")
+    parts.append("排查：门格是否被桶占用、箭头格是否漏检、障碍是否误检堵死唯一通道")
+    return "；".join(parts)
+
+
+def _greedy_orders(W: list[list[float]], n: int) -> list[list[int]]:
+    """多起点最近邻访问顺序（Held-Karp 超限时用）。
+
+    W 下标与 DP 同口径：0=起点，k+1=必经点 k。每条 O(n^2)，n 条共 O(n^3)，
+    n=20 也是微秒级。多起点比单起点稳——单起点在"起点位于图边缘"时容易
+    一路走回头路，而这里只能拼一次（不像精确解有等代价顺序可枚举）。
+    """
+    orders: list[list[int]] = []
+    for first in range(n):
+        unvisited = set(range(n))
+        unvisited.discard(first)
+        order = [first]
+        cur = first
+        while unvisited:
+            nxt = min(unvisited, key=lambda j: (W[cur + 1][j + 1], j))
+            order.append(nxt)
+            unvisited.discard(nxt)
+            cur = nxt
+        orders.append(order)
+    return orders
+
+
+def _held_karp_orders(W: list[list[float]], dgoal: list[float],
+                      n: int) -> list[list[int]]:
+    """Held-Karp 精确排序 -> 候选访问顺序（保底顺序 + 全部等代价顺序）。
+
+    dp[mask][i] = 从起点出发、恰好经过 mask 内必经点、当前停在 i 的最少代价。
+    必经点编号 0..n-1 对应 nodes[1..n]；W/dgoal 下标 0 = 起点。
+    调用方须先保证 n <= _TSP_EXACT_MAX_NODES：状态数是 2^n × n。
+    """
+    full = 1 << n
+    dp = [[_INF] * n for _ in range(full)]
+    parent = [[-1] * n for _ in range(full)]
+    for i in range(n):
+        dp[1 << i][i] = W[0][i + 1]
+    for mask in range(1, full):
+        row = dp[mask]
+        for i in range(n):
+            cur = row[i]
+            if cur >= _INF or not (mask >> i) & 1:
+                continue
+            base = W[i + 1]
+            for j in range(n):
+                if (mask >> j) & 1:
+                    continue
+                nm = mask | (1 << j)
+                nd = cur + base[j + 1]
+                if nd < dp[nm][j] - 1e-12:
+                    dp[nm][j] = nd
+                    parent[nm][j] = i
+
+    best_cost, best_last = _INF, -1
+    for i in range(n):
+        c = dp[full - 1][i] + dgoal[i + 1]
+        if c < best_cost:
+            best_cost, best_last = c, i
+    if best_last < 0:
+        # 全集没有任何可行顺序（单向隧道等方向约束把所有排列都堵死）。
+        # 此时 best_last=-1 会回溯出**空顺序**，拼装成"起点直奔终点、
+        # 跳过全部雷与桥洞"——正是最坏的静默灾难，改走贪心候选并告警。
+        warnings.warn(
+            f"{n} 个必经点无可行访问顺序（乐观代价全为不可达），退化为"
+            "最近邻顺序——检查单向隧道方向是否标反",
+            RuntimeWarning, stacklevel=4,
+        )
+        return _greedy_orders(W, n)
+    return ([_reconstruct_order(parent, full - 1, best_last)]
+            + _enumerate_optimal_orders(dp, W, dgoal, n, best_cost))
+
+
 def _plan_core(
     start: CellRef,
     goal: CellRef,
@@ -547,12 +678,15 @@ def _plan_core(
     tunnel_axes: frozenset[int] | None = None,
     tunnel_req: dict[int, int] | None = None,
     face_req: dict[str, int] | None = None,
+    diag: dict | None = None,
 ) -> tuple[tuple[str, ...], float]:
-    """给定障碍集与必经点，输出（最优路线, 真实总代价）。"""
+    """给定障碍集与必经点，输出（最优路线, 真实总代价）。
+    diag：不可达诊断上下文（障碍/靶/轨道名集 + 桥列/开放门），由 plan_route 提供。"""
     dist0, _, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal,
                      cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
     if _arrival_state(dist0, goal, None)[0] >= _INF:
-        raise ValueError("goal cell unreachable from start")
+        raise ValueError(_unreachable_detail(
+            start, goal, dist0, blocked, cross_gates, mid_boundary, diag))
     # 注意：可达性检查必须按"任意朝向"——朝向到达不可行由拼装层降级兜底，
     # 若在此按 h_final 判不可达，会把"丢 5 分朝向"误升级成"整局崩溃"。
 
@@ -587,7 +721,8 @@ def _plan_core(
             seg, _h, _c = _route_leg(start, goal, blocked, set(), cross_gates, mid_boundary, entry0, None, turn_45, allow_diagonal, cache,
                                  cross_penalty, tunnel_axes, tunnel_req)
         if seg is None:
-            raise ValueError(f"goal cell {goal.name} unreachable from start")
+            raise ValueError(_unreachable_detail(
+                start, goal, dist0, blocked, cross_gates, mid_boundary, diag))
         return _flatten([seg]), _c
 
     # 每个节点做一次自由进入朝向的 Dijkstra，得两两边权（乐观界）。
@@ -612,34 +747,16 @@ def _plan_core(
         # 退化成"起点直奔终点、跳过全部雷"的灾难路线。
         dgoal = [_arrival_state(dists[i], goal, None)[0] for i in range(n + 1)]
 
-    # Held-Karp：dp[mask][i] = 从起点出发、恰好经过 mask 集合内的必经点、
-    # 当前停在必经点 i 的最少总代价（必经点编号 0..n-1 对应 nodes[1..n]）。
-    full = 1 << n
-    dp = [[_INF] * n for _ in range(full)]
-    parent = [[-1] * n for _ in range(full)]
-    for i in range(n):
-        dp[1 << i][i] = W[0][i + 1]
-    for mask in range(1, full):
-        row = dp[mask]
-        for i in range(n):
-            cur = row[i]
-            if cur >= _INF or not (mask >> i) & 1:
-                continue
-            base = W[i + 1]
-            for j in range(n):
-                if (mask >> j) & 1:
-                    continue
-                nm = mask | (1 << j)
-                nd = cur + base[j + 1]
-                if nd < dp[nm][j] - 1e-12:
-                    dp[nm][j] = nd
-                    parent[nm][j] = i
-
-    best_cost, best_last = _INF, -1
-    for i in range(n):
-        c = dp[full - 1][i] + dgoal[i + 1]
-        if c < best_cost:
-            best_cost, best_last = c, i
+    # 访问顺序候选：n 在上限内走 Held-Karp 精确解，超限退化为最近邻。
+    if n > _TSP_EXACT_MAX_NODES:
+        warnings.warn(
+            f"必经点 {n} 个超过精确 TSP 上限 {_TSP_EXACT_MAX_NODES}，退化为"
+            "最近邻顺序（路线次优）——检查感知是否把大片格误判为必经点",
+            RuntimeWarning, stacklevel=3,
+        )
+        candidates = _greedy_orders(W, n)
+    else:
+        candidates = _held_karp_orders(W, dgoal, n)
 
     def assemble(order: list[int]) -> tuple[tuple[str, ...] | None, float]:
         return _assemble(order, nodes, goal, blocked, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
@@ -653,8 +770,6 @@ def _plan_core(
     best_cost_true: float = _INF
     best_dup = 1 << 30
     best_shape: tuple[int, int] = (_BIG_INT, _BIG_INT)
-    candidates = [_reconstruct_order(parent, full - 1, best_last)]
-    candidates += _enumerate_optimal_orders(dp, W, dgoal, n, best_cost)
     for order in candidates[:64]:
         route, cost_true = assemble(order)
         if route is None:
@@ -693,7 +808,19 @@ def _plan_core(
             )
             if best_route is None or key_better:
                 best_route, best_cost_true, best_dup, best_shape = route, cost_true, dup, shape
-    assert best_route is not None  # 保底顺序必然可拼接（终点朝向不可达时已降级）
+    if best_route is None:
+        # 所有候选顺序都拼不出完整路线。原来是 `assert best_route is not None`：
+        # `python -O` 会把 assert 整条删掉，None 便顺着 plan_route 流进
+        # ensure_mine_center_pass 再到 commands.route，现场表现为"车收到一条
+        # 莫名其妙的路线"而不是一个报错。抛 ValueError 则能被 plan_route 的
+        # 射击位组合循环 `except ValueError: continue` 接住，换下一组合重试。
+        raise ValueError(
+            f"{len(candidates[:64])} 条候选访问顺序均无法拼接完整路线："
+            f"start={start.name} goal={goal.name} 必经点={n} "
+            f"障碍={len(blocked)}。终点本身可达（前置检查已过），"
+            "多半是必经点之间的朝向/隧道约束把每一段都堵死；"
+            "排查单向桥洞方向是否标反、必经点是否落在不可踩格上"
+        )
     return best_route, best_cost_true
 
 
@@ -935,12 +1062,28 @@ def plan_route(
     entry0 = (_HEADING_IDX[start_heading],) if start_heading else _ALL_HEADINGS
     h_final = _HEADING_IDX[final_heading] if final_heading else None
 
+    # 桥门占用过滤（2026-10-17 修复）：门格被实物（障碍/靶/轨道）占用 → 门失效并告警。
+    # 物理优先：桶压在桥门上就是过不去；旧逻辑把 passable 格从障碍集豁免，
+    # 会让路线从实物上开过去。桥列仍按原始 passable 推导——门全关时桥体仍是墙。
+    raw_passable = tuple(snapshot.passable)
+    bridge_cols = {c.col for c in raw_passable}
+    occupied = {c.name for c in snapshot.obstacles}
+    occupied |= {t.cell.name for t in snapshot.targets}
+    occupied |= {c.name for t in snapshot.targets if t.track for c in t.track}
+    gate_hits = sorted(c.name for c in raw_passable if c.name in occupied)
+    if gate_hits:
+        warnings.warn(
+            f"桥门被实物占用已禁用: {','.join(gate_hits)}"
+            f"（该格按障碍处理；若确认误检，从 obstacles 移除后重规划）",
+            RuntimeWarning, stacklevel=2)
+    passable_cells = tuple(c for c in raw_passable if c.name not in occupied)
+
     # 隧道约束解析：方向 'E'/'W'（单向）或 'EW'（双向但强制轴向）。
     # 默认对所有 passable 隧道格强制 'EW'（物理上斜进必撞边，无需等规则方向）。
     tunnel_req: dict[int, int] | None = None
     tunnel_axes: frozenset[int] | None = None
     if tunnel_dirs is None:
-        axes = {c.row * COLS + c.col for c in snapshot.passable}
+        axes = {c.row * COLS + c.col for c in passable_cells}
         tunnel_axes = frozenset(axes) if axes else None
     elif tunnel_dirs:
         axes = set()
@@ -967,23 +1110,16 @@ def plan_route(
 
     # 桥洞列推导：passable（ARROW）所在列即桥洞列。
     # 桥洞列物理上每格都有缺口，但规则上只有带箭头的格子允许通过，
-    # 其余格视为墙。箭头格朝向挡板边界的一侧设1格引道（穿越后出口），
-    # 另一侧不设引道——保证桥洞列南北不连通，形成两个独立半场。
-    # 箭头位置每场随机。多个箭头之间不默认连通。
-    passable_cells = tuple(snapshot.passable)
+    # 其余格视为墙。箭头位置每场随机。多个箭头之间不默认连通。
+    # bridge_cols / passable_cells 已在占用过滤处算好（门被占用时桥列不变）。
     passable_names = {c.name for c in passable_cells}
-    bridge_cols = {c.col for c in passable_cells}
     bridge_open: set[CellRef] = set()       # 桥洞列中可通行的格
     bridge_walls: set[CellRef] = set()
     for col in bridge_cols:
-        open_rows: set[int] = set()
-        for c in passable_cells:
-            if c.col != col:
-                continue
-            open_rows.add(c.row)            # 箭头格本身（隧道口）
-            # 2026-10-15 现场模型修正：桥体其余格全部是结构体（不可踩），
-            # 不再设"引道"——引道概念属于旧的"桥洞格南北穿越中线"模型，
-            # 实测隧道是东西向穿越桥体（docs/分区规划与感知约束-20261015.md）。
+        # 2026-10-15 现场模型修正：桥体其余格全部是结构体（不可踩），
+        # 不再设"引道"——引道概念属于旧的"桥洞格南北穿越中线"模型，
+        # 实测隧道是东西向穿越桥体（docs/分区规划与感知约束-20261015.md）。
+        open_rows = {c.row for c in passable_cells if c.col == col}
         for row in range(ROWS):
             c = CellRef(col, row)
             if row in open_rows:
@@ -1006,7 +1142,7 @@ def plan_route(
     blocked = frozenset(c for c in blocked if c != start and c != goal)
 
     # 中场横向挡板的穿越缺口：
-    # 1. 挡板范围外的列（A、B、C，即非 _BARRIER_COLS 的列）可自由穿越边界；
+    # 1. 挡板范围外的列（A、B、I~N）可自由穿越边界；
     # 2. 桥洞列中位于边界附近的可通行格（箭头+引道）可穿越。
     # 若调用方未显式指定 cross_gates，则自动推导。
     if cross_gates is None:
@@ -1026,6 +1162,14 @@ def plan_route(
     # cache 在本次 plan_route 内共享：blocked/cross_gates 已定型，
     # 等最优顺序枚举与射击位组合会大量重复同一段 Dijkstra。
     cache: dict = {}
+    # 不可达诊断上下文：报错时能直接指出封锁点类别与开放桥门
+    diag_ctx = {
+        "obstacles": {c.name for c in snapshot.obstacles},
+        "targets": {t.cell.name for t in snapshot.targets},
+        "tracks": {c.name for t in snapshot.targets if t.track for c in t.track},
+        "bridge_cols": bridge_cols,
+        "open_gates": passable_names,
+    }
 
     base_required: dict[str, CellRef] = {}
     for c in snapshot.mines:
@@ -1033,7 +1177,8 @@ def plan_route(
     # 可通行桥洞格也是必经点：规则里"桥洞通道协同穿梭"每段 10 分（一区域 5 选 1、
     # 二区域 6 选 1，每区只计一次）——无人机读到的箭头格不穿过去就是白丢分。
     # 此前代码漏了这条（docstring 写了但实现没加），2026-10-15 随机图复盘发现补上。
-    for c in snapshot.passable:
+    # 被实物占用的门格不是必经点（门已失效，见占用过滤）。
+    for c in passable_cells:
         base_required.setdefault(c.name, c)
     # 发现态靶标（红蓝未辨，is_blue=None）的确认点：距靶 1 格的正交邻格
     # 作为必经点（docs/分区规划与感知约束-20261015 问题 4 两段式）。
@@ -1077,7 +1222,8 @@ def plan_route(
 
     if not cand_lists:
         route, _ = _plan_core(start, goal, blocked, base_required, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
-                              cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
+                              cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req,
+                              diag=diag_ctx)
         return ensure_mine_center_pass(
             route, {c.name for c in snapshot.mines}, blocked,
             mid_boundary=mid_boundary, cross_gates=cross_gates,
@@ -1107,7 +1253,7 @@ def plan_route(
         try:
             route, cost = _plan_core(start, goal, blocked, req, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
                                      cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req,
-                                     face_req=face_req)
+                                     face_req=face_req, diag=diag_ctx)
         except ValueError:
             continue
         dup = len(route) - len(set(route))
@@ -1115,7 +1261,11 @@ def plan_route(
         if best_route is None or better:
             best_route, best_cost, best_dup = route, cost, dup
     if best_route is None:
-        raise ValueError("goal cell unreachable from start")
+        # 所有射击位组合都不可达：给出带封锁点分类的诊断而非裸报错
+        dist_all, _, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal,
+                                          cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
+        raise ValueError(_unreachable_detail(
+            start, goal, dist_all, blocked, cross_gates, mid_boundary, diag_ctx))
     return ensure_mine_center_pass(
         best_route, {c.name for c in snapshot.mines}, blocked,
         mid_boundary=mid_boundary, cross_gates=cross_gates,
@@ -1124,19 +1274,7 @@ def plan_route(
 
 
 _ZONE_NAMES = ("西", "东南", "东北")
-
-
-def _corridor_cross_cells(mid_boundary: int) -> tuple[CellRef, ...]:
-    """挡板穿越可用的走廊格：挡板范围外的列（A~C）在边界线两侧的格子。
-
-    行号由 mid_boundary 推导（边界上/下各一行），不再硬编码 6/7 行——
-    mid_boundary 可调后两处口径不会分裂。
-    """
-    return tuple(
-        CellRef(col, row)
-        for col in range(COLS) if col not in _BARRIER_COLS
-        for row in (mid_boundary - 1, mid_boundary)
-    )
+_CORRIDOR_CROSS = ("A6", "A7", "B6", "B7", "C6", "C7")  # 挡板穿越可用的走廊格（6/7 行界两侧）
 
 
 def _dist(a: CellRef, b: CellRef) -> int:
@@ -1145,12 +1283,10 @@ def _dist(a: CellRef, b: CellRef) -> int:
 
 
 def _transit_blocked(snapshot: WorldSnapshot) -> frozenset[CellRef]:
-    """全局 blocked 集（供中转 Dijkstra / 接缝过心校验用）：障碍 + 桥洞墙 + 靶格 + 轨道格。
+    """全局 blocked 集（供中转 Dijkstra 用）：障碍 + 桥洞墙 + 靶格 + 轨道格。
 
-    passable（桥洞隧道）格不封——中转可能途经隧道。
-    注意：与 plan_route 内部 blocked 不同，本函数**不做**起点/终点格免疫
-    （它拿不到起终点）；调用方若需免疫请自行剔除。
-    其余口径与 plan_route 一致，保证中转代价与实际行驶一致。
+    passable（桥洞隧道）格不封——中转可能途经隧道；起点/终点格免疫。
+    与 plan_route 内部 blocked 计算同口径，保证中转代价与实际行驶一致。
     """
     passable_cells = tuple(snapshot.passable)
     passable_names = {c.name for c in passable_cells}
@@ -1168,17 +1304,11 @@ def _transit_blocked(snapshot: WorldSnapshot) -> frozenset[CellRef]:
     return frozenset(c for c in blocked if c.name not in passable_names)
 
 
-def _required_keep(
-    snapshot: WorldSnapshot,
-    route: tuple[str, ...] = (),
-) -> frozenset[str]:
-    """收集所有必须保留为显式途经点的格名（雷/桥洞/靶 + 射击停靠格）。
+def _required_keep(snapshot: WorldSnapshot) -> frozenset[str]:
+    """收集所有必须保留为显式途经点的格名（雷/桥洞/靶）。
 
     compress_route 会跳过同向共线的中间格，但必经点必须保留，
     否则车端直线段可能不经过该格心导致漏扫。
-    射击停靠格同样不可丢：被压缩掉后 adapt 找不到停靠格，'*' 丢失、
-    打击分静默丢失。停靠格判定走 fire_guard.decide_fire 唯一判定口
-    （固定靶=正交邻格∩路线，移动靶=轨道端点几何），与开火标记同口径。
     """
     keep: set[str] = set()
     for c in snapshot.mines:
@@ -1187,27 +1317,7 @@ def _required_keep(
         keep.add(c.name)
     for t in snapshot.targets:
         keep.add(t.cell.name)
-    for name in route:
-        if decide_fire(snapshot, name).allowed:
-            keep.add(name.strip().upper())
     return frozenset(keep)
-
-
-def _degraded_snapshot(snapshot: WorldSnapshot) -> WorldSnapshot:
-    """分区降级/补程重规划用的快照：只摘除雷，其余全保留。
-
-    passable 必须保留——桥洞列由它推导桥墙，摘除后降级路线会穿桥墙；
-    靶保留但一律置红：物理靶体仍是障碍（不可踩），但不再规划停靠射击
-    （发现态靶的确认点同理不再派生）。雷摘除：降级语义是"直奔终点"，
-    不再为排雷绕路。
-    """
-    return WorldSnapshot(
-        snapshot.timestamp_ms,
-        (),
-        snapshot.passable,
-        snapshot.obstacles,
-        tuple(replace(t, is_blue=False) for t in snapshot.targets),
-    )
 
 
 def _derive_cross_gates(snapshot: WorldSnapshot, mid_boundary: int) -> frozenset[CellRef]:
@@ -1286,7 +1396,8 @@ def _pick_transit_dijkstra(
     # 东南↔东北：必须经西区走廊格转场（D7~N7 挡板不能直穿）
     if cur_zone != "西" and next_z != "西":
         best: tuple[tuple, int, str, CellRef] | None = None
-        for cc in _corridor_cross_cells(mid_boundary):
+        for name in _CORRIDOR_CROSS:
+            cc = CellRef(LETTERS.index(name[0]), int(name[1:]) - 1)
             k1 = _cost(cur, cc)
             if k1[0] >= _INF:
                 continue
@@ -1295,7 +1406,7 @@ def _pick_transit_dijkstra(
                 continue
             k2 = min(k2_candidates)
             total = (k1[0] + k2[0], k1[1] + k2[1], k1[2] + k2[2])
-            key = (total, _dist(cur, cc) + min(_dist(cc, r) for r in next_req), cc.name, cc)
+            key = (total, _dist(cur, cc) + min(_dist(cc, r) for r in next_req), name, cc)
             if best is None or key < best:
                 best = key
         if best is not None:
@@ -1433,7 +1544,7 @@ def plan_route_zoned(
     blocked = _transit_blocked(snapshot)
     gates_param = kwargs.get("cross_gates", None)
     cross_gates = gates_param if gates_param is not None else _derive_cross_gates(snapshot, mid_boundary)
-    # 隧道约束解析（与 plan_route 同口径，含同款入参校验）
+    # 隧道约束解析（与 plan_route 同口径）
     tunnel_axes: frozenset[int] | None = None
     tunnel_req: dict[int, int] | None = None
     if tunnel_dirs is None:
@@ -1445,67 +1556,19 @@ def plan_route_zoned(
         for name, d in tunnel_dirs.items():
             cn = name.strip().upper()
             dd = str(d).strip().upper()
-            if dd not in ("E", "W", "EW"):
-                raise ValueError(f"tunnel_dirs[{name!r}] 只支持 'E'/'W'/'EW'，收到 {d!r}")
             cell = CellRef(LETTERS.index(cn[0]), int(cn[1:]) - 1)
-            if not (0 <= cell.row < ROWS and 0 <= cell.col < COLS):
-                raise ValueError(f"tunnel_dirs 格号越界: {name!r}")
             ci = cell.row * COLS + cell.col
             axes.add(ci)
-            if dd != "EW":
+            if dd in ("E", "W"):
                 tunnel_req[ci] = 0 if dd == "E" else 4
-        tunnel_axes = frozenset(axes)
-        if not tunnel_req:
-            tunnel_req = None
-    else:
-        tunnel_axes = None     # 显式 {} = 全关（遗留行为，不推荐）
-
-    # 朝向只挂真正的首尾程（审查 M4）：start_heading 是车端 reset 断言，
-    # 仅第一程携带；final_heading 仅"最后一区且即终点区"的末程携带——
-    # 中转格被强加终点朝向会逼出无谓绕转/朝向降级。
-    start_heading = kwargs.get("start_heading")
-    final_heading = kwargs.get("final_heading")
-
-    # 接缝过心校验用的 blocked：与 plan_route 同口径补起点/终点格免疫
-    # （这两格上的"障碍"只能是误检，信任它会误杀合法的补点）。
-    blocked_check = frozenset(c for c in blocked if c != start and c != goal)
-    tunnel_names = ({_CELLS[ci].name for ci in tunnel_axes}
-                    if tunnel_axes else None)
+        tunnel_axes = frozenset(axes) if axes else None
 
     parts: list[tuple[str, ...]] = []
     cur = start
-
-    def _finish() -> tuple[str, ...]:
-        """缝合 -> 接缝雷过心 -> 共线压缩（keep 含射击停靠格）。
-
-        接缝雷（S3）：逐区 plan_route 内部的 ensure_mine_center_pass 只处理
-        各自路线的中间格，接缝处雷格（上一段尾格 = 下一段首格）两段都看不
-        到——缝合后以全量雷集 + 全局 blocked/gates/tunnel 再跑一次。
-        压缩（S1）：keep 集必须含 decide_fire 放行的路线格（射击停靠格），
-        否则共线中间格被删后 '*' 丢失、打击分静默丢失。
-        """
-        full = tuple(c for part in parts for c in part)
-        if not full:
-            full = (cur.name,)
-        full = ensure_mine_center_pass(
-            full, {c.name for c in snapshot.mines}, blocked_check,
-            mid_boundary=mid_boundary, cross_gates=cross_gates,
-            tunnel_names=tunnel_names)
-        return compress_route(full, _required_keep(snapshot, full))
-
-    def _leg_kwargs(is_goal_leg: bool) -> dict:
-        """逐程 kwargs：start_heading 仅首程（parts 为空 = 尚未缝合任何段），
-        final_heading 仅终点程。"""
-        kw = dict(kwargs)
-        kw["start_heading"] = start_heading if not parts else None
-        kw["final_heading"] = final_heading if is_goal_leg else None
-        return kw
-
     for i, z in enumerate(order):
         last = i == len(order) - 1
         next_z = order[i + 1] if not last else None
-        is_goal_leg = last and z == goal_zone
-        sub_goal = goal if is_goal_leg else _pick_transit_dijkstra(
+        sub_goal = goal if (last and z == goal_zone) else _pick_transit_dijkstra(
             cur, z, next_z, goal, mine_z, pas_z, mid_boundary, blocked, cross_gates,
             turn_45, allow_diagonal, cross_penalty, tunnel_axes, tunnel_req,
         )
@@ -1517,27 +1580,19 @@ def plan_route_zoned(
             tuple(tgt_z.get(z, [])),
         )
         try:
-            r = plan_route(sub, cur, sub_goal, **_leg_kwargs(is_goal_leg))
+            r = plan_route(sub, cur, sub_goal, **kwargs)
         except ValueError:
             # 该区到中转点不可达（障碍堵死）：降级——跳过该区任务直奔终点，
-            # 保住完赛（崩溃 = 整局 0 分，跳过区 = 丢该区分数但能完赛）。
-            # 降级快照保留 passable（桥墙建模）与靶体（障碍物），只摘除雷（S2）。
+            # 保住完赛（崩溃 = 整局 0 分，跳过区 = 丢该区分数但能完赛）
             warnings.warn(
                 f"{z}区规划失败（到 {sub_goal.name} 不可达），"
                 f"降级跳过该区任务直奔终点",
                 RuntimeWarning, stacklevel=2,
             )
-            try:
-                r = plan_route(_degraded_snapshot(snapshot), cur, goal,
-                               **_leg_kwargs(True))
-            except ValueError:
-                # 直奔终点也不可达（终点被障碍/桥墙真正隔断）：
-                # 保住已规划部分，等下拍重规划（绝不穿墙编造路线）
-                warnings.warn(
-                    f"降级直奔终点 {goal.name} 也不可达，返回已规划部分路线",
-                    RuntimeWarning, stacklevel=2,
-                )
-                return _finish()
+            r = plan_route(
+                WorldSnapshot(snapshot.timestamp_ms, (), (), snapshot.obstacles, ()),
+                cur, goal, **kwargs,
+            )
             parts.append(r if not parts else r[1:])
             cur = CellRef(LETTERS.index(r[-1][0]), int(r[-1][1:]) - 1)
             break   # 已直奔终点，不再处理后续区
@@ -1547,20 +1602,23 @@ def plan_route_zoned(
         cur = CellRef(LETTERS.index(r[-1][0]), int(r[-1][1:]) - 1)  # 路线格名 -> CellRef
 
     # 终点不在任何已执行的区（终点区无任务）→ 补最后一程
-    # （降级快照同款：保留桥墙/靶体建模，只摘除雷——S2）
     if cur != goal:
         try:
-            tail = plan_route(_degraded_snapshot(snapshot), cur, goal,
-                              **_leg_kwargs(True))
+            tail = plan_route(
+                WorldSnapshot(snapshot.timestamp_ms, (), (), snapshot.obstacles, ()),
+                cur, goal, **kwargs,
+            )
         except ValueError:
             # 终点不可达：返回已规划的部分（至少完成了已扫区）
             warnings.warn(
                 f"终点 {goal.name} 不可达，返回已规划部分路线",
                 RuntimeWarning, stacklevel=2,
             )
-            return _finish()
+            full = tuple(c for part in parts for c in part)
+            return compress_route(full, _required_keep(snapshot))
         parts.append(tail[1:])
-    return _finish()
+    full = tuple(c for part in parts for c in part)
+    return compress_route(full, _required_keep(snapshot))
 
 
 def _norm_dir(a: tuple[int, int], b: tuple[int, int]) -> tuple[int, int]:

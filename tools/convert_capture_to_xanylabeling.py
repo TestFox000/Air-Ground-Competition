@@ -23,50 +23,62 @@ NAMES = [
 ]
 
 exts = {".jpg", ".jpeg", ".png", ".bmp"}
-imgs = sorted(p for p in IMG_DIR.iterdir() if p.suffix.lower() in exts)
-print(f"图片数: {len(imgs)}")
 
-count = 0
-for img_path in imgs:
-    lbl_path = LBL_DIR / f"{img_path.stem}.txt"
-    json_path = IMG_DIR / f"{img_path.stem}.json"
 
-    shapes = []
-    if lbl_path.exists() and lbl_path.stat().st_size > 0:
+def main() -> int:
+    # 全部逻辑收进 main：import 冒烟（tests/test_tools_smoke）只 import 不执行，
+    # 顶层迭代 IMG_DIR 会在采集目录不在场（CI/别的机器）时 import 即崩。
+    if not IMG_DIR.is_dir():
+        raise SystemExit(f"采集目录不存在: {IMG_DIR}")
+    imgs = sorted(p for p in IMG_DIR.iterdir() if p.suffix.lower() in exts)
+    print(f"图片数: {len(imgs)}")
+
+    count = 0
+    for img_path in imgs:
+        lbl_path = LBL_DIR / f"{img_path.stem}.txt"
+        json_path = IMG_DIR / f"{img_path.stem}.json"
+
+        shapes = []
+        if lbl_path.exists() and lbl_path.stat().st_size > 0:
+            with Image.open(img_path) as im:
+                W, H = im.size
+            for line in lbl_path.read_text(encoding="utf-8").strip().splitlines():
+                parts = line.split()
+                if len(parts) != 5:
+                    continue
+                cid, cx, cy, w, h = int(parts[0]), *map(float, parts[1:])
+                label = NAMES[cid] if 0 <= cid < len(NAMES) else f"class_{cid}"
+                x1 = (cx - w / 2) * W
+                y1 = (cy - h / 2) * H
+                x2 = (cx + w / 2) * W
+                y2 = (cy + h / 2) * H
+                shapes.append({
+                    "label": label,
+                    "points": [[round(x1, 1), round(y1, 1)], [round(x2, 1), round(y2, 1)]],
+                    "group_id": None,
+                    "shape_type": "rectangle",
+                    "flags": {},
+                })
+
         with Image.open(img_path) as im:
             W, H = im.size
-        for line in lbl_path.read_text(encoding="utf-8").strip().splitlines():
-            parts = line.split()
-            if len(parts) != 5:
-                continue
-            cid, cx, cy, w, h = int(parts[0]), *map(float, parts[1:])
-            label = NAMES[cid] if 0 <= cid < len(NAMES) else f"class_{cid}"
-            x1 = (cx - w / 2) * W
-            y1 = (cy - h / 2) * H
-            x2 = (cx + w / 2) * W
-            y2 = (cy + h / 2) * H
-            shapes.append({
-                "label": label,
-                "points": [[round(x1, 1), round(y1, 1)], [round(x2, 1), round(y2, 1)]],
-                "group_id": None,
-                "shape_type": "rectangle",
-                "flags": {},
-            })
+        data = {
+            "version": "5.5.0",
+            "flags": {},
+            "shapes": shapes,
+            "imagePath": img_path.name,
+            "imageData": None,
+            "imageHeight": H,
+            "imageWidth": W,
+        }
+        json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        if shapes:
+            count += 1
 
-    with Image.open(img_path) as im:
-        W, H = im.size
-    data = {
-        "version": "5.5.0",
-        "flags": {},
-        "shapes": shapes,
-        "imagePath": img_path.name,
-        "imageData": None,
-        "imageHeight": H,
-        "imageWidth": W,
-    }
-    json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    if shapes:
-        count += 1
+    print(f"生成 JSON: {len(imgs)} 个，其中 {count} 个有标注框")
+    print(f"JSON 位置: {IMG_DIR}")
+    return 0
 
-print(f"生成 JSON: {len(imgs)} 个，其中 {count} 个有标注框")
-print(f"JSON 位置: {IMG_DIR}")
+
+if __name__ == "__main__":
+    raise SystemExit(main())

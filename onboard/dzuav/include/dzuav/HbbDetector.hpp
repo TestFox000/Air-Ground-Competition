@@ -3,6 +3,7 @@
 #include "dzuav/TensorRtEngine.hpp"
 #include "dzuav/types.hpp"
 
+#include <array>
 #include <opencv2/core.hpp>
 
 #include <string>
@@ -11,11 +12,20 @@
 namespace dzuav
 {
 
-// 基于 TensorRT 的水平框检测器（YOLOv8，输入 1280x1280，7 类）。
+// 基于 TensorRT 的水平框检测器（YOLO11s，输入 1280x1280，13 类 = 17 通道输出）。
+// 2026-10-16: D 方案 13 类统一模型（hbb_d13_best.pt），per-class 阈值 + paper 边缘过滤。
 class HbbDetector : public TensorRtEngine
 {
 public:
+    // 简化构造：全类统一 conf/nms，无边缘过滤。
     HbbDetector(const std::string& engine_path, float confidence, float nms);
+
+    // 部署构造：按类别 conf/NMS + paper 边缘过滤（框中心距边 < thr 归一化则剔除，
+    // letterbox 填充伪影对策；仅对 Paper 类生效）。
+    HbbDetector(const std::string& engine_path,
+                const std::array<float, kObjectClassCount>& conf_per_class,
+                const std::array<float, kObjectClassCount>& nms_per_class,
+                float edge_paper_thr = 0.F);
 
     ~HbbDetector() override
     {
@@ -36,16 +46,16 @@ public:
     HbbDetector& operator=(const HbbDetector&) = delete;
 
 private:
-    float confidence_;
-    float nms_;
+    void allocate(const std::string& engine_path);
+
+    std::array<float, kObjectClassCount> conf_per_class_{};
+    std::array<float, kObjectClassCount> nms_per_class_{};
+    float edge_paper_thr_ = 0.F;
     void* input_ = nullptr;    // 设备侧输入
     void* output_ = nullptr;   // 设备侧输出
     float* h_input_ = nullptr;   // 页锁定主机输入（H2D 免驱动中转）
     float* h_output_ = nullptr;  // 页锁定主机输出（D2H 免驱动中转）
-    cv::Mat letterbox_;          // 1280x1280 letterbox 画布，跨帧复用（warpAffine 单步写入）
-    // h_input_ 归一化有效区域尺寸（宽/高）；变化时 padding 区需重填 114/255
-    int norm_w_ = -1;
-    int norm_h_ = -1;
+    cv::Mat blob_;               // 包住 h_input_ 的 CHW float 缓冲，跨帧复用
 };
 
 }  // namespace dzuav

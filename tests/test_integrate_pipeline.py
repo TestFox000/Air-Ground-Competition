@@ -21,13 +21,13 @@ def test_gate_decisions():
     s = snapshot((obj(CellRef(3, 1), ObjectType.TARGET_BLUE),))
     assert not evaluate_gate(s, min_mines=1, require_face=True).ok
     # 有雷但无敌我判决 -> face_unknown
-    s = snapshot((obj(CellRef(3, 10), ObjectType.MINE),))
+    s = snapshot((obj(CellRef(3, 10), ObjectType.PAPER),))
     assert evaluate_gate(s, 1, require_face=True).reason == "face_unknown"
     assert evaluate_gate(s, 1, require_face=False).ok
     # 雷 + 靶 -> 开门
     s = snapshot(
         (
-            obj(CellRef(3, 10), ObjectType.MINE),
+            obj(CellRef(3, 10), ObjectType.PAPER),
             obj(CellRef(3, 1), ObjectType.TARGET_BLUE),
         )
     )
@@ -38,17 +38,20 @@ def test_gate_decisions():
 def test_build_mission_full():
     s = snapshot(
         (
-            obj(CellRef(3, 10), ObjectType.MINE),       # D11
-            obj(CellRef(10, 8), ObjectType.ARROW),      # K9
+            obj(CellRef(3, 10), ObjectType.PAPER),       # D11
+            obj(CellRef(10, 8), ObjectType.PAPER),      # K9
             obj(CellRef(5, 5), ObjectType.OBSTACLE),    # F6
             obj(CellRef(3, 1), ObjectType.TARGET_BLUE),  # D2 敌
         )
     )
     cmds = build_mission(s, "N10", "N11", "y", "x")  # N11 最底行，只能东/西驶入
-    assert cmds.reset == "reset:N10,y"
+    # 上线的是**车端坐标架**的 token（两架差 90°，car_commands 负责翻译）：
+    # 本机 'y'(向第1行) -> 车端 'x'；本机 'x'(A→N) -> 车端 '-y'。
+    # 映射本身由 tests/test_heading_frame.py 从两个包的格号->坐标函数推导校验。
+    assert cmds.reset == "reset:N10,x"
     tokens = cmds.route.split()
     assert tokens[0] == "N10"
-    assert tokens[-1] == "N11,x"
+    assert tokens[-1] == "N11,-y"
     # 敌靶格 D2 不可踩；车在其正交邻格停靠开火（C2/D3/E2/D1 均为合法邻格，
     # 具体选哪个取决于路径规划，如 D7-N7 挡板会改变最优通路）
     assert "D2" not in tokens
@@ -108,7 +111,7 @@ def test_inject_track_only_hits_targets_on_track():
     轨道上的蓝靶按轨道几何停靠（D9/E9 蓝面侧正对端点）。"""
     s = snapshot(
         (
-            obj(CellRef(0, 5), ObjectType.MINE),           # A6
+            obj(CellRef(0, 5), ObjectType.PAPER),           # A6
             obj(CellRef(3, 7), ObjectType.TARGET_BLUE),    # D8：轨道上
             obj(CellRef(13, 1), ObjectType.TARGET_RED),    # N2：固定红靶
         )
@@ -128,7 +131,7 @@ def test_inject_track_leaves_fixed_blue_on_fixed_geometry():
     不被轨道几何带偏；与移动靶各自命中、各记一次。"""
     s = snapshot(
         (
-            obj(CellRef(0, 5), ObjectType.MINE),           # A6
+            obj(CellRef(0, 5), ObjectType.PAPER),           # A6
             obj(CellRef(3, 7), ObjectType.TARGET_BLUE),    # D8：移动靶
             obj(CellRef(13, 8), ObjectType.TARGET_BLUE),   # N9：固定蓝靶
         )
