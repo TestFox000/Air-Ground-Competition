@@ -32,7 +32,7 @@ $Roster = [ordered]@{
     "万涛涛" = "wan-taotao"
     "贾凯旋" = "jia-kaixuan"
     "王江涛" = "wang-jiangtao"
-    "陈驰"   = "chen-chi"
+    "程驰"   = "cheng-chi"
     "刘亚辉" = "liu-yahui"
     "胡锦宇" = "hu-jinyu"
 }
