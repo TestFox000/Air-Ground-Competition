@@ -48,21 +48,24 @@ CODE_DEFAULT = {
     "box_w_near": 120.0,
 }
 
-# 建议值（来源：锁定增强补丁说明 §3.4 / 提前量启用与标定流程 / 扫描与EMA定值）
+# 建议值（来源：锁定增强补丁说明 §3.4 / 提前量启用与标定流程 / 扫描与EMA定值 /
+#        ★2026-10-18 车上实测复核：车端为增量式PID版本，px_per_tick/track_kp 口径已换算）
 #   (建议值, 若不符会造成的症状)
 RECOMMEND = {
-    "px_per_tick":         ("≈0.94(必标定)", "收敛命门：偏大会欠修 → 永远放不在中心、锁不住"),
+    "px_per_tick":         ("车端pid模式无此键→看pid_kp", "车端(增量式PID)不存在此键。口径换算：每帧修正比例=pid_kp/31.9；kp=10→31%(稳态滞后≈13.8px)。267ms链路延迟下kp上限≈10~12，追死拍(20~32)会自激震荡"),
+    "pid_kp":              ("10.0~12.0(车端口径)", "车端现役增量式PID真源。kp=10 修正31%；勿按旧口径(本地副本px_per_tick)整定，增益顶到20+会因267ms纯延迟自激"),
+    "max_shots":           (10,    "★P0：试射遗留=1 ⇒ 全程只能打1发且打满即永久禁火(须重启节点)。出车前必须改回10"),
     "gyro_ff_gain":        (1.0,   "车体一转靶就漂出画面 → 微找/重扫循环 =『各种转』"),
     "gyro_ff_sign":        ("±1(用标定脚本)", "填错会把漂移翻倍（见 aim_ff_calib_sim）"),
-    "predict_gain":        (0.0,   "预测器接管后必须归零，否则双重补偿过冲"),
+    "predict_gain":        (0.0,   "上游lead(dzbrain /aim/lead_x)已做全链路补偿时必须归零，否则双重补偿过冲；若上游只做部分补偿可保留0.5(≈16ms)"),
     "vision_latency_ms":   (0.0,   "同上（预测器接管）"),
     "use_external_fire_gate": (True, "不开则移动靶几乎打不出去（画面静止判据不可能满足）"),
     "lead_apply_gain":     (0.6,   "不施加提前量 → 延迟 0.26s 的 33px 飘移全落到靶外"),
     "ema_alpha":           (0.5,   "0.3 滞后 78ms → 移动靶永远追不到中心（可到 0.7）"),
     "patrol_speed_ratio":  (0.25,  "扫描过快 → 单趟可见帧少 → 锁定概率低"),
-    "track_kp":            ("4.0(标定 px_per_tick 后重整定)", "与 px_per_tick 强耦合：px_per_tick 减半→环路增益翻倍→可能振荡"),
-    "fire_dz_far_px":      (6.0,   "3.5px 开火框过紧 →『瞄上了打不出去』（对移动靶更需超前配合）"),
-    "fire_dz_near_px":     (18.0,  "同上；far==near 时动态框等于没启用"),
+    "track_kp":            ("pid模式不生效(车端看pid_kp)", "车端track_mode=pid时此键与track_kd/track_inc_gain均不生效(横幅仍打印会误导)；真源是pid_kp"),
+    "fire_dz_far_px":      (14.0,  "开火框须 > 机械抖动+余量：车端机械精度≈12px ⇒ 14/26 合理(车上实测口径)；过小则hold 5帧难满足"),
+    "fire_dz_near_px":     (26.0,  "同上；far==near 时动态框等于没启用"),
     "fire_hold_frames":    (3,     "需连续 N 帧全条件成立；条件闪烁时 N 越大越难兑现"),
     "fire_stable_px_per_frame": (2.5, "1.5px/帧 对移动靶几乎不可满足（超前生效后才自然满足）"),
     "laser_offset_x":      ("标定值", "激光与相机不同轴 → 开火零点非画面中心；不标则『中心对准也打偏』"),
@@ -143,12 +146,14 @@ def main() -> int:
 
     print("-" * 104)
     print(f"合计需处理：{n_bad} 项")
-    print("\n★ 优先顺序（症状→动作）：")
-    print("  1) px_per_tick 现场标定（转100刻度量像素÷100）—— 收敛命门，先做这个")
-    print("  2) gyro_ff_gain=1 + gimbal_ff_calib.py 标符号 —— 治『车一转靶就飞/各种转』")
-    print("  3) use_external_fire_gate=true + lead_apply_gain 0.6→1.0 —— 治『移动靶打不到』")
-    print("  4) 标定 px_per_tick 之后必须重看 track_kp/kd（环路增益会翻倍，可能需下调）")
-    print("  5) momentum_sign 只能看日志定（[lock#1 刹车] 第2帧 raw 应变小，否则改 -1）")
+    print("\n★ 优先顺序（2026-10-18 车上实测复核后的口径）：")
+    print("  1) max_shots=1 是 P0：出车前必须改回 10（打满即永久禁火，只能重启节点恢复）")
+    print("  2) use_external_fire_gate=true + lead_apply_gain 0.5~0.6 —— 治『移动靶打不到』")
+    print("     （车端 /aim/lead_x 已由 dzbrain 发布，两键链路在二进制里已就绪）")
+    print("  3) gyro_ff_gain 0.8~1.0 + 用 gimbal_ff_calib.py 标符号 —— 治『车一转靶就飞』")
+    print("  4) laser_offset_x/y 标定 —— 治『瞄得正也打偏』（『发10/中0』的隐藏根因）")
+    print("  5) 车端 pid_kp 勿超 12（267ms 链路延迟的自激上限）；稳态滞后用 lead 消，不要加 kp")
+    print("  6) 规程：每次改参/换靶/打满后 重启 5_gimbal —— shots_fired_ 是进程级状态不随参数重载清零")
     return 0
 
 
