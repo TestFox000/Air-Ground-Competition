@@ -108,6 +108,23 @@ def main():
     else:
         warn.append("缺少 tools/wf/check_links.py（文档链接检查跳过）")
 
+    # 复用门禁：新增 .py 未在复用清单/能力索引登记 → 红（防"又造一个轮子"）
+    reuse_status = ""
+    rc = Path(__file__).resolve().parent / "check_reuse.py"
+    if rc.exists():
+        try:
+            r = subprocess.run([sys.executable, str(rc)], capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", timeout=120)
+            out = (r.stdout or "").strip()
+            if r.returncode != 0:
+                fail.append("复用门禁未通过（新增代码未登记）:\n%s" % out)
+            else:
+                reuse_status = out.splitlines()[0] if out else ""
+        except Exception as e:  # noqa: BLE001
+            fail.append("复用门禁执行失败: %s" % e)
+    else:
+        warn.append("缺少 tools/wf/check_reuse.py（复用门禁跳过）")
+
     files, err = git_status()
     if err:
         fail.append(err)
@@ -164,6 +181,8 @@ def main():
             print("  [%s] %s" % (mark, f))
         if link_status:
             print("  [OK ] 文档链接 %s" % link_status)
+        if reuse_status:
+            print("  [OK ] 复用门禁 %s" % reuse_status)
         if unregistered:
             print("未登记（阻断）: %d" % len(unregistered))
         for w in warn:
