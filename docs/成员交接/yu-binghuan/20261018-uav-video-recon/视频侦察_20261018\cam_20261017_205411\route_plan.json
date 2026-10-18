@@ -1,0 +1,135 @@
+{
+  "source": {
+    "mines": "裁判规则固定8雷（官方基线，视频漏检不缩减）",
+    "obstacles": "官方基线∪视频检出（保守并集）",
+    "targets": "视频识别（剔除与障碍冲突者）；移动靶蓝面不定→发现态两段式",
+    "passable": [
+      "K10",
+      "K4"
+    ],
+    "start": "N10",
+    "goal": "N5",
+    "ladder": "官方8雷+保守避障"
+  },
+  "snapshot": {
+    "mines": [
+      "B1",
+      "A2",
+      "I2",
+      "C3",
+      "E3",
+      "F5",
+      "H8",
+      "G9"
+    ],
+    "passable": [
+      "K10",
+      "K4"
+    ],
+    "obstacles": [
+      "A11",
+      "B7",
+      "C9",
+      "D5",
+      "E10",
+      "F8",
+      "G10",
+      "I6"
+    ],
+    "targets": [
+      "未辨@D7"
+    ]
+  },
+  "evidence": {
+    "mines_video_detected": [],
+    "mines_baseline_only": [
+      "B1",
+      "A2",
+      "I2",
+      "C3",
+      "E3",
+      "F5",
+      "H8",
+      "G9"
+    ],
+    "mines_video_unmatched": [],
+    "obstacles_video": [],
+    "targets_dropped_conflict": [],
+    "passable_video": []
+  },
+  "route": [
+    "N10",
+    "M10",
+    "L10",
+    "K10",
+    "J10",
+    "I9",
+    "H8",
+    "G9",
+    "F9",
+    "E9",
+    "D8",
+    "C8",
+    "C7",
+    "C6",
+    "C5",
+    "C4",
+    "C3",
+    "B2",
+    "A2",
+    "B1",
+    "C1",
+    "D2",
+    "E3",
+    "F4",
+    "F5",
+    "G4",
+    "H3",
+    "I2",
+    "J3",
+    "J4",
+    "K4",
+    "L4",
+    "M5",
+    "N6",
+    "N5"
+  ],
+  "route_len_cells": 35,
+  "route_len_diag": 40.21,
+  "turns": 15,
+  "compact": [
+    "N10",
+    "K10",
+    "J10",
+    "H8",
+    "G9",
+    "E9",
+    "D8",
+    "C8",
+    "C3",
+    "B2",
+    "A2",
+    "B1",
+    "C1",
+    "E3",
+    "F4",
+    "F5",
+    "I2",
+    "J3",
+    "J4",
+    "K4",
+    "L4",
+    "N6",
+    "N5"
+  ],
+  "car_cmds": {
+    "reset": "reset:N10,y",
+    "route": "N10 K10 J10 H8 G9 E9 D8 C8 C3 B2 A2 B1 C1 E3 F4 F5 I2 J3 J4 K4 L4 N6 N5,y",
+    "shoot_cells": []
+  },
+  "check": {
+    "排雷覆盖": "全部覆盖",
+    "障碍避让": "通过",
+    "雷集合来源": "官方8雷基线，视频确认0/8"
+  }
+}
