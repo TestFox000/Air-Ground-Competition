@@ -1747,7 +1747,13 @@ def assert_legal(route: Route) -> None:
         prev, cur, nxt = route.waypoints[i - 1], route.waypoints[i], route.waypoints[i + 1]
         # 只要相邻两段里有倒车段，就不算"原地掉头"（车头没掉过来）——与
         # route_check 的 _is_rev_vertex 同一判据。
-        if prev.reverse or cur.reverse:
+        # ★ 判据必须落在**与本顶点相邻的两段**上：`reverse[i]` 表示"段 (i-1→i) 倒车"，
+        #   所以顶点 i 的两条邻段是 cur.reverse（进）与 nxt.reverse（出）。
+        #   旧写法 `prev.reverse or cur.reverse` 看的是顶点 i-1/i 的段：
+        #   ① 漏判"正向进 + 倒车出"——现场 41 token 第 7 顶点 H10→H8→R:H9 被误报 180° 折返，
+        #      导致规划器自己产出的合法倒车路线过不了 assert_legal；
+        #   ② 错杀"上一段倒车"的正常顶点。与 pivot_vertices 的判据逐字对齐。
+        if cur.reverse or nxt.reverse:
             continue
         angle = _angle_of(prev, cur, nxt)
         if angle > UTURN_REVERSE_DEG:

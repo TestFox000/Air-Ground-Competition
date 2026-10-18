@@ -572,7 +572,7 @@ def main() -> int:
           "0 违规" if not k_bad else " | ".join(k_bad[:3]))
     check("没有'同模式 180° 折返'（assert_legal 的核心不变量）",
           all(P._angle_of(wps[i - 1], wps[i], wps[i + 1]) <= P.UTURN_REVERSE_DEG
-              or wps[i - 1].reverse or wps[i].reverse
+              or wps[i].reverse or wps[i + 1].reverse   # ★ 顶点 i 的两条邻段 = 进入段/离开段
               for i in range(1, len(wps) - 1)),
           "无违规顶点")
     check("接受窗口 = route_check 的容差窗口（0.17~0.51 m）",
@@ -1194,6 +1194,39 @@ def main() -> int:
     _m_i5["map"]["obstacles"] = list(_m_i5["map"]["obstacles"]) + ["I5"]
     check("⑭.4c 堵 I5（封死 J5 纵向来路）⇒ 必拒（spec §H.2：不可行 ⇒ 报不可行）",
           _plan_must_fail(_m_i5))
+    # ------------------------------------------------------------------ #
+    section("⑮ t32 倒车折返合法性：assert_legal 判据对齐（现场 41 token 复算）")
+    # 现场形态（2026-10-18 第七张图倒车版）：H10→H8（正向）→ R:H9（倒车出）。
+    # 旧判据用 prev/cur 看错了一格，把这条合法路线误报成"第 7 个航点 H8 处 180° 折返"。
+    _field41 = ("N10 M10 L10 K10 J10 I10 H10 H8 R:H9 G9 F9* E9 E8 C8 C7 C6 C5 C4 C3 C2 "
+                "A2 A1 B1 C1 C3 E3 F3 R:F5 R:F4 F3 F2 G2 H2 I2 J2 J4 K4 L4 M4 N4 N5").split()
+    _r41 = None
+    try:
+        _r41 = PARSER.parse_mission(_field41)
+        P.assert_legal(_r41)
+        _ok41, _d41 = True, "41 航点 / %d 段倒车 → 通过" % sum(
+            1 for w in _r41.waypoints if w.reverse)
+    except Exception as _e:                                  # noqa: BLE001
+        _ok41, _d41 = False, "%s: %s" % (type(_e).__name__, _e)
+    check("⑮.1 现场 41 token 倒车路线能过 assert_legal（H10→H8→R:H9 共线折返）",
+          _ok41, _d41)
+    check("⑮.2 该路线不需要 :PIVOT（pivot_vertices 为空）",
+          _r41 is not None and P.pivot_vertices(_r41) == [],
+          str(P.pivot_vertices(_r41)) if _r41 is not None else "parse 失败")
+    # ⑮.3 负向控制：同模式 180° 折返仍必须被拦（N10→M10→N10，无 R:）
+    check_raises("⑮.3 负向控制：同模式 180° 折返（N10 M10 N10，无 R:）必须抛 PlannerError",
+                 P.assert_legal, PARSER.parse_mission(["N10", "M10", "N10"]))
+    # ⑮.4 判据对齐：assert_legal 与 pivot_vertices 必须用同一套"相邻两段"口径
+    _mis = []
+    if _r41 is not None:
+        for _i in range(1, len(_r41.waypoints) - 1):
+            _p, _c, _n = _r41.waypoints[_i - 1], _r41.waypoints[_i], _r41.waypoints[_i + 1]
+            if _c.reverse or _n.reverse:
+                continue
+            if P._angle_of(_p, _c, _n) > P.UTURN_REVERSE_DEG:
+                _mis.append(_c.block)
+    check("⑮.4 判据对齐后：41 token 无『未声明的同模式 180° 折返』", _mis == [], str(_mis))
+
     return finish()
 
 
