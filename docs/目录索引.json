@@ -20,7 +20,7 @@
  {
   "path": "_tmp_session",
   "type": "dir",
-  "size": 721153777,
+  "size": 721158003,
   "mtime": "2026-10-18 20:07",
   "status": "临时",
   "owner": "团队",
@@ -65,7 +65,7 @@
  {
   "path": "dzrobot_v2",
   "type": "dir",
-  "size": 2761447403,
+  "size": 2761585669,
   "mtime": "2026-10-18 20:10",
   "status": "核心",
   "owner": "Lead",
@@ -173,7 +173,7 @@
  {
   "path": "dzrobot_v2/_tmp_session",
   "type": "dir",
-  "size": 139780917,
+  "size": 139820141,
   "mtime": "2026-10-18 20:13",
   "status": "临时",
   "owner": "团队",
@@ -209,7 +209,7 @@
  {
   "path": "dzrobot_v2/docs",
   "type": "dir",
-  "size": 1276150,
+  "size": 1278101,
   "mtime": "2026-10-18 20:15",
   "status": "核心",
   "owner": "Lead",
@@ -236,7 +236,7 @@
  {
   "path": "dzrobot_v2/src",
   "type": "dir",
-  "size": 2259053278,
+  "size": 2259048348,
   "mtime": "2026-10-17 11:42",
   "status": "核心",
   "owner": "schema-owner",
@@ -371,7 +371,7 @@
  {
   "path": "dzrobot_v2/src/dzbrain",
   "type": "dir",
-  "size": 5843440,
+  "size": 5838510,
   "mtime": "2026-10-12 18:02",
   "status": "冻结",
   "owner": "schema-owner",
@@ -830,8 +830,8 @@
  {
   "path": "dzrobot_v2/docs/清理记录_20261018.md",
   "type": "file",
-  "size": 5514,
-  "mtime": "2026-10-18 20:15",
+  "size": 6687,
+  "mtime": "2026-10-18 20:16",
   "status": "核心",
   "owner": "forensics",
   "note": "2026-10-18 本地删减归档执行与复核（含未处理项）"
@@ -848,8 +848,8 @@
  {
   "path": "dzrobot_v2/docs/目录索引.json",
   "type": "file",
-  "size": 46842,
-  "mtime": "2026-10-18 20:14",
+  "size": 47107,
+  "mtime": "2026-10-18 20:15",
   "status": "文档",
   "owner": "团队",
   "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
@@ -857,8 +857,8 @@
  {
   "path": "dzrobot_v2/docs/目录索引.md",
   "type": "file",
-  "size": 28363,
-  "mtime": "2026-10-18 20:14",
+  "size": 28876,
+  "mtime": "2026-10-18 20:15",
   "status": "核心",
   "owner": "团队",
   "note": "本文件（自动生成，勿手改）"
@@ -1199,7 +1199,7 @@
  {
   "path": "_tmp_session/cleanup_20261018",
   "type": "dir",
-  "size": 337396,
+  "size": 341454,
   "mtime": "2026-10-18 20:14",
   "status": "证据",
   "owner": "forensics",
@@ -1559,8 +1559,8 @@
  {
   "path": "dzrobot_v2/_tmp_session/engine_audit",
   "type": "dir",
-  "size": 76227,
-  "mtime": "2026-10-18 20:00",
+  "size": 79610,
+  "mtime": "2026-10-18 20:16",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
@@ -1784,7 +1784,7 @@
  {
   "path": "dzrobot_v2/_tmp_session/t35",
   "type": "dir",
-  "size": 135825732,
+  "size": 135861573,
   "mtime": "2026-10-18 20:14",
   "status": "临时",
   "owner": "团队",
