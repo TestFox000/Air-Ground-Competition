@@ -2,19 +2,19 @@
 ---- 0 前置：资产与判据 --------------------------------------------------
 PASS  config/map.yaml 存在且含 map 段   [D:\User\Desktop\比赛存档\v1\dzrobot_v2\config\map.yaml]
 PASS  config/robot.yaml 存在   [D:\User\Desktop\比赛存档\v1\dzrobot_v2\config\robot.yaml]
-PASS  射击窗口来自 Config（不硬编码）   [limits=(0.7, 0.9)]
+PASS  射击窗口来自 Config（不硬编码）   [limits=(0.78, 1.02)]
 PASS  起点/终点/雷数/障数/靶数/通数   [N10->N5 雷8 障8 靶('E5', 'F5') 通('K5', 'K9')]
 
 ---- 1 当前地图：规划 + 6 条硬约束 ------------------------------------------
-      生成路线（42 token / 15.75 m）：
-        N10 N9 M9 L9 K9 J9 I9 H9 H10 G10 F10 E10 D10 D9 B9 R:B8 B7 B6 B5 B4 B3 R:A3 R:C3 C1 R:C2 R:C3 D3 E3 R:F3* R:E3 R:E4 F4 G4 R:G5 H5 I5 R:I6 R:I5 K5 L5 M5 N5,y
-      穿洞 {'lower': 'K9', 'upper': 'K5'} | 射击停站 F3 到靶 0.722 m ('E5', 'F5') | 174.9 ms
+      生成路线（39 token / 15.05 m）：
+        N10 N9 M9 L9 K9 J9 I9 H9 H10 G10 F10 E10 D10 D9 B9 R:B8 B7 B6 B5 B4 B3 R:A3 R:C3 C1 D1 D3* E3 R:E4 F4 G4 R:G5 H5 I5 R:I6 R:I5 K5 L5 M5 N5,y
+      穿洞 {'lower': 'K9', 'upper': 'K5'} | 射击停站 D3 到靶 0.875 m ('E5', 'F5') | 185.0 ms
 PASS  [生成] ① 雷覆盖 8/8   [全部命中: C1 A3 E3 G4 I6 B7 D9 H10]
-PASS  [生成] ② 无障碍命中（0/8）   [路线 42 格全避开 8 个障]
+PASS  [生成] ② 无障碍命中（0/8）   [路线 39 格全避开 8 个障]
 PASS  [生成] ③ 穿洞：下半场恰好 1 次（向西）+ 上半场恰好 1 次（向东）   [下=[('L9', 'K9', 9.0, -1.0)] 上=[('I5', 'K5', 5.0, 2.0)]（列差负=向西）]
 PASS  [生成] ④ 隔板未被非法穿越（只有 A/B/C 列能上下）   [0 次违规穿越]
-PASS  [生成] ⑤ 恰好 1 个射击停站且覆盖全部靶格（接受窗口 0.67~0.96 m）   [停站 ['F3'] 到靶 {'F3': {'E5': 0.7826, 'F5': 0.7}}]
-PASS  [生成] ⑥ 起点/终点与地图一致 + token 可被 parse_mission 编译   [N10->N5，parse_mission 42 点]
+PASS  [生成] ⑤ 射击停站 1~2 个（2 个须分居板面两侧）且覆盖全部靶格（接受窗口 0.75~1.08 m）   [停站 ['D3'] 到靶 {'D3': {'E5': 0.7826, 'F5': 0.9899}} 两侧=True]
+PASS  [生成] ⑥ 起点/终点与地图一致 + token 可被 parse_mission 编译   [N10->N5，parse_mission 39 点]
 PASS  [生成] 结构自检 + assert_legal 复跑无误   [0 问题]
 
 ---- 2 对照：手写路线（robot.yaml 的 mission_blocks）也必须满足同 6 条 ------------
@@ -23,7 +23,7 @@ PASS  [手写] ① 雷覆盖 8/8   [全部命中: C1 A3 E3 G4 I6 B7 D9 H10]
 PASS  [手写] ② 无障碍命中（0/8）   [路线 44 格全避开 8 个障]
 PASS  [手写] ③ 穿洞：下半场恰好 1 次（向西）+ 上半场恰好 1 次（向东）   [下=[('L9', 'K9', 9.0, -1.0)] 上=[('J5', 'K5', 5.0, 1.0)]（列差负=向西）]
 PASS  [手写] ④ 隔板未被非法穿越（只有 A/B/C 列能上下）   [0 次违规穿越]
-PASS  [手写] ⑤ 恰好 1 个射击停站且覆盖全部靶格（接受窗口 0.67~0.96 m）   [停站 ['F3'] 到靶 {'F3': {'E5': 0.7826, 'F5': 0.7}}]
+PASS  [手写] ⑤ 射击停站 1~2 个（2 个须分居板面两侧）且覆盖全部靶格（接受窗口 0.75~1.08 m）   [停站 ['D3', 'G3'] 到靶 {'D3': {'E5': 0.7826, 'F5': 0.9899}, 'G3': {'E5': 0.9899, 'F5': 0.7826}} 两侧=True]
 PASS  [手写] ⑥ 起终点与地图一致且 token 可编译   [N10->N5]
 
 ---- 3 出车前校验：tools/route_check.py 对生成路线 0 error ------------------
@@ -42,17 +42,18 @@ PASS  [异地] ① 雷覆盖 8/8   [全部命中: D1 B3 E3 B5 G7 I8 B9 E9]
 PASS  [异地] ② 无障碍命中（0/8）   [路线 41 格全避开 8 个障]
 PASS  [异地] ③ 穿洞：下半场恰好 1 次（向西）+ 上半场恰好 1 次（向东）   [下=[('L7', 'K7', 7.0, -1.0)] 上=[('J1', 'K1', 1.0, 1.0)]（列差负=向西）]
 PASS  [异地] ④ 隔板未被非法穿越（只有 A/B/C 列能上下）   [0 次违规穿越]
-PASS  [异地] ⑤ 恰好 1 个射击停站且覆盖全部靶格（接受窗口 0.67~0.96 m）   [停站 ['F9'] 到靶 {'F9': {'F11': 0.7, 'G11': 0.7826}}]
+PASS  [异地] ⑤ 射击停站 1~2 个（2 个须分居板面两侧）且覆盖全部靶格（接受窗口 0.67~0.96 m）   [停站 ['F9'] 到靶 {'F9': {'F11': 0.7, 'G11': 0.7826}} 两侧=True]
 PASS  [异地] 穿洞格按**那张图**的桥洞选（K7 下 / K1 上）   [crossing={'lower': 'K7', 'upper': 'K1'}]
-PASS  [异地] 射击停站能同时覆盖 F11 与 G11   [停站=F9 到靶=0.722 m ('F11', 'G11')]
+PASS  [异地] 射击停站能同时覆盖 F11 与 G11   [停站=F9 到靶=0.722 m ('F11', 'G11')（窗口 0.80±0.10，见上方 ★t3-A 说明）]
 PASS  [异地] route_check 0 error   [exit=0 | [33m[1m⚠️  全部通过，但有 2 项提醒[0m]
 PASS  ★ 异地地图 6 条硬约束 + route_check 全过   [见上逐条 PASS]
+PASS  4b 现役窗口在异地图上：出路线或如实报错，不静默   [如实报错（无误路线）：第 10 个航点 G7 处存在同模式 180° 折返（未改写为倒车段）]
 
 ---- 5 确定性 + 耗时 --------------------------------------------------
-PASS  同输入同输出（token 序列逐字一致）   [42 token]
-PASS  同输入同输出（代价/穿洞/射击点一致）   [cost=105.45 crossing={'lower': 'K9', 'upper': 'K5'} stop=F3]
-PASS  单次规划 < 1 s   [173.8 ms（含解释器加载）；plan_route 自报 174.9 ms]
-PASS  搜索代价可读（洪泛弹出状态数 > 0）   [settled=31380]
+PASS  同输入同输出（token 序列逐字一致）   [39 token]
+PASS  同输入同输出（代价/穿洞/射击点一致）   [cost=100.25 crossing={'lower': 'K9', 'upper': 'K5'} stop=D3]
+PASS  单次规划 < 1 s   [199.6 ms（含解释器加载）；plan_route 自报 185.0 ms]
+PASS  搜索代价可读（洪泛弹出状态数 > 0）   [settled=29288]
 
 ---- 6 遍历穿洞候选：K7~K11 × K1~K6 -------------------------------------
       候选：下半场 K9 | 上半场 K5
@@ -64,41 +65,41 @@ PASS  终点是障碍格 -> 抛错   [PlannerError: 终点 A8（列索引 0）�
 PASS  地图缺 map.end -> 抛错   [PlannerError: 地图缺少 map.start / map.end]
 PASS  雷格名非法 -> 抛错   [PlannerError: 地图 mines 里的格名非法: 非法列字母: 'Z9'（应为 A~N）]
 PASS  穿洞格不在候选集合里 -> 抛错   [PlannerError: 下半场穿洞格 K2 不在 K7~K11 行段内（本半场只允许这一段 K 列格；跨半场/非 K 列的池外非法格一律拒绝） —— 缺省候选来自 route.cross_lower/upper_candidates 与 map.bridges]
-PASS  雷落在障碍格上（地图自相矛盾）-> 抛错   [PlannerError: 第 21 个航点 C1 处存在同模式 180° 折返（未改写为倒车段）]
-PASS  靶格相距太远、无单点可全覆盖 -> 抛错   [PlannerError: 靶区 A1 N11 找不到**一个**能同时覆盖全部 2 格靶的射击停站点（route_check 会判「靶覆盖 1/2」）。候选与覆盖：F8->无; I4->无; G8->无; H8->无; E6->无; J6->无; F4->无。若这是现场实际布局，请确认 targets 是否写成了不相邻的两格]
+PASS  雷落在障碍格上（地图自相矛盾）-> 抛错   [PlannerError: 雷 A1 落在障碍格上（地图自相矛盾），无法压雷]
+PASS  靶格相距太远、无单点可全覆盖 -> 抛错   [PlannerError: 靶区 A1 N11 找不到**一个**能同时覆盖全部 2 格靶的射击停站点（route_check 会判「靶覆盖 1/2」）。候选与覆盖：I4->无; J5->无; E6->无; J6->无; F4->无; E5->无。若这是现场实际布局，请确认 targets 是否写成了不相邻的两格，或射击窗口 ]
 PASS  时间预算极小 -> 直接放弃（计划耗时如实上报，不假装成功）   [超时]
 PASS  单格靶区也能规划   [停站=H9 距离=0.783 m]
 
 ---- 8 与现有资产的一致性 -------------------------------------------------
-PASS  token -> Route -> token 往返块名一致   [42 token]
-PASS  R: 语义 + 车头朝向不变量（逐段核对 depart/heading）   [42 点全过]
+PASS  token -> Route -> token 往返块名一致   [39 token]
+PASS  R: 语义 + 车头朝向不变量（逐段核对 depart/heading）   [39 点全过]
 PASS  末点 `,x/,y` 后缀与末点车头一致   [末 token='N5,y' 末点 yaw=90°]
-PASS  生成路线含倒车段（死角用 R: 处理，而不是原地 180° 掉头）   [11 段]
-PASS  全部相邻航点正交相邻（无斜连段）   [41 段全正交]
+PASS  生成路线含倒车段（死角用 R: 处理，而不是原地 180° 掉头）   [7 段]
+PASS  全部相邻航点正交相邻（无斜连段）   [38 段全正交]
 PASS  R009 的两条硬约束（K 列内不挪格 / K 邻列不斜切）   [0 违规]
 PASS  没有'同模式 180° 折返'（assert_legal 的核心不变量）   [无违规顶点]
 PASS  接受窗口 = route_check 的容差窗口（0.17~0.51 m）   [(0.17, 0.51)]
-PASS  0.495 m（对角）在新窗口 [0.70,0.90] 下必须判**拒**：G10 -> H11   [d=0.495 m，标称上限 0.9]
+PASS  0.495 m（对角）在新窗口 [0.70,0.90] 下必须判**拒**：G10 -> H11   [d=0.495 m，标称上限 1.02]
 
 ---- 9 卡 C：无倒车路线（0 段 R:）+ 折返点 :PIVOT + 合法性自检负向控制 -----------------
 PASS  PIVOT_MARK_DEG = 循迹层 `pursuit.pivot_angle_deg` 默认值（135°）   [135.0]
 PASS  PIVOT_PENALTY = 5.0（等效代价单位/处）   [5.0]
       无倒车路线（40 token / 15.05 m）：
-        N10 N9 M9 L9 K9 I9 I10 H10 G10 E10 E9 D9 C9 C7 B7 A7 A6 A5 A4 A3 A2 B2 B1 C1 D1 D3 E3 F3* G3 G4 G5 H5 H6 I6 J6 J5 K5 L5 M5 N5,y
+        N10 N9 M9 L9 K9 I9 I10 H10 G10 E10 E9 D9 C9 C7 B7 A7 A6 A5 A4 A3 A2 B2 B1 C1 D1 D3* E3 F3 G3 G4 G5 H5 H6 I6 J6 J5 K5 L5 M5 N5,y
 PASS  [无倒车] 0 段 R:（reverse_segments）   [0 段]
 PASS  [无倒车] token 串里没有任何 `R:` 前缀   [0 个]
 PASS  [无倒车] parser 能编译回同样的航点数   [40 vs 40]
-PASS  [无倒车] 42 token / 里程 15.75 m（0 段 R:，:PIVOT 两处 I11/C10）   [40 token / 15.05 m]
-PASS  [折返点] 现场无倒车路线实测 0 处 180° 折返（U 形绕行随 t50 消失）   [[]]
+PASS  [无倒车] 40 token / 里程 15.05 m（0 段 R:，0 处 :PIVOT）   [40 token / 15.05 m]
+PASS  [折返点] 现场无倒车路线实测 0 处 180° 折返（t3-A 停站回到主线 D3 后折返消失）   [[]]
 PASS  [折返点] 每一处几何折返顶点都带 :PIVOT（无漏报）   [[]]
-PASS  [折返点] token 里确实写着 `:PIVOT`，且只有这一处（F4）   [[]]
+PASS  [折返点] token 里没有任何 `:PIVOT`（0 处折返 ⇒ 无需消解）   [[]]
 PASS  [折返点] PlanResult 清单与是否无倒车模式一致   [count=0 allow_reverse=False penalty=5.0]
-PASS  [折返点] 允许倒车模式**不声明** :PIVOT（折返由 R: 完成）   [count=0 R段=11]
+PASS  [折返点] 允许倒车模式**不声明** :PIVOT（折返由 R: 完成）   [count=0 R段=7]
 PASS  [折返点] pursuit.path.corner_turn_deg ≥ 135° 的点集 == :PIVOT 声明点集   [循迹层判据 [] vs 声明 []]
 PASS  [声明无害] 折线几何逐段一致（去掉 :PIVOT 后 segments 完全相同）   [39 段]
 PASS  [声明无害] 每段倒车标记一致   [全一致]
 PASS  [声明无害] 每个顶点车头转角一致（corner_turn_deg 逐点相同）   [全一致]
-PASS  [声明无害] 停站索引一致（:PIVOT 不产生停站）   [(27, 39)]
+PASS  [声明无害] 停站索引一致（:PIVOT 不产生停站）   [(25, 39)]
 PASS  [声明无害] 总长一致   [15.050000 m]
 PASS  [负向 A] 折返点缺 :PIVOT 的路线必须抛 PlannerError   [PlannerError: 折返点缺少 :PIVOT 声明：#1 D2 135°（折返角 ≥ 135° 的顶点必须显式声明 —— 该处车头要转 135°，无倒车模式下车只能原地掉头）]
 PASS  [负向 B] 含 R: 的路线必须抛 PlannerError（assert_legal_no_reverse）   [PlannerError: 无倒车模式却出现倒车段：第 1 个航点 'R:N9'（真车底盘不支持倒车，负速度方向位被 STM32 无视）]
@@ -107,9 +108,9 @@ PASS  [负向对照] 带 :PIVOT 的原样路线通过 assert_legal_no_reverse   
 PASS  [自检接线] plan_route(allow_reverse=False) 内部调用 assert_legal_no_reverse   [{'no_reverse': 1, 'reverse': 1}]
 PASS  [自检接线] plan_route(allow_reverse=True) 内部调用 assert_legal   [{'no_reverse': 1, 'reverse': 1}]
       折返惩罚 5.0/处 的路线（40 token / 15.05 m / 折返点 0）：
-        N10 N9 M9 L9 K9 I9 I10 H10 G10 E10 E9 D9 C9 C7 B7 A7 A6 A5 A4 A3 A2 B2 B1 C1 D1 D3 E3 F3* G3 G4 G5 H5 H6 I6 J6 J5 K5 L5 M5 N5,y
-PASS  [惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 0 处（0 → 0）   [惩罚前 0 → 惩罚后 0]
-PASS  [惩罚] 惩罚版与基线同长（折返已到最小，顺序搜索无从再优化）= 24.85 m   [15.05 → 15.05 m]
+        N10 N9 M9 L9 K9 I9 I10 H10 G10 E10 E9 D9 C9 C7 B7 A7 A6 A5 A4 A3 A2 B2 B1 C1 D1 D3* E3 F3 G3 G4 G5 H5 H6 I6 J6 J5 K5 L5 M5 N5,y
+PASS  [惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 0 处（0 → 0，t3-A）   [惩罚前 0 → 惩罚后 0]
+PASS  [惩罚] 惩罚版与基线同长（无可优化的折返）= 15.05 m   [15.05 → 15.05 m]
 PASS  [惩罚] 惩罚版仍 0 段 R: 且仍合法   [0 段 R:]
 PASS  [惩罚] 单元：A1->A2->B1 判为 1 处折返   [reversals=1]
 PASS  [惩罚] 单元：同一序列的 seq_cost 差 = 5.0（= 1 处 × PIVOT_PENALTY）   [16.3000 - 11.3000]
@@ -145,13 +146,46 @@ PASS  [惩罚版] route_check 退出码 0   [exit=0 | [33m[1m⚠️  全部通
 
 ---- ⑫ 卡 t13：起始航向 = 设计常量 +y（两引擎） ---------------------------------
 PASS  ⑫.1 常量本身：START_HEADING=1（DIRS 里是『西 = 列号减小 = +y』）且 START_HEADING_YAW = HEADING_Y = +90°   [START_HEADING=1 DIRS=(0, -1) yaw=90.0° 西(列号减小)]
-PASS  ⑫.2 规划器源码里不再读起点朝向配置（无 `"mission.reset"` 字面量）—— 硬编码常量的机器可验证证据   [planner.py 中 `"mission.reset"` 出现 0 次（156671 字符）]
+PASS  ⑫.2 规划器源码里不再读起点朝向配置（无 `"mission.reset"` 字面量）—— 硬编码常量的机器可验证证据   [planner.py 中 `"mission.reset"` 出现 0 次（189509 字符）]
 PASS  ⑫.3 [tour 无倒车] 首腿方向 = +y（西）且首点车头 = 设计常量（起点处 0 转向，不生成转向消解）   [N10->N9 方向索引=0 首点车头=0 首点 yaw=0°]
-PASS  ⑫.4 [tour] 起点航向与 `mission.reset` **完全解耦**：把 reset 改成 'N10,x' / 清空后，token 串与基线逐字相同   [基线 42 token；改动 mission.reset 后 token 串不变（旧实现按 reset_yaw 反推 ⇒ 朝北会整条变样）]
+PASS  ⑫.4 [tour] 起点航向与 `mission.reset` **完全解耦**：把 reset 改成 'N10,x' / 清空后，token 串与基线逐字相同   [基线 39 token；改动 mission.reset 后 token 串不变（旧实现按 reset_yaw 反推 ⇒ 朝北会整条变样）]
 PASS  ⑫.5 [tracker-safe] 首腿方向 = +y（西）且首点车头 = 设计常量   [N10->M10 方向索引=1 首点 yaw=90°]
 PASS  ⑫.6 [tracker-safe] 同样与 `mission.reset` 解耦（改成 'N10,x' 后 token 串不变）   [44 token 不变]
 PASS  ⑫.7 [两引擎] 起点不是折返点：起始顶点无 :PIVOT 声明   [tour 折返点 [] / tracker-safe 折返点 0 处]
-PASS  ⑫.8 起段搜索原语：第一步只能沿设计朝向（起点禁转向）—— 不加该约束时同一段会被挑到先朝南（起步掉头，故必须有这条硬约束）   [first_dir 后首步方向 [(0, -1)] / 不限时 [(0, -1), (1, 0)]]
+PASS  ⑫.8 起段搜索原语：第一步只能沿设计朝向（起点禁转向）—— 不加该约束时同一段会被挑到先朝南（起步掉头，故必须有这条硬约束）   [first_dir 后首步方向 [(0, -1)] / 不限时 [(1, 0)]]
+
+---- ⑫b t7：双射击停站（D3* + G3*）+ 引擎无关的收口 -----------------------------
+PASS  ⑫.9 [tracker-safe] 两个射击停站 = D3 + G3（板面两侧各一个）   [shoot_blocks=['D3', 'G3'] shoot_stop2='G3']
+PASS  ⑫.10 [tracker-safe] 对侧停站到板心 = 0.875 m（与主停站镜像）   [0.8750 m]
+PASS  ⑫.11 ★[收口] tour 产物只有 `D3*` ⇒ 补上 `G3*`（token 数/块名序列逐位不变）   [补前 ['D3*'] → 补后 ['D3*', 'G3*']｜第二射击停站 G3（板面另一侧，到板心 0.8750 m）]
+PASS  ⑫.12 [收口] 补出来的星号是真停站：parser 解析出 SHOOT = [D3, G3]   [['D3', 'G3']]
+PASS  ⑫.13 [收口] 幂等：tracker-safe 产物已有两颗星 ⇒ 一个字节都不改   [marked=''｜已有 2 个射击停站：D3 G3]
+PASS  ⑫.14 ★[收口] 候选不在路线上 ⇒ 如实报「补不了」且路线一字不动（不静默降级）   [对侧候选 N11 不在本路线上（不擅自改路线 ⇒ 仍是单停站）]
+PASS  ⑫.15 ★[tracker-safe] 第二停站落不上 ⇒ warnings 里**报出来**（缺这段就静默丢停站）   [['D3'] / ['⚠️ 第二射击停站未落标：对侧候选 N11 不在本路线航点上 ⇒ 本路线只有 1 个射击停站（蓝面朝另一侧那局会打不到）']]
+
+---- ⑬ t6：桥洞进洞提前对正（进洞前 ≥1 格直线对正段） --------------------------------
+PASS  ⑬.0 前置：判据对 K9/K5 已建墙（entry_walls 非空、entry_adjacent 指向 L9/J5）   [walls=[(5, 10), (9, 10)] adj=[(5, 9), (9, 11)]]
+PASS  ⑬.1 判据活性：旧形态判红（拐弯格 L9/J5），新形态判绿   [判红 {'M10→L10→L9→K9': ['L9'], 'H6→I6→J6→J5→K5': ['J5']} / 判绿 {'M10→M9→L9→K9': [], 'H6→I6→I5→J5→K5': []}]
+PASS  ⑬.1b 段级接线：横向进 L9/J5 判拒、沿轴进 L9/J5 放行   [ban(L10→L9,J6→J5)=True allow(M9→L9,I5→J5)=True]
+PASS  ⑬.2 现役 mission_blocks 无『进洞前 1 格拐弯』形态（t6 目标，防回归）   [命中格 []]
+PASS  ⑬.3 逐洞「进洞前连续直线对正段」≥2 格（0.70 m > R_min 0.272 m）   [K5=2格 K9=2格]
+PASS  ⑬.4 tracker-safe 产物 == 现役 mission_blocks（44 点，逐 token）   [N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y]
+
+---- ⑭ t13：三类硬约束必拒 + 不可放宽（障碍/隔板/桥洞含冗余） ---------------------------
+PASS  ⑭.1a 无解图（障碍封死 ABC 过板缺口）必须 PlannerError，绝不产出压障路线
+PASS  ⑭.1b 障碍格 passable=False（真图八障碍逐格）
+PASS  ⑭.1c obstacle_margin_m=-0.3 被钳到 0.0（净空判据不可被负余量击穿）   [mgn=0.0 seg_req=0.1950]
+PASS  ⑭.2a barrier_cross_ok：H 列(6→7) 拒、A 列过
+PASS  ⑭.2b turn_gate 硬否决 H7 北→西死胡同形态（t13 接线）
+PASS  ⑭.2c 列域修正：A7（过板缺口，无隔板）转向不误杀
+PASS  ⑭.2d 隔板相邻行内直行 H7→I7 合法（正控制：0.175 m > 0.0775 m）
+PASS  ⑭.2e margin 负值暗门封死：Grid 钳 0 + 判据函数直传 -1 仍命中
+PASS  ⑭.3a K 列规则（K4→K5 竖向拒；J8→K8 非桥行拒；J9→K9 桥行过）
+PASS  ⑭.3b 入口邻格横向穿/出必拒 + 沿轴进放行 + 顶点转向硬否决
+PASS  ⑭.3c 冗余 0.0 = 设计关闭（本条 inert）且其余实体照常硬
+PASS  ⑭.4a 现役产物入口邻格横向穿行 = 0 处（已切沿轴进洞）   [[]]
+PASS  ⑭.4b 现役产物隔板死胡同形态 = 0 处   [[]]
+PASS  ⑭.4c 堵 I5（封死 J5 纵向来路）⇒ 必拒（spec §H.2：不可行 ⇒ 报不可行）
 
 ========================================================================
-🎉 全部通过：110 项
+🎉 全部通过：138 项

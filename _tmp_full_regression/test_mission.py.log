@@ -72,7 +72,7 @@ dzbrain MissionTask 自测（纯脚本）
   PASS  6.3 ★ 单写者（t24）：lock 模式下 Mission 在终点**也不发** scan_request（交给 Aim 回锁止）   [scans=[]]
   PASS  6.4 EV_MISSION_FINISHED 恰好 1 次   [1]
   PASS  6.5 ★ 再跑 20 拍不重复发事件/刹车/停扫（锁存）   [finished=1 brakes=1 scans=0]
-  PASS  6.6 结束横幅已打印（含用时/发数/漂移）   [最后日志='✅ 逐点台账闭合：全部航点要么登记到达、要么显式跳过（无静默丢点）']
+  PASS  6.6 结束横幅已打印（含用时/发数/漂移）   [最后日志='已复位：回到 IDLE 准备发车状态（路线/成绩保留；下一发车靠外部命令或重启栈）']
   PASS  6.7 结束统计可用（用时/发数/漂移/航点数）   [{'elapsed_s': 0.9, 'shots': 0, 'hits': 0, 'drift_m': 0.0, 'waypoints': 3}]
 
 === 6b. ★末点停车判定收紧：0.10 m 外不 FINISH / 0.02 m 内 FINISH ===
@@ -173,7 +173,7 @@ dzbrain MissionTask 自测（纯脚本）
   PASS  14.4 遥测 `bridge.used` = 本局实际用格 {lower:K11, upper:K5}   [{'lower': 'K11', 'upper': 'K5'}]
   PASS  14.5 遥测 `bridge.lower` = 来源 drone / cell=K11 / raw=K11 / age≈0   [{'half': 'lower', 'cell': 'K11', 'default': 'K10', 'source': 'drone', 'raw': 'K11', 'reason': '新鲜情报（0.20s < 过期阈值 30s）；池外但在 K 列第 11 行（7~11 行）内 ⇒ 采纳，纠正过期地图（本半场候选/桥洞 K10 K9）', 'age_s': 0.2, 'from_drone': True}]
   PASS  14.6 遥测 `bridge.seen` 记下本条情报（真源 = EV_BRIDGE_INFO 事件流，每条自带 half）   [seen={'lower': {'cell': 'K11', 'ts': 1000.0}} events=1]
-  PASS  14.7 日志留下换洞证据（旧格 → 新格 + 校验口径）   [['★ 桥洞情报[lower]换洞生效：K9 → K11（三连同改 + validate_route 0 error）', "路线载入[route.tokens(或 mission_blocks)（无人机情报换洞）]：路线[route.tokens(或 mission_blocks)（无人机情报换洞）] 44 点 / 15.05 m / 穿洞 {'lower': 'K11', 'upper': 'K5'}\n  N10, M10, L10, L11, K11, J11, J10, I10, H10, G10, F10, E10, E9, D9, C9, B9, B8, B7, B6, A6, A5, A4, A3, A2, B2, B1, C1, D1, D2, D3, E3, F3, G3, G4, G5, G6, H6, I6, J6, J5 …(+4)"]]
+  PASS  14.7 日志留下换洞证据（旧格 → 新格 + 校验口径）   [['★ 桥洞情报[lower]换洞生效：K9 → K11（三连同改 + validate_route 0 error）', "路线载入[route.tokens(或 mission_blocks)（无人机情报换洞）]：路线[route.tokens(或 mission_blocks)（无人机情报换洞）] 44 点 / 15.48 m / 穿洞 {'lower': 'K11', 'upper': 'K5'}\n  N10, M10, M9, L11, K11, J11, J10, I10, H10, G10, F10, E10, E9, D9, C9, B9, B8, B7, B6, A6, A5, A4, A3, A2, B2, B1, C1, D1, D2, D3, E3, F3, G3, G4, G5, G6, H6, I6, I5, J5 …(+4)"]]
   PASS  14.8 换洞后照样出发（DRIVE + 恰好一次 EV_ROUTE_LOADED）   [DRIVE loaded=1]
   PASS  14.9 横幅/日志给出穿洞格**来源**（现场第一个要看的行）   [['穿洞格来源：lower=无人机情报(K11) upper=未收到情报(K5)｜情报 lower=lower → K11 ★无人机情报（新鲜度 0.10s）；新鲜情报（0.10s < 过期阈值 30s）；池外但在 K 列第 11 行（7~11 行）内 ⇒ 采纳，纠正过期地图（本半场候选/桥洞 K10 K9）；默认 K10｜upper=upper → K5（missing：该半场从未收到 bridge_passable（EV_BRIDGE_INFO 事件）→ 用默认格）']]
   PASS  14.10 ★ 新鲜度判据与 `DroneState.bridge_of()` 等价（同源：now-bridge_ts > stale_s）   [bridge_of='K11' / source=drone]
@@ -195,7 +195,7 @@ dzbrain MissionTask 自测（纯脚本）
   PASS  14.23 t31 仍拒：下半场情报 K3（半场）→ rejected + 回落默认 K10   [{'half': 'lower', 'cell': 'K10', 'default': 'K10', 'source': 'rejected', 'raw': 'K3', 'reason': '情报 K3 不可用（第 3 行不属于下半场（7~11 行））→ 用默认格', 'age_s': 0.2, 'from_drone': False}]
   PASS  14.23 `drone.enabled=false` → 整条情报路径空转（逐 token 默认）   [{'half': 'lower', 'cell': 'K10', 'default': 'K10', 'source': 'disabled', 'raw': '', 'reason': 'drone.enabled=false → 不读情报', 'age_s': None, 'from_drone': False}]
   PASS  14.24 ★ 无 P_DRONE（DroneTask 未运行）→ **不进等待窗口**，0.3s 内就出发   [phase=DRIVE t=0.30s]
-  PASS  14.25 ★ 无无人机时路线与接线前**逐 token 一致**（44/44 全等）   [44 点 vs 基线 44 点]
+  PASS  14.25 ★ 无无人机时路线与接线前**逐 token 一致**（44/44 全等；t3-A 停站 D3 ⇒ 回到 44 点）   [44 点 vs 基线 44 点]
   PASS  14.26 无无人机时来源记为 no_link，且 used = 默认格   [{'half': 'lower', 'cell': 'K10', 'default': 'K10', 'source': 'no_link', 'raw': '', 'reason': '未收到 P_DRONE（DroneTask 未运行/未启用）→ 用默认格', 'age_s': None, 'from_drone': False}]
   PASS  14.27 ★ F1①：链路在但**无人机离线** → 不进等待窗口，0.3s 内已出发（走默认格）   [phase=DRIVE note={'manual_substituted': {}}]
   PASS  14.28 F1①：遥测如实记 offline、used=默认格 K10/K5（离线情报一律不采纳）   [{'half': 'lower', 'cell': 'K10', 'default': 'K10', 'source': 'offline', 'raw': '', 'reason': '无人机离线（online=False，最近情报 未知）', 'age_s': None, 'from_drone': False}]
@@ -234,10 +234,36 @@ dzbrain MissionTask 自测（纯脚本）
   PASS  15.9 ★ 预算余量封顶：余量 0 → 不进 HOLD（cap=0 ⇒ 直接走）   [phase=DRIVE entered=False]
   PASS  15.10 只到一半 → 仍在 HOLD（没到点不放行）   [phase=HOLD idx=2]
   PASS  15.11 ★ 决策点前迟到情报 → 换洞（K9→K11）且**保留段索引**（不是从 N10 重来）   [idx=2 vs 2 k=['K11', 'K5'] reroute={'half': 'lower', 'old': 'K9', 'new': 'K11', 'count': 1, 'index_kept': 2, 'why': '两半场情报已齐（等了 0.60s）'}]
-  PASS  15.12 改道只动穿洞格：决策点及其之前的航点顺序不变（前缀一致）   [['N10', 'M10', 'L10', 'L11'] vs ['N10', 'M10', 'L10', 'L9']]
+  PASS  15.12 改道只动穿洞格：决策点及其之前的航点顺序不变（前缀一致）   [['N10', 'M10', 'M9', 'L11'] vs ['N10', 'M10', 'M9', 'L9']]
   PASS  15.13 ★ 决策点后到达的情报 → 维持原 token（K7 没被换上）   [k=['K11', 'K5']]
   PASS  15.14 ★ 全程改道上限 1 次：下半场已改 K9→K11、上半场未换洞（仍 K5）、计数仍是 1   [k=['K11', 'K5'] reroutes=1]
 
+=== 16. ★t13 双射击停站（对侧互备）+ 红面早退 + 命中即跳过第二停站 ===
+  PASS  16.1 到达第一个射击停站 G10*   [phase='STOP' block='G10']
+  PASS  16.2 红面早退：锁定红 ≥3s 且已停留 ≥3s ⇒ 停站被提前放弃（阶段 DONE）   [phase='DONE' mission='DRIVE' 停留=0.70s 日志=停站点 9 G10 放弃：红面早退：锁定红已持续 3.20s ≥ 3.00s，本停站点 G10 已停留 3.00s → 提前离站去下一个射击]
+  PASS  16.3 早退日志带「停站名 + 已停留秒数」（现场可复盘）   [停站点 9 G10 放弃：红面早退：锁定红已持续 3.20s ≥ 3.00s，本停站点 G10 已停留 3.00s → 提前离站去下一个射击停站（放行下一个候选）]
+  PASS  16.4 停留 < 3s 时红面标志不触发早退（正常停站）   [phase='ACQUIRE' mission='STOP']
+  PASS  16.5 无 `P_AIM_RED` 键 ⇒ no-op（停站照常进行，不被早退机制影响）   [phase='ACQUIRE' mission='STOP']
+  PASS  16.6 停站1 已打出去 ⇒ 第二个射击停站被跳过（记 handled + 日志）   [handled=[9, 12] 日志=跳过射击停站 12 E9：停站点 9 G10 已打出去（发数增量达标） ⇒ 不再为看另一面绕行]
+  PASS  16.7 跳过之后确实不再停第二个点（EV_ARRIVED_STOP_POINT 不增加）   [arrived=1（前 1）]
+  PASS  16.8 停站1 没打出去 ⇒ 第二个射击停站照常进站（两站都到过）   [arrived=2 phase='STOP']
+
+=== 17. ★t14 红面早退闭环（注入点→离站时刻 / 第二停站 / 阈值来自配置 / 两站皆红） ===
+  PASS  17.1 红面确认 ⇒ 第一停站停留到 ≈阈值 3.0s 即离站（3.0~3.4s，远早于 6s 硬死线）   [到站=True 停留=3.1s 上限=6.0s]
+  PASS  17.2 早退后照常开进第二个射击停站 E9*，并进入正常射击流程（SETTLE/ACQUIRE/FIRE）   [phase='E9' 停站段='SETTLE']
+  PASS  17.3 只见蓝（不注入）⇒ 不误触发早退（仍停站、无「红面早退」日志）   [日志=无 mission='STOP' 停站段='ACQUIRE']
+  PASS  17.4 阈值取自 aim.red_early_leave_s=1.0 ⇒ 停留 1.0~1.4s 离站（证明非硬编码 3.0s）   [停留=1.1s（若硬编码 3.0 会 ≥3.0）]
+  PASS  17.5 `mission.skip_second_stop_after_hit=False` ⇒ 第一站已开火仍照常进第二站（开关被尊重）   [到站次数=2（=2 表示第二站也进了）]
+  PASS  17.6 两站皆红 ⇒ 各早退一次（日志 2 条）后照常跑完全程（EV_MISSION_FINISHED 出现）   [早退日志=2 完赛=1 到站=2 航线末点=D9]
+
+=== 18. ★t7 停站台账：射击停站与终点分开记（15:04 现场错账的根因） ===
+  PASS  18.0 前置：现役路线 44 点、两个射击停站（D3* / G3*）   [44 点 / ['D3', 'G3']]
+  PASS  18.1 ★ 台账分类：射击 2 + 终点 1（末端单独记 END，不再混进停站个数）   [{'shoot': 2, 'scan': 0, 'end': 1}]
+  PASS  18.2 逐点 kind：D3/G3 = SHOOT，末点 = END 且就是路线末航点   [[{'index': 29, 'block': 'D3', 'kind': 'SHOOT'}, {'index': 32, 'block': 'G3', 'kind': 'SHOOT'}, {'index': 43, 'block': 'N5', 'kind': 'END'}]]
+  PASS  18.3 横幅一行可读：'停站点 3 个（射击 2 / 终点 1）' + 'N5(终点)' 标注   [停站点 3 个（射击 2 / 终点 1）：29:D3(射击) 32:G3(射击) 43:N5(终点)]
+  PASS  18.4 ★ 终点不参与三段式：`_next_stop_candidate()` 只会给射击停站（不是末点）   [next=29（首个射击停站=29、末点=43）]
+  PASS  18.5 遥测 mission_state.stops 与台账同源（counts/points 逐字一致）   [{'count': 3, 'counts': {'shoot': 2, 'scan': 0, 'end': 1}, 'points': [{'index': 29, 'block': 'D3', 'kind': 'SHOOT'}, {'index': 32, 'block': 'G3', 'kind': 'SHOOT'}, {'index': 43, 'block': 'N5', 'kind': 'END'}]}]
+
 ======================================================================
-结果：202/202 全部通过 ✅
+结果：222/222 全部通过 ✅
 ======================================================================

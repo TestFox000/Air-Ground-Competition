@@ -1,12 +1,12 @@
 ==============================================================================
 dzbrain 仿真器回归护栏（纯脚本）
 ==============================================================================
-sim.py    : 129911 bytes  sha256[:16]=b37b9e4a6ae0e13c  mtime=2026-10-16 18:04:03
-robot.yaml: sha256[:16]=f8bdec1569aed8b3（出厂值，不做任何覆盖）
+sim.py    : 135830 bytes  sha256[:16]=47798dfdfe0f7899  mtime=2026-10-17 17:49:23
+robot.yaml: sha256[:16]=0e985381132e9ac7（出厂值，不做任何覆盖）
 现场图    : robot.yaml:route.tokens（旧夹具 route_field.txt 已停用）
 
 === 1. 直线（两格）：能跑完、横向误差为零、末点误差 < 0.15 m ===
-     实测: completed=True steps=198 time_s=3.940 xt_rms=1.7239e-17 xt_max=5.5511e-17 final_error=0.02880 ratio=0.9177 anchors=1 (0.00s)
+     实测: completed=True steps=198 time_s=3.940 xt_rms=1.7239e-17 xt_max=5.5511e-17 final_error=0.02880 ratio=0.9177 anchors=1 (0.01s)
   PASS  1.1 路线总长 = 一格 0.35 m   [got 0.3499999999999999, want 0.35 (tol 1e-09)]
   PASS  1.2 completed=True   [completed=True]
   PASS  1.3 横向 RMS < 0.01 m   [xt_rms=1.7239e-17]
@@ -21,51 +21,52 @@ robot.yaml: sha256[:16]=f8bdec1569aed8b3（出厂值，不做任何覆盖）
   PASS  1.10 ★末点停车精度 = sim 自称的 _GOAL_STOP_M(0.03 m)   [final_error=0.02880 vs _GOAL_STOP_M=0.03]
 
 === 2. 现场图路线（54 航点，0 倒车段 + 1 个 180° PIVOT 折返 + G10* 停站）：结构 + 全程 ===
-     结构: 44 点 / 15.05 m / 倒车段 [] / 停站点 [31, 43] / 拐角(>45°) 18 处 / PIVOT 折返 []
-  PASS  2.1 解析出 60 个航点   [got 44]
-  PASS  2.2 路线总长 = 20.650 m   [got 15.049999999999992, want 15.05 (tol 1e-09)]
+     结构: 44 点 / 15.05 m / 倒车段 [] / 停站点 [29, 32, 43] / 拐角(>45°) 18 处 / PIVOT 折返 []
+  PASS  2.1 解析出 44 个航点（t3-A：板心 0.90 m 停站 D3）   [got 44]
+  PASS  2.2 路线总长 = 15.050 m（t3-A）   [got 15.049999999999992, want 15.05 (tol 1e-09)]
   PASS  2.3 ★现场图已无倒车段（2026-10-09 底盘不支持倒车，R: 腿全删）   [got ()（旧基线 = (12, 18, 19)：R:F11 / R:B6 / R:D6）]
   PASS  2.3b ★第三张图无 ≥135° 折返顶点（U 形靠外圈绕行，最大转角 90°）   [pivots=[]（预期 ()：第三张图手工 v3 无折返顶点；第二张图是 G10* 一处，更早的 46 点版是 A9/F3/G10 三处）]
-  PASS  2.4 停站点索引 = (31, 43)   [got (31, 43)]
-  PASS  2.5 F3 是射击停站（官方图靶板 E5/F5）   [block=F3 shoot=True]
-     实测(零注入/关锚定/8000 拍): steps=3823 max|belief-truth|=0.0000e+00 xt_rms=0.05324 anchors=0
+  PASS  2.4 停站点索引 = (29, 32, 43)   [got (29, 32, 43)]
+  PASS  2.5 D3 是射击停站（官方图靶板 E5/F5；t3-A 板心 0.90 m 停站）   [block=D3 shoot=True]
+  PASS  2.5b ★t13 第二射击停站 = G3（与 D3 分居板面两侧，镜像 0.875 m）   [block=G3 shoot=True]
+     实测(零注入/关锚定/8000 拍): steps=3773 max|belief-truth|=0.0000e+00 xt_rms=0.05290 anchors=0
   PASS  2.6 ★零注入不变量：信念 == 真值（< 1e-9 m）   [max_gap=0.0000e+00]
   PASS  2.7 关锚定时 anchors == 0（锚定确实被关掉了）   [anchors=0]
   PASS  2.8 真值逐拍都在地图内（margin=0.60 m）   [越界 0 拍]
   PASS  2.9 全程没跑飞（看门狗未触发）   [diverged=False at 0]
-     实测(出厂配置完整跑): completed=True steps=3823/37625 time_s=76.44 xt_rms=0.05324 xt_max=0.1192 ratio=0.8661 final_error=0.0295 diverged=False anchors=25 (0.25s)
-     分组横向 RMS: 直段 0.00000 / 倒车 0.00000 / 拐角 0.05324
+     实测(出厂配置完整跑): completed=True steps=3773/37625 time_s=75.44 xt_rms=0.05290 xt_max=0.1162 ratio=0.8684 final_error=0.0285 diverged=False anchors=25 (0.27s)
+     分组横向 RMS: 直段 0.00000 / 倒车 0.00000 / 拐角 0.05290
      参考基线: 113.0 s / 5648 拍 / ratio ~0.97 跑完（旧版实测）
-  PASS  2.10 ★现场图在出厂参数下 completed=True   [completed=True steps=3823 ratio=0.866 final_error=0.030]
-  PASS  2.11 ★现场图 steps < 20000   [steps=3823 max_steps=37625 hit_step_limit=False]
-  PASS  2.12 现场图 path_len_ratio < 1.6（卡死时为 5.3 量级）   [ratio=0.8661]
+  PASS  2.10 ★现场图在出厂参数下 completed=True   [completed=True steps=3773 ratio=0.868 final_error=0.028]
+  PASS  2.11 ★现场图 steps < 20000   [steps=3773 max_steps=37625 hit_step_limit=False]
+  PASS  2.12 现场图 path_len_ratio < 1.6（卡死时为 5.3 量级）   [ratio=0.8684]
   PASS  2.13 现场图没有跑飞看门狗触发   [diverged=False at 0]
   PASS  2.14 现场图真值未越界（如实记录）   [oob=0]
   PASS  2.15 零注入下信念↔真值仍逐位相同（仅锚定拍例外）   [max_gap=0.0000e+00 anchors=25]
-     实测(8000 拍上限快照): completed=True steps=3823 ratio=0.8661 final_error=0.0295 diverged=False diverged_at=0
+     实测(8000 拍上限快照): completed=True steps=3773 ratio=0.8684 final_error=0.0285 diverged=False diverged_at=0
   PASS  2.16 8000 拍快照与完整跑结论一致（排除步数上限造成的假象）   [cap8000=True auto=True]
-     末位置 = (2.275, 0.205)；终点 N5 = (2.275, 0.175) 距离 0.030 m；折返区最大真值弧长 = 15.050 m（D6 在 7.000 m）
-  PASS  2.17 末位置停在终点 N5 的 arrival_m 量级内（修前是卡死在 D6 附近）   [d=0.030 m vs arrival=0.12]
+     末位置 = (2.273, 0.203)；终点 N5 = (2.275, 0.175) 距离 0.028 m；折返区最大真值弧长 = 15.050 m（D6 在 7.000 m）
+  PASS  2.17 末位置停在终点 N5 的 arrival_m 量级内（修前是卡死在 D6 附近）   [d=0.028 m vs arrival=0.12]
   PASS  2.18 ★折返区（B6→A6→B6→D6，现正向+PIVOT）确实走过了（真值弧长越过 D6 = 7.000 m）   [max_s_truth=15.050 vs s(D6)=7.000]
 
 === 3. 误差注入对照：注入必须真的产生误差（同窗口 3000 拍） ===
      窗口 3000 拍                    xt_rms   belief_rms   belief_max  anchors
-     零注入（对照）                     0.05481      0.00000      0.00000        0
-     eps=0.18 不锚定                0.23351      0.45918      1.17030        0
-     eps=0.18 锚定                 0.21679      0.43803      1.13133        2
-     (0.54s)
+     零注入（对照）                     0.05437      0.00000      0.00000        0
+     eps=0.18 不锚定                0.24947      0.48688      1.06466        0
+     eps=0.18 锚定                 0.24175      0.47735      1.00138        1
+     (0.65s)
   PASS  3.1 对照组的信念误差 = 0（模型自洽）   [belief_error_max=0.0000e+00]
-  PASS  3.2 ★注入产生非零信念误差（仿真器不是安慰剂）   [belief_error_rms=0.45918]
-  PASS  3.3 注入的信念误差 >= 对照组的 3 倍   [注入=0.45918 对照=0.00000]
-  PASS  3.4 注入使误差沿路线累积（RMS ≥ 0.20 且峰值 > drift_warn_m=0.30）   [belief_error_rms=0.45918 max=1.17030 drift_warn_m=0.3]
-  PASS  3.5 注入版给出可比样本（跑满窗口 / 跑完 / 判定跑飞，三选一）   [steps=2637 completed=False diverged=True]
-     ε=0.18 不锚定 vs 锚定: diverged=True(steps=2637) vs True(steps=2611)
-  PASS  3.5b ★锚定无害：锚定版横向误差 <= 不锚定版（ε=0.18 两版均跑飞，锚定不把车带得更偏）   [锚定 xt_rms=0.21679 vs 不锚定=0.23351 （diverged: 锚定@2610 不锚定@2636）]
-     锚定 vs 不锚定: belief_rms 0.43803 vs 0.45918 (比值 0.954) / xt_rms 0.21679 vs 0.23351
-  PASS  3.6 ★锚定压低信念误差：锚定版信念 RMS < 不锚定版（ε=0.18；收益受拐角禁锚挤压但方向必正）   [锚定=0.43803 vs 不锚定=0.45918 (压低 4.6%，锚定 2 次)]
-  PASS  3.7 锚定确实被触发过（不是没生效）   [anchors=2]
-  PASS  3.8 ★吸附不能造误差：锚定版信念误差 <= 不锚定版的 2 倍   [锚定=0.43803 不锚定=0.45918 (比值 0.954)]
-  PASS  3.9 ★吸附不能造误差（横向）：锚定版横向 RMS <= 不锚定版的 2 倍   [锚定=0.21679 不锚定=0.23351]
+  PASS  3.2 ★注入产生非零信念误差（仿真器不是安慰剂）   [belief_error_rms=0.48688]
+  PASS  3.3 注入的信念误差 >= 对照组的 3 倍   [注入=0.48688 对照=0.00000]
+  PASS  3.4 注入使误差沿路线累积（RMS ≥ 0.20 且峰值 > drift_warn_m=0.30）   [belief_error_rms=0.48688 max=1.06466 drift_warn_m=0.3]
+  PASS  3.5 注入版给出可比样本（跑满窗口 / 跑完 / 判定跑飞，三选一）   [steps=2595 completed=False diverged=True]
+     ε=0.18 不锚定 vs 锚定: diverged=True(steps=2595) vs True(steps=2603)
+  PASS  3.5b ★锚定无害：锚定版横向误差 <= 不锚定版（ε=0.18 两版均跑飞，锚定不把车带得更偏）   [锚定 xt_rms=0.24175 vs 不锚定=0.24947 （diverged: 锚定@2602 不锚定@2594）]
+     锚定 vs 不锚定: belief_rms 0.47735 vs 0.48688 (比值 0.980) / xt_rms 0.24175 vs 0.24947
+  PASS  3.6 ★锚定压低信念误差：锚定版信念 RMS < 不锚定版（ε=0.18；收益受拐角禁锚挤压但方向必正）   [锚定=0.47735 vs 不锚定=0.48688 (压低 2.0%，锚定 1 次)]
+  PASS  3.7 锚定确实被触发过（不是没生效）   [anchors=1]
+  PASS  3.8 ★吸附不能造误差：锚定版信念误差 <= 不锚定版的 2 倍   [锚定=0.47735 不锚定=0.48688 (比值 0.980)]
+  PASS  3.9 ★吸附不能造误差（横向）：锚定版横向 RMS <= 不锚定版的 2 倍   [锚定=0.24175 不锚定=0.24947]
      同注入放直线 N10->M10: completed=True belief_rms=0.033713 belief_max=0.057809 实走=0.3212 m ε·里程=0.0578 m
   PASS  3.9 直线 + 同注入：仍跑完且信念偏差 = O(ε × 里程)   [completed=True max=0.05781 阈值=0.08671]
 
@@ -81,16 +82,16 @@ robot.yaml: sha256[:16]=f8bdec1569aed8b3（出厂值，不做任何覆盖）
   PASS  4.4 横向 RMS 随延迟单调（5 档同向，不减或不增；方向不写死）   [0.05550 / 0.05264 / 0.04971 / 0.04522 / 0.03847]
   PASS  4.5 拍数随延迟单调（5 档同向，不减或不增；方向不写死）   [1059 / 1035 / 1016 / 996 / 955]
   PASS  4.6 延迟版末点误差仍在 arrival_m 量级（< 0.20 m）   [final_error=0.02908]
-     现场图 3000 拍窗口: lat0 xt_rms=0.05586 / lat0.20 xt_rms=0.05084
-  PASS  4.7 现场图上 0.20 s 延迟对横向 RMS 的影响仍有界（|Δ| < 0.02 m；⚠️ 换图后方向反转，与 4.3–4.5 同源已知现象，t20 如实钉住）   [0.05586 -> 0.05084 (Δ=-0.00503 m)]
+     现场图 3000 拍窗口: lat0 xt_rms=0.05642 / lat0.20 xt_rms=0.04813
+  PASS  4.7 现场图上 0.20 s 延迟对横向 RMS 的影响仍有界（|Δ| < 0.02 m；⚠️ 换图后方向反转，与 4.3–4.5 同源已知现象，t20 如实钉住）   [0.05642 -> 0.04813 (Δ=-0.00829 m)]
 
 === 5. 输出文件：write_csv / write_segments_csv / write_svg ===
-     落盘目录: C:\Users\TestFox\AppData\Local\Temp\dzbrain_sim_guard_zv9vv30n\nested\out
+     落盘目录: C:\Users\TestFox\AppData\Local\Temp\dzbrain_sim_guard_mwv4yvai\nested\out
        traj.csv       exists=True bytes=23279
        traj.svg       exists=True bytes=6675
        segments.csv   exists=True bytes=128
-  PASS  5.1 write_csv 返回绝对路径且文件存在   [C:\Users\TestFox\AppData\Local\Temp\dzbrain_sim_guard_zv9vv30n\nested\out\traj.csv]
-  PASS  5.2 父目录不存在时自动创建   [C:\Users\TestFox\AppData\Local\Temp\dzbrain_sim_guard_zv9vv30n\nested\out]
+  PASS  5.1 write_csv 返回绝对路径且文件存在   [C:\Users\TestFox\AppData\Local\Temp\dzbrain_sim_guard_mwv4yvai\nested\out\traj.csv]
+  PASS  5.2 父目录不存在时自动创建   [C:\Users\TestFox\AppData\Local\Temp\dzbrain_sim_guard_mwv4yvai\nested\out]
   PASS  5.3 CSV 行数 = 表头 + 采样拍数（> 100 行）   [lines=199 steps=198]
   PASS  5.4 表头前 10 列 = 契约列（顺序不变）   [hdr=['t', 'x', 'y', 'yaw', 'v', 'steer', 'truth_x', 'truth_y', 'seg_index', 's']]
   PASS  5.5 表头含诊断列（truth_yaw/steer_cmd/kind/anchored/reverse）   [n_cols=17]
@@ -130,10 +131,10 @@ robot.yaml: sha256[:16]=f8bdec1569aed8b3（出厂值，不做任何覆盖）
      投影窗口常量: _PROJ_BELIEF_M=1.5  _PROJ_FWD_M=0.8  _PROJ_BACK_M=0.2
   PASS  7.1 ★信念投影窗口 _PROJ_BELIEF_M = 1.50 m（收窄它会让现场图卡死）   [got 1.5, want 1.5 (tol 1e-12)]
   PASS  7.2 物理投影窗口仍是前宽后窄（0.80 / 0.20）   [fwd=0.8 back=0.2]
-     护栏结论: completed=True steps=3823/37625 ratio=0.8661 xt_rms=0.05324 （2026-10-09 新路线基线 5869 拍 / 117.38 s / ratio 0.94 / RMS 0.1117；旧路线参考 6751 拍 / 135.0 s / ratio 1.04）
-  PASS  7.3 ★出厂配置下现场图跑完（端到端护栏）   [completed=True steps=3823 ratio=0.8661 final_error=0.0295]
-  PASS  7.4 出厂配置下横向 RMS 仍 < 0.20 m（没退化成乱跑）   [xt_rms=0.05324]
-  PASS  7.5 分组指标键齐全、有限、非负   [cross_track_rms_normal_m=0.00000 / cross_track_rms_reverse_m=0.00000 / cross_track_rms_corner_m=0.05324]
+     护栏结论: completed=True steps=3773/37625 ratio=0.8684 xt_rms=0.05290 （2026-10-09 新路线基线 5869 拍 / 117.38 s / ratio 0.94 / RMS 0.1117；旧路线参考 6751 拍 / 135.0 s / ratio 1.04）
+  PASS  7.3 ★出厂配置下现场图跑完（端到端护栏）   [completed=True steps=3773 ratio=0.8684 final_error=0.0285]
+  PASS  7.4 出厂配置下横向 RMS 仍 < 0.20 m（没退化成乱跑）   [xt_rms=0.05290]
+  PASS  7.5 分组指标键齐全、有限、非负   [cross_track_rms_normal_m=0.00000 / cross_track_rms_reverse_m=0.00000 / cross_track_rms_corner_m=0.05290]
 
 === 8. 接口一致性 / 确定性 / 参数校验 ===
   PASS  8.1 METRIC_KEYS 契约键全部存在   [missing=[]]
@@ -174,16 +175,16 @@ robot.yaml: sha256[:16]=f8bdec1569aed8b3（出厂值，不做任何覆盖）
 
 === 10. 场地物理护栏（t24）：加地图不改轨迹 + 现役路线物理洁净度 ===
   PASS  10.0 config/map.yaml 可加载   [场地[第五张新地图 · 2026-10-14 官方贴图重掷版（用户当面贴图 + 队长/感知线双独立识读逐格一致）] 雷8 障8 靶2 通2 隔板 D~N @6/7 行之间]
-  PASS  10.1 加场地后**契约指标与轨迹逐位不变**（物理是观测，不是动力学）   [3823 拍 / RMS 0.0532 m 与未建模时完全相同]
+  PASS  10.1 加场地后**契约指标与轨迹逐位不变**（物理是观测，不是动力学）   [3773 拍 / RMS 0.0529 m 与未建模时完全相同]
   PASS  10.2 现役路线零注入：**物理硬违规全为 0**（碰撞/触板/压靶/封死/越界）   [障碍碰撞拍=0  挡板触线拍=0  车体压靶板拍=0  K 列封死违规拍=0  K 列非通格拍=0  越界拍数=0]
-  PASS  10.3 现役路线零注入：**8/8 盖雷（官方图全覆盖）**，且硬违规仍全 0（垫片口径：车心 3.5 cm 圆 ∩ 12×12 cm）   [盖雷 8/8，盖雷总拍数 456，最远雷心距 0.0159 m（★t31 重钉：第五张图的 A4 口袋雷已被覆盖，90° 拐过时真车切内 ⇒ 7/8；接近腿改造需用户现场裁决，**不得**为凑 8/8 引入碰撞/硬违规）]
-     · 软指标（设计判据，非物理违规，实测值）：障碍净空不足 134 拍（车心最近 0.2572 m）；靶板净空不足 49 拍（车体最近 0.1441 m）；挡板净距 0.0783 m（门槛 0.02/2 + 0.135/2 = 0.0775 m）
+  PASS  10.3 现役路线零注入：**8/8 盖雷（官方图全覆盖）**，且硬违规仍全 0（垫片口径：车心 3.5 cm 圆 ∩ 12×12 cm）   [盖雷 8/8，盖雷总拍数 401，最远雷心距 0.0139 m（★t31 重钉：第五张图的 A4 口袋雷已被覆盖，90° 拐过时真车切内 ⇒ 7/8；接近腿改造需用户现场裁决，**不得**为凑 8/8 引入碰撞/硬违规）]
+     · 软指标（设计判据，非物理违规，实测值）：障碍净空不足 161 拍（车心最近 0.2595 m）；靶板净空不足 52 拍（车体最近 0.1433 m）；挡板净距 0.0844 m（门槛 0.02/2 + 0.135/2 = 0.0775 m）
   PASS  10.4 软指标与硬违规**分开计数**（不混淆两件事）   [净空不足 ≠ 碰撞（两者口径不同，报告里也是两栏）]
 
 ==============================================================================
-总耗时: 2.75 s
+总耗时: 3.81 s
 ==============================================================================
 
 ======================================================================
-结果：109/109 全部通过 ✅
+结果：110/110 全部通过 ✅
 ======================================================================

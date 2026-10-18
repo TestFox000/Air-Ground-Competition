@@ -213,14 +213,56 @@ export function normalizeCells(raw, { max = FIELD_MAX_CELLS } = {}) {
   }).slice(0, max)
 }
 
+/**
+ * 从地图注释里认无人机起/降格（`# … 无人机起点 N8、终点 M2`）。
+ *
+ * 旧实现只匹配「无人机点」四字连续的注释行；第六张图注释写成「无人机起点 / 终点 M2」，
+ * 于是恒落内建兜底 —— 值恰好相同，但 `drone.source` 会谎报 `builtin-fallback`，
+ * 违反「起降格取真源」的口径（页面/台账据此判断是否已对齐现场）。
+ * 现按两种注释形状取：① 「无人机起点/终点」标签后紧跟的格名；② 「无人机」之后的前两格。
+ * 顺序恒为 [起点, 终点]；取不齐 ⇒ 调用方落内建兜底并如实标 source。
+ */
+function droneCellsFromComment(text) {
+  const comments = []
+  for (const line of normalizeNewlines(text).split('\n')) {
+    const hit = line.match(/^[ \t]*#(.*)$/)
+    if (hit) comments.push(hit[1])
+  }
+  const tagged = { takeoff: '', land: '' }
+  for (const body of comments) {
+    // 标签后必须紧跟格名（至多 4 个冒号/空白/括号字符），避免跨过「）、M2」抓到别人的格。
+    if (!tagged.takeoff) {
+      const hit = body.match(/无人机起点[：:\s（(]{0,4}([A-N](?:1[01]|[1-9]))/)
+      if (hit) tagged.takeoff = normalizeCell(hit[1])
+    }
+    if (!tagged.land) {
+      const hit = body.match(/无人机终点[：:\s（(]{0,4}([A-N](?:1[01]|[1-9]))/)
+      if (hit) tagged.land = normalizeCell(hit[1])
+    }
+  }
+  if (tagged.takeoff && tagged.land) return { cells: [tagged.takeoff, tagged.land], source: 'map-comment' }
+  // 兼容「无人机点：N8、M2」这类没有“起点/终点”字样的注释：取「无人机」之后的前两个格名。
+  const loose = []
+  for (const body of comments) {
+    const at = body.indexOf('无人机')
+    if (at < 0) continue
+    for (const raw of (body.slice(at).match(/[A-N](?:1[01]|[1-9])/g) ?? [])) {
+      const cell = normalizeCell(raw)
+      if (cell && !loose.includes(cell)) loose.push(cell)
+      if (loose.length === 2) break
+    }
+    if (loose.length === 2) break
+  }
+  return loose.length === 2 ? { cells: loose, source: 'map-comment' } : { cells: [], source: 'builtin-fallback' }
+}
+
 /** 只读场地（给页面画横置地图）：解析失败返回 `ok:false`，绝不抛。 */
 export function fieldSpec() {
   let text = ''
   try { text = fs.readFileSync(MAP_FILE, 'utf8') } catch (error) {
     return { ok: false, root: SIM_ROOT, error: `读不到地图 ${MAP_FILE}（${error?.message ?? error}）` }
   }
-  const droneLine = (text.match(/^#.*无人机点.*$/m) ?? [''])[0]
-  const droneCells = (droneLine.match(/[A-N]\d{1,2}/g) ?? []).map(normalizeCell).filter(Boolean)
+  const droneParsed = droneCellsFromComment(text)
   const colFrom = scalarOf(text, 'barrier_col_from').toUpperCase().slice(0, 1)
   TARGET_CACHE.cells = normalizeCells(listOf(text, 'targets'))
   return {
@@ -248,9 +290,17 @@ export function fieldSpec() {
       rowLo: Number(scalarOf(text, 'barrier_row_lo')) || 7,
     },
     drone: {
-      takeoff: droneCells[0] || DRONE_FALLBACK.takeoff,
-      land: droneCells[1] || DRONE_FALLBACK.land,
-      source: droneCells.length >= 2 ? 'map-comment' : 'builtin-fallback',
+      takeoff: droneParsed.cells[0] || DRONE_FALLBACK.takeoff,
+      land: droneParsed.cells[1] || DRONE_FALLBACK.land,
+      source: droneParsed.source,
+    },
+    // 车端规划口径（只读透传）：页面在「改点位」旁如实显示「本图路线是车端自动规划还是手动
+    //   route.tokens」—— 第六张图 planner.auto_plan_enabled=false（tracker-safe 本图无解），
+    //   改点位后的重规划因此会 422；不把这个语义显式告诉操作员，页面看起来就像「改点位坏了」。
+    //   engine=null 表示读不到/不在 CLI 白名单（页面不硬编码引擎名）。
+    planner: {
+      engine: plannerEngineOf(ROBOT_FILE),
+      autoPlanEnabled: plannerFlagOf(ROBOT_FILE, 'auto_plan_enabled'),
     },
     // 靶板由 targets 的相邻两格并成一块；按两格几何关系自动判横/竖（页面可覆盖）。
     target: targetBoard(),
@@ -416,6 +466,34 @@ export function plannerEngineOf(configPath) {
       }
     }
   } catch { /* 配置读不到 → 走 plan_route 默认 */ }
+  return null
+}
+
+/** 读 robot.yaml `planner:` 块下的布尔开关（只读；缺键/值非 true|false ⇒ null，不猜默认）。
+ *
+ *  当前唯一消费者 = `auto_plan_enabled`：车端为 false 时路线来自手动 `route.tokens`，
+ *  页面仍会按车端引擎重规划改点位后的路线（这是仿真台的 what-if 能力）—— 页面把该状态
+ *  透传显示，让「改点位 → 422 规划无解」有据可查，而不是看起来像改了没生效。
+ *  导出仅供离线断言（同 plannerEngineOf 的先例）。 */
+export function plannerFlagOf(configPath, key) {
+  try {
+    const lines = fs.readFileSync(configPath, 'utf8').split(/\r?\n/)
+    let blockIndent = -1
+    for (const line of lines) {
+      if (!line.trim() || /^\s*#/.test(line)) continue
+      const indent = line.match(/^[ \t]*/)[0].length
+      if (blockIndent < 0) {
+        if (/^[ \t]*planner:[ \t]*(?:#.*)?$/.test(line)) blockIndent = indent
+        continue
+      }
+      if (indent <= blockIndent) break                       // planner 块结束
+      const hit = line.match(new RegExp('^[ \\t]*' + key + ':[ \\t]*([^\\s#]+)'))
+      if (hit) {
+        const raw = hit[1].replace(/^['"]|['"]$/g, '').toLowerCase()
+        return raw === 'true' ? true : (raw === 'false' ? false : null)
+      }
+    }
+  } catch { /* 配置读不到 ⇒ null（不猜默认值） */ }
   return null
 }
 

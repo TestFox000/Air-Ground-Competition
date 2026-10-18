@@ -17,7 +17,8 @@
  *
  * 两个旧臂，职责不同（都不是"编造的旧代码"）：
  *   ① **历史臂**：`git show HEAD:dsh-plugin-dzrobot-ssh/sim.html` —— 修复还没提交时的真历史，
- *      用来复现用户看到的叠加现象（HEAD == 工作区时自动跳过）。
+ *      用来复现用户看到的叠加现象（HEAD == 工作区、或 HEAD 里已含清层修复时自动跳过：
+ *      后者是本轮踩到的形态 —— 修复已提交后工作区再有改动，HEAD 不再是"旧实现"）。
  *   ② **变异体臂**：从**现版源码**只删掉两处清层（统一咽喉里的 `invalidateStaleRun()`、
  *      422 分支里的 `TRACE = null`），其余逐字节不动。这一臂是**因果反证**：渲染逻辑与现版
  *      同一份（逐字节校验），唯一差异是清层 ⇒ 叠加立刻复现，证明清层就是承重件。
@@ -221,9 +222,15 @@ if (gitTop.status === 0) {
   })
   if (show.status === 0) {
     const candidate = scriptOf(show.stdout)
-    if (candidate && candidate !== newScript) {
+    // ★ 2026-10-18：工作区有未提交改动 ≠ HEAD 一定是"修复前"。清理层修复早已提交，
+    //   HEAD 里同样有 invalidateStaleRun —— 那种 HEAD 当历史臂只会得到"复现不了"的假红。
+    //   判据：HEAD 的 input 监听若已含清层动作 ⇒ 它不是旧实现，跳过历史臂（其余两臂不变）。
+    const candidateHandler = candidate ? fieldInputHandler(candidate) : null
+    if (candidate && candidate !== newScript && candidateHandler && !handlerClears(candidate, candidateHandler)) {
       headScript = candidate
       headLabel = `git HEAD:${rel}/sim.html`
+    } else if (candidate && candidate !== newScript) {
+      headLabel = 'git HEAD 已包含清层修复（历史臂不再复现旧现象）⇒ 跳过历史臂'
     } else if (candidate) {
       headLabel = 'HEAD 与工作区 sim.html 逐字节相同（修复已提交）⇒ 跳过历史臂'
     }

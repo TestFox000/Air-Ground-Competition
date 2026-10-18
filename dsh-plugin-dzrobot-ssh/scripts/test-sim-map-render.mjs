@@ -403,13 +403,17 @@ check('C 靶朝向：targetYaw=「h」→ 渲染标注变「横向」',
   labelOf(svgH) === '横向' && !/竖向/.test(svgH), 'label=' + labelOf(svgH))
 el('targetYaw').value = 'x'          // 非法值：targetYawMode() 回落 '' = 跟随地图
 api.renderMap()
-check('C 靶朝向：targetYaw 非法值回落「跟随地图」→ 标注仍是自动判定的「横向」',
-  labelOf(el('map').innerHTML) === '横向', 'label=' + labelOf(el('map').innerHTML))
-//    宿主侧口径：地图真源（field.target + fieldSpec）与页面函数三者一致
-check('C 靶朝向：fieldSpec() 报的 target.yaw 与 targetBoardRect auto 一致（E5+F5 → h）',
-  field.target && field.target.yaw === 'h'
-  && api.targetBoardRect(field.targets, '')[2] >= api.targetBoardRect(field.targets, '')[3],
-  JSON.stringify(field.target))
+// ★ 2026-10-18：期望值必须从**真源两格几何**推导，不能写死第五张图的「横向」——
+//   第六张图靶 = D5+D6 纵向两格（field.target.yaw='v'），写死会让换图后的守卫假红。
+const boardReal = api.targetBoardRect(field.targets, '')
+const autoLabel = boardReal && boardReal[2] >= boardReal[3] ? '横向' : '竖向'
+check('C 靶朝向：targetYaw 非法值回落「跟随地图」→ 标注 = 自动判定（按 map.targets 几何动态推导：' + autoLabel + '）',
+  labelOf(el('map').innerHTML) === autoLabel, 'label=' + labelOf(el('map').innerHTML) + ' expected=' + autoLabel)
+//    宿主侧口径：地图真源（field.target + fieldSpec）与页面函数三者一致（h ⇔ 横长 / v ⇔ 竖长）
+check('C 靶朝向：fieldSpec() 报的 target.yaw 与 targetBoardRect auto 一致（按真源两格几何动态推导）',
+  field.target && (field.target.yaw === 'h' ? boardReal[2] >= boardReal[3]
+    : field.target.yaw === 'v' ? boardReal[3] > boardReal[2] : false),
+  JSON.stringify(field.target) + ' rect=' + JSON.stringify(boardReal))
 
 // ── ★ t2 新增：靶朝向**透传链**（表单 → 请求体 → 宿主 sanitizeParams → 台账）────────────
 // 三项改进里只有靶朝向带**持久化**（进 run_meta.jsonl），所以链条逐段钉住：

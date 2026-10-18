@@ -1,0 +1,56 @@
+
+=== 1 缺省入参：逐 token 不变（本卡验收 ①） ===
+  PASS  1.1 不带新入参 ⇒ 与 robot.yaml 的 mission_blocks 逐 token 相同（44 点）   [44 token vs 落盘 44]
+  PASS  1.2 缺省产物 start = N10（地图起点），且**没有**『增量续算』warning   [start=N10 warnings=3]
+  PASS  1.3 缺省两次调用逐 token 相同（确定性未被入参默认值破坏）   [44 token]
+  PASS  1.4 只传 `already_covered=[C1]`（该雷在主线上）⇒ 起点/终点/门禁口径不变，且 C1 之外 7 颗雷仍全压（路线可变短，C1 只在'必访集'里才必须经过）   [42 token ≤ 44 / 漏压 ['C1']]
+
+=== 2 `from_cell` 续算：洞东 / 洞西（已过洞）/ 站在洞上 ===
+  PASS  2.1 from_cell=M9（下半场洞东）⇒ 首点=M9、start 字段=M9、终点仍是 N5   [首点=M9 start=M9 末点=N5,y]
+  PASS  2.2 from_cell=M9：下半场仍要穿一次 K9（向西），故比整线短但仍走洞   [42 token（整线 44）]
+  PASS  2.3 from_cell=B8（下半场洞西 ⇒ 已过洞）⇒ 本轮**不再穿 K9**   [无 K9 ✅]
+  PASS  2.4 from_cell=B8：上半场仍恰穿一次 K5，且方向**向东**（J5 -> K5 -> L5）   [I5 J5 K5 L5]
+  PASS  2.5 from_cell=B8：8 颗雷仍全部压过（续算不许漏）   [8/8]
+  PASS  2.6 from_cell=K9（正站在洞上）⇒ 视为已进洞，本轮不重复穿 K9 之外的下半场洞   [40 token / 首点=K9 / K9 出现 1 次]
+  PASS  2.7 续算产物带『增量续算』warning 且写明 from_cell 名（现场/日志可识别）   [['增量续算：起点 from_cell=M9（非地图起点 N10）；已压 0 格（无）；跳过穿洞=无（两个半场都还要穿）']]
+  PASS  2.8 B8 续算段独立复算结构自检：0 问题（起点放宽=B8 / 下半场穿越已完成）   [0 问题]
+  PASS  2.9 同一自检对**整线**（缺省参数）也是 0 问题（未因新入参放松底线）   [0 问题]
+
+=== 3 `already_covered` 避让（本卡验收 ② 主体） ===
+  PASS  3.1 已压的 5 格**一个都不出现在路线里**（不再绕回去补压）   [0 个]
+  PASS  3.2 未压的 3 颗雷（E3 / G4 / I6）一个不漏   [3/3]
+  PASS  3.3 全部雷都已压 ⇒ 续算更短（只压靶 + 穿洞 + 到终点）   [20 token < 22 token]
+  PASS  3.4 warning 里写明已压格数（现场可核对台账）   [['增量续算：起点 from_cell=C3（非地图起点 N10）；已压 5 格（A3 B7 C1 D9 H10）；跳过穿洞=下半场']]
+  PASS  3.5 `already_covered` 里塞**非雷格**（M9）不炸、也不影响雷必压集（仍 8/8）   [44 token]
+  PASS  3.6 `already_covered` 里有非法格名 ⇒ 抛 PlannerError（不静默吞）   [抛出 PlannerError: already_covered 里的 'Z9' 不是合法格名（非法列字母: 'Z9'（应为 A~N））]
+
+=== 4 起点硬门：该拒的必须拒（且文案可判读） ===
+  PASS  4.1 from_cell=障碍格（E2）⇒ PlannerError『不可通行』   [from_cell E2 不可通行（障碍格 / 被封锁）]
+  PASS  4.2 from_cell=非法格名（Z9）⇒ PlannerError『不是合法格名』   [from_cell 'Z9' 不是合法格名（非法列字母: 'Z9'（应为 A~N））]
+  PASS  4.3 from_cell 在上半场但**下半场还有未压雷** ⇒ 拒（不许靠再穿一次洞兜底）   [增量续算不可行：起点 C3 已在上半场，但下半场仍有未压雷 B7 D9 H10（回到下半场必须再穿一次洞 ⇒ R007『每半场恰好一次』被破）。请先补齐下半场，或改用整线规划（不带 from_cell）。]
+  PASS  4.4 from_cell 在上半场**洞东**但上半场还有未压雷 ⇒ 拒（回去必再穿一次）   [增量续算不可行：起点 N2 已在上半场桥洞以东，但上半场仍有未压雷 E3 G4 I6（回去必再穿一次洞 ⇒ R007 被破）。请改用整线规划。]
+
+=== 5 R-5：改 `MapSpec.start` 绕不过去（t5 §E4 的老路仍然失败） ===
+  PASS  5.1 改 map.start=E10 后走 tracker-safe（不带 from_cell）⇒ 仍然不过   [tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）]
+  PASS  5.1 改 map.start=F2 后走 tracker-safe（不带 from_cell）⇒ 仍然不过   [tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）]
+  PASS  5.1 改 map.start=B8 后走 tracker-safe（不带 from_cell）⇒ 仍然不过   [tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）]
+  PASS  5.4 tour 引擎：改 map.start=E10 ⇒ 仍报『不在下半场桥洞以东』（E4 原文）   [起点 E10（列索引 4）不在下半场桥洞 K9（列索引 10）以东 —— 与「每半场只穿一次桥洞」（validate R007）矛盾：开到西侧再回东侧起点就必须穿两次。请检查地图或]
+  PASS  5.5 `from_cell` 路径**不写地图**：规划后 spec.start 仍是 N10，而产物 start=B8   [map.start=N10 / res.start=B8]
+  PASS  5.6 对照：改 map.start=M9（洞东）虽能过，但**起点语义被写进地图**（res.start=M9）⇒ 这正是必须用 from_cell 的理由   [res.start=M9 / 磁盘 spec.start=N10]
+
+=== 6 边界：续算段**不是整线** —— 整线门禁照规矩拒收（口径必须写进决策层） ===
+  PASS  6.1 M9 续算段：整线校验对『起点不是地图起点』只到 **warn**（R002），另有 0 error ⇒ 该段在整线口径下仍可读，但必须由决策层合成   [error=[] warn=['R002']]
+  PASS  6.2 B8 续算段：validate 报 R007（下半场 0 次穿越）—— 预期行为   [['R007']]
+  PASS  6.3 C3+已压 5 雷：validate 报 R005（雷覆盖 3/8）—— 预期行为（台账里那 5 颗已压）   [['R005', 'R007']]
+  PASS  6.4 缺省整线路线仍是 0 error（门禁底线未被本卡动摇）   [[]]
+
+=== 7 配置真源：SCHEMA 登记即生效（本卡验收 ④ 的防回归） ===
+  PASS  7.1 现役 robot.yaml 的 validate() 不再报『未知配置段』（旧：20 条）   [0 条]
+  PASS  7.2 这 20 个键逐条：不再被判『未知配置段』且能被 Config 正常读到   [20/20]
+  PASS  7.3 段前缀由 SCHEMA 派生（新登记键自带它的段，不再依赖手抄表）   [['aim', 'drone', 'field', 'fix', 'localization', 'logging', 'mission', 'planner', 'pursuit', 'route', 'safety', 'telemetry', 'vehicle']]
+  PASS  7.4 真·拼错的键仍会被抓（`planner.nope` ⇒ 『未登记的配置键』warn；防'改宽了')   [3 issues / 命中 1]
+  PASS  7.5 唯一豁免键 `localization.yaw_trim_deg` 既不报未知、也**不在** SCHEMA（±10° 护栏归 calib_backfill，见 test_calib_backfill 2.3）   [豁免集合 ['localization.yaw_trim_deg']]
+
+======================================================================
+结果：38/38 全部通过 ✅
+======================================================================

@@ -38,7 +38,7 @@
 [t_flaky] tick 异常 #1: RuntimeError: 偶发 3
 [t_flaky] 已停止
   PASS  异常被计数   [errors=2]
-  PASS  异常后仍在跑（拍数继续涨）   [ticks=11]
+  PASS  异常后仍在跑（拍数继续涨）   [ticks=10]
   PASS  记录最后一次错误
 
 === TaskThread：连续异常 → FAULT + 事件 + fault_hook ===
@@ -69,14 +69,14 @@ ValueError: 永久故障
   PASS  来源路径正确
   PASS  旧键 path_executor.linear_speed 可读（0.35，与 cruise 同步）
   PASS  新键 pursuit.cruise_speed_mps 与旧键同值（0.35）
-  PASS  route.tokens 由 mission_blocks 迁移（官方图自规划，44 点；t50）
+  PASS  route.tokens 由 mission_blocks 迁移（官方图自规划，44 点；t3-A）
   PASS  桥洞强制直行保护已按第三张图关闭（bridge_blocks 为空）   [got []]
   PASS  旧 dzactuator 段可读（2026-10-11 实车直线标定 → 3280.0）
-  PASS  新版参数段 /dzbrain 生效（非 SCHEMA 默认）
+  PASS  新版参数段 /dzbrain 生效（curvature_gain 非默认；lead_time_s 已 t53 归零）
   PASS  新版默认值可读（SCHEMA 默认）
   PASS  case: 未知键给出告警
   PASS  真实配置无 error
-  PASS  配置摘要包含穿洞兜底格（官方图 K9）   ["配置来源: D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\robot.yaml\n键数: 226\n  route.tokens = ['N10', 'M10', 'L10', 'L9', 'K9', 'J"]
+  PASS  配置摘要包含穿洞兜底格（官方图 K9）   ["配置来源: D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\robot.yaml\n键数: 251\n  route.tokens = ['N10', 'M10', 'M9', 'L9', 'K9', 'J9"]
 
 === Config：校验真的会拦（负例） ===
   PASS  负轴距被拦

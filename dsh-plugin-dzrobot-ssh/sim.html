@@ -1035,8 +1035,12 @@ function renderMap() {
   //   `var text`（SVG 文本构造器）把全局 text(node,value)（:387）遮蔽了 ⇒ 原行一直在调
   //   SVG 构造器、返回值被丢弃，#mapMeta 从未显示过任何内容。改为直接赋 textContent
   //   （与全局 text() 语义一致），md5/来源恢复显示，并带上进洞冗余透传值供现场核对同源。
+  var plannerNow = FIELD.planner || {};
+  var routeMode = plannerNow.autoPlanEnabled === false ? '车端手动路线（自规划关闭）'
+    : (plannerNow.autoPlanEnabled === true ? '车端自动规划开启' : '车端自规划状态未知');
   $('mapMeta').textContent = 'md5 ' + String(FIELD.md5).slice(0, 8) + ' · ' + FIELD.source
-    + ' · 进洞侧冗余 ' + bridgeRedM + ' m' + (bridgeRedM > 0 ? '' : '（未启用）');
+    + ' · 进洞侧冗余 ' + bridgeRedM + ' m' + (bridgeRedM > 0 ? '' : '（未启用）')
+    + ' · 规划引擎 ' + (plannerNow.engine || '未指定（CLI 默认）') + ' · ' + routeMode;
 }
 
 /** 表单里的四类点位（只读镜像文本框；空文本 = 该项不覆盖）。 */
@@ -1479,8 +1483,12 @@ function loadField() {
     $('obstacles').value = (body.obstacles || []).join(' ');
     $('bridges').value = (body.bridges || []).join(' ');
     $('targets').value = (body.targets || []).join(' ');   // 靶两格镜像一起回填（整图恢复还原棋盘）
+    var plannerNow = body.planner || {};
+    var routeMode = plannerNow.autoPlanEnabled === false ? '车端手动 route.tokens（自规划关闭）'
+      : (plannerNow.autoPlanEnabled === true ? '车端自动规划开启' : '车端自规划状态未知');
     text($('fieldMeta'), '真源 ' + body.source + '（md5 ' + String(body.md5).slice(0, 8) + '）· 可改 '
-      + (body.editable || []).join('/') + '；其余要素（起终/隔板/无人机点）保持现场值');
+      + (body.editable || []).join('/') + '；其余要素（起终/隔板/无人机点）保持现场值'
+      + ' · 路线：' + routeMode + ' · 引擎：' + (plannerNow.engine || 'CLI 默认'));
     refreshFieldHints();
     renderMap();
     return true;
@@ -1925,12 +1933,19 @@ function runSimulation() {
     })
     .catch(function (problem) {
       $('result').innerHTML = '<span style="color:var(--dim)">未完成。</span>';
+      var failed = problem.body && problem.body.record ? problem.body.record : null;
+      // 失败原因（最后一非空行）：优先台账 plan.stderrTail，其次宿主透传的 planTail ——
+      //   第六张图 tracker-safe 无解这类"改点位后 422"，只有把这行显示出来才可诊断；
+      //   旧实现只写「规划/校验未过」，操作员无法区分"引擎无解"和"点位非法"。
+      var whyRaw = (failed && failed.plan && failed.plan.stderrTail)
+        || (problem.body && problem.body.planTail) || (failed && failed.stderrTail) || '';
+      var why = String(whyRaw).split('\n').filter(function (line) { return line.trim(); }).slice(-1)[0] || '';
       var hint = problem.status === 409 ? '（上一次还在跑）'
         : (problem.status === 422 ? '（改点位后规划/校验未过：见任务栏与台账 plan 字段）' : '')
         // drone 开时 422 也落 record.plan.drone（宿主「规划成败都落」的约定）——
         //   失败路径同样给出台账方位，避免用户以为开关没生效/被吞。
         + (body.drone === true ? '；无人机协同台账 record.plan.drone 随本局一起落盘' : '');
-      message($('runMsg'), 'bad', '仿真失败：' + problem.message + hint);
+      message($('runMsg'), 'bad', '仿真失败：' + problem.message + (why ? ' —— ' + why : '') + hint);
       if (problem.status === 422) {
         // 修「地图叠加」：plan-failed 同样要清上一局的 TRACE —— 原实现漏了这步，
         //   #map 里留着上一局的参考线/绿轨迹/车身位姿，#anim 再叠新折线 ⇒ 两局图层叠加；

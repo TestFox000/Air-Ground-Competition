@@ -1,7 +1,7 @@
 
 === 卡 t5 端到端离线联调（bench） ===
   现场真源   : robot.yaml（默认穿洞格 lower=K9 upper=K5）
-  临时地图   : C:\Users\TestFox\AppData\Local\Temp\dz_t5_fix_lwpqwps8\map_t5.yaml（bridges=K4/K5/K9/K10，其余照抄现场）
+  临时地图   : C:\Users\TestFox\AppData\Local\Temp\dz_t5_fix_gvswbj71\map_t5.yaml（bridges=K4/K5/K9/K10，其余照抄现场）
   感知产物   : D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\perception\reports\cli_messages.jsonl
 
 === 1. 端到端：感知管线产物 → DroneTask → MissionTask（穿洞格真的变了） ===
@@ -45,9 +45,21 @@
 === 5. 健壮性：坏报文不崩、日志不刷屏、不 import rclpy ===
   PASS  5.1 五类坏报文全部只记日志、不抛异常（计数如实）   [bad=2 missing=2 unknown={'unknown_x': 1}]
   PASS  5.2 ★ 稳态 40 拍情报类日志有界（限流生效，不刷屏）   [3 条 / 40 拍]
-  PASS  5.3 DroneTask 自己的日志照常（两套日志各管各的）   [2 条]
+  PASS  5.3 DroneTask 自己的日志照常（两套日志各管各的）   [3 条]
   PASS  5.4 bench 全程不 import rclpy（可在无 ROS 机器复跑）   [rclpy 未被加载]
 
+=== 6. 覆盖语义 + EV_FIELD_VERIFY 消费方（机侧构造器 → 车侧账本） ===
+  PASS  6.1 旧 field_verify（无 coverage）照旧解析：不写覆盖键、无差异、路线不动   [cov=None diffs=()]
+  PASS  6.2 首片：完整片 3 格计入已探明、done=False、分母 154   [{'cells_done': 3, 'cells_seen': 3, 'cells_total': 154, 'ratio': 0.0195, 'slices': 1, 'complete_slices': 1, 'scan_id': '20261017T1800_t3', 'of': 2, 'done': False, 'events': 1, 'duplicates': 0, 'updated_at': 1000.3}]
+  PASS  6.3 ★ 片内既无本地要素也无报出 ⇒ 不产生『本地消失』差异（旧口径会误报）   [()]
+  PASS  6.4 两片齐全且都 complete ⇒ done=True、已探明 4/154   [{'cells_done': 4, 'cells_seen': 4, 'cells_total': 154, 'ratio': 0.026, 'slices': 2, 'complete_slices': 2, 'scan_id': '20261017T1800_t3', 'of': 2, 'done': True, 'events': 2, 'duplicates': 0, 'updated_at': 1000.5}]
+  PASS  6.5 ★ 同 (scan_id,slice.id) 重发幂等：duplicates=1 且不重复记差异   [dup=1 diffs=()]
+  PASS  6.6 ★ 消费方拿到生产事件：hazard_new={N3,N4}、verdict=diff、severity=risk   [{'policy': 'record', 'events': 2, 'by_tag': {'field_verify.mines': 1, 'field_verify.obstacles': 1}, 'hazard_new': ['N3', 'N4'], 'hazard_gone': [], 'target_new': [], 'target_gone': [], 'other': [], 'verdict': 'diff', 'severity': 'risk', 'hold': False, 'alert': False, 'last': {'tag': 'field_verify.obstacles', 'remote': ['N4'], 'local': [], 'only_remote': ['N4'], 'only_local': [], 'scoped': True, 'complete': True, 'scan_id': '20261017T1805_t3', 'slice_id': 'S1', 'out_of_scope_local': 8, 'ts': 1000.9}, 'updated_at': 1000.9, 'local_unverified': ['A1', 'B11', 'B7', 'C1', 'D8', 'D9', 'E2', 'E3', 'F11', 'G4', 'G9', 'H10', 'H4', 'I6', 'I8'], 'targets_unverified': ['E5', 'F5']}]
+  PASS  6.7 默认 policy=record ⇒ hold=False；路线逐 token 不变（不阻断）   [hold=False phase=DRIVE]
+  PASS  6.8 差异留痕进 P_DRONE.field_diff（旧遥测 '!差异N' 仍可见）   [("field_verify.mines[片内]:仅无人机['N3'] 仅本地[]（无人机 ['N3'] / 片内本地 [] / 片外 8 未判读 / 片=完整）", "field_verify.obstacles[片内]:仅无人机['N4'] 仅本地[]（无人机 ['N4'] / 片内本地 [] / 片外 8 未判读 / 片=完整）")]
+  PASS  6.9 已探明覆盖累计 6 格（前 4 + 新 2）   [{'cells_done': 6, 'cells_seen': 6, 'cells_total': 154, 'ratio': 0.039, 'slices': 3, 'complete_slices': 3, 'scan_id': '20261017T1805_t3', 'of': 1, 'done': True, 'events': 4, 'duplicates': 1, 'updated_at': 1000.9}]
+  PASS  6.10 真实产物（无 coverage）→ 不写覆盖键，旧解析路径照旧   [cov=None msgs=3]
+
 ======================================================================
-结果：34/34 全部通过 ✅
+结果：44/44 全部通过 ✅
 ======================================================================

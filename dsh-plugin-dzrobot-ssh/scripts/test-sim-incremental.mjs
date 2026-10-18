@@ -51,6 +51,7 @@ const {
   SIM_ROOT, planRoute, routeTokens, plannerIncrementalSupport, appendIncrementalArgs, fieldSpec,
 } = sb
 const { truthPlanEvidence } = await import('file:///' + path.join(PLUGIN, 'src', 'dronesim.js').replace(/\\/g, '/'))
+const { FIXTURE_MAP, FIXTURE } = await import('file:///' + path.join(PLUGIN, 'scripts', 'fixtures', 'solvable-map.mjs').replace(/\\/g, '/'))
 
 const CFG = path.join(SIM_ROOT, 'config', 'robot.yaml')
 const MAP = path.join(SIM_ROOT, 'config', 'map.yaml')
@@ -114,8 +115,26 @@ check('B2 台账 incremental：flags 为空、requested 为空、supported 如�
   Array.isArray(baseline.incremental.flags) && baseline.incremental.flags.length === 0
   && baseline.incremental.dropped.length === 0,
   JSON.stringify({ flags: baseline.incremental.flags, dropped: baseline.incremental.dropped.length }))
-check('B3 缺省产物 == 车端 route.tokens（逐 token）', baseline.tokens.join(' ') === car.join(' '),
-  `${baseline.tokens.length} vs ${car.length}`)
+if (baseline.tokens.length > 0) {
+  check('B3 缺省产物 == 车端 route.tokens（逐 token）', baseline.tokens.join(' ') === car.join(' '),
+    `${baseline.tokens.length} vs ${car.length}`)
+} else {
+  // 第六张图：车端 tracker-safe 无解（robot.yaml planner.auto_plan_enabled=false 已记录），
+  //   缺省重规划必须**显式失败**、不能悄悄给出假路线；车端实发的是手动 route.tokens。
+  check('B3 缺省重规划：引擎对本图无解 ⇒ 显式失败（exit≠0、0 token、原因可读）且车端手动路线非空',
+    baseline.exitCode !== 0 && baseline.tokens.length === 0 && car.length > 0
+    && /无解|失败|PlannerError/.test(baseline.stderrTail),
+    `exit=${baseline.exitCode} tokens=${baseline.tokens.length} car=${car.length} tail=${JSON.stringify(baseline.stderrTail.slice(0, 80))}`)
+}
+
+/* 增量 E2E 的落图：现场图能解 ⇒ 用现场图；不能解（第六张图）⇒ 用引擎可解夹具。
+ *   为什么不能用现场图硬跑：增量开关只支持 tracker-safe，而 tracker-safe 在第六张图无解
+ *   （车端已记录），硬跑只会得到 0 token —— 那是"图不可解"，不是"透传坏了"。 */
+const e2eMap = baseline.tokens.length > 0 ? MAP : FIXTURE_MAP
+if (e2eMap !== MAP) {
+  info('第六张图 tracker-safe 无解 ⇒ 增量 E2E 改用引擎可解夹具（scripts/fixtures/map_fifth_solvable.yaml）：'
+    + 'argv 白名单/顺序/透传字段仍是同一条 appendIncrementalArgs 链路，与地图无关')
+}
 
 h('C. 白名单化：未声明 ⇒ 一个字节不加，但诉求如实进 dropped（不静默吞）')
 // 现役 CLI 接线后，"未声明"档改由桩 CLI 承担（白名单降级路径不随接线消失）
@@ -139,8 +158,8 @@ let inc = null
 let covered = null
 if (liveWired) {
   skip('D1-D9 影子 CLI E2E', '现役 CLI 已接线——影子只为"未接线"过渡期存在，E 段实跑承接')
-  inc = await planRoute({ configPath: CFG, mapPath: MAP, fromCell: 'M9' })
-  covered = await planRoute({ configPath: CFG, mapPath: MAP, fromCell: 'M9', alreadyCovered: ['A3', 'C1'] })
+  inc = await planRoute({ configPath: CFG, mapPath: e2eMap, fromCell: 'M9' })
+  covered = await planRoute({ configPath: CFG, mapPath: e2eMap, fromCell: 'M9', alreadyCovered: ['A3', 'C1'] })
 } else if (!shadow) {
   console.error('✗ 影子 CLI 构造失败（tools/plan_route.py 的 argparse/传参锚点变了）——本守卫的 E2E 段无法成立')
   process.exit(2)
@@ -162,8 +181,8 @@ if (liveWired) {
   check('D3 影子 CLI == 源文件 + 仅 4 行接线（回滚 patch 后逐字节相同）', reverted === shadow.srcText,
     `+${shadow.text.split('\n').length - shadow.srcText.split('\n').length} 行`)
 
-  inc = await planRoute({ configPath: CFG, mapPath: MAP, cliPath: shadowCli, fromCell: 'M9' })
-  const shadowBase = await planRoute({ configPath: CFG, mapPath: MAP, cliPath: shadowCli })
+  inc = await planRoute({ configPath: CFG, mapPath: e2eMap, cliPath: shadowCli, fromCell: 'M9' })
+  const shadowBase = await planRoute({ configPath: CFG, mapPath: e2eMap, cliPath: shadowCli })
   console.log('    增量: exit=%d tokens=%d 首点=%s checkExit=%s ｜ 基线: tokens=%d',
     inc.exitCode, inc.tokens.length, inc.tokens[0], inc.check?.exit, shadowBase.tokens.length)
   check('D4 增量重规划 exit 0 且 route_check 通过', inc.exitCode === 0 && inc.check?.exit === 0,
@@ -183,7 +202,7 @@ if (liveWired) {
     return explicit.length > 0 && explicit.join(' ') === inc.tokens.join(' ')
   })(), `${inc.tokens.length} token`)
 
-  covered = await planRoute({ configPath: CFG, mapPath: MAP, cliPath: shadowCli, fromCell: 'M9', alreadyCovered: ['A3', 'C1'] })
+  covered = await planRoute({ configPath: CFG, mapPath: e2eMap, cliPath: shadowCli, fromCell: 'M9', alreadyCovered: ['A3', 'C1'] })
   console.log('    +already_covered(A3,C1): tokens=%d 首点=%s', covered.tokens.length, covered.tokens[0])
   check('D8 already_covered 生效：路线不比"只给 from_cell"更长，且 argv 两项俱全',
     covered.tokens.length <= inc.tokens.length
@@ -205,12 +224,12 @@ h('G. 三方对账：页面 planRoute == CLI == 车端 planner 直调')
     'from dzbrain.core.config import Config',
     'from dzbrain.route import planner as PL',
     'cfg = Config.load(ROOT + "/config/robot.yaml")',
-    'map_cfg = yaml.safe_load(open(ROOT + "/config/map.yaml", encoding="utf-8")) or {}',
+    'map_cfg = yaml.safe_load(open(sys.argv[2], encoding="utf-8")) or {}',
     'a = PL.plan_route_tracker_safe(map_cfg, cfg, from_cell="M9")',
     'b = PL.plan_route_tracker_safe(map_cfg, cfg, from_cell="M9", already_covered=["A3", "C1"])',
     'print(json.dumps({"from_cell": list(a.tokens), "covered": list(b.tokens)}))',
   ].join('\n'), 'utf8')
-  const probe = JSON.parse(execFileSync('python', [probePath, SIM_ROOT], {
+  const probe = JSON.parse(execFileSync('python', [probePath, SIM_ROOT, e2eMap], {
     cwd: SIM_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     env: { ...process.env, PYTHONPATH: path.join(SIM_ROOT, 'src', 'dzbrain'), PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' },
   }))
@@ -245,13 +264,18 @@ h('F. dronesim truthPlanEvidence（无人机时间线的 truth 重规划取证�
     /appendIncrementalArgs\(argv,\s*\{\s*fromCell,\s*alreadyCovered\s*\}\)/.test(droneSrc)
     && /argv\.push\('--engine', engine\)/.test(droneSrc))
   const spec = fieldSpec()
+  // 现场图能解 ⇒ 用现场图取证；不能解（第六张图）⇒ 用引擎可解夹具的四类点位覆盖 board。
+  //   取证函数本身不变（仍是 spec.source 的底图 + applyFieldToMapText + 同引擎 plan_route），
+  //   换的只是"这一趟要证明的图能不能解"。
+  const board = baseline.tokens.length > 0 ? spec : { ...spec, ...FIXTURE }
+  if (baseline.tokens.length === 0) info('第六张图 tracker-safe 无解 ⇒ truthPlanEvidence 用夹具 board（同一条 argv 链路）')
   const wired = liveSupport.supported.length === CANON.length
   const withInc = await truthPlanEvidence({
-    board: spec, truth: spec.bridges, id: `t12_inc_${Date.now()}`, label: 'inc', drone: false,
+    board, truth: board.bridges, id: `t12_inc_${Date.now()}`, label: 'inc', drone: false,
     fromCell: 'M9', alreadyCovered: ['C1'],
   })
   const plain = await truthPlanEvidence({
-    board: spec, truth: spec.bridges, id: `t12_plain_${Date.now()}`, label: 'plain', drone: false,
+    board, truth: board.bridges, id: `t12_plain_${Date.now()}`, label: 'plain', drone: false,
   })
   console.log('    增量取证 exit=%d tokens=%d ｜ 不带增量 tokens=%d ｜ CLI 已接线=%s',
     withInc.exitCode, withInc.tokens.length, plain.tokens.length, wired)

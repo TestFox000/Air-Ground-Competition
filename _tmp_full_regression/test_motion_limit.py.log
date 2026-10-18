@@ -23,9 +23,9 @@ PASS  4.4 倒车 + 限速 0.0 → 0.0（正零，不被 max(min_speed,…) 顶�
 
 --- 5. 配置对账：config/robot.yaml 的 localization: 段 == 代码默认值（t12 §T12-B） ---
 PASS  5.1 12 个键都在 robot.yaml 里   [12/12]
-PASS  5.2 ★ 逐条等于代码默认值   [12/12 一致]
-PASS  5.3 落盘值（cruise 0.35 / ld_max 0.40 / 官方图路线 44 点（t50 新窗口） / ticksPerMeter 3280）（旧 cruise 0.30 / 0.35）   [cruise=0.35 ld_max=0.4 tokens=44 ticks=3280.0]
+FAIL  5.2 ★ 逐条等于代码默认值   [{'localization.drift_slow_after': (3, 999), 'localization.drift_stop_after': (8, 999), 'localization.boundary_guard_m': (0.25, 0.1), 'localization.boundary_stop_m': (0.1, 0.03)}]
+PASS  5.3 落盘值（cruise 0.35 / ld_max 0.40 / 官方图路线 44 点（t3-A 板心 0.90 m 停站 D3） / ticksPerMeter 3280）（旧 cruise 0.30 / 0.35）   [cruise=0.35 ld_max=0.4 tokens=44 ticks=3280.0]
 
 ========================================================================
-结果：17/17 通过
-全部通过 ✅
+结果：16/17 通过，1 失败
+失败项：5.2 ★ 逐条等于代码默认值

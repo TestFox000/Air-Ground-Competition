@@ -147,6 +147,19 @@
   PASS  10.3 未发生 tick 异常且每拍都发过 fire_ready   [fire_ready=16 ticks=15]
   PASS  10.4 真线程下仍然没碰 fire_gate   [[]]
 
+=== 11. ★t13 红面确认：锁定红持续 ≥3s ⇒ P_AIM_RED.confirmed ===
+  PASS  11.1 锁定红 2.5s < 3.0s ⇒ 未确认（run_s 在累计，confirmed=False）   [{'confirmed': False, 'run_s': 2.1, 'threshold_s': 3.0, 'cls': 2, 'block': 'D3'}]
+  PASS  11.2 锁定红累计 ≥3.0s ⇒ confirmed=True（Mission 可早退）   [{'confirmed': True, 'run_s': 3.1, 'threshold_s': 3.0, 'cls': 2, 'block': 'D3'}]
+  PASS  11.3 置位时打了一条日志（含停站点格名）   [['红面确认：锁定红已持续 3.00s ≥ 3.0s（停站点 D3） ⇒ 置红面标志，Mission 可提前离站']]
+  PASS  11.4 离开停站（phase=DONE）⇒ 标志撤下、run_s 归零（第二停站不被误判）   [{'confirmed': False, 'run_s': 0.0, 'threshold_s': 3.0, 'cls': 2, 'block': 'D3'}]
+  PASS  11.5 只见蓝（fire_only_blue）⇒ 永不置位（正常停站行为不受影响）   [{'confirmed': False, 'run_s': 0.0, 'threshold_s': 3.0, 'cls': 1, 'block': 'D3'}]
+
+=== 12. ★t14 红面确认：阈值取自配置 + 红→蓝清零 + SETTLE 段不累计 ===
+  PASS  12.1 阈值取自配置：run_s≈1.0s 才确认（若硬编码 3.0 此处永远 False）   [首次确认 run_s=1.0（阈值 1.0）]
+  PASS  12.2 确认前一刻仍未确认（边界：未到阈值不置位）   [{'confirmed': False, 'run_s': 0.9, 'threshold_s': 1.0, 'cls': 2, 'block': 'D3'}]
+  PASS  12.3 红→蓝（同停站）⇒ 类别切到蓝后 run_s 归零、confirmed 撤下（不残留红面结论）   [红=True 蓝=False/0.0 切换耗帧=5]
+  PASS  12.4 SETTLE 段红帧不累计（只在 ACQUIRE/FIRE 段计时）   [{'confirmed': False, 'run_s': 0.0, 'threshold_s': 1.0, 'cls': 2, 'block': 'D3'}]
+
 ======================================================================
-结果：122/122 全部通过 ✅
+结果：131/131 全部通过 ✅
 ======================================================================

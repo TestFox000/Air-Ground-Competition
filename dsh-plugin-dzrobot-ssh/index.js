@@ -330,7 +330,16 @@ export function apply(ctx, config = {}) {
       if (method === 'POST' && route === '/sim/run') {
         const body = await readJson(req) ?? {}
         const result = await runSim(body)
-        if (!result.ok) return send(result.code ?? 400, { error: result.error })
+        // 422 plan-failed 把台账 record + 规划失败尾行一起回给页面：
+        //   第六张图 tracker-safe 无解时，页面只有「规划/校验未过」这一句是不足以诊断的
+        //   （见 sim.html 的 422 分支：它优先显示 record.plan.stderrTail）。
+        if (!result.ok) {
+          return send(result.code ?? 400, {
+            error: result.error,
+            ...(result.record ? { record: result.record } : {}),
+            ...(result.planTail ? { planTail: result.planTail } : {}),
+          })
+        }
         return send(200, result)
       }
       if (method === 'GET' && route === '/sim/history') {

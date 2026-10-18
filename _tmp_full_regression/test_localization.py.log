@@ -118,6 +118,48 @@
   PASS  静止时 P_ROUTE_S 保持不变（车没动，没有跑掉的真值要追）   [2.0999999999999996 → 2.0999999999999996]
   PASS  静止时也没吸附/没崩（ticks == 41）   [got 41]
 
+=== ⑩ 尺度疑似闸：固定偏移（隐含尺度 < 8%）放行；真实尺度误差仍拦 ===
+  PASS  固定偏移：L9/K9/J9 三次同向大修正被拦（隐含尺度 40%/16.7%/10.5% ≥ 8%）   [refused=3]
+  PASS  固定偏移：I9 隐含尺度衰减到 7.7% < 8% → 放行，吸附链恢复（anchored == 3）   [anchored=3]
+  PASS  固定偏移：last_anchor == 'I9'（不再 34 连拒）   ['I9']
+  PASS  固定偏移：scale_suspect 仍记账（闸确实看见过疑似模式）
+  PASS  固定偏移：scale_suspect_max ≈ 40%（L9 那次）   [got 0.4039999999999993, want 0.4 (tol 0.02)]
+  PASS  真实尺度误差：第 3 次同向大修正仍被拦（anchored 停在 2）   [anchored=2]
+  PASS  真实尺度误差：anchor_refused == 1 且 scale_suspect 置位   [refused=1 suspect=True]
+  PASS  修复后：单拍 P_ROUTE_S 最大变化 < 0.5 m（旧行为 12.82 m）   [max step = 0.187 m；s 序列 = [1.28, 1.288, 1.288, 1.415, 1.471, 1.471, 1.471, 1.471, 1.471, 1.284, 1.284, 1.284, 1.284, 1.284, 1.284, 1.288, 1.288, 1.288, 1.288, 1.291]]
+  PASS  修复后：末拍 s 仍在第 3/4 段附近（< 2.0 m），没被瞬移到 14.11   [got 1.291]
+  PASS  修复后：拒绝计数 ≥ 1（闸确实被触发，不是「恰好没判卡死」）   [refused=1]
+  PASS  ★ 带牙对照：关掉可信闸（= 修复前）后，同一段位姿确实被瞬移到 > 10 m   [max s = 14.109；序列 = [1.28, 1.288, 1.288, 1.415, 1.471, 1.471, 1.471, 1.471, 1.471, 1.284, 1.284, 1.284, 1.284, 1.284, 1.284, 1.288, 1.288, 1.288, 1.288, 14.109]]
+  PASS  ★ 带牙对照：修复前那一跳 ≈ +12.8 m（与 7_path 行 210 的 +12.820 m 同量级）   [max s = 14.109]
+
+=== ⑫ 航向完整性守卫：真实片段回放必须报故障；正常 90° 转弯不得误报 ===
+  PASS  10 个 localization.yaw_* 阈值全部登记进 SCHEMA   [missing=[]]
+  PASS  SCHEMA 默认值可读到：yaw_guard=True
+  PASS  SCHEMA 默认值可读到：yaw_static_dps=45°/s、yaw_bad_ticks=3   [45.0/3]
+  PASS  真实片段：判「航向失去可信」（yaw_untrusted=True）
+  PASS  真实片段：故障在窗口内触发（trip ≤ 5.0 s = 14:59:33.6；投影跳变在 38.2 s）   [trip_t=4.0]
+  PASS  真实片段：也不是前 3.4 s 正常段的误报（trip ≥ 3.4 s）   [trip_t=4.0]
+  PASS  真实片段：连续 3 个新帧超限才判（yaw_bad_samples ≥ 3）   [bad=10]
+  PASS  真实片段：33 个新帧样本（5 Hz 帧频；同一帧重复读不算样本）   [samples=33]
+  PASS  真实片段：原因 = 运动学上限（yaw_rate_over_kinematic）   [reason='yaw_rate_over_kinematic']
+  PASS  真实片段：见过的峰值角速度 ≈ 120°/s（与裁决书 120.3°/s 同量级）   [max_rate=120.0°/s]
+  PASS  真实片段：P_MOTION_LIMIT 请求 0 速（既有停车通路）   [limit={'speed_mps': 0.0, 'reason': 'yaw_rate_over_kinematic', 'drift_run': 0, 'anchor_refused': 0, 'distance_to_boundary_m': 1.426, 'implied_scale_median': None, 'scale_suspect': False, 'yaw_untrusted': True, 'yaw_rate_dps': 80.0, 'yaw_limit_dps': 39.2, 'since': 1004.200000000001}]
+  PASS  真实片段：EV_TASK_FAULT 只发 1 条（故障通路，不是每拍刷）   [events=['TASK_FAULT']]
+  PASS  真实片段：故障载荷带 where=heading_untrusted
+  PASS  ★ 带牙对照：关掉守卫后同一片段不判故障、不发事件、不限速   [untrusted=False events=0]
+  PASS  反例（事故前正常段 18 帧）：0 个超限样本、不判故障   [bad=0 samples=17 max_rate=60.0]
+  PASS  反例（正常 90° 转弯、0.35 m/s、满舵 30° = 73.7°/s）：不误报   [bad=0 samples=79]
+  PASS  反例（正常 90° 转弯）：P_MOTION_LIMIT 未被触发   [limit=None]
+  PASS  反例（静止 + 7.5°/s 慢漂）：不误报   [bad=0]
+  PASS  静止期 yaw 170°/s：判「静止期航向变化」故障   [reason='yaw_static_rotation' trip_t=0.6000000000000001]
+  PASS  静止期故障：在片段前 1 s 内触发（前三帧 95/85/50°/s）   [trip_t=0.6000000000000001]
+  PASS  遥控接管中静止转动：不判故障（人比机器优先）   [manual_ticks=8]
+  PASS  遥控接管中静止转动：不发 EV_TASK_FAULT、不限速   [events=0 limit=None]
+  PASS  IMU 交叉核对：pose 超限而 IMU |gz|≈0 → 判「位姿/航向链内部不一致」   [reason='yaw_pose_imu_mismatch' mismatch=6]
+  PASS  IMU 交叉核对：IMU 也报高速转动 → 仍判运动学超限（不误标成矛盾）   [reason='yaw_rate_over_kinematic' mismatch=0]
+  PASS  复用 fault 通路：SafetyTask 收到 task_fault_event:Localization 并锁存   [stopped=True reasons=('task_fault_event:Localization where=heading_untrusted err=yaw 80.0°/s > 运动学上限 39.2°/s（v=0.12 m/s，Ackermann 极限 25.0°/s）',)]
+  PASS  复用 fault 通路：P_SAFETY.ok=False 且已发零速指令   [ok=False brakes=1]
+
 ======================================================================
-结果：95/95 全部通过 ✅
+结果：133/133 全部通过 ✅
 ======================================================================

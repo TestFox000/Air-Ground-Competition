@@ -490,6 +490,38 @@ SCHEMA: dict[str, Spec] = {
                                        "已不是车的位置。取 0.20 ≈ 仿真实测跟踪 RMS，"
                                        "既放过正常横向偏差、又不放过 >0.5 m 的冻结"),
 
+    # ---------------- ★★ 航向完整性守卫（LocalizationTask._update_yaw_guard，2026-10-17） ----
+    #  背景（_tmp_session/adjudication_t1_t4/裁决书.md §3.4/§4）：14:59:31.8 K9 处 IMU 地图
+    #  yaw 90°→−78°（−168°/1.8 s，峰值 120.3°/s @ 轮速 0.112 m/s = Ackermann 上限的 5.08 倍），
+    #  比投影跳变早 5.4~7.4 s；停车后静止期还有 169.2°/s 的 yaw 跳变。当时代码对"物理上
+    #  不可能的航向变化"没有任何判据 ⇒ 下游一路用坏航向。以下 10 键即该判据的阈值。
+    #  ⚠️ 全部 default = 代码兜底值（tasks/localization.py 模块常量），现场可在 robot.yaml 覆盖。
+    "localization.yaw_guard": Spec(True, _B, "", None, None,
+                                   "★航向完整性守卫总开关（关掉 = 行为回到 2026-10-17 之前）"),
+    "localization.yaw_kin_margin": Spec(1.25, _F, "", 1.0, 3.0,
+                                        "★运动学上限安全系数：ω_max = margin×v×tan(δmax)/L"
+                                        "（v=0.35 时 73.7°/s → 92°/s）"),
+    "localization.yaw_rate_floor_dps": Spec(8.0, _F, "°/s", 0.0, 60.0,
+                                            "★加在运动学上限上的绝对余量（量化噪声/舵角超调）"),
+    "localization.yaw_abs_floor_dps": Spec(20.0, _F, "°/s", 0.0, 90.0,
+                                           "★动态判据的绝对下限：低速蠕动时也允许的 yaw 率"),
+    "localization.yaw_static_dps": Spec(45.0, _F, "°/s", 5.0, 180.0,
+                                        "★静止期（v<yaw_min_speed）允许的 yaw 率上限：事故静止段"
+                                        "实测 169.2°/s，正常停车漂移 <5°/s"),
+    "localization.yaw_min_speed_mps": Spec(0.03, _F, "m/s", 0.0, 0.10,
+                                           "★判定『车没在动』的线速度阈值（帧间位移÷Δt）"),
+    "localization.yaw_bad_ticks": Spec(3, _I, "拍", 1, 20,
+                                       "★连续多少个**新帧**超限才判故障（单帧毛刺不刹；"
+                                       "事故的超限持续 1.8 s）"),
+    "localization.yaw_plausible_speed_mps": Spec(0.70, _F, "m/s", 0.20, 2.0,
+                                                 "★位姿连续性闸：帧间位移/Δt 超过它就不是"
+                                                 "『车在动』的样本（重定位/测试传送），跳过不判"),
+    "localization.yaw_max_dt_s": Spec(0.60, _F, "s", 0.10, 2.0,
+                                      "★帧间隔上限：超过它角速度不可信（丢帧/卡顿），跳过不判"),
+    "localization.yaw_imu_mismatch_ratio": Spec(0.35, _F, "", 0.0, 1.0,
+                                                "★有 IMU 时：|gyro z| 低于位姿角速度的这个比例 ⇒ "
+                                                "判『位姿-航向链内部不一致』（只改 reason 文案）"),
+
     # ---------------- 无人机链路 ----
     "drone.enabled": Spec(True, _B, "", None, None, "是否启用无人机链路"),
     "drone.topic_in": Spec("/dzlink/drone_to_car", _S, "", None, None, "无人机→车 话题"),

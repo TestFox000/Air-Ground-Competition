@@ -11,8 +11,8 @@
   PASS  本地 package.xml 无维护者邮箱回归（曾出现 @local）
 
 === ② 目录推送：tar 流就地替换，杜绝 scp 嵌套 ===
-  PASS  tarball 非空   [78 个成员]
-  PASS  ★ 归档成员与本地清单 1:1（多一层壳就会破坏相等）   [78 vs 78]
+  PASS  tarball 非空   [80 个成员]
+  PASS  ★ 归档成员与本地清单 1:1（多一层壳就会破坏相等）   [80 vs 80]
   PASS  ★ 顶层文件落在归档顶层（有壳层时会变成 dzbrain/package.xml）
   PASS  ★ 归档里不存在被套一层的形态 dzbrain/package.xml
   PASS  核心模块在包内
@@ -32,7 +32,7 @@
   PASS  本地清单不含 __pycache__
   PASS  sha256 是 64 位十六进制
   PASS  本地 == 车端 → 三项全空（通过）
-  PASS  ★ 嵌套推送必须被判为「全部缺失」   [missing=78/78]
+  PASS  ★ 嵌套推送必须被判为「全部缺失」   [missing=80/80]
   PASS  ★ 嵌套推送同时暴露「车端多出」
   PASS  ★ 内容不一致必须被点名
   PASS  内容不一致时 missing 为空（区分「没推」与「推错」）
@@ -54,7 +54,7 @@
   PASS  ★ 强制改写时对账基准用归一化内容，不是原始字节（合成样本含 true ⇒ 必须变）   [若相等说明归一化没生效 → 会重现'假警报'或'假通过']
   PASS  ★ 变化的行全部是 auto_start 行（不误伤别的配置）   [合成样本改了 1 行：[('auto_start: true', 'auto_start: false')]]
   PASS  ★ 真实文件：auto_start 现为 true ⇒ 强制改写确实改变内容（不再是空操作）   [GOT：robot.yaml:283/514 现均 auto_start: true（现场发车档）⇒ 归一化把 true→false，基准≠原始字节]
-  PASS  归一化不增删行（只改行内内容）   [773 vs 773]
+  PASS  归一化不增删行（只改行内内容）   [918 vs 918]
   PASS  ★ 真实文件改动仅限 auto_start 配置行（发车档两段均 true → 2 行；注释与其它键逐位不变）   [改了 2 行：[('    auto_start: true             # ★一键启动后自动出发（本轮现场发车：翻 true 推车，跑完回 false）', '    auto_start: false             # ★一键启动后自动出发（本轮现场发车：翻 true 推车，跑完回 false）'), ('      auto_start: true   # 实车自规划跑：一键启动后自动出发', '      auto_start: false   # 实车自规划跑：一键启动后自动出发')]]
   PASS  ★ 每处 auto_start 都被归一化成 false（配置行恰好 2 处、全文无 true）   [true=0 / 配置行 false=2（★t31：本仓两段都已显式 false ⇒ 归一化是幂等空操作，本条仍守『不得残留 true』不变式）]
   PASS  注释与其它键原样保留

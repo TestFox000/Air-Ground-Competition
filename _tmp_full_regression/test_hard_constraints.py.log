@@ -1,0 +1,32 @@
+
+A. 障碍：格级硬拒 + 净空余量钳位
+  PASS A1 无解图必须 PlannerError（障碍+隔板封死全部通路）
+  PASS A2 障碍格 passable=False（真图 A1/E2/H4/... 逐格）
+  PASS A3 obstacle_margin_m=-0.3 被钳到 0.0（判据不可能被负余量击穿）
+
+B. 隔板：跨板列域 + 死胡同转向形态 + margin 暗门
+  PASS B1 barrier_cross_ok：H 列(6→7) False、A 列 True
+  PASS B2 turn_gate 硬否决 H7 北→西形态（t13 接线）
+  PASS B2b _barrier_turn_cell 判据本身命中 H7 形态
+  PASS B3 _barrier_turn_cell 不再误杀 A7 转向（t13 列域修正）
+  PASS B3b turn_gate 放行 A7 北→西（缺口处合法转向）
+  PASS B4 隔板相邻行内直行 H7→I7 合法（正控制）
+  PASS B5 Grid 构造口钳位：barrier_turn_margin_m=-1 → 0.0
+  PASS B5b 判据函数直传 margin=-1 也钳 0（形态仍命中）
+
+C. 桥洞：K 列规则 + 入口邻格横向穿行硬否决
+  PASS C1 K 列规则（K4→K5 竖向 False；J8→K8 非桥行 False；J9→K9 桥行 True）
+  PASS C2 J6→J5（横向进 K5 的入口邻格）必拒
+  PASS C2b J5→J4（横向出）必拒
+  PASS C2c I5→J5（沿桥洞轴进）合法（正控制，实测 0 拍）
+  PASS C2d 入口邻格上的转向硬否决（turn_gate 直调同口径）
+  PASS C3 冗余 0.0 时本条 inert（J6→J5 放行）且障碍/隔板规则仍在
+
+D. 端到端：真图规划成功 + 零违规形态 + 逼出替代路线仍成功
+  PASS D1 真图 tracker-safe 规划成功（44 token 量级） —— 44 tokens
+  PASS D2 路线含 K5/K9 双穿洞
+  PASS D3 入口邻格横向穿行 = 0 处（现役路线已切到沿轴进洞） —— []
+  PASS D4 隔板死胡同转向形态 = 0 处 —— []
+  PASS D5 堵 I5（封死纵向进洞）⇒ 必拒（绝不产出横向穿洞路线）
+
+结果：22/22 全部通过 ✅

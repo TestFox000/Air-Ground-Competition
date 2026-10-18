@@ -17,6 +17,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fieldSpec } from '../src/simbench.js'
 import { scanPlan, intelAt, truthPlanEvidence } from '../src/dronesim.js'
+import { FIXTURE } from './fixtures/solvable-map.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PLUGIN = path.resolve(HERE, '..')
@@ -190,8 +191,14 @@ function extractFn(src, name) {
 {
   const field = fieldSpec()
   check('⑤-0 前置：场地可读', field.ok, field.error || '')
+  // 第六张图：车端 tracker-safe 无解（planner.auto_plan_enabled=false 已记录）⇒ 用引擎可解夹具的
+  //   四类点位覆盖 board —— 本段守卫的是"truthPlanEvidence 运行期不崩 + 真产出 token"，
+  //   换图只换"这张图能不能解"，argv/引擎链路不变。现场图的显式失败口径由 parity 2.x 守卫。
+  const board = field.planner && field.planner.autoPlanEnabled === false
+    ? { ...field, ...FIXTURE } : field
+  if (board !== field) console.log('  INFO 第六张图 tracker-safe 无解 ⇒ truthPlanEvidence 用夹具 board（同一条 argv 链路）')
   const evidence = await truthPlanEvidence({
-    board: field, truth: field.bridges, id: `t6_guard_${Date.now()}`, label: 'guard', drone: false,
+    board, truth: board.bridges, id: `t6_guard_${Date.now()}`, label: 'guard', drone: false,
   })
   check('⑤-1 truth 取证运行期 exit 0（无 ReferenceError）',
     evidence.exitCode === 0 && !/ReferenceError/.test(evidence.stderrTail),

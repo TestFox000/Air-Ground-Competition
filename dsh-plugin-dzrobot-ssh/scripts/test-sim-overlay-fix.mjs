@@ -198,9 +198,9 @@ section('F. 实跑 plan_route.py（同款 argv）')
   const root = findWorkspaceRoot()
   if (!root) check('F0 有工作区可实跑', false)
   else {
-    const run = await new Promise(resolve => {
+    const runPlanner = (mapArg) => new Promise(resolve => {
       const child = spawn('python', ['tools/plan_route.py', '--config', 'config/robot.yaml',
-        '--map', 'config/map.yaml', '--emit', 'json', '--check', '--quiet', '--engine', 'tracker-safe'], {
+        '--map', mapArg, '--emit', 'json', '--check', '--quiet', '--engine', 'tracker-safe'], {
         cwd: root,
         env: {
           ...process.env,
@@ -218,19 +218,28 @@ section('F. 实跑 plan_route.py（同款 argv）')
       child.on('error', e => { clearTimeout(timer); resolve({ code: -1, out, err: String(e?.message ?? e) }) })
       child.on('close', code => { clearTimeout(timer); resolve({ code: code ?? 1, out, err }) })
     })
-    check('F1 tracker-safe 引擎实跑 exit 0', run.code === 0,
-      run.code === 0 ? '' : run.err.split('\n').filter(Boolean).slice(-2).join(' | '))
-    const open = run.out.indexOf('{')
-    let tokens = 0
-    let fallback = null
-    if (open >= 0) {
+    const parsePlan = out => {
+      const open = out.indexOf('{')
+      if (open < 0) return { tokens: 0, fallback: null }
       try {
-        const plan = JSON.parse(run.out.slice(open))?.plans?.[0]
-        tokens = Array.isArray(plan?.tokens) ? plan.tokens.length : 0
-        fallback = plan?.fallback ?? null
-      } catch { /* JSON 断在截断处按失败算 */ }
+        const plan = JSON.parse(out.slice(open))?.plans?.[0]
+        return { tokens: Array.isArray(plan?.tokens) ? plan.tokens.length : 0, fallback: plan?.fallback ?? null }
+      } catch { return { tokens: 0, fallback: null } }
     }
-    check('F2 产出非空 token（JSON plans[0]）', tokens > 0, `${tokens} tokens${fallback ? '（fallback: ' + fallback + '）' : ''}`)
+    // F1：现场图（第六张图）—— 车端 tracker-safe 对本图**已知无解**（robot.yaml 注释 legs0=0）。
+    //   argparse 若根本不认 tracker-safe 会 exit 2；本断言只要求「引擎值被接受」：
+    //   能解 ⇒ 出 token；无解 ⇒ 显式报错（exit 1 + stderr「无解」）。不把现场态判红。
+    const live = await runPlanner('config/map.yaml')
+    const livePlan = parsePlan(live.out)
+    check('F1 现场图 + --engine tracker-safe：引擎值被 argparse 接受（非 exit 2）；能解出 token / 无解则显式报「无解」',
+      live.code !== 2 && (live.code === 0 ? livePlan.tokens > 0 : /无解|失败|PlannerError/.test(live.err)),
+      `exit=${live.code} tokens=${livePlan.tokens} ${live.err.split('\n').filter(Boolean).slice(-1)[0] || ''}`)
+    // F2：引擎可解夹具 —— 证明 --engine 在真能解时确实产出 token（不是只测失败面）。
+    const { FIXTURE_MAP } = await import(pathToFileURL(path.join(PLUGIN, 'scripts', 'fixtures', 'solvable-map.mjs')).href)
+    const fix = await runPlanner(FIXTURE_MAP)
+    const fixPlan = parsePlan(fix.out)
+    check('F2 引擎可解夹具 + 同款 argv ⇒ exit 0 + 非空 token（--engine 真生效，不是只测失败路径）',
+      fix.code === 0 && fixPlan.tokens > 0, `exit=${fix.code} tokens=${fixPlan.tokens}`)
   }
 }
 

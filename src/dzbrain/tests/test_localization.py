@@ -15,6 +15,8 @@ r"""LocalizationTask 测试（纯脚本，无 pytest）。
   9. 投影卡死自愈（离开走廊后 P_ROUTE_S 跟得上全局投影）
  10. 尺度疑似闸（吸附掩盖尺度误差的可见化）
  11. ★ 2026-10-17 14:59 实车 +12.82 m 投影误锁的回归：大跳跃必须"新投影贴在车上"
+ 12. ★★ 航向完整性守卫（yaw 率超运动学上限 ⇒ 判故障）：14:59:29~40 真实片段回放必须报
+     （比投影跳变早 5.2 s），正常 90° 转弯/静止小漂移不得误报，遥控接管中的转动只记账
 """
 
 from __future__ import annotations
@@ -31,16 +33,18 @@ except Exception:
     pass
 
 from dzbrain.core import geometry as geo                                      # noqa: E402
-from dzbrain.core.blackboard import (P_FIX, P_ODOM_AGE, P_POSE, P_POSE_RAW,   # noqa: E402
-                                     P_ROUTE, P_ROUTE_INDEX, P_ROUTE_S, Blackboard)
-from dzbrain.core.config import Config                                        # noqa: E402
+from dzbrain.core.blackboard import (P_FIX, P_MOTION_LIMIT, P_ODOM_AGE, P_POSE,  # noqa: E402
+                                     P_POSE_RAW, P_ROUTE, P_ROUTE_INDEX, P_ROUTE_S,
+                                     P_SAFETY, Blackboard)
+from dzbrain.core.config import Config, SCHEMA                                # noqa: E402
 from dzbrain.core.events import (EV_DRIFT_WARNING, EV_POSE_ANCHORED,          # noqa: E402
-                                 EventBus)
+                                 EV_TASK_FAULT, EventBus)
 from dzbrain.core.state import FixState                                       # noqa: E402
 from dzbrain.pursuit.path import Path                                         # noqa: E402
 from dzbrain.route.model import Route, Waypoint, make_route                   # noqa: E402
 from dzbrain.route.parser import parse_mission                                # noqa: E402
 from dzbrain.tasks.localization import LocalizationTask                       # noqa: E402
+from dzbrain.tasks.safety import SafetyTask                                   # noqa: E402
 from fakes import FakeBridge, FakeClock                                       # noqa: E402
 from harness import check, check_close, finish, section                       # noqa: E402
 
@@ -586,7 +590,208 @@ check("★ 带牙对照：关掉可信闸（= 修复前）后，同一段位姿�
       old_max > 10.0, f"max s = {old_max:.3f}；序列 = {[round(v, 3) for v in s_old]}")
 check("★ 带牙对照：修复前那一跳 ≈ +12.8 m（与 7_path 行 210 的 +12.820 m 同量级）",
       11.0 < old_max < 15.0, f"max s = {old_max:.3f}")
-finish()
 
+# --------------------------------------------------------------------------- #
+#  ⑫ ★★ 航向完整性守卫（2026-10-17 14:59 K9 事故：yaw 120.3°/s @ 0.112 m/s = 5.08× 上限）
+# --------------------------------------------------------------------------- #
+section("⑫ 航向完整性守卫：真实片段回放必须报故障；正常 90° 转弯不得误报")
+
+# ---- ⑫.0 SCHEMA 登记（阈值不写死在代码里；现场可经 robot.yaml 覆盖）----
+_yaw_keys = (
+    "localization.yaw_guard", "localization.yaw_kin_margin",
+    "localization.yaw_rate_floor_dps", "localization.yaw_abs_floor_dps",
+    "localization.yaw_static_dps", "localization.yaw_min_speed_mps",
+    "localization.yaw_bad_ticks", "localization.yaw_plausible_speed_mps",
+    "localization.yaw_max_dt_s", "localization.yaw_imu_mismatch_ratio",
+)
+_cfg0 = Config.from_dict({})
+_missing = [k for k in _yaw_keys if k not in SCHEMA]
+check("10 个 localization.yaw_* 阈值全部登记进 SCHEMA", not _missing, f"missing={_missing}")
+check("SCHEMA 默认值可读到：yaw_guard=True", _cfg0.get("localization.yaw_guard") is True)
+check("SCHEMA 默认值可读到：yaw_static_dps=45°/s、yaw_bad_ticks=3",
+      _cfg0.get("localization.yaw_static_dps") == 45.0
+      and _cfg0.get("localization.yaw_bad_ticks") == 3,
+      f"{_cfg0.get('localization.yaw_static_dps')!r}/{_cfg0.get('localization.yaw_bad_ticks')!r}")
+
+# ---- ⑫.1 真实片段：3_localization.log:152-185（5 Hz，14:59:28.6~40.6）----
+# 字段 = (米制 x, 米制 y, 地图 yaw/度)；pos 原为格单位（×0.35 转米），yaw 是 serial_reader
+# 打印的 [imu] 地图 yaw（已含 +90° 偏置，与 bridge.pose() 同口径）。
+# 前 3.6 s 是正常沿 K9 直道（角速度 0~30°/s）；14:59:31.8 起 yaw 90°→−78°。
+YAW_EVENT_FRAMES = [
+    (0.710, 0.595, 38), (0.728, 0.609, 38), (0.745, 0.623, 39), (0.763, 0.637, 41),
+    (0.777, 0.651, 43), (0.801, 0.675, 48), (0.837, 0.717, 57), (0.865, 0.773, 67),
+    (0.878, 0.816, 72), (0.892, 0.858, 76), (0.899, 0.899, 82), (0.903, 0.938, 85),
+    (0.906, 0.973, 86), (0.906, 1.008, 88), (0.910, 1.046, 89), (0.910, 1.085, 90),
+    (0.913, 1.162, 83), (0.927, 1.232, 71), (0.955, 1.281, 54), (0.980, 1.302, 32),
+    (1.001, 1.313, 16), (1.022, 1.316, -4), (1.043, 1.309, -24), (1.064, 1.298, -44),
+    (1.074, 1.277, -67), (1.081, 1.256, -78), (1.085, 1.235, -72), (1.092, 1.214, -74),
+    (1.099, 1.194, -76), (1.106, 1.172, -58), (1.123, 1.158, -34), (1.141, 1.148, -30),
+    (1.158, 1.137, -30), (1.179, 1.127, -26),
+]
+
+#: 停车后静止期 yaw 漂移片段：3_localization.log:585-600（15:00:55.2~58.4，5 Hz）。
+#: 真实位置全程冻结在 (12.28,4.95) 格 = (4.298,1.7325) m，yaw 16°→131°→98°（峰值 170°/s）。
+YAW_STATIC_FRAMES = [
+    (4.298, 1.7325, 16), (4.298, 1.7325, 35), (4.298, 1.7325, 52), (4.298, 1.7325, 62),
+    (4.298, 1.7325, 65), (4.298, 1.7325, 55), (4.298, 1.7325, 48), (4.298, 1.7325, 47),
+    (4.298, 1.7325, 60), (4.298, 1.7325, 94), (4.298, 1.7325, 118), (4.298, 1.7325, 131),
+    (4.298, 1.7325, 129), (4.298, 1.7325, 123), (4.298, 1.7325, 116), (4.298, 1.7325, 109),
+]
+
+
+def _replay_frames(frames, *, guard: bool = True, manual: bool = False,
+                   with_route: bool = True, imu_dps=None):
+    """把 5 Hz 位姿帧喂进 LocalizationTask（每帧 dt=0.2 s），返回 (task, bridge, bb, events, trip_t)。"""
+    route = parse_mission(list(INCIDENT_TOKENS)) if with_route else None
+    task, bridge, bb, bus, clock = build(
+        overrides={"fix": {"anchor_at_waypoint": False}}, route=route, seed_pose=False)
+    task.yaw_guard_enabled = bool(guard)
+    if manual:
+        bridge.set_manual_override(True)
+    if imu_dps is not None:                  # 模拟"桥有 IMU"的能力（诊断分支用）
+        bridge.imu = lambda: (0.0, 0.0, math.radians(imu_dps), 0.0, 0.0, 0.0)
+        bridge.imu_age = lambda: 0.0
+        task._imu_fn = bridge.imu
+        task._imu_age_fn = bridge.imu_age
+    sub = bus.subscribe("yaw_guard", [EV_TASK_FAULT], maxsize=64)
+    events, trip_t = [], None
+    for i, (x, y, yaw_deg) in enumerate(frames):
+        bridge.set_pose(x, y, math.radians(yaw_deg))
+        clock.advance(0.2)                    # 真实里程计/serial 打印 5 Hz
+        task.tick()
+        events.extend(sub.poll(64))
+        if task.yaw_untrusted and trip_t is None:
+            trip_t = 0.2 * i
+    return task, bridge, bb, events, trip_t
+
+
+# ---- ⑫.2 正例：真实事故片段必须判故障，且早于投影跳变（38.2 s）与越界（49.2 s）----
+task_y, bridge_y, bb_y, ev_y, trip_y = _replay_frames(YAW_EVENT_FRAMES)
+check("真实片段：判「航向失去可信」（yaw_untrusted=True）", task_y.yaw_untrusted is True)
+check("真实片段：故障在窗口内触发（trip ≤ 5.0 s = 14:59:33.6；投影跳变在 38.2 s）",
+      trip_y is not None and trip_y <= 5.0, f"trip_t={trip_y}")
+check("真实片段：也不是前 3.4 s 正常段的误报（trip ≥ 3.4 s）",
+      trip_y is not None and trip_y >= 3.4, f"trip_t={trip_y}")
+check("真实片段：连续 3 个新帧超限才判（yaw_bad_samples ≥ 3）",
+      task_y.yaw_bad_samples >= 3, f"bad={task_y.yaw_bad_samples}")
+check("真实片段：33 个新帧样本（5 Hz 帧频；同一帧重复读不算样本）",
+      task_y.yaw_guard_samples == len(YAW_EVENT_FRAMES) - 1,
+      f"samples={task_y.yaw_guard_samples}")
+check("真实片段：原因 = 运动学上限（yaw_rate_over_kinematic）",
+      task_y._yaw_reason == "yaw_rate_over_kinematic", f"reason={task_y._yaw_reason!r}")
+check("真实片段：见过的峰值角速度 ≈ 120°/s（与裁决书 120.3°/s 同量级）",
+      100.0 < task_y.yaw_max_rate_dps < 140.0,
+      f"max_rate={task_y.yaw_max_rate_dps:.1f}°/s")
+
+lim_y = bb_y.get(P_MOTION_LIMIT)
+check("真实片段：P_MOTION_LIMIT 请求 0 速（既有停车通路）",
+      isinstance(lim_y, dict) and lim_y.get("speed_mps") == 0.0
+      and lim_y.get("yaw_untrusted") is True,
+      f"limit={lim_y}")
+check("真实片段：EV_TASK_FAULT 只发 1 条（故障通路，不是每拍刷）",
+      sum(1 for e in ev_y if e.type == EV_TASK_FAULT) == 1,
+      f"events={[e.type for e in ev_y]}")
+check("真实片段：故障载荷带 where=heading_untrusted",
+      any(e.data.get("where") == "heading_untrusted" for e in ev_y))
+
+# ★ 带牙对照：关掉守卫（= 修复前行为）后，同一段位姿一条故障都报不出来。
+task_nog, _, bb_nog, ev_nog, trip_nog = _replay_frames(YAW_EVENT_FRAMES, guard=False)
+check("★ 带牙对照：关掉守卫后同一片段不判故障、不发事件、不限速",
+      task_nog.yaw_untrusted is False and not ev_nog and bb_nog.get(P_MOTION_LIMIT) is None,
+      f"untrusted={task_nog.yaw_untrusted} events={len(ev_nog)}")
+
+# ---- ⑫.3 反例一：事故前 3.4 s 正常段（14:59:28.6~32.0，18 帧）零误报 ----
+#      注：第 19 帧（14:59:32.6）已经进入异常（85°/s > 82°/s 上限），所以只取前 18 帧。
+task_ok, _, _, ev_ok, _ = _replay_frames(YAW_EVENT_FRAMES[:18])
+check("反例（事故前正常段 18 帧）：0 个超限样本、不判故障",
+      task_ok.yaw_untrusted is False and task_ok.yaw_bad_samples == 0
+      and task_ok.yaw_guard_samples == 17,
+      f"bad={task_ok.yaw_bad_samples} samples={task_ok.yaw_guard_samples} "
+      f"max_rate={task_ok.yaw_max_rate_dps:.1f}")
+
+
+# ---- ⑫.4 反例二：正常 90° 转弯（Ackermann 极限：0.35 m/s @ 舵角 30° = 73.7°/s）----
+def _arc_frames(v: float = 0.35, steer_deg: float = 30.0, n: int = 80,
+                dt: float = 0.05) -> list:
+    """自行车模型积分出一条圆弧的位姿帧（20 Hz，tick 与帧同频）。"""
+    gain = math.tan(math.radians(steer_deg)) / 0.157
+    x = y = yaw = 0.0
+    out = []
+    for _ in range(n):
+        yaw += v * gain * dt
+        x += v * math.cos(yaw) * dt
+        y += v * math.sin(yaw) * dt
+        out.append((x, y, math.degrees(yaw)))
+    return out
+
+
+task_turn, _, bb_turn, ev_turn, _ = _replay_frames(_arc_frames(), with_route=False)
+check("反例（正常 90° 转弯、0.35 m/s、满舵 30° = 73.7°/s）：不误报",
+      task_turn.yaw_untrusted is False and task_turn.yaw_bad_samples == 0,
+      f"bad={task_turn.yaw_bad_samples} samples={task_turn.yaw_guard_samples}")
+check("反例（正常 90° 转弯）：P_MOTION_LIMIT 未被触发",
+      bb_turn.get(P_MOTION_LIMIT) is None, f"limit={bb_turn.get(P_MOTION_LIMIT)}")
+
+# ---- ⑫.5 反例三：静止期的小幅 yaw 漂移（7.5°/s < 静止上限 45°/s）不误报 ----
+_drift_small = [(1.0, 1.0, 30.0 + 1.5 * i) for i in range(20)]
+task_dr, _, _, ev_dr, _ = _replay_frames(_drift_small, with_route=False)
+check("反例（静止 + 7.5°/s 慢漂）：不误报",
+      task_dr.yaw_untrusted is False and task_dr.yaw_bad_samples == 0,
+      f"bad={task_dr.yaw_bad_samples}")
+
+# ---- ⑫.6 正例二：静止期被「转」（事故 15:00:57 的 170°/s 片段）→ 判故障 ----
+task_st, _, bb_st, ev_st, trip_st = _replay_frames(YAW_STATIC_FRAMES, with_route=False)
+check("静止期 yaw 170°/s：判「静止期航向变化」故障",
+      task_st.yaw_untrusted is True and task_st._yaw_reason == "yaw_static_rotation",
+      f"reason={task_st._yaw_reason!r} trip_t={trip_st}")
+check("静止期故障：在片段前 1 s 内触发（前三帧 95/85/50°/s）",
+      trip_st is not None and trip_st <= 1.0, f"trip_t={trip_st}")
+
+# ---- ⑫.7 区分「手动旋转」：遥控接管中同样的转动只记账、不判故障 ----
+#   ★ 真实片段的位置 (4.298,1.73) 已在安全框外（越界余量 ±0.6），边界护栏会独立发
+#     boundary_stop；为把「航向判据」单独隔离出来，这里只把**位置**挪到框内，
+#     **yaw 序列仍是 15:00:55~58 的真实值**。
+YAW_STATIC_FRAMES_IN_BOUNDS = [(1.0, 1.0, yaw) for _, _, yaw in YAW_STATIC_FRAMES]
+task_man, _, bb_man, ev_man, _ = _replay_frames(YAW_STATIC_FRAMES_IN_BOUNDS, manual=True)
+check("遥控接管中静止转动：不判故障（人比机器优先）",
+      task_man.yaw_untrusted is False and task_man.yaw_manual_ticks >= 3,
+      f"manual_ticks={task_man.yaw_manual_ticks}")
+check("遥控接管中静止转动：不发 EV_TASK_FAULT、不限速",
+      not ev_man and bb_man.get(P_MOTION_LIMIT) is None,
+      f"events={len(ev_man)} limit={bb_man.get(P_MOTION_LIMIT)}")
+
+# ---- ⑫.8 IMU 交叉核对（诊断分支）：pose 判超限但 IMU 说没转 ⇒ 「链内部矛盾」----
+task_im, _, _, ev_im, _ = _replay_frames(YAW_EVENT_FRAMES, with_route=False, imu_dps=0.0)
+check("IMU 交叉核对：pose 超限而 IMU |gz|≈0 → 判「位姿/航向链内部不一致」",
+      task_im.yaw_untrusted is True and task_im._yaw_reason == "yaw_pose_imu_mismatch"
+      and task_im.yaw_imu_mismatch >= 1,
+      f"reason={task_im._yaw_reason!r} mismatch={task_im.yaw_imu_mismatch}")
+task_is, _, _, ev_is, _ = _replay_frames(YAW_EVENT_FRAMES, with_route=False, imu_dps=200.0)
+check("IMU 交叉核对：IMU 也报高速转动 → 仍判运动学超限（不误标成矛盾）",
+      task_is.yaw_untrusted is True and task_is._yaw_reason == "yaw_rate_over_kinematic"
+      and task_is.yaw_imu_mismatch == 0,
+      f"reason={task_is._yaw_reason!r} mismatch={task_is.yaw_imu_mismatch}")
+
+# ---- ⑫.9 复用既有 fault 通路：EV_TASK_FAULT → SafetyTask 锁存 SAFE_STOP（不新造机制）----
+task_sf, bridge_sf, bb_sf, bus_sf, clock_sf = build(
+    overrides={"fix": {"anchor_at_waypoint": False}},
+    route=parse_mission(list(INCIDENT_TOKENS)), seed_pose=False)
+safety = SafetyTask(bridge_sf, bb_sf, bus_sf,
+                    Config.from_dict({"safety": {}, "pursuit": {}, "logging": {}}),
+                    log=lambda m: None, clock=clock_sf.now)
+safety.setup()
+for x, y, yaw_deg in YAW_EVENT_FRAMES:
+    bridge_sf.set_pose(x, y, math.radians(yaw_deg))
+    clock_sf.advance(0.2)
+    task_sf.tick()
+safety.tick()
+check("复用 fault 通路：SafetyTask 收到 task_fault_event:Localization 并锁存",
+      safety.stopped is True
+      and any("task_fault_event:Localization" in r for r in safety.reasons),
+      f"stopped={safety.stopped} reasons={safety.reasons}")
+_p_safe = bb_sf.get(P_SAFETY)
+check("复用 fault 通路：P_SAFETY.ok=False 且已发零速指令",
+      _p_safe is not None and _p_safe.ok is False and bridge_sf.brakes >= 1,
+      f"ok={getattr(_p_safe, 'ok', None)} brakes={bridge_sf.brakes}")
 
 finish()
