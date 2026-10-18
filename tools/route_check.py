@@ -1350,7 +1350,10 @@ def run_planner(args, cfg) -> Optional[str]:
     print("  → 调用规划器: %s" % " ".join(
         "'%s'" % c if ' ' in c else c for c in cmd[2:]))
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        # ★2026-10-18 修（同类）：Windows 默认 GBK 解码，规划器输出含中文横幅时会 UnicodeDecodeError
+        #   并让 r.stdout 变 None（后续 .strip() 直接崩）。与 tools/wf/check.py 同一处坑。
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=900)
         if r.returncode != 0:
             print("  ❌ 规划器失败:\n%s" % r.stderr[-800:], file=sys.stderr)
             return None
