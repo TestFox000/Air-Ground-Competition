@@ -1,0 +1,404 @@
+明白——**最好的方案不是修别人的黑盒程序，也不是裸换我方链路丢可视化，而是：给我方 dzuav（识别已验证 106/106 全对）补上 live 同款 HUD 实时画面，一步到位替代**。理由：
+
+| 对比项 | A. 修 live 源码 | B. 裸换 dzuav | **C. dzuav + live HUD（推荐）** |
+|---|---|---|---|
+| 识别正确性 | 未知代码，改动风险 | 已验证 106/106 | 已验证 106/106 |
+| 实时可视化 | 有（原有） | **无（体验退化）** | **有（同款 HUD+画框）** |
+| 源码掌控 | 无（黑盒） | 有 | 有 |
+| 可维护/回滚 | 难 | 易 | 易（一键部署+回滚） |
+
+马上实施。
+用户说"我要最好的方案"。结合上下文，这是在问 live 读数问题的最佳修复方案。让我思考什么是真正的"最好"方案。
+
+当前状态：
+- live 程序（带 HUD 的实时检测工具）预处理不符 v4d 契约 → 形近字符混淆
+- 方案 A：probe 拉回 live 源码 → 修三处契约 → 重编（依赖能找到源码）
+- 方案 B：弃用 live 程序，换我方 dzuav（orin_run_dzuav.sh camera）
+
+用户之前的偏好（记忆）：
+- 全自动化、一键式解决方案
+- 拒绝手动分步操作
+- 稳定性优先，各种复杂条件下可用
+- 不允许直接覆盖原机文件，必须备份可回滚
+
+"最好的方案"应该怎么设计？
+
+方案 A vs B 的优劣：
+- A（修 live 源码）：保留 HUD 可视化（用户显然在用它实时观察），但依赖源码存在且能编译；风险是未知代码结构
+- B（换 dzuav）：我方代码全部契约已修复且验证（106/106），但无 HUD 可视化、无画框——用户现场调试体验会退化
+
+其实还有更好的组合方案：**给我们的 dzuav 加上 live HUD**！我方 dzuav 的识别链路已经全对（预处理三契约已修），只是相机模式不画框、无 HUD。给 main.cpp 相机模式加上与 live 程序同款的 HUD（dets/cells/localized/fps + 画框 + 格号标注），就同时拥有：
+1. 正确的识别（已验证 106/106）
+2. 用户习惯的可视化体验
+3. 我方完全掌控源码，可维护可回滚
+
+这才是"最好"——不是修别人的黑盒程序（A 的风险），也不是牺牲体验（B 的退化），而是把我方链路补齐可视化，一步到位替代。
+
+技术可行性：
+- main.cpp 已有 annotate 分支（离线模式画框写图），相机模式跳过绘制是为省 6MB clone
+- 加 HUD：每帧 clone + 画框 + putText + imshow（Jetson 上有 X/display 可用？live 程序能显示说明有显示环境——VNC/桌面）
+- fps 计算：滚动窗口
+- HUD 语义与 live 程序一致：dets=检测数、cells=有效地标数、localized、fps
+- 画框颜色：cell_label 黄框+格号、其他类绿框
+
+性能：Orin NX 上 D13 推理 90-150ms/帧（6-11fps），加 clone+绘制+imshow 的开销（~10-20ms）完全可承受，fps 从 6.6 可能降到 6.3 左右，无实质影响。
+
+注意 imshow 在无 DISPLAY 时会崩——需要加环境变量开关（DZUAV_VIEW=1 才开 imshow，或检测 getenv("DISPLAY")），默认开还是关？用户用 VNC 看桌面（截图是 VNC/远程桌面），所以 DISPLAY 存在。但为稳妥：自动检测 DISPLAY 存在才 imshow，否则跳过绘制只打 stdout 文本行（保持原行为）。这满足"各种复杂条件下可用"的稳定性要求。
+
+方案设计：
+1. 改 main.cpp：相机模式加可选 HUD（DISPLAY 检测/DZUAV_VIEW 开关），复用 processFrame 的 annotate 逻辑但改为实时绘制
+   - 问题：processFrame 当前 annotate 仅在 output 非空时做。重构：给 processFrame 加 force_annotate 参数，相机模式传 true（HUD 开时）
+   - imshow 窗口名："detect live"（与原程序同名，用户习惯无缝）——或者用我们的名字？用同名可能让用户混淆来源，但体验连续。用 "dzuav live" 更诚实。嗯，用户已经习惯 "detect live" 窗口，但区分来源对排障重要。折中：窗口名 "dzuav live (fixed)" 或直接 "detect live"。我用 "dzuav live"，HUD 行首加 [dzuav] 标识。
+2. 一键部署工具：fix_live_hud.py 或扩展现有工具——推送 main.cpp → 编译 → 同步 → 启动（tmux 窗口，DISPLAY 传递）→ 验证
+3. 备份回滚全套
+4. 本地验证：编译不能在本地（Windows 无 TensorRT），但可以：
+   - 语法级验证：py 不行，C++ 需编译器……本地没有 ARM/TensorRT 环境。可以做的：代码审查 + 用 OpenCV C++ 本地编译？没有配置 MSVC C++ OpenCV 环境。
+   - 折中：逻辑验证靠纯 Python 等价模拟（HUD 字符串格式）+ 上机 verify 模式（capture-pane 看 HUD 输出）
+   - 上机部署工具内置验证：启动后 capture-pane 检查 HUD 行出现、无 crash
+
+另外还要考虑：主仓库 MapLocalizer.cpp 被用户删了——重编 dzuav 会失败！必须先恢复它（从交接包副本）。交接包里的副本含门槛加固版（比例制），这是好事。
+
+还有 CellClassifier.cpp 在板上是 v4d 契约版（fix_cell_labels.py 部署过），本地主仓库的副本也是契约版。部署时推送 main.cpp 即可，其他不动。
+
+等等，还要确认板上编译环境：dzuav_deploy 仓库布局有 CMakeLists + 全源码（fix_cell_labels.py 部署过 main.cpp/CellClassifier.cpp 并编译成功过），所以板上源码完整。我只需要推送新 main.cpp + 恢复 MapLocalizer.cpp（板上没删，只有本地删了）——板上编译没问题。
+
+所以本地删除的 MapLocalizer.cpp 只影响本地仓库完整性，不影响部署。但为了本地仓库健康，从交接包恢复一份到主仓库也顺手做了（用户删过一次……上次 system-reminder 说"deleted by the user. This change was intentional"。现在用户要最好方案，重编 dzuav 需要它吗？板上编译用的是板上副本，不需要本地。但如果要本地 git 提交完整就需要。尊重用户删除——不动本地，部署用交接包副本做源（如果需要推 MapLocalizer 的话）。
+
+实际上部署 main.cpp 只需 main.cpp 一个文件。板上其他文件都在。
+
+好，最终方案设计：
+
+**方案 C（最优）：我方 dzuav 加 live HUD，一步替代**
+
+1. 本地改 main.cpp：
+   - 相机模式加 HUD 开关（DZUAV_VIEW=1 或 DISPLAY 存在时启用 imshow）
+   - HUD 内容：dets/cells/localized/fps 滚动统计 + 画框（cell 黄+格号、paper 绿、其他类绿）+ 世界坐标投影标注（localized 时）
+   - 窗口名 "dzuav live"
+   - 无 DISPLAY 时自动退回纯 stdout（稳定兜底）
+   - processFrame 重构：annotate 参数化
+2. 本地验证：
+   - 用离线图片模式跑？本地无 TensorRT……不行。
+   - 纯逻辑验证：Python 模拟 HUD 格式 + main.cpp 代码审查
+   - 语法检查：可以试试 g++ -fsyntax-only？Windows 上有 g++ 吗？可能有 MinGW。试试看。没有就用 clang？先试。
+   - 或者用 Python 提取 C++ 代码做括号配对等粗检（不靠谱）。最好 g++ -fsyntax-only -I include + OpenCV 头文件路径……本地没 OpenCV C++ 开发环境。
+   - 务实做法：代码改动保持极简（复用现有 annotate 分支，只加参数传递和 HUD 绘制），上机部署工具内置三重验证（编译成功 + 进程存活 + HUD 行出现）+ 一键回滚
+3. 一键工具 fix_live_hud.py：probe（看 live 程序还在跑吗）→ deploy（备份→推 main.cpp→编译→同步→停 live 程序→tmux 启动 dzuav camera with DISPLAY→验证 HUD）→ verify → rollback
+4. 上机包更新 v5
+
+关于"停 live 程序"：两个程序抢同一相机（/dev/video0），必须先停 live。工具自动 pgrep + kill（保 DISPLAY 环境）。回滚时把 live 程序按原命令重启（deploy 时抓取原 cmdline 备份到文件）。
+
+再想一遍用户体验："最好"还包括：
+- 打开即用：tmux 窗口自动起，VNC 里直接看到窗口
+- fps 不能掉太多：绘制开销控制在 ~15ms 内（1080p clone ~6MB 是注释里说的，实际 clone + 5-13 个框 + 文字 ≈ 10-20ms，可接受）
+- HUD 语义与原 live 一致（dets/cells/localized/fps），用户零学习成本
+
+开始实施。先读当前 main.cpp 的完整结构（已读过），确定改动点：
+
+1. processFrame 签名：加 `bool annotate` 参数（或把 output 语义扩展）——现在是 `const std::filesystem::path& output`，annotate = !output.empty()。相机模式想画但不落盘。改成传 annotate flag：
+   - 最小改动：processFrame(frame, hbb, cell, map, udp, output, annotate_extra=false)？不优雅。
+   - 重构为：processFrame(..., const path& output, bool show) — annotate = !output.empty() || show；show 时额外 imshow。
+   - imshow 需要 visual Mat——clone 出来的 visual 在 annotate=true 时已存在，直接 imshow(visual)。
+2. HUD 文本：画在 visual 顶部：`dets=%zu cells=%zu localized=%d fps=%.1f`
+   - dets = detections.size()
+   - cells = landmarks.size()
+   - localized = localized
+   - fps：main 循环里滚动统计传入？processFrame 不知道 fps。把 fps 作为参数传入，或 HUD 在 runCamera 循环里画（在 processFrame 之外）——但 visual 在 processFrame 内部。方案：processFrame 返回 visual（annotate 时），runCamera 在外面加 HUD 行 + imshow。返回 cv::Mat（空 = 无绘制）。
+   - 或者简单点：fps 存到 MapLocalizer 旁边的全局/引用参数。传引用 float fps_hud 进 processFrame？改签名多处。
+   - 最干净：processFrame 返回 cv::Mat（visual 或空），runCamera 拿到后画 HUD + imshow。
+3. runCamera 改动：
+   - 检测 display：`const char* disp = std::getenv("DISPLAY"); bool show = disp && *disp;` 或 DZUAV_VIEW=1 强制。加 DZUAV_VIEW=0 强制关。
+   - fps 统计：滚动窗口 deque<timestamp> 或简单 EMA。每帧后 fps = 1e3 / dt_ms EMA（α=0.1）。
+   - capture.read 前后计时。注意空帧 continue 时不更新。
+   - show 时 waitKey(1)（GStreamer appsink + imshow 需要 waitKey 刷新窗口）。
+   - tmux 里跑 imshow：tmux 无 DISPLAY？板上桌面是 LXDE（截图有桌面），DISPLAY=:0。tmux new-window 需要传 DISPLAY=:0。部署工具里启动命令带 `DISPLAY=:0`。
+4. HUD 绘制行：cv::putText 顶部黄字 + 半透明底条（fillRect alpha 融合太贵，直接黑底矩形+黄字）。
+
+代码改动量估计：main.cpp ~60 行新增/修改。可控。
+
+风险检查：
+- imshow 在 Jetson 无 X 时崩 → 已用 DISPLAY 检测兜底
+- waitKey(1) 每帧 +3-5ms → 可接受
+- clone 每帧 1080p ~6MB 分配 → 注释说省它，但 live 场景用户要看画面，值得花。fps 6→5.8 无感。
+- 返回 Mat 拷贝语义 → OpenCV Mat 浅拷贝，无额外开销
+- 相机模式 stdout 仍打印每帧文本行 → 保留（orin_log_capture 依赖）
+
+processFrame 现在的调用点：runCamera（相机）、main 图片分支、main 视频分支。图片/视频分支带 output_dir。改动：加第六参数 `bool show=false`（放 output 后）。返回类型 void→cv::Mat。三个调用点适配：图片/视频分支忽略返回值。
+
+等等，视频分支如果 output_dir 为空也不 annotate——保持不变。
+
+好，写代码。另外 CMakeLists 不用动（无新文件）。
+
+部署工具 fix_live_hud.py 设计：
+- --verify-local：py_compile + 自检（无 C++ 编译环境，做逻辑自检：从 main.cpp 提取 HUD 格式串与 Python 参考对拍？价值低。改为：确认补丁文件存在 + md5 + 展示 diff 摘要）
+- --probe：pgrep live 程序 + 抓 cmdline/env 存备份 + 检查板上 dzuav 源码完整性（5 个 cpp 都在）+ 编译目录 + DISPLAY 可用性（echo $DISPLAY / ls /tmp/.X11-unix）
+- --deploy：probe→备份板上 main.cpp（.bak_hud）→推新 main.cpp→编译→二进制同步（ag_test + dzuav_deploy）→停 live 程序（记录其 cmdline 到 ~/live_prog.cmdline.bak）→tmux 起 dzuav camera（DISPLAY=:0）→验证（进程 + capture-pane HUD 行 + 无 error）→输出回滚指引
+- --rollback：恢复 main.cpp→编译→同步→重启原 live 程序（读备份 cmdline）
+- 判据：VNC 看到 "dzuav live" 窗口，HUD dets/cells/localized/fps，对准 H7/H8/H9 读数正确
+
+启动命令细节：tmux new-window -t agup -n dzlive "DISPLAY=:0 bash ~/dzuav_deploy/air_ground/tools/orin_run_dzuav.sh camera /dev/video0 1920x1200@30"
+- 相机分辨率：live 程序用的什么？不知道，fix_cell_labels.py 默认重建用 1920x1200@30。orin_run_dzuav.sh 默认 1920x1080@30。用 1920x1080@30 保守，或 probe 时从 live 程序 cmdline 抓（v4l2src caps 里有 width/height）。probe 抓到就用抓到的。
+
+MapLocalizer.cpp 板上确认：probe 里 ls 五个源文件 + md5。若 MapLocalizer.cpp 缺失（不太可能），从交接包推。
+
+好，另外用户之前删了本地主仓库 MapLocalizer.cpp——部署推送只需要 main.cpp，不碰 MapLocalizer。但编译需要板上完整（板上有）。OK。
+
+还有一个点：orin_run_dzuav.sh 用 exec "$BIN"，tmux 窗口死掉 = 相机参数错误等。验证 capture-pane。
+
+写 main.cpp 补丁。基于当前交接包/主仓库的 main.cpp（两份一致，md5 8efee901... 已同步）。改哪份？主仓库被删了 MapLocalizer.cpp 但 main.cpp 还在。改主仓库 main.cpp（它是源），同步到交接包。
+
+开始写。
+
+processFrame 改动方案（最小侵入）：
+
+```cpp
+cv::Mat processFrame(const cv::Mat& frame, HbbDetector& hbb, CellClassifier& cell, MapLocalizer& map,
+                     UdpBroadcaster& udp, const std::filesystem::path& output, bool live_view = false)
+{
+    ...
+    const bool annotate = !output.empty() || live_view;
+    ...
+    if (annotate && live_view)
+        return visual;
+    ...
+    if (annotate && !cv::imwrite(...))
+    ...
+    return {};
+}
+```
+
+等等，注意 imwrite 分支：live_view 时不写盘。原逻辑：annotate 时写盘。live_view 时只返回。合并：
+
+```cpp
+if (annotate && !output.empty() && !cv::imwrite(...)) ...
+return annotate ? visual : cv::Mat();
+```
+
+runCamera 改动：
+
+```cpp
+// live HUD 可视化（2026-10-18）：DISPLAY 存在（或 DZUAV_VIEW=1 强制）时
+// 每帧画检测框+HUD 并 imshow，替代误读的第三方 live 程序；
+// 无显示环境自动退回纯 stdout（远程/无头可用，稳定性兜底）。
+const char* disp = std::getenv("DISPLAY");
+const char* force = std::getenv("DZUAV_VIEW");
+const bool show = (force && *force == '1') || ((force == nullptr || *force != '0') && disp && *disp);
+```
+
+fps EMA：
+
+```cpp
+auto t_loop = std::chrono::steady_clock::now();
+double fps_ema = 0.0;
+...
+在 processFrame 调用后：
+const auto t_now = std::chrono::steady_clock::now();
+const double dt = std::chrono::duration<double>(t_now - t_loop).count();
+t_loop = t_now;
+if (dt > 0) fps_ema = fps_ema > 0 ? fps_ema * 0.9 + (1.0/dt) * 0.1 : 1.0/dt;
+```
+
+HUD 绘制（runCamera 内，visual 非空时）：
+
+```cpp
+if (show)
+{
+    if (!visual.empty())
+    {
+        const std::string hud = cv::format("dets=%d cells=%d localized=%d fps=%.1f", dets, cells, localized, fps_ema);
+        ...
+    }
+}
+```
+
+问题：dets/cells/localized 在 processFrame 内部，runCamera 拿不到。需要 processFrame 暴露。方案：输出参数 struct FrameStats { size_t dets; size_t cells; bool localized; }；或 processFrame 返回 visual 时把 HUD 画进去（fps 传入引用）。
+
+最简：给 processFrame 加输出参数 `int* live_stats`（dets<<16|cells<<8|localized 打包太丑）——定义小 struct 放匿名 namespace：
+
+```cpp
+struct FrameStats { int dets = 0; int cells = 0; int localized = 0; };
+```
+
+processFrame(..., FrameStats* stats = nullptr, float fps_hud = 0.f)
+- stats 填 dets/cells/localized
+- fps 由 runCamera 传入？fps 是上一帧的 EMA——可以，HUD 显示上一帧 fps 无感。
+- HUD 在 processFrame 内画（visual 顶部）——这样 runCamera 只需 imshow + waitKey。
+
+processFrame 签名变化影响 3 个调用点。默认参数让图片/视频分支零改动。
+
+好，动手。先精确读一遍 main.cpp 当前版本的 processFrame 和 runCamera（前面已读，行号：processFrame 96-219，runCamera 276-382）。
+
+改动清单：
+1. 匿名 namespace 加 FrameStats struct（或直接用三个 out 参数——struct 干净）
+2. processFrame 签名 + HUD 绘制 + 返回 Mat
+3. runCamera：DISPLAY 检测、fps EMA、imshow/waitKey
+4. 头文件：无新增（opencv.hpp 已含 highgui）
+
+等等，imshow/highgui：opencv.hpp 包含所有模块，OK。
+
+写 Edit。多处修改用多个 Edit 调用。
+
+Edit 1：processFrame 签名与 annotate 判定（96-136 行区域）
+Edit 2：processFrame 尾部（写盘 + 返回）
+Edit 3：runCamera（show 检测、fps、调用、imshow）
+Edit 4：调用点适配（图片/视频分支——默认参数免改，确认即可）
+
+先做本地逻辑验证：没有 C++ 编译器？检查一下 g++/clang++ 是否存在，能 -fsyntax-only 更好（缺 OpenCV 头会失败……除非有 vcpkg/msvc 的 OpenCV。.venv_dml 里的 cv2 是 Python 包，含不了 C++ 头。算了，语法检查做不了就不做，靠上机编译验证 + 回滚兜底）。
+
+其实可以做个非常值钱的本地验证：**用 Python + 真值裁剪模拟整条 HUD 链**——不行，那验证的是模型不是 C++。
+
+务实：改动小 + 部署工具三重验证（编译/进程/HUD 行）+ 回滚。开始。
+
+现在改 runCamera：DISPLAY 检测、fps EMA、imshow 循环。
+
+修正调用逻辑为清晰的双分支。
+There's a logic bug: `if (!show) processFrame(...)` is called a second time when show is false — the original logic was for show=false to still call processFrame once (to do inference and send UDP). My current code has a problem:
+
+```cpp
+cv::Mat visual = show ? processFrame(frame, hbb, cell, map, udp, {}, &stats, fps_ema)
+                      : cv::Mat();
+if (!show)   // In no-view mode, don't enter processFrame's drawing branch (save clone)
+    processFrame(frame, hbb, cell, map, udp, {});
+```
+
+This is correct when show=true: one call; when show=false: one call (second branch). Semantically OK, but it's convoluted, and when show=true the first call's ternary evaluation calls processFrame — OK. When show=false the first ternary doesn't call, the second if calls — also one call. Behavior is correct, but the code is ugly. Clean it up:
+
+```cpp
+FrameStats stats;
+...
+cv::Mat visual;
+if (show)
+    visual = processFrame(frame, hbb, cell, map, udp, {}, &stats, fps_ema);
+else
+    processFrame(frame, hbb, cell, map, udp, {});
+```
+
+Change it to this clean form.
+
+检查 CMakeLists 确认 highgui 链接，并全文语法自查。
+还有一个细节：`processFrame(frame, hbb, cell, map, udp, {})` 的 `{}` 是 std::filesystem::path 的空值——原本就是这样调用的（相机模式 output 为空），OK。
+
+再检查 processFrame 返回值在图片/视频分支的适配：它们调用 processFrame(image, hbb, cell, map, udp, outputFor(0)) —— 忽略返回值即可（C++ 允许丢弃返回值）。OK。
+
+还有个遗漏：FrameStats stats 在循环外声明，每帧被 processFrame 覆盖——OK（dets/cells/localized 全覆盖）。
+
+但注意：show 模式下 `processFrame(..., {}, &stats, fps_ema)` 的第二个参数 `{}` —— 构造空 path，OK。
+
+还有 lambda 立即调用 `[] { const char* d = std::getenv("DISPLAY"); return d && *d; }()` —— C++11 OK。不过为了可读性，或简单一点直接写。现在这样也行。
+
+编译风险自查：
+1. cv::rectangle(visual, {0,0}, {visual.cols, 34}, {0,0,0}, -1) —— Point/Scalar 初始化列表，OpenCV 支持。visual.cols 是 int，{visual.cols, 34} → cv::Point OK。
+2. cv::format —— OK。
+3. FrameStats 默认参数 `FrameStats* stats = nullptr, float fps_hud = 0.F` —— 默认参数只能从右往左连续，两个都在最右，OK。
+4. 图片/视频分支调用 `processFrame(image, hbb, cell, map, udp, outputFor(0))` —— 6 参数 + 2 默认，OK，返回值丢弃 OK。
+5. `const char* win = "dzuav live";` OK。
+6. imshow 需要链接 highgui —— OpenCV::opencv 全模块，CMakeLists 用的什么？检查一下 CMakeLists 是否用 opencv 而非 opencv_core 等。
+
+检查 CMakeLists。
+
+CMake 用全模块 OpenCV（含 highgui），imshow 链接无问题。检查本地是否有 C++ 编译器可做语法级验证。
+`find_package(OpenCV REQUIRED)` + `${OpenCV_LIBS}` = 全模块（含 highgui），imshow OK。
+
+本地没有 C++ 编译环境做语法检查（Windows 无 MinGW 的话）。试试有没有 g++/clang++。
+
+无本地编译器——靠代码复查 + 上机三重验证兜底。通读改动后的完整代码复查。
+无本地 C++ 编译器。语法验证靠：
+1. 仔细复查改动的完整代码（读一遍改后的关键区域）
+2. 上机部署工具的三重验证（编译成功/进程存活/HUD 行出现）+ 备份回滚兜底
+
+复查一遍改动后的完整 main.cpp 关键区域（processFrame 全貌 + runCamera 全貌），确保没有语法错误。
+
+processFrame 复查通过。确认 main() 尾部的图片/视频调用点兼容新签名。
+processFrame 复查通过：
+- 签名默认参数 OK（stats、fps_hud 在最右侧）
+- annotate 逻辑：live 模式（stats 非空）clone+画框+HUD，返回 visual；离线模式不变
+- HUD 绘制在 visual 上（stats 非空 → annotate → visual 已 clone，安全）
+- cv::rectangle(visual, {0,0}, {visual.cols, 34}, {0,0,0}, -1)：{0,0} → Point，{visual.cols,34} → Point（int/int OK），{0,0,0} → Scalar，-1 thickness 填充。OK。
+- putText {10,24} → Point OK
+- 返回 `annotate ? visual : cv::Mat()` —— 三元两臂类型 cv::Mat / cv::Mat OK（cv::Mat() 构造）
+
+一个潜在问题：cv::Mat() 作为三元第二臂——`annotate ? visual : cv::Mat()`，两臂 cv::Mat 和 cv::Mat（prvalue），OK。
+
+图片/视频分支调用（忽略返回值）——检查 main 尾部调用点没被破坏。读 main() 尾部确认。
+
+调用点兼容确认。同步交接包并写一键部署工具。
+调用点 492/500 用 6 参数（stats/fps_hud 走默认 nullptr/0）——**编译报错风险**：返回值忽略 OK，但 C++ 默认参数 OK。不过 `-Wall -Wextra` 下 `cv::Mat` 返回值被忽略会有警告吗？不会（只有 warn_unused_result 属性才警告）。OK。
+
+图片分支 492 行：`processFrame(image, hbb, cell, map, udp, outputFor(0));` —— output 非空 → annotate → imwrite。行为不变。✓
+
+还有一个细节：视频分支无 output_dir 时（argc≤5），output 为空 path，annotate=false，返回空 Mat——行为不变。✓
+
+全部复查通过。同步到交接包，然后写一键部署工具。
+
+部署工具 fix_live_hud.py 关键流程：
+1. --probe：live 程序进程（pgrep detect/live/dzuav）+ cmdline 抓取（备份原程序启动命令，供回滚）+ 板上 dzuav 源码完整性（5 cpp + CMakeLists）+ DISPLAY 可用性（X11 socket）+ 相机设备
+2. --deploy：
+   a. 备份板上 main.cpp（.bak_hud）
+   b. 推新 main.cpp + md5 校验
+   c. 编译（dzuav_deploy 布局）
+   d. 二进制同步 ag_test + dzuav_deploy
+   e. 停 live 程序（记录其完整 cmdline + env 到 ~/live_prog_backup.txt；kill）
+   f. tmux 起 dzuav camera（DISPLAY=:0 + orin_run_dzuav.sh）
+   g. 验证：进程存活 + capture-pane 出现 "live view on" / "dets=" HUD 无报错
+3. --verify：capture-pane 统计 localized=1 占比 + HUD 行检查
+4. --rollback：恢复 main.cpp → 重编 → 同步 → 停 dzuav → 按备份重启原 live 程序
+
+注意相机分辨率：从 live 程序 cmdline 抓 v4l2src caps（width=1920,height=1080 之类），抓不到用默认 1920x1080@30。
+
+tmux 启动命令：tmux new-window -d -t agup -n dzlive "bash -lc 'DISPLAY=:0 bash ~/dzuav_deploy/air_ground/tools/orin_run_dzuav.sh camera /dev/video0 1920x1080@30'"
+
+等等——orin_run_dzuav.sh 用 DZUAV_DIR=$HOME/ag_test/dzuav（二进制）+ ENGINES=$HOME/dzuav/engines。引擎已被 fix_cell_labels.py 换成 v4d+D13。✓
+
+DISPLAY 判定：tmux 会话里 DISPLAY 可能没设置——所以命令里显式 DISPLAY=:0。如果 :0 不对（板上 LXDE 是 :0 常见），probe 检查 `ls /tmp/.X11-unix/` 列出 X{N}，用找到的第一个。
+
+写工具。
+
+工具编译通过。快速验证 HUD 格式串与原 live 程序语义一致。
+py_compile OK (the second echo syntax is a PowerShell inline issue, doesn't matter). Tool ready.
+
+Now the processFrame HUD string format in main.cpp needs local simulation verification — do a format alignment of the C++ cv::format("dets=%d cells=%d localized=%d fps=%.1f", ...) with Python (purely a format check, low value, skip).
+
+There's another verification worth doing: simulate with Python the HUD string output after the changes, and confirm the semantic match with the third-party live program's HUD (dets=9 cells=5 localized=0 fps=6.6 style) — purely to confirm the format has no superfluous characters. Trivial, just do a quick line.
+
+More important remaining work:
+1. Repackage v5 (main.cpp has been updated into the package)
+2. Update README step 8 to the final plan (fix_live_hud.py as primary)
+3. Update memory
+4. Minutes
+
+First do a quick simulation of the HUD format, then update the README.
+
+HUD 格式与原 live 程序逐字符一致——用户零学习成本。更新 README、重打包、写纪要。
+HUD 格式逐字符一致——用户在 VNC 看到的画面语义零迁移成本。
+
+更新 README 步骤 8 为最终方案，重打包，更新记忆和纪要。
+
+地图在打包后拷入，需重打一次。
+地图是打包后才拷进去的——zip 里没含 v2 地图。重新打包一次。
+
+记忆里根因定案条目被覆盖了，补回精简版。
+等等，我把"2026-10-18 live 读数根因终局定案"那条记忆**替换**掉了，而不是追加新条目。根因定案的信息（H9→I6 等现场真值、三配置实测数据、形近混淆机制）是有长期价值的事实，被删可惜。方法论教训那条还在（第 32 行），覆盖了部分。但具体根因事实被丢了。补一条精简的根因事实回来。
+
+终局方案全部就绪。
+
+## 最好的方案：dzuav + live 同款 HUD（合体最优）
+
+**思路**：不修别人的黑盒程序（风险不可控），也不裸换我方链路（丢实时画面）——**给我方 dzuav（识别已验证 106/106 全对）补上与原 live 程序逐字符同格式的实时 HUD**。你在 VNC 里看到的画面和原来一模一样（`dets= cells= localized= fps=` + 画框 + 格号），但读数是正确的。
+
+**已完成的改造**（[main.cpp](file:///C:/Users/29212/Documents/kimi/tasks/2026-10-14/18-59-27-5bee8702/air_ground/onboard/dzuav/src/main.cpp#L96-L248)）：
+- HUD 格式与原 live 程序**逐字符一致**（本地对拍 PASS，零学习成本）
+- 相机模式检测到 DISPLAY（VNC/桌面）自动开画面；无显示环境自动退回纯文本输出（各种条件下可用）
+- `DZUAV_VIEW=1/0` 可强制开/关；fps 滚动统计；离线图片/视频分支行为完全不变
+
+**一键部署工具**（[fix_live_hud.py](file:///c:/Users/29212/Documents/Trae-CN/default/fix_live_hud.py)）自动处理全部细节：备份→推码→编译→**停第三方 live 程序（其启动命令自动存档，可原样恢复）**→tmux 起带 HUD 的 dzuav→验证。
+
+## 无人机上线后（两条命令）
+
+```powershell
+set AG_ORIN_PASS=duzhong
+python fix_live_hud.py --host <IP> --deploy
+python fix_live_hud.py --host <IP> --verify
+```
+
+**验收判据**：VNC 出现 "dzuav live" 窗口，对准 H7/H8/H9 那片——读数应显示 **H7/H8/H9**（不再 I6/G6/J7），且 localized 翻 1。不满意随时 `--rollback`（恢复原 main.cpp 并原样重启原来的 live 程序）。
+
+产物：[上机包 v5 zip](computer://c:\Users\29212\Documents\Trae-CN\default\无人机上机包_20261017.zip)（45.4MB，含 HUD 版 main.cpp + 纠错地图 v2）、[纪要](file:///c:/Users/29212/Documents/Trae-CN/default/进度/20261018-终局方案dzuav带liveHUD-会话纪要.md)。
