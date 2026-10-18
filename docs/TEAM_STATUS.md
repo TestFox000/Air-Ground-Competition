@@ -8,7 +8,8 @@
 | 卡 | owner | 内容 | 状态 |
 |---|---|---|---|
 | T12 | drone-arch | 无人机上线执行单（飞控断电恢复→看门狗→118 切换） | in_progress（离线） |
-| T35 | verifier | test_autoplan 46 红分类（过期断言 vs 真缺陷） | 待启动 |
+| T34 | drone-integrator | 机端 target vs 车端 stop_kind 逐段复核 | ✅ 完成：**11/11 一致**；射击/实车两层缺证据 |
+| T35 | verifier | test_autoplan 红分类 | ✅ 完成：**23 条唯一失败**（46 行=每条印两次），全部 §10/§12，属**第五图旧值+契约过期**，重钉清单见 `_tmp_session/t35/REPORT.md` |
 
 ## 2. 阻塞 / 等用户
 
@@ -42,7 +43,7 @@ fbc03b2 docs: 车端更新补记——src/ 根误建包已备份移除，dzbrain
 1. **D1b**：车端 `SEGMENT_DONE` 保持到新布局（或加单调 `done_seq`），避免机侧漏掉完成边沿；
 2. **D2**：`belief 差一格` 属定位/投影（T34 同类），先修投影，不要用放宽判据掩盖；
 3. **D3**：射击停站 发0/中0 —— 单独立卡，先抓 30 s "靶在框内但 fire_ready=0" 数据；
-4. **T35**：test_autoplan 46 红分类；
+4. **T35 后续**：按分类清单重钉 §10/§12（23 条），让 autoplan 回绿；这是纯测试重钉，不改行为；
 5. 赛规两问（GO Gate）确认后出 `race_manifest`。
 
 ## 6. 现场状态快照
