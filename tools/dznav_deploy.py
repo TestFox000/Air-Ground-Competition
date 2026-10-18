@@ -344,9 +344,7 @@ def main():
     ap.add_argument("--status", action="store_true", help="只查当前状态")
     ap.add_argument("--rollback", action="store_true", help="回滚到 legacy 栈")
     args = ap.parse_args()
-    args.password = args.password or os.environ.get("AG_CAR_PASS")
-    if not args.password:
-        raise SystemExit("缺少车端密码：set AG_CAR_PASS=<密码> 或 --password")
+    args.password = remote_run.read_password(args, env_name="AG_CAR_PASS")
     # --config 会被拼进远端 shell 命令，白名单挡掉引号/分号/反引号。
     if not re.fullmatch(r"[~A-Za-z0-9_./-]+", args.config):
         raise SystemExit(f"--config 含非法字符: {args.config!r}")

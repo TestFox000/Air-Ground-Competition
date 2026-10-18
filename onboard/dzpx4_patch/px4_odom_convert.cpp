@@ -978,7 +978,9 @@ void Px4OdomConvert::publishVehicleVisualOdometry(
   // 不触发 EKF reset。hold 期间保持不变（EKF 视角=同一帧的静止测量）。
   vio.reset_counter = ev_reset_counter_;
 
-  vio.quality = 100;
+  // hold 期间同时降低 quality，保证 EKF2_EV_NOISE_MD=0（用 quality 决定
+  // 可信度）时 hold 仍然生效。正常帧 100；hold 时 1（PX4 允许最低值）。
+  vio.quality = gate_holding ? 1 : 100;
 
   const Eigen::Vector3f current_position_ned(
     vio.position[0], vio.position[1], vio.position[2]);

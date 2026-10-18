@@ -38,10 +38,14 @@ def _ros_stub_globals_cleanup():
     里的桩，把富消息换掉。因此这里改为**条件清理**：只有本会话真有测试用过
     ros_stub（即它已进 sys.modules）才复位它的全局单例，绝不再主动引入。
     """
+    def _clear_loaded_stub():
+        if "ros_stub" not in sys.modules:
+            return
+        import ros_stub
+        ros_stub.BUS.disable()
+        ros_stub.SIM.disable()
+        ros_stub.clear_overrides()
+
+    _clear_loaded_stub()
     yield
-    if "ros_stub" not in sys.modules:
-        return
-    import ros_stub
-    ros_stub.BUS.disable()
-    ros_stub.SIM.disable()
-    ros_stub.clear_overrides()
+    _clear_loaded_stub()

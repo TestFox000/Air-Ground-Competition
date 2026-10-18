@@ -242,8 +242,12 @@ _SKIP_FILES = {Path(__file__).name}
 def _referenced_tool_paths() -> dict[str, set[str]]:
     hits: dict[str, set[str]] = {}
     for p in REPO.rglob("*"):
-        if ("__pycache__" in p.parts or p.suffix not in _SCAN_SUFFIX
-                or p.name in _SKIP_FILES):
+        # reference/ 是外部项目快照（车上取回的官方源码，gitignore 不入库），
+        # 其内部出现的 tools/<脚本> 引用指向的是**它自己包内**的 tools/ 布局
+        # （如 dzbrain 的 route_check.py/sim.py），与本仓 tools/ 契约无关——
+        # 不跳过会把它们误判成本仓的幽灵引用。
+        if ("reference" in p.parts or "__pycache__" in p.parts
+                or p.suffix not in _SCAN_SUFFIX or p.name in _SKIP_FILES):
             continue
         try:
             text = p.read_text(encoding="utf-8", errors="replace")

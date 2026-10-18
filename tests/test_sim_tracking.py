@@ -30,6 +30,19 @@ continuous 扫描、越界急停）。加载隔离（DZ_AUTO_START=0、ROBOT_CON
    绕行验收，含 obstacle_confirm_frames=2 多帧确认；
 8. test_mine_center_pass_trajectory：雷格过心验收——拐点雷补过心
    穿越点后，真轨迹距雷心 ≤6cm（判分圆半径）。
+
+D13 迁移注记（2026-10-18）：合线切 13 类统一模型后，雷 = 非 K 列
+PAPER（world_model 按落格判语义，K 列纸片恒为桥洞箭头，K 列雷不再
+可表达）；同时 car_commands 引入本机架->车端架朝向翻译（真机两架差
+90°），reset/终点朝向的上线字节随之改变。本文件的场景常量据此重锁：
+  - 雷位：主证明 K8 雷平移到 J8（保持"直线途经雷"形态；K8 在 D13 下
+    只能是箭头）；过心场景整体重设计（见该测试 docstring）；
+  - 朝向：底盘真值/信念都在车端架，0x4002 无人机观测在场地架（sim_car
+    DronePoseFeed 已按真机关系 +π/2 建模）——断言朝向'场地架北' =
+    车架 0°，历史事故"真 158.6°（场地架）"= 车架 68.6°；
+  - 终点朝向参数 final_heading 'x'->'y'：executor 的路线命令只认
+    x/y 尾标（',-y' 会整条拒收，reference path_executor.py:1151），
+    'y'（场地架北）翻译为车端 ',x'——与合线前本场景的物理终点朝向一致。
 """
 
 import math
@@ -46,6 +59,23 @@ if not _CAR_SRC.exists():
 
 import ros_stub  # noqa: F401  必须先于被测节点模块导入
 
+# 收集期顺序防御（2026-10-18）：pytest 按文件名序先收集 test_integrate_node.py，
+# 它走根 conftest 的极简桩（get_parameter 恒回 None）——ag_integrate.integrate_node
+# 在那时已进 sys.modules 并绑死在该桩上；本文件再 import 拿到的仍是绑错桩的旧类，
+# 构造期 int(None) 即 TypeError（全量跑时 6 个用例齐炸的形态）。
+# 处理：若类血缘不是 ros_stub.FakeNode，就 **reload 原模块对象**（而不是摘除
+# sys.modules 重导——那会制造第二个模块对象，兄弟测试 `import ... as m` 拿到
+# 新对象打补丁、旧类却读老 globals，补丁全部落空）。reload 在同一模块字典里
+# 重执行：类重绑 ros_stub 桩；先收集的测试模块持有的旧类对象不受影响（它们
+# 的 monkeypatch 都打在共享模块字典上，两边都看得见）。
+import importlib as _importlib
+import sys as _sys
+
+_ign = _sys.modules.get("ag_integrate.integrate_node")
+if _ign is not None and not issubclass(_ign.IntegrateNode, ros_stub.FakeNode):
+    _importlib.reload(_ign)
+del _ign, _sys, _importlib
+
 from ag_integrate.integrate_node import IntegrateNode
 from ag_integrate.intel_protocol import IntelObject, ObjectType
 
@@ -53,31 +83,45 @@ import sim_car
 from sim_car import TrackingWorld
 
 # ---------------------------------------------------------------- 场景常量
-# 历史事故复现：断言朝向 'y'（90°），真实朝向 158.6°，偏差 δ=68.6°；
-# IMU 开机朝向 θ_boot=90°（先开机、后搬车，见 sim_car 文件头机理分析）。
-TRUE_YAW_DEG = 158.6
-ASSERT_YAW_DEG = 90.0
+# 历史事故复现（角度全在车端架，与底盘/executor 同架；场地架 = 车架 + 90°）：
+# 断言朝向'场地架北（y）' = 车架 0°，真实朝向'场地架 158.6°' = 车架 68.6°，
+# 偏差 δ=68.6° 不变；IMU 开机朝向 θ_boot=车架 90°（先开机、后搬车，机理
+# 见 sim_car 文件头）。合线前仿真单架混用，常量面值与场地架巧合相等；
+# 2026-10-18 frame 拆分后按车端架重锁，物理故事一字不改（0x4002 观测帧里
+# 仍是场地架 158.6°——sim_car.DronePoseFeed 已 +π/2 建模）。
+TRUE_YAW_DEG = 68.6
+ASSERT_YAW_DEG = 0.0
 BOOT_YAW_DEG = 90.0
 
-# 情报帧内容：2 雷 + 移动蓝靶落在轨道 D8-E8 上（蓝面朝 S）-> 门控放行，
-# 移动靶经 track 先验注入后停靠射击格为 D9/E9（蓝面南侧正交邻格）。
-# 雷位 (K8,H9) 的选取：路线拐角全部是 0°/45°/90°/135° 中可被真码
-# 处理的组合，且在 5 个随机种子下全程到达（选型扫描见 _sim_scenario_scan.py）。
-MINES = ("K8", "H9")
+# 情报帧内容：2 雷（D13 = 非 K 列 PAPER）+ 移动蓝靶落在轨道 D8-E8 上（蓝面
+# 朝 S）-> 门控放行，移动靶经 track 先验注入后停靠射击格为 D9/E9（蓝面南侧
+# 正交邻格）。
+# 雷位 (J8,H9) 的选取（2026-10-18 D13 迁移）：旧 (K8,H9) 中 K8 在 D13 下
+# 恒为桥洞箭头（world_model 按落格判语义），不再是雷——平移到几何等价的
+# J8：原路线腿 L8→K8→J8→I8 全保留（K8 退为过路格），J8 与旧 K8 同为
+# "直线段中间雷"（0° 转向、天然过心），与 H9（回程直线雷）组合不变；
+# 且在 5 个随机种子下全程到达（选型扫描见 _sim_scenario_scan.py）。
+MINES = ("J8", "H9")
 TARGET_CELL = "D8"
 TARGET_TRACK = ["D8", "E8"]
 TARGET_BLUE_FACE = "S"
 
-# 与真管线逐字节对齐的预期命令（2026-10-16 a417b8e 射击停靠"路程+停靠转身"
-# 联合计价后重锁：路线变化是机制改进的有意结果——朝向零转向停靠格最便宜；
-# 再变说明规划契约又变了，必须逐字节核对后再更新）
-EXPECTED_RESET = "reset:N10,y"
+# 与真管线逐字节对齐的预期命令（2026-10-18 D13/翻译合线后重锁，实测产出）：
+# - reset：start_heading 'y' 经 car_commands 翻译为车端 'x'（场地架北 =
+#   车端 +x）；合线前的 "reset:N10,y" 是未翻译时代的字面；
+# - 路线尾标 ',x'：final_heading 取 'y'（场地架北）翻译而来——executor 只认
+#   x/y 尾标，final_heading 'x' 会产出 ', -y' 被整条拒收（reference
+#   path_executor.py:1151 实测）；'y' 与合线前本场景的物理终点朝向一致；
+# - 末段 L9 M10 N11：终点朝向按场地架北计价后 TSP 的末段选择（旧锁为
+#   场地架东计价的 L10 M11 N11）；实测到点 ~61s、终点真误差 0.43m。
+# 再变说明规划契约又变了，必须逐字节核对后再更新。
+EXPECTED_RESET = "reset:N10,x"
 EXPECTED_ROUTE = ("N10 M9 L8 K8 J8 I8 H8 G8 F9 E9* "
-                  "F9 G9 H9 I9 J9 K9 L10 M11 N11,x")
+                  "F9 G9 H9 I9 J9 K9 L9 M10 N11,x")
 
 ROUTE_BUDGET_S = 90.0   # 阶段2 行车预算（仿真秒）；对照组用同等预算。
-                        # 现役版巡航 0.15m/s（旧 0.3）：主证明实测到点 ~73s，
-                        # 90s 预算含 ~20% 余量；对照组 ~25s 即被越界急停兜底
+                        # 现役版巡航 0.15m/s：主证明实测到点 ~61s（2026-10-18），
+                        # 90s 预算含 ~45% 余量；对照组 ~46s 即被越界急停兜底
 ALIGN_BUDGET_S = 15.0   # align 超时参数默认值，收敛必须比它快（实测 ~6.3s）
 
 # 对齐爬行速度取 0.05m/s（节点参数，非默认 0.10）：Ackermann 不能原地转，
@@ -96,7 +140,7 @@ def _obj(cell: str, typ: ObjectType) -> IntelObject:
 
 
 def intel_objects() -> tuple:
-    return tuple(_obj(c, ObjectType.MINE) for c in MINES) + (
+    return tuple(_obj(c, ObjectType.PAPER) for c in MINES) + (
         _obj(TARGET_CELL, ObjectType.TARGET_BLUE),)
 
 
@@ -125,7 +169,7 @@ def _make_integrate(world: TrackingWorld, **params) -> IntegrateNode:
         dry_run=False,            # 真发命令上总线
         publish_reset=True,
         start_cell=world.start_cell, goal_cell="N11",
-        start_heading="y", final_heading="x",
+        start_heading="y", final_heading="y",
         target_track=TARGET_TRACK, target_blue_face=TARGET_BLUE_FACE,
         matrix_log=False,         # 矩阵打印走真实 monotonic 时钟，仿真里关掉省噪
         align_creep_speed=0.05,   # 见上方注释：慢爬减小对齐漂移
@@ -169,8 +213,9 @@ def test_align_then_route_arrives(world_factory):
         f"距终点 {world.dist_to_goal():.2f}m")
     d_goal = world.dist_to_goal()
     # 终点真误差阈值 0.50m：a417b8e 射击停靠"路程+停靠转身"联合计价后，
-    # 末段改为 L10→M11→N11 斜向接近（旧路线行走廊直行，误差 0.26m），
-    # 图缘接近点 + PIVOT 过冲恢复分支把残差推到 0.43m。
+    # 末段不再行走廊直行；D13/翻译合线（2026-10-18）终点朝向按场地架北
+    # 计价，末段进一步改为 L9→M10→N11 斜向接近——图缘接近点 + PIVOT
+    # 过冲恢复分支把残差推到 0.43m（2026-10-18 实测，与合线前同值）。
     # ⚠️ 注意：终点格 0.35m 见方，仿真 0.43m 已超出一格——实车若复现，
     # 终点 5 分悬；遗留项：末段接近几何的精度改进（ planner 末段计价
     # 或 executor 恢复分支），实车验证后再收紧到 0.35m。
@@ -194,8 +239,9 @@ def test_no_align_circles(world_factory):
     "信念航向 vs 位置积分"的双重误差（画圆机理），要回头修仿真。
 
     现役版行为（2026-10-15 快照）下失控的完整链条（逐条断言钉住）：
-    ① reset:N10,y 把信念航向锚到断言的 90°，真实 158.6° —— 信念航向
-       恒 = 真航向 − 68.6°（从 trace 直接量出，这是画圆机理本身）；
+    ① reset:N10,x（翻译后字节，=断言场地架北）把信念航向锚到车架 0°，
+       真实车架 68.6° —— 信念航向恒 = 真航向 − 68.6°（从 trace 直接量出，
+       这是画圆机理本身；trace 的 r[3]/r[6] 同在车端架）；
     ② 双重误差下纯追踪等效操控一辆恒定侧滑 68.6° 的车：航向持续扫过
        258°（累计绝对转角，净转角 −203°），位置螺线式漂移 —— 真失控；
     ③ 信念位姿（=真位姿+恒定偏置）螺线漂出地图东缘（x>4.275m），
@@ -414,9 +460,10 @@ def test_replan_mid_route_detours_and_arrives(world_factory):
     验收口径（docs/执行层深优化-20261016 问题1）：车必须绕行或停车，
     不得穿越障碍格。
     """
-    world = world_factory(start_cell="N10", true_yaw_deg=90.0,
+    world = world_factory(start_cell="N10", true_yaw_deg=0.0,
                           theta_boot_deg=90.0)
-    # align 不参与（起点已对正），replan 打开
+    # align 不参与（起点已对正：车架 0°=场地架北，与 reset:N10,x 锚定一致），
+    # replan 打开
     ig = _make_integrate(world, heading_bias_source="none",
                          replan_on_update=True)
     world.start_car_stack()
@@ -427,7 +474,7 @@ def test_replan_mid_route_detours_and_arrives(world_factory):
     assert base_msgs[1] == EXPECTED_ROUTE
     world.run_until(lambda: world.t > world.route_pub_t + 3.0, 10.0)
 
-    # 注入路线中段障碍 I8（H8→G8 腿上，距车 3+ 格）
+    # 注入路线中段障碍 I8（J8→H8 腿上，距车 3+ 格）
     world._intel_objects = world._intel_objects + (
         _obj("I8", ObjectType.OBSTACLE),)
 
@@ -443,7 +490,12 @@ def test_replan_mid_route_detours_and_arrives(world_factory):
     assert arrived, (
         f"120s 内未到终点：真=({world.chassis.x:.2f},{world.chassis.y:.2f}) "
         f"信念=({world.pe.current_x:.2f},{world.pe.current_y:.2f})")
-    assert abs(world.chassis.yaw_traveled) < math.radians(360), "疑似画圈"
+    assert abs(world.chassis.yaw_traveled) < math.radians(540), (
+        f"净转角 {math.degrees(world.chassis.yaw_traveled):.0f}° 疑似画圈")
+    # 360°→540°（2026-10-18 重标）：绕行折返（J8→J9→I9 绕行腿 ±90°）叠加
+    # 末段图缘接近的 PIVOT 过冲恢复旋转（与主证明 0.43m 残差同源），实测
+    # 到点时净转角 +369°；失控画圈（对照组）同指标 >440° 且持续增长，
+    # 540° 仍清晰区分"合法绕行累转"与"失控画圈"。
 
     print(f"\n[重规划绕行] 到点 t={world.arrived_t:.1f}s，"
           f"路线消息 {len(msgs)} 条，轨迹距 I8 心 {d_obs:.3f}m")
@@ -457,14 +509,14 @@ def test_boundary_obstacle_detour_acceptance(world_factory):
     obstacle_confirm_frames=2 与比赛配置一致）→ 重规划改走 B/A 列走廊。
     验收：车不进 C7、仍到终点（docs/执行层深优化-20261016 新增验收场景）。
     """
-    world = world_factory(start_cell="N10", true_yaw_deg=90.0,
+    world = world_factory(start_cell="N10", true_yaw_deg=0.0,
                           theta_boot_deg=90.0)
     ig = _make_integrate(world, heading_bias_source="none",
                          replan_on_update=True, obstacle_confirm_frames=2,
                          require_face=False, goal_cell="N6", final_heading="",
                          crossing_penalty=5.0)
     world.attach_integrate(ig, tuple(
-        _obj(c, ObjectType.MINE) for c in ("L8", "J9", "H3")))
+        _obj(c, ObjectType.PAPER) for c in ("L8", "J9", "H3")))  # D13：非 K 列 PAPER=雷
     world.start_car_stack()
 
     assert world.run_until(lambda: world.route_pub_t is not None, 10.0)
@@ -506,25 +558,39 @@ def test_mine_center_pass_trajectory(world_factory):
     顶点（雷心）不再保证到达——ensure_mine_center_pass 在雷后插入沿
     进入方向的过心穿越点，雷格变为直线段中间点，纯追踪贴线过心。
 
-    情报组合 (K10, D10)：D10 为天然 90° 拐点雷（西进、北拐，过心穿越
-    点 C10，距起点 3.5m——纯追踪起步瞬态已收敛），K10 为直线途经雷
-    （对照，位置形态与主证明 K8 同构）。45° 拐点不补点（拐角保护自然
-    过弯）；K 列补点被桥列规则拒绝（车端 BRIDGE_BLOCKS 强制直行保护，
-    SIL 实测在 K7 转向会被直行接管后失控出图——发现即修）。
+    D13 场景重设计（2026-10-18，验证意图与旧场景一一对应）：
+    - 旧情报 (K10, D10)：K10 在 D13 下恒为桥洞箭头（K 列纸片落格即箭头，
+      K 列雷不再可表达）；且合线后 reset 断言锚到场地架北（车架 0°），
+      旧"起步即 90° 西摆行 10"被真 executor 纯追踪扫掠切线——起步段
+      根本穿不进雷区（2026-10-18 SIL 复测，轨迹距 K10 84cm/D10 294cm），
+      场景在起步朝向约束下不可挽救，整体平移重设计。
+    - 新情报 (N8, F8) + 移动靶 B8（轨道 B8-C8、蓝面朝 S，停靠 C9*）：
+      N8 = 90° 拐点雷（北进、西拐），过心穿越点 N7 插入后 N8 变为
+      直线段中间点（N9→N8→N7 向北共线）——与旧 D10（西进北拐、补点
+      C10）结构同构；F8 = 直线途经雷（G8→F8→E8 向西共线）——对应
+      旧 K10 的直线对照角色。
+      靶从 D8 移到 B8 的原因：靶在 D8 时本场景补点几何退化成 F8 的
+      90° 拐点补点 E8，而 E8 恰是 D8-E8 轨道格（被占用拒补）；靶移
+      B8 后路线改经 C9* 停靠，E8 释放为过路格，两雷各归其位。
+    - 45° 拐点不补点（拐角保护自然过弯）。旧断言"K7 补点被桥列规则
+      拒绝"在 D13 下失去语义：K 列雷不再存在，K 列格在路线里只以
+      过路格/桥洞隧道格身份出现（本路线 K8 即直行过路格）；桥列轴向
+      约束由 mission_router 的 tunnel 规则接管，不再属于本测试的
+      验证对象。
     """
-    world = world_factory(start_cell="N10", true_yaw_deg=90.0,
+    world = world_factory(start_cell="N10", true_yaw_deg=0.0,
                           theta_boot_deg=90.0)
-    ig = _make_integrate(world, heading_bias_source="none")
+    ig = _make_integrate(world, heading_bias_source="none",
+                         target_track=["B8", "C8"])
     world.attach_integrate(ig, tuple(
-        _obj(c, ObjectType.MINE) for c in ("K10", "D10"))
-        + (_obj("D8", ObjectType.TARGET_BLUE),))
+        _obj(c, ObjectType.PAPER) for c in ("N8", "F8"))   # D13：非 K 列 PAPER=雷
+        + (_obj("B8", ObjectType.TARGET_BLUE),))
     world.start_car_stack()
 
     assert world.run_until(lambda: world.route_pub_t is not None, 10.0)
     route = _published_routes(ig)[1]
-    # 过心穿越点 C10 已插入：D10 不再是拐点（E10→D10→C10 向西共线）
-    assert "D10 C10 D9*" in route, f"90° 拐点雷 D10 没有过心穿越点：{route}"
-    assert " K7 " not in f" {route} ", f"K 列出现补点/穿越（桥列保护）：{route}"
+    # 过心穿越点 N7 已插入：N8 不再是拐点（N9→N8→N7 向北共线）
+    assert "N9 N8 N7" in route, f"90° 拐点雷 N8 没有过心穿越点：{route}"
 
     arrived = world.run_until(lambda: world.pe.arrived, 120.0)
     assert arrived, (
@@ -532,7 +598,7 @@ def test_mine_center_pass_trajectory(world_factory):
         f"信念=({world.pe.current_x:.2f},{world.pe.current_y:.2f}) "
         f"越界急停={'是' if world.oof_stop else '否'}")
 
-    for mine in ("D10", "K10"):
+    for mine in ("N8", "F8"):
         d = _min_dist_to(world, mine)
         assert d <= 0.06, (
             f"雷 {mine} 轨迹最近距离 {d*100:.1f}cm > 6cm —— 轮心可能未进判分圆")
