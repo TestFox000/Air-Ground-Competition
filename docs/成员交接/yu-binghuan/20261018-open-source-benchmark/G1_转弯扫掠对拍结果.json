@@ -1,0 +1,736 @@
+{
+ "r_plan_m": 0.29444863728670917,
+ "r_exec_m": 0.29444863728670917,
+ "half_w_m": 0.1,
+ "danger_combos": 0,
+ "combos": [
+  {
+   "h_in": 0,
+   "h_out": 1,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 0,
+   "h_out": 2,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 0,
+   "h_out": 3,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 6,
+   "n_plan": 6
+  },
+  {
+   "h_in": 0,
+   "h_out": 4,
+   "turn_deg": 180.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [
+    [
+     -1,
+     1
+    ],
+    [
+     -1,
+     2
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ]
+   ],
+   "n_exec": 6,
+   "n_plan": 10
+  },
+  {
+   "h_in": 0,
+   "h_out": 5,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 6,
+   "n_plan": 6
+  },
+  {
+   "h_in": 0,
+   "h_out": 6,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 0,
+   "h_out": 7,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 1,
+   "h_out": 0,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 2,
+   "n_plan": 2
+  },
+  {
+   "h_in": 1,
+   "h_out": 2,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 2,
+   "n_plan": 2
+  },
+  {
+   "h_in": 1,
+   "h_out": 3,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 1,
+   "h_out": 4,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 4,
+   "n_plan": 4
+  },
+  {
+   "h_in": 1,
+   "h_out": 5,
+   "turn_deg": 180.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [
+    [
+     -3,
+     0
+    ],
+    [
+     -3,
+     1
+    ],
+    [
+     -2,
+     0
+    ],
+    [
+     -2,
+     1
+    ],
+    [
+     -1,
+     0
+    ],
+    [
+     -1,
+     1
+    ]
+   ],
+   "n_exec": 7,
+   "n_plan": 13
+  },
+  {
+   "h_in": 1,
+   "h_out": 6,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 4,
+   "n_plan": 4
+  },
+  {
+   "h_in": 1,
+   "h_out": 7,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 2,
+   "h_out": 0,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 2,
+   "h_out": 1,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 2,
+   "h_out": 3,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 2,
+   "h_out": 4,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 2,
+   "h_out": 5,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 6,
+   "n_plan": 6
+  },
+  {
+   "h_in": 2,
+   "h_out": 6,
+   "turn_deg": 180.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [
+    [
+     -2,
+     -1
+    ],
+    [
+     -2,
+     0
+    ],
+    [
+     -1,
+     -1
+    ],
+    [
+     -1,
+     0
+    ]
+   ],
+   "n_exec": 6,
+   "n_plan": 10
+  },
+  {
+   "h_in": 2,
+   "h_out": 7,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 6,
+   "n_plan": 6
+  },
+  {
+   "h_in": 3,
+   "h_out": 0,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 4,
+   "n_plan": 4
+  },
+  {
+   "h_in": 3,
+   "h_out": 1,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 3,
+   "h_out": 2,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 2,
+   "n_plan": 2
+  },
+  {
+   "h_in": 3,
+   "h_out": 4,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 2,
+   "n_plan": 2
+  },
+  {
+   "h_in": 3,
+   "h_out": 5,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 3,
+   "h_out": 6,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 4,
+   "n_plan": 4
+  },
+  {
+   "h_in": 3,
+   "h_out": 7,
+   "turn_deg": 180.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [
+    [
+     -1,
+     -3
+    ],
+    [
+     -1,
+     -2
+    ],
+    [
+     -1,
+     -1
+    ],
+    [
+     0,
+     -3
+    ],
+    [
+     0,
+     -2
+    ],
+    [
+     0,
+     -1
+    ]
+   ],
+   "n_exec": 7,
+   "n_plan": 13
+  },
+  {
+   "h_in": 4,
+   "h_out": 0,
+   "turn_deg": 180.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [
+    [
+     0,
+     -2
+    ],
+    [
+     0,
+     -1
+    ],
+    [
+     1,
+     -2
+    ],
+    [
+     1,
+     -1
+    ]
+   ],
+   "n_exec": 6,
+   "n_plan": 10
+  },
+  {
+   "h_in": 4,
+   "h_out": 1,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 6,
+   "n_plan": 6
+  },
+  {
+   "h_in": 4,
+   "h_out": 2,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 4,
+   "h_out": 3,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 4,
+   "h_out": 5,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 4,
+   "h_out": 6,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 4,
+   "h_out": 7,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 6,
+   "n_plan": 6
+  },
+  {
+   "h_in": 5,
+   "h_out": 0,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 4,
+   "n_plan": 4
+  },
+  {
+   "h_in": 5,
+   "h_out": 1,
+   "turn_deg": 180.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [
+    [
+     1,
+     -1
+    ],
+    [
+     1,
+     0
+    ],
+    [
+     2,
+     -1
+    ],
+    [
+     2,
+     0
+    ],
+    [
+     3,
+     -1
+    ],
+    [
+     3,
+     0
+    ]
+   ],
+   "n_exec": 7,
+   "n_plan": 13
+  },
+  {
+   "h_in": 5,
+   "h_out": 2,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 4,
+   "n_plan": 4
+  },
+  {
+   "h_in": 5,
+   "h_out": 3,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 5,
+   "h_out": 4,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 2,
+   "n_plan": 2
+  },
+  {
+   "h_in": 5,
+   "h_out": 6,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 2,
+   "n_plan": 2
+  },
+  {
+   "h_in": 5,
+   "h_out": 7,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 6,
+   "h_out": 0,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 6,
+   "h_out": 1,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 6,
+   "n_plan": 6
+  },
+  {
+   "h_in": 6,
+   "h_out": 2,
+   "turn_deg": 180.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [
+    [
+     1,
+     0
+    ],
+    [
+     1,
+     1
+    ],
+    [
+     2,
+     0
+    ],
+    [
+     2,
+     1
+    ]
+   ],
+   "n_exec": 6,
+   "n_plan": 10
+  },
+  {
+   "h_in": 6,
+   "h_out": 3,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 6,
+   "n_plan": 6
+  },
+  {
+   "h_in": 6,
+   "h_out": 4,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 6,
+   "h_out": 5,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 6,
+   "h_out": 7,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 7,
+   "h_out": 0,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 2,
+   "n_plan": 2
+  },
+  {
+   "h_in": 7,
+   "h_out": 1,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 7,
+   "h_out": 2,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 4,
+   "n_plan": 4
+  },
+  {
+   "h_in": 7,
+   "h_out": 3,
+   "turn_deg": 180.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ],
+    [
+     1,
+     1
+    ],
+    [
+     1,
+     2
+    ],
+    [
+     1,
+     3
+    ]
+   ],
+   "n_exec": 7,
+   "n_plan": 13
+  },
+  {
+   "h_in": 7,
+   "h_out": 4,
+   "turn_deg": 135.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 4,
+   "n_plan": 4
+  },
+  {
+   "h_in": 7,
+   "h_out": 5,
+   "turn_deg": 90.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 3,
+   "n_plan": 3
+  },
+  {
+   "h_in": 7,
+   "h_out": 6,
+   "turn_deg": 45.0,
+   "miss_danger": [],
+   "miss_route_safe": [],
+   "overkill": [],
+   "n_exec": 2,
+   "n_plan": 2
+  }
+ ]
+}
