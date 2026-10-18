@@ -1,0 +1,611 @@
+### sim.html:69
+OLD|  /* ── 横置地图视图 + 改点位（t25）────────────────────────────────────── */
+NEW|  /* ── 横置地图视图 + 改点位────────────────────────────────────── */
+
+### sim.html:78
+OLD|  /* ★ t15：桥洞进洞侧冗余墙（虚拟）——虚线橙，与实体隔板（实线黑）区分 */
+NEW|  /* 桥洞进洞侧冗余墙（虚拟）——虚线橙，与实体隔板（实线黑）区分 */
+
+### sim.html:87
+OLD|  /* ── t6：棋盘拖拽编辑（棋子 palette + 幽灵元素 + 命中层）────────────────────── */
+NEW|  /* ── 棋盘拖拽编辑（棋子 palette + 幽灵元素 + 命中层）────────────────────── */
+
+### sim.html:89
+OLD|  /* ★ t14：象棋观感 —— palette 棋子 = 圆饼造型（描边 + 内高光 + 外投影） */
+NEW|  /* 象棋观感 —— palette 棋子 = 圆饼造型（描边 + 内高光 + 外投影） */
+
+### sim.html:104
+OLD|  /* ── t10（卡4）：运行仿真动画层 —— 与 #map 同框的绝对定位覆盖层（viewBox 同口径）。
+NEW|  /* ── 运行仿真动画层 —— 与 #map 同框的绝对定位覆盖层（viewBox 同口径）。
+
+### sim.html:113
+OLD|  /* ── t27：历史看图（懒加载 modal）────────────────────────────────────── */
+NEW|  /* ── 历史看图（懒加载 modal）────────────────────────────────────── */
+
+### sim.html:135
+OLD|  /* ★ t73：压测弹窗 —— 状态徽章 / 失败原因 / 顶部汇总（plan-failed 也照画底图） */
+NEW|  /* 压测弹窗 —— 状态徽章 / 失败原因 / 顶部汇总（plan-failed 也照画底图） */
+
+### sim.html:222
+OLD|      <!-- ★ t3（规格 §D.1）：无人机协同开关 —— 默认不勾；勾上后车路线硬避让无人机起降格
+NEW|      <!-- （规格 §D.1）：无人机协同开关 —— 默认不勾；勾上后车路线硬避让无人机起降格
+
+### sim.html:224
+OLD|           ★ t2 收口：起降格**不写死在文案里** —— 由 loadField()/refreshFieldHints() 从
+NEW|           收口：起降格**不写死在文案里** —— 由 loadField()/refreshFieldHints() 从
+
+### sim.html:244
+OLD|    <!-- ── t11（卡5）：64 图压测面板 —— 只走 t7 的 3 个 /sim/stress 端点，后端零改动 ── -->
+NEW|    <!-- ── 64 图压测面板 —— 只走 t7 的 3 个 /sim/stress 端点，后端零改动 ── -->
+
+### sim.html:274
+OLD|      <!-- t6：四类棋子 palette = 主编辑通道；按住拖到棋盘格放下，点棋盘上已有棋子移除 -->
+NEW|      <!-- 四类棋子 palette = 主编辑通道；按住拖到棋盘格放下，点棋盘上已有棋子移除 -->
+
+### sim.html:311
+OLD|        <!-- t6：整图恢复**不带 data-reset**（避免被通用 data-reset 循环二次绑定）；独立 listener → loadField() 重读 /sim/map -->
+NEW|        <!-- 整图恢复**不带 data-reset**（避免被通用 data-reset 循环二次绑定）；独立 listener → loadField() 重读 /sim/map -->
+
+### sim.html:329
+OLD|    <!-- ── 横置地图视图（t25）：14 列水平 × 11 行垂直，格名 + 异色注释 ── -->
+NEW|    <!-- ── 横置地图视图：14 列水平 × 11 行垂直，格名 + 异色注释 ── -->
+
+### sim.html:366
+OLD|      <!-- ★ 卡3+：空地协同拟真地图 —— 底图 + 无人机航线（橙）/扫描大虚线圆/3×3 覆盖 + 小车路线（绿）/起终点位姿 -->
+NEW|      <!-- 卡3+：空地协同拟真地图 —— 底图 + 无人机航线（橙）/扫描大虚线圆/3×3 覆盖 + 小车路线（绿）/起终点位姿 -->
+
+### sim.html:390
+OLD|<!-- ── t27：历史看图 modal（懒加载：仅点击/深链时发一次 /sim/artifact 请求）── -->
+NEW|<!-- ── 历史看图 modal（懒加载：仅点击/深链时发一次 /sim/artifact 请求）── -->
+
+### sim.html:480
+OLD|  // ★ t28：靶板朝向（渲染/提示用，宿主不据此改 config，只记台账）
+NEW|  // 靶板朝向（渲染/提示用，宿主不据此改 config，只记台账）
+
+### sim.html:483
+OLD|  // ★ t2：靶板分色台账（record.targetFace）—— 键与枚举值保留（宿主 sanitizeParams 白名单 + 台账
+NEW|  // 靶板分色台账（record.targetFace）—— 键与枚举值保留（宿主 sanitizeParams 白名单 + 台账
+
+### sim.html:487
+OLD|  // ★ t3（规格 §D.1）：无人机协同 —— 仅勾选时带 drone:true（带键才挂：不勾时请求体无该键，
+NEW|  // （规格 §D.1）：无人机协同 —— 仅勾选时带 drone:true（带键才挂：不勾时请求体无该键，
+
+### sim.html:535
+OLD|  html += rotSvgBox(svg);                       // ★ t25：横置渲染（旋转 90°，不改仿真核心）
+NEW|  html += rotSvgBox(svg);                       // 横置渲染（旋转 90°，不改仿真核心）
+
+### sim.html:615
+OLD|    // ★ t27：查看图入口。这里只写 `data-shot=<id>`，**不发任何请求**（懒加载；URL 只在 openShot 里拼）
+NEW|    // 查看图入口。这里只写 `data-shot=<id>`，**不发任何请求**（懒加载；URL 只在 openShot 里拼）
+
+### sim.html:635
+OLD|  // ★ t27：行内「看图」按钮走事件委托；**循环里只绑监听，不发请求**
+NEW|  // 行内「看图」按钮走事件委托；**循环里只绑监听，不发请求**
+
+### sim.html:684
+OLD|/* ── ★ t25：场地（横置视图）+ 改点位 + 轨迹叠加 ─────────────────────────── */
+NEW|/* ── 场地（横置视图）+ 改点位 + 轨迹叠加 ─────────────────────────── */
+
+### sim.html:689
+OLD|var FIELD_GRID_BLOCK = 0.35; // 每格米数（t28：车身/位姿换算用）
+NEW|var FIELD_GRID_BLOCK = 0.35; // 每格米数（车身/位姿换算用）
+
+### sim.html:691
+OLD|/* ── ★ t28：路径折线 + 小车位姿 + 靶板朝向 ───────────────────────────────── */
+NEW|/* ── 路径折线 + 小车位姿 + 靶板朝向 ───────────────────────────────── */
+
+### sim.html:693
+OLD|/** 靶板朝向（t28）：h=横向（长边沿列）/ v=竖向（长边沿行）/ ''=按两格几何自动判。 */
+NEW|/** 靶板朝向：h=横向（长边沿列）/ v=竖向（长边沿行）/ ''=按两格几何自动判。 */
+
+### sim.html:727
+OLD| * ★ 为什么不再直接连格心：两点间画直线，会让"绕着桶走 L 形"的路线看起来像切角；
+NEW| * 为什么不再直接连格心：两点间画直线，会让"绕着桶走 L 形"的路线看起来像切角；
+
+### sim.html:757
+OLD| *  ★ t17：两个真值只在下面 `CAR_LEN_M/CAR_WID_M` 出现一次（此前 0.28/0.135 在四五个地方各抄
+NEW| *  两个真值只在下面 `CAR_LEN_M/CAR_WID_M` 出现一次（此前 0.28/0.135 在四五个地方各抄
+
+### sim.html:765
+OLD| * ★ 为什么 sin 取负：官方渲染器是 matplotlib（y 轴**向上**），它用 (cos θs, sin θs)；
+NEW| * 为什么 sin 取负：官方渲染器是 matplotlib（y 轴**向上**），它用 (cos θs, sin θs)；
+
+### sim.html:790
+OLD| * ★ t28 修复：原式 `13.5 - y/block` / `10.5 - x/block` 少了半格 —— 官方 S(x,y)=(4.9-y, x)
+NEW| * 修复：原式 `13.5 - y/block` / `10.5 - x/block` 少了半格 —— 官方 S(x,y)=(4.9-y, x)
+
+### sim.html:843
+OLD|  // ★ t6：靶格渲染用「表单当前值优先、FIELD.targets 兜底」——测试桩/未加载时表单为空，
+NEW|  // 靶格渲染用「表单当前值优先、FIELD.targets 兜底」——测试桩/未加载时表单为空，
+
+### sim.html:855
+OLD|      // ★ t14：象棋观感 —— 隔行异色底纹（浅格/白格相间；要素色在其后照旧覆盖）
+NEW|      // 象棋观感 —— 隔行异色底纹（浅格/白格相间；要素色在其后照旧覆盖）
+
+### sim.html:862
+OLD|      // ★ t6：基格 rect 带 data-cell（落格命中层 closest('[data-cell]') 的唯一目标）
+NEW|      // 基格 rect 带 data-cell（落格命中层 closest('[data-cell]') 的唯一目标）
+
+### sim.html:866
+OLD|  // ★ t14：象棋盘外框（深色描边；pointer-events:none ⇒ 不挡 data-cell 命中层）
+NEW|  // 象棋盘外框（深色描边；pointer-events:none ⇒ 不挡 data-cell 命中层）
+
+### sim.html:879
+OLD|  // 注释（形 + 字）—— ★ t14：象棋圆饼棋子 = 底层偏移阴影（投影感）+ 圆饼 + 居中汉字 + 深色描边
+NEW|  // 注释（形 + 字）—— 象棋圆饼棋子 = 底层偏移阴影（投影感）+ 圆饼 + 居中汉字 + 深色描边
+
+### sim.html:898
+OLD|  // ★ t28：靶板按"一块并板"画（横/竖朝向可选），不再每格一个「靶」字
+NEW|  // 靶板按"一块并板"画（横/竖朝向可选），不再每格一个「靶」字
+
+### sim.html:899
+OLD|  //   ★ t6：并板取「表单当前值优先、FIELD.targets 兜底」（与 targetSet 同源，防两处口径漂移）
+NEW|  //   并板取「表单当前值优先、FIELD.targets 兜底」（与 targetSet 同源，防两处口径漂移）
+
+### sim.html:900
+OLD|  //   ★ t2（规格增补「靶板蓝红两色**沿长边对半**、色值固定不随机」）：
+NEW|  //   （规格增补「靶板蓝红两色**沿长边对半**、色值固定不随机」）：
+
+### sim.html:903
+OLD|  //   ★ t2：**废除 t14 的「点击旋转即翻面（蓝↔红）」交互** —— 旋转只改朝向 h↔v，不改分色；
+NEW|  //   **废除 t14 的「点击旋转即翻面（蓝↔红）」交互** —— 旋转只改朝向 h↔v，不改分色；
+
+### sim.html:938
+OLD|  // ★ t15：桥洞**进洞侧冗余墙**（虚拟，现实不存在的设计冗余）——把桥室南北壁沿进洞侧
+NEW|  // 桥洞**进洞侧冗余墙**（虚拟，现实不存在的设计冗余）——把桥室南北壁沿进洞侧
+
+### sim.html:1015
+OLD|  // ★ t28：小车位姿标注（车身矩形 + 车头箭头），沿轨迹抽样
+NEW|  // 小车位姿标注（车身矩形 + 车头箭头），沿轨迹抽样
+
+### sim.html:1034
+OLD|  // ★ t15 顺手修（取证实证）：这行原写 `text($('mapMeta'), …)`，但 renderMap 里的局部
+NEW|  // 顺手修（取证实证）：这行原写 `text($('mapMeta'), …)`，但 renderMap 里的局部
+
+### sim.html:1067
+OLD|    // ★ t6：targets 空值 = 不生效（未加载/测试桩不带该键；与宿主 sanitizeParams 空数组 continue 同口径）
+NEW|    // targets 空值 = 不生效（未加载/测试桩不带该键；与宿主 sanitizeParams 空数组 continue 同口径）
+
+### sim.html:1085
+OLD|    // ★ t14：定容口径 —— chip 直接报「已用/上限」（targets 按块计），到顶标「已满」；
+NEW|    // 定容口径 —— chip 直接报「已用/上限」（targets 按块计），到顶标「已满」；
+
+### sim.html:1093
+OLD|  // ★ t28：靶板朝向 chip
+NEW|  // 靶板朝向 chip
+
+### sim.html:1101
+OLD|  // ★ t2 收口：无人机协同开关文案里的起降格取 /sim/map 真源（FIELD.drone），不写死 N8/M2 ——
+NEW|  // 收口：无人机协同开关文案里的起降格取 /sim/map 真源（FIELD.drone），不写死 N8/M2 ——
+
+### sim.html:1116
+OLD|  // ★ t14：软警告口径废除 —— 「数量与默认不同」不再警告（定容硬顶在落格层拦）。
+NEW|  // 软警告口径废除 —— 「数量与默认不同」不再警告（定容硬顶在落格层拦）。
+
+### sim.html:1135
+OLD|/** ★ t26-L1：哪一类"填了东西但一格合法都没有"（这种必须拦下，不能让宿主宰成"没改点位"）。 */
+NEW|/** 哪一类"填了东西但一格合法都没有"（这种必须拦下，不能让宿主宰成"没改点位"）。 */
+
+### sim.html:1157
+OLD|/* ── ★ t6：棋盘拖拽编辑（palette → 落格校验 → 同步只读镜像）─────────────────────
+NEW|/* ── 棋盘拖拽编辑（palette → 落格校验 → 同步只读镜像）─────────────────────
+
+### sim.html:1165
+OLD|var dragStart = null;                               // ★ t14：pointerdown 起点 —— 位移 < 6px 视为点按（不落子）
+NEW|var dragStart = null;                               // pointerdown 起点 —— 位移 < 6px 视为点按（不落子）
+
+### sim.html:1170
+OLD|/* ── ★ t14：定容棋子槽（硬顶）; ★ t2：靶板蓝红**固定分色**（无翻面状态）─────────────────
+NEW|/* ── 定容棋子槽（硬顶）; 靶板蓝红**固定分色**（无翻面状态）─────────────────
+
+### sim.html:1175
+OLD|/** 靶板蓝红分色（t2，规格增补「长边对半、蓝红各半且色值**固定不随机**」）：
+NEW|/** 靶板蓝红分色（规格增补「长边对半、蓝红各半且色值**固定不随机**」）：
+
+### sim.html:1177
+OLD| *  ★ t2 废除 t14 的「旋转即翻面」：这里**没有** face 状态 —— 分色只由几何决定，
+NEW| *  废除 t14 的「旋转即翻面」：这里**没有** face 状态 —— 分色只由几何决定，
+
+### sim.html:1226
+OLD|/** ★ 修「地图叠加/乱跑」：棋盘一改，上一局的图层就全部作废。
+NEW|/** 修「地图叠加/乱跑」：棋盘一改，上一局的图层就全部作废。
+
+### sim.html:1249
+OLD|/** 落格（拖拽终点）：定容硬顶（t14）+ 规格 §A.2 硬拒 + 靶=相邻两格整对。 */
+NEW|/** 落格（拖拽终点）：定容硬顶+ 规格 §A.2 硬拒 + 靶=相邻两格整对。 */
+
+### sim.html:1264
+OLD|    // ★ t14 定容硬顶：靶板 1 块（占两格）。默认图已放 ⇒ palette 拖靶一律拒（已满 1 枚）；
+NEW|    // 定容硬顶：靶板 1 块（占两格）。默认图已放 ⇒ palette 拖靶一律拒（已满 1 枚）；
+
+### sim.html:1278
+OLD|  // ★ t14 定容硬顶（障 8 / 雷 8 / 通 2）：到顶后该类拖放硬拒 —— 落格不生效 + 「已满」提示，
+NEW|  // 定容硬顶（障 8 / 雷 8 / 通 2）：到顶后该类拖放硬拒 —— 落格不生效 + 「已满」提示，
+
+### sim.html:1290
+OLD|/** 点棋盘已有棋子 = 移除（t14：靶板除外 —— 点靶板 = 旋转，见 onMapClick 分流）。 */
+NEW|/** 点棋盘已有棋子 = 移除（靶板除外 —— 点靶板 = 旋转，见 onMapClick 分流）。 */
+
+### sim.html:1306
+OLD|/* ── ★ t14：靶板本体交互 —— 点击顺时针旋转 90°（h↔v）+ 按住拖动整体换位 ──────────
+NEW|/* ── 靶板本体交互 —— 点击顺时针旋转 90°（h↔v）+ 按住拖动整体换位 ──────────
+
+### sim.html:1309
+OLD|   ★ t2：**旋转不再翻面** —— 蓝/红沿长边的分色由几何决定且固定（TARGET_HALF），
+NEW|   **旋转不再翻面** —— 蓝/红沿长边的分色由几何决定且固定（TARGET_HALF），
+
+### sim.html:1346
+OLD|/** 点击已放置靶板 = 顺时针转 90°（h↔v）；★ t2：不翻面（分色固定沿长边，无 face 状态）。 */
+NEW|/** 点击已放置靶板 = 顺时针转 90°（h↔v）；不翻面（分色固定沿长边，无 face 状态）。 */
+
+### sim.html:1376
+OLD|  // ★ t2：**没有翻面动作** —— 蓝/红沿长边的分色是几何决定的固定配色，
+NEW|  // **没有翻面动作** —— 蓝/红沿长边的分色是几何决定的固定配色，
+
+### sim.html:1418
+OLD|  dragStart = { x: event.clientX, y: event.clientY };   // ★ t14：记起点 —— 位移 < 6px = 点按不落子
+NEW|  dragStart = { x: event.clientX, y: event.clientY };   // 记起点 —— 位移 < 6px = 点按不落子
+
+### sim.html:1427
+OLD|  dragGhost.style.display = 'none';                 // ★ t14：先隐藏 —— 位移 ≥ 6px（真拖拽）才显示幽灵
+NEW|  dragGhost.style.display = 'none';                 // 先隐藏 —— 位移 ≥ 6px（真拖拽）才显示幽灵
+
+### sim.html:1432
+OLD|  // ★ t14：靶板本体拖动不 preventDefault —— 点按（无位移）后仍要能触发 click（= 旋转）；
+NEW|  // 靶板本体拖动不 preventDefault —— 点按（无位移）后仍要能触发 click（= 旋转）；
+
+### sim.html:1440
+OLD|  // ★ t14：位移 ≥ 6px 才亮幽灵 —— 点按不闪提示，真拖拽才跟手（与 onDragUp 的 6px 落子阈值同口径）
+NEW|  // 位移 ≥ 6px 才亮幽灵 —— 点按不闪提示，真拖拽才跟手（与 onDragUp 的 6px 落子阈值同口径）
+
+### sim.html:1461
+OLD|  // ★ t14：只拖拽放置 —— 位移 < 6px 视为点按（palette 按钮点击不落子，「能点出 10 个」
+NEW|  // 只拖拽放置 —— 位移 < 6px 视为点按（palette 按钮点击不落子，「能点出 10 个」
+
+### sim.html:1481
+OLD|    $('targets').value = (body.targets || []).join(' ');   // ★ t6：靶两格镜像一起回填（整图恢复还原棋盘）
+NEW|    $('targets').value = (body.targets || []).join(' ');   // 靶两格镜像一起回填（整图恢复还原棋盘）
+
+### sim.html:1493
+OLD|/** ★ t6 恢复默认补丁：同步回填（G1 断言可见）之后异步 GET /sim/map 刷新真源；
+NEW|/** 恢复默认补丁：同步回填（G1 断言可见）之后异步 GET /sim/map 刷新真源；
+
+### sim.html:1526
+OLD|    // ★ 车身抽样**独立成趟**，不能与上面 `i += 4` 的轨迹循环共用一个 index：
+NEW|    // 车身抽样**独立成趟**，不能与上面 `i += 4` 的轨迹循环共用一个 index：
+
+### sim.html:1549
+OLD|/* ── ★ t10（卡4）：运行仿真动画 —— 车比例方块起点循迹 + 渐进路径线（trail）─────────
+NEW|/* ── （卡4）：运行仿真动画 —— 车比例方块起点循迹 + 渐进路径线（trail）─────────
+
+### sim.html:1566
+OLD| *  （t17：原先这里把 `0.28 * MAP_S / FIELD_GRID_BLOCK` 又抄了一遍，与车身定义同式不同源）。 */
+NEW| *  （原先这里把 `0.28 * MAP_S / FIELD_GRID_BLOCK` 又抄了一遍，与车身定义同式不同源）。 */
+
+### sim.html:1714
+OLD|/* ── ★ t27：历史结果看图（懒加载 modal）────────────────────────────────────
+NEW|/* ── 历史结果看图（懒加载 modal）────────────────────────────────────
+
+### sim.html:1838
+OLD|/* ── ★ t2（规格增补 §D.1/§D.3 收口）：无人机协同「本局复核」──────────────────────
+NEW|/* ── （规格增补 §D.1/§D.3 收口）：无人机协同「本局复核」──────────────────────
+
+### sim.html:1882
+OLD|  // ★ t26-L1（t27 修）：**非法格名不得静默丢弃**。任一类"非空输入但规范化后 0 格"时**不发请求**，
+NEW|  // （t27 修）：**非法格名不得静默丢弃**。任一类"非空输入但规范化后 0 格"时**不发请求**，
+
+### sim.html:1896
+OLD|  // ★ t10：清掉上一局回放（停表 + 清覆盖层），完成后自动播新一局
+NEW|  // 清掉上一局回放（停表 + 清覆盖层），完成后自动播新一局
+
+### sim.html:1909
+OLD|      startReplay(payload.record);                 // ★ t10：本次 run 真实轨迹动画（traj 缺失自动回退路线折线）
+NEW|      startReplay(payload.record);                 // 本次 run 真实轨迹动画（traj 缺失自动回退路线折线）
+
+### sim.html:1912
+OLD|      // ★ t3（§D.2）页面校验层复核（双层避让的第二层）+ ★ t2 收口：三态见 droneRunAudit ——
+NEW|      // （§D.2）页面校验层复核（双层避让的第二层）+ 收口：三态见 droneRunAudit ——
+
+### sim.html:1930
+OLD|        // ★ t2：drone 开时 422 也落 record.plan.drone（宿主「规划成败都落」的约定）——
+NEW|        // drone 开时 422 也落 record.plan.drone（宿主「规划成败都落」的约定）——
+
+### sim.html:1935
+OLD|        // ★ 修「地图叠加」：plan-failed 同样要清上一局的 TRACE —— 原实现漏了这步，
+NEW|        // 修「地图叠加」：plan-failed 同样要清上一局的 TRACE —— 原实现漏了这步，
+
+### sim.html:1940
+OLD|        // ★ t10：plan-failed 也回放 —— 无 traj ⇒ 回退路线折线并标注「回放路线」
+NEW|        // plan-failed 也回放 —— 无 traj ⇒ 回退路线折线并标注「回放路线」
+
+### sim.html:1972
+OLD|// ★ t25：改点位即时预览 + 恢复默认 + 地图叠加开关（t6：四类含 targets；文本框为只读镜像）
+NEW|// 改点位即时预览 + 恢复默认 + 地图叠加开关（四类含 targets；文本框为只读镜像）
+
+### sim.html:1976
+OLD|// ★ t28-F3：靶板朝向是 <select>（'' = 跟随地图）——必须绑 change（不是 input），否则改完地图不重绘、提示不刷新
+NEW|// 靶板朝向是 <select>（'' = 跟随地图）——必须绑 change（不是 input），否则改完地图不重绘、提示不刷新
+
+### sim.html:1982
+OLD|      if (key === 'targetYaw') {          // ★ t28-F3：<select> 的默认项是 ''（跟随地图），不能走 join(' ')
+NEW|      if (key === 'targetYaw') {          // <select> 的默认项是 ''（跟随地图），不能走 join(' ')
+
+### sim.html:1991
+OLD|      refreshFieldTruth(key);             // ★ t6：同步回填（上面文案 G1 断言可见）后异步刷新真源，只回填该类
+NEW|      refreshFieldTruth(key);             // 同步回填（上面文案 G1 断言可见）后异步刷新真源，只回填该类
+
+### sim.html:1995
+OLD|// ★ t6：palette 拖拽 + 棋盘点选移除 + 整图恢复（桩安全：querySelectorAll 空集返回 []、$() 自动建桩、
+NEW|// palette 拖拽 + 棋盘点选移除 + 整图恢复（桩安全：querySelectorAll 空集返回 []、$() 自动建桩、
+
+### sim.html:2000
+OLD|// ★ t14：棋盘点按（靶板=旋转 / 其余棋子=移除）+ 按住靶板格拖动 = 整体换位
+NEW|// 棋盘点按（靶板=旋转 / 其余棋子=移除）+ 按住靶板格拖动 = 整体换位
+
+### sim.html:2013
+OLD|  // ★ t2：靶板分色已无 state（蓝/红沿长边固定）⇒ 整图恢复不再需要"还原面色"（旧 t14 在此复位 TARGET_FACE）
+NEW|  // 靶板分色已无 state（蓝/红沿长边固定）⇒ 整图恢复不再需要"还原面色"（旧 t14 在此复位 TARGET_FACE）
+
+### sim.html:2024
+OLD|// ★ t10（卡4）：回放按钮（重播当前回放数据）—— 只写 #anim 覆盖层，不碰 #map/时间线面板
+NEW|// （卡4）：回放按钮（重播当前回放数据）—— 只写 #anim 覆盖层，不碰 #map/时间线面板
+
+### sim.html:2026
+OLD|// ★ t27：看图 modal 的关法与竖版切换
+NEW|// 看图 modal 的关法与竖版切换
+
+### sim.html:2032
+OLD|// ★ 64 图压测弹窗关闭
+NEW|// 64 图压测弹窗关闭
+
+### sim.html:2047
+OLD|// ★ t8（卡3）：空地协同时间线 —— 双轨并行推进（无人机逐点扫描 vs 小车先验行驶）。
+NEW|// （卡3）：空地协同时间线 —— 双轨并行推进（无人机逐点扫描 vs 小车先验行驶）。
+
+### sim.html:2085
+OLD|/* ── ★ 卡3+：空地协同拟真地图 —— 与主地图同一套底图（棋盘/隔板/起终点/雷障洞靶），
+NEW|/* ── 卡3+：空地协同拟真地图 —— 与主地图同一套底图（棋盘/隔板/起终点/雷障洞靶），
+
+### sim.html:2156
+OLD|  // ★ t2：与主地图 renderMap 同一分色口径 —— 蓝/红**沿长边对半**、色值固定不随机。
+NEW|  // 与主地图 renderMap 同一分色口径 —— 蓝/红**沿长边对半**、色值固定不随机。
+
+### sim.html:2312
+OLD|      // ★ t2 收口：空地协同复用的同一 readForm（开关同一枚）⇒ 同一套本局复核；
+NEW|      // 收口：空地协同复用的同一 readForm（开关同一枚）⇒ 同一套本局复核；
+
+### sim.html:2335
+OLD|/* ── ★ t11（卡5）：50 图压测面板 —— POST /sim/stress（background 202）→ status 轮询 →
+NEW|/* ── （卡5）：50 图压测面板 —— POST /sim/stress（background 202）→ status 轮询 →
+
+### sim.html:2410
+OLD|/* ── ★ 64 图压测弹窗：每图一张卡（场地底图 + 路线折线 + 状态/失败原因）+ 底部均值 ──
+NEW|/* ── 64 图压测弹窗：每图一张卡（场地底图 + 路线折线 + 状态/失败原因）+ 底部均值 ──
+
+### sim.html:2412
+OLD|   ★ t73 修复「压测完成后的弹窗看不到跑出来的路线图」：
+NEW|   修复「压测完成后的弹窗看不到跑出来的路线图」：
+
+### sim.html:2568
+OLD|  // ★ t73：把两个均值的**分母**也写出来（t7 显式分母口径；缺统计字段时退回 records 自算）
+NEW|  // 把两个均值的**分母**也写出来（t7 显式分母口径；缺统计字段时退回 records 自算）
+
+### sim.html:2652
+OLD|// ★ t27：深链 `#view=<run id>` → 打开该 run 的图（**显式动作**，不是预取；普通打开仍是 0 请求）
+NEW|// 深链 `#view=<run id>` → 打开该 run 的图（**显式动作**，不是预取；普通打开仍是 0 请求）
+
+### index.js:380
+OLD|          // ★ 拟真（卡3+）：透传无人机航线 + 情报命中，前端据此在场地地图上画飞行/扫描/采纳。
+NEW|          // 拟真（卡3+）：透传无人机航线 + 情报命中，前端据此在场地地图上画飞行/扫描/采纳。
+
+### src/simbench.js:81
+OLD|// ── 场地（★ t25：全部**只读**；`config/**` 与 `src/dzbrain/**` 零写入）─────────
+NEW|// ── 场地（全部**只读**；`config/**` 与 `src/dzbrain/**` 零写入）─────────
+
+### src/simbench.js:89
+OLD| *  ★ t17：dronesim 的 `LETTERS`、stressbench 的 `COLS` 此前各抄一份 `'ABCDEFGHIJKLMN'`；
+NEW| *  dronesim 的 `LETTERS`、stressbench 的 `COLS` 此前各抄一份 `'ABCDEFGHIJKLMN'`；
+
+### src/simbench.js:94
+OLD|/** 页面允许编辑的四类点位（t6：+targets —— 其余要素保持现场值）。 */
+NEW|/** 页面允许编辑的四类点位（+targets —— 其余要素保持现场值）。 */
+
+### src/simbench.js:97
+OLD| *  ★ t17：dronesim 此前另抄一份同值兜底（注释还写着"与 simbench 内建兜底同值"）——
+NEW| *  dronesim 此前另抄一份同值兜底（注释还写着"与 simbench 内建兜底同值"）——
+
+### src/simbench.js:104
+OLD|/** ★ t28：`fieldSpec()` 单次调用内解析出的靶格（`targetBoard()` 从它判横竖）。 */
+NEW|/** `fieldSpec()` 单次调用内解析出的靶格（`targetBoard()` 从它判横竖）。 */
+
+### src/simbench.js:134
+OLD|// ── 场地读取 / 改点位 override（★ t25；只读现场真源，产物只落运行目录）──────────
+NEW|// ── 场地读取 / 改点位 override（；只读现场真源，产物只落运行目录）──────────
+
+### src/simbench.js:232
+OLD|    // ★ t15：桥洞进洞侧冗余墙长度（米）——真源 config/robot.yaml `field.bridge_entry_redundancy_m`
+NEW|    // 桥洞进洞侧冗余墙长度（米）——真源 config/robot.yaml `field.bridge_entry_redundancy_m`
+
+### src/simbench.js:255
+OLD|    // ★ t28：靶板由 targets 的相邻两格并成一块；按两格几何关系自动判横/竖（页面可覆盖）。
+NEW|    // 靶板由 targets 的相邻两格并成一块；按两格几何关系自动判横/竖（页面可覆盖）。
+
+### src/simbench.js:262
+OLD| * 靶板几何（t28）：把 `map.targets` 的格名按**屏幕坐标**判横竖。
+NEW| * 靶板几何：把 `map.targets` 的格名按**屏幕坐标**判横竖。
+
+### src/simbench.js:284
+OLD| * ★ 文件里的形状是 `route:` 段下的 `tokens: [...]`（展平后才叫 `route.tokens`），
+NEW| * 文件里的形状是 `route:` 段下的 `tokens: [...]`（展平后才叫 `route.tokens`），
+
+### src/simbench.js:312
+OLD|/** ★ t3（规格 §D.2）：无人机协同 —— 把无人机起降格注入 override 图的 obstacles 列表。
+NEW|/** （规格 §D.2）：无人机协同 —— 把无人机起降格注入 override 图的 obstacles 列表。
+
+### src/simbench.js:333
+OLD|  // ★ `m` 标志不能少：obstacles 行在 map.yaml 中部，^$ 不按行锚就会整串匹配失败（误抛）。
+NEW|  // `m` 标志不能少：obstacles 行在 map.yaml 中部，^$ 不按行锚就会整串匹配失败（误抛）。
+
+### src/simbench.js:339
+OLD|/** ★ t3（规格 §D.3）：无人机扫描**走廊行**（上半场 top / 下半场 bottom，1-based 行号）。
+NEW|/** （规格 §D.3）：无人机扫描**走廊行**（上半场 top / 下半场 bottom，1-based 行号）。
+
+### src/simbench.js:427
+OLD|/* ── ★ t12：增量规划透传（`from_cell` / `already_covered`）────────────────────
+NEW|/* ── 增量规划透传（`from_cell` / `already_covered`）────────────────────
+
+### src/simbench.js:510
+OLD|/** ★ t15：`field.bridge_entry_redundancy_m` 的缺省兜底（米）。
+NEW|/** `field.bridge_entry_redundancy_m` 的缺省兜底（米）。
+
+### src/simbench.js:515
+OLD|/** ★ t15：robot.yaml 里 dzbrain 段 `field:` 块下的 `bridge_entry_redundancy_m`
+NEW|/** robot.yaml 里 dzbrain 段 `field:` 块下的 `bridge_entry_redundancy_m`
+
+### src/simbench.js:585
+OLD| *  ★ t12 入参：`fromCell`（增量续算起点）/ `alreadyCovered`（已压格，只对雷生效）——
+NEW| *  入参：`fromCell`（增量续算起点）/ `alreadyCovered`（已压格，只对雷生效）——
+
+### src/simbench.js:594
+OLD|  // ★ 修「乱算」：与车端同引擎（robot.yaml planner.engine；读不到就不传，保持历史默认）。
+NEW|  // 修「乱算」：与车端同引擎（robot.yaml planner.engine；读不到就不传，保持历史默认）。
+
+### src/simbench.js:597
+OLD|  // ★ t12：增量规划透传（from_cell / already_covered）——**声明了才传**，缺省逐字节不变。
+NEW|  // 增量规划透传（from_cell / already_covered）——**声明了才传**，缺省逐字节不变。
+
+### src/simbench.js:611
+OLD|    // ★ t12：取证用（离线断言/台账都要能回答"这一趟到底带了哪些参数"）
+NEW|    // 取证用（离线断言/台账都要能回答"这一趟到底带了哪些参数"）
+
+### src/simbench.js:626
+OLD| * ★ 导出**仅供离线断言**使用（`scripts/test-sim-map-render.mjs` 的「E 透传链②」一组）：
+NEW| * 导出**仅供离线断言**使用（`scripts/test-sim-map-render.mjs` 的「E 透传链②」一组）：
+
+### src/simbench.js:651
+OLD|  // ★ t25：seed 留空 = sim_cli 的 SimConfig 默认（不传 `--seed`，与改动前逐字一致）。
+NEW|  // seed 留空 = sim_cli 的 SimConfig 默认（不传 `--seed`，与改动前逐字一致）。
+
+### src/simbench.js:653
+OLD|  // ★ t28：靶板朝向（'h' 横向 / 'v' 竖向 / '' 跟随地图）——**只用于渲染与台账**，
+NEW|  // 靶板朝向（'h' 横向 / 'v' 竖向 / '' 跟随地图）——**只用于渲染与台账**，
+
+### src/simbench.js:656
+OLD|  // ★ t14：靶板蓝红面（'blue' | 'red'）——仿 targetYaw 先例：只用于渲染与台账，
+NEW|  // 靶板蓝红面（'blue' | 'red'）——仿 targetYaw 先例：只用于渲染与台账，
+
+### src/simbench.js:662
+OLD|  // ★ t3（规格 §D）：无人机协同开关 —— 仅 `true` 通过（false/字符串/其它一律 null 丢弃），
+NEW|  // （规格 §D）：无人机协同开关 —— 仅 `true` 通过（false/字符串/其它一律 null 丢弃），
+
+### src/simbench.js:668
+OLD|  // ★ t25：三类点位若要改，就在运行目录里生成 override（config/** 零写入）。
+NEW|  // 三类点位若要改，就在运行目录里生成 override（config/** 零写入）。
+
+### src/simbench.js:681
+OLD|  // ★ t14：带键才挂 —— sp({}) 的键表保持 t28 的 7 键不变（守卫 E 组钉死），不破 61/61。
+NEW|  // 带键才挂 —— sp({}) 的键表保持 t28 的 7 键不变（守卫 E 组钉死），不破 61/61。
+
+### src/simbench.js:683
+OLD|  // ★ t3：同款带键才挂 —— 不带 drone 键的请求（压测/无人机体/OFF）params 形状不变。
+NEW|  // 同款带键才挂 —— 不带 drone 键的请求（压测/无人机体/OFF）params 形状不变。
+
+### src/simbench.js:709
+OLD| * ★ 这两条是**照着 sim_cli 的真实排版**钉的（t21 实测：不这么写会抓错行）：
+NEW| * 这两条是**照着 sim_cli 的真实排版**钉的（t21 实测：不这么写会抓错行）：
+
+### src/simbench.js:778
+OLD| *  ★ t17：`droneHistory()` 原先自己重抄一遍「读文件→逐行 parse→按 kind 过滤→slice(-50)」，
+NEW| *  `droneHistory()` 原先自己重抄一遍「读文件→逐行 parse→按 kind 过滤→slice(-50)」，
+
+### src/simbench.js:826
+OLD|    // ★ t14：靶板蓝红面（页面恒带 'blue'/'red'；压测/无人机体不带时 undefined ⇒ JSON 序列化自然省略）
+NEW|    // 靶板蓝红面（页面恒带 'blue'/'red'；压测/无人机体不带时 undefined ⇒ JSON 序列化自然省略）
+
+### src/simbench.js:837
+OLD|    // ---- ★ t25：改点位 → 运行目录里生成 override（地图 + 配置副本 + 重规划路线）----
+NEW|    // ---- 改点位 → 运行目录里生成 override（地图 + 配置副本 + 重规划路线）----
+
+### src/simbench.js:838
+OLD|    // ★ t3（§D.2）：无人机协同也走 override 路径 —— drone 开 ⇒ 起降格注入 override 图
+NEW|    // （§D.2）：无人机协同也走 override 路径 —— drone 开 ⇒ 起降格注入 override 图
+
+### src/simbench.js:850
+OLD|      // ★ t3：field 变换（棋盘改点）先做，drone 避让注入**叠在其产物上**（同一张图）。
+NEW|      // field 变换（棋盘改点）先做，drone 避让注入**叠在其产物上**（同一张图）。
+
+### src/simbench.js:864
+OLD|      // ★ 规格 §B.6：路径规划计算时间（用户点名的统计项）—— Date.now 包住 plan_route，
+NEW|      // 规格 §B.6：路径规划计算时间（用户点名的统计项）—— Date.now 包住 plan_route，
+
+### src/simbench.js:868
+OLD|      if (params.field) record.field = params.field        // ★ t3：drone-only 跑不落 null field 键
+NEW|      if (params.field) record.field = params.field        // drone-only 跑不落 null field 键
+
+### src/simbench.js:882
+OLD|      // ★ t3（§D.3）：drone 台账字段 —— **规划成败都落**（422 plan-failed 也在，证约束在场）。
+NEW|      // （§D.3）：drone 台账字段 —— **规划成败都落**（422 plan-failed 也在，证约束在场）。
+
+### src/simbench.js:906
+OLD|      // ★ `--route` 的文件解析按空格/逗号切词，末点的朝向后缀 `,x`/`,y` 会被切成独立 token
+NEW|      // `--route` 的文件解析按空格/逗号切词，末点的朝向后缀 `,x`/`,y` 会被切成独立 token
+
+### src/dronesim.js:4
+OLD| * ★ 决策已拍板（2026-10-17，docs/无人机拟真与动态规划_方案.md §7）：
+NEW| * 决策已拍板（2026-10-17，docs/无人机拟真与动态规划_方案.md §7）：
+
+### src/dronesim.js:12
+OLD| * ★ 有意边界：
+NEW| * 有意边界：
+
+### src/dronesim.js:24
+OLD|/** ★ t17：起降格兜底的 `DRONE_FALLBACK` 与列字母 `COL_LETTERS` 一律从 simbench 取（原先各抄一份）。 */
+NEW|/** 起降格兜底的 `DRONE_FALLBACK` 与列字母 `COL_LETTERS` 一律从 simbench 取（原先各抄一份）。 */
+
+### src/dronesim.js:128
+OLD| * ★ 增量交付（决策 #3 情报先导）：每条 `bridge_passable` 带 `checkpoint` + `t` ——
+NEW| * 增量交付（决策 #3 情报先导）：每条 `bridge_passable` 带 `checkpoint` + `t` ——
+
+### src/dronesim.js:173
+OLD|      // ★ 增量交付：首次覆盖到它的 checkpoint（决策 #3 情报先导）
+NEW|      // 增量交付：首次覆盖到它的 checkpoint（决策 #3 情报先导）
+
+### src/dronesim.js:200
+OLD| *  ★ t3（规格 §D）：drone 开时取证图同样注入起降格硬避让（与最终 runSim 实跑的同一约束）——
+NEW| *  （规格 §D）：drone 开时取证图同样注入起降格硬避让（与最终 runSim 实跑的同一约束）——
+
+### src/dronesim.js:202
+OLD| *  ★ t12：增量规划透传口 —— `fromCell` / `alreadyCovered`（车端 t9 的 planner 入参）与
+NEW| *  增量规划透传口 —— `fromCell` / `alreadyCovered`（车端 t9 的 planner 入参）与
+
+### src/dronesim.js:226
+OLD|    // ★ 与页面/车端同引擎（t1 根因修复的收尾）：truth 取证也拼 --engine，
+NEW|    // 与页面/车端同引擎（t1 根因修复的收尾）：truth 取证也拼 --engine，
+
+### src/dronesim.js:232
+OLD|    // ★ t12：增量参数同链路透传（白名单化；未声明 ⇒ 不加，诉求进 dropped）
+NEW|    // 增量参数同链路透传（白名单化；未声明 ⇒ 不加，诉求进 dropped）
+
+### src/dronesim.js:335
+OLD|  // ★ 落地方式 = runSim 的 field override 通道：传 field（四键 + bridges=truth）⇒
+NEW|  // 落地方式 = runSim 的 field override 通道：传 field（四键 + bridges=truth）⇒
+
+### src/dronesim.js:339
+OLD|  // ★ t3（规格 §D / 修订后验收 4）：drone 开时把开关**转发给 runSim**（带键才挂——runSimJob
+NEW|  // （规格 §D / 修订后验收 4）：drone 开时把开关**转发给 runSim**（带键才挂——runSimJob
+
+### src/dronesim.js:362
+OLD|    drone: drone === true,                       // ★ t3：无人机台账留痕（车台账在 record.plan.drone）
+NEW|    drone: drone === true,                       // 无人机台账留痕（车台账在 record.plan.drone）
+
+### src/dronesim.js:373
+OLD|      // ★ 拟真（卡3+）：给前端画航线/扫描覆盖的完整格序列（含每点 3×3 覆盖）。
+NEW|      // 拟真（卡3+）：给前端画航线/扫描覆盖的完整格序列（含每点 3×3 覆盖）。
+
+### src/dronesim.js:377
+OLD|      // ★ 增量交付（决策 #3）：checkpoint 序列，前端画「情报交付点 + 车改道时刻」。
+NEW|      // 增量交付（决策 #3）：checkpoint 序列，前端画「情报交付点 + 车改道时刻」。
+
+### src/dronesim.js:384
+OLD|/** 无人机协同台账：台账读/过滤统一走 `simbench.readMeta({ kind:'drone' })`（t17：不再自拼一遍）。 */
+NEW|/** 无人机协同台账：台账读/过滤统一走 `simbench.readMeta({ kind:'drone' })`（不再自拼一遍）。 */

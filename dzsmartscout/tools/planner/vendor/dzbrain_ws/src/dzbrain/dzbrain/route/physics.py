@@ -637,11 +637,19 @@ def bridge_entry_walls(block: str, redundancy_m: float
 def body_bridge_wall_clearance_m(px: float, py: float, yaw: float, walls, *,
                                  length_m: float = 0.28, width_m: float = 0.135,
                                  offset_m: float = DEFAULT_REF_OFFSET_M) -> float:
-    """车体（旋转矩形）4 边 → 全部**桥洞冗余墙线段**的最短距离（米；重叠 = 0）。
+    """车体（旋转矩形）→ 全部**桥洞冗余墙线段**的最短距离（米；**重叠 = 0**）。
 
     ★ 用 `body_corners()` 的真实旋转矩形（含 `offset_m`，默认 0.0 ⇒ 老调用方行为不变），
       逐边与每段墙做 `_seg_seg_distance`（相交 = 0）取最小 —— 与 `body_barrier_clearance_m`
       同一套"多边形 vs 线段"口径，所以"斜着蹭墙"不会被漏掉。
+
+    ★★ **包含检测（t4 实测补的真 bug，不要删）**：`_seg_seg_distance` 的合同只在
+      "两段**边**相交"时给 0。墙段完全落在车体矩形**内部**时不与任何一条边相交
+      ⇒ 退化成"端点↔边"距离 ⇒ **错报正间隙**。实测：`K9` 进洞线 `y=1.05`、车心
+      `x = cx+0.13`（近似车心压住南壁）时错报 **0.0225 m**（真值 0，墙整段在车身内）。
+      对"逼车摆正、不许碰壁"这个用途，漏判**包含**正好漏掉最严重的侵入 ⇒ 必须显式判。
+      判据：墙段任一端点落在车身多边形内，或墙段中点落在内（覆盖"两端点都在内"与
+      "两端点在外但整段穿过"两种；后者已由边相交覆盖）⇒ 直接返回 0。
 
     :param walls: `bridge_entry_walls()` 的返回值，或任意 `(x0,y0,x1,y1)` 段的可迭代集合；
         空集合 ⇒ 返回 `inf`（"没有墙"⇒ 无约束）。
@@ -656,10 +664,14 @@ def body_bridge_wall_clearance_m(px: float, py: float, yaw: float, walls, *,
     poly = body_corners(px, py, yaw, length_m=length_m, width_m=width_m, offset_m=offset_m)
     best = float("inf")
     n = len(poly)
-    for i in range(n):
-        ax, ay = poly[i]
-        bx, by = poly[(i + 1) % n]
-        for (cx0, cy0, cx1, cy1) in segs:
+    for (cx0, cy0, cx1, cy1) in segs:
+        # ★ 包含检测：墙整段在车体内 ⇒ 真重叠。先判，避免被"端点↔边"距离骗过。
+        if (_point_in_poly(cx0, cy0, poly) or _point_in_poly(cx1, cy1, poly)
+                or _point_in_poly((cx0 + cx1) / 2.0, (cy0 + cy1) / 2.0, poly)):
+            return 0.0
+        for i in range(n):
+            ax, ay = poly[i]
+            bx, by = poly[(i + 1) % n]
             d = _seg_seg_distance(ax, ay, bx, by, cx0, cy0, cx1, cy1)
             if d < best:
                 best = d

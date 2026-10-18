@@ -10,7 +10,8 @@ r"""无人机俯瞰场地感知管线（纯 Python：numpy + Pillow，cv2 仅可
 | :mod:`objects` | 雷 / 障 / 靶区（+图纸"通"格）→ 格名 | 格名列表 + 置信度 + 拒收理由 |
 | :mod:`car_pose` | 车顶标记 → ``block`` + ``yaw``（透视校正） | ``CarPose`` |
 | :mod:`bridge_arrow` | 桥顶箭头 → 方向 → 半场通行格 | ``BridgeCall`` |
-| :mod:`protocol` | 车侧契约 JSON（``drone.py`` 口径） | 4 种报文 + 校验 + 车侧解析镜像 |
+| :mod:`protocol` | 车侧契约 JSON（``drone.py`` 口径） | 4 种报文 + 校验 + 车侧解析镜像 + 覆盖/负证据 |
+| :mod:`coverage` | 片（slice）与覆盖清单（t5a） | 7 片航点、``coverage{complete,cells}`` 几何 |
 | :mod:`field_map` | **出图**：感知输出 → 与 ``config/map.yaml`` 同 schema 的场地地图 | ``FieldMap``（JSON/YAML + 对账 + 置信度） |
 | :mod:`pipeline` | 总装（一帧图 → 一组报文） | ``PerceptionResult`` |
 
@@ -19,7 +20,7 @@ r"""无人机俯瞰场地感知管线（纯 Python：numpy + Pillow，cv2 仅可
 
 from __future__ import annotations
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"     # 1.2.0 = t5a：片级覆盖/负证据（coverage/slice/scan_id）
 
 from .bridge_arrow import (ArrowDetection, ArrowSpec, BridgeCall,
                            detect_arrows, direction_from_points,
@@ -28,6 +29,9 @@ from .car_pose import CarPose, CarSpec, best_car, detect_car
 from .colors import (FIELD_DEFAULT, MAP_IMAGE, PALETTES, Blob, ColorRule, Palette,
                      as_rgb_array, blob_masks, classify, close_, connected_components,
                      dilate, erode, hsv_to_rgb, open_, rgb_to_hsv, sample_patch_stats)
+from .coverage import (DEFAULT_SLICE_ROUTES, SLICE_PRESETS, T1_SLICE_ROUTES, Slice,
+                       SliceCoverage, SlicePlan, as_plan, cells_of_route,
+                       parse_slice_spec, plan_for)
 from .field_map import (MAP_SCHEMA_KEYS, BlueFaceEstimate, FieldMap, Reconciliation,
                         build_field_map, build_field_map_from_result,
                         confidence_thresholds, estimate_blue_face, motion_budget,
@@ -39,11 +43,12 @@ from .grid import (COL_LETTERS, CORNER_ORDER, ArenaRegistration, CellHit, GridSp
 from .objects import (FIELD_SPECS, MAP_IMAGE_SPECS, FieldObjects, ObjectClassSpec,
                       ObjectDetection, detect_field_objects, group_blocks)
 from .pipeline import PerceptionConfig, PerceptionPipeline, PerceptionResult, config_for
-from .protocol import (BRIDGE_HALVES, CAR_TO_DRONE_TOPIC, DRONE_TO_CAR_TOPIC,
-                       PAYLOAD_TYPES, QOS_DRONE_LINK, build_bridge_passable,
-                       build_field_verify, build_heartbeat, build_target_zone, encode,
-                       encode_all, mirror_car_side_parse, recommended_cadence,
-                       validate_payload)
+from .protocol import (BRIDGE_HALVES, CAR_TO_DRONE_TOPIC, COVERAGE_MODES,
+                       DRONE_TO_CAR_TOPIC, PAYLOAD_TYPES, QOS_DRONE_LINK,
+                       build_bridge_passable, build_field_verify, build_heartbeat,
+                       build_target_zone, coverage_absent_cells, encode, encode_all,
+                       field_verify_absent, make_scan_id, mirror_car_side_parse,
+                       recommended_cadence, validate_payload)
 
 __all__ = [
     "__version__",
@@ -68,6 +73,10 @@ __all__ = [
     "BRIDGE_HALVES", "build_heartbeat", "build_bridge_passable", "build_target_zone",
     "build_field_verify", "encode", "encode_all", "validate_payload",
     "mirror_car_side_parse", "recommended_cadence",
+    "COVERAGE_MODES", "make_scan_id", "coverage_absent_cells", "field_verify_absent",
+    # coverage（t5a 片/负证据）
+    "Slice", "SliceCoverage", "SlicePlan", "DEFAULT_SLICE_ROUTES", "T1_SLICE_ROUTES",
+    "SLICE_PRESETS", "cells_of_route", "plan_for", "parse_slice_spec", "as_plan",
     # pipeline
     "PerceptionConfig", "PerceptionPipeline", "PerceptionResult", "config_for",
     # field_map（t59 出图）

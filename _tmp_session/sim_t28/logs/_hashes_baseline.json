@@ -1,0 +1,11 @@
+{
+  "sim.html": "d4cf228a3741c595dd7a5714089b0bc2a2a4a7d57d6b381c3ad40aa99dc8830a",
+  "src/simbench.js": "42fe929332db3576a43015049edb8c8e0c2603722c0ac5e4dcdededd8e5149b0",
+  "src/dronesim.js": "927c99cd1c32ac9010eb2483e53bfa5ed5a5efbcf541a67a7cd9e3789a930100",
+  "scripts/test-sim-map-render.mjs": "ab39772b394ec9b0cd07f2ca82df9f2cf63f483d9b6cdb49433d24babca0e1db",
+  "scripts/test-sim-parity.mjs": "0f8c2c766ead381eb1c68c7dff4f315e8a23b6b970a7b9c5a3602a4bb74488e3",
+  "scripts/test-sim-incremental.mjs": "1dbec6998e5b952e88291327bb6c2ea133a3ec8ec65302dd8b03cb5561d720e5",
+  "scripts/test-sim-overlay-ab.mjs": "bddede61e00243d42d465dcd52982ec7d5d52cd29ce4f984825d466c3553c04c",
+  "scripts/test-sim-overlay-fix.mjs": "140846af79825ea2f6e42312d42319a71cabfb0a5eaac45bf2b3a198f3aa3498",
+  "scripts/test-sim-drone-render.mjs": "e8ad1a0c2a88b6e6bcf33740509ab1bb2dd1deeda888e1d2007f3d6b3ccaf90a"
+}

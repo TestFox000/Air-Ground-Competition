@@ -11,6 +11,7 @@ r"""协议发射器：把感知结果编成**车侧能吃的 JSON**。
 | ``bridge_passable`` | ``half``∈{lower,upper}、``block``非空、``confidence`` | 写 ``P_DRONE``，``bridge_of(half)`` 供 Mission 取格；>30 s 过期返回 None | ``drone.py:273-289``、``info_stale_s: 30.0`` |
 | ``target_zone`` | ``blocks``（非空 list） | 与本地 ``map.yaml.targets`` 做差集 → ``field_diff`` | ``drone.py:292-304`` |
 | ``field_verify`` | ``mines`` / ``obstacles``（list） | 同上（雷/障） | ``drone.py:307-326`` |
+| ``field_verify`` + ``coverage``/``slice``/``scan_id`` | 旧车侧**不读**这三个键（``payload.get``） | 记录新键、按旧规则处理 | ``drone.py:307-326``；语义见 ``docs/黑图探索与动态规划_决策层方案.md`` §4.2 / §5.1 |
 | 任意带 ``seq`` | — | 回一条 ``ack{type:"ack",of:seq}``（**发送成功的硬证据**） | ``drone.py:255-270`` |
 
 **四个容易踩的坑（都是从 ``drone.py`` 读出来的，不是推测）**：
@@ -28,13 +29,36 @@ r"""协议发射器：把感知结果编成**车侧能吃的 JSON**。
 话题与 QoS（``dzrobot_v2/src/dzbrain/dzbrain/io/contract.py:40-41,94-96``）：
 ``/dzlink/drone_to_car`` / ``std_msgs/String`` / **depth 10 · BEST_EFFORT**。
 QoS 配错（机侧 RELIABLE）会**静默收不到**——跨机 ROS 2 最经典的失败模式。
+
+## 覆盖 / 负证据（t5a，2026-10-17）
+
+``build_field_verify`` 新增三个 **additive** 键，让「扫过且为空」可表达：
+
+```json
+{"type":"field_verify","mines":[],"obstacles":[],
+ "coverage":{"cells":["A1","A2","A3"],"complete":true,"mode":"strip"},
+ "slice":{"id":"S1","index":1,"of":7,"route":"N8>M8>L8>K8"},
+ "scan_id":"20261017T0930_a1b2c3","ts":1792331234.5,"seq":7}
+```
+
+* ``coverage.complete=true``  ⇒ 片内 ``cells`` 已判读完毕，未出现的要素 = **ABSENT**；
+  ``complete=false`` ⇒ 只报看得见的，其余仍是 **UNKNOWN**（**不得**当 ABSENT，
+  :func:`coverage_absent_cells` 对这种片返回 ``None``）。
+* ``scan_id`` 是**幂等键**：BEST_EFFORT 必须周期重发同一片，车侧按
+  ``(scan_id, slice.id)`` 去重（决策层方案 §5.1 第 4 条）。重发**必须**复用同一个
+  ``scan_id``（CLI 会打印，``--scan-id`` 显式指定）。
+* 旧车侧对这 3 个键**完全不看**（字段读取是 ``payload.get``）⇒ 安全；
+  但**空表**会被旧车侧 ``_diff`` 读成「本地有、无人机没有」⇒ 记一条差异
+  （``EV_FIELD_VERIFY`` 目前**零订阅**，只进遥测；新语义由 t5b 台账消费）。
+  过渡期可用 ``--omit-empty-classes`` 不发空表（代价：旧车侧记 ``missing_fields``）。
 """
 
 from __future__ import annotations
 
 import json
 import time
-from typing import Any, Iterable, Sequence
+import uuid
+from typing import Any, Iterable, Mapping, Sequence
 
 from .grid import GridSpec, RegistrationError
 
@@ -43,6 +67,8 @@ __all__ = [
     "CAR_TO_DRONE_TOPIC",
     "PAYLOAD_TYPES",
     "BRIDGE_HALVES",
+    "COVERAGE_MODES",
+    "SCAN_ID_MAX_LEN",
     "build_heartbeat",
     "build_bridge_passable",
     "build_target_zone",
@@ -52,6 +78,9 @@ __all__ = [
     "validate_payload",
     "mirror_car_side_parse",
     "recommended_cadence",
+    "make_scan_id",
+    "coverage_absent_cells",
+    "field_verify_absent",
 ]
 
 DRONE_TO_CAR_TOPIC = "/dzlink/drone_to_car"
@@ -59,10 +88,133 @@ CAR_TO_DRONE_TOPIC = "/dzlink/car_to_drone"
 QOS_DRONE_LINK = {"depth": 10, "reliability": "best_effort"}
 PAYLOAD_TYPES = ("heartbeat", "bridge_passable", "target_zone", "field_verify")
 BRIDGE_HALVES = ("lower", "upper")
+#: ``coverage.mode`` 白名单（语义见 ``coverage.py`` 模块头）
+COVERAGE_MODES = ("strip", "point", "full")
+#: ``scan_id`` 上限（车侧若存表，短 id 更省；64 已远超一个扫描期）
+SCAN_ID_MAX_LEN = 64
 
 
 def _now(ts: float | None) -> float:
     return round(float(time.time() if ts is None else ts), 3)
+
+
+def _norm_scan_id(scan_id: Any) -> str:
+    """``scan_id``：非空、无空白、≤ :data:`SCAN_ID_MAX_LEN`。"""
+    text = str(scan_id or "").strip()
+    if not text:
+        raise ValueError("scan_id 不能为空（BEST_EFFORT 重发靠它去重，见决策层方案 §5.1-4）")
+    if len(text) > SCAN_ID_MAX_LEN:
+        raise ValueError(f"scan_id 超长（{len(text)} > {SCAN_ID_MAX_LEN}）")
+    if any(ch.isspace() for ch in text):
+        raise ValueError(f"scan_id 不能含空白：{text!r}")
+    return text
+
+
+def make_scan_id(ts: float | None = None, *, token: str | None = None) -> str:
+    """生成 ``YYYYMMDDTHHMM_<6位>`` 形式的扫描号（示例见决策层方案 §4.2）。
+
+    ``token`` 由调用方给**确定性**短串（CLI 用图片+片清单的哈希）时，同一分钟内
+    同样输入会得到同一个 ``scan_id`` ⇒ 重发即幂等；不传则随机 6 位。
+    """
+    moment = time.localtime(float(time.time() if ts is None else ts))
+    base = time.strftime("%Y%m%dT%H%M", moment)
+    tok = "".join(ch for ch in str(token or "")
+                  if ch.isascii() and ch.isalnum())[:6]
+    return f"{base}_{tok or uuid.uuid4().hex[:6]}"
+
+
+def _norm_cells(cells: Any, spec: GridSpec | None, *, key: str = "coverage.cells") -> list[str]:
+    """覆盖格清单：非空、无重复、无空串；``spec`` 给出时逐格校验在网格内。"""
+    if not isinstance(cells, (list, tuple)):
+        raise ValueError(f"{key} 必须是 list（收到 {type(cells).__name__}）")
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in cells:
+        text = str(item).strip().upper()
+        if not text:
+            raise ValueError(f"{key} 含空格名")
+        if text in seen:
+            raise ValueError(f"{key} 有重复格：{text}")
+        if spec is not None:
+            try:
+                spec.block_to_index(text)
+            except RegistrationError as exc:
+                raise ValueError(f"{key} 含非法格名：{text}（{exc}）") from exc
+        seen.add(text)
+        out.append(text)
+    if not out:
+        raise ValueError(f"{key} 不能为空（空 coverage = 什么都没判读，别发）")
+    return out
+
+
+def _norm_coverage(coverage: Any, spec: GridSpec | None) -> dict:
+    """``coverage{cells,complete,mode}`` 的发送端严格校验（顺序原样保留）。"""
+    if not isinstance(coverage, Mapping):
+        raise ValueError(f"coverage 必须是 dict（收到 {type(coverage).__name__}）")
+    cells = _norm_cells(coverage.get("cells"), spec)
+    complete = coverage.get("complete")
+    if not isinstance(complete, bool):
+        raise ValueError("coverage.complete 必须是 bool"
+                         "（true=片内判读完；false=只报看见的，其余 UNKNOWN）")
+    mode = str(coverage.get("mode") or "strip").strip().lower()
+    if mode not in COVERAGE_MODES:
+        raise ValueError(f"coverage.mode 只能是 {COVERAGE_MODES}，收到 {mode!r}")
+    return {"cells": cells, "complete": complete, "mode": mode}
+
+
+def _norm_slice(slice_info: Any, spec: GridSpec | None) -> dict:
+    """``slice{id,index,of,route}``：id 非空、``1 ≤ index ≤ of``、route 逐点合法。"""
+    if not isinstance(slice_info, Mapping):
+        raise ValueError(f"slice 必须是 dict（收到 {type(slice_info).__name__}）")
+    sid = str(slice_info.get("id") or "").strip().upper()
+    if not sid:
+        raise ValueError("slice.id 不能为空（车侧按 (scan_id, slice.id) 去重）")
+    if len(sid) > 16:
+        raise ValueError(f"slice.id 太长（{len(sid)} > 16）：{sid!r}")
+    index, of = slice_info.get("index"), slice_info.get("of")
+    for name, value in (("index", index), ("of", of)):
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"slice.{name} 必须是 int（收到 {value!r}）")
+    if not (1 <= index <= of):
+        raise ValueError(f"slice.index/of 非法：{index}/{of}（要求 1 ≤ index ≤ of）")
+    out: dict = {"id": sid, "index": int(index), "of": int(of)}
+    route = slice_info.get("route")
+    if route not in (None, ""):
+        parts = [p.strip().upper() for p in str(route).split(">") if p.strip()]
+        if not parts:
+            raise ValueError("slice.route 给了但解析不出航点")
+        if spec is not None:
+            for wp in parts:
+                try:
+                    spec.block_to_index(wp)
+                except RegistrationError as exc:
+                    raise ValueError(f"slice.route 含非法航点：{wp}（{exc}）") from exc
+        out["route"] = ">".join(parts)
+    return out
+
+
+def _norm_confidence(confidence: Any, spec: GridSpec | None) -> dict:
+    """``confidence{格名: 0~1}``（可选的逐格置信度，供台账做劣化阈值）。"""
+    if not isinstance(confidence, Mapping):
+        raise ValueError(f"confidence 必须是 dict（收到 {type(confidence).__name__}）")
+    out: dict[str, float] = {}
+    for block, value in confidence.items():
+        text = str(block).strip().upper()
+        if spec is not None:
+            try:
+                spec.block_to_index(text)
+            except RegistrationError as exc:
+                raise ValueError(f"confidence 含非法格名：{text}（{exc}）") from exc
+        try:
+            num = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"confidence[{text}] 不是数：{value!r}") from exc
+        if not 0.0 <= num <= 1.0:
+            raise ValueError(f"confidence[{text}] 超出 [0,1]：{num}")
+        out[text] = round(num, 3)
+    if not out:
+        raise ValueError("confidence 不能是空表（要不就别发这个键）")
+    return out
 
 
 def _norm_blocks(blocks: Iterable[Any], spec: GridSpec | None = None,
@@ -129,17 +281,41 @@ def build_target_zone(blocks: Sequence[str], *, spec: GridSpec | None = None,
 def build_field_verify(mines: Sequence[str] | None = None,
                        obstacles: Sequence[str] | None = None, *,
                        spec: GridSpec | None = None, diff: Sequence[str] | None = None,
+                       coverage: Mapping | None = None, slice: Mapping | None = None,  # noqa: A002
+                       scan_id: str | None = None,
+                       confidence: Mapping | None = None,
                        ts: float | None = None, seq: int | None = None) -> dict:
-    """雷/障核对。至少要给一个键（两个都不给 = 车侧 ``missing_fields``）。"""
-    msg: dict = {"type": "field_verify", "ts": _now(ts)}
+    """雷/障核对（+ 可选「片级覆盖」三键）。
+
+    * 旧调用 ``build_field_verify(mines, obstacles)`` 的产物**逐字节不变**；
+    * 给 ``coverage`` 时必须同时给 ``slice`` 与 ``scan_id``（三者是一组，
+      缺任何一个车侧/台账都无法解释"这是哪一片、能不能当 ABSENT"）；
+    * **空片（扫过且什么都没有）必须走这里**：``mines=[]`` / ``obstacles=[]``
+      + ``coverage{complete:true}`` —— 旧接口 ``build_field_verify()`` 无参仍抛错，
+      因为"什么都不发"永远不等于"扫过是空的"。
+    """
+    msg: dict = {"type": "field_verify"}
     if mines is not None:
         msg["mines"] = _norm_blocks(mines, spec)
     if obstacles is not None:
         msg["obstacles"] = _norm_blocks(obstacles, spec)
-    if len(msg) == 2:                       # 只有 type+ts
-        raise ValueError("field_verify 至少要带 mines 或 obstacles 之一")
     if diff is not None:
         msg["diff"] = [str(d) for d in diff]
+    if coverage is not None:
+        msg["coverage"] = _norm_coverage(coverage, spec)
+        if slice is None:
+            raise ValueError("带 coverage 必须同时给 slice（片级汇总，决策层方案 §4.2）")
+        if scan_id is None:
+            raise ValueError("带 coverage 必须同时给 scan_id（幂等键，§5.1 第 4 条）")
+        msg["slice"] = _norm_slice(slice, spec)
+        msg["scan_id"] = _norm_scan_id(scan_id)
+    elif slice is not None or scan_id is not None:
+        raise ValueError("slice/scan_id 只能与 coverage 一起发（否则无从解释）")
+    if confidence is not None:
+        msg["confidence"] = _norm_confidence(confidence, spec)
+    if mines is None and obstacles is None and coverage is None:
+        raise ValueError("field_verify 至少要带 mines / obstacles / coverage 之一")
+    msg["ts"] = _now(ts)
     if seq is not None:
         msg["seq"] = int(seq)
     return msg
@@ -199,8 +375,9 @@ def validate_payload(payload: Any, spec: GridSpec | None = None) -> list[str]:
                 except RegistrationError as exc:
                     problems.append(f"blocks 含非法格名：{exc}")
     elif mtype == "field_verify":
-        if "mines" not in payload and "obstacles" not in payload:
-            problems.append("mines/obstacles 至少要给一个")
+        has_cov = "coverage" in payload
+        if "mines" not in payload and "obstacles" not in payload and not has_cov:
+            problems.append("mines/obstacles/coverage 至少要给一个")
         for key in ("mines", "obstacles"):
             if key in payload:
                 raw = payload[key]
@@ -212,6 +389,26 @@ def validate_payload(payload: Any, spec: GridSpec | None = None) -> list[str]:
                             spec.block_to_index(str(b))
                         except RegistrationError as exc:
                             problems.append(f"{key} 含非法格名：{exc}")
+        if has_cov:
+            try:
+                _norm_coverage(payload.get("coverage"), spec)
+            except ValueError as exc:
+                problems.append(f"coverage：{exc}")
+            try:
+                _norm_slice(payload.get("slice"), spec)
+            except ValueError as exc:
+                problems.append(f"slice：{exc}")
+            try:
+                _norm_scan_id(payload.get("scan_id"))
+            except ValueError as exc:
+                problems.append(f"scan_id：{exc}")
+        elif "slice" in payload or "scan_id" in payload:
+            problems.append("slice/scan_id 必须与 coverage 同时出现")
+        if "confidence" in payload:
+            try:
+                _norm_confidence(payload.get("confidence"), spec)
+            except ValueError as exc:
+                problems.append(f"confidence：{exc}")
     return problems
 
 
@@ -261,12 +458,26 @@ def mirror_car_side_parse(raw: str, spec: GridSpec | None = None) -> dict:
             res["notes"].append("drone.py:298-304（畸形条目计入 missing_fields）")
     elif mtype == "field_verify":
         keys = [k for k in ("mines", "obstacles") if k in payload]
+        cov = payload.get("coverage")
         if not keys:
             res["action"] = "记 missing_fields（忽略）"
             res["notes"].append("drone.py:324-326")
+            if isinstance(cov, Mapping):
+                res["notes"].append(
+                    "带 coverage 也救不了：旧车侧只认 mines/obstacles ⇒ 空片必须显式发 "
+                    "mines:[]/obstacles:[]（或等 t5b 台账消费 coverage）")
         else:
             res["action"] = f"与本地 {keys} 差集核对"
             res["notes"].append("drone.py:307-323")
+            empty = [k for k in keys if not payload.get(k)]
+            if empty:
+                res["notes"].append(
+                    f"{empty} 是空表：旧车侧会读成「本地有、无人机没有」⇒ "
+                    "一条 diff（EV_FIELD_VERIFY 零订阅，只进遥测）")
+            if isinstance(cov, Mapping):
+                res["notes"].append(
+                    "coverage/slice/scan_id：旧车侧不读（payload.get）；"
+                    "片内 ABSENT 由 t5b 台账按 complete 语义消费")
     else:
         res["action"] = "未知类型：记日志（不崩）"
         res["notes"].append("drone.py:236-240")
@@ -276,14 +487,51 @@ def mirror_car_side_parse(raw: str, spec: GridSpec | None = None) -> dict:
     return res
 
 
+def coverage_absent_cells(coverage: Mapping, reported: Iterable[str] = (), *,
+                          spec: GridSpec | None = None) -> list[str] | None:
+    """由 ``coverage`` 推 ABSENT 格清单 —— **负面证据的唯一来源**。
+
+    * ``complete=True``  ⇒ 返回 ``coverage.cells`` 中**未**被报出的格（= ABSENT）；
+    * ``complete=False`` ⇒ 返回 ``None``（= UNKNOWN，**不得**当 ABSENT）；
+    * 缺 ``complete`` 键 ⇒ 抛 ``ValueError``（分不清"空的"与"没扫"，不许猜）。
+
+    消费端（t5b 台账）必须只用这个函数判空，别自己写 ``set(cells) - set(detected)``——
+    那会把不完整的片也算成空的。
+    """
+    if not isinstance(coverage, Mapping):
+        raise ValueError(f"coverage 必须是 dict（收到 {type(coverage).__name__}）")
+    cells = _norm_cells(coverage.get("cells"), spec)
+    complete = coverage.get("complete")
+    if complete is None:
+        raise ValueError("coverage 缺 complete：没有它就分不清『空的』与『没扫』")
+    if not bool(complete):
+        return None
+    seen = {str(b).strip().upper() for b in reported or ()}
+    return [c for c in cells if c not in seen]
+
+
+def field_verify_absent(payload: Mapping, *, spec: GridSpec | None = None) -> list[str] | None:
+    """从一条 ``field_verify`` 载荷推 ABSENT（把 mines/obstacles/targets 当作已报出）。"""
+    if not isinstance(payload, Mapping) or str(payload.get("type") or "") != "field_verify":
+        raise ValueError("只接受 type=field_verify 的载荷")
+    if "coverage" not in payload:
+        raise ValueError("载荷没有 coverage ⇒ 无负证据语义（旧报文，只能报差异）")
+    reported: list[str] = []
+    for key in ("mines", "obstacles", "targets"):
+        raw = payload.get(key)
+        if isinstance(raw, (list, tuple)):
+            reported.extend(str(b) for b in raw)
+    return coverage_absent_cells(payload.get("coverage"), reported, spec=spec)
+
+
 def recommended_cadence(*, heartbeat_hz: float = 1.0) -> dict:
     """建议的发布节奏（依据车侧的 3 s 心跳超时 / 30 s 情报过期）。"""
     return {
         "heartbeat": f"{heartbeat_hz:g} Hz（车侧 3 s 超时，心跳是唯一保活手段）",
         "bridge_passable": "首次检到立即发；此后每次重检到同结论也重发（续 30 s 窗口）",
         "target_zone": "一次检测一条，带 seq 要 ack",
-        "field_verify": "一次检测一条，带 seq 要 ack",
+        "field_verify": "一片一条（带 coverage/slice/scan_id）；重发同一片必须复用 scan_id",
         "topic": DRONE_TO_CAR_TOPIC,
         "qos": QOS_DRONE_LINK,
-        "note": "发车前必须发（Mission 最多等 2 s，等不到就用默认 K10(下)/K5(上)）",
+        "note": "发车前必须发（Mission 最多等 2 s，等不到就用默认 K9(下)/K5(上)）",
     }

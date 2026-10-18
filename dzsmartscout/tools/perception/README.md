@@ -190,6 +190,62 @@ BEST_EFFORT），`ros_publish.py` 因此把 QoS 写死成车侧一致，并提�
 "这条报文车侧会正常处理"。测试里就是用它 + 镜像 `_diff` 证明：照 `map.yaml` 发 ⇒ 零差异；
 改一格 ⇒ 立刻报差异。
 
+### ⑤b 片级覆盖 / 负证据（t5a，`coverage.py` + `protocol.coverage_*`）
+
+**问题**：旧 `field_verify` 只有 `mines/obstacles` ⇒ **空表与"没扫过"长得一模一样**，
+车侧只能"报差异"，黑图永远区分不了「这格是空的」与「我根本没看那格」。
+
+**做法**：按航点几何把场地切"片"，每片一条 `field_verify`，带 3 个 additive 键：
+
+```json
+{"type":"field_verify","mines":[],"obstacles":[],
+ "coverage":{"cells":["A1","A2","A3"],"complete":true,"mode":"strip"},
+ "slice":{"id":"S1","index":1,"of":7,"route":"N8>M8>L8>K8"},
+ "scan_id":"20261017T0930_a1b2c3","ts":1792331234.5,"seq":7}
+```
+
+| 键 | 语义（决策层方案 §4.2 / §5.1） |
+|---|---|
+| `coverage.cells` | 该片**判读过**的格（网格序、去重） |
+| `coverage.complete` | `true` = 片内判读完 ⇒ **未报的格 = ABSENT**；`false` = 只报看得见的，**其余 UNKNOWN**（**不得**当 ABSENT） |
+| `slice{id,index,of,route}` | 第几片/共几片/航点（车侧按 `(scan_id, slice.id)` 去重） |
+| `scan_id` | 幂等键；**重发同一片必须复用**（BEST_EFFORT 必须周期重发） |
+
+**coverage 只由航点几何决定，与检测结果无关**（`cells_of_route`：格心到航段折线
+≤ `corridor_m`）。这条不能松：否则"没检到"会被自动解释成"扫过且空"，正是黑图探索
+最不能接受的循环论证。
+
+默认 7 片 = t4 §6.3 的 S3'（U 形 3 段 + 4 条横带，40 航点）：本机实测并集
+**154/154 格**；`t1` 预设 = 现役 U 形 3 片，并集 **39/154**（与 t4 §8.3 独立复算一致）。
+
+```bash
+# 纯几何预演（不读图）：发车前核对片清单
+python -m perception.cli coverage --slices s3 --json coverage.json
+
+# 逐片出报文（--scan-id 省略时按 图片+片清单 哈希自动生成并打印）
+python -m perception.cli detect --image 图.png --corners "..." \
+    --preset field --slices s3 --messages out.jsonl --coverage-report cov.json
+
+# 某片帧丢了/只扫一半：标 complete:false（片内未报 = UNKNOWN，不产生 ABSENT）
+python -m perception.cli detect ... --slices s3 --slice-incomplete S4
+```
+
+**三条硬约束**（都写进测试，`tests/test_coverage.py` 14 项）：
+
+1. **缺类不许声称覆盖**：调色板/判据缺 `mine/obstacle/target` 任一类时
+   `process(slices=...)` **直接抛错** —— 那时"片内未报"可能是"根本检不了"，
+   把占位色当"空"就是假证据（现场标定 D1 之前只能 `--provisional`，
+   `diagnostics.coverage.warnings` 会显式警告）。
+2. **`complete:false` 永不产生 ABSENT**：`coverage_absent_cells()` 对它返回 `None`；
+   台账（t5b）只允许用这个函数判空，别自己写集合差。
+3. **旧车侧兼容**：`drone.py` 对 3 个新键完全不读（`payload.get`）⇒ 安全。但
+   **空表**会被旧 `_diff` 读成"本地有、无人机没有"（一条差异，`EV_FIELD_VERIFY`
+   目前零订阅，只进遥测）。过渡期可用 `--omit-empty-classes` 不发空表
+   （代价：旧车侧记 `missing_fields` 而非假差异）。
+
+`perception/__init__.py` 暴露：`plan_for / parse_slice_spec / cells_of_route /
+SlicePlan / make_scan_id / coverage_absent_cells / field_verify_absent`。
+
 ### ⑥ 出图 / 场地地图 `field_map.py`（t59）
 
 把①②③④的**感知输出**装配成"规划器可直接消费"的场地地图：
@@ -363,7 +419,8 @@ python -m perception.cli detect --image shot.png --corners "..." --publish
 
 建议节奏（`protocol.recommended_cadence()`）：心跳 1 Hz；`bridge_passable` 首检即发、
 之后每次重检到同结论也重发（续 30 s 窗口）；`target_zone`/`field_verify` 一次检测一条带 `seq`；
-**发车前必须发**（Mission 最多等 **2 s**，等不到就用默认 **K10**(下) / **K5**(上)）。
+**发车前必须发**（Mission 最多等 **2 s**，等不到就用默认 **K9**(下) / **K5**(上)；现役
+`config/map.yaml` 的 `bridges: ["K5","K9"]`，旧文档写 K10 已过期）。
 ★ 该 2 s 窗口只管「两半场相隔 ≤ 2 s 到达」：**`lower`/`upper` 最好同一条样本一起给出**
 （supervisor 已保证任一半场到点时两半场同轮发出，但感知层一次报全能省掉一次往返）。
 口径真值：车上 `config/robot.yaml` 的 `mission.bridge_info_wait_s: 546` /
@@ -375,12 +432,13 @@ python -m perception.cli detect --image shot.png --corners "..." --publish
 
 ```bash
 cd dzsmartscout/tools
-python -m perception.run_tests                    # 全部 85 项
+python -m perception.run_tests                    # 全部 99 项（t5a 前 85 项 + 覆盖/负证据 14 项）
 python -m perception.run_tests grid objects       # 只跑名字含关键字的模块
+python -m perception.run_tests coverage           # 只跑 t5a 的片/负证据用例
 python -m perception.cli selftest                 # 等价入口（默认跳过最慢的 e2e / 真图用例）
 ```
 
-85 项全部通过（本机 Windows / Python 3.12 / numpy 2.3.5 / Pillow 12.3.0）。
+99 项全部通过（本机 Windows / Python 3.12 / numpy 2.3.5 / Pillow 12.3.0）。
 测试分四层：
 
 1. **合成图单测**（确定性、无随机）：网格/单应/手性、颜色/形态学/连通域、两套几何口径、

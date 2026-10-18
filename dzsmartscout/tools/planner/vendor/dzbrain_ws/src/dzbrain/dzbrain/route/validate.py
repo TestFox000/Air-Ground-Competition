@@ -39,10 +39,9 @@ CROSS_COLUMN = "K"
 CROSS_LOWER_ROWS = (7, 11)
 #: 上半场穿洞行（向东穿 J* -> K* -> L*）
 CROSS_UPPER_ROWS = (1, 6)
-#: 隔板：第 6/7 行之间、D~N 列封死，只有 A/B/C 列能上下穿行
-BARRIER_ROW_HI = 6
-BARRIER_ROW_LO = 7
-BARRIER_COL_FROM = "D"
+#: 隔板：第 6/7 行之间、D~N 列封死，只有 A/B/C 列能上下穿行。
+#: ★ 常量**不在本模块定义**：唯一真源 = `core/geometry.py` 的 `BARRIER_*`
+#:   （本模块一律写 `geo.BARRIER_*`，避免"校验器 6/7/D、规划器另一套"的分叉）。
 #: U 形绕行必须经过的列（否则没绕过 D6~N6/D7~N7 隔板）
 U_TURN_COLUMNS = ("A", "B", "C")
 #: 下半场 / 上半场的行号
@@ -239,8 +238,8 @@ def _barrier_crossing(a: str, b: str) -> tuple[bool, float, float] | None:
     """
     r1, c1 = _rc(a)
     r2, c2 = _rc(b)
-    d1 = BARRIER_ROW_HI - r1                             # 第 6 行：>0 在隔板下方，<0 在上方
-    d2 = BARRIER_ROW_HI - r2
+    d1 = geo.BARRIER_ROW_HI - r1                         # 第 6 行：>0 在隔板下方，<0 在上方
+    d2 = geo.BARRIER_ROW_HI - r2
     if d1 == 0 or d2 == 0:
         return None                                      # 端点正压在隔板行上 → 不算跨越
     if d1 * d2 >= 0:
@@ -248,7 +247,7 @@ def _barrier_crossing(a: str, b: str) -> tuple[bool, float, float] | None:
     t = d1 / (d1 - d2)
     rd = r1 + t * (r2 - r1)
     cd = c1 + t * (c2 - c1)
-    blocked = cd + EPS >= geo.COL_LETTERS.index(BARRIER_COL_FROM)
+    blocked = cd + EPS >= geo.COL_LETTERS.index(geo.BARRIER_COL_FROM)
     return blocked, cd, rd
 
 
@@ -368,22 +367,6 @@ def _crossing_at_column(a: str, b: str) -> tuple[float, float, float, float] | N
     # 直线段与"穿洞方向"（行轴）的夹角：水平 = 0°，斜切 = atan2(|Δ列|, |Δ行|)
     angle = 0.0 if straight else math.degrees(math.atan2(abs(c2 - c1), abs(r2 - r1)))
     return row, angle, angle, float(c2 - c1)
-
-
-def _crossing_row_of(blocks: Sequence[str]) -> float | None:
-    """一串格名里，位于 `CROSS_COLUMN` 列上的那一格的行号（诊断/日志用）。
-
-    注意：R007 的"穿的是哪一行"**不要**用它 —— 长段直线（`L5 -> J5`）两端都不是 K 格，
-    必须用 `_crossing_row` 算交点所在的行。
-    """
-    for block in blocks:
-        try:
-            row, col = _rc(block)
-        except ValueError:
-            continue
-        if col == geo.COL_LETTERS.index(CROSS_COLUMN):
-            return float(row)
-    return None
 
 
 def crossing_entries(blocks: Sequence[str]
@@ -516,8 +499,8 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
         if bad:
             col_name = geo.COL_LETTERS[min(geo.MAP_COLS - 1, max(0, int(round(cd))))]
             issues.append(Issue("error", "R003",
-                                f"第 {i} 段 {a}->{b} 跨越第 {BARRIER_ROW_HI}/{BARRIER_ROW_LO} 行隔板"
-                                f"（交点行 {rd:.2f}、列 {col_name}，禁行列 {BARRIER_COL_FROM}~N）"
+                                f"第 {i} 段 {a}->{b} 跨越第 {geo.BARRIER_ROW_HI}/{geo.BARRIER_ROW_LO} 行隔板"
+                                f"（交点行 {rd:.2f}、列 {col_name}，禁行列 {geo.BARRIER_COL_FROM}~N）"
                                 f"—— 只有 {'/'.join(U_TURN_COLUMNS)} 列能上下穿行"))
 
     # ---------------------------------------------------------------- R004（踩障碍）
@@ -698,8 +681,8 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     if valid and not any(_rc(block)[1] in u_cols for _, block in valid):
         issues.append(Issue("error", "R012",
                             f"路线完全没有经过 {'/'.join(U_TURN_COLUMNS)} 列"
-                            f"—— 没有绕过第 {BARRIER_ROW_HI}/{BARRIER_ROW_LO} 行隔板"
-                            f"（{BARRIER_COL_FROM}~N 列封死）"))
+                            f"—— 没有绕过第 {geo.BARRIER_ROW_HI}/{geo.BARRIER_ROW_LO} 行隔板"
+                            f"（{geo.BARRIER_COL_FROM}~N 列封死）"))
 
     # ---------------------------------------------------------------- R006 / R013（靶）
     shoot_points = [(idx, wp) for idx, wp in enumerate(getattr(route, "waypoints", []) or [])

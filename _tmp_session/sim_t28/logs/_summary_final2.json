@@ -1,0 +1,79 @@
+[
+  {
+    "name": "test-sim-map-render.mjs",
+    "exitCode": 0,
+    "timedOut": false,
+    "seconds": 0.1,
+    "passMatches": 61,
+    "failMatches": 0,
+    "ratio": "61/61 通过",
+    "tail": "  PASS 变异自证③（朝向）：headVec 的 y 分量镜像 ⇒ 朝向谓词由真变假 |   PASS 变异自证④（R1 相位）：车身抽样步长 125 → 500 ⇒ 车身数由 4 降为 1 | 横置地图渲染核对：61/61 通过",
+    "log": "D:\\User\\Desktop\\比赛存档\\v1\\_tmp_session\\sim_t28\\logs\\final2__test-sim-map-render.log"
+  },
+  {
+    "name": "test-sim-parity.mjs",
+    "exitCode": 0,
+    "timedOut": false,
+    "seconds": 5,
+    "passMatches": 37,
+    "failMatches": 0,
+    "ratio": "37/37 通过",
+    "tail": "  PASS 8.4 夹具重规划确定性：两次逐 token 相同且都含合法首末点 —— 44 / 44 |  | 结果：37/37 通过 —— 全部通过 ✅",
+    "log": "D:\\User\\Desktop\\比赛存档\\v1\\_tmp_session\\sim_t28\\logs\\final2__test-sim-parity.log"
+  },
+  {
+    "name": "test-sim-incremental.mjs",
+    "exitCode": 0,
+    "timedOut": false,
+    "seconds": 4.3,
+    "passMatches": 15,
+    "failMatches": 0,
+    "ratio": "15/15 通过",
+    "tail": "  PASS F4 台账如实反映实际参数（未接线 ⇒ argv 无增量开关、dropped 两条 cli-unsupported） —— {\"flags\":[\"--from-cell\",\"--already-covered\"],\"dropped\":0} |  | 结果：15/15 通过，1 跳过 —— 全部通过 ✅",
+    "log": "D:\\User\\Desktop\\比赛存档\\v1\\_tmp_session\\sim_t28\\logs\\final2__test-sim-incremental.log"
+  },
+  {
+    "name": "test-sim-overlay-ab.mjs",
+    "exitCode": 0,
+    "timedOut": false,
+    "seconds": 0.2,
+    "passMatches": 21,
+    "failMatches": 0,
+    "ratio": "",
+    "tail": " | 结论：叠加根因 =「棋盘变更 / 422 后旧图层（TRACE + #anim）不清」，由统一咽喉 invalidateStaleRun 修复；旧臂复现、现版消除。 | 结果：21/21 全部通过 ✅",
+    "log": "D:\\User\\Desktop\\比赛存档\\v1\\_tmp_session\\sim_t28\\logs\\final2__test-sim-overlay-ab.log"
+  },
+  {
+    "name": "test-sim-overlay-fix.mjs",
+    "exitCode": 0,
+    "timedOut": false,
+    "seconds": 1.5,
+    "passMatches": 30,
+    "failMatches": 0,
+    "ratio": "",
+    "tail": "  PASS F2 引擎可解夹具 + 同款 argv ⇒ exit 0 + 非空 token（--engine 真生效，不是只测失败路径） —— exit=0 tokens=44 |  | 结果：30/30 全部通过 ✅",
+    "log": "D:\\User\\Desktop\\比赛存档\\v1\\_tmp_session\\sim_t28\\logs\\final2__test-sim-overlay-fix.log"
+  },
+  {
+    "name": "test-sim-drone-render.mjs",
+    "exitCode": 0,
+    "timedOut": false,
+    "seconds": 1,
+    "passMatches": 31,
+    "failMatches": 0,
+    "ratio": "",
+    "tail": "  PASS ⑤-2 truth 取证产出非空 token（同引擎 plan_route 实跑） —— 44 tokens |  | 结果：31/31 全部通过 ✅",
+    "log": "D:\\User\\Desktop\\比赛存档\\v1\\_tmp_session\\sim_t28\\logs\\final2__test-sim-drone-render.log"
+  },
+  {
+    "name": "test-sim-sixth-map.mjs",
+    "exitCode": 0,
+    "timedOut": false,
+    "seconds": 0.2,
+    "passMatches": 28,
+    "failMatches": 0,
+    "ratio": "28/28 通过",
+    "tail": "  PASS ④-2 422 失败原因可诊断：宿主回 record/planTail，页面优先显示 record.plan.stderrTail |  | 结果：28/28 通过 —— 全部通过 ✅",
+    "log": "D:\\User\\Desktop\\比赛存档\\v1\\_tmp_session\\sim_t28\\logs\\final2__test-sim-sixth-map.log"
+  }
+]

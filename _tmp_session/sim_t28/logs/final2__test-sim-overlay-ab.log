@@ -1,0 +1,57 @@
+CMD: node D:\User\Desktop\比赛存档\v1\dzrobot_v2\dsh-plugin-dzrobot-ssh\scripts\test-sim-overlay-ab.mjs
+CWD: D:\User\Desktop\比赛存档\v1\dzrobot_v2\dsh-plugin-dzrobot-ssh
+TAG: final2
+START: 2026-10-18T01:46:46.081Z
+
+--- STDOUT ---
+
+[36m0. 实验素材[0m
+  现版 script 109656 B ｜ 变异体 109612 B ｜ 历史臂：git HEAD 已包含清层修复（历史臂不再复现旧现象）⇒ 跳过历史臂
+  PASS 0.1 现版 script 与 renderMap 都提取到
+  PASS 0.2 变异体的 renderMap 与现版**逐字节相同**（因果前提：两臂唯一差异是清层）
+  PASS 0.3 变异体确实没有清层动作（否则本实验证不了任何东西）
+  PASS 0.4 现版仍走统一咽喉（afterFieldChange 函数体里调 invalidateStaleRun + 清 TRACE）
+  INFO 历史臂跳过：git HEAD 已包含清层修复（历史臂不再复现旧现象）⇒ 跳过历史臂
+
+[36m1. 棋盘改动那条 input 监听（各臂真实注册语句）[0m
+  变异体/现版注册: "$(key).addEventListener('input', afterFieldChange);   // ★ 统一咽喉：与拖拽/恢复默认同一条清层路径"
+  PASS 1.1 现版注册语句就是统一咽喉 afterFieldChange
+
+[36m2. 同一场景（上一局图层在场 → 改棋盘 → 重绘）三臂对比[0m
+  变异体 改动前：折线 2（#map）+ 1（#anim）· 车身位姿 1
+  变异体 改动后：折线 2（#map）+ 1（#anim）· 车身位姿 1 · TRACE 仍是上一局 · #anim 仍有旧折线
+  现版   改动前：折线 2（#map）+ 1（#anim）· 车身位姿 1
+  现版   改动后：折线 1（#map）+ 0（#anim）· 车身位姿 0 · TRACE 已清 null · #anim 空
+  PASS 2.1 实验前提：改动前各臂画面一致（都带着上一局图层） —— 变异体 Σ=3 · 现版 Σ=1
+  PASS 2.2 变异体复现「叠加」：改棋盘后仍 ≥2 条折线（上一局图层没走） —— Σ=3
+  PASS 2.3 变异体仍画上一局车身位姿（棋盘已变、位姿停在旧轨迹上） —— 1 个
+  PASS 2.4 变异体 #anim 里上一局回放折线没清
+  PASS 2.5 因果对照：同一份 renderMap、唯一差异是清层，两臂画面必须不同（叠加 vs 干净） —— 变异体 Σ=3 > 现版 Σ=1
+  INFO 历史臂复现：跳过（见 0 段原因）
+  PASS 2.7 现版消除叠加：改棋盘后 Σ 折线 = 1（只剩新棋盘的参考线） —— Σ=1
+  PASS 2.8 现版不再画上一局车身位姿 —— 0 个
+  PASS 2.9 现版 TRACE 置 null 且 #anim 清空
+
+[36m3. 422 plan-failed 分支（连续换图失败时"旧层永不清"的那条路）[0m
+  现版分支含 TRACE = null ? true ｜ 变异体 ? false
+  PASS 3.1 现版 422 分支清 TRACE 且**先清后画**（清 < renderMap < startReplay）
+  PASS 3.2 变异体的 422 分支没有清层（第二叠加路径在旧实现里同样缺）
+  INFO 历史臂 422 分支：跳过
+
+[36m4. 候选根因②「实例重复初始化 / 路线重复绘制」的判定（当前实现不成立）[0m
+  PASS 4.1 参考路线只画 1 条折线（无路线重复绘制） —— 1 条
+  PASS 4.2 连点两次回放只留 1 个定时器（无重复实例） —— 活动定时器 1
+  PASS 4.3 动画层每帧只有 1 条 trail（覆盖式重写，不是追加）
+
+[36m5. 反重复注册 / 根因前提[0m
+  PASS 5.1 场地输入只有 1 条 input 监听（多注册 = 一次改动应用两遍） —— 1 条
+  PASS 5.2 整图还原也走清层（invalidateStaleRun / afterFieldChange 至少其一）
+  PASS 5.3 根因前提：renderMap 不碰 #anim（所以清层必须显式做，不能在重绘里顺带完成）
+
+结论：叠加根因 =「棋盘变更 / 422 后旧图层（TRACE + #anim）不清」，由统一咽喉 invalidateStaleRun 修复；旧臂复现、现版消除。
+结果：21/21 全部通过 ✅
+
+--- STDERR ---
+
+--- END ---
+exitCode=0 timedOut=false ms=217

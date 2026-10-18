@@ -63,6 +63,24 @@ def read_engine(vendor_ws: pathlib.Path, source_ws: pathlib.Path | None = None) 
     return out
 
 
+def read_pursuit(vendor_ws: pathlib.Path) -> dict:
+    """读 `pursuit.*` 真值（与车侧 `path_executor` / `mission` 同一份 Config）。
+
+    为什么要它：`route_crop.py` 的 H1 bench 要在**离线**判断「首点=当前格会不会倒车」，
+    而倒车/掉头是由纯追踪的物理决定的 —— 增益、前视、舵角限幅、舵角速率、到位半径
+    都必须用**车上真值**，不能用我自己编的数字，否则 bench 结论没有意义。
+    缺键时返回 None 而不是编默认值（调用方必须显式处理）。
+    """
+    Config = _load_config(vendor_ws)
+    cfg = Config.load(str(vendor_ws / "config" / "robot.yaml"))
+    keys = ("wheelbase_m", "max_steer_deg", "max_steer_rate_deg_s", "curvature_gain",
+            "lookahead_min_m", "lookahead_max_m", "lookahead_k_v", "cruise_speed_mps",
+            "arrival_m", "lat_acc_max_mps2")
+    out = {k: cfg.get("pursuit.%s" % k, None) for k in keys}
+    out["config_path"] = str(vendor_ws / "config" / "robot.yaml")
+    return out
+
+
 def read_mission_blocks(config_path: pathlib.Path) -> list[str]:
     """从 robot.yaml 里递归找 `mission_blocks`（车侧"无外部路线时的板载回退路线"）。"""
     import yaml

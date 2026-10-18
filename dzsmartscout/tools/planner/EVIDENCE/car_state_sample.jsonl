@@ -1,0 +1,3 @@
+{"type":"heartbeat","ts":1791700000.0}
+{"type":"car_state","block":"F10","yaw_deg":90.0,"phase":"DRIVE","ts":1791700001.0,"seq":11}
+{"kind":"ack","of":11}

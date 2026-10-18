@@ -1,0 +1,21 @@
+WARN no-data on 'loc' after 12.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+WARN no-data on 'imu' after 12.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+WARN no-data on 'loc' after 13.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+WARN no-data on 'imu' after 13.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+WARN no-data on 'loc' after 14.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+WARN no-data on 'loc' after 15.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+WARN no-data on 'loc' after 16.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+CAP_DONE rows={'odom': 27787, 'loc': 27453, 'imu': 27593}
+CAP_START outdir=/home/duzhong/capture_runs prefix=run28 qos=KEEP_LAST(10)/BEST_EFFORT/VOLATILE topics=['/odom', '/odom/localization', '/imu_data'] seconds=0.0 idle_timeout=0.0
+契约真源：io/contract.py  QOS_ODOM = KEEP_LAST(10)/BEST_EFFORT/VOLATILE（dzbrain 订阅 /odom/localization 用的就是这份）
+IMU 真源：dzactuator.cpp:1152 create_publisher<sensor_msgs::msg::Imu>("imu_data", 1) ⇒ /imu_data（BEST_EFFORT 订阅对 RELIABLE 发布者兼容）
+WARN no-data on 'loc' after 12.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+WARN no-data on 'imu' after 12.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+WARN no-data on 'loc' after 13.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+WARN no-data on 'imu' after 13.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+WARN no-data on 'loc' after 14.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+WARN no-data on 'loc' after 15.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+WARN no-data on 'loc' after 16.0s （QoS 不兼容？检查是否为 BEST_EFFORT+VOLATILE）
+CAP_RATE hz={'odom': 50.0, 'loc': 50.0, 'imu': 50.0}
+CAP_DONE rows={'odom': 27787, 'loc': 27453, 'imu': 27593}
+CAP_EXIT signal=True rc=0 elapsed=575.0s

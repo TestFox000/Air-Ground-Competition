@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>空地状态</title>
+<!--
+  dzairground-ssh — the standalone status float.
+
+  One card, capability-driven cells (决议③ + 决议①): the car row draws
+  电量/CPU/开机时长, the drone row draws 温度/CPU/开机时长/飞控电量 — each node
+  only ever names the gauges it can really measure, and neither invents a cell
+  for a metric it has no source for. Both nodes are polled together and each
+  failing on its own: a drone outage must not blank the car's numbers.
+
+  The battery cells tell the truth about *why* a number is missing (bug#2 +
+  bug#3): the drone's FC battery is three-state (有数据 / 飞控无数据 with the
+  reason / 无飞控) and an out-of-range reading is 数据异常, never folded into
+  "the stack is down". The car's battery number is the chassis topic's own;
+  a voltage-derived fallback says it is derived, and `batteryNote` riding
+  alongside (`no_stack` / `bad_value`) is rendered as the reason, not as 0 %.
+
+  No dependencies, no build step: one polling loop, seven gauges.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --line: #e3e6ea;
+    --text: #1b1d21;
+    --muted: #797f88;
+    --accent: #2f6fed;
+    --ok: #16a34a;
+    --warm: #d97706;
+    --hot: #dc2626;
+    --track: #eceef1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --card: #1c1f24;
+      --line: #2b2f36;
+      --text: #e8eaed;
+      --muted: #8b919b;
+      --track: #262a31;
+    }
+  }
+  * { box-sizing: border-box }
+  html, body { margin: 0; height: 100% }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.5 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    flex-direction: column;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--card);
+  }
+  header b { font-size: 13px }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none }
+  .dot[data-state="live"] { background: var(--ok) }
+  .dot[data-state="loading"] { background: var(--warm) }
+  .dot[data-state="failed"] { background: var(--hot) }
+  #title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  button {
+    font: inherit;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  button:hover { color: var(--text); border-color: var(--accent) }
+  main { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px }
+  .nodelabel {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .nodelabel span { font-weight: 500 }
+  .cell {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .cell .label { font-size: 11px; color: var(--muted) }
+  .cell .value { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums }
+  .cell .value.small { font-size: 15px; font-weight: 600; letter-spacing: 0 }
+  .cell .value small { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 3px }
+  .cell .sub { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .cell[data-level="warm"] .value { color: var(--warm) }
+  .cell[data-level="hot"] .value { color: var(--hot) }
+  .bar { height: 6px; border-radius: 999px; background: var(--track); overflow: hidden }
+  .bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width .4s ease }
+  .bar i[data-level="warm"] { background: var(--warm) }
+  .bar i[data-level="hot"] { background: var(--hot) }
+  #error, #droneError {
+    display: none;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--hot);
+    border-top: 1px solid var(--line);
+    background: var(--card);
+    word-break: break-all;
+  }
+  footer {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 12px;
+    border-top: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--card);
+  }
+  footer span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot" data-state="loading"></span>
+  <b id="title">空地状态</b>
+  <button id="refresh" type="button">刷新</button>
+</header>
+<main>
+  <div class="nodelabel" id="carLabel">小车</div>
+  <div class="cell" id="batteryCell">
+    <span class="label" id="batteryLabel">电量</span>
+    <span class="value" id="batteryValue">—</span>
+    <span class="bar"><i id="batteryBar" style="width:0%"></i></span>
+    <span class="sub" id="batterySub"></span>
+  </div>
+  <div class="cell" id="cpuCell">
+    <span class="label" id="cpuLabel">CPU 占用</span>
+    <span class="value" id="cpuValue">—</span>
+    <span class="bar"><i id="cpuBar" style="width:0%"></i></span>
+    <span class="sub" id="cpuSub"></span>
+  </div>
+  <div class="cell" id="upCell">
+    <span class="label" id="upLabel">开机时间</span>
+    <span class="value" id="upValue">—</span>
+    <span class="sub" id="upSub"></span>
+  </div>
+  <div class="nodelabel" id="droneLabel">无人机 <span id="fcNote"></span></div>
+  <div class="cell" id="tempCell">
+    <span class="label" id="tempLabel">温度</span>
+    <span class="value" id="tempValue">—</span>
+    <span class="sub" id="tempSub"></span>
+  </div>
+  <div class="cell" id="droneCpuCell">
+    <span class="label" id="droneCpuLabel">CPU 占用</span>
+    <span class="value" id="droneCpuValue">—</span>
+    <span class="bar"><i id="droneCpuBar" style="width:0%"></i></span>
+    <span class="sub" id="droneCpuSub"></span>
+  </div>
+  <div class="cell" id="droneUpCell">
+    <span class="label" id="droneUpLabel">开机时间</span>
+    <span class="value" id="droneUpValue">—</span>
+    <span class="sub" id="droneUpSub"></span>
+  </div>
+  <div class="cell" id="droneBatteryCell">
+    <span class="label" id="droneBatteryLabel">飞控电量</span>
+    <span class="value" id="droneBatteryValue">—</span>
+    <span class="sub" id="droneBatterySub"></span>
+  </div>
+</main>
+<div id="error"></div>
+<div id="droneError"></div>
+<footer>
+  <span id="sync">—</span>
+  <span id="target"></span>
+</footer>
+<script>
+(() => {
+  'use strict'
+  const CAR_API = '/api/dzairground-ssh/metrics'
+  const DRONE_API = '/api/dzairground-ssh/drone/metrics'
+  const POLL_MS = 3000
+
+  const DICT = {
+    zh: {
+      title: '空地状态', refresh: '刷新', nodeCar: '小车', nodeDrone: '无人机',
+      battery: '电量', cpu: 'CPU 占用', up: '开机时间', temp: '温度', fcBattery: '飞控电量',
+      down: '小车未连接', droneDown: '无人机未连接',
+      loading: '正在读取…', empty: '—', updated: '更新于 {time}', poll: '每 3 秒自动刷新',
+      unitDay: '天', unitHour: '小时', unitMin: '分', unitSec: '秒',
+      since: '开机于 {time}', load: '负载 {load}', zones: '{n} 个测点，最高 {id}',
+      battVolts: '{v} V · 底盘发布',
+      battDerived: '{v} V · 按 12V满/10V空 折算',
+      battNone: '底盘未发布电量（ROS 栈未运行）',
+      battBad: '数据异常（数值越界被拒）',
+      // 飞控电量三态（决议②）：有数据 / 飞控无数据 / 无飞控，外加数据异常。
+      fcNoFc: '无飞控',
+      fcNoData: '飞控无数据',
+      fcBad: '数据异常',
+      reasonDdsSilent: '飞控在位但 DDS 静默（查 uXRCE-DDS agent）',
+      reasonNoRos: '机上没有 ROS 2（查 setup.bash 路径）',
+      failed: '读取失败：{message}',
+    },
+    en: {
+      title: 'Air-ground status', refresh: 'Refresh', nodeCar: 'Car', nodeDrone: 'Drone',
+      battery: 'Battery', cpu: 'CPU usage', up: 'Uptime', temp: 'Temperature', fcBattery: 'FC battery',
+      down: 'Car offline', droneDown: 'Drone offline',
+      loading: 'Loading…', empty: '—', updated: 'updated {time}', poll: 'auto-refresh every 3s',
+      unitDay: 'd', unitHour: 'h', unitMin: 'm', unitSec: 's',
+      since: 'booted {time}', load: 'load {load}', zones: '{n} sensors, peak {id}',
+      battVolts: '{v} V · chassis topic',
+      battDerived: '{v} V · from the 12 V-full / 10 V-empty calibration',
+      battNone: 'Battery not published (ROS stack is down)',
+      battBad: 'Bad data (out-of-range reading rejected)',
+      fcNoFc: 'No FC',
+      fcNoData: 'FC silent',
+      fcBad: 'Bad data',
+      reasonDdsSilent: 'FC present but DDS silent (check the uXRCE-DDS agent)',
+      reasonNoRos: 'No ROS 2 on the drone (check the setup.bash path)',
+      failed: 'Reading failed: {message}',
+    },
+  }
+  const lang = String(navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en'
+  const dict = DICT[lang]
+  const t = (key, vars) => Object.keys(vars || {}).reduce(
+    (text, name) => text.replace(`{${name}}`, String(vars[name])), dict[key])
+
+  const $ = id => document.getElementById(id)
+  $('title').textContent = t('title')
+  $('refresh').textContent = t('refresh')
+  $('carLabel').firstChild.textContent = t('nodeCar')
+  $('droneLabel').firstChild.textContent = t('nodeDrone')
+  $('batteryLabel').textContent = t('battery')
+  $('cpuLabel').textContent = t('cpu')
+  $('upLabel').textContent = t('up')
+  $('tempLabel').textContent = t('temp')
+  $('droneCpuLabel').textContent = t('cpu')
+  $('droneUpLabel').textContent = t('up')
+  $('droneBatteryLabel').textContent = t('fcBattery')
+
+  let last = null          // the car's last good reading
+  let failed = false
+  let droneLast = null     // the drone's last good reading
+  let droneFailed = false
+
+  // A reading older than this may not claim to be the node's uptime: three
+  // poll cycles of slack, then the cell says 未连接 instead of extrapolating
+  // a dead anchor.
+  const STALE_MS = 15000
+
+  const pad = value => String(value).padStart(2, '0')
+  const clock = ms => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` }
+
+  /** Uptime as m:ss — total minutes of /proc/uptime (stopwatch, no hours);
+      the seconds tick locally between polls. */
+  function duration(total) {
+    if (!Number.isFinite(total) || total < 0) return t('empty')
+    const s = Math.floor(total)
+    return `${Math.floor(s / 60)}:${pad(s % 60)}`
+  }
+
+  /** warm/hot thresholds: a CPU throttles near 75, saturates at 90. */
+  const level = (value, warm, hot) => (value >= hot ? 'hot' : value >= warm ? 'warm' : 'ok')
+  /** Battery thresholds run backwards: low is the bad direction (≤30 warn, ≤15 critical). */
+  const battLevel = value => (value <= 15 ? 'hot' : value <= 30 ? 'warm' : 'ok')
+
+  function paintCar() {
+    if (last === null) {
+      $('upValue').textContent = failed ? t('down') : t('empty')
+      $('upSub').textContent = ''
+      return
+    }
+    const ageMs = Math.max(0, Date.now() - last.at)
+    const ageSec = ageMs / 1000
+    const live = !failed && ageMs <= STALE_MS
+
+    const batt = Number.isFinite(last.battery) ? last.battery : null
+    $('batteryValue').innerHTML = batt === null ? t('empty') : `${batt.toFixed(1)}<small>%</small>`
+    $('batteryCell').dataset.level = batt === null ? 'ok' : battLevel(batt)
+    $('batteryBar').style.width = `${batt === null ? 0 : Math.max(0, Math.min(100, batt))}%`
+    $('batteryBar').dataset.level = batt === null ? 'ok' : battLevel(batt)
+    // bug#3: an out-of-range reading is 数据异常, its own line — never the
+    // "ROS 栈未运行" sentence that used to swallow it.
+    $('batterySub').textContent = batt === null
+      ? (last.batteryNote === 'bad_value' ? t('battBad') : t('battNone'))
+      : last.batteryNote === 'derived' && Number.isFinite(last.batteryVolt)
+        ? t('battDerived', { v: last.batteryVolt.toFixed(2) })
+        : Number.isFinite(last.batteryVolt) ? t('battVolts', { v: last.batteryVolt.toFixed(2) }) : ''
+
+    $('cpuValue').innerHTML = `${last.cpuPercent.toFixed(1)}<small>%</small>`
+    $('cpuCell').dataset.level = level(last.cpuPercent, 75, 90)
+    $('cpuBar').style.width = `${Math.max(0, Math.min(100, last.cpuPercent))}%`
+    $('cpuBar').dataset.level = level(last.cpuPercent, 75, 90)
+    $('cpuSub').textContent = Array.isArray(last.load)
+      ? t('load', { load: last.load.map(value => value.toFixed(2)).join(' ') })
+      : ''
+
+    if (live) {
+      $('upValue').textContent = duration(last.uptimeSec + ageSec)
+      const bootMs = Number.isFinite(last.bootEpoch)
+        ? last.bootEpoch * 1000
+        : last.at - (last.uptimeSec + ageSec) * 1000
+      $('upSub').textContent = t('since', { time: clock(bootMs) })
+    } else {
+      $('upValue').textContent = t('down')
+      $('upSub').textContent = ''
+    }
+  }
+
+  /** The drone FC battery's verdict (决议②'s three states, plus 数据异常):
+      live / noData (`batteryNote` = dds_silent | no_ros — the board is there,
+      the topic is not) / invalid (`bad_value`, bug#3) / nofc (no board at
+      all). Never renders 无飞控 about a plugged-in board. */
+  function fcView(reading, isFailed, nowMs) {
+    if (reading === null || reading === undefined) {
+      return isFailed ? { state: 'down' } : { state: 'loading' }
+    }
+    const ageMs = nowMs - reading.at
+    if (isFailed || ageMs > STALE_MS) return { state: 'down' }
+    const battery = reading.battery
+    if (battery && Number.isFinite(battery.percent) && battery.percent >= 0 && battery.percent <= 100) {
+      return { state: 'live', percent: battery.percent, voltage: Number.isFinite(battery.voltage) ? battery.voltage : undefined }
+    }
+    if (reading.batteryNote === 'dds_silent' || reading.batteryNote === 'no_ros') {
+      return { state: 'noData', reason: reading.batteryNote }
+    }
+    if (reading.batteryNote === 'bad_value') return { state: 'invalid' }
+    // The Host's own gate rides along as `batteryFc`: only an absent board
+    // ('absent') may ever say 无飞控; a present board with no note is a
+    // silent DDS link, not a missing board.
+    if (reading.batteryFc === 'present') return { state: 'noData', reason: 'dds_silent' }
+    return { state: 'nofc' }
+  }
+
+  function paintDrone() {
+    const nowMs = Date.now()
+    const fc = fcView(droneLast, droneFailed, nowMs)
+    // The node row carries the three-state verdict inline, so 无飞控 can never
+    // be misread about a board that is plugged in but silent (bug#2).
+    $('fcNote').textContent = fc.state === 'noData'
+      ? `· ${t('fcNoData')}`
+      : fc.state === 'invalid' ? `· ${t('fcBad')}` : fc.state === 'nofc' ? `· ${t('fcNoFc')}` : ''
+
+    if (droneLast === null) {
+      $('droneUpValue').textContent = droneFailed ? t('droneDown') : t('empty')
+      $('droneUpSub').textContent = ''
+    } else {
+      const ageMs = Math.max(0, nowMs - droneLast.at)
+      const ageSec = ageMs / 1000
+      const live = !droneFailed && ageMs <= STALE_MS
+      const temp = droneLast.temp
+      $('tempValue').innerHTML = temp === null || temp === undefined
+        ? t('empty')
+        : `${temp.toFixed(1)}<small>°C</small>`
+      $('tempCell').dataset.level = temp === null || temp === undefined ? 'ok' : level(temp, 65, 80)
+      $('tempSub').textContent = temp === null || temp === undefined
+        ? ''
+        : t('zones', { n: droneLast.zones, id: droneLast.tempAt })
+
+      $('droneCpuValue').innerHTML = `${droneLast.cpuPercent.toFixed(1)}<small>%</small>`
+      $('droneCpuCell').dataset.level = level(droneLast.cpuPercent, 75, 90)
+      $('droneCpuBar').style.width = `${Math.max(0, Math.min(100, droneLast.cpuPercent))}%`
+      $('droneCpuBar').dataset.level = level(droneLast.cpuPercent, 75, 90)
+      $('droneCpuSub').textContent = Array.isArray(droneLast.load)
+        ? t('load', { load: droneLast.load.map(value => value.toFixed(2)).join(' ') })
+        : ''
+
+      if (live) {
+        $('droneUpValue').textContent = duration(droneLast.uptimeSec + ageSec)
+        const bootMs = Number.isFinite(droneLast.bootEpoch)
+          ? droneLast.bootEpoch * 1000
+          : droneLast.at - (droneLast.uptimeSec + ageSec) * 1000
+        $('droneUpSub').textContent = t('since', { time: clock(bootMs) })
+      } else {
+        $('droneUpValue').textContent = t('droneDown')
+        $('droneUpSub').textContent = ''
+      }
+    }
+
+    // The FC battery cell: a number when there is one, the state word when
+    // there is not — a missing battery field is information, not a dash.
+    if (fc.state === 'live') {
+      $('droneBatteryValue').innerHTML = `${fc.percent.toFixed(0)}<small>%</small>`
+      $('droneBatteryCell').dataset.level = battLevel(fc.percent)
+      $('droneBatterySub').textContent = Number.isFinite(fc.voltage) ? `${fc.voltage.toFixed(2)} V` : ''
+    } else {
+      const word = fc.state === 'noData' ? t('fcNoData')
+        : fc.state === 'invalid' ? t('fcBad')
+        : fc.state === 'nofc' ? t('fcNoFc')
+        : fc.state === 'down' ? t('droneDown') : t('empty')
+      $('droneBatteryValue').textContent = word
+      $('droneBatteryValue').classList.toggle('small', fc.state !== 'down' && fc.state !== 'loading')
+      $('droneBatteryCell').dataset.level = 'ok'
+      $('droneBatterySub').textContent = fc.state === 'noData'
+        ? (fc.reason === 'no_ros' ? t('reasonNoRos') : t('reasonDdsSilent'))
+        : ''
+    }
+  }
+
+  function paint() {
+    paintCar()
+    paintDrone()
+    const parts = []
+    if (last !== null) parts.push(`${last.battery === null ? '--' : last.battery.toFixed(0)}%`)
+    if (droneLast !== null && droneLast.temp !== null && droneLast.temp !== undefined) parts.push(`${droneLast.temp.toFixed(0)}°C`)
+    if (parts.length > 0) document.title = `${parts.join(' ')} · ${t('title')}`
+    const at = Math.max(last?.at ?? 0, droneLast?.at ?? 0)
+    if (at > 0) $('sync').textContent = `${t('updated', { time: clock(at) })} · ${t('poll')}`
+  }
+
+  function fail(message) {
+    failed = true
+    const box = $('error')
+    box.textContent = t('failed', { message })
+    box.style.display = 'block'
+    refreshDot()
+  }
+
+  function droneFail(message) {
+    droneFailed = true
+    const box = $('droneError')
+    box.textContent = t('failed', { message })
+    box.style.display = 'block'
+    refreshDot()
+  }
+
+  /** The header dot is honest about each node: live only when *both* sides
+      answered this cycle, failed when both refused, loading in between. */
+  function refreshDot() {
+    const carOk = last !== null && !failed && (Date.now() - last.at) <= STALE_MS
+    const droneOk = droneLast !== null && !droneFailed && (Date.now() - droneLast.at) <= STALE_MS
+    $('dot').dataset.state = carOk && droneOk ? 'live' : (failed && droneFailed) || (last === null && droneLast === null) ? 'failed' : 'loading'
+  }
+
+  async function pull() {
+    const [car, drone] = await Promise.allSettled([
+      fetch(CAR_API, { cache: 'no-store' }),
+      fetch(DRONE_API, { cache: 'no-store' }),
+    ])
+    if (car.status === 'fulfilled') {
+      try {
+        const payload = await car.value.json()
+        if (payload && payload.ok === true) {
+          last = payload
+          failed = false
+          $('error').style.display = 'none'
+        } else {
+          fail((payload && (payload.detail || payload.state)) || `HTTP ${car.value.status}`)
+        }
+      } catch (error) { fail(String((error && error.message) || error)) }
+    } else {
+      fail(String((car.reason && car.reason.message) || car.reason))
+    }
+    if (drone.status === 'fulfilled') {
+      try {
+        const payload = await drone.value.json()
+        if (payload && payload.ok === true) {
+          droneLast = payload
+          droneFailed = false
+          $('droneError').style.display = 'none'
+        } else {
+          droneFail((payload && (payload.detail || payload.state)) || `HTTP ${drone.value.status}`)
+        }
+      } catch (error) { droneFail(String((error && error.message) || error)) }
+    } else {
+      droneFail(String((drone.reason && drone.reason.message) || drone.reason))
+    }
+    refreshDot()
+    paint()
+  }
+
+  $('refresh').addEventListener('click', () => void pull())
+  // The gauges tick every second (uptime advances between polls) and the poll
+  // itself is slower on purpose: each reading is an ssh round trip per node.
+  setInterval(paint, 1000)
+  setInterval(() => { if (!document.hidden) void pull() }, POLL_MS)
+  // Returning to the window re-anchors at once instead of waiting out a poll
+  // cycle of 未连接.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) void pull() })
+  void pull()
+})()
+</script>
+</body>
+</html>

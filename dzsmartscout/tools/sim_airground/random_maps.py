@@ -13,8 +13,10 @@
   **全部 N 张图**的均值（规划在开车前必做，失败图也计入）。
 - **平均完赛时间 ``avg_finish_s``** = **完赛样本**的 ``commit + drive + wait + dwell``
   总时长均值（``n_completed`` 样本数显式标注）。
-- **失败/超时样本单列**：``abort_rows``（撞封死桥室/硬违规中断，附中断时刻）与
+- **失败/超时样本单列**：``plan_failed_rows``（规划器判该桥洞组合无解——只记一行、
+  不中断批量、不出轨迹）、``abort_rows``（撞封死桥室/硬违规中断，附中断时刻）与
   ``over_budget_rows``（完赛但总时长 > 180 s 预算）**不进完赛均值**，各自成行。
+  规划失败的图仍会渲染一张无车路线的 ``route_map.png``，便于一眼看出"这组桥洞不可规划"。
 - 每张图一条明细行（``rows``），控制台全量打印，JSON 落盘。
 
 ## 时间预算口径（如实告知）
@@ -36,7 +38,9 @@ import yaml as _yaml
 
 from dzbrain.core.config import Config
 
+from .drone_model import build_timeline
 from .match_stats import plan_for_bridges
+from .plot import draw_map
 from .runner import run_arm
 from .scenarios import apply_target_override, build_world_b
 
@@ -65,9 +69,15 @@ class RandomMapRow:
     red: int
     traj_sha256: str
     route_map: str
+    #: 规划是否成功（False = 该桥洞组合被规划器判定无解；**如实记一行，不中断批量**）
+    plan_ok: bool = True
+    plan_error: str = ""
 
 
 def _fmt_row(r: RandomMapRow) -> str:
+    if not r.plan_ok:
+        return (f"{r.map_id:<5} seed={r.seed:<10} 桥={r.entrance}/{r.exit_cell:<4} φ={r.phi:>4.0f}°  "
+                f"规划={r.plan_s:>5.2f}s 规划失败  {r.plan_error[:70]}")
     status = "完赛" if r.completed else f"中断@t={r.abort_t_s:.1f}s"
     budget = ("预算内" if r.within_budget is True else
               "超预算" if r.within_budget is False else "—")
@@ -107,17 +117,46 @@ def run_random_maps(cfg: Config, baseline: list[str], out_root: str, *,
         if targets is not None:
             sc = apply_target_override(sc, targets, phi if orient is None else orient)
         else:
-            # 无靶格覆盖：随机朝向（或显式覆盖）必须落到情景上
-            sc.target.orientation_deg = phi if orient is None else float(orient) % 360.0
+            # ★ 靶模型（track_cells / stop_candidates）必须跟真值靶格同步：
+            #   地图靶格已改为 E5/F5，若只改 `orientation_deg`，射击模型仍按默认
+            #   B11/C11 的候选停站判扇区 ⇒ 规划器按 E5/F5 选 D3/G3，射击却在 B11/C11
+            #   上判 sector_fail（0 命中）。这里用同一个 apply_target_override 把
+            #   "真值靶格 + 随机朝向"一起落到情景上（与显式 targets 分支同一条路径）。
+            sc = apply_target_override(sc, tuple(sc.truth.targets),
+                                       phi if orient is None else float(orient))
         sc.target.judge_error_deg = 0.0
 
         map_cfg = _yaml.safe_load(open(map_path, encoding="utf-8"))
+        map_dir = os.path.join(out_root, f"map_{i:02d}")
         t0 = time.perf_counter()
-        tokens, polyline, _shoot_stop = plan_for_bridges(
-            cfg, map_cfg, entrance, exit_cell, targets=tuple(sc.truth.targets))
+        # ★ 规划失败**不是异常事件**：某些桥洞组合会被规划器硬约束判无解（如现役
+        #   tracker-safe 的『禁 180°/禁紧凑 U/雷穿心』筛空）。批量工具必须如实记一行、
+        #   继续下一张，而不是整批 Traceback（本模块 docstring 的 avg_plan_s 口径本就
+        #   包含"失败图"）。失败样本单列 `plan_failed_rows`，不混进完赛/中断均值。
+        plan_error = ""
+        try:
+            tokens, polyline, _shoot_stop = plan_for_bridges(
+                cfg, map_cfg, entrance, exit_cell, targets=tuple(sc.truth.targets))
+            plan_ok = True
+        except Exception as exc:                       # noqa: BLE001  规划器判无解 = 合法结果
+            tokens, polyline, plan_error = [], 0.0, f"{type(exc).__name__}: {exc}"
+            plan_ok = False
         plan_s = time.perf_counter() - t0
 
-        map_dir = os.path.join(out_root, f"map_{i:02d}")
+        if not plan_ok:
+            os.makedirs(map_dir, exist_ok=True)
+            png = draw_map(os.path.join(map_dir, "route_map.png"),
+                           title=f"随机地图 seed={seed} 规划失败（桥 {entrance}/{exit_cell}）",
+                           truth=sc.truth, car_tokens=[], drone=build_timeline(sc))
+            rows.append(RandomMapRow(
+                map_id=f"m{i:02d}", seed=seed, entrance=entrance, exit_cell=exit_cell,
+                phi=sc.target.orientation_deg, plan_s=round(plan_s, 4),
+                plan_tokens_n=0, polyline_m=0.0, completed=False, abort_t_s=None,
+                drive_s=0.0, wait_s=0.0, dwell_s=0.0, total_s=0.0, within_budget=None,
+                mine_pressed="-", blue=0, red=0, traj_sha256="", route_map=png,
+                plan_ok=False, plan_error=plan_error))
+            continue
+
         arm = run_arm(f"m{i:02d}", sc, cfg, list(tokens), drone_on=True,
                       stop_on_violation=True, out_dir=map_dir,
                       description=f"随机地图 seed={seed}：桥 {entrance}/{exit_cell}，"
@@ -139,13 +178,15 @@ def run_random_maps(cfg: Config, baseline: list[str], out_root: str, *,
             blue=int(s["blue_hits"]), red=int(s["red_hits"]),
             traj_sha256=arm.artifacts["traj_sha256"], route_map=arm.artifacts["route_map"]))
 
-    completed = [r for r in rows if r.completed]
-    aborted = [r for r in rows if not r.completed]
+    plan_failed = [r for r in rows if not r.plan_ok]
+    completed = [r for r in rows if r.plan_ok and r.completed]
+    aborted = [r for r in rows if r.plan_ok and not r.completed]
     over = [r for r in completed if r.within_budget is False]
     stats = {
         "n_total": len(rows),
         "n_completed": len(completed),
         "n_aborted": len(aborted),
+        "n_plan_failed": len(plan_failed),
         "n_over_budget": len(over),
         "avg_plan_s": round(sum(r.plan_s for r in rows) / len(rows), 4)
         if rows else 0.0,                       # 计算时间：全 N 张（含失败）均值
@@ -162,7 +203,8 @@ def run_random_maps(cfg: Config, baseline: list[str], out_root: str, *,
         "budget_pass_rate": round(
             len([r for r in completed if r.within_budget is not False and r.within_budget is not None])
             / len(completed), 4) if completed else 0.0,
-        "abort_rows": [asdict(r) for r in aborted],      # 失败样本单列（不进完赛均值）
+        "abort_rows": [asdict(r) for r in aborted],      # 执行中断单列（不进完赛均值）
+        "plan_failed_rows": [asdict(r) for r in plan_failed],  # 规划无解单列（不进完赛均值）
         "over_budget_rows": [asdict(r) for r in over],   # 超时样本单列（不进完赛均值）
         "rows": [asdict(r) for r in rows],
     }

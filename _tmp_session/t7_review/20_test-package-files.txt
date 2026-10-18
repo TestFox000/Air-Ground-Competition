@@ -1,0 +1,21 @@
+﻿OK    the declaration matcher rejects an entry that is not shipped
+OK    source tree contains vnc-app.html
+OK    source tree contains novnc
+OK    source tree contains float.html
+OK    source tree contains src/metrics.js
+OK    source tree contains src/store.js
+OK    package.json#files declares vnc-app.html
+OK    package.json#files declares novnc
+OK    package.json#files declares float.html
+OK    package.json#files declares src/metrics.js
+OK    package.json#files declares src/store.js
+OK    installed copy contains vnc-app.html
+OK    installed copy contains novnc
+OK    installed copy contains float.html
+OK    installed copy contains src/metrics.js
+OK    installed copy contains src/store.js
+OK    the installed VNC page matches the source tree
+OK    the installed copy contains package.json
+OK    the installed plugin matches the source tree
+
+PACKAGE FILES TEST PASSED

@@ -1,27 +1,23 @@
-=== sync_planner_from_source  2026-10-16 19:28:06 ===
+=== sync_planner_from_source  2026-10-17 17:02:07 ===
 源(真源，只读): D:\User\Desktop\比赛存档\v1\dzrobot_v2
 产物        : D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\planner\vendor\dzbrain_ws
   src/dzbrain/dzbrain/__init__.py                            701 B  sha256=2c95c7e2ecf508892a27  OK
   src/dzbrain/dzbrain/core/__init__.py                       108 B  sha256=71f40bf8e4b0135a410c  OK
-  src/dzbrain/dzbrain/core/config.py                       54034 B  sha256=e917c2e9f5f3737a780d  OK
-  src/dzbrain/dzbrain/core/geometry.py                      6649 B  sha256=317c3d8230d6045e8db8  OK
+  src/dzbrain/dzbrain/core/config.py                       62976 B  sha256=e832b6b1d92eb71bc0fb  OK
+  src/dzbrain/dzbrain/core/geometry.py                      7276 B  sha256=d932fc8bb3f125b3d2c5  OK
   src/dzbrain/dzbrain/route/__init__.py                      195 B  sha256=15ee930fbc0b20b4bde7  OK
   src/dzbrain/dzbrain/route/model.py                        8565 B  sha256=678a8d1fab9c6e7631cf  OK
   src/dzbrain/dzbrain/route/parser.py                      21356 B  sha256=f9fa4c6f8cbe6ea56991  OK
-  src/dzbrain/dzbrain/route/physics.py                     35626 B  sha256=c54ebe5c8873e2dedd7e  OK
-  src/dzbrain/dzbrain/route/planner.py                    208577 B  sha256=86ccf6c5c6f45f734b39  OK
-  src/dzbrain/dzbrain/route/validate.py                    40754 B  sha256=22da534a6209bf0ba542  OK
-  tools/plan_route.py                                      19256 B  sha256=e3580127ae561e43fe42  OK
-  tools/route_check.py                                     64265 B  sha256=841cf1b205dae77e79c2  OK
-  tools/shoot_planner.py                                   27167 B  sha256=d10d0aecb12427a60c9a  OK
+  src/dzbrain/dzbrain/route/physics.py                     36715 B  sha256=726321c974ae893c8eae  OK
+  src/dzbrain/dzbrain/route/planner.py                    241719 B  sha256=d1600603ebc7f7d25ad1  OK
+  src/dzbrain/dzbrain/route/validate.py                    40358 B  sha256=e076c7bd18479a2b8ddf  OK
+  tools/_field_const.py                                     2953 B  sha256=fde3beb301860e10ab2e  OK
+  tools/plan_route.py                                      21232 B  sha256=ec24cd663fcb379c6693  OK
+  tools/route_check.py                                     68667 B  sha256=cbcb352c8ac80349646f  OK
+  tools/shoot_planner.py                                   27555 B  sha256=e1d0ecd99bda4d9ab06a  OK
   config/map.yaml                                           4991 B  sha256=d5d7903d9c08e64b6bed  OK
-  config/robot.yaml                                        62022 B  sha256=c3dadf513a02e5a922e0  OK
+  config/robot.yaml                                        75881 B  sha256=d824d1fba6df0f966a51  OK
+  路线内容：车侧 n=44 sha256=df24e944ae4ccf8b / 产物 n=44 sha256=df24e944ae4ccf8b → 逐 token 一致 ✅
 闭包自检：通过
-账本: D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\planner\HASH_LEDGER.json（15 条）
-结论：逐文件 sha256 一致 ✅
-
-=== 推到无人机 duzhong@10.35.165.104:~/dzplanner ===
-  scp 完成：~/dzplanner/dzbrain_ws
-  远端 plan_route 退出码=0
-  远端输出(尾 5 行)：
-    N10 N9 M9 L9 K9 I9 I10 H10 G10 E10 E9 D9 C9 C7 B7 A7 A6 A5 A4 A3 A2 B2 B1 C1 D1 D3 E3 F3* G3 G4 G5 H5 H6 I6 J6 J5 K5 L5 M5 N5,y
+账本: D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\planner\HASH_LEDGER.json（16 条 + 路线指纹）
+结论：逐文件 sha256 一致 + 路线逐 token 一致 ✅

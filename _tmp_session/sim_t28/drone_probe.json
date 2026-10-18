@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "code": 422,
+  "error": "改点位后规划/校验未过（plan_route.py exit=1）—— 路线没换，仿真未跑。",
+  "timeline": [],
+  "scanPoints": null
+}

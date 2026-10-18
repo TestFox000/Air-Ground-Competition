@@ -1,0 +1,992 @@
+{
+"config\\map.yaml": {
+"md5": "c9bdb660",
+"sha": "d5d7903d",
+"n": 4991,
+"mtime": "19:19:27"
+},
+"config\\map_v3.yaml": {
+"md5": "73b0c7ca",
+"sha": "59ae71ec",
+"n": 3543,
+"mtime": "16:30:30"
+},
+"config\\robot.yaml": {
+"md5": "0a2b14c8",
+"sha": "d60e2be1",
+"n": 70946,
+"mtime": "10:59:11"
+},
+"docs\\agent_archive.md": {
+"md5": "fd10251c",
+"sha": "ced0dfeb",
+"n": 5806,
+"mtime": "19:28:06"
+},
+"docs\\C线_仿真器报告.md": {
+"md5": "a03bde50",
+"sha": "9753e456",
+"n": 20398,
+"mtime": "15:17:14"
+},
+"docs\\n6_规划器隔板避让能力.md": {
+"md5": "11d78bfe",
+"sha": "cd70aa18",
+"n": 19094,
+"mtime": "13:42:15"
+},
+"docs\\P0接口约定.md": {
+"md5": "ab9c9c22",
+"sha": "3ee8bdb8",
+"n": 10490,
+"mtime": "10:17:50"
+},
+"docs\\P1接口约定.md": {
+"md5": "514e4e24",
+"sha": "c7e125c8",
+"n": 8071,
+"mtime": "10:20:57"
+},
+"docs\\sim-bench-free_交接清单_20261015.md": {
+"md5": "4bd10a92",
+"sha": "976e6e88",
+"n": 10170,
+"mtime": "22:15:51"
+},
+"docs\\sim-bench-improve_交接清单_20261014.md": {
+"md5": "32d2449f",
+"sha": "aead91c3",
+"n": 16042,
+"mtime": "17:12:47"
+},
+"docs\\sim_v2_规格增补.md": {
+"md5": "a9e2f58f",
+"sha": "ec55f7ce",
+"n": 6571,
+"mtime": "21:05:34"
+},
+"docs\\sim_v2_设计规格.md": {
+"md5": "29d18d0a",
+"sha": "15e48baf",
+"n": 22545,
+"mtime": "20:23:44"
+},
+"docs\\survey_chassis_vision.md": {
+"md5": "e14d7a8e",
+"sha": "9001005a",
+"n": 40052,
+"mtime": "10:04:30"
+},
+"docs\\survey_gimbal_fire.md": {
+"md5": "026b7b87",
+"sha": "d868c38d",
+"n": 29311,
+"mtime": "17:02:49"
+},
+"docs\\survey_path_executor.md": {
+"md5": "4e753617",
+"sha": "7fc55013",
+"n": 35321,
+"mtime": "10:02:09"
+},
+"docs\\上下文快照.md": {
+"md5": "a12f7d93",
+"sha": "26eae8be",
+"n": 9699,
+"mtime": "21:22:08"
+},
+"docs\\云台补丁说明.md": {
+"md5": "bdbf468d",
+"sha": "54c9aab2",
+"n": 7194,
+"mtime": "17:02:37"
+},
+"docs\\仿真台_插件交付.md": {
+"md5": "318d7c3c",
+"sha": "77f7326c",
+"n": 10823,
+"mtime": "21:03:29"
+},
+"docs\\仿真台对接说明_仿真员.md": {
+"md5": "759f7a42",
+"sha": "f54f352d",
+"n": 7278,
+"mtime": "22:17:12"
+},
+"docs\\仿真员工作交接包.md": {
+"md5": "1e51c2ec",
+"sha": "81e8abdc",
+"n": 19971,
+"mtime": "20:56:00"
+},
+"docs\\仿真基线_三档对照.md": {
+"md5": "3f968554",
+"sha": "9cf8ef11",
+"n": 13831,
+"mtime": "21:06:19"
+},
+"docs\\仿真复验_桥洞冗余墙_t5.md": {
+"md5": "70a57dc6",
+"sha": "46f60647",
+"n": 13063,
+"mtime": "20:20:49"
+},
+"docs\\仿真复验_第五张图44token基线_t2.md": {
+"md5": "ae6bcce1",
+"sha": "7929643d",
+"n": 27077,
+"mtime": "17:56:09"
+},
+"docs\\仿真联合复验_t6.md": {
+"md5": "6843b63d",
+"sha": "a203dc29",
+"n": 18054,
+"mtime": "11:09:48"
+},
+"docs\\使用手册.md": {
+"md5": "df9a7f93",
+"sha": "1317bcd0",
+"n": 13522,
+"mtime": "21:18:24"
+},
+"docs\\发车门禁口径.md": {
+"md5": "8821f43a",
+"sha": "59ec3246",
+"n": 10394,
+"mtime": "10:44:59"
+},
+"docs\\回归守护_known_reds.md": {
+"md5": "d2b6a562",
+"sha": "3fe54ade",
+"n": 20824,
+"mtime": "18:15:14"
+},
+"docs\\图传UI改造_t4_验收.md": {
+"md5": "2f1db232",
+"sha": "b807797c",
+"n": 10586,
+"mtime": "17:25:21"
+},
+"docs\\循迹算法说明.md": {
+"md5": "12ab322f",
+"sha": "18bd4a44",
+"n": 42073,
+"mtime": "20:06:03"
+},
+"docs\\新版小车报告.md": {
+"md5": "2f29ff06",
+"sha": "8ad9ffb2",
+"n": 43421,
+"mtime": "19:38:30"
+},
+"docs\\新版架构设计.md": {
+"md5": "d08c7800",
+"sha": "b0e22b92",
+"n": 32701,
+"mtime": "10:42:13"
+},
+"docs\\无人机全要素感知_现状与方案.md": {
+"md5": "6a21f559",
+"sha": "3dd333d7",
+"n": 40569,
+"mtime": "10:34:48"
+},
+"docs\\无人机拟真与动态规划_方案.md": {
+"md5": "d027565d",
+"sha": "18495af3",
+"n": 16297,
+"mtime": "09:32:25"
+},
+"docs\\机侧产物哈希清单.md": {
+"md5": "c5b63d10",
+"sha": "c15740ed",
+"n": 17765,
+"mtime": "21:48:55"
+},
+"docs\\标定需求卡.md": {
+"md5": "7e38f7e8",
+"sha": "2f809f3b",
+"n": 16140,
+"mtime": "14:03:36"
+},
+"docs\\版本号台账.md": {
+"md5": "29229339",
+"sha": "6e66c885",
+"n": 10430,
+"mtime": "08:28:01"
+},
+"docs\\空地指挥链路_协议与运行手册.md": {
+"md5": "df109c37",
+"sha": "316503cf",
+"n": 33457,
+"mtime": "10:44:17"
+},
+"docs\\算法归纳规则.md": {
+"md5": "745333c9",
+"sha": "0c4c0249",
+"n": 9798,
+"mtime": "13:24:53"
+},
+"docs\\诊断_投影与顶点.md": {
+"md5": "5b22ca4f",
+"sha": "a2b89166",
+"n": 8416,
+"mtime": "17:44:31"
+},
+"docs\\语音模块调研.md": {
+"md5": "c68b3432",
+"sha": "587cf714",
+"n": 32442,
+"mtime": "21:14:45"
+},
+"docs\\路径规划报告.md": {
+"md5": "89db5ff7",
+"sha": "120a2ac5",
+"n": 12230,
+"mtime": "11:55:13"
+},
+"docs\\路线加固盘点与候选方案.md": {
+"md5": "1e506316",
+"sha": "5860ea8c",
+"n": 22254,
+"mtime": "13:17:03"
+},
+"docs\\车上自动规划_A_基线验收.md": {
+"md5": "4f55c8ca",
+"sha": "aa1996d5",
+"n": 25233,
+"mtime": "19:32:44"
+},
+"docs\\车上自动规划_B_MissionTask自动规划.md": {
+"md5": "56783060",
+"sha": "dcb29488",
+"n": 36060,
+"mtime": "08:03:39"
+},
+"docs\\车上自动规划_C_规划器无倒车.md": {
+"md5": "5978ea47",
+"sha": "a77063d8",
+"n": 27741,
+"mtime": "08:03:49"
+},
+"docs\\进度总结.md": {
+"md5": "abf82135",
+"sha": "d213cd16",
+"n": 13541,
+"mtime": "18:38:15"
+},
+"docs\\部署清单_2026-10-11.md": {
+"md5": "006a63fe",
+"sha": "47ba232b",
+"n": 4581,
+"mtime": "10:44:20"
+},
+"docs\\阶段交接_复核.md": {
+"md5": "d6f06352",
+"sha": "bbe23327",
+"n": 15520,
+"mtime": "19:26:58"
+},
+"docs\\阶段总结_出车就绪.md": {
+"md5": "fd82428c",
+"sha": "573c45ae",
+"n": 14033,
+"mtime": "19:20:32"
+},
+"docs\\项目总览_架构与工作流报告.md": {
+"md5": "562e2d25",
+"sha": "99435138",
+"n": 31147,
+"mtime": "19:48:12"
+},
+"docs\\黑图探索与动态规划_决策层方案.md": {
+"md5": "553791be",
+"sha": "8c284ab5",
+"n": 39586,
+"mtime": "10:40:04"
+},
+"dsh-plugin-dzrobot-ssh\\index.js": {
+"md5": "57ee8c66",
+"sha": "597dd56b",
+"n": 26760,
+"mtime": "09:05:16"
+},
+"dsh-plugin-dzrobot-ssh\\scripts\\test-client.mjs": {
+"md5": "662a51eb",
+"sha": "14546bed",
+"n": 42862,
+"mtime": "14:38:45"
+},
+"dsh-plugin-dzrobot-ssh\\scripts\\test-host.mjs": {
+"md5": "6687ede3",
+"sha": "b4b4b604",
+"n": 26836,
+"mtime": "14:40:00"
+},
+"dsh-plugin-dzrobot-ssh\\scripts\\test-live-ws.mjs": {
+"md5": "dda6eed8",
+"sha": "e1a71de0",
+"n": 1524,
+"mtime": "15:28:32"
+},
+"dsh-plugin-dzrobot-ssh\\scripts\\test-package-files.mjs": {
+"md5": "9e637f96",
+"sha": "64703a01",
+"n": 6573,
+"mtime": "20:00:36"
+},
+"dsh-plugin-dzrobot-ssh\\scripts\\test-sim-drone-render.mjs": {
+"md5": "852339c5",
+"sha": "e8ad1a0c",
+"n": 12301,
+"mtime": "10:56:47"
+},
+"dsh-plugin-dzrobot-ssh\\scripts\\test-sim-map-render.mjs": {
+"md5": "1adfee3f",
+"sha": "ab39772b",
+"n": 47799,
+"mtime": "20:56:25"
+},
+"dsh-plugin-dzrobot-ssh\\scripts\\test-sim-overlay-ab.mjs": {
+"md5": "fa474c5a",
+"sha": "bddede61",
+"n": 20820,
+"mtime": "10:41:44"
+},
+"dsh-plugin-dzrobot-ssh\\scripts\\test-sim-overlay-fix.mjs": {
+"md5": "80287055",
+"sha": "140846af",
+"n": 12698,
+"mtime": "20:59:06"
+},
+"dsh-plugin-dzrobot-ssh\\scripts\\test-sim-parity.mjs": {
+"md5": "6e2b43d5",
+"sha": "0f8c2c76",
+"n": 16228,
+"mtime": "10:40:28"
+},
+"dsh-plugin-dzrobot-ssh\\scripts\\test-vnc-connect.mjs": {
+"md5": "a9a3d4e1",
+"sha": "967fbf7b",
+"n": 11333,
+"mtime": "14:35:21"
+},
+"dsh-plugin-dzrobot-ssh\\scripts\\test-vnc-guard.mjs": {
+"md5": "30668ac5",
+"sha": "d8acab1f",
+"n": 6537,
+"mtime": "09:48:21"
+},
+"dsh-plugin-dzrobot-ssh\\scripts\\test-vnc-wrapper.mjs": {
+"md5": "fab1cf04",
+"sha": "2792d70f",
+"n": 6642,
+"mtime": "14:31:13"
+},
+"dsh-plugin-dzrobot-ssh\\sim.html": {
+"md5": "69ed13bc",
+"sha": "42a13378",
+"n": 152844,
+"mtime": "10:31:57"
+},
+"dsh-plugin-dzrobot-ssh\\src\\dronesim.js": {
+"md5": "fd85169d",
+"sha": "39f709e4",
+"n": 22652,
+"mtime": "10:56:33"
+},
+"dsh-plugin-dzrobot-ssh\\src\\files.js": {
+"md5": "d56a70f9",
+"sha": "98e0333c",
+"n": 16288,
+"mtime": "14:20:14"
+},
+"dsh-plugin-dzrobot-ssh\\src\\metrics.js": {
+"md5": "7956c1e0",
+"sha": "a41a89c1",
+"n": 12621,
+"mtime": "11:07:38"
+},
+"dsh-plugin-dzrobot-ssh\\src\\reload.js": {
+"md5": "98e5b694",
+"sha": "92bbfbe8",
+"n": 10848,
+"mtime": "10:54:45"
+},
+"dsh-plugin-dzrobot-ssh\\src\\simbench.js": {
+"md5": "4e184ce6",
+"sha": "c993d60b",
+"n": 46750,
+"mtime": "10:43:56"
+},
+"dsh-plugin-dzrobot-ssh\\src\\ssh.js": {
+"md5": "98462bf9",
+"sha": "f547d897",
+"n": 11091,
+"mtime": "14:42:33"
+},
+"dsh-plugin-dzrobot-ssh\\src\\store.js": {
+"md5": "648bb0f0",
+"sha": "c0b60dc4",
+"n": 6899,
+"mtime": "11:08:23"
+},
+"dsh-plugin-dzrobot-ssh\\src\\stressbench.js": {
+"md5": "f1e3a468",
+"sha": "88fc4e6f",
+"n": 15896,
+"mtime": "09:43:20"
+},
+"dsh-plugin-dzrobot-ssh\\src\\trust.js": {
+"md5": "3a56a784",
+"sha": "85f50dd5",
+"n": 2234,
+"mtime": "10:29:53"
+},
+"dsh-plugin-dzrobot-ssh\\src\\vnc.js": {
+"md5": "445c0fc3",
+"sha": "bb4539e2",
+"n": 16583,
+"mtime": "09:48:44"
+},
+"dsh-plugin-dzrobot-ssh\\src\\ws.js": {
+"md5": "74d213c9",
+"sha": "686866d0",
+"n": 9437,
+"mtime": "10:47:31"
+},
+"src\\dzbrain\\dzbrain\\__init__.py": {
+"md5": "e9e1effe",
+"sha": "2c95c7e2",
+"n": 701,
+"mtime": "10:17:04"
+},
+"src\\dzbrain\\dzbrain\\__main__.py": {
+"md5": "a14d011d",
+"sha": "4a9c3347",
+"n": 956,
+"mtime": "19:49:08"
+},
+"src\\dzbrain\\dzbrain\\core\\__init__.py": {
+"md5": "b8a77d69",
+"sha": "71f40bf8",
+"n": 108,
+"mtime": "10:17:04"
+},
+"src\\dzbrain\\dzbrain\\core\\blackboard.py": {
+"md5": "ec7766f9",
+"sha": "84201ce2",
+"n": 7725,
+"mtime": "21:36:24"
+},
+"src\\dzbrain\\dzbrain\\core\\config.py": {
+"md5": "e818f70d",
+"sha": "eaefe42f",
+"n": 53825,
+"mtime": "20:05:29"
+},
+"src\\dzbrain\\dzbrain\\core\\events.py": {
+"md5": "8215bc41",
+"sha": "f891ff0f",
+"n": 5270,
+"mtime": "10:15:43"
+},
+"src\\dzbrain\\dzbrain\\core\\geometry.py": {
+"md5": "3ae6bc33",
+"sha": "317c3d82",
+"n": 6649,
+"mtime": "10:15:43"
+},
+"src\\dzbrain\\dzbrain\\core\\logging.py": {
+"md5": "6fca24a6",
+"sha": "b398aa90",
+"n": 3184,
+"mtime": "10:16:52"
+},
+"src\\dzbrain\\dzbrain\\core\\state.py": {
+"md5": "b6a5a540",
+"sha": "eb4584b4",
+"n": 5843,
+"mtime": "10:23:51"
+},
+"src\\dzbrain\\dzbrain\\core\\task.py": {
+"md5": "092da734",
+"sha": "873a8bba",
+"n": 8994,
+"mtime": "14:28:58"
+},
+"src\\dzbrain\\dzbrain\\io\\__init__.py": {
+"md5": "d81b66e3",
+"sha": "d193522d",
+"n": 96,
+"mtime": "10:17:04"
+},
+"src\\dzbrain\\dzbrain\\io\\contract.py": {
+"md5": "cf9f5bcf",
+"sha": "2d9bc98f",
+"n": 12879,
+"mtime": "21:27:39"
+},
+"src\\dzbrain\\dzbrain\\io\\referee.py": {
+"md5": "4b562ee6",
+"sha": "dd1b741e",
+"n": 9543,
+"mtime": "10:42:13"
+},
+"src\\dzbrain\\dzbrain\\io\\ros_io.py": {
+"md5": "72c5b914",
+"sha": "ac05a75c",
+"n": 23702,
+"mtime": "19:48:12"
+},
+"src\\dzbrain\\dzbrain\\main.py": {
+"md5": "389e2f18",
+"sha": "52efe7e6",
+"n": 30778,
+"mtime": "19:48:12"
+},
+"src\\dzbrain\\dzbrain\\pursuit\\__init__.py": {
+"md5": "c1deb5da",
+"sha": "df08037d",
+"n": 529,
+"mtime": "10:30:00"
+},
+"src\\dzbrain\\dzbrain\\pursuit\\controller.py": {
+"md5": "e4aef322",
+"sha": "95621f67",
+"n": 17988,
+"mtime": "21:35:58"
+},
+"src\\dzbrain\\dzbrain\\pursuit\\lookahead.py": {
+"md5": "876c4996",
+"sha": "8615a2a9",
+"n": 5554,
+"mtime": "18:01:44"
+},
+"src\\dzbrain\\dzbrain\\pursuit\\path.py": {
+"md5": "d7d1d4cf",
+"sha": "14fa66f9",
+"n": 25971,
+"mtime": "18:18:42"
+},
+"src\\dzbrain\\dzbrain\\route\\__init__.py": {
+"md5": "5febd789",
+"sha": "15ee930f",
+"n": 195,
+"mtime": "10:17:04"
+},
+"src\\dzbrain\\dzbrain\\route\\model.py": {
+"md5": "72071ff3",
+"sha": "678a8d1f",
+"n": 8565,
+"mtime": "07:53:03"
+},
+"src\\dzbrain\\dzbrain\\route\\parser.py": {
+"md5": "0337fc44",
+"sha": "f9fa4c6f",
+"n": 21356,
+"mtime": "07:53:51"
+},
+"src\\dzbrain\\dzbrain\\route\\physics.py": {
+"md5": "f3384a21",
+"sha": "726321c9",
+"n": 36715,
+"mtime": "19:32:10"
+},
+"src\\dzbrain\\dzbrain\\route\\planner.py": {
+"md5": "84b6edfd",
+"sha": "8e2fd63f",
+"n": 224105,
+"mtime": "11:06:01"
+},
+"src\\dzbrain\\dzbrain\\route\\validate.py": {
+"md5": "138e2945",
+"sha": "22da534a",
+"n": 40754,
+"mtime": "21:17:45"
+},
+"src\\dzbrain\\dzbrain\\tasks\\__init__.py": {
+"md5": "1c3167ed",
+"sha": "fd8707ae",
+"n": 86,
+"mtime": "10:17:04"
+},
+"src\\dzbrain\\dzbrain\\tasks\\aim.py": {
+"md5": "cf128e6e",
+"sha": "73a368f2",
+"n": 73329,
+"mtime": "19:48:12"
+},
+"src\\dzbrain\\dzbrain\\tasks\\drone.py": {
+"md5": "d2a9a1bd",
+"sha": "f95f55a9",
+"n": 23158,
+"mtime": "11:12:16"
+},
+"src\\dzbrain\\dzbrain\\tasks\\fix.py": {
+"md5": "22899b8c",
+"sha": "c90a121b",
+"n": 24910,
+"mtime": "17:57:30"
+},
+"src\\dzbrain\\dzbrain\\tasks\\localization.py": {
+"md5": "7ef7c896",
+"sha": "f1a57256",
+"n": 56570,
+"mtime": "12:44:47"
+},
+"src\\dzbrain\\dzbrain\\tasks\\mission.py": {
+"md5": "d537a4ac",
+"sha": "3f8ab294",
+"n": 187717,
+"mtime": "08:19:02"
+},
+"src\\dzbrain\\dzbrain\\tasks\\safety.py": {
+"md5": "b5fac1f1",
+"sha": "48c24f16",
+"n": 31836,
+"mtime": "19:48:12"
+},
+"src\\dzbrain\\dzbrain\\tasks\\telemetry.py": {
+"md5": "2eeba9f2",
+"sha": "c15eaf46",
+"n": 13063,
+"mtime": "11:08:29"
+},
+"src\\dzbrain\\dzbrain\\tasks\\tracker.py": {
+"md5": "3d4149e4",
+"sha": "211528f9",
+"n": 42668,
+"mtime": "21:37:20"
+},
+"src\\dzbrain\\dzbrain\\tools\\__init__.py": {
+"md5": "83ef2181",
+"sha": "601f08fa",
+"n": 615,
+"mtime": "10:25:45"
+},
+"src\\dzbrain\\dzbrain\\tools\\sim.py": {
+"md5": "c864814a",
+"sha": "c9ee1106",
+"n": 137812,
+"mtime": "09:55:15"
+},
+"src\\dzbrain\\dzbrain\\tools\\sim_cli.py": {
+"md5": "d3843be1",
+"sha": "e425247e",
+"n": 10657,
+"mtime": "11:08:47"
+},
+"src\\dzbrain\\tests\\_run_loop_case.py": {
+"md5": "32bf3e23",
+"sha": "fef0870b",
+"n": 5127,
+"mtime": "17:07:45"
+},
+"src\\dzbrain\\tests\\fakes.py": {
+"md5": "ec893ec1",
+"sha": "cad37ae8",
+"n": 7839,
+"mtime": "19:48:12"
+},
+"src\\dzbrain\\tests\\harness.py": {
+"md5": "1aa9704d",
+"sha": "1ef6f86b",
+"n": 2803,
+"mtime": "14:55:27"
+},
+"src\\dzbrain\\tests\\test_aim.py": {
+"md5": "e4460352",
+"sha": "3e914595",
+"n": 50170,
+"mtime": "10:58:25"
+},
+"src\\dzbrain\\tests\\test_autoplan.py": {
+"md5": "1da7f6e6",
+"sha": "296868ea",
+"n": 72536,
+"mtime": "11:04:23"
+},
+"src\\dzbrain\\tests\\test_bridge_gate.py": {
+"md5": "bf71f075",
+"sha": "6028df79",
+"n": 23099,
+"mtime": "10:40:07"
+},
+"src\\dzbrain\\tests\\test_calib_backfill.py": {
+"md5": "ef74d9b9",
+"sha": "fb620581",
+"n": 27704,
+"mtime": "19:48:12"
+},
+"src\\dzbrain\\tests\\test_contract.py": {
+"md5": "2151208b",
+"sha": "4469c882",
+"n": 6404,
+"mtime": "21:29:40"
+},
+"src\\dzbrain\\tests\\test_core.py": {
+"md5": "b5b21fd5",
+"sha": "74897497",
+"n": 11616,
+"mtime": "11:04:14"
+},
+"src\\dzbrain\\tests\\test_corner_cut.py": {
+"md5": "695b1104",
+"sha": "930dbf12",
+"n": 15745,
+"mtime": "11:05:50"
+},
+"src\\dzbrain\\tests\\test_deploy.py": {
+"md5": "2a4c692d",
+"sha": "f188752a",
+"n": 22343,
+"mtime": "18:00:31"
+},
+"src\\dzbrain\\tests\\test_drift.py": {
+"md5": "d648a0d5",
+"sha": "dff190b7",
+"n": 23863,
+"mtime": "10:52:14"
+},
+"src\\dzbrain\\tests\\test_drone.py": {
+"md5": "0eeaefb5",
+"sha": "b7fe7c6a",
+"n": 18124,
+"mtime": "20:21:37"
+},
+"src\\dzbrain\\tests\\test_dynamic_gear.py": {
+"md5": "94d77f13",
+"sha": "4f907dbc",
+"n": 14158,
+"mtime": "21:40:25"
+},
+"src\\dzbrain\\tests\\test_fix.py": {
+"md5": "861eb913",
+"sha": "684717a0",
+"n": 23072,
+"mtime": "17:56:02"
+},
+"src\\dzbrain\\tests\\test_geometry.py": {
+"md5": "74e3759f",
+"sha": "6b6edeb2",
+"n": 4445,
+"mtime": "10:18:23"
+},
+"src\\dzbrain\\tests\\test_gimbal_lock.py": {
+"md5": "bddb9c12",
+"sha": "2e58a634",
+"n": 23546,
+"mtime": "19:56:03"
+},
+"src\\dzbrain\\tests\\test_goal_stop.py": {
+"md5": "a8017366",
+"sha": "560afd3e",
+"n": 11176,
+"mtime": "11:46:51"
+},
+"src\\dzbrain\\tests\\test_link_e2e.py": {
+"md5": "12e370ee",
+"sha": "0aa5180b",
+"n": 29442,
+"mtime": "21:08:51"
+},
+"src\\dzbrain\\tests\\test_localization.py": {
+"md5": "06788e4b",
+"sha": "4bc59276",
+"n": 24668,
+"mtime": "11:43:02"
+},
+"src\\dzbrain\\tests\\test_mission.py": {
+"md5": "a69a5095",
+"sha": "fb15846b",
+"n": 111920,
+"mtime": "11:04:01"
+},
+"src\\dzbrain\\tests\\test_motion_limit.py": {
+"md5": "2a7a6a40",
+"sha": "05d4b7c6",
+"n": 14046,
+"mtime": "11:05:32"
+},
+"src\\dzbrain\\tests\\test_path_overlap.py": {
+"md5": "fdc84933",
+"sha": "0f6aa7dc",
+"n": 9194,
+"mtime": "14:59:26"
+},
+"src\\dzbrain\\tests\\test_physics.py": {
+"md5": "2315920f",
+"sha": "7a449dc8",
+"n": 27549,
+"mtime": "20:24:00"
+},
+"src\\dzbrain\\tests\\test_pivot.py": {
+"md5": "b2fe493b",
+"sha": "47851578",
+"n": 28881,
+"mtime": "14:00:27"
+},
+"src\\dzbrain\\tests\\test_planner.py": {
+"md5": "49e2a4ed",
+"sha": "de44c73a",
+"n": 72501,
+"mtime": "11:03:38"
+},
+"src\\dzbrain\\tests\\test_pursuit.py": {
+"md5": "1ad1c1bf",
+"sha": "be1694bd",
+"n": 56666,
+"mtime": "20:41:56"
+},
+"src\\dzbrain\\tests\\test_referee.py": {
+"md5": "6b6eb5c1",
+"sha": "5fea4307",
+"n": 16103,
+"mtime": "17:01:28"
+},
+"src\\dzbrain\\tests\\test_route.py": {
+"md5": "a4ab745e",
+"sha": "00ec59bc",
+"n": 42109,
+"mtime": "11:04:08"
+},
+"src\\dzbrain\\tests\\test_safety.py": {
+"md5": "b212d808",
+"sha": "ed52a564",
+"n": 46839,
+"mtime": "19:48:12"
+},
+"src\\dzbrain\\tests\\test_shutdown.py": {
+"md5": "7abde911",
+"sha": "c4ba4c77",
+"n": 23988,
+"mtime": "17:10:23"
+},
+"src\\dzbrain\\tests\\test_sim.py": {
+"md5": "9fd8eb32",
+"sha": "d9542ab9",
+"n": 65483,
+"mtime": "11:05:26"
+},
+"src\\dzbrain\\tests\\test_sim_guard.py": {
+"md5": "f0e493cc",
+"sha": "a59c1892",
+"n": 59306,
+"mtime": "11:05:11"
+},
+"src\\dzbrain\\tests\\test_telemetry.py": {
+"md5": "86eac549",
+"sha": "704be76e",
+"n": 16529,
+"mtime": "11:10:03"
+},
+"src\\dzbrain\\tests\\test_tracker.py": {
+"md5": "68827a87",
+"sha": "7425e67d",
+"n": 38105,
+"mtime": "11:24:15"
+},
+"tools\\calib_backfill.py": {
+"md5": "22c2741a",
+"sha": "3ab371dd",
+"n": 65651,
+"mtime": "19:48:12"
+},
+"tools\\config_selfcheck.py": {
+"md5": "d9fdecf9",
+"sha": "01dcff4f",
+"n": 4014,
+"mtime": "11:09:30"
+},
+"tools\\deploy_car.py": {
+"md5": "8009fc58",
+"sha": "d8f76fdf",
+"n": 12437,
+"mtime": "16:46:21"
+},
+"tools\\deploy_to_car.py": {
+"md5": "6cdc10b6",
+"sha": "d0b2de02",
+"n": 23069,
+"mtime": "10:57:39"
+},
+"tools\\dzbrain.py": {
+"md5": "c580098a",
+"sha": "b32e6751",
+"n": 976,
+"mtime": "11:06:44"
+},
+"tools\\e2e_monitor.py": {
+"md5": "b5772086",
+"sha": "09b1439b",
+"n": 5979,
+"mtime": "14:27:14"
+},
+"tools\\global_planner.py": {
+"md5": "91ea9327",
+"sha": "f0d35896",
+"n": 40008,
+"mtime": "14:27:14"
+},
+"tools\\p0_verify.py": {
+"md5": "e10a26e7",
+"sha": "3540ab19",
+"n": 5400,
+"mtime": "14:27:14"
+},
+"tools\\plan_route.py": {
+"md5": "2f3dcc66",
+"sha": "e3580127",
+"n": 19256,
+"mtime": "19:48:12"
+},
+"tools\\route_check.py": {
+"md5": "6cce2352",
+"sha": "1cfccefe",
+"n": 67219,
+"mtime": "11:04:39"
+},
+"tools\\save_cam.py": {
+"md5": "e964c4e1",
+"sha": "59d949d7",
+"n": 980,
+"mtime": "10:49:50"
+},
+"tools\\shoot_planner.py": {
+"md5": "cc851c13",
+"sha": "d10d0aec",
+"n": 27167,
+"mtime": "14:27:15"
+},
+"tools\\shoot_probe.py": {
+"md5": "6142bae1",
+"sha": "173352c5",
+"n": 5973,
+"mtime": "14:27:15"
+},
+"tools\\sim_map_render.py": {
+"md5": "3893ae9e",
+"sha": "c05799d0",
+"n": 18849,
+"mtime": "15:42:00"
+},
+"tools\\sim_param_sweep.py": {
+"md5": "39f62fac",
+"sha": "afdefb59",
+"n": 3410,
+"mtime": "16:56:21"
+},
+"tools\\sim_pursuit.py": {
+"md5": "f12b2317",
+"sha": "253c5aaf",
+"n": 1369,
+"mtime": "10:27:02"
+},
+"tools\\test_rknn.py": {
+"md5": "296fed72",
+"sha": "e4fb4882",
+"n": 2043,
+"mtime": "10:49:50"
+}
+}

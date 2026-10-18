@@ -1,0 +1,11 @@
+map:
+  name: "第七张地图 · 2026-10-18 用户现场图（逐格识读 t27）"
+  start: "N10"
+  end: "N5"
+  barrier_col_from: "D"
+  barrier_row_hi: 6
+  barrier_row_lo: 7
+  mines:      ["B1", "A2", "I2", "C3", "E3", "F5", "H8", "G9"]
+  obstacles:  ["D5", "I6", "B7", "F8", "C9", "E10", "G10", "A11"]
+  targets:    ["D7", "E7"]
+  bridges:    ["K4", "K10"]

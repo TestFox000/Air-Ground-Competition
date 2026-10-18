@@ -1,0 +1,11 @@
+map:
+  name: "synthetic-empty"
+  start: "N10"
+  end: "N5"
+  barrier_col_from: "D"
+  barrier_row_hi: 6
+  barrier_row_lo: 7
+  mines: []
+  obstacles: []
+  targets: []
+  bridges: ["K5", "K7"]

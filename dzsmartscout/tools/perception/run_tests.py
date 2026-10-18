@@ -29,6 +29,7 @@ MODULES = [
     "perception.tests.test_car_pose",
     "perception.tests.test_bridge_arrow",
     "perception.tests.test_protocol",
+    "perception.tests.test_coverage",
     "perception.tests.test_field_map",
     "perception.tests.test_pipeline_e2e",
 ]

@@ -1,0 +1,55 @@
+CMD: node D:\User\Desktop\比赛存档\v1\dzrobot_v2\dsh-plugin-dzrobot-ssh\scripts\test-sim-overlay-fix.mjs
+CWD: D:\User\Desktop\比赛存档\v1\dzrobot_v2\dsh-plugin-dzrobot-ssh
+TAG: baseline
+START: 2026-10-18T01:35:57.836Z
+
+--- STDOUT ---
+
+A. sim.html 脚本提取与语法
+  PASS A1 <script> 恰一段可提取
+  PASS A2 整段脚本 new Function 解析通过（改动没写坏语法）
+
+B. 422 plan-failed 分支：清 TRACE 再回放
+  PASS B1 提取到 runSimulation 源码
+  PASS B2 422 后上一局 TRACE 被清（null，旧参考线/轨迹/位姿不再叠图）
+  PASS B3 清层后重绘（renderMap 被调）
+  PASS B4 plan-failed 仍回放（startReplay 收到 422 的 record）
+  PASS B5 顺序正确：先 renderMap 后 startReplay（先清后画）
+  PASS B6 plan-failed 仍进台账（loadHistory 被调，t7 语义不回退）
+
+C. afterFieldChange：棋盘变更统一清旧层
+  PASS C1 提取到 invalidateStaleRun / afterFieldChange 源码
+  PASS C2 TRACE 被清（null）
+  PASS C3 旧回放被停（stopReplay 被调）
+  PASS C4 #anim 覆盖层被清空（旧折线不再叠图）
+  PASS C5 animState 有可见说明
+  PASS C6 原有链保留（refreshFieldHints + renderMap 都被调）
+
+D. 变更路径全部走统一咽喉（静态接线）
+  PASS D1 422 分支存在
+  PASS D2 422 分支先清 TRACE 再 startReplay
+  PASS D3 镜像 input 绑定全部走 afterFieldChange（无旁路） —— 1 处 input 绑定
+  PASS D4 恢复默认走 afterFieldChange（含清层）
+  PASS D5 整图恢复先清旧层（invalidateStaleRun）
+  PASS D6 targetYaw 只重绘不误清层（渲染项不进清层咽喉）
+
+E. 页面与车端同引擎（修「乱算」）
+  PASS E1 simbench 导出 plannerEngineOf
+  PASS E2 planRoute 把 planner.engine 传给 --engine
+  PASS E3 台账落 record.plan.engine（取证字段）
+  PASS E4 找到 dzrobot_v2 工作区（真 config 可测）
+  PASS E5 从现役 robot.yaml 读到 tracker-safe（与车端一致） —— 读到 tracker-safe
+  PASS E6 无 planner 块 → null（不传 --engine，保持历史默认）
+  PASS E7 非法引擎值 → null（不给 argparse 塞未知值）
+  PASS E8 tour 值原样透传（行内注释不污染取值）
+
+F. 实跑 plan_route.py（同款 argv）
+  FAIL F1 tracker-safe 引擎实跑 exit 0 —— ❌ 规划失败：没有生成任何可行路线 |    · 下=默认 上=默认: tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）
+  FAIL F2 产出非空 token（JSON plans[0]） —— 0 tokens
+
+结果：28/30 存在失败 ❌
+
+--- STDERR ---
+
+--- END ---
+exitCode=1 timedOut=false ms=389

@@ -48,17 +48,20 @@ import sys
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 # =============================================================================
-#  地图常量（与 path_executor.py / global_planner.py 严格一致）
+#  地图常量 —— ★ 唯一真源 = `src/dzbrain/dzbrain/core/geometry.py`
 # =============================================================================
-COL_LETTERS = "ABCDEFGHIJKLMN"
-MAP_COLS = 14
-MAP_ROWS = 11
-BLOCK_SIZE = 0.35                   # 格边长(m)
+# 不再在本文件抄数字：`_field_const` 把 `src/dzbrain` 自举进 sys.path，再从
+# `core.geometry` 取常量。脚本口径不变 —— `python tools/shoot_planner.py`
+# 直接跑，不需要 PYTHONPATH、不需要 pip 装包。
+# 挡板（值见 geometry）：第 6 行与第 7 行之间、D~N 列封死（跨越该行界的动作被禁止）。
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
-# 挡板：第 6 行与第 7 行之间、D~N 列封死（跨越该行界的动作被禁止）
-BARRIER_ROW_HI = 6
-BARRIER_ROW_LO = 7
-BARRIER_COL_FROM = "D"
+from _field_const import (                                    # noqa: E402
+    BARRIER_COL_FROM, BARRIER_ROW_HI, BARRIER_ROW_LO,
+    BLOCK_SIZE, COL_LETTERS, MAP_COLS, MAP_ROWS,
+)
 
 PASSABLE, BLOCKED = 1, 0
 

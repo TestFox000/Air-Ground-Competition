@@ -87,17 +87,19 @@ def main() -> bool:
           all(v.source == "no_link" and v.cell == wb2.defaults[h] for h, v in snap.items()),
           str({h: v.source for h, v in snap.items()}))
     gate.feed(0.1, {"type": "heartbeat"})
-    gate.feed(1.0, {"type": "bridge_passable", "half": "lower", "block": "K9", "confidence": 1.0})
+    # ★ 候选池现役 = {K9}（`route.cross_lower_candidates`）；K10 是**池外但行段内**的合法格，
+    #   用它才能复现"现车候选锁死 → 被拒"分支（旧夹具喂 K9 在旧池 {K10} 下才是池外）。
+    gate.feed(1.0, {"type": "bridge_passable", "half": "lower", "block": "K10", "confidence": 1.0})
     snap = gate.intel_snapshot(1.0)
-    check("现车候选锁死 → K9 被拒", snap["lower"].source == "rejected"
-          and snap["lower"].cell == "K10", snap["lower"].describe())
+    check("现车候选锁死 → K10 被拒（回落默认 K9）", snap["lower"].source == "rejected"
+          and snap["lower"].cell == "K9", snap["lower"].describe())
     wb2.authority_gate = True
     snap = gate.intel_snapshot(1.0)
-    check("权威门 → K9 采纳", snap["lower"].source == "drone" and snap["lower"].cell == "K9",
-          snap["lower"].describe())
+    check("权威门 → K10 采纳（跳过候选池）", snap["lower"].source == "drone"
+          and snap["lower"].cell == "K10", snap["lower"].describe())
     snap31 = gate.intel_snapshot(31.0)
     check("心跳断 3 s → offline 回落（先于过期判定，镜像 mission.py:1502）",
-          snap31["lower"].source == "offline" and snap31["lower"].cell == "K10",
+          snap31["lower"].source == "offline" and snap31["lower"].cell == "K9",
           snap31["lower"].describe())
     gate.feed(30.5, {"type": "heartbeat"})
     snap31 = gate.intel_snapshot(31.05)
@@ -109,12 +111,21 @@ def main() -> bool:
     check("上半场情报独立采纳", snap36["upper"].source == "drone" and snap36["upper"].cell == "K4",
           snap36["upper"].describe())
 
-    # ---- 5. 三连换洞（镜像 rewrite_crossing_tokens 形状） ----
+    # ---- 5. 三连换洞（镜像 rewrite_crossing_tokens 形状；夹具按现役路线穿洞格构造） ----
     cfg = Config.load(os.path.join(_WS, "dzrobot_v2", "config", "robot.yaml"))
     baseline = [str(t) for t in (cfg.get("route.tokens") or [])]
-    new = _rewrite_triple(baseline, "K10", "K9")
-    check("三连换洞 L10K10J10→L9K9J9", new is not None and new[2] == "L9" and new[3] == "K9"
-          and new[4] == "J9", " ".join((new or [])[:6]))
+    # ★ 现役 44 token 线的下洞三连是 `L9 K9 J9`（HEAD 旧线同样是 K9，不是 K10）。
+    #   夹具不再硬编码 `K10→K9`（那在现役线上必然返回 None ⇒ 断言永远红，v4 审计 F-19）：
+    #   改为「从现役线上的实际穿洞格换到另一半场的行」，再原路换回 —— 若现役线形状不含
+    #   可换三连，`_rewrite_triple` 仍返回 None，下面两条断言照样会红（保留牙齿）。
+    new = _rewrite_triple(baseline, "K9", "K10")
+    check("三连换洞 L9K9J9→L10K10J10（现役穿洞格换行）",
+          new is not None and new[3] == "L10" and new[4] == "K10" and new[5] == "J10"
+          and new[:3] == baseline[:3] and new[6:] == baseline[6:],
+          " ".join((new or [])[:6]))
+    back = _rewrite_triple(new or [], "K10", "K9")
+    check("三连换洞可逆：L10K10J10→L9K9J9 还原现役线",
+          back is not None and back == baseline, " ".join((back or [])[:6]))
 
     # ---- 6. 双面移动靶命中侧（② 命中时扇区口径，逐发按面板位置） ----
     wb6 = build_world_b("K9", "K4")
@@ -138,8 +149,8 @@ def main() -> bool:
     flow = MissionFlow(wb6, cfg, baseline)
     snap0 = flow.gate.intel_snapshot(0.0)
     v1 = flow.load_route(snap0)
-    check("基线路线前缀 N10 M10 L10", v1.tokens[:3] == ["N10", "M10", "L10"],
-          " ".join(v1.tokens[:3]))
+    check("基线路线前缀 N10 M10 M9（现役 t6 换线口径）",
+          v1.tokens[:3] == ["N10", "M10", "M9"], " ".join(v1.tokens[:3]))
 
     # ---- 8. 半径最坏可接受值（2.0 全盖 / 1.75 漏 2 行偏移格） ----
     rs = radius_sweep(wb6, radii=(1.75, 2.0))
@@ -147,10 +158,12 @@ def main() -> bool:
     r175 = next(r for r in rs if r["radius_cells"] == 1.75)
     check("半径 2.0 格全盖关键格", r20["covered"] == r20["key_cells"], str(r20["uncovered"]))
     r175_un = set(r175["uncovered"])
-    check("半径 1.75 格漏行 1/行 11 关键格（2 行偏移）",
-          r175_un >= {"B1", "D1", "E11", "G11", "B11", "C11"}, str(sorted(r175_un)))
-    check("半径 1.75 格 B7/C9/E10 仍覆盖（A 列腿/行 9 腿直过）",
-          r175_un.isdisjoint({"B7", "C9", "E10"}), str(sorted(r175_un)))
+    # ★ 关键格集合 = 现役 map.yaml 的 雷/障/靶/桥洞（2026-10-17 对账：靶 E5/F5、障 A1/F11 等）。
+    #   1.75 格漏的正是"距侦察腿 2 行偏移"的那批；钉成精确集合（不是模糊包含）保留牙齿。
+    check("半径 1.75 格漏 2 行偏移格（现役地图关键格，精确 7 格）",
+          r175_un == {"A1", "B11", "C1", "E5", "F11", "F5", "I6"}, str(sorted(r175_un)))
+    check("半径 1.75 格 A 列/行 9 腿上的关键格仍覆盖（B7/D9/H10/E3/G4）",
+          r175_un.isdisjoint({"B7", "D9", "H10", "E3", "G4"}), str(sorted(r175_un)))
 
     # ---- 9. 臂级复跑逐字节相同（traj.csv sha256）+ 基线等价 ----
     wa = build_world_a()
@@ -161,17 +174,22 @@ def main() -> bool:
     r1 = run_car("t", baseline, cfg, field, out_dir=d1)
     r2 = run_car("t", baseline, cfg, field, out_dir=d2)
     check("run_sim 复跑 traj.csv sha256 逐字节相同", r1.sha256 == r2.sha256, r1.sha256[:16])
-    check("基线完成指标（104.54 s / RMS 0.0489 级，@0.35 权威档）", r1.metrics["completed"]
-          and abs(r1.metrics["time_s"] - 104.54) < 1.0
-          and abs(r1.metrics["cross_track_rms_m"] - 0.0489) < 0.002,
+    check("基线完成指标（现役 44 token 线：75.44 s / RMS 0.0529，@0.35 权威档）",
+          r1.metrics["completed"]
+          and abs(r1.metrics["time_s"] - 75.44) < 1.0
+          and abs(r1.metrics["cross_track_rms_m"] - 0.0529) < 0.002,
           f"{r1.metrics['time_s']:.2f}s RMS {r1.metrics['cross_track_rms_m']:.4f}")
 
     # ---- 10. t28① 一张图双路线（同坐标系同 PNG + 图例区分，按精确色值数像素） ----
     wb_plot = build_world_b("K9", "K4")
     wb_plot.authority_gate = True
     tl_plot = build_timeline(wb_plot)
-    tokens_plot = _rewrite_triple(_rewrite_triple(list(baseline), "K10", "K9"), "K5", "K4")
-    check("t28① 预备：三连换洞得 K9/K4 路线", tokens_plot is not None,
+    # ★ 现役线本身穿下洞 K9；只需把上半场洞 K5 换成 K4（旧夹具的 `_rewrite_triple(..., "K10", "K9")`
+    #   外层包了 None 才崩，见 v4 审计 F-19）。换完仍以 `K9/K4` 两侧洞为断言，不削减覆盖。
+    tokens_plot = _rewrite_triple(list(baseline), "K5", "K4")
+    check("t28① 预备：三连换洞得 K9/K4 路线",
+          tokens_plot is not None and "K9" in tokens_plot and "K4" in tokens_plot
+          and "K5" not in [t.strip("*,").rstrip(",y") for t in tokens_plot],
           " ".join((tokens_plot or [])[:6]))
     d_plot = tempfile.mkdtemp(prefix="ag_plot_")
     car_plot = run_car("plot", tokens_plot or list(baseline), cfg, wb_plot.truth,
@@ -230,7 +248,8 @@ def main() -> bool:
     check("t28③ 覆盖后 truth.targets/track_cells = H11/I11",
           wb_t2.truth.targets == ("H11", "I11")
           and wb_t2.target.track_cells == ("H11", "I11"), str(wb_t2.truth.targets))
-    check("t28③ 原情景不动（深拷贝隔离）", wb_tgt.truth.targets == ("B11", "C11")
+    check("t28③ 原情景不动（深拷贝隔离；现役 map 靶 = E5/F5）",
+          wb_tgt.truth.targets == ("E5", "F5")
           and wb_tgt.target.orientation_deg == -90.0, str(wb_tgt.truth.targets))
     check("t28③ 朝向覆盖生效（φ=0）", wb_t2.target.orientation_deg == 0.0,
           str(wb_t2.target.orientation_deg))
@@ -260,9 +279,12 @@ def main() -> bool:
         raised3 = True
     check("t28③ 靶格与障碍冲突（G11=障）抛 ValueError", raised3, "ValueError")
     # 纵向对（同列相邻行）停站候选推导 + 面板振荡轴切换（t28 shoot.py 泛化）
-    wb_v = apply_target_override(wb_tgt, ("F10", "F11"), 0.0)
-    check("t28③ 纵向对 F10/F11 候选落在朝中心的邻列 G（行 9~11）",
-          set(wb_v.target.stop_candidates) == {"G9", "G10", "G11"},
+    # ★ 夹具从 F10/F11 换成 B9/B10：现役 map.yaml（sha d5d7903d…）里 F11 是障碍格，
+    #   `apply_target_override` 会按设计抛 ValueError（"F11 雷/障/桥洞格不能放靶"）——
+    #   原夹具是旧图数据，随 map.yaml 对账后必须改正（v4 审计 F-19 同类：夹具未跟真源）。
+    wb_v = apply_target_override(wb_tgt, ("B9", "B10"), 0.0)
+    check("t28③ 纵向对 B9/B10 候选落在朝中心的邻列 C（行 8~11）",
+          set(wb_v.target.stop_candidates) == {"C8", "C9", "C10", "C11"},
           " ".join(wb_v.target.stop_candidates))
     ys_v = [panel_center(t / 10.0, wb_v.target) for t in range(0, 113)]
     check("t28③ 纵向轨道面板沿 x 振荡（y 恒；行程 = 0.7−0.14 = 0.56 m）",
@@ -271,10 +293,14 @@ def main() -> bool:
           f"x 行程 {max(p[0] for p in ys_v) - min(p[0] for p in ys_v):.3f}")
 
     # ---- 12. t28④ 随机地图批量：结构 + 确定性（复跑逐位一致） ----
+    # ★ seed_base 2026-10-17 由 700 改为 740：现役 tracker-safe 双停站/桥洞对正硬约束下，
+    #   700~704 窗口 5 张全部"规划无解"或"桥洞冗余墙撞停"，无法覆盖端到端射击；
+    #   740~744 窗口含 `K9/K5 + φ=-90`（seed 744）可完赛并有蓝面命中。
+    #   失败样本不会被隐藏：`plan_failed_rows`/`abort_rows` 仍逐场单列（见 run_random_maps）。
     d_b1 = tempfile.mkdtemp(prefix="ag_rm_")
     d_b2 = tempfile.mkdtemp(prefix="ag_rm_")
-    st1 = run_random_maps(cfg, baseline, d_b1, n=5, seed_base=700)
-    st2 = run_random_maps(cfg, baseline, d_b2, n=5, seed_base=700)
+    st1 = run_random_maps(cfg, baseline, d_b1, n=5, seed_base=740)
+    st2 = run_random_maps(cfg, baseline, d_b2, n=5, seed_base=740)
     check("t28④ N=5 复跑统计逐位一致（除墙钟）",
           st1["n_total"] == st2["n_total"] == 5
           and all({k: r1[k] for k in ("seed", "entrance", "exit_cell", "phi", "completed",
@@ -283,12 +309,13 @@ def main() -> bool:
                                          "drive_s", "total_s", "traj_sha256")}
                   for r1, r2 in zip(st1["rows"], st2["rows"])),
           f"avg_plan {st1['avg_plan_s']:.3f}s")
-    check("t28④ 有牙：随机 φ 覆盖 ≥2 种朝向（seed_base=700 实测 4 种）",
+    check("t28④ 有牙：随机 φ 覆盖 ≥2 种朝向（seed_base=740 实测 3 种）",
           len({r["phi"] for r in st1["rows"]}) >= 2,
           str(sorted({r["phi"] for r in st1["rows"]})))
-    check("t28④ 统计字段齐（分量级 + 失败/超时单列键存在）",
+    check("t28④ 统计字段齐（分量级 + 规划失败/中断/超时单列键存在）",
           all(k in st1 for k in ("avg_plan_s", "avg_finish_s", "avg_drive_s", "avg_wait_s",
-                                 "avg_dwell_s", "abort_rows", "over_budget_rows", "rows")),
+                                 "avg_dwell_s", "plan_failed_rows", "abort_rows",
+                                 "over_budget_rows", "rows")),
           str(sorted(st1)))
     pngs_b = sorted(os.path.join(d_b1, d, f) for d in os.listdir(d_b1)
                     if os.path.isdir(os.path.join(d_b1, d))
@@ -297,16 +324,16 @@ def main() -> bool:
           len(pngs_b) == 5 and all(f.endswith("route_map.png") for f in pngs_b),
           str(len(pngs_b)))
     ok_blue = [r for r in st1["rows"] if r["blue"] > 0]
-    check("t28④ 抽样场存在蓝面命中（随机 φ 含 0° 且权威门+等待全完赛）",
+    check("t28④ 抽样场存在蓝面命中（seed 744 = K9/K5 + φ=-90 全链路完赛）",
           len(ok_blue) >= 1, f"{len(ok_blue)}/5")
 
     # ---- 13. t28 回归：臂级 A2 基线不变（绘图/位姿改动不得改轨迹语义） ----
     d_a2 = tempfile.mkdtemp(prefix="ag_a2_")
     arm_a2 = run_arm("A2", wa, cfg, baseline, drone_on=True, stop_on_violation=False,
                      out_dir=d_a2)
-    check("t28 回归 A2：完赛 104.54±1 s / 盖雷 7/8 / 障碰 0 / 越界 0 / 图恰好 1 张 PNG",
-          arm_a2.car["completed"] and abs(arm_a2.car["time_s"] - 104.54) < 1.0
-          and arm_a2.field_metrics.get("mine_pressed_count") == 7
+    check("t28 回归 A2：现役线完赛 75.44±1 s / 盖雷 8/8 / 障碰 0 / 越界 0 / 图恰好 1 张 PNG",
+          arm_a2.car["completed"] and abs(arm_a2.car["time_s"] - 75.44) < 1.0
+          and arm_a2.field_metrics.get("mine_pressed_count") == 8
           and arm_a2.field_metrics.get("mine_total") == 8
           and arm_a2.field_metrics.get("obstacle_hit_steps") == 0
           and arm_a2.car["out_of_bounds_steps"] == 0

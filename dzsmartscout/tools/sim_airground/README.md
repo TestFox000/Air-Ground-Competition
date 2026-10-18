@@ -46,6 +46,10 @@ python dzsmartscout\tools\sim_airground\run_airground.py --random-maps 50 --seed
 - 输出：每臂 `_tmp_session/sim_ag/<runid>/<arm>/` 下 `ledger.json` + `traj.csv` +
   **恰好 1 张** `route_map.png`；总台账 `ledger.json` + `console.txt`；
   随机批量在 `<out-dir>/random_maps_n<N>/`（逐图 PNG + `random_maps_summary.json`）。
+- 随机批量遇到"规划器判该桥洞组合无解"**不再崩溃**：如实记一行 `plan_failed_rows`
+  （`plan_ok=false` + 错误摘要，仍渲染 1 张无车路线图），批量继续跑完；画图/统计口径不变。
+  批量内**靶模型（track_cells/stop_candidates）跟随真值靶格**（2026-10-17：地图靶= E5/F5，
+  旧实现只改朝向不改靶格，会让射击模型按 B11/C11 判扇区 → 假 `sector_fail`）。
 - exit 0 = 全部正常；exit 2 = 参数问题（与 `route_check.py` 同约定）。
 - `--no-stats`：跳过 360 场解析统计段（约省 6 分钟），臂与台账照常。
 
@@ -97,7 +101,7 @@ python dzsmartscout\tools\sim_airground\run_airground.py --random-maps 50 --seed
 4. 桥前等待/权威门是**改进变体**（现车代码只在发车窗口取一次情报，执行中不改 token）；
    所有含这两个开关的臂在台账里显式标注。
 5. 轨迹时间轴把桥前等待**折叠**掉（run_sim 连续行驶），总时长 = commit+drive+wait+dwell
-   相加；改道 splice 的前提 = 新旧路线前缀逐位相同（自检钉住 `N10 M10 L10`）。
+   相加；改道 splice 的前提 = 新旧路线前缀逐位相同（自检钉住现役 `N10 M10 M9`；2026-10-17 t6 换线后口径）。
 6. 飞行高度 1.5 m 在 2D 投影下无几何效应（仅记录口径）；感知连续采样（帧率远高于 dt）。
 7. 链路：单发布者 FIFO（BEST_EFFORT 真实语义）→ 不建模乱序，只建模延迟 0.06 s+抖动+丢包。
 

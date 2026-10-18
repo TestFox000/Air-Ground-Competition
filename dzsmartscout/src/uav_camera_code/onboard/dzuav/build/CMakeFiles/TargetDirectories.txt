@@ -1,0 +1,7 @@
+/home/duzhong/dzpx4/src/uav_camera_code/onboard/dzuav/build/CMakeFiles/dzuav.dir
+/home/duzhong/dzpx4/src/uav_camera_code/onboard/dzuav/build/CMakeFiles/edit_cache.dir
+/home/duzhong/dzpx4/src/uav_camera_code/onboard/dzuav/build/CMakeFiles/rebuild_cache.dir
+/home/duzhong/dzpx4/src/uav_camera_code/onboard/dzuav/build/CMakeFiles/list_install_components.dir
+/home/duzhong/dzpx4/src/uav_camera_code/onboard/dzuav/build/CMakeFiles/install.dir
+/home/duzhong/dzpx4/src/uav_camera_code/onboard/dzuav/build/CMakeFiles/install/local.dir
+/home/duzhong/dzpx4/src/uav_camera_code/onboard/dzuav/build/CMakeFiles/install/strip.dir

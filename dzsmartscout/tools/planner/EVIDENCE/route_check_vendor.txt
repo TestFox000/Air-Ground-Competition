@@ -1,21 +1,21 @@
 $ C:\Users\TestFox\AppData\Local\Programs\Python\Python312\python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\planner\vendor\dzbrain_ws\tools\plan_route.py --emit tokens --engine tracker-safe --config D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\planner\vendor\dzbrain_ws\config\robot.yaml --map D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\planner\vendor\dzbrain_ws\config\map.yaml --check
 
-N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y
-   [32m✅[0m 全部 token 合法                    普通 44 | 倒车 0 | 射击 1 | 折返 0
+N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y
+   [32m✅[0m 全部 token 合法                    普通 44 | 倒车 0 | 射击 2 | 折返 0
    [32m✅[0m 解析出 44 个航点
    [32m✅[0m 地图边界                           全部 44 点在 [0.17,3.67]x[0.17,4.72] 内
    [32m✅[0m 挡板穿越 1 次                       均在 B 列，最小余量 0.700 m
    [32m✅[0m 挡板不触线 0.1750 m ≥ 0.0775 m      最近在航段#34（挡板 D..N 含 K 段连续，无豁免）
    [32m✅[0m 障碍最近距离                         0.350 m（航段#24 距 障A1）> 0.30 m
    [32m✅[0m 障碍净空                           直段 0.350 ≥ 0.215 m；拐角 0.350 ≥ 0.303 m（扫掠半径 0.1554）
-   [33m⚠️ [0m 急转弯 18 处                       最大 90° @航点#2（其中 0 处已声明 :PIVOT）
-   [32m✅[0m 桥洞水平直穿 4 次                     K 列  段#3(行9) 段#4(行9) 段#39(行5) 段#40(行5)
+   [33m⚠️ [0m 急转弯 18 处                       最大 90° @航点#1（其中 0 处已声明 :PIVOT）
+   [32m✅[0m 桥洞穿越（下半场向西 / 上半场向东 各 1 次）      K 列  下段#3(行9向西) · 上段#39(行5向东)
    [32m✅[0m 雷覆盖 8/8（车心 0.035m 圆 ∩ 0.12m 垫片） 最差 0.0000 m（阈值 0.035）
    [32m✅[0m 航点不压靶板                         航点里没有 E5 F5（靶板是实体，只在旁边停站射击）
    [32m✅[0m 航段不横穿靶板                        全路线（含直段中间的格）离最近靶格心 0.350 m > 0.175 m
    [32m✅[0m 车体不压靶板                         直段 0.1750 ≥ 0.0675 m；拐角 0.2475 ≥ 0.1554 m（靶板 0.35 m 见方，中心在格心）
-   [32m✅[0m 靶覆盖 2/2（射击点可达）                 E5<-射击点#31(0.78m) F5<-射击点#31(0.70m)
-   [32m✅[0m 射击点距离                          1 个射击点都能服务于某个靶（0.70~0.90 m 内）
+   [32m✅[0m 靶覆盖 2/2（射击点可达）                 E5<-射击点#29(0.78m) F5<-射击点#32(0.78m)
+   [32m✅[0m 射击点距离                          2 个射击点都能服务于某个靶（0.78~1.02 m 内）
    [32m✅[0m 桥洞保护点覆盖                        K5 K9
    [33m[1m⚠️  全部通过，但有 1 项提醒[0m
 

@@ -34,6 +34,14 @@ MAP_X_MAX = 3.675
 MAP_Y_MIN = 0.175
 MAP_Y_MAX = 4.725
 
+# 隔板（挡板）：第 6 行与第 7 行之间、D~N 列封死，只有 A/B/C 列能上下穿行。
+# ★★ **全仓唯一真源**：`route/validate.py`、`route/planner.py`（经 `geo.`）、
+#    `tools/{global_planner,route_check,shoot_planner}.py`（经 `tools/_field_const.py`）
+#    一律从这里取值。改值只改这一处；任何工具/模块都不得再抄一份数字。
+BARRIER_ROW_HI = 6                  # 挡板上侧行号（第 6 行）
+BARRIER_ROW_LO = 7                  # 挡板下侧行号（第 7 行）
+BARRIER_COL_FROM = "D"              # 从 D 列开始封死（含 D 列，一直到 N）
+
 RAW_YAW_TO_MAP_YAW_OFFSET = math.pi / 2.0   # 原始 yaw → 地图 yaw（旧代码常量）
 
 HEADING_X = 0.0                     # 朝 X+（行号增大方向）

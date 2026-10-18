@@ -1,0 +1,33 @@
+﻿  PASS ①-1 index.js 透传 scan 字段（拟真素材）
+  PASS ①-2 index.js 透传 intel 字段
+  PASS ①-3 dronesim 返回 scan.path（航线格序列）
+  PASS ①-4 dronesim 返回 scan.cells（每点 3×3 覆盖）
+  PASS ②-1 读到场地真源（config/map.yaml）
+  PASS ②-2 航线非空（U 形 ≥ 起降两点） —— 12 点
+  PASS ②-3 起降点 == 场地 drone 真源 —— N8→M2
+  PASS ②-4 每点带 3×3 覆盖（1..9 格，边缘裁剪） —— 覆盖 1..9 格
+  PASS ②-5 桥洞情报按半场产出（上/下各 ≥1） —— ["upper:K5","lower:K9"]
+  PASS ②-6 场地真值桥洞 = adopted（三关全过） —— ["adopted","adopted"]
+  PASS ②-7 非 K 列桥洞情报被拒（第①关：J9 在覆盖内但非 K 列） —— {"type":"bridge_passable","half":"lower","block":"J9","confidence":0.9,"ts":1792206613,"seq":1,"decision":"rejected","reason":"第①关失败：非 K 列（J9）— 手册 §7 rejected","default":"K9","scanAt":"K8","checkpoint":"lower","t":1}
+  PASS ②-8 候选集外桥洞被拒（第③关：K8 ∉ [K9]） —— {"type":"bridge_passable","half":"lower","block":"K8","confidence":0.9,"ts":1792206613,"seq":1,"decision":"rejected","reason":"第③关失败：不在候选集合（[\"K9\"]）— 手册 §7:237","default":"K9","scanAt":"K8","checkpoint":"lower","t":1}
+  PASS ③-1 renderDroneMap 及其依赖函数可提取（函数源码非空） —— 12993 B
+  PASS ③-2 renderDroneMap 是函数
+  PASS ③-3 产出 SVG（非空） —— 44220 B
+  PASS ③-4 航线橙折线（虚线 stroke=#f08c00）
+  PASS ③-5 扫描覆盖（淡蓝半透明 rect）
+  PASS ③-6 无人机起降标注（「机」+「H」）
+  PASS ③-7 采纳绿圈（#38c172 + 「采纳」）
+  PASS ③-8 扫描大虚线圆（circle + stroke-dasharray + #4d8fd6）
+  PASS ③-9 小车路线绿折线（stroke=#2f9e44）
+  PASS ③-10 底图棋盘格（14×11 rect + 隔板标注）
+  PASS ③-11 拒收情报产出「拒收」标注 + 橙圈
+  PASS ④-1 桥洞优先短程：方向改变 ≤3（≤4 直线段） —— 2 拐弯 / 3 段
+  PASS ④-2 checkpoint 含 lower + upper + land —— ["lower","upper","land"]
+  PASS ④-3 信息最快：lower 先于 upper 交付 —— lower@2 upper@5
+  PASS ④-4 桥洞段①内拿到 lower 情报（≤ 段①长度） —— lower@2 ≤ 段①3
+  PASS ④-5 桥洞情报带 checkpoint + t（增量交付） —— ["upper@upper:2.5","lower@lower:1"]
+  PASS ⑤-0 前置：场地可读
+  PASS ⑤-1 truth 取证运行期 exit 0（无 ReferenceError） —— exit=0 stderr=""
+  PASS ⑤-2 truth 取证产出非空 token（同引擎 plan_route 实跑） —— 44 tokens
+
+结果：31/31 全部通过 ✅

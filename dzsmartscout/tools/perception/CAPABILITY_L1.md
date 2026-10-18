@@ -3,7 +3,7 @@
 - 范围：`dzsmartscout/tools/perception/**`（无人机侧感知）。**不碰小车侧**（`dzrobot_v2/**` 只读）
 - 关联卡：t2（管线交付）· t39（官方第五张图识读）· **t59（出图 + 盘点）**
 - 证据：本包 `reports/`（`field_map_check.md/json`、`field_map_official.{json,yaml}`、`real_checks.md/json`、`A_map_registration.png`）
-- 复跑：`cd dzsmartscout/tools && python -m perception.run_tests`（85 项）· `python -m perception.run_field_map_check --all` · `python -m perception.run_real_checks`
+- 复跑：`cd dzsmartscout/tools && python -m perception.run_tests`（99 项；t5a 前 85 项 + 覆盖/负证据 14 项）· `python -m perception.run_field_map_check --all` · `python -m perception.run_real_checks`
 
 ---
 
@@ -17,6 +17,7 @@
 | **车位姿**（格 + 航向） | ✅（合成图确定性验证） | `perception.car_pose`；官方图纸上无车顶板故为空 |
 | 桥顶箭头 → 通行格 | ✅ | 实拍 p09_1：**−96° vs 真值 −90°**（conf 1.000；PCA 177.5° 被正确否决） |
 | **蓝面朝向** | ⚠️ **无人机俯视判不了**（几何原因，非算法缺陷） | 真图上如实返回 `unknown`（蓝 0.0000/红 0.0000）；权威传感器是车端云台 |
+| **片级覆盖 / 负证据（t5a）** | ✅ 报文结构 + 合成场景（7 片、154/154、8 雷 8 障 2 靶）；⚠️ 现场视场未标定 | `tests/test_coverage.py`（14 项）；`coverage.py` 默认走廊 1.5 格是几何反推、**非实测视场**；缺 `mine/obstacle/target` 判据时 `--slices` 直接拒发 |
 | 实拍相机帧上检出 | ❌ 无相机可用 | t1/t59：无人机不在网且无 `/dev/video*`；cam_probe 5 帧拉普拉斯方差 1.37~49.1（全糊） |
 | 起终点/无人机点**语义** | ⚠️ 半自动 | 4 个标注框能被**几何定位**并验证落在 N10/N5/N8/M2；框内**印字未 OCR** ⇒ 语义取自参考真值 |
 
@@ -137,7 +138,7 @@
 | 桥顶箭头方向 | ✅ −96°（真值 −90°，误差 6°） | 点抖动 σ ≥ 箭头长度 10% 时**方向可能翻转**（置信度仍 >0.9）⇒ 默认输出"位置"而非"方向" |
 | 蓝面朝向 | ❌ 俯视 | 见 §3 |
 | 起终点**语义** | ⚠️ 半自动 | 标注框能定位；框内印字未 OCR（需要时用 4 个框的**相对排布**做语义消歧是个已知可行的下一步） |
-| 单帧确定性 | ✅ | 全管线无随机（85 项测试全绿，含 12 张合成图 + 2 张真图回归） |
+| 单帧确定性 | ✅ | 全管线无随机（99 项测试全绿，含 12 张合成图 + 2 张真图回归） |
 
 ---
 

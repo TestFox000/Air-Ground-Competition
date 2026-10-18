@@ -409,7 +409,7 @@ def _rewrite_triple(tokens: list[str], old: str, new: str) -> list[str] | None:
     for j in (i - 1, i, i + 1):
         text = str(out[j]).strip().upper()
         # 后缀（`*` 停站 / `,y` 朝向 / `R:` 前缀）只出现在洞格本身，三连两侧是纯格名；
-        # 这里按"洞格保留后缀、邻格纯格名"的现役路线形状处理（t31 路线 N10 M10 L10 K10 J10…）。
+        # 这里按"洞格保留后缀、邻格纯格名"的现役路线形状处理（现役 44 token：`… L9 K9 J9 …`）。
         prefix = "R:" if text.startswith("R:") else ""
         base = text[2:] if prefix else text
         base = base.strip("*").rstrip(",y").strip(",")

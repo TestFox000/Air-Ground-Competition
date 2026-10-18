@@ -1,0 +1,82 @@
+CMD: node D:\User\Desktop\比赛存档\v1\dzrobot_v2\dsh-plugin-dzrobot-ssh\scripts\test-sim-incremental.mjs
+CWD: D:\User\Desktop\比赛存档\v1\dzrobot_v2\dsh-plugin-dzrobot-ssh
+TAG: baseline
+START: 2026-10-18T01:35:57.239Z
+
+--- STDOUT ---
+SIM_ROOT = D:\User\Desktop\比赛存档\v1\dzrobot_v2
+config   = robot.yaml md5 774febff5a1c613fd12eaa2aa13ce88e | map.yaml md5 2d2f658daceedc7fb04e080fa5458918
+
+[36mA. CLI 事实：谁声明了增量开关（真源 = argparse）[0m
+  现役 CLI supported = ["--from-cell","--already-covered"] ｜ missing = []
+  PASS A1 现役 CLI 的 support 结构合法（supported ⊆ 规范两条、missing 为补集、cli 指向 tools/plan_route.py） —— supported=2/2 missing=
+
+[36mB. 缺省不传：argv 与改动前逐字节相同（整线规划语义不变）[0m
+    argv: tools/plan_route.py --config D:\User\Desktop\比赛存档\v1\dzrobot_v2\config\robot.yaml --map D:\User\Desktop\比赛存档\v1\dzrobot_v2\config\map.yaml --emit json --check --quiet --engine tracker-safe
+  PASS B1 默认调用 argv 不含任何增量开关（也不含重复的 --engine） —— 11 项
+  PASS B2 台账 incremental：flags 为空、requested 为空、supported 如实 —— {"flags":[],"dropped":0}
+  FAIL B3 缺省产物 == 车端 route.tokens（逐 token） —— 0 vs 68
+
+[36mC. 白名单化：未声明 ⇒ 一个字节不加，但诉求如实进 dropped（不静默吞）[0m
+  PASS C1 未声明时不追加任何参数（argv 长度不变） —— argv=["python","plan_route.py"]
+  PASS C2 两条诉求都进 dropped 且 reason=cli-unsupported（如实降级，不是消失） —— ["fromCell:cli-unsupported","alreadyCovered:cli-unsupported"]
+  PASS C3 非法格名不塞给 argparse（reason=invalid-cell），不让用户看到参数解析错 —— ["fromCell:invalid-cell","alreadyCovered:invalid-cell"]
+  SKIP D1-D9 影子 CLI E2E —— 现役 CLI 已接线——影子只为"未接线"过渡期存在，E 段实跑承接
+
+[36mG. 三方对账：页面 planRoute == CLI == 车端 planner 直调[0m
+
+--- STDERR ---
+Traceback (most recent call last):
+  File "C:\Users\TestFox\AppData\Local\Temp\t12_shadow_36300\planner_probe.py", line 9, in <module>
+    a = PL.plan_route_tracker_safe(map_cfg, cfg, from_cell="M9")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\User\Desktop\比赛存档\v1\dzrobot_v2/src/dzbrain\dzbrain\route\planner.py", line 4180, in plan_route_tracker_safe
+    raise PlannerError("tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）")
+dzbrain.route.planner.PlannerError: tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）
+node:internal/errors:986
+  const err = new Error(message);
+              ^
+
+Error: Command failed: python C:\Users\TestFox\AppData\Local\Temp\t12_shadow_36300\planner_probe.py D:\User\Desktop\比赛存档\v1\dzrobot_v2
+Traceback (most recent call last):
+  File "C:\Users\TestFox\AppData\Local\Temp\t12_shadow_36300\planner_probe.py", line 9, in <module>
+    a = PL.plan_route_tracker_safe(map_cfg, cfg, from_cell="M9")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\User\Desktop\比赛存档\v1\dzrobot_v2/src/dzbrain\dzbrain\route\planner.py", line 4180, in plan_route_tracker_safe
+    raise PlannerError("tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）")
+dzbrain.route.planner.PlannerError: tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）
+
+    at genericNodeError (node:internal/errors:986:15)
+    at wrappedFn (node:internal/errors:540:14)
+    at checkExecSyncError (node:child_process:942:11)
+    at execFileSync (node:child_process:978:15)
+    at file:///D:/User/Desktop/%E6%AF%94%E8%B5%9B%E5%AD%98%E6%A1%A3/v1/dzrobot_v2/dsh-plugin-dzrobot-ssh/scripts/test-sim-incremental.mjs:213:28
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  status: 1,
+  signal: null,
+  output: [
+    null,
+    '',
+    'Traceback (most recent call last):\r\n' +
+      '  File "C:\\Users\\TestFox\\AppData\\Local\\Temp\\t12_shadow_36300\\planner_probe.py", line 9, in <module>\r\n' +
+      '    a = PL.plan_route_tracker_safe(map_cfg, cfg, from_cell="M9")\r\n' +
+      '        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\n' +
+      '  File "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2/src/dzbrain\\dzbrain\\route\\planner.py", line 4180, in plan_route_tracker_safe\r\n' +
+      '    raise PlannerError("tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）")\r\n' +
+      'dzbrain.route.planner.PlannerError: tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）\r\n'
+  ],
+  pid: 42268,
+  stdout: '',
+  stderr: 'Traceback (most recent call last):\r\n' +
+    '  File "C:\\Users\\TestFox\\AppData\\Local\\Temp\\t12_shadow_36300\\planner_probe.py", line 9, in <module>\r\n' +
+    '    a = PL.plan_route_tracker_safe(map_cfg, cfg, from_cell="M9")\r\n' +
+    '        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\n' +
+    '  File "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2/src/dzbrain\\dzbrain\\route\\planner.py", line 4180, in plan_route_tracker_safe\r\n' +
+    '    raise PlannerError("tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）")\r\n' +
+    'dzbrain.route.planner.PlannerError: tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）\r\n'
+}
+
+Node.js v24.21.0
+
+--- END ---
+exitCode=1 timedOut=false ms=1017

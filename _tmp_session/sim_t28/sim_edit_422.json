@@ -1,0 +1,49 @@
+{
+  "ok": false,
+  "code": 422,
+  "error": "改点位后规划/校验未过（plan_route.py exit=1）—— 路线没换，仿真未跑。",
+  "status": "plan-failed",
+  "plan": {
+    "exitCode": 1,
+    "timedOut": false,
+    "engine": "tracker-safe",
+    "ms": 341,
+    "tokenCount": 0,
+    "crossing": null,
+    "polyline_m": null,
+    "reverseSegments": null,
+    "checkExit": null,
+    "failures": [],
+    "stderrTail": "❌ 规划失败：没有生成任何可行路线\r\n   · 下=默认 上=默认: tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）\r"
+  },
+  "field": {
+    "mines": [
+      "A1",
+      "B10",
+      "D11",
+      "E8",
+      "F4",
+      "G5",
+      "H4",
+      "I11"
+    ]
+  },
+  "planTail": [
+    "❌ 规划失败：没有生成任何可行路线\r",
+    "   · 下=默认 上=默认: tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）\r"
+  ],
+  "md5Before": {
+    "map": "2d2f658daceedc7fb04e080fa5458918",
+    "robot": "774febff5a1c613fd12eaa2aa13ce88e"
+  },
+  "md5After": {
+    "map": "2d2f658daceedc7fb04e080fa5458918",
+    "robot": "774febff5a1c613fd12eaa2aa13ce88e"
+  },
+  "configUnchanged": true,
+  "overrideDir": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\artifacts\\sim\\1792287892459_sixth_map_edit_422\\map_override",
+  "overrideFiles": [
+    "map.yaml",
+    "robot.yaml"
+  ]
+}

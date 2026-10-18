@@ -1,0 +1,15 @@
+[INFO] [launch]: All log files can be found below /home/duzhong/.ros/log/2026-10-18-09-13-31-878871-duzhong-24631
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [dzactuator_node-1]: process started with pid [24633]
+[dzactuator_node-1] [INFO] [1792286012.007596852] [dzrknn_dataprocess]: 创建节点成功..........
+[dzactuator_node-1] [INFO] [1792286012.014858399] [dzrknn_dataprocess]: Data ready
+[dzactuator_node-1] [INFO] [1792286012.016830628] [dzrknn_dataprocess]: 瞄准: 连续往复 -150°~150° | 巡逻 1110(最大速度的30%) | 俯仰偏移 +10.0° | 跟踪上限 2000 | 跟踪死区 5px | Kp 20.0/Kd 15.0 | 滤波 0.45
+[dzactuator_node-1] [INFO] [1792286012.016894502] [dzrknn_dataprocess]: 射击: 动态开火框 14~26px(标定框宽 30~120) | 稳定判据 画面稳定(画面 1.50px/帧, 电机 realV<20) | 保持 5 帧 | 预判 0.50 | 全程弹药 10 发/冷却 500ms | 扫描确认 2 帧
+[dzactuator_node-1] [INFO] [1792286012.016913752] [dzrknn_dataprocess]: 流畅度: 主循环 TRACK 100Hz / 其余 50Hz | 类别改锁需连续 5 帧(抗抖动)
+[dzactuator_node-1] [INFO] [1792286012.016926585] [dzrknn_dataprocess]: 凝视稳定: 车体转动前馈 已关闭 (增益 0.00, 方向 +1, IMU超时 200ms) | 输入源 /imu_data
+[dzactuator_node-1] [INFO] [1792286012.016936502] [dzrknn_dataprocess]: 自瞄: 状态机 IDLE/SCAN/TRACK | 点位全向扫描 2 趟 | 扫描速度 1110 | 循迹请求 /nav/scan_request | 状态上报 /aim/status
+[dzactuator_node-1] [INFO] [1792286012.016945543] [dzrknn_dataprocess]: 跟踪控制: ★增量式PID | kp=12.00 ki=1.100 kd=1.800 i_clamp=600 d_alpha=0.30 min_step=1 | 速率上限 2000 tick/s
+[dzactuator_node-1] [INFO] [1792286012.016958668] [dzrknn_dataprocess]: 扫描(t25): 巡航 -150..+150° 速度比 0.30 (=1110 tick/s) 俯仰偏置 +10.0° | 进入扫描先归位到正前+水平(超时 1500ms) | 连续扫描最多 3 轮(<=0=不限) | 找到目标即转 TRACK
+[dzactuator_node-1] [INFO] [1792286012.016971501] [dzrknn_dataprocess]: 开火权限(★补丁): 两键开火 已关闭（沿用旧的画面静止判据） | 提前量施加增益 0.00 (输入 /aim/lead_x) | 订阅 /aim/fire_gate + /aim/fire_ready
+[dzactuator_node-1] [31mCopyright©2016-2020 dzrknn_dataprocess. All rights reserved [0m
+[dzactuator_node-1] ==> 收到停止扫描请求

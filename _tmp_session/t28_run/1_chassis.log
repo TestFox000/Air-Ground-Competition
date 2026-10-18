@@ -1,0 +1,31 @@
+[INFO] [launch]: All log files can be found below /home/duzhong/.ros/log/2026-10-18-09-34-44-486776-duzhong-32918
+[INFO] [launch]: Default logging verbosity is set to INFO
+[dzactuator] 参数来源: /home/duzhong/dzrobot/config/robot.yaml
+[INFO] [dzactuator_node-3]: process started with pid [32924]
+[INFO] [static_transform_publisher-1]: process started with pid [32920]
+[INFO] [static_transform_publisher-2]: process started with pid [32922]
+[static_transform_publisher-1] [WARN] [1792287284.570094714] []: Old-style arguments are deprecated; see --help for new-style arguments
+[static_transform_publisher-2] [WARN] [1792287284.586592377] []: Old-style arguments are deprecated; see --help for new-style arguments
+[static_transform_publisher-1] [INFO] [1792287284.593569264] [static_transform_publisher_ufLoE0QdCeqYv0GL]: Spinning until stopped - publishing transform
+[static_transform_publisher-1] translation: ('0.000000', '0.000000', '0.080000')
+[static_transform_publisher-1] rotation: ('0.000000', '0.000000', '0.000000', '1.000000')
+[static_transform_publisher-1] from 'base_link' to 'imu_link'
+[static_transform_publisher-2] [INFO] [1792287284.610752045] [static_transform_publisher_GUet3eGS8zPN1Fm4]: Spinning until stopped - publishing transform
+[static_transform_publisher-2] translation: ('0.150000', '0.000000', '0.070000')
+[static_transform_publisher-2] rotation: ('0.000000', '0.000000', '1.000000', '0.000001')
+[static_transform_publisher-2] from 'base_link' to 'laser'
+[dzactuator_node-3] [0m[INFO] [1792287284.611468079] [dzactuator]: 创建节点成功..........[0m
+[dzactuator_node-3] [0m[INFO] [1792287284.624915816] [dzactuator]: Data ready[0m
+[dzactuator_node-3] [31mCopyright©2016-2020 dzactuator. All rights reserved [0m
+[dzactuator_node-3] [33m*****dzactuator:parameters*******************[0m
+[dzactuator_node-3] [32mserial_port_name:[0m/dev/dzactuator
+[dzactuator_node-3] [32mserial_baud_rate:[0m115200
+[dzactuator_node-3] [32mcalibrate_lineSpeed:[0m0
+[dzactuator_node-3] [32mticksPerMeter:[0m3280
+[dzactuator_node-3] [32mticksPer2PI:[0m2680
+[dzactuator_node-3] [32msmooth_window_speed:[0m20
+[dzactuator_node-3] [32msmooth_window_angle:[0m5
+[dzactuator_node-3] [33m*****dzactuator:parameters end***************[0m
+[dzactuator_node-3] [0m[INFO] [1792287284.626099095] [dzactuator]: dzactuator serial port opened[0m
+[dzactuator_node-3] Trigger! rx32 changed to: 255
+[dzactuator_node-3] Trigger! rx32 changed to: 0
