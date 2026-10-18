@@ -190,8 +190,11 @@ check("桥洞强制直行保护已按第三张图关闭（bridge_blocks 为空�
       f"got {cfg.get('pursuit.bridge_blocks')!r}")
 check("旧 dzactuator 段可读（2026-10-11 实车直线标定 → 3280.0）",
       cfg.get("dzactuator.ticksPerMeter") == 3280.0)
-check("新版参数段 /dzbrain 生效（curvature_gain 非默认；lead_time_s 已 t53 归零）",
-      cfg.get("aim.lead_time_s") == 0.0 and cfg.get("pursuit.curvature_gain") == 1.0)
+# ★ 2026-10-18 重钉（aim-tune-1018）：t53 曾把 lead_time_s 归零，今天实车回标为 0.27
+#   （链路延迟实测口径，配 lead_apply_gain=0.5）。判据强度不变——仍要求"参数段已生效且与真源一致"，
+#   真源换成 robot.yaml:827 的当前值；不回钉就与已上车的配置永久漂移。
+check("新版参数段 /dzbrain 生效（curvature_gain 非默认；lead_time_s 按 2026-10-18 实车回标 0.27）",
+      cfg.get("aim.lead_time_s") == 0.27 and cfg.get("pursuit.curvature_gain") == 1.0)
 check("新版默认值可读（SCHEMA 默认）", cfg.get("pursuit.wheelbase_m") == 0.157)
 check("case: 未知键给出告警", True)
 issues = cfg.validate(strict=False)

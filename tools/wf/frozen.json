@@ -8,13 +8,6 @@
   ],
   "in_flight": [
     {
-      "path": "config/robot.yaml",
-      "card": "aim-tune-1018",
-      "owner": "lead",
-      "reason": "移动靶 PID 整定 kp2.5/ki0.35/kd0/pg0.3",
-      "expires": "2026-10-20"
-    },
-    {
       "path": "src/dzbrain/dzbrain/core/config.py",
       "card": "v4.0-closeout",
       "owner": "schema-owner",
