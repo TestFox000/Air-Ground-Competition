@@ -48,6 +48,13 @@ fbc03b2 docs: 车端更新补记——src/ 根误建包已备份移除，dzbrain
 5. **结构约束修复**（D-018）：随机图 44% 求解率的主因是"穿洞 2/3 次 + 无射击停站"，属规划器结构层，不是 DP 顺序；修完重测 64 图；
 6. 赛规两问（GO Gate）确认后出 `race_manifest`。
 
+### 无人机侧待修（审阅发现，docs/审查_无人机飞控执行侧_20261018.md）
+
+- **P1-2**（一行修）：`path_follow_waypoint_node.cpp` 按键 4 时若 INIT 先 reload —— **T12 验收路径会踩**；
+- **P1-1**（安全）：`on_goto` 加 z/半径/单帧位移边界 —— **任何飞行前必做**；
+- **P1-3**：过点判据加投影越过 + 超时；
+- **P1-4**：相机断流 busy-loop —— **若用无人机相机侦察，先修**。
+
 ### 低优先级（赛前不动，done 后再说）
 
 7. 工具 legacy 化：`global_planner.py`/`e2e_monitor.py`/`p0_verify.py`/`test_rknn.py` 无引用 → `tools/legacy/`（`deploy_car.py` 按 D-019 保留为只读诊断）；
