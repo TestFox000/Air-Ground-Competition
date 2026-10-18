@@ -744,7 +744,11 @@ path_executor:
       #     `route.validate_route` 0 error/0 warn）；门禁不过 → 按 `fallback_to_tokens`
       #     回退 `route.tokens`（现役手工 62 点）并在日志里打印原因。
       #     tour **不加门禁**：它的历史行为（含"缺 mines 的图也能解"这类既有语义）必须逐字不变。
-      engine: tracker-safe  # ★t29：**第五张图专用**（用户指定「用车上自己有的路径规划器跑路线生成」）；
+      engine: tour  # ★2026-10-18 三引擎审计裁决：改回 tour（依据 docs/三引擎审计_20261018.md）。
+                    #   事实：tracker-safe 在现役第六/第七图**恒无解**（两图各含 3 处 :PIVOT 折返，tracker-safe 禁 180°
+                    #   ⇒ 5 图 0/5），而 tour 在现役图 2/2 成功、route_check 均 0 error。
+                    #   下面 auto_plan_enabled 仍为 false（D-011：执行层 pilot 未全绿）：本改动只为"无人机情报缺失时
+                    #   回退自规划"留一条能出串的路；**启用 auto_plan 前必须重跑执行层验证**，不要直接打开。
                             #   tracker-safe 会跑双门禁（tools/route_check.py 0 error + route.validate_route 0 error/0 warn），
                             #   不过则按 planner.fallback_to_tokens 回退 route.tokens。
                             #   旧注释（第七趟用户指令，J7 现场量测车头最前缘→挡板南表面 = 3.5 cm ≥ 2 cm 门槛）保留在案
