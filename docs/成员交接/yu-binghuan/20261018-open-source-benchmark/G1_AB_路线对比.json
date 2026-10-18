@@ -1,0 +1,117 @@
+{
+ "cam_20261017_205245": {
+  "旧几何": {
+   "cells": 50,
+   "length": 55.63,
+   "turn_deg": {
+    "45": 13,
+    "90": 3,
+    "135": 5,
+    "180": 1
+   },
+   "dup": 6,
+   "mines_covered": 8,
+   "ladder": "L1 并集避障+转弯约束",
+   "_snap": null
+  },
+  "新几何": {
+   "cells": 45,
+   "length": 49.38,
+   "turn_deg": {
+    "45": 11,
+    "90": 6,
+    "135": 3,
+    "180": 1
+   },
+   "dup": 4,
+   "mines_covered": 8,
+   "ladder": "L1 并集避障+转弯约束",
+   "_snap": null
+  }
+ },
+ "cam_20261017_205411": {
+  "旧几何": {
+   "cells": 37,
+   "length": 43.04,
+   "turn_deg": {
+    "45": 10,
+    "90": 4,
+    "135": 4
+   },
+   "dup": 0,
+   "mines_covered": 8,
+   "ladder": "L2 官方避障+转弯约束",
+   "_snap": null
+  },
+  "新几何": {
+   "cells": 46,
+   "length": 49.97,
+   "turn_deg": {
+    "45": 12,
+    "90": 5,
+    "135": 2,
+    "180": 1
+   },
+   "dup": 4,
+   "mines_covered": 8,
+   "ladder": "L1 并集避障+转弯约束",
+   "_snap": null
+  }
+ },
+ "cam_20261017_205906": {
+  "旧几何": {
+   "cells": 38,
+   "length": 42.8,
+   "turn_deg": {
+    "45": 10,
+    "90": 4,
+    "135": 4
+   },
+   "dup": 0,
+   "mines_covered": 8,
+   "ladder": "L1 并集避障+转弯约束",
+   "_snap": null
+  },
+  "新几何": {
+   "cells": 35,
+   "length": 40.21,
+   "turn_deg": {
+    "45": 11,
+    "90": 4,
+    "135": 3
+   },
+   "dup": 0,
+   "mines_covered": 8,
+   "ladder": "L1 并集避障+转弯约束",
+   "_snap": null
+  }
+ },
+ "cam_20261018_091746": {
+  "旧几何": {
+   "cells": 38,
+   "length": 42.8,
+   "turn_deg": {
+    "45": 10,
+    "90": 4,
+    "135": 4
+   },
+   "dup": 0,
+   "mines_covered": 8,
+   "ladder": "L2 官方避障+转弯约束",
+   "_snap": null
+  },
+  "新几何": {
+   "cells": 35,
+   "length": 40.21,
+   "turn_deg": {
+    "45": 11,
+    "90": 4,
+    "135": 3
+   },
+   "dup": 0,
+   "mines_covered": 8,
+   "ladder": "L2 官方避障+转弯约束",
+   "_snap": null
+  }
+ }
+}
