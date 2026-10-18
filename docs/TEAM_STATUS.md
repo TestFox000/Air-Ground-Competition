@@ -48,6 +48,12 @@ fbc03b2 docs: 车端更新补记——src/ 根误建包已备份移除，dzbrain
 5. **结构约束修复**（D-018）：随机图 44% 求解率的主因是"穿洞 2/3 次 + 无射击停站"，属规划器结构层，不是 DP 顺序；修完重测 64 图；
 6. 赛规两问（GO Gate）确认后出 `race_manifest`。
 
+### 低优先级（赛前不动，done 后再说）
+
+7. 工具 legacy 化：`global_planner.py`/`e2e_monitor.py`/`p0_verify.py`/`test_rknn.py` 无引用 → `tools/legacy/`（`deploy_car.py` 按 D-019 保留为只读诊断）；
+8. 测试夹具 `tests/_fixtures/`（29 套测试迁移需单独卡）；
+9. 月度指标脚本 `tools/wf/metrics.py`。
+
 ## 6. 现场状态快照
 
 - 车：停在 E4/E5 一带，IDLE + WAIT_INFO，刹车中（上次跑车结束状态，未再动）；
