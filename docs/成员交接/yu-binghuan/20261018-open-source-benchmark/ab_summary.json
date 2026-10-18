@@ -1,0 +1,240 @@
+[
+  {
+    "video": "cam_20261017_205245",
+    "preset": "baseline",
+    "frames_sampled": 151,
+    "mine_found": 3,
+    "mine_recall": 0.375,
+    "mines": [
+      "A2",
+      "C3",
+      "E3"
+    ],
+    "obstacles_n": 3,
+    "targets": {
+      "red": [],
+      "blue": [
+        "E8"
+      ]
+    },
+    "sec": 36.2
+  },
+  {
+    "video": "cam_20261017_205245",
+    "preset": "balanced",
+    "frames_sampled": 151,
+    "mine_found": 4,
+    "mine_recall": 0.5,
+    "mines": [
+      "A2",
+      "B1",
+      "B3",
+      "C3",
+      "E3"
+    ],
+    "obstacles_n": 10,
+    "targets": {
+      "red": [],
+      "blue": [
+        "E8"
+      ]
+    },
+    "sec": 38.5
+  },
+  {
+    "video": "cam_20261017_205245",
+    "preset": "recall",
+    "frames_sampled": 151,
+    "mine_found": 4,
+    "mine_recall": 0.5,
+    "mines": [
+      "A2",
+      "B1",
+      "B3",
+      "C3",
+      "E3"
+    ],
+    "obstacles_n": 12,
+    "targets": {
+      "red": [],
+      "blue": [
+        "E8"
+      ]
+    },
+    "sec": 40.3
+  },
+  {
+    "video": "cam_20261017_205411",
+    "preset": "baseline",
+    "frames_sampled": 120,
+    "mine_found": 0,
+    "mine_recall": 0.0,
+    "mines": [],
+    "obstacles_n": 0,
+    "targets": {
+      "red": [],
+      "blue": []
+    },
+    "sec": 31.1
+  },
+  {
+    "video": "cam_20261017_205411",
+    "preset": "balanced",
+    "frames_sampled": 120,
+    "mine_found": 0,
+    "mine_recall": 0.0,
+    "mines": [
+      "B2",
+      "B3",
+      "C1"
+    ],
+    "obstacles_n": 5,
+    "targets": {
+      "red": [],
+      "blue": [
+        "G3"
+      ]
+    },
+    "sec": 32.5
+  },
+  {
+    "video": "cam_20261017_205411",
+    "preset": "recall",
+    "frames_sampled": 120,
+    "mine_found": 1,
+    "mine_recall": 0.125,
+    "mines": [
+      "B1",
+      "B3",
+      "C1"
+    ],
+    "obstacles_n": 5,
+    "targets": {
+      "red": [],
+      "blue": [
+        "G3"
+      ]
+    },
+    "sec": 31.9
+  },
+  {
+    "video": "cam_20261017_205906",
+    "preset": "baseline",
+    "frames_sampled": 20,
+    "mine_found": 1,
+    "mine_recall": 0.125,
+    "mines": [
+      "G9"
+    ],
+    "obstacles_n": 2,
+    "targets": {
+      "red": [],
+      "blue": [
+        "E8"
+      ]
+    },
+    "sec": 6.3
+  },
+  {
+    "video": "cam_20261017_205906",
+    "preset": "balanced",
+    "frames_sampled": 20,
+    "mine_found": 1,
+    "mine_recall": 0.125,
+    "mines": [
+      "G9"
+    ],
+    "obstacles_n": 2,
+    "targets": {
+      "red": [],
+      "blue": [
+        "E8"
+      ]
+    },
+    "sec": 6.5
+  },
+  {
+    "video": "cam_20261017_205906",
+    "preset": "recall",
+    "frames_sampled": 20,
+    "mine_found": 1,
+    "mine_recall": 0.125,
+    "mines": [
+      "G9"
+    ],
+    "obstacles_n": 2,
+    "targets": {
+      "red": [],
+      "blue": [
+        "E8"
+      ]
+    },
+    "sec": 6.7
+  },
+  {
+    "video": "cam_20261018_091746",
+    "preset": "baseline",
+    "frames_sampled": 148,
+    "mine_found": 3,
+    "mine_recall": 0.375,
+    "mines": [
+      "A2",
+      "C3",
+      "G9"
+    ],
+    "obstacles_n": 3,
+    "targets": {
+      "red": [
+        "D5"
+      ],
+      "blue": [
+        "B7",
+        "E10"
+      ]
+    },
+    "sec": 38.5
+  },
+  {
+    "video": "cam_20261018_091746",
+    "preset": "balanced",
+    "frames_sampled": 148,
+    "mine_found": 2,
+    "mine_recall": 0.25,
+    "mines": [
+      "A2",
+      "C3",
+      "L10"
+    ],
+    "obstacles_n": 5,
+    "targets": {
+      "red": [
+        "D5"
+      ],
+      "blue": [
+        "B7",
+        "E10"
+      ]
+    },
+    "sec": 38.8
+  },
+  {
+    "video": "cam_20261018_091746",
+    "preset": "recall",
+    "frames_sampled": 148,
+    "mine_found": 2,
+    "mine_recall": 0.25,
+    "mines": [
+      "A2",
+      "C3"
+    ],
+    "obstacles_n": 7,
+    "targets": {
+      "red": [],
+      "blue": [
+        "B7",
+        "E10"
+      ]
+    },
+    "sec": 40.9
+  }
+]
