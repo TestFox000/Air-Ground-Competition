@@ -204,6 +204,15 @@ MISSION_STATE_KEY = "mission_state"
 #: 车端 scale=1.00003 说明不是里程计误差。非末点航点仍用 `arrival_m`，行为不变。
 _GOAL_STOP_M = 0.03
 
+#: ★★静止闸（2026-10-18 H8 卡死；见 _detect_stall_and_skip）：车**实际静止**时禁止
+#: "绕圈兜底跳点"。没有这道闸，s 一冻结就每 12 s 跳一个航点（实车 E9/D9/D10/C10…），
+#: 一路跳完 = 车一步没动却报 FINISH（假完赛）。判据 = 连续 N 拍**位姿位移 < ε 且
+#: 瞬时速度 < v_eps**：N=10（10 Hz ⇒ 1 s）、ε=0.01 m/拍、v_eps=0.03 m/s
+#: （低于最低蠕行命令 0.08 m/s，正常行驶/切角/绕圈都不可能命中）。
+_STILL_TICKS = 10
+_STILL_DISP_M = 0.01
+_STILL_SPEED_MPS = 0.03
+
 # --------------------------------------------------------------------------- #
 #  ★ 自动规划：路线来源标注 + 规划入口
 # --------------------------------------------------------------------------- #
@@ -1280,6 +1289,12 @@ class MissionTask(TaskThread):
         #: ★到点判定的"是否贴在路径上"：`_current_s` 现算投影时记下的横向偏差（米）
         self._last_lat_m: float | None = None
         self._stall_yaw_sum: float = 0.0
+        #: ★静止闸窗口（见 _update_still_window）：上一拍位姿/时刻 + 连续静止拍数
+        self._still_prev: tuple[float, float, float] | None = None
+        self._still_last_t: float | None = None
+        self._still_n: int = 0
+        self._stall_block_logged: bool = False        # 本轮停滞只打一条"禁止跳点"告警
+        self.stall_skip_blocked: int = 0              # ★因车静止被拦下的跳点次数（可观测）
         self._forced_skips: int = 0                  # 强制跳过航点的次数（结束横幅要汇总）
         # ---- ★PIVOT 完成通知（Tracker 经 `PIVOT_DONE_KEY` 写，见 tracker.py 注释）----
         #: 经 PIVOT 通知判到达的航点集合：停站点若由此判到达，仍要进三段式停站
@@ -2653,6 +2668,8 @@ class MissionTask(TaskThread):
         s = self._last_s
         pose = self.bb.get(P_POSE)
         yaw = pose.yaw if pose is not None else None
+        # ★维护「车实际静止」窗口（跳点安全闸的输入，见 _update_still_window）
+        self._update_still_window(pose)
 
         # ---- 维护停滞窗口 ----
         progressed = self._stall_last_s is None or (s - self._stall_last_s) >= self._arrival_m
@@ -2679,6 +2696,19 @@ class MissionTask(TaskThread):
             self._reset_stall()
             return
         wp = route[next_idx]
+        # ---- ★★静止闸：车实际没动 ⇒ 禁止跳点（H8 卡死的「假完赛」安全洞）----
+        #  为什么必须拦：s 冻结时每 12 s 跳一个点，车一步没动也能把航点逐个跳完 ⇒
+        #  _passed 全 True ⇒ 任务报 FINISH（假完赛）。此时正确的行为是「停站 + 如实报警」，
+        #  路线进度一动不动，等人来处理（车一动/s 一前进，窗口自然复位，跳点能力恢复）。
+        #  ⚠️ 只拦「车静止」；车在动（切角抖动/原地绕圈）时照旧跳点（现有行为不变）。
+        if self._still_n >= _STILL_TICKS:
+            self.stall_skip_blocked += 1
+            if not self._stall_block_logged:
+                self._stall_block_logged = True
+                self._log(f"⛔ 车静止（连续 {self._still_n} 拍位姿几乎不动）→ 禁止跳点："
+                          f"航点 {wp.block}（#{next_idx}）停滞 {stalled_time:.1f}s，"
+                          f"如实上报 stall（不推进路线 / 不报 FINISH，等人处理）")
+            return
         self._passed[next_idx] = True
         self._forced_skips += 1
         self._next_wp = next_idx + 1
@@ -2741,11 +2771,42 @@ class MissionTask(TaskThread):
             return False
         return True
 
+    def _update_still_window(self, pose) -> None:
+        """维护「车实际静止」窗口：连续 N 拍位移 < ε 且瞬时速度 < v_eps。
+
+        数据只用 P_POSE（不依赖 Tracker 遥测，任务之间保持黑盒契约）：
+        · 位移 < _STILL_DISP_M（0.01 m/拍）且 速度 < _STILL_SPEED_MPS（0.03 m/s）⇒ 计数 +1；
+        · 任何一拍照样移动 ⇒ 清零（重新起算）；
+        · 无位姿/时钟异常 ⇒ 清零（**不拦**跳点：拿不到位姿时保持旧行为，避免误伤）。
+        """
+        if pose is None:
+            self._still_prev = None
+            self._still_n = 0
+            self._still_last_t = None
+            return
+        now = self._clock()
+        cur = (float(pose.x), float(pose.y), now)
+        if self._still_prev is None or self._still_last_t is None:
+            self._still_prev = cur
+            self._still_last_t = now
+            self._still_n = 0
+            return
+        disp = math.hypot(cur[0] - self._still_prev[0], cur[1] - self._still_prev[1])
+        dt = now - self._still_last_t
+        speed = disp / dt if dt > 1e-6 else float("inf")
+        if disp <= _STILL_DISP_M and speed <= _STILL_SPEED_MPS:
+            self._still_n += 1
+        else:
+            self._still_n = 0
+        self._still_prev = cur
+        self._still_last_t = now
+
     def _reset_stall(self) -> None:
         self._stall_since = None
         self._stall_last_s = 0.0
         self._stall_last_yaw = None
         self._stall_yaw_sum = 0.0
+        self._stall_block_logged = False
 
     def _next_stop_candidate(self) -> int | None:
         """下一个需要停车的停站点索引；**末点不算停站点**。

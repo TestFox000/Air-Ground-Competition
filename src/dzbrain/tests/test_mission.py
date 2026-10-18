@@ -789,11 +789,23 @@ def test_stall_fallback() -> None:
     check("10.2 起步阶段未误判停滞", getattr(rig.task, "_forced_skips", 0) == 0,
           f"forced_skips={getattr(rig.task, '_forced_skips', None)}")
 
-    # 位姿一动不动，快进 4 s（> stall_timeout 2.0s）
-    for _ in range(20):
-        rig.task.tick()
-        rig.events.extend(rig.sub.poll(4096))
-        rig.clock.advance(0.2)
+    def _move_while_stuck(rig_, n, *, dt=0.2, amp=0.10):
+        """车**在动**（横向抖动，速度 > 静止门限）但 s 不前进 = 正常的"卡在拐角"。
+
+        ★ 2026-10-18 静止闸之后，旧版"位姿一动不动"的写法属于**禁止跳点**的场景
+          （见 test_stall_stationary_gate）；正常跳点必须证明"车在动但卡住"。
+        """
+        base = rig_.bb.get(P_POSE)
+        for i in range(n):
+            x = base.x + (amp if i % 2 == 0 else -amp)
+            rig_.bridge.set_pose(x, base.y, base.yaw)
+            rig_.bb.set(P_POSE, geo.Pose(x, base.y, base.yaw), "test")
+            rig_.task.tick()
+            rig_.events.extend(rig_.sub.poll(4096))
+            rig_.clock.advance(dt)
+
+    # 车在动但 s 冻结，快进 4 s（> stall_timeout 2.0s）
+    _move_while_stuck(rig, 20)
 
     skips = getattr(rig.task, "_forced_skips", 0)
     forced = [e for e in rig.of(EV_WAYPOINT_REACHED) if e.data.get("forced_skip")]
@@ -814,14 +826,18 @@ def test_stall_fallback() -> None:
     cfg2 = _field_cfg(stall_timeout_s=3600.0, stall_yaw_deg=180.0)  # 关超时，只测绕圈
     rig2 = Rig(cfg=cfg2, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
     rig2.ticks(3)
+    # 原地"打转"必须是**车在动**的版本（小圆圈 + 每拍 +90°），否则会被静止闸拦下：
+    # 静止闸只放行"车在动但 s 卡住"的绕圈兜底（2026-10-18 H8 卡死教训）。
+    base2 = rig2.bb.get(P_POSE)
     yaw = geo.HEADING_Y
-    for _ in range(6):            # 每拍 +90° → 两拍就够 180°
+    for k in range(6):            # 每拍 +90° → 两拍就够 180°；圆周位移 > 静止门限
         yaw = geo.normalize_angle(yaw + _math.radians(90))
+        ang = _math.radians(60 * k)
+        x = base2.x + 0.05 * _math.cos(ang)
+        y = base2.y + 0.05 * _math.sin(ang)
         rig2.clock.advance(0.1)
-        b = rig2.bridge
-        p = rig2.bb.get(P_POSE)
-        b.set_pose(p.x, p.y, yaw)
-        rig2.bb.set(P_POSE, geo.Pose(p.x, p.y, yaw), "test")
+        rig2.bridge.set_pose(x, y, yaw)
+        rig2.bb.set(P_POSE, geo.Pose(x, y, yaw), "test")
         rig2.task.tick()
         rig2.events.extend(rig2.sub.poll(4096))
     skips2 = getattr(rig2.task, "_forced_skips", 0)
@@ -833,10 +849,7 @@ def test_stall_fallback() -> None:
     cfg3 = _field_cfg(stall_timeout_s=2.0, stall_yaw_deg=3600.0)
     rig3 = Rig(cfg=cfg3, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
     rig3.ticks(3)
-    for _ in range(20):
-        rig3.task.tick()
-        rig3.events.extend(rig3.sub.poll(4096))
-        rig3.clock.advance(0.2)
+    _move_while_stuck(rig3, 20)          # 车在动但 s 冻结（静止闸放行）
     n_after_stall = getattr(rig3.task, "_forced_skips", 0)
     rig3.walk(step=0.05, max_steps=200, stop_on_stop_point=False)
     normal = [e for e in rig3.of(EV_WAYPOINT_REACHED) if not e.data.get("forced_skip")]
@@ -866,15 +879,86 @@ def test_stall_fallback() -> None:
     check("10.12 ★PIVOT 进行中不判停滞（4s>超时2s、累计转600°>60°，仍 0 跳点）",
           skips4 == 0, f"skips={skips4}")
 
-    # 机动结束 → 停滞判定必须照常生效（豁免不能变成永久免疫）
-    for _ in range(20):
+    # 机动结束 → 停滞判定必须照常生效（豁免不能变成永久免疫）。
+    # 车必须"在动"（小圆圈 + 每拍 +30°），静止的原地打转会被静止闸拦下 —— 那是 2026-10-18
+    # H8 卡死事故后的新语义（静止不许跳点），不是本用例要测的东西。
+    base4 = rig4.bb.get(P_POSE)
+    yaw4b = base4.yaw
+    for k in range(20):
+        yaw4b = geo.normalize_angle(yaw4b + _math.radians(30))
+        ang = _math.radians(60 * k)
+        x = base4.x + 0.05 * _math.cos(ang)
+        y = base4.y + 0.05 * _math.sin(ang)
         rig4.bb.set(P_TELEMETRY, {"tracker_cmd": {"pivot_phase": "IDLE"}}, "test")
+        rig4.bridge.set_pose(x, y, yaw4b)
+        rig4.bb.set(P_POSE, geo.Pose(x, y, yaw4b), "test")
         rig4.task.tick()
         rig4.events.extend(rig4.sub.poll(4096))
         rig4.clock.advance(0.2)
     skips4b = getattr(rig4.task, "_forced_skips", 0)
     check("10.13 PIVOT 结束后停滞判定照常生效（豁免不是永久免疫）",
           skips4b >= 1, f"skips={skips4b}")
+
+
+def test_stall_stationary_gate() -> None:
+    """★20. 静止闸：车实际不动时禁止绕圈兜底跳点（防「假完赛」安全洞）。
+
+    背景（2026-10-18 实车 H8 卡死）：s 冻结后 mission 每 12s 强制跳过航点
+    （E9/D9/D10/C10…）——车一步没动也能把航点逐个跳完 ⇒ _passed 全 True ⇒ FINISH。
+    本组验证：
+      20.1-20.5 车静止 + s 冻结 → 不跳点、不推进、不 FINISH，且拦住可观测/可审计；
+      20.6 车一动（s 仍冻结）→ 跳点能力立刻恢复（闸不是永久封印）。
+    """
+    section("20. 静止闸：车静止时禁止跳点/假完赛；车一动即恢复")
+    cfg = _field_cfg(stall_timeout_s=2.0, stall_yaw_deg=3600.0)   # 只测超时判据
+    rig = Rig(cfg=cfg, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+    rig.ticks(3)
+    passed0 = sum(1 for x in rig.task._passed if x)
+    arrived0 = rig.task._arrived
+
+    # 位姿**一动不动**，快进 4 s（> stall_timeout 2.0s）
+    for _ in range(20):
+        rig.task.tick()
+        rig.events.extend(rig.sub.poll(4096))
+        rig.clock.advance(0.2)
+
+    forced = [e for e in rig.of(EV_WAYPOINT_REACHED) if e.data.get("forced_skip")]
+    check("20.1 ★静止 + s 冻结：0 次强制跳点（旧行为 12s 一跳）",
+          getattr(rig.task, "_forced_skips", 0) == 0,
+          f"skips={getattr(rig.task, '_forced_skips', None)} "
+          f"stall_skip_blocked={getattr(rig.task, 'stall_skip_blocked', None)}")
+    check("20.2 ★静止：路线进度未推进（_passed 数 / _arrived 均不变）",
+          sum(1 for x in rig.task._passed if x) == passed0
+          and rig.task._arrived == arrived0,
+          f"passed={sum(1 for x in rig.task._passed if x)} (was {passed0}) "
+          f"arrived={rig.task._arrived} (was {arrived0})")
+    check("20.3 ★静止：不报 FINISH（阶段非 FINISH、未锁存完赛）",
+          rig.task.phase != MissionPhase.FINISH
+          and not getattr(rig.task, "_finish_latched", False),
+          f"phase={rig.task.phase!r} finish_latched={getattr(rig.task, '_finish_latched', None)}")
+    check("20.4 ★静止：没有 forced_skip 事件（不假装到达）",
+          not forced, f"forced={[e.data.get('block') for e in forced]}")
+    check("20.5 ★静止：拦住可观测（stall_skip_blocked ≥1）+ 日志含「车静止/禁止跳点/如实上报 stall」",
+          getattr(rig.task, "stall_skip_blocked", 0) >= 1
+          and any(("车静止" in ln and "禁止跳点" in ln and "如实上报 stall" in ln)
+                  for ln in rig.logs),
+          f"blocked={getattr(rig.task, 'stall_skip_blocked', None)} logs={rig.logs[-2:]}")
+
+    # ---- 车一动（横向抖动，s 仍冻结）→ 跳点能力恢复 ----
+    base = rig.bb.get(P_POSE)
+    for i in range(20):
+        x = base.x + (0.10 if i % 2 == 0 else -0.10)
+        rig.bridge.set_pose(x, base.y, base.yaw)
+        rig.bb.set(P_POSE, geo.Pose(x, base.y, base.yaw), "test")
+        rig.task.tick()
+        rig.events.extend(rig.sub.poll(4096))
+        rig.clock.advance(0.2)
+    forced_after = [e for e in rig.of(EV_WAYPOINT_REACHED) if e.data.get("forced_skip")]
+    check("20.6 ★车一动（s 仍冻结）→ 跳点恢复（forced_skips ≥1）",
+          getattr(rig.task, "_forced_skips", 0) >= 1,
+          f"skips={getattr(rig.task, '_forced_skips', None)}")
+    check("20.7 ★恢复跳点有事件可审计（forced_skip=True）",
+          len(forced_after) >= 1, f"forced={[e.data.get('block') for e in forced_after]}")
 
 
 def test_arrival_requires_proximity() -> None:
@@ -2106,6 +2190,7 @@ def main() -> int:
     test_phase_gate()
     test_rate()
     test_stall_fallback()
+    test_stall_stationary_gate()
     test_arrival_requires_proximity()
     test_pivot_done_marks_arrival()
     test_waypoint_ledger()
