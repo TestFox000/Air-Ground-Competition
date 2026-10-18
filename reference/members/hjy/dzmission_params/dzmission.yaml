@@ -1,0 +1,499 @@
+# dzmission 参数文件
+#
+# 用法：
+#   ros2 run dzmission dzmission_node --ros-args --params-file <此文件>
+# 或由 launch 自动加载（见 launch/dzmission.launch.py）
+#
+# 话题与外部依赖约定（重要）：
+#   本节点是速度指令的【唯一出口】。请确保 dztrack / nav2 不直接发布 cmd_vel 与
+#   pursuitAngle，否则会与本节点冲突。做法见 doc/INTEGRATION.md。
+#
+#   dztrack  ->  /dztrack_raw_cmd   （dztrack 的 pursuitAngle 需要 remap 到这里）
+#   nav2     ->  /cmd_vel_nav_raw   （nav2 velocity_smoother 的 cmd_vel 需 remap）
+#   然后本节点把仲裁结果发布到 /cmd_vel 与 /pursuitAngle（dzactuator 订阅）
+
+/**:
+  ros__parameters:
+
+    # ===================== 任务层 =====================
+    mission:
+      enable_autonomy: true          # false = 只监视不执行（调试用）
+      require_motion_enable: false   # 预留：需要外部使能信号才允许运动
+      arrive_dist: 0.25              # m，到达判定距离
+      arrive_yaw_tol_deg: 20.0       # deg，到达判定航向容差
+      goal_timeout_s: 60.0           # s，单次导航超时，超时自动重发
+      goal_retry_period_s: 3.0
+      low_battery_pct: 20.0          # %，低于此值禁止交战并返航
+      link_lost_return_delay_s: 5.0  # s，链路丢失后多久自动返航
+      auto_return_on_link_loss: true
+      engage_requires_localization: true
+      engage_approach_dist: 1.2      # m，交战保持的打击距离
+      gimbal_lock_chassis: true      # 交战中雷达急停时锁车（避免边瞄边冲）
+      clear_recovery_delay_s: 1.0    # s，障碍清除后多久恢复任务
+      dztrack_active_timeout_s: 0.5  # s，多久没收到 dztrack 速度视为未运行
+      use_dztrack_when_active: true  # dztrack 活跃时优先采信它的速度
+      # 裁判板链路不可用时的假定弹量。
+      #   0（推荐）= 保守：没有裁判板就不允许开火，避免"空放"违规
+      #   10        = 台架/离线自测时想验证开火链路，用假定弹量放行
+      default_ammo_when_link_lost: 0
+
+    # ===================== 指令链路 =====================
+    cmd:
+      # transport: serial | udp | loopback
+      #   serial   —— 通过串口接无人机/上位机的数传
+      #   udp      —— 通过网口接（推荐，带宽大且无需数传）
+      #   loopback —— 无外部链路，自动注入正方形巡游指令（离线自测）
+      #
+      # ★ 离线测试（不接真无人机）用 "udp"，再用 tools/drone_sim.py 发地图数据：
+      #     python3 tools/drone_sim.py --map tools/maps/example_standard.yaml
+      #   车端监听 udp_bind_host:udp_bind_port，模拟器发到同一端口即可。
+      #
+      # ★ 本文件由 build_ws.sh 从 Windows 侧拷贝到 ~/ws/src/。
+      #   只改 WSL 里的 ~/ws/src/... 会被下次编译覆盖 —— 要改就改这里。
+      transport: "udp"
+      serial_port: "/dev/ttyACM1"
+      serial_baud: 115200
+      udp_bind_host: "0.0.0.0"
+      udp_bind_port: 9100
+      udp_peer_host: "192.168.1.50"   # 无人机侧地址，用于回传状态
+      udp_peer_port: 9101
+      loopback_hz: 0.2
+      link_timeout_ms: 1000
+
+    # ===================== 定位补偿 =====================
+    # ★ 位置来源 = 航位推算：只用 odom 的【相邻采样行驶距离】，
+    #   沿 IMU 偏航角积分。**不采用 dzactuator 积分出的位姿** ——
+    #   实测其朝向系与物理世界不一致（同一次 90° 右转，两次运行的原始
+    #   轨迹偏向相反两侧并单调外扩），但采样间的距离是旋转不变量且准确。
+    #   依据见 发学员/src(走斜线)/car_localization/serial_reader.py 的实测注释。
+    loc:
+      imu_topic: "imu_data"           # dzactuator 发布的滤波 IMU；原始为 "raw"
+      odom_topic: "odom"              # dzactuator 轮式里程计（只用其距离增量）
+      amcl_topic: "amcl_pose"         # 绝对位姿（AMCL / fake_amcl / 视觉）
+      anchor_topic: "nav/anchor"      # ★ 标定锚点 "anchor:COL,ROW,HEADING_DEG"
+      imu_timeout_ms: 200.0
+      odom_timeout_ms: 300.0
+      zupt_linear_thresh: 0.02        # m/s，判静止阈值
+      zupt_gyro_thresh: 0.05          # rad/s
+      zupt_min_duration_ms: 300.0
+      wheel_sigma_v: 0.05             # m/s，轮速观测标准差（仅喂 ESKF 速度）
+      gyro_sigma_z: 0.01
+      enable_absolute_fix: true       # 收到 amcl_pose 是否重锚
+      fix_sigma_pos: 0.10             # m
+      fix_sigma_yaw: 0.05             # rad
+      fix_min_interval_ms: 200.0
+      fix_max_jump_m: 2.0             # 超过该跳变视为异常观测并拒绝
+      publish_tf: true
+      publish_map_to_odom: true       # 发布动态 map->odom（可关，若已有其他来源）
+      odom_frame: "odom"
+      base_frame: "base_link"
+      map_frame: "map"
+
+      # ---- ★ 航位推算（DR）----
+      # 忽略小于此值的单步行程，滤掉静止抖动。实测 0.5mm 合适
+      dr_min_step_m: 0.0005
+      # 单步行程上限：超过视为采样跳变（串口丢包/重连），丢弃该步
+      dr_max_step_m: 0.5
+      # 启动时的地图偏航角（度）
+      #   坐标约定（dzmission 的 FieldGrid）：
+      #     +x = 列字母增大方向（A -> N），+y = 行号增大方向（1 -> 11）
+      #   已确认：车头**朝 M10 方向**。从起点看向 M10 = 沿**列不变、行号减小**
+      #   方向  =>  即 -y 方向  =>  地图偏航 = -90°
+      #   ★ 这个值必须与车的实际摆位一致，否则整条航迹会整体旋转
+      initial_map_yaw_deg: -90.0
+      # 启动时的初始格。★ 已现场确认：智能车起点 = M11（col 12, row 10）
+      #   ★★ 重要：起点 M11 在水平隔离线的**南侧**，终点 N6 在**北侧**，
+      #      且线覆盖 D..N 全宽（含 M、N 两列），所以东侧条带被完全切断。
+      #      M11 无法直接北上到 N6，**必须穿桥洞绕行** —— 桥洞门位是
+      #      起终点得分的硬依赖，没有无人机的门位信息就拿不到这 10 分。
+      initial_col: 12
+      initial_row: 10
+      anchor_at_startup: true
+      # 每格边长（m），用于把 anchor 指令的格坐标换算成米
+      block_size_m: 0.35
+      anchor_prefix: "anchor:"
+
+    # ===================== 运动仲裁 =====================
+    # ★★ 量纲警告 ★★
+    #   pursuitAngle.angular.z = 舵机角度，单位【度】，0=直行，范围 [-35,+35]
+    #   cmd_vel.angular.z      = 角速度，单位【rad/s】
+    #   依据：dzactuator 内部 servo_angle = angular.z + 60 再 clamp 到 [25,95]
+    #   两个通道绝不能混用同一个限幅参数
+    arbiter:
+      max_v: 0.6                      # m/s，线速度限幅（两通道共用）
+      max_servo_deg: 35.0             # 度，硬件允许的舵机角度上限
+      max_steer_deg: 30.0             # 度，控制层允许的舵机角度上限（留 5° 余量）
+      max_w: 1.2                      # rad/s，仅 cmd_vel 通道
+      max_acc_v: 1.5                  # m/s^2，加速度限幅
+      max_acc_servo: 120.0            # 度/s，舵机角度变化率上限（保护舵机）
+      max_acc_w: 4.0                  # rad/s^2，仅 cmd_vel 通道
+      source_ttl: 0.4                 # s，速度源超时失效
+      publish_cmd_vel: true
+      publish_pursuit: true
+      brake_publish_both: true        # 刹车时两路同发 linear.y=1（双模式停车必需）
+
+    # ===================== 原地转向 =====================
+    # ★ 为什么需要：K 列以东窄条（L/M/N）内单圆弧 90° 转向的扫掠半径
+    #   = R + 车体对角半径 ≈ 44.6 cm，而格心距场边只有 17.5 cm，几何上不可行。
+    #   原地转向绕后轴中心纯转动，扫掠半径 = 车体对角半径 ≈ 18.6 cm，
+    #   只有单圆弧的 1/2.4，所以窄条内可转。依据见 test/pivot_turn_check.py。
+    pivot:
+      lock_deg: 30.0                  # 度，原地转向时的舵机角度
+      wait_servo_s: 0.5               # s，等舵机物理到位的时间
+      creep_v: 0.08                   # m/s，蠕行对中速度（必须慢）
+      tol_deg: 6.0                    # 度，偏航对中容差（学员用 15°，此处收紧）
+      lead_deg: 3.0                   # 度，提前停止量（舵机回中有滞后）
+      creep_max_cm: 0.0               # cm，0 = 按名义圆弧自动算
+      safety_scale: 1.6               # 行程安全上界倍率
+      total_timeout_s: 6.0            # s，总超时兜底
+      nominal_radius_cm: 26.0         # cm，估算行程上限用的名义转弯半径
+      steer_trim_deg: -1.0            # 度，横向稳态偏差补偿（负=向右，抵消机械左偏）
+
+    # ===================== 近距离避碰（★ 无雷达版）=====================
+    # 赛题传感器白名单**禁止激光雷达 / 深度相机 / 双目 / UWB / 任何带深度
+    # 反馈的传感器**，所以基于 LaserScan 的扇区测距实现整体作废。
+    # 没有测距传感器时，"避碰"只能靠底盘自身反馈，本节点四路信号：
+    #   ① 堵转检测（主力）：发了速度但车不走 => 撞上东西了
+    #   ② IMU 姿态异常：俯仰/横滚超限 => 压到东西/上台阶
+    #   ③ 视觉近场占用：检测框又大又靠下 => 障碍物很近（只降速，不急停）
+    #   ④ 地图新鲜度：没有地雷/障碍清单 => 降速（默认不急停）
+    # 安全哲学：**"失明"不等于"危险"**。只有检测到实际异常才急停，
+    # 信息不足只降速 —— 否则整局都在急停。
+    safety:
+      odom_topic: "odom"              # 实测速度来源（只用 twist，不用 pose）
+      imu_topic: "imu_data"
+      vision_topic: "offset_center"   # rknn_pt 的检测输出
+      cmd_topic: "arbiter_speed"      # 仲裁器发布的下发速度（堵转比对基准）
+
+      # ---- ① 堵转判据 ----
+      stall_cmd_v: 0.05               # m/s，指令速度达到此值才算"应该动"
+      stall_actual_v: 0.02            # m/s，实测低于此值算"没动"
+      # ★ dzactuator 的 odom.twist 有 *50 的标度问题。现场标定后填正确系数；
+      #   填 1.0 = 信任原值。注意本判据只要求"明显不是 0"，对绝对标度不敏感
+      odom_speed_scale: 1.0
+      stall_hold_ms: 1200.0           # ms，持续多久判定堵转（远小于规则硬限 10s）
+      stall_grace_ms: 400.0           # ms，起转/换向的宽限期
+      recover_after_s: 2.0            # s，堵转多久后建议脱困（倒车+反打方向）
+      recover_reverse_v: -0.10        # m/s，脱困倒车速度
+      recover_steer_deg: 25.0         # 度，脱困打舵角度（正=左）
+
+      # ---- ② 姿态判据 ----
+      tilt_pitch_warn_deg: 12.0       # 度，降速门限
+      tilt_pitch_stop_deg: 20.0       # 度，急停门限
+      tilt_roll_warn_deg: 12.0
+      tilt_roll_stop_deg: 20.0
+      tilt_hold_ms: 500.0             # ms，持续倾斜多久才算（滤瞬时冲击）
+
+      # ---- ③ 视觉近场占用 ----
+      # ★ /offset_center 的格式已与 rknn_pt/det_node v2 对齐（8 个元素）：
+      #     [0] offset_x  [1] offset_y  [2] class_id(1=有目标)
+      #     [3] dist_cm   [4] bbox_x   [5] bbox_y  [6] bbox_w  [7] bbox_h
+      #   注意消息类型是 std_msgs/Int32MultiArray（不是 Float32），
+      #   原实现按 Float32 订阅 -> 类型不匹配 -> 永远收不到。
+      vision_near_box_ratio: 0.55     # 检测框高 / 画面高，超过认为很近
+      vision_timeout_ms: 500.0
+      vision_crawl_speed: 0.10        # m/s，视觉占用时的限速
+      vision_frame_height: 480.0      # 画面高度(px)，usb_cam 默认 480
+
+      # ---- ④ 里程计新鲜度 ----
+      odom_timeout_ms: 300.0
+      no_odom_crawl_speed: 0.15       # m/s，断流时降速（失去堵转保护）
+      no_odom_stop_ms: 3000.0         # ms，断流多久后升级为急停
+
+      # ---- ⑤ 地图新鲜度 ----
+      map_crawl_speed: 0.25           # m/s，地图过期时限速
+      map_stale_blocks: false         # 地图过期是否也急停（默认否，见安全哲学）
+
+      # ---- 其它 ----
+      eval_hz: 20.0                   # 定时评估频率（不依赖输入话题到达）
+      crawl_speed: 0.12               # m/s，通用降速档
+      clear_hold_ms: 400.0            # ms，异常消失后持续多久才解除急停
+      stuck_timeout_s: 10.0           # ★ 规则硬限：撞固定场地超 10s 裁判切手动
+      publish_markers: true
+
+    # ===================== 云台与激光 =====================
+    aim:
+      # 【重要】own_gimbal
+      #   true  —— 本节点发布 CameMo_Conl / LaserShot_Command
+      #            ★ 此时不要启动 dzrknn_dataprocess，否则云台指令打架
+      #   false —— 云台与激光仍由 dzrknn_dataprocess 驱动，
+      #            本节点只做联锁判断与状态监视
+      own_gimbal: false
+      vision_topic: "offset_center"
+      gimbal_feedback_topic: "camemo_feedback"
+      gimbal_cmd_topic: "CameMo_Conl"
+      laser_topic: "LaserShot_Command"
+
+      gimbal_center_tick: 2047
+      gimbal_tick_min: 1000
+      gimbal_tick_max: 3000
+      gimbal_max_speed: 3700
+      yaw_ticks_per_deg: 11.111
+      pitch_ticks_per_deg: 11.111
+      yaw_deg_sign: 1.0
+      pitch_deg_sign: 1.0
+
+      scan_yaw_dirs: 8
+      scan_yaw_min_deg: -90.0
+      scan_yaw_max_deg: 90.0
+      scan_pitch_levels_deg: [30.0, 0.0, -10.0]
+      scan_dwell_ms: 300
+      scan_arrive_tol: 30
+      scan_speed: 400
+      pitch_scan_speed: 100
+      enable_auto_scan: true
+
+      # ---- ★ 扫描模式（借鉴自学员工程）----
+      #   "step"  = 跳档式：跳到下一个预置角度，停 dwell 等视觉（扫得快）
+      #   "sweep" = 连续慢扫：恒速连续扫 + 端点停顿（学员两版的共同做法）
+      #   学员注释点出了关键失败模式："the sweep outran the detection latency,
+      #   so the target was never reported while the gimbal was actually
+      #   pointing at it" —— 扫描速度超过视觉流水线延迟时会永远扫不到目标。
+      scan_mode: "step"
+      # sweep 模式的角速度（度/秒）。
+      #   上界推导：检测 15fps -> 帧周期 66ms；流水线 4 帧 = 267ms。
+      #   要让目标在视野内留 >= 2 帧，单帧转过角度应 < 水平FOV/4。
+      #   假设 FOV 65° -> 单帧 < 16° -> 角速度 < 240°/s（很宽松）。
+      #   学员实测可用值约 2.9°/s（极慢，±90° 要扫 62s，赛时不够）。
+      #   本实现默认 12°/s 作折中（±90° 约 15s 扫完）。
+      scan_sweep_rate_dps: 12.0
+      # sweep 模式在换向点的停顿时间（让视觉追上，不能省）
+      scan_hold_ms: 200
+      # sweep 模式是否同时遍历 pitch 层
+      scan_sweep_multi_pitch: true
+
+      # ---- ★ 丢帧宽限：目标刚消失时"保持不动"而不是立刻重扫 ----
+      #   量级推导：流水线 4 帧 × 66ms(15fps) = 267ms，留一倍余量 -> 600ms
+      lost_grace_ms: 600
+
+      # ---- ★ 开火保持窗口（与"对准容差"分开）----
+      #   fire_tolerance_px 决定"何时进入开火态"（严格）
+      #   fire_hold_px      决定"开火态下漂到多远仍继续开火"（宽松）
+      #   分开的理由：单阈值时目标在边缘抖动会导致开火↔停火反复切换，
+      #   而全局限 10 发弹量。学员取值：对准 5px / 保持 15px。
+      fire_hold_px: 15
+
+      vision_smooth_alpha: 0.4
+      fast_alpha: 0.85
+      fast_error_threshold_px: 40
+      vision_step_gain: 0.3
+      fast_step_gain: 0.7
+      max_step_per_frame: 20
+      fast_max_step: 80
+      vision_deadband_px: 3
+      pitch_deadband_px: 8
+      pitch_step_gain: 0.1
+      pitch_max_step_per_frame: 3
+      vision_timeout_ms: 500
+      lost_frames_to_rescan: 20
+
+      motor_kp: 1000.0
+      fast_motor_kp: 50.0
+      pitch_motor_kp: 5.0
+      pitch_max_speed: 200
+      position_deadband_ticks: 5
+      pitch_position_deadband_ticks: 15
+
+      fire_tolerance_px: 10
+      fire_debounce_frames: 3
+      # ★ 开火冷却。默认 3000ms 而非 500ms —— 依据规则：
+      #   "命中后靶标 1 秒后自动恢复；任一侧累计 3 次则整体击毁"。
+      #   500ms 会在靶标尚未恢复时打出无效命中，白白消耗 10 发弹量。
+      #   学员两版都用 SHOOT_INTERVAL_S = 3.0。
+      fire_cooldown_ms: 3000
+      fire_duration_ms: 100
+
+      # =====================================================================
+      # ★★ 红蓝面联锁（本赛题最关键的安全约束）★★
+      # ---------------------------------------------------------------------
+      # 规则：靶标是**双面结构**，一面红（=友方）、一面蓝（=敌方），朝向随机。
+      #       打中友方（红面）要**扣分**（友方受击计数每 +1 扣 5 分）。
+      # 车端相机只能看到**朝向自己的那一面**，所以：
+      #     可见面 == 蓝 -> 允许开火
+      #     可见面 == 红 -> **禁止开火**
+      #     可见面 == 不确定 -> 由 face_unknown_policy 决定
+      # 颜色来源：rknn_pt/det_node v3 的 /offset_center 第 9 位（HSV 判据）
+      # ★ 现场必须标定 det_node 的 face_min_ratio / face_red_bias
+      # =====================================================================
+      require_blue_face: true          # 启用红蓝联锁（★★ 不要关，关了会打友方）
+      # 可见面不确定时的策略：
+      #   0 = 禁止开火（默认。误打友方扣 5 分，比漏打更贵）
+      #   1 = 允许开火（仅当有其它来源确认对面是敌方时才该设）
+      face_unknown_policy: 0
+      face_debounce_frames: 2          # 连续 N 帧看到同一面才采信（抗误判）
+
+      # =====================================================================
+      # ★ 激光红点联锁（命中确认）
+      # ---------------------------------------------------------------------
+      # 学员两版都用"相机找激光红点"确认落点，比"靶标在画面中心"可靠。
+      # ★ 首次开火前激光还没打出去、当然看不到红点，所以本联锁只在
+      #   "已经打过至少一发"之后生效（laser_dot_required_after_first）。
+      # =====================================================================
+      require_laser_dot: true
+      laser_dot_required_after_first: true
+      laser_dot_debounce_frames: 2
+
+      # =====================================================================
+      # ★ 靶标击毁联锁
+      #   规则：任一侧累计 3 次即该侧击毁；**正反共用同一靶标实体**，
+      #   所以任一侧到 3 就是整体失效。继续打只浪费弹量与赛时。
+      # =====================================================================
+      target_hp_destroyed: 3
+
+      # =====================================================================
+      # ★★ 移动靶支持（方案 α：只在"换向点"开火）★★
+      # ---------------------------------------------------------------------
+      # 依据（规则 + 固件分析，见 doc/MOVING_TARGET_PLAN.md）：
+      #   · 靶标沿轨道**匀速往返**；轨道方向每局随机（占相连两格）
+      #   · 视觉流水线 4 帧延迟 ≈ 267ms（detect_rate_hz = 15）
+      #   · 固件 stm32移动靶*.hex 唯一参数推 v ≈ 0.44 m/s
+      #     → 延迟内位移 ≈ 11.7cm > 靶标直径 8~10cm
+      #   ⇒ **运动中开火必然打偏**（打空即纯浪费，因"每 2 次有效命中才 +1 计数"）
+      #
+      # α 的取舍：只在靶标**速度过零**（换向）时开火。
+      #   换向瞬间 v ≈ 0 → 延迟位移 ≈ 0 → 无滞后误差。
+      #   代价：每往返周期只有 2 个换向点，射速低；
+      #   但在 10 发弹量下 **"不打偏"比"打得快"重要**。
+      #
+      # 关掉本项即退化为"随时可打"（便于与 β 对比测试）
+      # =====================================================================
+      require_turn_around: true
+      # 速度阈值（像素/秒）：画面中横向速度低于此值视为"停住"。
+      #   标定：让靶标匀速移动，看日志里的 |v|，取明显低于运动时的值
+      turn_around_v_thresh_px_s: 25.0
+      # 速度需持续低于阈值多久才采信（防噪声导致的单帧过零误判）
+      turn_around_dwell_ms: 120
+      # 速度估计一阶低通系数（越大越跟手、越小越平滑）
+      turn_around_velocity_alpha: 0.35
+      # 换向时 |v| 允许达到硬阈值的多少倍（区分真换向与噪声抖动）
+      turn_around_v_soft_ratio: 3.0
+      # 换向发生后，开火窗口保持多久（ms）。
+      #   ★ 为什么要窗口而不是瞬间：检测有滞后（中值滤波 3 帧的群延迟
+      #     + 流水线 267ms），若只在检测到变号那一帧允许开火，会因帧率限制错过。
+      #   ★ 但窗口不能大：量化验证（test/moving_target_check.py §2）显示
+      #     窗口 250ms 时最大残余位移 5.9cm > 靶标半径 4.5cm，
+      #     因为靶标换向后迅速重新加速。收到 100ms 后残余降到可接受范围。
+      #     现场若仍打偏，优先调小本参数。
+      turn_around_window_ms: 100
+      # 速度估计的中值滤波窗口（帧数）。
+      #   ★ 用中值而非一阶低通：量化验证发现一阶低通(alpha=0.35)滞后约 600ms，
+      #     使换向后残余位移达 7.1cm > 靶标半径 4.5cm —— 等于没解决问题。
+      #     中值对孤立噪声免疫，对单调趋势几乎无滞后。
+      #   3 帧 ≈ 200ms（15fps）是折中值：抗噪够用，滞后又小。
+      turn_around_vel_history: 3
+
+      # =====================================================================
+      # ★★ 方案 β：提前量射击（与 α 互补 + 兜底，不是替代）★★
+      # ---------------------------------------------------------------------
+      # 依据：doc/MOVING_TARGET_PLAN.md、test/moving_target_beta_check.py
+      #
+      # 核心：**激光与相机同轴**（Q14 确认，都在云台上）。
+      #   命中只取决于**云台指向**；相机画面仅用于估计靶标运动。
+      #   提前量 = 靶标像素速度(px/s) x T_total
+      #
+      # T_total 的四段（漏算任何一段都会系统性打偏）：
+      #     相机曝光 + 图像传输      33 ms  -> lead_exposure_ms
+      #     det_node 流水线（4 帧）  267 ms -> lead_pipeline_frames / detect_rate_hz
+      #     云台转到瞄准点           60 ms  -> lead_servo_ms  ★ 只能实测标定
+      #     开火指令 -> 出光         20 ms  -> lead_fire_ms   ★ 只能实测标定
+      #     ------------------------------------
+      #     合计                    380 ms
+      #   ★ 只算流水线会少补偿 113ms ≈ 5.0cm（靶速 0.44m/s），
+      #     而靶标直径只有 9cm —— 漏这段必然打偏。
+      #
+      # ★★ 正确形态是「预瞄固定点 + 穿越触发」，不是「跟踪 + 补偿」★★
+      #   跟踪+补偿要求云台高带宽跟踪一个**移动的瞄准点**，稳态误差=v*T_total。
+      #   "预瞄固定点"让云台几乎不动，命中点由**开火时机**控制。
+      #   实现方式：evaluateLeadFire() 判据为 |px + v*T_total| <= 容差，
+      #   且要求靶标**正在朝瞄准点运动**（否则等它换向，交给 α）。
+      #
+      # ★ 射速真相（诚实说明）：
+      #   冷却 3.0s 与半周期相当，所以 α 与 β 的**射速上限相同**。
+      #   β 的真正价值：不依赖靶标恰好停在换向点（α 若靶标不停就打不了）。
+      #
+      # ★ 上线建议：先验证 α 能打中。若 α 打不中再依赖 β。
+      #   本开关关闭即为纯 α（换向点），便于现场 A/B 对比。
+      # =====================================================================
+      lead_enable: true
+      # --- T_total 的四段 ---
+      lead_exposure_ms: 33.0          # 相机曝光 + 图像传输
+      lead_servo_ms: 60.0             # ★ 云台转到瞄准点（实测标定；不确定先设 0）
+      lead_fire_ms: 20.0              # ★ 开火->出光（实测标定；不确定先设 0）
+      lead_pipeline_frames: 4         # det_node 流水线深度
+      detect_rate_hz: 15.0            # 检测帧率（须与 rknn_pt 的 detect_rate_hz 一致）
+      # --- 置信度与安全门 ---
+      # 至少几帧有效速度观测才启用提前量；不足则退回 α
+      lead_min_confidence: 3
+      # ★ 兜底：连续多少发未命中就退回 α（弹量只有 10 发，必须设上限）
+      #   ★ 注意：裁判板只给累计值，不告诉我们是哪一发中的，
+      #     所以"未命中"目前无法自动判定（见 lead_miss_streak_ 的说明）。
+      #     本参数已预留，接入裁判板"计数值变化"判定后即生效。
+      lead_max_misses: 2
+      # 命中容差（像素）：|px + v*T_total| <= 此值才开火
+      lead_aim_tolerance_px: 8
+      # 只在靶标接近画面中心时信任速度估计（透视在边缘使像素速度失真）
+      lead_trust_center_px: 160
+
+      # ★★ 射击位距离（格数）★★ —— 车停在离轨道中点多远
+      # ---------------------------------------------------------------------
+      # 依据（test/moving_target_check.py §5/§7/§8 的运动学计算）
+      #
+      # 两个方向的约束：
+      #   【不能太近】靶标横向扫动的角速度 omega = v / d 要 <= 云台上限
+      #       云台上限 = 800 ticks/s ÷ 11.38 ticks/deg = 70.3 °/s
+      #       靶速 0.44 m/s 时：
+      #         1 格 (35cm)  -> 72.0 °/s  ★ 略超上限（仅高 2%）
+      #         2 格 (70cm)  -> 36.0 °/s  ✓ 余量 2.0x
+      #   【不能太远】**轨道可能贴着场地边界，车与轨道之间只有一格空间**
+      #       此时 standoff 只能取 1，取 2 会没有合法位置；
+      #       而且太远则靶标在画面里太小（>4 格时检测框仅约 36px 宽）
+      #
+      # ★ 为什么最终取 1（而不是更安全的 2）：
+      #   1. 近距约束是**硬的**（场地空间是物理限制，无法协商）
+      #   2. 远距约束是**软的**（FOV/检测框大小可现场调）
+      #   3. **方案 α 天然缓解了近距约束**：α 只在换向点开火，
+      #      换向瞬间靶速趋 0 -> 角速度趋 0 -> 云台不需要追
+      #      所以即使运动段跟上吃力，开火窗口内仍能打中
+      #   4. 1 格时靶速上限 0.98 m/s（=35cm × tan70.3°），
+      #      比 0.44 m/s 高很多 —— 说明真正卡住的不是云台速度，
+      #      而是是否只有一格空间这个几何问题
+      #
+      # 现场调整：
+      #   · 靶标检测框 < 40px 宽（太小看不清）    -> 加大到 2 或 3
+      #   · 云台连换向点都跟不到（方向都指不对）  -> 加大 standoff
+      #   · 车找不到合法射击位（空间只有一格）    -> 必须用 1
+      # ---------------------------------------------------------------------
+      engage_standoff_cells: 1
+
+      # =====================================================================
+      # ★★ 弹量纪律 ★★（规则：共 10 发）
+      # ---------------------------------------------------------------------
+      # 裁判板可用时：信任裁判板 ammo，但用"本地硬上限"兜底
+      # 裁判板链路断时按 ammo_link_lost_policy：
+      #   0 = 保守：断链即禁打（原行为）
+      #   1 = 乐观：按本地记账（10 - 已发）
+      #   2 = 折中（推荐）：允许再打 allowance 发，且**每发都要有反馈**
+      #       判据：裁判板计数增加 或 靶标血量增加。
+      #       理由：规则没禁止断链时开火，但"有效命中"只能靠裁判板确认；
+      #             打满 3 次（任一侧 3 次即毁）都没反馈，说明要么没命中、
+      #             要么链路真坏了，继续打没有意义。
+      # =====================================================================
+      ammo_link_lost_policy: 2
+      ammo_link_lost_allowance: 3
+      max_local_shots: 10              # 本地硬上限（防裁判板计数异常导致超打）
+      require_stationary: false
+      min_ammo_to_fire: 1
+      # 射程联锁：仅当视觉给出距离（/offset_center 第 4 位 = 米*100）时才生效，
+      # 否则该限制自动放行（见 doc/INTEGRATION.md「射程联锁」）
+      max_engage_range_m: 8.0
+
+    # ===================== 裁判板 / 裁判系统 =====================
+    referee:
+      # false（推荐）—— 只订阅 dzjudgment 解析好的话题，不碰串口
+      # true          —— 本节点直连裁判板串口（此时必须停掉 dzjudgment）
+      direct_serial: false
+      serial_port: "/dev/dzjudgment"
+      serial_baud: 115200
+      link_timeout_ms: 1000.0
+      hit_hold_ms: 1500.0             # 被击锁存时长
+      publish_laser_command: false    # 直连模式下是否把开火回显到 LaserShot_Command
