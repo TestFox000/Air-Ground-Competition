@@ -26,31 +26,35 @@ from .field_frame import COLS, LETTERS, ROWS, world_to_cell
 from .intel_protocol import IntelFrame, ObjectType
 
 SYMBOLS: dict[ObjectType, str] = {
-    ObjectType.MINE: "M",
+    ObjectType.PAPER: "M",       # paper 落格后语义：普通格=雷(M)，K 列=箭头(A)——见 matrix()
     ObjectType.OBSTACLE: "O",
     ObjectType.TARGET_BLUE: "B",
     ObjectType.TARGET_RED: "R",
-    ObjectType.ARROW: "A",
     ObjectType.CAR: "C",
 }
 
 KIND_NAMES: dict[ObjectType, str] = {
-    ObjectType.MINE: "mine",
-    ObjectType.CAR: "car",
-    ObjectType.ARROW: "arrow",
-    ObjectType.TARGET_RED: "target_red",
+    ObjectType.PAPER: "paper",
     ObjectType.CELL_LABEL: "cell_label",
+    ObjectType.CAR: "car",
+    ObjectType.TARGET_RED: "target_red",
     ObjectType.TARGET_BLUE: "target_blue",
     ObjectType.OBSTACLE: "obstacle",
+    ObjectType.BUCKET_RED: "bucket_red",
+    ObjectType.BUCKET_GREEN: "bucket_green",
+    ObjectType.BUCKET_CYAN: "bucket_cyan",
+    ObjectType.CAR_START: "car_start",
+    ObjectType.CAR_END: "car_end",
+    ObjectType.UAV_START: "uav_start",
+    ObjectType.UAV_END: "uav_end",
 }
 
 # 同格多目标时的显示优先级（越小越优先）
 _PRIORITY: dict[ObjectType, int] = {
-    ObjectType.MINE: 0,
+    ObjectType.PAPER: 0,
     ObjectType.OBSTACLE: 1,
     ObjectType.TARGET_BLUE: 2,
     ObjectType.TARGET_RED: 3,
-    ObjectType.ARROW: 4,
     ObjectType.CAR: 5,
 }
 
@@ -203,12 +207,21 @@ def build_grid(spots: list[ObjectSpot]) -> list[list[str]]:
             continue
         cur = grid[s.row][s.col]
         if cur == "." or _PRIORITY[s.kind] < _priority_of(cur):
-            grid[s.row][s.col] = SYMBOLS[s.kind]
+            grid[s.row][s.col] = _symbol_of(s)
     return grid
 
 
 def _priority_of(symbol: str) -> int:
     return _PRIORITY_OF_SYMBOL.get(symbol, len(_PRIORITY))
+
+
+def _symbol_of(s: "ObjectSpot") -> str:
+    """落格符号。paper 语义分流：K 列桥洞区纸片=通行箭头(A)，其余格=雷(M)。"""
+    sym = SYMBOLS[s.kind]
+    if (s.kind is ObjectType.PAPER and s.col is not None
+            and 0 <= s.col < len(LETTERS) and LETTERS[s.col] == "K"):
+        sym = "A"
+    return sym
 
 
 def render_matrix(spots: list[ObjectSpot]) -> str:

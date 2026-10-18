@@ -15,24 +15,67 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import sys
 from pathlib import Path
 
+import yaml
+
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools" / "ml"))
-from verify_contract import verify  # noqa: E402
+
+# Windows 上 stdout 默认走 GBK（本机实测 sys.stdout.encoding == 'gbk'）。
+# 本项目注释里 ⚠ 满天飞，谁把它顺手抄进 report() 文案，print 就会
+# UnicodeEncodeError —— 自检崩在最有用的那一项之前，比不检查还糟。
+# 统一 UTF-8 + errors=replace：难看的输出永远好过没有输出。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 PASSED, WARN, FAILED = 0, 1, 2
 ICON, COLOR = {PASSED: "[通过]", WARN: "[警告]", FAILED: "[失败]"}, {PASSED: 32, WARN: 33, FAILED: 31}
+# 重定向进日志文件时别掺 ANSI 转义（实测一次本地检查会写入 16 个 ESC 字节）。
+_COLOR = sys.stdout.isatty()
 bad_total = 0
+
+# 车端灯检模型的契约 md5（小写，与 md5sum 输出同格式）
+_LIGHT_DET_MD5 = "49f3700590a907994e7ee20e4d30cc13"
 
 
 def report(status: int, msg: str, fix: str = "") -> None:
     global bad_total
     bad_total += status == FAILED
-    print(f"\033[1;{COLOR[status]}m{ICON[status]}\033[0m {msg}"
+    tag = f"\033[1;{COLOR[status]}m{ICON[status]}\033[0m" if _COLOR else ICON[status]
+    print(f"{tag} {msg}"
           + (f"\n      修法: {fix}" if fix and status != PASSED else ""))
+
+
+def fix_cmd(rel_path: str, *args: str) -> str:
+    """拼"修法"里的命令串；脚本本身不在包里就当场标出来。
+
+    自检工具最坏的情况不是报错，是把人指挥去跑一个不存在的脚本——比赛
+    当天按提示敲下去只会浪费时间。这里让提示语自己校验自己。
+    """
+    cmd = ("python " if rel_path.endswith(".py") else "bash ") + rel_path
+    if args:
+        cmd += " " + " ".join(args)
+    return cmd if (REPO / rel_path).is_file() else f"{cmd}   ← 本包未附此脚本！"
+
+
+def load_verifier():
+    """惰性导入 tools/ml/verify_contract.verify；缺失返回 None（不炸整个自检）。
+
+    原来是模块顶层 `from verify_contract import verify`：该模块不随包发布，
+    import 直接 ModuleNotFoundError，导致本脚本连 --help 都跑不起来，
+    三端十几项检查全部陪葬。契约检查只是其中一项，缺了就降级成警告。
+    """
+    try:
+        from verify_contract import verify
+        return verify
+    except ImportError as exc:
+        report(WARN, f"无法导入 tools/ml/verify_contract（{exc}），ONNX 契约检查跳过",
+               "把 tools/ml/verify_contract.py 一起打包")
+        return None
 
 
 def check_local(match: bool = False) -> None:
@@ -43,11 +86,18 @@ def check_local(match: bool = False) -> None:
     # 1. ONNX 契约
     onnx_files = sorted(rel.glob("*.onnx"))
     if not onnx_files:
-        report(FAILED, "models/release 下没有 .onnx", "跑 tools/release_models.py 发布")
+        report(FAILED, "models/release 下没有 .onnx"
+                       + ("" if rel.is_dir() else "（连目录都不存在：模型未随本包发布）"),
+               fix_cmd("tools/release_models.py"))
+    verify = load_verifier()
     for f in onnx_files:
+        if verify is None:
+            report(WARN, f"{f.name} 在位，但契约无法校验（verify_contract 缺失）",
+                   "把 tools/ml/verify_contract.py 一起打包；或手工核对输入名/尺寸/类别数")
+            continue
         ok, msg = verify(f)
         report(PASSED if ok else FAILED, msg,
-               "重新导出：python tools/release_models.py --cell/--hbb ...")
+               fix_cmd("tools/release_models.py", "--cell/--hbb", "..."))
 
     # 2. current 指针指向的文件必须存在
     for pointer in ("current_hbb_detector", "current_cell_classifier"):
@@ -63,19 +113,22 @@ def check_local(match: bool = False) -> None:
                + ("" if target.is_file() else "（目标不存在！）"))
 
     # 3. 登记表 md5 复核（防"文件换了登记没更新"）
-    text = (rel / "README.md").read_text(encoding="utf-8")
-    for name, md5 in re.findall(r"\| `([^`]+)` \| `([0-9A-F]{32})`", text):
-        f = rel / name
-        if not f.is_file():
-            continue  # 历史登记（已删文件）不追究
-        import hashlib
-        h = hashlib.md5(f.read_bytes()).hexdigest().upper()
-        report(PASSED if h == md5 else FAILED,
-               f"md5 {name}" + ("" if h == md5 else f"（文件 {h} != 登记 {md5}）"),
-               "重跑 tools/release_models.py 或改回登记表")
+    reg = rel / "README.md"
+    if not reg.is_file():
+        report(WARN, "models/release/README.md 登记表缺失，md5 复核跳过",
+               "发布模型时同步生成登记表（文件名 + md5 大写 32 位）")
+    else:
+        text = reg.read_text(encoding="utf-8")
+        for name, md5 in re.findall(r"\| `([^`]+)` \| `([0-9A-F]{32})`", text):
+            f = rel / name
+            if not f.is_file():
+                continue  # 历史登记（已删文件）不追究
+            h = hashlib.md5(f.read_bytes()).hexdigest().upper()
+            report(PASSED if h == md5 else FAILED,
+                   f"md5 {name}" + ("" if h == md5 else f"（文件 {h} != 登记 {md5}）"),
+                   fix_cmd("tools/release_models.py") + " 或改回登记表")
 
     # 4. 每局配置
-    import yaml
     cfg = REPO / "src/ag_integrate/config/match_params.yaml"
     if cfg.is_file():
         data = yaml.safe_load(cfg.read_text(encoding="utf-8"))["integrate_node"]["ros__parameters"]
@@ -96,18 +149,19 @@ def check_local(match: bool = False) -> None:
     cpp = REPO / "onboard/dzuav/src/MapLocalizer.cpp"
     if cal.is_file():
         d = yaml.safe_load(cal.read_text(encoding="utf-8"))
-        m = re.search(r"K_ = \(cv::Mat_<double>\(3, 3\) << ([\d.]+), 0, ([\d.]+)",
-                      cpp.read_text(encoding="utf-8"))
+        m = (re.search(r"K_ = \(cv::Mat_<double>\(3, 3\) << ([\d.]+), 0, ([\d.]+)",
+                       cpp.read_text(encoding="utf-8")) if cpp.is_file() else None)
         same = m and abs(float(m.group(1)) - d["fx"]) < 1e-9 and abs(float(m.group(2)) - d["cx"]) < 1e-9
         report(PASSED if same else WARN,
                f"标定 rms={d['rms_px']:.3f}px @{d['width']}x{d['height']}（{d['date']}）"
                + ("" if same else "，MapLocalizer.cpp 内参与标定不一致！"),
-               "python tools/calibrate_camera.py inject")
+               fix_cmd("tools/calibrate_camera.py", "inject"))
     else:
         report(FAILED if match else WARN,
                "尚未做相机标定（PnP 精度根基）"
                + ("（比赛模式致命：无内参则 PnP 定位不可用）" if match else ""),
-               "python tools/calibrate_camera.py board 起（board→capture→calibrate→inject）")
+               fix_cmd("tools/calibrate_camera.py", "board")
+               + " 起（board→capture→calibrate→inject）")
 
 
 def ssh_run(host, user, password, cmd, port=22, timeout=30):
@@ -158,10 +212,10 @@ def check_car(args) -> None:
     pkgs = {ln.strip() for ln in out.splitlines()}
     report(PASSED if "ag_integrate" in pkgs else FAILED,
            f"ag_integrate{'已安装' if 'ag_integrate' in pkgs else '未安装！'}",
-           "python tools/car_deploy.py --host " + args.host)
+           fix_cmd("tools/car_deploy.py", "--host", args.host))
     report(PASSED if "ag_core" in pkgs else WARN,
            "ag_core（黑匣子）已安装" if "ag_core" in pkgs else "ag_core 未安装（黑匣子关闭，可容忍）",
-           "python tools/car_deploy.py --host " + args.host)
+           fix_cmd("tools/car_deploy.py", "--host", args.host))
 
     rc, out = run("ros2 pkg list 2>/dev/null | grep -iE 'path|executor' | head -5")
     report(PASSED if "path_executor" in out else WARN,
@@ -173,8 +227,12 @@ def check_car(args) -> None:
            else "UDP:50000 无监听（节点未起）", "ros2 launch ag_integrate integrate.launch.py")
 
     rc, out = run(f"find ~/dzrobot -name 'light_det*.rknn' -exec md5sum {{}} + 2>/dev/null | head -5")
-    report(PASSED if "49f3700590a907994e7ee20e4d30cc13" in out.lower() else WARN,
-           "light_det.rknn 契约版在位" if "49f370" in out.lower() else f"车端 rknn: {out.strip() or '未找到'}")
+    # 判定与文案必须用同一个（完整）md5：原先状态看全串、文案看 6 位前缀，
+    # 两者不一致时会打出"[警告] light_det.rknn 契约版在位"这种自相矛盾的提示。
+    rknn_ok = _LIGHT_DET_MD5 in out.lower()
+    report(PASSED if rknn_ok else WARN,
+           "light_det.rknn 契约版在位" if rknn_ok
+           else f"车端 rknn 非契约版: {out.strip() or '未找到'}")
 
     rc, out = run("ls -lt /tmp/ag_logs/*/*.jsonl 2>/dev/null | head -2")
     report(PASSED if out else WARN,
@@ -196,7 +254,7 @@ def check_orin(args) -> None:
     n = len(out.splitlines())
     report(PASSED if n >= 2 else FAILED,
            f"TRT 引擎 {n}/2 个" + (f": {'; '.join(ln.split()[-1] for ln in out.splitlines())}" if n else ""),
-           "tools/orin_convert_engines.sh 重转")
+           fix_cmd("tools/orin_convert_engines.sh") + " 重转")
 
     rc, out = run("ls /dev/video* 2>/dev/null")
     report(PASSED if "/dev/video" in out else FAILED,
@@ -206,12 +264,12 @@ def check_orin(args) -> None:
     # （旧路径 ~/ag_test/dzuav/build/dzuav 随人肉 scp 时代作废，不再查）
     rc, out = run("ls ~/dzuav_deploy/air_ground/onboard/dzuav/build/dzuav 2>/dev/null")
     report(PASSED if "dzuav" in out else FAILED, "dzuav 二进制在位" if out else "dzuav 未编译",
-           "tools/orin_build_verify.sh")
+           fix_cmd("tools/orin_build_verify.sh"))
 
     rc, out = run("tmux has-session -t agup 2>/dev/null && echo alive")
     report(PASSED if "alive" in out else WARN,
            "全栈会话 agup 运行中" if "alive" in out else "全栈未启动",
-           "tools/orin_bringup.sh up")
+           fix_cmd("tools/orin_bringup.sh", "up"))
 
     rc, out = run("ls /opt/ros 2>/dev/null | head -1")
     report(PASSED if out else FAILED, f"ROS 发行版: {out.strip() or '无'}")

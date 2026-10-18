@@ -1,4 +1,4 @@
-﻿import base64, json, os
+import base64, json, os
 from PIL import Image
 import io
 

@@ -6,6 +6,10 @@ onnx>=1.15
 onnxruntime>=1.16
 opencv-python>=4.8          # 图像预处理 / 标定 / debug 可视化
 
+# ---- PC 端部署工具链 ----
+paramiko>=3.4                # remote_run/uav_link/patch_deploy 等 SSH 工具
+Pillow>=10.0                 # 标注转换 / 场地渲染工具
+
 # ---- 车端 ----
 pyserial>=3.5               # 裁判系统串口
 PyYAML>=6.0                 # 读取离线配置文件
@@ -14,6 +18,16 @@ PyYAML>=6.0                 # 读取离线配置文件
 # 随机序跑测试，防"测试顺序依赖"型 flaky（此前文档宣称有这道防线但根本没装，
 # 2026-10-17 横切扫描发现）。pin 死版本：CI 矩阵 3.10/3.12 + pytest>=7.4 均验证可装。
 pytest-randomly==3.16.0
+
+# ---- U1 联合求解器 CP-SAT 后端（可选）----
+# dp 后端（纯 Python，零依赖）不装 ortools 也能跑；cp-sat 后端用于更大规模。
+# ⚠️ 部分 Windows 机器 ortools 9.15 原生库导入成功但求解段错误（进程级崩溃）——
+#    故钉 <9.15，且启用 cp-sat 前 ortools_solver.cp_sat_healthy() 会做子进程
+#    健康探测，探测不过自动退回 dp，不会杀死节点进程。
+# ⚠️ 与 onnx 存在 protobuf 版本窗口冲突（ortools<9.15 需 protobuf 5.x，
+#    onnx>=1.18 需 protobuf 6+）：pip 会自动回退 onnx 到兼容版；Windows 本机
+#    如两者都硬要最新版，请分 venv 安装。
+ortools>=9.11,<9.15
 
 # ---- 板端（RK3588S）需单独安装，不能用 pip 源 ----
 # rknn-toolkit2-lite  : pip install rknn_toolkit2_lite-*.whl（瑞芯微官方 SDK 提供）

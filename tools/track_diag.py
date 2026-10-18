@@ -726,9 +726,25 @@ class CarLink(threading.Thread):
 class UvcCam:
     """普通 UVC 相机（cv2.VideoCapture）。"""
 
-    def __init__(self, index: int) -> None:
+    def __init__(self, index: "int | str") -> None:
         _need_cv2()
-        self.cap = cv2.VideoCapture(index)
+        # HTTP/网络流必须显式指定 FFMPEG 后端，否则 OpenCV 自动选后端时
+        # 可能选到 MSMF 等不支持 HTTP 的后端，表现为 isOpened() 真但 read() 卡死超时
+        if isinstance(index, str) and index.startswith("http"):
+            # DroidCam/IP Webcam 等一次只允许一个客户端，若上一个连接未正常释放
+            # 会返回 busy 页面导致 isOpened() 真但 read() 拿不到帧。打开前先 /override
+            # 抢占（失败也不阻断，多数情况直接连上即可）。
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(index)
+                override_url = f"{parsed.scheme}://{parsed.netloc}/override"
+                import urllib.request
+                urllib.request.urlopen(override_url, timeout=3).read()
+            except Exception:  # noqa: BLE001 - 无 /override 端点或已空闲均忽略
+                pass
+            self.cap = cv2.VideoCapture(index, cv2.CAP_FFMPEG)
+        else:
+            self.cap = cv2.VideoCapture(index)
         if not self.cap.isOpened():
             raise RuntimeError(f"打不开 UVC 相机 index={index}")
 

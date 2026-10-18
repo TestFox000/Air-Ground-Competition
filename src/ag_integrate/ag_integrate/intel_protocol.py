@@ -44,15 +44,26 @@ CAR_POSE_SIZE = 20        # x8 + y8 + yaw4
 
 
 class ObjectType(IntEnum):
-    """目标类别，顺序必须与 dzuav main.cpp 的 className 一致。"""
+    """目标类别，顺序必须与 dzuav main.cpp 的 className 一致。
 
-    MINE = 0          # mine 雷
-    CAR = 1           # car
-    ARROW = 2         # arrow 桥顶箭头/可通行
-    TARGET_RED = 3    # target_red 友方
-    CELL_LABEL = 4    # cell_label 地面格号
-    TARGET_BLUE = 5   # target_blue 敌方
-    OBSTACLE = 6      # obstacle 障碍
+    2026-10-16 起切换 D 方案 13 类统一模型（hbb_d13_best.pt）。
+    PAPER 是场地纸片（雷图卡/桥顶箭头标志），语义由 world_model 按落格判定：
+    普通格 PAPER=雷；K 列桥洞区 PAPER=通行箭头。
+    """
+
+    PAPER = 0         # paper 场地纸片（雷/箭头，落格判语义）
+    CELL_LABEL = 1    # cell_label 地面格号
+    CAR = 2           # car 行驶车辆（车位姿链）
+    TARGET_RED = 3    # target_red 友方（禁火）
+    TARGET_BLUE = 4   # target_blue 敌方
+    OBSTACLE = 5      # obstacle 障碍
+    BUCKET_RED = 6    # bucket_red 红桶（禁火）
+    BUCKET_GREEN = 7  # bucket_green 绿桶
+    BUCKET_CYAN = 8   # bucket_cyan 青桶
+    CAR_START = 9     # car_start 智能车起点
+    CAR_END = 10      # car_end 智能车终点
+    UAV_START = 11    # uav_start 无人机起点
+    UAV_END = 12      # uav_end 无人机终点
 
 
 @dataclass(frozen=True)
@@ -143,7 +154,7 @@ def parse(data: bytes) -> IntelFrame:
     offset = HEADER_SIZE
     for _ in range(count):
         type_index, x, y, length, width = struct.unpack_from("<Bddff", data, offset)
-        if not ObjectType.MINE <= type_index <= ObjectType.OBSTACLE:
+        if not ObjectType.PAPER <= type_index <= ObjectType.UAV_END:
             raise ValueError(f"unknown object type: {type_index}")
         if not all(math.isfinite(v) for v in (x, y, length, width)):
             raise ValueError("object contains NaN/Inf")

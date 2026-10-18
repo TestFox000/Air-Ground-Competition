@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import socket
-import struct
 import sys
 import time
 from collections import deque
@@ -35,32 +35,88 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src" / "ag_integrate"))
 
 from ag_integrate.field_frame import (  # noqa: E402
-    CellRef, COLS, ROWS, LETTERS, X0, Y0, CELL_SIZE, world_to_cell,
+    COLS, ROWS, LETTERS, world_to_cell,
 )
 from ag_integrate.intel_protocol import (  # noqa: E402
-    IntelFrame, IntelObject, ObjectType, CarPose,
+    IntelObject, ObjectType, CarPose,
     parse, parse_car_pose, detect_msg_id, MSG_ID, MSG_ID_CAR_POSE,
 )
 
-# 场地显示符号
+# ---- 显示折叠：13 类 D13 目标 -> 看板符号键 ----
+# 2026-10-16 起模型是 hbb_d13_best.pt（13 类），本文件此前还按 7 类写死
+# ObjectType.MINE / ObjectType.ARROW——这两个成员已不存在，模块导入即
+# AttributeError，看板根本起不来。现按真实枚举重建。
+#
+# PAPER 的语义按落格判定（与 world_model.py:120-127 同口径）：K 列桥洞区的
+# 纸片 = 通行箭头，其余格的纸片 = 雷。看板必须照抄这条规则，否则操作员看到
+# 的态势和车上大脑相信的态势不是一回事。
+_BRIDGE_COL = "K"
+
+_KIND_BY_TYPE = {
+    ObjectType.CELL_LABEL: "label",
+    ObjectType.CAR: "car",
+    ObjectType.TARGET_RED: "red",
+    ObjectType.TARGET_BLUE: "blue",
+    ObjectType.OBSTACLE: "obstacle",
+    ObjectType.BUCKET_RED: "bucket_r",
+    ObjectType.BUCKET_GREEN: "bucket_g",
+    ObjectType.BUCKET_CYAN: "bucket_c",
+    ObjectType.CAR_START: "car_start",
+    ObjectType.CAR_END: "car_end",
+    ObjectType.UAV_START: "uav_start",
+    ObjectType.UAV_END: "uav_end",
+}
+
 SYMBOLS = {
-    ObjectType.MINE: "M",       # 雷
-    ObjectType.OBSTACLE: "#",   # 障碍
-    ObjectType.ARROW: "A",      # 桥洞可通行格
-    ObjectType.TARGET_BLUE: "B",# 敌方蓝靶
-    ObjectType.TARGET_RED: "R", # 友方红靶
-    ObjectType.CAR: "C",        # 车
-    ObjectType.CELL_LABEL: ".", # 格号（不画在态势图上）
+    "mine": "M",         # PAPER（非 K 列）= 雷
+    "arrow": "A",        # PAPER（K 列）= 桥洞可通行箭头
+    "obstacle": "#",     # 障碍
+    "blue": "B",         # 敌方蓝靶（可打）
+    "red": "R",          # 友方红靶（禁火）
+    "car": "C",          # 车
+    "bucket_r": "r",     # 红桶（禁火）
+    "bucket_g": "g",     # 绿桶
+    "bucket_c": "c",     # 青桶
+    "car_start": "S",    # 智能车起点
+    "car_end": "E",      # 智能车终点
+    "uav_start": "s",    # 无人机起点
+    "uav_end": "e",      # 无人机终点
+    "label": ".",        # 地面格号（不画在态势图上）
+    "unknown": "?",      # 枚举新增了类别但看板没跟上
 }
 COLOR_RESET = "\033[0m"
 COLORS = {
-    ObjectType.MINE: "\033[93m",       # 黄
-    ObjectType.OBSTACLE: "\033[90m",   # 灰
-    ObjectType.ARROW: "\033[96m",      # 青
-    ObjectType.TARGET_BLUE: "\033[94m",# 蓝
-    ObjectType.TARGET_RED: "\033[91m", # 红
-    ObjectType.CAR: "\033[92m",        # 绿
+    "mine": "\033[93m",        # 黄
+    "arrow": "\033[96m",       # 青
+    "obstacle": "\033[90m",    # 灰
+    "blue": "\033[94m",        # 蓝
+    "red": "\033[91m",         # 红
+    "car": "\033[92m",         # 绿
+    "bucket_r": "\033[91m",    # 红
+    "bucket_g": "\033[92m",    # 绿
+    "bucket_c": "\033[96m",    # 青
+    "car_start": "\033[92m",   # 绿
+    "car_end": "\033[92m",     # 绿
+    "uav_start": "\033[95m",   # 紫
+    "uav_end": "\033[95m",     # 紫
+    "label": "",               # 格号：有意不着色（SYMBOLS 注释：不画在态势图上）
+    # 品红加粗 = 故意刺眼。走到这个颜色说明协议加了类别而看板没跟上，
+    # 正是当年让本工具 import 即崩的那种漂移；宁可难看，也不许它 quietly
+    # 混在一片无色字符里被当成正常目标忽略过去。
+    "unknown": "\033[1;95m",
 }
+
+# 同格多目标的显示优先级：靶 > 雷 > 障碍 > 桥洞 > 桶 > 起止点 > 车 > 格号
+_PRIORITY = ("blue", "red", "mine", "obstacle", "arrow",
+             "bucket_r", "bucket_g", "bucket_c",
+             "car_start", "car_end", "uav_start", "uav_end", "car", "label")
+
+
+def _kind(t: ObjectType, cell_name: str) -> str:
+    """目标类别 -> 符号键。PAPER 按落格分雷/箭头，未知类别落到 'unknown'。"""
+    if t is ObjectType.PAPER:
+        return "arrow" if cell_name.startswith(_BRIDGE_COL) else "mine"
+    return _KIND_BY_TYPE.get(t, "unknown")
 
 
 @dataclass
@@ -71,14 +127,15 @@ class Snapshot:
     car_pose: Optional[CarPose] = None
     recv_ts: float = 0.0
 
-    def cell_objects(self) -> dict[str, list[ObjectType]]:
-        out: dict[str, list[ObjectType]] = {}
+    def cell_objects(self) -> dict[str, list[str]]:
+        """格名 -> 该格上的符号键列表（PAPER 已按落格分成雷/箭头）。"""
+        out: dict[str, list[str]] = {}
         for o in self.objects:
             try:
                 cell = world_to_cell(o.x, o.y)
             except ValueError:
                 continue
-            out.setdefault(cell.name, []).append(o.type)
+            out.setdefault(cell.name, []).append(_kind(o.type, cell.name))
         return out
 
 
@@ -132,16 +189,12 @@ def render_ascii(snap: Snapshot, stats: LinkStats, car_ev: str) -> str:
     """渲染 14×11 场地 ASCII 图 + 链路统计。"""
     grid: list[list[str]] = [["·"] * COLS for _ in range(ROWS)]
     color_grid: list[list[str]] = [[""] * COLS for _ in range(ROWS)]
-    for name, types in snap.cell_objects().items():
+    for name, kinds in snap.cell_objects().items():
         col = LETTERS.index(name[0])
         row = int(name[1:]) - 1
         if not (0 <= col < COLS and 0 <= row < ROWS):
             continue
-        # 优先级：靶 > 雷 > 障碍 > 桥洞 > 车 > 格号
-        priority = [ObjectType.TARGET_BLUE, ObjectType.TARGET_RED,
-                    ObjectType.MINE, ObjectType.OBSTACLE,
-                    ObjectType.ARROW, ObjectType.CAR]
-        chosen = next((t for t in priority if t in types), types[0])
+        chosen = next((k for k in _PRIORITY if k in kinds), kinds[0])
         grid[row][col] = SYMBOLS.get(chosen, "?")
         color_grid[row][col] = COLORS.get(chosen, "")
 
@@ -149,8 +202,8 @@ def render_ascii(snap: Snapshot, stats: LinkStats, car_ev: str) -> str:
     if snap.car_pose is not None:
         try:
             c = world_to_cell(snap.car_pose.x, snap.car_pose.y)
-            grid[c.row][c.col] = "C"
-            color_grid[c.row][c.col] = COLORS[ObjectType.CAR]
+            grid[c.row][c.col] = SYMBOLS["car"]
+            color_grid[c.row][c.col] = COLORS["car"]
         except ValueError:
             pass
 
@@ -176,19 +229,19 @@ def render_ascii(snap: Snapshot, stats: LinkStats, car_ev: str) -> str:
     L.append("   " + " ".join(f"{c:^2}" for c in LETTERS))
     L.append("-" * 72)
     # 图例与目标清单
-    legend = "  ".join(f"{COLORS[t]}{SYMBOLS[t]}={t.name.lower()}{COLOR_RESET}"
-                       for t in (ObjectType.MINE, ObjectType.OBSTACLE,
-                                 ObjectType.ARROW, ObjectType.TARGET_BLUE,
-                                 ObjectType.TARGET_RED, ObjectType.CAR))
+    legend = "  ".join(f"{COLORS.get(k, '')}{SYMBOLS[k]}={k}{COLOR_RESET}"
+                       for k in ("mine", "arrow", "obstacle", "blue", "red",
+                                 "bucket_r", "bucket_g", "bucket_c", "car"))
     L.append(legend)
-    # 目标清单
+    # 目标清单（按原始 13 类名统计，PAPER 的雷/箭头之分只在图上体现）
     counts: dict[str, int] = {}
     for o in snap.objects:
         counts[o.type.name] = counts.get(o.type.name, 0) + 1
     L.append(f"目标: {counts or '无'}")
     if snap.car_pose:
         L.append(f"车: x={snap.car_pose.x:.3f} y={snap.car_pose.y:.3f} "
-                 f"yaw={snap.car_pose.yaw:.3f}rad ({__import__('math').degrees(snap.car_pose.yaw):.1f}°)")
+                 f"yaw={snap.car_pose.yaw:.3f}rad "
+                 f"({math.degrees(snap.car_pose.yaw):.1f}°)")
     if car_ev:
         L.append(f"[车端] {car_ev}")
     L.append("=" * 72)
@@ -346,25 +399,32 @@ def _render_plot(ax, snap: Snapshot, stats: LinkStats) -> None:
     # 背景
     grid[:] = [0.95, 0.95, 0.95]
     color_map = {
-        ObjectType.MINE: [1.0, 0.8, 0.0],
-        ObjectType.OBSTACLE: [0.4, 0.4, 0.4],
-        ObjectType.ARROW: [0.0, 0.8, 0.8],
-        ObjectType.TARGET_BLUE: [0.2, 0.4, 1.0],
-        ObjectType.TARGET_RED: [1.0, 0.2, 0.2],
-        ObjectType.CAR: [0.0, 0.8, 0.0],
+        "mine": [1.0, 0.8, 0.0],
+        "arrow": [0.0, 0.8, 0.8],
+        "obstacle": [0.4, 0.4, 0.4],
+        "blue": [0.2, 0.4, 1.0],
+        "red": [1.0, 0.2, 0.2],
+        "bucket_r": [0.8, 0.3, 0.3],
+        "bucket_g": [0.3, 0.8, 0.3],
+        "bucket_c": [0.3, 0.8, 0.8],
+        "car": [0.0, 0.8, 0.0],
+        "car_start": [0.6, 0.9, 0.6],
+        "car_end": [0.6, 0.9, 0.6],
+        "uav_start": [0.7, 0.4, 0.9],
+        "uav_end": [0.7, 0.4, 0.9],
     }
-    for name, types in snap.cell_objects().items():
+    for name, kinds in snap.cell_objects().items():
         col = LETTERS.index(name[0])
         row = int(name[1:]) - 1
-        for t in (ObjectType.TARGET_BLUE, ObjectType.TARGET_RED, ObjectType.MINE,
-                  ObjectType.OBSTACLE, ObjectType.ARROW, ObjectType.CAR):
-            if t in types:
-                grid[row, col] = color_map[t]
-                break
+        if not (0 <= col < COLS and 0 <= row < ROWS):
+            continue
+        chosen = next((k for k in _PRIORITY if k in kinds), kinds[0])
+        if chosen in color_map:
+            grid[row, col] = color_map[chosen]
     if snap.car_pose is not None:
         try:
             c = world_to_cell(snap.car_pose.x, snap.car_pose.y)
-            grid[c.row, c.col] = color_map[ObjectType.CAR]
+            grid[c.row, c.col] = color_map["car"]
         except ValueError:
             pass
     ax.imshow(grid, origin="upper", extent=[-0.5, COLS - 0.5, ROWS - 0.5, -0.5])

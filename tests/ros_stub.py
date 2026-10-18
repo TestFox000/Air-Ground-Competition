@@ -147,12 +147,23 @@ class FakeLogger:
     def _log(self, level, msg):
         self.records.append((level, str(msg)))
 
-    def info(self, msg): self._log("info", msg)
-    def warn(self, msg): self._log("warn", msg)
-    def warning(self, msg): self._log("warning", msg)
-    def error(self, msg): self._log("error", msg)
-    def debug(self, msg): self._log("debug", msg)
-    def fatal(self, msg): self._log("fatal", msg)
+    # **kwargs 吞掉 throttle_duration_sec 等 rclpy 日志参数：
+    # dznav executor_node 的告警节流在 ros_stub 绑定下不能 TypeError。
+    def info(self, msg, **kw): self._log("info", msg)
+    def warn(self, msg, **kw): self._log("warn", msg)
+    def warning(self, msg, **kw): self._log("warning", msg)
+    def error(self, msg, **kw): self._log("error", msg)
+    def debug(self, msg, **kw): self._log("debug", msg)
+    def fatal(self, msg, **kw): self._log("fatal", msg)
+
+    def text(self, level=None, contains=""):
+        """根桩兼容：按级别/子串过滤日志（_FakeLogger.text 同款）。
+
+        2026-10-18 两栖化：importlib.reload 或非字母序收集可能让节点类
+        绑到 ros_stub 桩，node 级测试的日志断言两种桩都要能做。
+        """
+        return [m for lv, m in self.records
+                if (level is None or lv == level) and contains in m]
 
 
 class SimClock:
@@ -186,9 +197,15 @@ SIM = SimClock()
 class FakeClock:
     def __init__(self) -> None:
         self._ns = 1_000_000_000  # 1s 起步，单调递增
+        self._manual = False      # advance()/set() 显式接管后停用自推进
 
     def now(self):
-        if SIM.enabled:
+        if self._manual:
+            # 受控模式：只在 advance()/set() 时动（与根 conftest 的
+            # _FakeClock 语义一致——给 importlib.reload 重载出 ros_stub
+            # 绑定的节点类后，_node_stub_utils.tick 仍能受控推拍）。
+            ns = self._ns
+        elif SIM.enabled:
             ns = int(SIM.t * 1e9)  # 仿真模式：读全局时间，不自动推进
         else:
             self._ns += 100_000_000  # 每次调用推进 0.1s（旧行为，保持不变）
@@ -197,6 +214,16 @@ class FakeClock:
             nanoseconds=ns, to_msg=lambda: None,
             seconds_nanoseconds=lambda: (ns // 1_000_000_000, ns % 1_000_000_000),
         )
+
+    def advance(self, dt: float) -> None:
+        """根桩兼容：受控推进（激活后 now() 不再自推进/读 SIM）。"""
+        self._manual = True
+        self._ns += int(round(dt * 1e9))
+
+    def set(self, t: float) -> None:
+        """根桩兼容：受控设值。"""
+        self._manual = True
+        self._ns = int(round(t * 1e9))
 
 
 class FakePublisher:
@@ -208,6 +235,16 @@ class FakePublisher:
         self.published.append(msg)
         if BUS.active:
             BUS.dispatch(self.topic, msg)
+
+    @property
+    def sent(self) -> List[object]:
+        """根桩兼容别名（_node_stub_utils.pub().sent 直读）。"""
+        return self.published
+
+    @property
+    def last(self):
+        """根桩兼容：最新一条（无历史返回 None）。"""
+        return self.published[-1] if self.published else None
 
 
 class TopicBus:
@@ -348,11 +385,19 @@ class FakeNode:
         return cb
 
     def count_subscribers(self, topic: str) -> int:
-        """总线启用时返回真实订阅数；未启用抛 RuntimeError，
-        由调用方（如 _waypoint_consumer_ready）的 except 兜底。"""
+        """总线启用时返回真实订阅数；未启用抛 AttributeError，
+        而非透传 BUS 的 RuntimeError——2026-10-18 两栖化：
+        总线未启用意味着这是 node 级测试（无仿真总线概念），
+        integrate_node._waypoint_consumer_ready 对 AttributeError 放行
+        （"桩环境没有图查询接口"）、对其它异常按真机故障保守等待；
+        RuntimeError 会被误判成真机故障，闸门死等导致发车测试全挂。"""
+        if not BUS.active:
+            raise AttributeError("ros_stub: 总线未启用，无图查询接口")
         return BUS.count_subscribers(topic)
 
     def count_publishers(self, topic: str) -> int:
+        if not BUS.active:
+            raise AttributeError("ros_stub: 总线未启用，无图查询接口")
         return BUS.count_publishers(topic)
 
     def create_timer(self, period: float, cb: Callable):
@@ -382,6 +427,10 @@ class FakeNode:
         if cb is None:
             raise AssertionError(f"节点 {self.node_name} 未订阅 {topic}，现有: {list(self.subscriptions)}")
         cb(msg)
+
+    def inject(self, topic: str, msg) -> None:
+        """根桩兼容别名：与 deliver 同义（_node_stub_utils 直调）。"""
+        self.deliver(topic, msg)
 
     def tick(self) -> None:
         """依次触发所有定时器回调（已 cancel 的跳过，与真 rclpy 一致）。"""
@@ -423,8 +472,22 @@ def install() -> None:
         RELIABLE = 1
         BEST_EFFORT = 2
 
+    # Durability/History：dznav executor_node 的 ESTOP_QOS 用到
+    # （TRANSIENT_LOCAL 急停闩锁 + KEEP_LAST）。桩只提供常量，
+    # 不做传输语义（trae-glm 从 preserve/kimi/wip-20261014 移植 SIL 时补齐，
+    # 否则单跑 test_dznav_sil.py 时 ros_stub 桩下 import executor_node 即断）。
+    class DurabilityPolicy:
+        TRANSIENT_LOCAL = 1
+        VOLATILE = 2
+
+    class HistoryPolicy:
+        KEEP_LAST = 1
+        KEEP_ALL = 2
+
     qos_mod.QoSProfile = QoSProfile
     qos_mod.ReliabilityPolicy = ReliabilityPolicy
+    qos_mod.DurabilityPolicy = DurabilityPolicy
+    qos_mod.HistoryPolicy = HistoryPolicy
     rclpy_mod.qos = qos_mod
 
     # 日志级别替身：path_executor 调 get_logger().set_level(LoggingSeverity.WARN)
@@ -449,8 +512,23 @@ def install() -> None:
                           "Int32MultiArray": make_msg_class("Int32MultiArray", {"data": list}),
                           "UInt8": make_msg_class("UInt8", {"data": 0}),
                           "UInt8MultiArray": make_msg_class("UInt8MultiArray", {"data": list}),
+                          # dznav executor_node 订阅 /estop（std_msgs/Bool）：
+                          # 2026-10-18 合并分支起 canonical 的 executor_node 带
+                          # 急停闩锁，ros_stub 环境下 import 它必须认识 Bool
+                          # （trae-glm 从 preserve/kimi/wip-20261014 移植时补齐）。
+                          "Bool": make_msg_class("Bool", {"data": False}),
                           "Float32": make_msg_class("Float32", {"data": 0.0})})
-    _package("sensor_msgs", {"Image": Image})
+    # dznav 融合层订阅 /imu_data（sensor_msgs/Imu）：orientation 四元数 + 陀螺。
+    # trae-glm 从 preserve/kimi/wip-20261014 移植（kimi 原补丁）。
+    _package("sensor_msgs", {
+        "Image": Image,
+        "Imu": make_msg_class("Imu", {
+            "header": Header,
+            "orientation": _Quaternion,
+            "angular_velocity": _Vector3,
+            "linear_acceleration": _Vector3,
+        }),
+    })
     _package("geometry_msgs", {"PoseStamped": PoseStamped, "Point": _Point,
                                "Quaternion": _Quaternion, "Pose": _Pose,
                                "Twist": Twist, "Vector3": _Vector3})

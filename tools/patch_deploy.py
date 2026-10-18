@@ -202,11 +202,86 @@ def main(argv=None) -> int:
                    timeout=60, expect="PROC_OK")
         print(out)
 
+        # 5. 部署后体检（10-17 双栈并行实锤后新增）：话题发布者数必须=1，
+        #    EKF reset 静置 10s 增长必须<=2。双实例是 26~585m 跳变的直接来源。
+        out = step(host, user, pw, port, "部署后体检：防双实例 + EKF reset 观察",
+            "source /opt/ros/humble/setup.bash; source ~/dzpx4/install/setup.bash; "
+            "echo '--- VIO publishers (expect 1):'; "
+            "ros2 topic info /fmu/in/vehicle_visual_odometry 2>/dev/null | grep 'Publisher count'; "
+            "echo '--- SLAM publishers on /localization (expect 1):'; "
+            "ros2 topic info /localization 2>/dev/null | grep 'Publisher count'; "
+            "echo '--- node process counts (expect 1 each):'; "
+            "for p in px4_odom_convert fastlio_mapping; do "
+            "printf '%s: ' $p; pgrep -xc $p || echo 0; done; "
+            "echo '--- EKF xy_reset_counter 10s growth (expect <=2):'; "
+            "A=$(timeout 6 ros2 topic echo --once /fmu/out/vehicle_local_position --field xy_reset_counter 2>/dev/null); "
+            "sleep 10; "
+            "B=$(timeout 6 ros2 topic echo --once /fmu/out/vehicle_local_position --field xy_reset_counter 2>/dev/null); "
+            "echo \"reset_counter: $A -> $B\"; "
+            "echo '--- new-instance banner:'; "
+            "grep -h 'Resilience layer v2\\|DUPLICATE' $(ls -t ~/drone_logs/node_odom_*.log 2>/dev/null | head -1) 2>/dev/null | tail -2; "
+            "echo HEALTH_DONE",
+            timeout=120, expect="HEALTH_DONE")
+        print(out)
+        print(
+            "[体检判读] VIO/SLAM Publisher count 均应为 1；reset_counter 10s\n"
+            "增长 >2 说明 EKF 风暴仍在（查上游 SLAM/双实例）；节点横幅应为\n"
+            "'Resilience layer v2'。任何 DUPLICATE 告警 = 存在双实例，立即处理。")
+
+    # 6. 定位质量 watchdog（v2.1 新增，被动观测：只读日志、不杀进程、不动
+    #    节点，故 --no-restart 下同样部署）。背景：机上既有 watchdog 只监控
+    #    串口/MicroXRCEAgent/遥测链路，对定位质量零监控——EKF 每秒 reset
+    #    时仍报健康（10-17 实测风暴持续 14 小时无人察觉）。本脚本跟踪
+    #    node_odom_*.log 的健康行/blackbox，L1 持续/EKF 风暴/SLAM 断流时
+    #    输出醒目 ERROR，日志落 drone_logs/localization_watchdog.log。
+    step(host, user, pw, port, "创建机上目录 ~/drone_tools",
+         "mkdir -p ~/drone_tools && echo DIR_OK", expect="DIR_OK")
+    for attempt in range(1, 6):
+        try:
+            remote_run.sftp_put(host, user, pw,
+                                str(PATCH / "localization_watchdog.py"),
+                                "~/drone_tools/localization_watchdog.py",
+                                port=port, timeout=60)
+            print("[OK] 推送 localization_watchdog.py")
+            break
+        except Exception as e:  # noqa: BLE001
+            print(f"[..] 推送 localization_watchdog.py: {type(e).__name__}（{attempt}/5）")
+            time.sleep(6)
+    else:
+        raise SystemExit("[失败] 推送 localization_watchdog.py")
+    step(host, user, pw, port, "重启 localization_watchdog（setsid）",
+         "pkill -f localization_watchdog.py 2>/dev/null; sleep 1; "
+         "mkdir -p ~/drone_logs; "
+         "L=~/drone_logs/localization_watchdog.log; "
+         "nohup setsid bash -lc 'python3 ~/drone_tools/localization_watchdog.py "
+         "--log-dir ~/drone_logs >> $L 2>&1' "
+         "< /dev/null > /dev/null 2>&1 & echo WATCHDOG_STARTED",
+         expect="WATCHDOG_STARTED")
+    time.sleep(5)
+    out = step(host, user, pw, port, "验证 watchdog 进程 + 健康行输出",
+               "pgrep -f localization_watchdog.py >/dev/null && echo WD_PROC_OK; "
+               "tail -2 ~/drone_logs/localization_watchdog.log 2>/dev/null; "
+               "echo '--- health lines in newest node log (v2.1 节点应 >0):'; "
+               "grep -c 'px4_odom_convert_health' "
+               "$(ls -t ~/drone_logs/node_odom_*.log 2>/dev/null | head -1) 2>/dev/null",
+               timeout=60)
+    print(out)
+
     print(
-        "\n==================== 韧性补丁部署完成 ====================\n"
-        "已生效：jump guard(armed 永不接受) + z 换源(气压计高度)\n"
+        "\n==================== 韧性补丁 v2 部署完成 ====================\n"
+        "已生效三级防护：\n"
+        "  L1 insane 熔断（单帧>2m 判 SLAM 无效，锁定输出，稳定 2s 恢复）\n"
+        "  L2 bump 节流（reset_counter 重锚最小间隔 10s，杜绝每秒重锚）\n"
+        "  L3 EKF 风暴熔断（60s 内>5 次 reset 冻结 accept/bump，自动恢复）\n"
+        "  + 原有：armed 永不接受 + z 换源(气压计高度)\n"
+        "v2.1 定位质量可观测性已生效：\n"
+        "  blackbox 事件 4 行完整上下文 + 3s 健康行（node_odom 日志内）\n"
+        "  localization_watchdog 已启动：L1 持续/EKF 风暴/SLAM 断流醒目告警，\n"
+        "  日志 ~/drone_logs/localization_watchdog.log\n"
         "回滚： python tools/patch_deploy.py --host " + host + " --rollback\n"
-        "悬停验证判据：0.5m 悬停 10 秒，位移 < 0.3m、零突跳\n"
+        "悬停验证判据：0.5m 悬停 10 秒，位移 < 0.3m、零突跳；\n"
+        "  验证前先跑 tests/test_jump_guard_v2.py（本地）确认 6 场景通过\n"
+        "  v2.1 专项：tests/test_blackbox_health_v2.py + test_localization_watchdog.py\n"
         "=========================================================")
     return 0
 

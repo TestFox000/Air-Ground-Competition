@@ -22,7 +22,7 @@ for _pkg in ("ag_integrate", "ag_core"):
 
 @pytest.fixture(autouse=True)
 def _ros_stub_globals_cleanup():
-    """兜底收尾：每个测试结束后无条件复位 ros_stub 的三个全局单例。
+    """兜底收尾：每个测试结束后复位 ros_stub 的三个全局单例（若本会话用到）。
 
     为什么存在（2026-10-17 横切扫描）：ros_stub 的 SIM（仿真时钟）/ BUS（topic
     总线）/ _OVERRIDES（参数覆盖表）是进程级单例，而仿真链路并非都经 fixture
@@ -32,9 +32,16 @@ def _ros_stub_globals_cleanup():
     这里统一兜底：三个清理调用全是幂等操作（disable/clear 重复执行无副作用），
     与 test_sim_tracking.py 的 world_factory 自带收尾并存不冲突——autouse
     夹具后装先拆的反向次序保证它是**最后**一个收尾，状态必然归零。
+
+    合并分支注记（2026-10-18）：根 conftest.py 现在提供完整 ROS 桩（含
+    sensor_msgs.Imu 等富消息）。ros_stub 一旦 import 会整体覆盖 sys.modules
+    里的桩，把富消息换掉。因此这里改为**条件清理**：只有本会话真有测试用过
+    ros_stub（即它已进 sys.modules）才复位它的全局单例，绝不再主动引入。
     """
     yield
-    import ros_stub  # 延迟导入：conftest 自身导入零副作用，跑首个测试时才装 rclpy 桩
+    if "ros_stub" not in sys.modules:
+        return
+    import ros_stub
     ros_stub.BUS.disable()
     ros_stub.SIM.disable()
     ros_stub.clear_overrides()

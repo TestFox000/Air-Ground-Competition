@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from .car_commands import RoutePlan, reset_command, route_command
 from .fire_guard import blue_targets_hit, decide_fire
+from .mission_router import compress_route
 from .world_model import TargetRef, WorldSnapshot
 
 
@@ -21,6 +22,8 @@ class CarCommands:
     # 时间预算（route_time 门控，默认未启用时为 -1/False，不影响旧调用方）：
     est_seconds: float = -1.0      # 路线预估执行秒数；-1 = 未估算
     shed_shooting: bool = False    # True = 超软预算已砍射击位重规划
+    # U1 联合求解器（use_ortools_solver）实际舍弃的任务格号；启发式路径恒为 ()
+    dropped_tasks: tuple[str, ...] = ()
 
 
 def _target_key(t: TargetRef) -> tuple:
@@ -30,6 +33,38 @@ def _target_key(t: TargetRef) -> tuple:
     if t.track is not None:
         return ("track", t.track)
     return ("fixed", t.cell.name)
+
+
+def mission_keep(snapshot: WorldSnapshot, route) -> set[str]:
+    """压缩保护集：雷 / 桥门 / 靶体与轨道 / 路线上所有可开火格。
+
+    compress_route 会删掉同向共线的中间格——射击停靠格一旦被删，
+    adapt 就看不到它，'*' 标记丢失 = 漏打（2026-10-17 实拍复盘踩中）。
+    本函数把"绝不能删的格"集中在一处推导，调用方不再手工拼 KEEP。"""
+    keep = {c.name for c in snapshot.mines}
+    keep |= {c.name for c in snapshot.passable}
+    keep |= {t.cell.name for t in snapshot.targets}
+    keep |= {c.name for t in snapshot.targets if t.track for c in t.track}
+    for cell in route:
+        name = cell.strip().upper()
+        if not decide_fire(snapshot, name).denied and blue_targets_hit(snapshot, name):
+            keep.add(name)          # 潜在开火格：宁可多保，不可漏保
+    return keep
+
+
+def compact_and_adapt(
+    snapshot: WorldSnapshot,
+    route,
+    start_cell: str,
+    start_heading: str,
+    final_heading: str | None = None,
+) -> tuple[tuple[str, ...], "CarCommands"]:
+    """压缩 + 车端命令的原子操作：内部自动推导 KEEP，射击停靠格不可能被压缩掉。
+
+    返回 (压缩路线, CarCommands)。旧用法（手工 KEEP + compress_route + adapt）
+    是 API 陷阱：KEEP 漏一项就静默丢功能，请一律改用本函数。"""
+    compact = compress_route(tuple(route), mission_keep(snapshot, route))
+    return compact, adapt(snapshot, compact, start_cell, start_heading, final_heading)
 
 
 def adapt(

@@ -5,12 +5,10 @@
 build_verify 产物在仓库内）。本脚本统一约定为【仓库形状】远端布局：
 
     ~/dzuav_deploy/air_ground/          仓库侧内容
-        onboard/dzuav/**                    dzuav C++ 源码（全量，build/ 除外）
+        onboard/dzuav/**                    dzuav C++ 源码（13 文件）
         models/release/                     current 指针 + 指针指向的 ONNX
         tools/orin_*.sh                     编译验证/引擎转换/全栈拉起
-        tools/orin_*.py                     机载 Python 工具全量（名单见 ORIN_PY_TOOLS：
-                                            黑匣子/双看门狗/日志采集/数据采集，
-                                            漏传会让 orin_bringup.sh 的 wdog/flight_wd 窗口必死）
+        tools/orin_*.py                     机载 Python 工具（显式名单见 ORIN_PY_TOOLS）
 
 三个 orin_* 脚本都从 $0 自推 REPO 路径，落位后原位即用（无需搬动）；
 引擎目录沿用 orin_run_dzuav.sh / orin_convert_engines.sh 的默认
@@ -51,21 +49,16 @@ POINTER_FILES = ("current_hbb_detector", "current_cell_classifier")
 # 机载 Python 工具全量名单（显式登记，新增 orin_*.py 时同步加进来）：
 #   orin_flight_blackbox.py   飞行黑匣子：PX4 遥测/控制指令 JSONL 落盘 + UDP 镜像
 #                             （flight_console.py 也会自动上传，此处兜底）
-#   orin_watchdog.py          orin_bringup.sh 的 flight_wd 窗口：断流/掉 OFFBOARD/
-#                             位置跳变 -> 机上本地自动 LAND
-#   orin_agent_watchdog.py    orin_bringup.sh 的 wdog 窗口：飞控重上电/会话死亡
-#                             自动重启 MicroXRCEAgent
 #   orin_log_capture.py       dzuav stdout -> JSONL（uav_link 健康通道优先读它；
 #                             main.cpp 的日志行格式与之严格对应）
-#   orin_capture_dataset.py   机上数据采集（标定/训练素材，uvc/argus/视频源）
-# 2026-10-17 横切扫描发现：旧清单只传 orin_flight_blackbox.py，全新机器按标准
-# 流程部署后 bringup 的 wdog/flight_wd 两窗口因缺文件必死——故改为全量显式名单。
+# 2026-10-18 合并线说明：repo 线全量名单另含 orin_watchdog/orin_agent_watchdog/
+# orin_capture_dataset，其中前两个对应 repo 线 orin_bringup.sh 的 flight_wd/
+# wdog 窗口；合并线 bringup 采用部署现实（fix 线）9 窗口版，无此二窗口、
+# 部署包内亦无对应文件，故不列入——显式登记 + 部署前缺失校验，
+# 漏传在本地即被拦下，不再靠机上 bringup 亮红灯才发现。
 ORIN_PY_TOOLS = (
     "orin_flight_blackbox.py",
-    "orin_watchdog.py",
-    "orin_agent_watchdog.py",
     "orin_log_capture.py",
-    "orin_capture_dataset.py",
 )
 
 
@@ -128,7 +121,7 @@ def main(argv=None) -> int:
                                 port=port, timeout=args.timeout)
         print(f"[已上传] {n} 个文件 -> {remote}")
 
-    # ---- 1. dzuav 源码（build/ 目录留在机上不回传不覆盖；实际文件数以 [已上传] 计数为准） ----
+    # ---- 1. dzuav 源码（13 文件，build/ 目录留在机上不回传不覆盖） ----
     print("==> 部署 onboard/dzuav 源码")
     put(REPO / "onboard" / "dzuav", f"{REMOTE_ROOT}/onboard/dzuav")
 

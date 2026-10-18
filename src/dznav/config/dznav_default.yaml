@@ -1,0 +1,42 @@
+# dznav 默认参数
+# tools/dznav_deploy.py 会自动导出 DZ_NAV_CONFIG 指向本文件（~/dznav/config/
+# 下），无需手工设置；用 --config 可换别的 yaml。
+# 逐项含义见 src/dznav/dznav/executor_node.py DEFAULTS 与 pursuit.TrackerConfig
+# 注意：本文件里的未知键会被忽略但**会打 warn 日志**，改键名请看车端日志。
+
+# ---- 舵机-曲率模型 ----
+servo_mode: ideal          # ideal | fxxy | custom（tools 现场标定后换 custom）
+servo_limit_deg: 30.0      # 控制层打角上限（物理 35°）
+wheelbase: 0.157           # m，现役标定
+steer_trim_deg: 0.0        # 机械配平（右偏为负；原版实测约 -1.0，dznav 反馈环可吸收）
+
+# ---- 跟踪 ----
+v_max: 0.30                # m/s 巡航（速度包络 0.3-0.4，实测后调）
+a_lat_max: 0.22            # m/s² 侧向加速度预算（弯道限速 v=sqrt(a/κ)）
+track_mode: stanley        # 跟踪律：stanley（现状默认）| pure_pursuit（U2 标准
+                           #   前视弧长 κ=2y/d² + regulated 曲率限速；台架
+                           #   A/B 验证后再切，见 docs/U2-循迹对标-20261018.md）
+
+# ---- 任务 ----
+nav_timeout: 180.0         # s 单路线硬超时（比赛总预算）
+shoot_target: 10           # 每停站发弹数
+shoot_timeout: 150.0       # s 停站等弹超时
+blend_anchor: 0.5          # 途经点位置锚增益
+blend_th: 0.25             # 途经点航向锚增益（小于位置增益：防跟踪滞后污染）
+anchor_delay_m: 0.35       # 出弯后再锚（跟踪收敛区，测量干净）
+blend_arc: 0.7             # 出弯/终点机动锚点位置增益
+keepalive_idle: false      # 待命是否发零速保活（false=静默，align 随时可做）
+auto_delay: 8.0            # s DZ_AUTO_START=1 时起栈到自动发车延时
+builtin_route: ""          # 自动发车路线串（如 "N10 M9 L8 ... ,y"）
+
+# ---- 参考路径 ----
+dev_cap: 0.08              # m 普通弯对顶点偏差预算（< 17.5cm 失格线）
+dev_cap_critical: 0.03     # m 关键途经点（雷格）偏差预算
+arc_fallback_deg: 125.0    # 超此转角回落 ARC 机动（更大转角的 fillet 切角会逼近失格线）
+
+# ---- 安全（2026-10-17 评审整改新增）----
+link_timeout: 0.5          # s /odom 或 /imu_data 断流多久跳闸（仅运动态生效）
+                           #   0.5s 与 dzactuator ACTIVITY_TIMEOUT 同量级；
+                           #   调大会让盲跑距离线性增长（0.30m/s x t）
+dt_max: 0.20               # s 单控制周期 dt 上限：进程被挂起后不让一个巨大
+                           #   的 dt 使加速度限幅失效
