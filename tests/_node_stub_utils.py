@@ -48,9 +48,16 @@ def make_node(monkeypatch, cls, **overrides):
 
 
 def tick(node, dt: float = 0.1) -> None:
-    """推进假时钟并触发全部 timer 回调（默认一拍 0.1s，对应 10Hz 决策）。"""
+    """推进假时钟并触发全部 timer 回调（默认一拍 0.1s，对应 10Hz 决策）。
+
+    timers 形态两栖：根 conftest 桩是 [(period, cb)] 元组列表；
+    tests/ros_stub 桩是 [FakeTimer] 可调用对象（2026-10-18 起兼容——
+    importlib.reload 重载节点模块后可能拿到 ros_stub 绑定的类，
+    这里必须两种都能驱动）。
+    """
     node.get_clock().advance(dt)
-    for _period, cb in node.timers:
+    for entry in node.timers:
+        cb = entry[1] if isinstance(entry, tuple) else entry
         cb()
 
 
