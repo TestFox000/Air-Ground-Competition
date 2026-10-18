@@ -1,0 +1,20 @@
+[INFO] [1792141150.457859712] [px4_teleop_node]: Teleop ready.
+  0 = switch to Offboard
+  1 = ARM (auto takeoff)
+  2 = DISARM (only when landed)
+  3 = LAND (self-descent or NAV_LAND)
+  W/S = +/- X 0.50m    A/D = +/- Y 0.50m    Q/E = up/down 0.10m
+  L/R = yaw +/- 0.150 rad (HOVER, ignored while GOTO is enabled)
+  4 = enable external GOTO    5 = disable GOTO and hold current pose
+  Ctrl+C to quit
+[INFO] [1792141171.523603544] [px4_teleop_node]: [key 0] request OFFBOARD
+[INFO] [1792141172.715715586] [px4_teleop_node]: [key 1] request ARM + takeoff
+[INFO] [1792141179.840070814] [px4_teleop_node]: [key 3] request LAND
+[INFO] [1792141183.582990861] [px4_teleop_node]: [key 1] request ARM + takeoff
+[INFO] [1792141265.843870511] [px4_teleop_node]: [key 0] request OFFBOARD
+[INFO] [1792141266.775770574] [px4_teleop_node]: [key 1] request ARM + takeoff
+[INFO] [1792141271.229422142] [px4_teleop_node]: [key 0] request OFFBOARD
+[INFO] [1792141273.074432126] [px4_teleop_node]: [key 1] request ARM + takeoff
+[INFO] [1792141278.374769703] [px4_teleop_node]: [key 2] request DISARM
+[INFO] [1792141295.095974005] [px4_teleop_node]: [key 0] request OFFBOARD
+[INFO] [1792141297.042867657] [px4_teleop_node]: [key 1] request ARM + takeoff

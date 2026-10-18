@@ -1,0 +1,2 @@
+{"ts":1792144734.597,"mono":1610.198,"seq":1,"node":"flight_bb","ev":"bb.ready","lvl":"info","session":"20261016_175854","pid":4786,"log_file":"/home/duzhong/ag_flight_logs/20261016_175854/flight-4786.jsonl","udp_mirror":"","argv":"/home/duzhong/dzuav_deploy/air_ground/tools/orin_flight_blackbox.py --list-topics"}
+{"ts":1792144734.598,"mono":1610.199,"seq":2,"node":"flight_bb","ev":"bb.exit","lvl":"info","session":"20261016_175854","counts":{"bb.ready":1}}
