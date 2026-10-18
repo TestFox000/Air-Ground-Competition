@@ -1,10 +1,18 @@
-
-
-# —— 分享收口（2026-10-18）：大体积资源与嵌套仓库不入库 ——
-# dzrobot_v2 是独立 git 仓库，通过自己的 bundle 单独分享
-/dzrobot_v2/
-# 大体积视频 / 安装包
-*.mp4
-*.zip
-# 嵌套子仓库的内部对象
-.git/
+# --- 临时/会话产物（绝不入库）---
+_tmp_session/
+_tmp_car/
+_tmp_fixyaml/
+.agent-teams/
+.ssh2-tmp/
+_ssh_diag.txt
+%SystemDrive%/
+wxauto_logs/
+drone_recordings/
+dzrobot_v2/
+dsh-dzairground-ssh/
+# Python 字节码（已是跟踪项的保持现状，这里只挡新增）
+**/__pycache__/
+*.pyc
+# 编辑器/OS 噪声
+*.swp
+.DS_Store
