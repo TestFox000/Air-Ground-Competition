@@ -28,7 +28,7 @@ powershell -ExecutionPolicy Bypass -File tools/agent_sync.ps1 -Agent trae-glm -T
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/agent_publish.ps1 `
   -Agent <智能体名> -Message "<提交标题>" `
-  -Files <要提交的文件...>            # 或 -ChangedDocs 自动收集 docs/ 下改动与新增的 .md
+  -Files "docs/成果.md,tools/脚本.py"   # 多文件逗号串（一个参数）；或 -ChangedDocs 自动收集 docs/ 下改动与新增的 .md
 # 移植他人成果加：-Author "原作者 <邮箱>"
 ```
 
