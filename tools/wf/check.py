@@ -55,16 +55,19 @@ def glob_to_re(pat):
 
 def git_status():
     try:
+        # ★2026-10-18 修：Windows 默认 GBK 解码 git 输出，遇到中文文件名（如 docs/审查_xxx.md）
+        #   直接 UnicodeDecodeError，且 r.stdout 变 None 让后面 splitlines() 崩。
+        #   必须显式 utf-8 + errors=replace，与文件名的真实编码（UTF-8）对齐。
         r = subprocess.run(
             ["git", "-C", str(ROOT), "-c", "core.quotepath=false", "status", "--porcelain"],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
         )
     except Exception as e:  # noqa: BLE001
         return None, "git 调用失败: %s" % e
     if r.returncode != 0:
         return None, "git status 返回 %d: %s" % (r.returncode, r.stderr.strip())
     files = []
-    for line in r.stdout.splitlines():
+    for line in (r.stdout or "").splitlines():
         if len(line) < 4:
             continue
         path = line[3:]
