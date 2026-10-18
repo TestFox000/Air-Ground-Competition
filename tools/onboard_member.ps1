@@ -3,13 +3,15 @@
 # 仓库：https://gitee.com/circle-of-joy/air_ground
 #
 # 用法（任选其一）：
-#   powershell -ExecutionPolicy Bypass -File onboard_member.ps1 -Name 陈驰
-#   powershell -ExecutionPolicy Bypass -File onboard_member.ps1 -Name 陈驰 -TargetDir D:\air_ground
+#   powershell -ExecutionPolicy Bypass -File onboard_member.ps1 -Name 程驰
+#   powershell -ExecutionPolicy Bypass -File onboard_member.ps1 -Name 程驰 -TargetDir D:\air_ground
 #   不带参数直接运行则进入交互模式（右键"使用 PowerShell 运行"也可以）
 #
 # 免克隆直取本文件（单文件下载后直接运行）：
 #   https://gitee.com/circle-of-joy/air_ground/raw/main/tools/onboard_member.ps1
 #   （main 合入前临时用 .../raw/members/yu-binghuan/tools/onboard_member.ps1）
+#   ⚠️ 仓库为私有时：先用浏览器登录 gitee.com 再打开上述链接才能下载；
+#      克隆时 git 会要求 Gitee 账号验证（输一次即缓存，之后无感）。
 #
 # 依据：docs/团队协作与成果归属.md §5（规约 v2）。
 # 本脚本只做四件事：克隆/复用仓库、配置本仓署名、切到你的 members/ 分支、
@@ -77,7 +79,15 @@ if (Test-Path (Join-Path $TargetDir ".git")) {
 } else {
     Write-Host "[2/6] 首次克隆仓库到：$TargetDir （历史含部署包，几十 MB，请耐心）"
     git clone $RepoUrl $TargetDir
-    if ($LASTEXITCODE -ne 0) { Fail "克隆失败——检查网络；或先用浏览器打开 $RepoUrl 确认能访问" }
+    if ($LASTEXITCODE -ne 0) {
+        Fail @"
+克隆失败。按顺序排查（最常见是第 1 条）：
+  1. 仓库私有 + 本机还没有你的 Gitee 凭据——先用浏览器登录 gitee.com，再重跑本脚本；
+     重跑时 git 会弹 Gitee 登录窗（或提示输账号密码），输一次即缓存到 Windows 凭据管理器，之后无感
+  2. 网络问题——浏览器打开 $RepoUrl 确认能访问
+  3. 若本脚本是网上下载的且链接打不开：同第 1 条，私有仓库的 raw 链接需先登录 Gitee
+"@
+    }
 }
 
 # 4) 本仓署名（不动全局配置）
