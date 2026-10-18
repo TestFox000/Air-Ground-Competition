@@ -36,13 +36,13 @@
 
 | 文件 | 行数（现） | +/- | hunks | 关键位置（现行号） |
 |---|---|---|---|---|
-| [model.py](src/dzbrain/dzbrain/route/model.py) | 205 | +18/-2 | 5 | `pivot` 字段 :36-40；`Route.pivot_points()/pivot_blocks()` :111-117；`RouteBuilder.build` 去重时 pivot 并集 :177-183 |
-| [parser.py](src/dzbrain/dzbrain/route/parser.py) | 485 | +61/-42 | 22 | 语法表 :15；`PIVOT_SUFFIX` :70；`_CANON_TAIL_RE` :83-90；`normalize_token` 后缀段重写 :99-156；`parse_token` 剥 `:PIVOT` :220-224 + 键 :192/:211/:239；`Waypoint(pivot=)` :347/:368；去重并集 :384-402；`parse_reset` 拒收 :452-453；`format_route` 回写 :465/:480-481 |
-| [planner.py](src/dzbrain/dzbrain/route/planner.py) | 1681 | +228/-23 | 34 | 导入 `_PIVOT_SUFFIX` :88；`__all__` :109-110；`PIVOT_MARK_DEG=135.0` :147、`PIVOT_PENALTY=5.0` :153；`_Stop.pivot` :541；`mark_pivots()` :682-712；`_to_route`/`route_tokens` 回写 :763/:785；`pivot_vertices()` :929-950；`assert_legal_no_reverse()` 第 ④ 条 :952-1000；`PlanResult` 新字段 :1033-1036；`as_dict` 新键 :1050-1065；`summary` :1078-1079；`_Tour(pivot_penalty=)` :1101-1106；`_record_leg_dirs/reversals/penalty_of/seq_cost` :1158-1210；`plan_route(pivot_penalty=)` :1389-1417；`_Tour(...)` :1509；只在无倒车模式打标记 :1595-1597；结果填充 :1634-1635；`_insert_shoot` 惩罚增量 :1661 |
-| [tools/plan_route.py](tools/plan_route.py) | 346 | +23/-1 | 5 | 用法/参数说明 :20-42；`plan_once` 传参 :162；`--no-reverse/--allow-reverse` :198-205；`--pivot-penalty` :206-208 |
-| [tools/route_check.py](tools/route_check.py) | 954 | +90/-16 | 25 | 六层文档 :32-39；`PIVOT_DECL_DEG=135.0`（并修正 `SHARP_CORNER_DEG` 的错注释）:89-95；`fallback_validate` 接受 `:PIVOT` :180-226；`parse_route` 第 5 个返回 `pivot_f` :229-275；层号 `/6` :449/469/480/540/657/709；解析层读 pivot :470-477；急转弯提示带"已声明 N 处" :529-533；`_pivot_layer()` :715-757；`load_cfg` 可选读 `pursuit.pivot_angle_deg` :806-834 |
-| [tests/test_planner.py](src/dzbrain/tests/test_planner.py) | 675 | +154/-0 | 1 | 新增 `section("9 卡 C…")`（35 条断言） |
-| [tests/test_route.py](src/dzbrain/tests/test_route.py) | 692 | +86/-0 | 2 | 新增 `test_pivot_suffix()`（29 条断言）+ 注册进 `cases` |
+| [model.py](../../../src/dzbrain/dzbrain/route/model.py) | 205 | +18/-2 | 5 | `pivot` 字段 :36-40；`Route.pivot_points()/pivot_blocks()` :111-117；`RouteBuilder.build` 去重时 pivot 并集 :177-183 |
+| [parser.py](../../../src/dzbrain/dzbrain/route/parser.py) | 485 | +61/-42 | 22 | 语法表 :15；`PIVOT_SUFFIX` :70；`_CANON_TAIL_RE` :83-90；`normalize_token` 后缀段重写 :99-156；`parse_token` 剥 `:PIVOT` :220-224 + 键 :192/:211/:239；`Waypoint(pivot=)` :347/:368；去重并集 :384-402；`parse_reset` 拒收 :452-453；`format_route` 回写 :465/:480-481 |
+| [planner.py](../../../src/dzbrain/dzbrain/route/planner.py) | 1681 | +228/-23 | 34 | 导入 `_PIVOT_SUFFIX` :88；`__all__` :109-110；`PIVOT_MARK_DEG=135.0` :147、`PIVOT_PENALTY=5.0` :153；`_Stop.pivot` :541；`mark_pivots()` :682-712；`_to_route`/`route_tokens` 回写 :763/:785；`pivot_vertices()` :929-950；`assert_legal_no_reverse()` 第 ④ 条 :952-1000；`PlanResult` 新字段 :1033-1036；`as_dict` 新键 :1050-1065；`summary` :1078-1079；`_Tour(pivot_penalty=)` :1101-1106；`_record_leg_dirs/reversals/penalty_of/seq_cost` :1158-1210；`plan_route(pivot_penalty=)` :1389-1417；`_Tour(...)` :1509；只在无倒车模式打标记 :1595-1597；结果填充 :1634-1635；`_insert_shoot` 惩罚增量 :1661 |
+| [tools/plan_route.py](../../../tools/plan_route.py) | 346 | +23/-1 | 5 | 用法/参数说明 :20-42；`plan_once` 传参 :162；`--no-reverse/--allow-reverse` :198-205；`--pivot-penalty` :206-208 |
+| [tools/route_check.py](../../../tools/route_check.py) | 954 | +90/-16 | 25 | 六层文档 :32-39；`PIVOT_DECL_DEG=135.0`（并修正 `SHARP_CORNER_DEG` 的错注释）:89-95；`fallback_validate` 接受 `:PIVOT` :180-226；`parse_route` 第 5 个返回 `pivot_f` :229-275；层号 `/6` :449/469/480/540/657/709；解析层读 pivot :470-477；急转弯提示带"已声明 N 处" :529-533；`_pivot_layer()` :715-757；`load_cfg` 可选读 `pursuit.pivot_angle_deg` :806-834 |
+| [tests/test_planner.py](../../../src/dzbrain/tests/test_planner.py) | 675 | +154/-0 | 1 | 新增 `section("9 卡 C…")`（35 条断言） |
+| [tests/test_route.py](../../../src/dzbrain/tests/test_route.py) | 692 | +86/-0 | 2 | 新增 `test_pivot_suffix()`（29 条断言）+ 注册进 `cases` |
 
 **未改**（在 inScope 里但本轮不需要动）：`route/validate.py`、`tests/test_pivot.py`（sha256 与改前一致，见 §1.2）。
 

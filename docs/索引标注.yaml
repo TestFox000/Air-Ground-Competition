@@ -258,3 +258,20 @@ paths:
     status: 核心
     owner: forensics
     note: 2026-10-18 本地删减归档执行与复核（含未处理项）
+
+  dzrobot_v2/docs/README.md:
+    status: 核心
+    owner: Lead
+    note: 文档总览：五分钟上手/现行文档/归档规则
+  dzrobot_v2/docs/archive:
+    status: 归档
+    owner: Lead
+    note: 历史文档按批次归档（20261018 = 39 篇只读历史）
+  dzrobot_v2/docs/archive/20261018:
+    status: 归档
+    owner: Lead
+    note: 10-07~17 历史报告/调研/仿真复验/阶段总结；勿更新
+  dzrobot_v2/src/history/大事记.md:
+    status: 核心
+    owner: 团队
+    note: 22 份日志的一页速览（原始日志不改）
