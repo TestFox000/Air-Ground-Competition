@@ -19,6 +19,11 @@ cte>0 = 车在路径左侧（需右打）。速度按前窗曲率峰值限速 v=
 ARC 机动（转角 ≥135° 的掉头弯、终点朝向对齐）保留原版"满舵低速 +
 yaw 停止"机制，但出口用软锚点（fusion.anchor）而非硬吸附，且加
 行程/时间双保险。
+
+U2（2026-10-18）：cfg.track_mode="pure_pursuit" 时转向律切换为标准
+前视弧长公式（κ=2y/d²，δ=atan(L·κ)），并吸收 regulated 思想——
+前视距离随速度自适应、指令曲率纳入限速（v≤√(a_lat/κ)）。默认
+"stanley" 保持现状，纯配置开关、不删旧路径。
 """
 
 from __future__ import annotations
@@ -58,6 +63,23 @@ class TrackerConfig:
     arc_travel_scale: float = 1.8  # ARC 行程保险 = 名义弧长 x 该系数
     align_arc_thresh_deg: float = 100.0   # 首段在身后阈值
     anchor_pass: bool = True       # 途经点软锚点（anti-drift）
+    # ---- U2 pure pursuit（regulated）对标（2026-10-18）----
+    # track_mode="pure_pursuit" 时转向律切换为标准前视弧长公式
+    #     κ = 2·y / d²   （y=前视点车体系横向偏移，d=车到前视点弦长）
+    #     δ = servo.command_for_kappa(κ)   （ideal 档即 δ=atan(L·κ)）
+    # 并吸收 regulated 思想（nav2 regulated_pure_pursuit 同源）：
+    # 前视距离随速度自适应（快车看得远），指令曲率纳入限速
+    #     v ≤ √(a_lat_max / max(|κ_path|, |κ_cmd|))
+    # 对不可原地转向的 Ackermann：直线上的大偏差修正也会自动降速。
+    track_mode: str = "stanley"    # "stanley"（现状默认）| "pure_pursuit"
+    pp_ld_min: float = 0.14        # m 前视距离下限（含起步低速段）
+    pp_ld_max: float = 0.35        # m 前视距离上限
+    pp_ld_gain: float = 0.55       # L_d = pp_ld_min + gain·v_cmd（SIL 定标：
+                                   #   弯速 v≈0.24 时 L_d≈0.27≈弯道物理半径
+                                   #   R=0.272 —— L_d≫R 会切角后欠阻尼编织
+                                   #   （K 列实测 K9 0.6cm→K8 7.8cm），增益
+                                   #   压到 0.55 后全雷格 ≤6cm 达标）
+    pp_cmd_regulate: bool = True   # regulated：指令曲率也参与限速
 
 
 @dataclass
@@ -83,6 +105,7 @@ class Tracker:
         self._stuck_since = None
         self._last_s = 0.0
         self._travel = None           # 外部注入的累计里程 m
+        self._pp_kappa_cmd = 0.0      # U2：pure_pursuit 最新指令曲率（regulated 限速用）
         self.arrived = False
         self.final_heading = None     # rad，终点朝向（executor 注入）
 
@@ -163,15 +186,17 @@ class Tracker:
                 ev.append({"ev": "arrived", "d": d_final, "forced": True})
                 return Command(0.0, 0.0)
 
-        # ---- 前馈 + 反馈 ----
-        k_ff = self.path.at_s(
-            min(self.s_prog + cfg.ff_lookahead, self.path.length))[3]
-        ff = self.servo.command_for_kappa(k_ff)
-        e_th = wrap_pi(pr["th"] - th)
-        cte_term = cfg.k_c * math.atan2(
-            cfg.k_v * pr["cte"], self.v_cmd + cfg.v0)
-        steer = (ff + cfg.k_h * e_th - cte_term
-                 + cfg.steer_trim_deg)
+        # ---- 转向律（U2：track_mode 二选一，默认 stanley 不变）----
+        if cfg.track_mode == "pure_pursuit":
+            steer = self._pure_pursuit_steer(x, y, th) + cfg.steer_trim_deg
+        else:
+            k_ff = self.path.at_s(
+                min(self.s_prog + cfg.ff_lookahead, self.path.length))[3]
+            ff = self.servo.command_for_kappa(k_ff)
+            e_th = wrap_pi(pr["th"] - th)
+            cte_term = cfg.k_c * math.atan2(
+                cfg.k_v * pr["cte"], self.v_cmd + cfg.v0)
+            steer = ff + cfg.k_h * e_th - cte_term + cfg.steer_trim_deg
         # 有限性优先于钳位：Python 的 min/max 遇 NaN 返回第一个实参，
         # 直接写 max(-L, min(L, nan)) 会得到 **+L 满舵**（实测），
         # 车会以最高速打死方向。NaN 先打成 0（回中）再钳位。
@@ -182,14 +207,22 @@ class Tracker:
 
         # ---- 速度规划 ----
         k_peak = self.path.kappa_max_window(self.s_prog, cfg.brake_window)
+        # regulated（U2）：指令曲率一并纳入限速——直线上大偏差修正、
+        # 末段向终点 homing 产生的 κ_cmd 同样触发降速。路径曲率未知
+        # （NaN）时按最保守处理（见下方 else 分支）。
+        k_cmd = (abs(self._pp_kappa_cmd)
+                 if (cfg.track_mode == "pure_pursuit" and cfg.pp_cmd_regulate)
+                 else 0.0)
         if math.isfinite(k_peak):
-            v_kappa = math.sqrt(cfg.a_lat_max / max(k_peak, 1e-3))
+            v_kappa = math.sqrt(
+                cfg.a_lat_max / max(k_peak, k_cmd, 1e-3))
         else:
             # 曲率未知 → 按最保守处理。原版 max(k_peak, 1e-3) 在 k_peak
             # 为 NaN 时返回 NaN（Python max 遇 NaN 返回首参），再被
             # min(v_max, nan, MAX_SPEED) 吞成 **v_max 全速**——
             # "不知道弯有多急"被解释成了"前面没有弯"。
-            v_kappa = cfg.v_end
+            v_kappa = cfg.v_end if k_cmd <= 0.0 else math.sqrt(
+                cfg.a_lat_max / max(k_cmd, 1e-3))
         v_t = min(cfg.v_max, v_kappa, MAX_SPEED)
         # 终点渐近
         if ahead < cfg.approach_dist:
@@ -215,6 +248,37 @@ class Tracker:
             self.v_cmd = cfg.v_min
 
         return Command(self.v_cmd, steer)
+
+    # ---------------------------------------------------------------- U2 纯追踪
+    def _pure_pursuit_steer(self, x: float, y: float, th: float) -> float:
+        """标准 Pure Pursuit 前视弧长律（U2 对标，track_mode=pure_pursuit）。
+
+        1. 前视点：路径上 s_prog + L_d 处（L_d 随速度自适应：快车看得远，
+           慢车看得近——regulated pure pursuit 的标准做法）；超出路径
+           末端时夹到终点，天然退化为"向终点 homing"。
+        2. 前视点变换到车体系，取横向偏移 ey 与弦长 d，代入经典公式
+               κ = 2·ey / d²
+           （注意分母是**弦长平方**，不是名义 L_d²：路径末端被夹短时
+           用名义值会低估曲率、末端修不动）。
+        3. κ 经 servo.command_for_kappa 落舵角（ideal 档即 δ=atan(L·κ)，
+           不对称档案自动吃到左右差异——这正是 U2 要对照的标准式）。
+        指令曲率存 _pp_kappa_cmd 供 regulated 限速取用。
+        """
+        cfg = self.cfg
+        ld = min(cfg.pp_ld_max,
+                 cfg.pp_ld_min + cfg.pp_ld_gain * max(0.0, self.v_cmd))
+        px, py, _pth, _pk = self.path.at_s(
+            min(self.s_prog + ld, self.path.length))
+        dx, dy = px - x, py - y
+        c, s = math.cos(th), math.sin(th)
+        ey = -dx * s + dy * c          # 车体系横向偏移（左正）
+        d = math.hypot(dx * c + dy * s, ey)   # 弦长（车到前视点距离）
+        d = max(d, 0.05)               # 下限防除零放大（末段 homing）
+        kappa = 2.0 * ey / (d * d)
+        if not math.isfinite(kappa):
+            kappa = 0.0                # 出口 NaN 防护与 stanley 分支同源
+        self._pp_kappa_cmd = kappa
+        return self.servo.command_for_kappa(kappa)
 
     # ---------------------------------------------------------------- ARC 机动
     def _enter_arc(self, corner, x, y, th, now, ev, at_vertex=False,

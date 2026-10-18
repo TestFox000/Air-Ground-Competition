@@ -446,6 +446,18 @@ def test_missing_config_file_is_reported(monkeypatch, tmp_path):
     assert node.cfg["v_max"] == DEFAULTS["v_max"]
 
 
+# =============================================================== U2 循迹对标
+def test_track_mode_switch_default_off():
+    """U2 跟踪律开关：默认必须仍是 stanley（不改变现役行为），
+    overrides 可切 pure_pursuit 且穿透到 TrackerConfig。"""
+    node = DzNavNode()
+    assert DEFAULTS["track_mode"] == "stanley"
+    assert node.cfg["track_mode"] == "stanley"
+    assert node.tcfg.track_mode == "stanley"
+    node2 = DzNavNode(overrides={"track_mode": "pure_pursuit"})
+    assert node2.tcfg.track_mode == "pure_pursuit"
+
+
 # =============================================================== 其它
 def test_shoot_count_tracked():
     node = DzNavNode()

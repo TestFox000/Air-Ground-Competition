@@ -78,6 +78,9 @@ DEFAULTS = {
     # tracker
     "v_max": 0.30,
     "a_lat_max": 0.22,
+    # U2 循迹对标：跟踪律切换（stanley=现状默认 | pure_pursuit=标准
+    # 前视弧长 + regulated 曲率限速）。默认关，台架 A/B 后再切。
+    "track_mode": "stanley",
     # mission
     "nav_timeout": 180.0,
     "shoot_target": 10,
@@ -148,7 +151,8 @@ class DzNavNode(Node):
                                 wheelbase=cfg["wheelbase"],
                                 mode=cfg["servo_mode"])
         tcfg = TrackerConfig(v_max=cfg["v_max"], a_lat_max=cfg["a_lat_max"],
-                             steer_trim_deg=cfg["steer_trim_deg"])
+                             steer_trim_deg=cfg["steer_trim_deg"],
+                             track_mode=cfg["track_mode"])
         self.tcfg = tcfg
         self.popts = PathOptions(dev_cap=cfg["dev_cap"],
                                  dev_cap_critical=cfg["dev_cap_critical"],
@@ -206,6 +210,7 @@ class DzNavNode(Node):
 
         self.get_logger().info(
             f"dznav 就绪 [待命] servo={cfg['servo_mode']} "
+            f"tracker={cfg['track_mode']} "
             f"v_max={cfg['v_max']} a_lat={cfg['a_lat_max']} "
             f"link_timeout={cfg['link_timeout']}s")
 

@@ -278,6 +278,145 @@ class TestPursuit:
         assert exited, "ARC 机动应按 yaw 判据完成"
 
 
+# ================================================================ U2 pure pursuit
+def _pp_tracker(wps, **tcfg_kw):
+    """pure_pursuit 模式跟踪器（其余参数与现役 stanley 一致）。"""
+    sv = ServoModel(steer_limit_deg=30.0)
+    rp = build_reference(wps, sv, PathOptions())
+    cfg = TrackerConfig(track_mode="pure_pursuit", **tcfg_kw)
+    return Tracker(rp, sv, cfg), sv
+
+
+def _run_closed_loop(tracker, sv, x0, y0, th0,
+                     t_max: float = 120.0, dt: float = 0.02) -> dict:
+    """理想 Ackermann 闭环（与 SIL ChassisSim 同构：中点积分）。
+
+    返回 {arrived, t_arr, max_cte, rms_cte, yaw_net, rebuilds}。
+    cte 每拍对参考中心线投影（与实车同一度量）。
+    """
+    x, y, th = x0, y0, th0
+    yaw_net = 0.0
+    ctes: list[float] = []
+    n = int(t_max / dt)
+    for i in range(n):
+        cte = tracker.path.project(x, y, tracker.s_prog)["cte"]
+        if math.isfinite(cte):
+            ctes.append(cte)
+        cmd, ev = tracker.update(x, y, th, dt, i * dt)
+        if any(e["ev"] == "arrived" for e in ev):
+            return {"arrived": True, "t_arr": i * dt,
+                    "max_cte": max(abs(c) for c in ctes),
+                    "rms_cte": math.sqrt(sum(c * c for c in ctes) / len(ctes)),
+                    "yaw_net": yaw_net, "rebuilds": tracker.rebuilds}
+        v = cmd.v
+        steer = math.radians(max(-30.0, min(30.0, cmd.steer_deg)))
+        w = v / sv.wheelbase * math.tan(steer)
+        th_mid = th + 0.5 * w * dt
+        x += v * math.cos(th_mid) * dt
+        y += v * math.sin(th_mid) * dt
+        th = wrap_pi(th + w * dt)
+        yaw_net += w * dt
+    return {"arrived": False, "t_arr": t_max,
+            "max_cte": max(abs(c) for c in ctes) if ctes else float("inf"),
+            "rms_cte": (math.sqrt(sum(c * c for c in ctes) / len(ctes))
+                        if ctes else float("inf")),
+            "yaw_net": yaw_net, "rebuilds": tracker.rebuilds}
+
+
+class TestPursuitPurePursuit:
+    """U2 对标：标准前视弧长公式 + regulated 曲率限速（默认关，本类显式开）。"""
+
+    def test_arc_formula_exact(self):
+        """公式逐项校验：κ=2·ey/d²（d=弦长），δ=atan(L·κ)（ideal 档）。
+
+        车在 (0.30, +0.02)、朝向 0、直线路径：投影 s=0.30，v_cmd=0 →
+        L_d=pp_ld_min=0.14，前视点 (0.44, 0) —— 全部手算，不经被测代码。
+        """
+        tr, sv = _pp_tracker([Waypoint(0, 0), Waypoint(3, 0)])
+        cmd, _ev = tr.update(0.30, 0.02, 0.0, 0.02)
+        d = math.hypot(0.14, 0.02)                 # 弦长：前向 0.14 + 横向 0.02
+        k_exp = 2.0 * (-0.02) / (d * d)            # 目标在车右侧 → ey<0
+        assert tr._pp_kappa_cmd == pytest.approx(k_exp, abs=1e-9)
+        assert cmd.steer_deg == pytest.approx(
+            math.degrees(math.atan(sv.wheelbase * k_exp)), abs=0.01)
+        assert cmd.steer_deg < 0.0                 # 左偏 → 右打
+
+    def test_heading_offset_steers_back(self):
+        """车头左偏 0.3 rad（在路径上）：前视点落入车体系右侧 → 右打。"""
+        tr, _sv = _pp_tracker([Waypoint(0, 0), Waypoint(3, 0)])
+        cmd, _ev = tr.update(0.30, 0.0, 0.30, 0.02)
+        assert cmd.steer_deg < 0.0
+
+    def test_regulated_speed_invariant(self):
+        """regulated 核心不变量：任意拍 v ≤ √(a_lat_max/|κ_cmd|)。
+
+        场景：车头偏 60° —— 指令曲率大（前视点在车体系侧前方），
+        速度必须被压到侧向加速度预算内；关闭 regulated 的对照组
+        则按直线路径曲率（≈0）全速规划。
+        """
+        tr_reg, _ = _pp_tracker([Waypoint(0, 0), Waypoint(3, 0)])
+        tr_free, _ = _pp_tracker([Waypoint(0, 0), Waypoint(3, 0)],
+                                 pp_cmd_regulate=False)
+        saw_bite = False
+        for i in range(12):
+            c_reg, _ = tr_reg.update(0.30, 0.0, math.radians(60.0), 0.02,
+                                     now=i * 0.02)
+            c_free, _ = tr_free.update(0.30, 0.0, math.radians(60.0), 0.02,
+                                       now=i * 0.02)
+            k = abs(tr_reg._pp_kappa_cmd)
+            if k > 1.0:
+                assert c_reg.v <= math.sqrt(tr_reg.cfg.a_lat_max / k) + 1e-9
+            if c_reg.v < c_free.v - 1e-6:
+                saw_bite = True     # regulated 真的咬住过（不只是不变量平凡成立）
+        assert abs(tr_reg._pp_kappa_cmd) > 3.0, "场景没构造出大指令曲率"
+        assert saw_bite, "regulated 全程没限过速 —— 对照失效"
+
+    def test_adaptive_lookahead_grows_with_speed(self):
+        """L_d = pp_ld_min + gain·v：高速拍的前视点更远（κ 更平缓）。"""
+        tr, _ = _pp_tracker([Waypoint(0, 0), Waypoint(6, 0)])
+        tr.v_cmd = 0.30              # 直接置速度（绕过斜坡），隔离验证 L_d 律
+        _cmd, _ = tr.update(0.30, 0.0, 0.0, 0.02)
+        ld_expect = min(0.35, 0.14 + 0.55 * 0.30)
+        px, py, _th, _k = tr.path.at_s(0.30 + ld_expect)
+        assert tr._pp_kappa_cmd == pytest.approx(0.0, abs=1e-9)  # 在线上
+        assert (px, py) == (0.30 + ld_expect, 0.0)
+
+    @pytest.mark.parametrize("name,wps,x0,y0,th0", [
+        ("corner90", [Waypoint(0, 0), Waypoint(1.5, 0), Waypoint(1.5, 1.5)],
+         0.0, 0.0, 0.0),
+        ("s_curve", [Waypoint(0, 0), Waypoint(1.2, 0), Waypoint(1.2, 0.8),
+                     Waypoint(2.4, 0.8)], 0.0, 0.0, 0.0),
+        ("diag45", [Waypoint(0, 0), Waypoint(1.5, 0), Waypoint(3.0, 1.5)],
+         0.0, 0.0, 0.0),
+        ("offset_start", [Waypoint(0, 0), Waypoint(3.0, 0)],
+         0.0, 0.12, 0.0),
+    ])
+    def test_ab_stanley_vs_pure_pursuit(self, name, wps, x0, y0, th0):
+        """A/B 对标：同场景双跟踪律闭环，各自必须达标并打印对比表。
+
+        达标口径（两律同一把尺）：到点、全程 |cte| < 17.5cm 失格线、
+        不画圈（|净转角| < 360°）。谁更准由打印的对比数据说话，
+        不写死优劣断言（对标报告见 docs/U2-循迹对标-20261018.md）。
+        """
+        results = {}
+        for mode in ("stanley", "pure_pursuit"):
+            sv = ServoModel(steer_limit_deg=30.0)
+            rp = build_reference(wps, sv, PathOptions())
+            tr = Tracker(rp, sv, TrackerConfig(track_mode=mode))
+            results[mode] = _run_closed_loop(tr, sv, x0, y0, th0)
+        line = (f"\n[A/B {name}] " + " | ".join(
+            f"{m}: 到点{r['t_arr']:.1f}s max_cte={r['max_cte']*100:.1f}cm "
+            f"rms={r['rms_cte']*100:.1f}cm 净转角{math.degrees(r['yaw_net']):.0f}°"
+            for m, r in results.items()))
+        print(line)
+        for mode, r in results.items():
+            assert r["arrived"], f"{name}/{mode} 未到点: {r}"
+            assert r["max_cte"] < 0.175, (
+                f"{name}/{mode} max|cte| {r['max_cte']*100:.1f}cm 超失格线")
+            assert abs(r["yaw_net"]) < math.radians(360), (
+                f"{name}/{mode} 疑似画圈")
+
+
 # ================================================================ fusion
 class TestFusion:
     def test_dr_straight(self):

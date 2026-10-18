@@ -13,6 +13,9 @@ steer_trim_deg: 0.0        # 机械配平（右偏为负；原版实测约 -1.0�
 # ---- 跟踪 ----
 v_max: 0.30                # m/s 巡航（速度包络 0.3-0.4，实测后调）
 a_lat_max: 0.22            # m/s² 侧向加速度预算（弯道限速 v=sqrt(a/κ)）
+track_mode: stanley        # 跟踪律：stanley（现状默认）| pure_pursuit（U2 标准
+                           #   前视弧长 κ=2y/d² + regulated 曲率限速；台架
+                           #   A/B 验证后再切，见 docs/U2-循迹对标-20261018.md）
 
 # ---- 任务 ----
 nav_timeout: 180.0         # s 单路线硬超时（比赛总预算）

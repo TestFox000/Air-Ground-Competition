@@ -492,6 +492,99 @@ class TestDzNavSil:
         assert "身后" in logs, "应先做对齐弧"
 
 
+# ================================================================ U2 循迹对标
+class TestU2TrackerModeSil:
+    """U2 SIL A/B：pure_pursuit（regulated）全链路对照 stanley（2026-10-18）。
+
+    全链路 = DzNavNode 真码（融合+跟踪一体）-> pursuitAngle -> DzActuatorSim
+    -> ChassisSim。三路线覆盖：图缘终点+射击停站（main）、S 弯+终点朝向
+    （sbend）、雷格过心（mine，最严横向精度，6cm 判分圆）。
+    达标口径与现役 stanley 同一把尺（到点、不急停、横向 < 17.5cm、
+    雷格 ≤ 6cm）；对比数据归档 docs/U2-循迹对标-20261018.md。
+    默认 track_mode=stanley 不变，本类显式切 pure_pursuit。
+    """
+
+    MINE_ROUTE = "N10 K10 K7 G7 G4,y"
+    MINES = ["M10", "L10", "K9", "K8", "I7", "H7", "G6", "G5"]
+
+    def _run(self, route: str, overrides: dict | None = None,
+             budget: float = 150.0, true_yaw_deg: float = 90.0):
+        w = DzNavWorld(true_yaw_deg=true_yaw_deg, node_overrides=overrides)
+        w.align_to(90.0)
+        w.send("reset:N10,y")
+        w.send(route)
+        # 完成语义对齐既有测试：跑到 ARRIVED/ESTOP（含终点朝向机动），
+        # 而非 tracker.arrived 瞬间（FINAL_ARC 会继续挪车，口径必须一致）
+        ok = w.run_until(
+            lambda: w.node.state in ("ARRIVED", "ESTOP"), budget_s=budget)
+        return w, ok
+
+    @pytest.mark.parametrize("route,label,mines,strict,yaw0", [
+        (MAIN_ROUTE, "main", None, False, 158.6),
+        (SBEND_ROUTE, "sbend", None, True, 90.0),
+        (MINE_ROUTE, "mine", MINES, True, 90.0),
+    ], ids=["main", "sbend", "mine"])
+    def test_pp_full_chain_matches_stanley(self, route, label, mines,
+                                           strict, yaw0):
+        """同路线双跟踪律全链路 SIL，场景与达标口径逐路线对齐既有测试。
+
+        - main：158.6° 偏摆 + align 起步（同 test_align_then_route_arrives）；
+          图缘终点+射击停站+V 形拐角（含 ARC 机动，对折线偏差合法超
+          17.5cm）—— 用其口径：到点、不急停、终点误差 <0.35m、
+          真值不出图（±0.40m 包络）；
+        - sbend/mine：净起步（同 test_s_bend / test_mine_pass_through）；
+          全 fillet 路线 —— 严尺：横向峰值 <17.5cm，雷格过心 ≤6cm。
+        对比数据（rms/max/用时）打印归档 docs/U2-循迹对标-20261018.md。
+        """
+        from dznav.contract import FIELD_X_MAX, FIELD_Y_MAX
+        stats = {}
+        for tag, overrides in (("stanley", None),
+                               ("pp", {"track_mode": "pure_pursuit"})):
+            w, ok = self._run(route, overrides, true_yaw_deg=yaw0)
+            assert ok and w.arrived and w.node.state != "ESTOP", (
+                f"{label}/{tag} 未到点或急停: state={w.node.state}")
+            if strict:
+                stats[tag] = w.lateral_stats(_blocks_of(route))
+                assert stats[tag]["max"] < 0.175, (
+                    f"{label}/{tag} 横向峰值 {stats[tag]['max']*100:.1f}cm "
+                    "超 17.5cm 失格线")
+                if mines:
+                    worst = ("", 0.0)
+                    for m in mines:
+                        mx, my = block_to_meters(m)
+                        dmin = min(math.hypot(r[1] - mx, r[2] - my)
+                                   for r in w.trace)
+                        if dmin > worst[1]:
+                            worst = (m, dmin)
+                        assert dmin <= 0.06, (
+                            f"{label}/{tag} 雷格 {m} 过心 {dmin*100:.1f}cm"
+                            " > 6cm 判分圆")
+                    print(f"\n[{label}/{tag}] 雷格过心最差 {worst[0]} "
+                          f"{worst[1]*100:.1f}cm")
+            else:
+                # main 口径：终点误差 + 出图包络（对齐既有主证明）
+                fw = _blocks_of(route)[-1]
+                fx, fy = block_to_meters(fw)
+                d = math.hypot(w.chassis.x - fx, w.chassis.y - fy)
+                assert d < 0.35, f"{label}/{tag} 终点误差 {d:.3f}m"
+                for rec in w.trace:
+                    if w.route_sent_t is not None \
+                            and rec[0] < w.route_sent_t:
+                        continue
+                    assert -0.40 <= rec[1] <= FIELD_X_MAX + 0.40, (
+                        f"{label}/{tag} t={rec[0]:.1f} 真值 x 出图 {rec[1]:.2f}")
+                    assert -0.40 <= rec[2] <= FIELD_Y_MAX + 0.40, (
+                        f"{label}/{tag} t={rec[0]:.1f} 真值 y 出图 {rec[2]:.2f}")
+                stats[tag] = w.lateral_stats(_blocks_of(route))  # 仅报告
+            stats[tag]["t"] = w.t - (w.route_sent_t or 0.0)
+        print(f"\n[U2 A/B {label}] stanley: t={stats['stanley']['t']:.1f}s "
+              f"rms={stats['stanley']['rms']*100:.1f}cm "
+              f"max={stats['stanley']['max']*100:.1f}cm | "
+              f"pure_pursuit: t={stats['pp']['t']:.1f}s "
+              f"rms={stats['pp']['rms']*100:.1f}cm "
+              f"max={stats['pp']['max']*100:.1f}cm")
+
+
 # ================================================================ 对照
 class TestBaselineCompare:
 
