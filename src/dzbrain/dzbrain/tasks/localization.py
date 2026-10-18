@@ -291,6 +291,22 @@ class LocalizationTask(TaskThread):
         self.scale_suspect_max = 0.0        # 见过的最大疑似尺度误差（绝对值）
         self._last_odom_ts: float | None = None
 
+        # ---- ★★行进方向裁决（2026-10-18 10:14 烟测：折返压线把 s 锁死在 0.70）----
+        #: 位移小于它（米）就认为"车没在动"，方向锁存上次可信值（**不能**退回命令符号：
+        #: 命令符号→选段→segment_is_reverse→命令符号 是自指环，见 tracker.py:351 的长注释）。
+        self._motion_eps_m = float(cfg.get("pursuit.motion_heading_eps_m") or 0.001)
+        #: 锁存的"车正在往哪边走"（地图系弧度）。倒车时它是**车头反向**（由位移天然得到）。
+        self._travel_heading: float | None = None
+        self._last_motion_xy: tuple[float, float] | None = None
+        #: 带牙实验开关：关掉 = 回退到"不传 motion_heading"的旧行为（测试用）。
+        self.motion_heading_enabled = True
+        self.motion_heading_ticks = 0     # 用位移方向更新的拍数（可观测）
+        #: 上一次**被接受**的投影（方向一致性闸拒绝时原样沿用，见 _opposes_travel）。
+        self._last_proj = None
+        self.direction_rejects = 0        # 因"逆着行进方向"被拒绝的投影次数（可观测）
+        #: 路线内容签名（token/长度变化 ⇒ 换载）；identity 之外的第二道判据。
+        self._route_sig: tuple | None = None
+
         # 卡死判定的滑动窗口（起点：s 与位姿。s 一有前进就重新起算）
         self._stuck_s: float | None = None
         self._stuck_n: int = 0
@@ -349,6 +365,9 @@ class LocalizationTask(TaskThread):
         # 否则一次修正会被当成"车转了"。（吸附/重锚只改位置、不改 yaw，故无此问题。）
         self._update_yaw_guard(pose, age, now)
 
+        # ---------------- ①c ★行进方向（投影裁决的输入；折返压线时唯一能分段的判据） ---------------- #
+        self._update_travel_heading(pose)
+
         # ---------------- ② 应用 P_FIX 修正 ---------------- #
         fix = self.bb.get(P_FIX)
         if not isinstance(fix, FixState):
@@ -359,7 +378,7 @@ class LocalizationTask(TaskThread):
         self.bb.set(P_POSE_RAW, pose, source=self.name, ts=now)
 
         # ---------------- ③ 路线投影（带 s_hint） ---------------- #
-        proj = self._project(cx, cy)
+        proj = self._project(cx, cy, cyaw)
         if proj is not None:
             self.projected_ticks += 1
             self.bb.set(P_ROUTE_INDEX, proj.seg_index, source=self.name, ts=now)
@@ -389,7 +408,7 @@ class LocalizationTask(TaskThread):
         # 吸附把点挪了，就重新投影一次（单段内，代价可忽略）
         if anchored_pose is not None:
             self.bb.set(P_POSE, anchored_pose, source=self.name, ts=now)
-            proj2 = self._project(anchored_pose.x, anchored_pose.y)
+            proj2 = self._project(anchored_pose.x, anchored_pose.y, anchored_pose.yaw)
             if proj2 is not None:
                 self.bb.set(P_ROUTE_INDEX, proj2.seg_index, source=self.name, ts=now)
                 self.bb.set(P_ROUTE_S, proj2.s, source=self.name, ts=now)
@@ -421,7 +440,7 @@ class LocalizationTask(TaskThread):
             return _INF
         return _INF if math.isinf(out) or math.isnan(out) else out
 
-    def _project(self, x: float, y: float):
+    def _project(self, x: float, y: float, yaw: float | None = None):
         """用当前 s_hint 投影（无路线/路线太短 → None）。
 
         ★ 调用形状是**试出来的**，不是随手填的：`Path.project` 在 `allow_backward=True` 时把
@@ -442,8 +461,14 @@ class LocalizationTask(TaskThread):
         route = self.bb.get(P_ROUTE)
         if not isinstance(route, Route) or len(route.waypoints) < 2:
             return None
-        if self._route is not route:        # 换了路线：缓存与 hint 一起作废
+        # ★换载重置：identity 之外再比「内容签名」（航点数 + 首末格）。Route 是 frozen 的，
+        #   identity 相同通常内容也相同；这道签名是给「换了新对象但内容/长度变了」的防御，
+        #   以及给中途外部命令换线一个明确复位点。**绝不能沿用上一趟的 s_hint**
+        #   （2026-10-18 烟测：上一趟终点 s=0.70 被带进新趟 ⇒ 共线折返上锁死）。
+        sig = (len(route.waypoints), route.waypoints[0].block, route.waypoints[-1].block)
+        if self._route is not route or sig != self._route_sig:
             self._route = route
+            self._route_sig = sig
             self._path = Path(route)
             self._s_hint = None
             self._last_seg = -1
@@ -451,13 +476,40 @@ class LocalizationTask(TaskThread):
             self._reanchor_idx = -1
             self._anchor_key = None
             self._clear_stuck()
+            # 换载后方向必须重新建立（上一趟的方向/位移不能带到新路线）
+            self._travel_heading = None
+            self._last_motion_xy = None
             self._log(f"路线已装载：{len(route.waypoints)} 点 / {self._path.total_length:.2f} m")
         assert self._path is not None
+        # ★★必须带 motion_heading：路线折返压在同一条线上时（N10→M10→R:N10 就是），
+        #   同一物理点到两条段完全等距，位置裁决不了；s_hint 一旦坏掉就再也回不来。
+        #   方向取「实际位移」（倒车时天然是车头反向），见 _update_travel_heading。
+        # 方向：优先实测位移；换载后首拍还没有位移 ⇒ 用调用方的信念 yaw（车头方向）。
+        heading = self._travel_heading if self.motion_heading_enabled else None
+        if self.motion_heading_enabled and heading is None and yaw is not None:
+            heading = float(yaw)
         proj = self._path.project(x, y, s_hint=self._s_hint,
-                                  window_m=self.arrival_m, allow_backward=False)
+                                  window_m=self.arrival_m, allow_backward=False,
+                                  motion_heading=heading)
         proj = self._heal_stuck(proj, x, y)
+        # ---- ★★方向一致性闸：投影不许落在「逆着行进方向的共线支」上 ----
+        # 现场会怎么错：车在 N10→M10 去程上离顶点 6.4 cm 时触发「到位吸附 M10」，信念被锚到
+        # 顶点 ⇒ s_hint 被推到 0.35；下一拍原始位姿还在顶点**之前**，而前向窗口 [0.35, 0.47]
+        # 里只有回程段（共线、方向相反），投影返回回程段 0.414（离车 0）—— 位置更近、方向反了。
+        # 之后 _warning_gate 的下一个航点变成 N10，离车 0.31 m ⇒ 假漂移 → drift_stop。
+        # 判据：投影段几何方向与实际行进方向夹角 > 150°（折返压线就是 180°；90°/135° 的
+        # 正常直角/钝角弯不受影响）⇒ 拒绝本次推进，沿用上一拍被接受的投影（s 不往前跳）。
+        if self._opposes_travel(proj) and self._last_proj is not None:
+            self.direction_rejects += 1
+            if self._warn.allow("proj_dir_reject", self.clock()):
+                self._log(f"⛔ 投影方向不一致：段 {proj.seg_index} s={proj.s:.3f} 与行进方向"
+                          f" {geo.deg(self._travel_heading):.0f}° 相反（共线折返的另一支）"
+                          f" → 保留上一拍 s={self._last_proj.s:.3f}"
+                          f"（累计 {self.direction_rejects} 次）")
+            return self._last_proj
         self._s_hint = proj.s
         self._last_seg = proj.seg_index
+        self._last_proj = proj
         return proj
 
     # ------------------------------------------------------------------ #
@@ -515,13 +567,22 @@ class LocalizationTask(TaskThread):
         if self._path is None or not self._stuck_check(proj, x, y):
             return proj
         self.stuck_scans += 1
-        # ★ 全路线搜索，但**保留 hint**（只让它裁决等距候选）：
-        #   `s_hint=None` 时 path.py 对共线折返段按"取更靠后的段"裁决，会把投影误锁到
-        #   另一条边（"路线自交时会误锁到另一条边"是它 docstring 里既有的警告），
-        #   s 会凭空前跳一整段（实测 +1.15 m）；而"取离 hint 最近的候选"才是连续性语义。
-        #   窗口给到整条路线长度 = 全扫；候选集是窗口投影的**超集** ⇒ dist 只会变好不会变差。
-        glob = self._path.project(x, y, s_hint=self._s_hint,
-                                  window_m=self._path.total_length, allow_backward=True)
+        # ★★全路线搜索的裁决顺序（2026-10-18 烟测修）：
+        #   ① 有**行进方向**时，先按方向裁决、**不传 s_hint** —— 因为「卡死」的定义就是
+        #      s_hint 已经错了，此时「离 hint 最近」恰好会选回错误的共线支（实测：
+        #      s_hint=0.70 时全扫按 hint 选到回程段 0.483，而真值是去程段 0.217）。
+        #      方向能唯一区分前一趟/回程趟（两者等距），这是位置+连续性都做不到的。
+        #   ② 没有方向（车没动过/方向未知）时才退回旧的「保留 hint 连续性」，
+        #      即「仍歧义时按与上一拍 s 连续裁决」——不得跳到另一条共线段。
+        #   ③ 两条分支都保留既有的大跳跃可信闸（下面），不会因方向误判就把 s 瞬移。
+        heading = self._travel_heading if self.motion_heading_enabled else None
+        if heading is not None:
+            glob = self._path.project(x, y, s_hint=None,
+                                      window_m=self._path.total_length,
+                                      allow_backward=True, motion_heading=heading)
+        else:
+            glob = self._path.project(x, y, s_hint=self._s_hint,
+                                      window_m=self._path.total_length, allow_backward=True)
         jump = float(glob.s) - float(proj.s)
         # ---- ★大跳跃可信闸（2026-10-17 实车 +12.82 m 误锁的修复）----
         # 只判"新投影更近"是不够的：车跑到两条路线腿**之间**时，两条腿都离车 0.6~0.8 m，
@@ -725,6 +786,72 @@ class LocalizationTask(TaskThread):
             return bool(self._manual_fn())
         except Exception:                    # noqa: BLE001
             return False
+
+    # ------------------------------------------------------------------ #
+    #  ★★ 行进方向裁决（共线折返时投影唯一能用的分段判据）
+    # ------------------------------------------------------------------ #
+    def _update_travel_heading(self, pose) -> None:
+        """用**实际位移**估计「车正在往哪边走」（地图系弧度），位移过小时锁存上次值。
+
+        ## 为什么必须做（2026-10-18 10:14 实车烟测，路线 N10 M10 R:N10）
+
+        折返段压在同一条直线上：同一个物理点到「去程段」和「回程段」**完全等距**，
+        位置信息裁决不了它属于哪一段。Localization 启动时 s_hint=None，第一次全路线
+        投影在 N10（= 终点格，s=0.70）上按「无提示取更靠后的段」选中了**回程段末点**
+        ⇒ P_ROUTE_S=0.700 并当场触发「到位吸附 N10（航点 #2）」；之后每拍用
+        allow_backward=False 的窗口 [0.70, 0.82] 投影，车怎么走都只能返回 0.700，
+        dist 从 0.11 涨到 0.32 ⇒ 假漂移 0.301 → drift 限速 → drift_stop 急停。
+
+        唯一能区分两条共线段的判据是「车正在往哪边走」：往前一趟 ⇒ 命中去程段，
+        倒回来 ⇒ 命中回程段。方向取**实测位移**：
+        · 倒车时位移方向天然是车头反向，不需要知道 segment_is_reverse，
+          也就不会形成「命令符号 → 选段 → is_rev → 命令符号」的自指环
+          （tasks/tracker.py 的同款长注释有完整血证）；
+        · 位移小于 pursuit.motion_heading_eps_m（1 mm）时方向是噪声 ⇒ 锁存上次可信值；
+        · 从未动过（首拍/换载后首拍）⇒ 退化为车头 yaw（自动任务总是从路线起点对准
+          首段出发；一旦车动 ≥1 mm，位移方向立刻纠正它）。
+
+        ⚠️ 已知边界：yaw 兜底假设「首段是正向」。若路线首段本身是倒车段（R: 开头）
+        且车头已对准倒车方向，首拍方向会反 —— 本卡的烟测路线首段是正向，未覆盖；
+        车一动（≥1 mm）即自我纠正。
+        """
+        dist = 0.0
+        dx = dy = 0.0
+        if self._last_motion_xy is not None:
+            dx = float(pose.x) - self._last_motion_xy[0]
+            dy = float(pose.y) - self._last_motion_xy[1]
+            dist = math.hypot(dx, dy)
+        self._last_motion_xy = (float(pose.x), float(pose.y))
+        # 位姿不连续（重定位/测试传送/换载）：方向不可信，不更新。
+        # 门限 0.10 m/拍：本车最快 0.35 m/s，20 Hz = 1.8 cm、5 Hz 回放 = 7 cm，都在门限内；
+        # 超过 0.10 m 的"单拍位移"不可能是开出来的（测试里常见的 set_pose 传送就会命中）。
+        if dist >= 0.10:
+            return
+        if dist >= self._motion_eps_m:
+            self._travel_heading = math.atan2(dy, dx)   # 倒车时天然是车头反向
+            self.motion_heading_ticks += 1
+        elif self._travel_heading is None:
+            self._travel_heading = float(pose.yaw)
+
+    def _opposes_travel(self, proj) -> bool:
+        """投影点所在段的几何方向是否与「实际行进方向」相反（折返压线误锁的判据）。
+
+        为什么需要（2026-10-18 烟测）：折返段与去程段完全共线时，顶点附近的同一个物理点
+        同时属于两条段；窗口一旦把搜索范围推到顶点之后（例如「到位吸附」把信念锚到顶点、
+        下一拍原始位姿还在顶点之前），最近点会落在**回程段**上 —— 距离比去程段的顶点候选
+        更近（0 vs 6.4 cm），纯位置/连续性都裁决不了，只有方向能。
+        ⚠️ 阈值取 150°（不是 90°）：90° 直角弯、135° PIVOT 换向都属正常，不能误伤；
+        共线折返是 180°，留 30° 给噪声与「先原地转再走」的过渡拍。
+        """
+        if not self.motion_heading_enabled or self._travel_heading is None:
+            return False
+        if self._path is None:
+            return False
+        i = int(proj.seg_index)
+        segs = self._path.segments
+        if i < 0 or i >= len(segs):
+            return False
+        return abs(geo.ang_diff(segs[i][5], self._travel_heading)) > math.radians(150.0)
 
     def _anchor(self, x: float, y: float, yaw: float, proj, now: float):
         """到位吸附。返回锚定后的 Pose；未触发返回 None。
@@ -945,6 +1072,11 @@ class LocalizationTask(TaskThread):
             "scale_suspect_max": round(self.scale_suspect_max, 4),
             "anchor_scale_max": self.anchor_scale_max,
             # ★航向完整性守卫（2026-10-17 K9 事故）：判定结果 + 分母（误报率评估用）
+            # ★行进方向裁决（折返压线）的可见化
+            "motion_heading_ticks": self.motion_heading_ticks,
+            "direction_rejects": self.direction_rejects,
+            "travel_heading_deg": (None if self._travel_heading is None
+                                   else round(geo.deg(self._travel_heading), 1)),
             "yaw_untrusted": self.yaw_untrusted,
             "yaw_guard_trips": self.yaw_guard_trips,
             "yaw_guard_samples": self.yaw_guard_samples,

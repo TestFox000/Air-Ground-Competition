@@ -794,4 +794,132 @@ check("复用 fault 通路：P_SAFETY.ok=False 且已发零速指令",
       _p_safe is not None and _p_safe.ok is False and bridge_sf.brakes >= 1,
       f"ok={getattr(_p_safe, 'ok', None)} brakes={bridge_sf.brakes}")
 
+# --------------------------------------------------------------------------- #
+#  ⑬ 折返/共线投影（2026-10-18 10:14 实车烟测：N10 M10 R:N10 在折返处 s 锁死 0.70）
+# --------------------------------------------------------------------------- #
+section("⑬ 折返共线投影：motion_heading + 换载重置 + 倒车方向 + 真漂移不削弱")
+
+SMOKE_TOKENS = ["N10", "M10", "R:N10"]      # 烟测路线：3 点 / 0.70 m，最后一段倒车折返
+#: 7_path.log 的 [T] 真实位姿（15 个去重采样点，yaw=度）；车从 N10 东行到 M10 前 2.6 cm。
+SMOKE_POSES = [
+    (0.525, 0.175, 90.5), (0.524, 0.253, 89.7), (0.524, 0.288, 89.6),
+    (0.524, 0.357, 89.1), (0.524, 0.392, 89.0), (0.525, 0.461, 87.8),
+    (0.526, 0.482, 87.3), (0.526, 0.499, 87.7), (0.526, 0.499, 87.8),
+    (0.526, 0.499, 87.7), (0.526, 0.499, 87.8), (0.526, 0.499, 87.9),
+    (0.526, 0.499, 88.0), (0.526, 0.499, 87.9), (0.526, 0.499, 88.0),
+]
+
+
+def _fold_s(x: float, y: float, phase: str = "out") -> float:
+    """折返路线的几何真值弧长（与投影链无关）。out=去程，back=倒车回程。"""
+    n10y, m10y = geo.block_to_meters("N10")[1], geo.block_to_meters("M10")[1]
+    if phase == "out":
+        return max(0.0, min(y - n10y, 0.35))
+    return 0.35 + max(0.0, min(m10y - y, 0.35))
+
+
+def _fold_rig(motion: bool = True):
+    task, bridge, bb, bus, clock = build(
+        overrides={"fix": {"anchor_at_waypoint": True}},
+        route=parse_mission(list(SMOKE_TOKENS)), seed_pose=False)
+    task.motion_heading_enabled = bool(motion)
+    return task, bridge, bb, bus, clock
+
+
+def _fold_replay(frames, phases, motion: bool = True):
+    """按 20 Hz（每个采样点 10 拍）回放，返回 (task, bb, 最大误差, [(pose,s,truth)…])."""
+    task, bridge, bb, bus, clock = _fold_rig(motion)
+    worst = 0.0
+    rows = []
+    for idx, (x, y, yaw_deg) in enumerate(frames):
+        for _ in range(10):
+            bridge.set_pose(x, y, math.radians(yaw_deg))
+            clock.advance(0.05)
+            task.tick()
+        s = bb.get(P_ROUTE_S)
+        truth = _fold_s(x, y, phases[idx])
+        worst = max(worst, abs(s - truth))
+        rows.append((x, y, s, truth))
+    return task, bb, worst, rows
+
+
+# ---- ⑬.1 正例：真实烟测位姿回放（旧行为：首拍 s=0.700、末拍 0.483、drift_stop）----
+task_f, bb_f, worst_f, rows_f = _fold_replay(SMOKE_POSES, ["out"] * len(SMOKE_POSES))
+s_first, s_last = rows_f[0][2], rows_f[-1][2]
+check("真实烟测回放：首拍 s=0.000（旧行为 0.700 = 提前锁定终点格）",
+      abs(s_first) < 0.02, f"first_s={s_first:.3f}")
+check("真实烟测回放：末拍 s ≤ 0.37（旧行为 0.483 回程段；真值 0.324）",
+      s_last <= 0.37, f"last_s={s_last:.3f}")
+check("真实烟测回放：全程 |s-真值| ≤ 0.075（含到位吸附 ≤arrival_m 的前拉）",
+      worst_f <= 0.075, f"worst={worst_f:.3f}")
+check("真实烟测回放：0 漂移告警（旧行为 1 次 / 偏差 0.301>0.300）",
+      task_f.drift_warnings == 0, f"warnings={task_f.drift_warnings}")
+check("真实烟测回放：P_MOTION_LIMIT 未被触发（旧行为 drift→drift_stop）",
+      bb_f.get(P_MOTION_LIMIT) is None, f"limit={bb_f.get(P_MOTION_LIMIT)}")
+check("真实烟测回放：方向拒绝闸确实工作过（不是'恰好没触发'）",
+      task_f.direction_rejects >= 1 and task_f.motion_heading_ticks >= 1,
+      f"rejects={task_f.direction_rejects} ticks={task_f.motion_heading_ticks}")
+
+# ---- ⑬.2 ★带牙对照：关掉 motion_heading = 回退旧行为，必须红 ----
+task_of, bb_of, worst_of, rows_of = _fold_replay(SMOKE_POSES, ["out"] * len(SMOKE_POSES),
+                                                motion=False)
+lim_of = bb_of.get(P_MOTION_LIMIT)
+check("★带牙对照：关掉 motion_heading 后首拍 s=0.700（旧吸收态复现）",
+      rows_of[0][2] > 0.5, f"first_s={rows_of[0][2]:.3f}")
+check("★带牙对照：关掉后出现假漂移 + drift_stop（旧行为）",
+      task_of.drift_warnings >= 1 and isinstance(lim_of, dict)
+      and lim_of.get("reason") == "drift_stop",
+      f"warnings={task_of.drift_warnings} limit={lim_of}")
+
+# ---- ⑬.3 倒车段方向符号：一出（y↑）一回（y↓，车头不变）----
+n_drive = 88
+y = geo.block_to_meters("N10")[1]
+_frames, _phases = [], []
+for _ in range(n_drive):
+    y = min(geo.block_to_meters("M10")[1], y + 0.08 * 0.05)
+    _frames.append((geo.block_to_meters("N10")[0], y, 90.0))
+    _phases.append("out")
+for _ in range(n_drive):
+    y = max(geo.block_to_meters("N10")[1], y - 0.08 * 0.05)
+    _frames.append((geo.block_to_meters("N10")[0], y, 90.0))
+    _phases.append("back")
+
+task_rev, bb_rev, worst_rev, rows_rev = _fold_replay(_frames, _phases)
+_s_seq = [r[2] for r in rows_rev]
+check("倒车回程：s 单调不减（倒车段 s 仍沿路线前进，不倒退）",
+      all(b >= a - 1e-9 for a, b in zip(_s_seq, _s_seq[1:])),
+      f"min step={min(b - a for a, b in zip(_s_seq, _s_seq[1:])):+.4f}")
+check("倒车回程：末拍 s≈0.70（走到路线终点）",
+      abs(_s_seq[-1] - 0.70) <= 0.05, f"end_s={_s_seq[-1]:.3f}")
+check("倒车回程：|s-真值| ≤ 0.125（仅到位吸附那一拍的前拉 ≤arrival_m）",
+      worst_rev <= 0.125, f"worst={worst_rev:.3f}")
+check("倒车回程：0 漂移告警 / 无限速（折返不被误判成漂移）",
+      task_rev.drift_warnings == 0 and bb_rev.get(P_MOTION_LIMIT) is None)
+
+# ---- ⑬.4 换载重置：上一趟终点 s=0.70 不得带进新路线 ----
+task_rl, bridge_rl, bb_rl, bus_rl, clock_rl = _fold_rig()
+for x, y2, yaw_deg in _frames:                 # 先跑完一整趟（末拍 s=0.70）
+    bridge_rl.set_pose(x, y2, math.radians(yaw_deg))
+    clock_rl.advance(0.05)
+    task_rl.tick()
+s_prev = bb_rl.get(P_ROUTE_S)
+bb_rl.set(P_ROUTE, parse_mission(list(SMOKE_TOKENS)), source="test-reload")  # 换载（新对象）
+bridge_rl.set_pose(0.525, 0.175, math.pi / 2)
+clock_rl.advance(0.05)
+task_rl.tick()
+s_new = bb_rl.get(P_ROUTE_S)
+check("换载重置：上一趟 s=0.70 没有带进新路线（首拍回到 0.0）",
+      s_prev >= 0.65 and abs(s_new) < 0.02, f"prev={s_prev:.3f} new={s_new:.3f}")
+
+# ---- ⑬.5 真漂移护栏不得削弱：横向偏 0.40 m 直行仍要报漂移并停车 ----
+_drift_frames = [(geo.block_to_meters("N10")[0] + 0.40,
+                  geo.block_to_meters("N10")[1] + 0.08 * 0.05 * i, 90.0) for i in range(60)]
+task_d2, bb_d2, _, _ = _fold_replay(_drift_frames, ["out"] * 60)
+_lim_d2 = bb_d2.get(P_MOTION_LIMIT)
+check("真漂移 0.40 m：仍报漂移告警（护栏未被本轮修复削弱）",
+      task_d2.drift_warnings >= 1, f"warnings={task_d2.drift_warnings}")
+check("真漂移 0.40 m：仍下发 drift/drift_stop 限速",
+      isinstance(_lim_d2, dict) and _lim_d2.get("reason") in ("drift", "drift_stop"),
+      f"limit={_lim_d2}")
+
 finish()
