@@ -1,0 +1,81 @@
+# FILE_MANIFEST - 无人机上机包_20261017（含 20261017 晚格号修复补丁 v2 + localized 门槛修复 v3 + live 读数 +5 偏移修复 v4）
+# 共 70 个文件，md5 校验（Get-FileHash 对比）
+# v3（2026-10-17 晚）：MapLocalizer.cpp 内点门槛改比例制（PnP max(4,30%)/单应
+# max(5,30%)）、凸包面积门 0.005——小正确地标集加固（本次 live 事故中质检门
+# 为正确行为非根因，见 v4）。
+# v4（2026-10-17 深夜，live 事故真正根因定案）：live 程序字母解码表按原厂引擎
+# 类别序编写，v4d 引擎过旧表 → 字母恒定 +5（真实 B/D/E 读成 G/I/J，逆方向产生
+# 场外字母 O 数学排除）；新增移位 v4d ONNX（letter_logits 通道循环移位 -5，
+# 106 真值裁剪 106/106 验证）；配套一键工具 fix_live_decode.py + 构建脚本
+# make_permuted_v4d.py 在本机 Trae-CN\default 根目录（与 fix_cell_labels.py 同层）。
+
+34141fc73135a5bb4362aed961449154       16655  01_定位栈v2.1\onboard\dzpx4_patch\localization_watchdog.py
+13c8c2b3fc984f72f4fb036f52282bd7       36604  01_定位栈v2.1\onboard\dzpx4_patch\px4_odom_convert.cpp
+749a5e2eb0597e38ed5d72e58b66b43d       12107  01_定位栈v2.1\onboard\dzpx4_patch\px4_odom_convert.hpp
+858797fb74d5bf5651c7f5a89d765615       17849  01_定位栈v2.1\tests\test_blackbox_health_v2.py
+de77c8afe2418dfc8d4a0b6e22e974b6       20280  01_定位栈v2.1\tests\test_jump_guard_v2.py
+bc0777891e188d5a5971f5065ca28e92       14493  01_定位栈v2.1\tests\test_localization_watchdog.py
+a9de134b0d7479ff3c6ac5e7781f45a0       10267  01_定位栈v2.1\tools\check_stack_health.py
+419a83142c8ffc18a999ab4800c5e5aa        9016  01_定位栈v2.1\tools\factory_flight_diag.py
+139e399f4b77a68bf793f3da9e5e7285       13157  01_定位栈v2.1\tools\patch_deploy.py
+9d063f38730162bfc0dd82119cd57b8f       14911  01_定位栈v2.1\tools\remote_run.py
+67d78b1057bd54dd769035569183b0dc        7609  01_定位栈v2.1\tools\uxrce_link_guard.py
+9de102a6519127eeb787381feefdc14d     4335660  02_D13与v4d模型链\cell_classifier_v4d_20261015.onnx
+df2758b87aa982938e55da0c193e0594     4346802  02_D13与v4d模型链\cell_classifier_v4d_perm5_20261017.onnx
+176885686d44d91c902a2844393f0bb4        4027  02_D13与v4d模型链\deploy_d13_board.py
+90acd69c2dd126af3cfcf45506958565        2847  02_D13与v4d模型链\l3b_field_frame.py
+364f3c6c2ab00774e8481c3254dbe122        9843  02_D13与v4d模型链\L3B_RUNBOOK.md
+24623a613ceeea7e9fb334d1771fe4ba        4826  02_D13与v4d模型链\l3b_with_v4d.py
+9dae6083239b3b6c0b553c5f94261e78    38451280  02_D13与v4d模型链\models\hbb_d13.onnx
+2fcbc8ab9e31a267cd98e1779cc76a98        2447  02_D13与v4d模型链\verify_d13_l3.py
+d32c1aea0c059b44f7eed6933d7da098        1622  03_机载代码与工具\air_ground\onboard\dzuav\CMakeLists.txt
+0aa48809e9055fca9052a1a2d37bef3f        1194  03_机载代码与工具\air_ground\onboard\dzuav\include\dzuav\CellClassifier.hpp
+a6aed6ccae2879dba013c332fe12f6b1        1072  03_机载代码与工具\air_ground\onboard\dzuav\include\dzuav\CudaCheck.hpp
+9608802c893015556f1e1d7bbbb0750a        2197  03_机载代码与工具\air_ground\onboard\dzuav\include\dzuav\HbbDetector.hpp
+92ed40002b90f69e53ecf943060552af        1271  03_机载代码与工具\air_ground\onboard\dzuav\include\dzuav\MapLocalizer.hpp
+eed89f432b2fcca631c0ad8bfd7a9d0b        3467  03_机载代码与工具\air_ground\onboard\dzuav\include\dzuav\TensorRtEngine.hpp
+33d4f487dc5732cdbcb668fcc82b09ec        1845  03_机载代码与工具\air_ground\onboard\dzuav\include\dzuav\types.hpp
+ed4d7e405078f780981544f0b93b3227        1341  03_机载代码与工具\air_ground\onboard\dzuav\include\dzuav\UdpBroadcaster.hpp
+00173d6702b01f5e73a816febba30a8b        5546  03_机载代码与工具\air_ground\onboard\dzuav\src\CellClassifier.cpp
+6730a05e0105c0630b8f0e9ef48d7fff        7465  03_机载代码与工具\air_ground\onboard\dzuav\src\HbbDetector.cpp
+8efee9016a26b4f26671531824824fcb       18020  03_机载代码与工具\air_ground\onboard\dzuav\src\main.cpp
+f1f0f1d8c41d82ecd74a81572b90af6c        7454  03_机载代码与工具\air_ground\onboard\dzuav\src\MapLocalizer.cpp
+89035a4911936897fc7c5ac7f8b78a31        4525  03_机载代码与工具\air_ground\onboard\dzuav\src\UdpBroadcaster.cpp
+1a81b966aa66675b194144be64f7ebed          60  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\__init__.py
+1f7011f0ce58d53a9e0328f6498be769        8871  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\anchored_registration.py
+491ace9e7258a135cbbc9a439b90aaec        2919  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\car_adapter.py
+f4b2199bad7b5951cb50111aceb7fbdd        2645  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\car_commands.py
+ea058ee193e85541f384a0b097d97230       18682  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\dzbrain_bridge.py
+74d2f3404a3dd46f9bd0a1ebb9f48e8e       10408  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\evidential_map.py
+8a5a22ea3d7cd89dc7c74dea04d54361        1683  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\field_frame.py
+78d741c605e5353eaee5b783076f9899       11066  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\field_matrix.py
+dfabcc1d89347c6afeada26e281690f1        3903  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\fire_guard.py
+b3d3c8e7421022a73c52bd3dfdf83d87        9786  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\ground_projection.py
+a0d4a37cdbd98733619f4974375c608e        3861  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\heading_calibration.py
+60a79470da1079b2104973aada18c924       34055  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\integrate_node.py
+f677686acc858600a18c392088314d17        8755  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\intel_protocol.py
+4ce27d09961d556cc36d28536d6785da       47712  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\mission_router.py
+fab65f21d4a696ecac6b0f046970b279        6559  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\pipeline.py
+986bb6a2ead4222416f99bf76ed56834        3836  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\route_time.py
+c7fff3d50a1a38216d6f12a872b378ac        4774  03_机载代码与工具\air_ground\src\ag_integrate\ag_integrate\world_model.py
+21db9abe248e6811212ecd3b5a36e581        5750  03_机载代码与工具\air_ground\src\ag_integrate\config\match_params.yaml
+d2df85e688f0e9907e4c7d9389082b0d        1723  03_机载代码与工具\air_ground\src\ag_integrate\launch\integrate.launch.py
+41fbb73f162ddd0c15f248322ad56bab         769  03_机载代码与工具\air_ground\src\ag_integrate\package.xml
+d41d8cd98f00b204e9800998ecf8427e           0  03_机载代码与工具\air_ground\src\ag_integrate\resource\ag_integrate
+593ed1cf038aa4307c39bce4e6332f77          94  03_机载代码与工具\air_ground\src\ag_integrate\setup.cfg
+bb1faeec07e62d3bdc85b210b48ed682         939  03_机载代码与工具\air_ground\src\ag_integrate\setup.py
+9291b3f90fd4a98e83dfa6d5bc8d4ba6       14401  03_机载代码与工具\air_ground\tools\monitor_link.py
+248b39fa3ed84f6084287977c590aaac        5156  03_机载代码与工具\air_ground\tools\orin_bringup.sh
+5f1c8f9e9f91025cd316be2ef1b0b0e3       11895  03_机载代码与工具\air_ground\tools\orin_build_verify.sh
+3dc979c5df70e7adb02ac57aef6af72d        3031  03_机载代码与工具\air_ground\tools\orin_convert_engines.sh
+9b03a016431d54c335a70db2af3f06d6        9895  03_机载代码与工具\air_ground\tools\orin_deploy.py
+9cd0aa406b4ad3afbb57c1402de16afd       18730  03_机载代码与工具\air_ground\tools\orin_flight_blackbox.py
+ff45c4087133ec99f06fd26ea546f930       10459  03_机载代码与工具\air_ground\tools\orin_log_capture.py
+a9325937abdb7bc393fc0843a08a5d2a        2673  03_机载代码与工具\air_ground\tools\orin_run_dzuav.sh
+781c70f886218ac49266dd5833320b8a       12050  03_机载代码与工具\air_ground\tools\preflight.py
+9d063f38730162bfc0dd82119cd57b8f       14911  03_机载代码与工具\air_ground\tools\remote_run.py
+9de102a6519127eeb787381feefdc14d     4335660  04_备份_视频侦察\cloud_train_20261015\deploy_pkg\cell_classifier_v4d_20261015.onnx
+920fd66be8c3e984d72cba62b1345c1f       15500  04_备份_视频侦察\orin_recon2.py
+93c1a8d2188c364690102147f9327693       13534  docs\无人机代码体系改动说明-20261017.md
+f4a76b1a841df556ba387e009988b049  8238  FILE_MANIFEST.txt
+289a60d173b26e48c743a1e58b2f162a  7181  README.md

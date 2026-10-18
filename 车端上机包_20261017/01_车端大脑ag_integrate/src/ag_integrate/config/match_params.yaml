@@ -1,0 +1,78 @@
+# 每局开赛前唯一要改的文件：裁判系统地图先验 + 摆位。
+# 无人机识别到的雷/障碍/桥洞通行格（ARROW）/靶面，由 dzuav 帧实时给出，
+# 不在此配置。
+integrate_node:
+  ros__parameters:
+    # ---- 链路 ----
+    udp_port: 50000                 # dzuav 态势广播端口
+    waypoint_topic: "/nav/waypoint"  # 官方 path_executor 订阅的话题
+    dry_run: true                   # 只算不发；实车联调通过后改 false
+    publish_reset: true
+    # ---- 本局摆位（现场确定） ----
+    # ⚠️ 开赛前必须对照场地喷绘核对这两个格号：
+    #    裁判布置完场地后、2分钟准备期内确认，错了整个航位推算基准就偏一格。
+    start_cell: "N11"
+    start_heading: "y"              # 车头朝向断言 x(东)/y(北)
+    goal_cell: "N6"
+    final_heading: "y"              # 终点朝向计 5 分；最底行格只能 x
+    # ---- 发车门控 ----
+    min_mines: 1                    # 至少识别到几颗雷才发车
+    require_face: true              # 必须先看清靶面敌我再发车
+    # ---- 中场约束（留空：桥洞墙由 ARROW 自动推导） ----
+    # mid_boundary=6：挡板在第 6/7 行之间（row5↔row6，0 基），上半场=行1~6、
+    # 下半场=行7~11。2026-10-15 终裁：车上官方地图真源 + 现场核实
+    # （I6→I7/K6→K7/L6→L7 全封死）双重确认（曾错为 5，旧注释已清）。
+    # 与 mission_router._MID_BOUNDARY 的一致性由 test_field_config_consistency 锁定。
+    cross_gates: [""]
+    mid_boundary: 6                 # 挡板在第 6/7 行之间（row5↔row6，0 基），上半场=行1~6、下半场=行7~11；2026-10-15 按车上官方地图真源修正（曾错为 5）
+    # ---- 分区策略（2026-10-15 现场确认三区拓扑后启用，见 docs/分区规划与感知约束）----
+    crossing_penalty: 5.0           # 每次跨越挡板边界的附加代价（格当量）：促使一区扫完再转场
+    # 桥洞隧道方向：["K9:E"] 格号:E|W|EW，规则方向=桥顶箭头指向；[""]=隧道格自动轴向直行
+    tunnel_dirs: [""]
+    # 分区排序：["东北","西","东南"] 逐区执行，跨挡板自动转场西区走廊；[""]=全局TSP（实测后再启用）
+    zone_order: [""]
+    # ---- 朝向补偿（根除画圆：reset 断言朝向 vs 真实朝向的固定偏差）----
+    #   none  : 不补偿，靠人工把车摆正（不推荐）
+    #   udp   : 用 0x4002 真实朝向取最近坐标轴，残差 ≤ 45°，不挪车
+    #   align : 用 0x4002 真实朝向闭环原地转向到断言朝向，零残差（推荐）
+    heading_bias_source: "align"
+    # ---- 朝向对齐（align 模式）参数 ----
+    # ⚠️ 底盘契约（dzactuator 源码实测）：
+    #   1) path_executor 的 pursuitAngle 保活会把 dzactuator 钉在模式2，
+    #      此时 /cmd_vel 被静默丢弃——align 必须在 path_executor 启动前完成
+    #      （用 tools/car_match_bringup.sh 两阶段启动）；
+    #   2) Ackermann 车不能原地转：v==0 时舵机回中不动，必须带爬行速度。
+    cmd_vel_topic: "/cmd_vel"
+    align_creep_speed: 0.05           # 对齐爬行速度 m/s（v≠0 舵机才生效；0.05 摆正 68.6° 漂移 ~0.21m，仿真验证有裕度）
+    heading_align_tolerance: 0.05       # 对齐容差 rad ≈ 3°
+    heading_align_max_rate: 0.5         # 最大角速度 rad/s
+    heading_align_timeout: 15.0         # 对齐超时 s（超时退回最近轴）
+    heading_align_settle_ticks: 3       # 连续 N tick 在容差内才算对齐
+    wait_waypoint_consumer: true        # 等 /nav/waypoint 有订阅者再发路线（话题无滞留）
+    # ---- 移动靶先验（全场唯一靶，裁判系统每局固定） ----
+    target_track: ["D8", "E8"]      # 轨道两端格号
+    target_blue_face: "S"           # 蓝面朝向 S/N(水平轨道)/E/W(垂直轨道)
+    # ---- 中途重规划 ----
+    replan_on_update: false         # path_executor 换路线行为实车验证后改 true
+    # ---- 时间预算门控（官方硬顶 180s、同分比用时；route_time）----
+    # 规划出解后折算预估执行秒数；超软预算且有射击位时砍射击停靠重规划
+    # （打击带 −5 误击风险，是唯一可砍任务；纯排雷链超预算只报警不砍雷）。
+    # 以下四个是占位保守值，实车标定（直行速度/加减速/射击停靠）后回填。
+    time_soft_cap_s: 165.0          # 软预算 s（留 15s 余量）；<=0 关闭门控
+    time_cruise_mps: 0.25           # 巡航速度 m/s
+    time_accel_overhead_s: 0.4      # 每条直线段的加减速附加 s
+    time_mine_slow_s: 0.6           # 过雷格的减速附加 s
+    time_shoot_stop_s: 4.0          # 每射击位：停靠+瞄准+开火+确认 s
+
+# ====================================================================
+#  dzbrain 桥接节点（mode:=dzbrain 时启用；与 integrate_node 互斥）
+#  机载 dzuav 二进制 UDP -> 官方 dzbrain 的 /dzlink JSON 情报接口
+# ====================================================================
+dzbrain_bridge:
+  ros__parameters:
+    udp_port: 50000                 # dzuav 态势广播端口（与 integrate_node 同链）
+    drone_to_car_topic: "/dzlink/drone_to_car"   # dzbrain DroneTask 消费（真源：其 SCHEMA）
+    car_to_drone_topic: "/dzlink/car_to_drone"   # 车端回执/车状态
+    heartbeat_period_s: 1.0         # 心跳周期 s（DroneTask 3s 判离线，有两拍余量）
+    refresh_period_s: 2.0           # 无变化情报的刷新周期 s（<< dzbrain info_stale_s=30）
+    red_veto_ttl_s: 5.0             # 红靶粘性否决 TTL（与 legacy 链同参数，禁火铁律）
