@@ -84,6 +84,14 @@ _STUCK_TRUST_DIST_M = 0.45
 #: FINISH 只可能因"真到了"触发。非末点航点仍按 `arrival_m` 吸附，行为完全不变。
 _GOAL_STOP_M = 0.03
 
+#: ★漂移**升级**（限速/停机）的附加余量（米）：_report_drift 告警仍按 drift_warn_m(0.30)，
+#: 但"判不健康 → drift_run → 降速/停车"必须超过 drift_warn_m + 它。
+#: 为什么需要（2026-10-18 倒车窗口实测）：仿真真值在 R:H9 折返入口的**正常切角**横向离线
+#: 0.304~0.308 m（只是略大于 0.30 的门限），20 Hz 下 0.4 s 就攒够 8 拍 ⇒ 假 drift_stop；
+#: 而 15:04 类真漂移全路线离线 0.62~0.78 m，仍远大于本门限（0.35）。取 0.05：既盖住
+#: 0.308 的正常切角，又不放过 0.40 m 的真横向漂移（test_localization §⑮ 双带牙）。
+_DRIFT_ESCALATE_MARGIN_M = 0.05
+
 # --------------------------------------------------------------------------- #
 #  ★★ 航向完整性守卫的默认阈值（现场可经 SCHEMA `localization.yaw_*` 覆盖）
 # --------------------------------------------------------------------------- #
@@ -396,7 +404,23 @@ class LocalizationTask(TaskThread):
                 self._report_drift(gwp.block, gidx, gwp.distance_to(cx, cy), now,
                                    anchored=False)
                 # ★"有漂移、没纠回来"= 不健康的一拍（驱动限速/停机）
-                unhealthy = gwp.distance_to(cx, cy) > self.drift_warn_m
+                # ★★「到下一航点远」**不等于**漂移：倒车/共线折返入口处投影会落后 0.6~0.9 m
+                #   （P_ROUTE_S 追不上真值弧长，实测见 _tmp_session/t14_proj/P0_reverse_lag.md），
+                #   此时连**窗口投影点到车的距离**（proj.dist）也是 0.6~0.9 —— 它衡量的是
+                #   "离窗口里那个候选点多远"，不是"离折线多远"，**不能**拿它判别。
+                #   唯一可靠的判据是「车是否真的离开了折线」：用**全路线**投影量横向离线
+                #   （hint=None + 全窗口；只在顶点窗口且航点距离超限时才扫，不是每拍热点）。
+                #   15:04 类真漂移：全路线最近点仍离线 0.62~0.78 m ⇒ 照旧停（§⑮ 带牙）。
+                if gwp.distance_to(cx, cy) > self.drift_warn_m:
+                    off_path = self._path.project(cx, cy, s_hint=None,
+                                                  window_m=self._path.total_length,
+                                                  allow_backward=True)
+                    # ★升级门限 = drift_warn + 余量：正常切角 0.304~0.308 不升级；
+                    #   真漂移 0.40/0.62~0.78 照旧升级（数值依据见 _DRIFT_ESCALATE_MARGIN_M）
+                    unhealthy = (float(off_path.dist)
+                                 > self.drift_warn_m + _DRIFT_ESCALATE_MARGIN_M)
+                else:
+                    unhealthy = False
 
         # ---------------- ⑤ ★信念漂移护栏 ---------------- #
         # 先算信念离安全边界还有多远（`geo.in_bounds/map_bounds` 与 Safety 同源，不重复实现），

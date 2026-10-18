@@ -866,10 +866,12 @@ task_of, bb_of, worst_of, rows_of = _fold_replay(SMOKE_POSES, ["out"] * len(SMOK
 lim_of = bb_of.get(P_MOTION_LIMIT)
 check("★带牙对照：关掉 motion_heading 后首拍 s=0.700（旧吸收态复现）",
       rows_of[0][2] > 0.5, f"first_s={rows_of[0][2]:.3f}")
-check("★带牙对照：关掉后出现假漂移 + drift_stop（旧行为）",
-      task_of.drift_warnings >= 1 and isinstance(lim_of, dict)
-      and lim_of.get("reason") == "drift_stop",
-      f"warnings={task_of.drift_warnings} limit={lim_of}")
+# ★ 2026-10-18：新的漂移升级门限（drift_warn + 0.05、按"全路线离线"判）之后，
+#   旧行为不再升级到 drift_stop（那是**修对了**：这里的"漂移"同样是投影落后引起的假信号）。
+#   带牙改钉"假漂移告警 + 末拍仍落在回程侧 0.483"，motion_heading 的作用由 §⑬.1 的 s 断言覆盖。
+check("★带牙对照：关掉 motion_heading 后仍报假漂移、末拍落在回程侧（旧行为）",
+      task_of.drift_warnings >= 1 and rows_of[-1][2] > 0.45,
+      f"warnings={task_of.drift_warnings} last_s={rows_of[-1][2]:.3f} limit={lim_of}")
 
 # ---- ⑬.3 倒车段方向符号：一出（y↑）一回（y↓，车头不变）----
 n_drive = 88
@@ -980,5 +982,63 @@ check("★带牙对照：关掉方向后自愈落回回程侧 s≈0.497（旧行
       abs(s_nm - 0.497) <= 0.01, f"final_s={s_nm:.3f} seq={[round(x, 3) for x in seq_nm]}")
 check("★带牙对照：开/关方向的终值差 >0.10 m（该分支对结果有实质影响）",
       (s_nm - s_hm) > 0.10, f"on={s_hm:.3f} off={s_nm:.3f} diff={s_nm - s_hm:+.3f}")
+
+# --------------------------------------------------------------------------- #
+#  ⑮ 漂移升级判据：倒车/共线窗口的「投影落后」不得假停；真横向漂移仍要停
+# --------------------------------------------------------------------------- #
+section("⑮ 倒车窗口投影落后：不得假 drift_stop；0.40 m 真漂移仍 drift_stop")
+
+#: field7 仿真**成功跑完**的 41 token 路线（artifacts/sim/...ld018；与 sim_t29 报告同源）。
+FIELD7_TOKENS = ["N10", "M10", "L10", "K10", "J10", "I10", "H10", "H8", "R:H9", "G9", "F9*", "E9", "E8", "C8", "C7", "C6", "C5", "C4", "C3", "C2", "A2", "A1", "B1", "C1", "C3", "E3", "F3", "R:F5", "R:F4", "F3", "F2", "G2", "H2", "I2", "J2", "J4", "K4", "L4", "M4", "N4", "N5,x"]
+#: 真值轨迹 t=7.0~12.6 s 的 5 Hz 采样（artifacts/sim/1792291186306_field7_route_ld018/traj.csv
+#: 的 truth_x/truth_y/truth_yaw）。这一段覆盖 R:H9 折返入口：仿真真值 s 在 t=9.08 从 2.354
+#: 跳到 3.245（同一点上的两条共线段弧长差 0.89 m），车端窗口投影只能慢慢追。
+FIELD7_LAG_POSES = [(0.5258, 2.098, 1.52), (0.5276, 2.1219, 1.4624), (0.531, 2.1457, 1.3845), (0.537, 2.1712, 1.288), (0.5534, 2.2149, 1.1163), (0.5772, 2.2552, 0.9439), (0.6076, 2.2911, 0.7707), (0.6443, 2.3214, 0.5956), (0.6867, 2.3454, 0.416), (0.7351, 2.3621, 0.2274), (0.7906, 2.3696, 0.0211), (0.8345, 2.3677, -0.0989), (0.8754, 2.3634, -0.0943), (0.9164, 2.3613, 0.0234), (0.9574, 2.3651, 0.175), (0.9974, 2.375, 0.3266), (1.0354, 2.3908, 0.4781), (1.0705, 2.4122, 0.6293), (1.0984, 2.4352, 0.7625), (1.1222, 2.4608, 0.8912), (1.1422, 2.4885, 1.0169), (1.1581, 2.5177, 1.1392), (1.17, 2.5476, 1.2576), (1.178, 2.5776, 1.372), (1.1825, 2.6072, 1.482), (1.1836, 2.6359, 1.5876), (1.1819, 2.6633, 1.6885), (1.1777, 2.6891, 1.7848), (1.1714, 2.7132, 1.8765)]
+
+
+def _lag_stop_replay():
+    """把 5 Hz 真值帧 ×4 拍（= 20 Hz）喂进 LocalizationTask，记录限速原因与 drift_run 峰值。
+
+    这一段在修复前会：车贴线正常走（全路线离线仅 0.304~0.308 m，属于折返入口的正常切角），
+    但"到下一航点"的距离 >0.30 连续 ≥8 拍 ⇒ drift_run 升级 ⇒ drift_stop。
+    """
+    task, bridge, bb, bus, clock = build(
+        overrides={}, route=parse_mission(list(FIELD7_TOKENS)), seed_pose=False)
+    reasons, max_run = [], 0
+    for (x, y, yaw) in FIELD7_LAG_POSES:
+        for _ in range(4):
+            bridge.set_pose(x, y, yaw)
+            clock.advance(0.05)
+            task.tick()
+            lim = bb.get(P_MOTION_LIMIT)
+            if isinstance(lim, dict):
+                reasons.append(lim.get("reason"))
+            max_run = max(max_run, task.drift_run)
+    return task, bb, reasons, max_run
+
+
+task_lag, bb_lag, reasons_lag, max_run_lag = _lag_stop_replay()
+check("预置：落后窗口确实触发了漂移判定（drift_warnings ≥1，否则本用例没走到判据）",
+      task_lag.drift_warnings >= 1, f"warnings={task_lag.drift_warnings}")
+check("预置：116 拍全部参与投影（20 Hz × 29 帧）",
+      task_lag.projected_ticks == len(FIELD7_LAG_POSES) * 4,
+      f"projected={task_lag.projected_ticks}")
+check("倒车落后窗口：drift_run 不得升级到 8 拍（正常切角 0.308 < 0.35 门限）",
+      max_run_lag < 8, f"max_drift_run={max_run_lag}")
+check("倒车落后窗口：不得出现 drift / drift_stop 限速请求",
+      not any(r in ("drift", "drift_stop") for r in reasons_lag),
+      f"reasons={sorted(set(reasons_lag))}")
+check("倒车落后窗口：最终 P_MOTION_LIMIT 为 None（未被假停锁住）",
+      bb_lag.get(P_MOTION_LIMIT) is None, f"limit={bb_lag.get(P_MOTION_LIMIT)}")
+
+# ★ 对照（另一侧带牙）：0.40 m 真横向漂移必须仍然 drift_stop —— 门限 0.35 不放过真漂移
+_real_drift = [(geo.block_to_meters("N10")[0] + 0.40,
+                geo.block_to_meters("N10")[1] + 0.08 * 0.05 * i, 90.0) for i in range(60)]
+task_rd, bb_rd, _, _ = _fold_replay(_real_drift, ["out"] * 60)
+_lim_rd = bb_rd.get(P_MOTION_LIMIT)
+check("★真漂移 0.40 m：仍然 drift_stop（不能因为本次修复被放过）",
+      task_rd.drift_warnings >= 1 and isinstance(_lim_rd, dict)
+      and _lim_rd.get("reason") == "drift_stop",
+      f"warnings={task_rd.drift_warnings} limit={_lim_rd}")
 
 finish()
