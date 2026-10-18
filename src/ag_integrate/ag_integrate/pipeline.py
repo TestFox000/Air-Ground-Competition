@@ -54,6 +54,10 @@ def build_mission(
     zone_order: tuple[str, ...] | None = None,
     turn_45: float = 0.75,
     allow_diagonal: bool = True,
+    # 以下均为关键字参数（原有关键字区）：
+    use_ortools_solver: bool = False,
+    ortools_drop_policy: str = "shooting_only",
+    ortools_backend: str = "auto",
 ) -> CarCommands:
     """态势 -> reset + route 两条命令。
 
@@ -67,9 +71,15 @@ def build_mission(
 
     时间预算门控（soft_cap_s 传入才启用，官方硬顶 180s、同分比用时）：
     规划出解后用 route_time.estimate_seconds 折算执行秒数（写入
-    commands.est_seconds）；超软预算且有射击位时，砍掉射击停靠重规划
-    （打击是唯一带 −5 负分风险的可砍任务），并置 commands.shed_shooting。
-    纯排雷链超预算不自动砍雷——少排几颗雷是人的决策，不是规划器的。
+    commands.est_seconds）。超软预算时按序尝试两级策略：
+      1) use_ortools_solver=True：联合求解器（ortools_solver.solve_visit_plan）
+         一步解出"保留哪些任务 + 访问顺序"（得分字典序优先、耗时次之）。
+         drop_policy="shooting_only"（默认）保持"少排雷是人的决策"血线
+         哲学、只是细化整砍；"any_task" 允许舍雷（V3 升级口径）。
+         求解失败/未安装自动退回 2)。
+      2) 现行启发式：有射击位时整砍射击位重规划（打击是唯一带 −5 负分
+         风险的可砍任务），并置 commands.shed_shooting。纯排雷链超预算
+         不自动砍雷。
     """
     start = _parse_name(start_cell)
     goal = _parse_name(goal_cell)
@@ -93,7 +103,27 @@ def build_mission(
     est = estimate_seconds(ordered, shoot_cells=commands.shoot_cells,
                            mine_cells=mine_names, params=params)
     commands = replace(commands, est_seconds=est.seconds)
-    if est.seconds <= soft_cap_s or not commands.shoot_cells:
+    if est.seconds <= soft_cap_s:
+        return commands
+
+    # 一级策略：联合求解器（U1）——排序 + 取舍一步最优，失败自动退回启发式
+    if use_ortools_solver:
+        solved = _solve_with_joint_solver(
+            snapshot, commands, est.seconds,
+            start_cell=start_cell, goal_cell=goal_cell,
+            start_heading=start_heading, final_heading=final_heading,
+            gates=gates, mid_boundary=mid_boundary,
+            crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
+            zone_order=zone_order, turn_45=turn_45,
+            allow_diagonal=allow_diagonal,
+            params=params, soft_cap_s=soft_cap_s,
+            drop_policy=ortools_drop_policy, backend=ortools_backend,
+        )
+        if solved is not None:
+            return solved
+
+    # 二级策略（现行启发式兜底）：整砍射击位重规划
+    if not commands.shoot_cells:
         return commands
 
     # 超软预算：砍射击位重规划（靶格物理仍在、仍不可踩，只是不停靠开火）
@@ -114,6 +144,80 @@ def build_mission(
     if est2.seconds < est.seconds:
         return replace(commands2, est_seconds=est2.seconds, shed_shooting=True)
     return commands
+
+
+def _solve_with_joint_solver(
+    snapshot, commands, est_seconds, *, start_cell, goal_cell,
+    start_heading, final_heading, gates, mid_boundary,
+    crossing_penalty, tunnel_dirs, zone_order, turn_45,
+    allow_diagonal, params, soft_cap_s, drop_policy, backend,
+):
+    """U1 联合求解路径：解出保留集后按保留集重规划。
+
+    返回 None = 不可用/不占优，调用方退回现行启发式（降级契约）。
+    得分口径：踩雷 +5/颗、射击位命中期望 +5/位（与 route_time 计时模型一致）。
+    """
+    from .ortools_solver import (
+        STATUS_FEASIBLE, STATUS_OPTIMAL, VisitTask, solve_visit_plan,
+    )
+    from .route_time import estimate_seconds
+
+    # 点对点 leg 用**真实路由**估计（纯场地：去掉雷/靶必经点，只留障碍与桥门），
+    # 而不是直线距离——挡板/桥墙切分的场地上直线会严重低估绕行耗时，导致
+    # 求解器按错误模型弃任务（实测教训：弃 5 雷后实路由仍超预算）。
+    field_snap = replace(snapshot, mines=(), targets=())
+
+    def leg_s(a: str, b: str) -> float:
+        try:
+            route = plan_route(field_snap, _parse_name(a), _parse_name(b))
+        except ValueError:
+            return float("inf")
+        # plan_route 返回格名序列（字符串），直接喂给 estimate_seconds
+        return estimate_seconds(tuple(route), params=params).seconds
+
+    tasks = [VisitTask(m.name, "mine", 5.0, params.mine_slow_s)
+             for m in snapshot.mines]
+    tasks += [VisitTask(s, "shoot", 5.0, params.shoot_stop_s)
+              for s in commands.shoot_cells]
+    try:
+        plan = solve_visit_plan(
+            start_cell, goal_cell, tasks, leg_s=leg_s,
+            time_budget_s=soft_cap_s, drop_policy=drop_policy,
+            backend=backend,
+        )
+    except Exception:
+        return None
+    if plan.status not in (STATUS_OPTIMAL, STATUS_FEASIBLE):
+        return None
+
+    keep = set(plan.order)
+    mines2 = tuple(m for m in snapshot.mines if m.name in keep)
+    shoot_kept = any(s in keep for s in commands.shoot_cells)
+    # 射击位被舍：靶格物理仍在、仍不可踩，只是不停靠开火（与启发式同语义）
+    targets2 = snapshot.targets if shoot_kept else tuple(
+        replace(t, is_blue=False) for t in snapshot.targets)
+    snapshot2 = replace(snapshot, mines=mines2, targets=targets2)
+    try:
+        ordered3 = plan_route_zoned(
+            snapshot2, _parse_name(start_cell), _parse_name(goal_cell),
+            zone_order, cross_gates=gates, mid_boundary=mid_boundary,
+            start_heading=start_heading, final_heading=final_heading,
+            crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
+            turn_45=turn_45, allow_diagonal=allow_diagonal,
+        )
+    except ValueError:
+        return None
+    commands3 = adapt(snapshot2, ordered3, start_cell, start_heading, final_heading)
+    est3 = estimate_seconds(ordered3, shoot_cells=commands3.shoot_cells,
+                            mine_cells={m.name for m in mines2}, params=params)
+    if est3.seconds >= est_seconds:
+        return None  # 求解器口径占优但实路由不占优：退回启发式
+    return replace(
+        commands3,
+        est_seconds=est3.seconds,
+        shed_shooting=(not shoot_kept and bool(commands.shoot_cells)),
+        dropped_tasks=plan.dropped,
+    )
 
 
 def _inject_track(

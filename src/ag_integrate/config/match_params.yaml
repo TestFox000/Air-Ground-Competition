@@ -102,6 +102,14 @@ integrate_node:
     time_accel_overhead_s: 0.4      # 每条直线段的加减速附加 s
     time_mine_slow_s: 0.6           # 过雷格的减速附加 s
     time_shoot_stop_s: 4.0          # 每射击位：停靠+瞄准+开火+确认 s
+  # ---- U1 联合求解器（全线升级方案 20261018，默认关：台架验证后开）----
+  # 超软预算时联合解"保留任务集+访问顺序"（得分字典序优先、耗时次之），
+  # 替代"整砍射击位"两步启发式；求解失败自动退回启发式。
+  # dp 后端纯 Python 零依赖；cp-sat 需 ortools 且过子进程健康探测（部分
+  # Windows 机器 ortools 原生段错误，探测不通过自动落 dp）。
+  use_ortools_solver: false
+  ortools_drop_policy: "shooting_only"  # any_task=允许舍雷（V3 口径，队长裁决后用）
+  ortools_backend: "auto"               # auto / dp / cp-sat
 
 # ====================================================================
 #  dzbrain 桥接节点（mode:=dzbrain 时启用；与 integrate_node 互斥）

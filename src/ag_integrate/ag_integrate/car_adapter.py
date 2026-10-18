@@ -22,6 +22,8 @@ class CarCommands:
     # 时间预算（route_time 门控，默认未启用时为 -1/False，不影响旧调用方）：
     est_seconds: float = -1.0      # 路线预估执行秒数；-1 = 未估算
     shed_shooting: bool = False    # True = 超软预算已砍射击位重规划
+    # U1 联合求解器（use_ortools_solver）实际舍弃的任务格号；启发式路径恒为 ()
+    dropped_tasks: tuple[str, ...] = ()
 
 
 def _target_key(t: TargetRef) -> tuple:

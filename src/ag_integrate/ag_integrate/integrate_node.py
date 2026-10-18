@@ -155,6 +155,12 @@ class IntegrateNode(Node):
         self.declare_parameter("time_accel_overhead_s", 0.4)  # 每直线段加减速附加 s
         self.declare_parameter("time_mine_slow_s", 0.6)    # 过雷格减速附加 s
         self.declare_parameter("time_shoot_stop_s", 4.0)   # 每射击位停靠+瞄准+开火 s
+        # ---- U1 联合求解器（全线升级方案 2026-10-18，默认关：台架验证后开）----
+        # 超软预算时改用 ortools_solver 联合解"保留任务集+访问顺序"（得分
+        # 字典序优先），替代"整砍射击位"两步启发式。失败自动退回启发式。
+        self.declare_parameter("use_ortools_solver", False)
+        self.declare_parameter("ortools_drop_policy", "shooting_only")  # any_task 允许舍雷（V3 口径）
+        self.declare_parameter("ortools_backend", "auto")               # auto/dp/cp-sat（cp-sat 有健康探测）
         # 态势矩阵输出（教员建议的矩阵形式）：
         # 每收到一帧识别结果，把爆炸物/障碍物/靶等落成 11×14 场地矩阵并
         # 打印精确坐标明细。可靠性设计：
@@ -215,6 +221,9 @@ class IntegrateNode(Node):
         self.target_blue_face = bf if bf in ("S", "N", "E", "W") else None
         self.replan_on_update = bool(p("replan_on_update"))
         self.time_soft_cap_s = float(p("time_soft_cap_s"))
+        self.use_ortools_solver = bool(p("use_ortools_solver"))
+        self.ortools_drop_policy = str(p("ortools_drop_policy"))
+        self.ortools_backend = str(p("ortools_backend"))
         from .route_time import RouteTimeParams
         self._time_params = RouteTimeParams(
             cruise_mps=float(p("time_cruise_mps")),
@@ -720,6 +729,9 @@ class IntegrateNode(Node):
                     target_blue_face=self.target_blue_face,
                     time_params=self._time_params,
                     soft_cap_s=self.time_soft_cap_s,
+                    use_ortools_solver=self.use_ortools_solver,
+                    ortools_drop_policy=self.ortools_drop_policy,
+                    ortools_backend=self.ortools_backend,
                     crossing_penalty=self.crossing_penalty,
                     tunnel_dirs=self.tunnel_dirs,
                     zone_order=self.zone_order,
