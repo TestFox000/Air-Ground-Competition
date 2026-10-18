@@ -26,6 +26,26 @@ r"""dzbrain 主进程 —— 单进程多线程任务架构的入口。
 * 车端（无可用的地图文件、且 `planner.auto_plan_enabled=true`）→ 启动时先起无人机线程等布局：
   超时（`drone.field_layout_wait_s`，缺省 30 s）/ 布局非法 ⇒ 退出码 3（不规划、不出发）；
   布局规划失败 ⇒ 退出码 4（同样不出发）。
+
+## ★T27 步进循环（docs/step_loop.md，2026-10-18 定稿）
+
+布局 v2（带 `known`）到达后，车端不再"规划一次就交给 MissionTask"，而是进入
+**运行期步进循环**（`StepLoop`）：
+
+1. **运行期布局**：`P_FIELD_LAYOUT` 每来一版（version 大者胜）就记下；DRIVING 期间
+   只记不换段（**换段只在段边界**）。
+2. **段规划**：`MapSpec{未知格=不可通行（blocked_extra，不是物理障碍）}`，
+   `from_cell=当前格`、`target=layout.target_cell`；引擎按 `planner.engine`。
+   规划失败/无 target/无位姿 ⇒ **WAIT_INFO，不退出**。
+3. **段执行**：`MissionTask.request_segment()`（线程安全，10 Hz tick 里载入并发车），
+   段末停 target_cell；`P_CAR_STATE` 回报 `phase/segment_id/known_count/target_cell/block`。
+4. **WAIT_INFO**：停车保持位姿；**无超时**（`step.wait_timeout_s: 0 = 无限`），
+   每 5 s 日志；收到新布局立即回 PLANNING。等多久都不会被判"完赛/卡死"。
+5. **到 end 格** ⇒ FINISH（`P_CAR_STATE.phase=FINISH`，主循环退出码 0）。
+6. **安全**：实际 belief 连续 3 拍落入未知格 ⇒ SAFE_STOP（停段 + 刹车，不再自动恢复）。
+
+★ v1 布局（没有 `known` 键，旧机端）行为**逐字节不变**：仍走"规划一次"的旧路径
+（`test_drone` §⑯ 的 exit 3/4/成功路径就是这条兼容证据）。
 """
 
 from __future__ import annotations
@@ -42,7 +62,7 @@ import time
 from typing import Any, Callable, Iterable
 
 from .core import geometry as geo
-from .core.blackboard import Blackboard
+from .core.blackboard import P_POSE, Blackboard
 from .core.config import Config
 from .core.events import EventBus
 from .core.logging import banner, kv_lines
@@ -305,6 +325,617 @@ def plan_startup_route(cfg: Config, bb: Blackboard | None, *,
     return plan_route_from_field_layout(cfg, layout, log=log)
 
 
+# --------------------------------------------------------------------------- #
+#  ★T27 步进循环（docs/step_loop.md）：运行期布局 → 段规划 → 段执行 → 段回报
+# --------------------------------------------------------------------------- #
+#: 车→机回报键：车端步进状态（dict）。字段见 StepLoop._publish_car_state()。
+#: ★ 键名与 T28（机端 car_state 发送）对齐：phase / segment_id / known_count / target_cell
+#:   / block。当前常量暂放这里（与 P_FIELD_LAYOUT 同样的历史做法：不 import 任务模块）；
+#:   T26/T28 收口时可整体迁到 core/blackboard.py，字符串值保持不变即可。
+P_CAR_STATE = "car_state"
+
+#: 步进阶段（写进 P_CAR_STATE["phase"]，也用于日志/测试断言）
+STEP_PHASE_WAIT_LAYOUT = "WAIT_LAYOUT"
+STEP_PHASE_PLANNING = "PLANNING"
+STEP_PHASE_DRIVING = "DRIVING"
+STEP_PHASE_WAIT_INFO = "WAIT_INFO"
+STEP_PHASE_SEGMENT_DONE = "SEGMENT_DONE"
+STEP_PHASE_FINISH = "FINISH"
+STEP_PHASE_SAFE_STOP = "SAFE_STOP"
+STEP_PHASE_WAIT_TIMEOUT = "WAIT_INFO_TIMEOUT"
+
+#: belief 连续落在未知格的确认拍数（10 Hz ⇒ 0.3 s）。单拍投影抖动不判死；
+#: 连续 3 拍仍不在 known 里 ⇒ SAFE_STOP（docs/step_loop.md §3.5 的"实际投影落入未知格"）。
+#: 刻意不新增配置键（"所有新增配置键必须进 SCHEMA"，本卡不碰 robot.yaml/SCHEMA）。
+_STEP_UNKNOWN_STOP_TICKS = 3
+
+
+def _step_cells(value: Any, key: str, *, allow_empty: bool = True
+                ) -> tuple[list[str] | None, str]:
+    """布局 v2 的格名列表校验 → (大写去重列表, 错误原因)；非法返回 (None, 原因)。"""
+    if not isinstance(value, (list, tuple)):
+        return None, f"{key} 必须是格名列表（收到 {type(value).__name__}）"
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            return None, f"{key} 含非字符串条目 {item!r}"
+        text = item.strip().upper()
+        if not text:
+            return None, f"{key} 含空格名"
+        try:
+            geo.block_to_index(text)
+        except ValueError as exc:
+            return None, f"{key} 含非法格名 {text!r}（{exc}）"
+        if text not in seen:
+            seen.add(text)
+            out.append(text)
+    if not out and not allow_empty:
+        return None, f"{key} 不能为空"
+    return out, ""
+
+
+def normalize_step_layout(payload: Any) -> tuple[dict[str, Any] | None, str]:
+    """布局 → 步进循环的归一化 dict（**兼容 v1**；非法整份拒收）。
+
+    在 tasks.drone.normalize_field_layout()（v1 字段：start/end/mines/obstacles/
+    targets/bridges/barrier_* + version/ts）之上，补 v2 三字段：
+      · known        —— 已观测格（**缺这个键 = v1 布局**，历史语义"整图已知"）；
+      · target_cell  —— 本段目标格（空 ⇒ 车只等不做）；
+      · segment_id   —— 段序号（回车端回报原样带回）。
+    校验规则（docs/step_loop.md §2/§3）：known 里只许合法格名；mines/obstacles/targets
+    **必须 ⊆ known**（半张图不能拿来规划）；target_cell 非法/segment_id 非整数 ⇒ 整份拒收。
+
+    ★ 为什么 v1 布局不报错而返回"无 known"的原 dict：T27 必须能在**旧机端**（只发 v1）
+      下逐字节保持 T22 行为（test_drone §⑯ 钉住 exit 3/4/成功路径）；run_live 用
+      _step_mode_enabled()（= 有没有 known 键）决定走步进循环还是旧"规划一次"。
+    """
+    from .tasks.drone import normalize_field_layout
+
+    base, reason = normalize_field_layout(payload)
+    if base is None:
+        return None, reason
+    if not isinstance(payload, dict):
+        return None, f"报文不是 JSON 对象（{type(payload).__name__}）"
+    if "known" not in payload:
+        # 半个 v2（有 target_cell/segment_id 却没 known）不能当 v1 放行：那会让
+        # "目标格"被悄悄忽略，车永远等不到段。
+        if (payload.get("target_cell") not in (None, "")
+                or payload.get("segment_id") not in (None, 0, "0")):
+            return None, "布局带 target_cell/segment_id 但缺 known（v2 必须给 known）"
+        return base, ""
+
+    known, reason = _step_cells(payload.get("known"), "known")
+    if known is None:
+        return None, reason
+    feature = set(base["mines"]) | set(base["obstacles"]) | set(base["targets"])
+    outside = sorted(feature - set(known))
+    if outside:
+        return None, ("特征格不在 known 里（特征必须 ⊆ known）："
+                      + " ".join(outside[:8]) + (" …" if len(outside) > 8 else ""))
+
+    target = ""
+    raw_target = payload.get("target_cell")
+    if raw_target not in (None, ""):
+        if not isinstance(raw_target, str):
+            return None, f"target_cell 不是字符串：{raw_target!r}"
+        target = raw_target.strip().upper()
+        try:
+            geo.block_to_index(target)
+        except ValueError as exc:
+            return None, f"target_cell 非法：{target!r}（{exc}）"
+
+    raw_seg = payload.get("segment_id", 0)
+    try:
+        segment_id = int(raw_seg if raw_seg is not None else 0)
+    except (TypeError, ValueError):
+        return None, f"segment_id 不是整数：{raw_seg!r}"
+
+    out = dict(base)
+    out["known"] = known
+    out["target_cell"] = target
+    out["segment_id"] = segment_id
+    return out, ""
+
+
+def load_step_layout(bb: Blackboard | None) -> dict[str, Any] | None:
+    """读黑盒 P_FIELD_LAYOUT → 步进布局（含 known/target_cell/segment_id）；非法 → None。"""
+    if bb is None:
+        return None
+    raw = bb.get(P_FIELD_LAYOUT)
+    if not isinstance(raw, dict):
+        return None
+    layout, _reason = normalize_step_layout(raw)
+    return layout
+
+
+def _step_mode_enabled(layout: Any) -> bool:
+    """这份布局是否走"运行期步进循环"（v2 = 带 known 键）；v1 保持旧"规划一次"行为。"""
+    return isinstance(layout, dict) and "known" in layout
+
+
+def all_map_cells() -> list[str]:
+    """整张图的格名（行优先）：unknown = 全图 - known 的唯一口径。"""
+    return [geo.index_to_block(r, c)
+            for r in range(geo.MAP_ROWS) for c in range(geo.MAP_COLS)]
+
+
+def plan_segment_from_layout(cfg: Config, layout: dict[str, Any], *,
+                             from_cell: str, target_cell: str,
+                             heading_dir: tuple[int, int] | None = None,
+                             log: Callable[[str], None] | None = None) -> Any:
+    """用**步进布局**规划一段：未知格（不在 known）= 不可通行，但**不是**物理障碍。
+
+    返回 tasks.mission.SegmentPlan（永不抛异常；失败原因在 .error）。
+    map_cfg 只把**真障碍/靶格/雷/桥洞/隔板**给规划器；未知格通过 blocked_extra
+    传（只影响通行性），否则一格宽的 known 走廊会因为"把未知格当水桶算净空"而无解。
+    """
+    from .tasks.mission import SegmentPlan, plan_segment_route
+
+    known = [str(c) for c in (layout.get("known") or [])]
+    known_set = set(known)
+    target = str(target_cell).strip().upper()
+    src = str(from_cell).strip().upper()
+    if not known:
+        return SegmentPlan(ok=False, from_cell=src, target_cell=target,
+                           error="布局里 known 为空（无人机还没看到任何格）")
+    if target not in known_set:
+        return SegmentPlan(ok=False, from_cell=src, target_cell=target,
+                           error=f"目标格 {target} 不在 known 里（车绝不进未知格）")
+    # ⚠️ 当前格若还没被观测到，**只对起点破例**：车物理上就在那里，把它判成未知格
+    #    会让每一步都规划失败（真·死锁）。除起点外一律不许进未知格。
+    unknown = [c for c in all_map_cells() if c not in known_set and c != src]
+    map_cfg = {"map": {
+        "name": "drone:step", "start": src, "end": target,
+        "mines": list(layout.get("mines") or []),
+        "obstacles": list(layout.get("obstacles") or []),
+        "targets": list(layout.get("targets") or []),
+        "bridges": list(layout.get("bridges") or []),
+        "barrier_col_from": layout.get("barrier_col_from", geo.BARRIER_COL_FROM),
+        "barrier_row_hi": int(layout.get("barrier_row_hi", geo.BARRIER_ROW_HI)),
+        "barrier_row_lo": int(layout.get("barrier_row_lo", geo.BARRIER_ROW_LO)),
+    }}
+    plan = plan_segment_route(map_cfg, cfg, from_cell=src, target_cell=target,
+                              heading_dir=heading_dir, blocked_extra=unknown,
+                              source="drone:step_layout")
+    if plan.ok:
+        bad = [c for c in plan.cells if c in set(unknown)]
+        if bad:                                        # 双保险：规划器保证 ∩ 这里再查一次
+            return SegmentPlan(ok=False, from_cell=src, target_cell=target,
+                               error=f"段路线进入未知格（自检拒收）：{' '.join(bad[:5])}")
+        if log is not None:
+            log(f"段规划：{src} → {target}｜{len(plan.cells)} 格 / {plan.route_len_m:.2f} m / "
+                f"{plan.elapsed_ms:.1f} ms｜{plan.engine_line}"
+                + (("｜⚠️ " + "；".join(plan.warnings)) if plan.warnings else ""))
+    return plan
+
+
+def _find_task(group: Any, name: str) -> Any:
+    """在任务组里按线程名找任务（StepLoop 需要 MissionTask 的段执行接口）。"""
+    for task in getattr(group, "_tasks", ()) or ():
+        if getattr(task, "name", "") == name:
+            return task
+    return None
+
+
+class StepLoop:
+    """车端步进循环（T27）：运行期监听布局 → 段规划 → MissionTask 执行 → 段报告/等待。
+
+    状态机（phase 即 P_CAR_STATE["phase"]）：
+        WAIT_LAYOUT → PLANNING → DRIVING → SEGMENT_DONE →（新布局）PLANNING
+                                                ↘（无新布局）WAIT_INFO →（新布局）PLANNING
+        SEGMENT_DONE（目标 = end）→ FINISH；规划失败/无目标/无位姿 → WAIT_INFO（不退出）
+    ★ 两条硬语义：
+      ① WAIT_INFO **无超时**（step.wait_timeout_s 缺省 0 = 无限；>0 才超时退出）；
+      ② **换段只发生在段边界**：DRIVING 期间到达的新布局只记 version，绝不重规划。
+    """
+
+    def __init__(self, cfg: Config, bb: Blackboard, bridge: Any, mission: Any, *,
+                 bus: Any = None, log: Callable[[str], None] = LOG,
+                 clock: Callable[[], float] | None = None,
+                 layout_getter: Callable[[], dict | None] | None = None,
+                 planner: Callable[..., Any] | None = None) -> None:
+        self.cfg = cfg
+        self.bb = bb
+        self.bridge = bridge
+        self.mission = mission
+        self.bus = bus
+        self._log = log
+        if clock is None:
+            import time as _time
+            clock = _time.monotonic
+        self._clock = clock
+        self._layout_getter = layout_getter or (lambda: load_step_layout(self.bb))
+        self._planner = planner or self._default_planner
+        try:
+            self._wait_timeout_s = max(0.0, float(cfg.get("step.wait_timeout_s", 0) or 0))
+        except (TypeError, ValueError):
+            self._wait_timeout_s = 0.0
+
+        self._phase = STEP_PHASE_WAIT_LAYOUT
+        self._layout: dict[str, Any] | None = None
+        self._layout_version = 0
+        self._seen_version = 0
+        self._planned_version = -1
+        self._target_cell = ""
+        self._segment_id = 0
+        self._known_count = 0
+        self._reason = ""
+        self._wait_started = 0.0
+        self._last_wait_log = 0.0
+        self._last_old_log = 0.0
+        self._segments_started = 0
+        self._segments_done = 0
+        self._replans = 0
+        self._last_done_block = ""
+        self._last_target = ""
+        self._segment_started_at = 0.0
+        self._unknown_hits = 0
+        self._pose_seeded = False
+        self._last_car_state: dict[str, Any] | None = None
+
+    # ------------------------------------------------------------------ #
+    #  只读状态（遥测/测试）
+    # ------------------------------------------------------------------ #
+    @property
+    def phase(self) -> str:
+        return self._phase
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "phase": self._phase,
+            "layout_version": int(self._layout_version),
+            "seen_version": int(self._seen_version),
+            "planned_version": int(self._planned_version),
+            "target_cell": self._target_cell,
+            "segment_id": int(self._segment_id),
+            "known_count": int(self._known_count),
+            "reason": self._reason,
+            "segments_started": int(self._segments_started),
+            "segments_done": int(self._segments_done),
+            "replans": int(self._replans),
+            "wait_s": (round(self._clock() - self._wait_started, 2)
+                       if self._phase == STEP_PHASE_WAIT_INFO else 0.0),
+        }
+
+    # ------------------------------------------------------------------ #
+    #  起循环 / 单拍
+    # ------------------------------------------------------------------ #
+    def start(self, layout: dict[str, Any] | None = None) -> None:
+        """吃进启动门拿到的首份布局；复位一次 belief（与 T22 auto_start 的复位同源）。"""
+        if isinstance(layout, dict):
+            self._layout = dict(layout)
+            try:
+                self._layout_version = int(layout.get("version") or 0)
+            except (TypeError, ValueError):
+                self._layout_version = 0
+            self._seen_version = self._layout_version
+            self._planned_version = -1
+            self._phase = STEP_PHASE_PLANNING
+            self._reason = "首份布局"
+            self._seed_pose(self._layout)
+            self._log(f"步进循环启动：首份布局 v{self._layout_version}"
+                      f"（known {len(self._layout.get('known') or [])} 格 / "
+                      f"target {self._layout.get('target_cell') or '空'} / "
+                      f"start {self._layout.get('start')} → end {self._layout.get('end')}）")
+        else:
+            self._phase = STEP_PHASE_WAIT_LAYOUT
+            self._reason = "还没有布局"
+        self._publish_car_state(self._clock())
+
+    def tick(self, now: float | None = None) -> str:
+        """一拍（10 Hz）：推进状态机 + 写 P_CAR_STATE；返回当前阶段。"""
+        now = self._clock() if now is None else float(now)
+        self._poll_layout(now)
+        if self._phase == STEP_PHASE_PLANNING:
+            self._plan(now)
+        elif self._phase == STEP_PHASE_DRIVING:
+            self._drive_tick(now)
+        elif self._phase == STEP_PHASE_SEGMENT_DONE:
+            self._after_segment_done(now)
+        elif self._phase == STEP_PHASE_WAIT_INFO:
+            self._wait_tick(now)
+        self._publish_car_state(now)
+        return self._phase
+
+    def run(self, *, stop_flag: dict, alive: Callable[[], bool] = ros_context_alive,
+            sleep: Callable[[float], None] = time.sleep,
+            poll_s: float = 0.1, finish_wait_s: float = 2.0,
+            log: Callable[[str], None] = LOG) -> str:
+        """阻塞跑步进循环：返回 finish / stop / context_dead / timeout / safe_stop。"""
+        while not stop_flag.get("stop"):
+            try:
+                ok = bool(alive())
+            except Exception:                      # noqa: BLE001  判活本身出错不误杀
+                ok = True
+            if not ok:
+                log("‼️ 步进循环：ROS 上下文已失效 → 立即停止（不再空转刷 RCLError）")
+                return "context_dead"
+            phase = self.tick()
+            if phase == STEP_PHASE_FINISH:
+                if finish_wait_s > 0:
+                    sleep(finish_wait_s)
+                return "finish"
+            if phase == STEP_PHASE_WAIT_TIMEOUT:
+                return "timeout"
+            if phase == STEP_PHASE_SAFE_STOP:
+                return "safe_stop"
+            sleep(poll_s)
+        sig = stop_flag.get("signal")
+        log(f"收到信号 {sig}：步进循环停止（刹车由收尾统一发）" if sig
+            else "收到停机请求：步进循环停止")
+        return "stop"
+
+    # ------------------------------------------------------------------ #
+    #  状态机各步
+    # ------------------------------------------------------------------ #
+    def _poll_layout(self, now: float) -> None:
+        layout = self._layout_getter()
+        if not isinstance(layout, dict):
+            return
+        try:
+            version = int(layout.get("version") or 0)
+        except (TypeError, ValueError):
+            version = 0
+        if version <= self._seen_version:
+            if version < self._seen_version and now - self._last_old_log >= 5.0:
+                self._last_old_log = now
+                self._log(f"忽略旧版布局 v{version}（当前 v{self._seen_version}；"
+                          "车端只接受 >= 当前版本）")
+            return
+        self._seen_version = version
+        self._layout_version = version
+        self._layout = dict(layout)
+        if self._phase == STEP_PHASE_WAIT_LAYOUT:   # 启动门没给首份布局时也能自愈
+            self._phase = STEP_PHASE_PLANNING
+        target = str(layout.get("target_cell") or "") or "（空，只等不做）"
+        suffix = "（本段执行中 → 段边界再重规划）" if self._phase == STEP_PHASE_DRIVING else ""
+        self._log(f"布局运行期到达：v{version}｜known {len(layout.get('known') or [])} 格"
+                  f"｜target={target}｜segment={layout.get('segment_id', 0)}{suffix}")
+
+    def _plan(self, now: float) -> None:
+        layout = self._layout
+        if layout is None:
+            self._to_wait_info("没有可用的布局", now)
+            return
+        try:
+            self._planned_version = int(layout.get("version") or 0)
+            self._segment_id = int(layout.get("segment_id") or 0)
+        except (TypeError, ValueError):
+            self._planned_version = self._seen_version
+            self._segment_id = 0
+        self._target_cell = str(layout.get("target_cell") or "").strip().upper()
+        self._known_count = len(layout.get("known") or [])
+        if not self._target_cell:
+            self._to_wait_info("布局未给 target_cell（车只等不做）", now)
+            return
+        from_cell = self._current_block(prefer_prev=True)
+        if not from_cell:
+            self._to_wait_info("没有位姿（P_POSE 缺失）→ 无法确定当前格", now)
+            return
+        if from_cell == self._target_cell:
+            self._mark_segment_done(now, block=from_cell, elapsed=0.0, skipped=True)
+            return
+        self._replans += 1
+        try:
+            plan = self._planner(layout, from_cell, self._target_cell, self._heading_dir())
+        except Exception as exc:                   # noqa: BLE001  ★ 规划异常绝不炸主循环
+            self._to_wait_info(f"段规划异常：{type(exc).__name__}: {exc}", now)
+            return
+        if not plan.ok:
+            self._to_wait_info(f"段规划失败：{plan.error}", now)
+            return
+        if plan.single_cell:
+            self._mark_segment_done(now, block=self._target_cell, elapsed=0.0, skipped=True)
+            return
+        res = self.mission.request_segment(
+            plan.tokens, segment_id=self._segment_id, target_cell=self._target_cell,
+            known_count=self._known_count, source=f"step:v{self._planned_version}")
+        if not res.get("accepted"):
+            # 不是失败：任务线程可能还在上一段收尾（≤1 拍）。planned_version=-1
+            # 让下一拍 _wait_tick 立刻转回 PLANNING 重试。
+            self._planned_version = -1
+            self._to_wait_info(f"任务线程未接收本段：{res.get('reason')}", now, retry=True)
+            return
+        self._segments_started += 1
+        self._segment_started_at = now
+        self._phase = STEP_PHASE_DRIVING
+        self._reason = ""
+        self._last_target = self._target_cell
+        self._unknown_hits = 0
+        self._log(f"▶ 段 {self._segment_id} 下发：{from_cell} → {self._target_cell}"
+                  f"｜{len(plan.cells)} 格 / {plan.route_len_m:.2f} m / {plan.elapsed_ms:.1f} ms"
+                  f"｜{plan.engine_line}｜known {self._known_count} 格"
+                  + (("｜⚠️ " + "；".join(plan.warnings)) if plan.warnings else ""))
+
+    def _drive_tick(self, now: float) -> None:
+        st = self.mission.segment_status() if hasattr(self.mission, "segment_status") else {}
+        err = str(st.get("error") or "")
+        if err:
+            self._to_wait_info(f"段执行失败：{err}", now)
+            return
+        done = st.get("done") if isinstance(st.get("done"), dict) else None
+        if done and int(done.get("segment_id", -1)) == self._segment_id:
+            self._mark_segment_done(now, block=str(done.get("block") or self._target_cell),
+                                    elapsed=float(done.get("elapsed_s") or 0.0))
+            return
+        if self._unknown_violation():
+            self._to_safe_stop("belief 连续落在未知格（实际投影进入未知区域）", now)
+            return
+        if str(st.get("phase") or "") == "IDLE" and not done:
+            # 任务线程既没在跑段、也没给完成单 ⇒ 路线被外部命令清空/复位了。
+            # 给 1 s 宽限（段请求刚投递、任务线程还没取走时也是 IDLE）。
+            if now - self._segment_started_at > 1.0:
+                self._to_wait_info("任务线程回到 IDLE（路线被外部命令清空？）", now)
+
+    def _after_segment_done(self, now: float) -> None:
+        end = str((self._layout or {}).get("end") or "").strip().upper()
+        if end and self._last_done_block == end:
+            self._to_finish(now)
+            return
+        if self._seen_version > self._planned_version:
+            self._phase = STEP_PHASE_PLANNING
+            self._reason = "段边界：新布局已到 → 立即重规划"
+            self._log(f"段边界：布局 v{self._seen_version}（已处理 v{self._planned_version}）"
+                      "→ 转 PLANNING")
+            return
+        self._to_wait_info(f"停在 {self._last_done_block or '?'}，等无人机下一份布局", now)
+
+    def _wait_tick(self, now: float) -> None:
+        if self._seen_version > self._planned_version:
+            self._phase = STEP_PHASE_PLANNING
+            self._log(f"WAIT_INFO 收到新布局 v{self._seen_version} → 立即转 PLANNING")
+            return
+        waited = max(0.0, now - self._wait_started)
+        if self._wait_timeout_s > 0.0 and waited >= self._wait_timeout_s:
+            self._phase = STEP_PHASE_WAIT_TIMEOUT
+            self._reason = (f"WAIT_INFO 超时 {waited:.1f}s"
+                            f"（step.wait_timeout_s={self._wait_timeout_s:g}）")
+            self._log(f"⛔ {self._reason}")
+            return
+        if now - self._last_wait_log >= 5.0:
+            self._last_wait_log = now
+            self._log(f"… WAIT_INFO 已 {waited:.0f}s：{self._reason}"
+                      f"｜known {self._known_count} 格"
+                      f"｜{'无超时（等下一份布局）' if self._wait_timeout_s <= 0 else f'超时 {self._wait_timeout_s:g}s'}"
+                      "｜等无人机下一份布局")
+
+    # ------------------------------------------------------------------ #
+    #  状态迁移 + 回报
+    # ------------------------------------------------------------------ #
+    def _mark_segment_done(self, now: float, *, block: str, elapsed: float,
+                           skipped: bool = False) -> None:
+        self._segments_done += 1
+        self._last_done_block = str(block or self._target_cell)
+        self._last_target = self._last_done_block
+        self._phase = STEP_PHASE_SEGMENT_DONE
+        self._reason = "已在目标格（空段）" if skipped else "段完成"
+        self._publish_car_state(now)
+        self._log(f"■ 段 {self._segment_id} 到达 {self._last_done_block}"
+                  f"（{'空段，未发车' if skipped else f'用时 {elapsed:.2f}s'}）"
+                  f"→ P_CAR_STATE phase={STEP_PHASE_SEGMENT_DONE}")
+
+    def _to_wait_info(self, reason: str, now: float, *, retry: bool = False) -> None:
+        self._phase = STEP_PHASE_WAIT_INFO
+        self._reason = str(reason)
+        self._wait_started = now
+        self._last_wait_log = now
+        try:
+            self.bridge.publish_brake()            # 停车保持位姿（Tracker 在 IDLE 也每拍刹）
+        except Exception:                          # noqa: BLE001 刹车发不出去不崩循环
+            pass
+        if not retry:
+            self._log(f"⏸ WAIT_INFO：{reason}｜known {self._known_count} 格｜"
+                      f"{'无超时（等下一份布局）' if self._wait_timeout_s <= 0 else f'超时 {self._wait_timeout_s:g}s'}")
+
+    def _to_finish(self, now: float) -> None:
+        self._phase = STEP_PHASE_FINISH
+        self._reason = f"到达终点 {self._last_done_block}"
+        try:
+            self.bridge.publish_brake()
+        except Exception:                          # noqa: BLE001
+            pass
+        self._publish_car_state(now)
+        self._log(f"🏁 步进循环终点：{self._last_done_block} == end → FINISH")
+
+    def _to_safe_stop(self, reason: str, now: float) -> None:
+        try:
+            self.mission.stop_segment(reason)
+        except Exception:                          # noqa: BLE001
+            pass
+        try:
+            self.bridge.publish_brake()
+        except Exception:                          # noqa: BLE001
+            pass
+        self._phase = STEP_PHASE_SAFE_STOP
+        self._reason = str(reason)
+        self._publish_car_state(now)
+        self._log(f"⛔ SAFE_STOP：{reason}（已请求停止本段并刹车；不再自动恢复）")
+
+    def _publish_car_state(self, now: float) -> None:
+        data = {
+            "phase": self._phase,
+            "segment_id": int(self._segment_id),
+            "known_count": int(self._known_count),
+            "target_cell": self._target_cell,
+            "block": self._current_block(),
+            "version": int(self._layout_version if self._layout_version else self._seen_version),
+            "reason": self._reason,
+            "ts": round(float(now), 3),
+            "segments_started": int(self._segments_started),
+            "segments_done": int(self._segments_done),
+            "replans": int(self._replans),
+            "wait_s": (round(float(now) - self._wait_started, 2)
+                       if self._phase == STEP_PHASE_WAIT_INFO else 0.0),
+        }
+        if data == self._last_car_state:
+            return
+        self.bb.set(P_CAR_STATE, data, source="StepLoop")
+        self._last_car_state = data
+
+    # ------------------------------------------------------------------ #
+    #  小工具
+    # ------------------------------------------------------------------ #
+    def _current_block(self, *, prefer_prev: bool = False) -> str:
+        pose = self.bb.get(P_POSE)
+        if pose is None:
+            return ""
+        if prefer_prev and self._last_target:
+            tx, ty = geo.block_to_meters(self._last_target)
+            if math.hypot(pose.x - tx, pose.y - ty) <= 0.5 * geo.BLOCK_SIZE:
+                return self._last_target
+        return geo.meters_to_block(pose.x, pose.y)
+
+    def _heading_dir(self) -> tuple[int, int] | None:
+        pose = self.bb.get(P_POSE)
+        if pose is None:
+            return None
+        from .tasks.mission import heading_dir_from_yaw
+        return heading_dir_from_yaw(pose.yaw)
+
+    def _unknown_violation(self) -> bool:
+        known = set((self._layout or {}).get("known") or [])
+        if not known:
+            return False
+        block = self._current_block()
+        if not block:
+            return False
+        if block in known:
+            self._unknown_hits = 0
+            return False
+        self._unknown_hits += 1
+        return self._unknown_hits >= _STEP_UNKNOWN_STOP_TICKS
+
+    def _seed_pose(self, layout: dict[str, Any]) -> None:
+        spec = str(self.cfg.get("mission.reset") or "").strip()
+        if not spec:
+            spec = f"{layout.get('start') or 'N10'},x"
+        try:
+            self.mission.reset_pose(spec)
+            self._pose_seeded = True
+            self._log(f"步进循环：复位 belief = {spec!r}（与 T22 auto_start 的复位同源，只做一次）")
+        except Exception as exc:                   # noqa: BLE001 复位失败不阻塞循环
+            self._log(f"⚠️ 步进循环复位失败（继续用现有 belief）：{type(exc).__name__}: {exc}")
+
+    def _default_planner(self, layout: dict[str, Any], from_cell: str,
+                         target_cell: str, heading_dir: tuple[int, int] | None) -> Any:
+        return plan_segment_from_layout(self.cfg, layout, from_cell=from_cell,
+                                        target_cell=target_cell, heading_dir=heading_dir,
+                                        log=self._log)
+
+
+def _run_step_loop(loop: StepLoop, *, stop_flag: dict,
+                   alive: Callable[[], bool] = ros_context_alive,
+                   log: Callable[[str], None] = LOG) -> str:
+    """run_live 的步进循环入口（单独成函数便于测试替身/日志留痕）。"""
+    why = loop.run(stop_flag=stop_flag, alive=alive, log=log)
+    st = loop.status()
+    log(f"步进循环退出：{why}｜{st['phase']}｜布局 v{st['seen_version']}"
+        f"｜段 下发{st['segments_started']}/完成{st['segments_done']}"
+        f"｜重规划 {st['replans']} 次｜known {st['known_count']} 格")
+    return why
+
+
 def _layout_mode_enabled(cfg: Config, map_path: str | None) -> bool:
     """车端"布局模式"：自动规划开启、且**没有可用的地图文件**。
 
@@ -333,19 +964,27 @@ def _wait_for_field_layout(bb: Blackboard, cfg: Config, *, stop_flag: dict,
                            log: Callable[[str], None] = LOG,
                            sleep: Callable[[float], None] = time.sleep,
                            now: Callable[[], float] = time.monotonic) -> dict | None:
-    """阻塞等待无人机下发布局（缺省 30 s），超时/停机/上下文失效 → `None`（不规划）。"""
+    """阻塞等待无人机下发布局（缺省 30 s），超时/停机/上下文失效 → `None`（不规划）。
+
+    ★T27：这里返回的是**步进归一化布局**（v2 会带 known/target_cell/segment_id；v1 与
+      `load_field_layout()` 逐键相同）—— 启动门据此决定走"步进循环"还是旧"规划一次"。
+    """
     wait_s = float(cfg.get("drone.field_layout_wait_s", 30.0) or 30.0)
     wait_s = max(0.0, wait_s)
     t0 = now()
     deadline = t0 + wait_s
     last_note = t0
     while True:
-        layout = load_field_layout(bb)
+        layout = load_step_layout(bb)
         if layout is not None:
+            extra = ("｜known %d 格 target=%s seg=%s → 步进循环"
+                     % (len(layout.get("known") or []),
+                        layout.get("target_cell") or "空",
+                        layout.get("segment_id", 0))) if "known" in layout else \
+                    "→ 开始内存地图规划（v1 布局/旧行为）"
             log(f"收到无人机场地布局（起 {layout['start']} 终 {layout['end']} "
                 f"雷 {len(layout['mines'])} 障 {len(layout['obstacles'])} "
-                f"靶 {len(layout['targets'])} 桥洞 {layout['bridges']}）"
-                f"→ 开始内存地图规划")
+                f"靶 {len(layout['targets'])} 桥洞 {layout['bridges']}）{extra}")
             return layout
         if stop_flag.get("stop"):
             log("等待场地布局期间收到停机信号 → 不规划、不出发")
@@ -407,10 +1046,15 @@ def build_tasks(bridge: Any, bb: Blackboard, bus: EventBus, cfg: Config,
 
 
 def start_banner(cfg: Config, group: TaskGroup, *, plan: Any = None,
-                 layout_mode: bool = False) -> None:
+                 layout_mode: bool = False, step_mode: bool = False) -> None:
     tokens = cfg.get("route.tokens") or []
     plan_on = bool(cfg.get("planner.auto_plan_enabled", False))
-    if plan is not None:
+    if step_mode:
+        route_source = "步进循环（无人机布局 → 段规划）"
+        route_line = ("运行期等布局（version 大者胜）→ 每段从当前格规划到 target_cell → "
+                      "MissionTask 执行 → 段末回报；规划失败/无目标 ⇒ WAIT_INFO"
+                      f"（超时 {cfg.get('step.wait_timeout_s', 0)}s，0=无限）")
+    elif plan is not None:
         route_source = "无人机布局自规划"
         route_line = (f"{len(plan.tokens)} token（引擎 {plan.engine}，{plan.mode}，"
                       f"耗时 {plan.elapsed_ms:.1f} ms，{plan.route_len_m:.2f} m；"
@@ -722,9 +1366,12 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
     layout_mode = _layout_mode_enabled(cfg, map_path)
     layout_task = None
     layout_plan = None
+    step_mode = False
+    first_layout: dict | None = None
     if layout_mode:
         log("车端无可用的地图文件（未传 --map 或 --map 指向的文件不存在）→ 布局模式："
-            "先起无人机线程等 field_layout，收到布局才规划、才起任务组")
+            "先起无人机线程等 field_layout；v1 布局=旧行为（规划一次），"
+            "v2 布局（带 known）=T27 步进循环（运行期逐段规划/执行/回报）")
         if not bool(cfg.get("drone.enabled", True)):
             log("⛔ 布局模式需要无人机链路，但 drone.enabled=False → 永远收不到布局，"
                 "不规划、不出发")
@@ -737,34 +1384,57 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
             bridge.shutdown(brake=True)
             return 3
         bridge.spin_async(threads=4)
-        layout = _wait_for_field_layout(bb, cfg, stop_flag=stop_flag, alive=alive, log=log)
-        if layout is None:
+        first_layout = _wait_for_field_layout(bb, cfg, stop_flag=stop_flag,
+                                              alive=alive, log=log)
+        if first_layout is None:
             layout_task.stop(timeout=2.0)
             bridge.shutdown(brake=True)
             log("⛔ 未收到无人机场地布局 → 不规划、不出发"
                 "（绝不用地图文件/旧 route.tokens 兜底）")
             return 3
-        layout_plan = plan_route_from_field_layout(cfg, layout, log=log)
-        if not layout_plan.ok:
-            layout_task.stop(timeout=2.0)
-            bridge.shutdown(brake=True)
-            log(f"⛔ 布局规划失败（{layout_plan.error}）→ 不出发"
-                f"（绝不回退地图文件/旧 route.tokens）")
-            return 4
-        # ★ 把规划产物写回 route.tokens，并关掉任务侧的"再规划"：MissionTask 走
-        #   既有手动路线分支执行这条**由布局算出**的路线（不会去碰 planner.map_path）。
-        cfg.override("route.tokens", list(layout_plan.tokens))
-        cfg.override("planner.auto_plan_enabled", False)
-        log(f"✅ 布局自规划成功：{len(layout_plan.tokens)} token / "
-            f"{layout_plan.route_len_m:.2f} m / 引擎 {layout_plan.engine} / "
-            f"{layout_plan.elapsed_ms:.1f} ms → 已写入 route.tokens 交任务执行")
+        step_mode = _step_mode_enabled(first_layout)
+        if step_mode:
+            # ★T27：不再"规划一次再交给 MissionTask"，而是让任务组立即起、由
+            #   StepLoop 在运行期逐段规划/执行/回报。MissionTask 的 auto_start 必须关掉
+            #   —— 段由步进器显式 request_segment() 启动（否则会自己载入 route.tokens）。
+            cfg.override("mission.auto_start", False)
+            log(f"✅ 收到布局 v2（known {len(first_layout.get('known') or [])} 格）→ "
+                f"进入运行期步进循环：段由无人机 target_cell 驱动；"
+                f"MissionTask 只执行步进器下发的段")
+        else:
+            layout_plan = plan_route_from_field_layout(cfg, first_layout, log=log)
+            if not layout_plan.ok:
+                layout_task.stop(timeout=2.0)
+                bridge.shutdown(brake=True)
+                log(f"⛔ 布局规划失败（{layout_plan.error}）→ 不出发"
+                    f"（绝不回退地图文件/旧 route.tokens）")
+                return 4
+            # ★ 把规划产物写回 route.tokens，并关掉任务侧的"再规划"：MissionTask 走
+            #   既有手动路线分支执行这条**由布局算出**的路线（不会去碰 planner.map_path）。
+            cfg.override("route.tokens", list(layout_plan.tokens))
+            cfg.override("planner.auto_plan_enabled", False)
+            log(f"✅ 布局自规划成功：{len(layout_plan.tokens)} token / "
+                f"{layout_plan.route_len_m:.2f} m / 引擎 {layout_plan.engine} / "
+                f"{layout_plan.elapsed_ms:.1f} ms → 已写入 route.tokens 交任务执行")
 
     group, skipped = build_tasks(bridge, bb, bus, cfg, log=log,
                                  skip={"drone"} if layout_task is not None else None)
     for s in skipped:
         log(f"  (跳过未实现的任务) {s}")
 
-    start_banner(cfg, group, plan=layout_plan, layout_mode=layout_mode)
+    step_loop: StepLoop | None = None
+    if step_mode:
+        mission_task = _find_task(group, "MissionTask")
+        if mission_task is None:
+            if layout_task is not None:
+                layout_task.stop(timeout=2.0)
+            bridge.shutdown(brake=True)
+            log("⛔ 步进循环需要 MissionTask，但任务组里没有（模块未实现/导入失败）→ 不出发")
+            return 3
+        step_loop = StepLoop(cfg, bb, bridge, mission_task, bus=bus, log=log)
+
+    start_banner(cfg, group, plan=layout_plan, layout_mode=layout_mode,
+                 step_mode=step_mode)
     log("ROS 契约：" + " | ".join(f"{k}={ct.topic(k).name}" for k in
                                  ("pursuit_angle", "scan_request", "aim_fire_gate",
                                   "aim_fire_ready", "drone_in")))
@@ -776,12 +1446,19 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
 
     # 安全兜底：任务组出现 FAULT 时，Safety 会刹；这里只做退出条件判断
     try:
-        why = _live_loop(stop_flag, bb=bb, alive=alive, log=log)
-        # ★ teardown 留痕（实测指出收栈时**一条都没有**，事后无法判断是正常收尾还是被打死）
-        log(f"退出原因 = {why}（运行 {time.time() - t0:.1f}s；"
-            f"信号={stop_flag.get('signal')}；rclpy.ok()={alive()}）")
-        if why == "context_dead":
-            rc = 1
+        if step_loop is not None:
+            step_loop.start(first_layout)
+            why = _run_step_loop(step_loop, stop_flag=stop_flag, alive=alive, log=log)
+            log(f"退出原因 = {why}（步进循环；运行 {time.time() - t0:.1f}s；"
+                f"信号={stop_flag.get('signal')}；rclpy.ok()={alive()}）")
+            rc = 1 if why in ("context_dead", "safe_stop") else (4 if why == "timeout" else 0)
+        else:
+            why = _live_loop(stop_flag, bb=bb, alive=alive, log=log)
+            # ★ teardown 留痕（实测指出收栈时**一条都没有**，事后无法判断是正常收尾还是被打死）
+            log(f"退出原因 = {why}（运行 {time.time() - t0:.1f}s；"
+                f"信号={stop_flag.get('signal')}；rclpy.ok()={alive()}）")
+            if why == "context_dead":
+                rc = 1
     finally:
         stuck = group.stop_all(timeout=2.0)
         if stuck:
@@ -792,6 +1469,11 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
         log(f"收尾：ros 上下文{'已失效' if shutdown_rc else '正常'}，"
             f"刹车已尝试={'否' if shutdown_rc else '是'}，任务线程已停")
         finish_report(bb, group, bus, elapsed=time.time() - t0)
+        if step_loop is not None:
+            st = step_loop.status()
+            log(f"  [步进循环] 阶段={st['phase']} 布局 v{st['seen_version']} "
+                f"段下发={st['segments_started']} 段完成={st['segments_done']} "
+                f"重规划={st['replans']} known={st['known_count']} 格")
         if layout_task is not None:
             h = layout_task.health()
             log(f"  [无人机/布局监听] ticks={h.ticks} errors={h.errors} "

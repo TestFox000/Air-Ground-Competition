@@ -152,15 +152,27 @@
   门禁实现见 `check_planned_route()` / `GateResult`（同一段代码也被 `--plan-only` 复用）。
   ⚠️ 与上面 `planner.*` 一样，`planner.engine` / `planner.tracker_max_seconds`
   **未登记进 SCHEMA** ⇒ `Config.validate()` 会各记一条"未知配置段"warn（不是 error）。
+
+★ 步进循环（T27，docs/step_loop.md）：本任务新增**段执行**接口（`request_segment()` /
+  `stop_segment()` / `segment_status()` / `reset_pose()`）。main 的 StepLoop 在**另一个
+  线程**投递段请求，本任务在 tick 开头（`_process_segment_requests`）才真正载入/发车
+  —— 与外部 /nav/waypoint 命令同一模式，保证 route/阶段只被本线程改写。
+  段结束时 `_check_finish()` 把完成单（segment_id / target_cell / block / pose_block /
+  known_count / elapsed_s）记进 `segment_status()["done"]`；**FINISH 锁存跨段必须解闩**
+  （`request_segment()` 接受请求时就清掉 done/error，任务线程起段时清 `_finish_latched`）。
+  段规划器见 `plan_segment_route()`（点对点；未知格由 main 以 `blocked_extra` 传入）。
 """
 
 from __future__ import annotations
 
+import heapq
 import math
 import pathlib
 import re
+import threading
+import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from ..core import geometry as geo
 from ..core.blackboard import (P_AIM_RED, P_DRONE, P_MISSION_PHASE, P_POSE, P_ROUTE,
@@ -191,7 +203,9 @@ __all__ = ["MissionTask", "MISSION_STATE_KEY", "plan_route_from_config", "resolv
            "FootprintReport", "footprint_diagnostic", "vehicle_geometry",
            "FOOTPRINT_GATE_MODES", "DEFAULT_FOOTPRINT_GATE",
            # 无人机桥洞情报（EV_BRIDGE_INFO → 穿洞格）
-           "BRIDGE_HALVES", "BridgeIntel", "rewrite_crossing_tokens", "retag_block_token"]
+           "BRIDGE_HALVES", "BridgeIntel", "rewrite_crossing_tokens", "retag_block_token",
+           # ★T27 步进循环的段规划（点对点；未知格由调用方作为 blocked_extra 传入）
+           "SegmentPlan", "plan_segment_route", "heading_dir_from_yaw"]
 
 #: 遥测键：Mission 的当前上下文（停站点/航点/用时）
 MISSION_STATE_KEY = "mission_state"
@@ -1054,6 +1068,285 @@ def plan_route_from_config(cfg: Any, *, map_path: str | None = None,
                            gate_detail=(gate.summary if gate_ran else ""))
 
 
+# --------------------------------------------------------------------------- #
+#  ★T27 段规划：步进循环的"点对点"路线（未知格=不可通行，但**不是**物理障碍）
+# --------------------------------------------------------------------------- #
+#  背景（docs/step_loop.md §3）：无人机逐帧下发布局 v2，车端按 target_cell 把整趟
+#  拆成若干**段**；每段只需要"从当前格走到目标格"，不要求覆盖雷、不要求射击停站。
+#
+#  ★ 与整线 plan_route_tracker_safe() 的**刻意差异**（本卡的关键裁决，见报告）：
+#    整线引擎把"雷必须直线穿心 / 隔板邻行不许 90° 转弯 / 桥洞入口邻格不许横穿"都
+#    升成了**硬失败**。这些约束是"覆盖型整线"的策略，不是"点对点移动"的物理极限：
+#    本图实测（第五张图）从 N10 出发，整线 tracker-safe 只能到东侧 12 个格
+#    （M7→L7→K7→J7 的转弯被"隔板邻行转弯"永久否决）⇒ 若段规划也照搬硬失败，
+#    无人机认为"可达"的前沿点，车端会永远 WAIT_INFO。故段规划只保留三条**硬**约束：
+#      ① 物理净空（_TSGrid.move_ok：障碍/靶板/挡板/桥洞入口按车身几何算）；
+#      ② 禁 >90° 转角（180° 折返只能靠 PIVOT，纯追踪跟不住）；
+#      ③ 禁"紧凑 U 形折返"（两条反向腿之间只隔 1 格，会被纯追踪整段切掉）。
+#    其余策略性否决（雷格转弯/隔板邻行转弯/入口邻格/进洞扫掠）**降级为代价**
+#    （+_SEG_SOFT_BAN_COST_M 米）：既不会无解，又会优先选安全几何；命中处写进
+#    SegmentPlan.warnings，现场能在日志里看见"这段路有一处整线引擎会否决的转弯"。
+_SEG_MAX_TURN_DEG = 90.0
+#: 段规划转角权重（米/90°），与 tracker-safe 的 TS_TURN_W 同量级
+_SEG_TURN_W_M = 0.10
+#: 整线引擎的策略性硬否决在段规划里的降级代价（米）：足够大 ⇒ 有替代路就绕开
+_SEG_SOFT_BAN_COST_M = 2.0
+
+
+@dataclass
+class SegmentPlan:
+    """一次段规划的结果（**不抛异常**；失败原因全在 error 里）。
+
+    与 PlanOutcome 分开的理由：段规划**不是**整线任务规划 —— 没有射击停站/双门禁/
+    穿洞三连那些字段，硬塞进 PlanOutcome 会让"失败回退 route.tokens"的语义混进来。
+    """
+
+    ok: bool = False
+    tokens: list[str] = field(default_factory=list)
+    cells: list[str] = field(default_factory=list)
+    from_cell: str = ""
+    target_cell: str = ""
+    engine: str = DEFAULT_PLAN_ENGINE
+    route_len_m: float = 0.0
+    cost: float = 0.0
+    elapsed_ms: float = 0.0
+    error: str = ""
+    warnings: tuple[str, ...] = ()
+
+    @property
+    def single_cell(self) -> bool:
+        """目标格 == 当前格（无需发段；步进器据此直接判段完成）。"""
+        return bool(self.ok) and len(self.cells) <= 1
+
+    @property
+    def engine_line(self) -> str:
+        if self.engine == DEFAULT_PLAN_ENGINE:
+            return f"引擎 {self.engine}"
+        return f"引擎 {self.engine}（段规划：物理净空硬约束，策略性转弯降级为代价）"
+
+
+def heading_dir_from_yaw(yaw: float) -> tuple[int, int]:
+    """地图 yaw → 栅格行进方向（4 邻域单位步）。与 planner._ts_map_yaw 互逆。"""
+    dx = math.cos(float(yaw))
+    dy = math.sin(float(yaw))
+    if abs(dx) >= abs(dy):
+        return (-1, 0) if dx >= 0.0 else (1, 0)
+    return (0, -1) if dy >= 0.0 else (0, 1)
+
+
+def _seg_turn_deg(a: tuple[int, int], b: tuple[int, int]) -> float:
+    """两个行进方向之间的转角（度，∈ [0,180]）；口径与 planner._ts_turn_deg 相同。"""
+    return abs(math.degrees(geo.normalize_angle(math.atan2(b[0], b[1])
+                                                - math.atan2(a[0], a[1]))))
+
+
+def _seg_unit(v: tuple[int, int]) -> tuple[int, int]:
+    g = math.gcd(abs(int(v[0])), abs(int(v[1]))) or 1
+    return (int(v[0]) // g, int(v[1]) // g)
+
+
+def plan_segment_route(map_cfg: Any, cfg: Any = None, *,
+                       from_cell: str, target_cell: str,
+                       heading_dir: tuple[int, int] | None = None,
+                       engine: str | None = None,
+                       blocked_extra: Iterable[str] = (),
+                       source: str = "") -> SegmentPlan:
+    """段规划：from_cell → target_cell 的最短可执行栅格路线（**永不抛异常**）。
+
+    :param map_cfg: {"map": {...}}（与整线规划器同形状）；未知格的"不可通行"由
+        blocked_extra 传，**不要**塞进 obstacles —— 未知格不是实体水桶，若按障碍
+        加物理净空势场，一条两侧都是未知格、只有一格宽的 known 走廊会**合法但规划不出**。
+    :param heading_dir: 车当前车头朝向（栅格单位步）；None = 未知，首步任意（测试/复位后）。
+    :param blocked_extra: 额外禁止进入的格（步进循环传"不在 known 里的格"）。
+    :param engine: 缺省按 planner.engine；tracker-safe 用物理净空扫掠，tour 用基础
+        网格判据（无物理扫掠）—— 两者都禁 180° 与紧凑 U。
+    """
+    t0 = time.perf_counter()
+    eng = str(engine or resolve_plan_engine(cfg)).strip().lower()
+    if eng not in PLAN_ENGINES:
+        eng = DEFAULT_PLAN_ENGINE
+    out = SegmentPlan(engine=eng)
+    try:
+        from ..route import planner as PL
+
+        try:
+            spec = PL.load_map(map_cfg, source=source)
+        except Exception as exc:                       # noqa: BLE001 坏图=可等待的失败
+            out.error = f"地图非法：{type(exc).__name__}: {exc}"
+            return out
+        try:
+            srow, scol = geo.block_to_index(str(from_cell).strip().upper())
+            grow, gcol = geo.block_to_index(str(target_cell).strip().upper())
+        except ValueError as exc:
+            out.error = f"起点/目标格名非法：{exc}"
+            return out
+        start = (srow + 1, scol)
+        goal = (grow + 1, gcol)
+        out.from_cell = geo.index_to_block(srow, scol)
+        out.target_cell = geo.index_to_block(grow, gcol)
+        if start == goal:                              # 已站在目标格：空段（无需执行）
+            out.ok = True
+            out.cells = [out.from_cell]
+            out.elapsed_ms = (time.perf_counter() - t0) * 1000.0
+            return out
+
+        # ---- 建栅格：桥洞行只认 K 列格（layout.bridges 已是可通行桥洞）----
+        bridge_rows: list[int] = []
+        for cell in spec.bridges:
+            try:
+                br, bc = geo.block_to_index(str(cell))
+            except ValueError:
+                continue
+            if bc == geo.COL_LETTERS.index("K"):
+                bridge_rows.append(br + 1)
+        grid = PL.Grid(spec, bridge_rows=bridge_rows, allow_reverse=False)
+        # ★ 未知格只进 blocked（通行性），不进 spec.obstacles（物理净空/势场）
+        blocked: set[tuple[int, int]] = set()
+        for cell in blocked_extra or ():
+            try:
+                r, c = geo.block_to_index(str(cell).strip().upper())
+            except ValueError as exc:
+                out.error = f"blocked_extra 里的格名非法：{cell!r}（{exc}）"
+                return out
+            blocked.add((r + 1, c))
+        grid.blocked |= blocked
+        if start in blocked:
+            out.error = f"当前格 {out.from_cell} 在禁止集合里（未知格不能作为起点）"
+            return out
+        if not grid.passable(*start):
+            out.error = f"当前格 {out.from_cell} 不可通行（障碍/靶板）"
+            return out
+        if goal in blocked:
+            out.error = f"目标格 {out.target_cell} 不在 known 里（车绝不进未知格）"
+            return out
+        if not grid.passable(*goal):
+            out.error = f"目标格 {out.target_cell} 不可通行（障碍/靶板）"
+            return out
+        ts = PL._TSGrid(spec=spec, grid=grid, phys=PL._phys_params(cfg))  # noqa: SLF001
+
+        def _move_ok(a: tuple[int, int], b: tuple[int, int]) -> bool:
+            if eng == ENGINE_TRACKER_SAFE:
+                return ts.move_ok(a, b)
+            return grid.move_ok(a[0], a[1], b[0], b[1])
+
+        # ---- 朝向感知 Dijkstra（状态 = (格, 到达朝向, 上一腿朝向)）----
+        dirs = PL.TS_ORTHO
+        first = None
+        if heading_dir is not None:
+            cand = (int(heading_dir[0]), int(heading_dir[1]))
+            if cand in dirs:
+                first = cand
+        def _search(dirs0: tuple) -> tuple[tuple | None, dict, dict]:
+            dist0: dict[tuple, float] = {}
+            came0: dict[tuple, tuple | None] = {}
+            pq0: list[tuple[float, int, tuple]] = []
+            cnt = 0
+            for st in [(start, d, None) for d in dirs0]:
+                dist0[st] = 0.0
+                came0[st] = None
+                heapq.heappush(pq0, (0.0, cnt, st))
+                cnt += 1
+            while pq0:
+                value, _order, st = heapq.heappop(pq0)
+                if value > dist0.get(st, float("inf")) + 1e-11:
+                    continue
+                cell, h, h_prev = st
+                if cell == goal:
+                    return st, dist0, came0
+                for v in dirs:
+                    nxt = (cell[0] + v[0], cell[1] + v[1])
+                    if not _move_ok(cell, nxt):
+                        continue
+                    deg = 0.0
+                    extra = 0.0
+                    if h is not None:
+                        deg = _seg_turn_deg(h, v)
+                        if deg > _SEG_MAX_TURN_DEG + 1e-9:      # 180°：硬禁
+                            continue
+                        if (h_prev is not None and deg > 45.0
+                                and _seg_turn_deg(h_prev, h) > 45.0
+                                and _seg_unit((-h_prev[0], -h_prev[1])) == v):
+                            continue                            # 紧凑 U：硬禁
+                        ok_turn, gate_deg, gate_extra = ts.turn_gate(cell, h_prev, h, v)
+                        if ok_turn:
+                            extra += float(gate_extra)
+                        else:                                   # 策略性否决 → 降级为代价
+                            extra += _SEG_SOFT_BAN_COST_M
+                        deg = float(gate_deg)
+                    nd = value + geo.BLOCK_SIZE + _SEG_TURN_W_M * (deg / 90.0) + extra
+                    ns = (nxt, v, h)
+                    if nd < dist0.get(ns, float("inf")) - 1e-11:
+                        dist0[ns] = nd
+                        came0[ns] = st
+                        cnt += 1
+                        heapq.heappush(pq0, (nd, cnt, ns))
+            return None, dist0, came0
+
+        goal_state, dist, came = _search(dirs if first is None else (first,))
+        turned_around = False
+        if goal_state is None and first is not None:
+            # ★ 起点车头朝向与唯一可行首步相反（180°）时，若直接判"无解"会永久 WAIT_INFO
+            #   （段边界上很常见：上一段从西往东开，下一段要往西回）。纯追踪无法从静止
+            #   直接横移/掉头，但车可以原地转/小圆弧掉头 —— 故允许"首步任意方向"再搜一次，
+            #   并如实留 warning（现场需确认该格前方有 ~0.3 m 掉头空间）。
+            goal_state, dist, came = _search(dirs)
+            turned_around = True
+        if goal_state is None:
+            out.error = (f"段规划无解：{out.from_cell} → {out.target_cell}"
+                         "（只走 known 格；物理净空/禁 180°/禁紧凑 U）")
+            return out
+        cells = [goal_state[0]]
+        st = goal_state
+        while came.get(st) is not None:
+            st = came[st]
+            cells.append(st[0])
+        cells.reverse()
+        out.cells = [geo.index_to_block(r - 1, c) for r, c in cells]
+        out.tokens = list(out.cells)
+        out.route_len_m = max(0.0, (len(cells) - 1) * geo.BLOCK_SIZE)
+        out.cost = float(dist[goal_state])
+        # ---- 自检（绝不把坏路线交给任务线程）----
+        problems: list[str] = []
+        for i in range(1, len(cells)):
+            a, b = cells[i - 1], cells[i]
+            if abs(a[0] - b[0]) + abs(a[1] - b[1]) != 1:
+                problems.append(f"{out.cells[i - 1]}→{out.cells[i]} 非正交相邻")
+            if b in blocked:
+                problems.append(f"进入未知格 {out.cells[i]}")
+            if not _move_ok(a, b):
+                problems.append(f"{out.cells[i - 1]}→{out.cells[i]} 复核 move_ok 失败")
+        if problems:
+            out.error = "段路线自检未过：" + "；".join(problems[:3])
+            return out
+        # ---- 策略性转弯留痕（整线引擎会否决、段规划降级为代价的那些顶点）----
+        soft: list[str] = []
+        for i in range(1, len(cells) - 1):
+            d_in = (cells[i][0] - cells[i - 1][0], cells[i][1] - cells[i - 1][1])
+            d_out = (cells[i + 1][0] - cells[i][0], cells[i + 1][1] - cells[i][1])
+            d_prev = ((cells[i - 1][0] - cells[i - 2][0],
+                       cells[i - 1][1] - cells[i - 2][1]) if i >= 2 else None)
+            ok_turn, _deg, _ex = ts.turn_gate(cells[i], d_prev, d_in, d_out)
+            if not ok_turn:
+                soft.append(out.cells[i])
+        warns: list[str] = []
+        if turned_around:
+            warns.append("起点车头朝向与首段相反（180°）⇒ 已按「允许原地转向」重规划："
+                         "车会先转头/小圆弧掉头，请确认该格前方约有 0.3 m 空间")
+        if soft:
+            warns.append("段路线含 %d 处整线 tracker-safe 会否决的策略性转弯"
+                         "（已按代价处理）：%s" % (len(soft), " ".join(soft)))
+        if eng != ENGINE_TRACKER_SAFE:
+            warns.append(f"引擎 {eng}：段规划用基础网格判据（无物理净空扫掠）")
+        out.warnings = tuple(warns)
+        out.ok = True
+        out.elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        return out
+    except Exception as exc:                           # noqa: BLE001  ★ 段规划失败=可等待
+        out.error = f"{type(exc).__name__}: {exc}"
+        out.elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        return out
+
+
 #: 只有这些阶段允许"发车/推进"（★ 白名单：未知阶段一律不动）
 _DRIVING_PHASES: tuple[str, ...] = (MissionPhase.DRIVE, MissionPhase.APPROACH)
 
@@ -1274,6 +1567,21 @@ class MissionTask(TaskThread):
         self._cmd_stats: dict[str, int] = {"total": 0, "rejected": 0}
         self._log_throttle = Throttle(self._rate_limit_s)
 
+        # ---- ★T27 步进循环：段执行上下文（main 的 StepLoop 投递，本线程 tick 处理）----
+        #   为什么走"请求队列 + tick 处理"而不是让 main 直接调 _load_tokens：
+        #   main 循环在**另一个线程**，直接改 _route/_passed 会与 10 Hz 的 tick 竞态
+        #   （改到一半被投影/到点判定读到）。这里只用一个锁保护"请求槽 + 完成回报"，
+        #   route/阶段等执行态**只在本线程**改 —— 与外部 /nav/waypoint 命令同一模式。
+        self._segment_lock = threading.Lock()
+        self._segment_req: dict[str, Any] | None = None
+        self._segment_stop_req: str | None = None
+        self._segment_active = False
+        self._segment_id = 0
+        self._segment_target = ""
+        self._segment_known = 0
+        self._segment_done: dict[str, Any] | None = None
+        self._segment_error = ""
+
         # 停站点（含末点）的弧长前缀与目标索引，路线载入时算一次
         self._stop_s: dict[int, float] = {}
         self._stop_blocks: list[str] = []
@@ -1372,7 +1680,107 @@ class MissionTask(TaskThread):
             "accounting": self.accounting(),
             # 无人机桥洞情报（实时结论 + 本局**冻结**的实际用格）
             "bridge": self.bridge_state(),
+            # ★T27 段执行上下文（步进循环遥测；与 StepLoop 的 P_CAR_STATE 同源）
+            "segment": self.segment_status(),
         }
+
+    # ------------------------------------------------------------------ #
+    #  ★T27 步进循环接口：主线程投递段任务，任务线程在 tick 里执行
+    # ------------------------------------------------------------------ #
+    def request_segment(self, tokens, *, segment_id: int = 0, target_cell: str = "",
+                        known_count: int = 0, source: str = "step") -> dict[str, Any]:
+        """请求执行一段路线（**线程安全**；tick 开头才真正载入/发车）。
+
+        拒绝条件（返回 accepted=False + reason，调用方据此 WAIT_INFO 重试）：
+          · 本段仍在执行 ⇒ **换段只允许在段边界**（T27 验收项）；
+          · 上一段请求还没被任务线程取走（10 Hz，最多 100 ms）。
+        """
+        try:
+            toks = [str(t) for t in (tokens or ())]
+        except TypeError:
+            return {"accepted": False, "reason": "tokens 不是可迭代对象"}
+        if not toks:
+            return {"accepted": False, "reason": "段路线为空"}
+        req = {"tokens": toks, "segment_id": int(segment_id),
+               "target_cell": str(target_cell).strip().upper(),
+               "known_count": int(known_count), "source": str(source)}
+        with self._segment_lock:
+            if self._segment_req is not None:
+                return {"accepted": False, "reason": "上一段请求尚未被任务线程取走"}
+            if self._segment_active:
+                return {"accepted": False, "reason": "本段仍在执行（换段只允许在段边界）"}
+            self._segment_req = req
+            # ★ 一接受就清掉上一段的完成回报：否则调用方可能把旧 done 当成本段结果
+            self._segment_done = None
+            self._segment_error = ""
+            return {"accepted": True, "reason": ""}
+
+    def stop_segment(self, reason: str = "") -> dict[str, Any]:
+        """请求终止当前段并回到 IDLE（安全停机用；tick 开头执行）。"""
+        with self._segment_lock:
+            self._segment_stop_req = str(reason or "外部请求停止段")
+            self._segment_req = None                   # 未处理的段请求一并作废
+            return {"requested": True, "reason": self._segment_stop_req}
+
+    def segment_status(self) -> dict[str, Any]:
+        """段执行状态（**只读**；遥测/测试/StepLoop 共用同一份口径）。"""
+        with self._segment_lock:
+            done = dict(self._segment_done) if isinstance(self._segment_done, dict) else None
+            return {"active": bool(self._segment_active),
+                    "segment_id": int(self._segment_id),
+                    "target_cell": str(self._segment_target),
+                    "known_count": int(self._segment_known),
+                    "done": done, "error": str(self._segment_error),
+                    "phase": self._phase}
+
+    def reset_pose(self, spec: str) -> None:
+        """把 belief 放到 spec（BLOCK,HEAD）格心（步进器启动时复位一次；不改阶段/路线）。"""
+        self._reset_belief(spec)
+
+    def _process_segment_requests(self) -> None:
+        """tick 开头处理段请求（★ 只有本线程改 route/阶段，见 __init__ 注释）。"""
+        with self._segment_lock:
+            stop = self._segment_stop_req
+            self._segment_stop_req = None
+            req = self._segment_req
+            self._segment_req = None
+        if stop is not None:
+            if self._segment_active:
+                self._segment_active = False
+                self._segment_error = f"段被终止：{stop}"
+            self._clear_route(f"段停止（{stop}）")
+            self._write_phase(MissionPhase.IDLE)
+            try:
+                self.bridge.publish_brake()
+            except Exception:                          # noqa: BLE001 收尾刹车失败不崩
+                pass
+            self._log(f"■ 段停止：{stop}（已清空路线、回 IDLE）")
+            return
+        if req is None:
+            return
+        self._segment_id = int(req["segment_id"])
+        self._segment_target = str(req["target_cell"])
+        self._segment_known = int(req["known_count"])
+        self._segment_error = ""
+        try:
+            # ★ 段边界 = 新的轮次：清掉上一段的终点锁存，否则本段永远判不到 FINISH
+            #   （FINISH 是锁存的；跨段重启必须显式解闩）。
+            self._finish_latched = False
+            self._finish_done = False
+            self._finish_pending_reset = False
+            self._segment_active = True
+            self._load_tokens(req["tokens"],
+                              source=f"段{self._segment_id}({req['source']})")
+            self._start_mission()
+            self._log(f"▶ 段 {self._segment_id} 开始：{len(req['tokens'])} 点 / "
+                      f"目标 {self._segment_target} / known {self._segment_known} 格 / "
+                      f"来源 {req['source']}")
+        except Exception as exc:                       # noqa: BLE001  ★ 段坏路线绝不崩
+            self._segment_active = False
+            self._segment_error = f"{type(exc).__name__}: {exc}"
+            self._log(f"❌ 段 {self._segment_id} 载入失败（保持 IDLE）：{self._segment_error}")
+            self._clear_route("段载入失败")
+            self._write_phase(MissionPhase.IDLE)
 
     def accounting(self) -> dict[str, Any]:
         """逐点到达台账（遥测/测试/结束横幅共用同一份口径）。
@@ -2031,6 +2439,9 @@ class MissionTask(TaskThread):
     def tick(self) -> None:
         now = self._clock()
         self._drain_commands()
+        # ★T27 步进循环：段请求/停止请求（主线程投递）在本线程执行 —— 与外部命令同一
+        #   模式，保证 route/阶段只被本线程改写（见 __init__ 里 _segment_lock 的说明）。
+        self._process_segment_requests()
         # 每拍消费 `EV_BRIDGE_INFO` 事件流并刷新两半场结论（10 Hz；非阻塞 `poll`
         #   + 缓存的候选集合，**无文件 I/O**）。结论变化时才记一条日志（`_refresh_intel` 内部
         #   限流），所以不会告警风暴。
@@ -3205,6 +3616,28 @@ class MissionTask(TaskThread):
         hits = int(self.bridge.take_hits())
         self._finish_info = {"elapsed_s": round(elapsed, 2), "shots": shots, "hits": hits,
                              "drift_m": round(drift, 3), "waypoints": len(route)}
+        # ★T27 段回报：Mission 的 FINISH = 本段最后一个航点到达/弧长达标 ⇒ 段完成。
+        #   完成单与 segment_id 绑定；跨段重启由 request_segment() 清空（不会串段）。
+        if self._segment_active:
+            pose = self.bb.get(P_POSE)
+            pose_block = geo.meters_to_block(pose.x, pose.y) if pose is not None else ""
+            done = {
+                "segment_id": int(self._segment_id),
+                "target_cell": str(self._segment_target),
+                "block": route.waypoints[last].block,
+                "pose_block": pose_block,
+                "known_count": int(self._segment_known),
+                "elapsed_s": round(elapsed, 2),
+                "waypoints": len(route),
+                "finished_at": round(float(self._clock()), 3),
+                "finish_info": dict(self._finish_info),
+            }
+            with self._segment_lock:
+                self._segment_active = False
+                self._segment_done = done
+            self._log(f"■ 段 {done['segment_id']} 完成：停在 {done['block']}"
+                      f"（belief {pose_block or '?'} / 用时 {done['elapsed_s']:.2f}s / "
+                      f"{done['waypoints']} 点 / known {done['known_count']} 格）")
         self._write_phase(MissionPhase.FINISH)
         self.bridge.publish_brake()
         # ★ 单写者：lock 模式下 FINISH 的"停扫 0"也归 AimTask（它看到阶段=FINISH 就回锁止）。
@@ -3429,4 +3862,9 @@ class MissionTask(TaskThread):
         self.bb.set(P_ROUTE, None, source=self.name)
         self.bb.update(self.name, **{P_ROUTE_INDEX: -1, P_ROUTE_S: 0.0,
                                      PIVOT_DONE_KEY: None})
+        # ★T27：路线被外部命令/停止请求清空 ⇒ 本段不再"执行中"（StepLoop 据此转 WAIT_INFO）
+        with self._segment_lock:
+            if self._segment_active:
+                self._segment_active = False
+                self._segment_error = self._segment_error or f"路线被清空（{why}）"
         self._log(f"清空路线（{why}）")

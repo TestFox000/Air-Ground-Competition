@@ -11,7 +11,7 @@ r"""DroneTask —— 无人机链路（5 Hz），架构 §7.2 / §7.3 的车侧�
 | 收 | `bridge_passable` `{half,block,confidence,ts}` | 写 `P_DRONE`（`bridge_of()` 供 Mission 取格） |
 | 收 | `target_zone` `{blocks:[...]}` | 与本地 `config/map.yaml` 的 `targets` 比对 → `field_diff` |
 | 收 | `field_verify` `{mines,obstacles,targets?,coverage?,slice?,scan_id?}` | 同上（雷/障/靶差异）；带 `coverage` 时按**片内作用域**判定负证据 + 记覆盖账本（G5-2） |
-| 收 | `field_layout` `{version,start,end,mines,obstacles,targets,bridges,barrier_*}` | 校验后写 `P_FIELD_LAYOUT`（**规划真源**；车端不再读地图文件，见下节） |
+| 收 | `field_layout` v2 `{version,start,end,known,mines,obstacles,targets,bridges,barrier_*,target_cell?,segment_id?}` | 校验后写 `P_FIELD_LAYOUT`（**规划真源**；version 单调，旧版/同版异内容拒收） |
 | 收 | 未知 `type` / 非法 JSON / 缺字段 | **记日志不崩**（旧代码"一条坏消息杀一个回调"的教训） |
 | 发 | `car_state` `{type,block,yaw_deg,phase,ts,seq}` | 1~2 Hz 周期上报（block 从 `P_POSE` 推） |
 | 发 | `ack` `{type:"ack",of:seq}` | 对带 `seq` 的消息回执 |
@@ -53,16 +53,22 @@ r"""DroneTask —— 无人机链路（5 Hz），架构 §7.2 / §7.3 的车侧�
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `type` | str | ✅ | 固定 `"field_layout"` |
-| `version` | int | - | 布局协议版本（缺省 0；高于车端支持版本只告警，已知字段照收） |
+| `version` | int | ✅ | 布局协议版本（单调递增；车端只接受 >= 当前版本） |
 | `ts` | float | - | 机侧时间戳（仅证据；坏值按 0 处理，不影响接收） |
 | `start` / `end` | 格名 | ✅ | 起终点（必须在 A~N × 1~11 内） |
-| `mines` / `obstacles` / `targets` | [格名] | ✅ | 可为空列表，但**键必须存在**（半张布局不能拿去规划） |
-| `bridges` | [格名] | ✅ | **至少 1 个**（本局穿洞格） |
+| `known` | [格名] | ✅(v2) | **已观测格**（车只走 known）；v1 无此键 = 整图已知（归一化后也**不补键**，车端据此区分 v1/v2） |
+| `mines` / `obstacles` / `targets` | [格名] | ✅ | 可为空列表，但**键必须存在**且 **⊆ known**（半张布局不能拿去规划） |
+| `bridges` | [格名] | ✅ | **至少 1 个**（本局穿洞格；照图，不受 known 限制） |
 | `barrier_col_from` | "D" | - | 隔板起始列（缺省 `geo.BARRIER_COL_FROM`） |
 | `barrier_row_hi` / `barrier_row_lo` | int | - | 隔板两侧行号（缺省 6/7；必须 1~11 且 `hi < lo`） |
+| `target_cell` | 格名 | - | 本段目标格（空 ⇒ 车只等不做；非空必须 ∈ known 且合法） |
+| `segment_id` | int | - | 段序号（车回报原样带回；缺省 = version） |
 
 ★ 拒收语义：任一必填/格式字段非法 ⇒ **整份拒收**（`layout_rejects+1` + 节流日志），
   **保留上一份好布局**（坏报文绝不清空、不覆盖）。校验纯内存、不依赖本地地图。
+★ 版本语义（协议 §3.1）：`version < 当前` ⇒ 拒收（`layout_stale+1`，防迟到旧报覆盖新图）；
+  `version == 当前` 且内容一致 ⇒ 心跳重发，**不重复计数、不重写**；
+  `version == 当前` 但内容不同 ⇒ 拒收（`layout_rejects+1`，同版必须同内容）。
 
 ## 本地地图从哪来（★ 接口现状，需要装配侧知道）
 
@@ -87,7 +93,8 @@ import pathlib
 from typing import Any, Callable, Iterable
 
 from ..core import geometry as geo
-from ..core.blackboard import (P_DRONE, P_MISSION_PHASE, P_POSE, Blackboard)  # noqa: F401
+from ..core.blackboard import (P_DRONE, P_FIELD_LAYOUT, P_FIELD_VERIFY,     # noqa: F401
+                               P_MISSION_PHASE, P_POSE, Blackboard)
 from ..core.config import Config
 from ..core.events import (EV_BRIDGE_INFO, EV_DRONE_OFFLINE, EV_DRONE_ONLINE,
                            EV_FIELD_VERIFY, EventBus)
@@ -130,17 +137,20 @@ def default_map_path() -> pathlib.Path:
 #  场地布局 field_layout（车端不留地图文件 → 规划依据由无人机下发）
 # --------------------------------------------------------------------------- #
 #: 车侧黑盒键：无人机下发的**完整场地布局**（dict，形状见 `normalize_field_layout`）。
-#: ★ 键名常量暂时放在本模块（与 `P_FIELD_VERIFY` 同一做法，本卡写域不含
-#:   `core/blackboard.py`）；语义稳定后应迁到那里统一登记。
-P_FIELD_LAYOUT = "field_layout"
+#: ★ t26 收口：键名常量已迁 `core/blackboard.py`（与 `P_FIELD_VERIFY` 同处），
+#:   本模块只 re-export，保证 `from dzbrain.tasks.drone import P_FIELD_LAYOUT` 名字不变。
 
 #: 车端认识的 `field_layout` 协议版本上限。更高版本**只告警**并照收已知字段
 #: （前向兼容：新增字段默认被忽略，不会让整车停摆）。
-FIELD_LAYOUT_VERSION = 1
+FIELD_LAYOUT_VERSION = 2
 
 #: `field_layout` 里必须出现（可为空表）的格名列表键：半张布局不能拿去规划，
 #: 缺键 = 拒收，而不是"按空表猜"。
 _LAYOUT_CELL_KEYS: tuple[str, ...] = ("mines", "obstacles", "targets")
+
+#: 全图格名（行优先）—— v1 报文没有 `known` 键时的语义：v1 发的是**整图已知**。
+_ALL_CELLS: tuple[str, ...] = tuple(
+    f"{col}{row}" for row in range(1, geo.MAP_ROWS + 1) for col in geo.COL_LETTERS)
 
 
 def _layout_cells(value: Any, key: str, *,
@@ -185,6 +195,8 @@ def normalize_field_layout(payload: Any) -> tuple[dict[str, Any] | None, str]:
         out["version"] = int(raw_version if raw_version is not None else 0)
     except (TypeError, ValueError):
         return None, f"version 不是整数: {raw_version!r}"
+    if out["version"] < 0:
+        return None, f"version 不能为负: {out['version']}"
 
     try:                                        # ts 只作证据，坏值不拒整份布局
         out["ts"] = round(float(payload.get("ts") or 0.0), 3)
@@ -202,10 +214,28 @@ def normalize_field_layout(payload: Any) -> tuple[dict[str, Any] | None, str]:
             return None, f"{key} 非法: {text!r}（{exc}）"
         out[key] = text
 
+    # ---- v2：known（已观测格）；v1 缺省 = 全图（整图已知，保持旧语义） ----
+    #   ★ v1 归一化后**不补 known 键**：车端 `_step_mode_enabled()` 用"有没有 known"
+    #     区分 v2 步进循环 / v1 旧"规划一次"行为 —— 补键会把旧报文误判成 v2。
+    if "known" in payload:
+        known_cells, err = _layout_cells(payload.get("known"), "known")
+        if known_cells is None:
+            return None, err
+        if not known_cells:
+            return None, "known 为空（v2 至少要有一个已观测格）"
+        out["known"] = known_cells
+        known_set = set(known_cells)
+    else:
+        known_set = set(_ALL_CELLS)          # v1 语义：整图已知（但不写回 known 键）
+
     for key in _LAYOUT_CELL_KEYS:
         cells, err = _layout_cells(payload.get(key), key)
         if cells is None:
             return None, err
+        missing = [c for c in cells if c not in known_set]
+        if missing:
+            return None, (f"{key} 含未观测格 {missing[:4]}"
+                          f"（v2 要求特征 ⊆ known）")
         out[key] = cells
 
     cells, err = _layout_cells(payload.get("bridges"), "bridges", allow_empty=False)
@@ -233,6 +263,34 @@ def normalize_field_layout(payload: Any) -> tuple[dict[str, Any] | None, str]:
         return None, (f"barrier_row_hi({out['barrier_row_hi']}) 必须小于 "
                       f"barrier_row_lo({out['barrier_row_lo']})")
 
+    # ---- v2：target_cell（空 = 车只等不做；非空必须 ∈ known） ----
+    raw_target = payload.get("target_cell", "")
+    if raw_target is None:
+        raw_target = ""
+    if not isinstance(raw_target, str):
+        return None, f"target_cell 必须是格名（收到 {type(raw_target).__name__}）"
+    target = raw_target.strip().upper()
+    if target:
+        try:
+            geo.block_to_index(target)
+        except ValueError as exc:
+            return None, f"target_cell 非法: {target!r}（{exc}）"
+        if target not in known_set:
+            return None, f"target_cell {target} 不在 known 内（车无法只走已知格到达）"
+    out["target_cell"] = target
+
+    # ---- v2：segment_id（车回报原样带回；缺省 = version） ----
+    raw_seg = payload.get("segment_id", 0)
+    if raw_seg is None:
+        raw_seg = 0
+    try:
+        seg = int(raw_seg)
+    except (TypeError, ValueError):
+        return None, f"segment_id 不是整数: {raw_seg!r}"
+    if seg < 0:
+        return None, f"segment_id 不能为负: {seg}"
+    out["segment_id"] = seg
+
     return out, ""
 
 
@@ -240,9 +298,7 @@ def normalize_field_layout(payload: Any) -> tuple[dict[str, Any] | None, str]:
 #  覆盖语义 / 核对消费方（G5-2 / G5-3）
 # --------------------------------------------------------------------------- #
 #: 车侧黑盒键：`field_verify` 消费方汇总（dict，见 `FieldVerifyConsumer.summary`）。
-#: ★ 键名常量暂时放在本模块（本卡写域只有 drone.py）；**语义稳定后应迁到
-#:   `core/blackboard.py`** 统一登记（与 `P_MOTION_LIMIT` 同一做法）。
-P_FIELD_VERIFY = "field_verify"
+#: ★ t26 收口：常量已迁 `core/blackboard.py`，本模块只 re-export（名字/语义不变）。
 #: 车侧黑盒键：无人机覆盖进度（dict，见 `CoverageLedger.summary`）。
 P_DRONE_COVERAGE = "drone_coverage"
 
@@ -522,6 +578,7 @@ class DroneTask(TaskThread):
         self.field_layout: dict | None = None
         self.layout_updates = 0
         self.layout_rejects = 0
+        self.layout_stale = 0              # v2：迟到旧版本被拒收的次数
         self.layout_ts = 0.0
 
         # ---------------- 链路状态 ----------------
@@ -586,9 +643,9 @@ class DroneTask(TaskThread):
                      f" 片 {self.coverage_updates}（重发 {self.coverage_duplicates}"
                      f"/坏 {self.coverage_bad}）"
                      f" ｜核对事件 {self.field_verify.events if self.field_verify else 0}")
-        if self.layout_updates or self.layout_rejects:
+        if self.layout_updates or self.layout_rejects or self.layout_stale:
             line += (f" ｜场地布局 {self.layout_updates} 份"
-                     f"（拒收 {self.layout_rejects}）")
+                     f"（拒收 {self.layout_rejects} / 迟到旧版 {self.layout_stale}）")
         self._log(line)
 
     # ------------------------------------------------------------------ #
@@ -791,19 +848,45 @@ class DroneTask(TaskThread):
                 self._log(f"⚠️ 无人机 field_layout 非法（已整份忽略，保留上一份布局；"
                           f"累计拒收 {self.layout_rejects}）：{reason}")
             return
-        if int(layout.get("version") or 0) > FIELD_LAYOUT_VERSION:
+        new_version = int(layout.get("version") or 0)
+        if self.field_layout is not None:
+            cur_version = int(self.field_layout.get("version") or 0)
+            if new_version < cur_version:
+                # 协议 §3.1：车端只接受 >= 当前版本 —— 迟到旧报绝不能覆盖新图
+                self.layout_stale += 1
+                if self._warn.allow("layout_stale", now):
+                    self._log(f"⚠️ field_layout v{new_version} < 当前 v{cur_version}"
+                              f"（迟到旧报，已忽略；累计 {self.layout_stale} 次）")
+                return
+            if new_version == cur_version:
+                # 心跳重发：同版本必须同内容（ts 允许不同）；内容不同 = 发布端违约
+                same = ({k: v for k, v in layout.items() if k != "ts"}
+                        == {k: v for k, v in self.field_layout.items() if k != "ts"})
+                if not same:
+                    self.layout_rejects += 1
+                    if self._warn.allow("layout_same_ver_diff", now):
+                        self._log(f"⚠️ field_layout v{new_version} 内容与当前版不一致"
+                                  f"（同版必须同内容，已忽略；累计拒收 {self.layout_rejects}）")
+                    return
+                if self._warn.allow("layout_heartbeat", now):
+                    self._log(f"field_layout v{new_version} 心跳重发（同版同内容，忽略）")
+                return
+        if new_version > FIELD_LAYOUT_VERSION:
             if self._warn.allow("layout_ver", now):
-                self._log(f"⚠️ field_layout version={layout.get('version')} 高于车端支持 "
+                self._log(f"⚠️ field_layout version={new_version} 高于车端支持 "
                           f"{FIELD_LAYOUT_VERSION} → 只按已知字段解析（未知字段忽略）")
         self.field_layout = layout
         self.layout_updates += 1
         self.layout_ts = float(now)
         self.bb.set(P_FIELD_LAYOUT, layout, source=self.name, ts=now)
-        self._log(f"场地布局：起 {layout['start']} 终 {layout['end']} "
+        known_n = (len(layout["known"]) if "known" in layout
+                   else geo.MAP_COLS * geo.MAP_ROWS)
+        self._log(f"场地布局：v{new_version} 起 {layout['start']} 终 {layout['end']} "
+                  f"known {known_n}/{geo.MAP_COLS * geo.MAP_ROWS} "
                   f"雷 {len(layout['mines'])} 障 {len(layout['obstacles'])} "
                   f"靶 {len(layout['targets'])} 桥洞 {layout['bridges']} "
-                  f"隔板 {layout['barrier_col_from']}{layout['barrier_row_hi']}/"
-                  f"{layout['barrier_row_lo']}（第 {self.layout_updates} 份，v{layout['version']}）")
+                  f"target={layout['target_cell'] or '-'} seg={layout['segment_id']}"
+                  f"（第 {self.layout_updates} 份）")
 
     # ---- 雷/障/靶核对（+ 可选的片级覆盖） ----
     def _on_field_verify(self, payload: dict, now: float) -> None:

@@ -2174,6 +2174,112 @@ def test_stop_ledger_t7() -> None:
           tele == ledger, str(tele))
 
 
+# --------------------------------------------------------------------------- #
+#  19. ★T27 步进循环：MissionTask 的段执行接口
+# --------------------------------------------------------------------------- #
+def test_segment_api() -> None:
+    section("19. ★T27 段执行接口：request_segment / segment_status / stop_segment")
+    cfg = cfg_of(mission={"auto_start": False})
+    rig = Rig(cfg=cfg, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
+
+    # ---- (a) 投递 → tick 载入 → DRIVE；不再走 auto_start ----
+    res = rig.task.request_segment(["N10", "M10"], segment_id=7,
+                                   target_cell="M10", known_count=2)
+    check("19.1 request_segment 被接受（返回 accepted=True）",
+          res.get("accepted") is True, str(res))
+    check("19.2 接受后任务线程还没 tick：阶段仍 IDLE（投递与执行解耦）",
+          rig.task.phase == MissionPhase.IDLE, rig.task.phase)
+    rig.tick()
+    check("19.3 tick 后段载入并发车：阶段 DRIVE、路线 = N10→M10",
+          rig.task.phase == MissionPhase.DRIVE
+          and [w.block for w in rig.task.route.waypoints] == ["N10", "M10"],
+          f"{rig.task.phase} / "
+          f"{[w.block for w in rig.task.route.waypoints] if rig.task.route else None}")
+    check("19.4 段状态 active=True、段号/目标/known 已记录",
+          rig.task.segment_status()["active"] is True
+          and rig.task.segment_status()["segment_id"] == 7
+          and rig.task.segment_status()["target_cell"] == "M10"
+          and rig.task.segment_status()["known_count"] == 2,
+          str(rig.task.segment_status()))
+
+    # ---- (b) 段内再投递 → 拒绝（换段只在段边界）----
+    res2 = rig.task.request_segment(["N10", "M10"], segment_id=8)
+    check("19.5 ★段内再投递被拒（换段只在段边界）",
+          res2.get("accepted") is False and "段边界" in str(res2.get("reason")),
+          str(res2))
+
+    # ---- (c) 走到段末 → 完成单 ----
+    rig.walk(step=0.05, max_steps=120)
+    check("19.6 段末到点：阶段 FINISH（Mission 的终点判据 = 段完成）",
+          rig.task.phase == MissionPhase.FINISH, rig.task.phase)
+    st = rig.task.segment_status()
+    done = st.get("done") or {}
+    check("19.7 完成单字段：segment_id=7 / target=M10 / block=M10 / pose_block=M10",
+          done.get("segment_id") == 7 and done.get("target_cell") == "M10"
+          and done.get("block") == "M10" and done.get("pose_block") == "M10",
+          str(done))
+    check("19.8 完成单含 known_count=2 / elapsed_s≥0 / waypoints=2",
+          done.get("known_count") == 2 and float(done.get("elapsed_s", -1)) >= 0.0
+          and done.get("waypoints") == 2,
+          str({k: done.get(k) for k in ("known_count", "elapsed_s", "waypoints")}))
+    check("19.9 段完成后 active=False（下一段可投递）",
+          st.get("active") is False, str(st.get("active")))
+
+    # ---- (d) FINISH 锁存跨段解闩：第二段能正常起、正常完 ----
+    rig.ticks(3)                                   # FINISH → IDLE（需求2 的延迟复位）
+    check("19.10 结算后回 IDLE（FINISH 锁存已复位）",
+          rig.task.phase == MissionPhase.IDLE, rig.task.phase)
+    rig.set_pose_at("M10", yaw=geo.HEADING_Y)      # 车停在上一段目标格
+    res3 = rig.task.request_segment(["M10", "L10"], segment_id=8,
+                                    target_cell="L10", known_count=3)
+    rig.tick()
+    check("19.11 ★第二段能起（跨段 FINISH 锁存已解闩，不是永远 FINISH）",
+          res3.get("accepted") is True and rig.task.phase == MissionPhase.DRIVE
+          and [w.block for w in rig.task.route.waypoints] == ["M10", "L10"],
+          f"{res3} / {rig.task.phase}")
+    rig.walk(step=0.05, max_steps=120)
+    done2 = rig.task.segment_status().get("done") or {}
+    check("19.12 第二段完成单段号=8（不会被上一段的 done 串号）",
+          done2.get("segment_id") == 8 and done2.get("block") == "L10", str(done2))
+
+    # ---- (e) 坏段路线：不崩、写 error、回 IDLE ----
+    rig.ticks(3)
+    res_bad = rig.task.request_segment(["M10"], segment_id=9)
+    check("19.13 坏段路线（只有 1 点）也被接收（执行期才校验）",
+          res_bad.get("accepted") is True, str(res_bad))
+    rig.tick()
+    st_bad = rig.task.segment_status()
+    check("19.14 坏段路线：error 非空、阶段回 IDLE、P_ROUTE 清空（绝不带病发车）",
+          bool(st_bad.get("error")) and rig.task.phase == MissionPhase.IDLE
+          and rig.bb.get(P_ROUTE) is None and st_bad.get("active") is False,
+          f"{st_bad.get('error')} / {rig.task.phase}")
+
+    # ---- (f) stop_segment：停段 + 清路线 + 回 IDLE ----
+    rig.set_pose_at("L10", yaw=geo.HEADING_Y)
+    rig.task.request_segment(["L10", "M10"], segment_id=10, target_cell="M10")
+    rig.tick()
+    check("19.15 停段前置：DRIVE 中", rig.task.phase == MissionPhase.DRIVE,
+          rig.task.phase)
+    rig.task.stop_segment("测试停止")
+    rig.tick()
+    st_stop = rig.task.segment_status()
+    check("19.16 stop_segment：回 IDLE + 路线清空 + error 写明停止原因",
+          rig.task.phase == MissionPhase.IDLE and rig.bb.get(P_ROUTE) is None
+          and "测试停止" in st_stop.get("error", ""), str(st_stop))
+
+    # ---- (g) reset_pose：只改 belief，不动阶段/路线 ----
+    route_before = rig.bb.get(P_ROUTE)
+    rig.task.reset_pose("N10,y")
+    pose = rig.bb.get(P_POSE)
+    x, y = geo.block_to_meters("N10")
+    check("19.17 reset_pose 把 belief 放到格心 + 朝向（不改路线对象）",
+          pose is not None and abs(pose.x - x) < 1e-9 and abs(pose.y - y) < 1e-9
+          and abs(pose.yaw - geo.HEADING_Y) < 1e-9
+          and rig.bb.get(P_ROUTE) is route_before,
+          f"pose={pose} / route_same={rig.bb.get(P_ROUTE) is route_before}")
+    rig.task.teardown()
+
+
 def main() -> int:
     print("=" * 72)
     print("dzbrain MissionTask 自测（纯脚本）")
@@ -2199,6 +2305,7 @@ def main() -> int:
     test_dual_stop_t13()
     test_dual_stop_t14()
     test_stop_ledger_t7()
+    test_segment_api()
     finish()
     return 0
 

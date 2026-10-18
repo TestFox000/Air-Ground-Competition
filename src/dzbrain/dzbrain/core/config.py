@@ -531,6 +531,10 @@ SCHEMA: dict[str, Spec] = {
     "drone.car_state_period_s": Spec(0.7, _F, "s", 0.1, 10.0, "车状态周期上报间隔"),
     "drone.ack_enabled": Spec(True, _B, "", None, None, "收到需确认消息时回 ack"),
     "drone.field_diff_max": Spec(8, _I, "条", 0, 100, "靶区/雷障核对差异条数上限"),
+    "drone.field_layout_wait_s": Spec(30.0, _F, "s", 1.0, 120.0,
+                                      "启动等待无人机布局的上限；超时 exit 3"),
+    "step.wait_timeout_s": Spec(0.0, _F, "s", 0.0, 3600.0,
+                                    "WAIT_INFO 等待上限；0=不限时（一直等下一份布局）"),
     "drone.map_path": Spec("", _S, "", None, None,
                            "本地地图路径（空 = 自动定位 <repo>/config/map.yaml）"),
 

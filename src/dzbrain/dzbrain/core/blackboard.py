@@ -46,6 +46,8 @@ P_AIM = "aim"                         # AimState：云台与开火状态
 #:   时立即把 `run_s` 归零、`confirmed` 置 False —— 否则第二个停站一进去就被误判早退。
 P_AIM_RED = "aim_red_face"            # dict：红面确认（AimTask 写 / MissionTask 读）
 P_DRONE = "drone"                     # DroneState：无人机情报
+P_FIELD_LAYOUT = "field_layout"       # dict：无人机下发的完整场地布局（DroneTask 写 / main 读）
+P_FIELD_VERIFY = "field_verify"       # dict：无人机核对差异消费汇总（DroneTask 写）
 P_FIX = "fix"                         # FixState：误差修正量（Localization 写：吸附/漂移台账）
 P_FIX_EST = "fix_est"                 # FixState：**估计量**（FixTask 写：比例误差估计/漂移统计）
 P_SAFETY = "safety"                   # SafetyState：安全状态

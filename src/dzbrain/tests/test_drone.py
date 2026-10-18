@@ -37,7 +37,9 @@ except Exception:
 
 from dzbrain.core import geometry as geo                                       # noqa: E402
 from dzbrain.core.blackboard import (P_DRONE, P_MISSION_PHASE, P_POSE,         # noqa: E402
-                                     P_ROUTE, P_SAFETY, P_TELEMETRY, Blackboard)
+                                     P_ROUTE, P_SAFETY, P_TELEMETRY,
+                                     P_FIELD_LAYOUT as CORE_P_FIELD_LAYOUT,
+                                     P_FIELD_VERIFY as CORE_P_FIELD_VERIFY, Blackboard)
 from dzbrain.core.config import Config                                         # noqa: E402
 from dzbrain.core.events import (EV_BRIDGE_INFO, EV_DRONE_OFFLINE,             # noqa: E402
                                  EV_DRONE_ONLINE, EV_FIELD_VERIFY, EventBus)
@@ -740,6 +742,12 @@ from dzbrain.tasks.mission import plan_route_from_config                   # noq
 
 check("main 与 drone 的黑盒键名同值（P_FIELD_LAYOUT，无拼写漂移）",
       M.P_FIELD_LAYOUT == P_FIELD_LAYOUT, f"{M.P_FIELD_LAYOUT!r} vs {P_FIELD_LAYOUT!r}")
+check("P_FIELD_LAYOUT 常量已迁 core.blackboard（drone 模块 re-export 同名同值）",
+      P_FIELD_LAYOUT == CORE_P_FIELD_LAYOUT == "field_layout",
+      f"{P_FIELD_LAYOUT!r} vs {CORE_P_FIELD_LAYOUT!r}")
+check("P_FIELD_VERIFY 常量已迁 core.blackboard（drone 模块 re-export 同名同值）",
+      P_FIELD_VERIFY == CORE_P_FIELD_VERIFY == "field_verify",
+      f"{P_FIELD_VERIFY!r} vs {CORE_P_FIELD_VERIFY!r}")
 _layout_from_file, _why = normalize_field_layout(dict(_map_yaml, version=1, ts=0.0))
 check("真实 map.yaml 的 map: 段能转成合法布局", _layout_from_file is not None, _why)
 
@@ -913,5 +921,83 @@ finally:
     _rz.RosBridge = _rz_saved
     for _name, _orig in _saved.items():
         setattr(M, _name, _orig)
+
+# --------------------------------------------------------------------------- #
+section("⑰ field_layout v2（协议 v2 / T28）：known / 特征子集 / target_cell / version 单调")
+check("FIELD_LAYOUT_VERSION == 2（车端支持 v2 步进布局）", FIELD_LAYOUT_VERSION == 2)
+
+_V1 = {
+    "type": "field_layout", "version": 1, "ts": 10.0,
+    "start": "N10", "end": "N5",
+    "mines": ["H1"], "obstacles": ["D1"], "targets": ["F11"],
+    "bridges": ["K7", "K5"],
+}
+task, bridge, bb, bus, clock, sub = build()
+push(bridge, _V1)
+feed(task, clock)
+lay = bb.get(P_FIELD_LAYOUT)
+check("★ v1 报文（无 known）照常接受，但归一化后**没有** known 键（旧'规划一次'路径不变）",
+      isinstance(lay, dict) and "known" not in lay, f"{lay}")
+check("v1 的 target_cell 为空 / segment_id 默认 0（不会误触发步进目标）",
+      lay.get("target_cell") == "" and lay.get("segment_id") == 0, f"{lay}")
+
+_V2_KNOWN = ["N10", "M10", "N9", "M9", "N8", "M8", "H7", "K7", "K5", "N5"]
+_V2 = {
+    "type": "field_layout", "version": 2, "ts": 20.0,
+    "start": "N10", "end": "N5",
+    "known": _V2_KNOWN,
+    "mines": [], "obstacles": [], "targets": [],
+    "bridges": ["K7", "K5"],
+    "target_cell": "M10", "segment_id": 7,
+}
+push(bridge, _V2)
+feed(task, clock)
+lay = bb.get(P_FIELD_LAYOUT)
+check("★ v2 合法布局：known/target_cell/segment_id 落盘",
+      isinstance(lay, dict) and lay.get("known") == _V2_KNOWN
+      and lay.get("target_cell") == "M10" and lay.get("segment_id") == 7, f"{lay}")
+check("v2 被计入 layout_updates（v1 之后第 2 份）", task.layout_updates == 2,
+      f"{task.layout_updates}")
+
+_bad_v2 = [
+    ("特征不在 known", dict(_V2, version=3, mines=["A2"])),
+    ("target 不在 known", dict(_V2, version=3, target_cell="A1")),
+    ("known 为空", dict(_V2, version=3, known=[])),
+    ("known 含非法格名", dict(_V2, version=3, known=["Z9"])),
+]
+_rej0 = task.layout_rejects
+for _name, _payload in _bad_v2:
+    push(bridge, _payload)
+feed(task, clock)
+check(f"v2 非法布局整份拒收（{len(_bad_v2)} 条：特征∉known / target∉known / known 空 / 坏格名）",
+      task.layout_rejects == _rej0 + len(_bad_v2), f"{task.layout_rejects}")
+check("拒收后仍保留 v2 好布局", bb.get(P_FIELD_LAYOUT) == lay)
+
+# ---- version 单调（协议 §3.1）----
+push(bridge, dict(_V2, version=1, ts=30.0))          # 迟到旧版
+feed(task, clock)
+check("★ 迟到旧版（v1 < 当前 v2）被拒收且不清空当前布局",
+      task.layout_stale == 1 and bb.get(P_FIELD_LAYOUT) == lay,
+      f"stale={task.layout_stale}")
+push(bridge, dict(_V2, ts=31.0))                    # 同版同内容（心跳）
+feed(task, clock)
+check("★ 同版同内容（仅 ts 不同）= 心跳重发：不计数、不重写",
+      task.layout_updates == 2 and task.layout_rejects == _rej0 + len(_bad_v2),
+      f"up={task.layout_updates} rej={task.layout_rejects}")
+push(bridge, dict(_V2, version=2, target_cell="M9"))  # 同版异内容：违约
+feed(task, clock)
+check("★ 同版异内容被拒收（同版必须同内容）",
+      task.layout_rejects == _rej0 + len(_bad_v2) + 1
+      and bb.get(P_FIELD_LAYOUT) == lay, f"rej={task.layout_rejects}")
+
+push(bridge, dict(_V2, version=3, ts=40.0, known=_V2_KNOWN + ["M11"],
+                  target_cell="N5"))
+feed(task, clock)
+lay3 = bb.get(P_FIELD_LAYOUT)
+check("更高版本（v3）被接受，known 单调增长到 11 格",
+      lay3.get("version") == 3 and len(lay3.get("known") or []) == 11
+      and lay3.get("target_cell") == "N5", f"{lay3}")
+check("version 历史单调：2 → 3（旧版未覆盖）", task.layout_updates == 3,
+      f"{task.layout_updates}")
 
 finish()

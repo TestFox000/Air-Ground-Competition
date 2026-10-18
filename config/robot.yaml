@@ -722,6 +722,13 @@ path_executor:
       settle_time_s: 0.4              # ★2026-10-11 快速采集:0.8→0.4
       bridge_info_wait_s: 2.0         # ★2026-10-11 快速采集:20→2 等无人机桥洞情报的最长时间
 
+    # ---- ★步进循环（T27，2026-10-18 用户裁决）----
+    #   语义：无人机边侦察边下发布局，车端逐段规划；信息边界**一直等**，
+    #   等到无人机给出下一个点位为止。0 = 不限时（默认，不退出、不压雷）；
+    #   >0 才超时退出（run_live 退出码 4）。
+    step:
+      wait_timeout_s: 0.0
+
     # ---- ★车上自动规划（任务卡 B）：启动时自己读地图算路线 ----
     #   与 route:/mission: 同级同缩进（4 空格）→ 点号键 planner.*
     #   对应实现：tasks/mission.py 的 `_load_startup_route` / `plan_route_from_config`
