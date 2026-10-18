@@ -63,9 +63,14 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
       target_seen_count_ = 0; // 重新进入跟踪，扫描确认计数从零开始
       fire_cleared_ = false;
       shots_on_target_ = 0;   // ★P0-2 重新锁定 = 新目标，单目标连发计数归零
-      cls_candidate_ = 0;     // ★P1-3 新目标 = 类别重新确认
-      cls_streak_ = 0;
-      locked_cls_ = 0;
+      // ★2026-10-18 实车修复（A2/F9 永不开火根因）：这里**不再清零类别锁**。
+      //   旧行为：每次"重新进入 TRACK"都把 locked_cls_/cls_streak_ 归零 ⇒ 目标只要
+      //   闪一下（丢 1~2 帧再回来）就得从 5 帧重新累计；F9 停站实车 30s 内反复
+      //   「类别未确认 / 目标丢失（闭锁）」交替，cls_streak_ 永远到不了 5 ⇒ fire_only_blue
+      //   下永不放行开火（本轮 发2/中0 即由此而来）。
+      //   现行为：类别锁跨"短暂丢失"保留，只有 ①真切换类别(需 cls_switch_confirm_frames 帧)
+      //   ②确认脱离视野进入重新扫掠(见下方 rescan 分支) 才会清。
+      //   cls_candidate_/cls_streak_ 同样保留：闪烁期间同类别的帧继续累计。
       setAimState(AIM_TRACK);
       resetPid();             // ★增量式PID：新目标 = 新一段跟踪，积分/差分状态清零
       std::cout << "==> 发现目标，进入边走边跟随" << std::endl;
@@ -308,8 +313,13 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
     {
       if (++cls_streak_ >= cls_switch_confirm_frames_)
       {
+        const int prev_locked = locked_cls_;
         locked_cls_ = raw_cls;  // 新类别稳定成立，改锁
         cls_streak_ = 0;
+        // ★2026-10-18 可观测性：类别锁建立/切换要能直接从 4_det.log 看到
+        std::cout << "==> 类别已锁定 locked_cls=" << locked_cls_
+                  << "（1=蓝 2=红，前值=" << prev_locked
+                  << "，连续 " << cls_switch_confirm_frames_ << " 帧）" << std::endl;
       }
     }
     else
