@@ -1,0 +1,104 @@
+// air_ground 失效链风险图 (current-state, 2026-10-17)
+// 渲染: dot -Tsvg risk-map.dot -o risk-map.svg   (本机未装 graphviz)
+// 证据: 见 architecture-review.md 对应编号; 所有节点均有 file:line 支撑
+// 读法: 上排=根因(root cause), 中排=机制(mechanism), 下排=外场失效模式(field failure)
+//       红色实线=已验证失效链  橙色虚线=需验证  灰色=已有防护(有效)
+
+digraph air_ground_risk {
+  rankdir=TB;
+  graph [fontname="Microsoft YaHei", fontsize=11, nodesep=0.35, ranksep=0.6,
+         label="air_ground 失效链风险图 — 2026-10-17  红=已验证  橙虚=需验证  灰=防护有效",
+         labelloc=t, fontsize=14];
+  node  [fontname="Microsoft YaHei", fontsize=10, shape=box, style="rounded,filled"];
+  edge  [fontname="Microsoft YaHei", fontsize=8.5];
+
+  // ---------------- 根因层 ----------------
+  subgraph cluster_root {
+    label="根因 (结构性)"; style=dashed; color="#666666"; fontsize=11;
+    RC1 [label="R1 无版本控制\nfind .git = 0 命中\n51% 文件重名", fillcolor="#f8cecc"];
+    RC2 [label="R2 测试零随包\n3168 行测试只在\n_tmp_agplan / 交接包", fillcolor="#f8cecc"];
+    RC3 [label="R3 参数多源\nwheelbase×4\n_MID_BOUNDARY×3\nv_max 0.32 vs 0.30", fillcolor="#f8cecc"];
+    RC4 [label="R4 无 NTP\n项目自述:\n重启后时钟回跳", fillcolor="#f8cecc"];
+    RC5 [label="R5 无失效安全设计\n无看门狗/无急停话题\npreflight 无人调用", fillcolor="#f8cecc"];
+  }
+
+  // ---------------- 机制层 ----------------
+  M1 [label="M1 部署版 mission_router 1026 行\n交接版 1585 行 — 少 10 个函数\n含 _verify_zone_covered\nensure_mine_center_pass\n_transit_blocked", fillcolor="#ffe6cc"];
+  M2 [label="M2 test_planning_hardening.py:13\nimport ensure_mine_center_pass\n→ 对部署代码 import 即失败", fillcolor="#ffe6cc"];
+  M3 [label="M3 main.cpp:183-185 system_clock 墙钟\n+ world_model.py:98-109\n红靶禁火 TTL 用 frame.timestamp_ms", fillcolor="#ffe6cc"];
+  M4 [label="M4 pursuit.py:168-169\nmax(-30, min(30, nan)) == 30.0\n(实测 Python 语义)\nexecutor_node.py:464-468 无 isfinite", fillcolor="#ffe6cc"];
+  M5 [label="M5 dznav_deploy.py:137,152 pkill=SIGTERM\nexecutor_node main() finally 不展开\n→ 零速 Twist 不发布", fillcolor="#ffe6cc"];
+  M6 [label="M6 integrate_node.py:581 只捕 3 种异常\nmission_router.py:623 生产 assert\nlaunch 无 respawn=True", fillcolor="#ffe6cc"];
+  M7 [label="M7 mission_router.py:547-549\nHeld-Karp 2^n 无上限\n跑在 10Hz SingleThreadedExecutor", fillcolor="#ffe6cc"];
+  M8 [label="M8 main.cpp:186-187\nif(localized) 才 send\n→ 定位丢失即全静默无心跳", fillcolor="#ffe6cc"];
+  M9 [label="M9 main.cpp:328 capture.read() 阻塞\n空帧计数只在返回 false 时生效\nISP 冻死=永久阻塞", fillcolor="#ffe6cc"];
+  M10 [label="M10 executor_node.py:97 DZ_NAV_CONFIG\ndeploy 从不设置\n→ dznav_default.yaml 是死配置", fillcolor="#ffe6cc"];
+  M11 [label="M11 monitor_link.py:47-53\nObjectType.MINE / .ARROW\n现行 13 类枚举已无此成员", fillcolor="#ffe6cc"];
+  M12 [label="M12 field_frame.py:53\nround() 后 abs(d)>0.5 恒假\n守卫是死代码", fillcolor="#ffe6cc"];
+  M13 [label="M13 板上二进制源不可考\n进度纪要: 'live 程序可能是\nmain.cpp 的带 HUD 变体'", fillcolor="#ffe6cc"];
+  M14 [label="M14 flight_bb 只记 2~3 行\n(项目自认待修)\n+ 无 NTP → 空地日志无法对齐", fillcolor="#ffe6cc"];
+
+  // ---------------- 防护有效 (灰色) ----------------
+  G1 [label="✓ 角度 wrap 无一处遗漏\npursuit:163,234,294\nexecutor:261,394,425\nfusion:65,73,125 refpath:117", fillcolor="#d5e8d4"];
+  G2 [label="✓ MapLocalizer 单应门槛取 5 非 4\n:153 + 6 场景仿真验证\nmd5 f1f0f1d8 已进部署包", fillcolor="#d5e8d4"];
+  G3 [label="✓ intel_protocol:130-173\nmagic/ver/len/enum/NaN/CRC16\n全量校验链", fillcolor="#d5e8d4"];
+  G4 [label="✓ dznav_deploy md5+compileall\n+体检+失败自动回滚", fillcolor="#d5e8d4"];
+
+  // ---------------- 外场失效模式 ----------------
+  F1 [label="F1 车安静地漏打一个区\n无报错、无告警\n(缺 _verify_zone_covered)", shape=octagon, fillcolor="#f8cecc"];
+  F2 [label="F2 对友方红靶开火\n时钟前跳>5s → 禁火否决集体过期\nfail-dangerous", shape=octagon, fillcolor="#f8cecc"];
+  F3 [label="F3 车带 +30° 满舵前冲\nNaN 被钳位成满舵而非停车", shape=octagon, fillcolor="#f8cecc"];
+  F4 [label="F4 部署/停止时车不归零\n最后命令留在总线上无人撤销", shape=octagon, fillcolor="#f8cecc"];
+  F5 [label="F5 赛中大脑猝死\n一次异常=进程退出=整车瘫痪\n且无 respawn 无告警", shape=octagon, fillcolor="#f8cecc"];
+  F6 [label="F6 executor 冻结分钟级\n误检→n 增大→2^n 爆炸\nalign 期间连 /cmd_vel 都停发", shape=octagon, fillcolor="#f8cecc"];
+  F7 [label="F7 侦察静默失联\n地面无法区分'没目标'\n和'定位/链路挂了'", shape=octagon, fillcolor="#f8cecc"];
+  F8 [label="F8 坠机后拼不出时间轴\n黑匣子坏 + 无 NTP\n取证能力≈0", shape=octagon, fillcolor="#f8cecc"];
+  F9 [label="F9 现场调参不生效\n改 yaml 无行为变化\n疲惫学生反复怀疑人生", shape=octagon, fillcolor="#ffe6cc"];
+  F10 [label="F10 态势看板打不开\n模块级 AttributeError\n比赛日才发现", shape=octagon, fillcolor="#ffe6cc"];
+  F11 [label="F11 半格外检测硬吸附落格\n虚假态势进世界模型\n(0.175m 容差承诺虚设)", shape=octagon, fillcolor="#ffe6cc"];
+  F12 [label="F12 '我改过了'但没生效\n无 VCS + 二进制源不可考\n任何回归无法排查", shape=octagon, fillcolor="#f8cecc"];
+
+  // ---------------- 失效链 (红=已验证) ----------------
+  RC1 -> M13 [color="#b85450"];
+  RC1 -> M1  [color="#b85450"];
+  RC2 -> M1  [color="#b85450"];
+  RC2 -> M2  [color="#b85450"];
+  M1  -> F1  [color="#b85450", label="pipeline.py:73,96\n确实调用 plan_route_zoned"];
+  M2  -> F12 [color="#b85450", label="测的不是飞的"];
+  M13 -> F12 [color="#b85450"];
+  RC4 -> M3  [color="#b85450"];
+  M3  -> F2  [color="#b85450", penwidth=2.0, label="TTL=5s"];
+  RC5 -> M4  [color="#b85450"];
+  M4  -> F3  [color="#b85450", penwidth=2.0];
+  RC5 -> M5  [color="#b85450"];
+  M5  -> F4  [color="#b85450"];
+  RC5 -> M6  [color="#b85450"];
+  M6  -> F5  [color="#b85450", penwidth=2.0];
+  RC5 -> M7  [color="#b85450"];
+  M7  -> F6  [color="#b85450", label="误检是项目自述顽疾\nmission_router:506-507"];
+  M8  -> F7  [color="#b85450"];
+  M9  -> F7  [color="#b85450"];
+  M14 -> F8  [color="#b85450"];
+  RC4 -> M14 [color="#b85450"];
+  RC3 -> M10 [color="#b85450"];
+  M10 -> F9  [color="#b85450"];
+  M11 -> F10 [color="#b85450", label="2026-10-16 换 D13 模型\n工具未同步"];
+  M12 -> F11 [color="#b85450"];
+
+  // ---------------- 需验证 (橙虚线) ----------------
+  Q1 [label="? QoS 全默认 RELIABLE/VOLATILE/depth10\n若对端 BEST_EFFORT → 静默零送达\nros2 topic info -v 可 10min 查完", shape=note, fillcolor="#fff2cc"];
+  Q2 [label="? wheelbase 0.157 vs 学员版 0.17\ncontract.py:32 自注不一致\n需实测轴距", shape=note, fillcolor="#fff2cc"];
+  Q3 [label="? fusion.py:131-135 IMU 首帧晚于 reset\nyaw_anchor 带任意偏置\n注释称'等首帧校正'但无校正代码", shape=note, fillcolor="#fff2cc"];
+  Q4 [label="? TRT 引擎版本匹配\n全库 0 处版本校验\norin_convert_engines.sh:29-35 不记录版本", shape=note, fillcolor="#fff2cc"];
+  F13 [label="F13 开局朝向错直线冲出\n/ 收不到 odom 全程静默\n/ 引擎静默失效或精度漂移", shape=octagon, fillcolor="#fff2cc"];
+  Q1 -> F13 [style=dashed, color="#d79b00"];
+  Q2 -> F13 [style=dashed, color="#d79b00"];
+  Q3 -> F13 [style=dashed, color="#d79b00"];
+  Q4 -> F13 [style=dashed, color="#d79b00"];
+
+  // ---------------- 已有防护(有效), 灰虚线表示"这些没出事是因为它" ----------------
+  G1 -> F3 [style=dotted, color="#82b366", label="若 NaN 未发生\nwrap 保证了角度不炸"];
+  G2 -> F7 [style=dotted, color="#82b366", label="已修 localized 恒 0"];
+  G3 -> F11 [style=dotted, color="#82b366", label="坏帧不落半成品"];
+  G4 -> F4 [style=dotted, color="#82b366", label="体检失败可回滚\n但 pkill 路径不覆盖"];
+}

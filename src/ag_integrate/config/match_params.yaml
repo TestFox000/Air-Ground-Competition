@@ -1,0 +1,117 @@
+# 每局开赛前唯一要改的文件：裁判系统地图先验 + 摆位。
+# 无人机识别到的雷/障碍/桥洞通行格（ARROW）/靶面，由 dzuav 帧实时给出，
+# 不在此配置。
+integrate_node:
+  ros__parameters:
+    # ---- 链路 ----
+    udp_port: 50000                 # dzuav 态势广播端口
+    waypoint_topic: "/nav/waypoint"  # 官方 path_executor 订阅的话题
+    dry_run: true                   # 只算不发；实车联调通过后改 false
+    publish_reset: true
+    # 0x4002 车位姿有效期 s：超期即视为无车朝向，对齐闭环立即停发角速度、
+    # 退回 start_heading。机上是 time.monotonic() 计时（不受机载时钟回跳影响），
+    # 0 表示关闭 TTL 检查（不推荐：断链后会拿几分钟前的 yaw 去闭环转向）。
+    # 取值依据：dzuav ~5fps 广播，1.0s = 连丢 5 帧才判过期。
+    car_pose_ttl_s: 1.0
+    # ---- 本局摆位（现场确定） ----
+    # ⚠️ 开赛前必须对照场地喷绘核对这两个格号：
+    #    裁判布置完场地后、2分钟准备期内确认，错了整个航位推算基准就偏一格。
+    # 2026-10-17 按官方裁判地图更新：车起点 N10（非 N11）、终点 N5（非 N6）。
+    # ⚠️ 这两个朝向 token 是**本机坐标架**的字面量（x=列 A→N，y=行 11→1）。
+    #    车端（官方 path_executor / dznav）用的是另一套坐标架，两架相差 90°，
+    #    car_commands 在下发时自动翻译，所以 ros2 topic echo 看到的 reset 串
+    #    与这里写的字不一定同字——那是正常的，别"手动改回来"。
+    #    推导与回归：tests/test_heading_frame.py。
+    start_cell: "N10"
+    start_heading: "y"              # 车头朝向断言 x(东)/y(北)
+    goal_cell: "N5"
+    final_heading: "y"              # 终点朝向计 5 分；最底行格只能 x
+    # ---- 发车门控 ----
+    min_mines: 1                    # 至少识别到几颗雷才发车
+    require_face: true              # 必须先看清靶面敌我再发车
+    # ---- 中场约束（留空：桥洞墙由 ARROW 自动推导） ----
+    # mid_boundary=6：挡板在第 6/7 行之间（row5↔row6，0 基），上半场=行1~6、
+    # 下半场=行7~11。2026-10-15 终裁：车上官方地图真源 + 现场核实
+    # （I6→I7/K6→K7/L6→L7 全封死）双重确认（曾错为 5，旧注释已清）。
+    # 与 mission_router._MID_BOUNDARY 的一致性由 test_field_config_consistency 锁定。
+    cross_gates: [""]
+    mid_boundary: 6                 # 挡板在第 6/7 行之间（row5↔row6，0 基），上半场=行1~6、下半场=行7~11；2026-10-15 按车上官方地图真源修正（曾错为 5）
+    # ---- 分区策略（2026-10-15 现场确认三区拓扑后启用，见 docs/分区规划与感知约束）----
+    crossing_penalty: 5.0           # 每次跨越挡板边界的附加代价（格当量）：促使一区扫完再转场
+    # 桥洞隧道方向：["K9:E"] 格号:E|W|EW，规则方向=桥顶箭头指向；[""]=隧道格自动轴向直行
+    tunnel_dirs: [""]
+    # 分区排序：["东北","西","东南"] 逐区执行，跨挡板自动转场西区走廊；[""]=全局TSP（实测后再启用）
+    zone_order: [""]
+    # ---- 路径代价平衡（步数 vs 姿态，2026-10-17）----
+    # 对角步按 √2 格计价（< 两正交步 2.0），距离更短自动走对角线；
+    # turn_45 决定"少转向"值多少格代价：
+    #   0.75 = 阿克曼底盘物理标定（45° 转向 ≈ 0.27m 弧长 ≈ 0.76 格），时间等价（默认）
+    #   0    = 纯距离最短 + 步数最少（同代价平局自动取转向最少的最平直形态）
+    #   更大  = 姿态平滑优先（少转向），步数/距离放宽
+    turn_45: 0.75
+    # 对角移动开关：false 退化为纯正交路线（实车对角追踪不稳/漂移风险时关闭）
+    allow_diagonal: true
+    # ---- 朝向补偿（根除画圆：reset 断言朝向 vs 真实朝向的固定偏差）----
+    #   none  : 不补偿，靠人工把车摆正（不推荐）
+    #   udp   : 用 0x4002 真实朝向取最近坐标轴，残差 ≤ 45°，不挪车
+    #   align : 用 0x4002 真实朝向闭环原地转向到断言朝向，零残差（推荐）
+    heading_bias_source: "align"
+    # ---- 朝向对齐（align 模式）参数 ----
+    # ⚠️ 底盘契约（dzactuator 源码实测）：
+    #   1) path_executor 的 pursuitAngle 保活会把 dzactuator 钉在模式2，
+    #      此时 /cmd_vel 被静默丢弃——align 必须在 path_executor 启动前完成
+    #      （用 tools/car_match_bringup.sh 两阶段启动）；
+    #   2) Ackermann 车不能原地转：v==0 时舵机回中不动，必须带爬行速度。
+    cmd_vel_topic: "/cmd_vel"
+    align_creep_speed: 0.05           # 对齐爬行速度 m/s（v≠0 舵机才生效；0.05 摆正 68.6° 漂移 ~0.21m，仿真验证有裕度）
+    heading_align_tolerance: 0.05       # 对齐容差 rad ≈ 3°
+    heading_align_max_rate: 0.5         # 最大角速度 rad/s
+    heading_align_timeout: 15.0         # 对齐超时 s（超时退回最近轴）
+    heading_align_settle_ticks: 3       # 连续 N tick 在容差内才算对齐
+    wait_waypoint_consumer: true        # 等 /nav/waypoint 有订阅者再发路线（话题无滞留）
+    # ---- 移动靶先验（全场唯一靶，裁判系统每局固定） ----
+    # 2026-10-17 按官方裁判地图更新：轨道 D7-E7（非 D8-E8）；蓝面朝向地图未标，
+    # 按 S 假设——发车前看一眼靶面，若朝 N 改这里（路线自动切 E6* 版）。
+    target_track: ["D7", "E7"]      # 轨道两端格号
+    target_blue_face: "S"           # 蓝面朝向 S/N(水平轨道)/E/W(垂直轨道)
+    # ---- 中途重规划 ----
+    # 开启后：态势相关变化（雷/隧道/靶面集变化、路线 ±1 格内障碍增删）触发
+    # 重规划并重发路线；path_executor 换路线后按"最近航段"从当前位置接续。
+    # 防抖由 _route_needs_replan 守卫保证（无关帧不重算、路线不变不发）。
+    #
+    # ⚠️ 2026-10-17 评审整改：此处由 true 改回 false，理由三条——
+    #   1. 原注释声称"SIL 验证见 tests/test_sim_tracking.py"，但该文件
+    #      全仓 find 无任何命中，验证依据不存在；
+    #   2. integrate_node.py:141 的 declare_parameter 默认值就是 False，
+    #      yaml 单方面改 true 会造成"默认值与实际生效值不一致"；
+    #   3. 上机包原注释写明"path_executor 换路线行为实车验证后改 true"，
+    #      实车验证尚未做过。赛中换路线是不可逆动作，先保守。
+    # 开启前置条件：实车验证 path_executor 收到第二条路线时的接续行为，
+    # 并补上 test_sim_tracking.py（交界障碍验收场景）。
+    replan_on_update: false
+    # ---- 障碍多帧确认（分区规划问题1 ⚠️：交界格误检堵死唯一通道）----
+    # 连续 2 帧检出才进入态势、连续 2 帧消失才移出；单帧幽灵不再触发
+    # 整区降级。真障碍只晚 0.2s（5fps）进入，重规划守卫照常接手绕行。
+    obstacle_confirm_frames: 2
+    # ---- 时间预算门控（官方硬顶 180s、同分比用时；route_time）----
+    # 规划出解后折算预估执行秒数；超软预算且有射击位时砍射击停靠重规划
+    # （打击带 −5 误击风险，是唯一可砍任务；纯排雷链超预算只报警不砍雷）。
+    # 以下四个是占位保守值，实车标定（直行速度/加减速/射击停靠）后回填。
+    time_soft_cap_s: 165.0          # 软预算 s（留 15s 余量）；<=0 关闭门控
+    time_cruise_mps: 0.25           # 巡航速度 m/s
+    time_accel_overhead_s: 0.4      # 每条直线段的加减速附加 s
+    time_mine_slow_s: 0.6           # 过雷格的减速附加 s
+    time_shoot_stop_s: 4.0          # 每射击位：停靠+瞄准+开火+确认 s
+
+# ====================================================================
+#  dzbrain 桥接节点（mode:=dzbrain 时启用；与 integrate_node 互斥）
+#  机载 dzuav 二进制 UDP -> 官方 dzbrain 的 /dzlink JSON 情报接口
+# ====================================================================
+dzbrain_bridge:
+  ros__parameters:
+    udp_port: 50000                 # dzuav 态势广播端口（与 integrate_node 同链）
+    drone_to_car_topic: "/dzlink/drone_to_car"   # dzbrain DroneTask 消费（真源：其 SCHEMA）
+    car_to_drone_topic: "/dzlink/car_to_drone"   # 车端回执/车状态
+    heartbeat_period_s: 1.0         # 心跳周期 s（DroneTask 3s 判离线，有两拍余量）
+    refresh_period_s: 2.0           # 无变化情报的刷新周期 s（<< dzbrain info_stale_s=30）
+    red_veto_ttl_s: 5.0             # 红靶粘性否决 TTL（与 legacy 链同参数，禁火铁律）
