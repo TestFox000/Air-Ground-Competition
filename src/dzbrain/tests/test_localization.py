@@ -922,4 +922,63 @@ check("真漂移 0.40 m：仍下发 drift/drift_stop 限速",
       isinstance(_lim_d2, dict) and _lim_d2.get("reason") in ("drift", "drift_stop"),
       f"limit={_lim_d2}")
 
+# --------------------------------------------------------------------------- #
+#  ⑭ G4「按方向自愈」带牙回归（verifier C1：§⑬ 正例回放 stuck_scans=0，方向自愈分支无牙）
+# --------------------------------------------------------------------------- #
+section("⑭ G4 按方向自愈：冻在错误支时自愈必须回去程侧；关掉方向则落回程侧")
+
+#: 冻结态复现台架：用公共 tick() 驱动，再把旧 bug 的**结果**（hint 冻在 0.70 + 上一拍投影
+#: 已失效）注入回去，逼出 _heal_stuck 的方向裁决分支。
+#: ★ 为什么直接注入 _s_hint/_last_proj/_last_seg 而不是纯回放：
+#:   生产上制造这个冻结态的 bug（首拍 s=0.700）已被 §⑬ 修掉，回放再也走不到卡死分支；
+#:   而 _heal_stuck 的方向分支只在这种状态下被调用 —— 不注入就无法给该分支上牙。
+#:   注入的是旧 bug 的**状态结果**，不是 _heal_stuck 的入参；断言只看自愈结果落在哪一侧。
+def _heal_branch_replay(motion: bool = True):
+    task, bridge, bb, bus, clock = build(
+        overrides={"fix": {"anchor_at_waypoint": True}},
+        route=parse_mission(list(SMOKE_TOKENS)), seed_pose=False)
+    task.motion_heading_enabled = bool(motion)
+    for (x, y, yaw_deg) in SMOKE_POSES[:3]:      # 先走 3 个真实采样点，建立可信 travel_heading
+        for _ in range(10):
+            bridge.set_pose(x, y, math.radians(yaw_deg))
+            clock.advance(0.05)
+            task.tick()
+    s_before = float(bb.get(P_ROUTE_S))
+    # ---- 注入旧 bug 产生的冻结态（hint=0.70=回程段末点；上一拍投影作废，方向闸无从拒绝）----
+    task._last_proj = None
+    task._s_hint = 0.70
+    task._last_seg = 1
+    seq = []
+    for y in (0.318, 0.348, 0.378, 0.408, 0.438, 0.468, 0.498):
+        bridge.set_pose(0.525, y, math.pi / 2)   # 车继续向北（去程方向）走
+        clock.advance(0.05)
+        task.tick()
+        seq.append(float(bb.get(P_ROUTE_S)))
+    return task, s_before, seq
+
+
+task_hm, s_before_hm, seq_hm = _heal_branch_replay(motion=True)
+task_nm, s_before_nm, seq_nm = _heal_branch_replay(motion=False)
+s_hm, s_nm = seq_hm[-1], seq_nm[-1]
+
+check("自愈前置：方向开启时正常投影 s≈0.113（证明 travel_heading 已建立，不是空值兜底）",
+      abs(s_before_hm - 0.113) <= 0.02, f"s_before={s_before_hm:.3f}")
+check("方向自愈确实被触发（stuck_scans == 1 且 projection_heals == 1）",
+      task_hm.stuck_scans == 1 and task_hm.projection_heals == 1,
+      f"scans={task_hm.stuck_scans} heals={task_hm.projection_heals}")
+check("方向自愈结果落在去程侧（s≈0.35 一侧，不得跳回 0.497 的回程段）",
+      abs(s_hm - 0.35) <= 0.02, f"final_s={s_hm:.3f} seq={[round(x, 3) for x in seq_hm]}")
+_healed_hm = [v for v in seq_hm if v <= 0.60]        # 去掉自愈触发前仍冻在 0.70 的样本
+check("方向自愈后 s 只到 ≤0.36（没有落到回程段 0.497）",
+      bool(_healed_hm) and max(_healed_hm) <= 0.36,
+      f"healed_s={[round(x, 3) for x in _healed_hm]}")
+
+# ★ 带牙对照：同一冻结态 + 同一位姿序列，关掉 motion_heading ⇒ 旧连续性裁决落回程段 0.497
+check("★带牙对照：关掉方向后同样触发自愈（stuck_scans == 1）",
+      task_nm.stuck_scans == 1, f"scans={task_nm.stuck_scans}")
+check("★带牙对照：关掉方向后自愈落回回程侧 s≈0.497（旧行为）",
+      abs(s_nm - 0.497) <= 0.01, f"final_s={s_nm:.3f} seq={[round(x, 3) for x in seq_nm]}")
+check("★带牙对照：开/关方向的终值差 >0.10 m（该分支对结果有实质影响）",
+      (s_nm - s_hm) > 0.10, f"on={s_hm:.3f} off={s_nm:.3f} diff={s_nm - s_hm:+.3f}")
+
 finish()
