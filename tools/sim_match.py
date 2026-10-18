@@ -45,11 +45,11 @@ from ag_integrate.intel_protocol import (  # noqa: E402
 )
 from cell_classifier.predictor import CellIdRecognizer  # noqa: E402
 
-# 与 C++ className/ObjectType 顺序一致的类别名映射
-NAME2TYPE = {"mine": ObjectType.MINE, "car": ObjectType.CAR,
-             "arrow": ObjectType.ARROW, "target_red": ObjectType.TARGET_RED,
-             "cell_label": ObjectType.CELL_LABEL, "target_blue": ObjectType.TARGET_BLUE,
-             "obstacle": ObjectType.OBSTACLE}
+# 与 C++ className/ObjectType 顺序一致的类别名映射。
+# D13 统一模型（hbb_d13_best.pt，2026-10-16）：类别名 = ObjectType 枚举名小写，
+# 由枚举直接推导、永不漂移；雷/桥洞不再分两类（都是 paper，语义由车端
+# world_model 按落格判定：K 列=通行箭头，其余=雷），本链路只透传类型。
+NAME2TYPE = {t.name.lower(): t for t in ObjectType}
 LETTERS = "ABCDEFGHIJKLMN"
 CELL, X0, Y0 = 0.35, 0.065, 0.295
 

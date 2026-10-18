@@ -137,6 +137,17 @@ def guard_feed(g: GuardState, t: float, x: float, y: float, yaw: float,
     return out
 
 
+def published_vio_fields(g: GuardState, holding: bool) -> dict:
+    """发布层质量字段等价映射；reset_counter 在 hold/正常帧均沿用状态值。"""
+    variance = 100.0 if holding else 0.01
+    return {
+        "position_variance": (variance, variance, variance),
+        "orientation_variance": (variance, variance, variance),
+        "quality": 1 if holding else 100,
+        "reset_counter": g.ev_reset_counter,
+    }
+
+
 def _guard_feed_impl(g: GuardState, t: float, x: float, y: float, yaw: float,
                      armed: bool = False) -> tuple:
     cur = (x, y, yaw, 1.0)
@@ -299,6 +310,26 @@ def align_bump(g: GuardState, t: float, yaw_offset: float = 0.0) -> None:
     g.total_bumps += 1
     _bb(g, t, "ALIGN_BUMP", "UNALIGNED->ALIGNED", 0.0, yaw_offset,
         (0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0, 1.0), False)
+
+
+# ============================================================================
+# 发布层契约
+# ============================================================================
+
+def test_vio_quality_and_variance_follow_hold_state():
+    g = GuardState()
+    align_bump(g, 0.0)
+    normal = published_vio_fields(g, holding=False)
+    assert normal["quality"] == 100
+    assert normal["position_variance"] == (0.01, 0.01, 0.01)
+    assert normal["orientation_variance"] == (0.01, 0.01, 0.01)
+
+    reset_counter = g.ev_reset_counter
+    hold = published_vio_fields(g, holding=True)
+    assert hold["quality"] == 1
+    assert hold["position_variance"] == (100.0, 100.0, 100.0)
+    assert hold["orientation_variance"] == (100.0, 100.0, 100.0)
+    assert hold["reset_counter"] == reset_counter
 
 
 # ============================================================================

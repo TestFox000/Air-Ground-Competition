@@ -49,16 +49,6 @@ REMOTE_ENV = ("source /opt/ros/humble/setup.bash; "
               "source ~/dzpx4/install/setup.bash 2>/dev/null; ")
 
 
-def read_password(args) -> str:
-    pw = args.password or os.environ.get("AG_ORIN_PASS") or os.environ.get("AG_CAR_PASS")
-    if pw:
-        return pw
-    import getpass
-    if not sys.stdin.isatty():
-        raise SystemExit("缺少密码：set AG_ORIN_PASS=******（或 --password）")
-    return getpass.getpass(f"{args.user}@{args.host} 的密码: ")
-
-
 def run(host, user, pw, port, cmd, timeout=60):
     for attempt in range(1, 4):
         try:
@@ -84,7 +74,8 @@ def main(argv=None) -> int:
                     help="栈未运行时的拉起命令（autostart v3 模式下定位栈需手动启动，"
                          "如 --start-cmd 'bash ~/start_drone.sh'）；执行后自动复检")
     args = ap.parse_args(argv)
-    pw = read_password(args)
+    pw = remote_run.read_password(args, env_name="AG_ORIN_PASS",
+                                  fallback_envs=("AG_CAR_PASS",))
     host, user, port = args.host, args.user, args.port
 
     problems = []

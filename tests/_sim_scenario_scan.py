@@ -28,15 +28,21 @@ def obj(cell, typ):
 
 
 def run_scenario(mines, seed=42, budget=90.0):
-    objs = tuple(obj(c, ObjectType.MINE) for c in mines) + (
+    # D13（2026-10-16）：雷=非 K 列的 PAPER（语义由 world_model 按落格判定）。
+    # 注意：candidates 里 K 列格在 D13 下恒为桥洞箭头，不再是雷——
+    # 含 K 列格的候选实际跑的是"桥洞+单雷"场景，与旧语义不同。
+    objs = tuple(obj(c, ObjectType.PAPER) for c in mines) + (
         obj("D8", ObjectType.TARGET_BLUE),)
-    w = TrackingWorld(start_cell="N10", true_yaw_deg=158.6,
+    w = TrackingWorld(start_cell="N10", true_yaw_deg=68.6,
                       theta_boot_deg=90.0, seed=seed)
     ros_stub.set_overrides(
         udp_port=0, dry_run=False, publish_reset=True,
-        start_cell="N10", goal_cell="N11", start_heading="y", final_heading="x",
+        start_cell="N10", goal_cell="N11", start_heading="y", final_heading="y",
         heading_bias_source="align", target_track=["D8", "E8"],
-        target_blue_face="S", matrix_log=False)
+        target_blue_face="S", matrix_log=False, align_creep_speed=0.05)
+    # final_heading 'y'（2026-10-18）：executor 路线尾标只认 x/y，'x' 会产出
+    # ',-y' 被整条拒收（reference path_executor.py:1151）；true_yaw 68.6°
+    # 为车端架面值（=场地架 158.6°，与 test_sim_tracking 主场景同口径）。
     ig = IntegrateNode()
     w.attach_integrate(ig, objs)
     try:

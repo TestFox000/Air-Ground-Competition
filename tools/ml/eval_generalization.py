@@ -31,7 +31,7 @@ REPO = Path(__file__).resolve().parent.parent.parent
 BASELINE_PATH = REPO / "models" / "release" / "generalization_baseline.json"
 README_PATH = REPO / "models" / "release" / "README.md"
 
-MINE_CLS_ID = 0  # 与 intel_protocol.ObjectType.MINE 一致（本工具不引包，保持可独立运行）
+MINE_CLS_ID = 0  # 与 intel_protocol.ObjectType.PAPER 一致（D13：雷=非 K 列 paper；本工具不引包，保持可独立运行）
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
 
 

@@ -46,16 +46,26 @@ path_executor 加载的是**现役快照**
 动力学参数错、滑移、通信抖动、串口丢帧。
 
 === 画圆机理（2026-10-01 事故复现，δ=68.6°）===
-车 IMU 开机时朝向 θ_boot（≈90°，+Y），被搬到起点后真实朝向 158.6°：
+车 IMU 开机时朝向 θ_boot（≈车架 90°，+Y），被搬到起点后真实朝向 158.6°
+（场地架，= 车架 68.6°）：
 - serial_reader：yaw_rel = θ_true − θ_boot，位置沿"yaw_rel + π/2"航位推算
   —— θ_boot=90° 时位置积分方向恰好等于真实位移方向；
-- path_executor：reset:N10,y 把信念航向锚到 90°（snap_yaw_off），
+- path_executor：reset 把信念航向锚到断言朝向（snap_yaw_off），
   信念航向 = yaw_rel + π/2 + snap = θ_true − 68.6°。
 => 信念系里"车朝哪"与"车在往哪挪"差恒定 68.6°（双重误差），纯追踪等效
 操控一辆恒定侧滑 68.6° 的车，永远进不了到点圆盘 —— 绕目标画圈。
 align 修复的本质：发车前闭环把车真实转到断言朝向（yaw_rel->0），
 snap->0，双重误差同时归零。这也解释了为什么必须仿到 serial_reader 的
 "yaw_rel + π/2"位置积分这一层，只仿 heading 是看不出画圈的。
+
+=== 坐标架（2026-10-18 拆分）===
+本仿真底盘真值/serial_reader/path_executor 同在**车端架**（block_to_meters
+那一套），0x4002 无人机车位姿的 yaw 在**场地架**（dzuav MapLocalizer 世界
+系）——真机两架差 90°（θ_场 = θ_车 + π/2，推导见 car_commands._CAR_HEADING
+注释），car_commands 按此翻译 reset/路线尾标的朝向 token。合线前编码器
+不翻译、本仿真单架混用恰好自洽；合线后仿真必须把同一 frame 劈开：
+DronePoseFeed.emit 对 yaw +π/2（见该处注释），test_sim_tracking 的场景
+常量按车端架重锁（真实 158.6° 场地架 = 车架 68.6°）。
 """
 
 from __future__ import annotations
@@ -284,7 +294,16 @@ class DronePoseFeed:
         self._next = 0.0
 
     def emit(self, t: float, x: float, y: float, yaw: float) -> bytes | None:
-        """每拍缓存真值；到 10Hz 节拍才产出一帧（采样自 t-delay）。"""
+        """每拍缓存真值；到 10Hz 节拍才产出一帧（采样自 t-delay）。
+
+        yaw 进帧前 +π/2（2026-10-18）：chassis/executor 是车端坐标架，而真机
+        0x4002 的 yaw 是场地架（dzuav MapLocalizer 世界系）——两架差 +90°
+        （θ_场 = θ_车 + π/2，推导见 car_commands._CAR_HEADING 注释）。合线前
+        编码器不翻译、仿真单架自洽；合线后 car_commands 按真机关系翻译，
+        仿真必须把同一 frame 劈开建出来，否则 integrate_node 的 align
+        （场地架目标）与 executor 的 reset 锚定（车端架）永远差 90°。
+        """
+        yaw = yaw + math.pi / 2
         self._buf.append((t, yaw))
         if t + 1e-9 < self._next:
             return None

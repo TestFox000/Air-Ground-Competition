@@ -30,22 +30,69 @@ from sim_match import SimChain, NAME2TYPE, ObjectType  # noqa: E402
 from eval_cell_frames import to_cid  # noqa: E402
 from ag_integrate.field_frame import COLS, ROWS  # noqa: E402
 
+# ---- 显示折叠：D13 目标 -> 渲染类别（kind）----
+# 2026-10-16 起模型是 hbb_d13_best.pt（13 类），ObjectType.MINE/ARROW 两个
+# 枚举成员已删除——本模块此前以它们为 COLORS/CN_NAMES 的键，import 即
+# AttributeError，工具已死过一次。现按 monitor_link.py 已建好的范式重建：
+# _KIND_BY_TYPE 映射 + PAPER 按落格判定（桥洞列=通行箭头，其余=雷，
+# 与 world_model.py:120-127 同口径；列字母由 --bridge-col 给，默认 K——
+# 2026-10-15 现场核实，契约文档里的 L 已过时）。
+_KIND_BY_TYPE = {
+    ObjectType.OBSTACLE: "obstacle",
+    ObjectType.TARGET_BLUE: "blue",
+    ObjectType.TARGET_RED: "red",
+    ObjectType.CAR: "car",
+    ObjectType.BUCKET_RED: "bucket_r",
+    ObjectType.BUCKET_GREEN: "bucket_g",
+    ObjectType.BUCKET_CYAN: "bucket_c",
+    ObjectType.CAR_START: "car_start",
+    ObjectType.CAR_END: "car_end",
+    ObjectType.UAV_START: "uav_start",
+    ObjectType.UAV_END: "uav_end",
+    # PAPER 不在此表：落格分派（桥洞列=arrow/其余=mine），见 _kind()
+    # CELL_LABEL 不进态势矩阵（格号只用于锚点定位）
+}
+
+
+def _kind(t: ObjectType, cell_name: str, bridge_col: str = "K") -> str:
+    """目标类别 -> 渲染 kind。PAPER 按落格分雷/箭头，未知类别落到 'unknown'。"""
+    if t is ObjectType.PAPER:
+        return "arrow" if cell_name.startswith(bridge_col.upper()) else "mine"
+    return _KIND_BY_TYPE.get(t, "unknown")
+
+
 # 类别配色 (RGB)
 COLORS = {
-    ObjectType.MINE: (230, 0, 0),           # 红 爆炸物
-    ObjectType.OBSTACLE: (255, 140, 0),     # 橙 障碍
-    ObjectType.TARGET_BLUE: (0, 120, 230),  # 蓝 敌方
-    ObjectType.TARGET_RED: (230, 230, 0),   # 黄 友方
-    ObjectType.ARROW: (0, 210, 0),          # 绿 桥洞
-    ObjectType.CAR: (220, 0, 220),          # 紫 车
+    "mine": (230, 0, 0),           # 红 爆炸物（非桥洞列 PAPER）
+    "obstacle": (255, 140, 0),     # 橙 障碍
+    "blue": (0, 120, 230),         # 蓝 敌方
+    "red": (230, 230, 0),          # 黄 友方
+    "arrow": (0, 210, 0),          # 绿 桥洞（桥洞列 PAPER）
+    "car": (220, 0, 220),          # 紫 车
+    "bucket_r": (200, 60, 60),     # 暗红 红桶
+    "bucket_g": (60, 180, 60),     # 绿 绿桶
+    "bucket_c": (60, 180, 200),    # 青 青桶
+    "car_start": (90, 90, 220),    # 蓝紫 智能车起点
+    "car_end": (90, 90, 220),      # 蓝紫 智能车终点
+    "uav_start": (150, 90, 200),   # 紫 无人机起点
+    "uav_end": (150, 90, 200),     # 紫 无人机终点
+    "unknown": (128, 128, 128),    # 灰 兜底（枚举新增类别而本工具没跟上）
 }
 CN_NAMES = {
-    ObjectType.MINE: "爆炸物",
-    ObjectType.OBSTACLE: "障碍",
-    ObjectType.TARGET_BLUE: "蓝靶",
-    ObjectType.TARGET_RED: "红靶",
-    ObjectType.ARROW: "桥洞",
-    ObjectType.CAR: "车",
+    "mine": "爆炸物",
+    "obstacle": "障碍",
+    "blue": "蓝靶",
+    "red": "红靶",
+    "arrow": "桥洞",
+    "car": "车",
+    "bucket_r": "红桶",
+    "bucket_g": "绿桶",
+    "bucket_c": "青桶",
+    "car_start": "车起点",
+    "car_end": "车终点",
+    "uav_start": "机起点",
+    "uav_end": "机终点",
+    "unknown": "未知",
 }
 LETTERS = "ABCDEFGHIJKLMN"
 
@@ -68,9 +115,9 @@ def _load_font(size):
 
 
 def _PRIORITY(kind):
-    return {ObjectType.MINE: 0, ObjectType.OBSTACLE: 1,
-            ObjectType.TARGET_BLUE: 2, ObjectType.TARGET_RED: 3,
-            ObjectType.ARROW: 4, ObjectType.CAR: 5}.get(kind, 99)
+    # 同格多目标取高优先级（键为 _kind 产出的渲染类别）
+    return {"mine": 0, "obstacle": 1, "blue": 2, "red": 3,
+            "arrow": 4, "car": 5}.get(kind, 99)
 
 
 def fit_lattice(anchors, min_inliers=6):
@@ -124,11 +171,11 @@ def fit_lattice(anchors, min_inliers=6):
 
 
 def detect_and_localize(image_path, yolo_pt, cell_pt,
-                        conf=0.45, anchor_conf=0.80, bridge_col: str = "L"):
+                        conf=0.45, anchor_conf=0.80, bridge_col: str = "K"):
     """跑识别 + 格号锚点定位，返回目标列表、带框原图、定位元信息。
 
-    bridge_col: 桥洞所在列字母，默认 L（与 docs/interface_contract.md §2 一致；
-    现场拓扑待核实，若实际桥洞在其他列用 --bridge-col 指定）。
+    bridge_col: 桥洞所在列字母，默认 K（2026-10-15 现场核实，与 world_model/
+    mission_router 的桥列口径一致；若实际桥洞在其他列用 --bridge-col 指定）。
     """
     bcol = LETTERS.index(bridge_col.upper())
     frame = cv2.imdecode(np.fromfile(str(image_path), dtype=np.uint8),
@@ -209,56 +256,49 @@ def detect_and_localize(image_path, yolo_pt, cell_pt,
     targets = []
     direct_cells = {(a[0], a[1]) for a in anchors}
     inferred_cells = set()  # 反推格：目标落入但无直接锚点的格
+    kinds: dict[int, str] = {}   # 检测索引 -> 渲染 kind（标注原图复用）
     for i, (t, cf) in enumerate(zip(clss, confs)):
         if t == ObjectType.CELL_LABEL:
             continue
         x1, y1, x2, y2 = boxes[i]
-        if t == ObjectType.ARROW:
-            # 桥洞仅在桥洞列（场地约束），按覆盖范围采样但只保留桥洞列
-            step = 50
-            seen = set()
-            for yy in range(int(y1), int(y2), step):
-                for xx in range(int(x1), int(x2), step):
-                    cr = cell_of_pixel(xx, yy)
-                    if cr is None or cr in seen:
-                        continue
-                    col, row = cr
-                    if col != bcol:  # 只保留桥洞列
-                        continue
-                    seen.add(cr)
-                    targets.append({"kind": t, "cell": to_cid(col, row),
-                                    "col": col, "row": row,
-                                    "px": (x1 + x2) / 2, "py": (y1 + y2) / 2,
-                                    "conf": cf})
-            continue
         px, py = (x1 + x2) / 2, (y1 + y2) / 2
         cr = cell_of_pixel(px, py)
         if cr is None:
             continue
         col, row = cr
-        # 桥洞列的 mine 是误检（桥洞物理上不埋雷），按参数列过滤
-        if t == ObjectType.MINE and col == bcol:
-            continue
+        # D13 落格判语义（与 world_model.py:120-127 同口径）：桥洞列的
+        # paper = 通行箭头，其余格的 paper = 雷。老 7cls 时代"桥洞列 mine
+        # 是误检"的过滤随之消失——桥洞列物理不埋雷，paper 落桥洞列本义
+        # 就是箭头标志；paper 是 12cm 图卡（单格），按框中心落格即可。
+        kind = _kind(t, to_cid(col, row), bridge_col)
+        kinds[i] = kind
         if (col, row) not in direct_cells:
             inferred_cells.add((col, row))  # 格号反推所得
-        targets.append({"kind": t, "cell": to_cid(col, row),
+        targets.append({"kind": kind, "cell": to_cid(col, row),
                         "col": col, "row": row, "px": px, "py": py,
                         "conf": cf})
 
     # 加入场地先验桥洞（桥洞列 1-9 行）
     for (col, row) in arrow_cells:
-        targets.append({"kind": ObjectType.ARROW, "cell": to_cid(col, row),
+        targets.append({"kind": "arrow", "cell": to_cid(col, row),
                         "col": col, "row": row, "px": 0, "py": 0, "conf": 1.0})
 
     # ---- 带检测框的原图（中文标注）----
     render = img.copy()
     for i, (t, cf) in enumerate(zip(clss, confs)):
         x1, y1, x2, y2 = map(int, boxes[i])
-        color = COLORS.get(t, (128, 128, 128))
+        # CELL_LABEL 未入 targets：取落格重算；paper 颜色/名称按落格分雷/箭头
+        kind = kinds.get(i)
+        if kind is None:
+            cr = cell_of_pixel((x1 + x2) / 2, (y1 + y2) / 2)
+            kind = (_kind(t, to_cid(*cr), bridge_col)
+                    if t is ObjectType.PAPER and cr is not None
+                    else _KIND_BY_TYPE.get(t, "unknown"))
+        color = COLORS.get(kind, COLORS["unknown"])
         bgr = (color[2], color[1], color[0])
         cv2.rectangle(render, (x1, y1), (x2, y2), bgr, 2)
         if t != ObjectType.CELL_LABEL:
-            label = f"{CN_NAMES[t]} {cf:.2f}"
+            label = f"{CN_NAMES.get(kind, CN_NAMES['unknown'])} {cf:.2f}"
             # 用 PIL 画中文标签
             pil = Image.fromarray(cv2.cvtColor(render, cv2.COLOR_BGR2RGB))
             draw = ImageDraw.Draw(pil)
@@ -389,10 +429,10 @@ def render_field_matrix(targets, title="", cell_px=80, special=None,
         draw.text((x, y), num, font=font_axis, fill=(60, 60, 60))
 
     # 图例（顶部）
-    legend = [(ObjectType.MINE, "爆炸物"), (ObjectType.OBSTACLE, "障碍"),
-              (ObjectType.TARGET_BLUE, "蓝靶(敌)"),
-              (ObjectType.TARGET_RED, "红靶(友)"),
-              (ObjectType.ARROW, "桥洞"), (ObjectType.CAR, "车")]
+    legend = [("mine", "爆炸物"), ("obstacle", "障碍"),
+              ("blue", "蓝靶(敌)"),
+              ("red", "红靶(友)"),
+              ("arrow", "桥洞"), ("car", "车")]
     for i, (k, txt) in enumerate(legend):
         cx = 10 + i * 135
         draw.rectangle([cx, 6, cx + 22, 28], fill=COLORS[k])
@@ -410,11 +450,11 @@ def render_field_matrix(targets, title="", cell_px=80, special=None,
     return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
 
 
-def _build_gt_targets(bridge_col: str = "L"):
+def _build_gt_targets(bridge_col: str = "K"):
     """从用户提供的 GT 构建 targets 列表，用于对比渲染。
 
-    桥洞列默认 L（与契约一致；本 GT 手工转录自桥洞在 K 列的旧裁判图，
-    用旧图对比时请传 --bridge-col K。现场拓扑待核实）。
+    桥洞列默认 K（2026-10-15 现场核实，与 world_model/mission_router 同口径；
+    本 GT 手工转录自桥洞在 K 列的裁判图）。
     """
     def expand(spec):
         cells = set()
@@ -443,15 +483,15 @@ def _build_gt_targets(bridge_col: str = "L"):
     targets = []
     for cid in mines:
         col, row = ord(cid[0]) - 65, int(cid[1:]) - 1
-        targets.append({"kind": ObjectType.MINE, "cell": cid,
+        targets.append({"kind": "mine", "cell": cid,
                         "col": col, "row": row, "px": 0, "py": 0, "conf": 1.0})
     for cid in obstacles:
         col, row = ord(cid[0]) - 65, int(cid[1:]) - 1
-        targets.append({"kind": ObjectType.OBSTACLE, "cell": cid,
+        targets.append({"kind": "obstacle", "cell": cid,
                         "col": col, "row": row, "px": 0, "py": 0, "conf": 1.0})
     for cid in arrows:
         col, row = ord(cid[0]) - 65, int(cid[1:]) - 1
-        targets.append({"kind": ObjectType.ARROW, "cell": cid,
+        targets.append({"kind": "arrow", "cell": cid,
                         "col": col, "row": row, "px": 0, "py": 0, "conf": 1.0})
     return targets
 
@@ -467,8 +507,8 @@ def main():
                     default=REPO / "runs/matrix_test/field_matrix.png")
     ap.add_argument("--title", type=str, default="")
     ap.add_argument("--cell-px", type=int, default=80, help="矩阵每格像素")
-    ap.add_argument("--bridge-col", default="L",
-                    help="桥洞所在列字母（默认 L，与契约一致；现场拓扑待核实）")
+    ap.add_argument("--bridge-col", default="K",
+                    help="桥洞所在列字母（默认 K，2026-10-15 现场核实）")
     ap.add_argument("--show-gt", action="store_true",
                     help="同时输出 GT 真值矩阵对比")
     args = ap.parse_args()
