@@ -299,6 +299,72 @@ def main() -> int:
           f"{spec.start}->{spec.end} 雷{len(spec.mines)} 障{len(spec.obstacles)} "
           f"靶{spec.targets} 通{spec.bridges}")
 
+    # ------------------------------------------------------------------ #
+    section("⑯ t24 双面射击点：板面法向轴 / 靶窗视线 / 新图真双停站")
+    # 新图（2026-10-18 现场图）：靶板 D7+E7 沿 y 排开、板心 (1.575,3.5)、面法向 = ±x。
+    # 旧实现把「两靶格连线」（轨道轴 (0,-1)）当脸法向 ⇒ C9/F9 被分成一南一北（假双面）。
+    _field7_raw = {"map": {
+        "name": "现场图 2026-10-18（t24 验证）",
+        "start": "N10", "end": "N5",
+        "barrier_col_from": "D", "barrier_row_hi": 6, "barrier_row_lo": 7,
+        "mines": ["B1", "A2", "I2", "C3", "E3", "G5", "I8", "H9"],
+        "obstacles": ["D5", "I6", "A7", "F8", "B9", "F10", "H10", "A11"],
+        "targets": ["D7", "E7"], "bridges": ["K4", "K10"],
+    }}
+    _spec7 = P.load_map(_field7_raw)
+    _ctr7 = P.plate_center_m(_spec7)
+    check("⑯.1 新图板心=(1.575,3.5) 且板面法向=±x（轨道轴 (0,-1) 仍只作排序用）",
+          abs(_ctr7[0] - 1.575) < 1e-9 and abs(_ctr7[1] - 3.5) < 1e-9
+          and abs(P.plate_face_normal_m(_spec7)[0]) > 0.999
+          and abs(P.plate_bisector_axis_m(_spec7)[1]) > 0.999,
+          f"ctr={_ctr7} normal={P.plate_face_normal_m(_spec7)} "
+          f"axis={P.plate_bisector_axis_m(_spec7)}")
+    _side7 = {b: P.plate_side_of(_spec7, b)
+              for b in ("C9", "F9", "D6", "E6", "E5", "F5", "C7")}
+    check("⑯.2 侧向轴=面法向：C9/F9 同侧(-1)、D6/E6/E5/F5 同侧(+1)、C7 在板面平面(0)",
+          _side7["C9"] == -1 and _side7["F9"] == -1
+          and _side7["D6"] == 1 and _side7["E6"] == 1
+          and _side7["E5"] == 1 and _side7["F5"] == 1
+          and _side7["C7"] == 0, f"sides={_side7}")
+    check("⑯.3 靶窗例外：F5→板心 的视线不再被隔板挡（靶板就嵌在这道墙上）",
+          not P.barrier_sight_blocked(_spec7, geo.block_to_meters("F5"), _ctr7))
+    check("⑯.4 非靶窗方向仍整墙拦：K1→D9 视线交点 y≈2.91 在靶窗外",
+          P.barrier_sight_blocked(_spec7, geo.block_to_meters("K1"),
+                                  geo.block_to_meters("D9")))
+    _res7 = None
+    _err7 = ""
+    try:
+        _res7 = P.plan_route_tracker_safe(_field7_raw, cfg, max_seconds=TEST_PLAN_BUDGET_S)
+    except Exception as _e:                                  # noqa: BLE001
+        _err7 = f"{type(_e).__name__}: {_e}"
+    if _res7 is None:
+        check("⑯.5 新图 tracker-safe 规划成功", False, _err7)
+    else:
+        _stars7 = [t.rstrip("*") for t in _res7.tokens if "*" in t]
+        _acc7 = P._shoot_accept(cfg)
+        _cov7 = P.covering_stops(_spec7, _stars7, _acc7)
+        _lo7, _hi7 = P.shoot_distance_window(_acc7)
+        _d7 = {b: P.shoot_stop_distance(b, _spec7) for b in _stars7}
+        _s7 = {b: P.plate_side_of(_spec7, b) for b in _stars7}
+        check("⑯.5 新图真双停站：恰好 2 个星标且分居板面两侧（-1/+1）",
+              len(_stars7) == 2 and set(_s7.values()) == {-1, 1},
+              f"stars={_stars7} sides={_s7}")
+        _dist_ok = all(_lo7 - 1e-9 <= _d7[b] <= _hi7 + 1e-9 for b in _stars7)
+        _cover_ok = all(len(_cov7.get(b, ())) == len(_spec7.targets) for b in _stars7)
+        check("⑯.6 两个停站都在板心窗口内且各自覆盖全部靶格",
+              _dist_ok and _cover_ok,
+              f"dists={ {b: round(v, 4) for b, v in _d7.items()} } "
+              f"window=({_lo7:.2f},{_hi7:.2f}) "
+              f"covers={ {b: len(_cov7.get(b, ())) for b in _stars7} }")
+    # ---- 旧图（config/map.yaml：D5+D6，板沿 x、面法向 ±y）的裁决记录 ----
+    _spec_old = P.load_map(map_cfg)
+    check("⑯.7 旧图板面法向 = ±y（D5+D6 沿 x 排开）",
+          abs(P.plate_face_normal_m(_spec_old)[1]) > 0.999,
+          f"normal={P.plate_face_normal_m(_spec_old)}")
+    check("⑯.8 旧图 t7 主停站 D3 在板心平面上（side=0，边缘视角；旧双面口径需 Lead 裁决）",
+          P.plate_side_of(_spec_old, "D3") == 0,
+          f"D3 side={P.plate_side_of(_spec_old, 'D3')} "
+          f"G3 side={P.plate_side_of(_spec_old, 'G3')}")
     section("1 当前地图：规划 + 6 条硬约束")
     result = P.plan_route(map_cfg, cfg, name="auto")
     tokens = result.tokens

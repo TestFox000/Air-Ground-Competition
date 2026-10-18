@@ -1008,6 +1008,22 @@ def plate_bisector_axis_m(spec: MapSpec) -> tuple[float, float]:
     return (0.0, 0.0) if n < 1e-12 else (ax[0] / n, ax[1] / n)
 
 
+def plate_face_normal_m(spec: MapSpec) -> tuple[float, float]:
+    """靶板**板面法向**（= 垂直于两靶格连线的单位向量，米制地图帧）。单格靶区返回 (0,0)。
+
+    ★ 为什么必须与 plate_bisector_axis_m() 分开（2026-10-18 用户指令「射击点要顾及
+      靶子的两个面」）：两靶格连线是**轨道轴**（板沿它排开），而板面法向是它的**垂线** ——
+      两者差 90°，拿错轴的后果是把「南北」当成「东西」：
+      新图靶板 D7+E7（两格沿 y 排开、板心 (1.575,3.5)、面法向 = ±x）上，
+      C9=(0.875,4.025) 与 F9=(0.875,2.975) 的 x 都小于板心 ⇒ **物理上同在南侧**；
+      旧实现按轨道轴 (0,-1) 投影（比 y）却判出 C9=-1 / F9=+1 ⇒ 「双停站」是假的。
+    """
+    ax, ay = plate_bisector_axis_m(spec)
+    if ax == 0.0 and ay == 0.0:
+        return (0.0, 0.0)
+    return (-ay, ax)                      # 逆时针 90°：法向
+
+
 def barrier_sight_blocked(spec: MapSpec, p: tuple[float, float],
                           q: tuple[float, float]) -> bool:
     """线段 `p→q` 是否被**隔板**挡住。
@@ -1046,6 +1062,18 @@ def barrier_sight_blocked(spec: MapSpec, p: tuple[float, float],
         return False
     t = (x_wall - p[0]) / (q[0] - p[0])
     y = p[1] + t * (q[1] - p[1])
+    # ★靶窗例外（2026-10-18 用户指令：「射击点就是要顾及靶子的两个面」）：
+    #   靶板本身嵌在两半场隔板上 ⇒ 从隔板另一侧看过去时，视线交点必然落在**靶板自己的
+    #   y 跨度内**（穿过靶窗），这不是"被墙挡"，而是"正好从靶窗看靶"。
+    #   窗口 = 靶格 y 跨度 ± 半格（靶板可能比格心连线略宽半格）。
+    #   ⚠️ 只对"靶板确实嵌在这道隔板上"的图生效：靶格 x 与墙 x 相差 ≤ 半格；
+    #   其余图/其余方向仍按整墙拦（不做"任何靶都能穿墙看"的通用放行）。
+    half = 0.5 * geo.BLOCK_SIZE
+    tgt_y = [geo.block_to_meters(tg)[1] for tg in spec.targets]
+    tgt_x = [geo.block_to_meters(tg)[0] for tg in spec.targets]
+    on_wall = any(abs(tx - x_wall) <= half + 1e-9 for tx in tgt_x)
+    if on_wall and tgt_y and (min(tgt_y) - half - 1e-9) <= y <= (max(tgt_y) + half + 1e-9):
+        return False
     return y_lo <= y <= y_hi
 
 
@@ -1153,8 +1181,10 @@ def covering_stops(spec: MapSpec, pool: Sequence[str],
 def plate_side_of(spec: MapSpec, block: str) -> int:
     """格 `block` 在靶板**哪一面**：+1 / -1（0 = 正好在板心平面或点名非法）。
 
-    判据 = 该格相对板心的位移在 `plate_bisector_axis_m()` 上的投影符号。该轴垂直于靶板
-    轨道（= 板面法向）⇒ 同一侧看到同一个板面；两侧看到**相反**的板面。
+    判据 = 该格相对板心的位移在 **板面法向**（plate_face_normal_m()，= 两靶格连线的
+    垂线）上的投影符号 ⇒ 同一侧看到同一个板面；两侧看到**相反**的板面。
+    ★ 2026-10-18 修：旧实现错把「靶格连线方向」（轨道轴）当法向，两靶沿 y 排开时会在
+      南北（±x）两侧都给出 ±1 —— 详见 plate_face_normal_m() 的注释。
 
     ★ 物理依据：靶板一面蓝一面红，**蓝面朝向每局随机但恒定**。只打蓝、
     打红扣分 ⇒ 必须两侧各留一个停站，保证至少一侧必见蓝面（见 `second_shoot_stop`）。
@@ -1162,7 +1192,7 @@ def plate_side_of(spec: MapSpec, block: str) -> int:
     if not block:
         return 0
     ctr_x, ctr_y = plate_center_m(spec)
-    nx, ny = plate_bisector_axis_m(spec)
+    nx, ny = plate_face_normal_m(spec)
     try:
         x, y = geo.block_to_meters(block)
     except ValueError:
