@@ -68,6 +68,9 @@ logs/
 reference/*
 # 例外：2026-10-01 机载电脑（Orin Nano）完整盘点，归档入库以便脱离飞机继续工作
 !reference/onboard/
+# 例外2：2026-10-18 队员一次性交付的精华收编（胡锦宇 dztrack/serial/工具/规则原图、
+# 万涛涛仿真器/entity_train）——交付物不可再取回，与"可 remote_run 重拉的厂家源码"性质不同
+!reference/members/
 
 # 编辑器
 .vscode/
