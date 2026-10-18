@@ -38,10 +38,10 @@ PC: START（唯一指令）
 
 1. **知识合并**：收到 v2 → 校验（known 只含合法格名；特征 ⊆ known；bridges 非空）→ 存最新布局（version 大者胜，同版本不重启）。
 2. **段规划**：`MapSpec{未知格=障碍, mines, obstacles, targets, bridges}`，`from_cell=当前格`，`target=target_cell`；A*/tracker-safe 引擎；**规划失败 → 进入 WAIT_INFO，不退出**。
-3. **执行**：MissionTask 执行该段（复位航向按段首格朝向）；到 target_cell → 发 `P_CAR_STATE`（phase=SEGMENT_DONE, segment_id, block）。
+3. **执行**：MissionTask 执行该段（复位航向按段首格朝向）；**目标格是射击停站时**（判据与 T21 同源：到靶板中心 ∈ shoot 窗口、同侧、视线不挡），段规划器把末 token 标 `*`，MissionTask 走 SETTLE→ACQUIRE→FIRE→DONE 停站（30s 硬死线），打完才回报；到 target_cell → 发 `P_CAR_STATE`（phase=SEGMENT_DONE, segment_id, block, stop_kind）。
 4. **等待**：WAIT_INFO 停车保持位姿；**无超时上限**（配置 `step.wait_timeout_s: 0 = 无限`）；每 5s 日志警示；收到新布局立即回 PLANNING。
 5. **安全**：路线绝不进未知格（规划器保证）；实际投影落入未知格 → SAFE_STOP；等待期间静止闸**不得**触发假完赛。
-6. **回报**：`P_CAR_STATE` 增 `phase / segment_id / known_count / target_cell`。
+6. **回报**：`P_CAR_STATE` 增 `phase / segment_id / known_count / stop_kind(shoot|mine|path|end)` / target_cell`。
 
 ## 4. 机端行为（T28，仿真模型先行）
 

@@ -35,7 +35,7 @@ import {
   MAX_READ_BYTES, MAX_UPLOAD_BYTES, downloadFile, homeShortcuts,
   listDirectory, readTextFile, statPath, uploadFile,
 } from './src/files.js'
-import { fieldSpec, listHistory, routeTokens, runChecks, runSim, serveArtifact, SIM_ROOT } from './src/simbench.js'
+import { fieldSpec, listHistory, resolveFieldSource, routeTokens, routeTokensFromFile, routeTokensOf, runChecks, runSim, serveArtifact, SIM_ROOT } from './src/simbench.js'
 import { runStress, stressResult, stressStatus } from './src/stressbench.js'
 import { droneHistory, runDroneSim } from './src/dronesim.js'
 
@@ -355,9 +355,30 @@ export function apply(ctx, config = {}) {
       if (method === 'GET' && route === '/sim/root') {
         return send(200, { root: SIM_ROOT, ok: fs.existsSync(path.join(SIM_ROOT, 'src', 'dzbrain')) })
       }
-      // 场地真值（只读）；页面用它画横置地图 + 预填改点位表单
+      // 场地真值（只读）；页面用它画横置地图 + 预填改点位表单。
+      // ?source=<dir>：仿真台"切到实车现图"——只读该目录下 robot.yaml+map.yaml，
+      //   解析失败显式 400（绝不静默回落 config/，否则页面画的是第六张图而操作员以为是第七张）。
       if (method === 'GET' && route === '/sim/map') {
-        return send(200, { ...fieldSpec(), route: routeTokens() })
+        const sourceRaw = url.searchParams.get('source') || ''
+        let opts = null
+        let resolved = null
+        if (sourceRaw) {
+          resolved = resolveFieldSource({ dir: sourceRaw })
+          if (!resolved || resolved.error) {
+            return send(400, { ok: false, error: (resolved && resolved.error) || '场地来源格式不对' })
+          }
+          opts = { mapPath: resolved.mapPath, configPath: resolved.configPath }
+        }
+        // 源目录带 route.tokens.txt ⇒ 画它（第七张图 41 token 手工路线）；否则读 robot.yaml。
+        const route = resolved && resolved.routePath
+          ? routeTokensFromFile(resolved.routePath)
+          : (opts ? routeTokensOf(opts.configPath) : routeTokens())
+        return send(200, {
+          ...fieldSpec(opts || {}),
+          route,
+          ...(resolved && resolved.routePath ? { routeFile: resolved.routePath } : {}),
+          ...(sourceRaw ? { sourceDir: sourceRaw } : {}),
+        })
       }
       // ── 50 图压测（规格 §D 表的 3 个端点，跑批在后台、状态/结果轮询）──────
       if (method === 'POST' && route === '/sim/stress') {

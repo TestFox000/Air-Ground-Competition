@@ -330,7 +330,8 @@ def plan_startup_route(cfg: Config, bb: Blackboard | None, *,
 # --------------------------------------------------------------------------- #
 #: 车→机回报键：车端步进状态（dict）。字段见 StepLoop._publish_car_state()。
 #: ★ 键名与 T28（机端 car_state 发送）对齐：phase / segment_id / known_count / target_cell
-#:   / block。当前常量暂放这里（与 P_FIELD_LAYOUT 同样的历史做法：不 import 任务模块）；
+#:   / block / **stop_kind**（T32：'shoot'|'mine'|'path'|'end'，机端据此知道"这段为什么停"）。
+#:   当前常量暂放这里（与 P_FIELD_LAYOUT 同样的历史做法：不 import 任务模块）；
 #:   T26/T28 收口时可整体迁到 core/blackboard.py，字符串值保持不变即可。
 P_CAR_STATE = "car_state"
 
@@ -460,6 +461,48 @@ def all_map_cells() -> list[str]:
             for r in range(geo.MAP_ROWS) for c in range(geo.MAP_COLS)]
 
 
+def _segment_map_cfg(layout: dict[str, Any], from_cell: str,
+                     target_cell: str) -> dict[str, Any]:
+    """步进布局 → 段规划用的 `{"map": {...}}`（**未知格不进这里**，见下一函数）。
+
+    单独抽出来：`plan_segment_from_layout()` 与 `classify_segment_target()`（空段分支
+    的停站分类）必须看到**同一份**地图要素，否则"规划时判成射击格、回报时说 path"。
+    """
+    return {"map": {
+        "name": "drone:step", "start": str(from_cell).strip().upper(),
+        "end": str(target_cell).strip().upper(),
+        "mines": list(layout.get("mines") or []),
+        "obstacles": list(layout.get("obstacles") or []),
+        "targets": list(layout.get("targets") or []),
+        "bridges": list(layout.get("bridges") or []),
+        "barrier_col_from": layout.get("barrier_col_from", geo.BARRIER_COL_FROM),
+        "barrier_row_hi": int(layout.get("barrier_row_hi", geo.BARRIER_ROW_HI)),
+        "barrier_row_lo": int(layout.get("barrier_row_lo", geo.BARRIER_ROW_LO)),
+    }}
+
+
+def classify_segment_target(cfg: Config, layout: dict[str, Any], target_cell: str) -> str:
+    """段目标格的停站类型（`end`/`shoot`/`mine`/`path`；与 `SegmentPlan.stop_kind` 同源）。
+
+    为什么单独成函数：`_plan()` 的"已在目标格"空段分支**不经过规划器**（直接判段完成），
+    也要如实回报 `stop_kind` —— 否则空段永远报 `path`，机端会把"射击停站空段"当普通到达。
+    ★ T21 判据只在 `tasks.mission.stop_kind_for_cell()` 一处实现，这里只负责把 map_cfg 拼好。
+    """
+    from .tasks.mission import SEG_STOP_PATH, stop_kind_for_cell
+
+    target = str(target_cell or "").strip().upper()
+    if not target:
+        return SEG_STOP_PATH
+    try:
+        src = str(layout.get("start") or "").strip().upper() or target
+        kind, _dist = stop_kind_for_cell(
+            _segment_map_cfg(layout, src, target), target, cfg,
+            end_cell=str(layout.get("end") or "").strip().upper())
+        return kind
+    except Exception:                                  # noqa: BLE001  分类失败绝不挡段
+        return SEG_STOP_PATH
+
+
 def plan_segment_from_layout(cfg: Config, layout: dict[str, Any], *,
                              from_cell: str, target_cell: str,
                              heading_dir: tuple[int, int] | None = None,
@@ -469,8 +512,14 @@ def plan_segment_from_layout(cfg: Config, layout: dict[str, Any], *,
     返回 tasks.mission.SegmentPlan（永不抛异常；失败原因在 .error）。
     map_cfg 只把**真障碍/靶格/雷/桥洞/隔板**给规划器；未知格通过 blocked_extra
     传（只影响通行性），否则一格宽的 known 走廊会因为"把未知格当水桶算净空"而无解。
+
+    ★T32 段末停站语义：目标格命中**射击停站**（T21 判据，见
+    `tasks.mission.stop_kind_for_cell()`）时，`plan.tokens` 末项已由
+    `plan_segment_route()` 标成 `C9*` ⇒ MissionTask 到站后走三段式（打靶）再报段完成。
+    目标格 = 布局终点时本函数把 `stop_kind` 覆盖成 `end`（终点绝不停站打靶）。
     """
-    from .tasks.mission import SegmentPlan, plan_segment_route
+    from .tasks.mission import (SEG_STOP_END, SEG_STOP_MINE, SEG_STOP_SHOOT,
+                                SegmentPlan, plan_segment_route)
 
     known = [str(c) for c in (layout.get("known") or [])]
     known_set = set(known)
@@ -485,16 +534,7 @@ def plan_segment_from_layout(cfg: Config, layout: dict[str, Any], *,
     # ⚠️ 当前格若还没被观测到，**只对起点破例**：车物理上就在那里，把它判成未知格
     #    会让每一步都规划失败（真·死锁）。除起点外一律不许进未知格。
     unknown = [c for c in all_map_cells() if c not in known_set and c != src]
-    map_cfg = {"map": {
-        "name": "drone:step", "start": src, "end": target,
-        "mines": list(layout.get("mines") or []),
-        "obstacles": list(layout.get("obstacles") or []),
-        "targets": list(layout.get("targets") or []),
-        "bridges": list(layout.get("bridges") or []),
-        "barrier_col_from": layout.get("barrier_col_from", geo.BARRIER_COL_FROM),
-        "barrier_row_hi": int(layout.get("barrier_row_hi", geo.BARRIER_ROW_HI)),
-        "barrier_row_lo": int(layout.get("barrier_row_lo", geo.BARRIER_ROW_LO)),
-    }}
+    map_cfg = _segment_map_cfg(layout, src, target)
     plan = plan_segment_route(map_cfg, cfg, from_cell=src, target_cell=target,
                               heading_dir=heading_dir, blocked_extra=unknown,
                               source="drone:step_layout")
@@ -503,10 +543,23 @@ def plan_segment_from_layout(cfg: Config, layout: dict[str, Any], *,
         if bad:                                        # 双保险：规划器保证 ∩ 这里再查一次
             return SegmentPlan(ok=False, from_cell=src, target_cell=target,
                                error=f"段路线进入未知格（自检拒收）：{' '.join(bad[:5])}")
+        # ★T32：终点优先 —— 到 end 就 FINISH，绝不在终点停站打靶（task-33 要求 2）
+        end_cell = str(layout.get("end") or "").strip().upper()
+        if end_cell and plan.target_cell == end_cell:
+            plan.stop_kind = SEG_STOP_END
+            plan.stop_distance_m = 0.0
         if log is not None:
             log(f"段规划：{src} → {target}｜{len(plan.cells)} 格 / {plan.route_len_m:.2f} m / "
                 f"{plan.elapsed_ms:.1f} ms｜{plan.engine_line}"
+                f"｜停站 {plan.stop_kind}"
+                + (f"（到靶板中心 {plan.stop_distance_m:.3f} m）"
+                   if plan.stop_kind == SEG_STOP_SHOOT else "")
                 + (("｜⚠️ " + "；".join(plan.warnings)) if plan.warnings else ""))
+            if plan.stop_kind == SEG_STOP_SHOOT:
+                log(f"★ 段末射击停站：{target} ⇒ 末 token {plan.tokens[-1] if plan.tokens else target}"
+                    f"（到站后 SETTLE→ACQUIRE→FIRE，打完再报段完成）")
+            elif plan.stop_kind == SEG_STOP_MINE:
+                log(f"段末压雷停站：{target}（目标是雷格：车压过即可，不停站、不标 *）")
     return plan
 
 
@@ -559,6 +612,9 @@ class StepLoop:
         self._planned_version = -1
         self._target_cell = ""
         self._segment_id = 0
+        #: ★T32 本段停站类型（'shoot'|'mine'|'path'|'end'）：随 P_CAR_STATE 上报，
+        #: 机端据此知道"停在目标格是打靶/压雷/路过/终点"，不再用 block 猜。
+        self._stop_kind = ""
         self._known_count = 0
         self._reason = ""
         self._wait_started = 0.0
@@ -589,6 +645,7 @@ class StepLoop:
             "planned_version": int(self._planned_version),
             "target_cell": self._target_cell,
             "segment_id": int(self._segment_id),
+            "stop_kind": self._stop_kind,
             "known_count": int(self._known_count),
             "reason": self._reason,
             "segments_started": int(self._segments_started),
@@ -706,6 +763,8 @@ class StepLoop:
             self._segment_id = 0
         self._target_cell = str(layout.get("target_cell") or "").strip().upper()
         self._known_count = len(layout.get("known") or [])
+        # ★T32 先清空：规划失败/无目标时 P_CAR_STATE 不该带着上一段的停站类型
+        self._stop_kind = ""
         if not self._target_cell:
             self._to_wait_info("布局未给 target_cell（车只等不做）", now)
             return
@@ -714,6 +773,8 @@ class StepLoop:
             self._to_wait_info("没有位姿（P_POSE 缺失）→ 无法确定当前格", now)
             return
         if from_cell == self._target_cell:
+            # 空段不经过规划器：停站类型单独分类（否则空段永远报 path）
+            self._stop_kind = classify_segment_target(self.cfg, layout, self._target_cell)
             self._mark_segment_done(now, block=from_cell, elapsed=0.0, skipped=True)
             return
         self._replans += 1
@@ -725,12 +786,15 @@ class StepLoop:
         if not plan.ok:
             self._to_wait_info(f"段规划失败：{plan.error}", now)
             return
+        # ★T32 段末停站类型（规划器已按 T21 判据算好；终点由 plan_segment_from_layout 覆盖）
+        self._stop_kind = str(getattr(plan, "stop_kind", "") or "")
         if plan.single_cell:
             self._mark_segment_done(now, block=self._target_cell, elapsed=0.0, skipped=True)
             return
         res = self.mission.request_segment(
             plan.tokens, segment_id=self._segment_id, target_cell=self._target_cell,
-            known_count=self._known_count, source=f"step:v{self._planned_version}")
+            known_count=self._known_count, source=f"step:v{self._planned_version}",
+            stop_kind=self._stop_kind)
         if not res.get("accepted"):
             # 不是失败：任务线程可能还在上一段收尾（≤1 拍）。planned_version=-1
             # 让下一拍 _wait_tick 立刻转回 PLANNING 重试。
@@ -745,7 +809,8 @@ class StepLoop:
         self._unknown_hits = 0
         self._log(f"▶ 段 {self._segment_id} 下发：{from_cell} → {self._target_cell}"
                   f"｜{len(plan.cells)} 格 / {plan.route_len_m:.2f} m / {plan.elapsed_ms:.1f} ms"
-                  f"｜{plan.engine_line}｜known {self._known_count} 格"
+                  f"｜{plan.engine_line}｜停站 {self._stop_kind or '未标注'}"
+                  f"｜known {self._known_count} 格"
                   + (("｜⚠️ " + "；".join(plan.warnings)) if plan.warnings else ""))
 
     def _drive_tick(self, now: float) -> None:
@@ -757,7 +822,8 @@ class StepLoop:
         done = st.get("done") if isinstance(st.get("done"), dict) else None
         if done and int(done.get("segment_id", -1)) == self._segment_id:
             self._mark_segment_done(now, block=str(done.get("block") or self._target_cell),
-                                    elapsed=float(done.get("elapsed_s") or 0.0))
+                                    elapsed=float(done.get("elapsed_s") or 0.0),
+                                    stop_kind=str(done.get("stop_kind") or ""))
             return
         if self._unknown_violation():
             self._to_safe_stop("belief 连续落在未知格（实际投影进入未知区域）", now)
@@ -804,15 +870,18 @@ class StepLoop:
     #  状态迁移 + 回报
     # ------------------------------------------------------------------ #
     def _mark_segment_done(self, now: float, *, block: str, elapsed: float,
-                           skipped: bool = False) -> None:
+                           skipped: bool = False, stop_kind: str = "") -> None:
         self._segments_done += 1
         self._last_done_block = str(block or self._target_cell)
         self._last_target = self._last_done_block
+        if stop_kind:                          # ★T32：任务线程的完成单是权威（空段用分类结果）
+            self._stop_kind = stop_kind
         self._phase = STEP_PHASE_SEGMENT_DONE
         self._reason = "已在目标格（空段）" if skipped else "段完成"
         self._publish_car_state(now)
         self._log(f"■ 段 {self._segment_id} 到达 {self._last_done_block}"
-                  f"（{'空段，未发车' if skipped else f'用时 {elapsed:.2f}s'}）"
+                  f"（停站 {self._stop_kind or '未标注'}"
+                  f" / {'空段，未发车' if skipped else f'用时 {elapsed:.2f}s'}）"
                   f"→ P_CAR_STATE phase={STEP_PHASE_SEGMENT_DONE}")
 
     def _to_wait_info(self, reason: str, now: float, *, retry: bool = False) -> None:
@@ -858,6 +927,8 @@ class StepLoop:
             "segment_id": int(self._segment_id),
             "known_count": int(self._known_count),
             "target_cell": self._target_cell,
+            # ★T32 段末停站类型：机端据此知道"这段为什么停"（shoot/mine/path/end）
+            "stop_kind": self._stop_kind,
             "block": self._current_block(),
             "version": int(self._layout_version if self._layout_version else self._seen_version),
             "reason": self._reason,

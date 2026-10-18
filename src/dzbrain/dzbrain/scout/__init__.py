@@ -32,8 +32,11 @@ from .frames import (DEFAULT_FRAME_HZ, ScoutFrame, adjacent_overlaps, coverage,
                      generate_snake_timeline, timeline_duration_s, timeline_stats)
 from .heartbeat import (DEFAULT_HEARTBEAT_S, LayoutFeed, heartbeat_messages,
                         heartbeat_schedule, to_json)
-from .layout import (LayoutStream, TruthMap, build_layout, choose_target_cell,
-                     frontier_cells, layouts_for_timeline, reachable_cells,
+from .layout import (LayoutStream, MissionTarget, TruthMap, build_layout,
+                     choose_mission_target, choose_target_cell, default_config,
+                     frontier_cells, frontier_target, known_map_cfg,
+                     layouts_for_timeline, mission_checkpoints,
+                     plan_mission_route, plan_mission_target, reachable_cells,
                      step_ok)
 from .reference import (USER_ROUTE_BLOCKS, USER_ROUTE_SOURCE, compare_routes,
                         user_route_timeline)
@@ -83,16 +86,18 @@ def simulate(*, map_path: str | None = None, start_t: float = -30.0,
              frame_hz: float = DEFAULT_FRAME_HZ,
              car_block: str | None = None,
              heartbeat_interval_s: float = DEFAULT_HEARTBEAT_S,
-             t_end: float | None = None) -> ScoutResult:
+             t_end: float | None = None,
+             cfg: Any = None) -> ScoutResult:
     """跑一遍"机端侦察"：真值图 -> 帧位 -> 布局 v2 -> 心跳计划 -> 对照。
 
     :param start_t: 机侧时间基准（T29 场景 t=-30 s 起飞；默认 -30）。
     :param car_block: 车当前格（决定 target_cell）；缺省用图上的 start。
+    :param cfg: 任务规划用的配置（缺省读 config/robot.yaml；T29 可传现场档）。
     :param t_end: 心跳计划截止时刻；缺省=最后一帧。
     """
     truth = TruthMap.load(map_path)
     frames = generate_snake_timeline(start_t=start_t, frame_hz=frame_hz)
-    stream = LayoutStream(truth, car_block=car_block)
+    stream = LayoutStream(truth, car_block=car_block, cfg=cfg)
     layouts = stream.layouts_for(frames)
     end = frames[-1].t if t_end is None else float(t_end)
     heartbeat = heartbeat_messages(layouts, t_end=end,
@@ -115,8 +120,11 @@ __all__ = [
     "timeline_duration_s", "timeline_stats",
     "DEFAULT_HEARTBEAT_S", "LayoutFeed", "heartbeat_messages",
     "heartbeat_schedule", "to_json",
-    "LayoutStream", "TruthMap", "build_layout", "choose_target_cell",
-    "frontier_cells", "layouts_for_timeline", "reachable_cells", "step_ok",
+    "LayoutStream", "MissionTarget", "TruthMap", "build_layout",
+    "choose_mission_target", "choose_target_cell", "default_config",
+    "frontier_cells", "frontier_target", "known_map_cfg",
+    "layouts_for_timeline", "mission_checkpoints", "plan_mission_route",
+    "plan_mission_target", "reachable_cells", "step_ok",
     "USER_ROUTE_BLOCKS", "USER_ROUTE_SOURCE", "compare_routes",
     "user_route_timeline", "ScoutResult", "simulate",
 ]

@@ -85,6 +85,70 @@ const MAP_FILE = path.join(SIM_ROOT, 'config', 'map.yaml')
 const ROBOT_FILE = path.join(SIM_ROOT, 'config', 'robot.yaml')
 /** 规划器 CLI：只读调用，`--map` 指 override 地图 ⇒ 路线随新点位重规划。 */
 const PLAN_CLI = path.join(SIM_ROOT, 'tools', 'plan_route.py')
+/** 工作区根（= SIM_ROOT 的上一级，即比赛存档 v1）：只读源覆盖只允许在这个根之内。
+ *  为什么需要它：仿真台要"切到实车现图"（如 v1/_tmp_session/field7），而 /sim/run 的
+ *  override 传统上只认 config/ 下两张文件；把可读范围钉在工作区内，避免一次请求就能读
+ *  盘上任意 yaml。**只读**：源文件只被复制进运行目录，原文件零写入。 */
+const WORKSPACE_ROOT = path.resolve(SIM_ROOT, '..')
+const SOURCE_MAX_BYTES = 4 * 1024 * 1024
+
+/** 路径是否在工作区内（含工作区本身；防 `..` 逃逸）。 */
+function insideWorkspace(abs) {
+  const rel = path.relative(WORKSPACE_ROOT, path.resolve(abs))
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
+/** 校验一个只读 YAML 源：存在、是文件、扩展名 yaml/yml、大小有上限、位于工作区内。 */
+function readableYaml(raw) {
+  const text = String(raw ?? '').trim()
+  if (!text) return ''
+  const abs = path.isAbsolute(text) ? path.resolve(text) : path.resolve(SIM_ROOT, text)
+  if (!/\.ya?ml$/i.test(abs) || !insideWorkspace(abs)) return ''
+  try {
+    const stat = fs.statSync(abs)
+    if (!stat.isFile() || stat.size > SOURCE_MAX_BYTES) return ''
+  } catch { return '' }
+  return abs
+}
+
+/**
+ * 解析"场地来源覆盖"（页面「切到第七张图」/ 离线脚本用）。
+ *
+ * 形状：`{ dir }`（目录下必须同时有 robot.yaml + map.yaml）或 `{ configPath, mapPath }`。
+ * 解析失败返回 `{ error }`（调用方显式 400/422，**绝不静默回落 config/** —— 静默回落
+ * 会让操作员以为在跑第七张图、实际跑的是仓库第六张图，是最坏的一种"看起来成功"）。
+ */
+export function resolveFieldSource(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const dir = String(raw.dir ?? '').trim()
+  let configPath = ''
+  let mapPath = ''
+  if (dir) {
+    const absDir = path.isAbsolute(dir) ? path.resolve(dir) : path.resolve(SIM_ROOT, dir)
+    if (!insideWorkspace(absDir)) return { error: '场地来源目录不在工作区内：' + absDir }
+    configPath = path.join(absDir, 'robot.yaml')
+    mapPath = path.join(absDir, 'map.yaml')
+  } else {
+    configPath = readableYaml(raw.configPath)
+    mapPath = readableYaml(raw.mapPath)
+    if (!configPath || !mapPath) {
+      return { error: '场地来源需要 dir（含 robot.yaml+map.yaml）或两个合法 yaml 路径（工作区内、≤4MB）' }
+    }
+  }
+  if (!readableYaml(configPath) || !readableYaml(mapPath)) {
+    return { error: '场地来源缺文件：' + configPath + ' / ' + mapPath + '（需同时存在 robot.yaml 与 map.yaml）' }
+  }
+  // 可选的 route.tokens.txt：车端 robot.yaml 尚未部署手工路线时（第七张图 41 token 就属这种），
+  // 由源目录随图带一条**手动路线**。有它 ⇒ /sim/map 画它、/sim/run（未改点位/未开无人机）
+  // 直接按它跑；没有 ⇒ 仍读 robot.yaml 的 route.tokens / mission_blocks。
+  let routePath = ''
+  try {
+    const candidate = path.join(path.dirname(mapPath), 'route.tokens.txt')
+    const stat = fs.statSync(candidate)
+    if (stat.isFile() && stat.size > 0 && stat.size <= 1024 * 1024) routePath = candidate
+  } catch { /* 没有 route.tokens.txt：保持原行为 */ }
+  return { dir: dir ? path.resolve(dir) : path.dirname(configPath), configPath, mapPath, routePath }
+}
 /** 场地列字母（`core/geometry.py:27-30` 的 COL_LETTERS）—— **插件进程内唯一字面量**。
  *  dronesim 的 `LETTERS`、stressbench 的 `COLS` 此前各抄一份 `'ABCDEFGHIJKLMN'`；
  *    现统一从这里取（页面侧不 import 模块，走 `/sim/map` 的 `grid.colLetters`，跨进程不共享）。 */
@@ -256,11 +320,19 @@ function droneCellsFromComment(text) {
   return loose.length === 2 ? { cells: loose, source: 'map-comment' } : { cells: [], source: 'builtin-fallback' }
 }
 
-/** 只读场地（给页面画横置地图）：解析失败返回 `ok:false`，绝不抛。 */
-export function fieldSpec() {
+/** 只读场地（给页面画横置地图）：解析失败返回 `ok:false`，绝不抛。
+ *
+ * options（可空，缺省 = 仓库 config/ 真源，行为与改动前逐字节一致）：
+ *   · mapPath    — 指定 map.yaml（只读，如 v1/_tmp_session/field7/map.yaml）
+ *   · configPath — 指定 robot.yaml（只读；解析 planner/bridge 参数用）
+ * 场地来源覆盖走 resolveFieldSource() 的同一套校验；本函数只负责"读这张图"。
+ */
+export function fieldSpec(options = {}) {
+  const mapPath = options && options.mapPath ? path.resolve(options.mapPath) : MAP_FILE
+  const robotPath = options && options.configPath ? path.resolve(options.configPath) : ROBOT_FILE
   let text = ''
-  try { text = fs.readFileSync(MAP_FILE, 'utf8') } catch (error) {
-    return { ok: false, root: SIM_ROOT, error: `读不到地图 ${MAP_FILE}（${error?.message ?? error}）` }
+  try { text = fs.readFileSync(mapPath, 'utf8') } catch (error) {
+    return { ok: false, root: SIM_ROOT, error: `读不到地图 ${mapPath}（${error?.message ?? error}）` }
   }
   const droneParsed = droneCellsFromComment(text)
   const colFrom = scalarOf(text, 'barrier_col_from').toUpperCase().slice(0, 1)
@@ -268,14 +340,14 @@ export function fieldSpec() {
   return {
     ok: true,
     root: SIM_ROOT,
-    source: MAP_FILE,
-    md5: md5Of(MAP_FILE),
-    robot: { path: ROBOT_FILE, md5: md5Of(ROBOT_FILE) },
+    source: mapPath,
+    md5: md5Of(mapPath),
+    robot: { path: robotPath, md5: md5Of(robotPath) },
     // 桥洞进洞侧冗余墙长度（米）——真源 config/robot.yaml `field.bridge_entry_redundancy_m`
     //   （bridgeEntryRedundancyOf 只读解析 dzbrain 段；缺键/读不到兜底 0.0875，与
     //   planner.BRIDGE_ENTRY_REDUNDANCY_M / physics.bridge_entry_walls 同源链）。
     //   /sim/map 透传给 sim.html 画 K 列桥洞格进洞侧两段短墙——页面端零第二份硬编码。
-    bridgeEntryRedundancyM: bridgeEntryRedundancyOf(ROBOT_FILE),
+    bridgeEntryRedundancyM: bridgeEntryRedundancyOf(robotPath),
     grid: GRID,
     name: scalarOf(text, 'name'),
     start: normalizeCell(scalarOf(text, 'start')),
@@ -299,8 +371,8 @@ export function fieldSpec() {
     //   改点位后的重规划因此会 422；不把这个语义显式告诉操作员，页面看起来就像「改点位坏了」。
     //   engine=null 表示读不到/不在 CLI 白名单（页面不硬编码引擎名）。
     planner: {
-      engine: plannerEngineOf(ROBOT_FILE),
-      autoPlanEnabled: plannerFlagOf(ROBOT_FILE, 'auto_plan_enabled'),
+      engine: plannerEngineOf(robotPath),
+      autoPlanEnabled: plannerFlagOf(robotPath, 'auto_plan_enabled'),
     },
     // 靶板由 targets 的相邻两格并成一块；按两格几何关系自动判横/竖（页面可覆盖）。
     target: targetBoard(),
@@ -335,10 +407,26 @@ function targetYawOfCells(cells) {
  *   更早的 `mission_blocks:` 块序列形状仍作兼容兜底。
  */
 export function routeTokens() {
+  return routeTokensOf(ROBOT_FILE)
+}
+
+/** 读指定 robot.yaml 的路线 token（字段来源覆盖 / 离线断言用；只读，缺文件返空）。 */
+export function routeTokensOf(configPath) {
   try {
-    const text = fs.readFileSync(ROBOT_FILE, 'utf8')
+    const text = fs.readFileSync(configPath, 'utf8')
     const tokens = listOf(text, 'tokens')
     return tokens.length ? tokens : listOf(text, 'mission_blocks')
+  } catch { return [] }
+}
+
+/** 读一份**只含 token** 的路线文件（源目录 route.tokens.txt / 手工路线）；非法即空。
+ *  与 routeTokensOf 的区别：这是"路线即 tokens"文件，不解析 YAML；末点 ,x 保留
+ *  （写 sim 的 --route 文件时由 runSimJob 单独剥离）。 */
+export function routeTokensFromFile(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '')
+    const normalized = normalizeRouteTokens(raw.trim().split(/\s+/).filter(Boolean))
+    return normalized.rejected.length === 0 ? normalized.tokens : []
   } catch { return [] }
 }
 
@@ -657,12 +745,17 @@ export function bridgeEntryRedundancyOf(configPath) {
  *    缺省 `null/[]` ⇒ argv 与改动前**逐字节相同**（整线规划语义不变）。
  *    `cliPath` 缺省 = 工作区 `tools/plan_route.py`；仅在离线断言里指向**影子 CLI**（%TEMP% 副本），
  *    用来钉住"声明后真的会传、产物 == 车端 planner"这条 E2E。 */
-export async function planRoute({ configPath, mapPath, timeoutMs = 300 * 1000, fromCell = null, alreadyCovered = [], cliPath = PLAN_CLI }) {
+export async function planRoute({ configPath, mapPath, timeoutMs = 300 * 1000, fromCell = null, alreadyCovered = [], cliPath = PLAN_CLI, engine: engineWanted = null }) {
   const argv = [cliPath === PLAN_CLI ? 'tools/plan_route.py' : cliPath,
                 '--config', configPath, '--map', mapPath,
                 '--emit', 'json', '--check', '--quiet']
-  // 修「乱算」：与车端同引擎（robot.yaml planner.engine；读不到就不传，保持历史默认）。
-  const engine = plannerEngineOf(configPath)
+  // 修「乱算」：默认与车端同引擎（robot.yaml planner.engine；读不到就不传，保持历史默认）。
+  // R1 显式引擎：只有调用方显式给出且在白名单里才覆盖；**非法值不回落**（返回 engineError），
+  //   避免"选了 tour 却静默按 tracker-safe 跑"这种最难查的假成功。
+  const requested = engineWanted == null || String(engineWanted).trim() === '' ? '' : String(engineWanted).trim()
+  const explicit = requested && plannerEngineChoices().includes(requested) ? requested : null
+  const engineError = requested && !explicit ? '不认识的规划引擎：' + requested : ''
+  const engine = explicit || plannerEngineOf(configPath)
   if (engine) argv.push('--engine', engine)
   // 增量规划透传（from_cell / already_covered）——**声明了才传**，缺省逐字节不变。
   //   与 --engine 同链路：先引擎、后增量，白名单来自 CLI 真源，诉求/降级都进台账。
@@ -678,6 +771,11 @@ export async function planRoute({ configPath, mapPath, timeoutMs = 300 * 1000, f
     exitCode: run.exitCode,
     timedOut: run.timedOut,
     engine,
+    // 引擎来源（R1 台账）：explicit=页面显式选的非默认引擎；config=跟随车端；
+    //   engineError 非空 ⇒ 请求值非法（调用方必须显式失败，不准把 config 值当成功交付）。
+    engineRequested: requested || null,
+    engineSource: explicit ? 'explicit' : 'config',
+    engineError,
     // 取证用（离线断言/台账都要能回答"这一趟到底带了哪些参数"）
     argv: argv.slice(),
     incremental,
@@ -699,6 +797,30 @@ export async function planRoute({ configPath, mapPath, timeoutMs = 300 * 1000, f
  *   能不启服务、不跑 python 就被断言钉住；「record 落盘」那一段由真跑取证覆盖
  *   （5 跑实测：run_meta.jsonl 落 `"targetYaw":"v"/"h"`、非法值落 null，listHistory 原样回读）。
  */
+/** 手工路线 token 的**轻量**白名单：只挡"显然不是格名/后缀"的输入。
+ *
+ * 为什么不在宿主里做完整解析：路线语法（R: 前缀 / * 后缀 / :SCAN / :PIVOT / ,x）的唯一真源是车侧
+ *   `route/parser.py`；宿主只做形状校验，语义错误交给 sim_cli 自己报（错误码/文案同车侧）。
+ * 为什么仍要挡：`--route` 文件按空白/逗号切词，像 `N5,x` 这种末点朝向会切成两个 token；
+ *   宿主在写文件时剥掉**末点**后缀（见 runSimJob），但中间点带朝向、空 token、乱码必须显式拒绝。
+ */
+export function normalizeRouteTokens(raw) {
+  const list = Array.isArray(raw) ? raw : String(raw ?? '').split(/\s+/)
+  const tokens = []
+  const rejected = []
+  for (const item of list) {
+    const token = String(item ?? '').trim()
+    if (!token) continue
+    const upper = token.toUpperCase()
+    if (!/^(?:R:)?[A-N](?:[1-9]|1[01])(?::SCAN|:PIVOT|\*|,[XY])?$/.test(upper)) {
+      rejected.push(token)
+      continue
+    }
+    tokens.push(upper.replace(/,X$/, ',x').replace(/,Y$/, ',y'))
+  }
+  return { tokens, rejected }
+}
+
 export function sanitizeParams(body = {}) {
   const overrides = {}
   if (body.overrides && typeof body.overrides === 'object') {
@@ -747,11 +869,46 @@ export function sanitizeParams(body = {}) {
       fieldTouched = true
     }
   }
+  // 场地来源覆盖（页面「切到第七张图」）——带键才挂，且**校验失败不静默回落**：
+  //   回落 config/ 会让操作员以为在跑现场图、实际跑仓库第六张图，是最坏的一种"看起来成功"。
+  let source = null
+  let sourceError = ''
+  if (body.source !== undefined) {
+    const resolved = resolveFieldSource(body.source)
+    if (!resolved) sourceError = '场地来源格式不对（需 {dir} 或 {configPath,mapPath}）'
+    else if (resolved.error) sourceError = resolved.error
+    else source = resolved
+  }
+  // 手工路线（路线即 tokens；只在仿真台离线脚本/what-if 用）——同样带键才挂。
+  let route = null
+  let routeError = ''
+  if (body.route !== undefined) {
+    const raw = body.route && typeof body.route === 'object' && !Array.isArray(body.route)
+      ? body.route.tokens
+      : body.route
+    const normalized = normalizeRouteTokens(raw)
+    if (normalized.rejected.length) routeError = '手工路线含非法 token：' + normalized.rejected.slice(0, 8).join(' ')
+    else if (normalized.tokens.length === 0) routeError = '手工路线为空'
+    else route = { tokens: normalized.tokens, source: String(body.route?.source ?? 'manual').slice(0, 40) }
+  }
+  // 显式规划引擎（R1）——默认 null = 跟随 robot.yaml planner.engine（车端口径不漂移）；
+  //   只有显式传值且值在 plan_route.py 的 choices 白名单里才生效，否则**报错不回落**。
+  let engine = null
+  let engineError = ''
+  if (body.engine !== undefined) {
+    const wanted = String(body.engine ?? '').trim()
+    if (plannerEngineChoices().includes(wanted)) engine = wanted
+    else engineError = '不认识的规划引擎：' + wanted + '（plan_route.py 只认 ' + plannerEngineChoices().join('/') + '）'
+  }
   const params = { overrides, inject, label, maxSteps, seed, targetYaw, field: fieldTouched ? field : null }
   // 带键才挂 —— sp({}) 的键表保持 7 键不变（守卫 E 组钉死），不破 61/61。
   if (body.targetFace !== undefined) params.targetFace = targetFace
   // 同款带键才挂 —— 不带 drone 键的请求（压测/无人机体/OFF）params 形状不变。
   if (body.drone !== undefined) params.drone = drone
+  // 同上：只有请求体显式带这些键才挂，普通跑/压测记录形状逐字不变。
+  if (body.source !== undefined) { params.source = source; if (sourceError) params.sourceError = sourceError }
+  if (body.route !== undefined) { params.route = route; if (routeError) params.routeError = routeError }
+  if (body.engine !== undefined) { params.engine = engine; if (engineError) params.engineError = engineError }
   return params
 }
 
@@ -904,97 +1061,159 @@ export async function runSimJob(body, { lock = true, runId = null, batch = null 
   if (lock) running = true
   try {
     const started = Date.now()
-    // ---- 改点位 → 运行目录里生成 override（地图 + 配置副本 + 重规划路线）----
-    // 无人机协同也走 override 路径（§D.2）—— drone 开 ⇒ 起降格注入 override 图
-    //   obstacles 后重规划（规划层硬避让），哪怕棋盘没改。OFF（无 drone 键且无 field）
-    //   ⇒ 分支不进，record 形状/argv/行为与现状逐字一致（§D.1）。
+    // ---- 源覆盖 / 改点位 / 手工路线 / 无人机协同 → 运行目录 override ----
+    // 所有会改变输入的分支都只写本次 run 的 map_override/：仓库 config/ 零写入。
+    //   · source：把指定 robot.yaml+map.yaml 只读复制（仿真台"切到实车现图"）
+    //   · field ：改四类点位（棋盘拖拽）
+    //   · drone ：起降格注入 obstacles 后重规划（§D.2）
+    //   · route ：手工 token 路线（不再规划；路线即 tokens）
+    if (params.sourceError) return { ok: false, code: 400, error: params.sourceError }
+    if (params.routeError) return { ok: false, code: 400, error: params.routeError }
+    if (params.engineError) return { ok: false, code: 400, error: params.engineError }
+    const source = params.source
+    // 源目录自带的 route.tokens.txt = 手动路线（仅在未改点位/未开无人机时生效；改点位必须重规划）。
+    const sourceRoute = source && source.routePath && !params.field && params.drone !== true
+      ? { tokens: routeTokensFromFile(source.routePath), source: 'source/route.tokens.txt' }
+      : null
+    if (sourceRoute && sourceRoute.tokens.length === 0) {
+      return { ok: false, code: 400, error: '场地来源的 route.tokens.txt 存在但没有合法 token（不静默回落重规划）' }
+    }
+    const manual = params.route || sourceRoute
     let configPath = null
     let routePath = null
     let env = {}
-    if (params.field || params.drone === true) {
+    if (source || params.field || params.drone === true || manual) {
       const overrideDir = path.join(outDir, 'map_override')
       fs.mkdirSync(overrideDir, { recursive: true })
-      const mapText = fs.readFileSync(MAP_FILE, 'utf8')
+      const baseMap = source ? source.mapPath : MAP_FILE
+      const baseConfig = source ? source.configPath : ROBOT_FILE
+      const mapText = fs.readFileSync(baseMap, 'utf8')
       const overrideMap = path.join(overrideDir, 'map.yaml')
       const overrideRobot = path.join(overrideDir, 'robot.yaml')
-      // field 变换（棋盘改点）先做，drone 避让注入**叠在其产物上**（同一张图）。
-      //   起降格取 fieldSpec().drone（真源 + fallback，禁硬编码字面量）；仅 drone 开才多读
-      //   一次 fieldSpec（field-only 跑与 OFF 现状零额外开销）。顺序保持 [takeoff, land] ——
-      //   规格增补 §D.3 的台账形状 hardAvoid: ["N8","M2"]（起在前落在后；两格必异，无需排序去重）。
-      const specNow = params.drone === true ? fieldSpec() : null
-      const droneAvoid = specNow
+      // field 变换先做，drone 避让注入叠在其产物上（同一张图）。起降格取**本次源图**的
+      //   fieldSpec().drone（真源 + fallback，禁硬编码字面量）；source 时也必须读源图，
+      //   否则会把仓库第六张图的起降格注入到第七张图。
+      const specNow = (params.drone === true || source)
+        ? fieldSpec({ mapPath: baseMap, configPath: baseConfig })
+        : null
+      const droneAvoid = params.drone === true && specNow
         ? [specNow.drone?.takeoff, specNow.drone?.land].filter(Boolean)
         : []
       let overrideText = applyFieldToMapText(mapText, params.field)
       if (droneAvoid.length) overrideText = injectDroneAvoidToMapText(overrideText, droneAvoid)
       fs.writeFileSync(overrideMap, overrideText, 'utf8')
-      // 配置**逐字复制**（只读真源的副本）：`load_field_spec(cfg_source=…)` 会优先取同目录的
-      // map.yaml，所以这一对文件放在同一目录就是"这次跑的是哪张图"的完整证据。
-      fs.copyFileSync(ROBOT_FILE, overrideRobot)
-      // 规格 §B.6：路径规划计算时间（用户点名的统计项）—— Date.now 包住 plan_route，
-      //   手动带 field 的跑同样落 record.plan.ms（压测均值分母 = 有该字段的记录数）。
-      const planStartedAt = Date.now()
-      const planned = await planRoute({ configPath: overrideRobot, mapPath: overrideMap })
-      if (params.field) record.field = params.field        // drone-only 跑不落 null field 键
+      // 配置逐字复制：load_field_spec(cfg_source=…) 会优先取同目录 map.yaml，
+      //   这一对文件就是"这次跑的是哪张图"的完整证据；仓库 config/ 不写。
+      fs.copyFileSync(baseConfig, overrideRobot)
       record.override = { dir: overrideDir, map: overrideMap, robot: overrideRobot }
-      record.plan = {
-        exitCode: planned.exitCode, timedOut: planned.timedOut,
-        engine: planned.engine,                     // ★ 本局用的规划引擎（与车端同源的取证字段）
-        ms: Date.now() - planStartedAt,
-        tokenCount: planned.tokens.length,
-        crossing: planned.plan?.crossing ?? null,
-        polyline_m: planned.plan?.polylength_m ?? null,
-        reverseSegments: planned.plan?.reverse_segments ?? null,
-        checkExit: planned.check?.exit ?? null,
-        failures: planned.failures,
-        stderrTail: planned.stderrTail,
-      }
-      // drone 台账字段（§D.3）—— **规划成败都落**（422 plan-failed 也在，证约束在场）。
-      //   hardAvoid = 实际注入 override 图 obstacles 的格（[takeoff, land] 保序）；corridorRow =
-      //   本局有效棋盘（真源 + 用户改点，与 dronesim.runDroneSim 的 board 同构）经 corridorRows
-      //   推导 —— **全仓恰一份**（外来基线重写后 scanPlan 已不推导走廊行，本函数是唯一真源；
-      //   规格「边界与已知取舍」：走廊规则变 ⇒ 只改这里，台账随之）。
-      if (params.drone === true) {
-        const boardNow = params.field ? { ...specNow, ...params.field } : specNow
-        record.plan.drone = {
-          enabled: true,
-          hardAvoid: droneAvoid.slice(),
-          corridorRow: corridorRows(boardNow),
+      if (params.field) record.field = params.field
+      if (source) {
+        // 源与副本逐字节核对（复制期被并发改/复制坏 ⇒ 显式失败，不拿假图跑）。
+        record.source = {
+          dir: source.dir, configPath: source.configPath, mapPath: source.mapPath,
+          configMd5: md5Of(source.configPath), mapMd5: md5Of(source.mapPath),
+          routePath: source.routePath || null,
+          routeMd5: source.routePath ? md5Of(source.routePath) : '',
         }
-      }
-      if (planned.exitCode !== 0 || planned.tokens.length === 0) {
-        record.status = 'plan-failed'
-        record.stderrTail = planned.stderrTail
-        appendMeta(record)
-        return {
-          ok: false, code: 422, record,
-          error: `改点位后规划/校验未过（plan_route.py exit=${planned.exitCode}）—— 路线没换，仿真未跑。`,
-          planTail: planned.stdoutTail || planned.stderrTail,
+        record.source.copyConfigMd5 = md5Of(overrideRobot)
+        // overrideMap 在改点位/drone 注入后**本来就应**与源图不同 ⇒ 只有"未变换"时才要求
+        // 逐字节相等；变换过就记 mapEdited=true，并把源图 md5 与本次 override md5 都留档。
+        const mapEdited = Boolean(params.field) || droneAvoid.length > 0
+        record.source.mapEdited = mapEdited
+        record.source.overrideMapMd5 = md5Of(overrideMap)
+        if (record.source.copyConfigMd5 !== record.source.configMd5
+          || (!mapEdited && record.source.overrideMapMd5 !== record.source.mapMd5)) {
+          record.status = 'source-copy-mismatch'
+          appendMeta(record)
+          return { ok: false, code: 409, record, error: '场地来源副本与源文件 md5 不一致（复制期间源被改动？）' }
         }
+        // 台账的 configMd5/mapMd5 = 本局**实际使用**的源（不是仓库 config/）。
+        record.configMd5 = record.source.configMd5
+        record.mapMd5 = record.source.mapMd5
       }
-      routePath = path.join(overrideDir, 'route.tokens.txt')
-      // `--route` 的文件解析按空格/逗号切词，末点的朝向后缀 `,x`/`,y` 会被切成独立 token
-      //   （实测 `❌ 无法解析的 token: 'y'`）。仿真对末点朝向不敏感（剥掉后缀后 traj.csv
-      //   与带后缀**逐字节相同**），所以给 `--route` 的那份剥掉后缀，
-      //   规划器原样 token 另存一份备查。
-      const routeArgv = planned.tokens.slice()
-      let routeNote = ''
-      const last = routeArgv.length - 1
-      if (last >= 0 && /,[xy]$/i.test(routeArgv[last])) {
-        routeArgv[last] = routeArgv[last].replace(/,[xy]$/i, '')
-        routeNote = '末点朝向后缀已从本文件剥离（--route 的文件解析按空格/逗号切词会把它切成独立 token）；'
-          + '原样 token 见 route.tokens.planner.txt，仿真结果不受影响'
+      if (manual) {
+        // 手工路线：不规划；写 --route 文件。末点 ,x/,y 会被 sim_cli 的按逗号切词切成
+        //   独立 token（实测 'y' 非法），所以只对**末点**剥后缀；原样 token 另存备查。
+        const routeArgv = manual.tokens.slice()
+        let routeNote = ''
+        const last = routeArgv.length - 1
+        if (last >= 0 && /,[xy]$/i.test(routeArgv[last])) {
+          routeArgv[last] = routeArgv[last].replace(/,[xy]$/i, '')
+          routeNote = '末点朝向后缀已从本文件剥离（--route 文件解析按逗号切词会把它切成独立 token）；'
+            + '原样 token 见 route.tokens.manual.source.txt，仿真结果不受影响'
+        }
+        routePath = path.join(overrideDir, 'route.tokens.manual.txt')
+        fs.writeFileSync(routePath, routeArgv.join('\n') + '\n', 'utf8')
+        fs.writeFileSync(path.join(overrideDir, 'route.tokens.manual.source.txt'),
+          manual.tokens.join(' ') + '\n', 'utf8')
+        record.route = manual.tokens.slice()
+        record.routeSource = source ? 'manual(field-source)' : 'manual'
+        record.plan = {
+          manual: true, source: manual.source, engine: null, engineSource: 'manual',
+          tokenCount: manual.tokens.length, routeFile: routePath, routeFileNote: routeNote,
+          crossing: null, polyline_m: null,
+          reverseSegments: manual.tokens.filter(token => /^R:/i.test(token)).length,
+          checkExit: null, failures: [],
+        }
+        configPath = overrideRobot
+        env = { ROBOT_MAP: overrideMap }
+      } else {
+        // 规格 §B.6：路径规划计算时间（用户点名的统计项）—— Date.now 包住 plan_route。
+        const planStartedAt = Date.now()
+        const planned = await planRoute({ configPath: overrideRobot, mapPath: overrideMap, engine: params.engine })
+        record.plan = {
+          exitCode: planned.exitCode, timedOut: planned.timedOut,
+          engine: planned.engine,
+          engineRequested: planned.engineRequested,
+          engineSource: planned.engineSource,
+          ms: Date.now() - planStartedAt,
+          tokenCount: planned.tokens.length,
+          crossing: planned.plan?.crossing ?? null,
+          polyline_m: planned.plan?.polylength_m ?? null,
+          reverseSegments: planned.plan?.reverse_segments ?? null,
+          checkExit: planned.check?.exit ?? null,
+          failures: planned.failures,
+          stderrTail: planned.stderrTail,
+        }
+        // drone 台账字段（§D.3）—— 规划成败都落（422 plan-failed 也在，证约束在场）。
+        if (params.drone === true) {
+          const boardNow = params.field ? { ...specNow, ...params.field } : specNow
+          record.plan.drone = {
+            enabled: true,
+            hardAvoid: droneAvoid.slice(),
+            corridorRow: corridorRows(boardNow),
+          }
+        }
+        if (planned.exitCode !== 0 || planned.tokens.length === 0) {
+          record.status = 'plan-failed'
+          record.stderrTail = planned.stderrTail
+          appendMeta(record)
+          return {
+            ok: false, code: 422, record,
+            error: (params.field ? '改点位后' : '') + '规划/校验未过（plan_route.py exit=' + planned.exitCode + '）—— 路线没换，仿真未跑。',
+            planTail: planned.stdoutTail || planned.stderrTail,
+          }
+        }
+        routePath = path.join(overrideDir, 'route.tokens.txt')
+        // 规划器 token 的末点朝向同样剥离（理由同手工路线）。
+        const routeArgv = planned.tokens.slice()
+        let routeNote = ''
+        const last = routeArgv.length - 1
+        if (last >= 0 && /,[xy]$/i.test(routeArgv[last])) {
+          routeArgv[last] = routeArgv[last].replace(/,[xy]$/i, '')
+          routeNote = '末点朝向后缀已从本文件剥离（--route 的文件解析按空格/逗号切词会把它切成独立 token）；'
+            + '原样 token 见 route.tokens.planner.txt，仿真结果不受影响'
+        }
+        fs.writeFileSync(routePath, routeArgv.join('\n') + '\n', 'utf8')
+        fs.writeFileSync(path.join(overrideDir, 'route.tokens.planner.txt'),
+          planned.tokens.join(' ') + '\n', 'utf8')
+        record.route = planned.tokens
+        record.routeSource = 'planned(map_override)'
+        record.plan.routeFile = routePath
+        record.plan.routeFileNote = routeNote
+        configPath = overrideRobot
+        env = { ROBOT_MAP: overrideMap }
       }
-      fs.writeFileSync(routePath, `${routeArgv.join('\n')}\n`, 'utf8')
-      fs.writeFileSync(path.join(overrideDir, 'route.tokens.planner.txt'),
-        `${planned.tokens.join(' ')}\n`, 'utf8')
-      record.route = planned.tokens
-      record.routeSource = 'planned(map_override)'
-      record.plan.routeFile = routePath
-      record.plan.routeFileNote = routeNote
-      configPath = overrideRobot
-      // `ROBOT_MAP`：让任何按环境变量找地图的路径（load_field_spec）也用这张 override 图。
-      env = { ROBOT_MAP: overrideMap }
     } else {
       record.route = routeTokens()
       record.routeSource = 'config/robot.yaml'

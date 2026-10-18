@@ -33,11 +33,13 @@ from dzbrain.core import geometry as geo                                      # 
 from dzbrain.scout import (FOV_LENGTH_CELLS, FOV_LENGTH_M, FOV_WIDTH_CELLS,   # noqa: E402
                            FOV_WIDTH_M, SCOUT_ALTITUDE_M, LayoutFeed,
                            LayoutStream, Pose, TruthMap, all_blocks,
-                           build_layout, cells_in_view, choose_target_cell,
-                           compare_routes, coverage, footprint_corners,
+                           build_layout, cells_in_view, choose_mission_target,
+                           choose_target_cell, compare_routes, coverage,
+                           default_config, footprint_corners, frontier_cells,
                            frames_from_cell_route, generate_snake_timeline,
                            heartbeat_messages, heartbeat_schedule,
-                           overlap_fraction, reachable_cells, step_ok,
+                           mission_checkpoints, overlap_fraction,
+                           plan_mission_target, reachable_cells, step_ok,
                            user_route_timeline,
                            USER_ROUTE_BLOCKS, USER_ROUTE_SOURCE, simulate)
 from dzbrain.scout.frames import (SCAN_LINE_YS, adjacent_overlaps,          # noqa: E402
@@ -173,8 +175,14 @@ check("bridges/隔板照真值图", set(layouts[-1]["bridges"]) == set(truth.bri
 check("★ target_cell 每份都合法且 ∈ known",
       all(x["target_cell"] in set(x["known"]) and x["target_cell"] in ALL
           for x in layouts))
-check("全 known 后终点可达 -> target_cell = end N5",
-      layouts[-1]["target_cell"] == "N5", layouts[-1]["target_cell"])
+check("★ 全 known 后目标 = 任务检查点（雷/射击停站/终点），不再是'最远前沿'",
+      stream.target_kind in ("mine", "stop", "end")
+      and stream.target_cell in (set(truth.mines) | stream.known_stops
+                                 | {truth.end}),
+      f"{stream.target_kind}:{stream.target_cell}")
+check("目标随 known 增长更新并落在最终布局里",
+      layouts[-1]["target_cell"] == stream.target_cell,
+      f"{layouts[-1]['target_cell']} vs {stream.target_cell}")
 check("segment_id = version（车回报原样带回）",
       all(int(x["segment_id"]) == int(x["version"]) for x in layouts))
 
@@ -291,8 +299,9 @@ check("simulate：帧/布局/心跳/对照一次产出",
       len(res.frames) == 68 and res.layouts and res.heartbeat
       and res.stats["coverage_cells"] == TOTAL and res.known_count == TOTAL,
       f"frames={len(res.frames)} layouts={len(res.layouts)} hb={len(res.heartbeat)}")
-check("simulate 的布局末版 target = end N5（车已能到终点）",
-      res.layouts[-1]["target_cell"] == "N5")
+check("simulate 的布局末版 target = 任务检查点（合法且 ∈ known）",
+      res.layouts[-1]["target_cell"] in set(res.layouts[-1]["known"])
+      and res.layouts[-1]["target_cell"] != "")
 _d = res.as_dict()
 check("as_dict 可 JSON 序列化（T29 直接落盘）",
       bool(json.dumps(_d, ensure_ascii=False)) and _d["known_count"] == TOTAL)
@@ -312,5 +321,71 @@ except Exception as exc:                        # noqa: BLE001
     print(f"  !! CLI JSON 解析失败: {exc}")
 check("CLI JSON 含 stats/layouts/known_count（覆盖率 154）", _cli_ok,
       f"known={_payload.get('known_count')}")
+
+# --------------------------------------------------------------------------- #
+section("⑦ 任务目标优先（T30）：全 known 8/8 雷 + 2/2 停站 + N5；部分 known 回退前沿")
+# 用 T29 最终版现场图（_tmp_session/sim_map_20261018/map.yaml，内嵌避免依赖未入库文件）。
+T29_FIELD = {"map": {
+    "name": "T29 现场图 2026-10-18", "start": "N10", "end": "N5",
+    "mines": ["B1", "A2", "I2", "C3", "E3", "G5", "I8", "H9"],
+    "obstacles": ["D5", "I6", "A7", "F8", "B9", "F10", "H10", "A11"],
+    "targets": ["D7", "E7"], "bridges": ["K4", "K10"],
+    "barrier_col_from": "D", "barrier_row_hi": 6, "barrier_row_lo": 7,
+}}
+t29 = TruthMap.from_map(T29_FIELD)
+all29 = set(all_blocks())
+mt = plan_mission_target(all29, t29, "N10", cfg=default_config())
+check("★ 全 known 第一个目标 = 雷 I8（planner 检查点，不是对角 M1 前沿）",
+      mt is not None and mt.kind == "mine" and mt.block == "I8",
+      f"{mt.block if mt else None}/{(mt.kind if mt else None)}")
+check("任务路线来自 planner（engine 非空、token 数 >= 60）",
+      mt is not None and bool(mt.engine) and len(mt.route) >= 60,
+      f"{mt.engine if mt else '-'} / {len(mt.route) if mt else 0}")
+checkpoints = mission_checkpoints(mt.route, t29) if mt else []
+mines_cp = [c.block for c in checkpoints if c.kind == "mine"]
+stops_cp = [c.block for c in checkpoints if c.kind == "stop"]
+check("★ 全 known 检查点序列覆盖 8/8 雷",
+      set(mines_cp) == set(t29.mines), f"{sorted(mines_cp)}")
+check("★ 全 known 检查点序列含 2/2 射击停站（C9/C5，板面两侧）",
+      len(stops_cp) == 2 and set(stops_cp) == {"C9", "C5"}, f"{stops_cp}")
+check("检查点以终点 N5 收尾",
+      bool(checkpoints) and checkpoints[-1].kind == "end"
+      and checkpoints[-1].block == "N5")
+
+# LayoutStream 目标准进：全 known + 车完成一段 -> 沿检查点前进
+stream29 = LayoutStream(t29, car_block="N10")
+stream29.known = set(all29)
+stream29.retarget(now=0.0)
+seq = []
+for _i in range(20):
+    seq.append((stream29.target_kind, stream29.target_cell))
+    if stream29.target_cell == t29.end:
+        break
+    stream29.note_segment_done(stream29.target_cell, now=float(len(seq)))
+check("★ LayoutStream 目标序列 = 8 雷 + 2 停站 + 到 N5",
+      [b for k, b in seq if k == "mine"] and
+      set(b for k, b in seq if k == "mine") == set(t29.mines)
+      and set(b for k, b in seq if k == "stop") == {"C9", "C5"}
+      and seq[-1][0] == "end" and seq[-1][1] == "N5", f"{seq}")
+check("已压雷不重复压（covered_mines 累积）",
+      stream29.covered_mines == set(t29.mines)
+      and len([b for k, b in seq if k == "mine"]) == 8, f"{len(seq)} 段")
+
+# 显式 already_covered：把 I8 标成已压 -> 下一个目标不再是 I8
+mt2 = choose_mission_target(all29, t29, "N10",
+                            covered_mines={"I8"}, cfg=default_config())
+check("显式 already_covered={I8} -> 下一任务目标不是 I8",
+      mt2.block != "I8" and mt2.block != "", f"{mt2.kind}:{mt2.block}")
+
+# 部分 known（只有下半场行 7~11）：目标还没进 known -> 回退前沿格
+partial = {b for b in all29 if row_of(b) >= 7}
+mtp = choose_mission_target(partial, t29, "N10", cfg=default_config())
+check("★ 部分 known（剩余雷/终点未探明）-> 回退侦察前沿格，不指不可达任务目标",
+      mtp.kind == "frontier" and mtp.block in frontier_cells(partial, t29),
+      f"{mtp.kind}:{mtp.block}")
+check("回退前沿格必须 known 可达",
+      mtp.block in reachable_cells(partial, t29, "N10"), f"{mtp.block}")
+check("部分 known 不把未知的雷/终点当目标",
+      mtp.block not in (set(t29.mines) - partial) and mtp.block != t29.end)
 
 finish()

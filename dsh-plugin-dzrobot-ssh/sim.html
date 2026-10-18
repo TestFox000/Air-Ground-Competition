@@ -176,6 +176,17 @@
         <input id="speedCustom" type="number" step="0.01" min="0.05" max="1" value="0.15">
       </div>
 
+      <!-- R1 显式引擎选择：默认「跟随车端」（请求体不带 engine，parity 守卫逐字节不变）；
+           只有显式选 tour 才是 what-if —— 页面必须红字声明"该路线不是车端将走的路线"，
+           绝不静默 fallback。 -->
+      <label for="engine">规划引擎<span class="hint">改点位后重规划用；默认跟随车端</span></label>
+      <select id="engine">
+        <option value="">跟随车端（robot.yaml planner.engine，推荐）</option>
+        <option value="tracker-safe">tracker-safe（车端默认引擎）</option>
+        <option value="tour">tour（what-if，非车端路线）</option>
+      </select>
+      <div class="warnline" id="engineWarn" style="display:none"></div>
+
       <label>误差注入<span class="hint">留空 = 不注入</span></label>
       <div class="row3">
         <div>
@@ -270,6 +281,13 @@
     <section style="margin-top:16px">
       <h2>改点位<span class="hint">拖棋子落格即改点位（文本框为只读镜像）；保存只写 <code>artifacts/sim/&lt;id&gt;/map_override/</code></span></h2>
       <div id="fieldMeta" class="foot">正在读场地…</div>
+
+      <!-- 场地来源（仿真台"切到实车现图"）：留空 = 仓库 config/；填目录则只读该目录下
+           robot.yaml + map.yaml（复制进本次运行目录，config/ 零写入）。 -->
+      <label for="sourceDir">场地来源目录<span class="hint">留空 = 仓库 <code>config/</code></span></label>
+      <input id="sourceDir" type="text" spellcheck="false" placeholder="例如 D:\...\_tmp_session\sim_t29\field7_source（含 robot.yaml + map.yaml，可选 route.tokens.txt）">
+      <div class="foot">改完离开输入框即重读；只读复制，仓库 <code>config/</code> 零写入。失败会显式报错，不会静默回落到第六张图。
+        目录里若带 <code>route.tokens.txt</code>，参考路线与「运行仿真」（未改点位时）都按该<b>手动路线</b>跑。</div>
 
       <!-- 四类棋子 palette = 主编辑通道；按住拖到棋盘格放下，点棋盘上已有棋子移除 -->
       <div class="chips"><span>棋盘拖拽<span class="hint">拖棋子到棋盘格 = 加（定容硬顶：雷 8 / 障 8 / 通 2 / 靶板 1，满了拒放）；点棋盘棋子 = 移除；点靶板 = 顺时针旋转，按住靶板拖到新格 = 整体换位</span></span></div>
@@ -473,6 +491,10 @@ function readForm() {
   var seedRaw = $('seed').value.trim();
   var label = $('label').value.trim() || 'run';
   var body = { label: label, overrides: overrides, inject: inject };
+  var srcDir = sourceDirValue();
+  if (srcDir) body.source = { dir: srcDir };      // 场地来源（只读副本；不带键 = 仓库 config/）
+  var engineSel = $('engine');
+  if (engineSel && engineSel.value) body.engine = engineSel.value;   // 不带键 = 跟随车端
   if (steps !== '' && Number(steps) > 0) body.maxSteps = Math.floor(Number(steps));
   if (seedRaw !== '' && Number(seedRaw) >= 0) body.seed = Math.floor(Number(seedRaw));
   var field = fieldFromForm();                    // 改了点位才带 field（否则与改动前逐字一致）
@@ -489,6 +511,22 @@ function readForm() {
   if ($('drone') && $('drone').checked) body.drone = true;
   if (field) body.field = field;
   return body;
+}
+
+/** R1 显式引擎的页面提示：默认跟随车端；非车端引擎必须红字声明"不是车端将走的路线"。 */
+function refreshEngineHint() {
+  var sel = $('engine'); var box = $('engineWarn');
+  if (!sel || !box) return;
+  var want = String(sel.value || '');
+  var car = FIELD && FIELD.planner ? FIELD.planner.engine : null;
+  if (!want) { box.style.display = 'none'; box.textContent = ''; return; }
+  box.style.display = '';
+  if (car && want === car) {
+    box.textContent = '显式选择 ' + want + '：与车端 planner.engine 一致（用于复现车端口径；请求体带 engine 键）。';
+  } else {
+    box.textContent = '⚠️ what-if：本次按 ' + want + ' 重规划。该路线不是车端将走的路线（车端='
+      + (car || '未知') + '）；只写本次运行目录，config/ 零写入。';
+  }
 }
 
 /* ── 结果区 ──────────────────────────────────────────────────────────────── */
@@ -516,6 +554,19 @@ function renderResult(payload) {
   html += '<dt>状态</dt><dd>' + esc(record.status || '') + '</dd>';
   html += '<dt>config/map md5</dt><dd>' + esc((record.configMd5 || '').slice(0, 12)) + ' / ' +
           esc((record.mapMd5 || '').slice(0, 12)) + '</dd>';
+  if (record.source) {
+    html += '<dt>场地来源</dt><dd>' + esc(record.source.dir || '')
+      + '（' + (record.source.mapEdited ? '本局改点位 → override 图' : '逐字节只读复制') + '）<br>源 map md5 '
+      + esc(String(record.source.mapMd5 || '').slice(0, 12)) + ' · 副本 md5 '
+      + esc(String(record.source.overrideMapMd5 || '').slice(0, 12)) + '</dd>';
+  }
+  if (record.plan && record.plan.engine) {
+    var carEngine = FIELD && FIELD.planner ? FIELD.planner.engine : null;
+    var whatIf = record.plan.engineSource === 'explicit' && carEngine && record.plan.engine !== carEngine;
+    html += '<dt>规划引擎</dt><dd' + (whatIf ? ' class="warn"' : '') + '>' + esc(record.plan.engine)
+      + (record.plan.engineSource === 'explicit' ? '（显式' + (whatIf ? ' · what-if' : '') + '）' : '（跟随车端）')
+      + (whatIf ? '<br><b>该路线不是车端将走的路线</b>（车端=' + esc(carEngine) + '）' : '') + '</dd>';
+  }
   html += '<dt>参数</dt><dd>' + esc(JSON.stringify({ overrides: record.overrides, inject: record.inject, maxSteps: record.maxSteps, seed: record.seed })) + '</dd>';
   if (record.field) {
     html += '<dt>改点位</dt><dd class="warn">' + esc(JSON.stringify(record.field)) + '</dd>';
@@ -1475,8 +1526,18 @@ function onDragUp(event) {
   placePiece(key, cell);
 }
 
+/** 场地来源目录（页面「切到实车现图」）；空 = 仓库 config/。 */
+function sourceDirValue() {
+  var node = $('sourceDir');
+  return node ? String(node.value || '').trim() : '';
+}
+/** /sim/map 的 URL（带 source 查询时宿主只读该目录，失败显式 400）。 */
+function fieldMapUrl() {
+  var dir = sourceDirValue();
+  return '/sim/map' + (dir ? '?source=' + encodeURIComponent(dir) : '');
+}
 function loadField() {
-  return api('/sim/map').then(function (body) {
+  return api(fieldMapUrl()).then(function (body) {
     FIELD = body;
     if (!body.ok) { renderMap(); text($('fieldMeta'), ''); return false; }
     $('mines').value = (body.mines || []).join(' ');
@@ -1488,12 +1549,17 @@ function loadField() {
       : (plannerNow.autoPlanEnabled === true ? '车端自动规划开启' : '车端自规划状态未知');
     text($('fieldMeta'), '真源 ' + body.source + '（md5 ' + String(body.md5).slice(0, 8) + '）· 可改 '
       + (body.editable || []).join('/') + '；其余要素（起终/隔板/无人机点）保持现场值'
-      + ' · 路线：' + routeMode + ' · 引擎：' + (plannerNow.engine || 'CLI 默认'));
+      + ' · 路线：' + routeMode + ' · 引擎：' + (plannerNow.engine || 'CLI 默认')
+      + (body.routeFile ? ' · 手动路线=' + String(body.routeFile).split(/[\\/]/).pop() : '')
+      + (sourceDirValue() ? ' · 场地来源=外部目录（只读副本）' : ''));
     refreshFieldHints();
     renderMap();
+    refreshEngineHint();          // 车端引擎可能随来源目录变化；显式 what-if 提示同步刷新
     return true;
   }).catch(function (problem) {
-    text($('fieldMeta'), '读场地失败：' + problem.message);
+    text($('fieldMeta'), '读场地失败：' + problem.message
+      + '（场地来源=' + (sourceDirValue() || '仓库 config/') + '；不会静默回落）');
+    refreshEngineHint();
     return false;
   });
 }
@@ -1501,7 +1567,7 @@ function loadField() {
 /** 恢复默认补丁：同步回填（G1 断言可见）之后异步 GET /sim/map 刷新真源；
  *   只回填该类，不冲掉用户对其他类的改动。真源刷新失败时保留同步回填的旧值。 */
 function refreshFieldTruth(onlyKey) {
-  return api('/sim/map').then(function (body) {
+  return api(fieldMapUrl()).then(function (body) {
     if (!body.ok) return;
     FIELD = body;
     if (onlyKey && $(onlyKey)) $(onlyKey).value = (body[onlyKey] || []).join(' ');
@@ -1978,6 +2044,17 @@ function runChecks() {
 /* ── 绑定 ────────────────────────────────────────────────────────────────── */
 $('speed').addEventListener('change', function () {
   $('speedCustomWrap').style.display = $('speed').value === 'custom' ? '' : 'none';
+});
+// R1 引擎选择：只改提示，不改请求（请求体在 readForm 里带 engine，不带键 = 跟随车端）
+$('engine').addEventListener('change', refreshEngineHint);
+// 场地来源切换：重读 /sim/map（只读副本）；失败显式报错，不回落 config/
+$('sourceDir').addEventListener('change', function () {
+  invalidateStaleRun();
+  loadField().then(function (ok) {
+    message($('runMsg'), ok ? 'ok' : 'bad',
+      ok ? '场地来源已切换：' + String($('fieldMeta').textContent || '')
+        : '场地来源读取失败：' + String($('fieldMeta').textContent || ''));
+  });
 });
 $('run').addEventListener('click', runSimulation);
 $('check').addEventListener('click', runChecks);

@@ -17,6 +17,8 @@
   9. 到 end 格 → FINISH（含主循环退出码口径）
  10. 运行期 belief 连续落入未知格 → SAFE_STOP（停段 + 刹车）
  11. run_live 接线：v2 布局走步进分支（不再"规划一次"），v1 判定不变
+ 12. ★T32 段末射击停站语义：目标格命中射击停站 ⇒ 末 token 带 `*` / MissionTask 进 SHOOT /
+     stop_kind（shoot|mine|path|end）随 P_CAR_STATE 上报；终点/雷格/普通格不标 `*`
 
 全过 exit 0；任一失败 exit 1。
 """
@@ -40,11 +42,11 @@ from harness import check, finish, section                     # noqa: E402
 
 from dzbrain.core import geometry as geo                       # noqa: E402
 from dzbrain.core.blackboard import (Blackboard, P_MISSION_PHASE, P_POSE,  # noqa: E402
-                                     P_ROUTE, P_SAFETY)
+                                     P_ROUTE, P_SAFETY, P_STOP_POINT)
 from dzbrain.core.config import Config                         # noqa: E402
 from dzbrain.core.events import EV_MISSION_FINISHED, EventBus  # noqa: E402
-from dzbrain.core.state import SafetyState                     # noqa: E402
-from dzbrain.io.contract import MissionPhase                   # noqa: E402
+from dzbrain.core.state import SafetyState, StopKind, StopPhase  # noqa: E402
+from dzbrain.io.contract import AimStatus, MissionPhase        # noqa: E402
 from dzbrain.tasks.mission import MissionTask, plan_segment_route  # noqa: E402
 from dzbrain import main as M                                  # noqa: E402
 
@@ -55,10 +57,14 @@ N10 = geo.block_to_meters("N10")
 HEAD_Y = geo.HEADING_Y
 
 
-def cfg_of(*, wait_s: float = 0.0, engine: str = "tracker-safe") -> Config:
+def cfg_of(*, wait_s: float = 0.0, engine: str = "tracker-safe",
+           reset: str = "N10,y") -> Config:
     return Config.from_dict({
         "planner": {"auto_plan_enabled": True, "engine": engine},
-        "mission": {"auto_start": False, "reset": "N10,y"},
+        "mission": {"auto_start": False, "reset": reset},
+        # ★T32：射击停站窗口用**现役 config/robot.yaml** 的值（0.90 ± 0.12 ⇒ [0.78,1.02]），
+        #   不用 SCHEMA 的 0.80±0.10 旧默认 —— 段末射击停站判据是 T21 真源。
+        "route": {"shoot_distance_m": 0.90, "shoot_distance_tol_m": 0.12},
         "step": {"wait_timeout_s": wait_s},
         "logging": {"rate_limit_s": 1.0},
     })
@@ -571,5 +577,185 @@ finally:
 check("11.7 v1 布局（无 known）仍判旧行为（步进分支不启用）",
       M._step_mode_enabled({"start": "N10", "end": "N5", "mines": [],
                             "obstacles": [], "targets": [], "bridges": ["K7"]}) is False)
+
+# =========================================================================== #
+# 12. ★T32 段末射击停站语义（目标格 = 射击格 ⇒ 末 token 带 * / stop_kind 上报）
+# =========================================================================== #
+section("12. ★T32 段末射击停站：target 命中射击格 → 末 token 带 *、MissionTask 进 SHOOT")
+
+# 场景图 = T29 台架真值图（2026-10-18 现场图）：靶 D7+E7（板心 (1.575, 3.5)），
+# 现役窗口 [0.78,1.02] 内 C9 = 0.875 m（覆盖 D7 0.783 / E7 0.990），F9 同样合格。
+SIM_MINES = ["B1", "A2", "I2", "C3", "E3", "G5", "I8", "H9"]
+SIM_OBSTACLES = ["D5", "I6", "A7", "F8", "B9", "F10", "H10", "A11"]
+SIM_TARGETS = ["D7", "E7"]
+SIM_BRIDGES = ("K4", "K10")
+
+
+def sim_layout(*, target: str, version: int = 1, segment_id: int = 1) -> dict:
+    """全 known 的 T29 台架图布局（带 targets，才能判"段末是不是射击停站"）。"""
+    return layout_of(known=M.all_map_cells(), target=target, version=version,
+                     segment_id=segment_id, mines=SIM_MINES, obstacles=SIM_OBSTACLES,
+                     targets=SIM_TARGETS, bridges=SIM_BRIDGES)
+
+
+from dzbrain.route import planner as _PL                          # noqa: E402
+
+cfg12 = cfg_of()
+lay_shoot = sim_layout(target="C9")
+n_shoot = M.normalize_step_layout(lay_shoot)[0]
+p_shoot = M.plan_segment_from_layout(cfg12, n_shoot, from_cell="H9", target_cell="C9")
+check("12.1 ★ 目标格命中射击停站 ⇒ 末 token = 'C9*'（T29 端到端 0 停站的根因）",
+      p_shoot.ok and p_shoot.tokens[-1] == "C9*" and p_shoot.cells[-1] == "C9",
+      f"{p_shoot.error} / tokens={p_shoot.tokens}")
+check("12.2 stop_kind='shoot'、到靶板中心 0.875 m（现役窗口 [0.78,1.02] 内）",
+      p_shoot.stop_kind == "shoot"
+      and 0.78 - 1e-9 <= p_shoot.stop_distance_m <= 1.02 + 1e-9
+      and abs(p_shoot.stop_distance_m - 0.875) < 1e-6,
+      f"{p_shoot.stop_kind} / {p_shoot.stop_distance_m:.4f} m")
+_spec12 = _PL.load_map(M._segment_map_cfg(n_shoot, "H9", "C9"))
+_cov12 = _PL.covering_stops(_spec12, ["C9"], _PL._shoot_accept(cfg12))   # noqa: SLF001
+check("12.3 判据与 T21 同源（planner.covering_stops）：C9 覆盖 D7+E7 两格靶板",
+      sorted(_cov12.get("C9", ())) == ["D7", "E7"], str(_cov12))
+
+p_end = M.plan_segment_from_layout(cfg12, n_shoot, from_cell="H9", target_cell="N5")
+check("12.4 target=N5（布局 end）⇒ 不标 *、stop_kind='end'（终点绝不停站打靶）",
+      p_end.ok and p_end.tokens[-1] == "N5" and not any("*" in t for t in p_end.tokens)
+      and p_end.stop_kind == "end",
+      f"{p_end.error} / {p_end.tokens[-2:]} / {p_end.stop_kind}")
+p_mine = M.plan_segment_from_layout(cfg12, n_shoot, from_cell="H9", target_cell="I8")
+check("12.5 target=雷格 I8 ⇒ 不标 *、stop_kind='mine'（压过即可，不额外停站）",
+      p_mine.ok and p_mine.tokens[-1] == "I8" and not any("*" in t for t in p_mine.tokens)
+      and p_mine.stop_kind == "mine",
+      f"{p_mine.error} / {p_mine.tokens} / {p_mine.stop_kind}")
+p_path = M.plan_segment_from_layout(cfg12, n_shoot, from_cell="C9", target_cell="D9")
+check("12.6 普通路径目标 D9（板心 0.63 m 在窗口外）⇒ stop_kind='path'、无 *",
+      p_path.ok and p_path.stop_kind == "path" and not any("*" in t for t in p_path.tokens),
+      f"{p_path.error} / {p_path.tokens} / {p_path.stop_kind}")
+check("12.7 空段分支（from==target，不经过规划器）也如实分类：C9→shoot / N5→end",
+      (M.classify_segment_target(cfg12, n_shoot, "C9") == "shoot"
+       and M.classify_segment_target(cfg12, n_shoot, "N5") == "end"
+       and M.classify_segment_target(cfg12, n_shoot, "D9") == "path"),
+      str([M.classify_segment_target(cfg12, n_shoot, c) for c in ("C9", "N5", "D9")]))
+
+# ---- MissionTask：末点带 * ⇒ 真的进三段式停站并开火 ----
+rig12 = Rig(cfg=cfg_of(reset="H9,x"))
+rig12.start(lay_shoot)
+rig12.bridge.set_aim_status(AimStatus.TRACK)    # 云台已锁定（ACQUIRE 的前置）
+rig12.step(3)                                   # PLANNING → 段下发 → 路线载入
+route12 = rig12.bb.get(P_ROUTE)
+check("12.8 执行路线末航点 = C9 且带 shoot 标记（'C9*' 真的落进 Waypoint）",
+      route12 is not None and route12.waypoints[-1].block == "C9"
+      and route12.waypoints[-1].shoot is True
+      and route12.waypoints[-1].token == "C9*",
+      f"{[w.token for w in route12.waypoints] if route12 else None}")
+phases12: list[str] = []
+mission_phases12: list[str] = []
+stop_seen: dict = {}
+fired12 = False
+done12: dict | None = None
+for _ in range(900):
+    rig12.bridge.set_vision(dx=0, dy=0, cls=1, box_w=45, box_h=55)   # 目标持续可见
+    rig12.step(1, drive=True)
+    _sp = rig12.bb.get(P_STOP_POINT)
+    _ph = getattr(_sp, "phase", None)
+    # P_STOP_POINT 的**初值**是默认 StopPointState(phase=SETTLE)：只在真进停站后采信
+    if _ph and (rig12.mission.stop_context is not None or _ph == StopPhase.DONE):
+        if not phases12 or phases12[-1] != _ph:
+            phases12.append(_ph)
+    mission_phases12.append(rig12.mission.phase)
+    _ctx = rig12.mission.stop_context
+    if _ctx is not None and not stop_seen:
+        stop_seen = {"block": _ctx.block, "kind": _ctx.kind, "index": _ctx.index}
+    if rig12.mission.phase == MissionPhase.STOP and not fired12:
+        rig12.bridge.add_shots(3)               # 模拟"打进 3 发"（shots_per_stop 默认 3）
+        fired12 = True
+    _snap = rig12.bb.get(M.P_CAR_STATE)
+    if isinstance(_snap, dict) and _snap.get("phase") == M.STEP_PHASE_SEGMENT_DONE:
+        done12 = dict(_snap)
+        break
+check("12.9 ★ MissionTask 进三段式停站：SETTLE→ACQUIRE→FIRE→DONE 依次走完",
+      phases12[:4] == [StopPhase.SETTLE, StopPhase.ACQUIRE, StopPhase.FIRE, StopPhase.DONE],
+      str(phases12))
+check("12.10 停站上下文 = C9 / SHOOT（不是普通航点跑完）",
+      stop_seen.get("block") == "C9" and stop_seen.get("kind") == StopKind.SHOOT,
+      str(stop_seen))
+check("12.11 开火门真的开过、且收尾为关（发数增量达标即离站）",
+      True in rig12.bridge.fire_gate and rig12.bridge.fire_gate[-1] is False,
+      f"fire_gate 首次 {rig12.bridge.fire_gate[:6]} … 末态 {rig12.bridge.fire_gate[-2:]}")
+check("12.12 ★ 打完才判段完成：P_CAR_STATE(SEGMENT_DONE) 带 stop_kind='shoot' / target=C9",
+      done12 is not None and done12.get("phase") == M.STEP_PHASE_SEGMENT_DONE
+      and done12.get("stop_kind") == "shoot" and done12.get("target_cell") == "C9"
+      and done12.get("block") == "C9",
+      str(done12))
+_info12 = rig12.mission.segment_status()
+check("12.13 MissionTask 完成单同样带 stop_kind（与 P_CAR_STATE 同源，机端可核对）",
+      (_info12.get("done") or {}).get("stop_kind") == "shoot"
+      and _info12.get("stop_kind") == "shoot",
+      f"status={_info12.get('stop_kind')!r} done={(_info12.get('done') or {}).get('stop_kind')!r}")
+check("12.14 StepLoop 状态与日志留痕：停站 shoot + '段末射击停站：C9'",
+      rig12.loop.status()["stop_kind"] == "shoot"
+      and bool(rig12.logs_with("段末射击停站：C9"))
+      and any("C9（SHOOT）" in ln for ln in rig12.logs),
+      f"{rig12.loop.status()['stop_kind']!r} / {rig12.logs_with('段末射击停站：C9')[:1]}")
+rig12.close()
+
+# ---- 雷格段：不标 *、不停站，但 stop_kind 如实报 mine ----
+rig13 = Rig(cfg=cfg_of(reset="H9,x"))
+rig13.start(sim_layout(target="I8"))
+rig13.step(3)
+route13 = rig13.bb.get(P_ROUTE)
+check("12.15 雷格段路线末航点 I8 **无** shoot 标记（不会停站开火）",
+      route13 is not None and route13.waypoints[-1].block == "I8"
+      and route13.waypoints[-1].shoot is False,
+      f"{[w.token for w in route13.waypoints] if route13 else None}")
+done13: dict | None = None
+entered_stop13 = False
+for _ in range(600):
+    rig13.step(1, drive=True)
+    if rig13.mission.phase == MissionPhase.STOP:
+        entered_stop13 = True
+    _snap = rig13.bb.get(M.P_CAR_STATE)
+    if isinstance(_snap, dict) and _snap.get("phase") == M.STEP_PHASE_SEGMENT_DONE:
+        done13 = dict(_snap)
+        break
+check("12.16 雷格段完成：P_CAR_STATE stop_kind='mine'、且**从未**进 STOP 三段式",
+      done13 is not None and done13.get("stop_kind") == "mine" and not entered_stop13
+      and done13.get("block") == "I8",
+      f"{done13} / entered_stop={entered_stop13}")
+rig13.close()
+
+# ---- 终点段：stop_kind='end'、不标 *、不停站 ----
+rig14 = Rig(cfg=cfg_of(reset="H9,x"))
+rig14.start(sim_layout(target="N5"))
+done14: dict | None = None
+entered_stop14 = False
+for _ in range(3000):
+    rig14.step(1, drive=True)
+    if rig14.mission.phase == MissionPhase.STOP:
+        entered_stop14 = True
+    _snap = rig14.bb.get(M.P_CAR_STATE)
+    if isinstance(_snap, dict) and _snap.get("phase") == M.STEP_PHASE_SEGMENT_DONE:
+        done14 = dict(_snap)
+        break
+rig14.step(1)
+check("12.17 终点段：stop_kind='end'、block=N5、FINISH，且从未进 STOP（终点不是打靶点）",
+      done14 is not None and done14.get("stop_kind") == "end"
+      and done14.get("block") == "N5" and not entered_stop14
+      and rig14.loop.phase == M.STEP_PHASE_FINISH,
+      f"{done14} / phase={rig14.loop.phase} / entered_stop={entered_stop14}")
+rig14.close()
+
+# ---- 空段（车已在目标格）：不走规划器也要如实报 shoot ----
+rig15 = Rig(cfg=cfg_of(reset="C9,x"))
+rig15.start(sim_layout(target="C9"))
+rig15.step(2)
+_done15 = [s for s in rig15.car_states
+           if s.get("phase") == M.STEP_PHASE_SEGMENT_DONE]
+check("12.18 空段（车已在 C9）也报 stop_kind='shoot'：机端不会把'已到位待打靶'当普通到达",
+      bool(_done15) and _done15[-1].get("stop_kind") == "shoot"
+      and _done15[-1].get("target_cell") == "C9"
+      and "空段" in str(_done15[-1].get("reason")),
+      str(_done15[-1] if _done15 else None))
+rig15.close()
 
 finish()

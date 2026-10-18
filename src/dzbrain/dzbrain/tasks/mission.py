@@ -158,7 +158,7 @@
   线程**投递段请求，本任务在 tick 开头（`_process_segment_requests`）才真正载入/发车
   —— 与外部 /nav/waypoint 命令同一模式，保证 route/阶段只被本线程改写。
   段结束时 `_check_finish()` 把完成单（segment_id / target_cell / block / pose_block /
-  known_count / elapsed_s）记进 `segment_status()["done"]`；**FINISH 锁存跨段必须解闩**
+  known_count / stop_kind / elapsed_s）记进 `segment_status()["done"]`；**FINISH 锁存跨段必须解闩**
   （`request_segment()` 接受请求时就清掉 done/error，任务线程起段时清 `_finish_latched`）。
   段规划器见 `plan_segment_route()`（点对点；未知格由 main 以 `blocked_extra` 传入）。
 """
@@ -205,7 +205,10 @@ __all__ = ["MissionTask", "MISSION_STATE_KEY", "plan_route_from_config", "resolv
            # 无人机桥洞情报（EV_BRIDGE_INFO → 穿洞格）
            "BRIDGE_HALVES", "BridgeIntel", "rewrite_crossing_tokens", "retag_block_token",
            # ★T27 步进循环的段规划（点对点；未知格由调用方作为 blocked_extra 传入）
-           "SegmentPlan", "plan_segment_route", "heading_dir_from_yaw"]
+           "SegmentPlan", "plan_segment_route", "heading_dir_from_yaw",
+           # ★T32 段末停站类型（shoot/mine/path/end）
+           "SEG_STOP_SHOOT", "SEG_STOP_MINE", "SEG_STOP_PATH", "SEG_STOP_END",
+           "SEG_STOP_KINDS", "stop_kind_for_cell"]
 
 #: 遥测键：Mission 的当前上下文（停站点/航点/用时）
 MISSION_STATE_KEY = "mission_state"
@@ -1092,6 +1095,79 @@ _SEG_TURN_W_M = 0.10
 #: 整线引擎的策略性硬否决在段规划里的降级代价（米）：足够大 ⇒ 有替代路就绕开
 _SEG_SOFT_BAN_COST_M = 2.0
 
+#: 段**末停站类型**（`SegmentPlan.stop_kind` / `P_CAR_STATE["stop_kind"]`）。
+#: ★ 与 t7 停站台账的 `STOP_KIND_END`（大写 `"END"`）**不是同一套值**：
+#:   台账那套回答"这条路线上的第 N 个停站点是什么角色"（SHOOT/SCAN/END）；
+#:   这套回答"这一段为什么在目标格停下"（机端 T28/T29 据此知道"停站完成"，
+#:   不再用 block 猜）。四态：
+#:   · `shoot` —— 目标格落在**射击窗口**内（T21 判据）⇒ 末 token 带 `*`，
+#:                MissionTask 到站后走 SETTLE→ACQUIRE→FIRE 三段式，打完才报段完成；
+#:   · `mine`  —— 目标格是**雷格**（车压过即可，不额外停站，**不标** `*`）；
+#:   · `path`  —— 普通路径点（纯路过）；
+#:   · `end`   —— 目标格 = 布局**终点**（FINISH，**不标** `*`）。
+#:   为什么单开小写一套：机端/协议只认这四态（docs/step_loop.md §3），与车内侧大写
+#:   台账混用会让"终点/射击停站"再次互相污染 —— t7 的 15:04 错账就是这么来的。
+SEG_STOP_SHOOT = "shoot"
+SEG_STOP_MINE = "mine"
+SEG_STOP_PATH = "path"
+SEG_STOP_END = "end"
+SEG_STOP_KINDS = (SEG_STOP_SHOOT, SEG_STOP_MINE, SEG_STOP_PATH, SEG_STOP_END)
+
+
+def _stop_kind_with_spec(spec: Any, cell: str, cfg: Any = None) -> tuple[str, float]:
+    """`MapSpec` 在手时的停站分类内核 → `(kind, 到靶板中心距离 m)`。
+
+    判据（与 T21 的 `route/planner.py` 完全同源，不立第二份真源）：
+      ① 到**靶板中心**（`plate_center_m`）的距离 ∈
+         `shoot_distance_window(_shoot_accept(cfg))`（现役 = 0.90 ± 0.12 ⇒ [0.78, 1.02]）；
+      ② 视线不被隔板挡（`barrier_sight_blocked`，含"靶板嵌在隔板上"的靶窗例外）；
+      ③ 不在障碍/靶板格里（靶板是实体，车不能站上去）。
+    "同侧"判据只在**选两个停站**（`second_shoot_stop`）时需要；本函数只回答
+    "这个目标格能不能打"，故不引入板面侧判据（那由任务层的停站策略决定）。
+    """
+    from ..route import planner as PL
+
+    name = str(cell or "").strip().upper().rstrip("*")
+    try:
+        geo.block_to_index(name)
+    except ValueError:
+        return SEG_STOP_PATH, 0.0
+    if spec.targets:
+        lo, hi = PL.shoot_distance_window(PL._shoot_accept(cfg))       # noqa: SLF001
+        ctr_x, ctr_y = PL.plate_center_m(spec)
+        x, y = geo.block_to_meters(name)
+        dist = math.hypot(x - ctr_x, y - ctr_y)
+        banned = set(spec.obstacles) | set(spec.targets)
+        if (name not in banned
+                and lo - 1e-9 <= dist <= hi + 1e-9
+                and not PL.barrier_sight_blocked(spec, (x, y), (ctr_x, ctr_y))):
+            return SEG_STOP_SHOOT, dist
+    if name in set(spec.mines):
+        return SEG_STOP_MINE, 0.0
+    return SEG_STOP_PATH, 0.0
+
+
+def stop_kind_for_cell(map_cfg: Any, cell: str, cfg: Any = None, *,
+                       end_cell: str = "") -> tuple[str, float]:
+    """段目标格 → `(stop_kind, 到靶板中心距离 m)`；**永不抛异常**。
+
+    `end_cell` 非空且命中 ⇒ 直接 `end`（终点优先：到 end 就 FINISH，绝不在终点停站打靶）。
+    地图坏了/格名非法 ⇒ 退 `("path", 0.0)`：段规划自己的错误处理已经在前，
+    这里绝不因为"分类失败"把一段本来能跑的路挡掉。
+    """
+    name = str(cell or "").strip().upper().rstrip("*")
+    if not name:
+        return SEG_STOP_PATH, 0.0
+    if end_cell and name == str(end_cell).strip().upper().rstrip("*"):
+        return SEG_STOP_END, 0.0
+    try:
+        from ..route import planner as PL
+
+        spec = PL.load_map(map_cfg, source="segment_stop_kind")
+        return _stop_kind_with_spec(spec, name, cfg)
+    except Exception:                                            # noqa: BLE001
+        return SEG_STOP_PATH, 0.0
+
 
 @dataclass
 class SegmentPlan:
@@ -1112,6 +1188,11 @@ class SegmentPlan:
     elapsed_ms: float = 0.0
     error: str = ""
     warnings: tuple[str, ...] = ()
+    #: ★T32 段末停站类型（`SEG_STOP_*`）—— 机端/遥测据此知道"这段为什么停"，
+    #: 不再用目标格名去猜。`shoot` 时末 token 已带 `*`（MissionTask 走三段式）。
+    stop_kind: str = SEG_STOP_PATH
+    #: 目标格到靶板中心的距离（米；非射击停站恒 0.0）—— 现场日志对账用
+    stop_distance_m: float = 0.0
 
     @property
     def single_cell(self) -> bool:
@@ -1184,9 +1265,15 @@ def plan_segment_route(map_cfg: Any, cfg: Any = None, *,
         goal = (grow + 1, gcol)
         out.from_cell = geo.index_to_block(srow, scol)
         out.target_cell = geo.index_to_block(grow, gcol)
+        # ★T32 段末停站类型：目标格落在射击窗口内 ⇒ `shoot`（末 token 将带 `*`）。
+        #   `end` 不在这里判（本函数的 map_cfg 只有 map.start/end=目标格，看不到布局终点），
+        #   由 main 的 `plan_segment_from_layout()` 按 layout["end"] 覆盖。
+        out.stop_kind, out.stop_distance_m = _stop_kind_with_spec(spec, out.target_cell, cfg)
         if start == goal:                              # 已站在目标格：空段（无需执行）
             out.ok = True
             out.cells = [out.from_cell]
+            # 空段不发车（main 直接判段完成），tokens 留空：1 个 token 不是"路线"，
+            #   而 Path 至少需要 2 点。stop_kind 仍如实带出（空段也能正确回报）。
             out.elapsed_ms = (time.perf_counter() - t0) * 1000.0
             return out
 
@@ -1303,6 +1390,11 @@ def plan_segment_route(map_cfg: Any, cfg: Any = None, *,
         cells.reverse()
         out.cells = [geo.index_to_block(r - 1, c) for r, c in cells]
         out.tokens = list(out.cells)
+        if out.stop_kind == SEG_STOP_SHOOT:
+            # ★T32：末 token 带 `*` ⇒ 任务层认它是**射击停站**（末点也允许，见
+            #   `_next_stop_candidate()`）：到站先走 SETTLE→ACQUIRE→FIRE，打完再判完赛。
+            #   纯格 token 会让"目标格 = 射击格"退化成普通航点（T29 0 停站的根因）。
+            out.tokens[-1] = out.tokens[-1] + "*"
         out.route_len_m = max(0.0, (len(cells) - 1) * geo.BLOCK_SIZE)
         out.cost = float(dist[goal_state])
         # ---- 自检（绝不把坏路线交给任务线程）----
@@ -1329,6 +1421,9 @@ def plan_segment_route(map_cfg: Any, cfg: Any = None, *,
             if not ok_turn:
                 soft.append(out.cells[i])
         warns: list[str] = []
+        if out.stop_kind == SEG_STOP_SHOOT and out.target_cell in set(spec.mines):
+            warns.append(f"目标格 {out.target_cell} 同时是雷格与射击停站 ⇒ 按射击停站处理"
+                         "（车站在雷上开火：压雷与打靶一次完成）")
         if turned_around:
             warns.append("起点车头朝向与首段相反（180°）⇒ 已按「允许原地转向」重规划："
                          "车会先转头/小圆弧掉头，请确认该格前方约有 0.3 m 空间")
@@ -1579,6 +1674,10 @@ class MissionTask(TaskThread):
         self._segment_id = 0
         self._segment_target = ""
         self._segment_known = 0
+        #: ★T32 段末停站类型（`SEG_STOP_*`）：由 `request_segment(stop_kind=...)` 带入，
+        #: 完成单原样回报给 StepLoop → `P_CAR_STATE["stop_kind"]`（机端据此知道
+        #: "这一段的停站是射击/压雷/路过/终点"，不再用 block 猜）。
+        self._segment_stop_kind = ""
         self._segment_done: dict[str, Any] | None = None
         self._segment_error = ""
 
@@ -1688,7 +1787,8 @@ class MissionTask(TaskThread):
     #  ★T27 步进循环接口：主线程投递段任务，任务线程在 tick 里执行
     # ------------------------------------------------------------------ #
     def request_segment(self, tokens, *, segment_id: int = 0, target_cell: str = "",
-                        known_count: int = 0, source: str = "step") -> dict[str, Any]:
+                        known_count: int = 0, source: str = "step",
+                        stop_kind: str = "") -> dict[str, Any]:
         """请求执行一段路线（**线程安全**；tick 开头才真正载入/发车）。
 
         拒绝条件（返回 accepted=False + reason，调用方据此 WAIT_INFO 重试）：
@@ -1703,7 +1803,9 @@ class MissionTask(TaskThread):
             return {"accepted": False, "reason": "段路线为空"}
         req = {"tokens": toks, "segment_id": int(segment_id),
                "target_cell": str(target_cell).strip().upper(),
-               "known_count": int(known_count), "source": str(source)}
+               "known_count": int(known_count), "source": str(source),
+               # ★T32 段末停站类型（shoot/mine/path/end）：随完成单回报给机端
+               "stop_kind": str(stop_kind or "")}
         with self._segment_lock:
             if self._segment_req is not None:
                 return {"accepted": False, "reason": "上一段请求尚未被任务线程取走"}
@@ -1730,6 +1832,8 @@ class MissionTask(TaskThread):
                     "segment_id": int(self._segment_id),
                     "target_cell": str(self._segment_target),
                     "known_count": int(self._segment_known),
+                    # ★T32 段末停站类型（运行期与完成单同源：都由请求带入）
+                    "stop_kind": str(self._segment_stop_kind),
                     "done": done, "error": str(self._segment_error),
                     "phase": self._phase}
 
@@ -1748,6 +1852,7 @@ class MissionTask(TaskThread):
             if self._segment_active:
                 self._segment_active = False
                 self._segment_error = f"段被终止：{stop}"
+            self._segment_stop_kind = ""
             self._clear_route(f"段停止（{stop}）")
             self._write_phase(MissionPhase.IDLE)
             try:
@@ -1761,6 +1866,7 @@ class MissionTask(TaskThread):
         self._segment_id = int(req["segment_id"])
         self._segment_target = str(req["target_cell"])
         self._segment_known = int(req["known_count"])
+        self._segment_stop_kind = str(req.get("stop_kind") or "")
         self._segment_error = ""
         try:
             # ★ 段边界 = 新的轮次：清掉上一段的终点锁存，否则本段永远判不到 FINISH
@@ -1774,6 +1880,7 @@ class MissionTask(TaskThread):
             self._start_mission()
             self._log(f"▶ 段 {self._segment_id} 开始：{len(req['tokens'])} 点 / "
                       f"目标 {self._segment_target} / known {self._segment_known} 格 / "
+                      f"停站 {self._segment_stop_kind or '未标注'} / "
                       f"来源 {req['source']}")
         except Exception as exc:                       # noqa: BLE001  ★ 段坏路线绝不崩
             self._segment_active = False
@@ -2821,12 +2928,19 @@ class MissionTask(TaskThread):
         `END` = **末点**：它也在 `_stop_s` 里（终点减速/到点判定的锚），但
         `_next_stop_candidate()` 明确把它排除在三段式停站之外（由 FINISH 处理）——
         所以台账必须把它与"打靶停站"分开，否则现场会把终点误读成第二个射击停站。
+
+        ★T32 例外：末点**带 `*`**（`wp.shoot`）时它确实是一个射击停站（步进循环的段
+        目标常是射击格）⇒ 台账记 `SHOOT`，同时 `_next_stop_candidate()` 也允许它
+        进三段式（见两处注释）。无 `*` 的末点仍是 `END`（行为与 t7 完全一致）。
         """
         last = len(route) - 1
         kinds: dict[int, str] = {}
         for idx in sorted(self._stop_s):
             wp = route[idx] if 0 <= idx < len(route) else None
-            if idx == last:
+            if idx == last and not (wp is not None and wp.shoot):
+                # ★T32：末点**带 `*`** 时它真的是一个射击停站（步进循环的段目标常是
+                #   射击格）⇒ 台账要如实记 SHOOT，否则又会把"打了靶的那一站"漏记成
+                #   "终点"（t7 的 15:04 错账正是这一类）。无 `*` 的末点仍记 END。
                 kinds[idx] = STOP_KIND_END
             elif wp is not None and wp.shoot:
                 kinds[idx] = StopKind.SHOOT
@@ -3220,20 +3334,34 @@ class MissionTask(TaskThread):
         self._stall_block_logged = False
 
     def _next_stop_candidate(self) -> int | None:
-        """下一个需要停车的停站点索引；**末点不算停站点**。
+        """下一个需要停车的停站点索引；**末点默认不算停站点**。
 
         ★ 末点虽然也在 `_stop_s` 里（它是"终点减速/终点判定"的锚），但它由 `FINISH`
           处理，绝不能进三段式停站流程 —— 否则终点会被当成一个打靶点停在那里。
+        ★ T32 例外：末点**显式带 `*`**（`wp.shoot`）时，它就是一个真·射击停站 ——
+          步进循环的段目标常是射击格（段 = "开到 C9 打一枪"）。此时先停站打靶，
+          打完 `_close_stop_point()` 回 DRIVE，下一拍 `_check_finish()` 再判完赛
+          （停站进行中由 `_check_finish` 的守卫挡住，不会被提前结算）。
         """
         last = self._waypoint_count - 1
+        route = self._route
         for idx in sorted(self._stop_s):
+            trailing_shoot = False
             if idx == last:
-                continue
+                wp = route[idx] if (route is not None and idx < len(route)) else None
+                trailing_shoot = bool(wp is not None and wp.shoot)
+                if not trailing_shoot:              # 终点（无 *）仍交给 FINISH
+                    continue
             if idx in self._handled_stops:
                 continue
             # ★ 经 PIVOT 通知判到达的停站点**不**跳过：它还没走三段式停站
             #   （`_should_trigger_stop` 里同样的通知会让它立刻触发进站）。
-            if idx < len(self._passed) and self._passed[idx] and idx not in self._passed_by_pivot:
+            # ★T32：末点射击停站**也不**因 `_passed` 跳过 —— `_advance_waypoints` 在
+            #   s 跳变/贴近时会先把末点标 passed，但车还没停站打靶；按原判据跳过就是
+            #   "目标格是射击格却不停站"的第二个根因。它由 `_should_trigger_stop` 触
+            #   发，打完 `_close_stop_point()` 后进 `_handled_stops` 自然不再返回。
+            if (not trailing_shoot) and idx < len(self._passed) \
+                    and self._passed[idx] and idx not in self._passed_by_pivot:
                 continue
             return idx
         return None
@@ -3596,6 +3724,11 @@ class MissionTask(TaskThread):
             return
         if self._phase in (MissionPhase.IDLE, MissionPhase.SAFE_STOP):
             return
+        # ★T32：末点带 `*` 时"到站打靶"必须先于"判完赛"—— 停站三段式还在跑就
+        #   先别结算（否则一到末点就 FINISH，射击停站被砍成 0 段）。打完回 DRIVE 后
+        #   本函数据下一个 tick 的末点判据照常锁存 FINISH。
+        if self._stopctx is not None and self._stopctx.active:
+            return
         last = len(route) - 1
         self._advance_waypoints()                   # 先补最后一次推进（末点也要报到达）
         s = self._current_s()
@@ -3627,6 +3760,9 @@ class MissionTask(TaskThread):
                 "block": route.waypoints[last].block,
                 "pose_block": pose_block,
                 "known_count": int(self._segment_known),
+                # ★T32 段末停站类型 → StepLoop 写进 P_CAR_STATE（机端据此知道
+                #   "这条段的停站是打靶/压雷/路过/终点"，不再用 block 猜）
+                "stop_kind": str(self._segment_stop_kind or ""),
                 "elapsed_s": round(elapsed, 2),
                 "waypoints": len(route),
                 "finished_at": round(float(self._clock()), 3),
@@ -3636,7 +3772,8 @@ class MissionTask(TaskThread):
                 self._segment_active = False
                 self._segment_done = done
             self._log(f"■ 段 {done['segment_id']} 完成：停在 {done['block']}"
-                      f"（belief {pose_block or '?'} / 用时 {done['elapsed_s']:.2f}s / "
+                      f"（停站 {done['stop_kind'] or '未标注'} / belief {pose_block or '?'}"
+                      f" / 用时 {done['elapsed_s']:.2f}s / "
                       f"{done['waypoints']} 点 / known {done['known_count']} 格）")
         self._write_phase(MissionPhase.FINISH)
         self.bridge.publish_brake()
