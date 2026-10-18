@@ -63,7 +63,16 @@ if ($Pinyin -notmatch '^[a-z][a-z0-9-]*$') {
     Fail "拼音分支标识格式不对：'$Pinyin'（只能小写字母/数字/连字符，且字母开头）"
 }
 if (-not $Email) { $Email = "$Pinyin@air-ground.team" }
-if (-not $TargetDir) { $TargetDir = Join-Path (Get-Location) "air_ground" }
+if (-not $TargetDir) {
+    # 私有仓推荐流：先 git clone（弹 Gitee 登录）→ 在仓库内跑本脚本 → 自动复用本仓库
+    $scriptRepo = Join-Path $PSScriptRoot ".."
+    if ((Split-Path -Leaf $PSScriptRoot) -eq "tools" -and (Test-Path (Join-Path $scriptRepo ".git"))) {
+        $TargetDir = (Resolve-Path $scriptRepo).Path
+        Write-Host "[提示] 检测到本脚本在仓库内运行，直接复用本仓库：$TargetDir"
+    } else {
+        $TargetDir = Join-Path (Get-Location) "air_ground"
+    }
+}
 $Branch = "members/$Pinyin"
 
 Write-Host "[1/6] 队员：$Name    分支：$Branch    署名：$Name <$Email>"
