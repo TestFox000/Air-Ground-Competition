@@ -1,0 +1,46 @@
+{
+  "note": "冻结区门禁配置：frozen 为受保护路径；in_flight 为已登记的在途改动（过期即红）。",
+  "frozen": [
+    "src/dzbrain/dzbrain/**",
+    "src/dzrknn_dataprocess/**",
+    "config/**",
+    "tools/deploy_to_car.py"
+  ],
+  "in_flight": [
+    {
+      "path": "config/robot.yaml",
+      "card": "aim-tune-1018",
+      "owner": "lead",
+      "reason": "移动靶 PID 整定 kp2.5/ki0.35/kd0/pg0.3",
+      "expires": "2026-10-20"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/core/config.py",
+      "card": "v4.0-closeout",
+      "owner": "schema-owner",
+      "reason": "★2026-10-18 现场 pose_stale 事故修复：新增 step.pose_ready_wait_s / step.odom_watch_s 两个键（位姿就绪门 + 运行期看门狗）",
+      "expires": "2026-10-20"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/io/ros_io.py",
+      "card": "v4.0-closeout",
+      "owner": "schema-owner",
+      "reason": "★2026-10-18 现场事故修复：REQUIRED_SUBSCRIPTIONS 单一清单 + 启动自检计数（判断“决策层站在图里没有”）",
+      "expires": "2026-10-20"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/main.py",
+      "card": "v4.0-closeout",
+      "owner": "schema-owner",
+      "reason": "★2026-10-18 现场事故修复：退出码 5（ROS 图/位姿未就绪）+ STEP_PHASE_ROS_LOST 运行期看门狗",
+      "expires": "2026-10-20"
+    },
+    {
+      "path": "src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp",
+      "card": "gimbal-patch",
+      "owner": "aim-tuner",
+      "reason": "云台类别锁跨短暂丢失保留（A2/F9 永不开火根因），含锁定日志；**未上车验证**",
+      "expires": "2026-10-20"
+    }
+  ]
+}
