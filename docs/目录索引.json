@@ -1,0 +1,1838 @@
+[
+ {
+  "path": ".zhiyuan",
+  "type": "dir",
+  "size": 39986,
+  "mtime": "2026-10-16 18:49",
+  "status": "配置",
+  "owner": "未认领",
+  "note": "本地工具配置（39KB）；待认领"
+ },
+ {
+  "path": "_archive",
+  "type": "dir",
+  "size": 25657260,
+  "mtime": "2026-10-18 20:10",
+  "status": "归档",
+  "owner": "团队",
+  "note": "已归档证据（reborn/TestFox 差异/旧配置）"
+ },
+ {
+  "path": "_tmp_session",
+  "type": "dir",
+  "size": 721153777,
+  "mtime": "2026-10-18 20:07",
+  "status": "临时",
+  "owner": "团队",
+  "note": "跨任务临时区；活跃目录见下表"
+ },
+ {
+  "path": "air_ground_models",
+  "type": "dir",
+  "size": 53800544,
+  "mtime": "2026-10-18 15:11",
+  "status": "素材",
+  "owner": "无人机",
+  "note": "ONNX 模型"
+ },
+ {
+  "path": "docs",
+  "type": "dir",
+  "size": 387079,
+  "mtime": "2026-10-18 18:58",
+  "status": "文档",
+  "owner": "Lead",
+  "note": "工作区级文档"
+ },
+ {
+  "path": "drone_recordings",
+  "type": "dir",
+  "size": 28755069,
+  "mtime": "2026-10-17 20:50",
+  "status": "证据",
+  "owner": "无人机",
+  "note": "飞行记录"
+ },
+ {
+  "path": "dsh-dzairground-ssh",
+  "type": "dir",
+  "size": 1568955,
+  "mtime": "2026-10-17 21:45",
+  "status": "活跃",
+  "owner": "sim-dev",
+  "note": "无人机 SSH 插件"
+ },
+ {
+  "path": "dzrobot_v2",
+  "type": "dir",
+  "size": 2761447403,
+  "mtime": "2026-10-18 20:10",
+  "status": "核心",
+  "owner": "Lead",
+  "note": "车端决策层仓库（唯一真源）"
+ },
+ {
+  "path": "dzsmartscout",
+  "type": "dir",
+  "size": 216929628,
+  "mtime": "2026-10-16 20:54",
+  "status": "仓库",
+  "owner": "无人机",
+  "note": "无人机侧仓库"
+ },
+ {
+  "path": "tools",
+  "type": "dir",
+  "size": 20062,
+  "mtime": "2026-10-18 18:49",
+  "status": "工具",
+  "owner": "团队",
+  "note": "工作区级工具"
+ },
+ {
+  "path": ".gitattributes",
+  "type": "file",
+  "size": 66,
+  "mtime": "2026-10-17 10:29",
+  "status": "规范",
+  "owner": "团队",
+  "note": "换行/属性规范"
+ },
+ {
+  "path": ".gitignore",
+  "type": "file",
+  "size": 339,
+  "mtime": "2026-10-18 09:57",
+  "status": "规范",
+  "owner": "团队",
+  "note": "git 忽略规则"
+ },
+ {
+  "path": ".gitmodules",
+  "type": "file",
+  "size": 285,
+  "mtime": "2026-10-18 10:34",
+  "status": "规范",
+  "owner": "团队",
+  "note": "子模块声明"
+ },
+ {
+  "path": "AGENTS.md",
+  "type": "file",
+  "size": 3254,
+  "mtime": "2026-10-18 20:14",
+  "status": "规范",
+  "owner": "Lead",
+  "note": "项目工作流 v2（全员强制）"
+ },
+ {
+  "path": "dzrobot_v2/_backups",
+  "type": "dir",
+  "size": 78208,
+  "mtime": "2026-10-15 20:46",
+  "status": "历史",
+  "owner": "团队",
+  "note": "小体量旧备份目录；可归档"
+ },
+ {
+  "path": "dzrobot_v2/_scratch_aim",
+  "type": "dir",
+  "size": 81861,
+  "mtime": "2026-10-12 18:02",
+  "status": "临时",
+  "owner": "团队",
+  "note": "旧实验草稿；可归档"
+ },
+ {
+  "path": "dzrobot_v2/_scratch_auto_plan",
+  "type": "dir",
+  "size": 920346,
+  "mtime": "2026-10-12 18:02",
+  "status": "临时",
+  "owner": "团队",
+  "note": "旧实验草稿；可归档"
+ },
+ {
+  "path": "dzrobot_v2/_scratch_displayfix",
+  "type": "dir",
+  "size": 323658,
+  "mtime": "2026-10-12 18:02",
+  "status": "临时",
+  "owner": "团队",
+  "note": "旧实验草稿；可归档"
+ },
+ {
+  "path": "dzrobot_v2/_scratch_scout",
+  "type": "dir",
+  "size": 12996811,
+  "mtime": "2026-10-18 19:24",
+  "status": "临时",
+  "owner": "团队",
+  "note": "旧实验草稿；可归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session",
+  "type": "dir",
+  "size": 139780917,
+  "mtime": "2026-10-18 20:13",
+  "status": "临时",
+  "owner": "团队",
+  "note": "任务草稿；过期归档到 _archive"
+ },
+ {
+  "path": "dzrobot_v2/artifacts",
+  "type": "dir",
+  "size": 240388606,
+  "mtime": "2026-10-12 18:01",
+  "status": "证据",
+  "owner": "团队",
+  "note": "仿真/实跑证据；stress 为当前基线，旧快照已清"
+ },
+ {
+  "path": "dzrobot_v2/backup",
+  "type": "dir",
+  "size": 71855132,
+  "mtime": "2026-10-18 20:10",
+  "status": "归档",
+  "owner": "团队",
+  "note": "v3.9/v3.9.1/v3.9.2 bundle + src_v1 归档；不放 2GB 副本"
+ },
+ {
+  "path": "dzrobot_v2/config",
+  "type": "dir",
+  "size": 389517,
+  "mtime": "2026-10-18 20:12",
+  "status": "冻结",
+  "owner": "Lead",
+  "note": "统一配置中心；cleanup 未动；与车端第七张图不同步（注意）"
+ },
+ {
+  "path": "dzrobot_v2/docs",
+  "type": "dir",
+  "size": 1276150,
+  "mtime": "2026-10-18 20:15",
+  "status": "核心",
+  "owner": "Lead",
+  "note": "决策台账/复用清单/工作流/目录索引/现状报告"
+ },
+ {
+  "path": "dzrobot_v2/dsh-plugin-dzrobot-ssh",
+  "type": "dir",
+  "size": 1580899,
+  "mtime": "2026-10-18 19:32",
+  "status": "活跃",
+  "owner": "sim-dev",
+  "note": "仿真台插件；在途改动"
+ },
+ {
+  "path": "dzrobot_v2/models",
+  "type": "dir",
+  "size": 8487541,
+  "mtime": "2026-10-12 18:02",
+  "status": "素材",
+  "owner": "团队",
+  "note": "RKNN/模型文件（8.1MB）"
+ },
+ {
+  "path": "dzrobot_v2/src",
+  "type": "dir",
+  "size": 2259053278,
+  "mtime": "2026-10-17 11:42",
+  "status": "核心",
+  "owner": "schema-owner",
+  "note": "车端源码（V1 旧树已删；归档 backup/archive_src_v1_20261018.tar.gz）"
+ },
+ {
+  "path": "dzrobot_v2/tools",
+  "type": "dir",
+  "size": 842440,
+  "mtime": "2026-10-18 19:52",
+  "status": "核心",
+  "owner": "团队",
+  "note": "route_check / sim_map_render / deploy_to_car / wf"
+ },
+ {
+  "path": "dzrobot_v2/.git_v37_msg.txt",
+  "type": "file",
+  "size": 890,
+  "mtime": "2026-10-16 19:16",
+  "status": "历史",
+  "owner": "团队",
+  "note": "旧提交信息草稿"
+ },
+ {
+  "path": "dzrobot_v2/.gitattributes",
+  "type": "file",
+  "size": 416,
+  "mtime": "2026-10-07 10:01",
+  "status": "规范",
+  "owner": "团队",
+  "note": "换行/属性规范"
+ },
+ {
+  "path": "dzrobot_v2/.gitignore",
+  "type": "file",
+  "size": 1122,
+  "mtime": "2026-10-17 08:56",
+  "status": "规范",
+  "owner": "团队",
+  "note": "git 忽略规则"
+ },
+ {
+  "path": "dzrobot_v2/_baseline_regression_after_fix.txt",
+  "type": "file",
+  "size": 3776,
+  "mtime": "2026-10-17 16:20",
+  "status": "历史",
+  "owner": "团队",
+  "note": "旧回归基线"
+ },
+ {
+  "path": "dzrobot_v2/_baseline_regression_before.txt",
+  "type": "file",
+  "size": 5292,
+  "mtime": "2026-10-17 16:14",
+  "status": "历史",
+  "owner": "团队",
+  "note": "旧回归基线"
+ },
+ {
+  "path": "dzrobot_v2/_run_full_regression.py",
+  "type": "file",
+  "size": 2035,
+  "mtime": "2026-10-16 18:13",
+  "status": "历史",
+  "owner": "团队",
+  "note": "旧全量回归脚本（已被 33 套件取代）"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_test_stepper.log",
+  "type": "file",
+  "size": 16282,
+  "mtime": "2026-10-18 13:14",
+  "status": "临时",
+  "owner": "团队",
+  "note": "StepLoop 测试日志（在途）"
+ },
+ {
+  "path": "dzrobot_v2/dzros.env",
+  "type": "file",
+  "size": 1142,
+  "mtime": "2026-10-09 19:08",
+  "status": "核心",
+  "owner": "车端",
+  "note": "ROS 域号唯一真源（118）"
+ },
+ {
+  "path": "dzrobot_v2/monitor_aim.sh",
+  "type": "file",
+  "size": 1864,
+  "mtime": "2026-10-03 14:27",
+  "status": "工具",
+  "owner": "云台",
+  "note": "自瞄实时监控"
+ },
+ {
+  "path": "dzrobot_v2/start_all.sh",
+  "type": "file",
+  "size": 12451,
+  "mtime": "2026-10-17 08:56",
+  "status": "核心",
+  "owner": "车端",
+  "note": "车端起栈入口（7 步）；勿随意改"
+ },
+ {
+  "path": "dzrobot_v2/src/.vscode",
+  "type": "dir",
+  "size": 2061,
+  "mtime": "2026-10-12 18:02",
+  "status": "配置",
+  "owner": "团队",
+  "note": "编辑器配置"
+ },
+ {
+  "path": "dzrobot_v2/src/car_localization",
+  "type": "dir",
+  "size": 278290,
+  "mtime": "2026-10-12 18:02",
+  "status": "活跃",
+  "owner": "aim-tuner",
+  "note": "定位/串口读取（Python 包）"
+ },
+ {
+  "path": "dzrobot_v2/src/dzactuator",
+  "type": "dir",
+  "size": 116510,
+  "mtime": "2026-10-12 18:02",
+  "status": "活跃",
+  "owner": "底盘",
+  "note": "底盘驱动 C++ 包"
+ },
+ {
+  "path": "dzrobot_v2/src/dzbrain",
+  "type": "dir",
+  "size": 5843440,
+  "mtime": "2026-10-12 18:02",
+  "status": "冻结",
+  "owner": "schema-owner",
+  "note": "dzbrain 决策层；改动前登记 tools/wf/frozen.json in_flight"
+ },
+ {
+  "path": "dzrobot_v2/src/dzjudgment",
+  "type": "dir",
+  "size": 22812,
+  "mtime": "2026-10-12 18:02",
+  "status": "活跃",
+  "owner": "裁判",
+  "note": "射击/裁判 C++ 包"
+ },
+ {
+  "path": "dzrobot_v2/src/dzrknn_dataprocess",
+  "type": "dir",
+  "size": 115148,
+  "mtime": "2026-10-12 18:02",
+  "status": "冻结",
+  "owner": "aim-tuner",
+  "note": "云台/视觉 C++ 包；冻结"
+ },
+ {
+  "path": "dzrobot_v2/src/history",
+  "type": "dir",
+  "size": 2232292695,
+  "mtime": "2026-10-14 19:59",
+  "status": "历史",
+  "owner": "团队",
+  "note": "会话日志 + 附加资源（2.1GB 唯一素材副本）"
+ },
+ {
+  "path": "dzrobot_v2/src/naviPointPath",
+  "type": "dir",
+  "size": 36410,
+  "mtime": "2026-10-12 18:02",
+  "status": "历史",
+  "owner": "团队",
+  "note": "旧路径点"
+ },
+ {
+  "path": "dzrobot_v2/src/rknn_pt",
+  "type": "dir",
+  "size": 16585734,
+  "mtime": "2026-10-12 18:02",
+  "status": "素材",
+  "owner": "视觉",
+  "note": "RKNN 检测源码/库"
+ },
+ {
+  "path": "dzrobot_v2/src/rviz",
+  "type": "dir",
+  "size": 26742,
+  "mtime": "2026-10-12 18:02",
+  "status": "素材",
+  "owner": "团队",
+  "note": "RViz 配置"
+ },
+ {
+  "path": "dzrobot_v2/src/todo",
+  "type": "dir",
+  "size": 3662043,
+  "mtime": "2026-10-12 18:02",
+  "status": "历史",
+  "owner": "团队",
+  "note": "旧待办/交接"
+ },
+ {
+  "path": "dzrobot_v2/src/dzrknn_dataprocess.zip",
+  "type": "file",
+  "size": 34845,
+  "mtime": "2026-10-17 11:42",
+  "status": "归档",
+  "owner": "视觉",
+  "note": "旧包压缩副本；可归档"
+ },
+ {
+  "path": "dzrobot_v2/src/readme.txt",
+  "type": "file",
+  "size": 36548,
+  "mtime": "2026-10-03 14:27",
+  "status": "文档",
+  "owner": "团队",
+  "note": "源码目录说明"
+ },
+ {
+  "path": "dzrobot_v2/docs/agent_archive",
+  "type": "dir",
+  "size": 89929,
+  "mtime": "2026-10-15 21:18",
+  "status": "历史",
+  "owner": "团队",
+  "note": "旧会话/审计归档"
+ },
+ {
+  "path": "dzrobot_v2/docs/agent_archive.md",
+  "type": "file",
+  "size": 6955,
+  "mtime": "2026-10-17 16:48",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/C线_仿真器报告.md",
+  "type": "file",
+  "size": 20398,
+  "mtime": "2026-10-07 15:17",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/n6_规划器隔板避让能力.md",
+  "type": "file",
+  "size": 19094,
+  "mtime": "2026-10-11 13:42",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/P0接口约定.md",
+  "type": "file",
+  "size": 11008,
+  "mtime": "2026-10-17 16:52",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/P1接口约定.md",
+  "type": "file",
+  "size": 8071,
+  "mtime": "2026-10-07 10:20",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/sim-bench-free_交接清单_20261015.md",
+  "type": "file",
+  "size": 10170,
+  "mtime": "2026-10-15 22:15",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/sim-bench-improve_交接清单_20261014.md",
+  "type": "file",
+  "size": 16042,
+  "mtime": "2026-10-15 17:12",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/sim_v2_规格增补.md",
+  "type": "file",
+  "size": 6571,
+  "mtime": "2026-10-16 21:05",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/sim_v2_设计规格.md",
+  "type": "file",
+  "size": 22545,
+  "mtime": "2026-10-16 20:23",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/step_loop.md",
+  "type": "file",
+  "size": 5284,
+  "mtime": "2026-10-18 13:46",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/StepLoop_实车首跑_20261018.md",
+  "type": "file",
+  "size": 3787,
+  "mtime": "2026-10-18 20:06",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/survey_chassis_vision.md",
+  "type": "file",
+  "size": 40052,
+  "mtime": "2026-10-07 10:04",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/survey_gimbal_fire.md",
+  "type": "file",
+  "size": 29311,
+  "mtime": "2026-10-09 17:02",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/survey_path_executor.md",
+  "type": "file",
+  "size": 35321,
+  "mtime": "2026-10-07 10:02",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/三引擎审计_20261018.md",
+  "type": "file",
+  "size": 10593,
+  "mtime": "2026-10-18 20:01",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/上下文快照.md",
+  "type": "file",
+  "size": 11515,
+  "mtime": "2026-10-17 16:47",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/云台补丁说明.md",
+  "type": "file",
+  "size": 7194,
+  "mtime": "2026-10-09 17:02",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/仿真台_插件交付.md",
+  "type": "file",
+  "size": 17928,
+  "mtime": "2026-10-18 19:33",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/仿真台对接说明_仿真员.md",
+  "type": "file",
+  "size": 7278,
+  "mtime": "2026-10-15 22:17",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/仿真员工作交接包.md",
+  "type": "file",
+  "size": 20766,
+  "mtime": "2026-10-17 16:52",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/仿真基线_三档对照.md",
+  "type": "file",
+  "size": 13831,
+  "mtime": "2026-10-12 21:06",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/仿真复验_桥洞冗余墙_t5.md",
+  "type": "file",
+  "size": 13063,
+  "mtime": "2026-10-16 20:20",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/仿真复验_第五张图44token基线_t2.md",
+  "type": "file",
+  "size": 27824,
+  "mtime": "2026-10-17 16:50",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/仿真联合复验_t6.md",
+  "type": "file",
+  "size": 18970,
+  "mtime": "2026-10-17 16:49",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/使用手册.md",
+  "type": "file",
+  "size": 14145,
+  "mtime": "2026-10-17 16:52",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/决策台账.md",
+  "type": "file",
+  "size": 4655,
+  "mtime": "2026-10-18 20:11",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/发车门禁口径.md",
+  "type": "file",
+  "size": 22417,
+  "mtime": "2026-10-17 19:20",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/回归守护_known_reds.md",
+  "type": "file",
+  "size": 25030,
+  "mtime": "2026-10-17 16:54",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/图传UI改造_t4_验收.md",
+  "type": "file",
+  "size": 10586,
+  "mtime": "2026-10-11 17:25",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/备份清理记录.md",
+  "type": "file",
+  "size": 10412,
+  "mtime": "2026-10-17 16:35",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/复用清单.md",
+  "type": "file",
+  "size": 3040,
+  "mtime": "2026-10-18 20:14",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/审查_路径规划器v3.7对比.md",
+  "type": "file",
+  "size": 5841,
+  "mtime": "2026-10-18 19:51",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/工作流v2.md",
+  "type": "file",
+  "size": 5509,
+  "mtime": "2026-10-18 20:14",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/循迹算法说明.md",
+  "type": "file",
+  "size": 42679,
+  "mtime": "2026-10-17 16:52",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/新版小车报告.md",
+  "type": "file",
+  "size": 43421,
+  "mtime": "2026-10-09 19:38",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/新版架构设计.md",
+  "type": "file",
+  "size": 32701,
+  "mtime": "2026-10-11 10:42",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/无人机全要素感知_现状与方案.md",
+  "type": "file",
+  "size": 42030,
+  "mtime": "2026-10-17 16:52",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/无人机拟真与动态规划_方案.md",
+  "type": "file",
+  "size": 16297,
+  "mtime": "2026-10-17 09:32",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/机侧产物哈希清单.md",
+  "type": "file",
+  "size": 17765,
+  "mtime": "2026-10-12 21:48",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/标定需求卡.md",
+  "type": "file",
+  "size": 16140,
+  "mtime": "2026-10-11 14:03",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/清理记录_20261018.md",
+  "type": "file",
+  "size": 5514,
+  "mtime": "2026-10-18 20:15",
+  "status": "核心",
+  "owner": "forensics",
+  "note": "2026-10-18 本地删减归档执行与复核（含未处理项）"
+ },
+ {
+  "path": "dzrobot_v2/docs/版本号台账.md",
+  "type": "file",
+  "size": 11350,
+  "mtime": "2026-10-17 16:48",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/目录索引.json",
+  "type": "file",
+  "size": 46842,
+  "mtime": "2026-10-18 20:14",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/目录索引.md",
+  "type": "file",
+  "size": 28363,
+  "mtime": "2026-10-18 20:14",
+  "status": "核心",
+  "owner": "团队",
+  "note": "本文件（自动生成，勿手改）"
+ },
+ {
+  "path": "dzrobot_v2/docs/空地指挥链路_协议与运行手册.md",
+  "type": "file",
+  "size": 41118,
+  "mtime": "2026-10-17 19:03",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/算法归纳规则.md",
+  "type": "file",
+  "size": 9798,
+  "mtime": "2026-10-11 13:24",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/精简审计清单.md",
+  "type": "file",
+  "size": 11279,
+  "mtime": "2026-10-17 16:25",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/索引标注.yaml",
+  "type": "file",
+  "size": 7331,
+  "mtime": "2026-10-18 20:15",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/联合复审_t7.md",
+  "type": "file",
+  "size": 22202,
+  "mtime": "2026-10-17 16:54",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/诊断_投影与顶点.md",
+  "type": "file",
+  "size": 8416,
+  "mtime": "2026-10-09 17:44",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/语音模块调研.md",
+  "type": "file",
+  "size": 32442,
+  "mtime": "2026-10-11 21:14",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/路径规划报告.md",
+  "type": "file",
+  "size": 12230,
+  "mtime": "2026-10-11 11:55",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/路线加固盘点与候选方案.md",
+  "type": "file",
+  "size": 22254,
+  "mtime": "2026-10-11 13:17",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/车上自动规划_A_基线验收.md",
+  "type": "file",
+  "size": 25621,
+  "mtime": "2026-10-17 16:50",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/车上自动规划_B_MissionTask自动规划.md",
+  "type": "file",
+  "size": 36369,
+  "mtime": "2026-10-17 16:50",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/车上自动规划_C_规划器无倒车.md",
+  "type": "file",
+  "size": 28050,
+  "mtime": "2026-10-17 16:50",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/进度总结.md",
+  "type": "file",
+  "size": 13541,
+  "mtime": "2026-10-09 18:38",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/部署清单_2026-10-11.md",
+  "type": "file",
+  "size": 4680,
+  "mtime": "2026-10-17 16:50",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/阶段交接_复核.md",
+  "type": "file",
+  "size": 15520,
+  "mtime": "2026-10-09 19:26",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/阶段总结_出车就绪.md",
+  "type": "file",
+  "size": 14033,
+  "mtime": "2026-10-09 19:20",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/项目总览_架构与工作流报告.md",
+  "type": "file",
+  "size": 32198,
+  "mtime": "2026-10-17 16:54",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "dzrobot_v2/docs/项目现状_20261018.md",
+  "type": "file",
+  "size": 20702,
+  "mtime": "2026-10-18 16:49",
+  "status": "核心",
+  "owner": "Lead",
+  "note": "当前项目现状（最新）"
+ },
+ {
+  "path": "dzrobot_v2/docs/黑图探索与动态规划_决策层方案.md",
+  "type": "file",
+  "size": 40129,
+  "mtime": "2026-10-17 16:51",
+  "status": "文档",
+  "owner": "团队",
+  "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
+ },
+ {
+  "path": "_tmp_session/aim_audit",
+  "type": "dir",
+  "size": 55455,
+  "mtime": "2026-10-18 17:42",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/aim_fix",
+  "type": "dir",
+  "size": 10800,
+  "mtime": "2026-10-18 18:35",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/aim_step2",
+  "type": "dir",
+  "size": 67012,
+  "mtime": "2026-10-18 17:54",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/aim_step3",
+  "type": "dir",
+  "size": 155619,
+  "mtime": "2026-10-18 18:02",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/aim_step4",
+  "type": "dir",
+  "size": 12155,
+  "mtime": "2026-10-18 18:23",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/aim_tune",
+  "type": "dir",
+  "size": 710569,
+  "mtime": "2026-10-18 17:21",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/aimdoc",
+  "type": "dir",
+  "size": 30564,
+  "mtime": "2026-10-18 17:23",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/air_ground_仓库报告_20261018.md",
+  "type": "file",
+  "size": 8212,
+  "mtime": "2026-10-18 14:45",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/audit_20261018",
+  "type": "dir",
+  "size": 74780,
+  "mtime": "2026-10-18 20:03",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/best_frame.jpg",
+  "type": "file",
+  "size": 356994,
+  "mtime": "2026-10-18 17:30",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/car_now2.jpg",
+  "type": "file",
+  "size": 32436,
+  "mtime": "2026-10-18 19:11",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/car_now_ann.jpg",
+  "type": "file",
+  "size": 11756,
+  "mtime": "2026-10-18 19:11",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/car_viewer",
+  "type": "dir",
+  "size": 74603,
+  "mtime": "2026-10-18 18:05",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/car_watch.log",
+  "type": "file",
+  "size": 7044,
+  "mtime": "2026-10-18 15:21",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/car_watch2.log",
+  "type": "file",
+  "size": 7250,
+  "mtime": "2026-10-18 15:32",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/car_watch3.log",
+  "type": "file",
+  "size": 18336,
+  "mtime": "2026-10-18 15:32",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/carsnap_tree",
+  "type": "dir",
+  "size": 66970348,
+  "mtime": "2026-10-18 18:51",
+  "status": "活跃",
+  "owner": "研究线",
+  "note": "车端快照参考（10-18 18:51）"
+ },
+ {
+  "path": "_tmp_session/carsnap_tree_FILELIST.txt",
+  "type": "file",
+  "size": 51777,
+  "mtime": "2026-10-18 18:51",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/cleanup_20261018",
+  "type": "dir",
+  "size": 337396,
+  "mtime": "2026-10-18 20:14",
+  "status": "证据",
+  "owner": "forensics",
+  "note": "本次清理清单/复核报告"
+ },
+ {
+  "path": "_tmp_session/credprompt.txt",
+  "type": "file",
+  "size": 31,
+  "mtime": "2026-10-18 19:32",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/crop.py",
+  "type": "file",
+  "size": 322,
+  "mtime": "2026-10-18 15:48",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/d13_verify",
+  "type": "dir",
+  "size": 2889984,
+  "mtime": "2026-10-18 15:34",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/deploy_perception",
+  "type": "dir",
+  "size": 1512979,
+  "mtime": "2026-10-18 17:50",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/diag14.sh",
+  "type": "file",
+  "size": 1688,
+  "mtime": "2026-10-18 17:20",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/doc43",
+  "type": "dir",
+  "size": 85457,
+  "mtime": "2026-10-18 18:56",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/drone",
+  "type": "dir",
+  "size": 504533,
+  "mtime": "2026-10-18 18:39",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/drone_field_best.jpg",
+  "type": "file",
+  "size": 374781,
+  "mtime": "2026-10-18 17:37",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/drone_frame_now.jpg",
+  "type": "file",
+  "size": 319730,
+  "mtime": "2026-10-18 17:20",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/drone_src",
+  "type": "dir",
+  "size": 251278,
+  "mtime": "2026-10-18 17:39",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/f06_messages.jsonl",
+  "type": "file",
+  "size": 616,
+  "mtime": "2026-10-18 17:50",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/f06_overlay.png",
+  "type": "file",
+  "size": 2116220,
+  "mtime": "2026-10-18 17:50",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/f06_result.json",
+  "type": "file",
+  "size": 7119,
+  "mtime": "2026-10-18 17:50",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/gimbal-patch",
+  "type": "dir",
+  "size": 15504,
+  "mtime": "2026-10-18 19:55",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/gitee_air_ground",
+  "type": "dir",
+  "size": 382111519,
+  "mtime": "2026-10-18 18:44",
+  "status": "活跃",
+  "owner": "研究线",
+  "note": "gitee 参考克隆（10-18 18:44 仍活跃）；任务关闭后归档"
+ },
+ {
+  "path": "_tmp_session/gitee_main_FILELIST.txt",
+  "type": "file",
+  "size": 156990,
+  "mtime": "2026-10-18 18:55",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/lead",
+  "type": "dir",
+  "size": 1429,
+  "mtime": "2026-10-18 15:39",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/one_frame.py",
+  "type": "file",
+  "size": 438,
+  "mtime": "2026-10-18 15:47",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/probe_drone.sh",
+  "type": "file",
+  "size": 597,
+  "mtime": "2026-10-18 16:04",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/probe_hosts.py",
+  "type": "file",
+  "size": 543,
+  "mtime": "2026-10-18 15:21",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/real_run",
+  "type": "dir",
+  "size": 3770572,
+  "mtime": "2026-10-18 15:04",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/report_20261018",
+  "type": "dir",
+  "size": 150389,
+  "mtime": "2026-10-18 16:49",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/run3_cam",
+  "type": "dir",
+  "size": 0,
+  "mtime": "2026-10-18 15:46",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/run3_cam_capture.py",
+  "type": "file",
+  "size": 619,
+  "mtime": "2026-10-18 15:46",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/runA_1525",
+  "type": "dir",
+  "size": 936453,
+  "mtime": "2026-10-18 15:32",
+  "status": "证据",
+  "owner": "forensics",
+  "note": "10-18 实车跑车日志/摘要"
+ },
+ {
+  "path": "_tmp_session/runA_work",
+  "type": "dir",
+  "size": 14813,
+  "mtime": "2026-10-18 15:25",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/scan_req.py",
+  "type": "file",
+  "size": 385,
+  "mtime": "2026-10-18 18:27",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/sftp_get.py",
+  "type": "file",
+  "size": 574,
+  "mtime": "2026-10-18 15:33",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/sim_t29",
+  "type": "dir",
+  "size": 0,
+  "mtime": "2026-10-18 19:28",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/ssh_drone.py",
+  "type": "file",
+  "size": 608,
+  "mtime": "2026-10-18 15:22",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/step_loop",
+  "type": "dir",
+  "size": 3459,
+  "mtime": "2026-10-18 16:23",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/yb_tree",
+  "type": "dir",
+  "size": 256766765,
+  "mtime": "2026-10-18 18:51",
+  "status": "活跃",
+  "owner": "研究线",
+  "note": "分支参考树（10-18 18:51）；任务关闭后归档"
+ },
+ {
+  "path": "_tmp_session/yb_tree_FILELIST.txt",
+  "type": "file",
+  "size": 164444,
+  "mtime": "2026-10-18 18:51",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/_factcheck.py",
+  "type": "file",
+  "size": 1614,
+  "mtime": "2026-10-18 16:38",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/car_hash.sh",
+  "type": "file",
+  "size": 242,
+  "mtime": "2026-10-18 19:57",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/check_sender.log.sh",
+  "type": "file",
+  "size": 311,
+  "mtime": "2026-10-18 20:05",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/cleanup_run.sh",
+  "type": "file",
+  "size": 596,
+  "mtime": "2026-10-18 20:06",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/deploy_dzbrain.py",
+  "type": "file",
+  "size": 1896,
+  "mtime": "2026-10-18 19:57",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/dzbrain_src.tgz",
+  "type": "file",
+  "size": 900645,
+  "mtime": "2026-10-18 19:57",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/engine_audit",
+  "type": "dir",
+  "size": 76227,
+  "mtime": "2026-10-18 20:00",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/next_sender.sh",
+  "type": "file",
+  "size": 1012,
+  "mtime": "2026-10-18 20:04",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/next_sender2.sh",
+  "type": "file",
+  "size": 1120,
+  "mtime": "2026-10-18 20:04",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/patch_drone_qos.sh",
+  "type": "file",
+  "size": 1313,
+  "mtime": "2026-10-18 19:59",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/planner_overhaul",
+  "type": "dir",
+  "size": 153725,
+  "mtime": "2026-10-18 19:49",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/probe_cfg.sh",
+  "type": "file",
+  "size": 460,
+  "mtime": "2026-10-18 19:58",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/probe_drone.sh",
+  "type": "file",
+  "size": 347,
+  "mtime": "2026-10-18 19:57",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/probe_drone2.sh",
+  "type": "file",
+  "size": 610,
+  "mtime": "2026-10-18 19:57",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/probe_e5.sh",
+  "type": "file",
+  "size": 341,
+  "mtime": "2026-10-18 20:06",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/probe_layout.sh",
+  "type": "file",
+  "size": 726,
+  "mtime": "2026-10-18 19:58",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/probe_sender.sh",
+  "type": "file",
+  "size": 182,
+  "mtime": "2026-10-18 20:02",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/probe_start.sh",
+  "type": "file",
+  "size": 209,
+  "mtime": "2026-10-18 19:57",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/probe_step2.sh",
+  "type": "file",
+  "size": 420,
+  "mtime": "2026-10-18 20:02",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/probe_steploop.sh",
+  "type": "file",
+  "size": 288,
+  "mtime": "2026-10-18 20:00",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/relaunch_layout.sh",
+  "type": "file",
+  "size": 871,
+  "mtime": "2026-10-18 20:01",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/relaunch_layout2.sh",
+  "type": "file",
+  "size": 889,
+  "mtime": "2026-10-18 20:01",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/restart_layout.sh",
+  "type": "file",
+  "size": 479,
+  "mtime": "2026-10-18 19:59",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/resume_sender.sh",
+  "type": "file",
+  "size": 2119,
+  "mtime": "2026-10-18 20:03",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/resume_sender2.sh",
+  "type": "file",
+  "size": 1833,
+  "mtime": "2026-10-18 20:04",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/sim_map_20261018",
+  "type": "dir",
+  "size": 543,
+  "mtime": "2026-10-18 13:46",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/ssh_run.py",
+  "type": "file",
+  "size": 1426,
+  "mtime": "2026-10-18 19:57",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/start_car_steploop.sh",
+  "type": "file",
+  "size": 880,
+  "mtime": "2026-10-18 19:59",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/start_layout.sh",
+  "type": "file",
+  "size": 504,
+  "mtime": "2026-10-18 19:58",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/step_loop",
+  "type": "dir",
+  "size": 2772040,
+  "mtime": "2026-10-18 15:59",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/t34",
+  "type": "dir",
+  "size": 21845,
+  "mtime": "2026-10-18 19:54",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/t35",
+  "type": "dir",
+  "size": 135825732,
+  "mtime": "2026-10-18 20:14",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/tail_car.sh",
+  "type": "file",
+  "size": 91,
+  "mtime": "2026-10-18 20:04",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/v4.0-closeout",
+  "type": "dir",
+  "size": 4964,
+  "mtime": "2026-10-18 19:54",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/verify",
+  "type": "dir",
+  "size": 3375,
+  "mtime": "2026-10-18 19:22",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/watch_seg2.sh",
+  "type": "file",
+  "size": 507,
+  "mtime": "2026-10-18 20:05",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "dzrobot_v2/_tmp_session/watch_seg3.sh",
+  "type": "file",
+  "size": 535,
+  "mtime": "2026-10-18 20:05",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ }
+]
