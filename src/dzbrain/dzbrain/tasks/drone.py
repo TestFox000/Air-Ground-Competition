@@ -1082,17 +1082,43 @@ class DroneTask(TaskThread):
     # ------------------------------------------------------------------ #
     #  发
     # ------------------------------------------------------------------ #
-    def _maybe_send_car_state(self, now: float) -> None:
+    def _car_state_fields(self) -> tuple[str, dict]:
+        """★D1：取本拍的段状态——**StepLoop 在场时以它为准**。
+
+        2026-10-18 实车首跑根因：本方法只读 P_MISSION_PHASE（MissionTask 的
+        DRIVE/FINISH），而段级真相在 P_CAR_STATE（StepLoop 写 SEGMENT_DONE/
+        WAIT_INFO/ROS_LOST…）。机端按"DRIVE→IDLE"判段完成 ⇒ 永远等不到，
+        检查点不推进（现场只能临时把机端判据扩成含 FINISH 才继续跑）。
+
+        键名刻意写字面量而不 import main 的 P_CAR_STATE：main → tasks 是单向依赖，
+        反向 import 会成环；两者取值必须一致（P_CAR_STATE = "car_state"）。
+        """
         phase = str(self.bb.get(P_MISSION_PHASE) or "")
+        extra: dict[str, Any] = {}
+        step = self.bb.get("car_state")
+        if isinstance(step, dict) and step.get("phase"):
+            phase = str(step["phase"])
+            for key in ("segment_id", "known_count", "target_cell", "stop_kind",
+                        "version", "reason"):
+                if key in step:
+                    extra[key] = step[key]
+        return phase, extra
+
+    def _maybe_send_car_state(self, now: float) -> None:
+        phase, extra = self._car_state_fields()
         due = self._next_car_state_at is None or now >= self._next_car_state_at
-        changed = phase != self._last_phase
+        # ★D1：变化判据要含段号/目标/停站类型——同一 phase 下换段（SEGMENT_DONE→
+        #   SEGMENT_DONE）若只看 phase 会被去重掉，机端就少一条"这段完成了"。
+        sig = (phase, extra.get("segment_id"), extra.get("target_cell"),
+               extra.get("stop_kind"))
+        changed = sig != self._last_phase
         if not (due or changed):
             return
-        if self._send_car_state(now, phase):
+        if self._send_car_state(now, phase, extra):
             self._next_car_state_at = now + self.car_state_period_s
-            self._last_phase = phase
+            self._last_phase = sig
 
-    def _send_car_state(self, now: float, phase: str) -> bool:
+    def _send_car_state(self, now: float, phase: str, extra: dict | None = None) -> bool:
         pose = self.bb.get(P_POSE)
         block = ""
         yaw_deg = 0.0
@@ -1100,10 +1126,14 @@ class DroneTask(TaskThread):
             block = pose.block()
             yaw_deg = round(geo.deg(pose.yaw), 1)
         self._seq += 1
-        body = json.dumps({
+        payload: dict[str, Any] = {
             "type": "car_state", "block": block, "yaw_deg": yaw_deg,
             "phase": phase, "ts": round(now, 3), "seq": self._seq,
-        }, ensure_ascii=False, separators=(",", ":"))
+        }
+        if extra:
+            # ★D1：段级字段随之上报（机端据此推进检查点/判断为何停）
+            payload.update(extra)
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         try:
             self.bridge.publish_drone(body)
         except Exception as exc:                    # noqa: BLE001  发不出去也不许崩
