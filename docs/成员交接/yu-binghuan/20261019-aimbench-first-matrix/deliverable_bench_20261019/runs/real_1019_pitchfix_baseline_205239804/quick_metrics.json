@@ -1,0 +1,11 @@
+{
+  "mode": "capture",
+  "rows": 5814,
+  "state_transitions": [
+    {
+      "t": 0.0,
+      "state": 0
+    }
+  ],
+  "track_seconds": 0.0
+}
