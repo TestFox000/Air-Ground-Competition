@@ -1,0 +1,55 @@
+{
+  "tool": "aim-bench/1.0",
+  "mode": "capture",
+  "scenario": null,
+  "args": {
+    "out": "/tmp/aim_bench/real_1019_pitchfix_baseline_205239804",
+    "tag": "real_1019_pitchfix_baseline_205239804",
+    "seconds": 60.0,
+    "rate_hz": 30.0,
+    "scan": null
+  },
+  "host": {
+    "hostname": "duzhong",
+    "platform": "Linux-6.1.43-rockchip-rk3588-aarch64-with-glibc2.35",
+    "python": "3.10.12"
+  },
+  "started_at": "2026-10-19T20:52:47",
+  "ended_at": "2026-10-19T20:53:47",
+  "duration_requested": 60.0,
+  "duration_actual": 60.076,
+  "rows": 5814,
+  "safety_actions": [
+    "警告：offset_center 无发布者（4_det 未运行？capture 会没有视觉行）"
+  ],
+  "params_snapshots": {},
+  "effective_params": {
+    "yaw_sign": 1,
+    "yaw_center_tick": 2047.0,
+    "yaw_ticks_per_deg": 11.378,
+    "px_per_deg": 10.6953,
+    "use_external_fire_gate": null,
+    "lead_apply_gain": null,
+    "gyro_ff_gain": null,
+    "gyro_ff_sign": null,
+    "px_per_tick": null
+  },
+  "env": {
+    "ROS_DOMAIN_ID": "118",
+    "ROS_LOCALHOST_ONLY": "0",
+    "RMW_IMPLEMENTATION": null
+  },
+  "code_sha256_16": "93624e80bd2add39",
+  "csv_schema": {
+    "vis": "dx,dy,cls,box_w,box_h",
+    "fb": "pitch_tick,yaw_tick,speed_pitch,speed_yaw,load_pitch,load_yaw",
+    "cmd": "pitch_cmd,yaw_cmd,speed_pitch,speed_yaw",
+    "st": "aim_status",
+    "ref": "target_beta_deg,base_psi_deg,gimbal_deg,track_err_deg,dx_published,dx_raw",
+    "lead": "lead_px",
+    "gate": "fire_gate,fire_ready",
+    "shot": "shoot_count",
+    "laser": "1"
+  },
+  "write_ok": true
+}
