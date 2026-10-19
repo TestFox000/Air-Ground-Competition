@@ -182,61 +182,30 @@ def test_monitor_link_kind_falls_back_for_unknown_type():
 # 全仓引用了、但从未被写出来的脚本。留在这里当"待办清单"：新增的幽灵引用
 # 会立刻让 test_tool_references_resolve 变红，而这一份是已知的历史欠账。
 #
-# 2026-10-18 合并分支重编：repo 线带来 calibrate_camera/release_models/
-# sim_match/fake_udp_sender/car_match_bringup 五个实体脚本（原登记为"从未
-# 落地"仅对部署线成立），已从清单移除；同时 repo 线的 docs/archive 历史文档
-# 扫出一批早期开发脚本的幽灵引用，逐条登记。
-_DOCS_OWE = "早期开发脚本，仅 docs/archive 历史文档引用，未随仓"
+# 只登记**活引用**：本仓代码或现役文档真的会把操作员指过去的脚本。
+# 仅被归档材料（docs/成员交接、reference/、docs/archive、tools/attic）引用的
+# 不登记——那些目录整个不在扫描范围内，见 _ARCHIVE_PREFIXES。
+# 清单由 test_known_missing_list_has_no_stale_entries 双向守：脚本补上了要删，
+# 引用方消失了也要删。
 _CORE_OWE = "ag_core 诊断/黑匣子提示语引用的早期脚本，未随仓"
-_HJY_OWE = ("胡锦宇交接材料自引的车端线工具（材料在 reference/members/hjy 与 "
-            "docs/成员交接/hu-jinyu），本体副本在 reference/members/hjy/tools/，"
-            "正源 preserve/members/hjy-handover-20261018，不落本仓 tools/")
+_DOCS_OWE = "早期开发脚本，仅 docs/probe 现场排查记录引用，未随仓"
 KNOWN_MISSING_TOOLS = {
     # --- 从未落地（代码里的活跃提示语仍会指到它们）---
     "tools/dznav_calib.py": "dznav 转向线性表现场标定器从未落地（servo.py 提示语引用）",
     "tools/probe_car.sh": "remote_run.py 用法示例里的只读探测脚本从未落地",
-    # --- ag_core 提示语欠账 ---
+    # --- ag_core 提示语欠账（活的：log_diagnosis.py / blackbox.py 仍会打印）---
     "tools/car_camera_check.sh": _CORE_OWE,
     "tools/car_ros_logs.sh": _CORE_OWE,
     "tools/verify_decode.py": _CORE_OWE,
     "tools/traj_report.py": "早期轨迹报告器，ag_core 诊断提示与 docs/probe 引用，未随仓",
     "tools/car_probe_cmdvel.sh": "automations 记忆引用的早期探测脚本，未随仓",
-    # --- docs/archive 历史欠账 ---
-    "tools/air_smoke_check.sh": _DOCS_OWE,
-    "tools/calib_homography.py": _DOCS_OWE,
-    "tools/car_align_official.sh": _DOCS_OWE,
-    "tools/car_build.sh": _DOCS_OWE,
+    # --- docs/probe 现场排查记录里的历史欠账 ---
     "tools/car_cleanup.sh": _DOCS_OWE,
-    "tools/car_dryrun_test.sh": _DOCS_OWE,
-    "tools/car_grab_frame.sh": _DOCS_OWE,
-    "tools/car_guard_selftest.sh": _DOCS_OWE,
     "tools/car_inventory.sh": _DOCS_OWE,
-    "tools/car_log_rehearsal.sh": _DOCS_OWE,
-    "tools/car_look_down.sh": _DOCS_OWE,
-    "tools/car_patch_executor.sh": _DOCS_OWE,
     "tools/car_preflight.sh": _DOCS_OWE,
     "tools/car_probe_circle.sh": _DOCS_OWE,
-    "tools/car_probe_turn.sh": _DOCS_OWE,
-    "tools/car_probe_velstate.sh": _DOCS_OWE,
     "tools/car_restore_official.sh": _DOCS_OWE,
-    "tools/car_stage1_vision.sh": _DOCS_OWE,
-    "tools/car_stage2a_referee.sh": _DOCS_OWE,
     "tools/car_stage2b_guard_proof.sh": _DOCS_OWE,
-    "tools/car_verify.sh": _DOCS_OWE,
-    "tools/car_xcheck_constants.sh": _DOCS_OWE,
-    "tools/probe_car2.sh": _DOCS_OWE,
-    "tools/setup_sync.py": _DOCS_OWE,
-    "tools/sim_selfcheck.py": _DOCS_OWE,
-    "tools/traj_geometry.py": _DOCS_OWE,
-    # --- attic 归档自引 ---
-    "tools/autolabel_yolo.py": "202b346 归档至 tools/attic/，attic 文件内历史路径自引",
-    "tools/b9_test.py": "202b346 归档至 tools/attic/，attic 文件内历史路径自引",
-    # --- 胡锦宇交接材料自引（2026-10-18 收编，agents/trae-glm/absorb-members-20261018）---
-    "tools/plan_route.py": _HJY_OWE,
-    "tools/gimbal_filter_sim.py": _HJY_OWE,
-    "tools/drone_sim.py": _HJY_OWE,
-    "tools/gen_map.py": _HJY_OWE,
-    "tools/sim_selftest.py": _HJY_OWE,
 }
 
 # 前置否定：`~/drone_tools/localization_watchdog.py` 是**机载远端路径**，不是本仓
@@ -247,6 +216,29 @@ _SCAN_SUFFIX = {".py", ".sh", ".md", ".yaml", ".yml", ".txt"}
 # 本文件自己不扫：它的欠账清单与注释里必然出现 tools/ 字面量，扫了就是自指。
 _SKIP_FILES = {Path(__file__).name}
 
+# 归档/第三方材料整个目录不扫。理由不是"它们不重要"，而是**它们内部的 tools/
+# 引用指的根本不是本仓**：
+#   docs/成员交接/、reference/members/  队员交接材料，逐字保存的别线工程
+#                                       （官方 dzrobot 车端、胡锦宇 dzmission 等），
+#                                       里面的 tools/sim.py、tools/config_loader.py
+#                                       是**他们那棵树**的脚本
+#   reference/                          官方 dzpx4/dzuav 归档版与车端官方源码，
+#                                       部署文档§六明令"不部署、不作为协议真源"
+#   docs/archive/、tools/attic/         本仓历史归档，只增不改
+# 扫它们会造成一台**永久跑步机**：每收编一份交接材料就冒出一批新幽灵、CI 就红一次，
+# 只能靠往 KNOWN_MISSING_TOOLS 逐条登记来消音——胡锦宇（2026-10-18）与余秉桓
+# （2026-10-19）两次交接各触发一轮，第二轮直接把 PR 门禁（AGENTS.md：CI 双轮绿）
+# 挡死。而本测试真正要守的是"**我们的**文档/报错别把操作员指挥去追幽灵"，
+# 归档材料不会指挥我们的操作员去任何地方。
+# 实测口径（2026-10-19，枢纽 9bb9140）：全量扫 89 个引用/46 个缺失；
+# 排除归档后 56 个引用/13 个缺失，且 13 个**全部已登记**——排除归档不放过任何活引用。
+_ARCHIVE_PREFIXES = (
+    "docs/成员交接/",
+    "docs/archive/",
+    "reference/",
+    "tools/attic/",
+)
+
 
 def _referenced_tool_paths() -> dict[str, set[str]]:
     hits: dict[str, set[str]] = {}
@@ -254,12 +246,15 @@ def _referenced_tool_paths() -> dict[str, set[str]]:
         if ("__pycache__" in p.parts or p.suffix not in _SCAN_SUFFIX
                 or p.name in _SKIP_FILES):
             continue
+        rel = p.relative_to(REPO).as_posix()
+        if rel.startswith(_ARCHIVE_PREFIXES):
+            continue
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
         for m in _TOOL_REF.finditer(text):
-            hits.setdefault(m.group(0), set()).add(p.relative_to(REPO).as_posix())
+            hits.setdefault(m.group(0), set()).add(rel)
     return hits
 
 
@@ -282,7 +277,20 @@ def test_tool_references_resolve():
 
 
 def test_known_missing_list_has_no_stale_entries():
-    """欠账清单不许自己发霉：哪天脚本补上了，就该从清单里删掉。"""
+    """欠账清单不许自己发霉：哪天脚本补上了，就该从清单里删掉。
+
+    第二个发霉方向同样要拦：**引用方消失了，登记项却还留着**。清单一旦只增不减，
+    就会退化成一份没人敢动的坟场，后来者读到会以为那些还是活欠账。
+    归档目录不再纳入扫描后（见 _ARCHIVE_PREFIXES），只被归档材料引用的登记项
+    必须一并清掉。
+    """
     now_present = sorted(k for k in KNOWN_MISSING_TOOLS if (REPO / k).exists())
     assert not now_present, (
         f"这些脚本已经存在了，请从 KNOWN_MISSING_TOOLS 移除: {now_present}")
+
+    still_referenced = set(_referenced_tool_paths())
+    orphaned = sorted(k for k in KNOWN_MISSING_TOOLS if k not in still_referenced)
+    assert not orphaned, (
+        "这些登记项在扫描范围内已经没有任何引用方（脚本仍不存在，但也没人再指向它），"
+        "请从 KNOWN_MISSING_TOOLS 移除，别让欠账清单发霉:\n  "
+        + "\n  ".join(orphaned))
