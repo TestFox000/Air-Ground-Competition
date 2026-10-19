@@ -1,0 +1,91 @@
+{
+  "tool": "aim-bench/1.0",
+  "mode": "hil",
+  "scenario": {
+    "name": "ramp",
+    "desc": "三角波 ±15° @12°/s（约等于轨道靶 4cm/s@0.7m）",
+    "params": {
+      "amp": 15.0,
+      "speed": 12.0
+    },
+    "kind": "ramp"
+  },
+  "args": {
+    "out": "/tmp/aim_bench/ramp_beta04_267_212351522",
+    "tag": "ramp_beta04_267_212351522",
+    "seconds": 25.0,
+    "rate_hz": 30.0,
+    "scenario": "ramp",
+    "latency_ms": 267.0,
+    "noise_px": 2.0,
+    "px_per_deg": null,
+    "px_per_tick": null,
+    "yaw_center_tick": null,
+    "yaw_sign": null,
+    "yaw_ticks_per_deg": null,
+    "lead_time_s": 0.0,
+    "gates": false,
+    "fake_imu": false,
+    "imu_topic": "/imu_data",
+    "gate_after": 3.0,
+    "allow_laser": false,
+    "allow_mission": false,
+    "ignore_param_guard": false,
+    "stop_judgment": true,
+    "restart_judgment": true,
+    "judgment_pidfile": "/home/duzhong/robot_logs/pids/6_judgment.pid",
+    "judgment_launch": "ros2 launch dzjudgment judgment.launch.py",
+    "stop_det": true,
+    "restart_det": true,
+    "det_pidfile": "/home/duzhong/robot_logs/pids/4_det.pid",
+    "det_launch": "ros2 launch det_node det_node.launch.py",
+    "det_display": ":1"
+  },
+  "host": {
+    "hostname": "duzhong",
+    "platform": "Linux-6.1.43-rockchip-rk3588-aarch64-with-glibc2.35",
+    "python": "3.10.12"
+  },
+  "started_at": "2026-10-19T21:24:06",
+  "ended_at": "2026-10-19T21:24:31",
+  "duration_requested": 25.0,
+  "duration_actual": 25.488,
+  "rows": 5164,
+  "safety_actions": [
+    "警告：未取到车端参数快照，功能开关无法预检（按当前配置运行）",
+    "已发 /laser_switch=0（关连续激光路径）",
+    "未停到 6_judgment（pid 文件缺失/进程不在）"
+  ],
+  "params_snapshots": {
+    "/dzrknn_dataprocess": "params_dzrknn_dataprocess.yaml"
+  },
+  "effective_params": {
+    "yaw_sign": 1,
+    "yaw_center_tick": 2047.0,
+    "yaw_ticks_per_deg": 11.378,
+    "px_per_deg": 10.6953,
+    "use_external_fire_gate": null,
+    "lead_apply_gain": null,
+    "gyro_ff_gain": null,
+    "gyro_ff_sign": null,
+    "px_per_tick": null
+  },
+  "env": {
+    "ROS_DOMAIN_ID": "118",
+    "ROS_LOCALHOST_ONLY": "0",
+    "RMW_IMPLEMENTATION": null
+  },
+  "code_sha256_16": "fbb3ce00f1c97750",
+  "csv_schema": {
+    "vis": "dx,dy,cls,box_w,box_h",
+    "fb": "pitch_tick,yaw_tick,speed_pitch,speed_yaw,load_pitch,load_yaw",
+    "cmd": "pitch_cmd,yaw_cmd,speed_pitch,speed_yaw",
+    "st": "aim_status",
+    "ref": "target_beta_deg,base_psi_deg,gimbal_deg,track_err_deg,dx_published,dx_raw",
+    "lead": "lead_px",
+    "gate": "fire_gate,fire_ready",
+    "shot": "shoot_count",
+    "laser": "1"
+  },
+  "write_ok": true
+}
