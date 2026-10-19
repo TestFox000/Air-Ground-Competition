@@ -226,8 +226,11 @@ class DzNavNode(Node):
         self.create_timer(3.0, self._check_pubs)
 
         auto = os.environ.get("DZ_AUTO_START", "0") == "1"
+        self._auto_started = False
+        self._auto_timer = None
         if auto and cfg.get("builtin_route"):
-            self.create_timer(float(cfg["auto_delay"]), self._auto_mission)
+            self._auto_timer = self.create_timer(float(cfg["auto_delay"]),
+                                                 self._auto_mission)
 
         self.get_logger().info(
             f"dznav 就绪 [待命] servo={cfg['servo_mode']} "
@@ -444,6 +447,19 @@ class DzNavNode(Node):
         self._final_arc = None
 
     def _auto_mission(self):
+        # rclpy 的 create_timer 是**周期**定时器。不加这道闸，builtin_route 会
+        # 每 auto_delay(8s) 秒重发一次：_cb_waypoint 重建 Tracker（航点 served
+        # 全部清零）、state 拉回 ACTIVE、nav_start 归零。后果是车永远跑不完同
+        # 一条路线——180s 赛时里被重发约 22 次，每次只跑出 8s，且射击停靠点反复
+        # 重触发。nav_timeout 也永远不跳闸（每次都重新计时），连兜底都失效。
+        # 官方 path_executor 用的是"一次性定时器 + cancel()"（见 tests/ros_stub.py
+        # 的 FakeTimer 注释）。这里闸与 cancel 都上：闸保证语义正确（即使 cancel
+        # 不可用也不会重发），cancel 省掉一个永久空转的回调。
+        if self._auto_started:
+            return
+        self._auto_started = True
+        if self._auto_timer is not None:
+            self._auto_timer.cancel()
         route = self.cfg.get("builtin_route", "")
         self.get_logger().warning(f"自动发车（DZ_AUTO_START=1）: {route}")
         msg = String()

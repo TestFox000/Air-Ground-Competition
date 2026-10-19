@@ -609,3 +609,49 @@ def test_estop_latch_fires_through_volatile_reader():
     assert node._estop_reason == "cmd"
     vol[0].callback(Bool(data=False))
     assert node.state == "STANDBY"
+
+
+# =================================================== 自动发车：一次性语义
+def test_auto_mission_fires_exactly_once(monkeypatch):
+    """DZ_AUTO_START=1 时 builtin_route 只能下发一次。
+
+    rclpy 的 create_timer 是**周期**定时器。修复前 _auto_mission 没有任何闸，
+    auto_delay=8.0 意味着每 8 秒重发一次路线：_cb_waypoint 重建 Tracker（航点
+    served 全清零）、state 拉回 ACTIVE、nav_start 归零。180s 赛时里重发约 22 次，
+    车每次只跑出 8s，永远到不了终点；射击停靠点反复重触发；而 nav_timeout 因为
+    每次都被重新计时，连兜底都失效。
+    """
+    monkeypatch.setenv("DZ_AUTO_START", "1")
+    node = DzNavNode(overrides={"builtin_route": "M9,y"})
+    _feed(node)
+    for _ in range(5):          # 模拟周期定时器连跳 5 次
+        node._auto_mission()
+    fired = node.get_logger().text("warning", "自动发车")
+    assert len(fired) == 1, f"自动发车被触发 {len(fired)} 次，路线会被反复重发"
+
+
+def test_auto_mission_timer_is_canceled_after_firing(monkeypatch):
+    """发车后周期定时器必须被 cancel，别留一个永久空转的回调。"""
+    monkeypatch.setenv("DZ_AUTO_START", "1")
+    node = DzNavNode(overrides={"builtin_route": "M9,y"})
+    assert node._auto_timer is not None, "DZ_AUTO_START=1 + builtin_route 未注册定时器"
+    _feed(node)
+    node._auto_mission()
+    assert node._auto_timer.cancel_count == 1
+    assert node._auto_timer.canceled is True
+
+
+def test_auto_mission_timer_absent_when_disabled(monkeypatch):
+    """默认（DZ_AUTO_START 未设）不得注册自动发车定时器——实车调试安全约定。"""
+    monkeypatch.delenv("DZ_AUTO_START", raising=False)
+    node = DzNavNode(overrides={"builtin_route": "M9,y"})
+    assert node._auto_timer is None
+    assert node._auto_started is False
+
+
+def test_auto_mission_timer_absent_without_builtin_route(monkeypatch):
+    """开了 DZ_AUTO_START 但没配路线：不得注册定时器（否则空发一条空路线）。"""
+    monkeypatch.setenv("DZ_AUTO_START", "1")
+    node = DzNavNode()
+    assert node.cfg["builtin_route"] == ""
+    assert node._auto_timer is None
