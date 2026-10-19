@@ -28,6 +28,13 @@ if (-not (Test-Path (Join-Path $repo ".git"))) {
 }
 Set-Location $repo
 
+# 编码基线：git 输出恒为 UTF-8；GBK 控制台不设此行会把中文路径解码出假 '?'，
+# 令下方路径污染检测误报退出码 4，挡死所有智能体开工（2026-10-19 修复）。
+try {
+    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    $OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+} catch { }
+
 function Fail($msg) { Write-Host "[失败] $msg" -ForegroundColor Red; exit 1 }
 
 Write-Host "==== 开工同步（Gitee: circle-of-joy/air_ground）===="
