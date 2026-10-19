@@ -28,7 +28,8 @@ from std_msgs.msg import Bool, Int32, String, UInt8
 from dznav.contract import (FIELD_X_MAX, OOB_MARGIN, TOPIC_ESTOP, TOPIC_IMU,
                             TOPIC_ODOM_RAW, TOPIC_PURSUIT, TOPIC_SHOOT_COUNT,
                             TOPIC_STOP_SIGNAL, TOPIC_WAYPOINT)
-from dznav.executor_node import (DEFAULTS, DzNavNode, ESTOP_QOS, _deep_update,
+from dznav.executor_node import (DEFAULTS, DzNavNode, ESTOP_QOS,
+                                 ESTOP_QOS_VOLATILE, _deep_update,
                                  _sigterm_handler, _zero_and_stop)
 
 NAN = float("nan")
@@ -476,3 +477,135 @@ def test_localization_belief_published_every_tick():
     node._control()
     node._control()
     assert len(node.publishers["/odom/localization"].sent) == 2
+
+
+# ============================================== 射击停站：弹药全局 vs 目标每站
+class _FakeTracker:
+    def __init__(self):
+        self.resumed = 0
+
+    def resume(self):
+        self.resumed += 1
+
+
+def _park_at_shoot_stop(node, *, count_at_arrival: int, now: float = 100.0):
+    """把节点摆到"刚进射击停站"的那一刻，绕过路径跟踪只测等待逻辑。"""
+    node.state = "SHOOT_WAIT"
+    node.tracker = _FakeTracker()
+    node.shoot_count = count_at_arrival
+    node.shoot_at_arrival = count_at_arrival
+    node.shoot_wait_start = now
+    node._t = now
+
+
+def test_shoot_wait_releases_when_global_ammo_exhausted():
+    """第二个 '*' 停靠点在弹药打空后必须**立刻**放行，不能干等 shoot_timeout。
+
+    事故链：shoot_target 是**每停靠点**增量（yaml 原注释就写着"每停站发弹数"），
+    而弹药是全局物理量（10 发、不可补）。car_commands.py:103 给 shoot_cells 里
+    **每一个**格子都打 '*'，所以路线可以有多个停靠点。第一站打空 10 发后，
+    第二站的 (shoot_count - shoot_at_arrival) 永远是 0，追不上 shoot_target。
+    而 SHOOT_WAIT 在 _control() 里提前 return，nav_timeout 兜底根本轮不到它
+    —— 车原地干等满 shoot_timeout。旧值 150.0s 对 180s 赛时等于直接输掉比赛。
+    """
+    node = DzNavNode()
+    _park_at_shoot_stop(node, count_at_arrival=int(DEFAULTS["ammo_total"]))
+    node._shoot_wait_step()          # 刚到站，一发未打
+    assert node.state == "ACTIVE", "弹药已空还死等，会把赛时烧光"
+    assert node.tracker.resumed == 1
+    assert node.get_logger().text("warning", "弹药已打空")
+
+
+def test_shoot_wait_still_honours_per_stop_target_when_ammo_remains():
+    """弹药充足时仍按每站目标数等待——修弹药洞不能顺手废掉正常语义。"""
+    node = DzNavNode()
+    _park_at_shoot_stop(node, count_at_arrival=0)
+    node.shoot_count = int(DEFAULTS["shoot_target"]) - 1
+    node._shoot_wait_step()
+    assert node.state == "SHOOT_WAIT", "差一发就放行，等于没打满"
+    node.shoot_count = int(DEFAULTS["shoot_target"])
+    node._shoot_wait_step()
+    assert node.state == "ACTIVE"
+
+
+def test_shoot_wait_releases_when_final_ammo_spent():
+    """最后一站把余弹打完即放行，不必等满 shoot_target。"""
+    node = DzNavNode()
+    _park_at_shoot_stop(node, count_at_arrival=int(DEFAULTS["ammo_total"]) - 3)
+    node.shoot_count = int(DEFAULTS["ammo_total"])   # 只剩 3 发，全打完
+    node._shoot_wait_step()
+    assert node.state == "ACTIVE"
+
+
+def test_shoot_timeout_is_bounded_well_below_match_budget():
+    """shoot_timeout 必须远小于赛时，否则一次等不到弹就烧掉整局。
+
+    SHOOT_WAIT 不受 nav_timeout 兜底（_control() 提前 return），所以
+    shoot_timeout 是这段死等的**唯一**上限，必须自己守住量级。
+    """
+    assert DEFAULTS["shoot_timeout"] * 4 < DEFAULTS["nav_timeout"], (
+        f"shoot_timeout={DEFAULTS['shoot_timeout']}s 相对 "
+        f"nav_timeout={DEFAULTS['nav_timeout']}s 太大：路线里出现多个 '*' "
+        f"停靠点时，死等会吃光赛时")
+
+
+def test_shoot_timeout_covers_firing_all_ammo():
+    """反向约束：shoot_timeout 也不能小到打不完弹就放行。
+
+    车上 robot.yaml（2026-10-19 实测档）shot_cooldown_ms=800，打空 10 发
+    物理上就要 8s。timeout 小于它 = 每局都"射击超时，继续路线"，白丢打击分。
+    """
+    SHOT_COOLDOWN_S = 0.8      # docs/成员交接/.../deliverable_20261019/robot.yaml:197
+    need = DEFAULTS["ammo_total"] * SHOT_COOLDOWN_S
+    assert DEFAULTS["shoot_timeout"] >= need, (
+        f"shoot_timeout={DEFAULTS['shoot_timeout']}s < 打空全部弹药所需 {need}s")
+
+
+def test_shipped_yaml_shoot_params_match_defaults():
+    """yaml 里的弹药/超时三键必须与 DEFAULTS 一致，防单边改漂移。"""
+    yaml = pytest.importorskip("yaml")
+    path = (Path(__file__).resolve().parent.parent / "src" / "dznav" / "config"
+            / "dznav_default.yaml")
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    for k in ("shoot_target", "shoot_timeout", "ammo_total", "nav_timeout"):
+        assert float(data[k]) == float(DEFAULTS[k]), f"{k}: yaml={data[k]} DEFAULTS={DEFAULTS[k]}"
+
+
+# =================================================== 急停 QoS 兼容性
+def test_estop_also_subscribed_with_volatile_qos():
+    """除 TRANSIENT_LOCAL 外必须还有一条 VOLATILE reader。
+
+    DDS Durability 兼容规则：writer 提供的等级必须 >= reader 请求的等级。
+    TRANSIENT_LOCAL 的 reader 遇上 VOLATILE 的 writer **不匹配**——端点不建立、
+    一条都收不到。/estop 的发布方在本仓之外，可能是官方车端节点
+    （contract.py 注为 TRANSIENT_LOCAL），也可能是操作员手敲 `ros2 topic pub`
+    （默认 VOLATILE）。只订 TRANSIENT_LOCAL 就是拿急停赌对端实现。
+
+    注意：node.inject() 直接调回调，**绕过整个 DDS 层**，所以现有那组急停
+    闩锁测试无论 QoS 怎么配都会通过——它们证明回调逻辑对，证明不了消息到得了。
+    """
+    node = DzNavNode()
+    subs = [s for s in node.subscriptions if s.topic == TOPIC_ESTOP]
+    durabilities = {getattr(s.qos, "durability", None) for s in subs}
+    assert len(subs) >= 2, f"/estop 只订了 {len(subs)} 条，对端 VOLATILE 时收不到"
+    assert ESTOP_QOS.durability in durabilities, "缺 late-join 补发闩锁的 TL reader"
+    assert ESTOP_QOS_VOLATILE.durability in durabilities, \
+        "缺兼容 VOLATILE 发布方的 reader——`ros2 topic pub` 打不进急停"
+    for s in subs:
+        # 绑定方法每次取属性都新建对象，只能比 __func__，不能用 is。
+        assert s.callback.__func__ is DzNavNode._cb_estop, \
+            "两条 reader 必须共用同一个闩锁回调"
+
+
+def test_estop_latch_fires_through_volatile_reader():
+    """经由 VOLATILE 那条 reader 送进来的急停也必须闩锁。"""
+    node = DzNavNode()
+    vol = [s for s in node.subscriptions
+           if s.topic == TOPIC_ESTOP and s.qos is ESTOP_QOS_VOLATILE]
+    assert vol, "没有 VOLATILE reader"
+    _feed(node)
+    vol[0].callback(Bool(data=True))
+    assert node.state == "ESTOP"
+    assert node._estop_reason == "cmd"
+    vol[0].callback(Bool(data=False))
+    assert node.state == "STANDBY"

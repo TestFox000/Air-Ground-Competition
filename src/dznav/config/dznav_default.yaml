@@ -19,8 +19,11 @@ track_mode: stanley        # 跟踪律：stanley（现状默认）| pure_pursuit
 
 # ---- 任务 ----
 nav_timeout: 180.0         # s 单路线硬超时（比赛总预算）
-shoot_target: 10           # 每停站发弹数
-shoot_timeout: 150.0       # s 停站等弹超时
+shoot_target: 10           # 每停站发弹数（与车上 robot.yaml max_shots_per_target 对齐）
+ammo_total: 10             # 发 全局弹药物理上限，不可补；打空后所有停站立即放行
+shoot_timeout: 20.0        # s 停站等弹超时。旧值 150.0 对 180s 赛时是自杀：
+                           #   SHOOT_WAIT 不受 nav_timeout 兜底，一站等不到就干烧 150s。
+                           #   20.0 = 10 发 × shot_cooldown_ms 800 + 瞄准余量。
 blend_anchor: 0.5          # 途经点位置锚增益
 blend_th: 0.25             # 途经点航向锚增益（小于位置增益：防跟踪滞后污染）
 anchor_delay_m: 0.35       # 出弯后再锚（跟踪收敛区，测量干净）

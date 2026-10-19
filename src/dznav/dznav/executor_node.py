@@ -63,11 +63,25 @@ from .refpath import (ReferencePath, Waypoint, build_reference, PathOptions)
 from .servo import ServoModel
 
 CMD_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
-#: 急停用 TRANSIENT_LOCAL：晚启动的节点也能立刻收到已闩锁的急停状态。
+#: 急停订阅用**两条** reader，不是一个。原因是 DDS 的 Durability 兼容规则：
+#: writer 提供的等级必须 >= reader 请求的等级（VOLATILE < TRANSIENT_LOCAL），
+#: 所以 TRANSIENT_LOCAL 的 reader 遇上 VOLATILE 的 writer **根本不匹配**——
+#: 端点不建立、一条都收不到，急停静默全死。
+#: 而 /estop 的发布方在本仓之外（contract.py 注为"外部急停"），实测可能是
+#: 官方车端节点（TRANSIENT_LOCAL），也可能是操作员手敲的 `ros2 topic pub`
+#: （默认 VOLATILE）。赌任何一边都是拿急停去赌。
+#: 双 reader 是**支配性**方案：对端 VOLATILE 时只有 VOLATILE reader 能收
+#: （原来收不到 -> 现在收得到）；对端 TRANSIENT_LOCAL 时 TL reader 照旧收
+#: 且保留 late-join 补发闩锁状态的能力（原来能收 -> 行为不变）。
+#: 两条共用同一个 _cb_estop，闩锁语义不受影响。
 ESTOP_QOS = QoSProfile(depth=1,
                        reliability=ReliabilityPolicy.RELIABLE,
                        durability=DurabilityPolicy.TRANSIENT_LOCAL,
                        history=HistoryPolicy.KEEP_LAST)
+ESTOP_QOS_VOLATILE = QoSProfile(depth=1,
+                                reliability=ReliabilityPolicy.RELIABLE,
+                                durability=DurabilityPolicy.VOLATILE,
+                                history=HistoryPolicy.KEEP_LAST)
 
 DEFAULTS = {
     # servo
@@ -84,7 +98,12 @@ DEFAULTS = {
     # mission
     "nav_timeout": 180.0,
     "shoot_target": 10,
-    "shoot_timeout": 150.0,
+    # 弹药是全局物理量（10 发、不可补），shoot_target 是**每停靠点**增量。
+    # 两者必须一起判，否则第二站永远等不到（见 _shoot_wait_step）。
+    "ammo_total": 10,
+    # 上限按"打空全部弹药"折算：10 发 × shot_cooldown_ms 800 = 8s，
+    # 加瞄准/复位余量取 20s。旧值 150s 对 180s 赛时是自杀——见 _shoot_wait_step。
+    "shoot_timeout": 20.0,
     "blend_anchor": 0.5,       # 途经点位置锚增益
     "blend_th": 0.25,          # 途经点航向锚增益（小于位置：防跟踪滞后污染）
     "anchor_delay_m": 0.35,    # 出弯后再锚（跟踪收敛区，测量干净）
@@ -168,6 +187,8 @@ class DzNavNode(Node):
         self.create_subscription(Int32, TOPIC_SHOOT_COUNT,
                                  self._cb_shoot, 10)
         self.create_subscription(Bool, TOPIC_ESTOP, self._cb_estop, ESTOP_QOS)
+        self.create_subscription(Bool, TOPIC_ESTOP, self._cb_estop,
+                                 ESTOP_QOS_VOLATILE)
         self.pub_loc = self.create_publisher(Odometry, TOPIC_ODOM_LOC, 10)
         self.pub_cmd = self.create_publisher(Twist, TOPIC_PURSUIT, CMD_QOS)
         self.pub_stop = self.create_publisher(UInt8, TOPIC_STOP_SIGNAL, 10)
@@ -543,7 +564,9 @@ class DzNavNode(Node):
             sig.data = 1
             self.pub_stop.publish(sig)
             self.get_logger().info(
-                f"射击停站 {w.label}: 等 {self.cfg['shoot_target']} 发")
+                f"射击停站 {w.label}: 等 "
+                f"{min(int(self.cfg['shoot_target']), int(self.cfg['ammo_total']) - self.shoot_count)}"
+                f" 发（已打 {self.shoot_count}/{self.cfg['ammo_total']}）")
         elif ev == "arrived":
             self._on_arrived(e.get("d", 0.0))
         elif ev == "arc_exit":
@@ -605,8 +628,16 @@ class DzNavNode(Node):
         self._publish(v, steer)
 
     def _shoot_wait_step(self):
-        done = (self.shoot_count - self.shoot_at_arrival
-                >= int(self.cfg["shoot_target"]))
+        fired = self.shoot_count - self.shoot_at_arrival
+        # 弹药全局、目标每站：路线里出现第二个 '*' 停靠点时，前一站若已打空
+        # 10 发，这一站的 fired 永远追不上 shoot_target。而 SHOOT_WAIT 在
+        # _control() 里提前 return，nav_timeout 兜底轮不到它——车会原地干等满
+        # shoot_timeout，把 180s 赛时烧光。故弹药打空即刻视为"完成"。
+        ammo_left = int(self.cfg["ammo_total"]) - self.shoot_count
+        exhausted = ammo_left <= 0
+        # 不能写成 fired >= min(shoot_target, ammo_left)：那是拿"本站已打数"
+        # 去比"全局剩余弹药"，量纲不对——本站还差一发、弹也还剩一发时会提前放行。
+        done = exhausted or fired >= int(self.cfg["shoot_target"])
         timeout = self._t - self.shoot_wait_start > self.cfg["shoot_timeout"]
         if done or timeout:
             sig = UInt8()
@@ -614,6 +645,10 @@ class DzNavNode(Node):
             self.pub_stop.publish(sig)
             self.get_logger().info(
                 "射击完成" if done else "射击超时，继续路线")
+            if exhausted and fired < int(self.cfg["shoot_target"]):
+                self.get_logger().warning(
+                    f"弹药已打空（{self.shoot_count}/{self.cfg['ammo_total']}），"
+                    f"本站只打了 {fired} 发；后续 '*' 停靠点将不再开火")
             self.tracker.resume()
             self.state = "ACTIVE"
             self.nav_start = self._t     # 停站不占路线预算
