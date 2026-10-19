@@ -1,0 +1,82 @@
+{
+  "n_ref": 904,
+  "n_track": 903,
+  "track_seconds": 30.13,
+  "lock_time_s": 0.04,
+  "err_deg": {
+    "n": 874,
+    "mean": -0.1984,
+    "abs_mean": 5.2996,
+    "median": 0.2833,
+    "rms": 6.6177,
+    "p90_signed": 8.1756,
+    "p90_abs": 11.22,
+    "max_abs": 18.4415,
+    "min": -17.156,
+    "max": 18.4415
+  },
+  "lag_ms": 156.3,
+  "settle_time_s": null,
+  "step_peak_err_deg": null,
+  "step_residual_err_deg": null,
+  "cmd_jitter": {
+    "step_median_ticks": 4.0,
+    "step_p90_ticks": 8.0,
+    "max_step_ticks": 9.0
+  },
+  "gimbal_rate": {
+    "median_dps": 21.84,
+    "p95_dps": 61.83,
+    "max_dps": 103.4
+  },
+  "shots": 0,
+  "first_shot_t": null,
+  "state_timeline": [
+    {
+      "state": "SCAN",
+      "t0": 0.0,
+      "t1": 0.04
+    },
+    {
+      "state": "TRACK",
+      "t0": 0.04,
+      "t1": 30.17
+    }
+  ],
+  "checks": [
+    {
+      "name": "锁定成功（进入 TRACK）",
+      "pass": true,
+      "value": "0.04 s"
+    },
+    {
+      "name": "跟踪 RMSE <= 1.5°",
+      "pass": false,
+      "value": "6.6177°"
+    },
+    {
+      "name": "跟踪 P90 <= 3.0°",
+      "pass": false,
+      "value": "11.22°"
+    },
+    {
+      "name": "跟踪最大误差 <= 8.0°",
+      "pass": false,
+      "value": "18.4415°"
+    },
+    {
+      "name": "等效滞后 <= 150ms",
+      "pass": false,
+      "value": "156.3 ms"
+    }
+  ],
+  "kind": "hil",
+  "_meta": {
+    "source": "rail_beta02_267_lead027_213009310",
+    "csv": "C:\\Users\\29212\\Documents\\deepseek-harness\\default-workspace\\_cloud\\bench\\runs\\rail_beta02_267_lead027_213009310\\data.csv",
+    "mode": "hil",
+    "tag": "rail_beta02_267_lead027_213009310",
+    "code_sha256_16": "fbb3ce00f1c97750",
+    "generated_at": "2026-10-19T21:31:32"
+  }
+}
