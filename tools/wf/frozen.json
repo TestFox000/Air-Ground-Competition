@@ -6,27 +6,5 @@
     "config/**",
     "tools/deploy_to_car.py"
   ],
-  "in_flight": [
-    {
-      "path": "src/dzbrain/dzbrain/main.py",
-      "card": "T27/task-28 + A+E 启动契约 + D1b/task-42",
-      "owner": "car-stepper",
-      "expires": "2026-10-26",
-      "reason": "步进循环启动契约/布局新鲜度门 + D1b 段完成单闩锁/1Hz 重发/D-022 完整布局例外在途；收口时由该卡清理登记"
-    },
-    {
-      "path": "src/dzbrain/dzbrain/tasks/drone.py",
-      "card": "D1b/task-42 透传补丁",
-      "owner": "car-stepper",
-      "expires": "2026-10-26",
-      "reason": "car_state 白名单补 done/done_seq，使 D1b 闩锁能到机端；收口时由该卡清理登记"
-    },
-    {
-      "path": "src/dzbrain/dzbrain/tasks/localization.py",
-      "card": "T-HEAD/task-44",
-      "owner": "forensics",
-      "expires": "2026-10-26",
-      "reason": "航向守卫改差速模型 + 可恢复闩锁在途；收口时由该卡清理登记"
-    }
-  ]
+  "in_flight": []
 }

@@ -15,7 +15,7 @@ r"""LocalizationTask 测试（纯脚本，无 pytest）。
   9. 投影卡死自愈（离开走廊后 P_ROUTE_S 跟得上全局投影）
  10. 尺度疑似闸（吸附掩盖尺度误差的可见化）
  11. ★ 2026-10-17 14:59 实车 +12.82 m 投影误锁的回归：大跳跃必须"新投影贴在车上"
- 12. ★★ 航向完整性守卫（yaw 率超运动学上限 ⇒ 判故障）：14:59:29~40 真实片段回放必须报
+ 12. ★★ 航向完整性守卫（差速底盘模型）：14:59 真实片段回放必须报（比投影跳变早 5.2 s），
      （比投影跳变早 5.2 s），正常 90° 转弯/静止小漂移不得误报，遥控接管中的转动只记账
 """
 
@@ -677,8 +677,8 @@ check("真实片段：连续 3 个新帧超限才判（yaw_bad_samples ≥ 3）"
 check("真实片段：33 个新帧样本（5 Hz 帧频；同一帧重复读不算样本）",
       task_y.yaw_guard_samples == len(YAW_EVENT_FRAMES) - 1,
       f"samples={task_y.yaw_guard_samples}")
-check("真实片段：原因 = 运动学上限（yaw_rate_over_kinematic）",
-      task_y._yaw_reason == "yaw_rate_over_kinematic", f"reason={task_y._yaw_reason!r}")
+check("真实片段：原因 = 差速包络超限（yaw_rate_over_diff）",
+      task_y._yaw_reason == "yaw_rate_over_diff", f"reason={task_y._yaw_reason!r}")
 check("真实片段：见过的峰值角速度 ≈ 120°/s（与裁决书 120.3°/s 同量级）",
       100.0 < task_y.yaw_max_rate_dps < 140.0,
       f"max_rate={task_y.yaw_max_rate_dps:.1f}°/s")
@@ -732,6 +732,104 @@ check("反例（正常 90° 转弯、0.35 m/s、满舵 30° = 73.7°/s）：不�
 check("反例（正常 90° 转弯）：P_MOTION_LIMIT 未被触发",
       bb_turn.get(P_MOTION_LIMIT) is None, f"limit={bb_turn.get(P_MOTION_LIMIT)}")
 
+# ---- ⑫.4b A2 真实案例：差速底盘正常过弯 79.8°/s @ v=0.19 → 不误停 ----
+def _diff_arc_frames(v: float, yaw_rate_dps: float, n: int, *,
+                     dt: float = 0.2, yaw0_deg: float = 90.0,
+                     x0: float = 0.0, y0: float = 0.0) -> list:
+    """差速底盘恒定 yaw 率的圆弧帧（5 Hz；v/yaw 率都按真实帧间隔算）。"""
+    yaw = math.radians(yaw0_deg)
+    w = math.radians(yaw_rate_dps)
+    x, y = x0, y0
+    out = []
+    for _ in range(n):
+        yaw += w * dt
+        x += v * math.cos(yaw) * dt
+        y += v * math.sin(yaw) * dt
+        out.append((x, y, math.degrees(yaw)))
+    return out
+
+
+A2_FRAMES = _diff_arc_frames(0.19, 79.8, 40)
+task_a2, _, bb_a2, ev_a2, trip_a2 = _replay_frames(A2_FRAMES, with_route=False)
+check("A2 案例（v=0.19、yaw 79.8°/s，差速底盘正常过弯）：不误停、0 个超限样本",
+      task_a2.yaw_untrusted is False and task_a2.yaw_bad_samples == 0
+      and task_a2.yaw_guard_samples == len(A2_FRAMES) - 1,
+      f"untrusted={task_a2.yaw_untrusted} bad={task_a2.yaw_bad_samples} "
+      f"samples={task_a2.yaw_guard_samples} max={task_a2.yaw_max_rate_dps:.1f} "
+      f"limit={task_a2._yaw_last_limit_dps:.1f}")
+check("A2 案例：P_MOTION_LIMIT 未被触发（不会因航向守卫停车）",
+      bb_a2.get(P_MOTION_LIMIT) is None, f"limit={bb_a2.get(P_MOTION_LIMIT)}")
+check("A2 案例：不是恰好没触发 —— 峰值 79.8 确实落在旧模型会误判的区间",
+      78.0 < task_a2.yaw_max_rate_dps < 82.0, f"max={task_a2.yaw_max_rate_dps:.1f}")
+
+# ---- ⑫.4c 静止正常转向（差速原地 40°/s）不误报 ----
+_STATIC_40 = [(1.0, 1.0, 30.0 + 8.0 * i) for i in range(20)]   # 8°/帧 @5Hz = 40°/s
+task_s40, _, bb_s40, _, _ = _replay_frames(_STATIC_40, with_route=False)
+check("静止正常转向 40°/s（低于静止上限 45°/s）：不误报",
+      task_s40.yaw_untrusted is False and task_s40.yaw_bad_samples == 0,
+      f"bad={task_s40.yaw_bad_samples} max={task_s40.yaw_max_rate_dps:.1f}")
+
+# ---- ⑫.4d 真实 yaw 跳变（单帧 +90°）：必须停 ----
+def _straight_frames(v: float, n: int, *, dt: float = 0.2,
+                     yaw0_deg: float = 90.0, x0: float = 0.0, y0: float = 0.0) -> list:
+    yaw = math.radians(yaw0_deg)
+    x, y = x0, y0
+    out = []
+    for _ in range(n):
+        x += v * math.cos(yaw) * dt
+        y += v * math.sin(yaw) * dt
+        out.append((x, y, math.degrees(yaw)))
+    return out
+
+
+_base_j = _straight_frames(0.35, 5)
+_last = _base_j[-1]
+_jump = [(_last[0], _last[1], _last[2] + 90.0)]
+_after = _straight_frames(0.35, 3, yaw0_deg=180.0, x0=_last[0], y0=_last[1])
+task_j, _, bb_j, ev_j, trip_j = _replay_frames(_base_j + _jump + _after, with_route=False)
+check("真实 yaw 跳变（单帧 +90°）：立即判故障（yaw_jump）",
+      task_j.yaw_untrusted is True and task_j._yaw_reason == "yaw_jump",
+      f"reason={task_j._yaw_reason!r} trip_t={trip_j}")
+check("真实 yaw 跳变：P_MOTION_LIMIT 请求 0 速 + 发 EV_TASK_FAULT",
+      isinstance(bb_j.get(P_MOTION_LIMIT), dict)
+      and bb_j.get(P_MOTION_LIMIT).get("speed_mps") == 0.0
+      and any(e.data.get("where") == "heading_untrusted" for e in ev_j),
+      f"limit={bb_j.get(P_MOTION_LIMIT)} events={len(ev_j)}")
+
+# ---- ⑫.4e 闩锁可恢复：条件消失后自动复位（不再永久锁死）----
+task_rec, bridge_rec, bb_rec, bus_rec, clock_rec = build(
+    overrides={"fix": {"anchor_at_waypoint": False}}, route=None, seed_pose=False)
+for x, y, yaw in YAW_STATIC_FRAMES[:8]:
+    bridge_rec.set_pose(x, y, math.radians(yaw))
+    clock_rec.advance(0.2)
+    task_rec.tick()
+check("恢复前置：先触发航向闩锁", task_rec.yaw_untrusted is True,
+      f"reason={task_rec._yaw_reason!r}")
+_clean = _straight_frames(0.20, 25, yaw0_deg=90.0, x0=1.0, y0=1.0)
+for x, y, yaw in _clean:
+    bridge_rec.set_pose(x, y, math.radians(yaw))
+    clock_rec.advance(0.2)
+    task_rec.tick()
+check("闩锁可恢复：连续 20 个可信新帧后自动复位",
+      task_rec.yaw_untrusted is False and task_rec.yaw_guard_recoveries == 1,
+      f"untrusted={task_rec.yaw_untrusted} recoveries={task_rec.yaw_guard_recoveries}")
+check("自动复位后 P_MOTION_LIMIT 撤为 None（不残留 0 速请求）",
+      bb_rec.get(P_MOTION_LIMIT) is None, f"limit={bb_rec.get(P_MOTION_LIMIT)}")
+
+# ---- ⑫.4f 人工复位 API ----
+task_mr, bridge_mr, _, _, clock_mr = build(
+    overrides={"fix": {"anchor_at_waypoint": False}}, route=None, seed_pose=False)
+for x, y, yaw in YAW_STATIC_FRAMES[:8]:
+    bridge_mr.set_pose(x, y, math.radians(yaw))
+    clock_mr.advance(0.2)
+    task_mr.tick()
+task_mr.reset_yaw_guard()
+check("人工复位：reset_yaw_guard() 清闩锁 + 计数 + 清原因",
+      task_mr.yaw_untrusted is False and task_mr.yaw_manual_resets == 1
+      and task_mr._yaw_reason == "",
+      f"untrusted={task_mr.yaw_untrusted} resets={task_mr.yaw_manual_resets} "
+      f"reason={task_mr._yaw_reason!r}")
+
 # ---- ⑫.5 反例三：静止期的小幅 yaw 漂移（7.5°/s < 静止上限 45°/s）不误报 ----
 _drift_small = [(1.0, 1.0, 30.0 + 1.5 * i) for i in range(20)]
 task_dr, _, _, ev_dr, _ = _replay_frames(_drift_small, with_route=False)
@@ -767,8 +865,8 @@ check("IMU 交叉核对：pose 超限而 IMU |gz|≈0 → 判「位姿/航向链
       and task_im.yaw_imu_mismatch >= 1,
       f"reason={task_im._yaw_reason!r} mismatch={task_im.yaw_imu_mismatch}")
 task_is, _, _, ev_is, _ = _replay_frames(YAW_EVENT_FRAMES, with_route=False, imu_dps=200.0)
-check("IMU 交叉核对：IMU 也报高速转动 → 仍判运动学超限（不误标成矛盾）",
-      task_is.yaw_untrusted is True and task_is._yaw_reason == "yaw_rate_over_kinematic"
+check("IMU 交叉核对：IMU 也报高速转动 → 仍判差速包络超限（不误标成矛盾）",
+      task_is.yaw_untrusted is True and task_is._yaw_reason == "yaw_rate_over_diff"
       and task_is.yaw_imu_mismatch == 0,
       f"reason={task_is._yaw_reason!r} mismatch={task_is.yaw_imu_mismatch}")
 

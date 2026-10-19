@@ -25,11 +25,10 @@
    为什么要有这一步：纯轮式死推里程计会累积漂移，锚定把"每过一个已知航点"变成一次
    误差归零的机会；偏差不丢弃而是记进 `FixState`，P3 的 FixTask 才有估计素材。
 5. 漂移告警：单段漂移 > `pursuit.drift_warn_m` → `EV_DRIFT_WARNING`（`core.logging.Throttle` 限流）。
-6. ★★ **航向完整性守卫**（`_update_yaw_guard`，2026-10-17 补）：每拍用**相邻两帧位姿**估
-   yaw 率，与 `v·tan(δmax)/L` 比。超上限持续 `localization.yaw_bad_ticks` 个新帧 ⇒
-   判「航向失去可信」：① 走既有 `P_MOTION_LIMIT` 通路请求 0 速；② 发既有
-   `EV_TASK_FAULT` 事件，由 SafetyTask 检查④锁存 SAFE_STOP（不新造机制、不杀本线程）。
-   静止期（v≈0）另给上限，并与「手动旋转/遥控接管」区分（接管期间只记账、不判故障）。
+6. ★★ **航向完整性守卫**（`_update_yaw_guard`，差速底盘模型，2026-10-19 task-44）：每拍用
+   **相邻两帧位姿**估 yaw 率，与差速包络 `max(spin, gain·v)` 比；超限/单帧跳变/IMU 矛盾
+   持续 `localization.yaw_bad_ticks` 个新帧 ⇒ 判「航向失去可信」，经 `P_MOTION_LIMIT` +
+   `EV_TASK_FAULT` 请求停车（Safety 仍锁存）；连续 `yaw_clear_ticks` 个可信新帧后守卫自动复位。
 
 铁律（core/task.py 文档 + P1 §4）：
 - `tick()` 非阻塞、无长 I/O；
@@ -95,23 +94,28 @@ _DRIFT_ESCALATE_MARGIN_M = 0.05
 # --------------------------------------------------------------------------- #
 #  ★★ 航向完整性守卫的默认阈值（现场可经 SCHEMA `localization.yaw_*` 覆盖）
 # --------------------------------------------------------------------------- #
-#: 为什么需要（2026-10-17 14:59 K9 事故，真源 = `_tmp_session/adjudication_t1_t4/裁决书.md`）：
-#:   14:59:31.8 起 IMU 地图 yaw 由 +90° 掉到 −78°（−168°/1.8 s），峰值 **120.3°/s @ 轮速
-#:   0.112 m/s = Ackermann 上限（23.7°/s）的 5.08 倍**，比投影跳变（14:59:38.2）早 5.4~7.4 s；
-#:   停车后静止期还有 **169.2°/s** 的 yaw 跳变（位置全程不动）。当时的代码把 yaw 当"直接可用
-#:   的观测量"，对"物理上不可能"的变化没有任何判据 ⇒ 下游一路用坏航向，直到出界才被 Safety 停。
-#: 判据 = **帧间** yaw 差 ÷ **帧间隔**（不是任务拍间隔：20 Hz 任务 + 50 Hz 里程计时同一帧会被
-#:   重复读，用拍间隔算 0.2 s 里 24° 的跳变会得到 480°/s 的 4 倍假读数）。连续 N 个**新帧**
-#:   样本超限才判故障（单帧毛刺不刹；事故里超限是持续 1.8 s 的）。
-_DEFAULT_YAW_KIN_MARGIN = 1.25      # 运动学上限的安全系数（v=0.35 → 上限 92°/s）
-_DEFAULT_YAW_RATE_FLOOR_DPS = 8.0   # 加在运动学上限上的绝对余量（量化/舵角超调）
-_DEFAULT_YAW_ABS_FLOOR_DPS = 20.0   # 动态判据的绝对下限（低速蠕动也不误报）
-_DEFAULT_YAW_STATIC_DPS = 45.0      # 静止期上限（事故 169.2°/s；正常停车漂移 <5°/s）
-_DEFAULT_YAW_MIN_SPEED_MPS = 0.03   # 判定"车没在动"的线速度阈值（帧间位移 ÷ dt）
-_DEFAULT_YAW_BAD_TICKS = 3          # 连续 N 个超限**新帧**才判故障
-_DEFAULT_YAW_PLAUSIBLE_SPEED_MPS = 0.70   # 帧间位移/Δt 超过它 = 位姿不连续（重定位/测试传送）
-_DEFAULT_YAW_MAX_DT_S = 0.60        # 帧间隔超过它 = 丢帧/卡顿，角速度不可信
-_DEFAULT_YAW_IMU_MISMATCH_RATIO = 0.35    # |gyro| < 0.35×位姿角速度 ⇒ 判"链内部不一致"
+#: 差速底盘偏航率包络（2026-10-19 task-44「T-HEAD 航向闩锁修复」）：
+#:   背景（2026-10-17 14:59 K9 事故）：IMU 地图 yaw 1.8 s 内 +90°→−78°（峰值 120.3°/s
+#:   @ 0.112 m/s）；旧版把 yaw 当"直接可用观测" ⇒ 下游一路用坏航向直到出界。
+#:   · 本车是差速底盘，可原地/低速转向 —— 不能用 Ackermann `v·tan(δmax)/L + 恒定 floor`；
+#:   · 低速/原地：允许 `yaw_diff_spin_dps`（差速原地转向能力，取 60°/s）；
+#:   · 随速度：底盘把舵角映射为左右轮差速，yaw 率与 v 成正比。A2 实测 79.8°/s @ v=0.19
+#:     ⇒ 420°/s per m/s；取 525（+25% 余量）作为包络增益；
+#:   · 包络 = `max(yaw_diff_spin_dps, yaw_diff_gain_dps_per_mps × v)`（v≥min_speed）；
+#:     v<min_speed 仍走静止判据 `yaw_static_dps`（停车后被转/被搬 = 不可信）；
+#:   · 单帧 yaw 跳变 > `yaw_jump_deg`（30°）⇒ 立即判故障（重定位/坐标跳变）；
+#:   · 连续 `yaw_clear_ticks`（20 个新帧 ≈ 5 Hz 下 4 s）可信 ⇒ 自动复位守卫（Safety 另清）。
+_DEFAULT_YAW_DIFF_GAIN_DPS_PER_MPS = 525.0
+_DEFAULT_YAW_DIFF_SPIN_DPS = 60.0
+_DEFAULT_YAW_JUMP_DEG = 30.0
+_DEFAULT_YAW_CLEAR_TICKS = 20
+_DEFAULT_YAW_IMU_CHECK_DPS = 30.0
+_DEFAULT_YAW_STATIC_DPS = 45.0
+_DEFAULT_YAW_MIN_SPEED_MPS = 0.03
+_DEFAULT_YAW_BAD_TICKS = 3
+_DEFAULT_YAW_PLAUSIBLE_SPEED_MPS = 0.70
+_DEFAULT_YAW_MAX_DT_S = 0.60
+_DEFAULT_YAW_IMU_MISMATCH_RATIO = 0.35
 
 
 def _cfg_float(cfg: Config, key: str, fallback: float) -> float:
@@ -183,16 +187,21 @@ class LocalizationTask(TaskThread):
         #: 现场若要调，改这一行即可（未登记 SCHEMA 是刻意的：本轮写域不含 core/config.py）。
         self.stuck_trust_dist_m = float(_STUCK_TRUST_DIST_M)
 
-        # ---- ★★ 航向完整性守卫（2026-10-17 14:59 K9 事故；判据/理由见 _update_yaw_guard）----
+        # ---- ★★ 航向完整性守卫（差速底盘模型；2026-10-19 task-44）----
         #: 总开关。关掉 ⇒ 行为与加本守卫前**逐位一致**（回归对照/带牙实验用）。
         self.yaw_guard_enabled = bool(cfg.get("localization.yaw_guard"))
-        #: 运动学上限 = margin × v × tan(δmax) / L（v = 帧间位移/Δt，再用 _yaw_v_cap 钳住）。
-        self.yaw_kin_margin = _cfg_float(cfg, "localization.yaw_kin_margin",
-                                         _DEFAULT_YAW_KIN_MARGIN)
-        self.yaw_rate_floor_dps = _cfg_float(cfg, "localization.yaw_rate_floor_dps",
-                                             _DEFAULT_YAW_RATE_FLOOR_DPS)
-        self.yaw_abs_floor_dps = _cfg_float(cfg, "localization.yaw_abs_floor_dps",
-                                            _DEFAULT_YAW_ABS_FLOOR_DPS)
+        #: 差速包络：低速原地能力 + 随速度的差速增益（v≥min_speed 时取 max）。
+        self.yaw_diff_gain_dps_per_mps = _cfg_float(
+            cfg, "localization.yaw_diff_gain_dps_per_mps",
+            _DEFAULT_YAW_DIFF_GAIN_DPS_PER_MPS)
+        self.yaw_diff_spin_dps = _cfg_float(
+            cfg, "localization.yaw_diff_spin_dps", _DEFAULT_YAW_DIFF_SPIN_DPS)
+        self.yaw_jump_deg = _cfg_float(
+            cfg, "localization.yaw_jump_deg", _DEFAULT_YAW_JUMP_DEG)
+        self.yaw_clear_ticks = max(1, int(_cfg_float(
+            cfg, "localization.yaw_clear_ticks", _DEFAULT_YAW_CLEAR_TICKS)))
+        self.yaw_imu_check_dps = _cfg_float(
+            cfg, "localization.yaw_imu_check_dps", _DEFAULT_YAW_IMU_CHECK_DPS)
         #: 静止期（v < yaw_min_speed_mps）允许的 yaw 率：车没动却被"转"了 —— 只可能是被搬/
         #: 被转或 yaw 链坏了，两种都不许拿来导航（事故静止段实测 169.2°/s）。
         self.yaw_static_dps = _cfg_float(cfg, "localization.yaw_static_dps",
@@ -209,28 +218,25 @@ class LocalizationTask(TaskThread):
                                        _DEFAULT_YAW_MAX_DT_S)
         self.yaw_imu_mismatch_ratio = _cfg_float(cfg, "localization.yaw_imu_mismatch_ratio",
                                                  _DEFAULT_YAW_IMU_MISMATCH_RATIO)
-        #: 角速度上限的"每米每秒"增益（rad/s per m/s）：tan(δmax)/L。
-        self._yaw_kin_gain = (math.tan(math.radians(float(cfg.get("pursuit.max_steer_deg")
-                                                       or 30.0)))
-                              / max(1e-6, float(cfg.get("pursuit.wheelbase_m") or 0.157)))
-        #: 判据用的速度钳制上限：超过巡航 1.15 倍的速度不再给更高的角速度上限
-        #: （真实的位姿高速跳变应交给"位姿不连续闸"，而不是放宽运动学判据）。
-        self._yaw_v_cap = max(float(cfg.get("pursuit.cruise_speed_mps") or 0.15) * 1.15, 0.40)
         #: 桥的可选能力（鸭子类型：FakeBridge 没有 imu，判据自动降级为纯位姿判据）。
         self._imu_fn = getattr(bridge, "imu", None)
         self._imu_age_fn = getattr(bridge, "imu_age", None)
         self._manual_fn = getattr(bridge, "manual_override", None)
 
         self._yaw_prev: tuple | None = None    # (帧时刻, x, y, yaw)
-        self._yaw_bad_run = 0                  # 连续超限的**新帧**数
+        self._yaw_bad_run = 0                  # 连续超限/跳变/矛盾的**新帧**数
+        self._yaw_good_run = 0                 # 闩锁后连续可信的新帧数（自动复位用）
         self._yaw_reason = ""
         self._yaw_last_rate_dps = 0.0
         self._yaw_last_limit_dps = 0.0
+        self._yaw_last_dyaw_deg = 0.0
         self.yaw_max_rate_dps = 0.0     # 本轮见过的最大 yaw 率（误报率/峰值评估用）
         self._yaw_fault_published = False
         # 计数（测试/遥测直接断言，不靠解析日志）
-        self.yaw_untrusted = False   # ★ 一旦判故障就闩锁（与 Safety「不自动恢复」同语义）
+        self.yaw_untrusted = False    # 闩锁；条件消失后可自动复位或 reset_yaw_guard()
         self.yaw_guard_trips = 0
+        self.yaw_guard_recoveries = 0  # 自动复位次数
+        self.yaw_manual_resets = 0     # 人工复位次数
         self.yaw_bad_samples = 0     # 超限的新帧样本数（含尚未达到 N 的）
         self.yaw_guard_samples = 0   # 参与判定的新帧样本数（误报率的分母）
         self.yaw_skipped_frames = 0  # 因不连续/丢帧跳过的帧
@@ -653,45 +659,43 @@ class LocalizationTask(TaskThread):
         return moved > self.arrival_m and proj.dist > self.stuck_dist_m
 
     # ------------------------------------------------------------------ #
-    #  ★★ 航向完整性守卫（2026-10-17 14:59 K9 事故）
+    #  ★★ 航向完整性守卫（差速底盘模型；2026-10-17 K9 事故，2026-10-19 task-44）
     # ------------------------------------------------------------------ #
     def _update_yaw_guard(self, pose, age: float, now: float) -> None:
-        """用**相邻两帧位姿**估 yaw 率，判"物理上不可能/不可信"的航向变化。
+        """用**相邻两帧位姿**估 yaw 率，按差速底盘包络判航向是否可信。
 
-        ## 判据（三条闸，缺一不可）
+        ## 判据（三条闸 + 可恢复闩锁）
 
         1. **帧间隔可信**：`dt = 帧时刻差`，必须 `1e-6 < dt ≤ yaw_max_dt_s`。
            同一帧被两拍重复读（20 Hz 任务 vs 50 Hz 里程计）时 dt=0 ⇒ 不是新样本，跳过
            （**不清**连续计数）；丢帧/卡顿（dt > 0.6 s）角速度算不准 ⇒ 跳过并清零。
         2. **位姿连续**：帧间位移/Δt ≤ `yaw_plausible_speed_mps`。超过它说明这一帧不是
            "车开过去的"（重定位、测试传送、坐标系切换），角速度没有物理意义 ⇒ 跳过。
-           ★ 这一条同时是"静止 vs 手动旋转"的分界：静止时位移≈0 ⇒ 走静止判据；
-           人推着车走（轮速/位移在动）⇒ 按运动判据，超过 Ackermann 上限一样判故障。
-        3. **超限且持续**：`|ω| > ω_max` 连续 `yaw_bad_ticks` 个**新帧**样本才判故障。
-           · 运动（v ≥ yaw_min_speed_mps）：ω_max = margin·v·tan(δmax)/L + floor，
-             且不低于 abs_floor（低速蠕动不误报）；
-           · 静止（v <  yaw_min_speed_mps）：ω_max = yaw_static_dps。
-             车没动却被"转"了 —— 只可能是被搬/被转或 yaw 链坏了，两种都不许拿来导航。
+        3. **差速包络**（不再用 Ackermann `v·tan(δmax)/L`）：
+           · 运动（v ≥ yaw_min_speed_mps）：
+             `ω_max = max(yaw_diff_spin_dps, yaw_diff_gain_dps_per_mps × v)`
+             —— 低速允许原地转向（60°/s），随速度按左右轮差速比例放大
+             （A2 实测 79.8°/s @ 0.19 m/s ⇒ 420°/s per m/s，取 525 含 25% 余量）。
+           · 静止（v < yaw_min_speed_mps）：`ω_max = yaw_static_dps`（45°/s）。
+             车没动却被"转"了 —— 只可能是被搬/被转或 yaw 链坏了。
+        4. **单帧跳变**：`|Δyaw| > yaw_jump_deg`（30°）⇒ 立即判故障（重定位/坐标跳变）。
+        5. **IMU 交叉核对**：位姿 yaw 率 > `yaw_imu_check_dps` 且 IMU |gz| < ratio×位姿率
+           ⇒ 判"链内部矛盾"（与差速包络无关，IMU 说没转就是不可信）。
+        6. **持续 N 帧**：超限/矛盾连续 `yaw_bad_ticks` 个新帧才判故障；单帧毛刺不刹。
+
+        ## 闩锁与恢复（2026-10-19 改）
+
+        判故障后 `yaw_untrusted=True`，经 `P_MOTION_LIMIT{speed_mps:0}` + `EV_TASK_FAULT`
+        请求停车（Safety 仍锁存 SAFE_STOP，需显式 `clear_safety()`）。
+        **不再永久锁死**：连续 `yaw_clear_ticks`（默认 20 个新帧）全部可信 ⇒ 自动复位
+        `yaw_untrusted=False` 并把 P_MOTION_LIMIT 撤为 None；也可调用
+        `reset_yaw_guard()` 人工复位。复位只清"航向守卫"，Safety 的清场仍按原规程人工执行。
 
         ## 为什么用帧间隔而不是拍间隔
 
         任务 20 Hz、里程计 50 Hz、serial_reader 打印 5 Hz（事故日志实测 dt 中位 0.2 s）。
         用拍间隔（0.05 s）算 0.2 s 里 24° 的跳变会得到 **480°/s 的 4 倍假读数**；
         用帧时刻差才是物理角速度。
-
-        ## 动作（**复用现有机制**，不新造）
-
-        判故障后：① 写 `P_MOTION_LIMIT{speed_mps:0}`（既有写/读契约 ⇒ 执行侧立刻刹）；
-        ② 发 `EV_TASK_FAULT`（SafetyTask 检查④ ⇒ 锁存 SAFE_STOP + 每拍续发零速）。
-        本任务**不**把自己置 FAULT：线程还要继续发 P_POSE/遥测（与 Safety 的"唯一制动者"
-        分工一致）。闩锁：判定后 `yaw_untrusted=True` 永不复位（与 Safety"不自动恢复"同语义）。
-
-        ## 实测（_tmp_session/run_20261017_1504/3_localization.log:152-185，5 Hz 真实片段）
-
-        前 3.4 s（14:59:28.6~32.0，18 帧，正常沿 K9 直道）**0 个超限样本**（角速度
-        0~60°/s，上限 55~110°/s）⇒ 不误报；14:59:32.6 起连续 3 个样本超限
-        （85/112/79 vs 82/52/39）⇒ 判故障，比投影跳变（38.2 s）早 **5.6 s**、
-        比越界（49.2 s）早 **16.6 s**。
         """
         if not self.yaw_guard_enabled:
             return
@@ -717,69 +721,127 @@ class LocalizationTask(TaskThread):
         limit = self._yaw_limit_dps(v)
         self._yaw_last_rate_dps = rate
         self._yaw_last_limit_dps = limit
+        self._yaw_last_dyaw_deg = geo.deg(dyaw)
         if rate > self.yaw_max_rate_dps:
             self.yaw_max_rate_dps = rate
         self.yaw_guard_samples += 1
-        if rate <= limit:
-            self._yaw_bad_run = 0
-            return
-        self.yaw_bad_samples += 1
-        self._yaw_bad_run += 1
-        # ---- 手动旋转 / 遥控接管：人比机器优先（与 Safety 检查⑤同口径）----
-        if self._manual_override():
+        mismatch = self._yaw_imu_mismatch(rate)
+        jump = abs(geo.deg(dyaw)) > self.yaw_jump_deg
+        # ---- 手动旋转 / 遥控接管：人比机器优先（但 IMU 矛盾不豁免）----
+        if self._manual_override() and not mismatch:
             self.yaw_manual_ticks += 1
             self._yaw_bad_run = 0
+            self._yaw_good_run = 0
             if self._warn.allow("yaw_manual", now):
-                self._log(f"航向守卫：遥控接管中 yaw {rate:.1f}°/s 超上限 {limit:.1f}°/s"
-                          f"（{'静止' if v < self.yaw_min_speed_mps else '运动'}，v={v:.2f} m/s）"
-                          f" → 按人工操作处理，不判故障（累计 {self.yaw_manual_ticks} 拍）")
+                self._log(f"航向守卫：遥控接管中 yaw {rate:.1f}°/s / 单帧 {geo.deg(dyaw):+.1f}°"
+                          f"（上限 {limit:.1f}°/s，{'静止' if v < self.yaw_min_speed_mps else '运动'}，"
+                          f"v={v:.2f} m/s）→ 按人工操作处理，不判故障"
+                          f"（累计 {self.yaw_manual_ticks} 拍）")
             return
+        bad = jump or rate > limit or mismatch
+        if not bad:
+            self._yaw_bad_run = 0
+            if self.yaw_untrusted:
+                self._yaw_good_run += 1
+                if self._yaw_good_run >= self.yaw_clear_ticks:
+                    self._clear_yaw_untrusted(now)
+            return
+        self.yaw_bad_samples += 1
+        self._yaw_good_run = 0
+        if jump:
+            # 单帧跳变：不等 N 帧，立即判故障（重定位/坐标跳变不会连续 3 帧才出现）
+            self._yaw_bad_run = self.yaw_bad_ticks
+            self._trip_yaw_untrusted(v, rate, limit, now,
+                                     jump_deg=abs(geo.deg(dyaw)), mismatch=mismatch)
+            return
+        self._yaw_bad_run += 1
         if self._yaw_bad_run < self.yaw_bad_ticks:
             return
-        self._trip_yaw_untrusted(v, rate, limit, now)
+        self._trip_yaw_untrusted(v, rate, limit, now, mismatch=mismatch)
 
     def _yaw_limit_dps(self, v: float) -> float:
-        """当前速度下允许的 yaw 率上限（°/s）；取值理由见 `_update_yaw_guard`。"""
+        """当前速度下允许的 yaw 率上限（°/s）；差速底盘包络，理由见 `_update_yaw_guard`。"""
         if v < self.yaw_min_speed_mps:
             return self.yaw_static_dps
-        v_eff = min(v, self._yaw_v_cap)
-        kin_dps = geo.deg(v_eff * self._yaw_kin_gain)
-        return max(kin_dps * self.yaw_kin_margin + self.yaw_rate_floor_dps,
-                   self.yaw_abs_floor_dps)
+        return max(self.yaw_diff_spin_dps,
+                   self.yaw_diff_gain_dps_per_mps * v)
 
-    def _trip_yaw_untrusted(self, v: float, rate: float, limit: float, now: float) -> None:
+    def _yaw_imu_mismatch(self, rate: float) -> bool:
+        """位姿 yaw 率与 IMU gyro 是否矛盾；无 IMU / 低于核对阈值 → False（自动降级）。"""
+        if self._imu_fn is None or rate < self.yaw_imu_check_dps:
+            return False
+        imu_rate = self._imu_yaw_rate_dps()
+        if imu_rate is None:
+            return False
+        return imu_rate < rate * self.yaw_imu_mismatch_ratio
+
+    def _trip_yaw_untrusted(self, v: float, rate: float, limit: float, now: float,
+                            *, jump_deg: float | None = None,
+                            mismatch: bool = False) -> None:
         """判「航向失去可信」：走既有 `P_MOTION_LIMIT` + `EV_TASK_FAULT` 两条通路。"""
+        if self.yaw_untrusted:
+            return                          # 已闩锁：不重复计数/不重复发事件
         self.yaw_untrusted = True
         self.yaw_guard_trips += 1
         moving = v >= self.yaw_min_speed_mps
-        # ---- 诊断增强：有 IMU 就比一下（只决定 reason 文案，不改刹车语义）----
         imu_rate = self._imu_yaw_rate_dps()
-        mismatch = (imu_rate is not None and rate > 0.0
-                    and imu_rate < rate * self.yaw_imu_mismatch_ratio)
         if mismatch:
             self.yaw_imu_mismatch += 1
-        if not moving:
+        if jump_deg is not None:
+            reason = "yaw_jump"
+            text = (f"单帧 yaw 跳变 {jump_deg:.1f}° > 阈值 {self.yaw_jump_deg:.1f}°"
+                    f"（帧间隔角速度 {rate:.1f}°/s，v={v:.2f} m/s）"
+                    f" = 重定位/坐标跳变，航向不可信")
+        elif not moving:
             reason = "yaw_static_rotation"
             text = (f"静止期 yaw {rate:.1f}°/s > 上限 {limit:.1f}°/s（v={v:.3f} m/s）："
                     f"车没在动、yaw 却被转了 = 被搬/被转或 yaw 链坏了")
-        elif mismatch:
+        elif mismatch and imu_rate is not None:
             reason = "yaw_pose_imu_mismatch"
-            text = (f"yaw 率与 IMU 矛盾：位姿 {rate:.1f}°/s > 上限 {limit:.1f}°/s，"
+            text = (f"yaw 率与 IMU 矛盾：位姿 {rate:.1f}°/s > 包络 {limit:.1f}°/s，"
                     f"但 IMU |gz|={imu_rate:.1f}°/s（v={v:.2f} m/s）⇒ 位姿/航向链内部不一致")
         else:
-            reason = "yaw_rate_over_kinematic"
-            kin = geo.deg(min(v, self._yaw_v_cap) * self._yaw_kin_gain)
-            text = (f"yaw {rate:.1f}°/s > 运动学上限 {limit:.1f}°/s（v={v:.2f} m/s，"
-                    f"Ackermann 极限 {kin:.1f}°/s）")
+            reason = "yaw_rate_over_diff"
+            text = (f"yaw {rate:.1f}°/s > 差速包络 {limit:.1f}°/s（v={v:.2f} m/s，"
+                    f"增益 {self.yaw_diff_gain_dps_per_mps:.0f}°/s per m/s，"
+                    f"低速允许 {self.yaw_diff_spin_dps:.0f}°/s）")
         self._yaw_reason = reason
         if self.yaw_guard_trips == 1:
             self._log(f"🧭❌ 航向失去可信（{reason}）：{text} → 请求停车 + 发 EV_TASK_FAULT"
-                      f"（连续 {self._yaw_bad_run} 个新帧超限；已闩锁，不自动恢复）")
+                      f"（连续 {self._yaw_bad_run} 个新帧；连续 {self.yaw_clear_ticks} 帧可信后自动复位）")
         if not self._yaw_fault_published:
             self._yaw_fault_published = True
             # ★ 复用既有 fault 事件通路：SafetyTask 检查④ 据此锁存 SAFE_STOP 并逐拍刹车。
             self.bus.publish(EV_TASK_FAULT, source=self.name, task=self.name,
                              where="heading_untrusted", error=text)
+
+    def _clear_yaw_untrusted(self, now: float) -> None:
+        """条件消失后自动复位守卫（Safety 的 SAFE_STOP 仍需显式 clear_safety()）。"""
+        if not self.yaw_untrusted:
+            return
+        self.yaw_untrusted = False
+        self.yaw_guard_recoveries += 1
+        self._yaw_bad_run = 0
+        self._yaw_good_run = 0
+        self._yaw_fault_published = False
+        self._log(f"✅ 航向守卫自动恢复：连续 {self.yaw_clear_ticks} 个新帧可信"
+                  f"（累计恢复 {self.yaw_guard_recoveries} 次）→ 撤销限速请求；"
+                  f"Safety 若已锁存，需显式 clear_safety()")
+
+    def reset_yaw_guard(self, now: float | None = None) -> None:
+        """人工复位航向守卫（条件消失但不想等自动复位时用；不替代 Safety 清场）。"""
+        ts = self.clock() if now is None else now
+        was = self.yaw_untrusted
+        self.yaw_untrusted = False
+        self._yaw_bad_run = 0
+        self._yaw_good_run = 0
+        self._yaw_fault_published = False
+        self._yaw_reason = ""
+        self.yaw_manual_resets += 1
+        if was:
+            self.bb.set(P_MOTION_LIMIT, None, source=self.name, ts=ts)
+        self._log(f"航向守卫：人工复位（第 {self.yaw_manual_resets} 次；原状态"
+                  f"{'闩锁' if was else '未闩锁'}）→ Safety 仍需显式 clear_safety()")
 
     def _imu_yaw_rate_dps(self) -> float | None:
         """最近一帧 IMU 的 |gyro z|（°/s）；无 IMU/过期/形状不对 → None（判据自动降级）。"""
@@ -1103,6 +1165,12 @@ class LocalizationTask(TaskThread):
                                    else round(geo.deg(self._travel_heading), 1)),
             "yaw_untrusted": self.yaw_untrusted,
             "yaw_guard_trips": self.yaw_guard_trips,
+            "yaw_guard_recoveries": self.yaw_guard_recoveries,
+            "yaw_manual_resets": self.yaw_manual_resets,
+            "yaw_clear_ticks": self.yaw_clear_ticks,
+            "yaw_jump_deg": self.yaw_jump_deg,
+            "yaw_diff_gain_dps_per_mps": self.yaw_diff_gain_dps_per_mps,
+            "yaw_diff_spin_dps": self.yaw_diff_spin_dps,
             "yaw_guard_samples": self.yaw_guard_samples,
             "yaw_bad_samples": self.yaw_bad_samples,
             "yaw_skipped_frames": self.yaw_skipped_frames,
@@ -1112,6 +1180,7 @@ class LocalizationTask(TaskThread):
             "yaw_last_rate_dps": round(self._yaw_last_rate_dps, 1),
             "yaw_max_rate_dps": round(self.yaw_max_rate_dps, 1),
             "yaw_last_limit_dps": round(self._yaw_last_limit_dps, 1),
+            "yaw_last_dyaw_deg": round(self._yaw_last_dyaw_deg, 1),
             "warnings": self.drift_warnings,
             "note": "吸附会掩盖尺度误差：漂移告警为 0 **不等于**里程健康",
         }
@@ -1248,6 +1317,7 @@ class LocalizationTask(TaskThread):
                            "scale_suspect": self.scale_suspect,
                            # ★航向守卫的可见化（读侧只该用 speed_mps/reason，其余仅供遥测）
                            "yaw_untrusted": self.yaw_untrusted,
+                            "yaw_guard_recoveries": self.yaw_guard_recoveries,
                            "yaw_rate_dps": round(self._yaw_last_rate_dps, 1),
                            "yaw_limit_dps": round(self._yaw_last_limit_dps, 1),
                            "since": now}
