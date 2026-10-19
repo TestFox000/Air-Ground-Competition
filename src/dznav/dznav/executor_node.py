@@ -114,7 +114,7 @@ DEFAULTS = {
     # path opts
     "dev_cap": 0.08,
     "dev_cap_critical": 0.03,
-    "arc_fallback_deg": 125.0,
+    "arc_fallback_deg": 105.0,   # = max_fillet_deg(r_phys)，见 refpath.DQ_DEVIATION_M
     # ---- 安全（2026-10-17 评审整改新增）----
     "link_timeout": 0.5,       # /odom 或 /imu_data 断流多久跳闸（仅运动态）
     "dt_max": 0.20,            # 单周期 dt 上限：防挂起后一次性大跳

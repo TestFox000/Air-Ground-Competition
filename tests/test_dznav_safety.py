@@ -655,3 +655,169 @@ def test_auto_mission_timer_absent_without_builtin_route(monkeypatch):
     node = DzNavNode()
     assert node.cfg["builtin_route"] == ""
     assert node._auto_timer is None
+
+
+# ============================================== fillet 切角 vs 17.5cm 失格线
+def test_arc_fallback_deg_respects_dq_deviation_line():
+    """arc_fallback_deg 不得超过"fillet 切角仍在失格线内"的最大转角。
+
+    fillet 偏差 dev = R·(1/cos(θ/2) − 1)，而 R 会被物理下限 r_phys 顶住
+    （refpath.py 的 `if r < r_phys: r = r_phys`），于是 dev 随 θ 单调上升。
+    出厂参数 servo_mode=ideal / steer_limit_deg=30 / wheelbase=0.157 给
+    r_phys = 0.157/tan30° = 0.2719m，代入 dev=0.175 解得 θ = 105.05°。
+
+    旧值 125.0 意味着 105°~125° 的弯走 fillet，切角最大 31.7cm —— 远超
+    17.5cm 失格线，参考线会从障碍/靶体上切过去。这条测试把"配置值必须跟
+    物理半径自洽"钉住：改了 steer_limit_deg / wheelbase / servo_mode 而忘了
+    重算 arc_fallback_deg，当场就红。
+    """
+    from dznav.refpath import DQ_DEVIATION_M, max_fillet_deg
+    from dznav.servo import ServoModel
+
+    servo = ServoModel(steer_limit_deg=DEFAULTS["servo_limit_deg"],
+                       wheelbase=DEFAULTS["wheelbase"],
+                       mode=DEFAULTS["servo_mode"])
+    r_phys = 1.0 / servo.kappa_max(1.0)
+    limit = max_fillet_deg(r_phys, DQ_DEVIATION_M)
+    assert DEFAULTS["arc_fallback_deg"] <= limit + 1e-6, (
+        f"arc_fallback_deg={DEFAULTS['arc_fallback_deg']}° 超过物理上限 "
+        f"{limit:.2f}°（r_phys={r_phys:.4f}m，失格线 {DQ_DEVIATION_M}m）："
+        f"这个角度区间内的弯会生成失格级切角")
+
+
+def test_max_fillet_deg_matches_hand_computed_value():
+    """max_fillet_deg 的公式本身要对：出厂参数下应解出 ≈105.05°。
+
+    手算复核（不依赖被测函数）：dev = r·(1/cos(θ/2)−1) = 0.175，r = 0.2719
+    → cos(θ/2) = 1/(1+0.175/0.2719) = 0.60849 → θ/2 = 52.52° → θ = 105.05°。
+    """
+    from dznav.refpath import max_fillet_deg
+
+    r_phys = 0.157 / math.tan(math.radians(30.0))
+    assert abs(r_phys - 0.2719) < 5e-4
+    assert abs(max_fillet_deg(r_phys) - 105.05) < 0.05
+
+
+def test_shipped_yaml_arc_fallback_matches_defaults():
+    """yaml 与 DEFAULTS 的 arc_fallback_deg 必须同值，防单边改漂移。
+
+    既有 test_shipped_yaml_keys_match_defaults 只比**键集合**，不比值；
+    这个参数一旦两边不一致，现场调了 yaml 却按 DEFAULTS 跑（或反之），
+    失格线约束就悄悄失效。
+    """
+    yaml = pytest.importorskip("yaml")
+    path = (Path(__file__).resolve().parent.parent / "src" / "dznav" / "config"
+            / "dznav_default.yaml")
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert float(data["arc_fallback_deg"]) == float(DEFAULTS["arc_fallback_deg"]), (
+        f"arc_fallback_deg: yaml={data['arc_fallback_deg']} "
+        f"DEFAULTS={DEFAULTS['arc_fallback_deg']}")
+
+
+# ============================== 相邻 fillet 切点重叠（路径自交，F3 未修只告警）
+def _servo_from_defaults():
+    from dznav.servo import ServoModel
+    return ServoModel(steer_limit_deg=DEFAULTS["servo_limit_deg"],
+                      wheelbase=DEFAULTS["wheelbase"],
+                      mode=DEFAULTS["servo_mode"])
+
+
+def test_consecutive_90_corners_on_cell_leg_overlap_is_warned():
+    """出厂参数下，同一格边(0.35m)上相邻两个 90° 弯的切点必然重叠 —— 必须告警。
+
+    手算：r_phys = 0.157/tan30° = 0.2719m；90° 弯切点长 = r_phys·tan45°
+    = 0.2719m。两个弯共享一条腿 → 需 0.5439m > 0.35m（连对角腿 0.495m 也不够）。
+    于是 straight_len 归零、两弧互相重叠、参考线自交，project 会投到错误一侧，
+    cte 冲高触发 pursuit._need_rebuild；rebuild_limit(3) 耗尽后 forced arrived，
+    任务在场中中止。
+
+    正解（按比例同时缩小共享腿上的两个 fillet，或把顶点转 ARC）是路径几何设计
+    变更，没有 SIL 不敢动；这里钉住的是"它至少不能再是静默的"。
+    """
+    from dznav.contract import BLOCK
+    from dznav.refpath import PathOptions, Waypoint, build_reference
+
+    assert abs(BLOCK - 0.35) < 1e-9, "本测试的数值反例基于格边 0.35m"
+    r_phys = 1.0 / _servo_from_defaults().kappa_max(1.0)
+    need = 2.0 * r_phys * math.tan(math.radians(45.0))
+    assert need > BLOCK, f"反例失效：两弯只需 {need:.3f}m <= 腿长 {BLOCK}m"
+
+    msgs: list = []
+    wps = [Waypoint(0.0, 0.0), Waypoint(BLOCK, 0.0),
+           Waypoint(BLOCK, BLOCK), Waypoint(2 * BLOCK, BLOCK)]
+    build_reference(wps, _servo_from_defaults(), PathOptions(),
+                    warn=msgs.append)
+    hit = [m for m in msgs if "重叠" in m]
+    assert hit, f"切点重叠未告警；实际告警={msgs}"
+
+
+def test_well_spaced_corners_do_not_trigger_overlap_warning():
+    """告警不能对合法几何误报，否则现场会把它当噪声关掉。
+
+    腿长 1.2m 时两弯只需 0.544m，余量充足 → 不得出现"重叠"告警。
+    """
+    from dznav.refpath import PathOptions, Waypoint, build_reference
+
+    msgs: list = []
+    wps = [Waypoint(0.0, 0.0), Waypoint(1.2, 0.0),
+           Waypoint(1.2, 1.2), Waypoint(2.4, 1.2)]
+    build_reference(wps, _servo_from_defaults(), PathOptions(),
+                    warn=msgs.append)
+    assert not [m for m in msgs if "重叠" in m], msgs
+
+
+def test_dev_budget_floor_breach_is_warned():
+    """dev_cap 被物理半径顶穿时必须告警：出厂参数下这是常态而非边缘情况。
+
+    90° 弯的 r_dev = 0.08/(1/cos45°−1) = 0.193m < r_phys = 0.272m，所以
+    `if r < r_phys: r = r_phys` 每个 90° 弯都会走，dev_cap=0.08 这个"预算"
+    从未真正生效（实际偏差 11.3cm）。原代码只在 b.critical 时才喊，非关键
+    弯全程静默。
+    """
+    from dznav.refpath import PathOptions, Waypoint, build_reference
+
+    msgs: list = []
+    wps = [Waypoint(0.0, 0.0), Waypoint(1.2, 0.0),
+           Waypoint(1.2, 1.2), Waypoint(2.4, 1.2)]
+    build_reference(wps, _servo_from_defaults(), PathOptions(),
+                    warn=msgs.append)
+    assert [m for m in msgs if "顶穿" in m], msgs
+
+
+# ================================ rebuild 必须沿用配置过的 PathOptions（F-opts）
+def test_rebuild_reuses_configured_path_options():
+    """_rebuild 曾硬编码 PathOptions(dev_cap=0.08, dev_cap_critical=0.03)。
+
+    后果：运维在 YAML 里调过的 dev_cap / dev_cap_critical / arc_fallback_deg
+    只在首条路径上生效，第一次重建就被静默丢回 dataclass 默认值，日志里毫无
+    痕迹。arc_fallback_deg 尤其要命——丢回默认等于失格线约束换了个值。
+    """
+    from dznav.refpath import PathOptions, Waypoint, build_reference
+    from dznav.pursuit import Tracker, TrackerConfig
+
+    opts = PathOptions(dev_cap=0.15, dev_cap_critical=0.05,
+                       arc_fallback_deg=100.0)
+    wps = [Waypoint(0.0, 0.0), Waypoint(1.2, 0.0),
+           Waypoint(1.2, 1.2), Waypoint(2.4, 1.2)]
+    tr = Tracker(build_reference(wps, _servo_from_defaults(), opts),
+                 _servo_from_defaults(), TrackerConfig())
+
+    assert tr._rebuild(0.0, 0.0, 0.0, 0.0, []) is True
+    assert tr.path.opts is not None, "重建后的路径丢了 opts"
+    assert tr.path.opts.dev_cap == 0.15
+    assert tr.path.opts.dev_cap_critical == 0.05
+    assert tr.path.opts.arc_fallback_deg == 100.0
+
+
+def test_build_reference_records_opts_on_path():
+    """opts 必须挂在 ReferencePath 上，否则 _rebuild 无从沿用。"""
+    from dznav.refpath import PathOptions, Waypoint, build_reference
+
+    opts = PathOptions(dev_cap=0.11)
+    p = build_reference([Waypoint(0.0, 0.0), Waypoint(1.0, 0.0)],
+                        _servo_from_defaults(), opts)
+    assert p.opts is opts
+    # 不传 opts 时也要落一个实例，不能留 None（_rebuild 依赖它）
+    p2 = build_reference([Waypoint(0.0, 0.0), Waypoint(1.0, 0.0)],
+                         _servo_from_defaults())
+    assert p2.opts is not None and p2.opts.dev_cap == PathOptions().dev_cap

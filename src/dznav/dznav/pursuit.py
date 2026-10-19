@@ -369,7 +369,10 @@ class Tracker:
         for i in range(nxt, len(self.path.waypoints)):
             keep.append(self.path.waypoints[i])
         from .refpath import build_reference, PathOptions
-        opts = PathOptions(dev_cap=0.08, dev_cap_critical=0.03)
+        # 必须沿用建原路径时的选项：这里曾经硬编码 dev_cap=0.08/
+        # dev_cap_critical=0.03，于是运维在 YAML 里调过的值只在首条路径上生效，
+        # 第一次重建就被静默丢回默认（arc_fallback_deg 同样会丢）。
+        opts = self.path.opts or PathOptions(dev_cap=0.08, dev_cap_critical=0.03)
         self.path = build_reference(keep, self.servo, opts)
         self.s_prog = 0.0
         self.passed = 0
