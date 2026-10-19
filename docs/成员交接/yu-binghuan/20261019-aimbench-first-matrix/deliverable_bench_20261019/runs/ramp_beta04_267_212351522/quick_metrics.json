@@ -1,0 +1,23 @@
+{
+  "mode": "hil",
+  "rows": 5164,
+  "state_transitions": [
+    {
+      "t": 0.0,
+      "state": 1
+    },
+    {
+      "t": 0.02,
+      "state": 2
+    }
+  ],
+  "track_seconds": 25.15,
+  "track_err_deg": {
+    "n": 754,
+    "mean_abs": 5.54,
+    "p90": 10.951,
+    "max": 19.465
+  },
+  "shots": 0,
+  "first_shot_t": null
+}
