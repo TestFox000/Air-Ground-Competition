@@ -306,6 +306,25 @@ check("阶段变化立即补发一条（不等周期）",
       json.loads(bridge.drone_out[-1]).get("phase") == "STOP",
       f"got {bridge.drone_out[-1]}")
 
+section("⑦c car_state 的 done/done_seq 透传到机端（D1b）")
+task, bridge, bb, bus, clock, sub = build()
+bb.set("car_state", {
+    "phase": "SEGMENT_DONE", "segment_id": 3, "known_count": 154,
+    "target_cell": "F4", "stop_kind": "stop", "version": 10,
+    "reason": "段完成", "done_seq": 3,
+    "done": {"segment_id": 3, "block": "F4", "stop_kind": "stop",
+             "skipped": False, "elapsed_s": 12.0, "seq": 3, "replay": True},
+}, source="test")
+feed(task, clock)
+body = json.loads(bridge.drone_out[-1])
+check("phase 来自 P_CAR_STATE", body.get("phase") == "SEGMENT_DONE",
+      f"got {body.get('phase')}")
+check("done_seq 透传", body.get("done_seq") == 3, f"got {body}")
+check("done 透传（block/seq/replay）",
+      isinstance(body.get("done"), dict) and body["done"].get("block") == "F4"
+      and body["done"].get("seq") == 3 and body["done"].get("replay") is True,
+      f"got {body.get('done')}")
+
 section("⑦b 收到带 seq 的消息 → 回 ack")
 task, bridge, bb, bus, clock, sub = build()
 push(bridge, {"type": "bridge_passable", "half": "lower", "block": "K9", "seq": 1234})

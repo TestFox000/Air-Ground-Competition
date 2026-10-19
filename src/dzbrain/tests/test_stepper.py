@@ -1064,4 +1064,140 @@ check("14.8 布局过期只挡新规划：DRIVING 中照常执行当前段（不
       and rig14c.loop.status()["layout_stale"] is True,
       f"{rig14c.loop.phase} / stale={rig14c.loop.status()['layout_stale']}")
 rig14c.close()
+# =========================================================================== #
+# 15. ★D1b（task-42）：完成单闩锁 + 1Hz 重发 + D-022 完整布局例外 + recon 序列
+# =========================================================================== #
+section("15. ★D1b 完成单闩锁/1Hz 重发 + D-022 完整布局例外 + recon 批次/同格停站")
+
+# ---- 15.1 完成单跨 tick 保持（phase 转 WAIT_INFO 后 done 字段仍在）----
+rig15 = Rig(cfg=cfg_of())
+rig15.start(layout_of(known=["N10", "M10", "L10"], target="M10", version=1, segment_id=1))
+done15 = rig15.drive_until_done()
+rig15.step(1)                       # SEGMENT_DONE → WAIT_INFO
+snap15 = rig15.bb.get(M.P_CAR_STATE) or {}
+d15 = snap15.get("done") or {}
+check("15.1 ★ 完成单跨 tick 保持：phase 已转 WAIT_INFO，done{segment_id,block,stop_kind,seq} 仍在",
+      done15 is not None and (done15.get("done") or {}).get("seq") == 1
+      and snap15.get("phase") == M.STEP_PHASE_WAIT_INFO
+      and d15.get("segment_id") == 1 and d15.get("block") == "M10"
+      and d15.get("stop_kind") == "path" and snap15.get("done_seq") == 1,
+      f"{snap15.get('phase')} / done={d15}")
+
+# ---- 15.2 WAIT_INFO 期间 1 Hz 重发（不能每拍刷，也不能不发）----
+_replay0 = int(d15.get("replay", 0))
+rig15.step(25)                      # 2.5 s
+snap15b = rig15.bb.get(M.P_CAR_STATE) or {}
+d15b = snap15b.get("done") or {}
+_delta = int(d15b.get("replay", 0)) - _replay0
+check("15.2 ★ WAIT_INFO 期间完成单 1 Hz 重发（2.5s 约 2~3 次，且 phase 不变）",
+      2 <= _delta <= 4 and snap15b.get("phase") == M.STEP_PHASE_WAIT_INFO
+      and all(s.get("phase") == M.STEP_PHASE_WAIT_INFO for s in rig15.car_states[-20:]),
+      f"delta={_delta} phase={snap15b.get('phase')}")
+
+# ---- 15.3 同格停站段（recon 段 6 形态）当作有效段 + done_seq 单调 ----
+rig15.feed(layout_of(known=["N10", "M10", "L10"], target="M10", version=2, segment_id=2))
+rig15.step(2)                       # 新布局 → 同格停站（0 token）→ 直接判段完成
+snap15c = rig15.bb.get(M.P_CAR_STATE) or {}
+d15c = snap15c.get("done") or {}
+check("15.3 ★ 到站后同格停站（target==当前格）是有效段：done_seq 1→2、skipped、块名正确",
+      snap15c.get("phase") == M.STEP_PHASE_SEGMENT_DONE
+      and snap15c.get("done_seq") == 2 and d15c.get("seq") == 2
+      and d15c.get("block") == "M10" and d15c.get("skipped") is True
+      and bool(rig15.logs_with("同格停站")),
+      f"{snap15c.get('phase')} done_seq={snap15c.get('done_seq')} done={d15c}")
+check("15.4 同格停站计入段台账（started=2 / done=2，机端不会认为第 2 段没开始）",
+      rig15.loop.status()["segments_started"] == 2
+      and rig15.loop.status()["segments_done"] == 2,
+      str({k: rig15.loop.status()[k] for k in ("segments_started", "segments_done")}))
+rig15.step(1)                       # → WAIT_INFO，闩锁继续生效
+_d15 = (rig15.bb.get(M.P_CAR_STATE) or {}).get("done") or {}
+check("15.5 同格停站完成单也进闩锁并可重发（WAIT_INFO 中 done.seq=2）",
+      (rig15.bb.get(M.P_CAR_STATE) or {}).get("phase") == M.STEP_PHASE_WAIT_INFO
+      and _d15.get("seq") == 2,
+      str(_d15))
+rig15.feed(layout_of(known=["N10", "M10", "L10", "L9"], target="L10", version=3, segment_id=3))
+rig15.step(3)
+_s15 = rig15.loop.status()
+check("15.6 新布局到达 ⇒ 停止重发并正常规划下一段（done 清空、DRIVING）",
+      rig15.loop.phase == M.STEP_PHASE_DRIVING and _s15["done"] is None
+      and _s15["done_replay_stopped"] is True,
+      f"{rig15.loop.phase} done={_s15['done']}")
+rig15.close()
+
+# ---- 15.7/15.8 D-022：完整布局（known=154）过期仍可规划，且只说明一次 ----
+rig16 = Rig(cfg=cfg_of().override("step.layout_ttl_s", 0.5))
+rig16.start(layout_of(known=M.all_map_cells(), target="M10", version=1, segment_id=1))
+rig16.clock.advance(2.0)             # 布局已过期（2s > ttl 0.5s）但 known=154
+rig16.step(3)
+_note16 = rig16.logs_with("完整布局")
+check("15.7 ★ D-022：布局过期但 known=154（完整）⇒ 仍允许规划，并打一次说明",
+      rig16.loop.phase == M.STEP_PHASE_DRIVING and rig16.bb.get(P_ROUTE) is not None
+      and len(_note16) == 1 and "D-022" in _note16[0],
+      f"{rig16.loop.phase} notes={len(_note16)}")
+rig16.step(5)
+check("15.8 完整布局说明只打一次（不刷屏）",
+      len(rig16.logs_with("完整布局")) == 1,
+      str(len(rig16.logs_with("完整布局"))))
+rig16.close()
+
+# ---- 15.9 coverage.complete=True 也算完整（partial known 也允许过期规划）----
+_cov = layout_of(known=["N10", "M10"], target="M10", version=1, segment_id=1)
+_cov["coverage"] = {"cells": ["N10", "M10"], "complete": True, "mode": "batch"}
+rig17 = Rig(cfg=cfg_of().override("step.layout_ttl_s", 0.5))
+rig17.start(_cov)
+rig17.clock.advance(2.0)
+rig17.step(3)
+check("15.9 coverage.complete=True 也算完整布局（partial known 也允许过期规划）",
+      rig17.loop.phase == M.STEP_PHASE_DRIVING
+      and bool(rig17.logs_with("coverage complete")),
+      f"{rig17.loop.phase} / {rig17.logs_with('完整布局')[:1]}")
+rig17.close()
+
+# ---- 15.10 partial 布局过期仍 WAIT_INFO(layout_stale)（与 15.7 成对）----
+rig18 = Rig(cfg=cfg_of().override("step.layout_ttl_s", 0.5))
+rig18.start(layout_of(known=["N10", "M10", "L10"], target="M10", version=1, segment_id=1))
+rig18.clock.advance(2.0)
+rig18.step(2)
+_s18 = rig18.loop.status()
+check("15.10 ★ partial 布局过期 ⇒ WAIT_INFO(layout_stale)，不规划（与 15.7 成对）",
+      rig18.loop.phase == M.STEP_PHASE_WAIT_INFO
+      and _s18["reason"].startswith("layout_stale") and _s18["replans"] == 0,
+      f"{rig18.loop.phase} / {_s18['reason'][:50]}")
+rig18.close()
+
+# ---- 15.11/15.12 recon 批次阶段：target_cell='' 不规划；全 known 首 target 才规划 ----
+rig19 = Rig(cfg=cfg_of().override("step.layout_ttl_s", 30.0))
+rig19.start(layout_of(known=["N10", "M10"], target="", version=1, segment_id=1))
+rig19.step(3)
+_s19 = rig19.loop.status()
+check("15.11 ★ recon 批次阶段 target_cell='' ⇒ WAIT_INFO、replans=0、无路由、无完成单",
+      rig19.loop.phase == M.STEP_PHASE_WAIT_INFO
+      and _s19["replans"] == 0 and rig19.bb.get(P_ROUTE) is None
+      and _s19["done_seq"] == 0 and _s19["done"] is None,
+      f"{rig19.loop.phase} replans={_s19['replans']} done_seq={_s19['done_seq']}")
+rig19.feed(layout_of(known=M.all_map_cells(), target="M10", version=2, segment_id=2))
+rig19.step(3)
+check("15.12 全 known 后首 target 到达 ⇒ 正常规划（DRIVING）",
+      rig19.loop.phase == M.STEP_PHASE_DRIVING and rig19.bb.get(P_ROUTE) is not None,
+      str(rig19.loop.phase))
+rig19.close()
+
+# ---- 15.13/15.14 recon 段 6：到站后同格射击停站（C9）也要回报 stop_kind='shoot' + 重发 ----
+rig20 = Rig(cfg=cfg_of(reset="C9,x"))
+rig20.start(sim_layout(target="C9", version=1, segment_id=6))
+rig20.step(1)                       # 同格停站 → 当拍即发 SEGMENT_DONE（下一拍转 WAIT_INFO）
+_s20 = rig20.bb.get(M.P_CAR_STATE) or {}
+_d20 = _s20.get("done") or {}
+check("15.13 ★ recon 段 6 形态（同格射击停站）：skipped=True 且 done.stop_kind='shoot' 上报",
+      _s20.get("phase") == M.STEP_PHASE_SEGMENT_DONE
+      and _d20.get("segment_id") == 6 and _d20.get("skipped") is True
+      and _d20.get("stop_kind") == "shoot" and _s20.get("done_seq") == 1,
+      f"{_s20.get('phase')} done={_d20}")
+rig20.step(15)                      # 1.5 s → 同格完成单同样 1Hz 重发
+_s20b = rig20.bb.get(M.P_CAR_STATE) or {}
+check("15.14 同格停站完成单同样 1 Hz 重发（WAIT_INFO 中 replay ≥ 1）",
+      _s20b.get("phase") == M.STEP_PHASE_WAIT_INFO
+      and int((_s20b.get("done") or {}).get("replay", 0)) >= 1,
+      f"{_s20b.get('phase')} done={_s20b.get('done')}")
+rig20.close()
 finish()

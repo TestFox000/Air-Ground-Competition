@@ -444,6 +444,11 @@ def normalize_step_layout(payload: Any) -> tuple[dict[str, Any] | None, str]:
     out["known"] = known
     out["target_cell"] = target
     out["segment_id"] = segment_id
+    # ★D-022：完整性例外要用到 coverage 语义。normalize 只认白名单字段，这里显式透传
+    #   （机侧 t3 的 coverage 是完整 JSON 对象；只保留原值，不做二次解释）。
+    for key in ("coverage", "coverage_complete"):
+        if key in payload:
+            out[key] = payload[key]
     return out, ""
 
 
@@ -634,6 +639,22 @@ class StepLoop:
             self._layout_ttl_s = 10.0
         self._layout_rx_at = 0.0          # monotonic：收到"当前版本"布局的时刻（0=还没有）
         self._layout_sender_ts = 0.0      # 机侧 ts，仅诊断
+        #: D-022：完整布局（known=整图 / coverage complete）视为静态场地信息，不过期。
+        #: 只在"过期但完整"时打一次说明，避免每拍刷屏。
+        self._layout_complete_noted = False
+
+        # ★D1b（task-42）：段完成回报闩锁 + WAIT_INFO 期间 1 Hz 重发。
+        #   审计：SEGMENT_DONE 只活 1~2 拍，对端漏收就永久等（丢失约 86%）。
+        #   语义：phase 照旧推进（不改 phase 语义），完成单作为独立字段组随帧携带，
+        #   并在 WAIT_INFO 等新布局期间按 step.done_replay_s（缺省 1s，0=关）显式重发。
+        try:
+            self._done_replay_s = max(0.0, float(cfg.get("step.done_replay_s", 1.0) or 0.0))
+        except (TypeError, ValueError):
+            self._done_replay_s = 1.0
+        self._done_seq = 0                 # 完成单序号（单调递增，跨段不重置）
+        self._done_latch: dict[str, Any] | None = None   # 最后一单完整回报（含 replay 计数）
+        self._last_done_replay_at = 0.0    # 上一次 1Hz 重发的时刻
+        self._done_replay_stopped = True   # True=当前没有待重发的完成单
 
         self._phase = STEP_PHASE_WAIT_LAYOUT
         self._layout: dict[str, Any] | None = None
@@ -688,6 +709,10 @@ class StepLoop:
             "layout_age_s": (round(self._clock() - self._layout_rx_at, 2)
                              if self._layout_rx_at else 0.0),
             "layout_stale": self._layout_is_stale(self._clock()),
+            # ★D1b：最后一单完成回报（与 P_CAR_STATE 的 done 字段同源）
+            "done_seq": int(self._done_seq),
+            "done": dict(self._done_latch) if self._done_latch else None,
+            "done_replay_stopped": bool(self._done_replay_stopped),
         }
 
     # ------------------------------------------------------------------ #
@@ -705,6 +730,8 @@ class StepLoop:
             self._planned_version = -1
             self._layout_rx_at = self._clock()
             self._layout_sender_ts = self._layout_ts_of(layout)
+            self._layout_complete_noted = False
+            self._stop_done_replay("步进循环启动（新的一轮）")
             self._phase = STEP_PHASE_PLANNING
             self._reason = "首份布局"
             self._seed_pose(self._layout)
@@ -778,6 +805,24 @@ class StepLoop:
         return bool(self._layout_ttl_s > 0.0 and self._layout_rx_at > 0.0
                     and (now - self._layout_rx_at) > self._layout_ttl_s)
 
+    def _layout_is_complete(self, layout: dict[str, Any]) -> bool:
+        """D-022 完整性判据：known 覆盖整图（MAP_ROWS*MAP_COLS）或 coverage 明确 complete。
+
+        完整布局 = 静态场地信息（扫完了），无人机掉线也不该让车停在半路；
+        部分布局过期仍按 layout_stale 拒绝规划（不拿半张旧图当圣旨）。
+        """
+        known = layout.get("known")
+        if known is not None:
+            try:
+                if len(set(str(x) for x in known)) >= geo.MAP_ROWS * geo.MAP_COLS:
+                    return True
+            except TypeError:
+                pass
+        cov = layout.get("coverage")
+        if isinstance(cov, dict) and bool(cov.get("complete")):
+            return True
+        return bool(layout.get("coverage_complete"))
+
     def _layout_stale_reason(self, now: float) -> str:
         """layout_stale 的 WAIT_INFO 原因（reason 以 layout_stale 开头，测试/机端可判）。"""
         age = max(0.0, now - self._layout_rx_at)
@@ -808,6 +853,9 @@ class StepLoop:
         # ★缺口 E：version 递增 = 新布局到达 ⇒ 新鲜度计时清零（同版心跳不刷新，见 _plan 注释）
         self._layout_rx_at = now
         self._layout_sender_ts = self._layout_ts_of(layout)
+        self._layout_complete_noted = False
+        # ★D1b：新布局到达 ⇒ 停止上一条完成单的 1Hz 重发（并清闩锁，避免新段帧里带旧完成单）
+        self._stop_done_replay(f"新布局 v{version} 到达")
         if self._phase == STEP_PHASE_WAIT_LAYOUT:   # 启动门没给首份布局时也能自愈
             self._phase = STEP_PHASE_PLANNING
         target = str(layout.get("target_cell") or "") or "（空，只等不做）"
@@ -838,16 +886,33 @@ class StepLoop:
             self._to_wait_info("没有位姿（P_POSE 缺失）→ 无法确定当前格", now)
             return
         if from_cell == self._target_cell:
-            # 空段不经过规划器：停站类型单独分类（否则空段永远报 path）
+            # ★D1b（task-42）：到站后同格停站（recon 段 6 形态：F4(mine) → F4(stop)，0 token）
+            #   **也是有效段**：必须计一段（segments_started+1）并发 SEGMENT_DONE 完成单
+            #   （含 stop_kind / done_seq），否则机端等不到第 6 段完成、检查点不推进。
+            #   停站类型单独分类（不经过规划器，否则空段永远报 path）。
             self._stop_kind = classify_segment_target(self.cfg, layout, self._target_cell)
+            self._segments_started += 1
+            self._segment_started_at = now
+            self._log(f"▶ 段 {self._segment_id} **同格停站**（0 token）：已在 {self._target_cell}"
+                      f"｜停站 {self._stop_kind or '未标注'} → 直接判段完成（不再发车）")
             self._mark_segment_done(now, block=from_cell, elapsed=0.0, skipped=True)
             return
         # ★缺口 E：规划前先验布局新鲜度（过期 ⇒ WAIT_INFO(layout_stale)，绝不拿旧布局规划）。
         #   注意 _planned_version 已在上面写成当前版本 ⇒ _wait_tick 不会每拍重复规划；
         #   只有 version 递增的新布局才会把本段重新拉回 PLANNING。
+        #   ★D-022 例外：布局**完整**（known=整图 / coverage complete）时视为静态场地信息，
+        #     过期也允许规划（只说明一次），避免无人机掉线后车停在半路。
         if self._layout_is_stale(now):
-            self._to_wait_info(self._layout_stale_reason(now), now)
-            return
+            if self._layout_is_complete(layout):
+                if not self._layout_complete_noted:
+                    self._layout_complete_noted = True
+                    self._log(f"布局已过期（{max(0.0, now - self._layout_rx_at):.1f}s > "
+                              f"step.layout_ttl_s={self._layout_ttl_s:g}s）但为**完整布局**"
+                              f"（known {self._known_count} 格 / coverage complete）⇒ 按 D-022 "
+                              "视为静态场地信息，允许规划（本条只说明一次）")
+            else:
+                self._to_wait_info(self._layout_stale_reason(now), now)
+                return
         self._replans += 1
         try:
             plan = self._planner(layout, from_cell, self._target_cell, self._heading_dir())
@@ -874,6 +939,8 @@ class StepLoop:
             return
         self._segments_started += 1
         self._segment_started_at = now
+        # ★D1b：开新段 ⇒ 上一条完成单停止重发（对端已经拿到过；新段有自己的完成单）
+        self._stop_done_replay(f"新段 {self._segment_id} 开始")
         self._phase = STEP_PHASE_DRIVING
         self._reason = ""
         self._last_target = self._target_cell
@@ -911,9 +978,11 @@ class StepLoop:
     def _after_segment_done(self, now: float) -> None:
         end = str((self._layout or {}).get("end") or "").strip().upper()
         if end and self._last_done_block == end:
+            self._stop_done_replay("到达终点")
             self._to_finish(now)
             return
         if self._seen_version > self._planned_version:
+            self._stop_done_replay("段边界：新布局已到")
             self._phase = STEP_PHASE_PLANNING
             self._reason = "段边界：新布局已到 → 立即重规划"
             self._log(f"段边界：布局 v{self._seen_version}（已处理 v{self._planned_version}）"
@@ -939,6 +1008,8 @@ class StepLoop:
                       f"｜known {self._known_count} 格"
                       f"｜{'无超时（等下一份布局）' if self._wait_timeout_s <= 0 else f'超时 {self._wait_timeout_s:g}s'}"
                       "｜等无人机下一份布局")
+        # ★D1b：等新布局期间把最后一单完成回报按 1 Hz 重发（对端漏收 SEGMENT_DONE 不再永久等）
+        self._maybe_replay_done(now)
 
     # ------------------------------------------------------------------ #
     #  状态迁移 + 回报
@@ -950,6 +1021,19 @@ class StepLoop:
         self._last_target = self._last_done_block
         if stop_kind:                          # ★T32：任务线程的完成单是权威（空段用分类结果）
             self._stop_kind = stop_kind
+        # ★D1b：闩锁最后一单完成回报（phase 照旧推进；这组字段随帧携带并 1Hz 重发）
+        self._done_seq += 1
+        self._done_latch = {
+            "segment_id": int(self._segment_id),
+            "block": self._last_done_block,
+            "stop_kind": self._stop_kind,
+            "skipped": bool(skipped),
+            "elapsed_s": round(float(elapsed), 2),
+            "seq": int(self._done_seq),
+            "replay": 0,
+        }
+        self._done_replay_stopped = False
+        self._last_done_replay_at = now
         self._phase = STEP_PHASE_SEGMENT_DONE
         self._reason = "已在目标格（空段）" if skipped else "段完成"
         self._publish_car_state(now)
@@ -957,6 +1041,36 @@ class StepLoop:
                   f"（停站 {self._stop_kind or '未标注'}"
                   f" / {'空段，未发车' if skipped else f'用时 {elapsed:.2f}s'}）"
                   f"→ P_CAR_STATE phase={STEP_PHASE_SEGMENT_DONE}")
+
+    # ------------------------------------------------------------------ #
+    #  ★D1b 段完成回报：1 Hz 重发 / 停止重发（phase 语义不变）
+    # ------------------------------------------------------------------ #
+    def _maybe_replay_done(self, now: float) -> None:
+        """WAIT_INFO 等新布局期间把最后一单完成回报按 1 Hz 重发。
+
+        为什么：SEGMENT_DONE 只活 1~2 拍（下一拍就转 WAIT_INFO），对端漏收即永久等；
+        重发的是**同一份闩锁**（segment_id/block/stop_kind/done_seq），只把 replay 计数 +1，
+        phase 仍为 WAIT_INFO（不改 phase 语义）。窗口 = step.done_replay_s（缺省 1s，0=关）。
+        """
+        latch = self._done_latch
+        if latch is None or self._done_replay_stopped or self._done_replay_s <= 0.0:
+            return
+        if now - self._last_done_replay_at < self._done_replay_s:
+            return
+        self._last_done_replay_at = now
+        latch["replay"] = int(latch.get("replay", 0)) + 1
+        self._publish_car_state(now, force=True)
+        if latch["replay"] == 1 or latch["replay"] % 10 == 0:
+            self._log(f"↻ 段完成单重发 ×{latch['replay']}：段 {latch['segment_id']} "
+                      f"→ {latch['block']}（done_seq={latch['seq']}，每 "
+                      f"{self._done_replay_s:g}s 一次，等新布局）")
+
+    def _stop_done_replay(self, why: str) -> None:
+        """停止重发并清闩锁（新布局到达 / 开新段 / FINISH / 安全停机时调用）。"""
+        if self._done_latch is not None and not self._done_replay_stopped:
+            self._log(f"■ 停止重发段完成单（{why}；最后一次 done_seq={self._done_seq}）")
+        self._done_replay_stopped = True
+        self._done_latch = None
 
     def _to_wait_info(self, reason: str, now: float, *, retry: bool = False) -> None:
         self._phase = STEP_PHASE_WAIT_INFO
@@ -972,6 +1086,7 @@ class StepLoop:
                       f"{'无超时（等下一份布局）' if self._wait_timeout_s <= 0 else f'超时 {self._wait_timeout_s:g}s'}")
 
     def _to_finish(self, now: float) -> None:
+        self._stop_done_replay("FINISH")
         self._phase = STEP_PHASE_FINISH
         self._reason = f"到达终点 {self._last_done_block}"
         try:
@@ -1010,6 +1125,7 @@ class StepLoop:
 
     def _to_ros_lost(self, now: float, age: float) -> None:
         """位姿断流 → 停段 + 刹车 + 诊断 + 阶段 ROS_LOST（main 退出码 5，不自动恢复）。"""
+        self._stop_done_replay("ROS_LOST")
         try:
             self.mission.stop_segment("运行期位姿断流（ROS_LOST）")
         except Exception:                                # noqa: BLE001
@@ -1027,6 +1143,7 @@ class StepLoop:
         _ros_diagnosis(self.bridge, log=self._log)
 
     def _to_safe_stop(self, reason: str, now: float) -> None:
+        self._stop_done_replay("SAFE_STOP")
         try:
             self.mission.stop_segment(reason)
         except Exception:                          # noqa: BLE001
@@ -1040,7 +1157,7 @@ class StepLoop:
         self._publish_car_state(now)
         self._log(f"⛔ SAFE_STOP：{reason}（已请求停止本段并刹车；不再自动恢复）")
 
-    def _publish_car_state(self, now: float) -> None:
+    def _publish_car_state(self, now: float, *, force: bool = False) -> None:
         data = {
             "phase": self._phase,
             "segment_id": int(self._segment_id),
@@ -1057,8 +1174,12 @@ class StepLoop:
             "replans": int(self._replans),
             "wait_s": (round(float(now) - self._wait_started, 2)
                        if self._phase == STEP_PHASE_WAIT_INFO else 0.0),
+            # ★D1b：最后一单完成回报（闩锁）——phase 之外独立携带，机端漏收 SEGMENT_DONE 也能从
+            # 后续任意一帧（含 WAIT_INFO 的 1Hz 重发）拿到 segment_id/block/stop_kind/done_seq。
+            "done_seq": int(self._done_seq),
+            "done": dict(self._done_latch) if self._done_latch else None,
         }
-        if data == self._last_car_state:
+        if not force and data == self._last_car_state:
             return
         self.bb.set(P_CAR_STATE, data, source="StepLoop")
         self._last_car_state = data

@@ -1099,7 +1099,7 @@ class DroneTask(TaskThread):
         if isinstance(step, dict) and step.get("phase"):
             phase = str(step["phase"])
             for key in ("segment_id", "known_count", "target_cell", "stop_kind",
-                        "version", "reason"):
+                        "version", "reason", "done", "done_seq"):
                 if key in step:
                     extra[key] = step[key]
         return phase, extra
