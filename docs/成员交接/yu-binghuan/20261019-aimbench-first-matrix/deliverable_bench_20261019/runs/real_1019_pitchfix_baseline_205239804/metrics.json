@@ -1,0 +1,12 @@
+{
+  "kind": "real",
+  "error": "no vis rows",
+  "_meta": {
+    "source": "real_1019_pitchfix_baseline_205239804",
+    "csv": "C:\\Users\\29212\\Documents\\deepseek-harness\\default-workspace\\_cloud\\bench\\runs\\real_1019_pitchfix_baseline_205239804\\data.csv",
+    "mode": "capture",
+    "tag": "real_1019_pitchfix_baseline_205239804",
+    "code_sha256_16": "93624e80bd2add39",
+    "generated_at": "2026-10-19T20:53:55"
+  }
+}
