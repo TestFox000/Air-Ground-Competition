@@ -299,7 +299,9 @@ public:
 	// ===== 弹药管理：全程固定 10 发，用光即止 =====
 	static constexpr int AIM_MAX_SHOTS = 10; // 全程弹药硬上限，任何参数都无法突破
 	int max_shots_ = AIM_MAX_SHOTS;			 // 实际可用发数(只能调到更小，不能超过 10)
-	int max_shots_per_target_ = 3;  // ★P0-2 单目标最多连发数，防止全程弹药倾泻在一个靶上
+	int max_shots_per_target_ = 10;  // ★P0-2 单目标最多连发数。2026-10-11 用户指令 4
+									 // 定案 3 → 10（允许对同一目标打完全部弹药），
+									 // 全程总量由 max_shots_/AIM_MAX_SHOTS=10 兜。
 	int shots_on_target_ = 0;       // 当前目标已连发数
 	bool fire_only_blue_ = true;    // ★P0-4 仅攻击蓝色靶(cls==1)，忽略红色靶(cls==2)
 	int shot_cooldown_ms_ = 500;			 // 两发之间的最小间隔(ms)
@@ -341,6 +343,10 @@ public:
 	// ===== 开火执行 =====
 	int fire_hold_count_ = 0; // 开火条件连续满足的帧计数
 	int shots_fired_ = 0;	  // 已发射次数(全程累计，不重置)
+	// ★/shoot_reset 放行开关，默认 false。shots_fired_ 是全程 10 发硬上限的
+	// 唯一凭据（ammo_ok 判它），归零即等于把弹药补满——比赛构建里必须关死。
+	bool allow_shoot_reset_ = false;
+	bool shoot_reset_refused_logged_ = false; // 拒绝日志只打一次，防连发刷屏
 	rclcpp::Time last_shot_time_; // 上一次开火时刻(冷却用)
 
 	int clampYawTick(int tick) const;
