@@ -14,6 +14,11 @@
 |---|---|
 | `deliverable_addendum_20261019/osc_analysis.py` | 1,945 B |
 | `deliverable_addendum_20261019/README.md` | 3,074 B |
+| `deliverable_addendum_20261019/runs/p2_desadv_rail267_214347817/data.csv` | 219,598 B |
+| `deliverable_addendum_20261019/runs/p2_desadv_rail267_214347817/meta.json` | 2,723 B |
+| `deliverable_addendum_20261019/runs/p2_desadv_rail267_214347817/metrics.json` | 1,798 B |
+| `deliverable_addendum_20261019/runs/p2_desadv_rail267_214347817/plots.png` | 143,638 B |
+| `deliverable_addendum_20261019/runs/p2_desadv_rail267_214347817/quick_metrics.json` | 320 B |
 | `deliverable_addendum_20261019/runs/p2_desadv_rail267_214347817/report.md` | 2,067 B |
 
 ## 复现方式
