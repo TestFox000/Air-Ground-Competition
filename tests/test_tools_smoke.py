@@ -191,6 +191,8 @@ _CORE_OWE = "ag_core 诊断/黑匣子提示语引用的早期脚本，未随仓"
 _HJY_OWE = ("胡锦宇交接材料自引的车端线工具（材料在 reference/members/hjy 与 "
             "docs/成员交接/hu-jinyu），本体副本在 reference/members/hjy/tools/，"
             "正源 preserve/members/hjy-handover-20261018，不落本仓 tools/")
+_YBH_OWE = ("余秉桓交接档案自引的车端工具：robot.yaml/healthcheck.sh 注释里提到的 "
+            "~/dzrobot/tools/ 脚本（本体在车上 dzrobot 工作空间），未随仓归档")
 KNOWN_MISSING_TOOLS = {
     # --- 从未落地（代码里的活跃提示语仍会指到它们）---
     "tools/dznav_calib.py": "dznav 转向线性表现场标定器从未落地（servo.py 提示语引用）",
@@ -237,6 +239,13 @@ KNOWN_MISSING_TOOLS = {
     "tools/drone_sim.py": _HJY_OWE,
     "tools/gen_map.py": _HJY_OWE,
     "tools/sim_selftest.py": _HJY_OWE,
+    # --- 余秉桓交接档案自引（2026-10-19 登记，agents/zcode/register-missing-tools-20261019）---
+    "tools/config_loader.py": _YBH_OWE,
+    "tools/restart_node.sh": _YBH_OWE,
+    "tools/route_check.py": _YBH_OWE,
+    "tools/shoot_planner.py": _YBH_OWE,
+    "tools/sim.py": _YBH_OWE,
+    "tools/test_voice.sh": _YBH_OWE,
 }
 
 # 前置否定：`~/drone_tools/localization_watchdog.py` 是**机载远端路径**，不是本仓
