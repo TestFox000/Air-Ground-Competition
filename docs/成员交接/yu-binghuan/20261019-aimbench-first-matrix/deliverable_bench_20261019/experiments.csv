@@ -1,0 +1,11 @@
+ts,run,mode,scenario,tag,rmse,p90_abs,max_abs,lag_ms,settle_s,shots,in_box_pct,report
+2026-10-19 20:48:21,selftest_ramp_267,selftest,ramp,,0.9272,1.4156,1.8021,-32.8,,13,,runs\selftest_ramp_267\report.md
+2026-10-19 20:53:56,real_1019_pitchfix_baseline_205239804,capture,,real_1019_pitchfix_baseline_205239804,,,,,,,,runs\real_1019_pitchfix_baseline_205239804\report.md
+2026-10-19 21:15:12,smoke_static_211439248,hil,static,smoke_static_211439248,0.1758,0.1758,0.1758,,,0,,runs\smoke_static_211439248\report.md
+2026-10-19 21:16:46,smoke_ramp_211526855,hil,ramp,smoke_ramp_211526855,3.1103,4.8299,5.9774,214.7,,0,,runs\smoke_ramp_211526855\report.md
+2026-10-19 21:21:52,rail_beta02_0ms_211914606,hil,rail,rail_beta02_0ms_211914606,1.4703,2.0101,2.4868,418.7,,0,,runs\rail_beta02_0ms_211914606\report.md
+2026-10-19 21:23:51,ramp_beta04_0ms_212248998,hil,ramp,ramp_beta04_0ms_212248998,3.2948,4.9916,7.3411,241.6,,0,,runs\ramp_beta04_0ms_212248998\report.md
+2026-10-19 21:24:44,ramp_beta04_267_212351522,hil,ramp,ramp_beta04_267_212351522,6.9698,11.3628,19.465,335.7,,0,,runs\ramp_beta04_267_212351522\report.md
+2026-10-19 21:28:39,rail_beta04_267_212444669,hil,rail,rail_beta04_267_212444669,3.8397,6.3004,10.5341,390.0,,0,,runs\rail_beta04_267_212444669\report.md
+2026-10-19 21:31:33,rail_beta02_267_lead027_213009310,hil,rail,rail_beta02_267_lead027_213009310,6.6177,11.22,18.4415,156.3,,0,,runs\rail_beta02_267_lead027_213009310\report.md
+2026-10-19 21:32:54,rail_beta02_267_nolead_213155728,hil,rail,rail_beta02_267_nolead_213155728,6.4898,10.5629,16.0206,455.1,,0,,runs\rail_beta02_267_nolead_213155728\report.md
