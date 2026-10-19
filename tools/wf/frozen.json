@@ -6,5 +6,13 @@
     "config/**",
     "tools/deploy_to_car.py"
   ],
-  "in_flight": []
+  "in_flight": [
+    {
+      "path": "src/dzbrain/dzbrain/main.py",
+      "card": "T27/task-28 + A+E 启动契约",
+      "owner": "car-stepper",
+      "expires": "2026-10-26",
+      "reason": "步进循环启动契约/布局新鲜度门在途；收口时由该卡清理登记"
+    }
+  ]
 }

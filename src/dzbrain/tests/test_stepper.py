@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import math
+import os
 import pathlib
 import sys
 import types
@@ -473,14 +474,22 @@ import dzbrain.io.ros_io as _rz                                          # noqa:
 
 
 class _FakeLiveBridge:
-    """run_live 的 RosBridge 替身（NO ROS）：_ready 控制位姿就绪门的放行。"""
+    """run_live 的 RosBridge 替身（NO ROS）。
+
+    · READY 控制位姿就绪门（pose()/pose_age()）；
+    · LINK 控制"图上端点是否在"（endpoint_counts 的 odom 发布方）；
+    · ENDPOINTS 可逐话题覆盖 (pubs, subs)，用于构造缺端点场景。
+    """
 
     READY = True
+    LINK = True
+    ENDPOINTS: dict = {}
 
     def __init__(self, *a, **k):
         self.shutdown_brakes: list[bool] = []
         self.spun = 0
         self._ready = bool(self.READY)
+        self._link = bool(self.LINK)
 
     def spin_async(self, threads: int = 4):
         self.spun += 1
@@ -493,8 +502,16 @@ class _FakeLiveBridge:
     def subscription_topics(self):
         return list(RIO.required_subscription_topics().values())
 
+    def endpoint_counts(self, topic):
+        """启动契约用：话题 -> (publishers, subscribers)。ENDPOINTS 覆盖优先。"""
+        if topic in self.ENDPOINTS:
+            return self.ENDPOINTS[topic]
+        if topic == "/odom/localization":
+            return (1 if self._link else 0), 1
+        return 1, 1
+
     def topic_counts(self):
-        return {"odom": {"publishers": 1 if self._ready else 0, "subscribers": 1},
+        return {"odom": {"publishers": 1 if self._link else 0, "subscribers": 1},
                 "drone_in": {"publishers": 1, "subscribers": 1},
                 "pursuit_angle": {"publishers": 1, "subscribers": 1}}
 
@@ -882,8 +899,13 @@ rig15.close()
 # ---- 13.11/13.12 run_live 端到端：缺 odom ⇒ exit 5；odom 就绪 ⇒ 正常进步进循环 ----
 
 
-def _run_live_fake(ready: bool, *, wait_s: float = 0.3):
-    """用 NO-ROS 替身跑一遍 run_live 的布局分支（返回 rc / 步进调用次数 / 日志）。"""
+def _run_live_fake(ready: bool, *, wait_s: float = 0.3, link: bool = True,
+                   endpoints: dict | None = None, subscriptions: list | None = None):
+    """用 NO-ROS 替身跑一遍 run_live 的布局分支（返回 rc / 步进调用次数 / 日志）。
+
+    link=False ⇒ 图上 odom 端点缺失（契约层）；ready=False 且 link=True ⇒ 端点齐但无数据（位姿门）。
+    subscriptions 给定时覆盖"本节点已创建订阅"清单（用于构造装配缺失场景）。
+    """
     calls = {"step": 0}
     logs: list[str] = []
     names = ("install_stop_signals", "build_tasks", "start_banner", "finish_report",
@@ -893,6 +915,13 @@ def _run_live_fake(ready: bool, *, wait_s: float = 0.3):
 
     class _Bridge(_FakeLiveBridge):
         READY = ready
+        LINK = link
+        ENDPOINTS = dict(endpoints or {})
+
+        def subscription_topics(self):
+            if subscriptions is not None:
+                return list(subscriptions)
+            return super().subscription_topics()
 
     def _step(loop, *, stop_flag, alive=None, log=None):
         calls["step"] += 1
@@ -920,14 +949,119 @@ def _run_live_fake(ready: bool, *, wait_s: float = 0.3):
     return rc, calls, logs
 
 
-rc_bad, calls_bad, logs_bad = _run_live_fake(False)
-check("13.11 ★ 布局模式缺 odom ⇒ run_live 退出码 5、不启动步进循环、日志给诊断",
-      rc_bad == 5 and calls_bad["step"] == 0
-      and any("位姿就绪门超时" in s for s in logs_bad),
-      f"rc={rc_bad} step_calls={calls_bad['step']}")
+rc_c, calls_c, logs_c = _run_live_fake(False, link=False)
+check("13.11 ★ 图上缺 odom 端点 ⇒ 启动契约拦截（退出码 6，不是泛泛 5）、不进步进循环",
+      rc_c == 6 and calls_c["step"] == 0
+      and any("启动契约未通过" in s for s in logs_c),
+      f"rc={rc_c} step_calls={calls_c['step']}")
+rc_p, calls_p, logs_p = _run_live_fake(False, link=True)
+check("13.12 端点齐但无 odom 数据 ⇒ 位姿就绪门 exit 5（与契约 6 分层定位）",
+      rc_p == 5 and calls_p["step"] == 0
+      and any("位姿就绪门超时" in s for s in logs_p),
+      f"rc={rc_p} step_calls={calls_p['step']}")
 rc_ok, calls_ok, logs_ok = _run_live_fake(True)
-check("13.12 同一装配下 odom 就绪 ⇒ 位姿门放行、进入步进循环并正常收尾",
+check("13.13 同一装配下 odom 就绪 ⇒ 位姿门放行、进入步进循环并正常收尾",
       rc_ok == 0 and calls_ok["step"] == 1
       and any("位姿就绪门通过" in s for s in logs_ok),
       f"rc={rc_ok} step_calls={calls_ok['step']}")
+# =========================================================================== #
+# 14. ★缺口 A/E：启动契约（sub/pub 对账，exit 6）+ 布局新鲜度（step.layout_ttl_s）
+# =========================================================================== #
+section("14. ★启动契约 sub/pub 对账（exit 6）+ 布局新鲜度 layout_stale")
+
+# ---- 14.1 正常图：契约通过，required 行 odom(sub)/pursuit_angle(pub) 全绿 ----
+_good = _FakeLiveBridge()
+_rows_logs: list[str] = []
+_ok14, _rows14 = M.startup_contract(_good, "live", log=_rows_logs.append)
+_req14 = {r["key"]: r for r in _rows14}
+check("14.1 正常图 ⇒ startup_contract ok；odom(sub)/pursuit_angle(pub) 两行 required 且 ok",
+      _ok14 and _req14["odom"]["ok"] and _req14["odom"]["blocking"]
+      and _req14["pursuit_angle"]["ok"] and _req14["pursuit_angle"]["blocking"]
+      and "启动契约" in "\n".join(_rows_logs),
+      f"ok={_ok14} rows={len(_rows14)}")
+
+# ---- 14.2 缺 pub 端点（底盘没订阅 pursuitAngle）⇒ 契约 False ----
+class _NoActuatorBridge(_FakeLiveBridge):
+    ENDPOINTS = {"pursuitAngle": (1, 0)}
+
+
+_ok_bad, _rows_bad = M.startup_contract(_NoActuatorBridge(), "live")
+_bad14 = {r["key"]: r for r in _rows_bad}
+check("14.2 ★ pursuitAngle 订阅方 0（底盘没听）⇒ 契约 False + 该行 ❌/blocking/note 可读",
+      _ok_bad is False and _bad14["pursuit_angle"]["ok"] is False
+      and _bad14["pursuit_angle"]["blocking"] is True
+      and "订阅方 0" in _bad14["pursuit_angle"]["note"],
+      str(_bad14["pursuit_angle"]))
+
+# ---- 14.3 本节点没建 odom 订阅（装配层）⇒ 契约 False ----
+class _NoSubBridge(_FakeLiveBridge):
+    def subscription_topics(self):
+        return [t for t in super().subscription_topics() if t != "/odom/localization"]
+
+
+_ok_ns, _rows_ns = M.startup_contract(_NoSubBridge(), "live")
+_ns14 = {r["key"]: r for r in _rows_ns}
+check("14.3 ★ 本节点未创建 /odom/localization 订阅（装配层）⇒ 契约 False + note 指明",
+      _ok_ns is False and _ns14["odom"]["ok"] is False
+      and "未创建订阅" in _ns14["odom"]["note"], str(_ns14["odom"]))
+
+# ---- 14.4 DZ_SKIP_CONTRACT=1 ⇒ 整体跳过（bench/离线联调）----
+_old_skip14 = os.environ.get(M.CONTRACT_SKIP_ENV)
+os.environ[M.CONTRACT_SKIP_ENV] = "1"
+try:
+    _ok_skip, _rows_skip = M.startup_contract(_NoActuatorBridge(), "live")
+finally:
+    if _old_skip14 is None:
+        os.environ.pop(M.CONTRACT_SKIP_ENV, None)
+    else:
+        os.environ[M.CONTRACT_SKIP_ENV] = _old_skip14
+check("14.4 DZ_SKIP_CONTRACT=1 ⇒ 契约整体跳过（图不全也 ok，供 bench）",
+      _ok_skip is True and "跳过" in _rows_skip[0]["note"], str(_rows_skip[:1]))
+
+# ---- 14.5 布局过期 ⇒ WAIT_INFO(layout_stale)，一次都不规划 ----
+rig14 = Rig(cfg=cfg_of().override("step.layout_ttl_s", 0.5))
+rig14.start(layout_of(known=["N10", "M10", "L10"], target="M10", version=1, segment_id=1))
+rig14.clock.advance(2.0)                 # 布局在手上放了 2s > ttl 0.5s
+rig14.step(2)
+_st14 = rig14.loop.status()
+check("14.5 ★ 布局过期（2s > ttl 0.5s）⇒ WAIT_INFO(reason=layout_stale)，一次都不规划",
+      rig14.loop.phase == M.STEP_PHASE_WAIT_INFO
+      and _st14["reason"].startswith("layout_stale")
+      and _st14["replans"] == 0 and _st14["layout_stale"] is True
+      and rig14.bb.get(P_ROUTE) is None,
+      f"{rig14.loop.phase} / {_st14['reason'][:56]} / replans={_st14['replans']}")
+
+# ---- 14.6 新布局（version 递增）到达 ⇒ 计时清零、恢复规划 ----
+rig14.feed(layout_of(known=["N10", "M10", "L10"], target="M10", version=2, segment_id=2))
+rig14.step(3)
+_st14b = rig14.loop.status()
+check("14.6 ★ 新布局 v2 到达 ⇒ 恢复规划并下发（DRIVING / replans=1 / stale=False）",
+      rig14.loop.phase == M.STEP_PHASE_DRIVING and _st14b["replans"] == 1
+      and rig14.bb.get(P_ROUTE) is not None
+      and _st14b["layout_stale"] is False,
+      f"{rig14.loop.phase} replans={_st14b['replans']} stale={_st14b['layout_stale']}")
+rig14.close()
+
+# ---- 14.7 ttl=0 ⇒ 关闭（默认闸可回滚）----
+rig14b = Rig(cfg=cfg_of().override("step.layout_ttl_s", 0.0))
+rig14b.start(layout_of(known=["N10", "M10", "L10"], target="M10"))
+rig14b.clock.advance(30.0)
+rig14b.step(3)
+check("14.7 step.layout_ttl_s=0 ⇒ 关闭新鲜度门（放 30s 仍照常规划）",
+      rig14b.loop.status()["layout_stale"] is False
+      and rig14b.loop.phase in (M.STEP_PHASE_DRIVING, M.STEP_PHASE_SEGMENT_DONE),
+      f"{rig14b.loop.phase} / stale={rig14b.loop.status()['layout_stale']}")
+rig14b.close()
+
+# ---- 14.8 新鲜度只挡"新规划"，不影响已下发段执行 ----
+rig14c = Rig(cfg=cfg_of().override("step.layout_ttl_s", 0.3))
+rig14c.start(layout_of(known=["N10", "M10", "L10"], target="M10"))
+rig14c.step(2)                           # 规划完成 → DRIVING
+rig14c.clock.advance(5.0)                # 运行中布局变旧
+rig14c.step(1, drive=True)
+check("14.8 布局过期只挡新规划：DRIVING 中照常执行当前段（不停车、不判失败）",
+      rig14c.loop.phase == M.STEP_PHASE_DRIVING
+      and rig14c.loop.status()["layout_stale"] is True,
+      f"{rig14c.loop.phase} / stale={rig14c.loop.status()['layout_stale']}")
+rig14c.close()
 finish()

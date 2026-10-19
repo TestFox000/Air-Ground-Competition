@@ -47,9 +47,10 @@ r"""dzbrain 主进程 —— 单进程多线程任务架构的入口。
 ★ v1 布局（没有 `known` 键，旧机端）行为**逐字节不变**：仍走"规划一次"的旧路径
 （`test_drone` §⑯ 的 exit 3/4/成功路径就是这条兼容证据）。
 
-★ 退出码：0=正常；3=无布局/装配失败；4=布局规划失败；**5=ROS 图/位姿管线未就绪**
+★ 退出码：0=正常；3=无布局/装配失败；4=布局规划失败；**5=ROS 环境/位姿管线未就绪**
 （域号冲突 DZ_ROS_DOMAIN≠ROS_DOMAIN_ID、重复 dzbrain 实例、/odom/localization 无首帧、
-运行期断流）。5 的现场判据与三条照抄命令见 `_ROS_DIAG_COMMANDS`。
+运行期断流）；**6=启动契约不通过**（startup_contract() 表里必需 sub/pub 端点缺失或未匹配，
+与 5 分开定位）。5 的现场判据与三条照抄命令见 _ROS_DIAG_COMMANDS。
 """
 
 from __future__ import annotations
@@ -585,9 +586,12 @@ class StepLoop:
         WAIT_LAYOUT → PLANNING → DRIVING → SEGMENT_DONE →（新布局）PLANNING
                                                 ↘（无新布局）WAIT_INFO →（新布局）PLANNING
         SEGMENT_DONE（目标 = end）→ FINISH；规划失败/无目标/无位姿 → WAIT_INFO（不退出）
-    ★ 两条硬语义：
+    ★ 三条硬语义：
       ① WAIT_INFO **无超时**（step.wait_timeout_s 缺省 0 = 无限；>0 才超时退出）；
-      ② **换段只发生在段边界**：DRIVING 期间到达的新布局只记 version，绝不重规划。
+      ② **换段只发生在段边界**：DRIVING 期间到达的新布局只记 version，绝不重规划；
+      ③ **布局新鲜度**（缺口 E）：规划前 now-收到时刻 > step.layout_ttl_s（缺省 10s，0=关）
+         ⇒ WAIT_INFO(reason=layout_stale)，不拿过期布局规划；version 递增的新布局到达即清零。
+         sender ts 只作诊断（机/车时钟不同步，不参与门控）。
     """
 
     def __init__(self, cfg: Config, bb: Blackboard, bridge: Any, mission: Any, *,
@@ -621,6 +625,15 @@ class StepLoop:
         except (TypeError, ValueError):
             self._odom_fresh_s = 1.5
         self._odom_bad_since: float | None = None
+        # ★缺口 E（2026-10-19）：布局新鲜度。规划前若 now - 收到时刻 > ttl ⇒ WAIT_INFO(layout_stale)，
+        #   不拿过期布局规划；新（version 递增的）布局到达即清零。sender ts 只作诊断，
+        #   **不参与门控**（机/车时钟不同步，拿它判过期必然误杀）。
+        try:
+            self._layout_ttl_s = max(0.0, float(cfg.get("step.layout_ttl_s", 10.0) or 0.0))
+        except (TypeError, ValueError):
+            self._layout_ttl_s = 10.0
+        self._layout_rx_at = 0.0          # monotonic：收到"当前版本"布局的时刻（0=还没有）
+        self._layout_sender_ts = 0.0      # 机侧 ts，仅诊断
 
         self._phase = STEP_PHASE_WAIT_LAYOUT
         self._layout: dict[str, Any] | None = None
@@ -670,6 +683,11 @@ class StepLoop:
             "replans": int(self._replans),
             "wait_s": (round(self._clock() - self._wait_started, 2)
                        if self._phase == STEP_PHASE_WAIT_INFO else 0.0),
+            # ★缺口 E：布局新鲜度（测试/遥测共用一份口径）
+            "layout_ttl_s": self._layout_ttl_s,
+            "layout_age_s": (round(self._clock() - self._layout_rx_at, 2)
+                             if self._layout_rx_at else 0.0),
+            "layout_stale": self._layout_is_stale(self._clock()),
         }
 
     # ------------------------------------------------------------------ #
@@ -685,6 +703,8 @@ class StepLoop:
                 self._layout_version = 0
             self._seen_version = self._layout_version
             self._planned_version = -1
+            self._layout_rx_at = self._clock()
+            self._layout_sender_ts = self._layout_ts_of(layout)
             self._phase = STEP_PHASE_PLANNING
             self._reason = "首份布局"
             self._seed_pose(self._layout)
@@ -745,6 +765,29 @@ class StepLoop:
     # ------------------------------------------------------------------ #
     #  状态机各步
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _layout_ts_of(layout: dict[str, Any]) -> float:
+        """布局报文里的机侧 ts（**只作诊断**：机/车时钟不同步，绝不拿它判过期）。"""
+        try:
+            return float(layout.get("ts") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _layout_is_stale(self, now: float) -> bool:
+        """当前手上这份布局是否已过期（step.layout_ttl_s；0=关闭；还没收到过=False）。"""
+        return bool(self._layout_ttl_s > 0.0 and self._layout_rx_at > 0.0
+                    and (now - self._layout_rx_at) > self._layout_ttl_s)
+
+    def _layout_stale_reason(self, now: float) -> str:
+        """layout_stale 的 WAIT_INFO 原因（reason 以 layout_stale 开头，测试/机端可判）。"""
+        age = max(0.0, now - self._layout_rx_at)
+        note = (f"，sender_ts={self._layout_sender_ts:g}"
+                if self._layout_sender_ts else "")
+        return (f"layout_stale：布局已 {age:.1f}s 未更新"
+                f"（step.layout_ttl_s={self._layout_ttl_s:g}s{note}；"
+                f"等无人机下一份布局，不拿旧布局规划）")
+
+
     def _poll_layout(self, now: float) -> None:
         layout = self._layout_getter()
         if not isinstance(layout, dict):
@@ -762,6 +805,9 @@ class StepLoop:
         self._seen_version = version
         self._layout_version = version
         self._layout = dict(layout)
+        # ★缺口 E：version 递增 = 新布局到达 ⇒ 新鲜度计时清零（同版心跳不刷新，见 _plan 注释）
+        self._layout_rx_at = now
+        self._layout_sender_ts = self._layout_ts_of(layout)
         if self._phase == STEP_PHASE_WAIT_LAYOUT:   # 启动门没给首份布局时也能自愈
             self._phase = STEP_PHASE_PLANNING
         target = str(layout.get("target_cell") or "") or "（空，只等不做）"
@@ -795,6 +841,12 @@ class StepLoop:
             # 空段不经过规划器：停站类型单独分类（否则空段永远报 path）
             self._stop_kind = classify_segment_target(self.cfg, layout, self._target_cell)
             self._mark_segment_done(now, block=from_cell, elapsed=0.0, skipped=True)
+            return
+        # ★缺口 E：规划前先验布局新鲜度（过期 ⇒ WAIT_INFO(layout_stale)，绝不拿旧布局规划）。
+        #   注意 _planned_version 已在上面写成当前版本 ⇒ _wait_tick 不会每拍重复规划；
+        #   只有 version 递增的新布局才会把本段重新拉回 PLANNING。
+        if self._layout_is_stale(now):
+            self._to_wait_info(self._layout_stale_reason(now), now)
             return
         self._replans += 1
         try:
@@ -1138,6 +1190,176 @@ def _ros_diagnosis(bridge: Any, *, log: Callable[[str], None] = LOG) -> None:
         pass
     for line in _ROS_DIAG_COMMANDS:
         log("   " + line)
+
+
+# --------------------------------------------------------------------------- #
+#  启动契约（缺口 A）：声明必需 sub/pub，用图上的端点计数对账
+# --------------------------------------------------------------------------- #
+#  为什么需要：2026-10-18 实车"收到布局、段规划 9.3ms 成功、但 /odom/localization 没有
+#  订阅（图里 0）→ pose_stale → 车一步不动"。旧防线只查 env（_startup_self_check）和
+#  "第一帧 odom 数据"（_wait_for_pose_ready）；前者查不出端点缺失，后者只能事后等超时。
+#  本函数把"谁必须在对的图上"写成可读表格，把三种失败层次分开：
+#    ① 本节点**没创建订阅**      -> row.note=本节点未创建订阅        （装配顺序/代码问题）
+#    ② 订阅在、对端发布方 0      -> pubs=0                      （DDS 域/RMW/对端未起）
+#    ③ 双方都在但数据不来        -> 契约通过，位姿就绪门 exit 5    （QoS/传输/发布异常）
+#  分级（减少赛时门禁）：required=赛时就卡；race=只在步进赛时卡；advisory=赛前 prepare 才卡。
+#  赛时只验 token 的口径不变：契约只在启动自检跑一次，不进入每段规划。
+
+#: (逻辑键, 方向, 级别, 要求发布方>=1, 要求订阅方>=1, 要求本节点已创建该订阅)
+_CONTRACT_ROWS: tuple[tuple[str, str, str, bool, bool, bool], ...] = (
+    ("odom", "sub", "required", True, True, True),
+    ("pursuit_angle", "pub", "required", True, True, False),
+    ("drone_in", "sub", "race", True, True, True),
+    ("imu", "sub", "advisory", True, False, True),
+    ("offset_center", "sub", "advisory", True, False, True),
+    ("aim_status", "sub", "advisory", True, False, True),
+    ("shoot_count", "sub", "advisory", True, False, True),
+    ("manual_override", "sub", "advisory", True, False, True),
+    ("manual_gimbal", "sub", "advisory", True, False, True),
+    ("waypoint_cmd", "sub", "advisory", True, False, True),
+    # referee_hp 不在 ros_io.REQUIRED_SUBSCRIPTIONS（那份清单是"决策层必建"的会话口），
+    # 但仍必须收到对端（命中/弹药唯一真源）⇒ 只查图计数，不查"本节点是否建了订阅"。
+    ("referee_hp", "sub", "advisory", True, False, False),
+    ("drone_out", "pub", "advisory", True, False, False),
+    ("aim_fire_gate", "pub", "advisory", True, False, False),
+    ("aim_fire_ready", "pub", "advisory", True, False, False),
+    ("scan_request", "pub", "advisory", True, False, False),
+    ("motion_state", "pub", "advisory", True, False, False),
+    ("voice_switch", "pub", "advisory", True, False, False),
+    ("aim_lead", "pub", "advisory", True, False, False),
+)
+
+#: 契约模式 -> 哪些级别在本模式里"阻断"（其余只打印/告警）
+_CONTRACT_BLOCKING = {
+    "live": ("required",),
+    "race-step": ("required", "race"),
+    "prepare": ("required", "race", "advisory"),
+    "bench": (),
+}
+
+#: 启动契约总开关：DZ_SKIP_CONTRACT=1 时整体跳过（bench/离线联调用）
+CONTRACT_SKIP_ENV = "DZ_SKIP_CONTRACT"
+
+
+def _contract_skip_requested() -> bool:
+    return str(os.environ.get(CONTRACT_SKIP_ENV, "") or "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+def _endpoint_counts(bridge: Any, key: str, topic: str) -> tuple[int, int]:
+    """一个话题的 (publishers, subscribers)；读不到返回 (-1, -1)（未知≠缺失）。
+
+    优先级：真 rclpy 节点计数（bridge.node.count_publishers/subscribers）→ 替身的
+    endpoint_counts(topic) → 替身的 topic_counts()[逻辑键]。未知值不阻断契约，
+    只有"明确读到 0"或"本节点确实没建这条订阅"才判红。
+    """
+    node = getattr(bridge, "node", None)
+    if node is not None:
+        try:
+            return (int(node.count_publishers(topic)),
+                    int(node.count_subscribers(topic)))
+        except Exception:                                # noqa: BLE001
+            pass
+    fn = getattr(bridge, "endpoint_counts", None)
+    if callable(fn):
+        try:
+            pair = fn(topic)
+            if pair is not None:
+                return int(pair[0]), int(pair[1])
+        except Exception:                                # noqa: BLE001
+            pass
+    try:
+        counts = bridge.topic_counts() or {}
+    except Exception:                                    # noqa: BLE001
+        counts = {}
+    item = counts.get(key) if isinstance(counts, dict) else None
+    if isinstance(item, dict):
+        return int(item.get("publishers", -1)), int(item.get("subscribers", -1))
+    return -1, -1
+
+
+def _subscription_topics_of(bridge: Any) -> list[str] | None:
+    """本节点已创建的订阅话题名；替身不支持时返回 None（未知，不阻断）。"""
+    fn = getattr(bridge, "subscription_topics", None)
+    if not callable(fn):
+        return None
+    try:
+        out = fn()
+    except Exception:                                    # noqa: BLE001
+        return None
+    if out is None:
+        return None
+    try:
+        return [str(x) for x in out]
+    except TypeError:
+        return None
+
+
+def startup_contract(bridge: Any, mode: str = "live", *,
+                     log: Callable[[str], None] | None = None) -> tuple[bool, list[dict]]:
+    """启动契约（缺口 A）：逐条对账必需 sub/pub 端点；返回 (ok, rows)。
+
+    :param mode: live（赛时基础，只卡 required）/ race-step（步进赛时，追加 race）
+                 / prepare（赛前全量，连 advisory 也卡）/ bench（跳过）
+    :param log: 给了就打印整张表（含 ✅/❌/⚠️ 与缺失原因）；None 时不打印。
+    rows 字段：dir/key/topic/level/pubs/subs/ok/blocking/note。
+    ★ DZ_SKIP_CONTRACT=1 ⇒ 直接 ok=True（一行 note 表），供 bench/离线联调跳过。
+    """
+    mode = str(mode or "live").strip().lower()
+    if mode not in _CONTRACT_BLOCKING:
+        mode = "live"
+    if _contract_skip_requested() or mode == "bench":
+        rows = [{"dir": "-", "key": "-", "topic": "-", "level": mode,
+                 "pubs": -1, "subs": -1, "ok": True, "blocking": False,
+                 "note": f"已跳过（{CONTRACT_SKIP_ENV}=1 或 mode=bench）"}]
+        if log is not None:
+            log(f"启动契约：跳过（{CONTRACT_SKIP_ENV}=1 或 mode=bench）")
+        return True, rows
+
+    from .io import contract as ct
+
+    blocking_levels = _CONTRACT_BLOCKING[mode]
+    created = _subscription_topics_of(bridge)
+    rows: list[dict] = []
+    for key, direction, level, need_pubs, need_subs, need_own in _CONTRACT_ROWS:
+        try:
+            topic = ct.topic(key).name
+        except Exception:                                # noqa: BLE001 契约里没这条键
+            topic = f"<未知键 {key}>"
+        pubs, subs = _endpoint_counts(bridge, key, topic)
+        problems: list[str] = []
+        if need_pubs and pubs == 0:
+            problems.append("发布方 0（对端未起/域不同）")
+        if need_subs and subs == 0:
+            problems.append("订阅方 0（无人接收：QoS 不匹配或对端没订阅）")
+        if need_own and created is not None and topic not in set(created):
+            problems.append("本节点未创建订阅（装配/代码问题）")
+        blocking = level in blocking_levels
+        rows.append({"dir": direction, "key": key, "topic": topic, "level": level,
+                     "pubs": pubs, "subs": subs,
+                     "ok": not problems, "blocking": blocking,
+                     "note": "；".join(problems)})
+    ok = all(row["ok"] for row in rows if row["blocking"])
+    if log is not None:
+        log(_format_contract_table(rows, mode=mode, ok=ok))
+    return ok, rows
+
+
+def _format_contract_table(rows: list[dict], *, mode: str = "live",
+                           ok: bool = True) -> str:
+    """契约表（纯文本，多行）：现场可直接复制进报告/群。"""
+    fails = [r for r in rows if not r["ok"]]
+    blocks = [r for r in rows if not r["ok"] and r["blocking"]]
+    head = (f"启动契约（mode={mode}）：{len(rows)} 项 / 失败 {len(fails)} / "
+            f"阻断 {len(blocks)} / {'通过' if ok else '不通过'}")
+    lines = [head]
+    for row in rows:
+        mark = "✅" if row["ok"] else ("❌" if row["blocking"] else "⚠️")
+        level = row["level"]
+        lines.append(f"  {mark} {row['dir']:>3} {row['key']:<15} {row['topic']:<22}"
+                     f" pubs={row['pubs']} subs={row['subs']} [{level}]"
+                     + (f"  ← {row['note']}" if row["note"] else ""))
+    return "\n".join(lines)
 
 
 def _log_subscriptions(bridge: Any, *, log: Callable[[str], None] = LOG) -> None:
@@ -1687,11 +1909,22 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
         bridge.shutdown(brake=True)
         return 5
 
+    layout_mode = _layout_mode_enabled(cfg, map_path)
+
+    # ★ 启动契约（缺口 A）：把"谁必须在对的图上"写成表格并用端点计数对账。
+    #   失败判红 = 明确读到 0 或本节点没建那条订阅；**读不到（未知）不阻断**。
+    #   在等布局/建任务组之前 ⇒ 端点缺失时不会先耗掉 30s 布局等待。
+    contract_ok, _contract_rows = startup_contract(bridge, "live", log=log)
+    if not contract_ok:
+        log("⛔ 启动契约未通过（退出码 6）：上表标 ❌ 的必需端点缺失/未匹配 ⇒ 先查图，"
+            "不规划、不出发（环境自检 exit 5；本项 exit 6，两者分开定位）")
+        bridge.shutdown(brake=True)
+        return 6
+
     # ---------------- 车端不留地图文件：先等布局，再构造任务组 ----------------
     # ★ 顺序是**功能前提**：MissionTask 的路线在构造/启动时就要定下来，所以布局规划
     #   必须发生在 build_tasks 之前；等布局期间只起一个独立 DroneTask（不进任务组，
     #   否则 start_all 会对已启动的线程二次 start）。
-    layout_mode = _layout_mode_enabled(cfg, map_path)
     layout_task = None
     layout_plan = None
     step_mode = False
@@ -1729,6 +1962,17 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
             log(f"✅ 收到布局 v2（known {len(first_layout.get('known') or [])} 格）→ "
                 f"进入运行期步进循环：段由无人机 target_cell 驱动；"
                 f"MissionTask 只执行步进器下发的段")
+            # ★步进赛时契约（race 级）：drone_in（布局来源）必须有对端发布方 + 本节点订阅
+            race_ok, race_rows = startup_contract(bridge, "race-step")
+            if race_ok:
+                log("步进赛时契约：通过（drone_in 本节点订阅 + 对端发布方都在）")
+            else:
+                log(_format_contract_table(race_rows, mode="race-step", ok=False))
+                log("⛔ 步进赛时契约未通过（退出码 6）：缺 drone_in 等步进必需端点 ⇒ "
+                    "不规划、不出发")
+                layout_task.stop(timeout=2.0)
+                bridge.shutdown(brake=True)
+                return 6
         else:
             layout_plan = plan_route_from_field_layout(cfg, first_layout, log=log)
             if not layout_plan.ok:
