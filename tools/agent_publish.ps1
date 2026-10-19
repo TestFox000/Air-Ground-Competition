@@ -34,6 +34,13 @@ if (-not (Test-Path (Join-Path $repo ".git"))) {
 }
 Set-Location $repo
 
+# 编码基线：git 输出恒为 UTF-8；GBK 控制台不设此行会把中文回显解码成乱码
+#（提交本身不受影响，但控制台不可读，2026-10-19 与 agent_sync 同款修复）。
+try {
+    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    $OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+} catch { }
+
 function Fail($msg) {
     Write-Host ""
     Write-Host "[失败] $msg" -ForegroundColor Red
