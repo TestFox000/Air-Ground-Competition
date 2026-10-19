@@ -1,0 +1,152 @@
+信号接管：SIGINT/SIGTERM → 只置停机标志；ROS 上下文判活 = rclpy.ok()（默认信号处理已在 RosBridge 里关闭）
+ROS 环境：ROS_DOMAIN_ID=118（未 source dzros.env） DZ_ROS_DOMAIN=<未设置> ROS_LOCALHOST_ONLY=0 RMW=<默认>
+⚠️ ROS 环境：DZ_ROS_DOMAIN 未设置：本进程没 source dzros.env（域号按 ROS 默认 0；与车上其它节点可能不在同一图）
+订阅清单：/odom/localization, /imu_data, /offset_center, /aim/status, /shoot_count, /referee/hit, /referee/ammo, /HpAndHitmsg, /nav/manual_override, /nav/manual_gimbal, /dzlink/drone_to_car, /nav/waypoint
+⚠️ 订阅清单缺 ['manual_gimbal']（与 required_subscription_topics 对账失败）
+话题计数 odom: publishers=1 subscribers=1
+话题计数 drone_in: publishers=1 subscribers=1
+话题计数 pursuit_angle: publishers=1 subscribers=1
+==============================================================================
+dzbrain 启动 · 多线程任务架构
+  配置文件 : /home/duzhong/dzrobot/config/robot.yaml
+  地图   : /home/duzhong/dzrobot/config/map.yaml
+  路线来源 : 自动规划
+  路线   : 自动规划（map_path=/home/duzhong/dzrobot/config/map.yaml，无倒车，预算 2.0s；实际 token 见任务开始横幅）
+  巡航速度 : 0.35 m/s
+  自动出发 : False（延时 10.0s）
+  越界余量 : 0.6 m
+  开火策略 : moving_lead（提前量 0.27s）
+  任务线程 : Localization@20Hz Safety@20Hz TrackerTask@50Hz MissionTask@10Hz AimTask@50Hz FixTask@10Hz DroneTask@5Hz TelemetryTask@2Hz
+==============================================================================
+ROS 契约：pursuit_angle=pursuitAngle | scan_request=/nav/scan_request | aim_fire_gate=/aim/fire_gate | aim_fire_ready=/aim/fire_ready | drone_in=/dzlink/drone_to_car
+ROS executor 启动：4 线程
+✅ 位姿就绪门通过：/odom/localization 已进决策层（age=0.00s）
+定位：锚定=ON 到位半径=0.120m 漂移告警=0.300m 前向投影窗口=0.120m 定位超时=1.50s 卡死自愈=5拍/0.010m/0.20m
+启动：20 Hz
+==============================================================================
+SafetyTask 启动（20 Hz）★ 唯一强制停车者
+  定位超时      : 1.50 s
+  地图安全余量  : ±0.60 m  (-0.425, 4.2749999999999995, -0.425, 5.324999999999999)
+  任务停滞判定  : 1.50 s
+  故障刹车      : ON
+  任务组        : 已注入 8 个
+==============================================================================
+启动：20 Hz
+遥控接管：OFF（交回自动）
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+检查③宽限：TrackerTask 从未 tick（ticks=0 state=INIT），宽限 8.0s 内不判停滞
+检查③宽限：MissionTask 从未 tick（ticks=0 state=INIT），宽限 8.0s 内不判停滞
+检查③宽限：AimTask 从未 tick（ticks=0 state=INIT），宽限 8.0s 内不判停滞
+检查③宽限：FixTask 从未 tick（ticks=0 state=INIT），宽限 8.0s 内不判停滞启动：50 Hz
+
+检查③宽限：DroneTask 从未 tick（ticks=0 state=INIT），宽限 8.0s 内不判停滞刹车：无安全状态（P_SAFETY 缺失，按不安全处理）
+
+就绪：auto_start=False 延时=10s 复位='N10,y' 扫描模式=continuous检查③宽限：TelemetryTask 从未 tick（ticks=0 state=INIT），宽限 8.0s 内不判停滞
+
+安全系统就绪：P_SAFETY.ok=True（越界余量 ±0.60 m / 定位超时 1.50 s）
+启动：策略 moving_lead，提前量 0.27s，α-β(ξ=3.5, α=0.762, β=0.381)，开火框 25~26px（框宽 30~120px），提前量限幅 ±44.1px（≈轨道全宽 196px），单靶 10 发 / 全场 10 发，冷却 500ms，丢靶判定 2.00s（60 帧 @ 30fps）桥洞情报：来源=EV_BRIDGE_INFO 事件流（半场各自独立） drone.enabled=True 过期阈值=30s 等待窗口=2s 默认格 lower=K10/upper=K4 （新鲜情报优先，缺失/过期/离线一律回落默认）
+
+启动：50 Hz
+云台锁止：scan_request=0（巡迹/非射击停站；阶段=None；累计切换 1 次）桥洞情报：等待窗口只在『车侧有无人机链路（P_DRONE 存在）且两半场情报未齐』时生效；无 P_DRONE 时不等、不换，行为与接线前一致误差修正（估计侧）：比例估计=ON 步长≤0.005/段 夹紧±0.1 样本门槛=3段 漂移剔除>0.300m 比值窗口=[0.75, 1.35]
+
+不开火：无目标观测启动：10 Hz
+桥洞情报[lower]：lower → K10（no_link：未收到 P_DRONE（DroneTask 未运行/未启用）→ 用默认格）
+
+
+桥洞情报[upper]：upper → K4（no_link：未收到 P_DRONE（DroneTask 未运行/未启用）→ 用默认格）
+启动：10 Hz
+遥测：2.0 Hz（0.5s/条）任务组启动：8 个线程 -> Localization@20Hz, Safety@20Hz, TrackerTask@50Hz, MissionTask@10Hz, AimTask@50Hz, FixTask@10Hz, DroneTask@5Hz, TelemetryTask@2Hz
+
+启动：2 Hz
+无人机链路：心跳超时 3s 情报过期 30s 车状态 1.4Hz 本地地图=已载入(/home/duzhong/dzrobot/config/map.yaml)
+核对消费方：policy=record 覆盖账本=开（默认只记录不阻断；EV_FIELD_VERIFY → field_verify/drone_coverage）刹车：阶段 未设置 不允许循迹
+
+启动：5 Hz
+桥洞情报[lower]：lower → K10（offline：无人机离线（online=False，最近情报 未知））
+桥洞情报[upper]：upper → K4（offline：无人机离线（online=False，最近情报 未知））
+[T] N10 IDLE (0.525,0.175) yaw96.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：无目标观测
+⚠️ field_layout version=10 高于车端支持 2 → 只按已知字段解析（未知字段忽略）
+场地布局：v10 起 N10 终 N5 known 154/154 雷 8 障 8 靶 2 桥洞 ['K4', 'K10'] target=H8 seg=10（第 1 份）
+刹车：阶段 未设置 不允许循迹
+[T] N10 IDLE (0.525,0.175) yaw97.0 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+不开火：无目标观测
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 未设置 不允许循迹
+field_layout v10 心跳重发（同版同内容，忽略）
+[T] N10 IDLE (0.525,0.175) yaw96.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+[T] N10 IDLE (0.525,0.175) yaw96.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+不开火：无目标观测
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 未设置 不允许循迹
+field_layout v10 心跳重发（同版同内容，忽略）
+[T] N10 IDLE (0.525,0.175) yaw96.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+不开火：无目标观测
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 未设置 不允许循迹
+[T] N10 IDLE (0.525,0.175) yaw97.0 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+field_layout v10 心跳重发（同版同内容，忽略）
+不开火：无目标观测
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责刹车：阶段 未设置 不允许循迹
+
+[T] N10 IDLE (0.525,0.175) yaw96.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+field_layout v10 心跳重发（同版同内容，忽略）
+不开火：无目标观测
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] N10 IDLE (0.525,0.175) yaw96.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+[T] N10 IDLE (0.525,0.175) yaw96.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+不开火：无目标观测
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+field_layout v10 心跳重发（同版同内容，忽略）
+[T] N10 IDLE (0.525,0.175) yaw96.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+不开火：无目标观测
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 未设置 不允许循迹
+[T] N10 IDLE (0.525,0.175) yaw96.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+field_layout v10 心跳重发（同版同内容，忽略）
+不开火：无目标观测
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] N10 IDLE (0.525,0.175) yaw96.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+field_layout v10 心跳重发（同版同内容，忽略）
+不开火：无目标观测
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+收到信号 SIGTERM：开始安全收尾（刹车 → 停线程 → 退出报告）
+退出原因 = stop（运行 10.4s；信号=SIGTERM；rclpy.ok()=True）
+退出：21 拍 / 打印 12 条 / 最后一行：[T] N10 IDLE (0.525,0.175) yaw96.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄IDLE 靶none 发0/中0 弹2 | 安全OK | 无人机offline
+已停止
+退出：消息 8 条（坏 0） 桥洞情报 0 次 车状态 14 条 ack 0 条 差异 0 条 在线=否 ｜覆盖 0/154 片 0（重发 0/坏 0） ｜核对事件 0 ｜场地布局 1 份（拒收 0 / 迟到旧版 0）
+已停止
+退出：锚定 0 次 / 段 0/0 接受 / 估计 scale=1.00000（原始 1.00000）/ 漂移 max 0.000 m/ 丢弃不可信 ds 0 拍（0.000 m）
+已停止
+已停止
+已停止
+倒车入口推车：成功 0 次 / 超时 0 次（累计 0 拍）
+已停止
+安全任务退出：210 拍 / 锁存中=False / 累计刹车 0 次 / 停止事件 0 条 / 当前原因 []
+已停止
+定位退出：210 拍 / 缺位姿 0 拍 / 吸附 0 次 / 漂移告警 0 次 / 投影卡死自愈 0 次（判定 0 次 / 拒绝 0 次）
+漂移护栏：吸附被拒 0 次 / 限速或停机 0 拍（下发 0 次）/ 边界护栏 0 拍 / 最终连续不健康 0 拍
+航向守卫：✅未触发（-）/209 个新帧样本中 0 个超限 / 跳过 0 帧 / 手动旋转 0 拍 / IMU 矛盾 0 次
+已停止
+收尾：ros 上下文正常，刹车已尝试=是，任务线程已停
+==============================================================================
+dzbrain 退出报告
+  运行时长  : 10.5 s
+  阶段/位置 : — @ —
+  发数/命中 : —/—
+  安全    : ok=—
+  事件总数  : 0
+==============================================================================
+  [STOPPED ] Localization   ticks=210     errors=0 overruns=0 max_tick=0.64ms
+  [STOPPED ] Safety         ticks=210     errors=0 overruns=0 max_tick=3.31ms
+  [STOPPED ] TrackerTask    ticks=523     errors=0 overruns=0 max_tick=6.57ms
+  [STOPPED ] MissionTask    ticks=105     errors=0 overruns=0 max_tick=0.99ms
+  [STOPPED ] AimTask        ticks=523     errors=0 overruns=0 max_tick=7.67ms
+  [STOPPED ] FixTask        ticks=105     errors=0 overruns=0 max_tick=0.16ms
+  [STOPPED ] DroneTask      ticks=53      errors=0 overruns=0 max_tick=14.35ms
+  [STOPPED ] TelemetryTask  ticks=21      errors=0 overruns=0 max_tick=2.43ms
