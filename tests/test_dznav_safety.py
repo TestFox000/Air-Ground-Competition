@@ -27,7 +27,7 @@ from std_msgs.msg import Bool, Int32, String, UInt8
 
 from dznav.contract import (FIELD_X_MAX, OOB_MARGIN, TOPIC_ESTOP, TOPIC_IMU,
                             TOPIC_ODOM_RAW, TOPIC_PURSUIT, TOPIC_SHOOT_COUNT,
-                            TOPIC_STOP_SIGNAL, TOPIC_WAYPOINT)
+                            TOPIC_STOP_SIGNAL, TOPIC_WAYPOINT, wrap_pi)
 from dznav.executor_node import (DEFAULTS, DzNavNode, ESTOP_QOS,
                                  ESTOP_QOS_VOLATILE, _deep_update,
                                  _sigterm_handler, _zero_and_stop)
@@ -821,3 +821,161 @@ def test_build_reference_records_opts_on_path():
     p2 = build_reference([Waypoint(0.0, 0.0), Waypoint(1.0, 0.0)],
                          _servo_from_defaults())
     assert p2.opts is not None and p2.opts.dev_cap == PathOptions().dev_cap
+
+
+# ============================ _pending_anchor 是弧长，换路径必须作废（F9）
+def test_pending_anchor_cleared_on_rebuild_event():
+    """rebuild 把 s_prog 归零并换了全新几何，旧弧长必须当场作废。
+
+    不清的话：s_prog 从 0 重新爬，爬到旧锚点数值那一刻
+    `s_prog - _pending_anchor` 恰好很小（重建后 v_cmd=0 起步，单周期只走几厘米），
+    0.20m 新鲜度窗口拦不住 —— 会在一个跟"出弯收敛区"毫无关系的位置注入
+    anchor，污染定位。
+    """
+    node = DzNavNode()
+    _armed(node)
+    node._pending_anchor = 1.234
+    node._handle_event({"ev": "rebuild", "to_idx": 3})
+    assert node._pending_anchor is None
+
+
+def test_pending_anchor_cleared_on_abort_and_new_route():
+    """_abort_route / _start_route 都不走对方，两处都得单独清。
+
+    _abort_route 只把 tracker 置 None；下一条路线 _start_route 直接覆盖
+    tracker，于是旧弧长活到新路径上，在新几何里被当成出弯锚点消费。
+    """
+    node = DzNavNode()
+    _armed(node)
+    node._pending_anchor = 2.0
+    node._abort_route()
+    assert node._pending_anchor is None
+
+    node._pending_anchor = 2.0
+    _armed(node, route="M9,y")     # 走 _start_route
+    assert node._pending_anchor is None
+
+
+def test_arrived_forced_flag_reset_on_new_route():
+    """放弃收车的标记不能带到下一条路线上，否则复盘时误判成败。"""
+    node = DzNavNode()
+    _armed(node)
+    node._handle_event({"ev": "arrived", "d": 2.5, "forced": True})
+    assert node.arrived_forced is True
+    _armed(node, route="M9,y")
+    assert node.arrived_forced is False
+
+
+# ====================== forced arrived 不是到达：不得 FINAL_ARC / 不得锚终点（F10）
+def test_forced_arrival_does_not_run_final_arc_or_anchor_goal():
+    """rebuild_limit 耗尽后 pursuit 发的 "arrived" 是**放弃**，d 无界。
+
+    旧代码 `elif ev == "arrived": self._on_arrived(e.get("d", 0.0))` 丢掉了
+    forced 标记，于是"车还在场中、距终点 2.5m"被当成正常到点：
+      1) 若 final_heading 偏差 >12° 就进 FINAL_ARC，在场中画满舵弧；
+      2) 弧结束后 loc.anchor(终点坐标, blend=0.7) —— belief 传送到终点格；
+      3) _finish() 以 INFO 宣告 ARRIVED，复盘看不出是失败。
+    """
+    node = DzNavNode()
+    _armed(node, route="M9,y")
+    goal = node.tracker.path.waypoints[-1]
+    before = node.loc.pose[:2]
+
+    node.final_heading = wrap_pi(node.loc.th + math.radians(90.0))
+    node._handle_event({"ev": "arrived", "d": 2.5, "forced": True})
+
+    assert node.state == "ARRIVED"          # 仍是闩锁停车态
+    assert node.arrived_forced is True
+    assert node._final_arc is None, "放弃收车却进了终点朝向机动"
+    after = node.loc.pose[:2]
+    assert math.hypot(after[0] - before[0], after[1] - before[1]) < 1e-9, (
+        f"belief 被传送：{before} -> {after}（终点 {goal.x:.2f},{goal.y:.2f}）")
+    assert node.get_logger().text("error", "跟踪放弃"), "放弃必须用 error 喊出来"
+
+
+def test_normal_arrival_still_runs_final_arc():
+    """反向对照：正常到点（非 forced）该走的终点机动不能被一并禁掉。"""
+    node = DzNavNode()
+    _armed(node, route="M9,y")
+    node.final_heading = wrap_pi(node.loc.th + math.radians(90.0))
+    node._handle_event({"ev": "arrived", "d": 0.05})
+    assert node.state == "FINAL_ARC"
+    assert node._final_arc is not None
+    assert node.arrived_forced is False
+
+
+# ==================== 终点锚定必须先证明车真在终点（F8）
+def test_goal_anchor_max_m_derivation():
+    """可锚上限 = 失格线 / blend：注入误差 blend·e 单靠自己不得破 17.5cm。
+
+    blend_arc=0.7 → 0.25m。做成随增益反解，改 blend_arc 时上限自动跟着走。
+    """
+    from dznav.executor_node import goal_anchor_max_m
+    from dznav.refpath import DQ_DEVIATION_M
+
+    assert abs(goal_anchor_max_m(0.7) - 0.25) < 1e-9
+    assert abs(goal_anchor_max_m(1.0) - DQ_DEVIATION_M) < 1e-9
+    assert goal_anchor_max_m(0.0) > 0.0        # 不得除零
+
+
+def _enter_final_arc(node, off: float):
+    """把车摆到"距终点 off 米、朝向已转到位"的状态，进入 FINAL_ARC。"""
+    goal = node.tracker.path.waypoints[-1]
+    node.final_heading = wrap_pi(node.loc.th + math.radians(30.0))
+    node._final_arc = {"sign": 1.0, "target": node.loc.th,
+                       "x": goal.x, "y": goal.y, "t0": node._t}
+    # 直接改 belief 位置，模拟"入场时就偏了 off 米"
+    node.loc.x = goal.x + off
+    node.loc.y = goal.y
+    return goal
+
+
+def test_final_arc_skips_position_anchor_when_far_from_goal():
+    """满舵弧只改朝向不改位置，偏 0.40m 入场就偏 0.40m 出场。
+
+    _final_arc_feasible() 只检查弧几何在图内，从不检查车离终点多远；
+    旧代码无条件 anchor(终点, blend=0.7)，等于把 belief 硬拉 0.28m。
+    """
+    node = DzNavNode()
+    _armed(node, route="M9,y")
+    goal = _enter_final_arc(node, off=0.40)
+
+    node._final_arc_step()      # err=0 → done，走锚定分支
+
+    x, y, _th = node.loc.pose
+    assert abs(x - goal.x) > 0.30, (
+        f"位置被拉向终点：x={x:.3f} 终点={goal.x:.3f}（应保留真实偏差）")
+    assert node.get_logger().text("warning", "只锚朝向不锚位置")
+
+
+def test_final_arc_anchors_when_actually_at_goal():
+    """反向对照：真在终点附近（偏 5cm）时锚定必须照常发生，否则丢抗漂移。"""
+    node = DzNavNode()
+    _armed(node, route="M9,y")
+    goal = _enter_final_arc(node, off=0.05)
+
+    node._final_arc_step()
+
+    x, y, _th = node.loc.pose
+    assert abs(x - goal.x) < 0.05, f"近终点却没锚定：x={x:.3f} {goal.x:.3f}"
+
+
+def test_final_arc_timeout_does_not_fabricate_heading():
+    """12s 超时说明弧**没转到**目标朝向，此时锚航向同样是编造。
+
+    旧代码 `if done or timeout:` 两个分支共用同一句 anchor(target)，超时也
+    把 belief 航向拉向一个从未到达的 target，残差可能几十度。
+    """
+    node = DzNavNode()
+    _armed(node, route="M9,y")
+    goal = node.tracker.path.waypoints[-1]
+    node._final_arc = {"sign": 1.0, "target": wrap_pi(node.loc.th + 1.0),
+                       "x": goal.x, "y": goal.y, "t0": node._t - 99.0}
+    th_before = node.loc.th
+
+    node._final_arc_step()      # err=1.0rad 未到位，但已超时
+
+    assert node.state == "ARRIVED"
+    assert abs(wrap_pi(node.loc.th - th_before)) < 1e-9, (
+        f"超时却把航向锚向未到达的 target：{th_before:.3f} -> {node.loc.th:.3f}")
+    assert node.get_logger().text("error", "终点朝向机动超时")

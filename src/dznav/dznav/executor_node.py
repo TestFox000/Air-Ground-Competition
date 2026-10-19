@@ -59,8 +59,18 @@ from .contract import (BLOCK, block_to_meters, HEADING_YAWS, RE_HEADING,
                        TOPIC_ESTOP, wrap_pi)
 from .fusion import Localizer
 from .pursuit import Tracker, TrackerConfig
-from .refpath import (ReferencePath, Waypoint, build_reference, PathOptions)
+from .refpath import (DQ_DEVIATION_M, ReferencePath, Waypoint, build_reference,
+                      PathOptions)
 from .servo import ServoModel
+
+#: 允许把 belief 锚到"终点格坐标"的最大实际偏差，按 anchor 增益反解。
+#: 推导：anchor(blend=b) 把 belief 拉向终点 b 的比例，若车其实偏了 e，注入的
+#: 位置误差就是 b·e。要求它单靠自己不破 17.5cm 失格线 → e < 0.175/b。
+#: blend_arc=0.7 时上限 0.25m。超过这个距离再锚，就不是"消除漂移"而是
+#: "凭空编造位置"。做成函数而非常量：增益是可调的 cfg 项，上限必须跟着走。
+def goal_anchor_max_m(blend: float) -> float:
+    b = min(max(float(blend), 1e-6), 1.0)
+    return DQ_DEVIATION_M / b
 
 CMD_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 #: 急停订阅用**两条** reader，不是一个。原因是 DDS 的 Durability 兼容规则：
@@ -208,6 +218,7 @@ class DzNavNode(Node):
         self._dt_nominal = 0.02
         self._dt = self._dt_nominal
         self._pending_anchor = None    # 出弯延迟锚点 (s_target,)
+        self.arrived_forced = False    # True = 跟踪放弃收车，并非真到达终点
 
         # ---- 安全（2026-10-17 评审整改）----
         #: ESTOP 原因。"cmd" 只能由 /estop=False 解除，reset: 不可解除；
@@ -421,6 +432,10 @@ class DzNavNode(Node):
         for w in warns:
             self.get_logger().warning(w)
         self.tracker = Tracker(path, self.servo, self.tcfg)
+        # 换路径＝旧弧长作废，见 _abort_route 注释。_start_route 不经
+        # _abort_route（它直接覆盖 tracker），所以要单独清。
+        self._pending_anchor = None
+        self.arrived_forced = False
         self.final_heading = HEADING_YAWS[heading] if heading else None
         self.route_label = label
         self.state = "ACTIVE"
@@ -445,6 +460,11 @@ class DzNavNode(Node):
     def _abort_route(self):
         self.tracker = None
         self._final_arc = None
+        # _pending_anchor 是**弧长**，只在它所属的那条路径上有意义。不清掉的话
+        # 它会活到下一条路线：新 Tracker 的 s_prog 从 0 重新爬，爬到那个旧数值时
+        # 就把一个跟当前几何毫无关系的点当"出弯收敛区"锚进去，污染定位。
+        self._pending_anchor = None
+        self.arrived_forced = False
 
     def _auto_mission(self):
         # rclpy 的 create_timer 是**周期**定时器。不加这道闸，builtin_route 会
@@ -584,20 +604,37 @@ class DzNavNode(Node):
                 f"{min(int(self.cfg['shoot_target']), int(self.cfg['ammo_total']) - self.shoot_count)}"
                 f" 发（已打 {self.shoot_count}/{self.cfg['ammo_total']}）")
         elif ev == "arrived":
-            self._on_arrived(e.get("d", 0.0))
+            self._on_arrived(e.get("d", 0.0), forced=bool(e.get("forced")))
         elif ev == "arc_exit":
             self.loc.anchor(e["x"], e["y"], e["th"],
                             blend=self.cfg["blend_arc"],
                             blend_th=self.cfg["blend_th"])
         elif ev == "rebuild":
+            # _rebuild 把 s_prog 归零并换了一条全新几何的路径，旧弧长随之作废。
+            # 不清的话：s_prog 从 0 重新爬，爬到旧锚点数值那一刻
+            # `s_prog - _pending_anchor` 恰好很小（重建后 v_cmd=0 起步，单周期
+            # 只走几厘米），0.20m 新鲜度窗口拦不住它 —— 会在一个跟出弯毫无
+            # 关系的位置注入 anchor。
+            self._pending_anchor = None
             self.get_logger().warning(
                 f"偏差过大重建路线 → wp#{e['to_idx']}（{self.tracker.rebuilds}"
                 f"/{self.tcfg.rebuild_limit}）")
         elif ev == "align_done":
             self.loc.anchor(self.loc.x, self.loc.y, e["th"], blend=0.5)
 
-    def _on_arrived(self, d):
+    def _on_arrived(self, d, forced=False):
         fw = self.tracker.path.waypoints[-1]
+        if forced:
+            # pursuit 的 rebuild_limit(3) 耗尽后发的"到点"是**放弃**，不是到达：
+            # d 无界，车可能在场中任意位置。此时若照常走 FINAL_ARC + 把定位
+            # 锚到终点，等于凭空把 belief 传送到目标格、再宣告任务完成。
+            x, y, _th = self.loc.pose
+            self.get_logger().error(
+                f"跟踪放弃（rebuild {self.tracker.rebuilds}/"
+                f"{self.tcfg.rebuild_limit} 耗尽），车在 ({x:.2f},{y:.2f})m，"
+                f"距终点 {d:.2f}m —— 未到达，不锚定终点，就地收车")
+            self._finish(forced=True)
+            return
         if self.final_heading is not None:
             err = wrap_pi(self.final_heading - self.loc.th)
             if abs(err) > math.radians(12.0) and self._final_arc_feasible():
@@ -636,8 +673,30 @@ class DzNavNode(Node):
         done = a["sign"] * err <= math.radians(self.tcfg.arc_lead_deg)
         timeout = self._t - a.get("t0", self._t) > 12.0
         if done or timeout:
-            self.loc.anchor(a["x"], a["y"], a["target"], blend=0.7,
-                            blend_th=self.cfg["blend_th"])
+            # 锚终点前必须先确认车**真的在**终点附近。这段满舵弧半径
+            # R = wheelbase/tan(steer_limit-2°) ≈ 0.295m，它只改朝向不改位置：
+            # 入场时偏多少，出场时大致还偏多少（_final_arc_feasible 只检查弧
+            # 几何在图内，从不检查车离终点多远）。偏得远还照锚，等于把 belief
+            # 传送到终点格。
+            blend = float(self.cfg["blend_arc"])
+            x, y, _th = self.loc.pose
+            off = math.hypot(x - a["x"], y - a["y"])
+            if timeout and not done:
+                # 12s 超时说明弧**没转到**目标朝向，此时把 belief 航向锚到
+                # target 同样是编造（残差可能几十度）。只停车，不锚。
+                self.get_logger().error(
+                    f"终点朝向机动超时（残 {math.degrees(err):+.0f}deg，"
+                    f"偏终点 {off:.2f}m）—— 不做任何锚定，就地收车")
+            elif off > goal_anchor_max_m(blend):
+                # 位置不可信，但朝向是弧真的转到位的（done 为真）：只收朝向。
+                self.get_logger().warning(
+                    f"终点机动到位但车偏终点 {off:.2f}m > 可锚上限 "
+                    f"{goal_anchor_max_m(blend):.2f}m —— 只锚朝向不锚位置")
+                self.loc.anchor(x, y, a["target"], blend=0.0,
+                                blend_th=self.cfg["blend_th"])
+            else:
+                self.loc.anchor(a["x"], a["y"], a["target"], blend=blend,
+                                blend_th=self.cfg["blend_th"])
             self._final_arc = None
             self._finish()
             return
@@ -669,15 +728,20 @@ class DzNavNode(Node):
             self.state = "ACTIVE"
             self.nav_start = self._t     # 停站不占路线预算
 
-    def _finish(self):
+    def _finish(self, forced: bool = False):
+        # forced=True 是 pursuit 放弃（rebuild_limit 耗尽），不是到达终点。
+        # state 仍置 ARRIVED：它是"不再动"的闩锁态，_control 见到就发零速；
+        # 但日志必须用 error 并写明未到达，否则复盘时会被当成正常收车。
         self.state = "ARRIVED"
+        self.arrived_forced = forced
         self._publish(0.0, 0.0)
         sig = UInt8()
         sig.data = 1
         self.pub_stop.publish(sig)
         x, y, th = self.loc.pose
-        self.get_logger().info(
-            f"ARRIVED ({x:.2f},{y:.2f})m yaw={math.degrees(th):+.0f}deg "
+        log = self.get_logger().error if forced else self.get_logger().info
+        log(f"{'FORCED-STOP 未到达' if forced else 'ARRIVED'} "
+            f"({x:.2f},{y:.2f})m yaw={math.degrees(th):+.0f}deg "
             f"stop_signal=1")
 
     # ---- 工具 ----
