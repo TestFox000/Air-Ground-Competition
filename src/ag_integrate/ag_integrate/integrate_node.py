@@ -6,6 +6,13 @@
         -> ROS timer 回调（executor 线程）：门控 -> 路由+适配 -> 发布
         -> /nav/waypoint  先发一次 reset，再发路线（官方 path_executor 消费）
 
+两种决策来源（参数 car_command_source）：
+    local   （默认）本节点自己规划：收 0x4001 情报 → 世界模型 → 规划 → 发布。
+    onboard 规划在机上（官方控制要求「无人机的定位、建图、识别、规划与控制等
+            实时任务须由机载平台自主完成」）：本节点退化为薄接收——
+             仍收 0x4002 做朝向对齐（对齐属执行侧：要用车端 /cmd_vel 与底盘契约），
+             但不再跑世界模型/规划，只把机上 0x4003 车命令帧原样转发到 /nav/waypoint。
+
 线程模型：规划与发布都在 ROS executor 线程的 timer 回调里做，
 后台线程只把最新 WorldSnapshot 递进来，不跨线程调用 ROS API。
 
@@ -30,7 +37,8 @@ from std_msgs.msg import String
 from .car_commands import parse_cell
 from .field_matrix import MatrixFusion, render_report_from_spots
 from .heading_calibration import closed_loop_rate, nearest_axis
-from .intel_protocol import detect_msg_id, parse, parse_car_pose
+from .intel_protocol import (MSG_ID_CAR_COMMAND, detect_msg_id, parse, parse_car_command,
+                             parse_car_pose)
 from .mission_router import _MID_BOUNDARY
 from .pipeline import build_mission, evaluate_gate
 from .world_model import WorldModel
@@ -65,6 +73,10 @@ class IntegrateNode(Node):
         super().__init__("integrate_node")
 
         self.declare_parameter("udp_port", 50000)
+        # 决策来源：local=本节点自己规划（默认，与历史行为一致）；
+        # onboard=规划在机上，本节点退化为薄接收（只把 0x4003 车命令转发到
+        # /nav/waypoint，仍收 0x4002 做朝向对齐）。
+        self.declare_parameter("car_command_source", "local")
         self.declare_parameter("waypoint_topic", "/nav/waypoint")
         self.declare_parameter("start_cell", "N10")
         # 2026-10-17 官方裁判地图：终点 N5（曾错为 N11，与 yaml 分裂——
@@ -177,6 +189,10 @@ class IntegrateNode(Node):
         self.declare_parameter("log_level", "info")
 
         p = lambda k: self.get_parameter(k).value  # noqa: E731
+        self.car_command_source = str(p("car_command_source")).strip().lower()
+        if self.car_command_source not in ("local", "onboard"):
+            raise ValueError("car_command_source 只支持 'local'/'onboard'，"
+                             f"收到 {self.car_command_source!r}")
         self.start_cell = str(p("start_cell"))
         self.goal_cell = str(p("goal_cell"))
         self.start_heading = str(p("start_heading"))
@@ -253,6 +269,11 @@ class IntegrateNode(Node):
                                 obstacle_confirm_frames=self.obstacle_confirm_frames)
         self.reset_sent = False
         self.last_route = ""
+        # onboard 模式：最近收到的机上 0x4003 车命令 (reset, route)。
+        # 跨线程读写（收包线程写、executor 线程读）：整元组一次性赋值，
+        # 依赖 CPython GIL 的原子性，读到的只会是 None 或某个完整元组。
+        self._onboard_cmd: tuple[str, str] | None = None
+        self.onboard_reset_sent = False
         # 已入日志的降级告警文本（同文本只报一次，防每帧重规划刷屏）
         self._degraded_logged: set[str] = set()
         # 无人机观测到的车真实朝向（0x4002 帧），None 表示尚未收到。
@@ -385,7 +406,23 @@ class IntegrateNode(Node):
                 f"收到车位姿: x={pose.x:.2f} y={pose.y:.2f} yaw={pose.yaw:.3f}"
             )
             return
+        if msg_id == MSG_ID_CAR_COMMAND:
+            # 机上规划下发的车命令（0x4003）。
+            try:
+                cmd = parse_car_command(data)
+            except ValueError as exc:
+                self.get_logger().warning(f"丢弃坏车命令帧: {exc}")
+                self._blog(EV.LINK_DROP, level="warn", msg=f"car_command: {exc}")
+                return
+            if self.car_command_source != "onboard":
+                return   # local 模式本机自己规划，不消费机上命令
+            self._onboard_cmd = (cmd.reset, cmd.route)
+            self.get_logger().debug(
+                f"收到机上命令: reset={cmd.reset!r} route={cmd.route!r}")
+            return
         # 默认：态势帧（0x4001）
+        if self.car_command_source == "onboard":
+            return   # 规划在机上：本节点不再需要情报帧做决策（仍收 0x4002 做对齐）
         try:
             frame = parse(data)
         except ValueError as exc:
@@ -548,7 +585,9 @@ class IntegrateNode(Node):
             snapshot = self._frames.get_nowait()
         except queue.Empty:
             snapshot = None
-        if snapshot is not None:
+        if self.car_command_source == "onboard":
+            self._handle_onboard()
+        elif snapshot is not None:
             self._handle(snapshot)
         # 朝向对齐需要每 tick 持续发 /cmd_vel；放在 _handle 之后，
         # 这样 _handle 启动对齐的同一 tick 就会发出第一帧角速度。
@@ -818,6 +857,44 @@ class IntegrateNode(Node):
         self._blog(EV.ROUTE_PUBLISH, cmd=commands.route, kind="route",
                    reset_sent=self.reset_sent)
         self.get_logger().info(f"已下发路线: {commands.route}")
+
+    def _handle_onboard(self) -> None:
+        """薄接收：把机上 0x4003 车命令转发到 /nav/waypoint。
+
+        门控/世界模型/规划/重规划全部在机上完成，本节点不做任何规划
+        （官方控制要求「规划须由机载平台自主完成」）。这里只保留两个
+        执行侧安全闸门与对齐前置：
+          - 朝向对齐未完成时不放行（车头没摆正，reset 断言语义就错）；
+          - dry_run：只打日志不发命令（默认安全）；
+          - 路线发布闸门：/nav/waypoint 无订阅者时不发（话题无滞留，发了即丢）。
+        """
+        if self._align_state == "aligning":
+            return
+        cmd = self._onboard_cmd
+        if cmd is None:
+            if not getattr(self, "_onboard_no_cmd_logged", False):
+                self._onboard_no_cmd_logged = True
+                self.get_logger().info("onboard 模式：尚未收到机上 0x4003 车命令，等待")
+            return
+        reset, route = cmd
+        if route == self.last_route:
+            return   # 与上次相同：不重发（话题无滞留，重复发无意义）
+        if (not self.dry_run and self.wait_waypoint_consumer
+                and not self._waypoint_consumer_ready()):
+            self._log_hold_once("等待 path_executor 订阅 /nav/waypoint")
+            return
+        self.last_route = route
+        self._onboard_no_cmd_logged = False
+        if self.dry_run:
+            self.get_logger().info(f"[dry_run] 机上命令 {reset} | {route}")
+            return
+        if self.publish_reset and reset and not self.onboard_reset_sent:
+            self._publish(reset)
+            self.onboard_reset_sent = True
+            self._blog(EV.ROUTE_PUBLISH, cmd=reset, kind="reset")
+        self._publish(route)
+        self._blog(EV.ROUTE_PUBLISH, cmd=route, kind="route")
+        self.get_logger().info(f"已下发机上路线: {route}")
 
     def _waypoint_consumer_ready(self) -> bool:
         """/nav/waypoint 是否已有订阅者（path_executor 上线）。

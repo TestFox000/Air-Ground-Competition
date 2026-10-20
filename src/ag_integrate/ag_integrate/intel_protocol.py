@@ -1,6 +1,11 @@
-"""dzuav UdpBroadcaster 二进制 UDP 帧解析（端口 50000）。
+"""空地 UDP 帧编解码（端口 50000）。
 
-字节布局（全部小端），严格对应
+三条消息（msg_id 区分）：
+    0x4001  机载 dzuav → 车端   情报帧：13 类检测目标 + 世界米制坐标
+    0x4002  机载 dzuav → 车端   车真实位姿：无人机观测的车 x/y/yaw
+    0x4003  机载规划   → 车端   车命令帧：reset + route（官方 path_executor 语法）
+
+0x4001 字节布局（全部小端），严格对应
 reference/onboard/dzuav/src/UdpBroadcaster.cpp：
 
     magic      4 × 0xef
@@ -32,6 +37,7 @@ MAGIC = b"\xef\xef\xef\xef"
 VERSION = 0x10
 MSG_ID = 0x4001
 MSG_ID_CAR_POSE = 0x4002   # 无人机观测的车真实位姿（位置+朝向），用于根除绕圈问题
+MSG_ID_CAR_COMMAND = 0x4003  # 机载规划下发的车命令（reset + route），见文件末尾
 SUFFIX = b"\xfe\xfe\xfe\xfe"
 
 HEADER_SIZE = 21          # magic4 + version1 + ts8 + msgid2 + length4 + count2 (0x4001)
@@ -237,3 +243,133 @@ def build_car_pose(pose: CarPose) -> bytes:
     out += struct.pack("<H", crc16(memoryview(out)[4:body_end]))
     out += SUFFIX
     return bytes(out)
+
+
+# ---- msg_id=0x4003：机载规划 -> 车端 车命令帧 ----
+# 官方控制要求「无人机的定位、建图、识别、规划与控制等实时任务须由机载平台自主
+# 完成」：规划层在机上。机载规划进程与车端不再同机，reset/route 不能再靠车端本机
+# 的 /nav/waypoint ROS 话题传递。本帧沿用既有空地 UDP 广播链路把两条命令原样运到
+# 车端，车端薄接收后转发到 /nav/waypoint（官方 path_executor 消费）。
+#
+# 字节布局（小端）：
+#     magic     4 × 0xef
+#     version   1    0x10
+#     timestamp uint64   机载毫秒时间戳
+#     msg_id    uint16   0x4003
+#     length    uint32   = 2+len(reset) + 2+len(route)
+#     reset_len uint16   | reset bytes(ASCII)
+#     route_len uint16   | route bytes(ASCII)
+#     crc16     uint16   CRC-16/Modbus，覆盖 version 到最后一个命令字节
+#     suffix    4 × 0xfe
+#
+# 命令串是 car_commands 编码后的**车端方言**字面量（朝向 token 已在 car_commands
+# 翻译成本机->车端架），本模块只做字节搬运与结构校验，绝不改写命令内容。
+
+_CMD_LEN_SIZE = 2
+_CMD_ASCII = "ascii"
+_CAR_CMD_MIN_SIZE = HEADER_SIZE_NO_COUNT + _CMD_LEN_SIZE * 2 + CRC_SIZE + TAIL_SIZE
+
+
+@dataclass(frozen=True)
+class CarCommandFrame:
+    """机载规划产出的车命令（msg_id=0x4003）。
+
+    reset: "reset:<格号>,<车端朝向 token>"；空串 = 本局不下发 reset。
+    route: 格号序列（空格分隔，`*`=停靠射击，末尾 ,x/,y=终点朝向）；不能为空。
+    """
+
+    timestamp_ms: int
+    reset: str
+    route: str
+
+
+def _validate_reset(reset: str) -> str:
+    """空 reset 合法（本局不发锚定）；非空必须是 reset 命令，防脏串误发上底盘。"""
+    if reset == "":
+        return reset
+    if not reset.startswith("reset:"):
+        raise ValueError(f"reset 命令必须以 'reset:' 开头，收到 {reset!r}")
+    return reset
+
+
+def _validate_route(route: str) -> str:
+    if not route.strip():
+        raise ValueError("route 命令不能为空")
+    return route
+
+
+def _encode_cmd_text(text: str, what: str) -> bytes:
+    """命令串 -> 严格 ASCII 字节（非 ASCII 会让车端解析整条丢弃，宁错不发）。"""
+    raw = text.encode(_CMD_ASCII)
+    if len(raw) > 0xFFFF:
+        raise ValueError(f"{what} 过长: {len(raw)} 字节 > 65535")
+    return raw
+
+
+def build_car_command(frame: CarCommandFrame) -> bytes:
+    """编码车命令帧（msg_id=0x4003），用于机载下发与测试/回放。"""
+    reset_b = _encode_cmd_text(_validate_reset(frame.reset), "reset")
+    route_b = _encode_cmd_text(_validate_route(frame.route), "route")
+    body = (struct.pack("<H", len(reset_b)) + reset_b
+            + struct.pack("<H", len(route_b)) + route_b)
+    out = bytearray()
+    out += MAGIC
+    out.append(VERSION)
+    out += struct.pack("<QHI", frame.timestamp_ms, MSG_ID_CAR_COMMAND, len(body))
+    out += body
+    body_end = HEADER_SIZE_NO_COUNT + len(body)
+    out += struct.pack("<H", crc16(memoryview(out)[4:body_end]))
+    out += SUFFIX
+    return bytes(out)
+
+
+def parse_car_command(data: bytes) -> CarCommandFrame:
+    """解析车命令帧（msg_id=0x4003）；任何不一致都抛 ValueError（不返回半成品）。"""
+    if len(data) < _CAR_CMD_MIN_SIZE:
+        raise ValueError(f"car command frame too short: {len(data)} bytes")
+    if data[0:4] != MAGIC:
+        raise ValueError("bad magic prefix")
+    if data[4] != VERSION:
+        raise ValueError(f"unsupported version byte: 0x{data[4]:02x}")
+
+    timestamp_ms, msg_id, declared_len = struct.unpack_from("<QHI", data, 5)
+    if msg_id != MSG_ID_CAR_COMMAND:
+        raise ValueError(f"unexpected message id: 0x{msg_id:04x}")
+
+    total = HEADER_SIZE_NO_COUNT + declared_len + CRC_SIZE + TAIL_SIZE
+    if len(data) != total:
+        raise ValueError(f"frame size {len(data)} != declared {total}")
+
+    body_end = HEADER_SIZE_NO_COUNT + declared_len
+    offset = HEADER_SIZE_NO_COUNT
+    (reset_len,) = struct.unpack_from("<H", data, offset)
+    offset += _CMD_LEN_SIZE
+    if offset + reset_len + _CMD_LEN_SIZE > body_end:
+        raise ValueError("reset 长度越界")
+    reset_b = data[offset:offset + reset_len]
+    offset += reset_len
+    (route_len,) = struct.unpack_from("<H", data, offset)
+    offset += _CMD_LEN_SIZE
+    if offset + route_len != body_end:
+        raise ValueError("route 长度与声明长度不符")
+    route_b = data[offset:body_end]
+
+    try:
+        reset = reset_b.decode(_CMD_ASCII)
+        route = route_b.decode(_CMD_ASCII)
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"命令串非 ASCII: {exc}") from exc
+    if "\x00" in reset or "\x00" in route:
+        raise ValueError("命令串含 NUL 字节")
+    _validate_reset(reset)
+    _validate_route(route)
+
+    (received_crc,) = struct.unpack_from("<H", data, body_end)
+    actual_crc = crc16(memoryview(data)[4:body_end])
+    if received_crc != actual_crc:
+        raise ValueError(f"crc mismatch: frame=0x{received_crc:04x} calc=0x{actual_crc:04x}")
+
+    if data[body_end + CRC_SIZE : body_end + CRC_SIZE + TAIL_SIZE] != SUFFIX:
+        raise ValueError("bad suffix")
+
+    return CarCommandFrame(timestamp_ms, reset, route)

@@ -4,6 +4,7 @@
 #
 # 窗口顺序（依赖顺序，就绪一个起一个）:
 #   dzuav    侦察感知栈（相机 -> TRT 推理 -> PnP -> UDP:50000 广播，独立于 ROS）
+#   plan     机载规划（消费 dzuav 本地 UDP:50000 -> route_plan.json -> 广播 0x4003 车命令）
 #   livox    激光雷达驱动
 #   fastlio  FAST-LIO 定位（依赖 livox）
 #   px4      MicroXRCEAgent（飞控串口桥，依赖 /dev/ttyACM0）
@@ -16,6 +17,7 @@
 # 用法:
 #   tools/orin_bringup.sh up              # 全栈启动（默认相机 /dev/video0 1920x1200@30）
 #   tools/orin_bringup.sh up --no-teleop  # 不要键盘遥控窗口
+#   tools/orin_bringup.sh up --no-plan    # 不起机载规划窗口（调试感知栈时用）
 #   DZUAV_CAM=/dev/video1 tools/orin_bringup.sh up
 #   tools/orin_bringup.sh status          # 各窗口存活状态
 #   tools/orin_bringup.sh down            # 全部停止
@@ -56,6 +58,14 @@ up() {
     win dzuav "bash $REPO/tools/orin_run_dzuav.sh camera $DZUAV_CAM $DZUAV_SPEC"
     ok "dzuav（UDP:50000 广播）"
 
+    # 1.5 机载规划：官方控制要求「规划须由机载平台自主完成」——规划层在机上，
+    # 消费 dzuav 的本地 UDP:50000 广播，落 route_plan.json/cell_matrix.json，
+    # 并把车命令以 0x4003 广播给车端（车端薄接收 -> /nav/waypoint）。
+    if [[ "${1:-}" != "--no-plan" ]]; then
+        win plan "python3 $REPO/tools/orin_plan_sidecar.py --params $REPO/src/ag_integrate/config/match_params.yaml --out /tmp/ag_plan_live --send"
+        ok "plan（机载规划 -> 0x4003 车命令）"
+    fi
+
     # 2. 雷达 -> SLAM
     win livox "ros2 launch livox_ros_driver2 msg_MID360_launch.py"
     ok "livox"; sleep 3
@@ -93,7 +103,7 @@ up() {
 status() {
     tmux has-session -t "$SESSION" 2>/dev/null || { echo "会话 $SESSION 不存在"; exit 1; }
     tmux list-windows -t "$SESSION" -F "#{window_name}: #{session_windows}窗 #{?window_active,ACTIVE,} #{pane_current_command}"
-    for w in dzuav livox fastlio px4 odom imu control path teleop; do
+    for w in dzuav plan livox fastlio px4 odom imu control path teleop; do
         alive=$(tmux list-panes -t "$SESSION:$w" -F "#{pane_dead}" 2>/dev/null)
         [[ -z $alive ]] && continue
         [[ $alive == 0 ]] && echo "  [活] $w" || echo "  [死] $w"

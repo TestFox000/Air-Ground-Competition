@@ -5,6 +5,13 @@ integrate_node:
   ros__parameters:
     # ---- 链路 ----
     udp_port: 50000                 # dzuav 态势广播端口
+    # 决策来源：
+    #   local   = 本节点自己规划（车端算，历史形态）
+    #   onboard = 规划在机上（官方要求「规划须由机载平台自主完成」）：
+    #             机载 tools/orin_plan_sidecar.py 出规划并广播 0x4003 车命令，
+    #             本节点退化为薄接收（只转发到 /nav/waypoint，仍收 0x4002 做对齐）。
+    # 两种模式不可同时消费同一 UDP:50000（同机第二份 bind 会 fail-fast 暴露）。
+    car_command_source: "local"
     waypoint_topic: "/nav/waypoint"  # 官方 path_executor 订阅的话题
     dry_run: true                   # 只算不发；实车联调通过后改 false
     publish_reset: true
