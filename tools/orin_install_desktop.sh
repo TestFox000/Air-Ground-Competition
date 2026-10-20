@@ -31,6 +31,48 @@ OUT=/tmp/ag_plan_live
 
 pause() { [ -t 0 ] && { echo; read -r -p "按回车返回菜单…" _ || true; }; }
 
+# 启动前的人话检查：把"会静默跑错/跑不起来"的条件先摆到屏幕上。
+preflight() {
+    echo "--- 启动前检查 ---"
+    if [ ! -e /dev/video0 ]; then
+        echo "⚠ 没有检测到相机 /dev/video0：dzuav 窗口起来后会立即退出，"
+        echo "  规划窗口会一直等不到情报（其余窗口正常）。这是预期现象，不是故障。"
+    else
+        echo "✓ 相机 /dev/video0 存在"
+    fi
+    local bin="$REPO/onboard/dzuav/build/dzuav"
+    if [ -f "$bin" ] && grep -qa uav_end "$bin"; then
+        echo "✓ dzuav 二进制为 13 类"
+    elif [ -f "$bin" ]; then
+        echo "✗ dzuav 二进制不是 13 类（未见 uav_end）——请勿继续，先跑 orin_build_verify.sh"
+    else
+        echo "✗ 缺少 dzuav 二进制，先跑 bash tools/orin_build_verify.sh"
+    fi
+    for e in hbb_detector_d13_fp16 cell_classifier_v4d_fp16; do
+        [ -f "$HOME/dzuav/engines/$e.engine" ] \
+            && echo "✓ 引擎 $e" \
+            || echo "✗ 缺少引擎 $e.engine（13 类部署线要求 d13 + v4d）"
+    done
+    if tmux has-session -t agup 2>/dev/null; then
+        echo "· 全栈已在运行（tmux 会话 agup 存在），本次启动会先停掉再重开"
+    fi
+    echo "-------------------"
+}
+
+start_stack() {   # $1 = dry | send
+    preflight
+    if [ "$1" = "send" ]; then
+        echo "⚠ 即将【实发】车命令（0x4003），路线会直接给车执行。"
+        read -r -p "确认车端已就绪？输入 yes 继续: " a
+        [ "$a" = "yes" ] || { echo "已取消。"; return; }
+        PLAN_SEND=1 bash "$REPO/tools/orin_bringup.sh" up --no-teleop
+    else
+        bash "$REPO/tools/orin_bringup.sh" up --no-teleop
+    fi
+    echo
+    echo "已启动。下一步可：4=验收  5=进 tmux 看各窗口  6=看规划产物  7=停止"
+}
+
 show_plan() {
     local latest
     latest=$(ls -dt /tmp/ag_plan* 2>/dev/null | head -1)
@@ -54,21 +96,23 @@ menu() {
     while true; do
         cat <<'TXT'
 
-==================== 机载一键入口 ====================
-  1  启动全栈（感知+规划+雷达+飞控；规划只落盘不发车命令）
-  2  启动全栈 并 实发车命令（⚠ 命令会上车，确认车端已就绪再选）
-  3  只启机载规划（不起雷达/飞控；终端调试用，Ctrl+C 停止）
-  4  机载规划验收（自检：进程→投递→矩阵→门控→路线→三份产物）
-  5  看规划日志（接进 tmux 会话 agup，Ctrl+B 再按数字切窗口）
-  6  看最新规划产物（route_plan.json 摘要）
-  7  停止全栈
-  0  退出
-=====================================================
+╔══════════════════════════════════════════════════════╗
+║              机载一键入口（输入数字后回车）            ║
+╠══════════════════════════════════════════════════════╣
+║   1  启动全栈（规划只落盘，不发车命令）                ║
+║   2  启动全栈 并 实发车命令（⚠ 会驱动车，需二次确认）  ║
+║   3  只启机载规划（前台运行，Ctrl+C 停止）             ║
+║   4  机载规划验收（自检全链，约 40 秒）                ║
+║   5  进入 tmux 看各窗口（Ctrl+B 切窗，再按 d 退出）     ║
+║   6  看最新规划产物                                    ║
+║   7  停止全栈                                          ║
+║   0  退出                                              ║
+╚══════════════════════════════════════════════════════╝
 TXT
-        read -r -p "输入编号后回车: " n || exit 0
+        read -r -p "请选择 [0-7]: " n || exit 0
         case "${n:-}" in
-            1) bash "$REPO/tools/orin_bringup.sh" up --no-teleop; pause ;;
-            2) PLAN_SEND=1 bash "$REPO/tools/orin_bringup.sh" up --no-teleop; pause ;;
+            1) start_stack dry; pause ;;
+            2) start_stack send; pause ;;
             3) python3 -u "$REPO/tools/orin_plan_sidecar.py" --params "$PARAMS" \
                    --out "$OUT" --plan-mode on-change ;;
             4) bash "$REPO/tools/orin_accept_plan.sh"; pause ;;
@@ -76,18 +120,22 @@ TXT
             6) show_plan; pause ;;
             7) bash "$REPO/tools/orin_bringup.sh" down; pause ;;
             0) exit 0 ;;
-            *) ;;
+            *) echo "只接受 0-7 的数字。" ;;
         esac
     done
 }
 
+# 图标/命令行动作：**执行完一律回到菜单**，不停在一个死界面上。
+# 2026-10-20 反馈：原先 accept/stop 跑完 pause 就退出，用户在 VNC 上
+# 按完回车看到一片空白，以为"没有菜单"——菜单必须是操作中枢。
 case "${1:-menu}" in
-    menu)        menu ;;
-    accept)      bash "$REPO/tools/orin_accept_plan.sh"; pause ;;
-    stop)        bash "$REPO/tools/orin_bringup.sh" down; pause ;;
-    plan)        python3 -u "$REPO/tools/orin_plan_sidecar.py" --params "$PARAMS" \
-                     --out "$OUT" --plan-mode on-change ;;
-    *)           menu ;;
+    up)      start_stack dry; pause; menu ;;
+    up-send) start_stack send; pause; menu ;;
+    accept)  bash "$REPO/tools/orin_accept_plan.sh"; pause; menu ;;
+    stop)    bash "$REPO/tools/orin_bringup.sh" down; pause; menu ;;
+    plan)    python3 -u "$REPO/tools/orin_plan_sidecar.py" --params "$PARAMS" \
+                 --out "$OUT" --plan-mode on-change ;;
+    menu|*)  menu ;;
 esac
 START
 chmod +x "$HOME/start.sh"
@@ -110,27 +158,32 @@ EOF
     gio set "$DESK/$1" metadata::trusted true 2>/dev/null || true
 }
 
-mk_item "ag-plan-start.desktop"  "启动机载全栈"   "menu"
-mk_item "ag-plan-accept.desktop" "机载规划验收"   "accept"
-mk_item "ag-plan-stop.desktop"   "停止机载全栈"   "stop"
-ok "已安装桌面图标：启动机载全栈 / 机载规划验收 / 停止机载全栈"
+mk_item "ag-plan-start.desktop"  "① 启动机载全栈"     "up"
+mk_item "ag-plan-accept.desktop" "② 机载规划验收"     "accept"
+mk_item "ag-plan-stop.desktop"   "③ 停止机载全栈"     "stop"
+mk_item "ag-plan-menu.desktop"   "更多操作（菜单）"   "menu"
+ok "已安装桌面图标：启动 / 验收 / 停止 / 更多操作（双击即执行，执行完自动回菜单）"
 
 # ---------------------------------------------------------------- 操作指南
 cat > "$GUIDE" <<'TXT'
 机载操作指南（VNC 桌面前照着做即可）
 =====================================
 
-【一句话】桌面上双击「启动机载全栈」→ 在菜单里选 1 → 之后双击「机载规划验收」看是否全绿。
+【一句话】桌面上双击「① 启动机载全栈」→ 它会先做启动前检查、然后直接拉起全栈，
+         拉起后**自动显示数字菜单**（4=验收 5=看窗口 6=看产物 7=停止 0=退出）。
+         如果你在任何时候找不到菜单：打开终端敲  ~/start.sh  回车即可。
 
-一、开机后要先做的事（每次上电）
-  1. 双击桌面「启动机载全栈」 → 菜单里输入 1 回车
-     · 这一步会拉起：感知(dzuav) / 机载规划(plan) / 雷达 / SLAM定位 / 飞控桥 / 控制 / 航线
+一、开机后要做的事（每次上电）
+  1. 双击「① 启动机载全栈」
+     · 先看它打印的「启动前检查」：相机/二进制是否 13 类/引擎是否 d13+v4d
+     · 然后拉起：感知(dzuav) / 机载规划(plan) / 雷达 / SLAM定位 / 飞控桥 / 控制 / 航线
      · 规划窗口默认「只落盘，不发车命令」——安全档
-  2. 双击「机载规划验收」 → 看到一路 [通过] 与「机载规划验收通过」即为正常
-     · 它会自检：规划进程起没起、同机广播投递成不成、矩阵/门控/路线/三份产物在不在
+  2. 菜单里输入 4 回车 → 机载规划验收（约 40 秒）
+     · 一路 [通过] 并以「机载规划验收通过」结尾即为正常
+     · 它会自检：栈版本、规划进程起没起、同机广播投递、矩阵/门控/路线/三份产物
 
 二、怎么看正在发生什么
-  · 双击「启动机载全栈」→ 菜单输入 5（或终端敲 tmux attach -t agup）
+  · 菜单输入 5（或终端敲 tmux attach -t agup）
     → 进入 10 个窗口，看名字：
         dzuav    相机识别+定位（打印 localized / landmarks）
         plan     机载规划（打印场地矩阵 + 路线）
@@ -151,12 +204,12 @@ cat > "$GUIDE" <<'TXT'
 
 四、真的要让车动起来（比赛日）
   1. 先确认：车端已上线、已切薄接收（car_command_source=onboard）
-  2. 双击「启动机载全栈」→ 菜单输入 2（=PLAN_SEND=1，实发 0x4003 车命令）
+  2. 菜单输入 2（启动全栈并实发；会要求你输入 yes 二次确认）
      ⚠ 这一步发出的路线会直接给车执行，务必先做过验收（步骤一·2）
-  3. 回滚：菜单输入 1（回到只落盘不发）
+  3. 回滚：菜单输入 1（重新以只落盘方式启动）
 
 五、出问题怎么停
-  · 双击「停止机载全栈」→ 整栈停掉
+  · 双击「③ 停止机载全栈」，或菜单输入 7
   · 或终端敲：tools/orin_bringup.sh down
 
 六、常见现象对照
@@ -169,7 +222,9 @@ ok "已写入桌面《机载操作指南.txt》"
 
 echo
 echo "==================== 安装完成 ===================="
-echo "桌面图标：启动机载全栈 / 机载规划验收 / 停止机载全栈"
-echo "文本入口：~/start.sh（菜单式；也支持 ~/start.sh accept / stop / plan）"
+echo "桌面图标：① 启动机载全栈 / ② 机载规划验收 / ③ 停止机载全栈 / 更多操作（菜单）"
+echo "          （双击即执行；执行完自动回到数字菜单）"
+echo "找不到菜单时：打开终端敲  ~/start.sh  回车"
+echo "文本入口：~/start.sh（也支持 up / accept / stop / plan）"
 echo "操作指南：~/Desktop/机载操作指南.txt"
 echo "=================================================="
