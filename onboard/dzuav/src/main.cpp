@@ -77,6 +77,10 @@ constexpr float kEdgePaperThr = 0.005F;
 // ⚠️ 已写待验：上调会减少地标数，上机后必须确认 solve 成功率没有退化。
 constexpr float kCellMinConf = 0.65F;
 
+// 连续帧处理异常上限：超过即认为故障是持久的，非零退出而不是无声空转。
+// 相机分支与离线视频分支共用同一上限——两处各写一个字面量 30 迟早会分叉。
+constexpr unsigned kMaxFrameErrors = 30;
+
 // 车头朝向估计：车顶贴红色方向标记（车头一侧），标记质心相对车框中心的
 // 偏移方向即车头方向。图像方向经 map.project 投到场地世界坐标后取 atan2。
 // 返回 false 表示这一帧估不出来（没找到标记 / 面积太小），调用方跳过即可。
@@ -281,16 +285,36 @@ std::string uvcPipelineRaw(const std::string& device, int width, int height, int
     return os.str();
 }
 
-// 解析 "1920x1080@30"；fps=0 表示不约束协商帧率。解析失败时保留调用方默认值。
-void parseSpec(const std::string& spec, int& width, int& height, int& fps)
+// 解析 "1920x1080@30"；@fps 可省（省略表示不约束协商帧率）。
+// 返回 false = 无法解析，调用方必须报错退出，**不得**静默沿用默认值：
+// 原写法要求 sscanf 恰好匹配到 3 项，于是 "1920x1080"（漏写 @fps）会让
+// 宽、高、fps 三个一起被丢弃，机上按默认 1920x1080 采集却无人知晓；
+// 写 "1280x720@30" 与写 "1280x720" 的行为差异也无从察觉。这类偏差一路绿灯，
+// 要到定位系统性偏移才暴露（内参按分辨率缩放，见 MapLocalizer::scaledIntrinsics）。
+// 尾部残余字符同样拒绝，口径与下面的 parsePort 一致。
+// 判"没有残余"用**回写比对**而不是 sscanf 的 %n：%n 与 glibc 的
+// _FORTIFY_SOURCE（Ubuntu/Orin 上 gcc 默认开启）有交互，字面量格式串虽属允许，
+// 但本机无编译器可验，不如换一个没有歧义的写法。
+bool parseSpec(const std::string& spec, int& width, int& height, int& fps)
 {
     int w = 0, h = 0, f = 0;
-    if (std::sscanf(spec.c_str(), "%dx%d@%d", &w, &h, &f) == 3 && w > 0 && h > 0 && f >= 0)
-    {
-        width = w;
-        height = h;
+    const bool has_fps = spec.find('@') != std::string::npos;
+    const int n = has_fps ? std::sscanf(spec.c_str(), "%dx%d@%d", &w, &h, &f)
+                          : std::sscanf(spec.c_str(), "%dx%d", &w, &h);
+    if (n != (has_fps ? 3 : 2))
+        return false;
+    if (w <= 0 || h <= 0 || (has_fps && f < 0))
+        return false;
+    char canon[64];
+    const int len = has_fps ? std::snprintf(canon, sizeof canon, "%dx%d@%d", w, h, f)
+                            : std::snprintf(canon, sizeof canon, "%dx%d", w, h);
+    if (len <= 0 || static_cast<size_t>(len) >= sizeof canon || spec != canon)
+        return false;   // 有多余字符（"1920x1080@30xyz"）或非规范写法（前导零）
+    width = w;
+    height = h;
+    if (has_fps)
         fps = f;
-    }
+    return true;
 }
 
 // 解析 UDP 端口：纯数字且在 1~65535 内才接受。stoi+static_cast<uint16_t>
@@ -313,7 +337,13 @@ int runCamera(const std::string& source, const std::string& hbb_path,
               const std::string& cell_path, uint16_t port, const std::string& spec)
 {
     int width = 1920, height = 1080, fps = 30;
-    parseSpec(spec, width, height, fps);
+    if (!parseSpec(spec, width, height, fps))
+    {
+        std::cerr << "invalid camera spec: '" << spec
+                  << "' (expected WxH or WxH@fps, e.g. 1920x1080@30)\n";
+        return 2;   // 与 unknown camera source 同为用法错误
+    }
+    std::cout << "camera spec: " << width << 'x' << height << '@' << fps << '\n';
 
     std::vector<std::string> candidates;
     if (source.rfind("argus:", 0) == 0)
@@ -402,7 +432,6 @@ int runCamera(const std::string& source, const std::string& hbb_path,
                 if (reopen_attempts < 3)
                 {
                     ++reopen_attempts;
-                    empty_frames = 0;
                     std::cerr << "camera stream lost; reopening pipeline (attempt "
                               << reopen_attempts << "/3)\n";
                     // 重开前必须 release：在已打开的 VideoCapture 上直接 open
@@ -410,9 +439,26 @@ int runCamera(const std::string& source, const std::string& hbb_path,
                     capture.release();
                     usleep(200000 * reopen_attempts);   // 200/400/600ms 退避
                     capture.open(used, cv::CAP_GSTREAMER);
-                    if (!capture.isOpened())
-                        std::cerr << "camera reopen failed (attempt "
-                                  << reopen_attempts << "/3)\n";
+                    // 必须试读一帧才算重开成功——与本文件初次打开时的判据同口径
+                    // （见 runCamera 里"只 isOpened 不够：not-negotiated 时
+                    // isOpened 也可能是 true"）。
+                    // empty_frames 只在**真出了帧**时清零：失败就保留 300 的计数，
+                    // 下一拍（usleep 33ms 后）立刻进下一次重试。若照旧在重开前清零，
+                    // 每次失败都要再攒 300 空帧 ≈ 10s 才重试，三次共 ~30s——
+                    // 占 180s 硬时限的六分之一，全花在死气上。
+                    // 探测帧本身丢弃（下一轮 read 会取到新帧）：此处不能 break，
+                    // 外层就是 while(g_running)，break 会直接结束整局侦察。
+                    cv::Mat probe;
+                    if (capture.isOpened() && capture.read(probe) && !probe.empty())
+                    {
+                        empty_frames = 0;
+                    }
+                    else
+                    {
+                        std::cerr << "camera reopen failed (attempt " << reopen_attempts
+                                  << "/3, isOpened=" << capture.isOpened() << ")\n";
+                        capture.release();   // 不留半开的管道，下一轮从干净状态重开
+                    }
                 }
                 else
                 {
@@ -436,7 +482,7 @@ int runCamera(const std::string& source, const std::string& hbb_path,
             ++frame_errors;
             std::cerr << "frame processing error (" << frame_errors
                       << " consecutive): " << e.what() << '\n';
-            if (frame_errors >= 30)
+            if (frame_errors >= kMaxFrameErrors)
             {
                 std::cerr << "too many consecutive frame errors; aborting\n";
                 return 5;
@@ -493,8 +539,17 @@ int main(int argc, char** argv)
     CellClassifier cell(argv[3]);
     MapLocalizer map;
     UdpBroadcaster udp(port);
+    // output_dir 省略时必须给出**空**路径：processFrame 用 `annotate = !output.empty()`
+    // 判断要不要画框落盘，而 `path("") / "x_0.jpg"` == "x_0.jpg" 是非空的相对路径。
+    // 原写法会在"不带 output_dir 跑离线视频"（正是 usage 里的可选参数用法）时，
+    // 把每一帧的标注图写进当前工作目录——3 分钟素材按 30fps 就是 ~5400 张 JPEG，
+    // Orin 上足以在跑完之前把盘写满。
     const auto outputFor = [&](size_t index)
-    { return output_dir / (input.stem().string() + "_" + std::to_string(index) + ".jpg"); };
+    {
+        return output_dir.empty()
+                   ? std::filesystem::path{}
+                   : output_dir / (input.stem().string() + "_" + std::to_string(index) + ".jpg");
+    };
     cv::Mat image = cv::imread(input.string());
     if (!image.empty())
     {
@@ -505,7 +560,24 @@ int main(int argc, char** argv)
     if (!capture.isOpened())
         return 3;
     cv::Mat frame;
-    for (size_t index = 0; capture.read(frame); ++index)
-        processFrame(frame, hbb, cell, map, udp, outputFor(index));
+    unsigned frame_errors = 0;   // 与 runCamera 同口径：连续异常超上限才退出
+    // 离线复盘是验证检测/定位的主要手段，一帧异常不该毁掉整段素材；
+    // 同时必须响应 g_running——SIGINT 处理只置标志不终止进程，不检查就 Ctrl-C 不掉。
+    for (size_t index = 0; g_running.load() && capture.read(frame); ++index)
+    {
+        try
+        {
+            processFrame(frame, hbb, cell, map, udp, outputFor(index));
+            frame_errors = 0;
+        }
+        catch (const std::exception& e)
+        {
+            ++frame_errors;
+            std::cerr << "frame " << index << " failed: " << e.what()
+                      << " (连续 " << frame_errors << "/" << kMaxFrameErrors << ")\n";
+            if (frame_errors >= kMaxFrameErrors)
+                return 5;
+        }
+    }
     return 0;
 }

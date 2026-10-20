@@ -425,6 +425,178 @@ def test_capture_size_default_is_derived_from_deploy_spec():
         f"capture --help 里看不到派生出的默认分辨率 {w}x{h}:\n{out.stdout}")
 
 
+_SPEC_RE = re.compile(r"^(\d+)x(\d+)(?:@(\d+))?$")
+
+
+def _cpp_parse_spec_accepts(spec: str) -> bool:
+    """main.cpp parseSpec 的等价判据：语法匹配 + 回写比对一致。
+
+    C++ 侧先 sscanf("%dx%d[@%d]")，再把解析出的 w/h/f 用 snprintf 回写成规范串
+    与入参逐字比对，不等就拒绝——尾部残余字符与前导零都过不了这一关。
+    """
+    m = _SPEC_RE.match(spec)
+    if not m:
+        return False
+    w, h, fps = int(m.group(1)), int(m.group(2)), m.group(3)
+    if w <= 0 or h <= 0:
+        return False
+    canon = f"{w}x{h}" if fps is None else f"{w}x{h}@{int(fps)}"
+    return canon == spec
+
+
+def test_deploy_camera_specs_are_accepted_by_parse_spec():
+    """启动脚本默认传给 dzuav 的相机 spec 必须能被 main.cpp 的 parseSpec 接受。
+
+    parseSpec 改为严格解析：解析不了就 return 2 退出，不再静默沿用默认值
+    （原写法要求 sscanf 恰好匹配 3 项，于是漏写 @fps 的 "1920x1080" 会让宽高
+    一起被丢弃）。变严之后，脚本里任何一个不合语法的 spec 都会让 dzuav 直接退出、
+    整局零情报，所以这里把工具链上真正会传下去的默认字面量全查一遍。
+    """
+    found = {}
+    for script, var, pat in (
+        ("orin_run_dzuav.sh", "size_fps", r'^\s*size_fps="\$\{3:-([^}"]+)\}"'),
+        ("orin_bringup.sh", "DZUAV_SPEC", r'^DZUAV_SPEC="\$\{DZUAV_SPEC:-([^}"]+)\}"'),
+    ):
+        m = re.search(pat, (TOOLS / script).read_text(encoding="utf-8", errors="replace"), re.M)
+        assert m, f"{script} 里解析不到 {var} 的默认值（正则或脚本改了？）"
+        found[f"{script}:{var}"] = m.group(1)
+
+    bad = {k: v for k, v in found.items() if not _cpp_parse_spec_accepts(v)}
+    assert not bad, (
+        f"这些默认 spec 会被 parseSpec 拒绝，dzuav 直接 return 2: {bad}；"
+        f"合法形式为 WxH 或 WxH@fps")
+
+
+def test_parse_spec_rejects_malformed_and_silent_default_forms():
+    """钉住 parseSpec 的严格性本身：这些形式必须被拒，不能悄悄退回默认值。"""
+    for bad in ("", "garbage", "1920x1080@30xyz", "1920x1080@", "0x1080@30",
+                "1920x1080@30 ", "01920x1080@30", "1920X1080@30", "1920x1080@-1"):
+        assert not _cpp_parse_spec_accepts(bad), f"{bad!r} 不该被接受"
+    for good in ("1920x1080@30", "1920x1080", "1280x720@60", "640x480"):
+        assert _cpp_parse_spec_accepts(good), f"{good!r} 该被接受"
+
+
+def _main_cpp_text() -> str:
+    return (REPO / "onboard" / "dzuav" / "src" / "main.cpp").read_text(
+        encoding="utf-8", errors="replace")
+
+
+def test_main_cpp_parse_spec_is_strict():
+    """源码级确认 parseSpec 真的返回 bool、调用方检查了它、且回写比对在拒绝分支里。
+
+    只验 Python 镜像不够——镜像与 C++ 一起漂移时镜像测试照样全绿
+    （见 tests/test_hbb_postprocess.py 的同类教训）。
+    """
+    text = _main_cpp_text()
+    assert re.search(r"^bool parseSpec\(", text, re.M), "parseSpec 不再是 bool 返回"
+    assert re.search(r"if \(!parseSpec\(spec, width, height, fps\)\)", text), (
+        "runCamera 没有检查 parseSpec 的返回值——退回静默默认值就等于没修")
+
+    # 回写比对必须**真的在拒绝条件里**。突变测试实测：只断言 "snprintf" in text
+    # 时，把 `|| spec != canon` 整段删掉照样全绿——因为 snprintf 调用还在，
+    # 但它的返回值再没跟入参比过，"1920x1080@30xyz" 会被静默接受成 1920x1080@30。
+    guard = re.search(r"if \(len[^;]*?\)\s*\n\s*return false;", text, re.S)
+    assert guard, "找不到 parseSpec 里以 len 开头的拒绝分支（回写比对被删了？）"
+    assert "spec != canon" in guard.group(0), (
+        "parseSpec 的回写结果没有与入参比对——尾部残余字符/前导零会被静默接受")
+
+    # 回写用的格式串必须与解析用的逐字一致，否则比的是两套语法，比对本身失效。
+    assert re.search(r'sscanf\(spec\.c_str\(\), "%dx%d@%d", &w, &h, &f\)', text), (
+        "带 fps 的解析格式串变了，回写比对随之失配")
+    assert re.search(r'snprintf\(canon, sizeof canon, "%dx%d@%d", w, h, f\)', text), (
+        "带 fps 的回写格式串与 sscanf 不一致")
+    assert re.search(r'snprintf\(canon, sizeof canon, "%dx%d", w, h\)', text), (
+        "省略 fps 时的回写格式串与 sscanf 不一致")
+
+
+def test_offline_video_output_dir_is_optional_without_cwd_flood():
+    """省略 output_dir 时不得把标注图写进当前目录。
+
+    processFrame 用 `annotate = !output.empty()` 决定要不要落盘，而
+    `path("") / "x_0.jpg"` == "x_0.jpg" 是非空相对路径——原写法会在
+    "不带 output_dir 跑离线视频"（正是 usage 里的可选参数用法）时每帧写一张
+    JPEG 到 CWD，3 分钟素材 ≈ 5400 张，Orin 上足以把盘写满。
+    """
+    text = _main_cpp_text()
+    assert re.search(r"output_dir\.empty\(\)\s*\?\s*std::filesystem::path\{\}", text), (
+        "outputFor 没有对空 output_dir 返回空路径；省略该参数会往 CWD 刷标注图")
+
+
+def test_camera_reopen_is_bounded_probed_and_backed_off():
+    """断流重开五条不变量：先 release、退避、试读一帧才算成功、有界、不用 break。
+
+    这一段原来一次重开失败就 `return 4`（整局再无情报），且只看 isOpened()——
+    与本文件初次打开时的判据自相矛盾（那里明写"not-negotiated 时 isOpened
+    也可能是 true"）。假成功的重开会让 empty_frames 再攒满 300 帧（≈10s）
+    才进下一次重试，三次共 ≈30s，占 180s 硬时限的六分之一。
+    """
+    text = _main_cpp_text()
+    start = text.index("if (empty_frames >= 300)")
+    block = text[start:text.index("continue;", start)]   # 重开分支整体，到外层 continue 为止
+    # 结构断言一律在**去掉行注释**之后做：这段的注释本身就在讲"此处不能 break"，
+    # 直接 `"break" not in block` 会被自己的说明文字判红。
+    # 简单剥 `//…$` 够用——本块字符串字面量里没有 `//`。
+    code = re.sub(r"//[^\n]*", "", block)
+
+    assert "break" not in code, (
+        "重开分支里出现 break：外层就是 while(g_running)，break 会直接结束整局侦察")
+    assert code.index("capture.release()") < code.index("capture.open("), (
+        "没有先 release 就 open 新管道：可能打开失败，也会泄漏旧的 GStreamer 管道")
+    assert re.search(r"usleep\(200000 \* reopen_attempts\)", code), (
+        "退避不随重试次数增长——连打三次会挤在同一瞬间，USB 还没枚举完就再试")
+    assert re.search(
+        r"capture\.isOpened\(\) && capture\.read\(probe\) && !probe\.empty\(\)", code), (
+        "重开成功判据退回只看 isOpened()：not-negotiated 时会假成功，"
+        "与初次打开的判据不一致")
+    # empty_frames 只能在**真出了帧**之后清零；清零若发生在重开之前，
+    # 每次失败都要再攒 300 空帧才重试。
+    assert code.count("empty_frames = 0;") == 1, (
+        "重开分支里 empty_frames 清零的次数变了（应恰好一次，在成功分支内）")
+    assert code.index("empty_frames = 0;") > code.index("capture.open("), (
+        "empty_frames 在重开尝试之前就被清零——失败一次要多烧 ≈10s")
+    assert "return 4;" in code, "重试耗尽后没有非零退出，会变成无声空转"
+    # 收到好帧后必须把两个计数一起归还。锚点从 `if (empty_frames >= 300)` 之后
+    # 起算并先剥注释：整文件里 `unsigned reopen_attempts = 0;` 的声明行同样带
+    # 尾注释，直接全文搜 `reopen_attempts = 0;\s*//` 会命中声明，把"这行被注释
+    # 掉了"判成通过（突变测试实测存活）。
+    after = re.sub(r"//[^\n]*", "", text[text.index("if (empty_frames >= 300)"):])
+    assert re.search(r"^\s*empty_frames = 0;\s*\n\s*reopen_attempts = 0;", after, re.M), (
+        "收到好帧后没有归还重试额度：一次恢复过的掉线会永久吃掉整局的重试次数")
+
+
+def test_offline_video_loop_is_interruptible_and_bounded():
+    """离线视频循环三条不变量：可 Ctrl-C、单帧异常不毁整段、连续异常有界退出。
+
+    离线复盘是验证检测/定位的主要手段：一帧异常就 return 会让整段素材被单个坏帧
+    终结；完全不设上限则会在持久故障下无限空转。计数上限与相机分支共用
+    kMaxFrameErrors——两处各写一个字面量 30 迟早分叉。
+    """
+    text = _main_cpp_text()
+    # 离线分支在 main() 末尾，outputFor 之后再没有相机分支那套同名结构，
+    # 所以从这里切片就能把断言限定在离线循环上（相机分支另有自己的 try/catch）。
+    region = text[text.index("const auto outputFor"):]
+
+    assert re.search(
+        r"for \(size_t index = 0; g_running\.load\(\) && capture\.read\(frame\)", region), (
+        "离线视频循环不检查 g_running；SIGINT 只置标志不终止进程，于是 Ctrl-C 停不下来")
+    assert len(re.findall(r"\btry\b", region)) == 1, (
+        "离线循环的 try 保护数量变了——多帧异常处理必须只有一处，否则口径不一致")
+    assert re.search(
+        r"try\s*\{\s*processFrame\(frame, hbb, cell, map, udp, outputFor\(index\)\);"
+        r"\s*frame_errors = 0;", region), (
+        "processFrame 不在 try 内，或成功后没有清零 frame_errors："
+        "前者让单帧异常终结整段素材，后者让偶发异常一路累积到上限后误退出")
+    assert re.search(r"catch \(const std::exception& e\)\s*\{\s*\+\+frame_errors;", region), (
+        "catch 里没有累加连续异常计数——异常会被无声吞掉，故障永远不上报")
+    assert re.search(r"if \(frame_errors >= kMaxFrameErrors\)\s*\n\s*return 5;", region), (
+        "离线循环没有非零退出上限；持久故障会变成无限空转而不是失败退出")
+    assert re.search(r"^constexpr unsigned kMaxFrameErrors", text, re.M), (
+        "kMaxFrameErrors 常量不见了（相机分支与离线分支必须共用同一上限）")
+    assert len(re.findall(r"frame_errors >= kMaxFrameErrors", text)) == 2, (
+        "相机分支与离线分支应各自用 kMaxFrameErrors 收口，实际命中数变了："
+        "少一处=有一条路径无界空转，多一处=上限口径又分叉了")
+
+
 def test_inject_refuses_calibration_basis_mismatch(tmp_path):
     """基准与采集分辨率不一致时 inject 必须拒绝，而不是静默改坏内参。"""
     cc = _load_calibrate_camera()
