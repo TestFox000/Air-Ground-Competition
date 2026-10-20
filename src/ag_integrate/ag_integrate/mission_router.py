@@ -47,6 +47,39 @@ _EPS = 1e-6
 # 宁可退化为最近邻次优顺序（见 _greedy_orders）。
 _TSP_EXACT_MAX_NODES = 14
 
+# ---- 转角物理分级（移植自 V1019 路径规划交付包，原作者 yubinghuan，2026-10-20）----
+# 物理前提（2026-10-16 现场确认）：阿克曼前轮转向 δ_max=28°、R_min=260mm、
+# 车 278×140mm、格 350mm、距障碍边缘 ≥50mm。
+#   45° 弧线格内可完成（need≈146mm）；90° 临界（need≈330mm，一格只给 225mm，
+#   需占用内切对角格）；135°+ 单段绝无可能（need≈514mm）→ 只能多点掉头。
+# 精确判据与逐转角体检见 turn_feasibility_v2.py（同批移植）；
+# 方案与实测：docs/路径规划优化-转角物理分级-20261020.md
+
+# 转角硬件守卫（opt-in，默认关）：90° 弯需内切对角格空置，被桶/挡板占用则删边。
+# 实测无条件启用会让 test_router_fuzz::test_random_maps_invariants 失败
+# （删边破坏随机图上的不变量），故默认关；需要时置 True 或运行时
+# `mission_router._TURN_GUARD = True`。135°+ 不在此删边（真实场地存在必须
+# 多点掉头的情形），由 turn_feasibility_v2 事后告警。
+_TURN_GUARD = False
+
+# 转角分级代价（默认启用，2026-10-19 放宽版）：索引 = 45° 单位数（0..4）。
+# 45° 永远可行 → ×1；90° 临界 → ×2；135°+ 需多点掉头 → ×10。
+# 放宽后实测（局部图重建，终点不约束朝向）：43 格、需掉头 1、135°=0、雷 8/8
+# —— 相比 (1,1,8,50,50) 的 46 格/需掉头2/135°×1 是全面更优（Pareto 改善）。
+# 回退：改回 (1.0, 1.0, 1.0, 1.0, 1.0) 即恢复纯最短路径行为。
+_TURN_GRADE = (1.0, 1.0, 2.0, 10.0, 10.0)
+
+# 空间缺口代价（opt-in，默认 0 = 行为不变）：
+# 代价 += _SPACE_W × max(0, need_mm − avail_mm)，need/avail 与
+# turn_feasibility_v2 同一物理判据（转弯内侧侧向投影）——
+# "优化目标 = 验收指标"，守卫/体检/规划三者用同一个量。
+# 建议启用值：0.5（每 1mm 空间缺口 ≈ 0.5 格当量）。
+_SPACE_W = 0.0
+
+# 转角硬件需求（mm），索引 = 45° 单位数（0..4）：
+#   0/146.2(45°)/330(90°)/513.8(135°)/578(180°)
+_NEED_MM = (0.0, 146.2, 330.0, 513.8, 578.0)
+
 # 航向索引（顺时针，0=正东）：车端 'x'=东(0)、'y'=北(6)
 _DIRS = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1))
 _HEADING_IDX = {"x": 0, "y": 6}
@@ -189,6 +222,7 @@ def _dijkstra(
         steps_i[si] = 0
         heapq.heappush(pq, (0.0, 0, 0, next(tick), si))
     push, pop = heapq.heappush, heapq.heappop
+    _grade, _sw = _TURN_GRADE, _SPACE_W   # 热路径预取（转角分级，V1019 移植）
     while pq:
         d, t, s, _, si = pop(pq)
         if settled[si]:
@@ -230,13 +264,37 @@ def _dijkstra(
                 req_h = tunnel_req.get(nci, -1)
                 if req_h >= 0 and nh != req_h:
                     continue
+            # 转角硬件守卫（opt-in，见 _TURN_GUARD，V1019 移植）：90° 弯的
+            # 内切对角格 = 当前格 + dir(h) + dir(nh)；越界或被桶/挡板占用则此边不存在。
+            if _TURN_GUARD and _TURNS[h][nh] == 2:
+                _cr = row + _DIRS[h][1] + _DIRS[nh][1]
+                _cc = ci % COLS + _DIRS[h][0] + _DIRS[nh][0]
+                if not (0 <= _cr < ROWS and 0 <= _cc < COLS):
+                    continue
+                if blocked_bits[_cr * COLS + _cc]:
+                    continue
             # 穿越挡板边界附加代价：分区策略软约束（docs/分区规划与感知约束）
             extra = 0.0
             if cross_penalty and dr and (
                     (row < mid_boundary <= nrow) or (nrow < mid_boundary <= row)):
                 extra = cross_penalty
-            nd = d + step + _TURNS[h][nh] * turn_45 + extra
-            nt = t + _TURNS[h][nh]
+            _tu = _TURNS[h][nh]
+            # 转角分级代价（V1019 移植）：90°×2、135°+×10（见 _TURN_GRADE 注释）。
+            # _grade/_sw 循环外预取：内循环热路径尽量只碰局部名（求解器路径
+            # O(n²) 次规划对每一点开销都敏感，见 test_worst_case_solver_planning_speed）。
+            nd = d + step + _tu * turn_45 * _grade[_tu] + extra
+            if _sw > 0.0 and _tu >= 2:
+                # 空间缺口代价：内切对角格被桶/挡板占用 → avail 仅 225mm
+                # （半格 175 + 桶边 50）；空着 → 575mm。与 turn_feasibility_v2 同判据。
+                _cr2 = row + _DIRS[h][1] + _DIRS[nh][1]
+                _cc2 = ci % COLS + _DIRS[h][0] + _DIRS[nh][0]
+                _av = 225.0
+                if 0 <= _cr2 < ROWS and 0 <= _cc2 < COLS and not blocked_bits[_cr2 * COLS + _cc2]:
+                    _av = 575.0
+                _def = _NEED_MM[_tu] - _av
+                if _def > 0.0:
+                    nd += _sw * _def
+            nt = t + _tu
             nst = s + 1
             nsi = nci * 8 + nh
             cur_d = dist_i[nsi]

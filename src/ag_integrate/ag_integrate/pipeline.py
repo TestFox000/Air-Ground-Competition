@@ -38,6 +38,44 @@ def evaluate_gate(
     return Gate(True)
 
 
+def _post_plan_audit(snapshot: WorldSnapshot, ordered) -> None:
+    """规划后只读体检（V1019 移植，2026-10-20）：转角物理可行性 + 现场规则。
+
+    纯告警不改路线、异常不影响出车：
+    - 转角判据（转弯内侧侧向投影，ok/tight/pivot/forbid）见 turn_feasibility_v2；
+    - 规则校验（雷只在 A~I / 雷数≤8 / 隧道直穿）见 field_rules；
+    - 方案与实测：docs/路径规划优化-转角物理分级-20261020.md。
+    """
+    try:
+        from .turn_feasibility_v2 import check_route, report_lines, summarize
+
+        chk = check_route(ordered, [c.name for c in snapshot.obstacles])
+        rep = summarize(chk)
+        if rep["pivot_needed"]:
+            warnings.warn(
+                f"转角体检：{rep['turns']} 个转角中需掉头/不可行 {rep['pivot_needed']} 个"
+                f"（135°+ {rep['forbid135']}，最小余量 {rep['min_margin_mm']:.0f}mm）"
+                "——按明细减速/多点掉头：\n  " + "\n  ".join(report_lines(chk, 4)),
+                RuntimeWarning, stacklevel=3)
+    except Exception:                      # 体检永不影响规划结果
+        pass
+    try:
+        from .field_rules import validate
+
+        rv = validate(list(ordered),
+                      [c.name for c in snapshot.mines],
+                      [c.name for c in snapshot.passable])
+        if not rv["ok"]:
+            issues = list(rv["tunnel"]["issues"])
+            issues += [f"雷越界 {m}：规则限定雷只在 A~I 列（疑误检）"
+                       for m in rv["mines"]["out_of_region"]]
+            if not rv["mines_count"]["ok"]:
+                issues.append(f"雷 {rv['mines_count']['count']} 颗 > 上限 8（必有误检，建议人工复核）")
+            warnings.warn("规则校验：" + "；".join(issues), RuntimeWarning, stacklevel=3)
+    except Exception:                      # 规则校验失败也不影响出车
+        pass
+
+
 def build_mission(
     snapshot: WorldSnapshot,
     start_cell: str,
@@ -95,6 +133,7 @@ def build_mission(
         turn_45=turn_45, allow_diagonal=allow_diagonal,
     )
     commands = adapt(snapshot, ordered, start_cell, start_heading, final_heading)
+    _post_plan_audit(snapshot, ordered)
 
     if soft_cap_s is None or soft_cap_s <= 0:
         return commands

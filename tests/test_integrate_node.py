@@ -83,8 +83,11 @@ def make_node(monkeypatch, **overrides) -> IntegrateNode:
 def test_latest_frame_wins_and_publishes_reset_then_route(monkeypatch):
     node = make_node(monkeypatch)
     try:
-        # 两帧先后入队但未消费：决策只应看到最新一帧（E2 的雷）
-        node._submit(snapshot_of(mine_at("D2"), blue_target_at("F5")))
+        # 两帧先后入队但未消费：决策只应看到最新一帧（E2 的雷）。
+        # 旧帧雷位用 A3（西北角）：E2 场景的路线最西只到 C 列，若旧帧
+        # 未被丢弃，A3 作为雷必经点必然出现在路线里（转角分级语义，
+        # 2026-10-20 重锁：原 D2 位会被 E2→D2 对角顺路踩中，区分度失效）
+        node._submit(snapshot_of(mine_at("A3"), blue_target_at("F5")))
         node._submit(snapshot_of(mine_at("E2"), blue_target_at("F5")))
         stub.tick(node)
 
@@ -92,7 +95,7 @@ def test_latest_frame_wins_and_publishes_reset_then_route(monkeypatch):
         assert len(data) == 2            # reset + route
         assert data[0] == "reset:N10,x"  # 本机 'y' -> 车端 'x'
         route = data[1]
-        assert "E2" in route and "D2" not in route
+        assert "E2" in route and "A3" not in route
         # 蓝靶 F5 不可踩；停靠格是其正交邻格（E5/F4/F6/G5 之一）带 *
         assert "F5" not in route
         stars = [t.rstrip("*") for t in route.split() if t.endswith("*")]
@@ -157,8 +160,11 @@ def test_replan_disabled_keeps_first_route(monkeypatch):
         stub.tick(node)
         assert len(stub.pub(node, "/nav/waypoint").sent) == 2
 
-        # 新识别到一颗雷：路线本应变化，但开关关 -> 不重发
-        node._submit(snapshot_of(mine_at("D2"), mine_at("E2"),
+        # 新识别到一颗雷（A3，旧路线不经过 → 路线必然变化）：
+        # 但开关关 -> 不重发（与 test_replan_enabled_* 同场景对照；
+        # 原 E2 位在转角分级下已是旧路线顺路格，不构成"变化"，
+        # 2026-10-20 语义重锁时一并替换）
+        node._submit(snapshot_of(mine_at("D2"), mine_at("A3"),
                                  blue_target_at("F5")))
         stub.tick(node)
         assert len(stub.pub(node, "/nav/waypoint").sent) == 2
@@ -175,13 +181,16 @@ def test_replan_enabled_republishes_changed_route(monkeypatch):
         first_route = stub.published_data(node, "/nav/waypoint")[1]
         assert len(stub.pub(node, "/nav/waypoint").sent) == 2
 
-        # 新识别到一颗雷：路线变化 -> 重发（reset 不重复发）
-        node._submit(snapshot_of(mine_at("D2"), mine_at("E2"),
+        # 新识别到一颗雷（A3，西北角——旧路线最西只到 C 列，加入必经点
+        # 必然改变路线）-> 重发（reset 不重复发）。原 E2 位在转角分级
+        # 代价下已是旧路线顺路途经格，路线不变、不触发重发（2026-10-20
+        # 语义重锁：这是新代价模型的正确行为，见 docs/路径规划优化-转角物理分级-20261020.md）
+        node._submit(snapshot_of(mine_at("D2"), mine_at("A3"),
                                  blue_target_at("F5")))
         stub.tick(node)
         data = stub.published_data(node, "/nav/waypoint")
         assert len(data) == 3          # reset + 旧路线 + 新路线
-        assert "E2" in data[2]
+        assert "A3" in data[2]
         assert data[2] != first_route
     finally:
         node.destroy_node()
@@ -250,8 +259,8 @@ def test_replan_guard_not_consumed_when_build_fails(monkeypatch):
         stub.tick(node)
         assert len(stub.published_data(node, "/nav/waypoint")) == 2
 
-        # 新雷 E2（签名变化 → 守卫放行），但终点 M11 入口全堵 → 规划失败
-        bad = snapshot_of(mine_at("D2"), mine_at("E2"), blue_target_at("F5"),
+        # 新雷 A3（签名变化 → 守卫放行），但终点 M11 入口全堵 → 规划失败
+        bad = snapshot_of(mine_at("D2"), mine_at("A3"), blue_target_at("F5"),
                           obstacle_at("L11"), obstacle_at("N11"), obstacle_at("M10"))
         node._submit(bad)
         stub.tick(node)
@@ -264,11 +273,11 @@ def test_replan_guard_not_consumed_when_build_fails(monkeypatch):
         fails = [m for m in node.get_logger().text() if "规划失败" in m]
         assert len(fails) == 2, "守卫基线被失败消费，节点滞留不再重试"
 
-        # 障碍消失：恢复发车，发布含 E2 的新路线
-        node._submit(snapshot_of(mine_at("D2"), mine_at("E2"), blue_target_at("F5")))
+        # 障碍消失：恢复发车，发布含 A3 的新路线
+        node._submit(snapshot_of(mine_at("D2"), mine_at("A3"), blue_target_at("F5")))
         stub.tick(node)
         data = stub.published_data(node, "/nav/waypoint")
-        assert len(data) == 3 and "E2" in data[2]
+        assert len(data) == 3 and "A3" in data[2]
     finally:
         node.destroy_node()
 
