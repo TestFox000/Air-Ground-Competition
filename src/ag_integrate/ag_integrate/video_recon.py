@@ -10,7 +10,8 @@
   2. cell_label 框 → 正方形裁剪(max(w,h)*1.3，与 v4d 训练分布一致)
      → cell_classifier_v4d.onnx 双头(letter14/row11) + 4 向旋转 TTA 读格号
   3. 穷举一致性仿射（C(n,3) 子集 + 共识投票）：3-7 个标签的小样本下
-     迭代剔除无法从 1 个误读自救，穷举是唯一可靠解
+     迭代剔除无法从 1 个误读自救，穷举是唯一可靠解；拟合失败帧在帧距内
+     经读数验收门（validate_affine_carry）复用最近成功仿射，抬网格帧覆盖率
   4. 落格投票四重门控：
      - 锚点门控：物体必须落在帧内标签 1.5 格内（锚点区外外推不可信）
      - 残差门控：连续坐标吸附格心残差 <= 0.35 格
@@ -82,6 +83,8 @@ MAX_VOTE_RESIDUAL = 0.35     # 物体连续坐标吸附到格心的最大残差�
 ANCHOR_GATE = 1.5            # 物体距帧内标签锚点的最大切比雪夫距离（格单位）
 GRID_MAE_MAX = 0.45          # 帧内网格拟合接受门限
 FIT_INLIER = 0.45            # 一致性拟合内点半径（格单位）
+CARRY_MAX_STEPS = 3          # 拟合失败帧时间外推旧仿射的最大帧距（已处理帧计）
+CARRY_INLIER = 0.45          # 外推验收门：读数投影残差半径（格单位，同 FIT_INLIER 口径）
 PAPER_MEAN_CONF_MIN = 0.35   # paper 格均值置信度下限（人体/阴影误检过滤）
 TARGET_MIN_VOTES = 2         # 靶标最少票数（单票多为人体误检）
 TARGET_MEAN_CONF_MIN = 0.40
@@ -158,6 +161,33 @@ def fit_consensus_affine(px: np.ndarray, grid: np.ndarray
     if best is None or best[0] < 3 or -best[1] > GRID_MAE_MAX:
         return None, np.zeros(n, bool), 9.9
     return best[2], best[3], -best[1]
+
+
+def validate_affine_carry(aff: "np.ndarray | None", reads: list
+                          ) -> tuple[np.ndarray, float] | None:
+    """时间外推验收门：拟合失败的帧复用最近成功仿射前的独立安全检查。
+
+    穷举拟合要 ≥3 读数且 C(n,3) 有干净子集；3 读数含 1 误读、或只有 2 个
+    可读标签的帧会整帧拟合失败（= 整帧零投票，网格帧覆盖率 50~62% 的主因）。
+    上一帧还成立的仿射，相机没大动就仍然成立——本函数用当前帧的可信读数
+    独立验证这一点：≥2 个读数的 px→grid 投影残差全部 < CARRY_INLIER 且
+    均值 ≤ GRID_MAE_MAX 才放行。两个独立读数同时碰巧吻合旧仿射的概率极低；
+    相机一旦平移/旋转，残差立刻爆门拒绝（fail-safe：宁丢帧不投错票）。
+
+    返回 (参与验收的读数下标数组, mae)；不达标返回 None。
+    """
+    if aff is None or len(reads) < 2:
+        return None
+    px = np.array([[(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] for *_, b in reads])
+    grid = np.array([[li, ri] for li, ri, *_ in reads], float)
+    r = np.linalg.norm(np.hstack([px, np.ones((len(px), 1))]) @ aff - grid, axis=1)
+    keep = np.where(r < CARRY_INLIER)[0]
+    if len(keep) < 2:
+        return None
+    mae = float(r[keep].mean())
+    if mae > GRID_MAE_MAX:
+        return None
+    return keep, mae
 
 
 def circular_mode(vals: list[float], bins: int = 20) -> float:
@@ -417,6 +447,8 @@ def recon_video(video: str | Path, out_dir: str | Path,
     cont_pos: dict[str, list[tuple[float, float, float]]] = defaultdict(list)
     crop_saved = 0
     t0 = time.time()
+    last_aff: np.ndarray | None = None    # 最近成功仿射（时间外推缓存）
+    last_step = -10 ** 9                  # 它对应的已处理帧号
 
     for fi, fidx in enumerate(idxs):
         cap.set(cv2.CAP_PROP_POS_FRAMES, fidx)
@@ -441,8 +473,11 @@ def recon_video(video: str | Path, out_dir: str | Path,
                               f"f{fidx:05d}_{cell_name(li, ri)}_L{lc:.2f}_R{rc:.2f}.jpg", crop)
                     crop_saved += 1
 
-        # 帧内网格：穷举一致性仿射（抗 1-2 个误读毒化）
+        # 帧内网格：穷举一致性仿射（抗 1-2 个误读毒化）；拟合失败（含仅
+        # 2 读数的帧）在帧距内用最近成功仿射时间外推补位——validate_affine_carry
+        # 的读数验收门把关，相机没大动才放行，直接抬网格帧覆盖率
         grid_ok, mae = False, 9.9
+        grid_src = None
         px = grid = aff = inl = None
         if len(reads) >= 3:
             px = np.array([[(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] for *_, b in reads])
@@ -451,6 +486,15 @@ def recon_video(video: str | Path, out_dir: str | Path,
             grid_ok = aff is not None
             if grid_ok:
                 reads = [r for r, k in zip(reads, inl) if k]
+        if grid_ok:
+            grid_src = "fit"
+            last_aff, last_step = aff, fi
+        elif last_aff is not None and fi - last_step <= CARRY_MAX_STEPS:
+            carried = validate_affine_carry(last_aff, reads)
+            if carried is not None:
+                keep, mae = carried
+                aff, grid_ok, grid_src = last_aff, True, "carry"
+                reads = [reads[i] for i in keep]
 
         # 物体连续格坐标（仿射: [x,y,1] @ A = [col,row]）
         frame_objs = []
@@ -467,6 +511,7 @@ def recon_video(video: str | Path, out_dir: str | Path,
 
         frames_meta.append({"frame": fidx, "n_dets": len(dets), "n_labels_read": len(reads),
                             "grid_mae": round(mae, 3), "grid_ok": grid_ok,
+                            "grid_src": grid_src,
                             "labels": [cell_name(li, ri) for li, ri, *_ in reads],
                             "objs": frame_objs})
 
