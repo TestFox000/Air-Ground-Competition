@@ -41,6 +41,31 @@ bad_total = 0
 # 车端灯检模型的契约 md5（小写，与 md5sum 输出同格式）
 _LIGHT_DET_MD5 = "49f3700590a907994e7ee20e4d30cc13"
 
+# 机载引擎检查的真源是 orin_run_dzuav.sh 的默认值，不是这里另抄一份常量：
+# 抄一份就必然漂移，而漂移的后果是自检绿灯放行一台"启动脚本根本找不到引擎"
+# 的机器。tests/test_tools_smoke.py 同时锁住本解析与 convert 脚本的产物名。
+_RUN_DZUAV = REPO / "tools" / "orin_run_dzuav.sh"
+
+
+def run_dzuav_defaults(*vars_: str) -> dict[str, str]:
+    """解析 orin_run_dzuav.sh 里 `VAR="${VAR:-默认}"` 形式的默认值。
+
+    只认这一种写法。改成别的形式（或直接写死）时本函数返回不全，调用方
+    必须判红而不是静默降级——宁可自检报错，不可自检说谎。
+    脚本读不到时返回空 dict 而不是抛异常：本文件的既有原则是"自检崩在最有用的
+    那一项之前，比不检查还糟"，缺文件同样走调用方的判红分支。
+    """
+    try:
+        text = _RUN_DZUAV.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    out: dict[str, str] = {}
+    for var in vars_:
+        m = re.search(rf'^{var}="\$\{{{var}:-(.+?)\}}"', text, re.M)
+        if m:
+            out[var] = m.group(1)
+    return out
+
 
 def report(status: int, msg: str, fix: str = "") -> None:
     global bad_total
@@ -250,11 +275,34 @@ def check_orin(args) -> None:
     report(PASSED if out else FAILED, f"trtexec: {out.strip() or '未找到'}",
            "确认 JetPack 已刷 TensorRT 组件")
 
-    rc, out = run("ls -lh ~/dzuav/engines/*.engine 2>/dev/null")
-    n = len(out.splitlines())
-    report(PASSED if n >= 2 else FAILED,
-           f"TRT 引擎 {n}/2 个" + (f": {'; '.join(ln.split()[-1] for ln in out.splitlines())}" if n else ""),
-           fix_cmd("tools/orin_convert_engines.sh") + " 重转")
+    # 引擎必须按「启动脚本真正会加载的名字」逐个查，不许数个数。
+    # 历史事故（2026-10-20）：目录里躺着 9 月的 7 类 hbb_detector_fp16.engine +
+    # cell_classifier_fp16.engine，原先的 `ls *.engine | n>=2` 判绿放行，而
+    # orin_run_dzuav.sh 要找的 d13/v4d 一个都不在 —— 自检给一台必然启动失败
+    # 的机器发了通行证。名字对了才有意义，多出来的旧引擎只是陷阱不是资产。
+    dflt = run_dzuav_defaults("ENGINES", "HBB_ENGINE", "CELL_ENGINE")
+    engines_dir = dflt.get("ENGINES")
+    want = {lbl: dflt.get(var, "").rsplit("/", 1)[-1]
+            for var, lbl in (("HBB_ENGINE", "检测"), ("CELL_ENGINE", "格号"))}
+    if not engines_dir or not all(want.values()):
+        report(FAILED,
+               f"无法从 {_RUN_DZUAV.name} 解析引擎名默认值（得到 {dflt or '脚本读不到'}），本项拒绝判定",
+               f"确认 tools/{_RUN_DZUAV.name} 随包发布，且 ENGINES/HBB_ENGINE/CELL_ENGINE "
+               f"仍是 VAR=\"${{VAR:-...}}\" 写法")
+    else:
+        rc, out = run(f"ls -1 {engines_dir}/*.engine 2>/dev/null")
+        present = {ln.strip().rsplit("/", 1)[-1] for ln in out.splitlines() if ln.strip()}
+        missing = [n for n in want.values() if n not in present]
+        report(PASSED if not missing else FAILED,
+               f"TRT 引擎 {'、'.join(want.values())} 均在位" if not missing
+               else f"缺 {len(missing)}/{len(want)} 个启动脚本要加载的引擎: {'、'.join(missing)}"
+                    f"（目录现有 {len(present)} 个 .engine，个数不作数）",
+               fix_cmd("tools/orin_convert_engines.sh") + " 重转")
+        strays = sorted(present - set(want.values()))
+        if strays:
+            report(WARN,
+                   f"{engines_dir} 另有 {len(strays)} 个不会被加载的引擎: {'、'.join(strays)}",
+                   "启动脚本只认上面两个名字；确认这些旧引擎不是你要上场的那一版")
 
     rc, out = run("ls /dev/video* 2>/dev/null")
     report(PASSED if "/dev/video" in out else FAILED,

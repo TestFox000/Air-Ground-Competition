@@ -67,8 +67,11 @@ try:
         "phantom": pf.fix_cmd("tools/dznav_calib.py"),
         "sh": pf.fix_cmd("tools/orin_bringup.sh", "up"),
     }
+    res["__engine_defaults__"] = pf.run_dzuav_defaults(
+        "ENGINES", "HBB_ENGINE", "CELL_ENGINE")
 except BaseException as exc:
     res["__fix_cmd__"] = f"{type(exc).__name__}: {exc}"
+    res["__engine_defaults__"] = res["__fix_cmd__"]
 
 print(json.dumps(res))
 """
@@ -294,3 +297,175 @@ def test_known_missing_list_has_no_stale_entries():
         "这些登记项在扫描范围内已经没有任何引用方（脚本仍不存在，但也没人再指向它），"
         "请从 KNOWN_MISSING_TOOLS 移除，别让欠账清单发霉:\n  "
         + "\n  ".join(orphaned))
+
+
+# ---------------------------------------------------- 部署链的跨脚本耦合
+
+
+def _sh_default(script: str, var: str) -> str:
+    """取 shell 脚本里 `VAR="${VAR:-默认}"` 的默认值（写法变了就当场报错）。"""
+    text = (TOOLS / script).read_text(encoding="utf-8", errors="replace")
+    m = re.search(rf'^{var}="\$\{{{var}:-(.+?)\}}"', text, re.M)
+    assert m, (
+        f"{script} 里 {var} 不再是 {var}=\"${{{var}:-...}}\" 写法，"
+        f"本文件与 tools/preflight.py 的解析器都会静默取不到值——请一并改")
+    return m.group(1)
+
+
+def _sh_plain(script: str, var: str) -> str:
+    """取 shell 脚本里 `VAR=字面值` 形式的赋值（无 ${VAR:-} 包装）。"""
+    text = (TOOLS / script).read_text(encoding="utf-8", errors="replace")
+    m = re.search(rf'^{var}=([A-Za-z0-9_.+-]+)\s*$', text, re.M)
+    assert m, f"{script} 里找不到 {var}=<字面值> 形式的赋值"
+    return m.group(1)
+
+
+def test_convert_and_run_agree_on_engine_names():
+    """重转出来的引擎名 = 启动脚本要找的名字 = L3 验证用的名字。
+
+    三个脚本各自写死一份引擎名，中间没有任何东西把它们连起来。改一边忘改
+    另一边的后果是：换机/重刷后跑 orin_convert_engines.sh 一切正常，接着
+    orin_run_dzuav.sh 报"找不到引擎文件"——而比赛当天没有第二次重转的机会。
+    第三个（orin_build_verify.sh）漂移更阴：L3 会拿另一个引擎验出"通过"，
+    让人以为机器能上场。
+    """
+    def loaded(script, var):
+        return _sh_default(script, var).rsplit("/", 1)[-1]
+
+    produced = {
+        "hbb": _sh_default("orin_convert_engines.sh", "HBB_ENGINE_NAME"),
+        "cell": _sh_default("orin_convert_engines.sh", "CELL_ENGINE_NAME"),
+    }
+    run_sh = {
+        "hbb": loaded("orin_run_dzuav.sh", "HBB_ENGINE"),
+        "cell": loaded("orin_run_dzuav.sh", "CELL_ENGINE"),
+    }
+    verify = {
+        "hbb": _sh_plain("orin_build_verify.sh", "CANON_HBB_ENGINE"),
+        "cell": _sh_plain("orin_build_verify.sh", "CANON_CELL_ENGINE"),
+    }
+    assert produced == run_sh == verify, (
+        "引擎名三处不一致，重转的产物启动脚本找不到、L3 也可能验错引擎：\n"
+        f"  orin_convert_engines.sh 产出: {produced}\n"
+        f"  orin_run_dzuav.sh      加载: {run_sh}\n"
+        f"  orin_build_verify.sh   L3 用: {verify}")
+
+
+def test_preflight_engine_parser_matches_run_script(probe):
+    """preflight 的引擎名派生器必须与脚本同步——它派生失败时会拒绝判定。
+
+    引擎检查从"数个数"改成"按名字查"之后，preflight 自己也要读同一份真源。
+    解析器悄悄取空会让 check_orin 打出"无法解析…本项拒绝判定"的红灯，
+    比原来的假绿灯安全，但一样是坏的自检。
+    """
+    dflt = probe["__engine_defaults__"]
+    assert isinstance(dflt, dict), f"preflight.run_dzuav_defaults 调用失败: {dflt}"
+    assert dflt.get("ENGINES"), "preflight 取不到引擎目录，check_orin 会误判红"
+    assert {k: v.rsplit("/", 1)[-1] for k, v in dflt.items() if k != "ENGINES"} == {
+        "HBB_ENGINE": _sh_default("orin_run_dzuav.sh", "HBB_ENGINE").rsplit("/", 1)[-1],
+        "CELL_ENGINE": _sh_default("orin_run_dzuav.sh", "CELL_ENGINE").rsplit("/", 1)[-1],
+    }
+
+
+# ------------------------------------------------ 相机标定基准 vs 采集分辨率
+
+
+def _load_calibrate_camera():
+    spec = importlib.util.spec_from_file_location(
+        "_calibrate_camera", TOOLS / "calibrate_camera.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.modules.pop(spec.name, None)
+    return mod
+
+
+def _write_calib(dirpath: Path, w: int, h: int) -> None:
+    import yaml
+
+    dirpath.mkdir(parents=True, exist_ok=True)
+    (dirpath / "calibration.yaml").write_text(yaml.safe_dump({
+        "fx": 1234.5, "fy": 1236.25, "cx": 950.0, "cy": 530.5,
+        "dist": [-0.04, -0.003, -0.009, 0.0007, 0.0],
+        "width": w, "height": h, "rms_px": 0.31, "n_views": 22,
+        "pattern": "9x6", "square_mm": 25.0, "date": "2026-10-20 00:00:00",
+    }), encoding="utf-8")
+
+
+class _Args:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def test_capture_size_default_is_derived_from_deploy_spec():
+    """capture --size 的默认值必须是机上真正会采集的分辨率。
+
+    曾经默认 1920x1200 而部署线是 1920x1080：照默认标定再 inject，
+    MapLocalizer 的基准分母被改成 1200，机上仍按 1080 采集，
+    scaledIntrinsics 就把 fy/cy 乘 0.9 —— 定位系统性偏 11%，而 L1/L2/L3
+    全绿（三级验证都不碰内参）。默认值改成从脚本派生，杜绝第四份硬编码。
+    """
+    cc = _load_calibrate_camera()
+    sizes = cc.deploy_frame_sizes()
+    assert sizes, "从 orin_bringup.sh / orin_run_dzuav.sh 一个采集分辨率都没解析出来"
+    assert len(set(sizes.values())) == 1, (
+        f"两个启动脚本给的采集分辨率不一致，标定基准无从对齐: {sizes}")
+    w, h = next(iter(sizes.values()))
+    assert cc._default_capture_size() == f"{w}x{h}"
+
+    # argparse 上挂的默认值也要是它（防止只在函数里改了、参数上还是写死的）
+    out = subprocess.run(
+        [sys.executable, str(TOOLS / "calibrate_camera.py"), "capture", "--help"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=120, cwd=str(REPO))
+    assert out.returncode == 0, out.stderr
+    assert f"{w}x{h}" in out.stdout, (
+        f"capture --help 里看不到派生出的默认分辨率 {w}x{h}:\n{out.stdout}")
+
+
+def test_inject_refuses_calibration_basis_mismatch(tmp_path):
+    """基准与采集分辨率不一致时 inject 必须拒绝，而不是静默改坏内参。"""
+    cc = _load_calibrate_camera()
+    w, h = next(iter(cc.deploy_frame_sizes().values()))
+    bad_h = h + 120                      # 1080 -> 1200，正是历史事故那一档
+    _write_calib(tmp_path, w, bad_h)
+    cc.CALIB_DIR = tmp_path
+    cc.CPP = tmp_path / "MapLocalizer_copy.cpp"
+    cc.CPP.write_text((REPO / "onboard" / "dzuav" / "src" / "MapLocalizer.cpp")
+                      .read_text(encoding="utf-8"), encoding="utf-8")
+    original = cc.CPP.read_text(encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        cc.inject(_Args(allow_basis_mismatch=False))
+    msg = str(exc.value)
+    assert f"{w}x{bad_h}" in msg and f"{w}x{h}" in msg, msg
+    assert f"{h}/{bad_h}" in msg, f"没把 fy 的缩放比讲清楚: {msg}"
+    assert cc.CPP.read_text(encoding="utf-8") == original, "拒绝注入却已经改了文件"
+
+    # 显式覆盖必须放行（现场可能要故意用别的基准）
+    assert cc.inject(_Args(allow_basis_mismatch=True)) == 0
+
+
+def test_inject_updates_every_patch_point(tmp_path):
+    """inject 要连缩放分母和那句"基准 WxH"注释一起改。
+
+    只改 K_ 不改分母 = 内参与基准错配；改了分母不改注释 = 下一个人读到的是
+    假信息。少一处都算没注入成功。
+    """
+    cc = _load_calibrate_camera()
+    w, h = next(iter(cc.deploy_frame_sizes().values()))
+    _write_calib(tmp_path, w, h)
+    cc.CALIB_DIR = tmp_path
+    cc.CPP = tmp_path / "MapLocalizer_copy.cpp"
+    cc.CPP.write_text((REPO / "onboard" / "dzuav" / "src" / "MapLocalizer.cpp")
+                      .read_text(encoding="utf-8"), encoding="utf-8")
+
+    assert cc.inject(_Args(allow_basis_mismatch=False)) == 0
+    text = cc.CPP.read_text(encoding="utf-8")
+    assert "1234.5, 0, 950.0" in text, "fx/cx 没注入"
+    assert "0, 1236.25, 530.5" in text, "fy/cy 没注入"
+    assert f"sz.width) / {w}" in text, "宽分母没跟着改"
+    assert f"sz.height) / {h}" in text, "高分母没跟着改"
+    assert f"（基准 {w}x{h}）" in text, "注释里的基准分辨率没跟着改"

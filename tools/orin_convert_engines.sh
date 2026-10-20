@@ -19,7 +19,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -o|--output) OUT_DIR="$2"; shift 2 ;;
         -h|--help)
-            grep '^#' "$0" | sed 's/^# \{0,1\}//'
+            # 只打文件头那段连续注释块（同 orin_bringup.sh 的理由）
+            awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"
             exit 0 ;;
         *) echo "未知参数: $1" >&2; exit 2 ;;
     esac
@@ -61,13 +62,49 @@ convert() {
     onnx_name=$(resolve "$1" "$2") || { echo "找不到模型（指针 $1 / 回退 $2 均无）: 先 git pull" >&2; exit 4; }
     local onnx="$REPO/models/release/$onnx_name"
     local engine="$OUT_DIR/$3"
+    local tmp="$engine.tmp.$$"
+
+    # 转换前先过契约门禁：引擎名与形状是两回事，名字对不代表通道数对。
+    # 7 类 ONNX 转出来的引擎一上机就在 HbbDetector 构造期 throw，
+    # 而那时旧的可用引擎已经被覆盖掉了——所以这一步必须在写任何文件之前。
+    if ! python3 "$REPO/tools/ml/verify_contract.py" --model "$onnx"; then
+        echo "[失败] $onnx_name 不符合当前契约，拒绝转换（不覆盖既有引擎）" >&2
+        exit 5
+    fi
+
     echo "==> 转换 $onnx_name -> $engine（FP16）"
     # 输入形状均为静态契约（hbb 1280/cell 96），无需 --shapes；--fp16 允许 FP16 内核。
-    "$TRTEXEC" --onnx="$onnx" --saveEngine="$engine" --fp16
+    #
+    # 先写 .tmp 再 mv：trtexec --saveEngine 一开写就截断目标文件，中途 OOM /
+    # 掉线 / Ctrl-C 会把机上唯一可用的引擎毁掉，而 .engine 是「TRT 版本 + GPU
+    # 型号」绑定产物，**在 PC 上无法重建**。mv 同目录内是原子的。
+    rm -f "$tmp"
+    if ! "$TRTEXEC" --onnx="$onnx" --saveEngine="$tmp" --fp16; then
+        rm -f "$tmp"
+        echo "[失败] trtexec 转换失败，既有引擎未被触碰: $engine" >&2
+        exit 6
+    fi
+
+    # 目标已存在则先留备份（带时间戳，不覆盖上一次备份）
+    if [[ -f "$engine" ]]; then
+        local bak="$engine.bak_$(date +%Y%m%d_%H%M%S)"
+        mv -f "$engine" "$bak"
+        echo "    旧引擎已备份: $(basename "$bak")"
+    fi
+    mv -f "$tmp" "$engine"
+    echo "    完成: $(basename "$engine") ($(du -h "$engine" | cut -f1))"
 }
 
-convert "current_hbb_detector"    "hbb_detector.onnx"    "hbb_detector_fp16.engine"
-convert "current_cell_classifier"  "cell_classifier.onnx" "cell_classifier_fp16.engine"
+# 输出引擎名必须与 tools/orin_run_dzuav.sh 的 HBB_ENGINE / CELL_ENGINE 默认值、
+# tools/orin_build_verify.sh 的 CANON_*_ENGINE 逐字一致，否则「换机后重转引擎」
+# 得到的产物启动脚本根本找不到、L3 也会拿另一个引擎验出假绿。
+# tests/test_tools_smoke.py::test_convert_and_run_agree_on_engine_names 锁这三处，
+# 改一处必须改三处。
+HBB_ENGINE_NAME="${HBB_ENGINE_NAME:-hbb_detector_d13_fp16.engine}"
+CELL_ENGINE_NAME="${CELL_ENGINE_NAME:-cell_classifier_v4d_fp16.engine}"
+
+convert "current_hbb_detector"    "hbb_detector.onnx"    "$HBB_ENGINE_NAME"
+convert "current_cell_classifier"  "cell_classifier.onnx" "$CELL_ENGINE_NAME"
 
 echo "=================================================="
 echo "引擎已生成于: $OUT_DIR"

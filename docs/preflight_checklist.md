@@ -50,9 +50,11 @@
 |---|---|---|---|---|
 | B1-1 | Orin SSH 可达 | `ping <Orin IP>` | 丢包率 < 5% | ⬜ |
 | B1-2 | dzuav 可执行程序 | `ls ~/dzuav_deploy/air_ground/onboard/dzuav/build/dzuav` | 存在且可执行（2026-10-16 起统一布局，`tools/orin_deploy.py` 部署；旧 `~/dzuav/build` 口径作废） | ⬜ |
-| B1-3 | 检测模型 engine | `ls -l ~/dzuav/engines/hbb_detector_d13_fp16.engine` | **存在且是这一个**（13 类 D13）。⚠️ 不要只 `ls hbb_detector*.engine` 数个数：机上常同时躺着 7 类与 13 类两份，通配符会给出"4/2 个"式假绿。名字以 `tools/orin_run_dzuav.sh` 的 `HBB_ENGINE` 为准 | ⬜ |
+| B1-3 | 检测模型 engine | `ls -l ~/dzuav/engines/hbb_detector_d13_fp16.engine` | **存在且是这一个**（13 类 D13）。⚠️ 不要只 `ls hbb_detector*.engine` 数个数：机上常同时躺着 7 类与 13 类两份，通配符会给出"4/2 个"式假绿。名字以 `tools/orin_run_dzuav.sh` 的 `HBB_ENGINE` 为准；`python tools/preflight.py --orin` 已按名字逐个查（2026-10-20 起，此前是数个数） | ⬜ |
 | B1-4 | 格号模型 engine | `ls -l ~/dzuav/engines/cell_classifier_v4d_fp16.engine` | **存在且是这一个**（v4d）。⚠️ v4c 与 v4d 形状契约完全相同（[1,14]+[1,11]），契约校验区分不了，只能靠文件名；`cell_classifier_v4d_perm5_20261017.onnx` 移位方案**已作废**，勿部署 | ⬜ |
 | B1-5 | 相机设备 | `ls /dev/video0` | 存在 | ⬜ |
+| B1-6 | 全栈真的起来了 | `bash tools/orin_bringup.sh up` 后看它自己的结论 | 必须打出"全栈已启动"横幅。`up` 现在有两道门：残留进程门（上一局的 MicroXRCEAgent/dzuav 等没退干净就拒启，`ALLOW_STRAY=1` 可放行）+ 存活门（等 `SETTLE_SECONDS` 秒后按退出码哨兵和 pane 状态逐窗核对，任何一个窗口已死即判失败）。⚠️ 旧版是"tmux 窗口建出来就算 ok"，命令秒退也报成功 | ⬜ |
+| B1-7 | L3 验的是上场那一版引擎 | `bash tools/orin_build_verify.sh --run ~/dzuav/engines <测试图>` | L3 只认 canonical 名（B1-3/B1-4 那两个）；缺失时回退模糊匹配并**默认判失败**，需 `ALLOW_ENGINE_FALLBACK=1` 才继续。看到"[失败] 拒绝用非 canonical 引擎出 L3 结论"就是引擎没转对，不是代码坏了 | ⬜ |
 
 ### B2. 无人车端（香橙派）
 
@@ -196,5 +198,5 @@
 
 ---
 
-*最后更新：2026-10-15（D0-2 挡板行界终裁为第 6/7 行 mid_boundary=6——车上官方地图真源+现场核实 I6→I7/K6→K7/L6→L7 全封死 双证；旧"=5 决定性证据"作废，归一问题见 docs/分区规划与感知约束-20261015.md 问题1）。前次：2026-10-14 本机合并（D0-1 起终点订正为 yaml 实际值 N11/N6；新增 D0-7 桥洞列/D0-8 裁判播报核对）*
+*最后更新：2026-10-20（无人机端部署链复核：B1-3 引擎检查改为按名字逐个查——`preflight.py --orin` 原先数 `*.engine` 个数，机上同时躺着 7 类与 13 类两份时给假绿；新增 B1-6 全栈启动两道门、B1-7 L3 canonical 引擎门禁；B3-1/B3-4/B3-5 已同步 13 类 d13+v4d 口径）。前次：2026-10-15（D0-2 挡板行界终裁为第 6/7 行 mid_boundary=6——车上官方地图真源+现场核实 I6→I7/K6→K7/L6→L7 全封死 双证；旧"=5 决定性证据"作废，归一问题见 docs/分区规划与感知约束-20261015.md 问题1）。再前次：2026-10-14 本机合并（D0-1 起终点订正为 yaml 实际值 N11/N6；新增 D0-7 桥洞列/D0-8 裁判播报核对）*
 *上一版：2026-10-12 经理巡检（同步当前模型指针：hbb_detector_7cls_distill_20261011 + cell_classifier_v4c_ft_20261010，新增B3-4 current指针检查项）*

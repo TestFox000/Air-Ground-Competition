@@ -14,7 +14,9 @@
 #   L2  二进制自检：无参数运行应打印 usage（退出码 2 属预期）
 #   L3  真实推理 + 协议闭环（--run 启用）：用 TRT 引擎跑一张测试图；
 #       后台 Python 监听 UDP:50000，用**车端同一个解析器**
-#       ag_integrate.intel_protocol.parse 做 magic/CRC16/后缀全量校验
+#       ag_integrate.intel_protocol.parse 做 magic/CRC16/后缀全量校验。
+#       引擎取 canonical 名（CANON_HBB_ENGINE / CANON_CELL_ENGINE），与
+#       orin_run_dzuav.sh 实跑口径一致；缺了才回退模糊匹配并默认判失败。
 #
 # 用法：
 #   tools/orin_build_verify.sh                                   # L0~L2
@@ -38,6 +40,12 @@ NO_MIRROR=0
 RUN_ENGINES=""
 RUN_IMAGE=""
 
+# canonical 引擎名（13 类部署线）。必须与 tools/orin_convert_engines.sh 的产出名、
+# tools/orin_run_dzuav.sh 的加载名逐字一致——三处由
+# tests/test_tools_smoke.py::test_convert_and_run_agree_on_engine_names 守着。
+CANON_HBB_ENGINE=hbb_detector_d13_fp16.engine
+CANON_CELL_ENGINE=cell_classifier_v4d_fp16.engine
+
 # ---------------------------------------------------------------- 输出辅助
 if [[ -t 1 ]]; then
     C_STEP=$'\e[1;36m'; C_OK=$'\e[1;32m'; C_WARN=$'\e[1;33m'
@@ -58,12 +66,19 @@ print_help() {
   L0    环境自检（arm64/TensorRT/CUDA）+ apt 安装编译依赖（清华源）
   L1    编译 onboard/dzuav -> build/dzuav
   L2    二进制自检（无参数运行应打印 usage）
-  L3    真实推理 + UDP 协议闭环（需 --run，目录里放 *hbb*/*cell* 引擎文件）
+  L3    真实推理 + UDP 协议闭环（需 --run）
+        引擎按 canonical 名取：hbb_detector_d13_fp16.engine /
+        cell_classifier_v4d_fp16.engine（= orin_run_dzuav.sh 实跑口径）。
+        缺这两个才回退 *hbb*/*cell* 模糊匹配，且默认直接判失败——用别的引擎
+        验出来的"通过"不代表能上场。确认要验旧的：ALLOW_ENGINE_FALLBACK=1
 
 选项:
   --no-mirror            不改写 apt 源（默认换清华 ubuntu-ports 镜像）
   --run <dir> <image>    追加 L3：用引擎跑一张测试图，并校验广播出的 UDP 帧
   -h, --help             显示本帮助
+
+环境变量:
+  ALLOW_ENGINE_FALLBACK=1  允许 L3 用非 canonical 引擎（默认拒绝并判失败）
 
 示例:
   tools/orin_build_verify.sh
@@ -192,16 +207,29 @@ run_inference() {
     # 不能直接用 `find|sort|head -1`：字典序下 cell_classifier_fp16（7 类旧引擎）
     # 排在 cell_classifier_v4d_fp16 前面，会把 L3 验成 7 类，与实跑口径不一致
     # （2026-10-20 复查发现）。
-    hbb_engine="$RUN_ENGINES/hbb_detector_d13_fp16.engine"
-    cell_engine="$RUN_ENGINES/cell_classifier_v4d_fp16.engine"
+    hbb_engine="$RUN_ENGINES/$CANON_HBB_ENGINE"
+    cell_engine="$RUN_ENGINES/$CANON_CELL_ENGINE"
+    local fell_back=""
     if [[ ! -f $hbb_engine ]]; then
         hbb_engine=$(find "$RUN_ENGINES" -type f \( -name '*.engine' -o -name '*.trt' \) -iname '*hbb*' 2>/dev/null | sort | head -n 1)
+        [[ -n $hbb_engine ]] && fell_back+="hbb($(basename "$hbb_engine")) "
     fi
     if [[ ! -f $cell_engine ]]; then
         cell_engine=$(find "$RUN_ENGINES" -type f \( -name '*.engine' -o -name '*.trt' \) -iname '*cell*' 2>/dev/null | sort | head -n 1)
+        [[ -n $cell_engine ]] && fell_back+="cell($(basename "$cell_engine")) "
     fi
     [[ -n $hbb_engine ]] || fail "在 $RUN_ENGINES 未找到 hbb 引擎（匹配 *hbb*.engine|.trt）"
     [[ -n $cell_engine ]] || fail "在 $RUN_ENGINES 未找到 cell 引擎（匹配 *cell*.engine|.trt）"
+    # 回退到模糊匹配 = L3 验的不是启动脚本会加载的那两个引擎。这种"绿"比红更贵：
+    # 它让人以为机器能上场，而 orin_run_dzuav.sh 下一秒就报"找不到引擎文件"。
+    # 所以回退必须显式确认，与 orin_bringup.sh 的 ALLOW_STRAY 同一套口径。
+    if [[ -n $fell_back ]]; then
+        printf '%s\n' "${C_WARN}[警告]${C_OFF} canonical 引擎不在位，L3 改用模糊匹配到的: $fell_back" >&2
+        printf '%s\n' "        这与 tools/orin_run_dzuav.sh 的实跑口径不一致，L3 通过不代表能上场。" >&2
+        if [[ ${ALLOW_ENGINE_FALLBACK:-0} != 1 ]]; then
+            fail "拒绝用非 canonical 引擎出 L3 结论。确认要验就 ALLOW_ENGINE_FALLBACK=1 重跑，或先 bash tools/orin_convert_engines.sh 转出 $CANON_HBB_ENGINE + $CANON_CELL_ENGINE"
+        fi
+    fi
     printf '  hbb  引擎: %s\n  cell 引擎: %s\n  测试图:   %s\n' "$hbb_engine" "$cell_engine" "$RUN_IMAGE"
 
     # 监听器先起：dzuav 定位成功时会向 UDP:50000 广播一帧，这里用**车端同一个
