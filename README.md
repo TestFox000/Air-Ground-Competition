@@ -91,11 +91,15 @@ CI 已修复为 compileall + pytest + preflight 本地段（`.github/workflows/c
    当日两场实飞（日志取证见 `docs/悬停稳定性取证-20261017.md`）。换机/刷机后机上重跑
    `tools/orin_convert_engines.sh -o ~/dzuav/engines` 即可。剩下待验证：相机实测
    （格号识别率/PnP 稳定性/帧率）与 dzpx4 单飞航线执行。
-2. 车端：上传 `src/ag_integrate` 到香橙派 colcon build（`tools/car_deploy.py`），
-   把 `car_command_source` 置 `onboard` 切薄接收（规划在机上，见上「技术总框架」）；
-   用 `tools/car_match_bringup.sh` 两阶段启动，先 dry_run 验证，再实发。
-   ⚠️ 机载 `orin_plan_sidecar` 未跑时车端不会收到任何路线（在等 0x4003）；
-   回滚只需把 `car_command_source` 置回 `local`。
+2. 车端：上传 `src/ag_integrate` 到香橙派 colcon build 并切薄接收：
+   ```bash
+   tools/car_deploy.py --host <车IP> --user duzhong --command-source onboard
+   ```
+   （`--command-source onboard` 会把 `car_command_source` 写成薄接收，原配置自动备份为
+   `match_params.yaml.deploy_orig`；回滚：`--command-source local`。不传该参数则完全不改，
+   车端仍按 `local` 自己规划。）
+   然后用 `tools/car_match_bringup.sh` 两阶段启动，先 dry_run 验证，再实发。
+   ⚠️ 机载 `orin_plan_sidecar` 未跑时车端不会收到任何路线（在等 0x4003）。
 3. 现场核实中场挡板/桥洞拓扑后，给节点传 `cross_gates:=['<可通行格>']` 启用
    “只能从可通行格穿越半场”约束（代码已就绪，默认关闭）。
    ⚠️ 注意：显式传入 cross_gates 会一并关掉 A/B/C 列的自由穿越

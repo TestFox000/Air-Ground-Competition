@@ -126,6 +126,11 @@ def main() -> int:
     ap.add_argument("--no-build", action="store_true", help="只上传源码，不编译")
     ap.add_argument("--dry-run-test", action="store_true",
                     help="编译后启动 integrate_node 5 秒（dry_run），确认节点可起")
+    ap.add_argument("--command-source", choices=("local", "onboard"), default=None,
+                    help="部署后把车端「车命令来源」写进 match_params.yaml："
+                         "onboard=薄接收机上 0x4003（规划在机上，官方控制要求）；"
+                         "local=车端自己规划（默认不动）。首次改动自动留存 "
+                         "match_params.yaml.deploy_orig 作回滚点")
     args = ap.parse_args()
 
     # 1. 打包
@@ -226,6 +231,30 @@ def main() -> int:
                 ok("integrate_node 启动成功（dry_run 模式）")
             else:
                 warn("未看到'就绪'日志，可能 ROS 环境或依赖有问题，见上方输出")
+
+        # 8. 可选：切换车命令来源（规划在机上 vs 车端自规划）
+        # 规划层已上机（official 控制要求「规划须由机载平台自主完成」），车端需要
+        # car_command_source=onboard 才吃机上 0x4003；默认不改（保持 local 行为）。
+        # 首次改动把原配置留成 .deploy_orig，回滚只需再跑一次 --command-source local
+        # （或把 .deploy_orig 拷回）。
+        if args.command_source:
+            step(f"切换车端 car_command_source = {args.command_source}")
+            cfg = f"{ws}/src/ag_integrate/config/match_params.yaml"
+            backup = f"{cfg}.deploy_orig"
+            sed_expr = ("'s/^[ ]*car_command_source:.*/"
+                        f'    car_command_source: "{args.command_source}"/\'')
+            cmd = (
+                f"test -f {cfg} || {{ echo NO_CONFIG; exit 1; }}; "
+                f"[ -f {backup} ] || cp -a {cfg} {backup}; "
+                f"sed -i {sed_expr} {cfg}; "
+                f"grep -n car_command_source {cfg}"
+            )
+            rc, out = run(ssh, cmd, timeout=30)
+            print(out)
+            if rc != 0 or f'car_command_source: "{args.command_source}"' not in out:
+                fail(f"写入 car_command_source 失败（原配置备份在 {backup}）")
+            ok(f"已置 car_command_source={args.command_source}"
+               f"（原配置备份 {backup}，回滚：--command-source local）")
 
     finally:
         ssh.close()
