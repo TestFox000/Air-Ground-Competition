@@ -286,6 +286,30 @@ class _FakeSubscription:
         self.qos = qos
 
 
+class _FakeTimer:
+    """真 rclpy 的 create_timer 返回带 cancel() 的 Timer 对象，桩必须同款——
+    返回 None 会让"一次性定时器"这类逻辑在测试里根本无法表达，也已经导致
+    tests/ros_stub.py 另起一套 FakeTimer（两套桩语义分叉，见其 :403 注释）。
+
+    timers 里仍存 (period, cb) 元组以兼容既有消费方
+    （tests/test_sim_tracking_dznav.py:115 按二元组解包）；句柄另存一份，
+    供 cancel 语义断言。
+    """
+
+    def __init__(self, period, callback):
+        self.period = period
+        self.callback = callback
+        self.canceled = False
+        self.cancel_count = 0
+
+    def cancel(self):
+        self.canceled = True
+        self.cancel_count += 1
+
+    def is_canceled(self):
+        return self.canceled
+
+
 class _FakeNode:
     """Just enough of rclpy.node.Node to drive a node body deterministically."""
 
@@ -296,6 +320,7 @@ class _FakeNode:
         self.publishers: dict[str, _FakePublisher] = {}
         self.subscriptions: list[_FakeSubscription] = []
         self.timers: list[tuple[float, object]] = []
+        self.timer_handles: list[_FakeTimer] = []
         self.destroyed = False
 
     # --- rclpy surface ---
@@ -316,8 +341,10 @@ class _FakeNode:
         return sub
 
     def create_timer(self, period, callback, **kwargs):
+        t = _FakeTimer(period, callback)
         self.timers.append((period, callback))
-        return None
+        self.timer_handles.append(t)
+        return t
 
     def count_publishers(self, topic):
         return 1

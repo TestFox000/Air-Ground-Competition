@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, replace
 
 from .car_adapter import CarCommands, adapt
+from .car_commands import RoutePlan, route_command
 from .field_frame import LETTERS, CellRef
 from .mission_router import _MID_BOUNDARY, plan_route, plan_route_zoned
 from .world_model import WorldSnapshot
@@ -156,6 +158,11 @@ def _solve_with_joint_solver(
 
     返回 None = 不可用/不占优，调用方退回现行启发式（降级契约）。
     得分口径：踩雷 +5/颗、射击位命中期望 +5/位（与 route_time 计时模型一致）。
+
+    三条不变量（各自都曾被违反，见下方实测数字）：
+      1. leg 代价只测"移动"，不含计分绕行 —— require_gates=False；
+      2. 执行 == 决策 == 记录 —— 被弃的射击位必须真的从命令串里去掉 '*'；
+      3. 返回前用**实路由**复核预算，模型乐观就收紧重解，仍超则告警。
     """
     from .ortools_solver import (
         STATUS_FEASIBLE, STATUS_OPTIMAL, VisitTask, solve_visit_plan,
@@ -165,58 +172,137 @@ def _solve_with_joint_solver(
     # 点对点 leg 用**真实路由**估计（纯场地：去掉雷/靶必经点，只留障碍与桥门），
     # 而不是直线距离——挡板/桥墙切分的场地上直线会严重低估绕行耗时，导致
     # 求解器按错误模型弃任务（实测教训：弃 5 雷后实路由仍超预算）。
+    #
+    # ⚠ 但桥门只能保留"桥墙开口"语义，不能同时当必经点（require_gates=False）。
+    # 门格是计分项（"桥洞通道协同穿梭"每段 10 分），正式路线必须穿门；
+    # 可一旦让每段 leg 也强制穿门，同一对格子的代价会被撑到 5×：
+    #   B9->A2（同在无挡板的 A/B 列，直线 8 格）
+    #     require_gates=True  : 37 格 / 57.1s（东行到 K9 折返、穿挡板、再到 K4 折返）
+    #     require_gates=False :  8 格 / 11.2s
+    # 9 段 leg 累加后整条任务的模型估值 404s，而真实连续路线只要 71.5s（5.7×）。
+    # 真实 recon 夹具（docs/成员交接/yu-binghuan/20261018-uav-video-recon）
+    # 实测通胀 3.3×~5.0×。后果按 drop_policy 分两种，都很糟：
+    #   shooting_only（默认）：雷不可舍 -> 模型地板恒超预算 -> 恒 infeasible
+    #                          -> U1 从不生效，静默退回启发式
+    #   any_task           ：按通胀代价弃任务 -> cap=68s 时弃 7/8 雷 + 射击位，
+    #                          实踩雷 1 颗；而真实规划器只需弃 2 雷（J8/A2）
+    #                          即可 65.1s 进预算、保住 6 雷 30 分 —— 白丢 25 分
     field_snap = replace(snapshot, mines=(), targets=())
+    _leg_cache: dict[tuple[str, str], float] = {}
 
     def leg_s(a: str, b: str) -> float:
+        key = (a, b)
+        if key in _leg_cache:
+            return _leg_cache[key]
         try:
-            route = plan_route(field_snap, _parse_name(a), _parse_name(b))
+            route = plan_route(field_snap, _parse_name(a), _parse_name(b),
+                               require_gates=False)
         except ValueError:
-            return float("inf")
-        # plan_route 返回格名序列（字符串），直接喂给 estimate_seconds
-        return estimate_seconds(tuple(route), params=params).seconds
+            _leg_cache[key] = float("inf")
+        else:
+            # plan_route 返回格名序列（字符串），直接喂给 estimate_seconds
+            _leg_cache[key] = estimate_seconds(tuple(route), params=params).seconds
+        return _leg_cache[key]
 
     tasks = [VisitTask(m.name, "mine", 5.0, params.mine_slow_s)
              for m in snapshot.mines]
     tasks += [VisitTask(s, "shoot", 5.0, params.shoot_stop_s)
               for s in commands.shoot_cells]
-    try:
-        plan = solve_visit_plan(
-            start_cell, goal_cell, tasks, leg_s=leg_s,
-            time_budget_s=soft_cap_s, drop_policy=drop_policy,
-            backend=backend,
-        )
-    except Exception:
-        return None
-    if plan.status not in (STATUS_OPTIMAL, STATUS_FEASIBLE):
-        return None
 
-    keep = set(plan.order)
-    mines2 = tuple(m for m in snapshot.mines if m.name in keep)
-    shoot_kept = any(s in keep for s in commands.shoot_cells)
-    # 射击位被舍：靶格物理仍在、仍不可踩，只是不停靠开火（与启发式同语义）
-    targets2 = snapshot.targets if shoot_kept else tuple(
-        replace(t, is_blue=False) for t in snapshot.targets)
-    snapshot2 = replace(snapshot, mines=mines2, targets=targets2)
-    try:
-        ordered3 = plan_route_zoned(
-            snapshot2, _parse_name(start_cell), _parse_name(goal_cell),
-            zone_order, cross_gates=gates, mid_boundary=mid_boundary,
-            start_heading=start_heading, final_heading=final_heading,
-            crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
-            turn_45=turn_45, allow_diagonal=allow_diagonal,
+    budget = soft_cap_s
+    for attempt in (0, 1):
+        try:
+            plan = solve_visit_plan(
+                start_cell, goal_cell, tasks, leg_s=leg_s,
+                time_budget_s=budget, drop_policy=drop_policy,
+                backend=backend,
+            )
+        except Exception:
+            return None
+        if plan.status not in (STATUS_OPTIMAL, STATUS_FEASIBLE):
+            return None
+
+        keep = set(plan.order)
+        mines2 = tuple(m for m in snapshot.mines if m.name in keep)
+        shoot_kept = any(s in keep for s in commands.shoot_cells)
+        # 射击位全被舍：靶格物理仍在、仍不可踩，只是不停靠开火（与启发式同语义）
+        targets2 = snapshot.targets if shoot_kept else tuple(
+            replace(t, is_blue=False) for t in snapshot.targets)
+        snapshot2 = replace(snapshot, mines=mines2, targets=targets2)
+        try:
+            ordered3 = plan_route_zoned(
+                snapshot2, _parse_name(start_cell), _parse_name(goal_cell),
+                zone_order, cross_gates=gates, mid_boundary=mid_boundary,
+                start_heading=start_heading, final_heading=final_heading,
+                crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
+                turn_45=turn_45, allow_diagonal=allow_diagonal,
+            )
+        except ValueError:
+            return None
+        commands3 = adapt(snapshot2, ordered3, start_cell, start_heading, final_heading)
+
+        # 部分射击位被舍：adapt 只看 snapshot 几何，会把求解器已弃的站重新标出 '*'。
+        # 执行必须与决策一致 —— 否则 dropped_tasks 记的是没发生的事，
+        # 黑匣子里"已弃 X 站"而车其实停了 X 站（时间也就没省下来）。
+        kept_shoot = tuple(c for c in commands3.shoot_cells if c in keep)
+        if len(kept_shoot) != len(commands3.shoot_cells):
+            commands3 = replace(
+                commands3,
+                route=route_command(RoutePlan(tuple(ordered3),
+                                              frozenset(kept_shoot), final_heading)),
+                shoot_cells=kept_shoot,
+            )
+
+        est3 = estimate_seconds(ordered3, shoot_cells=commands3.shoot_cells,
+                                mine_cells={m.name for m in mines2}, params=params)
+
+        # VisitTask 以**格名**为身份：同一格既是雷又是射击位时（蓝靶的停靠格
+        # 正好压着雷，8雷2靶的场地上约 10% 概率），两种任务是两个节点、
+        # 却塌缩成 keep 里同一个名字。求解器可以"弃射击留排雷"，而车反正要
+        # 去那格排雷、停靠开火照旧 —— 省不下来的 shoot_stop_s 会让预算收敛不了。
+        # 记录必须只写**真的没去**的项，否则黑匣子说省了、实路由没省。
+        ineffective = tuple(c for c in plan.dropped if c in keep)
+        if ineffective:
+            warnings.warn(
+                f"联合求解器弃了 {list(ineffective)}，但这些格另有保留任务"
+                f"（同格既是雷又是射击位），车仍会停靠——省不出对应时间；"
+                f"任务身份按格名塌缩，需要按 (格,任务类型) 区分才能真正弃掉",
+                RuntimeWarning, stacklevel=2,
+            )
+        dropped_eff = tuple(c for c in plan.dropped if c not in keep)
+
+        if est3.seconds <= soft_cap_s or attempt:
+            break
+        # leg-sum 模型对真实连续路线系统性略乐观（真实 recon 夹具实测
+        # 模型/真实 = 0.91~0.96×）：模型说进预算了、实路由没进。
+        # 按实测偏差收紧预算再解一次，而不是把超预算的结果当成功返回。
+        # 此分支内必有 ratio > 1（plan.est_seconds <= budget 且 est3 > soft_cap_s）。
+        ratio = est3.seconds / plan.est_seconds if plan.est_seconds > 0 else 1.0
+        budget = soft_cap_s / max(ratio, 1.0)
+        warnings.warn(
+            f"联合求解器时间模型乐观 {ratio:.2f}×：模型 {plan.est_seconds:.0f}s "
+            f"实路由 {est3.seconds:.0f}s 超软预算 {soft_cap_s:.0f}s，"
+            f"收紧预算至 {budget:.0f}s 重解",
+            RuntimeWarning, stacklevel=2,
         )
-    except ValueError:
-        return None
-    commands3 = adapt(snapshot2, ordered3, start_cell, start_heading, final_heading)
-    est3 = estimate_seconds(ordered3, shoot_cells=commands3.shoot_cells,
-                            mine_cells={m.name for m in mines2}, params=params)
+
     if est3.seconds >= est_seconds:
         return None  # 求解器口径占优但实路由不占优：退回启发式
+    if est3.seconds > soft_cap_s:
+        # 收紧一轮后仍超预算：返回它（确实比原方案好），但必须喊出来。
+        # 否则 integrate_node 只在 shed_shooting / >180s 两种情况下出声，
+        # soft_cap < est <= 180 且未砍射击位时全程静默。
+        warnings.warn(
+            f"联合求解器重解后仍超软预算：{est3.seconds:.0f}s > {soft_cap_s:.0f}s"
+            f"（已弃 {len(dropped_eff)} 项：{list(dropped_eff)}）",
+            RuntimeWarning, stacklevel=2,
+        )
     return replace(
         commands3,
         est_seconds=est3.seconds,
-        shed_shooting=(not shoot_kept and bool(commands.shoot_cells)),
-        dropped_tasks=plan.dropped,
+        shed_shooting=bool(commands.shoot_cells) and any(
+            s not in keep for s in commands.shoot_cells),
+        dropped_tasks=dropped_eff,
     )
 
 

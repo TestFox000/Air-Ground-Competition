@@ -1151,12 +1151,29 @@ void turn_on_robot::callback_camemo_feedback(const std_msgs::msg::Int32MultiArra
   }
 }
 
-// 车体偏航角速度采集 —— 用于云台的"惯性凝视稳定"前馈。
-// /imu_data 由 dzactuator 发布（已做零偏校正 + 滤波，队列深度 1，延迟最低）。
+// ★射击计数重置（调试用，默认关闭）。
+// 为什么必须有闸：shots_fired_ 是"全程 10 发"硬上限的**唯一**凭据
+// （:383 ammo_ok = max_shots_ > 0 && shots_fired_ < max_shots_）。
+// :1581-1588 的 AIM_MAX_SHOTS 只夹得住 max_shots_ 这个**参数**，夹不住把
+// shots_fired_ 归零——归零一次就等于凭空补满弹药，可以打到 20 发，属硬性违规。
+// 而 /shoot_reset 是公开话题、无鉴权、无条件订阅（:1296），aim_bench.py 会发它，
+// 现场手敲 `ros2 topic pub` 也能发它。故改为参数 opt-in，比赛构建默认 false。
 void turn_on_robot::callback_shoot_reset(const std_msgs::msg::UInt8::SharedPtr msg)
 {
   if (msg->data == 0)
   {
+    return;
+  }
+  if (!allow_shoot_reset_)
+  {
+    // 只在第一次拒绝时喊一声，避免被连发刷爆日志。
+    if (!shoot_reset_refused_logged_)
+    {
+      shoot_reset_refused_logged_ = true;
+      std::cout << "==> ✖ /shoot_reset 被拒绝：allow_shoot_reset=false（比赛构建默认）。"
+                << " 归零 shots_fired_ 等于绕过全程 10 发硬上限，属违规。"
+                << " 调试请在参数里显式打开。" << std::endl;
+    }
     return;
   }
   shots_fired_ = 0;
@@ -1166,9 +1183,11 @@ void turn_on_robot::callback_shoot_reset(const std_msgs::msg::UInt8::SharedPtr m
   countmsg.data = 0;
   pub_shot_count->publish(countmsg);
   std::cout << "==> ★ 射击计数已重置：shots_fired_=0，可用弹药恢复为 "
-            << max_shots_ << " 发" << std::endl;
+            << max_shots_ << " 发（allow_shoot_reset=true，仅调试）" << std::endl;
 }
 
+// 车体偏航角速度采集 —— 用于云台的"惯性凝视稳定"前馈。
+// /imu_data 由 dzactuator 发布（已做零偏校正 + 滤波，队列深度 1，延迟最低）。
 void turn_on_robot::callback_imu(const sensor_msgs::msg::Imu::SharedPtr msg)
 {
   imu_omega_z_ = msg->angular_velocity.z; // rad/s，绕车体 Z 轴的偏航角速度
@@ -1359,7 +1378,13 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->declare_parameter("gimbal_pitch_tick_max", 2400); // 竖直轴刻度上限(下位机钳位)
   this->declare_parameter("gimbal_max_speed", 3700);		  // 云台最大转速
   this->declare_parameter("scan_pitch_offset_deg", +10.0); // 俯仰整体偏移(度，★实测：+向下压、-向上抬；t52 与 robot.yaml 单一真源对齐)
-  this->declare_parameter("max_shots_per_target", 3);  // P0-2 单目标连发上限(<0 不限)
+  // 默认值跟 robot.yaml 的**现役**口径保持一致：单目标连发上限 3 → 10，是
+  // 2026-10-11 用户指令 4 的定案（robot.yaml:204-207 记着溯源：旧口径"防把全程
+  // 弹药倾泻在一个靶上"，现改由 max_shots_total=10 兜）。默认值留在 3 的话，
+  // 一旦 robot.yaml 没加载上就会静默退回一个七天前被明确废掉的值。
+  this->declare_parameter("max_shots_per_target", 10);  // P0-2 单目标连发上限(<0 不限)
+  // /shoot_reset 放行开关：默认 false（比赛构建关死）。见 callback_shoot_reset。
+  this->declare_parameter("allow_shoot_reset", false);
   this->declare_parameter("fire_only_blue", true);     // P0-4 仅攻击蓝色靶
   this->declare_parameter("track_speed_max", 0);       // P2-2 tracking cap (ticks/s, 0=derive)
   this->declare_parameter("patrol_speed_ratio", 0.3);	  // 巡逻(扫描)速度占最大转速比例
@@ -1465,6 +1490,7 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->get_parameter("gimbal_max_speed", gimbal_max_speed_);
   this->get_parameter("patrol_speed_ratio", patrol_speed_ratio_);
   this->get_parameter("max_shots_per_target", max_shots_per_target_);
+  this->get_parameter("allow_shoot_reset", allow_shoot_reset_);
   this->get_parameter("fire_only_blue", fire_only_blue_);
   this->get_parameter("track_speed_max", track_speed_max_);
   this->get_parameter("scan_dwell_ms", scan_dwell_ms_);

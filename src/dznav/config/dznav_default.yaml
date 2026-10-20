@@ -19,8 +19,11 @@ track_mode: stanley        # 跟踪律：stanley（现状默认）| pure_pursuit
 
 # ---- 任务 ----
 nav_timeout: 180.0         # s 单路线硬超时（比赛总预算）
-shoot_target: 10           # 每停站发弹数
-shoot_timeout: 150.0       # s 停站等弹超时
+shoot_target: 10           # 每停站发弹数（与车上 robot.yaml max_shots_per_target 对齐）
+ammo_total: 10             # 发 全局弹药物理上限，不可补；打空后所有停站立即放行
+shoot_timeout: 20.0        # s 停站等弹超时。旧值 150.0 对 180s 赛时是自杀：
+                           #   SHOOT_WAIT 不受 nav_timeout 兜底，一站等不到就干烧 150s。
+                           #   20.0 = 10 发 × shot_cooldown_ms 800 + 瞄准余量。
 blend_anchor: 0.5          # 途经点位置锚增益
 blend_th: 0.25             # 途经点航向锚增益（小于位置增益：防跟踪滞后污染）
 anchor_delay_m: 0.35       # 出弯后再锚（跟踪收敛区，测量干净）
@@ -32,7 +35,12 @@ builtin_route: ""          # 自动发车路线串（如 "N10 M9 L8 ... ,y"）
 # ---- 参考路径 ----
 dev_cap: 0.08              # m 普通弯对顶点偏差预算（< 17.5cm 失格线）
 dev_cap_critical: 0.03     # m 关键途经点（雷格）偏差预算
-arc_fallback_deg: 125.0    # 超此转角回落 ARC 机动（更大转角的 fillet 切角会逼近失格线）
+arc_fallback_deg: 105.0    # 超此转角回落 ARC 机动。不是经验值：出厂参数下
+                           #   r_phys = wheelbase/tan(steer_limit) = 0.157/tan30° = 0.2719m，
+                           #   fillet 偏差 dev = r_phys*(1/cos(θ/2)-1) 在 θ=105.05° 处正好触到
+                           #   17.5cm 失格线（refpath.max_fillet_deg 可重算）。
+                           #   旧值 125.0 会让 105°~125° 的弯生成最大 31.7cm 切角＝失格级。
+                           #   改 steer_limit_deg / wheelbase / servo_mode 后必须重算本值。
 
 # ---- 安全（2026-10-17 评审整改新增）----
 link_timeout: 0.5          # s /odom 或 /imu_data 断流多久跳闸（仅运动态生效）

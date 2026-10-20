@@ -28,6 +28,13 @@ if (-not (Test-Path (Join-Path $repo ".git"))) {
 }
 Set-Location $repo
 
+# 编码基线：git 输出恒为 UTF-8；GBK 控制台不设此行会把中文路径解码出假 '?'，
+# 令下方路径污染检测误报退出码 4，挡死所有智能体开工（2026-10-19 修复）。
+try {
+    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    $OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+} catch { }
+
 function Fail($msg) { Write-Host "[失败] $msg" -ForegroundColor Red; exit 1 }
 
 Write-Host "==== 开工同步（Gitee: circle-of-joy/air_ground）===="
@@ -65,6 +72,10 @@ if ($polluted) {
     Write-Host "[污染] 检测到 Gitee 网页上传造成的路径污染——不要在此基底开工！" -ForegroundColor Red
     $polluted | ForEach-Object { Write-Host $_ -ForegroundColor Red }
     Write-Host "    修复：python tools/repair_web_upload.py <上述分支> --push（blob 零改动，纯路径重建）" -ForegroundColor Yellow
+    Write-Host "    先自证再动手：python tools/repair_web_upload.py <上述分支>   # 不带 --push，只检查" -ForegroundColor Yellow
+    Write-Host "    该工具按 UTF-8 显式解码，不受本控制台编码影响。若它报『污染 0』而上面报了 N 条，" -ForegroundColor Yellow
+    Write-Host "    则是本机控制台编码把中文路径解出假 '?' 的误报——不要 --push，改查 [Console]::OutputEncoding。" -ForegroundColor Yellow
+    Write-Host "    （2026-10-19 实测：GBK 控制台报枢纽 31 条/main 24 条，同工具同 ref 报 2813 条目 0 污染。）" -ForegroundColor Yellow
 }
 
 # 3) 远端关键分支态势表

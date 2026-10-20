@@ -6,11 +6,21 @@
 外侧偏差预算反解圆角半径 R，并夹到单侧物理曲率极限
 （servo.kappa_max，支持左右不对称档案）：
 
-    R = min( R_dev(θc, dev_cap), R_phys(方向), 0.45 * 邻段可用长 )
+    R = max( R_phys(方向), min( R_dev(θc, dev_cap), 0.45*l1, 0.45*l2 ) )
+
+注意是 max 套 min，不是三者同取 min：R_phys 是**下限**，在夹取之后才抬。
+所以物理下限一旦生效，`0.45*邻腿长` 这条防撞夹取就被一起顶掉了 —— 见
+build_reference 中"未修的已知缺陷"注释。
 
 其中 R_dev = dev_cap / (1/cos(θc/2) - 1)。90° 弯在 dev_cap=8cm 下
-R≈0.19 m，理想舵机 κ_max=5.06 (R=0.198) 恰好覆盖 —— 全程闭环可行。
-θc ≥ arc_fallback_deg（默认 135°，掉头类）物理上无法闭环跟住，
+R_dev≈0.193 m。⚠ 出厂参数（servo_mode=ideal, steer_limit_deg=30,
+wheelbase=0.157）给的是 κ_max = tan30°/0.157 = 3.68，即 R_phys = 0.272 m
+> R_dev —— 所以 90° 弯**每个**都被物理下限顶穿，dev_cap=8cm 这个预算在最常见
+的那种弯上从未真正生效（实际偏差 11.3cm）。旧文档写的"理想舵机 κ_max=5.06
+(R=0.198) 恰好覆盖，全程闭环可行"对应的是 steer_limit≈38.5°，不是出厂的 30°；
+现由 build_reference 聚合告警把这件事喊出来，别再当默认成立。
+θc ≥ arc_fallback_deg（默认 105°，由 max_fillet_deg(R_phys) 推出，见该常量
+注释）时 fillet 切角会破 17.5cm 失格线、且物理上无法闭环跟住，
 回落为 ARC 机动（低速满舵 + yaw 停止 + 出口软锚点），即原版机制的
 收编保留：它是例外路径而非主路径。
 
@@ -29,6 +39,23 @@ from .servo import ServoModel
 
 #: 直行判定：转角小于此值视作共线（压缩）
 STRAIGHT_THROUGH_RAD = 0.12
+
+#: m 顶点偏差的失格线。规则口径 17.5cm：参考线切角超过它就等于车压到
+#: 障碍/靶体或出格。fillet 偏差 dev = R·(1/cos(θ/2) − 1)，R 被物理下限
+#: r_phys 顶住时 dev 随 θ 单调增，故存在一个**最大可用 fillet 转角**：
+#:     θ_dq = 2·arccos(1 / (1 + DQ_DEVIATION_M / r_phys))
+#: 出厂参数（servo_mode=ideal, steer_limit_deg=30, wheelbase=0.157）下
+#: r_phys = 0.157/tan30° = 0.2719m → θ_dq = 105.05°。arc_fallback_deg 必须
+#: <= 它，否则 (θ_dq, arc_fallback_deg) 区间内的弯会生成失格级切角。
+DQ_DEVIATION_M = 0.175
+
+
+def max_fillet_deg(r_phys: float, dq_dev: float = DQ_DEVIATION_M) -> float:
+    """给定物理转弯半径，fillet 偏差不超失格线的最大转角（度）。"""
+    c = 1.0 / (1.0 + dq_dev / max(r_phys, 1e-9))
+    if c >= 1.0:
+        return 180.0
+    return 2.0 * math.degrees(math.acos(c))
 
 
 @dataclass
@@ -59,7 +86,10 @@ class Corner:
 class PathOptions:
     dev_cap: float = 0.08             # 普通弯顶点偏差预算 m
     dev_cap_critical: float = 0.03    # 关键途经点预算 m
-    arc_fallback_deg: float = 125.0   # 超过此转角走 ARC 机动
+    arc_fallback_deg: float = 105.0   # 超过此转角走 ARC 机动。不是随便取的：
+    #   出厂参数下 r_phys=0.2719m，max_fillet_deg(0.2719)=105.05°，超过它
+    #   fillet 切角就破 17.5cm 失格线。旧值 125.0 会在 105°~125° 这段生成
+    #   最大 31.7cm 的切角——失格级。改舵机限位/轴距后须按 max_fillet_deg 重算。
     sample_step: float = 0.02         # 稠密采样步长 m
     arc_exit_len: float = 0.15        # ARC 出口锚点距顶点距离 m
 
@@ -71,6 +101,10 @@ class ReferencePath:
     waypoints: list = field(default_factory=list) # 原始 Waypoint 序列
     vertex_s: list = field(default_factory=list)  # 各途经点对应 s
     length: float = 0.0
+    #: 建这条路径时用的选项。重建路径必须沿用它，否则会静默退回 dataclass
+    #: 默认值——运维在 YAML 里调过的 dev_cap / arc_fallback_deg 只在首条
+    #: 路径上生效，一重建就被丢掉，且没有任何日志提示。
+    opts: PathOptions | None = None
 
     # ---------------------------------------------------------------- 投影
     def project(self, x: float, y: float, s_hint: float,
@@ -192,6 +226,7 @@ def build_reference(waypoints: list, servo: ServoModel,
             wps.append(w)
 
     corners: list[Corner] = [Corner(0, "pass", 0.0, 0.0)]
+    floor_hit: list[tuple] = []   # 偏差预算被物理半径顶穿的弯，循环后聚合告警
     for i in range(1, len(wps) - 1):
         a, b, c = wps[i - 1], wps[i], wps[i + 1]
         d1x, d1y = b.x - a.x, b.y - a.y
@@ -216,8 +251,10 @@ def build_reference(waypoints: list, servo: ServoModel,
                                   exit_th=math.atan2(d2y, d2x)))
             continue
         # fillet 半径：偏差预算/邻腿长给上限，物理曲率给下限（R >= R_phys）。
-        # 预算给不出（R_dev < R_phys）时抬到物理半径：偏差超出预算但仍在
-        # 17.5cm 失格线内；关键途经点（雷格）额外告警交规划层纠偏。
+        # ⚠ 抬到物理半径后偏差**不再保证**在 17.5cm 失格线内：dev = R·denom 随
+        #   转角单调增，只有 θ <= max_fillet_deg(r_phys)（出厂参数 105.05°）才安全，
+        #   再大的转角已在上面回落 ARC。本行是"预算失效"而非"预算放宽"。
+        # 关键途经点（雷格）额外告警交规划层纠偏。
         cap = opts.dev_cap_critical if b.critical else opts.dev_cap
         denom = 1.0 / math.cos(ang / 2.0) - 1.0
         r_dev = cap / denom if denom > 1e-9 else cap / 1e-9
@@ -225,6 +262,7 @@ def build_reference(waypoints: list, servo: ServoModel,
         r = min(r_dev, 0.45 * l1, 0.45 * l2)
         if r < r_phys:
             r = r_phys
+            floor_hit.append((i, b.label, math.degrees(ang), cap, r * denom))
             if b.critical:
                 warn(f"wp#{i} {b.label}: 转角{math.degrees(ang):.0f}° 偏差预算"
                      f"{cap*100:.0f}cm 超物理半径 {r_phys:.2f}m，按物理极限"
@@ -232,16 +270,41 @@ def build_reference(waypoints: list, servo: ServoModel,
         corners.append(Corner(i, "fillet", sign, ang, radius=r,
                               dev=r * denom))
 
+    # 物理半径顶穿偏差预算是**静默**的：r 被抬到 r_phys 后 dev_cap 就没生效，
+    # 而按格号逐点建路时几乎每个弯都是 90°，逐弯告警会刷爆日志。故聚合成一条。
+    # 出厂参数下这不是边缘情况：servo_mode=ideal、steer_limit_deg=30、
+    # wheelbase=0.157 → r_phys=0.272m，而 90° 弯的 r_dev=0.08/denom=0.193m
+    # < r_phys —— 也就是说 dev_cap=0.08 这个"预算"在最常见的那种弯上从来没生效过。
+    if floor_hit:
+        worst = max(floor_hit, key=lambda t: t[4])
+        over_dq = [t for t in floor_hit if t[4] > DQ_DEVIATION_M]
+        warn(f"{len(floor_hit)}/{len(corners)} 个弯的偏差预算被物理半径顶穿"
+             f"（最差 wp#{worst[0]} {worst[1] or '?'} {worst[2]:.0f}°："
+             f"偏差 {worst[4]*100:.1f}cm > 预算 {worst[3]*100:.0f}cm）"
+             + (f"；其中 {len(over_dq)} 个已超 {DQ_DEVIATION_M*100:.1f}cm 失格线"
+                f"——arc_fallback_deg={opts.arc_fallback_deg} 设得太大"
+                if over_dq else ""))
+
     # 2) 逐段铺几何点（先不计 s），最后按真实累计距离生成弧长坐标。
-    #    tangent[i] = R_i * tan(ang_i/2)：fillet 角在其前后两段腿上
-    #    各占用一个切点段；相邻两角在同一段腿上的占用之和 < 0.9*腿长，
-    #    中间直线恒存在（R 已被 0.45*邻腿长 夹过）。
+    #    tangent[i] = R_i * tan(ang_i/2)：fillet 角在其前后两段腿上各占用一个
+    #    切点段。
+    #    ⚠ 未修的已知缺陷：上面 r < r_phys 时把 r 抬到物理半径，**绕过了**
+    #      min(r_dev, 0.45*l1, 0.45*l2) 这个夹取，所以"相邻两角在同一段腿上的
+    #      占用之和 < 0.9*腿长，中间直线恒存在"这句原注释是**错的**。反例（出厂
+    #      参数，格边 BLOCK=0.35m）：r_phys=0.2719m，90° 弯切点长 = r_phys*tan45°
+    #      = 0.2719m；同一条腿上相邻两个 90° 弯要占 0.5439m > 0.35m（连对角腿
+    #      0.495m 也不够）→ straight_len 归零、两弧互相重叠、路径自交 → project
+    #      投到错误一侧 → cte 冲高 → pursuit 触发 rebuild，最终 rebuild_limit
+    #      耗尽后 forced arrived，任务在场中中止。
+    #      正解要按比例同时缩小共享腿上的两个 fillet（或把该顶点转 ARC），属于
+    #      路径几何设计变更，没有 SIL 无法验证，故此处只做**告警**不改几何。
     tangent = [0.0] * len(wps)
     for c0 in corners:
         if c0.mode == "fillet":
             tangent[c0.idx] = c0.radius * math.tan(c0.angle / 2.0)
 
     pts: list[list] = [[wps[0].x, wps[0].y, None, 0.0]]   # th 待回填
+    overlap: list[tuple] = []   # 切点长之和超过腿长的段（路径自交），循环后告警
 
     for i in range(len(wps) - 1):
         a, b = wps[i], wps[i + 1]
@@ -251,6 +314,8 @@ def build_reference(waypoints: list, servo: ServoModel,
         t_start = tangent[i] if (i > 0 and corners[i].mode == "fillet") else 0.0
         c_next = corners[i + 1] if i + 1 < len(corners) else None
         t_end = tangent[i + 1] if (c_next and c_next.mode == "fillet") else 0.0
+        if t_start > 0.0 and t_end > 0.0 and t_start + t_end > seg_len + 1e-9:
+            overlap.append((i, i + 1, seg_len, t_start + t_end))
         straight_len = max(0.0, seg_len - t_start - t_end)
         # 直线段：j 从 1 起（j=0 点 = 上一弧出口/上一顶点，已入列）
         n = max(1, int(straight_len / opts.sample_step) + 1)
@@ -260,6 +325,15 @@ def build_reference(waypoints: list, servo: ServoModel,
         # 下一顶点圆弧（入口切点已作为直线段末点入列）
         if c_next is not None and c_next.mode == "fillet":
             _sample_fillet(pts, wps, corners, tangent, i + 1, opts)
+
+    if overlap:
+        worst = max(overlap, key=lambda t: t[3] - t[2])
+        warn(f"{len(overlap)}/{len(wps) - 1} 段腿上相邻 fillet 切点重叠"
+             f"（最差 wp#{worst[0]}→#{worst[1]}：腿长 {worst[2]*100:.1f}cm "
+             f"需 {worst[3]*100:.1f}cm，超出 {(worst[3]-worst[2])*100:.1f}cm）"
+             f"——路径在此自交，跟到这儿会触发 rebuild。根因是物理转弯半径 "
+             f"{1.0 / max(0.05, servo.kappa_max(1.0)):.3f}m 相对格边太大，"
+             f"规划层应拉开相邻转弯或改走 ARC。")
 
     # 3) 起点航向回填 + 弧长坐标累计
     if len(pts) >= 2 and pts[0][2] is None:
@@ -283,7 +357,7 @@ def build_reference(waypoints: list, servo: ServoModel,
         vertex_s[i] = best_s
 
     return ReferencePath(samples=ss, corners=corners, waypoints=wps,
-                         vertex_s=vertex_s, length=s)
+                         vertex_s=vertex_s, length=s, opts=opts)
 
 
 def _sample_fillet(pts, wps, corners, tangent, i, opts):

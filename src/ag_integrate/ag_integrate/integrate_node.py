@@ -770,7 +770,7 @@ class IntegrateNode(Node):
 
         self.last_route = commands.route
         self._replan_sig = self._snap_signature(snapshot)  # 守卫基线随路线更新
-        # 时间预算门控结果：砍射击位 / 超硬顶都要显眼
+        # 时间预算门控结果：砍射击位 / 弃任务 / 超硬顶都要显眼
         if commands.shed_shooting:
             self.get_logger().warning(
                 f"路线超软预算 {self.time_soft_cap_s:.0f}s，已砍射击位重规划: "
@@ -781,11 +781,27 @@ class IntegrateNode(Node):
                 f"纯排雷链预估 {commands.est_seconds:.0f}s 已超 180s 硬顶——"
                 f"完赛无望，请人工压缩任务"
             )
+        elif (self.time_soft_cap_s > 0 and commands.est_seconds > 0
+              and commands.est_seconds > self.time_soft_cap_s):
+            # 既没砍射击位也没破硬顶，但已经超软预算：此前全程静默，
+            # 复盘时看不出"这一局是被计时器腰斩的"。
+            # est_seconds<=0 表示门控关闭、从未折算过，不能拿来比。
+            self.get_logger().warning(
+                f"预估 {commands.est_seconds:.0f}s 超软预算 "
+                f"{self.time_soft_cap_s:.0f}s（未及 180s 硬顶）——同分比用时会吃亏"
+            )
+        if commands.dropped_tasks:
+            # 弃任务是求解器的决策，必须留痕：得分对不上时这是唯一线索
+            self.get_logger().warning(
+                f"联合求解器弃 {len(commands.dropped_tasks)} 项以压进预算: "
+                f"{list(commands.dropped_tasks)}"
+            )
         self._blog(EV.PLAN_BUILT, reset=commands.reset, route=commands.route,
                    shoot=",".join(commands.shoot_cells),
                    heading=start_heading,
                    est_s=round(commands.est_seconds, 1),
                    shed=commands.shed_shooting,
+                   dropped=",".join(commands.dropped_tasks),
                    degraded="; ".join(degraded))
 
         if self.dry_run:

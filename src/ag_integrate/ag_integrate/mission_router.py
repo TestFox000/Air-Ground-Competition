@@ -31,6 +31,7 @@ from itertools import count, product
 from math import gcd
 
 from .field_frame import CellRef, ROWS, COLS, LETTERS
+from .fire_guard import blue_targets_hit, decide_fire
 from .world_model import WorldSnapshot
 
 _SQRT2 = 2.0 ** 0.5
@@ -1036,6 +1037,7 @@ def plan_route(
     allow_diagonal: bool = True,
     crossing_penalty: float = 0.0,
     tunnel_dirs: dict[str, str] | None = None,
+    require_gates: bool = True,
 ) -> tuple[str, ...]:
     """输出有序格号；转向按 turn_45/45° 计费，起点/终点朝向可约束。
 
@@ -1054,6 +1056,12 @@ def plan_route(
     雷格过心约束（ensure_mine_center_pass）：处于路线拐点的雷格沿进入
     方向补一格"过心穿越点"，保证轮中心进入 12cm 判分圆（直线途经天然
     过心，只有拐点雷有切角风险）。
+
+    require_gates：桥门格（snapshot.passable）是否作为**必经点**。默认 True
+    ——规则里"桥洞通道协同穿梭"每段 10 分，正式任务路线必须穿门。
+    传 False 时桥门只保留"桥墙开口"的连通性语义、不再强制绕行：
+    供纯移动代价测量（pipeline 的 leg_s）使用。两种角色必须能分开，
+    否则每段点对点代价都被迫绕经全部门格（见 pipeline._solve_with_joint_solver）。
     """
     if start_heading is not None and start_heading not in _HEADING_IDX:
         raise ValueError(f"start_heading 只支持 'x'/'y'，收到 {start_heading!r}")
@@ -1178,8 +1186,9 @@ def plan_route(
     # 二区域 6 选 1，每区只计一次）——无人机读到的箭头格不穿过去就是白丢分。
     # 此前代码漏了这条（docstring 写了但实现没加），2026-10-15 随机图复盘发现补上。
     # 被实物占用的门格不是必经点（门已失效，见占用过滤）。
-    for c in passable_cells:
-        base_required.setdefault(c.name, c)
+    if require_gates:
+        for c in passable_cells:
+            base_required.setdefault(c.name, c)
     # 发现态靶标（红蓝未辨，is_blue=None）的确认点：距靶 1 格的正交邻格
     # 作为必经点（docs/分区规划与感知约束-20261015 问题 4 两段式）。
     # 车到确认点即近距离复判：蓝→replan 守卫加射击位，红→粘性否决绕行；
@@ -1304,20 +1313,26 @@ def _transit_blocked(snapshot: WorldSnapshot) -> frozenset[CellRef]:
     return frozenset(c for c in blocked if c.name not in passable_names)
 
 
-def _required_keep(snapshot: WorldSnapshot) -> frozenset[str]:
-    """收集所有必须保留为显式途经点的格名（雷/桥洞/靶）。
+def mission_keep(snapshot: WorldSnapshot, route) -> set[str]:
+    """压缩保护集：雷 / 桥门 / 靶体与轨道 / 路线上所有可开火格。
 
-    compress_route 会跳过同向共线的中间格，但必经点必须保留，
-    否则车端直线段可能不经过该格心导致漏扫。
+    compress_route 会删掉同向共线的中间格——射击停靠格一旦被删，
+    adapt 就看不到它，'*' 标记丢失 = 漏打（2026-10-17 实拍复盘踩中）。
+    本函数把"绝不能删的格"集中在一处推导，调用方不再手工拼 KEEP。
+
+    ⚠ 全仓**只能有这一个** keep 推导。曾经的 _required_keep(snapshot) 少了
+    轨道格与可开火格，且只认 snapshot 不认 route；car_adapter 修好后
+    plan_route_zoned 仍走旧的那个，等于同一个 bug 在分区规划路径上活着。
     """
-    keep: set[str] = set()
-    for c in snapshot.mines:
-        keep.add(c.name)
-    for c in snapshot.passable:
-        keep.add(c.name)
-    for t in snapshot.targets:
-        keep.add(t.cell.name)
-    return frozenset(keep)
+    keep = {c.name for c in snapshot.mines}
+    keep |= {c.name for c in snapshot.passable}
+    keep |= {t.cell.name for t in snapshot.targets}
+    keep |= {c.name for t in snapshot.targets if t.track for c in t.track}
+    for cell in route:
+        name = cell.strip().upper()
+        if not decide_fire(snapshot, name).denied and blue_targets_hit(snapshot, name):
+            keep.add(name)          # 潜在开火格：宁可多保，不可漏保
+    return keep
 
 
 def _derive_cross_gates(snapshot: WorldSnapshot, mid_boundary: int) -> frozenset[CellRef]:
@@ -1615,10 +1630,10 @@ def plan_route_zoned(
                 RuntimeWarning, stacklevel=2,
             )
             full = tuple(c for part in parts for c in part)
-            return compress_route(full, _required_keep(snapshot))
+            return compress_route(full, mission_keep(snapshot, full))
         parts.append(tail[1:])
     full = tuple(c for part in parts for c in part)
-    return compress_route(full, _required_keep(snapshot))
+    return compress_route(full, mission_keep(snapshot, full))
 
 
 def _norm_dir(a: tuple[int, int], b: tuple[int, int]) -> tuple[int, int]:

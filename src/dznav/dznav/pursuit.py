@@ -137,14 +137,9 @@ class Tracker:
         # 进度单调（REBUILD 后 s_prog 重置由重建路径承担）
         self.s_prog = max(self.s_prog, pr["s"])
 
-        # ---- 途经点推进 + 软锚点 ----
-        while (self.passed + 1 < len(path.waypoints)
-               and self.s_prog > path.vertex_s[self.passed + 1] + 0.02):
-            self.passed += 1
-            if cfg.anchor_pass and self.passed < len(path.waypoints) - 1:
-                ev.append({"ev": "pass_wp", "idx": self.passed})
-
         # ---- 射击停站触发（只看"下一个未过停站"，防路线回折早触发）----
+        # 必须排在途经点推进**之前**：推进一旦把 passed 抬过停站，下面那个
+        # `i != passed+1: break` 就再也不会看到它了。
         for i in range(self.passed + 1, len(path.waypoints)):
             if i != self.passed + 1:
                 break                     # 只允许紧邻的下一个途经点
@@ -158,6 +153,27 @@ class Tracker:
                 ev.append({"ev": "shoot_stop", "idx": i})
                 return Command(0.0, 0.0)
             break
+
+        # ---- 途经点推进 + 软锚点 ----
+        while (self.passed + 1 < len(path.waypoints)
+               and self.s_prog > path.vertex_s[self.passed + 1] + 0.02):
+            self.passed += 1
+            w = path.waypoints[self.passed]
+            if w.shoot_stop and not w.served:
+                # 越过停站却没能在 shoot_stop_radius(0.17m) 内触发过。这是纯
+                # 瞬时距离判定的固有漏洞，不是罕见竞态：切角时横向偏差要涨到
+                # recover_cte(0.30m) 才触发 rebuild，而 0.30 > 0.17 —— 车完全
+                # 可以"过了弧长但从没进过半径"。旧代码就此永久跳过该站，
+                # 无告警无补救，漏一站＝那些靶一分不得。
+                # 补停优于开走：云台有偏航/俯仰自由度，晚 0.3m 仍能打。
+                w.served = True
+                self.paused = True
+                self.v_cmd = 0.0
+                ev.append({"ev": "shoot_stop", "idx": self.passed,
+                           "late": True})
+                return Command(0.0, 0.0)
+            if cfg.anchor_pass and self.passed < len(path.waypoints) - 1:
+                ev.append({"ev": "pass_wp", "idx": self.passed})
 
         # ---- 到点（距离 + 剩余进度双门：防路线中段路过终点旁早收车）----
         fw = path.waypoints[-1]
@@ -369,7 +385,10 @@ class Tracker:
         for i in range(nxt, len(self.path.waypoints)):
             keep.append(self.path.waypoints[i])
         from .refpath import build_reference, PathOptions
-        opts = PathOptions(dev_cap=0.08, dev_cap_critical=0.03)
+        # 必须沿用建原路径时的选项：这里曾经硬编码 dev_cap=0.08/
+        # dev_cap_critical=0.03，于是运维在 YAML 里调过的值只在首条路径上生效，
+        # 第一次重建就被静默丢回默认（arc_fallback_deg 同样会丢）。
+        opts = self.path.opts or PathOptions(dev_cap=0.08, dev_cap_critical=0.03)
         self.path = build_reference(keep, self.servo, opts)
         self.s_prog = 0.0
         self.passed = 0

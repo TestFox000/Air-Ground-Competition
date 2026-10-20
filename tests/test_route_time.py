@@ -24,12 +24,62 @@ def _snap(objects):
 
 
 def test_straight_line_distance_and_overheads():
-    # N10 -> N8：正交两格 = 0.7m，2 条段
+    # N10 -> N9 -> N8：同列连续三格 = 0.7m 里程、**一条**直线段。
+    # 旧断言写 n_segments == 2（按格数算），把 accel_overhead_s 变成"每格附加"，
+    # 与它自己 docstring 里"每条直线段"的定义矛盾。
     p = RouteTimeParams(cruise_mps=0.5, accel_overhead_s=1.0)
     b = estimate_seconds(("N10", "N9", "N8"), params=p)
     assert b.distance_m == 2 * CELL_SIZE
+    assert b.n_segments == 1
+    assert b.seconds == (0.7 / 0.5) + 1 * 1.0
+
+
+def test_turn_starts_a_new_segment():
+    """转向必须另算一段：那才是真正需要减速再加速的地方。"""
+    p = RouteTimeParams(cruise_mps=1.0, accel_overhead_s=1.0)
+    # N10 -> N9 -> M9：先向南一格再向西北转向，两段
+    b = estimate_seconds(("N10", "N9", "M9"), params=p)
     assert b.n_segments == 2
-    assert b.seconds == (0.7 / 0.5) + 2 * 1.0
+
+
+def test_u_turn_along_same_line_counts_as_new_segment():
+    """同线折返不是"继续直行"：车得停稳再起步，必须另计一段。
+
+    只用叉积判方向会把 (0,-1) 后的 (0,+1) 当成同一段（cross=0）。
+    """
+    p = RouteTimeParams(cruise_mps=1.0, accel_overhead_s=1.0)
+    b = estimate_seconds(("N10", "N9", "N10"), params=p)
+    assert b.n_segments == 2
+
+
+def test_budget_is_invariant_to_route_encoding():
+    """同一条物理路线，逐格喂和压缩喂必须给出**完全相同**的预算。
+
+    这是本模块的核心契约：pipeline.py 用 plan_route 的逐格序列，
+    tests/test_full_match_route_within_soft_cap 用 compress_route 的压缩序列。
+    旧实现下两者相差 13.6s（59 格全场路线 120.2s vs 106.6s，里程同为 23.05m），
+    等于生产门限比测试门限严 13s —— 幻影开销足以把一条真实 158s 的路线判成
+    超 165s 软顶，触发不必要的弃靶/弃雷（每弃一项 −5 分）。
+    """
+    p = RouteTimeParams(cruise_mps=0.5, accel_overhead_s=0.4)
+    per_cell = ("N10", "N9", "N8", "N7", "M7", "M8", "M9")
+    compressed = ("N10", "N7", "M7", "M9")     # 同一条折线的拐点表达
+    b1 = estimate_seconds(per_cell, params=p)
+    b2 = estimate_seconds(compressed, params=p)
+    assert b1.distance_m == b2.distance_m, "两种表达的里程必须一致"
+    assert b1.n_segments == b2.n_segments == 3, (
+        f"段数应同为 3（南下/东转/北上），实得 {b1.n_segments} vs {b2.n_segments}")
+    assert b1.seconds == b2.seconds, (
+        f"预算随表达方式漂移：逐格 {b1.seconds:.2f}s vs 压缩 {b2.seconds:.2f}s")
+
+
+def test_repeated_cell_is_charged_per_pass():
+    """同一格被路线经过两次，减速/停靠就该计两次（旧实现用 set 只算一次）。"""
+    p = RouteTimeParams(cruise_mps=1.0, accel_overhead_s=0.0,
+                        mine_slow_s=0.5, shoot_stop_s=3.0)
+    b = estimate_seconds(("A1", "A2", "A1", "A2"),
+                         mine_cells={"A2"}, shoot_cells={"A1"}, params=p)
+    assert b.n_mines == 2 and b.n_shoots == 2
 
 
 def test_diagonal_distance_is_sqrt2():

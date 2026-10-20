@@ -4,23 +4,30 @@
 A. 桥门被实物占用 → 门失效 + 告警（旧逻辑静默豁免，路线从桶上开过去）
 B. 终点不可达 → 报错附连通性诊断（封锁点分类 + 开放桥门，而非裸字符串）
 C. compact_and_adapt 原子 API → 射击停靠格不可能被压缩掉
+D. 全仓只保留一份压缩保护集推导（F7）→ plan_route_zoned 生产线不再漏保开火格
 
 场景全部取自 2026-10-17 实拍场地复盘：
 - K9 门区放桶（照片格位 ±1）——旧逻辑无视桶直接穿门
 - 仅 K4 单门时东南区被封死——旧报错 "goal cell unreachable from start" 无从排查
 - 压缩丢 D9 射击格——adapt 拿到的压缩路线里没有停靠格，'*' 丢失
+- C 只修了 compact_and_adapt 这一条路；pipeline.py 走的是
+  plan_route_zoned -> adapt，内部缝合后用的是另一份残缺 keep，
+  同一个 bug 在分区规划路径上活着（漏打 = 靶一分不得）
 """
 
 from __future__ import annotations
 
+import ast
+import inspect
 import warnings
 
 import pytest
 
+import ag_integrate.mission_router as mission_router
 from ag_integrate.field_frame import CellRef
 from ag_integrate.world_model import TargetRef, WorldSnapshot
-from ag_integrate.mission_router import plan_route
-from ag_integrate.car_adapter import adapt, compact_and_adapt, mission_keep
+from ag_integrate.mission_router import mission_keep, plan_route, plan_route_zoned
+from ag_integrate.car_adapter import adapt, compact_and_adapt
 
 LETTERS = "ABCDEFGHIJKLMN"
 
@@ -123,6 +130,65 @@ def test_mission_keep_covers_all_mission_cells():
     s = snap(mines=("E3",), passable=("K4", "K9"), targets=MOVING)
     keep = mission_keep(s, ("D9", "E9", "N11"))
     assert {"E3", "K4", "K9", "D8", "E8", "D9", "E9"} <= keep
+
+
+def test_mission_keep_is_route_aware_for_fire_cells():
+    """keep 必须看 route：E9 不在 snapshot 里（它只是"能打到蓝靶的站位"），
+    旧 _required_keep(snapshot) 无从得知，共线压缩时直接删掉。"""
+    s = snap(mines=("E3", "E2"), targets=MOVING)
+    full = plan_route(s, cell("N11"), cell("N6"), start_heading="y", final_heading="y")
+    assert "E9" in full, "前提校验：完整路线上确实存在 E9 开火格"
+    keep = mission_keep(s, full)
+    assert "E9" in keep
+    # 同一 snapshot，给一条不含 E9 的路线：E9 不该被保护（否则 keep 与路线无关）
+    assert "E9" not in mission_keep(s, ("N11", "N10", "N9"))
+
+
+# ---------------------------------------------------------------- 修复 D
+# F7：pipeline.py 走的是 plan_route_zoned -> adapt（不是 compact_and_adapt），
+# 而 plan_route_zoned 内部缝合后用的是另一份残缺 keep。同一条生产线上的两个
+# 压缩点曾经各自推导保护集，只有一处被修过。
+@pytest.mark.parametrize("zone_order", [
+    None,
+    ("西", "东南", "东北"),
+])
+def test_plan_route_zoned_keeps_shoot_cells_on_production_path(zone_order):
+    s = snap(mines=("E3", "E2"), targets=MOVING)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)   # 分区追加/终点区调整
+        ordered = plan_route_zoned(
+            s, cell("N11"), cell("N6"), zone_order,
+            start_heading="y", final_heading="y",
+        )
+    cmds = adapt(s, ordered, "N11", "y", "y")
+    assert cmds.shoot_cells, f"zone_order={zone_order} 分区规划丢了射击停靠格"
+    assert all(c in ordered for c in cmds.shoot_cells), "射击格必须在压缩路线中"
+    assert "*" in cmds.route, f"zone_order={zone_order} 车端命令缺 '*' 开火标记"
+
+
+def test_plan_route_zoned_has_single_keep_source():
+    """守卫：mission_router 内每个 compress_route 调用都必须走 mission_keep。
+
+    F7 的根因是"同一条生产线上两个压缩点各自推导保护集，只有一处被修过"。
+    用 AST 而非源码文本断言——注释里提到旧函数名不算，变量名改了也不算。
+    """
+    src = inspect.getsource(mission_router)
+    tree = ast.parse(src)
+    defined = {n.name for n in ast.walk(tree)
+               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    assert "_required_keep" not in defined, "残缺的 keep 推导又被加回来了"
+
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "compress_route"]
+    assert calls, "前提校验：mission_router 里确有 compress_route 调用"
+
+    def _uses_mission_keep(call) -> bool:
+        args = list(call.args) + [kw.value for kw in call.keywords]
+        return any(isinstance(a, ast.Call) and getattr(a.func, "id", None) == "mission_keep"
+                   for a in args)
+
+    offenders = [ast.get_source_segment(src, c) for c in calls if not _uses_mission_keep(c)]
+    assert not offenders, f"这些压缩点没走 mission_keep：{offenders}"
 
 
 def test_naive_adapt_on_overcompressed_route_was_the_bug():
