@@ -979,3 +979,70 @@ def test_final_arc_timeout_does_not_fabricate_heading():
     assert abs(wrap_pi(node.loc.th - th_before)) < 1e-9, (
         f"超时却把航向锚向未到达的 target：{th_before:.3f} -> {node.loc.th:.3f}")
     assert node.get_logger().text("error", "终点朝向机动超时")
+
+
+# ================== 射击停站被切角跳过（F5：纯瞬时距离判定的固有漏洞）
+def _shoot_tracker(offset_y: float):
+    """直线路径 + 一个射击停站；车按 offset_y 的横向偏差跑（模拟切角）。"""
+    from dznav.refpath import PathOptions, Waypoint, build_reference
+    from dznav.pursuit import Tracker, TrackerConfig
+    from dznav.servo import ServoModel
+
+    sv = ServoModel(steer_limit_deg=30.0)
+    wps = [Waypoint(0, 0),
+           Waypoint(1.5, 0, label="D2", shoot_stop=True),
+           Waypoint(3, 0)]
+    tr = Tracker(build_reference(wps, sv, PathOptions()), sv, TrackerConfig())
+    return tr, offset_y
+
+
+def _drive_past_station(tr, offset_y: float, n: int = 400):
+    """沿路径推进直到越过停站弧长，返回收集到的事件。"""
+    evs = []
+    for _ in range(n):
+        cmd, ev = tr.update(min(tr.s_prog + 0.05, 2.9), offset_y, 0.0, 0.02)
+        evs.extend(ev)
+        if any(e["ev"] in ("shoot_stop", "arrived") for e in ev):
+            break
+    return evs
+
+
+def test_shoot_stop_fires_when_corner_cut_skips_trigger_radius():
+    """横向偏 0.25m 跑过停站：进不了 0.17m 触发半径，但弧长照样越过。
+
+    这不是罕见竞态而是设计漏洞：切角时 cte 要涨到 recover_cte=0.30m 才触发
+    rebuild，而 0.30 > shoot_stop_radius=0.17 —— "过了弧长但从没进过半径"
+    完全合法。旧代码把 passed 抬过去后，`i != passed+1: break` 让它再也看不到
+    这个停站，于是永久跳过、无告警、无补救：漏一站＝那些靶一分不得。
+    """
+    cfg_r = 0.17
+    tr, off = _shoot_tracker(0.25)
+    assert off > cfg_r, "本测试要求偏差大于触发半径，否则走的是正常路径"
+    assert off < tr.cfg.recover_cte, "偏差需小于 rebuild 阈值，否则测的是恢复"
+
+    evs = _drive_past_station(tr, off)
+    stops = [e for e in evs if e["ev"] == "shoot_stop"]
+    assert stops, f"停站被静默跳过；事件={evs}"
+    assert stops[0].get("late") is True, "补停必须标记 late，供上层告警"
+    assert tr.paused
+
+
+def test_shoot_stop_normal_trigger_is_not_marked_late():
+    """反向对照：正儿八经在半径内触发时不得误报 late。"""
+    tr, off = _shoot_tracker(0.0)
+    evs = _drive_past_station(tr, off)
+    stops = [e for e in evs if e["ev"] == "shoot_stop"]
+    assert stops, f"正常停站没触发；事件={evs}"
+    assert not stops[0].get("late"), f"正常触发被误标 late: {stops[0]}"
+    assert tr.paused
+
+
+def test_late_shoot_stop_is_reported_loudly():
+    """executor 收到 late 必须 warning，否则打分对不上时没人知道根因。"""
+    node = DzNavNode()
+    _armed(node, route="M9*,y")
+    wps = node.tracker.path.waypoints
+    idx = next(i for i, w in enumerate(wps) if w.shoot_stop)
+    node._handle_event({"ev": "shoot_stop", "idx": idx, "late": True})
+    assert node.state == "SHOOT_WAIT"
+    assert node.get_logger().text("warning", "补停"), "late 停站必须告警"

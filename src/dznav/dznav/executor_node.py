@@ -592,6 +592,15 @@ class DzNavNode(Node):
         elif ev == "shoot_stop":
             wps = self.tracker.path.waypoints
             w = wps[min(e["idx"], len(wps) - 1)]
+            late = bool(e.get("late"))
+            if late:
+                # 越过站才补停：车不在站心上，这一锚的位置残差比正常停站大，
+                # 必须喊出来，否则打分对不上时没人知道是这里来的。
+                cx, cy, _cth = self.loc.pose
+                self.get_logger().warning(
+                    f"射击停站 {w.label} 被切角跳过触发半径，已越过 "
+                    f"{math.hypot(cx - w.x, cy - w.y):.2f}m 处补停"
+                    f"（正常应在 {self.tcfg.shoot_stop_radius:.2f}m 内触发）")
             self.loc.anchor(w.x, w.y, self.loc.th, blend=0.3, blend_th=0.0)
             self.state = "SHOOT_WAIT"
             self.shoot_at_arrival = self.shoot_count
