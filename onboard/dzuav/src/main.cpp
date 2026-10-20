@@ -375,6 +375,7 @@ int runCamera(const std::string& source, const std::string& hbb_path,
     // not-negotiated 时 isOpened 也可能是 true，必须试读一帧）。
     cv::VideoCapture capture;
     std::string used;
+    cv::Size got;   // 实际出帧尺寸，以试读到的那一帧为准（比 CAP_PROP_* 可靠）
     for (const auto& pipeline : candidates)
     {
         std::cout << "opening camera: " << pipeline << '\n';
@@ -389,6 +390,7 @@ int runCamera(const std::string& source, const std::string& hbb_path,
         }
         capture = std::move(trial);
         used = pipeline;
+        got = probe.size();
         // 试读掉的那一帧不能丢：交给主循环作为首帧处理会重复计数，
         // 这里直接丢弃（仅 1 帧，不影响定位/时序）。
         break;
@@ -401,6 +403,20 @@ int runCamera(const std::string& source, const std::string& hbb_path,
         return 3;
     }
     std::cout << "camera opened with: " << used << '\n';
+    // **请求到的 caps 不等于协商到的 caps**：GStreamer 可以悄悄降档（UVC 1080p30
+    // 走不通时退回更低分辨率），而上面那圈候选 pipeline 只保证"能出帧"，
+    // 不保证出的是请求的尺寸。内参是按帧分辨率缩放的（MapLocalizer::
+    // scaledIntrinsics），尺寸一变定位就系统性偏移，而 L1/L2/L3 三级自检
+    // 都不碰内参 —— 全绿。所以必须把实际尺寸喊出来，与上面的 camera spec 对账。
+    // 只比"请求 vs 实际"、不比"实际 vs 标定基准"：基准分母由
+    // tools/calibrate_camera.py inject 按标定分辨率改写（且它自己已拒绝
+    // 基准 != 采集分辨率），在这里硬编码 1920x1080 会在重标定后误报。
+    std::cout << "negotiated frame size: " << got.width << 'x' << got.height << '\n';
+    if (got.width != width || got.height != height)
+        std::cerr << "WARNING: negotiated " << got.width << 'x' << got.height
+                  << " != requested " << width << 'x' << height
+                  << "; pipeline 没有按请求的 caps 出帧，定位精度已不可信，"
+                     "必须修 pipeline 或按实际尺寸重新标定\n";
 
     std::array<float, kObjectClassCount> nms_per_class;
     nms_per_class.fill(kDeployNms);

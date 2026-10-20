@@ -564,6 +564,36 @@ def test_camera_reopen_is_bounded_probed_and_backed_off():
         "收到好帧后没有归还重试额度：一次恢复过的掉线会永久吃掉整局的重试次数")
 
 
+def test_camera_checks_negotiated_size_against_requested():
+    """请求到的 caps 不等于协商到的 caps，必须对账并喊出来。
+
+    候选 pipeline 那一圈只保证"能出帧"，不保证出的是请求的尺寸；GStreamer
+    可以悄悄降档。内参按帧分辨率缩放（MapLocalizer::scaledIntrinsics），
+    尺寸一变定位就系统性偏移，而 L1/L2/L3 三级自检都不碰内参 —— 全绿。
+    这一类偏差在 2026-10-20 已经真发生过一次（标定按 1200 出、机上按 1080 采）。
+    """
+    text = _main_cpp_text()
+    # 结束锚点必须从 start 之后找：std::array<float, kObjectClassCount> 在
+    # processFrame 里也出现过，全文 index() 会取到那一处，切出空串。
+    start = text.index("cv::VideoCapture capture;")
+    region = text[start:text.index("std::array<float, kObjectClassCount>", start)]
+
+    # 尺寸必须取自**试读到的那一帧**，不是 CAP_PROP_*：后者报的可能仍是请求的
+    # caps，恰恰是要对账的那一侧，拿它自己跟自己比等于没比。
+    assert re.search(r"got = probe\.size\(\);", region), (
+        "没有记录实际出帧尺寸；无法发现 pipeline 悄悄降档")
+    assert "CAP_PROP_FRAME_WIDTH" not in region, (
+        "用 CAP_PROP_FRAME_WIDTH 对账等于拿请求值跟自己比，查不出降档")
+    assert region.index("got = probe.size();") < region.index("negotiated frame size:"), (
+        "先打印再取尺寸：打出来的是默认构造的 0x0")
+    assert re.search(r"if \(got\.width != width \|\| got\.height != height\)\s*\n"
+                     r"\s*std::cerr << \"WARNING: negotiated ", region), (
+        "实际尺寸与请求不一致时没有告警——降档会静默改变内参缩放系数")
+    # 打印必须无条件执行：一致时也要留下证据，否则事后无法判断当时到底协商成了什么。
+    assert re.search(r"std::cout << \"negotiated frame size: \"", region), (
+        "没有把协商到的尺寸打进日志")
+
+
 def test_offline_video_loop_is_interruptible_and_bounded():
     """离线视频循环三条不变量：可 Ctrl-C、单帧异常不毁整段、连续异常有界退出。
 
