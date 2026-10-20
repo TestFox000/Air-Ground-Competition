@@ -136,6 +136,12 @@ cat > "$GUIDE" <<'TXT'
         plan     机载规划（打印场地矩阵 + 路线）
         fastlio  定位   px4 飞控桥   control 控制   path 航线
     切窗口：Ctrl+B 松开后按窗口名首字母或数字；退出看板：Ctrl+B 再按 d
+  · 【先看这两行，确认没跑错版本】dzuav 窗口开头会打印：
+        [配置] bin    = .../onboard/dzuav/build/dzuav
+        [配置] hbb    = hbb_detector_d13_fp16.engine
+        [配置] cell   = cell_classifier_v4d_fp16.engine
+    若出现 hbb_detector_fp16 / cell_classifier_fp16（没有 d13/v4d），说明跑的是
+    7 类旧栈，类别编号会与协议错位（障碍可能被当蓝靶）——立即停止并告知负责人。
 
 三、规划产物在哪
   · /tmp/ag_plan_live/   （菜单输入 6 可看摘要）

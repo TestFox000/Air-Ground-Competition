@@ -227,10 +227,16 @@ def main(argv=None) -> int:
     print(
         "\n==================== 部署完成 ====================\n"
         "在 Orin 上按序执行：\n"
-        "  cd ~/dzuav_deploy/air_ground\n"
-        "  tools/orin_convert_engines.sh -o ~/dzuav/engines   # ONNX->TRT FP16（换机/刷机后必跑）\n"
-        "  tools/orin_build_verify.sh                         # L0~L2（或 --run <engines> <图> 加 L3）\n"
-        "  tools/orin_bringup.sh up                           # 全栈启动（tmux 会话 agup）\n"
+        "  tools/orin_build_verify.sh                          # L0~L2；加 --run <engines> <图> 做 L3\n"
+        "  tools/orin_accept_plan.sh                           # 机载规划一键验收（只写 /tmp）\n"
+        "  tools/orin_bringup.sh up                            # 全栈启动（规划默认只落盘）\n"
+        "  PLAN_SEND=1 tools/orin_bringup.sh up                # 确认产物后再开 0x4003 实发\n"
+        "\n"
+        "⚠️ 机上已有 13 类引擎（hbb_detector_d13 + cell_classifier_v4d）时，"
+        "**不要**跑 tools/orin_convert_engines.sh：\n"
+        "   它按 models/release 的 7 类指针重新生成 hbb_detector_fp16 / cell_classifier_fp16，\n"
+        "   会覆盖并不可逆地降级现网 13 类引擎（类别索引错位 → 障碍被当蓝靶）。\n"
+        "   仅换机/刷机后机上确实没有任何引擎时才使用。\n"
         "无无人机时车端自测：tools/fake_udp_sender.py --scenario \"...\"\n"
         "====================================================")
     return 0

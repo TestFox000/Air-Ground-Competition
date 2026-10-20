@@ -35,6 +35,20 @@ ok()   { echo "[通过] $*"; }
 [ -f "$SENDER" ]  || fail "缺少 $SENDER —— 注入器未上机（tools/fake_udp_sender.py）"
 mkdir -p "$OUT"
 
+# ---- ⓪ 栈一致性：一键启动实际会用哪套二进制/引擎（错版本不会报错，只会静默错结果） ----
+BIN="$REPO/onboard/dzuav/build/dzuav"
+[ -f "$BIN" ] || fail "缺少 dzuav 二进制 $BIN —— 先 bash tools/orin_build_verify.sh"
+# 类别名表可直接在二进制里查：13 类含 uav_end/paper，7 类旧版含 mine/arrow。
+# 这条是 2026-10-20 查出的真实事故形态：一键启动曾指向 9 月的 7 类老二进制。
+grep -qa uav_end "$BIN" || fail "dzuav 二进制不是 13 类（未见类别名 uav_end）——疑似 7 类旧版，跑起来会与 13 类协议错位"
+grep -qa paper "$BIN" || fail "dzuav 二进制未见 13 类类别名 paper"
+ok "dzuav 二进制为 13 类（含 uav_end / paper 类别名）"
+for e in hbb_detector_d13_fp16 cell_classifier_v4d_fp16; do
+    [ -f "$HOME/dzuav/engines/$e.engine" ] || \
+        fail "缺少 canonical 引擎 $e.engine（13 类部署线要求 d13 + v4d，勿用 *_fp16 旧名）"
+done
+ok "canonical 引擎齐备（hbb_detector_d13 + cell_classifier_v4d）"
+
 # ---- ① 规划进程起来 ----
 python3 -u "$SIDECAR" --params "$PARAMS" --out "$OUT" --plan-mode on-change \
     --duration-seconds 40 $SEND > "$OUT/sidecar.log" 2>&1 &
@@ -63,10 +77,11 @@ for f in cell_matrix.json route_plan.json planned_path.txt; do
 done
 ok "三份产物齐备：$(ls "$OUT" | tr '\n' ' ')"
 
-grep -q '"M"' "$OUT/cell_matrix.json" || grep -q 'M' "$OUT/cell_matrix.json" \
-    || fail "矩阵里没有雷(M) 符号 —— 落格或注入有问题"
-grep -q 'B' "$OUT/cell_matrix.json" || fail "矩阵里没有蓝靶(B) 符号"
-ok "落格矩阵含 M/B 符号"
+# 断言写在**明细**（spots 的 kind）上，不写符号图例——图例里本来就含 M/B，
+# 拿它做断言等于永远为真（2026-10-20 复查发现，属假绿）。
+grep -q '"kind": "paper"'       "$OUT/cell_matrix.json" || fail "矩阵明细里没有 paper（雷）落格 —— 注入未生效或落格有问题"
+grep -q '"kind": "target_blue"' "$OUT/cell_matrix.json" || fail "矩阵明细里没有 target_blue（蓝靶）"
+ok "矩阵明细含 paper(雷) 与 target_blue(蓝靶)"
 
 grep -m1 '"reset"' "$OUT/route_plan.json" | sed 's/^/       /'
 grep -m1 '"route_len_cells"' "$OUT/route_plan.json" | sed 's/^/       /'

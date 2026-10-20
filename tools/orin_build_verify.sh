@@ -188,8 +188,18 @@ run_inference() {
     [[ -f $RUN_IMAGE ]] || fail "测试图不存在: $RUN_IMAGE"
 
     local hbb_engine cell_engine
-    hbb_engine=$(find "$RUN_ENGINES" -type f \( -name '*.engine' -o -name '*.trt' \) -iname '*hbb*' 2>/dev/null | sort | head -n 1)
-    cell_engine=$(find "$RUN_ENGINES" -type f \( -name '*.engine' -o -name '*.trt' \) -iname '*cell*' 2>/dev/null | sort | head -n 1)
+    # 优先 canonical 固定名（13 类部署线：d13 检测 + v4d 格号），找不到才回退模糊匹配。
+    # 不能直接用 `find|sort|head -1`：字典序下 cell_classifier_fp16（7 类旧引擎）
+    # 排在 cell_classifier_v4d_fp16 前面，会把 L3 验成 7 类，与实跑口径不一致
+    # （2026-10-20 复查发现）。
+    hbb_engine="$RUN_ENGINES/hbb_detector_d13_fp16.engine"
+    cell_engine="$RUN_ENGINES/cell_classifier_v4d_fp16.engine"
+    if [[ ! -f $hbb_engine ]]; then
+        hbb_engine=$(find "$RUN_ENGINES" -type f \( -name '*.engine' -o -name '*.trt' \) -iname '*hbb*' 2>/dev/null | sort | head -n 1)
+    fi
+    if [[ ! -f $cell_engine ]]; then
+        cell_engine=$(find "$RUN_ENGINES" -type f \( -name '*.engine' -o -name '*.trt' \) -iname '*cell*' 2>/dev/null | sort | head -n 1)
+    fi
     [[ -n $hbb_engine ]] || fail "在 $RUN_ENGINES 未找到 hbb 引擎（匹配 *hbb*.engine|.trt）"
     [[ -n $cell_engine ]] || fail "在 $RUN_ENGINES 未找到 cell 引擎（匹配 *cell*.engine|.trt）"
     printf '  hbb  引擎: %s\n  cell 引擎: %s\n  测试图:   %s\n' "$hbb_engine" "$cell_engine" "$RUN_IMAGE"

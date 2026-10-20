@@ -31,6 +31,13 @@
 
 机上源码只读归档见 `reference/onboard/`；**可部署的 dzuav 补全版见 `onboard/dzuav/`**。
 
+> ⚠️ **引擎与二进制的唯一口径**（2026-10-20 复查）：一键启动固定使用
+> `<仓库>/onboard/dzuav/build/dzuav` + `hbb_detector_d13_fp16` + `cell_classifier_v4d_fp16`。
+> 历史坑：`orin_run_dzuav.sh` 曾默认 `~/ag_test/dzuav` + `hbb_detector_fp16`，于是
+> 「一键启动」拉起的是 9 月的 **7 类**老二进制与 7 类引擎，类别索引与 13 类协议错位
+> （障碍被当蓝靶）而界面无任何异常。`tools/orin_accept_plan.sh` 会用二进制里的类别名
+> （`uav_end`/`paper`）与 canonical 引擎名做前置断言，错版本当场报错。
+
 ## 仓库结构
 
 | 路径 | 作用 |
