@@ -533,6 +533,11 @@ class _UdpLink:
         self.send = send
         self.addr = (broadcast_addr, port)
         self.send_sock = None
+        # 收包计数：现场只看到"规划 0 次"时，要能立刻分清是相机没出帧
+        # （intel=0）还是出了帧但没有可用目标（intel>0、plan=0）。
+        self.intel_frames = 0
+        self.car_poses = 0
+        self.bad_packets = 0
         if send:
             self.send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.send_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -554,14 +559,18 @@ class _UdpLink:
             if msg_id == MSG_ID_CAR_POSE:
                 try:
                     core.feed_car_pose(parse_car_pose(data), recv_mono)
+                    self.car_poses += 1
                 except ValueError as exc:
+                    self.bad_packets += 1
                     print(f"[link] 丢弃坏车位姿帧: {exc}", file=sys.stderr)
                 continue
             try:
                 frame = parse(data)
             except ValueError as exc:
+                self.bad_packets += 1
                 print(f"[link] 丢弃坏情报帧: {exc}", file=sys.stderr)
                 continue
+            self.intel_frames += 1
             core.feed_frame(frame, recv_mono)
 
     def send_command(self, ts_ms: int, reset: str, route: str) -> None:
@@ -652,6 +661,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[sidecar] 收尾 {step.__name__} 失败: "
                       f"{type(exc).__name__}: {exc}", file=sys.stderr)
         link.close()
+    print(f"[sidecar] 收帧：情报 {link.intel_frames} / 车位姿 {link.car_poses}"
+          f" / 坏帧 {link.bad_packets}")
     print(f"[sidecar] 退出：规划 {core.plan_count} 次 | 产物 {out_dir}")
     return 0
 

@@ -6,12 +6,13 @@
 #include <cmath>
 #include <csignal>
 #include <cstdio>
-#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <unistd.h>
 
@@ -233,12 +234,34 @@ std::string argusPipeline(int sensor_id, int width, int height, int fps)
 }
 
 // USB UVC / V4L2 相机。device 形如 /dev/video0。
-std::string uvcPipeline(const std::string& device, int width, int height, int fps)
+//
+// 为什么不是一条 pipeline 走到底（2026-10-20 实机踩到）：
+//   普通 UVC 相机（如 Realtek 0bda:5883）在 MJPEG 上能给 1080p@30，
+//   但同分辨率的原始格式 YUY2 只有 **2fps**（USB2 带宽限制）。而 v4l2src
+//   一旦被钉死 `video/x-raw, framerate=30/1` 就会 not-negotiated，
+//   OpenCV 报 "Internal data stream error"、isOpened() 返回 false，
+//   表现为「相机明明插着却打不开」（实测日志见下）。
+//   所以按「MJPEG → 原始(不约束帧率) → 原始(指定帧率)」三级回退，
+//   MJPEG 是 UVC 1080p30 的唯一可行路，后两级兜老相机/CSI 转接。
+std::string uvcPipelineMjpeg(const std::string& device, int width, int height, int fps)
+{
+    std::ostringstream os;
+    os << "v4l2src device=" << device
+       << " ! image/jpeg,width=" << width << ",height=" << height;
+    if (fps > 0)
+        os << ",framerate=" << fps << "/1";
+    os << " ! jpegdec ! videoconvert ! video/x-raw,format=BGR"
+       << " ! appsink drop=true max-buffers=1";
+    return os.str();
+}
+
+std::string uvcPipelineRaw(const std::string& device, int width, int height, int fps,
+                           bool constrain_fps)
 {
     std::ostringstream os;
     os << "v4l2src device=" << device
        << " ! video/x-raw,width=" << width << ",height=" << height;
-    if (fps > 0)
+    if (constrain_fps && fps > 0)
         os << ",framerate=" << fps << "/1";
     os << " ! videoconvert ! video/x-raw,format=BGR"
        << " ! appsink drop=true max-buffers=1";
@@ -279,10 +302,10 @@ int runCamera(const std::string& source, const std::string& hbb_path,
     int width = 1920, height = 1080, fps = 30;
     parseSpec(spec, width, height, fps);
 
-    std::string pipeline;
+    std::vector<std::string> candidates;
     if (source.rfind("argus:", 0) == 0)
     {
-        pipeline = argusPipeline(std::atoi(source.substr(6).c_str()), width, height, fps);
+        candidates.push_back(argusPipeline(std::atoi(source.substr(6).c_str()), width, height, fps));
     }
     else if (source.rfind("uvc:", 0) == 0)
     {
@@ -293,7 +316,10 @@ int runCamera(const std::string& source, const std::string& hbb_path,
         {
             device = "/dev/video" + device;
         }
-        pipeline = uvcPipeline(device, width, height, fps);
+        // 三级回退（见 uvcPipelineMjpeg 注释）：UVC 1080p30 通常只有 MJPEG 可行。
+        candidates.push_back(uvcPipelineMjpeg(device, width, height, fps));
+        candidates.push_back(uvcPipelineRaw(device, width, height, fps, false));
+        candidates.push_back(uvcPipelineRaw(device, width, height, fps, true));
     }
     else
     {
@@ -302,14 +328,36 @@ int runCamera(const std::string& source, const std::string& hbb_path,
         return 2;
     }
 
-    std::cout << "opening camera: " << pipeline << '\n';
-    cv::VideoCapture capture(pipeline, cv::CAP_GSTREAMER);
+    // 逐个尝试，用第一条真正能出帧的 pipeline（只 isOpened 不够：
+    // not-negotiated 时 isOpened 也可能是 true，必须试读一帧）。
+    cv::VideoCapture capture;
+    std::string used;
+    for (const auto& pipeline : candidates)
+    {
+        std::cout << "opening camera: " << pipeline << '\n';
+        cv::VideoCapture trial(pipeline, cv::CAP_GSTREAMER);
+        if (!trial.isOpened())
+            continue;
+        cv::Mat probe;
+        if (!trial.read(probe) || probe.empty())
+        {
+            trial.release();
+            continue;
+        }
+        capture = std::move(trial);
+        used = pipeline;
+        // 试读掉的那一帧不能丢：交给主循环作为首帧处理会重复计数，
+        // 这里直接丢弃（仅 1 帧，不影响定位/时序）。
+        break;
+    }
     if (!capture.isOpened())
     {
-        std::cerr << "cannot open camera; check the device node, GStreamer plugins and caps "
-                     "(v4l2-ctl --list-formats-ext)\n";
+        std::cerr << "cannot open camera: all pipelines failed. "
+                     "UVC 1080p30 通常只能走 MJPEG（需 jpegdec 插件）；"
+                     "查格式: gst-device-monitor-1.0 Video/Source\n";
         return 3;
     }
+    std::cout << "camera opened with: " << used << '\n';
 
     std::array<float, kObjectClassCount> nms_per_class;
     nms_per_class.fill(kDeployNms);
@@ -348,7 +396,7 @@ int runCamera(const std::string& source, const std::string& hbb_path,
                     // 一条新 GStreamer pipeline 可能失败，也会泄漏旧管道。
                     capture.release();
                     usleep(200000 * reopen_attempts);   // 200/400/600ms 退避
-                    capture.open(pipeline, cv::CAP_GSTREAMER);
+                    capture.open(used, cv::CAP_GSTREAMER);
                     if (!capture.isOpened())
                         std::cerr << "camera reopen failed (attempt "
                                   << reopen_attempts << "/3)\n";

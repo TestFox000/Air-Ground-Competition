@@ -15,7 +15,7 @@
 #   teleop   键盘遥控（人工接管用，可选 --no-teleop 跳过）
 #
 # 用法:
-#   tools/orin_bringup.sh up              # 全栈启动（默认相机 /dev/video0 1920x1200@30）
+#   tools/orin_bringup.sh up              # 全栈启动（默认相机 /dev/video0 1920x1080@30）
 #   tools/orin_bringup.sh up --no-teleop  # 不要键盘遥控窗口
 #   tools/orin_bringup.sh up --no-plan    # 不起机载规划窗口（调试感知栈时用）
 #   PLAN_SEND=1 tools/orin_bringup.sh up  # 机载规划真广播 0x4003 车命令（默认只落盘不发）
@@ -28,7 +28,7 @@ set -uo pipefail
 
 SESSION="agup"
 DZUAV_CAM="${DZUAV_CAM:-/dev/video0}"
-DZUAV_SPEC="${DZUAV_SPEC:-1920x1200@30}"   # 标定分辨率（tools/calibrate_camera.py 注入的 K 基准）
+DZUAV_SPEC="${DZUAV_SPEC:-1920x1080@30}"   # 内参基准 1920x1080；USB 相机 1080p 只 MJPEG 有 30fps
 WS="${WS:-$HOME/dzpx4}"                      # dzpx4 colcon 工作空间
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/$(ls /opt/ros 2>/dev/null | head -1)/setup.bash}"
