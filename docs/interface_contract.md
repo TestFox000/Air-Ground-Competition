@@ -236,8 +236,12 @@ align 模式只有**一个**超时参数 `heading_align_timeout`（默认 15s，
 
 ## 6. 禁火保险
 
-- **只有 TARGET_BLUE（类号5）才允许开火**
-- TARGET_RED（类号3）绝对禁止开火（误击 -5 分）
+- **只有 TARGET_BLUE（类号 4）才允许开火**
+- TARGET_RED（类号 3）绝对禁止开火（误击 -5 分）
+- OBSTACLE 是类号 **5**（不是蓝靶）；类号一律以 §2.4 表与
+  `onboard/dzuav/include/dzuav/types.hpp` / `intel_protocol.py` 的 `ObjectClass`
+  枚举为准。本行原写"TARGET_BLUE（类号5）"是 7 类时代的残留索引，
+  照它实现会把障碍物当蓝靶打。
 - 无靶标时不下发开火命令
 - 代码位置：`src/ag_integrate/ag_integrate/fire_guard.py`
 

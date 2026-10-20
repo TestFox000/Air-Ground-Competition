@@ -50,8 +50,8 @@
 |---|---|---|---|---|
 | B1-1 | Orin SSH 可达 | `ping <Orin IP>` | 丢包率 < 5% | ⬜ |
 | B1-2 | dzuav 可执行程序 | `ls ~/dzuav_deploy/air_ground/onboard/dzuav/build/dzuav` | 存在且可执行（2026-10-16 起统一布局，`tools/orin_deploy.py` 部署；旧 `~/dzuav/build` 口径作废） | ⬜ |
-| B1-3 | 检测模型 engine | `ls ~/dzuav/engines/hbb_detector*.engine` | 存在（当前指针：hbb_detector_7cls_distill_20261011.onnx → .engine） | ⬜ |
-| B1-4 | 格号模型 engine | `ls ~/dzuav/engines/cell_classifier*.engine` | 存在（当前指针：cell_classifier_v4c_ft_20261010.onnx → .engine） | ⬜ |
+| B1-3 | 检测模型 engine | `ls -l ~/dzuav/engines/hbb_detector_d13_fp16.engine` | **存在且是这一个**（13 类 D13）。⚠️ 不要只 `ls hbb_detector*.engine` 数个数：机上常同时躺着 7 类与 13 类两份，通配符会给出"4/2 个"式假绿。名字以 `tools/orin_run_dzuav.sh` 的 `HBB_ENGINE` 为准 | ⬜ |
+| B1-4 | 格号模型 engine | `ls -l ~/dzuav/engines/cell_classifier_v4d_fp16.engine` | **存在且是这一个**（v4d）。⚠️ v4c 与 v4d 形状契约完全相同（[1,14]+[1,11]），契约校验区分不了，只能靠文件名；`cell_classifier_v4d_perm5_20261017.onnx` 移位方案**已作废**，勿部署 | ⬜ |
 | B1-5 | 相机设备 | `ls /dev/video0` | 存在 | ⬜ |
 
 ### B2. 无人车端（香橙派）
@@ -68,10 +68,11 @@
 
 | # | 检查项 | 方法 | 标准 | 结果 |
 |---|---|---|---|---|
-| B3-1 | 检测模型通道数 | `verify_contract.py` | 11 通道（7cls），契约 [1,3,1280,1280]→[1,11,33600] | ⬜ |
-| B3-2 | 格号模型输入尺寸 | 查看模型配置 | [1,3,96,96]→[1,14]，与训练一致 | ⬜ |
+| B3-1 | 检测模型通道数 | `verify_contract.py` | **17 通道（13 类）**，契约 [1,3,1280,1280]→[1,17,33600]。通道数由 `types.hpp` 的 `kObjectClassCount` 单点派生，脚本会打印派生结果；11 通道 = 7 类旧模型，上机在 `HbbDetector` 构造期 throw | ⬜ |
+| B3-2 | 格号模型输入尺寸 | 查看模型配置 | [1,3,96,96]→[1,14]+[1,11]，与训练一致 | ⬜ |
 | B3-3 | 模型 md5 | 对比 models/release/README.md | 一致 | ⬜ |
-| B3-4 | current 指针 | `cat models/release/current_*` | current_hbb→7cls_distill_20261011；current_cell→v4c_ft_20261010 | ⬜ |
+| B3-4 | current 指针 | `cat models/release/current_*` | current_hbb → **13 类 d13（1280）**；current_cell → **v4d_20261015**。指针指着 7cls/v4c 时 `orin_convert_engines.sh` 会转出上不了机的引擎 | ⬜ |
+| B3-5 | 引擎实际输出维度 | `trtexec --loadEngine=<engine> --verbose \| grep -i dimensions` | output0 = 17×33600；letter_logits=14 / row_logits=11。**契约校验只管 ONNX，管不到已转好的引擎**，换机/重刷 JetPack 后必须补这一项 | ⬜ |
 
 ---
 

@@ -66,7 +66,12 @@ def export_cell(pt: Path, out_dir: Path) -> Path:
 
 
 def export_hbb(pt: Path, out_dir: Path) -> Path:
-    """YOLO 检测器 .pt -> ONNX（契约: images[N,3,1280,1280] -> output0[N,11,33600]）。"""
+    """YOLO 检测器 .pt -> ONNX（契约: images[N,3,1280,1280] -> output0[N,17,33600]）。
+
+    通道数 17 = 4 bbox + 13 类，真源是 types.hpp 的 kObjectClassCount；
+    verify_contract 现场解析它，改类目只需改头文件。imgsz 必须 1280：
+    640 导出的锚点数是 8400，与机上 HbbDetector 的 33600 硬校验不符。
+    """
     from ultralytics import YOLO
 
     YOLO(str(pt)).export(format="onnx", imgsz=1280, dynamic=False, opset=17)

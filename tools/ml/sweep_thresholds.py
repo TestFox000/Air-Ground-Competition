@@ -1,5 +1,9 @@
 """按类别置信度 + mine 边缘过滤阈值扫描，搜索综合精度最优组合。
 
+⚠️ 本工具是 **7 类时代（aerial_field_7cls 数据集）的产物**，CLASS_NAMES /
+NUM_CLASSES 与旧类目表绑定，扫出来的阈值**不可直接填进 13 类部署线**
+（`main.cpp` 的 `kDeployConf`）。13 类调参请改走 `video_recon.py` 的 CONF 表。
+
 综合精度口径（与省赛评估一致，类别+IoU≥0.5 全对才算正确）：
     TP = 预测与某 GT 同类且 IoU≥0.5
     FP = 预测无匹配 GT
