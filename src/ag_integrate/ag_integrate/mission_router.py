@@ -1037,6 +1037,7 @@ def plan_route(
     allow_diagonal: bool = True,
     crossing_penalty: float = 0.0,
     tunnel_dirs: dict[str, str] | None = None,
+    require_gates: bool = True,
 ) -> tuple[str, ...]:
     """输出有序格号；转向按 turn_45/45° 计费，起点/终点朝向可约束。
 
@@ -1055,6 +1056,12 @@ def plan_route(
     雷格过心约束（ensure_mine_center_pass）：处于路线拐点的雷格沿进入
     方向补一格"过心穿越点"，保证轮中心进入 12cm 判分圆（直线途经天然
     过心，只有拐点雷有切角风险）。
+
+    require_gates：桥门格（snapshot.passable）是否作为**必经点**。默认 True
+    ——规则里"桥洞通道协同穿梭"每段 10 分，正式任务路线必须穿门。
+    传 False 时桥门只保留"桥墙开口"的连通性语义、不再强制绕行：
+    供纯移动代价测量（pipeline 的 leg_s）使用。两种角色必须能分开，
+    否则每段点对点代价都被迫绕经全部门格（见 pipeline._solve_with_joint_solver）。
     """
     if start_heading is not None and start_heading not in _HEADING_IDX:
         raise ValueError(f"start_heading 只支持 'x'/'y'，收到 {start_heading!r}")
@@ -1179,8 +1186,9 @@ def plan_route(
     # 二区域 6 选 1，每区只计一次）——无人机读到的箭头格不穿过去就是白丢分。
     # 此前代码漏了这条（docstring 写了但实现没加），2026-10-15 随机图复盘发现补上。
     # 被实物占用的门格不是必经点（门已失效，见占用过滤）。
-    for c in passable_cells:
-        base_required.setdefault(c.name, c)
+    if require_gates:
+        for c in passable_cells:
+            base_required.setdefault(c.name, c)
     # 发现态靶标（红蓝未辨，is_blue=None）的确认点：距靶 1 格的正交邻格
     # 作为必经点（docs/分区规划与感知约束-20261015 问题 4 两段式）。
     # 车到确认点即近距离复判：蓝→replan 守卫加射击位，红→粘性否决绕行；
