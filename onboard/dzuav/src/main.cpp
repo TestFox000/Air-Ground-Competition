@@ -44,11 +44,15 @@ const char* className(ObjectClass type)
 }
 
 // D 方案 13 类部署参数（2026-10-16 四方对比口径 + 功能类默认值）。
-// paper=0.25 为验证工作点（mine R98.3%/arrow R88.9% P100%）；cell=0.5 与
-// 旧部署一致；靶标/车/起止点用 0.25 保召回；obstacle/桶 0.4。
+// paper=0.25 为验证工作点（mine R98.3%/arrow R88.9% P100%）；靶标/车/起止点
+// 用 0.25 保召回；obstacle/桶 0.4。
+// cell_label=0.35（2026-10-20 由 0.50 下调）：对齐已验证的 PC 参考实现
+// video_recon.CONF，其口径是"**宽检测 + 严读数**"——多送候选进格号分类器，
+// 由分类器置信度把关，而不是在检测阶段就把样本砍掉（地标数直接决定 PnP 能否
+// 解出，solve 需要 >=4 个）。原值 0.50 的依据只是"与旧部署一致"，无实测支撑。
 std::array<float, kObjectClassCount> kDeployConf = {
     0.25F,  // paper
-    0.50F,  // cell_label
+    0.35F,  // cell_label
     0.25F,  // car
     0.25F,  // target_red
     0.25F,  // target_blue
@@ -63,6 +67,15 @@ std::array<float, kObjectClassCount> kDeployConf = {
 };
 constexpr float kDeployNms = 0.45F;
 constexpr float kEdgePaperThr = 0.005F;
+// 格号读数下限（2026-10-20 由 0.45 上调到 0.65，= video_recon.V4D_MIN_CONF）。
+// 理由是机载**没有时序投票**：PC 参考实现每个落格要 VOTE_MIN=2 票才认，单帧误读
+// 会被其它帧投掉；机载是每帧的 landmark 直接进 map.solve，一个读错的格号就是
+// 一个 PnP 外点，而地标通常只有 4~6 个，RANSAC 没有冗余可剔。
+// 两种代价不对称：少一个地标只是样本变少（solve 还有单应兜底），错一个地标
+// 会把整个位姿带偏一格（0.35 m）以上。所以宽检测（kDeployConf 的 cell_label）
+// 必须配严读数，这一对是绑定的，不要只改一边。
+// ⚠️ 已写待验：上调会减少地标数，上机后必须确认 solve 成功率没有退化。
+constexpr float kCellMinConf = 0.65F;
 
 // 车头朝向估计：车顶贴红色方向标记（车头一侧），标记质心相对车框中心的
 // 偏移方向即车头方向。图像方向经 map.project 投到场地世界坐标后取 atan2。
@@ -125,7 +138,7 @@ void processFrame(const cv::Mat& frame, HbbDetector& hbb, CellClassifier& cell, 
         if (sq.area() <= 4)
             continue;
         const CellId id = cell.infer(image(sq));
-        if (id.valid() && id.confidence > .45F)   // TTA 后置信度更可靠，放宽阈值多用地标
+        if (id.valid() && id.confidence > kCellMinConf)   // 严读数：机载无时序投票，见常量处说明
             landmarks.push_back({id, {roi.x + roi.width * .5F, roi.y + roi.height * .5F}});
     }
     const bool localized = map.solve(landmarks, image.size());

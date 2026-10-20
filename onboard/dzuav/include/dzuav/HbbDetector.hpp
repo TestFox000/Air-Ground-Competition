@@ -14,6 +14,9 @@ namespace dzuav
 
 // 基于 TensorRT 的水平框检测器（YOLO11s，输入 1280x1280，13 类 = 17 通道输出）。
 // 2026-10-16: D 方案 13 类统一模型（hbb_d13_best.pt），per-class 阈值 + paper 边缘过滤。
+// 2026-10-20: 前处理改为**居中** letterbox（对齐 Ultralytics，与所有既有指标的
+//             输入分布一致），解码同步减回 pad；新增 paper/格号重叠过滤。
+//             ⚠️ 已写待验：机上需 orin_build_verify.sh 的 L3 推理自检通过后才算生效。
 class HbbDetector : public TensorRtEngine
 {
 public:
@@ -22,6 +25,7 @@ public:
 
     // 部署构造：按类别 conf/NMS + paper 边缘过滤（框中心距边 < thr 归一化则剔除，
     // letterbox 填充伪影对策；仅对 Paper 类生效）。
+    // 两种构造都会做：居中 letterbox、paper/格号重叠过滤（阈值不可配，见 kLabelOverlapIou）。
     HbbDetector(const std::string& engine_path,
                 const std::array<float, kObjectClassCount>& conf_per_class,
                 const std::array<float, kObjectClassCount>& nms_per_class,
