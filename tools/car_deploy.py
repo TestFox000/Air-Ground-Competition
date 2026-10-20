@@ -235,12 +235,16 @@ def main() -> int:
         # 8. 可选：切换车命令来源（规划在机上 vs 车端自规划）
         # 规划层已上机（official 控制要求「规划须由机载平台自主完成」），车端需要
         # car_command_source=onboard 才吃机上 0x4003；默认不改（保持 local 行为）。
-        # 首次改动把原配置留成 .deploy_orig，回滚只需再跑一次 --command-source local
+        # 首次改动把原配置留成 <ws>/match_params.yaml.deploy_orig（包目录外，
+        # 不会被后续 rm -rf 部署删掉），回滚只需再跑一次 --command-source local
         # （或把 .deploy_orig 拷回）。
         if args.command_source:
             step(f"切换车端 car_command_source = {args.command_source}")
             cfg = f"{ws}/src/ag_integrate/config/match_params.yaml"
-            backup = f"{cfg}.deploy_orig"
+            # ⚠️ 备份必须放在**包目录之外**：上面的部署流程会 `rm -rf {ws}/src/<pkg>`
+            # 再解压，放在包内的备份会被这次（以及以后每次）部署连带删掉，
+            # 于是"原始 local 配置"这个回滚点静默消失。
+            backup = f"{ws}/match_params.yaml.deploy_orig"
             sed_expr = ("'s/^[ ]*car_command_source:.*/"
                         f'    car_command_source: "{args.command_source}"/\'')
             cmd = (

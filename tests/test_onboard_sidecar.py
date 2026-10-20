@@ -191,6 +191,26 @@ def test_core_matrix_signature_handles_out_of_field_and_in_cell_same_kind(tmp_pa
     assert None in cells and any(c for c in cells)   # 出界与落格同时保留
 
 
+def test_core_step_does_not_raise_on_matrix_failure(tmp_path, monkeypatch):
+    """回归：矩阵落盘抛异常时 step() 不得把异常甩出去（真机曾整进程被打死）。
+
+    2026-10-20 机上实跑：`_write_matrix` 的 TypeError 直接终结 sidecar 进程，
+    现场表现是"矩阵在、规划不推进"。外壳已把决策拍包进异常兜底，这里锁住
+    "核心自身也不越过异常边界"这一契约：写出异常不能挡住门控与规划。
+    """
+    core = make_core(tmp_path)
+    for _ in range(2):
+        core.feed_frame(frame_of(mine_at("D2"), blue_at("F5")))
+
+    def boom(*_a, **_k):
+        raise TypeError("simulated matrix failure")
+
+    monkeypatch.setattr(core, "_write_matrix", boom)
+    route = core.step()                      # 不得抛异常
+    assert route, "矩阵落盘失败不应挡住门控与规划"
+    assert (tmp_path / "route_plan.json").exists()
+
+
 def test_core_plans_and_writes_three_artifacts(tmp_path):
     core = make_core(tmp_path)
     # 矩阵融合需 confirm=2 帧才确认目标（单帧幽灵过滤）：喂两帧

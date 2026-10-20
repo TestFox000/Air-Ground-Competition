@@ -355,7 +355,14 @@ class PlannerCore:
         if snapshot is None:
             return None
         if self.cfg.matrix_enabled:
-            self._write_matrix(interactive=True)
+            # 矩阵只是可观测量，绝不能挡住决策链：写失败（磁盘满/权限/序列化异常）
+            # 只降级为告警，门控与规划照常推进。2026-10-20 机上实测：矩阵签名
+            # 的 TypeError 曾直接打死整个 sidecar（表现＝"矩阵在、规划不推进"）。
+            try:
+                self._write_matrix(interactive=True)
+            except Exception as exc:            # noqa: BLE001 - 见上
+                print(f"[plan] 矩阵落盘失败（已忽略，决策继续）: "
+                      f"{type(exc).__name__}: {exc}", file=sys.stderr)
 
         gate = evaluate_gate(snapshot, self.cfg.min_mines, self.cfg.require_face)
         if not gate.ok:
@@ -587,6 +594,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--duration-seconds", type=float, default=0.0,
                     help=">0 时跑够秒数自动退出（冒烟测试用）")
     ap.add_argument("--tick-hz", type=float, default=10.0)
+    ap.add_argument("--resend-period-s", type=float, default=2.0,
+                    help="最近一次车命令的周期重发间隔秒（0=关闭）。"
+                         "车端可能晚于本进程启动、或中途重启；话题无滞留，"
+                         "只发一次会让车永久收不到路线；车端按 route 文本去重，重发幂等")
     args = ap.parse_args(argv)
 
     out_dir = Path(args.out) if args.out else \
@@ -605,13 +616,28 @@ def main(argv: list[str] | None = None) -> int:
 
     start = time.monotonic()
     period = 1.0 / max(0.5, args.tick_hz)
+    last_send_mono = 0.0
     try:
         while True:
-            link.drain(core)
-            route = core.step()
+            # 单拍异常绝不终止整局：rclpy 侧 integrate_node 的 _on_tick 同理
+            # （"宁可丢一拍，不要丢一局"）。2026-10-20 机上实测：_write_matrix 的
+            # TypeError 直接把进程打死，表现是"矩阵在、规划不动"，极难现场定位。
+            try:
+                link.drain(core)
+                route = core.step()
+            except Exception as exc:            # noqa: BLE001 - 见上
+                print(f"[sidecar] 决策拍异常（已吞掉，下拍继续）: "
+                      f"{type(exc).__name__}: {exc}", file=sys.stderr)
+                route = None
             if route is not None:
                 core.write_path()
                 link.send_command(core.last_plan_ts_ms, core.last_reset, route)
+                last_send_mono = time.monotonic()
+            elif (args.send and core.last_route and args.resend_period_s > 0
+                  and time.monotonic() - last_send_mono >= args.resend_period_s):
+                # 周期重发最近命令：车端晚启动/重启时靠这条补上（车端按 route 去重）
+                link.send_command(core.last_plan_ts_ms, core.last_reset, core.last_route)
+                last_send_mono = time.monotonic()
             if args.duration_seconds > 0 and \
                     time.monotonic() - start >= args.duration_seconds:
                 break
@@ -619,9 +645,12 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\n[sidecar] 收到中断，收尾落盘…")
     finally:
-        core.step()
-        core.write_path()
-        core.write_matrix()
+        for step in (core.step, core.write_path, core.write_matrix):
+            try:
+                step()
+            except Exception as exc:            # noqa: BLE001 - 退出时不掩盖真实原因
+                print(f"[sidecar] 收尾 {step.__name__} 失败: "
+                      f"{type(exc).__name__}: {exc}", file=sys.stderr)
         link.close()
     print(f"[sidecar] 退出：规划 {core.plan_count} 次 | 产物 {out_dir}")
     return 0

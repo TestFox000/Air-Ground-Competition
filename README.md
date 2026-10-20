@@ -96,8 +96,8 @@ CI 已修复为 compileall + pytest + preflight 本地段（`.github/workflows/c
    tools/car_deploy.py --host <车IP> --user duzhong --command-source onboard
    ```
    （`--command-source onboard` 会把 `car_command_source` 写成薄接收，原配置自动备份为
-   `match_params.yaml.deploy_orig`；回滚：`--command-source local`。不传该参数则完全不改，
-   车端仍按 `local` 自己规划。）
+   `<工作空间>/match_params.yaml.deploy_orig`——放在包目录**外**，后续每次部署都不会连带删掉；
+   回滚：`--command-source local`。不传该参数则完全不改，车端仍按 `local` 自己规划。）
    然后用 `tools/car_match_bringup.sh` 两阶段启动，先 dry_run 验证，再实发。
    ⚠️ 机载 `orin_plan_sidecar` 未跑时车端不会收到任何路线（在等 0x4003）。
 3. 现场核实中场挡板/桥洞拓扑后，给节点传 `cross_gates:=['<可通行格>']` 启用
