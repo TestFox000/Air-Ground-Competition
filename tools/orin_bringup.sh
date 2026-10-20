@@ -18,6 +18,7 @@
 #   tools/orin_bringup.sh up              # 全栈启动（默认相机 /dev/video0 1920x1200@30）
 #   tools/orin_bringup.sh up --no-teleop  # 不要键盘遥控窗口
 #   tools/orin_bringup.sh up --no-plan    # 不起机载规划窗口（调试感知栈时用）
+#   PLAN_SEND=1 tools/orin_bringup.sh up  # 机载规划真广播 0x4003 车命令（默认只落盘不发）
 #   DZUAV_CAM=/dev/video1 tools/orin_bringup.sh up
 #   tools/orin_bringup.sh status          # 各窗口存活状态
 #   tools/orin_bringup.sh down            # 全部停止
@@ -61,9 +62,13 @@ up() {
     # 1.5 机载规划：官方控制要求「规划须由机载平台自主完成」——规划层在机上，
     # 消费 dzuav 的本地 UDP:50000 广播，落 route_plan.json/cell_matrix.json，
     # 并把车命令以 0x4003 广播给车端（车端薄接收 -> /nav/waypoint）。
+    # ⚠️ 默认 **dry-run（只落盘不发）**：首次上机先确认产物正确，再显式
+    #    PLAN_SEND=1 开真广播——坏命令直接上底盘是不可逆的。
     if [[ "${1:-}" != "--no-plan" ]]; then
-        win plan "python3 $REPO/tools/orin_plan_sidecar.py --params $REPO/src/ag_integrate/config/match_params.yaml --out /tmp/ag_plan_live --send"
-        ok "plan（机载规划 -> 0x4003 车命令）"
+        plan_send_flag=""
+        [[ "${PLAN_SEND:-0}" == "1" ]] && plan_send_flag="--send"
+        win plan "python3 $REPO/tools/orin_plan_sidecar.py --params $REPO/src/ag_integrate/config/match_params.yaml --out /tmp/ag_plan_live $plan_send_flag"
+        ok "plan（机载规划${plan_send_flag:+ 实发 0x4003} -> 产物 /tmp/ag_plan_live）"
     fi
 
     # 2. 雷达 -> SLAM

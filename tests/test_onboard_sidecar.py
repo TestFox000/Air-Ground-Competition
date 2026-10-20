@@ -171,6 +171,26 @@ def test_core_holds_until_gate_ok(tmp_path):
     assert (tmp_path / "cell_matrix.json").exists()
 
 
+def test_core_matrix_signature_handles_out_of_field_and_in_cell_same_kind(tmp_path):
+    """回归：同类目标一个出界(None) + 一个落格(int) 时，矩阵签名不得崩。
+
+    2026-10-20 机上实跑踩到：`sorted((kind, col, row))` 遇到 None 与 int 混比
+    抛 TypeError，_write_matrix 直接把 sidecar 进程打死（真机上表现为
+    「矩阵在，规划不推进」）。出界点取 x=-1.0（世界 x 取值范围 0.065~4.615）。
+    """
+    core = make_core(tmp_path)
+    out_of_field = IntelObject(ObjectType.BUCKET_RED, -1.0, 6.5, 0.35, 0.35)
+    in_cell = _at("F5", ObjectType.BUCKET_RED)
+    for _ in range(2):        # 融合需 confirm=2 帧
+        core.feed_frame(frame_of(out_of_field, in_cell))
+    core.step()               # 不得抛异常
+    core.write_matrix()
+
+    matrix = json.loads((tmp_path / "cell_matrix.json").read_text(encoding="utf-8"))
+    cells = [s["cell"] for s in matrix["spots"]]
+    assert None in cells and any(c for c in cells)   # 出界与落格同时保留
+
+
 def test_core_plans_and_writes_three_artifacts(tmp_path):
     core = make_core(tmp_path)
     # 矩阵融合需 confirm=2 帧才确认目标（单帧幽灵过滤）：喂两帧

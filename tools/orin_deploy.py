@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
@@ -51,6 +52,11 @@ POINTER_FILES = ("current_hbb_detector", "current_cell_classifier")
 #                             （flight_console.py 也会自动上传，此处兜底）
 #   orin_log_capture.py       dzuav stdout -> JSONL（uav_link 健康通道优先读它；
 #                             main.cpp 的日志行格式与之严格对应）
+#   orin_plan_sidecar.py      机载自主规划旁挂进程（官方控制要求「规划须由机载
+#                             平台自主完成」）：消费 dzuav 本地 UDP:50000 -> 世界
+#                             模型/落格矩阵/任务路由 -> 落 route_plan.json 等三份
+#                             产物 + 广播 0x4003 车命令。**依赖 src/ag_integrate**，
+#                             故本脚本必须同时推送该包（见 AG_INTEGRATE_DIR）。
 # 2026-10-18 合并线说明：repo 线全量名单另含 orin_watchdog/orin_agent_watchdog/
 # orin_capture_dataset，其中前两个对应 repo 线 orin_bringup.sh 的 flight_wd/
 # wdog 窗口；合并线 bringup 采用部署现实（fix 线）9 窗口版，无此二窗口、
@@ -59,7 +65,13 @@ POINTER_FILES = ("current_hbb_detector", "current_cell_classifier")
 ORIN_PY_TOOLS = (
     "orin_flight_blackbox.py",
     "orin_log_capture.py",
+    "orin_plan_sidecar.py",
 )
+
+# 机载规划包（相对仓库根）：orin_plan_sidecar 直接 sys.path 复用这个包，
+# 单独推 sidecar 会 ImportError。它此前不在部署范围（旧口径把 ag_integrate
+# 当纯车端包），规划上机后成为机上必需件。
+AG_INTEGRATE_DIR = Path("src") / "ag_integrate"
 
 
 def read_password(args) -> str:
@@ -141,6 +153,27 @@ def main(argv=None) -> int:
                                    timeout=30, port=port)
     if code != 0:
         raise SystemExit(f"[失败] 远端 chmod +x 工具脚本失败: {cerr.strip()[:120]}")
+
+    # ---- 2.5 机载规划包：orin_plan_sidecar 的 import 依赖（机上必需件） ----
+    # 官方控制要求「无人机的定位、建图、识别、规划与控制等实时任务须由机载平台
+    # 自主完成」→ 规划层在机上跑，sidecar 直接 sys.path 复用这个包；只推 sidecar
+    # 会 ImportError。机上这份是无 .git 的纯拷贝，覆盖前先整目录备份（可回滚）。
+    print("==> 部署机载规划包 src/ag_integrate（先备份机上原副本）")
+    planner = REPO / AG_INTEGRATE_DIR
+    probe = planner / "ag_integrate" / "intel_protocol.py"
+    if not probe.is_file():
+        raise SystemExit(f"[失败] 仓库缺少规划包 {probe} —— 仓库状态异常，拒绝部署")
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    bcmd = (
+        f'P={REMOTE_ROOT}/src/ag_integrate; '
+        f'if [ -d "$P" ]; then cp -a "$P" "$P.bak_{stamp}" && echo "BACKUP=$P.bak_{stamp}"; '
+        f'else echo NO_EXISTING_PLANNER; fi'
+    )
+    code, out, err = remote_run.run(host, user, pw, bcmd, timeout=120, port=port)
+    print("  " + (out.strip() or err.strip()))
+    if code != 0:
+        raise SystemExit("[失败] 机上规划包备份失败（拒绝在无备份的情况下覆盖机上文件）")
+    put(planner, f"{REMOTE_ROOT}/{AG_INTEGRATE_DIR.as_posix()}")
 
     # ---- 3. 模型：默认只推 current 指针 + 指向的 ONNX ----
     if args.skip_models:

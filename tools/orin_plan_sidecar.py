@@ -466,7 +466,13 @@ class PlannerCore:
         if snapshot is None:
             return
         spots = self.fusion.fused_spots() + self.fusion.outside_spots()
-        sig = tuple(sorted((s.kind.value, s.col, s.row) for s in spots))
+        # 矩阵签名：出界目标的 col/row 是 None，同类里"一个出界 + 一个落格"时
+        # 直接排序会撞 None < int 的 TypeError（2026-10-20 机上实跑踩到，进程
+        # 当场崩）。签名只用于判"内容变没变"，用 -1 代表出界即可，不影响语义。
+        sig = tuple(sorted(
+            (s.kind.value, -1 if s.col is None else s.col,
+             -1 if s.row is None else s.row)
+            for s in spots))
         now = time.monotonic()
         if not force:
             if sig == self.last_matrix_sig:
