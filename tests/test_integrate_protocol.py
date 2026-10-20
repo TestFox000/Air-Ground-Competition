@@ -1,7 +1,9 @@
 """ag_integrate intel_protocol 二进制 :50000 协议解析测试。"""
 
 import random
+import re
 import struct
+from pathlib import Path
 
 import pytest
 
@@ -15,6 +17,11 @@ from ag_integrate.intel_protocol import (
     crc16,
     parse,
 )
+
+REPO = Path(__file__).resolve().parents[1]
+DOCS = REPO / "docs"
+TYPES_HPP = REPO / "onboard" / "dzuav" / "include" / "dzuav" / "types.hpp"
+MAIN_CPP = REPO / "onboard" / "dzuav" / "src" / "main.cpp"
 
 
 def make_object(type_index: int = 0) -> IntelObject:
@@ -188,3 +195,99 @@ def test_truncated_and_nan_rejected():
     struct.pack_into("<d", raw, HEADER_SIZE + 1, float("nan"))
     with pytest.raises(ValueError):
         parse(bytes(raw))
+
+
+# ------------------------------------------------- 枚举语义（跨端逐位对齐）
+
+
+def _object_class_from_types_hpp() -> list[tuple[str, int]]:
+    """解析 types.hpp 的 `enum class ObjectClass`，返回 [(名, 值)]（CamelCase 原样）。"""
+    text = TYPES_HPP.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"enum\s+class\s+ObjectClass\b[^{]*\{(.*?)\}", text, re.S)
+    assert m, "types.hpp 里找不到 enum class ObjectClass"
+    members = re.findall(r"^\s*([A-Za-z_]\w*)\s*=\s*(\d+)", m.group(1), re.M)
+    assert members, "ObjectClass 成员解析为空"
+    return [(name, int(value)) for name, value in members]
+
+
+def test_object_type_matches_onboard_object_class_bit_for_bit():
+    """车端解码用的 ObjectType 必须与机载 ObjectClass 逐位同值同名。
+
+    机载写的是 `uint8_t(x.type)`（UdpBroadcaster.cpp），车端按 ObjectType 反解。
+    错一位不报错、不崩、不告警，只是把 5=OBSTACLE 当成"target_blue"开火——
+    interface_contract.md §2.4 因此明写"改动任一侧都必须三处同改"。
+    但此前只有 types.hpp ↔ video_recon.NAMES ↔ hbb_postprocess.CLASS_NAMES
+    那一条链被测试锁住（见 tests/test_hbb_postprocess.py），**真正解析线缆字节
+    的这一侧没人守**：把 ObjectType 改回 7 类，全套测试照样全绿。
+    """
+    cpp = _object_class_from_types_hpp()
+    py = [(m.name, m.value) for m in ObjectType]
+    # CamelCase → SNAKE_CASE：CellLabel → CELL_LABEL，BucketCyan → BUCKET_CYAN
+    cpp_snake = [(re.sub(r"(?<!^)(?=[A-Z])", "_", n).upper(), v) for n, v in cpp]
+    assert cpp_snake == py, (
+        "车端 ObjectType 与机载 ObjectClass 不一致（顺序、命名或编号）：\n"
+        f"  types.hpp        : {cpp_snake}\n"
+        f"  intel_protocol   : {py}")
+
+
+def test_object_type_matches_main_cpp_class_name_table():
+    """ObjectType 的 docstring 自称"顺序必须与 dzuav main.cpp 的 className 一致"。
+
+    这句话此前没有任何测试兑现。className 是标注图上打给操作员看的字，
+    与线缆上的整数各走一条路——两者分叉时，操作员看到的名字与车端理解的
+    语义就不是同一个东西，而 HUD 上完全看不出来。
+    """
+    text = MAIN_CPP.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"const char\* className\(ObjectClass[^{]*\{(.*?)\n\}", text, re.S)
+    assert m, "main.cpp 里找不到 className 函数"
+    names = re.findall(r'"([a-z_]+)"', m.group(1))
+    cpp = _object_class_from_types_hpp()
+    snake = [re.sub(r"(?<!^)(?=[A-Z])", "_", n).lower() for n, _ in cpp]
+    assert names == snake, f"main.cpp className 与 types.hpp 不一致:\n  {names}\n  {snake}"
+    assert [m.name.lower() for m in ObjectType] == names, (
+        f"车端 ObjectType 与 main.cpp className 不一致:\n"
+        f"  {[m.name.lower() for m in ObjectType]}\n  {names}")
+
+
+# ------------------------------------------------- 文档不得携带旧契约
+
+
+def test_no_doc_carries_the_legacy_seven_class_wire_enum():
+    """任何文档都不得再抄一份 7 类时代的线缆枚举。
+
+    `docs/无人机工作流程.md` 曾在 0x4001 的字段表里写着
+    `type uint8 (0=mine,1=car,2=arrow,3=target_red,4=cell_label,5=target_blue,
+    6=obstacle)`，与真源逐位错位：照着它实现车端解析，会把 5=OBSTACLE 读成
+    target_blue 直接开火、把 4=TARGET_BLUE 读成 cell_label 直接丢掉。
+    枚举只允许有一处定义（types.hpp），文档只能指向 interface_contract.md §2.4。
+    """
+    offenders = []
+    for doc in sorted(DOCS.rglob("*.md")):
+        text = doc.read_text(encoding="utf-8", errors="replace")
+        for pat in (r"0\s*=\s*mine", r"1\s*=\s*car\s*,\s*2\s*=\s*arrow"):
+            if re.search(pat, text, re.I):
+                offenders.append(f"{doc.relative_to(REPO)} 命中 {pat!r}")
+    assert not offenders, (
+        "这些文档抄了 7 类旧线缆枚举，与 types.hpp 的 13 类真源逐位错位：\n  "
+        + "\n  ".join(offenders))
+
+
+def test_workflow_doc_states_current_class_count_and_measured_fps():
+    """现状说明文档不得把 13 类写成 7 类、把实测 5fps 写成 30fps。
+
+    帧率这一条不是措辞问题：扫场速度 ≤0.4-0.5 m/s、每格 ≥2-3 帧冗余这些预算
+    全是按 AR0234 USB2 YUY2 实测的 200ms/帧（5fps）推的（见
+    docs/执行层深优化-20261016.md「相机帧率」行）。启动脚本请求的是
+    1920x1080@30，读到"约 30 fps"的人会把整条时序预算算错 6 倍。
+    """
+    wf = DOCS / "无人机工作流程.md"
+    assert wf.exists(), f"{wf} 不见了（改名了？改名后本测试要跟着走）"
+    text = wf.read_text(encoding="utf-8", errors="replace")
+    for stale in ("输出 7 类", "7 类检测框", "约 30 fps"):
+        assert stale not in text, (
+            f"无人机工作流程.md 仍写着 {stale!r}：检测是 13 类、相机实测约 5fps")
+    assert re.search(r"\b5\s*fps\b", text), (
+        "无人机工作流程.md 没有写出实测帧率；只删掉 30fps 的谎不算修好")
+    assert "interface_contract.md" in text, (
+        "无人机工作流程.md 没有把枚举真源指向 interface_contract.md——"
+        "不指向就迟早有人再抄一份，然后再度错位")
