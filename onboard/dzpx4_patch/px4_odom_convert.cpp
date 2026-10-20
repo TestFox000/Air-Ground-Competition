@@ -499,7 +499,9 @@ void Px4OdomConvert::computeAlignment(
 
   aligned_ = true;
   ev_reset_counter_ = 1;  // 对齐完成：bump 0->1，EKF 重锚到 SLAM 帧
-  last_bump_time_ = this->now().seconds();  // 记入 L2 节流窗口
+  // 单调钟：L1/L2 的节流判据都用 steadyNowS() 读本字段，混墙钟会得到约 -1.7e9
+  // 的年龄，使 bump_ok 永久为假、恢复链路整段不可达。
+  last_bump_time_ = steadyNowS();
   has_last_bump_ = true;
 
   RCLCPP_INFO(
@@ -653,7 +655,7 @@ void Px4OdomConvert::publishVehicleVisualOdometry(
       } else if (align_sample_count_ >= 30) {
         aligned_ = true;
         ev_reset_counter_ = 1;  // 对齐完成（SLAM 直通模式）：bump 0->1 让 EKF 重锚
-        last_bump_time_ = this->now().seconds();  // 记入 L2 节流窗口
+        last_bump_time_ = steadyNowS();  // 单调钟，理由同 computeAlignment
         has_last_bump_ = true;
         ++total_bumps_;
         writeBlackbox(
