@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from .car_commands import RoutePlan, reset_command, route_command
 from .fire_guard import blue_targets_hit, decide_fire
-from .mission_router import compress_route
+from .mission_router import compress_route, mission_keep
 from .world_model import TargetRef, WorldSnapshot
 
 
@@ -33,23 +33,6 @@ def _target_key(t: TargetRef) -> tuple:
     if t.track is not None:
         return ("track", t.track)
     return ("fixed", t.cell.name)
-
-
-def mission_keep(snapshot: WorldSnapshot, route) -> set[str]:
-    """压缩保护集：雷 / 桥门 / 靶体与轨道 / 路线上所有可开火格。
-
-    compress_route 会删掉同向共线的中间格——射击停靠格一旦被删，
-    adapt 就看不到它，'*' 标记丢失 = 漏打（2026-10-17 实拍复盘踩中）。
-    本函数把"绝不能删的格"集中在一处推导，调用方不再手工拼 KEEP。"""
-    keep = {c.name for c in snapshot.mines}
-    keep |= {c.name for c in snapshot.passable}
-    keep |= {t.cell.name for t in snapshot.targets}
-    keep |= {c.name for t in snapshot.targets if t.track for c in t.track}
-    for cell in route:
-        name = cell.strip().upper()
-        if not decide_fire(snapshot, name).denied and blue_targets_hit(snapshot, name):
-            keep.add(name)          # 潜在开火格：宁可多保，不可漏保
-    return keep
 
 
 def compact_and_adapt(
