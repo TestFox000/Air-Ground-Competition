@@ -3,7 +3,7 @@
 <package format="3">
   <name>ag_integrate</name>
   <version>0.1.0</version>
-  <description>官方框架车端薄集成：接收 dzuav 二进制 UDP:50000 情报 - 世界模型 - 调用官方 path_executor</description>
+  <description>官方框架规划与集成核心：机载自主规划（接收 dzuav 二进制 UDP:50000 情报 - 世界模型 - 任务路由 - 0x4003 车命令）+ 车端薄接收（转发官方 path_executor）</description>
   <maintainer email="team@example.com">team</maintainer>
   <license>Apache-2.0</license>
 

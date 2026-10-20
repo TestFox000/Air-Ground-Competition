@@ -9,7 +9,11 @@
 ## 1. 通信链路
 
 ```
-[无人机 Orin] dzuav ──UDP:50000──→ ag_integrate [无人车 香橙派]
+[无人机 Orin]  dzuav ──UDP:50000──→ 机载自主规划 orin_plan_sidecar（同机消费，不出机）
+                                        │
+                                        └── 0x4003 车命令 ──UDP:50000──→ ag_integrate
+                                                                          [无人车 香橙派]
+                                                                          └→ /nav/waypoint
 ```
 
 | 项 | 值 |
@@ -19,6 +23,13 @@
 | 方向 | 无人机 → 无人车（单向广播） |
 | 频率 | ~10 Hz（每帧处理完即发） |
 | 字节序 | 小端（little-endian） |
+| 消息 | `0x4001` 情报帧 / `0x4002` 车位姿帧（dzuav 发）；`0x4003` 车命令帧（**机载规划**发） |
+
+> **规划位置（2026-10-20 起）**：官方控制要求「无人机的定位、建图、识别、规划与控制等实时
+> 任务须由机载平台自主完成」→ 规划层在机上跑，产物为 `route_plan.json / cell_matrix.json /
+> planned_path.txt`，车命令经 `0x4003` 广播到车端。车端 `integrate_node` 的
+> `car_command_source=onboard` 即薄接收模式（默认 `local` 为本机自行规划，二者不可同时消费
+> 同一 UDP:50000）。
 
 ---
 
@@ -73,17 +84,54 @@
 21    4     width       float32，像素语义：检测框高（并非米；车端暂不使用）
 ```
 
-### 2.4 目标类别枚举
+### 2.4 目标类别枚举（13 类，canonical）
 
-| 值 | 名称 | 说明 | 车端处理 |
+⚠️ **2026-10-16 起为 D 方案 13 类统一模型**（`hbb_d13_best.pt`，17 通道引擎）。
+本表顺序**必须**与 `onboard/dzuav/include/dzuav/types.hpp` 的 `ObjectClass`
+及 `src/ag_integrate/ag_integrate/intel_protocol.py` 的 `ObjectType` 逐项一致；
+改动任一侧都必须三处同改，否则会出现「索引错位 → 把障碍当蓝靶开火」这类事故。
+
+| 值 | 名称 | 说明 | 规划侧处理 |
 |---|---|---|---|
-| 0 | MINE | 地雷 | 排雷目标 |
-| 1 | CAR | 无人车 | 用于定位车的位置 |
-| 2 | ARROW | 桥洞箭头/可通行标记 | 桥洞通行判断 |
-| 3 | TARGET_RED | 红色友方靶 | **禁火**（误击 -5） |
-| 4 | CELL_LABEL | 地面格号 | PnP 定位用 |
-| 5 | TARGET_BLUE | 蓝色敌方靶 | **打击目标**（标 `*`） |
-| 6 | OBSTACLE | 障碍物 | 路径避障 |
+| 0 | PAPER | 场地纸片（雷图卡 / 桥顶箭头） | **落格判语义**：K 列 = 通行箭头，其余格 = 地雷 |
+| 1 | CELL_LABEL | 地面格号 | PnP 定位用，不进态势 |
+| 2 | CAR | 无人车 | 车位姿链（0x4002），不进态势 |
+| 3 | TARGET_RED | 红色友方靶 | **禁火**（误击 −5），粘性否决 TTL 内持续参与 |
+| 4 | TARGET_BLUE | 蓝色敌方靶 | **打击目标**（标 `*`） |
+| 5 | OBSTACLE | 障碍物 | 路径避障（多帧确认 N=2） |
+| 6 | BUCKET_RED | 红桶 | 展示/避让，禁火 |
+| 7 | BUCKET_GREEN | 绿桶 | 展示/避让 |
+| 8 | BUCKET_CYAN | 青桶 | 展示/避让 |
+| 9 | CAR_START | 智能车起点 | 展示 |
+| 10 | CAR_END | 智能车终点 | 展示 |
+| 11 | UAV_START | 无人机起点 | 展示 |
+| 12 | UAV_END | 无人机终点 | 展示 |
+
+### 2.5 车命令帧（msg_id = 0x4003）
+
+**机载规划 → 车端**。规划层在机上（官方控制要求），reset/route 不能再靠车端本机的
+`/nav/waypoint` 传递，故沿用既有空地 UDP 广播把两条命令原样运到车端；车端
+`integrate_node`（`car_command_source=onboard`）校验后转发到 `/nav/waypoint`。
+
+```
+偏移  大小  字段        说明
+─────────────────────────────────────────
+0     4     magic       0xefefefef
+4     1     version     0x10
+5     8     timestamp   uint64，机载毫秒时间戳
+13    2     msg_id      0x4003
+15    4     length      uint32，= (2+len(reset)) + (2+len(route))
+19    2     reset_len   uint16
+21    R     reset       ASCII，车端方言（"reset:<格号>,<车端朝向 token>"；空串=本局不发锚定）
+21+R  2     route_len   uint16
+23+R  L     route       ASCII，空格分隔格号，`*`=停靠射击，末尾 ,x/,y=终点朝向
+...   2     crc16       CRC-16/Modbus，覆盖 version 到最后一个命令字节
+...   4     suffix      0xfefefefe
+```
+
+结构约束（`parse_car_command` 全量校验，任一不符整条丢弃，绝不半成品上底盘）：
+`length` 与实际字节一致；两段长度自洽；**纯 ASCII**（含非 ASCII 或 NUL 即拒绝）；
+`reset` 为空或必须以 `reset:` 开头；`route` 非空；CRC 与 suffix 正确。
 
 ---
 

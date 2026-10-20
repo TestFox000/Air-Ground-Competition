@@ -9,17 +9,24 @@
 ```
 [机载 Orin Nano]
   dzpx4（官方）：Livox MID360 → FASTLIO2 建图/定位 → PX4 飞控
-  dzuav（官方/先行者）：AR0234 下视相机 → HbbDetector(7 类) → CellClassifier(格号)
+  dzuav（官方/先行者）：AR0234 下视相机 → HbbDetector(13 类) → CellClassifier(格号)
                           → MapLocalizer(格号 PnP 自定位) → 二进制 UDP 广播 :50000
-                                                                      ↓
+                                                                      ↓ 同机回环
+  机载自主规划（本仓库）：orin_plan_sidecar 收 :50000 → 世界模型 → 落格矩阵
+                          → 任务路由 → 落 route_plan.json / cell_matrix.json / planned_path.txt
+                          → 广播 0x4003 车命令
+                                                                      ↓ UDP :50000
 [车端香橙派]
   官方 dzrobot：path_executor 负责开车，det_node 负责瞄准开火
-  ag_integrate（本仓库）：收 :50000 → 世界模型 → 任务路由 → 下发 /nav/waypoint
+  ag_integrate（本仓库，薄接收）：收 0x4003 → 转 /nav/waypoint（规划不在车端）
 ```
 
 要点：
+- **规划跑在机上**：官方控制要求「无人机的定位、建图、识别、规划与控制等实时任务须由机载平台自主完成」。
+  机载 `tools/orin_plan_sidecar.py` 直接复用 `src/ag_integrate` 的纯 Python 规划核心（无 ROS），
+  车端 `integrate_node` 只需 `car_command_source=onboard` 变成薄接收（默认 `local` 保持旧行为）。
 - 定位靠识别**地面格号做 PnP**，无人工单应矩阵标定。
-- 空地通信为**二进制** UDP :50000（魔数 `0xefefefef`、CRC16）。
+- 空地通信为**二进制** UDP :50000（魔数 `0xefefefef`、CRC16）：`0x4001` 情报 / `0x4002` 车位姿 / `0x4003` 车命令。
 - 只有**蓝色敌方靶**才标 `*`（停靠开火）；红色友方绝不打（误击 −5/计数）。
 
 机上源码只读归档见 `reference/onboard/`；**可部署的 dzuav 补全版见 `onboard/dzuav/`**。
@@ -30,11 +37,11 @@
 |---|---|
 | `onboard/dzuav/` | 机载侦察程序（要拷到 Orin 编译）：4 个 cpp 沿用官方先行者代码，`include/dzuav/` 补全了缺失头文件；`main.cpp` 在归档版（`reference/onboard/`，已含图片/视频/`argus:`/`uvc:` 全部输入源）基础上做健壮性加固：UDP 端口校验、相机断流重开、单帧异常容错、贴边半标签过滤等（diff 约百行，无协议变更） |
 | `onboard/dzpx4_patch/` | 机载韧性定位补丁（px4_odom_convert：auto-align + jump guard + armed 门控 + z 换源），用 `tools/patch_deploy.py` 部署/回滚到 Orin 的 dzpx4 工作空间 |
-| `src/ag_integrate/` | 车端薄集成包：协议解析(`intel_protocol`)、场地坐标(`field_frame`)、世界模型(`world_model`)、任务路由(`mission_router`)、车命令(`car_commands`)、禁火保险(`fire_guard`)、`integrate_node` + launch |
+| `src/ag_integrate/` | 规划与集成核心：协议解析(`intel_protocol` 含 0x4001/0x4002/0x4003)、场地坐标(`field_frame`)、世界模型(`world_model`)、落格矩阵(`field_matrix`)、任务路由(`mission_router`)、车命令(`car_commands`)、禁火保险(`fire_guard`)、`integrate_node` + launch。**规划当前跑在机上**（`tools/orin_plan_sidecar.py` 复用本包纯 Python 核心，无 ROS），车端 `integrate_node` 以 `car_command_source=onboard` 退化为薄接收 |
 | `src/ag_core/` | 与 ROS 无关的复盘工具：黑匣子 `blackbox` + `log_diagnosis` |
 | `ag_orbit_target/` | 支线数据采集工具（绕靶录像采集，不在现役主链路；**勿与官方栈同跑**，详见其 README） |
 | `tools/remote_run.py` | SSH 上传/执行/取回（paramiko） |
-| `tools/orin_deploy.py` | Orin 一键部署：dzuav 源码 + current 指针模型 + orin 工具链（含全部 `orin_*.py` 看门狗/黑匣子/采集）推到 `~/dzuav_deploy/air_ground`；`--verify` 远程 L1 编译 + L2 自检（2026-10-16 实机跑通） |
+| `tools/orin_deploy.py` | Orin 一键部署：dzuav 源码 + current 指针模型 + orin 工具链（含全部 `orin_*.py` 看门狗/黑匣子/采集/**规划旁挂 `orin_plan_sidecar.py`**）+ **机载规划包 `src/ag_integrate`**（覆盖前对机上原副本 `cp -a` 备份）推到 `~/dzuav_deploy/air_ground`；`--verify` 远程 L1 编译 + L2 自检（2026-10-16 实机跑通） |
 | `tools/patch_deploy.py` | `onboard/dzpx4_patch/` 韧性补丁部署/回滚：部署时写回滚索引 + md5 指纹，回滚先校验指纹再重编重启 |
 | `tools/preflight.py` | 赛前自检：本地段（模型契约/指针/md5/配置，CI 同跑）+ 车端/机载 SSH 段 |
 | `tools/flight_console.py` | 飞行黑匣子地面台：实时面板 + 应急指挥（降落/停GOTO/KILL 双确认）+ 黑匣子取回；自动把 `orin_flight_blackbox.py` 送上机上 tmux(agup:bb)。密码走 `AG_ORIN_PASS` |
@@ -84,7 +91,10 @@ CI 已修复为 compileall + pytest + preflight 本地段（`.github/workflows/c
    `tools/orin_convert_engines.sh -o ~/dzuav/engines` 即可。剩下待验证：相机实测
    （格号识别率/PnP 稳定性/帧率）与 dzpx4 单飞航线执行。
 2. 车端：上传 `src/ag_integrate` 到香橙派 colcon build（`tools/car_deploy.py`），
+   把 `car_command_source` 置 `onboard` 切薄接收（规划在机上，见上「技术总框架」）；
    用 `tools/car_match_bringup.sh` 两阶段启动，先 dry_run 验证，再实发。
+   ⚠️ 机载 `orin_plan_sidecar` 未跑时车端不会收到任何路线（在等 0x4003）；
+   回滚只需把 `car_command_source` 置回 `local`。
 3. 现场核实中场挡板/桥洞拓扑后，给节点传 `cross_gates:=['<可通行格>']` 启用
    “只能从可通行格穿越半场”约束（代码已就绪，默认关闭）。
    ⚠️ 注意：显式传入 cross_gates 会一并关掉 A/B/C 列的自由穿越

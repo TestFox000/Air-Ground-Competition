@@ -19,8 +19,8 @@
 | # | 成果 | 说明 | 文档 |
 |---|---|---|---|
 | 1 | 官方框架重构 | 基于官方 dzpx4/dzuav/dzrobot，本仓库只做集成胶水 | README.md |
-| 2 | 空地二进制 UDP 协议 | 魔数 0xefefefef、CRC16、0x4001情报帧+0x4002车位姿帧 | interface_contract.md |
-| 3 | 车端薄集成 ag_integrate | 协议解析→世界模型→任务路由→车命令→禁火保险 | src/ag_integrate/ |
+| 2 | 空地二进制 UDP 协议 | 魔数 0xefefefef、CRC16、0x4001情报帧+0x4002车位姿帧+0x4003车命令帧 | interface_contract.md |
+| 3 | 规划与集成核心 ag_integrate（规划在机上） | 机载：协议解析→世界模型→落格矩阵→任务路由→0x4003；车端：薄接收→/nav/waypoint | src/ag_integrate/ + tools/orin_plan_sidecar.py |
 
 ### 2.2 目标检测模型
 
