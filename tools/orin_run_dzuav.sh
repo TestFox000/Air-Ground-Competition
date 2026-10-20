@@ -14,6 +14,10 @@
 #    + cell_classifier_fp16，于是一键启动拉起的是 9 月的 7 类老二进制 + 7 类引擎，
 #    输出类别索引与 13 类协议错位（障碍被当蓝靶），而界面上看不出任何异常。
 #    可用 DZUAV_DIR / HBB_ENGINE / CELL_ENGINE 环境变量显式覆盖。
+# 这两个引擎名有三处必须同步：本脚本默认值、orin_convert_engines.sh 的产出名、
+# orin_build_verify.sh 的 CANON_*_ENGINE（L3 验证口径）。preflight.py 的 check_orin
+# 从本脚本解析、不另抄。改这里要一并改那两处，
+# tests/test_tools_smoke.py::test_convert_and_run_agree_on_engine_names 会拦。
 
 set -euo pipefail
 

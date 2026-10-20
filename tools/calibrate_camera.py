@@ -4,16 +4,23 @@ PnP 定位的精度根基是相机内参。无人机上的 AR0234 从未标定�
 现同款相机 USB 直连本机（OpenCV 后端一律 CAP_DSHOW，MSMF 在 cv2 5.0 有 bug），
 标定一次，注入机载代码，无人机修复后直接受益。
 
-用法（三步，也可 --all 一条龙）:
+用法（四步，按顺序跑；没有一条龙开关）:
   python tools/calibrate_camera.py board                       # 1. 生成棋盘格图，打印或手机屏显
-  python tools/calibrate_camera.py capture --camera 1 --size 1920x1200
+  python tools/calibrate_camera.py capture --camera 1
       #  2. 实时找角点自动采集 >=20 张（移动棋盘覆盖画面各区域），空格手动拍，ESC 结束
+      #     --size 默认已取机上采集分辨率，一般不用传
   python tools/calibrate_camera.py calibrate --square 25       # 3. 标定（方格实测边长 mm），自动剔坏图
   python tools/calibrate_camera.py inject                      # 4. 注入 onboard/dzuav/src/MapLocalizer.cpp
 
 注意:
-  - 标定分辨率 = 部署运行分辨率（默认 1920x1200 原生）。机上启动用同规格
-    `orin_run_dzuav.sh camera /dev/video0 1920x1200@30`，K 1:1 生效不做缩放。
+  - **标定分辨率必须 = 机上实际采集分辨率**。`capture --size` 的默认值直接取
+    `orin_bringup.sh` 的 `DZUAV_SPEC` 与 `orin_run_dzuav.sh` 的 `size_fps`
+    （当前均为 1920x1080），此时 K 1:1 生效不触发缩放。`inject` 会核对这一条，
+    不一致时拒绝注入（需 `--allow-basis-mismatch` 强行覆盖）。
+    ⚠️ 历史坑（2026-10-20 查出）：本脚本曾默认 1920x1200，而部署线是 1080。
+    照旧默认标定 + inject 会把 MapLocalizer 的基准分母改成 1200，机上仍按
+    1080 采集，scaledIntrinsics 就把 fy/cy 乘上 1080/1200=0.9 —— 定位系统性
+    偏 11%，而 L1/L2/L3 全绿（引擎和协议都不涉及内参）。
   - 打印的方格务必用尺量实际边长填 --square，纸机缩放会让焦距差出百分之几。
 """
 from __future__ import annotations
@@ -33,6 +40,43 @@ REPO = Path(__file__).resolve().parent.parent
 CALIB_DIR = REPO / "runs" / "camera_calib"
 SHOTS = CALIB_DIR / "shots"
 CPP = REPO / "onboard" / "dzuav" / "src" / "MapLocalizer.cpp"
+BRINGUP = REPO / "tools" / "orin_bringup.sh"
+RUN_DZUAV = REPO / "tools" / "orin_run_dzuav.sh"
+
+
+def deploy_frame_sizes() -> dict[str, tuple[int, int]]:
+    """机上实际会请求的采集分辨率，从启动脚本的默认值里读（不另抄常量）。
+
+    标定基准与采集分辨率不一致时，scaledIntrinsics 会按比例改 fy/cy；而
+    1920x1200 -> 1920x1080 在 USB 相机上通常是**裁切**不是缩放，按比例改
+    就是错的。所以这两个数必须核对，不能靠注释提醒。
+    """
+    out: dict[str, tuple[int, int]] = {}
+    for path, pat, key in (
+        (BRINGUP, r'^DZUAV_SPEC="\$\{DZUAV_SPEC:-(\d+)x(\d+)@', "DZUAV_SPEC"),
+        (RUN_DZUAV, r'^\s*size_fps="\$\{3:-(\d+)x(\d+)@', "size_fps"),
+    ):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        m = re.search(pat, text, re.M)
+        if m:
+            out[key] = (int(m.group(1)), int(m.group(2)))
+    return out
+
+
+def _default_capture_size() -> str:
+    """capture --size 的默认值 = 机上采集分辨率（从启动脚本派生，不另抄第四份）。
+
+    两个脚本给的数不一致时退回 1920x1080；那种情况下 inject 的基准核对也会
+    拦住，不会静默产出一份谁都对不上的内参。
+    """
+    sizes = set(deploy_frame_sizes().values())
+    if len(sizes) == 1:
+        w, h = next(iter(sizes))
+        return f"{w}x{h}"
+    return "1920x1080"
 
 
 def imwrite_cn(path: Path, img: np.ndarray) -> None:
@@ -192,11 +236,35 @@ def calibrate(args) -> int:
     return 0
 
 
-def inject(_args) -> int:
+def inject(args) -> int:
     """把标定结果写进 onboard/dzuav/src/MapLocalizer.cpp（K_/dist_/基准分辨率）。"""
     if not CPP.is_file():
         raise SystemExit(f"找不到 {CPP}")
     data = yaml.safe_load((CALIB_DIR / "calibration.yaml").read_text(encoding="utf-8"))
+
+    # 基准分辨率 = 机上采集分辨率才叫"不缩放"。注入会把 scaledIntrinsics 的分母
+    # 一起改成标定分辨率，于是两边不一致时不会报错、只会让定位静默偏掉。
+    basis = (int(data["width"]), int(data["height"]))
+    deployed = deploy_frame_sizes()
+    if not deployed:
+        print("[警告] 读不到 orin_bringup.sh / orin_run_dzuav.sh 的采集分辨率默认值，"
+              "基准一致性这项没法核对——请手工确认")
+    else:
+        bad = {k: v for k, v in deployed.items() if v != basis}
+        if bad and not args.allow_basis_mismatch:
+            detail = "、".join(f"{k}={v[0]}x{v[1]}" for k, v in bad.items())
+            want_key, (want_w, want_h) = next(iter(bad.items()))
+            raise SystemExit(
+                f"标定基准 {basis[0]}x{basis[1]} 与机上采集分辨率不一致（{detail}）。\n"
+                f"  注入后运行时 scaledIntrinsics 会把 fx 乘 {want_w}/{basis[0]}"
+                f"={want_w / basis[0]:.3f}、fy 乘 {want_h}/{basis[1]}"
+                f"={want_h / basis[1]:.3f}；\n"
+                f"  而 USB 相机换分辨率通常是**裁切**不是缩放，按比例改内参是错的，\n"
+                f"  定位会系统性偏移且 L1/L2/L3 全绿（那三级都不涉及内参）。\n"
+                f"  正解：capture --size {want_w}x{want_h} 重采重标；\n"
+                f"  确要保留本基准就加 --allow-basis-mismatch，并同步把 {want_key} "
+                f"改成 {basis[0]}x{basis[1]}@… 让机上按标定分辨率采集。")
+
     src = CPP.read_text(encoding="utf-8")
     k_new = (f"    K_ = (cv::Mat_<double>(3, 3) << {data['fx']}, 0, {data['cx']}, "
              f"0, {data['fy']}, {data['cy']}, 0, 0, 1);")
@@ -207,14 +275,21 @@ def inject(_args) -> int:
     # 基准分辨率（scaledIntrinsics 的缩放分母）改为标定分辨率
     src2, n3 = re.subn(r"sz\.width\) / \d+", f"sz.width) / {data['width']}", src2)
     src2, n4 = re.subn(r"sz\.height\) / \d+", f"sz.height) / {data['height']}", src2)
-    if not (n1 and n2 and n3 and n4):
-        raise SystemExit(f"patch 点没找全 K={n1} dist={n2} W={n3} H={n4}，检查 MapLocalizer.cpp")
+    # 函数上方那句「基准 1920x1080」注释也要跟着走，否则代码改了注释还在撒谎
+    src2, n5 = re.subn(r"（基准 \d+x\d+）",
+                       f"（基准 {data['width']}x{data['height']}）", src2)
+    if not (n1 and n2 and n3 and n4 and n5):
+        raise SystemExit(
+            f"patch 点没找全 K={n1} dist={n2} W={n3} H={n4} 注释={n5}，检查 MapLocalizer.cpp")
     CPP.write_text(src2, encoding="utf-8")
     print(f"已注入 {CPP}")
     print(f"  K 基准 {data['width']}x{data['height']}  (rms {data['rms_px']:.3f}px, "
           f"{data['n_views']}图, {data['date']})")
-    print("机上生效: git pull && tools/orin_build_verify.sh && tools/orin_convert_engines.sh")
-    print(f"提示: 机上相机按 {data['width']}x{data['height']} 运行可免缩放误差")
+    print("机上生效（改的是 C++ 源码，必须重推源码再编译；转引擎与此无关）:")
+    print("  python tools/orin_deploy.py --host <Orin IP> --user <用户> --skip-models --verify")
+    print(f"提示: 机上采集分辨率必须就是 {data['width']}x{data['height']}"
+          "（orin_bringup.sh 的 DZUAV_SPEC / orin_run_dzuav.sh 的 size_fps），"
+          "否则 scaledIntrinsics 会按比例改内参")
     return 0
 
 
@@ -230,7 +305,9 @@ def main() -> int:
 
     p = sub.add_parser("capture", help="实时采集棋盘格图")
     p.add_argument("--camera", type=int, default=1, help="相机 index（USB 同款=1）")
-    p.add_argument("--size", default="1920x1200", help="采集分辨率")
+    p.add_argument("--size", default=_default_capture_size(),
+                   help="采集分辨率（默认取机上 DZUAV_SPEC = %(default)s；"
+                        "与它不等时 inject 拒绝注入）")
     p.add_argument("--pattern", default="9x6")
     p.set_defaults(func=capture)
 
@@ -239,7 +316,10 @@ def main() -> int:
     p.add_argument("--square", type=float, required=True, help="方格实测边长 mm")
     p.set_defaults(func=calibrate)
 
-    sub.add_parser("inject", help="注入 MapLocalizer.cpp").set_defaults(func=inject)
+    p = sub.add_parser("inject", help="注入 MapLocalizer.cpp")
+    p.add_argument("--allow-basis-mismatch", action="store_true",
+                   help="标定基准与机上采集分辨率不一致时仍注入（默认拒绝）")
+    p.set_defaults(func=inject)
 
     args = ap.parse_args()
     if getattr(args, "pattern", None):
