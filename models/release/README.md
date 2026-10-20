@@ -36,7 +36,7 @@
 | 文件名 | md5 | 体积 | 来源 | 用途 | 入库日期 |
 |---|---|---|---|---|---|
 | `light_det.rknn` | `49F3700590A907994E7EE20E4D30CC13` | 8.09 MB | 车端 `~/dzrobot/src/rknn_pt/model/`（厂家随车提供） | **车端现役基线**。输出 `[1,9,8400]` = 4 bbox + 1 cls + 4 kpt，单类别 YOLO-pose，与 `det_node` 期望一致 | 2026-09-28 |
-| `hbb_detector.onnx` | `85056EF546FA42C7656133945058FD30` | 36.66 MB | Orin `~/dzuav/models/`（出厂部署） | **无人机主检测器**（7 类）。输入 `images [N,3,1280,1280]`，输出 `output0 [N,11,33600]`（4 bbox + 7 类），与 `HbbDetector` 后处理一致。换机时用 `tools/orin_convert_engines.sh` 生成 FP16 引擎 | 2026-10-02 |
+| `hbb_detector.onnx` | `85056EF546FA42C7656133945058FD30` | 36.66 MB | Orin `~/dzuav/models/`（出厂部署） | ⚠️ **出厂 7 类检测器（11 通道），已作废留档，勿部署**——与现役 `HbbDetector`（17 通道硬校验）不符，上机即 throw | 2026-10-02 |
 | `cell_classifier.onnx` | `7B3053A9DC3347A9B0D35D6A9EF55E74` | 4.13 MB | Orin `~/dzuav/models/`（出厂部署） | **格号分类器**（双头 MobileNetV3）。输入 `images [N,3,96,96]`，输出 `letter_logits [N,14]`（列 A~N）+ `row_logits [N,11]`（行 1~11），与 `CellClassifier` 一致 | 2026-10-02 |
 
 ## 车端那一堆同族文件（别混）
@@ -52,18 +52,24 @@
 | `light_det_v1.rknn` | 待补 | ❌ 另一套导出 |
 | `cell_classifier_v4c_20261008.onnx` | `4F1838BEBFC951BC62170D821D56EC22` | 4.34 MB | 本次训练产物（tag=v4c） | 格号分类器，见 current_cell_classifier 指针 | 2026-10-08 |
 | `cell_classifier_v4c_20261009.onnx` | `850AE9376BD5AC7BDFE44D6BD550A920` | 4.34 MB | 本次训练产物（tag=v4c） | 格号分类器，见 current_cell_classifier 指针 | 2026-10-09 |
-| `hbb_detector_7cls_distill_20261011.onnx` | `E93DEC04F9C7D8F272CC11624261741D` | 38.44 MB | 本次训练产物（tag=7cls_distill） | 无人机主检测器，见 current_hbb_detector 指针 | 2026-10-11 |
-| `cell_classifier_v4c_ft_20261010.onnx` | `11BE1A3CD2780F67CBB8273B8AA0A410` | 4.34 MB | v4c 微调产物 | **格号分类器现役**，见 current_cell_classifier 指针（补登记，原漏登） | 2026-10-15 |
+| `hbb_detector_7cls_distill_20261011.onnx` | `E93DEC04F9C7D8F272CC11624261741D` | 38.44 MB | 本次训练产物（tag=7cls_distill） | ⚠️ **7 类旧契约（11 通道），已作废留档，勿部署**——机上按 17 通道硬校验；曾是 current_hbb_detector 指针目标 | 2026-10-11 |
+| `cell_classifier_v4c_ft_20261010.onnx` | `11BE1A3CD2780F67CBB8273B8AA0A410` | 4.34 MB | v4c 微调产物 | ⚠️ **已被 v4d 取代，留档勿部署**（形状契约与 v4d 相同，校验区分不了，只认指针）；曾是 current_cell_classifier 指针目标 | 2026-10-15 |
 | `hbb_detector_7cls_local_20261013.onnx` | `E4B0FCE3E78062182C6C46F6E8A762E5` | 38.44 MB | 本地补充训练导出 | ⚠️ **评估失败品（val-B 89.19% 劣于现役），勿部署**，仅留档 | 2026-10-15 |
 | `hbb_detector_7cls_local_20261013.pt` | `B84DE1A3CA87DA24BFD2D290CAFD1F75` | 19.37 MB | 同上 | ⚠️ 同上（.pt 属中间产物，按规则本不该入库，留档备查） | 2026-10-15 |
 | `aerial_field_detector.pt` | `E28A3165B14793A78710FF9197579D38` | 76.09 MB | 早期航拍检测器权重 | ⚠️ 历史留档（超出 50MB 建议，勿部署，勿再传此类 .pt） | 2026-10-15 |
+| `hbb_detector_d13_20261016.onnx` | `9DAE6083239B3B6C0B553C5F94261E78` | 38.45 MB | D 方案 13 类统一模型（源 `dk_train_pack_20261016/models/hbb_d13.onnx`，权重 `hbb_d13_best.pt`） | **无人机主检测器现役**（13 类），见 current_hbb_detector 指针。契约 `images[1,3,1280,1280] → output0[1,17,33600]`，与 `HbbDetector.cpp` 硬校验一致。同族 `hbb_d13_640.onnx` / `hbb_d13_ft640.onnx` 是 640 分辨率（8400 锚点），**不符合本契约，未入库、勿部署** | 2026-10-20 |
+| `cell_classifier_v4d_20261015.onnx` | `9DE102A6519127EEB787381FEEFDC14D` | 4.34 MB | v4d 云端训练产物（源 `cloud_train_20261015/deploy_pkg/`） | **格号分类器现役**（v4d），见 current_cell_classifier 指针。106/106 全真值裁剪验证；`cell_classifier_v4d_perm5_20261017.onnx` 移位方案**已作废**（会把目前读对的字符也搞错），未入库 | 2026-10-20 |
 
 ## 当前建议部署组合（无人机 Orin）
 
-| 用途 | 模型（current 指针） | 依据 |
-|---|---|---|
-| 主检测器 | `hbb_detector_7cls_distill_20261011.onnx` | val-B 综合 90.30% 的已发布最优；**注意：combined 90.53% 尚未发布**（best.pt 在训练机，未导出入库），发布后此表以新指针为准 |
-| 格号分类器 | `cell_classifier_v4c_ft_20261010.onnx` | joint_acc=0.8588 已发布（v4d 卡在 5090 失联） |
+| 用途 | 模型（current 指针） | 机上引擎名（`orin_run_dzuav.sh` 默认） | 依据 |
+|---|---|---|---|
+| 主检测器 | `hbb_detector_d13_20261016.onnx` | `hbb_detector_d13_fp16.engine` | 13 类 D 方案，`types.hpp` 自 2026-10-16 起按 17 通道硬校验；`video_recon.py` 的 D13Detector 用的就是这份 |
+| 格号分类器 | `cell_classifier_v4d_20261015.onnx` | `cell_classifier_v4d_fp16.engine` | v4d，2026-10-17 视频侦察全天验证 106/106 |
+
+⚠️ **2026-10-20 之前的旧组合（`hbb_detector_7cls_distill_20261011` + `cell_classifier_v4c_ft_20261010`）已作废**：
+7 类检测器输出 11 通道，机上 `HbbDetector` 构造期即 throw；v4c 与 v4d 形状契约相同，
+`verify_contract.py` **区分不了两者**，只能靠文件名/指针把关。留档行仅备查。
 
 Orin 上部署/换模型三步（仓库 git pull 后）：
 
@@ -86,8 +92,14 @@ python tools/ml/verify_contract.py --all models/release
 ```
 
 ONNX 契约（与 onboard/dzuav/src C++ 逐字对应）：
-- `hbb_detector`：输入 `images [N,3,1280,1280]`，输出 `output0 [N,11,33600]`
+- `hbb_detector`：输入 `images [N,3,1280,1280]`，输出 `output0 [N,17,33600]`
+  （17 = 4 bbox + 13 类；类目数由 `onboard/dzuav/include/dzuav/types.hpp` 的
+  `kObjectClassCount` 单点派生，`verify_contract.py` 现场解析，勿在本文件写死）
 - `cell_classifier`：输入 `images [N,3,96,96]`，输出 `letter_logits [N,14]` + `row_logits [N,11]`
+
+⚠️ **11 通道（7 类）是 2026-10-16 之前的旧契约**，与机上 `HbbDetector.cpp` 的
+硬校验 `[1,17,33600]` 不符：7 类引擎一上机就在构造期 throw。下表里 7cls 各行
+仅作历史留档，**不可用于当前 13 类部署线**。
 
 车端 `.rknn`（`light_det.rknn`）输出必须是 `[1,9,8400]`，否则 `det_node` 解不出来。
 契约校验同时在 pytest（`tests/test_model_contract.py`）里持续守护。
