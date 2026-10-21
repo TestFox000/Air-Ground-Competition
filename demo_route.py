@@ -4,8 +4,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "src" / "ag_integrate"))
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+from ag_integrate.cjk_font import load_cjk_font
 from ag_integrate.field_frame import CellRef, COLS, ROWS, LETTERS
+from ag_integrate.fire_guard import neighbor_names
 from ag_integrate.world_model import WorldSnapshot, TargetRef
 from ag_integrate.mission_router import plan_route
 from ag_integrate.car_adapter import compact_and_adapt
@@ -18,6 +20,12 @@ def cell(name: str) -> CellRef:
 
 
 # === 裁判系统地图（按用户标注图重设）===
+# ⚠️ 这是**固定的演示场景**（与 tools/_router_baseline.py 的 "demo" 场景同一份，
+#    用作规划器行为的对拍基线），不是当前比赛地图：车起点/终点 N11→N6、轨道
+#    D8-E8 都是 2026-10-17 官方地图更新前的值。现役摆位在
+#    src/ag_integrate/config/match_params.yaml（N10→N5、轨道 D7-E7），
+#    两者的一致性由 tests/test_field_config_consistency.py 守。改这里会一并
+#    改动演示输出，别为了"跟上现场"手改本文件。
 # 雷（黄）
 MINES = ["I1", "A2", "G3", "B4", "H5", "E6", "C7", "G11"]
 # 障碍（红"障"）——注意：桥洞列的墙不写死，由 passable 自动推导
@@ -92,7 +100,10 @@ route_set = set(route)
 missing = [c for c in MINES if c not in route_set]
 violations = [c for c in route if c in OBSTACLES]
 tread = [c for c in TRACK if c in route_set]
-shoot_spots = sorted(SHOOT_KEEP & route_set)
+# 射击停靠格以车端命令为准（cmds.shoot_cells）：唯一真源是 mission_keep 推导的
+# KEEP，本文件此前自己拼 SHOOT_KEEP，那个名字在改走 compact_and_adapt 时已被
+# 删掉（残留引用 = 脚本跑到最后一步 NameError，2026-10-21 实测）。
+shoot_spots = sorted(set(shoot) & route_set)
 print(f"\n排雷覆盖: {'全部覆盖 ✓' if not missing else f'缺失 {missing}'}")
 print(f"障碍避让: {'未穿障 ✓' if not violations else f'穿障 {violations}'}")
 print(f"轨道避让: {'未踩轨道 ✓' if not tread else f'踩轨道 {tread}'}")
@@ -112,14 +123,14 @@ H = PAD * 2 + ROWS * CELL_PX
 img = Image.new("RGB", (W, H + 16), (30, 30, 30))
 draw = ImageDraw.Draw(img)
 
-try:
-    font = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 14)
-    font_sm = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 10)
-    font_tiny = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 9)
-except Exception:
-    font = ImageFont.load_default()
-    font_sm = font
-    font_tiny = font
+# 字体：跨平台候选表（ag_integrate.cjk_font），无 CJK 字体时整图 ASCII —— 绝不
+# 拿 PIL 默认位图字体画汉字（latin-1 编码，画第一个字就 UnicodeEncodeError）。
+font, cjk_ok = load_cjk_font(14)
+font_sm, _ = load_cjk_font(10)
+font_tiny, _ = load_cjk_font(9)
+T = (lambda zh, en: zh) if cjk_ok else (lambda zh, en: en)
+if not cjk_ok:
+    print("[警告] 未找到中文字体，图上标签退化为英文（规划结果不受影响）")
 
 
 def cell_xy(c: CellRef) -> tuple[int, int]:
@@ -160,7 +171,7 @@ for name in OBSTACLES:
     c = cell(name)
     x, y = cell_xy(c)
     draw.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], fill=(180, 40, 40))
-    draw.text((x + CELL_PX // 2, y + CELL_PX // 2), "障", fill="white", font=font, anchor="mm")
+    draw.text((x + CELL_PX // 2, y + CELL_PX // 2), T("障", "OBS"), fill="white", font=font, anchor="mm")
 
 # 画桥洞列：passable 格为可通行（浅紫"洞"），其余为墙（深灰"墙"）
 L_GATES = set(PASSABLE)
@@ -171,17 +182,17 @@ for r in range(ROWS):
     x, y = cell_xy(c)
     if name in L_GATES:
         draw.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], fill=(80, 60, 120))
-        draw.text((x + CELL_PX // 2, y + CELL_PX // 2), "洞", fill="white", font=font, anchor="mm")
+        draw.text((x + CELL_PX // 2, y + CELL_PX // 2), T("洞", "GATE"), fill="white", font=font, anchor="mm")
     else:
         draw.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], fill=(60, 60, 60))
-        draw.text((x + CELL_PX // 2, y + CELL_PX // 2), "墙", fill=(150, 150, 150), font=font_sm, anchor="mm")
+        draw.text((x + CELL_PX // 2, y + CELL_PX // 2), T("墙", "WALL"), fill=(150, 150, 150), font=font_sm, anchor="mm")
 
 # 画雷（黄）
 for name in MINES:
     c = cell(name)
     x, y = cell_xy(c)
     draw.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], fill=(220, 200, 30))
-    draw.text((x + CELL_PX // 2, y + CELL_PX // 2 - 6), "雷", fill="black", font=font, anchor="mm")
+    draw.text((x + CELL_PX // 2, y + CELL_PX // 2 - 6), T("雷", "MINE"), fill="black", font=font, anchor="mm")
 
 # 画桥洞通行箭头标记（桥洞列前一列、与门同行的"通"指向桥洞格）
 APPROACH_COL = LETTERS[L_COL - 1]  # 桥洞列西侧相邻列（默认 L → K）
@@ -189,24 +200,24 @@ for gate in PASSABLE:
     name = f"{APPROACH_COL}{int(gate[1:])}"
     c = cell(name)
     x, y = cell_xy(c)
-    draw.text((x + CELL_PX // 2, y + CELL_PX // 2), "→", fill=(40, 200, 80), font=font, anchor="mm")
+    draw.text((x + CELL_PX // 2, y + CELL_PX // 2), T("→", ">"), fill=(40, 200, 80), font=font, anchor="mm")
 
 # 画移动靶轨道（两格，靶沿轨道匀速往返）+ 蓝面朝向标注
 for name in TRACK:
     c = cell(name)
     x, y = cell_xy(c)
     draw.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], fill=(95, 75, 140))
-    draw.text((x + CELL_PX // 2, y + CELL_PX // 2 - 6), "轨", fill="white", font=font, anchor="mm")
+    draw.text((x + CELL_PX // 2, y + CELL_PX // 2 - 6), T("轨", "TRK"), fill="white", font=font, anchor="mm")
 # 轨道上方画往返双箭头
 _ta, _tb = cell(TRACK[0]), cell(TRACK[1])
 xa, ya = cell_xy(_ta); xb, yb = cell_xy(_tb)
 mid_x = (xa + xb) // 2 + CELL_PX // 2
 off = CELL_PX // 3 if _ta.row == _tb.row else 0
-draw.text((mid_x, ya + CELL_PX // 2 - off), "⇄", fill=(255, 230, 130), font=font, anchor="mm")
+draw.text((mid_x, ya + CELL_PX // 2 - off), T("⇄", "<->"), fill=(255, 230, 130), font=font, anchor="mm")
 # 蓝面侧文字标注（停靠射击发生在这一侧）
 face_x = mid_x
 face_y = ya + CELL_PX * (1.15 if BLUE_FACE == "S" else -0.3) if _ta.row == _tb.row else ya + CELL_PX // 2
-draw.text((face_x, face_y), "蓝面→", fill=(120, 180, 255), font=font_sm, anchor="mm")
+draw.text((face_x, face_y), T("蓝面→", "BLUE"), fill=(120, 180, 255), font=font_sm, anchor="mm")
 
 # 统计每个格子被经过的次数
 from collections import Counter
@@ -244,12 +255,14 @@ for i, name in enumerate(route):
         draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(150, 150, 150))
 
 # 画射击停靠格：金色准星 + 指向正对轨道端点的短箭头（车头正对靶心）
+# 邻接判定用 fire_guard.neighbor_names（正交邻几何的唯一真源）；本文件此前的
+# _orthonames 在早前重构里已删，残留引用 = 脚本跑到最后一步 NameError。
 import math
 for name in shoot:
     c = cell(name)
     x, y = cell_xy(c)
     cx, cy = x + CELL_PX // 2, y + CELL_PX // 2
-    for t in [t for t in TRACK if name in _orthonames(t)]:
+    for t in [t for t in TRACK if t in neighbor_names(name)]:
         tc = cell(t)
         tx, ty = cell_xy(tc)
         tcx, tcy = tx + CELL_PX // 2, ty + CELL_PX // 2
@@ -266,18 +279,25 @@ sc = cell(START)
 gc = cell(GOAL)
 sx, sy = cell_xy(sc)
 draw.rectangle([sx + 4, sy + 4, sx + CELL_PX - 4, sy + CELL_PX - 4], outline=(0, 255, 0), width=3)
-draw.text((sx + CELL_PX // 2, sy + CELL_PX - 8), "起点", fill=(0, 255, 0), font=font_sm, anchor="mm")
+draw.text((sx + CELL_PX // 2, sy + CELL_PX - 8), T("起点", "START"), fill=(0, 255, 0), font=font_sm, anchor="mm")
 gx, gy = cell_xy(gc)
 draw.rectangle([gx + 4, gy + 4, gx + CELL_PX - 4, gy + CELL_PX - 4], outline=(255, 100, 0), width=3)
-draw.text((gx + CELL_PX // 2, gy + CELL_PX - 8), "终点", fill=(255, 100, 0), font=font_sm, anchor="mm")
+draw.text((gx + CELL_PX // 2, gy + CELL_PX - 8), T("终点", "GOAL"), fill=(255, 100, 0), font=font_sm, anchor="mm")
 
 # 图例
 legend_y = H - 20
-draw.text((PAD, legend_y), "绿→黄→红 = 路径先后顺序", fill="white", font=font_sm)
-draw.text((PAD + 250, legend_y), "×N = 该格经过次数", fill=(255, 255, 100), font=font_sm)
-draw.text((PAD + 430, legend_y), f"{BRIDGE_COL}列: 墙=挡板/洞=桥洞通行格", fill=(200, 180, 255), font=font_sm)
+draw.text((PAD, legend_y), T("绿→黄→红 = 路径先后顺序", "G->Y->R = path order"),
+          fill="white", font=font_sm)
+draw.text((PAD + 250, legend_y), T("×N = 该格经过次数", "xN = visit count"),
+          fill=(255, 255, 100), font=font_sm)
+draw.text((PAD + 430, legend_y), T(f"{BRIDGE_COL}列: 墙=挡板/洞=桥洞通行格",
+                                   f"{BRIDGE_COL} col: WALL=barrier GATE=bridge"),
+          fill=(200, 180, 255), font=font_sm)
 legend_y2 = H + 2
-draw.text((PAD, legend_y2), "轨=移动靶轨道(双面:蓝面朝准星侧,红面朝对侧) ⊕=停靠射击格(箭头指向正对端点)", fill=(255, 200, 100), font=font_sm)
+draw.text((PAD, legend_y2),
+          T("轨=移动靶轨道(双面:蓝面朝准星侧,红面朝对侧) ⊕=停靠射击格(箭头指向正对端点)",
+            "TRK=target track (blue face to the crosshair side)  +=shoot stop"),
+          fill=(255, 200, 100), font=font_sm)
 
 out = Path(__file__).parent / "datasets" / "cell_labels" / "route_demo.png"
 out.parent.mkdir(parents=True, exist_ok=True)

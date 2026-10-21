@@ -4,7 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "src" / "ag_integrate"))
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+from ag_integrate.cjk_font import load_cjk_font
 from ag_integrate.field_frame import CellRef, COLS, ROWS, LETTERS
 from ag_integrate.world_model import WorldSnapshot, TargetRef
 from ag_integrate.mission_router import plan_route
@@ -51,12 +52,11 @@ CANVAS_H = H + 60
 img = Image.new("RGB", (CANVAS_W, CANVAS_H), (25, 25, 25))
 draw = ImageDraw.Draw(img)
 
-try:
-    font = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 16)
-    font_sm = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 11)
-except Exception:
-    font = ImageFont.load_default()
-    font_sm = font
+# 字体走 ag_integrate.cjk_font（跨平台候选表）；无 CJK 字体时整图 ASCII，
+# 绝不拿 PIL 默认位图字体画汉字（latin-1 编码，画第一个字就崩）。
+font, cjk_ok = load_cjk_font(16)
+font_sm, _ = load_cjk_font(11)
+T = (lambda zh, en: zh) if cjk_ok else (lambda zh, en: en)
 
 
 def cell_xy(c: CellRef, ox: int) -> tuple[int, int]:
@@ -84,25 +84,25 @@ def draw_cells(ox: int, show_l_wall: bool):
             x, y = cell_xy(c, ox)
             if name in L_GATES:
                 draw.rectangle([x + 3, y + 3, x + CELL_PX - 3, y + CELL_PX - 3], fill=(80, 60, 120))
-                draw.text((x + CELL_PX // 2, y + CELL_PX // 2), "洞", fill="white", font=font_sm, anchor="mm")
+                draw.text((x + CELL_PX // 2, y + CELL_PX // 2), T("洞", "GATE"), fill="white", font=font_sm, anchor="mm")
             else:
                 draw.rectangle([x + 3, y + 3, x + CELL_PX - 3, y + CELL_PX - 3], fill=(60, 60, 60))
-                draw.text((x + CELL_PX // 2, y + CELL_PX // 2), "墙", fill=(150, 150, 150), font=font_sm, anchor="mm")
+                draw.text((x + CELL_PX // 2, y + CELL_PX // 2), T("墙", "WALL"), fill=(150, 150, 150), font=font_sm, anchor="mm")
     for name in OBSTACLES:
         c = cell(name)
         x, y = cell_xy(c, ox)
         draw.rectangle([x + 3, y + 3, x + CELL_PX - 3, y + CELL_PX - 3], fill=(160, 40, 40))
-        draw.text((x + CELL_PX // 2, y + CELL_PX // 2), "障", fill="white", font=font_sm, anchor="mm")
+        draw.text((x + CELL_PX // 2, y + CELL_PX // 2), T("障", "OBS"), fill="white", font=font_sm, anchor="mm")
     for name in MINES:
         c = cell(name)
         x, y = cell_xy(c, ox)
         draw.rectangle([x + 3, y + 3, x + CELL_PX - 3, y + CELL_PX - 3], fill=(210, 190, 30))
-        draw.text((x + CELL_PX // 2, y + CELL_PX // 2 - 6), "雷", fill="black", font=font_sm, anchor="mm")
+        draw.text((x + CELL_PX // 2, y + CELL_PX // 2 - 6), T("雷", "MINE"), fill="black", font=font_sm, anchor="mm")
     for name in TARGETS_BLUE:
         c = cell(name)
         x, y = cell_xy(c, ox)
         draw.rectangle([x + 3, y + 3, x + CELL_PX - 3, y + CELL_PX - 3], fill=(150, 60, 200))
-        draw.text((x + CELL_PX // 2, y + CELL_PX // 2 - 6), "靶", fill="white", font=font_sm, anchor="mm")
+        draw.text((x + CELL_PX // 2, y + CELL_PX // 2 - 6), T("靶", "TGT"), fill="white", font=font_sm, anchor="mm")
     sc = cell(START)
     x, y = cell_xy(sc, ox)
     draw.rectangle([x + 4, y + 4, x + CELL_PX - 4, y + CELL_PX - 4], outline=(0, 255, 0), width=3)
@@ -134,21 +134,28 @@ def path_length(route: tuple[str, ...]) -> float:
 
 
 ox0 = 0
-draw.text((ox0 + PAD, 12), f"无 L 列挡板  {len(route_free)} 格 / {path_length(route_free):.1f} 格长",
+draw.text((ox0 + PAD, 12),
+          T(f"无 L 列挡板  {len(route_free)} 格 / {path_length(route_free):.1f} 格长",
+            f"no L wall  {len(route_free)} cells / {path_length(route_free):.1f} long"),
           fill=(120, 220, 120), font=font)
 draw_grid(ox0)
 draw_cells(ox0, show_l_wall=False)
 draw_route(ox0, route_free)
 
 ox1 = W + GAP
-draw.text((ox1 + PAD, 12), f"L 列挡板（仅 L2/L11 通行）  {len(route_gate)} 格 / {path_length(route_gate):.1f} 格长",
+draw.text((ox1 + PAD, 12),
+          T(f"L 列挡板（仅 L2/L11 通行）  {len(route_gate)} 格 / {path_length(route_gate):.1f} 格长",
+            f"L wall (gates L2/L11)  {len(route_gate)} cells / {path_length(route_gate):.1f} long"),
           fill=(255, 120, 120), font=font)
 draw_grid(ox1)
 draw_cells(ox1, show_l_wall=True)
 draw_route(ox1, route_gate)
 
-draw.text((PAD, H + 10), "黄线 = 跨越 L 列的那一步（穿桥洞）", fill="white", font=font_sm)
-draw.text((ox1 + PAD, H + 10), f"绕路 +{len(route_gate) - len(route_free)} 格：必须经 L11 进、L2 出（或反之）",
+draw.text((PAD, H + 10), T("黄线 = 跨越 L 列的那一步（穿桥洞）", "yellow = crossing L through a gate"),
+          fill="white", font=font_sm)
+draw.text((ox1 + PAD, H + 10),
+          T(f"绕路 +{len(route_gate) - len(route_free)} 格：必须经 L11 进、L2 出（或反之）",
+            f"detour +{len(route_gate) - len(route_free)} cells via L11/L2"),
           fill=(255, 200, 100), font=font_sm)
 
 out = Path(__file__).parent / "datasets" / "cell_labels" / "route_compare.png"

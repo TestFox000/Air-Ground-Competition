@@ -56,12 +56,14 @@ import cv2
 import numpy as np
 
 try:                                    # 包内导入（python -m ag_integrate.video_recon）
+    from .cjk_font import load_cjk_font
     from .field_frame import CellRef, COLS, LETTERS, ROWS
     from .world_model import TargetRef, WorldSnapshot
     from .mission_router import plan_route
     from .car_adapter import compact_and_adapt
 except ImportError:                     # 直接以文件路径运行（比赛现场快捷用法）
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from ag_integrate.cjk_font import load_cjk_font
     from ag_integrate.field_frame import CellRef, COLS, LETTERS, ROWS
     from ag_integrate.world_model import TargetRef, WorldSnapshot
     from ag_integrate.mission_router import plan_route
@@ -110,9 +112,17 @@ TRACK_DFT = ("D7", "E7")
 BLUE_FACE_DFT = "S"
 START_DFT, GOAL_DFT = "N10", "N5"
 
-# 模型默认搜索路径（相对运行目录逐级向上找）
-D13_SEARCH = ("dk_train_pack_20261016/models/hbb_d13.onnx",)
-V4D_SEARCH = ("cloud_train_20261015/deploy_pkg/cell_classifier_v4d_20261015.onnx",)
+# 模型默认搜索路径（相对运行目录逐级向上找）。
+# 第一顺位是 models/release/ 的 current 指针（文件内容 = 同目录下的模型文件名），
+# 与 tools/orin_deploy.py / tools/preflight.py 同一真源——"现役模型"只有这一处
+# 定义。训练目录路径留作兼容。
+# 2026-10-21 实测教训：原实现只写训练目录（dk_train_pack_* / cloud_train_*），
+# 那些目录一清理，默认调用就报"未找到模型"，逼人手传 --d13/--v4d——与"比赛日
+# 无人值守一条命令"的目标相悖，且手传的路径无人校验版本（7 类旧模型照跑）。
+D13_SEARCH = ("models/release/current_hbb_detector",
+              "dk_train_pack_20261016/models/hbb_d13.onnx")
+V4D_SEARCH = ("models/release/current_cell_classifier",
+              "cloud_train_20261015/deploy_pkg/cell_classifier_v4d_20261015.onnx")
 
 
 def cell_name(col: int, row: int) -> str:
@@ -487,18 +497,49 @@ class V4dReader:
 
 
 # ---------------------------------------------------------------- 侦察主流程
-def _find_model(search: tuple[str, ...], explicit: str | None) -> Path:
+def _model_from_entry(entry: Path) -> Path | None:
+    """搜索项 -> 真实 ONNX。搜索项可以是指针文件（内容 = 同目录模型文件名，
+    与 tools/orin_deploy.py 的 current 指针同一约定）。"""
+    if not entry.is_file():
+        return None
+    if entry.suffix.lower() == ".onnx":
+        return entry
+    target = entry.parent / entry.read_text(encoding="utf-8").strip()
+    return target if target.is_file() else None
+
+
+def _find_model(search: tuple[str, ...], explicit: str | None,
+                kind: str = "d13") -> Path:
+    """定位模型：显式路径优先，否则逐级向上找 search 项（含 current 指针）。
+
+    报错必须能照着做（2026-10-21 补）：机上没有仓库、VNC 里翻不动长篇日志，
+    所以把"找过的每个位置"和"两条修法"都印出来，而不是甩一句 FileNotFoundError。
+    """
     if explicit:
         p = Path(explicit)
-        if p.exists():
+        if p.is_file():
             return p
-        raise FileNotFoundError(explicit)
+        raise FileNotFoundError(
+            f"--{kind} 指定的模型不存在: {p.resolve()}\n"
+            f"  机上模型在 ~/dzuav/models/ 下（d13: hbb*d13*.onnx，"
+            f"v4d: cell*v4d*.onnx）；确认文件名后再传")
+    tried: list[str] = []
     for base in [Path.cwd(), *Path.cwd().parents[:3]]:
         for rel in search:
-            p = base / rel
-            if p.exists():
-                return p
-    raise FileNotFoundError(f"未找到模型，尝试过 {search}，用 --d13/--v4d 显式指定")
+            entry = base / rel
+            if entry.is_file():
+                got = _model_from_entry(entry)
+                if got is not None:
+                    return got
+                tried.append(f"{entry}（指针指向的文件不存在）")
+            else:
+                tried.append(str(entry))
+    raise FileNotFoundError(
+        f"未找到 {kind} 模型（{kind}：d13 检测器 / v4d 格号分类器）。找过：\n"
+        + "\n".join(f"    {t}" for t in tried)
+        + f"\n  修法：① --{kind} <模型.onnx> 显式指定；"
+          f"② 在仓库根目录运行（models/release/current_* 指针决定现役模型，"
+          f"指针缺失先跑 tools/release_models.py 发布）")
 
 
 def _write_annot(out_dir: Path, fidx: int, frame: np.ndarray,
@@ -532,10 +573,13 @@ def recon_video(video: str | Path, out_dir: str | Path,
         raise FileNotFoundError(
             f"视频不存在: {video.resolve()}\n"
             f"  检查路径/盘符；机上常见是文件名带空格或中文未加引号")
+    # 模型先解析、目录后建：解析失败时不留空目录（报错里"产物目录（若已建）"
+    # 才说得准，现场也不会误以为跑过半程）。
+    d13 = D13Detector(_find_model(D13_SEARCH, d13_onnx and str(d13_onnx), "d13"),
+                      imgsz=imgsz)
+    v4d = V4dReader(_find_model(V4D_SEARCH, v4d_onnx and str(v4d_onnx), "v4d"))
     (out_dir / "annotated").mkdir(parents=True, exist_ok=True)
     (out_dir / "label_crops").mkdir(parents=True, exist_ok=True)
-    d13 = D13Detector(_find_model(D13_SEARCH, d13_onnx and str(d13_onnx)), imgsz=imgsz)
-    v4d = V4dReader(_find_model(V4D_SEARCH, v4d_onnx and str(v4d_onnx)))
 
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():
@@ -912,41 +956,17 @@ def plan_from_state(field_state: dict, out_dir: str | Path) -> dict:
     return route_plan
 
 
-#: 渲染用中文字体的候选路径（跨平台）。顺序 = 优先无衬线、再衬线、最后兜底。
-#: 2026-10-21 机上实测：原实现只写死 C:/Windows/Fonts/msyh.ttc，在 Orin 上
-#: 必然落进 ImageFont.load_default()（PIL 的位图字体），而它编码是 latin-1，
-#: 画第一个汉字 "墙" 就 UnicodeEncodeError，整条 video_recon 在最后渲染步崩掉
-#: ——视频侦察在机上根本产不出 route_render.png。Noto Sans CJK 是 JetPack
-#: 自带（/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc）。
-_FONT_CANDIDATES = (
-    "C:/Windows/Fonts/msyh.ttc",                                    # Windows 微软雅黑
-    "C:/Windows/Fonts/simhei.ttf",                                  # Windows 黑体
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",       # Orin/JetPack
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",                 # 常见 Linux 中文字体
-    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
-    "/System/Library/Fonts/PingFang.ttc",                           # macOS
-)
-
-
-def _load_font(size: int):
-    """返回 (font, cjk_ok)。找不到任何 CJK 字体时用默认位图字体并置 cjk_ok=False，
-    调用方据此把中文标签换成 ASCII——绝不拿默认字体去画汉字（必崩）。"""
-    from PIL import ImageFont
-
-    for path in _FONT_CANDIDATES:
-        try:
-            if Path(path).is_file():
-                return ImageFont.truetype(path, size), True
-        except OSError:
-            continue
-    return ImageFont.load_default(), False
+#: 渲染字体走 ag_integrate.cjk_font（跨平台候选表 + cjk_ok 降级判定，全仓一份）。
+#: 2026-10-21 机上实测：原实现写死 C:/Windows/Fonts/msyh.ttc，在 Orin 上必然落进
+#: ImageFont.load_default()（PIL 位图字体，latin-1），画第一个汉字 "墙" 就
+#: UnicodeEncodeError——视频侦察在最后一步渲染崩掉，产不出 route_render.png。
+#: Noto Sans CJK 是 JetPack 自带（/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc）。
 
 
 def _render_plan(snapshot: WorldSnapshot, route: tuple[str, ...],
                  compact: tuple[str, ...], cmds, use_start: str, use_goal: str,
                  turns: int, length: float, out_path: Path) -> None:
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
     CELL_PX, PAD = 60, 50
     W, H = PAD * 2 + COLS * CELL_PX, PAD * 2 + ROWS * CELL_PX
 
@@ -956,8 +976,8 @@ def _render_plan(snapshot: WorldSnapshot, route: tuple[str, ...],
 
     img = Image.new("RGB", (W, H + 34), (30, 30, 30))
     dr = ImageDraw.Draw(img)
-    f14, cjk_ok = _load_font(14)
-    f10, _ = _load_font(10)
+    f14, cjk_ok = load_cjk_font(14)
+    f10, _ = load_cjk_font(10)
     # 无 CJK 字体时的 ASCII 标签（含义与中文一一对应，图例同步切换）
     T = (lambda zh, en: zh) if cjk_ok else (lambda zh, en: en)
 
@@ -1057,6 +1077,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-frames", type=int, default=0, help="调试：只处理前 N 个采样帧")
     ap.add_argument("--d13", type=str, default=None, help="hbb_d13.onnx 路径")
     ap.add_argument("--v4d", type=str, default=None, help="cell_classifier_v4d.onnx 路径")
+    # 必须真注册：此前失败提示里写着"加 --debug"，但 argparse 不认这个参数，
+    # 照做只会得到 "unrecognized arguments: --debug"（2026-10-21 实测）。
+    ap.add_argument("--debug", action="store_true",
+                    help="报错时打印完整堆栈（默认只给结论 + 处理建议）")
     args = ap.parse_args(argv)
     if args.stride < 1:
         ap.error(f"--stride 必须 >= 1（收到 {args.stride}）")
@@ -1071,7 +1095,9 @@ def main(argv: list[str] | None = None) -> int:
         plan_from_state(state, out_dir)
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         print(f"\n[失败] {exc}", file=sys.stderr)
-        if "--debug" in sys.argv or os.environ.get("AG_DEBUG"):
+        # 用 args.debug 而不是 "--debug" in sys.argv：main(argv) 被显式传参调用时
+        # （测试、脚本内调用）sys.argv 里根本没有这个 token，判定会静默失效。
+        if args.debug or os.environ.get("AG_DEBUG"):
             raise
         print("  产物目录（若已建）: "
               f"{out_dir.resolve() if out_dir.exists() else '(未创建)'}",
