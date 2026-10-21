@@ -15,9 +15,11 @@
 """
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -297,6 +299,96 @@ def test_known_missing_list_has_no_stale_entries():
         "这些登记项在扫描范围内已经没有任何引用方（脚本仍不存在，但也没人再指向它），"
         "请从 KNOWN_MISSING_TOOLS 移除，别让欠账清单发霉:\n  "
         + "\n  ".join(orphaned))
+
+
+# 同一条失败类的另一半：tools/ 的幽灵引用由上面守着，**docs/*.md 的悬空引用**
+# 此前没人管。2026-10-21 现场踩到：给 docs/无人机工作流程.md §7.1 补分级说明时
+# 顺手写了一句「完整分级见 docs/上机脚本群.md」，而那个文件当时还不存在——
+# 操作手在现场按图索骥，翻不到文件只会怀疑自己拿到的部署包不完整。
+#
+# 扫描范围**故意只取操作手会被指挥到的那一层**：docs/ 顶层 .md + tools/ 脚本。
+# 不收 docs/probe/（现场排查流水记录，逐字留档、里面的路径常是当时那台机器的）、
+# docs/成员交接/、docs/archive/、reference/（同 _ARCHIVE_PREFIXES 的理由：
+# 那些材料里的路径指的根本不是本仓），也不收 AGENTS.md —— 它第 31 行的
+# `-Files "docs/成果.md,tools/脚本.py"` 是**演示参数语法的占位符**，不是断言
+# 该文件存在；收进来就是一条永远红、只能靠登记消音的门（见 _ARCHIVE_PREFIXES
+# 注释里那台"永久跑步机"）。
+_DOC_REF = re.compile(r"docs/[^\s`'\"()\[\]<>，。、；：*]+\.md")
+_DOC_REF_SOURCES = ("docs/*.md", "tools/*.py", "tools/*.sh")
+
+
+def _referenced_doc_paths(root: Path = REPO,
+                          patterns=_DOC_REF_SOURCES) -> dict[str, set[str]]:
+    hits: dict[str, set[str]] = {}
+    for pat in patterns:
+        for p in sorted(root.glob(pat)):
+            if not p.is_file():
+                continue
+            rel = p.relative_to(root).as_posix()
+            text = p.read_text(encoding="utf-8", errors="replace")
+            for m in _DOC_REF.finditer(text):
+                target = m.group(0)
+                # 模板名（docs/进度报告-YYYYMMDD.md）与尖括号占位不是断言，
+                # 它们指的是"你将来会建的那个文件"。通配符 * 已在字符类里排除。
+                if "YYYY" in target or "<" in target:
+                    continue
+                hits.setdefault(target, set()).add(rel)
+    return hits
+
+
+def test_doc_references_resolve():
+    """操作手册里让人去读的文档必须真的存在。
+
+    与 test_tool_references_resolve 是同一类坏：在你需要答案的时刻，
+    把你指挥去一个不存在的地方。区别只是幽灵从脚本换成了文档。
+    """
+    refs = _referenced_doc_paths()
+    assert refs, "一个 docs/*.md 引用都没扫到，正则或扫描范围坏了"
+    dangling = {k: v for k, v in refs.items() if not (REPO / k).exists()}
+    assert not dangling, (
+        "以下 docs/*.md 被操作手会读到的文档/脚本引用，但文件不存在"
+        "（要么把文档补上，要么改掉引用）：\n"
+        + "\n".join(f"  {k}\n      <- {', '.join(sorted(v))}"
+                    for k, v in sorted(dangling.items())))
+
+
+def test_doc_reference_scan_is_not_vacuous():
+    """上面那条测试必须真的在看东西，而不是靠一个空集合永远绿。
+
+    两道确认：① 分级说明那条**已知活引用**确实在扫描结果里、且目标文件存在；
+    ② 在临时树里造一条悬空引用，扫描器抓得到。少了 ②，正则里错一个字符类
+    就会静默退化成"零引用零悬空"的永绿门——而 ① 只能证明它扫到了东西，
+    证明不了它对**缺失**敏感。
+    """
+    refs = _referenced_doc_paths()
+    assert "docs/上机脚本群.md" in refs, (
+        "docs/无人机工作流程.md §7.1 指向 docs/上机脚本群.md 的那条引用没被扫到"
+        "——扫描范围或正则坏了")
+    assert (REPO / "docs/上机脚本群.md").is_file(), (
+        "docs/上机脚本群.md 不存在：分级说明（L0~L4「什么输出证明什么」）无处可查")
+
+
+def test_doc_reference_scanner_flags_a_forged_dangling_ref(tmp_path):
+    """反向确认：扫描器对"引用了但文件不在"必须敏感。
+
+    在临时树里跑，不碰真仓。同时钉住三条排除规则**没有**过宽：
+    模板名（YYYY）与尖括号占位要放过，通配符与真悬空要抓住。
+    """
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "手册.md").write_text(
+        "见 docs/存在的.md 与 docs/不存在的.md。\n"
+        "模板 docs/进度报告-YYYYMMDD.md 不算断言。\n"
+        "占位 docs/<你的方案>.md 也不算。\n"
+        "通配 docs/*.md 更不算。\n",
+        encoding="utf-8")
+    (tmp_path / "docs" / "存在的.md").write_text("x\n", encoding="utf-8")
+
+    refs = _referenced_doc_paths(root=tmp_path)
+    assert set(refs) == {"docs/存在的.md", "docs/不存在的.md"}, (
+        f"排除规则过宽或过窄，实扫到: {sorted(refs)}")
+    assert not [k for k in refs if (tmp_path / k).exists() and k != "docs/存在的.md"]
+    assert [k for k in refs if not (tmp_path / k).exists()] == ["docs/不存在的.md"], (
+        "扫描器没能把悬空引用挑出来——上面的 test_doc_references_resolve 是永绿门")
 
 
 # ---------------------------------------------------- 部署链的跨脚本耦合
@@ -671,3 +763,325 @@ def test_inject_updates_every_patch_point(tmp_path):
     assert f"sz.width) / {w}" in text, "宽分母没跟着改"
     assert f"sz.height) / {h}" in text, "高分母没跟着改"
     assert f"（基准 {w}x{h}）" in text, "注释里的基准分辨率没跟着改"
+
+
+# =====================================================================
+# L4 相机验收脚本（tools/orin_camera_smoke.sh）与部署闸门接线
+#
+# 这两块的存在理由：orin_build_verify.sh 的 L3 走的是 `dzuav <图片> <hbb>
+# <cell> <port>` 离线分支，**从不进 runCamera()**。相机路径上的修改（spec
+# 严格解析、有界重开、协商尺寸对账）因此永远停在"已写待验"，没有任何一级
+# 自检能把它推到"已修"。L4 就是补这一级；而它自己也得被测——一个没被验过的
+# 验收脚本，比没有验收脚本更危险，因为它会发结论。
+# =====================================================================
+SMOKE_SH = "orin_camera_smoke.sh"
+
+
+def _smoke_text() -> str:
+    return (TOOLS / SMOKE_SH).read_text(encoding="utf-8", errors="replace")
+
+
+def _bash_array(text: str, name: str) -> list[str]:
+    """抠出 shell 里 `NAME=( ... )` 的字符串项（每项一行的写法）。
+
+    行尾注释、以及跨行注释的续行都不是以引号开头，正则自然跳过。
+    """
+    m = re.search(rf"^{name}=\(\n(.*?)^\)\n", text, re.S | re.M)
+    assert m, f"{SMOKE_SH} 里找不到数组 {name}（写法变了？本解析器要同步）"
+    out = [q.group(1) for q in
+           (re.match(r'^\s*"((?:[^"\\]|\\.)*)"', ln) for ln in m.group(1).splitlines())
+           if q]
+    assert out, f"{name} 解析出来是空的——正则或数组写法变了"
+    return out
+
+
+def _expected_spec_echo(spec: str, caller_default_fps: int = 30) -> str:
+    """main.cpp 打印的 `camera spec: WxH@FPS` 应该长什么样。
+
+    省略 @fps 时 parseSpec **不写** fps，沿用 runCamera 的初值 30
+    （main.cpp:344），所以回显与输入不同；fps=0 是合法的一档，原样回显
+    （两个 pipeline builder 都是 `if (fps > 0)` 才往 caps 里塞 framerate=）。
+    """
+    m = _SPEC_RE.match(spec)
+    assert m, f"{spec!r} 不是合法 spec，不该拿它算期望回显"
+    w, h, fps = int(m.group(1)), int(m.group(2)), m.group(3)
+    return f"{w}x{h}@{caller_default_fps if fps is None else int(fps)}"
+
+
+def test_camera_smoke_bad_specs_are_rejected_by_cpp_mirror():
+    """验收脚本的负例表必须真的会被 parseSpec 拒。
+
+    两张表各写各的、中间没有联系时，最坏的情况是负例里混进一个 C++ 其实会
+    放行的写法：机上那条断言当场红，而操作手会以为是相机坏了，去查线查驱动。
+    """
+    bad = _bash_array(_smoke_text(), "BAD_SPECS")
+    assert len(bad) >= 8, f"负例表被削到 {len(bad)} 条，覆盖变薄了"
+    accepted = [s for s in bad if _cpp_parse_spec_accepts(s)]
+    assert not accepted, f"这些『坏 spec』其实会被 parseSpec 放行: {accepted}"
+
+
+def test_camera_smoke_good_specs_and_echoes_match_cpp_mirror():
+    """正例表的每一条：spec 要能过 parseSpec，且期望回显逐字对得上。"""
+    good = _bash_array(_smoke_text(), "GOOD_SPECS")
+    assert len(good) >= 6, f"正例表被削到 {len(good)} 条"
+    for pair in good:
+        assert "|" in pair, f"正例项 {pair!r} 不是『输入|期望回显』两段"
+        spec, want = pair.split("|", 1)
+        assert _cpp_parse_spec_accepts(spec), f"合法 spec {spec!r} 会被 parseSpec 拒"
+        assert want == _expected_spec_echo(spec), (
+            f"{spec!r} 的期望回显写成 {want!r}，按 main.cpp 应是 "
+            f"{_expected_spec_echo(spec)!r}")
+
+
+def test_camera_smoke_proves_default_fps_writeback_not_initial_value():
+    """省略 @fps 的正例里，至少要有一条宽高**不等于** runCamera 的初值。
+
+    runCamera 的初值恰好是 1920x1080@30。只用 1920x1080 当正例的话，
+    "宽高真被 parseSpec 写进去了"与"没写、碰巧等于初值"输出一模一样，
+    断言绿着也证明不了任何事——正是 2026-10-20 那个 bug 的观测盲区。
+    """
+    no_fps = [p.split("|", 1) for p in _bash_array(_smoke_text(), "GOOD_SPECS")
+              if "@" not in p.split("|", 1)[0]]
+    assert no_fps, "正例表里没有省略 @fps 的项了，默认帧率行为无人验"
+    distinct = [s for s, _ in no_fps if not s.startswith("1920x1080")]
+    assert distinct, (
+        f"省略 @fps 的正例全是 1920x1080（{[s for s, _ in no_fps]}），"
+        f"与 runCamera 初值同宽高，验不出宽高回写")
+    for spec, want in no_fps:
+        assert want.endswith("@30"), (
+            f"省略 @fps 时应回显调用方默认 30，{spec!r} 写的是 {want!r}")
+
+
+def test_camera_smoke_covers_the_documented_exit_codes():
+    """main.cpp 的退出码语义表要在验收脚本里都有**判据**，不能只在文案里提一嘴。
+
+    2 用法错误 / 3 打不开相机或离线输入 / 4 重开次数耗尽 / 5 连续帧异常超限。
+
+    断言全部落在真实的比较语句与 grep 模式表上。只查"文中出现 rc=4 字样"是
+    不够的：脚本头部注释里就写着 rc=4，把 E3 的比较整段删掉那条断言照样绿
+    ——变异测试实测过这个假绿。
+    """
+    text = _smoke_text()
+
+    # rc=2 / rc=3：必须真的有 run_expect 拿它当期望值
+    wants = set(re.findall(r'run_expect\s+"[^"]*"\s+"([^"]*)"', text))
+    assert "2" in wants, f"没有任何 run_expect 断言 rc=2（用法错误）: {sorted(wants)}"
+    assert "3" in wants, f"没有任何 run_expect 断言 rc=3（打不开）: {sorted(wants)}"
+
+    # rc=4：E3 必须把实测退出码与 4 比较
+    assert re.search(r'\[\[\s*"\$ERC"\s*==\s*"4"\s*\]\]', text), (
+        "E3 没有把实测退出码与 4 比较——重开耗尽的兜底退出无人验")
+
+    # 重开上限必须与 3 比较（对齐 main.cpp 的 reopen_attempts < 3）
+    assert re.search(r'-gt 3\b', text), "重开次数没有与上限 3 比较"
+
+    # rc=5 的日志判据必须在 D6 的"不该出现"模式表里
+    d6 = re.search(r"D6_BAD=0\n(.*?)\n\s*\[\[ \$D6_BAD == 0 \]\]", text, re.S)
+    assert d6, "找不到 D6 的故障模式扫描块"
+    for pat in ("camera reopen failed", "camera stream did not recover",
+                "too many consecutive frame errors", "frame processing error"):
+        assert pat in d6.group(1), f"D6 的故障模式表里少了「{pat}」"
+
+
+def test_camera_smoke_scopes_every_assertion_to_its_own_run():
+    """run_expect 必须**先打点再执行**，否则 grep_log 读到上一轮的残留。
+
+    本脚本首版就是这么假绿的：tail_log 从头读整个日志，于是"无参数那次打过的
+    usage:"会被后面每一次 grep_log "usage:" 命中——断言看着在验，其实验的是
+    上一轮的输出。这类假绿不会自己暴露，只有靠读代码或变异测试才能发现。
+    """
+    text = _smoke_text()
+    body = re.search(r"^run_expect\(\) \{\n(.*?)^\}\n", text, re.S | re.M)
+    assert body, "run_expect 的定义形状变了，本断言失效"
+    lines = [ln.strip() for ln in body.group(1).splitlines()
+             if ln.strip() and not ln.strip().startswith("#")]
+    mark = next((i for i, ln in enumerate(lines) if ln.startswith("mark_log")), None)
+    call = next((i for i, ln in enumerate(lines) if ln.startswith('"$@"')), None)
+    assert mark is not None, "run_expect 里没有 mark_log 打点，日志窗口不隔离"
+    assert call is not None, "run_expect 里找不到执行命令的那一行"
+    assert mark < call, "打点排在执行命令之后 = 本次输出没被隔离，grep_log 会读到残留"
+
+
+def test_camera_smoke_log_helpers_slice_from_the_mark():
+    text = _smoke_text()
+    for fn in ("mark_log", "tail_log", "grep_log", "count_log"):
+        assert re.search(rf"^{fn}\(\)", text, re.M), f"缺少日志窗口函数 {fn}"
+    assert re.search(r'tail_log\(\) \{ tail -c \+"\$\(\(MARK_BYTES \+ 1\)\)"', text), (
+        "tail_log 不再按 MARK_BYTES 截取，窗口隔离失效（见上一条的假绿事故）")
+
+
+def test_camera_smoke_does_not_hardcode_engine_names():
+    """引擎名只能来自 orin_run_dzuav.sh（唯一真源），不许在验收脚本里抄第四份。
+
+    与 test_convert_and_run_agree_on_engine_names 同一条命门：抄一份就会分叉，
+    分叉的后果是 L4 拿一个引擎验出"通过"，而 bringup 加载的是另一个。
+    """
+    text = _smoke_text()
+    assert 'eval "$(grep' in text and "orin_run_dzuav.sh" in text, (
+        "引擎名不再从 orin_run_dzuav.sh 解析（改成写死了？）")
+    leaked = re.findall(r"\b(?:hbb_detector|cell_classifier)[A-Za-z0-9_.-]*\.engine", text)
+    assert not leaked, f"验收脚本里写死了引擎名: {sorted(set(leaked))}"
+
+
+def test_camera_smoke_is_shell_safe():
+    """LF 行尾 + bash 语法通过。
+
+    CRLF 的 shebang 是 `#!/bin/bash\\r`，机上执行直接 bad interpreter；
+    而这类脚本平时在 Windows 上编辑，最容易悄悄带上 CRLF。
+    """
+    raw = (TOOLS / SMOKE_SH).read_bytes()
+    assert b"\r\n" not in raw, f"{SMOKE_SH} 是 CRLF，上机即 bad interpreter"
+    assert raw.startswith(b"#!/usr/bin/env bash"), "shebang 变了"
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("本机没有 bash，跳过语法检查")
+    proc = subprocess.run([bash, "-n", str(TOOLS / SMOKE_SH)],
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
+    assert proc.returncode == 0, f"bash -n 报语法错误:\n{proc.stderr}"
+
+
+# ------------------------------------------------------------- 部署闸门接线
+def _deploy_ast():
+    return ast.parse((TOOLS / "orin_deploy.py").read_text(encoding="utf-8"))
+
+
+def _deployed_orin_py() -> set[str]:
+    """从 orin_deploy.py 的 AST 里取 ORIN_PY_TOOLS 的字面量（不 import，
+    免得把 paramiko 变成测试依赖）。"""
+    for n in ast.walk(_deploy_ast()):
+        if isinstance(n, ast.Assign) and any(
+                getattr(t, "id", None) == "ORIN_PY_TOOLS" for t in n.targets):
+            return {e.value for e in n.value.elts}
+    raise AssertionError("orin_deploy.py 里找不到 ORIN_PY_TOOLS")
+
+
+# tools/ 下存在、但**不该**随部署上机的 orin_*.py，及其理由。
+# 这份表是"故意不推"与"忘了登记"之间唯一的分界线：没有它，一个文件不上机
+# 到底是决定还是事故，就只能靠翻聊天记录。
+ORIN_PY_NOT_DEPLOYED = {
+    "orin_deploy.py": "PC 侧部署器本身，不是机载工具（机上也没有 paramiko）",
+    # 下面三个是 repo 线的产物。合并线的 orin_bringup.sh 采用部署现实（fix 线）
+    # 的 9+1 窗口版，没有 flight_wd / wdog / 采集窗口，故不推。
+    # 出处见 orin_deploy.py 里 ORIN_PY_TOOLS 上方那段 2026-10-18 合并线说明。
+    "orin_watchdog.py": "合并线 bringup 无 wdog 窗口",
+    "orin_agent_watchdog.py": "合并线 bringup 无 flight_wd 窗口",
+    "orin_capture_dataset.py": "合并线 bringup 无采集窗口",
+}
+
+
+def test_orin_py_tools_registers_every_orin_python_tool():
+    """tools/ 下每个 orin_*.py 都必须有明确归属：要么登记上机，要么写明不推。
+
+    部署脚本按 `orin_*.sh` 通配推 shell，却按**显式名单**推 python：漏登记的
+    后果是该工具静默不上机，而部署照样报"完成"。这个洞本文件的第一版就真踩了
+    ——orin_deploy_gate.py 的通过提示让人在机上再跑一次做对账，而它自己不在
+    名单里，那条提示是假的。
+
+    不允许第三种状态（既不在名单也不在排除表）：那样"忘了登记"会永远静默。
+    """
+    listed = _deployed_orin_py()
+    present = {p.name for p in TOOLS.glob("orin_*.py")}
+    assert present, "tools/ 下没有 orin_*.py 了？"
+
+    unaccounted = present - listed - set(ORIN_PY_NOT_DEPLOYED)
+    assert not unaccounted, (
+        f"这些机载 Python 工具既没登记进 ORIN_PY_TOOLS、也没写进排除表，"
+        f"部署会静默跳过它们: {sorted(unaccounted)}")
+    overlap = listed & set(ORIN_PY_NOT_DEPLOYED)
+    assert not overlap, f"同时出现在两份名单里，归属矛盾: {sorted(overlap)}"
+    phantom = listed - present
+    assert not phantom, f"ORIN_PY_TOOLS 里登记了不存在的文件: {sorted(phantom)}"
+
+
+def test_orin_py_not_deployed_list_has_no_stale_entries():
+    """排除表里的文件必须真的还在，且排除理由必须还成立。
+
+    文件删了还留在表里 = 表在腐烂；下一次真漏登记时，没人会认真读一份
+    已知过期的名单。
+    """
+    bringup = (TOOLS / "orin_bringup.sh").read_text(encoding="utf-8", errors="replace")
+    for name, reason in ORIN_PY_NOT_DEPLOYED.items():
+        assert (TOOLS / name).is_file(), (
+            f"{name} 已不存在，请从 ORIN_PY_NOT_DEPLOYED 删掉")
+        # 理由是"bringup 没有对应窗口"的，就去 bringup 里查一眼。
+        if "bringup" in reason:
+            assert name not in bringup, (
+                f"{name} 的排除理由是「{reason}」，但 orin_bringup.sh 里出现了它"
+                f"——窗口会在机上因为文件没推上去而起不来，请登记进 ORIN_PY_TOOLS")
+
+
+def test_bringup_only_starts_deployed_python_tools():
+    """bringup 起的每个 orin_*.py 都必须在部署名单里。
+
+    上一条的正向版，也是后果最直接的一条：窗口命令引用的文件没上机，tmux
+    窗口秒退，而 verify_up 只会在沉降 12 秒后报一句 rc，现场很难第一时间
+    想到是"部署名单漏了一个"。
+    """
+    listed = _deployed_orin_py()
+    bringup = (TOOLS / "orin_bringup.sh").read_text(encoding="utf-8", errors="replace")
+    referenced = set(re.findall(r"tools/(orin_[A-Za-z0-9_]+\.py)", bringup))
+    assert referenced, "orin_bringup.sh 不再引用任何 orin_*.py，本断言失效"
+    missing = referenced - listed
+    assert not missing, (
+        f"bringup 会起这些机载 Python 工具，但它们不在 ORIN_PY_TOOLS 里、"
+        f"部署不会推上机，窗口必然起不来: {sorted(missing)}")
+
+
+def test_deploy_gate_is_registered_for_on_machine_recheck():
+    """闸门的通过提示让人在机上再跑一次做对账，那它就必须真的被推上去。
+
+    单独钉住是因为这条最容易被"顺手清理名单"改坏：orin_deploy_gate.py 看起来
+    像纯 PC 侧工具（部署前才跑），但机上那份对账同样靠它。
+    """
+    assert "orin_deploy_gate.py" in _deployed_orin_py(), (
+        "orin_deploy_gate.py 不在部署名单里，而它自己的通过提示印着"
+        "『部署后在 Orin 上跑 python3 tools/orin_deploy_gate.py』——那条提示是假的")
+
+
+def test_deploy_runs_source_gate_before_touching_credentials():
+    """闸门必须排在 read_password / 任何 sftp 之前。
+
+    排在后面的话：闸门红了也已经输过密码、开过 SSH 连接，甚至可能已经推了
+    半个树——"部署前拦截"就名不副实了。用 AST 比行号，不靠字符串顺序猜。
+    """
+    tree = _deploy_ast()
+    main_fn = next(n for n in tree.body
+                   if isinstance(n, ast.FunctionDef) and n.name == "main")
+    # 取每个名字的**最早**出现行：ast.walk 会走进 main 里嵌套的 def put()，
+    # 取最晚一次的话，"闸门排在第一次上传之后"这种真问题会被后一次调用盖掉。
+    first: dict[str, int] = {}
+    for n in ast.walk(main_fn):
+        if not isinstance(n, ast.Call):
+            continue
+        name = n.func.id if isinstance(n.func, ast.Name) else getattr(n.func, "attr", "")
+        if name and name not in first:
+            first[name] = n.lineno
+
+    assert "run_source_gate" in first, "orin_deploy.main 没有调用源码闸门"
+    gate_line = first["run_source_gate"]
+    for later in ("read_password", "sftp_put", "run"):
+        if later in first:
+            assert gate_line < first[later], (
+                f"源码闸门（第 {gate_line} 行）排在 {later}"
+                f"（第 {first[later]} 行）之后——拦不住已经发生的动作")
+
+
+def test_deploy_gate_bypass_is_env_only_and_loud():
+    """放行旧树只能走 ALLOW_STALE_SOURCE=1，且必须留下警告。
+
+    与 orin_bringup.sh 的 ALLOW_STRAY、orin_build_verify.sh 的
+    ALLOW_ENGINE_FALLBACK 同一套口径：不给"--skip-gate"这种一按就忘的开关，
+    放行必须显式、必须在输出里留下痕迹。
+
+    断言落在**读环境变量并比较**那条语句上，不是"文中出现过这个变量名"：
+    变异测试实测过，把判断替换成恒假、只留警告文案里的名字，后者照样绿。
+    """
+    text = (TOOLS / "orin_deploy.py").read_text(encoding="utf-8", errors="replace")
+    assert re.search(r'os\.environ\.get\("ALLOW_STALE_SOURCE"\)\s*!=\s*"1"', text), (
+        "闸门放行不再由 ALLOW_STALE_SOURCE=1 决定（判断被改掉、或只剩文案提一嘴）")
+    assert "--skip-gate" not in text and "--no-gate" not in text, (
+        "出现了命令行跳过开关——太容易顺手加上，逃生口只留环境变量")
+    assert re.search(r"\[警告\].*ALLOW_STALE_SOURCE", text, re.S), (
+        "放行旧树时没有打印警告，事后无从得知这次部署推的是残缺树")
+
