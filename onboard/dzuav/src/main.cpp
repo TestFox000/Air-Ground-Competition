@@ -285,7 +285,12 @@ std::string uvcPipelineRaw(const std::string& device, int width, int height, int
     return os.str();
 }
 
-// 解析 "1920x1080@30"；@fps 可省（省略表示不约束协商帧率）。
+// 解析 "1920x1080@30"；@fps 可省。
+// ⚠️ 省略 @fps **不是**"不约束帧率"：parseSpec 此时不写 fps，沿用调用方带进来的
+//    值（runCamera 是 30），所以 "1920x1080" 与 "1920x1080@30" 等价、照样约束到
+//    30。真要显式放开帧率写 "@0"：两个 pipeline builder 都是 `if (fps > 0)` 才往
+//    caps 里塞 framerate=，fps=0 就是不塞、由相机自行协商。故下面只拒 f<0、
+//    不拒 f==0 —— 0 是有意义的一档，不是笔误。
 // 返回 false = 无法解析，调用方必须报错退出，**不得**静默沿用默认值：
 // 原写法要求 sscanf 恰好匹配到 3 项，于是 "1920x1080"（漏写 @fps）会让
 // 宽、高、fps 三个一起被丢弃，机上按默认 1920x1080 采集却无人知晓；
