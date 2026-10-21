@@ -711,6 +711,37 @@ def plan_from_state(field_state: dict, out_dir: str | Path) -> dict:
     return route_plan
 
 
+#: 渲染用中文字体的候选路径（跨平台）。顺序 = 优先无衬线、再衬线、最后兜底。
+#: 2026-10-21 机上实测：原实现只写死 C:/Windows/Fonts/msyh.ttc，在 Orin 上
+#: 必然落进 ImageFont.load_default()（PIL 的位图字体），而它编码是 latin-1，
+#: 画第一个汉字 "墙" 就 UnicodeEncodeError，整条 video_recon 在最后渲染步崩掉
+#: ——视频侦察在机上根本产不出 route_render.png。Noto Sans CJK 是 JetPack
+#: 自带（/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc）。
+_FONT_CANDIDATES = (
+    "C:/Windows/Fonts/msyh.ttc",                                    # Windows 微软雅黑
+    "C:/Windows/Fonts/simhei.ttf",                                  # Windows 黑体
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",       # Orin/JetPack
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",                 # 常见 Linux 中文字体
+    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+    "/System/Library/Fonts/PingFang.ttc",                           # macOS
+)
+
+
+def _load_font(size: int):
+    """返回 (font, cjk_ok)。找不到任何 CJK 字体时用默认位图字体并置 cjk_ok=False，
+    调用方据此把中文标签换成 ASCII——绝不拿默认字体去画汉字（必崩）。"""
+    from PIL import ImageFont
+
+    for path in _FONT_CANDIDATES:
+        try:
+            if Path(path).is_file():
+                return ImageFont.truetype(path, size), True
+        except OSError:
+            continue
+    return ImageFont.load_default(), False
+
+
 def _render_plan(snapshot: WorldSnapshot, route: tuple[str, ...],
                  compact: tuple[str, ...], cmds, use_start: str, use_goal: str,
                  turns: int, length: float, out_path: Path) -> None:
@@ -724,11 +755,10 @@ def _render_plan(snapshot: WorldSnapshot, route: tuple[str, ...],
 
     img = Image.new("RGB", (W, H + 34), (30, 30, 30))
     dr = ImageDraw.Draw(img)
-    try:
-        f14 = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 14)
-        f10 = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 10)
-    except Exception:
-        f14 = f10 = ImageFont.load_default()
+    f14, cjk_ok = _load_font(14)
+    f10, _ = _load_font(10)
+    # 无 CJK 字体时的 ASCII 标签（含义与中文一一对应，图例同步切换）
+    T = (lambda zh, en: zh) if cjk_ok else (lambda zh, en: en)
 
     def xy(c: CellRef) -> tuple[int, int]:
         return PAD + c.col * CELL_PX, PAD + c.row * CELL_PX
@@ -745,25 +775,26 @@ def _render_plan(snapshot: WorldSnapshot, route: tuple[str, ...],
     for name in [c.name for c in snapshot.obstacles]:
         x, y = xy(cell(name))
         dr.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], (180, 40, 40))
-        dr.text((x + CELL_PX // 2, y + CELL_PX // 2), "障", "white", f14, "mm")
+        dr.text((x + CELL_PX // 2, y + CELL_PX // 2), T("障", "OBS"), "white", f14, "mm")
     for r in range(ROWS):
         name = f"{BRIDGE_COL}{r + 1}"
         x, y = xy(cell(name))
         if name in {c.name for c in snapshot.passable}:
             dr.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], (80, 60, 120))
-            dr.text((x + CELL_PX // 2, y + CELL_PX // 2), "洞", "white", f14, "mm")
+            dr.text((x + CELL_PX // 2, y + CELL_PX // 2), T("洞", "GATE"), "white", f14, "mm")
         else:
             dr.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], (60, 60, 60))
-            dr.text((x + CELL_PX // 2, y + CELL_PX // 2), "墙", (150, 150, 150), f10, "mm")
+            dr.text((x + CELL_PX // 2, y + CELL_PX // 2), T("墙", "WALL"),
+                    (150, 150, 150), f10, "mm")
     for name in [c.name for c in snapshot.mines]:
         x, y = xy(cell(name))
         dr.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], (220, 200, 30))
-        dr.text((x + CELL_PX // 2, y + CELL_PX // 2 - 6), "雷", "black", f14, "mm")
+        dr.text((x + CELL_PX // 2, y + CELL_PX // 2 - 6), T("雷", "MINE"), "black", f14, "mm")
     for t in snapshot.targets:
         x, y = xy(t.cell)
         dr.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], (95, 75, 140))
         dr.text((x + CELL_PX // 2, y + CELL_PX // 2 - 6),
-                "蓝" if t.is_blue else "红", "white", f14, "mm")
+                T("蓝", "BLU") if t.is_blue else T("红", "RED"), "white", f14, "mm")
 
     def grad(t: float) -> tuple[int, int, int]:
         if t < 0.5:
@@ -790,12 +821,22 @@ def _render_plan(snapshot: WorldSnapshot, route: tuple[str, ...],
         dr.line([(cx - 6, cy + 6), (cx + 6, cy - 6)], (255, 200, 0), 2)
     sx, sy = xy(cell(use_start)); gx, gy = xy(cell(use_goal))
     dr.rectangle([sx + 4, sy + 4, sx + CELL_PX - 4, sy + CELL_PX - 4], outline=(0, 255, 0), width=3)
-    dr.text((sx + CELL_PX // 2, sy + CELL_PX - 8), "起点", (0, 255, 0), f10, "mm")
+    dr.text((sx + CELL_PX // 2, sy + CELL_PX - 8), T("起点", "START"), (0, 255, 0), f10, "mm")
     dr.rectangle([gx + 4, gy + 4, gx + CELL_PX - 4, gy + CELL_PX - 4], outline=(255, 100, 0), width=3)
-    dr.text((gx + CELL_PX // 2, gy + CELL_PX - 8), "终点", (255, 100, 0), f10, "mm")
-    dr.text((PAD, H - 18), "绿→黄→红=路径先后  雷=视频识别  障/墙/洞/靶=态势  ⊕=停靠射击", "white", f10)
-    dr.text((PAD, H + 2), f"路线 {len(route)} 格 / 压缩 {len(compact)} 点 / 转向 {turns} 次"
-            f" / 直线长 {length:.1f} 格  起点{use_start}→终点{use_goal}", (255, 230, 130), f10)
+    dr.text((gx + CELL_PX // 2, gy + CELL_PX - 8), T("终点", "GOAL"), (255, 100, 0), f10, "mm")
+    if cjk_ok:
+        dr.text((PAD, H - 18),
+                "绿→黄→红=路径先后  雷=视频识别  障/墙/洞/靶=态势  ⊕=停靠射击", "white", f10)
+        dr.text((PAD, H + 2), f"路线 {len(route)} 格 / 压缩 {len(compact)} 点 / 转向 {turns} 次"
+                f" / 直线长 {length:.1f} 格  起点{use_start}→终点{use_goal}", (255, 230, 130), f10)
+    else:
+        # 无 CJK 字体（本机未装/精简镜像）：整图退化成 ASCII，绝不半中半英。
+        dr.text((PAD, H - 18),
+                "G->Y->R=path order  MINE=from video  OBS/WALL/GATE/TGT=state  +=shoot stop",
+                "white", f10)
+        dr.text((PAD, H + 2), f"route {len(route)} cells / {len(compact)} keep pts / "
+                f"{turns} turns / len {length:.1f} cells  {use_start}->{use_goal}",
+                (255, 230, 130), f10)
     img.save(out_path)
     print(f"[render] {out_path}")
 

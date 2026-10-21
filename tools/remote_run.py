@@ -39,6 +39,14 @@ except ImportError:  # pragma: no cover - 仅在缺依赖时触发
 # 参数化 env_name/hint 复用 read_password，见该函数 docstring）
 _CAR_DOCS_HINT = "密码见 docs/raw_txt/05_VNC远程桌面使用方法.txt（车端默认用户名 duzhong）"
 
+#: remote_run 的密码兜底链（2026-10-21 实测踩坑）：本工具默认读 AG_CAR_PASS，
+#: 但机载部署链（orin_deploy / orin_*）读的是 AG_ORIN_PASS。同一个人先在
+#: PowerShell 里设了 AG_ORIN_PASS 再跑 remote_run --cmd，就会落入 getpass：
+#: 在 Windows 的后台作业里 stdin 仍可能是控制台（isatty()=True），于是**静默
+#: 等输入**、命令一个字都没发到机上——现象与"链路卡死"完全一样，实测浪费
+#: 了十分钟去查网络。这里让两个变量互认：谁设了都能用。
+_PASS_ENVS = ("AG_CAR_PASS", "AG_ORIN_PASS")
+
 
 def read_password(args, env_name: str = "AG_CAR_PASS", flag: str = "password",
                   prompt_user: str | None = None,
@@ -78,6 +86,12 @@ def read_password(args, env_name: str = "AG_CAR_PASS", flag: str = "password",
         raise SystemExit(msg)
     who = prompt_user or f"{getattr(args, 'user', '')}@{getattr(args, 'host', '')}"
     return getpass.getpass(f"{who} 的密码: ")
+
+
+def _pw(args) -> str:
+    """remote_run 统一取密码：AG_CAR_PASS / AG_ORIN_PASS 任一即可。"""
+    return read_password(args, env_name=_PASS_ENVS[0],
+                         fallback_envs=_PASS_ENVS[1:], hint=_CAR_DOCS_HINT)
 
 
 def connect(host: str, user: str, password: str, port: int = 22,
@@ -186,67 +200,87 @@ def sftp_get(host: str, user: str, password: str, remote: str, local: str,
 
 def sftp_put(host: str, user: str, password: str, local: str, remote: str,
              port: int = 22, timeout: float = 60.0,
-             skip: tuple = ("__pycache__", ".pytest_cache", ".git", "build")) -> int:
+             skip: tuple = ("__pycache__", ".pytest_cache", ".git", "build"),
+             tries: int = 3) -> int:
     """把本地文件/目录（递归）上传到远程，返回文件数。
 
     skip 里的目录名任何层级都跳过：build/ 是机上编译产物（cmake/colcon），
     推它既慢又会用本机架构的烂产物污染机上构建目录（orin_deploy 的约定就是
-    "build/ 留在机上不回传不覆盖"）。"""
+    "build/ 留在机上不回传不覆盖"）。
+
+    重试（2026-10-21 实测）：`connect()` 有重试但 `open_sftp()` 没有——Type-C
+    链路偶发 `ConnectionResetError [WinError 10054]` 时，整批部署会在传到一半
+    被打死（13 个源码传完后卡在工具链，整次 `orin_deploy` 退出=1，实际已传的
+    文件成了半成品状态）。SFTP 上传是**幂等覆盖**，且这里只在"会话建立失败"
+    阶段重试（不做单文件中途续传），不会造成重复副作用，故整段重来是安全的。"""
     import stat as stat_mod
 
-    cli = connect(host, user, password, port=port, timeout=timeout)
-    n = 0
-    try:
-        sftp = cli.open_sftp()
-        remote = _expand_tilde(sftp, remote)
+    last: Exception | None = None
+    tries = max(1, tries)
+    for attempt in range(1, tries + 1):
+        cli = connect(host, user, password, port=port, timeout=timeout)
+        n = 0
+        try:
+            try:
+                sftp = cli.open_sftp()
+            except Exception as e:  # noqa: BLE001 - 会话建立失败可安全重试
+                last = e
+                if attempt < tries:
+                    print(f"  [SFTP 会话] 第 {attempt}/{tries} 次失败"
+                          f"（{type(e).__name__}），1.5 秒后重试…", file=sys.stderr)
+                    time.sleep(1.5)
+                    continue
+                raise
+            remote = _expand_tilde(sftp, remote)
 
-        def mkdirs(path: str) -> None:
-            absolute = path.startswith("/")
-            parts = [p for p in path.split("/") if p]
-            # "~/x" 形式：SFTP 协议不展开 ~，若按绝对路径拼会建出字面目录 /~。
-            # SFTP 的相对路径默认落在登录家目录，故去掉 "~" 段按相对路径逐级建。
-            if parts and parts[0] == "~":
-                parts = parts[1:]
-                absolute = False
-            cur = ""
-            for p in parts:
-                cur = f"{cur}/{p}" if cur else (f"/{p}" if absolute else p)
-                try:
-                    sftp.stat(cur)
-                except IOError:
-                    sftp.mkdir(cur)
+            def mkdirs(path: str) -> None:
+                absolute = path.startswith("/")
+                parts = [p for p in path.split("/") if p]
+                # "~/x" 形式：SFTP 协议不展开 ~，若按绝对路径拼会建出字面目录 /~。
+                # SFTP 的相对路径默认落在登录家目录，故去掉 "~" 段按相对路径逐级建。
+                if parts and parts[0] == "~":
+                    parts = parts[1:]
+                    absolute = False
+                cur = ""
+                for p in parts:
+                    cur = f"{cur}/{p}" if cur else (f"/{p}" if absolute else p)
+                    try:
+                        sftp.stat(cur)
+                    except IOError:
+                        sftp.mkdir(cur)
 
-        src = Path(local)
-        if src.is_dir():
-            base = remote.rstrip("/")
-            mkdirs(base)
+            src = Path(local)
+            if src.is_dir():
+                base = remote.rstrip("/")
+                mkdirs(base)
 
-            def walk(d: Path, r: str) -> None:
-                nonlocal n
-                for child in sorted(d.iterdir()):
-                    if child.name in skip:
-                        continue
-                    rp = f"{r}/{child.name}"
-                    if child.is_dir():
-                        mkdirs(rp)
-                        walk(child, rp)
-                    else:
-                        sftp.put(str(child), rp)
-                        n += 1
+                def walk(d: Path, r: str) -> None:
+                    nonlocal n
+                    for child in sorted(d.iterdir()):
+                        if child.name in skip:
+                            continue
+                        rp = f"{r}/{child.name}"
+                        if child.is_dir():
+                            mkdirs(rp)
+                            walk(child, rp)
+                        else:
+                            sftp.put(str(child), rp)
+                            n += 1
 
-            walk(src, base)
-        else:
-            # ⚠️ 远程路径必须按 POSIX 处理：用 pathlib 会得到 Windows 的 '\'，
-            # 传到 Linux 上就变成「文件名里带反斜杠」→ PermissionError。
-            parent = remote.rsplit("/", 1)[0] if "/" in remote else "."
-            if parent not in ("", "."):
-                mkdirs(parent)
-            sftp.put(str(src), remote)
-            n = 1
-        sftp.close()
-    finally:
-        cli.close()
-    return n
+                walk(src, base)
+            else:
+                # ⚠️ 远程路径必须按 POSIX 处理：用 pathlib 会得到 Windows 的 '\'，
+                # 传到 Linux 上就变成「文件名里带反斜杠」→ PermissionError。
+                parent = remote.rsplit("/", 1)[0] if "/" in remote else "."
+                if parent not in ("", "."):
+                    mkdirs(parent)
+                sftp.put(str(src), remote)
+                n = 1
+            sftp.close()
+            return n
+        finally:
+            cli.close()
+    raise last if last is not None else RuntimeError("SFTP 上传失败")
 
 
 def main(argv=None) -> int:
@@ -271,7 +305,7 @@ def main(argv=None) -> int:
         if not args.to:
             ap.error("--get 需要同时给 --to")
         try:
-            cnt = sftp_get(args.host, args.user, read_password(args, hint=_CAR_DOCS_HINT), args.get, args.to,
+            cnt = sftp_get(args.host, args.user, _pw(args), args.get, args.to,
                            args.port, args.timeout)
         except paramiko.AuthenticationException:
             print("认证失败：用户名或密码不对", file=sys.stderr)
@@ -286,7 +320,7 @@ def main(argv=None) -> int:
         if not args.dest:
             ap.error("--put 需要同时给 --dest")
         try:
-            cnt = sftp_put(args.host, args.user, read_password(args, hint=_CAR_DOCS_HINT), args.put, args.dest,
+            cnt = sftp_put(args.host, args.user, _pw(args), args.put, args.dest,
                            args.port, args.timeout)
         except paramiko.AuthenticationException:
             print("认证失败：用户名或密码不对", file=sys.stderr)
@@ -328,7 +362,7 @@ def main(argv=None) -> int:
         cmd = "; ".join(parts) + "; " + cmd
 
     try:
-        code, out, err = run(args.host, args.user, read_password(args, hint=_CAR_DOCS_HINT), cmd, args.timeout, args.port)
+        code, out, err = run(args.host, args.user, _pw(args), cmd, args.timeout, args.port)
     except paramiko.AuthenticationException:
         print("认证失败：用户名或密码不对（车端默认用户名 duzhong，密码见 05_VNC远程桌面使用方法）",
               file=sys.stderr)
