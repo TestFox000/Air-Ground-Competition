@@ -240,6 +240,11 @@ _ARCHIVE_PREFIXES = (
     "docs/archive/",
     "reference/",
     "tools/attic/",
+    # 运行时日志目录（.gitignore 收、不入库）：内容是终端实录，里面的 tools/
+    # 引用是"当时那棵树"的历史快照——与归档材料同理，不指挥任何人。
+    # 2026-10-21：logs/_pe_review/circle2.txt 引用已删的
+    # tools/car_patch_executor.sh，把本测试扫成假红。
+    "logs/",
 )
 
 
