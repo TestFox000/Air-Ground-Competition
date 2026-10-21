@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 import { DATA_DIR_NAME, JsonStore, SETTINGS_INITIAL, resolveDshHome } from './src/store.js'
 import { collectMetrics } from './src/metrics.js'
 import { collectDroneMetrics } from './src/metrics-drone.js'
-import { DRONE_SETTINGS_INITIAL, nodeSpec, nodeSnapshot } from './src/nodes.js'
+import { DRONE_SETTINGS_INITIAL, nodeSpec, nodeSnapshot, ROLES } from './src/nodes.js'
 import { commandLine, describe as describeCar, interactiveArgv, localName, probe } from './src/ssh.js'
 import { isLoopback, rejectionFor } from './src/trust.js'
 import { isReloading, selfReload, watchPackage } from './src/reload.js'
@@ -484,10 +484,26 @@ export function apply(ctx, config = {}) {
     // so this registers the one path and does the handshake itself. A carrier
     // without that seat loses the desktop and keeps everything else.
     if (typeof scoped.webServer.registerUpgrade === 'function') {
+      // S7 per-role bridges: every node dials its own settings through its own
+      // upgrade seat, so the car desktop and the drone desktop can be open at
+      // the same time without sharing a target (in tunnel mode each connection
+      // already gets its own local port from freePort()). The legacy top-level
+      // path stays registered on the car — old links keep working (D5).
+      for (const role of ROLES) {
+        const node = role === 'car' ? carNode : droneNode
+        const spec = nodeSpec(role)
+        scoped.effect(
+          () => scoped.webServer.registerUpgrade({
+            path: `/api/dzairground-ssh/${role}/vnc`,
+            handler: (req, socket, head) => openVncTunnel(req, socket, head, node.settings.get(), { logger, label: spec.label }),
+          }),
+          `dzairground-ssh: vnc tunnel ${role}`,
+        )
+      }
       scoped.effect(
         () => scoped.webServer.registerUpgrade({
           path: '/api/dzairground-ssh/vnc',
-          handler: (req, socket, head) => openVncTunnel(req, socket, head, settings.get(), { logger }),
+          handler: (req, socket, head) => openVncTunnel(req, socket, head, carNode.settings.get(), { logger, label: nodeSpec('car').label }),
         }),
         'dzairground-ssh: vnc tunnel',
       )
@@ -495,7 +511,7 @@ export function apply(ctx, config = {}) {
       logger.warn?.('dzairground-ssh: this web server has no upgrade seat; the VNC view is unavailable')
     }
 
-    logger.info?.('dzairground-ssh: API at /api/dzairground-ssh (VNC tunnel at /api/dzairground-ssh/vnc)')
+    logger.info?.('dzairground-ssh: API at /api/dzairground-ssh (VNC tunnels per role: /car/vnc + /drone/vnc; legacy /vnc = car)')
   })
 
   ctx.effect(() => () => {
@@ -591,7 +607,7 @@ function serveNovnc(res, relative, send) {
  * opens, then the car is dialled, and a dial failure is reported as a close
  * rather than a socket that simply never speaks.
  */
-function openVncTunnel(req, socket, head, settings, { logger } = {}) {
+function openVncTunnel(req, socket, head, settings, { logger, label = '小车' } = {}) {
   const peer = req?.socket?.remoteAddress ?? req?.connection?.remoteAddress
   if (!isLoopback(peer)) { socket.destroy(); return }
   if (acceptUpgrade(req, socket) === null) return
@@ -610,10 +626,10 @@ function openVncTunnel(req, socket, head, settings, { logger } = {}) {
   channel.onClose(() => bridge.close())
   channel.onMessage(payload => { if (!failed) bridge.send(payload) })
   bridge.onData(chunk => channel.send(chunk))
-  bridge.onClose(() => channel.close(1001, 'car closed the desktop'))
+  bridge.onClose(() => channel.close(1001, `${label} closed the desktop`))
 
   void bridge.open()
-    .then(() => logger.info?.(`dzairground-ssh: VNC tunnel open (${bridge.describe()})`))
+    .then(() => logger.info?.(`dzairground-ssh: VNC tunnel open (${label} · ${bridge.describe()})`))
     .catch(error => {
       failed = true
       logger.warn?.(`dzairground-ssh: VNC tunnel failed (${error?.message ?? error})`)

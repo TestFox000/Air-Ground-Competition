@@ -1,6 +1,6 @@
 {
   "name": "dsh-dzairground-ssh",
-  "version": "0.6.0-s2",
+  "version": "0.7.0-s6",
   "private": true,
   "type": "module",
   "description": "空地协同插件（S2/S3：双节点 + 面板重构）：在 dsh 里同时操作小车与无人机（RK3588 / Jetson）。以车侧为底的统一节点注册表（src/nodes.js）让 /api/dzairground-ssh/car/* 与 /drone/* 共用同一条 handler 链；机侧 metrics（thermal_zone 温度 + PX4 飞控电量 + batteryNote 词汇）移植自冻结机侧插件。面板侧栏单图标进入「空地协同」，主视图只挂协同入口，仿真台与 64 图压测收进「高级」折叠区（12 条 /sim* 路由全保留）。状态浮窗一张卡多格（车电量/CPU + 机温度/CPU/飞控电量），飞控电量三态显示（有数据/飞控无数据/无飞控），越界读数显示数据异常；连通性探测区分活探针与缓存快照，过期即显灰色而非假绿。可自由切换 VNC 桌面（自带 noVNC + WebSocket 隧道到 TigerVNC :1）、终端（DSH 原生终端里 ssh）与文件目录（浏览/预览/下载/上传节点文件系统），并提供本地离线仿真台（一键跑 dzbrain 仿真：速度档 + 误差注入 + seed → 指标/横置场地视图/路线图/历史对比；可改雷障洞点位 —— 只落运行目录 override 并只读调规划器重规划路线，不连小车、不写 config、无 GPU 路径）。",

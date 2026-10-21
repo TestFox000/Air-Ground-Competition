@@ -246,7 +246,8 @@ for (const [label, component] of [
   ['panel', makeCarPanel(ctxClient, storeStub, tKey)({})],
   // The right-column tab bodies: first paint is the loading note (their status
   // fetch resolves later), so this proves the shell itself does not throw.
-  ['tab:vnc', makeVncTabShell(ctxClient, tKey)({})],
+  ['tab:vnc-car', makeVncTabShell(ctxClient, tKey, 'car')({})],
+  ['tab:vnc-drone', makeVncTabShell(ctxClient, tKey, 'drone')({})],
   ['tab:files', makeFilesTabShell(ctxClient, tKey)({})],
 ]) {
   try {
@@ -307,7 +308,7 @@ try {
   const tree = makeFloatWindow(ctxClient, floatOpenStore, tKey)({})
 
   // ── the header line: 名称 | 开机时间：--:-- ────────────────────────────────
-  const titleGroups = floatFind(tree, node => node.props?.className === 'dzr_ftitle')
+  const titleGroups = floatFind(tree, node => node.props?.className === 'dzag_ftitle')
   if (titleGroups.length !== 1) renderFailures.push(`expected one title group, got ${titleGroups.length}`)
   else {
     const parts = (titleGroups[0].children ?? []).flat()
@@ -322,13 +323,13 @@ try {
     if (up?.type !== 'span' || upText !== 'floatUp：--:--') {
       renderFailures.push(`header uptime should read floatUp：--:-- before a reading, got ${JSON.stringify(upText)}`)
     }
-    if (up?.props?.className !== 'dzr_fup') renderFailures.push('header uptime missing the dzr_fup class')
+    if (up?.props?.className !== 'dzag_fup') renderFailures.push('header uptime missing the dzag_fup class')
   }
 
   // ── the body: capability-driven cells (决议③ 一张卡多格) ─────────────────
   // Car row: battery + cpu. Drone row: temp + cpu + the FC battery, whose
   // value box carries the three-state word before any reading exists (S3).
-  const cells = floatFind(tree, node => node.props?.className === 'dzr_fcell')
+  const cells = floatFind(tree, node => node.props?.className === 'dzag_fcell')
   if (cells.length !== 5) renderFailures.push(`the float should render 5 capability cells (car 2 + drone 3), got ${cells.length}`)
   const kinds = cells.map(cell => cell.props['data-kind'])
   if (kinds.join(',') !== 'battery,cpu,temp,droneCpu,droneBattery') {
@@ -336,21 +337,21 @@ try {
   }
   // One node row per node (决议③): the cells are never ambiguous about which
   // machine they describe.
-  const nodeRows = floatFind(tree, node => node.props?.className === 'dzr_fnode')
+  const nodeRows = floatFind(tree, node => node.props?.className === 'dzag_fnode')
   if (nodeRows.length !== 2) renderFailures.push(`the float should render 2 node rows, got ${nodeRows.length}`)
   for (const cell of cells) {
     const boxes = (cell.children ?? []).flat()
     if (boxes.length !== 2) { renderFailures.push(`cell ${cell.props['data-kind']} should be 2 boxes, got ${boxes.length}`); continue }
     const [valueBox, plotBox] = boxes
-    if (valueBox?.props?.className !== 'dzr_fbox') renderFailures.push(`cell ${cell.props['data-kind']}: first box lost the dzr_fbox class`)
+    if (valueBox?.props?.className !== 'dzag_fbox') renderFailures.push(`cell ${cell.props['data-kind']}: first box lost the dzag_fbox class`)
     const valueParts = (valueBox?.children ?? []).flat()
     if (valueParts[0]?.type !== 'span' || valueParts[1]?.type !== 'b') {
       renderFailures.push(`cell ${cell.props['data-kind']}: 名称+数值 box should be span then b, got ${JSON.stringify(valueParts.map(part => part?.type))}`)
     }
-    if (!String(plotBox?.props?.className ?? '').includes('dzr_fplot')) {
+    if (!String(plotBox?.props?.className ?? '').includes('dzag_fplot')) {
       renderFailures.push(`cell ${cell.props['data-kind']}: second box should be the plot box`)
     }
-    const charts = floatFind(plotBox, node => node.type === 'svg' && node.props?.className === 'dzr_fchart')
+    const charts = floatFind(plotBox, node => node.type === 'svg' && node.props?.className === 'dzag_fchart')
     if (charts.length !== 1) renderFailures.push(`cell ${cell.props['data-kind']} should carry exactly one plot, got ${charts.length}`)
     else if (charts[0].props.viewBox !== '0 0 144 78') renderFailures.push(`plot viewBox wrong: ${charts[0].props.viewBox}`)
     else {
@@ -358,10 +359,10 @@ try {
       // axes drawn plus the dashed baseline — no curve, no invented ticks.
       const kids = (charts[0].children ?? []).flat()
       const classes = kids.map(kid => String(kid?.props?.className ?? ''))
-      if (classes.filter(name => name === 'dzr_faxis').length !== 2) {
+      if (classes.filter(name => name === 'dzag_faxis').length !== 2) {
         renderFailures.push(`cell ${cell.props['data-kind']}: empty plot should draw both axes, got ${JSON.stringify(classes)}`)
       }
-      if (classes.includes('dzr_fno') !== true) renderFailures.push(`cell ${cell.props['data-kind']}: empty plot should draw the dashed baseline`)
+      if (classes.includes('dzag_fno') !== true) renderFailures.push(`cell ${cell.props['data-kind']}: empty plot should draw the dashed baseline`)
       if (kids.some(kid => kid?.type === 'polyline')) renderFailures.push(`cell ${cell.props['data-kind']}: drew a curve with no reading`)
       if (kids.some(kid => kid?.type === 'circle')) renderFailures.push(`cell ${cell.props['data-kind']}: drew the red dot with no reading`)
     }
@@ -379,7 +380,7 @@ try {
 
   // The drag guard, both directions: a button press must not be captured, a
   // press on the title bar must start a drag as before.
-  const heads = floatFind(tree, node => node.props?.className === 'dzr_fhead')
+  const heads = floatFind(tree, node => node.props?.className === 'dzag_fhead')
   if (heads.length !== 1) renderFailures.push(`expected one draggable header, got ${heads.length}`)
   else {
     let captures = 0
@@ -390,10 +391,10 @@ try {
     if (captures !== 1) renderFailures.push('a press on the title bar should start a drag')
   }
 
-  // Opacity: 60% in the store must reach the card as --dzr-op, and the slider
+  // Opacity: 60% in the store must reach the card as --dzag-op, and the slider
   // must be a clamped 30..100 range whose changes reach the store.
   const style = tree.props?.style ?? {}
-  if (style['--dzr-op'] !== '0.6') renderFailures.push(`opacity 60 should render --dzr-op:"0.6", got ${JSON.stringify(style['--dzr-op'])}`)
+  if (style['--dzag-op'] !== '0.6') renderFailures.push(`opacity 60 should render --dzag-op:"0.6", got ${JSON.stringify(style['--dzag-op'])}`)
   const sliders = floatFind(tree, node => node.type === 'input' && node.props?.type === 'range')
   if (sliders.length !== 1) renderFailures.push(`expected one opacity slider, got ${sliders.length}`)
   else {
@@ -445,41 +446,67 @@ if (firstTarget?.data?.found !== false) {
   failures.push('stub expected to start unreachable (found:false), the switch path was not exercised')
 }
 
+// ── S7: the drone terminal channel resolves the drone node ────────────────────
+// dzsmart.local is honestly unreachable from the lab, so the flow must stop at
+// probing — what this proves is WHICH node it probed and that diag carries the
+// role, i.e. the channel, not some hardcoded car target.
+{
+  const fetched = []
+  const prevFetch = globalThis.fetch
+  globalThis.fetch = (url, options) => { fetched.push(String(url)); return prevFetch(url, options) }
+  const dronePhases = []
+  const droneResult = await client.__test.connect(ctxClient, { closest: () => null }, phase => dronePhases.push(phase), 'drone')
+  globalThis.fetch = prevFetch
+  if (!fetched.some(url => url.includes('/api/dzairground-ssh/drone/probe'))) {
+    failures.push(`S7: drone connect did not probe /drone/probe (fetched ${JSON.stringify(fetched)})`)
+  }
+  if (fetched.some(url => url.endsWith('/api/dzairground-ssh/probe'))) {
+    failures.push('S7: the drone channel fell back to the unscoped (car) probe')
+  }
+  const start = diagPayloads.filter(entry => entry.step === 'connect.start').pop()
+  if (start?.data?.role !== 'drone') failures.push(`S7: drone connect.start missing role tag: ${JSON.stringify(start?.data)}`)
+  if (droneResult.ok === true) failures.push('S7: drone connect unexpectedly succeeded (dzsmart.local should be unreachable in the lab)')
+  if (!dronePhases.includes('probing')) failures.push(`S7: drone flow never reached probing (phases ${JSON.stringify(dronePhases)})`)
+}
+
 // ── the tool-list → right-column-tab path (the new architecture) ──────────────
 // Simulate the user back on the plugin panel, then open the files tool the way
 // its list row does: switch to the Conversation, open the tab type.
 activePanel = 'dzairground-ops'
 panelHistory.length = 0
-const toolResult = await client.__test.openToolTab(ctxClient, 'dzr-files')
+const toolResult = await client.__test.openToolTab(ctxClient, 'dzag-files')
 console.log('openToolTab result:', JSON.stringify(toolResult), '| opened:', JSON.stringify(openedKinds))
 
-const vncType = tabTypes.find(definition => definition.kind === 'dzr-vnc')
-const filesType = tabTypes.find(definition => definition.kind === 'dzr-files')
+const vncCarType = tabTypes.find(definition => definition.kind === 'dzag-vnc-car')
+const vncDroneType = tabTypes.find(definition => definition.kind === 'dzag-vnc-drone')
+const filesType = tabTypes.find(definition => definition.kind === 'dzag-files')
 const paneRegistrations = registered['sidebar.right.pane.tab'] ?? []
 
 if (toolResult.ok !== true) failures.push(`openToolTab did not succeed: ${JSON.stringify(toolResult)}`)
-if (!openedKinds.includes('dzr-files')) failures.push(`openTab never called with the tool kind (opened: ${JSON.stringify(openedKinds)})`)
+if (!openedKinds.includes('dzag-files')) failures.push(`openTab never called with the tool kind (opened: ${JSON.stringify(openedKinds)})`)
 if (!panelHistory.includes(null)) failures.push('tool path did not switch to the Conversation first')
-if (vncType === undefined || vncType.id !== 'dsh-dzairground-ssh/vnc') {
-  failures.push(`vnc tab type missing or wrong id: ${JSON.stringify(vncType)}`)
-} else if (vncType.multiple !== false || vncType.keepMounted !== true) {
-  failures.push(`vnc tab type flags wrong (multiple:${vncType.multiple} keepMounted:${vncType.keepMounted})`)
+for (const [type, expectedId] of [[vncCarType, 'dsh-dzairground-ssh/vnc-car'], [vncDroneType, 'dsh-dzairground-ssh/vnc-drone']]) {
+  if (type === undefined || type.id !== expectedId) {
+    failures.push(`vnc tab type missing or wrong id (want ${expectedId}): ${JSON.stringify(type)}`)
+  } else if (type.multiple !== false || type.keepMounted !== true) {
+    failures.push(`vnc tab type flags wrong (multiple:${type.multiple} keepMounted:${type.keepMounted})`)
+  }
 }
 if (filesType === undefined || filesType.id !== 'dsh-dzairground-ssh/files' || filesType.multiple !== false) {
   failures.push(`files tab type missing or wrong: ${JSON.stringify(filesType)}`)
 }
 // TabSlot dispatches through entryKey: definition.id — the slot key must be the
 // type id, or the body renders the "type no longer available" fallback.
-for (const id of ['dsh-dzairground-ssh/vnc', 'dsh-dzairground-ssh/files']) {
+for (const id of ['dsh-dzairground-ssh/vnc-car', 'dsh-dzairground-ssh/vnc-drone', 'dsh-dzairground-ssh/files']) {
   if (!paneRegistrations.some(registration => registration.definition.key === id)) {
     failures.push(`no sidebar.right.pane.tab body registered under key ${id}`)
   }
 }
-// Five rows: the three tab tools, the float (opens as an overlay card, not a
-// tab), and the sim bench (mode:"external", its own document on this plugin's
-// http origin — client.js TOOLS[] is the single source of truth for the count).
-if (client.__test.TOOLS.length !== 5) failures.push(`tool list should have 5 rows, has ${client.__test.TOOLS.length}`)
-const floatRow = client.__test.TOOLS.find(tool => tool.id === 'float')
+// Seven rows since S7: terminal and VNC exist once per node (car/drone), the
+// files tool stays shared, the float opens as an overlay card, and the sim
+// bench is mode:"external" — client.js TOOLS[] is the single source of truth.
+if (client.__test.TOOLS.length !== 7) failures.push(`tool list should have 7 rows, has ${client.__test.TOOLS.length}`)
+const floatRow = client.__test.TOOLS.find(tool => tool.id === 'dzag-float')
 if (floatRow === undefined || floatRow.mode !== 'float') {
   failures.push(`the float tool row is missing or not mode:"float": ${JSON.stringify(floatRow)}`)
 }
@@ -489,6 +516,32 @@ if (floatRow === undefined || floatRow.mode !== 'float') {
 const overlayRegistrations = registered['shell.overlay'] ?? []
 if (!overlayRegistrations.some(entry => entry.definition.id === 'dzairground-float')) {
   failures.push(`no shell.overlay registration under id dzairground-float (got ${JSON.stringify(overlayRegistrations.map(entry => entry.definition.id))})`)
+}
+
+// ── S7: the four channels are distinct and dial distinct targets ──────────────
+{
+  const ids = client.__test.TOOLS.map(tool => tool.id)
+  const channelIds = ['dzag-terminal-car', 'dzag-terminal-drone', 'dzag-vnc-car', 'dzag-vnc-drone']
+  for (const id of channelIds) {
+    if (!ids.includes(id)) failures.push(`S7: channel id ${id} missing from TOOLS`)
+  }
+  if (new Set(channelIds).size !== 4) failures.push('S7: channel ids are not pairwise distinct')
+  const rowOf = id => client.__test.TOOLS.find(tool => tool.id === id)
+  const kinds = channelIds.map(id => rowOf(id)?.kind)
+  if (kinds[0] !== 'terminal' || kinds[1] !== 'terminal') {
+    failures.push(`S7: both terminal channels must keep the stock kind (shell-owned PTY), got ${JSON.stringify(kinds.slice(0, 2))}`)
+  }
+  if (kinds[2] !== 'dzag-vnc-car' || kinds[3] !== 'dzag-vnc-drone') {
+    failures.push(`S7: vnc channel kinds wrong: ${JSON.stringify(kinds.slice(2))}`)
+  }
+  const roles = channelIds.map(id => rowOf(id)?.role)
+  if (roles.join(',') !== 'car,drone,car,drone') failures.push(`S7: channel roles wrong: ${JSON.stringify(roles)}`)
+  const keys = client.__test.connectorStoreKeys
+  if (!keys || keys.car === keys.drone) failures.push('S7: connector storage keys must differ per channel')
+  const carCfg = client.__test.bridgeConnectorConfig('http://127.0.0.1:1', {}, '', 'car')
+  const droneCfg = client.__test.bridgeConnectorConfig('http://127.0.0.1:1', {}, '', 'drone')
+  if (carCfg.path !== 'api/dzairground-ssh/car/vnc') failures.push(`S7: car bridge path wrong: ${carCfg.path}`)
+  if (droneCfg.path !== 'api/dzairground-ssh/drone/vnc') failures.push(`S7: drone bridge path wrong: ${droneCfg.path}`)
 }
 
 // ── B-1 (决议⑦): the panel's main view folds the sim bench away ───────────────
@@ -508,8 +561,8 @@ if (!overlayRegistrations.some(entry => entry.definition.id === 'dzairground-flo
     const detailsNodes = []
     const coordRows = []
     walk(panelTree, node => {
-      if (node.type === 'details' && node.props?.className === 'dzr_advanced') detailsNodes.push(node)
-      if (node.type === 'div' && node.props?.className === 'dzr_toolrow' && node.props?.key === 'coord') coordRows.push(node)
+      if (node.type === 'details' && node.props?.className === 'dzag_advanced') detailsNodes.push(node)
+      if (node.type === 'div' && node.props?.className === 'dzag_toolrow' && node.props?.key === 'dzag-coord') coordRows.push(node)
     })
     if (detailsNodes.length !== 1) {
       failures.push(`B-1: expected exactly one advanced <details>, got ${detailsNodes.length}`)
@@ -517,11 +570,11 @@ if (!overlayRegistrations.some(entry => entry.definition.id === 'dzairground-flo
       failures.push('B-1: the advanced drawer must not carry an open prop (default collapsed)')
     } else {
       const ids = []
-      walk(detailsNodes[0], node => { if (node.props?.className === 'dzr_toolrow' && node.props?.key) ids.push(node.props.key) })
-      if (!(ids.includes('sim') && ids.includes('stress'))) {
+      walk(detailsNodes[0], node => { if (node.props?.className === 'dzag_toolrow' && node.props?.key) ids.push(node.props.key) })
+      if (!(ids.includes('dzag-sim') && ids.includes('dzag-stress'))) {
         failures.push(`B-1: the advanced drawer should hold the sim + stress rows, got ${JSON.stringify(ids)}`)
       }
-      if (ids.includes('coord')) failures.push('B-1: the coordination entry must not be inside the advanced drawer')
+      if (ids.includes('dzag-coord')) failures.push('B-1: the coordination entry must not be inside the advanced drawer')
     }
     if (coordRows.length !== 1) failures.push(`B-1: the coordination entry should be one main-view row, got ${coordRows.length}`)
   } catch (error) {
@@ -779,17 +832,17 @@ const cssClose = (cssLiteral.match(/}/g) ?? []).length
 if (cssOpen !== cssClose || cssOpen === 0) {
   failures.push(`CSS braces unbalanced: ${cssOpen} '{' vs ${cssClose} '}'`)
 }
-for (const selector of ['.dzr_float', '.dzr_fcell', '.dzr_fhead', '.dzr_ftitle', '.dzr_fplot', '.dzr_fchart', 'repeat(2,1fr)', '--dzr-op']) {
+for (const selector of ['.dzag_float', '.dzag_fcell', '.dzag_fhead', '.dzag_ftitle', '.dzag_fplot', '.dzag_fchart', 'repeat(2,1fr)', '--dzag-op']) {
   if (!cssLiteral.includes(selector)) failures.push(`CSS is missing the float rule/variable ${selector}`)
 }
-// The plot's gridline class is dzr_fgridline, not dzr_fgrid: that class styles
+// The plot's gridline class is dzag_fgridline, not dzag_fgrid: that class styles
 // the body grid (display:grid), and a stray match on an SVG line would paint
 // that layout onto it.
-if (!cssLiteral.includes('.dzr_fchart .dzr_fgridline')) {
-  failures.push('CSS is missing the SVG gridline rule .dzr_fchart .dzr_fgridline')
+if (!cssLiteral.includes('.dzag_fchart .dzag_fgridline')) {
+  failures.push('CSS is missing the SVG gridline rule .dzag_fchart .dzag_fgridline')
 }
-if (/\.dzr_fchart[^{]*\.dzr_fgrid\b/.test(cssLiteral)) {
-  failures.push('SVG gridline class collides with the body grid class dzr_fgrid')
+if (/\.dzag_fchart[^{]*\.dzag_fgrid\b/.test(cssLiteral)) {
+  failures.push('SVG gridline class collides with the body grid class dzag_fgrid')
 }
 
 server.close()

@@ -1,2 +1,0 @@
-[t4_rosenv] host=dzsmart ROS_DISTRO=humble ROS_DOMAIN_ID=118 RMW=default
-Unknown topic '/dzlink/car_to_drone'

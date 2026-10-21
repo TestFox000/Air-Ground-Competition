@@ -1,8 +1,0 @@
- 127.0.0.1/8
-10.29.122.188/24 10.29.122.188/24
-	Interface wlan0
-		ssid testfox
-		ssid testfox
-Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
- face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22
- wlan0: 0000    5.  -57.  -83.       0      0      0      0      0        0

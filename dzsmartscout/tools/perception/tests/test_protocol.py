@@ -43,23 +43,24 @@ def _yaml_scalar(text: str, key: str) -> str | None:
 def test_map_yaml_is_the_source_of_truth_for_cells():
     """拿仓库里 config/map.yaml 的原文核对 —— 不是我记忆里的格名。
 
-    ★ t59（2026-10-15）：``map.yaml`` 已换成**第 5 张新地图 · 2026-10-14 官方贴图重掷版**
-    （用户当面贴图 + 队长/感知线双独立识读逐格一致）。本测试随之更新为**现役真值**，
-    并保留原设计：全部格名必须落在 14×11 网格内、桥的两个通格必须**一上一下**。
+    ★ t60（2026-10-18）：``map.yaml`` 已换成**第六张地图 · 2026-10-17 用户现场换图**
+    （贴图逐格识读，识读件 _tmp_session/t40_map_parse/，块心落格残差 ≤2px）。
+    本测试随之更新为**现役真值**，并保留原设计：全部格名必须落在 14×11 网格内、
+    桥的两个通格必须**一上一下**。
     """
     assert MAP_YAML.is_file(), f"找不到 {MAP_YAML}"
     text = MAP_YAML.read_text(encoding="utf-8")
-    assert _yaml_list(text, "mines") == ["C1", "A3", "E3", "G4", "I6", "B7", "D9", "H10"], \
+    assert _yaml_list(text, "mines") == ["A2", "F4", "H4", "G5", "E8", "B10", "D11", "I11"], \
         "现役 map.yaml 的雷点位变了 —— 请与感知线/队长重新对账后再改本断言"
-    assert _yaml_list(text, "obstacles") == ["A1", "E2", "H4", "D8", "I8", "G9", "B11", "F11"]
-    assert _yaml_list(text, "targets") == ["E5", "F5"]
-    assert _yaml_list(text, "bridges") == ["K5", "K9"]
+    assert _yaml_list(text, "obstacles") == ["B1", "D1", "F3", "I6", "H7", "A8", "C9", "E9"]
+    assert _yaml_list(text, "targets") == ["D5", "D6"]
+    assert _yaml_list(text, "bridges") == ["K5", "K7"]
     assert _yaml_scalar(text, "start").strip('"') == "N10"
     assert _yaml_scalar(text, "end").strip('"') == "N5"
-    # 结论：桥的两个通格必须一上一下（K5 upper / K9 lower），与半场划分自洽
+    # 结论：桥的两个通格必须一上一下（K5 upper / K7 lower），与半场划分自洽
     spec = GridSpec()
     assert spec.half_of_block("K5") == "upper"
-    assert spec.half_of_block("K9") == "lower"
+    assert spec.half_of_block("K7") == "lower"
     for block in (_yaml_list(text, "mines") + _yaml_list(text, "obstacles")
                   + _yaml_list(text, "targets") + _yaml_list(text, "bridges")):
         spec.block_to_index(block)          # 全部格名必须在网格内（不抛异常即通过）

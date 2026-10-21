@@ -1,8 +1,0 @@
-[t4_rosenv] host=duzhong ROS_DISTRO=humble ROS_DOMAIN_ID=118 RMW=default
-== t4_car_consumer == host=duzhong topic=/nav/waypoint qos=reliable domain=118 duration=25.0s
-[subs] publishers on /nav/waypoint = 0 @0.05s
-[subs] publishers on /nav/waypoint = 1 @7.22s
-[rx BAD] {"raw": "N10 M10 L10* L9 K9", "error": "bad_json:JSONDecodeError", "t_recv": 1791804131.571, "valid": false, "note": "bad_json"}
-[rx BAD] {"raw": "N10 M10 L10* L9 K9", "error": "bad_json:JSONDecodeError", "t_recv": 1791804131.798, "valid": false, "note": "bad_json"}
-[rx BAD] {"raw": "N10 M10 L10* L9 K9", "error": "bad_json:JSONDecodeError", "t_recv": 1791804132.019, "valid": false, "note": "bad_json"}
-[subs] publishers on /nav/waypoint = 0 @10.22s

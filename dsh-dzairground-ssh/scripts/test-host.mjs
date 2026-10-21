@@ -98,6 +98,12 @@ async function call(path, options) {
   return { status: response.status, payload }
 }
 
+check('three VNC upgrade seats (per-role + legacy car)',
+  JSON.stringify(upgrades.map(route => route.path)) === JSON.stringify([
+    '/api/dzairground-ssh/car/vnc', '/api/dzairground-ssh/drone/vnc', '/api/dzairground-ssh/vnc',
+  ]),
+  JSON.stringify(upgrades.map(route => route.path)))
+
 const status = await call('/status')
 console.log('\nGET /status ->', status.status)
 console.log('  settings.host:', status.payload.settings?.host, '| user:', status.payload.settings?.user)
@@ -114,6 +120,19 @@ const bad = await call('/config', { method: 'POST', body: JSON.stringify({ host:
 console.log('POST /config (empty host, alias also empty) ->', bad.status, JSON.stringify(bad.payload))
 
 await call('/config', { method: 'POST', body: JSON.stringify({ port: 22 }) })
+
+// ── S7: the drone node answers the same shape with its own target ─────────────
+const droneStatus = await call('/drone/status')
+console.log('\nGET /drone/status ->', droneStatus.status)
+check('GET /drone/status carries role=drone', droneStatus.status === 200 && droneStatus.payload.role === 'drone', JSON.stringify(droneStatus.payload.role))
+check('the drone terminal command targets the drone node',
+  String(droneStatus.payload.command ?? '').includes('dzsmart.local'), String(droneStatus.payload.command))
+check('the drone vnc target comes from drone settings (dzsmart.local:5901)',
+  droneStatus.payload.vnc?.host === 'dzsmart.local' && droneStatus.payload.vnc?.port === 5901,
+  JSON.stringify(droneStatus.payload.vnc))
+check('the car and drone terminal commands differ',
+  String(status.payload.command) !== String(droneStatus.payload.command),
+  `car=${status.payload.command} drone=${droneStatus.payload.command}`)
 
 await call('/diag', { method: 'POST', body: JSON.stringify({ step: 'test-host', data: { ok: true } }) })
 const diag = await call('/diag')
@@ -419,6 +438,17 @@ check('the connector keeps the ws-log probe markers',
   connectHtml.includes('/* ws-log:start') && connectHtml.includes('/* ws-log:end */'),
   'markers present — scripts/test-vnc-wrapper.mjs extracts them')
 
+// ── S7: the per-role document seats are reachable ────────────────────────────
+for (const role of ['car', 'drone']) {
+  const page = await fetch(`${base}/${role}/vnc.html`)
+  const pageText = await page.text()
+  check(`GET /${role}/vnc.html is 200 html with the role-aware dialer`,
+    page.status === 200 && pageText.includes("location.pathname.includes('/drone/')"),
+    `${page.status} ${pageText.length}B`)
+  const conn = await fetch(`${base}/${role}/vnc-connect.html`)
+  check(`GET /${role}/vnc-connect.html is 200`, conn.status === 200, String(conn.status))
+}
+
 // ── the car's filesystem ──────────────────────────────────────────────────────
 console.log('\n--- files ---')
 const listing = await call('/files?path=/home/duzhong')
@@ -524,6 +554,42 @@ const expected = Buffer.concat(payloads)
 check('large payloads survive the tunnel byte-for-byte (7/16/64-bit frames)',
   bridged.echoed.length === expected.length && bridged.echoed.equals(expected),
   `sent=${expected.length}B got=${bridged.echoed.length}B`)
+
+// ── S7: two live bridges, one per node, at the same time ─────────────────────
+// Two stand-ins with DIFFERENT RFB banners: whichever socket receives which
+// banner proves which node's settings its seat dialled — crossed seats would
+// swap the banners and fail here.
+const droneEcho = net.createServer(socket => {
+  socket.write(Buffer.from('RFB 004.000\n'))
+  socket.write(Buffer.from([2, 19, 2]))
+  socket.on('data', chunk => socket.write(chunk))
+})
+await new Promise(resolve => droneEcho.listen(0, '127.0.0.1', resolve))
+const droneEchoPort = droneEcho.address().port
+const droneCfgSet = await call('/drone/config', { method: 'POST', body: JSON.stringify({ vncHost: '127.0.0.1', vncPort: droneEchoPort }) })
+check('the drone bridge target is configurable per node',
+  droneCfgSet.status === 200 && droneCfgSet.payload.settings.vncPort === droneEchoPort,
+  `vncPort=${droneCfgSet.payload.settings?.vncPort}`)
+
+const dialBanner = seat => new Promise((resolve, reject) => {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/api/dzairground-ssh/${seat}`)
+  socket.binaryType = 'arraybuffer'
+  let seen = Buffer.alloc(0)
+  const timer = setTimeout(() => { try { socket.close() } catch { /* closed */ } ; reject(new Error(`${seat} timed out`)) }, 20000)
+  socket.onmessage = event => {
+    seen = Buffer.concat([seen, Buffer.from(event.data)])
+    if (seen.length >= 12) {
+      clearTimeout(timer)
+      try { socket.close() } catch { /* closed */ }
+      resolve(seen.subarray(0, 12).toString('latin1'))
+    }
+  }
+  socket.onerror = () => { clearTimeout(timer); reject(new Error(`${seat} errored`)) }
+})
+const [carBanner, droneBanner] = await Promise.all([dialBanner('car/vnc'), dialBanner('drone/vnc')])
+check('the car seat bridges to the CAR stand-in (RFB 003.008)', carBanner.startsWith('RFB 003.008'), JSON.stringify(carBanner))
+check('the drone seat bridges to the DRONE stand-in (RFB 004.000)', droneBanner.startsWith('RFB 004.000'), JSON.stringify(droneBanner))
+droneEcho.close()
 
 echo.close()
 

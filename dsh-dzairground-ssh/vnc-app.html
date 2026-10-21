@@ -134,7 +134,12 @@
     ask.hidden = true
     report('connecting')
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${scheme}//${location.host}/api/dzairground-ssh/vnc`
+    // S7: this document is served per role (/:role/vnc.html). A role-scoped
+    // path dials that node's own bridge; the legacy path stays the car's (D5).
+    const wsPath = location.pathname.includes('/drone/') ? '/api/dzairground-ssh/drone/vnc'
+      : location.pathname.includes('/car/') ? '/api/dzairground-ssh/car/vnc'
+        : '/api/dzairground-ssh/vnc'
+    const url = `${scheme}//${location.host}${wsPath}`
     try {
       // No password supplied means "ask the server, then prompt": the car's
       // password file is a hash on its own disk, so it cannot be pre-derived.

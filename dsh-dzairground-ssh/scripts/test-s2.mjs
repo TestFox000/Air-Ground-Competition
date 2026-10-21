@@ -137,16 +137,16 @@ check('/sim* 路由计数 = 12（一条不许删）', simRoutes.length === 12, S
 
 // ── 5. B-1 折叠区（client 源级断言）───────────────────────────────────────────
 console.log('\n=== B-1 折叠区 ===')
-check('高级折叠区存在（<details class="dzr_advanced">）',
-  /h\('details',\s*\{\s*key:\s*'advanced',\s*className:\s*'dzr_advanced'/.test(clientSrc), '')
+check('高级折叠区存在（<details class="dzag_advanced">）',
+  /h\('details',\s*\{\s*key:\s*'advanced',\s*className:\s*'dzag_advanced'/.test(clientSrc), '')
 check('折叠区默认收起（details 的 props 不含 open）',
   !/h\('details',\s*\{[^}]*\bopen\b/.test(clientSrc), '')
 check('主视图挂协同入口（COORD_TOOL，锚 #drone），仿真台/压测在折叠区（STRESS_TOOL）',
-  clientSrc.includes("COORD_TOOL = { id: 'coord'") && clientSrc.includes("hash: '#drone'")
-  && clientSrc.includes("STRESS_TOOL = { id: 'stress'"),
+  clientSrc.includes("COORD_TOOL = { id: 'dzag-coord'") && clientSrc.includes("hash: '#drone'")
+  && clientSrc.includes("STRESS_TOOL = { id: 'dzag-stress'"),
   '')
 check('主列表把 sim 行滤出（TOOLS.filter(tool => tool.id !== \'sim\')）',
-  clientSrc.includes("TOOLS.filter(tool => tool.id !== 'sim')"), '')
+  clientSrc.includes("TOOLS.filter(tool => tool.id !== 'dzag-sim')"), '')
 
 // ── 6. 真 Host：drone 端点 + 真实离线样本的诚实性 ─────────────────────────────
 console.log('\n=== 真 Host drone 端点（含真实离线样本）===')

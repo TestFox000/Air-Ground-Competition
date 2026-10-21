@@ -154,8 +154,10 @@ def test_yellow_label_box_with_text_is_rejected_as_non_target():
     p = reg.cell_polygon_px("H9")
     d.rectangle([p[:, 0].min() + 2, p[:, 1].min() + 2,
                  p[:, 0].max() - 2, p[:, 1].max() - 2], fill=(235, 205, 60))
-    d.text((p[:, 0].min() + 10, p[:, 1].min() + 12), "无人机", fill=(60, 60, 60))
-    d.text((p[:, 0].min() + 10, p[:, 1].min() + 26), "起点", fill=(60, 60, 60))
+    # ASCII 文案：无人机 dist-packages 的 PIL 8.x 位图默认字体只支持 latin-1，
+    # 画中文会 UnicodeEncodeError；判据是深色像素占比，与字形语言无关，ASCII 保证双机确定性。
+    d.text((p[:, 0].min() + 10, p[:, 1].min() + 12), "DRONE", fill=(60, 60, 60))
+    d.text((p[:, 0].min() + 10, p[:, 1].min() + 26), "START", fill=(60, 60, 60))
     objs2 = detect_field_objects(np.asarray(img), reg, MAP_IMAGE, MAP_IMAGE_SPECS)
     assert objs2.mines == ["B1"], objs2.mines
     assert any("深色" in r["reason"] for r in objs2.rejected), objs2.rejected

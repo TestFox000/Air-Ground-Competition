@@ -1,4 +1,0 @@
-[route] 入队（发 3 遍）: N10 M10 L10* L9 K9  … 共 5 个格点
-[once] 发完。ack 台账: {'intel_sent': 0, 'intel_acked': 0, 'pending_seq': 0, 'hb_sent': 1, 'hb_acked': 0, 'hb_recent_sent': 1, 'hb_recent_acked': 0, 'any_acked': False, 'suspicious_mismatch': False, 'recent_acks': []}
-[once] 等 2s 看车有没有回 ack…
-[once] 没收到任何车回执（车没起栈 / 车侧旧核不吃 JSON 情报 / 回传被拦）

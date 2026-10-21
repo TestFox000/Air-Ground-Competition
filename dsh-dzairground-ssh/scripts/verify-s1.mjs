@@ -267,7 +267,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'package.json'), 'utf8'
 console.log(`name=${pkg.name} version=${pkg.version}`)
 console.log(`files=${JSON.stringify(pkg.files)}`)
 check('包名是 dsh-dzairground-ssh', pkg.name === 'dsh-dzairground-ssh', pkg.name)
-check('版本是 0.6.0-s2', pkg.version === '0.6.0-s2', pkg.version)
+check('版本是 0.7.0-s6', pkg.version === '0.7.0-s6', pkg.version)
 
 const REQUIRED = ['index.js', 'client.js', 'src', 'cordis.patch.yml', 'vnc-app.html', 'vnc-connect.html', 'float.html', 'sim.html', 'sim-root.json', 'novnc']
 for (const entry of REQUIRED) {

@@ -1,7 +1,0 @@
-{
-  "name": "ssh2-tmp",
-  "private": true,
-  "dependencies": {
-    "ssh2": "^1.16.0"
-  }
-}

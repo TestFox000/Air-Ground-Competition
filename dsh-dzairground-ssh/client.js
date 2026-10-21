@@ -57,7 +57,8 @@ window.__ModuleLoader__.load({
         toolOpen: '打开',
         toolNote: '点“打开”后主视图会切到会话，工具窗口显示在会话右侧——右栏属于会话，这是 DSH 的结构。',
         filesToolDesc: '浏览、预览、下载、上传小车上的文件（走同一条已信任的 SSH 通道）',
-        vncToolDesc: '小车的 X 桌面（TigerVNC :1，1920×1080）；需要时会在画面里向你要 VNC 密码',
+        vncCarToolDesc: '小车的 X 桌面（TigerVNC :1，1920×1080）；需要时会在画面里向你要 VNC 密码',
+        vncDroneToolDesc: '无人机的 X 桌面（dzsmart:5901）；密码留空时由 noVNC 连接时询问',
         simToolDesc: '本地跑 dzbrain 离线仿真：速度档+误差注入一键出指标与路线图，历史对比，不连小车',
         copy: '复制命令',
         copied: '已复制',
@@ -101,7 +102,12 @@ window.__ModuleLoader__.load({
         // panel
         panel: '空地协同',
         viewVnc: 'VNC 桌面',
-        viewTerminal: '终端',
+        viewTerminalCar: 'SSH 终端 · 车',
+        viewTerminalDrone: 'SSH 终端 · 机',
+        viewVncCar: 'VNC 桌面 · 车',
+        viewVncDrone: 'VNC 桌面 · 机',
+        vncTargetCar: '车 VNC 目标',
+        vncTargetDrone: '机 VNC 目标',
         viewFiles: '文件目录',
         viewSim: '仿真台',
         vncConnect: '连接桌面',
@@ -124,7 +130,8 @@ window.__ModuleLoader__.load({
         simOpenHint: '没能自动打开仿真台（弹窗被拦截，或还没取到服务地址）。手动地址：{url}',
         vncDropped: '连接异常中断——小车可能掉线，或主机名解析抖动（这台车的 mDNS 时好时坏），稍后重试',
         vncSendCad: 'Ctrl+Alt+Del',
-        terminalHint: 'SSH 跑在 DSH 自带终端里（回显/补全/缩放都是原生的）。点击后会切到会话视图——终端在会话右侧，这是 DSH 的结构。',
+        terminalCarHint: 'SSH 跑在 DSH 自带终端里（回显/补全/缩放都是原生的），目标是小车节点。点击后会切到会话视图——终端在会话右侧。',
+        terminalDroneHint: 'SSH 跑在 DSH 自带终端里（回显/补全/缩放都是原生的），目标是无人机节点。点击后会切到会话视图——终端在会话右侧。',
         filesPath: '路径',
         filesEmpty: '（空目录）',
         filesLoading: '正在读取…',
@@ -229,9 +236,10 @@ window.__ModuleLoader__.load({
         connNewTabHint: '新窗口/标签页是独立文档，密码不会带过去，会在那里再问一次',
         connScaleHint: '开启时画面始终缩放到窗口大小；关闭时按原始分辨率显示、可滚动',
         connResolutionHint: '自适应让远端分辨率跟随窗口；选固定值则请求远端改分辨率（需 TigerVNC + RandR 支持 SetDesktopSize）',
-        connCarBridge: '小车通道',
-        connCarBridgeHint: '把目标切回插件自带网桥 ws://<DSH 地址>/api/dzairground-ssh/vnc：直通小车 5901，车上不需要 websockify',
-        connCarBridgeDone: '已切到小车通道，点“连接”即可',
+        connNodeBridge: '本节点通道',
+        vncBridgeHintCar: '把目标切回车通道自带网桥 ws://<DSH 地址>/api/dzairground-ssh/car/vnc：直通小车 5901，车上不需要 websockify',
+        vncBridgeHintDrone: '把目标切回机通道自带网桥 ws://<DSH 地址>/api/dzairground-ssh/drone/vnc：直通 dzsmart 5901，机上不需要 websockify',
+        connNodeBridgeDone: '已切到本节点通道，点“连接”即可',
         connHintNoListener: '对端没有响应（WebSocket code 1006）。多数是这三种：对端没跑 websockify、端口/路径写错、协议选错（明文端口要用 ws，选 wss 会握手失败）。目标是小车的话，直接用“小车通道”，不需要 websockify。',
         connHintBridgeFailed: '网桥没连上。请确认小车在线、且 TigerVNC 正在 5901 监听（插件设置里有探测按钮）。',
       },
@@ -245,7 +253,8 @@ window.__ModuleLoader__.load({
         toolOpen: 'Open',
         toolNote: 'Opening a tool switches the main view to the Conversation — the tool window appears on its right. The right column belongs to the Conversation; that is DSH’s structure.',
         filesToolDesc: 'Browse, preview, download and upload the car’s files (over the same trusted SSH channel)',
-        vncToolDesc: 'The car’s X desktop (TigerVNC :1, 1920×1080); it may ask for the VNC password in the screen',
+        vncCarToolDesc: 'The car’s X desktop (TigerVNC :1, 1920×1080); it may ask for the VNC password in the screen',
+        vncDroneToolDesc: 'The drone’s X desktop (dzsmart:5901); leave the password empty and noVNC asks on connect',
         simToolDesc: 'Run the dzbrain offline simulator locally: a speed step plus error injection gives metrics and the route plot in one click, with a history to compare — no car involved',
         copy: 'Copy command',
         copied: 'Copied',
@@ -289,7 +298,12 @@ window.__ModuleLoader__.load({
         // panel
         panel: 'Air-ground ops',
         viewVnc: 'VNC desktop',
-        viewTerminal: 'Terminal',
+        viewTerminalCar: 'SSH terminal · car',
+        viewTerminalDrone: 'SSH terminal · drone',
+        viewVncCar: 'VNC desktop · car',
+        viewVncDrone: 'VNC desktop · drone',
+        vncTargetCar: 'Car VNC target',
+        vncTargetDrone: 'Drone VNC target',
         viewFiles: 'Files',
         viewSim: 'Sim bench',
         vncConnect: 'Connect desktop',
@@ -312,7 +326,8 @@ window.__ModuleLoader__.load({
         simOpenHint: 'The sim bench could not be opened automatically (popup blocked, or the server address is unknown). Open it manually: {url}',
         vncDropped: 'Connection dropped unexpectedly — the car may be offline, or its mDNS name is flapping (this hotspot is unreliable). Retry shortly.',
         vncSendCad: 'Ctrl+Alt+Del',
-        terminalHint: 'SSH runs in the app’s own terminal (native echo, completion, resizing). Clicking switches to the Conversation — the terminal lives in its right column; that is DSH’s structure.',
+        terminalCarHint: 'SSH runs in the app’s own terminal (native echo, completion, resizing), targeting the car node. Clicking switches to the Conversation — the terminal lives in its right column.',
+        terminalDroneHint: 'SSH runs in the app’s own terminal (native echo, completion, resizing), targeting the drone node. Clicking switches to the Conversation — the terminal lives in its right column.',
         filesPath: 'Path',
         filesEmpty: '(empty directory)',
         filesLoading: 'Loading…',
@@ -417,9 +432,10 @@ window.__ModuleLoader__.load({
         connNewTabHint: 'The new window/tab is a standalone document; the password is not transferred — it asks again there',
         connScaleHint: 'On: the picture always scales to fit the window. Off: shown at native resolution, scrollable',
         connResolutionHint: 'Auto makes the remote follow your window; a fixed value requests a remote resolution change (needs TigerVNC + RandR / SetDesktopSize)',
-        connCarBridge: 'Car bridge',
-        connCarBridgeHint: 'Point the form back at the plugin’s own bridge ws://<DSH address>/api/dzairground-ssh/vnc — straight to the car on 5901, no websockify needed',
-        connCarBridgeDone: 'Switched to the car bridge — press Connect',
+        connNodeBridge: 'Node bridge',
+        vncBridgeHintCar: 'Point the form back at the car channel’s own bridge ws://<DSH address>/api/dzairground-ssh/car/vnc — straight to the car on 5901, no websockify needed',
+        vncBridgeHintDrone: 'Point the form back at the drone channel’s own bridge ws://<DSH address>/api/dzairground-ssh/drone/vnc — straight to dzsmart on 5901, no websockify needed',
+        connNodeBridgeDone: 'Switched to this node’s bridge — press Connect',
         connHintNoListener: 'The peer did not answer (WebSocket code 1006). Usually one of three: nothing is listening (websockify not running), wrong port/path, or the wrong scheme (plain ports need ws; wss fails the TLS handshake). If the target is the car, use “Car bridge” — it needs no websockify.',
         connHintBridgeFailed: 'The bridge did not connect. Check that the car is online and TigerVNC is listening on 5901 (the plugin settings have a probe button).',
       },
@@ -495,174 +511,174 @@ window.__ModuleLoader__.load({
 
     // ── styles ────────────────────────────────────────────────────────────────
     const CSS = `
-.dzr_icon{display:inline-flex;position:relative;flex:none;line-height:0}
-.dzr_dot{position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-tertiary);box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-2,transparent)}
-.dzr_dot[data-state="ready"]{background:var(--dsw-alias-state-success-primary)}
-.dzr_dot[data-state="stale"]{background:var(--dsw-alias-label-tertiary)}
-.dzr_dot[data-state="unreachable"]{background:var(--dsw-alias-state-error-primary)}
-.dzr_dot[data-state="needs-password"],.dzr_dot[data-state="host-key"]{background:var(--dsw-alias-state-warning-primary)}
-.dzr_root{display:flex;flex-direction:column;gap:14px;max-width:820px;font-size:13px;line-height:1.6;color:var(--dsw-alias-label-primary)}
-.dzr_root *{box-sizing:border-box}
-.dzr_card{padding:14px 16px;border-radius:14px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);display:flex;flex-direction:column;gap:10px}
-.dzr_head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.dzr_h{font-size:13px;font-weight:650}
-.dzr_sub{font-size:11.5px;color:var(--dsw-alias-label-tertiary)}
-.dzr_badge{margin-left:auto;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);white-space:nowrap}
-.dzr_badge[data-state="ready"]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}
-.dzr_badge[data-state="stale"]{color:var(--dsw-alias-label-tertiary);border-color:var(--dsw-alias-border-l1)}
-.dzr_badge[data-state="unreachable"]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}
-.dzr_badge[data-state="needs-password"],.dzr_badge[data-state="host-key"]{color:var(--dsw-alias-state-warning-primary);border-color:var(--dsw-alias-state-warning-primary)}
-.dzr_grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
-.dzr_kv{padding:9px 11px;border-radius:11px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:2px;min-width:0}
-.dzr_kv b{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dzr_kv span{font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
-.dzr_field{display:flex;flex-direction:column;gap:4px;min-width:0}
-.dzr_field>span{font-size:11px;color:var(--dsw-alias-label-tertiary)}
-.dzr_input{font:inherit;font-size:12px;padding:5px 9px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);width:100%;min-width:0}
-.dzr_input:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}
-.dzr_row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.dzr_actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.dzr_action{font:inherit;font-size:12px;padding:5px 12px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);cursor:pointer}
-.dzr_action:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary)}
-.dzr_action:disabled{opacity:.5;cursor:default}
-.dzr_action.primary{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-on-accent)}
-.dzr_mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;padding:8px 10px;border-radius:9px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);overflow-x:auto;white-space:pre;color:var(--dsw-alias-label-secondary)}
-.dzr_note{font-size:11.5px;line-height:1.55;color:var(--dsw-alias-label-tertiary)}
-.dzr_err{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
-.dzr_warn{border-color:var(--dsw-alias-state-warning-primary);color:var(--dsw-alias-state-warning-primary)}
+.dzag_icon{display:inline-flex;position:relative;flex:none;line-height:0}
+.dzag_dot{position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-tertiary);box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-2,transparent)}
+.dzag_dot[data-state="ready"]{background:var(--dsw-alias-state-success-primary)}
+.dzag_dot[data-state="stale"]{background:var(--dsw-alias-label-tertiary)}
+.dzag_dot[data-state="unreachable"]{background:var(--dsw-alias-state-error-primary)}
+.dzag_dot[data-state="needs-password"],.dzag_dot[data-state="host-key"]{background:var(--dsw-alias-state-warning-primary)}
+.dzag_root{display:flex;flex-direction:column;gap:14px;max-width:820px;font-size:13px;line-height:1.6;color:var(--dsw-alias-label-primary)}
+.dzag_root *{box-sizing:border-box}
+.dzag_card{padding:14px 16px;border-radius:14px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);display:flex;flex-direction:column;gap:10px}
+.dzag_head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dzag_h{font-size:13px;font-weight:650}
+.dzag_sub{font-size:11.5px;color:var(--dsw-alias-label-tertiary)}
+.dzag_badge{margin-left:auto;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);white-space:nowrap}
+.dzag_badge[data-state="ready"]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}
+.dzag_badge[data-state="stale"]{color:var(--dsw-alias-label-tertiary);border-color:var(--dsw-alias-border-l1)}
+.dzag_badge[data-state="unreachable"]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}
+.dzag_badge[data-state="needs-password"],.dzag_badge[data-state="host-key"]{color:var(--dsw-alias-state-warning-primary);border-color:var(--dsw-alias-state-warning-primary)}
+.dzag_grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.dzag_kv{padding:9px 11px;border-radius:11px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:2px;min-width:0}
+.dzag_kv b{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dzag_kv span{font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
+.dzag_field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.dzag_field>span{font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.dzag_input{font:inherit;font-size:12px;padding:5px 9px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);width:100%;min-width:0}
+.dzag_input:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}
+.dzag_row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dzag_actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.dzag_action{font:inherit;font-size:12px;padding:5px 12px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);cursor:pointer}
+.dzag_action:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary)}
+.dzag_action:disabled{opacity:.5;cursor:default}
+.dzag_action.primary{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-on-accent)}
+.dzag_mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;padding:8px 10px;border-radius:9px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);overflow-x:auto;white-space:pre;color:var(--dsw-alias-label-secondary)}
+.dzag_note{font-size:11.5px;line-height:1.55;color:var(--dsw-alias-label-tertiary)}
+.dzag_err{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
+.dzag_warn{border-color:var(--dsw-alias-state-warning-primary);color:var(--dsw-alias-state-warning-primary)}
 /* ── the car panel (main column) ───────────────────────────────────────────── */
-.dzr_panel{display:flex;flex-direction:column;height:100%;min-height:0;font-size:13px;color:var(--dsw-alias-label-primary);box-sizing:border-box}
-.dzr_panel *{box-sizing:border-box}
-.dzr_phead{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;flex-wrap:wrap}
-.dzr_ptitle{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:650}
+.dzag_panel{display:flex;flex-direction:column;height:100%;min-height:0;font-size:13px;color:var(--dsw-alias-label-primary);box-sizing:border-box}
+.dzag_panel *{box-sizing:border-box}
+.dzag_phead{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;flex-wrap:wrap}
+.dzag_ptitle{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:650}
 /* Tool list rows in the main panel: glyph, name/description, one action. */
-.dzr_toolrow{display:flex;gap:14px;align-items:center;padding:13px 15px;border:1px solid var(--dsw-alias-border-l2);border-radius:13px;background:var(--dsw-alias-bg-layer-3);transition:border-color .15s ease}
-.dzr_toolrow:hover{border-color:var(--dsw-alias-state-business-primary)}
-.dzr_toolglyph{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-state-business-primary);flex:none}
-.dzr_toolinfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
-.dzr_tooltitle{font-size:13.5px;font-weight:650}
-.dzr_tooldesc{font-size:11.5px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dzag_toolrow{display:flex;gap:14px;align-items:center;padding:13px 15px;border:1px solid var(--dsw-alias-border-l2);border-radius:13px;background:var(--dsw-alias-bg-layer-3);transition:border-color .15s ease}
+.dzag_toolrow:hover{border-color:var(--dsw-alias-state-business-primary)}
+.dzag_toolglyph{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-state-business-primary);flex:none}
+.dzag_toolinfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.dzag_tooltitle{font-size:13.5px;font-weight:650}
+.dzag_tooldesc{font-size:11.5px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Tab bodies own no chrome of their own: the right column supplies it, so the
    only job is to fill the tab's height chain (screen flexes inside). */
-.dzr_tabroot{display:flex;flex-direction:column;height:100%;min-height:0}
-.dzr_pbody{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
-.dzr_pad{padding:16px 18px;display:flex;flex-direction:column;gap:12px;overflow:auto}
-.dzr_toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;flex-wrap:wrap;background:var(--dsw-alias-bg-layer-1)}
-.dzr_screen{flex:1;min-height:0;background:#000;position:relative;overflow:hidden}
-.dzr_screen canvas{display:block;max-width:100%;max-height:100%;margin:0 auto}
+.dzag_tabroot{display:flex;flex-direction:column;height:100%;min-height:0}
+.dzag_pbody{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+.dzag_pad{padding:16px 18px;display:flex;flex-direction:column;gap:12px;overflow:auto}
+.dzag_toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;flex-wrap:wrap;background:var(--dsw-alias-bg-layer-1)}
+.dzag_screen{flex:1;min-height:0;background:#000;position:relative;overflow:hidden}
+.dzag_screen canvas{display:block;max-width:100%;max-height:100%;margin:0 auto}
 /* Centered overlay over the screen area: idle/failed states and the password
    card. It sits above the iframe only while the desktop itself is not on screen,
    so once connected nothing covers the pointer. */
-.dzr_center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;background:#000}
-.dzr_herocard{display:flex;flex-direction:column;align-items:center;gap:10px;max-width:420px;padding:22px 26px;border-radius:14px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);text-align:center;box-shadow:0 8px 32px rgb(0 0 0 / 25%)}
-.dzr_herocard h3{margin:0;font-size:14px;font-weight:650}
-.dzr_herocard p{margin:0;font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:1.6}
-.dzr_herocard input{width:220px;text-align:center}
+.dzag_center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;background:#000}
+.dzag_herocard{display:flex;flex-direction:column;align-items:center;gap:10px;max-width:420px;padding:22px 26px;border-radius:14px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);text-align:center;box-shadow:0 8px 32px rgb(0 0 0 / 25%)}
+.dzag_herocard h3{margin:0;font-size:14px;font-weight:650}
+.dzag_herocard p{margin:0;font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:1.6}
+.dzag_herocard input{width:220px;text-align:center}
 /* Status pill: one dot + one line, tinted per phase — the whole reason the old
    free-floating status text looked broken across two rows. */
-.dzr_pill{display:inline-flex;align-items:center;gap:7px;max-width:340px;padding:4px 11px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);font-size:11.5px;color:var(--dsw-alias-label-secondary);min-width:0}
-.dzr_pill span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dzr_pill i{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-tertiary);flex:none}
-.dzr_pill[data-phase="connecting"] i,.dzr_pill[data-phase="auth"] i{background:var(--dsw-alias-state-warning-primary)}
-.dzr_pill[data-phase="connected"] i{background:var(--dsw-alias-state-success-primary)}
-.dzr_pill[data-phase="failed"] i{background:var(--dsw-alias-state-error-primary)}
-.dzr_pill[data-phase="connected"]{border-color:var(--dsw-alias-state-success-primary)}
-.dzr_pill[data-phase="failed"]{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
+.dzag_pill{display:inline-flex;align-items:center;gap:7px;max-width:340px;padding:4px 11px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);font-size:11.5px;color:var(--dsw-alias-label-secondary);min-width:0}
+.dzag_pill span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dzag_pill i{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-tertiary);flex:none}
+.dzag_pill[data-phase="connecting"] i,.dzag_pill[data-phase="auth"] i{background:var(--dsw-alias-state-warning-primary)}
+.dzag_pill[data-phase="connected"] i{background:var(--dsw-alias-state-success-primary)}
+.dzag_pill[data-phase="failed"] i{background:var(--dsw-alias-state-error-primary)}
+.dzag_pill[data-phase="connected"]{border-color:var(--dsw-alias-state-success-primary)}
+.dzag_pill[data-phase="failed"]{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 /* Inline activity spinner for the hero card's "connecting" state. */
-.dzr_spin2{width:22px;height:22px;border-radius:50%;border:2.5px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);animation:dzr-spin2 .8s linear infinite}
-@keyframes dzr-spin2{to{transform:rotate(360deg)}}
-.dzr_crumbs{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:12px;color:var(--dsw-alias-label-secondary);min-width:0}
-.dzr_crumb{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;padding:2px 4px;border-radius:5px;cursor:pointer}
-.dzr_crumb:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}
-.dzr_crumb.last{color:var(--dsw-alias-label-primary);font-weight:600}
-.dzr_chips{display:flex;gap:6px;flex-wrap:wrap}
-.dzr_chip{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap}
-.dzr_chip:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary)}
-.dzr_split{flex:1;min-height:0;display:flex}
-.dzr_list{flex:1;min-height:0;overflow:auto;border-right:1px solid var(--dsw-alias-border-l1)}
-.dzr_list.narrow{border-right:0}
-.dzr_row2{display:grid;grid-template-columns:20px 1fr 90px 150px;align-items:center;gap:8px;padding:5px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:12.5px;cursor:default;min-width:0}
-.dzr_row2.dir{cursor:pointer}
-.dzr_row2:hover{background:var(--dsw-alias-bg-layer-1)}
-.dzr_row2.sel{background:var(--dsw-alias-bg-layer-3)}
-.dzr_row2 b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.dzr_row2 span{font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dzr_row2.head{position:sticky;top:0;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;border-bottom:1px solid var(--dsw-alias-border-l2);z-index:1}
-.dzr_glyph{display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary)}
-.dzr_glyph.dir{color:var(--dsw-alias-state-business-primary)}
-.dzr_preview{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
-.dzr_prehead{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;flex-wrap:wrap}
-.dzr_prebody{flex:1;min-height:0;overflow:auto;margin:0;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1)}
-.dzr_tag{font-size:10.5px;padding:2px 7px;border-radius:6px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary)}
+.dzag_spin2{width:22px;height:22px;border-radius:50%;border:2.5px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);animation:dzag-spin2 .8s linear infinite}
+@keyframes dzag-spin2{to{transform:rotate(360deg)}}
+.dzag_crumbs{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:12px;color:var(--dsw-alias-label-secondary);min-width:0}
+.dzag_crumb{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;padding:2px 4px;border-radius:5px;cursor:pointer}
+.dzag_crumb:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}
+.dzag_crumb.last{color:var(--dsw-alias-label-primary);font-weight:600}
+.dzag_chips{display:flex;gap:6px;flex-wrap:wrap}
+.dzag_chip{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap}
+.dzag_chip:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary)}
+.dzag_split{flex:1;min-height:0;display:flex}
+.dzag_list{flex:1;min-height:0;overflow:auto;border-right:1px solid var(--dsw-alias-border-l1)}
+.dzag_list.narrow{border-right:0}
+.dzag_row2{display:grid;grid-template-columns:20px 1fr 90px 150px;align-items:center;gap:8px;padding:5px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:12.5px;cursor:default;min-width:0}
+.dzag_row2.dir{cursor:pointer}
+.dzag_row2:hover{background:var(--dsw-alias-bg-layer-1)}
+.dzag_row2.sel{background:var(--dsw-alias-bg-layer-3)}
+.dzag_row2 b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.dzag_row2 span{font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dzag_row2.head{position:sticky;top:0;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;border-bottom:1px solid var(--dsw-alias-border-l2);z-index:1}
+.dzag_glyph{display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary)}
+.dzag_glyph.dir{color:var(--dsw-alias-state-business-primary)}
+.dzag_preview{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+.dzag_prehead{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;flex-wrap:wrap}
+.dzag_prebody{flex:1;min-height:0;overflow:auto;margin:0;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1)}
+.dzag_tag{font-size:10.5px;padding:2px 7px;border-radius:6px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary)}
 /* ── the status float (registered on the frame-wide shell.overlay seat) ─────── */
 /* Opacity comes from a custom property so a ':hover' rule can win without
    !important: a card dimmed to 30% must still be readable while you are using
    it, and the slider that set it lives inside the card. (No backticks here —
    this comment sits inside the CSS template literal.) */
-.dzr_float{--dzr-op:1;position:fixed;width:334px;border-radius:16px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);box-shadow:0 14px 44px rgb(0 0 0 / 32%);font-size:12.5px;line-height:1.5;z-index:2147483000;overflow:hidden;display:flex;flex-direction:column;user-select:none;opacity:var(--dzr-op,1)}
-.dzr_float:hover{opacity:1}
-.dzr_float *{box-sizing:border-box}
-.dzr_fhead{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-3);cursor:move;touch-action:none}
+.dzag_float{--dzag-op:1;position:fixed;width:334px;border-radius:16px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);box-shadow:0 14px 44px rgb(0 0 0 / 32%);font-size:12.5px;line-height:1.5;z-index:2147483000;overflow:hidden;display:flex;flex-direction:column;user-select:none;opacity:var(--dzag-op,1)}
+.dzag_float:hover{opacity:1}
+.dzag_float *{box-sizing:border-box}
+.dzag_fhead{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-3);cursor:move;touch-action:none}
 /* Header line: 名称 | 开机时间：m:ss — one row, no uptime cell in the body. */
-.dzr_ftitle{flex:1;min-width:0;display:flex;align-items:baseline;gap:5px;overflow:hidden;white-space:nowrap}
-.dzr_ftitle b{font-size:12.5px;font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;flex:none}
-.dzr_fsep{font-style:normal;color:var(--dsw-alias-label-tertiary);opacity:.6;flex:none}
-.dzr_fup{font-size:11.5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;flex:none;overflow:hidden;text-overflow:ellipsis}
-.dzr_fbtn{font:inherit;font-size:13px;line-height:1;padding:3px 7px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;flex:none}
-.dzr_fbtn:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-state-business-primary)}
-.dzr_fbtn:disabled{opacity:.45;cursor:default}
+.dzag_ftitle{flex:1;min-width:0;display:flex;align-items:baseline;gap:5px;overflow:hidden;white-space:nowrap}
+.dzag_ftitle b{font-size:12.5px;font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;flex:none}
+.dzag_fsep{font-style:normal;color:var(--dsw-alias-label-tertiary);opacity:.6;flex:none}
+.dzag_fup{font-size:11.5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;flex:none;overflow:hidden;text-overflow:ellipsis}
+.dzag_fbtn{font:inherit;font-size:13px;line-height:1;padding:3px 7px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;flex:none}
+.dzag_fbtn:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-state-business-primary)}
+.dzag_fbtn:disabled{opacity:.45;cursor:default}
 /* Two columns (battery, CPU). Each cell is a blue pair of boxes: 名称 +
    数值 on top, the axes-bearing curve plot underneath. The blue is a
    color-mix tint over a declared fallback, so a browser without color-mix
    still gets the neutral box rather than an invisible border. */
-.dzr_fgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;padding:10px}
-.dzr_fcell{display:flex;flex-direction:column;gap:6px;min-width:0}
-.dzr_fbox{min-width:0;display:flex;flex-direction:column;gap:1px;padding:7px 9px;border-radius:12px;border:1px solid var(--dsw-alias-border-l1);border-color:color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, transparent);background:var(--dsw-alias-bg-layer-1);background:color-mix(in srgb, var(--dsw-alias-state-business-primary) 7%, var(--dsw-alias-bg-layer-1))}
-.dzr_fbox>span:first-child{font-size:10.5px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dzr_fbox b{font-size:17px;font-weight:650;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dzr_fbox b small{font-size:10.5px;font-weight:500;color:var(--dsw-alias-label-tertiary);margin-left:1px}
+.dzag_fgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;padding:10px}
+.dzag_fcell{display:flex;flex-direction:column;gap:6px;min-width:0}
+.dzag_fbox{min-width:0;display:flex;flex-direction:column;gap:1px;padding:7px 9px;border-radius:12px;border:1px solid var(--dsw-alias-border-l1);border-color:color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, transparent);background:var(--dsw-alias-bg-layer-1);background:color-mix(in srgb, var(--dsw-alias-state-business-primary) 7%, var(--dsw-alias-bg-layer-1))}
+.dzag_fbox>span:first-child{font-size:10.5px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dzag_fbox b{font-size:17px;font-weight:650;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dzag_fbox b small{font-size:10.5px;font-weight:500;color:var(--dsw-alias-label-tertiary);margin-left:1px}
 /* Battery thresholds run backwards — low is the bad direction — so the
    level classes below are set by the caller with the inverted scale. */
-.dzr_fcell[data-level="warm"] .dzr_fbox b{color:var(--dsw-alias-state-warning-primary)}
-.dzr_fcell[data-level="hot"] .dzr_fbox b{color:var(--dsw-alias-state-error-primary)}
-.dzr_fplot{padding:5px 6px 3px;gap:0;align-items:stretch}
+.dzag_fcell[data-level="warm"] .dzag_fbox b{color:var(--dsw-alias-state-warning-primary)}
+.dzag_fcell[data-level="hot"] .dzag_fbox b{color:var(--dsw-alias-state-error-primary)}
+.dzag_fplot{padding:5px 6px 3px;gap:0;align-items:stretch}
 /* The plot itself: a viewBox whose pixel size is the box's inner width, so the
    tick labels draw at ~1:1 instead of being scaled down with the frame. Axes
    and grid are dashed, the curve keeps the cell's level colour, and the red
    dot plus its dashed cross-hairs mark the latest exact value. */
-.dzr_fchart{display:block;width:100%;height:auto;overflow:visible}
-.dzr_fchart .dzr_faxis{stroke:var(--dsw-alias-border-l2);stroke-width:1;vector-effect:non-scaling-stroke}
-/* Named gridline rather than dzr_fgrid: that class already styles the body
+.dzag_fchart{display:block;width:100%;height:auto;overflow:visible}
+.dzag_fchart .dzag_faxis{stroke:var(--dsw-alias-border-l2);stroke-width:1;vector-effect:non-scaling-stroke}
+/* Named gridline rather than dzag_fgrid: that class already styles the body
    grid, and a stray display:grid on an SVG line would misrender it. */
-.dzr_fchart .dzr_fgridline{stroke:var(--dsw-alias-border-l1);stroke-width:1;stroke-dasharray:2 3;vector-effect:non-scaling-stroke}
-.dzr_fchart .dzr_ftick{stroke:var(--dsw-alias-border-l2);stroke-width:1;vector-effect:non-scaling-stroke}
-.dzr_fchart .dzr_flab,.dzr_fchart .dzr_faxis-title{fill:var(--dsw-alias-label-tertiary);font-family:inherit;font-size:6.5px;font-variant-numeric:tabular-nums}
-.dzr_fchart .dzr_fno{stroke:var(--dsw-alias-border-l2);stroke-width:1.2;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
-.dzr_fchart polyline{fill:none;stroke:var(--dsw-alias-state-business-primary);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
-.dzr_fcell[data-level="warm"] .dzr_fchart polyline{stroke:var(--dsw-alias-state-warning-primary)}
-.dzr_fcell[data-level="hot"] .dzr_fchart polyline{stroke:var(--dsw-alias-state-error-primary)}
-.dzr_fchart .dzr_fdot{fill:var(--dsw-alias-state-error-primary,#e5484d);stroke:var(--dsw-alias-bg-layer-2);stroke-width:.5}
-.dzr_fchart .dzr_fcross{stroke:var(--dsw-alias-state-error-primary,#e5484d);stroke-width:1;stroke-dasharray:3 3;opacity:.75;vector-effect:non-scaling-stroke}
-.dzr_ffoot{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--dsw-alias-border-l1);flex-wrap:wrap}
-.dzr_ffoot .dzr_note{flex:1;min-width:80px}
-.dzr_ferr{padding:0 12px 8px}
-.dzr_fopacity{width:74px;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer;flex:none}
+.dzag_fchart .dzag_fgridline{stroke:var(--dsw-alias-border-l1);stroke-width:1;stroke-dasharray:2 3;vector-effect:non-scaling-stroke}
+.dzag_fchart .dzag_ftick{stroke:var(--dsw-alias-border-l2);stroke-width:1;vector-effect:non-scaling-stroke}
+.dzag_fchart .dzag_flab,.dzag_fchart .dzag_faxis-title{fill:var(--dsw-alias-label-tertiary);font-family:inherit;font-size:6.5px;font-variant-numeric:tabular-nums}
+.dzag_fchart .dzag_fno{stroke:var(--dsw-alias-border-l2);stroke-width:1.2;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
+.dzag_fchart polyline{fill:none;stroke:var(--dsw-alias-state-business-primary);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.dzag_fcell[data-level="warm"] .dzag_fchart polyline{stroke:var(--dsw-alias-state-warning-primary)}
+.dzag_fcell[data-level="hot"] .dzag_fchart polyline{stroke:var(--dsw-alias-state-error-primary)}
+.dzag_fchart .dzag_fdot{fill:var(--dsw-alias-state-error-primary,#e5484d);stroke:var(--dsw-alias-bg-layer-2);stroke-width:.5}
+.dzag_fchart .dzag_fcross{stroke:var(--dsw-alias-state-error-primary,#e5484d);stroke-width:1;stroke-dasharray:3 3;opacity:.75;vector-effect:non-scaling-stroke}
+.dzag_ffoot{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--dsw-alias-border-l1);flex-wrap:wrap}
+.dzag_ffoot .dzag_note{flex:1;min-width:80px}
+.dzag_ferr{padding:0 12px 8px}
+.dzag_fopacity{width:74px;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer;flex:none}
 /* Node row label inside the merged float: one row per node (决议③ 一张卡多格),
    spanning the whole grid, carrying the node glyph so the cells underneath are
    never ambiguous about which machine they describe. */
-.dzr_fnode{grid-column:1/-1;display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:650;color:var(--dsw-alias-label-tertiary);padding-top:2px}
-.dzr_fnode span{font-weight:500}
+.dzag_fnode{grid-column:1/-1;display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:650;color:var(--dsw-alias-label-tertiary);padding-top:2px}
+.dzag_fnode span{font-weight:500}
 /* B-1's advanced drawer: the sim bench and the stress bench live in a
    <details> that starts closed — the routes all stay, only the UI folds. */
-.dzr_advanced{border:1px solid var(--dsw-alias-border-l2);border-radius:13px;background:var(--dsw-alias-bg-layer-3)}
-.dzr_advanced>summary{cursor:pointer;list-style:none;padding:10px 15px;font-size:12px;color:var(--dsw-alias-label-secondary);user-select:none}
-.dzr_advanced>summary::-webkit-details-marker{display:none}
-.dzr_advanced>summary::before{content:'▸ ';font-size:10px}
-.dzr_advanced[open]>summary::before{content:'▾ '}
-.dzr_advanced>summary:hover{color:var(--dsw-alias-label-primary)}
-.dzr_advanced[open]>summary{border-bottom:1px solid var(--dsw-alias-border-l1)}
-.dzr_advanced .dzr_toolrow{border:0;background:transparent}
-.dzr_range{width:100%;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}
+.dzag_advanced{border:1px solid var(--dsw-alias-border-l2);border-radius:13px;background:var(--dsw-alias-bg-layer-3)}
+.dzag_advanced>summary{cursor:pointer;list-style:none;padding:10px 15px;font-size:12px;color:var(--dsw-alias-label-secondary);user-select:none}
+.dzag_advanced>summary::-webkit-details-marker{display:none}
+.dzag_advanced>summary::before{content:'▸ ';font-size:10px}
+.dzag_advanced[open]>summary::before{content:'▾ '}
+.dzag_advanced>summary:hover{color:var(--dsw-alias-label-primary)}
+.dzag_advanced[open]>summary{border-bottom:1px solid var(--dsw-alias-border-l1)}
+.dzag_advanced .dzag_toolrow{border:0;background:transparent}
+.dzag_range{width:100%;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}
 `
     function installStyles() {
       const id = 'dsh-dzairground-ssh/styles'
@@ -852,26 +868,26 @@ window.__ModuleLoader__.load({
      * accepted once an attachment holds write control. So: open, wait for the tab
      * record, wait for the view to become writable, then write.
      */
-    async function connect(ctx, element, onPhase) {
+    async function connect(ctx, element, onPhase, role = 'car') {
       const settings = ctx.get('sidebarRight')
       const terminals = ctx.get('webTerminals')
-      diag('connect.start', { sidebarRight: !!settings, webTerminals: !!terminals })
+      diag('connect.start', { sidebarRight: !!settings, webTerminals: !!terminals, role })
       if (settings === undefined || terminals === undefined) {
         return { ok: false, reason: 'terminal-services-missing' }
       }
 
       onPhase('probing')
-      const status = await api('/probe', { method: 'POST' })
+      const status = await api(`/${role}/probe`, { method: 'POST' })
       diag('connect.probe', { state: status.state, detail: status.detail, latencyMs: status.latencyMs })
       if (status.state !== 'ready') return { ok: false, reason: status.state, detail: status.detail }
 
       // The probe answers the state; the address and the command line come from
       // the settings, read together so a change mid-click cannot mix two cars.
-      const current = await api('/status')
+      const current = await api(`/${role}/status`)
       const command = status.command ?? current.command
       const car = current.settings ?? {}
       const label = car.sshAlias || `${car.user ?? ''}@${car.host ?? ''}`
-      diag('connect.command', { command, label })
+      diag('connect.command', { command, label, role })
 
       const target = await ensureConversation(ctx, element, 'connect')
       if (target === undefined) return { ok: false, reason: 'no-session' }
@@ -919,7 +935,7 @@ window.__ModuleLoader__.load({
       view.write(`${command}\r`)
       diag('connect.wrote', { command })
       // Cosmetic, and bounded by the Host's own 120-character title rule.
-      try { view.rename(`小车 ${label}`.trim()) } catch { /* rename is cosmetic */ }
+      try { view.rename(`${role === 'drone' ? '无人机' : '小车'} ${label}`.trim()) } catch { /* rename is cosmetic */ }
       onPhase('connected')
       return { ok: true }
     }
@@ -1000,6 +1016,7 @@ window.__ModuleLoader__.load({
         const [notice, setNotice] = useState('')
         const [command, setCommand] = useState('')
         const [copied, setCopied] = useState(false)
+        const [droneVnc, setDroneVnc] = useState('')
         const buttonRef = useRef(null)
 
         const load = useCallback(() => {
@@ -1013,6 +1030,11 @@ window.__ModuleLoader__.load({
               void api('/probe', { method: 'POST' }).then(result => store.set({ probe: result, desc: result.desc })).catch(() => {})
             }
           }).catch(error => setNotice(String(error?.message ?? error)))
+          // S7: the VNC card shows both channels' targets — the drone's comes
+          // straight from its own node config (/drone/config).
+          void api('/drone/config').then(cfg => {
+            setDroneVnc(`${cfg.vncHost || cfg.host}:${cfg.vncPort}`)
+          }).catch(() => {})
         }, [])
         useEffect(load, [load])
 
@@ -1069,7 +1091,7 @@ window.__ModuleLoader__.load({
         }
 
         if (settings === undefined) {
-          return h('div', { className: 'dzr_root' }, h('div', { className: 'dzr_note' }, '…'))
+          return h('div', { className: 'dzag_root' }, h('div', { className: 'dzag_note' }, '…'))
         }
 
         const probe = state.probe
@@ -1077,17 +1099,17 @@ window.__ModuleLoader__.load({
         // bug#1's UI half: the badge renders probeView's verdict, so a cached
         // probe never claims green — it shows 探测已过期 plus the probe's age.
         const heroPv = probeView(probe, Date.now())
-        return h('div', { className: 'dzr_root' }, [
-          h('div', { key: 'hero', className: 'dzr_card' }, [
-            h('div', { key: 'head', className: 'dzr_head' }, [
-              h('span', { key: 'glyph', className: 'dzr_icon' }, CarGlyph({ size: 22 })),
+        return h('div', { className: 'dzag_root' }, [
+          h('div', { key: 'hero', className: 'dzag_card' }, [
+            h('div', { key: 'head', className: 'dzag_head' }, [
+              h('span', { key: 'glyph', className: 'dzag_icon' }, CarGlyph({ size: 22 })),
               h('span', { key: 'titles' }, [
-                h('div', { key: 'h', className: 'dzr_h' }, t('title')),
-                h('div', { key: 's', className: 'dzr_sub' }, t('subtitle')),
+                h('div', { key: 'h', className: 'dzag_h' }, t('title')),
+                h('div', { key: 's', className: 'dzag_sub' }, t('subtitle')),
               ]),
               h('span', {
                 key: 'badge',
-                className: 'dzr_badge',
+                className: 'dzag_badge',
                 'data-state': heroPv.state,
                 ...(heroPv.state === 'stale' ? { title: t('probeAgo', { age: ageText(heroPv.age, t) }) } : {}),
               }, probe === undefined
@@ -1096,71 +1118,75 @@ window.__ModuleLoader__.load({
                   ? `${t(STATE_KEY[probe.state] ?? 'stateError')}（${t('probeAgo', { age: ageText(heroPv.age, t) })}）`
                   : t(STATE_KEY[probe.state] ?? 'stateError')),
             ]),
-            h('div', { key: 'actions', className: 'dzr_actions' }, [
+            h('div', { key: 'actions', className: 'dzag_actions' }, [
               h('button', {
-                key: 'open', ref: buttonRef, type: 'button', className: 'dzr_action primary',
+                key: 'open', ref: buttonRef, type: 'button', className: 'dzag_action primary',
                 disabled: busy !== '', onClick: open,
               }, busy === 'open' ? t('connecting') : t('openTerminal')),
               h('button', {
-                key: 'probe', type: 'button', className: 'dzr_action',
+                key: 'probe', type: 'button', className: 'dzag_action',
                 disabled: busy !== '', onClick: test,
               }, busy === 'probe' ? t('probing') : t('probe')),
             ]),
             probe !== undefined && probe.detail !== undefined
-              ? h('div', { key: 'pdetail', className: `dzr_note${probe.state === 'ready' ? '' : ' dzr_warn'}` },
+              ? h('div', { key: 'pdetail', className: `dzag_note${probe.state === 'ready' ? '' : ' dzag_warn'}` },
                 `${probe.detail}${probe.latencyMs !== undefined ? ` · ${t('latency', { ms: probe.latencyMs })}` : ''} · ${probe.target ?? ''}${heroPv.state === 'stale' ? ` · ${t('probeAgo', { age: ageText(heroPv.age, t) })}` : ''}`)
               : null,
-            notice !== '' ? h('div', { key: 'notice', className: `dzr_note${/失败|failed|不可达|unreachable/i.test(notice) ? ' dzr_warn' : ''}` }, notice) : null,
+            notice !== '' ? h('div', { key: 'notice', className: `dzag_note${/失败|failed|不可达|unreachable/i.test(notice) ? ' dzag_warn' : ''}` }, notice) : null,
           ]),
 
-          desc !== undefined ? h('div', { key: 'car', className: 'dzr_grid' }, [
+          desc !== undefined ? h('div', { key: 'car', className: 'dzag_grid' }, [
             kv('carUser', desc.user), kv('carHost', desc.host), kv('carKernel', desc.kernel), kv('carUp', desc.up),
           ]) : null,
 
-          h('div', { key: 'addr', className: 'dzr_card' }, [
-            h('div', { key: 'h', className: 'dzr_row' }, h('span', { className: 'dzr_h' }, t('sectionAddress'))),
-            h('div', { key: 'fields', className: 'dzr_grid' }, [
+          h('div', { key: 'addr', className: 'dzag_card' }, [
+            h('div', { key: 'h', className: 'dzag_row' }, h('span', { className: 'dzag_h' }, t('sectionAddress'))),
+            h('div', { key: 'fields', className: 'dzag_grid' }, [
               field('host', t('fieldHost'), settings.host),
               field('user', t('fieldUser'), settings.user),
               field('port', t('fieldPort'), settings.port),
               field('sshAlias', t('fieldAlias'), settings.sshAlias),
             ]),
-            h('div', { key: 'opts', className: 'dzr_field' }, [
+            h('div', { key: 'opts', className: 'dzag_field' }, [
               h('span', { key: 'l' }, t('fieldOptions')),
               h('input', {
-                key: 'i', className: 'dzr_input', value: settings.sshOptions ?? '',
+                key: 'i', className: 'dzag_input', value: settings.sshOptions ?? '',
                 onChange: event => patch('sshOptions', event.target.value),
               }),
             ]),
             // The float's opacity lives here as well as on the card itself:
             // settings are the place to find a knob whose name you forgot, and
             // both writers go through the same `/config` route and clamp.
-            h('div', { key: 'opacity', className: 'dzr_field' }, [
+            h('div', { key: 'opacity', className: 'dzag_field' }, [
               h('span', { key: 'l' }, `${t('fieldFloatOpacity')} · ${settings.floatOpacity ?? 100}%`),
               h('input', {
-                key: 'i', className: 'dzr_range', type: 'range', min: 30, max: 100, step: 5,
+                key: 'i', className: 'dzag_range', type: 'range', min: 30, max: 100, step: 5,
                 value: settings.floatOpacity ?? 100,
                 onChange: event => patch('floatOpacity', Math.min(100, Math.max(30, Math.round(Number(event.target.value))))),
               }),
             ]),
-            h('div', { key: 'opacityNote', className: 'dzr_note' }, t('opacityHint')),
-            h('div', { key: 'save', className: 'dzr_actions' }, h('button', {
-              type: 'button', className: 'dzr_action', disabled: busy !== '', onClick: save,
+            h('div', { key: 'opacityNote', className: 'dzag_note' }, t('opacityHint')),
+            h('div', { key: 'save', className: 'dzag_actions' }, h('button', {
+              type: 'button', className: 'dzag_action', disabled: busy !== '', onClick: save,
             }, busy === 'save' ? '…' : t('save'))),
           ]),
 
-          h('div', { key: 'vnc', className: 'dzr_card' }, [
-            h('div', { key: 'h', className: 'dzr_row' }, [
-              h('span', { key: 't', className: 'dzr_h' }, t('viewVnc')),
-              h('span', { key: 's', className: 'dzr_sub' }, `${settings.vncHost || settings.host}:${settings.vncPort}`),
+          h('div', { key: 'vnc', className: 'dzag_card' }, [
+            h('div', { key: 'h', className: 'dzag_row' }, [
+              h('span', { key: 't', className: 'dzag_h' }, t('viewVnc')),
+              // S7: both channels' targets, each from its own node's config.
+              h('span', { key: 's', className: 'dzag_sub' }, [
+                h('div', { key: 'c' }, `${t('vncTargetCar')} ${settings.vncHost || settings.host}:${settings.vncPort}`),
+                droneVnc !== '' ? h('div', { key: 'd' }, `${t('vncTargetDrone')} ${droneVnc}`) : null,
+              ]),
             ]),
-            h('div', { key: 'fields', className: 'dzr_grid' }, [
+            h('div', { key: 'fields', className: 'dzag_grid' }, [
               field('vncHost', t('fieldVncHost'), settings.vncHost),
               field('vncPort', t('fieldVncPort'), settings.vncPort),
-              h('label', { key: 'mode', className: 'dzr_field' }, [
+              h('label', { key: 'mode', className: 'dzag_field' }, [
                 h('span', { key: 'l' }, t('fieldVncMode')),
                 h('select', {
-                  key: 'i', className: 'dzr_input', value: settings.vncMode ?? 'direct',
+                  key: 'i', className: 'dzag_input', value: settings.vncMode ?? 'direct',
                   onChange: event => patch('vncMode', event.target.value),
                 }, [
                   h('option', { key: 'd', value: 'direct' }, t('vncModeDirect')),
@@ -1169,39 +1195,39 @@ window.__ModuleLoader__.load({
               ]),
               field('vncPassword', t('vncPassword'), settings.vncPassword, 'password'),
             ]),
-            h('div', { key: 'note', className: 'dzr_note' }, t('vncModeNote')),
-            h('div', { key: 'files', className: 'dzr_field' }, [
+            h('div', { key: 'note', className: 'dzag_note' }, t('vncModeNote')),
+            h('div', { key: 'files', className: 'dzag_field' }, [
               h('span', { key: 'l' }, t('fieldFilesRoot')),
               h('input', {
-                key: 'i', className: 'dzr_input', value: settings.filesRoot ?? '',
+                key: 'i', className: 'dzag_input', value: settings.filesRoot ?? '',
                 onChange: event => patch('filesRoot', event.target.value),
               }),
             ]),
           ]),
 
-          h('div', { key: 'cmd', className: 'dzr_card' }, [            h('div', { key: 'head', className: 'dzr_head' }, [
-              h('span', { key: 'h', className: 'dzr_h' }, t('sectionCommand')),
+          h('div', { key: 'cmd', className: 'dzag_card' }, [            h('div', { key: 'head', className: 'dzag_head' }, [
+              h('span', { key: 'h', className: 'dzag_h' }, t('sectionCommand')),
               h('button', {
-                key: 'copy', type: 'button', className: 'dzr_action', onClick: copy,
+                key: 'copy', type: 'button', className: 'dzag_action', onClick: copy,
               }, copied ? t('copied') : t('copy')),
             ]),
-            h('div', { key: 'body', className: 'dzr_mono' }, command),
-            h('div', { key: 'note', className: 'dzr_note' }, t('connectHint')),
+            h('div', { key: 'body', className: 'dzag_mono' }, command),
+            h('div', { key: 'note', className: 'dzag_note' }, t('connectHint')),
           ]),
         ])
 
         function kv(keyId, value) {
-          return h('div', { key: keyId, className: 'dzr_kv' }, [
+          return h('div', { key: keyId, className: 'dzag_kv' }, [
             h('b', { key: 'v' }, value === undefined || value === '' ? '—' : String(value)),
             h('span', { key: 'k' }, t(keyId)),
           ])
         }
         function field(key, labelText, value, type) {
-          return h('label', { key, className: 'dzr_field' }, [
+          return h('label', { key, className: 'dzag_field' }, [
             h('span', { key: 'l' }, labelText),
             h('input', {
               key: 'i',
-              className: 'dzr_input',
+              className: 'dzag_input',
               ...type === undefined ? {} : { type },
               value: value ?? '',
               onChange: event => patch(key, event.target.value),
@@ -1383,25 +1409,25 @@ window.__ModuleLoader__.load({
         // The overlay is only painted while nothing is on screen: once the
         // desktop is up, the iframe must receive the pointer untouched.
         const overlay = phase !== 'connected' && src !== ''
-          ? h('div', { key: 'overlay', className: 'dzr_center' }, [
+          ? h('div', { key: 'overlay', className: 'dzag_center' }, [
             phase === 'auth' || needPassword
-              ? h('div', { key: 'ask', className: 'dzr_herocard' }, [
+              ? h('div', { key: 'ask', className: 'dzag_herocard' }, [
                 h('h3', { key: 't' }, t('vncNeedPassword')),
                 h('p', { key: 'h' }, t('vncPasswordHint')),
                 h('input', {
-                  key: 'i', className: 'dzr_input', type: 'password', autoFocus: true,
+                  key: 'i', className: 'dzag_input', type: 'password', autoFocus: true,
                   value: password, placeholder: t('vncPassword'),
                   style: { width: '220px', textAlign: 'center' },
                   onChange: event => setPassword(event.target.value),
                   onKeyDown: event => { if (event.key === 'Enter') submitPassword() },
                 }),
                 h('button', {
-                  key: 'b', type: 'button', className: 'dzr_action primary',
+                  key: 'b', type: 'button', className: 'dzag_action primary',
                   disabled: password === '', onClick: submitPassword,
                 }, t('vncSubmitPassword')),
               ])
-              : h('div', { key: 'idle', className: 'dzr_herocard' }, [
-                h('div', { key: 'g', className: 'dzr_icon' }, CarGlyph({ size: 30 })),
+              : h('div', { key: 'idle', className: 'dzag_herocard' }, [
+                h('div', { key: 'g', className: 'dzag_icon' }, CarGlyph({ size: 30 })),
                 h('h3', { key: 't' },
                   phase === 'failed' ? t('vncFailed')
                     : phase === 'connecting' ? t('vncConnecting')
@@ -1419,40 +1445,40 @@ window.__ModuleLoader__.load({
                   ? h('p', { key: 'bl' }, t('vncBlacklisted'))
                   : null,
                 phase === 'connecting'
-                  ? h('div', { key: 'sp', className: 'dzr_spin2', 'aria-hidden': 'true' })
+                  ? h('div', { key: 'sp', className: 'dzag_spin2', 'aria-hidden': 'true' })
                   : h('button', {
-                    key: 'b', type: 'button', className: 'dzr_action primary',
+                    key: 'b', type: 'button', className: 'dzag_action primary',
                     disabled: src === '', onClick: connect,
                   }, phase === 'disconnected' || phase === 'failed' ? t('vncReconnect') : t('vncConnect')),
               ]),
           ])
           : null
 
-        return h('div', { className: 'dzr_pbody' }, [
-          h('div', { key: 'bar', className: 'dzr_toolbar' }, [
+        return h('div', { className: 'dzag_pbody' }, [
+          h('div', { key: 'bar', className: 'dzag_toolbar' }, [
             h('button', {
-              key: 'go', type: 'button', className: 'dzr_action primary',
+              key: 'go', type: 'button', className: 'dzag_action primary',
               disabled: src === '' || phase === 'connecting' || phase === 'auth',
               onClick: connect,
             }, phase === 'connected' ? t('vncReconnect') : t('vncConnect')),
             phase === 'connected' || phase === 'connecting' || phase === 'auth'
-              ? h('button', { key: 'stop', type: 'button', className: 'dzr_action', onClick: stop }, t('vncDisconnect'))
+              ? h('button', { key: 'stop', type: 'button', className: 'dzag_action', onClick: stop }, t('vncDisconnect'))
               : null,
             h('button', {
-              key: 'cad', type: 'button', className: 'dzr_action',
+              key: 'cad', type: 'button', className: 'dzag_action',
               disabled: phase !== 'connected',
               title: 'Ctrl+Alt+Del',
               onClick: () => post({ type: 'cad' }),
             }, t('vncSendCad')),
             h('span', {
-              key: 'pill', className: 'dzr_pill', 'data-phase': phase, style: { marginLeft: 'auto' },
+              key: 'pill', className: 'dzag_pill', 'data-phase': phase, style: { marginLeft: 'auto' },
               title: statusText,
             }, [h('i', { key: 'd' }), h('span', { key: 't' }, statusText)]),
-            h('span', { key: 'target', className: 'dzr_tag', title: origin }, targetLabel),
+            h('span', { key: 'target', className: 'dzag_tag', title: origin }, targetLabel),
           ]),
-          h('div', { key: 'stage', className: 'dzr_screen' }, [
+          h('div', { key: 'stage', className: 'dzag_screen' }, [
             src === ''
-              ? h('div', { key: 'noorigin', className: 'dzr_center' }, h('div', { className: 'dzr_herocard' }, [
+              ? h('div', { key: 'noorigin', className: 'dzag_center' }, h('div', { className: 'dzag_herocard' }, [
                 h('h3', { key: 't' }, t('vncNoOrigin')),
               ]))
               : h('iframe', {
@@ -1560,11 +1586,11 @@ window.__ModuleLoader__.load({
 
         const fullPath = name => (path.endsWith('/') ? `${path}${name}` : `${path}/${name}`)
 
-        return h('div', { className: 'dzr_pbody' }, [
-          h('div', { key: 'bar', className: 'dzr_toolbar' }, [
-            h('button', { key: 'up', type: 'button', className: 'dzr_action', disabled: listing?.parent === null || listing === undefined, onClick: () => void load(listing.parent) }, t('filesUp')),
-            h('button', { key: 're', type: 'button', className: 'dzr_action', disabled: busy, onClick: () => void load(path) }, t('filesRefresh')),
-            h('button', { key: 'ul', type: 'button', className: 'dzr_action', disabled: busy, onClick: () => fileInput.current?.click() }, t('filesUpload')),
+        return h('div', { className: 'dzag_pbody' }, [
+          h('div', { key: 'bar', className: 'dzag_toolbar' }, [
+            h('button', { key: 'up', type: 'button', className: 'dzag_action', disabled: listing?.parent === null || listing === undefined, onClick: () => void load(listing.parent) }, t('filesUp')),
+            h('button', { key: 're', type: 'button', className: 'dzag_action', disabled: busy, onClick: () => void load(path) }, t('filesRefresh')),
+            h('button', { key: 'ul', type: 'button', className: 'dzag_action', disabled: busy, onClick: () => fileInput.current?.click() }, t('filesUpload')),
             h('input', {
               key: 'file', ref: fileInput, type: 'file', style: { display: 'none' },
               onChange: event => {
@@ -1573,40 +1599,40 @@ window.__ModuleLoader__.load({
                 if (file !== undefined) void upload(file)
               },
             }),
-            h('div', { key: 'crumbs', className: 'dzr_crumbs' }, crumbs().map((crumb, index, all) =>
+            h('div', { key: 'crumbs', className: 'dzag_crumbs' }, crumbs().map((crumb, index, all) =>
               h('button', {
                 key: crumb.target,
                 type: 'button',
-                className: `dzr_crumb${index === all.length - 1 ? ' last' : ''}`,
+                className: `dzag_crumb${index === all.length - 1 ? ' last' : ''}`,
                 onClick: () => void load(crumb.target),
               }, `${crumb.label}${index === all.length - 1 ? '' : ' /'}`))),
           ]),
-          h('div', { key: 'chips', className: 'dzr_toolbar' }, h('div', { className: 'dzr_chips' },
+          h('div', { key: 'chips', className: 'dzag_toolbar' }, h('div', { className: 'dzag_chips' },
             (settings.filesShortcuts ?? []).map(item => h('button', {
-              key: item.path, type: 'button', className: 'dzr_chip', onClick: () => void load(item.path),
+              key: item.path, type: 'button', className: 'dzag_chip', onClick: () => void load(item.path),
             }, item.label)))),
 
-          h('div', { key: 'split', className: 'dzr_split' }, [
-            h('div', { key: 'list', className: `dzr_list${preview === undefined ? ' narrow' : ''}` }, [
-              error !== '' ? h('div', { key: 'err', className: 'dzr_pad' }, [
-                h('div', { key: 'm', className: 'dzr_note dzr_warn' }, error),
-                h('div', { key: 'a', className: 'dzr_actions' }, h('button', {
-                  key: 'r', type: 'button', className: 'dzr_action', disabled: busy, onClick: () => void load(path),
+          h('div', { key: 'split', className: 'dzag_split' }, [
+            h('div', { key: 'list', className: `dzag_list${preview === undefined ? ' narrow' : ''}` }, [
+              error !== '' ? h('div', { key: 'err', className: 'dzag_pad' }, [
+                h('div', { key: 'm', className: 'dzag_note dzag_warn' }, error),
+                h('div', { key: 'a', className: 'dzag_actions' }, h('button', {
+                  key: 'r', type: 'button', className: 'dzag_action', disabled: busy, onClick: () => void load(path),
                 }, t('filesRefresh'))),
               ]) : null,
-              busy && listing === undefined ? h('div', { key: 'busy', className: 'dzr_pad' }, h('div', { className: 'dzr_note' }, t('filesLoading'))) : null,
+              busy && listing === undefined ? h('div', { key: 'busy', className: 'dzag_pad' }, h('div', { className: 'dzag_note' }, t('filesLoading'))) : null,
               listing === undefined ? null : [
-                h('div', { key: 'head', className: 'dzr_row2 head' }, [
+                h('div', { key: 'head', className: 'dzag_row2 head' }, [
                   h('span', { key: 'i' }, ''), h('span', { key: 'n' }, t('filesName')),
                   h('span', { key: 's' }, t('filesSize')), h('span', { key: 'm' }, t('filesMtime')),
                 ]),
                 ...listing.entries.map(entry => h('div', {
                   key: entry.name,
-                  className: `dzr_row2${entry.type === 'directory' ? ' dir' : ''}${selected?.name === entry.name ? ' sel' : ''}`,
+                  className: `dzag_row2${entry.type === 'directory' ? ' dir' : ''}${selected?.name === entry.name ? ' sel' : ''}`,
                   onClick: () => void open(entry),
                   title: entry.name,
                 }, [
-                  h('span', { key: 'g', className: `dzr_glyph${entry.type === 'directory' ? ' dir' : ''}` },
+                  h('span', { key: 'g', className: `dzag_glyph${entry.type === 'directory' ? ' dir' : ''}` },
                     entry.type === 'directory'
                       ? h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true' },
                         h('path', { d: 'M1.5 4.5h4l1.2 1.6h7.8v6.4H1.5z', stroke: 'currentColor' }))
@@ -1616,21 +1642,21 @@ window.__ModuleLoader__.load({
                   h('span', { key: 's' }, entry.type === 'directory' ? '—' : size(entry.size)),
                   h('span', { key: 'm' }, when(entry.mtime)),
                 ])),
-                listing.entries.length === 0 ? h('div', { key: 'empty', className: 'dzr_pad' }, h('div', { className: 'dzr_note' }, t('filesEmpty'))) : null,
+                listing.entries.length === 0 ? h('div', { key: 'empty', className: 'dzag_pad' }, h('div', { className: 'dzag_note' }, t('filesEmpty'))) : null,
               ],
             ]),
-            preview === undefined ? null : h('div', { key: 'prev', className: 'dzr_preview' }, [
-              h('div', { key: 'head', className: 'dzr_prehead' }, [
+            preview === undefined ? null : h('div', { key: 'prev', className: 'dzag_preview' }, [
+              h('div', { key: 'head', className: 'dzag_prehead' }, [
                 h('b', { key: 'n', style: { fontSize: '12.5px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, selected?.name ?? ''),
-                preview?.size !== undefined ? h('span', { key: 'z', className: 'dzr_tag' }, size(preview.size)) : null,
+                preview?.size !== undefined ? h('span', { key: 'z', className: 'dzag_tag' }, size(preview.size)) : null,
                 h('span', { key: 'sp', style: { marginLeft: 'auto' } }),
                 selected === undefined ? null : h('a', {
-                  key: 'dl', className: 'dzr_action', style: { textDecoration: 'none' },
+                  key: 'dl', className: 'dzag_action', style: { textDecoration: 'none' },
                   href: `${API}/download?path=${encodeURIComponent(fullPath(selected.name))}`,
                 }, t('filesDownload')),
-                h('button', { key: 'x', type: 'button', className: 'dzr_action', onClick: () => { setPreview(undefined); setSelected(undefined) } }, t('filesClose')),
+                h('button', { key: 'x', type: 'button', className: 'dzag_action', onClick: () => { setPreview(undefined); setSelected(undefined) } }, t('filesClose')),
               ]),
-              h('pre', { key: 'body', className: 'dzr_prebody' },
+              h('pre', { key: 'body', className: 'dzag_prebody' },
                 preview?.loading === true ? t('filesLoading')
                   : preview?.ok === false ? (preview.error ?? t('filesBinary'))
                     : preview?.binary === true ? t('filesBinary')
@@ -1650,33 +1676,33 @@ window.__ModuleLoader__.load({
      * props contract empty means a slot-API change cannot silently break the
      * tool — the shell only ever depends on this plugin's own HTTP surface.
      */
-    function makeVncTabShell(ctx, t) {
+    function makeVncTabShell(ctx, t, role = 'car') {
       // One stable component identity for the shell's whole life. Minting the
       // panel inside the render below would create a new React type on every
       // render, and a changed type means unmount + remount: the iframe reloads,
       // a live RFB session dies mid-handshake, and the form resets — exactly the
       // “连不上” symptom (diag logs hundreds of vnc-connector.ready an hour).
-      const ConnectorPanel = makeVncConnectorPanel(ctx, t)
+      const ConnectorPanel = makeVncConnectorPanel(ctx, t, role)
       return function VncTabShell() {
         const [status, setStatus] = useState(undefined)
         const [error, setError] = useState('')
         useEffect(() => {
           let alive = true
-          api('/status').then(payload => { if (alive) setStatus(payload) })
+          api(`/${role}/status`).then(payload => { if (alive) setStatus(payload) })
             .catch(problem => { if (alive) setError(String(problem?.message ?? problem)) })
           return () => { alive = false }
         }, [])
         if (error !== '') {
-          return h('div', { className: 'dzr_tabroot' }, h('div', { className: 'dzr_pad' }, h('div', { className: 'dzr_note dzr_warn' }, error)))
+          return h('div', { className: 'dzag_tabroot' }, h('div', { className: 'dzag_pad' }, h('div', { className: 'dzag_note dzag_warn' }, error)))
         }
         if (status === undefined) {
-          return h('div', { className: 'dzr_tabroot' }, h('div', { className: 'dzr_pad' }, h('div', { className: 'dzr_note' }, t('filesLoading'))))
+          return h('div', { className: 'dzag_tabroot' }, h('div', { className: 'dzag_pad' }, h('div', { className: 'dzag_note' }, t('filesLoading'))))
         }
         // The car's VNC desktop view IS the generic connector now: one VNC
         // surface serves the car (prefilled with the plugin's own bridge) and
         // any other ws://host:port/websockify endpoint. The connector fetches
         // /status itself, so the tab shell just hosts it.
-        return h('div', { className: 'dzr_tabroot' }, h(ConnectorPanel))
+        return h('div', { className: 'dzag_tabroot' }, h(ConnectorPanel))
       }
     }
 
@@ -1693,12 +1719,12 @@ window.__ModuleLoader__.load({
           return () => { alive = false }
         }, [])
         if (error !== '') {
-          return h('div', { className: 'dzr_tabroot' }, h('div', { className: 'dzr_pad' }, h('div', { className: 'dzr_note dzr_warn' }, error)))
+          return h('div', { className: 'dzag_tabroot' }, h('div', { className: 'dzag_pad' }, h('div', { className: 'dzag_note dzag_warn' }, error)))
         }
         if (status === undefined) {
-          return h('div', { className: 'dzr_tabroot' }, h('div', { className: 'dzr_pad' }, h('div', { className: 'dzr_note' }, t('filesLoading'))))
+          return h('div', { className: 'dzag_tabroot' }, h('div', { className: 'dzag_pad' }, h('div', { className: 'dzag_note' }, t('filesLoading'))))
         }
-        return h('div', { className: 'dzr_tabroot' }, h(FilesView, {
+        return h('div', { className: 'dzag_tabroot' }, h(FilesView, {
           settings: { ...status.settings, filesShortcuts: status.files?.shortcuts ?? [] },
         }))
       }
@@ -1981,7 +2007,7 @@ window.__ModuleLoader__.load({
      *
      * The opacity slider is a persisted setting, not a local tweak: it writes
      * through to the Host's `/config` (debounced — one drag is dozens of change
-     * events), and the value rides on the `--dzr-op` custom property so hover
+     * events), and the value rides on the `--dzag-op` custom property so hover
      * can still override it; see the CSS comment for why inline `opacity`
      * would lock a dimmed card's own controls out of reach.
      */
@@ -2161,37 +2187,37 @@ window.__ModuleLoader__.load({
           const model = chartModel(kind, samplesOf(kind), now, currents[kind])
           const kids = []
           const axis = [
-            h('line', { key: 'ax', x1: CHART.l, y1: CHART.t, x2: CHART.l, y2: CHART.b, className: 'dzr_faxis' }),
-            h('line', { key: 'az', x1: CHART.l, y1: CHART.b, x2: CHART.r, y2: CHART.b, className: 'dzr_faxis' }),
+            h('line', { key: 'ax', x1: CHART.l, y1: CHART.t, x2: CHART.l, y2: CHART.b, className: 'dzag_faxis' }),
+            h('line', { key: 'az', x1: CHART.l, y1: CHART.b, x2: CHART.r, y2: CHART.b, className: 'dzag_faxis' }),
           ]
           if (model === null) {
             kids.push(axis[0], axis[1])
             const mid = (CHART.t + CHART.b) / 2
-            kids.push(h('line', { key: 'no', x1: CHART.l, y1: mid, x2: CHART.r, y2: mid, className: 'dzr_fno' }))
+            kids.push(h('line', { key: 'no', x1: CHART.l, y1: mid, x2: CHART.r, y2: mid, className: 'dzag_fno' }))
           } else {
             kids.push(axis[0], axis[1])
             for (const tick of model.yTicks) {
-              kids.push(h('line', { key: `gy${tick.v}`, x1: CHART.l, y1: tick.y, x2: CHART.r, y2: tick.y, className: 'dzr_fgridline' }))
-              kids.push(h('text', { key: `ly${tick.v}`, x: CHART.l - 3, y: tick.y + 2.2, className: 'dzr_flab', 'text-anchor': 'end' }, tick.label))
+              kids.push(h('line', { key: `gy${tick.v}`, x1: CHART.l, y1: tick.y, x2: CHART.r, y2: tick.y, className: 'dzag_fgridline' }))
+              kids.push(h('text', { key: `ly${tick.v}`, x: CHART.l - 3, y: tick.y + 2.2, className: 'dzag_flab', 'text-anchor': 'end' }, tick.label))
             }
             model.xTicks.forEach((tick, index) => {
-              kids.push(h('line', { key: `tx${index}`, x1: tick.x, y1: CHART.b, x2: tick.x, y2: CHART.b + 3, className: 'dzr_ftick' }))
+              kids.push(h('line', { key: `tx${index}`, x1: tick.x, y1: CHART.b, x2: tick.x, y2: CHART.b + 3, className: 'dzag_ftick' }))
               if (tick.label !== null) {
                 // The end labels hug their edge instead of centring, or they
                 // would run past the viewBox and touch the box's border.
                 const anchor = index === 0 ? 'start' : index === model.xTicks.length - 1 ? 'end' : 'middle'
-                kids.push(h('text', { key: `lx${index}`, x: tick.x, y: CHART.b + 11, className: 'dzr_flab', 'text-anchor': anchor }, tick.label))
+                kids.push(h('text', { key: `lx${index}`, x: tick.x, y: CHART.b + 11, className: 'dzag_flab', 'text-anchor': anchor }, tick.label))
               }
             })
             if (model.points !== '') kids.push(h('polyline', { key: 'p', points: model.points }))
-            kids.push(h('line', { key: 'cx', x1: model.dot.x, y1: model.dot.y, x2: model.dot.x, y2: CHART.b, className: 'dzr_fcross' }))
-            kids.push(h('line', { key: 'cy', x1: CHART.l, y1: model.dot.y, x2: model.dot.x, y2: model.dot.y, className: 'dzr_fcross' }))
-            kids.push(h('circle', { key: 'd', cx: model.dot.x, cy: model.dot.y, r: 2, className: 'dzr_fdot' }))
+            kids.push(h('line', { key: 'cx', x1: model.dot.x, y1: model.dot.y, x2: model.dot.x, y2: CHART.b, className: 'dzag_fcross' }))
+            kids.push(h('line', { key: 'cy', x1: CHART.l, y1: model.dot.y, x2: model.dot.x, y2: model.dot.y, className: 'dzag_fcross' }))
+            kids.push(h('circle', { key: 'd', cx: model.dot.x, cy: model.dot.y, r: 2, className: 'dzag_fdot' }))
             const midY = (CHART.t + CHART.b) / 2
-            kids.push(h('text', { key: 'yu', x: 7, y: midY, className: 'dzr_faxis-title', 'text-anchor': 'middle', transform: `rotate(-90 7 ${midY})` }, model.unit))
-            kids.push(h('text', { key: 'xu', x: (CHART.l + CHART.r) / 2, y: CHART.h - 2, className: 'dzr_faxis-title', 'text-anchor': 'middle' }, t('floatAxisX')))
+            kids.push(h('text', { key: 'yu', x: 7, y: midY, className: 'dzag_faxis-title', 'text-anchor': 'middle', transform: `rotate(-90 7 ${midY})` }, model.unit))
+            kids.push(h('text', { key: 'xu', x: (CHART.l + CHART.r) / 2, y: CHART.h - 2, className: 'dzag_faxis-title', 'text-anchor': 'middle' }, t('floatAxisX')))
           }
-          return h('svg', { key: 'c', className: 'dzr_fchart', viewBox: `0 0 ${CHART.w} ${CHART.h}`, 'aria-hidden': 'true' }, kids)
+          return h('svg', { key: 'c', className: 'dzag_fchart', viewBox: `0 0 ${CHART.w} ${CHART.h}`, 'aria-hidden': 'true' }, kids)
         }
 
         const number = (text, unit) => (text === undefined
@@ -2204,20 +2230,20 @@ window.__ModuleLoader__.load({
         // its own.
         const cell = (key, label, value, tip, level) => h('div', {
           key,
-          className: 'dzr_fcell',
+          className: 'dzag_fcell',
           'data-kind': key,
           ...level === undefined ? {} : { 'data-level': level },
           ...tip === '' ? {} : { title: tip },
         }, [
-          h('div', { key: 'box', className: 'dzr_fbox' }, [h('span', { key: 'l' }, label), value]),
-          h('div', { key: 'plot', className: 'dzr_fbox dzr_fplot' }, [chart(key)]),
+          h('div', { key: 'box', className: 'dzag_fbox' }, [h('span', { key: 'l' }, label), value]),
+          h('div', { key: 'plot', className: 'dzag_fbox dzag_fplot' }, [chart(key)]),
         ])
 
         // One row label per node (决议③): the cells underneath are never
         // ambiguous about which machine they describe. The drone row carries
         // the FC battery's three-state verdict inline — 决议② — so a plugged-in
         // board that goes DDS-silent says 飞控无数据 here instead of 无飞控.
-        const nodeRow = (key, glyph, label, note) => h('div', { key, className: 'dzr_fnode' }, [
+        const nodeRow = (key, glyph, label, note) => h('div', { key, className: 'dzag_fnode' }, [
           glyph,
           h('span', { key: 'l' }, label),
           ...(note === '' ? [] : [h('span', { key: 'n' }, note)]),
@@ -2260,34 +2286,34 @@ window.__ModuleLoader__.load({
             : fc.state === 'nofc' ? t('fcNoFc') : '')
 
         return h('div', {
-          className: 'dzr_float',
-          style: { left: `${pos.left}px`, top: `${pos.top}px`, '--dzr-op': `${opacityValue / 100}` },
+          className: 'dzag_float',
+          style: { left: `${pos.left}px`, top: `${pos.top}px`, '--dzag-op': `${opacityValue / 100}` },
           'aria-label': t('floatTitle'),
         }, [
           h('div', {
             key: 'head',
-            className: 'dzr_fhead',
+            className: 'dzag_fhead',
             title: t('floatDrag'),
             onPointerDown: startDrag,
             onPointerMove: moveDrag,
             onPointerUp: endDrag,
             onPointerCancel: endDrag,
           }, [
-            h('span', { key: 'g', className: 'dzr_icon' }, CarGlyph({ size: 14 })),
+            h('span', { key: 'g', className: 'dzag_icon' }, CarGlyph({ size: 14 })),
             // Header line: 名称 | 开机时间：m:ss — the uptime lives here now,
             // so the body can be the two charts. Hover still gives the full
             // detail the compact digits drop: "4分53秒 · 开机于 08:20".
-            h('div', { key: 't', className: 'dzr_ftitle' }, [
+            h('div', { key: 't', className: 'dzag_ftitle' }, [
               h('b', { key: 'n' }, t('floatTitle')),
-              h('i', { key: 's', className: 'dzr_fsep' }, '|'),
+              h('i', { key: 's', className: 'dzag_fsep' }, '|'),
               h('span', {
                 key: 'u',
-                className: 'dzr_fup',
+                className: 'dzag_fup',
                 ...(fresh ? { title: `${formatDuration(uptime, t)} · ${t('floatSince', { time: clockTime(startedAt) })}` } : {}),
               }, `${t('floatUp')}：${up.state === 'down' ? t('floatDown') : formatUptime(uptime)}`),
             ]),
             h('button', {
-              key: 'c', type: 'button', className: 'dzr_fbtn', title: t('floatClose'),
+              key: 'c', type: 'button', className: 'dzag_fbtn', title: t('floatClose'),
               // Belt and braces beside the startDrag guard: a press that starts
               // on the button never reaches the draggable header at all, so no
               // pointer capture can retarget its click.
@@ -2295,8 +2321,8 @@ window.__ModuleLoader__.load({
               onClick: close,
             }, '×'),
           ]),
-          h('div', { key: 'body', className: 'dzr_fgrid' }, [
-            nodeRow('car', h('span', { key: 'g', className: 'dzr_icon' }, CarGlyph({ size: 14 })), t('nodeCar')),
+          h('div', { key: 'body', className: 'dzag_fgrid' }, [
+            nodeRow('car', h('span', { key: 'g', className: 'dzag_icon' }, CarGlyph({ size: 14 })), t('nodeCar')),
             cell('battery', t('floatBattery'),
               number(battery === null ? undefined : battery.toFixed(1), '%'),
               fresh || battery !== null ? battTip() : '',
@@ -2307,7 +2333,7 @@ window.__ModuleLoader__.load({
                 ? t('floatLoad', { load: reading.load.map(value => value.toFixed(2)).join(' ') })
                 : '',
               cpu === undefined ? undefined : levelOf(cpu, 75, 90)),
-            nodeRow('drone', h('span', { key: 'g', className: 'dzr_icon' }, DroneGlyph({ size: 14 })), t('nodeDrone'), fcNote()),
+            nodeRow('drone', h('span', { key: 'g', className: 'dzag_icon' }, DroneGlyph({ size: 14 })), t('nodeDrone'), fcNote()),
             cell('temp', t('floatTemp'),
               number(temp === null ? undefined : temp.toFixed(1), '°C'),
               hasDrone && temp !== null && Number.isFinite(droneReading.zones)
@@ -2325,19 +2351,19 @@ window.__ModuleLoader__.load({
               fcTip(),
               fc.state === 'live' ? batteryLevelOf(fc.percent) : undefined),
           ]),
-          error !== '' ? h('div', { key: 'err', className: 'dzr_note dzr_warn dzr_ferr' }, t('floatError', { message: error })) : null,
-          droneError !== '' ? h('div', { key: 'derr', className: 'dzr_note dzr_warn dzr_ferr' }, t('floatError', { message: droneError })) : null,
-          h('div', { key: 'foot', className: 'dzr_ffoot' }, [
-            h('span', { key: 'sync', className: 'dzr_note' },
+          error !== '' ? h('div', { key: 'err', className: 'dzag_note dzag_warn dzag_ferr' }, t('floatError', { message: error })) : null,
+          droneError !== '' ? h('div', { key: 'derr', className: 'dzag_note dzag_warn dzag_ferr' }, t('floatError', { message: droneError })) : null,
+          h('div', { key: 'foot', className: 'dzag_ffoot' }, [
+            h('span', { key: 'sync', className: 'dzag_note' },
               reading === undefined ? t('floatLoading') : t('floatSync', { time: clockTime(reading.at) })),
             h('input', {
-              key: 'op', type: 'range', className: 'dzr_fopacity',
+              key: 'op', type: 'range', className: 'dzag_fopacity',
               min: 30, max: 100, step: 5, value: opacityValue,
               title: t('fieldFloatOpacity'), 'aria-label': t('fieldFloatOpacity'),
               onChange: setOpacity,
             }),
             h('button', {
-              key: 'refresh', type: 'button', className: 'dzr_fbtn', title: t('floatRefresh'),
+              key: 'refresh', type: 'button', className: 'dzag_fbtn', title: t('floatRefresh'),
               onClick: () => { setNow(Date.now()); void pull() },
             }, '↻'),
           ]),
@@ -2357,14 +2383,22 @@ window.__ModuleLoader__.load({
      * Adding a tool is: a row here, a tab-type registration there.
      */
     const TOOLS = [
-      { id: 'terminal', kind: 'terminal', mode: 'terminal', titleKey: 'viewTerminal', descKey: 'terminalHint' },
-      { id: 'files', kind: 'dzr-files', mode: 'tab', titleKey: 'viewFiles', descKey: 'filesToolDesc' },
-      { id: 'vnc', kind: 'dzr-vnc', mode: 'tab', titleKey: 'viewVnc', descKey: 'vncToolDesc' },
-      { id: 'float', kind: null, mode: 'float', titleKey: 'viewFloat', descKey: 'floatToolDesc' },
+      // S7: terminal and VNC are one channel per node — a car desktop and a
+      // drone desktop (and both tabs) live side by side. `role` drives which
+      // node's settings/probe/bridge the flow targets; `files` stays one shared
+      // tool (the user asked only for VNC and terminal to split). Both terminal
+      // rows keep the STOCK kind on purpose: the shell owns the PTY and multiple
+      // terminal tabs are native, so two channels only need distinct ids.
+      { id: 'dzag-terminal-car', role: 'car', kind: 'terminal', mode: 'terminal', titleKey: 'viewTerminalCar', descKey: 'terminalCarHint' },
+      { id: 'dzag-terminal-drone', role: 'drone', kind: 'terminal', mode: 'terminal', titleKey: 'viewTerminalDrone', descKey: 'terminalDroneHint' },
+      { id: 'dzag-files', role: 'car', kind: 'dzag-files', mode: 'tab', titleKey: 'viewFiles', descKey: 'filesToolDesc' },
+      { id: 'dzag-vnc-car', role: 'car', kind: 'dzag-vnc-car', mode: 'tab', titleKey: 'viewVncCar', descKey: 'vncCarToolDesc' },
+      { id: 'dzag-vnc-drone', role: 'drone', kind: 'dzag-vnc-drone', mode: 'tab', titleKey: 'viewVncDrone', descKey: 'vncDroneToolDesc' },
+      { id: 'dzag-float', kind: null, mode: 'float', titleKey: 'viewFloat', descKey: 'floatToolDesc' },
       // No tab: the bench is its own document on this plugin's http origin (it runs
       // long child processes and wants a full window), so `mode: 'external'` just
       // opens `${origin}/api/dzairground-ssh/sim.html` in a new tab.
-      { id: 'sim', kind: null, mode: 'external', titleKey: 'viewSim', descKey: 'simToolDesc' },
+      { id: 'dzag-sim', kind: null, mode: 'external', titleKey: 'viewSim', descKey: 'simToolDesc' },
     ]
 
     /**
@@ -2375,29 +2409,35 @@ window.__ModuleLoader__.load({
      * render-time companions (`hash` appends a page anchor to the sim.html
      * URL, landing the tab on the coordination section or the top).
      */
-    const COORD_TOOL = { id: 'coord', kind: null, mode: 'external', titleKey: 'viewCoord', descKey: 'coordToolDesc', hash: '#drone' }
-    const STRESS_TOOL = { id: 'stress', kind: null, mode: 'external', titleKey: 'viewStress', descKey: 'stressToolDesc', hash: '' }
+    const COORD_TOOL = { id: 'dzag-coord', kind: null, mode: 'external', titleKey: 'viewCoord', descKey: 'coordToolDesc', hash: '#drone' }
+    const STRESS_TOOL = { id: 'dzag-stress', kind: null, mode: 'external', titleKey: 'viewStress', descKey: 'stressToolDesc', hash: '' }
 
     /** Compact glyphs for the list rows. */
     function ToolGlyph({ id }) {
       const paths = {
         // prompt: `>_`
-        terminal: [h('path', { key: 'a', d: 'M3 4.5L7 8L3 11.5', stroke: 'currentColor', strokeLinecap: 'round' }), h('path', { key: 'b', d: 'M9 11.5H13', stroke: 'currentColor', strokeLinecap: 'round' })],
+        'dzag-terminal-car': [h('path', { key: 'a', d: 'M3 4.5L7 8L3 11.5', stroke: 'currentColor', strokeLinecap: 'round' }), h('path', { key: 'b', d: 'M9 11.5H13', stroke: 'currentColor', strokeLinecap: 'round' })],
+        'dzag-terminal-drone': [h('path', { key: 'a', d: 'M3 4.5L7 8L3 11.5', stroke: 'currentColor', strokeLinecap: 'round' }), h('path', { key: 'b', d: 'M9 11.5H13', stroke: 'currentColor', strokeLinecap: 'round' })],
         // folder
-        files: [h('path', { key: 'a', d: 'M1.8 4.2h4.1l1.2 1.6h7.1v6.4H1.8z', stroke: 'currentColor', strokeLinejoin: 'round' })],
+        'dzag-files': [h('path', { key: 'a', d: 'M1.8 4.2h4.1l1.2 1.6h7.1v6.4H1.8z', stroke: 'currentColor', strokeLinejoin: 'round' })],
         // desktop screen with stand
-        vnc: [
+        'dzag-vnc-car': [
           h('rect', { key: 'a', x: '1.8', y: '3', width: '12.4', height: '7.6', rx: '1.2', stroke: 'currentColor' }),
           h('path', { key: 'b', d: 'M6 13.6h4M8 10.6v3', stroke: 'currentColor', strokeLinecap: 'round' }),
         ],
+        'dzag-vnc-drone': [
+          h('rect', { key: 'a', x: '1.8', y: '3', width: '12.4', height: '7.6', rx: '1.2', stroke: 'currentColor' }),
+          h('path', { key: 'b', d: 'M6 13.6h4M8 10.6v3', stroke: 'currentColor', strokeLinecap: 'round' }),
+          h('circle', { key: 'c', cx: '8', cy: '6.8', r: '1.6', stroke: 'currentColor' }),
+        ],
         // a battery: the cell with its terminal (the float's headline number)
-        float: [
+        'dzag-float': [
           h('rect', { key: 'a', x: '1.8', y: '4.6', width: '10.6', height: '6.8', rx: '1.6', stroke: 'currentColor' }),
           h('path', { key: 'b', d: 'M14.2 6.8v2.4', stroke: 'currentColor', strokeLinecap: 'round' }),
           h('path', { key: 'c', d: 'M4 6.8h4.2v2.4H4z', fill: 'currentColor', stroke: 'none' }),
         ],
         // a lab flask: the bench runs experiments, it does not drive anything
-        sim: [
+        'dzag-sim': [
           h('path', { key: 'a', d: 'M6.2 1.8h3.6', stroke: 'currentColor', strokeLinecap: 'round' }),
           h('path', { key: 'b', d: 'M6.9 1.8v3.4L3.6 11.4a1.5 1.5 0 0 0 1.3 2.3h6.2a1.5 1.5 0 0 0 1.3-2.3L9.1 5.2V1.8', stroke: 'currentColor', strokeLinejoin: 'round' }),
           h('path', { key: 'c', d: 'M5.1 10.4h5.8', stroke: 'currentColor', strokeLinecap: 'round' }),
@@ -2491,7 +2531,7 @@ window.__ModuleLoader__.load({
           setBusy(tool.id)
           try {
             const result = tool.mode === 'terminal'
-              ? await connect(ctx, document.body, () => {})
+              ? await connect(ctx, document.body, () => {}, tool.role)
               : await openToolTab(ctx, tool.kind, document.body)
             diag('tool.open', { id: tool.id, ok: result.ok, reason: result.reason })
             if (!result.ok) setRowMsg(current => ({ ...current, [tool.id]: explain(result) }))
@@ -2504,29 +2544,29 @@ window.__ModuleLoader__.load({
         }
 
         /** One launcher row, shared by the main list and the advanced drawer. */
-        const toolRow = tool => h('div', { key: tool.id, className: 'dzr_toolrow' }, [
-          h('span', { key: 'g', className: 'dzr_toolglyph' }, ToolGlyph({ id: tool.id })),
-          h('div', { key: 'info', className: 'dzr_toolinfo' }, [
-            h('div', { key: 't', className: 'dzr_tooltitle' }, t(tool.titleKey)),
-            h('div', { key: 'd', className: `dzr_tooldesc${tool.id === 'terminal' && command !== '' ? ' dzr_mono' : ''}` },
-              tool.id === 'terminal' && command !== '' ? command : t(tool.descKey)),
-            rowMsg[tool.id] ? h('div', { key: 'm', className: 'dzr_note dzr_warn' }, rowMsg[tool.id]) : null,
+        const toolRow = tool => h('div', { key: tool.id, className: 'dzag_toolrow' }, [
+          h('span', { key: 'g', className: 'dzag_toolglyph' }, ToolGlyph({ id: tool.id })),
+          h('div', { key: 'info', className: 'dzag_toolinfo' }, [
+            h('div', { key: 't', className: 'dzag_tooltitle' }, t(tool.titleKey), tool.role === undefined ? null : h('span', { key: 'r', className: 'dzag_tag' }, t(tool.role === 'drone' ? 'nodeDrone' : 'nodeCar'))),
+            h('div', { key: 'd', className: `dzag_tooldesc${tool.id === 'dzag-terminal' && command !== '' ? ' dzag_mono' : ''}` },
+              tool.id === 'dzag-terminal' && command !== '' ? command : t(tool.descKey)),
+            rowMsg[tool.id] ? h('div', { key: 'm', className: 'dzag_note dzag_warn' }, rowMsg[tool.id]) : null,
           ]),
           h('button', {
             key: 'b', type: 'button',
-            className: `dzr_action${tool.mode === 'float' && state.floatOpen === true ? '' : ' primary'}`,
+            className: `dzag_action${tool.mode === 'float' && state.floatOpen === true ? '' : ' primary'}`,
             disabled: busy !== '', onClick: open(tool),
           }, busy === tool.id ? '…' : (tool.mode === 'float' && state.floatOpen === true ? t('toolClose') : t('toolOpen'))),
         ])
 
-        return h('div', { className: 'dzr_panel' }, [
-          h('div', { key: 'head', className: 'dzr_phead' }, [
-            h('span', { key: 'title', className: 'dzr_ptitle' }, [
-              h('span', { key: 'g', className: 'dzr_icon' }, [CarGlyph({ size: 18 }), h('span', { key: 'd', className: 'dzr_dot', 'data-state': dotState })]),
+        return h('div', { className: 'dzag_panel' }, [
+          h('div', { key: 'head', className: 'dzag_phead' }, [
+            h('span', { key: 'title', className: 'dzag_ptitle' }, [
+              h('span', { key: 'g', className: 'dzag_icon' }, [CarGlyph({ size: 18 }), h('span', { key: 'd', className: 'dzag_dot', 'data-state': dotState })]),
               t('panel'),
             ]),
             h('span', {
-              key: 'probe', className: `dzr_note${dotState === 'ready' ? '' : dotState === 'stale' ? '' : ' dzr_warn'}`,
+              key: 'probe', className: `dzag_note${dotState === 'ready' ? '' : dotState === 'stale' ? '' : ' dzag_warn'}`,
               title: `${state.probe?.target ?? ''}${pv.state === 'stale' ? ` · ${t('probeAgo', { age: ageText(pv.age, t) })}` : ''}`,
             }, state.probe === undefined
               ? t('neverProbed')
@@ -2535,15 +2575,15 @@ window.__ModuleLoader__.load({
                 : t(STATE_KEY[state.probe.state] ?? 'stateError')),
             h('span', { key: 'sp', style: { marginLeft: 'auto' } }),
           ]),
-          h('div', { key: 'list', className: 'dzr_pad' }, [
-            h('div', { key: 'note', className: 'dzr_note' }, t('toolNote')),
+          h('div', { key: 'list', className: 'dzag_pad' }, [
+            h('div', { key: 'note', className: 'dzag_note' }, t('toolNote')),
             // B-1 (决议⑦): the coordination entry first — it is what this
             // panel is for now — then the node tools; the sim bench and the
             // stress bench live in the advanced drawer below, folded shut.
-            ...[COORD_TOOL, ...TOOLS.filter(tool => tool.id !== 'sim')].map(toolRow),
-            h('details', { key: 'advanced', className: 'dzr_advanced' }, [
+            ...[COORD_TOOL, ...TOOLS.filter(tool => tool.id !== 'dzag-sim')].map(toolRow),
+            h('details', { key: 'advanced', className: 'dzag_advanced' }, [
               h('summary', { key: 's' }, t('sectionAdvanced')),
-              ...TOOLS.filter(tool => tool.id === 'sim').map(toolRow),
+              ...TOOLS.filter(tool => tool.id === 'dzag-sim').map(toolRow),
               toolRow(STRESS_TOOL),
             ]),
           ]),
@@ -2583,6 +2623,10 @@ window.__ModuleLoader__.load({
 
     const CONNECTOR_ID = 'dzairground-vnc-connector'
     const CONNECTOR_STORE_KEY = 'dsh-dzairground-ssh/vnc-connector'
+    /** S7: one persisted connector config per channel. The car keeps the legacy
+      * key (existing saved targets survive the split); the drone gets its own. */
+    const CONNECTOR_STORE_KEY_DRONE = 'dsh-dzairground-ssh/vnc-connector-drone'
+    const connectorStoreKeys = { car: CONNECTOR_STORE_KEY, drone: CONNECTOR_STORE_KEY_DRONE }
     const VNC_RESOLUTIONS = [
       { id: 'auto' },
       { id: '1024x768' }, { id: '1280x720' }, { id: '1366x768' },
@@ -2614,40 +2658,40 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function loadConnectorConfig() {
+    function loadConnectorConfig(key) {
       let saved = {}
       try {
-        const text = typeof localStorage === 'undefined' ? null : localStorage.getItem(CONNECTOR_STORE_KEY)
+        const text = typeof localStorage === 'undefined' ? null : localStorage.getItem(key)
         if (text !== null && text !== '') saved = JSON.parse(text)
       } catch { /* corrupt or unavailable */ }
       return normalizeConnectorConfig(saved)
     }
 
     /** True only when the user already saved a config (first run = false). */
-    function hasConnectorConfig() {
+    function hasConnectorConfig(key) {
       try {
-        return typeof localStorage === 'undefined' ? true : localStorage.getItem(CONNECTOR_STORE_KEY) !== null
+        return typeof localStorage === 'undefined' ? true : localStorage.getItem(key) !== null
       } catch { return true }
     }
 
     /**
-     * The car's own bridge expressed as a connector config: the plugin's
-     * WebSocket upgrade at ws://<served-origin>/api/dzairground-ssh/vnc, which
-     * tunnels straight to the car's 5901 and needs no websockify on the car.
+     * A node's own bridge expressed as a connector config: the plugin's
+     * WebSocket upgrade at ws://<served-origin>/api/dzairground-ssh/<role>/vnc,
+     * which tunnels straight to that node's 5901 and needs no websockify there.
      *
      * One helper, two callers — the first-run prefill and the “car bridge”
      * button — so the two can never drift apart. Throws on an unparseable
      * origin; callers decide what to show.
      */
-    function bridgeConnectorConfig(origin, base, carPassword) {
+    function bridgeConnectorConfig(origin, base, nodePassword, role = 'car') {
       const url = new URL(origin)
       return {
         ...base,
         scheme: url.protocol === 'https:' ? 'wss' : 'ws',
         host: url.hostname,
         port: url.port === '' ? (url.protocol === 'https:' ? '443' : '80') : url.port,
-        path: 'api/dzairground-ssh/vnc',
-        password: base.password === '' ? carPassword : base.password,
+        path: role === 'drone' ? 'api/dzairground-ssh/drone/vnc' : 'api/dzairground-ssh/car/vnc',
+        password: base.password === '' ? nodePassword : base.password,
       }
     }
 
@@ -2670,10 +2714,12 @@ window.__ModuleLoader__.load({
      * real window/tab for the standalone flow, which is why the frame always
      * gets the full config on connect — the two UIs stay interchangeable.
      */
-    function makeVncConnectorPanel(ctx, t) {
+    function makeVncConnectorPanel(ctx, t, role = 'car') {
       return function VncConnectorPanel() {
+        // S7: one persisted config per channel (see CONNECTOR_STORE_KEY_DRONE).
+        const storeKey = role === 'drone' ? CONNECTOR_STORE_KEY_DRONE : CONNECTOR_STORE_KEY
         const [origin, setOrigin] = useState('')
-        const [config, setConfig] = useState(loadConnectorConfig)
+        const [config, setConfig] = useState(() => loadConnectorConfig(storeKey))
         const [phase, setPhase] = useState('idle')
         const [message, setMessage] = useState('')
         const [desktop, setDesktop] = useState('')
@@ -2684,32 +2730,32 @@ window.__ModuleLoader__.load({
         const pending = useRef([])
         const userStopped = useRef(false)
         const configRef = useRef(config)
-        // The car's saved VNC password, kept aside so the “car bridge” button can
-        // refill an emptied field without another round trip to /status.
-        const carPassword = useRef('')
+        // The node's saved VNC password, kept aside so the “node bridge” button
+        // can refill an emptied field without another round trip to /<role>/status.
+        const nodePassword = useRef('')
         useEffect(() => { configRef.current = config }, [config])
 
         // Declared before the origin effect below: that effect prefills the
         // car bridge on first run and calls save inside its async callback.
         const save = useCallback(next => {
           setConfig(next)
-          try { localStorage.setItem(CONNECTOR_STORE_KEY, JSON.stringify(next)) } catch { /* unavailable */ }
+          try { localStorage.setItem(storeKey, JSON.stringify(next)) } catch { /* unavailable */ }
         }, [])
 
         useEffect(() => {
           let alive = true
-          api('/status').then(payload => {
+          api(`/${role}/status`).then(payload => {
             if (!alive) return
             const servedOrigin = String(payload.origin ?? '')
             setOrigin(servedOrigin)
-            carPassword.current = String(payload.settings?.vncPassword ?? '')
+            nodePassword.current = String(payload.settings?.vncPassword ?? '')
             // This panel replaced the car's own VNC view, so on first use the
             // form starts on the car's bridge — the plugin's own WebSocket
             // upgrade at ws://<served-origin>/api/dzairground-ssh/vnc — instead of an
             // empty form. Once the user edits anything, their values persist and
             // win over this prefill.
-            if (servedOrigin !== '' && !hasConnectorConfig()) {
-              try { save(bridgeConnectorConfig(servedOrigin, configRef.current, carPassword.current)) }
+            if (servedOrigin !== '' && !hasConnectorConfig(storeKey)) {
+              try { save(bridgeConnectorConfig(servedOrigin, configRef.current, nodePassword.current, role)) }
               catch { /* unparseable origin: leave the form as-is */ }
             }
             diag('vnc-connector.origin', { origin: payload.origin })
@@ -2811,7 +2857,7 @@ window.__ModuleLoader__.load({
         const useBridge = useCallback(() => {
           if (origin === '') { setNotice(t('vncNoOrigin')); return }
           let next
-          try { next = bridgeConnectorConfig(origin, configRef.current, carPassword.current) }
+          try { next = bridgeConnectorConfig(origin, configRef.current, nodePassword.current, role) }
           catch { setNotice(t('vncNoOrigin')); return }
           if (phase === 'connected' || phase === 'connecting' || phase === 'auth') {
             userStopped.current = true
@@ -2820,7 +2866,7 @@ window.__ModuleLoader__.load({
           save(next)
           setPhase('idle')
           setMessage('')
-          setNotice(t('connCarBridgeDone'))
+          setNotice(t('connNodeBridgeDone'))
         }, [origin, phase, post, save, t])
 
         const toggleScale = useCallback(() => {
@@ -2869,7 +2915,7 @@ window.__ModuleLoader__.load({
         // A bare 1006 is unreadable, and it is the *normal* outcome of pointing a
         // generic connector at something that was never installed. Say what it
         // means, and which of the two targets the user is actually on.
-        const onBridge = config.path === 'api/dzairground-ssh/vnc'
+        const onBridge = ['api/dzairground-ssh/vnc', 'api/dzairground-ssh/car/vnc', 'api/dzairground-ssh/drone/vnc'].includes(config.path)
         const failureHint = phase !== 'failed' && phase !== 'disconnected'
           ? ''
           : onBridge ? t('connHintBridgeFailed') : t('connHintNoListener')
@@ -2886,9 +2932,9 @@ window.__ModuleLoader__.load({
         }[phase] ?? t('connIdle')
 
         const overlay = phase !== 'connected' && src !== ''
-          ? h('div', { key: 'overlay', className: 'dzr_center' }, [
-            h('div', { key: 'idle', className: 'dzr_herocard' }, [
-              h('div', { key: 'g', className: 'dzr_icon' }, ConnectorGlyph({ size: 30 })),
+          ? h('div', { key: 'overlay', className: 'dzag_center' }, [
+            h('div', { key: 'idle', className: 'dzag_herocard' }, [
+              h('div', { key: 'g', className: 'dzag_icon' }, ConnectorGlyph({ size: 30 })),
               h('h3', { key: 't' },
                 phase === 'failed' ? t('connFailed')
                   : phase === 'connecting' ? t('connConnecting')
@@ -2901,94 +2947,94 @@ window.__ModuleLoader__.load({
                   : phase === 'connecting'
                     ? targetLabel
                     : t('connIdleHint')),
-              notice !== '' ? h('p', { key: 'n', className: 'dzr_warn' }, notice) : null,
+              notice !== '' ? h('p', { key: 'n', className: 'dzag_warn' }, notice) : null,
               failureHint !== '' ? h('p', { key: 'h' }, failureHint) : null,
               phase === 'connecting'
-                ? h('div', { key: 'sp', className: 'dzr_spin2', 'aria-hidden': 'true' })
+                ? h('div', { key: 'sp', className: 'dzag_spin2', 'aria-hidden': 'true' })
                 : h('div', { key: 'row', style: { display: 'flex', gap: 8 } }, [
                   h('button', {
-                    key: 'b', type: 'button', className: 'dzr_action primary',
+                    key: 'b', type: 'button', className: 'dzag_action primary',
                     disabled: src === '', onClick: connect,
                   }, phase === 'disconnected' || phase === 'failed' ? t('connReconnect') : t('connConnect')),
                   // The way out of the dead end: one click back to a target that
                   // needs no setup on the car whatsoever.
                   failureHint !== '' && !onBridge && origin !== ''
                     ? h('button', {
-                      key: 'cb', type: 'button', className: 'dzr_action', onClick: useBridge,
-                    }, t('connCarBridge'))
+                      key: 'cb', type: 'button', className: 'dzag_action', onClick: useBridge,
+                    }, t('connNodeBridge'))
                     : null,
                 ]),
             ]),
           ])
           : null
 
-        return h('div', { className: 'dzr_panel' }, [
-          h('div', { key: 'head', className: 'dzr_phead' }, [
-            h('span', { key: 'title', className: 'dzr_ptitle' }, [
-              h('span', { key: 'g', className: 'dzr_icon' }, ConnectorGlyph({ size: 18 })),
-              t('vncConnectorTitle'),
+        return h('div', { className: 'dzag_panel' }, [
+          h('div', { key: 'head', className: 'dzag_phead' }, [
+            h('span', { key: 'title', className: 'dzag_ptitle' }, [
+              h('span', { key: 'g', className: 'dzag_icon' }, ConnectorGlyph({ size: 18 })),
+              role === 'drone' ? `${t('vncConnectorTitle')} · ${t('nodeDrone')}` : `${t('vncConnectorTitle')} · ${t('nodeCar')}`,
             ]),
-            h('span', { key: 'runtime', className: 'dzr_tag' }, runtimeLabel),
+            h('span', { key: 'runtime', className: 'dzag_tag' }, runtimeLabel),
             h('span', { key: 'sp', style: { marginLeft: 'auto' } }),
-            h('span', { key: 'pill', className: 'dzr_pill', 'data-phase': phase, title: statusText }, [
+            h('span', { key: 'pill', className: 'dzag_pill', 'data-phase': phase, title: statusText }, [
               h('i', { key: 'd' }), h('span', { key: 't' }, statusText),
             ]),
           ]),
-          h('div', { key: 'body', className: 'dzr_pbody' }, [
-            h('div', { key: 'bar', className: 'dzr_toolbar' }, [
-              h('label', { key: 'scheme', className: 'dzr_field', style: { width: 64 } }, [
+          h('div', { key: 'body', className: 'dzag_pbody' }, [
+            h('div', { key: 'bar', className: 'dzag_toolbar' }, [
+              h('label', { key: 'scheme', className: 'dzag_field', style: { width: 64 } }, [
                 h('span', { key: 'l' }, t('connFieldScheme')),
                 h('select', {
-                  key: 'i', className: 'dzr_input', value: config.scheme,
+                  key: 'i', className: 'dzag_input', value: config.scheme,
                   onChange: event => patch('scheme', event.target.value),
                 }, [
                   h('option', { key: 'ws', value: 'ws' }, 'ws'),
                   h('option', { key: 'wss', value: 'wss' }, 'wss'),
                 ]),
               ]),
-              h('label', { key: 'host', className: 'dzr_field', style: { flex: '1 1 160px' } }, [
+              h('label', { key: 'host', className: 'dzag_field', style: { flex: '1 1 160px' } }, [
                 h('span', { key: 'l' }, t('connFieldHost')),
                 h('input', {
-                  key: 'i', className: 'dzr_input', value: config.host, placeholder: 'ubuntu-server 或 127.0.0.1',
+                  key: 'i', className: 'dzag_input', value: config.host, placeholder: 'ubuntu-server 或 127.0.0.1',
                   onChange: event => patch('host', event.target.value),
                 }),
               ]),
-              h('label', { key: 'port', className: 'dzr_field', style: { width: 90 } }, [
+              h('label', { key: 'port', className: 'dzag_field', style: { width: 90 } }, [
                 h('span', { key: 'l' }, t('connFieldPort')),
                 h('input', {
-                  key: 'i', className: 'dzr_input', inputMode: 'numeric', value: config.port,
+                  key: 'i', className: 'dzag_input', inputMode: 'numeric', value: config.port,
                   onChange: event => patch('port', event.target.value),
                 }),
               ]),
-              h('label', { key: 'path', className: 'dzr_field', style: { width: 120 } }, [
+              h('label', { key: 'path', className: 'dzag_field', style: { width: 120 } }, [
                 h('span', { key: 'l' }, t('connFieldPath')),
                 h('input', {
-                  key: 'i', className: 'dzr_input', value: config.path,
+                  key: 'i', className: 'dzag_input', value: config.path,
                   onChange: event => patch('path', event.target.value),
                 }),
               ]),
-              h('label', { key: 'pw', className: 'dzr_field', style: { width: 130 } }, [
+              h('label', { key: 'pw', className: 'dzag_field', style: { width: 130 } }, [
                 h('span', { key: 'l' }, t('connFieldPassword')),
                 h('input', {
-                  key: 'i', className: 'dzr_input', type: 'password', value: config.password,
+                  key: 'i', className: 'dzag_input', type: 'password', value: config.password,
                   onChange: event => patch('password', event.target.value),
                 }),
               ]),
-              h('label', { key: 'res', className: 'dzr_field', style: { width: 150 } }, [
+              h('label', { key: 'res', className: 'dzag_field', style: { width: 150 } }, [
                 h('span', { key: 'l' }, t('connFieldResolution')),
                 h('select', {
-                  key: 'i', className: 'dzr_input', value: config.resolution,
+                  key: 'i', className: 'dzag_input', value: config.resolution,
                   onChange: event => changeResolution(event.target.value),
                 }, VNC_RESOLUTIONS.map(item => h('option', {
                   key: item.id, value: item.id,
                 }, item.id === 'auto' ? t('connResolutionAuto') : item.id))),
               ]),
               h('button', {
-                key: 'bridge', type: 'button', className: 'dzr_action',
-                title: t('connCarBridgeHint'), disabled: origin === '', onClick: useBridge,
-              }, t('connCarBridge')),
+                key: 'bridge', type: 'button', className: 'dzag_action',
+                title: t(role === 'drone' ? 'vncBridgeHintDrone' : 'vncBridgeHintCar'), disabled: origin === '', onClick: useBridge,
+              }, t('connNodeBridge')),
               h('button', {
-                key: 'go', type: 'button', className: 'dzr_action primary',
+                key: 'go', type: 'button', className: 'dzag_action primary',
                 // Deliberately enabled in the 'auth' phase: that is exactly when
                 // the user has just corrected the password field and needs to
                 // reconnect — disabling it there would trap them with no exit.
@@ -2996,14 +3042,14 @@ window.__ModuleLoader__.load({
                 onClick: connect,
               }, phase === 'connected' || phase === 'auth' ? t('connReconnect') : t('connConnect')),
               phase === 'connected' || phase === 'connecting' || phase === 'auth'
-                ? h('button', { key: 'stop', type: 'button', className: 'dzr_action', onClick: stop }, t('connDisconnect'))
+                ? h('button', { key: 'stop', type: 'button', className: 'dzag_action', onClick: stop }, t('connDisconnect'))
                 : null,
               h('button', {
-                key: 'fs', type: 'button', className: 'dzr_action', title: t('connFullscreen'),
+                key: 'fs', type: 'button', className: 'dzag_action', title: t('connFullscreen'),
                 disabled: phase !== 'connected', onClick: fullscreen,
               }, t('connFullscreen')),
               h('label', {
-                key: 'scale', className: 'dzr_action', title: t('connScaleHint'),
+                key: 'scale', className: 'dzag_action', title: t('connScaleHint'),
                 style: { display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' },
               }, [
                 h('input', {
@@ -3013,13 +3059,13 @@ window.__ModuleLoader__.load({
                 t('connScale'),
               ]),
               h('button', {
-                key: 'tab', type: 'button', className: 'dzr_action', title: t('connNewTabHint'),
+                key: 'tab', type: 'button', className: 'dzag_action', title: t('connNewTabHint'),
                 disabled: origin === '', onClick: openStandalone,
               }, runtimeKind === 'browser' ? t('connNewTab') : t('connNewWindow')),
             ]),
-            h('div', { key: 'stage', className: 'dzr_screen' }, [
+            h('div', { key: 'stage', className: 'dzag_screen' }, [
               src === ''
-                ? h('div', { key: 'noorigin', className: 'dzr_center' }, h('div', { className: 'dzr_herocard' }, [
+                ? h('div', { key: 'noorigin', className: 'dzag_center' }, h('div', { className: 'dzag_herocard' }, [
                   h('h3', { key: 't' }, t('vncNoOrigin')),
                 ]))
                 : h('iframe', {
@@ -3087,34 +3133,52 @@ window.__ModuleLoader__.load({
       // effects below can re-run (slot scope revisions), and re-registering a
       // freshly minted function each time would remount the open tab and kill a
       // live VNC session — so the shells are created once, here.
-      const VncTabShell = makeVncTabShell(ctx, t)
+      const VncTabShellCar = makeVncTabShell(ctx, t, 'car')
+      const VncTabShellDrone = makeVncTabShell(ctx, t, 'drone')
       const FilesTabShell = makeFilesTabShell(ctx, t)
       if (tabTypes !== undefined && typeof tabTypes.register === 'function') {
         ctx.effect(() => tabTypes.register({
-          id: 'dsh-dzairground-ssh/vnc',
-          kind: 'dzr-vnc',
+          id: 'dsh-dzairground-ssh/vnc-car',
+          kind: 'dzag-vnc-car',
           // Fixed contentId: a second click focuses the open tool instead of
           // stacking copies (placeTab reuses pageAddress for non-multiple types).
           multiple: false,
           // The RFB connection lives in the frame: unmounting it would drop the
-          // desktop on every tab switch, so the body stays mounted.
+          // desktop on every tab switch, so the body stays mounted. Per-channel
+          // registrations keep the car and drone desktops mounted side by side —
+          // two live sessions with no shared state to fight over.
           keepMounted: true,
-          title: () => t('viewVnc'),
-        }), 'dzairground-ssh: tab type vnc')
+          title: () => t('viewVncCar'),
+        }), 'dzairground-ssh: tab type vnc car')
+
+        ctx.effect(() => tabTypes.register({
+          id: 'dsh-dzairground-ssh/vnc-drone',
+          kind: 'dzag-vnc-drone',
+          multiple: false,
+          keepMounted: true,
+          title: () => t('viewVncDrone'),
+        }), 'dzairground-ssh: tab type vnc drone')
 
         ctx.effect(() => tabTypes.register({
           id: 'dsh-dzairground-ssh/files',
-          kind: 'dzr-files',
+          kind: 'dzag-files',
           multiple: false,
           title: () => t('viewFiles'),
         }), 'dzairground-ssh: tab type files')
 
         ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
           name: 'sidebar.right.pane.tab',
-          key: 'dsh-dzairground-ssh/vnc',
+          key: 'dsh-dzairground-ssh/vnc-car',
           locale: NS,
           inject: () => ({}),
-        }, VncTabShell)), 'dzairground-ssh: tab body vnc')
+        }, VncTabShellCar)), 'dzairground-ssh: tab body vnc car')
+
+        ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+          name: 'sidebar.right.pane.tab',
+          key: 'dsh-dzairground-ssh/vnc-drone',
+          locale: NS,
+          inject: () => ({}),
+        }, VncTabShellDrone)), 'dzairground-ssh: tab body vnc drone')
 
         ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
           name: 'sidebar.right.pane.tab',
@@ -3212,7 +3276,7 @@ window.__ModuleLoader__.load({
       DroneGlyph, COORD_TOOL, STRESS_TOOL,
       // generic VNC connector
       detectRuntime, normalizeConnectorConfig, makeVncConnectorPanel,
-      bridgeConnectorConfig, VNC_RESOLUTIONS, CONNECTOR_ID,
+      bridgeConnectorConfig, VNC_RESOLUTIONS, CONNECTOR_ID, connectorStoreKeys,
     }
     return module.exports
   },

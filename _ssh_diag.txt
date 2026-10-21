@@ -1,5 +1,0 @@
-=== which ssh ===
-=== ssh -V ===
-exit_v=
-=== connect ===
-exit_c=

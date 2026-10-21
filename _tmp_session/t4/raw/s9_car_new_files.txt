@@ -1,3 +1,0 @@
-/home/duzhong/.config/fcitx5/profile
-/home/duzhong/.config/fcitx5/conf/notifications.conf
-/home/duzhong/.vnc/duzhong:5901.log

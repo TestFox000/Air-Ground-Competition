@@ -1,4 +1,0 @@
-f4151410f939c2bda67e82d57ea07d83  /home/duzhong/dzlink_tools/dzlink_supervisor.py
-893e7b9f237563daf143ea979266bb12  /home/duzhong/dzlink_tools/dz_send_waypoint.py
-1084529a47b67a0c5c84c0002990c252  /home/duzhong/dzlink_tools/test_dzlink_supervisor.py
-a95a49ff4b43cc0c8e01161088d69975  /home/duzhong/dzlink_tools/test_dz_send_waypoint.py
