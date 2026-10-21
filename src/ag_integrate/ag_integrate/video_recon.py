@@ -60,14 +60,14 @@ try:                                    # 包内导入（python -m ag_integrate.
     from .cjk_font import load_cjk_font
     from .field_frame import CellRef, COLS, LETTERS, ROWS
     from .world_model import TargetRef, WorldSnapshot
-    from .mission_router import plan_route
+    from .mission_router import _BARRIER_COLS, _MID_BOUNDARY, plan_route
     from .car_adapter import compact_and_adapt
 except ImportError:                     # 直接以文件路径运行（比赛现场快捷用法）
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from ag_integrate.cjk_font import load_cjk_font
     from ag_integrate.field_frame import CellRef, COLS, LETTERS, ROWS
     from ag_integrate.world_model import TargetRef, WorldSnapshot
-    from ag_integrate.mission_router import plan_route
+    from ag_integrate.mission_router import _BARRIER_COLS, _MID_BOUNDARY, plan_route
     from ag_integrate.car_adapter import compact_and_adapt
 
 # ---------------------------------------------------------------- 常量
@@ -1231,6 +1231,18 @@ def _render_plan(snapshot: WorldSnapshot, route: tuple[str, ...],
     for r in range(ROWS):
         dr.text((PAD - 20, PAD + r * CELL_PX + CELL_PX // 2), str(r + 1), "white", f10, "mm")
 
+    # 中场挡板（第 6/7 行之间、D~N 列；A/B/C 西走廊可自由穿越）——画出来，
+    # 否则"路线为什么绕这么大圈"在图上无从核对（2026-10-21 用户提问）。
+    # 真源是 mission_router._MID_BOUNDARY / _BARRIER_COLS，import 而非另写一份。
+    _by = PAD + _MID_BOUNDARY * CELL_PX
+    _bx0 = PAD + min(_BARRIER_COLS) * CELL_PX
+    _bx1 = PAD + (max(_BARRIER_COLS) + 1) * CELL_PX
+    dr.rectangle([_bx0, _by - 3, _bx1, _by + 3], fill=(120, 120, 130))
+    for _x in range(_bx0, _bx1, 14):                       # 斜线 = 实体挡板
+        dr.line([(_x, _by + 3), (_x + 6, _by - 3)], (170, 170, 180), 1)
+    dr.text((_bx1 - 88, _by + 8), T("中场挡板 D~N", "barrier D~N"),
+            (190, 190, 200), f10)
+
     for name in [c.name for c in snapshot.obstacles]:
         x, y = xy(cell(name))
         dr.rectangle([x + 2, y + 2, x + CELL_PX - 2, y + CELL_PX - 2], (180, 40, 40))
@@ -1265,6 +1277,16 @@ def _render_plan(snapshot: WorldSnapshot, route: tuple[str, ...],
         x1, y1 = xy(rc[i]); x2, y2 = xy(rc[i + 1])
         dr.line([(x1 + CELL_PX // 2, y1 + CELL_PX // 2), (x2 + CELL_PX // 2, y2 + CELL_PX // 2)],
                 grad(i / max(len(rc) - 2, 1)), 4)
+    # 跨中场挡板的那几步单独圈出来（合法性一眼可查：只许西走廊 A/B/C 或桥洞）
+    for i in range(len(rc) - 1):
+        a, b = rc[i], rc[i + 1]
+        if ((a.row < _MID_BOUNDARY <= b.row) or (b.row < _MID_BOUNDARY <= a.row)):
+            x1, y1 = xy(a); x2, y2 = xy(b)
+            mx = (x1 + x2) // 2 + CELL_PX // 2
+            my = (y1 + y2) // 2 + CELL_PX // 2
+            dr.ellipse([mx - 9, my - 9, mx + 9, my + 9], outline=(0, 255, 255), width=2)
+            dr.text((mx, my - 20), T(f"跨挡板 {a.name}→{b.name}", f"cross {a.name}->{b.name}"),
+                    (0, 255, 255), f10, "mm")
     cset = set(compact)
     for i, n in enumerate(route):
         x, y = xy(cell(n))
