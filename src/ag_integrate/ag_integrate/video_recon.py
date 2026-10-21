@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from collections import Counter, defaultdict
@@ -57,14 +58,14 @@ import numpy as np
 try:                                    # 包内导入（python -m ag_integrate.video_recon）
     from .field_frame import CellRef, COLS, LETTERS, ROWS
     from .world_model import TargetRef, WorldSnapshot
-    from .mission_router import compress_route, plan_route
-    from .car_adapter import adapt
+    from .mission_router import plan_route
+    from .car_adapter import compact_and_adapt
 except ImportError:                     # 直接以文件路径运行（比赛现场快捷用法）
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from ag_integrate.field_frame import CellRef, COLS, LETTERS, ROWS
     from ag_integrate.world_model import TargetRef, WorldSnapshot
-    from ag_integrate.mission_router import compress_route, plan_route
-    from ag_integrate.car_adapter import adapt
+    from ag_integrate.mission_router import plan_route
+    from ag_integrate.car_adapter import compact_and_adapt
 
 # ---------------------------------------------------------------- 常量
 NAMES = ["paper", "cell_label", "car", "target_red", "target_blue", "obstacle",
@@ -330,20 +331,9 @@ def split_mines_passable(paper_cells: list[str],
     return mines, passable
 
 
-def shoot_keep_cells(targets: list[TargetRef]) -> set[str]:
-    """射击停靠格（蓝面侧轨道端点邻格）——压缩时必须保留。"""
-    keep: set[str] = set()
-    for t in targets:
-        if t.track is None or not t.blue_face:
-            continue
-        a, b = t.track
-        if a.row == b.row:                # 水平轨道：S=row+1 / N=row-1
-            d = 1 if t.blue_face == "S" else -1
-            keep |= {CellRef(a.col, a.row + d).name, CellRef(b.col, b.row + d).name}
-        else:                             # 垂直轨道：E=col+1 / W=col-1
-            d = 1 if t.blue_face == "E" else -1
-            keep |= {CellRef(a.col + d, a.row).name, CellRef(b.col + d, b.row).name}
-    return keep
+# 注：此处原有的 shoot_keep_cells() 已删除——它只保"有轨道的靶"的停靠格，
+# 静态蓝靶的开火格保不住，压缩会删掉开火格导致车命令丢失 '*'（2026-10-21 实测）。
+# KEEP 推导唯一真源是 mission_router.mission_keep，勿在本文件重建。
 
 
 # ---------------------------------------------------------------- 模型封装
@@ -392,6 +382,23 @@ class D13Detector:
         self.imgsz = int(imgsz)
         # anchor-free：每个 stride 层每格 1 个点
         self.n_anchors = sum((self.imgsz // s) ** 2 for s in (8, 16, 32))
+        self.model_path = str(onnx_path)
+
+    def _sync_to_model(self, n: int) -> bool:
+        """把 imgsz 对齐到模型真实输出（换模型时自动纠正，免手工 --imgsz）。
+
+        这是 2026-10-21 的补强：640/1280 两版模型的 anchor 数不同，用户拿错
+        --imgsz 时原实现会直接索引越界或静默解错。现在先按常见两档反查，
+        对不上再报一条能直接照做的错误（含模型路径与实际 anchor 数）。
+        """
+        by_anchors = {sum((s // k) ** 2 for k in (8, 16, 32)): s for s in (640, 1280)}
+        if n in by_anchors:
+            self.imgsz = by_anchors[n]
+            self.n_anchors = n
+            print(f"[recon][提示] 模型实际是 {self.imgsz} 推理（{n} anchors），"
+                  f"已自动纠正 --imgsz")
+            return True
+        return False
 
     def detect(self, img_bgr: np.ndarray) -> list[dict]:
         """返回 [{cls, conf, box=[x1,y1,x2,y2](原图坐标)}]，坐标已映射回原图。"""
@@ -408,9 +415,13 @@ class D13Detector:
         out = self.net.forward()[0]              # (17, n_anchors)
         n = out.shape[1]
         if n != self.n_anchors:
+            if self._sync_to_model(n):
+                return self.detect(img_bgr)      # 用纠正后的尺寸重跑一次
             raise ValueError(
-                f"模型输出 {n} 个 anchor，与 imgsz={S} 期望的 {self.n_anchors} 不符——"
-                f"请用 --imgsz 指定与模型一致的分辨率（1280 或 640）")
+                f"模型输出 {n} 个 anchor，与 imgsz={S} 期望的 {self.n_anchors} 不符，"
+                f"且不是已知的 640/1280 两档。\n"
+                f"  模型: {self.model_path}\n"
+                f"  处理: 用 --imgsz 指定与模型导出一致的分辨率，或换用 1280/640 版模型")
         boxes, scores = out[:4, :].T, out[4:, :]  # cx,cy,w,h | (13,N)
         dets: list[dict] = []
         for c, name in enumerate(NAMES):
@@ -490,6 +501,23 @@ def _find_model(search: tuple[str, ...], explicit: str | None) -> Path:
     raise FileNotFoundError(f"未找到模型，尝试过 {search}，用 --d13/--v4d 显式指定")
 
 
+def _write_annot(out_dir: Path, fidx: int, frame: np.ndarray,
+                 reads: list, objs: list) -> None:
+    """落一张标注抽样帧（检测框 + 格号读数）。纯诊断产物，调用点已包异常隔离。"""
+    vis = frame.copy()
+    for li, ri, lc, rc, b in reads:
+        cv2.rectangle(vis, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), (255, 180, 0), 1)
+        cv2.putText(vis, cell_name(li, ri), (int(b[0]), int(b[1]) - 3),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 180, 0), 1)
+    for d in objs:
+        x1, y1, x2, y2 = map(int, d["box"])
+        color = (0, 0, 255) if d["cls"] == "paper" else (0, 200, 255)
+        cv2.rectangle(vis, (x1, y1), (x2, y2), color, 1)
+        cv2.putText(vis, f"{d['cls'][:6]}{d['conf']:.2f}", (x1, y2 + 11),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
+    imwrite_u(out_dir / "annotated" / f"f{fidx:05d}.jpg", vis)
+
+
 def recon_video(video: str | Path, out_dir: str | Path,
                 d13_onnx: str | Path | None = None,
                 v4d_onnx: str | Path | None = None,
@@ -498,13 +526,30 @@ def recon_video(video: str | Path, out_dir: str | Path,
                 keep_annots: int = 8, keep_crops: int = 40) -> dict:
     """视频 → 场地态势。返回 field_state dict（同时落盘 frames_meta.json）。"""
     video, out_dir = Path(video), Path(out_dir)
+    if int(stride) < 1:
+        raise ValueError(f"--stride 必须 >= 1，收到 {stride}")
+    if not video.is_file():
+        raise FileNotFoundError(
+            f"视频不存在: {video.resolve()}\n"
+            f"  检查路径/盘符；机上常见是文件名带空格或中文未加引号")
     (out_dir / "annotated").mkdir(parents=True, exist_ok=True)
     (out_dir / "label_crops").mkdir(parents=True, exist_ok=True)
     d13 = D13Detector(_find_model(D13_SEARCH, d13_onnx and str(d13_onnx)), imgsz=imgsz)
     v4d = V4dReader(_find_model(V4D_SEARCH, v4d_onnx and str(v4d_onnx)))
 
     cap = cv2.VideoCapture(str(video))
+    if not cap.isOpened():
+        cap.release()
+        raise RuntimeError(
+            f"OpenCV 打不开视频: {video.resolve()}\n"
+            f"  常见原因：文件损坏 / 编码不受 OpenCV 支持（试转 h264 mp4）/ "
+            f"路径含中文且系统编码不匹配")
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total <= 0:
+        cap.release()
+        raise RuntimeError(
+            f"视频帧数为 {total}，无法解码出任何帧: {video.resolve()}\n"
+            f"  用 ffprobe 或播放器确认文件完整；0 字节文件在机上录像里出现过")
     idxs = list(range(0, total, stride))
     if max_frames:
         idxs = idxs[:max_frames]
@@ -516,23 +561,44 @@ def recon_video(video: str | Path, out_dir: str | Path,
     t0 = time.time()
     last_aff: np.ndarray | None = None    # 最近成功仿射（时间外推缓存）
     last_step = -10 ** 9                  # 它对应的已处理帧号
+    # 坏帧/坏读数的计数与明细：一次整视频侦察要跑 5~7 分钟，任何一帧异常都
+    # 不该终止整次跑（与机载 C++ main.cpp 的 kMaxFrameErrors 同一套思路——
+    # 那边 2026-10-20 已修"坏帧烧掉整局"，Python 这条链路此前还是裸循环）。
+    frame_errors = 0
+    error_samples: list[str] = []
 
     for fi, fidx in enumerate(idxs):
         cap.set(cv2.CAP_PROP_POS_FRAMES, fidx)
         ok, frame = cap.read()
         if not ok:
             continue
-        dets = d13.detect(frame)
+        try:
+            dets = d13.detect(frame)
+        except Exception as exc:  # noqa: BLE001 - 见上方 frame_errors 说明
+            frame_errors += 1
+            _note = f"f{fidx} 检测异常: {type(exc).__name__}: {exc}"
+            if len(error_samples) < 5:
+                error_samples.append(_note)
+            print(f"[recon][坏帧] {_note}（跳过该帧，继续）")
+            continue
         labels = [d for d in dets if d["cls"] == "cell_label"]
         objs = [d for d in dets if d["cls"] != "cell_label"]
 
-        # v4d 读格号（正方形裁剪 + TTA + 双头置信门控）
+        # v4d 读格号（正方形裁剪 + TTA + 双头置信门控）：逐框隔离——
+        # 一个坏裁剪不该把整帧的其余读数一起丢掉。
         reads = []
         for d in labels:
-            crop = v4d.crop_square(frame, d["box"])
-            if crop is None:
+            try:
+                crop = v4d.crop_square(frame, d["box"])
+                if crop is None:
+                    continue
+                li, ri, lc, rc = v4d.read(crop)
+            except Exception as exc:  # noqa: BLE001
+                frame_errors += 1
+                _note = f"f{fidx} 格号读取异常: {type(exc).__name__}: {exc}"
+                if len(error_samples) < 5:
+                    error_samples.append(_note)
                 continue
-            li, ri, lc, rc = v4d.read(crop)
             if lc >= V4D_MIN_CONF and rc >= V4D_MIN_CONF:
                 reads.append((li, ri, lc, rc, d["box"]))
                 if crop_saved < keep_crops:
@@ -547,9 +613,16 @@ def recon_video(video: str | Path, out_dir: str | Path,
         grid_src = None
         px = grid = aff = inl = None
         if len(reads) >= 3:
-            px = np.array([[(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] for *_, b in reads])
-            grid = np.array([[li, ri] for li, ri, *_ in reads], float)
-            aff, inl, mae = fit_consensus_affine(px, grid)
+            try:
+                px = np.array([[(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] for *_, b in reads])
+                grid = np.array([[li, ri] for li, ri, *_ in reads], float)
+                aff, inl, mae = fit_consensus_affine(px, grid)
+            except Exception as exc:  # noqa: BLE001 - 退化输入不该毁掉整帧
+                frame_errors += 1
+                _note = f"f{fidx} 网格拟合异常: {type(exc).__name__}: {exc}"
+                if len(error_samples) < 5:
+                    error_samples.append(_note)
+                aff, inl = None, None
             grid_ok = aff is not None
             if grid_ok:
                 reads = [r for r, k in zip(reads, inl) if k]
@@ -582,19 +655,14 @@ def recon_video(video: str | Path, out_dir: str | Path,
                             "labels": [cell_name(li, ri) for li, ri, *_ in reads],
                             "objs": frame_objs})
 
-        if fi % keep_annots == 0:      # 标注帧抽样
-            vis = frame.copy()
-            for li, ri, lc, rc, b in reads:
-                cv2.rectangle(vis, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), (255, 180, 0), 1)
-                cv2.putText(vis, cell_name(li, ri), (int(b[0]), int(b[1]) - 3),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 180, 0), 1)
-            for d in objs:
-                x1, y1, x2, y2 = map(int, d["box"])
-                color = (0, 0, 255) if d["cls"] == "paper" else (0, 200, 255)
-                cv2.rectangle(vis, (x1, y1), (x2, y2), color, 1)
-                cv2.putText(vis, f"{d['cls'][:6]}{d['conf']:.2f}", (x1, y2 + 11),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
-            imwrite_u(out_dir / "annotated" / f"f{fidx:05d}.jpg", vis)
+        if fi % keep_annots == 0:      # 标注帧抽样（纯诊断产物，失败不影响结论）
+            try:
+                _write_annot(out_dir, fidx, frame, reads, objs)
+            except Exception as exc:  # noqa: BLE001
+                frame_errors += 1
+                _note = f"f{fidx} 标注图写入失败: {type(exc).__name__}: {exc}"
+                if len(error_samples) < 5:
+                    error_samples.append(_note)
 
         if (fi + 1) % 20 == 0:
             print(f"[recon] {fi + 1}/{len(idxs)} 帧  网格OK "
@@ -604,6 +672,13 @@ def recon_video(video: str | Path, out_dir: str | Path,
     n_ok = sum(1 for m in frames_meta if m["grid_ok"])
     print(f"[recon] 检测完成：{len(frames_meta)} 帧中 {n_ok} 帧网格拟合成功，"
           f"耗时 {time.time() - t0:.0f}s")
+    if frame_errors:
+        # 坏帧数必须显式报出：静默跳过会让"这盘只识别到 2 个雷"看起来像模型问题
+        print(f"[recon][注意] 共 {frame_errors} 处单帧/单框异常被跳过（不影响其余帧）")
+        for _s in error_samples:
+            print(f"[recon][注意]   {_s}")
+        if len(error_samples) < frame_errors:
+            print(f"[recon][注意]   …另有 {frame_errors - len(error_samples)} 处同类")
 
     # 全局分数校准：标签在格内位置一致 → paper 落格心分数众数即偏移
     frac_c = [q[0] for q in cont_pos.get("paper", [])]
@@ -790,12 +865,12 @@ def plan_from_state(field_state: dict, out_dir: str | Path) -> dict:
     route = plan_route(snapshot, cell(use_start), cell(use_goal),
                        start_heading="y", final_heading="y")
 
-    # 压缩（保护雷/桥洞/轨道/射击停靠格）+ 车端命令
-    track_names = {c.name for t in targets if t.track for c in t.track}
-    keep = (set(mines) | set(use_passable) | track_names
-            | set(tgt_blue) | set(tgt_red) | shoot_keep_cells(targets))
-    compact = compress_route(route, keep)
-    cmds = adapt(snapshot, compact, use_start, "y", "y")
+    # 压缩 + 车端命令：必须走 car_adapter.compact_and_adapt（内部用 mission_keep
+    # 推导 KEEP）。2026-10-21 实测事故：这里原先手拼 KEEP，只保"有轨道的靶"的
+    # 停靠格，**静态蓝靶的开火格没保住** → 压缩把 D10（D11 蓝靶的正交邻格）当共线
+    # 中间点删掉 → adapt 看不到它 → 车命令一个 '*' 都没有，整局不开火。
+    # mission_keep 的注释明写"全仓只能有这一个 keep 推导"，此处即违规点。
+    compact, cmds = compact_and_adapt(snapshot, route, use_start, "y", "y")
 
     cells = [cell(n) for n in route]
     length, turns = 0.0, 0
@@ -983,12 +1058,26 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--d13", type=str, default=None, help="hbb_d13.onnx 路径")
     ap.add_argument("--v4d", type=str, default=None, help="cell_classifier_v4d.onnx 路径")
     args = ap.parse_args(argv)
+    if args.stride < 1:
+        ap.error(f"--stride 必须 >= 1（收到 {args.stride}）")
 
     out_dir = Path(args.out) if args.out else Path(
         f"视频侦察_{datetime.now().strftime('%Y%m%d')}")
-    state = recon_video(args.video, out_dir, args.d13, args.v4d,
-                        args.stride, args.max_frames, imgsz=args.imgsz)
-    plan_from_state(state, out_dir)
+    # 现场用法：报错要能照着做，不要甩一屏 traceback（机上 VNC 里翻不动）。
+    # 保留原始异常链：--debug 时打印完整堆栈。
+    try:
+        state = recon_video(args.video, out_dir, args.d13, args.v4d,
+                            args.stride, args.max_frames, imgsz=args.imgsz)
+        plan_from_state(state, out_dir)
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        print(f"\n[失败] {exc}", file=sys.stderr)
+        if "--debug" in sys.argv or os.environ.get("AG_DEBUG"):
+            raise
+        print("  产物目录（若已建）: "
+              f"{out_dir.resolve() if out_dir.exists() else '(未创建)'}",
+              file=sys.stderr)
+        print("  加 --debug 或设 AG_DEBUG=1 可看完整堆栈", file=sys.stderr)
+        return 2
     print(f"[done] 全部产物在 {Path.cwd() / out_dir}")
     return 0
 

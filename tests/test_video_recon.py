@@ -27,7 +27,6 @@ from ag_integrate.video_recon import (
     confirmed_cells,
     fit_consensus_affine,
     parse_cell,
-    shoot_keep_cells,
     snap_cell,
     split_mines_passable,
     eliminate_phantoms,
@@ -194,22 +193,31 @@ def test_split_mines_passable_k_column():
     assert passable == ["K4", "K9"]
 
 
-def test_shoot_keep_cells():
-    """水平轨道蓝面 S -> 南侧端点邻格；垂直轨道蓝面 E -> 东侧。"""
+def test_static_target_fire_cell_survives_compaction():
+    """静态蓝靶的开火格不能被共线压缩删掉（2026-10-21 实测缺陷）。
+
+    事故形态：video_recon 原先手拼 KEEP，只保"有轨道的靶"的停靠格。
+    D11 静态蓝靶的正交邻格 D10 落在 E10→C10 的直线上，压缩当中间格删除，
+    adapt 再看不到它 → 车命令一个 '*' 都没有，整局不开火。
+    canonical compact_and_adapt 走 mission_keep（含"路线上所有可开火格"），
+    能保住。
+    """
+    from ag_integrate.car_adapter import compact_and_adapt
+    from ag_integrate.world_model import TargetRef, WorldSnapshot
+
     def cell(n):
         c, r = parse_cell(n)
         return CellRef(c, r)
 
-    from ag_integrate.world_model import TargetRef
-    # 水平 D8-E8（row idx 7），蓝面 S -> D9/E9
-    t1 = TargetRef(cell("D8"), True, track=(cell("D8"), cell("E8")), blue_face="S")
-    assert shoot_keep_cells([t1]) == {"D9", "E9"}
-    # 垂直 D8-D10（col D=3），蓝面 E -> E8/E10
-    t2 = TargetRef(cell("D8"), True, track=(cell("D8"), cell("D10")), blue_face="E")
-    assert shoot_keep_cells([t2]) == {"E8", "E10"}
-    # 无轨道/无朝向：不产生停靠格
-    t3 = TargetRef(cell("B1"), True)
-    assert shoot_keep_cells([t3]) == set()
+    snapshot = WorldSnapshot(
+        timestamp_ms=0, mines=(), passable=(cell("K4"), cell("K9")),
+        obstacles=(), targets=(TargetRef(cell("D11"), True),))
+    route = ("N10", "M10", "L10", "K10", "J10", "I10", "H10", "G10",
+             "F10", "E10", "D10", "C10", "B10", "N6", "N5")
+    compact, cmds = compact_and_adapt(snapshot, route, "N10", "y", "y")
+
+    assert "D10" in compact, f"开火格 D10 被压缩删掉: {compact}"
+    assert "D10*" in cmds.route.split(), f"车命令缺失开火标记: {cmds.route}"
 
 
 def test_parse_cell_roundtrip():

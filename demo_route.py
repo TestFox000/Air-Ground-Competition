@@ -7,8 +7,8 @@ sys.path.insert(0, str(Path(__file__).parent / "src" / "ag_integrate"))
 from PIL import Image, ImageDraw, ImageFont
 from ag_integrate.field_frame import CellRef, COLS, ROWS, LETTERS
 from ag_integrate.world_model import WorldSnapshot, TargetRef
-from ag_integrate.mission_router import plan_route, compress_route
-from ag_integrate.car_adapter import adapt
+from ag_integrate.mission_router import plan_route
+from ag_integrate.car_adapter import compact_and_adapt
 
 
 def cell(name: str) -> CellRef:
@@ -74,29 +74,14 @@ for a, b in zip(cells, cells[1:]):
 print(f"直线长度 {length:.2f} 格 | 转向 {turns} 次（{turn_units_total}×45°）| 重复踩格 {len(route) - len(set(route))}")
 
 # === 共线压缩：删掉同向直线段的中间格，命令更短、轨迹不变 ===
-# KEEP 须含移动靶的停靠射击格（蓝面侧轨道邻格），防止停靠点被当中间格删掉
-def _orthonames(name: str) -> list[str]:
-    c = cell(name)
-    out = []
-    for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-        if 0 <= c.col + dc < COLS and 0 <= c.row + dr < ROWS:
-            out.append(CellRef(c.col + dc, c.row + dr).name)
-    return out
-
-_ta, _tb = cell(TRACK[0]), cell(TRACK[1])
-if _ta.row == _tb.row:      # 水平轨道，蓝面 S(row+1)/N(row-1)
-    _d = 1 if BLUE_FACE == "S" else -1
-    SHOOT_KEEP = {CellRef(_ta.col, _ta.row + _d).name, CellRef(_tb.col, _tb.row + _d).name}
-else:                        # 垂直轨道，蓝面 E(col+1)/W(col-1)
-    _d = 1 if BLUE_FACE == "E" else -1
-    SHOOT_KEEP = {CellRef(_ta.col + _d, _ta.row).name, CellRef(_tb.col + _d, _tb.row).name}
-KEEP = set(MINES) | set(TRACK) | set(PASSABLE) | SHOOT_KEEP
-compact = compress_route(route, KEEP)
+# 压缩 + 车端命令：走 canonical compact_and_adapt（内部 mission_keep 推导 KEEP）。
+# 2026-10-21：此处原先手工拼 KEEP，只保轨道靶的停靠格，静态蓝靶的开火格
+# 保不住 → 压缩删掉开火格 → 命令里没有 '*'。KEEP 唯一真源是 mission_keep。
+compact, cmds = compact_and_adapt(snapshot, route, START, "y", "y")
 print(f"\n压缩后 ({len(compact)} 点，原 {len(route)} 格):")
 print(" → ".join(compact))
 
-# === 生成车端 path_executor 命令（生产链路：禁火保险 + 每靶只停一次） ===
-cmds = adapt(snapshot, compact, START, "y", "y")
+# ====== 生成车端 path_executor 命令（生产链路：禁火保险 + 每靶只停一次） ===
 shoot = list(cmds.shoot_cells)
 print(f"停靠射击格: {shoot}（移动靶轨道 {TRACK[0]}↔{TRACK[1]}，蓝面朝 {'南' if BLUE_FACE == 'S' else '北'}）")
 print(f"\nreset: {cmds.reset}")
