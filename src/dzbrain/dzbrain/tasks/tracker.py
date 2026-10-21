@@ -650,6 +650,20 @@ class TrackerTask(TaskThread):
             speed = cmd.linear_x
             reason_tag = cmd.speed_reason
 
+        # ---- ★R1 最终发布限速：以上分支各自赋值 speed，但只有普通分支经过
+        #   compute_command 的读侧；ALIGN(644)/PIVOT(602) 直接覆盖，R0 已复现二者
+        #   在注入 P_MOTION_LIMIT 后仍发 0.10/0.08。所有分支都汇入下面唯一一处
+        #   publish_command，故在发布前用**同一份**读侧再钳一次：
+        #     · None（无键/None/非法/bool/负数/NaN/±inf）= 无信号 ⇒ 原值、转向、
+        #       状态机逐位不变；
+        #     · 0 ⇒ 真 0（不抬回 min_speed）；L>0 ⇒ 只降不升、|v|<=L、倒车保号、
+        #       原 0 不抬高；
+        #     · 推车分支(628-636)已按同口径钳过 ⇒ 此处幂等，不改变已受限结果。
+        _mlim_final = motion_limit_speed_limit(self.bb)
+        if _mlim_final is not None and abs(speed) > _mlim_final:
+            speed = (0.0 if _mlim_final == 0.0
+                     else math.copysign(float(_mlim_final), speed))
+
         self._last_steer_deg = steer
         self.bridge.publish_command(speed, steer)
 

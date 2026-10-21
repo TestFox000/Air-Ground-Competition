@@ -82,6 +82,58 @@ paths:
     status: 临时
     owner: 团队
     note: 跨任务临时区；活跃目录见下表
+  _tmp_session/TRACK-HANDOFF-20261020:
+    status: 临时
+    owner: Codex Lead
+    note: 循迹团队执行方案编制卡；备份与校验记录，正式方案在 docs/agent_handoff/30_循迹团队执行方案.md
+  _tmp_session/TRACK-DISPATCH-20261020:
+    status: 临时
+    owner: Codex Lead
+    note: 六模块分发与当前DeepSeek续接消息；仅文档，现行入口36第6节
+  _tmp_session/TRACK-DISPATCH-COPY-20261020:
+    status: 临时
+    owner: Codex Lead
+    note: 独立源码副本分发/改动包集成契约与R3首报复核；现行入口36第6节
+  _tmp_session/TRACK-FIELD-R3-20261020-01:
+    status: 证据
+    owner: DP Lead
+    note: R3已收口，静态完成/实车0趟/证据不足；原件由DP维护
+  _tmp_session/TRACK-ACK-PLAN-20261021:
+    status: 临时
+    owner: Codex Lead
+    note: 阿克曼手册与代码复核、下一步派工；现行入口36第7节，仅文档
+  _tmp_session/TRACK-PAPER-MERGE-20261021:
+    status: 临时
+    owner: Codex Lead
+    note: 三大论文方案取舍与已交回B/D/E包的集成指令；仅文档，37文
+  _tmp_session/TRACK-R0-20261020-01:
+    status: 证据
+    owner: lead
+    note: 循迹限速离线复现原始证据；复核补登记，13例含4项缺陷，标定草案不可直接执行
+  _tmp_session/TRACK-R0-REVIEW-20261020:
+    status: 临时
+    owner: Codex Lead
+    note: R0独立复核及R1派工文档编制；不实施控制器修补
+  _tmp_session/TRACK-FIELD-PLAN-20261020:
+    status: 临时
+    owner: Codex Lead
+    note: 用户要求现场数据驱动，编制实车短段基线任务；本卡不发车
+  _tmp_session/TRACK-R1-REVIEW-20261020:
+    status: 临时
+    owner: Codex Lead
+    note: R1补丁独立复核、权限中断测试补证、人工部署及实车派工
+  _tmp_session/TRACK-FIELD-R2-20261020-01:
+    status: 证据
+    owner: lead
+    note: R2现场原始证据；部分完成，普通单弯及外部量测未完成，R2复核补登记
+  _tmp_session/TRACK-R2-REVIEW-20261020:
+    status: 临时
+    owner: Codex Lead
+    note: R2实车证据复核、R3补测与部署并行任务、进度及条件工期
+  _tmp_session/TRACK-R1-20261020-01:
+    status: 临时
+    owner: lead
+    note: 循迹 R1：Tracker 最终发布限速修补与离线回归（probe 副本/7 套/37 套证据；未部署）
   _tmp_session/gitee_air_ground:
     status: 活跃
     owner: 研究线

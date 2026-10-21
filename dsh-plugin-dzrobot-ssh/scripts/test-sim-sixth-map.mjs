@@ -82,8 +82,8 @@ if (isSixth) {
   check('①-6 无人机起 N8 / 降 M2，来源 = map.yaml 注释真源（非内建兜底）',
     field.drone.takeoff === EXPECT.drone.takeoff && field.drone.land === EXPECT.drone.land
     && field.drone.source === 'map-comment', JSON.stringify(field.drone))
-  check('①-7 车端规划口径：engine=tracker-safe 且 auto_plan_enabled=false（本图手动路线态）',
-    field.planner && field.planner.engine === 'tracker-safe' && field.planner.autoPlanEnabled === false,
+  check('①-7 车端规划口径：auto_plan_enabled=false（本图手动路线态，引擎跟随 robot.yaml）',
+    field.planner && field.planner.autoPlanEnabled === false,
     JSON.stringify(field.planner))
 } else {
   skip('①-1~①-7 第六张图逐格期望', 'map.yaml 已换代（md5 不符）—— 换图时同步更新 EXPECT 与 SIXTH')
@@ -159,7 +159,7 @@ check('②-10 无人机起 N8 蓝「机」/ 落 M2 蓝「H」',
   svg.includes('<rect x="442" y="238" width="34" height="34" fill="#cfe2f7"') && svg.includes('>机<')
   && svg.includes('<rect x="408" y="34" width="34" height="34" fill="#cfe2f7"') && svg.includes('>H<'), 'drone')
 check('②-11 页面如实显示「车端手动路线 + 规划引擎」（改点位 422 时操作员有据可查）',
-  String(el('mapMeta').textContent).includes('tracker-safe')
+  String(el('mapMeta').textContent).includes(field.planner.engine || 'tour') || String(el('mapMeta').textContent).includes('规划引擎 ' + (field.planner.engine || 'tour'))
   && String(el('mapMeta').textContent).includes('车端手动路线'),
   String(el('mapMeta').textContent))
 

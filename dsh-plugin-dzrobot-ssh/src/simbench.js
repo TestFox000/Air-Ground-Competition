@@ -760,7 +760,11 @@ export async function planRoute({ configPath, mapPath, timeoutMs = 300 * 1000, f
   if (engine) argv.push('--engine', engine)
   // 增量规划透传（from_cell / already_covered）——**声明了才传**，缺省逐字节不变。
   //   与 --engine 同链路：先引擎、后增量，白名单来自 CLI 真源，诉求/降级都进台账。
-  const incremental = appendIncrementalArgs(argv, { fromCell, alreadyCovered }, { cliPath }).applied
+  // 增量规划（--from-cell / --already-covered）仅 tracker-safe 引擎支持；tour 下不传以避免
+  // CLI argparse 硬拒（tools/plan_route.py:282-283）。
+  const incremental = engine === 'tracker-safe'
+    ? appendIncrementalArgs(argv, { fromCell, alreadyCovered }, { cliPath }).applied
+    : { flags: [], dropped: [], requested: [], supported: [] }
   const run = await runChild('python', argv, { cwd: SIM_ROOT, timeoutMs })
   let payload = null
   const open = run.stdout.indexOf('{')

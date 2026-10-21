@@ -704,6 +704,205 @@ def test_motion_limit_wiring() -> None:
 
 
 
+
+# --------------------------------------------------------------------------- #
+#  11b. ★R1 最终发布限速（六类分支的持久回归）
+# --------------------------------------------------------------------------- #
+def test_final_publish_motion_limit() -> None:
+    """★11b. R1 最终发布限速：普通/ALIGN(前进·倒车)/倒车/推车 × 零·低正上限·撤回。
+
+    背景：R0 探针在**修补前**复现了 ALIGN 与 PIVOT TURN 绕过 P_MOTION_LIMIT
+    （停止/低正上限时仍发 0.10/0.08，R0 报告 A2-02/03、P3-02/03）。R1 的补丁把
+    motion_limit_speed_limit(self.bb) 统一放到 tasks/tracker.py 唯一
+    publish_command 出口前；本组把探针的 ALIGN 失败用例固化成常驻回归，
+    并覆盖卡 §C 的另外三类 Tracker 分支（普通前进/普通倒车/倒车推车）。
+
+    ★ 负向控制（证明断言有牙）：删掉 tasks/tracker.py 654 行前的 _mlim_final
+      钳位块 → 本组 ALIGN 前进/倒车 的"零上限/低正上限"断言必红；普通分支由
+      controller 内读侧兜住（§11 已钉死）、推车分支由分支内保护兜住（§13.1）。
+    ★ 断言对象：bridge.commands[-1] 最终发布命令；同拍遥测 speed 必须与之相等
+      （不能只看 speed_reason —— R0 已证明它会与最终发布值分叉）。
+    """
+    section("11b. ★R1 最终发布限速：普通/ALIGN(前进·倒车)/倒车/推车 × 零·低正上限·撤回")
+    from dzbrain.route.model import make_route, Waypoint
+
+    DT = 0.02
+    N_BASE, N_INJ, N_REC, N_SEQ = 3, 6, 6, 20
+    inj_s = f"{N_INJ}拍/{N_INJ * DT:.2f}s"
+
+    def _seq(rig, n: int):
+        out = []
+        for _ in range(n):
+            rig.task.tick()
+            v, steer = rig.bridge.commands[-1]
+            tel = rig.task.telemetry()
+            out.append({"v": float(v), "steer": float(steer),
+                        "tel": tel.get("speed"), "reason": tel.get("reason_tag"),
+                        "align": tel.get("align"), "pivot": tel.get("pivot_phase"),
+                        "rev": tel.get("reverse"), "push": tel.get("rev_push")})
+            rig.clock.advance(DT)
+        return out
+
+    def _same_as_published(seq) -> bool:
+        return all(r["tel"] is not None and abs(float(r["tel"]) - r["v"]) <= 1e-12
+                   for r in seq)
+
+    def _branch(seq, *, align: bool, pivot: str, rev: bool, push: bool) -> bool:
+        return all(r["align"] is align and r["pivot"] == pivot
+                   and r["rev"] is rev and r["push"] is push for r in seq)
+
+    def _vs(seq) -> str:
+        return "[" + ", ".join(f"{r['v']:.3f}" for r in seq) + "]"
+
+    # ---- 各分支构造器（每个 case 独立 Rig / Blackboard / FakeClock）----
+    normal_cfg = cfg_of(cruise_speed_mps=0.30, max_steer_deg=30.0)
+    align_cfg = cfg_of(cruise_speed_mps=0.15, align_kp=12.0, align_steer_limit_deg=8.0,
+                       align_straight_speed_mps=0.10, align_straight_before=2.0,
+                       align_straight_after=1.0)
+    rev_cfg = cfg_of(cruise_speed_mps=0.15, reverse_speed_ratio=0.6, reverse_steer_sign=1.0)
+    push_cfg = cfg_of(pivot_enabled=True, bridge_blocks=[])
+
+    fx, fy = geo.block_to_meters("F6")
+    kx, ky = geo.block_to_meters("K6")
+    k5x, k5y = geo.block_to_meters("K5")
+    _ux, _uy = (k5x - kx) / 0.35, (k5y - ky) / 0.35          # K6 → K5 单位向量
+    m10x, m10y = geo.block_to_meters("M10")
+
+    def mk_normal():
+        return Rig(cfg=normal_cfg, route=route_of("N10", "M10", "L10", "K10", "J10"),
+                   pose=(0.525, 0.355, geo.HEADING_Y))
+
+    def mk_align_fwd():
+        # F6→K6→F6：K6 命中 bridge_blocks → 段 0/1 都是保护段（与 R0 探针 A 组同构）。
+        return Rig(cfg=align_cfg, route=route_of("F6", "K6", "F6"),
+                   pose=((fx + kx) / 2.0, (fy + ky) / 2.0, geo.heading_of(kx - fx, ky - fy)))
+
+    def mk_align_rev():
+        # F6→K6 前进段 + K6→R:K5 倒车段：两段都在保护集合 {0,1} 内，真走 ALIGN 倒车分支。
+        return Rig(cfg=align_cfg, route=parse_mission(["F6", "K6", "R:K5"]),
+                   pose=(kx + _ux * 0.25, ky + _uy * 0.25, geo.heading_of(-_ux, -_uy)))
+
+    def mk_rev():
+        return Rig(cfg=rev_cfg,
+                   route=make_route([Waypoint.at_block("B5"),
+                                     Waypoint.at_block("B6", reverse=True),
+                                     Waypoint.at_block("B7", reverse=True)]),
+                   pose=(2.1, 4.375, geo.rad(180.0)))
+
+    def _arm_push(rig) -> None:
+        """既有 §13.1 夹具：冻结位姿下自然入口会把 s_floor 抬到顶点、下一拍投影必切倒车段，
+        故"持续多拍"的推车态用注入建立（入口本身另由 11b.0 与既有 §12/§13.3 覆盖）。"""
+        pose = rig.bb.get(P_POSE)
+        t = rig.task
+        t._rev_push_active = True
+        t._rev_push_started_at = rig.clock.now()
+        t._rev_push_xy = (pose.x, pose.y)
+        t._rev_push_heading = geo.HEADING_Y
+        t._rev_push_seg = 0
+        t.rev_push_ticks = 0
+
+    def mk_push():
+        rig = Rig(cfg=push_cfg, route=parse_mission(["N10", "M10", "R:N10"]),
+                  pose=(m10x, m10y - 0.18, geo.HEADING_Y))
+        rig.task.tick()          # 0.18 m 在入口阈值(0.06)之外：只建立投影，不进推车
+        rig.clock.advance(DT)
+        _arm_push(rig)
+        return rig
+
+    # 11b.0 推车入口仍真的能进（禁止只靠注入充数）
+    rig_nat = Rig(cfg=push_cfg, route=parse_mission(["N10", "M10", "R:N10"]),
+                  pose=(m10x, m10y - 0.03, geo.HEADING_Y))
+    nat = _seq(rig_nat, 1)
+    check("11b.0 倒车推车自然入口：1 拍内命中 reverse_entry、速度 -0.08（真分支，不是只注入）",
+          abs(nat[0]["v"] + 0.08) <= 1e-9 and nat[0]["push"] is True
+          and nat[0]["reason"] == "reverse_entry",
+          f"v={nat[0]['v']!r} push={nat[0]['push']} reason={nat[0]['reason']!r}")
+
+    cases = (
+        ("普通前进", mk_normal, 0.30, 0.04, 0.04, "cruise",
+         dict(align=False, pivot="IDLE", rev=False, push=False)),
+        ("ALIGN前进", mk_align_fwd, 0.10, 0.05, 0.05, "align",
+         dict(align=True, pivot="IDLE", rev=False, push=False)),
+        ("ALIGN倒车", mk_align_rev, -0.10, 0.05, -0.05, "align",
+         dict(align=True, pivot="IDLE", rev=True, push=False)),
+        ("普通倒车", mk_rev, -0.09, 0.05, -0.05, "cruise",
+         dict(align=False, pivot="IDLE", rev=True, push=False)),
+        ("倒车推车", mk_push, -0.08, 0.06, -0.06, "reverse_entry",
+         dict(align=False, pivot="IDLE", rev=False, push=True)),
+    )
+    for label, mk, base_v, half_limit, half_v, base_reason, ev in cases:
+        rig = mk()
+        base = _seq(rig, N_BASE)
+        check(f"11b {label}：无限速基线 {base_v:+.2f}×{N_BASE}拍，命中分支、reason_tag={base_reason!r}",
+              all(abs(r["v"] - base_v) <= 1e-9 for r in base)
+              and all(r["reason"] == base_reason for r in base)
+              and _branch(base, **ev) and _same_as_published(base),
+              f"v={_vs(base)} reason={[r['reason'] for r in base]}")
+
+        rig.bb.set(P_MOTION_LIMIT, {"speed_mps": 0.0, "reason": "r1_zero"}, "test")
+        zero = _seq(rig, N_INJ)
+        check(f"11b {label}：零上限（{inj_s}）→ 每拍发布 0.0（不被 min_speed 顶回），分支证据不变",
+              all(abs(r["v"]) <= 1e-12 for r in zero)
+              and _branch(zero, **ev) and _same_as_published(zero),
+              f"v={_vs(zero)} reason={sorted({r['reason'] for r in zero})}")
+
+        rig.bb.set(P_MOTION_LIMIT, {"speed_mps": half_limit, "reason": "r1_half"}, "test")
+        half = _seq(rig, N_INJ)
+        sign_ok = (all(r["v"] < 0.0 for r in half) if half_v < 0.0
+                   else all(r["v"] > 0.0 for r in half))
+        check(f"11b {label}：低正上限 {half_limit:.2f}（{inj_s}）→ 钳到 {half_v:+.2f} 且保号",
+              all(abs(r["v"] - half_v) <= 1e-9 for r in half) and sign_ok
+              and _branch(half, **ev) and _same_as_published(half),
+              f"v={_vs(half)} reason={sorted({r['reason'] for r in half})}")
+
+        rig.bb.set(P_MOTION_LIMIT, None, "test")
+        rec = _seq(rig, N_REC)
+        check(f"11b {label}：撤回（None，{N_REC}拍）→ 恢复 {base_v:+.2f}，分支证据不变",
+              all(abs(r["v"] - base_v) <= 1e-9 for r in rec)
+              and _branch(rec, **ev) and _same_as_published(rec),
+              f"v={_vs(rec)} reason={sorted({r['reason'] for r in rec})}")
+
+    # ---- 11b.6 无信号/非法载荷/高于基线：相同初态下速度+转向序列必须逐位一致 ----
+    payloads = (None, "not-a-dict", {}, {"speed_mps": "0.05"},
+                {"speed_mps": float("nan")}, {"speed_mps": float("inf")},
+                {"speed_mps": float("-inf")}, {"speed_mps": -0.05},
+                {"speed_mps": True}, {"speed_mps": 999.0})
+    for label, mk, *_rest in cases:
+        control = [(r["v"], r["steer"]) for r in _seq(mk(), N_SEQ)]
+        mismatches = []
+        for payload in payloads:
+            rig = mk()
+            rig.bb.set(P_MOTION_LIMIT, payload, "test")
+            got = [(r["v"], r["steer"]) for r in _seq(rig, N_SEQ)]
+            if got != control:
+                idx = next((i for i, (a, b) in enumerate(zip(got, control)) if a != b), -1)
+                mismatches.append(f"{payload!r}@{idx}")
+        check(f"11b {label}：无信号/非法/高于基线 {len(payloads)} 种载荷 × {N_SEQ} 拍 → 序列逐位一致",
+              not mismatches, f"mismatch={mismatches[:3]}")
+
+    # ---- 11b.7 Safety 非 OK 对照（只证门控，不替代限速测试）----
+    rig_gate = Rig(cfg=normal_cfg, route=route_of("N10", "M10", "L10"),
+                   pose=(0.525, 0.355, geo.HEADING_Y),
+                   safety=SafetyState(ok=False, reasons=("R1 门控对照",)))
+    rig_gate.bb.set(P_MOTION_LIMIT, {"speed_mps": 0.50}, "test")
+    gate = _seq(rig_gate, 3)
+    check("11b.7 Safety 非 OK + 正上限 0.50：仍只发刹车（最终 (0,0)，无运动指令起步）",
+          all(r["v"] == 0.0 for r in gate) and rig_gate.bridge.brakes >= 3
+          and not rig_gate.bridge.moved_commands(),
+          f"v={_vs(gate)} brakes={rig_gate.bridge.brakes} "
+          f"moved={rig_gate.bridge.moved_commands()[:2]}")
+
+    # ---- 11b.8 已停车分支不得因正上限起步（过冲拒绝分支显式 0）----
+    rig_stop = Rig(cfg=push_cfg, route=parse_mission(["N10", "M10", "R:N10"]),
+                   pose=(m10x, m10y + 2.0, geo.HEADING_Y))
+    rig_stop.bb.set(P_MOTION_LIMIT, {"speed_mps": 0.50}, "test")
+    stopped = _seq(rig_stop, 5)
+    check("11b.8 已停车分支（rev_push 过冲拒绝）+ 正上限 0.50：保持 0、不起步",
+          all(abs(r["v"]) <= 1e-12 for r in stopped)
+          and all(r["reason"] == "rev_push_over_limit" for r in stopped),
+          f"v={_vs(stopped)} reason={sorted({r['reason'] for r in stopped})}")
+
+
 def test_rev_push_closed_loop() -> None:
     """★12. 倒车入口闭环推车（卡 t17）：底盘速度一阶平滑下仍必须进倒车段。
 
@@ -1025,6 +1224,7 @@ def main() -> int:
     test_arc_floor_no_oscillation()
     test_projection_relock()
     test_motion_limit_wiring()
+    test_final_publish_motion_limit()
     test_rate()
     test_rev_push_closed_loop()
     test_rev_push_safety_gates()

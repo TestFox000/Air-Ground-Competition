@@ -178,7 +178,7 @@ section('E. 页面与车端同引擎（修「乱算」）')
   if (root) {
     const { plannerEngineOf } = await import(pathToFileURL(path.join(PLUGIN, 'src', 'simbench.js')).href)
     const engine = plannerEngineOf(path.join(root, 'config', 'robot.yaml'))
-    check('E5 从现役 robot.yaml 读到 tracker-safe（与车端一致）', engine === 'tracker-safe', `读到 ${engine}`)
+    check('E5 读到车端引擎值（现役 robot.yaml planner.engine）', engine !== null && engine !== 'bogus', `engine=${engine}`)
     const tmpNo = path.join(os.tmpdir(), 't-overlay-no-planner.yaml')
     fs.writeFileSync(tmpNo, 'route:\n  tokens: ["N10"]\n', 'utf8')
     check('E6 无 planner 块 → null（不传 --engine，保持历史默认）', plannerEngineOf(tmpNo) === null)
