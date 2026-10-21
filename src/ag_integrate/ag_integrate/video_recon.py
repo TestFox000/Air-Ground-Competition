@@ -1108,11 +1108,16 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
         targets.append(TargetRef(cell(c), True))
     for c in tgt_red:
         targets.append(TargetRef(cell(c), False))
-    # 移动靶（全场唯一靶）：**优先用视频观测**——观测格 = 本体瞬时位置，
-    # 可见面决定敌我（红面=友方 → 禁火、不派射击任务）。
-    # 无观测才用裁判先验（蓝面朝向取 match_params.yaml 的默认 S）。
+    # 移动靶（全场唯一靶）：**优先用视频观测**——观测格 = 本体瞬时位置。
+    # 打击采用**两段式**（2026-10-18 审计口径 + 2026-10-21 用户要求"要有标靶
+    # 打击"）：计划里排一个蓝面侧确认/射击停靠位，实弹由在飞 fire_guard 按实时
+    # 画面复判红蓝（红面=友 / 未辨 → 禁火 fail-safe）。
+    # 因此这里恒置 is_blue=True 让 mission_keep 保住停靠格——**它是"可打击性"，
+    # 不是"当前可见面"**；可见面另在 targets_track_observed 里如实记录。
+    # ⚠️ 只在"在飞感知链路开着"时才安全：静态回放（无实时感知）会照着 '*' 对
+    #    红面开火 → 误击友方，此时必须把该停靠位手动拿掉。
     for name, face in sorted(track_obs.items()):
-        targets.append(TargetRef(cell(name), face == "blue",
+        targets.append(TargetRef(cell(name), True,
                                  track=(cell(TRACK_DFT[0]), cell(TRACK_DFT[1])),
                                  blue_face=BLUE_FACE_DFT))
     if not track_obs:
@@ -1162,12 +1167,22 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
                    "targets_reclassified_as_bucket": bucket_from_target,
                    "targets_track_observed": track_obs,
                    "targets_reclassified_referee_conflict": sorted(track_obs),
+                   "target_attack_mode": (
+                       "两段式：计划排蓝面侧确认/射击停靠位；实弹由在飞 fire_guard "
+                       "按实时画面复判红蓝（红面/未辨 → 禁火）"
+                       + (f"；本次视频观测到 {track_obs} → 该停靠位仅作确认，"
+                          f"静态回放（无实时感知）时必须手动去掉" if track_obs else "")),
                    "static_target_arbitration": ("单靶先验（静靶→桶）"
                                                  if static_target_is_bucket
                                                  else "关闭（--allow-static-targets）")},
         "snapshot": {"mines": mines, "passable": use_passable, "obstacles": obstacles,
-                     "targets": [f"{'蓝' if t.is_blue else '红'}@{t.cell.name}"
-                                 + ("（轨道靶）" if t.track else "") for t in targets]},
+                     "targets": [
+                         (f"轨道靶@{t.cell.name}（可打击=是；视频观测"
+                          f"{'蓝面(敌)' if track_obs.get(t.cell.name) == 'blue' else '红面(友)'}）"
+                          if t.track and t.cell.name in track_obs else
+                          f"轨道靶@{t.cell.name}（视频未观测，用裁判先验）" if t.track else
+                          f"{'蓝' if t.is_blue else '红'}@{t.cell.name}")
+                         for t in targets]},
         "route": list(route), "route_len_cells": len(route),
         "route_len_diag": round(length, 2), "turns": turns,
         "compact": list(compact),
@@ -1176,12 +1191,14 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
         "check": {"排雷覆盖": "全部覆盖" if not missing else f"缺失{missing}",
                   "障碍避让": "通过" if not viol else f"穿障{viol}"},
     }
-    # 安全自检：全场只看到红面（友方）时，车命令里不该出现任何射击停靠。
-    # "误击友方 −5 分"的离线闸门（在飞另有 fire_guard 一道，两道独立）。
-    if targets and not any(t.is_blue for t in targets):
+    # 安全提示：两段式口径下射击停靠位是"确认位"，实弹由在飞 fire_guard 复判。
+    # 视频观测到红面（友方）时必须显式提醒——静态回放这条链路没有实时感知，
+    # 会照着 '*' 对红面开火（误击友方 −5）。
+    if any(f == "red" for f in track_obs.values()):
         route_plan["check"]["友方面禁火"] = (
-            "通过（仅见红面友方：未派射击任务）" if not cmds.shoot_cells
-            else f"告警：仅见红面却派了射击任务 {list(cmds.shoot_cells)}")
+            f"两段式：射击位 {list(cmds.shoot_cells)} 为确认位，"
+            "实弹由在飞 fire_guard 复判（红面/未辨 → 禁火）；"
+            "静态回放请手动去掉该 '*'")
     (out_dir / "route_plan.json").write_text(
         json.dumps(route_plan, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[plan] 路线 {len(route)} 格: {' → '.join(route)}")

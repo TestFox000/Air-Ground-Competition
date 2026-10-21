@@ -156,13 +156,14 @@ def test_arbitrate_can_be_disabled():
     assert obs == {"E7": "red"}             # 轨道观测仍生效
 
 
-def test_plan_red_face_track_target_forbids_shooting(tmp_path):
-    """端到端：静靶并入障碍、轨道靶按可见面定敌我、红面**禁火且不派射击任务**。
+def test_plan_red_face_track_target_keeps_two_stage_attack(tmp_path):
+    """端到端：静靶并入障碍、轨道靶保留**两段式打击位**，红面观测如实留痕。
 
-    修复前（2026-10-21 机上全量跑的实况）：5 个"靶"里 4 个是桶，且因为 targets
-    非空，移动靶先验根本没注入；更糟的是首版裁决把 E7 当"误投影"剔除后**补了
-    蓝面朝南的先验** → 车会去 D8 停靠打一个实际红面（友方）的靶 = 误击友方。
-    用户当场纠正："e7 靶子，但红色靶面为队友"。
+    2026-10-21 用户两次纠正后的口径：
+      ① "e7 靶子，但红色靶面为队友" → 红面不能打；
+      ② "这里面没有标靶打击" → 计划里必须留打击环节。
+    两者同时满足的形态 = 两段式：计划排蓝面侧确认/射击停靠位（`*` 在），
+    实弹由在飞 fire_guard 按实时画面复判（红面/未辨 → 禁火）。
     """
     state = _state(mines=["F5"], passable=["K10"], obstacles=["C9"],
                    red=["D5", "E7"], blue=["B7", "D11"])
@@ -171,24 +172,38 @@ def test_plan_red_face_track_target_forbids_shooting(tmp_path):
     src = plan["source"]
     assert src["targets_reclassified_as_bucket"] == ["B7", "D11", "D5"]
     assert src["targets_track_observed"] == {"E7": "red"}
+    assert "两段式" in src["target_attack_mode"]
     snap = plan["snapshot"]
-    assert snap["targets"] == ["红@E7（轨道靶）"], snap["targets"]
+    assert snap["targets"] == ["轨道靶@E7（可打击=是；视频观测红面(友)）"], snap["targets"]
     assert set(["B7", "D11", "D5"]).issubset(set(snap["obstacles"]))
     assert "E7" not in snap["obstacles"], "靶本体（轨道格）不该被当桶"
-    # 安全红线：红面友方 → 不派射击任务、命令里没有 '*'
-    assert plan["car_cmds"]["shoot_cells"] == []
-    assert "*" not in plan["car_cmds"]["route"]
-    assert plan["check"]["友方面禁火"].startswith("通过")
-    # 轨道本体不可通行（靶格）
+    # 打击环节必须在：蓝面侧停靠位 + 命令里的 '*'
+    assert plan["car_cmds"]["shoot_cells"], "两段式必须排确认/射击停靠位"
+    assert "*" in plan["car_cmds"]["route"]
+    # 红面观测必须显式提醒（静态回放会误击）
+    assert "两段式" in plan["check"]["友方面禁火"]
+    assert "手动去掉" in plan["check"]["友方面禁火"]
+    # 轨道本体不可通行（靶格）；停靠位在蓝面侧（轨道端点的南邻）
     assert "E7" not in plan["route"] and "D7" not in plan["route"]
+    assert set(plan["car_cmds"]["shoot_cells"]) <= {"D8", "E8"}
 
 
 def test_plan_blue_face_track_target_allows_shooting(tmp_path):
-    """反向守卫：轨道靶观测到蓝面（敌）时必须生成射击停靠与 '*'，别把该打的不打。"""
+    """反向守卫：轨道靶观测到蓝面（敌）时同样排射击停靠，且无红面提醒。"""
     state = _state(mines=["F5"], passable=["K10"], obstacles=["C9"],
                    red=[], blue=["E7"])
     plan = vr.plan_from_state(state, tmp_path)
-    assert plan["snapshot"]["targets"] == ["蓝@E7（轨道靶）"]
+    assert plan["snapshot"]["targets"] == ["轨道靶@E7（可打击=是；视频观测蓝面(敌)）"]
     assert plan["car_cmds"]["shoot_cells"], "蓝面敌靶应派射击停靠"
     assert "*" in plan["car_cmds"]["route"]
     assert "友方面禁火" not in plan["check"]
+
+
+def test_plan_without_track_observation_uses_referee_prior(tmp_path):
+    """视频没拍到靶：按裁判先验补轨道靶（蓝面朝南），照常排射击位。"""
+    state = _state(mines=["F5"], passable=["K10"], obstacles=["C9"],
+                   red=[], blue=[])
+    plan = vr.plan_from_state(state, tmp_path)
+    assert plan["snapshot"]["targets"] == ["轨道靶@D7（视频未观测，用裁判先验）"]
+    assert plan["source"]["targets_track_observed"] == {}
+    assert "*" in plan["car_cmds"]["route"]

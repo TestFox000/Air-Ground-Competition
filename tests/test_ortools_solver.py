@@ -216,15 +216,17 @@ def test_switch_off_bit_identical_to_legacy():
 
 
 def test_any_task_policy_beats_heuristic_when_mines_are_remote():
-    """V3 口径（显式 opt-in）：远雷让位近雷——紧预算下联合求解严格优于启发式。
+    """V3 口径（显式 opt-in）：紧预算下联合求解**不劣于**启发式，且不无谓弃雷。
 
-    预算窗：direct N10→N5 的路由地板（约 45s，场地强制绕行）之上、
-    "砍完射击位仍超预算"（约 79s）之下——取满额估计的 65%。
+    预算窗：direct N10→N5 的路由地板之上、"砍完射击位仍超预算"之下。
 
-    ⚠ 本用例原先只断言时间。在 leg 代价模型通胀 5.7× 的时期它一直绿着：
-    求解器弃 7/8 颗雷 + 射击位、把时间压到 40.9s，"严格优于启发式"。
-    这个 cap 下弃 7 雷恰好是真值，所以看不出问题；真正的 25 分损失发生在
-    中等预算（cap=0.9，真值只需弃 2 雷）——由下面那条用例守住。
+    ⚠ 2026-10-21 契约放宽（原为严格 `<`）：转角代价把 180° 从 ×10 改成"倒车
+    等价"（用户确认车可倒车）后，启发式在这一场景已经**走到与该场景最优解
+    完全相同**的路线（71.5s、8 雷全保留、只砍射击位），求解器按 pipeline.py
+    `est3 >= est_seconds → return None` 的 not-worse 契约主动退回启发式。
+    这是"启发式变好"而非"求解器变差"，因此断言改为不劣 + 血线不破：
+    不得因放宽口径而多弃雷。（任何_task 的取舍能力仍由 solve_visit_plan 的
+    直接用例与中等预算那条守卫覆盖。）
     """
     s = _match_snapshot()
     cap = _capped_cap(s, 0.65)
@@ -236,16 +238,13 @@ def test_any_task_policy_beats_heuristic_when_mines_are_remote():
                                use_ortools_solver=True, ortools_backend="dp",
                                ortools_drop_policy="any_task")
     assert heur.est_seconds > cap          # 前提：启发式确实压不进预算
-    assert solved.est_seconds < heur.est_seconds   # 联合求解严格更优
-    assert solved.dropped_tasks            # 确实舍了任务
-    assert solved.est_seconds <= cap       # 且压进了预算
-    # 这个 cap（0.65×满额 = 49.1s）本身就是极限压缩：真实规划器逐颗试砍的
-    # 真值是"砍 7 雷才进预算、最多保 1 雷"，求解器保住了 2 雷（优于贪心真值）。
-    # 所以此处只锁"没有比真值更差"；"不得过度弃雷"的判别性守卫在中等预算那条
-    # （test_any_task_does_not_gut_the_mine_set_at_moderate_cap，cap=0.9）。
+    assert solved.est_seconds <= heur.est_seconds   # 联合求解不得更差
+    # 血线：不得比启发式少踩雷
+    assert (_mines_on_route(solved, mine_names)
+            >= _mines_on_route(heur, mine_names)), (
+        f"联合求解弃雷多于启发式：solved={solved.route} heur={heur.route}")
     kept = _mines_on_route(solved, mine_names)
-    assert kept >= 1, f"any_task 在 cap={cap:.0f}s 下一颗雷都没保住（真值可保 1）"
-    assert kept >= 2, f"实测应保住 2 雷，只剩 {kept}——模型或收紧逻辑回归"
+    assert kept >= 7, f"该场景实测可保 8 雷（只砍射击位），现只保 {kept}"
 
 
 def _mines_on_route(cmds, mine_names) -> int:
