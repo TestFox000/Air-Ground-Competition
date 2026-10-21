@@ -17,6 +17,22 @@
 *.xml   text eol=lf
 *.json  text eol=lf
 
+# C++ 源码同样要锁 LF：onboard/dzuav/** 是被 orin_deploy.py 逐字节 sftp 上机、
+# 在 Jetson 上编译的，属于上面那句「凡是要上车跑的」的范围，首版漏了这两个后缀。
+# 后果不是编译失败（g++ 吃得下 CRLF），而是**对账失效**：
+# tools/orin_deploy_gate.py 打印的 md5 取自本机工作区字节，Windows 检出成 CRLF 后
+# 与 Linux 侧同一份源码的 md5 不同（实测 main.cpp：CRLF 4e2b679b… / LF fa4e2cca…）。
+# 现场看到「md5 不一致」会先怀疑部署坏了，而其实只是行尾。
+# 锁 LF 是**零 blob 改动**的：入库的那份本来就是 LF（core.autocrlf 在提交时已归一），
+# 变的只有 Windows 检出的工作区副本。
+*.cpp   text eol=lf
+*.cc    text eol=lf
+*.cxx   text eol=lf
+*.hpp   text eol=lf
+*.h     text eol=lf
+*.hh    text eol=lf
+*.c     text eol=lf
+
 # Windows 双击入口：必须 CRLF
 *.bat   text eol=crlf
 

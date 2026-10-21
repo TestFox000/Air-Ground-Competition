@@ -21,10 +21,16 @@ build_verify 产物在仓库内）。本脚本统一约定为【仓库形状】�
     python tools/orin_deploy.py --host ... --all-models       # 推整个 release（含历史版本）
     python tools/orin_deploy.py --host ... --verify           # 部署后远程 L1 编译+L2 自检
 
+推送前会先跑 tools/orin_deploy_gate.py（源码完整性闸门，本地只读）：锚点缺失
+即拒绝部署——防的是 fix_live_hud.py --deploy 那类「用旧源码覆盖机上已修文件」
+的事故。明知要推旧树：ALLOW_STALE_SOURCE=1。
+
 部署完成后在 Orin 上（脚本会打印）:
     cd ~/dzuav_deploy/air_ground
+    python3 tools/orin_deploy_gate.py --root .              # 对账落地那份 == 送出那份
     tools/orin_convert_engines.sh -o ~/dzuav/engines   # ONNX -> TRT FP16（换机/刷机后必跑）
     tools/orin_build_verify.sh                        # L0~L2 分层验证
+    tools/orin_camera_smoke.sh                        # L4 相机路径验收（main.cpp 的 runCamera）
     tools/orin_bringup.sh up                          # 全栈启动（tmux）
 
 依赖: pip install paramiko（连接/SFTP 复用 tools/remote_run.py 的原语与重试约定）
@@ -48,6 +54,9 @@ REMOTE_ROOT = "~/dzuav_deploy/air_ground"
 POINTER_FILES = ("current_hbb_detector", "current_cell_classifier")
 
 # 机载 Python 工具全量名单（显式登记，新增 orin_*.py 时同步加进来）：
+#   orin_deploy_gate.py     部署前源码完整性闸门（本脚本第 0 步已在本地跑过一遍）；
+#                           上机再跑一次是对账「机上落地那份 == 本地送出那份」，
+#                           闸门自己的通过提示就印着这条命令，不推上去等于假承诺。
 #   orin_flight_blackbox.py   飞行黑匣子：PX4 遥测/控制指令 JSONL 落盘 + UDP 镜像
 #                             （flight_console.py 也会自动上传，此处兜底）
 #   orin_log_capture.py       dzuav stdout -> JSONL（uav_link 健康通道优先读它；
@@ -63,6 +72,7 @@ POINTER_FILES = ("current_hbb_detector", "current_cell_classifier")
 # 部署包内亦无对应文件，故不列入——显式登记 + 部署前缺失校验，
 # 漏传在本地即被拦下，不再靠机上 bringup 亮红灯才发现。
 ORIN_PY_TOOLS = (
+    "orin_deploy_gate.py",
     "orin_flight_blackbox.py",
     "orin_log_capture.py",
     "orin_plan_sidecar.py",
@@ -78,6 +88,24 @@ def read_password(args) -> str:
     """密码守卫已收编到 remote_run.read_password（2026-10-17 横切扫描）；
     本壳保留仅为向后兼容，语义不变：--password > AG_ORIN_PASS > 交互提问。"""
     return remote_run.read_password(args, env_name="AG_ORIN_PASS")
+
+
+def run_source_gate() -> int:
+    """第 0 步：本地跑源码完整性闸门，返回闸门的退出码（0 = 可以部署）。
+
+    为什么放在部署脚本里而不是靠人记得先跑一遍：2026-10-20 的实机事故是
+    仓外那份 fix_live_hud.py --deploy 把硬编码的 kimi 树 main.cpp 覆盖到机上，
+    界面上毫无异常，直到复盘才发现机上跑的是回退后的旧逻辑。它 2026-10-21
+    补了「汇流硬门」，但门只查 jpegdec / DZUAV_VIEW 两个能力标记，本闸门的
+    11 条锚点一条都不在其中——两道门验的不是一件事。部署这一步是「树上机」
+    的唯一通道，闸门挂在这里才拦得住所有路径。
+
+    闸门失败时**不改判**（它照原样打印失败），由本层决定是否放行：
+    ALLOW_STALE_SOURCE=1 = 明知这棵树缺锚点仍要推，与 orin_bringup.sh 的
+    ALLOW_STRAY、orin_build_verify.sh 的 ALLOW_ENGINE_FALLBACK 同一套口径。
+    """
+    import orin_deploy_gate  # noqa: PLC0415  仅部署时用，放函数内避免 import 期副作用
+    return orin_deploy_gate.main(["--root", str(REPO)])
 
 
 def resolve_current_models() -> list[tuple[Path, str]]:
@@ -125,6 +153,21 @@ def main(argv=None) -> int:
 
     if not args.user:
         ap.error("需要 --user（或设 AG_ORIN_USER 环境变量）；Jetson 出厂常见为 nvidia，以实际为准")
+
+    # ---- 0. 源码完整性闸门（本地、只读、不碰凭据也不建连接） ----
+    # 放在 read_password 之前：闸门红了就不该让人输密码，更不该建 SSH 连接。
+    print("==> 第 0 步：源码完整性闸门（确认待部署的树带着全部已知修复）")
+    gate_rc = run_source_gate()
+    if gate_rc != 0:
+        if os.environ.get("ALLOW_STALE_SOURCE") != "1":
+            print("\n[失败] 源码闸门未通过，**拒绝部署**。", file=sys.stderr)
+            print("       修好缺的锚点再推；确要推这棵树就 ALLOW_STALE_SOURCE=1 重跑"
+                  "（后果自负：机上会跑回旧逻辑，且界面看不出异常）。", file=sys.stderr)
+            return 1
+        print("\n[警告] 源码闸门未通过，但 ALLOW_STALE_SOURCE=1 —— 继续部署。"
+              "机上这份**不是**修复后的版本，别拿它出验收结论。", file=sys.stderr)
+    print()
+
     pw = read_password(args)
     host, user, port = args.host, args.user, args.port
 
@@ -227,7 +270,11 @@ def main(argv=None) -> int:
     print(
         "\n==================== 部署完成 ====================\n"
         "在 Orin 上按序执行：\n"
+        "  python3 tools/orin_deploy_gate.py --root ~/dzuav_deploy/air_ground\n"
+        "                                                  # 对账：机上落地那份 == 本地送出那份\n"
         "  tools/orin_build_verify.sh                          # L0~L2；加 --run <engines> <图> 做 L3\n"
+        "  tools/orin_camera_smoke.sh --no-camera              # L4 前半：退出码/spec 严格性（不接相机）\n"
+        "  tools/orin_camera_smoke.sh                          # L4 全量：接相机验协商尺寸/帧率/断流重开\n"
         "  tools/orin_accept_plan.sh                           # 机载规划一键验收（只写 /tmp）\n"
         "  tools/orin_bringup.sh up                            # 全栈启动（规划默认只落盘）\n"
         "  PLAN_SEND=1 tools/orin_bringup.sh up                # 确认产物后再开 0x4003 实发\n"
@@ -237,6 +284,12 @@ def main(argv=None) -> int:
         "   它按 models/release 的 7 类指针重新生成 hbb_detector_fp16 / cell_classifier_fp16，\n"
         "   会覆盖并不可逆地降级现网 13 类引擎（类别索引错位 → 障碍被当蓝靶）。\n"
         "   仅换机/刷机后机上确实没有任何引擎时才使用。\n"
+        "⚠️ 慎用仓外的 fix_live_hud.py --deploy（在 Trae-CN\\default 工作区，不在本仓、\n"
+        "   本部署也不推它）：它会把硬编码的 kimi 树那份 main.cpp 覆盖到机上。\n"
+        "   它 2026-10-21 加的「汇流硬门」只查 jpegdec / DZUAV_VIEW 两个能力标记，\n"
+        "   **本闸门的 11 条锚点一条都不在里面** —— 过了它的门 ≠ 带着修复。\n"
+        "   要改 HUD 就走正常提交 + 本脚本重推，别在机上就地打补丁。\n"
+        "   跑完它务必在机上重跑一次本闸门对账（上面第一条命令）。\n"
         "无无人机时车端自测：tools/fake_udp_sender.py --scenario \"...\"\n"
         "====================================================")
     return 0
