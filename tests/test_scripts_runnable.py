@@ -147,6 +147,42 @@ def test_find_model_falls_back_to_glob_entry(tmp_path, monkeypatch):
     assert got == newer, "glob 项没有取最新的一份"
 
 
+# ---------------------------------------------------------------- 模型契约自检
+def test_detector_rejects_7class_model():
+    """7 类旧模型（11 通道）必须当场拒绝，不许跑成"全坏帧 + rc=0"的假绿。
+
+    2026-10-21 机上实测：机上 models/release 留着早期部署的 7 类指针副本，
+    优先级高于 ~/dzuav/models 的 13 类模型；逐帧异常隔离把每帧的 IndexError
+    全吞掉，态势全空、路线照出、退出码 0——最危险的一种"看起来成功"。
+    """
+    bad = REPO / "models" / "release" / "hbb_detector_7cls_local_20261013.onnx"
+    if not bad.is_file():
+        pytest.skip("留档的 7 类模型不在本机（.gitignore 不入库）")
+    with pytest.raises(ValueError) as ei:
+        vr.D13Detector(bad)
+    msg = str(ei.value)
+    assert "11 通道" in msg and "--d13" in msg, msg
+
+
+def test_open_first_valid_skips_bad_candidate(capsys):
+    """坏候选要跳过并继续，且每次拒绝都打印原因（否则"为什么没用指针那份"查不清）。"""
+    bad = REPO / "models" / "release" / "hbb_detector_7cls_local_20261013.onnx"
+    good = REPO / "models" / "release" / "hbb_detector_d13_20261016.onnx"
+    if not (bad.is_file() and good.is_file()):
+        pytest.skip("本机缺 7 类留档或 13 类现役模型")
+    got = vr._open_first_valid([bad, good], vr.D13Detector, " d13 ")
+    assert Path(got.model_path) == good
+    assert "未通过契约自检" in capsys.readouterr().out
+
+
+def test_v4d_contract_probe_accepts_canonical_model():
+    v4d = REPO / "models" / "release" / "cell_classifier_v4d_20261015.onnx"
+    if not v4d.is_file():
+        pytest.skip("本机缺 v4d 模型")
+    reader = vr.V4dReader(v4d)
+    assert Path(reader.model_path) == v4d
+
+
 # ---------------------------------------------------------------- 无 CJK 降级
 def test_render_degrades_to_ascii_without_cjk_font(tmp_path, monkeypatch):
     """精简镜像（无中文字体）：渲染必须退化成 ASCII，不许 UnicodeEncodeError。

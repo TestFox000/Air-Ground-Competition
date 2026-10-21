@@ -404,6 +404,47 @@ class D13Detector:
         # anchor-free：每个 stride 层每格 1 个点
         self.n_anchors = sum((self.imgsz // s) ** 2 for s in (8, 16, 32))
         self.model_path = str(onnx_path)
+        self._probe_contract()
+
+    def _probe_contract(self) -> None:
+        """构造期契约自检：通道数必须是 13 类（17=4+13），分辨率自动对齐。
+
+        为什么必须在这里查（2026-10-21 机上实测事故）：机上 `~/dzuav/models`
+        同时躺着 7 类旧模型与 13 类模型，指针/glob 一旦选中 7 类（11 通道），
+        `detect()` 每帧都在 `scores[7]` 索引越界；而**逐帧异常隔离**会把它当成
+        "60 个坏帧"静默跳过 → 态势全空、路线照出、整跑 rc=0 的假绿。
+        与机载 C++ `HbbDetector.cpp` 的 [1,17,N] 硬校验同一道门：模型不对就不许跑。
+        """
+        want = 4 + len(NAMES)
+        tried: list[str] = []
+        for S in (self.imgsz, 640 if self.imgsz == 1280 else 1280):
+            self.net.setInput(np.zeros((1, 3, S, S), np.float32))
+            try:
+                out = self.net.forward()
+            except Exception as exc:  # noqa: BLE001 - 静态 shape 不匹配会在这爆
+                tried.append(f"{S}: {type(exc).__name__}: {exc}")
+                continue
+            ch = int(out.shape[1] if out.ndim == 3 else out.shape[0])
+            n = int(out.shape[2] if out.ndim == 3 else out.shape[1])
+            if ch != want:
+                tried.append(f"{S}: 输出 {ch} 通道（need {want}）")
+                continue
+            if n != sum((S // s) ** 2 for s in (8, 16, 32)):
+                tried.append(f"{S}: {n} anchors 与分辨率不符")
+                continue
+            if S != self.imgsz:
+                print(f"[recon][提示] 模型实际是 {S} 推理（{n} anchors），"
+                      f"已自动纠正 --imgsz")
+            self.imgsz, self.n_anchors = S, n
+            return
+        raise ValueError(
+            f"模型契约不符，拒绝运行: {self.model_path}\n"
+            f"  期望 13 类（{want} 通道 = 4 框 + 13 类），实测：\n"
+            + "\n".join(f"    {t}" for t in tried)
+            + "\n  最常见原因：选中了 7 类旧模型（11 通道）。"
+              "\n  修法：--d13 指向 13 类 onnx（机上 ~/dzuav/models/"
+              "hbb_detector_d13_20261016.onnx，或在仓库根目录跑让 "
+              "models/release/current_hbb_detector 指针生效）")
 
     def _sync_to_model(self, n: int) -> bool:
         """把 imgsz 对齐到模型真实输出（换模型时自动纠正，免手工 --imgsz）。
@@ -472,6 +513,28 @@ class V4dReader:
         self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
         self.out_names = self.net.getUnconnectedOutLayersNames()
         self.model_path = str(onnx_path)
+        self._probe_contract()
+
+    def _probe_contract(self) -> None:
+        """双头形状自检：letter 14 / row 11。
+
+        与 D13 同一理由（2026-10-21）：机上模型目录混放多代产物，选错时
+        逐帧隔离会把异常吞成"坏帧"，产出全空的态势却 rc=0。这里一次 96×96
+        推理就能验明；形状不对直接拒绝，由调用方换下一个候选。
+        """
+        self.net.setInput(np.zeros((1, 3, V4D_IN, V4D_IN), np.float32))
+        try:
+            outs = self.net.forward(self.out_names)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(
+                f"格号模型无法前向: {self.model_path}\n  {type(exc).__name__}: {exc}"
+                f"\n  修法：--v4d 指向双头 v4d onnx（letter14/row11，96×96 输入）") from exc
+        shapes = sorted(int(o.shape[-1]) for o in outs)
+        if shapes != [11, 14]:
+            raise ValueError(
+                f"格号模型契约不符: {self.model_path}\n"
+                f"  期望双头输出 [14, 11]，实测 {shapes}"
+                f"\n  修法：--v4d 指向 cell_classifier_v4d*.onnx")
 
     @staticmethod
     def _softmax(x: np.ndarray) -> np.ndarray:
@@ -527,44 +590,78 @@ def _newest_by_glob(pattern: str) -> Path | None:
     return max(hits, key=lambda p: p.stat().st_mtime) if hits else None
 
 
-def _find_model(search: tuple[str, ...], explicit: str | None,
-                kind: str = "d13") -> Path:
-    """定位模型：显式路径优先，否则按 search 逐项找（指针文件 / 固定路径 / glob）。
+def _iter_model_candidates(search: tuple[str, ...], explicit: str | None,
+                           kind: str) -> list[Path]:
+    """按优先级给出候选模型路径列表（指针 → 固定路径 → 机上 glob），去重保序。
 
-    报错必须能照着做（2026-10-21 补）：机上没有交互终端、VNC 里翻不动长篇日志，
-    所以把"找过的每个位置"和"两条修法"都印出来，而不是甩一句 FileNotFoundError。
+    报告"找过哪些位置"用的是本函数的完整列表；真正选谁由调用方逐个做契约
+    自检（选中的模型 7 类/13 类必须当场验明，不许等到逐帧索引越界）。
     """
     if explicit:
         p = Path(explicit)
-        if p.is_file():
-            return p
-        raise FileNotFoundError(
-            f"--{kind} 指定的模型不存在: {p.resolve()}\n"
-            f"  机上模型在 ~/dzuav/models/ 下（d13: hbb*d13*.onnx，"
-            f"v4d: cell*v4d*.onnx）；确认文件名后再传")
+        if not p.is_file():
+            raise FileNotFoundError(
+                f"--{kind} 指定的模型不存在: {p.resolve()}\n"
+                f"  机上模型在 ~/dzuav/models/ 下（d13: hbb*d13*.onnx，"
+                f"v4d: cell*v4d*.onnx）；确认文件名后再传")
+        return [p]
+    out: list[Path] = []
     tried: list[str] = []
     for base in [Path.cwd(), *Path.cwd().parents[:3]]:
         for rel in search:
             if any(ch in rel for ch in "*?["):        # glob 项与工作目录无关
                 got = _newest_by_glob(rel)
-                if got is not None:
-                    return got
-                tried.append(f"{os.path.expanduser(rel)}（glob 无匹配）")
+                if got is None:
+                    tried.append(f"{os.path.expanduser(rel)}（glob 无匹配）")
+                else:
+                    out.append(got)
                 continue
             entry = base / rel
-            if entry.is_file():
-                got = _model_from_entry(entry)
-                if got is not None:
-                    return got
+            if not entry.is_file():
+                tried.append(str(entry))
+                continue
+            got = _model_from_entry(entry)
+            if got is None:
                 tried.append(f"{entry}（指针指向的文件不存在）")
             else:
-                tried.append(str(entry))
-    raise FileNotFoundError(
-        f"未找到 {kind} 模型（{kind}：d13 检测器 / v4d 格号分类器）。找过：\n"
-        + "\n".join(f"    {t}" for t in tried)
-        + f"\n  修法：① --{kind} <模型.onnx> 显式指定；"
-          f"② 在仓库根目录运行（models/release/current_* 指针决定现役模型，"
-          f"指针缺失先跑 tools/release_models.py 发布）")
+                out.append(got)
+    seen: set[str] = set()
+    uniq = [p for p in out if not (str(p) in seen or seen.add(str(p)))]
+    if not uniq:
+        raise FileNotFoundError(
+            f"未找到 {kind} 模型（{kind}：d13 检测器 / v4d 格号分类器）。找过：\n"
+            + "\n".join(f"    {t}" for t in tried)
+            + f"\n  修法：① --{kind} <模型.onnx> 显式指定；"
+              f"② 在仓库根目录运行（models/release/current_* 指针决定现役模型，"
+              f"指针缺失先跑 tools/release_models.py 发布）")
+    return uniq
+
+
+def _find_model(search: tuple[str, ...], explicit: str | None,
+                kind: str = "d13") -> Path:
+    """首个候选（不校验契约；需要"跳过坏候选"的调用方用 _iter_model_candidates）。"""
+    return _iter_model_candidates(search, explicit, kind)[0]
+
+
+def _open_first_valid(cands: list[Path], opener, label: str):
+    """逐个尝试候选，返回第一个通过契约自检的模型对象。
+
+    为什么必须逐个试（2026-10-21 机上实测）：机上 `models/release` 里留着早期
+    部署的 7 类指针副本，优先级高于 `~/dzuav/models` 的 13 类模型；`D13Detector`
+    契约自检会拒绝它，此时应**继续往下找**而不是整跑失败——但每一次拒绝都要
+    打印出来，否则"为什么没用指针那份"永远查不清。
+    """
+    problems: list[str] = []
+    for p in cands:
+        try:
+            return opener(p)
+        except ValueError as exc:
+            problems.append(str(exc))
+            print(f"[recon][警告] 候选{label}未通过契约自检，继续找下一份:\n{exc}")
+    raise ValueError(
+        f"所有候选{label}都未通过契约自检（共 {len(cands)} 份）：\n"
+        + "\n".join(f"  - {p}" for p in cands)
+        + "\n处理：用显式参数指向正确模型，或清理机上过期的指针副本")
 
 
 def _write_annot(out_dir: Path, fidx: int, frame: np.ndarray,
@@ -600,9 +697,14 @@ def recon_video(video: str | Path, out_dir: str | Path,
             f"  检查路径/盘符；机上常见是文件名带空格或中文未加引号")
     # 模型先解析、目录后建：解析失败时不留空目录（报错里"产物目录（若已建）"
     # 才说得准，现场也不会误以为跑过半程）。
-    d13 = D13Detector(_find_model(D13_SEARCH, d13_onnx and str(d13_onnx), "d13"),
-                      imgsz=imgsz)
-    v4d = V4dReader(_find_model(V4D_SEARCH, v4d_onnx and str(v4d_onnx), "v4d"))
+    # 逐个候选做契约自检（13 类 17 通道 / v4d 双头 14+11）：机上 pointers 过期
+    # 副本会被拒绝并继续往下找，绝不让 7 类模型跑出"全坏帧"的假绿。
+    d13 = _open_first_valid(
+        _iter_model_candidates(D13_SEARCH, d13_onnx and str(d13_onnx), "d13"),
+        lambda p: D13Detector(p, imgsz=imgsz), " d13 ")
+    v4d = _open_first_valid(
+        _iter_model_candidates(V4D_SEARCH, v4d_onnx and str(v4d_onnx), "v4d"),
+        V4dReader, " v4d ")
     # 用哪份模型必须打印：机上 ~/dzuav/models 常同时躺着 640/1280/迭代变体，
     # 静默选中会让"同一个视频跑出不同答案"无从溯源（2026-10-21 实测）。
     print(f"[recon] d13 = {d13.model_path}（{d13.imgsz} 推理）")
@@ -639,7 +741,7 @@ def recon_video(video: str | Path, out_dir: str | Path,
     # 那边 2026-10-20 已修"坏帧烧掉整局"，Python 这条链路此前还是裸循环）。
     frame_errors = 0
     error_samples: list[str] = []
-
+    frames_detected = 0                # 成功跑完检测的帧数（全 0 = 链路真坏了）
     for fi, fidx in enumerate(idxs):
         cap.set(cv2.CAP_PROP_POS_FRAMES, fidx)
         ok, frame = cap.read()
@@ -654,6 +756,7 @@ def recon_video(video: str | Path, out_dir: str | Path,
                 error_samples.append(_note)
             print(f"[recon][坏帧] {_note}（跳过该帧，继续）")
             continue
+        frames_detected += 1
         labels = [d for d in dets if d["cls"] == "cell_label"]
         objs = [d for d in dets if d["cls"] != "cell_label"]
 
@@ -743,8 +846,21 @@ def recon_video(video: str | Path, out_dir: str | Path,
     cap.release()
 
     n_ok = sum(1 for m in frames_meta if m["grid_ok"])
+    # "整段全坏"必须是硬失败：逐帧隔离是为了扛偶发坏帧，不是为了把系统级故障
+    # （模型选错/解码器坏）粉饰成 0 检测的"成功"。2026-10-21 机上实测：7 类模型
+    # 让每帧都 IndexError，隔离逻辑把 60 帧全吞掉，态势全空却 rc=0。
+    if frames_detected == 0:
+        raise RuntimeError(
+            f"{len(frames_meta) + frame_errors} 个采样帧**没有任何一帧检测成功**——"
+            f"不是偶发坏帧，是链路级故障。\n"
+            + "\n".join(f"  {s}" for s in error_samples)
+            + "\n  最常见原因：模型选错（7 类旧模型）/ 视频编码不受支持。\n"
+              "  处理：核对启动时打印的 d13 路径，必要时用 --d13 显式指定 13 类模型")
     print(f"[recon] 检测完成：{len(frames_meta)} 帧中 {n_ok} 帧网格拟合成功，"
           f"耗时 {time.time() - t0:.0f}s")
+    if frames_meta and n_ok == 0:
+        print("[recon][注意] 全视频 0 帧网格拟合成功——态势将全空、路线退化为"
+              "纯默认值。先确认视频里能否看清格号（太小/太糊/逆光），再看标注帧。")
     if frame_errors:
         # 坏帧数必须显式报出：静默跳过会让"这盘只识别到 2 个雷"看起来像模型问题
         print(f"[recon][注意] 共 {frame_errors} 处单帧/单框异常被跳过（不影响其余帧）")
