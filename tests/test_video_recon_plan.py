@@ -111,3 +111,62 @@ def test_passable_gate_never_arbitrated():
     assert out["passable"] == ["K5"]
     assert out["obstacle"] == ["K5"]
     assert conflicts == []
+
+
+# ---------------------------------------------------------------- 靶先验裁决
+def test_reclassify_static_targets_as_buckets():
+    """全场唯一靶=移动双靶：别处检出的"静靶"一律改判为桶。
+
+    2026-10-21 机上物证：B7/D11 格内是蓝色圆桶、D5 是红色圆桶、I6 同级圆物，
+    检测框尺寸与"障碍桶"检出同级（22~25% 帧宽），而真靶是立式薄板；
+    与 2026-10-18 审计"该分类头会把蓝桶误判为蓝靶"同款。
+    """
+    blue, red, buckets, conflict = vr.reclassify_targets(
+        ["B7", "D11"], ["D5", "I6"])
+    assert (blue, red) == ([], [])
+    assert buckets == ["B7", "D11", "D5", "I6"]     # 字典序（D11 < D5）
+    assert conflict == []
+
+
+def test_reclassify_track_neighborhood_is_referee_conflict():
+    """轨道（D7~E7）±1 格内的检出 = 移动靶误投影：剔除并留痕，不当静靶也不当桶。
+
+    邻域 = 切比雪夫距离 ≤1：D7/E7 周围 C5~F7 共 12 格（含 C7、D8、E8）。
+    """
+    blue, red, buckets, conflict = vr.reclassify_targets(["E7"], ["E8", "A1"])
+    assert conflict == ["E7", "E8"]
+    assert buckets == ["A1"]                # 邻域外 → 按静靶改判为桶
+    assert (blue, red) == ([], [])
+
+
+def test_reclassify_can_be_disabled():
+    """练习场真摆了静靶时，--allow-static-targets 关掉裁决，静靶原样保留。"""
+    blue, red, buckets, conflict = vr.reclassify_targets(
+        ["B7"], ["E7"], static_is_bucket=False)
+    assert blue == ["B7"] and red == []     # B7 保留
+    assert buckets == []
+    assert conflict == ["E7"]               # 轨道邻域仍剔除（裁判硬件先验）
+
+
+def test_plan_reclassifies_and_injects_mobile_prior(tmp_path):
+    """端到端：静靶并入障碍、轨道检出剔除、补回移动靶先验、留痕写入 route_plan。
+
+    修复前（2026-10-21 机上全量跑的实况）：5 个"靶"全是桶，且因为 targets 非空
+    而完全不注入移动靶先验 → 车不会去打移动靶，渲染图看起来"靶一堆、桶没了"。
+    """
+    state = _state(mines=["F5"], passable=["K10"], obstacles=["C9"],
+                   red=["D5", "E7"], blue=["B7", "D11"])
+    plan = vr.plan_from_state(state, tmp_path)
+
+    src = plan["source"]
+    assert src["targets_reclassified_as_bucket"] == ["B7", "D11", "D5"]
+    assert src["targets_reclassified_referee_conflict"] == ["E7"]
+    snap = plan["snapshot"]
+    assert "蓝@D7（轨道靶）" in snap["targets"], snap["targets"]
+    assert set(["B7", "D11", "D5"]).issubset(set(snap["obstacles"]))
+    assert "E7" not in snap["obstacles"]
+    assert plan["car_cmds"]["shoot_cells"], "移动靶先验没有生成停靠/确认格"
+    assert "*" in plan["car_cmds"]["route"], "车命令丢了开火标记"
+    # 裁决后的态势不允许出现"靶格即障碍格"的自相矛盾
+    tgt_cells = {t.split("@")[1].replace("（轨道靶）", "") for t in snap["targets"]}
+    assert not (tgt_cells & set(snap["obstacles"]))

@@ -112,6 +112,11 @@ PASSABLE_DFT = (f"{BRIDGE_COL}4", f"{BRIDGE_COL}9")
 TRACK_DFT = ("D7", "E7")
 BLUE_FACE_DFT = "S"
 START_DFT, GOAL_DFT = "N10", "N5"
+# 移动靶轨道的邻域半径（格）：落在这个邻域内的"静靶"检出 = 移动靶的误投影/误检
+# （2026-10-18 E8 审计已裁定，2026-10-21 机上 E7 检出复现）。裁判地图规定
+# **全场唯一靶 = 移动双面靶**（占 D7~E7 两格），别处检出的"靶"必是桶之类的
+# 彩色物体被误判——两个独立结论同向，故按此半径做先验裁决。
+TRACK_NEIGHBOR_R = 1
 
 # 模型默认搜索路径（相对运行目录逐级向上找）。
 # 第一顺位是 models/release/ 的 current 指针（文件内容 = 同目录下的模型文件名），
@@ -1014,8 +1019,53 @@ def merge_passable_with_default(detected) -> tuple[list[str], list[str]]:
     return merged, from_default
 
 
-def plan_from_state(field_state: dict, out_dir: str | Path) -> dict:
-    """场地态势 → 路线规划 + 车端命令 + 渲染。视频未覆盖要素用裁判系统默认。"""
+def reclassify_targets(tgt_blue, tgt_red, static_is_bucket: bool = True
+                       ) -> tuple[list[str], list[str], list[str], list[str]]:
+    """裁判先验裁决：视频检出的"静靶"改判为桶/障碍，轨道邻域检出回退移动靶先验。
+
+    返回 (保留的蓝靶, 保留的红靶, 改判为桶的格, 与裁判先验冲突被剔除的格)。
+
+    依据（2026-10-18 审计 + 2026-10-21 机上物证，两条独立证据同向）：
+      1. 裁判系统地图：**全场唯一靶 = 移动双面靶**，占轨道 D7~E7 两格
+         （`match_params.yaml` target_track / 规则解读"靶标两格双面蓝敌红友"）。
+         因此除轨道自身外，视频在别的格子上检出的"靶"必是别的东西。
+      2. 物证：本机把检出格裁图放大看过——B7/D11 是**蓝色圆桶**、D5 是**红色
+         圆桶**、I6 是同级圆物；检测框尺寸与"障碍桶"检出同级（22~25% 帧宽），
+         而真正的靶是 0.65×0.025m 立式薄板（俯视应细长）。
+         与 10-18 审计结论一字不差："该分类头在本场地上会把 B7/E10 蓝桶
+         误判为蓝靶"。
+      3. 计数自洽：改判后 障碍桶 = C9/F8/H11 + B7/D11/D5/I6 = **7 个**，与官方
+         "8 桶"基线只差一个（视频未覆盖处）；E7 的检出尺寸仅 3% 帧宽 = 远处
+         的移动靶瞬时投影，按第 1 条属轨道本体的误投影。
+
+    为什么不直接信任分类头：靶 vs 桶在本分类头的特征空间里几乎重合（同样是
+    彩色圆面/薄面），单凭票数无法区分；裁判先验是唯一稳的判据。真要在练习场
+    摆了静靶（非官方布置），用 --allow-static-targets 关掉本裁决。
+    """
+    track = [parse_cell(c) for c in TRACK_DFT]
+
+    def near_track(name: str) -> bool:
+        c, r = parse_cell(name)
+        return any(abs(c - tc) <= TRACK_NEIGHBOR_R and abs(r - tr) <= TRACK_NEIGHBOR_R
+                   for tc, tr in track)
+
+    conflict = sorted(c for c in list(tgt_blue) + list(tgt_red) if near_track(c))
+    keep_blue = [c for c in tgt_blue if not near_track(c)]
+    keep_red = [c for c in tgt_red if not near_track(c)]
+    if not static_is_bucket:
+        return keep_blue, keep_red, [], conflict
+    as_bucket = sorted(keep_blue + keep_red)
+    return [], [], as_bucket, conflict
+
+
+def plan_from_state(field_state: dict, out_dir: str | Path,
+                    static_target_is_bucket: bool = True) -> dict:
+    """场地态势 → 路线规划 + 车端命令 + 渲染。视频未覆盖要素用裁判系统默认。
+
+    static_target_is_bucket：裁判先验裁决开关（见 reclassify_targets）。
+    默认 True = "全场唯一靶"口径；练习场确实摆了静靶时用 CLI
+    `--allow-static-targets` 关掉。
+    """
     out_dir = Path(out_dir)
 
     def cell(n: str) -> CellRef:
@@ -1024,7 +1074,7 @@ def plan_from_state(field_state: dict, out_dir: str | Path) -> dict:
 
     mines = field_state["mines_video"]
     passable = field_state["passable_video"]
-    obstacles = field_state["obstacles_video"]
+    obstacles = list(field_state["obstacles_video"])
     tgt_blue = field_state["targets_video"]["blue"]
     tgt_red = field_state["targets_video"]["red"]
     car_start = field_state["car_start_video"]
@@ -1034,15 +1084,28 @@ def plan_from_state(field_state: dict, out_dir: str | Path) -> dict:
     use_start = car_start[0] if len(car_start) == 1 else START_DFT
     use_goal = car_end[0] if len(car_end) == 1 else GOAL_DFT
 
+    tgt_blue, tgt_red, bucket_from_target, target_conflict = reclassify_targets(
+        tgt_blue, tgt_red, static_target_is_bucket)
+    if bucket_from_target:
+        print(f"[plan][裁决] 视频静靶 {bucket_from_target} 判为桶（全场唯一靶=移动靶先验；"
+              f"物证：格内为彩色圆桶，框尺寸与障碍桶同级）→ 并入障碍")
+        obstacles = sorted(set(obstacles) | set(bucket_from_target))
+    if target_conflict:
+        print(f"[plan][裁决] {target_conflict} 落在移动靶轨道 ±{TRACK_NEIGHBOR_R} 格内"
+              f"（移动靶误投影）→ 剔除，回退移动靶两段式先验")
+
     targets: list[TargetRef] = []
     for c in tgt_blue:
         targets.append(TargetRef(cell(c), True))
     for c in tgt_red:
         targets.append(TargetRef(cell(c), False))
-    if not targets:                     # 移动靶默认（视频未见时）
-        targets = [TargetRef(cell(TRACK_DFT[0]), True,
-                             track=(cell(TRACK_DFT[0]), cell(TRACK_DFT[1])),
-                             blue_face=BLUE_FACE_DFT)]
+    # 移动靶先验：视频没看到静靶、或静靶全被裁决掉时补上（全场唯一靶）。
+    # blue_face 取裁判地图默认（S）；车到轨道端确认点后由车载 fire_guard
+    # 按实时帧复判红蓝——红面/未辨一律禁火（fail-safe）。
+    if not any(t.track for t in targets):
+        targets.append(TargetRef(cell(TRACK_DFT[0]), True,
+                                 track=(cell(TRACK_DFT[0]), cell(TRACK_DFT[1])),
+                                 blue_face=BLUE_FACE_DFT))
 
     snapshot = WorldSnapshot(
         timestamp_ms=0,
@@ -1080,9 +1143,17 @@ def plan_from_state(field_state: dict, out_dir: str | Path) -> dict:
                    "passable": use_passable,
                    # 明确标注哪些桥门来自默认值——现场一眼能看出"这段视频没拍到"
                    "passable_from_default": passable_from_default,
-                   "start": use_start, "goal": use_goal},
+                   "start": use_start, "goal": use_goal,
+                   # 靶先验裁决留痕（可追溯、可复盘）：哪些"静靶"被改判为桶、
+                   # 哪些落在轨道邻域被判误投影；字段名沿用 2026-10-18 审计口径
+                   "targets_reclassified_as_bucket": bucket_from_target,
+                   "targets_reclassified_referee_conflict": target_conflict,
+                   "static_target_arbitration": ("单靶先验（静靶→桶）"
+                                                 if static_target_is_bucket
+                                                 else "关闭（--allow-static-targets）")},
         "snapshot": {"mines": mines, "passable": use_passable, "obstacles": obstacles,
-                     "targets": [f"{'蓝' if t.is_blue else '红'}@{t.cell.name}" for t in targets]},
+                     "targets": [f"{'蓝' if t.is_blue else '红'}@{t.cell.name}"
+                                 + ("（轨道靶）" if t.track else "") for t in targets]},
         "route": list(route), "route_len_cells": len(route),
         "route_len_diag": round(length, 2), "turns": turns,
         "compact": list(compact),
@@ -1226,6 +1297,10 @@ def main(argv: list[str] | None = None) -> int:
     # 照做只会得到 "unrecognized arguments: --debug"（2026-10-21 实测）。
     ap.add_argument("--debug", action="store_true",
                     help="报错时打印完整堆栈（默认只给结论 + 处理建议）")
+    # 默认按裁判地图"全场唯一靶=移动双靶"裁决：视频检出的静靶判为桶（物证见
+    # reclassify_targets）。练习场若真摆了静靶（非官方布置）再用本开关关掉。
+    ap.add_argument("--allow-static-targets", action="store_true",
+                    help="不把视频检出的静靶改判为桶（练习场确实摆了静靶时才用）")
     args = ap.parse_args(argv)
     if args.stride < 1:
         ap.error(f"--stride 必须 >= 1（收到 {args.stride}）")
@@ -1237,7 +1312,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         state = recon_video(args.video, out_dir, args.d13, args.v4d,
                             args.stride, args.max_frames, imgsz=args.imgsz)
-        plan_from_state(state, out_dir)
+        plan_from_state(state, out_dir,
+                        static_target_is_bucket=not args.allow_static_targets)
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         print(f"\n[失败] {exc}", file=sys.stderr)
         # 用 args.debug 而不是 "--debug" in sys.argv：main(argv) 被显式传参调用时
