@@ -66,7 +66,8 @@ except ImportError:                     # 直接以文件路径运行（比赛�
 NAMES = ["paper", "cell_label", "car", "target_red", "target_blue", "obstacle",
          "bucket_red", "bucket_green", "bucket_cyan",
          "car_start", "car_end", "uav_start", "uav_end"]
-CONF = {  # 部署参数对齐：paper=0.25 靶标车起止=0.25 障碍桶=0.4；cell_label 放宽保网格拟合样本
+CONF = {  # PC 侦察工作点：paper=0.22 / cell_label=0.35 / 靶标·车·起止=0.25 / 障碍桶=0.40
+    # （与机载 C++ kDeployConf 非同源：那边 paper=0.25、cell_label=0.50，改一边务必核对另一边）
     "paper": 0.22, "cell_label": 0.35, "car": 0.25,
     "target_red": 0.25, "target_blue": 0.25, "obstacle": 0.40,
     "bucket_red": 0.40, "bucket_green": 0.40, "bucket_cyan": 0.40,
