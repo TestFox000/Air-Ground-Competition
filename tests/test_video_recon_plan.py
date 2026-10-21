@@ -1,0 +1,70 @@
+# -*- coding: utf-8 -*-
+"""video_recon 的规划落盘回归：桥门"按段回退默认值"。
+
+背景（2026-10-21 机上实测事故）：桥洞规则是 K 列分两段（K1~K6 / K7~K11）
+各有且只有一个箭头。视频只拍到一个段的箭头时，原实现 `passable or 默认`
+不回退，另一段整段判墙 → 起点连通域被切断 → `plan_route` 抛
+"goal N5 不可达"，整条视频侦察在最后一步失败。
+
+这里锁定三件事：
+  1. 逐段合并语义（有则用检出、无则补默认）；
+  2. 只有 K10 的实测态势也能出路线（且 K4 标注为默认来源）；
+  3. 路线满足既有验收口径：雷全覆盖、不穿障碍。
+"""
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from ag_integrate import video_recon as vr
+
+
+def _state(mines, passable, obstacles, red=(), blue=()):
+    return {
+        "mines_video": list(mines),
+        "passable_video": list(passable),
+        "obstacles_video": list(obstacles),
+        "targets_video": {"red": list(red), "blue": list(blue)},
+        "car_start_video": [], "car_end_video": [], "uav_marks_video": [],
+        "votes_detail": {}, "coverage": {}, "phantom_log": {},
+    }
+
+
+@pytest.mark.parametrize("detected, expect_gates, expect_default", [
+    ([], ["K4", "K9"], ["K4", "K9"]),          # 全空 → 两段都默认
+    (["K10"], ["K4", "K10"], ["K4"]),          # 只拍到上段 → 下段默认
+    (["K2"], ["K2", "K9"], ["K9"]),            # 只拍到下段 → 上段默认
+    (["K4", "K10"], ["K4", "K10"], []),        # 两段都拍到 → 无需默认
+])
+def test_merge_passable_by_segment(detected, expect_gates, expect_default):
+    gates, from_default = vr.merge_passable_with_default(detected)
+    assert gates == expect_gates
+    assert from_default == expect_default
+
+
+def test_merge_passable_ignores_garbage():
+    """坏名字（非 K 列/非数字/越界）一律忽略，宁可用默认。"""
+    gates, from_default = vr.merge_passable_with_default(
+        ["K", "Kx", "K0", "K12", "A5", None, 7])
+    assert gates == ["K4", "K9"]
+    assert from_default == ["K4", "K9"]
+
+
+def test_plan_succeeds_on_single_gate_video(tmp_path):
+    """机上实测态势（只检出 K10）：必须能出路线，且标注 K4 来自默认。"""
+    state = _state(
+        mines=["F5", "G9"], passable=["K10"],
+        obstacles=["C9", "F8", "H11"], red=["D5"], blue=["B7"])
+    plan = vr.plan_from_state(state, tmp_path)
+
+    assert plan["route_len_cells"] > 0
+    assert plan["source"]["passable"] == ["K4", "K10"]
+    assert plan["source"]["passable_from_default"] == ["K4"]
+    # 既有验收口径：所有雷都被路线覆盖、且不穿任何障碍格
+    route = set(plan["route"])
+    assert set(state["mines_video"]) <= route
+    assert not (set(state["obstacles_video"]) & route)
+    # 三产物里的两件（渲染图依赖 PIL/CJK 字体，单独由冒烟脚本覆盖）
+    assert (tmp_path / "route_plan.json").exists()
+    assert json.loads((tmp_path / "route_plan.json").read_text(encoding="utf-8"))

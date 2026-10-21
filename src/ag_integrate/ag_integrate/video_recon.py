@@ -627,6 +627,44 @@ def recon_video(video: str | Path, out_dir: str | Path,
 
 
 # ---------------------------------------------------------------- 规划
+def merge_passable_with_default(detected) -> tuple[list[str], list[str]]:
+    """桥门按段补齐裁判默认值，返回 (合并后的通行格, 其中来自默认值的格)。
+
+    为什么必须按段补（2026-10-21 机上实测事故）：桥洞规则是 K 列分两段
+    （K1~K6 与 K7~K11）各有且只有一个箭头。原先的 `passable or PASSABLE_DFT`
+    只在**全空**时回退——视频只拍到一个段的箭头时，另一段没有任何通行格，
+    被当成整段墙: 起点 N10 的连通域被切掉一半，`plan_route` 直接抛
+    "goal N5 不可达"，整条视频侦察在最后一步失败（172 帧识别全对也没用）。
+    正确语义是"**未覆盖要素**用默认值"——逐段判断覆盖，没覆盖的段才回退。
+
+    解析不了的行号一律跳过（宁可用默认，也不拿坏名字去判连通）。
+    """
+    segs = ((1, 6), (7, ROWS))          # 两段的显示行号范围
+    got: set[str] = set()
+    for name in detected or ():
+        s = str(name).strip().upper()
+        if not s.startswith(BRIDGE_COL):
+            continue
+        try:
+            row = int(s[len(BRIDGE_COL):])
+        except ValueError:
+            continue
+        if 1 <= row <= ROWS:
+            got.add(s)
+
+    merged: list[str] = []
+    from_default: list[str] = []
+    for lo, hi in segs:
+        mine = sorted(c for c in got if lo <= int(c[len(BRIDGE_COL):]) <= hi)
+        if mine:
+            merged.extend(mine)
+        else:
+            dft = [c for c in PASSABLE_DFT if lo <= int(c[len(BRIDGE_COL):]) <= hi]
+            merged.extend(dft)
+            from_default.extend(dft)
+    return merged, from_default
+
+
 def plan_from_state(field_state: dict, out_dir: str | Path) -> dict:
     """场地态势 → 路线规划 + 车端命令 + 渲染。视频未覆盖要素用裁判系统默认。"""
     out_dir = Path(out_dir)
@@ -643,7 +681,7 @@ def plan_from_state(field_state: dict, out_dir: str | Path) -> dict:
     car_start = field_state["car_start_video"]
     car_end = field_state["car_end_video"]
 
-    use_passable = passable or list(PASSABLE_DFT)
+    use_passable, passable_from_default = merge_passable_with_default(passable)
     use_start = car_start[0] if len(car_start) == 1 else START_DFT
     use_goal = car_end[0] if len(car_end) == 1 else GOAL_DFT
 
@@ -690,7 +728,10 @@ def plan_from_state(field_state: dict, out_dir: str | Path) -> dict:
     route_plan = {
         "source": {"mines/obstacles/targets": "视频模型识别",
                    "未覆盖要素": "裁判系统默认",
-                   "passable": use_passable, "start": use_start, "goal": use_goal},
+                   "passable": use_passable,
+                   # 明确标注哪些桥门来自默认值——现场一眼能看出"这段视频没拍到"
+                   "passable_from_default": passable_from_default,
+                   "start": use_start, "goal": use_goal},
         "snapshot": {"mines": mines, "passable": use_passable, "obstacles": obstacles,
                      "targets": [f"{'蓝' if t.is_blue else '红'}@{t.cell.name}" for t in targets]},
         "route": list(route), "route_len_cells": len(route),
