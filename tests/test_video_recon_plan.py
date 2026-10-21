@@ -68,3 +68,46 @@ def test_plan_succeeds_on_single_gate_video(tmp_path):
     # 三产物里的两件（渲染图依赖 PIL/CJK 字体，单独由冒烟脚本覆盖）
     assert (tmp_path / "route_plan.json").exists()
     assert json.loads((tmp_path / "route_plan.json").read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------- 单格单标签
+def test_conflict_resolved_by_votes():
+    """票多者胜：B7 桶 31 票 vs 蓝靶 5 票 → 判为障碍，靶被剔除。
+
+    这是 2026-10-21 冠军配置实测的自相矛盾：不裁决时 B7 同时是蓝靶和障碍，
+    规划器找不到可停靠射击邻格 → 车命令里一个 '*' 都没有。
+    """
+    roles = {"mine": [], "passable": [], "obstacle": ["B7"],
+             "target_red": [], "target_blue": ["B7", "D11"]}
+    votes = {"obstacle": {"B7": 31}, "target_blue": {"B7": 5, "D11": 5},
+             "mine": {}, "target_red": {}}
+    out, conflicts = vr.resolve_cell_conflicts(roles, votes)
+
+    assert out["obstacle"] == ["B7"]
+    assert out["target_blue"] == ["D11"]        # B7 被剔除，D11 保留
+    assert len(conflicts) == 1
+    assert conflicts[0]["cell"] == "B7" and conflicts[0]["winner"] == "obstacle"
+
+
+def test_conflict_tie_favors_target():
+    """平票时按语义优先级：靶 > 桶/障 > 雷。"""
+    roles = {"mine": [], "passable": [], "obstacle": ["C5"],
+             "target_red": ["C5"], "target_blue": []}
+    votes = {"obstacle": {"C5": 6}, "target_red": {"C5": 6},
+             "mine": {}, "target_blue": {}}
+    out, conflicts = vr.resolve_cell_conflicts(roles, votes)
+    assert out["target_red"] == ["C5"]
+    assert out["obstacle"] == []
+    assert conflicts[0]["winner"] == "target_red"
+
+
+def test_passable_gate_never_arbitrated():
+    """K 列桥门不参与裁决——门格被占用是规划器自己的告警路径。"""
+    roles = {"mine": [], "passable": ["K5"], "obstacle": ["K5"],
+             "target_red": [], "target_blue": []}
+    votes = {"obstacle": {"K5": 99}, "mine": {}, "target_red": {},
+             "target_blue": {}}
+    out, conflicts = vr.resolve_cell_conflicts(roles, votes)
+    assert out["passable"] == ["K5"]
+    assert out["obstacle"] == ["K5"]
+    assert conflicts == []

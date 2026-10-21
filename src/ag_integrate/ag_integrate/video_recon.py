@@ -2,8 +2,12 @@
 """赛前视频场地侦察：D13 + v4d 全机械化识别 → 场地态势 → 路线规划。
 
 比赛日工作流（无人值守，一条命令）：
-    python video_recon.py 场地巡拍.mp4
-    python video_recon.py 场地巡拍.mp4 --out 输出目录 --stride 15
+    python video_recon.py 场地巡拍.mp4                       # 默认 stride=5 冠军配置
+    python video_recon.py 场地巡拍.mp4 --out 输出目录
+    python video_recon.py 场地巡拍.mp4 --imgsz 640 --d13 <640 模型>
+                                                            # 10-17 实测召回更高
+⚠️ 别把 --stride 调大省时间：实测 172 帧（stride=15）只剩 2 雷 0 桶，
+   stride=6 回到 5 雷 1 桶——短暂可见的目标会被采样漏掉，再由投票门槛丢掉。
 
 链路（每一环都是代码规则，不依赖任何人工/agent 介入）：
   1. hbb_d13.onnx（OpenCV DNN，无需 onnxruntime/torch）逐帧检测 13 类目标
@@ -66,9 +70,12 @@ except ImportError:                     # 直接以文件路径运行（比赛�
 NAMES = ["paper", "cell_label", "car", "target_red", "target_blue", "obstacle",
          "bucket_red", "bucket_green", "bucket_cyan",
          "car_start", "car_end", "uav_start", "uav_end"]
-CONF = {  # PC 侦察工作点：paper=0.22 / cell_label=0.35 / 靶标·车·起止=0.25 / 障碍桶=0.40
-    # （与机载 C++ kDeployConf 非同源：那边 paper=0.25、cell_label=0.50，改一边务必核对另一边）
-    "paper": 0.22, "cell_label": 0.35, "car": 0.25,
+CONF = {  # 离线侦察工作点 = 2026-10-17 冠军配置（paper 0.15 + 密采样 + 投票门控）
+    # 与机载 C++ kDeployConf（paper=0.25、cell_label=0.50）**不同源**：机载是
+    # 实时单帧无时序投票，必须收紧；离线有跨帧投票，放宽才不丢单帧可见的目标。
+    # 2026-10-21 实测教训：默认 stride=15 + paper=0.22 时，172 帧里 paper 只落格
+    # 34 次 → 只剩 2 雷、0 桶；改成 stride=6 后雷回到 5 个、桶回到 1 个。
+    "paper": 0.15, "cell_label": 0.35, "car": 0.25,
     "target_red": 0.25, "target_blue": 0.25, "obstacle": 0.40,
     "bucket_red": 0.40, "bucket_green": 0.40, "bucket_cyan": 0.40,
     "car_start": 0.25, "car_end": 0.25, "uav_start": 0.25, "uav_end": 0.25,
@@ -270,6 +277,50 @@ def confirmed_cells(cls_list: list[str], votes: dict[str, Counter],
     return sorted(cells)
 
 
+def resolve_cell_conflicts(roles: dict[str, list[str]],
+                           role_votes: dict[str, dict[str, int]],
+                           keep_roles: tuple[str, ...] = ("passable",),
+                           ) -> tuple[dict[str, list[str]], list[dict]]:
+    """同一格被多个语义命中时裁决成单一标签，返回 (过滤后的各角色格, 冲突明细)。
+
+    为什么必须有（2026-10-21 冠军配置实测）：把 paper 阈值放宽到 0.15 后
+    红桶/红靶、蓝桶/蓝靶在近距画面里互相串类，同一格同时进了
+    target_blue 与 bucket_green（B7: 5 vs 31 票）、target_red 与 bucket_red
+    （D5: 6 vs 19 票）。不裁决会产出自相矛盾的态势：靶格同时是障碍格 →
+    规划器找不到可停靠的射击邻格 → 车命令里一个 `*` 都没有（本轮实测）。
+
+    规则：票多者胜；平票按 靶 > 桶/障 > 雷 的语义优先级。K 列桥门（passable）
+    不参与——门格被实物占用是规划器自己的告警路径（10-17 已修），
+    在这里吞掉反而会让"门开/门堵"无从审计。
+    冲突明细写进 field_state，供现场人工复核。
+    """
+    priority = {"target_blue": 4, "target_red": 4, "obstacle": 3, "mine": 2}
+    claims: dict[str, list[tuple[int, int, str]]] = defaultdict(list)
+    for role, cells in roles.items():
+        if role in keep_roles:
+            continue
+        for c in cells:
+            claims[c].append((role_votes.get(role, {}).get(c, 0),
+                              priority.get(role, 1), role))
+
+    winners: dict[str, str] = {}
+    conflicts: list[dict] = []
+    for c, items in claims.items():
+        kinds = {r for _, _, r in items}
+        if len(kinds) <= 1:
+            continue
+        items.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        winners[c] = items[0][2]
+        conflicts.append({"cell": c, "winner": items[0][2],
+                          "claims": {r: v for v, _, r in items}})
+
+    out: dict[str, list[str]] = {}
+    for role, cells in roles.items():
+        out[role] = list(cells) if role in keep_roles \
+            else [c for c in cells if winners.get(c, role) == role]
+    return out, conflicts
+
+
 def split_mines_passable(paper_cells: list[str],
                          bridge_col_idx: int = BRIDGE_COL_IDX
                          ) -> tuple[list[str], list[str]]:
@@ -328,25 +379,39 @@ def filter_label_overlap(dets: list[dict],
 
 
 class D13Detector:
-    """hbb_d13.onnx（OpenCV DNN）：letterbox 1280 → [1,17,33600] 解码 + 逐类 NMS。"""
+    """hbb_d13*.onnx（OpenCV DNN）：letterbox → [1,17,N] 解码 + 逐类 NMS。
 
-    def __init__(self, onnx_path: str | Path):
+    imgsz 由模型决定：1280 版输出 33600 anchors（160²+80²+40²），640 版输出
+    8400（80²+40²+20²）。两版共用同一套权重，只是导出分辨率不同——
+    2026-10-17 实测 640 版召回 6/8、1280 版 4/8（见 进度/2026-10-17_会话纪要）。
+    """
+
+    def __init__(self, onnx_path: str | Path, imgsz: int = IN_SIZE):
         self.net = cv2.dnn.readNetFromONNX(str(onnx_path))
         self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+        self.imgsz = int(imgsz)
+        # anchor-free：每个 stride 层每格 1 个点
+        self.n_anchors = sum((self.imgsz // s) ** 2 for s in (8, 16, 32))
 
     def detect(self, img_bgr: np.ndarray) -> list[dict]:
         """返回 [{cls, conf, box=[x1,y1,x2,y2](原图坐标)}]，坐标已映射回原图。"""
+        S = self.imgsz
         h, w = img_bgr.shape[:2]
-        scale = IN_SIZE / max(h, w)
+        scale = S / max(h, w)
         nw, nh = round(w * scale), round(h * scale)
         resized = cv2.resize(img_bgr, (nw, nh), interpolation=cv2.INTER_LINEAR)
-        canvas = np.full((IN_SIZE, IN_SIZE, 3), 114, np.uint8)
-        pad_x, pad_y = (IN_SIZE - nw) // 2, (IN_SIZE - nh) // 2
+        canvas = np.full((S, S, 3), 114, np.uint8)
+        pad_x, pad_y = (S - nw) // 2, (S - nh) // 2
         canvas[pad_y:pad_y + nh, pad_x:pad_x + nw] = resized
         self.net.setInput(cv2.dnn.blobFromImage(
-            canvas, 1 / 255.0, (IN_SIZE, IN_SIZE), swapRB=True))
-        out = self.net.forward()[0]              # (17, 33600)
-        boxes, scores = out[:4, :].T, out[4:, :]  # cx,cy,w,h @1280 | (13,33600)
+            canvas, 1 / 255.0, (S, S), swapRB=True))
+        out = self.net.forward()[0]              # (17, n_anchors)
+        n = out.shape[1]
+        if n != self.n_anchors:
+            raise ValueError(
+                f"模型输出 {n} 个 anchor，与 imgsz={S} 期望的 {self.n_anchors} 不符——"
+                f"请用 --imgsz 指定与模型一致的分辨率（1280 或 640）")
+        boxes, scores = out[:4, :].T, out[4:, :]  # cx,cy,w,h | (13,N)
         dets: list[dict] = []
         for c, name in enumerate(NAMES):
             th = CONF[name]
@@ -428,13 +493,14 @@ def _find_model(search: tuple[str, ...], explicit: str | None) -> Path:
 def recon_video(video: str | Path, out_dir: str | Path,
                 d13_onnx: str | Path | None = None,
                 v4d_onnx: str | Path | None = None,
-                stride: int = 15, max_frames: int = 0,
+                stride: int = 5, max_frames: int = 0,
+                imgsz: int = IN_SIZE,
                 keep_annots: int = 8, keep_crops: int = 40) -> dict:
     """视频 → 场地态势。返回 field_state dict（同时落盘 frames_meta.json）。"""
     video, out_dir = Path(video), Path(out_dir)
     (out_dir / "annotated").mkdir(parents=True, exist_ok=True)
     (out_dir / "label_crops").mkdir(parents=True, exist_ok=True)
-    d13 = D13Detector(_find_model(D13_SEARCH, d13_onnx and str(d13_onnx)))
+    d13 = D13Detector(_find_model(D13_SEARCH, d13_onnx and str(d13_onnx)), imgsz=imgsz)
     v4d = V4dReader(_find_model(V4D_SEARCH, v4d_onnx and str(v4d_onnx)))
 
     cap = cv2.VideoCapture(str(video))
@@ -595,6 +661,24 @@ def recon_video(video: str | Path, out_dir: str | Path,
                               TARGET_MIN_VOTES, TARGET_MEAN_CONF_MIN)
     tgt_blue = confirmed_cells(["target_blue"], votes, vconf, vframes,
                                TARGET_MIN_VOTES, TARGET_MEAN_CONF_MIN)
+
+    # 单格单标签裁决：靶 vs 桶/障 vs 雷（K 列桥门不参与，见函数说明）
+    _obst_votes: Counter = Counter()
+    for _cls in ("obstacle", "bucket_red", "bucket_green", "bucket_cyan"):
+        _obst_votes.update(votes.get(_cls, Counter()))
+    _roles, _conflicts = resolve_cell_conflicts(
+        {"mine": mines, "passable": passable, "obstacle": obstacles,
+         "target_red": tgt_red, "target_blue": tgt_blue},
+        {"mine": dict(votes.get("paper", Counter())),
+         "obstacle": dict(_obst_votes),
+         "target_red": dict(votes.get("target_red", Counter())),
+         "target_blue": dict(votes.get("target_blue", Counter()))})
+    mines, passable = _roles["mine"], _roles["passable"]
+    obstacles, tgt_red, tgt_blue = (_roles["obstacle"], _roles["target_red"],
+                                    _roles["target_blue"])
+    for _c in _conflicts:
+        print(f"[recon][冲突] {_c['cell']} 多类命中 -> 判为 {_c['winner']} "
+              f"（{_c['claims']}）")
     car_start = confirmed_cells(["car_start"], votes, vconf, vframes, 2)
     car_end = confirmed_cells(["car_end"], votes, vconf, vframes, 2)
     uav_marks = {cls: confirmed_cells([cls], votes, vconf, vframes, 2)
@@ -614,6 +698,7 @@ def recon_video(video: str | Path, out_dir: str | Path,
         "targets_video": {"red": tgt_red, "blue": tgt_blue},
         "car_start_video": car_start, "car_end_video": car_end,
         "uav_marks_video": uav_marks,
+        "conflicts": _conflicts,          # 单格多类命中的人工复核明细
         "votes_detail": {cls: dict(cnt.most_common()) for cls, cnt in votes.items()},
         "coverage": dict(coverage.most_common()),
     }
@@ -887,7 +972,12 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="赛前视频场地侦察：D13+v4d 识别 → 态势 → 路线规划（全机械化）")
     ap.add_argument("video", type=str)
-    ap.add_argument("--stride", type=int, default=15)
+    ap.add_argument("--stride", type=int, default=5,
+                    help="采样帧距（默认 5 = 2026-10-17 冠军配置；15 会漏掉只短暂"
+                         "可见的目标——实测 172 帧只剩 2 雷 vs stride6 的 5 雷）")
+    ap.add_argument("--imgsz", type=int, default=IN_SIZE, choices=(640, 1280),
+                    help="推理分辨率，必须与模型导出一致（1280 版 33600 anchors，"
+                         "640 版 8400）；640 是 10-17 实测召回更高的离线配置")
     ap.add_argument("--out", type=str, default=None)
     ap.add_argument("--max-frames", type=int, default=0, help="调试：只处理前 N 个采样帧")
     ap.add_argument("--d13", type=str, default=None, help="hbb_d13.onnx 路径")
@@ -897,7 +987,7 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out) if args.out else Path(
         f"视频侦察_{datetime.now().strftime('%Y%m%d')}")
     state = recon_video(args.video, out_dir, args.d13, args.v4d,
-                        args.stride, args.max_frames)
+                        args.stride, args.max_frames, imgsz=args.imgsz)
     plan_from_state(state, out_dir)
     print(f"[done] 全部产物在 {Path.cwd() / out_dir}")
     return 0
