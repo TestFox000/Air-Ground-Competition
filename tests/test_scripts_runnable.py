@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -130,6 +131,20 @@ def test_find_model_error_lists_tried_paths_and_fixes(tmp_path, monkeypatch):
     msg = str(ei.value)
     assert "current_hbb_detector" in msg, "报错没列出找过的位置"
     assert "--d13" in msg and "release_models.py" in msg, "报错没给可照做的修法"
+
+
+def test_find_model_falls_back_to_glob_entry(tmp_path, monkeypatch):
+    """机上模型按 glob 约定取最新（~/dzuav/models 那份仓库拷贝没有指针）。"""
+    models = tmp_path / "models"
+    models.mkdir()
+    older = models / "hbb_d13_640.onnx"
+    newer = models / "hbb_d13_1280.onnx"
+    older.write_bytes(b"old")
+    newer.write_bytes(b"new")
+    os.utime(older, (1_600_000_000, 1_600_000_000))
+    monkeypatch.chdir(tmp_path)
+    got = vr._find_model((str(models / "hbb*d13*.onnx"),), None, "d13")
+    assert got == newer, "glob 项没有取最新的一份"
 
 
 # ---------------------------------------------------------------- 无 CJK 降级

@@ -43,6 +43,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import sys
@@ -120,9 +121,19 @@ START_DFT, GOAL_DFT = "N10", "N5"
 # 那些目录一清理，默认调用就报"未找到模型"，逼人手传 --d13/--v4d——与"比赛日
 # 无人值守一条命令"的目标相悖，且手传的路径无人校验版本（7 类旧模型照跑）。
 D13_SEARCH = ("models/release/current_hbb_detector",
-              "dk_train_pack_20261016/models/hbb_d13.onnx")
+              "dk_train_pack_20261016/models/hbb_d13.onnx",
+              "~/dzuav/models/hbb_detector_d13*.onnx",
+              "~/dzuav/models/hbb*d13*.onnx")
 V4D_SEARCH = ("models/release/current_cell_classifier",
-              "cloud_train_20261015/deploy_pkg/cell_classifier_v4d_20261015.onnx")
+              "cloud_train_20261015/deploy_pkg/cell_classifier_v4d_20261015.onnx",
+              "~/dzuav/models/cell_classifier_v4d*.onnx",
+              "~/dzuav/models/cell*v4d*.onnx")
+# 末两条是**机上**现役模型位置（glob 取最新，与 tools/orin_fix_pyvision.sh 的
+# `ls -t ~/dzuav/models/...` 同一约定）：机上那份仓库拷贝不带 models/release
+# （部署走 --skip-models，引擎由机上转换），没有这些就只能手传 --d13/--v4d。
+# 前一条优先认 canonical 文件名（d13 检测器），后一条兜住 640/迭代变体——
+# 否则 mtime 更新的 640 变体会无声接管分辨率（召回与已验收口径不同）。
+# 选中哪份会打印出来；imgsz 不匹配由 D13Detector._sync_to_model 自动纠正。
 
 
 def cell_name(col: int, row: int) -> str:
@@ -460,6 +471,7 @@ class V4dReader:
         self.net = cv2.dnn.readNetFromONNX(str(onnx_path))
         self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
         self.out_names = self.net.getUnconnectedOutLayersNames()
+        self.model_path = str(onnx_path)
 
     @staticmethod
     def _softmax(x: np.ndarray) -> np.ndarray:
@@ -508,11 +520,18 @@ def _model_from_entry(entry: Path) -> Path | None:
     return target if target.is_file() else None
 
 
+def _newest_by_glob(pattern: str) -> Path | None:
+    """glob 搜索项取 mtime 最新的一份（多份变体并存时 = 最后部署/转换的那份）。"""
+    hits = [Path(p) for p in glob.glob(os.path.expanduser(pattern))]
+    hits = [p for p in hits if p.is_file()]
+    return max(hits, key=lambda p: p.stat().st_mtime) if hits else None
+
+
 def _find_model(search: tuple[str, ...], explicit: str | None,
                 kind: str = "d13") -> Path:
-    """定位模型：显式路径优先，否则逐级向上找 search 项（含 current 指针）。
+    """定位模型：显式路径优先，否则按 search 逐项找（指针文件 / 固定路径 / glob）。
 
-    报错必须能照着做（2026-10-21 补）：机上没有仓库、VNC 里翻不动长篇日志，
+    报错必须能照着做（2026-10-21 补）：机上没有交互终端、VNC 里翻不动长篇日志，
     所以把"找过的每个位置"和"两条修法"都印出来，而不是甩一句 FileNotFoundError。
     """
     if explicit:
@@ -526,6 +545,12 @@ def _find_model(search: tuple[str, ...], explicit: str | None,
     tried: list[str] = []
     for base in [Path.cwd(), *Path.cwd().parents[:3]]:
         for rel in search:
+            if any(ch in rel for ch in "*?["):        # glob 项与工作目录无关
+                got = _newest_by_glob(rel)
+                if got is not None:
+                    return got
+                tried.append(f"{os.path.expanduser(rel)}（glob 无匹配）")
+                continue
             entry = base / rel
             if entry.is_file():
                 got = _model_from_entry(entry)
@@ -578,6 +603,10 @@ def recon_video(video: str | Path, out_dir: str | Path,
     d13 = D13Detector(_find_model(D13_SEARCH, d13_onnx and str(d13_onnx), "d13"),
                       imgsz=imgsz)
     v4d = V4dReader(_find_model(V4D_SEARCH, v4d_onnx and str(v4d_onnx), "v4d"))
+    # 用哪份模型必须打印：机上 ~/dzuav/models 常同时躺着 640/1280/迭代变体，
+    # 静默选中会让"同一个视频跑出不同答案"无从溯源（2026-10-21 实测）。
+    print(f"[recon] d13 = {d13.model_path}（{d13.imgsz} 推理）")
+    print(f"[recon] v4d = {v4d.model_path}")
     (out_dir / "annotated").mkdir(parents=True, exist_ok=True)
     (out_dir / "label_crops").mkdir(parents=True, exist_ok=True)
 
