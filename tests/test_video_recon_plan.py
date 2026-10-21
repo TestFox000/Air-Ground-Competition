@@ -114,45 +114,55 @@ def test_passable_gate_never_arbitrated():
 
 
 # ---------------------------------------------------------------- 靶先验裁决
-def test_reclassify_static_targets_as_buckets():
+def test_arbitrate_static_targets_as_buckets():
     """全场唯一靶=移动双靶：别处检出的"静靶"一律改判为桶。
 
-    2026-10-21 机上物证：B7/D11 格内是蓝色圆桶、D5 是红色圆桶、I6 同级圆物，
-    检测框尺寸与"障碍桶"检出同级（22~25% 帧宽），而真靶是立式薄板；
-    与 2026-10-18 审计"该分类头会把蓝桶误判为蓝靶"同款。
+    2026-10-21 用户核对裁图后给出的场地真值：`D5`/`B7`/`D11` 都是**桶**；
+    检测框尺寸与"障碍桶"检出同级（22~25% 帧宽），而真靶是立式薄板。
     """
-    blue, red, buckets, conflict = vr.reclassify_targets(
-        ["B7", "D11"], ["D5", "I6"])
+    blue, red, buckets, obs = vr.arbitrate_targets(["B7", "D11"], ["D5", "I6"])
     assert (blue, red) == ([], [])
     assert buckets == ["B7", "D11", "D5", "I6"]     # 字典序（D11 < D5）
-    assert conflict == []
+    assert obs == {}
 
 
-def test_reclassify_track_neighborhood_is_referee_conflict():
-    """轨道（D7~E7）±1 格内的检出 = 移动靶误投影：剔除并留痕，不当静靶也不当桶。
+def test_arbitrate_track_cell_is_target_observation():
+    """轨道（D7~E7）±1 格内的检出 = 移动靶本体观测（**不是**误检，不许剔除）。
 
+    2026-10-21 用户真值：E7 就是靶（移动双靶本体），红面=友方。
     邻域 = 切比雪夫距离 ≤1：D7/E7 周围 C5~F7 共 12 格（含 C7、D8、E8）。
     """
-    blue, red, buckets, conflict = vr.reclassify_targets(["E7"], ["E8", "A1"])
-    assert conflict == ["E7", "E8"]
+    blue, red, buckets, obs = vr.arbitrate_targets(["E7"], ["E8", "A1"])
+    assert obs == {"E7": "blue", "E8": "red"}
     assert buckets == ["A1"]                # 邻域外 → 按静靶改判为桶
     assert (blue, red) == ([], [])
 
 
-def test_reclassify_can_be_disabled():
-    """练习场真摆了静靶时，--allow-static-targets 关掉裁决，静靶原样保留。"""
-    blue, red, buckets, conflict = vr.reclassify_targets(
+def test_arbitrate_red_wins_same_cell():
+    """同格红蓝冲突 → 红优先：红=友方，误判成蓝会去误击友方（−5），反向最多少打。"""
+    _, _, _, obs = vr.arbitrate_targets(["E7"], ["E7"])
+    assert obs == {"E7": "red"}
+
+
+def test_arbitrate_can_be_disabled():
+    """练习场真摆了静靶时，--allow-static-targets 关掉"静靶→桶"，静靶原样保留。
+
+    但轨道本体的观测判定不受开关影响（那是裁判硬件先验）。
+    """
+    blue, red, buckets, obs = vr.arbitrate_targets(
         ["B7"], ["E7"], static_is_bucket=False)
-    assert blue == ["B7"] and red == []     # B7 保留
+    assert blue == ["B7"] and red == []     # B7 保留为静靶
     assert buckets == []
-    assert conflict == ["E7"]               # 轨道邻域仍剔除（裁判硬件先验）
+    assert obs == {"E7": "red"}             # 轨道观测仍生效
 
 
-def test_plan_reclassifies_and_injects_mobile_prior(tmp_path):
-    """端到端：静靶并入障碍、轨道检出剔除、补回移动靶先验、留痕写入 route_plan。
+def test_plan_red_face_track_target_forbids_shooting(tmp_path):
+    """端到端：静靶并入障碍、轨道靶按可见面定敌我、红面**禁火且不派射击任务**。
 
-    修复前（2026-10-21 机上全量跑的实况）：5 个"靶"全是桶，且因为 targets 非空
-    而完全不注入移动靶先验 → 车不会去打移动靶，渲染图看起来"靶一堆、桶没了"。
+    修复前（2026-10-21 机上全量跑的实况）：5 个"靶"里 4 个是桶，且因为 targets
+    非空，移动靶先验根本没注入；更糟的是首版裁决把 E7 当"误投影"剔除后**补了
+    蓝面朝南的先验** → 车会去 D8 停靠打一个实际红面（友方）的靶 = 误击友方。
+    用户当场纠正："e7 靶子，但红色靶面为队友"。
     """
     state = _state(mines=["F5"], passable=["K10"], obstacles=["C9"],
                    red=["D5", "E7"], blue=["B7", "D11"])
@@ -160,13 +170,25 @@ def test_plan_reclassifies_and_injects_mobile_prior(tmp_path):
 
     src = plan["source"]
     assert src["targets_reclassified_as_bucket"] == ["B7", "D11", "D5"]
-    assert src["targets_reclassified_referee_conflict"] == ["E7"]
+    assert src["targets_track_observed"] == {"E7": "red"}
     snap = plan["snapshot"]
-    assert "蓝@D7（轨道靶）" in snap["targets"], snap["targets"]
+    assert snap["targets"] == ["红@E7（轨道靶）"], snap["targets"]
     assert set(["B7", "D11", "D5"]).issubset(set(snap["obstacles"]))
-    assert "E7" not in snap["obstacles"]
-    assert plan["car_cmds"]["shoot_cells"], "移动靶先验没有生成停靠/确认格"
-    assert "*" in plan["car_cmds"]["route"], "车命令丢了开火标记"
-    # 裁决后的态势不允许出现"靶格即障碍格"的自相矛盾
-    tgt_cells = {t.split("@")[1].replace("（轨道靶）", "") for t in snap["targets"]}
-    assert not (tgt_cells & set(snap["obstacles"]))
+    assert "E7" not in snap["obstacles"], "靶本体（轨道格）不该被当桶"
+    # 安全红线：红面友方 → 不派射击任务、命令里没有 '*'
+    assert plan["car_cmds"]["shoot_cells"] == []
+    assert "*" not in plan["car_cmds"]["route"]
+    assert plan["check"]["友方面禁火"].startswith("通过")
+    # 轨道本体不可通行（靶格）
+    assert "E7" not in plan["route"] and "D7" not in plan["route"]
+
+
+def test_plan_blue_face_track_target_allows_shooting(tmp_path):
+    """反向守卫：轨道靶观测到蓝面（敌）时必须生成射击停靠与 '*'，别把该打的不打。"""
+    state = _state(mines=["F5"], passable=["K10"], obstacles=["C9"],
+                   red=[], blue=["E7"])
+    plan = vr.plan_from_state(state, tmp_path)
+    assert plan["snapshot"]["targets"] == ["蓝@E7（轨道靶）"]
+    assert plan["car_cmds"]["shoot_cells"], "蓝面敌靶应派射击停靠"
+    assert "*" in plan["car_cmds"]["route"]
+    assert "友方面禁火" not in plan["check"]

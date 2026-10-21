@@ -1019,28 +1019,30 @@ def merge_passable_with_default(detected) -> tuple[list[str], list[str]]:
     return merged, from_default
 
 
-def reclassify_targets(tgt_blue, tgt_red, static_is_bucket: bool = True
-                       ) -> tuple[list[str], list[str], list[str], list[str]]:
-    """裁判先验裁决：视频检出的"静靶"改判为桶/障碍，轨道邻域检出回退移动靶先验。
+def arbitrate_targets(tgt_blue, tgt_red, static_is_bucket: bool = True
+                      ) -> tuple[list[str], list[str], list[str], dict[str, str]]:
+    """靶先验裁决，返回 (静靶蓝, 静靶红, 改判为桶, 轨道靶观测{格号: 'red'|'blue'})。
 
-    返回 (保留的蓝靶, 保留的红靶, 改判为桶的格, 与裁判先验冲突被剔除的格)。
-
-    依据（2026-10-18 审计 + 2026-10-21 机上物证，两条独立证据同向）：
-      1. 裁判系统地图：**全场唯一靶 = 移动双面靶**，占轨道 D7~E7 两格
-         （`match_params.yaml` target_track / 规则解读"靶标两格双面蓝敌红友"）。
+    判据来源（三方一致）：
+      1. **裁判系统地图**：全场唯一靶 = 移动双面靶，占轨道 D7~E7 两格
+         （`match_params.yaml` target_track、"靶标两格双面蓝敌红友"）。
          因此除轨道自身外，视频在别的格子上检出的"靶"必是别的东西。
-      2. 物证：本机把检出格裁图放大看过——B7/D11 是**蓝色圆桶**、D5 是**红色
-         圆桶**、I6 是同级圆物；检测框尺寸与"障碍桶"检出同级（22~25% 帧宽），
-         而真正的靶是 0.65×0.025m 立式薄板（俯视应细长）。
-         与 10-18 审计结论一字不差："该分类头在本场地上会把 B7/E10 蓝桶
-         误判为蓝靶"。
-      3. 计数自洽：改判后 障碍桶 = C9/F8/H11 + B7/D11/D5/I6 = **7 个**，与官方
-         "8 桶"基线只差一个（视频未覆盖处）；E7 的检出尺寸仅 3% 帧宽 = 远处
-         的移动靶瞬时投影，按第 1 条属轨道本体的误投影。
+      2. **场地真值（2026-10-21 用户核对裁图后确认）**：
+         `D5`/`B7`/`D11` 是**桶**；`E7` 是**靶**（移动双靶本体），且
+         **红面 = 友方**（禁火）。
+      3. **物证**：桶的检测框尺寸 22~25% 帧宽（与"障碍桶"检出同级）、俯视
+         同心圆；真靶是 0.65×0.025m 立式薄板。E7 的框仅 3% 帧宽 = 远处本体。
 
-    为什么不直接信任分类头：靶 vs 桶在本分类头的特征空间里几乎重合（同样是
-    彩色圆面/薄面），单凭票数无法区分；裁判先验是唯一稳的判据。真要在练习场
-    摆了静靶（非官方布置），用 --allow-static-targets 关掉本裁决。
+    两类处理（**不能合并**，2026-10-21 首版把两者都当"剔除"是错的）：
+      · 轨道 ±R 格内的检出 = **移动靶本体的瞬时投影** → 保留为轨道靶观测，
+        并按可见面定敌我：观测到红面 → 友方，一律禁火、不派射击任务。
+      · 其余静靶 = 分类头把桶读成靶 → 改判为桶并入障碍（用户已逐个确认）。
+
+    红蓝同格冲突时**红优先**：红=友方，误判为蓝会去误击友方（rules −5），
+    误判为红最多少打一个（fail-safe 方向）。
+
+    真要在练习场摆了静靶（非官方布置），用 --allow-static-targets 关掉
+    "静靶→桶"这一段（轨道本体的敌我判定不关）。
     """
     track = [parse_cell(c) for c in TRACK_DFT]
 
@@ -1049,22 +1051,28 @@ def reclassify_targets(tgt_blue, tgt_red, static_is_bucket: bool = True
         return any(abs(c - tc) <= TRACK_NEIGHBOR_R and abs(r - tr) <= TRACK_NEIGHBOR_R
                    for tc, tr in track)
 
-    conflict = sorted(c for c in list(tgt_blue) + list(tgt_red) if near_track(c))
+    obs: dict[str, str] = {}
+    for name in tgt_red:                      # 红面先入：同格冲突时红优先（fail-safe）
+        if near_track(name):
+            obs[name] = "red"
+    for name in tgt_blue:
+        if near_track(name) and name not in obs:
+            obs[name] = "blue"
     keep_blue = [c for c in tgt_blue if not near_track(c)]
     keep_red = [c for c in tgt_red if not near_track(c)]
     if not static_is_bucket:
-        return keep_blue, keep_red, [], conflict
+        return keep_blue, keep_red, [], obs
     as_bucket = sorted(keep_blue + keep_red)
-    return [], [], as_bucket, conflict
+    return [], [], as_bucket, obs
 
 
 def plan_from_state(field_state: dict, out_dir: str | Path,
                     static_target_is_bucket: bool = True) -> dict:
     """场地态势 → 路线规划 + 车端命令 + 渲染。视频未覆盖要素用裁判系统默认。
 
-    static_target_is_bucket：裁判先验裁决开关（见 reclassify_targets）。
+    static_target_is_bucket：静靶→桶的裁决开关（见 arbitrate_targets）。
     默认 True = "全场唯一靶"口径；练习场确实摆了静靶时用 CLI
-    `--allow-static-targets` 关掉。
+    `--allow-static-targets` 关掉（移动靶的敌我判定不受影响）。
     """
     out_dir = Path(out_dir)
 
@@ -1084,25 +1092,30 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
     use_start = car_start[0] if len(car_start) == 1 else START_DFT
     use_goal = car_end[0] if len(car_end) == 1 else GOAL_DFT
 
-    tgt_blue, tgt_red, bucket_from_target, target_conflict = reclassify_targets(
+    tgt_blue, tgt_red, bucket_from_target, track_obs = arbitrate_targets(
         tgt_blue, tgt_red, static_target_is_bucket)
     if bucket_from_target:
-        print(f"[plan][裁决] 视频静靶 {bucket_from_target} 判为桶（全场唯一靶=移动靶先验；"
-              f"物证：格内为彩色圆桶，框尺寸与障碍桶同级）→ 并入障碍")
+        print(f"[plan][裁决] 视频静靶 {bucket_from_target} 判为桶（场地真值已确认："
+              f"格内是彩色圆桶，框尺寸与障碍桶同级）→ 并入障碍")
         obstacles = sorted(set(obstacles) | set(bucket_from_target))
-    if target_conflict:
-        print(f"[plan][裁决] {target_conflict} 落在移动靶轨道 ±{TRACK_NEIGHBOR_R} 格内"
-              f"（移动靶误投影）→ 剔除，回退移动靶两段式先验")
+    if track_obs:
+        _faces = "、".join(f"{c}={('蓝面(敌，可打)' if f == 'blue' else '红面(友，禁火)')}"
+                          for c, f in sorted(track_obs.items()))
+        print(f"[plan][裁决] 轨道靶本体观测：{_faces}")
 
     targets: list[TargetRef] = []
     for c in tgt_blue:
         targets.append(TargetRef(cell(c), True))
     for c in tgt_red:
         targets.append(TargetRef(cell(c), False))
-    # 移动靶先验：视频没看到静靶、或静靶全被裁决掉时补上（全场唯一靶）。
-    # blue_face 取裁判地图默认（S）；车到轨道端确认点后由车载 fire_guard
-    # 按实时帧复判红蓝——红面/未辨一律禁火（fail-safe）。
-    if not any(t.track for t in targets):
+    # 移动靶（全场唯一靶）：**优先用视频观测**——观测格 = 本体瞬时位置，
+    # 可见面决定敌我（红面=友方 → 禁火、不派射击任务）。
+    # 无观测才用裁判先验（蓝面朝向取 match_params.yaml 的默认 S）。
+    for name, face in sorted(track_obs.items()):
+        targets.append(TargetRef(cell(name), face == "blue",
+                                 track=(cell(TRACK_DFT[0]), cell(TRACK_DFT[1])),
+                                 blue_face=BLUE_FACE_DFT))
+    if not track_obs:
         targets.append(TargetRef(cell(TRACK_DFT[0]), True,
                                  track=(cell(TRACK_DFT[0]), cell(TRACK_DFT[1])),
                                  blue_face=BLUE_FACE_DFT))
@@ -1144,10 +1157,11 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
                    # 明确标注哪些桥门来自默认值——现场一眼能看出"这段视频没拍到"
                    "passable_from_default": passable_from_default,
                    "start": use_start, "goal": use_goal,
-                   # 靶先验裁决留痕（可追溯、可复盘）：哪些"静靶"被改判为桶、
-                   # 哪些落在轨道邻域被判误投影；字段名沿用 2026-10-18 审计口径
+                   # 靶裁决留痕（可追溯、可复盘）。字段名沿用 2026-10-18 审计口径：
+                   # 轨道邻域内的"静靶"声明被改判为移动靶本体观测（不是误检）
                    "targets_reclassified_as_bucket": bucket_from_target,
-                   "targets_reclassified_referee_conflict": target_conflict,
+                   "targets_track_observed": track_obs,
+                   "targets_reclassified_referee_conflict": sorted(track_obs),
                    "static_target_arbitration": ("单靶先验（静靶→桶）"
                                                  if static_target_is_bucket
                                                  else "关闭（--allow-static-targets）")},
@@ -1162,11 +1176,19 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
         "check": {"排雷覆盖": "全部覆盖" if not missing else f"缺失{missing}",
                   "障碍避让": "通过" if not viol else f"穿障{viol}"},
     }
+    # 安全自检：全场只看到红面（友方）时，车命令里不该出现任何射击停靠。
+    # "误击友方 −5 分"的离线闸门（在飞另有 fire_guard 一道，两道独立）。
+    if targets and not any(t.is_blue for t in targets):
+        route_plan["check"]["友方面禁火"] = (
+            "通过（仅见红面友方：未派射击任务）" if not cmds.shoot_cells
+            else f"告警：仅见红面却派了射击任务 {list(cmds.shoot_cells)}")
     (out_dir / "route_plan.json").write_text(
         json.dumps(route_plan, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[plan] 路线 {len(route)} 格: {' → '.join(route)}")
     print(f"[plan] 压缩 {len(compact)} 点 | 排雷覆盖 {'✓' if not missing else missing}"
           f" | 避障 {'✓' if not viol else viol}")
+    if "友方面禁火" in route_plan["check"]:
+        print(f"[plan] 友方面禁火：{route_plan['check']['友方面禁火']}")
     _render_plan(snapshot, route, compact, cmds, use_start, use_goal,
                  turns, length, out_dir / "route_render.png")
     return route_plan
