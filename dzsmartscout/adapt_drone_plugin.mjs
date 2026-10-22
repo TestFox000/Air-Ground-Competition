@@ -4,7 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-const ROOT = 'D:/User/Desktop/dzsmartscout/dsh-plugin-dzdrone-ssh'
+const ROOT = 'D:/User/Desktop/比赛存档/v1/tools/plugins/dsh-dzdrone-ssh'
 const SKIP_DIRS = new Set(['novnc', 'node_modules', '__pycache__'])
 const EXTS = new Set(['.js', '.mjs', '.html', '.yml', '.yaml', '.md', '.json', '.sh', '.txt'])
 

@@ -9,17 +9,17 @@ _ssh_diag.txt
 wxauto_logs/
 drone_recordings/
 dzrobot_v2/
-dsh-dzairground-ssh/
+tools/plugins/*/node_modules/
 # Python 字节码（已是跟踪项的保持现状，这里只挡新增）
 **/__pycache__/
 *.pyc
 # 编辑器/OS 噪声
 *.swp
 .DS_Store
-# V2.0 �����ֿ⣨Ƕ�� git��������֣�
+# V2.0 �����ֿ⣨Ƕ�� git��������֣�
 V2.0/
 
-# 2026-10-22 B��������˽/���в��빫����
+# 2026-10-22 B��������˽/��в��빫����
 memory/
 .zhiyuan/
 .agent-teams/

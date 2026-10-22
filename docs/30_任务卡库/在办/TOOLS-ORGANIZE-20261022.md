@@ -45,4 +45,20 @@
 
 ## 执行记录
 
-（本节随执行追加）
+**2026-10-22 21:41–21:45 · 整理完成**（沙箱对 workspace 建目录/git 全线 EPERM，经用户授权以一次完全权限 PowerShell 跑 _tmp_session/tools-organize-20261022/organize-plugins2.ps1；哈希清单 manifest.json + 12 锚点 ref-fixes2.json 预验证）
+
+- 新鲜度门：移动前 332/332 与清单一致才动手；移动后逐字节再验 332/332 通过
+- 最终布局与卡面草案的差异：**不建 _legacy，三包统一进 tools/plugins/**——dsh-dzairground-ssh 112 文件（0.7.0-s6，仍未挂载）、dsh-dzrobot-ssh 122 文件（原 dzrobot_v2/dsh-plugin-dzrobot-ssh）、dsh-dzdrone-ssh 98 文件（原 dzsmartscout/dsh-plugin-dzdrone-ssh）
+- 引用修复 12/12 全过：verify-s1.mjs / check-css-namespace.mjs 指新路径；三个 README 安装位置段（统一包顺手更正「已在 profile 注册」的不实说法——实测 dependencies 与 bundles 均无本包）；adapt_drone_plugin.mjs 陈旧 ROOT；索引标注.yaml 三条迁入+旧统一条目改历史；repo_index.py 注解；.gitignore 的 dsh-dzairground-ssh/ 行改为 tools/plugins/*/node_modules/（三包由此入 v1 git 跟踪，与另两仓删除提交对应）
+- 索引重生成：dzrobot_v2 repo_index --write（88 条目，exit 0）；v1 gen_index（exit 0）
+- 垃圾清理 5 项：%SystemDrive%/ 字面垃圾目录、b1_probe_cmd.txt、b1_probe_root.txt、dzsmartscout/err.txt、dzsmartscout/out.txt
+- 沙箱 ACL 诊断（同轮副产品）：tools/ 目录缺 WRITE_OWNER 权限项，已用 diagnose-windows-sandbox-acl 补齐并验证；备份与恢复命令在 _tmp_session/tools-organize-20261022/acl-repair/
+- git：dzrobot_v2 仓一笔 --only 限定（插件树迁出删除 + 索引/注解 4 文件）；v1 仓一笔（tools/** 新增 + 旧路径删除 + 12 处引用 + .gitignore + 本卡 + 目录索引）
+- 首跑插曲（教训落盘）：步骤 8 dzv2 git add 把 git 的 CRLF 提示当异常（ErrorActionPreference=Stop + 2>&1 管道）中断——文件系统与引用修复已全部落定，补跑提交段无副作用；git 输出不可与 Stop 模式混用
+- 部署债（用户裁决「先不重新挂」）：desktop profile 两个 file: 依赖仍指旧路径，**下次部署前必须改到 tools/plugins/，否则 pnpm install 断链**；统一包未挂载与其 5 项缺口仍挂账，归「插件重新做」线
+
+## §10 文档变更
+
+- 修改：dzrobot_v2/docs/索引标注.yaml（3 条迁入 + 1 条改历史）、三个插件 README 安装位置段、.gitignore、本卡
+- 重生成：dzrobot_v2/docs/目录索引.md/.json、docs/目录索引.md/.json
+- 新增长期文档：无（脚本与清单按 §5 留 _tmp_session/<卡号>/）

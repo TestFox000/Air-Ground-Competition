@@ -1,0 +1,3052 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dzbrain 仿真台 · dzrobot-ssh</title>
+<!-- sim.html — 自包含、纯原生 JS、不 import 任何外部模块（由插件自己的 http 源提供）。
+     一次点击 = 一次 dzbrain 离线仿真：速度档 + 误差注入 → 指标 / 路线图 / 历史对比。
+     铁律：只读 config（参数一律走 --set）、产物只落 artifacts/sim/、台账 run_meta.jsonl 追加。
+     ← 契约见 src/simbench.js 与 index.js 的 /sim/* 路由。 -->
+<style>
+  :root {
+    --bg: #14161a; --panel: #1c1f26; --panel2: #23272f; --line: #333a45;
+    --fg: #e6e9ef; --dim: #9aa4b2; --accent: #4da3ff; --ok: #38c172; --warn: #f0b429; --bad: #ef5350;
+    --mono: ui-monospace, SFMono-Regular, Consolas, "Cascadia Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.55 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; }
+  header { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .sub { color: var(--dim); font-size: 12px; }
+  main { padding: 16px 18px 60px; display: grid; grid-template-columns: minmax(360px, 460px) 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 1080px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  section > h2 { font-size: 14px; margin: 0 0 10px; color: var(--fg); }
+  h2 .hint { font-weight: 400; color: var(--dim); font-size: 12px; margin-left: 6px; }
+  label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; }
+  input[type=text], input[type=number], select {
+    width: 100%; padding: 7px 9px; border-radius: 7px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--fg); font: inherit;
+  }
+  input[type=number] { font-family: var(--mono); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .check { display: flex; align-items: center; gap: 7px; margin-top: 12px; color: var(--fg); font-size: 13px; }
+  .check input { width: auto; }
+  .btns { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2);
+           color: var(--fg); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #08121f; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: progress; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 12px; }
+  .kv dt { color: var(--dim); }
+  .kv dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--dim); font-weight: 500; position: sticky; top: 0; background: var(--panel); }
+  td.num, th.num { text-align: right; font-family: var(--mono); }
+  tbody tr:hover { background: var(--panel2); }
+  tbody tr.pick { background: #1d2b3d; }
+  .scroll { max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11.5px; border: 1px solid var(--line); color: var(--dim); }
+  .badge.ok { color: var(--ok); border-color: #2b6b47; }
+  .badge.bad { color: var(--bad); border-color: #7a3232; }
+  .badge.warn { color: var(--warn); border-color: #7a6325; }
+  pre { background: #0f1116; border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+        overflow: auto; max-height: 320px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: var(--dim); font-size: 12.5px; }
+  .msg { margin-top: 10px; font-size: 12.5px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); }
+  .msg.bad { color: #ffd9d5; background: #3a1f1f; border-color: #7a3232; }
+  .msg.ok { color: #d7f7e2; background: #16301f; border-color: #2b6b47; }
+  .preview { margin-top: 10px; background: #fff; border-radius: 8px; padding: 8px; text-align: center; }
+  .preview img { max-width: 100%; height: auto; }
+  .delta.up { color: var(--bad); } .delta.down { color: var(--ok); } .delta.same { color: var(--dim); }
+  .foot { color: var(--dim); font-size: 12px; margin-top: 8px; }
+  code { font-family: var(--mono); color: #cfe3ff; }
+  /* ── 横置地图视图 + 改点位────────────────────────────────────── */
+  .mapwrap { position: relative; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 6px; }
+  .mapwrap svg { display: block; width: 100%; height: auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 8px; font-size: 12px; color: var(--dim); }
+  .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 5px;
+              vertical-align: -1px; border: 1px solid rgba(0,0,0,.35); }
+  .legend .ln { display: inline-block; width: 16px; height: 0; border-top: 3px solid #111; margin: 0 5px -3px 0; }
+  .legend .ln.b { border-top-color: #2f7fd0; }
+  .legend .ln.r { border-top-color: #d64545; }
+  /* 桥洞进洞侧冗余墙（虚拟）——虚线橙，与实体隔板（实线黑）区分 */
+  .legend .ln.w { border-top: 3px dashed #d9480f; }
+  textarea { width: 100%; padding: 7px 9px; border-radius: 7px; border: 1px solid var(--line);
+             background: var(--panel2); color: var(--fg); font: 12.5px/1.5 var(--mono); resize: vertical; }
+  .chips { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; font-size: 12px; color: var(--dim); }
+  .chips .grow { margin-left: auto; }
+  .chips button { padding: 3px 9px; font-size: 12px; border-radius: 6px; }
+  .warnline { color: var(--warn); font-size: 12px; margin-top: 6px; }
+  .cpu { color: var(--dim); font-size: 12px; margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+  /* ── 棋盘拖拽编辑（棋子 palette + 幽灵元素 + 命中层）────────────────────── */
+  .pieces { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 4px; }
+  /* 象棋观感 —— palette 棋子 = 圆饼造型（描边 + 内高光 + 外投影） */
+  .piece { touch-action: none; cursor: grab; width: 44px; height: 44px; padding: 0;
+           border-radius: 50%; font-size: 15px; font-weight: 700; line-height: 1;
+           box-shadow: 0 3px 6px rgba(0,0,0,.45), inset 0 -3px 4px rgba(0,0,0,.30),
+                       inset 0 2px 3px rgba(255,255,255,.14); }
+  .piece[data-piece="mines"] { border-color: #7a3232; color: #ff9d97; }
+  .piece[data-piece="obstacles"] { border-color: #5b6270; }
+  .piece[data-piece="targets"] { border-color: #8a2f5f; color: #f3b8d4; }
+  .piece[data-piece="bridges"] { border-color: #2b7a80; color: #9fe8ef; }
+  .dragGhost { position: fixed; z-index: 99; pointer-events: none; display: none;
+               padding: 4px 10px; border-radius: 8px; border: 1px solid var(--accent);
+               background: #1d2b3d; color: #cfe3ff; font-size: 12.5px; }
+  /* 命中层（落格）：装饰层不吃指针事件，elementFromPoint 才能落到带 data-cell 的基格 rect */
+  #map svg text, #map svg circle, #map svg line, #map svg polyline, #map svg path { pointer-events: none; }
+  textarea[readonly] { opacity: .8; cursor: default; }
+  /* ── 运行仿真动画层 —— 与 #map 同框的绝对定位覆盖层（viewBox 同口径）。
+        pointer-events:none ⇒ 不吃指针事件：落格命中（elementFromPoint）与地图点击不受影响。 */
+  #anim { position: absolute; left: 6px; top: 6px; right: 6px; bottom: 6px; pointer-events: none; }
+  #anim svg { display: block; width: 100%; height: 100%; }
+  /* 横置 traj.svg：旋转 90° 后按容器自适应（宽高比在载入时用 naturalWidth/Height 定） */
+  .rot90 { position: relative; overflow: hidden; background: #fff; border-radius: 8px; margin-top: 10px; }
+  .rot90 > img { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-90deg); }
+  .rotbox { border-radius: 8px; overflow: hidden; background: #fff; margin-top: 10px; text-align: center; }
+  .rotbox img { max-width: 100%; height: auto; }
+  /* ── 历史看图（懒加载 modal）────────────────────────────────────── */
+  .shotbtn { padding: 2px 8px; font-size: 12px; border-radius: 6px; margin-right: 6px; }
+  .modal { position: fixed; inset: 0; background: rgba(6, 8, 12, .74); display: flex;
+           align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+  .modalBox { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+              width: min(1080px, 96vw); max-height: 92vh; overflow: auto; padding: 14px 16px; }
+  .modalHead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .modalHead .grow { margin-left: auto; }
+  .modalHead h3 { margin: 0; font-size: 14px; }
+  .shotmsg { border: 1px solid #7a6325; background: #2a2416; color: #ffe6a8; border-radius: 8px;
+             padding: 12px 14px; font-size: 13px; line-height: 1.8; }
+  .shotmsg b { color: #ffd166; }
+  .badge.warn2 { color: var(--warn); border-color: #7a6325; }
+  /* ── 64 图压测弹窗：路线结果网格 + 底部均值 ─────────────────────────── */
+  .stressGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 12px; }
+  .stressCard { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+  .stressCard .cap { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--dim); margin-bottom: 4px; }
+  .stressCard .cap b { color: var(--fg); font-family: var(--mono); }
+  .stressCard svg { display: block; width: 100%; height: auto; background: #fff; border-radius: 5px; }
+  .stressFoot { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; margin-top: 14px; padding-top: 12px;
+                border-top: 1px dashed var(--line); font-size: 14px; }
+  .stressFoot .big { font-family: var(--mono); font-size: 18px; font-weight: 700; color: #ffd166; }
+  /* 压测弹窗 —— 状态徽章 / 失败原因 / 顶部汇总（plan-failed 也照画底图） */
+  .stressBadge { padding: 0 5px; border-radius: 4px; border: 1px solid var(--line); color: var(--dim); font-size: 11px; }
+  .stressBadge.done { color: #7bd88f; border-color: #2f6f45; }
+  .stressBadge.plan-failed, .stressBadge.error { color: var(--bad); border-color: #7a2f2f; }
+.stressBadge.planned { color: #7bd88f; border-color: #2f6f45; }
+.stressBadge.generator-unsolvable { color: var(--warn); border-color: #7a6325; }
+  .stressBadge.invalid, .stressBadge.timeout { color: var(--warn); border-color: #7a6325; }
+  .stressCard .meta { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 4px; }
+  .stressCard .why { color: #ff9a9a; font-size: 10.5px; line-height: 1.45; margin-top: 4px; word-break: break-word; }
+  .stressSum { border: 1px solid var(--line); background: var(--panel2); border-radius: 8px;
+               padding: 9px 11px; font-size: 12px; margin-top: 6px; }
+  .stressSum .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .stressSum .hintbad { color: #ffb4b4; margin-top: 7px; line-height: 1.65; }
+  .stressSum ul.whys { margin: 6px 0 0 18px; padding: 0; color: var(--dim); font-size: 11.5px; line-height: 1.6; }
+  .stressSum ul.whys b { color: var(--warn); }
+
+</style>
+</head>
+<body>
+<header>
+  <h1>dzbrain 仿真台</h1>
+  <span class="sub">本机离线仿真 · 不连小车 · 只读 config（参数走 <code>--set</code>）· 产物落 <code>artifacts/sim/</code></span>
+  <span id="rootLine" class="badge" style="margin-left:auto">正在读工作区…</span>
+</header>
+
+<main>
+  <!-- ── 左栏：参数 + 运行 ─────────────────────────────────────────────── -->
+  <div>
+    <section>
+      <h2>参数<span class="hint">巡航速度档 → <code>--set pursuit.cruise_speed_mps=X</code></span></h2>
+
+      <label for="label">备注名（写进台账，便于对比）</label>
+      <input id="label" type="text" value="smoke" maxlength="40" placeholder="例如：基线 / 提速 0.40 / 噪声 0.01">
+
+      <label for="speed">巡航速度档</label>
+      <select id="speed">
+        <option value="0.15">0.15 m/s（现场默认档）</option>
+        <option value="0.35">0.35 m/s（提速档）</option>
+        <option value="0.40">0.40 m/s（提速档）</option>
+        <option value="custom">自定义…</option>
+      </select>
+      <div id="speedCustomWrap" style="display:none">
+        <label for="speedCustom">自定义 <code>pursuit.cruise_speed_mps</code>（m/s）</label>
+        <input id="speedCustom" type="number" step="0.01" min="0.05" max="1" value="0.15">
+      </div>
+
+      <!-- R1 显式引擎选择：默认「跟随车端」（请求体不带 engine，parity 守卫逐字节不变）；
+           只有显式选 tour 才是 what-if —— 页面必须红字声明"该路线不是车端将走的路线"，
+           绝不静默 fallback。 -->
+      <label for="engine">规划引擎<span class="hint">改点位后重规划用；默认跟随车端</span></label>
+      <select id="engine">
+        <option value="">跟随车端（robot.yaml planner.engine，推荐）</option>
+        <option value="tracker-safe">tracker-safe（车端默认引擎）</option>
+        <option value="tour">tour（what-if，非车端路线）</option>
+      </select>
+      <div class="warnline" id="engineWarn" style="display:none"></div>
+
+      <label>误差注入<span class="hint">留空 = 不注入</span></label>
+      <div class="row3">
+        <div>
+          <label for="speedErr" style="margin-top:0">速度比例误差</label>
+          <input id="speedErr" type="number" step="0.005" placeholder="0.01">
+        </div>
+        <div>
+          <label for="yawDrift" style="margin-top:0">偏航漂移 °/min</label>
+          <input id="yawDrift" type="number" step="0.5" placeholder="1.0">
+        </div>
+        <div>
+          <label for="posNoise" style="margin-top:0">位置噪声 m/拍</label>
+          <input id="posNoise" type="number" step="0.001" placeholder="0.005">
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="maxSteps">maxSteps（拍；留空 = 跑完全程）</label>
+          <input id="maxSteps" type="number" step="100" min="1" placeholder="例如 300（冒烟）">
+        </div>
+        <div>
+          <label for="latency">指令延迟 s（可选）</label>
+          <input id="latency" type="number" step="0.05" placeholder="0.0">
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="seed">随机种子 seed（留空 = SimConfig 默认）</label>
+          <input id="seed" type="number" step="1" min="0" placeholder="例如 20261012">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <div class="foot" style="margin:0">相同 seed + 相同参数 = 逐位相同的轨迹（噪声可复现）</div>
+        </div>
+      </div>
+
+      <div class="check">
+        <input id="anchor" type="checkbox">
+        <label for="anchor" style="margin:0">开启到位吸附（<code>--anchor</code>）</label>
+      </div>
+
+      <!-- 无人机协同开关（规格 §D.1）—— 默认不勾；勾上后车路线硬避让无人机起降格
+           （经运行目录 override 图的 obstacles 注入 + 重规划实现，规划层避让）。
+           起降格**不写死在文案里** —— 由 loadField()/refreshFieldHints() 从
+           /sim/map 的 drone 真源（fieldSpec().drone，缺省 N8/M2 只在宿主兜底）填进 #droneCells；
+           场地未加载时显「未加载」，不允许文案冒充已生效。 -->
+      <div class="check">
+        <input id="drone" type="checkbox">
+        <label for="drone" style="margin:0">无人机协同<span class="hint">开启后车路线硬避让无人机起降格
+          <b id="droneCells">—</b>（override 图 obstacles 注入 + 重规划硬避让；台账 record.plan.drone 记 hardAvoid / corridorRow）</span></label>
+      </div>
+
+      <div class="btns">
+        <button id="run" class="primary">运行仿真</button>
+        <button id="check">预检</button>
+        <button id="refresh">刷新历史</button>
+      </div>
+      <div id="runMsg" class="msg" style="display:none"></div>
+      <div class="foot">全程仿真在本机约 1–3 分钟（视 maxSteps）；同一时刻只允许一个仿真。</div>
+      <div class="cpu">本仿真台是 <b>纯 CPU 的确定性离线计算</b>（无 GPU 路径、不 import rclpy、不连小车）。
+        真机上无人机的 YOLO 推理属 Jetson 阶段，不在仿真台范围内。</div>
+    </section>
+
+    <!-- ── 64 图压测面板 —— 只走 3 个 /sim/stress 端点，后端零改动 ── -->
+    <section style="margin-top:16px">
+      <h2>随机图压测<span class="hint">stressbench 并行跑（池≤4）· 跟踪/规划两种模式 · 统计分母显式、missing 单列</span></h2>
+      <div class="foot">压测固定使用仓库 <code>config/robot.yaml</code> + <code>config/map.yaml</code>（当前第六张图）；上方「场地来源」只影响单跑/改点位，不改变压测输入。要压实车第七张图，需先把 source 支持接进 stress（未做）。</div>
+      <div class="row">
+        <div>
+          <label for="stressSeed">随机种子 seed（同 seed ⇒ 同批图可复现）</label>
+          <input id="stressSeed" type="number" step="1" min="0" value="20261015">
+        </div>
+        <div>
+          <label for="stressCount">批数 count（张图）</label>
+          <input id="stressCount" type="number" step="1" min="1" max="500" value="64">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="stressMode">压测模式<span class="hint">跟踪=规划+仿真；规划=只规划（量化规划器）</span></label>
+          <select id="stressMode">
+            <option value="track">跟踪压测（规划 + 仿真跑车）</option>
+            <option value="plan">规划压测（只规划，不跑车）</option>
+          </select>
+        </div>
+        <div>
+          <label for="stressEngine">规划引擎<span class="hint">默认跟随 robot.yaml</span></label>
+          <select id="stressEngine">
+            <option value="">跟随 robot.yaml</option>
+            <option value="tour">tour（能接管 :PIVOT 折返图）</option>
+            <option value="tracker-safe">tracker-safe（车端当前默认）</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="stressResample">补图<span class="hint">规划失败就换图，只用于跟踪压测</span></label>
+          <input id="stressResample" type="checkbox" style="width:auto">
+        </div>
+        <div>
+          <label for="stressMaxAttempts">补图重试上限</label>
+          <input id="stressMaxAttempts" type="number" step="1" min="1" max="20" value="8">
+        </div>
+      </div>
+      <div class="warnline" id="stressEngineWarn" style="display:none"></div>
+      <div class="btns">
+        <button id="stressRun" class="primary" type="button">跑压测批次</button>
+        <button id="stressRefresh" type="button">刷新进度</button>
+      </div>
+      <div id="stressMsg" class="msg" style="display:none"></div>
+      <div class="foot" id="stressStatus">状态：空闲（还没跑过压测）</div>
+      <div id="stressBarWrap" style="height:6px;background:#23272f;border-radius:3px;margin-top:6px;display:none">
+        <div id="stressBar" style="height:6px;width:0%;background:#4da3ff;border-radius:3px"></div>
+      </div>
+      <div id="stressStats"><span style="color:var(--dim)">还没有压测结果。点「跑压测批次」，完成后自动渲染统计。</span></div>
+    </section>
+
+    <!-- ── 改点位：棋盘拖拽为主编辑通道；只落运行目录，config/** 零写入 ── -->
+    <section style="margin-top:16px">
+      <h2>改点位<span class="hint">拖棋子落格即改点位（文本框为只读镜像）；保存只写 <code>artifacts/sim/&lt;id&gt;/map_override/</code></span></h2>
+      <div id="fieldMeta" class="foot">正在读场地…</div>
+
+      <!-- 场地来源（仿真台"切到实车现图"）：留空 = 仓库 config/；填目录则只读该目录下
+           robot.yaml + map.yaml（复制进本次运行目录，config/ 零写入）。 -->
+      <label for="sourceDir">场地来源目录<span class="hint">留空 = 仓库 <code>config/</code></span></label>
+      <input id="sourceDir" type="text" spellcheck="false" placeholder="例如 D:\...\_tmp_session\sim_t29\field7_source（含 robot.yaml + map.yaml，可选 route.tokens.txt）">
+      <div class="foot">改完离开输入框即重读；只读复制，仓库 <code>config/</code> 零写入。失败会显式报错，不会静默回落到第六张图。
+        目录里若带 <code>route.tokens.txt</code>，参考路线与「运行仿真」（未改点位时）都按该<b>手动路线</b>跑。</div>
+
+      <!-- 四类棋子 palette = 主编辑通道；按住拖到棋盘格放下，点棋盘上已有棋子移除 -->
+      <div class="chips"><span>棋盘拖拽<span class="hint">拖棋子到棋盘格 = 加（定容硬顶：雷 8 / 障 8 / 通 2 / 靶板 1，满了拒放）；点棋盘棋子 = 移除；点靶板 = 顺时针旋转，按住靶板拖到新格 = 整体换位</span></span></div>
+      <div class="pieces">
+        <button type="button" class="piece" data-piece="mines" title="雷：拖到空格放下（定容 8 枚）">雷</button>
+        <button type="button" class="piece" data-piece="obstacles" title="障碍：拖到空格放下（定容 8 枚）">障</button>
+        <button type="button" class="piece" data-piece="targets" title="靶板：双格整对（定容 1 块）；已放置时点靶板旋转、按住靶板拖动换位">靶（双格）</button>
+        <button type="button" class="piece" data-piece="bridges" title="桥洞：只能落 K 列（定容 2 枚）">通</button>
+      </div>
+
+      <div class="chips"><span>雷（必须全部压过）· 只读镜像</span><span id="minesCount" class="grow">—</span>
+        <button type="button" data-reset="mines">恢复默认</button></div>
+      <textarea id="mines" rows="3" readonly spellcheck="false" placeholder="C1 A3 E3 G4 I6 B7 D9 H10"></textarea>
+
+      <div class="chips"><span>障碍（不可通行）· 只读镜像</span><span id="obstaclesCount" class="grow">—</span>
+        <button type="button" data-reset="obstacles">恢复默认</button></div>
+      <textarea id="obstacles" rows="3" readonly spellcheck="false" placeholder="A1 E2 H4 D8 I8 G9 B11 F11"></textarea>
+
+      <div class="chips"><span>桥洞（本局开放，其余 K 格封死）· 只读镜像</span><span id="bridgesCount" class="grow">—</span>
+        <button type="button" data-reset="bridges">恢复默认</button></div>
+      <textarea id="bridges" rows="2" readonly spellcheck="false" placeholder="K5 K9"></textarea>
+
+      <div class="chips"><span>靶板两格（自动相邻合并）· 只读镜像</span><span id="targetsCount" class="grow">—</span>
+        <button type="button" data-reset="targets">恢复默认</button></div>
+      <textarea id="targets" rows="1" readonly spellcheck="false" placeholder="E5 F5"></textarea>
+
+      <div class="chips"><span>靶板朝向<span class="hint">只影响地图/轨迹渲染与提示，不写 config</span></span>
+        <span id="targetYawCount" class="grow">—</span>
+        <button type="button" data-reset="targetYaw">恢复默认</button></div>
+      <select id="targetYaw">
+        <option value="">跟随地图（不指定）</option>
+        <option value="h">横向（长边沿 A~N 列方向）</option>
+        <option value="v">竖向（长边沿 1~11 行方向）</option>
+      </select>
+      <div class="foot">靶板由 <code>map.targets</code> 的相邻两格并成一块；<b>横向</b>=两格左右相邻（如 B11+C11），
+        <b>竖向</b>=两格上下相邻。选"跟随地图"时按两格实际几何关系自动判定。</div>
+
+      <div class="btns" style="margin-top:10px">
+        <!-- 整图恢复**不带 data-reset**（避免被通用 data-reset 循环二次绑定）；独立 listener → loadField() 重读 /sim/map -->
+        <button type="button" id="resetAll">整图恢复（重读 /sim/map）</button>
+      </div>
+
+      <div class="warnline" id="fieldWarn" style="display:none"></div>
+      <div class="foot">改了任一类就会：① 在运行目录生成 <code>map_override/</code>（改后 map.yaml + robot.yaml 副本）；
+        ② 调 <code>tools/plan_route.py</code> **只读**重规划 <code>route.tokens</code>（路线随新点位变）；
+        ③ sim 用 <code>--config</code> 指向该副本运行。<b>仓库 config/ 与 src/dzbrain/ 一个字节都不写</b>。</div>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>对比<span class="hint">在历史表里勾选两行</span></h2>
+      <div id="compare"><span class="sub" style="color:var(--dim)">未选择（勾两行即可对比）</span></div>
+    </section>
+  </div>
+
+  <!-- ── 右栏：地图 + 结果 + 历史 ──────────────────────────────────────── -->
+  <div>
+    <!-- ── 横置地图视图：14 列水平 × 11 行垂直，格名 + 异色注释 ── -->
+    <section>
+      <h2>场地（横置）<span class="hint">14 列 A~N 水平 × 11 行 1~11 垂直 · 每格 0.35 m</span></h2>
+      <div class="mapwrap"><div id="map"><span style="color:var(--dim)">正在画场地…</span></div><div id="anim" aria-hidden="true"></div></div>
+      <div class="legend">
+        <span><i style="background:#e5484d"></i>雷（必须压过）</span>
+        <span><i style="background:#4a4a4a"></i>障（水桶）</span>
+        <span><i style="background:#7fe3ea"></i>桥洞（本局开放）</span>
+        <span><i style="background:#d9d9d9"></i>封闭桥室</span>
+        <span><span class="ln w"></span>进洞侧冗余墙（虚拟，随 robot.yaml）</span>
+        <span><i style="background:#e8a0c8"></i>靶（跨格板）蓝/红沿长边对半</span>
+        <span><span class="ln"></span>隔板（第 6/7 行之间 D~N）</span>
+        <span><i style="background:#b2f2bb"></i>起点 N10</span>
+        <span><i style="background:#ffe066"></i>终点 N5</span>
+        <span><i style="background:#4d8fd6"></i>无人机起降（H）</span>
+        <span><span class="ln b"></span>参考路线</span>
+        <span><span class="ln r"></span>本局仿真轨迹</span>
+      </div>
+      <div class="chips" style="margin-top:8px">
+        <label class="check" style="margin:0"><input id="showRoute" type="checkbox" checked><span>参考路线</span></label>
+        <label class="check" style="margin:0"><input id="showTrace" type="checkbox" checked><span>本次轨迹（traj.csv）</span></label>
+        <button type="button" id="replay" disabled title="t10 回放本次 run 的真实轨迹；车体 0.28×0.135 m 真值按 0.35 m/格（GRID.blockM）等比换算成棋盘像素">回放</button>
+        <span id="animState">未回放</span>
+        <span id="mapMeta" class="grow"></span>
+      </div>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>结果<span id="resTitle" class="hint"></span></h2>
+      <div id="result"><span style="color:var(--dim)">还没跑过。左边点「运行仿真」。</span></div>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>空地协同<span class="hint">无人机桥洞优先扫描 + 小车情报先导滚动重规划</span></h2>
+      <button id="droneRun" class="primary" type="button">跑空地协同</button>
+      <div id="droneMsg" class="msg" style="display:none"></div>
+      <div id="droneTimeline"><span style="color:var(--dim)">还没跑过空地协同。</span></div>
+      <!-- 空地协同拟真地图 —— 底图 + 无人机航线（橙）/扫描大虚线圆/3×3 覆盖 + 小车路线（绿）/起终点位姿 -->
+      <div class="chips" style="margin-top:8px">
+        <span>协同拟真<span class="hint">橙虚线=无人机航线 · 蓝大虚线圆=扫描范围 · 淡蓝=3×3 覆盖 · 绿线=小车路线 · 黑方块=起/终点位姿 · 绿圈=采纳 · 橙圈=拒收</span></span>
+        <span>车侧避让<span class="hint">起降格硬避让由左侧「运行参数 → 无人机协同」开关控制（默认关，开关文案显示真源起降格）；开启后本入口与「运行仿真」同一套 override 图 + 台账</span></span>
+      </div>
+      <div id="droneMap" class="mapwrap" style="display:none;margin-top:6px"></div>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>步进侦察<span class="hint">T28/T29 · tools/scout_sim.py --json（只读）→ 布局 v2 时间线（known / version / target_cell）</span></h2>
+      <div class="row">
+        <div>
+          <label for="scoutStartT">起飞时刻 t（s）</label>
+          <input id="scoutStartT" type="number" step="1" value="-30">
+        </div>
+        <div>
+          <label for="scoutFrameHz">帧频 Hz</label>
+          <input id="scoutFrameHz" type="number" step="0.5" min="0.5" value="2">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="scoutCarBlock">车当前格（决定 target_cell）</label>
+          <input id="scoutCarBlock" type="text" maxlength="3" placeholder="留空 = 图上的起点">
+        </div>
+        <div>
+          <label for="scoutHeartbeat">心跳重发 s</label>
+          <input id="scoutHeartbeat" type="number" step="0.5" min="0.1" value="1">
+        </div>
+      </div>
+      <div class="btns">
+        <button id="scoutRun" class="primary" type="button">跑侦察</button>
+      </div>
+      <div id="scoutMsg" class="msg" style="display:none"></div>
+      <div id="scoutResult"><span style="color:var(--dim)">还没跑过。点「跑侦察」调用 tools/scout_sim.py（只读，不连车）。</span></div>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>十批步进成果<span class="hint">T34 · _tmp_session/step_loop/batch10（只读）· 指标 / 逐批 / 等待归因 / 甘特图</span></h2>
+      <div class="btns">
+        <button id="stepLoopLoad" type="button">读十批成果</button>
+      </div>
+      <div id="stepLoopMsg" class="msg" style="display:none"></div>
+      <div id="stepLoopResult"><span style="color:var(--dim)">还没读。点「读十批成果」加载 metrics.json / batches.csv / analysis.md。</span></div>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>预检<span class="hint">config_selfcheck + route_check（只读）</span></h2>
+      <div id="checks"><span style="color:var(--dim)">还没跑过预检。</span></div>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>历史<span class="hint">最近 50 次（台账 <code>artifacts/sim/run_meta.jsonl</code>，追加不覆盖）</span>
+        <span id="fetchCount" class="badge" title="本页发起的 /sim/artifact 请求计数（懒加载取证：打开页面应为 0，点一次「看图」+1）">artifact 请求 0 次</span></h2>
+      <div class="scroll"><table id="hist"><thead><tr>
+        <th>选</th><th>时间</th><th>备注</th><th>档位/注入</th><th>点位/seed</th><th class="num">exitCode</th>
+        <th class="num">时长 s</th><th class="num">RMS m</th><th class="num">越界</th><th class="num">长度比</th><th>跑完</th><th>产物</th>
+      </tr></thead><tbody><tr><td colspan="12" style="color:var(--dim)">正在读历史…</td></tr></tbody></table></div>
+    </section>
+  </div>
+</main>
+
+<!-- ── 历史看图 modal（懒加载：仅点击/深链时发一次 /sim/artifact 请求）── -->
+<div id="shotModal" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="shotTitle">
+  <div class="modalBox">
+    <div class="modalHead">
+      <h3 id="shotTitle">run</h3>
+      <span id="shotStatus" class="badge">…</span>
+      <span class="grow"></span>
+      <label class="check" style="margin:0"><input id="shotPortrait" type="checkbox"><span>竖版（原始方向）</span></label>
+      <button id="shotClose" type="button">关闭</button>
+    </div>
+    <div id="shotBody"></div>
+    <div id="shotFoot" class="foot"></div>
+  </div>
+</div>
+
+<!-- ── 64 图压测弹窗：64 张路线缩略网格 + 底部均值 ── -->
+<div id="stressModal" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="stressModalTitle">
+  <div class="modalBox">
+    <div class="modalHead">
+      <h3 id="stressModalTitle">随机图压测 · 路线结果</h3>
+      <span class="grow"></span>
+      <button id="stressModalClose" type="button">关闭</button>
+    </div>
+    <div id="stressModalBody"></div>
+    <div id="stressModalFoot" class="stressFoot"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* 页面与 API 同源（本文件就是插件 http 源上的 /api/dzrobot-ssh/sim.html）⇒ 相对路径即可。 */
+var API = '/api/dzrobot-ssh';
+var $ = function (id) { return document.getElementById(id); };
+
+function api(path, options) {
+  return fetch(API + path, options).then(function (response) {
+    return response.json().catch(function () { return {}; }).then(function (body) {
+      if (!response.ok) {
+        var error = new Error(body && body.error ? body.error : ('HTTP ' + response.status));
+        error.status = response.status; error.body = body; throw error;
+      }
+      return body;
+    });
+  });
+}
+function text(node, value) { node.textContent = value == null ? '' : String(value); }
+function esc(value) {
+  return String(value == null ? '' : value).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  });
+}
+function num(value, digits) {
+  if (value === undefined || value === null || value === '') return '—';
+  var n = Number(value);
+  return isFinite(n) ? n.toFixed(digits == null ? 3 : digits) : String(value);
+}
+function when(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  var p = function (n) { return (n < 10 ? '0' : '') + n; };
+  return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+function message(node, kind, text2) {
+  node.style.display = '';
+  node.className = 'msg ' + kind;
+  node.textContent = text2;
+}
+
+/* ── 表单 → 请求体（与 src/simbench.js 的 sanitizeParams 对齐）────────────── */
+function readForm() {
+  var speed = $('speed').value;
+  if (speed === 'custom') speed = $('speedCustom').value;
+  var overrides = {};
+  if (String(speed).trim() !== '') overrides['pursuit.cruise_speed_mps'] = String(speed).trim();
+  var inject = {};
+  [['speedErr', 'speed_scale_err'], ['yawDrift', 'yaw_drift'], ['posNoise', 'pos_noise'], ['latency', 'latency']]
+    .forEach(function (pair) {
+      var raw = $(pair[0]).value.trim();
+      if (raw !== '') inject[pair[1]] = Number(raw);
+    });
+  if ($('anchor').checked) inject.anchor = 'on';
+  var steps = $('maxSteps').value.trim();
+  var seedRaw = $('seed').value.trim();
+  var label = $('label').value.trim() || 'run';
+  var body = { label: label, overrides: overrides, inject: inject };
+  var srcDir = sourceDirValue();
+  if (srcDir) body.source = { dir: srcDir };      // 场地来源（只读副本；不带键 = 仓库 config/）
+  var engineSel = $('engine');
+  if (engineSel && engineSel.value) body.engine = engineSel.value;   // 不带键 = 跟随车端
+  if (steps !== '' && Number(steps) > 0) body.maxSteps = Math.floor(Number(steps));
+  if (seedRaw !== '' && Number(seedRaw) >= 0) body.seed = Math.floor(Number(seedRaw));
+  var field = fieldFromForm();                    // 改了点位才带 field（否则与改动前逐字一致）
+  if (field) body.field = field;
+  // 靶板朝向（渲染/提示用，宿主不据此改 config，只记台账）
+  var tYaw = targetYawMode();
+  if (tYaw) body.targetYaw = tYaw;
+  // 靶板分色台账（record.targetFace）—— 键与枚举值保留（宿主 sanitizeParams 白名单 + 台账
+  //   形状不变，压测/无人机体形状也不动），但**语义降级为常量**：面已不存在（蓝/红沿长边固定分色），
+  //   故恒发 TARGET_FACE_LEDGER（不再随旋转变化，"翻面"交互已废除）。
+  body.targetFace = TARGET_FACE_LEDGER;
+  // 无人机协同（规格 §D.1）—— 仅勾选时带 drone:true（带键才挂：不勾时请求体无该键，
+  //   载荷与 OFF 现状逐字节一致）；空地协同 runDroneSimulation 复用本函数 ⇒ 同一开关贯通。
+  if ($('drone') && $('drone').checked) body.drone = true;
+  if (field) body.field = field;
+  return body;
+}
+
+/** R1 显式引擎的页面提示：默认跟随车端；非车端引擎必须红字声明"不是车端将走的路线"。 */
+function refreshEngineHint() {
+  var sel = $('engine'); var box = $('engineWarn');
+  if (!sel || !box) return;
+  var want = String(sel.value || '');
+  var car = FIELD && FIELD.planner ? FIELD.planner.engine : null;
+  if (!want) { box.style.display = 'none'; box.textContent = ''; return; }
+  box.style.display = '';
+  if (car && want === car) {
+    box.textContent = '显式选择 ' + want + '：与车端 planner.engine 一致（用于复现车端口径；请求体带 engine 键）。';
+  } else {
+    box.textContent = '⚠️ what-if：本次按 ' + want + ' 重规划。该路线不是车端将走的路线（车端='
+      + (car || '未知') + '）；只写本次运行目录，config/ 零写入。';
+  }
+}
+
+/* ── 结果区 ──────────────────────────────────────────────────────────────── */
+function metricRows(record) {
+  var m = record.metrics || {};
+  var finished = m.finished === true ? '是' : (m.finished === false ? '否' : '—');
+  return [
+    ['跑完全程', finished],
+    ['总时长 s', num(m.time_s, 2)],
+    ['横向RMS(真值) m', num(m.rms_m, 4)],
+    ['越界拍数', m.out_of_bounds === undefined ? '—' : String(m.out_of_bounds)],
+    ['路径长度比', num(m.length_ratio, 4)],
+    ['exitCode', record.exitCode === undefined ? '—' : String(record.exitCode)],
+  ];
+}
+function renderResult(payload) {
+  var record = payload.record || {};
+  var id = String(record.id || '');
+  text($('resTitle'), '（' + (record.label || '') + ' · ' + when(record.at) + ' · ' + num(record.seconds, 1) + ' s 墙钟）');
+  var html = '<div class="kv">';
+  metricRows(record).forEach(function (row) {
+    html += '<dt>' + esc(row[0]) + '</dt><dd>' + esc(row[1]) + '</dd>';
+  });
+  html += '<dt>run id</dt><dd>' + esc(id) + '</dd>';
+  html += '<dt>状态</dt><dd>' + esc(record.status || '') + '</dd>';
+  html += '<dt>config/map md5</dt><dd>' + esc((record.configMd5 || '').slice(0, 12)) + ' / ' +
+          esc((record.mapMd5 || '').slice(0, 12)) + '</dd>';
+  if (record.source) {
+    html += '<dt>场地来源</dt><dd>' + esc(record.source.dir || '')
+      + '（' + (record.source.mapEdited ? '本局改点位 → override 图' : '逐字节只读复制') + '）<br>源 map md5 '
+      + esc(String(record.source.mapMd5 || '').slice(0, 12)) + ' · 副本 md5 '
+      + esc(String(record.source.overrideMapMd5 || '').slice(0, 12)) + '</dd>';
+  }
+  if (record.plan && record.plan.engine) {
+    var carEngine = FIELD && FIELD.planner ? FIELD.planner.engine : null;
+    var whatIf = record.plan.engineSource === 'explicit' && carEngine && record.plan.engine !== carEngine;
+    html += '<dt>规划引擎</dt><dd' + (whatIf ? ' class="warn"' : '') + '>' + esc(record.plan.engine)
+      + (record.plan.engineSource === 'explicit' ? '（显式' + (whatIf ? ' · what-if' : '') + '）' : '（跟随车端）')
+      + (whatIf ? '<br><b>该路线不是车端将走的路线</b>（车端=' + esc(carEngine) + '）' : '') + '</dd>';
+  }
+  html += '<dt>参数</dt><dd>' + esc(JSON.stringify({ overrides: record.overrides, inject: record.inject, maxSteps: record.maxSteps, seed: record.seed })) + '</dd>';
+  if (record.field) {
+    html += '<dt>改点位</dt><dd class="warn">' + esc(JSON.stringify(record.field)) + '</dd>';
+    html += '<dt>重规划</dt><dd>token ' + esc(record.plan ? record.plan.tokenCount : '?')
+      + ' · 穿洞 ' + esc(record.plan && record.plan.crossing ? JSON.stringify(record.plan.crossing) : '—')
+      + ' · 规划器 exit ' + esc(record.plan ? record.plan.exitCode : '?')
+      + ' · route_check exit ' + esc(record.plan ? record.plan.checkExit : '?') + '</dd>';
+    html += '<dt>override 目录</dt><dd>' + esc(record.override ? record.override.dir : '') + '</dd>';
+    html += '<dt>sim --config</dt><dd>' + esc(record.configUsed || '') + '</dd>';
+  } else {
+    html += '<dt>路线来源</dt><dd>' + esc(record.routeSource || '') + '</dd>';
+  }
+  html += '</div>';
+
+  var svg = artifactUrl(id + '/traj.svg');
+  countArtifact('结果预览 ' + id);
+  html += rotSvgBox(svg);                       // 横置渲染（旋转 90°，不改仿真核心）
+  html += '<div class="foot">产物：';
+  (record.files || []).forEach(function (file, index) {
+    var href = API + '/sim/artifact?path=' + encodeURIComponent(id + '/' + file.name);
+    html += (index ? ' · ' : '') + '<a href="' + esc(href) + '" target="_blank" rel="noreferrer">' + esc(file.name) + '</a>';
+  });
+  html += '</div>';
+  if (record.stderrTail) {
+    html += '<details><summary>stderr 尾部</summary><pre>' + esc(record.stderrTail) + '</pre></details>';
+  }
+  html += '<details' + (payload.stdoutTail ? ' open' : '') + '><summary>stdout 尾部（折叠）</summary><pre>' +
+          esc(payload.stdoutTail || '（空）') + '</pre></details>';
+  $('result').innerHTML = html;
+}
+
+/* ── 预检区 ──────────────────────────────────────────────────────────────── */
+function renderChecks(payload) {
+  var results = payload.results || [];
+  var html = '<table><thead><tr><th>工具</th><th class="num">exitCode</th><th>超时</th></tr></thead><tbody>';
+  results.forEach(function (row) {
+    var cls = row.exitCode === 0 ? 'ok' : 'bad';
+    html += '<tr><td>' + esc(row.name || row.id) + '</td><td class="num"><span class="badge ' + cls + '">' +
+            esc(row.exitCode) + '</span></td><td>' + (row.timedOut ? '是' : '否') + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  results.forEach(function (row) {
+    html += '<details><summary>' + esc(row.name || row.id) + ' · 输出尾部</summary><pre>' + esc(row.tail || '（空）') + '</pre></details>';
+  });
+  $('checks').innerHTML = html;
+}
+
+/* ── 历史区 + 两行对比 ───────────────────────────────────────────────────── */
+var historyRuns = [];
+var picked = [];
+
+/** 历史表「点位/seed」列：改过点位 → 亮出改了哪几类 + 段数；否则只报 seed。 */
+function fieldSummary(record) {
+  var parts = [];
+  if (record.field) {
+    ['mines', 'obstacles', 'bridges', 'targets'].forEach(function (key) {
+      var cells = record.field[key] || [];
+      if (cells.length) parts.push(key + '×' + cells.length);
+    });
+    if (record.plan) parts.push('重规划 ' + (record.plan.tokenCount || 0) + ' token');
+    parts.push('改点位');
+  }
+  if (record.seed !== undefined && record.seed !== null) parts.push('seed=' + record.seed);
+  if (!parts.length) return '—';
+  return parts.join('·');
+}
+
+function injectSummary(record) {
+  var parts = [];
+  var overrides = record.overrides || {};
+  if (overrides['pursuit.cruise_speed_mps'] !== undefined) parts.push('v=' + overrides['pursuit.cruise_speed_mps']);
+  var inject = record.inject || {};
+  if (inject.speed_scale_err !== undefined) parts.push('速度误差 ' + inject.speed_scale_err);
+  if (inject.yaw_drift !== undefined) parts.push('偏航 ' + inject.yaw_drift + '°/min');
+  if (inject.pos_noise !== undefined) parts.push('噪声 ' + inject.pos_noise);
+  if (inject.latency !== undefined) parts.push('延迟 ' + inject.latency + 's');
+  if (inject.anchor === true) parts.push('吸附');
+  if (record.maxSteps) parts.push('≤' + record.maxSteps + ' 拍');
+  return parts.join('·') || '默认';
+}
+function renderHistory() {
+  var body = $('hist').getElementsByTagName('tbody')[0];
+  if (!historyRuns.length) {
+    body.innerHTML = '<tr><td colspan="12" style="color:var(--dim)">还没有台账记录。</td></tr>';
+    return;
+  }
+  var rows = historyRuns.slice().reverse();     // 最新在上
+  body.innerHTML = rows.map(function (record, index) {
+    var id = String(record.id || '');
+    var m = record.metrics || {};
+    var pickedNow = picked.indexOf(id) !== -1;
+    var badges = record.exitCode === 0 ? 'ok' : (record.status === 'timeout' ? 'warn' : 'bad');
+    var files = (record.files || []).map(function (file) {
+      var href = API + '/sim/artifact?path=' + encodeURIComponent(id + '/' + file.name);
+      return '<a href="' + esc(href) + '" target="_blank" rel="noreferrer">' + esc(file.name.replace(/^\w+\./, '')) + '</a>';
+    }).join(' ');
+    // 查看图入口。这里只写 `data-shot=<id>`，**不发任何请求**（懒加载；URL 只在 openShot 里拼）
+    var shotButton = '<button type="button" class="shotbtn" data-shot="' + esc(id) + '">看图</button>';
+    return '<tr class="' + (pickedNow ? 'pick' : '') + '" data-id="' + esc(id) + '">' +
+      '<td><input type="checkbox" data-pick="' + esc(id) + '"' + (pickedNow ? ' checked' : '') + '></td>' +
+      '<td>' + esc(when(record.at)) + '</td>' +
+      '<td>' + esc(record.label || '') + '</td>' +
+      '<td>' + esc(injectSummary(record)) + '</td>' +
+      '<td>' + esc(fieldSummary(record)) + '</td>' +
+      '<td class="num"><span class="badge ' + badges + '">' + esc(record.exitCode) + '</span></td>' +
+      '<td class="num">' + num(record.seconds, 1) + '</td>' +
+      '<td class="num">' + num(m.rms_m, 4) + '</td>' +
+      '<td class="num">' + (m.out_of_bounds === undefined ? '—' : m.out_of_bounds) + '</td>' +
+      '<td class="num">' + num(m.length_ratio, 4) + '</td>' +
+      '<td>' + (m.finished === true ? '是' : (m.finished === false ? '否' : '—')) + '</td>' +
+      '<td>' + shotButton + (files || '—') + '</td>' +
+      '</tr>';
+  }).join('');
+  Array.prototype.forEach.call(body.querySelectorAll('input[data-pick]'), function (box) {
+    box.addEventListener('change', function () { togglePick(box.getAttribute('data-pick'), box.checked); });
+  });
+  // 行内「看图」按钮走事件委托；**循环里只绑监听，不发请求**
+  Array.prototype.forEach.call(body.querySelectorAll('button[data-shot]'), function (button) {
+    button.addEventListener('click', function () { openShot(button.getAttribute('data-shot')); });
+  });
+}
+function togglePick(id, on) {
+  if (on) {
+    if (picked.indexOf(id) === -1) picked.push(id);
+    while (picked.length > 2) picked.shift();
+  } else {
+    picked = picked.filter(function (each) { return each !== id; });
+  }
+  renderHistory();
+  renderCompare();
+}
+function findRun(id) {
+  for (var i = 0; i < historyRuns.length; i++) if (String(historyRuns[i].id) === String(id)) return historyRuns[i];
+  return null;
+}
+function renderCompare() {
+  if (picked.length !== 2) {
+    $('compare').innerHTML = '<span style="color:var(--dim)">未选择（勾两行即可对比）</span>';
+    return;
+  }
+  var a = findRun(picked[0]); var b = findRun(picked[1]);
+  if (!a || !b) { $('compare').innerHTML = '<span style="color:var(--dim)">记录已不在最近 50 条里，刷新历史后重试。</span>'; return; }
+  var rows = [
+    ['总时长 s', a.metrics && a.metrics.time_s, b.metrics && b.metrics.time_s, 2, false],
+    ['横向RMS m', a.metrics && a.metrics.rms_m, b.metrics && b.metrics.rms_m, 4, false],
+    ['越界拍数', a.metrics && a.metrics.out_of_bounds, b.metrics && b.metrics.out_of_bounds, 0, false],
+    ['路径长度比', a.metrics && a.metrics.length_ratio, b.metrics && b.metrics.length_ratio, 4, false],
+  ];
+  var html = '<table><thead><tr><th>指标</th><th class="num">A ' + esc(a.label) + '</th><th class="num">B ' +
+             esc(b.label) + '</th><th class="num">Δ (B−A)</th></tr></thead><tbody>';
+  rows.forEach(function (row) {
+    var av = row[1]; var bv = row[2];
+    var delta = '—';
+    if (av != null && bv != null && isFinite(Number(av)) && isFinite(Number(bv))) {
+      var d = Number(bv) - Number(av);
+      var cls = Math.abs(d) < 1e-9 ? 'same' : (d > 0 ? 'up' : 'down');
+      delta = '<span class="delta ' + cls + '">' + (d > 0 ? '+' : '') + d.toFixed(row[3]) + '</span>';
+    }
+    html += '<tr><td>' + esc(row[0]) + '</td><td class="num">' + num(av, row[3]) + '</td><td class="num">' +
+            num(bv, row[3]) + '</td><td class="num">' + delta + '</td></tr>';
+  });
+  html += '</tbody></table><div class="foot">A = ' + esc(picked[0]) + '<br>B = ' + esc(picked[1]) + '</div>';
+  $('compare').innerHTML = html;
+}
+
+/* ── 场地（横置视图）+ 改点位 + 轨迹叠加 ─────────────────────────── */
+var FIELD = null;            // GET /sim/map 的返回
+var FIELD_CELL_RE = /^[A-N](?:[1-9]|1[01])$/;
+var MAP_S = 34;              // 每格像素（横置：14 列水平 × 11 行垂直）
+var TRACE = null;            // 本次/所选 run 的 traj.csv 轨迹（屏幕坐标数组）
+var FIELD_GRID_BLOCK = 0.35; // 每格米数（车身/位姿换算用）
+
+/* ── 路径折线 + 小车位姿 + 靶板朝向 ───────────────────────────────── */
+
+/** 靶板朝向：h=横向（长边沿列）/ v=竖向（长边沿行）/ ''=按两格几何自动判。 */
+function targetYawMode() {
+  var v = String($('targetYaw') ? $('targetYaw').value : '').toLowerCase();
+  return (v === 'h' || v === 'v') ? v : '';
+}
+/** 靶格的并板矩形（屏幕坐标）：按朝向返回 [x0, y0, w, h]；单格时退回整格。 */
+function targetBoardRect(cells, mode) {
+  var pts = cells.map(cellCenter).filter(Boolean);
+  if (pts.length === 0) return null;
+  if (pts.length === 1) return [pts[0][0] - MAP_S / 2, pts[0][1] - MAP_S / 2, MAP_S, MAP_S];
+  var xs = pts.map(function (p) { return p[0]; });
+  var ys = pts.map(function (p) { return p[1]; });
+  var x0 = Math.min.apply(null, xs) - MAP_S / 2;
+  var x1 = Math.max.apply(null, xs) + MAP_S / 2;
+  var y0 = Math.min.apply(null, ys) - MAP_S / 2;
+  var y1 = Math.max.apply(null, ys) + MAP_S / 2;
+  if (!mode) mode = (x1 - x0) >= (y1 - y0) ? 'h' : 'v';
+  return [x0, y0, x1 - x0, y1 - y0];
+}
+
+/** token → 修饰标记（与 route/parser.py 同口径：R: 倒车 / * 射击 / :PIVOT 折返）。 */
+function tokenFlags(token) {
+  var raw = String(token).trim();
+  return {
+    reverse: /^R:/i.test(raw),
+    shoot: /\*$/.test(raw),
+    pivot: /:PIVOT/i.test(raw),
+    cell: tokenCell(raw),
+  };
+}
+
+/**
+ * 格心序列 → **真实路径折线**（相邻格之间补中间点）。
+ *
+ * 为什么不再直接连格心：两点间画直线，会让"绕着桶走 L 形"的路线看起来像切角；
+ *   官方渲染器 tools/sim_map_render.py 同样画逐段折线。这里在相邻格之间补
+ *   "先列后行 / 先行后列"的过渡点，视觉与物理走向一致（每步仍是一格）。
+ */
+function routePolyline(cells) {
+  var out = [];
+  for (var i = 0; i < cells.length; i += 1) {
+    var p = cellCenter(cells[i]);
+    if (!p) continue;
+    if (out.length === 0) { out.push(p); continue; }
+    var prev = out[out.length - 1];
+    var pc = cellCenter(cells[i - 1]);
+    if (!pc) { out.push(p); continue; }
+    var dc = p[0] - pc[0];                        // 列方向位移（>0 = 向东）
+    var dr = p[1] - pc[1];                        // 行方向位移（>0 = 向南）
+    if (Math.abs(dc) > 1 && Math.abs(dr) > 1) {   // 对角：补一个切角过渡点
+      out.push([p[0], pc[1]]);
+    } else if (Math.abs(dr) > 1) {                // 纵向多格：逐格补点
+      var stepR = dr > 0 ? MAP_S : -MAP_S;
+      for (var k = 1; k < Math.abs(dr) / MAP_S; k += 1) out.push([pc[0], pc[1] + stepR * k]);
+    } else if (Math.abs(dc) > 1) {                // 横向多格：逐格补点
+      var stepC = dc > 0 ? MAP_S : -MAP_S;
+      for (var m = 1; m < Math.abs(dc) / MAP_S; m += 1) out.push([pc[0] + stepC * m, pc[1]]);
+    }
+    out.push(p);
+  }
+  return out;
+}
+
+/** 车身矩形四角（屏幕坐标）。尺寸 = 现场真值车长 0.28 m × 车宽 0.135 m。
+ *  两个真值只在下面 `CAR_LEN_M/CAR_WID_M` 出现一次（此前 0.28/0.135 在四五个地方各抄
+ *    一份：像素换算、回放方块、无人机图起终点方块、状态栏文案），改车体尺寸只改这两行。 */
+var CAR_LEN_M = 0.28, CAR_WID_M = 0.135;
+var CAR_LEN_PX = CAR_LEN_M * MAP_S / FIELD_GRID_BLOCK;
+var CAR_WID_PX = CAR_WID_M * MAP_S / FIELD_GRID_BLOCK;
+/**
+ * 车头单位方向（屏幕系）。θs = yaw_code + 90°（与官方渲染器 sim_map_render.py 同角）。
+ *
+ * 为什么 sin 取负：官方渲染器是 matplotlib（y 轴**向上**），它用 (cos θs, sin θs)；
+ *   本页 SVG 的 y 轴**向下**，而场地朝向与官方图逐格相同（A 左 N 右、1 上行 11 下行），
+ *   所以方向向量必须对 y 取反，否则车身/车头箭头相对真值**上下镜像**。
+ *   官方自检锚点「代码 yaw=+90°（面朝 A 列）画出来是朝左」在两式下都成立（水平分量同号），
+ *   只有非水平朝向才暴露：实测真 artifacts/sim/traj.csv 29 个抽样位姿，
+ *   「车头方向 vs 真值 yaw 推出的屏幕方向」夹角中位数 61.91°、最大 176.34°（修后 0.00°/0.00°）。
+ *   修后同口径复算：yaw=0（朝 1 行）→ (0,-1) 屏幕向上；yaw=+90°（朝 A 列）→ (-1,0) 屏幕向左。
+ */
+function headVec(yawCode) {
+  var th = yawCode + Math.PI / 2;
+  return [Math.cos(th), -Math.sin(th)];
+}
+function carPolygon(sx, sy, yawCode) {
+  var h = headVec(yawCode);
+  var hx = h[0], hy = h[1];                        // 车头方向（屏幕系，y 向下）
+  var rx = -hy, ry = hx;                           // 车体右侧
+  var L = CAR_LEN_PX / 2, W = CAR_WID_PX / 2;
+  return [[sx + hx * L + rx * W, sy + hy * L + ry * W],
+          [sx + hx * L - rx * W, sy + hy * L - ry * W],
+          [sx - hx * L - rx * W, sy - hy * L - ry * W],
+          [sx - hx * L + rx * W, sy - hy * L + ry * W]];
+}
+/**
+ * 代码坐标（米）→ 屏幕坐标（px）。**与 cellCenter 同口径：给的是格中心**。
+ *
+ * 修复：原式 `13.5 - y/block` / `10.5 - x/block` 少了半格 —— 官方 S(x,y)=(4.9-y, x)
+ *   把场地**角**映射到边缘（N 列中心 y=0.175 → 13.5 格 = 459 px），而 13.5 只到 13 格 = 442 px
+ *   （N 格西缘）。于是整条 traj 轨迹/车身比格心、比参考路线折线偏 (17,17) px = 0.175 m = 半格。
+ *   实测：真 traj.csv 首拍 truth=(0.525,0.175)=geometry.block_to_meters('N10')=N10 格心，
+ *   原式 → (442,306)，cellCenter('N10') → (459,323)，154 格最大偏差 24.04 px。
+ */
+function codeToScreen(x, y) {
+  var cols = (FIELD && FIELD.grid ? FIELD.grid.cols : 14);
+  var rows = (FIELD && FIELD.grid ? FIELD.grid.rows : 11);
+  var col = cols - y / FIELD_GRID_BLOCK;           // N 列中心 → 13.5（格心）；原 13.5 → 13（格角）
+  var row = rows - x / FIELD_GRID_BLOCK;           // 行 10 中心 → 9.5（格心）；原 10.5 → 9（格角）
+  return [col * MAP_S, row * MAP_S];
+}
+
+function colIdxOf(col) { return FIELD.grid.colLetters.indexOf(col); }
+/** 格名 → 格中心（横置屏幕坐标：A 在左、N 在右；1 行在上、11 行在下）。 */
+function cellCenter(cell) {
+  var col = colIdxOf(String(cell)[0].toUpperCase());
+  var row = Number(String(cell).slice(1));
+  if (col < 0 || !(row >= 1 && row <= FIELD.grid.rows)) return null;
+  return [col * MAP_S + MAP_S / 2, (row - 1) * MAP_S + MAP_S / 2];
+}
+/** token → 格名（去掉 R: / * / :PIVOT / ,x|,y 这些修饰，与解析器同口径）。 */
+function tokenCell(token) {
+  var text = String(token).trim().replace(/^R:/i, '').replace(/[,:].*$/, '').replace(/\*$/, '').trim();
+  return FIELD_CELL_RE.test(text.toUpperCase()) ? text.toUpperCase() : '';
+}
+
+function renderMap() {
+  if (!FIELD || !FIELD.ok) {
+    $('map').innerHTML = '<span style="color:var(--bad)">读不到场地：' + esc(FIELD ? FIELD.error : '未加载') + '</span>';
+    return;
+  }
+  var g = FIELD.grid;
+  var W = g.cols * MAP_S;
+  var H = g.rows * MAP_S;
+  var form = fieldLists();                       // 表单里的当前值（改点位即时预览）
+  var cells = [];
+  var svg = [];
+  var rect = function (x, y, w, h, fill, extra) {
+    return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="' + fill + '"'
+      + (extra || '') + '/>';
+  };
+  var text = function (x, y, body, size, fill, weight, anchor) {
+    return '<text x="' + x + '" y="' + y + '" font-size="' + size + '" fill="' + fill + '"'
+      + (weight ? ' font-weight="' + weight + '"' : '') + (anchor ? ' text-anchor="' + anchor + '"' : '')
+      + ' font-family="Microsoft YaHei,monospace">' + esc(body) + '</text>';
+  };
+
+  svg.push(rect(0, 0, W, H, '#ffffff'));
+  var bridgeSet = {}; form.bridges.forEach(function (c) { bridgeSet[c] = 1; });
+  var mineSet = {}; form.mines.forEach(function (c) { mineSet[c] = 1; });
+  var obstSet = {}; form.obstacles.forEach(function (c) { obstSet[c] = 1; });
+  // 靶格渲染用「表单当前值优先、FIELD.targets 兜底」——测试桩/未加载时表单为空，
+  //   回落真源保证靶板恒画出来（R5「恰 2 格」断言靠这条保绿；UI 侧移除靶=整对移除且阻止清到 0 枚，
+  //   所以真实页面里回落分支只在「尚未加载」时生效，不会形成清空↔取回循环）。
+  var tCells = form.targets.length ? form.targets : (FIELD.targets || []);
+  var targetSet = {}; tCells.forEach(function (c) { targetSet[c] = 1; });
+
+  for (var row = 1; row <= g.rows; row += 1) {
+    for (var ci = 0; ci < g.cols; ci += 1) {
+      var col = g.colLetters[ci];
+      var cell = col + row;
+      var x = ci * MAP_S;
+      var y = (row - 1) * MAP_S;
+      // 象棋观感 —— 隔行异色底纹（浅格/白格相间；要素色在其后照旧覆盖）
+      var fill = ((row + ci) % 2 === 0) ? '#ffffff' : '#eef1f6';
+      if (col === 'K') fill = bridgeSet[cell] ? '#7fe3ea' : '#d9d9d9';   // 桥洞青 / 封闭桥室浅灰
+      if (targetSet[cell]) fill = '#e8a0c8';                             // 靶粉
+      if (cell === FIELD.start) fill = '#b2f2bb';                        // 起 N10
+      if (cell === FIELD.end) fill = '#ffe066';                          // 终 N5
+      if (cell === FIELD.drone.takeoff || cell === FIELD.drone.land) fill = '#cfe2f7';  // 无人机蓝
+      // 基格 rect 带 data-cell（落格命中层 closest('[data-cell]') 的唯一目标）
+      svg.push(rect(x, y, MAP_S, MAP_S, fill, ' stroke="#c9ced8" stroke-width="0.6" data-cell="' + cell + '"'));
+    }
+  }
+  // 象棋盘外框（深色描边；pointer-events:none ⇒ 不挡 data-cell 命中层）
+  svg.push(rect(0.5, 0.5, W - 1, H - 1, 'none', ' stroke="#2b3442" stroke-width="2" rx="2" pointer-events="none"'));
+  // 隔板：第 rowHi/rowLo 行之间、从 colFrom 到 N 整条（不可跨越）
+  var by = FIELD.barrier.rowHi * MAP_S;
+  var bx0 = colIdxOf(FIELD.barrier.colFrom) * MAP_S;
+  svg.push(rect(bx0, by - 3, W - bx0, 6, '#111111', ' pointer-events="none"'));
+  svg.push(text((bx0 + W) / 2, by - 6, '隔板 ' + FIELD.barrier.colFrom + '~N（不可触碰/跨越）', 10, '#111111', 'bold', 'middle'));
+  // 每格格名（左上角小字）
+  for (var r2 = 1; r2 <= g.rows; r2 += 1) {
+    for (var c2 = 0; c2 < g.cols; c2 += 1) {
+      svg.push(text(c2 * MAP_S + 3, (r2 - 1) * MAP_S + 11, g.colLetters[c2] + r2, 8.5, '#8a94a3'));
+    }
+  }
+  // 注释（形 + 字）—— 象棋圆饼棋子 = 底层偏移阴影（投影感）+ 圆饼 + 居中汉字 + 深色描边
+  var pieceShadow = function (p, r) {
+    svg.push('<circle cx="' + (p[0] + 1.5) + '" cy="' + (p[1] + 2) + '" r="' + r
+      + '" fill="#0b1727" fill-opacity="0.30" pointer-events="none"/>');
+  };
+  form.mines.forEach(function (cell) {
+    var p = cellCenter(cell); if (!p) return;
+    pieceShadow(p, MAP_S * 0.34);
+    svg.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (MAP_S * 0.34)
+      + '" fill="#e5484d" stroke="#7a1f1a" stroke-width="1.5" pointer-events="none"/>');
+    svg.push(text(p[0], p[1] + 4, '雷', 11, '#ffffff', 'bold', 'middle'));
+  });
+  form.obstacles.forEach(function (cell) {
+    var p = cellCenter(cell); if (!p) return;
+    pieceShadow(p, MAP_S * 0.34);
+    svg.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (MAP_S * 0.34)
+      + '" fill="#4a4a4a" stroke="#23262b" stroke-width="1.5" pointer-events="none"/>');
+    svg.push(text(p[0], p[1] + 4, '障', 10, '#ffffff', 'bold', 'middle'));
+  });
+  // 靶板按"一块并板"画（横/竖朝向可选），不再每格一个「靶」字
+  //   并板取「表单当前值优先、FIELD.targets 兜底」（与 targetSet 同源，防两处口径漂移）
+  //   规格增补「靶板蓝红两色**沿长边对半**、色值固定不随机」：
+  //     分色线**平行于长边** —— 横板（长边沿列，屏幕水平）上下各半、竖板（长边沿行，屏幕垂直）左右各半；
+  //     哪个半块是蓝由**几何**决定（横板=上半蓝、竖板=左半蓝），色值 TARGET_HALF 固定不随机。
+  //   **废除「点击旋转即翻面（蓝↔红）」交互** —— 旋转只改朝向 h↔v，不改分色；
+  //     页面不再持有"哪一面朝上"的状态（无 TARGET_FACE），故旋转不可翻色。
+  //   长边取并板矩形的实际几何（r[2] >= r[3] ⇒ 长边水平），不用 targetYaw 的"意向"——
+  //   两者不一致时（如手选了 h 但两格是上下相邻）视觉以真实矩形为准，避免分色线画歪。
+  (function () {
+    var cells = tCells;
+    var r = targetBoardRect(cells, targetYawMode());
+    if (!r) return;
+    svg.push(rect(r[0], r[1], r[2], r[3], '#e8a0c8', ' stroke="#8a2f5f" stroke-width="1.6" pointer-events="none"'));
+    var mode = targetYawMode() || ((r[2] >= r[3]) ? 'h' : 'v');
+    if (r[2] > 0 && r[3] > 0) {
+      var cFirst = TARGET_HALF[0], cSecond = TARGET_HALF[1];   // 先半蓝 / 后半红（固定）
+      if (r[2] >= r[3]) {                    // 长边水平 ⇒ 分色线水平：上半 / 下半
+        svg.push(rect(r[0], r[1], r[2], r[3] / 2, cFirst, ' pointer-events="none"'));
+        svg.push(rect(r[0], r[1] + r[3] / 2, r[2], r[3] / 2, cSecond, ' pointer-events="none"'));
+        svg.push('<line x1="' + r[0] + '" y1="' + (r[1] + r[3] / 2) + '" x2="' + (r[0] + r[2])
+          + '" y2="' + (r[1] + r[3] / 2) + '" stroke="#1c2430" stroke-width="0.9" pointer-events="none"/>');
+      } else {                               // 长边垂直 ⇒ 分色线竖直：左半 / 右半
+        svg.push(rect(r[0], r[1], r[2] / 2, r[3], cFirst, ' pointer-events="none"'));
+        svg.push(rect(r[0] + r[2] / 2, r[1], r[2] / 2, r[3], cSecond, ' pointer-events="none"'));
+        svg.push('<line x1="' + (r[0] + r[2] / 2) + '" y1="' + r[1] + '" x2="' + (r[0] + r[2] / 2)
+          + '" y2="' + (r[1] + r[3]) + '" stroke="#1c2430" stroke-width="0.9" pointer-events="none"/>');
+      }
+      svg.push(rect(r[0], r[1], r[2], r[3], 'none', ' stroke="#8a2f5f" stroke-width="1.8" rx="3" pointer-events="none"'));
+    }
+    svg.push(text(r[0] + r[2] / 2, r[1] + r[3] / 2 + 4, '靶板', 10, '#ffffff', 'bold', 'middle'));
+    svg.push(text(r[0] + r[2] / 2, r[1] - 5,
+      (mode === 'h' ? '横向' : '竖向') + ' ' + cells.join('+'), 8.5, '#8a2f5f', 'bold', 'middle'));
+  })();
+  form.bridges.forEach(function (cell) {
+    var p = cellCenter(cell); if (!p) return;
+    svg.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (MAP_S * 0.36)
+      + '" fill="none" stroke="#0b6b73" stroke-width="1.8" pointer-events="none"/>');
+    svg.push(text(p[0], p[1] + 4, '洞', 11, '#0b6b73', 'bold', 'middle'));
+  });
+  // 桥洞**进洞侧冗余墙**（虚拟，现实不存在的设计冗余）——把桥室南北壁沿进洞侧
+  //   延长 FIELD.bridgeEntryRedundancyM（米）。取值只走透传链：physics.bridge_entry_walls()
+  //   几何 ⇐ config/robot.yaml `field.bridge_entry_redundancy_m`（真源）⇐ /sim/map 透传
+  //   ⇐ 此处 FIELD——页面端**零第二份硬编码**（本文件 script 不出现该数值字面量；缺键/旧宿主 = 0 = 不画）。
+  //   方向口径与 physics/planner 完全一致（BRIDGE_ENTRY_LOWER_ROW_IDX=6 ⇒ row ≥ 7 为下半场；
+  //   进洞邻格 K9⇒L9、K5⇒J5，planner.py:3035 同锚）：
+  //     下半场向西穿（L→K→J）⇒ 墙从 K 格**东缘**向**东**（L 侧，屏幕右）延两段；
+  //     上半场向东穿（J→K→L）⇒ 墙从 K 格**西缘**向**西**（J 侧，屏幕左）延两段。
+  //   两段 = 桥室南北壁（格子上下缘）各一段；0.0 = 关冗余不画；负值按 physics max(0,·) 钳 0。
+  //   装饰层（line + pointer-events:none）不吃命中 ⇒ 落格/棋子点击不受影响。
+  var bridgeRedM = Number(FIELD && FIELD.bridgeEntryRedundancyM) || 0;
+  if (bridgeRedM > 0) {
+    var bridgeRedPx = bridgeRedM * MAP_S / FIELD_GRID_BLOCK;
+    form.bridges.forEach(function (cell) {
+      var col = colIdxOf(String(cell)[0].toUpperCase());
+      var row = Number(String(cell).slice(1));
+      if (col < 0 || !(row >= 1 && row <= g.rows)) return;
+      var xEdge = col * MAP_S;                                 // 该格西缘
+      var x0 = row >= 7 ? xEdge + MAP_S : xEdge - bridgeRedPx; // 下半场东延 / 上半场西延
+      var x1 = row >= 7 ? xEdge + MAP_S + bridgeRedPx : xEdge;
+      [(row - 1) * MAP_S, row * MAP_S].forEach(function (yLine) {   // 北壁 / 南壁
+        svg.push('<line x1="' + x0 + '" y1="' + yLine + '" x2="' + x1 + '" y2="' + yLine
+          + '" stroke="#d9480f" stroke-width="2.4" stroke-dasharray="3,2" pointer-events="none"/>');
+      });
+    });
+  }
+  var startP = cellCenter(FIELD.start); var endP = cellCenter(FIELD.end);
+  if (startP) svg.push(text(startP[0], startP[1] + 4, '起', 12, '#1d6b2f', 'bold', 'middle'));
+  if (endP) svg.push(text(endP[0], endP[1] + 4, '终', 12, '#8a5a00', 'bold', 'middle'));
+  var takeP = cellCenter(FIELD.drone.takeoff); var landP = cellCenter(FIELD.drone.land);
+  if (takeP) {
+    svg.push('<circle cx="' + takeP[0] + '" cy="' + takeP[1] + '" r="' + (MAP_S * 0.30) + '" fill="#4d8fd6" fill-opacity="0.25" stroke="#1c5aa8" stroke-width="1.4"/>');
+    svg.push(text(takeP[0], takeP[1] + 4, '机', 10, '#1c5aa8', 'bold', 'middle'));
+  }
+  if (landP) {
+    svg.push('<circle cx="' + landP[0] + '" cy="' + landP[1] + '" r="' + (MAP_S * 0.30) + '" fill="#4d8fd6" fill-opacity="0.25" stroke="#1c5aa8" stroke-width="1.4"/>');
+    svg.push(text(landP[0], landP[1] + 4, 'H', 12, '#1c5aa8', 'bold', 'middle'));
+  }
+  // 参考路线（真实折线 + 航点 + 射击星标 + PIVOT 菱标）
+  if ($('showRoute').checked) {
+    var tokens = (TRACE && TRACE.route) || (FIELD && FIELD.route) || [];
+    var cells = tokens.map(tokenCell).filter(Boolean);
+    var pts = routePolyline(cells);
+    if (pts.length > 1) {
+      svg.push('<polyline points="' + pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ')
+        + '" fill="none" stroke="#2f7fd0" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>');
+    }
+    // 航点圆点 + 修饰标记（与官方渲染器同口径：PIVOT 菱 / 射击星）
+    tokens.forEach(function (token) {
+      var f = tokenFlags(token);
+      if (!f.cell) return;
+      var p = cellCenter(f.cell);
+      if (!p) return;
+      if (f.pivot) {
+        svg.push('<path d="M ' + p[0] + ' ' + (p[1] - 5.5) + ' L ' + (p[0] + 5.5) + ' ' + p[1]
+          + ' L ' + p[0] + ' ' + (p[1] + 5.5) + ' L ' + (p[0] - 5.5) + ' ' + p[1] + ' Z" '
+          + 'fill="#8b5cf6" stroke="#3b1f7a" stroke-width="0.8"/>');
+      }
+      if (f.shoot) {
+        svg.push('<path d="M ' + p[0] + ' ' + (p[1] - 7) + ' L ' + (p[0] + 2) + ' ' + (p[1] - 2.2)
+          + ' L ' + (p[0] + 7) + ' ' + (p[1] - 2) + ' L ' + (p[0] + 3) + ' ' + (p[1] + 2)
+          + ' L ' + (p[0] + 4.5) + ' ' + (p[1] + 7) + ' L ' + p[0] + ' ' + (p[1] + 4)
+          + ' L ' + (p[0] - 4.5) + ' ' + (p[1] + 7) + ' L ' + (p[0] - 3) + ' ' + (p[1] + 2)
+          + ' L ' + (p[0] - 7) + ' ' + (p[1] - 2) + ' L ' + (p[0] - 2) + ' ' + (p[1] - 2.2)
+          + ' Z" fill="#d946ef" stroke="#701a75" stroke-width="0.8"/>');
+      }
+      if (!f.pivot && !f.shoot) {
+        svg.push('<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="2.4" '
+          + 'fill="#2f7fd0" stroke="#ffffff" stroke-width="0.7"/>');
+      }
+    });
+  }
+  // 仿真轨迹（traj.csv 的 truth 列）
+  if (TRACE && TRACE.points && TRACE.points.length > 1) {
+    svg.push('<polyline points="' + TRACE.points.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ')
+      + '" fill="none" stroke="#2f9e44" stroke-width="1.5" stroke-linejoin="round" opacity="0.9"/>');
+  }
+  // 小车位姿标注（车身矩形 + 车头箭头），沿轨迹抽样
+  if (TRACE && TRACE.poses && TRACE.poses.length > 0) {
+    TRACE.poses.forEach(function (pose, idx) {
+      var poly = carPolygon(pose[0], pose[1], pose[2]);
+      var d = poly.map(function (q, qi) { return (qi ? 'L ' : 'M ') + q[0].toFixed(1) + ' ' + q[1].toFixed(1); }).join(' ')
+        + ' Z';
+      svg.push('<path d="' + d + '" fill="#1f2933" fill-opacity="0.34" stroke="#0b1727" stroke-width="0.9"/>');
+      // 车头朝向箭头（从车心指向车头方向；与 carPolygon 共用 headVec，防两处口径各自漂移）
+      var hv = headVec(pose[2]);
+      var tip = [pose[0] + hv[0] * (CAR_LEN_PX * 0.62), pose[1] + hv[1] * (CAR_LEN_PX * 0.62)];
+      svg.push('<line x1="' + pose[0].toFixed(1) + '" y1="' + pose[1].toFixed(1) + '" x2="' + tip[0].toFixed(1)
+        + '" y2="' + tip[1].toFixed(1) + '" stroke="#0b1727" stroke-width="1.5"/>');
+      if (idx === 0) {
+        svg.push(text(pose[0], pose[1] - CAR_LEN_PX * 0.62 - 4, '起点位姿', 8.5, '#0b1727', 'bold', 'middle'));
+      }
+    });
+  }
+  $('map').innerHTML = '<svg viewBox="0 0 ' + (W + 1) + ' ' + (H + 1) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="场地横置图">'
+    + svg.join('') + '</svg>';
+  // 顺手修（取证实证）：这行原写 `text($('mapMeta'), …)`，但 renderMap 里的局部
+  //   `var text`（SVG 文本构造器）把全局 text(node,value)（:387）遮蔽了 ⇒ 原行一直在调
+  //   SVG 构造器、返回值被丢弃，#mapMeta 从未显示过任何内容。改为直接赋 textContent
+  //   （与全局 text() 语义一致），md5/来源恢复显示，并带上进洞冗余透传值供现场核对同源。
+  var plannerNow = FIELD.planner || {};
+  var routeMode = plannerNow.autoPlanEnabled === false ? '车端手动路线（自规划关闭）'
+    : (plannerNow.autoPlanEnabled === true ? '车端自动规划开启' : '车端自规划状态未知');
+  $('mapMeta').textContent = 'md5 ' + String(FIELD.md5).slice(0, 8) + ' · ' + FIELD.source
+    + ' · 进洞侧冗余 ' + bridgeRedM + ' m' + (bridgeRedM > 0 ? '' : '（未启用）')
+    + ' · 规划引擎 ' + (plannerNow.engine || '未指定（CLI 默认）') + ' · ' + routeMode;
+}
+
+/** 表单里的四类点位（只读镜像文本框；空文本 = 该项不覆盖）。 */
+function fieldLists() {
+  return {
+    mines: parseCells($('mines').value),
+    obstacles: parseCells($('obstacles').value),
+    bridges: parseCells($('bridges').value),
+    targets: parseCells($('targets').value),
+  };
+}
+function parseCells(text) {
+  var out = []; var seen = {};
+  String(text || '').split(/[\s,;|]+/).forEach(function (item) {
+    var cell = item.trim().toUpperCase();
+    if (FIELD_CELL_RE.test(cell) && !seen[cell]) { seen[cell] = 1; out.push(cell); }
+  });
+  return out.sort(function (a, b) {
+    return a[0] === b[0] ? Number(a.slice(1)) - Number(b.slice(1)) : a[0].localeCompare(b[0]);
+  });
+}
+/** 与默认点位不同的那些项（没改 → 返回 null ⇒ 请求体不带 field，行为与改动前逐字一致）。 */
+function fieldFromForm() {
+  if (!FIELD || !FIELD.ok) return null;
+  var form = fieldLists();
+  var out = {}; var changed = false;
+  ['mines', 'obstacles', 'bridges', 'targets'].forEach(function (key) {
+    // targets 空值 = 不生效（未加载/测试桩不带该键；与宿主 sanitizeParams 空数组 continue 同口径）
+    if (key === 'targets' && !(form[key] || []).length) return;
+    var base = (FIELD[key] || []).join(' ');
+    var now = (form[key] || []).join(' ');
+    if (now !== base) { out[key] = form[key]; changed = true; }
+  });
+  return changed ? out : null;
+}
+function refreshFieldHints() {
+  if (!FIELD || !FIELD.ok) return;
+  var form = fieldLists();
+  var KEYS = ['mines', 'obstacles', 'bridges', 'targets'];
+  KEYS.forEach(function (key) {
+    var node = $(key);
+    node.style.borderColor = '';                       // 清掉上次拦截留下的红边
+    var base = (FIELD[key] || []).join(' ');
+    var now = (form[key] || []).join(' ');
+    var chip = $(key + 'Count');
+    // 定容口径 —— chip 直接报「已用/上限」（targets 按块计），到顶标「已满」；
+    //   数量与默认不同不再走 fieldWarn 软警告（硬顶已在落格层拦，见 placePiece）。
+    if (chip) {
+      var used = pieceCount(key, form);
+      chip.textContent = used + '/' + PIECE_CAPS[key] + (key === 'targets' ? ' 块' : ' 格')
+        + (now === base ? '（默认）' : '（已改）') + (used >= PIECE_CAPS[key] ? '·已满' : '');
+    }
+  });
+  // 靶板朝向 chip
+  var yawChip = $('targetYawCount');
+  if (yawChip) {
+    var mode = targetYawMode();
+    var auto = targetBoardRect(FIELD.targets || [], '');
+    var autoTxt = auto ? ((auto[2] >= auto[3]) ? '横向' : '竖向') : '未知';
+    yawChip.textContent = mode ? (mode === 'h' ? '横向（指定）' : '竖向（指定）') : ('跟随地图：' + autoTxt);
+  }
+  // 无人机协同开关文案里的起降格取 /sim/map 真源（FIELD.drone），不写死 N8/M2 ——
+  //   取不到时显式打「未加载」：文案与"实际避让的格"必须同源，不允许各说各话。
+  var droneChip = $('droneCells');
+  if (droneChip) {
+    var dTake = FIELD.drone && FIELD.drone.takeoff;
+    var dLand = FIELD.drone && FIELD.drone.land;
+    droneChip.textContent = (dTake || dLand) ? ((dTake || '?') + ' / ' + (dLand || '?')) : '未加载';
+  }
+  var bad = [];
+  KEYS.forEach(function (key) {
+    String($(key).value).split(/[\s,;|]+/).forEach(function (item) {
+      var cell = item.trim().toUpperCase();
+      if (cell !== '' && !FIELD_CELL_RE.test(cell)) bad.push(cell);
+    });
+  });
+  // 软警告口径废除 —— 「数量与默认不同」不再警告（定容硬顶在落格层拦）。
+  //   只留三类必须让用户看见的：非法格名、整类清空（该类本次不覆盖）、真源/镜像超容（只能先减后加）。
+  var parts = [];
+  if (bad.length) {
+    parts.push('非法格名将被忽略：' + bad.join(' ') + '（格名形如 A1..N11；整类都非法时点「运行仿真」会被拦下）');
+  }
+  ['mines', 'obstacles', 'bridges', 'targets'].forEach(function (key) {
+    if (!form[key].length) parts.push('至少留 1 枚：' + key + ' 已清空（该类本次不覆盖，按默认图跑）');
+    else if (pieceCount(key, form) > PIECE_CAPS[key]) {
+      parts.push(key + ' 超过定容上限 ' + PIECE_CAPS[key] + '（真源超容）：该类已不能再加，先移除再放');
+    }
+  });
+  var warn = $('fieldWarn');
+  if (parts.length) {
+    warn.style.display = '';
+    warn.textContent = parts.join('；');
+  } else warn.style.display = 'none';
+}
+
+/** 哪一类"填了东西但一格合法都没有"（这种必须拦下，不能让宿主宰成"没改点位"）。 */
+function fieldInputErrors() {
+  var out = [];
+  ['mines', 'obstacles', 'bridges', 'targets'].forEach(function (key) {
+    var raw = String($(key).value).split(/[\s,;|]+/).map(function (item) { return item.trim(); })
+      .filter(function (item) { return item !== ''; });
+    if (raw.length && parseCells($(key).value).length === 0) out.push({ key: key, raw: raw });
+  });
+  return out;
+}
+
+/** 被忽略的非法条目（部分非法时给出"已忽略 …"提示；全非法走 fieldInputErrors 拦截）。 */
+function droppedSummary() {
+  var out = [];
+  ['mines', 'obstacles', 'bridges', 'targets'].forEach(function (key) {
+    String($(key).value).split(/[\s,;|]+/).forEach(function (item) {
+      var cell = item.trim();
+      if (cell !== '' && !FIELD_CELL_RE.test(cell.toUpperCase())) out.push(key + ':' + cell);
+    });
+  });
+  return out.join(' ');
+}
+/* ── 棋盘拖拽编辑（palette → 落格校验 → 同步只读镜像）─────────────────────
+   命中层：elementFromPoint + closest('[data-cell]')（基格 rect 渲染时带 data-cell；
+   装饰层在页面 CSS 里 pointer-events:none，障/靶板/隔板 rect 显式关掉）。
+   数据真源仍是只读 textarea 镜像：落格只改 value，再走既有 refreshFieldHints/renderMap/
+   fieldFromForm 通路 —— 「运行仿真」即用新点位 body.field 走宿主 override + plan_route 重规划。 */
+var PIECE_LABEL = { mines: '雷', obstacles: '障', targets: '靶', bridges: '通' };
+var dragKey = '';
+var dragGhost = null;
+var dragStart = null;                               // pointerdown 起点 —— 位移 < 6px 视为点按（不落子）
+var lastDropAt = 0;                                 // 拖放结束时间戳：抑制其后的那次误点被当成移除
+
+function pieceLabel(key) { return PIECE_LABEL[key] || key; }
+
+/* ── 定容棋子槽（硬顶）; 靶板蓝红**固定分色**（无翻面状态）─────────────────
+   定容：障 8 / 雷 8 / 通 2 / 靶板 1（占两格）。现场默认图本身恰满 8/8/2/1 —— 不削减
+   真源，只是到顶后该类拖放硬拒（落格不生效 + 「已满 N 枚」提示），取代此前的
+   数量软警告（fieldWarn 不再报「与默认数量不同」）。靶板按"块"计：两格 = 1 块。 */
+var PIECE_CAPS = { mines: 8, obstacles: 8, bridges: 2, targets: 1 };
+/** 靶板蓝红分色（规格增补「长边对半、蓝红各半且色值**固定不随机**」）：
+ *  [0] = 靠小坐标那半（横板上半 / 竖板左半），[1] = 另半（横板下半 / 竖板右半）。
+ *  「旋转即翻面」已废除：这里**没有** face 状态 —— 分色只由几何决定，
+ *    旋转（h↔v）只换朝向，色块随矩形两半重算，不存在"翻面"这个动作。 */
+var TARGET_HALF = ['#2f7fd0', '#d64545'];
+/** 台账 record.targetFace 的固定值（键保留：宿主 sanitizeParams / record 形状不变，
+ *  语义降级为"分色约定 = 先蓝后红"的常量，不再表示"哪一面朝上"——面已不存在）。 */
+var TARGET_FACE_LEDGER = 'blue';
+
+/** 该类棋子现有数量（targets 按块 = ceil(格数/2)）。 */
+function pieceCount(key, lists) {
+  var cells = ((lists || fieldLists())[key]) || [];
+  return key === 'targets' ? Math.ceil(cells.length / 2) : cells.length;
+}
+/** 定容硬顶判定：到顶 ⇒ 该类拖放硬拒（placePiece 落格层拦截，非软警告）。 */
+function capReached(key, lists) { return pieceCount(key, lists) >= PIECE_CAPS[key]; }
+/** 该格当前被哪类棋子占据（'mines'|'obstacles'|'bridges'|'targets'，空 = 无）。 */
+function occupiedBy(cell, lists) {
+  var keys = ['mines', 'obstacles', 'bridges', 'targets'];
+  for (var i = 0; i < keys.length; i += 1) {
+    if ((lists[keys[i]] || []).indexOf(cell) !== -1) return keys[i];
+  }
+  return '';
+}
+/** 禁落格：起点/终点/无人机点（map.yaml 注释四黄框 N10/N5/N8/M2，取真源而非写死）。 */
+function forbiddenCell(cell) {
+  if (!FIELD || !FIELD.ok) return false;
+  return cell === FIELD.start || cell === FIELD.end
+    || cell === (FIELD.drone && FIELD.drone.takeoff) || cell === (FIELD.drone && FIELD.drone.land);
+}
+/** 隔板同侧（行 1~6 上半场 / 7~11 下半场）—— 靶板是实体跨格板，不能骑缝在隔板上。 */
+function sameHalf(a, b) {
+  var hi = (FIELD && FIELD.barrier) ? FIELD.barrier.rowHi : 6;
+  return (Number(String(a).slice(1)) <= hi) === (Number(String(b).slice(1)) <= hi);
+}
+/** 靶的第二格：右/下/左/上取第一个「合法 + 同侧 + 非禁落 + 不被异类占据」的空格。 */
+function pickPartner(cell, lists) {
+  var ci = String(cell).charCodeAt(0) - 65;
+  var row = Number(String(cell).slice(1));
+  var cand = [[ci + 1, row], [ci, row + 1], [ci - 1, row], [ci, row - 1]];
+  for (var i = 0; i < cand.length; i += 1) {
+    var name = String.fromCharCode(65 + cand[i][0]) + cand[i][1];
+    if (!FIELD_CELL_RE.test(name) || name === cell || forbiddenCell(name)) continue;
+    if (!sameHalf(cell, name)) continue;
+    var occ = occupiedBy(name, lists);
+    if (occ && occ !== 'targets') continue;          // 靶旧对整对替换 ⇒ 其原格视为可用
+    return name;
+  }
+  return '';
+}
+function setCells(key, cells) { $(key).value = cells.join(' '); }
+/** 修「地图叠加/乱跑」：棋盘一改，上一局的图层就全部作废。
+ *  renderMap 只重写 #map.innerHTML（有意不碰 #anim，以免打断回放），所以旧层不会
+ *  随重绘消失：#anim 里上一局的回放折线 + TRACE 里的参考线/绿轨迹/车身位姿会**叠在新
+ *  棋盘上**（复杂图规划失败率高、连续换图/连续 422 时尤其明显）——必须显式清掉。 */
+function invalidateStaleRun() {
+  TRACE = null;                                      // 上一局路线/轨迹/位姿作废（参考线回落 FIELD.route）
+  stopReplay();
+  var layer = $('anim'); if (layer) layer.innerHTML = '';
+  text($('animState'), '棋盘已改动：上一局轨迹与回放已清除（运行仿真后刷新）');
+}
+/** 棋盘/点位变更的统一咽喉：落子、移除、整对换位、恢复默认都走这里 —— 清旧层只此一处。 */
+function afterFieldChange() { invalidateStaleRun(); refreshFieldHints(); renderMap(); }
+
+/** 放/换靶板的共用校验：锚格合法 + 挑相邻伙伴格；返回 { pair } 或 { err }。 */
+function targetPlacement(cell, lists) {
+  if (forbiddenCell(cell)) return { err: cell + ' 是起点/终点/无人机点，禁落靶板' };
+  var occ = occupiedBy(cell, lists);
+  if (occ && occ !== 'targets') return { err: cell + ' 已被' + pieceLabel(occ) + '占据（一格至多一类棋子）' };
+  var partner = pickPartner(cell, lists);
+  if (!partner) return { err: '找不到与 ' + cell + ' 横竖相邻且同侧的空格放靶板另一半（靶须整对相邻）' };
+  return { pair: parseCells(cell + ' ' + partner) };
+}
+
+/** 落格（拖拽终点）：定容硬顶 + 规格 §A.2 硬拒 + 靶=相邻两格整对。 */
+function placePiece(key, cell) {
+  if (!FIELD || !FIELD.ok) return false;
+  if (!FIELD_CELL_RE.test(cell)) { message($('runMsg'), 'bad', '非法格名 ' + cell + '（格名形如 A1..N11）'); return false; }
+  if (forbiddenCell(cell)) { message($('runMsg'), 'bad', cell + ' 是起点/终点/无人机点，禁落棋子'); return false; }
+  var lists = fieldLists();
+  var occ = occupiedBy(cell, lists);
+  if (occ === key) {
+    message($('runMsg'), 'ok', cell + ' 已有' + pieceLabel(key)
+      + (key === 'targets' ? '（点击靶板可顺时针旋转；按住靶板拖到新格可整体换位）' : ''));
+    return true;
+  }
+  if (occ) { message($('runMsg'), 'bad', cell + ' 已被' + pieceLabel(occ) + '占据（一格至多一类棋子）'); return false; }
+  if (key === 'bridges' && String(cell)[0] !== 'K') { message($('runMsg'), 'bad', '桥洞只能落 K 列（其余列不是桥）'); return false; }
+  if (key === 'targets') {
+    // 定容硬顶：靶板 1 块（占两格）。默认图已放 ⇒ palette 拖靶一律拒（已满 1 枚）；
+    //   移动走「按住靶板本体拖到新格」（moveTargetBoard，换位不算加），点击靶板 = 旋转。
+    if (capReached('targets', lists)) {
+      message($('runMsg'), 'bad', '靶板已满 ' + PIECE_CAPS.targets + ' 枚（定容硬顶：全场恰 1 块双格板）'
+        + '—— 点击靶板可顺时针旋转；按住靶板拖到新格可整体换位');
+      return false;
+    }
+    var res = targetPlacement(cell, lists);
+    if (res.err) { message($('runMsg'), 'bad', res.err); return false; }
+    setCells('targets', res.pair);
+    afterFieldChange();
+    message($('runMsg'), 'ok', '靶板已放 → ' + res.pair.join('+') + '（点「运行仿真」即重规划）');
+    return true;
+  }
+  // 定容硬顶（障 8 / 雷 8 / 通 2）：到顶后该类拖放硬拒 —— 落格不生效 + 「已满」提示，
+  //   取代此前的数量软警告（「能点出 10 个」的根因就是软警告不拦）。
+  if (capReached(key, lists)) {
+    message($('runMsg'), 'bad', pieceLabel(key) + '已满 ' + PIECE_CAPS[key]
+      + ' 枚（定容硬顶：雷 8 / 障 8 / 通 2 / 靶板 1）—— 先点掉棋盘上的' + pieceLabel(key) + '再放');
+    return false;
+  }
+  setCells(key, parseCells((lists[key] || []).concat([cell]).join(' ')));
+  afterFieldChange();
+  message($('runMsg'), 'ok', pieceLabel(key) + ' 已放到 ' + cell + '（点「运行仿真」即按新点位重规划）');
+  return true;
+}
+/** 点棋盘已有棋子 = 移除（靶板除外 —— 点靶板 = 旋转，见 onMapClick 分流）。 */
+function removeAt(cell) {
+  if (!FIELD || !FIELD.ok) return;
+  var lists = fieldLists();
+  var key = occupiedBy(cell, lists);
+  if (!key) return;
+  if (key === 'targets') {
+    message($('runMsg'), 'bad', '靶板不可点除（定容 1 块、防清到 0 格）—— 点击靶板可旋转；按住拖到新格可换位；要还原用「整图恢复」');
+    return;
+  }
+  setCells(key, lists[key].filter(function (c) { return c !== cell; }));
+  afterFieldChange();
+  message($('runMsg'), 'ok', pieceLabel(key) + ' 已移除 ' + cell
+    + (lists[key].length ? '' : '（该类已清空：本次不覆盖，按默认图跑）'));
+}
+
+/* ── 靶板本体交互 —— 点击顺时针旋转 90°（h↔v）+ 按住拖动整体换位 ──────────
+   旋转 = 锚格（排序后第一格）不动，伙伴格绕锚格顺时针挪一步（right→down→left→up）。
+   落点必须仍合法（界内、非禁落格、同半场、不压他子），不合法 ⇒ 拒转 + 提示原因 + 保持原状。
+   **旋转不再翻面** —— 蓝/红沿长边的分色由几何决定且固定（TARGET_HALF），
+   旋转只改朝向 h↔v（页面无 face 状态可翻），台账 targetFace 是固定常量（见 TARGET_FACE_LEDGER）。 */
+var CW_NEXT = { right: 'down', down: 'left', left: 'up', up: 'right' };
+var DIR_STEP = { right: [1, 0], down: [0, 1], left: [-1, 0], up: [0, -1] };
+var DIR_LABEL = { right: '右', down: '下', left: '左', up: '上' };
+
+/** 从 cell 沿四向走一步的格名（出界/非法 → ''）。 */
+function cellStep(cell, dir) {
+  if (!FIELD || !FIELD.ok || !DIR_STEP[dir]) return '';
+  var ci = String(cell).charCodeAt(0) - 65 + DIR_STEP[dir][0];
+  var row = Number(String(cell).slice(1)) + DIR_STEP[dir][1];
+  var letters = FIELD.grid.colLetters;
+  if (ci < 0 || ci >= String(letters).length || row < 1 || row > FIELD.grid.rows) return '';
+  var name = String(letters).charAt(ci) + row;
+  return FIELD_CELL_RE.test(name) ? name : '';
+}
+/** partner 相对 anchor 的方位（'right'|'down'|'left'|'up'；不相邻 → ''）。 */
+function partnerDir(anchor, partner) {
+  var dc = String(partner).charCodeAt(0) - String(anchor).charCodeAt(0);
+  var dr = Number(String(partner).slice(1)) - Number(String(anchor).slice(1));
+  if (dc === 1 && dr === 0) return 'right';
+  if (dc === 0 && dr === 1) return 'down';
+  if (dc === -1 && dr === 0) return 'left';
+  if (dc === 0 && dr === -1) return 'up';
+  return '';
+}
+/** 点击格所在的靶板一对格（排序后 [锚格, 伙伴格]）；不在靶板上 → null。 */
+function targetPairAt(cell, lists) {
+  var cells = (lists && lists.targets) || [];
+  if (cells.indexOf(cell) === -1) return null;
+  if (cells.length === 2) return parseCells(cells.join(' '));
+  for (var dir in DIR_STEP) {                        // 多格/异常态：找点击格的相邻靶格凑一对
+    var cand = cellStep(cell, dir);
+    if (cand && cells.indexOf(cand) !== -1) return parseCells(cell + ' ' + cand);
+  }
+  return null;
+}
+/** 点击已放置靶板 = 顺时针转 90°（h↔v）；不翻面（分色固定沿长边，无 face 状态）。 */
+function rotateTargetAt(cell) {
+  if (!FIELD || !FIELD.ok) return false;
+  var lists = fieldLists();
+  var pair = targetPairAt(cell, lists);
+  if (!pair) return false;                           // 点的不是靶板（onMapClick 据此分流到 removeAt）
+  var anchor = pair[0]; var partner = pair[1];
+  var dir = partnerDir(anchor, partner);
+  if (!dir) { message($('runMsg'), 'bad', '靶板两格不相邻（镜像数据异常），无法旋转'); return false; }
+  var nextDir = CW_NEXT[dir];
+  var cand = cellStep(anchor, nextDir);
+  if (!cand) {
+    message($('runMsg'), 'bad', '旋转被拒：顺时针转 90° 会把靶板另一半转出棋盘（'
+      + anchor + ' 的' + DIR_LABEL[nextDir] + '侧越界），已保持原状');
+    return false;
+  }
+  if (forbiddenCell(cand)) {
+    message($('runMsg'), 'bad', '旋转被拒：' + cand + ' 是起点/终点/无人机点（禁落格），靶板不能压上去，已保持原状');
+    return false;
+  }
+  if (!sameHalf(anchor, cand)) {
+    message($('runMsg'), 'bad', '旋转被拒：转完会跨隔板（靶板须整块在同一半场），已保持原状');
+    return false;
+  }
+  var occ = occupiedBy(cand, lists);
+  if (occ && occ !== 'targets') {
+    message($('runMsg'), 'bad', '旋转被拒：' + cand + ' 已被' + pieceLabel(occ) + '占据，已保持原状');
+    return false;
+  }
+  setCells('targets', parseCells(anchor + ' ' + cand));
+  // **没有翻面动作** —— 蓝/红沿长边的分色是几何决定的固定配色，
+  //   旋转只改朝向（h↔v），不改哪半是蓝（此前在此处 TARGET_FACE 蓝↔红取反，已废除）。
+  afterFieldChange();                                     // ★ 清层咽喉：与落子/换位同一条路，无旁路
+  var after = partnerDir(anchor, cand);
+  message($('runMsg'), 'ok', '靶板已顺时针旋转 → ' + anchor + '+' + cand + '（'
+    + (after === 'right' || after === 'left' ? '横向' : '竖向') + ' · 蓝/红沿长边对半·固定不随旋转）');
+  return true;
+}
+/** 按住靶板拖到新格 = 整体换位（移动不是添加：保持 1 块板，不吃定容硬顶）。 */
+function moveTargetBoard(cell) {
+  if (!FIELD || !FIELD.ok) return false;
+  var lists = fieldLists();
+  if ((lists.targets || []).indexOf(cell) !== -1) {
+    message($('runMsg'), 'ok', '靶板已在 ' + cell + '（未移动）');
+    return true;
+  }
+  var res = targetPlacement(cell, lists);
+  if (res.err) { message($('runMsg'), 'bad', '靶板换位被拒：' + res.err); return false; }
+  setCells('targets', res.pair);
+  afterFieldChange();                                     // ★ 清层咽喉：换位同样清旧层
+  message($('runMsg'), 'ok', '靶板换位 → ' + res.pair.join('+') + '（点「运行仿真」即重规划）');
+  return true;
+}
+/** 棋盘点按：点靶板 = 顺时针旋转（不再移除）；点其余棋子 = 移除。 */
+function onMapClick(event) {
+  if (Date.now() - lastDropAt < 350) return;         // 拖放结束的那次误点不当成旋转/移除
+  var node = event.target;
+  var hit = node && node.closest ? node.closest('[data-cell]') : null;
+  if (!hit) return;
+  var cell = hit.getAttribute('data-cell');
+  if ((fieldLists().targets || []).indexOf(cell) !== -1) { rotateTargetAt(cell); return; }
+  removeAt(cell);
+}
+function cellFromPoint(x, y) {
+  var node = document.elementFromPoint ? document.elementFromPoint(x, y) : null;
+  if (!node || !node.closest) return '';
+  var hit = node.closest('[data-cell]');
+  return hit ? (hit.getAttribute('data-cell') || '') : '';
+}
+function startDrag(key, event) {
+  if (!FIELD || !FIELD.ok) return;
+  dragKey = key;
+  dragStart = { x: event.clientX, y: event.clientY };   // 记起点 —— 位移 < 6px = 点按不落子
+  if (!dragGhost) {                                 // 懒创建：只在真实浏览器事件里走到（测试桩不触发）
+    dragGhost = document.createElement('div');
+    dragGhost.className = 'dragGhost';
+    document.body.appendChild(dragGhost);
+  }
+  dragGhost.textContent = key === '__board__'
+    ? '靶板（拖到新棋盘格 = 整体换位）'
+    : pieceLabel(key) + '（拖到棋盘格放下）';
+  dragGhost.style.display = 'none';                 // 先隐藏 —— 位移 ≥ 6px（真拖拽）才显示幽灵
+  onDragMove(event);
+  document.addEventListener('pointermove', onDragMove);
+  document.addEventListener('pointerup', onDragUp);
+  document.addEventListener('pointercancel', onDragCancel);
+  // 靶板本体拖动不 preventDefault —— 点按（无位移）后仍要能触发 click（= 旋转）；
+  //   palette 拖动保持 preventDefault（防按钮聚焦/触摸滚动）。
+  if (event.preventDefault && key !== '__board__') event.preventDefault();
+}
+function onDragMove(event) {
+  if (!dragGhost) return;
+  dragGhost.style.left = (event.clientX + 12) + 'px';
+  dragGhost.style.top = (event.clientY + 12) + 'px';
+  // 位移 ≥ 6px 才亮幽灵 —— 点按不闪提示，真拖拽才跟手（与 onDragUp 的 6px 落子阈值同口径）
+  if (dragStart && isFinite(event.clientX) && isFinite(event.clientY)
+      && Math.hypot(event.clientX - dragStart.x, event.clientY - dragStart.y) >= 6) {
+    dragGhost.style.display = 'block';
+  }
+}
+/** 拖拽被系统取消（如触摸滚动）—— 只收尾不落子，幽灵不残留。 */
+function onDragCancel() {
+  document.removeEventListener('pointermove', onDragMove);
+  document.removeEventListener('pointerup', onDragUp);
+  document.removeEventListener('pointercancel', onDragCancel);
+  dragKey = ''; dragStart = null;
+  if (dragGhost) dragGhost.style.display = 'none';
+}
+function onDragUp(event) {
+  document.removeEventListener('pointermove', onDragMove);
+  document.removeEventListener('pointerup', onDragUp);
+  document.removeEventListener('pointercancel', onDragCancel);
+  var key = dragKey; dragKey = '';
+  if (dragGhost) dragGhost.style.display = 'none';
+  if (!key) return;
+  // 只拖拽放置 —— 位移 < 6px 视为点按（palette 按钮点击不落子，「能点出 10 个」
+  //   修复口径之一）。点按也不设 lastDropAt：紧随其后的 click（靶板=旋转/棋子=移除）照常生效。
+  var dx = dragStart && isFinite(event.clientX) && isFinite(dragStart.x) ? event.clientX - dragStart.x : 999;
+  var dy = dragStart && isFinite(event.clientY) && isFinite(dragStart.y) ? event.clientY - dragStart.y : 999;
+  dragStart = null;
+  if (Math.hypot(dx, dy) < 6) return;
+  lastDropAt = Date.now();                          // 真拖放后的那次误点不当成移除/旋转
+  var cell = cellFromPoint(event.clientX, event.clientY);
+  if (!cell) return;
+  if (key === '__board__') { moveTargetBoard(cell); return; }   // 拖靶板本体 = 整体换位
+  placePiece(key, cell);
+}
+
+/** 场地来源目录（页面「切到实车现图」）；空 = 仓库 config/。 */
+function sourceDirValue() {
+  var node = $('sourceDir');
+  return node ? String(node.value || '').trim() : '';
+}
+/** /sim/map 的 URL（带 source 查询时宿主只读该目录，失败显式 400）。 */
+function fieldMapUrl() {
+  var dir = sourceDirValue();
+  return '/sim/map' + (dir ? '?source=' + encodeURIComponent(dir) : '');
+}
+function loadField() {
+  return api(fieldMapUrl()).then(function (body) {
+    FIELD = body;
+    if (!body.ok) { renderMap(); text($('fieldMeta'), ''); return false; }
+    $('mines').value = (body.mines || []).join(' ');
+    $('obstacles').value = (body.obstacles || []).join(' ');
+    $('bridges').value = (body.bridges || []).join(' ');
+    $('targets').value = (body.targets || []).join(' ');   // 靶两格镜像一起回填（整图恢复还原棋盘）
+    var plannerNow = body.planner || {};
+    var routeMode = plannerNow.autoPlanEnabled === false ? '车端手动 route.tokens（自规划关闭）'
+      : (plannerNow.autoPlanEnabled === true ? '车端自动规划开启' : '车端自规划状态未知');
+    text($('fieldMeta'), '真源 ' + body.source + '（md5 ' + String(body.md5).slice(0, 8) + '）· 可改 '
+      + (body.editable || []).join('/') + '；其余要素（起终/隔板/无人机点）保持现场值'
+      + ' · 路线：' + routeMode + ' · 引擎：' + (plannerNow.engine || 'CLI 默认')
+      + (body.routeFile ? ' · 手动路线=' + String(body.routeFile).split(/[\\/]/).pop() : '')
+      + (sourceDirValue() ? ' · 场地来源=外部目录（只读副本）' : ''));
+    refreshFieldHints();
+    renderMap();
+    refreshEngineHint();          // 车端引擎可能随来源目录变化；显式 what-if 提示同步刷新
+    refreshStressEngineHint();    // 压测面板：引擎/图冲突提示同步刷新
+    return true;
+  }).catch(function (problem) {
+    text($('fieldMeta'), '读场地失败：' + problem.message
+      + '（场地来源=' + (sourceDirValue() || '仓库 config/') + '；不会静默回落）');
+    refreshEngineHint();
+    return false;
+  });
+}
+
+/** 恢复默认补丁：同步回填（G1 断言可见）之后异步 GET /sim/map 刷新真源；
+ *   只回填该类，不冲掉用户对其他类的改动。真源刷新失败时保留同步回填的旧值。 */
+function refreshFieldTruth(onlyKey) {
+  return api(fieldMapUrl()).then(function (body) {
+    if (!body.ok) return;
+    FIELD = body;
+    if (onlyKey && $(onlyKey)) $(onlyKey).value = (body[onlyKey] || []).join(' ');
+    refreshFieldHints();
+    renderMap();
+  }).catch(function () { /* 真源刷新失败：不打断操作 */ });
+}
+
+/** 拉一次 traj.csv，取 truth 轨迹（每 4 行取一点）+ 位姿（每 125 数据行 = 2.5 s @50 Hz 一个车身）画到场地上。 */
+function loadTrace(record) {
+  TRACE = { route: (record && record.route) || (FIELD && FIELD.route) || [], points: [], poses: [] };
+  renderMap();
+  if (!record || !record.id) return Promise.resolve();
+  var url = artifactUrl(record.id + '/traj.csv');
+  countArtifact('本局轨迹 ' + record.id);
+  return fetch(url).then(function (response) { return response.text(); }).then(function (text) {
+    var lines = text.split('\n');
+    var head = (lines[0] || '').split(',');
+    var ix = head.indexOf('truth_x'); var iy = head.indexOf('truth_y'); var iw = head.indexOf('truth_yaw');
+    if (ix < 0 || iy < 0) return;
+    var pts = [];
+    var poses = [];
+    for (var i = 1; i < lines.length; i += 4) {                 // 轨迹：50 Hz → 12.5 Hz 抽样
+      var parts = lines[i].split(',');
+      if (parts.length <= ix || parts.length <= iy) continue;
+      var x = Number(parts[ix]); var y = Number(parts[iy]);      // 代码坐标（m）
+      if (!isFinite(x) || !isFinite(y)) continue;
+      pts.push(codeToScreen(x, y));                              // ★ 与 cellCenter 同口径（格心）
+    }
+    // 车身抽样**独立成趟**，不能与上面 `i += 4` 的轨迹循环共用一个 index：
+    //   共用时实际只会在「i ≡ 1 (mod 4) 且 i ≡ 0 (mod 125)」的拍上画车身，而 125 % 4 = 1
+    //   ⇒ 只有 125 / 625 / 1125… 命中 ⇒ 变成每 10 s 一个，不是每 2.5 s 一个。
+    //   这里按**规格相位**取：数据行 0 / 125 / 250 …（首行必画 = 起点位姿）。
+    //   ☆ 官方 tools/sim_map_render.py:276-283 把 `i % 125 == 0` 嵌在 `i % 4 == 0` 里，
+    //     125 % 4 = 1 ⇒ 它实际只在 i = 0/500/1000…（每 10 s）画车身，与它自己注释写的
+    //     「每 2.5 s 画一个车身」不符。本页照注释声明的意图实现，不复制那个嵌套相位错。
+    if (iw >= 0) {
+      for (var j = 1; j < lines.length; j += 125) {              // j=1,126,251… = 数据行 0,125,250…
+        var prow = lines[j].split(',');
+        if (prow.length <= ix || prow.length <= iy || prow.length <= iw) continue;
+        var px = Number(prow[ix]); var py = Number(prow[iy]); var pyaw = Number(prow[iw]);
+        if (!isFinite(px) || !isFinite(py) || !isFinite(pyaw)) continue;
+        var sp = codeToScreen(px, py);
+        poses.push([sp[0], sp[1], pyaw]);
+      }
+    }
+    TRACE.points = pts;
+    TRACE.poses = poses;
+    renderMap();
+  }).catch(function () { /* 拉不到就不画轨迹，不影响指标 */ });
+}
+
+/* ── 运行仿真动画 —— 车比例方块起点循迹 + 渐进路径线（trail）─────────
+   · 数据真源 = 本次 run 的 traj.csv（truth_x/truth_y 真实坐标 → codeToScreen，与格心同口径）；
+     traj 缺失（plan-failed/422、无产物、拉取失败、无有效点）⇒ 回退 record.route（没有则
+     参考路线 FIELD.route）折线，animState 明确标注「回放路线 · traj 缺失」；
+   · 方块尺寸 = 现场真值车长 0.28 m × 车宽 0.135 m（与 carPolygon/CAR_LEN_PX 同一来源：
+     sim.html 车身真值注释「尺寸 = 现场真值车长 0.28 m × 车宽 0.135 m」）按 GRID.blockM=0.35 m/格
+     （FIELD_GRID_BLOCK）× MAP_S=34 px/格 等比换算 —— 不是固定像素，改格宽/格像素会一起变；
+   · 动画画在 #anim 覆盖层（与 #map 分离、同 viewBox 口径）：renderMap 重写 #map.innerHTML
+     不打断回放；#anim pointer-events:none ⇒ 落格命中与空地协同时间线面板互不干扰；
+   · 播完自动停在末点（animFinish），「回放」按钮走 onReplayClick 重播（不重取数据）。 */
+var ANIM = { points: [], mode: '', idx: 0, timer: null, playing: false, lastRecord: null };
+
+/** 回放模式的中文标注（animState 文案共用，回退状态必须可见）。 */
+function animModeLabel() {
+  return ANIM.mode === 'traj' ? '轨迹回放 · traj.csv 真实坐标' : '回放路线 · traj 缺失，按路线折线';
+}
+/** 车比例方块尺寸（px）：直接复用车身真值换算出的 `CAR_LEN_PX/CAR_WID_PX`
+ *  （原先这里把 `0.28 * MAP_S / FIELD_GRID_BLOCK` 又抄了一遍，与车身定义同式不同源）。 */
+function animBlockSize() {
+  return { L: CAR_LEN_PX, W: CAR_WID_PX };
+}
+/** traj.csv 文本 → 回放轨迹（屏幕坐标；>240 点等距抽样，末点必保留 —— 只抽稀不改坐标值）。 */
+function animTrackFromCsv(csvText) {
+  var lines = String(csvText || '').split('\n');
+  var head = (lines[0] || '').split(',');
+  var ix = head.indexOf('truth_x'); var iy = head.indexOf('truth_y');
+  if (ix < 0 || iy < 0) return [];
+  var all = [];
+  for (var i = 1; i < lines.length; i += 1) {
+    var parts = lines[i].split(',');
+    if (parts.length <= ix || parts.length <= iy) continue;
+    var x = Number(parts[ix]); var y = Number(parts[iy]);
+    if (!isFinite(x) || !isFinite(y)) continue;
+    all.push(codeToScreen(x, y));                 // 与 cellCenter 同口径（格心）
+  }
+  if (all.length <= 240) return all;
+  var stride = Math.ceil(all.length / 240);
+  var out = [];
+  for (var k = 0; k < all.length; k += stride) out.push(all[k]);
+  if (out.length && out[out.length - 1] !== all[all.length - 1]) out.push(all[all.length - 1]);
+  return out;
+}
+/** 回退轨迹：本次 run 的重规划路线 → 没有则参考路线；格序列 → 真实路径折线（补中间格心）。 */
+function animRouteFallback(record) {
+  var tokens = (record && record.route) || (FIELD && FIELD.route) || [];
+  var cells = tokens.map(tokenCell).filter(Boolean);
+  return routePolyline(cells);
+}
+/** 画一帧：渐进 trail 折线（0..idx）+ 按行进方向旋转的车比例方块。 */
+function animFrame(idx) {
+  var layer = $('anim');
+  if (!layer) return;
+  var pts = ANIM.points;
+  if (!pts.length) { layer.innerHTML = ''; return; }
+  var i = Math.max(0, Math.min(idx, pts.length - 1));
+  var p = pts[i];
+  var prev = pts[Math.max(0, i - 1)];
+  var next = pts[Math.min(pts.length - 1, i + 1)];
+  var ang = Math.atan2(next[1] - prev[1], next[0] - prev[0]) * 180 / Math.PI;
+  var size = animBlockSize();
+  var trail = pts.slice(0, i + 1).map(function (pt) { return pt[0].toFixed(1) + ',' + pt[1].toFixed(1); }).join(' ');
+  var W = ((FIELD && FIELD.grid) ? FIELD.grid.cols : 14) * MAP_S + 1;   // 与 renderMap 的 viewBox 同口径
+  var H = ((FIELD && FIELD.grid) ? FIELD.grid.rows : 11) * MAP_S + 1;
+  var trailColor = ANIM.mode === 'traj' ? '#2f9e44' : '#e8590c';
+  layer.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
+    + '<polyline points="' + trail + '" fill="none" stroke="' + trailColor + '" stroke-width="2.2"'
+    + ' stroke-linejoin="round" stroke-linecap="round"/>'
+    + '<rect x="' + (p[0] - size.L / 2).toFixed(2) + '" y="' + (p[1] - size.W / 2).toFixed(2)
+    + '" width="' + size.L.toFixed(2) + '" height="' + size.W.toFixed(2)
+    + '" fill="#14161a" fill-opacity="0.88" stroke="' + trailColor + '" stroke-width="1.4"'
+    + ' transform="rotate(' + ang.toFixed(1) + ' ' + p[0].toFixed(2) + ' ' + p[1].toFixed(2) + ')"/>'
+    + '</svg>';
+}
+function stopAnimTimer() {
+  if (ANIM.timer) { clearInterval(ANIM.timer); ANIM.timer = null; }
+}
+function stopReplay() {
+  stopAnimTimer();
+  ANIM.playing = false;
+}
+/** 播放当前 ANIM.points：idx 从 0（起点格）推进到末点（终点）后自动停。 */
+function animPlay() {
+  stopAnimTimer();
+  if (!ANIM.points.length) { text($('animState'), '无可回放数据（无轨迹也无路线）'); return; }
+  ANIM.playing = true;
+  ANIM.idx = 0;
+  animFrame(0);
+  text($('animState'), '回放中 · ' + animModeLabel()
+    + ' · 车体 ' + CAR_LEN_M + '×' + CAR_WID_M + ' m 真值按 ' + FIELD_GRID_BLOCK + ' m/格等比换算');
+  if (ANIM.points.length < 2) { animFinish(); return; }
+  var stride = Math.max(1, Math.ceil(ANIM.points.length / 120));        // ≈120 帧，6 s 上限
+  var frames = Math.ceil(ANIM.points.length / stride);
+  var interval = Math.max(25, Math.min(120, Math.floor(6000 / frames)));
+  ANIM.timer = setInterval(function () {
+    ANIM.idx = Math.min(ANIM.idx + stride, ANIM.points.length - 1);
+    animFrame(ANIM.idx);
+    if (ANIM.idx >= ANIM.points.length - 1) animFinish();
+  }, interval);
+}
+function animFinish() {
+  stopAnimTimer();
+  ANIM.playing = false;
+  var replay = $('replay'); if (replay) replay.disabled = false;
+  text($('animState'), '回放完成 · 停在终点（' + animModeLabel() + ' · ' + ANIM.points.length + ' 点）· 点「回放」可重播');
+}
+/** 装载回放数据并开播：traj.csv 真实坐标优先，任何缺失走路线折线回退（状态可见）。 */
+function startReplay(record) {
+  stopReplay();
+  ANIM.lastRecord = record || null;
+  var layer = $('anim'); if (layer) layer.innerHTML = '';
+  var replay = $('replay'); if (replay) replay.disabled = true;
+  text($('animState'), '回放数据加载中…');
+  if (!record || !record.id) {                    // 失败/plan-failed 无产物：直接回退路线折线
+    beginReplay(animRouteFallback(record), 'route');
+    return Promise.resolve('route');
+  }
+  var url = artifactUrl(record.id + '/traj.csv');
+  countArtifact('轨迹回放 ' + record.id);
+  return fetch(url).then(function (response) {
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.text();
+  }).then(function (csvText) {
+    var pts = animTrackFromCsv(csvText);
+    if (pts.length < 2) throw new Error('traj 无有效点');
+    beginReplay(pts, 'traj');
+    return 'traj';
+  }).catch(function () {
+    beginReplay(animRouteFallback(record), 'route');   // traj 缺失 ⇒ 回退 + animState 标注
+    return 'route';
+  });
+}
+function beginReplay(pts, mode) {
+  ANIM.points = pts || [];
+  ANIM.mode = mode || 'route';
+  var replay = $('replay');
+  if (!ANIM.points.length) {
+    if (replay) replay.disabled = true;
+    text($('animState'), '无可回放数据（无轨迹也无路线）');
+    return;
+  }
+  if (replay) replay.disabled = false;
+  animPlay();
+}
+/** 「回放」按钮：有数据直接重播（不重取 traj）；没有则按 lastRecord 重新装载。 */
+function onReplayClick() {
+  if (ANIM.points.length) { animPlay(); return; }
+  if (ANIM.lastRecord) startReplay(ANIM.lastRecord);
+}
+
+/** 结果区里的横置 traj.svg（旋转 90°；宽高比在载入时按 naturalWidth/Height 定）。 */
+function rotSvgBox(src) {
+  return '<div class="rot90" id="rotBox">'
+    + '<img alt="traj.svg（横置视图）" src="' + esc(src) + '" '
+    + 'onload="fitRot(this)"></div>'
+    + '<div class="foot">横置视图 = 原 traj.svg 旋转 90°（只改渲染，不改仿真核心）；'
+    + '<a href="' + esc(src) + '" target="_blank" rel="noreferrer">原始 SVG</a></div>';
+}
+function fitRot(img) {
+  var box = img.parentNode;
+  if (!img.naturalWidth || !img.naturalHeight) return;
+  var ratio = img.naturalWidth / img.naturalHeight;          // 1000/800 = 1.25
+  box.style.paddingTop = (ratio * 100) + '%';                 // 旋转后高 = 宽 × ratio
+  img.style.width = (ratio * 100) + '%';
+}
+
+/* ── 历史结果看图（懒加载 modal）────────────────────────────────────
+   · 唯一发 `/sim/artifact` 请求的地方就是 `openShot()`（下方 `fetch`）——渲染循环/初始化**都不取图**；
+   · 计数器 `ARTIFACT_FETCHES` 直接画在历史标题旁（`#fetchCount`），打开页面应为 0、点一次「看图」+1；
+   · 同一 run 第二次点开走 `shotCache`（0 请求）；
+   · 404（例如 `plan-failed` 的跑没有产物）→ modal 里给具体中文文案 + HTTP 状态，不留白屏；
+   · 横置渲染**复用同一套**：CSS `.rot90` + `rotate(-90deg)` + `fitRot()`（本文件横置段），
+     `?path=<run>/traj.svg`（<run> = 历史行的 id）。 */
+var ARTIFACT_FETCHES = 0;
+var ARTIFACT_LAST = '';                              // 最近一次取图原因（计数器后缀，便于现场核对）
+var shotCache = {};                                  // run id → { url(blob), bytes }
+var shotCurrent = null;
+
+function artifactUrl(relative) {                     // 只在 openShot / 结果预览 / 文件链接里用；不在渲染循环里调
+  return API + '/sim/artifact?path=' + encodeURIComponent(relative);
+}
+/**
+ * 记一次"页面发起的 artifact 图/数据请求"。**只有四个地方会调它**：
+ *   ① openShot() 取历史图（同一 run 再点走缓存 ⇒ 不再计数）；
+ *   ② renderResult() 画本局结果预览的 traj.svg（跑完一次 = 一次，非历史预取）；
+ *   ③ loadTrace() 拉本局 traj.csv（仅在勾了「本次轨迹」时）；
+ *   ④ startReplay() 拉本局 traj.csv 做轨迹回放（每次「运行仿真」成功后一次，
+ *     「回放」重播走内存数据不再取 —— 同样只在显式动作后发生）。
+ * 历史渲染循环（renderHistory）与页面初始化**一处都不调** —— 这就是"不预取"的可判定证据。
+ */
+function countArtifact(what) {
+  ARTIFACT_FETCHES += 1;
+  ARTIFACT_LAST = what;
+  updateFetchCount();
+}
+function updateFetchCount() {
+  var node = $('fetchCount');
+  if (node) text(node, 'artifact 请求 ' + ARTIFACT_FETCHES + ' 次' + (ARTIFACT_LAST ? '（最近：' + ARTIFACT_LAST + '）' : ''));
+}
+function closeShot() {
+  shotCurrent = null;
+  var modal = $('shotModal');
+  if (modal) modal.style.display = 'none';
+}
+/** 打开某个 run 的图（懒加载；404 走可读提示）。`silent` = 深链自动打开时不再改 hash。 */
+function openShot(id, silent) {
+  if (!id) return;
+  var run = findRun(id) || { id: id };
+  var modal = $('shotModal');
+  shotCurrent = id;
+  text($('shotTitle'), (run.label ? run.label + ' · ' : '') + id + (run.at ? ' · ' + when(run.at) : ''));
+  var status = $('shotStatus');
+  status.className = 'badge';
+  text(status, shotCache[id] ? '缓存（0 请求）' : '读取中…');
+  $('shotBody').innerHTML = '<span style="color:var(--dim)">正在取图…</span>';
+  text($('shotFoot'), '');
+  modal.style.display = 'flex';
+  if (!silent) { try { location.hash = 'view=' + encodeURIComponent(id); } catch (e) { /* 忽略 */ } }
+
+  if (shotCache[id]) { renderShot(id); return; }     // 同一 run 已取过 → 0 请求
+
+  countArtifact('历史看图 ' + id);
+  var url = artifactUrl(id + '/traj.svg');
+  fetch(url).then(function (response) {
+    if (!response.ok) {
+      // 具体中文文案 + HTTP 状态；不白屏、不静默吞
+      var files = (run.files || []).map(function (file) { return file.name; });
+      status.className = 'badge bad';
+      text(status, 'HTTP ' + response.status);
+      $('shotBody').innerHTML = '<div class="shotmsg">'
+        + '该次运行没有生成轨迹图（<b>traj.svg 不存在</b>）—— <b>HTTP ' + esc(response.status) + '</b>。<br>'
+        + '可能原因：这次运行在规划/校验阶段就失败了（`status='
+        + esc(run.status || '未知') + '`，没跑仿真 ⇒ 无产物），或产物已被清理。<br>'
+        + '该 run 记录里的产物：' + (files.length ? esc(files.join(' / ')) : '（无）')
+        + '；台账可查 `GET /sim/history`。</div>';
+      var metrics = run.metrics || {};
+      text($('shotFoot'), 'run id = ' + id + ' · exitCode = ' + (run.exitCode === undefined ? '—' : run.exitCode)
+        + ' · status = ' + (run.status || '—') + ' · 指标 = ' + (Object.keys(metrics).length ? JSON.stringify(metrics) : '（无）'));
+      return null;
+    }
+    return response.text().then(function (svgText) {
+      var blob = new Blob([svgText], { type: 'image/svg+xml' });
+      shotCache[id] = { url: URL.createObjectURL(blob), bytes: svgText.length };
+      status.className = 'badge ok';
+      text(status, 'HTTP 200 · ' + shotCache[id].bytes + ' B');
+      renderShot(id);
+    });
+  }).catch(function (problem) {
+    status.className = 'badge bad';
+    text(status, '取图失败');
+    $('shotBody').innerHTML = '<div class="shotmsg">取图失败：<b>' + esc(String(problem && problem.message ? problem.message : problem))
+      + '</b>。可检查宿主是否在跑（`/sim/root`）、或直接打开 ' + esc(artifactUrl(id + '/traj.svg')) + '。</div>';
+  });
+}
+/** 画出图：横置（默认，复用 .rot90 + fitRot）或竖版（.rotbox）。 */
+function renderShot(id) {
+  var entry = shotCache[id];
+  if (!entry) return;
+  var portrait = $('shotPortrait') && $('shotPortrait').checked;
+  $('shotBody').innerHTML = portrait
+    ? '<div class="rotbox"><img alt="traj.svg（原始竖版）" src="' + esc(entry.url) + '"></div>'
+    : '<div class="rot90" id="rotBox"><img alt="traj.svg（横置，rotate(-90deg)）" src="' + esc(entry.url)
+      + '" onload="fitRot(this)"></div>';
+  text($('shotFoot'), '横置视图 = 原 traj.svg 旋转 90°（与 t25 的 `.rot90`/`fitRot()` 同一套约定；'
+    + '起点 N10 落在右下角）· 勾「竖版」看原始方向 · run id = ' + id + ' · 本次仅发 1 次 artifact 请求（同行再点走缓存）');
+}
+function loadRoot() {
+  api('/sim/root').then(function (body) {
+    var badge = $('rootLine');
+    badge.className = 'badge ' + (body.ok ? 'ok' : 'bad');
+    badge.textContent = (body.ok ? '工作区 ✓ ' : '工作区 ✗（缺 src/dzbrain）：') + (body.root || '未知');
+    badge.title = body.root || '';
+  }).catch(function (problem) {
+    var badge = $('rootLine'); badge.className = 'badge bad';
+    badge.textContent = '读工作区失败：' + problem.message;
+  });
+}
+function loadHistory() {
+  return api('/sim/history').then(function (body) {
+    historyRuns = body.runs || [];
+    var known = historyRuns.map(function (record) { return String(record.id); });
+    picked = picked.filter(function (id) { return known.indexOf(id) !== -1; });
+    renderHistory(); renderCompare();
+    return historyRuns.length;
+  }).catch(function (problem) {
+    $('hist').getElementsByTagName('tbody')[0].innerHTML =
+      '<tr><td colspan="12" style="color:var(--bad)">读历史失败：' + esc(problem.message) + '</td></tr>';
+    return 0;
+  });
+}
+/* ── 无人机协同「本局复核」（规格增补 §D.1/§D.3 收口）──────────────────────
+   旧实现只有一条 token 扫描，且三种必须区分的情况被压成二分：场地没加载时
+   avoid 为空 ⇒ **一次都没复核**，文案却照样报「已避开起降格 ?/?」——这是假绿。
+   这里改成三态，调用方据此选消息（ok 才允许说"已避开"）：
+     · ok        起降格取到 + 路线 token 无起降格 + 台账 record.plan.drone 字段齐 ⇒ text = "N8/M2"；
+     · bad       路线 token 仍含起降格（规划层硬避让被绕过）⇒ 红字点名 + 指向台账取证；
+     · blind     **未复核**：场地未加载（取不到 drone 真源）或台账缺 §D.3 三字段（enabled/
+                 hardAvoid/corridorRow）——说得清"没复核"，绝不当通过。
+   hardAvoid 比对用**真源起降格**（FIELD.drone），不是台账自证；开关关（body.drone !== true）
+   恒返回 null ⇒ 提醒文案与改动前逐字一致（§D.1「关闭态行为不变」）。 */
+function droneRunAudit(body, record) {
+  if (!body || body.drone !== true) return null;
+  var rec = record || {};
+  var cells = (FIELD && FIELD.ok && FIELD.drone)
+    ? [FIELD.drone.takeoff, FIELD.drone.land].filter(Boolean) : [];
+  if (!cells.length) {
+    return { level: 'blind', text: '⚠ 无人机协同复核不可用：场地未加载（/sim/map 没给出 drone 起降格）'
+      + '——本局是否避开起降格**未复核**，请核对台账 record.plan.drone（run ' + (rec.id || '?') + '）' };
+  }
+  var hit = [];
+  (rec.route || []).forEach(function (token) {
+    var cell = tokenCell(token);
+    if (cell && cells.indexOf(cell) !== -1) hit.push(cell);
+  });
+  if (hit.length) {
+    return { level: 'bad', text: '⚠ 无人机协同违规：本局路线 token 仍含起降格 ' + hit.join('、')
+      + '（规划层已注入 obstacles 硬避让，此为异常路径——请核对 run ' + (rec.id || '?')
+      + ' 的 override 图与台账 plan.drone）' };
+  }
+  var led = rec.plan && rec.plan.drone;
+  var ledOk = !!led && led.enabled === true && Array.isArray(led.hardAvoid)
+    && cells.every(function (cell) { return led.hardAvoid.indexOf(cell) !== -1; })
+    && !!led.corridorRow
+    && isFinite(Number(led.corridorRow.top)) && isFinite(Number(led.corridorRow.bottom));
+  if (!ledOk) {
+    return { level: 'blind', text: '⚠ 无人机协同台账缺字段（规格增补 §D.3）：record.plan.drone 应含 '
+      + '{enabled:true, hardAvoid:["' + cells.join('","') + '"], corridorRow:{top,bottom}} —— 实际 '
+      + (led ? JSON.stringify(led) : '缺失') + '（run ' + (rec.id || '?')
+      + '）；本局避让是否真生效未复核' };
+  }
+  return { level: 'ok', text: cells.join('/') };
+}
+/* ── 动作 ────────────────────────────────────────────────────────────────── */
+function runSimulation() {
+  // **非法格名不得静默丢弃**。任一类"非空输入但规范化后 0 格"时**不发请求**，
+  //   直接把非法条目列出来（否则请求体不带该 key ⇒ 宿主当"没改点位"按默认图跑完全程，用户以为改了）。
+  var bad = fieldInputErrors();
+  if (bad.length) {
+    bad.forEach(function (item) { $(item.key).style.borderColor = '#7a3232'; });
+    message($('runMsg'), 'bad',
+      '改点位里有非法格名，已拦下未发车：' + bad.map(function (item) {
+        return '「' + item.key + '」里没有合法格名 —— ' + item.raw.join(' ');
+      }).join('；') + '（格名形如 A1..N11，列 A~N、行 1~11）');
+    return;
+  }
+  var body = readForm();
+  var button = $('run');
+  button.disabled = true; $('check').disabled = true; $('refresh').disabled = true;
+  // 清掉上一局回放（停表 + 清覆盖层），完成后自动播新一局
+  stopReplay();
+  var layer0 = $('anim'); if (layer0) layer0.innerHTML = '';
+  text($('animState'), '仿真运行中…完成后自动回放');
+  message($('runMsg'), 'ok', '仿真运行中…（本机约 1–3 分钟，跑完自动刷新历史）');
+  $('result').innerHTML = '<span style="color:var(--dim)">运行中…</span>';
+  api('/sim/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function (payload) {
+      renderResult(payload);
+      // 地图叠加：本局的参考路线（改点位时是重规划后的）+ 可选的真值轨迹
+      TRACE = { route: (payload.record && payload.record.route) || [], points: [], poses: [] };
+      renderMap();
+      if ($('showTrace').checked) loadTrace(payload.record);
+      startReplay(payload.record);                 // 本次 run 真实轨迹动画（traj 缺失自动回退路线折线）
+      var m = payload.record && payload.record.metrics || {};
+      var dropped = droppedSummary();
+      // 页面校验层复核（双层避让的第二层，§D.2）+ 三态见 droneRunAudit ——
+      //   ok 才允许说"已避开"；bad = 路线 token 仍含起降格；blind = 没复核（场地未加载 / 台账缺字段）。
+      var droneAudit = droneRunAudit(body, payload.record);
+      if (droneAudit && droneAudit.level !== 'ok') {
+        message($('runMsg'), 'bad', droneAudit.text);
+      } else {
+        message($('runMsg'), 'ok', '完成：exitCode=' + payload.record.exitCode + '，用时 ' + num(payload.record.seconds, 1) +
+          ' s，RMS ' + num(m.rms_m, 4) + ' m，越界 ' + (m.out_of_bounds === undefined ? '—' : m.out_of_bounds) + ' 拍'
+          + (payload.record.field ? '【改点位：已按 override 重规划并运行】' : '')
+          + (droneAudit ? '【无人机协同：已避开起降格 ' + droneAudit.text + '，台账 plan.drone 已核】' : '')
+          + (dropped ? '【注意：已忽略非法格名 ' + dropped + '】' : ''));
+      }
+      return loadHistory();
+    })
+    .catch(function (problem) {
+      $('result').innerHTML = '<span style="color:var(--dim)">未完成。</span>';
+      var failed = problem.body && problem.body.record ? problem.body.record : null;
+      // 失败原因（最后一非空行）：优先台账 plan.stderrTail，其次宿主透传的 planTail ——
+      //   第六张图 tracker-safe 无解这类"改点位后 422"，只有把这行显示出来才可诊断；
+      //   旧实现只写「规划/校验未过」，操作员无法区分"引擎无解"和"点位非法"。
+      var whyRaw = (failed && failed.plan && failed.plan.stderrTail)
+        || (problem.body && problem.body.planTail) || (failed && failed.stderrTail) || '';
+      var why = String(whyRaw).split('\n').filter(function (line) { return line.trim(); }).slice(-1)[0] || '';
+      var hint = problem.status === 409 ? '（上一次还在跑）'
+        : (problem.status === 422 ? '（改点位后规划/校验未过：见任务栏与台账 plan 字段）' : '')
+        // drone 开时 422 也落 record.plan.drone（宿主「规划成败都落」的约定）——
+        //   失败路径同样给出台账方位，避免用户以为开关没生效/被吞。
+        + (body.drone === true ? '；无人机协同台账 record.plan.drone 随本局一起落盘' : '');
+      message($('runMsg'), 'bad', '仿真失败：' + problem.message + (why ? ' —— ' + why : '') + hint);
+      if (problem.status === 422) {
+        // 修「地图叠加」：plan-failed 同样要清上一局的 TRACE —— 原实现漏了这步，
+        //   #map 里留着上一局的参考线/绿轨迹/车身位姿，#anim 再叠新折线 ⇒ 两局图层叠加；
+        //   复杂图连续 422 时旧层永不清。清掉后参考线回落到当前仍生效的 FIELD.route。
+        TRACE = null;
+        renderMap();
+        // plan-failed 也回放 —— 无 traj ⇒ 回退路线折线并标注「回放路线」
+        startReplay(problem.body && problem.body.record ? problem.body.record : null);
+        return loadHistory();                      // plan-failed 也进了台账
+      }
+    })
+    .then(function () { button.disabled = false; $('check').disabled = false; $('refresh').disabled = false; });
+}
+function runChecks() {
+  var button = $('check');
+  button.disabled = true;
+  message($('runMsg'), 'ok', '预检运行中…（config_selfcheck + route_check）');
+  api('/sim/check', { method: 'POST' })
+    .then(function (payload) {
+      renderChecks(payload);
+      var bad = (payload.results || []).filter(function (row) { return row.exitCode !== 0; });
+      message($('runMsg'), bad.length ? 'bad' : 'ok',
+        bad.length ? ('预检有工具非 0 退出：' + bad.map(function (r) { return r.id + '=' + r.exitCode; }).join('、'))
+                   : '预检通过（两个工具都 exitCode=0）');
+    })
+    .catch(function (problem) { message($('runMsg'), 'bad', '预检失败：' + problem.message); })
+    .then(function () { button.disabled = false; });
+}
+
+/* ── 绑定 ────────────────────────────────────────────────────────────────── */
+$('speed').addEventListener('change', function () {
+  $('speedCustomWrap').style.display = $('speed').value === 'custom' ? '' : 'none';
+});
+// R1 引擎选择：只改提示，不改请求（请求体在 readForm 里带 engine，不带键 = 跟随车端）
+$('engine').addEventListener('change', refreshEngineHint);
+// 场地来源切换：重读 /sim/map（只读副本）；失败显式报错，不回落 config/
+$('sourceDir').addEventListener('change', function () {
+  invalidateStaleRun();
+  loadField().then(function (ok) {
+    message($('runMsg'), ok ? 'ok' : 'bad',
+      ok ? '场地来源已切换：' + String($('fieldMeta').textContent || '')
+        : '场地来源读取失败：' + String($('fieldMeta').textContent || ''));
+  });
+});
+$('run').addEventListener('click', runSimulation);
+$('check').addEventListener('click', runChecks);
+$('refresh').addEventListener('click', function () {
+  loadHistory().then(function (count) { message($('runMsg'), 'ok', '历史已刷新（' + count + ' 条）'); });
+});
+// 改点位即时预览 + 恢复默认 + 地图叠加开关（四类含 targets；文本框为只读镜像）
+['mines', 'obstacles', 'bridges', 'targets'].forEach(function (key) {
+  $(key).addEventListener('input', afterFieldChange);   // ★ 统一咽喉：与拖拽/恢复默认同一条清层路径
+});
+// 靶板朝向是 <select>（'' = 跟随地图）——必须绑 change（不是 input），否则改完地图不重绘、提示不刷新
+$('targetYaw').addEventListener('change', function () { refreshFieldHints(); renderMap(); });
+Array.prototype.forEach.call(document.querySelectorAll('button[data-reset]'), function (button) {
+  button.addEventListener('click', function () {
+    var key = button.getAttribute('data-reset');
+    if (FIELD && FIELD.ok) {
+      if (key === 'targetYaw') {          // <select> 的默认项是 ''（跟随地图），不能走 join(' ')
+        $(key).value = '';
+        refreshFieldHints(); renderMap();
+        message($('runMsg'), 'ok', '靶板朝向已恢复「跟随地图」');
+        return;
+      }
+      $(key).value = (FIELD[key] || []).join(' ');
+      afterFieldChange();                          // ★ 恢复默认也是棋盘变更：清旧层走统一咽喉
+      message($('runMsg'), 'ok', key + ' 已恢复现场默认值');
+      refreshFieldTruth(key);             // 同步回填（上面文案 G1 断言可见）后异步刷新真源，只回填该类
+    }
+  });
+});
+// palette 拖拽 + 棋盘点选移除 + 整图恢复（桩安全：querySelectorAll 空集返回 []、$() 自动建桩、
+//   顶层不 createElement —— 幽灵元素只在 startDrag 的真实事件里懒创建）
+Array.prototype.forEach.call(document.querySelectorAll('.piece[data-piece]'), function (piece) {
+  piece.addEventListener('pointerdown', function (event) { startDrag(piece.getAttribute('data-piece'), event); });
+});
+// 棋盘点按（靶板=旋转 / 其余棋子=移除）+ 按住靶板格拖动 = 整体换位
+$('map').addEventListener('click', onMapClick);
+$('map').addEventListener('pointerdown', function (event) {
+  if (!FIELD || !FIELD.ok) return;
+  var node = event.target;
+  var hit = node && node.closest ? node.closest('[data-cell]') : null;
+  if (!hit) return;
+  var cell = hit.getAttribute('data-cell');
+  if ((fieldLists().targets || []).indexOf(cell) === -1) return;   // 只有靶板支持本体拖动换位
+  startDrag('__board__', event);
+});
+$('resetAll').addEventListener('click', function () {   // 整图恢复：重读 /sim/map 全量还原棋盘
+  invalidateStaleRun();                            // ★ 整图还原 = 棋盘大改：上一局图层立即作废
+  // 靶板分色已无 state（蓝/红沿长边固定）⇒ 整图恢复不再需要"还原面色"（此前在此复位 TARGET_FACE）
+  loadField().then(function (ok) {
+    message($('runMsg'), ok ? 'ok' : 'bad',
+      ok ? '整图恢复：已重读 /sim/map 并还原棋盘' : '重读 /sim/map 失败，棋盘未还原');
+  });
+});
+$('showRoute').addEventListener('change', renderMap);
+$('showTrace').addEventListener('change', function () {
+  if ($('showTrace').checked && TRACE) renderMap();
+  else renderMap();
+});
+// 回放按钮（重播当前回放数据）—— 只写 #anim 覆盖层，不碰 #map/时间线面板
+$('replay').addEventListener('click', onReplayClick);
+// 看图 modal 的关法与竖版切换
+$('shotClose').addEventListener('click', closeShot);
+$('shotPortrait').addEventListener('change', function () { if (shotCurrent) renderShot(shotCurrent); });
+$('shotModal').addEventListener('click', function (event) {
+  if (event.target === $('shotModal')) closeShot();      // 点遮罩关闭
+});
+// 64 图压测弹窗关闭
+$('stressModalClose').addEventListener('click', stressCloseModal);
+$('stressModal').addEventListener('click', function (event) {
+  if (event.target === $('stressModal')) stressCloseModal();   // 点遮罩关闭
+});
+document.addEventListener('keydown', function (event) {
+  if (event.key === 'Escape') {
+    if ($('shotModal').style.display !== 'none') closeShot();
+    else if ($('stressModal').style.display !== 'none') stressCloseModal();
+  }
+});
+window.addEventListener('error', function (event) {
+  message($('runMsg'), 'bad', '页面脚本异常：' + (event && event.message ? event.message : '未知'));
+});
+
+// 空地协同时间线 —— 双轨并行推进（无人机逐点扫描 vs 小车先验行驶）。
+//   纯 innerHTML，不碰 #map；data-track 双轨、data-role 标记并行窗与小车进度条。
+function renderDroneTimeline(payload) {
+  var tl = (payload && payload.timeline) || [];
+  var record = (payload && payload.record) || {};
+  var m = record.metrics || {};
+  var finishT = Number(m.time_s) || 0;
+  var landT = 0;
+  tl.forEach(function (event) {
+    if (event.actor === 'drone' && event.event === 'land') landT = Number(event.t) || 0;
+  });
+  var span = Math.max(finishT, landT, 1);
+  var parallel = (finishT > 0 && landT > 0) ? Math.min(finishT, landT) : Math.max(finishT, landT);
+  var html = '<div class="kv">';
+  html += '<dt>并行窗 s</dt><dd data-role="parallel">' + esc(num(parallel, 1)) + '</dd>';
+  html += '<dt>小车完赛 s</dt><dd data-role="car-finish">' + esc(num(finishT, 1)) + '</dd>';
+  html += '<dt>无人机降落 s</dt><dd data-role="drone-land">' + esc(num(landT, 1)) + '</dd>';
+  html += '<dt>重规划 / 确认</dt><dd>' + esc(String(payload && payload.reroutes || 0)) + ' / ' + esc(String(payload && payload.confirmed || 0)) + '</dd>';
+  html += '<dt>车状态</dt><dd>' + esc(String(record.status || '—')) + ' · ' + esc(String(record.id || '')) + '</dd>';
+  html += '</div>';
+  // 双轨进度条：宽度 = 该轨事件终点 / 时间跨度（data-role 供断言与样式定位）
+  html += '<div class="tlBars" style="margin:6px 0">'
+    + '<div data-track="drone" data-role="drone-progress" style="height:6px;background:#4d8fd6;width:' + Math.round(Math.min(landT / span, 1) * 100) + '%"></div>'
+    + '<div data-track="car" data-role="car-progress" style="height:6px;background:#2f7fd0;width:' + Math.round(Math.min(finishT / span, 1) * 100) + '%"></div>'
+    + '</div>';
+  html += '<div class="scroll" style="max-height:220px"><table><tbody>';
+  tl.forEach(function (event) {
+    var track = event.actor === 'drone' ? 'drone' : 'car';
+    html += '<tr data-track="' + track + '"><td class="num">' + esc(num(event.t, 1)) + 's</td>'
+      + '<td>' + (track === 'drone' ? '无人机' : '小车') + '</td>'
+      + '<td>' + esc(String(event.event || '')) + '</td>'
+      + '<td>' + esc(String(event.cell || '')) + '</td>'
+      + '<td>' + esc(String(event.detail || '')) + '</td></tr>';
+  });
+  html += '</tbody></table></div>';
+  $('droneTimeline').innerHTML = html;
+}
+
+/* ── 空地协同拟真地图 —— 与主地图同一套底图（棋盘/隔板/起终点/雷障洞靶），
+   叠加 ①无人机扫描范围（大虚线圆 + 3×3 淡蓝覆盖）②无人机航线 + 每航点航向箭头
+   ③情报命中（采纳绿圈/拒收橙圈）④checkpoint 交付点 ⑤小车路线 + 起终点位姿。
+   素材来自 /sim/drone/run 响应的 `scan`（path=航线格序列、cells=每点 3×3 覆盖、
+   checkpoints）与 `intel`，小车路线来自 `record.route`（token 数组，同 renderMap 口径）。
+   纯 SVG、只写 #droneMap 覆盖层，不碰 #map（落格命中层不受影响）。 */
+
+/** 协同仿真底图：与主地图同一套棋盘/隔板/起终点/雷障洞靶/无人机起降点。读 FIELD 真源（非表单编辑值）。 */
+function droneBoardSvg() {
+  var svg = [];
+  var g = FIELD.grid;
+  var W = g.cols * MAP_S;
+  var H = g.rows * MAP_S;
+  var rect = function (x, y, w, h, fill, extra) {
+    return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="' + fill + '"' + (extra || '') + '/>';
+  };
+  var text = function (x, y, body, size, fill, weight, anchor) {
+    return '<text x="' + x + '" y="' + y + '" font-size="' + size + '" fill="' + fill + '"'
+      + (weight ? ' font-weight="' + weight + '"' : '') + (anchor ? ' text-anchor="' + anchor + '"' : '')
+      + ' font-family="Microsoft YaHei,monospace">' + esc(body) + '</text>';
+  };
+  var bridgeSet = {}; (FIELD.bridges || []).forEach(function (c) { bridgeSet[c] = 1; });
+  var targetSet = {}; (FIELD.targets || []).forEach(function (c) { targetSet[c] = 1; });
+
+  svg.push(rect(0, 0, W, H, '#ffffff'));
+  for (var row = 1; row <= g.rows; row += 1) {
+    for (var ci = 0; ci < g.cols; ci += 1) {
+      var col = g.colLetters[ci];
+      var cell = col + row;
+      var x = ci * MAP_S;
+      var y = (row - 1) * MAP_S;
+      var fill = ((row + ci) % 2 === 0) ? '#ffffff' : '#eef1f6';
+      if (col === 'K') fill = bridgeSet[cell] ? '#7fe3ea' : '#d9d9d9';
+      if (targetSet[cell]) fill = '#e8a0c8';
+      if (cell === FIELD.start) fill = '#b2f2bb';
+      if (cell === FIELD.end) fill = '#ffe066';
+      if (cell === (FIELD.drone && FIELD.drone.takeoff) || cell === (FIELD.drone && FIELD.drone.land)) fill = '#cfe2f7';
+      svg.push(rect(x, y, MAP_S, MAP_S, fill, ' stroke="#c9ced8" stroke-width="0.6"'));
+    }
+  }
+  // 隔板：第 rowHi/rowLo 行之间、从 colFrom 到 N 整条
+  var by = FIELD.barrier.rowHi * MAP_S;
+  var bx0 = colIdxOf(FIELD.barrier.colFrom) * MAP_S;
+  svg.push(rect(bx0, by - 3, W - bx0, 6, '#111111', ''));
+  svg.push(text((bx0 + W) / 2, by - 6, '隔板 ' + FIELD.barrier.colFrom + '~N', 10, '#111111', 'bold', 'middle'));
+  // 每格格名
+  for (var r2 = 1; r2 <= g.rows; r2 += 1) {
+    for (var c2 = 0; c2 < g.cols; c2 += 1) {
+      svg.push(text(c2 * MAP_S + 3, (r2 - 1) * MAP_S + 11, g.colLetters[c2] + r2, 8.5, '#8a94a3'));
+    }
+  }
+  // 雷 / 障 / 洞棋子
+  (FIELD.mines || []).forEach(function (cell) {
+    var p = cellCenter(cell); if (!p) return;
+    svg.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (MAP_S * 0.34)
+      + '" fill="#e5484d" stroke="#7a1f1a" stroke-width="1.5"/>');
+    svg.push(text(p[0], p[1] + 4, '雷', 11, '#ffffff', 'bold', 'middle'));
+  });
+  (FIELD.obstacles || []).forEach(function (cell) {
+    var p = cellCenter(cell); if (!p) return;
+    svg.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (MAP_S * 0.34)
+      + '" fill="#4a4a4a" stroke="#23262b" stroke-width="1.5"/>');
+    svg.push(text(p[0], p[1] + 4, '障', 10, '#ffffff', 'bold', 'middle'));
+  });
+  (FIELD.bridges || []).forEach(function (cell) {
+    var p = cellCenter(cell); if (!p) return;
+    svg.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (MAP_S * 0.36)
+      + '" fill="none" stroke="#0b6b73" stroke-width="1.8"/>');
+    svg.push(text(p[0], p[1] + 4, '洞', 11, '#0b6b73', 'bold', 'middle'));
+  });
+  // 靶板（一块并板）
+  // 与主地图 renderMap 同一分色口径 —— 蓝/红**沿长边对半**、色值固定不随机。
+  //   色值优先取全局 TARGET_HALF（同一份常量）；本函数会被离线守卫按函数名单独提取执行
+  //   （scripts/test-sim-drone-render.mjs 的 depNames 只含 droneBoardSvg/targetBoardRect/…），
+  //   故用 typeof 保护 + 同值字面量兜底，避免在提取上下文里 ReferenceError 或画不出色块。
+  var tCells = FIELD.targets || [];
+  var tr = targetBoardRect(tCells, '');
+  if (tr) {
+    svg.push(rect(tr[0], tr[1], tr[2], tr[3], '#e8a0c8', ' stroke="#8a2f5f" stroke-width="1.6"'));
+    var halfCols = (typeof TARGET_HALF !== 'undefined' && TARGET_HALF) ? TARGET_HALF : ['#2f7fd0', '#d64545'];
+    if (tr[2] >= tr[3]) {                     // 长边水平 ⇒ 分色线水平：上半 / 下半
+      svg.push(rect(tr[0], tr[1], tr[2], tr[3] / 2, halfCols[0], ''));
+      svg.push(rect(tr[0], tr[1] + tr[3] / 2, tr[2], tr[3] / 2, halfCols[1], ''));
+    } else {                                  // 长边垂直 ⇒ 分色线竖直：左半 / 右半
+      svg.push(rect(tr[0], tr[1], tr[2] / 2, tr[3], halfCols[0], ''));
+      svg.push(rect(tr[0] + tr[2] / 2, tr[1], tr[2] / 2, tr[3], halfCols[1], ''));
+    }
+    svg.push(text(tr[0] + tr[2] / 2, tr[1] + tr[3] / 2 + 4, '靶板', 10, '#ffffff', 'bold', 'middle'));
+  }
+  // 起终点 + 无人机起降点
+  var startP = cellCenter(FIELD.start); var endP = cellCenter(FIELD.end);
+  if (startP) svg.push(text(startP[0], startP[1] + 4, '起', 12, '#1d6b2f', 'bold', 'middle'));
+  if (endP) svg.push(text(endP[0], endP[1] + 4, '终', 12, '#8a5a00', 'bold', 'middle'));
+  var takeP = cellCenter(FIELD.drone.takeoff); var landP = cellCenter(FIELD.drone.land);
+  if (takeP) {
+    svg.push('<circle cx="' + takeP[0] + '" cy="' + takeP[1] + '" r="' + (MAP_S * 0.30)
+      + '" fill="#4d8fd6" fill-opacity="0.25" stroke="#1c5aa8" stroke-width="1.4"/>');
+    svg.push(text(takeP[0], takeP[1] + 4, '机', 10, '#1c5aa8', 'bold', 'middle'));
+  }
+  if (landP) {
+    svg.push('<circle cx="' + landP[0] + '" cy="' + landP[1] + '" r="' + (MAP_S * 0.30)
+      + '" fill="#4d8fd6" fill-opacity="0.25" stroke="#1c5aa8" stroke-width="1.4"/>');
+    svg.push(text(landP[0], landP[1] + 4, 'H', 12, '#1c5aa8', 'bold', 'middle'));
+  }
+  return svg;
+}
+
+function renderDroneMap(payload) {
+  var node = $('droneMap');
+  if (!node || !FIELD || !FIELD.ok) return;
+  var scan = payload && payload.scan;
+  var cells = scan && Array.isArray(scan.cells) ? scan.cells : [];
+  var path = scan && Array.isArray(scan.path) ? scan.path : [];
+  var intel = (payload && payload.intel) || [];
+  var record = (payload && payload.record) || {};
+  var carTokens = (record && Array.isArray(record.route)) ? record.route : [];
+  if (!cells.length && !path.length && !carTokens.length) { node.style.display = 'none'; return; }
+
+  var g = FIELD.grid;
+  var W = g.cols * MAP_S + 1;
+  var H = g.rows * MAP_S + 1;
+  var svg = droneBoardSvg();
+  var coverSet = {};
+  cells.forEach(function (pt) {
+    (pt.covers || []).forEach(function (c) { coverSet[c] = 1; });
+  });
+  // ① 扫描范围：更大虚线圆（每航点一个，半径略大于 3×3 视场对角 ≈1.414 格）
+  path.forEach(function (cell) {
+    var p = cellCenter(cell);
+    if (!p) return;
+    svg.push('<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="' + (MAP_S * 1.45).toFixed(1)
+      + '" fill="none" stroke="#4d8fd6" stroke-width="1.4" stroke-dasharray="5 4" opacity="0.6"/>');
+  });
+  // ② 扫描覆盖（淡蓝半透明底，3×3 精确覆盖）
+  Object.keys(coverSet).forEach(function (cell) {
+    var p = cellCenter(cell);
+    if (!p) return;
+    svg.push('<rect x="' + (p[0] - MAP_S / 2).toFixed(1) + '" y="' + (p[1] - MAP_S / 2).toFixed(1)
+      + '" width="' + MAP_S + '" height="' + MAP_S + '" fill="#4d8fd6" fill-opacity="0.12"/>');
+  });
+  // ③ 无人机航线（橙折线）+ 每航点航向箭头（位姿：位置点 + 朝向）
+  var pts = path.map(cellCenter).filter(Boolean);
+  if (pts.length > 1) {
+    svg.push('<polyline points="' + pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ')
+      + '" fill="none" stroke="#f08c00" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 3" opacity="0.95"/>');
+  }
+  path.forEach(function (cell, i) {
+    var p = cellCenter(cell);
+    if (!p) return;
+    var next = cellCenter(path[Math.min(i + 1, path.length - 1)]);
+    var prev = cellCenter(path[Math.max(i - 1, 0)]);
+    var dx = next[0] - p[0], dy = next[1] - p[1];
+    if (i === path.length - 1) { dx = p[0] - prev[0]; dy = p[1] - prev[1]; }
+    var len = Math.hypot(dx, dy) || 1;
+    var ux = dx / len, uy = dy / len;
+    svg.push('<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="2.4" fill="#f08c00"/>');
+    svg.push('<line x1="' + p[0].toFixed(1) + '" y1="' + p[1].toFixed(1)
+      + '" x2="' + (p[0] + ux * 5).toFixed(1) + '" y2="' + (p[1] + uy * 5).toFixed(1)
+      + '" stroke="#f08c00" stroke-width="1.6"/>');
+  });
+  // ④ 情报命中（bridge_passable：采纳绿圈 / 拒收橙圈）
+  intel.forEach(function (msg) {
+    if (msg.type !== 'bridge_passable') return;
+    var p = cellCenter(msg.block);
+    if (!p) return;
+    var adopted = msg.decision === 'adopted';
+    svg.push('<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="' + (MAP_S * 0.40)
+      + '" fill="' + (adopted ? '#38c172' : '#f0b429') + '" fill-opacity="0.20" stroke="'
+      + (adopted ? '#2b6b47' : '#7a6325') + '" stroke-width="1.6"/>');
+    svg.push('<text x="' + p[0] + '" y="' + (p[1] - MAP_S * 0.42) + '" font-size="9" fill="'
+      + (adopted ? '#2b6b47' : '#7a6325') + '" font-weight="bold" text-anchor="middle"'
+      + ' font-family="Microsoft YaHei,monospace">' + esc(msg.block) + ' ' + (adopted ? '采纳' : '拒收') + '</text>');
+  });
+  // ⑤ checkpoint 交付点（紫色菱形 + 编号）
+  var cps = (scan && Array.isArray(scan.checkpoints)) ? scan.checkpoints : [];
+  cps.forEach(function (cp) {
+    var p = cellCenter(cp.cell);
+    if (!p) return;
+    var isLand = cp.id === 'land';
+    svg.push('<path d="' + (p[0] - MAP_S * 0.22).toFixed(1) + ',' + p[1].toFixed(1)
+      + ' ' + p[0].toFixed(1) + ',' + (p[1] - MAP_S * 0.28).toFixed(1)
+      + ' ' + (p[0] + MAP_S * 0.22).toFixed(1) + ',' + p[1].toFixed(1)
+      + ' ' + p[0].toFixed(1) + ',' + (p[1] + MAP_S * 0.28).toFixed(1) + ' Z"'
+      + ' fill="' + (isLand ? '#6f42c1' : '#8e44ad') + '" fill-opacity="0.85" stroke="#fff" stroke-width="0.6"/>');
+    svg.push('<text x="' + p[0] + '" y="' + (p[1] - MAP_S * 0.30) + '" font-size="8" fill="#6f42c1"'
+      + ' font-weight="bold" text-anchor="middle" font-family="Microsoft YaHei,monospace">'
+      + esc(isLand ? '封口' : (cp.id + '·' + cp.t + 's')) + '</text>');
+  });
+  // ⑥ 小车路线（绿折线，同本局轨迹色）+ 起终点位姿（车身方块 + 车头朝向）
+  var carCells = carTokens.map(tokenCell).filter(Boolean);
+  var carPts = routePolyline(carCells);
+  if (carPts.length > 1) {
+    svg.push('<polyline points="' + carPts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ')
+      + '" fill="none" stroke="#2f9e44" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>');
+  }
+  if (carPts.length >= 2) {
+    var sPt = carPts[0], ePt = carPts[carPts.length - 1];
+    var angOf = function (a, b) { return Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI; };
+    // 尺寸 = 车体真值 0.28×0.135 m 换算。★ 有意保留字面量：test-sim-drone-render 只抽取
+    //   renderDroneMap 单函数求值，引用外层 CAR_LEN_M 会得 undefined（NaN 尺寸）。
+    var L = 0.28 * MAP_S / FIELD_GRID_BLOCK, Wd = 0.135 * MAP_S / FIELD_GRID_BLOCK;
+    [['起点', sPt, angOf(carPts[0], carPts[1])], ['终点', ePt, angOf(carPts[carPts.length - 2], ePt)]].forEach(function (item) {
+      var lbl = item[0], pt = item[1], ang = item[2];
+      svg.push('<rect x="' + (pt[0] - L / 2).toFixed(2) + '" y="' + (pt[1] - Wd / 2).toFixed(2)
+        + '" width="' + L.toFixed(2) + '" height="' + Wd.toFixed(2)
+        + '" fill="#1f2933" fill-opacity="0.75" stroke="#0b1727" stroke-width="1"'
+        + ' transform="rotate(' + ang.toFixed(1) + ' ' + pt[0].toFixed(2) + ' ' + pt[1].toFixed(2) + ')"/>');
+      svg.push('<text x="' + pt[0] + '" y="' + (pt[1] - L * 0.7 - 4) + '" font-size="8.5" fill="#0b1727"'
+        + ' font-weight="bold" text-anchor="middle" font-family="Microsoft YaHei,monospace">' + lbl + '</text>');
+    });
+  }
+  node.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg"'
+    + ' role="img" aria-label="空地协同：无人机航线与扫描范围 + 小车路线与位姿">' + svg.join('') + '</svg>';
+  node.style.display = '';
+}
+function runDroneSimulation() {
+  var body = readForm();
+  body.label = (body.label && body.label !== 'run') ? body.label + '-drone' : 'drone';
+  var button = $('droneRun');
+  button.disabled = true;
+  message($('droneMsg'), 'ok', '空地协同运行中…（小车先验开跑 + 无人机扫描，本机约 1–3 分钟）');
+  $('droneTimeline').innerHTML = '<span style="color:var(--dim)">运行中…</span>';
+  api('/sim/drone/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function (payload) {
+      renderDroneTimeline(payload);
+      renderDroneMap(payload);                     // ★ 无人机拟真地图（航线/覆盖/情报命中）
+      var m = (payload.record && payload.record.metrics) || {};
+      // 收口：空地协同复用的同一 readForm（开关同一枚）⇒ 同一套本局复核；
+      //   车路线同样来自 runSimJob（override 图 obstacles 注入），故 bad/blind 判据完全一致。
+      var droneAudit = droneRunAudit(body, payload.record);
+      if (droneAudit && droneAudit.level !== 'ok') {
+        message($('droneMsg'), 'bad', droneAudit.text);
+      } else {
+        message($('droneMsg'), 'ok', '完成：重规划 ' + payload.reroutes + ' 次、确认 ' + payload.confirmed
+          + ' 次，小车' + (m.finished === true ? '跑完全程' : '状态 ' + (payload.record.status || '—'))
+          + (droneAudit ? '；车路线已避开起降格 ' + droneAudit.text : '')
+          + '（情报未到/被拒一律走先验默认，见时间线）');
+      }
+      return loadHistory();
+    })
+    .catch(function (problem) {
+      $('droneTimeline').innerHTML = '<span style="color:var(--dim)">未完成。</span>';
+      message($('droneMsg'), 'bad', '空地协同失败：' + problem.message
+        + (problem.status === 409 ? '（上一次还在跑）' : problem.status === 422 ? '（规划/校验未过，见台账）' : ''));
+      if (problem.status === 422) return loadHistory();
+    })
+    .then(function () { button.disabled = false; });
+}
+$('droneRun').addEventListener('click', runDroneSimulation);
+
+/* ── 步进侦察（T28/T29）：POST /sim/scout → tools/scout_sim.py --json ── */
+function scoutBody() {
+  var body = {};
+  var st = String($('scoutStartT').value || '').trim();
+  if (st !== '') body.startT = Number(st);
+  var hz = String($('scoutFrameHz').value || '').trim();
+  if (hz !== '') body.frameHz = Number(hz);
+  var hb = String($('scoutHeartbeat').value || '').trim();
+  if (hb !== '') body.heartbeatS = Number(hb);
+  var cb = String($('scoutCarBlock').value || '').trim();
+  if (cb) body.carBlock = cb;
+  return body;
+}
+function renderScout(payload) {
+  var stats = payload.stats || {};
+  var truth = payload.truth || {};
+  var html = '<div class="stressSum"><div class="row">'
+    + '<b>覆盖</b> ' + esc((stats.coverage_cells || 0) + '/' + (stats.cells_total || 0))
+    + ' · <b>帧</b> ' + esc(stats.frames || 0) + ' / ' + esc(num(stats.duration_s, 1)) + ' s'
+    + ' · <b>相邻帧面积重叠 min</b> ' + esc(num((stats.overlap_area_min || 0) * 100, 1)) + '%'
+    + ' · <b>known</b> ' + esc(payload.knownCount || 0)
+    + ' · <b>心跳</b> ' + esc(payload.heartbeatCount || 0) + ' 条'
+    + ' · 用时 ' + esc(num(payload.elapsedMs / 1000, 1)) + ' s</div>';
+  if (truth.name) {
+    html += '<div class="foot">真值图：' + esc(truth.name) + ' · 起 ' + esc(truth.start || '—')
+      + ' / 终 ' + esc(truth.end || '—') + ' · 雷 ' + (truth.mines || []).length
+      + ' / 障 ' + (truth.obstacles || []).length + ' / 靶 ' + (truth.targets || []).length + '</div>';
+  }
+  var layouts = payload.layouts || [];
+  html += '<div class="scroll" style="max-height:220px;margin-top:6px"><table><thead><tr>'
+    + '<th>v</th><th class="num">t</th><th class="num">known</th><th>target</th>'
+    + '<th class="num">雷</th><th class="num">障</th><th class="num">靶</th></tr></thead><tbody>';
+  if (!layouts.length) html += '<tr><td colspan="7" style="color:var(--dim)">无布局</td></tr>';
+  layouts.slice(-60).forEach(function (item) {
+    html += '<tr><td>' + esc(item.version) + '</td><td class="num">' + esc(num(item.ts, 1)) + '</td>'
+      + '<td class="num">' + esc(item.knownCount) + '</td><td>' + esc(item.targetCell || '—') + '</td>'
+      + '<td class="num">' + esc(item.mineCount) + '</td><td class="num">' + esc(item.obstacleCount) + '</td>'
+      + '<td class="num">' + esc(item.targetCount) + '</td></tr>';
+  });
+  html += '</tbody></table></div>';
+  var cmp = payload.comparison || {};
+  var rows = [];
+  [['generated', '推荐路线'], ['user_route', '用户手绘'], ['user_route_same_step', '用户手绘 0.7m']].forEach(function (pair) {
+    var item = cmp[pair[0]];
+    if (item) rows.push(pair[1] + '：' + item.frames + ' 帧 / ' + num(item.duration_s, 1) + ' s / '
+      + item.coverage_cells + '/' + item.cells_total);
+  });
+  if (rows.length) html += '<div class="foot">对照：' + esc(rows.join(' · ')) + '</div>';
+  html += '</div>';
+  $('scoutResult').innerHTML = html;
+}
+function runScout() {
+  var button = $('scoutRun');
+  button.disabled = true;
+  message($('scoutMsg'), 'ok', '侦察仿真中…（scout_sim.py --json，纯离线）');
+  api('/sim/scout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(scoutBody()) })
+    .then(function (payload) {
+      renderScout(payload);
+      message($('scoutMsg'), 'ok', '完成：' + (payload.layouts || []).length + ' 份布局 / '
+        + (payload.heartbeatCount || 0) + ' 条心跳');
+    })
+    .catch(function (problem) {
+      $('scoutResult').innerHTML = '<span style="color:var(--dim)">未完成。</span>';
+      message($('scoutMsg'), 'bad', '侦察失败：' + problem.message);
+    })
+    .then(function () { button.disabled = false; });
+}
+$('scoutRun').addEventListener('click', runScout);
+
+/* ── 十批步进成果（T34）：GET /sim/step-loop → metrics/batches/analysis ── */
+function renderStepLoop(payload) {
+  var m = payload.metrics || {};
+  var files = payload.files || [];
+  var html = '<div class="stressSum"><div class="row">'
+    + '<b>阶段</b> ' + esc(m.phase || '—')
+    + ' · <b>任务时长</b> ' + esc(num(m.total_time_s, 1)) + ' s'
+    + ' · <b>等待</b> ' + esc(num(m.wait_total_s, 1)) + ' s'
+    + ' · <b>段/重规划</b> ' + esc(m.segments_done || 0) + '/' + esc(m.replans || 0)
+    + ' · <b>known</b> ' + esc(m.known_count || 0)
+    + '</div><div class="row">'
+    + '<b>雷</b> ' + esc(m.mines_pressed_count || 0) + '/' + esc(m.mines_total || 0)
+    + ' · <b>射击停站</b> ' + esc(m.shoot_stops_visited || 0)
+    + ' · <b>桥洞</b> ' + esc((m.bridge_cells || []).join('/') || '—')
+    + ' · <b>未知格</b> ' + esc((m.unknown_entries_plan || 0) + '/' + (m.unknown_entries_truth || 0))
+    + ' · <b>route_check</b> ' + esc(m.task_route_check_errors || 0)
+    + ' · <b>批次</b> ' + esc(m.batches || (payload.batches || []).length)
+    + '</div>';
+  if (m.bottleneck) html += '<div class="foot">瓶颈：' + esc(m.bottleneck) + '</div>';
+  html += '</div>';
+  var batches = payload.batches || [];
+  if (batches.length) {
+    html += '<div class="scroll" style="max-height:220px;margin-top:6px"><table><thead><tr>'
+      + '<th class="num">批</th><th class="num">t</th><th class="num">新增</th><th class="num">known</th>'
+      + '<th>车格</th><th>target</th><th>等?</th><th>原因</th></tr></thead><tbody>';
+    batches.forEach(function (row) {
+      html += '<tr><td class="num">' + esc(row.id) + '</td><td class="num">' + esc(num(row.t, 2)) + '</td>'
+        + '<td class="num">' + esc(row.cells_added) + '</td><td class="num">' + esc(row.known_count) + '</td>'
+        + '<td>' + esc(row.car_cell || '—') + '</td><td>' + esc(row.target || '—') + '</td>'
+        + '<td>' + esc(row.waiting) + '</td><td class="why">' + esc(row.reason || '') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+  if (files.length) {
+    html += '<div class="foot" style="margin-top:6px">产物：';
+    files.forEach(function (name) {
+      html += '<a style="margin-right:10px" target="_blank" href="' + API + '/sim/step-loop/artifact?dir='
+        + encodeURIComponent(payload.dir || '') + '&name=' + encodeURIComponent(name) + '">' + esc(name) + '</a>';
+    });
+    html += '</div>';
+  }
+  if (files.indexOf('gantt.png') !== -1) {
+    html += '<div style="margin-top:6px"><img style="max-width:100%;border:1px solid var(--line);border-radius:6px" src="'
+      + API + '/sim/step-loop/artifact?dir=' + encodeURIComponent(payload.dir || '')
+      + '&name=gantt.png" alt="十批步进甘特图"></div>';
+  }
+  if (payload.analysis) {
+    html += '<details style="margin-top:6px"><summary>analysis.md（' + payload.analysis.length
+      + ' 字符）</summary><pre style="white-space:pre-wrap">' + esc(payload.analysis) + '</pre></details>';
+  }
+  $('stepLoopResult').innerHTML = html;
+}
+function loadStepLoop() {
+  var button = $('stepLoopLoad');
+  button.disabled = true;
+  message($('stepLoopMsg'), 'ok', '读取十批步进成果…');
+  api('/sim/step-loop')
+    .then(function (payload) {
+      renderStepLoop(payload);
+      message($('stepLoopMsg'), 'ok', '已加载 ' + (payload.dir || '') + '（只读）');
+    })
+    .catch(function (problem) {
+      $('stepLoopResult').innerHTML = '<span style="color:var(--dim)">未加载。</span>';
+      message($('stepLoopMsg'), 'bad', '读取失败：' + problem.message);
+    })
+    .then(function () { button.disabled = false; });
+}
+$('stepLoopLoad').addEventListener('click', loadStepLoop);
+
+/* ── 50 图压测面板 —— POST /sim/stress（background 202）→ status 轮询 →
+     result 取回渲染。后端零改动，只消费 3 个 /sim/stress 端点。
+   · 统计口径 = stressStats 的**显式分母**字段：counts.<项> 即各均值分母原样、
+     missing.<项> 单列（该指标无值的 run 数）**不并入任何分子**、plan-failed 只落
+     statusCounts 单列计数 —— 规格 §B.6 验收点，页面如实展示不解释不修；
+   · 409 语义透传：POST 批次忙（'压测批次正在进行，稍候再试'）与压测期间单跑
+     stressBusy（simbench 409 '压测进行中，单跑请稍候再试'，走既有 runSimulation catch）
+     均原文可见；跑批期间 stressRun 按钮 disabled 防重复点击。 */
+var STRESS = { batchId: '', timer: null, total: 0, done: 0, polls: 0 };
+var STRESS_BASE = null;   // 压测固定用仓库 config 的 /sim/map 快照（不吃「场地来源」）
+
+/** 表单 → 请求体（默认与输入框初值一致：seed=20261015、count=64；非法/越界自动回退）。 */
+function stressConfig() {
+  var seedRaw = String($('stressSeed') ? $('stressSeed').value : '').trim();
+  var countRaw = String($('stressCount') ? $('stressCount').value : '').trim();
+  var seed = /^\d+$/.test(seedRaw) ? Number(seedRaw) : 20261015;
+  var count = /^\d+$/.test(countRaw) ? Number(countRaw) : 64;
+  if (count < 1) count = 1;
+  if (count > 500) count = 500;
+  var mode = ($('stressMode') && String($('stressMode').value) === 'plan') ? 'plan' : 'track';
+  var engine = $('stressEngine') ? String($('stressEngine').value || '') : '';
+  var resample = $('stressResample') ? !!$('stressResample').checked : false;
+  if (mode === 'plan') resample = false;      // 规划压测补图会把 plan-failed 选择掉，成功率失真
+  var attemptsRaw = $('stressMaxAttempts') ? String($('stressMaxAttempts').value || '').trim() : '';
+  var maxAttempts = /^\d+$/.test(attemptsRaw) ? Number(attemptsRaw) : 8;
+  if (maxAttempts < 1) maxAttempts = 1;
+  if (maxAttempts > 20) maxAttempts = 20;
+  var body = { seed: seed, count: count, label: 'stress', mode: mode,
+               resample: resample, maxAttempts: maxAttempts };
+  if (engine) body.engine = engine;           // 不带 engine = 跟随 robot.yaml（与单跑同口径）
+  return body;
+}
+/** 压测引擎/模式提示：把「tracker-safe 与 :PIVOT 图结构性冲突」显式写出来，不静默。 */
+function refreshStressEngineHint() {
+  var box = $('stressEngineWarn');
+  if (!box) return;
+  var mode = ($('stressMode') && String($('stressMode').value) === 'plan') ? 'plan' : 'track';
+  var want = $('stressEngine') ? String($('stressEngine').value || '') : '';
+  var base = STRESS_BASE || FIELD || {};
+  var car = (base.planner && base.planner.engine) || null;
+  var route = base.route || [];
+  var pivots = route.filter(function (t) { return /:PIVOT/i.test(String(t)); }).length;
+  var lines = [];
+  var planMode = mode === 'plan';
+  if ($('stressResample')) $('stressResample').disabled = planMode;
+  if ($('stressMaxAttempts')) $('stressMaxAttempts').disabled = planMode;
+  if (mode === 'plan') {
+    lines.push('规划压测只跑 plan_route，不进入仿真；plan-failed = 规划器真实失败率（不补图、不掩盖）。');
+  } else {
+    lines.push('跟踪压测跑完整仿真；「补图」会先规划再跑，plan-failed 被选择掉并单列 generator-unsolvable。');
+  }
+  if (!want && car === 'tracker-safe' && pivots > 0) {
+    lines.push('⚠️ robot.yaml planner.engine=tracker-safe，而本图路线含 ' + pivots
+      + ' 个 :PIVOT；tracker-safe 明确禁 180°/禁紧凑 U（route/planner.py）⇒ 规划结构性无解。'
+      + '压测请显式选 tour；车端自动规划要跑通需负责人把 planner.engine 改 tour（本页不改配置）。');
+  } else if (!want && car) {
+    lines.push('当前跟随 robot.yaml planner.engine=' + car + (pivots ? '；本图含 ' + pivots + ' 个 :PIVOT。' : '；本图无 :PIVOT。'));
+  }
+  box.style.display = '';
+  box.textContent = lines.join(' ');
+}
+/** 压测输入固定是仓库 config/（不吃「场地来源」）——单独取一份 base map 供引擎冲突提示用。 */
+function loadStressBase() {
+  api('/sim/map').then(function (body) {
+    if (body && body.ok) { STRESS_BASE = body; refreshStressEngineHint(); }
+  }).catch(function () { /* 取不到就退回 FIELD；提示文案仍说明「跟随 robot.yaml」 */ });
+}
+function stressStopPoll() {
+  if (STRESS.timer) { clearInterval(STRESS.timer); STRESS.timer = null; }
+}
+/** 进度区：running → done/failed 状态行 + 进度条宽度（done/total）。 */
+function stressRenderStatus(st) {
+  var running = !!(st && st.running);
+  var total = Number(st && st.total) || 0;
+  var done = Number(st && st.done) || 0;
+  STRESS.total = total; STRESS.done = done;
+  var pct = total > 0 ? Math.min(100, Math.round(done / total * 100)) : (running ? 0 : 100);
+  var wrap = $('stressBarWrap'); if (wrap) wrap.style.display = running ? '' : 'none';
+  var bar = $('stressBar'); if (bar) bar.style.width = pct + '%';
+  text($('stressStatus'), running
+    ? '状态：压测进行中 batchId=' + ((st && st.batchId) || STRESS.batchId)
+      + ' · 已完成 ' + done + '/' + total + '（' + pct + '%）'
+    : '状态：空闲' + (STRESS.batchId ? '（最近批次 ' + STRESS.batchId + '）' : '（还没跑过压测）'));
+}
+/** 统计结果区：直接消费 stressStats 的显式分母/missing 字段（表列 = 指标/值/分母口径）。 */
+function stressRenderStats(payload) {
+  var s = (payload && payload.stats) || {};
+  var batch = (payload && payload.batch) || {};
+  var c = s.counts || {};
+  var miss = s.missing || {};
+  var sc = s.statusCounts || {};
+  var pf = sc['plan-failed'] !== undefined ? sc['plan-failed']
+    : (sc.plan_failed !== undefined ? sc.plan_failed : 0);
+  var ratio = function (value) { return value === null || value === undefined ? '—' : String(value); };
+  var plan = s.plan || {};
+  var planMode = (batch.mode || 'track') === 'plan';
+  var engineText = Object.keys(plan.engines || {}).map(function (k) { return k + '×' + plan.engines[k]; }).join(' ');
+  var topText = (plan.topReasons || []).map(function (r) { return r.reason + '×' + r.count; }).join(' ; ');
+  var rows = [
+    ['批图数 n', ratio(s.n), '本批记录总数（所有比率的分母基准）'],
+    ['完赛率 finishedRate', ratio(s.finishedRate),
+      'finished ' + ratio(c.finished) + ' / n ' + ratio(c.total !== undefined ? c.total : s.n) + '（失败图在分母、不进分子）'],
+    ['plan-failed（单列）', String(pf), 'status 分布照实计数，不并入任何均值分子'],
+    ['平均完赛时间 avgFinishS', ratio(s.avgFinishS) + (s.avgFinishS === null ? '' : ' s'),
+      'Σ time_s(finished) / ' + ratio(c.finishS) + '（仅 finished 且有值；missing.time_s=' + ratio(miss.time_s) + ' 单列）'],
+    ['平均规划耗时 avgPlanMs', ratio(s.avgPlanMs) + (s.avgPlanMs === null ? '' : ' ms'),
+      'Σ plan.ms / ' + ratio(c.planMs) + '（missing.planMs=' + ratio(miss.planMs) + ' 单列不进分子）'],
+    ['平均仿真墙钟 avgWallS', ratio(s.avgWallS) + (s.avgWallS === null ? '' : ' s'),
+      'Σ seconds / ' + ratio(c.wallS) + '（missing.wallS=' + ratio(miss.wallS) + ' 单列）'],
+    ['平均长度比 avgLengthRatio', ratio(s.avgLengthRatio),
+      'Σ length_ratio / ' + ratio(c.lengthRatio) + '（missing.lengthRatio=' + ratio(miss.lengthRatio) + ' 单列）'],
+    ['status 分布', esc(JSON.stringify(sc)), '照实（plan-failed/超时/exit* 各自单列计数）'],
+    ['模式 mode', planMode ? '规划压测（只规划）' : '跟踪压测（规划+仿真）', 'batch.mode；plan 模式不进入物理仿真'],
+    ['规划成功 planned', planMode ? ratio(plan.ok) : '—（跟踪模式不产生 planned）', 'status=planned 的记录数（仅规划压测产生）'],
+    ['规划失败 plan-failed', ratio(plan.fail), '规划器真实失败，单列（不并入其它均值分子）'],
+    ['规划成功率 plan.okRate', planMode ? ratio(plan.okRate) : '—', 'planned / n（仅规划压测口径；跟踪压测有补图偏差，不要横比）'],
+    ['平均 token（规划成功）', plan.tokens ? ratio(plan.tokens.avg) : '—',
+      plan.tokens && plan.tokens.avg !== null ? ('min ' + plan.tokens.min + ' / max ' + plan.tokens.max + '，分母 ' + ratio(plan.ok)) : '无 planned 记录'],
+    ['生成器无解 generator-unsolvable', ratio(plan.genUnsolved), '补图耗尽后仍无可行图；单列，不并入规划失败率'],
+    ['引擎分布', engineText || '—', 'record.plan.engine（显式选择或 robot.yaml）'],
+    ['失败主因 top', topText || '—', '规划器 stderr 末行，最多 5 条'],
+  ];
+  var html = '<table><thead><tr><th>指标</th><th class="num">值</th><th>分母 / 口径（t7 stressStats 显式）</th></tr></thead><tbody>';
+  rows.forEach(function (row) {
+    html += '<tr><td>' + esc(row[0]) + '</td><td class="num">' + esc(row[1]) + '</td><td>' + esc(row[2]) + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  html += '<div class="foot">batchId ' + esc(String(batch.batchId || STRESS.batchId || '—'))
+    + ' · seed ' + esc(ratio(batch.seed)) + ' · count ' + esc(ratio(batch.count))
+    + ' · concurrency ' + esc(ratio(batch.concurrency)) + '（同 seed ⇒ 同批图，可复现）</div>';
+  html += '<div class="foot">missing = 该指标无值的 run 数，<b>单列且不参与任何分子</b>；'
+    + '失败图只落在分母与 status 分布里（规格 §B.6 口径，如实展示）。</div>';
+  $('stressStats').innerHTML = html;
+}
+
+/* ── 64 图压测弹窗：每图一张卡（场地底图 + 路线折线 + 状态/失败原因）+ 底部均值 ──
+   走主地图同一套 cellCenter/MAP_S 口径，但缩到更小的每格像素 ST_MAP_S=16 画小卡。
+   修复「压测完成后的弹窗看不到跑出来的路线图」：
+     ① **每张卡一定出底图**（雷/障/通/靶/隔板/起终点）—— 旧版对 plan-failed/invalid
+        只写一行红字、根本不画图，于是「本批 0 张规划成功」时整个弹窗一张图都没有，
+        看起来像弹窗坏了；现在无路线的卡也照画场地，并写明失败原因；
+     ② 路线折线只在 `record.route` 有 ≥2 格时画（没有路线 ≠ 渲染失败，两者视觉上要能区分）；
+     ③ 卡内无路线时显示**规划器真实失败末行**（`record.plan.stderrTail` 的 `· …` 行）；
+     ④ 弹窗顶部汇总「有路线 N 张 / 各状态计数 / 失败主因」，0 张成功时明确写出
+        「不是弹窗没显示，是这一批没有图规划出路线」。 */
+var STRESS_MODAL = { currentId: '' };
+var ST_MAP_S = 16;                                   // 缩略图每格像素（主图 34）
+var ST_STATUS_CN = { planned: '规划通过', done: '完成', 'plan-failed': '规划失败',
+  'generator-unsolvable': '生成器无解', invalid: '图非法', error: '错误', timeout: '超时' };
+var ST_STATUS_ORDER = ['planned', 'done', 'plan-failed', 'generator-unsolvable', 'invalid', 'error', 'timeout'];
+function stStatusCn(s) { return ST_STATUS_CN[s] || String(s || '?'); }
+function stStatusClass(s) { return String(s || 'other').replace(/[^a-zA-Z-]/g, '') || 'other'; }
+/** 从 record 里摘出最好读的一条失败原因：`plan.stderrTail` 的末行（规划器的 `· …` 明细）优先。 */
+function stressReasonOf(record) {
+  if (!record) return '';
+  var raw = (record.plan && record.plan.stderrTail) || record.stderrTail || record.error || '';
+  var lines = String(raw).split('\n');
+  for (var i = lines.length - 1; i >= 0; i -= 1) {
+    var line = lines[i].replace(/^[\s·•-]+/, '').trim();
+    if (line) return line.slice(0, 140);
+  }
+  return '';
+}
+function stressMiniBoardSvg(field, routeCells, miniCellCenter, stopCells) {
+  var g = (FIELD && FIELD.grid) || { cols: 14, rows: 11, colLetters: 'ABCDEFGHIJKLMN' };
+  var W = g.cols * ST_MAP_S, H = g.rows * ST_MAP_S;
+  var svg = [];
+  var rect = function (x, y, w, h, fill) {
+    return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="' + fill + '"/>';
+  };
+  svg.push(rect(0, 0, W, H, '#ffffff'));
+  var bridgeSet = {}; (field.bridges || []).forEach(function (c) { bridgeSet[c] = 1; });
+  var targetSet = {}; (field.targets || []).forEach(function (c) { targetSet[c] = 1; });
+  var startCell = (FIELD && FIELD.start) || '';
+  var endCell = (FIELD && FIELD.end) || '';
+  for (var row = 1; row <= g.rows; row += 1) {
+    for (var ci = 0; ci < g.cols; ci += 1) {
+      var col = g.colLetters[ci], cell = col + row;
+      var x = ci * ST_MAP_S, y = (row - 1) * ST_MAP_S;
+      var fill = ((row + ci) % 2 === 0) ? '#ffffff' : '#eef1f6';
+      if (col === 'K') fill = bridgeSet[cell] ? '#7fe3ea' : '#d9d9d9';
+      if (targetSet[cell]) fill = '#e8a0c8';
+      // 起终点也上色（旧版缩略图没有起终点，64 张图彼此难区分 —— 与主图同口径补上）
+      if (cell === startCell) fill = '#b2f2bb';
+      if (cell === endCell) fill = '#ffe066';
+      svg.push(rect(x, y, ST_MAP_S, ST_MAP_S, fill));
+    }
+  }
+  (field.mines || []).forEach(function (cell) {
+    var p = miniCellCenter(cell); if (!p) return;
+    svg.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (ST_MAP_S * 0.34) + '" fill="#e5484d"/>');
+  });
+  (field.obstacles || []).forEach(function (cell) {
+    var p = miniCellCenter(cell); if (!p) return;
+    svg.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (ST_MAP_S * 0.34) + '" fill="#4a4a4a"/>');
+  });
+  (field.bridges || []).forEach(function (cell) {
+    var p = miniCellCenter(cell); if (!p) return;
+    svg.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (ST_MAP_S * 0.4) + '" fill="none" stroke="#0b6b73" stroke-width="1.4"/>');
+  });
+  // 隔板：第 barrier.rowHi 行下沿、从 colFrom 到 N 整条（与主图同一几何；旧版缩略图缺这条，
+  // 64 张图看不出「车只能走 U 形」，也是这次「看不懂弹窗」的一部分）
+  var bar = (FIELD && FIELD.barrier) || { rowHi: 6, colFrom: 'D' };
+  var barRow = Number(bar.rowHi) || 6;
+  var barCi = Math.max(0, g.colLetters.indexOf(String(bar.colFrom || 'D').charAt(0)));
+  svg.push(rect(barCi * ST_MAP_S, barRow * ST_MAP_S - 1.5, W - barCi * ST_MAP_S, 3, '#111111'));
+  // 射击停站（route token 带 `*` 的格）：小黄点 —— 有路线时一眼看出打靶站位
+  (stopCells || []).forEach(function (cell) {
+    var p = miniCellCenter(cell); if (!p) return;
+    svg.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (ST_MAP_S * 0.22) + '" fill="#ffd166" stroke="#8a6d1f" stroke-width="1"/>');
+  });
+  // 路线折线（把 routeCells 折成迷你折线：与 routePolyline 同款补中间点，但用 miniCellCenter）
+  var pts = routeCells.map(miniCellCenter).filter(Boolean);
+  var line = '';
+  if (pts.length > 1) {
+    line = '<polyline points="' + pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ')
+      + '" fill="none" stroke="#2f7fd0" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>';
+  }
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">'
+    + svg.join('') + line + '</svg>';
+}
+/** 顶部汇总：有路线几张 / 各状态计数 / 失败主因（0 张成功时给出明确解释，而不是留白）。 */
+function stressBannerHtml(records) {
+  var tally = {}; var reasons = {};
+  records.forEach(function (record) {
+    var st = String((record && record.status) || '?');
+    tally[st] = (tally[st] || 0) + 1;
+    if (st !== 'done') {
+      var why = stressReasonOf(record) || '（无失败详情）';
+      reasons[why] = (reasons[why] || 0) + 1;
+    }
+  });
+  var withRoute = records.filter(function (r) { return ((r && r.route) || []).length > 1; }).length;
+  var keys = ST_STATUS_ORDER.filter(function (s) { return tally[s]; })
+    .concat(Object.keys(tally).filter(function (s) { return ST_STATUS_ORDER.indexOf(s) < 0; }));
+  var chips = keys.map(function (s) {
+    return '<span class="stressBadge ' + stStatusClass(s) + '">' + esc(stStatusCn(s)) + ' ' + tally[s] + '</span>';
+  }).join(' ');
+  var top = Object.keys(reasons).sort(function (a, b) { return reasons[b] - reasons[a]; })
+    .slice(0, 3)
+    .map(function (k) { return '<li>' + esc(k) + ' <b>×' + reasons[k] + '</b></li>'; }).join('');
+  var html = '<div class="stressSum"><div class="row"><span><b>' + records.length + '</b> 张图</span>'
+    + '<span>有路线 <b>' + withRoute + '</b> 张</span>' + chips + '</div>';
+  if (!records.length) {
+    html += '<div class="hintbad">本批没有任何记录（压测未跑或结果为空）。</div>';
+  } else if (withRoute === 0) {
+    html += '<div class="hintbad">本批 <b>0 张</b>规划出路线 —— <b>不是弹窗没显示</b>：'
+      + '这 ' + records.length + ' 张图都没有拿到路线（状态与规划器失败末行已写在每张卡里），'
+      + '所以没有折线可画；下面的卡仍照画该图场地（雷/障/通/靶/隔板/起终点）。</div>';
+  }
+  if (top) html += '<ul class="whys">' + top + '</ul>';
+  html += '</div>';
+  return html;
+}
+
+/** 单张卡：底图**恒画**，有路线才叠折线 + 行程指标；无路线则写失败原因。 */
+function stressCardHtml(record, i, miniCellCenter) {
+  var field = (record && record.field) || {};
+  var tokens = Array.isArray(record && record.route) ? record.route : [];   // 防御：旧台账里 route 可能是字符串/缺失
+  var routeCells = tokens.map(tokenCell).filter(Boolean);
+  var stopCells = tokens.filter(function (t) { return /\*/.test(String(t)); }).map(tokenCell).filter(Boolean);
+  var m = (record && record.metrics) || {};
+  var st = String((record && record.status) || '?');
+  var seq = (record && record.seq !== undefined) ? record.seq : i;
+  var board = stressMiniBoardSvg(field, routeCells, miniCellCenter, stopCells);
+  var head = '<div class="cap"><b>#' + esc(String(seq)) + '</b>'
+    + '<span class="stressBadge ' + stStatusClass(st) + '">' + esc(stStatusCn(st)) + '</span></div>';
+  var note;
+  if (routeCells.length > 1) {
+    if (String(record && record.mode) === 'plan') {
+      note = '<div class="meta">规划 ' + num(record.plan && record.plan.ms, 1) + ' ms · '
+        + esc(String((record.plan && record.plan.tokenCount) || tokens.length)) + ' token · '
+        + esc(String((record.plan && record.plan.engine) || '')) + '</div>';
+    } else {
+      note = '<div class="meta">' + num(m.time_s, 1) + ' s · ' + (m.finished ? '完赛' : '未完赛')
+        + ' · RMS ' + num(m.rms_m, 2) + ' m'
+        + (Number(m.out_of_bounds) > 0 ? ' · 越界 ' + num(m.out_of_bounds, 0) : '') + '</div>';
+    }
+  } else {
+    note = '<div class="why">' + esc(stressReasonOf(record) || '无路线（该记录没有 route，详见状态）') + '</div>';
+  }
+  return '<div class="stressCard">' + head + board + note + '</div>';
+}
+function stressRenderModal(payload) {
+  var modal = $('stressModal');
+  if (!modal) return;
+  var records = (payload && payload.records) || [];
+  var stats = (payload && payload.stats) || {};
+  var batch = (payload && payload.batch) || {};
+  var planMode = (batch.mode || 'track') === 'plan';
+  var title = $('stressModalTitle');
+  if (title) title.textContent = planMode ? '规划压测 · 路线结果' : '随机图压测 · 路线结果';
+  var g = (FIELD && FIELD.grid) || { cols: 14, rows: 11, colLetters: 'ABCDEFGHIJKLMN' };
+  var miniCellCenter = function (cell) {
+    var ci = g.colLetters.indexOf(String(cell)[0].toUpperCase());
+    var row = Number(String(cell).slice(1));
+    if (ci < 0 || !(row >= 1 && row <= g.rows)) return null;
+    return [ci * ST_MAP_S + ST_MAP_S / 2, (row - 1) * ST_MAP_S + ST_MAP_S / 2];
+  };
+  var cards = records.map(function (record, i) { return stressCardHtml(record, i, miniCellCenter); }).join('');
+  $('stressModalBody').innerHTML = stressBannerHtml(records) + '<div class="stressGrid">' + cards + '</div>';
+  var avgFinish = stats.avgFinishS === null || stats.avgFinishS === undefined ? '—' : stats.avgFinishS;
+  var avgPlan = stats.avgPlanMs === null || stats.avgPlanMs === undefined ? '—' : stats.avgPlanMs;
+  // 把两个均值的**分母**也写出来（显式分母口径；缺统计字段时退回 records 自算）
+  var cnt = stats.counts || {};
+  var denFinish = Number.isFinite(Number(cnt.finishS)) ? Number(cnt.finishS)
+    : records.filter(function (r) { return r && r.metrics && r.metrics.finished; }).length;
+  var denPlan = Number.isFinite(Number(cnt.planMs)) ? Number(cnt.planMs)
+    : records.filter(function (r) { return r && r.plan && r.plan.ms !== undefined; }).length;
+  var planFoot;
+  if (planMode) {
+    var sp = stats.plan || {};
+    planFoot = '<span>规划成功 <b class="big">' + esc(String(sp.ok === undefined ? '—' : sp.ok)) + '</b>'
+      + '<span style="color:var(--dim);font-size:12px"> / ' + records.length + ' 张 · 失败 '
+      + esc(String(sp.fail === undefined ? '—' : sp.fail)) + ' · 生成器无解 '
+      + esc(String(sp.genUnsolved === undefined ? '—' : sp.genUnsolved)) + '</span></span>'
+      + '<span>平均规划耗时 <b class="big">' + esc(avgPlan) + ' ms</b>'
+      + '<span style="color:var(--dim);font-size:12px"> / 分母 ' + esc(String(denPlan)) + ' 张</span></span>';
+  } else {
+    planFoot = '<span>平均完赛时间 <b class="big">' + esc(avgFinish) + ' s</b>'
+      + '<span style="color:var(--dim);font-size:12px"> / 分母 ' + esc(String(denFinish)) + ' 张完赛</span></span>'
+      + '<span>路线规划平均计算时间 <b class="big">' + esc(avgPlan) + ' ms</b>'
+      + '<span style="color:var(--dim);font-size:12px"> / 分母 ' + esc(String(denPlan)) + ' 张有规划耗时</span></span>';
+  }
+  $('stressModalFoot').innerHTML = planFoot
+    + '<span class="grow" style="color:var(--dim)">batchId ' + esc(String(batch.batchId || STRESS.batchId || '—'))
+    + ' · seed ' + esc(batch.seed === undefined ? '—' : String(batch.seed))
+    + ' · ' + records.length + ' 图 · ' + esc((batch.mode || 'track') === 'plan' ? '规划模式' : '跟踪模式') + '</span>';
+  STRESS_MODAL.currentId = batch.batchId || STRESS.batchId || '';
+  modal.style.display = 'flex';
+}
+function stressCloseModal() {
+  var modal = $('stressModal');
+  if (modal) modal.style.display = 'none';
+}
+function stressFetchResult(id) {
+  return api('/sim/stress/result?id=' + encodeURIComponent(id)).then(function (payload) {
+    stressRenderStats(payload);
+    stressRenderModal(payload);                      // ★ 64 图路线网格 + 底部均值弹窗
+    message($('stressMsg'), 'ok', '压测完成：统计已渲染（batchId=' + id + '），路线结果弹窗已弹出');
+  }).catch(function (problem) {
+    message($('stressMsg'), 'bad', '压测结果读取失败：' + problem.message);
+  });
+}
+/** 一次进度轮询：running → 继续；转 idle → 停表 + 解锁按钮 + 自动取结果渲染。 */
+function stressPoll() {
+  api('/sim/stress/status').then(function (st) {
+    stressRenderStatus(st);
+    if (st.running) {
+      STRESS.polls += 1;
+      if (STRESS.polls > 600) {                    // 15 分钟兜底：后台卡死时可见地停下
+        stressStopPoll();
+        $('stressRun').disabled = false;
+        message($('stressMsg'), 'bad', '压测 15 分钟仍未完成（后台可能已停）—— 可点「刷新进度」重查');
+      }
+      return;
+    }
+    stressStopPoll();
+    STRESS.polls = 0;
+    $('stressRun').disabled = false;
+    var id = st.batchId || STRESS.batchId;
+    if (id) stressFetchResult(id);
+    else message($('stressMsg'), 'ok', '当前空闲（尚未跑过压测批次）');
+  }).catch(function (problem) {
+    stressStopPoll();
+    $('stressRun').disabled = false;
+    message($('stressMsg'), 'bad', '进度查询失败：' + problem.message + '（可点「刷新进度」重试）');
+  });
+}
+/** 跑批：POST /sim/stress（202 {batchId,total}）→ 立即轮询 + 1.5 s 周期轮询。 */
+function stressStart() {
+  var cfg = stressConfig();
+  stressStopPoll();
+  STRESS.polls = 0;
+  $('stressRun').disabled = true;                  // running 态按钮 disabled（防重复点击）
+  $('stressStats').innerHTML = '<span style="color:var(--dim)">压测进行中…完成后自动渲染统计。</span>';
+  message($('stressMsg'), 'ok', '压测提交中…（' + (cfg.mode === 'plan' ? '规划' : '跟踪')
+    + ' · seed=' + cfg.seed + ' · count=' + cfg.count + ' · engine=' + (cfg.engine || '跟随配置') + '）');
+  api('/sim/stress', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cfg) })
+    .then(function (payload) {
+      STRESS.batchId = payload.batchId;
+      STRESS.total = Number(payload.total) || cfg.count;
+      STRESS.done = 0;
+      message($('stressMsg'), 'ok', '压测已启动 batchId=' + payload.batchId + '（' + STRESS.total
+        + ' 图，后台跑批 + 每 1.5 s 轮询进度）');
+      stressRenderStatus({ running: true, batchId: payload.batchId, done: 0, total: STRESS.total });
+      STRESS.timer = setInterval(stressPoll, 1500);
+      stressPoll();                               // 立即查一次（停表/取结果由它自己负责）
+    })
+    .catch(function (problem) {
+      $('stressRun').disabled = false;
+      // 409 批次忙：透传后端原文（'压测批次正在进行，稍候再试'）
+      var extra = problem.status === 409 ? '（409 批次忙，后端原文如前）' : '';
+      message($('stressMsg'), 'bad', '压测启动失败：' + problem.message + extra);
+    });
+}
+$('stressRun').addEventListener('click', stressStart);
+$('stressRefresh').addEventListener('click', stressPoll);
+if ($('stressMode')) $('stressMode').addEventListener('change', refreshStressEngineHint);
+if ($('stressEngine')) $('stressEngine').addEventListener('change', refreshStressEngineHint);
+refreshStressEngineHint();
+
+// 深链 `#view=<run id>` → 打开该 run 的图（**显式动作**，不是预取；普通打开仍是 0 请求）
+function openFromHash() {
+  var match = /(?:^|[#&])view=([^&]+)/.exec(String(location.hash || ''));
+  if (!match) return;
+  var id = decodeURIComponent(match[1]);
+  if (id) openShot(id, true);
+}
+
+updateFetchCount();     // 画上计数器（此时必须为 0）
+loadRoot();
+loadField();            // 先拿场地：地图视图 + 改点位表单的默认值
+loadStressBase();       // 压测输入固定是仓库 config（与「场地来源」解耦）
+loadHistory().then(openFromHash);   // 历史就绪后再按 hash 打开（避免 findRun 找不到）
+</script>
+</body>
+</html>

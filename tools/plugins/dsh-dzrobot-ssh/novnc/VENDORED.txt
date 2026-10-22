@@ -1,0 +1,7 @@
+﻿noVNC @novnc/novnc 1.7.0 — https://github.com/novnc/noVNC
+License: MPL-2.0 (see LICENSE.txt in this directory).
+
+Vendored unmodified: core/ and vendor/ are copied verbatim from the published
+npm package, because the browser half loads it as native ES modules over this
+plugin's own static route. Nothing here is patched, so it can be refreshed by
+replacing this directory with a newer release.

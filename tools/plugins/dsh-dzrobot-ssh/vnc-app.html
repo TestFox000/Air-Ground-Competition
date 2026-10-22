@@ -1,0 +1,232 @@
+<!doctype html>
+<!--
+  The VNC screen, served from this plugin's own http origin.
+
+  Why a separate document instead of importing noVNC into the panel: the app's
+  main page is loaded under a custom `dsh-app://` scheme, and ES module loading
+  does not work there — `import()` of the vendored tree fails with "Failed to
+  fetch dynamically imported module". Inside this document the origin is plain
+  http, so `import './novnc/core/rfb.js'` and its 56 relative imports are ordinary
+  same-origin module loads, and the WebSocket is same-origin too.
+
+  The panel embeds this in an iframe and talks to it over postMessage, so the
+  host page never needs to know anything about RFB.
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小车 VNC</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #0b0e12; overflow: hidden;
+    font: 12.5px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; color: #c9d1d9; }
+  #stage { position: relative; width: 100%; height: 100%; background: #000; }
+  #screen { width: 100%; height: 100%; }
+  #screen canvas { display: block; margin: 0 auto; max-width: 100%; max-height: 100%; }
+  #ask { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgb(0 0 0 / 35%); }
+  #ask[hidden] { display: none; }
+  #askbox { display: flex; flex-direction: column; gap: 9px; align-items: center; padding: 16px 18px;
+    border-radius: 12px; border: 1px solid #333c47; background: #1a2027; box-shadow: 0 12px 40px rgb(0 0 0 / 45%); }
+  #askbox p { margin: 0; font-size: 12px; text-align: center; }
+  #askbox input { width: 210px; text-align: center; font: inherit; padding: 5px 9px; border-radius: 8px;
+    border: 1px solid #3a444f; background: #10151a; color: inherit; }
+  #askbox button { font: inherit; padding: 5px 14px; border-radius: 8px; border: 1px solid #3a444f;
+    background: #2a5fd0; border-color: #2a5fd0; color: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="screen"></div>
+  <!-- Only shown when this document is opened standalone: embedded in the panel
+       the password box lives in the panel's own toolbar, where it survives a
+       cross-origin frame and can be pre-filled from settings. -->
+  <div id="ask" hidden>
+    <form id="askbox">
+      <p id="asktext">这台车的 VNC 需要密码</p>
+      <input id="pw" type="password" autocomplete="current-password" placeholder="VNC 密码">
+      <button type="submit" id="send">登录</button>
+    </form>
+  </div>
+</div>
+<script type="module">
+  import RFB from './novnc/core/rfb.js'
+
+  const screen = document.getElementById('screen')
+  const ask = document.getElementById('ask')
+  const asktext = document.getElementById('asktext')
+  const pw = document.getElementById('pw')
+
+  let rfb = null
+  let desktop = ''
+  const embedded = window.parent !== window
+
+  /**
+   * Observe every WebSocket this page opens.
+   *
+   * noVNC's `disconnect` event carries only `{clean}` — it cannot tell "the
+   * handshake never started" from "the server closed with 1011 and a reason",
+   * and that difference is the whole diagnosis. This wrapper records the exact
+   * URL plus the raw open/error/close lifecycle (code + reason); RFB builds its
+   * socket later, so wrapping now covers it. The log rides out on every report.
+   */
+  /* ws-log:start — re-run against noVNC's own channel check by scripts/test-vnc-wrapper.mjs */
+  const wsLog = []
+  const NativeWebSocket = window.WebSocket
+  // A Proxy, NOT a subclass — and this is load-bearing, not style.
+  //
+  // noVNC's Websock.attach() duck-types its channel with
+  //   Object.getOwnPropertyNames(Object.getPrototypeOf(channel))
+  // which inspects exactly ONE level of the prototype chain. A subclass would
+  // leave send/close/binaryType/readyState on WebSocket.prototype — the second
+  // level — so noVNC rejects the socket with "Raw channel missing property: send".
+  // Worse, that rejection is thrown from the RFB constructor: the socket then has
+  // no reachable reference, so it is collected and the connection is aborted,
+  // which is why the browser reported only `error` + close code 1006 and never
+  // `open`. The construct trap below returns a genuine native instance, leaving
+  // the chain exactly as noVNC expects it.
+  window.WebSocket = new Proxy(NativeWebSocket, {
+    construct(target, args) {
+      const socket = Reflect.construct(target, args)
+      try {
+        wsLog.push({
+          e: 'ctor', at: Date.now(), url: String(args[0]),
+          protocols: Array.isArray(args[1]) ? [...args[1]] : String(args[1] ?? ''),
+        })
+        socket.addEventListener('open', () => wsLog.push({ e: 'open', at: Date.now(), protocol: String(socket.protocol ?? '') }))
+        socket.addEventListener('error', () => wsLog.push({ e: 'error', at: Date.now(), readyState: socket.readyState }))
+        socket.addEventListener('close', event => wsLog.push({
+          e: 'close', at: Date.now(), code: event.code, reason: String(event.reason ?? ''), clean: event.wasClean,
+        }))
+      } catch { /* logging must never break the socket */ }
+      return socket
+    },
+  })
+  /* ws-log:end */
+  window.addEventListener('error', event => {
+    wsLog.push({ e: 'winerror', message: String(event?.message ?? '') })
+  })
+
+  /** The newest close frame, if any — carries the code and the server's reason. */
+  const lastClose = () => {
+    for (let index = wsLog.length - 1; index >= 0; index -= 1) {
+      if (wsLog[index].e === 'close') return wsLog[index]
+    }
+    return undefined
+  }
+
+  /** Tell the embedding panel what is happening; it owns no RFB knowledge. */
+  const report = (type, data = {}) => {
+    try { window.parent?.postMessage({ source: 'dzrobot-vnc', type, ...data }, '*') } catch { /* no parent */ }
+  }
+
+  function teardown() {
+    const current = rfb
+    rfb = null
+    try { current?.disconnect() } catch { /* already gone */ }
+    screen.innerHTML = ''
+    ask.hidden = true
+  }
+
+  function connect(password) {
+    teardown()
+    ask.hidden = true
+    report('connecting')
+    const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const url = `${scheme}//${location.host}/api/dzrobot-ssh/vnc`
+    try {
+      // No password supplied means "ask the server, then prompt": the car's
+      // password file is a hash on its own disk, so it cannot be pre-derived.
+      const credentials = password === undefined || password === '' ? undefined : { password }
+      rfb = new RFB(screen, url, {
+        credentials,
+        wsProtocols: ['binary'],
+        shared: true,
+        resizeSession: false,
+        scaleViewport: true,
+        background: '#000',
+      })
+    } catch (error) {
+      report('failed', { message: String(error?.message ?? error), kind: 'start', ws: wsLog.slice(-8) })
+      return
+    }
+
+    rfb.addEventListener('connect', () => {
+      ask.hidden = true
+      report('connected', { desktop })
+    })
+    rfb.addEventListener('credentialsrequired', () => {
+      report('credentials')
+      // Embedded: the panel owns the password box. Standalone: show ours.
+      if (!embedded) {
+        ask.hidden = false
+        asktext.textContent = '这台车的 VNC 需要密码（与 Linux 登录密码是两回事）'
+        pw.value = ''
+        pw.focus()
+      }
+    })
+    rfb.addEventListener('securityfailure', event => {
+      const reason = String(event?.detail?.reason ?? '认证失败')
+      // TigerVNC refuses a client outright after a few failed logins; it reads as
+      // a broken plugin unless the waiting time is named.
+      const blacklisted = /too many security failures|security failure/i.test(reason)
+      // A wrong password can be retried immediately; a blacklist cannot be
+      // talked past, so the prompt must not reappear in that case.
+      ask.hidden = embedded || blacklisted
+      report('failed', { message: reason, blacklisted, kind: 'security' })
+    })
+    rfb.addEventListener('disconnect', event => {
+      const clean = event?.detail?.clean !== false
+      ask.hidden = true
+      const close = lastClose()
+      report('disconnected', {
+        clean,
+        reason: String(event?.detail?.reason ?? ''),
+        // Where this document actually lives, and the raw socket outcome — the
+        // two facts that separate a client-side block from a bridge refusal.
+        href: location.href,
+        ws: wsLog.slice(-8),
+        closeCode: close?.code,
+        closeReason: close?.reason ?? '',
+      })
+    })
+    rfb.addEventListener('desktopname', event => {
+      desktop = String(event?.detail?.name ?? '')
+      if (rfb !== null) report('connected', { desktop })
+    })
+  }
+
+  document.getElementById('askbox').addEventListener('submit', event => {
+    event.preventDefault()
+    const value = pw.value
+    if (value === '' || rfb === null) return
+    try {
+      rfb.sendCredentials({ password: value })
+      ask.hidden = true
+      report('credentials-sent')
+    } catch (error) {
+      report('failed', { message: `发送密码失败：${error?.message ?? error}` })
+    }
+  })
+
+  window.addEventListener('message', event => {
+    const message = event.data
+    if (message === null || typeof message !== 'object' || message.source !== 'dzrobot-panel') return
+    if (message.type === 'connect') connect(message.password ?? '')
+    else if (message.type === 'password' && rfb !== null) {
+      try { rfb.sendCredentials({ password: message.password ?? '' }) } catch { /* ignore */ }
+    } else if (message.type === 'disconnect') teardown()
+    else if (message.type === 'cad') { try { rfb?.sendCtrlAltDel() } catch { /* ignore */ } }
+  })
+
+  // The panel asks before dialing (a VNC session takes over the car's desktop
+  // input, and an abandoned connection counts against TigerVNC's blacklist), but
+  // an explicit query parameter is honoured for a standalone tab.
+  const params = new URLSearchParams(location.search)
+  report('ready', { href: location.href })
+  if (params.get('autoconnect') === '1') connect(params.get('password') ?? '')
+  document.getElementById('stage').addEventListener('dblclick', () => { if (rfb === null) connect(pw.value) })
+</script>
+</body>
+</html>

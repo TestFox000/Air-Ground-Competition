@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-22 19:35",
- "count": 72,
+ "generated": "2026-10-22 21:41",
+ "count": 73,
  "files": [
   {
    "path": "00_项目总览/06_本机值守与守护器.md",
@@ -270,12 +270,12 @@
    "path": "20_资料索引库/历史/00_索引.md",
    "dir": "20_资料索引库/历史",
    "title": "历史 · 分册索引",
-   "summary": "三篇：01 沿革 覆盖 09-27 到 10-18（三段），02 并入与改名 覆盖 10-18 一天，03 自主工作期 收 10-15~10-18 的值守与实车事实。",
-   "from": "_tmp_session/yb_tree/docs/archive/（16 篇）, docs/merge/（10 篇）, _tmp_session/d13_verify/, dzrobot_v2/src/history/, dzrobot_v2/docs/清理记录_20261018.md, .zhiyuan/工作日志.md + memory/digest_20261018.md（原文已按用户决定删除，仅留提炼）",
+   "summary": "四篇：01 沿革 覆盖 09-27 到 10-18（三段），02 并入与改名 覆盖 10-18 一天，03 自主工作期 收 10-15~10-18 的值守与实车事实，04 旧核…",
+   "from": "_tmp_session/yb_tree/docs/archive/（16 篇）, docs/merge/（10 篇）, _tmp_session/d13_verify/, dzrobot_v2/src/history/, dzrobot_v2/docs/清理记录_20261018.md, .zhiyuan/工作日志.md + memory/digest_20261018.md（原文已按用户决定删除，仅留提炼）, dzrobot_v2/src/todo/武官.json + 交接三件套（04 篇，2026-10-22 补）",
    "level": "档/实",
    "updated": "2026-10-22",
    "status": "历史",
-   "lines": 44
+   "lines": 48
   },
   {
    "path": "20_资料索引库/历史/01_沿革_20260927_20261012.md",
@@ -309,6 +309,17 @@
    "updated": "2026-10-22",
    "status": "历史",
    "lines": 43
+  },
+  {
+   "path": "20_资料索引库/历史/04_旧核对话_武将文官_20261003.md",
+   "dir": "20_资料索引库/历史",
+   "title": "旧核对话：武将 ↔ 文官（2026-10-03）",
+   "summary": "10-03 一天，两个 AI 在**车端机器**（`/home/duzhong/dzrobot`，path_executor 旧核时代）把「全系统体检 → 精简 1.1 GB …",
+   "from": "dzrobot_v2/src/todo/武官.json（CodeBuddy 导出，sha256 32b4dbf8…）, dzrobot_v2/src/todo/交接_武将.md, dzrobot_v2/src/todo/交接_文官.md, dzrobot_v2/src/todo/交接协议.md, _archive/20261018/TestFox_src_diff/todo/武官.json（同源副本）, dzrobot_v2/src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp:174-203, dzrobot_v2/tools/global_planner.py:496-512, dzrobot_v2/config/robot.yaml:430-433",
+   "level": "实/档",
+   "updated": "2026-10-22",
+   "status": "历史",
+   "lines": 178
   },
   {
    "path": "20_资料索引库/无人机/00_索引.md",
@@ -693,7 +704,7 @@
    "level": "实/未",
    "updated": "2026-10-22",
    "status": "in_progress（2026-10-22 现场执行中）",
-   "lines": 109
+   "lines": 174
   },
   {
    "path": "30_任务卡库/在办/TRACK-FIELD-R3B-20261021.md",
