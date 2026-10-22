@@ -44,14 +44,19 @@
 | `20261019-机载自主规划/tools/deploy_plan13.py` | 7,408 B |
 | `20261019-机载自主规划/代码审查-20261020.md` | 23,197 B |
 | `20261019-机载自主规划/明日部署与协同说明.md` | 14,245 B |
-| `20261019-机载自主规划/机载规划差距与移植清单.md` | 38,851 B |
+| `20261019-机载自主规划/机载规划差距与移植清单.md` | 42,122 B |
+| `20261019-机载自主规划/验收_stride5_field_state.json` | 3,579 B |
+| `20261019-机载自主规划/验收_stride5_route_plan.json` | 2,139 B |
+| `20261019-机载自主规划/验收_stride5_route_render.png` | 36,590 B |
 
 ## 复现方式
 
 ```bash
-# 视频侦察管线（Windows 可直接跑，无需 ROS）
-python video_field_recon.py <video.mp4> --stride 15 --out <输出目录>
-python render_waypoint_map.py <输出目录>
+# 视频侦察 → 路线规划（机上通用入口，任意视频；默认 stride 5）
+bash tools/orin_video_recon.sh <video.mp4>
+bash tools/orin_video_recon.sh --replay-last   # 秒级：复用识别结果，按当前门控重算
 ```
 
+> `video_field_recon.py` 与 `--stride 15` 是 2026-10-18 的旧归档口径，已退役：
+> stride 15 会漏掉只短暂可见的雷（实测同段视频 8 颗只剩 2~3 颗，见 §6.10.2）。
 > 本 README 由 push_deliverable.py 自动生成。

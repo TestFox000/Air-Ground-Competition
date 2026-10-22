@@ -1,0 +1,140 @@
+{
+  "source": {
+    "mines/obstacles/targets": "视频模型识别",
+    "未覆盖要素": "裁判系统默认",
+    "passable": [
+      "K4",
+      "K10"
+    ],
+    "passable_from_default": [],
+    "start": "N10",
+    "goal": "N5",
+    "targets_reclassified_as_bucket": [
+      "B7",
+      "D5",
+      "E10"
+    ],
+    "targets_track_observed": {},
+    "targets_reclassified_referee_conflict": [],
+    "target_attack_mode": "两段式：计划排蓝面侧确认/射击停靠位；实弹由在飞 fire_guard 按实时画面复判红蓝（红面/未辨 → 禁火）",
+    "static_target_arbitration": "单靶先验（静靶→桶）"
+  },
+  "snapshot": {
+    "mines": [
+      "A2",
+      "B1",
+      "C3",
+      "E2",
+      "E3",
+      "G3",
+      "G9",
+      "I2"
+    ],
+    "passable": [
+      "K4",
+      "K10"
+    ],
+    "obstacles": [
+      "B7",
+      "C9",
+      "D5",
+      "E10",
+      "F8",
+      "G10"
+    ],
+    "targets": [
+      "轨道靶@D7（视频未观测，用裁判先验）"
+    ]
+  },
+  "route": [
+    "N10",
+    "M10",
+    "L10",
+    "K10",
+    "J10",
+    "I10",
+    "H9",
+    "G9",
+    "F9",
+    "E9",
+    "D8",
+    "C8",
+    "C7",
+    "C6",
+    "C5",
+    "C4",
+    "C3",
+    "C2",
+    "B1",
+    "A2",
+    "A3",
+    "B4",
+    "C4",
+    "D3",
+    "E2",
+    "E1",
+    "E2",
+    "E3",
+    "E4",
+    "F3",
+    "G3",
+    "H3",
+    "I2",
+    "J3",
+    "J4",
+    "K4",
+    "L4",
+    "M5",
+    "M6",
+    "N6",
+    "N5"
+  ],
+  "route_len_cells": 41,
+  "route_len_diag": 44.56,
+  "turns": 22,
+  "compact": [
+    "N10",
+    "K10",
+    "I10",
+    "H9",
+    "G9",
+    "E9",
+    "D8",
+    "C8",
+    "C3",
+    "C2",
+    "B1",
+    "A2",
+    "A3",
+    "B4",
+    "C4",
+    "E2",
+    "E1",
+    "E2",
+    "E3",
+    "E4",
+    "F3",
+    "G3",
+    "H3",
+    "I2",
+    "J3",
+    "J4",
+    "K4",
+    "L4",
+    "M5",
+    "M6",
+    "N6",
+    "N5"
+  ],
+  "car_cmds": {
+    "reset": "reset:N10,x",
+    "route": "N10 K10 I10 H9 G9 E9 D8* C8 C3 C2 B1 A2 A3 B4 C4 E2 E1 E2 E3 E4 F3 G3 H3 I2 J3 J4 K4 L4 M5 M6 N6 N5,x",
+    "shoot_cells": [
+      "D8"
+    ]
+  },
+  "check": {
+    "排雷覆盖": "全部覆盖",
+    "障碍避让": "通过"
+  }
+}
