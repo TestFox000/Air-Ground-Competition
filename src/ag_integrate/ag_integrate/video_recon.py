@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """赛前视频场地侦察：D13 + v4d 全机械化识别 → 场地态势 → 路线规划。
 
-比赛日工作流（无人值守，一条命令）：
-    python video_recon.py 场地巡拍.mp4                       # 默认 stride=5 冠军配置
+默认即最全配置（测试环境不省时间）：
+    python video_recon.py 场地巡拍.mp4                       # 默认 stride=1 逐帧
     python video_recon.py 场地巡拍.mp4 --out 输出目录
-    python video_recon.py 场地巡拍.mp4 --imgsz 640 --d13 <640 模型>
-                                                            # 10-17 实测召回更高
-⚠️ 别把 --stride 调大省时间：实测 172 帧（stride=15）只剩 2 雷 0 桶，
-   stride=6 回到 5 雷 1 桶——短暂可见的目标会被采样漏掉，再由投票门槛丢掉。
+    python video_recon.py 场地巡拍.mp4 --stride 5            # 想快 5 倍（可能漏目标）
+⚠️ --stride 不是"快一点的同结果"，是**采样漏检**：同一段视频实测 stride=15
+   只剩 3 雷、stride=5 出 8 雷（=官方基线 8）、stride=1 逐帧最全但耗时按帧数
+   线性增长（约 2.2 秒/帧：2220 帧 ≈ 80 分钟）。已有缓存要改门控时用
+   --reaggregate（秒级），不必重跑逐帧推理。
 
 链路（每一环都是代码规则，不依赖任何人工/agent 介入）：
   1. hbb_d13.onnx（OpenCV DNN，无需 onnxruntime/torch）逐帧检测 13 类目标
@@ -76,11 +77,11 @@ except ImportError:                     # 直接以文件路径运行（比赛�
 NAMES = ["paper", "cell_label", "car", "target_red", "target_blue", "obstacle",
          "bucket_red", "bucket_green", "bucket_cyan",
          "car_start", "car_end", "uav_start", "uav_end"]
-CONF = {  # 离线侦察工作点 = 2026-10-17 冠军配置（paper 0.15 + 密采样 + 投票门控）
+CONF = {  # 离线侦察工作点（paper 0.15 + 投票门控；默认逐帧 stride=1）
     # 与机载 C++ kDeployConf（paper=0.25、cell_label=0.50）**不同源**：机载是
     # 实时单帧无时序投票，必须收紧；离线有跨帧投票，放宽才不丢单帧可见的目标。
-    # 2026-10-21 实测教训：默认 stride=15 + paper=0.22 时，172 帧里 paper 只落格
-    # 34 次 → 只剩 2 雷、0 桶；改成 stride=6 后雷回到 5 个、桶回到 1 个。
+    # 实测教训（同一段视频，官方基线 8 雷）：stride=15 只剩 3 雷、stride=5 出 8 雷。
+    # 因此默认 stride=1（逐帧最全）——测试环境不拿采样换时间。
     "paper": 0.15, "cell_label": 0.35, "car": 0.25,
     "target_red": 0.25, "target_blue": 0.25, "obstacle": 0.40,
     "bucket_red": 0.40, "bucket_green": 0.40, "bucket_cyan": 0.40,
@@ -320,7 +321,7 @@ def resolve_cell_conflicts(roles: dict[str, list[str]],
                            ) -> tuple[dict[str, list[str]], list[dict]]:
     """同一格被多个语义命中时裁决成单一标签，返回 (过滤后的各角色格, 冲突明细)。
 
-    为什么必须有（2026-10-21 冠军配置实测）：把 paper 阈值放宽到 0.15 后
+    为什么必须有（实测）：把 paper 阈值放宽到 0.15 后
     红桶/红靶、蓝桶/蓝靶在近距画面里互相串类，同一格同时进了
     target_blue 与 bucket_green（B7: 5 vs 31 票）、target_red 与 bucket_red
     （D5: 6 vs 19 票）。不裁决会产出自相矛盾的态势：靶格同时是障碍格 →
@@ -744,6 +745,8 @@ def recon_video(video: str | Path, out_dir: str | Path,
     if max_frames:
         idxs = idxs[:max_frames]
     print(f"[recon] 视频总帧 {total}，采样 {len(idxs)} 帧 (stride={stride})")
+    if len(idxs) > 60:                 # 逐帧默认下这次要跑很久，先把时间说清
+        print(f"[recon] 预计约 {len(idxs) * 2.2 / 60:.0f} 分钟（约 2.2 秒/帧）")
 
     frames_meta: list[dict] = []
     cont_pos: dict[str, list[tuple[float, float, float]]] = defaultdict(list)
@@ -1190,13 +1193,16 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
     missing = [c for c in mines if c not in route_set]
     viol = [c for c in route if c in obstacles]
     # "排雷覆盖✓"只证明**已检出的雷**都在路线上，不证明没漏检。官方基线 8 颗
-    # （field_rules.MAX_MINES：地图上不可能超过 8），检出不足时必须显式说出来，
-    # 否则 2/8 的态势也会显示"全部覆盖"——这是 2026-10-22 实测踩到的假绿。
+    # （field_rules.MAX_MINES：地图上不可能超过 8），检出数不等于基线时必须显式
+    # 说出来，否则 2/8 的态势也会显示"全部覆盖"——这是 2026-10-22 实测踩到的假绿。
     _n_mines = len(mines)
     _mine_note = ("全部覆盖" if not missing else f"缺失{missing}")
     if _n_mines < MAX_MINES:
         _mine_note += (f"（仅检出 {_n_mines}/{MAX_MINES} 颗雷：漏检风险，"
-                       f"用 --stride 5 全量重跑或人工复核未检出区）")
+                       f"用默认逐帧重跑或人工复核未检出区）")
+    elif _n_mines > MAX_MINES:
+        _mine_note += (f"（检出 {_n_mines} 颗 > 官方基线 {MAX_MINES}：必有 "
+                       f"{_n_mines - MAX_MINES} 颗误检，先人工复核再执行）")
 
     route_plan = {
         "source": {"mines/obstacles/targets": "视频模型识别",
@@ -1252,7 +1258,10 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
     if _n_mines < MAX_MINES:
         print(f"[plan][注意] 视频只检出 {_n_mines}/{MAX_MINES} 颗雷（官方基线 "
               f"{MAX_MINES}）——未检出的雷不在路线上，属于漏检风险；"
-              f"正式用前请用 --stride 5 全量重跑或人工复核未检出区")
+              f"正式用前请用默认逐帧重跑或人工复核未检出区")
+    elif _n_mines > MAX_MINES:
+        print(f"[plan][注意] 视频检出 {_n_mines} 颗雷 > 官方基线 {MAX_MINES}——"
+              f"必有 {_n_mines - MAX_MINES} 颗误检，先复核再执行车命令")
     if "友方面禁火" in route_plan["check"]:
         print(f"[plan] 友方面禁火：{route_plan['check']['友方面禁火']}")
     _render_plan(snapshot, route, compact, cmds, use_start, use_goal,
@@ -1393,12 +1402,13 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="赛前视频场地侦察：D13+v4d 识别 → 态势 → 路线规划（全机械化）")
     ap.add_argument("video", nargs="?", default=None, type=str)
-    ap.add_argument("--stride", type=int, default=5,
-                    help="采样帧距（默认 5 = 2026-10-17 冠军配置；15 会漏掉只短暂"
-                         "可见的目标——实测 172 帧只剩 2 雷 vs stride6 的 5 雷）")
+    ap.add_argument("--stride", type=int, default=1,
+                    help="采样帧距（默认 1 = 逐帧最全，测试环境不省时间；"
+                         "实测同一段视频 stride 15 只剩 3 雷、stride 5 出 8 雷"
+                         "=官方基线，调大就是拿采样换时间）")
     # 门控/裁决规则改动后不必重跑推理：frames_meta.json 已含逐帧投影结果，
-    # 用它重算态势（秒级）。这既避免 17 分钟的重复识别，也保证"重算"与
-    # "重跑"用的是同一份门控代码。
+    # 用它重算态势（秒级）。这既避免整段重跑，也保证"重算"与"重跑"用的是
+    # 同一份门控代码。
     ap.add_argument("--reaggregate", type=str, default=None, metavar="DIR",
                     help="不跑识别：用 DIR/frames_meta.json 按当前门控重算态势并重出规划")
     ap.add_argument("--imgsz", type=int, default=IN_SIZE, choices=(640, 1280),

@@ -5,7 +5,7 @@
 # 用法（机上任意位置）：
 #     tools/orin_video_recon.sh                       # 列出机上视频，输入序号选一个
 #     tools/orin_video_recon.sh <视频路径>             # 直接指定视频（mp4/mkv/avi…）
-#     tools/orin_video_recon.sh <视频> --stride 10     # 采样帧距（默认 5=最全，越大越快越可能漏）
+#     tools/orin_video_recon.sh <视频> --stride 5      # 想快：采样帧距（默认 1=逐帧最全）
 #     tools/orin_video_recon.sh <视频> --force         # 不用缓存态势，强制重跑识别
 #     tools/orin_video_recon.sh --replay-last          # 秒级：用最近一次的态势重出规划
 #
@@ -14,9 +14,9 @@
 # 用**当前**门控/裁决规则重算态势并重出规划（秒级）——门控修过的地方不会因为
 # 缓存而继续用旧结论。换视频/换 stride 自然是新目录，不会串味。--force 忽略缓存。
 #
-# 关于耗时与质量：整段识别是 CPU 推理，约 **2.2 秒/采样帧**。stride 5 对 2568 帧
-# 的视频≈514 帧≈19 分钟；stride 15 ≈172 帧≈6 分钟但**会漏掉只短暂可见的目标**
-# （实测同一段视频：stride 15 出 3 雷，stride 5 出 8 雷=官方基线）。要正式结果就用默认 stride 5。
+# 关于耗时与质量：默认 stride=1 **逐帧**推理，约 2.2 秒/帧（2220 帧≈80 分钟）——
+# 测试环境不拿采样换时间。调大 stride 就是采样漏检，不是"快一点的同结果"：
+# 同一段视频实测 stride 15 只剩 3 雷、stride 5 出 8 雷（=官方基线 8）。
 # =============================================================================
 set -u
 REPO="${REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -43,10 +43,10 @@ reagg() {   # $1 = 缓存目录
     fi
 }
 
-STRIDE=5; FORCE=0; VIDEO=""; OUT=""; REPLAY_LAST=0
+STRIDE=1; FORCE=0; VIDEO=""; OUT=""; REPLAY_LAST=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --stride) STRIDE="${2:-5}"; shift 2 ;;
+        --stride) STRIDE="${2:-1}"; shift 2 ;;
         --force)  FORCE=1; shift ;;
         --out)    OUT="${2:-}"; shift 2 ;;
         --replay-last) REPLAY_LAST=1; shift ;;
@@ -113,7 +113,7 @@ else
         reagg "$OUT" || exit $?
     else
         [[ $FORCE == 1 ]] && warn "--force：忽略缓存，重跑识别"
-        echo "     开始识别（每 20 帧打印一次进度；CPU 推理约 2.2s/帧，请耐心）"
+        echo "     开始识别（默认逐帧最全；每 20 帧打印一次进度，预计时间见下一行）"
         echo "     想中途离开又不丢进度：另开终端跑，或 Ctrl+Z 后 bg（本脚本不写死后台）"
         mkdir -p "$OUT"
         $PY -u "$R" "$VIDEO" --out "$OUT" --stride "$STRIDE" || {

@@ -74,7 +74,7 @@ def test_plan_succeeds_on_single_gate_video(tmp_path):
 def test_conflict_resolved_by_votes():
     """票多者胜：B7 桶 31 票 vs 蓝靶 5 票 → 判为障碍，靶被剔除。
 
-    这是 2026-10-21 冠军配置实测的自相矛盾：不裁决时 B7 同时是蓝靶和障碍，
+    这是实测中自相矛盾：不裁决时 B7 同时是蓝靶和障碍，
     规划器找不到可停靠射击邻格 → 车命令里一个 '*' 都没有。
     """
     roles = {"mine": [], "passable": [], "obstacle": ["B7"],
@@ -212,7 +212,7 @@ def test_plan_without_track_observation_uses_referee_prior(tmp_path):
 def test_plan_reports_mine_shortfall_against_baseline(tmp_path):
     """"排雷覆盖✓"只对已检出的雷负责；检出不足 8 颗时必须显式标出漏检风险。
 
-    2026-10-22 实测：通用入口用 stride 15 跑某段视频只检出 2 颗雷，check 仍显示
+    2026-10-22 实测：通用入口用 stride 15 + 旧门控跑某段视频只检出 2 颗雷，check 仍显示
     "排雷覆盖: 全部覆盖"，用户看渲染图当场问"这航点缺雷"。基线是 field_rules.MAX_MINES=8。
     """
     state = _state(mines=["A2", "C3"], passable=["K10"], obstacles=["C9"],
@@ -229,6 +229,15 @@ def test_plan_does_not_warn_when_baseline_met(tmp_path):
                    passable=["K10"], obstacles=["C9"], red=[], blue=[])
     plan = vr.plan_from_state(state, tmp_path)
     assert "漏检" not in plan["check"]["排雷覆盖"], plan["check"]
+
+
+def test_plan_warns_when_mines_exceed_baseline(tmp_path):
+    """检出超过官方基线 8 颗时同样必须告警：多出来的一定是误检。"""
+    state = _state(mines=["A2", "B1", "C3", "D4", "E2", "E3", "F5", "G3", "G9", "I2"],
+                   passable=["K10"], obstacles=["C9"], red=[], blue=[])
+    plan = vr.plan_from_state(state, tmp_path)
+    note = plan["check"]["排雷覆盖"]
+    assert "10" in note and "误检" in note, note
 
 
 def _meta(frames: int, q, conf: float, labels=("B3", "B5", "B7")) -> list[dict]:

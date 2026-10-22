@@ -196,8 +196,8 @@ ok "已安装桌面图标：启动 / 验收 / 停止 / 视频侦察 / 更多操�
 cat > "$DESK/视频侦察.sh" <<'SH'
 #!/usr/bin/env bash
 # 桌面直跑入口：任意视频 → 识别 → 路线规划 → 渲染图
-#   ./视频侦察.sh                    列出机上视频、选一个跑（默认 stride 5）
-#   ./视频侦察.sh ~/a.mp4 --stride 10
+#   ./视频侦察.sh                    列出机上视频、选一个跑（默认 stride 1 逐帧）
+#   ./视频侦察.sh ~/a.mp4 --stride 5    # 想快（可能漏目标；默认逐帧最全）
 #   ./视频侦察.sh --replay-last      秒级：用最近一次的识别结果重出规划
 set -u
 REPO="$HOME/dzuav_deploy/air_ground"
@@ -229,12 +229,12 @@ cat > "$GUIDE" <<'TXT'
   3. 终端等价命令（VNC 里可手敲）：
         cd ~/dzuav_deploy/air_ground
         ./tools/orin_video_recon.sh                    # 选视频跑
-        ./tools/orin_video_recon.sh ~/a.mp4 --stride 10
+        ./tools/orin_video_recon.sh ~/a.mp4 --stride 5   # 想快（可能漏目标）
         ./tools/orin_video_recon.sh --replay-last      # 秒级
   4. 采样帧距（--stride）怎么选：
-        5  = 默认，最全（2568 帧的视频约 19 分钟）
-        15 = 快 3 倍，但**会漏掉只短暂可见的目标**（实测同段视频 stride15 出 3 雷、
-             stride5 出 8 雷=官方基线）——正式结果别用它
+        1  = 默认，**逐帧最全**（测试环境不省时间；2220 帧约 80 分钟）
+        调大 = 拿采样换时间，**不是"快一点的同结果"**：同一段视频实测 stride15
+                只剩 3 雷、stride 5 出 8 雷（=官方基线 8）——短暂可见的雷会被漏掉
         同一视频同参数跑第二次会自动复用逐帧识别结果，并用**当前门控**重算态势
         （秒级；门控修过也不会继续拿旧结论）
   ⚠ 渲染图上的 D8* 是移动靶的“确认位”（视频里看到的是红面=友方）：静态回放要手动
