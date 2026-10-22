@@ -103,13 +103,15 @@ menu() {
 ║   2  启动全栈 并 实发车命令（⚠ 会驱动车，需二次确认）  ║
 ║   3  只启机载规划（前台运行，Ctrl+C 停止）             ║
 ║   4  机载规划验收（自检全链，约 40 秒）                ║
-║   5  进入 tmux 看各窗口（Ctrl+B 切窗，再按 d 退出）     ║
+║   5  进入 tmux 看各窗口（Ctrl+B 切窗，再按 d 退出）    ║
 ║   6  看最新规划产物                                    ║
 ║   7  停止全栈                                          ║
+║   8  视频侦察复现（已存态势 → 路线，秒级，出渲染图）    ║
+║   9  视频侦察全量重跑（stride 5，约 20 分钟，后台）     ║
 ║   0  退出                                              ║
 ╚══════════════════════════════════════════════════════╝
 TXT
-        read -r -p "请选择 [0-7]: " n || exit 0
+        read -r -p "请选择 [0-9]: " n || exit 0
         case "${n:-}" in
             1) start_stack dry; pause ;;
             2) start_stack send; pause ;;
@@ -119,10 +121,31 @@ TXT
             5) tmux attach -t agup ;;
             6) show_plan; pause ;;
             7) bash "$REPO/tools/orin_bringup.sh" down; pause ;;
+            8) recon_fast; pause ;;
+            9) recon_full; pause ;;
             0) exit 0 ;;
-            *) echo "只接受 0-7 的数字。" ;;
+            *) echo "只接受 0-9 的数字。" ;;
         esac
     done
+}
+
+# 视频侦察：离线把"视频 → 态势 → 路线 → 车命令 → 渲染图"跑一遍。
+# 8 = 用已存态势秒级复现（不重算识别）；9 = 从视频全量重跑（后台，约 20 分钟）。
+recon_fast() {
+    bash "$REPO/tools/orin_demo_recon.sh"
+    echo
+    echo "渲染图已生成，正在打开……（关掉看图窗口即回到本菜单）"
+    local png=/tmp/ag_recon_bg/route_render.png
+    [ -f "$png" ] && { eog "$png" 2>/dev/null || xdg-open "$png" 2>/dev/null || echo "看图: $png"; }
+}
+recon_full() {
+    local video
+    video=$(ls -t "$HOME"/Videos/recordings/*.mp4 2>/dev/null | head -1 || true)
+    [ -n "$video" ] || { echo "✗ ~/Videos/recordings 下没有 mp4"; return; }
+    echo "视频: $video"
+    MAXF=0 STRIDE=5 bash "$REPO/tools/orin_recon_bg.sh"
+    echo "已在后台开跑（约 20 分钟）。看进度： tail -f /tmp/ag_recon_bg.log"
+    echo "跑完后再选 8，即为新态势的路线。"
 }
 
 # 图标/命令行动作：**执行完一律回到菜单**，不停在一个死界面上。
@@ -133,6 +156,8 @@ case "${1:-menu}" in
     up-send) start_stack send; pause; menu ;;
     accept)  bash "$REPO/tools/orin_accept_plan.sh"; pause; menu ;;
     stop)    bash "$REPO/tools/orin_bringup.sh" down; pause; menu ;;
+    recon)   recon_fast; pause; menu ;;
+    recon-full) recon_full; pause; menu ;;
     plan)    python3 -u "$REPO/tools/orin_plan_sidecar.py" --params "$PARAMS" \
                  --out "$OUT" --plan-mode on-change ;;
     menu|*)  menu ;;
@@ -161,8 +186,38 @@ EOF
 mk_item "ag-plan-start.desktop"  "① 启动机载全栈"     "up"
 mk_item "ag-plan-accept.desktop" "② 机载规划验收"     "accept"
 mk_item "ag-plan-stop.desktop"   "③ 停止机载全栈"     "stop"
+mk_item "ag-recon.desktop"       "④ 视频侦察（出路线图）" "recon"
 mk_item "ag-plan-menu.desktop"   "更多操作（菜单）"   "menu"
-ok "已安装桌面图标：启动 / 验收 / 停止 / 更多操作（双击即执行，执行完自动回菜单）"
+ok "已安装桌面图标：启动 / 验收 / 停止 / 视频侦察 / 更多操作（双击即执行，执行完自动回菜单）"
+
+# ---------------------------------------------------------------- 桌面 .sh（可直接运行）
+# 用户要求"sh 化"：桌面除 .desktop 外再放一个**真 .sh**，双击/终端都能直接跑，
+# 不必记仓库路径。收尾带 pause，避免双击跑完窗口就关掉看不到结果。
+cat > "$DESK/视频侦察.sh" <<'SH'
+#!/usr/bin/env bash
+# 桌面直跑入口：视频侦察 → 路径规划（等价于桌面图标「④ 视频侦察」/ 菜单输入 8）
+#   ./视频侦察.sh            秒级复现（用已存态势）
+#   ./视频侦察.sh --full     从视频全量重跑（stride 5，约 20 分钟，后台）
+set -u
+REPO="$HOME/dzuav_deploy/air_ground"
+cd "$REPO" || { echo "找不到仓库: $REPO"; read -r -p "回车关闭…" _; exit 9; }
+if [[ "${1:-}" == "--full" ]]; then
+    bash tools/orin_demo_recon.sh --full
+else
+    bash tools/orin_demo_recon.sh
+    PNG=/tmp/ag_recon_bg/route_render.png
+    if [[ -f $PNG ]]; then
+        echo
+        echo "打开渲染图……（关掉看图窗口即回到这里）"
+        eog "$PNG" 2>/dev/null || xdg-open "$PNG" 2>/dev/null || echo "看图: $PNG"
+    fi
+fi
+echo
+read -r -p "按回车返回菜单…" _ || true
+exec "$HOME/start.sh" menu
+SH
+chmod +x "$DESK/视频侦察.sh"
+ok "已安装 ~/Desktop/视频侦察.sh（可直接双击/终端运行，跑完自动回菜单）"
 
 # ---------------------------------------------------------------- 操作指南
 cat > "$GUIDE" <<'TXT'
@@ -170,8 +225,22 @@ cat > "$GUIDE" <<'TXT'
 =====================================
 
 【一句话】桌面上双击「① 启动机载全栈」→ 它会先做启动前检查、然后直接拉起全栈，
-         拉起后**自动显示数字菜单**（4=验收 5=看窗口 6=看产物 7=停止 0=退出）。
+         拉起后**自动显示数字菜单**（4=验收 5=看窗口 6=看产物 7=停止 8=视频侦察 0=退出）。
          如果你在任何时候找不到菜单：打开终端敲  ~/start.sh  回车即可。
+
+〇、只想看「视频侦察 → 路径规划」（不需要起全栈、不需要相机）
+  1. 双击桌面「④ 视频侦察（出路线图）」或「视频侦察.sh」＝菜单输入 8
+     · 秒级：用已存态势（/tmp/ag_recon_bg/field_state.json）直接出路线 + 渲染图，并自动打开图
+     · 会先做 4 项前置检查（cv2 / 13 类模型 / 中文字体 / 已存态势），缺哪项它会说清修法
+  2. 要看**新视频**的规划：菜单输入 9（全量重跑，stride 5，约 20 分钟，后台）
+     · 进度： tail -f /tmp/ag_recon_bg.log
+     · 跑完再选 8，即为新态势的路线
+  3. 终端等价命令（VNC 里可手敲）：
+        cd ~/dzuav_deploy/air_ground && ./tools/orin_demo_recon.sh
+        # 全量： ./tools/orin_demo_recon.sh --full
+  ⚠ 别用 MAXF=60 STRIDE=15 那种冒烟参数看结果：只覆盖前 35% 时长，雷会几乎全是空的。
+  ⚠ 渲染图上的 D8* 是移动靶的“确认位”（视频里看到的是红面=友方）：静态回放要手动
+     去掉这个 '*'，在飞链路由 fire_guard 复判（红面/未辨自动禁火）。
 
 一、开机后要做的事（每次上电）
   1. 双击「① 启动机载全栈」
@@ -222,9 +291,9 @@ ok "已写入桌面《机载操作指南.txt》"
 
 echo
 echo "==================== 安装完成 ===================="
-echo "桌面图标：① 启动机载全栈 / ② 机载规划验收 / ③ 停止机载全栈 / 更多操作（菜单）"
+echo "桌面图标：① 启动机载全栈 / ② 机载规划验收 / ③ 停止全栈 / ④ 视频侦察 / 更多操作（菜单）"
 echo "          （双击即执行；执行完自动回到数字菜单）"
 echo "找不到菜单时：打开终端敲  ~/start.sh  回车"
-echo "文本入口：~/start.sh（也支持 up / accept / stop / plan）"
+echo "文本入口：~/start.sh（也支持 up / accept / stop / recon / recon-full / plan）"
 echo "操作指南：~/Desktop/机载操作指南.txt"
 echo "=================================================="
