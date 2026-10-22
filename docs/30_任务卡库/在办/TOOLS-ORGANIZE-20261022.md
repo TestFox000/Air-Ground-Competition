@@ -55,6 +55,7 @@
 - 沙箱 ACL 诊断（同轮副产品）：tools/ 目录缺 WRITE_OWNER 权限项，已用 diagnose-windows-sandbox-acl 补齐并验证；备份与恢复命令在 _tmp_session/tools-organize-20261022/acl-repair/
 - git：dzrobot_v2 仓一笔 --only 限定（插件树迁出删除 + 索引/注解 4 文件）；v1 仓一笔（tools/** 新增 + 旧路径删除 + 12 处引用 + .gitignore + 本卡 + 目录索引）
 - 首跑插曲（教训落盘）：步骤 8 dzv2 git add 把 git 的 CRLF 提示当异常（ErrorActionPreference=Stop + 2>&1 管道）中断——文件系统与引用修复已全部落定，补跑提交段无副作用；git 输出不可与 Stop 模式混用
+- 收口复核（Lead 沙箱内独立重算）：332 文件哈希 = 327 逐字节一致 + 5 处差异恰为 12 项引用修复命中的 5 个文件（统一 README 两处、verify-s1、check-css-namespace、车/机 README），无意外改动；verify-s1/css-ns/gitignore 新路径抽查过；check_doc_policy 经 --accept 两插件 README + 刷新基线后 GREEN（红线 0），check.py GREEN；v1 两笔提交 cfa53f8+8098f14，dzrobot_v2 一笔 4d2730b（均 --only/精确 pathspec 限定，未卷入其他会话在途文件）
 - 部署债（用户裁决「先不重新挂」）：desktop profile 两个 file: 依赖仍指旧路径，**下次部署前必须改到 tools/plugins/，否则 pnpm install 断链**；统一包未挂载与其 5 项缺口仍挂账，归「插件重新做」线
 
 ## §10 文档变更
