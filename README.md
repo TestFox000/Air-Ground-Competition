@@ -51,6 +51,7 @@
 | `tools/orin_deploy.py` | Orin 一键部署：dzuav 源码 + current 指针模型 + orin 工具链（含全部 `orin_*.py` 看门狗/黑匣子/采集/**规划旁挂 `orin_plan_sidecar.py`**）+ **机载规划包 `src/ag_integrate`**（覆盖前对机上原副本 `cp -a` 备份）推到 `~/dzuav_deploy/air_ground`；`--verify` 远程 L1 编译 + L2 自检（2026-10-16 实机跑通） |
 | `tools/orin_accept_plan.sh` | 机载规划一键验收（机上跑，只写 `/tmp`）：① 规划进程起得来并绑住 UDP:50000 ② 同机广播投递成立 ③ 落格矩阵→门控→路线→三份产物 ④ 可选 `--send` 验 0x4003 真广播。随 `tools/orin_deploy.py` 自动上机 |
 | `tools/orin_video_recon.sh` | 通用视频侦察入口（机上）：任意视频 → 13 类识别 → 格号反推 → 路线 → 渲染图。默认 `stride 5` = **实测最优点**（同段视频 8/8=官方雷基线；15 漏检到 3、1 过密到 14 含误检）。同视频同参数复跑会复用 `frames_meta.json` 并按**当前门控**秒级重算（`--reaggregate`）；`--replay-safe` 静态回放剔除射击停靠位。VNC 桌面入口：「④ 视频侦察（出路线图）」/ `~/Desktop/视频侦察.sh` / 主菜单 8、9 |
+| `tools/orin_broadcast_route.py` | 0x4003 **持续广播测试源**（不依赖相机/规划进程）：取一份 `route_plan.json` 的车命令按固定频率一直发（默认 2Hz），供车端联调与抓包；`--dry-run` 只打印帧。⚠ 实发：车上 onboard 模式且底盘使能时会照该路线行驶 |
 | `tools/patch_deploy.py` | `onboard/dzpx4_patch/` 韧性补丁部署/回滚：部署时写回滚索引 + md5 指纹，回滚先校验指纹再重编重启 |
 | `tools/preflight.py` | 赛前自检：本地段（模型契约/指针/md5/配置，CI 同跑）+ 车端/机载 SSH 段 |
 | `tools/flight_console.py` | 飞行黑匣子地面台：实时面板 + 应急指挥（降落/停GOTO/KILL 双确认）+ 黑匣子取回；自动把 `orin_flight_blackbox.py` 送上机上 tmux(agup:bb)。密码走 `AG_ORIN_PASS` |
