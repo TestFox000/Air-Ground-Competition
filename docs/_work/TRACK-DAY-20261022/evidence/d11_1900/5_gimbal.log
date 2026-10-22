@@ -1,0 +1,946 @@
+=== SESSION START 2026-10-22T18:33:17+08:00 run=d11_aim ===
+[INFO] [launch]: All log files can be found below /home/duzhong/.ros/log/2026-10-22-18-33-17-459491-duzhong-28232
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [dzactuator_node-1]: process started with pid [28234]
+[dzactuator_node-1] [INFO] [1792665197.573519750] [dzrknn_dataprocess]: 创建节点成功..........
+[dzactuator_node-1] [INFO] [1792665197.582033115] [dzrknn_dataprocess]: Data ready
+[dzactuator_node-1] [INFO] [1792665197.583587390] [dzrknn_dataprocess]: 瞄准: 连续往复 -150°~150° | 巡逻 1110(最大速度的30%) | 俯仰偏移 +18.9° | 跟踪上限 2000 | 跟踪死区 3px | Kp 20.0/Kd 15.0 | 滤波 0.45
+[dzactuator_node-1] [INFO] [1792665197.583642514] [dzrknn_dataprocess]: 射击: 动态开火框 18~26px(标定框宽 30~120) | 稳定判据 画面稳定(画面 1.50px/帧, 电机 realV<20) | 保持 5 帧 | 预判 0.20 | 全程弹药 10 发/冷却 800ms | 扫描确认 4 帧
+[dzactuator_node-1] [INFO] [1792665197.583658847] [dzrknn_dataprocess]: 流畅度: 主循环 TRACK 100Hz / 其余 50Hz | 类别改锁需连续 5 帧(抗抖动)
+[dzactuator_node-1] [INFO] [1792665197.583667306] [dzrknn_dataprocess]: 凝视稳定: 车体转动前馈 已关闭 (增益 0.00, 方向 +1, IMU超时 200ms) | 输入源 /imu_data
+[dzactuator_node-1] [INFO] [1792665197.583677222] [dzrknn_dataprocess]: 自瞄: 状态机 IDLE/SCAN/TRACK | 点位全向扫描 2 趟 | 扫描速度 1110 | 循迹请求 /nav/scan_request | 状态上报 /aim/status
+[dzactuator_node-1] [INFO] [1792665197.583684514] [dzrknn_dataprocess]: 跟踪控制: ★增量式PID | kp=10.00 ki=0.500 kd=2.000 i_clamp=600 d_alpha=0.30 min_step=1 | 速率上限 2000 tick/s
+[dzactuator_node-1] [INFO] [1792665197.583697055] [dzrknn_dataprocess]: 跟踪律: ★平滑(绝对设定值+EKF预测+100Hz插值) | px/tick 0.940 | 视觉延迟 267ms | k_sp 5.00 | ff 1.00 | slew 800 tick/s | EKF α/β 0.60/0.20
+[dzactuator_node-1] [INFO] [1792665197.583709888] [dzrknn_dataprocess]: 扫描(t25): 巡航 -150..+150° 速度比 0.30 (=1110 tick/s) 俯仰偏置 +18.9° | 进入扫描先归位到正前+水平(超时 1500ms) | 连续扫描最多 3 轮(<=0=不限) | 找到目标即转 TRACK
+[dzactuator_node-1] [INFO] [1792665197.583721847] [dzrknn_dataprocess]: 开火权限(★补丁): 两键开火 已启用（/aim/fire_gate + /aim/fire_ready 同时为 1 才开火） | 提前量施加增益 1.00 (输入 /aim/lead_x) | 订阅 /aim/fire_gate + /aim/fire_ready
+[dzactuator_node-1] [31mCopyright©2016-2020 dzrknn_dataprocess. All rights reserved [0m
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=2（1=蓝 2=红，前值=1，连续 5 帧）
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=2，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=2（1=蓝 2=红，前值=1，连续 5 帧）
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 目标丢失，回到空闲（等下一个点位请求）
+[dzactuator_node-1] ==> 收到停止扫描请求
+[dzactuator_node-1] ==> 进入扫描前先归位（正前方 + 水平），超时 1500 ms
+[dzactuator_node-1] ==> 归位段结束（已到位）：yaw偏差 4 tick / pitch偏差 0.9558 tick ⇒ 开始扫描
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ★ 收到【开火放行】/aim/fire_gate=1（任务级：已到站停稳）
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=2（1=蓝 2=红，前值=1，连续 5 帧）
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ★ 收到【开火收回】/aim/fire_gate=0
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2442 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2449 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2441 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2445 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=2（1=蓝 2=红，前值=1，连续 5 帧）
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2446 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2439 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2448 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2442 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2439 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2448 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2447 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=2（1=蓝 2=红，前值=1，连续 5 帧）
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=2，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2445 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2442 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2440 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2444 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=2（1=蓝 2=红，前值=1，连续 5 帧）
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2445 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> IDLE(空闲)
+[dzactuator_node-1] ==> 收到停止扫描请求
+[dzactuator_node-1] ==> 进入扫描前先归位（正前方 + 水平），超时 1500 ms
+[dzactuator_node-1] ==> 归位段结束（已到位）：yaw偏差 4 tick / pitch偏差 2.0442 tick ⇒ 开始扫描
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ★ 收到【开火放行】/aim/fire_gate=1（任务级：已到站停稳）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2447 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2448 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ★ 收到【开火收回】/aim/fire_gate=0
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2437 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2440 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2446 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2443 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2441 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2444 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2446 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2444 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2442 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2441 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ★ 收到【开火放行】/aim/fire_gate=1（任务级：已到站停稳）
+[dzactuator_node-1] ★ 收到【开火收回】/aim/fire_gate=0
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2451 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2433 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=2（1=蓝 2=红，前值=1，连续 5 帧）
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2443 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2440 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=2（1=蓝 2=红，前值=1，连续 5 帧）
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=2，连续 5 帧）
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=2（1=蓝 2=红，前值=1，连续 5 帧）
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2443 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2440 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2443 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2444 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2440 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2441 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2440 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2439 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2441 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2439 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2442 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2442 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2432 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2438 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2440 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2451 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2443 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2441 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2432 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2445 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2437 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2442 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2440 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2441 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2445 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2442 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2443 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2444 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2442 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2444 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2438 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2444 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2436 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2446 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2439 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2443 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2439 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2441 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2437 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=2（1=蓝 2=红，前值=1，连续 5 帧）
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=2（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别不允许(fire_only_blue)
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2446 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2439 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2442 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2443 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2443 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2439 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=2 raw_cls=2 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2449 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2443 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）
+[dzactuator_node-1] ==> 目标脱离视野（连续 75 帧 / 2441 ms 未见）→ 接续扫掠（不重归位）
+[dzactuator_node-1] ==> 重扫接续（跳过归位段）：从 yaw 点 #0 继续（轮数预算已重置）
+[dzactuator_node-1] ==> 自瞄状态 -> SCAN(点位扫描)
+[dzactuator_node-1] ==> 扫描进度：完成第 1 轮，开始第 2 / 3 轮（0=不限）；扫掠范围 yaw [-150, 150]° · 8 点 · pitch 18.9°
+[dzactuator_node-1] ==> 自瞄状态 -> TRACK(边走边跟随)
+[dzactuator_node-1] ==> 发现目标，进入边走边跟随
+[dzactuator_node-1] ==> 诊断(不放行开火)：已锁定但类别不允许 —— locked_cls=0（1=蓝 2=红）cls_candidate=1 raw_cls=1 fire_only_blue=1 ⇒ 类别未确认(还没连续 N 帧同一类别)
+[dzactuator_node-1] ==> 扫描确认目标，允许射击
+[dzactuator_node-1] ==> 类别已锁定 locked_cls=1（1=蓝 2=红，前值=0，连续 5 帧）

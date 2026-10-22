@@ -1,0 +1,44 @@
+{
+  "ext_carsnap_tree_20261022.tar.gz": {
+    "bytes": 16667862,
+    "files": 890,
+    "raw_mib": 62.7,
+    "big": 4
+  },
+  "ext_gitee_air_ground_20261022.tar.gz": {
+    "bytes": 301366232,
+    "files": 57,
+    "raw_mib": 288.0,
+    "big": 1
+  },
+  "ext_gitee_main_tree_20261022.tar.gz": {
+    "bytes": 216635316,
+    "files": 2599,
+    "raw_mib": 242.8,
+    "big": 10
+  },
+  "ext_yb_tree_20261022.tar.gz": {
+    "bytes": 217763682,
+    "files": 2719,
+    "raw_mib": 244.8,
+    "big": 10
+  },
+  "dzrobot_v2_tmp_session_20261022.tar.gz": {
+    "bytes": 36563288,
+    "files": 1379,
+    "raw_mib": 134.3,
+    "big": 5
+  },
+  "process_TRACK-FIELD-R3_20261022.tar.gz": {
+    "bytes": 335803140,
+    "files": 3090,
+    "raw_mib": 333.3,
+    "big": 0
+  },
+  "process_drafts_20261022.tar.gz": {
+    "bytes": 263916278,
+    "files": 3933,
+    "raw_mib": 321.4,
+    "big": 14
+  }
+}

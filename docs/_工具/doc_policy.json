@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "说明": "文档守卫的唯一配置真源。改白名单=改这里，不要改脚本。详见 AGENTS.md §8.6。",
+  "doc_roots": [
+    "docs/00_项目总览",
+    "docs/10_agent提示词",
+    "docs/20_资料索引库",
+    "docs/30_任务卡库"
+  ],
+  "doc_root_files": [
+    "docs/README.md",
+    "docs/目录索引.md"
+  ],
+  "readonly_roots": [
+    "docs/history_cache"
+  ],
+  "exempt_prefixes": [
+    "_tmp_session/",
+    "backup/",
+    "_archive/",
+    "dzrobot_v2/src/history/",
+    "artifacts/",
+    "docs/history_cache/",
+    "docs/_work/",
+    "docs/_工具/"
+  ],
+  "vendor_markers": [
+    "/mavros/",
+    "/px4_msgs/",
+    "/livox/",
+    "/FAST_LIO/",
+    "/vendor/",
+    "/third_party/",
+    "/rclcpp/",
+    "/ros2/"
+  ],
+  "skip_dirs": [
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".agent-teams",
+    ".venv",
+    ".idea",
+    ".vscode",
+    "dist",
+    "build",
+    ".pytest_cache"
+  ],
+  "lifecycle": {
+    "statuses": [
+      "现行",
+      "计划",
+      "历史",
+      "过程"
+    ],
+    "require_status": false,
+    "stale_days": 180,
+    "status_scope": [
+      "docs/00_项目总览",
+      "docs/10_agent提示词",
+      "docs/20_资料索引库"
+    ]
+  },
+  "baseline": "docs/_工具/doc_policy_baseline.json"
+}

@@ -1,7 +1,18 @@
 {
- "generated": "2026-10-22 17:24",
- "count": 67,
+ "generated": "2026-10-22 19:35",
+ "count": 72,
  "files": [
+  {
+   "path": "00_项目总览/06_本机值守与守护器.md",
+   "dir": "00_项目总览",
+   "title": "本机值守与守护器",
+   "summary": "1. **端口 19387 无监听** → DSH 进程死了 → `Start-Process` 重启应用。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-22",
+   "status": "现行",
+   "lines": 66
+  },
   {
    "path": "00_项目总览/团队与分工.md",
    "dir": "00_项目总览",
@@ -10,19 +21,19 @@
    "from": "AGENTS.md, docs/README.md, 用户 2026-10-21 指令",
    "level": "档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 61
+   "status": "现行",
+   "lines": 62
   },
   {
    "path": "00_项目总览/时间线.md",
    "dir": "00_项目总览",
    "title": "时间线（09-27 → 10-22）",
    "summary": "五个阶段：**① 09-27~10-01 官方框架与根因期** → **② 10-02~10-12 v1/v2/v3 循迹收官** → **③ 10-13~10-18 空地闭环…",
-   "from": "docs/_archive/docs/项目总览_AGENT_20261020.md 附录B, _tmp_session/PROJECT_STATUS_20261021.md, dzrobot_v2/src/history/INDEX.md, _tmp_session/yb_tree/docs/archive/**, docs/_archive/docs/merge/S5-S6, dzrobot_v2/docs/决策台账.md, docs/_work/timeline_doc-car.md, timeline_doc-cards.md, timeline_doc-drone.md, timeline_doc-ops.md, timeline_doc-prompts.md（五份片段）",
+   "from": "docs/history_cache/01_旧文档归档/docs/项目总览_AGENT_20261020.md 附录B, _tmp_session/PROJECT_STATUS_20261021.md, dzrobot_v2/src/history/INDEX.md, _tmp_session/yb_tree/docs/archive/**, docs/history_cache/01_旧文档归档/docs/merge/S5-S6, dzrobot_v2/docs/决策台账.md, docs/_work/timeline_doc-car.md, timeline_doc-cards.md, timeline_doc-drone.md, timeline_doc-ops.md, timeline_doc-prompts.md（五份片段）",
    "level": "实/档",
    "updated": "2026-10-22",
-   "status": "",
-   "lines": 119
+   "status": "现行",
+   "lines": 120
   },
   {
    "path": "00_项目总览/现状快照.md",
@@ -32,8 +43,8 @@
    "from": "_tmp_session/PROJECT_STATUS_20261021.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/paper50/三大优化方案.md, dzrobot_v2/docs/决策台账.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 149
+   "status": "现行",
+   "lines": 150
   },
   {
    "path": "00_项目总览/系统架构.md",
@@ -43,8 +54,8 @@
    "from": "docs/项目总览_AGENT_20261020.md, dzrobot_v2/docs/新版架构设计.md, 项目现状_20261018.md, 使用手册.md, dzrobot_v2/docs/空地指挥链路_协议与运行手册.md, dzsmartscout/docs/drone/无人机架构总览.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 193
+   "status": "现行",
+   "lines": 194
   },
   {
    "path": "00_项目总览/项目总览.md",
@@ -54,8 +65,8 @@
    "from": "docs/项目总览_AGENT_20261020.md, _tmp_session/PROJECT_STATUS_20261021.md, AGENTS.md, dzrobot_v2/docs/项目现状_20261018.md",
    "level": "实/档/未",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 136
+   "status": "现行",
+   "lines": 137
   },
   {
    "path": "10_agent提示词/00_一页纸.md",
@@ -65,8 +76,8 @@
    "from": "docs/agent_handoff/00_一页纸.md, docs/00_项目总览/现状快照.md, AGENTS.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 79
+   "status": "现行",
+   "lines": 80
   },
   {
    "path": "10_agent提示词/00_索引.md",
@@ -76,8 +87,8 @@
    "from": "本库全部文件 + docs/agent_handoff/*（旧版）+ _tmp_session/PC-01-提示词压缩/账本.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 53
+   "status": "现行",
+   "lines": 54
   },
   {
    "path": "10_agent提示词/01_提示词模板.md",
@@ -87,8 +98,8 @@
    "from": "docs/agent_handoff/10_提示词模板.md, docs/agent_handoff/31/33/34/35/36/37 的提示词块, docs/agent_handoff/20_发送指南.md §7",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 163
+   "status": "现行",
+   "lines": 164
   },
   {
    "path": "10_agent提示词/02_发送指南.md",
@@ -98,8 +109,8 @@
    "from": "docs/agent_handoff/20_发送指南.md, docs/agent_handoff/packs/L0/L1/L2_MANIFEST.md, _tmp_session/PC-01-提示词压缩/账本.md, _tmp_session/agent_overview_20261020/history.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 121
+   "status": "现行",
+   "lines": 122
   },
   {
    "path": "10_agent提示词/05_回报模板.md",
@@ -109,8 +120,8 @@
    "from": "docs/agent_handoff/32_循迹回报模板.md, _tmp_session/TRACK-R1-20261020-01/CARD.md, AGENTS.md §8.5, docs/30_任务卡库/模板/回报模板.md",
    "level": "实/档",
    "updated": "2026-10-22",
-   "status": "",
-   "lines": 91
+   "status": "现行",
+   "lines": 92
   },
   {
    "path": "10_agent提示词/README.md",
@@ -120,8 +131,8 @@
    "from": "docs/agent_handoff/README.md, docs/agent_handoff/20_发送指南.md, AGENTS.md §8",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 93
+   "status": "现行",
+   "lines": 94
   },
   {
    "path": "10_agent提示词/03_角色/auditor.md",
@@ -131,8 +142,8 @@
    "from": "_tmp_session/agent_overview_20261020/car.md, drone.md, link.md, history.md（子智能体只读调研样板）",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 80
+   "status": "现行",
+   "lines": 81
   },
   {
    "path": "10_agent提示词/03_角色/doc-writer.md",
@@ -142,8 +153,8 @@
    "from": "AGENTS.md §8（8.1–8.5）, docs/_工具/gen_index.py, docs/20_资料索引库/README.md, docs/00_项目总览/团队与分工.md §3",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 81
+   "status": "现行",
+   "lines": 82
   },
   {
    "path": "10_agent提示词/03_角色/implementer.md",
@@ -153,8 +164,8 @@
    "from": "docs/agent_handoff/33_循迹R0复核与R1任务.md §3, _tmp_session/TRACK-R1-20261020-01/CARD.md, _tmp_session/TRACK-R1-20261020-01/REPORT.md §6.2, docs/agent_handoff/37_论文方案取舍与三包集成.md §2",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 79
+   "status": "现行",
+   "lines": 80
   },
   {
    "path": "10_agent提示词/03_角色/lead.md",
@@ -164,8 +175,8 @@
    "from": "AGENTS.md §2/§4, docs/agent_handoff/30_循迹团队执行方案.md §4, _tmp_session/TRACK-R1-20261020-01/CARD.md, docs/agent_handoff/33_循迹R0复核与R1任务.md §3",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 85
+   "status": "现行",
+   "lines": 86
   },
   {
    "path": "10_agent提示词/03_角色/reviewer.md",
@@ -175,8 +186,8 @@
    "from": "docs/agent_handoff/10_提示词模板.md 模板 D, _tmp_session/TRACK-R1-20261020-01/REPORT.md §7, docs/agent_handoff/33_循迹R0复核与R1任务.md §3, docs/agent_handoff/37_论文方案取舍与三包集成.md §2",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 86
+   "status": "现行",
+   "lines": 87
   },
   {
    "path": "10_agent提示词/03_角色/verifier.md",
@@ -186,8 +197,8 @@
    "from": "_tmp_session/TRACK-R1-20261020-01/verification.md, docs/agent_handoff/33_循迹R0复核与R1任务.md §3, _tmp_session/TRACK-R1-20261020-01/CARD.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 93
+   "status": "现行",
+   "lines": 94
   },
   {
    "path": "10_agent提示词/04_场景/云台瞄准调参.md",
@@ -197,8 +208,8 @@
    "from": "_tmp_session/aim_step3/rec4.csv（本次实算）, docs/agent_handoff/37_论文方案取舍与三包集成.md §1/§2, docs/00_项目总览/现状快照.md §4, docs/云台PID自动整定方案.md（旧文）",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 114
+   "status": "现行",
+   "lines": 115
   },
   {
    "path": "10_agent提示词/04_场景/文档收口归档.md",
@@ -208,8 +219,8 @@
    "from": "AGENTS.md §8（8.1–8.5）, docs/README.md, docs/00_项目总览/团队与分工.md §3/§4, docs/20_资料索引库/README.md, docs/_工具/gen_index.py",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 99
+   "status": "现行",
+   "lines": 100
   },
   {
    "path": "10_agent提示词/04_场景/无人机恢复.md",
@@ -219,8 +230,8 @@
    "from": "_tmp_session/agent_overview_20261020/drone.md §4/§5/§6/§7, _tmp_session/agent_overview_20261020/link.md §3.2, docs/00_项目总览/现状快照.md §5",
    "level": "实/档/未",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 117
+   "status": "现行",
+   "lines": 118
   },
   {
    "path": "10_agent提示词/04_场景/现场实车执行.md",
@@ -230,8 +241,8 @@
    "from": "docs/agent_handoff/34_实车基线执行任务.md §1/§2, docs/agent_handoff/36_R2复核_R3补测与收尾计划.md §3, docs/00_项目总览/现状快照.md §2, dzrobot_v2/docs/发车门禁口径.md §4/§5, docs/20_资料索引库/README.md §5",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 104
+   "status": "现行",
+   "lines": 105
   },
   {
    "path": "10_agent提示词/04_场景/离线回归攻坚.md",
@@ -241,8 +252,8 @@
    "from": "docs/agent_handoff/30_循迹团队执行方案.md §4/§5, docs/agent_handoff/36_R2复核_R3补测与收尾计划.md §0.2, dzrobot_v2/docs/决策台账.md（D-023）, _tmp_session/TRACK-R1-20261020-01/REPORT.md §5.2",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 86
+   "status": "现行",
+   "lines": 87
   },
   {
    "path": "20_资料索引库/README.md",
@@ -252,19 +263,19 @@
    "from": "本次文档收口（583 篇）提炼；各专题篇内注明原始出处",
    "level": "实/档/未",
    "updated": "2026-10-22",
-   "status": "",
-   "lines": 159
+   "status": "现行",
+   "lines": 160
   },
   {
    "path": "20_资料索引库/历史/00_索引.md",
    "dir": "20_资料索引库/历史",
    "title": "历史 · 分册索引",
-   "summary": "两篇：01 沿革 覆盖 09-27 到 10-18（三段），02 并入与改名 覆盖 10-18 一天。",
-   "from": "_tmp_session/yb_tree/docs/archive/（16 篇）, docs/merge/（10 篇）, _tmp_session/d13_verify/, dzrobot_v2/src/history/, dzrobot_v2/docs/清理记录_20261018.md",
+   "summary": "三篇：01 沿革 覆盖 09-27 到 10-18（三段），02 并入与改名 覆盖 10-18 一天，03 自主工作期 收 10-15~10-18 的值守与实车事实。",
+   "from": "_tmp_session/yb_tree/docs/archive/（16 篇）, docs/merge/（10 篇）, _tmp_session/d13_verify/, dzrobot_v2/src/history/, dzrobot_v2/docs/清理记录_20261018.md, .zhiyuan/工作日志.md + memory/digest_20261018.md（原文已按用户决定删除，仅留提炼）",
    "level": "档/实",
-   "updated": "2026-10-21",
-   "status": "",
-   "lines": 42
+   "updated": "2026-10-22",
+   "status": "历史",
+   "lines": 44
   },
   {
    "path": "20_资料索引库/历史/01_沿革_20260927_20261012.md",
@@ -274,8 +285,8 @@
    "from": "_tmp_session/yb_tree/docs/archive/（16 篇）, _tmp_session/yb_tree/docs/会话交接-20261002.md, _tmp_session/yb_tree/docs/战略评估-省一冲刺-20261014.md, _tmp_session/yb_tree/docs/接手说明.md, dzrobot_v2/src/history/book/项目技术文档2026-10-03.md, dzrobot_v2/src/history/INDEX.md, carsnap_tree/docs/agent_archive/",
    "level": "档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 76
+   "status": "历史",
+   "lines": 77
   },
   {
    "path": "20_资料索引库/历史/02_并入与改名_20261018.md",
@@ -285,8 +296,19 @@
    "from": "docs/merge/（整合方案、coordination-design、drift-audit、regression-matrix、capability-matrix、S0 到 S6 记录 共 10 篇）, _tmp_session/d13_verify/切换记录_20261018.md, dzrobot_v2/docs/清理记录_20261018.md, memory/digest_20261018.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 78
+   "status": "历史",
+   "lines": 79
+  },
+  {
+   "path": "20_资料索引库/历史/03_自主工作期_20261015_20261018.md",
+   "dir": "20_资料索引库/历史",
+   "title": "自主工作期记录（10-15 ~ 10-18）",
+   "summary": "- **完赛 43/43 到 N5**，8 线程 `STOPPED`，**0 错误**。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-22",
+   "status": "历史",
+   "lines": 43
   },
   {
    "path": "20_资料索引库/无人机/00_索引.md",
@@ -296,8 +318,8 @@
    "from": "dzsmartscout/docs/无人机项目总览.md, dzsmartscout/docs/drone/无人机架构总览.md, dzsmartscout/docs/drone/无人机项目详细报告_20261019.md, dzsmartscout/fc-audit/无人机技术文档.md, docs/交接_无人机飞行分析_agent技术文档.md, _tmp_session/agent_overview_20261020/drone.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 84
+   "status": "现行",
+   "lines": 85
   },
   {
    "path": "20_资料索引库/无人机/01_架构总览.md",
@@ -307,8 +329,8 @@
    "from": "dzsmartscout/docs/无人机项目总览.md, dzsmartscout/docs/drone/无人机架构总览.md, dzsmartscout/fc-audit/无人机技术文档.md, _tmp_session/agent_overview_20261020/drone.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 117
+   "status": "现行",
+   "lines": 118
   },
   {
    "path": "20_资料索引库/无人机/02_飞控与uXRCE域号.md",
@@ -318,8 +340,8 @@
    "from": "dzsmartscout/docs/drone/uXRCE恢复手册.md, dzsmartscout/docs/drone/域号切换单_118.md, dzsmartscout/docs/drone/无人机架构总览.md, docs/交接_无人机飞行分析_agent技术文档.md, dzsmartscout/tools/reports/t4-链路验证报告.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 103
+   "status": "现行",
+   "lines": 104
   },
   {
    "path": "20_资料索引库/无人机/03_感知与视觉侦察.md",
@@ -329,8 +351,8 @@
    "from": "dzsmartscout/docs/drone/感知链体检_20261017.md, dzsmartscout/fc-audit/无人机技术文档.md, dzsmartscout/fc-audit/fixes/04-camera-bringup/APPLY.md, dzsmartscout/fc-audit/notes/camera.md, dzsmartscout/fc-audit/notes/fastlio.md, dzsmartscout/tools/perception/CAPABILITY_L1.md, dzsmartscout/tools/perception/reports/field_map_check.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 98
+   "status": "现行",
+   "lines": 99
   },
   {
    "path": "20_资料索引库/无人机/04_路线下发与轨迹回放.md",
@@ -340,8 +362,8 @@
    "from": "dzsmartscout/docs/空地路线下发契约_v2.md, dzsmartscout/fc-audit/fixes/05-drone-to-car-waypoint/APPLY.md, dzsmartscout/fc-audit/fixes/06-car-wait-for-drone/APPLY.md, dzsmartscout/src/px4_path/README.md, dzsmartscout/src/px4_path/config/params.yaml, _tmp_session/agent_overview_20261020/drone.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 99
+   "status": "现行",
+   "lines": 100
   },
   {
    "path": "20_资料索引库/无人机/05_现场操作与脚本.md",
@@ -351,8 +373,8 @@
    "from": "dzsmartscout/fc-audit/启动手册.md, dzsmartscout/docs/一次性脚本清单_20261017.md, dzsmartscout/WORKFLOW.md, docs/交接_无人机飞行分析_agent技术文档.md, dzsmartscout/docs/无人机项目总览.md, _tmp_session/agent_overview_20261020/drone.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 113
+   "status": "现行",
+   "lines": 114
   },
   {
    "path": "20_资料索引库/无人机/06_已取证与未验证.md",
@@ -362,8 +384,8 @@
    "from": "_tmp_session/agent_overview_20261020/drone.md, docs/交接_无人机飞行分析_agent技术文档.md, dzsmartscout/docs/drone/无人机项目详细报告_20261019.md, dzsmartscout/docs/drone/感知链体检_20261017.md, dzsmartscout/docs/drone/无人机架构总览.md, dzsmartscout/tools/perception/CAPABILITY_L1.md",
    "level": "实/档/未",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 87
+   "status": "现行",
+   "lines": 88
   },
   {
    "path": "20_资料索引库/空地链路/00_索引.md",
@@ -373,8 +395,8 @@
    "from": "dzrobot_v2/docs/空地指挥链路_协议与运行手册.md, dzrobot_v2/docs/step_loop.md, dzsmartscout/docs/空地路线下发契约_v2.md, docs/空地联合仿真设计.md, _tmp_session/t3/audit/FLOW_COMPARISON.md",
    "level": "实/档",
    "updated": "2026-10-22",
-   "status": "",
-   "lines": 42
+   "status": "现行",
+   "lines": 59
   },
   {
    "path": "20_资料索引库/空地链路/01_协议v2与契约.md",
@@ -384,8 +406,8 @@
    "from": "dzrobot_v2/docs/step_loop.md, dzrobot_v2/docs/空地指挥链路_协议与运行手册.md, dzsmartscout/docs/空地路线下发契约_v2.md, _tmp_session/t3/emitter/README.md, _tmp_session/t3/audit/FLOW_COMPARISON.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 137
+   "status": "现行",
+   "lines": 138
   },
   {
    "path": "20_资料索引库/空地链路/02_链路联调与已知缺口.md",
@@ -395,8 +417,8 @@
    "from": "_tmp_session/t3/audit/FLOW_COMPARISON.md, _tmp_session/t3/carcheck/EMITTER_CROSSCHECK.md, _tmp_session/t3/carcheck/runbook.md, _tmp_session/t3_batch/README.md, dzrobot_v2/docs/空地指挥链路_协议与运行手册.md, dzrobot_v2/docs/决策台账.md D-015/017/020/022, docs/空地联合仿真设计.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 100
+   "status": "现行",
+   "lines": 101
   },
   {
    "path": "20_资料索引库/视觉与云台/00_索引.md",
@@ -406,8 +428,8 @@
    "from": "dzrobot_v2/docs/archive/20261018/survey_gimbal_fire.md, docs/瞄准代码对比报告_gitee_vs_本地_20261018.md, docs/云台PID自动整定方案.md, docs/第三趟实车验证方案_射击链.md, docs/感知可行性_摄像头评估.md, air_ground_models/README.md, dzrobot_v2/docs/决策台账.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 60
+   "status": "现行",
+   "lines": 77
   },
   {
    "path": "20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md",
@@ -417,8 +439,8 @@
    "from": "dzrobot_v2/src/dzrknn_dataprocess/**, dzrobot_v2/src/dzjudgment/**, dzrobot_v2/docs/archive/20261018/survey_gimbal_fire.md, dzrobot_v2/docs/archive/20261018/云台补丁说明.md, docs/瞄准代码对比报告_gitee_vs_本地_20261018.md, _tmp_session/aim_audit/体检报告_20261018_1741.md, dzrobot_v2/config/robot.yaml, dzrobot_v2/docs/决策台账.md D-002/D-003/D-030",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 131
+   "status": "现行",
+   "lines": 132
   },
   {
    "path": "20_资料索引库/视觉与云台/02_视觉模型与检测.md",
@@ -428,8 +450,8 @@
    "from": "dzrobot_v2/src/rknn_pt/**, air_ground_models/README.md, dzrobot_v2/config/robot.yaml, docs/感知可行性_摄像头评估.md, _tmp_session/t3/perception/README.md, dzrobot_v2/docs/决策台账.md D-003, dzrobot_v2/docs/审查_无人机飞控执行侧_20261018.md",
    "level": "实/档/未",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 84
+   "status": "现行",
+   "lines": 85
   },
   {
    "path": "20_资料索引库/视觉与云台/03_移动靶缺口与改进方向.md",
@@ -439,8 +461,8 @@
    "from": "dzrobot_v2/docs/archive/20261018/survey_gimbal_fire.md §10, dzrobot_v2/docs/决策台账.md D-030, docs/第三趟实车验证方案_射击链.md, docs/00_项目总览/现状快照.md §8, _tmp_session/paper50/三大优化方案.md §0, config/robot.yaml",
    "level": "实/档/未",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 93
+   "status": "现行",
+   "lines": 94
   },
   {
    "path": "20_资料索引库/赛事与治理/00_索引.md",
@@ -450,8 +472,8 @@
    "from": "本册 01~05（源见各篇 front matter）, docs/20_资料索引库/README.md, AGENTS.md",
    "level": "实/档/未",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 49
+   "status": "现行",
+   "lines": 50
   },
   {
    "path": "20_资料索引库/赛事与治理/01_赛题规则与场地.md",
@@ -461,8 +483,8 @@
    "from": "_tmp_session/yb_tree/docs/raw_txt/02_15空地协同侦排挑战赛.txt（赛规 14 页原文）, _tmp_session/_pdf_text/场地布置说明书V2-空地协同侦排挑战赛.txt（12 页）, dzsmartscout/fc-audit/场地规则解读与雷达应用.md, dzrobot_v2/config/map.yaml, dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py",
    "level": "档/实",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 124
+   "status": "现行",
+   "lines": 125
   },
   {
    "path": "20_资料索引库/赛事与治理/02_计分与时间预算.md",
@@ -472,8 +494,8 @@
    "from": "_tmp_session/yb_tree/docs/raw_txt/02_15空地协同侦排挑战赛.txt（赛规 p6-p10）, _tmp_session/_pdf_text/场地布置说明书V2-空地协同侦排挑战赛.txt, docs/空地联合仿真设计.md, dzrobot_v2/docs/黑图探索与动态规划_决策层方案.md, _tmp_session/paper50/三大优化方案.md §0, dzrobot_v2/src/dzbrain/dzbrain/core/config.py",
    "level": "档/实/未",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 111
+   "status": "现行",
+   "lines": 112
   },
   {
    "path": "20_资料索引库/赛事与治理/03_工作流与铁律.md",
@@ -483,8 +505,8 @@
    "from": "AGENTS.md（根，含 2026-10-21 新增 §8）, dzrobot_v2/docs/工作流v2.md, dzrobot_v2/docs/发车门禁口径.md, dzrobot_v2/docs/复用清单.md, dzrobot_v2/docs/能力索引.md, dzrobot_v2/docs/TEAM_STATUS.md, dzrobot_v2/tools/wf/check.py, dzrobot_v2/tools/wf/check_links.py, dzrobot_v2/tools/wf/check_reuse.py",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 125
+   "status": "现行",
+   "lines": 146
   },
   {
    "path": "20_资料索引库/赛事与治理/04_决策台账摘编.md",
@@ -494,8 +516,8 @@
    "from": "dzrobot_v2/docs/决策台账.md（D-001~D-030 全文，120 行）",
    "level": "档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 92
+   "status": "现行",
+   "lines": 94
   },
   {
    "path": "20_资料索引库/赛事与治理/05_已知红与回归口径.md",
@@ -505,8 +527,8 @@
    "from": "dzrobot_v2/docs/回归守护_known_reds.md, 全量回归37套_严格审查台账_20261018.md, dzrobot_v2/docs/决策台账.md（D-023/D-025）, dzrobot_v2/docs/TEAM_STATUS.md, dzrobot_v2/_run_full_regression.py",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 97
+   "status": "现行",
+   "lines": 98
   },
   {
    "path": "20_资料索引库/车端/00_索引.md",
@@ -516,8 +538,8 @@
    "from": "dzrobot_v2/docs/README.md, dzrobot_v2/docs/项目现状_20261018.md, dzrobot_v2/docs/TEAM_STATUS.md, dzrobot_v2/docs/决策台账.md, dzrobot_v2/src/history/大事记.md",
    "level": "实+档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 71
+   "status": "现行",
+   "lines": 72
   },
   {
    "path": "20_资料索引库/车端/01_架构与线程.md",
@@ -527,8 +549,8 @@
    "from": "dzrobot_v2/src/dzbrain/dzbrain/main.py, dzrobot_v2/src/dzbrain/dzbrain/tasks/*.py, dzrobot_v2/docs/新版架构设计.md, dzrobot_v2/docs/library/流程与架构.md",
    "level": "实",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 82
+   "status": "现行",
+   "lines": 83
   },
   {
    "path": "20_资料索引库/车端/02_循迹与控制.md",
@@ -538,8 +560,8 @@
    "from": "dzrobot_v2/docs/循迹算法说明.md, dzrobot_v2/src/dzbrain/dzbrain/pursuit/*, tasks/tracker.py, dzrobot_v2/config/robot.yaml, _tmp_session/TRACK-R0/TRACK-R1",
    "level": "实+档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 79
+   "status": "现行",
+   "lines": 80
   },
   {
    "path": "20_资料索引库/车端/03_规划器与自动规划.md",
@@ -549,8 +571,8 @@
    "from": "dzrobot_v2/docs/压测_规划器64图_20261018.md, dzrobot_v2/docs/三引擎审计_20261018.md, dzrobot_v2/docs/决策台账.md, dzrobot_v2/_tmp_session/TRACK-PLAN-B1-20261021/REPORT.md, dzrobot_v2/_tmp_session/p1_hybrid/",
    "level": "实（64 图复跑）+档（47/64 为卡内自报）",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 83
+   "status": "现行",
+   "lines": 84
   },
   {
    "path": "20_资料索引库/车端/04_定位与安全.md",
@@ -560,8 +582,8 @@
    "from": "dzrobot_v2/src/dzbrain/dzbrain/tasks/localization.py, tasks/safety.py, dzrobot_v2/config/robot.yaml, dzrobot_v2/docs/library/车体与标定.md, dzrobot_v2/docs/项目现状_20261018.md, _tmp_session/t_d1b/, t_ae_contract/, task-44/",
    "level": "实+档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 74
+   "status": "现行",
+   "lines": 75
   },
   {
    "path": "20_资料索引库/车端/05_配置与部署.md",
@@ -571,8 +593,8 @@
    "from": "dzrobot_v2/docs/使用手册.md, dzrobot_v2/docs/library/现场联调与部署.md, dzrobot_v2/docs/决策台账.md, dzrobot_v2/config/robot.yaml, dzrobot_v2/config/map.yaml, _tmp_session/step_loop/map7.yaml, _tmp_session/sim_map_20261018/map.yaml",
    "level": "实+档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 85
+   "status": "现行",
+   "lines": 86
   },
   {
    "path": "20_资料索引库/车端/06_回归与测试基线.md",
@@ -582,8 +604,8 @@
    "from": "dzrobot_v2/docs/全量回归37套_严格审查台账_20261018.md, dzrobot_v2/docs/回归守护_known_reds.md, dzrobot_v2/docs/决策台账.md(D-023/D-025), _tmp_session/TRACK-R0/, t35/, docs/agent_handoff/33_循迹R0复核与R1任务.md",
    "level": "实（10-18 21:20 干净树实测）+档（分类）",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 72
+   "status": "现行",
+   "lines": 73
   },
   {
    "path": "20_资料索引库/车端/07_车端关键裁决.md",
@@ -593,8 +615,8 @@
    "from": "dzrobot_v2/docs/决策台账.md（D-001~D-030 原文）",
    "level": "档",
    "updated": "2026-10-21",
-   "status": "",
-   "lines": 62
+   "status": "现行",
+   "lines": 63
   },
   {
    "path": "30_任务卡库/README.md",
@@ -605,7 +627,7 @@
    "level": "档",
    "updated": "2026-10-22",
    "status": "",
-   "lines": 95
+   "lines": 97
   },
   {
    "path": "30_任务卡库/在办/T12-无人机上线执行单.md",
@@ -617,6 +639,39 @@
    "updated": "2026-10-21",
    "status": "in_progress",
    "lines": 72
+  },
+  {
+   "path": "30_任务卡库/在办/TOOLS-ORGANIZE-20261022.md",
+   "dir": "30_任务卡库/在办",
+   "title": "TOOLS-ORGANIZE-20261022 — tools 区整理 + 统一空地插件重做",
+   "summary": "- owner: lead",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "",
+   "lines": 48
+  },
+  {
+   "path": "30_任务卡库/在办/TRACK-CFG-TARGETSPEED-20261022.md",
+   "dir": "30_任务卡库/在办",
+   "title": "TRACK-CFG-TARGETSPEED-20261022 · 靶速注释收口（0.04 → 1.0）",
+   "summary": "**一句话**：把 `config/robot.yaml` 的 `target_speed_mps: 0.04` 与两处「现场实测 4 cm/s」注释改成 **1.0 m/s*…",
+   "from": "决策台账 D-031（2026-10-22 靶速口径裁决）、项目负责人 10-22 书面回复",
+   "level": "算/未（影响面需 grep 证明；改动未部署）",
+   "updated": "2026-10-22",
+   "status": "待办（待指派 owner 与窗口；今日不动 config）",
+   "lines": 63
+  },
+  {
+   "path": "30_任务卡库/在办/TRACK-DAY-20261022.md",
+   "dir": "30_任务卡库/在办",
+   "title": "TRACK-DAY-20261022 · 2026-10-22 当日作业卡（D11 打靶验证 → 分叉；B1 验收收口）",
+   "summary": "**第一件（现场 10 分钟）**：车摆 D11 格心、车头朝北，1.41 m 打靶采 30 s，验证\"只改距离、不改代码\"能否打开开火门。**细则与判据在 D11 卡，本卡只…",
+   "from": "docs/30_任务卡库/在办/TRACK-FIELD-D11-20261022.md；docs/00_项目总览/现状快照.md §6/§8；docs/30_任务卡库/在办/TRACK-PLAN-B1-20261021.md；docs/30_任务卡库/在办/TRACK-FIELD-R3B-20261021.md；docs/30_任务卡库/README.md（10-22 16:50 在办板）",
+   "level": "实/档/未",
+   "updated": "2026-10-22",
+   "status": "in_progress",
+   "lines": 126
   },
   {
    "path": "30_任务卡库/在办/TRACK-FIELD-B5-20261021.md",
@@ -636,9 +691,9 @@
    "summary": "**一句话**：在 1.41 m 射击距离、1 m/s 靶速下，验证\"只改距离、不改代码\"能否让 `fire_ready` 打开并实发命中蓝面。",
    "from": "本会话现场记录（2026-10-21 21:20–22:00）、TRACK-FIELD-R3B-20261021.md、T-B1 规划输出（57 token 双停站）、T4 归因增量（提前量/门结构）",
    "level": "实/未",
-   "updated": "2026-10-21",
-   "status": "待执行（明日第一件事）",
-   "lines": 75
+   "updated": "2026-10-22",
+   "status": "in_progress（2026-10-22 现场执行中）",
+   "lines": 109
   },
   {
    "path": "30_任务卡库/在办/TRACK-FIELD-R3B-20261021.md",
@@ -659,8 +714,8 @@
    "from": "dzrobot_v2/_tmp_session/TRACK-PLAN-B1-20261021/REPORT.md, _tmp_session/PROJECT_STATUS_20261021.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/paper50/三大优化方案.md",
    "level": "档",
    "updated": "2026-10-21",
-   "status": "待验收",
-   "lines": 70
+   "status": "验收通过（离线，未部署）",
+   "lines": 82
   },
   {
    "path": "30_任务卡库/归档/00_索引.md",
@@ -726,7 +781,7 @@
    "level": "档",
    "updated": "2026-10-21",
    "status": "",
-   "lines": 128
+   "lines": 136
   },
   {
    "path": "30_任务卡库/模板/回报模板.md",

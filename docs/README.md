@@ -1,6 +1,6 @@
 # 文档总入口（唯一）
 
-> **铁律**：所有长期文档只存在本目录（`v1/docs/`）。旧文已归档 `_archive/`，其它目录**只出不进**。细则 `AGENTS.md` §8。
+> **铁律**：所有长期文档只存在本目录（`v1/docs/`）。旧文已归档 `history_cache/`（只读），其它目录**只出不进**。细则 `AGENTS.md` §8。
 > **维护**：Lead 唯一写者；子智能体只写被指派的子目录；每次收口后重跑 `python docs/_工具/gen_index.py`。
 
 ---
@@ -27,8 +27,11 @@
 | 资料索引库 | `20_资料索引库/` | **项目百科全书**：数字速查、症状索引、坑库、分册专题 | [README](20_资料索引库/README.md) |
 | 任务卡库 | `30_任务卡库/` | **作业台**：领卡 → 卡内写报告 → 整卡归档 | [README](30_任务卡库/README.md) |
 | 目录索引 | `目录索引.md` | 全库每个文件的一行摘要（自动生成） | [目录索引](目录索引.md) |
+| 历史留存 | `history_cache/` | 旧文档原话 + 快照包（只读，不参与门禁） | [history_cache](history_cache/00_索引.md) |
 
-另有 `_archive/`：迁移前的旧长期文档（**118 个文件 / 4.94 MiB**，其中 .md 114 篇，2026-10-22 迁入），**只读**，按原路径保留，供追溯；逐文件「原路径 → 归档路径 + 双向 sha256」见 [_work/archive_manifest.csv](_work/archive_manifest.csv)，旧文被哪篇现行取代见各册 `00_索引.md` 的「取代」栏。
+另有 `history_cache/`：**历史留存区**（2026-10-22 建立，约 1.33 GB，只读、只出不进），入口 [history_cache/00_索引.md](history_cache/00_索引.md)。三个大类：`01_旧文档归档/`（迁移前 118 个旧文档，按原路径保留，5.3 MB，逐文件 sha256 见 `00_清单.csv`）、`02_仓库快照/`（4 棵仓库树 tar，718 MB）、`03_过程稿快照/`（3 组过程稿 tar，607 MB）。
+
+快照包内保留打包时的原始相对路径；要查过程稿就解包到 `_tmp_session/_extract/<包名>/`，**用完删**，不要重新散落回工作区。哪个包装了什么见 [02_仓库快照/00_索引.md](history_cache/02_仓库快照/00_索引.md) 与 [03_过程稿快照/00_索引.md](history_cache/03_过程稿快照/00_索引.md)。
 
 > 另：`dzrobot_v2/docs/` 仍留 **8 个门禁工具机器读取的活文件**（决策台账/复用清单/工作流v2/目录索引.md+.json/索引标注.yaml/能力索引/TEAM_STATUS），依据 `AGENTS.md` §8.1，不要删。
 
@@ -39,7 +42,21 @@
 1. **先通读再存入**（`AGENTS.md` §8.2）：不看内容就往库里塞 = 制造下一轮混乱。
 2. **一主题一篇**：口径冲突**并列写**（A 版 / B 版 + 各自出处），不合并成一个假结论。
 3. **每条结论带证据**：`路径:行号` 或「文件 + 章节」；不确定写「未核实」。
-4. **旧路径取文件规则**：正文里出现的旧路径（如 `dzrobot_v2/docs/xxx.md`），原文在 `docs/_archive/<原路径>`。
+4. **旧路径取文件规则**：正文里出现的旧路径（如 `dzrobot_v2/docs/xxx.md`），原文在 `docs/history_cache/01_旧文档归档/<原路径>`。
+
+## 收口前自检（顺序固定）
+
+```powershell
+cd D:\User\Desktop\比赛存档\v1
+python docs\_工具\gen_index.py            # 1. 重建全库索引（新/改文档必跑）
+python docs\_工具\check_doc_policy.py     # 2. 文档守卫：库外新增 / docs 下开新库 / 未登记
+cd dzrobot_v2
+python tools\wf\check.py                  # 3. 仓库门禁（frozen / 断链 / 未登记脚本）
+python tools\wf\check_links.py            # 4. 断链（含 history/INDEX）
+cd .. && python docs\_工具\snapshot_docs.py  # 5. 文档快照（大收口/每月一次）
+```
+
+红线不归零不许收口。规则真源 `AGENTS.md` §8.6；配置真源 `docs/_工具/doc_policy.json`。
 
 ## 重新生成索引
 

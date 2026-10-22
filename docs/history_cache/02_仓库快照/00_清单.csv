@@ -1,0 +1,5 @@
+﻿所属,包,类别,内容,文件数,字节,sha256
+02_仓库快照,ext_carsnap_tree_20261022.tar.gz,车端工作树快照,清理前 _tmp_session/carsnap_tree：车端工作树副本，含 models/artifacts/_backups 与 .gitattributes,890,16667862,55818aa529a5695d897cbbb73fe5d8ac9f0164fd8e006aac4b617df4a77f35f5
+02_仓库快照,ext_gitee_air_ground_20261022.tar.gz,gitee air_ground 浅克隆,members/yu-binghuan 侦察时克隆：.git 对象库 + origin/* 全部分支引用（main/merge/members/preserve/agents），工作树为空；EMPty,57,301366232,77c64c09673df9ac7dc28050e5ed97b7c8766cac6ca0b06eb5914ae520bfcb1c
+02_仓库快照,ext_gitee_main_tree_20261022.tar.gz,gitee 主支工作树,外部仓主支工作树：models 权重 218 MB、docs、onboard、capture、demo 脚本,2599,216635316,7c8b368850f083916ac0db5028cd71d3c7385e6289401d2fcc0be23eb1b30e5c
+02_仓库快照,ext_yb_tree_20261022.tar.gz,gitee 成员分支工作树,外部仓成员分支工作树（同构；docs/成员交接、reference/members 素材在此）,2719,217763682,a6e68421684b26c5b3d18c6d33fb6bf8648b16a83fccf7b660ee7a7d1327a618

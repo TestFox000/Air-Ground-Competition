@@ -1,0 +1,428 @@
+信号接管：SIGINT/SIGTERM → 只置停机标志；ROS 上下文判活 = rclpy.ok()（默认信号处理已在 RosBridge 里关闭）
+ROS 环境：ROS_DOMAIN_ID=118（dzros.env 一致） DZ_ROS_DOMAIN=118 ROS_LOCALHOST_ONLY=0 RMW=<默认>
+订阅清单：/odom/localization, /imu_data, /offset_center, /aim/status, /shoot_count, /referee/hit, /referee/ammo, /HpAndHitmsg, /nav/manual_override, /nav/manual_gimbal, /dzlink/drone_to_car, /nav/waypoint
+⚠️ 订阅清单缺 ['manual_gimbal']（与 required_subscription_topics 对账失败）
+话题计数 odom: publishers=1 subscribers=1
+话题计数 drone_in: publishers=0 subscribers=1
+话题计数 pursuit_angle: publishers=1 subscribers=1
+启动契约：跳过（DZ_SKIP_CONTRACT=1 或 mode=bench）
+==============================================================================
+dzbrain 启动 · 多线程任务架构
+  配置文件 : /home/duzhong/r3_field_20261021/config/robot_r3.yaml
+  地图   : /home/duzhong/dzrobot/config/map.yaml
+  路线来源 : 自动规划
+  路线   : 自动规划（map_path=/home/duzhong/dzrobot/config/map.yaml，无倒车，预算 2.0s；实际 token 见任务开始横幅）
+  巡航速度 : 0.1 m/s
+  自动出发 : False（延时 10.0s）
+  越界余量 : 0.6 m
+  开火策略 : moving_lead（提前量 0.27s）
+  任务线程 : Localization@20Hz Safety@20Hz TrackerTask@50Hz MissionTask@10Hz AimTask@50Hz FixTask@10Hz DroneTask@5Hz TelemetryTask@2Hz
+==============================================================================
+ROS 契约：pursuit_angle=pursuitAngle | scan_request=/nav/scan_request | aim_fire_gate=/aim/fire_gate | aim_fire_ready=/aim/fire_ready | drone_in=/dzlink/drone_to_car
+ROS executor 启动：4 线程
+✅ 位姿就绪门通过：/odom/localization 已进决策层（age=0.01s）
+定位：锚定=ON 到位半径=0.120m 漂移告警=0.300m 前向投影窗口=0.120m 定位超时=1.50s 卡死自愈=5拍/0.010m/0.20m
+启动：20 Hz
+==============================================================================
+SafetyTask 启动（20 Hz）★ 唯一强制停车者
+  定位超时      : 1.50 s
+  地图安全余量  : ±0.60 m  (-0.425, 4.2749999999999995, -0.425, 5.324999999999999)
+启动：50 Hz  任务停滞判定  : 1.50 s
+
+刹车：无安全状态（P_SAFETY 缺失，按不安全处理）  故障刹车      : ON
+就绪：auto_start=False 延时=10s 复位='N10,y' 扫描模式=continuous
+
+  任务组        : 已注入 8 个桥洞情报：来源=EV_BRIDGE_INFO 事件流（半场各自独立） drone.enabled=True 过期阈值=30s 等待窗口=2s 默认格 lower=K10/upper=K4 （新鲜情报优先，缺失/过期/离线一律回落默认）
+启动：策略 moving_lead，提前量 0.27s，α-β(ξ=3.5, α=0.762, β=0.381)，开火框 42~42px（框宽 30~120px），提前量限幅 ±44.1px（≈轨道全宽 196px），单靶 10 发 / 全场 10 发，冷却 800ms，丢靶判定 2.00s（60 帧 @ 30fps）
+==============================================================================桥洞情报：等待窗口只在『车侧有无人机链路（P_DRONE 存在）且两半场情报未齐』时生效；无 P_DRONE 时不等、不换，行为与接线前一致
+误差修正（估计侧）：比例估计=ON 步长≤0.005/段 夹紧±0.1 样本门槛=3段 漂移剔除>0.300m 比值窗口=[0.75, 1.35]
+启动：10 Hz
+启动：10 Hz
+
+启动：20 Hz
+
+桥洞情报[lower]：lower → K10（no_link：未收到 P_DRONE（DroneTask 未运行/未启用）→ 用默认格）启动：50 Hz遥控接管：OFF（交回自动）
+桥洞情报[upper]：upper → K4（no_link：未收到 P_DRONE（DroneTask 未运行/未启用）→ 用默认格）
+
+
+云台锁止：scan_request=0（巡迹/非射击停站；阶段=None；累计切换 1 次）检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责遥测：2.0 Hz（0.5s/条）
+
+任务组启动：8 个线程 -> Localization@20Hz, Safety@20Hz, TrackerTask@50Hz, MissionTask@10Hz, AimTask@50Hz, FixTask@10Hz, DroneTask@5Hz, TelemetryTask@2Hz
+启动：2 Hz
+
+检查③宽限：AimTask 从未 tick（ticks=0 state=RUNNING），宽限 8.0s 内不判停滞不开火：安全不 OK
+检查③宽限：DroneTask 从未 tick（ticks=0 state=RUNNING），宽限 8.0s 内不判停滞
+
+检查③宽限：TelemetryTask 从未 tick（ticks=0 state=INIT），宽限 8.0s 内不判停滞无人机链路：心跳超时 3s 情报过期 30s 车状态 1.4Hz 本地地图=已载入(/home/duzhong/dzrobot/config/map.yaml)
+
+安全系统就绪：P_SAFETY.ok=True（越界余量 ±0.60 m / 定位超时 1.50 s）核对消费方：policy=record 覆盖账本=开（默认只记录不阻断；EV_FIELD_VERIFY → field_verify/drone_coverage）
+
+启动：5 Hz
+刹车：阶段 未设置 不允许循迹
+不开火：无目标观测
+桥洞情报[lower]：lower → K10（offline：无人机离线（online=False，最近情报 未知））
+桥洞情报[upper]：upper → K4（offline：无人机离线（online=False，最近情报 未知））
+[T] D11 IDLE (0.175,3.675) yaw-16.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄SCAN 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] D11 IDLE (0.175,3.675) yaw-16.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄SCAN 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+不开火：无目标观测
+不开火：类别未确认
+类别锁定改锁：0 → 1（连续 5 帧 ≥ 5）
+不开火：预测落点在开火框外
+[T] D11 IDLE (0.175,3.675) yaw-17.0 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶s1.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] D11 IDLE (0.175,3.675) yaw-17.0 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶s1.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+不开火：目标丢失（闭锁）
+不开火：预测落点在开火框外
+[T] D11 IDLE (0.175,3.675) yaw-17.1 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 未设置 不允许循迹
+不开火：目标丢失（闭锁）
+不开火：预测落点在开火框外
+[T] D11 IDLE (0.175,3.675) yaw-17.2 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶s1.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] D11 IDLE (0.175,3.675) yaw-17.2 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+[T] D11 IDLE (0.175,3.675) yaw-17.2 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：预测落点在开火框外
+不开火：目标丢失（闭锁）
+[T] D11 IDLE (0.175,3.675) yaw-17.3 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：预测落点在开火框外
+不开火：目标丢失（闭锁）
+[T] D11 IDLE (0.175,3.675) yaw-17.4 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] D11 IDLE (0.175,3.675) yaw-17.5 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+[T] D11 IDLE (0.175,3.675) yaw-17.5 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+[T] D11 IDLE (0.175,3.675) yaw-17.6 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄SCAN 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：预测落点在开火框外
+不开火：目标丢失（闭锁）
+[T] D11 IDLE (0.175,3.675) yaw-17.7 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：预测落点在开火框外
+[T] D11 IDLE (0.175,3.675) yaw-17.7 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] D11 IDLE (0.175,3.675) yaw-17.8 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶s1.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+[T] D11 IDLE (0.175,3.675) yaw-17.8 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+不开火：预测落点在开火框外
+[T] D11 IDLE (0.175,3.675) yaw-17.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+[T] D11 IDLE (0.175,3.675) yaw-17.9 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+刹车：阶段 未设置 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+不开火：类别未确认
+[T] D11 IDLE (0.175,3.675) yaw-18.0 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+[T] D11 IDLE (0.175,3.675) yaw-18.0 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+复位 belief：D11 (0.175, 3.675) yaw=0.0°
+清空路线（reset 命令）
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+不开火：观测断流（估计已失效）
+[T] D11 IDLE (0.175,3.675) yaw-18.1 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+[T] D11 IDLE (0.175,3.675) yaw-18.2 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 未设置 不允许循迹
+不开火：速度估计收敛中（折返/重捕后闭锁）
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] D11 IDLE (0.175,3.675) yaw-18.3 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶s1.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+不开火：观测断流（估计已失效）
+刹车：阶段 未设置 不允许循迹
+不开火：预测落点在开火框外
+[T] D11 IDLE (0.175,3.675) yaw-18.3 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+刹车：阶段 未设置 不允许循迹
+不开火：速度估计收敛中（折返/重捕后闭锁）
+[T] D11 IDLE (0.175,3.675) yaw-18.4 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶s1.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+刹车：阶段 未设置 不允许循迹
+[T] D11 IDLE (0.175,3.675) yaw-18.5 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+[T] D11 IDLE (0.175,3.675) yaw-18.5 v0.000 st+0.0 | 段-1 s0.00/0 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+路线载入[多点命令]：路线[多点命令] 2 点 / 0.35 m / 穿洞 {}
+  E11, D11
+阶段 IDLE → DRIVE
+跳过 scan_request=2：云台扫描单写者 = AimTask（aim.gimbal_lock_enabled=true；mission.scan_mode=continuous 在 lock 模式下 inert）
+==============================================================================
+【任务开始】路线 2 点 / 0.35 m / 穿洞 {}
+穿洞格来源：lower=无人机离线(未配置) upper=无人机离线(未配置)｜情报 lower=lower → K10（offline：无人机离线（online=False，最近情报 未知））｜upper=upper → K4（offline：无人机离线（online=False，最近情报 未知））
+停站点 1 个（射击 1）：1:D11(射击)
+扫描模式 continuous（lock 模式**inert**：单写者=AimTask）
+路线来源：外部命令
+==============================================================================
+到点 1/1 D11（s=0.35 m，依据 s+近路径）
+阶段 DRIVE → STOP
+★ 停站点 1 D11（SHOOT）到站（距离 0.000 m，累计发数 0）；三段超时 SETTLE>12.0s ACQUIRE>6.0s FIRE>30.0s；★到站硬死线 30.0s（发数增量 10 或到点，先到即离）
+刹车：阶段 STOP 不允许循迹
+云台起转搜索：scan_request=2（最佳射击点停站 D11（kind=SHOOT）；阶段=STOP；累计切换 2 次）
+路线已装载：2 点 / 0.35 m
+到位吸附：D11（航点 #1）偏差 0.000 m → 锚回格心 (0.175, 3.675)，yaw 不变 -0.324 rad
+⚠️ 异常段剔除（seg_too_short）：段 D11 位移不足（几何 0.000 m / 212 拍） → 本段不进估计（已剔除 1 段）
+[T] D11 STOP (0.175,3.675) yaw-18.6 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+停站点 1 D11：停稳 0.40s ≥ 0.40s → ACQUIRE
+不开火：目标丢失（闭锁）
+刹车：阶段 STOP 不允许循迹
+停站点 1 D11：云台 TRACK 且有目标 → FIRE
+不开火：速度估计收敛中（折返/重捕后闭锁）
+[T] D11 STOP (0.175,3.675) yaw-18.7 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-18.7 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+刹车：阶段 STOP 不允许循迹
+不开火：观测断流（估计已失效）
+[T] D11 STOP (0.175,3.675) yaw-18.8 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s0.54v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：速度估计收敛中（折返/重捕后闭锁）
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-18.9 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：速度估计收敛中（折返/重捕后闭锁）
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+[T] D11 STOP (0.175,3.675) yaw-18.9 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s0.32v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 STOP 不允许循迹
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+[T] D11 STOP (0.175,3.675) yaw-19.0 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 STOP 不允许循迹
+不开火：速度估计收敛中（折返/重捕后闭锁）
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+[T] D11 STOP (0.175,3.675) yaw-19.1 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-19.1 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s0.12v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+刹车：阶段 STOP 不允许循迹不开火：速度估计收敛中（折返/重捕后闭锁）
+
+[T] D11 STOP (0.175,3.675) yaw-19.2 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s1.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-19.3 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：预测落点在开火框外
+[T] D11 STOP (0.175,3.675) yaw-19.3 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+刹车：阶段 STOP 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] D11 STOP (0.175,3.675) yaw-19.4 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+不开火：目标丢失（闭锁）
+刹车：阶段 STOP 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] D11 STOP (0.175,3.675) yaw-19.5 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+不开火：目标丢失（闭锁）
+不开火：速度估计收敛中（折返/重捕后闭锁）
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-19.5 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：预测落点在开火框外
+不开火：目标丢失（闭锁）
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-19.6 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+不开火：速度估计收敛中（折返/重捕后闭锁）
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-19.7 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+[T] D11 STOP (0.175,3.675) yaw-19.7 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-19.8 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+不开火：速度估计收敛中（折返/重捕后闭锁）
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-19.9 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s1.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 STOP 不允许循迹
+不开火：目标丢失（闭锁）
+[T] D11 STOP (0.175,3.675) yaw-19.9 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：速度估计收敛中（折返/重捕后闭锁）
+[T] D11 STOP (0.175,3.675) yaw-20.0 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 STOP 不允许循迹
+不开火：目标丢失（闭锁）
+[T] D11 STOP (0.175,3.675) yaw-20.1 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：速度估计收敛中（折返/重捕后闭锁）
+不开火：观测断流（估计已失效）
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-20.1 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s0.04v-183.9 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：速度估计收敛中（折返/重捕后闭锁）
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-20.2 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+[T] D11 STOP (0.175,3.675) yaw-20.2 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s0.95v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-20.2 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+不开火：速度估计收敛中（折返/重捕后闭锁）
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 STOP 不允许循迹
+[T] D11 STOP (0.175,3.675) yaw-20.3 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：目标丢失（闭锁）
+[T] D11 STOP (0.175,3.675) yaw-20.4 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 STOP 不允许循迹
+不开火：目标丢失（闭锁）
+[T] D11 STOP (0.175,3.675) yaw-20.4 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：速度估计收敛中（折返/重捕后闭锁）
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 STOP 不允许循迹
+不开火：目标丢失（闭锁）
+[T] D11 STOP (0.175,3.675) yaw-20.5 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+刹车：阶段 STOP 不允许循迹
+不开火：类别未确认
+不开火：目标丢失（闭锁）
+[T] D11 STOP (0.175,3.675) yaw-20.6 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s0.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] D11 STOP (0.175,3.675) yaw-20.6 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶s1.00v+0.0 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 STOP 不允许循迹
+不开火：目标丢失（闭锁）
+不开火：预测落点在开火框外
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] D11 STOP (0.175,3.675) yaw-20.7 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 STOP 不允许循迹
+不开火：目标丢失（闭锁）
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] D11 STOP (0.175,3.675) yaw-20.8 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 STOP 不允许循迹
+不开火：目标丢失（闭锁）
+不开火：预测落点在开火框外
+不开火：速度估计收敛中（折返/重捕后闭锁）
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+[T] D11 STOP (0.175,3.675) yaw-20.9 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 STOP 不允许循迹
+不开火：目标丢失（闭锁）
+不开火：预测落点在开火框外
+[T] D11 STOP (0.175,3.675) yaw-20.9 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+停站点 1 D11 放弃：到站硬死线 30.09s ≥ 30.00s（发数增量 0/10） → 强制离站（0 发也不例外）（放行下一个候选）
+阶段 STOP → DRIVE
+阶段 DRIVE → FINISH
+==============================================================================
+【任务结束】路线 2 点 / 0.35 m
+用时 30.1 s（0分30.1秒）
+发数 0 / 命中 0 / 漂移 0.000 m
+停站点 1 个（完成 1）
+逐点到点率 1/1 = 100.00%（依据 {'s+近路径': 1}）
+显式跳过 0 个（停滞兜底 0 + s 越窗 0）
+==============================================================================
+✅ 逐点台账闭合：全部航点要么登记到达、要么显式跳过（无静默丢点）
+刹车：阶段 FINISH 不允许循迹
+云台回正锁止：scan_request=0（巡迹/非射击停站；阶段=FINISH；累计切换 3 次；★TRACK→锁止 边沿回正：C++ IDLE 每帧归位到车头正前（累计回正 1 次））
+任务已到终点，等待 2s 后退出…
+阶段 FINISH → IDLE
+已复位：回到 IDLE 准备发车状态（路线/成绩保留；下一发车靠外部命令或重启栈）检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+
+刹车：阶段 IDLE 不允许循迹
+不开火：目标丢失（闭锁）
+[T] D11 IDLE (0.175,3.675) yaw-21.0 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+[T] D11 IDLE (0.175,3.675) yaw-21.0 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+刹车：阶段 IDLE 不允许循迹
+检查③跳过自己（Safety）：看门狗不盯自己，自身存活由外层 supervisor 负责
+不开火：目标丢失（闭锁）
+[T] D11 IDLE (0.175,3.675) yaw-21.1 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+退出原因 = finish（运行 53.5s；信号=None；rclpy.ok()=True）
+退出：107 拍 / 打印 68 条 / 最后一行：[T] D11 IDLE (0.175,3.675) yaw-21.1 v0.000 st+0.0 | 段0 s0.35/2 | 瞄TRACK 靶none 发0/中0 弹9 | 安全OK | 无人机offline
+已停止
+退出：消息 0 条（坏 0） 桥洞情报 0 次 车状态 69 条 ack 0 条 差异 0 条 在线=否 ｜覆盖 0/154 片 0（重发 0/坏 0） ｜核对事件 0
+已停止
+退出：锚定 1 次 / 段 0/1 接受 / 估计 scale=1.00000（原始 1.00000）/ 漂移 max 0.000 m/ 丢弃不可信 ds 0 拍（0.000 m）
+已停止
+已停止
+已停止
+倒车入口推车：成功 0 次 / 超时 0 次（累计 0 拍）
+已停止
+安全任务退出：1070 拍 / 锁存中=False / 累计刹车 0 次 / 停止事件 0 条 / 当前原因 []
+已停止
+定位退出：1070 拍 / 缺位姿 0 拍 / 吸附 1 次 / 漂移告警 0 次 / 投影卡死自愈 0 次（判定 0 次 / 拒绝 0 次）
+漂移护栏：吸附被拒 0 次 / 限速或停机 0 拍（下发 0 次）/ 边界护栏 0 拍 / 最终连续不健康 0 拍
+航向守卫：✅未触发（-）/1069 个新帧样本中 0 个超限 / 跳过 0 帧 / 手动旋转 0 拍 / IMU 矛盾 0 次
+已停止
+收尾：ros 上下文正常，刹车已尝试=是，任务线程已停
+==============================================================================
+dzbrain 退出报告
+  运行时长  : 53.5 s
+  阶段/位置 : — @ —
+  发数/命中 : —/—
+  安全    : ok=—
+  事件总数  : 320
+==============================================================================
+  [STOPPED ] Localization   ticks=1070    errors=0 overruns=0 max_tick=4.43ms
+  [STOPPED ] Safety         ticks=1070    errors=0 overruns=0 max_tick=10.27ms
+  [STOPPED ] TrackerTask    ticks=2675    errors=0 overruns=0 max_tick=6.26ms
+  [STOPPED ] MissionTask    ticks=535     errors=0 overruns=0 max_tick=10.07ms
+  [STOPPED ] AimTask        ticks=2673    errors=0 overruns=1 max_tick=10.09ms
+  [STOPPED ] FixTask        ticks=535     errors=0 overruns=0 max_tick=6.34ms
+  [STOPPED ] DroneTask      ticks=268     errors=0 overruns=0 max_tick=0.92ms
+  [STOPPED ] TelemetryTask  ticks=107     errors=0 overruns=0 max_tick=4.01ms

@@ -3,7 +3,7 @@
 取证: 档
 更新: 2026-10-21
 取代: 无
-status: 待验收
+status: 验收通过（离线，未部署）
 ---
 
 # TRACK-PLAN-B1-20261021 · T-B1 规划器目标函数换口径（task-7）
@@ -21,7 +21,7 @@ status: 待验收
 | 目标 | tour 新口径 `objective=tasks`；第七图双停站；64 图 ≥70%；6 条真缺陷**改代码**（禁重钉） |
 | owner | implementer（唯一生产写者；本编纂者未核实具体 agent 身份，仅有角色名） |
 | reviewer | 待 Lead/独立复核（REPORT 未附 reviewer 段落）〔未〕 |
-| 状态 | 离线完成，待验收 |
+| 状态 | **验收通过（离线，未部署）**（2026-10-22 Lead 复跑 A/B/C） |
 | 写域 | `src/dzbrain/dzbrain/route/planner.py`、`tools/plan_route.py`、`src/dzbrain/tests/test_autoplan.py`、卡目录 |
 | 冻结登记 | `planner.py` in_flight，expires **2026-11-04**（`dzrobot_v2/docs/TEAM_STATUS.md:22`） |
 
@@ -60,6 +60,18 @@ status: 待验收
 - 依赖：无现场条件；纯离线（不占现场窗口）。
 - 风险：本卡只证"规划层出串"，**不含执行层**；sim 不建模 PIVOT/限速/Safety（`docs/agent_handoff/36_R2复核_R3补测与收尾计划.md:50`）。
 - 与三包关系：B 包（外部副本）目标是同一处 tour 单停站缺陷，**合入时必然与此卡同文件**，需三方合并，不能整目录覆盖。
+
+## 6 Lead 验收结论（2026-10-22）
+
+| 项 | 预期 | 复跑结果 | 退出码 | 证据（归档包内路径） |
+|---|---|---|---|---|
+| A · 64 图压测 `--objective tasks` | 47/64，plan_failed=0 | **47/64 = 73.44%**，plan_failed 0，plan_ms avg 486.9 / max 981.4 | 0 | `dzrobot_v2_tmp_session_20261022.tar.gz::_tmp_session/TRACK-PLAN-B1-20261021/lead_accept/lead_A_stress64_stdout.txt` |
+| B · 第七图 `map7_t24` 双停站 | 66 token / 23.45 m / C9+C5 / route_check exit 0 | 一致；token 全合法（普通 66 / 倒车 0 / 射击 2 / 折返 4） | 0 | 同包 `lead_accept/lead_B_map7_stdout.txt` |
+| C · `test_autoplan.py` | 171/171 exit 0 | **171/171** | 0 | 同包 `lead_accept/lead_C_test_autoplan_stdout.txt` |
+
+**判定：验收通过（离线，未部署，未上车）。** §4 三项待裁决不回退验收入账：① `degraded` 进遥测（`mission.py`，需串行单卡）；② 默认是否切 `--objective tasks`（车端仍跑 legacy）；③ 与外部 B 包三方合并（同文件，禁止整目录覆盖）。
+
+口径更正：§2/§4 引用的 `dzrobot_v2/_tmp_session/...` 路径已于 10-22 资料区重组中归档，现只能从 `docs/history_cache/03_过程稿快照/dzrobot_v2_tmp_session_20261022.tar.gz` 内按上述路径解出。
 
 ## 相关文件
 

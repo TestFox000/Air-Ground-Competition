@@ -1,0 +1,209 @@
+# -*- coding: utf-8 -*-
+"""文档守卫（doc policy gate）——防止长期文档再次散落。
+
+判红（退出码 1）：
+  R1 库外新增 .md     —— 不在 docs/ 白名单、也不在基线里（=有人又在别处拉屎）
+  R2 库内位置越权     —— docs/ 下但不在允许的库目录/根文件里（=又开了个新库）
+  R3 库内未登记       —— docs/ 下的文档没进 目录索引.json（=写了没登记）
+提醒（不判红）：
+  Y1 库内文档缺 front matter status
+  Y2 status=现行 但 updated 超过 stale_days 天（过期候选）
+  Y3 库内标题重复（副本即债）
+  Y4 基线里已消失的路径（可精简基线）
+
+用法：
+  python docs/_工具/check_doc_policy.py                 # 体检
+  python docs/_工具/check_doc_policy.py --write-baseline # 收口时重建基线（只减不增）
+  python docs/_工具/check_doc_policy.py --accept <path> --reason "为什么它可以留在库外"
+  python docs/_工具/check_doc_policy.py --json          # 机器读
+"""
+import json, os, sys, re
+from datetime import datetime, date
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DOCS = os.path.dirname(HERE)
+WS = os.path.dirname(DOCS)
+POLICY = os.path.join(HERE, "doc_policy.json")
+
+def load(p):
+    with open(p, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def norm(rel):
+    return rel.replace("\\", "/")
+
+def walk(ws, cfg):
+    skip = set(cfg.get("skip_dirs", []))
+    out = []
+    for dp, dns, fns in os.walk(ws):
+        rel_dir = norm(os.path.relpath(dp, ws))
+        if rel_dir == ".":
+            rel_dir = ""
+        dns[:] = [d for d in dns if d not in skip and not d.startswith(".")]
+        for n in fns:
+            if n.lower().endswith(".md"):
+                out.append(norm(os.path.join(rel_dir, n)) if rel_dir else n)
+    return sorted(out)
+
+def classify(rel, cfg):
+    """-> (class, reason)  class in {doc, readonly, exempt, vendor, managed}"""
+    for r in cfg["readonly_roots"]:
+        if rel.startswith(r + "/"):
+            return "readonly", "历史留存区只读"
+    for p in cfg["exempt_prefixes"]:
+        if rel.startswith(p):
+            return "exempt", "过程/备份/档案区"
+    for m in cfg["vendor_markers"]:
+        if m in "/" + rel:
+            return "vendor", "第三方源码自带"
+    if rel in cfg["doc_root_files"]:
+        return "doc", "库入口"
+    for r in cfg["doc_roots"]:
+        if rel.startswith(r + "/"):
+            return "doc", "库内"
+    if rel.startswith("docs/"):
+        return "out_of_policy", "docs/ 下但不在白名单"
+    return "managed", "库外受管"
+
+def front_matter(path):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read(4000)
+    except OSError:
+        return {}
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    if end < 0:
+        return {}
+    fm = {}
+    for line in text[3:end].splitlines():
+        if ":" in line:
+            k, v = line.split(":", 1)
+            fm[k.strip()] = v.strip()
+    return fm
+
+def main():
+    cfg = load(POLICY)
+    bl_path = os.path.join(WS, cfg["baseline"])
+    baseline = set()
+    if os.path.exists(bl_path):
+        baseline = set(load(bl_path).get("managed", []))
+
+    if "--accept" in sys.argv:
+        i = sys.argv.index("--accept")
+        reason = ""
+        if "--reason" in sys.argv:
+            reason = sys.argv[sys.argv.index("--reason") + 1]
+        targets = [sys.argv[i + 1]]
+        if not os.path.exists(bl_path):
+            json.dump({"generated": "", "count": 0, "managed": []}, open(bl_path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        data = load(bl_path)
+        data.setdefault("accept_log", [])
+        for t in targets:
+            t = norm(t)
+            if not os.path.exists(os.path.join(WS, t)):
+                print("[错误] 不存在：" + t); return 2
+            data["managed"] = sorted(set(data.get("managed", [])) | {t})
+            data["accept_log"].append({"path": t, "reason": reason, "at": datetime.now().strftime("%Y-%m-%d %H:%M")})
+        data["count"] = len(data["managed"])
+        json.dump(data, open(bl_path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        print("[已登记基线] " + t + "  理由：" + (reason or "（未填）"))
+        return 0
+
+    index_json = os.path.join(DOCS, "目录索引.json")
+    registered = set()
+    if os.path.exists(index_json):
+        d = load(index_json)
+        registered = {"docs/" + norm(x["path"]) for x in d.get("files", [])}
+
+    files = walk(WS, cfg)
+    buckets = {"doc": [], "readonly": [], "exempt": [], "vendor": [], "managed": [], "out_of_policy": []}
+    for rel in files:
+        cls, why = classify(rel, cfg)
+        buckets[cls].append(rel)
+
+    red, yellow = [], []
+    # R1 库外新增
+    managed_now = set(buckets["managed"])
+    for rel in sorted(managed_now - baseline):
+        red.append(("R1", rel, "库外出现未登记的 .md（新增文档只能进 docs/，确属代码仓自带请 --accept 并写理由）"))
+    # 基线消失（提醒精简）
+    for rel in sorted(baseline - managed_now):
+        yellow.append(("Y4", rel, "基线里的路径已不存在，可重跑 --write-baseline 精简"))
+    # R2/R3 + Y1/Y2 库内
+    life = cfg.get("lifecycle", {})
+    stale_days = int(life.get("stale_days", 180))
+    today = date.today()
+    titles = {}
+    for rel in buckets["doc"]:
+        if rel in ("docs/目录索引.md", "docs/README.md"):
+            continue
+        if rel not in registered:
+            red.append(("R3", rel, "库内文档未登记进 目录索引.json（跑 gen_index.py）"))
+        fm = front_matter(os.path.join(WS, rel))
+        in_scope = any(rel.startswith(s + "/") for s in life.get("status_scope", []))
+        st = fm.get("status", "")
+        if in_scope and not st and life.get("require_status", False):
+            red.append(("R3", rel, "缺 front matter status"))
+        elif in_scope and not st:
+            yellow.append(("Y1", rel, "缺 front matter status（现行/计划/历史/过程）"))
+        elif in_scope and st not in life.get("statuses", []) and life.get("require_status", False):
+            red.append(("R3", rel, "status 取值非法：" + st))
+        if in_scope and st == "现行" and fm.get("更新"):
+            try:
+                d = datetime.strptime(fm["更新"][:10], "%Y-%m-%d").date()
+                if (today - d).days > stale_days:
+                    yellow.append(("Y2", rel, "status=现行 但已 %d 天未更新（>%d 天）" % ((today - d).days, stale_days)))
+            except ValueError:
+                pass
+        base = rel.rsplit("/", 1)[-1][:-3]
+        if base in ("README", "00_索引") or rel.startswith("docs/30_任务卡库/"):
+            continue
+        titles.setdefault(base, []).append(rel)
+    for rel in buckets["out_of_policy"]:
+        red.append(("R2", rel, "docs/ 下但不在允许的库目录：新增库必须先改 doc_policy.json"))
+    for t, paths in titles.items():
+        if len(paths) > 1:
+            yellow.append(("Y3", paths[0], "标题/文件名重复：" + " | ".join(paths)))
+
+    # 写基线模式
+    if "--write-baseline" in sys.argv:
+        payload = {"generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                   "count": len(managed_now), "managed": sorted(managed_now)}
+        prev = load(bl_path) if os.path.exists(bl_path) else {}
+        payload["accept_log"] = prev.get("accept_log", [])
+        json.dump(payload, open(bl_path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        print("[基线已写入] %s  受管 %d 篇" % (cfg["baseline"], len(managed_now)))
+
+    summary = ("受管 %d（库内 %d / 库外受管 %d / 只读 %d / 豁免 %d / 第三方 %d）｜红线 %d ｜提醒 %d"
+               % (len(files), len(buckets["doc"]), len(buckets["managed"]), len(buckets["readonly"]),
+                  len(buckets["exempt"]), len(buckets["vendor"]), len(red), len(yellow)))
+    if "--json" in sys.argv:
+        print(json.dumps({"summary": summary, "red": red, "yellow": yellow,
+                          "counts": {k: len(v) for k, v in buckets.items()}}, ensure_ascii=False, indent=1))
+    else:
+        print("=" * 68)
+        print("文档守卫  " + summary)
+        print("=" * 68)
+        if red:
+            print("\n[红线] 必须处置：")
+            for code, rel, why in red[:60]:
+                print("  %s  %s\n       %s" % (code, rel, why))
+            if len(red) > 60:
+                print("  ... 另有 %d 条" % (len(red) - 60))
+        if yellow:
+            print("\n[提醒] 不判红：")
+            for code, rel, why in yellow[:20]:
+                print("  %s  %s  %s" % (code, rel, why))
+            if len(yellow) > 20:
+                print("  ... 另有 %d 条" % (len(yellow) - 20))
+        if not red:
+            print("\n结论：GREEN —— 库外无新增文档，库内全部登记。")
+        else:
+            print("\n结论：RED —— %d 条红线。" % len(red))
+    return 1 if red else 0
+
+if __name__ == "__main__":
+    sys.stdout.reconfigure(errors="replace")
+    sys.exit(main())

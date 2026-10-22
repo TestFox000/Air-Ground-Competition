@@ -7,7 +7,7 @@
 产出：
     docs/目录索引.md     人看的
     docs/目录索引.json   机器读的
-不纳入：_archive（历史原文）、_工具、_work（临时）
+不纳入：history_cache（历史留存）、_工具、_work（临时）
 """
 import json
 import os
@@ -15,7 +15,7 @@ import re
 from datetime import datetime
 
 DOCS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SKIP_DIRS = {"_archive", "_工具", "_work"}
+SKIP_DIRS = {"history_cache", "_工具", "_work"}
 FM_KEYS = ("来源", "取证", "更新", "取代", "status", "摘要")
 
 
@@ -114,7 +114,7 @@ def main():
     out.append("# 目录索引（全库文件一览）")
     out.append("")
     out.append("> 自动生成，勿手改。重新生成：python docs/_工具/gen_index.py")
-    out.append("> 生成时间 " + now + " ｜ 收录 " + str(len(rows)) + " 篇（不含 _archive 历史原文）")
+    out.append("> 生成时间 " + now + " ｜ 收录 " + str(len(rows)) + " 篇（不含 history_cache 历史留存）")
     out.append("> 每篇的一句话取自其 TL;DR 首条或 front matter 的 摘要 字段。")
     out.append("")
     out.append("## 按目录")
