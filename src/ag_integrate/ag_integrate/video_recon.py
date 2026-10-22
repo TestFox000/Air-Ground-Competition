@@ -818,10 +818,24 @@ def recon_video(video: str | Path, out_dir: str | Path,
                     error_samples.append(_note)
                 aff, inl = None, None
             grid_ok = aff is not None
-            if grid_ok:
+            if grid_ok and len(reads) == 3 and last_aff is not None \
+                    and fi - last_step <= CARRY_MAX_STEPS:
+                # n=3 拟合无冗余（3 点必精确过定、单误读不可检出 = 静默毒化，
+                # 见 test_video_recon_fit.py 特征测试）：强制过验收门——用最近
+                # 成功仿射当仲裁者，≥2 读数与它一致才放行，且仿射换用仲裁者
+                # 本身（新鲜 3 点解可能含误读）；仲裁失败宁丢帧不投毒票。
+                gated = validate_affine_carry(last_aff, reads)
+                if gated is not None:
+                    keep, mae = gated
+                    aff, grid_src = last_aff, "gate3"
+                    reads = [reads[i] for i in keep]
+                else:
+                    grid_ok, mae = False, 9.9
+            elif grid_ok:
                 reads = [r for r, k in zip(reads, inl) if k]
         if grid_ok:
-            grid_src = "fit"
+            if grid_src is None:
+                grid_src = "fit"
             last_aff, last_step = aff, fi
         elif last_aff is not None and fi - last_step <= CARRY_MAX_STEPS:
             carried = validate_affine_carry(last_aff, reads)
@@ -1105,12 +1119,19 @@ def arbitrate_targets(tgt_blue, tgt_red, static_is_bucket: bool = True
 
 
 def plan_from_state(field_state: dict, out_dir: str | Path,
-                    static_target_is_bucket: bool = True) -> dict:
+                    static_target_is_bucket: bool = True,
+                    replay_safe: bool = False) -> dict:
     """场地态势 → 路线规划 + 车端命令 + 渲染。视频未覆盖要素用裁判系统默认。
 
     static_target_is_bucket：静靶→桶的裁决开关（见 arbitrate_targets）。
     默认 True = "全场唯一靶"口径；练习场确实摆了静靶时用 CLI
     `--allow-static-targets` 关掉（移动靶的敌我判定不受影响）。
+
+    replay_safe：静态回放安全开关（CLI `--replay-safe`）。两段式打击的
+    前提是"在飞 fire_guard 实时复判红蓝"；静态回放链路没有实时感知，
+    轨道靶停靠位的 '*' 会照打可见面——观测为红面即误击友方（−5/次）。
+    开启后不排轨道靶停靠/射击位（机器级拦截，替代"手动去掉 '*'"的人肉
+    约定），source.attack_requires_live_gate 同步写 False 供下游判定。
     """
     out_dir = Path(out_dir)
 
@@ -1153,15 +1174,16 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
     # 因此这里恒置 is_blue=True 让 mission_keep 保住停靠格——**它是"可打击性"，
     # 不是"当前可见面"**；可见面另在 targets_track_observed 里如实记录。
     # ⚠️ 只在"在飞感知链路开着"时才安全：静态回放（无实时感知）会照着 '*' 对
-    #    红面开火 → 误击友方，此时必须把该停靠位手动拿掉。
-    for name, face in sorted(track_obs.items()):
-        targets.append(TargetRef(cell(name), True,
-                                 track=(cell(TRACK_DFT[0]), cell(TRACK_DFT[1])),
-                                 blue_face=BLUE_FACE_DFT))
-    if not track_obs:
-        targets.append(TargetRef(cell(TRACK_DFT[0]), True,
-                                 track=(cell(TRACK_DFT[0]), cell(TRACK_DFT[1])),
-                                 blue_face=BLUE_FACE_DFT))
+    #    红面开火 → 误击友方，此时用 --replay-safe 机器级剔除（不排停靠位）。
+    if not replay_safe:
+        for name, face in sorted(track_obs.items()):
+            targets.append(TargetRef(cell(name), True,
+                                     track=(cell(TRACK_DFT[0]), cell(TRACK_DFT[1])),
+                                     blue_face=BLUE_FACE_DFT))
+        if not track_obs:
+            targets.append(TargetRef(cell(TRACK_DFT[0]), True,
+                                     track=(cell(TRACK_DFT[0]), cell(TRACK_DFT[1])),
+                                     blue_face=BLUE_FACE_DFT))
 
     snapshot = WorldSnapshot(
         timestamp_ms=0,
@@ -1217,10 +1239,17 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
                    "targets_track_observed": track_obs,
                    "targets_reclassified_referee_conflict": sorted(track_obs),
                    "target_attack_mode": (
+                       ("回放安全（--replay-safe）：未排轨道靶停靠/射击位——"
+                        "静态回放无实时红蓝复判，实弹任务必须由在飞链路重新规划")
+                       if replay_safe else
                        "两段式：计划排蓝面侧确认/射击停靠位；实弹由在飞 fire_guard "
                        "按实时画面复判红蓝（红面/未辨 → 禁火）"
                        + (f"；本次视频观测到 {track_obs} → 该停靠位仅作确认，"
-                          f"静态回放（无实时感知）时必须手动去掉" if track_obs else "")),
+                          f"静态回放（无实时感知）时用 --replay-safe 剔除" if track_obs else "")),
+                   # 机器级契约：True = 路线含轨道靶射击停靠位（'*'），必须由
+                   # 在飞 fire_guard 实时复判红蓝后才能实弹；下游（机载/车端/
+                   # 回放工具）见到 True 且自身无实时感知时必须拒绝执行实弹。
+                   "attack_requires_live_gate": any(t.track for t in targets),
                    "static_target_arbitration": ("单靶先验（静靶→桶）"
                                                  if static_target_is_bucket
                                                  else "关闭（--allow-static-targets）")},
@@ -1242,8 +1271,11 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
     }
     # 安全提示：两段式口径下射击停靠位是"确认位"，实弹由在飞 fire_guard 复判。
     # 视频观测到红面（友方）时必须显式提醒——静态回放这条链路没有实时感知，
-    # 会照着 '*' 对红面开火（误击友方 −5）。
-    if any(f == "red" for f in track_obs.values()):
+    # 会照着 '*' 对红面开火（误击友方 −5）。replay_safe 下没有 '*'，直接通过。
+    if replay_safe:
+        route_plan["check"]["友方面禁火"] = (
+            "通过（--replay-safe：未排轨道靶停靠/射击位，无 '*' 可走火）")
+    elif any(f == "red" for f in track_obs.values()):
         route_plan["check"]["友方面禁火"] = (
             f"两段式：射击位 {list(cmds.shoot_cells)} 为确认位，"
             "实弹由在飞 fire_guard 复判（红面/未辨 → 禁火）；"
@@ -1426,6 +1458,11 @@ def main(argv: list[str] | None = None) -> int:
     # reclassify_targets）。练习场若真摆了静靶（非官方布置）再用本开关关掉。
     ap.add_argument("--allow-static-targets", action="store_true",
                     help="不把视频检出的静靶改判为桶（练习场确实摆了静靶时才用）")
+    # 静态回放安全：两段式的 '*' 依赖在飞 fire_guard 实时复判红蓝；回放链路
+    # 没有实时感知，必须机器级剔除轨道靶射击停靠位（替代"手动去掉 '*'"）。
+    ap.add_argument("--replay-safe", action="store_true",
+                    help="静态回放模式：不排轨道靶停靠/射击位（无实时红蓝复判，"
+                         "照 '*' 开火会误击红面友方）")
     args = ap.parse_args(argv)
     if args.stride < 1:
         ap.error(f"--stride 必须 >= 1（收到 {args.stride}）")
@@ -1460,7 +1497,8 @@ def main(argv: list[str] | None = None) -> int:
             state = recon_video(args.video, out_dir, args.d13, args.v4d,
                                 args.stride, args.max_frames, imgsz=args.imgsz)
         plan_from_state(state, out_dir,
-                        static_target_is_bucket=not args.allow_static_targets)
+                        static_target_is_bucket=not args.allow_static_targets,
+                        replay_safe=args.replay_safe)
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         print(f"\n[失败] {exc}", file=sys.stderr)
         # 用 args.debug 而不是 "--debug" in sys.argv：main(argv) 被显式传参调用时

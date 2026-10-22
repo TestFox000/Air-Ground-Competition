@@ -136,3 +136,15 @@ def test_carry_rejects_none_affine():
 def test_carry_tolerance_no_worse_than_fit():
     # 验收门与拟合内点同口径（0.45 格）：不给外推帧更松的几何容忍
     assert CARRY_INLIER <= 0.45
+
+
+def test_gate3_arbitration_kills_silent_poison():
+    # n=3 强制验收门（2026-10-22 落地）的语义锚：新鲜拟合"成功"但含误读
+    # （静默毒化——3 点必精确过定），帧级处理不采信新鲜解，改用最近成功
+    # 仿射当仲裁者：≥2 读数一致 → 放行并剔出误读；不一致 → 丢帧。
+    pts = _PTS_3_CLEAN[:2] + [(7, 7, 4 * 80 + 40, 10 * 60 + 30)]   # 1 误读
+    aff, inl, mae = fit_consensus_affine(*_px_grid(pts))
+    assert aff is not None and inl.sum() == 3       # 拟合"成功"= 毒化解本身
+    out = validate_affine_carry(_A_GOOD, _reads(pts))
+    assert out is not None                          # 仲裁：2 干净读数放行
+    assert list(out[0]) == [0, 1]                   # 误读读数被剔出（不投票）
