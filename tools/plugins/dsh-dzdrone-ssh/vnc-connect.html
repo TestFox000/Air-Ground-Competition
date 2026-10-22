@@ -1,0 +1,397 @@
+<!doctype html>
+<!--
+  通用 VNC 连接器文档，由本插件自己的 http origin 伺服。
+
+  与 vnc-app.html（无人机的固定桥）不同：这份文档里的 noVNC 直接连接
+  `ws://host:port/websockify` —— 即目标机上 websockify 提供的 WebSocket 端点，
+  不经过 Host 半身的 TCP 桥。因此它可以连接任意 TigerVNC/websockify 组合，
+  包括通过 SSH 隧道转发到本机的端口（ws://127.0.0.1:6080/websockify）。
+
+  两种用法：
+    · 独立打开（新标签页 / 新窗口）：顶部表单自行填写并连接；
+    · 嵌入面板（iframe）：面板通过 postMessage 发 config/connect/disconnect/
+      scale/resolution，本页隐藏表单、只负责屏幕和事件回传。
+  非敏感字段可用 URL 参数预填（host/port/path/resolution/scheme），密码永不进 URL。
+
+  为什么这份文档必须独立存在：DSH 主页面跑在自定义 scheme 下，ES 模块加载会失败，
+  这里的 http origin 才能 import ./novnc/core/rfb.js（与 vnc-app.html 同理）。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VNC 连接器</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #0b0e12; overflow: hidden;
+    font: 12.5px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; color: #c9d1d9; }
+  #stage { position: relative; width: 100%; height: 100%; background: #000; display: flex; flex-direction: column; }
+  #screen { flex: 1; min-height: 0; width: 100%; height: 100%; }
+  #screen canvas { display: block; margin: 0 auto; max-width: 100%; max-height: 100%; }
+  #bar { display: none; flex: none; gap: 7px; align-items: center; flex-wrap: wrap;
+    padding: 8px 10px; border-bottom: 1px solid #2a333d; background: #141920; }
+  #bar[data-visible] { display: flex; }
+  #bar label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: #8b98a5; }
+  #bar input, #bar select { font: inherit; font-size: 12px; padding: 4px 8px; border-radius: 7px;
+    border: 1px solid #3a444f; background: #10151a; color: inherit; min-width: 0; }
+  #bar input { width: 150px; }
+  #bar input#pw { width: 110px; }
+  #bar button { font: inherit; font-size: 12px; padding: 5px 13px; border-radius: 8px; border: 1px solid #3a444f;
+    background: #232b34; color: inherit; cursor: pointer; }
+  #bar button.primary { background: #2a5fd0; border-color: #2a5fd0; color: #fff; }
+  #bar #status { margin-left: auto; font-size: 11.5px; color: #8b98a5; max-width: 320px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #ask { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgb(0 0 0 / 35%); }
+  #ask[hidden] { display: none; }
+  #askbox { display: flex; flex-direction: column; gap: 9px; align-items: center; padding: 16px 18px;
+    border-radius: 12px; border: 1px solid #333c47; background: #1a2027; box-shadow: 0 12px 40px rgb(0 0 0 / 45%); }
+  #askbox p { margin: 0; font-size: 12px; text-align: center; }
+  #askbox input { width: 210px; text-align: center; font: inherit; padding: 5px 9px; border-radius: 8px;
+    border: 1px solid #3a444f; background: #10151a; color: inherit; }
+  #askbox button { font: inherit; padding: 5px 14px; border-radius: 8px; border: 1px solid #3a444f;
+    background: #2a5fd0; border-color: #2a5fd0; color: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <form id="bar">
+    <label>协议
+      <select id="scheme"><option value="ws">ws</option><option value="wss">wss</option></select>
+    </label>
+    <label>VNC 主机<input id="host" placeholder="ubuntu-server 或 127.0.0.1"></label>
+    <label>WebSocket 端口<input id="port" value="6080" inputmode="numeric"></label>
+    <label>路径<input id="path" value="websockify"></label>
+    <label>VNC 密码<input id="pw" type="password" autocomplete="current-password"></label>
+    <label>分辨率
+      <select id="resolution">
+        <option value="auto">自适应（跟随窗口）</option>
+        <option value="1024x768">1024×768</option>
+        <option value="1280x720">1280×720</option>
+        <option value="1366x768">1366×768</option>
+        <option value="1600x900">1600×900</option>
+        <option value="1920x1080">1920×1080</option>
+        <option value="2560x1440">2560×1440</option>
+      </select>
+    </label>
+    <button type="submit" id="go" class="primary">连接</button>
+    <button type="button" id="stop">断开</button>
+    <button type="button" id="fs">全屏</button>
+    <label style="flex-direction:row;align-items:center;gap:5px"><input id="scale" type="checkbox" checked>自适应缩放</label>
+    <span id="status">未连接</span>
+  </form>
+  <div id="screen"></div>
+  <div id="ask" hidden>
+    <form id="askbox">
+      <p id="asktext">VNC 服务器需要密码（与 Linux 登录密码是两回事）</p>
+      <input id="askpw" type="password" autocomplete="current-password" placeholder="VNC 密码">
+      <button type="submit" id="asksend">登录</button>
+    </form>
+  </div>
+</div>
+<script type="module">
+  import RFB from './novnc/core/rfb.js'
+
+  const screen = document.getElementById('screen')
+  const bar = document.getElementById('bar')
+  const ask = document.getElementById('ask')
+  const asktext = document.getElementById('asktext')
+  const askpw = document.getElementById('askpw')
+  const statusLine = document.getElementById('status')
+
+  let rfb = null
+  let desktop = ''
+
+  /** This document is "embedded" when the panel hosts it (iframe). */
+  const embedded = new URLSearchParams(location.search).get('embedded') === '1' || window.parent !== window
+
+  /**
+   * Observe every WebSocket this page opens.
+   *
+   * noVNC's `disconnect` event carries only `{clean}` — it cannot tell "the
+   * handshake never started" from "the server closed with 1011 and a reason",
+   * and that difference is the whole diagnosis. This wrapper records the exact
+   * URL plus the raw open/error/close lifecycle (code + reason); RFB builds its
+   * socket later, so wrapping now covers it. The log rides out on every report.
+   */
+  /* ws-log:start — re-run against noVNC's own channel check by scripts/test-vnc-wrapper.mjs */
+  const wsLog = []
+  const NativeWebSocket = window.WebSocket
+  // A Proxy, NOT a subclass — and this is load-bearing, not style.
+  //
+  // noVNC's Websock.attach() duck-types its channel with
+  //   Object.getOwnPropertyNames(Object.getPrototypeOf(channel))
+  // which inspects exactly ONE level of the prototype chain. A subclass would
+  // leave send/close/binaryType/readyState on WebSocket.prototype — the second
+  // level — so noVNC rejects the socket with "Raw channel missing property: send".
+  // Worse, that rejection is thrown from the RFB constructor: the socket then has
+  // no reachable reference, so it is collected and the connection is aborted,
+  // which is why the browser reported only `error` + close code 1006 and never
+  // `open`. The construct trap below returns a genuine native instance, leaving
+  // the chain exactly as noVNC expects it.
+  window.WebSocket = new Proxy(NativeWebSocket, {
+    construct(target, args) {
+      const socket = Reflect.construct(target, args)
+      try {
+        wsLog.push({
+          e: 'ctor', at: Date.now(), url: String(args[0]),
+          protocols: Array.isArray(args[1]) ? [...args[1]] : String(args[1] ?? ''),
+        })
+        socket.addEventListener('open', () => wsLog.push({ e: 'open', at: Date.now(), protocol: String(socket.protocol ?? '') }))
+        socket.addEventListener('error', () => wsLog.push({ e: 'error', at: Date.now(), readyState: socket.readyState }))
+        socket.addEventListener('close', event => wsLog.push({
+          e: 'close', at: Date.now(), code: event.code, reason: String(event.reason ?? ''), clean: event.wasClean,
+        }))
+      } catch { /* logging must never break the socket */ }
+      return socket
+    },
+  })
+  /* ws-log:end */
+  window.addEventListener('error', event => {
+    wsLog.push({ e: 'winerror', message: String(event?.message ?? '') })
+  })
+
+  /** The newest close frame, if any — carries the code and the server's reason. */
+  const lastClose = () => {
+    for (let index = wsLog.length - 1; index >= 0; index -= 1) {
+      if (wsLog[index].e === 'close') return wsLog[index]
+    }
+    return undefined
+  }
+
+  /** Tell the embedding panel what is happening; it owns no RFB knowledge. */
+  const report = (type, data = {}) => {
+    if (embedded) {
+      try { window.parent?.postMessage({ source: 'dzdrone-vnc-connect', type, ...data }, '*') } catch { /* no parent */ }
+    }
+    // Standalone: the only feedback channel is the bar's own status line.
+    const text = {
+      ready: '未连接',
+      connecting: '连接中…',
+      credentials: '等待密码…',
+      connected: `已连接${desktop === '' ? '' : ` · ${desktop}`}`,
+      disconnected: data.message ?? '已断开',
+      failed: data.message ?? '连接失败',
+    }[type]
+    if (text !== undefined) statusLine.textContent = text
+  }
+
+  /** The config the form (or the panel) last provided, normalized. */
+  function readConfig() {
+    const host = document.getElementById('host').value.trim()
+    const port = document.getElementById('port').value.trim()
+    const path = document.getElementById('path').value.trim().replace(/^\/+/, '')
+    const scheme = document.getElementById('scheme').value === 'wss' ? 'wss' : 'ws'
+    const password = document.getElementById('pw').value
+    const resolution = document.getElementById('resolution').value
+    return { scheme, host, port, path, password, resolution }
+  }
+
+  function buildUrl(cfg) {
+    if (cfg.host === '') throw new Error('没有填 VNC 主机')
+    return `${cfg.scheme}://${cfg.host}${cfg.port === '' ? '' : `:${cfg.port}`}${cfg.path === '' ? '' : `/${cfg.path}`}`
+  }
+
+  function teardown() {
+    const current = rfb
+    rfb = null
+    try { current?.disconnect() } catch { /* already gone */ }
+    screen.innerHTML = ''
+    ask.hidden = true
+  }
+
+  /**
+   * Ask the server to change its desktop size to a fixed WxH.
+   *
+   * noVNC only requests a remote resize with the *screen element's current size*
+   * (RFB._screenSize → SetDesktopSize), and only when resizeSession is on and the
+   * server advertised ExtendedDesktopSize (TigerVNC with RandR does). So a fixed
+   * resolution is applied by sizing the element to WxH for a moment, letting
+   * the resize handler send the request, then restoring fit-to-window and turning
+   * resizeSession back off — otherwise the next window resize would silently
+   * override the resolution the user chose. Servers without the extension simply
+   * ignore the request; the display keeps scaling as before.
+   */
+  function applyResolution(value) {
+    if (rfb === null) return
+    if (value === 'auto') {
+      // Follow the window: every viewport change re-requests the remote size.
+      rfb.resizeSession = true
+      return
+    }
+    const [width, height] = String(value).split('x').map(Number)
+    if (!Number.isInteger(width) || !Number.isInteger(height)) return
+    rfb.resizeSession = true
+    screen.style.width = `${width}px`
+    screen.style.height = `${height}px`
+    // RFB._handleResize is wired to window resize events, so a synthetic one is
+    // what makes it see the new element size.
+    window.dispatchEvent(new Event('resize'))
+    window.setTimeout(() => {
+      screen.style.width = '100%'
+      screen.style.height = '100%'
+      if (rfb !== null) rfb.resizeSession = false
+    }, 350)
+  }
+
+  function connect() {
+    teardown()
+    ask.hidden = true
+    let cfg
+    try { cfg = readConfig() } catch { /* never throws */ }
+    let url
+    try { url = buildUrl(cfg) } catch (error) {
+      report('failed', { message: String(error?.message ?? error), kind: 'config', ws: wsLog.slice(-8) })
+      return
+    }
+    report('connecting')
+    try {
+      const credentials = cfg.password === '' ? undefined : { password: cfg.password }
+      rfb = new RFB(screen, url, {
+        credentials,
+        wsProtocols: ['binary'],
+        shared: true,
+        // Resolution is applied once connected (see applyResolution): the
+        // extension handshake that permits SetDesktopSize happens there.
+        resizeSession: false,
+        scaleViewport: document.getElementById('scale').checked,
+        background: '#000',
+      })
+    } catch (error) {
+      report('failed', { message: String(error?.message ?? error), kind: 'start', ws: wsLog.slice(-8) })
+      return
+    }
+
+    rfb.addEventListener('connect', () => {
+      ask.hidden = true
+      // A fixed resolution is requested late so the server's ExtendedDesktopSize
+      // advertisement has arrived by then; 'auto' just turns follow-window on.
+      window.setTimeout(() => applyResolution(readConfig().resolution), 800)
+      report('connected', { desktop })
+    })
+    rfb.addEventListener('credentialsrequired', () => {
+      report('credentials')
+      if (!embedded) {
+        ask.hidden = false
+        asktext.textContent = 'VNC 服务器需要密码（与 Linux 登录密码是两回事）'
+        askpw.value = ''
+        askpw.focus()
+      }
+    })
+    rfb.addEventListener('securityfailure', event => {
+      const reason = String(event?.detail?.reason ?? '认证失败')
+      // TigerVNC refuses a client outright after a few failed logins; naming the
+      // wait is the difference between "retry now" and "retry in ten minutes".
+      const blacklisted = /too many security failures|security failure/i.test(reason)
+      ask.hidden = embedded || blacklisted
+      report('failed', { message: reason, blacklisted, kind: 'security' })
+    })
+    rfb.addEventListener('disconnect', event => {
+      const clean = event?.detail?.clean !== false
+      ask.hidden = true
+      const close = lastClose()
+      report('disconnected', {
+        clean,
+        reason: String(event?.detail?.reason ?? ''),
+        href: location.href,
+        ws: wsLog.slice(-8),
+        closeCode: close?.code,
+        closeReason: close?.reason ?? '',
+      })
+    })
+    rfb.addEventListener('desktopname', event => {
+      desktop = String(event?.detail?.name ?? '')
+      if (rfb !== null) report('connected', { desktop })
+    })
+  }
+
+  document.getElementById('bar').addEventListener('submit', event => {
+    event.preventDefault()
+    connect()
+  })
+  document.getElementById('stop').addEventListener('click', () => {
+    teardown()
+    report('disconnected', { message: '已断开' })
+  })
+  document.getElementById('fs').addEventListener('click', () => {
+    const request = document.documentElement.requestFullscreen?.()
+    if (request !== undefined) request.catch(() => report('failed', { message: '浏览器拒绝了全屏请求' }))
+  })
+  document.getElementById('scale').addEventListener('change', event => {
+    if (rfb !== null) rfb.scaleViewport = event.target.checked
+  })
+  document.getElementById('resolution').addEventListener('change', event => {
+    applyResolution(event.target.value)
+  })
+  document.getElementById('askbox').addEventListener('submit', event => {
+    event.preventDefault()
+    const value = askpw.value
+    if (value === '' || rfb === null) return
+    try {
+      rfb.sendCredentials({ password: value })
+      document.getElementById('pw').value = value
+      ask.hidden = true
+      report('credentials-sent')
+    } catch (error) {
+      report('failed', { message: `发送密码失败：${error?.message ?? error}` })
+    }
+  })
+
+  /** Mirror a panel-provided config into the form (the panel owns the inputs). */
+  function applyConfig(config) {
+    if (typeof config.scheme === 'string') document.getElementById('scheme').value = config.scheme
+    if (typeof config.host === 'string') document.getElementById('host').value = config.host
+    if (typeof config.port === 'string') document.getElementById('port').value = config.port
+    if (typeof config.path === 'string') document.getElementById('path').value = config.path
+    if (typeof config.password === 'string') document.getElementById('pw').value = config.password
+    if (typeof config.resolution === 'string') document.getElementById('resolution').value = config.resolution
+    // The scale checkbox too: a reloaded frame would otherwise reset to its own
+    // default and silently diverge from the panel's toggle.
+    if (typeof config.scale === 'boolean') document.getElementById('scale').checked = config.scale
+  }
+
+  window.addEventListener('message', event => {
+    const message = event.data
+    // The panel identifies itself as the sender ('dzdrone-panel'); this document
+    // identifies itself as 'dzdrone-vnc-connect' in the other direction. The two
+    // must not be conflated — filtering on our own name here would drop every
+    // command the panel sends.
+    if (message === null || typeof message !== 'object' || message.source !== 'dzdrone-panel') return
+    if (message.type === 'config' && message.config !== null && typeof message.config === 'object') {
+      applyConfig(message.config)
+    } else if (message.type === 'connect') {
+      // A connect carries the config it must use: the panel has no other way to
+      // hand its form over, and connecting with whatever the (empty) form holds
+      // would dial nowhere. The same shape works for a plain 'config' + 'connect'.
+      if (message.config !== null && typeof message.config === 'object') applyConfig(message.config)
+      connect()
+    } else if (message.type === 'password' && rfb !== null) {
+      try { rfb.sendCredentials({ password: message.password ?? '' }) } catch { /* ignore */ }
+    } else if (message.type === 'disconnect') { teardown(); report('disconnected', { message: '已断开' }) }
+    else if (message.type === 'scale' && typeof message.value === 'boolean') {
+      document.getElementById('scale').checked = message.value
+      if (rfb !== null) rfb.scaleViewport = message.value
+    } else if (message.type === 'resolution' && typeof message.value === 'string') {
+      document.getElementById('resolution').value = message.value
+      applyResolution(message.value)
+    } else if (message.type === 'cad') { try { rfb?.sendCtrlAltDel() } catch { /* ignore */ } }
+  })
+
+  // ── standalone niceties ──────────────────────────────────────────────────────
+  if (!embedded) bar.dataset.visible = ''
+  // Non-secret fields may be pre-filled from the URL; the password never rides in
+  // the URL. `autoconnect=1` honours the panel's "open in a new window" flow for
+  // a user who filled the form there and wants to continue in the standalone UI.
+  const params = new URLSearchParams(location.search)
+  for (const key of ['scheme', 'host', 'port', 'path', 'resolution']) {
+    const value = params.get(key)
+    if (value !== null && value !== '') document.getElementById(key).value = value
+  }
+  report('ready', { href: location.href })
+  if (params.get('autoconnect') === '1') connect()
+  document.getElementById('stage').addEventListener('dblclick', () => {
+    if (rfb === null) connect()
+  })
+</script>
+</body>
+</html>

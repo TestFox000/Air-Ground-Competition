@@ -1,0 +1,29 @@
+# --- 临时/会话产物（绝不入库）---
+_tmp_session/
+_tmp_car/
+_tmp_fixyaml/
+.agent-teams/
+.ssh2-tmp/
+_ssh_diag.txt
+%SystemDrive%/
+wxauto_logs/
+drone_recordings/
+dzrobot_v2/
+tools/plugins/*/node_modules/
+# Python 字节码（已是跟踪项的保持现状，这里只挡新增）
+**/__pycache__/
+*.pyc
+# 编辑器/OS 噪声
+*.swp
+.DS_Store
+# V2.0 �����ֿ⣨Ƕ�� git��������֣�
+V2.0/
+
+# 2026-10-22 B��������˽/��в��빫����
+memory/
+.zhiyuan/
+.agent-teams/
+dzsmartscout/crack_vnc_passwd.py
+
+docs/history_cache/02_�ֿ����/
+docs/history_cache/03_���̸����/

@@ -1,0 +1,37 @@
+  PASS 产出 SVG 且 viewBox 覆盖 14×11 格（477×375）
+  PASS 格背景 rect = 14×11 = 154 个
+  PASS 每格格名标签 154 个（A1…N11）+ 1 个靶板朝向标注
+  PASS 四角格名都在（A1 / N1 / A11 / N11）
+  PASS 横置方向：A 在左（x=0）、N 在第 14 列（x=442）
+  PASS 行方向：1 行在上（y=0）、11 行在下（y=340）
+  PASS 雷：8 个红圈 + 「雷」字
+  PASS 障：8 个灰块 + 「障」字
+  PASS 桥洞：青色 + 「洞」字 ×2（= map.bridges）
+  PASS 封闭桥室：K 列非开放格浅灰
+  PASS 靶板：一块并板（E5+F5）+「靶板」字；t28 起不再每格出「靶」字
+  PASS 靶板朝向标注（横向/竖向）
+  PASS 隔板：第 6/7 行之间 D~N 黑条 + 标注
+  PASS 起点 N10：绿底 + 「起」
+  PASS 终点 N5：金底 + 「终」
+  PASS 无人机起 N8：蓝 + 「机」
+  PASS 无人机降 M2：蓝 + 「H」图标
+  PASS 参考路线折线已画（60 token）
+  PASS 坐标映射：N10 → x=459, y=323（右下）；A1 → (17,17)；N11 → (459,357)
+  PASS 未改点位 → fieldFromForm() = null（请求体不带 field）
+  PASS 改了障碍 → fieldFromForm() 只报 obstacles
+  PASS A 折线：A1→D1 补 2 个中间格心，共 4 点（多段折线，非首末直线）
+  PASS A 折线：N11→N8 纵向逐格补点，4 点且 x 恒为 459
+  PASS A 折线：真实路线（54 token 全逐格正交）折线点数 = token 数，不倒退
+  PASS A 折线：折线点数 = 格心数 + 多格跳步补点数（可复算，逐段核对）
+  PASS B 位姿：车身包围盒 = 13.11 × 27.20 px（宽 0.135 m × 高 0.28 m；yaw=0 车头朝屏幕下，长边在 y 轴）
+  PASS B 位姿：yaw 转 90° 后包围盒长宽互换（13.11×27.2 → 27.2×13.11），顶点真的动了
+  PASS B 位姿：yaw=0 与 yaw=π/2 的顶点集合互不相同（防"尺寸对了但其实没转"假绿）
+  PASS B 位姿：合成轨迹渲染出车身矩形（fill="#1f2933" path）+ 车头箭头 + 「起点位姿」标注
+  PASS C 靶朝向：auto 由两格几何自动判 —— E5+F5（左右相邻）→ 68×34 横向
+  PASS C 靶朝向：auto 由两格几何自动判 —— E5+E6（上下相邻）→ 34×68 竖向
+  PASS C 靶朝向：显式 h / v 覆盖 auto（尺寸仍是 68×34，标注随之切换）
+  PASS C 靶朝向：targetYaw=「v」→ 渲染标注变「竖向」
+  PASS C 靶朝向：targetYaw=「h」→ 渲染标注变「横向」
+  PASS C 靶朝向：targetYaw 非法值回落「跟随地图」→ 标注仍是自动判定的「横向」
+  PASS C 靶朝向：fieldSpec() 报的 target.yaw 与 targetBoardRect auto 一致（E5+F5 → h）
+横置地图渲染核对：36/36 通过

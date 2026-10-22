@@ -1,0 +1,8 @@
+[submodule "dzsmartscout/src/mavros"]
+	path = dzsmartscout/src/mavros
+	url = https://github.com/mavlink/mavros.git
+	branch = ros2
+[submodule "dzsmartscout/src/FASTLIO2_ROS2"]
+	path = dzsmartscout/src/FASTLIO2_ROS2
+	url = https://github.com/liangheming/FASTLIO2_ROS2.git
+	branch = main
