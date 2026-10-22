@@ -12,7 +12,7 @@ set -u
 
 REPO="$HOME/dzuav_deploy/air_ground"
 DESK="$HOME/Desktop"
-GUIDE="$DESK/机载操作指南.txt"
+GUIDE="$DESK/操作指南.txt"
 
 ok()   { echo "[通过] $*"; }
 fail() { echo "[失败] $*" >&2; exit 1; }
@@ -64,12 +64,12 @@ EOF
     gio set "$DESK/$1" metadata::trusted true 2>/dev/null || true
 }
 
-mk_item "ag-plan-start.desktop"  "① 启动机载全栈"     "up"
-mk_item "ag-plan-accept.desktop" "② 机载规划验收"     "accept"
-mk_item "ag-plan-stop.desktop"   "③ 停止机载全栈"     "stop"
-mk_item "ag-recon.desktop"       "④ 视频侦察（出路线图）" "recon"
-mk_item "ag-diag.desktop"        "⑤ 一键体检"          "diag"
-mk_item "ag-plan-menu.desktop"   "更多操作（菜单）"   "menu"
+mk_item "ag-plan-start.desktop"  "① 启动全栈"     "up"
+mk_item "ag-plan-accept.desktop" "② 规划验收"     "accept"
+mk_item "ag-plan-stop.desktop"   "③ 停止全栈"     "stop"
+mk_item "ag-recon.desktop"       "④ 视频侦察"     "recon"
+mk_item "ag-diag.desktop"        "⑤ 一键体检"     "diag"
+mk_item "ag-plan-menu.desktop"   "更多操作"       "menu"
 ok "已安装桌面图标：启动 / 验收 / 停止 / 视频侦察 / 更多操作（双击即执行，执行完自动回菜单）"
 
 # ---------------------------------------------------------------- 桌面 .sh（可直接运行）
@@ -95,10 +95,10 @@ ok "已安装 ~/Desktop/视频侦察.sh（可直接双击/终端运行，跑完�
 
 # ---------------------------------------------------------------- 操作指南
 cat > "$GUIDE" <<'TXT'
-机载操作指南（VNC 桌面前照着做即可）
+机载操作指南（VNC 桌面前照着做即可；图标名已按桌面显示宽度缩写）
 =====================================
 
-【一句话】桌面上双击「① 启动机载全栈」→ 它会先做启动前检查、然后直接拉起全栈，
+【一句话】桌面上双击「① 启动全栈」→ 它会先做启动前检查、然后直接拉起全栈，
          拉起后**自动显示数字菜单**（4=验收 5=看窗口 6=看产物 7=停止 8=视频侦察
          d=一键体检 b=启停广播 0=退出）。
          如果你在任何时候找不到菜单：打开终端敲  ~/start.sh  回车即可。
@@ -106,7 +106,7 @@ cat > "$GUIDE" <<'TXT'
          ~/start.sh 只是薄壳，不必重刷桌面。
 
 〇、只想看「视频 → 路径规划」（不需要起全栈、不需要相机）——**通用，任意视频**
-  1. 双击桌面「④ 视频侦察（出路线图）」或「视频侦察.sh」
+  1. 双击桌面「④ 视频侦察」或「视频侦察.sh」
      · 无参数时它**列出机上视频**让你输序号（也会认你直接粘的路径）
      · 选完就跑：识别 → 格号反推 → 路线 → 车命令 → 渲染图，跑完自动打开图
      · 前置件（cv2 / 13 类模型 / 中文字体）缺哪项它会说清修法
@@ -178,13 +178,14 @@ cat > "$GUIDE" <<'TXT'
     不是规划问题）：PnP 至少要 4 个格号且都要是内点
   · 验收脚本报「规划进程未能启动」 → UDP:50000 被别的进程占了（例如另一个规划进程还在跑）
 TXT
-ok "已写入桌面《机载操作指南.txt》"
+rm -f "$DESK/机载操作指南.txt" 2>/dev/null || true   # 旧长名会被桌面截断，改为短名
+ok "已写入桌面《操作指南.txt》"
 
 echo
 echo "==================== 安装完成 ===================="
-echo "桌面图标：① 启动机载全栈 / ② 机载规划验收 / ③ 停止全栈 / ④ 视频侦察 / 更多操作（菜单）"
+echo "桌面图标：① 启动全栈 / ② 规划验收 / ③ 停止全栈 / ④ 视频侦察 / ⑤ 一键体检 / 更多操作"
 echo "          （双击即执行；执行完自动回到数字菜单）"
 echo "找不到菜单时：打开终端敲  ~/start.sh  回车"
 echo "文本入口：~/start.sh（也支持 up / up-send / accept / stop / recon / recon-replay / plan / diag / broadcast-start / broadcast-stop）"
-echo "操作指南：~/Desktop/机载操作指南.txt"
+echo "操作指南：~/Desktop/操作指南.txt"
 echo "=================================================="
