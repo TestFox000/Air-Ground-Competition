@@ -8,19 +8,21 @@
 完全对应 reference/onboard/dzuav/src/UdpBroadcaster.cpp）。
 
 用法：
-    # 默认场景：1 个雷 + 1 个蓝靶（满足 min_mines=1, require_face=True 门控）
+    # 默认场景：1 个雷(PAPER) + 1 个蓝靶（满足 min_mines=1, require_face=True 门控）
     tools/fake_udp_sender.py
 
     # 自定义场景，用格号:类别 列表
-    tools/fake_udp_sender.py --scenario "B3:mine,D5:obstacle,H7:target_blue"
+    tools/fake_udp_sender.py --scenario "B3:paper,D5:obstacle,H7:target_blue"
 
     # 单发后退出（集成测试用）
     tools/fake_udp_sender.py --once
 
-    # 改端口/频率
-    tools/fake_udp_sender.py --port 50000 --rate 10
+    # 改端口/频率/目标（部分 Windows 广播不回环，本机自收彩排走 --to 127.0.0.1）
+    tools/fake_udp_sender.py --port 50000 --rate 10 --to 127.0.0.1
 
-类别名（对应 ObjectType）：mine car arrow target_red cell_label target_blue obstacle
+类别名（对应 ObjectType）：paper cell_label car target_red target_blue obstacle
+                           bucket_red bucket_green bucket_cyan car_start car_end
+                           uav_start uav_end
 """
 from __future__ import annotations
 
@@ -41,7 +43,8 @@ from ag_integrate.intel_protocol import (  # noqa: E402
     build,
 )
 
-DEFAULT_SCENARIO = "B3:mine,H7:target_blue"
+# 2026-10-16 起 13 类：旧 7 类的 mine→paper（语义由车端 world_model 按落格判雷）
+DEFAULT_SCENARIO = "B3:paper,H7:target_blue"
 
 
 def parse_scenario(text: str) -> list[IntelObject]:
@@ -72,9 +75,9 @@ def parse_scenario(text: str) -> list[IntelObject]:
     return objs
 
 
-def send(sock: socket.socket, port: int, frame: IntelFrame) -> int:
+def send(sock: socket.socket, port: int, frame: IntelFrame, dest: str) -> int:
     data = build(frame)
-    sock.sendto(data, ("255.255.255.255", port))
+    sock.sendto(data, (dest, port))
     return len(data)
 
 
@@ -85,6 +88,8 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=50000)
     ap.add_argument("--rate", type=float, default=5.0, help="发送频率 Hz（循环模式）")
     ap.add_argument("--once", action="store_true", help="只发一帧后退出")
+    ap.add_argument("--to", default="255.255.255.255",
+                    help="目标地址（默认全网广播；本机自收彩排用 127.0.0.1）")
     args = ap.parse_args()
 
     objs = parse_scenario(args.scenario)
@@ -95,21 +100,22 @@ def main() -> int:
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     names = {t.value: t.name for t in ObjectType}
-    print(f"[fake_udp] port={args.port} objects={len(objs)} mode={'once' if args.once else f'loop@{args.rate}Hz'}")
+    print(f"[fake_udp] -> {args.to}:{args.port} objects={len(objs)} "
+          f"mode={'once' if args.once else f'loop@{args.rate}Hz'}")
     for o in objs:
         print(f"  {names[o.type]:11s} ({o.x:.3f},{o.y:.3f})")
 
     try:
         if args.once:
             ts = int(time.time() * 1000)
-            n = send(sock, args.port, IntelFrame(ts, tuple(objs)))
+            n = send(sock, args.port, IntelFrame(ts, tuple(objs)), args.to)
             print(f"[fake_udp] 已发送 1 帧 ({n} 字节)")
             return 0
         period = 1.0 / args.rate
         count = 0
         while True:
             ts = int(time.time() * 1000)
-            n = send(sock, args.port, IntelFrame(ts, tuple(objs)))
+            n = send(sock, args.port, IntelFrame(ts, tuple(objs)), args.to)
             count += 1
             if count == 1 or count % 10 == 0:
                 print(f"[fake_udp] sent #{count} ({n} 字节), ts={ts}")
