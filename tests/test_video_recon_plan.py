@@ -207,3 +207,60 @@ def test_plan_without_track_observation_uses_referee_prior(tmp_path):
     assert plan["snapshot"]["targets"] == ["轨道靶@D7（视频未观测，用裁判先验）"]
     assert plan["source"]["targets_track_observed"] == {}
     assert "*" in plan["car_cmds"]["route"]
+
+
+def test_plan_reports_mine_shortfall_against_baseline(tmp_path):
+    """"排雷覆盖✓"只对已检出的雷负责；检出不足 8 颗时必须显式标出漏检风险。
+
+    2026-10-22 实测：通用入口用 stride 15 跑某段视频只检出 2 颗雷，check 仍显示
+    "排雷覆盖: 全部覆盖"，用户看渲染图当场问"这航点缺雷"。基线是 field_rules.MAX_MINES=8。
+    """
+    state = _state(mines=["A2", "C3"], passable=["K10"], obstacles=["C9"],
+                   red=[], blue=[])
+    plan = vr.plan_from_state(state, tmp_path)
+    note = plan["check"]["排雷覆盖"]
+    assert note.startswith("全部覆盖")
+    assert "2/8" in note and "漏检" in note, note
+
+
+def test_plan_does_not_warn_when_baseline_met(tmp_path):
+    """检出满 8 颗时不该出现漏检提示（避免长期告警变成噪声）。"""
+    state = _state(mines=["A2", "B1", "C3", "D4", "E3", "F5", "G9", "H8"],
+                   passable=["K10"], obstacles=["C9"], red=[], blue=[])
+    plan = vr.plan_from_state(state, tmp_path)
+    assert "漏检" not in plan["check"]["排雷覆盖"], plan["check"]
+
+
+def _meta(frames: int, q, conf: float, labels=("B3", "B5", "B7")) -> list[dict]:
+    """构造逐帧识别明细：同一目标连续 N 帧落在 q（连续格坐标）。"""
+    return [{"frame": i, "grid_ok": True, "labels": list(labels),
+             "objs": [{"cls": "paper", "conf": conf, "q": list(q)}]}
+            for i in range(frames)]
+
+
+def test_aggregate_keeps_strong_vote_low_confidence_mine():
+    """≥3 帧独立同意的雷不被子框阈值的均值置信度门卡掉（2026-10-22 G9 事故）。
+
+    放宽单框阈值(0.22→0.15)会拉低命中的均值置信度，若均值门仍对"票数刚好够"
+    的格子生效，就会把真雷一起卡掉——同一段视频上一版反而检得到。3 票已足够
+    作为独立证据，均值门只该拦 2 票的弱格。
+    """
+    st = vr.aggregate_state(_meta(3, (1.0, 4.0), 0.336))
+    assert "B5" in st["mines_video"], st["votes_detail"]["paper"]
+
+    st_weak = vr.aggregate_state(_meta(2, (1.0, 4.0), 0.336))
+    assert "B5" not in st_weak["mines_video"], st_weak["votes_detail"]["paper"]
+
+
+def test_reaggregate_matches_full_run_on_saved_meta(tmp_path):
+    """--reaggregate 用 frames_meta 重算，必须与完整跑一遍的态势一致（单点派生）。"""
+    meta = (_meta(3, (1.0, 4.0), 0.60, labels=("B3", "B5", "B7"))
+            + _meta(2, (6.0, 2.0), 0.55, labels=("G1", "G3", "G5")))
+    (tmp_path / "frames_meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    st = vr.aggregate_state(meta, video="x.mp4", stride=5)
+    (tmp_path / "field_state.json").write_text(
+        json.dumps(st, ensure_ascii=False), encoding="utf-8")
+    assert vr.main(["--reaggregate", str(tmp_path)]) == 0
+    plan = json.loads((tmp_path / "route_plan.json").read_text(encoding="utf-8"))
+    assert "B5" in plan["snapshot"]["mines"] and "G3" in plan["snapshot"]["mines"]

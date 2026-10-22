@@ -10,12 +10,13 @@
 #     tools/orin_video_recon.sh --replay-last          # 秒级：用最近一次的态势重出规划
 #
 # 缓存语义（这是"通用"的关键）：按 <视频名>-<大小>-<时间戳>-s<stride> 建缓存目录，
-# 同一视频同一参数跑第二次时**直接复用识别结果**（只重跑规划层，秒级）；
-# 换视频/换 stride 自然是新目录，不会串味。--force 忽略缓存。
+# 同一视频同一参数跑第二次时复用**已落盘的逐帧识别结果**（frames_meta.json），
+# 用**当前**门控/裁决规则重算态势并重出规划（秒级）——门控修过的地方不会因为
+# 缓存而继续用旧结论。换视频/换 stride 自然是新目录，不会串味。--force 忽略缓存。
 #
 # 关于耗时与质量：整段识别是 CPU 推理，约 **2.2 秒/采样帧**。stride 5 对 2568 帧
 # 的视频≈514 帧≈19 分钟；stride 15 ≈172 帧≈6 分钟但**会漏掉只短暂可见的目标**
-# （实测同一段视频：stride 15 出 2 雷，stride 5 出 5 雷）。要正式结果就用默认 stride 5。
+# （实测同一段视频：stride 15 出 3 雷，stride 5 出 8 雷=官方基线）。要正式结果就用默认 stride 5。
 # =============================================================================
 set -u
 REPO="${REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -29,6 +30,18 @@ say()  { printf '\n\e[1;36m==> %s\e[0m\n' "$*"; }
 ok()   { printf '\e[1;32m[通过]\e[0m %s\n' "$*"; }
 warn() { printf '\e[1;33m[警告]\e[0m %s\n' "$*"; }
 bad()  { printf '\e[1;31m[失败]\e[0m %s\n' "$*"; }
+
+# 秒级复用：识别结果（frames_meta.json）已在，用当前门控重算态势 + 重出规划。
+# 这是"门控改了但缓存没重跑"的唯一正确做法——与重跑识别共用同一份聚合代码。
+reagg() {   # $1 = 缓存目录
+    if [[ -f "$1/frames_meta.json" ]]; then
+        $PY -u "$R" --reaggregate "$1"
+    else
+        warn "该缓存缺 frames_meta.json（旧版本产物），退回只重跑规划层——"
+        warn "态势仍是旧识别结论；要套用新门控请加 --force 重跑一次识别"
+        $PY tools/orin_replan_from_state.py "$1/field_state.json" "$1"
+    fi
+}
 
 STRIDE=5; FORCE=0; VIDEO=""; OUT=""; REPLAY_LAST=0
 while [[ $# -gt 0 ]]; do
@@ -80,7 +93,7 @@ if [[ $REPLAY_LAST == 1 ]]; then
     [[ -n $LAST ]] || { bad "没有缓存态势（$CACHE_ROOT 下没有 field_state.json）——先跑一次：$0 <视频>"; exit 1; }
     OUT="$LAST"                        # 后面摘要/看图都以 OUT 为准，这里必须补上
     say "秒级重出规划（缓存态势：$LAST）"
-    $PY tools/orin_replan_from_state.py "$LAST/field_state.json" "$LAST" || exit $?
+    reagg "$LAST" || exit $?
     PNG="$LAST/route_render.png"
 else
     [[ -n $VIDEO ]] || { pick_video || exit 1; }
@@ -95,9 +108,9 @@ else
     say "视频: $VIDEO"
     echo "     采样帧距: $STRIDE    缓存目录: $OUT"
     if [[ -f "$OUT/field_state.json" && $FORCE == 0 ]]; then
-        ok "该视频已有识别结果（同尺寸/同帧距）——直接复用，只重跑规划层（秒级）"
-        echo "     要重跑识别: 加 --force"
-        $PY tools/orin_replan_from_state.py "$OUT/field_state.json" "$OUT" || exit $?
+        ok "该视频已有识别结果（同尺寸/同帧距）——直接用当前门控重算态势（秒级）"
+        echo "     要重跑逐帧识别: 加 --force"
+        reagg "$OUT" || exit $?
     else
         [[ $FORCE == 1 ]] && warn "--force：忽略缓存，重跑识别"
         echo "     开始识别（每 20 帧打印一次进度；CPU 推理约 2.2s/帧，请耐心）"
@@ -118,8 +131,10 @@ out = Path(sys.argv[1])
 st = json.loads((out / "field_state.json").read_text(encoding="utf-8"))
 pl = json.loads((out / "route_plan.json").read_text(encoding="utf-8"))
 kv = st.get("frames_grid_ok"), st.get("frames_sampled")
-print(f"  网格拟合帧 {kv[0]}/{kv[1]}   雷 {st['mines_video']}   K列箭头 {st['passable_video']}")
-print(f"  障碍 {st['obstacles_video']}   靶 {st['targets_video']}")
+n_mines = len(st["mines_video"])
+print(f"  网格拟合帧 {kv[0]}/{kv[1]}   雷 {st['mines_video']}"
+      f"（{n_mines}/8 颗，官方基线 8）{'' if n_mines >= 8 else '  ⚠ 可能漏检'}")
+print(f"  K列箭头 {st['passable_video']}   障碍 {st['obstacles_video']}   靶 {st['targets_video']}")
 if st.get("targets_reclassified_as_bucket"):
     print(f"  靶裁决: 静靶→桶 {st['targets_reclassified_as_bucket']}（场地真值口径，"
           f"要保留静靶用 --allow-static-targets）")

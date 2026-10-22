@@ -59,6 +59,7 @@ import numpy as np
 try:                                    # 包内导入（python -m ag_integrate.video_recon）
     from .cjk_font import load_cjk_font
     from .field_frame import CellRef, COLS, LETTERS, ROWS
+    from .field_rules import MAX_MINES
     from .world_model import TargetRef, WorldSnapshot
     from .mission_router import _BARRIER_COLS, _MID_BOUNDARY, plan_route
     from .car_adapter import compact_and_adapt
@@ -66,6 +67,7 @@ except ImportError:                     # 直接以文件路径运行（比赛�
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from ag_integrate.cjk_font import load_cjk_font
     from ag_integrate.field_frame import CellRef, COLS, LETTERS, ROWS
+    from ag_integrate.field_rules import MAX_MINES
     from ag_integrate.world_model import TargetRef, WorldSnapshot
     from ag_integrate.mission_router import _BARRIER_COLS, _MID_BOUNDARY, plan_route
     from ag_integrate.car_adapter import compact_and_adapt
@@ -281,8 +283,16 @@ def confirmed_cells(cls_list: list[str], votes: dict[str, Counter],
                     vframes: dict[str, dict[str, set]],
                     min_votes: int = VOTE_MIN,
                     min_mean_conf: float = 0.0,
-                    phantom_kill: bool = False) -> list[str]:
-    """跨类合并投票 + 票数/均值置信度门控 + 可选幻影消除。"""
+                    phantom_kill: bool = False,
+                    strong_votes: int = 1 << 30) -> list[str]:
+    """跨类合并投票 + 票数/均值置信度门控 + 可选幻影消除。
+
+    mean_conf 门**只拦"票数刚好够"的弱格**（v < strong_votes）：多帧独立同意的
+    证据强度已经足够，再拿均值卡它会把真正的小目标卡掉。2026-10-21 实测事故：
+    把单框阈值从 0.22 放宽到 0.15 后，G9 拿到 3 票、均值置信度 0.336 < 0.35，
+    被门卡掉——同一段视频上一版（阈值 0.22）反而检得到它。放宽单框阈值与收紧
+    均值门互相打架，属于"参数联动"而非模型变差。
+    """
     merged: Counter = Counter()
     for cls in cls_list:
         merged.update(votes.get(cls, Counter()))
@@ -290,7 +300,7 @@ def confirmed_cells(cls_list: list[str], votes: dict[str, Counter],
     for c, v in merged.items():
         if v < min_votes:
             continue
-        if min_mean_conf:
+        if min_mean_conf and v < strong_votes:
             mconf = sum(vconf.get(k, {}).get(c, 0.0) for k in cls_list) / max(v, 1)
             if mconf < min_mean_conf:
                 continue
@@ -874,7 +884,32 @@ def recon_video(video: str | Path, out_dir: str | Path,
         if len(error_samples) < frame_errors:
             print(f"[recon][注意]   …另有 {frame_errors - len(error_samples)} 处同类")
 
+    field_state = aggregate_state(frames_meta, video=str(video), stride=stride)
+    (out_dir / "field_state.json").write_text(
+        json.dumps(field_state, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out_dir / "frames_meta.json").write_text(
+        json.dumps(frames_meta, ensure_ascii=False), encoding="utf-8")
+    return field_state
+
+
+def aggregate_state(frames_meta: list[dict], video: str = "",
+                    stride: int = 0) -> dict:
+    """逐帧检测明细 → 场地态势（落格投票 → 门控 → 幻影 → 单格裁决）。
+
+    抽成独立函数的原因：frames_meta.json 已落盘"投影后的连续格坐标"，
+    门控/阈值/裁决这类**纯聚合规则**的改动不必重跑逐帧推理（机上 stride5
+    整段要 17 分钟）。CLI `--reaggregate` 走的就是这条路径——"重算"与
+    "重跑"共用同一份门控代码，不会长出第二套阈值。
+    """
     # 全局分数校准：标签在格内位置一致 → paper 落格心分数众数即偏移
+    cont_pos: dict[str, list[tuple[float, float, float]]] = defaultdict(list)
+    for m in frames_meta:
+        if not m.get("grid_ok"):
+            continue
+        for o in m.get("objs", []):
+            q = o.get("q") or []
+            if len(q) == 2:
+                cont_pos[o["cls"]].append((q[0], q[1], o["conf"]))
     frac_c = [q[0] for q in cont_pos.get("paper", [])]
     frac_r = [q[1] for q in cont_pos.get("paper", [])]
     if len(frac_c) < 8:
@@ -921,8 +956,11 @@ def recon_video(video: str | Path, out_dir: str | Path,
                     coverage[cell_name(c, r)] += 1
 
     # 场势聚合
+    # paper 用 strong_votes=3：≥3 帧独立同意的格不再受均值置信度门限制（见
+    # confirmed_cells 注释的 G9 事故）；其余类别维持原门控不变。
     paper_cells = confirmed_cells(["paper"], votes, vconf, vframes,
-                                  VOTE_MIN, PAPER_MEAN_CONF_MIN, phantom_kill=True)
+                                  VOTE_MIN, PAPER_MEAN_CONF_MIN, phantom_kill=True,
+                                  strong_votes=3)
     mines, passable = split_mines_passable(paper_cells)
     obstacles = confirmed_cells(["obstacle", "bucket_red", "bucket_green", "bucket_cyan"],
                                 votes, vconf, vframes)
@@ -957,8 +995,9 @@ def recon_video(video: str | Path, out_dir: str | Path,
         [c for c, v in votes["paper"].items() if v >= VOTE_MIN],
         votes["paper"], vframes.get("paper", {}))
 
+    n_ok = sum(1 for m in frames_meta if m["grid_ok"])
     field_state = {
-        "video": str(video), "stride": stride,
+        "video": video, "stride": stride,
         "frames_sampled": len(frames_meta), "frames_grid_ok": n_ok,
         "frac_offset": [round(fc, 3), round(fr, 3)],
         "mines_video": mines, "passable_video": passable,
@@ -971,10 +1010,6 @@ def recon_video(video: str | Path, out_dir: str | Path,
         "votes_detail": {cls: dict(cnt.most_common()) for cls, cnt in votes.items()},
         "coverage": dict(coverage.most_common()),
     }
-    (out_dir / "field_state.json").write_text(
-        json.dumps(field_state, ensure_ascii=False, indent=2), encoding="utf-8")
-    (out_dir / "frames_meta.json").write_text(
-        json.dumps(frames_meta, ensure_ascii=False), encoding="utf-8")
     print(f"[recon] 态势: 雷 {mines} | K列箭头 {passable} | 障碍 {obstacles}"
           f" | 靶 红{tgt_red} 蓝{tgt_blue} | 幻影 {phantom_log}")
     return field_state
@@ -1154,6 +1189,14 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
     route_set = set(route)
     missing = [c for c in mines if c not in route_set]
     viol = [c for c in route if c in obstacles]
+    # "排雷覆盖✓"只证明**已检出的雷**都在路线上，不证明没漏检。官方基线 8 颗
+    # （field_rules.MAX_MINES：地图上不可能超过 8），检出不足时必须显式说出来，
+    # 否则 2/8 的态势也会显示"全部覆盖"——这是 2026-10-22 实测踩到的假绿。
+    _n_mines = len(mines)
+    _mine_note = ("全部覆盖" if not missing else f"缺失{missing}")
+    if _n_mines < MAX_MINES:
+        _mine_note += (f"（仅检出 {_n_mines}/{MAX_MINES} 颗雷：漏检风险，"
+                       f"用 --stride 5 全量重跑或人工复核未检出区）")
 
     route_plan = {
         "source": {"mines/obstacles/targets": "视频模型识别",
@@ -1188,7 +1231,7 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
         "compact": list(compact),
         "car_cmds": {"reset": cmds.reset, "route": cmds.route,
                      "shoot_cells": list(cmds.shoot_cells)},
-        "check": {"排雷覆盖": "全部覆盖" if not missing else f"缺失{missing}",
+        "check": {"排雷覆盖": _mine_note,
                   "障碍避让": "通过" if not viol else f"穿障{viol}"},
     }
     # 安全提示：两段式口径下射击停靠位是"确认位"，实弹由在飞 fire_guard 复判。
@@ -1204,6 +1247,12 @@ def plan_from_state(field_state: dict, out_dir: str | Path,
     print(f"[plan] 路线 {len(route)} 格: {' → '.join(route)}")
     print(f"[plan] 压缩 {len(compact)} 点 | 排雷覆盖 {'✓' if not missing else missing}"
           f" | 避障 {'✓' if not viol else viol}")
+    # 终端摘要必须与 check 字段同口径：只打 "排雷覆盖 ✓" 会让 2/8 的态势看起来
+    # 完全没问题（用户 2026-10-22 就是看这行 + 渲染图问"这航点缺雷"）。
+    if _n_mines < MAX_MINES:
+        print(f"[plan][注意] 视频只检出 {_n_mines}/{MAX_MINES} 颗雷（官方基线 "
+              f"{MAX_MINES}）——未检出的雷不在路线上，属于漏检风险；"
+              f"正式用前请用 --stride 5 全量重跑或人工复核未检出区")
     if "友方面禁火" in route_plan["check"]:
         print(f"[plan] 友方面禁火：{route_plan['check']['友方面禁火']}")
     _render_plan(snapshot, route, compact, cmds, use_start, use_goal,
@@ -1343,10 +1392,15 @@ def _render_plan(snapshot: WorldSnapshot, route: tuple[str, ...],
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="赛前视频场地侦察：D13+v4d 识别 → 态势 → 路线规划（全机械化）")
-    ap.add_argument("video", type=str)
+    ap.add_argument("video", nargs="?", default=None, type=str)
     ap.add_argument("--stride", type=int, default=5,
                     help="采样帧距（默认 5 = 2026-10-17 冠军配置；15 会漏掉只短暂"
                          "可见的目标——实测 172 帧只剩 2 雷 vs stride6 的 5 雷）")
+    # 门控/裁决规则改动后不必重跑推理：frames_meta.json 已含逐帧投影结果，
+    # 用它重算态势（秒级）。这既避免 17 分钟的重复识别，也保证"重算"与
+    # "重跑"用的是同一份门控代码。
+    ap.add_argument("--reaggregate", type=str, default=None, metavar="DIR",
+                    help="不跑识别：用 DIR/frames_meta.json 按当前门控重算态势并重出规划")
     ap.add_argument("--imgsz", type=int, default=IN_SIZE, choices=(640, 1280),
                     help="推理分辨率，必须与模型导出一致（1280 版 33600 anchors，"
                          "640 版 8400）；640 是 10-17 实测召回更高的离线配置")
@@ -1365,14 +1419,36 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if args.stride < 1:
         ap.error(f"--stride 必须 >= 1（收到 {args.stride}）")
+    if not args.reaggregate and not args.video:
+        ap.error("缺少 video（或用 --reaggregate DIR 从已有识别结果重算）")
 
     out_dir = Path(args.out) if args.out else Path(
         f"视频侦察_{datetime.now().strftime('%Y%m%d')}")
     # 现场用法：报错要能照着做，不要甩一屏 traceback（机上 VNC 里翻不动）。
     # 保留原始异常链：--debug 时打印完整堆栈。
     try:
-        state = recon_video(args.video, out_dir, args.d13, args.v4d,
-                            args.stride, args.max_frames, imgsz=args.imgsz)
+        if args.reaggregate:
+            out_dir = Path(args.reaggregate)
+            meta_path = out_dir / "frames_meta.json"
+            if not meta_path.is_file():
+                raise FileNotFoundError(
+                    f"--reaggregate 需要 {meta_path}（逐帧识别明细），该目录没有。\n"
+                    f"  它是每次识别都会落盘的产物；没有说明这个目录不是识别结果目录，"
+                    f"或来自旧版本脚本——请重跑一次识别：video_recon.py <视频>")
+            frames_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            # 沿用原态势记录的来源信息（视频路径/帧距），避免重算后来源字段失真
+            prev_path = out_dir / "field_state.json"
+            prev = (json.loads(prev_path.read_text(encoding="utf-8"))
+                    if prev_path.is_file() else {})
+            print(f"[reagg] 用 {meta_path}（{len(frames_meta)} 帧）按当前门控重算态势")
+            state = aggregate_state(frames_meta,
+                                    video=prev.get("video", str(args.video or "")),
+                                    stride=int(prev.get("stride", args.stride)))
+            prev_path.write_text(json.dumps(state, ensure_ascii=False, indent=2),
+                                 encoding="utf-8")
+        else:
+            state = recon_video(args.video, out_dir, args.d13, args.v4d,
+                                args.stride, args.max_frames, imgsz=args.imgsz)
         plan_from_state(state, out_dir,
                         static_target_is_bucket=not args.allow_static_targets)
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
