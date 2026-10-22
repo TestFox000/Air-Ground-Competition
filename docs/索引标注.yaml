@@ -74,10 +74,18 @@ paths:
     status: 临时
     owner: 团队
     note: 任务草稿；过期归档到 _archive
-  dzrobot_v2/dsh-plugin-dzrobot-ssh:
+  tools/plugins/dsh-dzrobot-ssh:
     status: 活跃
     owner: sim-dev
-    note: 仿真台插件；在途改动
+    note: 车侧插件（S0 冻结）；2026-10-22 迁入 tools/plugins
+  tools/plugins/dsh-dzdrone-ssh:
+    status: 活跃
+    owner: 无人机
+    note: 机侧插件（S0 冻结）；2026-10-22 迁入 tools/plugins
+  tools/plugins/dsh-dzairground-ssh:
+    status: 活跃
+    owner: sim-dev
+    note: 统一空地插件；2026-10-22 迁入 tools/plugins（尚未挂载 desktop profile）
   _tmp_session:
     status: 临时
     owner: 团队
@@ -221,7 +229,7 @@ paths:
   dsh-dzairground-ssh:
     status: 活跃
     owner: sim-dev
-    note: 无人机 SSH 插件
+    note: 已迁入 tools/plugins/dsh-dzairground-ssh（2026-10-22）；勿在此目录开发
   dzrobot_v2/src/car_localization:
     status: 活跃
     owner: aim-tuner
