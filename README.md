@@ -56,6 +56,7 @@
 | `tools/orin_watchdog.py` | 机载自治守卫（`orin_bringup.sh` 的 flight_wd 窗口）：断流/掉 OFFBOARD/位置跳变 → 机上本地自动 LAND |
 | `tools/uav_link.py` | 无人机地面站：run 只读遥测+黑匣子（/fmu/out/* 自描述采样，8 条告警）、ctl 调控（arm/kill 等，--yes 闸门）、logs 取回机载日志、report 离线复盘分级。密码走 `AG_ORIN_PASS` |
 | `tools/monitor_link.py` | 空地链路看板：监听 UDP:50000 解析 0x4001/0x4002，终端 ASCII 场地格图 + 帧率/CRC/延迟统计（Windows 可直接跑，配合 fake_udp_sender 彩排） |
+| `tools/uav_wizard.py` | 无人机操作向导：把无人机操作手册 SOP 变成步骤引导面板（S0~S10 每步作用/命令/通过标准/排查提示+一键验证；安全边界=只做检查与 bringup up/down，不做飞行控制）；`--check` 非交互自检（退出码可进冒烟/CI）、`--rehearse` 无硬件彩排，双击 `无人机向导.bat` 即用 |
 | `tools/smoke_test_chain.py` | 车端全链路冒烟：UDP 帧→解析→态势→路径→命令→禁火，无 ROS/硬件依赖的快速自检入口 |
 | `tools/orin_capture_dataset.py` | 机上数据采集（uvc/argus/视频源 → 标定/训练素材），随 orin_deploy 上机 |
 | `tools/log_report.py` | 黑匣子复盘报告 |
