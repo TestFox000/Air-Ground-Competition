@@ -1,10 +1,9 @@
 {
- "generated": "2026-10-22 19:28",
- "count": 70,
+ "generated": "2026-10-22 21:47",
+ "count": 69,
  "managed": [
   "AGENTS.md",
   "air_ground_models/README.md",
-  "dsh-dzairground-ssh/README.md",
   "dzrobot_v2/artifacts/sim/t6_README.md",
   "dzrobot_v2/backup/cardB-before/README.md",
   "dzrobot_v2/backup/selfupgrade/round3-after/算法归纳规则.md",
@@ -14,12 +13,10 @@
   "dzrobot_v2/docs/工作流v2.md",
   "dzrobot_v2/docs/目录索引.md",
   "dzrobot_v2/docs/能力索引.md",
-  "dzrobot_v2/dsh-plugin-dzrobot-ssh/README.md",
   "dzrobot_v2/src/todo/交接_文官.md",
   "dzrobot_v2/src/todo/交接_武将.md",
   "dzrobot_v2/src/todo/交接协议.md",
   "dzsmartscout/WORKFLOW.md",
-  "dzsmartscout/dsh-plugin-dzdrone-ssh/README.md",
   "dzsmartscout/fc-audit/fixes/01-odom-source/APPLY.md",
   "dzsmartscout/fc-audit/fixes/02-px4-path-config/APPLY.md",
   "dzsmartscout/fc-audit/fixes/03-follow-safety/APPLY.md",
@@ -71,7 +68,20 @@
   "dzsmartscout/tools/reports/t4-链路验证报告.md",
   "dzsmartscout/tools/sim_airground/README.md",
   "dzsmartscout/tools/sim_airground/T28_交付说明.md",
-  "tools/plugins/dsh-dzairground-ssh/README.md"
+  "tools/plugins/dsh-dzairground-ssh/README.md",
+  "tools/plugins/dsh-dzdrone-ssh/README.md",
+  "tools/plugins/dsh-dzrobot-ssh/README.md"
  ],
- "accept_log": []
+ "accept_log": [
+  {
+   "path": "tools/plugins/dsh-dzrobot-ssh/README.md",
+   "reason": "DSH 插件代码包自带 README，2026-10-22 随插件树迁入 tools/plugins/（原 dzrobot_v2/dsh-plugin-dzrobot-ssh，基线旧路径已失效）[TOOLS-ORGANIZE-20261022]",
+   "at": "2026-10-22 21:47"
+  },
+  {
+   "path": "tools/plugins/dsh-dzdrone-ssh/README.md",
+   "reason": "DSH 插件代码包自带 README，2026-10-22 随插件树迁入 tools/plugins/（原 dzsmartscout/dsh-plugin-dzdrone-ssh，基线旧路径已失效）[TOOLS-ORGANIZE-20261022]",
+   "at": "2026-10-22 21:47"
+  }
+ ]
 }
