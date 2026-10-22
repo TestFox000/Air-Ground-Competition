@@ -21,171 +21,31 @@ fail() { echo "[失败] $*" >&2; exit 1; }
 mkdir -p "$DESK"
 
 # ---------------------------------------------------------------- ~/start.sh
-# 原子替换：正在菜单里的会话仍读旧 inode（不会因截断而"unexpected EOF"），
-# 新开的终端/图标才吃新版本。VNC 上有人正在用时必须这么做。
+# 薄壳：只做「找到仓库 → 交给 tools/orin_menu.sh」，菜单与报错逻辑全部留在
+# 仓库源文件里。改菜单不用重刷机器，也不会出现"桌面副本与源码漂移"。
+# 原子替换：正在菜单里的会话仍读旧 inode，不会因截断报 unexpected EOF。
 cat > "$HOME/.start.sh.new" <<'START'
 #!/usr/bin/env bash
-# 机载一键入口（VNC 桌面用）。菜单里每条都对应仓库里的一条正式命令，无隐藏动作。
+# 机载一键入口（薄壳）。真正的菜单与全部诊断逻辑在 tools/orin_menu.sh。
 set -u
 REPO="$HOME/dzuav_deploy/air_ground"
-PARAMS="$REPO/src/ag_integrate/config/match_params.yaml"
-OUT=/tmp/ag_plan_live
-
-pause() { [ -t 0 ] && { echo; read -r -p "按回车返回菜单…" _ || true; }; }
-
-# 启动前的人话检查：把"会静默跑错/跑不起来"的条件先摆到屏幕上。
-preflight() {
-    echo "--- 启动前检查 ---"
-    if [ ! -e /dev/video0 ]; then
-        echo "⚠ 没有检测到相机 /dev/video0：dzuav 窗口起来后会立即退出，"
-        echo "  规划窗口会一直等不到情报（其余窗口正常）。这是预期现象，不是故障。"
-    else
-        echo "✓ 相机 /dev/video0 存在"
-    fi
-    local bin="$REPO/onboard/dzuav/build/dzuav"
-    if [ -f "$bin" ] && grep -qa uav_end "$bin"; then
-        echo "✓ dzuav 二进制为 13 类"
-    elif [ -f "$bin" ]; then
-        echo "✗ dzuav 二进制不是 13 类（未见 uav_end）——请勿继续，先跑 orin_build_verify.sh"
-    else
-        echo "✗ 缺少 dzuav 二进制，先跑 bash tools/orin_build_verify.sh"
-    fi
-    for e in hbb_detector_d13_fp16 cell_classifier_v4d_fp16; do
-        [ -f "$HOME/dzuav/engines/$e.engine" ] \
-            && echo "✓ 引擎 $e" \
-            || echo "✗ 缺少引擎 $e.engine（13 类部署线要求 d13 + v4d）"
-    done
-    if tmux has-session -t agup 2>/dev/null; then
-        echo "· 全栈已在运行（tmux 会话 agup 存在），本次启动会先停掉再重开"
-    fi
-    echo "-------------------"
-}
-
-start_stack() {   # $1 = dry | send
-    preflight
-    local rc=0
-    if [ "$1" = "send" ]; then
-        echo "⚠ 即将【实发】车命令（0x4003），路线会直接给车执行。"
-        read -r -p "确认车端已就绪？输入 yes 继续: " a
-        [ "$a" = "yes" ] || { echo "已取消。"; return; }
-        PLAN_SEND=1 bash "$REPO/tools/orin_bringup.sh" up --no-teleop || rc=$?
-    else
-        bash "$REPO/tools/orin_bringup.sh" up --no-teleop || rc=$?
-    fi
-    echo
-    # 不能无条件打"已启动"：bringup 的两道门（残余进程 / 沉降后验活）会非零退出，
-    # 2026-10-22 实测菜单在 [失败] 下面紧接着打"已启动"，操作手会以为已经好了。
-    if [ "$rc" -ne 0 ]; then
-        echo "✗ 全栈【未启动】（orin_bringup.sh 退出码 $rc，原因见上方 [失败]/[警告]）"
-        echo
-        echo "最常用的两种处理："
-        echo "  A) 会话外有残留进程（如 autostart 的 watchdog 已拉起 Agent）——先停再起："
-        echo "       pkill -f orin_agent_watchdog.py ; pkill -x MicroXRCEAgent"
-        echo "       ~/start.sh up"
-        echo "     停之前先确认它接的是不是飞控：ls -l /dev/serial/by-id/"
-        echo "     （NxtPX4 才是飞控；接到 CH340 之类的设备上时遥测是空的）"
-        echo "  B) 确认就是要与残留进程共存："
-        echo "       ALLOW_STRAY=1 tools/orin_bringup.sh up --no-teleop"
-        echo
-        echo "看当前各窗口状态：tools/orin_bringup.sh status"
-        return
-    fi
-    echo "已启动。下一步可：4=验收  5=进 tmux 看各窗口  6=看规划产物  7=停止"
-}
-
-show_plan() {
-    local latest
-    latest=$(ls -dt /tmp/ag_plan* 2>/dev/null | head -1)
-    [ -n "${latest:-}" ] || { echo "还没有产物目录（规划窗口还没产出过）"; return; }
-    echo "最新产物目录: $latest"
-    ls -l "$latest" 2>/dev/null
-    if [ -s "$latest/route_plan.json" ]; then
-        echo "--- route_plan.json 摘要 ---"
-        grep -m1 '"reset"'       "$latest/route_plan.json"
-        grep -m1 '"route"'       "$latest/route_plan.json"
-        grep -m1 'route_len_cells' "$latest/route_plan.json"
-        grep -m1 '排雷覆盖'       "$latest/route_plan.json"
-    else
-        echo "（暂无 route_plan.json —— 门控还没放行：需要识别到 ≥1 颗雷 + 靶面）"
-    fi
-    echo "--- planned_path.txt ---"
-    head -c 300 "$latest/planned_path.txt" 2>/dev/null
-}
-
-menu() {
-    while true; do
-        cat <<'TXT'
-
-╔══════════════════════════════════════════════════════╗
-║              机载一键入口（输入数字后回车）            ║
-╠══════════════════════════════════════════════════════╣
-║   1  启动全栈（规划只落盘，不发车命令）                ║
-║   2  启动全栈 并 实发车命令（⚠ 会驱动车，需二次确认）  ║
-║   3  只启机载规划（前台运行，Ctrl+C 停止）             ║
-║   4  机载规划验收（自检全链，约 40 秒）                ║
-║   5  进入 tmux 看各窗口（Ctrl+B 切窗，再按 d 退出）    ║
-║   6  看最新规划产物                                    ║
-║   7  停止全栈                                          ║
-║   8  视频侦察：选视频 → 识别 + 规划 + 出图（任意视频）  ║
-║   9  秒级重出最近一次（复用识别结果，按当前门控重算）  ║
-║   0  退出                                              ║
-╚══════════════════════════════════════════════════════╝
-TXT
-        read -r -p "请选择 [0-9]: " n || exit 0
-        case "${n:-}" in
-            1) start_stack dry; pause ;;
-            2) start_stack send; pause ;;
-            3) python3 -u "$REPO/tools/orin_plan_sidecar.py" --params "$PARAMS" \
-                   --out "$OUT" --plan-mode on-change ;;
-            4) bash "$REPO/tools/orin_accept_plan.sh"; pause ;;
-            5) tmux attach -t agup ;;
-            6) show_plan; pause ;;
-            7) bash "$REPO/tools/orin_bringup.sh" down; pause ;;
-            8) recon_video; pause ;;
-            9) recon_replay; pause ;;
-            0) exit 0 ;;
-            *) echo "只接受 0-9 的数字。" ;;
-        esac
-    done
-}
-
-# 视频侦察：离线把"视频 → 态势 → 路线 → 车命令 → 渲染图"跑一遍（通用入口）。
-# 8 = 给任意视频跑识别+规划（无参数时列出机上视频让你选）；9 = 秒级重出最近一次的规划。
-recon_video() {
-    bash "$REPO/tools/orin_video_recon.sh"
-    show_render
-}
-recon_replay() {
-    bash "$REPO/tools/orin_video_recon.sh" --replay-last
-    show_render
-}
-show_render() {
-    local png
-    png=$(ls -t /tmp/ag_recon/*/route_render.png 2>/dev/null | head -1 || true)
-    [ -n "$png" ] || return 0
-    echo
-    echo "渲染图: $png（正在打开…关掉即回到本菜单）"
-    eog "$png" 2>/dev/null || xdg-open "$png" 2>/dev/null || true
-}
-
-# 图标/命令行动作：**执行完一律回到菜单**，不停在一个死界面上。
-# 2026-10-20 反馈：原先 accept/stop 跑完 pause 就退出，用户在 VNC 上
-# 按完回车看到一片空白，以为"没有菜单"——菜单必须是操作中枢。
-case "${1:-menu}" in
-    up)      start_stack dry; pause; menu ;;
-    up-send) start_stack send; pause; menu ;;
-    accept)  bash "$REPO/tools/orin_accept_plan.sh"; pause; menu ;;
-    stop)    bash "$REPO/tools/orin_bringup.sh" down; pause; menu ;;
-    recon)   recon_video; pause; menu ;;
-    recon-replay) recon_replay; pause; menu ;;
-    plan)    python3 -u "$REPO/tools/orin_plan_sidecar.py" --params "$PARAMS" \
-                 --out "$OUT" --plan-mode on-change ;;
-    menu|*)  menu ;;
-esac
+if [ ! -d "$REPO" ]; then
+    echo "[失败] 找不到机载仓库: $REPO"
+    echo "  先在电脑上跑 tools/orin_deploy.py 部署，或检查 Type-C 挂载"
+    [ -t 0 ] && read -r -p "回车退出…" _
+    exit 9
+fi
+if [ ! -f "$REPO/tools/orin_menu.sh" ]; then
+    echo "[失败] 仓库缺少 tools/orin_menu.sh（部署不完整或旧版本）"
+    echo "  处理：重新部署仓库，再跑 bash tools/orin_install_desktop.sh"
+    [ -t 0 ] && read -r -p "回车退出…" _
+    exit 9
+fi
+exec bash "$REPO/tools/orin_menu.sh" "$@"
 START
 chmod +x "$HOME/.start.sh.new"
 mv -f "$HOME/.start.sh.new" "$HOME/start.sh"
-ok "已安装 ~/start.sh（菜单式一键入口）"
+ok "已安装 ~/start.sh（薄壳 → tools/orin_menu.sh，改菜单无需重刷桌面）"
 
 # ---------------------------------------------------------------- 桌面图标
 mk_item() {  # mk_item <文件名> <显示名> <参数>
@@ -208,6 +68,7 @@ mk_item "ag-plan-start.desktop"  "① 启动机载全栈"     "up"
 mk_item "ag-plan-accept.desktop" "② 机载规划验收"     "accept"
 mk_item "ag-plan-stop.desktop"   "③ 停止机载全栈"     "stop"
 mk_item "ag-recon.desktop"       "④ 视频侦察（出路线图）" "recon"
+mk_item "ag-diag.desktop"        "⑤ 一键体检"          "diag"
 mk_item "ag-plan-menu.desktop"   "更多操作（菜单）"   "menu"
 ok "已安装桌面图标：启动 / 验收 / 停止 / 视频侦察 / 更多操作（双击即执行，执行完自动回菜单）"
 
@@ -238,8 +99,11 @@ cat > "$GUIDE" <<'TXT'
 =====================================
 
 【一句话】桌面上双击「① 启动机载全栈」→ 它会先做启动前检查、然后直接拉起全栈，
-         拉起后**自动显示数字菜单**（4=验收 5=看窗口 6=看产物 7=停止 8=视频侦察 0=退出）。
+         拉起后**自动显示数字菜单**（4=验收 5=看窗口 6=看产物 7=停止 8=视频侦察
+         d=一键体检 b=启停广播 0=退出）。
          如果你在任何时候找不到菜单：打开终端敲  ~/start.sh  回车即可。
+         菜单与所有报错处理逻辑都在仓库 tools/orin_menu.sh——改菜单只改那里，
+         ~/start.sh 只是薄壳，不必重刷桌面。
 
 〇、只想看「视频 → 路径规划」（不需要起全栈、不需要相机）——**通用，任意视频**
   1. 双击桌面「④ 视频侦察（出路线图）」或「视频侦察.sh」
@@ -321,6 +185,6 @@ echo "==================== 安装完成 ===================="
 echo "桌面图标：① 启动机载全栈 / ② 机载规划验收 / ③ 停止全栈 / ④ 视频侦察 / 更多操作（菜单）"
 echo "          （双击即执行；执行完自动回到数字菜单）"
 echo "找不到菜单时：打开终端敲  ~/start.sh  回车"
-echo "文本入口：~/start.sh（也支持 up / up-send / accept / stop / recon / recon-replay / plan）"
+echo "文本入口：~/start.sh（也支持 up / up-send / accept / stop / recon / recon-replay / plan / diag / broadcast-start / broadcast-stop）"
 echo "操作指南：~/Desktop/机载操作指南.txt"
 echo "=================================================="
