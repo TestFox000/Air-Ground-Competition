@@ -8,6 +8,23 @@
 
 依据官方规则「无人机定位/建图/识别/规划/控制须机载自主完成」。本次修复 13 类栈 MapLocalizer 旧门槛（localized 恒 0），并把 CellGrid+RoutePlanner 算法级接入 13 类主链；只喂视频即可产出 route_plan.json。实测：同段视频抽帧5耗时 67s、逐帧 277s；跨视频退出码 0、无崩溃、跨轮路线一致、首份规划约 0.6s。机上原件已备份 .bak_plan13_orig，可一键回滚。
 
+### 最新进展（2026-10-22 晚，覆盖上文中的旧数字）
+
+- **识别口径**：视频侦察统一到 `tools/orin_video_recon.sh`（默认 `stride 1` 逐帧最全）。
+  同一段视频实测：`stride 15` 只剩 3 雷 → `stride 5` 出 8 雷（=官方基线 8）。
+- **缺雷根因与修复**：`G9` 有 3 帧独立票但均值置信度 0.336 < 0.35，被均值门卡掉；
+  放宽单框阈值(0.22→0.15)与收紧均值门互相打架。现改为 **≥3 票免疫均值门**，
+  均值门只拦 2 票弱格；`check["排雷覆盖"]` 对官方基线 8 双向负责
+  （不足报漏检、超过报误检），不再只打「覆盖 ✓」。
+- **缓存语义**：命中缓存不再沿用旧 `field_state`，而是用 `frames_meta.json`
+  按**当前门控**重算（`--reaggregate`，秒级）；门控修复不会被缓存吞掉。
+- **路线结果**：41 格覆盖全部 8 雷，`射击停靠 D8`（移动靶两段式确认位）、避障通过。
+  物证：`验收_stride5_field_state.json` / `验收_stride5_route_plan.json` /
+  `验收_stride5_route_render.png`。
+- **口径提醒**：`--stride` 只有"采样漏检"一种含义，没有"快一点的同结果"；
+  正式结论一律逐帧。`video_field_recon.py`、`orin_demo_recon.sh`、
+  `orin_verify_recon.sh` 已退役。
+
 ## 文件清单
 
 | 文件 | 大小 |
@@ -52,7 +69,7 @@
 ## 复现方式
 
 ```bash
-# 视频侦察 → 路线规划（机上通用入口，任意视频；默认 stride 5）
+# 视频侦察 → 路线规划（机上通用入口，任意视频；默认 stride 1 逐帧最全）
 bash tools/orin_video_recon.sh <video.mp4>
 bash tools/orin_video_recon.sh --replay-last   # 秒级：复用识别结果，按当前门控重算
 ```
