@@ -144,12 +144,24 @@ lock_dir() {
 
 # ---------------------------------------------------------------- --replay-last
 if [[ $REPLAY_LAST == 1 ]]; then
-    LAST=$(ls -dt "$CACHE_ROOT"/*/ 2>/dev/null | while read -r d; do
-               [[ -f "$d/field_state.json" ]] && { echo "${d%/}"; break; }; done)
-    [[ -n $LAST ]] || { bad "没有缓存态势（$CACHE_ROOT 下没有 field_state.json）——先跑一次：$0 <视频>"; exit 1; }
+    # "最近一次"取**正式结果**：优先 stride 5（实测最优点）。2026-10-22 实测：
+    # 目录按 mtime 取最新会选到刚跑过的 stride1 反例（14 雷），路线直接错。
+    pick_cache() {   # $1 = glob（如 '*-s5/'），取最新且带 field_state.json 的目录
+        ls -dt "$CACHE_ROOT"/$1 2>/dev/null | while read -r d; do
+            [[ -f "$d/field_state.json" ]] && { echo "${d%/}"; break; }
+        done
+    }
+    LAST=$(pick_cache '*-s5/')
+    SRC="stride5（实测最优）"
+    if [[ -z ${LAST:-} ]]; then
+        LAST=$(pick_cache '*/')
+        SRC="最新一份（无 stride5 缓存）"
+    fi
+    [[ -n ${LAST:-} ]] || { bad "没有缓存态势（$CACHE_ROOT 下没有 field_state.json）——先跑一次：$0 <视频>"; exit 1; }
     OUT="$LAST"                        # 后面摘要/看图都以 OUT 为准，这里必须补上
     lock_dir "$OUT" || exit 1
     say "秒级重出规划（缓存态势：$LAST）"
+    echo "     采用缓存: $SRC"
     reagg "$LAST" || exit $?
     PNG="$LAST/route_render.png"
 else

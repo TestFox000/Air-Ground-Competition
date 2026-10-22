@@ -78,7 +78,19 @@ start_stack() {   # $1 = dry | send
     echo
     if [ "$rc" -ne 0 ]; then
         bad "全栈【未启动】（orin_bringup.sh 退出码 $rc，完整日志：$log）"
-        if grep -q '会话外已在跑' "$log"; then
+        local dead
+        dead=$(ls /tmp/agup_agup/*.rc 2>/dev/null | xargs -r -n1 basename \
+               | sed 's/\.rc$//' | tr '\n' ' ')
+        [ -n "${dead:-}" ] && echo "未起来的窗口：$dead"
+        if grep -q '相机设备 .* 不存在' "$log"; then
+            echo "原因：相机未接（dzuav 会立即退出，其余窗口不受影响）"
+            echo "影响：实时感知链不可用；**离线视频侦察（菜单 8 / 9）照常可用**"
+            echo "处理：接上相机后重跑 1；或 DZUAV_CAM=/dev/videoN 指定"
+        elif grep -q '飞控串口 .* 不存在' "$log"; then
+            echo "原因：飞控串口缺失（px4 窗口起不来 → 遥测全无）"
+            echo "处理：检查飞控 USB；ls -l /dev/serial/by-id/ 认 NxtPX4；"
+            echo "      或用 PX4_DEV=/dev/ttyACMx 显式指定"
+        elif grep -q '会话外已在跑' "$log"; then
             echo "原因：会话外有残留进程（autostart 看门狗/旧栈没退干净）。上面已列出 pid 与命令行。"
             echo "处理 A（推荐）先停残留再起："
             echo "    pkill -f '[o]rin_agent_watchdog.py' ; pkill -x MicroXRCEAgent"
@@ -86,9 +98,6 @@ start_stack() {   # $1 = dry | send
             echo "  ⚠ 停之前确认它接的是飞控：ls -l /dev/serial/by-id/（NxtPX4 才是飞控）"
             echo "处理 B 确认要共存："
             echo "    ALLOW_STRAY=1 tools/orin_bringup.sh up --no-teleop"
-        elif grep -q '不存在' "$log"; then
-            echo "原因：设备缺失（相机/飞控串口）。看上面 [警告] 的具体设备名。"
-            echo "处理：接好设备后重跑；或 DZUAV_CAM=/dev/videoN / PX4_DEV=/dev/ttyACMx 指定"
         elif grep -qE '死亡|未.*就绪' "$log"; then
             echo "原因：有窗口启动后退出。"
             echo "处理：tools/orin_bringup.sh status  看哪个窗口的 rc；"
@@ -106,10 +115,12 @@ diag() {
     say "一键体检 $(date '+%F %T')"
     echo "[磁盘 /tmp]  $(df -h /tmp 2>/dev/null | tail -1)"
     echo "[内存]       $(free -h 2>/dev/null | sed -n '2p')"
-    echo "[相机]       $(ls /dev/video* 2>/dev/null | tr '\n' ' ' || echo '无 /dev/video*')"
+    local cams
+    cams=$(ls /dev/video* 2>/dev/null | tr '\n' ' ')
+    echo "[相机]       ${cams:-无 /dev/video*（相机未接）}"
     echo "[USB 相机]   $(lsusb 2>/dev/null | grep -iE '0bda:5883|camera' || echo '未见（0bda:5883 为已知相机）')"
     echo "[飞控串口]   $(ls -l /dev/serial/by-id/ 2>/dev/null | sed -n '2,6p' | tr '\n' ' ')"
-    echo "[残留进程]"
+    echo "[相关进程]（含当前全栈；不属于 agup 的才是残留）"
     pgrep -a -f 'MicroXRCEAgent|px4_odom_convert|fastlio_mapping|livox_ros_driver2_node|orin_agent_watchdog' \
         2>/dev/null | grep -v pgrep | sed 's/^/             /' || echo "             无"
     local bin="$REPO/onboard/dzuav/build/dzuav"

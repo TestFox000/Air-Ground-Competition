@@ -56,6 +56,17 @@ def test_video_recon_has_no_embedded_python():
     assert "analyze_log" in text, "失败原因分析是必配"
 
 
+def test_replay_last_prefers_stride5_cache():
+    """"最近一次"必须优先正式结果（stride5）。
+
+    2026-10-22 实测：按 mtime 取最新会选中刚跑过的 stride1 反例（14 雷），
+    菜单 9 直接给出错误路线。
+    """
+    text = _text("orin_video_recon.sh")
+    assert "pick_cache '*-s5/'" in text
+    assert "采用缓存" in text
+
+
 def test_print_summary_reads_products(tmp_path, capsys):
     spec = importlib.util.spec_from_file_location(
         "_orin_summary", TOOLS / "orin_print_summary.py")
