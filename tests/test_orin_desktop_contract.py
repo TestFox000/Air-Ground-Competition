@@ -67,6 +67,19 @@ def test_replay_last_prefers_stride5_cache():
     assert "采用缓存" in text
 
 
+def test_accept_plan_auto_picks_free_port():
+    """验收必须能与正在运行的全栈共存（2026-10-22 实测 bind 50000 冲突）。
+
+    手册要求"先起全栈再验收"，而原实现自己 bind 50000 → Address already in use。
+    现在自动换端口，sidecar 与注入器同步换。
+    """
+    text = _text("orin_accept_plan.sh")
+    assert "free_port()" in text
+    assert '--udp-port "$PORT"' in text
+    assert '--port "$PORT"' in text
+    assert "--to 127.0.0.1" in text
+
+
 def test_print_summary_reads_products(tmp_path, capsys):
     spec = importlib.util.spec_from_file_location(
         "_orin_summary", TOOLS / "orin_print_summary.py")

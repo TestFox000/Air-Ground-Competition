@@ -14,7 +14,9 @@
 #   AG_ACCEPT_SCEN="D2:paper,H9:paper,F5:target_blue,M9:obstacle" tools/orin_accept_plan.sh
 #
 # ⚠️ 场景类别必须按 13 类口径写：雷 = 非 K 列 paper（K 列 paper 落格判为桥洞箭头）
-# ⚠️ 必须**没有别的进程**占着 UDP:50000（本脚本自己就是那个消费者）
+# 端口：优先 50000；若已被全栈里的 plan 窗口占用，自动改用 5010x 空闲端口，
+#       本脚本自己的 sidecar 与注入器一起换——**不必先停全栈**（2026-10-22 实测：
+#       按手册"先起全栈再验收"，原实现直接 bind 失败 Address already in use）。
 # =============================================================================
 set -u
 
@@ -50,19 +52,44 @@ done
 ok "canonical 引擎齐备（hbb_detector_d13 + cell_classifier_v4d）"
 
 # ---- ① 规划进程起来 ----
+# 选端口：50000 空闲就用它；被占（全栈在跑）则换 5010x，两边一起换端口。
+free_port() {
+    python3 -c 'import socket, sys
+for p in (50000, 50100, 50101, 50102, 50103, 50104, 50105):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.bind(("", p)); s.close(); print(p); sys.exit(0)
+    except OSError:
+        s.close()
+sys.exit(1)'
+}
+PORT=$(free_port) || fail "找不到空闲 UDP 端口（50000/5010x 都被占用）"
+if [ "$PORT" != "50000" ]; then
+    echo "[提示] UDP:50000 已被占用（多半是全栈的 plan 窗口在跑），"
+    echo "       本次验收改用 UDP:$PORT，sidecar 与注入器同步换端口，不影响正在运行的规划。"
+fi
+
 python3 -u "$SIDECAR" --params "$PARAMS" --out "$OUT" --plan-mode on-change \
-    --duration-seconds 40 $SEND > "$OUT/sidecar.log" 2>&1 &
+    --udp-port "$PORT" --duration-seconds 40 $SEND > "$OUT/sidecar.log" 2>&1 &
 SPID=$!
 sleep 3
 if ! kill -0 "$SPID" 2>/dev/null; then
     echo "--- sidecar.log ---"; cat "$OUT/sidecar.log"
-    fail "规划进程未能启动（UDP:50000 被占？或 import 失败）"
+    fail "规划进程未能启动（UDP:$PORT 被占？或 import 失败）"
 fi
-ok "规划进程已启动（PID $SPID），监听 UDP:50000${SEND:+，0x4003 实发}"
+ok "规划进程已启动（PID $SPID），监听 UDP:$PORT${SEND:+，0x4003 实发}"
 
-# ---- ② 注入已知态势（走与 dzuav 相同的广播路径） ----
-timeout 25 python3 "$SENDER" --scenario "$SCEN" --rate 5 > "$OUT/fake.log" 2>&1
-ok "已注入态势 30s: $SCEN"
+# ---- ② 注入已知态势（走与 dzuav 相同的编码路径，回环投递最稳） ----
+timeout 25 python3 "$SENDER" --scenario "$SCEN" --rate 5 --port "$PORT" \
+    --to 127.0.0.1 > "$OUT/fake.log" 2>&1
+SND_RC=$?
+# 124 = timeout 到期（循环模式的正常结束）；其它非 0 一律是注入失败。
+# 2026-10-22 实测：机上旧版注入器不认 --to，直接 usage 退出，而脚本仍打"已注入"。
+if [ "$SND_RC" -ne 0 ] && [ "$SND_RC" -ne 124 ]; then
+    echo "--- fake.log（末 8 行）---"; tail -8 "$OUT/fake.log"
+    fail "注入器退出码 $SND_RC（多为机上 fake_udp_sender.py 版本旧/参数不兼容），注入未发生"
+fi
+ok "已注入态势 30s: $SCEN（UDP:$PORT）"
 
 sleep 8
 kill -INT "$SPID" 2>/dev/null; sleep 4; kill -9 "$SPID" 2>/dev/null
