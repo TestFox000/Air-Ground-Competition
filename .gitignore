@@ -18,3 +18,9 @@ dsh-dzairground-ssh/
 .DS_Store
 # V2.0 独立仓库（嵌套 git，不入根仓）
 V2.0/
+
+# 2026-10-22 B方案：隐私/敏感不入公开仓
+memory/
+.zhiyuan/
+.agent-teams/
+dzsmartscout/crack_vnc_passwd.py
