@@ -17,6 +17,20 @@
 *.xml   text eol=lf
 *.json  text eol=lf
 
+# C++ 源码同样要锁 LF：onboard/dzuav/** 是被 orin_deploy.py 逐字节 sftp 上机、
+# 在 Jetson 上编译的，属于上面那句「凡是要上车跑的」的范围，首版漏了这些后缀。
+# 后果不是编译失败（g++ 吃得下 CRLF），而是**对账失效**：同一份 main.cpp，
+# CRLF 版 4e2b679b… / LF 版 fa4e2cca…，现场看到「md5 不一致」会先怀疑部署坏了。
+# 锁 LF 是**零 blob 改动**的：入库的那份本来就是 LF，变的只有 Windows 检出副本。
+# （来源：2026-10-22 部署链评审，agents/qoder/uav-onboard-review-20261020 的 9325c9c）
+*.cpp   text eol=lf
+*.cc    text eol=lf
+*.cxx   text eol=lf
+*.hpp   text eol=lf
+*.h     text eol=lf
+*.hh    text eol=lf
+*.c     text eol=lf
+
 # Windows 双击入口：必须 CRLF
 *.bat   text eol=crlf
 

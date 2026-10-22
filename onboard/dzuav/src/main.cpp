@@ -285,7 +285,11 @@ std::string uvcPipelineRaw(const std::string& device, int width, int height, int
     return os.str();
 }
 
-// 解析 "1920x1080@30"；@fps 可省（省略表示不约束协商帧率）。
+// 解析 "1920x1080@30"；@fps 可省，但**省略不等于"不约束帧率"**：
+// parseSpec 此时根本不写 fps，于是沿用调用方带进来的值（下面 main 里是 30）。
+// 要真正放开帧率限制必须写 "@0"——uvcPipelineMjpeg / argusPipeline 都只在
+// fps > 0 时才写 framerate=，@0 才是"交给驱动协商"。
+// （2026-10-22 修正：原注释写「省略表示不约束协商帧率」，与代码不符。）
 // 返回 false = 无法解析，调用方必须报错退出，**不得**静默沿用默认值：
 // 原写法要求 sscanf 恰好匹配到 3 项，于是 "1920x1080"（漏写 @fps）会让
 // 宽、高、fps 三个一起被丢弃，机上按默认 1920x1080 采集却无人知晓；
