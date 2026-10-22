@@ -7,6 +7,7 @@
 #     tools/orin_video_recon.sh <视频路径>             # 直接指定视频（mp4/mkv/avi…）
 #     tools/orin_video_recon.sh <视频> --stride 5      # 想快：采样帧距（默认 1=逐帧最全）
 #     tools/orin_video_recon.sh <视频> --force         # 不用缓存态势，强制重跑识别
+#     tools/orin_video_recon.sh <视频> --replay-safe   # 静态回放：不排射击停靠（无 '*')
 #     tools/orin_video_recon.sh --replay-last          # 秒级：用最近一次的态势重出规划
 #
 # 缓存语义（这是"通用"的关键）：按 <视频名>-<大小>-<时间戳>-s<stride> 建缓存目录，
@@ -35,20 +36,22 @@ bad()  { printf '\e[1;31m[失败]\e[0m %s\n' "$*"; }
 # 这是"门控改了但缓存没重跑"的唯一正确做法——与重跑识别共用同一份聚合代码。
 reagg() {   # $1 = 缓存目录
     if [[ -f "$1/frames_meta.json" ]]; then
-        $PY -u "$R" --reaggregate "$1"
+        $PY -u "$R" --reaggregate "$1" "${EXTRA[@]}"
     else
         warn "该缓存缺 frames_meta.json（旧版本产物），退回只重跑规划层——"
         warn "态势仍是旧识别结论；要套用新门控请加 --force 重跑一次识别"
+        [[ ${#EXTRA[@]} -gt 0 ]] && warn "旧重跑器不支持 ${EXTRA[*]}，本次忽略"
         $PY tools/orin_replan_from_state.py "$1/field_state.json" "$1"
     fi
 }
 
-STRIDE=1; FORCE=0; VIDEO=""; OUT=""; REPLAY_LAST=0
+STRIDE=1; FORCE=0; VIDEO=""; OUT=""; REPLAY_LAST=0; REPLAY_SAFE=0; EXTRA=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --stride) STRIDE="${2:-1}"; shift 2 ;;
         --force)  FORCE=1; shift ;;
         --out)    OUT="${2:-}"; shift 2 ;;
+        --replay-safe) REPLAY_SAFE=1; EXTRA+=(--replay-safe); shift ;;
         --replay-last) REPLAY_LAST=1; shift ;;
         -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) VIDEO="$1"; shift ;;
@@ -116,7 +119,7 @@ else
         echo "     开始识别（默认逐帧最全；每 20 帧打印一次进度，预计时间见下一行）"
         echo "     想中途离开又不丢进度：另开终端跑，或 Ctrl+Z 后 bg（本脚本不写死后台）"
         mkdir -p "$OUT"
-        $PY -u "$R" "$VIDEO" --out "$OUT" --stride "$STRIDE" || {
+        $PY -u "$R" "$VIDEO" --out "$OUT" --stride "$STRIDE" "${EXTRA[@]}" || {
             bad "识别/规划失败（看上方 [失败] 原因）"; exit 1; }
     fi
     PNG="$OUT/route_render.png"
