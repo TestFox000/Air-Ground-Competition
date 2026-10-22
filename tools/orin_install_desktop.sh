@@ -21,7 +21,9 @@ fail() { echo "[失败] $*" >&2; exit 1; }
 mkdir -p "$DESK"
 
 # ---------------------------------------------------------------- ~/start.sh
-cat > "$HOME/start.sh" <<'START'
+# 原子替换：正在菜单里的会话仍读旧 inode（不会因截断而"unexpected EOF"），
+# 新开的终端/图标才吃新版本。VNC 上有人正在用时必须这么做。
+cat > "$HOME/.start.sh.new" <<'START'
 #!/usr/bin/env bash
 # 机载一键入口（VNC 桌面用）。菜单里每条都对应仓库里的一条正式命令，无隐藏动作。
 set -u
@@ -61,15 +63,33 @@ preflight() {
 
 start_stack() {   # $1 = dry | send
     preflight
+    local rc=0
     if [ "$1" = "send" ]; then
         echo "⚠ 即将【实发】车命令（0x4003），路线会直接给车执行。"
         read -r -p "确认车端已就绪？输入 yes 继续: " a
         [ "$a" = "yes" ] || { echo "已取消。"; return; }
-        PLAN_SEND=1 bash "$REPO/tools/orin_bringup.sh" up --no-teleop
+        PLAN_SEND=1 bash "$REPO/tools/orin_bringup.sh" up --no-teleop || rc=$?
     else
-        bash "$REPO/tools/orin_bringup.sh" up --no-teleop
+        bash "$REPO/tools/orin_bringup.sh" up --no-teleop || rc=$?
     fi
     echo
+    # 不能无条件打"已启动"：bringup 的两道门（残余进程 / 沉降后验活）会非零退出，
+    # 2026-10-22 实测菜单在 [失败] 下面紧接着打"已启动"，操作手会以为已经好了。
+    if [ "$rc" -ne 0 ]; then
+        echo "✗ 全栈【未启动】（orin_bringup.sh 退出码 $rc，原因见上方 [失败]/[警告]）"
+        echo
+        echo "最常用的两种处理："
+        echo "  A) 会话外有残留进程（如 autostart 的 watchdog 已拉起 Agent）——先停再起："
+        echo "       pkill -f orin_agent_watchdog.py ; pkill -x MicroXRCEAgent"
+        echo "       ~/start.sh up"
+        echo "     停之前先确认它接的是不是飞控：ls -l /dev/serial/by-id/"
+        echo "     （NxtPX4 才是飞控；接到 CH340 之类的设备上时遥测是空的）"
+        echo "  B) 确认就是要与残留进程共存："
+        echo "       ALLOW_STRAY=1 tools/orin_bringup.sh up --no-teleop"
+        echo
+        echo "看当前各窗口状态：tools/orin_bringup.sh status"
+        return
+    fi
     echo "已启动。下一步可：4=验收  5=进 tmux 看各窗口  6=看规划产物  7=停止"
 }
 
@@ -163,7 +183,8 @@ case "${1:-menu}" in
     menu|*)  menu ;;
 esac
 START
-chmod +x "$HOME/start.sh"
+chmod +x "$HOME/.start.sh.new"
+mv -f "$HOME/.start.sh.new" "$HOME/start.sh"
 ok "已安装 ~/start.sh（菜单式一键入口）"
 
 # ---------------------------------------------------------------- 桌面图标
@@ -193,11 +214,11 @@ ok "已安装桌面图标：启动 / 验收 / 停止 / 视频侦察 / 更多操�
 # ---------------------------------------------------------------- 桌面 .sh（可直接运行）
 # 用户要求"sh 化"：桌面除 .desktop 外再放一个**真 .sh**，双击/终端都能直接跑，
 # 不必记仓库路径。收尾带 pause，避免双击跑完窗口就关掉看不到结果。
-cat > "$DESK/视频侦察.sh" <<'SH'
+cat > "$DESK/.视频侦察.sh.new" <<'SH'
 #!/usr/bin/env bash
 # 桌面直跑入口：任意视频 → 识别 → 路线规划 → 渲染图
-#   ./视频侦察.sh                    列出机上视频、选一个跑（默认 stride 1 逐帧）
-#   ./视频侦察.sh ~/a.mp4 --stride 5    # 想快（可能漏目标；默认逐帧最全）
+#   ./视频侦察.sh                    列出机上视频、选一个跑（默认 stride 5 实测最优点）
+#   ./视频侦察.sh ~/a.mp4 --stride 15   # 更稀：会漏雷（实测只剩 3/8）
 #   ./视频侦察.sh --replay-last      秒级：用最近一次的识别结果重出规划
 set -u
 REPO="$HOME/dzuav_deploy/air_ground"
@@ -207,7 +228,8 @@ echo
 read -r -p "按回车返回菜单…" _ || true
 exec "$HOME/start.sh" menu
 SH
-chmod +x "$DESK/视频侦察.sh"
+chmod +x "$DESK/.视频侦察.sh.new"
+mv -f "$DESK/.视频侦察.sh.new" "$DESK/视频侦察.sh"
 ok "已安装 ~/Desktop/视频侦察.sh（可直接双击/终端运行，跑完自动回菜单）"
 
 # ---------------------------------------------------------------- 操作指南
@@ -229,13 +251,14 @@ cat > "$GUIDE" <<'TXT'
   3. 终端等价命令（VNC 里可手敲）：
         cd ~/dzuav_deploy/air_ground
         ./tools/orin_video_recon.sh                    # 选视频跑
-        ./tools/orin_video_recon.sh ~/a.mp4 --stride 5   # 想快（可能漏目标）
+        ./tools/orin_video_recon.sh ~/a.mp4 --stride 15   # 更稀：会漏雷
         ./tools/orin_video_recon.sh --replay-last      # 秒级
   4. 采样帧距（--stride）怎么选：
-        1  = 默认，**逐帧最全**（测试环境不省时间；2220 帧实测约 55 分钟）
-        调大 = 拿采样换时间，**不是"快一点的同结果"**：同一段视频实测 stride15
-                只剩 3 雷、stride 5 出 8 雷（=官方基线 8）——短暂可见的雷会被漏掉
-        同一视频同参数跑第二次会自动复用逐帧识别结果，并用**当前门控**重算态势
+        5  = 默认，**实测最优点**（同一段视频 8/8 = 官方雷基线）
+        15 = 太稀：只剩 3 雷（采样漏检）
+        1  = 太密：14 雷（7 个多余）——弱误检累积到 3 票后混入，幻影消除还会误杀真雷
+        ！不是"越密越好"也不是"越快越好"，两端都会掉精度
+        同一视频同参数跑第二次会自动复用识别结果，并用**当前门控**重算态势
         （秒级；门控修过也不会继续拿旧结论）
   ⚠ 渲染图上的 D8* 是移动靶的“确认位”。**静态回放**（没有实时红蓝复判）请加
      `--replay-safe`，脚本会在机器级剔掉该停靠位（别手改路线）；在飞链路仍有
@@ -246,6 +269,11 @@ cat > "$GUIDE" <<'TXT'
      · 先看它打印的「启动前检查」：相机/二进制是否 13 类/引擎是否 d13+v4d
      · 然后拉起：感知(dzuav) / 机载规划(plan) / 雷达 / SLAM定位 / 飞控桥 / 控制 / 航线
      · 规划窗口默认「只落盘，不发车命令」——安全档
+     · 若最后报「全栈未启动 · 会话外已在跑 MicroXRCEAgent」：那是 autostart 的
+       看门狗已经占了飞控链路。先停它再重来：
+           pkill -f orin_agent_watchdog.py ; pkill -x MicroXRCEAgent
+       停之前用 ls -l /dev/serial/by-id/ 认一下：**NxtPX4 才是飞控**
+       （脚本已改为按 by-id 自动选串口，不再写死 ttyACM0）
   2. 菜单里输入 4 回车 → 机载规划验收（约 40 秒）
      · 一路 [通过] 并以「机载规划验收通过」结尾即为正常
      · 它会自检：栈版本、规划进程起没起、同机广播投递、矩阵/门控/路线/三份产物
@@ -293,6 +321,6 @@ echo "==================== 安装完成 ===================="
 echo "桌面图标：① 启动机载全栈 / ② 机载规划验收 / ③ 停止全栈 / ④ 视频侦察 / 更多操作（菜单）"
 echo "          （双击即执行；执行完自动回到数字菜单）"
 echo "找不到菜单时：打开终端敲  ~/start.sh  回车"
-echo "文本入口：~/start.sh（也支持 up / accept / stop / recon / recon-full / plan）"
+echo "文本入口：~/start.sh（也支持 up / up-send / accept / stop / recon / recon-replay / plan）"
 echo "操作指南：~/Desktop/机载操作指南.txt"
 echo "=================================================="

@@ -8,7 +8,7 @@
 
 | 链路 | 入口 | 用途 |
 |---|---|---|
-| **离线视频侦察（现行）** | 机上 `tools/orin_video_recon.sh` → `src/ag_integrate/ag_integrate/video_recon.py` | 任意视频 → 13 类识别 → 落格 → 路线 → 渲染图；默认 `stride 1` 逐帧；缓存命中按**当前门控**秒级重算（`--reaggregate`） |
+| **离线视频侦察（现行）** | 机上 `tools/orin_video_recon.sh` → `src/ag_integrate/ag_integrate/video_recon.py` | 任意视频 → 13 类识别 → 落格 → 路线 → 渲染图；默认 `stride 5`（实测最优点 8/8）；缓存命中按**当前门控**秒级重算（`--reaggregate`） |
 | 机载实时链 | `onboard/dzuav`（C++）+ `main13_plan` + `tools/orin_plan_sidecar.py` | 相机实时 → UDP:50000 → 0x4003 给车；本文下面的 `deploy_plan13.py` 属这条 |
 
 识别口径的演进（雷 8/8、`stride` 语义、靶裁决、`--replay-safe`）都在**离线链路**
@@ -103,5 +103,6 @@ DZUAV_STRIDE=5 ~/dzuav_deploy/air_ground/onboard/dzuav_mjpg/build/dzuav \
 - 路线中 `mines_visited > mines_total` 是"绕行经过靶侧面"造成的重复经过，不是漏雷。
 - 官方 **8 雷基线只作校验**：离线链路会报"仅检出 N/8（漏检风险）"或"N>8（必有误检）"，
   但**不会凭空补位**——雷位每局随机，视频没拍到的位置无从推断。实测同一段视频
-  `stride 15` 只剩 3 颗、`stride 5` 出 8 颗（=基线）、`stride 1` 逐帧最全。
+  `stride 15` 只剩 3 颗、`stride 5` 出 8 颗（=基线）、`stride 1` 逐帧反而 14 颗
+  （弱误检累积票 + 幻影消除误杀真雷）——采样两端都会掉精度。
 - 机上原件已备份为 `*.bak_plan13_orig`，`--rollback` 一键还原。

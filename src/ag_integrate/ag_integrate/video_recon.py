@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """赛前视频场地侦察：D13 + v4d 全机械化识别 → 场地态势 → 路线规划。
 
-默认即最全配置（测试环境不省时间）：
-    python video_recon.py 场地巡拍.mp4                       # 默认 stride=1 逐帧
+默认 = **实测最优点**（不是最省时间，也不是最密采样）：
+    python video_recon.py 场地巡拍.mp4                       # 默认 stride=5（8/8 基线）
     python video_recon.py 场地巡拍.mp4 --out 输出目录
-    python video_recon.py 场地巡拍.mp4 --stride 5            # 想快 5 倍（可能漏目标）
-⚠️ --stride 不是"快一点的同结果"，是**采样漏检**：同一段视频实测 stride=15
-   只剩 3 雷、stride=5 出 8 雷（=官方基线 8）、stride=1 逐帧最全但耗时按帧数
-   线性增长（实测约 1.5 秒/帧：2220 帧 ≈ 55 分钟）。已有缓存要改门控时用
-   --reaggregate（秒级），不必重跑逐帧推理。
+    python video_recon.py 场地巡拍.mp4 --stride 1            # 逐帧（更慢，且误检更多）
+⚠️ stride 两端都会掉精度，不是"越快越差"的单向关系。同一段视频实测（基线 8 雷）：
+   stride 15 → 3 雷（采样漏检）；stride 5 → 8 雷；stride 1 → 14 雷（7 个多余，
+   弱误检累积到 ≥3 票后混进来，且幻影消除把真雷 E2 误判成 C3 的误归属）。
+   默认 5 是召回/精度同时达标的点。已有缓存要改门控时用 --reaggregate（秒级）。
 
 链路（每一环都是代码规则，不依赖任何人工/agent 介入）：
   1. hbb_d13.onnx（OpenCV DNN，无需 onnxruntime/torch）逐帧检测 13 类目标
@@ -77,11 +77,11 @@ except ImportError:                     # 直接以文件路径运行（比赛�
 NAMES = ["paper", "cell_label", "car", "target_red", "target_blue", "obstacle",
          "bucket_red", "bucket_green", "bucket_cyan",
          "car_start", "car_end", "uav_start", "uav_end"]
-CONF = {  # 离线侦察工作点（paper 0.15 + 投票门控；默认逐帧 stride=1）
+CONF = {  # 离线侦察工作点（paper 0.15 + 投票门控；默认 stride=5 实测最优点）
     # 与机载 C++ kDeployConf（paper=0.25、cell_label=0.50）**不同源**：机载是
     # 实时单帧无时序投票，必须收紧；离线有跨帧投票，放宽才不丢单帧可见的目标。
-    # 实测教训（同一段视频，官方基线 8 雷）：stride=15 只剩 3 雷、stride=5 出 8 雷。
-    # 因此默认 stride=1（逐帧最全）——测试环境不拿采样换时间。
+    # 实测教训（同一段视频，官方基线 8 雷）：stride 15→3 雷（漏检）、5→8 雷、
+    # 1→14 雷（弱误检累积票后混入）。默认 5 是召回/精度的实测平衡点。
     "paper": 0.15, "cell_label": 0.35, "car": 0.25,
     "target_red": 0.25, "target_blue": 0.25, "obstacle": 0.40,
     "bucket_red": 0.40, "bucket_green": 0.40, "bucket_cyan": 0.40,
@@ -1434,10 +1434,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="赛前视频场地侦察：D13+v4d 识别 → 态势 → 路线规划（全机械化）")
     ap.add_argument("video", nargs="?", default=None, type=str)
-    ap.add_argument("--stride", type=int, default=1,
-                    help="采样帧距（默认 1 = 逐帧最全，测试环境不省时间；"
-                         "实测同一段视频 stride 15 只剩 3 雷、stride 5 出 8 雷"
-                         "=官方基线，调大就是拿采样换时间）")
+    ap.add_argument("--stride", type=int, default=5,
+                    help="采样帧距（默认 5 = 实测最优点：8/8 基线；15 漏检到 3 雷，"
+                         "1 过密到 14 雷含误检——两端都会掉精度）")
     # 门控/裁决规则改动后不必重跑推理：frames_meta.json 已含逐帧投影结果，
     # 用它重算态势（秒级）。这既避免整段重跑，也保证"重算"与"重跑"用的是
     # 同一份门控代码。

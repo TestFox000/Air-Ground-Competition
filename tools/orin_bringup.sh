@@ -47,6 +47,16 @@ STATE_DIR="${STATE_DIR:-/tmp/agup_$SESSION}"
 # 起完到判活之间的沉降时间：ROS launch 从进程存在到建好订阅要几秒，
 # 太早判会把慢启动的节点误报成死亡（误报会让人对告警脱敏，同样是事故）。
 SETTLE_SECONDS="${SETTLE_SECONDS:-12}"
+# 飞控串口按 USB by-id 认 NxtPX4（ttyACM 编号会随插拔/其它 USB 串口漂移——
+# 2026-10-22 实测机上 /dev/ttyACM0=NxtPX4、/dev/ttyACM1=CH340，若按编号写死
+# 很容易把 Agent 挂到错的设备上，看到的现象是"遥测全无"而不是报错）。
+# 显式覆盖：PX4_DEV=/dev/ttyACMx tools/orin_bringup.sh up
+detect_px4_dev() {
+    local byid
+    byid=$(ls /dev/serial/by-id/usb-*NxtPX4*-if00 2>/dev/null | head -1)
+    [[ -n $byid ]] && readlink -f "$byid" || echo /dev/ttyACM0
+}
+PX4_DEV="${PX4_DEV:-$(detect_px4_dev)}"
 
 say()  { printf '\e[1;36m==>\e[0m %s\n' "$*"; }
 ok()   { printf '\e[1;32m[通过]\e[0m %s\n' "$*"; }
@@ -74,6 +84,12 @@ check_strays() {
         pids=$(pgrep -x "$name" 2>/dev/null | tr '\n' ' ')
         [[ -z ${pids// /} ]] && continue
         warn "会话外已在跑 $name（pid: $pids）—— 再启会双实例"
+        # 把命令行打出来：挂错串口（如 Agent 指着 CH340 而不是 NxtPX4）时，
+        # 光看进程名会误以为"飞控链路已有"，实际遥测是空的。
+        local p
+        for p in $pids; do
+            warn "    pid $p: $(ps -o args= -p "$p" 2>/dev/null | cut -c1-120)"
+        done
         found=1
     done
     if [[ $found == 1 ]]; then
@@ -118,6 +134,11 @@ up() {
     [[ -d $WS/install ]] || warn "工作空间未编译: $WS/install 不存在（先 colcon build）"
     [[ -f $REPO/onboard/dzuav/build/dzuav ]] || warn "dzuav 未编译（orin_build_verify.sh），dzuav 窗口会起不来"
     [[ -e $DZUAV_CAM ]] || warn "相机设备 $DZUAV_CAM 不存在（DZUAV_CAM=... 指定）"
+    if [[ -e $PX4_DEV ]]; then
+        say "飞控串口: $PX4_DEV（按 USB by-id 认 NxtPX4；可用 PX4_DEV=... 覆盖）"
+    else
+        warn "飞控串口 $PX4_DEV 不存在：by-id 里没找到 NxtPX4，px4 窗口会起不来"
+    fi
     check_strays
 
     tmux kill-session -t "$SESSION" 2>/dev/null || true
@@ -150,7 +171,7 @@ up() {
     started+=(fastlio); sleep 3
 
     # 3. 飞控桥 -> 里程计/IMU 桥
-    win px4 "MicroXRCEAgent serial --dev /dev/ttyACM0 -b 921600"
+    win px4 "MicroXRCEAgent serial --dev $PX4_DEV -b 921600"
     started+=(px4); sleep 2
     win odom "ros2 launch px4_odom_convert px4_odom_convert.launch.py"
     started+=(odom)

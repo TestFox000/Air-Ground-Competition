@@ -5,7 +5,7 @@
 # 用法（机上任意位置）：
 #     tools/orin_video_recon.sh                       # 列出机上视频，输入序号选一个
 #     tools/orin_video_recon.sh <视频路径>             # 直接指定视频（mp4/mkv/avi…）
-#     tools/orin_video_recon.sh <视频> --stride 5      # 想快：采样帧距（默认 1=逐帧最全）
+#     tools/orin_video_recon.sh <视频> --stride 15      # 更稀：漏检（实测只剩 3/8 雷）
 #     tools/orin_video_recon.sh <视频> --force         # 不用缓存态势，强制重跑识别
 #     tools/orin_video_recon.sh <视频> --replay-safe   # 静态回放：不排射击停靠（无 '*')
 #     tools/orin_video_recon.sh --replay-last          # 秒级：用最近一次的态势重出规划
@@ -15,9 +15,9 @@
 # 用**当前**门控/裁决规则重算态势并重出规划（秒级）——门控修过的地方不会因为
 # 缓存而继续用旧结论。换视频/换 stride 自然是新目录，不会串味。--force 忽略缓存。
 #
-# 关于耗时与质量：默认 stride=1 **逐帧**推理，实测约 1.5 秒/帧（2220 帧≈55 分钟）——
-# 测试环境不拿采样换时间。调大 stride 就是采样漏检，不是"快一点的同结果"：
-# 同一段视频实测 stride 15 只剩 3 雷、stride 5 出 8 雷（=官方基线 8）。
+# 关于采样与质量：默认 stride=5 是**实测最优点**（同一段视频 8/8=官方基线），
+# 不是"越密越好"也不是"越快越好"：stride 15 漏检到 3 雷；stride 1 逐帧反而
+# 14 雷（7 个多余，弱误检累积到 >=3 票后混入，幻影消除还会误杀真雷 E2）。
 # =============================================================================
 set -u
 REPO="${REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -45,10 +45,10 @@ reagg() {   # $1 = 缓存目录
     fi
 }
 
-STRIDE=1; FORCE=0; VIDEO=""; OUT=""; REPLAY_LAST=0; REPLAY_SAFE=0; EXTRA=()
+STRIDE=5; FORCE=0; VIDEO=""; OUT=""; REPLAY_LAST=0; REPLAY_SAFE=0; EXTRA=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --stride) STRIDE="${2:-1}"; shift 2 ;;
+        --stride) STRIDE="${2:-5}"; shift 2 ;;
         --force)  FORCE=1; shift ;;
         --out)    OUT="${2:-}"; shift 2 ;;
         --replay-safe) REPLAY_SAFE=1; EXTRA+=(--replay-safe); shift ;;
