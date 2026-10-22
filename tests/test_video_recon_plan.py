@@ -264,3 +264,34 @@ def test_reaggregate_matches_full_run_on_saved_meta(tmp_path):
     assert vr.main(["--reaggregate", str(tmp_path)]) == 0
     plan = json.loads((tmp_path / "route_plan.json").read_text(encoding="utf-8"))
     assert "B5" in plan["snapshot"]["mines"] and "G3" in plan["snapshot"]["mines"]
+
+
+# ---------------- 静态回放安全（--replay-safe，2026-10-22） ----------------
+
+def test_replay_safe_strips_track_shoot_cells(tmp_path):
+    """静态回放无实时红蓝复判：--replay-safe 必须机器级剔除轨道靶射击停靠位。
+
+    背景（46f313b 留的敞口）：两段式口径下 is_blue=True 是"可打击性"，'*' 依赖
+    在飞 fire_guard 复判；回放链路照 '*' 开火，观测为红面即误击友方（−5/次）。
+    原先只有注释提醒"手动去掉"，本测试锁机器级行为。
+    """
+    state = _state(
+        mines=["F5", "G9"], passable=["K4", "K10"],
+        obstacles=["C9", "F8", "H11"], red=["E7"], blue=["B7"])
+    plan = vr.plan_from_state(state, tmp_path, replay_safe=True)
+    assert plan["car_cmds"]["shoot_cells"] == []
+    assert plan["source"]["attack_requires_live_gate"] is False
+    assert "回放安全" in plan["source"]["target_attack_mode"]
+    assert "通过" in plan["check"]["友方面禁火"]
+
+
+def test_default_two_stage_keeps_gate_flag(tmp_path):
+    """默认（在飞链路）：轨道靶停靠位照排，但必须带 attack_requires_live_gate
+    契约标记——下游见到 True 且自身无实时感知时须拒绝实弹。"""
+    state = _state(
+        mines=["F5", "G9"], passable=["K4", "K10"],
+        obstacles=["C9", "F8", "H11"], red=["E7"], blue=["B7"])
+    plan = vr.plan_from_state(state, tmp_path)
+    assert plan["source"]["attack_requires_live_gate"] is True
+    # 观测到红面（E7）时必须显式提醒（不悄悄带 '*' 上车）
+    assert "友方面禁火" in plan["check"]
