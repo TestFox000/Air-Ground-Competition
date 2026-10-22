@@ -1,0 +1,65 @@
+[
+  {
+    "所属": "02_仓库快照",
+    "包": "ext_carsnap_tree_20261022.tar.gz",
+    "类别": "车端工作树快照",
+    "内容": "清理前 _tmp_session/carsnap_tree：车端工作树副本，含 models/artifacts/_backups 与 .gitattributes",
+    "文件数": 890,
+    "字节": 16667862,
+    "sha256": "55818aa529a5695d897cbbb73fe5d8ac9f0164fd8e006aac4b617df4a77f35f5"
+  },
+  {
+    "所属": "02_仓库快照",
+    "包": "ext_gitee_air_ground_20261022.tar.gz",
+    "类别": "gitee air_ground 浅克隆",
+    "内容": "members/yu-binghuan 侦察时克隆：.git 对象库 + origin/* 全部分支引用（main/merge/members/preserve/agents），工作树为空；EMPty",
+    "文件数": 57,
+    "字节": 301366232,
+    "sha256": "77c64c09673df9ac7dc28050e5ed97b7c8766cac6ca0b06eb5914ae520bfcb1c"
+  },
+  {
+    "所属": "02_仓库快照",
+    "包": "ext_gitee_main_tree_20261022.tar.gz",
+    "类别": "gitee 主支工作树",
+    "内容": "外部仓主支工作树：models 权重 218 MB、docs、onboard、capture、demo 脚本",
+    "文件数": 2599,
+    "字节": 216635316,
+    "sha256": "7c8b368850f083916ac0db5028cd71d3c7385e6289401d2fcc0be23eb1b30e5c"
+  },
+  {
+    "所属": "02_仓库快照",
+    "包": "ext_yb_tree_20261022.tar.gz",
+    "类别": "gitee 成员分支工作树",
+    "内容": "外部仓成员分支工作树（同构；docs/成员交接、reference/members 素材在此）",
+    "文件数": 2719,
+    "字节": 217763682,
+    "sha256": "a6e68421684b26c5b3d18c6d33fb6bf8648b16a83fccf7b660ee7a7d1327a618"
+  },
+  {
+    "所属": "03_过程稿快照",
+    "包": "dzrobot_v2_tmp_session_20261022.tar.gz",
+    "类别": "车端过程稿",
+    "内容": "dzrobot_v2/_tmp_session 全量：B1 探针、t35 基线包、验收输出",
+    "文件数": 1379,
+    "字节": 36563288,
+    "sha256": "f6f71d2d791bce17957f63fcc4e34f3b50b6e15e04e92620fd8ccdb79c8d6368"
+  },
+  {
+    "所属": "03_过程稿快照",
+    "包": "process_TRACK-FIELD-R3_20261022.tar.gz",
+    "类别": "R3 现场实验",
+    "内容": "TRACK-FIELD-R3-20261020-01：raw bag、r2_recovered、319 MB jpg 帧、执行单",
+    "文件数": 3090,
+    "字节": 335803140,
+    "sha256": "4375f51ed0dd4057524eceb735a3553d3cc600898db98d16d509bd847f07c6d4"
+  },
+  {
+    "所属": "03_过程稿快照",
+    "包": "process_drafts_20261022.tar.gz",
+    "类别": "根过程稿全量",
+    "内容": "根 _tmp_session 全量：R0–R3 报告、TRACK-BASE 快照、体检与审计输出",
+    "文件数": 3933,
+    "字节": 263916278,
+    "sha256": "ab85367a02b8f3248587815828c18eb91c1f8a135a7abe162ece1e1c697614e1"
+  }
+]

@@ -1,0 +1,44 @@
+{
+  "name": "dsh-profile-desktop",
+  "private": true,
+  "dependencies": {
+    "@liustack/modlens": "^3.26.6",
+    "@multilab/graph-memory": "^2.0.7",
+    "@nanmicoder/dsh-agent-teams": "^0.1.22",
+    "dsh-deepseek-peak-whale": "file:C:/Users/TestFox/.dsh/local-packages/dsh-deepseek-peak-whale",
+    "dsh-dzdrone-ssh": "file:D:/User/Desktop/比赛存档/v1/dzsmartscout/dsh-plugin-dzdrone-ssh",
+    "dsh-dzrobot-ssh": "file:D:/User/Desktop/比赛存档/v1/dzrobot_v2/dsh-plugin-dzrobot-ssh",
+    "dsh-free-search": "^0.7.5",
+    "dsh-our-free-model": "github:ebony-vinyl/dsh-our-free-model",
+    "dsh-plugin": "^2.0.0",
+    "dsh-plugin-wallpaper-engine": "^1.3.3",
+    "dsh-studymate-seat": "file:D:/User/Text/deepseek-harness/default-workspace/dsh-studymate-seat",
+    "dsh-team-visualizer": "file:C:/Users/TestFox/.dsh/local-packages/dsh-team-visualizer"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "@deepseek-ai/dsh-experimental-agent-team-profile",
+        "@deepseek-ai/dsh-experimental-auto-review",
+        "dsh-deepseek-peak-whale",
+        "dsh-dzdrone-ssh",
+        "dsh-free-search",
+        "@multilab/graph-memory",
+        "@liustack/modlens",
+        "dsh-our-free-model",
+        "dsh-plugin",
+        "dsh-dzrobot-ssh",
+        "dsh-studymate-seat",
+        "@deepseek-ai/dsh-experimental-inspector-profile",
+        "@nanmicoder/dsh-agent-teams",
+        "dsh-plugin-wallpaper-engine",
+        "@deepseek-ai/dsh-experimental-tool-worktree",
+        "@deepseek-ai/dsh-experimental-session-search",
+        "@deepseek-ai/dsh-experimental-plugin-market-bundle",
+        "dsh-team-visualizer"
+      ]
+    }
+  }
+}
