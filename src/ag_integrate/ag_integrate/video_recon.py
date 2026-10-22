@@ -746,7 +746,7 @@ def recon_video(video: str | Path, out_dir: str | Path,
         idxs = idxs[:max_frames]
     print(f"[recon] 视频总帧 {total}，采样 {len(idxs)} 帧 (stride={stride})")
     if len(idxs) > 60:                 # 逐帧默认下这次要跑很久，先把时间说清
-        print(f"[recon] 预计约 {len(idxs) * 2.2 / 60:.0f} 分钟（约 2.2 秒/帧）")
+        print(f"[recon] 预计约 {len(idxs) * 1.5 / 60:.0f} 分钟（实测约 1.5 秒/帧）")
 
     frames_meta: list[dict] = []
     cont_pos: dict[str, list[tuple[float, float, float]]] = defaultdict(list)
