@@ -106,8 +106,8 @@ menu() {
 ║   5  进入 tmux 看各窗口（Ctrl+B 切窗，再按 d 退出）    ║
 ║   6  看最新规划产物                                    ║
 ║   7  停止全栈                                          ║
-║   8  视频侦察复现（已存态势 → 路线，秒级，出渲染图）    ║
-║   9  视频侦察全量重跑（stride 5，约 20 分钟，后台）     ║
+║   8  视频侦察：选视频 → 识别 + 规划 + 出图（任意视频）  ║
+║   9  秒级重出最近一次的规划（复用识别结果，只跑规划层）  ║
 ║   0  退出                                              ║
 ╚══════════════════════════════════════════════════════╝
 TXT
@@ -121,31 +121,31 @@ TXT
             5) tmux attach -t agup ;;
             6) show_plan; pause ;;
             7) bash "$REPO/tools/orin_bringup.sh" down; pause ;;
-            8) recon_fast; pause ;;
-            9) recon_full; pause ;;
+            8) recon_video; pause ;;
+            9) recon_replay; pause ;;
             0) exit 0 ;;
             *) echo "只接受 0-9 的数字。" ;;
         esac
     done
 }
 
-# 视频侦察：离线把"视频 → 态势 → 路线 → 车命令 → 渲染图"跑一遍。
-# 8 = 用已存态势秒级复现（不重算识别）；9 = 从视频全量重跑（后台，约 20 分钟）。
-recon_fast() {
-    bash "$REPO/tools/orin_demo_recon.sh"
-    echo
-    echo "渲染图已生成，正在打开……（关掉看图窗口即回到本菜单）"
-    local png=/tmp/ag_recon_bg/route_render.png
-    [ -f "$png" ] && { eog "$png" 2>/dev/null || xdg-open "$png" 2>/dev/null || echo "看图: $png"; }
+# 视频侦察：离线把"视频 → 态势 → 路线 → 车命令 → 渲染图"跑一遍（通用入口）。
+# 8 = 给任意视频跑识别+规划（无参数时列出机上视频让你选）；9 = 秒级重出最近一次的规划。
+recon_video() {
+    bash "$REPO/tools/orin_video_recon.sh"
+    show_render
 }
-recon_full() {
-    local video
-    video=$(ls -t "$HOME"/Videos/recordings/*.mp4 2>/dev/null | head -1 || true)
-    [ -n "$video" ] || { echo "✗ ~/Videos/recordings 下没有 mp4"; return; }
-    echo "视频: $video"
-    MAXF=0 STRIDE=5 bash "$REPO/tools/orin_recon_bg.sh"
-    echo "已在后台开跑（约 20 分钟）。看进度： tail -f /tmp/ag_recon_bg.log"
-    echo "跑完后再选 8，即为新态势的路线。"
+recon_replay() {
+    bash "$REPO/tools/orin_video_recon.sh" --replay-last
+    show_render
+}
+show_render() {
+    local png
+    png=$(ls -t /tmp/ag_recon/*/route_render.png 2>/dev/null | head -1 || true)
+    [ -n "$png" ] || return 0
+    echo
+    echo "渲染图: $png（正在打开…关掉即回到本菜单）"
+    eog "$png" 2>/dev/null || xdg-open "$png" 2>/dev/null || true
 }
 
 # 图标/命令行动作：**执行完一律回到菜单**，不停在一个死界面上。
@@ -156,8 +156,8 @@ case "${1:-menu}" in
     up-send) start_stack send; pause; menu ;;
     accept)  bash "$REPO/tools/orin_accept_plan.sh"; pause; menu ;;
     stop)    bash "$REPO/tools/orin_bringup.sh" down; pause; menu ;;
-    recon)   recon_fast; pause; menu ;;
-    recon-full) recon_full; pause; menu ;;
+    recon)   recon_video; pause; menu ;;
+    recon-replay) recon_replay; pause; menu ;;
     plan)    python3 -u "$REPO/tools/orin_plan_sidecar.py" --params "$PARAMS" \
                  --out "$OUT" --plan-mode on-change ;;
     menu|*)  menu ;;
@@ -195,23 +195,14 @@ ok "已安装桌面图标：启动 / 验收 / 停止 / 视频侦察 / 更多操�
 # 不必记仓库路径。收尾带 pause，避免双击跑完窗口就关掉看不到结果。
 cat > "$DESK/视频侦察.sh" <<'SH'
 #!/usr/bin/env bash
-# 桌面直跑入口：视频侦察 → 路径规划（等价于桌面图标「④ 视频侦察」/ 菜单输入 8）
-#   ./视频侦察.sh            秒级复现（用已存态势）
-#   ./视频侦察.sh --full     从视频全量重跑（stride 5，约 20 分钟，后台）
+# 桌面直跑入口：任意视频 → 识别 → 路线规划 → 渲染图
+#   ./视频侦察.sh                    列出机上视频、选一个跑（默认 stride 5）
+#   ./视频侦察.sh ~/a.mp4 --stride 10
+#   ./视频侦察.sh --replay-last      秒级：用最近一次的识别结果重出规划
 set -u
 REPO="$HOME/dzuav_deploy/air_ground"
 cd "$REPO" || { echo "找不到仓库: $REPO"; read -r -p "回车关闭…" _; exit 9; }
-if [[ "${1:-}" == "--full" ]]; then
-    bash tools/orin_demo_recon.sh --full
-else
-    bash tools/orin_demo_recon.sh
-    PNG=/tmp/ag_recon_bg/route_render.png
-    if [[ -f $PNG ]]; then
-        echo
-        echo "打开渲染图……（关掉看图窗口即回到这里）"
-        eog "$PNG" 2>/dev/null || xdg-open "$PNG" 2>/dev/null || echo "看图: $PNG"
-    fi
-fi
+bash tools/orin_video_recon.sh "$@"
 echo
 read -r -p "按回车返回菜单…" _ || true
 exec "$HOME/start.sh" menu
@@ -228,17 +219,23 @@ cat > "$GUIDE" <<'TXT'
          拉起后**自动显示数字菜单**（4=验收 5=看窗口 6=看产物 7=停止 8=视频侦察 0=退出）。
          如果你在任何时候找不到菜单：打开终端敲  ~/start.sh  回车即可。
 
-〇、只想看「视频侦察 → 路径规划」（不需要起全栈、不需要相机）
-  1. 双击桌面「④ 视频侦察（出路线图）」或「视频侦察.sh」＝菜单输入 8
-     · 秒级：用已存态势（/tmp/ag_recon_bg/field_state.json）直接出路线 + 渲染图，并自动打开图
-     · 会先做 4 项前置检查（cv2 / 13 类模型 / 中文字体 / 已存态势），缺哪项它会说清修法
-  2. 要看**新视频**的规划：菜单输入 9（全量重跑，stride 5，约 20 分钟，后台）
-     · 进度： tail -f /tmp/ag_recon_bg.log
-     · 跑完再选 8，即为新态势的路线
+〇、只想看「视频 → 路径规划」（不需要起全栈、不需要相机）——**通用，任意视频**
+  1. 双击桌面「④ 视频侦察（出路线图）」或「视频侦察.sh」
+     · 无参数时它**列出机上视频**让你输序号（也会认你直接粘的路径）
+     · 选完就跑：识别 → 格号反推 → 路线 → 车命令 → 渲染图，跑完自动打开图
+     · 前置件（cv2 / 13 类模型 / 中文字体）缺哪项它会说清修法
+  2. 秒级重出规划：菜单输入 9（或 ./视频侦察.sh --replay-last）
+     · 复用上次识别结果，只重跑规划层，几秒出图（调参数、看路线时用这个）
   3. 终端等价命令（VNC 里可手敲）：
-        cd ~/dzuav_deploy/air_ground && ./tools/orin_demo_recon.sh
-        # 全量： ./tools/orin_demo_recon.sh --full
-  ⚠ 别用 MAXF=60 STRIDE=15 那种冒烟参数看结果：只覆盖前 35% 时长，雷会几乎全是空的。
+        cd ~/dzuav_deploy/air_ground
+        ./tools/orin_video_recon.sh                    # 选视频跑
+        ./tools/orin_video_recon.sh ~/a.mp4 --stride 10
+        ./tools/orin_video_recon.sh --replay-last      # 秒级
+  4. 采样帧距（--stride）怎么选：
+        5  = 默认，最全（2568 帧的视频约 19 分钟）
+        15 = 快 3 倍，但**会漏掉只短暂可见的目标**（实测同段视频 stride15 出 2 雷、
+             stride5 出 5 雷）——正式结果别用它
+        同一视频同参数跑第二次会自动复用识别结果（缓存按视频名+大小+时间戳+stride）
   ⚠ 渲染图上的 D8* 是移动靶的“确认位”（视频里看到的是红面=友方）：静态回放要手动
      去掉这个 '*'，在飞链路由 fire_guard 复判（红面/未辨自动禁火）。
 
