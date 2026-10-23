@@ -1,0 +1,48 @@
+# ---- 构建产物与运行日志（车端/本地重建，不入库）----
+build/
+install/
+log/
+log_*/
+
+# ★ 例外（2026-10-14）：src/history/log/ 是「转生记忆」进展日志，不是运行日志
+#   上面的 log/ 无前缀规则会连它一起忽略，导致历史日志从未入库（已知问题）。
+#   这里精确豁免；src/history/附加资源/ 仍忽略（见下方大体积资源段）。
+!src/history/log/
+!src/history/log/**
+
+# ---- 备份与临时目录 ----
+backup/
+_tmp_session/
+_tmp_verify/
+_scratch_*/
+artifacts/
+*.bak
+*.bak_*
+*.t39bak
+*.orig
+
+# ---- 大体积资源（媒体/安装包/固件压缩包，共约 2 GB，与算法无关）----
+src/history/附加资源/
+
+# ---- 二进制模型（RKNN）----
+models/*.rknn
+*.rknn
+
+# ---- Python 缓存 ----
+__pycache__/
+*.pyc
+*.pyo
+
+# ---- 编辑器/系统杂物 ----
+.vscode/*.log
+Thumbs.db
+desktop.ini
+src_v1/.vscode/
+
+# ---- 第三方 embedded repo（嵌套 .git，182MB，非本项目代码，不入库）----
+src_v1/navigation2/
+
+# ---- 本地智能体状态 / 临时产物（不入库）----
+.agent-teams/
+_tmp_install_repro/
+_tmp_*.txt

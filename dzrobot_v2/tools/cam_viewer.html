@@ -1,0 +1,1568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小车操作台 · 云台图传 / 遥控 / 调参</title>
+<style>
+/* ============================================================
+   主题变量 —— 与板子终端/ROS 工具链的深色风格保持一致
+   ============================================================ */
+:root{
+  --bg:#0b0f14;
+  --panel:#121821;
+  --panel2:#182231;
+  --line:#243040;
+  --line2:#2e3d50;
+  --fg:#e6edf3;
+  --fg-dim:#8b9bb0;
+  --fg-mute:#5d6b7d;
+  --accent:#22d3ee;
+  --accent-dim:#0e7490;
+  --ok:#3fb950;
+  --warn:#d29922;
+  --err:#f85149;
+  --radius:10px;
+}
+*{box-sizing:border-box;}
+html,body{height:100%;margin:0;}
+body{
+  background:var(--bg);
+  color:var(--fg);
+  font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  overflow:hidden;
+}
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;opacity:.28;
+  background-image:
+    linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+  background-size:32px 32px;
+}
+
+/* ============================================================
+   ★ 总体布局：左侧「操作侧边栏」 + 右侧「图传主区」
+   ------------------------------------------------------------
+     ┌──────────────┬──────────────────────────────────┐
+     │ 侧边栏        │  大窗口：云台图传（标注 / 原始）    │
+     │ · 遥控 / 调参 │  ────────────────────────────────│
+     │ · 可拖拽调宽  │  ┌───────┬───────┬───────┐        │
+     │ · 内部独立滚动│  │识别状态│视频流 │快捷键 │← 卡片行│
+     │ · 8 组参数全览│  └───────┴───────┴───────┘        │
+     └──────────────┴──────────────────────────────────┘
+
+   为什么这么排：
+     1. 高频操作（接管 / 方向 / 开火 / 急停）放侧边栏顶部，
+        8 组参数纵向一列，滚动条永远在右手边，不会「被挤到看不见」。
+     2. 画面是高频、要看清的东西 —— 主区整块给它，视频占满上半区，
+        下方一排等宽卡片给出识别 / 流状态 / 快捷键，栅格自适应宽度。
+     3. 主区不再放调参条与视图切换按钮，结构简化为「视频 + 卡片行」，
+        窗口再矮也不会有条块被压掉，无重叠无溢出。
+   ============================================================ */
+.app{
+  position:relative;z-index:1;
+  height:100vh;overflow:hidden;
+  display:grid;
+  /* 侧边栏宽度由 JS 拖拽写入 --side-w；夹在 300~620 之间 */
+  grid-template-columns:var(--side-w,392px) 5px 1fr;
+}
+.app.side-collapsed{grid-template-columns:0 0 1fr;}
+
+/* 折叠时留一条展开条，否则用户没法把它叫回来 */
+.sidepeek{
+  position:absolute;left:0;top:0;bottom:0;width:28px;z-index:6;
+  display:none;align-items:center;justify-content:center;
+  background:var(--panel);border-right:1px solid var(--line);
+  color:var(--fg-dim);cursor:pointer;user-select:none;
+  writing-mode:vertical-rl;letter-spacing:3px;font-size:12px;
+}
+.sidepeek:hover{color:var(--fg);background:var(--panel2);}
+.app.side-collapsed .sidepeek{display:flex;}
+
+/* ---------- 侧边栏 ---------- */
+.sidebar{
+  display:flex;flex-direction:column;min-height:0;min-width:0;
+  background:var(--panel);border-right:1px solid var(--line);
+  overflow:hidden;
+}
+.sidehead{
+  flex:0 0 auto;display:flex;align-items:center;gap:8px;
+  padding:9px 12px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,var(--panel2),var(--panel));
+}
+.sidehead .ttl{font-weight:700;font-size:13.5px;letter-spacing:.5px;}
+.sidehead .sub{color:var(--fg-mute);font-size:11px;}
+
+/* ★ 独立滚动容器：保证遥控器与 8 组参数都能完整访问到 */
+.sidescroll{
+  flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;scrollbar-color:#3a4c66 transparent;
+}
+.sidescroll::-webkit-scrollbar{width:11px;}
+.sidescroll::-webkit-scrollbar-track{background:rgba(255,255,255,.035);border-radius:6px;}
+.sidescroll::-webkit-scrollbar-thumb{background:#3a4c66;border-radius:6px;
+  border:2px solid var(--panel);}
+.sidescroll::-webkit-scrollbar-thumb:hover{background:#4d6688;}
+
+.sidefoot{
+  flex:0 0 auto;display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+  padding:8px 10px;border-top:1px solid var(--line);background:var(--panel2);
+}
+
+/* 拖拽调宽把手 */
+.resizer{cursor:col-resize;background:transparent;}
+.resizer:hover,.resizer.dragging{background:rgba(34,211,238,.28);}
+
+/* ---------- 主区 ---------- */
+.main{
+  display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0;
+  padding:10px;overflow:hidden;
+}
+
+/* 大窗口：视频占满主区上半部分，等比缩放，绝不溢出容器 */
+.viewwrap{
+  position:relative;flex:1 1 auto;min-height:160px;
+  border:1px solid var(--line);border-radius:var(--radius);
+  background:#05080b;overflow:hidden;
+  box-shadow:0 6px 18px rgba(0,0,0,.35);
+}
+
+/* ---------- 卡片行（视频下方的栅格信息卡） ----------
+   宽屏一行三张；窄屏自动换行；窗口很矮时卡片行内部滚动，
+   绝不把视频挤没、也绝不产生重叠或裁切。 */
+.cardgrid{
+  flex:0 1 auto;max-height:38vh;overflow-y:auto;overscroll-behavior:contain;
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:10px;
+  scrollbar-width:thin;scrollbar-color:#3a4c66 transparent;
+}
+.cardgrid::-webkit-scrollbar{width:10px;}
+.cardgrid::-webkit-scrollbar-thumb{background:#3a4c66;border-radius:6px;
+  border:2px solid var(--panel);}
+.card{
+  display:flex;flex-direction:column;min-width:0;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  overflow:hidden;
+}
+.cardhead{
+  display:flex;align-items:center;gap:8px;padding:6px 11px;
+  background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border-bottom:1px solid var(--line);
+  font-weight:600;font-size:12.5px;color:var(--fg);
+}
+.cardhead .sub{color:var(--fg-mute);font-size:11px;font-weight:400;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cardbody{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:8px 11px;min-height:38px;
+  font-size:12px;color:var(--fg-dim);
+  font-variant-numeric:tabular-nums;
+}
+.cardbody b{color:var(--fg);font-weight:600;}
+/* 快捷键卡：<kbd> 统一样式 */
+.cardbody kbd{
+  display:inline-block;min-width:18px;text-align:center;
+  background:#1a2330;border:1px solid var(--line2);border-bottom-width:2px;
+  border-radius:5px;padding:1px 5px;margin-right:2px;
+  font:inherit;font-size:10.5px;color:var(--fg-dim);
+}
+.cardbody .krow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;width:100%;}
+.cardbody .krow .kk{color:var(--fg-mute);font-size:11px;min-width:74px;}
+
+/* 窄屏：侧边栏让位给主区（可用左侧竖条拉回来） */
+@media (max-width:900px){
+  .app{grid-template-columns:0 0 1fr;}
+  .sidebar{opacity:0;pointer-events:none;}
+  .app:not(.side-collapsed) .sidepeek{display:flex;}
+}
+
+/* ---------- 单元格（视频，铺满 .viewwrap） ---------- */
+.cell{
+  position:absolute;inset:0;
+  display:none;flex-direction:column;min-width:0;min-height:0;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  overflow:hidden;
+}
+.cell.on{display:flex;}
+.cellhead{
+  flex:0 0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:7px 10px;
+  background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border-bottom:1px solid var(--line);
+}
+.cellhead .ttl{font-weight:600;color:var(--fg);white-space:nowrap;}
+.cellhead .sub{color:var(--fg-mute);font-size:11.5px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;}
+.spacer{flex:1 1 auto;}
+.cellbody{
+  position:relative;flex:1 1 auto;min-height:0;
+  background:#05080b;
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;
+}
+
+/* ---------- 指示点 / 徽标 ---------- */
+.dot{
+  width:9px;height:9px;border-radius:50%;flex:0 0 auto;
+  background:var(--fg-mute);box-shadow:0 0 0 3px rgba(255,255,255,.04);
+}
+.dot.ok{background:var(--ok);box-shadow:0 0 8px var(--ok);}
+.dot.warn{background:var(--warn);box-shadow:0 0 8px var(--warn);}
+.dot.err{background:var(--err);box-shadow:0 0 8px var(--err);}
+.dot.busy{background:var(--accent);animation:pulse 1s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.30;}}
+.pill{
+  padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600;
+  border:1px solid var(--line2);color:var(--fg-dim);background:rgba(255,255,255,.02);
+  white-space:nowrap;
+}
+.pill.ok{color:var(--ok);border-color:rgba(63,185,80,.42);background:rgba(63,185,80,.10);}
+.pill.warn{color:var(--warn);border-color:rgba(210,153,34,.42);background:rgba(210,153,34,.10);}
+.pill.err{color:var(--err);border-color:rgba(248,81,73,.42);background:rgba(248,81,73,.10);}
+.pill.busy{color:var(--accent);border-color:rgba(34,211,238,.42);background:rgba(34,211,238,.10);}
+
+/* ---------- 按钮 ---------- */
+.btn{
+  padding:4px 11px;border-radius:7px;cursor:pointer;
+  border:1px solid var(--line2);background:#1a2330;color:var(--fg);
+  font-size:12px;font-weight:500;line-height:1.4;
+  transition:background .14s,border-color .14s,color .14s;
+}
+.btn:hover{background:#22303f;border-color:#3d4f66;}
+.btn:active{transform:translateY(1px);}
+.btn.primary{background:var(--accent-dim);border-color:var(--accent);color:#eafcff;font-weight:600;}
+.btn.primary:hover{background:#0e8fa8;border-color:#38e2f5;}
+.btn.tiny{padding:3px 9px;font-size:11.5px;}
+.btn:disabled{opacity:.38;cursor:not-allowed;}
+.btn.spin{opacity:.75;pointer-events:none;}
+.btn.spin::after{
+  content:"";display:inline-block;width:9px;height:9px;margin-left:6px;
+  border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;
+  vertical-align:-1px;animation:rot .7s linear infinite;
+}
+@keyframes rot{to{transform:rotate(360deg);}}
+
+/* 分段开关 */
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:7px;overflow:hidden;}
+.seg button{
+  padding:4px 10px;border:0;cursor:pointer;font-size:11.5px;
+  background:#1a2330;color:var(--fg-dim);border-right:1px solid var(--line2);
+}
+.seg button:last-child{border-right:none;}
+.seg button:hover{color:var(--fg);background:#22303f;}
+.seg button.on{background:var(--accent-dim);color:#eafcff;font-weight:600;}
+.meta{color:var(--fg-mute);font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+
+/* ---------- 视频区 ---------- */
+.stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;}
+.stage img{
+  display:block;max-width:100%;max-height:100%;width:auto;height:auto;
+  object-fit:contain;
+}
+.overlay{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  background:rgba(5,8,11,.80);backdrop-filter:blur(2px);
+  text-align:center;padding:16px;
+}
+.overlay.hide{display:none;}
+.ov-icon{font-size:26px;line-height:1;color:var(--fg-mute);}
+.overlay.busy .ov-icon{color:var(--accent);animation:pulse 1.05s infinite;}
+.overlay.err  .ov-icon{color:var(--err);}
+.overlay.warn .ov-icon{color:var(--warn);}
+.ov-text{font-size:14px;font-weight:600;color:var(--fg);}
+.ov-sub{font-size:11.5px;color:var(--fg-mute);max-width:380px;line-height:1.6;}
+
+/* ---------- 状态徽标（识别 / 云台 / 流状态） ---------- */
+.tag{padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600;
+  border:1px solid var(--line2);color:var(--fg-dim);}
+.tag.blue{color:#7cd4ff;border-color:rgba(124,212,255,.45);background:rgba(124,212,255,.10);}
+.tag.red{color:#ff8f8f;border-color:rgba(255,143,143,.45);background:rgba(255,143,143,.10);}
+.tag.idle{color:var(--fg-mute);}
+.tag.scan{color:var(--warn);border-color:rgba(210,153,34,.45);background:rgba(210,153,34,.10);}
+.tag.track{color:var(--ok);border-color:rgba(63,185,80,.45);background:rgba(63,185,80,.12);}
+.ammo .pip{display:inline-block;width:7px;height:7px;border-radius:50%;
+  margin-right:2px;background:#3a4250;vertical-align:middle;}
+.ammo .pip.used{background:#ff7b72;box-shadow:0 0 5px rgba(255,123,114,.55);}
+.ammo .cnt{margin-left:5px;color:var(--fg);font-weight:600;}
+
+/* ============================================================
+   ★ 侧边栏头部（标签页切换条）与配置提示
+   ============================================================ */
+.conhead{
+  flex:0 0 auto;display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+  padding:8px 12px;
+  background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border-bottom:1px solid var(--line);
+}
+.conhead .ttl{font-weight:600;}
+.conhead .sub{color:var(--fg-mute);font-size:11.5px;}
+.cfgtip{font-size:11.5px;font-weight:600;}
+.cfgtip.ok{color:var(--ok);}
+.cfgtip.err{color:var(--err);}
+.cfgtip.warn{color:var(--warn);}
+
+/* 开火记录折叠条 */
+.shots{flex:0 0 auto;border-bottom:1px solid var(--line);background:var(--panel2);}
+.shots-head{display:flex;align-items:center;gap:10px;padding:3px 12px;
+  cursor:pointer;user-select:none;font-size:12px;color:var(--fg-dim);
+  font-variant-numeric:tabular-nums;}
+.shots-head:hover{background:rgba(255,255,255,.03);}
+.shots-title{color:var(--fg);font-weight:600;}
+.shots-caret{font-size:11px;transition:transform .15s;}
+.shots.collapsed .shots-caret{transform:rotate(-90deg);}
+.shots.collapsed .shots-body{display:none;}
+.shots-body{max-height:96px;overflow-y:auto;padding:0 12px 6px;font-size:11.5px;
+  color:var(--fg-dim);font-variant-numeric:tabular-nums;}
+.shot-empty{color:var(--fg-mute);padding:2px 0 4px;}
+.shot-row{display:flex;gap:10px;padding:2px 0;border-top:1px solid rgba(255,255,255,.045);}
+.shot-row .n{color:var(--fg);font-weight:600;min-width:26px;}
+.shot-row .t{min-width:60px;color:var(--fg-mute);}
+.shot-row .gap{min-width:44px;color:var(--fg-mute);}
+.shot-row .cls{font-weight:600;}
+.shot-row .cls.blue{color:#7cd4ff;}
+.shot-row .cls.red{color:#ff8f8f;}
+
+/* ---------- 参数分组网格 ---------- */
+.congroups{
+  flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
+  gap:8px;padding:8px;align-content:start;
+  /* ★滚动条做得显眼一点：之前主题把它压得几乎看不见，
+     用户根本不知道下面还有内容，只觉得"被切掉了" */
+  scrollbar-width:thin;scrollbar-color:#3a4c66 transparent;
+}
+.congroups::-webkit-scrollbar{width:11px;}
+.congroups::-webkit-scrollbar-track{background:rgba(255,255,255,.035);border-radius:6px;}
+.congroups::-webkit-scrollbar-thumb{
+  background:#3a4c66;border-radius:6px;border:2px solid var(--panel);}
+.congroups::-webkit-scrollbar-thumb:hover{background:#4d6688;}
+
+.grp{
+  display:flex;flex-direction:column;min-width:0;
+  background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+  overflow:hidden;
+}
+.grp.dirty{border-color:rgba(210,153,34,.55);box-shadow:0 0 0 1px rgba(210,153,34,.18);}
+
+/* 卡片头可点击折叠（空间不够时把不关心的组收起来） */
+.grphead{
+  display:flex;align-items:center;gap:6px;padding:3px 8px;
+  background:rgba(255,255,255,.025);border-bottom:1px solid var(--line);
+  cursor:pointer;user-select:none;
+}
+.grphead:hover{background:rgba(255,255,255,.05);}
+.grp.collapsed .grphead{border-bottom-color:transparent;}
+.grphead .caret{font-size:10px;color:var(--fg-mute);transition:transform .15s;flex:0 0 auto;}
+.grp.collapsed .grphead .caret{transform:rotate(-90deg);}
+.grphead .gt{font-weight:600;font-size:12.5px;white-space:nowrap;}
+.rbadge{
+  font-size:10.5px;padding:1px 6px;border-radius:999px;font-weight:600;
+  color:var(--fg-mute);border:1px solid var(--line2);white-space:nowrap;
+}
+.rbadge.warn{color:var(--warn);border-color:rgba(210,153,34,.45);}
+.gnote{
+  padding:4px 9px;font-size:10.5px;color:var(--warn);
+  background:rgba(210,153,34,.07);border-bottom:1px solid var(--line);
+  line-height:1.45;
+}
+.grp.collapsed .grpitems,
+.grp.collapsed .gnote,
+.grp.collapsed .grfoot{display:none;}
+.grpitems{display:flex;flex-direction:column;gap:1px;padding:5px 8px;}
+
+/* ---------- ★参数行：单行布局 ----------
+   旧版是"标题 / 控件 / 说明"三行，一个参数占 ~44px；
+   改成 标签 | 滑块 | 数值框 单行后只要 ~26px，
+   同样高度能多显示近一倍参数。说明改为按需展开（见 .showhint）。 */
+.it{display:flex;align-items:center;gap:6px;min-height:22px;}
+.it .k{
+  flex:0 0 auto;min-width:86px;max-width:86px;color:var(--fg);font-size:12px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.it .u{flex:0 0 auto;color:var(--fg-mute);font-size:10.5px;}
+.it .hint{display:none;}
+.congroups.showhint .it{flex-wrap:wrap;}
+.congroups.showhint .it .hint{
+  display:block;flex:1 0 100%;font-size:10px;color:var(--fg-mute);
+  line-height:1.4;margin:1px 0 3px 93px;
+}
+.it.fault .k{color:var(--err);}
+
+.it input[type=range]{
+  flex:1 1 auto;min-width:40px;height:16px;accent-color:var(--accent);}
+.it input[type=number],.it input[type=text],.it select,.it textarea{
+  background:#0d131b;border:1px solid var(--line2);border-radius:6px;
+  color:var(--fg);font:inherit;font-size:12px;padding:3px 7px;
+  font-variant-numeric:tabular-nums;
+}
+.it input[type=number]{flex:0 0 auto;width:64px;}
+.it input[type=text],.it select{flex:1 1 auto;min-width:0;}
+.it input:focus,.it select:focus,.it textarea:focus{
+  outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(34,211,238,.13);}
+
+/* 多行型（航点序列）：标签独占一行，文本框铺满 */
+.it.wide{flex-wrap:wrap;align-items:flex-start;}
+.it.wide .k{max-width:100%;min-width:0;}
+.it.wide textarea{
+  flex:1 0 100%;width:100%;resize:vertical;
+  line-height:1.45;font-size:11px;white-space:pre;
+  overflow-wrap:normal;overflow-x:auto;
+}
+
+/* 开关 */
+.sw{position:relative;display:inline-block;width:38px;height:20px;flex:0 0 auto;}
+.sw input{opacity:0;width:0;height:0;}
+.sw span{position:absolute;inset:0;background:#2a3646;border-radius:999px;
+  cursor:pointer;transition:background .16s;}
+.sw span::before{content:"";position:absolute;width:14px;height:14px;left:3px;top:3px;
+  background:#8b9bb0;border-radius:50%;transition:transform .16s,background .16s;}
+.sw input:checked + span{background:rgba(34,211,238,.30);}
+.sw input:checked + span::before{transform:translateX(18px);background:var(--accent);}
+
+.grfoot{padding:0 8px 7px;}
+.applymsg{font-size:11px;line-height:1.5;color:var(--fg-dim);
+  white-space:pre-wrap;word-break:break-all;max-height:80px;overflow-y:auto;}
+.applymsg.ok{color:var(--ok);}
+.applymsg.err{color:var(--err);}
+
+/* ============================================================
+   ★ 控制台标签页（遥控操作 / 参数调校）
+   ============================================================ */
+.tabs{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden;}
+.tabs button{
+  padding:5px 14px;border:0;cursor:pointer;font-size:12.5px;font-weight:600;
+  background:#1a2330;color:var(--fg-dim);border-right:1px solid var(--line2);
+}
+.tabs button:last-child{border-right:none;}
+.tabs button:hover{color:var(--fg);background:#22303f;}
+.tabs button.on{background:var(--accent-dim);color:#eafcff;}
+.conbody{flex:1 1 auto;min-height:0;display:none;flex-direction:column;overflow:hidden;}
+.conbody.on{display:flex;}
+
+/* ============================================================
+   ★ 遥控器
+   ------------------------------------------------------------
+   交互原则（与实体遥控器一致）：
+     · 按下即动、松开即停（press-and-hold），不存在"点一下冲出去"
+     · 方向键是九宫格 D-pad，中心键分别为「刹车」与「回正」
+     · 未接管时所有控制键置灰，必须先点「接管控制」
+   ============================================================ */
+.rcbar{
+  display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+  padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel2);
+}
+.rcgrid{
+  flex:1 1 auto;min-height:0;overflow:auto;
+  display:flex;gap:16px;padding:12px;flex-wrap:wrap;align-items:flex-start;
+}
+.rcpad{
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:10px 12px;min-width:172px;
+}
+.rcpad-t{font-size:12px;font-weight:600;color:var(--fg);letter-spacing:1px;}
+.dpad{
+  display:grid;gap:5px;
+  /* 44px 是在"矮窗口(581px)"下实测能完整放下 3 行且不触发滚动的最小尺寸 */
+  grid-template-columns:repeat(3,42px);grid-template-rows:repeat(3,42px);
+}
+.dbtn{
+  border:1px solid var(--line2);background:#1a2330;color:var(--fg-dim);
+  border-radius:10px;font-size:17px;line-height:1;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  user-select:none;touch-action:none;
+  transition:background .1s,border-color .1s,transform .06s;
+}
+.dbtn:hover:not(:disabled){background:#22303f;color:var(--fg);border-color:#3d4f66;}
+.dbtn.active{background:var(--accent-dim);border-color:var(--accent);
+  color:#eafcff;transform:scale(.94);}
+.dbtn:disabled{opacity:.30;cursor:not-allowed;}
+.dbtn.u{grid-area:1/2;} .dbtn.l{grid-area:2/1;} .dbtn.c{grid-area:2/2;}
+.dbtn.r{grid-area:2/3;} .dbtn.d{grid-area:3/2;}
+.dbtn.c{font-size:13px;font-weight:600;}
+.firebtn{
+  width:150px;padding:15px 0;border-radius:12px;cursor:pointer;user-select:none;
+  border:1px solid rgba(248,81,73,.60);background:rgba(248,81,73,.16);
+  color:#ff9a94;font-size:16px;font-weight:700;letter-spacing:4px;
+  transition:background .12s,transform .06s;
+}
+.firebtn:hover:not(:disabled){background:rgba(248,81,73,.28);color:#ffb3ad;}
+.firebtn:active:not(:disabled){transform:scale(.96);}
+.firebtn:disabled{opacity:.30;cursor:not-allowed;}
+.btn.danger{background:rgba(248,81,73,.18);border-color:rgba(248,81,73,.60);
+  color:#ff9a94;font-weight:700;}
+.btn.danger:hover{background:rgba(248,81,73,.32);border-color:#f85149;color:#ffb3ad;}
+.rcrow{
+  display:flex;align-items:center;gap:7px;font-size:12px;color:var(--fg-dim);
+  font-variant-numeric:tabular-nums;
+}
+.rcrow b{color:var(--fg);font-weight:600;}
+.rchint{font-size:11px;color:var(--fg-mute);line-height:1.55;max-width:200px;text-align:center;}
+/* 窗口矮的时候先牺牲说明文字，保住按钮可达性 */
+@media (max-height:780px){ .rchint{display:none;} }
+/* 更矮（笔记本常见 580~640px）时把 D-pad 再缩一档，
+   实测 1094×581 下 42px 会差几像素，38px 才稳 */
+@media (max-height:660px){
+  .dpad{grid-template-columns:repeat(3,38px);grid-template-rows:repeat(3,38px);gap:4px;}
+  .dbtn{font-size:15px;border-radius:8px;}
+  .rcpad{padding:8px 10px;gap:6px;min-width:158px;}
+  .rcgrid{gap:12px;padding:8px;}
+}
+/* 急停生效时整条接管面板变红，避免"以为没在急停"
+   ★ 2026-10-11 修复：原选择器挂在早已删除的 .console 容器上（死样式），
+     现改挂到实际存在的接管面板 #paneRc。 */
+#paneRc.estop .rcbar{background:rgba(248,81,73,.12);}
+#paneRc.estop .rcbar::after{
+  content:"⚠ 急停生效中";color:#ff9a94;font-weight:700;font-size:12px;
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- 侧边栏折叠后，用这条竖排标签把它叫回来 -->
+  <div class="sidepeek" id="sidePeek">操 作 面 板</div>
+
+  <!-- ============================================================
+       左侧：操作侧边栏（遥控操作 + 参数调校，内部独立滚动）
+       ============================================================ -->
+  <aside class="sidebar">
+
+    <div class="sidehead">
+      <span class="ttl">小车操作台</span>
+      <span class="sub">云台图传 · 遥控 · 调参</span>
+      <span class="spacer"></span>
+      <button class="btn tiny" id="btnSideFold" title="收起侧边栏，把整块画面让给主区">⟩ 收起</button>
+    </div>
+
+    <div class="conhead" style="border-bottom:1px solid var(--line)">
+      <div class="tabs" id="conTabs">
+        <button data-tab="rc" class="on">遥控操作</button>
+        <button data-tab="cfg">参数调校</button>
+      </div>
+    </div>
+
+    <div class="sidescroll">
+
+      <!-- 开火记录（两个标签页下都常驻） -->
+      <div class="shots collapsed" id="shots">
+        <div class="shots-head" id="shotsHead">
+          <span class="shots-caret">▾</span>
+          <span class="shots-title">开火记录</span>
+          <span class="ammo" id="ammo"></span>
+          <span class="spacer"></span>
+          <span class="meta" id="shotsMeta"></span>
+        </div>
+        <div class="shots-body" id="shotsBody">
+          <div class="shot-empty">本次运行尚未开火</div>
+        </div>
+      </div>
+
+      <!-- ================= 面板一：遥控操作 ================= -->
+      <div class="conbody on" id="paneRc">
+
+        <div class="rcbar">
+          <button class="btn primary" id="rcToggle">接管控制</button>
+          <span class="pill idle" id="rcPill">未接管</span>
+          <span class="meta" id="rcInfo">接管后自动循迹会暂停，控制权交给本面板</span>
+          <span class="spacer"></span>
+          <button class="btn danger" id="rcEstop">紧 急 停 止</button>
+        </div>
+
+        <div class="rcgrid">
+
+          <!-- ---------- 小车 ---------- -->
+          <div class="rcpad">
+            <div class="rcpad-t">小 车</div>
+            <div class="dpad">
+              <button class="dbtn u" data-car="fwd"   disabled>▲</button>
+              <button class="dbtn l" data-car="left"  disabled>◀</button>
+              <button class="dbtn c" data-car="brake" disabled>■</button>
+              <button class="dbtn r" data-car="right" disabled>▶</button>
+              <button class="dbtn d" data-car="back"  disabled>▼</button>
+            </div>
+            <div class="rchint">按住即走、松开即停<br>中心键 = 刹车</div>
+          </div>
+
+          <!-- ---------- 云台 ---------- -->
+          <div class="rcpad">
+            <div class="rcpad-t">云 台</div>
+            <div class="dpad">
+              <button class="dbtn u" data-gim="up"    disabled>▲</button>
+              <button class="dbtn l" data-gim="left"  disabled>◀</button>
+              <button class="dbtn c" data-gim="home"  disabled>⌂</button>
+              <button class="dbtn r" data-gim="right" disabled>▶</button>
+              <button class="dbtn d" data-gim="down"  disabled>▼</button>
+            </div>
+            <div class="rcrow">
+              <span>俯仰</span><b id="rcPitch">--</b>
+              <span>水平</span><b id="rcYaw">--</b>
+            </div>
+            <div class="rchint">中心键 = 回正<br>刻度中心 2047，约 11.4 刻度/度</div>
+          </div>
+
+          <!-- ---------- 射击 ---------- -->
+          <div class="rcpad">
+            <div class="rcpad-t">射 击</div>
+            <button class="firebtn" id="rcFire" disabled>开 火</button>
+            <div class="rcrow">已发射 <b id="rcShots">0</b> 发</div>
+            <div class="rchint" id="rcFireHint">接管后可开火，单发间隔 0.8s</div>
+          </div>
+
+          <!-- ---------- 裁判系统 ---------- -->
+          <div class="rcpad">
+            <div class="rcpad-t">裁判系统</div>
+            <div class="rcrow">弹药 <b id="refAmmo">--</b>
+              <span>硬件已射</span><b id="refShots">--</b></div>
+            <div class="rcrow"><span>敌HP</span><b id="refTHp">--</b>
+              <span>我HP</span><b id="refSHp">--</b>
+              <span>被击</span><b id="refHit">--</b></div>
+            <div class="rcrow">
+              <button class="btn" id="refReset" style="flex:1">重置射击次数</button>
+            </div>
+            <div class="rcrow" style="gap:4px">
+              <!-- ★ 刻意不给默认值：B5 5B 03 21 01 25 就是「开火」帧，
+                   预填的话误点一下就真打出去了（总共只有 10 发）。 -->
+              <input id="refHex" placeholder="B5 5B 03 21 01 25"
+                style="flex:1;min-width:0;background:#0e1520;color:#cfe3f5;border:1px solid #2a3a4d;border-radius:4px;padding:4px 6px;font-size:11px">
+              <button class="btn" id="refSend">下发</button>
+            </div>
+            <div class="rchint" id="refHint">等待裁判上报…</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ================= 面板二：参数调校 ================= -->
+      <div class="conbody" id="paneCfg">
+        <div class="congroups" id="cfgGroups"></div>
+      </div>
+
+    </div><!-- /sidescroll -->
+
+    <div class="sidefoot">
+      <span class="cfgtip" id="cfgTip"></span>
+      <span class="spacer"></span>
+      <button class="btn tiny" id="btnFold"   title="把 8 个分组全部收起，只看标题">折叠全部</button>
+      <button class="btn tiny" id="btnHint"   title="在每个参数下展开一行说明文字">说明</button>
+      <button class="btn tiny" id="btnReloadCfg">重新读取</button>
+    </div>
+
+  </aside>
+
+  <!-- 拖拽调宽把手 -->
+  <div class="resizer" id="resizer"></div>
+
+  <!-- ============================================================
+       右侧：主区（云台图传大窗口 + 底部信息卡片行）
+       ============================================================ -->
+  <main class="main">
+
+    <!-- 大窗口：图传画面 -->
+    <div class="viewwrap">
+
+      <!-- 云台图传 -->
+      <div class="cell on" id="cellVideo">
+        <div class="cellhead">
+          <span class="dot busy" id="dot"></span>
+          <span class="ttl">云台图传</span>
+          <span class="spacer"></span>
+          <span class="pill busy" id="statusPill">连接中…</span>
+          <div class="seg" id="segMode">
+            <button data-mode="ann" class="on">标注</button>
+            <button data-mode="raw">原始</button>
+          </div>
+          <button class="btn primary" id="btnReconnect">刷新 / 重连</button>
+        </div>
+        <div class="cellbody">
+          <div class="stage" id="stage">
+            <img id="video" alt="云台摄像头画面">
+            <div class="overlay busy" id="overlay">
+              <div class="ov-icon" id="ovIcon">◌</div>
+              <div class="ov-text" id="ovText">连接中…</div>
+              <div class="ov-sub"  id="ovSub">正在建立视频流</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /viewwrap -->
+
+    <!-- 底部信息卡片行：识别状态 / 视频流 / 快捷键 -->
+    <div class="cardgrid">
+
+      <section class="card">
+        <div class="cardhead">识别 / 云台<span class="sub">来自 /api/status</span></div>
+        <div class="cardbody">
+          <span>目标 <span class="tag idle" id="tagCls">--</span></span>
+          <span id="detInfo">偏移 <b>--</b> · 框 <b>--</b> · 置信 <b>--</b></span>
+          <span>云台 <span class="tag idle" id="tagAim">--</span></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="cardhead">视频流<span class="sub">/stream</span></div>
+        <div class="cardbody">
+          <span>话题 <b id="topicLabel">--</b></span>
+          <span>帧率 <b id="metaFps">-- fps</b></span>
+          <span>分辨率 <b id="metaRes">--</b></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="cardhead">快捷键<span class="sub">未接管时仅 R / M 生效</span></div>
+        <div class="cardbody">
+          <div class="krow"><span class="kk">画面</span>
+            <span><kbd>R</kbd>重连</span><span><kbd>M</kbd>标注 / 原始</span></div>
+          <div class="krow"><span class="kk">小车</span>
+            <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>行驶</span>
+            <span><kbd>空格</kbd>开火</span></div>
+          <div class="krow"><span class="kk">云台</span>
+            <span><kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd>俯仰 / 水平</span></div>
+        </div>
+      </section>
+
+    </div><!-- /cardgrid -->
+
+  </main>
+
+</div>
+
+<script>
+/* ============================================================
+   运行时参数（由服务端替换）
+   ============================================================ */
+const POPUP      = __POPUP__;
+const STREAM_URL = '/stream';
+const STATUS_URL = '/api/status';
+const CONFIG_URL = '/api/config';
+
+const $ = id => document.getElementById(id);
+const fmt = n => (n >= 0 ? '+' : '') + (n | 0);
+
+const video   = $('video'),   overlay  = $('overlay');
+const ovIcon  = $('ovIcon'),  ovText   = $('ovText'),  ovSub = $('ovSub');
+const dot     = $('dot'),     pill     = $('statusPill');
+const metaFps = $('metaFps'), metaRes  = $('metaRes');
+const tagCls  = $('tagCls'),  tagAim   = $('tagAim'),  detInfo = $('detInfo');
+const topicLabel = $('topicLabel');
+const shotsBox = $('shots'), shotsHead = $('shotsHead');
+const shotsBody = $('shotsBody'), ammo = $('ammo'), shotsMeta = $('shotsMeta');
+
+/* ============================================================
+   状态机：connecting / live / nosignal / failed
+   ============================================================ */
+const STATE = {
+  connecting: { dot:'busy', cls:'busy', text:'连接中…',
+                icon:'◌',    ov:'连接中…',      sub:'正在建立视频流…', show:true },
+  live:       { dot:'ok',   cls:'ok',   text:'已连接',
+                icon:'',     ov:'',            sub:'',                show:false },
+  nosignal:   { dot:'warn', cls:'warn', text:'无信号',
+                icon:'⚠',    ov:'无信号',       sub:'图像话题没有数据，检查相机节点与 /image_raw', show:true },
+  failed:     { dot:'err',  cls:'err',  text:'连接失败',
+                icon:'✕',    ov:'连接失败',     sub:'无法连接视频流，确认服务在运行且网络可达',    show:true },
+};
+let curState = null;
+
+function setState(name, subOverride){
+  if (curState === name && !subOverride) return;
+  curState = name;
+  const s = STATE[name];
+  dot.className   = 'dot ' + s.dot;
+  pill.className  = 'pill ' + s.cls;
+  pill.textContent = s.text;
+  overlay.className = 'overlay ' + s.cls + (s.show ? '' : ' hide');
+  ovIcon.textContent = s.icon;
+  ovText.textContent = s.ov;
+  ovSub.textContent  = subOverride || s.sub;
+}
+
+/* ============================================================
+   视频流
+   ============================================================ */
+let mode = 'ann';
+let loaded = false;
+let busyTimer = null;
+
+function reconnect(){
+  setState('connecting');
+  const btn = $('btnReconnect');
+  btn.classList.add('spin');
+  loaded = false;
+  // 加时间戳绕开浏览器缓存，强制重建连接
+  video.src = STREAM_URL + '?mode=' + mode + '&t=' + Date.now();
+  clearTimeout(busyTimer);
+  busyTimer = setTimeout(() => {
+    btn.classList.remove('spin');
+    if (!loaded) setState('failed', '视频流在 8 秒内没有响应，检查服务是否运行');
+  }, 8000);
+}
+
+video.addEventListener('load', () => {
+  loaded = true; clearTimeout(busyTimer);
+  $('btnReconnect').classList.remove('spin');
+});
+video.addEventListener('error', () => {
+  loaded = false; clearTimeout(busyTimer);
+  $('btnReconnect').classList.remove('spin');
+  setState('failed', '视频流中断，可点「刷新 / 重连」重试');
+});
+
+$('segMode').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  mode = b.dataset.mode;
+  [...$('segMode').children].forEach(x => x.classList.toggle('on', x === b));
+  reconnect();
+});
+
+/* ★★★ 尽早拉流（2026-10-11 加固）★★★
+   reconnect() 紧跟视频区监听注册后就调用，而不是放在脚本最末尾 ——
+   这样后面任何一段 UI 绑定/收尾代码抛错（例如引用了不存在的容器），
+   都不会再把图传一起带下线、页面卡在「连接中…」。 */
+reconnect();
+
+/* ============================================================
+   状态轮询 —— 判断"无信号"和"卡死"
+   ============================================================ */
+let lastFrames = -1;
+let framesAdvanceAt = Date.now();
+
+async function poll(){
+  let st;
+  try{
+    const r = await fetch(STATUS_URL, {cache:'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    st = await r.json();
+  }catch(err){
+    if (curState !== 'connecting') setState('failed', '状态接口无响应：' + err.message);
+    return;
+  }
+
+  topicLabel.textContent = st.topic || '';
+  metaFps.textContent = (st.fps || 0).toFixed(1) + ' fps';
+  metaRes.textContent = st.width ? (st.width + '×' + st.height) : '--';
+
+  if (st.frames !== lastFrames){
+    lastFrames = st.frames;
+    framesAdvanceAt = Date.now();
+  }
+
+  if (!st.image_ok){
+    setState('nosignal',
+      st.frames ? '已收到 ' + st.frames + ' 帧后中断，相机节点可能已退出'
+                : '图像话题 ' + st.topic + ' 上没有数据，检查相机节点');
+  } else if (loaded && Date.now() - framesAdvanceAt > 4000){
+    setState('failed', '图像帧已停止更新，服务可能卡住');
+  } else if (loaded){
+    setState('live');
+  }
+
+  const d = st.det || {};
+  tagCls.className = 'tag ' + ({1:'blue', 2:'red'}[d.cls] || 'idle');
+  tagCls.textContent = d.name || '--';
+  detInfo.innerHTML =
+      '偏移 <b>' + fmt(d.dx) + ',' + fmt(d.dy) + '</b>'
+    + ' · 框 <b>' + (d.bw||0) + '×' + (d.bh||0) + '</b>'
+    + ' · 置信 <b>' + (d.kconf||0) + '%</b>';
+
+  const aimMap = {0:'idle', 1:'scan', 2:'track'};
+  tagAim.className = 'tag ' + (aimMap[st.aim_status] || 'idle');
+  tagAim.textContent = st.aim_name || '--';
+
+  renderShots(st);
+}
+
+/* ============================================================
+   开火记录
+   ------------------------------------------------------------
+   把"打了几发"和"当时锁的是什么、瞄得准不准"绑在一起看 ——
+   单看弹药数只能知道数量，配上类别/偏移/框宽才能判断
+   "这一发是打蓝靶打的，还是瞄偏了打的"。
+   ============================================================ */
+let lastShotCount = -1;
+
+function renderShots(st){
+  const fired = st.shots || 0;
+  const max   = st.max_shots || 0;
+
+  let html = '';
+  if (max > 0){
+    for (let i = 0; i < max; i++){
+      html += '<span class="pip' + (i < fired ? ' used' : '') + '"></span>';
+    }
+    html += '<span class="cnt">' + fired + '/' + max + ' 发</span>';
+  } else {
+    html += '<span class="cnt">已打 ' + fired + ' 发（不限）</span>';
+  }
+  ammo.innerHTML = html;
+
+  if (fired === lastShotCount) return;
+  lastShotCount = fired;
+
+  const rows = st.shot_log || [];
+  shotsMeta.textContent = rows.length ? (rows.length + ' 条') : '';
+  if (!rows.length){
+    shotsBody.innerHTML = '<div class="shot-empty">本次运行尚未开火</div>';
+    return;
+  }
+  shotsBody.innerHTML = rows.slice().reverse().map(r => {
+    const cls = r.cls === 1 ? 'blue' : (r.cls === 2 ? 'red' : '');
+    return '<div class="shot-row">'
+      + '<span class="n">#' + r.n + '</span>'
+      + '<span class="t">' + (r.wall || '') + '</span>'
+      + '<span class="gap">' + (r.gap != null ? '+' + r.gap + 's' : '--') + '</span>'
+      + '<span class="cls ' + cls + '">' + (r.cls_name || '?') + '</span>'
+      + '<span>偏移 ' + fmt(r.dx) + ',' + fmt(r.dy) + '</span>'
+      + '<span>框 ' + (r.bw || 0) + '</span>'
+      + '<span>置信 ' + (r.conf || 0) + '%</span>'
+      + '</div>';
+  }).join('');
+  shotsBody.scrollTop = 0;
+}
+
+shotsHead.addEventListener('click', () => shotsBox.classList.toggle('collapsed'));
+
+/* ============================================================
+   ★★ 参数控制台 ★★
+   ------------------------------------------------------------
+   数据全部来自 config/robot.yaml（服务端 /api/config 读取）。
+   改完 -> 写回 YAML -> 自动重启受影响的节点。
+
+   ★ 为什么不走 ros2 param set 热改：
+     节点只在构造函数里 get_parameter 一次，之后不会重新读取。
+     所以"写 YAML + 重启该节点"是唯一可靠且行为可预期的路径。
+   ============================================================ */
+const RESTART_CN = { gimbal:'云台', vision:'视觉', path:'循迹', camera:'相机' };
+const CONFIG_PATH = 'config/robot.yaml';
+
+let CFD = null;                     // /api/config 的返回
+const DIRTY = {};                   // {groupId: {key: 值}}
+
+async function loadConfig(showTip){
+  const tip = $('cfgTip');
+  tip.className = 'cfgtip';
+  tip.textContent = '读取中…';
+  try{
+    const r = await fetch(CONFIG_URL, {cache:'no-store'});
+    CFD = await r.json();
+  }catch(err){
+    tip.className = 'cfgtip err';
+    tip.textContent = '读取失败：' + err.message;
+    return;
+  }
+  if (!CFD || !CFD.ok){
+    tip.className = 'cfgtip err';
+    tip.textContent = (CFD && CFD.error) || '配置不可用';
+    $('cfgGroups').innerHTML =
+      '<div class="shot-empty">读不到配置中心：' +
+      ((CFD && CFD.error) || '未知原因') + '</div>';
+    return;
+  }
+  tip.className = 'cfgtip ok';
+  let n = 0, miss = 0;
+  CFD.groups.forEach(g => g.items.forEach(it => { n++; if (it.missing) miss++; }));
+  tip.textContent = n + ' 个参数已载入' + (miss ? '（' + miss + ' 项配置里缺失）' : '');
+  if (showTip) setTimeout(() => { tip.textContent = n + ' 个参数已载入'; }, 2500);
+  renderConfig();
+}
+
+function curVal(g, it){
+  const gd = DIRTY[g.id];
+  return (gd && (it.key in gd)) ? gd[it.key] : it.value;
+}
+
+function setDirty(g, it, val){
+  const gd = DIRTY[g.id] || (DIRTY[g.id] = {});
+  if (String(val) === String(it.value)) delete gd[it.key];
+  else gd[it.key] = val;
+  if (!Object.keys(gd).length) delete DIRTY[g.id];
+  refreshGroup(g.id);
+}
+
+function refreshGroup(gid){
+  const card = document.querySelector('.grp[data-g="' + gid + '"]');
+  if (!card) return;
+  const n = DIRTY[gid] ? Object.keys(DIRTY[gid]).length : 0;
+  card.classList.toggle('dirty', n > 0);
+  const btn = card.querySelector('.apply');
+  if (btn){ btn.disabled = (n === 0); btn.textContent = n ? ('应用改动 (' + n + ')') : '应用'; }
+}
+
+function itemHTML(g, it){
+  const id = 'f_' + g.id + '_' + it.key;
+  const v  = curVal(g, it);
+  const u  = it.unit ? '<span class="u">' + it.unit + '</span>' : '';
+  let ctl = '';
+
+  if (it.type === 'bool'){
+    ctl = '<label class="sw"><input type="checkbox" id="' + id + '"' +
+          (v ? ' checked' : '') + '><span></span></label>';
+  } else if (it.type === 'num'){
+    ctl = '<input type="range" id="' + id + '_r" min="' + it.min + '" max="' + it.max +
+          '" step="' + it.step + '" value="' + v + '">' +
+          '<input type="number" id="' + id + '" min="' + it.min + '" max="' + it.max +
+          '" step="' + it.step + '" value="' + v + '">';
+  } else if (it.type === 'list'){
+    ctl = '<textarea id="' + id + '" rows="4" spellcheck="false">' +
+          ((v || []).join(' ')) + '</textarea>';
+  } else if (it.choices){
+    ctl = '<select id="' + id + '">' + it.choices.map(c =>
+            '<option' + (c === v ? ' selected' : '') + '>' + c + '</option>').join('') +
+          '</select>';
+  } else {
+    ctl = '<input type="text" id="' + id + '" value="' + (v == null ? '' : v) + '">';
+  }
+
+  // 单行布局：标签 | 单位 | 控件 | （说明，按需展开）
+  // 标签带 title 提示，鼠标悬停就能看到说明 —— 即便"说明"开关没打开。
+  const wide = (it.type === 'list');
+  return '<div class="it' + (it.missing ? ' fault' : '') + (wide ? ' wide' : '')
+       + '" data-key="' + it.key + '">'
+       +   '<span class="k" title="' + (it.hint || it.label) + '">' + it.label + '</span>'
+       +   u
+       +   (it.missing ? '<span class="u" style="color:var(--err)">配置里缺失</span>' : '')
+       +   ctl
+       +   (it.hint ? '<span class="hint">' + it.hint + '</span>' : '')
+       + '</div>';
+}
+
+/* 折叠状态存 localStorage：下次打开还是你摆好的样子 */
+const FOLD_KEY = 'dzrobot_fold_v1';
+function loadFold(){
+  try{ return JSON.parse(localStorage.getItem(FOLD_KEY) || '{}') || {}; }
+  catch(e){ return {}; }
+}
+function saveFold(o){
+  try{ localStorage.setItem(FOLD_KEY, JSON.stringify(o)); }catch(e){}
+}
+
+function grpHTML(g){
+  const badge = g.restart
+      ? '<span class="rbadge' + (g.restart === 'path' ? ' warn' : '') + '">重启 '
+        + (RESTART_CN[g.restart] || g.restart) + '</span>'
+      : '';
+  const note = g.note ? '<div class="gnote">' + g.note + '</div>' : '';
+  const folded = loadFold()[g.id] ? ' collapsed' : '';
+  return '<div class="grp' + folded + '" data-g="' + g.id + '">'
+       +   '<div class="grphead" title="点标题栏折叠 / 展开"><span class="caret">▾</span>'
+       +     '<span class="gt">' + g.name + '</span>' + badge
+       +     '<span class="spacer"></span>'
+       +     '<button class="btn tiny apply" disabled>应用</button></div>'
+       +   note
+       +   '<div class="grpitems">' + g.items.map(it => itemHTML(g, it)).join('') + '</div>'
+       +   '<div class="grfoot"><div class="applymsg"></div></div>'
+       + '</div>';
+}
+
+function renderConfig(){
+  const box = $('cfgGroups');
+  box.innerHTML = CFD.groups.map(grpHTML).join('');
+
+  // ---- 事件绑定 ----
+  box.querySelectorAll('.grp').forEach(card => {
+    const g = CFD.groups.find(x => x.id === card.dataset.g);
+    card.querySelectorAll('.it').forEach(row => {
+      const it = g.items.find(x => x.key === row.dataset.key);
+      const id = 'f_' + g.id + '_' + it.key;
+      const main = $('f_' + g.id + '_' + it.key);
+      const rng  = $('f_' + g.id + '_' + it.key + '_r');
+
+      if (it.type === 'bool'){
+        main.addEventListener('change', () => setDirty(g, it, main.checked));
+      } else if (it.type === 'num'){
+        rng.addEventListener('input', () => {
+          main.value = rng.value;
+          setDirty(g, it, parseFloat(rng.value));
+        });
+        main.addEventListener('input', () => {
+          const x = parseFloat(main.value);
+          if (!isNaN(x)){ rng.value = Math.min(it.max, Math.max(it.min, x)); setDirty(g, it, x); }
+        });
+      } else if (it.type === 'list'){
+        main.addEventListener('input', () => {
+          setDirty(g, it, main.value.trim().split(/[\s,]+/).filter(Boolean));
+        });
+      } else {
+        main.addEventListener('input', () => setDirty(g, it, main.value));
+        main.addEventListener('change', () => setDirty(g, it, main.value));
+      }
+    });
+
+    // 点标题栏折叠/展开（点里面的「应用」按钮时不折叠）
+    card.querySelector('.grphead').addEventListener('click', e => {
+      if (e.target.closest('.apply')) return;
+      const f = loadFold();
+      const fold = !card.classList.contains('collapsed');
+      card.classList.toggle('collapsed', fold);
+      f[g.id] = fold;
+      saveFold(f);
+      syncFoldBtn();
+    });
+
+    card.querySelector('.apply').addEventListener('click', () => applyGroup(g, card));
+  });
+
+  Object.keys(DIRTY).forEach(refreshGroup);
+  updateCfgTip();
+  syncFoldBtn();
+}
+
+/* 「折叠全部 / 展开全部」按钮文字随状态切换 */
+function syncFoldBtn(){
+  const cards = [...document.querySelectorAll('.grp')];
+  if (!cards.length) return;
+  const allFolded = cards.every(c => c.classList.contains('collapsed'));
+  $('btnFold').textContent = allFolded ? '展开全部' : '折叠全部';
+}
+
+$('btnFold').addEventListener('click', () => {
+  const cards = [...document.querySelectorAll('.grp')];
+  if (!cards.length) return;
+  const allFolded = cards.every(c => c.classList.contains('collapsed'));
+  const want = !allFolded;
+  const f = loadFold();
+  cards.forEach(c => {
+    c.classList.toggle('collapsed', want);
+    const gid = c.dataset.g;
+    if (gid) f[gid] = want;
+  });
+  saveFold(f);
+  syncFoldBtn();
+});
+
+/* 「说明」开关：在每个参数下展开一行提示 */
+const HINT_KEY = 'dzrobot_hint_v1';
+$('btnHint').addEventListener('click', () => {
+  const box = $('cfgGroups');
+  const on = !box.classList.contains('showhint');
+  box.classList.toggle('showhint', on);
+  $('btnHint').classList.toggle('primary', on);
+  try{ localStorage.setItem(HINT_KEY, on ? '1' : '0'); }catch(e){}
+});
+
+function updateCfgTip(){
+  const n = Object.values(DIRTY).reduce((a, m) => a + Object.keys(m).length, 0);
+  const tip = $('cfgTip');
+  if (n > 0){
+    tip.className = 'cfgtip warn';
+    tip.textContent = n + ' 项待应用';
+  } else {
+    tip.className = 'cfgtip ok';
+    tip.textContent = '配置与 ' + CONFIG_PATH + ' 一致';
+  }
+}
+
+async function applyGroup(g, card){
+  const changes = {};
+  changes[g.section] = DIRTY[g.id];
+  const btn = card.querySelector('.apply');
+  const msg = card.querySelector('.applymsg');
+  btn.classList.add('spin');
+  msg.className = 'applymsg';
+  msg.textContent = '写入中…' + (g.restart ? '（随后重启' + (RESTART_CN[g.restart]||g.restart) + '，约 5 秒）' : '');
+
+  let res;
+  try{
+    const r = await fetch(CONFIG_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({changes}),
+    });
+    res = await r.json();
+  }catch(err){
+    btn.classList.remove('spin');
+    msg.className = 'applymsg err';
+    msg.textContent = '请求失败：' + err.message;
+    return;
+  }
+  btn.classList.remove('spin');
+
+  if (!res.ok){
+    msg.className = 'applymsg err';
+    msg.textContent = (res.errors || [res.error || '未知错误']).join('\n')
+                    + (res.hint ? '\n' + res.hint : '');
+    return;
+  }
+
+  msg.className = 'applymsg ok';
+  let lines = ['已写入：' + res.written.join('；')];
+  (res.restarts || []).forEach(rr => {
+    lines.push((rr.ok ? '✅ ' : '❌ ') + '重启 ' + (RESTART_CN[rr.node] || rr.node)
+               + ' ' + (rr.ok ? '成功' : '失败'));
+  });
+  msg.textContent = lines.join('\n');
+
+  delete DIRTY[g.id];
+  if (res.snapshot && res.snapshot.ok){
+    CFD = res.snapshot;
+    renderConfig();
+  } else {
+    await loadConfig();
+  }
+}
+
+$('btnReloadCfg').addEventListener('click', () => {
+  Object.keys(DIRTY).forEach(k => delete DIRTY[k]);
+  loadConfig(true);
+});
+
+/* ============================================================
+   ★★ 遥控器 ★★
+   ------------------------------------------------------------
+   安全设计（这是后端 rc_control.py 那套约定的前端一半）：
+
+     ① 按住才动   pointerdown 开始、pointerup / pointerleave /
+                  pointercancel 立刻松开 —— 不存在"点一下车就冲出去"。
+     ② 静默也发指令  即使所有键都松开，仍以 10Hz 持续发零速度：
+                  既让下位机保持刹车，也让后端的接管看门狗知道"人还在"，
+                  不会被判定为失联而擅自释放接管。
+     ③ 失焦即停   页面失焦 / 切到后台 / 关闭 -> 立刻全线停车（防人走开）。
+     ④ 先接管再控制  除「紧急停止」外，所有按键在未接管时都是置灰的。
+   ============================================================ */
+const RC_URL = '/api/rc';
+const RC_HZ  = 10;              // 指令下发频率(Hz)
+const RC_GIM_STEP = 90;         // 云台每拍步进(刻度)；90×10 = 900 刻度/s ≈ 79°/s
+const RC_STEER = 28;            // 满舵角度(度)
+const RC_SPEED = 0.15;          // 遥控行进速度(m/s)：固定值，页面不再提供速度调节
+
+// ★转向符号：path_executor 里 steer_deg > 0 = 左转（下位机 TargetAngle > 60）。
+//   若实车实测发现左右反了，把这里改成 -1 即可，不需要动别处。
+const RC_STEER_LEFT_SIGN = +1;
+
+let rcOn = false, rcEstop = false;
+const carHeld = {fwd:0, back:0, left:0, right:0};
+const gimHeld = {up:0, down:0, left:0, right:0};
+
+async function rcApi(path, body, method){
+  try{
+    const r = await fetch(RC_URL + path, {
+      method: method || 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: method === 'GET' ? undefined : JSON.stringify(body || {}),
+    });
+    return await r.json();
+  }catch(e){ return {ok:false, error: String(e)}; }
+}
+
+/* ---------- 界面状态 ---------- */
+function applyRcMode(on, estop){
+  rcOn = !!on;
+  if (estop !== undefined) rcEstop = !!estop;
+
+  const pill = $('rcPill');
+  if (rcEstop){
+    pill.className = 'pill err';   pill.textContent = '急停中';
+  } else if (rcOn){
+    pill.className = 'pill ok';    pill.textContent = '已接管';
+  } else {
+    pill.className = 'pill idle';  pill.textContent = '未接管';
+  }
+
+  $('rcToggle').textContent = rcOn ? '释放控制' : '接管控制';
+  $('rcToggle').className   = 'btn ' + (rcOn ? 'danger' : 'primary');
+
+  const usable = rcOn && !rcEstop;
+  document.querySelectorAll('.dbtn').forEach(b => { b.disabled = !usable; });
+  $('rcFire').disabled = !usable;
+
+  /* ★ 2026-10-11 修复（display-fix 定位的「连接中…」卡死根因）：
+       原代码写的是 document.querySelector('.console')，而 .console 容器
+       早在上一轮重构里就被删掉了 —— 对 null 取 .classList 会在启动时同步
+       抛 TypeError，把其后整段尾部脚本（含 reconnect()）全部杀死，
+       浏览器因此永远不会发起 GET /stream。
+       现挂到实际存在的接管面板 #paneRc，并做空值兜底。 */
+  const rcPane = $('paneRc');
+  if (rcPane) rcPane.classList.toggle('estop', rcEstop);
+
+  if (!usable) releaseAllKeys();
+}
+
+function releaseAllKeys(){
+  Object.keys(carHeld).forEach(k => carHeld[k] = 0);
+  Object.keys(gimHeld).forEach(k => gimHeld[k] = 0);
+  document.querySelectorAll('.dbtn.active').forEach(b => b.classList.remove('active'));
+}
+
+/* ---------- 按住即动 ---------- */
+function bindHold(btn, held, key, onTap){
+  const press = e => {
+    e.preventDefault();
+    if (btn.disabled) return;
+    if (onTap && !held){ onTap(); return; }   // 中心键：单击触发，不持续
+    btn.classList.add('active');
+    held[key] = 1;
+    if (btn.setPointerCapture && e.pointerId !== undefined){
+      try{ btn.setPointerCapture(e.pointerId); }catch(_){}
+    }
+  };
+  const release = () => {
+    if (onTap) return;
+    btn.classList.remove('active');
+    held[key] = 0;
+  };
+  btn.addEventListener('pointerdown', press);
+  btn.addEventListener('pointerup', release);
+  btn.addEventListener('pointerleave', release);
+  btn.addEventListener('pointercancel', release);
+  // 兜底：鼠标在按钮外松开（拖出去再放手）也要停
+  btn.addEventListener('lostpointercapture', release);
+}
+
+document.querySelectorAll('[data-car]').forEach(btn => {
+  const k = btn.dataset.car;
+  if (k === 'brake'){
+    bindHold(btn, carHeld, '', () => rcApi('/drive', {v:0, w:0}));
+  } else {
+    bindHold(btn, carHeld, k);
+  }
+});
+
+document.querySelectorAll('[data-gim]').forEach(btn => {
+  const k = btn.dataset.gim;
+  if (k === 'home'){
+    bindHold(btn, gimHeld, '', () => rcApi('/gimbal', {home:true}));
+  } else {
+    bindHold(btn, gimHeld, k);
+  }
+});
+
+/* ---------- 指令下发循环 ---------- */
+async function rcTick(){
+  if (!rcOn || rcEstop) return;
+  const spd = RC_SPEED;
+
+  // 车：▲▼ 定速度方向，◀▶ 定转向
+  const v = (carHeld.fwd - carHeld.back) * spd;
+  let w = 0;
+  if (carHeld.left)  w += RC_STEER * RC_STEER_LEFT_SIGN;
+  if (carHeld.right) w -= RC_STEER * RC_STEER_LEFT_SIGN;
+  await rcApi('/drive', {v, w});        // 全松时 v=w=0：保持刹车 + 喂看门狗
+
+  // 云台：增量步进（方向键按住时）
+  const dp = (gimHeld.up   - gimHeld.down)  * RC_GIM_STEP;
+  const dy = (gimHeld.right - gimHeld.left) * RC_GIM_STEP;
+  if (dp || dy) await rcApi('/gimbal', {dp, dy});
+}
+setInterval(rcTick, Math.round(1000 / RC_HZ));
+
+/* ---------- 状态回读 ---------- */
+async function rcPoll(){
+  const d = await rcApi('', null, 'GET');
+  if (!d || !d.ok) return;
+  if (d.override !== rcOn || d.estopped !== rcEstop){
+    applyRcMode(d.override, d.estopped);
+  }
+  $('rcPitch').textContent = d.pitch;
+  $('rcYaw').textContent   = d.yaw;
+  $('rcShots').textContent = d.shots;
+}
+setInterval(rcPoll, 700);
+rcPoll();
+
+/* ---------- 裁判系统状态与指令 ---------- */
+async function refPoll(){
+  try{
+    const r = await (await fetch('/api/referee')).json();
+    $('refAmmo').textContent  = (r.ammo    == null ? '--' : r.ammo);
+    $('refShots').textContent = (r.shots   == null ? '--' : r.shots);
+    $('refTHp').textContent   = (r.targethp== null ? '--' : r.targethp);
+    $('refSHp').textContent   = (r.self_hp == null ? '--' : r.self_hp);
+    $('refHit').textContent   = (r.hit     == null ? '--'
+                                : (r.hit === 0x10 ? '未' : '0x' + r.hit.toString(16)));
+    const hint = $('refHint');
+    if (r.stale){
+      hint.textContent = '⚠ 超过 3s 未收到上报 —— 裁判系统多半未开启';
+      hint.style.color = '#f0a35e';
+    } else {
+      hint.textContent = '裁判系统在线';
+      hint.style.color = '#7ee08a';
+    }
+  }catch(e){ /* 服务端未就绪，忽略 */ }
+}
+setInterval(refPoll, 1000);
+refPoll();
+
+$('refReset').addEventListener('click', async () => {
+  const d = await rcApi('/reset_shots');
+  $('refHint').textContent = (d && d.ok)
+    ? '已重置：shots_fired_=0，弹药恢复满额'
+    : ('重置失败：' + ((d && d.error) || '需先点「接管」'));
+});
+
+$('refSend').addEventListener('click', async () => {
+  const hex = $('refHex').value.trim();
+  const d = await rcApi('/referee', {hex: hex});
+  $('refHint').textContent = (d && d.ok)
+    ? ('已下发: ' + (d.bytes || []).map(b => ('0' + b.toString(16).toUpperCase()).slice(-2)).join(' '))
+    : ('下发失败：' + ((d && d.error) || '未知'));
+});
+
+/* ---------- 顶栏按钮 ---------- */
+$('rcToggle').addEventListener('click', async () => {
+  const want = !rcOn;
+  const d = await rcApi('/takeover', {on: want});
+  applyRcMode(d.override, d.estopped);
+  $('rcInfo').textContent = want
+    ? '已接管：自动循迹与云台自动下发已暂停'
+    : '未接管：自动循迹正常运行';
+});
+
+$('rcEstop').addEventListener('click', async () => {
+  releaseAllKeys();
+  const d = await rcApi('/estop');
+  applyRcMode(true, true);
+  $('rcInfo').textContent = '⚠ 急停生效：一切已停下，需点「释放控制」才恢复';
+});
+
+$('rcFire').addEventListener('click', async () => {
+  const d = await rcApi('/shoot');
+  $('rcFireHint').textContent = d.ok
+    ? ('已开火（本会话第 ' + d.shots + ' 发）')
+    : (d.error || '开火失败');
+});
+
+/* ---------- 失焦 / 切后台：立刻全线停车 ---------- */
+function panicStop(){
+  releaseAllKeys();
+  if (rcOn && !rcEstop) rcApi('/drive', {v:0, w:0});
+}
+window.addEventListener('blur', panicStop);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) panicStop();
+});
+
+/* ---------- 键盘遥控 ---------- */
+window.addEventListener('keydown', e => {
+  const t = e.target.tagName;
+  if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT') return;
+  if (!rcOn || rcEstop) return;
+  const k = e.key.toLowerCase();
+  const map = {w:'fwd', s:'back', a:'left', d:'right',
+               i:'up',   k:'down', j:'gimleft', l:'gimright'};
+  if (map[k]){ e.preventDefault(); }
+  if (['w','s','a','d'].includes(k)) carHeld[map[k]] = 1;
+  else if (['i','k'].includes(k))    gimHeld[map[k] === 'up' ? 'up' : 'down'] = 1;
+  else if (['j','l'].includes(k))    gimHeld[map[k] === 'gimleft' ? 'left' : 'right'] = 1;
+  else if (k === ' ') { e.preventDefault(); $('rcFire').click(); }
+});
+window.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if (['w','s','a','d'].includes(k)) carHeld[{w:'fwd',s:'back',a:'left',d:'right'}[k]] = 0;
+  else if (['i','k'].includes(k))    gimHeld[{i:'up',k:'down'}[k]] = 0;
+  else if (['j','l'].includes(k))    gimHeld[{j:'left',l:'right'}[k]] = 0;
+});
+
+/* ---------- 标签页切换 ---------- */
+// 只在「参数调校」页出现的控件
+const CFG_ONLY = ['btnReloadCfg', 'btnFold', 'btnHint'];
+function showCfgControls(on){
+  CFG_ONLY.forEach(id => { $(id).style.display = on ? '' : 'none'; });
+}
+
+function selectTab(name){
+  const btn = [...$('conTabs').children].find(b => b.dataset.tab === name);
+  if (!btn) return;
+  [...$('conTabs').children].forEach(x => x.classList.toggle('on', x === btn));
+  const cfg = (name === 'cfg');
+  $('paneRc').classList.toggle('on',  !cfg);
+  $('paneCfg').classList.toggle('on', cfg);
+  showCfgControls(cfg);
+}
+
+$('conTabs').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  selectTab(b.dataset.tab);
+  try{ history.replaceState(null, '', '#' + b.dataset.tab); }catch(e){}
+});
+
+// 支持 #cfg / #rc 直达（书签、分享链接、无头截图都靠它）
+selectTab((location.hash || '').replace('#', '') === 'cfg' ? 'cfg' : 'rc');
+
+/* 恢复上次的「说明」开关状态 */
+try{
+  if (localStorage.getItem(HINT_KEY) === '1'){
+    $('cfgGroups').classList.add('showhint');
+    $('btnHint').classList.add('primary');
+  }
+}catch(e){}
+
+/* ---------- 侧边栏：折叠 / 展开 + 拖拽调宽 ---------- */
+const appEl = document.querySelector('.app');
+const SIDE_KEY = 'dzrobot_side_v1';
+function loadSide(){
+  try{ return JSON.parse(localStorage.getItem(SIDE_KEY) || '{}') || {}; }
+  catch(e){ return {}; }
+}
+function saveSide(o){ try{ localStorage.setItem(SIDE_KEY, JSON.stringify(o)); }catch(e){} }
+
+function setSide(on){
+  appEl.classList.toggle('side-collapsed', on);
+  $('btnSideFold').textContent = on ? '《 展开' : '》 收起';
+  const s = loadSide(); s.collapsed = on; saveSide(s);
+}
+$('btnSideFold').addEventListener('click', () => setSide(!appEl.classList.contains('side-collapsed')));
+$('sidePeek').addEventListener('click', () => setSide(false));
+
+(function(){
+  const rz = $('resizer');
+  let dragging = false;
+  const curW = () => parseInt(getComputedStyle(document.documentElement)
+                        .getPropertyValue('--side-w')) || 392;
+  rz.addEventListener('pointerdown', e => {
+    dragging = true; rz.classList.add('dragging');
+    try{ rz.setPointerCapture(e.pointerId); }catch(err){}
+  });
+  rz.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const w = Math.min(620, Math.max(300, e.clientX));
+    document.documentElement.style.setProperty('--side-w', w + 'px');
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false; rz.classList.remove('dragging');
+    const s = loadSide(); s.w = curW(); saveSide(s);
+  };
+  rz.addEventListener('pointerup', end);
+  rz.addEventListener('pointercancel', end);
+})();
+
+function applySide(){
+  const s = loadSide();
+  const w = Math.min(620, Math.max(300, s.w || 392));
+  document.documentElement.style.setProperty('--side-w', w + 'px');
+  setSide(!!s.collapsed);
+}
+
+applyRcMode(false, false);
+
+/* ============================================================
+   按钮 / 快捷键
+   ============================================================ */
+$('btnReconnect').addEventListener('click', reconnect);
+
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'
+      || e.target.tagName === 'SELECT') return;
+  const k = e.key.toLowerCase();
+  if (k === 'r') reconnect();
+  if (k === 'm') $('segMode').querySelector(mode === 'ann' ? '[data-mode="raw"]' : '[data-mode="ann"]').click();
+  if (k === 'escape' && POPUP) window.close();
+});
+
+/* ============================================================
+   启动（收尾项逐段 try/catch：任何一段挂掉都不能再连坐图传，
+   reconnect() 已提前到视频区注册完监听后立即调用）
+   ============================================================ */
+try{ applySide(); }catch(e){ console.warn('[ui] applySide:', e); }
+poll();
+setInterval(poll, 800);
+try{ loadConfig(); }catch(e){ console.warn('[ui] loadConfig:', e); }
+</script>
+</body>
+</html>

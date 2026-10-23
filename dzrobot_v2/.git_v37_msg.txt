@@ -1,0 +1,13 @@
+v3.7_体检存档:修红工程全绿入档(7红清零+sim压测/无人机协同/t6拖拽)+发车档基线固化
+
+- 修红工程收口:known_reds 台账7条+补登5.6全部修复,5套独立复跑全绿
+  (test_sim 113/113, test_sim_guard 109/109, test_deploy 88/88,
+   test_corner_cut 34/34, test_calib_backfill 101/101)
+- 新模块: stressbench.js(50图种子化压测), dronesim.js(无人机协同三关校验),
+  test_corner_cut.py, _run_full_regression.py, fast_launch.ps1
+- t6 sim 拖拽棋子编辑器: sim.html +271, simbench +targets第4类点位+压测互斥
+- dzrknn .cpp/.h: 行尾翻动1726行(真实改动仅4行), P0 config.py vehicle/field键路径修复
+- planner corner_deg 切角默认关; robot.yaml 发车档基线:
+  auto_start=true(未复位)/cruise 0.35/accel 0.0
+- 版本台账: v3.5/v3.6 补记由 tag 注释承载
+- _tmp_verify_* 取证脚本不入库,留工作区
