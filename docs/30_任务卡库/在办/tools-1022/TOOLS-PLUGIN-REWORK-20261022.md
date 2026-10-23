@@ -4,6 +4,10 @@
 更新: 2026-10-23
 取代: 无
 status: in_progress
+ns: tools-1022
+agent: lead
+树节点: P-1
+写域: tools/plugins/, docs/30_任务卡库/在办/tools-1022/
 ---
 
 # TOOLS-PLUGIN-REWORK-20261022 · 统一空地插件重做

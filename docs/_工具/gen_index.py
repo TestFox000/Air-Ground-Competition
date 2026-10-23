@@ -2,7 +2,13 @@
 """docs 目录索引生成器 —— 从各篇 front matter 与 TL;DR 自动生成索引，避免索引腐烂。
 
 用法（在工作区根执行）：
-    python docs/_工具/gen_index.py
+    python docs/_工具/gen_index.py                      # 全量重生成（旧行为）
+    python docs/_工具/gen_index.py --ns lead-1023       # 只重生成该 ns 的卡（其余行原样保留）
+    python docs/_工具/gen_index.py --only 30_任务卡库/在办/lead-1023/,docs/_work/   # 显式前缀
+
+为什么有增量模式（2026-10-23）：
+    全量重生成会把「别人还没入库的新文件」一起写进索引，导致一个会话无法提交索引
+    （索引指向了未提交的文件 = 幽灵条目）。增量模式只重扫自己写域，别人的行原样保留。
 
 产出：
     docs/目录索引.md     人看的
@@ -12,6 +18,7 @@
 import json
 import os
 import re
+import sys
 from datetime import datetime
 
 DOCS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -76,7 +83,8 @@ def parse(path):
     return title, summary, fm
 
 
-def main():
+def scan_rows(prefixes=None):
+    """prefixes=None 表示全量；否则只收这些前缀（相对 docs/）下的文件。"""
     rows = []
     for dirpath, dirnames, filenames in os.walk(DOCS):
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.startswith("."))
@@ -86,6 +94,8 @@ def main():
             full = os.path.join(dirpath, name)
             rel = os.path.relpath(full, DOCS).replace("\\", "/")
             if rel in ("目录索引.md", "README.md"):
+                continue
+            if prefixes is not None and not any(rel.startswith(p) for p in prefixes):
                 continue
             title, summary, fm = parse(full)
             rows.append({
@@ -99,7 +109,42 @@ def main():
                 "status": fm.get("status", ""),
                 "lines": sum(1 for _ in open(full, encoding="utf-8", errors="replace")),
             })
+    return rows
 
+
+def parse_scope():
+    """-> prefixes(list) 或 None（全量）"""
+    args = sys.argv[1:]
+    only, ns = [], ""
+    for i, a in enumerate(args):
+        if a == "--only" and i + 1 < len(args):
+            only += [x.strip() for x in args[i + 1].split(",") if x.strip()]
+        elif a == "--ns" and i + 1 < len(args):
+            ns = args[i + 1].strip()
+    if only:
+        return only
+    if ns:
+        return ["30_任务卡库/在办/%s/" % ns, "30_任务卡库/归档/"]
+    return None
+
+
+def main():
+    prefixes = parse_scope()
+    fresh = scan_rows(prefixes)
+    if prefixes is None:
+        rows = fresh
+    else:
+        idx = os.path.join(DOCS, "目录索引.json")
+        kept = []
+        if os.path.exists(idx):
+            with open(idx, "r", encoding="utf-8") as f:
+                old = json.load(f).get("files", [])
+            kept = [r for r in old if not any(r.get("path", "").startswith(p) for p in prefixes)]
+        merge = dict((r["path"], r) for r in kept)
+        for r in fresh:
+            merge[r["path"]] = r
+        rows = list(merge.values())
+        print("[增量] 重扫 %d 条（%s），保留外部 %d 条" % (len(fresh), ", ".join(prefixes), len(kept)))
     rows.sort(key=lambda r: (r["dir"] != ".", r["dir"], r["path"]))
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 

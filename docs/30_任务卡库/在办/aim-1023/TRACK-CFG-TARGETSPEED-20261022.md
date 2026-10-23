@@ -4,6 +4,10 @@
 更新: 2026-10-23
 取代: 无
 status: pending
+ns: aim-1023
+agent: aim-lead（身份待核实）
+树节点: A-3
+写域: config/robot.yaml（冻结区，需 frozen.json 登记）, docs/
 ---
 
 # TRACK-CFG-TARGETSPEED-20261022 · 靶速注释收口（0.04 → 0.3）

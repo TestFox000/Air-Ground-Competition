@@ -4,6 +4,10 @@
 更新: 2026-10-21
 取代: 无
 status: in_progress
+ns: track-1021
+agent: track-lead（身份待核实）
+树节点: T21-3
+写域: dzrobot_v2/src/dzbrain/dzbrain/route/, dzrobot_v2/src/dzbrain/tests/
 ---
 
 # TRACK-PLAN-B1-20261021 · T-B1 规划器目标函数换口径（task-7）

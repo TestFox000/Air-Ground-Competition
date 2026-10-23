@@ -4,6 +4,10 @@
 更新: 2026-10-21
 取代: 无
 status: in_progress
+ns: track-1021
+agent: motion-auditor（身份待核实）
+树节点: T21-1
+写域: docs/30_任务卡库/在办/track-1021/
 ---
 
 # TRACK-FIELD-B5-20261021 · 阿克曼量测 + 航向守卫复算 + X05 电流分诊（task-8）

@@ -4,6 +4,10 @@
 更新: 2026-10-21
 取代: 无
 status: in_progress
+ns: track-1021
+agent: track-lead（身份待核实）
+树节点: T21-2
+写域: docs/30_任务卡库/在办/track-1021/
 ---
 
 # TRACK-FIELD-R3B-20261021 · R3B 现场补测（C0 / C1-short / C1 / C2b）

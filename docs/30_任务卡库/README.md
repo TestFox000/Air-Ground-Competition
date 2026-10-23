@@ -36,13 +36,13 @@
 
 | 卡 | 目标 | owner | 状态 | 卡在哪 | 下一步 |
 |---|---|---|---|---|---|
-| [TRACK-DAY-20261022](在办/TRACK-DAY-20261022.md) | 2026-10-22 当日作业：D11 打靶验证 → 分叉；B1 验收收口 | Lead | in_progress | 现场待摆车（车未到位）；B1 已复跑通过 | 车摆 D11 格心车头朝北 → 30 s 采集 → 按 D11 卡 §4 裁决 |
-| [TRACK-PLAN-B1-20261021](在办/TRACK-PLAN-B1-20261021.md)（task-7） | tour 目标函数换口径 + 第七图双停站 | implementer | **验收通过（离线）**（10-22 Lead 复跑 A/B/C：47/64 · 66 token · 171/171） | 15 张随机图物理不可达终点；degraded 未进遥测 | 待裁决 3 项：degraded 进遥测（mission.py 单卡）、默认是否切 `--objective tasks`、与 B 包三方合并 |
-| [TRACK-FIELD-B5-20261021](在办/TRACK-FIELD-B5-20261021.md)（task-8） | 阿克曼量测作业包 + 航向守卫复算 | motion-auditor | 离线完成待验收 | A2 原始帧/L8 原始日志缺失；PIVOT 形态未实测 | 现场执行 S3.0（需窗口+人工） |
-| [T12 无人机上线执行单](在办/T12-无人机上线执行单.md) | 飞控断电恢复 → 看门狗 → 域号 118 | drone-arch | in_progress（离线） | uXRCE 会话从未建立；域号车 118 / 机 0 | 需用户先给飞控断电 |
-| [TRACK-FIELD-R3B-20261021](在办/TRACK-FIELD-R3B-20261021.md) | R3B 现场补测 C0/C1/C2b | Lead | **C1 3/3 通过**（0.6917/0.6990/0.6919 m）；C0 外部量测与 C2b 未闭合（卡面 `status: 完成` 与 §1「中断」口径冲突） | 5 趟有效但外部录像未录；C0 判据余量仅 0.8 mm 且无外测背书 | C2b 单弯 + C0 外部量测复核 |
-| [TRACK-FIELD-D11-20261022](在办/TRACK-FIELD-D11-20261022.md) | D11 单停站 30 s 打靶（1.41 m、靶速 **0.3 m/s**〔D-033〕） | Lead | **in_progress**（10-22，等摆位） | 0.875 m 提前量 **11 px < 25 px** 开火框（0.3 m/s 口径下门不再结构关闭），1.41 m 约 7 px；车未摆位 | 摆 D11 格心车头朝北 → `reset:D11,x` + `单点 D11*,x` → 采 30 s |
-| [TRACK-CFG-TARGETSPEED-20261022](在办/TRACK-CFG-TARGETSPEED-20261022.md) | 靶速注释收口：`target_speed_mps` 0.04 → **0.3** + 两处误导注释 | **待指派**（建议 config-owner） | **待办**（今日不改，等窗口） | 0.04 只活在 `robot.yaml:834`/`config.py:375` 注释；`config/**` 属冻结区 | 先 grep 证影响面 → frozen 登记 → 改 3 处（目标值 **0.3**，原计划 1.0 已由 D-033 推翻）→ 人工部署（D-033） |
+| [TRACK-DAY-20261022](在办/track-1022/TRACK-DAY-20261022.md) | 2026-10-22 当日作业：D11 打靶验证 → 分叉；B1 验收收口 | Lead | in_progress | 现场待摆车（车未到位）；B1 已复跑通过 | 车摆 D11 格心车头朝北 → 30 s 采集 → 按 D11 卡 §4 裁决 |
+| [TRACK-PLAN-B1-20261021](在办/track-1021/TRACK-PLAN-B1-20261021.md)（task-7） | tour 目标函数换口径 + 第七图双停站 | implementer | **验收通过（离线）**（10-22 Lead 复跑 A/B/C：47/64 · 66 token · 171/171） | 15 张随机图物理不可达终点；degraded 未进遥测 | 待裁决 3 项：degraded 进遥测（mission.py 单卡）、默认是否切 `--objective tasks`、与 B 包三方合并 |
+| [TRACK-FIELD-B5-20261021](在办/track-1021/TRACK-FIELD-B5-20261021.md)（task-8） | 阿克曼量测作业包 + 航向守卫复算 | motion-auditor | 离线完成待验收 | A2 原始帧/L8 原始日志缺失；PIVOT 形态未实测 | 现场执行 S3.0（需窗口+人工） |
+| [T12 无人机上线执行单](在办/drone-1022/T12-无人机上线执行单.md) | 飞控断电恢复 → 看门狗 → 域号 118 | drone-arch | in_progress（离线） | uXRCE 会话从未建立；域号车 118 / 机 0 | 需用户先给飞控断电 |
+| [TRACK-FIELD-R3B-20261021](在办/track-1021/TRACK-FIELD-R3B-20261021.md) | R3B 现场补测 C0/C1/C2b | Lead | **C1 3/3 通过**（0.6917/0.6990/0.6919 m）；C0 外部量测与 C2b 未闭合（卡面 `status: 完成` 与 §1「中断」口径冲突） | 5 趟有效但外部录像未录；C0 判据余量仅 0.8 mm 且无外测背书 | C2b 单弯 + C0 外部量测复核 |
+| [TRACK-FIELD-D11-20261022](在办/track-1022/TRACK-FIELD-D11-20261022.md) | D11 单停站 30 s 打靶（1.41 m、靶速 **0.3 m/s**〔D-033〕） | Lead | **in_progress**（10-22，等摆位） | 0.875 m 提前量 **11 px < 25 px** 开火框（0.3 m/s 口径下门不再结构关闭），1.41 m 约 7 px；车未摆位 | 摆 D11 格心车头朝北 → `reset:D11,x` + `单点 D11*,x` → 采 30 s |
+| [TRACK-CFG-TARGETSPEED-20261022](在办/aim-1023/TRACK-CFG-TARGETSPEED-20261022.md) | 靶速注释收口：`target_speed_mps` 0.04 → **0.3** + 两处误导注释 | **待指派**（建议 config-owner） | **待办**（今日不改，等窗口） | 0.04 只活在 `robot.yaml:834`/`config.py:375` 注释；`config/**` 属冻结区 | 先 grep 证影响面 → frozen 登记 → 改 3 处（目标值 **0.3**，原计划 1.0 已由 D-033 推翻）→ 人工部署（D-033） |
 
 **冻结区占用**（收口门禁会读，勿撞车）：`tasks/tracker.py` → TRACK-R1-20261020-01，expires **2026-10-27**（`dzrobot_v2/docs/TEAM_STATUS.md:50`）；`route/planner.py` → TRACK-PLAN-B1-20261021，expires **2026-11-04**（`dzrobot_v2/docs/TEAM_STATUS.md:22`）。
 

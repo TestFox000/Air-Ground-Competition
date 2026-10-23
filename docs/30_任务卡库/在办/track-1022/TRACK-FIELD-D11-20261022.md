@@ -4,6 +4,10 @@
 更新: 2026-10-23
 取代: 无
 status: in_progress
+ns: track-1022
+agent: lead
+树节点: T22-2
+写域: docs/30_任务卡库/在办/track-1022/, _tmp_session/
 ---
 
 # TRACK-FIELD-D11-20261022 · 1.41 m 单停站打靶验证（D11，靶速 0.3 m/s〔D-033〕）
@@ -168,7 +172,7 @@ D 轮 brain 起后约 7 分钟，`[T]` yaw 从 **−0.9° 漂到 −43.4°**（�
 
 ## 相关文件
 
-- `docs/30_任务卡库/在办/TRACK-FIELD-R3B-20261021.md`（C1 标定卡，已完成）
+- `docs/30_任务卡库/在办/track-1021/TRACK-FIELD-R3B-20261021.md`（C1 标定卡，已完成）
 - `docs/00_项目总览/现状快照.md` §8（21:20 之后状态）
 - `docs/00_项目总览/时间线.md`（10-21 打靶口径行）
 - `_tmp_session/TRACK-FIELD-R3-20261020-01/RUN_CARD_20261021.md`（现场执行单）

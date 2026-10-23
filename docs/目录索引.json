@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-23 19:58",
- "count": 89,
+ "generated": "2026-10-23 21:29",
+ "count": 100,
  "files": [
   {
    "path": "00_项目总览/06_本机值守与守护器.md",
@@ -515,9 +515,9 @@
    "summary": "车端：det_node 出 8 个整数到 `/offset_center` @~30 Hz，**无目标也发全 0 心跳帧**（云台据此判「视觉静默」）。",
    "from": "dzrobot_v2/src/rknn_pt/**, air_ground_models/README.md, dzrobot_v2/config/robot.yaml, docs/感知可行性_摄像头评估.md, _tmp_session/t3/perception/README.md, dzrobot_v2/docs/决策台账.md D-003, dzrobot_v2/docs/审查_无人机飞控执行侧_20261018.md",
    "level": "实/档/未",
-   "updated": "2026-10-21",
+   "updated": "2026-10-23",
    "status": "现行",
-   "lines": 85
+   "lines": 120
   },
   {
    "path": "20_资料索引库/视觉与云台/03_移动靶缺口与改进方向.md",
@@ -605,7 +605,7 @@
    "level": "实/档",
    "updated": "2026-10-23",
    "status": "现行",
-   "lines": 104
+   "lines": 121
   },
   {
    "path": "20_资料索引库/赛事与治理/07_官方资料与物料清单.md",
@@ -680,9 +680,9 @@
    "summary": "定位 = **不带全局重定位的信念投影**：odom 增量 + 地图锚点吸附 + 漂移修正；投影窗口 0.12 m、**允许回退=false**（试出来的，不是推的）。",
    "from": "dzrobot_v2/src/dzbrain/dzbrain/tasks/localization.py, tasks/safety.py, dzrobot_v2/config/robot.yaml, dzrobot_v2/docs/library/车体与标定.md, dzrobot_v2/docs/项目现状_20261018.md, _tmp_session/t_d1b/, t_ae_contract/, task-44/",
    "level": "实+档",
-   "updated": "2026-10-21",
+   "updated": "2026-10-23",
    "status": "现行",
-   "lines": 75
+   "lines": 95
   },
   {
    "path": "20_资料索引库/车端/05_配置与部署.md",
@@ -751,125 +751,235 @@
    "lines": 98
   },
   {
-   "path": "30_任务卡库/在办/AIM-BASELINE-20261023.md",
-   "dir": "30_任务卡库/在办",
+   "path": "30_任务卡库/_模板/树模板.md",
+   "dir": "30_任务卡库/_模板",
+   "title": "<ns> · 任务树（模板，照抄后删掉本行说明）",
+   "summary": "<一句话：这个 ns 要收口什么>",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-23",
+   "status": "过程",
+   "lines": 34
+  },
+  {
+   "path": "30_任务卡库/_设计/00_命名空间与任务树.md",
+   "dir": "30_任务卡库/_设计",
+   "title": "00 · 命名空间与任务树（agent 契约 v2）",
+   "summary": "任务卡库的机器契约：ns 目录、卡面必填键、树行格式、写权、守卫规则、开场/收口命令。改结构先改本文件。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 128
+  },
+  {
+   "path": "30_任务卡库/_设计/01_ns登记.md",
+   "dir": "30_任务卡库/_设计",
+   "title": "01 · ns 登记表",
+   "summary": "ns 登记表（lead 单写）。新 ns 先登记再建目录，否则守卫 Y6。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 25
+  },
+  {
+   "path": "30_任务卡库/在办/aim-1023/00_树.md",
+   "dir": "30_任务卡库/在办/aim-1023",
+   "title": "aim-1023 · 任务树（自瞄/云台闭环）",
+   "summary": "把\"能看、能追、锁不死\"收敛成可复现的闭环：先有基线，再有归因，最后才动参数。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-23",
+   "status": "过程",
+   "lines": 32
+  },
+  {
+   "path": "30_任务卡库/在办/aim-1023/AIM-BASELINE-20261023.md",
+   "dir": "30_任务卡库/在办/aim-1023",
    "title": "AIM-BASELINE-20261023 · 云台首个有效跟踪基线（F-P 第一格）",
    "summary": "D11 静止 1.41 m、禁火，45 s 两段（静止 20 s + 人手动 0.30 m/s 横扫 25 s），取得首个有效跟踪基线；不测开门/实发。",
    "from": "决策台账 D-033（靶速 0.3 m/s 现行）、D-030（靶形态/0.70 m 轨道）、TRACK-FIELD-D11-20261022（876 帧诊断）、_tmp_session/AG-TEAM-20261023/P/PLAN.md",
    "level": "实/档/未",
    "updated": "2026-10-23",
    "status": "in_progress",
-   "lines": 68
-  },
-  {
-   "path": "30_任务卡库/在办/DOC-FIX-20261023.md",
-   "dir": "30_任务卡库/在办",
-   "title": "DOC-FIX-20261023 · 资料库七项不足修正（方案卡）",
-   "summary": "- owner: **lead**（P1/P2-1 已执行；P2-2 待单开卡）",
-   "from": "2026-10-23 资料库审计「不足」七项（本会话实读复核）；决策台账 D-031/D-032；TRACK-FIELD-D11-20261022 卡面 :106",
-   "level": "实/机检（§0 复核命令与输出见 §6）",
-   "updated": "2026-10-23",
-   "status": "in_progress",
-   "lines": 214
-  },
-  {
-   "path": "30_任务卡库/在办/T12-无人机上线执行单.md",
-   "dir": "30_任务卡库/在办",
-   "title": "T12 · 无人机上线执行单（飞控断电恢复 → 看门狗 → 域号 118）",
-   "summary": "目标：让机侧 uXRCE 会话真的建立、域号统一到 118、加 FC_OFFLINE 看门狗——这是**所有空地联调的前置条件**。",
-   "from": "dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/PROJECT_STATUS_20261021.md, _tmp_session/paper50/三大优化方案.md, docs/agent_handoff/30_循迹团队执行方案.md",
-   "level": "档",
-   "updated": "2026-10-21",
-   "status": "in_progress",
    "lines": 72
   },
   {
-   "path": "30_任务卡库/在办/TOOLS-PLUGIN-REWORK-20261022.md",
-   "dir": "30_任务卡库/在办",
-   "title": "TOOLS-PLUGIN-REWORK-20261022 · 统一空地插件重做",
-   "summary": "- owner: lead",
-   "from": "TOOLS-ORGANIZE-20261022（缺口清单交接）、本会话执行记录（2026-10-22 22:14–22:50）",
-   "level": "实/机检",
-   "updated": "2026-10-23",
-   "status": "in_progress",
-   "lines": 102
-  },
-  {
-   "path": "30_任务卡库/在办/TRACK-C0EXT-20261023.md",
-   "dir": "30_任务卡库/在办",
+   "path": "30_任务卡库/在办/aim-1023/TRACK-C0EXT-20261023.md",
+   "dir": "30_任务卡库/在办/aim-1023",
    "title": "TRACK-C0EXT-20261023 · C0 接管停距外部量测复核",
    "summary": "用手机 240 fps + 沿轴钢尺外测 C0 接管停距，判定 0.8 mm 余量是否真实；不改 cruise/前视/舵角。",
    "from": "TRACK-FIELD-R3B-20261021（C0 内部 34.2<35 mm，余量 0.8 mm）、_tmp_session/AG-TEAM-20261023/T/PLAN.md、决策台账 D-029",
    "level": "实/档/未",
    "updated": "2026-10-23",
    "status": "pending",
-   "lines": 67
+   "lines": 71
   },
   {
-   "path": "30_任务卡库/在办/TRACK-CFG-TARGETSPEED-20261022.md",
-   "dir": "30_任务卡库/在办",
+   "path": "30_任务卡库/在办/aim-1023/TRACK-CFG-TARGETSPEED-20261022.md",
+   "dir": "30_任务卡库/在办/aim-1023",
    "title": "TRACK-CFG-TARGETSPEED-20261022 · 靶速注释收口（0.04 → 0.3）",
    "summary": "**一句话**：把 `config/robot.yaml` 的 `target_speed_mps: 0.04` 与两处「现场实测 4 cm/s」注释改成 **0.3 m/s*…",
    "from": "决策台账 **D-033**（2026-10-23 靶速改判 0.3 m/s）、D-031（10-22 设计约定 1.0，仅作沿革）",
    "level": "算/未（影响面需 grep 证明；改动未部署）",
    "updated": "2026-10-23",
    "status": "pending",
-   "lines": 63
+   "lines": 67
   },
   {
-   "path": "30_任务卡库/在办/TRACK-DAY-20261022.md",
-   "dir": "30_任务卡库/在办",
-   "title": "TRACK-DAY-20261022 · 2026-10-22 当日作业卡（D11 打靶验证 → 分叉；B1 验收收口）",
-   "summary": "**第一件（现场 10 分钟）**：车摆 D11 格心、车头朝北，1.41 m 打靶采 30 s，验证\"只改距离、不改代码\"能否打开开火门。**细则与判据在 D11 卡，本卡只…",
-   "from": "docs/30_任务卡库/在办/TRACK-FIELD-D11-20261022.md；docs/00_项目总览/现状快照.md §6/§8；docs/30_任务卡库/在办/TRACK-PLAN-B1-20261021.md；docs/30_任务卡库/在办/TRACK-FIELD-R3B-20261021.md；docs/30_任务卡库/README.md（10-22 16:50 在办板）",
-   "level": "实/档/未",
-   "updated": "2026-10-22",
+   "path": "30_任务卡库/在办/drone-1022/00_树.md",
+   "dir": "30_任务卡库/在办/drone-1022",
+   "title": "drone-1022 · 任务树（无人机上线）",
+   "summary": "无人机侧端到端跑通：联邦管 → 域 118。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-23",
+   "status": "过程",
+   "lines": 29
+  },
+  {
+   "path": "30_任务卡库/在办/drone-1022/T12-无人机上线执行单.md",
+   "dir": "30_任务卡库/在办/drone-1022",
+   "title": "T12 · 无人机上线执行单（飞控断电恢复 → 看门狗 → 域号 118）",
+   "summary": "目标：让机侧 uXRCE 会话真的建立、域号统一到 118、加 FC_OFFLINE 看门狗——这是**所有空地联调的前置条件**。",
+   "from": "dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/PROJECT_STATUS_20261021.md, _tmp_session/paper50/三大优化方案.md, docs/agent_handoff/30_循迹团队执行方案.md",
+   "level": "档",
+   "updated": "2026-10-21",
    "status": "in_progress",
-   "lines": 126
+   "lines": 76
   },
   {
-   "path": "30_任务卡库/在办/TRACK-FIELD-B5-20261021.md",
-   "dir": "30_任务卡库/在办",
+   "path": "30_任务卡库/在办/lead-1023/00_树.md",
+   "dir": "30_任务卡库/在办/lead-1023",
+   "title": "lead-1023 · 任务树（资料库治理 · 试点）",
+   "summary": "把 10-23 审计出的资料库七项不足收敛，并把卡库从「global 目录」改成「ns + 树」结构。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-23",
+   "status": "过程",
+   "lines": 49
+  },
+  {
+   "path": "30_任务卡库/在办/lead-1023/DOC-FIX-20261023.md",
+   "dir": "30_任务卡库/在办/lead-1023",
+   "title": "DOC-FIX-20261023 · 资料库七项不足修正（方案卡）",
+   "summary": "- owner: **lead**（P1/P2-1 已执行；P2-2 待单开卡）",
+   "from": "2026-10-23 资料库审计「不足」七项（本会话实读复核）；决策台账 D-031/D-032；TRACK-FIELD-D11-20261022 卡面 :106",
+   "level": "实/机检（§0 复核命令与输出见 §6）",
+   "updated": "2026-10-23",
+   "status": "in_progress",
+   "lines": 218
+  },
+  {
+   "path": "30_任务卡库/在办/lead-1023/NS-PILOT-20261023.md",
+   "dir": "30_任务卡库/在办/lead-1023",
+   "title": "NS-PILOT-20261023 · 卡库命名空间 + 任务树试点",
+   "summary": "**目标**：验证「一支团队一个 ns + 卡必挂树 + 树单写 + 归档带落地指针」在本项目真的跑得动，再决定是否全量迁 11 张卡。",
+   "from": "2026-10-23 用户决策（一团队一 ns / N 叉树 / 先试点）；docs/30_任务卡库/_设计/00_命名空间与任务树.md",
+   "level": "档/机检（守卫 Y6/Y7/Y8 实跑）",
+   "updated": "2026-10-23",
+   "status": "in_progress",
+   "lines": 72
+  },
+  {
+   "path": "30_任务卡库/在办/tools-1022/00_树.md",
+   "dir": "30_任务卡库/在办/tools-1022",
+   "title": "tools-1022 · 任务树（tools 区整理）",
+   "summary": "三个插件目录归位、部署依赖不断链；整理是一次性动作，不留第二套约定。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-23",
+   "status": "过程",
+   "lines": 30
+  },
+  {
+   "path": "30_任务卡库/在办/tools-1022/TOOLS-PLUGIN-REWORK-20261022.md",
+   "dir": "30_任务卡库/在办/tools-1022",
+   "title": "TOOLS-PLUGIN-REWORK-20261022 · 统一空地插件重做",
+   "summary": "- owner: lead",
+   "from": "TOOLS-ORGANIZE-20261022（缺口清单交接）、本会话执行记录（2026-10-22 22:14–22:50）",
+   "level": "实/机检",
+   "updated": "2026-10-23",
+   "status": "in_progress",
+   "lines": 106
+  },
+  {
+   "path": "30_任务卡库/在办/track-1021/00_树.md",
+   "dir": "30_任务卡库/在办/track-1021",
+   "title": "track-1021 · 任务树（10-21 循迹现场）",
+   "summary": "回答三个问题：车能不能按图跑、参数量得准不准、规划器该不该换口径。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-23",
+   "status": "过程",
+   "lines": 32
+  },
+  {
+   "path": "30_任务卡库/在办/track-1021/TRACK-FIELD-B5-20261021.md",
+   "dir": "30_任务卡库/在办/track-1021",
    "title": "TRACK-FIELD-B5-20261021 · 阿克曼量测 + 航向守卫复算 + X05 电流分诊（task-8）",
    "summary": "目标：把 T-B5 现场项收敛成 5 项量测（最小转弯半径 / PIVOT 形态 / 实测轮距 / ticksPerMeter 2.10 m 推车 / ticksPer2PI …",
    "from": "_tmp_session/TRACK-FIELD-B5-20261021/REPORT.md, _tmp_session/TRACK-FIELD-B5-20261021/guard_replay.md, _tmp_session/TRACK-FIELD-B5-20261021/slip_diagnosis.md, _tmp_session/TRACK-FIELD-B5-20261021/MEASURE_SOP.md, dzrobot_v2/docs/TEAM_STATUS.md",
    "level": "档",
    "updated": "2026-10-21",
    "status": "in_progress",
-   "lines": 67
+   "lines": 71
   },
   {
-   "path": "30_任务卡库/在办/TRACK-FIELD-D11-20261022.md",
-   "dir": "30_任务卡库/在办",
-   "title": "TRACK-FIELD-D11-20261022 · 1.41 m 单停站打靶验证（D11，靶速 0.3 m/s〔D-033〕）",
-   "summary": "**一句话**：在 1.41 m 射击距离、**0.3 m/s 靶速**（D-033，现场实测；原按 1 m/s 设计）下，验证\"只改距离、不改代码\"能否让 `fire_rea…",
-   "from": "本会话现场记录（2026-10-21 21:20–22:00）、TRACK-FIELD-R3B-20261021.md、T-B1 规划输出（57 token 双停站）、T4 归因增量（提前量/门结构）",
-   "level": "实/未",
-   "updated": "2026-10-23",
-   "status": "in_progress",
-   "lines": 174
-  },
-  {
-   "path": "30_任务卡库/在办/TRACK-FIELD-R3B-20261021.md",
-   "dir": "30_任务卡库/在办",
+   "path": "30_任务卡库/在办/track-1021/TRACK-FIELD-R3B-20261021.md",
+   "dir": "30_任务卡库/在办/track-1021",
    "title": "TRACK-FIELD-R3B-20261021 · R3B 现场补测（C0 / C1-short / C1 / C2b）",
    "summary": "目标：在真实已核验版本上取得\"有外部量测、已知 N10/+y 初态、同条件重复\"的普通直线/单弯基线。",
    "from": "_tmp_session/TRACK-FIELD-R3-20261020-01/CARD_20261021.md, _tmp_session/TRACK-FIELD-R3-20261020-01/RUN_CARD_20261021.md, _tmp_session/TRACK-FIELD-R3-20261020-01/review_20261021.md, _tmp_session/PROJECT_STATUS_20261021.md, dzrobot_v2/docs/TEAM_STATUS.md",
    "level": "档",
    "updated": "2026-10-21",
    "status": "in_progress",
-   "lines": 77
+   "lines": 81
   },
   {
-   "path": "30_任务卡库/在办/TRACK-PLAN-B1-20261021.md",
-   "dir": "30_任务卡库/在办",
+   "path": "30_任务卡库/在办/track-1021/TRACK-PLAN-B1-20261021.md",
+   "dir": "30_任务卡库/在办/track-1021",
    "title": "TRACK-PLAN-B1-20261021 · T-B1 规划器目标函数换口径（task-7）",
    "summary": "目标：把 tour 的\"最短巡回+硬约束\"换成\"先最大化成功任务数、再最小化时间\"，并让**降级显式化**；第七图必须出 C9*+C5* 双停站。",
    "from": "dzrobot_v2/_tmp_session/TRACK-PLAN-B1-20261021/REPORT.md, _tmp_session/PROJECT_STATUS_20261021.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/paper50/三大优化方案.md",
    "level": "档",
    "updated": "2026-10-21",
    "status": "in_progress",
-   "lines": 82
+   "lines": 86
+  },
+  {
+   "path": "30_任务卡库/在办/track-1022/00_树.md",
+   "dir": "30_任务卡库/在办/track-1022",
+   "title": "track-1022 · 任务树（10-22 当日现场）",
+   "summary": "一天之内先把 D11 打靶跑出结论，再按\"门开/门不开\"分叉决定下一步。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-23",
+   "status": "过程",
+   "lines": 33
+  },
+  {
+   "path": "30_任务卡库/在办/track-1022/TRACK-DAY-20261022.md",
+   "dir": "30_任务卡库/在办/track-1022",
+   "title": "TRACK-DAY-20261022 · 2026-10-22 当日作业卡（D11 打靶验证 → 分叉；B1 验收收口）",
+   "summary": "**第一件（现场 10 分钟）**：车摆 D11 格心、车头朝北，1.41 m 打靶采 30 s，验证\"只改距离、不改代码\"能否打开开火门。**细则与判据在 D11 卡，本卡只…",
+   "from": "docs/30_任务卡库/在办/track-1022/TRACK-FIELD-D11-20261022.md；docs/00_项目总览/现状快照.md §6/§8；docs/30_任务卡库/在办/track-1021/TRACK-PLAN-B1-20261021.md；docs/30_任务卡库/在办/track-1021/TRACK-FIELD-R3B-20261021.md；docs/30_任务卡库/README.md（10-22 16:50 在办板）",
+   "level": "实/档/未",
+   "updated": "2026-10-22",
+   "status": "in_progress",
+   "lines": 130
+  },
+  {
+   "path": "30_任务卡库/在办/track-1022/TRACK-FIELD-D11-20261022.md",
+   "dir": "30_任务卡库/在办/track-1022",
+   "title": "TRACK-FIELD-D11-20261022 · 1.41 m 单停站打靶验证（D11，靶速 0.3 m/s〔D-033〕）",
+   "summary": "**一句话**：在 1.41 m 射击距离、**0.3 m/s 靶速**（D-033，现场实测；原按 1 m/s 设计）下，验证\"只改距离、不改代码\"能否让 `fire_rea…",
+   "from": "本会话现场记录（2026-10-21 21:20–22:00）、TRACK-FIELD-R3B-20261021.md、T-B1 规划输出（57 token 双停站）、T4 归因增量（提前量/门结构）",
+   "level": "实/未",
+   "updated": "2026-10-23",
+   "status": "in_progress",
+   "lines": 178
   },
   {
    "path": "30_任务卡库/归档/00_索引.md",
@@ -949,6 +1059,17 @@
    "lines": 79
   },
   {
+   "path": "30_任务卡库/归档/2026-10-23_TMP-GC-20261023.md",
+   "dir": "30_任务卡库/归档",
+   "title": "TMP-GC-20261023 · `_tmp_session` 过程稿治理（先 B 提炼归档、再 A 删可再生）",
+   "summary": "- owner: lead｜2026-10-23 21:00–21:35｜写域：`_tmp_session/**`、`_archive/20261023/tmp_session…",
+   "from": "_tmp_session 实测清单（2026-10-23 20:5x）、_archive/20261023/tmp_session/README.md、_archive/20261023/tmp_session/pack_20261023.zip",
+   "level": "实",
+   "updated": "2026-10-23",
+   "status": "已归档",
+   "lines": 73
+  },
+  {
    "path": "30_任务卡库/归档/2026-10-23_TOOLS-PLUGIN-TERMGATE-20261023.md",
    "dir": "30_任务卡库/归档",
    "title": "TOOLS-PLUGIN-TERMGATE-20261023 · 终端探测门禁放行",
@@ -957,7 +1078,7 @@
    "level": "",
    "updated": "",
    "status": "已归档",
-   "lines": 75
+   "lines": 77
   },
   {
    "path": "30_任务卡库/模板/任务卡模板.md",

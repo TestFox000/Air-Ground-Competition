@@ -226,6 +226,14 @@ def main():
         return tree_cache[dir_rel]
 
     CARD_LIVE = "docs/30_任务卡库/在办/"
+    reg_path = os.path.join(WS, "docs/30_任务卡库/_设计/01_ns登记.md")
+    registered_ns = set()
+    if os.path.exists(reg_path):
+        with open(reg_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                m = re.match(r"^\|\s*([a-z][a-z0-9-]*\d{4})\s*\|", line)
+                if m:
+                    registered_ns.add(m.group(1))
     for rel in buckets["doc"]:
         if not rel.startswith(CARD_LIVE):
             continue
@@ -243,6 +251,8 @@ def main():
             continue
         if fm.get("ns", "") != ns:
             yellow.append(("Y6", rel, "ns: 与目录名不一致（目录 %s / 卡面 %s）" % (ns, fm.get("ns", "空"))))
+        if registered_ns and ns not in registered_ns:
+            yellow.append(("Y6", rel, "ns 未在 _设计/01_ns登记.md 登记（ns=%s）" % ns))
         if not fm.get("agent"):
             yellow.append(("Y6", rel, "缺 agent:（一张卡必须绑定一个智能体）"))
         stem = parts[-1][:-3]
@@ -253,7 +263,7 @@ def main():
     for dir_rel, tree in tree_cache.items():
         if not tree:
             continue
-        for cam in re.findall(r"\[卡\]\s*([A-Za-z][A-Za-z0-9-]*\d{8})", tree):
+        for cam in re.findall(r"\[卡\]\s*([^\s·|（(）)]+)", tree):
             if not os.path.exists(os.path.join(WS, dir_rel, cam + ".md")):
                 yellow.append(("Y7", dir_rel + "/00_树.md", "树节点指向的卡不存在：" + cam))
 
