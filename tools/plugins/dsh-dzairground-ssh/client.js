@@ -54,6 +54,7 @@ window.__ModuleLoader__.load({
         connecting: '连接中…',
         connectHint: '在终端里登录小车',
         openTerminal: '打开 SSH 终端',
+        terminalOpenedAnyway: '探测未通过（{detail}），终端仍已打开——以终端里的 ssh 输出为准',
         toolOpen: '打开',
         toolNote: '点“打开”后主视图会切到会话，工具窗口显示在会话右侧——右栏属于会话，这是 DSH 的结构。',
         filesToolDesc: '浏览、预览、下载、上传小车上的文件（走同一条已信任的 SSH 通道）',
@@ -253,6 +254,7 @@ window.__ModuleLoader__.load({
         connecting: 'Connecting…',
         connectHint: 'Log in to the car in a terminal',
         openTerminal: 'Open SSH terminal',
+        terminalOpenedAnyway: 'Probe failed ({detail}); the terminal opened anyway — trust the ssh output there.',
         toolOpen: 'Open',
         toolNote: 'Opening a tool switches the main view to the Conversation — the tool window appears on its right. The right column belongs to the Conversation; that is DSH’s structure.',
         filesToolDesc: 'Browse, preview, download and upload the car’s files (over the same trusted SSH channel)',
@@ -885,7 +887,12 @@ window.__ModuleLoader__.load({
       onPhase('probing')
       const status = await api(`/${role}/probe`, { method: 'POST' })
       diag('connect.probe', { state: status.state, detail: status.detail, latencyMs: status.latencyMs })
-      if (status.state !== 'ready') return { ok: false, reason: status.state, detail: status.detail }
+      // 2026-10-23 (TOOLS-PLUGIN-TERMGATE): a failed probe no longer blocks the
+      // terminal. The stock terminal is a real PTY, so ssh itself reports an
+      // unreachable host or asks for the password there — strictly more useful
+      // than a dead button while the car is off. The verdict rides along as
+      // `warn` so the panel row can still show what the probe saw.
+      const warn = status.state === 'ready' ? undefined : { state: status.state, detail: status.detail }
 
       // The probe answers the state; the address and the command line come from
       // the settings, read together so a change mid-click cannot mix two cars.
@@ -897,7 +904,8 @@ window.__ModuleLoader__.load({
 
       const target = await ensureConversation(ctx, element, 'connect')
       if (target === undefined) return { ok: false, reason: 'no-session' }
-      return openInTerminal(settings, terminals, target, command, label, onPhase, role)
+      const opened = await openInTerminal(settings, terminals, target, command, label, onPhase, role)
+      return opened.ok && warn !== undefined ? { ...opened, warn } : opened
     }
 
     /**
@@ -2544,6 +2552,7 @@ window.__ModuleLoader__.load({
               : await openToolTab(ctx, tool.kind, document.body)
             diag('tool.open', { id: tool.id, ok: result.ok, reason: result.reason })
             if (!result.ok) setRowMsg(current => ({ ...current, [tool.id]: explain(result) }))
+            else if (result.warn) setRowMsg(current => ({ ...current, [tool.id]: t('terminalOpenedAnyway', { detail: result.warn.detail ?? result.warn.state }) }))
           } catch (problem) {
             diag('tool.open', { id: tool.id, error: String(problem?.message ?? problem) })
             setRowMsg(current => ({ ...current, [tool.id]: String(problem?.message ?? problem) }))

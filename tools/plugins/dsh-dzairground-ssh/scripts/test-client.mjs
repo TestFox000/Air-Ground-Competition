@@ -449,6 +449,7 @@ console.log('diag steps:', diagPayloads.map(entry => entry.step).join(', '))
 
 const failures = [...renderFailures]
 if (result.ok !== true) failures.push(`connect did not succeed: ${JSON.stringify(result)}`)
+if (result.warn !== undefined) failures.push(`a ready probe must not carry a warn: ${JSON.stringify(result.warn)}`)
 if (writes.length !== 1) failures.push(`expected exactly one write, got ${writes.length}`)
 if (!String(writes[0] ?? '').startsWith('ssh ')) failures.push(`the written command is not ssh: ${writes[0]}`)
 if (!String(writes[0] ?? '').endsWith('\r')) failures.push('the command was not submitted with Enter')
@@ -470,14 +471,17 @@ if (firstTarget?.data?.found !== false) {
 }
 
 // ── S7: the drone terminal channel resolves the drone node ────────────────────
-// dzsmart.local is honestly unreachable from the lab, so the flow must stop at
-// probing — what this proves is WHICH node it probed and that diag carries the
-// role, i.e. the channel, not some hardcoded car target.
+// dzsmart.local is honestly unreachable from the lab. Since TOOLS-PLUGIN-TERMGATE
+// (2026-10-23) a failed probe no longer blocks the terminal: the click must STILL
+// open a tab and type the DRONE's own ssh line, with the probe verdict attached
+// as `warn`. What this proves is WHICH node was probed and whose command was
+// typed — the channel, not some hardcoded car target.
 {
   const fetched = []
   const prevFetch = globalThis.fetch
   globalThis.fetch = (url, options) => { fetched.push(String(url)); return prevFetch(url, options) }
   const dronePhases = []
+  const writesBefore = writes.length
   const droneResult = await client.__test.connect(ctxClient, { closest: () => null }, phase => dronePhases.push(phase), 'drone')
   globalThis.fetch = prevFetch
   if (!fetched.some(url => url.includes('/api/dzairground-ssh/drone/probe'))) {
@@ -488,7 +492,12 @@ if (firstTarget?.data?.found !== false) {
   }
   const start = diagPayloads.filter(entry => entry.step === 'connect.start').pop()
   if (start?.data?.role !== 'drone') failures.push(`S7: drone connect.start missing role tag: ${JSON.stringify(start?.data)}`)
-  if (droneResult.ok === true) failures.push('S7: drone connect unexpectedly succeeded (dzsmart.local should be unreachable in the lab)')
+  if (droneResult.ok !== true) failures.push(`S7: drone connect must open the terminal despite the failed probe: ${JSON.stringify(droneResult)}`)
+  if (droneResult.warn === undefined) failures.push('S7: an unreachable probe must surface as warn, not vanish')
+  const droneWrites = writes.slice(writesBefore)
+  if (droneWrites.length !== 1 || !String(droneWrites[0]).includes('dzsmart.local')) {
+    failures.push(`S7: the typed command is not the drone's ssh line: ${JSON.stringify(droneWrites)}`)
+  }
   if (!dronePhases.includes('probing')) failures.push(`S7: drone flow never reached probing (phases ${JSON.stringify(dronePhases)})`)
 }
 

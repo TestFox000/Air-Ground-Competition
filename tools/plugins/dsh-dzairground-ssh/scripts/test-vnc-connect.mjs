@@ -24,7 +24,10 @@ import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const html = fs.readFileSync(path.join(here, '..', 'vnc-connect.html'), 'utf8')
+// vnc-connect.html is CRLF on this Windows checkout (397/397 lines): normalize
+// before slicing, same as test-sim-map-render does for sim.html, so the import
+// strip below is not hostage to line endings.
+const html = fs.readFileSync(path.join(here, '..', 'vnc-connect.html'), 'utf8').replace(/\r\n/g, '\n')
 
 const failures = []
 const check = (label, run) => {
