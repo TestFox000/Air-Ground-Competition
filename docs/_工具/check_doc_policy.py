@@ -12,6 +12,10 @@
   Y2 status=现行 但 updated 超过 stale_days 天（过期候选）
   Y3 库内标题重复（副本即债）
   Y4 基线里已消失的路径（可精简基线）
+  Y5 根目录临时件（_tmp*/_work_tmp*/_recover_tmp*，应进 _tmp_session/ 或 _archive/）
+  Y6 命名空间不合法（在办/<ns>/ 缺 00_树.md、卡面 ns 与目录不符、缺 agent）
+  Y7 卡未挂树 / 树指向不存在的卡（试点期只对有 ns 层的目录生效）
+  Y8 已归档卡缺「文档变更」落地记录（§8.8 / 设计 §5 收口契约）
 
 用法：
   python docs/_工具/check_doc_policy.py                 # 体检
@@ -178,7 +182,7 @@ def main():
             if not rel.startswith("docs/30_任务卡库/"):
                 continue
             name = rel.rsplit("/", 1)[-1]
-            if name in ("README.md", "00_索引.md") or "/模板/" in rel:
+            if name in ("README.md", "00_索引.md", "00_树.md") or "/模板/" in rel or "/_设计/" in rel:
                 continue
             st = front_matter(os.path.join(WS, rel)).get("status", "")
             if "/在办/" in rel:
@@ -209,6 +213,66 @@ def main():
             continue
         if n.startswith(("_tmp", "_work_tmp", "_recover_tmp")):
             yellow.append(("Y5", n, "根目录临时文件/目录（收口前移入 _tmp_session/ 或 _archive/）"))
+
+    # Y6/Y7/Y8 命名空间与任务树（试点期只提醒）
+    # 规则：docs/30_任务卡库/_设计/00_命名空间与任务树.md
+    tree_cache = {}
+
+    def _tree_text(dir_rel):
+        if dir_rel not in tree_cache:
+            p = os.path.join(WS, dir_rel, "00_树.md")
+            tree_cache[dir_rel] = (open(p, "r", encoding="utf-8", errors="replace").read()
+                                   if os.path.exists(p) else None)
+        return tree_cache[dir_rel]
+
+    CARD_LIVE = "docs/30_任务卡库/在办/"
+    for rel in buckets["doc"]:
+        if not rel.startswith(CARD_LIVE):
+            continue
+        parts = rel.split("/")
+        if len(parts) < 5:
+            continue  # 旧卡（无 ns 层）：试点期不纳入
+        ns = parts[3]
+        if parts[-1] == "00_树.md":
+            continue
+        dir_rel = "/".join(parts[:4])
+        tree = _tree_text(dir_rel)
+        fm = front_matter(os.path.join(WS, rel))
+        if tree is None:
+            yellow.append(("Y6", rel, "所在 ns 缺 00_树.md（ns=%s）" % ns))
+            continue
+        if fm.get("ns", "") != ns:
+            yellow.append(("Y6", rel, "ns: 与目录名不一致（目录 %s / 卡面 %s）" % (ns, fm.get("ns", "空"))))
+        if not fm.get("agent"):
+            yellow.append(("Y6", rel, "缺 agent:（一张卡必须绑定一个智能体）"))
+        stem = parts[-1][:-3]
+        if not fm.get("树节点"):
+            yellow.append(("Y7", rel, "缺 树节点:（卡必须挂在树上）"))
+        elif stem not in tree:
+            yellow.append(("Y7", rel, "树里没有指向本卡的节点（卡号 %s 未出现）" % stem))
+    for dir_rel, tree in tree_cache.items():
+        if not tree:
+            continue
+        for cam in re.findall(r"\[卡\]\s*([A-Za-z][A-Za-z0-9-]*\d{8})", tree):
+            if not os.path.exists(os.path.join(WS, dir_rel, cam + ".md")):
+                yellow.append(("Y7", dir_rel + "/00_树.md", "树节点指向的卡不存在：" + cam))
+
+    # Y8 归档契约：有 ns 层的归档卡必须写「文档变更」
+    for rel in buckets["doc"]:
+        if not rel.startswith("docs/30_任务卡库/归档/"):
+            continue
+        parts = rel.split("/")
+        if len(parts) < 6:
+            continue  # 旧归档（无 ns 层）：暂不纳入
+        try:
+            with open(os.path.join(WS, rel), "r", encoding="utf-8", errors="replace") as f:
+                body = f.read()
+        except OSError:
+            continue
+        m = re.search(r"文档变更", body)
+        seg = body[m.end():].split("\n## ", 1)[0] if m else ""
+        if not seg.strip().strip("-—:： ").strip():
+            yellow.append(("Y8", rel, "已归档卡缺「文档变更」落地记录（§8.8 / 设计 §5）"))
 
     # 写基线模式
     if "--write-baseline" in sys.argv:
