@@ -3,7 +3,7 @@
 取证: 档
 更新: 2026-10-21
 取代: 无
-status: 部分完成（C1 3/3 通过；C0 外部量测与 C2b 未闭合）
+status: in_progress
 ---
 
 # TRACK-FIELD-R3B-20261021 · R3B 现场补测（C0 / C1-short / C1 / C2b）

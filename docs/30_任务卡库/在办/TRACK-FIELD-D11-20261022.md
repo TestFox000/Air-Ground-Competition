@@ -3,7 +3,7 @@
 取证: 实/未
 更新: 2026-10-23
 取代: 无
-status: in_progress（2026-10-22 现场执行中）
+status: in_progress
 ---
 
 # TRACK-FIELD-D11-20261022 · 1.41 m 单停站打靶验证（D11，靶速 0.3 m/s〔D-033〕）

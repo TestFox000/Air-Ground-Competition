@@ -3,7 +3,7 @@
 取证: 档
 更新: 2026-10-21
 取代: 无
-status: 待验收
+status: in_progress
 ---
 
 # TRACK-FIELD-B5-20261021 · 阿克曼量测 + 航向守卫复算 + X05 电流分诊（task-8）

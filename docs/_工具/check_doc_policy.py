@@ -5,6 +5,8 @@
   R1 库外新增 .md     —— 不在 docs/ 白名单、也不在基线里（=有人又在别处拉屎）
   R2 库内位置越权     —— docs/ 下但不在允许的库目录/根文件里（=又开了个新库）
   R3 库内未登记       —— docs/ 下的文档没进 目录索引.json（=写了没登记）
+  R4 任务卡 status 越界 —— 在办卡必须 pending/in_progress；归档卡必须 已归档（按日合并摘要除外）
+  R6 20 库篇数口径漂移  —— README 写"应为 N 篇"与实际 .md 数不符（手写数字必腐）
 提醒（不判红）：
   Y1 库内文档缺 front matter status
   Y2 status=现行 但 updated 超过 stale_days 天（过期候选）
@@ -166,6 +168,47 @@ def main():
     for t, paths in titles.items():
         if len(paths) > 1:
             yellow.append(("Y3", paths[0], "标题/文件名重复：" + " | ".join(paths)))
+
+    # R4 任务卡 status 值域（卡库用自己的三值，见 AGENTS §8.5；细节写正文，不进 frontline）
+    cs = cfg.get("card_status", {})
+    if cs.get("enabled", True):
+        live_vals = cs.get("in_progress_values", ["pending", "in_progress"])
+        done_val = cs.get("archived_value", "已归档")
+        for rel in buckets["doc"]:
+            if not rel.startswith("docs/30_任务卡库/"):
+                continue
+            name = rel.rsplit("/", 1)[-1]
+            if name in ("README.md", "00_索引.md") or "/模板/" in rel:
+                continue
+            st = front_matter(os.path.join(WS, rel)).get("status", "")
+            if "/在办/" in rel:
+                if st not in live_vals:
+                    red.append(("R4", rel, "在办卡 status 只能是 %s，现在是「%s」；细节挪正文（§8.5）"
+                                % (" / ".join(live_vals), st or "空")))
+            elif "/归档/" in rel:
+                if re.match(r"^\d{4}-\d{2}-\d{2}\.md$", name):
+                    continue  # 按日合并摘要不是卡面
+                if st != done_val:
+                    red.append(("R4", rel, "归档卡 status 必须是「%s」，现在是「%s」" % (done_val, st or "空")))
+
+    # R6 20 库 README 篇数口径 vs 实际（手写计数必腐，用扫描结果对账）
+    lib_readme = os.path.join(WS, "docs/20_资料索引库/README.md")
+    if os.path.exists(lib_readme):
+        with open(lib_readme, "r", encoding="utf-8", errors="replace") as f:
+            rt = f.read()
+        m = re.search(r"应为\s*(\d+)\s*篇", rt)
+        actual = sum(1 for r in files if r.startswith("docs/20_资料索引库/"))
+        if m and int(m.group(1)) != actual:
+            red.append(("R6", "docs/20_资料索引库/README.md",
+                        "README 写「应为 %s 篇」，实际 %d 篇（口径：本目录全部 .md，含 README 与册级索引）"
+                        % (m.group(1), actual)))
+
+    # Y5 根目录临时件（应进 _tmp_session/，不参与版本管理）
+    for n in sorted(os.listdir(WS)):
+        if n == "_tmp_session":
+            continue
+        if n.startswith(("_tmp", "_work_tmp", "_recover_tmp")):
+            yellow.append(("Y5", n, "根目录临时文件/目录（收口前移入 _tmp_session/ 或 _archive/）"))
 
     # 写基线模式
     if "--write-baseline" in sys.argv:

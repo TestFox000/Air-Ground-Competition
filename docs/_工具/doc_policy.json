@@ -18,6 +18,7 @@
     "_tmp_session/",
     "backup/",
     "_archive/",
+    "git_save/",
     "dzrobot_v2/src/history/",
     "artifacts/",
     "docs/history_cache/",
@@ -60,6 +61,14 @@
       "docs/10_agent提示词",
       "docs/20_资料索引库"
     ]
+  },
+  "card_status": {
+    "enabled": true,
+    "in_progress_values": [
+      "pending",
+      "in_progress"
+    ],
+    "archived_value": "已归档"
   },
   "baseline": "docs/_工具/doc_policy_baseline.json"
 }

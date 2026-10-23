@@ -3,7 +3,7 @@
 取证: 算/未（影响面需 grep 证明；改动未部署）
 更新: 2026-10-23
 取代: 无
-status: pending（待指派 owner 与窗口；config 冻结，今日不动）
+status: pending
 ---
 
 # TRACK-CFG-TARGETSPEED-20261022 · 靶速注释收口（0.04 → 0.3）

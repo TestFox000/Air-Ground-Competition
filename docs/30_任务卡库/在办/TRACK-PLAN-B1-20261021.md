@@ -3,7 +3,7 @@
 取证: 档
 更新: 2026-10-21
 取代: 无
-status: 验收通过（离线，未部署）
+status: in_progress
 ---
 
 # TRACK-PLAN-B1-20261021 · T-B1 规划器目标函数换口径（task-7）
