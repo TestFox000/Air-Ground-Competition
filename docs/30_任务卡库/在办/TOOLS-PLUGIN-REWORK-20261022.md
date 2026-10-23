@@ -55,7 +55,7 @@ status: in_progress
 1. sim 家族 5 项需在无 EPERM 沙箱的用户机复跑确认（命令上表）。
 2. /files 需真车段验证（check-files.mjs + test-host 有车分支）。
 3. 挂载：本包仍未进 desktop profile bundles——挂载动作 = profile 改动（沙箱外），与旧插件 file: 依赖改路径一并等用户窗口。
-4. 部署债转挂本卡：desktop profile 两个 file: 依赖仍指旧路径（dzsmartscout/、dzrobot_v2/ 下旧目录，已空），下次 pnpm install 前必须改到 tools/plugins/，否则断链。改法已给出（一行 sed/手改均可），沙箱不可代跑。
+4. ~~部署债：desktop profile 两个 file: 依赖指旧路径~~ —— **已清除**（2026-10-22 23:00，经用户授权）：两行改指 `tools/plugins/`，回读校验均解析到同名包（脚本 `_tmp_session/TOOLS-PLUGIN-REWORK-20261022/repoint-deps.cjs`）。**未跑 pnpm install**——安装动作归挂载事项，仍需窗口。
 
 ## 执行记录
 
@@ -66,7 +66,26 @@ status: in_progress
 - sim 红全部 EPERM 归因（两个独立探针复现），未放宽任何断言。
 - README 的 --dry-run 声称自本卡起成为事实（原为不实宣传）。
 
+**2026-10-22 22:50–23:10 · Lead（收口段）**
+- 提交：v1 `2ab6c76`（13 文件，精确 pathspec）+ `5b980db`（卡面落账）；dzrobot_v2 `290e9c7`（TEAM_STATUS）。
+- **如实记录（混提）**：`290e9c7` 除本人两处行改动外，同文件携带了另一会话未提交的链接改写（agent_handoff/_tmp_session → history_cache 指向，16 增 12 删的大头）。系整文件提交所致、非故意；内容无损、方向与其文档迁移一致；撤销会抹掉他人改动，故不回滚只落账。共享文件单写者（§4）后续要靠领取先看 git 脏态执行。
+- **事故记录（次日补）**：23:02–23:10 另一会话把 v1 仓切到新根分支 `chunk-push`（chunk base/1/2 三笔，快照式重排全部历史）。我的两笔提交脱离主线（仍在 `github-main`：2ab6c76/5b980db），且本卡工作树被回退到初版——72 行、丢两段落账。代码修复（statusFor/classifyFailure/deploy --dry-run/字典/role 透传）**都在 HEAD 里完好**；profile file: 依赖、TEAM_STATUS、归档件、归档索引也都在。已重贴落账并补记本段。教训落盘：**并行会话会重排 git 历史，卡片类文件收口后必须 git 落库并以提交号为准，不能只靠工作树**。
+
+## 用户机复跑清单（本沙箱 EPERM 测不了的）
+
+```
+cd tools/plugins/dsh-dzairground-ssh
+node scripts/test-sim-parity.mjs        # 沙箱内 spawn python EPERM
+node scripts/test-sim-incremental.mjs   # 同上
+node scripts/test-sim-map-render.mjs    # 沙箱内 59/61，2 红为 spawn EPERM
+node scripts/test-sim-drone-render.mjs  # 沙箱内 29/31，2 红为 artifacts mkdir EPERM（根在 dzrobot_v2，沙箱外一层）
+node scripts/test-sim-overlay-fix.mjs   # 沙箱内 spawn EPERM
+# 有车时：node scripts/check-files.mjs && node scripts/test-host.mjs（有车分支全断言）
+```
+
 ## §10 文档变更
 
-- 修改：本卡（新增）、TOOLS-ORGANIZE-20261022（拆分注记+归档件）、docs/30_任务卡库/归档/00_索引.md、docs/目录索引（gen_index 重跑）
+- 修改：本卡（新增）、TOOLS-ORGANIZE-20261022（拆分注记+归档件）、docs/30_任务卡库/归档/00_索引.md、docs/目录索引.md/.json（gen_index 重跑）、dzrobot_v2/docs/TEAM_STATUS.md（在跑表+更新头）
+- profile 侧（库外、非文档）：C:/Users/TestFox/.dsh/profiles/desktop/package.json 两行 file: 依赖路径
+- docs 快照：`_archive/docs_snapshots/docs-20261022-2253.zip`（187 文件）
 - 无新增长期文档于库外。
