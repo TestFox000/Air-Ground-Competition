@@ -68,6 +68,7 @@ el('obstacles').value = field.obstacles.join(' ')
 el('bridges').value = field.bridges.join(' ')
 
 const body = fs.readFileSync(HTML, 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1]
+  .replace(/\r\n/g, '\n')   // sim.html 是 CRLF：跨行变异体锚点（find 串含 \n）先归一化，与行尾脱钩
 const documentStub = { getElementById: el, querySelectorAll() { return [] }, addEventListener() {} }
 const windowStub = { addEventListener() {} }
 const fetchStub = () => Promise.resolve({ json: () => Promise.resolve({}), text: () => Promise.resolve('') })
@@ -401,15 +402,21 @@ api.renderMap()
 const svgH = el('map').innerHTML
 check('C 靶朝向：targetYaw=「h」→ 渲染标注变「横向」',
   labelOf(svgH) === '横向' && !/竖向/.test(svgH), 'label=' + labelOf(svgH))
+//    自动判定的期望值由地图真源两格几何现推（现役图 D5+D6 上下相邻 → 竖向 34×68）——
+//    钉的是「跟随真源」这条不变量，不是某个旧朝向；换图不用改测试
+const autoRect = field.target ? api.targetBoardRect(field.targets, '') : null
+const autoLabel = autoRect ? (autoRect[2] >= autoRect[3] ? '横向' : '竖向') : null
 el('targetYaw').value = 'x'          // 非法值：targetYawMode() 回落 '' = 跟随地图
 api.renderMap()
-check('C 靶朝向：targetYaw 非法值回落「跟随地图」→ 标注仍是自动判定的「横向」',
-  labelOf(el('map').innerHTML) === '横向', 'label=' + labelOf(el('map').innerHTML))
+check('C 靶朝向：targetYaw 非法值回落「跟随地图」→ 标注 == 地图自动判定（现役图 = ' + autoLabel + '）',
+  autoLabel !== null && labelOf(el('map').innerHTML) === autoLabel,
+  'label=' + labelOf(el('map').innerHTML) + ' auto=' + autoLabel)
 //    宿主侧口径：地图真源（field.target + fieldSpec）与页面函数三者一致
-check('C 靶朝向：fieldSpec() 报的 target.yaw 与 targetBoardRect auto 一致（E5+F5 → h）',
-  field.target && field.target.yaw === 'h'
-  && api.targetBoardRect(field.targets, '')[2] >= api.targetBoardRect(field.targets, '')[3],
-  JSON.stringify(field.target))
+check('C 靶朝向：fieldSpec() 报的 target.yaw 与 targetBoardRect auto 几何一致（h ⇔ 宽≥高，v ⇔ 高>宽）',
+  field.target && (field.target.yaw === 'h' || field.target.yaw === 'v')
+  && (api.targetBoardRect(field.targets, '')[2] >= api.targetBoardRect(field.targets, '')[3]) === (field.target.yaw === 'h')
+  && autoLabel === (field.target.yaw === 'h' ? '横向' : '竖向'),
+  JSON.stringify(field.target) + ' auto=' + autoLabel)
 
 // ── ★ t2 新增：靶朝向**透传链**（表单 → 请求体 → 宿主 sanitizeParams → 台账）────────────
 // 三项改进里只有靶朝向带**持久化**（进 run_meta.jsonl），所以链条逐段钉住：

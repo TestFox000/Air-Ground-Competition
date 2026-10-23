@@ -184,7 +184,8 @@ section('E. 页面与车端同引擎（修「乱算」）')
   if (root) {
     const { plannerEngineOf } = await import(pathToFileURL(path.join(PLUGIN, 'src', 'simbench.js')).href)
     const engine = plannerEngineOf(path.join(root, 'config', 'robot.yaml'))
-    check('E5 从现役 robot.yaml 读到 tracker-safe（与车端一致）', engine === 'tracker-safe', `读到 ${engine}`)
+    // 现役真源 = tour（D-012：现役折返图 tracker-safe 0/5 无解，引擎已切 tour）；引擎再换须与本钉同提交改
+    check('E5 从现役 robot.yaml 读到 planner.engine == 现役引擎 tour（D-012 后；与车端同一份配置）', engine === 'tour', `读到 ${engine}`)
     const tmpNo = path.join(os.tmpdir(), 't-overlay-no-planner.yaml')
     fs.writeFileSync(tmpNo, 'route:\n  tokens: ["N10"]\n', 'utf8')
     check('E6 无 planner 块 → null（不传 --engine，保持历史默认）', plannerEngineOf(tmpNo) === null)
@@ -206,9 +207,13 @@ section('F. 实跑 plan_route.py（同款 argv）')
   const root = findWorkspaceRoot()
   if (!root) check('F0 有工作区可实跑', false)
   else {
+    const { plannerEngineOf } = await import(pathToFileURL(path.join(PLUGIN, 'src', 'simbench.js')).href)
+    const liveEngine = plannerEngineOf(path.join(root, 'config', 'robot.yaml'))
+    const argv = ['tools/plan_route.py', '--config', 'config/robot.yaml',
+      '--map', 'config/map.yaml', '--emit', 'json', '--check', '--quiet']
+    if (liveEngine) argv.push('--engine', liveEngine)   // 与 planRoute 同款：现役配什么就传什么（D-012 后 = tour）
     const run = await new Promise(resolve => {
-      const child = spawn('python', ['tools/plan_route.py', '--config', 'config/robot.yaml',
-        '--map', 'config/map.yaml', '--emit', 'json', '--check', '--quiet', '--engine', 'tracker-safe'], {
+      const child = spawn('python', argv, {
         cwd: root,
         env: {
           ...process.env,
@@ -226,7 +231,7 @@ section('F. 实跑 plan_route.py（同款 argv）')
       child.on('error', e => { clearTimeout(timer); resolve({ code: -1, out, err: String(e?.message ?? e) }) })
       child.on('close', code => { clearTimeout(timer); resolve({ code: code ?? 1, out, err }) })
     })
-    check('F1 tracker-safe 引擎实跑 exit 0', run.code === 0,
+    check('F1 现役引擎（' + liveEngine + '）实跑 exit 0', run.code === 0,
       run.code === 0 ? '' : run.err.split('\n').filter(Boolean).slice(-2).join(' | '))
     const open = run.out.indexOf('{')
     let tokens = 0
