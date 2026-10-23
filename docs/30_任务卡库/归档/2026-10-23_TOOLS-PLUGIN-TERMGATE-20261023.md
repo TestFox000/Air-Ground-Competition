@@ -68,6 +68,8 @@ node scripts/test-package-files.mjs
 - test-host PASS / test-vnc-guard PASS / test-vnc-wrapper PASS / test-vnc-connect PASS / test-package-files PASS
 - 注：test-host 首跑 exit 1 为端口占用 flake，单独重跑 PASS。
 
+**追记（2026-10-23 20:5x 部署后核验）**：插件已由 d1e5c6e 迁出本仓至 `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/`，§7 验收命令应在新仓目录下执行。已核验：新仓 client.js 与本仓 17076fc 提交内容逐字节一致（CRLF 归一后 diff 0 行、sha256 均 75aa040b）；desktop profile 部署副本同哈希；新仓下 test-client.mjs / test-vnc-connect.mjs 重跑 PASS。VNC 侧确认无探测闸门（openToolTab 直开），用户「VNC+终端都要能开」的需求中 VNC 本就畅通，本卡只需修终端。
+
 **部署**：client.js → `~/.dsh/profiles/desktop/node_modules/dsh-dzairground-ssh/client.js`，部署哈希 == 源码哈希 `75aa040b91567394`（test-package-files 绿即证）。用户刷新 GUI 页面生效。
 
 **验收命令复跑**：`curl /api/dzairground-ssh/car/status` → 200。
