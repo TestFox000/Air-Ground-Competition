@@ -1,0 +1,26 @@
+# D4 射击格只标首次出现（审查#3：回环重访不重复开火）
+# 日期: 2026-10-24  审查复核: docs/成员交接/yu-binghuan/20261023-20261023-bug-audit-verification
+# 底本: 无人机 ~/dzuav_deploy/air_ground @ 310558e（靶向对齐后）
+# 验证: tests/test_audit_fixes.py（本地 11/11 过，全量 109 过/15 既有失败零新增）
+# 应用: cd ~/dzuav_deploy/air_ground && git apply <patch> 或人工核对
+
+--- a/src/ag_integrate/ag_integrate/car_commands.py
++++ b/src/ag_integrate/ag_integrate/car_commands.py
+@@ -100,7 +100,16 @@
+ 
+     shoot = {s for s in (parse_cell(x) for x in plan.shoot_at) if s in present}
+ 
+-    tokens = [f"{c}*" if c in shoot else c for c in ordered]
++    # 2026-10-23 审查#3：射击格只标首次出现。路线回环重访同一格时再标 '*'
++    # 会让执行器二次停车开火（10 发弹量下纯浪费；契约＝顺路再过不重复开火）。
++    starred: set[str] = set()
++    tokens: list[str] = []
++    for c in ordered:
++        if c in shoot and c not in starred:
++            tokens.append(f"{c}*")
++            starred.add(c)
++        else:
++            tokens.append(c)
+     if plan.final_heading:
+         tokens.append(f",{to_car_heading(plan.final_heading)}")
+     return " ".join(tokens).replace(" ,", ",")
