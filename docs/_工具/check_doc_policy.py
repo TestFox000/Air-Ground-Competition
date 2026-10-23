@@ -221,6 +221,9 @@ def main():
                 continue
             for m in re.finditer(r"_tmp_session/[^\s，,；;）)】\]|]+", txt):
                 raw = m.group(0).rstrip(".。,，;；:：").rstrip(chr(96) + chr(34) + chr(39))
+                for suf in ("〔档〕", "〔证失效〕", chr(96)):
+                    if raw.endswith(suf):
+                        raw = raw[:-len(suf)]
                 if "<" in raw or "*" in raw or raw == "_tmp_session/" or raw.endswith("..."):
                     continue
                 cited.add(raw)
