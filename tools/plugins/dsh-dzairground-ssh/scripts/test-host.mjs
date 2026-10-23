@@ -451,7 +451,26 @@ for (const role of ['car', 'drone']) {
 
 // ── the car's filesystem ──────────────────────────────────────────────────────
 console.log('\n--- files ---')
+// These routes reach the car over ssh, so the section splits on whether a car
+// answers here at all (the convention test-package-files already uses). No robot
+// is not a free pass: it is exactly when the honest-offline contract is assertable
+// — an unreachable node must answer 503 with a transport flag, never a 400 that
+// reads to the user as “you typed a bad path”.
+const carHere = probe.payload.state === 'ready'
 const listing = await call('/files?path=/home/duzhong')
+if (!carHere) {
+  check('GET /files with no car answers 503 + transport, not 400',
+    listing.status === 503 && listing.payload.transport === true,
+    `${listing.status} ${JSON.stringify(listing.payload.error)}`)
+  const offlineFile = await call('/file?path=/etc/hostname')
+  check('GET /file with no car answers 503 too',
+    offlineFile.status === 503 && offlineFile.payload.transport === true, String(offlineFile.status))
+  const missingProbe = await call('/files?path=/nope/nope')
+  check('the unreachable answer names the transport, not the path',
+    !/不存在|不可访问/.test(String(missingProbe.payload.error ?? '')),
+    JSON.stringify(missingProbe.payload.error))
+  console.log('SKIP  the remaining file checks need a real car at this address')
+} else {
 check('GET /files lists the home directory',
   listing.status === 200 && listing.payload.ok === true && listing.payload.entries.length > 5,
   `${listing.status} ${listing.payload.entries?.length} entries`)
@@ -494,6 +513,7 @@ check('POST /upload writes to the car', upload.status === 200 && uploaded.ok ===
 const readBack = await call('/file?path=/tmp/dsh-upload-probe.txt')
 check('the uploaded bytes read back identical',
   String(readBack.payload.text ?? '') === 'hello from the plugin test', JSON.stringify(readBack.payload.text))
+}
 
 // ── the VNC bridge ────────────────────────────────────────────────────────────
 /*

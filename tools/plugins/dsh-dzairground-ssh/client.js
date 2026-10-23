@@ -236,6 +236,9 @@ window.__ModuleLoader__.load({
         connNewTabHint: '新窗口/标签页是独立文档，密码不会带过去，会在那里再问一次',
         connScaleHint: '开启时画面始终缩放到窗口大小；关闭时按原始分辨率显示、可滚动',
         connResolutionHint: '自适应让远端分辨率跟随窗口；选固定值则请求远端改分辨率（需 TigerVNC + RandR 支持 SetDesktopSize）',
+        connCarBridge: '小车通道',
+        connCarBridgeHint: '把目标切回小车通道自带网桥 ws://<DSH 地址>/api/dzairground-ssh/car/vnc：直通小车 5901，车上不需要 websockify',
+        connCarBridgeDone: '已切到小车通道，点“连接”即可',
         connNodeBridge: '本节点通道',
         vncBridgeHintCar: '把目标切回车通道自带网桥 ws://<DSH 地址>/api/dzairground-ssh/car/vnc：直通小车 5901，车上不需要 websockify',
         vncBridgeHintDrone: '把目标切回机通道自带网桥 ws://<DSH 地址>/api/dzairground-ssh/drone/vnc：直通 dzsmart 5901，机上不需要 websockify',
@@ -432,6 +435,9 @@ window.__ModuleLoader__.load({
         connNewTabHint: 'The new window/tab is a standalone document; the password is not transferred — it asks again there',
         connScaleHint: 'On: the picture always scales to fit the window. Off: shown at native resolution, scrollable',
         connResolutionHint: 'Auto makes the remote follow your window; a fixed value requests a remote resolution change (needs TigerVNC + RandR / SetDesktopSize)',
+        connCarBridge: 'Car bridge',
+        connCarBridgeHint: 'Point the form back at the car channel’s own bridge ws://<DSH address>/api/dzairground-ssh/car/vnc — straight to the car on 5901, no websockify needed',
+        connCarBridgeDone: 'Switched to the car bridge — press Connect',
         connNodeBridge: 'Node bridge',
         vncBridgeHintCar: 'Point the form back at the car channel’s own bridge ws://<DSH address>/api/dzairground-ssh/car/vnc — straight to the car on 5901, no websockify needed',
         vncBridgeHintDrone: 'Point the form back at the drone channel’s own bridge ws://<DSH address>/api/dzairground-ssh/drone/vnc — straight to dzsmart on 5901, no websockify needed',
@@ -891,7 +897,7 @@ window.__ModuleLoader__.load({
 
       const target = await ensureConversation(ctx, element, 'connect')
       if (target === undefined) return { ok: false, reason: 'no-session' }
-      return openInTerminal(settings, terminals, target, command, label, onPhase)
+      return openInTerminal(settings, terminals, target, command, label, onPhase, role)
     }
 
     /**
@@ -901,7 +907,10 @@ window.__ModuleLoader__.load({
      * the target the caller captured, and once with the target re-resolved after
      * revealing the right column.
      */
-    async function openInTerminal(settings, terminals, target, command, label, onPhase) {
+    // `role` must reach the tab title below: the rename line reads it, and
+    // an earlier signature omitted it — the ReferenceError landed in the cosmetic
+    // try/catch, so tabs silently kept their default titles (found 2026-10-22).
+    async function openInTerminal(settings, terminals, target, command, label, onPhase, role = 'car') {
       const before = new Set(
         settings.openTabs.getSnapshot().filter(tab => tab.kind === 'terminal').map(tab => tab.tabId ?? tab.id),
       )
@@ -2679,18 +2688,27 @@ window.__ModuleLoader__.load({
      * WebSocket upgrade at ws://<served-origin>/api/dzairground-ssh/<role>/vnc,
      * which tunnels straight to that node's 5901 and needs no websockify there.
      *
-     * One helper, two callers — the first-run prefill and the “car bridge”
+     * One helper, two callers — the first-run prefill and the “node bridge”
      * button — so the two can never drift apart. Throws on an unparseable
      * origin; callers decide what to show.
+     *
+     * Role is explicit for anything that knows which node it belongs to (both
+     * panels do). Without a role the legacy S1 surface is the honest answer:
+     * `/api/dzairground-ssh/vnc` is still registered as the car channel, so a
+     * role-less caller lands on the target the plugin shipped before S7 rather
+     * than silently picking a channel for it.
      */
-    function bridgeConnectorConfig(origin, base, nodePassword, role = 'car') {
+    function bridgeConnectorConfig(origin, base, nodePassword, role) {
       const url = new URL(origin)
+      const path = role === 'drone'
+        ? 'api/dzairground-ssh/drone/vnc'
+        : role === 'car' ? 'api/dzairground-ssh/car/vnc' : 'api/dzairground-ssh/vnc'
       return {
         ...base,
         scheme: url.protocol === 'https:' ? 'wss' : 'ws',
         host: url.hostname,
         port: url.port === '' ? (url.protocol === 'https:' ? '443' : '80') : url.port,
-        path: role === 'drone' ? 'api/dzairground-ssh/drone/vnc' : 'api/dzairground-ssh/car/vnc',
+        path,
         password: base.password === '' ? nodePassword : base.password,
       }
     }

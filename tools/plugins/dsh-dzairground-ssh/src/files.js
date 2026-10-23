@@ -125,16 +125,29 @@ const FAILURES = [
   [/host key verification failed|remote host identification/i, '主机密钥与已知记录不符，拒绝连接。'],
 ]
 
-/** Read the remote's printable error text, if any. */
-function remoteError(stderr, fallback) {
-  const text = String(stderr ?? '').split('\n').map(line => line.trim()).filter(Boolean)
+/**
+ * Classify one failed remote command: transport, or the path itself.
+ *
+ * `ok: false` alone cannot tell the two apart and the HTTP layer must: pointing
+ * the browser at a missing directory and finding the car asleep are different
+ * failures with different fixes. Transport is ssh's own stderr matching a known
+ * FAILURES pattern, or a spawn that never reached the remote at all; everything
+ * else is the remote *answering* that the path is wrong.
+ *
+ * @returns `{ transport, error }` — `transport: true` maps to 503 downstream.
+ */
+function classifyFailure(result, fallback) {
+  if (result.spawnFailed === true) {
+    return { transport: true, error: `无法启动 ssh：${String(result.stderr ?? '').split('\n')[0] ?? 'unknown'}` }
+  }
+  const text = String(result.stderr ?? '').split('\n').map(line => line.trim()).filter(Boolean)
     .filter(line => !/^(warning: permanently added|debug\d*:)/i.test(line))
   const raw = text.join(' ')
   for (const [pattern, message] of FAILURES) {
-    if (pattern.test(raw)) return message
+    if (pattern.test(raw)) return { transport: true, error: message }
   }
   const message = text.slice(-1)[0]
-  return message === undefined || message === '' ? fallback : message
+  return { transport: false, error: message === undefined || message === '' ? fallback : message }
 }
 
 /**
@@ -156,7 +169,7 @@ export async function listDirectory(settings, path, { signal } = {}) {
   const command = `cd -- ${quote(target)} 2>/dev/null || { echo __DSH_ERR__; exit 3; }; find -L . -mindepth 1 -maxdepth 1 -printf '%f\\0%y\\0%s\\0%T@\\0' 2>/dev/null | base64 -w0; echo; pwd`
   const result = await remote(settings, command, { signal, timeoutMs: 20000 })
   if (result.code !== 0) {
-    return { ok: false, error: remoteError(result.stderr, '目录不可访问'), path: target }
+    return { ok: false, ...classifyFailure(result, '目录不可访问'), path: target }
   }
 
   const text = result.stdout.toString('utf8')
@@ -215,7 +228,7 @@ export async function listDirectory(settings, path, { signal } = {}) {
 export async function statPath(settings, path, { signal } = {}) {
   const command = `find -L ${quote(path)} -maxdepth 0 -printf '%y\\0%s\\0%T@\\0' 2>/dev/null | base64 -w0`
   const result = await remote(settings, command, { signal, timeoutMs: 12000 })
-  if (result.code !== 0) return { ok: false, error: remoteError(result.stderr, '文件不存在') }
+  if (result.code !== 0) return { ok: false, ...classifyFailure(result, '文件不存在') }
   const decoded = Buffer.from(result.stdout.toString('utf8').trim(), 'base64').toString('utf8')
   const fields = decoded.split('\0')
   if (fields[0] === '' || fields.length < 3) return { ok: false, error: '文件不存在' }
@@ -245,7 +258,7 @@ export async function readTextFile(settings, path, { signal, maxBytes = MAX_READ
   if (info.size > maxBytes) return { ok: false, error: `文件过大（${info.size} 字节），请下载后查看`, tooLarge: true, size: info.size }
 
   const result = await remote(settings, `base64 -w0 -- ${quote(path)}`, { signal, timeoutMs: 25000 })
-  if (result.code !== 0) return { ok: false, error: remoteError(result.stderr, '读取失败') }
+  if (result.code !== 0) return { ok: false, ...classifyFailure(result, '读取失败') }
   const buffer = Buffer.from(result.stdout.toString('utf8').trim(), 'base64')
 
   // A NUL byte is the cheapest reliable binary tell, but it is not the only one:

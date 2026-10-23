@@ -195,10 +195,33 @@ const ctxClient = {
 
 // Capture the diagnostic reports the flow sends, then fail the test if the flow
 // claims success without them — the reports are the only witness to each step.
+//
+// The car half also gets a local stand-in, the same idea as test-host's TCP VNC
+// stand-in: only /car/probe and /car/status are answered, so connect() runs its
+// whole flow (probe → command → reveal → tab → view → write) without a robot.
+// /drone/* is deliberately NOT stubbed — dzsmart.local is honestly unreachable
+// here, and the S7 drone assertions depend on that.
+const CAR_STUB = {
+  probe: { state: 'ready', detail: 'stub', latencyMs: 1, command: 'ssh -T duzhong@stub.local' },
+  status: {
+    settings: { host: 'stub.local', user: 'duzhong', sshAlias: '' },
+    command: 'ssh -T duzhong@stub.local',
+  },
+}
+const carStub = (url) => {
+  const path = new URL(String(url), 'http://localhost').pathname  // client fetches a relative path; wrapper #1 makes it absolute
+  if (path === '/api/dzairground-ssh/car/probe') return CAR_STUB.probe
+  if (path === '/api/dzairground-ssh/car/status') return CAR_STUB.status
+  return undefined
+}
 const fetchWithDiag = globalThis.fetch
-globalThis.fetch = (url, options) => {
+globalThis.fetch = async (url, options) => {
   if (String(url).includes('/diag')) {
     try { diagPayloads.push(JSON.parse(options.body)) } catch { /* ignore */ }
+  }
+  const stubbed = carStub(url)
+  if (stubbed !== undefined) {
+    return { ok: true, status: 200, async text() { return JSON.stringify(stubbed) } }
   }
   return fetchWithDiag(url, options)
 }

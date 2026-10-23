@@ -7,6 +7,9 @@
  * was deleted" with no error anywhere).
  *
  * Run: node scripts/deploy.mjs
+ *      node scripts/deploy.mjs --dry-run  — report what would change, write nothing
+ *                                           (README promises this; the flag is real
+ *                                           since the 2026-10-22 rework)
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -31,29 +34,41 @@ const walk = (dir, base = dir, acc = []) => {
   return acc
 }
 
+const dryRun = process.argv.slice(2).includes('--dry-run')
 const files = walk(root)
-let copied = 0, unchanged = 0
+let copied = 0, unchanged = 0, wouldCopy = 0
 for (const rel of files) {
   const from = path.join(root, rel), to = path.join(installed, rel)
   if (fs.existsSync(to) && fs.readFileSync(from).equals(fs.readFileSync(to))) { unchanged++; continue }
+  if (dryRun) { console.log(`would copy: ${rel}`); wouldCopy++; continue }
   fs.mkdirSync(path.dirname(to), { recursive: true })
   fs.copyFileSync(from, to)
   copied++
 }
-console.log(`synced: copied=${copied} unchanged=${unchanged} total=${files.length}`)
+console.log(dryRun
+  ? `dry-run: would-copy=${wouldCopy} unchanged=${unchanged} total=${files.length} — nothing written`
+  : `synced: copied=${copied} unchanged=${unchanged} total=${files.length}`)
 
 // Report — never act on — anything installed that the source no longer has.
-const extra = walk(installed).filter(rel => !files.includes(rel))
+// A missing install directory is itself what a fresh profile looks like: name
+// it instead of letting walk() ENOENT (same trap on both dry and live runs).
+const extra = fs.existsSync(path.join(installed, 'package.json'))
+  ? walk(installed).filter(rel => !files.includes(rel))
+  : []
 if (extra.length > 0) {
   console.log(`\nstale in install (${extra.length}) — review and delete manually if obsolete:`)
   for (const rel of extra) console.log(`  ${rel}`)
 }
 
-// The one file whose absence makes the plugin look deleted. Loud, always.
-for (const must of ['package.json', 'index.js', 'client.js']) {
-  if (!fs.existsSync(path.join(installed, must))) {
-    console.error(`\nFATAL ${must} is absent from the install — the plugin cannot register`)
-    process.exit(1)
+// The one file whose absence makes the plugin look deleted. Loud — but only
+// after a run that actually wrote: a dry run against an uninstalled profile
+// has nothing to find, and failing there would punish the preview flag.
+if (!dryRun) {
+  for (const must of ['package.json', 'index.js', 'client.js']) {
+    if (!fs.existsSync(path.join(installed, must))) {
+      console.error(`\nFATAL ${must} is absent from the install — the plugin cannot register`)
+      process.exit(1)
+    }
   }
+  console.log('\nmanifest present: package.json OK')
 }
-console.log('\nmanifest present: package.json OK')

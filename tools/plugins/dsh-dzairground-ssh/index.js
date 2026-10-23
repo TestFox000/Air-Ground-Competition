@@ -254,22 +254,27 @@ export function apply(ctx, config = {}) {
       }
 
       // ── the node's filesystem ───────────────────────────────────────────────
+      // Files status codes follow honest-offline, the same rule /metrics answers
+      // with: an unreachable node is a 503 the UI can name, not a 400 that reads
+      // as "you typed a bad path". src/files.js tags the distinction (transport);
+      // 400 stays for what the car itself rejected (bad path, too large, a directory).
+      const statusFor = payload => (payload.ok ? 200 : payload.transport === true ? 503 : 400)
       if (method === 'GET' && innerRoute === '/files') {
         const requested = url.searchParams.get('path') ?? node.settings.get().filesRoot
         const listing = await listDirectory(node.settings.get(), requested)
-        return send(listing.ok ? 200 : 400, listing)
+        return send(statusFor(listing), listing)
       }
       if (method === 'GET' && innerRoute === '/file') {
         const requested = url.searchParams.get('path') ?? ''
         if (requested === '') return send(400, { ok: false, error: '缺少 path' })
         const file = await readTextFile(node.settings.get(), requested, { maxBytes: MAX_READ_BYTES })
-        return send(file.ok ? 200 : 400, file)
+        return send(statusFor(file), file)
       }
       if (method === 'GET' && innerRoute === '/stat') {
         const requested = url.searchParams.get('path') ?? ''
         if (requested === '') return send(400, { ok: false, error: '缺少 path' })
         const info = await statPath(node.settings.get(), requested)
-        return send(info.ok ? 200 : 400, info)
+        return send(statusFor(info), info)
       }
       if (method === 'GET' && innerRoute === '/download') {
         const requested = url.searchParams.get('path') ?? ''

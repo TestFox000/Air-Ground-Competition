@@ -33,7 +33,9 @@ import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const newClient = path.join(here, '..', 'client.js')
-const oldClient = process.argv[2] ?? path.join(here, '..', '..', 'tools', 'plugins', 'dsh-dzrobot-ssh', 'client.js')
+// Sibling package inside tools/plugins/ (the trees moved there on 2026-10-22;
+// the old literal re-joined 'tools/plugins' below the plugin root and ENOENT'd).
+const oldClient = process.argv[2] ?? path.join(here, '..', '..', 'dsh-dzrobot-ssh', 'client.js')
 
 function extractCss(file) {
   const text = fs.readFileSync(file, 'utf8')
