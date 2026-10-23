@@ -41,6 +41,7 @@ from .intel_protocol import (MSG_ID_CAR_COMMAND, detect_msg_id, parse, parse_car
                              parse_car_pose)
 from .mission_router import _MID_BOUNDARY
 from .pipeline import build_mission, evaluate_gate
+from .route_progress import filter_swept_mines, route_progress
 from .world_model import WorldModel
 
 # reset 断言朝向对应的场地 yaw（弧度，0=东、π/2=北，与 dzuav 0x4002 同架）
@@ -283,6 +284,9 @@ class IntegrateNode(Node):
         # 否则读侧可能拿到"新 yaw + 旧时刻"（被判过期，安全方向的错）。
         self._car_true_yaw: float | None = None
         self._car_yaw_mono: float | None = None
+        # 车位置（0x4002 x/y）。与 yaw 同帧成对写入（元组一次性赋值，GIL 原子），
+        # 供重规划"基于最新进度"换起点用（route_progress），见 _fresh_car_pose。
+        self._car_xy: tuple[float, float] | None = None
         self._car_yaw_stale_warned = False
         #: 已接受的 0x4002 帧序号。对齐 settle 计数按"不同帧"而非"不同 tick"，
         #: 见 _do_heading_alignment。
@@ -400,6 +404,7 @@ class IntegrateNode(Node):
                 return
             self._car_true_yaw = pose.yaw
             self._car_yaw_mono = recv_mono
+            self._car_xy = (pose.x, pose.y)
             self._car_yaw_seq += 1
             self._car_yaw_stale_warned = False
             self.get_logger().debug(
@@ -615,6 +620,19 @@ class IntegrateNode(Node):
         self._car_yaw_stale_warned = False
         return self._car_true_yaw
 
+    def _fresh_car_pose(self) -> tuple[float, float, float] | None:
+        """新鲜车位姿 (x, y, yaw)；缺失/过期返回 None。
+
+        重规划"基于最新进度"的输入口（route_progress）。与 _car_yaw 同一
+        TTL 口径：过期按"没有观测"处理——绝不拿冻结的旧位置当最新进度，
+        否则会把起点换到车早已离开的格子、还误剔那之后的雷（漏排雷）。
+        """
+        xy = self._car_xy
+        yaw = self._car_yaw()
+        if xy is None or yaw is None:
+            return None
+        return (xy[0], xy[1], yaw)
+
     def _effective_start_heading(self) -> str:
         """根据无人机观测的真实朝向，选最近的坐标轴方向作为 reset 断言。
 
@@ -756,12 +774,39 @@ class IntegrateNode(Node):
             if not self._route_needs_replan(snapshot):
                 return
 
+        # —— 重规划基于最新进度（2026-10-23）——
+        # 首发路线按摆位起点规划；中途重规划（replan_on_update 触发）时，若有
+        # 新鲜 0x4002 车位姿：起点换到车的当前格、按真实朝向取最近轴、剔除车
+        # 已碾过的雷。此前"从原始起点重算 + path_executor 最近航段跳段"有两个
+        # 故障面：新排序把必经点排到续接点后方时执行器静默漏项；时间预算按
+        # 全程高估会误砍射击位。守卫签名仍用全量快照（plan_snapshot 只喂规划），
+        # 否则剪过的雷集会让签名永远对不上、退化成每帧重规划。
+        start_cell = self.start_cell
         start_heading = self._effective_start_heading()
+        plan_snapshot = snapshot
+        if self.last_route:
+            pose = self._fresh_car_pose()
+            progress = None
+            if pose is not None:
+                try:
+                    progress = route_progress(self.last_route, *pose)
+                except ValueError as exc:
+                    self.get_logger().warning(
+                        f"车位姿无法落格，重规划退回摆位起点: {exc}")
+            if progress is not None:
+                start_cell = progress.cell.name
+                start_heading = progress.heading
+                plan_snapshot = filter_swept_mines(
+                    snapshot, progress.swept_cells)
+                self.get_logger().info(
+                    f"重规划基于最新进度: 起点 {start_cell}"
+                    f"（朝向 {start_heading}），已扫雷 "
+                    f"{len(snapshot.mines) - len(plan_snapshot.mines)} 颗")
         try:
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always", RuntimeWarning)
                 commands = build_mission(
-                    snapshot, self.start_cell, self.goal_cell,
+                    plan_snapshot, start_cell, self.goal_cell,
                     start_heading, self.final_heading,
                     self.cross_gates, self.mid_boundary,
                     target_track=self.target_track,

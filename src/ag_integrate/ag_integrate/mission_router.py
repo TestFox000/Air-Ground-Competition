@@ -564,12 +564,18 @@ def _assemble(
     tunnel_axes: frozenset[int] | None = None,
     tunnel_req: dict[int, int] | None = None,
     face_req: dict[str, int] | None = None,
+    align_degraded: set[str] | None = None,
 ) -> tuple[tuple[str, ...] | None, float]:
     """按给定顺序逐段拼接（真实朝向链 + 顺路避让），返回 (路线, 真实总代价)。
 
-    face_req：射击停靠格的"正对朝向"要求（格名 -> _DIRS 朝向索引）——
-    到达这类格后车头须原地转向该朝向才能开火，转身代价计入总代价
-    （朝向零转向准则：到达朝向已正对靶心的停靠格天然最便宜）。
+    face_req：射击停靠格的"正对朝向"要求（格名 -> _DIRS 朝向索引）。
+    靶向对齐（2026-10-23）：停靠段**强制先试**"到达朝向 = 正对朝向"（一次
+    到位）——官方 path_executor 只跟折线、不知道靶在哪，开火瞬间的车头
+    朝向只能由进段几何保证；终点态约束下的 Dijkstra 自动绕/曲进对齐
+    （"逐渐调整"的几何形态由此涵盖：进段可多折几手 45° 小弯逐步转过来），
+    到达即正对、无停靠转身，代价口径也更真实。对齐到达不可行（对侧进段
+    被堵）才退回"代价择优 + 停靠转身"假设（残余偏差交执行器停转-爬行/
+    云台消化），并把格名记入 align_degraded 供上层一次性告警。
 
     fallback_any_heading：终点朝向约束（h_final）物理不可达时
     （例：终点格是口袋入口，朝向到达须先踩终点），允许以任意朝向进终点——
@@ -582,8 +588,23 @@ def _assemble(
     for i in order:
         w = nodes[i + 1]
         fidx = face_req.get(w.name) if face_req else None
-        seg, h, c = _route_leg(cur, w, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal, cache,
-                               cross_penalty, tunnel_axes, tunnel_req, face_idx=fidx)
+        seg = None
+        h = None
+        c = _INF
+        if fidx is not None:
+            # 一次到位：终点态约束（到达朝向=正对朝向）的进段。
+            seg, h, c = _route_leg(cur, w, blocked, used, cross_gates, mid_boundary,
+                                   entry, fidx, turn_45, allow_diagonal, cache,
+                                   cross_penalty, tunnel_axes, tunnel_req)
+        if seg is None:
+            # 普通段（fidx=None）的主路径；射击段则是"逐渐调整"兜底——对齐
+            # 到达不可行（对侧进段被堵），退回代价择优 + 停靠转身假设，并
+            # 记录降级格供上层一次性告警。
+            seg, h, c = _route_leg(cur, w, blocked, used, cross_gates, mid_boundary,
+                                   entry, None, turn_45, allow_diagonal, cache,
+                                   cross_penalty, tunnel_axes, tunnel_req, face_idx=fidx)
+            if seg is not None and fidx is not None and align_degraded is not None:
+                align_degraded.add(w.name)
         if seg is None:
             return None, _INF
         segments.append(seg)
@@ -745,9 +766,11 @@ def _plan_core(
     tunnel_req: dict[int, int] | None = None,
     face_req: dict[str, int] | None = None,
     diag: dict | None = None,
+    align_degraded: set[str] | None = None,
 ) -> tuple[tuple[str, ...], float]:
     """给定障碍集与必经点，输出（最优路线, 真实总代价）。
-    diag：不可达诊断上下文（障碍/靶/轨道名集 + 桥列/开放门），由 plan_route 提供。"""
+    diag：不可达诊断上下文（障碍/靶/轨道名集 + 桥列/开放门），由 plan_route 提供。
+    align_degraded：靶向对齐降级格收集集（见 _assemble），None 表示不需要收集。"""
     dist0, _, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal,
                      cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
     if _arrival_state(dist0, goal, None)[0] >= _INF:
@@ -826,7 +849,8 @@ def _plan_core(
 
     def assemble(order: list[int]) -> tuple[tuple[str, ...] | None, float]:
         return _assemble(order, nodes, goal, blocked, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
-                         cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, face_req=face_req)
+                         cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, face_req=face_req,
+                         align_degraded=align_degraded)
 
     # 保底顺序 + 枚举其余等代价顺序，取（真实代价, 重复踩格, 姿态形态）最小者。
     # 形态键 = (总转向 45° 单位, 总步数)：等时代价里更平直、航段更少者优先
@@ -862,7 +886,7 @@ def _plan_core(
                 entry0, h_final, turn_45, allow_diagonal, cache,
                 fallback_any_heading=True,
                 cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req,
-                face_req=face_req,
+                face_req=face_req, align_degraded=align_degraded,
             )
             if route is None:
                 continue
@@ -1318,16 +1342,18 @@ def plan_route(
     best_route: tuple[str, ...] | None = None
     best_cost = _INF
     best_dup = 1 << 30
+    align_degraded: set[str] = set()   # 靶向对齐降级格（跨组合累积，选定后过滤告警）
     for combo in combos:
         req = dict(base_required)
         for c in combo:
             req.setdefault(c.name, c)
-        # 该组合停靠格的朝向要求表：转身代价进成本，朝向零转向的停靠组合天然最便宜
+        # 该组合停靠格的朝向要求表：对齐到达优先（2026-10-23），对齐不可行的
+        # 停靠格退回停靠转身假设并记入 align_degraded
         face_req = {c.name: cf[c.name] for cf in cand_faces for c in combo if c.name in cf}
         try:
             route, cost = _plan_core(start, goal, blocked, req, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
                                      cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req,
-                                     face_req=face_req, diag=diag_ctx)
+                                     face_req=face_req, diag=diag_ctx, align_degraded=align_degraded)
         except ValueError:
             continue
         dup = len(route) - len(set(route))
@@ -1340,6 +1366,15 @@ def plan_route(
                                           cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
         raise ValueError(_unreachable_detail(
             start, goal, dist_all, blocked, cross_gates, mid_boundary, diag_ctx))
+    degraded_hit = sorted(align_degraded & set(best_route))
+    if degraded_hit:
+        # 只对**选定路线**上的降级格告警（跨组合尝试的中间结果不刷屏）。
+        warnings.warn(
+            "靶标停靠格 {} 无法以正对朝向到达（对侧进段被堵），改为停靠转身对齐"
+            "（逐渐调整）——开火瞬间车头与靶心存在残余夹角，请确认执行器停转-"
+            "爬行可用/云台覆盖足够".format(",".join(degraded_hit)),
+            RuntimeWarning, stacklevel=2,
+        )
     return ensure_mine_center_pass(
         best_route, {c.name for c in snapshot.mines}, blocked,
         mid_boundary=mid_boundary, cross_gates=cross_gates,

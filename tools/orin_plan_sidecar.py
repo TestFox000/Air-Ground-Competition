@@ -71,6 +71,7 @@ from ag_integrate.intel_protocol import (  # noqa: E402
 )
 from ag_integrate.mission_router import _MID_BOUNDARY  # noqa: E402
 from ag_integrate.pipeline import build_mission, evaluate_gate  # noqa: E402
+from ag_integrate.route_progress import filter_swept_mines, route_progress  # noqa: E402
 from ag_integrate.route_time import RouteTimeParams  # noqa: E402
 from ag_integrate.world_model import WorldModel  # noqa: E402
 
@@ -302,8 +303,10 @@ class PlannerCore:
     world: WorldModel = field(init=False)
     car_yaw: float | None = field(default=None, init=False)
     car_yaw_mono: float | None = field(default=None, init=False)
+    car_xy: tuple[float, float] | None = field(default=None, init=False)
     last_route: str = field(default="", init=False)
     last_reset: str = field(default="", init=False)
+    last_start_used: str = field(default="", init=False)
     last_plan_ts_ms: int = field(default=0, init=False)
     last_sig: tuple | None = field(default=None, init=False)
     last_matrix_sig: tuple | None = field(default=None, init=False)
@@ -334,6 +337,16 @@ class PlannerCore:
     def feed_car_pose(self, pose, recv_mono: float | None = None) -> None:
         self.car_yaw = pose.yaw
         self.car_yaw_mono = time.monotonic() if recv_mono is None else recv_mono
+        self.car_xy = (pose.x, pose.y)
+
+    def _fresh_car_pose(self):
+        """新鲜车位姿 (x, y, yaw)；缺失/过期返回 None（重规划进度用，绝不
+        拿冻结观测当最新进度——过期位置会把起点换到车早已离开的格子）。"""
+        xy = self.car_xy
+        yaw = self._fresh_car_yaw()
+        if xy is None or yaw is None:
+            return None
+        return (xy[0], xy[1], yaw)
 
     def _fresh_car_yaw(self) -> float | None:
         if self.car_yaw is None or self.car_yaw_mono is None:
@@ -378,12 +391,36 @@ class PlannerCore:
     def _plan(self, snapshot, sig: tuple) -> str | None:
         import warnings
 
+        # —— 重规划基于最新进度（2026-10-23，与车端 integrate_node 同口径）——
+        # 首发按摆位起点；重规划时有新鲜 0x4002 车位姿则换到车的当前格 +
+        # 真实朝向最近轴 + 剔除已扫雷。守卫签名（sig）由 step() 用全量快照
+        # 算好，这里只剪喂给规划器的副本，不影响 on-change 触发口径。
+        start_cell = self.cfg.start_cell
         heading = effective_start_heading(self.cfg, self._fresh_car_yaw())
+        plan_snapshot = snapshot
+        if self.last_route:
+            pose = self._fresh_car_pose()
+            progress = None
+            if pose is not None:
+                try:
+                    progress = route_progress(self.last_route, *pose)
+                except ValueError as exc:
+                    print(f"[plan] 车位姿无法落格，重规划退回摆位起点: {exc}",
+                          file=sys.stderr)
+            if progress is not None:
+                start_cell = progress.cell.name
+                heading = progress.heading
+                plan_snapshot = filter_swept_mines(
+                    snapshot, progress.swept_cells)
+                print(f"[plan] 重规划基于最新进度: 起点 {start_cell}"
+                      f"（朝向 {heading}），已扫雷 "
+                      f"{len(snapshot.mines) - len(plan_snapshot.mines)} 颗")
+        self.last_start_used = start_cell
         try:
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always", RuntimeWarning)
                 commands = build_mission(
-                    snapshot, self.cfg.start_cell, self.cfg.goal_cell,
+                    plan_snapshot, start_cell, self.cfg.goal_cell,
                     heading, self.cfg.final_heading,
                     self.cfg.cross_gates, self.cfg.mid_boundary,
                     target_track=self.cfg.target_track,
@@ -428,7 +465,8 @@ class PlannerCore:
             "planner": "onboard_sidecar",
             "source": {
                 "mines/obstacles/targets": "机载 dzuav 13 类识别（0x4001 实时帧 + 滑窗融合）",
-                "start": self.cfg.start_cell, "goal": self.cfg.goal_cell,
+                "start": self.last_start_used or self.cfg.start_cell,
+                "goal": self.cfg.goal_cell,
                 "reset_heading_assert": heading,
                 "target_track": list(self.cfg.target_track) if self.cfg.target_track else [],
                 "target_blue_face": self.cfg.target_blue_face,
