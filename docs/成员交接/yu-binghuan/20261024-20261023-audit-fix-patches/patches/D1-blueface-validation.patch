@@ -1,0 +1,22 @@
+# D1 移动靶 blue_face 显式校验（审查#2：裸 KeyError→可行动报错）
+# 日期: 2026-10-24  审查复核: docs/成员交接/yu-binghuan/20261023-20261023-bug-audit-verification
+# 底本: 无人机 ~/dzuav_deploy/air_ground @ 310558e（靶向对齐后）
+# 验证: tests/test_audit_fixes.py（本地 11/11 过，全量 109 过/15 既有失败零新增）
+# 应用: cd ~/dzuav_deploy/air_ground && git apply <patch> 或人工核对
+
+--- a/src/ag_integrate/ag_integrate/mission_router.py
++++ b/src/ag_integrate/ag_integrate/mission_router.py
+@@ -1295,6 +1295,13 @@
+         if not t.is_blue:
+             continue   # 红面可见（友方）或红靶：不打不停靠
+         if t.track is not None:
++            if t.blue_face not in _FACE_OPP:
++                # 2026-10-23 审查#2：track 有值而 blue_face 缺/错时，旧代码在
++                # 下面抛裸 KeyError、被上层 except 吞成无信息日志、整局无路线。
++                # 显式报错点名靶格与非法值——现场一眼知道该改哪个配置。
++                raise ValueError(
++                    f"移动靶 {t.cell.name} 带轨道但蓝面朝向非法: {t.blue_face!r}"
++                    f"（须 S/N/E/W，检查 target_blue_face 配置）")
+             cands = _shoot_candidates_moving(t, blocked)
+             faces = {s.name: _FACE_OPP[t.blue_face] for s in cands}
+         else:
