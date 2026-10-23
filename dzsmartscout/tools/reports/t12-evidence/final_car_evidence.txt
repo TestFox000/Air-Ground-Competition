@@ -1,0 +1,20 @@
+﻿=== 1) 车侧：t12 探针进程（应为空）===
+(无)
+=== 2) 车侧：车栈是否仍冷态 ===
+(无 dzbrain/path_executor → 冷态保持)
+=== 3) 车侧：/tmp 下 t12 相关文件 ===
+-rw-rw-r-- 1 duzhong duzhong  4631 2026-10-12T19:40:22 /tmp/t12_car_sender.py
+-rw-rw-r-- 1 duzhong duzhong 16251 2026-10-12T19:40:38 /tmp/t12_car_sent.jsonl
+-rw-rw-r-- 1 duzhong duzhong  1818 2026-10-12T19:40:39 /tmp/t12_car_sent.jsonl.summary.json
+=== 4) 车侧：~/dzrobot 本次是否被改（应为空）===
+(空 = 未被触碰)
+=== 5) 车侧：关键文件 md5（与 t4 基线对照）===
+0a84d86eafbcb01ef6a98f48b17a28f5  /home/duzhong/dzrobot/start_all.sh
+2592dd5252b1dc0c6f678dfd1b2dc32b  /home/duzhong/dzrobot/config/robot.yaml
+43e35e36ab6b5cd58e9d3cb574e4f33a  /home/duzhong/dzrobot/dzros.env
+28addcce99bbf9f15efb5e370292b70c  /home/duzhong/.bashrc
+=== 6) 车侧：dzrobot_v2 是否存在于本机（本任务要求不碰）===
+(车上没有 dzrobot_v2 目录)
+### done
+
+### uploaded /tmp/t4_car_t12_car_final.sh (1195 bytes, CR-normalized)  exit=0

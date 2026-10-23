@@ -1,0 +1,190 @@
+=== route_crop H1/H2 bench（离线近似模型，非真车）===
+pursuit 参数真值（D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\planner\vendor\dzbrain_ws\config\robot.yaml）: wheelbase=0.157 max_steer=30.0° rate=120.0°/s ld=[0.36,0.4] k_v=1.2 v=0.35 arrival=0.12
+预览：20 拍 × 0.1s @ 0.35 m/s
+
+--- 整线来源：vendor（机侧实跑树）（44 token）---
+N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3 G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y
+
+PASS  H1a  裁剪@G10（直段交接）首拍不倒车
+      ✓ 裁剪被接受
+      ✓ 首点 = 车当前格  [('G10', 'F10')]
+      ✓ 交接夹角 ≤ 10°  [0.0]
+      ✓ 首个前视目标 ≤ 2 格（0.75 m）  [0.7 m]
+      ✓ 首拍航向误差 ≤ 10°  [0.0°]
+      ✓ 0 拍需要倒车  [0/20 拍]
+      ✓ 20 拍内偏离路线 ≤ 0.10 m  [0.094 m]
+      ✓ 20 拍内实际前进 ≥ 0.60 m（未停滞/打转）  [0.7 m]
+      metrics: phase=DRIVE, n_in=44, n_out=35, n_dropped=9, n_prefix_cells=9, n_suffix_cells=34, n_pressed=0, n_occupied=0, n_cleared=0, n_unknown_ahead=34, n_conflicts=0, crop_required=True, anchor_mode=exact, handover={'first_leg_deg': 90.0, 'turn_deg': 0.0, 'verdict': 'ok', 'car_to_first_m': 0.0}, unknown_ahead=['F10', 'E10', 'E9', 'D9', 'C9', 'B9', 'B8', 'B7', 'B6', 'A6', 'A5', 'A4', 'A3', 'A2', 'B2', 'B1', 'C1', 'D1', 'D2', 'D3', 'E3', 'F3', 'G3', 'G4', 'G5', 'G6', 'H6', 'I6', 'I5', 'J5', 'K5', 'L5', 'M5', 'N5'], dropped_prefix=['N10', 'M10', 'M9', 'L9', 'K9', 'J9', 'J10', 'I10', 'H10'], d_to_first_target_m=0.7, first_alpha_deg=0.0, max_alpha_deg=42.27, n_reversal_ticks=0, travelled_m=0.7, max_path_dev_m=0.094, min_dist_to_carrot_m=0.407, last_dist_to_carrot_m=0.47
+
+PASS  H1b  裁剪@E10（90° 拐点交接）交接瞬间不回头
+      ✓ 裁剪被接受
+      ✓ 交接未判为回头（verdict != reversal）  [ok]
+      ✓ 首个前视目标 ≤ 2 格（0.75 m）  [0.495 m]
+      ✓ 首拍航向误差 ≤ 60°（切角把 90° 摊到多拍）  [45.0°]
+      metrics: phase=DRIVE, n_in=44, n_out=33, n_dropped=11, n_prefix_cells=11, n_suffix_cells=32, n_pressed=0, n_occupied=0, n_cleared=0, n_unknown_ahead=32, n_conflicts=0, crop_required=True, anchor_mode=exact, handover={'first_leg_deg': 0.0, 'turn_deg': 90.0, 'verdict': 'ok', 'car_to_first_m': 0.0}, unknown_ahead=['E9', 'D9', 'C9', 'B9', 'B8', 'B7', 'B6', 'A6', 'A5', 'A4', 'A3', 'A2', 'B2', 'B1', 'C1', 'D1', 'D2', 'D3', 'E3', 'F3', 'G3', 'G4', 'G5', 'G6', 'H6', 'I6', 'I5', 'J5', 'K5', 'L5', 'M5', 'N5'], dropped_prefix=['N10', 'M10', 'M9', 'L9', 'K9', 'J9', 'J10', 'I10', 'H10', 'G10', 'F10'], d_to_first_target_m=0.495, first_alpha_deg=45.0, max_alpha_deg=121.43, n_reversal_ticks=9, travelled_m=0.7, max_path_dev_m=0.26, min_dist_to_carrot_m=0.412, last_dist_to_carrot_m=0.501
+
+PASS  H1c  裁剪@G10 + 横向偏 0.10 m 仍不回头
+      ✓ 裁剪被接受
+      ✓ 首个前视目标 ≤ 2 格  [0.707 m]
+      ✓ 首拍航向误差 ≤ 30°  [8.13°]
+      metrics: d_to_first_target_m=0.707, first_alpha_deg=8.13, max_alpha_deg=44.43, n_reversal_ticks=0, travelled_m=0.7, max_path_dev_m=0.112, min_dist_to_carrot_m=0.424, last_dist_to_carrot_m=0.449
+
+PASS  H1d  裁剪@G10 + 纵向偏 0.10 m 仍不回头
+      ✓ 裁剪被接受
+      ✓ 首个前视目标 ≤ 2 格  [0.45 m]
+      ✓ 首拍航向误差 ≤ 30°  [0.0°]
+      metrics: d_to_first_target_m=0.45, first_alpha_deg=0.0, max_alpha_deg=42.65, n_reversal_ticks=0, travelled_m=0.7, max_path_dev_m=0.093, min_dist_to_carrot_m=0.404, last_dist_to_carrot_m=0.571
+
+PASS  H1e  对照组：整线原样下发 ⇒ 车被命令往回开
+      ✓ 首个前视目标 > 2 m（车得往回开好几格）  [2.8 m]
+      ✓ 首拍航向误差 > 135°（等于命令车往回开）  [180.0°]
+      ✓ 绝大多数拍都需要倒车/掉头  [20/20 拍]
+      metrics: d_to_first_target_m=2.8, first_alpha_deg=180.0, max_alpha_deg=180.0, n_reversal_ticks=20, travelled_m=0.7, max_path_dev_m=0.35, min_dist_to_carrot_m=2.8, last_dist_to_carrot_m=3.465
+
+PASS  H2a  裁剪@A2：已压雷落在前缀 ⇒ 不回头压
+      ✓ 裁剪被接受
+      ✓ 首点 = A2  [('A2', 'B2')]
+      ✓ 裁掉 23 个前缀 token  [23]
+      ✓ 已压格 D9/H10 不出现在后缀
+      ✓ 冲突数 = 0（无 repress / 无 revisit）  [[]]
+      ✓ 裁剪后的后缀里没有重走过任何前缀格
+      metrics: phase=DRIVE, n_in=44, n_out=21, n_dropped=23, n_prefix_cells=23, n_suffix_cells=20, n_pressed=2, n_occupied=0, n_cleared=0, n_unknown_ahead=20, n_conflicts=0, crop_required=True, anchor_mode=exact, handover={'first_leg_deg': -90.0, 'turn_deg': 90.0, 'verdict': 'ok', 'car_to_first_m': 0.0}, unknown_ahead=['B2', 'B1', 'C1', 'D1', 'D2', 'D3', 'E3', 'F3', 'G3', 'G4', 'G5', 'G6', 'H6', 'I6', 'I5', 'J5', 'K5', 'L5', 'M5', 'N5'], dropped_prefix=['N10', 'M10', 'M9', 'L9', 'K9', 'J9', 'J10', 'I10', 'H10', 'G10', 'F10', 'E10', 'E9', 'D9', 'C9', 'B9', 'B8', 'B7', 'B6', 'A6', 'A5', 'A4', 'A3']
+
+PASS  H2b  对照组：锚点=起点 ⇒ 整段重走（crop_required=False 是危险态）
+      ✓ 锚点在起点 ⇒ 一个 token 都没裁（crop_required=False）  [False]
+      ✓ 若此时车其实在 A2，后缀会包含 23 个已走过格（回头段）  [44 vs 44]
+      metrics: n_out=44, n_dropped=0
+
+PASS  H2c  已压格 D2（锚点后第 5 格）落在后缀 ⇒ 拒绝下发
+      ✓ 裁剪被拒绝  [repress@D2: 车已压过该格（pressed）⇒ 裁剪后会要求回头再压]
+      ✓ 冲突类型含 repress  [['repress']]
+      ✓ 冲突格是 D2  [['D2']]
+      metrics: n_conflicts=1, victim=D2
+
+PASS  H2d  phase 闸门：STOP/FINISH 阶段拒绝改线
+      ✓ phase=STOP 被拒绝  [phase=STOP 不是 DRIVE/APPROACH：打靶/收尾/待发阶段改线会让车重启路径并归零进度]
+      ✓ phase=FINISH 被拒绝  [phase=FINISH 不是 DRIVE/APPROACH：打靶/收尾/待发阶段改线会让车重启路径并归零进度]
+      ✓ phase=SAFE 被拒绝  [phase=SAFE 不是 DRIVE/APPROACH：打靶/收尾/待发阶段改线会让车重启路径并归零进度]
+      ✓ phase=IDLE 被拒绝  [phase=IDLE 不是 DRIVE/APPROACH：打靶/收尾/待发阶段改线会让车重启路径并归零进度]
+      ✓ phase=DRIVE 放行
+      ✓ phase=APPROACH 放行
+
+PASS  H2e  coverage 负证据：只有 complete=true 才减少未知格
+      ✓ complete=false ⇒ cleared 为 None（不产生 ABSENT）  [coverage.complete=false ⇒ 片内未报格仍是 UNKNOWN（t10 语义：不完整的片绝不产生 ABSENT）]
+      ✓ complete=false ⇒ 未知格数不变  [20 vs 20]
+      ✓ complete=true ⇒ cleared 非空  [coverage.complete=true ⇒ 154 格被判空（ABSENT）]
+      ✓ complete=true 覆盖全场 ⇒ 后缀未知格 = 0  [0]
+      ✓ 旧报文无 coverage ⇒ None + 说明  [无负证据：载荷没有 coverage ⇒ 无负证据语义（旧报文，只能报差异）]
+
+PASS  H2f  锚点消歧：重复格 + 无 yaw ⇒ 拒绝；有 yaw ⇒ 选对
+      ✓ 无 yaw ⇒ 拒绝（不猜）  [车格 M10 在整线里出现 2 次且这条 car_state 没有 yaw_deg ⇒ 无法消歧（补 yaw_deg，或确认整线没有重复格）]
+      ✓ yaw=90° ⇒ 选中下标 1（入线 N10→M10 = +y）  [1/yaw_disambiguated]
+      ✓ yaw=180° ⇒ 选中下标 3（入线 M9→M10 = −x）  [3/yaw_disambiguated]
+
+PASS  H2g  车格不在整线里：默认拒绝，显式才就近
+      ✓ 默认拒绝  [车当前格 N11 不在整线里（44 个格）⇒ 无法定位锚点；若车确实被外部改道，用 --allow-nearest 显式接受「就近格」近似]
+      ✓ --allow-nearest ⇒ 接受并标注 nearest  [nearest]
+
+PASS  H2h  车头与锚点矛盾 ⇒ 拒绝（不让车按矛盾量掉头）
+      ✓ 被拒绝  [handover_reversal@B9: 交接处夹角 180.0° > 135.0°]
+      ✓ 冲突类型含 handover_reversal  [['handover_reversal']]
+      ✓ 同一格车头朝 +x 时放行
+
+vendor（机侧实跑树） 结论：13/13 用例 PASS  ✅
+
+--- 整线来源：source dzrobot_v2（只读对照）（44 token）---
+N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3 G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y
+
+PASS  H1a  裁剪@G10（直段交接）首拍不倒车
+      ✓ 裁剪被接受
+      ✓ 首点 = 车当前格  [('G10', 'F10')]
+      ✓ 交接夹角 ≤ 10°  [0.0]
+      ✓ 首个前视目标 ≤ 2 格（0.75 m）  [0.7 m]
+      ✓ 首拍航向误差 ≤ 10°  [0.0°]
+      ✓ 0 拍需要倒车  [0/20 拍]
+      ✓ 20 拍内偏离路线 ≤ 0.10 m  [0.094 m]
+      ✓ 20 拍内实际前进 ≥ 0.60 m（未停滞/打转）  [0.7 m]
+      metrics: phase=DRIVE, n_in=44, n_out=35, n_dropped=9, n_prefix_cells=9, n_suffix_cells=34, n_pressed=0, n_occupied=0, n_cleared=0, n_unknown_ahead=34, n_conflicts=0, crop_required=True, anchor_mode=exact, handover={'first_leg_deg': 90.0, 'turn_deg': 0.0, 'verdict': 'ok', 'car_to_first_m': 0.0}, unknown_ahead=['F10', 'E10', 'E9', 'D9', 'C9', 'B9', 'B8', 'B7', 'B6', 'A6', 'A5', 'A4', 'A3', 'A2', 'B2', 'B1', 'C1', 'D1', 'D2', 'D3', 'E3', 'F3', 'G3', 'G4', 'G5', 'G6', 'H6', 'I6', 'I5', 'J5', 'K5', 'L5', 'M5', 'N5'], dropped_prefix=['N10', 'M10', 'M9', 'L9', 'K9', 'J9', 'J10', 'I10', 'H10'], d_to_first_target_m=0.7, first_alpha_deg=0.0, max_alpha_deg=42.27, n_reversal_ticks=0, travelled_m=0.7, max_path_dev_m=0.094, min_dist_to_carrot_m=0.407, last_dist_to_carrot_m=0.47
+
+PASS  H1b  裁剪@E10（90° 拐点交接）交接瞬间不回头
+      ✓ 裁剪被接受
+      ✓ 交接未判为回头（verdict != reversal）  [ok]
+      ✓ 首个前视目标 ≤ 2 格（0.75 m）  [0.495 m]
+      ✓ 首拍航向误差 ≤ 60°（切角把 90° 摊到多拍）  [45.0°]
+      metrics: phase=DRIVE, n_in=44, n_out=33, n_dropped=11, n_prefix_cells=11, n_suffix_cells=32, n_pressed=0, n_occupied=0, n_cleared=0, n_unknown_ahead=32, n_conflicts=0, crop_required=True, anchor_mode=exact, handover={'first_leg_deg': 0.0, 'turn_deg': 90.0, 'verdict': 'ok', 'car_to_first_m': 0.0}, unknown_ahead=['E9', 'D9', 'C9', 'B9', 'B8', 'B7', 'B6', 'A6', 'A5', 'A4', 'A3', 'A2', 'B2', 'B1', 'C1', 'D1', 'D2', 'D3', 'E3', 'F3', 'G3', 'G4', 'G5', 'G6', 'H6', 'I6', 'I5', 'J5', 'K5', 'L5', 'M5', 'N5'], dropped_prefix=['N10', 'M10', 'M9', 'L9', 'K9', 'J9', 'J10', 'I10', 'H10', 'G10', 'F10'], d_to_first_target_m=0.495, first_alpha_deg=45.0, max_alpha_deg=121.43, n_reversal_ticks=9, travelled_m=0.7, max_path_dev_m=0.26, min_dist_to_carrot_m=0.412, last_dist_to_carrot_m=0.501
+
+PASS  H1c  裁剪@G10 + 横向偏 0.10 m 仍不回头
+      ✓ 裁剪被接受
+      ✓ 首个前视目标 ≤ 2 格  [0.707 m]
+      ✓ 首拍航向误差 ≤ 30°  [8.13°]
+      metrics: d_to_first_target_m=0.707, first_alpha_deg=8.13, max_alpha_deg=44.43, n_reversal_ticks=0, travelled_m=0.7, max_path_dev_m=0.112, min_dist_to_carrot_m=0.424, last_dist_to_carrot_m=0.449
+
+PASS  H1d  裁剪@G10 + 纵向偏 0.10 m 仍不回头
+      ✓ 裁剪被接受
+      ✓ 首个前视目标 ≤ 2 格  [0.45 m]
+      ✓ 首拍航向误差 ≤ 30°  [0.0°]
+      metrics: d_to_first_target_m=0.45, first_alpha_deg=0.0, max_alpha_deg=42.65, n_reversal_ticks=0, travelled_m=0.7, max_path_dev_m=0.093, min_dist_to_carrot_m=0.404, last_dist_to_carrot_m=0.571
+
+PASS  H1e  对照组：整线原样下发 ⇒ 车被命令往回开
+      ✓ 首个前视目标 > 2 m（车得往回开好几格）  [2.8 m]
+      ✓ 首拍航向误差 > 135°（等于命令车往回开）  [180.0°]
+      ✓ 绝大多数拍都需要倒车/掉头  [20/20 拍]
+      metrics: d_to_first_target_m=2.8, first_alpha_deg=180.0, max_alpha_deg=180.0, n_reversal_ticks=20, travelled_m=0.7, max_path_dev_m=0.35, min_dist_to_carrot_m=2.8, last_dist_to_carrot_m=3.465
+
+PASS  H2a  裁剪@A2：已压雷落在前缀 ⇒ 不回头压
+      ✓ 裁剪被接受
+      ✓ 首点 = A2  [('A2', 'B2')]
+      ✓ 裁掉 23 个前缀 token  [23]
+      ✓ 已压格 D9/H10 不出现在后缀
+      ✓ 冲突数 = 0（无 repress / 无 revisit）  [[]]
+      ✓ 裁剪后的后缀里没有重走过任何前缀格
+      metrics: phase=DRIVE, n_in=44, n_out=21, n_dropped=23, n_prefix_cells=23, n_suffix_cells=20, n_pressed=2, n_occupied=0, n_cleared=0, n_unknown_ahead=20, n_conflicts=0, crop_required=True, anchor_mode=exact, handover={'first_leg_deg': -90.0, 'turn_deg': 90.0, 'verdict': 'ok', 'car_to_first_m': 0.0}, unknown_ahead=['B2', 'B1', 'C1', 'D1', 'D2', 'D3', 'E3', 'F3', 'G3', 'G4', 'G5', 'G6', 'H6', 'I6', 'I5', 'J5', 'K5', 'L5', 'M5', 'N5'], dropped_prefix=['N10', 'M10', 'M9', 'L9', 'K9', 'J9', 'J10', 'I10', 'H10', 'G10', 'F10', 'E10', 'E9', 'D9', 'C9', 'B9', 'B8', 'B7', 'B6', 'A6', 'A5', 'A4', 'A3']
+
+PASS  H2b  对照组：锚点=起点 ⇒ 整段重走（crop_required=False 是危险态）
+      ✓ 锚点在起点 ⇒ 一个 token 都没裁（crop_required=False）  [False]
+      ✓ 若此时车其实在 A2，后缀会包含 23 个已走过格（回头段）  [44 vs 44]
+      metrics: n_out=44, n_dropped=0
+
+PASS  H2c  已压格 D2（锚点后第 5 格）落在后缀 ⇒ 拒绝下发
+      ✓ 裁剪被拒绝  [repress@D2: 车已压过该格（pressed）⇒ 裁剪后会要求回头再压]
+      ✓ 冲突类型含 repress  [['repress']]
+      ✓ 冲突格是 D2  [['D2']]
+      metrics: n_conflicts=1, victim=D2
+
+PASS  H2d  phase 闸门：STOP/FINISH 阶段拒绝改线
+      ✓ phase=STOP 被拒绝  [phase=STOP 不是 DRIVE/APPROACH：打靶/收尾/待发阶段改线会让车重启路径并归零进度]
+      ✓ phase=FINISH 被拒绝  [phase=FINISH 不是 DRIVE/APPROACH：打靶/收尾/待发阶段改线会让车重启路径并归零进度]
+      ✓ phase=SAFE 被拒绝  [phase=SAFE 不是 DRIVE/APPROACH：打靶/收尾/待发阶段改线会让车重启路径并归零进度]
+      ✓ phase=IDLE 被拒绝  [phase=IDLE 不是 DRIVE/APPROACH：打靶/收尾/待发阶段改线会让车重启路径并归零进度]
+      ✓ phase=DRIVE 放行
+      ✓ phase=APPROACH 放行
+
+PASS  H2e  coverage 负证据：只有 complete=true 才减少未知格
+      ✓ complete=false ⇒ cleared 为 None（不产生 ABSENT）  [coverage.complete=false ⇒ 片内未报格仍是 UNKNOWN（t10 语义：不完整的片绝不产生 ABSENT）]
+      ✓ complete=false ⇒ 未知格数不变  [20 vs 20]
+      ✓ complete=true ⇒ cleared 非空  [coverage.complete=true ⇒ 154 格被判空（ABSENT）]
+      ✓ complete=true 覆盖全场 ⇒ 后缀未知格 = 0  [0]
+      ✓ 旧报文无 coverage ⇒ None + 说明  [无负证据：载荷没有 coverage ⇒ 无负证据语义（旧报文，只能报差异）]
+
+PASS  H2f  锚点消歧：重复格 + 无 yaw ⇒ 拒绝；有 yaw ⇒ 选对
+      ✓ 无 yaw ⇒ 拒绝（不猜）  [车格 M10 在整线里出现 2 次且这条 car_state 没有 yaw_deg ⇒ 无法消歧（补 yaw_deg，或确认整线没有重复格）]
+      ✓ yaw=90° ⇒ 选中下标 1（入线 N10→M10 = +y）  [1/yaw_disambiguated]
+      ✓ yaw=180° ⇒ 选中下标 3（入线 M9→M10 = −x）  [3/yaw_disambiguated]
+
+PASS  H2g  车格不在整线里：默认拒绝，显式才就近
+      ✓ 默认拒绝  [车当前格 N11 不在整线里（44 个格）⇒ 无法定位锚点；若车确实被外部改道，用 --allow-nearest 显式接受「就近格」近似]
+      ✓ --allow-nearest ⇒ 接受并标注 nearest  [nearest]
+
+PASS  H2h  车头与锚点矛盾 ⇒ 拒绝（不让车按矛盾量掉头）
+      ✓ 被拒绝  [handover_reversal@B9: 交接处夹角 180.0° > 135.0°]
+      ✓ 冲突类型含 handover_reversal  [['handover_reversal']]
+      ✓ 同一格车头朝 +x 时放行
+
+source dzrobot_v2（只读对照） 结论：13/13 用例 PASS  ✅
+
+总结论：26/26 用例 PASS  ✅ bench 全过
+
+口径三条（别把 bench 当现场背书）：
+  ① 近似模型：转向律按 config 注释的教科书式 δ=atan(2·L·sinα/ld)，path_executor 本体不在 vendor 子集内 ⇒ 不是逐行复现；
+  ② 拐点交接会出现 |α|>90 的拍（切角 + 0.12 m 到位判定），**每个拐点都这样**，属路线固有；H1 结论只针对交接瞬间；
+  ③ 真车那 20 拍 pursuitAngle 仍需现场录一次（本卡不改车侧代码）。

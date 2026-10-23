@@ -1,0 +1,120 @@
+{
+  "when": "2026-10-17 16:59:33",
+  "cases": {
+    "vendor": {
+      "run1": {
+        "cmd": "C:\\Users\\TestFox\\AppData\\Local\\Programs\\Python\\Python312\\python.exe D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\tools\\plan_route.py --emit tokens --engine tracker-safe --config D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\config\\robot.yaml --map D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\config\\map.yaml",
+        "root": "D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws",
+        "rc": 0,
+        "tokens": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y",
+        "stdout": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y\n",
+        "stderr": "",
+        "secs": 0.67
+      },
+      "run2": {
+        "cmd": "C:\\Users\\TestFox\\AppData\\Local\\Programs\\Python\\Python312\\python.exe D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\tools\\plan_route.py --emit tokens --engine tracker-safe --config D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\config\\robot.yaml --map D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\config\\map.yaml",
+        "root": "D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws",
+        "rc": 0,
+        "tokens": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y",
+        "stdout": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y\n",
+        "stderr": "",
+        "secs": 0.63
+      },
+      "deterministic": true,
+      "check": {
+        "rc": 0,
+        "tokens_same_as_plain": true,
+        "tail": "   \u001b[32m✅\u001b[0m 航段不横穿靶板                        全路线（含直段中间的格）离最近靶格心 0.350 m > 0.175 m\n   \u001b[32m✅\u001b[0m 车体不压靶板                         直段 0.1750 ≥ 0.0675 m；拐角 0.2475 ≥ 0.1554 m（靶板 0.35 m 见方，中心在格心）\n   \u001b[32m✅\u001b[0m 靶覆盖 2/2（射击点可达）                 E5<-射击点#29(0.78m) F5<-射击点#32(0.78m)\n   \u001b[32m✅\u001b[0m 射击点距离                          2 个射击点都能服务于某个靶（0.78~1.02 m 内）\n   \u001b[32m✅\u001b[0m 桥洞保护点覆盖                        K5 K9\n   \u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+      }
+    },
+    "source": {
+      "run1": {
+        "cmd": "C:\\Users\\TestFox\\AppData\\Local\\Programs\\Python\\Python312\\python.exe D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\tools\\plan_route.py --emit tokens --engine tracker-safe --config D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\robot.yaml --map D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\map.yaml",
+        "root": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2",
+        "rc": 0,
+        "tokens": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y",
+        "stdout": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y\n",
+        "stderr": "",
+        "secs": 0.61
+      },
+      "run2": {
+        "cmd": "C:\\Users\\TestFox\\AppData\\Local\\Programs\\Python\\Python312\\python.exe D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\tools\\plan_route.py --emit tokens --engine tracker-safe --config D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\robot.yaml --map D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\map.yaml",
+        "root": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2",
+        "rc": 0,
+        "tokens": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y",
+        "stdout": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y\n",
+        "stderr": "",
+        "secs": 0.61
+      },
+      "deterministic": true,
+      "check": {
+        "rc": 0,
+        "tokens_same_as_plain": true,
+        "tail": "   \u001b[32m✅\u001b[0m 航段不横穿靶板                        全路线（含直段中间的格）离最近靶格心 0.350 m > 0.175 m\n   \u001b[32m✅\u001b[0m 车体不压靶板                         直段 0.1750 ≥ 0.0675 m；拐角 0.2475 ≥ 0.1554 m（靶板 0.35 m 见方，中心在格心）\n   \u001b[32m✅\u001b[0m 靶覆盖 2/2（射击点可达）                 E5<-射击点#29(0.78m) F5<-射击点#32(0.78m)\n   \u001b[32m✅\u001b[0m 射击点距离                          2 个射击点都能服务于某个靶（0.78~1.02 m 内）\n   \u001b[32m✅\u001b[0m 桥洞保护点覆盖                        K5 K9\n   \u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+      }
+    }
+  },
+  "engine": {
+    "engine": "tracker-safe",
+    "raw": "tracker-safe",
+    "tracker_max_seconds": 10.0,
+    "max_seconds": 2.0,
+    "allow_reverse": false,
+    "map_path": "config/map.yaml",
+    "fallback_to_tokens": true,
+    "auto_plan_enabled": true,
+    "config_path": "D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\config\\robot.yaml",
+    "warnings": [],
+    "source_engine": "tracker-safe"
+  },
+  "mission_blocks": [
+    "N10",
+    "M10",
+    "M9",
+    "L9",
+    "K9",
+    "J9",
+    "J10",
+    "I10",
+    "H10",
+    "G10",
+    "F10",
+    "E10",
+    "E9",
+    "D9",
+    "C9",
+    "B9",
+    "B8",
+    "B7",
+    "B6",
+    "A6",
+    "A5",
+    "A4",
+    "A3",
+    "A2",
+    "B2",
+    "B1",
+    "C1",
+    "D1",
+    "D2",
+    "D3*",
+    "E3",
+    "F3",
+    "G3*",
+    "G4",
+    "G5",
+    "G6",
+    "H6",
+    "I6",
+    "I5",
+    "J5",
+    "K5",
+    "L5",
+    "M5",
+    "N5,y"
+  ],
+  "same_tokens": true,
+  "token_count": 44,
+  "all_pass": true,
+  "mission_blocks_same": true
+}

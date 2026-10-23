@@ -1,0 +1,14 @@
+# hub `~/dzlink_tools/` 最终 md5 / mtime（t18 部署后实测；复核期间不再写入）
+# 被审版本：dzlink_supervisor.py = 5c7426d6b619da2f4b69bb3149de2d53
+#           dz_send_waypoint.py  = eb41dbf4b944bc7e8af8e61ec940a228
+# 生成：python dzsmartscout/tools/link/probe/t18_verify_local.py（E 段）
+# 注：本文件**只**放 hub 的哈希/时间；sender 错用法的报错抓取见
+#     sender_badusage_stderr.txt（t19-G1 拆分）
+
+5c7426d6b619da2f4b69bb3149de2d53  /home/duzhong/dzlink_tools/dzlink_supervisor.py
+eb41dbf4b944bc7e8af8e61ec940a228  /home/duzhong/dzlink_tools/dz_send_waypoint.py
+558f40a2c4cd77c5a0fc7769e6ddcfa4  /home/duzhong/dzlink_tools/test_dzlink_supervisor.py
+a95a49ff4b43cc0c8e01161088d69975  /home/duzhong/dzlink_tools/test_dz_send_waypoint.py
+2026-10-12 20:09:16.721486745 +0800  /home/duzhong/dzlink_tools/dzlink_supervisor.py
+2026-10-12 20:09:16.877491633 +0800  /home/duzhong/dzlink_tools/test_dzlink_supervisor.py
+2026-10-12 20:09:17.101498655 +0800  /home/duzhong/dzlink_tools/test_dz_send_waypoint.py

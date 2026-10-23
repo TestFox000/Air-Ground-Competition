@@ -1,0 +1,1089 @@
+{
+  "ok": true,
+  "results": [
+    {
+      "name": "official",
+      "image": "D:\\User\\Desktop\\比赛存档\\v1\\_tmp_session\\t39_map_official\\map_official.png",
+      "reconciliation": {
+        "ok": true,
+        "n_diffs": 0,
+        "per_class": {
+          "mine": {
+            "perceived": [
+              "A3",
+              "B7",
+              "C1",
+              "D9",
+              "E3",
+              "G4",
+              "H10",
+              "I6"
+            ],
+            "truth": [
+              "A3",
+              "B7",
+              "C1",
+              "D9",
+              "E3",
+              "G4",
+              "H10",
+              "I6"
+            ],
+            "both": [
+              "A3",
+              "B7",
+              "C1",
+              "D9",
+              "E3",
+              "G4",
+              "H10",
+              "I6"
+            ],
+            "extra": [],
+            "missing": [],
+            "equal": true
+          },
+          "obstacle": {
+            "perceived": [
+              "A1",
+              "B11",
+              "D8",
+              "E2",
+              "F11",
+              "G9",
+              "H4",
+              "I8"
+            ],
+            "truth": [
+              "A1",
+              "B11",
+              "D8",
+              "E2",
+              "F11",
+              "G9",
+              "H4",
+              "I8"
+            ],
+            "both": [
+              "A1",
+              "B11",
+              "D8",
+              "E2",
+              "F11",
+              "G9",
+              "H4",
+              "I8"
+            ],
+            "extra": [],
+            "missing": [],
+            "equal": true
+          },
+          "target": {
+            "perceived": [
+              "E5",
+              "F5"
+            ],
+            "truth": [
+              "E5",
+              "F5"
+            ],
+            "both": [
+              "E5",
+              "F5"
+            ],
+            "extra": [],
+            "missing": [],
+            "equal": true
+          },
+          "bridge": {
+            "perceived": [
+              "K5",
+              "K9"
+            ],
+            "truth": [
+              "K5",
+              "K9"
+            ],
+            "both": [
+              "K5",
+              "K9"
+            ],
+            "extra": [],
+            "missing": [],
+            "equal": true
+          }
+        },
+        "scalars": {
+          "start": {
+            "perceived": "N10",
+            "truth": "N10",
+            "equal": true
+          },
+          "end": {
+            "perceived": "N5",
+            "truth": "N5",
+            "equal": true
+          },
+          "barrier_col_from": {
+            "perceived": "D",
+            "truth": "D",
+            "equal": true
+          },
+          "barrier_row_hi": {
+            "perceived": 6,
+            "truth": 6,
+            "equal": true
+          },
+          "barrier_row_lo": {
+            "perceived": 7,
+            "truth": 7,
+            "equal": true
+          }
+        }
+      },
+      "field_map": {
+        "map": {
+          "name": "official",
+          "start": "N10",
+          "end": "N5",
+          "barrier_col_from": "D",
+          "barrier_row_hi": 6,
+          "barrier_row_lo": 7,
+          "mines": [
+            "A3",
+            "B7",
+            "C1",
+            "D9",
+            "E3",
+            "G4",
+            "H10",
+            "I6"
+          ],
+          "obstacles": [
+            "A1",
+            "B11",
+            "D8",
+            "E2",
+            "F11",
+            "G9",
+            "H4",
+            "I8"
+          ],
+          "targets": [
+            "E5",
+            "F5"
+          ],
+          "bridges": [
+            "K5",
+            "K9"
+          ]
+        },
+        "perception": {
+          "confidence": {
+            "obstacle": {
+              "A1": 0.655,
+              "I8": 0.688,
+              "H4": 0.67,
+              "D8": 0.67,
+              "G9": 0.668,
+              "E2": 0.665,
+              "B11": 0.665,
+              "F11": 0.657
+            },
+            "mine": {
+              "I6": 0.841,
+              "B7": 0.829,
+              "H10": 0.829,
+              "G4": 0.827,
+              "E3": 0.825,
+              "D9": 0.825,
+              "A3": 0.809,
+              "C1": 0.803
+            },
+            "target": {
+              "E5": 0.668,
+              "F5": 0.657
+            },
+            "bridge": {
+              "K5": 0.747,
+              "K9": 0.743
+            }
+          },
+          "cell_confidence": {
+            "A1": 0.655,
+            "I8": 0.688,
+            "H4": 0.67,
+            "D8": 0.67,
+            "G9": 0.668,
+            "E2": 0.665,
+            "B11": 0.665,
+            "F11": 0.657,
+            "I6": 0.841,
+            "B7": 0.829,
+            "H10": 0.829,
+            "G4": 0.827,
+            "E3": 0.825,
+            "D9": 0.825,
+            "A3": 0.809,
+            "C1": 0.803,
+            "E5": 0.668,
+            "F5": 0.657,
+            "K5": 0.747,
+            "K9": 0.743
+          },
+          "car": null,
+          "blue_face": {
+            "facing": "unknown",
+            "confidence": 0.0,
+            "blue_frac": 0.0,
+            "red_frac": 0.0,
+            "evidence": {
+              "roi": [
+                190,
+                192,
+                281,
+                238
+              ],
+              "n_px": 4186,
+              "blue_spec": [
+                195.0,
+                0.35,
+                0.25,
+                265.0,
+                1.0,
+                1.0
+              ],
+              "red_spec": [
+                345.0,
+                0.35,
+                0.25,
+                15.0,
+                1.0,
+                1.0
+              ],
+              "center_band": 0.8,
+              "margin_frac": 0.0,
+              "frame_color_guard": "外框深蓝 H≈220° 也在蓝带内 ⇒ 质心必须居中才算面",
+              "note": "阈值未标定（BLUE_FACE_HSV/RED_FACE_HSV 默认值）；俯视帧通常看不竖直面",
+              "reason": "蓝/红面像素都太少（俯视看不到竖直面？）"
+            }
+          },
+          "anchors": [],
+          "rejected": [
+            {
+              "cls": "mine",
+              "block": "N8",
+              "reason": "bbox 内深色像素占比 0.0988 > 0.02（判为带文字的标注框，非目标）",
+              "area_px": 1704,
+              "dark_frac": 0.0988
+            },
+            {
+              "cls": "mine",
+              "block": "N10",
+              "reason": "bbox 内深色像素占比 0.1264 > 0.02（判为带文字的标注框，非目标）",
+              "area_px": 1644,
+              "dark_frac": 0.1264
+            },
+            {
+              "cls": "mine",
+              "block": "N5",
+              "reason": "bbox 内深色像素占比 0.1240 > 0.02（判为带文字的标注框，非目标）",
+              "area_px": 1639,
+              "dark_frac": 0.124
+            },
+            {
+              "cls": "mine",
+              "block": "M2",
+              "reason": "面积比 0.495 不在 [0.55, 1.25]",
+              "area_px": 1026
+            },
+            {
+              "cls": "mine",
+              "block": "M2",
+              "reason": "面积比 0.171 不在 [0.55, 1.25]",
+              "area_px": 354
+            },
+            {
+              "cls": "mine",
+              "block": "N5",
+              "reason": "面积比 0.008 不在 [0.55, 1.25]",
+              "area_px": 16
+            },
+            {
+              "cls": "mine",
+              "block": "N10",
+              "reason": "面积比 0.004 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "target",
+              "block": "E5",
+              "reason": "面积比 0.005 不在 [0.55, 1.25]",
+              "area_px": 11
+            },
+            {
+              "cls": "target",
+              "block": "F5",
+              "reason": "面积比 0.005 不在 [0.55, 1.25]",
+              "area_px": 11
+            },
+            {
+              "cls": "bridge",
+              "block": "A3",
+              "reason": "面积比 0.143 不在 [0.55, 1.25]",
+              "area_px": 297
+            },
+            {
+              "cls": "bridge",
+              "block": "L7",
+              "reason": "面积比 0.094 不在 [0.55, 1.25]",
+              "area_px": 196
+            },
+            {
+              "cls": "bridge",
+              "block": "A8",
+              "reason": "面积比 0.064 不在 [0.55, 1.25]",
+              "area_px": 133
+            },
+            {
+              "cls": "bridge",
+              "block": "A10",
+              "reason": "面积比 0.052 不在 [0.55, 1.25]",
+              "area_px": 108
+            },
+            {
+              "cls": "bridge",
+              "block": "G7",
+              "reason": "面积比 0.040 不在 [0.55, 1.25]",
+              "area_px": 84
+            },
+            {
+              "cls": "bridge",
+              "block": "H7",
+              "reason": "面积比 0.022 不在 [0.55, 1.25]",
+              "area_px": 46
+            },
+            {
+              "cls": "bridge",
+              "block": "J6",
+              "reason": "面积比 0.022 不在 [0.55, 1.25]",
+              "area_px": 45
+            },
+            {
+              "cls": "bridge",
+              "block": "A11",
+              "reason": "面积比 0.020 不在 [0.55, 1.25]",
+              "area_px": 41
+            },
+            {
+              "cls": "bridge",
+              "block": "D7",
+              "reason": "面积比 0.018 不在 [0.55, 1.25]",
+              "area_px": 37
+            },
+            {
+              "cls": "bridge",
+              "block": "I7",
+              "reason": "面积比 0.013 不在 [0.55, 1.25]",
+              "area_px": 26
+            },
+            {
+              "cls": "bridge",
+              "block": "C1",
+              "reason": "面积比 0.008 不在 [0.55, 1.25]",
+              "area_px": 16
+            },
+            {
+              "cls": "bridge",
+              "block": "N7",
+              "reason": "面积比 0.007 不在 [0.55, 1.25]",
+              "area_px": 14
+            },
+            {
+              "cls": "bridge",
+              "block": "N2",
+              "reason": "面积比 0.005 不在 [0.55, 1.25]",
+              "area_px": 10
+            },
+            {
+              "cls": "bridge",
+              "block": "N10",
+              "reason": "面积比 0.005 不在 [0.55, 1.25]",
+              "area_px": 10
+            },
+            {
+              "cls": "bridge",
+              "block": "N5",
+              "reason": "面积比 0.004 不在 [0.55, 1.25]",
+              "area_px": 9
+            },
+            {
+              "cls": "bridge",
+              "block": "D6",
+              "reason": "面积比 0.004 不在 [0.55, 1.25]",
+              "area_px": 9
+            },
+            {
+              "cls": "bridge",
+              "block": "I10",
+              "reason": "面积比 0.004 不在 [0.55, 1.25]",
+              "area_px": 9
+            },
+            {
+              "cls": "bridge",
+              "block": "N10",
+              "reason": "面积比 0.004 不在 [0.55, 1.25]",
+              "area_px": 9
+            },
+            {
+              "cls": "bridge",
+              "block": "E10",
+              "reason": "面积比 0.004 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "bridge",
+              "block": "B11",
+              "reason": "面积比 0.004 不在 [0.55, 1.25]",
+              "area_px": 8
+            }
+          ],
+          "provenance": {
+            "image": "map_official.png",
+            "registration": "自动标定(外框+灰线)：frame_inner=[7,10,647,512] 格距 sx=45.5857 sy=45.5073 px（格线覆盖率 293.9/359.2）",
+            "residual_px": 0.0,
+            "cell_px": [
+              45.51,
+              45.59
+            ],
+            "cell_m": 0.35,
+            "bridges_source": "颜色类 bridge(图纸口径)",
+            "ts": "2026-10-15 20:54:41",
+            "accept_thresholds": {
+              "mine": 0.55,
+              "obstacle": 0.6,
+              "target": 0.55,
+              "bridge": 0.55,
+              "car": 0.45,
+              "arrow": 0.45,
+              "label_box": 0.5
+            },
+            "counts": {
+              "bridge": 2,
+              "mine": 8,
+              "obstacle": 8,
+              "target": 2
+            },
+            "notes": {
+              "mine": "8 个格，置信度 0.80~0.84",
+              "obstacle": "8 个格，置信度 0.66~0.69",
+              "target": "2 个格，置信度 0.66~0.67",
+              "bridge": "2 个格，置信度 0.74~0.75"
+            }
+          }
+        }
+      },
+      "json": "D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\perception\\reports\\field_map_official.json",
+      "yaml": "D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\perception\\reports\\field_map_official.yaml"
+    },
+    {
+      "name": "drawing",
+      "image": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\_tmp_session\\t28_newmap\\map_src.png",
+      "reconciliation": {
+        "ok": true,
+        "n_diffs": 0,
+        "per_class": {
+          "mine": {
+            "perceived": [
+              "A4",
+              "B1",
+              "D8",
+              "E11",
+              "F9",
+              "G2",
+              "H3",
+              "I10"
+            ],
+            "truth": [
+              "A4",
+              "B1",
+              "D8",
+              "E11",
+              "F9",
+              "G2",
+              "H3",
+              "I10"
+            ],
+            "both": [
+              "A4",
+              "B1",
+              "D8",
+              "E11",
+              "F9",
+              "G2",
+              "H3",
+              "I10"
+            ],
+            "extra": [],
+            "missing": [],
+            "equal": true
+          },
+          "obstacle": {
+            "perceived": [
+              "A5",
+              "B7",
+              "C9",
+              "D1",
+              "E10",
+              "F4",
+              "G11",
+              "H5"
+            ],
+            "truth": [
+              "A5",
+              "B7",
+              "C9",
+              "D1",
+              "E10",
+              "F4",
+              "G11",
+              "H5"
+            ],
+            "both": [
+              "A5",
+              "B7",
+              "C9",
+              "D1",
+              "E10",
+              "F4",
+              "G11",
+              "H5"
+            ],
+            "extra": [],
+            "missing": [],
+            "equal": true
+          },
+          "target": {
+            "perceived": [
+              "B11",
+              "C11"
+            ],
+            "truth": [
+              "B11",
+              "C11"
+            ],
+            "both": [
+              "B11",
+              "C11"
+            ],
+            "extra": [],
+            "missing": [],
+            "equal": true
+          },
+          "bridge": {
+            "perceived": [
+              "K10",
+              "K5"
+            ],
+            "truth": [
+              "K10",
+              "K5"
+            ],
+            "both": [
+              "K10",
+              "K5"
+            ],
+            "extra": [],
+            "missing": [],
+            "equal": true
+          }
+        },
+        "scalars": {
+          "start": {
+            "perceived": "N10",
+            "truth": "N10",
+            "equal": true
+          },
+          "end": {
+            "perceived": "N5",
+            "truth": "N5",
+            "equal": true
+          },
+          "barrier_col_from": {
+            "perceived": "D",
+            "truth": "D",
+            "equal": true
+          },
+          "barrier_row_hi": {
+            "perceived": 6,
+            "truth": 6,
+            "equal": true
+          },
+          "barrier_row_lo": {
+            "perceived": 7,
+            "truth": 7,
+            "equal": true
+          }
+        }
+      },
+      "field_map": {
+        "map": {
+          "name": "drawing(frozen truth)",
+          "start": "N10",
+          "end": "N5",
+          "barrier_col_from": "D",
+          "barrier_row_hi": 6,
+          "barrier_row_lo": 7,
+          "mines": [
+            "A4",
+            "B1",
+            "D8",
+            "E11",
+            "F9",
+            "G2",
+            "H3",
+            "I10"
+          ],
+          "obstacles": [
+            "A5",
+            "B7",
+            "C9",
+            "D1",
+            "E10",
+            "F4",
+            "G11",
+            "H5"
+          ],
+          "targets": [
+            "B11",
+            "C11"
+          ],
+          "bridges": [
+            "K10",
+            "K5"
+          ]
+        },
+        "perception": {
+          "confidence": {
+            "obstacle": {
+              "E10": 0.726,
+              "G11": 0.723,
+              "F4": 0.722,
+              "H5": 0.722,
+              "B7": 0.729,
+              "A5": 0.728,
+              "C9": 0.726,
+              "D1": 0.724
+            },
+            "mine": {
+              "E11": 0.857,
+              "D8": 0.854,
+              "I10": 0.854,
+              "G2": 0.853,
+              "F9": 0.853,
+              "H3": 0.852,
+              "B1": 0.848,
+              "A4": 0.848
+            },
+            "target": {
+              "C11": 0.755,
+              "B11": 0.754
+            },
+            "bridge": {
+              "K10": 0.776,
+              "K5": 0.775
+            }
+          },
+          "cell_confidence": {
+            "E10": 0.726,
+            "G11": 0.723,
+            "F4": 0.722,
+            "H5": 0.722,
+            "B7": 0.729,
+            "A5": 0.728,
+            "C9": 0.726,
+            "D1": 0.724,
+            "E11": 0.857,
+            "D8": 0.854,
+            "I10": 0.854,
+            "G2": 0.853,
+            "F9": 0.853,
+            "H3": 0.852,
+            "B1": 0.848,
+            "A4": 0.848,
+            "C11": 0.755,
+            "B11": 0.754,
+            "K10": 0.776,
+            "K5": 0.775
+          },
+          "car": null,
+          "blue_face": {
+            "facing": "unknown",
+            "confidence": 0.0,
+            "blue_frac": 0.0,
+            "red_frac": 0.0,
+            "evidence": {
+              "roi": [
+                72,
+                654,
+                200,
+                718
+              ],
+              "n_px": 8192,
+              "blue_spec": [
+                195.0,
+                0.35,
+                0.25,
+                265.0,
+                1.0,
+                1.0
+              ],
+              "red_spec": [
+                345.0,
+                0.35,
+                0.25,
+                15.0,
+                1.0,
+                1.0
+              ],
+              "center_band": 0.8,
+              "margin_frac": 0.0,
+              "frame_color_guard": "外框深蓝 H≈220° 也在蓝带内 ⇒ 质心必须居中才算面",
+              "note": "阈值未标定（BLUE_FACE_HSV/RED_FACE_HSV 默认值）；俯视帧通常看不竖直面",
+              "reason": "蓝/红面像素都太少（俯视看不到竖直面？）"
+            }
+          },
+          "anchors": [],
+          "rejected": [
+            {
+              "cls": "mine",
+              "block": "N8",
+              "reason": "bbox 内深色像素占比 0.0859 > 0.02（判为带文字的标注框，非目标）",
+              "area_px": 3391,
+              "dark_frac": 0.0859
+            },
+            {
+              "cls": "mine",
+              "block": "N5",
+              "reason": "bbox 内深色像素占比 0.1000 > 0.02（判为带文字的标注框，非目标）",
+              "area_px": 3320,
+              "dark_frac": 0.1
+            },
+            {
+              "cls": "mine",
+              "block": "N10",
+              "reason": "bbox 内深色像素占比 0.1047 > 0.02（判为带文字的标注框，非目标）",
+              "area_px": 3298,
+              "dark_frac": 0.1047
+            },
+            {
+              "cls": "mine",
+              "block": "M2",
+              "reason": "面积比 0.490 不在 [0.55, 1.25]",
+              "area_px": 2010
+            },
+            {
+              "cls": "mine",
+              "block": "M2",
+              "reason": "面积比 0.186 不在 [0.55, 1.25]",
+              "area_px": 763
+            },
+            {
+              "cls": "mine",
+              "block": "N5",
+              "reason": "面积比 0.003 不在 [0.55, 1.25]",
+              "area_px": 14
+            },
+            {
+              "cls": "mine",
+              "block": "K5",
+              "reason": "面积比 0.003 不在 [0.55, 1.25]",
+              "area_px": 11
+            },
+            {
+              "cls": "mine",
+              "block": "K10",
+              "reason": "面积比 0.003 不在 [0.55, 1.25]",
+              "area_px": 11
+            },
+            {
+              "cls": "mine",
+              "block": "N8",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 10
+            },
+            {
+              "cls": "mine",
+              "block": "N10",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 10
+            },
+            {
+              "cls": "mine",
+              "block": "K5",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 9
+            },
+            {
+              "cls": "mine",
+              "block": "N8",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 9
+            },
+            {
+              "cls": "mine",
+              "block": "K10",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 9
+            },
+            {
+              "cls": "mine",
+              "block": "B1",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "B1",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "M2",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "G2",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "G2",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "H3",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "H3",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "A4",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "A4",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "D8",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "D8",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "F9",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "F9",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "I10",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "I10",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "E11",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "mine",
+              "block": "E11",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "target",
+              "block": "C11",
+              "reason": "面积比 0.005 不在 [0.55, 1.25]",
+              "area_px": 22
+            },
+            {
+              "cls": "target",
+              "block": "A5",
+              "reason": "面积比 0.005 不在 [0.55, 1.25]",
+              "area_px": 21
+            },
+            {
+              "cls": "target",
+              "block": "B7",
+              "reason": "面积比 0.005 不在 [0.55, 1.25]",
+              "area_px": 21
+            },
+            {
+              "cls": "bridge",
+              "block": "B4",
+              "reason": "面积比 0.501 不在 [0.55, 1.25]",
+              "area_px": 2057
+            },
+            {
+              "cls": "bridge",
+              "block": "G11",
+              "reason": "面积比 0.474 不在 [0.55, 1.25]",
+              "area_px": 1946
+            },
+            {
+              "cls": "bridge",
+              "block": "J6",
+              "reason": "面积比 0.300 不在 [0.55, 1.25]",
+              "area_px": 1232
+            },
+            {
+              "cls": "bridge",
+              "block": "N1",
+              "reason": "面积比 0.021 不在 [0.55, 1.25]",
+              "area_px": 85
+            },
+            {
+              "cls": "bridge",
+              "block": "I1",
+              "reason": "面积比 0.018 不在 [0.55, 1.25]",
+              "area_px": 74
+            },
+            {
+              "cls": "bridge",
+              "block": "J1",
+              "reason": "面积比 0.018 不在 [0.55, 1.25]",
+              "area_px": 72
+            },
+            {
+              "cls": "bridge",
+              "block": "K1",
+              "reason": "面积比 0.018 不在 [0.55, 1.25]",
+              "area_px": 72
+            },
+            {
+              "cls": "bridge",
+              "block": "L1",
+              "reason": "面积比 0.017 不在 [0.55, 1.25]",
+              "area_px": 71
+            },
+            {
+              "cls": "bridge",
+              "block": "M1",
+              "reason": "面积比 0.017 不在 [0.55, 1.25]",
+              "area_px": 70
+            },
+            {
+              "cls": "bridge",
+              "block": "N7",
+              "reason": "面积比 0.004 不在 [0.55, 1.25]",
+              "area_px": 16
+            },
+            {
+              "cls": "bridge",
+              "block": "N2",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 9
+            },
+            {
+              "cls": "bridge",
+              "block": "N10",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 9
+            },
+            {
+              "cls": "bridge",
+              "block": "N1",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "bridge",
+              "block": "N3",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            },
+            {
+              "cls": "bridge",
+              "block": "N9",
+              "reason": "面积比 0.002 不在 [0.55, 1.25]",
+              "area_px": 8
+            }
+          ],
+          "provenance": {
+            "image": "map_src.png",
+            "registration": "角点顺序 N11,N1,A1,A11",
+            "residual_px": 0.0,
+            "cell_px": [
+              64.0,
+              64.09
+            ],
+            "cell_m": 0.35,
+            "bridges_source": "颜色类 bridge(图纸口径)",
+            "ts": "2026-10-15 20:54:41",
+            "accept_thresholds": {
+              "mine": 0.55,
+              "obstacle": 0.6,
+              "target": 0.55,
+              "bridge": 0.55,
+              "car": 0.45,
+              "arrow": 0.45,
+              "label_box": 0.5
+            },
+            "counts": {
+              "bridge": 2,
+              "mine": 8,
+              "obstacle": 8,
+              "target": 2
+            },
+            "notes": {
+              "mine": "8 个格，置信度 0.85~0.86",
+              "obstacle": "8 个格，置信度 0.72~0.73",
+              "target": "2 个格，置信度 0.75~0.76",
+              "bridge": "2 个格，置信度 0.78~0.78"
+            }
+          }
+        }
+      },
+      "json": "D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\perception\\reports\\field_map_drawing.json",
+      "yaml": "D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\perception\\reports\\field_map_drawing.yaml"
+    }
+  ]
+}

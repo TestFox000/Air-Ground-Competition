@@ -1,0 +1,65 @@
+[t4_rosenv] host=dzsmart ROS_DISTRO=humble ROS_DOMAIN_ID=118 RMW=default
+[domain] ROS_DOMAIN_ID=118 (来源: envfile)
+[intel] ← bridge_passable[bridge_passable:lower]: {"half": "lower", "block": "K9", "confidence": 0.9}  (cli)
+[intel] ← bridge_passable[bridge_passable:upper]: {"half": "upper", "block": "K4", "confidence": 0.9}  (cli)
+[intel] ← target_zone[target_zone]: {"blocks": ["G10", "H10"]}  (cli)
+[intel] ← field_verify[field_verify]: {"mines": ["A3"], "obstacles": ["K7"]}  (cli)
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（heartbeat）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → heartbeat [1/1] subs=0 {"type":"heartbeat","ts":1791805213.412,"seq":1}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（intel）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → bridge_passable [1/3] subs=0 {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791805213.413,"seq":2}
+[send] → bridge_passable [2/3] subs=0 {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791805213.413,"seq":2}
+[send] → bridge_passable [3/3] subs=0 {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791805213.413,"seq":2}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（intel）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → bridge_passable [1/3] subs=0 {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791805213.413,"seq":3}
+[send] → bridge_passable [2/3] subs=0 {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791805213.413,"seq":3}
+[send] → bridge_passable [3/3] subs=0 {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791805213.413,"seq":3}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（intel）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → target_zone [1/3] subs=0 {"type":"target_zone","blocks":["G10","H10"],"ts":1791805213.413,"seq":4}
+[send] → target_zone [2/3] subs=0 {"type":"target_zone","blocks":["G10","H10"],"ts":1791805213.413,"seq":4}
+[send] → target_zone [3/3] subs=0 {"type":"target_zone","blocks":["G10","H10"],"ts":1791805213.413,"seq":4}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（intel）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → field_verify [1/3] subs=0 {"type":"field_verify","mines":["A3"],"obstacles":["K7"],"ts":1791805213.413,"seq":5}
+[send] → field_verify [2/3] subs=0 {"type":"field_verify","mines":["A3"],"obstacles":["K7"],"ts":1791805213.413,"seq":5}
+[send] → field_verify [3/3] subs=0 {"type":"field_verify","mines":["A3"],"obstacles":["K7"],"ts":1791805213.413,"seq":5}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（heartbeat）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → heartbeat [1/1] subs=0 {"type":"heartbeat","ts":1791805215.344,"seq":6}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（intel）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → bridge_passable [1/3] subs=0 {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791805215.416,"seq":7}
+[send] → bridge_passable [2/3] subs=0 {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791805215.416,"seq":7}
+[send] → bridge_passable [3/3] subs=0 {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791805215.416,"seq":7}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（intel）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → bridge_passable [1/3] subs=0 {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791805215.416,"seq":8}
+[send] → bridge_passable [2/3] subs=0 {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791805215.416,"seq":8}
+[send] → bridge_passable [3/3] subs=0 {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791805215.416,"seq":8}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（heartbeat）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → heartbeat [1/1] subs=0 {"type":"heartbeat","ts":1791805216.397,"seq":9}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（heartbeat）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → heartbeat [1/1] subs=0 {"type":"heartbeat","ts":1791805217.427,"seq":10}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（intel）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → bridge_passable [1/3] subs=0 {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791805217.427,"seq":11}
+[send] → bridge_passable [2/3] subs=0 {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791805217.427,"seq":11}
+[send] → bridge_passable [3/3] subs=0 {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791805217.427,"seq":11}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（intel）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → bridge_passable [1/3] subs=0 {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791805217.427,"seq":12}
+[send] → bridge_passable [2/3] subs=0 {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791805217.427,"seq":12}
+[send] → bridge_passable [3/3] subs=0 {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791805217.427,"seq":12}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（heartbeat）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → heartbeat [1/1] subs=0 {"type":"heartbeat","ts":1791805218.428,"seq":13}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（heartbeat）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → heartbeat [1/1] subs=0 {"type":"heartbeat","ts":1791805219.459,"seq":14}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（intel）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → bridge_passable [1/3] subs=0 {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791805219.459,"seq":15}
+[send] → bridge_passable [2/3] subs=0 {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791805219.459,"seq":15}
+[send] → bridge_passable [3/3] subs=0 {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791805219.459,"seq":15}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（intel）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → bridge_passable [1/3] subs=0 {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791805219.459,"seq":16}
+[send] → bridge_passable [2/3] subs=0 {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791805219.459,"seq":16}
+[send] → bridge_passable [3/3] subs=0 {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791805219.459,"seq":16}
+[send] ⚠️ /dzlink/drone_to_car 订阅者匹配数=0（heartbeat）—— 车侧栈没跑 / 域号不一致（当前域 118） / 组播被拦
+[send] → heartbeat [1/1] subs=0 {"type":"heartbeat","ts":1791805220.46,"seq":17}
+[run] 常驻启动：心跳 1.00Hz / bridge 2s / ttl 30s / 域 118
+[run] 日志: /tmp/t12_run.jsonl
+[run] 到达 --duration，退出
+[run] 结束。统计: {"uptime_s": 8.5, "samples_seen": 4, "samples_rejected": 0, "intel_emitted": 10, "heartbeat_emitted": 7, "route_emitted": 0, "car_msgs": 0, "acks": 0, "car_states": 0, "car_last_ago_s": null, "last_ack_seq": null, "last_car_block": "", "last_car_phase": ""}
+[run] ack 台账: {'intel_sent': 10, 'intel_acked': 0, 'pending_seq': 10, 'hb_sent': 7, 'hb_acked': 0, 'hb_recent_sent': 7, 'hb_recent_acked': 0, 'any_acked': False, 'suspicious_mismatch': False, 'recent_acks': []}

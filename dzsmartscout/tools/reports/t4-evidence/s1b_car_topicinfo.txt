@@ -1,0 +1,33 @@
+[t4_rosenv] host=duzhong ROS_DISTRO=humble ROS_DOMAIN_ID=118 RMW=default
+### host=duzhong ip=10.29.122.188 domain=118 time=2026-10-12T19:23:38+08:00
+### node list
+  WARNING: Be aware that are nodes in the graph that share an exact name, this can have unintended side effects.
+  /t4_qos_pub
+  /t4_qos_pub
+### topic list
+  /parameter_events
+  /rosout
+  /t4/disc/car2
+  /t4/disc/drone2
+### topic info -v /t4/disc/drone2
+  Type: std_msgs/msg/String
+  
+  Publisher count: 1
+  
+  Node name: t4_qos_pub
+  Node namespace: /
+  Topic type: std_msgs/msg/String
+  Endpoint type: PUBLISHER
+  GID: 01.0f.2f.38.dd.26.43.b6.00.00.00.00.00.00.11.03.00.00.00.00.00.00.00.00
+  QoS profile:
+    Reliability: RELIABLE
+    History (Depth): UNKNOWN
+    Durability: VOLATILE
+    Lifespan: Infinite
+    Deadline: Infinite
+    Liveliness: AUTOMATIC
+    Liveliness lease duration: Infinite
+  
+  Subscription count: 0
+  
+### t4_topicinfo done

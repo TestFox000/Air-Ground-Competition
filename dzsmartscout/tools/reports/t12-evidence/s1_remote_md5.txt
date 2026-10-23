@@ -1,0 +1,28 @@
+# hub（无人机 ~/dzlink_tools/）部署物 md5 —— 按时间追加，历史行不删
+# （"复核的到底是哪一版"靠这张表回答；口径见 dzrobot_v2/docs/回归守护_known_reds.md §4 第 5 条）
+#
+# ── [t12 · 19:40 部署时实测] ───────────────────────────────────────────────
+f4151410f939c2bda67e82d57ea07d83  /home/duzhong/dzlink_tools/dzlink_supervisor.py
+893e7b9f237563daf143ea979266bb12  /home/duzhong/dzlink_tools/dz_send_waypoint.py
+1084529a47b67a0c5c84c0002990c252  /home/duzhong/dzlink_tools/test_dzlink_supervisor.py
+a95a49ff4b43cc0c8e01161088d69975  /home/duzhong/dzlink_tools/test_dz_send_waypoint.py
+#
+# ── [t18 · 20:09:16 重跑部署后实测 = 当前最终版] ────────────────────────────
+5c7426d6b619da2f4b69bb3149de2d53  /home/duzhong/dzlink_tools/dzlink_supervisor.py
+eb41dbf4b944bc7e8af8e61ec940a228  /home/duzhong/dzlink_tools/dz_send_waypoint.py
+558f40a2c4cd77c5a0fc7769e6ddcfa4  /home/duzhong/dzlink_tools/test_dzlink_supervisor.py
+a95a49ff4b43cc0c8e01161088d69975  /home/duzhong/dzlink_tools/test_dz_send_waypoint.py
+#
+# ★ 被审版本 = supervisor `5c7426d6b619da2f4b69bb3149de2d53`
+#           + sender     `eb41dbf4b944bc7e8af8e61ec940a228`
+#   （+ test_dzlink_supervisor.py `558f40a2…` / test_dz_send_waypoint.py `a95a49ff…`），复核前无后续写入。
+#   ★ t19-G3：sender 的**现役**哈希 = `eb41dbf4…`（t18/F2 起，hub 实值）；
+#     上面 t12 段里的 `893e7b9f…` 是 **t12 时值**，不要读成现役。
+#
+# 版本沿革（回答 t15/F1「取证后又改了 3 行」）：
+#   ebd27cf8be60b6d5eeddbc49f1d691e9  19:08:29  hub 原始版（t3 交付）
+#   f4151410f939c2bda67e82d57ea07d83  19:40:05  t12 部署版（D1+D2 修复）→ 上面第一段记录的就是它
+#   6389ef2d8c42…                     19:52:44  t16 **口径中间态**（CAR_CONTRACT/横幅/注释），随即被下一行取代
+#   5c7426d6b619da2f4b69bb3149de2d53  19:58:44  t16 最终版（口径 + 3 行「两半场成对发出」）→ 当前
+#   证据：reports/t18-evidence/hub_lineage.txt（含 f4151410 → 5c7426d6 的逐行 diff，全部是 t16 的改动）
+#   ⇒ f4151410 **不是**丢失的版本：它就在 hub 的 _backups/t16_20261012_195845/ 里，可随时 diff。

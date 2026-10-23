@@ -1,0 +1,11 @@
+=== sync_planner_from_source  2026-10-17 11:42:49 ===
+源(真源，只读): D:\User\Desktop\比赛存档\v1\dzrobot_v2
+产物        : D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\planner\vendor\dzbrain_ws
+模式: verify-only（账本 vs 真源 vs 产物）
+漂移 6 条 / 缺失 0 条
+  ! src/dzbrain/dzbrain/core/config.py  真源变了 e917c2e9f5f3 -> 8b4fe887257d
+  ! src/dzbrain/dzbrain/route/physics.py  真源变了 c54ebe5c8873 -> 726321c974ae
+  ! src/dzbrain/dzbrain/route/planner.py  真源变了 86ccf6c5c6f4 -> 3c1df41ae2c8
+  ! tools/plan_route.py  真源变了 e3580127ae56 -> 93379d11ce22
+  ! tools/route_check.py  真源变了 841cf1b205da -> 1cfccefe8c93
+  ! config/robot.yaml  真源变了 c3dadf513a02 -> d60e2be1a3e5

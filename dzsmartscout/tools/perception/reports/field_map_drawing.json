@@ -1,0 +1,456 @@
+{
+  "map": {
+    "name": "drawing(frozen truth)",
+    "start": "N10",
+    "end": "N5",
+    "barrier_col_from": "D",
+    "barrier_row_hi": 6,
+    "barrier_row_lo": 7,
+    "mines": [
+      "A4",
+      "B1",
+      "D8",
+      "E11",
+      "F9",
+      "G2",
+      "H3",
+      "I10"
+    ],
+    "obstacles": [
+      "A5",
+      "B7",
+      "C9",
+      "D1",
+      "E10",
+      "F4",
+      "G11",
+      "H5"
+    ],
+    "targets": [
+      "B11",
+      "C11"
+    ],
+    "bridges": [
+      "K10",
+      "K5"
+    ]
+  },
+  "perception": {
+    "confidence": {
+      "obstacle": {
+        "E10": 0.726,
+        "G11": 0.723,
+        "F4": 0.722,
+        "H5": 0.722,
+        "B7": 0.729,
+        "A5": 0.728,
+        "C9": 0.726,
+        "D1": 0.724
+      },
+      "mine": {
+        "E11": 0.857,
+        "D8": 0.854,
+        "I10": 0.854,
+        "G2": 0.853,
+        "F9": 0.853,
+        "H3": 0.852,
+        "B1": 0.848,
+        "A4": 0.848
+      },
+      "target": {
+        "C11": 0.755,
+        "B11": 0.754
+      },
+      "bridge": {
+        "K10": 0.776,
+        "K5": 0.775
+      }
+    },
+    "cell_confidence": {
+      "E10": 0.726,
+      "G11": 0.723,
+      "F4": 0.722,
+      "H5": 0.722,
+      "B7": 0.729,
+      "A5": 0.728,
+      "C9": 0.726,
+      "D1": 0.724,
+      "E11": 0.857,
+      "D8": 0.854,
+      "I10": 0.854,
+      "G2": 0.853,
+      "F9": 0.853,
+      "H3": 0.852,
+      "B1": 0.848,
+      "A4": 0.848,
+      "C11": 0.755,
+      "B11": 0.754,
+      "K10": 0.776,
+      "K5": 0.775
+    },
+    "car": null,
+    "blue_face": {
+      "facing": "unknown",
+      "confidence": 0.0,
+      "blue_frac": 0.0,
+      "red_frac": 0.0,
+      "evidence": {
+        "roi": [
+          72,
+          654,
+          200,
+          718
+        ],
+        "n_px": 8192,
+        "blue_spec": [
+          195.0,
+          0.35,
+          0.25,
+          265.0,
+          1.0,
+          1.0
+        ],
+        "red_spec": [
+          345.0,
+          0.35,
+          0.25,
+          15.0,
+          1.0,
+          1.0
+        ],
+        "center_band": 0.8,
+        "margin_frac": 0.0,
+        "frame_color_guard": "外框深蓝 H≈220° 也在蓝带内 ⇒ 质心必须居中才算面",
+        "note": "阈值未标定（BLUE_FACE_HSV/RED_FACE_HSV 默认值）；俯视帧通常看不竖直面",
+        "reason": "蓝/红面像素都太少（俯视看不到竖直面？）"
+      }
+    },
+    "anchors": [],
+    "rejected": [
+      {
+        "cls": "mine",
+        "block": "N8",
+        "reason": "bbox 内深色像素占比 0.0859 > 0.02（判为带文字的标注框，非目标）",
+        "area_px": 3391,
+        "dark_frac": 0.0859
+      },
+      {
+        "cls": "mine",
+        "block": "N5",
+        "reason": "bbox 内深色像素占比 0.1000 > 0.02（判为带文字的标注框，非目标）",
+        "area_px": 3320,
+        "dark_frac": 0.1
+      },
+      {
+        "cls": "mine",
+        "block": "N10",
+        "reason": "bbox 内深色像素占比 0.1047 > 0.02（判为带文字的标注框，非目标）",
+        "area_px": 3298,
+        "dark_frac": 0.1047
+      },
+      {
+        "cls": "mine",
+        "block": "M2",
+        "reason": "面积比 0.490 不在 [0.55, 1.25]",
+        "area_px": 2010
+      },
+      {
+        "cls": "mine",
+        "block": "M2",
+        "reason": "面积比 0.186 不在 [0.55, 1.25]",
+        "area_px": 763
+      },
+      {
+        "cls": "mine",
+        "block": "N5",
+        "reason": "面积比 0.003 不在 [0.55, 1.25]",
+        "area_px": 14
+      },
+      {
+        "cls": "mine",
+        "block": "K5",
+        "reason": "面积比 0.003 不在 [0.55, 1.25]",
+        "area_px": 11
+      },
+      {
+        "cls": "mine",
+        "block": "K10",
+        "reason": "面积比 0.003 不在 [0.55, 1.25]",
+        "area_px": 11
+      },
+      {
+        "cls": "mine",
+        "block": "N8",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 10
+      },
+      {
+        "cls": "mine",
+        "block": "N10",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 10
+      },
+      {
+        "cls": "mine",
+        "block": "K5",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 9
+      },
+      {
+        "cls": "mine",
+        "block": "N8",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 9
+      },
+      {
+        "cls": "mine",
+        "block": "K10",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 9
+      },
+      {
+        "cls": "mine",
+        "block": "B1",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "B1",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "M2",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "G2",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "G2",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "H3",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "H3",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "A4",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "A4",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "D8",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "D8",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "F9",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "F9",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "I10",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "I10",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "E11",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "mine",
+        "block": "E11",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "target",
+        "block": "C11",
+        "reason": "面积比 0.005 不在 [0.55, 1.25]",
+        "area_px": 22
+      },
+      {
+        "cls": "target",
+        "block": "A5",
+        "reason": "面积比 0.005 不在 [0.55, 1.25]",
+        "area_px": 21
+      },
+      {
+        "cls": "target",
+        "block": "B7",
+        "reason": "面积比 0.005 不在 [0.55, 1.25]",
+        "area_px": 21
+      },
+      {
+        "cls": "bridge",
+        "block": "B4",
+        "reason": "面积比 0.501 不在 [0.55, 1.25]",
+        "area_px": 2057
+      },
+      {
+        "cls": "bridge",
+        "block": "G11",
+        "reason": "面积比 0.474 不在 [0.55, 1.25]",
+        "area_px": 1946
+      },
+      {
+        "cls": "bridge",
+        "block": "J6",
+        "reason": "面积比 0.300 不在 [0.55, 1.25]",
+        "area_px": 1232
+      },
+      {
+        "cls": "bridge",
+        "block": "N1",
+        "reason": "面积比 0.021 不在 [0.55, 1.25]",
+        "area_px": 85
+      },
+      {
+        "cls": "bridge",
+        "block": "I1",
+        "reason": "面积比 0.018 不在 [0.55, 1.25]",
+        "area_px": 74
+      },
+      {
+        "cls": "bridge",
+        "block": "J1",
+        "reason": "面积比 0.018 不在 [0.55, 1.25]",
+        "area_px": 72
+      },
+      {
+        "cls": "bridge",
+        "block": "K1",
+        "reason": "面积比 0.018 不在 [0.55, 1.25]",
+        "area_px": 72
+      },
+      {
+        "cls": "bridge",
+        "block": "L1",
+        "reason": "面积比 0.017 不在 [0.55, 1.25]",
+        "area_px": 71
+      },
+      {
+        "cls": "bridge",
+        "block": "M1",
+        "reason": "面积比 0.017 不在 [0.55, 1.25]",
+        "area_px": 70
+      },
+      {
+        "cls": "bridge",
+        "block": "N7",
+        "reason": "面积比 0.004 不在 [0.55, 1.25]",
+        "area_px": 16
+      },
+      {
+        "cls": "bridge",
+        "block": "N2",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 9
+      },
+      {
+        "cls": "bridge",
+        "block": "N10",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 9
+      },
+      {
+        "cls": "bridge",
+        "block": "N1",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "bridge",
+        "block": "N3",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      },
+      {
+        "cls": "bridge",
+        "block": "N9",
+        "reason": "面积比 0.002 不在 [0.55, 1.25]",
+        "area_px": 8
+      }
+    ],
+    "provenance": {
+      "image": "map_src.png",
+      "registration": "角点顺序 N11,N1,A1,A11",
+      "residual_px": 0.0,
+      "cell_px": [
+        64.0,
+        64.09
+      ],
+      "cell_m": 0.35,
+      "bridges_source": "颜色类 bridge(图纸口径)",
+      "ts": "2026-10-15 20:54:41",
+      "accept_thresholds": {
+        "mine": 0.55,
+        "obstacle": 0.6,
+        "target": 0.55,
+        "bridge": 0.55,
+        "car": 0.45,
+        "arrow": 0.45,
+        "label_box": 0.5
+      },
+      "counts": {
+        "bridge": 2,
+        "mine": 8,
+        "obstacle": 8,
+        "target": 2
+      },
+      "notes": {
+        "mine": "8 个格，置信度 0.85~0.86",
+        "obstacle": "8 个格，置信度 0.72~0.73",
+        "target": "2 个格，置信度 0.75~0.76",
+        "bridge": "2 个格，置信度 0.78~0.78"
+      }
+    }
+  }
+}

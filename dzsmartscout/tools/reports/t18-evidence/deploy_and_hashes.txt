@@ -1,0 +1,45 @@
+=== 部署前（当前 hub 内容；同时备份到 /home/duzhong/dzlink_tools/_backups/t18_20261012_200918）===
+  [注·t19-G1] 标题里的“部署前”指**内容版本**。备份目录**名**用的是**本机(Windows)时钟**（20:09:18），
+              而 hub 文件 mtime 用的是**无人机时钟**（实测相差 ~1.4 s，无人机偏慢）
+              ⇒ 目录名看起来会比部署后的文件 mtime（20:09:16）还晚 ~2 s —— 这就是
+              “备份目录建于部署后”的观感来源。实际 `mkdir+cp` 在 scp **之前**执行，真机实测：
+                备份目录 mtime   20:09:16.573
+                hub 文件 mtime   20:09:16.721 / .797 / .877 / 20:09:17.101   （均在目录之后）
+              证明脚本：tools/link/probe/t19_timestamps.sh
+  [注·t19-G1] 因此本段的 sender 副本 = **部署前版**（`893e7b9f…` —— sender 本轮才被修，副本是旧的）；
+              supervisor 副本 = **未改的终版**（`5c7426d6…` —— 本轮未改，副本即终版）。
+              → 与下面【部署后】段 hub 实测 `eb41dbf4…` **不矛盾**：两段描述的是不同对象。
+--- 备份目录 /home/duzhong/dzlink_tools/_backups/t18_20261012_200918 ---
+5c7426d6b619da2f4b69bb3149de2d53  /home/duzhong/dzlink_tools/_backups/t18_20261012_200918/dzlink_supervisor.py
+893e7b9f237563daf143ea979266bb12  /home/duzhong/dzlink_tools/_backups/t18_20261012_200918/dz_send_waypoint.py
+558f40a2c4cd77c5a0fc7769e6ddcfa4  /home/duzhong/dzlink_tools/_backups/t18_20261012_200918/test_dzlink_supervisor.py
+a95a49ff4b43cc0c8e01161088d69975  /home/duzhong/dzlink_tools/_backups/t18_20261012_200918/test_dz_send_waypoint.py
+
+=== 上传（本地 → hub）===
+  /home/duzhong/dzlink_tools/dzlink_supervisor.py       94871 B  md5=5c7426d6b619da2f4b69bb3149de2d53  sha256[:20]=5899a44b318f0031fb99
+  /home/duzhong/dzlink_tools/dz_send_waypoint.py        21637 B  md5=eb41dbf4b944bc7e8af8e61ec940a228  sha256[:20]=c2aafbd157f6e62eab55
+  /home/duzhong/dzlink_tools/test_dzlink_supervisor.py  46644 B  md5=558f40a2c4cd77c5a0fc7769e6ddcfa4  sha256[:20]=24e270c37b0ddf259739
+  /home/duzhong/dzlink_tools/test_dz_send_waypoint.py    6785 B  md5=a95a49ff4b43cc0c8e01161088d69975  sha256[:20]=b8f694d4bd4a99b9afb2
+=== 部署后（hub 实测 md5）===
+5c7426d6b619da2f4b69bb3149de2d53  /home/duzhong/dzlink_tools/dzlink_supervisor.py
+eb41dbf4b944bc7e8af8e61ec940a228  /home/duzhong/dzlink_tools/dz_send_waypoint.py
+558f40a2c4cd77c5a0fc7769e6ddcfa4  /home/duzhong/dzlink_tools/test_dzlink_supervisor.py
+a95a49ff4b43cc0c8e01161088d69975  /home/duzhong/dzlink_tools/test_dz_send_waypoint.py
+
+=== md5 逐文件一致：YES ===
+=== hub py_compile ===
+PY_COMPILE_OK
+
+=== hub 单测 ===
+-- supervisor --
+Ran 81 tests in 0.098s
+OK
+-- sender --
+Ran 24 tests in 0.089s
+OK
+
+=== 被复核文件哈希清单（路径 + mtime + md5 + sha256[:20]）===
+dzlink_supervisor.py  2026-10-12 20:09:16.721486745 +0800  5c7426d6b619da2f4b69bb3149de2d53  5899a44b318f0031fb99
+dz_send_waypoint.py  2026-10-12 20:09:16.797489126 +0800  eb41dbf4b944bc7e8af8e61ec940a228  c2aafbd157f6e62eab55
+test_dzlink_supervisor.py  2026-10-12 20:09:16.877491633 +0800  558f40a2c4cd77c5a0fc7769e6ddcfa4  24e270c37b0ddf259739
+test_dz_send_waypoint.py  2026-10-12 20:09:17.101498655 +0800  a95a49ff4b43cc0c8e01161088d69975  b8f694d4bd4a99b9afb2

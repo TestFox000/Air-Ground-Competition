@@ -1,0 +1,27 @@
+# 由 perception.field_map 生成 —— 无人机侧感知出图
+# 来源图: map_official.png
+# 标定:   自动标定(外框+灰线)：frame_inner=[7,10,647,512] 格距 sx=45.5857 sy=45.5073 px（格线覆盖率 293.9/359.2）
+# 生成时间: 2026-10-15 20:54:41
+# ★ map: 块与 dzrobot_v2/config/map.yaml 同 schema；perception: 块是证据，车侧可忽略
+map:
+  name: "official"
+  start: "N10"
+  end: "N5"
+  barrier_col_from: "D"
+  barrier_row_hi: 6
+  barrier_row_lo: 7
+  mines: ["A3", "B7", "C1", "D9", "E3", "G4", "H10", "I6"]
+  obstacles: ["A1", "B11", "D8", "E2", "F11", "G9", "H4", "I8"]
+  targets: ["E5", "F5"]
+  bridges: ["K5", "K9"]
+perception:
+  cell_m: 0.35
+  confidence_bridge: {"K5": 0.747, "K9": 0.743}
+  confidence_mine: {"A3": 0.809, "B7": 0.829, "C1": 0.803, "D9": 0.825, "E3": 0.825, "G4": 0.827, "H10": 0.829, "I6": 0.841}
+  confidence_obstacle: {"A1": 0.655, "B11": 0.665, "D8": 0.670, "E2": 0.665, "F11": 0.657, "G9": 0.668, "H4": 0.670, "I8": 0.688}
+  confidence_target: {"E5": 0.668, "F5": 0.657}
+  car: null          # 本帧未检出车顶标记（没有就是没有）
+  blue_face: {"facing": "unknown", "confidence": 0.0, "blue_frac": 0.0, "red_frac": 0.0, "evidence": {"roi": [190, 192, 281, 238], "n_px": 4186, "blue_spec": [195.0, 0.35, 0.25, 265.0, 1.0, 1.0], "red_spec": [345.0, 0.35, 0.25, 15.0, 1.0, 1.0], "center_band": 0.8, "margin_frac": 0.0, "frame_color_guard": "外框深蓝 H≈220° 也在蓝带内 ⇒ 质心必须居中才算面", "note": "阈值未标定（BLUE_FACE_HSV/RED_FACE_HSV 默认值）；俯视帧通常看不竖直面", "reason": "蓝/红面像素都太少（俯视看不到竖直面？）"}}
+  anchors: []
+  rejected_n: 29
+  ts: "2026-10-15 20:54:41"

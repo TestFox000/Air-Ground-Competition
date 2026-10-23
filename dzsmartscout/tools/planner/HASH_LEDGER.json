@@ -1,0 +1,167 @@
+{
+  "generated_at": "2026-10-17 17:02:07",
+  "source_root": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2",
+  "vendor_root": "D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws",
+  "file_set_count": 16,
+  "all_same": true,
+  "closure_problems": [],
+  "route": {
+    "source": {
+      "count": 44,
+      "sha256": "df24e944ae4ccf8bb4ea15c8def7ecbaa9718c62e6b72af20e486f84b1def27f",
+      "tokens": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y"
+    },
+    "vendor": {
+      "count": 44,
+      "sha256": "df24e944ae4ccf8bb4ea15c8def7ecbaa9718c62e6b72af20e486f84b1def27f",
+      "tokens": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y"
+    },
+    "same": true
+  },
+  "files": [
+    {
+      "rel": "src/dzbrain/dzbrain/__init__.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\dzbrain\\__init__.py",
+      "size": 701,
+      "sha256": "2c95c7e2ecf508892a27863f10596c298e5be38e8c5ffa7fd1fa3bfc43d22787",
+      "vendor_sha256": "2c95c7e2ecf508892a27863f10596c298e5be38e8c5ffa7fd1fa3bfc43d22787",
+      "same": true,
+      "src_mtime": "2026-10-07T10:17:04"
+    },
+    {
+      "rel": "src/dzbrain/dzbrain/core/__init__.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\dzbrain\\core\\__init__.py",
+      "size": 108,
+      "sha256": "71f40bf8e4b0135a410cf9b61f00871401a317029b4b85f293720fac46cef95a",
+      "vendor_sha256": "71f40bf8e4b0135a410cf9b61f00871401a317029b4b85f293720fac46cef95a",
+      "same": true,
+      "src_mtime": "2026-10-07T10:17:04"
+    },
+    {
+      "rel": "src/dzbrain/dzbrain/core/config.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\dzbrain\\core\\config.py",
+      "size": 62976,
+      "sha256": "e832b6b1d92eb71bc0fb041aa70ac53923423a77af9a19abff08308b220b729e",
+      "vendor_sha256": "e832b6b1d92eb71bc0fb041aa70ac53923423a77af9a19abff08308b220b729e",
+      "same": true,
+      "src_mtime": "2026-10-17T14:30:37"
+    },
+    {
+      "rel": "src/dzbrain/dzbrain/core/geometry.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\dzbrain\\core\\geometry.py",
+      "size": 7276,
+      "sha256": "d932fc8bb3f125b3d2c517f6794aa471a827b754d9d0764de7637c87e7b2bad2",
+      "vendor_sha256": "d932fc8bb3f125b3d2c517f6794aa471a827b754d9d0764de7637c87e7b2bad2",
+      "same": true,
+      "src_mtime": "2026-10-17T16:47:50"
+    },
+    {
+      "rel": "src/dzbrain/dzbrain/route/__init__.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\dzbrain\\route\\__init__.py",
+      "size": 195,
+      "sha256": "15ee930fbc0b20b4bde7c53640ac2a08ef850a19953cfffbde84509c6c03ae28",
+      "vendor_sha256": "15ee930fbc0b20b4bde7c53640ac2a08ef850a19953cfffbde84509c6c03ae28",
+      "same": true,
+      "src_mtime": "2026-10-07T10:17:04"
+    },
+    {
+      "rel": "src/dzbrain/dzbrain/route/model.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\dzbrain\\route\\model.py",
+      "size": 8565,
+      "sha256": "678a8d1fab9c6e7631cf87c6038cf94b30255ac645dba2f5153b315da10e7723",
+      "vendor_sha256": "678a8d1fab9c6e7631cf87c6038cf94b30255ac645dba2f5153b315da10e7723",
+      "same": true,
+      "src_mtime": "2026-10-11T07:53:03"
+    },
+    {
+      "rel": "src/dzbrain/dzbrain/route/parser.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\dzbrain\\route\\parser.py",
+      "size": 21356,
+      "sha256": "f9fa4c6f8cbe6ea5699139bc173636de8ce9dd9494900d2d2ca04c9c02329529",
+      "vendor_sha256": "f9fa4c6f8cbe6ea5699139bc173636de8ce9dd9494900d2d2ca04c9c02329529",
+      "same": true,
+      "src_mtime": "2026-10-11T07:53:51"
+    },
+    {
+      "rel": "src/dzbrain/dzbrain/route/physics.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\dzbrain\\route\\physics.py",
+      "size": 36715,
+      "sha256": "726321c974ae893c8eae3da5819af6dd211c5fe67f8d05f7c68c90ddcf301cfa",
+      "vendor_sha256": "726321c974ae893c8eae3da5819af6dd211c5fe67f8d05f7c68c90ddcf301cfa",
+      "same": true,
+      "src_mtime": "2026-10-16T19:32:10"
+    },
+    {
+      "rel": "src/dzbrain/dzbrain/route/planner.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\dzbrain\\route\\planner.py",
+      "size": 241719,
+      "sha256": "d1600603ebc7f7d25ad1c0044047e7812ca79566c23b99860e1ba5eabadd15e2",
+      "vendor_sha256": "d1600603ebc7f7d25ad1c0044047e7812ca79566c23b99860e1ba5eabadd15e2",
+      "same": true,
+      "src_mtime": "2026-10-17T16:58:35"
+    },
+    {
+      "rel": "src/dzbrain/dzbrain/route/validate.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\dzbrain\\route\\validate.py",
+      "size": 40358,
+      "sha256": "e076c7bd18479a2b8ddf921898b8ccb3fed3166689e4264c85e410701094b5bb",
+      "vendor_sha256": "e076c7bd18479a2b8ddf921898b8ccb3fed3166689e4264c85e410701094b5bb",
+      "same": true,
+      "src_mtime": "2026-10-17T16:48:06"
+    },
+    {
+      "rel": "tools/_field_const.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\tools\\_field_const.py",
+      "size": 2953,
+      "sha256": "fde3beb301860e10ab2ea3663a79b193e2f32008deab608bef1c30682da43cb5",
+      "vendor_sha256": "fde3beb301860e10ab2ea3663a79b193e2f32008deab608bef1c30682da43cb5",
+      "same": true,
+      "src_mtime": "2026-10-17T16:48:17"
+    },
+    {
+      "rel": "tools/plan_route.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\tools\\plan_route.py",
+      "size": 21232,
+      "sha256": "ec24cd663fcb379c669327b5365c8f4ecc04da2a267161a79cf32518ce4f9959",
+      "vendor_sha256": "ec24cd663fcb379c669327b5365c8f4ecc04da2a267161a79cf32518ce4f9959",
+      "same": true,
+      "src_mtime": "2026-10-17T11:49:33"
+    },
+    {
+      "rel": "tools/route_check.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\tools\\route_check.py",
+      "size": 68667,
+      "sha256": "cbcb352c8ac80349646fffb1fc12f041dfca0fa966266f2d5bf08b885f1a89ab",
+      "vendor_sha256": "cbcb352c8ac80349646fffb1fc12f041dfca0fa966266f2d5bf08b885f1a89ab",
+      "same": true,
+      "src_mtime": "2026-10-17T16:48:51"
+    },
+    {
+      "rel": "tools/shoot_planner.py",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\tools\\shoot_planner.py",
+      "size": 27555,
+      "sha256": "e1d0ecd99bda4d9ab06afb9d99086f138fb477c940f0c54652fd5c5183700391",
+      "vendor_sha256": "e1d0ecd99bda4d9ab06afb9d99086f138fb477c940f0c54652fd5c5183700391",
+      "same": true,
+      "src_mtime": "2026-10-17T16:48:31"
+    },
+    {
+      "rel": "config/map.yaml",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\map.yaml",
+      "size": 4991,
+      "sha256": "d5d7903d9c08e64b6bed55787098f86906c8670c7428d6a4ee34d427c507b2bc",
+      "vendor_sha256": "d5d7903d9c08e64b6bed55787098f86906c8670c7428d6a4ee34d427c507b2bc",
+      "same": true,
+      "src_mtime": "2026-10-14T19:19:27"
+    },
+    {
+      "rel": "config/robot.yaml",
+      "src": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\robot.yaml",
+      "size": 75881,
+      "sha256": "d824d1fba6df0f966a5171080cb966537ee7455a370001bb2bcfa3142d098972",
+      "vendor_sha256": "d824d1fba6df0f966a5171080cb966537ee7455a370001bb2bcfa3142d098972",
+      "same": true,
+      "src_mtime": "2026-10-17T16:23:36"
+    }
+  ]
+}

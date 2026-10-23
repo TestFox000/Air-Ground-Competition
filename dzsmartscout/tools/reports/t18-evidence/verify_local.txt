@@ -1,0 +1,99 @@
+### t18 本机验证 + hub 哈希复核   2026-10-12 20:17:06
+
+--- A1 py_compile ---
+$ python.exe -m py_compile D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dzlink_supervisor.py D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dz_send_waypoint.py
+  EXIT=0
+
+--- A2 supervisor 单测 ---
+$ python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\tests\test_dzlink_supervisor.py
+  [route] 入队（发 3 遍）: N10 M10 L10 L9 K9  … 共 5 个格点
+  [route] 入队（发 3 遍）: N10 M10 L10  … 共 3 个格点
+  [reset] 入队（发 3 遍）: reset:K11,y
+  [reset] 入队（发 3 遍）: reset:N10,y
+  [route] 入队（发 3 遍）: N10 M10  … 共 2 个格点
+  [route] 入队（发 3 遍）: N10 M10 L10  … 共 3 个格点
+  [stderr] ok
+  [stderr] 
+  [stderr] ----------------------------------------------------------------------
+  [stderr] Ran 81 tests in 0.184s
+  [stderr] 
+  [stderr] OK
+  EXIT=0
+
+--- A3 sender 单测 ---
+$ python.exe -m unittest dzsmartscout.tools.link.tests.test_dz_send_waypoint
+  [stderr] ........................
+  [stderr] ----------------------------------------------------------------------
+  [stderr] Ran 24 tests in 0.011s
+  [stderr] 
+  [stderr] OK
+  EXIT=0
+
+--- B1 契约原文 dz_send_waypoint.py run --bridge …（照字面） ---
+$ python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dz_send_waypoint.py run --bridge lower=K9 --bridge upper=K4 --duration 3 --dry-run
+  [stderr] usage: dz_send_waypoint.py [-h]
+  [stderr]                            {route,bridge,heartbeat,target,field,listen,contract}
+  [stderr]                            ...
+  [stderr] dz_send_waypoint.py: error: argument cmd: invalid choice: 'run' (choose from route, bridge, heartbeat, target, field, listen, contract)
+  EXIT=2
+
+--- B2 等价写法① bridge lower=K9 upper=K4 --dry-run ---
+$ python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dz_send_waypoint.py bridge lower=K9 upper=K4 --dry-run
+  [dry-run] topic=/dzlink/drone_to_car qos=best_effort depth=10
+    {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791807427.497}
+    {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791807427.497}
+  EXIT=0
+
+--- B3 等价写法②-1 bridge lower=K9 --dry-run ---
+$ python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dz_send_waypoint.py bridge lower=K9 --dry-run
+  [dry-run] topic=/dzlink/drone_to_car qos=best_effort depth=10
+    {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791807427.561}
+  EXIT=0
+
+--- B4 等价写法②-2 bridge upper=K4 --dry-run ---
+$ python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dz_send_waypoint.py bridge upper=K4 --dry-run
+  [dry-run] topic=/dzlink/drone_to_car qos=best_effort depth=10
+    {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791807427.624}
+  EXIT=0
+
+--- B5 dzlink_supervisor.py run --bridge lower=K9 --bridge upper=K4 --duration 3 --dry-run ---
+$ python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dzlink_supervisor.py run --bridge lower=K9 --bridge upper=K4 --duration 3 --dry-run
+  [dry-run] 域=118 心跳=1.00s bridge周期=2.0s ttl=30.0s repeat=3
+    → /dzlink/drone_to_car     qos=best_effort  x1  {"type":"heartbeat","ts":1791807427.83,"seq":1}
+    → /dzlink/drone_to_car     qos=best_effort  x3  {"type":"bridge_passable","half":"lower","block":"K9","confidence":0.9,"ts":1791807427.83,"seq":2}
+    → /dzlink/drone_to_car     qos=best_effort  x3  {"type":"bridge_passable","half":"upper","block":"K4","confidence":0.9,"ts":1791807427.83,"seq":3}
+  [dry-run] 共 3 类事件（不连 ROS，不发任何东西）
+  [stderr] [domain] ROS_DOMAIN_ID=118 (来源: builtin)
+  [stderr] [domain] ⚠️  ~/dzlink_tools/dzlink.env 读不到 ROS_DOMAIN_ID，回退内置 118
+  [stderr] [intel] ← bridge_passable[bridge_passable:lower]: {"half": "lower", "block": "K9", "confidence": 0.9}  (cli)
+  [stderr] [intel] ← bridge_passable[bridge_passable:upper]: {"half": "upper", "block": "K4", "confidence": 0.9}  (cli)
+  EXIT=0
+
+--- C1 target G10 H10 --dry-run ---
+$ python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dz_send_waypoint.py target G10 H10 --dry-run
+  [dry-run] topic=/dzlink/drone_to_car qos=best_effort depth=10
+    {"type":"target_zone","blocks":["G10","H10"],"ts":1791807427.937}
+  EXIT=0
+
+--- C2 field --mines A3 B4 --dry-run ---
+$ python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dz_send_waypoint.py field --mines A3 B4 --dry-run
+  [dry-run] topic=/dzlink/drone_to_car qos=best_effort depth=10
+    {"type":"field_verify","ts":1791807428.005,"mines":["A3","B4"]}
+  EXIT=0
+
+--- D1 bridge lower=K9,K4 --dry-run（错用法，应 exit 1 + 明确写法） ---
+$ python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dz_send_waypoint.py bridge lower=K9,K4 --dry-run
+  [stderr] bridge lower= 只能给一个格名，收到 'K9,K4'（解析出 ['K9', 'K4']）。
+  [stderr]   两个半场请用**位置参数并列**一次给出：  dz_send_waypoint.py bridge lower=K9 upper=K4   （推荐）
+  [stderr]   或**分两次调用**：                      dz_send_waypoint.py bridge lower=K9 ；再 bridge upper=K4
+  [stderr]   注意：`--bridge` 是 dzlink_supervisor.py 的参数，本发送器不认。
+  EXIT=1
+
+--- E) hub 最终 md5 / mtime（t18 部署后，复核期间不再写入）---
+5c7426d6b619da2f4b69bb3149de2d53  /home/duzhong/dzlink_tools/dzlink_supervisor.py
+eb41dbf4b944bc7e8af8e61ec940a228  /home/duzhong/dzlink_tools/dz_send_waypoint.py
+558f40a2c4cd77c5a0fc7769e6ddcfa4  /home/duzhong/dzlink_tools/test_dzlink_supervisor.py
+a95a49ff4b43cc0c8e01161088d69975  /home/duzhong/dzlink_tools/test_dz_send_waypoint.py
+2026-10-12 20:09:16.721486745 +0800  /home/duzhong/dzlink_tools/dzlink_supervisor.py
+2026-10-12 20:09:16.877491633 +0800  /home/duzhong/dzlink_tools/test_dzlink_supervisor.py
+2026-10-12 20:09:17.101498655 +0800  /home/duzhong/dzlink_tools/test_dz_send_waypoint.py

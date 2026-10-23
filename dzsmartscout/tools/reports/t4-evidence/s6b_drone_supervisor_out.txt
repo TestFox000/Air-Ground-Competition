@@ -1,0 +1,68 @@
+[domain] ROS_DOMAIN_ID=118 (来源: cli)
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804485.658,"seq":1}
+[car] ← ack of=2
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804486.692,"seq":2}
+[car] ← ack of=3
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804487.721,"seq":3}
+[car] ← ack of=4
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804488.749,"seq":4}
+[car] ← ack of=5
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804489.772,"seq":5}
+[car] ← ack of=6
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804490.796,"seq":6}
+[car] ← ack of=7
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804491.828,"seq":7}
+[car] ← ack of=8
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804492.852,"seq":8}
+[car] ← ack of=9
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804493.879,"seq":9}
+[car] ← ack of=10
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804494.907,"seq":10}
+[status] {"uptime_s": 10.1, "samples_seen": 0, "samples_rejected": 0, "intel_emitted": 0, "heartbeat_emitted": 10, "route_emitted": 0, "car_msgs": 9, "acks": 9, "car_states": 0, "car_last_ago_s": 0.4, "last_ack_seq": 10, "last_car_block": "", "last_car_phase": ""} intel=[] ack={'intel_sent': 0, 'intel_acked': 0, 'pending_seq': 0, 'hb_sent': 10, 'hb_acked': 9, 'hb_recent_sent': 10, 'hb_recent_acked': 9, 'any_acked': True, 'suspicious_mismatch': False, 'recent_acks': [(6, 1791804490.8152418), (7, 1791804491.8427389), (8, 1791804492.8653007), (9, 1791804493.89417), (10, 1791804494.9245038)]}
+[car] ← ack of=11
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804495.938,"seq":11}
+[car] ← ack of=12
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804496.958,"seq":12}
+[car] ← ack of=13
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804497.986,"seq":13}
+[car] ← ack of=14
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804499.014,"seq":14}
+[car] ← ack of=15
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804500.042,"seq":15}
+[car] ← ack of=16
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804501.064,"seq":16}
+[car] ← ack of=17
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804502.096,"seq":17}
+[car] ← ack of=18
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804503.122,"seq":18}
+[car] ← ack of=19
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804504.148,"seq":19}
+[car] ← ack of=20
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804505.166,"seq":20}
+[status] {"uptime_s": 20.1, "samples_seen": 0, "samples_rejected": 0, "intel_emitted": 0, "heartbeat_emitted": 20, "route_emitted": 0, "car_msgs": 19, "acks": 19, "car_states": 0, "car_last_ago_s": 0.2, "last_ack_seq": 20, "last_car_block": "", "last_car_phase": ""} intel=[] ack={'intel_sent': 0, 'intel_acked': 0, 'pending_seq': 0, 'hb_sent': 20, 'hb_acked': 19, 'hb_recent_sent': 20, 'hb_recent_acked': 19, 'any_acked': True, 'suspicious_mismatch': False, 'recent_acks': [(16, 1791804501.0835745), (17, 1791804502.1123621), (18, 1791804503.1385107), (19, 1791804504.1574352), (20, 1791804505.1801167)]}
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804506.19,"seq":21}
+[car] ← ack of=21
+[car] ← ack of=22
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804507.229,"seq":22}
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804508.261,"seq":23}
+[car] ← ack of=23
+[car] ← ack of=24
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804509.296,"seq":24}
+[car] ← ack of=25
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804510.32,"seq":25}
+[car] ← ack of=26
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804511.343,"seq":26}
+[car] ← ack of=27
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804512.369,"seq":27}
+[car] ← ack of=28
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804513.396,"seq":28}
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804514.423,"seq":29}
+[car] ← ack of=29
+[status] {"uptime_s": 30.2, "samples_seen": 0, "samples_rejected": 0, "intel_emitted": 0, "heartbeat_emitted": 29, "route_emitted": 0, "car_msgs": 28, "acks": 28, "car_states": 0, "car_last_ago_s": 0.9, "last_ack_seq": 29, "last_car_block": "", "last_car_phase": ""} intel=[] ack={'intel_sent': 0, 'intel_acked': 0, 'pending_seq': 0, 'hb_sent': 29, 'hb_acked': 28, 'hb_recent_sent': 29, 'hb_recent_acked': 28, 'any_acked': True, 'suspicious_mismatch': False, 'recent_acks': [(25, 1791804510.3336825), (26, 1791804511.3599374), (27, 1791804512.3866804), (28, 1791804513.413635), (29, 1791804514.462771)]}
+[send] → heartbeat [1/1] subs=1 {"type":"heartbeat","ts":1791804515.473,"seq":30}
+[car] ← ack of=30
+[run] 常驻启动：心跳 1.00Hz / bridge 2s / ttl 30s / 域 118
+[run] 日志: /tmp/t4_s6b_sup.jsonl
+[run] 到达 --duration，退出
+[run] 结束。统计: {"uptime_s": 30.5, "samples_seen": 0, "samples_rejected": 0, "intel_emitted": 0, "heartbeat_emitted": 30, "route_emitted": 0, "car_msgs": 29, "acks": 29, "car_states": 0, "car_last_ago_s": 0.2, "last_ack_seq": 30, "last_car_block": "", "last_car_phase": ""}
+[run] ack 台账: {'intel_sent': 0, 'intel_acked': 0, 'pending_seq': 0, 'hb_sent': 30, 'hb_acked': 29, 'hb_recent_sent': 30, 'hb_recent_acked': 29, 'any_acked': True, 'suspicious_mismatch': False, 'recent_acks': [(26, 1791804511.3599374), (27, 1791804512.3866804), (28, 1791804513.413635), (29, 1791804514.462771), (30, 1791804515.5096776)]}

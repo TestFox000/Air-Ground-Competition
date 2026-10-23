@@ -1,0 +1,75 @@
+1c1
+< ### mode=begin host=duzhong time=2026-10-12T19:15:49+08:00
+---
+> ### mode=end host=duzhong time=2026-10-12T19:30:17+08:00
+30c30
+< -rwxrwxr-x 1 duzhong duzhong  6387 2026-10-12T19:14:45 /tmp/t4_car_consumer.py
+---
+> -rwxrwxr-x 1 duzhong duzhong  7468 2026-10-12T19:27:35 /tmp/t4_car_consumer.py
+32,33c32,45
+< -rwxrwxr-x 1 duzhong duzhong  1393 2026-10-12T19:15:45 /tmp/t4_car_freeze.sh
+< -rwxrwxr-x 1 duzhong duzhong  4599 2026-10-12T19:14:46 /tmp/t4_car_sender.py
+---
+> -rwxrwxr-x 1 duzhong duzhong  1393 2026-10-12T19:27:35 /tmp/t4_car_freeze.sh
+> -rw-rw-r-- 1 duzhong duzhong  2354 2026-10-12T19:24:01 /tmp/t4_car_recv_contract2.jsonl
+> -rw-rw-r-- 1 duzhong duzhong   438 2026-10-12T19:24:33 /tmp/t4_car_recv_contract2.jsonl.summary.json
+> -rw-rw-r-- 1 duzhong duzhong 13910 2026-10-12T19:21:19 /tmp/t4_car_recv_contract.jsonl
+> -rw-rw-r-- 1 duzhong duzhong   476 2026-10-12T19:21:20 /tmp/t4_car_recv_contract.jsonl.summary.json
+> -rw-rw-r-- 1 duzhong duzhong  7193 2026-10-12T19:28:35 /tmp/t4_car_recv_loop.jsonl
+> -rw-rw-r-- 1 duzhong duzhong   436 2026-10-12T19:28:38 /tmp/t4_car_recv_loop.jsonl.summary.json
+> -rw-rw-r-- 1 duzhong duzhong     0 2026-10-12T19:21:32 /tmp/t4_car_recv_neg.jsonl
+> -rw-rw-r-- 1 duzhong duzhong   384 2026-10-12T19:21:53 /tmp/t4_car_recv_neg.jsonl.summary.json
+> -rw-rw-r-- 1 duzhong duzhong   387 2026-10-12T19:22:12 /tmp/t4_car_recv_route.jsonl
+> -rw-rw-r-- 1 duzhong duzhong   401 2026-10-12T19:22:29 /tmp/t4_car_recv_route.jsonl.summary.json
+> -rwxrwxr-x 1 duzhong duzhong  4631 2026-10-12T19:27:35 /tmp/t4_car_sender.py
+> -rw-rw-r-- 1 duzhong duzhong 33074 2026-10-12T19:24:42 /tmp/t4_car_sent.jsonl
+> -rw-rw-r-- 1 duzhong duzhong  3260 2026-10-12T19:24:42 /tmp/t4_car_sent.jsonl.summary.json
+37,38c49,63
+< -rw-rw-r-- 1 duzhong duzhong  1364 2026-10-12T19:16:11 /tmp/t4_freeze_begin.txt
+< -rw-rw-r-- 1 duzhong duzhong    73 2026-10-12T19:16:00 /tmp/t4_matrix_sub_d2c_pub-reli_sub-best.log
+---
+> -rwxrwxr-x 1 duzhong duzhong   391 2026-10-12T19:27:49 /tmp/t4_car_t4_syntax_check.sh
+> -rw-rw-r-- 1 duzhong duzhong    73 2026-10-12T19:23:20 /tmp/t4_disc_car2.log
+> -rw-rw-r-- 1 duzhong duzhong    73 2026-10-12T19:19:59 /tmp/t4_disc_car.log
+> -rw-rw-r-- 1 duzhong duzhong  2856 2026-10-12T19:16:11 /tmp/t4_freeze_begin.txt
+> -rw-rw-r-- 1 duzhong duzhong  1362 2026-10-12T19:30:19 /tmp/t4_freeze_end.txt
+> -rw-rw-r-- 1 duzhong duzhong 13594 2026-10-12T19:18:42 /tmp/t4_matrix_pub_c2d_pub-best_sub-best.json
+> -rw-rw-r-- 1 duzhong duzhong 13759 2026-10-12T19:18:17 /tmp/t4_matrix_pub_c2d_pub-best_sub-reli.json
+> -rw-rw-r-- 1 duzhong duzhong 13791 2026-10-12T19:17:53 /tmp/t4_matrix_pub_c2d_pub-reli_sub-best.json
+> -rw-rw-r-- 1 duzhong duzhong 13791 2026-10-12T19:17:28 /tmp/t4_matrix_pub_c2d_pub-reli_sub-reli.json
+> -rw-rw-r-- 1 duzhong duzhong 11311 2026-10-12T19:17:08 /tmp/t4_matrix_sub_d2c_pub-best_sub-best.json
+> -rw-rw-r-- 1 duzhong duzhong 11385 2026-10-12T19:17:08 /tmp/t4_matrix_sub_d2c_pub-best_sub-best.log
+> -rw-rw-r-- 1 duzhong duzhong 10890 2026-10-12T19:16:43 /tmp/t4_matrix_sub_d2c_pub-best_sub-reli.json
+> -rw-rw-r-- 1 duzhong duzhong 11161 2026-10-12T19:16:43 /tmp/t4_matrix_sub_d2c_pub-best_sub-reli.log
+> -rw-rw-r-- 1 duzhong duzhong 11760 2026-10-12T19:16:17 /tmp/t4_matrix_sub_d2c_pub-reli_sub-best.json
+> -rw-rw-r-- 1 duzhong duzhong 11834 2026-10-12T19:16:17 /tmp/t4_matrix_sub_d2c_pub-reli_sub-best.log
+41c66,70
+< -rwxrwxr-x 1 duzhong duzhong  3465 2026-10-12T19:14:45 /tmp/t4_mcast_count.py
+---
+> -rw-rw-r-- 1 duzhong duzhong  1242 2026-10-12T19:29:24 /tmp/t4_mc2_d2c.json
+> -rw-rw-r-- 1 duzhong duzhong  1243 2026-10-12T19:29:24 /tmp/t4_mc2_d2c_outer.log
+> -rwxrwxr-x 1 duzhong duzhong  3465 2026-10-12T19:27:34 /tmp/t4_mcast_count.py
+> -rw-rw-r-- 1 duzhong duzhong  1148 2026-10-12T19:25:41 /tmp/t4_mcast_d2c.json
+> -rw-rw-r-- 1 duzhong duzhong  1149 2026-10-12T19:25:41 /tmp/t4_mcast_d2c_outer.log
+45,47c74,89
+< -rwxrwxr-x 1 duzhong duzhong  5846 2026-10-12T19:14:45 /tmp/t4_qos_probe.py
+< -rwxrwxr-x 1 duzhong duzhong  1077 2026-10-12T19:14:45 /tmp/t4_rosenv.sh
+< -rwxrwxr-x 1 duzhong duzhong   909 2026-10-12T19:15:45 /tmp/t4_topicinfo.sh
+---
+> -rwxrwxr-x 1 duzhong duzhong  3756 2026-10-12T19:27:35 /tmp/t4_qos_info.py
+> -rwxrwxr-x 1 duzhong duzhong  5846 2026-10-12T19:27:34 /tmp/t4_qos_probe.py
+> -rwxrwxr-x 1 duzhong duzhong  1077 2026-10-12T19:27:34 /tmp/t4_rosenv.sh
+> -rw-rw-r-- 1 duzhong duzhong 15675 2026-10-12T19:21:20 /tmp/t4_s2_consumer.log
+> -rw-rw-r-- 1 duzhong duzhong     0 2026-10-12T19:20:23 /tmp/t4_s2_consumer_outer.log
+> -rw-rw-r-- 1 duzhong duzhong  3495 2026-10-12T19:24:33 /tmp/t4_s3b.log
+> -rw-rw-r-- 1 duzhong duzhong     0 2026-10-12T19:23:41 /tmp/t4_s3b_outer.log
+> -rw-rw-r-- 1 duzhong duzhong   943 2026-10-12T19:21:53 /tmp/t4_s4_neg.log
+> -rw-rw-r-- 1 duzhong duzhong     0 2026-10-12T19:21:31 /tmp/t4_s4_neg_outer.log
+> -rw-rw-r-- 1 duzhong duzhong     0 2026-10-12T19:22:02 /tmp/t4_s5_outer.log
+> -rw-rw-r-- 1 duzhong duzhong  1136 2026-10-12T19:22:29 /tmp/t4_s5_route.log
+> -rw-rw-r-- 1 duzhong duzhong  8251 2026-10-12T19:28:38 /tmp/t4_s6b_car.log
+> -rw-rw-r-- 1 duzhong duzhong     0 2026-10-12T19:27:56 /tmp/t4_s6b_car_outer.log
+> -rw-rw-r-- 1 duzhong duzhong  6041 2026-10-12T19:24:42 /tmp/t4_s6_sender.log
+> -rw-rw-r-- 1 duzhong duzhong     0 2026-10-12T19:24:23 /tmp/t4_s6_sender_outer.log
+> -rwxrwxr-x 1 duzhong duzhong   909 2026-10-12T19:27:35 /tmp/t4_topicinfo.sh
+DIFF_EXIT=1

@@ -1,0 +1,14 @@
+# sender 错用法 `bridge lower=K9,K4` 的完整抓取（t18/F2 改后的报错文案）
+# 期望：exit=1；提示本发送器**可执行**的两种写法，并注明 --bridge 属 supervisor
+
+$ C:\Users\TestFox\AppData\Local\Programs\Python\Python312\python.exe D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\link\dz_send_waypoint.py bridge lower=K9,K4 --dry-run
+
+[stdout]
+
+
+[stderr]
+bridge lower= 只能给一个格名，收到 'K9,K4'（解析出 ['K9', 'K4']）。
+  两个半场请用**位置参数并列**一次给出：  dz_send_waypoint.py bridge lower=K9 upper=K4   （推荐）
+  或**分两次调用**：                      dz_send_waypoint.py bridge lower=K9 ；再 bridge upper=K4
+  注意：`--bridge` 是 dzlink_supervisor.py 的参数，本发送器不认。
+EXIT=1

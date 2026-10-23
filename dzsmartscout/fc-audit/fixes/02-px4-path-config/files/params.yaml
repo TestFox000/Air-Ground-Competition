@@ -1,0 +1,210 @@
+# px4_path 的统一参数文件。
+# record_mode 和 follow_mode 均只在本文件中选择，不再提供同名 launch 参数。
+# 两种模式都只在启动时读取，不支持飞行过程中动态切换。
+
+px4_path_launch:
+  ros__parameters:
+    # true：只启动路径录制节点；false：只启动路径跟随节点。
+    record_mode: false
+
+
+path_follow_node:
+  ros__parameters:
+    # 跟随算法选择：
+    #   waypoint   = 离散航点逐点跟随，速度/加速度/yawspeed 前馈均为 0
+    #   trajectory = 连续样条轨迹，发布位置、速度、加速度和航向前馈
+    follow_mode: "waypoint"
+
+    # --------------------------- 公共路径参数 ---------------------------
+
+    # 路径文件固定从源码 px4_path/src/path 目录读取，不使用 install 目录。
+    # 必须与下方 path_record_node.path_dir 保持一致。
+    path_dir: "/home/duzhong/dzpx4/src/px4_path/src/path"
+
+    # 路径文件名，不允许包含目录。
+    # 必须与下方 path_record_node.output_file 保持一致。
+    #
+    # 【补丁 02 修复】原值是 "recorded_path_2.txt"，而录制侧写的是
+    # "recorded_path.txt"，且录制侧 overwrite_existing=false 会自动改名
+    # （path_record_node.cpp:178-189 依次找 _1 _2 _3 ...）。
+    # 机上 src/path/ 下三个文件都存在，所以原来的行为是：
+    #   录制 -> 写出 recorded_path_3.txt
+    #   跟随 -> 读入 recorded_path_2.txt   ← 永远飞的是上一次的旧路径
+    # 现在两端统一为 recorded_path.txt，且录制侧改为覆盖式写入。
+    path_file: "recorded_path.txt"
+
+    # GotoTarget 发布频率，单位 Hz。两种跟随方案共用。
+    # 调大可提高参考更新密度，但会增加 ROS/PX4 通信与计算负担。
+    pursuit_rate: 20.0
+
+    # waypoint 专用：飞机距离当前航点小于该三维距离时切换到下一航点，单位 m。
+    switch_tol: 0.10
+
+    # 两种方案共用：距离最终点小于该值后进入 HOLD，单位 m。
+    terminal_tol: 0.15
+
+    # waypoint：限制从当前位置发出的单次位置目标最大距离。
+    # trajectory：限制当前位置连接到录制路径首点时的辅助点间距。单位 m。
+    max_step_dist: 1.5
+
+    # 路径加载安全阈值，相邻航点三维距离超过该值时拒绝整条路径，单位 m。
+    # 应与 path_record_node 下方的同名参数保持一致。
+    max_neighbor_dist_m: 5.0
+
+    # 【补丁 03 新增】是否要求一次"显式使能"才允许开始跟随。
+    #   true  = 只有观测到 /px4_control/goto_enabled 由 false 变为 true 的
+    #           那次跳变才允许进入 PURSUING。启动时锁存重放的旧值不算。
+    #           操作手势：在 px4_control 里先按 '5'（关）再按 '4'（开）。
+    #   false = 恢复旧行为：只要许可为真且状态为 LOADED，节点一启动就开飞。
+    #
+    # 为什么默认 true：/px4_control/goto_enabled 是 transient_local 锁存话题，
+    # 新订阅者会立刻收到上一次的值。若飞机已悬停且许可为真，
+    # 重启跟随节点会立刻沿路径飞走，操作员来不及检查日志。
+    require_fresh_enable: true
+
+    # ---------------------- trajectory 轨迹生成参数 ----------------------
+
+    # 连续轨迹最大三维速度，单位 m/s。
+    max_speed_mps: 0.8
+
+    # 连续轨迹最大三维加速度，单位 m/s²；同时用于速度曲线前后向约束。
+    max_accel_mps2: 1.0
+
+    # 连续轨迹最大三维 jerk，单位 m/s³。
+    # jerk 不发布给 PX4，只用于生成后的采样校验和统一时间拉伸。
+    max_jerk_mps3: 2.5
+
+    # 最大向心加速度，单位 m/s²。值越小，弯道自动降速越明显。
+    max_centripetal_accel_mps2: 0.35
+
+    # 曲率和局部速度曲线的空间采样间隔，单位 m。
+    # 值越小越容易捕获短距离急弯，但开始跟随时的轨迹构建计算量更大。
+    profile_resolution_m: 0.12
+
+    # 当路径转角达到该角度时拆成停到停轨迹段，单位 deg。
+    # 用于处理接近折返的急转弯；设为 0 可关闭自动拆段。
+    segment_split_turn_deg: 140.0
+
+    # 轨迹分段切换前要求的最大实际速度，单位 m/s。
+    # 必须同时满足分段末端位置容差，才会进入下一段。
+    segment_switch_speed_mps: 0.10
+
+    # 【补丁 03 新增】trajectory 专用：从飞机当前位置连到路径首点的
+    # 那段"接驳直线"的最大允许长度，单位 m。
+    #   > 0 = 超过该长度就拒绝开始（记录 ERROR 但不禁用路径，可重新起飞再试）
+    #   = 0 = 关闭该检查（与旧行为一致）
+    #
+    # 为什么需要：make_execution_segments() 只用 max_step_dist 控制接驳段的
+    # 打点密度，接驳段总长没有任何上限。若加载的路径起点在 50 m 外
+    # （例如读到了别人的路径文件、或地图坐标不对），飞机会直接朝那个方向
+    # 飞 50 m 才开始走真正的路径。waypoint 模式有 clamp_step() 兜这个底，
+    # trajectory 模式没有。
+    #
+    # 默认 0（不改变现有行为）。建议首次试飞前先设成 5.0 或 10.0。
+    max_join_length_m: 0.0
+
+    # 跟踪误差超过该值后，开始降低参考轨迹时钟速度，单位 m。
+    tracking_slowdown_error_m: 1.00
+
+    # 跟踪误差达到该值后，暂停参考轨迹时钟并等待飞机追上，单位 m。
+    # 必须大于 tracking_slowdown_error_m。
+    tracking_pause_error_m: 1.50
+
+    # 参考时钟缩放比例每秒允许的最大变化量，避免速度/加速度参考突变。
+    max_time_scale_rate_per_s: 1.2
+
+    # 最大允许跟踪误差，单位 m；超过后发布 active=false 并中止跟随。
+    # 设为小于或等于 0 可关闭该最终中止保护。
+    #
+    # 注意（已核实，本补丁未改）：参考时钟被 tracking_pause_error_m 冻结后，
+    # 误差不再增长，所以这个 5.0 m 的中止门几乎永远不会触发。
+    # 另见 APPLY.md 里关于"追赶快慢"的说明。
+    max_tracking_error_m: 5.0
+
+    # 航向模式：
+    #   fixed    = 保持开始跟随时的航向
+    #   recorded = 使用路径文件记录的航向
+    #   tangent  = 航向沿轨迹切线方向
+    yaw_mode: "fixed"
+
+    # tangent 模式的前视时间，单位 s；其他 yaw 模式下不使用。
+    yaw_lookahead_s: 0.5
+
+    # 发布航向的最大变化速率，单位 rad/s。
+    max_yaw_rate_rps: 0.5
+
+
+path_record_node:
+  ros__parameters:
+    # 节点启动后会自动开始录制，正常退出时自动保存。
+
+    # FAST-LIO 原始里程计话题，消息类型必须是 nav_msgs/msg/Odometry。
+    #
+    # 注意：/localization 目前无人发布（transform_fusion 因缺 tf_transformations
+    # 启动即死）。录制路径前请确认该话题真的有数据，否则会录到空会话。
+    # 相关处理见 fc-audit/fixes/01-odom-source/ 与 fixes/README.md。
+    slam_topic: "/localization"
+
+    # 期望的 SLAM frame_id。空字符串表示采用第一帧的 frame_id；
+    # 一次录制过程中 frame_id 发生变化时会停止录制。
+    expected_frame_id: ""
+
+    # RViz 实时路径话题，消息类型为 nav_msgs/msg/Path，保持原始 SLAM 坐标系。
+    visualization_topic: "/path_record/visualization"
+
+    # 固定保存到源码 px4_path/src/path 目录，不使用 install 目录。
+    # 必须与上方 path_follow_node.path_dir 保持一致。
+    path_dir: "/home/duzhong/dzpx4/src/px4_path/src/path"
+
+    # 输出文件名，格式为每行：x y z qx qy qz qw。
+    # 数据保持 FAST-LIO SLAM 原始坐标，加载时才转换为 PX4 NED。
+    # 必须与上方 path_follow_node.path_file 保持一致。
+    output_file: "recorded_path.txt"
+
+    # true：原子替换同名文件；false：自动生成 _1、_2 等版本文件。
+    #
+    # 【补丁 02 修复】原值是 false，与上方"必须与 path_file 保持一致"的
+    # 要求自相矛盾：只要目标文件已存在，就会写出 _1/_2/_3 版本文件，
+    # 而跟随节点仍然只读固定的那一个名字。
+    # 现已改为 true，两端指向同一个明确文件。
+    #
+    # 为什么安全：保存路径走的是"先写 xxx.tmp 再 rename"（path_record_node.cpp:316
+    # 与 :353），rename 在同目录内是原子的，录制中途失败或掉电不会破坏旧文件。
+    # 代价是每次录制会覆盖上一次的 recorded_path.txt —— 需要留档时手动改文件名。
+    overwrite_existing: true
+
+    # 是否开启录制路径处理：
+    #   true  = 在线滑动均值滤波 + 保存前中心平滑 + 近重复点压缩
+    #   false = 直接使用通过基础安全检查的原始 SLAM 位姿抽取并保存关键点
+    # 无论是否开启，NaN/Inf、无效四元数、定位跳变和关键点阈值检查始终生效。
+    enable_filter_smoothing: true
+
+    # 相对上一个关键点的最小水平位移阈值，单位 m。
+    min_xy_m: 0.12
+
+    # 相对上一个关键点的最小竖直位移阈值，单位 m。
+    # 水平或竖直位移任一达到阈值即可保留该关键点。
+    min_z_m: 0.10
+
+    # 原始定位或最终航点的最大允许相邻三维距离，单位 m。
+    # 超过时视为 SLAM 跳变并丢弃；应与跟随节点的同名参数一致。
+    max_neighbor_dist_m: 5.0
+
+    # 两个录制关键点之间的最短时间间隔，单位 s；设为 0 可关闭时间限频。
+    min_record_interval_s: 0.05
+
+    # 以下三个参数仅在 enable_filter_smoothing=true 时生效。
+    # 在线输入滑动平均窗口，范围 1～101。
+    # 增大可增强抗抖，但会增加位置滞后；1 表示不做输入均值滤波。
+    filter_window: 5
+
+    # 保存前的中心滑动平均窗口，范围 1～101，建议使用奇数。
+    # 首尾点保持不动；1 表示关闭保存前平滑。
+    smoothing_window: 3
+
+    # 平滑后相邻航点允许的最小三维距离，单位 m。
+    # 过近的中间点会被删除，首点和终点始终保留；0 表示关闭压缩。
+    min_smoothed_point_dist_m: 0.05
+
+    # 允许保存的最少有效点数；必须不小于 2。
+    min_points: 2

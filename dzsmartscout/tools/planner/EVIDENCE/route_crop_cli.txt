@@ -1,0 +1,188 @@
+=== route_crop CLI 证据（Windows 本机、无 ROS、干跑）===
+时间: 2026-10-17 11:39:39
+car_state 样本: dzsmartscout\tools\planner\EVIDENCE\car_state_sample.jsonl （最后一条 F10/90°/DRIVE）
+
+--- ① 裁剪@E10（拐点交接，可下发）
+$ python dzsmartscout\tools\planner\route_crop.py crop --from-plan --car-block E10 --car-yaw 90 --emit text
+=== route_crop（L0：按车当前格裁前缀）===
+锚点：E10 → 下标 11（模式 exact），候选 [11]
+整线 44 token → 裁剪后 33 token（裁掉 11，前缀格 11）
+交接几何：首段方位 0.0°，车头夹角 90.0° ⇒ ok
+黑图未知格（后缀内、非已走过、非判空）：32  （负证据格 0）
+结论：✅ 可下发
+  ⚠️  没有负证据（coverage）⇒ 后缀里 32 格仍是黑图未知（L0 的固有限制：拿不到「已扫过区域」语义）
+  ⚠️  没有给 --field-verify ⇒ 无负证据，全部按 UNKNOWN 计
+裁剪后路线：E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y
+原始整线  ：N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y
+E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y
+EXIT=0
+
+--- ② 用回传文件裁（取最后一条 car_state）+ 出 supervisor cmd-file 一行
+$ python dzsmartscout\tools\planner\route_crop.py crop --from-plan --car-state dzsmartscout\tools\planner\EVIDENCE\car_state_sample.jsonl --emit cmd
+=== route_crop（L0：按车当前格裁前缀）===
+锚点：F10 → 下标 10（模式 exact），候选 [10]
+整线 44 token → 裁剪后 34 token（裁掉 10，前缀格 10）
+交接几何：首段方位 90.0°，车头夹角 0.0° ⇒ ok
+黑图未知格（后缀内、非已走过、非判空）：33  （负证据格 0）
+结论：✅ 可下发
+  ⚠️  没有负证据（coverage）⇒ 后缀里 33 格仍是黑图未知（L0 的固有限制：拿不到「已扫过区域」语义）
+  ⚠️  没有给 --field-verify ⇒ 无负证据，全部按 UNKNOWN 计
+裁剪后路线：F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y
+原始整线  ：N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y
+{"type":"route","data":"F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y"}
+EXIT=0
+
+--- ③ 已压格落在后缀 ⇒ 拒绝（exit 1；JSON 的 route 恒为空串）
+$ python dzsmartscout\tools\planner\route_crop.py crop --from-plan --car-block A2 --car-yaw 0 --pressed D2 --emit json
+{
+ "ok": false,
+ "route": "",
+ "route_rejected": "A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y",
+ "n_tokens": 21,
+ "anchor": {
+  "index": 23,
+  "block": "A2",
+  "mode": "exact",
+  "candidates": [
+   23
+  ],
+  "turn_in_deg": 0.0,
+  "notes": []
+ },
+ "dropped": [
+  "N10",
+  "M10",
+  "L10",
+  "L9",
+  "K9",
+  "J9",
+  "J10",
+  "I10",
+  "H10",
+  "G10",
+  "F10",
+  "E10",
+  "E9",
+  "D9",
+  "C9",
+  "B9",
+  "B8",
+  "B7",
+  "B6",
+  "A6",
+  "A5",
+  "A4",
+  "A3"
+ ],
+ "reject": [
+  "repress@D2: 车已压过该格（pressed）⇒ 裁剪后会要求回头再压"
+ ],
+ "conflicts": [
+  {
+   "kind": "repress",
+   "block": "D2",
+   "index": 28,
+   "why": "车已压过该格（pressed）⇒ 裁剪后会要求回头再压",
+   "fix": "L0 无解：需重规划（L2）或本轮跳过该段"
+  }
+ ],
+ "warnings": [
+  "没有负证据（coverage）⇒ 后缀里 20 格仍是黑图未知（L0 的固有限制：拿不到「已扫过区域」语义）",
+  "没有给 --field-verify ⇒ 无负证据，全部按 UNKNOWN 计"
+ ],
+ "stats": {
+  "phase": "DRIVE",
+  "n_in": 44,
+  "n_out": 21,
+  "n_dropped": 23,
+  "n_prefix_cells": 23,
+  "n_suffix_cells": 20,
+  "n_pressed": 1,
+  "n_occupied": 0,
+  "n_cleared": 0,
+  "n_unknown_ahead": 20,
+  "n_conflicts": 1,
+  "crop_required": true,
+  "anchor_mode": "exact",
+  "handover": {
+   "first_leg_deg": -90.0,
+   "turn_deg": 90.0,
+   "verdict": "ok",
+   "car_to_first_m": 0.0
+  },
+  "unknown_ahead": [
+   "B2",
+   "B1",
+   "C1",
+   "D1",
+   "D2",
+   "D3",
+   "E3",
+   "F3",
+   "G3",
+   "G4",
+   "G5",
+   "G6",
+   "H6",
+   "I6",
+   "J6",
+   "J5",
+   "K5",
+   "L5",
+   "M5",
+   "N5"
+  ],
+  "dropped_prefix": [
+   "N10",
+   "M10",
+   "L10",
+   "L9",
+   "K9",
+   "J9",
+   "J10",
+   "I10",
+   "H10",
+   "G10",
+   "F10",
+   "E10",
+   "E9",
+   "D9",
+   "C9",
+   "B9",
+   "B8",
+   "B7",
+   "B6",
+   "A6",
+   "A5",
+   "A4",
+   "A3"
+  ]
+ }
+}
+EXIT=1
+
+--- ④ phase=STOP（打靶中）⇒ 拒绝
+$ python dzsmartscout\tools\planner\route_crop.py crop --from-plan --car-block A2 --car-yaw 0 --car-phase STOP
+=== route_crop（L0：按车当前格裁前缀）===
+结论：❌ 拒绝（不要发）
+  - 拒绝：phase=STOP 不是 DRIVE/APPROACH：打靶/收尾/待发阶段改线会让车重启路径并归零进度
+  ⚠️  没有给 --field-verify ⇒ 无负证据，全部按 UNKNOWN 计
+原始整线  ：N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y
+
+EXIT=1
+
+--- ⑤ reset: 命令不是航点序列 ⇒ 用法错（exit 2）
+$ python dzsmartscout\tools\planner\route_crop.py crop --route "reset:N10,y" --car-block N10
+ERROR: 'reset:N10,y' 不是航点序列：L0 只裁剪裸航点/多点路线（reset:/load: 的语义是复位与读文件，不能按后缀裁）
+EXIT=2
+
+--- ⑥ 车格不在整线里 ⇒ 默认拒绝
+$ python dzsmartscout\tools\planner\route_crop.py crop --from-plan --car-block N11 --car-yaw 0
+=== route_crop（L0：按车当前格裁前缀）===
+结论：❌ 拒绝（不要发）
+  - 拒绝：车当前格 N11 不在整线里（44 个格）⇒ 无法定位锚点；若车确实被外部改道，用 --allow-nearest 显式接受「就近格」近似
+  ⚠️  没有给 --field-verify ⇒ 无负证据，全部按 UNKNOWN 计
+原始整线  ：N10 M10 L10 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3 E3 F3* G3 G4 G5 G6 H6 I6 J6 J5 K5 L5 M5 N5,y
+
+EXIT=1
+

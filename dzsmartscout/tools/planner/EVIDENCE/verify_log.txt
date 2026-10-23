@@ -1,0 +1,6 @@
+=== sync_planner_from_source  2026-10-17 17:02:08 ===
+源(真源，只读): D:\User\Desktop\比赛存档\v1\dzrobot_v2
+产物        : D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\planner\vendor\dzbrain_ws
+模式: verify-only（账本 vs 真源 vs 产物；含路线内容级对账）
+路线内容：车侧 n=44 sha256=df24e944ae4ccf8b / 产物 n=44 sha256=df24e944ae4ccf8b → 逐 token 一致 ✅
+漂移 0 条 / 缺失 0 条
