@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-23 21:55",
- "count": 101,
+ "generated": "2026-10-23 23:09",
+ "count": 110,
  "files": [
   {
    "path": "00_项目总览/06_本机值守与守护器.md",
@@ -34,6 +34,72 @@
    "updated": "2026-10-21",
    "status": "现行",
    "lines": 62
+  },
+  {
+   "path": "00_项目总览/技术全景_A_车端核心.md",
+   "dir": "00_项目总览",
+   "title": "技术全景 A：车端核心 dzbrain（main / core / io / route / pursuit / tools.sim）",
+   "summary": "本文覆盖 `dzrobot_v2/src/dzbrain/dzbrain/` 下六个包共 21 个源文件（不含 `tasks/` 与 `scout/`）：",
+   "from": "本次代码级技术审计（2026-10-23，子智能体）",
+   "level": "实",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 1180
+  },
+  {
+   "path": "00_项目总览/技术全景_B_车端任务层.md",
+   "dir": "00_项目总览",
+   "title": "技术全景 B：车端任务层与感知（tasks/* + scout/*）",
+   "summary": "车端 dzbrain 是一个单进程、多线程的决策层：8 个 TaskThread 子类各自跑固定频率，通过",
+   "from": "本次代码级技术审计（2026-10-23，子智能体）",
+   "level": "实",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 1814
+  },
+  {
+   "path": "00_项目总览/技术全景_C_车端硬件与配置.md",
+   "dir": "00_项目总览",
+   "title": "技术全景 C · 车端硬件与配置",
+   "summary": "车端是一个 STM32 下位机 + RK/Jetson 类上位机 + ROS 2 Humble 的阿克曼小车：上位机（dzrobot_v2）通过两个串口与下位机通信——**底盘…",
+   "from": "本次代码级技术审计（2026-10-23，子智能体）",
+   "level": "实",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 1616
+  },
+  {
+   "path": "00_项目总览/技术全景_D_无人机.md",
+   "dir": "00_项目总览",
+   "title": "无人机（dzsmartscout）技术全景文档",
+   "summary": "人遥操飞 → FAST-LIO 记录轨迹 → 存 TXT → 之后自动沿该轨迹回放",
+   "from": "本次代码级技术审计（2026-10-23，子智能体）",
+   "level": "实",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 1045
+  },
+  {
+   "path": "00_项目总览/技术全景_E_空地链路与工程设施.md",
+   "dir": "00_项目总览",
+   "title": "技术全景 E · 空地链路与工程设施（代码级审计）",
+   "summary": "空地链路是**两条 QoS 语义完全相反的话题通道 + 一个车端 10 Hz 状态机**的组合：机侧 `dzlink_supervisor`/`dz_send_waypoint…",
+   "from": "本次代码级技术审计（2026-10-23，子智能体 link-doc）",
+   "level": "实",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 1681
+  },
+  {
+   "path": "00_项目总览/技术全景_F_代码审计报告.md",
+   "dir": "00_项目总览",
+   "title": "技术全景 F · 全仓代码审计报告",
+   "summary": "- **对象**：整个工作区 D:/User/Desktop/比赛存档/v1，含两个 git 仓：",
+   "from": "本次代码级技术审计（2026-10-23，子智能体 auditor）",
+   "level": "实",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 1613
   },
   {
    "path": "00_项目总览/时间线.md",
@@ -292,7 +358,7 @@
    "path": "20_资料索引库/历史/00_索引.md",
    "dir": "20_资料索引库/历史",
    "title": "历史 · 分册索引",
-   "summary": "六篇：01 沿革 覆盖 09-27 到 10-18（三段），02 并入与改名 覆盖 10-18 一天，03 自主工作期 收 10-15~10-18 的值守与实车事实，04 旧核…",
+   "summary": "七篇：01 沿革 覆盖 09-27 到 10-18（三段），02 并入与改名 覆盖 10-18 一天，03 自主工作期 收 10-15~10-18 的值守与实车事实，04 旧核…",
    "from": "_tmp_session/yb_tree/docs/archive/（16 篇）, docs/merge/（10 篇）, _tmp_session/d13_verify/, dzrobot_v2/src/history/, dzrobot_v2/docs/清理记录_20261018.md, .zhiyuan/工作日志.md + memory/digest_20261018.md（原文已按用户决定删除，仅留提炼）",
    "level": "档/实",
    "updated": "2026-10-23",
@@ -364,6 +430,17 @@
    "updated": "2026-10-23",
    "status": "历史",
    "lines": 95
+  },
+  {
+   "path": "20_资料索引库/历史/07_历史会话线_20261005_20261019.md",
+   "dir": "20_资料索引库/历史",
+   "title": "历史会话线 20261005-20261019 · 四条线考古",
+   "summary": "2026-10-23 卡顿整治隔离出 6 个巨型历史会话（173,542 事件行 / 829.5 MB 解压），去重后是**四条线**：①空地协同（10-12~10-17）、②…",
+   "from": "桌面 `DSH_历史会话归档_20261023.zip`（6 会话原始 zstd，182.5 MB）+ `_清单.md`（SHA-256/血缘）+ 提炼稿 `DSH_历史会话提炼_20261023/`（01~06 + turns.jsonl，机器切分原文）",
+   "level": "档（提炼稿是原始事件的机器切分，未回查 zstd 字节；行号均指提炼稿，标 ① ② ③）",
+   "updated": "2026-10-23",
+   "status": "历史",
+   "lines": 203
   },
   {
    "path": "20_资料索引库/无人机/00_索引.md",
@@ -770,7 +847,7 @@
    "level": "",
    "updated": "2026-10-23",
    "status": "现行",
-   "lines": 128
+   "lines": 132
   },
   {
    "path": "30_任务卡库/_设计/01_ns登记.md",
@@ -858,7 +935,7 @@
    "level": "",
    "updated": "2026-10-23",
    "status": "过程",
-   "lines": 53
+   "lines": 66
   },
   {
    "path": "30_任务卡库/在办/lead-1023/DOC-FIX-20261023.md",
@@ -869,7 +946,18 @@
    "level": "实/机检（§0 复核命令与输出见 §6）",
    "updated": "2026-10-23",
    "status": "in_progress",
-   "lines": 218
+   "lines": 260
+  },
+  {
+   "path": "30_任务卡库/在办/lead-1023/HIST-ARCH-20261023.md",
+   "dir": "30_任务卡库/在办/lead-1023",
+   "title": "HIST-ARCH-20261023 · DSH 历史会话提炼归档",
+   "summary": "- created: 2026-10-23 22:25",
+   "from": "D:/User/Desktop/DSH_历史会话归档_20261023.zip（6 会话原始 zstd，182.5 MB / 829.5 MB 原始）；同名 _清单.md（SHA-256 + 血缘去重结论）；提炼稿 D:/User/Desktop/DSH_历史会话提炼_20261023/（01~06 + turns.jsonl）",
+   "level": "档（提炼稿是原文机器切分，未回查原始 zstd 字节；数字以提炼稿为准，标注轮号）",
+   "updated": "2026-10-23",
+   "status": "in_progress",
+   "lines": 74
   },
   {
    "path": "30_任务卡库/在办/lead-1023/NS-PILOT-20261023.md",
@@ -883,15 +971,15 @@
    "lines": 89
   },
   {
-   "path": "30_任务卡库/在办/lead-1023/TOOLS-SIM-STUDIO-20261023.md",
+   "path": "30_任务卡库/在办/lead-1023/SHOOT-LINK-20261023.md",
    "dir": "30_任务卡库/在办/lead-1023",
-   "title": "TOOLS-SIM-STUDIO-20261023 · 仿真台移交包（解耦 + --json 契约）",
+   "title": "SHOOT-LINK-20261023 · 循迹×射击合流（账本/跳站判据/几何先验）",
    "summary": "- owner: **lead**",
-   "from": "用户 2026-10-23 指令「仿真台解耦出来作为独立模块，打包放桌面，写好说明和优化目标」",
-   "level": "实读 dsh-dzrobot-ssh（simbench.js 1347 行/index.js 路由/sim.html 接口面）+ sim_cli.py 全文 + sim.py 指标契约头注",
+   "from": "2026-10-23 用户指令「结合循迹+射击」；方案 v2 _tmp_session/lead-1023/SHOOT-PLAN-v2-20261023.md",
+   "level": "实/机检（mission.py:3445-3610、aim.py:1283-1315、config.py:390-401、planner.py:4717-4830；22:1x 实读）",
    "updated": "2026-10-23",
    "status": "in_progress",
-   "lines": 50
+   "lines": 74
   },
   {
    "path": "30_任务卡库/在办/tools-1022/00_树.md",
@@ -996,12 +1084,12 @@
    "path": "30_任务卡库/归档/00_索引.md",
    "dir": "30_任务卡库/归档",
    "title": "归档卡索引（2026-10-18 → 2026-10-23）",
-   "summary": "已归档 **27 张**卡（另有在办 8 张：B1 / B5 / T12 / R3B / D11 / DAY-22 / CFG-TARGETSPEED / PLUGIN-REW…",
+   "summary": "已归档 **28 张**卡（另有在办 8 张：B1 / B5 / T12 / R3B / D11 / DAY-22 / CFG-TARGETSPEED / PLUGIN-REW…",
    "from": "_tmp_session/TRACK-*/CARD*.md, _tmp_session/TRACK-*/REPORT*.md, _tmp_session/TRACK-*/review*.md, dzrobot_v2/_tmp_session/*/REPORT.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/PROJECT_STATUS_20261021.md",
    "level": "档",
    "updated": "2026-10-23",
    "status": "",
-   "lines": 79
+   "lines": 83
   },
   {
    "path": "30_任务卡库/归档/_按日摘要/2026-10-18.md",
@@ -1059,6 +1147,17 @@
    "lines": 80
   },
   {
+   "path": "30_任务卡库/归档/lead-1023/2026-10-23_TOOLS-SIM-STUDIO-20261023.md",
+   "dir": "30_任务卡库/归档/lead-1023",
+   "title": "TOOLS-SIM-STUDIO-20261023 · 仿真台移交包（解耦 + --json 契约）",
+   "summary": "- owner: **lead**",
+   "from": "用户 2026-10-23 指令「仿真台解耦出来作为独立模块，打包放桌面，写好说明和优化目标」",
+   "level": "实读 dsh-dzrobot-ssh（simbench.js 1347 行/index.js 路由/sim.html 接口面）+ sim_cli.py 全文 + sim.py 指标契约头注",
+   "updated": "2026-10-23",
+   "status": "已归档",
+   "lines": 72
+  },
+  {
    "path": "30_任务卡库/归档/tools-1022/2026-10-22_TOOLS-ORGANIZE-20261022.md",
    "dir": "30_任务卡库/归档/tools-1022",
    "title": "TOOLS-ORGANIZE-20261022 · tools 区整理（归档半卡）",
@@ -1078,7 +1177,7 @@
    "level": "实",
    "updated": "2026-10-23",
    "status": "已归档",
-   "lines": 74
+   "lines": 112
   },
   {
    "path": "30_任务卡库/归档/tools-1022/2026-10-23_TOOLS-PLUGIN-TERMGATE-20261023.md",
