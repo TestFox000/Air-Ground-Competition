@@ -1,0 +1,45 @@
+# C2 内参纵横比安全化（审查#1 blocker 级病灶）
+# 日期: 2026-10-24  审查复核: 同 D1/D4
+# 适用文件（同款函数三处，逐一应用）:
+#   无人机 13 类链  onboard/dzuav_mjpg/src/MapLocalizer.cpp（本 diff 路径）
+#   无人机 7 类链   ~/dzuav/src/MapLocalizer.cpp
+#   仓库 main       onboard/dzuav/src/MapLocalizer.cpp
+# ⚠️ C++ 改动：合入前必须过机上编译验证（链路恢复后执行）——硬约束：未过编译验证不得部署机载硬件
+# 16:9（现链 720p/1080p）行为逐位不变；仅非 16:9 生效
+
+--- a/onboard/dzuav_mjpg/src/MapLocalizer.cpp
++++ b/onboard/dzuav_mjpg/src/MapLocalizer.cpp
+@@ -12,11 +12,31 @@
+ namespace
+ {
+ // 按帧分辨率缩放基准内参（基准 1920x1080）。
++// 2026-10-23 审查#1（blocker 级病灶）：旧版按轴独立缩放——纵横比与基准
++// 一致（16:9）时无恙；一旦不是，fx/fy 缩放系数不同 = 像素非方形 = PnP
++// 内参系统性失真、定位恒废退低精度单应兜底。修正：纵横比改变时 fx/fy
++// 同比缩放（保持方形像素），主点按新画幅中心重定位。16:9 时与旧公式
++// 逐位等价（W/2+(cx-960)*s == cx*sx 当 sx==sy==s）。
++// 注：同比系数取 sy（纵向）——横向裁切与纵向裁切无法从分辨率分辨，
++// 统一取纵向并在此注明；真非 16:9 相机应重新标定而非依赖缩放。
+ cv::Mat scaledIntrinsics(const cv::Mat& base, cv::Size sz)
+ {
+     cv::Mat K = base.clone();
+-    K.row(0) *= double(sz.width) / 1920;
+-    K.row(1) *= double(sz.height) / 1080;
++    const double sx = double(sz.width) / 1920;
++    const double sy = double(sz.height) / 1080;
++    if (std::abs(sx - sy) > 1e-9)
++    {
++        const double s = sy;
++        K.at<double>(0, 0) = K.at<double>(0, 0) * s;   // fx
++        K.at<double>(1, 1) = K.at<double>(1, 1) * s;   // fy
++        K.at<double>(0, 2) = sz.width / 2.0 + (K.at<double>(0, 2) - 960.0) * s;
++        K.at<double>(1, 2) = sz.height / 2.0 + (K.at<double>(1, 2) - 540.0) * s;
++    }
++    else
++    {
++        K.row(0) *= sx;
++        K.row(1) *= sy;
++    }
+     K.at<double>(2, 2) = 1;
+     return K;
+ }
