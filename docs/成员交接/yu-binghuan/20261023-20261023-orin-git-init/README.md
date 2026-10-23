@@ -1,107 +1,28 @@
-# 靶向对齐 + 重规划基于最新进度（2026-10-23）
+# 追加：机上仓库收编版本控制（git init 两段历史 + Gitee 快照分支）
 
-> 需求（用户口径）：「关于标靶打击，让小车的朝向为正对标靶，可以一次到位，
-> 也可以逐渐调整。路径规划的基础一定得是最新的进度。不要犯之前就出现的问题。」
->
-> 基线：机上最新血缘（`~/dzuav_deploy/air_ground`，NO_GIT——本次已把完整
-> 基线拉回本地 `baseline/` 存证，**漂移事实已记录**，建议尽快收编版本控制）。
+- 归档日期：2026-10-23
+- 归档目录：`docs/成员交接/yu-binghuan/20261023-20261023-orin-git-init/`
+- 归档工具：`push_deliverable.py`（一键归档，见同目录说明）
 
-## 改了什么
+## 说明
 
-### 1. 停靠射击格车头正对标靶（mission_router）
+执行收编：机上 ~/dzuav_deploy/air_ground 此前 NO_GIT（漂移根因）。git init -b main，278 文件 2.6M；两段真实提交：8cbfbb3=收编时原始状态（含 10-22 C++ 规划接入与 --sahi 演进）、310558e=当日靶向对齐改动；engines/models 大二进制不入库由 BINARY_MANIFEST.md5 十条 md5 锁定；AGENTS.md 自 Gitee main 取随机入库；完整快照已推 Gitee snapshot/orin-20261023 分支（bundle 本机中转，令牌未上机未落盘）。安全边界：未触碰在跑的 --sahi 侦察进程、机上不设 remote、重复 init 防呆。
 
-| 机制 | 内容 |
+## 文件清单
+
+| 文件 | 大小 |
 |---|---|
-| 一次到位（优先） | 停靠段用**终点态约束 Dijkstra**（到达朝向=正对朝向）规划进段——折线几何本身就保证开火瞬间车头正对靶心；进段可绕/曲进对齐（=“逐渐调整”的几何形态） |
-| 逐渐调整（兜底） | 对齐到达物理不可行（对侧进段被堵）才退回“代价择优+停靠转身”假设，残余偏差交执行器停转-爬行/云台，并 **RuntimeWarning 显式告警**（不静默） |
-| 为什么必须改 | 官方 path_executor 只跟折线、不知道靶在哪——旧实现只把对齐当“更便宜”，实测路线出现 `E9→D8*` 斜进（NW 到达打北侧靶，残余 45°）；135° 停靠转身按 turn_feasibility_v2 物理上“单段绝无可能” |
+| `git_init_orin.py` | 9,759 B |
+| `README.md` | 6,589 B |
 
-实测对照（同一场景）：无障碍时路线 29→30 格（+1 格是对齐绕行的合理代价）；
-堵 D9/E9 后降级告警正确触发、停靠格不丢。
-
-### 2. 重规划基于最新进度（integrate_node + sidecar + route_progress）
-
-| 项 | 内容 |
-|---|---|
-| 新模块 | `route_progress.py`（纯算法无 ROS，可本地测试）：0x4002 车位姿 × 当前路线折线 → 车当前格 / 真实朝向最近轴 / 已扫格集 |
-| 换起点 | 中途重规划时起点=车的**当前格**（此前永远从原始起点 N10 重算） |
-| 剔已扫雷 | 车已碾过的雷从必经点剔除（保守：当前格不算已扫；只剔雷，桥门/靶不剔） |
-| 修的故障面 | ① 旧“从起点重算+执行器最近航段跳段”在排序变化时**静默漏必经点**；② 时间预算按全程高估会**误砍射击位** |
-| 防线 | 车位姿过期（car_pose_ttl）或出界 → 自动退回摆位起点；守卫签名仍用全量快照（防每帧重规划风暴）；reset 仍只发一次（不重发） |
-
-### 3. 不犯老问题（逐条对照）
-
-| 历史坑 | 本次对策 |
-|---|---|
-| 多副本漂移 | 以**机上最新血缘**为底改（先 md5 全量比对，本地旧副本不动）；基线存证 `baseline/` |
-| 拐点绕过转弯检查 | 对齐通过 Dijkstra 终点态实现，**不手工插航点**，下游 turn_feasibility/过心插值/压缩检查照常生效（并有专项测试） |
-| 未辨靶默认禁火 | 不动，且新增回归护栏测试（红靶/未辨靶绝不产生停靠格） |
-| 静默降级 | 对齐降级显式 RuntimeWarning（车端进降级日志、sidecar 打印），且“对齐可行时不得告警”有测试锁定 |
-| 测试全绿≠正确 | 先跑基线（81 过/15 失败全为旧套件对新血缘的既有失配），改后 98 过/**同样 15 失败**——零新增失败；新增 17 项专项测试 |
-
-## 文件
-
-| 文件 | 说明 |
-|---|---|
-| `work/ag_integrate/mission_router.py` | 靶向对齐（`_assemble` 对齐优先 + 降级收集 + 一次性告警） |
-| `work/ag_integrate/route_progress.py` | **新增**：进度推断纯算法底座 |
-| `work/ag_integrate/integrate_node.py` | 车端：存车位姿 x/y、重规划换起点+剔已扫雷 |
-| `work/tools/orin_plan_sidecar.py` | 机上 sidecar 同口径 + route_plan.json 记录实际起点 |
-| `tests/test_shoot_alignment.py` | 对齐专项（7 项：一次到位×3、降级×2、禁火护栏×2） |
-| `tests/test_route_progress.py` | 进度推断专项（10 项） |
-| `baseline/` | 机上改前完整存证（含 md5 清单） |
-| `deploy_align.py` | 一键部署/验证/回滚（备份 `.bak_align_orig`，幂等） |
-| `diag_compare.py` | 基线 vs 改后对照诊断脚本 |
-
-## 部署状态（2026-10-23）
-
-- ✅ **无人机 Orin（192.168.0.197）已部署**：4 文件 md5 校验过、py_compile 过、
-  机上冒烟三连过（对齐到达 `(0,-1)` / 降级告警 1 条 / 进度推断 M10）。
-- ⏳ **车端（192.168.137.79 离线）待部署**：`integrate_node.py` 已在 canonical
-  仓库就位，车上线后用 `tools/car_deploy.py` 照常推车即可（无需额外步骤）。
-
-回滚（无人机）：
-
-```powershell
-python deploy_align.py --host 192.168.0.197 --rollback
-```
-
-## 收编版本控制（2026-10-23 追加执行）
-
-机上仓库此前 NO_GIT（漂移根因），已用 `git_init_orin.py` 一键收编：
-
-| 项 | 结果 |
-|---|---|
-| 机上 git | `~/dzuav_deploy/air_ground` → 分支 `main`，278 文件 2.6M，status 干净 |
-| 历史 | 两段真实提交：`8cbfbb3` 收编时原始状态（含 10-22 C++ 接入与 `--sahi` 演进）→ `310558e` 今日靶向对齐改动 |
-| 大二进制 | engines/models 不入库，`BINARY_MANIFEST.md5`（10 条 md5 锁）检出漂移：`md5sum -c BINARY_MANIFEST.md5` |
-| 团队规约 | AGENTS.md（自 Gitee main 取，去 BOM）随机入库 |
-| Gitee 存证 | 完整快照已推 **`snapshot/orin-20261023`** 分支（bundle 经本机中转，令牌未上机未落盘） |
-| 安全边界 | 未触碰当时在跑的 `--sahi` 侦察进程；机上不设 remote（凭据不上机）；重复 init 有防呆拒绝 |
-
-机上日常用法（自此刻起）：
+## 复现方式
 
 ```bash
-cd ~/dzuav_deploy/air_ground
-git status / git diff          # 改动前先看漂移
-git checkout -- <file>         # 回滚单文件改走 git（部署脚本 .bak 锚仍兼容）
-md5sum -c BINARY_MANIFEST.md5  # 引擎/模型是否被换过
+# 视频侦察 → 路线规划（机上通用入口，任意视频；默认 stride 5 = 实测最优 8/8）
+bash tools/orin_video_recon.sh <video.mp4>
+bash tools/orin_video_recon.sh --replay-last   # 秒级：复用识别结果，按当前门控重算
 ```
 
-## 测试
-
-```powershell
-cd default\20261023-靶向对齐
-$env:PYTHONPATH="$PWD\work"
-python -m pytest tests -q   # 98 通过 / 15 失败（与基线完全一致的既有失配）
-```
-
-## 已知边界
-
-- 降级告警按“选定路线经过的降级格”列示，移动靶两候选（D8/E8）都不可对齐时
-  两个格名都会列出（信息略宽，无害）。
-- 已扫判定按**显式航点**（压缩格）推进：车在两航点正中间且离两端各半格时，
-  进度取最近航点，偏保守（宁可少剔一颗雷也不误剔）。
-- C++ 机载实时链（main13_plan）的规划器无朝向态空间，靶向对齐暂不在该链
-  生效——canonical 规划血缘是 Python `ag_integrate`，按项目约定 C++ 链的
-  地面参数对齐另列移植清单。
+> `video_field_recon.py` 与 `--stride 15` 是 2026-10-18 的旧归档口径，已退役：
+> stride 15 会漏掉只短暂可见的雷（实测同段视频 8 颗只剩 2~3 颗，见 §6.10.2）。
+> 本 README 由 push_deliverable.py 自动生成。
