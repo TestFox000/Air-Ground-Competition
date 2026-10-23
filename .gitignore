@@ -1,0 +1,19 @@
+# 大二进制不入库（血缘由 BINARY_MANIFEST.md5 锁定，md5sum -c 可检漂移）
+engines/
+models/
+*.engine
+*.onnx
+*.pt
+# 构建产物
+build/
+*.o
+# Python 缓存
+__pycache__/
+*.pyc
+# 测试素材（留在盘上，属输入不属于源）
+*.jpg
+*.mp4
+*.avi
+*.log
+# 部署工具的回滚锚与目录快照（盘上保留；回滚自此改走 git）
+*.bak_*

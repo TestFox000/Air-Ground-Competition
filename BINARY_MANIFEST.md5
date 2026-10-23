@@ -1,0 +1,10 @@
+# 被忽略二进制的 md5 锁（引擎/模型不入库，漂移用 md5sum -c BINARY_MANIFEST.md5 检出）
+eb46548d02690c553158e75a093dea67  engines/cell_classifier_fp16.engine
+d9779a7b6f007bc2756424179743553b  engines/hbb_detector_fp16.engine
+11be1a3cd2780f67cbb8273b8aa0a410  models/release/cell_classifier_v4c_ft_20261010.onnx
+9de102a6519127eeb787381feefdc14d  models/release/cell_classifier_v4d_20261015.onnx
+dd5f6ef4e4252e8cc32854f600d85be3  models/release/current_cell_classifier
+9357027a97dfd3f210085c172a82931c  models/release/current_hbb_detector
+e93dec04f9c7d8f272cc11624261741d  models/release/hbb_detector_7cls_distill_20261011.onnx
+9dae6083239b3b6c0b553c5f94261e78  models/release/hbb_detector_d13_20261016.onnx
+53404e82c317a970934da797e2f0af87  models/release/README.md
