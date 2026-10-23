@@ -1,7 +1,7 @@
 ---
 来源: docs/agent_handoff/30_循迹团队执行方案.md, docs/agent_handoff/32_循迹回报模板.md, docs/agent_handoff/36_R2复核_R3补测与收尾计划.md, _tmp_session/PROJECT_STATUS_20261021.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/TRACK-*/CARD*.md, dzrobot_v2/_tmp_session/*/REPORT.md
 取证: 档
-更新: 2026-10-22
+更新: 2026-10-23
 取代: 无
 ---
 
@@ -9,6 +9,7 @@
 
 ## TL;DR（给 agent 看的）
 
+- **10-23新增方案卡**：AG-TEAM-PLAN-20261023编制DSH空地闭环场景；以下10-22卡数是历史快照，当前入口见[空地闭环计划](../10_agent提示词/04_场景/空地协同闭环推进.md)，卡的最终归档见[归档索引](归档/00_索引.md)。方案交付不代表设备联调已通过。
 - 这里是**领卡 → 在卡里写 → 整卡归档**的唯一作业台；卡就是报告，不再另起 REPORT.md（`AGENTS.md` §8.5）。
 - 截至 2026-10-22 18:25：库内 **14 篇文件**（README 1 + 模板 2 + 在办 6 + 归档 5），可核卡位 **30 张** = **归档 24**（通过 22 / 部分完成 1 / 终止 1）+ **在办 6**（D22 当日作业卡、B1 规划器、B5 量测、T12 无人机、R3B 现场补测、D11 打靶验证）。另有 3 个外部交回包（B/D/E）待验、本地无 CARD〔未〕。
 - 最大坑：**卡面"完成"≠ 实车通过**。21:2x 的三张新卡（B1/B5/T0）全部写着"离线完成、未部署、未上车"。
@@ -40,8 +41,8 @@
 | [TRACK-FIELD-B5-20261021](在办/TRACK-FIELD-B5-20261021.md)（task-8） | 阿克曼量测作业包 + 航向守卫复算 | motion-auditor | 离线完成待验收 | A2 原始帧/L8 原始日志缺失；PIVOT 形态未实测 | 现场执行 S3.0（需窗口+人工） |
 | [T12 无人机上线执行单](在办/T12-无人机上线执行单.md) | 飞控断电恢复 → 看门狗 → 域号 118 | drone-arch | in_progress（离线） | uXRCE 会话从未建立；域号车 118 / 机 0 | 需用户先给飞控断电 |
 | [TRACK-FIELD-R3B-20261021](在办/TRACK-FIELD-R3B-20261021.md) | R3B 现场补测 C0/C1/C2b | Lead | **C1 3/3 通过**（0.6917/0.6990/0.6919 m）；C0 外部量测与 C2b 未闭合（卡面 `status: 完成` 与 §1「中断」口径冲突） | 5 趟有效但外部录像未录；C0 判据余量仅 0.8 mm 且无外测背书 | C2b 单弯 + C0 外部量测复核 |
-| [TRACK-FIELD-D11-20261022](在办/TRACK-FIELD-D11-20261022.md) | D11 单停站 30 s 打靶（1.41 m、靶速 1 m/s） | Lead | **in_progress**（10-22，等摆位） | 0.875 m 时提前量 37 px > 25 px 开火框；车未摆位 | 摆 D11 格心车头朝北 → `reset:D11,x` + `单点 D11*,x` → 采 30 s |
-| [TRACK-CFG-TARGETSPEED-20261022](在办/TRACK-CFG-TARGETSPEED-20261022.md) | 靶速注释收口：`target_speed_mps` 0.04 → 1.0 + 两处误导注释 | **待指派**（建议 config-owner） | **待办**（今日不改，等窗口） | 0.04 只活在 `robot.yaml:834`/`config.py:375` 注释；`config/**` 属冻结区 | 先 grep 证影响面 → frozen 登记 → 改 3 处 → 人工部署（D-031） |
+| [TRACK-FIELD-D11-20261022](在办/TRACK-FIELD-D11-20261022.md) | D11 单停站 30 s 打靶（1.41 m、靶速 **0.3 m/s**〔D-033〕） | Lead | **in_progress**（10-22，等摆位） | 0.875 m 提前量 **11 px < 25 px** 开火框（0.3 m/s 口径下门不再结构关闭），1.41 m 约 7 px；车未摆位 | 摆 D11 格心车头朝北 → `reset:D11,x` + `单点 D11*,x` → 采 30 s |
+| [TRACK-CFG-TARGETSPEED-20261022](在办/TRACK-CFG-TARGETSPEED-20261022.md) | 靶速注释收口：`target_speed_mps` 0.04 → **0.3** + 两处误导注释 | **待指派**（建议 config-owner） | **待办**（今日不改，等窗口） | 0.04 只活在 `robot.yaml:834`/`config.py:375` 注释；`config/**` 属冻结区 | 先 grep 证影响面 → frozen 登记 → 改 3 处（目标值 **0.3**，原计划 1.0 已由 D-033 推翻）→ 人工部署（D-033） |
 
 **冻结区占用**（收口门禁会读，勿撞车）：`tasks/tracker.py` → TRACK-R1-20261020-01，expires **2026-10-27**（`dzrobot_v2/docs/TEAM_STATUS.md:50`）；`route/planner.py` → TRACK-PLAN-B1-20261021，expires **2026-11-04**（`dzrobot_v2/docs/TEAM_STATUS.md:22`）。
 
