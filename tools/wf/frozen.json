@@ -20,6 +20,13 @@
       "owner": "implementer",
       "reason": "T-B1 目标函数换口径（任务优先+降级标记）与第七图双停站；本地离线，待评审",
       "expires": "2026-11-04"
+    },
+    {
+      "path": "config/robot.yaml",
+      "card": "AIM-LAT-20261022",
+      "owner": "lead",
+      "reason": "det_node.thread_num 8→2：实测输出率不变(30.4Hz)而流水线滞后 264→66ms、CPU 160→113%。已同步上车端 ~/dzrobot/config/robot.yaml，待评审收口",
+      "expires": "2026-10-29"
     }
   ]
 }

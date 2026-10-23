@@ -14,6 +14,9 @@
 
 输出：控制台指标表 + `<out-dir>/traj.csv` + `<out-dir>/traj.svg` + `<out-dir>/by_segment.csv`。
 **全程无异常，退出码 0**；参数/文件问题 → 退出码 2（与 `route_check.py` 同约定）。
+`--json` 时 stdout 末尾追加一行 `SIM_RESULT_JSON {...}`（机器可读完整指标，契约版本见
+模块内 `JSON_SCHEMA`；metrics 键名本体契约仍是 sim.py 头注 §5「只增不改」）。该一行永远
+是 stdout 最后一行，文字表排版保持不变。
 
 ★ 刻意不做的事
 - 不 import rclpy（本工具必须在没有 ROS 的笔记本上跑）。
@@ -23,6 +26,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import os
 import sys
 
@@ -36,6 +41,10 @@ __all__ = ["build_parser", "main"]
 
 #: 工作区根（本文件在 <ws>/src/dzbrain/dzbrain/tools/ 下 → 上溯 4 层）
 _WS_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+
+#: `SIM_RESULT_JSON` 行的契约版本（细则见移交包 sim_studio/CONTRACT.md；
+#:   metrics 键名本体契约仍是 sim.py 头注 §5「只增不改」）。
+JSON_SCHEMA = "dzrobot-sim-result/1"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -85,6 +94,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--segments-top", type=int, default=10,
                     help="打印『横向误差峰值最大的 N 段』（0 = 全部按段序打印，-1 = 不打印）")
     ap.add_argument("--quiet", action="store_true", help="只打印指标表，不打标题/文件路径")
+    ap.add_argument("--json", dest="json_line", action="store_true",
+                    help="在 stdout 末尾追加一行 'SIM_RESULT_JSON {...}'（机器可读完整指标，"
+                         "供仿真台移交包解析；不影响上面的文字表，该行永远是最后一行）")
     return ap
 
 
@@ -139,6 +151,26 @@ def _apply_overrides(cfg: Config, overrides: dict[str, object]) -> Config:
     return new
 
 
+def _json_sanitize(value: object) -> object:
+    """把非有限浮点（NaN/±Inf）换成 None，保证输出是严格 JSON；其余类型原样。"""
+    if isinstance(value, dict):
+        return {k: _json_sanitize(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_sanitize(v) for v in value]
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, (bool, int, str)) or value is None:
+        return value
+    return str(value)
+
+
+def _emit_json_error(stage: str, exc: Exception) -> None:
+    """--json 模式下，参数/输入类失败也产出一行机器可读结果（ok=false，退出码不变）。"""
+    print("SIM_RESULT_JSON " + json.dumps(
+        {"schema": JSON_SCHEMA, "ok": False, "stage": stage, "error": str(exc)},
+        ensure_ascii=False))
+
+
 def main(argv: list[str] | None = None) -> int:
     """跑一次仿真并落盘。返回进程退出码（0 正常 / 2 参数或输入有问题）。"""
     args = build_parser().parse_args(argv)
@@ -148,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
         cfg = Config.load(args.config)
     except ConfigError as exc:
         print(f"❌ 配置读取失败: {exc}", file=sys.stderr)
+        if args.json_line:
+            _emit_json_error("config", exc)
         return 2
 
     # ---- 应用 --set 覆盖（不改磁盘上的 YAML）----
@@ -156,6 +190,8 @@ def main(argv: list[str] | None = None) -> int:
         cfg = _apply_overrides(cfg, overrides)
     except ValueError as exc:
         print(f"❌ --set 解析失败: {exc}", file=sys.stderr)
+        if args.json_line:
+            _emit_json_error("set", exc)
         return 2
 
     # ---- 读路线 ----
@@ -163,6 +199,8 @@ def main(argv: list[str] | None = None) -> int:
         route, route_src = _resolve_route(args, cfg)
     except (ValueError, FileNotFoundError) as exc:
         print(f"❌ 路线读取失败: {exc}", file=sys.stderr)
+        if args.json_line:
+            _emit_json_error("route", exc)
         return 2
 
     # ---- 组装注入参数 ----
@@ -182,6 +220,8 @@ def main(argv: list[str] | None = None) -> int:
         result = run_sim(route, cfg, sim)
     except (ValueError, ConfigError) as exc:
         print(f"❌ 仿真参数非法: {exc}", file=sys.stderr)
+        if args.json_line:
+            _emit_json_error("run", exc)
         return 2
 
     # ---- 输出 ----
@@ -218,6 +258,30 @@ def main(argv: list[str] | None = None) -> int:
         print(f"配置校验: {len(issues)} 条 note（不阻断离线仿真）")
         for issue in issues[:10]:
             print(f"  {issue}")
+    # ---- 机器可读契约行：永远是 stdout 最后一行；上面的文字表排版一个字不变 ----
+    if args.json_line:
+        payload = {
+            "schema": JSON_SCHEMA,
+            "ok": True,
+            "metrics": _json_sanitize(result.metrics),
+            "sim": {
+                "dt": sim.dt,
+                "cmd_latency_s": sim.cmd_latency_s,
+                "speed_scale_err": sim.speed_scale_err,
+                "yaw_drift_deg_per_min": sim.yaw_drift_deg_per_min,
+                "pos_noise_m": sim.pos_noise_m,
+                "anchor_on_arrival": sim.anchor_on_arrival,
+                "anchor_radius_m": sim.anchor_radius_m,
+                "seed": sim.seed,
+                "stop_on_completion": sim.stop_on_completion,
+            },
+            "route": {"source": route_src},
+            "config": os.path.abspath(args.config),
+            "out_dir": out_dir,
+            "artifacts": {"traj_csv": csv_path, "traj_svg": svg_path,
+                          "segments_csv": seg_path},
+        }
+        print("SIM_RESULT_JSON " + json.dumps(payload, ensure_ascii=False))
     return 0
 
 
