@@ -221,7 +221,7 @@ def main():
                 continue
             for m in re.finditer(r"_tmp_session/[^\s，,；;）)】\]|]+", txt):
                 raw = m.group(0).rstrip(".。,，;；:：").rstrip(chr(96) + chr(34) + chr(39))
-                if "<" in raw or "*" in raw or raw == "_tmp_session/":
+                if "<" in raw or "*" in raw or raw == "_tmp_session/" or raw.endswith("..."):
                     continue
                 cited.add(raw)
         dead = [r for r in cited if not os.path.exists(os.path.join(WS, r))]
