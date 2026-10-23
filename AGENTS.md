@@ -3,6 +3,7 @@
 > 维护者：Lead。动手前必读：怎样稳步推进，又不造轮子、不开倒车。
 > 2026-10-18 修订：并入团队协作/防重复规则并精简；细则仍在 `dzrobot_v2/docs/工作流v2.md`（领卡/写卡/收口）。
 > 2026-10-22 增 §8.6~§8.10：文档守卫（机器判红）+ 生命周期 + 卡面文档变更 + 月度审计 + 乱拉屎清单。
+> 2026-10-23 增 §0.1：路径速查（桌面在 D 盘，别再写 C 盘）。
 
 ## 0. 四个真源（先读，再动手）
 
@@ -14,6 +15,17 @@
 | 协议细则 | `dzrobot_v2/docs/工作流v2.md`（原位保留，`check.py` 硬依赖；现行提炼见 `docs/20_资料索引库/赛事与治理/03_工作流与铁律.md`） | 领卡/写卡/收口 |
 
 > 不知道从哪读起 → `docs/README.md`（**唯一入口**，五分钟上手；旧 `dzrobot_v2/docs/README.md` 已归档）。
+
+### 0.1 路径速查（实测 · 全员别再搞错）
+
+| 路径 | 结论 |
+|---|---|
+| `D:\User\Desktop\` | ✅ **真实桌面**。用户说「放到桌面」= 交付到这里 |
+| `C:\Users\TestFox\Desktop\` | ❌ **不是**项目桌面，是另一个桌面，**不要混用/不要写进交付** |
+| `D:\Desktop`、`D:\Users\TestFox\Desktop` | ❌ 不存在 |
+| 项目工作区根（v1） | `D:\User\Desktop\比赛存档\v1`（本 `AGENTS.md` 所在目录） |
+
+> 已踩坑：早期把桌面写成 `C:\Users\TestFox\Desktop\`，被 DSH 沙箱拒（`[WinError 5] 拒绝访问`），交付落不进用户桌面。**凡涉及「桌面」一律用 `D:\User\Desktop\`。**
 
 ## 1. 六条铁律
 
@@ -136,7 +148,7 @@
 | **R3 库内写了没登记** | 没进 `目录索引.json` | 跑 `python docs/_工具/gen_index.py` |
 
 - **白名单/基线**：`docs/_工具/doc_policy.json` + `doc_policy_baseline.json`。基线记录当前库外**受管** .md（70 篇），语义是**只减不增**——新增一篇库外文档必须显式 `--accept`，没有"顺手放一下"。
-- **豁免区**（不进基线、只计数）：`_tmp_session/`（过程稿）、`backup/`、`_archive/`、`dzrobot_v2/src/history/`（会话日志/大事记）、`artifacts/`、`docs/history_cache/`、第三方源码（mavros / px4_msgs / livox / FAST_LIO / vendor）。**豁免区里写"长期文档"同样违规**，由月度审计抓。
+- **豁免区**（不进基线、只计数）：`_tmp_session/`（过程稿）、`backup/`、`_archive/`、`git_save/`（版本存档）、`dzrobot_v2/src/history/`（会话日志/大事记）、`artifacts/`、`docs/history_cache/`、第三方源码（mavros / px4_msgs / livox / FAST_LIO / vendor）。**豁免区里写"长期文档"同样违规**，由月度审计抓。
 - **顺序**：写卡（含 §8.8 文档变更）→ `gen_index.py` → `check_doc_policy.py` → `cd dzrobot_v2 && python tools/wf/check.py` → `check_links.py`。
 
 ### 8.7 生命周期（front matter status）
