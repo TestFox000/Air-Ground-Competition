@@ -54,7 +54,7 @@ status: in_progress
 
 1. sim 家族 5 项需在无 EPERM 沙箱的用户机复跑确认（命令上表）。
 2. /files 需真车段验证（check-files.mjs + test-host 有车分支）。
-3. 挂载：本包仍未进 desktop profile bundles——挂载动作 = profile 改动（沙箱外），与旧插件 file: 依赖改路径一并等用户窗口。
+3. 挂载：本包仍未进 desktop profile bundles——挂载动作 = profile 改动（沙箱外），与旧插件 file: 依赖改路径一并等用户窗口。**核对补记**：pnpm-lock 里两旧插件仍有 10 条旧路径条目（下次 pnpm install 自动按 package.json 新路径刷新，非阻塞）；node_modules 内旧安装副本与 tools/plugins/ 源码存在差异（车 90 行 / 机 78 行 diff 条目：安装副本 = 10-22 18:42 快照，源码此后含 README 更正与其他会话演进；源码侧另有 _reg_*/_t1_* 草稿 txt 属他人文件不触碰）。**现役跑的是旧安装副本，源码是真源**——下次 install/deploy 覆盖前别把安装副本当基准改。
 4. ~~部署债：desktop profile 两个 file: 依赖指旧路径~~ —— **已清除**（2026-10-22 23:00，经用户授权）：两行改指 `tools/plugins/`，回读校验均解析到同名包（脚本 `_tmp_session/TOOLS-PLUGIN-REWORK-20261022/repoint-deps.cjs`）。**未跑 pnpm install**——安装动作归挂载事项，仍需窗口。
 
 ## 执行记录
