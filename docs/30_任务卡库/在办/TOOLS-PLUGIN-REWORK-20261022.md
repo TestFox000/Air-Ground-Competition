@@ -1,7 +1,7 @@
 ---
 来源: TOOLS-ORGANIZE-20261022（缺口清单交接）、本会话执行记录（2026-10-22 22:14–22:50）
 取证: 实/机检
-更新: 2026-10-22
+更新: 2026-10-23
 取代: 无
 status: in_progress
 ---
@@ -71,17 +71,27 @@ status: in_progress
 - **如实记录（混提）**：`290e9c7` 除本人两处行改动外，同文件携带了另一会话未提交的链接改写（agent_handoff/_tmp_session → history_cache 指向，16 增 12 删的大头）。系整文件提交所致、非故意；内容无损、方向与其文档迁移一致；撤销会抹掉他人改动，故不回滚只落账。共享文件单写者（§4）后续要靠领取先看 git 脏态执行。
 - **事故记录（次日补）**：23:02–23:10 另一会话把 v1 仓切到新根分支 `chunk-push`（chunk base/1/2 三笔，快照式重排全部历史）。我的两笔提交脱离主线（仍在 `github-main`：2ab6c76/5b980db），且本卡工作树被回退到初版——72 行、丢两段落账。代码修复（statusFor/classifyFailure/deploy --dry-run/字典/role 透传）**都在 HEAD 里完好**；profile file: 依赖、TEAM_STATUS、归档件、归档索引也都在。已重贴落账并补记本段。教训落盘：**并行会话会重排 git 历史，卡片类文件收口后必须 git 落库并以提交号为准，不能只靠工作树**。
 
-## 用户机复跑清单（本沙箱 EPERM 测不了的）
+## 2026-10-23 · 事故 #2（main 重建丢线）与恢复 + sim 家族复跑
 
-```
-cd tools/plugins/dsh-dzairground-ssh
-node scripts/test-sim-parity.mjs        # 沙箱内 spawn python EPERM
-node scripts/test-sim-incremental.mjs   # 同上
-node scripts/test-sim-map-render.mjs    # 沙箱内 59/61，2 红为 spawn EPERM
-node scripts/test-sim-drone-render.mjs  # 沙箱内 29/31，2 红为 artifacts mkdir EPERM（根在 dzrobot_v2，沙箱外一层）
-node scripts/test-sim-overlay-fix.mjs   # 沙箱内 spawn EPERM
-# 有车时：node scripts/check-files.mjs && node scripts/test-host.mjs（有车分支全断言）
-```
+**事故 #2**：v1 历史第二次被快照式重排——另一会话以 TOOLS-ORGANIZE 三笔为顶建了新 `main`（883cbe4 为尖），本卡全线（7 代码文件 + 卡面三笔落账）与 ORGANIZE 归档（归档卡 + 索引行 + 在办删旧）**全部被丢出线外**，只在 github-main/chunk-push 上幸存。恢复 = v1 `9387901`（逐文件取回，七锚点复核：statusFor/classifyFailure/dryRun/CAR_STUB/css-namespace/role 透传/字典三键均在；css-ns/client/host/s2/deploy-dry-run 复跑全绿）。教训升级：**重排已发生两次且第二次开始丢代码——任何线收口必须当场 git 落库 + 报提交号，工作树一个字节都不算数。**
+
+**sim 测试三修** = v1 `d333925`：map-render body CRLF 归一（sim.html 是 CRLF，跨行变异体锚点假失效）；靶朝向两钉从写死 E5+F5→h 改由 field 真源两格几何现推；overlay-fix E5 按 D-012 重钉 tour、F 段 argv 改读现役 planner.engine；incremental G 段探针包 try/except（无解改 SKIP 带 planner 原文，不再崩段）。
+
+**全家族复跑（全权限环境，原沙箱 EPERM 障碍已消）**：
+
+| 脚本 | 结果 | 备注 |
+|---|---|---|
+| test-sim-map-render | **61/61 绿** | 现役图 D5+D6 竖向重钉通过 |
+| test-sim-overlay-fix | **30/30 绿** | E5 读到 tour；F1 真跑 plan_route 出 68 token |
+| test-sim-drone-render | **31/31 绿** | 未动，原生通过 |
+| test-sim-parity | 22/25 | 余红 3.1/7.1/8.2 → 挂账① |
+| test-sim-incremental | 9/13 + 2 SKIP | 余红 B3/E1/F2/F3 → 挂账①② |
+| 有车时 | check-files + test-host 有车分支全断言 | 仍待真车窗口 |
+
+**余红挂账（两笔均上游债，在本卡写域外，不粉饰、不改断言迎合）**：
+
+- **挂账① 车端 route.tokens 数据债（`config/robot.yaml`，冻结区）**：tokens 含非法项 `N5,y`（尾缀 `,y` 疑为粘贴残留）；68 token 去重仅 57（重复 11 项）；tour 规划产物与 tokens 逐 token 不等 → parity 3.1/7.1/8.2、incremental B3 红。影响面不止测试：兜底路线合法性是启动门禁依据，非法 token 可能直接判红门禁。**建议修法（单变量）**：以现役 tour 引擎产物重生成 route.tokens 一次落盘；需冻结区登记 + owner，待规划线/Lead 领。
+- **挂账② 增量续算 × D-012 冲突**：现役 CLI 已声明 --from-cell/--already-covered，运行时却「只支持 --engine tracker-safe（增量续算 G4）」，而 tracker-safe 在现役折返图 0/5 无解（D-012）→ incremental E1/F2/F3 红。**增量续算在现役配置下整体不可用**。去向二选一：规划线修 tracker-safe 对折返图的支持；或用户裁决增量功能取舍。
 
 ## §10 文档变更
 
@@ -89,3 +99,4 @@ node scripts/test-sim-overlay-fix.mjs   # 沙箱内 spawn EPERM
 - profile 侧（库外、非文档）：C:/Users/TestFox/.dsh/profiles/desktop/package.json 两行 file: 依赖路径
 - docs 快照：`_archive/docs_snapshots/docs-20261022-2253.zip`（187 文件）
 - 无新增长期文档于库外。
+- 2026-10-23 补：v1 `9387901`（事故#2 恢复：7 代码 + 本卡 + 归档卡/索引 + 在办删旧卡）、`d333925`（sim 三修）；归档/00_索引.md 增 10-23 导航与 AG-TEAM 行、REWORK 在办行刷新；docs/目录索引.md/.json 随 gen_index 重跑。

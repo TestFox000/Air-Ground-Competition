@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-22 21:41",
- "count": 73,
+ "generated": "2026-10-23 18:02",
+ "count": 84,
  "files": [
   {
    "path": "00_项目总览/06_本机值守与守护器.md",
@@ -12,6 +12,17 @@
    "updated": "2026-10-22",
    "status": "现行",
    "lines": 66
+  },
+  {
+   "path": "00_项目总览/交接_20261023.md",
+   "dir": "00_项目总览",
+   "title": "交接包（2026-10-23 16:20）",
+   "summary": "**项目**：全球校园 AI 算法精英大赛 · 空地协同侦排挑战赛。无人机侦察读桥顶箭头 → 告诉小车哪些洞能过；小车 3 分钟内 4×5 m / 14×11 格场地压雷 8、…",
+   "from": "2026-10-23 16:10 现场 SSH + 本地仓库盘点（本会话）；dzrobot_v2/docs/决策台账.md（D-024~D-032）；docs/00_项目总览/现状快照.md（10-21）；docs/30_任务卡库/在办/；_tmp_session/aimtune、aim-lat",
+   "level": "实/档/未",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 174
   },
   {
    "path": "00_项目总览/团队与分工.md",
@@ -43,7 +54,7 @@
    "from": "_tmp_session/PROJECT_STATUS_20261021.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/paper50/三大优化方案.md, dzrobot_v2/docs/决策台账.md",
    "level": "实/档",
    "updated": "2026-10-21",
-   "status": "现行",
+   "status": "历史",
    "lines": 150
   },
   {
@@ -66,7 +77,7 @@
    "level": "实/档/未",
    "updated": "2026-10-21",
    "status": "现行",
-   "lines": 137
+   "lines": 139
   },
   {
    "path": "10_agent提示词/00_一页纸.md",
@@ -83,12 +94,12 @@
    "path": "10_agent提示词/00_索引.md",
    "dir": "10_agent提示词",
    "title": "agent 提示词库 · 册级索引",
-   "summary": "本库 **17 篇文件 = 16 篇正文 + 本索引 1 篇**：正文 = 入口 1（README）+ 一页纸 1 + 基础 3（01/02/05）+ 角色 6 + 场景 5，…",
+   "summary": "本库 **18 篇文件 = 17 篇正文 + 本索引 1 篇**：正文 = 入口 1（README）+ 一页纸 1 + 基础 3（01/02/05）+ 角色 6 + 场景 6，…",
    "from": "本库全部文件 + docs/agent_handoff/*（旧版）+ _tmp_session/PC-01-提示词压缩/账本.md",
    "level": "实/档",
-   "updated": "2026-10-21",
+   "updated": "2026-10-23",
    "status": "现行",
-   "lines": 54
+   "lines": 55
   },
   {
    "path": "10_agent提示词/01_提示词模板.md",
@@ -130,9 +141,9 @@
    "summary": "这库解决**一件事**：把「要别的 agent 干什么」写成一段可直接复制、贴了就能干活的话。",
    "from": "docs/agent_handoff/README.md, docs/agent_handoff/20_发送指南.md, AGENTS.md §8",
    "level": "实/档",
-   "updated": "2026-10-21",
+   "updated": "2026-10-23",
    "status": "现行",
-   "lines": 94
+   "lines": 95
   },
   {
    "path": "10_agent提示词/03_角色/auditor.md",
@@ -256,13 +267,24 @@
    "lines": 87
   },
   {
+   "path": "10_agent提示词/04_场景/空地协同闭环推进.md",
+   "dir": "10_agent提示词/04_场景",
+   "title": "空地协同闭环推进 · DSH团队执行方案",
+   "summary": "先以完整循迹与云台PID/打靶为两条验收主线，部署集成并行；车端基线成立后推进空地运动联调与比赛闭环。",
+   "from": "交接_20261023.md；决策台账D-027/028/029/031/032；当前在办卡与代码只读复核；AG-TEAM-PLAN-20261023",
+   "level": "实/档/未",
+   "updated": "2026-10-23",
+   "status": "计划",
+   "lines": 133
+  },
+  {
    "path": "20_资料索引库/README.md",
    "dir": "20_资料索引库",
    "title": "资料索引库 = 本项目「百科全书」",
    "summary": "这里是**查事实**的地方：不知道就翻这里，不要全仓 grep、不要问人。",
    "from": "本次文档收口（583 篇）提炼；各专题篇内注明原始出处",
    "level": "实/档/未",
-   "updated": "2026-10-22",
+   "updated": "2026-10-23",
    "status": "现行",
    "lines": 160
   },
@@ -270,19 +292,19 @@
    "path": "20_资料索引库/历史/00_索引.md",
    "dir": "20_资料索引库/历史",
    "title": "历史 · 分册索引",
-   "summary": "四篇：01 沿革 覆盖 09-27 到 10-18（三段），02 并入与改名 覆盖 10-18 一天，03 自主工作期 收 10-15~10-18 的值守与实车事实，04 旧核…",
-   "from": "_tmp_session/yb_tree/docs/archive/（16 篇）, docs/merge/（10 篇）, _tmp_session/d13_verify/, dzrobot_v2/src/history/, dzrobot_v2/docs/清理记录_20261018.md, .zhiyuan/工作日志.md + memory/digest_20261018.md（原文已按用户决定删除，仅留提炼）, dzrobot_v2/src/todo/武官.json + 交接三件套（04 篇，2026-10-22 补）",
+   "summary": "六篇：01 沿革 覆盖 09-27 到 10-18（三段），02 并入与改名 覆盖 10-18 一天，03 自主工作期 收 10-15~10-18 的值守与实车事实，04 旧核…",
+   "from": "_tmp_session/yb_tree/docs/archive/（16 篇）, docs/merge/（10 篇）, _tmp_session/d13_verify/, dzrobot_v2/src/history/, dzrobot_v2/docs/清理记录_20261018.md, .zhiyuan/工作日志.md + memory/digest_20261018.md（原文已按用户决定删除，仅留提炼）",
    "level": "档/实",
-   "updated": "2026-10-22",
+   "updated": "2026-10-23",
    "status": "历史",
-   "lines": 48
+   "lines": 50
   },
   {
    "path": "20_资料索引库/历史/01_沿革_20260927_20261012.md",
    "dir": "20_资料索引库/历史",
    "title": "沿革：09-27 到 10-18（三段）",
    "summary": "三段主线：**摸官方框架（09-27~10-01）→ 循迹 v1/v2/v3 收官（10-02~10-12）→ 空地协同闭环（10-14~10-18）**。",
-   "from": "_tmp_session/yb_tree/docs/archive/（16 篇）, _tmp_session/yb_tree/docs/会话交接-20261002.md, _tmp_session/yb_tree/docs/战略评估-省一冲刺-20261014.md, _tmp_session/yb_tree/docs/接手说明.md, dzrobot_v2/src/history/book/项目技术文档2026-10-03.md, dzrobot_v2/src/history/INDEX.md, carsnap_tree/docs/agent_archive/",
+   "from": "_tmp_session/yb_tree/docs/archive/（16 篇）, _tmp_session/yb_tree/docs/会话交接-20261002.md, _tmp_session/yb_tree/docs/战略评估-省一冲刺-20261014.md, _tmp_session/yb_tree/docs/接手说明.md, docs/history_cache/01_旧文档归档/dzrobot_v2_src/history/book/项目技术文档2026-10-03.md, dzrobot_v2/src/history/INDEX.md, carsnap_tree/docs/agent_archive/",
    "level": "档",
    "updated": "2026-10-21",
    "status": "历史",
@@ -311,15 +333,37 @@
    "lines": 43
   },
   {
-   "path": "20_资料索引库/历史/04_旧核对话_武将文官_20261003.md",
+   "path": "20_资料索引库/历史/04_旧核技术手册_20261003.md",
+   "dir": "20_资料索引库/历史",
+   "title": "旧核技术手册（2026-10-03）",
+   "summary": "这是 10-03 旧核（src_v1：path_executor + serial_reader 死推算）时代「唯一权威技术文档」的提炼。10-07 血统切到 dzbrain …",
+   "from": "项目技术文档 2026-10-03（407 行，10-03 原稿；原件现存 docs/history_cache/01_旧文档归档/dzrobot_v2_src/history/book/）；dzrobot_v2/src/history/log/（同期日志）",
+   "level": "档（原稿自述已逐条代码/配置核实；本次只提炼，未复跑）",
+   "updated": "2026-10-23",
+   "status": "历史",
+   "lines": 128
+  },
+  {
+   "path": "20_资料索引库/历史/05_旧核工作区遗留_20261003.md",
+   "dir": "20_资料索引库/历史",
+   "title": "旧核工作区遗留物与处置（2026-10-03）",
+   "summary": "10-03 旧核（`path_executor` 时代）在代码仓里留了 4 处\"原件\"：`log/`（colcon 构建日志）、`src/readme.txt`（521 行规则…",
+   "from": "dzrobot_v2/log/（7 次 colcon 构建 + latest*，89 文件 / 1.9 MB）、src/readme.txt（521 行）、src/todo/（4 文件 / 3.5 MB）、src/history/book/（1 篇 407 行）",
+   "level": "档（全部为 10-03 前后原件；\"今天是否仍适用\"逐条用 grep 现行代码/配置核对，未核者标〔未〕）",
+   "updated": "2026-10-23",
+   "status": "历史",
+   "lines": 94
+  },
+  {
+   "path": "20_资料索引库/历史/06_旧核对话_武将文官_20261003.md",
    "dir": "20_资料索引库/历史",
    "title": "旧核对话：武将 ↔ 文官（2026-10-03）",
-   "summary": "10-03 一天，两个 AI 在**车端机器**（`/home/duzhong/dzrobot`，path_executor 旧核时代）把「全系统体检 → 精简 1.1 GB …",
-   "from": "dzrobot_v2/src/todo/武官.json（CodeBuddy 导出，sha256 32b4dbf8…）, dzrobot_v2/src/todo/交接_武将.md, dzrobot_v2/src/todo/交接_文官.md, dzrobot_v2/src/todo/交接协议.md, _archive/20261018/TestFox_src_diff/todo/武官.json（同源副本）, dzrobot_v2/src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp:174-203, dzrobot_v2/tools/global_planner.py:496-512, dzrobot_v2/config/robot.yaml:430-433",
-   "level": "实/档",
-   "updated": "2026-10-22",
+   "summary": "这是旧核（`path_executor` 时代）**一天之内**的完整工作会话：13 轮 request、201 条文本消息，从\"检查整理\"做到\"整改 + 建协作机制 + 交接\"。",
+   "from": "_archive/20261023/旧核todo_20261003/武官.json（CodeBuddy 会话\"武将\"，13 轮 request / 201 条文本消息 / 3.64 MB，导出 2026-10-03T06:26Z；文本抽取 40,624 字符）+ 同目录 交接协议.md / 交接_武将.md / 交接_文官.md",
+   "level": "档（对话原文；行号/数字均取自原文与同期日志，未复跑旧核代码）",
+   "updated": "2026-10-23",
    "status": "历史",
-   "lines": 178
+   "lines": 95
   },
   {
    "path": "20_资料索引库/无人机/00_索引.md",
@@ -363,7 +407,7 @@
    "level": "实/档",
    "updated": "2026-10-21",
    "status": "现行",
-   "lines": 99
+   "lines": 112
   },
   {
    "path": "20_资料索引库/无人机/04_路线下发与轨迹回放.md",
@@ -407,7 +451,7 @@
    "level": "实/档",
    "updated": "2026-10-22",
    "status": "现行",
-   "lines": 59
+   "lines": 62
   },
   {
    "path": "20_资料索引库/空地链路/01_协议v2与契约.md",
@@ -430,6 +474,17 @@
    "updated": "2026-10-21",
    "status": "现行",
    "lines": 101
+  },
+  {
+   "path": "20_资料索引库/空地链路/03_车侧话题对账_20261018.md",
+   "dir": "20_资料索引库/空地链路",
+   "title": "车侧话题对账（2026-10-18 审计）",
+   "summary": "结论一句话：**主干收敛且自洽**（双核互斥、驱动单通道、云台三信号接通、odom 中继是有意单跳），**但有一处真 P0**——决策核 dzbrain 与底盘 dzactua…",
+   "from": "D:/User/Desktop/报告/dzrobot_v2_运行逻辑链路审计_20261018.md（142 行 / 10280 B）；审计方法=以话题为轴的生产者↔消费者反向对账",
+   "level": "实（代码级对账，逐条给文件:行；未跑运行时验证）",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 118
   },
   {
    "path": "20_资料索引库/视觉与云台/00_索引.md",
@@ -479,12 +534,12 @@
    "path": "20_资料索引库/赛事与治理/00_索引.md",
    "dir": "20_资料索引库/赛事与治理",
    "title": "赛事与治理 · 分册索引",
-   "summary": "这一册回答五件事：**场地长什么样**（01）、**怎么算分、多少时间**（02）、**动手前守什么规矩**（03）、**哪些事已裁决不许重开**（04）、**现在回归什么颜色…",
-   "from": "本册 01~05（源见各篇 front matter）, docs/20_资料索引库/README.md, AGENTS.md",
+   "summary": "这一册回答七件事：**场地长什么样**（01）、**怎么算分、多少时间**（02）、**动手前守什么规矩**（03）、**哪些事已裁决不许重开**（04）、**现在回归什么颜色…",
+   "from": "本册 01~07（源见各篇 front matter）, docs/20_资料索引库/README.md, AGENTS.md",
    "level": "实/档/未",
-   "updated": "2026-10-21",
+   "updated": "2026-10-23",
    "status": "现行",
-   "lines": 50
+   "lines": 54
   },
   {
    "path": "20_资料索引库/赛事与治理/01_赛题规则与场地.md",
@@ -495,7 +550,7 @@
    "level": "档/实",
    "updated": "2026-10-21",
    "status": "现行",
-   "lines": 125
+   "lines": 127
   },
   {
    "path": "20_资料索引库/赛事与治理/02_计分与时间预算.md",
@@ -522,13 +577,13 @@
   {
    "path": "20_资料索引库/赛事与治理/04_决策台账摘编.md",
    "dir": "20_资料索引库/赛事与治理",
-   "title": "决策台账摘编（D-001 ~ D-030）",
+   "title": "决策台账摘编（D-001 ~ D-032）",
    "summary": "这是**防开倒车**的表：已裁决的事不得重开。要重开先答三问：**新证据 / 影响面 / 不重开的代价**。",
-   "from": "dzrobot_v2/docs/决策台账.md（D-001~D-030 全文，120 行）",
+   "from": "dzrobot_v2/docs/决策台账.md（D-001~D-032 全文，140 行）",
    "level": "档",
-   "updated": "2026-10-21",
+   "updated": "2026-10-23",
    "status": "现行",
-   "lines": 94
+   "lines": 95
   },
   {
    "path": "20_资料索引库/赛事与治理/05_已知红与回归口径.md",
@@ -542,6 +597,28 @@
    "lines": 98
   },
   {
+   "path": "20_资料索引库/赛事与治理/06_版本存档规则.md",
+   "dir": "20_资料索引库/赛事与治理",
+   "title": "版本存档规则（V1 大项目 · 两仓统一线）",
+   "summary": "两仓统一版本线（dzrobot_v2 v1.1.0~v4.0.0 + 根仓 v4.0.1/v4.0.2）；下一版 v4.0.3；存档六步 + 备份矩阵；禁 git add -A",
+   "from": "D-032（决策台账）、git_save/README.md、log_2026-10-23_1632.md、history_cache/01_旧文档归档/dzrobot_v2/docs/版本号台账.md（v3 规则原文，已归档）",
+   "level": "实/档",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 104
+  },
+  {
+   "path": "20_资料索引库/赛事与治理/07_官方资料与物料清单.md",
+   "dir": "20_资料索引库/赛事与治理",
+   "title": "官方资料与物料清单",
+   "summary": "**官方物料原件在 `dzrobot_v2/src/history/附加资源/`**：11 个条目、435 个文件、**2.1 GB**。书目级清单见 §1，不要再去别处找\"官…",
+   "from": "dzrobot_v2/src/history/附加资源/（435 文件 / 2.1 GB，11 个条目）+ 13 份 PDF 文本抽取（_tmp_session/abs/）",
+   "level": "档（清单与体积为实测；PDF 事实取自 pypdf 抽取文本，页码为 PDF 物理页）",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 87
+  },
+  {
    "path": "20_资料索引库/车端/00_索引.md",
    "dir": "20_资料索引库/车端",
    "title": "车端 · 分册索引",
@@ -550,7 +627,7 @@
    "level": "实+档",
    "updated": "2026-10-21",
    "status": "现行",
-   "lines": 72
+   "lines": 76
   },
   {
    "path": "20_资料索引库/车端/01_架构与线程.md",
@@ -605,7 +682,7 @@
    "level": "实+档",
    "updated": "2026-10-21",
    "status": "现行",
-   "lines": 86
+   "lines": 87
   },
   {
    "path": "20_资料索引库/车端/06_回归与测试基线.md",
@@ -630,15 +707,37 @@
    "lines": 63
   },
   {
+   "path": "20_资料索引库/车端/08_车体几何与执行约束.md",
+   "dir": "20_资料索引库/车端",
+   "title": "车体几何与执行约束",
+   "summary": "车是**阿克曼前轮转向**，不是差速。几何上决定「到不了格心」的是 R = L/tanδ。",
+   "from": "D:/User/Desktop/报告/TEB物理参数报告_2026-10-03.md（101 行）；用户 2026-10-03 实测（前后轮分开测量）；dzrobot_v2/config/robot.yaml；dzrobot_v2/src/dzbrain/dzbrain/route/physics.py:171-183；src/dzbrain/dzbrain/core/config.py:65-66,108；_tmp_session/TRACK-R0-20261020-01/motion.md",
+   "level": "实（几何为用户实测）+ 档",
+   "updated": "2026-10-23",
+   "status": "现行",
+   "lines": 113
+  },
+  {
+   "path": "20_资料索引库/车端/09_外部实现借鉴_air_ground_20261018.md",
+   "dir": "20_资料索引库/车端",
+   "title": "外部实现借鉴：air_ground（2026-10-18 评估）",
+   "summary": "**云端 air_ground 与本地 dzrobot_v2 不是同一项目**：云端是「无人机侦察 + 助航主机 + 官方 dzbrain 消费」，本地是「车端自治 + 自研 …",
+   "from": "D:/User/Desktop/报告/云端gitee仓库可借鉴模块评估_20261018.md（176 行 / 13552 B）；云端工作副本 _tmp_session/gitee_main_tree/（2537 文件，只读）",
+   "level": "实（路径/行号/字节数均经实测核对）+ 档（云端 docstring 自述）",
+   "updated": "2026-10-23",
+   "status": "计划",
+   "lines": 124
+  },
+  {
    "path": "30_任务卡库/README.md",
    "dir": "30_任务卡库",
    "title": "任务卡库（作业台）",
-   "summary": "这里是**领卡 → 在卡里写 → 整卡归档**的唯一作业台；卡就是报告，不再另起 REPORT.md（`AGENTS.md` §8.5）。",
+   "summary": "**10-23新增方案卡**：AG-TEAM-PLAN-20261023编制DSH空地闭环场景；以下10-22卡数是历史快照，当前入口见空地闭环计划，卡的最终归档见归档索引。方…",
    "from": "docs/agent_handoff/30_循迹团队执行方案.md, docs/agent_handoff/32_循迹回报模板.md, docs/agent_handoff/36_R2复核_R3补测与收尾计划.md, _tmp_session/PROJECT_STATUS_20261021.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/TRACK-*/CARD*.md, dzrobot_v2/_tmp_session/*/REPORT.md",
    "level": "档",
-   "updated": "2026-10-22",
+   "updated": "2026-10-23",
    "status": "",
-   "lines": 97
+   "lines": 98
   },
   {
    "path": "30_任务卡库/在办/T12-无人机上线执行单.md",
@@ -652,15 +751,15 @@
    "lines": 72
   },
   {
-   "path": "30_任务卡库/在办/TOOLS-ORGANIZE-20261022.md",
+   "path": "30_任务卡库/在办/TOOLS-PLUGIN-REWORK-20261022.md",
    "dir": "30_任务卡库/在办",
-   "title": "TOOLS-ORGANIZE-20261022 — tools 区整理 + 统一空地插件重做",
+   "title": "TOOLS-PLUGIN-REWORK-20261022 · 统一空地插件重做",
    "summary": "- owner: lead",
-   "from": "",
-   "level": "",
-   "updated": "",
-   "status": "",
-   "lines": 48
+   "from": "TOOLS-ORGANIZE-20261022（缺口清单交接）、本会话执行记录（2026-10-22 22:14–22:50）",
+   "level": "实/机检",
+   "updated": "2026-10-23",
+   "status": "in_progress",
+   "lines": 102
   },
   {
    "path": "30_任务卡库/在办/TRACK-CFG-TARGETSPEED-20261022.md",
@@ -731,13 +830,13 @@
   {
    "path": "30_任务卡库/归档/00_索引.md",
    "dir": "30_任务卡库/归档",
-   "title": "归档卡索引（2026-10-18 → 2026-10-21）",
-   "summary": "已归档 **24 张**卡（另有 **5 张在办**：B1 / B5 / T12 / R3B / D11，见 `在办/` 与 `docs/30_任务卡库/README.md` …",
+   "title": "归档卡索引（2026-10-18 → 2026-10-23）",
+   "summary": "已归档 **26 张**卡（另有在办 8 张：B1 / B5 / T12 / R3B / D11 / DAY-22 / CFG-TARGETSPEED / PLUGIN-REW…",
    "from": "_tmp_session/TRACK-*/CARD*.md, _tmp_session/TRACK-*/REPORT*.md, _tmp_session/TRACK-*/review*.md, dzrobot_v2/_tmp_session/*/REPORT.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/PROJECT_STATUS_20261021.md",
    "level": "档",
-   "updated": "2026-10-22",
+   "updated": "2026-10-23",
    "status": "",
-   "lines": 70
+   "lines": 77
   },
   {
    "path": "30_任务卡库/归档/2026-10-18.md",
@@ -782,6 +881,28 @@
    "updated": "2026-10-21",
    "status": "",
    "lines": 85
+  },
+  {
+   "path": "30_任务卡库/归档/2026-10-22_TOOLS-ORGANIZE-20261022.md",
+   "dir": "30_任务卡库/归档",
+   "title": "TOOLS-ORGANIZE-20261022 · tools 区整理（归档半卡）",
+   "summary": "- owner: lead",
+   "from": "本卡全程执行记录（2026-10-22 19:00–21:45）",
+   "level": "实/机检",
+   "updated": "2026-10-22",
+   "status": "",
+   "lines": 79
+  },
+  {
+   "path": "30_任务卡库/归档/2026-10-23_AG-TEAM-PLAN-20261023.md",
+   "dir": "30_任务卡库/归档",
+   "title": "AG-TEAM-PLAN-20261023 · DSH空地协同闭环派工",
+   "summary": "为DSH编制分阶段空地协同闭环方案；本卡不实施设备操作或生产代码变更。",
+   "from": "交接_20261023.md；决策台账D-027/028/029/031/032；现行四库与在办卡",
+   "level": "实/档/未",
+   "updated": "2026-10-23",
+   "status": "已归档",
+   "lines": 79
   },
   {
    "path": "30_任务卡库/模板/任务卡模板.md",
