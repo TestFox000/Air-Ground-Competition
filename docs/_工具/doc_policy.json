@@ -70,5 +70,10 @@
     ],
     "archived_value": "已归档"
   },
+  "tmprefs": {
+    "enabled": true,
+    "dangling_baseline": 250,
+    "说明": "docs/** 里引用 _tmp_session 失效路径的条数基线（只减不增）。改小=修掉了引用；改大=新增烂指针，须说明理由。"
+  },
   "baseline": "docs/_工具/doc_policy_baseline.json"
 }

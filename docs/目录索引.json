@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-23 21:29",
- "count": 100,
+ "generated": "2026-10-23 21:55",
+ "count": 101,
  "files": [
   {
    "path": "00_项目总览/06_本机值守与守护器.md",
@@ -858,7 +858,7 @@
    "level": "",
    "updated": "2026-10-23",
    "status": "过程",
-   "lines": 49
+   "lines": 53
   },
   {
    "path": "30_任务卡库/在办/lead-1023/DOC-FIX-20261023.md",
@@ -880,7 +880,18 @@
    "level": "档/机检（守卫 Y6/Y7/Y8 实跑）",
    "updated": "2026-10-23",
    "status": "in_progress",
-   "lines": 72
+   "lines": 89
+  },
+  {
+   "path": "30_任务卡库/在办/lead-1023/TOOLS-SIM-STUDIO-20261023.md",
+   "dir": "30_任务卡库/在办/lead-1023",
+   "title": "TOOLS-SIM-STUDIO-20261023 · 仿真台移交包（解耦 + --json 契约）",
+   "summary": "- owner: **lead**",
+   "from": "用户 2026-10-23 指令「仿真台解耦出来作为独立模块，打包放桌面，写好说明和优化目标」",
+   "level": "实读 dsh-dzrobot-ssh（simbench.js 1347 行/index.js 路由/sim.html 接口面）+ sim_cli.py 全文 + sim.py 指标契约头注",
+   "updated": "2026-10-23",
+   "status": "in_progress",
+   "lines": 50
   },
   {
    "path": "30_任务卡库/在办/tools-1022/00_树.md",
@@ -993,8 +1004,8 @@
    "lines": 79
   },
   {
-   "path": "30_任务卡库/归档/2026-10-18.md",
-   "dir": "30_任务卡库/归档",
+   "path": "30_任务卡库/归档/_按日摘要/2026-10-18.md",
+   "dir": "30_任务卡库/归档/_按日摘要",
    "title": "2026-10-18 归档卡（4 张）",
    "summary": "这一天的主要价值是**把\"红\"分类清楚**：t35 把 46 行 FAIL 拆成 23 条（15 换图 + 2 契约 + 6 真缺陷），后来 D-023 与 B1 全靠这张表。",
    "from": "dzrobot_v2/_tmp_session/v4.0-closeout/VERIFY.md, dzrobot_v2/_tmp_session/t34/REPORT.md, dzrobot_v2/_tmp_session/t35/REPORT.md, dzrobot_v2/_tmp_session/p3_self_evolve/REPORT.md, _tmp_session/overnight/NIGHT_AUDIT.md",
@@ -1004,8 +1015,8 @@
    "lines": 68
   },
   {
-   "path": "30_任务卡库/归档/2026-10-19.md",
-   "dir": "30_任务卡库/归档",
+   "path": "30_任务卡库/归档/_按日摘要/2026-10-19.md",
+   "dir": "30_任务卡库/归档/_按日摘要",
    "title": "2026-10-19 归档卡（3 张）",
    "summary": "这天三张卡都在改**冻结区**（localization.py / main.py），且都只跑了相关套件、没跑全量 37 套。",
    "from": "dzrobot_v2/_tmp_session/task-44/REPORT.md, dzrobot_v2/_tmp_session/t_ae_contract/REPORT.md, dzrobot_v2/_tmp_session/t_d1b/REPORT.md, _tmp_session/TRACK-FIELD-B5-20261021/REPORT.md",
@@ -1015,8 +1026,8 @@
    "lines": 55
   },
   {
-   "path": "30_任务卡库/归档/2026-10-20.md",
-   "dir": "30_任务卡库/归档",
+   "path": "30_任务卡库/归档/_按日摘要/2026-10-20.md",
+   "dir": "30_任务卡库/归档/_按日摘要",
    "title": "2026-10-20 归档卡（12 张：10 通过 / 1 部分 / 1 终止）",
    "summary": "这一天是**\"离线闭环 + 第一次上实车\"**：R0 复现缺陷 → R1 单点修补 → R2 现场取数 → R3 现场门不齐收口。",
    "from": "_tmp_session/TRACK-*/CARD.md, _tmp_session/TRACK-*/REPORT.md, _tmp_session/TRACK-*/review*.md, docs/agent_handoff/33_循迹R0复核与R1任务.md, docs/agent_handoff/35_R1验收与R2实车派工.md, docs/agent_handoff/36_R2复核_R3补测与收尾计划.md",
@@ -1026,8 +1037,8 @@
    "lines": 97
   },
   {
-   "path": "30_任务卡库/归档/2026-10-21.md",
-   "dir": "30_任务卡库/归档",
+   "path": "30_任务卡库/归档/_按日摘要/2026-10-21.md",
+   "dir": "30_任务卡库/归档/_按日摘要",
    "title": "2026-10-21 归档卡（5 张归档 + 3 个外部交回包待验）",
    "summary": "这天的主轴是**\"从实车转回离线\"**：R3B 现场被掉电打断后，21:00 起同时开了 4 张离线卡（T0 基线、T3 航向、T4 打靶、B5 量测）+ 1 张规划卡（B1）。",
    "from": "_tmp_session/TRACK-BASE-20261021/CARD.md, _tmp_session/TRACK-BASE-20261021/REPORT.md, _tmp_session/TRACK-VIS-20261021/CARD.md, _tmp_session/TRACK-YAW-20261021/CARD.md, _tmp_session/TRACK-ACK-PLAN-20261021/CARD.md, _tmp_session/TRACK-PAPER-MERGE-20261021/CARD.md, _tmp_session/paper50/三大优化方案.md, _tmp_session/PROJECT_STATUS_20261021.md, docs/agent_handoff/37_论文方案取舍与三包集成.md",
@@ -1037,48 +1048,48 @@
    "lines": 85
   },
   {
-   "path": "30_任务卡库/归档/2026-10-22_TOOLS-ORGANIZE-20261022.md",
-   "dir": "30_任务卡库/归档",
-   "title": "TOOLS-ORGANIZE-20261022 · tools 区整理（归档半卡）",
-   "summary": "- owner: lead",
-   "from": "本卡全程执行记录（2026-10-22 19:00–21:45）",
-   "level": "实/机检",
-   "updated": "2026-10-22",
-   "status": "已归档",
-   "lines": 80
-  },
-  {
-   "path": "30_任务卡库/归档/2026-10-23_AG-TEAM-PLAN-20261023.md",
-   "dir": "30_任务卡库/归档",
+   "path": "30_任务卡库/归档/lead-1023/2026-10-23_AG-TEAM-PLAN-20261023.md",
+   "dir": "30_任务卡库/归档/lead-1023",
    "title": "AG-TEAM-PLAN-20261023 · DSH空地协同闭环派工",
    "summary": "为DSH编制分阶段空地协同闭环方案；本卡不实施设备操作或生产代码变更。",
    "from": "交接_20261023.md；决策台账D-027/028/029/031/032；现行四库与在办卡",
    "level": "实/档/未",
    "updated": "2026-10-23",
    "status": "已归档",
-   "lines": 79
+   "lines": 80
   },
   {
-   "path": "30_任务卡库/归档/2026-10-23_TMP-GC-20261023.md",
-   "dir": "30_任务卡库/归档",
+   "path": "30_任务卡库/归档/tools-1022/2026-10-22_TOOLS-ORGANIZE-20261022.md",
+   "dir": "30_任务卡库/归档/tools-1022",
+   "title": "TOOLS-ORGANIZE-20261022 · tools 区整理（归档半卡）",
+   "summary": "- owner: lead",
+   "from": "本卡全程执行记录（2026-10-22 19:00–21:45）",
+   "level": "实/机检",
+   "updated": "2026-10-22",
+   "status": "已归档",
+   "lines": 81
+  },
+  {
+   "path": "30_任务卡库/归档/tools-1022/2026-10-23_TMP-GC-20261023.md",
+   "dir": "30_任务卡库/归档/tools-1022",
    "title": "TMP-GC-20261023 · `_tmp_session` 过程稿治理（先 B 提炼归档、再 A 删可再生）",
    "summary": "- owner: lead｜2026-10-23 21:00–21:35｜写域：`_tmp_session/**`、`_archive/20261023/tmp_session…",
    "from": "_tmp_session 实测清单（2026-10-23 20:5x）、_archive/20261023/tmp_session/README.md、_archive/20261023/tmp_session/pack_20261023.zip",
    "level": "实",
    "updated": "2026-10-23",
    "status": "已归档",
-   "lines": 73
+   "lines": 74
   },
   {
-   "path": "30_任务卡库/归档/2026-10-23_TOOLS-PLUGIN-TERMGATE-20261023.md",
-   "dir": "30_任务卡库/归档",
+   "path": "30_任务卡库/归档/tools-1022/2026-10-23_TOOLS-PLUGIN-TERMGATE-20261023.md",
+   "dir": "30_任务卡库/归档/tools-1022",
    "title": "TOOLS-PLUGIN-TERMGATE-20261023 · 终端探测门禁放行",
    "summary": "「先不推送上云，现修这个插件的本地功能——让我能在插件里打开 VNC 和终端先。」",
    "from": "",
    "level": "",
    "updated": "",
    "status": "已归档",
-   "lines": 77
+   "lines": 78
   },
   {
    "path": "30_任务卡库/模板/任务卡模板.md",

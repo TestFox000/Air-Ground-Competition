@@ -7,15 +7,16 @@
   R3 库内未登记       —— docs/ 下的文档没进 目录索引.json（=写了没登记）
   R4 任务卡 status 越界 —— 在办卡必须 pending/in_progress；归档卡必须 已归档（按日合并摘要除外）
   R6 20 库篇数口径漂移  —— README 写"应为 N 篇"与实际 .md 数不符（手写数字必腐）
+  R7 命名空间不合法     —— 在办/<ns>/ 缺 00_树.md、卡面 ns 与目录不符、ns 未登记、缺 agent
+  R8 卡未挂树           —— 缺 树节点 / 树里没有本卡 / 树指向不存在的卡
+  R9 归档归属错         —— 归档未按 <ns> 分层、归档卡 ns 与目录不符、缺「文档变更」
 提醒（不判红）：
   Y1 库内文档缺 front matter status
   Y2 status=现行 但 updated 超过 stale_days 天（过期候选）
   Y3 库内标题重复（副本即债）
   Y4 基线里已消失的路径（可精简基线）
   Y5 根目录临时件（_tmp*/_work_tmp*/_recover_tmp*，应进 _tmp_session/ 或 _archive/）
-  Y6 命名空间不合法（在办/<ns>/ 缺 00_树.md、卡面 ns 与目录不符、缺 agent）
-  Y7 卡未挂树 / 树指向不存在的卡（试点期只对有 ns 层的目录生效）
-  Y8 已归档卡缺「文档变更」落地记录（§8.8 / 设计 §5 收口契约）
+  Y9 文档引用 _tmp_session 失效路径数上升（过程区已清空，应改指归档包或标〔档〕）
 
 用法：
   python docs/_工具/check_doc_policy.py                 # 体检
@@ -207,6 +208,28 @@ def main():
                         "README 写「应为 %s 篇」，实际 %d 篇（口径：本目录全部 .md，含 README 与册级索引）"
                         % (m.group(1), actual)))
 
+    # Y9 文档里 _tmp_session 引用失效（10-21 过程目录清空后的烂指针），只准降不准升
+    tr = cfg.get("tmprefs", {})
+    if tr.get("enabled", True):
+        base_dead = int(tr.get("dangling_baseline", 0))
+        cited = set()
+        for rel in buckets["doc"]:
+            try:
+                with open(os.path.join(WS, rel), "r", encoding="utf-8", errors="replace") as f:
+                    txt = f.read()
+            except OSError:
+                continue
+            for m in re.finditer(r"_tmp_session/[^\s，,；;）)】\]|]+", txt):
+                raw = m.group(0).rstrip(".。,，;；:：").rstrip(chr(96) + chr(34) + chr(39))
+                if "<" in raw or "*" in raw or raw == "_tmp_session/":
+                    continue
+                cited.add(raw)
+        dead = [r for r in cited if not os.path.exists(os.path.join(WS, r))]
+        if len(dead) > base_dead:
+            yellow.append(("Y9", "docs/**",
+                           "引用 _tmp_session 失效路径 %d 个（基线 %d）：docs 不该指过程区，改指归档包或标〔档〕"
+                           % (len(dead), base_dead)))
+
     # Y5 根目录临时件（应进 _tmp_session/，不参与版本管理）
     for n in sorted(os.listdir(WS)):
         if n == "_tmp_session":
@@ -214,8 +237,8 @@ def main():
         if n.startswith(("_tmp", "_work_tmp", "_recover_tmp")):
             yellow.append(("Y5", n, "根目录临时文件/目录（收口前移入 _tmp_session/ 或 _archive/）"))
 
-    # Y6/Y7/Y8 命名空间与任务树（试点期只提醒）
-    # 规则：docs/30_任务卡库/_设计/00_命名空间与任务树.md
+    # R7/R8/R9 命名空间与任务树（2026-10-23 由 Y6~Y8 转红线）
+    # 规则真源：docs/30_任务卡库/_设计/00_命名空间与任务树.md
     tree_cache = {}
 
     def _tree_text(dir_rel):
@@ -247,42 +270,55 @@ def main():
         tree = _tree_text(dir_rel)
         fm = front_matter(os.path.join(WS, rel))
         if tree is None:
-            yellow.append(("Y6", rel, "所在 ns 缺 00_树.md（ns=%s）" % ns))
+            red.append(("R7", rel, "所在 ns 缺 00_树.md（ns=%s）" % ns))
             continue
         if fm.get("ns", "") != ns:
-            yellow.append(("Y6", rel, "ns: 与目录名不一致（目录 %s / 卡面 %s）" % (ns, fm.get("ns", "空"))))
+            red.append(("R7", rel, "ns: 与目录名不一致（目录 %s / 卡面 %s）" % (ns, fm.get("ns", "空"))))
         if registered_ns and ns not in registered_ns:
-            yellow.append(("Y6", rel, "ns 未在 _设计/01_ns登记.md 登记（ns=%s）" % ns))
+            red.append(("R7", rel, "ns 未在 _设计/01_ns登记.md 登记（ns=%s）" % ns))
         if not fm.get("agent"):
-            yellow.append(("Y6", rel, "缺 agent:（一张卡必须绑定一个智能体）"))
+            red.append(("R7", rel, "缺 agent:（一张卡必须绑定一个智能体）"))
         stem = parts[-1][:-3]
         if not fm.get("树节点"):
-            yellow.append(("Y7", rel, "缺 树节点:（卡必须挂在树上）"))
+            red.append(("R8", rel, "缺 树节点:（卡必须挂在树上）"))
         elif stem not in tree:
-            yellow.append(("Y7", rel, "树里没有指向本卡的节点（卡号 %s 未出现）" % stem))
+            red.append(("R8", rel, "树里没有指向本卡的节点（卡号 %s 未出现）" % stem))
     for dir_rel, tree in tree_cache.items():
         if not tree:
             continue
         for cam in re.findall(r"\[卡\]\s*([^\s·|（(）)]+)", tree):
             if not os.path.exists(os.path.join(WS, dir_rel, cam + ".md")):
-                yellow.append(("Y7", dir_rel + "/00_树.md", "树节点指向的卡不存在：" + cam))
+                red.append(("R8", dir_rel + "/00_树.md", "树节点指向的卡不存在：" + cam))
 
-    # Y8 归档契约：有 ns 层的归档卡必须写「文档变更」
+    # R9 归档归属：必须落在 归档/<ns>/ 下 + ns 与目录一致 + 写清「文档变更」
+    ARCH = "docs/30_任务卡库/归档/"
     for rel in buckets["doc"]:
-        if not rel.startswith("docs/30_任务卡库/归档/"):
+        if not rel.startswith(ARCH):
             continue
         parts = rel.split("/")
-        if len(parts) < 6:
-            continue  # 旧归档（无 ns 层）：暂不纳入
+        name = parts[-1]
+        if name == "00_索引.md":
+            continue
+        if len(parts) == 4:
+            red.append(("R9", rel, "归档未按 ns 分层（移到 归档/<ns>/%s）" % name))
+            continue
+        if len(parts) < 5:
+            continue
+        ns = parts[3]
+        if ns.startswith("_"):
+            continue  # _按日摘要 等非卡目录
+        fm = front_matter(os.path.join(WS, rel))
+        if fm.get("ns", "") != ns:
+            red.append(("R9", rel, "归档卡 ns: 与目录不一致（目录 %s / 卡面 %s）" % (ns, fm.get("ns", "空"))))
         try:
-            with open(os.path.join(WS, rel), "r", encoding="utf-8", errors="replace") as f:
-                body = f.read()
+            with open(os.path.join(WS, rel), "r", encoding="utf-8", errors="replace") as fh:
+                body = fh.read()
         except OSError:
             continue
         m = re.search(r"文档变更", body)
         seg = body[m.end():].split("\n## ", 1)[0] if m else ""
         if not seg.strip().strip("-—:： ").strip():
-            yellow.append(("Y8", rel, "已归档卡缺「文档变更」落地记录（§8.8 / 设计 §5）"))
+            red.append(("R9", rel, "已归档卡缺「文档变更」落地记录（§8.8 / 设计 §5）"))
 
     # 写基线模式
     if "--write-baseline" in sys.argv:
