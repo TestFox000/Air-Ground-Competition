@@ -177,9 +177,16 @@ check("★ 变化的行全部是 auto_start 行（不误伤别的配置）",
       len(_syn_diff) >= 1 and all(a.strip().startswith("auto_start:")
                                   and "delay" not in a for a, _ in _syn_diff),
       f"合成样本改了 {len(_syn_diff)} 行：{_syn_diff}")
-check("★ 真实文件：auto_start 现为 true ⇒ 强制改写确实改变内容（不再是空操作）",
-      dep.sha256_bytes(_expected) != dep.sha256_bytes(_raw_bytes),
-      "GOT：robot.yaml:283/514 现均 auto_start: true（现场发车档）⇒ 归一化把 true→false，基准≠原始字节")
+# ★ 2026-10-24 重钉（t31 稳态回归）：上一版断言写死于"发车档（至少一段 true ⇒ 归一化必改
+#   内容）"。两段已回归 false（第六图协议：等无人机 /nav/waypoint 下发再出发）⇒ 归一化
+#   是幂等空操作，"必改内容"不再成立。不变式改为**随真值自适应**：有 true ⇒ 必改且改动
+#   仅限 auto_start 行；无 true ⇒ 幂等（基准=原始字节）。
+_n_true = sum(1 for ln in _raw_bytes.decode("utf-8").splitlines()
+              if "auto_start: true" in ln and not ln.lstrip().startswith("#"))
+check("★ 真实文件：强制改写与 auto_start 真值一致（有 true 必改；两段均 false ⇒ 幂等空操作）",
+      (dep.sha256_bytes(_expected) != dep.sha256_bytes(_raw_bytes)) if _n_true > 0
+      else (dep.sha256_bytes(_expected) == dep.sha256_bytes(_raw_bytes)),
+      f"GOT：auto_start: true 配置行 {_n_true} 处（0 = 第六图协议两段均 false ⇒ 归一化幂等）")
 _raw_text = _raw_bytes.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 _exp_text = _expected.decode("utf-8")
 check("归一化不增删行（只改行内内容）",
@@ -191,11 +198,11 @@ _diff_lines = [(a, b) for a, b in zip(_raw_text.splitlines(), _exp_text.splitlin
 #   原断言硬钉 `== 1`（写于 t31「两段均 false」稳态），发车档下必红。语义不变式是「改动
 #   仅限 auto_start 配置行、不误伤别的配置」，行数随真值 true 数动态变化 —— 故改为：
 #   至少 1 行、且**每一**改动行两侧都是 `auto_start:` 配置行（`auto_start_delay` 前缀不匹配）。
-check("★ 真实文件改动仅限 auto_start 配置行（发车档两段均 true → 2 行；注释与其它键逐位不变）",
-      len(_diff_lines) >= 1
+check("★ 真实文件改动仅限 auto_start 配置行（随真值自适应：两段均 false ⇒ 0 行幂等；发车档 N 处 true ⇒ 恰改 N 行）",
+      (len(_diff_lines) == _n_true)
       and all(a.strip().startswith("auto_start:") and b.strip().startswith("auto_start:")
               for a, b in _diff_lines),
-      f"改了 {len(_diff_lines)} 行：{_diff_lines}")
+      f"改了 {len(_diff_lines)} 行 / true 配置行 {_n_true} 处：{_diff_lines}")
 # ★★ t31 重钉：计数只数**配置行**（`#` 注释行不算）——注释里出现同名键字面串会污染
 #   `text.count(...)`，本卡就踩过一次（注释里的自动出发键把 false 计数抬到 4 ⇒ 假红）。
 _bare_cfg = [ln for ln in _exp_text.splitlines()

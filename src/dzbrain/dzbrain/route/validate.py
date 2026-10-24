@@ -390,7 +390,8 @@ class Issue:
 
 def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None,
                    cross_candidates: Iterable[str] | None = None,
-                   expect_halves: Iterable[str] | None = None) -> list[Issue]:
+                   expect_halves: Iterable[str] | None = None,
+                   already_covered: Iterable[str] | None = None) -> list[Issue]:
     """出发前校验。返回 `list[Issue]`，**空列表 = 可以发车**。
 
     :param route: `Route`（也接受任何有 `.waypoints` 的对象，或格名序列）
@@ -403,6 +404,8 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
         `None` = 整线路线口径（两个半场各恰 1 次，缺省行为不变）；否则为
         `{"lower","upper"}` 的子集 —— 只有列出的半场要求"恰 1 次且方向正确"，
         未列出的半场要求 **0 次**（增量段从上半场起步时传 `("upper",)`）。
+    :param already_covered: R005 的增量续算口径（同 `route_check --already-covered`）：
+        已碾过的雷格集合，不再要求本段重压；缺省 `None` = 要求压完全部雷（行为不变）。
     """
     issues: list[Issue] = []
     blocks = _blocks(route)
@@ -489,12 +492,19 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
                                     f"（map.obstacles 共 {len(obstacles)} 个）"))
 
     # ---------------------------------------------------------------- R005（雷覆盖）
+    # ★ already_covered（t12 增量续算口径，2026-10-24 补齐——与 route_check
+    #   `--already-covered`、规划器 `already_covered=` 三处同契约）：已碾过的雷
+    #   不再要求本段重压。旧版没有该口径 ⇒ 增量段在 --validate 门禁上必然
+    #   假红"雷覆盖 N/8 漏 …"（实测复现：--from-cell B3 --already-covered 8雷
+    #   --check 绿 / --validate 红），mission/下发链跑双门禁时正确续算被打回。
+    _covered_mines = {str(c).strip().upper() for c in (already_covered or ())}
     if mines:
-        mine_set = set(mines)
+        mine_set = {m for m in mines
+                    if str(m).strip().upper() not in _covered_mines}
         route_set = {block for _, block in valid}
         covered = sorted(mine_set & route_set)
         missing = sorted(mine_set - route_set)
-        if len(covered) != len(mine_set):
+        if missing:
             issues.append(Issue("error", "R005",
                                 f"雷覆盖 {len(covered)}/{len(mine_set)}，漏 "
                                 f"{' '.join(missing)}（路线必须压过每一颗雷）"))
