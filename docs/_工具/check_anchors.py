@@ -169,6 +169,17 @@ class Tree(object):
 # ---------------------------------------------------------------- 抽取
 PLACEHOLDER = ("<", ">", "*", "{", "}", "$")
 
+# 已声明失效：作者在锚点同一行写以下标记，即视为「已处置」，不再判新增红。
+# （定级一节一直承诺「标〔失效〕」，但此前只是提示文案，代码里没实现 —— 2026-10-24 补上。）
+DEAD_MARKERS = ("〔失效", "〔未入库", "〔已删", "〔未实现")   # 前缀匹配：〔失效：外部仓库〕也算
+
+
+def line_at(text, pos):
+    """取 pos 所在的整行（判〔失效〕标记用）。"""
+    s = text.rfind("\n", 0, pos) + 1
+    e = text.find("\n", pos)
+    return text[s:e if e >= 0 else len(text)]
+
 
 def split_line(tok):
     """a/b.py:12-34 -> (a/b.py, 12, 34)"""
@@ -431,7 +442,7 @@ def main():
             ns = sys.argv[i + 1]
     docs = live_docs(cfg, ns, "--include-archive" in sys.argv)
 
-    reds, yellows, warns, ambs, externs, unfit = [], [], [], [], [], []
+    reds, yellows, warns, ambs, externs, unfit, deads = [], [], [], [], [], [], []
     n_ref = n_anchor = 0
     for rel in docs:
         text = read_text(os.path.join(WS, rel))
@@ -478,6 +489,8 @@ def main():
                 yellows.append((rel, key, hit, how))
             elif status == "extern":
                 externs.append((rel, key, hit))
+            elif any(mk in line_at(text, _pos) for mk in DEAD_MARKERS):
+                deads.append((rel, key, p))      # 作者已标〔失效〕：算处置过，不判新增红
             else:
                 reds.append((rel, key, p))
 
@@ -502,9 +515,9 @@ def main():
     for _rel, _k, _hit, how in yellows:
         areas[how] = areas.get(how, 0) + 1
     summary = ("扫描 %d 篇 / 引用 %d 条（带行号锚点 %d）｜新增红 %d（存量红 %d）｜黄 %d｜行号越界 %d"
-               "｜同名待判 %d｜行号无主 %d｜外部 %d"
+               "｜同名待判 %d｜行号无主 %d｜外部 %d｜已标失效 %d"
                % (len(docs), n_ref, n_anchor, len(new_reds), len(old_reds), len(yellows),
-                  len(warns), len(ambs), len(unfit), len(externs)))
+                  len(warns), len(ambs), len(unfit), len(externs), len(deads)))
 
     if "--json" in sys.argv:
         out = {
@@ -512,7 +525,8 @@ def main():
             "counts": {"docs": len(docs), "refs": n_ref, "anchors": n_anchor,
                        "red_new": len(new_reds), "red_baseline": len(old_reds),
                        "yellow": len(yellows), "warn": len(warns), "ambiguous": len(ambs),
-                       "extern": len(externs), "unfit": len(unfit), "yellow_areas": areas},
+                       "extern": len(externs), "unfit": len(unfit), "dead_marked": len(deads),
+                       "yellow_areas": areas},
             "red_new": [{"doc": r[0], "key": r[1], "target": r[2]} for r in new_reds],
             "red_baseline": [{"doc": r[0], "key": r[1], "target": r[2]} for r in old_reds],
             "yellow": [{"doc": y[0], "key": y[1], "found": y[2], "area": y[3]} for y in yellows],
