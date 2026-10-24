@@ -155,10 +155,17 @@ class IntegrateNode(Node):
         # 无人机只识别瞬时哪面可见（TARGET_BLUE/RED），轨道与朝向由本参数注入。
         self.declare_parameter("target_track", [""])
         self.declare_parameter("target_blue_face", "")
-        # 中途重规划开关（默认关）：path_executor 对"执行中途换路线"的
-        # 行为未验证（从头执行？当前段接续？），实车确认前保持一次性规划。
-        # 置 true 后：态势变化导致路线变化时自动重发新路线。
-        self.declare_parameter("replan_on_update", False)
+        # 中途重规划开关（2026-10-24 起默认开）：
+        #   旧默认关的理由"path_executor 对执行中途换路线的行为未验证"已解除——
+        #   车端 dzbrain mission._handle_command → _load_tokens → _install_route
+        #   (keep_progress=False) 的实测语义 = **进度清零、从头执行新路线**
+        #   （_passed/_arrived/_next_wp 全部复位，Path 按新路线重投影）。
+        #   配合本节点重规划链的 route_progress（新路线起点 = 车 0x4002 当前格、
+        #   剔已碾雷），"从头执行"恰好无缝接续，不会把车送回起点、也不会漏任务项。
+        #   ⚠️ 保持打开的代价：侦察流每识别一颗新雷都会触发一次重算（守卫已限
+        #   "与当前路线相关"的变化；Held-Karp n≤14 在机上一致 <1s）。
+        #   现场若要退回一次性规划，launch/参数里显式置 false 即可。
+        self.declare_parameter("replan_on_update", True)
         # ---- 时间预算门控（route_time，官方硬顶 180s、同分比用时）----
         # 规划出解后折算执行秒数；超软预算且有射击位时砍射击停靠重规划
         # （打击是唯一带 −5 负分风险的可砍任务）。参数是占位值，

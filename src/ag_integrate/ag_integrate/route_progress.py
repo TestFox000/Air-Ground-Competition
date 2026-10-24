@@ -48,10 +48,21 @@ def _cell_of(name: str) -> CellRef:
 
 
 def route_cells_of(route_text: str) -> list[str]:
-    """车端路线命令串 -> 显式航点格名序列（去 '*'、去末尾朝向 token）。"""
+    """车端路线命令串 -> 显式航点格名序列（去 '*'、去末尾朝向 token）。
+
+    ★ 2026-10-24 修复：末尾朝向的标准写法是**连写**在最后一个格号上的
+    （"… N5,y"，mission_router final_heading / dzbrain parse_mission 同一
+    方言），旧实现只认空格分隔的独立 ",y" token ⇒ parse_cell("N5,y") 抛
+    CommandError ⇒ 上层 except ValueError 捕获后**静默退回摆位起点**——
+    "重规划基于最新进度"在所有带朝向后缀的路线上从未生效（起点回摆位、
+    已扫雷不剔），正是 2026-10-23 想修的两个故障面原样复活。
+    """
     out: list[str] = []
     for tok in (route_text or "").split():
-        if tok.startswith(","):       # 末尾 ",x" 朝向 token
+        if tok.startswith(","):       # 独立 ",x" 朝向 token（兼容旧写法）
+            break
+        if "," in tok:                # 连写 "N5,y"：朝向后缀必在最后一个 token
+            out.append(parse_cell(tok.split(",", 1)[0]))
             break
         out.append(parse_cell(tok))
     return out
