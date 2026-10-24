@@ -24,6 +24,26 @@ set AG_ORIN_PASS=******              # 部署脚本密码环境变量
 
 ## 2. 部署步骤
 
+### ★ 一键入口（推荐，2026-10-24 起）
+
+```bash
+# 无人机端全链：预检(mDNS/历史IP自动解析+时钟)→四阶段→验证门 G1~G4→汇总报告
+# dry-run 先看一遍：python tools/deploy_one_click.py --dry-run
+python tools/deploy_one_click.py                      # IP 自动解析（mDNS→历史候选）
+python tools/deploy_one_click.py --host <IP>          # 显式 IP
+python tools/deploy_one_click.py --host <IP> --verify-only   # 部署后体检（只跑验证门）
+# 阶段跳过：--skip code|px4|engines|bringup；回滚命令在失败报告尾部自动打印
+
+# 车端全链（dzrobot_v2 仓库根）：probe→本地门禁→all(强制 auto_start=false)→verify→报告
+python tools/deploy_car_one_click.py                  # 同款 --dry-run / --ip / --keep-autostart
+```
+
+一键做了什么（= 下面四步的自动化 + 前后置门禁）：
+- 无人机：预检（SSH 探活/时钟偏差告警）→ 阶段①~④ → 静态验证门 G1~G4（缺雷修复标记/px4 进程/引擎在位/规划侧进程），任一 FAIL 给回滚命令；
+- 车端：推前推后各跑一遍本地门禁（route_check 0 error / config_selfcheck / test_deploy 88/88）——**推上车的东西必须是绿的**。
+
+### 分步执行（fallback / 排障时用）
+
 ```bash
 # ① 源码+工具链+规划包（含 ag_integrate，自动备份机上原副本）
 python tools/orin_deploy.py --host <IP> --user duzhong --verify
@@ -33,7 +53,7 @@ python tools/orin_deploy.py --host <IP> --user duzhong --verify
 python tools/patch_deploy.py --host <IP> --user duzhong
 #   验证门：日志出现 "Resilience layer v2" + health 行含 "status_age_s=" 字段
 
-# ③ 引擎（D13/v4d；已存在则跳过）
+# ③ 引擎（D13/v4d；一键版缺引擎时自动转换）
 ssh duzhong@<IP> 'cd ~/dzuav_deploy/air_ground && bash tools/orin_check_engines.sh'
 ssh duzhong@<IP> 'cd ~/dzuav_deploy/air_ground && bash tools/orin_convert_engines.sh'   # 仅缺时
 #   验证门：~/dzuav/engines/ 下 hbb_detector_d13_fp16.engine + cell_classifier_v4d_fp16.engine 存在
