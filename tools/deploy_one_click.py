@@ -89,12 +89,12 @@ def ssh(host: str, user: str, remote_cmd: str, *, dry: bool, timeout: int = 60) 
         return 255, "BatchMode 失败且未设 AG_ORIN_PASS"
     import paramiko
     last = None
-    for attempt in range(3):            # WiFi 链路抖动实测：banner 被重置，重试即过
+    for attempt in range(5):            # WiFi 链路抖动实测：TCP 首连常 10060，多次尝试即过
         try:
             c = paramiko.SSHClient()
             c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            c.connect(host, username=user, password=pwd, timeout=15,
-                      banner_timeout=15, auth_timeout=15,
+            c.connect(host, username=user, password=pwd, timeout=25,
+                      banner_timeout=25, auth_timeout=25,
                       allow_agent=False, look_for_keys=False)
             _, out, err = c.exec_command(remote_cmd, timeout=timeout)
             data = (out.read() or b"").decode("utf-8", errors="replace") +                    (err.read() or b"").decode("utf-8", errors="replace")
@@ -104,7 +104,7 @@ def ssh(host: str, user: str, remote_cmd: str, *, dry: bool, timeout: int = 60) 
         except Exception as exc:
             last = exc
             time.sleep(1.5)
-    return 255, f"paramiko 失败(3次): {type(last).__name__}: {str(last)[:80]}"
+    return 255, f"paramiko 失败(5次): {type(last).__name__}: {str(last)[:80]}"
 
 
 def gate(name: str, ok: bool | None, evidence: str) -> None:

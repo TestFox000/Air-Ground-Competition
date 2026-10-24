@@ -537,26 +537,35 @@ int main(int argc, char** argv)
 
     const std::string source(argv[1]);
     uint16_t port = 50000;
-    if (argc > 4 && !parsePort(argv[4], port))
+    // 2026-10-24 终版参数语义（机上实测三轮证伪后定稿）：
+    //   camera: [src(argus:/uvc:), hbb, cell, port, spec]        ⇒ argv[1]=src
+    //   image:  [image, png, hbb, cell, port?, outdir?]          ⇒ png=argv[2]
+    //   ⇒ image 整体右移一位：port 是 argv[4] 当且仅当 argc≥6；outdir=argv[6]。
+    //   （旧版对 image 也查 argc>4 的 argv[4]——把 cell_engine 当端口，必炸。）
+    const bool camera_mode =
+      (source.rfind("argus:", 0) == 0 || source.rfind("uvc:", 0) == 0);
+    //   ⇒ port 下标：camera=argv[4]、image=argv[5]（png 在 argv[2] 整体右移一位）。
+    const int port_idx = camera_mode ? 4 : 5;
+    if (argc > port_idx && !parsePort(argv[port_idx], port))
     {
-        std::cerr << "invalid udp port: " << argv[4] << " (expect 1-65535)\n";
+        std::cerr << "invalid udp port: " << argv[port_idx] << " (expect 1-65535)\n";
         return 2;
     }
-    if (source.rfind("argus:", 0) == 0 || source.rfind("uvc:", 0) == 0)
+    if (camera_mode)
     {
         const std::string spec = argc > 5 ? argv[5] : "1920x1080@30";
         return runCamera(source, argv[2], argv[3], port, spec);
     }
 
     // 图片 / 视频文件分支（离线分析）。
-    const std::filesystem::path input(argv[1]);
-    const std::filesystem::path output_dir = argc > 5 ? argv[5] : "";
+    const std::filesystem::path input(argv[2]);
+    const std::filesystem::path output_dir = argc > 6 ? argv[6] : "";
     if (!output_dir.empty())
         std::filesystem::create_directories(output_dir);
     std::array<float, kObjectClassCount> nms_per_class;
     nms_per_class.fill(kDeployNms);
-    HbbDetector hbb(argv[2], kDeployConf, nms_per_class, kEdgePaperThr);
-    CellClassifier cell(argv[3]);
+    HbbDetector hbb(argv[3], kDeployConf, nms_per_class, kEdgePaperThr);
+    CellClassifier cell(argv[4]);
     MapLocalizer map;
     UdpBroadcaster udp(port);
     // output_dir 省略时必须给出**空**路径：processFrame 用 `annotate = !output.empty()`
