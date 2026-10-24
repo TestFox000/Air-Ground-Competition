@@ -129,3 +129,82 @@ owner: e-integ；reviewer: lead（独立评审）。
 | 把「同尺寸模型」当成同一份 | `dzrobot2/install/det_node/share/det_node/model/` 下 **`light_det.rknn`=59aaad60** 与 **`light_det2.rknn`=5698ce0e** 都是 **9,899,901 B**，字节不同；实跑加载的是 `light_det.rknn` | 车 `/home/duzhong/dzrobot2/.../model/` | **只认 sha256**，不认文件名/字节数；`ls -l` 分不出 |
 | 用「差不多大」判断模型版本 | 8 字段栈模型 `8b17ec17`=8,125,813 B 与旧 `12a3b548`=8,487,541 B 只差 36 万字节，肉眼/字节数都像 | `artifacts/agc-1024/car_snapshot/MANIFEST.sha256` | 同上：`sha256sum` 一条命令定性 |
 | 以为 `dzrobot/install` 就是生效前缀 | `~/.bashrc` 两次 source `dzrobot2`、从不 source `dzrobot/install`；两套都 source 时 dzrobot 前缀落在 AMENT 索引 56–58、dzrobot2 在 49 ⇒ **首匹配 dzrobot2** | 车 `~/.bashrc` | 8 字段版必须**绝对路径直启**，`ros2 run det_node` 会解析到 dzrobot2（见 §6 manifest） |
+
+**复评（2026-10-24 18:2x · commit e58aa4a9）→ PASS**：dl-drone 修完 F1–F5。`review_adversarial.py` 复跑 `RESULT ADVERSARIAL CLEAN`；B0 `Ran 11 OK`、M1–M4 四变异全红、A1–A9 全绿（A4/A8/A9 三个原 bug 现在都判红）。套件：`test_dzudp_*` 98 OK、`link/tests` 整目录 **203 OK**、`dl1/tests` 51 OK，断言 280 次、print 0。代码级核对：`--run` 真写 claim + 心跳（tmp+os.replace 原子替换）+ finally release；`if alive: red`；`own_node_names` 判「不属于本进程的 publisher」；F4 把 `PINNED_MARKER` 拆成两段隐式拼接让 marker 字节只出现 1 次（比加注释更彻底）；F5 三条命令标了实际例数。
+残留观察（不改 PASS）：①`--run` 只占位不监听，跳过它直接起 DL2 监听则无保护（已写进 docstring 三步部署）；②`--node-name` 默认只含 `_dzudp_selfcheck`，系统在线时重跑 selfcheck 需显式传真实节点名，否则假红；③`_hold_claim` 不检查 `refresh()` 返回 None。
+
+---
+
+## 13 AGC-22 M1 离线路线回归（t11 · 2026-10-24 18:3x–18:5x，纯离线）
+
+### 先说要紧的：一条**一级风险**（机器门禁全过，人工判据不过）
+
+车端 `planner.fallback_to_tokens: true`，默认 `mission_blocks` 是**50 token 老路线（含 `F5*`）**。这条路线在**第七张图**上：
+
+| 门禁 | 结果 |
+|---|---|
+| `tools/route_check.py`（车端 map b5629d05） | **0 error / 2 warn**（急转弯 17 处、倒车+转向 1 组），总里程 17.85 m |
+| `validate_route`（与起栈门禁同一套：`Config.load` → `parse_mission` → `validate_route`，车端 map） | **0 error / 0 warn** |
+
+⇒ **没有任何机器门禁会拦住它**。而 `CAR-PREFLIGHT-20261024` §59 判过「旧 50 点路线足迹无侵入告警，但 **F5\* 射击站非法**，不能回退它」——因为**第七图上 F5 是雷格**（map.yaml mines 含 F5）。
+
+后果：规划器一旦失败（`PlannerError`/超时/坏图），`main` 会按 `fallback_to_tokens` **静默回退**到这条带病路线并出发，正是"带病出车"。
+
+**建议（都不改代码，二选一，请 Lead 裁决）**：M1 现场把 `planner.fallback_to_tokens` 显式设 **false**（失败即停 IDLE，不带病出车）；或把 50 token 里 `F5` 的星号去掉。我**没有改**任何 config。
+
+### Q1 路线从哪来（判据，不是猜）
+
+- 车端 `robot.yaml` 现场值（归档件）：`planner.auto_plan_enabled: true`（:760）、`planner.fallback_to_tokens: true`（:767）、`route.tokens`(=`path_executor.mission_blocks`) = **50 token**。
+- 起栈门禁：`main.py:142 load_and_check` → `:191-193` `parse_mission(cfg.get("route.tokens"))` + `validate_route(route, map_cfg, cfg)`，任一 error ⇒ **拒绝启动**。
+- 执行分支：`auto_plan_enabled=true` 时执行**规划结果**；只有规划失败才按 `fallback_to_tokens` 回退 `mission_blocks`（`core/config.py:245-246` 两个 Spec 的语义就是这个）。
+- 本轮实跑（`_tmp_session/carloop-1024/run-intent.json`）用的是**进程私有配置**：`config_delivery: process-private memfd; no remote config file`，`remote_config` 只留痕 ⇒ 车端**没有**这次 54 token 的配置文件，路线完全由私有参数注入。
+
+### Q2 车端 50 token vs 文档 54 点：逐点对齐
+
+**唯一差异**（前后完全一致）：在 `C3` 之后插入 `C4 C5* R:C4 R:C3`（+4 token），并把 `F5*` 降为 `F5`。50 + 4 = 54。
+
+| 版本 | token | 段数 | 里程 | 停站 |
+|---|---|---|---|---|
+| A 车端默认 `mission_blocks` | 50 | 49 | **17.85 m** | `F9*` `F5*` |
+| B 实跑 `run-intent.json` | 54 | 53 | **19.25 m** | `F9*` `C5*` |
+
+⇒ **19.25 m 属 54 token 那版**，与交接快照一致；「54 点」与「53 段」不矛盾：两个 `R:` 相对点（`R:H9 R:H10` / `R:C4 R:C3`）各自展开成段，段数 = 点数 − 1。
+
+**双站判据（route_check 靶覆盖行）**：
+- A：`D7<-#12(0.99m)  E7<-#12(0.78m)` ⇒ **两个靶都由同一个停站服务**；`F5*` 对 D7/E7 的距离与 `F9*` **完全相同**（各自 0.990 / 0.783 m）⇒ 是**等距冗余站**，不是"第二最佳射击点"。
+- B：`D7<-#12(0.78m)  E7<-#32(0.78m)` 反查为 `F9*→E7 0.78 m`、`C5*→D7 0.78 m` ⇒ **两站各打一面、不重叠**，符合双站口径。
+
+### Q3 兜底路线合法性（两个门禁都跑了）
+
+见上表：50 token 在第七图上 route_check **0 error**、validate_route **0 error/0 warn**；54 token 同样 0 error（route_check 2 warn：急转弯 16、倒车+转向 2 组）。`R:H9/R:H10/R:C4/R:C3` 相对点、`K10/K4` 桥洞（桥洞保护点覆盖 ✅）、`F9*` 停站距离均在体系内正常展开与判过。
+
+⇒ 结论落在 **「路线没算错，是门禁查不到『停站落在雷格』这类语义违规」**。
+
+### virtual_car（`tools/sim_pursuit.py`，54 token，车端 cfg）
+
+`completed=true`、`path_length=19.25 m`、`route_points=54`、`steps=5383`、`final_error=0.0596 m`、越界 0 拍、锚定 24 次、横向 MAX 0.4324 m（D3→E3 90° 角）、倒车段 4 段共 21.92 s、耗时 **107.66 s**。
+
+**逐点累计里程**（`by_segment.csv`，53 段）：`F9` 停站 **4.55 m**（seg#11 G9→F9）、`C5` 停站 **11.90 m**（seg#31 C4→C5，180° 角）、`F5` 14.35 m、终点 `N5` **19.25 m**（seg#52）。
+
+**两个必须记账的边界**：
+1. **速度口径不同**：sim 用的是 `robot.yaml` 的 pursuit 速度，不是 M1 的 0.10 m/s。0.10 m/s 下**纯行驶** 19.25/0.10 = **192.5 s**，已超 180 s 要求（与交接"不能宣称达 180 s"一致）；107.66 s 不能当 M1 时间预算。
+2. **停站时长没有离线预言机**：`sim.py` 是纯循迹仿真，不建模任务层停站（本次 `field_modeled=0.0`，输出里没有停站时长）。取停站时长只能：mission 层单测（`test_dual_shoot.py`）或实跑遥测（run2：F9 停 6.1 s / 倒车 53 拍）。**不建议为此新写任务仿真器**（AGENTS 禁重造仿真器）。
+
+### 禁止跳点（审计）
+
+- 跳点都带**显式原因**，不是静默：`mission.py:3268` `_skipped_at[idx] = "停滞兜底 {t}s / 累计转 ..."`、`:3910` `_skipped_at[i] = detail`。
+- 但有一条默认开启的**任务级跳站**：`mission.skip_second_stop_after_hit` 默认 **True**（"第一射击停站发数达标 ⇒ 跳过后续射击停站"）。车端 yaml 只在 :797 的注释里提到、**未显式置值** ⇒ **M2 若按默认值跑，第二次停站不会发生**，双站验收会被它挡住。M1 禁火不触发这条。
+
+### 复跑
+
+```bash
+cd D:/User/Desktop/比赛存档/v1/dzrobot_v2
+python -B -X utf8 tools/route_check.py --config ../_tmp_session/agc-1024/e1/m1/car_cfg/robot.yaml            # A: 50 token
+python -B -X utf8 tools/route_check.py --config ../_tmp_session/agc-1024/e1/m1/car_cfg/robot.yaml --route "$(cat ../_tmp_session/agc-1024/e1/m1/route54.txt)"   # B: 54 token
+python -B -X utf8 ../_tmp_session/agc-1024/e1/m1_validate.py      # validate_route（起栈同一套）两条路线
+python -B -X utf8 tools/sim_pursuit.py --config ../_tmp_session/agc-1024/e1/m1/car_cfg/robot.yaml --route ../_tmp_session/agc-1024/e1/m1/route54.txt --out-dir ../_tmp_session/agc-1024/e1/m1/sim54 --json
+```
+
+### 边界
+
+未改 `planner.py` / `mission.py` / 任何 config；未部署；未实车。所有中间件在 `_tmp_session/agc-1024/e1/m1/**`（含车端 cfg 副本、两条路线文件、sim 的 traj/by_segment CSV）。

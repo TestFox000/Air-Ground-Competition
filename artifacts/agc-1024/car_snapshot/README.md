@@ -17,8 +17,18 @@
 | `dzrobot__light_det.rknn.bak_20261023_1915` | 8,487,541 | 10-16 20:55 | `12a3b5487e0099f9…` | 同目录 `…light_det.rknn.bak_20261023_1915` |
 | `dzrobot2__light_det.rknn` | 9,899,901 | 10-20 20:15 | `59aaad606a641d14…` | `/home/duzhong/dzrobot2/install/det_node/share/det_node/model/light_det.rknn` |
 | `dzrobot__config_robot.yaml` | 76,923 | 10-23 21:29 | `49128a01ab95d9a1…` | `/home/duzhong/dzrobot/config/robot.yaml` |
+| `dzrobot__config_map.yaml` | 356 | 10-18 10:25 | `b5629d0522b8b508…` | `/home/duzhong/dzrobot/config/map.yaml` |
 
 完整 64 位哈希见 `MANIFEST.sha256`（`sha256sum -c` 兼容）与 `MANIFEST.json`。
+
+### 地图对照：车端 ≠ 仓内（U2 实证，2026-10-24 补）
+
+| 位置 | SHA256 | 大小 | 图 | 关键要素 |
+|---|---|---|---|---|
+| **车端** `dzrobot/config/map.yaml` | `b5629d05…` | 356 B · 10-18 10:25 | **第七张图** | mines H8 G9 A2 B1 C3 E3 **F5** I2 · obstacles D5 I6 B7 F8 C9 E10 G10 A11 · targets **D7 E7** · bridges **K10 K4** |
+| 仓内 `dzrobot_v2/config/map.yaml` | `385e0718…` | 2,370 B · 10-17 22:04 | 第六张图 | mines A2 F4 H4 G5 E8 B10 D11 I11 · obstacles B1 D1 F3 I6 H7 A8 C9 E9 · targets **D5 D6** · bridges **K5 K7** |
+
+⇒ **仓内地图不能用来判车端路线**（靶不同、桥不同、雷不同）。M1 路线校验必须以车端这份 356 B 的地图为准；这也是 U2「现场配置未入库」的字节级证据。
 
 ## 三套栈 ↔ 三个模型（别搞混）
 
