@@ -85,13 +85,16 @@ class TestClaimChannel(ClaimCase):
         self.assertIn(A.DRONE_TO_CAR_TOPIC, str(ctx.exception))
         self.assertIn("判红", str(ctx.exception))
 
-    def test_stale_claim_is_taken_over(self):
-        self.write_claim(os.getpid(), ts=time.time() - 10_000)
-        g = self.guard(own_pid=1, stale_after_s=600.0, publisher_probe=lambda t: [],
-                       proc_reader=lambda: [])
+    def test_live_pid_old_claim_is_red(self):
+        """F2 / A9：存活进程的 claim 哪怕一小时前写的，也**不许**判可接管。"""
+        self.write_claim(os.getpid(), ts=time.time() - 3600)
+        g = self.guard(own_pid=1, publisher_probe=lambda t: [], proc_reader=lambda: [])
         rep = g.preflight()
-        self.assertEqual(rep["channels"][0]["status"], "ok")
-        self.assertIn("可接管", rep["channels"][0]["detail"])
+        self.assertEqual(rep["channels"][0]["status"], "red")
+        self.assertIn("存活进程", rep["channels"][0]["detail"])
+        with self.assertRaises(A.DoublePublishError):
+            g.acquire()
+        self.assertEqual(json.loads(self.claim.read_text("utf-8"))["pid"], os.getpid())
 
     def test_dead_pid_claim_is_ok(self):
         self.write_claim(424242)
@@ -130,9 +133,10 @@ class TestAcquireRelease(ClaimCase):
             second.acquire()
         self.assertEqual(json.loads(self.claim.read_text("utf-8"))["pid"], os.getpid())
 
-    def test_acquire_replaces_stale_claim(self):
-        self.write_claim(os.getpid(), ts=time.time() - 10_000)
-        g = self.guard(own_pid=1, stale_after_s=600.0)
+    def test_acquire_replaces_dead_pid_claim(self):
+        """死进程的残留可以接管；age 只用于描述残留多久，不参与判红。"""
+        self.write_claim(0, ts=time.time() - 10_000)   # pid=0 必然不存活
+        g = self.guard(own_pid=1)
         out = g.acquire()
         self.assertFalse(out["already"])
         self.assertEqual(g.read_claim()["pid"], 1)
@@ -151,24 +155,45 @@ class TestAcquireRelease(ClaimCase):
 #  ② ROS 图通道
 # --------------------------------------------------------------------------- #
 class TestRosChannel(ClaimCase):
+    def _rep(self, names, **kw):
+        kw.setdefault("own_pid", 1)
+        kw.setdefault("proc_reader", lambda: [])
+        return self.guard(publisher_probe=lambda t: list(names), **kw).preflight()
+
     def test_two_publishers_is_red(self):
         g = self.guard(own_pid=1, proc_reader=lambda: [],
                        publisher_probe=lambda topic: ["/dz/a", "/dz/b"])
         rep = g.preflight()
         self.assertEqual(rep["status"], "red")
-        self.assertIn("2 个 publisher", rep["channels"][1]["detail"])
+        self.assertIn("非本进程", rep["channels"][1]["detail"])
         with self.assertRaises(A.DoublePublishError):
             g.assert_ok()
 
-    def test_single_publisher_is_ok(self):
-        rep = self.guard(own_pid=1, proc_reader=lambda: [],
-                         publisher_probe=lambda t: ["/dz/a"]).preflight()
-        self.assertEqual(rep["channels"][1]["status"], "ok")
+    def test_single_foreign_publisher_is_red(self):
+        """F3 / A4：preflight 时外来者**独自**在发（uniq==1）也必须判红。"""
+        g = self.guard(own_pid=1, proc_reader=lambda: [],
+                       publisher_probe=lambda t: ["/dzbrain_bridge"])
+        rep = g.preflight()
+        self.assertEqual(rep["status"], "red")
+        self.assertIn("/dzbrain_bridge", rep["channels"][1]["detail"])
+        with self.assertRaises(A.DoublePublishError):
+            g.assert_ok()
 
-    def test_duplicate_names_count_once(self):
-        rep = self.guard(own_pid=1, proc_reader=lambda: [],
-                         publisher_probe=lambda t: ["/dz/a", "/dz/a"]).preflight()
+    def test_duplicate_foreign_names_still_red(self):
+        """同名去重后仍是外来者 ⇒ 红（旧版本这里会 ok）。"""
+        self.assertEqual(self._rep(["/dz/a", "/dz/a"])["channels"][1]["status"], "red")
+
+    def test_own_node_name_only_is_ok(self):
+        self.assertEqual(self._rep([A.SELF_NODE_NAME])["channels"][1]["status"], "ok")
+
+    def test_no_publisher_is_ok(self):
+        self.assertEqual(self._rep([])["channels"][1]["status"], "ok")
+
+    def test_custom_own_node_names(self):
+        rep = self._rep(["/dzudp_adapter"], own_node_names=("/dzudp_adapter",))
         self.assertEqual(rep["channels"][1]["status"], "ok")
+        # 同一个名字，不声明成"自己"就是外来者
+        self.assertEqual(self._rep(["/dzudp_adapter"])["channels"][1]["status"], "red")
 
     def test_probe_unavailable_is_unknown_not_red(self):
         def boom(_topic):
@@ -286,6 +311,69 @@ class TestCli(ClaimCase):
         self.assertIn("禁止同 topic 双写", diag["runtime_constraint"])
         self.assertEqual(diag["publish"]["max_publishers"], 1)
         self.assertEqual(diag["publish"]["topic"], A.DRONE_TO_CAR_TOPIC)
+
+
+# --------------------------------------------------------------------------- #
+#  F1：run 模式真的占位 / selfcheck 只诊断不占位
+# --------------------------------------------------------------------------- #
+class TestRunMode(ClaimCase):
+    def test_selfcheck_does_not_touch_claim(self):
+        self.assertFalse(self.claim.exists())
+        cp = run_cli("--selfcheck", "--no-ros", "--no-proc", "--claim", str(self.claim))
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+        self.assertFalse(self.claim.exists(), "--selfcheck 只诊断，不许写 claim")
+        self.assertIn("diagnose-only", json.loads(cp.stdout)["mode"])
+
+    def test_run_holds_claim_and_second_instance_is_rejected(self):
+        proc = subprocess.Popen(
+            [sys.executable, "-B", "-X", "utf8", ADAPTER_PY,
+             "--run", "--seconds", "8", "--heartbeat", "0.5",
+             "--no-ros", "--no-proc", "--claim", str(self.claim)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", cwd=str(REPO))
+        try:
+            deadline = time.time() + 15
+            while time.time() < deadline and not self.claim.exists():
+                time.sleep(0.1)
+            self.assertTrue(self.claim.exists(), "run 模式没写 claim")
+            self.assertEqual(json.loads(self.claim.read_text("utf-8"))["pid"], proc.pid)
+
+            cp = run_cli("--selfcheck", "--no-ros", "--no-proc", "--claim", str(self.claim))
+            self.assertEqual(cp.returncode, 2, cp.stdout + cp.stderr)
+            rep = json.loads(cp.stdout)
+            self.assertEqual(rep["status"], "red")
+            ch = [c for c in rep["channels"] if c["name"] == "second_instance"][0]
+            self.assertIn("存活进程", ch["detail"])
+        finally:
+            out, err = proc.communicate(timeout=90)
+
+        self.assertEqual(proc.returncode, 0, out + err)
+        self.assertIn("run-finished", out)
+        self.assertFalse(self.claim.exists(), "run 结束必须 release")
+        cp2 = run_cli("--selfcheck", "--no-ros", "--no-proc", "--claim", str(self.claim))
+        self.assertEqual(cp2.returncode, 0, cp2.stdout)
+
+    def test_run_refuses_when_claim_is_held(self):
+        self.write_claim(os.getpid())                  # 存活"别人"占着
+        cp = run_cli("--run", "--seconds", "1", "--no-ros", "--no-proc",
+                     "--claim", str(self.claim))
+        self.assertEqual(cp.returncode, 2, cp.stdout + cp.stderr)
+        self.assertIn("refused", cp.stdout)
+
+    def test_heartbeat_refreshes_ts(self):
+        g = self.guard()
+        g.acquire()
+        t0 = json.loads(self.claim.read_text("utf-8"))["ts"]
+        time.sleep(1.2)
+        self.assertIsNotNone(g.refresh())
+        t1 = json.loads(self.claim.read_text("utf-8"))["ts"]
+        self.assertGreater(t1, t0, "心跳必须刷新 ts")
+        g.release()
+
+    def test_refresh_does_not_touch_foreign_claim(self):
+        self.write_claim(0, ts=1.0)
+        self.assertIsNone(self.guard().refresh())
+        self.assertEqual(json.loads(self.claim.read_text("utf-8"))["ts"], 1.0)
 
 
 if __name__ == "__main__":

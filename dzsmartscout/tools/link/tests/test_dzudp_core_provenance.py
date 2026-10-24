@@ -50,13 +50,18 @@ def local_bytes() -> bytes:
 
 
 def snapshot_payload() -> bytes:
-    """去掉文件头：MARKER 行之后的全部字节（保留原始行尾）。"""
+    """去掉文件头：MARKER 行之后的全部字节（保留原始行尾）。
+
+    ★ AGC-20 F4：dzdp_core 头部把 PINNED_MARKER 常量写成"隐式拼接"两段，
+      所以源码里**连续的 marker 字节只出现一次**（就是真分界行）。这里先断言
+      raw count == 1，再 find —— 任何 naive find(MARKER) 都不会抓错位置。
+    """
     data = local_bytes()
-    needle = MARKER + b"\n"
-    idx = data.find(needle)
-    if idx < 0:
-        raise AssertionError("dzudp_core.py 里找不到 PINNED_MARKER 分界行")
-    return data[idx + len(needle):]
+    if data.count(MARKER) != 1:
+        raise AssertionError("dzudp_core.py 里 MARKER 字节出现 %d 次（必须恰好 1 次）"
+                             % data.count(MARKER))
+    idx = data.find(MARKER)
+    return data[idx + len(MARKER) + 1:]        # +1 = 跳过 marker 行尾的换行
 
 
 class TestPinnedSnapshot(unittest.TestCase):
@@ -76,7 +81,11 @@ class TestPinnedSnapshot(unittest.TestCase):
         self.assertEqual(CORE.PINNED_MARKER, MARKER)
 
     def test_marker_appears_exactly_once_as_separator(self):
-        self.assertEqual(local_bytes().count(MARKER + b"\n"), 1)
+        """F4：连续 marker 字节在文件里只能出现 1 次（常量用隐式拼接写成两段）。"""
+        data = local_bytes()
+        self.assertEqual(data.count(MARKER), 1,
+                         "marker 字节出现 %d 次：常量字面量又把 marker 写全了" % data.count(MARKER))
+        self.assertEqual(data.count(MARKER + b"\n"), 1)
 
     @unittest.skipUnless(TEACHER.is_file(), "教员原件不在（搬走了）：只核 PIN 与镜像")
     def test_bytes_equal_to_teacher_original(self):

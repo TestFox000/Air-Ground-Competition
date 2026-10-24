@@ -13,8 +13,9 @@ SHA-256  : 9ff259a36ce40f70437b713d0911d44a122f678909206ad734f0cc94a85b64e8
 改了这个快照，必须**重跑**这两条并更新本文件的 SHA-256 与
 tests/test_dzudp_core_provenance.py 的 PIN 常量：
 
-    python -B -X utf8 -m unittest discover -s dzsmartscout/tools/link/tests -p "test_dzudp_*.py"
-    python -B -X utf8 -m unittest discover -s _tmp_session/agc-1024/dl1/tests -p "test_*.py"
+    python -B -X utf8 -m unittest discover -s dzsmartscout/tools/link/tests -p "test_dzudp_*.py"   # 90 例（本卡）
+    python -B -X utf8 -m unittest discover -s dzsmartscout/tools/link/tests -p "test_*.py"          # 整目录（105 起，现 195）
+    python -B -X utf8 -m unittest discover -s _tmp_session/agc-1024/dl1/tests -p "test_*.py"        # 51 例（候选件）
 
 为什么入仓一份（2026-10-24 Lead 裁决①）：
     教员交接目录会搬走、机上没有这个文件 ⇒ 永久 importlib 外部路径 = 静默漂移
@@ -37,8 +38,11 @@ PINNED_BYTES = 11821
 PINNED_DATE = "2026-10-24"
 #: 取证镜像（同一 sha256，只读交叉核对用）
 PINNED_MIRROR = "_tmp_session/sqc-20261024/tools/udp_bridge.py"
-#: 分界行：本行之后（跳过其后的换行）为 udp_bridge.py 逐字节副本
-PINNED_MARKER = b"# ==== BEGIN PINNED SNAPSHOT (udp_bridge.py verbatim) ===="
+#: 分界行：本行之后（跳过其后的换行）为 udp_bridge.py 逐字节副本。
+#: ★ 这个字面量**故意拆成两段**写（隐式拼接）：源码里连续的 marker 字节只出现一次
+#:   —— 就是下面那行真分界行。否则"常量里的 marker + 真 marker"会让 naive 的
+#:   find(MARKER) 抓错位置（AGC-20 F4）。provenance 单测断言 raw count == 1。
+PINNED_MARKER = b"# ==== BEGIN PINNED SNAPSHOT" b" (udp_bridge.py verbatim) ===="
 
 # ==== BEGIN PINNED SNAPSHOT (udp_bridge.py verbatim) ====
 #!/usr/bin/env python3

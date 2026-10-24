@@ -35,18 +35,28 @@ seq 互相插队、DroneTask 的状态被来回覆盖）。默认值与它逐项
 
 部署顺序（缺一步不许起）：
 
-    python dzudp_adapter.py --selfcheck     # 红了（退出码 2）就先停掉另一个生产者
-    # 再起监听进程（UDP:50000 → 本层 → /dzlink/drone_to_car）
+    python dzudp_adapter.py --selfcheck     # ① 只**诊断**不占位：红了（退出码 2）先停掉另一个生产者
+    python dzudp_adapter.py --run           # ② 占位：acquire claim + 心跳刷新 ts + finally release
+    # ③ 再起监听进程（DL2：UDP:50000 → 本层 → /dzlink/drone_to_car）
 
 自检三条通道，任一判红即 red：
 
 | 通道 | 判什么 | 不可用时 |
 |---|---|---|
-| second_instance | 本机 claim 文件被另一个**存活** pid 占用（跨进程互斥） | —— |
-| ros_graph | 该话题上 publisher 数 > 1（需 rclpy，只读不发布） | 记 unknown，**不判红** |
+| second_instance | 本机 claim 文件被另一个**存活** pid 占用（**存活即占用，与时间无关**） | —— |
+| ros_graph | 该话题上出现了**不属于本进程**的 publisher（一个也算） | 记 unknown，**不判红** |
 | foreign_process | 同机进程表里还跑着 `dzbrain_bridge` | 记 unknown，**不判红** |
 
 unknown 不算红：离线 Windows 没有 rclpy 也没有 `/proc`，那是正常态，不能因此挡启动。
+
+### 判据为什么是这三条（AGC-20 评审 F1–F3 的修正，别改回去）
+
+* **F1 占位必须真的写 claim**：`--selfcheck` 只读不写 ⇒ 两个实例的 claim 通道都是"空闲"，
+  ROS 图又只看到"已经在发的那个" ⇒ 两次 selfcheck 都 ok。所以新增 `--run`：acquire + 心跳 + release。
+* **F2 存活就是占用**：旧判据 `alive and age<=600` 会把"跑满 10 分钟"的实例判成可接管
+  ⇒ 合法抢走活人的 claim。`age` 只用来描述"死进程残留多久了"，不参与判红。
+* **F3 一个外来 publisher 也算红**：`len(uniq)>1` 只在"两人同时在发"时成立，而 preflight 发生在
+  自己还没建 publisher 之前 ⇒ 外来者独自在发时必须判红。判据改为"图里有名字不属于本进程"。
 
 ## 用法
 
@@ -71,7 +81,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 __all__ = [
     "X0", "Y0", "CELL_M", "COLS", "ROWS", "LETTERS", "MAX_CELL_RESIDUAL",
@@ -81,7 +91,7 @@ __all__ = [
     "AdapterConfig", "FrameResult", "BinaryIntelAdapter", "frame_kind",
     "load_parse_core", "load_protocol", "adapter_diagnostics",
     "DoublePublishError", "SingleWriterGuard", "KNOWN_FOREIGN_PROCESS_NAMES",
-    "RUNTIME_CONSTRAINT",
+    "RUNTIME_CONSTRAINT", "SELF_NODE_NAME",
     "main",
 ]
 
@@ -108,6 +118,9 @@ MID_BOUNDARY: int = 6
 #: 所以这里连 QoS 一起抄下来，不自造。
 DRONE_TO_CAR_TOPIC: str = "/dzlink/drone_to_car"
 DRONE_TO_CAR_QOS: dict = {"depth": 10, "reliability": "best_effort"}
+
+#: 本层在 ROS 图里的节点名（自检探针也用它）。run 模式可用 own_node_names 覆盖成真实节点名。
+SELF_NODE_NAME: str = "_dzudp_selfcheck"
 
 #: 运行时约束（机器可读，卡面与 --diagnostics 都引这一条）：本层是唯一生产者。
 RUNTIME_CONSTRAINT: str = (
@@ -409,14 +422,15 @@ class SingleWriterGuard:
                  claim_path: Path | str | None = None,
                  publisher_probe: Callable[[str], list[str]] | None = None,
                  proc_reader: Callable[[], list[tuple[int, str]]] | None = None,
-                 stale_after_s: float = 600.0,
+                 own_node_names: Sequence[str] | None = None,
                  own_pid: int | None = None) -> None:
         self.topic = str(topic)
         self.claim_path = (Path(claim_path) if claim_path is not None
                            else _default_claim_path(self.topic))
         self.publisher_probe = publisher_probe
         self.proc_reader = proc_reader
-        self.stale_after_s = float(stale_after_s)
+        #: ROS 图里算"自己"的节点名集合（F3：不在这个集合里的 publisher = 外来者 = 红）
+        self.own_node_names = tuple(own_node_names or (SELF_NODE_NAME,))
         self.own_pid = int(own_pid if own_pid is not None else os.getpid())
 
     # ---------------- 三条通道 ----------------
@@ -431,13 +445,14 @@ class SingleWriterGuard:
                     "detail": "claim 由本进程持有（pid=%d）" % pid}
         age = time.time() - float(rec.get("ts") or 0.0)
         alive = _pid_alive(pid)
-        if alive and age <= self.stale_after_s:
+        if alive:
+            # ★ F2：存活就是占用，**与时间无关**。旧判据（alive and age<=600）会把
+            #   跑满 10 分钟的实例判成"可接管"⇒ acquire 抢走活人的 claim ⇒ 双写。
             return {"name": "second_instance", "status": "red",
-                    "detail": "claim %s 被存活进程 pid=%d 占用（topic=%s，%.0fs 前写入）"
+                    "detail": "claim %s 被存活进程 pid=%d 占用（topic=%s，心跳 %.0fs 前）"
                               % (self.claim_path, pid, rec.get("topic"), age)}
         return {"name": "second_instance", "status": "ok",
-                "detail": "遗留 claim（pid=%d alive=%s age=%.0fs）可接管"
-                          % (pid, alive, age)}
+                "detail": "死进程 pid=%d 的残留 claim（%.0fs 前写入）可清理" % (pid, age)}
 
     def _channel_ros(self) -> dict:
         probe = self.publisher_probe or _ros_publisher_probe
@@ -447,12 +462,16 @@ class SingleWriterGuard:
             return {"name": "ros_graph", "status": "unknown",
                     "detail": "ROS 探针不可用（%s: %s）" % (type(exc).__name__, exc)}
         uniq = sorted(set(names))
-        if len(uniq) > 1:
+        own = set(self.own_node_names)
+        foreign = [n for n in uniq if n not in own]
+        if foreign:
+            # ★ F3：旧判据 len(uniq)>1 只在"两个都在发"时成立；preflight 发生在自己
+            #   还没建 publisher 之前 ⇒ 外来者独自在发（uniq==1）会被漏判。改成看"名字是否属于本进程"。
             return {"name": "ros_graph", "status": "red",
-                    "detail": "%s 上有 %d 个 publisher：%s"
-                              % (self.topic, len(uniq), uniq)}
+                    "detail": "%s 上有非本进程的 publisher：%s（全量 %s）"
+                              % (self.topic, foreign, uniq)}
         return {"name": "ros_graph", "status": "ok",
-                "detail": "publishers=%s" % (uniq,)}
+                "detail": "publishers=%s（仅本进程或无人）" % (uniq,)}
 
     def _channel_proc(self) -> dict:
         if self.proc_reader is not None:
@@ -484,6 +503,7 @@ class SingleWriterGuard:
         status = "red" if red else ("unknown" if unknown else "ok")
         return {"status": status, "ok": status != "red", "topic": self.topic,
                 "claim_path": str(self.claim_path), "channels": channels,
+                "mode": "diagnose-only（不占位；占位请用 --run）",
                 "red": red, "unknown": unknown,
                 "rule": "同一 topic 只许一个生产者：red ⇒ 不许启动，先停掉另一个再起"}
 
@@ -527,6 +547,22 @@ class SingleWriterGuard:
                 fh.write(payload)
             return {"claimed": True, "already": False, "path": str(self.claim_path)}
         raise DoublePublishError("claim 抢占失败：%s" % self.claim_path)
+
+    def refresh(self) -> dict | None:
+        """心跳：只刷新**自己** claim 的 ts（别人的不碰）。返回写入后的记录或 None。
+
+        为什么需要（F2）：claim 里的 ts 若从不刷新，"存活 + 很久以前写的"就会被别人当成
+        废弃 claim；刷新后 pid 存活本身已是判红依据，ts 只用于描述心跳新鲜度。
+        """
+        rec = self.read_claim()
+        if rec is None or int(rec.get("pid") or 0) != self.own_pid:
+            return None
+        rec["ts"] = round(time.time(), 3)
+        body = json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n"
+        tmp = self.claim_path.with_name(self.claim_path.name + ".tmp")
+        tmp.write_text(body, encoding="utf-8")
+        os.replace(tmp, self.claim_path)          # 原子替换，读方不会看到半个文件
+        return rec
 
     def release(self) -> None:
         """释放自己持有的 claim（别人的不动）。"""
@@ -871,23 +907,69 @@ def _append_unique(seq: list[str], item: str) -> None:
         seq.append(item)
 
 
-def main(argv: list[str] | None = None) -> int:
-    """命令行：--selfcheck / --diagnostics。只读，不起 ROS、不发任何报文。
+def _hold_claim(guard: SingleWriterGuard, *, heartbeat_s: float = 5.0,
+                seconds: float = 0.0) -> dict:
+    """F1 的 run 模式：preflight → acquire → 定时刷新 ts（心跳）→ finally release。
 
-    退出码：0 = ok 或 unknown（unknown 不算红，离线 Windows 的正常态）；2 = 双发布判红。
+    本层**不含** UDP 监听循环（那是地面侧 DL2 的进程），这里只负责"占位 + 心跳"：
+    让第二个实例的 preflight 一定能看到**存活**的 claim（而不是"空闲"）。
+    seconds=0 表示一直占位到 Ctrl+C；测试用 --seconds 给它上界。
+    """
+    rep = guard.preflight()
+    if rep["status"] == "red":
+        guard.assert_ok()                     # 抛 DoublePublishError（带判红原因）
+    claimed = guard.acquire()
+    started = time.time()
+    beats = 0
+    hb = max(0.2, float(heartbeat_s))
+    try:
+        while True:
+            time.sleep(min(hb, 1.0))
+            guard.refresh()
+            beats += 1
+            if seconds and (time.time() - started) >= float(seconds):
+                break
+    except KeyboardInterrupt:
+        pass
+    finally:
+        guard.release()
+    return {"event": "run-finished", "topic": guard.topic,
+            "claim": str(guard.claim_path), "pid": guard.own_pid,
+            "claimed": claimed, "beats": beats,
+            "elapsed_s": round(time.time() - started, 2)}
+
+
+def main(argv: list[str] | None = None) -> int:
+    """命令行入口：只碰 claim / 进程表 / ROS 图，**不发布任何报文**。
+
+    子命令（互斥，按下面的顺序判定）：
+      --run         占位：acquire claim + 心跳刷新 ts + finally release（部署入口挂这里）
+      --selfcheck   只**诊断**不占位（读 claim / ROS 图 / 进程表），红 ⇒ 退出码 2
+      --diagnostics 打印适配器诊断面（话题/QoS/映射表/帧常数）
+
+    退出码：0 = ok / unknown（unknown 不算红，离线 Windows 的正常态）；2 = 双发布判红。
     """
     import argparse
 
     ap = argparse.ArgumentParser(
         prog="dzudp_adapter.py",
-        description="DL1 适配器自检与诊断（只读；不发布、不连网、不起 ROS）")
-    ap.add_argument("--selfcheck", action="store_true", help="运行单写者自检后退出")
+        description="DL1 适配器：单写者自检 / 占位 / 诊断（不发布、不连网、不起 ROS 发布者）")
+    ap.add_argument("--run", action="store_true",
+                    help="占位模式：acquire claim + 心跳 + finally release（不含 UDP 监听）")
+    ap.add_argument("--selfcheck", action="store_true", help="只诊断不占位（红 ⇒ 退出码 2）")
     ap.add_argument("--diagnostics", action="store_true", help="打印适配器诊断后退出")
     ap.add_argument("--topic", default=DRONE_TO_CAR_TOPIC)
     ap.add_argument("--claim", default=None, help="claim 文件路径（默认系统临时目录）")
+    ap.add_argument("--node-name", default=None,
+                    help="ROS 图里算「自己」的节点名，逗号分隔（默认 %s）" % SELF_NODE_NAME)
+    ap.add_argument("--seconds", type=float, default=0.0, help="--run 最长秒数（0=直到 Ctrl+C）")
+    ap.add_argument("--heartbeat", type=float, default=5.0, help="--run 的 claim 心跳间隔秒")
     ap.add_argument("--no-ros", action="store_true", help="跳过 ROS 图探测（记 unknown）")
     ap.add_argument("--no-proc", action="store_true", help="跳过进程扫描（记 unknown）")
     args = ap.parse_args(argv)
+
+    own_names = tuple(n.strip() for n in (args.node_name or SELF_NODE_NAME).split(",")
+                      if n.strip())
 
     probe: Callable[[str], list[str]] | None = None
     if args.no_ros:
@@ -899,9 +981,20 @@ def main(argv: list[str] | None = None) -> int:
         def reader() -> list[tuple[int, str]]:
             raise RuntimeError("--no-proc 已禁用进程扫描")
 
+    guard = SingleWriterGuard(args.topic, claim_path=args.claim,
+                              publisher_probe=probe, proc_reader=reader,
+                              own_node_names=own_names)
+
+    if args.run:
+        try:
+            info = _hold_claim(guard, heartbeat_s=args.heartbeat, seconds=args.seconds)
+        except DoublePublishError as exc:
+            print(json.dumps({"event": "refused", "reason": str(exc)},
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+        print(json.dumps(info, ensure_ascii=False, sort_keys=True))
+        return 0
     if args.selfcheck:
-        guard = SingleWriterGuard(args.topic, claim_path=args.claim,
-                                  publisher_probe=probe, proc_reader=reader)
         rep = guard.preflight()
         print(json.dumps(rep, ensure_ascii=False, indent=2, sort_keys=True))
         return 2 if rep["status"] == "red" else 0
