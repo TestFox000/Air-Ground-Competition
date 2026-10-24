@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-24 22:23",
- "count": 182,
+ "generated": "2026-10-24 22:27",
+ "count": 183,
  "files": [
   {
    "path": "00_项目总览/00_索引.md",
@@ -812,9 +812,9 @@
    "summary": "两条话题：/nav/waypoint（RELIABLE，机→车路线/段目标）与 /dzlink/*（BEST_EFFORT，情报/布局/心跳/回传）。",
    "from": "dzrobot_v2/docs/空地指挥链路_协议与运行手册.md, dzrobot_v2/docs/step_loop.md, dzsmartscout/docs/空地路线下发契约_v2.md, docs/空地联合仿真设计.md, _tmp_session/t3/audit/FLOW_COMPARISON.md",
    "level": "实/档",
-   "updated": "2026-10-22",
+   "updated": "2026-10-24",
    "status": "现行",
-   "lines": 68
+   "lines": 70
   },
   {
    "path": "20_资料索引库/空地链路/01_协议v2与契约.md",
@@ -859,6 +859,17 @@
    "updated": "2026-10-24",
    "status": "现行",
    "lines": 244
+  },
+  {
+   "path": "20_资料索引库/空地链路/05_步进协同与空地通信_实测复盘_20261024.md",
+   "dir": "20_资料索引库/空地链路",
+   "title": "步进协同与空地通信 · 2026-10-24 实测复盘",
+   "summary": "**今晚四趟**：16:49 参照趟**完赛**（0.10 m/s，53/54 到点）；20:08 R1 **34/53** 卡 E3；20:14 R2 **9/53** 触发…",
+   "from": "车端 ~/robot_logs/{7_path.log,3_localization.log,1_chassis.log}（2026-10-24 21:48–22:03）；_tmp_session/agc-1024/GPT交接_20261024.md（16:49 / 20:08 / 20:14 三趟实测摘要，车端现场记录）；dzrobot_v2/src/dzbrain 代码；_tmp_session/agc-1024/s2run/emit_step.py（机端发射器）",
+   "level": "实",
+   "updated": "2026-10-24",
+   "status": "现行",
+   "lines": 283
   },
   {
    "path": "20_资料索引库/视觉与云台/00_索引.md",
