@@ -450,7 +450,7 @@ def main():
         hints = []            # 最近成功解析的文件（新在前），给「承前省略 :245」用
         votes = {}            # 本文档已解析文件的目录票数，给同名 basename 兜底用
         for _pos, kind, p, l1, l2 in extract(text):
-            hi = max(x for x in (l1, l2) if x) if l1 is not None else None
+            hi = max((x for x in (l1, l2) if x), default=None) if l1 is not None else None
             if kind == "carry":
                 if not hints:
                     continue
@@ -480,8 +480,8 @@ def main():
                 votes[d] = votes.get(d, 0) + 1
                 if l1 is not None:
                     n = tree.nlines(hit)
-                    hi = max(x for x in (l1, l2) if x)
-                    if n > 0 and hi > n:
+                    hi = max((x for x in (l1, l2) if x), default=None)
+                    if n > 0 and hi is not None and hi > n:
                         warns.append((rel, key, hit, hi, n))
             elif status == "ambiguous":
                 ambs.append((rel, key, how))

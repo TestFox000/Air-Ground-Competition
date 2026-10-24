@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-24 17:12",
- "count": 148,
+ "generated": "2026-10-24 18:12",
+ "count": 160,
  "files": [
   {
    "path": "00_项目总览/00_索引.md",
@@ -237,12 +237,12 @@
    "path": "10_agent提示词/00_索引.md",
    "dir": "10_agent提示词",
    "title": "agent 提示词库 · 册级索引",
-   "summary": "本库 **21 篇文件 = 20 篇正文 + 本索引 1 篇**：正文 = 入口 1（README）+ 一页纸 1 + 基础 3（01/02/05）+ 角色 6 + 场景 9，…",
+   "summary": "本库 **22 篇文件 = 21 篇正文 + 本索引 1 篇**：正文 = 入口 1（README）+ 一页纸 1 + 基础 4（01/02/05/06）+ 角色 6 + 场景…",
    "from": "本库全部文件 + docs/agent_handoff/*（旧版）+ _tmp_session/PC-01-提示词压缩/账本.md",
    "level": "实/档",
-   "updated": "2026-10-23",
+   "updated": "2026-10-24",
    "status": "现行",
-   "lines": 58
+   "lines": 59
   },
   {
    "path": "10_agent提示词/01_提示词模板.md",
@@ -273,9 +273,20 @@
    "summary": "本页**只**管「发给上级/别的 agent 的那一段摘要」；**卡内报告结构唯一现行** = 卡库回报模板 §2 七节，本页不再重复（旧版 8 段表已废）。",
    "from": "docs/agent_handoff/32_循迹回报模板.md, _tmp_session/TRACK-R1-20261020-01/CARD.md, AGENTS.md §8.5, docs/30_任务卡库/模板/回报模板.md",
    "level": "实/档",
-   "updated": "2026-10-22",
+   "updated": "2026-10-24",
    "status": "现行",
-   "lines": 92
+   "lines": 94
+  },
+  {
+   "path": "10_agent提示词/06_工作完结经验总结规范_20261024.md",
+   "dir": "10_agent提示词",
+   "title": "06 · 工作完结经验总结规范（agent 必写）",
+   "summary": "**每张卡归档前必须写一段「经验总结」**：现象 → 机制 → 位置 → 处置 → 证据等级 → 落点，六要素缺一不算写完。",
+   "from": "docs/10_agent提示词/05_回报模板.md, docs/30_任务卡库/模板/回报模板.md, docs/30_任务卡库/归档/00_索引.md, docs/20_资料索引库/车端/11_工作法与经验.md, AGENTS.md §7/§8.5/§9.5",
+   "level": "实+档",
+   "updated": "2026-10-24",
+   "status": "现行",
+   "lines": 126
   },
   {
    "path": "10_agent提示词/README.md",
@@ -284,9 +295,9 @@
    "summary": "这库解决**一件事**：把「要别的 agent 干什么」写成一段可直接复制、贴了就能干活的话。",
    "from": "docs/agent_handoff/README.md, docs/agent_handoff/20_发送指南.md, AGENTS.md §8",
    "level": "实/档",
-   "updated": "2026-10-23",
+   "updated": "2026-10-24",
    "status": "现行",
-   "lines": 97
+   "lines": 102
   },
   {
    "path": "10_agent提示词/03_角色/auditor.md",
@@ -468,12 +479,12 @@
    "path": "20_资料索引库/历史/00_索引.md",
    "dir": "20_资料索引库/历史",
    "title": "历史 · 分册索引",
-   "summary": "七篇：01 沿革 覆盖 09-27 到 10-18（三段），02 并入与改名 覆盖 10-18 一天，03 自主工作期 收 10-15~10-18 的值守与实车事实，04 旧核…",
-   "from": "_tmp_session/yb_tree/docs/archive/（16 篇）, docs/merge/（10 篇）, _tmp_session/d13_verify/, dzrobot_v2/src/history/, dzrobot_v2/docs/清理记录_20261018.md, .zhiyuan/工作日志.md + memory/digest_20261018.md（原文已按用户决定删除，仅留提炼）",
+   "summary": "八篇：01 沿革 覆盖 09-27 到 10-18（三段），02 并入与改名 覆盖 10-18 一天，03 自主工作期 收 10-15~10-18 的值守与实车事实，04 旧核…",
+   "from": "_tmp_session/yb_tree/docs/archive/（16 篇）, docs/merge/（10 篇）, _tmp_session/d13_verify/, dzrobot_v2/src/history/log/ 38 篇会话日志（原文快照 docs/history_cache/01_旧文档归档/dzrobot_v2_src/history/log/）, dzrobot_v2/src/history/, dzrobot_v2/docs/清理记录_20261018.md, .zhiyuan/工作日志.md + memory/digest_20261018.md（原文已按用户决定删除，仅留提炼）",
    "level": "档/实",
-   "updated": "2026-10-23",
+   "updated": "2026-10-24",
    "status": "历史",
-   "lines": 50
+   "lines": 54
   },
   {
    "path": "20_资料索引库/历史/01_沿革_20260927_20261012.md",
@@ -551,6 +562,17 @@
    "updated": "2026-10-23",
    "status": "历史",
    "lines": 203
+  },
+  {
+   "path": "20_资料索引库/历史/08_会话日志线_20261002_20261024.md",
+   "dir": "20_资料索引库/历史",
+   "title": "会话日志线（10-02 ~ 10-24，38 份）",
+   "summary": "**这是自家日志的「存废判定」，不是时间线复述**：事件线读 时间线（09-27→10-22，五阶段），一页速览读 `dzrobot_v2/src/history/大事记.md…",
+   "from": "dzrobot_v2/src/history/log/ 共 38 篇会话日志（10-02~10-24）逐篇提炼；原文快照见 docs/history_cache/01_旧文档归档/dzrobot_v2_src/history/log/（38 份 + docs/history_cache/01_旧文档归档/dzrobot_v2_src/history/log/SHA256.txt + 同目录 _快照说明.txt）",
+   "level": "档/实",
+   "updated": "2026-10-24",
+   "status": "历史",
+   "lines": 686
   },
   {
    "path": "20_资料索引库/无人机/00_索引.md",
@@ -988,7 +1010,7 @@
    "summary": "**10-23新增方案卡**：AG-TEAM-PLAN-20261023编制DSH空地闭环场景；以下10-22卡数是历史快照，当前入口见空地闭环计划，卡的最终归档见归档索引。方…",
    "from": "docs/agent_handoff/30_循迹团队执行方案.md, docs/agent_handoff/32_循迹回报模板.md, docs/agent_handoff/36_R2复核_R3补测与收尾计划.md, _tmp_session/PROJECT_STATUS_20261021.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/TRACK-*/CARD*.md, dzrobot_v2/_tmp_session/*/REPORT.md",
    "level": "档",
-   "updated": "2026-10-23",
+   "updated": "2026-10-24",
    "status": "",
    "lines": 98
   },
@@ -1034,7 +1056,51 @@
    "level": "",
    "updated": "2026-10-24",
    "status": "过程",
-   "lines": 58
+   "lines": 70
+  },
+  {
+   "path": "30_任务卡库/在办/agc-1024/AGC-16-TFCOMPAT-20261024.md",
+   "dir": "30_任务卡库/在办/agc-1024",
+   "title": "AGC-16-TFCOMPAT-20261024 · transform_fusion 导入失败修复（numpy shim）",
+   "summary": "transform_fusion.py 的 tf2_ros.transformations 回退路径在 ROS2 不存在，节点 import 即死，/localization …",
+   "from": "E1 对账 D3；DL4 阻塞清单；Lead 2026-10-24 17:3x 派工",
+   "level": "只读源码 + 离线单测（Windows 可跑）+ stub 顶替 ROS 依赖的节点冒烟",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 119
+  },
+  {
+   "path": "30_任务卡库/在办/agc-1024/AGC-17-MERGE-20261024.md",
+   "dir": "30_任务卡库/在办/agc-1024",
+   "title": "AGC-17-MERGE-20261024 · DL1 合入",
+   "summary": "把 DL1 候选件合入生产：适配器 + 教员解析核的钉死快照（分界行后 11821B，sha256 9ff259a3…）+ provenance 与单写者测试。等 Lead 放…",
+   "from": "Lead 2026-10-24 17:4x 裁决（DL1 四条）",
+   "level": "本次合入后的 link 套件 195 测试 + provenance 单测 + 单写者自检",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 54
+  },
+  {
+   "path": "30_任务卡库/在办/agc-1024/AGC-18-FIRE-DZ-DRIFT-20261024.md",
+   "dir": "30_任务卡库/在办/agc-1024",
+   "title": "AGC-18-FIRE-DZ-DRIFT-20261024 · fire_dz_far_px 漂移取证",
+   "summary": "fire_dz_far_px 由 MANIFEST 记录的 25 漂到现行 18.0，且 yaml:149 注释写 14 —— 三个数互不一致；只取证不改值，M2 现场 A/B…",
+   "from": "p-aim P1B 报告 §风险；Lead 2026-10-24 17:5x 立卡",
+   "level": "车端 robot.yaml:179 现场值 + MANIFEST + 已有 mvlog",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 41
+  },
+  {
+   "path": "30_任务卡库/在办/agc-1024/AGC-19.md",
+   "dir": "30_任务卡库/在办/agc-1024",
+   "title": "AGC-19 · P1B 8 字段 det_node 上车验证（阶段一：只起 camera + det_node）",
+   "summary": "把车上 det_node 从 3 字段换回 8 字段做上车验证（V1-V3 本阶段；V4 云台待 Lead 二次确认）。本轮交付 run 脚本 + 日志分流 + dry-run…",
+   "from": "AGC-19（树节点）；AGC-P1-TARGET-20261024 §4.8（P1B 源级定案）；Lead 2026-10-24 裁决四条",
+   "level": "实（车端只读 probe12/13 + 本地 dry-run/preflight 真跑）；档（P1B 方案文档 §2）",
+   "updated": "2026-10-24（18:0x 阶段一：脚本 + 日志分流 + dry-run + 只读预检）",
+   "status": "in_progress",
+   "lines": 191
   },
   {
    "path": "30_任务卡库/在办/agc-1024/AGC-DL1-ADAPTER-20261024.md",
@@ -1045,7 +1111,7 @@
    "level": "档（机端同编码器样本）+ 只读源码 + 离线单测",
    "updated": "2026-10-24",
    "status": "in_progress",
-   "lines": 44
+   "lines": 253
   },
   {
    "path": "30_任务卡库/在办/agc-1024/AGC-E1-RECONCILE-20261024.md",
@@ -1056,7 +1122,7 @@
    "level": "实（车在线，可只读拉取）+ 档",
    "updated": "2026-10-24",
    "status": "in_progress",
-   "lines": 44
+   "lines": 121
   },
   {
    "path": "30_任务卡库/在办/agc-1024/AGC-P1-TARGET-20261024.md",
@@ -1065,9 +1131,9 @@
    "summary": "解释第二趟 F9 搜索 6.10s target=none 的唯一可验证原因（未入画/漏检/陈旧/消费拒绝），只读起步，不调 PID、不换模型。",
    "from": "交接_20261024 §2/§3；CAR-PREFLIGHT §9.2；用户 2026-10-24 接手指令",
    "level": "档（run2-mission.log、云台日志、上午旧栈样本）+ 只读源码 + 证据包",
-   "updated": "2026-10-24",
+   "updated": "2026-10-24（17:3x 追加 §4.8 P1B）",
    "status": "in_progress",
-   "lines": 138
+   "lines": 208
   },
   {
    "path": "30_任务卡库/在办/agc-1024/AGC-T1-PROGRESS-20261024.md",
@@ -1078,7 +1144,7 @@
    "level": "档（run2-mission.log / run2-localization.log）+ 只读源码 + 本地最小复现",
    "updated": "2026-10-24",
    "status": "in_progress",
-   "lines": 51
+   "lines": 141
   },
   {
    "path": "30_任务卡库/在办/aim-1023/00_树.md",
@@ -1199,7 +1265,7 @@
    "level": "",
    "updated": "2026-10-24",
    "status": "过程",
-   "lines": 43
+   "lines": 44
   },
   {
    "path": "30_任务卡库/在办/doc-1024/DOC-P0-BASE-20261024.md",
@@ -1217,6 +1283,72 @@
    "dir": "30_任务卡库/在办/doc-1024",
    "title": "DOC-P1A-REFINE-EXT-20261024 · 外部资料 6 篇",
    "summary": "产出 docs/20_资料索引库/外部资料/ 6 篇 + 00_索引.md：",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-24",
+   "status": "pending",
+   "lines": 43
+  },
+  {
+   "path": "30_任务卡库/在办/doc-1024/DOC-P1B-REFINE-OPS-20261024.md",
+   "dir": "30_任务卡库/在办/doc-1024",
+   "title": "DOC-P1B-REFINE-OPS-20261024 · 运维与排障 4 篇 + 3 来源提炼",
+   "summary": "1. 01_症状索引_52条.md —— 把 README §4 的 52 条迁入，扩成「症状 → 机制 → 位置 → 处置命令」四列；条数不得变（对账写进 §3）",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-24",
+   "status": "pending",
+   "lines": 38
+  },
+  {
+   "path": "30_任务卡库/在办/doc-1024/DOC-P1C-CHRONICLE-20261024.md",
+   "dir": "30_任务卡库/在办/doc-1024",
+   "title": "DOC-P1C-CHRONICLE-20261024 · 时间线拆卷 + 建卷五",
+   "summary": "1. 先备份：时间线.md → docs/history_cache/01_旧文档归档/时间线_20261024备份.md（原文不动）",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-24",
+   "status": "pending",
+   "lines": 39
+  },
+  {
+   "path": "30_任务卡库/在办/doc-1024/DOC-P2A-GAP-SCAN-20261024.md",
+   "dir": "30_任务卡库/在办/doc-1024",
+   "title": "DOC-P2A-GAP-SCAN-20261024 · 热词缺口清单",
+   "summary": "1. 对 489 篇做分词/词频（零依赖 n-gram 或 jieba）",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-24",
+   "status": "pending",
+   "lines": 39
+  },
+  {
+   "path": "30_任务卡库/在办/doc-1024/DOC-P2B-MCP-SERVER-20261024.md",
+   "dir": "30_任务卡库/在办/doc-1024",
+   "title": "DOC-P2B-MCP-SERVER-20261024 · stdio server + 白名单 + 注册",
+   "summary": "1. 写 mcp_dzdoc_server.py（Python 3.12，stdio JSON-RPC），只暴露 8 个只读工具：",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-24",
+   "status": "pending",
+   "lines": 41
+  },
+  {
+   "path": "30_任务卡库/在办/doc-1024/DOC-P3-PUSH-20261024.md",
+   "dir": "30_任务卡库/在办/doc-1024",
+   "title": "DOC-P3-PUSH-20261024 · 本地 commit + 双推 + 哈希核对",
+   "summary": "按 §11.3 六步执行：",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-24",
+   "status": "pending",
+   "lines": 41
+  },
+  {
+   "path": "30_任务卡库/在办/doc-1024/DOC-P3-VERIFY-20261024.md",
+   "dir": "30_任务卡库/在办/doc-1024",
+   "title": "DOC-P3-VERIFY-20261024 · 6 条门禁 + R6 篇数 + 主题矩阵",
+   "summary": "1. 跑完整门禁链并把退出码写进 §3：",
    "from": "",
    "level": "",
    "updated": "2026-10-24",
@@ -1430,7 +1562,7 @@
    "level": "档",
    "updated": "2026-10-24",
    "status": "",
-   "lines": 99
+   "lines": 100
   },
   {
    "path": "30_任务卡库/归档/_按日摘要/2026-10-18.md",
@@ -1615,9 +1747,9 @@
    "summary": "卡 = 报告：所有执行记录、命令输出、结论都写进**同一张卡的正文**，不另起 REPORT.md（`AGENTS.md` §8.5）。",
    "from": "docs/agent_handoff/30_循迹团队执行方案.md, docs/agent_handoff/32_循迹回报模板.md, docs/agent_handoff/33_循迹R0复核与R1任务.md, _tmp_session/TRACK-R1-20261020-01/CARD.md, _tmp_session/TRACK-YAW-20261021/CARD.md",
    "level": "档",
-   "updated": "2026-10-21",
+   "updated": "2026-10-24",
    "status": "",
-   "lines": 136
+   "lines": 152
   },
   {
    "path": "30_任务卡库/模板/回报模板.md",
@@ -1628,7 +1760,7 @@
    "level": "档",
    "updated": "2026-10-21",
    "status": "",
-   "lines": 93
+   "lines": 97
   }
  ]
 }
