@@ -83,7 +83,8 @@ def test_topic_qos_constants():
     assert CAR_TO_DRONE_TOPIC == "/dzlink/car_to_drone"
     assert QOS_DRONE_LINK["reliability"] == "best_effort"
     assert QOS_DRONE_LINK["depth"] == 10
-    assert PAYLOAD_TYPES == ("heartbeat", "bridge_passable", "target_zone", "field_verify")
+    assert PAYLOAD_TYPES == ("heartbeat", "bridge_passable", "target_zone", "field_verify",
+                           "field_layout")  # AGC3/B2：第 5 类报文（10-24 登记）
     assert BRIDGE_HALVES == ("lower", "upper")
 
 
