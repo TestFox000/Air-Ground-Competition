@@ -1,0 +1,22 @@
+aim-mv-20261024 · 2026-10-24 移动靶 75 s 录制 + 复算工具
+
+为什么放在 artifacts/ 而不是 _tmp_session/：
+  _tmp_session/ 被 .gitignore 忽略，换机/换人后原始数据会丢；本目录是交接证据，随仓库走。
+
+内容
+  mvlog.csv   录制原始数据（630 KB，13763 行；格式 t,t0,kind,payload，kind ∈ off/con/fb/hp/shot/cnt/status/lead/ready）
+  mvrec.py   录制脚本（订阅 9 个话题；在车上跑：python3 mvrec.py out.csv 75）
+  run_mv.sh  车上启动录制的一行封装
+  analyze.py 复算脚本（本仓库根的 python artifacts/aim-mv-20261024/analyze.py 即可复现交接手册 §1.2 全部数字）
+
+录制环境（当时）
+  车 IP 192.168.137.79 / duzhong.local；ROS 域 118；录制时长 74.91 s
+  判据参数：fire_dz_far_px=25 fire_dz_near_px=26 fire_hold_frames=5
+            fire_stable_px_per_frame=1.5 shot_cooldown_ms=500 max_shots=10
+  裁判板：录制开始 hp=[10,10,16,5,5]，结束 hp=[10,10,16,7,3]（2 发，1:1 记账）
+
+复算入口
+  python artifacts/aim-mv-20261024/analyze.py
+
+注意
+  本目录只放原始数据与可复跑脚本，不放结论。结论在 docs/00_项目总览/交接_20261024_打靶闭环.md。

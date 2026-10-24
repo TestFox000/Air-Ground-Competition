@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-24 10:45",
- "count": 118,
+ "generated": "2026-10-24 11:03",
+ "count": 121,
  "files": [
   {
    "path": "00_项目总览/00_索引.md",
@@ -9,9 +9,9 @@
    "summary": "- 本索引由 Lead 维护；新增文档后跑 `python docs/_工具/gen_index.py` 重建全库索引。",
    "from": "本次技术全景收口（2026-10-23，Lead 汇总六篇子智能体产物）",
    "level": "实",
-   "updated": "2026-10-23",
+   "updated": "2026-10-24",
    "status": "现行",
-   "lines": 45
+   "lines": 46
   },
   {
    "path": "00_项目总览/06_本机值守与守护器.md",
@@ -34,6 +34,17 @@
    "updated": "2026-10-23",
    "status": "现行",
    "lines": 174
+  },
+  {
+   "path": "00_项目总览/交接_20261024_打靶闭环.md",
+   "dir": "00_项目总览",
+   "title": "交接手册 · 打靶闭环（2026-10-24 11:00）",
+   "summary": "**闭环已经通了**：软件判开火 → `/LaserShot_Command` → 裁判板点亮并计数。今天实车 2 发，裁判板**射击 5→7、弹药 5→3**，1:1 记账，…",
+   "from": "2026-10-24 09:00~11:00 实车会话（4 发自测 + 75 s 移动靶录制 + 开火判据源码对读）；_tmp_session/mv_test/{mvlog.csv,mvrec.py,analyze.py}；_tmp_session/aim-p0/T1~T5；dzrobot_v2@f794c48；v1@2f60465（tag v4.1.0）",
+   "level": "实/档",
+   "updated": "2026-10-24",
+   "status": "现行",
+   "lines": 227
   },
   {
    "path": "00_项目总览/团队与分工.md",
@@ -182,12 +193,12 @@
    "path": "10_agent提示词/00_索引.md",
    "dir": "10_agent提示词",
    "title": "agent 提示词库 · 册级索引",
-   "summary": "本库 **18 篇文件 = 17 篇正文 + 本索引 1 篇**：正文 = 入口 1（README）+ 一页纸 1 + 基础 3（01/02/05）+ 角色 6 + 场景 6，…",
+   "summary": "本库 **19 篇文件 = 18 篇正文 + 本索引 1 篇**：正文 = 入口 1（README）+ 一页纸 1 + 基础 3（01/02/05）+ 角色 6 + 场景 6，…",
    "from": "本库全部文件 + docs/agent_handoff/*（旧版）+ _tmp_session/PC-01-提示词压缩/账本.md",
    "level": "实/档",
    "updated": "2026-10-23",
    "status": "现行",
-   "lines": 55
+   "lines": 56
   },
   {
    "path": "10_agent提示词/01_提示词模板.md",
@@ -231,7 +242,7 @@
    "level": "实/档",
    "updated": "2026-10-23",
    "status": "现行",
-   "lines": 95
+   "lines": 96
   },
   {
    "path": "10_agent提示词/03_角色/auditor.md",
@@ -308,7 +319,18 @@
    "level": "实/档",
    "updated": "2026-10-21",
    "status": "现行",
-   "lines": 115
+   "lines": 118
+  },
+  {
+   "path": "10_agent提示词/04_场景/打靶闭环接手_20261024.md",
+   "dir": "10_agent提示词/04_场景",
+   "title": "场景卡 · 打靶闭环接手（2026-10-24）",
+   "summary": "用在「换一个 agent 接着做自瞄打靶」时：**整段复制 §3 的提示词**发过去，它自己就知道读什么、写哪、做到哪停。",
+   "from": "交接手册 docs/00_项目总览/交接_20261024_打靶闭环.md；_tmp_session/mv_test/analyze.py 复算值；AGENTS.md §1/§8/§11",
+   "level": "实/档",
+   "updated": "2026-10-24",
+   "status": "现行",
+   "lines": 96
   },
   {
    "path": "10_agent提示词/04_场景/文档收口归档.md",
@@ -968,18 +990,7 @@
    "level": "",
    "updated": "2026-10-23",
    "status": "过程",
-   "lines": 96
-  },
-  {
-   "path": "30_任务卡库/在办/lead-1023/AGC3-20261024.md",
-   "dir": "30_任务卡库/在办/lead-1023",
-   "title": "AGC3-20261024 · 空地协同第三批（B2 机端桥 v2 / C2 证据图移植决策 / D2 插件文档）",
-   "summary": "用户指令（10:16）：「无人机上电那个先搁置，继续推进其他线」。剩余可离线推进三项：",
-   "from": "",
-   "level": "",
-   "updated": "",
-   "status": "in_progress",
-   "lines": 68
+   "lines": 99
   },
   {
    "path": "30_任务卡库/在办/lead-1023/AIM-CALIBER-20261023.md",
@@ -1024,6 +1035,17 @@
    "updated": "2026-10-23",
    "status": "in_progress",
    "lines": 89
+  },
+  {
+   "path": "30_任务卡库/在办/lead-1023/PORT-EVMAP-20261024.md",
+   "dir": "30_任务卡库/在办/lead-1023",
+   "title": "PORT-EVMAP-20261024 · 证据格地图移植（云端 evidential_map → 车端情报累积层 + aim 保险闸钩子）",
+   "summary": "云端 `ag_integrate/evidential_map.py`（222 行 / 10408 B / sha256 1551CE1E…8042CF69）是 log-odd…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 85
   },
   {
    "path": "30_任务卡库/在办/lead-1023/SHOOT-LINK-20261023.md",
@@ -1144,7 +1166,7 @@
    "level": "档",
    "updated": "2026-10-23",
    "status": "",
-   "lines": 89
+   "lines": 91
   },
   {
    "path": "30_任务卡库/归档/_按日摘要/2026-10-18.md",
@@ -1211,6 +1233,17 @@
    "updated": "2026-10-23",
    "status": "已归档",
    "lines": 72
+  },
+  {
+   "path": "30_任务卡库/归档/lead-1023/2026-10-24_AGC3-20261024.md",
+   "dir": "30_任务卡库/归档/lead-1023",
+   "title": "AGC3-20261024 · 空地协同第三批（B2 机端桥 v2 / C2 证据图移植决策 / D2 插件文档）",
+   "summary": "用户指令（10:16）：「无人机上电那个先搁置，继续推进其他线」。剩余可离线推进三项：",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "已归档",
+   "lines": 85
   },
   {
    "path": "30_任务卡库/归档/lead-1023/2026-10-24_DOC-SMARTMASTER-20261024.md",
