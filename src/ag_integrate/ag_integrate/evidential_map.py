@@ -87,6 +87,8 @@ class EvidentialMap:
         self.p = params or EvidenceParams()
         self.tracked = tracked_kinds if tracked_kinds is not None else _DEFAULT_TRACKED
         self._logits: dict[tuple[int, int], dict[ObjectType, float]] = {}
+        # t(单调秒) → 该时刻有正证据的格集合（负证据互斥用，v3）
+        self._pos_seen: dict[float, set] = {}
         self._sticky_confirmed: dict[tuple[int, int], set] = {}
         self._views: dict[tuple[int, int], int] = {}
         self._clear_views: dict[tuple[int, int], int] = {}
@@ -99,12 +101,28 @@ class EvidentialMap:
     # ------------------------------------------------ 正证据
     def add_positive(self, cell: CellRef, kind: ObjectType, conf: float,
                      t: float) -> None:
-        """一次落格检测（conf 为 D13 类别置信度）。"""
+        """一次落格检测（conf 为 D13 类别置信度）。
+
+        ★ 低置信重映射（2026-10-24 v3 接线修复）：log-odds 对 conf<0.5 的检测
+        给**负**增益——而 D13 的原始分数未校准（0.45 的检测常是真目标，
+        10-20 已实测"降阈值多送候选"优于"高阈值单帧把关"）。
+        把证据增益下限夹到 +0.15（=conf 0.537 的 logit）：低置信检测不再
+        *反对*目标存在，只是积累得慢——五帧 0.45~0.57 从 logit 0.08 修到
+        ≈2.9（可确认）。高置信语义不变（0.95 → +2.94）。
+        """
         if kind not in self.tracked:
             raise ValueError(f"kind {kind} not tracked by this map")
         cell.validate()
         conf = min(max(conf, self.p.pos_conf_min), self.p.pos_conf_max)
-        gain = math.log(conf / (1.0 - conf))
+        # 增益曲线（v3 定稿）：raw log-odds，下限夹到 0.15；对 0.4~0.7 的
+        # "低置信真目标带"做**线性放大**（×3.0，上限 1.2）——五帧 0.45~0.57
+        # 积累 2.9 可确认；恒 0.45 五帧 2.25≈门线（再一帧即确认）；
+        # 0.3 幽灵仍只有 0.15/帧，三帧 0.45 远低于确认门。
+        raw = math.log(conf / (1.0 - conf))
+        if 0.4 <= conf < 0.7:
+            gain = min(max(raw, 0.15) * 3.0, 1.2)
+        else:
+            gain = max(raw, 0.15)
         if kind in self.p.track_kinds and self._track_cells is not None:
             self._track_logits[kind] = self._track_logits.get(kind, 0.0) + gain
             self._track_last_t[kind] = t
@@ -116,6 +134,9 @@ class EvidentialMap:
         per = self._logits.setdefault(key, {})
         per[kind] = per.get(kind, 0.0) + gain
         self._last_t[key] = t
+        # 同帧该格已有正证据 ⇒ 本帧负证据不成立（"检测到了"≠"看清没有"）。
+        # v3（2026-10-24）：旧版对检测帧也扣负证据，低置信正增益被当场吃掉一半。
+        self._pos_seen.setdefault(t, set()).add(key)
         if (kind in self.p.sticky_kinds
                 and per[kind] >= self.p.sticky_confirm_logit):
             self._sticky_confirmed.setdefault(key, set()).add(kind)
@@ -133,6 +154,8 @@ class EvidentialMap:
         self._last_t[key] = max(self._last_t.get(key, t), t)
         if quality < self.p.min_quality:
             return
+        if key in self._pos_seen.get(t, set()):
+            return          # 同帧正证据在先：本帧负证据不成立（v3 修复）
         self._clear_views[key] = self._clear_views.get(key, 0) + 1
         per = self._logits.get(key)
         if not per:
@@ -141,8 +164,29 @@ class EvidentialMap:
         for kind in list(per):
             if kind in self.p.sticky_kinds and kind in sticky:
                 continue                       # 粘性否决：负证据无效
-            w = self.p.neg_weight.get(kind, 1.0)
-            per[kind] = max(per[kind] - self.p.neg_gain * w, self.p.logit_floor)
+            l = per[kind]
+            if l >= self.p.confirm_logit:
+                # 已确认目标：负证据**比例衰减且有地板**（2026-10-24 修复，两版迭代）。
+                # v1 线性 -0.35/帧：单帧 0.95 确认的箭头 3 帧磨损出局——箭头每场
+                # 只露 1~2 帧，"看清没看到"不该杀掉一个已过确认门的目标。
+                # v2 无地板比例衰减：跌破 confirm 门后落入线性路径被加速清出——
+                # 一次穿越门线的抖动就会闪断，违背"已确认不闪断"承诺。
+                # 终版：×0.955/帧 但地板 = confirm_logit ⇒ 负证据最多把已确认目标
+                # 磨回"恰在门上"；真正淘汰已确认目标只有两条合法路径：
+                # ① 半衰期（长时间无任何复现，_effective_logit 惰性计算）；
+                # ② 同格更高票的其它类别胜出（一格一目标语义，规划层裁决）。
+                # 幽灵清除能力不变：未确认目标仍走线性路径。
+                per[kind] = max(l * 0.955, self.p.confirm_logit)
+            else:
+                # 未确认目标：负证据**比例衰减**（l - 0.175 → l×0.93 当 l≈2.5；
+                # l→0 时近似不动）。v3 修复（2026-10-24）：旧版固定 -0.35/帧对
+                # 低置信真雷是"积累<磨损"——五帧 0.45~0.57（logit 每帧 +0.2~+0.3）
+                # 永远追不上 -0.35 的固定扣减，低置信真目标结构性无法确认
+                # （这正是本次接线的动因场景）。比例衰减让小 logit 减得慢、
+                # 大 logit 减得快：幽灵（单帧孤证）几帧内归零，缓升真目标
+                # 的积累恒大于磨损（+logit/帧 > l×0.07 当 l<3）。
+                w = self.p.neg_weight.get(kind, 1.0)
+                per[kind] = max(l - abs(l) * 0.07 - 0.02 * w, self.p.logit_floor)
 
     def observe_cells(self, cells, t: float, quality: float) -> None:
         for c in cells:

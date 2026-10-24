@@ -117,6 +117,12 @@ class PlanConfig:
     matrix_enabled: bool = True
     matrix_fuse_window: int = 5
     matrix_fuse_confirm: int = 2
+    # 2026-10-24 融合模式：matrix=现役二元票（默认，行为不变）；
+    # evidential=置信度加权证据积累（协议 v2 conf + 负证据清除 + 粘性禁火，
+    # 见 ag_integrate.evidential_fusion；低置信 0.4~0.6 真雷多帧可确认、
+    # 单帧幽灵被清、已确认目标不闪断）。机上 C++ 发 v2 帧后全能力生效；
+    # v1 帧下退化为"两次确认制"（仍优于整帧替换）。
+    fusion_mode: str = "matrix"
     matrix_min_interval: float = 2.0
 
     @property
@@ -235,6 +241,7 @@ def config_from_params(raw: dict) -> PlanConfig:
         matrix_enabled=bool(raw.get("matrix_log", True)),
         matrix_fuse_window=int(raw.get("matrix_fuse_window", 5)),
         matrix_fuse_confirm=int(raw.get("matrix_fuse_confirm", 2)),
+        fusion_mode=str(raw.get("fusion_mode", "matrix")).strip().lower(),
         matrix_min_interval=float(raw.get("matrix_min_interval", 2.0)),
     )
 
@@ -325,8 +332,13 @@ class PlannerCore:
             raise ValueError(f"start_heading 只支持 'x'/'y'，收到 {self.cfg.start_heading!r}")
         parse_cell(self.cfg.start_cell)
         parse_cell(self.cfg.goal_cell)
-        self.fusion = MatrixFusion(window=self.cfg.matrix_fuse_window,
-                                   confirm=self.cfg.matrix_fuse_confirm)
+        self.fusion_mode = self.cfg.fusion_mode
+        if self.fusion_mode == "evidential":
+            from ag_integrate.evidential_fusion import EvidentialFusion
+            self.fusion = EvidentialFusion()
+        else:
+            self.fusion = MatrixFusion(window=self.cfg.matrix_fuse_window,
+                                       confirm=self.cfg.matrix_fuse_confirm)
         self.world = WorldModel(red_veto_ttl_s=self.cfg.red_veto_ttl_s,
                                 obstacle_confirm_frames=self.cfg.obstacle_confirm_frames)
 
@@ -335,7 +347,10 @@ class PlannerCore:
         if recv_mono is None:
             recv_mono = time.monotonic()
         self.world.update(frame, recv_mono=recv_mono)
-        self.fusion.add_frame(frame)
+        if self.fusion_mode == "evidential":
+            self.fusion.add_frame(frame, recv_mono=recv_mono)
+        else:
+            self.fusion.add_frame(frame)
 
     def feed_car_pose(self, pose, recv_mono: float | None = None) -> None:
         self.car_yaw = pose.yaw
@@ -367,7 +382,12 @@ class PlannerCore:
           once      -> 首次规划成功后不再重算（对应 yaml replan_on_update=false）
           on-change -> 态势签名变化即重算（对应 replan_on_update=true；离线回放用）
         """
-        snapshot = self.world.snapshot
+        # 2026-10-24：evidential 模式下规划吃融合快照（置信度加权、负证据
+        # 清除、已确认不闪断）；matrix 模式保持 world_model 整帧替换（行为
+        # 不变）。world 仍持续更新（红靶否决/车朝向消费者不受影响）。
+        snapshot = getattr(self.fusion, "snapshot", None)             if self.fusion_mode == "evidential" else None
+        if snapshot is None:
+            snapshot = self.world.snapshot
         if snapshot is None:
             return None
         if self.cfg.matrix_enabled:

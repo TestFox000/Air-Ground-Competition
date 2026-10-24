@@ -35,6 +35,7 @@ from enum import IntEnum
 
 MAGIC = b"\xef\xef\xef\xef"
 VERSION = 0x10
+VERSION_V2 = 0x11   # 2026-10-24：目标段尾部追加 1 字节 conf（uint8，conf*255）
 MSG_ID = 0x4001
 MSG_ID_CAR_POSE = 0x4002   # 无人机观测的车真实位姿（位置+朝向），用于根除绕圈问题
 MSG_ID_CAR_COMMAND = 0x4003  # 机载规划下发的车命令（reset + route），见文件末尾
@@ -42,7 +43,8 @@ SUFFIX = b"\xfe\xfe\xfe\xfe"
 
 HEADER_SIZE = 21          # magic4 + version1 + ts8 + msgid2 + length4 + count2 (0x4001)
 HEADER_SIZE_NO_COUNT = 19  # magic4 + version1 + ts8 + msgid2 + length4 (0x4002，无 count)
-OBJECT_SIZE = 25          # type1 + x8 + y8 + length4 + width4
+OBJECT_SIZE = 25          # type1 + x8 + y8 + length4 + width4   (v1/0x10)
+OBJECT_SIZE_V2 = 26       # v1 + conf1 (uint8 = round(conf*255)) (v2/0x11)
 CRC_SIZE = 2
 TAIL_SIZE = 4             # suffix
 
@@ -79,6 +81,9 @@ class IntelObject:
     y: float
     length: float
     width: float
+    # 2026-10-24 v2(0x11) 起随帧携带 D13 置信度；v1(0x10) 帧解析时填 1.0
+    # （= 满置信，与旧"二元票/整帧替换"语义完全等价——老发射端零破坏）。
+    conf: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -98,7 +103,7 @@ class CarPose:
 
 def detect_msg_id(data: bytes) -> int | None:
     """快速判断帧的 msg_id（不做完整校验）；格式不对返回 None。"""
-    if len(data) < 15 or data[0:4] != MAGIC or data[4] != VERSION:
+    if len(data) < 15 or data[0:4] != MAGIC or data[4] not in (VERSION, VERSION_V2):
         return None
     msg_id = struct.unpack_from("<H", data, 13)[0]
     return msg_id
@@ -139,20 +144,22 @@ def parse(data: bytes) -> IntelFrame:
         raise ValueError(f"frame too short: {len(data)} bytes")
     if data[0:4] != MAGIC:
         raise ValueError("bad magic prefix")
-    if data[4] != VERSION:
-        raise ValueError(f"unsupported version byte: 0x{data[4]:02x}")
+    version = data[4]
+    if version not in (VERSION, VERSION_V2):
+        raise ValueError(f"unsupported version byte: 0x{version:02x}")
+    obj_size = OBJECT_SIZE_V2 if version == VERSION_V2 else OBJECT_SIZE
 
     timestamp_ms, msg_id, declared_len, count = struct.unpack_from("<QHIH", data, 5)
     if msg_id != MSG_ID:
         raise ValueError(f"unexpected message id: 0x{msg_id:04x}")
 
-    expected_declared = 2 + OBJECT_SIZE * count
+    expected_declared = 2 + obj_size * count
     if declared_len != expected_declared:
         raise ValueError(
-            f"declared length {declared_len} != 2 + 25*{count} ({expected_declared})"
+            f"declared length {declared_len} != 2 + {obj_size}*{count} ({expected_declared})"
         )
 
-    expected_size = _expected_size(count)
+    expected_size = HEADER_SIZE + obj_size * count + CRC_SIZE + TAIL_SIZE
     if len(data) != expected_size:
         raise ValueError(f"frame size {len(data)} != expected {expected_size}")
 
@@ -164,10 +171,16 @@ def parse(data: bytes) -> IntelFrame:
             raise ValueError(f"unknown object type: {type_index}")
         if not all(math.isfinite(v) for v in (x, y, length, width)):
             raise ValueError("object contains NaN/Inf")
-        objects.append(IntelObject(ObjectType(type_index), x, y, length, width))
-        offset += OBJECT_SIZE
+        conf = 1.0
+        if version == VERSION_V2:
+            (c8,) = struct.unpack_from("<B", data, offset + OBJECT_SIZE)
+            conf = min(1.0, c8 / 255.0)
+            if not math.isfinite(conf):
+                raise ValueError("object conf not finite")
+        objects.append(IntelObject(ObjectType(type_index), x, y, length, width, conf))
+        offset += obj_size
 
-    body_end = HEADER_SIZE + OBJECT_SIZE * count
+    body_end = HEADER_SIZE + obj_size * count
     (received_crc,) = struct.unpack_from("<H", data, body_end)
     actual_crc = crc16(memoryview(data)[4:body_end])
     if received_crc != actual_crc:
@@ -179,18 +192,26 @@ def parse(data: bytes) -> IntelFrame:
     return IntelFrame(timestamp_ms, tuple(objects))
 
 
-def build(frame: IntelFrame) -> bytes:
-    """按机上格式编码一帧（主要用于测试/回放注入）。"""
+def build(frame: IntelFrame, *, version: int = VERSION_V2) -> bytes:
+    """按机上格式编码一帧（测试/回放注入）。
+
+    version=VERSION_V2（默认，0x11）：目标段带 conf 字节；
+    version=VERSION（0x10）：发老格式（conf 丢弃）——兼容性测试用。
+    """
     count = len(frame.objects)
+    obj_size = OBJECT_SIZE_V2 if version == VERSION_V2 else OBJECT_SIZE
     out = bytearray()
     out += MAGIC
-    out.append(VERSION)
-    out += struct.pack("<QHIH", frame.timestamp_ms, MSG_ID, 2 + OBJECT_SIZE * count, count)
+    out.append(version)
+    out += struct.pack("<QHIH", frame.timestamp_ms, MSG_ID, 2 + obj_size * count, count)
     for obj in frame.objects:
         out += struct.pack(
             "<Bddff", int(obj.type), obj.x, obj.y, obj.length, obj.width
         )
-    body_end = HEADER_SIZE + OBJECT_SIZE * count
+        if version == VERSION_V2:
+            c = min(1.0, max(0.0, getattr(obj, "conf", 1.0)))
+            out.append(int(round(c * 255)) & 0xFF)
+    body_end = HEADER_SIZE + obj_size * count
     out += struct.pack("<H", crc16(memoryview(out)[4:body_end]))
     out += SUFFIX
     return bytes(out)
