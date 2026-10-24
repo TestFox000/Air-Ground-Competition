@@ -1,0 +1,594 @@
+# 数字速查真源（C 线 · task-5 · 2026-10-24）
+#
+# 本文件是「数字速查表」的机器可校验版本。docs/20_资料索引库/README.md 与各分册
+# 00_索引.md 里的数字应逐步收敛到这里，避免同一数字在四处各写一份、互相对不上。
+#
+# 跑法（零第三方依赖，只用标准库）：
+#     python docs/_工具/check_numbers.py            # 退出码 1 = 有 mismatch
+#     python docs/_工具/check_numbers.py --strict   # 文档侧漂移也判红
+#
+# 字段（8 必填 + 4 可选，扁平一层，不嵌套）：
+#   id            稳定标识，供其它文档引用；一旦发布不要再改名
+#   名称          人读名字
+#   值            真源值（数字）。找不到可信出处时写 null 并在 备注 写清搜索口径，禁止编
+#   单位          物理单位；无量纲写 -
+#   出处          文档里对这个数字的记载位置（路径:行）。数字口径冲突时，这里指向
+#                 记着旧值/异文的那一行，旧值另填 文档值，便于判断异文是否已合并
+#   代码锚点      代码真源：路径:行号 + 该行的符号名或配置键（校验器核对这一行是否真有该符号）
+#   校验          auto = 表达式（由校验器重算后与 值 diff）；manual = 算不了，进「需人核」清单
+#   状态          实测 = 有实车/实测记录 | 文档 = 只有代码或文档出处、未实测 | 待核 = 无可信出处，禁止引用
+#   文档值        可选：文档记载的（与 值 不一致的）旧值
+#   文档值出处    可选：旧值的文档位置
+#   出处应含      可选：分号分隔的字面量；该文档行不再包含它们时报警（文档被改写的哨兵）
+#   容差          可选：相对容差，默认 1e-3
+#   备注          可选：口径说明。不要写 # 号（会被当成 YAML 注释截断）
+#
+# 约定：值 一律以 代码锚点 为真源；文档与代码不一致时把文档值记在 文档值，不要二选一，
+#       也不要把文档的旧值写进 值 里。
+
+# ==================== 1. 场地与几何 ====================
+- id: block_size
+  名称: 单元格边长（格宽）
+  值: 0.35
+  单位: m
+  出处: docs/20_资料索引库/README.md:46
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py:30 BLOCK_SIZE
+  校验: const('dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py', 'BLOCK_SIZE')
+  状态: 文档
+  出处应含: 0.35
+  备注: 全仓唯一真源。tools/_field_const.py 与 route 各模块都从这里取值，别再抄一份
+
+- id: map_cols
+  名称: 场地列数（A~N）
+  值: 14
+  单位: 列
+  出处: docs/20_资料索引库/README.md:46
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py:28 MAP_COLS
+  校验: const('dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py', 'MAP_COLS')
+  状态: 文档
+  出处应含: 14 列
+
+- id: map_rows
+  名称: 场地行数（1~11）
+  值: 11
+  单位: 行
+  出处: docs/20_资料索引库/README.md:46
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py:29 MAP_ROWS
+  校验: const('dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py', 'MAP_ROWS')
+  状态: 文档
+  出处应含: 11 行
+
+- id: map_cells
+  名称: 总格数
+  值: 154
+  单位: 格
+  出处: docs/20_资料索引库/README.md:46
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py:28 MAP_COLS x MAP_ROWS
+  校验: const('dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py', 'MAP_COLS') * const('dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py', 'MAP_ROWS')
+  状态: 文档
+  出处应含: 154 格
+  备注: 布局完整的 known 也是 154（空地链路/01 与 step_loop.md 同口径）
+
+- id: barrier_row_hi
+  名称: 隔板上侧行号
+  值: 6
+  单位: 行
+  出处: docs/20_资料索引库/README.md:47
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py:41 BARRIER_ROW_HI
+  校验: const('dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py', 'BARRIER_ROW_HI')
+  状态: 文档
+  出处应含: 6/7
+
+- id: barrier_row_lo
+  名称: 隔板下侧行号
+  值: 7
+  单位: 行
+  出处: docs/20_资料索引库/README.md:47
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py:42 BARRIER_ROW_LO
+  校验: const('dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py', 'BARRIER_ROW_LO')
+  状态: 文档
+  出处应含: 6/7
+
+- id: barrier_open_cols
+  名称: 可上下穿行的列数（A/B/C）
+  值: 3
+  单位: 列
+  出处: docs/20_资料索引库/README.md:47
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py:43 BARRIER_COL_FROM
+  校验: str_index(const_str('dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py', 'COL_LETTERS'), const_str('dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py', 'BARRIER_COL_FROM'))
+  状态: 文档
+  出处应含: A/B/C
+  备注: 判定口径 = D 在 A~N 里的下标，即隔板从第 4 列开始封死
+
+# ==================== 2. 车端控制与判据 ====================
+- id: arrival_m
+  名称: 到点判定半径
+  值: 0.12
+  单位: m
+  出处: docs/20_资料索引库/README.md:63
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:155 pursuit.arrival_m
+  校验: spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'pursuit.arrival_m')
+  状态: 文档
+  出处应含: 0.12
+  备注: 与 drift_warn_m 0.30 不同坐标系，改一个必须同步另一个；末点吸附另用 config.py:80-86 的更严阈值
+
+- id: drift_warn_m
+  名称: 单段漂移告警阈值
+  值: 0.30
+  单位: m
+  出处: docs/20_资料索引库/README.md:63
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:174 pursuit.drift_warn_m
+  校验: spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'pursuit.drift_warn_m')
+  状态: 文档
+  出处应含: 0.30
+
+- id: lookahead_min_m
+  名称: 前视距离下限（现役 yaml）
+  值: 0.36
+  单位: m
+  出处: docs/20_资料索引库/车端/02_循迹与控制.md:42
+  代码锚点: dzrobot_v2/config/robot.yaml:621 lookahead_min_m
+  校验: ros('dzrobot_v2/config/robot.yaml', 'lookahead_min_m', '/dzbrain')
+  状态: 文档
+  文档值: 0.18
+  文档值出处: docs/20_资料索引库/README.md:59
+  出处应含: 0.36
+  备注: 异文来源 = README 引的是 A 版快照（0.18/0.24）。代码兜底仍是 0.18（config.py:73），yaml 覆盖为 0.36
+
+- id: lookahead_max_m
+  名称: 前视距离上限（现役 yaml）
+  值: 0.40
+  单位: m
+  出处: docs/20_资料索引库/车端/02_循迹与控制.md:42
+  代码锚点: dzrobot_v2/config/robot.yaml:622 lookahead_max_m
+  校验: ros('dzrobot_v2/config/robot.yaml', 'lookahead_max_m', '/dzbrain')
+  状态: 文档
+  文档值: 0.24
+  文档值出处: docs/20_资料索引库/README.md:59
+  出处应含: 0.40
+  备注: 代码兜底 0.45（config.py:74）也不等于文档的 0.24；三处三个值的根因是快照未随 t1/t4 加固更新
+
+- id: lookahead_k_v
+  名称: 前视距离速度系数
+  值: 1.2
+  单位: s
+  出处: docs/20_资料索引库/README.md:59
+  代码锚点: dzrobot_v2/config/robot.yaml:623 lookahead_k_v
+  校验: ros('dzrobot_v2/config/robot.yaml', 'lookahead_k_v', '/dzbrain')
+  状态: 文档
+  出处应含: k_v=1.2
+  备注: 前视 = clamp(k_v x |v|, [min,max])，实现见 core/config.py:866-871 lookahead_distance()
+
+- id: wheelbase_m
+  名称: 轴距 L（代码口径）
+  值: 0.157
+  单位: m
+  出处: docs/20_资料索引库/车端/08_车体几何与执行约束.md:26
+  代码锚点: dzrobot_v2/config/robot.yaml:617 wheelbase_m
+  校验: ros('dzrobot_v2/config/robot.yaml', 'wheelbase_m', '/dzbrain')
+  状态: 文档
+  文档值: 0.15
+  文档值出处: docs/20_资料索引库/车端/08_车体几何与执行约束.md:26
+  出处应含: 0.157
+  备注: 用户 10-03 尺量 0.15，代码与台账固化 0.157（D-029 不重量）。两值必须并列，别二选一
+
+- id: rear_track_outer_m
+  名称: 后轮外缘间距（车体最宽处，footprint 宽）
+  值: 0.137
+  单位: m
+  出处: docs/20_资料索引库/车端/08_车体几何与执行约束.md:30
+  代码锚点: 无
+  校验: manual
+  状态: 实测
+  备注: 用户 10-03 尺量，车体没有对应代码常量（规划用的车身包络在 route/physics.py 里另按常量算），故 manual。footprint = 0.265 x 0.137
+
+- id: max_steer_deg
+  名称: 算法层舵角限幅
+  值: 30.0
+  单位: °
+  出处: docs/20_资料索引库/车端/08_车体几何与执行约束.md:40
+  代码锚点: dzrobot_v2/config/robot.yaml:618 max_steer_deg
+  校验: ros('dzrobot_v2/config/robot.yaml', 'max_steer_deg', '/dzbrain')
+  状态: 文档
+  出处应含: ±30
+  备注: 机械限位 ±35（servo PWM clamp 25..95 中位 60）不在本键里，别混
+
+- id: r_min_m
+  名称: 最小转弯半径（代码口径）
+  值: 0.2719
+  单位: m
+  出处: docs/20_资料索引库/车端/08_车体几何与执行约束.md:41
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/route/physics.py:183 wheelbase / tan(max_steer)
+  校验: spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'pursuit.wheelbase_m') / tan(radians(spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'pursuit.max_steer_deg')))
+  状态: 文档
+  出处应含: 0.2719
+  备注: 半格 0.175 小于 0.2719，这就是单靠一段圆弧到不了邻格心的算术根源（另一口径 0.214 = 0.15/tan35）
+
+- id: cruise_speed_mps
+  名称: 巡航速度（现役 yaml）
+  值: 0.35
+  单位: m/s
+  出处: docs/20_资料索引库/车端/02_循迹与控制.md:41
+  代码锚点: dzrobot_v2/config/robot.yaml:625 cruise_speed_mps
+  校验: ros('dzrobot_v2/config/robot.yaml', 'cruise_speed_mps', '/dzbrain')
+  状态: 文档
+  文档值: 0.15
+  文档值出处: docs/20_资料索引库/车端/08_车体几何与执行约束.md:51
+  出处应含: 0.35
+  备注: 车端/08 的 0.15 是旧核 10-03 安全档；代码兜底 config.py:79 也是 0.15，三处要按 yaml 0.35 为准
+
+- id: pivot_angle_deg
+  名称: PIVOT 触发角（车头转角）
+  值: 135.0
+  单位: °
+  出处: docs/20_资料索引库/README.md:62
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:92 pursuit.pivot_angle_deg
+  校验: spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'pursuit.pivot_angle_deg')
+  状态: 文档
+  出处应含: 135
+  备注: 是车头转角不是行进夹角；现场 F11 那种 180 度折返要 10.68 s
+
+- id: race_budget_s
+  名称: 赛时预算
+  值: 180.0
+  单位: s
+  出处: docs/20_资料索引库/README.md:51
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:331 mission.race_budget_s
+  校验: spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'mission.race_budget_s')
+  状态: 文档
+  出处应含: 180 s
+  备注: 队内口径，官方无计分表。README 引的 config.py:273 已漂到 331（行号随 SCHEMA 增长，引用以键名为准）
+
+# ==================== 3. 八个任务线程频率 ====================
+- id: thread_rate_localization
+  名称: 定位线程频率
+  值: 20.0
+  单位: Hz
+  出处: docs/20_资料索引库/README.md:58
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/tasks/localization.py:162 Localization
+  校验: init_rate('dzrobot_v2/src/dzbrain/dzbrain/tasks/localization.py')
+  状态: 文档
+  出处应含: 定位 20
+
+- id: thread_rate_safety
+  名称: 安全线程频率
+  值: 20.0
+  单位: Hz
+  出处: docs/20_资料索引库/README.md:58
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/tasks/safety.py:56 Safety
+  校验: init_rate('dzrobot_v2/src/dzbrain/dzbrain/tasks/safety.py')
+  状态: 文档
+  出处应含: 安全 20
+
+- id: thread_rate_tracker
+  名称: 循迹线程频率
+  值: 50.0
+  单位: Hz
+  出处: docs/20_资料索引库/README.md:58
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/tasks/tracker.py:126 TrackerTask
+  校验: init_rate('dzrobot_v2/src/dzbrain/dzbrain/tasks/tracker.py')
+  状态: 文档
+  出处应含: 循迹 50
+  备注: 控制器按 50 Hz 整定，冒烟降频会改变时序结论（main.py 注释）
+
+- id: thread_rate_mission
+  名称: 任务调度线程频率
+  值: 10.0
+  单位: Hz
+  出处: docs/20_资料索引库/README.md:58
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/tasks/mission.py:1482 MissionTask
+  校验: init_rate('dzrobot_v2/src/dzbrain/dzbrain/tasks/mission.py')
+  状态: 文档
+  出处应含: 任务 10
+
+- id: thread_rate_aim
+  名称: 云台打击线程频率
+  值: 50.0
+  单位: Hz
+  出处: docs/20_资料索引库/README.md:58
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/tasks/aim.py:515 AimTask
+  校验: init_rate('dzrobot_v2/src/dzbrain/dzbrain/tasks/aim.py')
+  状态: 文档
+  出处应含: 云台 50
+
+- id: thread_rate_fix
+  名称: 误差修正线程频率
+  值: 10.0
+  单位: Hz
+  出处: docs/20_资料索引库/README.md:58
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/tasks/fix.py:90 FixTask
+  校验: init_rate('dzrobot_v2/src/dzbrain/dzbrain/tasks/fix.py')
+  状态: 文档
+  出处应含: 修正 10
+
+- id: thread_rate_drone
+  名称: 无人机线程频率
+  值: 5.0
+  单位: Hz
+  出处: docs/20_资料索引库/README.md:58
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/tasks/drone.py:534 DroneTask
+  校验: init_rate('dzrobot_v2/src/dzbrain/dzbrain/tasks/drone.py')
+  状态: 文档
+  出处应含: 无人机 5
+
+- id: thread_rate_telemetry
+  名称: 遥测线程频率
+  值: 2.0
+  单位: Hz
+  出处: docs/20_资料索引库/README.md:58
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/tasks/telemetry.py:212 TelemetryTask
+  校验: init_rate('dzrobot_v2/src/dzbrain/dzbrain/tasks/telemetry.py')
+  状态: 文档
+  出处应含: 遥测 2
+  备注: README 把这 8 个频率的出处写成 main.py:1667-1700，那只是 build_tasks 的装配清单；频率真源在各 tasks/*.py 的 super().__init__ 第二参数
+
+# ==================== 4. 空地链路 ====================
+- id: heartbeat_timeout_s
+  名称: 无人机心跳超时（车判机离线）
+  值: 3.0
+  单位: s
+  出处: docs/20_资料索引库/空地链路/00_索引.md:32
+  代码锚点: dzrobot_v2/config/robot.yaml:894 heartbeat_timeout_s
+  校验: ros('dzrobot_v2/config/robot.yaml', 'heartbeat_timeout_s', '/dzbrain')
+  状态: 文档
+  出处应含: 3.0
+  备注: 文档引 robot.yaml:888-889 已漂到 894-895，引用以键名为准
+
+- id: info_stale_s
+  名称: 桥洞情报有效期
+  值: 30.0
+  单位: s
+  出处: docs/20_资料索引库/空地链路/00_索引.md:32
+  代码锚点: dzrobot_v2/config/robot.yaml:895 info_stale_s
+  校验: ros('dzrobot_v2/config/robot.yaml', 'info_stale_s', '/dzbrain')
+  状态: 文档
+  出处应含: 30.0
+
+- id: bridge_info_wait_s
+  名称: 桥洞情报等待窗口
+  值: 2.0
+  单位: s
+  出处: docs/20_资料索引库/空地链路/00_索引.md:33
+  代码锚点: dzrobot_v2/config/robot.yaml:725 bridge_info_wait_s
+  校验: ros('dzrobot_v2/config/robot.yaml', 'bridge_info_wait_s', '/dzbrain')
+  状态: 文档
+  出处应含: 2.0
+  备注: 2026-10-11 快速采集从 20 收到 2；文档引 :723 已漂到 725
+
+- id: step_wait_timeout_s
+  名称: 段等待上限
+  值: 0.0
+  单位: s
+  出处: docs/20_资料索引库/空地链路/00_索引.md:34
+  代码锚点: dzrobot_v2/config/robot.yaml:732 wait_timeout_s
+  校验: ros('dzrobot_v2/config/robot.yaml', 'wait_timeout_s', '/dzbrain')
+  状态: 文档
+  出处应含: = 0
+  备注: 0 = 无限等；文档引 :730 已漂到 732
+
+- id: drone_heartbeat_hz
+  名称: 机端心跳发布频率
+  值: 1.0
+  单位: Hz
+  出处: docs/20_资料索引库/空地链路/01_协议v2与契约.md:66
+  代码锚点: dzsmartscout/tools/link/dzlink_supervisor.py:7 1 Hz 心跳
+  校验: manual
+  状态: 文档
+  出处应含: 1 Hz
+  备注: 只有文档与脚本注释，没有可读的常量键，故 manual；车侧判离线用上面的 3.0 s
+
+# ==================== 5. 视觉与云台 ====================
+- id: vision_thread_num
+  名称: 视觉流水线深度（RKNN 线程数）
+  值: 2
+  单位: 帧
+  出处: docs/20_资料索引库/视觉与云台/02_视觉模型与检测.md:24
+  代码锚点: dzrobot_v2/config/robot.yaml:305 thread_num
+  校验: ros('dzrobot_v2/config/robot.yaml', 'thread_num', '/det_node')
+  状态: 文档
+  文档值: 8
+  文档值出处: docs/20_资料索引库/视觉与云台/02_视觉模型与检测.md:24
+  出处应含: thread_num=8
+  备注: 10-22 夜 8 改 2 已落盘，文档仍写 8；robot.yaml:305-307 注释记实测 8 线程滞后 8 帧约 264 ms、2 线程约 2 帧 66 ms
+
+- id: vision_max_fps
+  名称: 视觉推理帧率上限
+  值: 30.0
+  单位: Hz
+  出处: docs/20_资料索引库/视觉与云台/02_视觉模型与检测.md:24
+  代码锚点: dzrobot_v2/config/robot.yaml:308 max_fps
+  校验: ros('dzrobot_v2/config/robot.yaml', 'max_fps', '/det_node')
+  状态: 文档
+  出处应含: max_fps=30
+
+- id: vision_pipeline_latency_s
+  名称: 视觉流水线滞后（thread_num 帧）
+  值: 0.0667
+  单位: s
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:29
+  代码锚点: dzrobot_v2/config/robot.yaml:305 thread_num
+  校验: ros('dzrobot_v2/config/robot.yaml', 'thread_num', '/det_node') / ros('dzrobot_v2/config/robot.yaml', 'max_fps', '/det_node')
+  状态: 文档
+  文档值: 0.26
+  文档值出处: docs/20_资料索引库/视觉与云台/00_索引.md:29
+  出处应含: 0.26 s
+  备注: 值 = 现役 2 帧除 30 Hz。连带影响 Kp 上界：theta 从 0.26 降到 0.067，Kp_max 从约 1.0 抬到约 4.0，视觉与云台/00_索引.md:54 那段推导需复核
+
+- id: yaw_ticks_per_deg
+  名称: 云台水平刻度换算
+  值: 11.378
+  单位: 刻度/度
+  出处: docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md:53
+  代码锚点: dzrobot_v2/config/robot.yaml:101 yaw_ticks_per_deg
+  校验: ros('dzrobot_v2/config/robot.yaml', 'yaw_ticks_per_deg', '/dzrknn_dataprocess')
+  状态: 文档
+  出处应含: 11.378
+  备注: 口径 4096/360，见下一条独立复算
+
+- id: ticks_per_deg_ideal
+  名称: 云台刻度换算（理想值 4096/360）
+  值: 11.3778
+  单位: 刻度/度
+  出处: docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md:53
+  代码锚点: dzrobot_v2/config/robot.yaml:101 yaw_ticks_per_deg
+  校验: 4096 / 360
+  状态: 文档
+  容差: 0.0001
+  备注: 与 yaml 的 11.378 差 2e-4，属四舍五入；编码器是 12 位 360 度
+
+- id: gimbal_max_speed_ticks
+  名称: 云台最大转速
+  值: 3700
+  单位: 刻度/s
+  出处: docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md:52
+  代码锚点: dzrobot_v2/config/robot.yaml:82 gimbal_max_speed
+  校验: ros('dzrobot_v2/config/robot.yaml', 'gimbal_max_speed', '/dzrknn_dataprocess')
+  状态: 文档
+  出处应含: 3700
+
+- id: patrol_speed_ticks
+  名称: 扫描巡逻速度
+  值: 1110
+  单位: 刻度/s
+  出处: docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md:52
+  代码锚点: dzrobot_v2/config/robot.yaml:81 patrol_speed_ratio
+  校验: ros('dzrobot_v2/config/robot.yaml', 'gimbal_max_speed', '/dzrknn_dataprocess') * ros('dzrobot_v2/config/robot.yaml', 'patrol_speed_ratio', '/dzrknn_dataprocess')
+  状态: 文档
+  出处应含: 1110
+
+- id: patrol_speed_dps
+  名称: 扫描巡逻角速度
+  值: 97.56
+  单位: °/s
+  出处: docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md:52
+  代码锚点: dzrobot_v2/config/robot.yaml:81 patrol_speed_ratio
+  校验: ros('dzrobot_v2/config/robot.yaml', 'gimbal_max_speed', '/dzrknn_dataprocess') * ros('dzrobot_v2/config/robot.yaml', 'patrol_speed_ratio', '/dzrknn_dataprocess') / ros('dzrobot_v2/config/robot.yaml', 'yaw_ticks_per_deg', '/dzrknn_dataprocess')
+  状态: 文档
+  备注: 卡面候选写扫描 12 度/s，全仓 0 命中；现役换算是 1110 / 11.378 = 97.56 度/s。文档未直接写这个数，是本人按 01:52 的两个数换算的
+
+- id: track_speed_max_ticks
+  名称: 跟踪速度上限
+  值: 2000
+  单位: 刻度/s
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:38
+  代码锚点: dzrobot_v2/config/robot.yaml:83 track_speed_max
+  校验: ros('dzrobot_v2/config/robot.yaml', 'track_speed_max', '/dzrknn_dataprocess')
+  状态: 文档
+  出处应含: 2000
+
+- id: track_speed_dps
+  名称: 跟踪速度上限（角速度）
+  值: 175.78
+  单位: °/s
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:38
+  代码锚点: dzrobot_v2/config/robot.yaml:83 track_speed_max
+  校验: ros('dzrobot_v2/config/robot.yaml', 'track_speed_max', '/dzrknn_dataprocess') / ros('dzrobot_v2/config/robot.yaml', 'yaw_ticks_per_deg', '/dzrknn_dataprocess')
+  状态: 文档
+  出处应含: 176
+  备注: 文档写约 176 度/s，换算 175.78，差 0.22 属四舍五入，不算异文
+
+- id: gimbal_max_dps
+  名称: 云台机械上限角速度（满速）
+  值: 325.19
+  单位: °/s
+  出处: docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md:52
+  代码锚点: dzrobot_v2/config/robot.yaml:82 gimbal_max_speed
+  校验: ros('dzrobot_v2/config/robot.yaml', 'gimbal_max_speed', '/dzrknn_dataprocess') / ros('dzrobot_v2/config/robot.yaml', 'yaw_ticks_per_deg', '/dzrknn_dataprocess')
+  状态: 文档
+  备注: 卡面候选写云台角速度上限 70.3 度/s，全仓 0 命中；3700 / 11.378 = 325.19 度/s 是满速，2000 刻度/s 的跟踪档是 175.78
+
+- id: scan_yaw_span_deg
+  名称: 巡航扫描行程（左右各 150 度）
+  值: 300.0
+  单位: °
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:34
+  代码锚点: dzrobot_v2/config/robot.yaml:37 scan_yaw_min_deg
+  校验: ros('dzrobot_v2/config/robot.yaml', 'scan_yaw_max_deg', '/dzrknn_dataprocess') - ros('dzrobot_v2/config/robot.yaml', 'scan_yaw_min_deg', '/dzrknn_dataprocess')
+  状态: 文档
+  出处应含: ±150
+  备注: 两个键同时被 TRACK 的 clampYawToScan 当作跟踪水平允许范围，改一侧即改跟踪摆幅
+
+- id: fire_box_far_px
+  名称: 远距离开火死区
+  值: 25.0
+  单位: px
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:31
+  代码锚点: dzrobot_v2/config/robot.yaml:179 fire_dz_far_px
+  校验: ros('dzrobot_v2/config/robot.yaml', 'fire_dz_far_px', '/dzrknn_dataprocess')
+  状态: 文档
+  出处应含: 25
+  备注: 10-18 由 14 抬到 20 再到 25；必须大于云台机械精度约 12 px，否则判在框外
+
+- id: fire_box_near_px
+  名称: 近距离开火死区
+  值: 26.0
+  单位: px
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:31
+  代码锚点: dzrobot_v2/config/robot.yaml:184 fire_dz_near_px
+  校验: ros('dzrobot_v2/config/robot.yaml', 'fire_dz_near_px', '/dzrknn_dataprocess')
+  状态: 文档
+  出处应含: 26
+
+- id: fire_shot_cooldown_ms
+  名称: 两发最小间隔
+  值: 500
+  单位: ms
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:35
+  代码锚点: dzrobot_v2/config/robot.yaml:197 shot_cooldown_ms
+  校验: ros('dzrobot_v2/config/robot.yaml', 'shot_cooldown_ms', '/dzrknn_dataprocess')
+  状态: 文档
+  出处应含: 500
+  备注: 冷却挡的是下一发，不是这一发的落点，故不计入提前量
+
+- id: max_shots
+  名称: 全程弹药上限
+  值: 10
+  单位: 发
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:35
+  代码锚点: dzrobot_v2/config/robot.yaml:203 max_shots
+  校验: ros('dzrobot_v2/config/robot.yaml', 'max_shots', '/dzrknn_dataprocess')
+  状态: 文档
+  出处应含: 10 发
+
+- id: lost_frames_cpp
+  名称: 丢靶回扫帧数（C++ 云台节点）
+  值: 180
+  单位: 帧
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:33
+  代码锚点: dzrobot_v2/config/robot.yaml:236 lost_frames_to_rescan
+  校验: ros('dzrobot_v2/config/robot.yaml', 'lost_frames_to_rescan', '/dzrknn_dataprocess')
+  状态: 文档
+  出处应含: 180
+  备注: 卡面候选写 lost_frames_to_rescan 20，与实际不符：C++ 是 180，Python 段是 60；20 帧是航向闩锁自恢复口径，不是丢靶回扫
+
+- id: lost_frames_py
+  名称: 丢靶回扫帧数（Python 段）
+  值: 60
+  单位: 帧
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:33
+  代码锚点: dzrobot_v2/config/robot.yaml:852 lost_frames_to_rescan
+  校验: ros('dzrobot_v2/config/robot.yaml', 'lost_frames_to_rescan', '/dzbrain')
+  状态: 文档
+  出处应含: 60 帧
+  备注: 同一个键名在 /dzrknn_dataprocess 与 /dzbrain 两段各一份，值不同，查的时候必须带段名
+
+# ==================== 6. 待核（禁止引用） ====================
+- id: lost_grace_ms
+  名称: 丢靶宽限时间
+  值: null
+  单位: ms
+  出处: 无
+  代码锚点: 无
+  校验: manual
+  状态: 待核
+  备注: 卡面候选 600 ms 在 py/yaml/md/cpp 全仓 grep 0 命中，不许当成结论用
+
+- id: total_latency_ms
+  名称: 光子到出光端到端延迟
+  值: null
+  单位: ms
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:30
+  代码锚点: 无
+  校验: manual
+  状态: 待核
+  备注: 卡面候选 380 ms 全仓 0 命中。文档口径是区间 0.5~0.9 s，且明确写着待一次实测定案；视觉流水线另有 0.067 s（现值）与 0.26 s（旧值）两个口径，三者不要混用

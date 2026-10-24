@@ -1,0 +1,10 @@
+{
+ "ok": 4610,
+ "failed": [
+  [
+   "_tmp_session/deploy_perception/perception_deploy.tgz",
+   "ReadError",
+   "unexpected end of data"
+  ]
+ ]
+}

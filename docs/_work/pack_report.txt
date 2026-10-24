@@ -1,0 +1,16 @@
+pack report 2026-10-22 17:53:55
+ext_gitee_air_ground_20261022: files=58 members=85 size=431.2MB
+  -> source removed
+ext_yb_tree_20261022: files=2719 members=2865 size=207.7MB
+  -> source removed
+ext_gitee_main_tree_20261022: files=2599 members=2740 size=206.6MB
+  -> source removed
+ext_carsnap_tree_20261022: files=890 members=1084 size=15.9MB
+  -> source removed
+process_TRACK-FIELD-R3_20261022: files=3090 members=3121 size=320.2MB
+  -> source removed
+process_drafts: files=2231 members=4611 size=251.7MB
+  -> _tmp_session removed
+dzrobot_v2_tmp_session: files=1379 members=1610 size=34.9MB
+  -> source removed
+DONE 2026-10-22 17:57:16
