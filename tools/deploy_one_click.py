@@ -68,7 +68,9 @@ def sh(cmd: list[str], *, dry: bool, timeout: int = 900) -> int:
 
 
 def ssh(host: str, user: str, remote_cmd: str, *, dry: bool, timeout: int = 60) -> tuple[int, str]:
-    """一条 SSH 命令并收回输出（验证门取证用）。"""
+    """一条 SSH 命令并收回输出。OpenSSH BatchMode 优先；失败回退 paramiko
+    密码登录（AG_ORIN_PASS，与 orin_deploy/patch_deploy 同约定）——现场首次
+    部署没有免密时仍可全链跑通。"""
     full = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ConnectTimeout=8", f"{user}@{host}", remote_cmd]
     if dry:
@@ -77,9 +79,32 @@ def ssh(host: str, user: str, remote_cmd: str, *, dry: bool, timeout: int = 60) 
     try:
         p = subprocess.run(full, capture_output=True, text=True, timeout=timeout,
                            encoding="utf-8", errors="replace")
-        return p.returncode, (p.stdout or "") + (p.stderr or "")
+        if p.returncode == 0:
+            return 0, (p.stdout or "") + (p.stderr or "")
     except subprocess.TimeoutExpired:
         return 124, ""
+    # BatchMode 失败 → paramiko 密码回退
+    pwd = os.environ.get("AG_ORIN_PASS")
+    if not pwd:
+        return 255, "BatchMode 失败且未设 AG_ORIN_PASS"
+    import paramiko
+    last = None
+    for attempt in range(3):            # WiFi 链路抖动实测：banner 被重置，重试即过
+        try:
+            c = paramiko.SSHClient()
+            c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            c.connect(host, username=user, password=pwd, timeout=15,
+                      banner_timeout=15, auth_timeout=15,
+                      allow_agent=False, look_for_keys=False)
+            _, out, err = c.exec_command(remote_cmd, timeout=timeout)
+            data = (out.read() or b"").decode("utf-8", errors="replace") +                    (err.read() or b"").decode("utf-8", errors="replace")
+            rc = out.channel.recv_exit_status()
+            c.close()
+            return rc, data
+        except Exception as exc:
+            last = exc
+            time.sleep(1.5)
+    return 255, f"paramiko 失败(3次): {type(last).__name__}: {str(last)[:80]}"
 
 
 def gate(name: str, ok: bool | None, evidence: str) -> None:
@@ -117,7 +142,7 @@ def preflight(host: str, user: str, *, dry: bool) -> bool:
     print(f"== 预检：SSH 探活 + 时钟偏差（{user}@{host}）==")
     rc, _ = ssh(host, user, "true", dry=dry)
     if rc != 0:
-        print("  ✗ SSH 不通（BatchMode 免密未配置或主机离线）")
+        print("  ✗ SSH 不通（免密与密码登录均失败——检查主机/密码 AG_ORIN_PASS）")
         return False
     gate("SSH 探活", True, f"{user}@{host}")
     rc, out = ssh(host, user, "date +%s", dry=dry)
