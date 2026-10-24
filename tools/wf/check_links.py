@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """文档链接健康检查（收口门禁用）
 
+2026-10-22 起同时扫描新文档体系 v1/docs/**（跳过 _archive/_work）。
+
 扫描 docs/**/*.md 与 src/history/INDEX.md（以及仓库内/工作区根的 AGENTS.md），
 检查 markdown 相对链接指向的文件是否存在。断链 = 文档与真源漂移，直接判红。
 
@@ -22,6 +24,14 @@ SKIP_SUBSTR = ("://",)
 
 def check() -> tuple[int, list[tuple[str, str]]]:
     files = list((REPO / "docs").rglob("*.md"))
+    # 2026-10-22 文档收口：长期文档唯一存放地 v1/docs/** 也纳入断链门禁
+    # （_archive 是迁移前只读快照、_work 是过程稿，均不参与；_archive 内部回链会大量误报）
+    new_docs = REPO.parent / "docs"
+    if new_docs.is_dir():
+        for md in new_docs.rglob("*.md"):
+            if any(part in ("_archive", "history_cache", "_work", "_工具") for part in md.parts):
+                continue
+            files.append(md)
     files += [REPO / "src" / "history" / "INDEX.md", REPO / "AGENTS.md", REPO.parent / "AGENTS.md"]
     bad: list[tuple[str, str]] = []
     seen = set()

@@ -11,7 +11,7 @@
  {
   "path": "_archive",
   "type": "dir",
-  "size": 26435834,
+  "size": 70490422,
   "mtime": "2026-10-22 19:35",
   "status": "归档",
   "owner": "团队",
@@ -29,26 +29,26 @@
  {
   "path": "_tmp_session",
   "type": "dir",
-  "size": 35700099,
-  "mtime": "2026-10-22 21:27",
+  "size": 599448184,
+  "mtime": "2026-10-23 16:38",
   "status": "临时",
   "owner": "团队",
   "note": "跨任务临时区；活跃目录见下表"
  },
  {
-  "path": "air_ground_models",
+  "path": "air_ground_最新视觉识别模型_20261023",
   "type": "dir",
-  "size": 53800544,
-  "mtime": "2026-10-18 15:11",
-  "status": "素材",
-  "owner": "无人机",
-  "note": "ONNX 模型"
+  "size": 105069503,
+  "mtime": "2026-10-23 16:28",
+  "status": "未登记",
+  "owner": "",
+  "note": "请补 docs/索引标注.yaml"
  },
  {
   "path": "docs",
   "type": "dir",
-  "size": 1445015658,
-  "mtime": "2026-10-22 21:18",
+  "size": 1445176112,
+  "mtime": "2026-10-23 16:14",
   "status": "文档",
   "owner": "Lead",
   "note": "工作区级文档"
@@ -57,7 +57,7 @@
   "path": "drone_recordings",
   "type": "dir",
   "size": 28755069,
-  "mtime": "2026-10-17 20:50",
+  "mtime": "2026-10-23 15:50",
   "status": "证据",
   "owner": "无人机",
   "note": "飞行记录"
@@ -65,7 +65,7 @@
  {
   "path": "dzrobot_v2",
   "type": "dir",
-  "size": 3582493676,
+  "size": 3582713086,
   "mtime": "2026-10-22 21:41",
   "status": "核心",
   "owner": "Lead",
@@ -74,11 +74,20 @@
  {
   "path": "dzsmartscout",
   "type": "dir",
-  "size": 215756386,
-  "mtime": "2026-10-22 21:41",
+  "size": 215932633,
+  "mtime": "2026-10-23 15:32",
   "status": "仓库",
   "owner": "无人机",
   "note": "无人机侧仓库"
+ },
+ {
+  "path": "git_save",
+  "type": "dir",
+  "size": 3155359788,
+  "mtime": "2026-10-23 15:57",
+  "status": "未登记",
+  "owner": "",
+  "note": "请补 docs/索引标注.yaml"
  },
  {
   "path": "memory",
@@ -92,8 +101,8 @@
  {
   "path": "tools",
   "type": "dir",
-  "size": 4228752,
-  "mtime": "2026-10-22 21:41",
+  "size": 4324716,
+  "mtime": "2026-10-22 23:04",
   "status": "工具",
   "owner": "团队",
   "note": "工作区级工具"
@@ -110,8 +119,8 @@
  {
   "path": ".gitattributes",
   "type": "file",
-  "size": 66,
-  "mtime": "2026-10-17 10:29",
+  "size": 68,
+  "mtime": "2026-10-22 23:04",
   "status": "规范",
   "owner": "团队",
   "note": "换行/属性规范"
@@ -119,8 +128,8 @@
  {
   "path": ".gitignore",
   "type": "file",
-  "size": 568,
-  "mtime": "2026-10-22 21:41",
+  "size": 660,
+  "mtime": "2026-10-23 16:08",
   "status": "规范",
   "owner": "团队",
   "note": "git 忽略规则"
@@ -128,8 +137,8 @@
  {
   "path": ".gitmodules",
   "type": "file",
-  "size": 285,
-  "mtime": "2026-10-18 10:34",
+  "size": 293,
+  "mtime": "2026-10-22 23:04",
   "status": "规范",
   "owner": "团队",
   "note": "子模块声明"
@@ -137,8 +146,8 @@
  {
   "path": "_work_tmp_d11_session.sh",
   "type": "file",
-  "size": 1355,
-  "mtime": "2026-10-22 18:33",
+  "size": 1393,
+  "mtime": "2026-10-22 23:04",
   "status": "未登记",
   "owner": "",
   "note": "请补 docs/索引标注.yaml"
@@ -146,8 +155,8 @@
  {
   "path": "_work_tmp_start_aim_d11.sh",
   "type": "file",
-  "size": 1032,
-  "mtime": "2026-10-22 18:33",
+  "size": 1062,
+  "mtime": "2026-10-22 23:04",
   "status": "未登记",
   "owner": "",
   "note": "请补 docs/索引标注.yaml"
@@ -155,8 +164,8 @@
  {
   "path": "AGENTS.md",
   "type": "file",
-  "size": 15785,
-  "mtime": "2026-10-22 21:10",
+  "size": 14799,
+  "mtime": "2026-10-23 16:36",
   "status": "规范",
   "owner": "Lead",
   "note": "项目工作流 v2（全员强制）"
@@ -218,7 +227,7 @@
  {
   "path": "dzrobot_v2/artifacts",
   "type": "dir",
-  "size": 240488820,
+  "size": 240651148,
   "mtime": "2026-10-20 18:03",
   "status": "证据",
   "owner": "团队",
@@ -236,8 +245,8 @@
  {
   "path": "dzrobot_v2/config",
   "type": "dir",
-  "size": 389517,
-  "mtime": "2026-10-18 20:12",
+  "size": 389786,
+  "mtime": "2026-10-22 22:37",
   "status": "冻结",
   "owner": "Lead",
   "note": "统一配置中心；cleanup 未动；与车端第七张图不同步（注意）"
@@ -245,8 +254,8 @@
  {
   "path": "dzrobot_v2/docs",
   "type": "dir",
-  "size": 118882,
-  "mtime": "2026-10-22 19:06",
+  "size": 108847,
+  "mtime": "2026-10-23 15:57",
   "status": "核心",
   "owner": "Lead",
   "note": "决策台账/复用清单/工作流/目录索引/现状报告"
@@ -263,7 +272,7 @@
  {
   "path": "dzrobot_v2/src",
   "type": "dir",
-  "size": 2259225764,
+  "size": 2259228285,
   "mtime": "2026-10-18 20:20",
   "status": "核心",
   "owner": "schema-owner",
@@ -272,7 +281,7 @@
  {
   "path": "dzrobot_v2/tools",
   "type": "dir",
-  "size": 852326,
+  "size": 852651,
   "mtime": "2026-10-21 21:27",
   "status": "核心",
   "owner": "团队",
@@ -425,8 +434,8 @@
  {
   "path": "dzrobot_v2/src/history",
   "type": "dir",
-  "size": 2232326869,
-  "mtime": "2026-10-20 19:58",
+  "size": 2232329390,
+  "mtime": "2026-10-23 15:57",
   "status": "历史",
   "owner": "团队",
   "note": "会话日志 + 附加资源（2.1GB 唯一素材副本）"
@@ -479,8 +488,8 @@
  {
   "path": "dzrobot_v2/docs/TEAM_STATUS.md",
   "type": "file",
-  "size": 15815,
-  "mtime": "2026-10-22 18:49",
+  "size": 17047,
+  "mtime": "2026-10-23 16:40",
   "status": "文档",
   "owner": "团队",
   "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
@@ -488,8 +497,8 @@
  {
   "path": "dzrobot_v2/docs/决策台账.md",
   "type": "file",
-  "size": 34170,
-  "mtime": "2026-10-22 19:06",
+  "size": 36009,
+  "mtime": "2026-10-23 15:57",
   "status": "文档",
   "owner": "团队",
   "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
@@ -515,8 +524,8 @@
  {
   "path": "dzrobot_v2/docs/目录索引.json",
   "type": "file",
-  "size": 27056,
-  "mtime": "2026-10-21 19:01",
+  "size": 18763,
+  "mtime": "2026-10-22 21:41",
   "status": "文档",
   "owner": "团队",
   "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
@@ -524,8 +533,8 @@
  {
   "path": "dzrobot_v2/docs/目录索引.md",
   "type": "file",
-  "size": 18078,
-  "mtime": "2026-10-21 19:01",
+  "size": 13080,
+  "mtime": "2026-10-22 21:41",
   "status": "核心",
   "owner": "团队",
   "note": "本文件（自动生成，勿手改）"
@@ -533,8 +542,8 @@
  {
   "path": "dzrobot_v2/docs/索引标注.yaml",
   "type": "file",
-  "size": 10948,
-  "mtime": "2026-10-22 21:41",
+  "size": 11133,
+  "mtime": "2026-10-23 16:40",
   "status": "文档",
   "owner": "团队",
   "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
@@ -558,6 +567,24 @@
   "note": "未登记任务/临时目录；过期归档"
  },
  {
+  "path": "_tmp_session/AG-TEAM-PLAN-20261023",
+  "type": "dir",
+  "size": 92623,
+  "mtime": "2026-10-23 16:27",
+  "status": "临时",
+  "owner": "Codex Lead",
+  "note": "DSH空地闭环方案编制的原始门禁输出与hash备份；正式卡与方案在四库"
+ },
+ {
+  "path": "_tmp_session/aim-lat",
+  "type": "dir",
+  "size": 1080136,
+  "mtime": "2026-10-22 22:48",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
   "path": "_tmp_session/AIM-OBS-20261022",
   "type": "dir",
   "size": 46988,
@@ -569,8 +596,35 @@
  {
   "path": "_tmp_session/aim-p0",
   "type": "dir",
-  "size": 4482274,
-  "mtime": "2026-10-22 21:39",
+  "size": 4536828,
+  "mtime": "2026-10-22 22:20",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/aimtune",
+  "type": "dir",
+  "size": 1431507,
+  "mtime": "2026-10-22 23:05",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/audit_lib2_20261023.py",
+  "type": "file",
+  "size": 2582,
+  "mtime": "2026-10-23 16:32",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/audit_lib_20261023.py",
+  "type": "file",
+  "size": 2815,
+  "mtime": "2026-10-23 16:31",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
@@ -587,8 +641,8 @@
  {
   "path": "_tmp_session/DET-20261022",
   "type": "dir",
-  "size": 7911782,
-  "mtime": "2026-10-22 21:30",
+  "size": 8749403,
+  "mtime": "2026-10-22 22:13",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
@@ -598,6 +652,15 @@
   "type": "dir",
   "size": 19598,
   "mtime": "2026-10-22 20:37",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/gitee_ag",
+  "type": "dir",
+  "size": 560126909,
+  "mtime": "2026-10-23 15:42",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
@@ -686,8 +749,26 @@
  {
   "path": "_tmp_session/pushlog.txt",
   "type": "file",
-  "size": 0,
-  "mtime": "2026-10-22 21:22",
+  "size": 527,
+  "mtime": "2026-10-22 21:49",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/pushlog2.txt",
+  "type": "file",
+  "size": 853,
+  "mtime": "2026-10-22 22:01",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/pushlog3.txt",
+  "type": "file",
+  "size": 1085,
+  "mtime": "2026-10-22 22:57",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
@@ -765,10 +846,37 @@
   "note": "未登记任务/临时目录；过期归档"
  },
  {
+  "path": "_tmp_session/tagmsg_v401.txt",
+  "type": "file",
+  "size": 233,
+  "mtime": "2026-10-23 16:38",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/tagmsg_v402.txt",
+  "type": "file",
+  "size": 271,
+  "mtime": "2026-10-23 16:38",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
   "path": "_tmp_session/tools-organize-20261022",
   "type": "dir",
   "size": 370563,
   "mtime": "2026-10-22 21:28",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/TOOLS-PLUGIN-REWORK-20261022",
+  "type": "dir",
+  "size": 116369,
+  "mtime": "2026-10-23 16:29",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"

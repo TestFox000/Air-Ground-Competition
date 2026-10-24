@@ -63,6 +63,40 @@ from fakes import FakeBridge, FakeClock                           # noqa: E402
 WS = pathlib.Path(__file__).resolve().parents[3]          # <ws>/src/dzbrain/tests/x.py
 CONFIG = WS / "config" / "robot.yaml"
 MAP = WS / "config" / "map.yaml"
+#: ★ TRACK-PLAN-B1-20261021 §10/§12 的夹具：第七图 t24（D7/E7 两格靶板、K4/K10 桥洞）。
+#:   靶板是 1:1 圆面 + 35×70 跨格板，沿 0.70 m 轨道横移、不旋转 ⇒ 相邻两格都要留
+#:   可打停站；夹具与 _tmp_session/t35/map7_t24.yaml 逐字一致。
+MAP7_TEXT = """map:
+  name: field7-t24
+  start: N10
+  end: N5
+  barrier_col_from: D
+  barrier_row_hi: 6
+  barrier_row_lo: 7
+  mines:
+  - B1
+  - A2
+  - I2
+  - C3
+  - E3
+  - G5
+  - I8
+  - H9
+  obstacles:
+  - D5
+  - I6
+  - A7
+  - F8
+  - B9
+  - F10
+  - H10
+  - A11
+  targets:
+  - D7
+  - E7
+  bridges:
+  - K4
+  - K10"""
 
 #: ★★ 自足夹具（卡 D 修复带出的**测试卫生**问题）：
 #:   本套件原先读 `_scratch_auto_plan/mission/*.yaml` —— 那些文件在 `.gitignore` 里
@@ -71,7 +105,12 @@ MAP = WS / "config" / "map.yaml"
 #:   `FileNotFoundError: 地图文件不存在: <tree>/_scratch_auto_plan/mission/broken_map.yaml`
 #:   —— 代码没问题，是**测试依赖了不进版本库的临时文件**。
 #:   现在所有夹具都在 `tempfile` 目录里**现场生成**，测试可脱离工作区独立运行。
-_FIX = pathlib.Path(tempfile.mkdtemp(prefix="dz_autoplan_fix_"))
+#: ★ TRACK-PLAN-B1-20261021：本机文件沙箱拒绝向 tempfile.mkdtemp() 新建目录写文件
+#:   （PermissionError，实测），故夹具固定落在**工作区外层的可写目录**（WS.parent 可写）；
+#:   目录名固定 ⇒ 复跑可复用，且不再往仓库里写临时文件。
+_FIX = WS.parent / "_tmp_session" / "test_autoplan_fixtures"
+_FIX.mkdir(parents=True, exist_ok=True)
+MAP7 = _FIX / "map7_t24.yaml"
 
 
 def _sub_mines(text: str, repl: str) -> str:
@@ -101,6 +140,8 @@ def _make_fixtures() -> None:
     at = next(i for i, ln in enumerate(lines) if ln.rstrip("\r\n") == "    route:")
     lines.insert(at + 1, '      tokens: ["N10", "N5"]          # ★ 本套件现场注入的过时路线\n')
     (_FIX / "gate_fail.yaml").write_text("".join(lines), encoding="utf-8")
+    # ⑦ ★ TRACK-PLAN-B1：第七图 t24 夹具（§10/§12 换图重钉的靶心）
+    MAP7.write_text(MAP7_TEXT, encoding="utf-8")
     # ⑥ ★卡 t21：`engine: tour` 的配置副本 —— 把"读配置"落到夹具里。
     #   为什么需要：§1.12/1.13（缺 mines 的图能解）与 §9（`--map` 透传）测的是 **tour 引擎**的
     #   既有语义，而 `config/robot.yaml` 的 `planner.engine` 自第七趟（用户指令）起是
@@ -633,12 +674,16 @@ def _tokens_of(text: str) -> str:
 import yaml as _yaml                                           # noqa: E402
 
 _raw = _yaml.safe_load(MAP.read_text(encoding="utf-8"))
+#: ★ TRACK-PLAN-B1：§10/§12 换到第七图 t24 夹具后，门禁/校验必须用同一张图的 dict。
+_raw7 = _yaml.safe_load(MAP7.read_text(encoding="utf-8"))
 _mines = list((_raw.get("map") or _raw).get("mines") or [])
 _obst = set((_raw.get("map") or _raw).get("obstacles") or [])
 _taken = set(_mines) | _obst | {"N5", "N10"}
 _far = next(c for c in ("A11", "A1", "N7", "A3", "N1") if c not in _taken)
-_tmpdir = tempfile.TemporaryDirectory(prefix="dz_cards_")
-_variant = pathlib.Path(_tmpdir.name) / "map_variant.yaml"
+# ★ 沙箱不允许向 TemporaryDirectory 新建目录写文件（同 _FIX 的原因）⇒ 固定落在 _FIX 下
+_tmpdir = _FIX / "cards"
+_tmpdir.mkdir(parents=True, exist_ok=True)
+_variant = _tmpdir / "map_variant.yaml"
 _variant.write_text(MAP.read_text(encoding="utf-8").replace(f'"{_mines[0]}"', f'"{_far}"'),
                     encoding="utf-8")
 check("9.1 变体图已生成（把第一颗雷挪到远角空格，config/ 未改动）",
@@ -713,7 +758,7 @@ with contextlib.redirect_stdout(_buf_lc2):
     M.load_and_check(str(GATE_FAIL), None, announce=True)
 check("9.12 对照：`announce=True`（bench/live/--dry-run 走这条）仍会打印门禁报文",
       "启动门禁未通过（拒绝启动）" in _buf_lc2.getvalue(), "见输出")
-_tmpdir.cleanup()
+# 固定夹具目录不删（下一轮可直接复用；本机沙箱也无法删除仓外新建目录后的父链）
 
 # =========================================================================== #
 section("10. 卡 t11：`planner.engine` 开关（默认 tour）+ tracker-safe 双门禁 / 失败回退")
@@ -769,10 +814,10 @@ check("10.7 新引擎预算可现场覆盖（planner.tracker_max_seconds=7.5）"
 #     = tracker-safe）⇒ t11 之后这条必然红。现在两侧都显式钉住：一次 `engine: null`
 #     （缺省语义）、一次 `engine: tour`，逐字一致才叫"缺省 = tour、零影响"。
 _out_tour = plan_route_from_config(
-    real_cfg(auto_plan_enabled=True, map_path=str(MAP), engine=MT.ENGINE_TOUR),
+    real_cfg(auto_plan_enabled=True, map_path=str(MAP7), engine=MT.ENGINE_TOUR),
     log=lambda s: None)
 _out_tour_null = plan_route_from_config(
-    real_cfg(auto_plan_enabled=True, map_path=str(MAP), engine=None),
+    real_cfg(auto_plan_enabled=True, map_path=str(MAP7), engine=None),
     log=lambda s: None)
 check("10.8 ★ engine 键缺省（YAML null）与显式 tour 逐字一致：token 列表完全相同",
       _out_tour.ok and _out_tour_null.ok and _out_tour_null.tokens == _out_tour.tokens,
@@ -782,7 +827,7 @@ check("10.9 ★ tour 不跑门禁（gate_ok 恒 True，detail 写明'不跑'，�
       and "不跑门禁" in _out_tour.gate_detail, _out_tour.gate_detail)
 
 # ---- 10.C tracker-safe：车上入口真的走新引擎，且产物过了双门禁 ----
-_cfg_ts = real_cfg(auto_plan_enabled=True, map_path=str(MAP), engine=MT.ENGINE_TRACKER_SAFE,
+_cfg_ts = real_cfg(auto_plan_enabled=True, map_path=str(MAP7), engine=MT.ENGINE_TRACKER_SAFE,
                    fallback_to_tokens=True)
 _logs_ts: list[str] = []
 _out_ts = plan_route_from_config(_cfg_ts, log=_logs_ts.append)
@@ -792,11 +837,11 @@ check("10.10 ★ engine=tracker-safe → 规划成功且走的是新引擎",
 check("10.11 ★ 新引擎产物无 `:PIVOT`（仿真/真车都不建模原地折返，t7 的硬规则）",
       len(_out_ts.tokens) >= 2 and not any("PIVOT" in t for t in _out_ts.tokens),
       f"{sum(1 for t in _out_ts.tokens if 'PIVOT' in t)} 处")
-check("10.12 ★ 新引擎路线长度 = 15.05 m（官方图 tracker-safe 实测；t3-A 停站 D3 在主线 ⇒ 绕行消失）",
-      0.0 < _out_ts.route_len_m <= 19.0 and abs(_out_ts.route_len_m - 15.05) < 0.02,
+check("10.12 ★ 新引擎路线长度 = 22.05 m（第七图 t24 夹具 tracker-safe 实测，t35 §3 同值）",
+      0.0 < _out_ts.route_len_m <= 23.0 and abs(_out_ts.route_len_m - 22.05) < 0.03,
       f"{_out_ts.route_len_m:.2f} m vs tour {_out_tour.route_len_m:.2f} m"
-      f"（停站 `D3*` 在 `D1→D2→D3→E3→F3→G3` 主线上 ⇒ 与 t57 的 15.05 m 同长；"
-      f"t3 一版的 17.15 m 是 `F2*` 绕行的产物，已随 1.00 档作废）")
+      f"（64 token / 22.05 m 是 t35 复核在 map7_t24 上实测的 tracker-safe 基线；"
+      f"换图重钉依据见 REPORT『旧期望→新期望』表）")
 check("10.13 有射击停站点（`*` 后缀；route_check 的靶覆盖靠它）",
       any(t.endswith("*") for t in _out_ts.tokens),
       ",".join(t for t in _out_ts.tokens if t.endswith("*")))
@@ -810,28 +855,28 @@ check("10.15 门禁结论进日志流（现场一眼看得见用哪个引擎、�
       any("规划门禁[tracker-safe]" in s for s in _logs_ts), str(_logs_ts[:1])[:90])
 
 # ---- 10.D 门禁函数本身：好路线过 / 坏路线拦 / 模块级状态不串味 ----
-_g_ok = MT.check_planned_route(_out_ts.tokens, _raw, _cfg_ts)
+_g_ok = MT.check_planned_route(_out_ts.tokens, _raw7, _cfg_ts)
 check("10.16 ★ 门禁（含 route_check）：新引擎路线 ok；有脚本时 route_check 可用且 rc=0",
       _g_ok.ok and (not _rc_script or (_g_ok.route_check_available
                                        and _g_ok.route_check_rc == 0)),
       _g_ok.summary)
-_g_skip = MT.check_planned_route(_out_ts.tokens, _raw, _cfg_ts, route_check_module=False)
+_g_skip = MT.check_planned_route(_out_ts.tokens, _raw7, _cfg_ts, route_check_module=False)
 check("10.17 ★ route_check 不可用/显式跳过时退化：只以 validate 为门禁 + notes 留痕（车端不部署 tools/）",
       _g_skip.ok and not _g_skip.route_check_available
       and any(("不可用" in n) or ("跳过" in n) for n in _g_skip.notes), _g_skip.summary)
 _broken_route = ["N10", "N5"]
-_g_bad = MT.check_planned_route(_broken_route, _raw, _cfg_ts)
+_g_bad = MT.check_planned_route(_broken_route, _raw7, _cfg_ts)
 check("10.18 ★ 坏路线（跳过全部雷/靶、0 停站）→ 门禁 ❌，两道门都红",
       (not _g_bad.ok) and bool(_g_bad.validate_errors)
       and (not _rc_script or _g_bad.route_check_rc not in (None, 0)),
       _g_bad.summary)
-_g_again = MT.check_planned_route(_out_ts.tokens, _raw, _cfg_ts)
+_g_again = MT.check_planned_route(_out_ts.tokens, _raw7, _cfg_ts)
 check("10.19 ★ 门禁不串味：坏路线之后同进程再判好路线仍 ok（FAIL/WARN 每次调用复位）",
       _g_again.ok and _g_again.route_check_errors == [] and _g_again.validate_errors == [],
       _g_again.summary)
 
 # ---- 10.E 车上入口端到端：门禁通过 → 执行的真的是新引擎路线 ----
-rig_ts = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP),
+rig_ts = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP7),
                       engine=MT.ENGINE_TRACKER_SAFE, fallback_to_tokens=True))
 rig_ts.ticks(3)
 st_ts = rig_ts.state()
@@ -869,7 +914,7 @@ def _gate_injected(*_a, **_k):
 
 MT.check_planned_route = _gate_injected
 try:
-    rig_gf = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP),
+    rig_gf = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP7),
                           engine=MT.ENGINE_TRACKER_SAFE, fallback_to_tokens=True))
     rig_gf.ticks(3)
     txt_gf, st_gf = rig_gf.text(), rig_gf.state()
@@ -889,7 +934,7 @@ try:
           f"ok={st_gf['plan']['ok']} gate={st_gf['plan']['gate_ok']} "
           f"err={st_gf['plan']['error'][:48]!r}")
 
-    rig_gf2 = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP),
+    rig_gf2 = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP7),
                            engine=MT.ENGINE_TRACKER_SAFE, fallback_to_tokens=False))
     rig_gf2.ticks(60)
     txt_gf2 = rig_gf2.text()
@@ -934,7 +979,7 @@ check("10.36 门禁严重级默认 warn：足迹报侵入也不拦现役 tour（
       and _out_tour.ok and _out_tour.footprint_ok is False,
       f"gate={Config.load(str(CONFIG)).get('planner.footprint_gate')} "
       f"tour_ok={_out_tour.ok} footprint_ok={_out_tour.footprint_ok}")
-_g_warn = MT.check_planned_route(_out_ts.tokens, _raw, _cfg_ts)
+_g_warn = MT.check_planned_route(_out_ts.tokens, _raw7, _cfg_ts)
 _g_err = MT.check_planned_route(_out_ts.tokens, _raw,
                                 _cfg_ts.override("planner.footprint_gate", "error"))
 check("10.37 ★ 严重级开关有效：warn → ok=True；error → ok=False（同一门禁、同一路线）",
@@ -1151,19 +1196,19 @@ def _stars(toks) -> list[str]:
     return [t for t in toks if parse_token(t)["shoot"]]
 
 
-check("12.1 ★ tracker-safe（车上现役引擎）：D3* 与 G3* **同时存在**",
-      _stars(_out_ts.tokens) == ["D3*", "G3*"], str(_stars(_out_ts.tokens)))
-check("12.2 PlanOutcome 的射击停站 = ('D3','G3')，且是引擎自带（second_stop_added 为空）",
-      _out_ts.shoot_stops == ("D3", "G3") and _out_ts.second_stop_added == "",
+check("12.1 ★ tracker-safe（参考引擎）：第七图 t24 的 C9* 与 C5* **同时存在**",
+      _stars(_out_ts.tokens) == ["C9*", "C5*"], str(_stars(_out_ts.tokens)))
+check("12.2 PlanOutcome 的射击停站 = ('C9','C5')，且是引擎自带（second_stop_added 为空）",
+      _out_ts.shoot_stops == ("C9", "C5") and _out_ts.second_stop_added == "",
       f"{_out_ts.shoot_stops} / added={_out_ts.second_stop_added!r}")
-check("12.3 ★ tour（缺省引擎）自动规划**也**必须有 G3*（引擎自己不会落这颗星）",
-      _stars(_out_tour.tokens) == ["D3*", "G3*"],
+check("12.3 ★ tour（缺省引擎）自动规划**也**必须有 C5*（对侧第二停站不能被静默丢掉）",
+      _stars(_out_tour.tokens) == ["C9*", "C5*"],
       f"{_stars(_out_tour.tokens)} / {len(_out_tour.tokens)} token、{_out_tour.route_len_m:.2f} m")
-_raw_tour = PL.plan_route(_raw, real_cfg(auto_plan_enabled=True),
+_raw_tour = PL.plan_route(_raw7, real_cfg(auto_plan_enabled=True),
                           allow_reverse=False, max_seconds=10.0)
 check("12.4 tour 的补标只加一个星号：token 数/块名序列与裸引擎产物逐位相同（零路径改动）",
-      _stars(_raw_tour.tokens) == ["D3*"]
-      and _out_tour.second_stop_added == "G3"
+      _stars(_raw_tour.tokens) == ["C9*"]
+      and _out_tour.second_stop_added == "C5"
       and len(_out_tour.tokens) == len(_raw_tour.tokens)
       and [parse_token(t)["block"] for t in _out_tour.tokens]
       == [parse_token(t)["block"] for t in _raw_tour.tokens],
@@ -1173,40 +1218,40 @@ _ensure_real = PL.ensure_second_shoot_stop
 PL.ensure_second_shoot_stop = lambda toks, *_a, **_k: (list(toks), "", "（测试：收口被关掉）")
 try:
     _out_tour_off = plan_route_from_config(
-        real_cfg(auto_plan_enabled=True, map_path=str(MAP), engine=ENGINE_TOUR),
+        real_cfg(auto_plan_enabled=True, map_path=str(MAP7), engine=ENGINE_TOUR),
         log=lambda s: None)
 finally:
     PL.ensure_second_shoot_stop = _ensure_real
-check("12.5 ★反证：把收口关掉 ⇒ tour 自动规划只剩 D3*（证明 12.3 的绿只来自收口本身）",
-      _stars(_out_tour_off.tokens) == ["D3*"], str(_stars(_out_tour_off.tokens)))
+check("12.5 ★反证：把收口关掉 ⇒ tour 自动规划只剩 C9*（证明 12.3 的绿只来自收口本身）",
+      _stars(_out_tour_off.tokens) == ["C9*"], str(_stars(_out_tour_off.tokens)))
 check("12.6 收口已还原（后续用例/其它套件不受污染）",
       PL.ensure_second_shoot_stop is _ensure_real, str(PL.ensure_second_shoot_stop))
 
 # ---- 12.B 任务级：tour 自动规划上车后真的装了两个射击停站 ----
-rig_t7 = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP),
+rig_t7 = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP7),
                       engine=ENGINE_TOUR, fallback_to_tokens=True))
 rig_t7.ticks(3)
 st_t7 = rig_t7.state()
 check("12.7 ★ 上车执行（tour 自动规划）：两个射击停站都真的装在执行路线里",
       rig_t7.task.phase == MissionPhase.DRIVE
-      and [w.block for w in rig_t7.task.route.waypoints if w.shoot] == ["D3", "G3"],
+      and [w.block for w in rig_t7.task.route.waypoints if w.shoot] == ["C9", "C5"],
       str([w.block for w in rig_t7.task.route.waypoints if w.shoot]))
 check("12.8 遥测 plan.shoot_stops / second_stop_added 与产物同源",
-      st_t7["plan"]["shoot_stops"] == ["D3", "G3"]
-      and st_t7["plan"]["second_stop_added"] == "G3",
+      st_t7["plan"]["shoot_stops"] == ["C9", "C5"]
+      and st_t7["plan"]["second_stop_added"] == "C5",
       f"{st_t7['plan']['shoot_stops']} / added={st_t7['plan']['second_stop_added']!r}")
 
 # ---- 12.C 停站台账：SHOOT 与终点必须分开（终点不是"第二个打靶停站"）----
 check("12.9 ★ 停站台账区分 SHOOT 与终点：射击 2 / 终点 1，逐点 kind",
       st_ts["stops"]["counts"] == {"shoot": 2, "scan": 0, "end": 1}
-      and [p["block"] for p in st_ts["stops"]["points"]] == ["D3", "G3", "N5"]
+      and [p["block"] for p in st_ts["stops"]["points"]] == ["C9", "C5", "N5"]
       and [p["kind"] for p in st_ts["stops"]["points"]] == ["SHOOT", "SHOOT", "END"],
       str(st_ts["stops"]))
 _ledger_line = next((ln for ln in rig_ts.logs if ln.startswith("停站点 ")), "")
 check("12.10 横幅台账一行看清类型：'停站点 3 个（射击 2 / 终点 1）' + 逐点标注",
       _ledger_line.startswith("停站点 3 个（射击 2 / 终点 1）")
-      and "29:D3(射击)" in _ledger_line and "32:G3(射击)" in _ledger_line
-      and "43:N5(终点)" in _ledger_line, _ledger_line)
+      and "22:C9(射击)" in _ledger_line and "38:C5(射击)" in _ledger_line
+      and "63:N5(终点)" in _ledger_line, _ledger_line)
 # 反向控制：把 G3* 退回普通航点（单停站路线）⇒ 台账必须如实变"射击 1 / 终点 1"
 #   为什么需要：防止台账把"射击 2"写死（那样 12.9 会变成永远绿的假证据）。
 _one = ["G3" if (parse_token(t)["block"] == "G3" and parse_token(t)["shoot"]) else t

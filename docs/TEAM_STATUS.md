@@ -1,9 +1,16 @@
 # 团队状态板（TEAM_STATUS）
 
 > **维护**：Lead 每轮跑车 / 关键裁决 / 收工前更新；只写"此刻为真"的状态，不复述历史（历史看 `src/history/大事记.md`）。
+> **2026-10-23优先级纠正（用户确认）**：PID与完整循迹尚未完成；[空地闭环计划](../../docs/10_agent提示词/04_场景/空地协同闭环推进.md)现按Lead/T循迹/P云台/E集成/R评审推进F-T、F-P双主线，空地链路只做不抢现场窗口的准备。C1三趟/曾到N5不等于完整循迹验收；R3B的C0外测/C2b仍缺，D11有效FIRE样本仍0发。B1候选47/64、171/171为离线结果，靶速以D-031=1m/s为准。F-T通过后安排运动协同，含射击整赛还须F-P与飞控/链路验收。本轮仅修订方案，未SSH/部署/改生产；以下旧摘要不当今日实时事实。
 > 更新于：2026-10-22 夜 · **TOOLS-ORGANIZE 整理半归档（332 文件双哈希核），重做拆出 TOOLS-PLUGIN-REWORK-20261022（缺口 1/2/3/5/6/7 已修，deploy --dry-run 成为事实，honest-offline 503 落地；sim 家族 5 项待用户机复跑；profile 两个 file: 依赖已改指 tools/plugins/（部署债清），挂载进 bundles 等窗口）**。以下为旧注：**用户确认B/D/E三包已交回，目录D:\User\Desktop\交回包，待本地DeepSeek验包/三方合入/主副本复测，见37文§4。** 36§7阿克曼路线继续有效；R4A/R4B1为待领取建议，未实施。R3实车0趟、证据不足收口；R1候选 `e9bff6f0…8eab9b` 无新发布证据，136/136等仍为原测试。最新已回收车端身份仅截至10-20 20:55。本轮论文复核不等于三包验收，其余旧任务未重新验收。
 > **10-21 20:50 补**：R3B 实车补测已完成 5 趟有效（C0×3 / C1-short / C1_1），c1_2/c1_3 因 20:45 车端整机掉电关机未跑；证据 [RUN_CARD_20261021](../../docs/history_cache/03_过程稿快照/process_TRACK-FIELD-R3_20261022.tar.gz)，未部署、未改生产。
 > 回归基线：**37 套 / 13 红**（2026-10-18 21:20 干净树，不含当前工作树改动；见 [37 套审查台账](../../docs/history_cache/01_旧文档归档/dzrobot_v2/docs/全量回归37套_严格审查台账_20261018.md)，裁决 [D-023](决策台账.md)）
+> **2026-10-23 18:30 团队重组（用户指令）**：常驻 5 角色 **Lead ＋ T循迹 ＋ P云台PID/打靶 ＋ E部署集成 ＋ R只读评审**；按《空地协同闭环推进计划》§2 续接既有 owner。本轮不切引擎、不重构底盘；冻结域登记后才写；R 只评审。
+>
+> **当前车端实况（18:28 SSH 只读）**：up 8h22m；**仅 usb_cam_node（16:06 手动 launch）在跑**，无 dzbrain/chassis/aim/det；~/dzrobot 与 ~/dzrobot2 并存（后者归属他人，不碰）；robot.yaml PID = **L 档 2.5/0.35/0（:167-169）**、thread_num: 2（:316），config/** 仍未 frozen 登记。门禁四连实跑：gen_index=0 / check_doc_policy=0（GREEN）/ check.py=0（GREEN，1 WARN：tracker.py 登记已失效）/ check_links=0。
+>
+> **本轮文件锁（Lead 预分配；未过卡不转写权）**：T=_tmp_session/TRACK-FIELD-*/ ＋循迹卡面；P=_tmp_session/TRACK-FIELD-D11*/、_tmp_session/aimtune/ ＋D11/AIM 卡面；E=_tmp_session/E-*/ ＋部署候选取证；R=只读，结论交 Lead 入卡；Lead=docs/TEAM_STATUS.md、docs/00_项目总览/*、docs/README.md、dzrobot_v2/docs/决策台账.md、config/**、tools/wf/frozen.json。**生产代码（tracker/mission/aim/云台 cpp）本轮一律不写**，单卡验收通过后才申请锁。
+
 
 ## 1. 当前在跑
 
@@ -108,3 +115,22 @@ fbc03b2 docs: 车端更新补记——src/ 根误建包已备份移除，dzbrain
 - **① 上线 + 预检**：车 IP/连通性（ping+ssh）、main.py md5、auto_plan、route_check RC、残留进程；异常项原文贴回。
 - **② 发车 + 首段**：路线 token 数/穿洞格、首段位姿与 v、订阅者（/odom/localization）、日志横幅；危险动作先 stop 再报。
 - **③ 完赛 / 失败 + 摘要**：到达点/雷覆盖/停站/射击/用时/异常原因；日志与数据落盘路径；未证实项单列。
+
+## 8. 文档库指标（2026-10-23 17:53 复核 · 实跑口径）
+
+> 来源：`python docs/_工具/check_doc_policy.py`、`python tools/wf/check_links.py`、`docs/目录索引.json` 实跑结果，非估数。
+
+| 指标 | 值 | 备注 |
+|---|---:|---|
+| 库内篇数（机器计） | **86** | 含 docs/README.md 与 目录索引.md；20 库 41 篇 / 任务卡库 16 / 总览·提示词若干 |
+| 库外受管 .md | **65** | 基线只减不增；本轮移走 `src/todo/` 3 篇 + 重跑 `--write-baseline` 清 4 条失效项 |
+| 红线 | **0** | R1/R2/R3 全清 |
+| 提醒 | **0** | 已 `--write-baseline` 清掉 4 条 Y4 失效项 |
+| 过期候选（现行且 >180 天） | **0** | 最旧现行 10-21 |
+| 断链 | **0** | 94 文件 |
+| 索引未登记 | 0 | 仅 README/目录索引不登记（设计如此） |
+| 幽灵索引条目 | 0 | 索引指向的文件全部存在 |
+| 册级索引覆盖 | 100% | 20 库 6 册全列 |
+| 只读 / 豁免 / 第三方 | 119 / 1496 / 101 | 豁免含 history_cache、_tmp_session、git_save 等 |
+| 10-23 新增 | **8 篇** | 历史/04、历史/05、历史/06、车端/08、车端/09、空地链路/03、赛事与治理/06、赛事与治理/07 |
+

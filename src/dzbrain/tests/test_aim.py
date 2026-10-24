@@ -725,6 +725,41 @@ def test_05_hit() -> None:
 
 
 # =========================================================================== #
+#  5b. 打满预算（stop_on_hit=false，用户 2026-10-24 口径）
+# =========================================================================== #
+def test_05b_stop_on_hit_off() -> None:
+    section("5b. ★ 打满预算：stop_on_hit=false 时命中只记账、不闭锁")
+    rig = Rig(cfg=cfg_of(stop_on_hit=False))
+    _compile(rig, 8)
+    check("5b.1 命中前许可", rig.ready() is True, f"reason={rig.reason()}")
+
+    rig.bridge.add_shots(1)
+    rig.bridge.add_hits(1)
+    rig.frame(0)
+    check("5b.2 命中后原因码**不是** hit_latched（不因命中闭锁）",
+          rig.reason() != REASON_HIT_LATCHED,
+          f"reason={rig.reason()} latched={rig.tel()['hit_latched']}")
+    check("5b.3 锁存仍被记账（只记录、不闭锁）", rig.tel()["hit_latched"] is True,
+          f"latched={rig.tel()['hit_latched']}")
+
+    p0 = int(rig.tel()["permits_total"])
+    rig.idle(1.2)                     # 熬过 shot_cooldown_ms=500 的多个窗口
+    check("5b.4 命中之后仍继续发许可（打满 10 发的前提）",
+          int(rig.tel()["permits_total"]) > p0 and rig.reason() != REASON_HIT_LATCHED,
+          f"permits_total {p0}->{rig.tel()['permits_total']} reason={rig.reason()}")
+
+    # 对照：缺省键（true）必须逐位回到旧行为"命中即停"
+    rig2 = Rig(cfg=cfg_of())
+    _compile(rig2, 8)
+    rig2.bridge.add_shots(1)
+    rig2.bridge.add_hits(1)
+    rig2.frame(0)
+    check("5b.5 对照：默认 stop_on_hit=true 仍是命中即停",
+          rig2.ready() is False and rig2.reason() == REASON_HIT_LATCHED,
+          f"reason={rig2.reason()}")
+
+
+# =========================================================================== #
 #  6. 弹药上限
 # =========================================================================== #
 def test_06_budget() -> None:
@@ -1038,6 +1073,7 @@ def test_12_red_cfg_t14() -> None:
 def main() -> None:
     for name, fn in (("00", test_00_pure), ("01", test_01_estimator), ("02", test_02_lead),
                      ("03", test_03_turnaround), ("04", test_04_criteria), ("05", test_05_hit),
+                     ("05b", test_05b_stop_on_hit_off),
                      ("06", test_06_budget), ("07", test_07_lost), ("08", test_08_safety),
                      ("09", test_09_keys), ("10", test_10_thread),
                      ("11", test_11_red_early), ("12", test_12_red_cfg_t14)):

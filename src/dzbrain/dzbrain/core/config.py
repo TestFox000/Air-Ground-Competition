@@ -415,6 +415,11 @@ SCHEMA: dict[str, Spec] = {
                        "跟踪指数 ξ（α=2(2ξ−1)/(ξ(ξ+1))，**不是** α 系数本身，勿按 0~1 理解）"),
     "aim.fire_only_blue": Spec(True, _B, "", None, None, "仅攻击蓝靶(cls==1)"),
     "aim.hit_hold_s": Spec(0.5, _F, "s", 0.0, 5.0, "命中后锁存时长"),
+    # ★ 2026-10-24 用户口径「看到蓝面就打满 10 发」：命中不再提前停火，
+    #   停火只由预算门（max_shots_per_target / max_shots_total）与到站死线决定。
+    #   true（默认）= 旧行为「命中即停火省弹药」，逐位不变。
+    "aim.stop_on_hit": Spec(True, _B, "", None, None,
+                            "命中后是否立刻停火（false=打满预算；用户 2026-10-24 打靶口径）"),
     "aim.hold_min_s": Spec(0.30, _F, "s", 0.0, 2.0, "许可迟滞（只对冷却这一条，防电平只亮一拍被漏采）"),
     "aim.lead_eps_px": Spec(0.5, _F, "px", 0.0, 20.0, "提前量收敛容差（sweep 策略用）"),
     "aim.max_lead_factor": Spec(0.45, _F, "×", 0.0, 2.0, "提前量限幅 = 该值 × 轨道行程 × px_per_m"),

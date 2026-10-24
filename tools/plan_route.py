@@ -180,12 +180,13 @@ def _close_dual_shoot_stop(res: PL.PlanResult, map_cfg: dict, cfg: Config,
         res.shoot_stop2 = marked
         res.shoot_distance_m2 = PL.shoot_stop_distance(marked, map_cfg)
         res.warnings = tuple(res.warnings) + (note,)
-        # ★ 收口只改"停不停"：把 PlanResult.route 里对应航点同步标上 shoot，
-        #   否则 as_dict()["shoot_stops"]（读 route）与 tokens 里的星号会两套账。
-        for wp in getattr(getattr(res, "route", None), "waypoints", ()):
-            if wp.block == marked and not wp.shoot:
-                wp.shoot = True
-                break
+        # ★ 收口只改"停不停"：把 route 同步重建（Waypoint 是 frozen dataclass，不能原地
+        #   改 shoot），否则 as_dict()["shoot_stops"]（读 route）与 tokens 里的星号会两套账。
+        try:
+            from dzbrain.route.parser import parse_mission
+            res.route = parse_mission(res.tokens)
+        except Exception:                              # noqa: BLE001
+            pass
     return res
 
 
@@ -274,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
                          "雷直线穿心，实测追平现役手工路线）")
     ap.add_argument("--objective", choices=("legacy", "tasks"), default="legacy",
                     help="目标函数口径：legacy=历史『最短巡回+硬约束』（默认，逐字节不变）；"
-                         "tasks=任务优先『先最大化 8 雷+可达停站，再最小化时间』，"
+                         "tasks=任务优先『先最大化成功任务数（全部雷+可达停站），再最小化时间』，"
                          "结构/任务不满足时输出显式 degraded 降级路线而非无解")
     ap.add_argument("--phase-cell", default=None,
                     help="tracker-safe 引擎的隔板过渡航点（默认跟随 PL.TS_PHASE_CELL=C6）")

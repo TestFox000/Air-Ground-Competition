@@ -2,6 +2,10 @@
 # status: 核心 / 冻结 / 活跃 / 证据 / 历史 / 归档 / 临时 / 仓库 / 工具 / 素材 / 文档 / 废弃
 # 新增/移动目录后在这里补一行，然后：python tools/wf/repo_index.py --write
 paths:
+  _tmp_session/AG-TEAM-PLAN-20261023:
+    status: 临时
+    owner: Codex Lead
+    note: DSH空地闭环方案编制的原始门禁输出与hash备份；正式卡与方案在四库
   dzrobot_v2:
     status: 核心
     owner: Lead

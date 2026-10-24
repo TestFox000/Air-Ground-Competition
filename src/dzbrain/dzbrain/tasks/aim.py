@@ -502,6 +502,7 @@ class AimTask(TaskThread):
         "aim.px_per_m_rail", "aim.fire_box_far_px", "aim.fire_box_near_px",
         "aim.box_w_far_px", "aim.box_w_near_px", "aim.cls_switch_confirm_frames",
         "aim.vision_nominal_fps", "aim.fire_only_blue", "aim.hit_hold_s",
+        "aim.stop_on_hit",
         "aim.rescan_on_lost", "aim.lead_eps_px", "aim.hold_min_s",
         # 云台锁止四键已登记进 SCHEMA（core/config.py），这里同步登记以便自检一致
         "aim.gimbal_lock_enabled", "aim.gimbal_lock_scan_request",
@@ -560,6 +561,9 @@ class AimTask(TaskThread):
         self._red_run_s = 0.0               # 本次停站内"锁定红"累计秒数
         self._red_confirmed = False         # 是否已到达阈值（写 `P_AIM_RED`）
         self._hit_hold_s = float(g("aim.hit_hold_s", self._cooldown_s))
+        # ★ 2026-10-24 用户口径：射击站要「打满 10 发」，命中不提前停火。
+        #   false 时 `hit_latched` 只作遥测/事件记账，不再闭锁 `fire_ready`。
+        self._stop_on_hit = bool(g("aim.stop_on_hit", True))
         self._rescan_on_lost = bool(g("aim.rescan_on_lost", False))
         # ---- 云台巡迹锁止（用户 2026-10-11 指令）----
         # 用户原话：「循迹期间云台保持不动（锁止），到达最佳射击点（停站）之后云台才开始旋转、
@@ -928,8 +932,8 @@ class AimTask(TaskThread):
             return False, REASON_CLASS_UNSTABLE
         if self._fire_only_blue and self._locked_cls != ShotClass.BLUE:
             return False, REASON_CLASS_NOT_ALLOWED
-        # ---- 硬门 5：命中锁存（已中即停） ----
-        if self._permit.hit_latched:
+        # ---- 硬门 5：命中锁存（已中即停；`aim.stop_on_hit=false` 时只记账不闭锁） ----
+        if self._stop_on_hit and self._permit.hit_latched:
             return False, REASON_HIT_LATCHED
         # ---- 硬门 6：弹药 / 预算 ----
         if self._permit.window >= self._max_per_target:

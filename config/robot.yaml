@@ -302,7 +302,9 @@
     draw: true                # 是否弹出识别画面窗口。
                               #   false = 关窗口，省掉 30Hz 的 imshow+waitKey 开销
                               #   （在 ARM 板上相当可观）。只想看网页画面时建议关掉。
-    thread_num: 8             # RKNN 推理线程数。CPU 吃紧可降到 2。
+    thread_num: 2             # RKNN 推理线程数=池深度，直接决定流水线滞后（2026-10-22 实测：
+                              #   8 线程 30.4Hz 但滞后 8 帧≈264ms；2 线程 30.4Hz、滞后≈2 帧 66ms、CPU 160→113%；
+                              #   1 线程吞吐不足掉到 17Hz。详见 AIM-LAT-20261022 卡。
     max_fps: 30.0             # 推理帧率上限。30 = 跟随相机(默认)；降到 20 可明显省 CPU，
                               #   代价是延迟略增。<=0 表示不限制。
     hot_reload: true          # 模型文件 mtime 变化时自动热加载。
@@ -572,7 +574,7 @@ path_executor:
       - H5
       - G5
       - F5
-      - F4
+      - F4*
       - E4
       - D4
       - C4
@@ -815,6 +817,10 @@ path_executor:
       #       让第二个停站直接跳过（不为"看另一面"白绕一趟）。
       #    两个键都已登记进 core/config.py 的 SCHEMA；此处写出=便于现场调。
       red_early_leave_s: 3.0          # 锁定红持续多少秒 ⇒ 置红面确认标志（Mission 提前离站）
+      # ★★ 2026-10-24 用户口径「本侧看到蓝面 ⇒ 打满 10 发」：
+      #   命中(T)不再提前停火，停火只由预算门 max_shots_per_target(10) / max_shots_total(10)
+      #   与到站 30s 死线决定。true=旧行为「命中即停火省弹药」（默认值，逐位不变）。
+      stop_on_hit: false
       # ★★ 卡 t24：云台扫描**单写者**四键（已登记进 core/config.py 的 SCHEMA；此处注释形式
       #    给出显式配置位置，值就是 SCHEMA 默认值 —— 不写进 YAML 也生效，写进 YAML 仅便于现场调）。
       #    语义：lock=true（默认）时**只有 AimTask 写** /nav/scan_request

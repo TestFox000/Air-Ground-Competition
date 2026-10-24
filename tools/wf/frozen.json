@@ -23,10 +23,24 @@
     },
     {
       "path": "config/robot.yaml",
-      "card": "AIM-LAT-20261022",
+      "card": "AIM-LAT-20261022 + SHOOT-LINK-20261023",
       "owner": "lead",
-      "reason": "det_node.thread_num 8→2：实测输出率不变(30.4Hz)而流水线滞后 264→66ms、CPU 160→113%。已同步上车端 ~/dzrobot/config/robot.yaml，待评审收口",
-      "expires": "2026-10-29"
+      "reason": "AIM-LAT：det_node.thread_num 8→2（输出率 30.4Hz 不变、流水线滞后 264→66ms）。SHOOT-LINK：aim.stop_on_hit=false（用户 2026-10-24 口径「蓝面打满 10 发」）＋ mission_blocks 第二射击停站 F4*（与 B4* 分居靶板两侧）。本地已过 config_selfcheck/route_check/test_aim，未部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/tasks/aim.py",
+      "card": "SHOOT-LINK-20261023",
+      "owner": "lead",
+      "reason": "新增 aim.stop_on_hit 闸门：false 时 hit_latched 只记账不闭锁 fire_ready（打满 10 发口径）；默认 true 逐位不变",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/core/config.py",
+      "card": "SHOOT-LINK-20261023",
+      "owner": "lead",
+      "reason": "SCHEMA 登记 aim.stop_on_hit（_B，默认 True），供 config_selfcheck 与 validate 校验",
+      "expires": "2026-11-07"
     }
   ]
 }

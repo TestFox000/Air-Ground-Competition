@@ -1635,6 +1635,7 @@ def check_route_structure(route: Route, spec: MapSpec, grid: Grid,
                           expected_start: str | None = None,
                           already_covered: Sequence[str] = (),
                           crossing_halves: tuple[bool, bool] = (True, True),
+                          allow_no_stop: bool = False,
                           ) -> list[str]:
     """规划器自检（返回问题列表，空 = 通过）。**只报不改。**
 
@@ -1717,7 +1718,10 @@ def check_route_structure(route: Route, spec: MapSpec, grid: Grid,
         #   为什么不能更多：每多一个停站就多一次停站（30s 硬死线）+ 一段绕行，收益边际递减，
         #   且"两侧"的物理目的 2 个就够；再多说明路线上开始乱标 `*`。
         if not 1 <= len(stops) <= 2:
-            problems.append(f"射击停站应为 1~2 个，实际 {len(stops)}")
+            # 任务优先口径下，"本图根本不存在合法停站"是**已显式记降级的缺停站**，
+            # 不再因此把整条（雷全覆盖的）路线判死。仅 tasks + shoot_missing 时放行 0 个。
+            if not (allow_no_stop and not stops):
+                problems.append(f"射击停站应为 1~2 个，实际 {len(stops)}")
         if len(stops) == 2:
             _sides = {plate_side_of(spec, wp.block) for _i, wp in stops}
             if 0 in _sides or len(_sides) != 2:
@@ -2689,7 +2693,12 @@ def _insert_shoot_sided(tour: "_Tour", order: list[tuple[int, int]],
 def _insert_second_sided(tour: "_Tour", order: list[tuple[int, int]],
                          block: str, cross_lower: tuple[int, int],
                          cross_upper: tuple[int, int]) -> list[tuple[int, int]]:
-    """对侧第二射击停站：作为**普通航点**插入（不收口时也保留路径形状）。"""
+    """第二射击停站：作为**普通航点**插入（不收口时也保留路径形状）。
+
+    物理依据（用户 2026-10-21 确认）：靶=1:1 圆面 + 35×70 跨格板，沿 0.70 m 轨道
+    水平横移、不旋转不翻面 ⇒ 相邻两格都要留可打停站。停站本身不标 `*`，由收口
+    `ensure_second_shoot_stop()` 统一落星（保持"只加星、零路径改动"的旧语义）。
+    """
     cell = _cell(block)
     if cell in order:
         return list(order)
@@ -2895,6 +2904,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     timed_out = False
     missing_mines: list[str] = []
     shoot_missing = False
+    no_shoot_possible = False
     deadline = t0 + max(0.05, float(max_seconds))
     if pivot_penalty is None:
         pivot_penalty = float(V._cfg_get(cfg, "planner.pivot_penalty", 0.0) or 0.0)   # noqa: SLF001
@@ -3042,6 +3052,15 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                                f"{acc_lo:.2f}~{acc_hi:.2f} m 内的可通行射击点")
         cov = covering_stops(spec, pool, acc) if pool else {}
         shoot_pool = [b for b in pool if len(cov[b]) == len(spec.targets)]
+        if shoot_pool and objective == OBJECTIVE_TASKS:
+            _usable = [b for b in shoot_pool
+                       if _cell(b) not in (start_cell, end_cell)]
+            if not _usable:
+                shoot_missing = True
+                warnings.append(f"射击窗口内只有起点/终点格 {shoot_pool}（不能当停站）→ 缺停站")
+                shoot_pool = []
+            else:
+                shoot_pool = _usable
         if not shoot_pool and objective == OBJECTIVE_TASKS:
             shoot_missing = True
             detail = "; ".join(f"{b}->{'/'.join(cov[b]) or '无'}" for b in pool)
@@ -3110,8 +3129,8 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                   "side": True}
     if objective == OBJECTIVE_TASKS:
         order_candidates.insert(0, _side_cand)      # 新口径先试结构正确的候选（快）
-    else:
-        order_candidates.append(_side_cand)         # 旧口径：仅作末位兜底（零影响）
+    # legacy 口径**不追加**新候选：保持"关掉新口径 = 旧三候选 + 旧失败语义"，
+    # 同时把 D-013 的 1.5 s 单次预算留给生产默认路径（实测旧口径最坏 ~0.7 s）。
 
     # ---------------- 顺序候选（U 形单回路硬约束）----------------
     #   候选 1 = 现有行为（polish 整条）；候选 2 = U 形单回路（穿洞格钉在本半场边界）。
@@ -3138,7 +3157,11 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         _is_side = bool(_cand.get("side"))
         _heads = _tour.best_headings(_order, fixed={_order[0]: start_heading})
 
-        # ---------------- 射击停站：主停站 + 对侧第二停站（★P0-2 双面覆盖） ----------------
+        # ---------------- 射击停站：主停站 + 第二停站（★P0-2 两格靶板都可打） ----------------
+        # 靶是 1:1 圆面 + 35×70 跨格板，沿 0.70 m 轨道水平横移（1 m/s、不旋转、不翻面）
+        # ⇒ 圆面在相邻两格之间移动，两个格位都必须有可打停站（不是两块独立靶）。
+        # ★ 不按 config 的 target_speed_mps=0.04 算提前量（旧值）；规划只按距离窗口，
+        #   0.70 m/1 m/s = 0.7 s 是停站切换/开火时序的物理背景，不在本函数建模。
         _shoot = ""
         _second = ""
         if shoot_pool:
@@ -3146,7 +3169,14 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                 _order, _shoot = _insert_shoot_sided(
                     _tour, _order, shoot_pool, cross_lower_cell, cross_upper_cell)
             else:
-                _order, _heads, _shoot = _insert_shoot(_tour, _order, _heads, shoot_pool)
+                try:
+                    _order, _heads, _shoot = _insert_shoot(_tour, _order, _heads, shoot_pool)
+                except PlannerError as _exc:
+                    if objective != OBJECTIVE_TASKS:
+                        raise
+                    no_shoot_possible = True
+                    warnings.append(f"主停站没有可行插入位（{_exc}）→ 缺停站")
+                    _shoot = ""
             if _shoot:
                 _second = second_shoot_stop(spec, grid, _shoot, _shoot_accept(cfg))
                 if _second:
@@ -3230,7 +3260,10 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                            crossing={"lower": lower_cross, "upper": upper_cross},
                            final_heading=_final_heading(_stops))
         problems = check_route_structure(_route, spec, grid, limits, _shoot_accept(cfg),
-                                         already_covered=tuple(missing_mines))
+                                         already_covered=tuple(missing_mines),
+                                         allow_no_stop=(objective == OBJECTIVE_TASKS
+                                                        and (shoot_missing
+                                                             or no_shoot_possible)))
         # ★★【硬校验】隔板相邻行的"侧向 90° 转向"—— 与结构自检同层：
         #   只在 `barrier_turn_penalty > 0`（显式启用）时生效；默认 0.0 ⇒ 恒空、零影响。
         _bturns: list[str] = []
@@ -3260,7 +3293,8 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         break
     if route is None:
         if objective == OBJECTIVE_TASKS:
-            reason = "超时" if timed_out else "结构（无可行顺序）"
+            reason = ("缺停站" if (shoot_missing or no_shoot_possible) else
+                      ("超时" if timed_out else "结构（无可行顺序）"))
             return _best_effort_result(
                 spec, cfg, grid, name=name, source=source, t0=t0,
                 allow_reverse=allow_reverse, reason=reason, warnings=warnings,
@@ -3354,7 +3388,10 @@ def _insert_shoot(tour: _Tour, order: list[tuple[int, int]], heads: Sequence[int
     for block in pool:
         cell = _cell(block)
         if cell in order:
-            detour, pos = 0.0, order.index(cell)
+            pos = order.index(cell)
+            if pos in (0, len(order) - 1):      # 起点/终点不能当射击停站
+                continue
+            detour = 0.0
         else:
             scored = []
             for i in positions:
