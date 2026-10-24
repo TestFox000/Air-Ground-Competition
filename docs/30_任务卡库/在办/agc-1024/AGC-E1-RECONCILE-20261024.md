@@ -208,3 +208,88 @@ python -B -X utf8 tools/sim_pursuit.py --config ../_tmp_session/agc-1024/e1/m1/c
 ### 边界
 
 未改 `planner.py` / `mission.py` / 任何 config；未部署；未实车。所有中间件在 `_tmp_session/agc-1024/e1/m1/**`（含车端 cfg 副本、两条路线文件、sim 的 traj/by_segment CSV）。
+
+---
+
+## 14 AGC-24 M1 实验配置副本（t13 · 2026-10-24 19:0x，只改一行，未推车）
+
+### 产物
+
+| 项 | 值 |
+|---|---|
+| 副本路径 | `_tmp_session/agc-1024/e1/m1_cfg/robot_cfg_m1.yaml` |
+| 来源 | 车端 `/home/duzhong/dzrobot/config/robot.yaml` 只读 scp 拉取（源 sha256 `49128a01ab95d9a1…`，76,923 B） |
+| 副本 sha256 | `76889ff6401c0096e558942db0215d214a6b1c4b893277c0d69e6a2319204c7d` |
+| 与源差异 | **正好 1 行**（见下 diff） |
+
+```diff
+@@ -764,7 +764,7 @@
+       map_path: "config/map.yaml"     # 解析顺序：绝对路径 → 相对配置文件目录 → 相对工作区
+                                       # ★ 2026-10-11 t3:换图就是**覆盖这个文件**(第四张图识图版),
+                                       #   所有消费方(route_check/planner/sim/config_selfcheck)按此名查找
+-      fallback_to_tokens: true        # 规划失败（PlannerError/超时/坏图）→ warn 后回退 route.tokens，仍出发
++      fallback_to_tokens: false        # 规划失败（PlannerError/超时/坏图）→ warn 后回退 route.tokens，仍出发
+       allow_reverse: false            # ★真车底盘不支持倒车 → 规划器走无倒车模式（0 段 R:，折返交 PIVOT）
+       max_seconds: 2.0                # 规划时间预算；超出抛 PlannerError → 走上面的回退分支
+       pivot_penalty: 5.0              # ★ 折返惩罚/处；与 mission_blocks 生成参数一致（--pivot-penalty 5），
+```
+
+注释行**故意保持原文**（未改措辞）——它的下一条 `allow_reverse/max_seconds` 都是规划失败相关，改注释会让人以为动过别的键。
+
+### 语义级校验：不只 diff 行数，而是**逐键比**
+
+用 `Config.load()` 把「车端原件」与「副本」都展平成配置字典再比（这比 diff 更强：注释/空白/键序都不影响，只有真正的键值会露头）：
+
+```
+orig keys=264  mine keys=264
+planner.fallback_to_tokens: orig=True mine=False
+配置字典差异键数 = 1
+   planner.fallback_to_tokens               True -> False
+RESULT ONLY-FALLBACK-CHANGED
+```
+关键键回归（必须原样）：`planner.auto_plan_enabled=True`、`planner.map_path=config/map.yaml`、`planner.allow_reverse=False`、`planner.max_seconds=2.0`、`planner.pivot_penalty=5.0`、`planner.footprint_gate=warn`、`route.tokens` n=50、`mission.skip_second_stop_after_hit=True`（M1 禁火不涉及；**M2 前必须显式置 false**）。
+
+### 可加载性（仓内 config_selfcheck，副本 + 车端 map）
+
+```
+路线: 50 点 | 射击停站 [F9*, F5*] | 倒车 [R:H9, R:H10]
+[配置校验] 0 条非 info 问题
+[路线校验] 0 error / 0 warn
+结论：error 0 / warn 0  ✅ 通过
+```
+
+### M1 启动命令（车端零文件改动，利用 start_all.sh 已有的 `ROBOT_CONFIG` 开关）
+
+现场事实（只读取证）：`/home/duzhong/dzrobot/start_all.sh`
+- `:23  CONFIG="${ROBOT_CONFIG:-$WS/config/robot.yaml}"` ← **原生支持换配置**
+- `:147 echo "配置中心: $CONFIG"` ← **横幅**，启动日志第一屏就写着用的是哪份配置
+- `:220 python3 -u -m dzbrain.main --config "$CONFIG" --map "$WS/config/map.yaml" --force`
+
+GO 时三步（**本次均未执行**）：
+
+```bash
+# ① 投递副本（只往 /tmp 写，不碰车端 config/）
+ssh duzhong@192.168.0.4 "mkdir -p /tmp/agc1024_m1"
+scp _tmp_session/agc-1024/e1/m1_cfg/robot_cfg_m1.yaml duzhong@192.168.0.4:/tmp/agc1024_m1/robot_cfg_m1.yaml
+# ② 车上校验字节一致（必须输出 76889ff6…）
+ssh duzhong@192.168.0.4 "sha256sum /tmp/agc1024_m1/robot_cfg_m1.yaml"
+# ③ 带配置起栈（横幅会打印「配置中心: /tmp/agc1024_m1/robot_cfg_m1.yaml」）
+ssh duzhong@192.168.0.4 "ROBOT_CONFIG=/tmp/agc1024_m1/robot_cfg_m1.yaml bash /home/duzhong/dzrobot/start_all.sh restart"
+```
+
+### 回滚命令（一条，回到车端默认配置）
+
+```bash
+ssh duzhong@192.168.0.4 "bash /home/duzhong/dzrobot/start_all.sh restart; rm -rf /tmp/agc1024_m1"
+```
+
+车端 `config/robot.yaml` / `config/map.yaml` **从未被改**（`49128a01` / `b5629d05` 原样），所以回滚不需要恢复任何文件——只要不带 `ROBOT_CONFIG` 重启即可。
+
+### 两个必须说明的口径
+
+1. **`--force` 是 start_all.sh 既有行为**（`:220`，2026-10-11 用户令：起栈提速，自检卸载）。所以 M1 的保护**不是**靠启动门禁（它被 `--force` 跳过），而是靠这份配置里的 `fallback_to_tokens=false`：规划失败 → `PlannerError` → 停在 IDLE，不再回退到 F5* 那条带病路线。
+2. **备选投递方式**：上一轮实跑用的是 memfd（`_tmp_session/carloop-1024/reverse-fix/run2-launch-stdin.py`：把 yaml 写进 `os.memfd_create` 再把 fd 当 `--config` 传），车上不留文件。若要求"零落盘"，改用那条骨架；本轮推荐 `/tmp` 形式，因为**车上一句 `sha256sum` 就能核对字节**，审计成本更低。
+
+### 边界
+
+未推车、未改车端任何文件、未起栈、未发车。副本与脚本全部在 `_tmp_session/agc-1024/e1/m1_cfg/**`（`_tmp_session` 已在 .gitignore，不入库；可复现靠上面的 sha256 与 diff）。
