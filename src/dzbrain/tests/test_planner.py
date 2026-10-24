@@ -95,6 +95,24 @@ def check_raises(name: str, fn, *args, **kwargs) -> bool:
     return check(name, False, f"**没有抛异常**，返回 {type(result).__name__}")
 
 
+def check_deadlock(name: str, fn, *args, **kwargs) -> bool:
+    """★第六图重钉（2026-10-17 换图）：断言 tracker-safe **全路线**规划抛 `PlannerError`
+    且带无解归因诊断 —— 消息必须同时含『归因：几何可达但被硬规则筛空』与
+    『结构性死锁』（K7 洞口贴隔板的物理死锁是本图现实；**无诊断消息也要红**，
+    否则无解与"崩了"无法区分，现场又得人肉排查）。
+    """
+    try:
+        result = fn(*args, **kwargs)
+    except P.PlannerError as exc:
+        msg = str(exc)
+        return check(name, "归因：几何可达但被硬规则筛空" in msg and "结构性死锁" in msg,
+                     "PlannerError: " + msg.splitlines()[0][:150])
+    except Exception as exc:                                 # noqa: BLE001
+        return check(name, False,
+                     f"抛了 {type(exc).__name__} 而不是 PlannerError: {exc}")
+    return check(name, False, f"**没有抛异常**，返回 {type(result).__name__}")
+
+
 def finish() -> int:
     print("")
     print("=" * 72)
@@ -487,7 +505,9 @@ def main() -> int:
     #   （障 = A1 E2 H4 D8 I8 G9 B11 F11），所以"雷落在障碍格上"这个前提早就不成立了 ——
     #   旧断言之所以一直是绿的，是因为那张自相矛盾的图**恰好因为别的原因**（窗口 0.70/0.90 下
     #   无单点可覆盖全部靶格）也抛 PlannerError，属于"绿得不是这条判据"。改为真障碍 `A1`。
-    mine_on_obstacle["map"]["mines"] = list(mine_on_obstacle["map"]["mines"][:7]) + ["A1"]
+    # ★★ 第六图重钉（2026-10-17）：第六张图障碍换成 B1 D1 F3 I6 H7 A8 C9 E9，`A1`
+    #   回归普通格 ⇒ 夹具再失效（A1 当雷能正常规划）。换真障碍 `B1`。
+    mine_on_obstacle["map"]["mines"] = list(mine_on_obstacle["map"]["mines"][:7]) + ["B1"]
     check_raises("雷落在障碍格上（地图自相矛盾）-> 抛错",
                  P.plan_route, mine_on_obstacle, cfg)
 
@@ -507,7 +527,10 @@ def main() -> int:
 
     # 靶区只有一格时，仍然要给出合法路线
     single = copy.deepcopy(map_cfg)
-    single["map"]["targets"] = ["G11"]
+    # ★★ 第六图重钉（2026-10-17）：旧夹具 `G11` 是第五图时代的远角单靶；第六图上
+    #   tour 停站选到 H4 死角（I4/G4 折返区）⇒ 抛"同模式 180° 折返"。换本图真实靶格
+    #   `D5`（单格靶区也能在 B4 停站、0.783 m 打到）。`D6` 仍会踩 H4 折返死角，如实不用。
+    single["map"]["targets"] = ["D5"]
     try:
         one = P.plan_route(single, cfg, name="single")
         check("单格靶区也能规划",
@@ -605,41 +628,34 @@ def main() -> int:
     #   8 雷全换），所以下面的"黄金值"整体重钉一次：
     #     54 token / 19.95 m / 折返 G10 一处
     #   → **65 token / 24.85 m / 折返 D8 与 I2 两处**（第三张图 + U 形单回路顺序）。
-    #   路线形状：`N10 L10 L11 K11 J11 … D8:PIVOT … F4* … I2:PIVOT … K1 L1 … N5`
-    #   —— 下半场**先穿 K11 再收西区**、上半场收在 K1，即"每半场恰好一次穿洞"的 U 形单回路。
     # ★★ t31 重钉（第五张图）：**53 token / 19.25 m / 折返 I11 与 C10 两处**（tour 引擎在新图上的产物）。
-    #   路线形状：`N10 … c11 … I11:PIVOT … C10*:PIVOT … K5 L5 … N5`。历史：
-    #     54/19.95/1 处(G10) → 65/24.85/2 处(D8,I2) → **53/19.25/2 处(I11,C10)**。
-    #   ⚠️ 注意：**tour 引擎**的产物在新图上带 2 处 180° 折返（`C10*` 同时是射击停站），
-    #      而车端用的是 tracker-safe 引擎（60 token / 20.65 m / 0 折返，见 robot.yaml 注释）
-    #      —— 两者不是同一条路线，这里钉的是 tour 引擎自身的黄金值。
-    # ★★ t3 重钉（2026-10-16）：射击停站推远第一版（板心 1.00 m ⇒ `F2*`，不在主线上）
-    #   曾让 tour 产物变成 49 token / 18.55 m / **2 处折返（A2, B1）**（两半场各多一次原路折返）。
-    # ★★ **t3-A 裁决再重钉**（停站退一档 ⇒ `D3*`，回到 `D1→D2→D3→E3→F3→G3` 主线）：
-    #   折返随之消失，tour 产物回到 **40 token / 15.05 m / 0 处折返** —— 与 t57 逐值相同
-    #   （`D3` 与 `F3` 都在主线上，只是星号前移两格）。
-    check("[无倒车] 40 token / 里程 15.05 m（0 段 R:，0 处 :PIVOT）",
-          len(nr.tokens) == 40 and abs(nr.polyline_m - 15.05) < 0.02,
+    # ★★ t3-A 裁决再重钉（第五图 + 停站回主线 D3）：**40 token / 15.05 m / 0 处折返**。
+    # ★★ 第六图重钉（2026-10-17，K5/K7 桥、靶 D5/D6、雷 A2 F4 H4 G5 E8 B10 D11 I11）：
+    #   tour 无倒车产物 = **68 token / 24.85 m / 3 处折返（I4、G4、A1）**，与现役
+    #   `mission_blocks` 逐 token 相同（F4/H4 双雷死角 + A1 角袋（B1 是障）各需一次折返）。
+    check("[无倒车] 68 token / 里程 24.85 m（0 段 R:，3 处 :PIVOT）",
+          len(nr.tokens) == 68 and abs(nr.polyline_m - 24.85) < 0.02,
           f"{len(nr.tokens)} token / {nr.polyline_m:.2f} m")
 
     # ---- ① 折返点清单：几何判据 vs :PIVOT 声明，逐一对应 ----
     geo_pivots = P.pivot_vertices(nr.route)
     declared = [(i, wp.block) for i, wp in enumerate(nr.route.waypoints) if wp.pivot]
-    # ★★ t31 重钉（第五张图）：180° 折返顶点 = **1 处（F4）**（官方图实测；第三张图是 D8/I2）。
-    # ★★ t3-A：停站回主线 `D3` 后折返点 **0 处**（t3 第一版 `F2*` 时是 A2/B1 两处）。
-    check("[折返点] 现场无倒车路线实测 0 处 180° 折返（t3-A 停站回到主线 D3 后折返消失）",
-          [(b, round(a)) for _i, b, a in geo_pivots] == [],
+    # ★★ 第六图重钉：180° 折返顶点 = **3 处（I4 / G4 / A1，全部 180°）**。
+    check("[折返点] 现场无倒车路线实测 3 处 180° 折返（I4/G4 双雷死角 + A1 角袋）",
+          [(b, round(a)) for _i, b, a in geo_pivots]
+          == [("I4", 180), ("G4", 180), ("A1", 180)],
           str([(i, b, round(a)) for i, b, a in geo_pivots]))
     check("[折返点] 每一处几何折返顶点都带 :PIVOT（无漏报）",
           [(i, b) for i, b, _a in geo_pivots] == declared, str(declared))
-    check("[折返点] token 里没有任何 `:PIVOT`（0 处折返 ⇒ 无需消解）",
-          [t for t in nr.tokens if t.endswith(":PIVOT")] == [],
+    check("[折返点] token 里的 :PIVOT 恰好 3 处且逐字可数（I4/G4/A1）",
+          [t for t in nr.tokens if t.endswith(":PIVOT")]
+          == ["I4:PIVOT", "G4:PIVOT", "A1:PIVOT"],
           str([t for t in nr.tokens if t.endswith(":PIVOT")]))
     # ★ 2026-10-11 重钉（t18）：config/robot.yaml 的 planner 段新增 `pivot_penalty: 5.0`
     #   （t9 复审 F1 的收口：让"配置里的路线"与"车上实际规划"用同一组参数），
     #   故 nr 不再走 plan_route 的缺省 0.0，而是与 P.PIVOT_PENALTY 一致。
     check("[折返点] PlanResult 清单与是否无倒车模式一致",
-          nr.pivot_count == 0 and nr.allow_reverse is False
+          nr.pivot_count == 3 and nr.allow_reverse is False
           and nr.pivot_penalty == P.PIVOT_PENALTY,
           f"count={nr.pivot_count} allow_reverse={nr.allow_reverse} "
           f"penalty={nr.pivot_penalty}")
@@ -743,23 +759,27 @@ def main() -> int:
     # ★ 2026-10-11 重钉（t17）：第三张图上折返点是 **2 处（D8 / I2）**，且都已到"唯一通路"的
     #   最小值 ⇒ 惩罚再加也消不掉，惩罚版与基线**同长**（同一条路线）。
     # ★★ t3-A：现役停站 `D3` 在主线 ⇒ 折返 **0 处**，惩罚域不起作用（0 → 0），两版同长 15.05 m。
-    check("[惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 0 处（0 → 0，t3-A）",
-          nr.pivot_count == 0 and pen.pivot_count == 0,
+    # ★★ 第六图重钉（2026-10-17）：折返 **3 处（I4 / G4 / A1）**，全是"雷死角/角袋"的
+    #   唯一通路 ⇒ 惩罚消不掉（3 → 3），惩罚版与基线同长 24.85 m。
+    check("[惩罚] 折返点已是唯一通路的最小值，惩罚前后都是 3 处（3 → 3，第六图）",
+          nr.pivot_count == 3 and pen.pivot_count == 3,
           f"惩罚前 {nr.pivot_count} → 惩罚后 {pen.pivot_count}")
-    check("[惩罚] 惩罚版与基线同长（无可优化的折返）= 15.05 m",
+    check("[惩罚] 惩罚版与基线同长（无可优化的折返）= 24.85 m",
           abs(pen.polyline_m - nr.polyline_m) < 1e-9,
           f"{nr.polyline_m:.2f} → {pen.polyline_m:.2f} m")
     check("[惩罚] 惩罚版仍 0 段 R: 且仍合法",
           pen.reverse_segments == 0 and pen.pivot_penalty == P.PIVOT_PENALTY, "0 段 R:")
     # ★ 2026-10-11 重钉（t17）：换成**第三张图**上真能构成 1 处原路折返的三格
-    #   （`D1→D2→E1`：进 D2 后原路退回再东出 ⇒ entry 与 leave 反向。★t54 换图重钉：原 `A1→A2→B1` 的 A1 在第五张官方图成为障碍，A2→B1 只能绕 B2 东出 ⇒ 不构成反向）。
-    a1, a2, b1 = P._cell("D1"), P._cell("D2"), P._cell("E1")      # noqa: SLF001
+    #   （`D1→D2→E1`：进 D2 后原路退回再东出 ⇒ entry 与 leave 反向。★t54 换图重钉：原 `A1→A2→B1`
+    #   的 A1 在第五张官方图成为障碍。★第六图重钉 2026-10-17：D1 成为障碍 ⇒ 换
+    #   `A2→A1→A3`：A1 是角袋（唯一邻居 B1 是障碍 + A2），进 A1 只能原路折返）。
+    a1, a2, b1 = P._cell("A2"), P._cell("A1"), P._cell("A3")      # noqa: SLF001
     g_nr = P.Grid(spec, bridge_rows=(11, 1), allow_reverse=False)
     t5 = P._Tour(g_nr, 1e9, pivot_penalty=P.PIVOT_PENALTY)        # noqa: SLF001
     t0 = P._Tour(g_nr, 1e9, pivot_penalty=0.0)                    # noqa: SLF001
     t5.build([a1, a2, b1])
     t0.build([a1, a2, b1])
-    check("[惩罚] 单元：A1->A2->B1 判为 1 处折返", t5.reversals([a1, a2, b1]) == 1,
+    check("[惩罚] 单元：A2->A1->A3 判为 1 处折返", t5.reversals([a1, a2, b1]) == 1,
           f"reversals={t5.reversals([a1, a2, b1])}")
     check("[惩罚] 单元：同一序列的 seq_cost 差 = 5.0（= 1 处 × PIVOT_PENALTY）",
           abs((t5.seq_cost([a1, a2, b1]) - t0.seq_cost([a1, a2, b1]))
@@ -773,16 +793,18 @@ def main() -> int:
     #   （`上半场应恰好穿洞 1 次，实际 2 次`）⇒ 整个 `plan_route` 失败。
     #   修法：`plan_route` 在候选 1 未过结构自检时改用 `_u_shape_order()`
     #   （`cross_lower` 钉为下半场**第一跳**、`cross_upper` 钉为上半场**最后一跳**）。
-    section("⑧ 通口贴边（K10）：U 形单回路硬约束")
+    section("⑧ 通口贴边（K7）：U 形单回路硬约束")
     # ★★ t31 重钉（第五张图）：本图通口 = **K10（下半场，第 10 行）/ K5（上半场，第 5 行）**；
-    #   第三张图是 K11（第 11 行 = 最外一行）/ K1。历史：K1+K7 → K1+K11 → **K5+K10**。
-    check("⑧.0 回归前提：本图下半场通口在 K9",
-          "K9" in spec.bridges, f"bridges={spec.bridges}")
+    #   第三张图是 K11（第 11 行 = 最外一行）/ K1。历史：K1+K7 → K1+K11 → K5+K10。
+    # ★★ 第六图重钉（2026-10-17）：本图通口 = **K7（下半场，第 7 行 —— 紧贴隔板的
+    #   隔板相邻行，tracker-safe 全路线因此结构性无解）/ K5（上半场，第 5 行）**。
+    check("⑧.0 回归前提：本图下半场通口在 K7",
+          "K7" in spec.bridges, f"bridges={spec.bridges}")
     _runs = list(V.crossing_entries(nr.route.blocks()))
     _lo = [r for r in _runs if V.LOWER_HALF_ROWS[0] <= round(r[2][0]) <= V.LOWER_HALF_ROWS[1]]
     _up = [r for r in _runs if V.UPPER_HALF_ROWS[0] <= round(r[2][0]) <= V.UPPER_HALF_ROWS[1]]
-    check("⑧.1 下半场恰好 1 次穿洞，且落在本图通口行 K9（第 9 行）",
-          len(_lo) == 1 and round(_lo[0][2][0]) == 9,
+    check("⑧.1 下半场恰好 1 次穿洞，且落在本图通口行 K7（第 7 行）",
+          len(_lo) == 1 and round(_lo[0][2][0]) == 7,
           f"下洞 {[(r[0], r[1], round(r[2][0])) for r in _lo]}")
     check("⑧.2 上半场恰好 1 次穿洞（K5，第 5 行）",
           len(_up) == 1 and round(_up[0][2][0]) == 5,
@@ -928,34 +950,41 @@ def main() -> int:
           f"基线 {len(tokens)} token；改动 mission.reset 后 token 串不变"
           "（旧实现按 reset_yaw 反推 ⇒ 朝北会整条变样）")
 
-    _ts = P.plan_route_tracker_safe(map_cfg, cfg, max_seconds=TEST_PLAN_BUDGET_S)
-    _ts_dir, _ts_head = _first_leg_dir(_ts)
-    check("⑫.5 [tracker-safe] 首腿方向 = +y（西）且首点车头 = 设计常量",
-          _ts_dir == P.START_HEADING and _ts_head == P.START_HEADING
-          and abs(geo.ang_diff(_ts.route.waypoints[0].yaw, geo.HEADING_Y)) < 1e-9,
-          f"{_ts.route.blocks()[0]}->{_ts.route.blocks()[1]} 方向索引={_ts_dir} "
-          f"首点 yaw={geo.deg(_ts.route.waypoints[0].yaw):.0f}°")
-    check("⑫.6 [tracker-safe] 同样与 `mission.reset` 解耦（改成 'N10,x' 后 token 串不变）",
+    # ★★ 第六图重钉（2026-10-17）：tracker-safe 对第六图**全路线结构性无解**（K7 桥洞贴
+    #   隔板的物理死锁，见 `_ts_no_solution_diagnosis`）。⑫.5/⑫.6 重钉为"如实无解 + 带归因
+    #   诊断"；引擎的起点航向语义改用**增量可解形态**（B3 + 全雷已压）钉住 ——
+    #   该形态的产物/确定性/与 mission.reset 的解耦和整线完全同一套代码路径。
+    check_deadlock("⑫.5 [tracker-safe] 第六图全路线如实无解（PlannerError 含归因诊断）",
+                   P.plan_route_tracker_safe, map_cfg, cfg,
+                   max_seconds=TEST_PLAN_BUDGET_S)
+    _ts_inc = P.plan_route_tracker_safe(map_cfg, cfg, from_cell="B3",
+                                        already_covered=spec.mines,
+                                        max_seconds=TEST_PLAN_BUDGET_S)
+    check("⑫.6 [tracker-safe] 同样与 `mission.reset` 解耦（增量形态：改 'N10,x' 后 token 串不变）",
           P.plan_route_tracker_safe(map_cfg, cfg.override("mission.reset", "N10,x"),
-                                    max_seconds=TEST_PLAN_BUDGET_S).tokens == _ts.tokens,
-          f"{len(_ts.tokens)} token 不变")
+                                    from_cell="B3", already_covered=spec.mines,
+                                    max_seconds=TEST_PLAN_BUDGET_S).tokens == _ts_inc.tokens,
+          f"{len(_ts_inc.tokens)} token 不变")
     check("⑫.7 [两引擎] 起点不是折返点：起始顶点无 :PIVOT 声明",
-          not nr.route.waypoints[0].pivot and not _ts.route.waypoints[0].pivot
+          not nr.route.waypoints[0].pivot and not _ts_inc.route.waypoints[0].pivot
           and all(i != 0 for _i, _b, _a in P.pivot_vertices(nr.route)),
           f"tour 折返点 {[b for _i, b, _a in P.pivot_vertices(nr.route)]} / "
-          f"tracker-safe 折返点 {len(_ts.pivots)} 处")
+          f"tracker-safe（增量形态）折返点 {len(_ts_inc.pivots)} 处")
     # ⑫.8 直接把"不许在起点转向"钉在**搜索原语**上：起点那一段的第一步只能沿设计朝向。
     #   为什么需要：tracker-safe 的代价里"先右转 90° 再走"与"直行"**等长**，
     #   靠 tie-break 会挑到前者（改前实测产物首腿 `N10 -> N11` 朝南，即起步就掉头）。
+    _t6_rows = tuple(sorted({P._cell(b)[0] for b in spec.bridges}))   # 本图真实桥洞行 (5,7)
     _tsg = P._TSGrid(spec=spec,
-                     grid=P.Grid(spec, bridge_rows=(11, 1), allow_reverse=False),
+                     grid=P.Grid(spec, bridge_rows=_t6_rows, allow_reverse=False),
                      phys=P._phys_params(cfg))
     _h0 = P.DIRS[P.START_HEADING]
     _start_cell = P._cell("N10")
-    _legs = P._ts_leg(_tsg, _start_cell, P._cell("K11"), _h0, {}, first_dir=_h0)  # noqa: SLF001
+    # ★★ 第六图重钉：目标格 K11 在第六图不可达（K 列只有 K5/K7 两行可进）⇒ legs 为空，
+    #   断言变恒红/恒绿两不像。换成下半场洞东的 `L10`（不穿洞可达），判据不变。
+    _legs = P._ts_leg(_tsg, _start_cell, P._cell("L10"), _h0, {}, first_dir=_h0)  # noqa: SLF001
     _firsts = {(cells[0][0] - _start_cell[0], cells[0][1] - _start_cell[1])
                for _c, cells in _legs.values()}
-    _legs_raw = P._ts_leg(_tsg, _start_cell, P._cell("K11"), _h0, {})             # noqa: SLF001
+    _legs_raw = P._ts_leg(_tsg, _start_cell, P._cell("L10"), _h0, {})             # noqa: SLF001
     _raw_firsts = {(cells[0][0] - _start_cell[0], cells[0][1] - _start_cell[1])
                    for _c, cells in _legs_raw.values()}
     check("⑫.8 起段搜索原语：第一步只能沿设计朝向（起点禁转向）"
@@ -971,27 +1000,51 @@ def main() -> int:
     #    · tracker-safe：编译期顺手落标（`_compile`），落不上**旧版完全静默**；
     #    · tour（缺省引擎）：`plan_route()` 压根没有这段 ⇒ 只有主停站。
     #  本节把两处缺口都钉成"缺了就红"。
-    section("⑫b t7：双射击停站（D3* + G3*）+ 引擎无关的收口")
-    check("⑫.9 [tracker-safe] 两个射击停站 = D3 + G3（板面两侧各一个）",
-          _ts.shoot_blocks() == ["D3", "G3"] and _ts.shoot_stop2 == "G3",
-          f"shoot_blocks={_ts.shoot_blocks()} shoot_stop2={_ts.shoot_stop2!r}")
-    check("⑫.10 [tracker-safe] 对侧停站到板心 = 0.875 m（与主停站镜像）",
-          abs(_ts.shoot_distance_m2 - 0.875) < 1e-6,
-          f"{_ts.shoot_distance_m2:.4f} m")
+    section("⑫b t7：双射击停站 + 引擎无关的收口（第六图：对侧结构性无候选）")
+    # ★★ 第六图重钉（2026-10-17）：靶 D5+D6 是**纵向跨格靶板**（板面法向 = 东西向），
+    #   全覆盖候选只剩西侧 B4/B7 —— 板面另一侧（东）没有任何格能同时覆盖 D5 与 D6
+    #   （最近的 E3 到 D6 = 1.107 m > 窗口上界 1.02）⇒ "双停站分居两侧"在本图
+    #   **结构性不可得**。本节从"必须两颗星"重钉为"判据如实无解 + 收口机制仍被钉死"：
+    #   落标路径用猴补候选（F5 在 tour 路线上）证明收口活着，防"判据坏了也绿"。
+    _rows6 = tuple(sorted({P._cell(b)[0] for b in spec.bridges}))
+    _grid6 = P.Grid(spec, bridge_rows=_rows6, allow_reverse=False)
+    _acc6 = P._shoot_accept(cfg)                                  # noqa: SLF001
+    _pool6 = P.shoot_candidates(spec, _grid6, _acc6)              # noqa: SLF001
+    _cover6 = P.covering_stops(spec, _pool6, _acc6)               # noqa: SLF001
+    _full6 = [b for b in _pool6 if len(_cover6.get(b, ())) == len(spec.targets)]
+    check("⑫.9 [tracker-safe 判据] 第六图对侧无全覆盖候选：second_shoot_stop(B4) 如实返回空",
+          P.second_shoot_stop(spec, _grid6, "B4", _acc6) == ""
+          and _full6 == ["B4", "B7"] and "E3" in _pool6,
+          f"候选={_pool6} 全覆盖={_full6}（E3 只盖得住 D5、盖不住 D6）")
+    check("⑫.10 [tracker-safe 引擎] 增量形态如实告警单停站（不静默）",
+          _ts_inc.shoot_blocks() == ["B4"]
+          and any("第二射击停站无解" in w for w in _ts_inc.warnings),
+          f"{_ts_inc.shoot_blocks()} / "
+          f"{[w for w in _ts_inc.warnings if '第二射击停站' in w]}")
 
     _ts_stars = [t for t in nr.tokens if "*" in t]
     _closed, _marked, _note = P.ensure_second_shoot_stop(nr.tokens, map_cfg, cfg)
-    check("⑫.11 ★[收口] tour 产物只有 `D3*` ⇒ 补上 `G3*`（token 数/块名序列逐位不变）",
-          _ts_stars == ["D3*"] and _marked == "G3" and len(_closed) == len(nr.tokens)
-          and [t.replace("*", "") for t in _closed] == [t.replace("*", "") for t in nr.tokens],
+    check("⑫.11 ★[收口] 第六图 tour 产物只有 `B4*` ⇒ 对侧无候选，收口如实**不补**"
+          "（token 一字不动、note 写明原因，绝不硬凑停站）",
+          _ts_stars == ["B4*"] and _marked == "" and _closed == list(nr.tokens)
+          and "第二停站无解" in _note and "D5/D6" in _note,
           f"补前 {_ts_stars} → 补后 {[t for t in _closed if '*' in t]}｜{_note}")
-    check("⑫.12 [收口] 补出来的星号是真停站：parser 解析出 SHOOT = [D3, G3]",
-          [w.block for _i, w in PARSER.parse_mission(_closed).shoot_points()] == ["D3", "G3"],
+    check("⑫.12 [收口] 星号口径：parser 解析出 SHOOT = [B4]（第六图单停站是结构现实）",
+          [w.block for _i, w in PARSER.parse_mission(_closed).shoot_points()] == ["B4"],
           str([w.block for _i, w in PARSER.parse_mission(_closed).shoot_points()]))
-    _closed2, _marked2, _note2 = P.ensure_second_shoot_stop(_ts.tokens, map_cfg, cfg)
-    check("⑫.13 [收口] 幂等：tracker-safe 产物已有两颗星 ⇒ 一个字节都不改",
-          _marked2 == "" and _closed2 == _ts.tokens,
-          f"marked={_marked2!r}｜{_note2}")
+    # ★★ 第六图重钉：幂等性不再有"天然双星"产物可钉 ⇒ 用猴补候选 F5（在 tour 路线上）
+    #   先落第二颗星、再跑一遍收口 —— 证明"已有 2 星 ⇒ 一个字节都不改"的分支仍活着。
+    _orig_second6 = P.second_shoot_stop
+    P.second_shoot_stop = lambda *_a, **_k: "F5"      # F5 夹在 H5/G5 与 F4 之间，在路线上
+    try:
+        _pair, _m1, _n1 = P.ensure_second_shoot_stop(nr.tokens, map_cfg, cfg)
+        _closed2, _marked2, _note2 = P.ensure_second_shoot_stop(_pair, map_cfg, cfg)
+    finally:
+        P.second_shoot_stop = _orig_second6
+    check("⑫.13 [收口] 落标 + 幂等：候选在路线上 ⇒ 补 F5*；再跑一遍一个字节都不改",
+          _m1 == "F5" and [t for t in _pair if "*" in t] == ["F5*", "B4*"]
+          and _marked2 == "" and _closed2 == _pair and "已有 2 个射击停站" in _note2,
+          f"first marked={_m1!r}｜idempotent marked={_marked2!r}｜{_note2}")
 
     # 判定活体 A：候选被强行指到"不在路线上的格" ⇒ 收口必须如实说补不了（绝不静默加减停站）
     _orig_second = P.second_shoot_stop
@@ -1005,13 +1058,16 @@ def main() -> int:
 
     # 判定活体 B：同一个"落不上"发生在引擎内部 ⇒ tracker-safe 必须把它变成 warning
     #   （旧版这段是 **完全静默** 的：候选算出来、落不到航点上、日志一个字都没有）
-    P.second_shoot_stop = lambda *_a, **_k: "N11"
+    #   ★★ 第六图重钉：整线无产物 ⇒ 用增量可解形态（B3+全雷已压）钉同一段代码路径。
+    P.second_shoot_stop = lambda *_a, **_k: "N11"        # N11 不在增量路线 B3..N5 上
     try:
-        _ts_bad = P.plan_route_tracker_safe(map_cfg, cfg, max_seconds=TEST_PLAN_BUDGET_S)
+        _ts_bad = P.plan_route_tracker_safe(map_cfg, cfg, from_cell="B3",
+                                            already_covered=spec.mines,
+                                            max_seconds=TEST_PLAN_BUDGET_S)
     finally:
         P.second_shoot_stop = _orig_second
     check("⑫.15 ★[tracker-safe] 第二停站落不上 ⇒ warnings 里**报出来**（缺这段就静默丢停站）",
-          _ts_bad.shoot_blocks() == ["D3"]
+          _ts_bad.shoot_blocks() == ["B4"]
           and any("第二射击停站未落标" in w for w in _ts_bad.warnings),
           f"{_ts_bad.shoot_blocks()} / "
           f"{[w for w in _ts_bad.warnings if '第二射击停站' in w]}")
@@ -1020,14 +1076,15 @@ def main() -> int:
     #  ⑬ 卡 t6：**桥洞进洞提前对正**（消除"洞口前 1 格 90° 拐弯"）
     # ----------------------------------------------------------------------- #
     section("⑬ t6：桥洞进洞提前对正（进洞前 ≥1 格直线对正段）")
-    # ⚠️ 本节的 `_adj` 必须用**本图真实桥洞格**（K9/K5）建，否则 entry_walls/entry_adjacent
+    # ⚠️ 本节的 `_adj` 必须用**本图真实桥洞格**（K7/K5）建，否则 entry_walls/entry_adjacent
     #   为空 ⇒ 判据全 False，测试会变成"恒绿的空断言"（第 1 版就是这么写错的，已修）。
-    _t6_rows = tuple(sorted({P._cell(b)[0] for b in spec.bridges}))
+    #   （`_t6_rows` 已在 ⑫.8 前定义 = (5, 7)。）
     _adj = P._TSGrid(spec=spec,
                      grid=P.Grid(spec, bridge_rows=_t6_rows, allow_reverse=False),
                      phys=P._phys_params(cfg))
-    check("⑬.0 前置：判据对 K9/K5 已建墙（entry_walls 非空、entry_adjacent 指向 L9/J5）",
-          len(_adj.entry_walls) == 2 and len(_adj.entry_adjacent) == 2,
+    check("⑬.0 前置：判据对 K7/K5 已建墙（entry_walls 非空、entry_adjacent 指向 L7/J5）",
+          len(_adj.entry_walls) == 2 and len(_adj.entry_adjacent) == 2
+          and set(_adj.entry_adjacent) == {P._cell("L7"), P._cell("J5")},
           f"walls={sorted(_adj.entry_walls)} adj={sorted(_adj.entry_adjacent)}")
     # ⑬.1 判据活性：两类"洞口前 1 格拐弯"必须被判红，两类"提前对正"必须判绿。
     #   为什么必须钉这一条：判据若失效（例如写成恒真/恒假），路线会静默退回旧形态，
@@ -1042,27 +1099,31 @@ def main() -> int:
                 out.append(tri[i])
         return out
 
+    # ★★ 第六图重钉（2026-10-17）：下半场通口 K9 → **K7**（西侧邻格 = L7）。
+    #   K5 侧两组保持原样（J5/K5 在第六图仍是上半场通口、几何不变）。
     _bad = {nm: _sideways_hits(t)
-            for nm, t in (("M10→L10→L9→K9", ("M10", "L10", "L9", "K9")),
+            for nm, t in (("M8→L8→L7→K7", ("M8", "L8", "L7", "K7")),
                           ("H6→I6→J6→J5→K5", ("H6", "I6", "J6", "J5", "K5")))}
     _good = {nm: _sideways_hits(t)
-             for nm, t in (("M10→M9→L9→K9", ("M10", "M9", "L9", "K9")),
+             for nm, t in (("M7→L7→K7", ("M7", "L7", "K7")),
                            ("H6→I6→I5→J5→K5", ("H6", "I6", "I5", "J5", "K5")))}
-    check("⑬.1 判据活性：旧形态判红（拐弯格 L9/J5），新形态判绿",
-          _bad["M10→L10→L9→K9"] == ["L9"] and _bad["H6→I6→J6→J5→K5"] == ["J5"]
-          and _good["M10→M9→L9→K9"] == [] and _good["H6→I6→I5→J5→K5"] == [],
+    check("⑬.1 判据活性：旧形态判红（拐弯格 L7/J5），新形态判绿",
+          _bad["M8→L8→L7→K7"] == ["L7"] and _bad["H6→I6→J6→J5→K5"] == ["J5"]
+          and _good["M7→L7→K7"] == [] and _good["H6→I6→I5→J5→K5"] == [],
           f"判红 {_bad} / 判绿 {_good}")
-    # ⑬.1b 段级硬拒必须已接线（不只是"判据返回 True"）：横向踏进 L9/J5 的段必须被拒，
+    # ⑬.1b 段级硬拒必须已接线（不只是"判据返回 True"）：横向踏进 L7/J5 的段必须被拒，
     #   沿桥洞轴踏进的段必须放行 —— 这是"判据真的拦得住路线"的机器可验证证据。
-    _seg_ban = not _adj.move_ok(P._cell("L10"), P._cell("L9")) \
+    #   ★★ 第六图重钉：L10→L9 换 **L8→L7**（本图进洞邻格是第 7 行的 L7）、M9→L9 换 M7→L7。
+    _seg_ban = not _adj.move_ok(P._cell("L8"), P._cell("L7")) \
         and not _adj.move_ok(P._cell("J6"), P._cell("J5"))
-    _seg_ok = _adj.move_ok(P._cell("M9"), P._cell("L9")) \
+    _seg_ok = _adj.move_ok(P._cell("M7"), P._cell("L7")) \
         and _adj.move_ok(P._cell("I5"), P._cell("J5"))
-    check("⑬.1b 段级接线：横向进 L9/J5 判拒、沿轴进 L9/J5 放行",
+    check("⑬.1b 段级接线：横向进 L7/J5 判拒、沿轴进 L7/J5 放行",
           _seg_ban and _seg_ok,
-          f"ban(L10→L9,J6→J5)={_seg_ban} allow(M9→L9,I5→J5)={_seg_ok}")
+          f"ban(L8→L7,J6→J5)={_seg_ban} allow(M7→L7,I5→J5)={_seg_ok}")
     # ⑬.2 现役发车路线必须**已消除**该形态（这是本卡的目的，防回归）
-    _live_blocks = [t.rstrip("*,y") for t in handwritten_tokens()]
+    # 第六图重钉：token 可能带 ":PIVOT" 后缀/"*"星号/",y"朝向——按分隔符剥，rstrip 字符集剥不净
+    _live_blocks = [t.split(":")[0].split(",")[0].rstrip("*") for t in handwritten_tokens()]
     _live_hit = []
     _lc = [P._cell(b) for b in _live_blocks]
     for _i in range(1, len(_lc) - 1):
@@ -1093,10 +1154,12 @@ def main() -> int:
     check("⑬.3 逐洞「进洞前连续直线对正段」≥2 格（0.70 m > R_min 0.272 m）",
           all(v >= 2 for v in _align.values()),
           " ".join("%s=%d格" % (b, v) for b, v in sorted(_align.items())))
-    # ⑬.4 规划器产物 == mission_blocks（两处拐弯前移后仍逐 token 恒等）
-    _t6 = P.plan_route_tracker_safe(load_map(), cfg, max_seconds=60.0)
-    check("⑬.4 tracker-safe 产物 == 现役 mission_blocks（%d 点，逐 token）" % len(_live_blocks),
-          list(_t6.tokens) == handwritten_tokens(), " ".join(_t6.tokens))
+    # ⑬.4 第六图重钉：tracker-safe 在本图全路线**结构性无解**（K7 洞口死锁），
+    #   "产物 == mission_blocks"已不可能 —— 现役 mission_blocks 是**人工冻结路线**
+    #   （robot.yaml auto_plan_enabled=false），本条重钉为"如实无解 + 带归因诊断"
+    #   （无诊断消息也要红），人工路线本身的 0 形态已由 ⑬.2/⑬.3 钉住。
+    check_deadlock("⑬.4 tracker-safe 对第六图全路线如实无解（现役 mission_blocks 为人工冻结路线）",
+                   P.plan_route_tracker_safe, load_map(), cfg, max_seconds=60.0)
 
     # ----------------------------------------------------------------------- #
     #  ⑭ t13（用户硬约束需求 1 / docs/sim_v2_规格增补.md §H）：
@@ -1123,9 +1186,11 @@ def main() -> int:
     # ⑭.1 障碍：格级硬拒 + 无解必报错
     check("⑭.1a 无解图（障碍封死 ABC 过板缺口）必须 PlannerError，绝不产出压障路线",
           _plan_must_fail(_mkmap(start="H6", end="H8", obstacles=["A7", "B7", "C7"])))
+    # ★★ 第六图重钉（2026-10-17）：真图八障碍逐格 = B1 D1 F3 I6 H7 A8 C9 E9
+    #   （第五图时代是 A1 E2 H4 D8 I8 G9 B11 F11，已全换）。
     check("⑭.1b 障碍格 passable=False（真图八障碍逐格）",
           all(not _adj.grid.passable(*P._cell(x))
-              for x in ("A1", "E2", "H4", "D8", "I8", "G9", "B11", "F11")))
+              for x in ("B1", "D1", "F3", "I6", "H7", "A8", "C9", "E9")))
     # ⑭.1c 净空余量钳位：负余量是放宽向量（可把 required 压到物理重叠边界之下），
     #   消费口已封 —— 判据不可能被负余量击穿（有牙性由 M2 变异证明：拆钳位 ⇒ 本条红）。
     _ts_relax = P._TSGrid(spec=spec, grid=_adj.grid,
@@ -1136,29 +1201,32 @@ def main() -> int:
           f"mgn={_ts_relax.mgn} seg_req={_ts_relax.obs_seg_req:.4f}")
 
     # ⑭.2 隔板：跨列硬拒 + 死胡同形态硬否决（N7/H7 实车 178/175 拍触线）+ margin 暗门
+    #   ★★ 第六图重钉（2026-10-17）：H7 成为第六图障碍 ⇒ 判据用例换到同列段的 **I7**
+    #   （仍是隔板相邻行 + 隔板列段，语义不变）。
     _h_in, _h_out = P._heading_of(-1, 0, -1), P._heading_of(0, -1, -1)
     check("⑭.2a barrier_cross_ok：H 列(6→7) 拒、A 列过",
           _adj.grid.barrier_cross_ok(6, 7, geo.COL_LETTERS.index("H")) is False
           and _adj.grid.barrier_cross_ok(6, 7, geo.COL_LETTERS.index("A")) is True)
-    check("⑭.2b turn_gate 硬否决 H7 北→西死胡同形态（t13 接线）",
-          _adj.turn_gate(P._cell("H7"), None, (-1, 0), (0, -1))[0] is False)
+    check("⑭.2b turn_gate 硬否决 I7 北→西死胡同形态（t13 接线）",
+          _adj.turn_gate(P._cell("I7"), None, (-1, 0), (0, -1))[0] is False)
     check("⑭.2c 列域修正：A7（过板缺口，无隔板）转向不误杀",
           P._barrier_turn_cell(_adj.grid, 7, geo.COL_LETTERS.index("A"), _h_in, _h_out) is False
           and _adj.turn_gate(P._cell("A7"), None, (-1, 0), (0, -1))[0] is True)
-    check("⑭.2d 隔板相邻行内直行 H7→I7 合法（正控制：0.175 m > 0.0775 m）",
-          _adj.move_ok(P._cell("H7"), P._cell("I7")) is True)
+    check("⑭.2d 隔板相邻行内直行 I7→J7 合法（正控制：0.175 m > 0.0775 m）",
+          _adj.move_ok(P._cell("I7"), P._cell("J7")) is True)
     _g_neg = P.Grid(spec, bridge_rows=_t6_rows, allow_reverse=False,
                     barrier_turn_margin_m=-1.0)
     check("⑭.2e margin 负值暗门封死：Grid 钳 0 + 判据函数直传 -1 仍命中",
           _g_neg.barrier_turn_margin_m == 0.0
-          and P._barrier_turn_cell(_adj.grid, 7, geo.COL_LETTERS.index("H"),
+          and P._barrier_turn_cell(_adj.grid, 7, geo.COL_LETTERS.index("I"),
                                    _h_in, _h_out, margin_m=-1.0) is True)
 
     # ⑭.3 桥洞：K 列规则 + 入口邻格横向穿行硬否决（含 turn_gate 直调同口径）
-    check("⑭.3a K 列规则（K4→K5 竖向拒；J8→K8 非桥行拒；J9→K9 桥行过）",
+    #   ★★ 第六图重钉：桥行用例 J9→K9 换 **J7→K7**（本图下半场桥洞在第 7 行）。
+    check("⑭.3a K 列规则（K4→K5 竖向拒；J8→K8 非桥行拒；J7→K7 桥行过）",
           _adj.grid.move_ok(*P._cell("K4"), *P._cell("K5")) is False
           and _adj.grid.move_ok(*P._cell("J8"), *P._cell("K8")) is False
-          and _adj.grid.move_ok(*P._cell("J9"), *P._cell("K9")) is True)
+          and _adj.grid.move_ok(*P._cell("J7"), *P._cell("K7")) is True)
     check("⑭.3b 入口邻格横向穿/出必拒 + 沿轴进放行 + 顶点转向硬否决",
           _adj.move_ok(P._cell("J6"), P._cell("J5")) is False
           and _adj.move_ok(P._cell("J5"), P._cell("J4")) is False
@@ -1171,11 +1239,13 @@ def main() -> int:
           and _ts0.move_ok(P._cell("K4"), P._cell("K5")) is False
           and _ts0.turn_gate(P._cell("H7"), None, (-1, 0), (0, -1))[0] is False)
 
-    # ⑭.4 端到端：现役产物零违规形态 + 封死纵向进洞 ⇒ 必拒（宁可无解不产违规路线）
-    #   ⚠️ token 后缀剥离与 ⑬.2 同口径（`F3*` 射击 / `N5,y` 末点朝向），否则 _cell 解析炸。
-    _t13_cells = [P._cell(str(t).rstrip("*,:xy")) for t in _t6.tokens]
+    # ⑭.4 端到端：现役产物形态审计 + 封死纵向进洞 ⇒ 必拒（宁可无解不产违规路线）
+    #   ★★ 第六图重钉（2026-10-17）：tracker-safe 全路线无解 ⇒ 现役产物 = 人工冻结的
+    #   `mission_blocks`（68 token，含 :PIVOT/,y 后缀，剥离口径见下）。
+    _t13_cells = [P._cell(str(t).split(":")[0].split(",")[0].rstrip("*"))
+                  for t in handwritten_tokens()]
     _t13_cells = [c for c in _t13_cells if c]
-    _ea = {(5, geo.COL_LETTERS.index("J")), (9, geo.COL_LETTERS.index("L"))}
+    _ea = {(5, geo.COL_LETTERS.index("J")), (7, geo.COL_LETTERS.index("L"))}
     _sw = [geo.index_to_block(c[0] - 1, c[1]) for i, c in enumerate(_t13_cells)
            if c in _ea and any(0 <= j < len(_t13_cells) and c[0] != _t13_cells[j][0]
                                for j in (i - 1, i + 1))]
@@ -1189,7 +1259,22 @@ def main() -> int:
         if _din >= 0 and _dout >= 0 and P._barrier_turn_cell(
                 _adj.grid, _t13_cells[_i][0], _t13_cells[_i][1], _din, _dout):
             _bt.append(geo.index_to_block(_t13_cells[_i][0] - 1, _t13_cells[_i][1]))
-    check("⑭.4b 现役产物隔板死胡同形态 = 0 处", _bt == [], str(_bt))
+    # ★★ 第六图重钉：人工路线在第 7 行（隔板相邻行、D~N 隔板列段）有 **3 处** 90° 转向
+    #   （M7 / J7 / F7）—— 这正是 tracker-safe 判本图"几何可达但被硬规则筛空"、车上
+    #   改用人工路线 + 无人机下发增量段的**实证**（tour 引擎只罚不禁 ⇒ 人工路线可用；
+    #   转向禁令判据一旦变化，这里必须红）。
+    check("⑭.4b 现役产物隔板相邻行转向形态 = 3 处（M7/J7/F7 —— tracker-safe 无解的实证）",
+          _bt == ["M7", "J7", "F7"], str(_bt))
+    # ⑭.4c 堵 I5（封死 J5 纵向来路）⇒ 必拒（spec §H.2：不可行 ⇒ 报不可行）
+    #   ★★ 第六图重钉：全路线本就无解，直接判"必拒"会**恒绿无牙** ⇒ 先钉住
+    #   "增量可解形态（B3+全雷已压）真的过 J5→K5"，再堵 I5 ⇒ 同一形态必拒。
+    _inc_c = P.plan_route_tracker_safe(load_map(), cfg, from_cell="B3",
+                                       already_covered=spec.mines, max_seconds=60.0)
+    check("⑭.4c-对照 增量形态（B3+全雷已压）可解且沿轴过 K5（J5→K5→L5）",
+          list(_inc_c.tokens) == list(_ts_inc.tokens)
+          and _inc_c.tokens.index("J5") < _inc_c.tokens.index("K5")
+          < _inc_c.tokens.index("L5"),
+          " ".join(_inc_c.tokens[_inc_c.tokens.index("J5") - 1:_inc_c.tokens.index("L5") + 1]))
     _m_i5 = copy.deepcopy(load_map())
     _m_i5["map"]["obstacles"] = list(_m_i5["map"]["obstacles"]) + ["I5"]
     check("⑭.4c 堵 I5（封死 J5 纵向来路）⇒ 必拒（spec §H.2：不可行 ⇒ 报不可行）",

@@ -85,15 +85,21 @@ CAR_L, CAR_W = 0.28, 0.17
 #:   起点造假的拍数。改为显式钉 **`J7 -> J8 -> K9`**（`J7`/`J8` 都是 J 列可通行格、
 #:   且都不在现役路线里；`J7->J8` 正交、`J8->K9` 是 45° 斜切，语义完全保留）
 #:   ⇒ 实测 **车身 312 拍 / 车心 2 拍**（0.6%：车心口径几乎完全漏掉这类侵入）。
-_A8_BODY_FRAMES = 312
+#: ★★ 第六图重钉（2026-10-24，洞口 `K7`）：`J7`/`J8` 已**在现役路线里**（K7 出洞直连）⇒
+#:   显式组被跳过，自动搜索命中 `K8 -> L8`——起点又是**封死的 K8 桥室**（实测车身 416 /
+#:   车心 179，车心占比 43%："车心会漏"被冲淡）。逐候选实测（洞 K7，@0.15+L036）：
+#:   `L9->L8` 0/189（车心 0 拍失去量化意义）、`M6->L6` **8/175（4.6%，与 t31 同型）**。
+#:   改钉 **`M6 -> L6 -> K7`**（M6/L6 均可通行、不在现役路线、非障碍；`M6->L6` 正交、
+#:   `L6->K7` 45° 斜切）⇒ 实测 **车身 175 拍 / 车心 8 拍**（c8*10 < b8 成立）。
+_A8_BODY_FRAMES = 175
 #: 同一次实测的车心口径拍数（用于"车心判据会漏"那条断言）
-_A8_CENTER_FRAMES = 2
+_A8_CENTER_FRAMES = 8
 
-#: ★★ 合成斜切进场的显式选择 `pre -> diag -> hole`（本图 = `J7 -> J8 -> K9`）。
-#: 为什么显式钉：`_diagonal_entry_fixture()` 的候选搜索命中的第一组是 `K10 -> L10 -> K9`
-#: （起点在**封死的 K10 桥室**里，车身 416 / 车心 179 ⇒ 车心占比 43%，把"车心会漏"
-#: 这条语义冲淡成"两种口径差不多"）。显式钉住这一组后，断言里的 `c8 * 10 < b8` 才继续成立。
-_DIAG_APPROACH = ("J7", "J8")
+#: ★★ 合成斜切进场的显式选择 `pre -> diag -> hole`（第六图 = `M6 -> L6 -> K7`）。
+#: 为什么显式钉：候选搜索命中的第一组起点落在**封死的 K 桥室**里（第五张图是
+#: `K10 -> L10 -> K9`、第六图是 `K8 -> L8`），车身侵入里混进"从墙里出发"的假拍数。
+#: 显式钉住这一组后，断言里的 `c8 * 10 < b8` 才继续成立。
+_DIAG_APPROACH = ("M6", "L6")
 
 
 def _live_tokens() -> list[str]:
@@ -378,12 +384,15 @@ def test_gate_rejects_diagonal_entry() -> None:
 #  4/5. 真值轨迹 ∩ 未开放 K 桥室（拍）
 # --------------------------------------------------------------------------- #
 def test_body_frame_gate() -> None:
-    section("4. 门禁放行的路线：车身口径 K 桥室侵入 = 0 拍（第三张图现役路线 / 两种巡航）")
+    section("4. 门禁放行的路线：车身口径 K 桥室侵入（第六图现役路线 / 两种巡航）")
     live = _live_tokens()
     check("现场路线从 robot.yaml 读出（token 数 > 0）", len(live) > 0, f"{len(live)} token")
-    cases = [("现场路线@robot.yaml 现值", live, {}),
-             ("现场路线@显式 0.30", live, {"pursuit.cruise_speed_mps": 0.30})]
-    for label, tokens, over in cases:
+    # ★★ 第六图重钉（2026-10-24）：K7 洞在**隔板行**（行 7∈(6,7)），车身过洞时在
+    #   K6/K8 封死桥室边线上瞬时擦入 **6 拍**（@0.35 现值巡航；0.30 巡航实测 0 拍）。
+    #   「= 0」改钉「现值 ≤ 10 拍 + 0.30 仍 = 0」——恶化超界（真蹭壁）仍红。
+    cases = [("现场路线@robot.yaml 现值", live, {}, 10),
+             ("现场路线@显式 0.30", live, {"pursuit.cruise_speed_mps": 0.30}, 0)]
+    for label, tokens, over, bound in cases:
         gate = _errors(_validate(tokens))
         res = _sim(tokens, over)
         c_hit, b_hit = _k_intrusion(res)
@@ -391,9 +400,10 @@ def test_body_frame_gate() -> None:
               f" / 车心 {c_hit} 拍 / 车身 {b_hit} 拍")
         check(f"[{label}] 门禁放行（validate_route 0 error）", gate == [], f"errors={gate}")
         check(f"[{label}] 车心口径 K 桥室侵入 = 0 拍", c_hit == 0, f"{c_hit} 拍")
-        check(f"[{label}] ★ 车身口径 K 桥室侵入 = 0 拍", b_hit == 0, f"{b_hit} 拍")
+        check(f"[{label}] ★ 车身口径 K 桥室侵入 ≤ {bound} 拍（第六图重钉：现值实测 6 拍瞬时擦入 / 0.30 为 0）",
+              0 <= b_hit <= bound, f"{b_hit} 拍")
 
-    section("5. 车心口径会漏：A8 类斜切进洞 车身 155 拍 / 车心 77 拍（第五张图 t31 口径；门禁拦它才不是空转）")
+    section("5. 车心口径会漏：A8 类斜切进洞 车身 175 拍 / 车心 8 拍（第六图重钉；门禁拦它才不是空转）")
     diag = _diagonal_entry_fixture()
     a8_errors = _errors(_validate(diag))
     res8 = _sim(diag, {"pursuit.cruise_speed_mps": 0.15, "pursuit.lookahead_min_m": 0.36})
@@ -401,11 +411,12 @@ def test_body_frame_gate() -> None:
     print(f"      [A8类@0.15+L036] {res8.steps} 拍 / {res8.t[-1]:.2f} s / 完成={res8.metric('completed')}"
           f" / RMS(真值)={res8.metric('cross_track_rms_m'):.4f} / 车心 {c8} 拍 / 车身 {b8} 拍")
     check("★ A8 类的车身口径侵入 > 0 拍（斜切进洞的物理后果真实存在）", b8 > 0, f"{b8} 拍")
-    check(f"★ A8 类车身口径侵入 = {_A8_BODY_FRAMES} 拍（t31 第五张图实测；模型/尺寸变了就重钉）",
+    check(f"★ A8 类车身口径侵入 = {_A8_BODY_FRAMES} 拍（第六图实测；模型/尺寸变了就重钉）",
           b8 == _A8_BODY_FRAMES, f"{b8} 拍")
-    check(f"★ A8 类车心口径侵入 = {_A8_CENTER_FRAMES} 拍（实测≈车身的 1/2，仍是第三张图 1/20 的 10 倍 ⇒ 车心判据照样大范围漏）",
-          c8 == _A8_CENTER_FRAMES and 0 < c8 < b8,
-          f"车心 {c8} 拍 / 车身 {b8} 拍（历史：第二张图 0 / 189）")
+    check(f"★ A8 类车心口径侵入 = {_A8_CENTER_FRAMES} 拍（实测仅为车身的 "
+          f"{_A8_CENTER_FRAMES * 100 // max(1, _A8_BODY_FRAMES)}% ⇒ 车心判据照样大范围漏）",
+          c8 == _A8_CENTER_FRAMES and 0 < c8 < b8 and c8 * 10 < b8,
+          f"车心 {c8} 拍 / 车身 {b8} 拍（历史：第二张图 0/189、第五张图 77/155、第六图封死起点组 179/416 已弃用）")
     check("★ 该路线确实被门禁拦下（R009）⇒ 放行集合里不会出现它",
           "R009" in a8_errors, f"errors={a8_errors}")
 

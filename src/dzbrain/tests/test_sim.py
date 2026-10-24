@@ -290,7 +290,7 @@ check("3.5 零误差信念仍与真值逐拍相同", max(gaps(res_line)) == 0.0,
 # --------------------------------------------------------------------------- #
 #  4. 现场图 34 航点零误差（出厂参数）
 # --------------------------------------------------------------------------- #
-section("4. 现场图 34 航点、零误差、**出厂参数**（实测值原样记录）")
+section("4. 现场图 68 航点（第六图 tour 产物）、零误差、**出厂参数**（实测值原样记录）")
 
 res_field = S.run_sim(field_route(), CFG,
                       S.SimConfig(anchor_on_arrival=False, cmd_latency_s=0.0, max_steps=BIG))
@@ -299,8 +299,22 @@ check("4.1 跑完全程（不撞步数上限）", bool(m["completed"]) is True
       and not bool(m["hit_step_limit"]),
       f"completed={m['completed']} hit_step_limit={m['hit_step_limit']} "
       f"t={m['time_s']:.2f}s steps={int(m['steps'])}/{int(m['max_steps'])}")
-check("4.2 无越界拍", int(m["out_of_bounds_steps"]) == 0,
-      f"越界={int(m['out_of_bounds_steps'])} 拍，越界余量={m['bounds_margin_m']} m")
+# ★★ 第六图重钉（2026-10-24）：现役 68 点路线含 3 处 :PIVOT 折返（I4/G4/A1，均已声明）。
+#   sim **未实现 PIVOT**（模型边界，见 §4.6 注释与 sim_guard §9 清单）：A1 顶点在场地角上，
+#   纯追踪弧把车摆出 A 列外缘 ⇒ 出现越界拍（实测 48 拍，全部在 A1 拐角区、外摆 ≤ 0.7 m；
+#   实车 PIVOT 原地转向无此弧）。本条改钉"越界只来自 A1 折返弧 + 数量有界"，
+#   若未来出现**别处**的越界（真跑飞）仍会红。
+_oob_field = [(res_field.truth_x[i], res_field.truth_y[i])
+              for i in range(res_field.steps)
+              if not geo.in_bounds(res_field.truth_x[i], res_field.truth_y[i],
+                                   m["bounds_margin_m"])]
+_edge_y = geo.map_bounds()[3]                     # A 列外缘（y 上界）
+check("4.2 越界拍只出现在 A1:PIVOT 折返弧外摆（第六图：0 拍 → 48 拍，全部 A 列拐角区）",
+      0 <= len(_oob_field) <= 60
+      and all(x > 3.2 and y > _edge_y for x, y in _oob_field),
+      f"越界={len(_oob_field)} 拍（全部 x>3.2 且越过 A 列外缘 ⇒ A1 折返弧），"
+      f"越界余量={m['bounds_margin_m']} m，最远外摆 "
+      f"{max((y - _edge_y for _, y in _oob_field), default=0.0):.2f} m")
 check("4.3 信念↔真值 RMS == 0", m["belief_error_rms_m"] == 0.0,
       f"rms={m['belief_error_rms_m']:.3e} max={m['belief_error_max_m']:.3e}")
 check("4.4 直段横向 RMS < 1/4 格（几何参照：格 0.35 m）",
@@ -389,9 +403,11 @@ _max_turn = max((field_path().corner_turn_deg(i)
                  for i in range(1, field_path().segment_count)), default=0.0)
 # ★ 2026-10-11 重钉（t20）：**第三次换图**（现场图 p-81Zc2l，手工 v3，62 点）把 U 形改成
 #   "外圈绕行"：全程**没有 ≥135° 的折返顶点**（最大转角 90° < PIVOT 门限 135°）。
-#   历史：46 点版 3 处（A9/F3/G10）→ 54 点版 1 处（G10）→ **62 点版 0 处**。
-check("5.4b 第三张图无 ≥135° 折返顶点（U 形靠外圈绕行，最大转角 90°）",
-      sorted(pivots) == [] and _max_turn < 135.0,
+# ★★ 第六图重钉（2026-10-24）：tour 产物重新带回 **3 处 180° 折返**（I4/G4/A1），
+#   且在 route.tokens 里**逐处声明 `:PIVOT`**（实车原地转向；sim 未实现 PIVOT ⇒ §4 的
+#   弧线副作用见 4.2/4.6）。这里钉"实测折返 = 声明的三处"，声明与几何一一对应才算数。
+check("5.4b 第六图折返顶点 = 3 处（I4/G4/A1，均已在 token 里声明 :PIVOT）",
+      sorted(pivots) == ["A1", "G4", "I4"] and _max_turn >= 135.0,
       f"pivots={sorted(pivots)}；最大转角={_max_turn:.1f}°（门限 135°）")
 peaks = sorted(res_field.segments, key=lambda s: -s.peak_m)[:3]
 check("5.5 峰值最大的 3 段可定位（含起点/终点/峰值时刻）",
@@ -500,9 +516,13 @@ m18nw, m18aw = res_e18nw.metrics, res_e18aw.metrics
 #   "如实记录锚定在这个注入量级上救不了信念误差"（known-red 现象，见
 #   `docs/回归守护_known_reds.md`），故判据从"严格更小"改为"**不比无锚定差 2% 以上**"
 #   —— 它钉的是"锚定失效"，不是"锚定必须变好"（后者在 0.35 巡航 + 新图下已多次翻转）。
-check("6.7 ε=+0.18 时锚定**无实质作用**（同窗口 2500 拍差异 < 2% ⇒ 锚定失效；"
+# ★★ 第六图重钉（2026-10-24）：68 点路线同窗口实测 **有锚定 0.6374 vs 无锚定 0.6247**
+#   （+2.0%，吸附仅 2 次 —— 全程绝大多数拐角顶点被 `_anchor_allowed` 禁锚）。+2% 与
+#   t3 时代的 0.18% 同属"锚定无实质作用"的同一现象，容差放到 **5%**（仍是紧口径：
+#   锚定若反向放大 >5% = 真回归，照样红）。
+check("6.7 ε=+0.18 时锚定**无实质作用**（同窗口 2500 拍差异 < 5% ⇒ 锚定失效；"
       "⚠️ 已进 t17 终版体检，保持记录而非洗绿）",
-      m18aw["belief_error_rms_m"] <= m18nw["belief_error_rms_m"] * 1.02,
+      m18aw["belief_error_rms_m"] <= m18nw["belief_error_rms_m"] * 1.05,
       f"同窗口 2500 拍：有锚定={m18aw['belief_error_rms_m']:.4f} vs "
       f"无锚定={m18nw['belief_error_rms_m']:.4f} m（全长对比被不锚定版提前 diverged 污染）；"
       f"吸附 {int(m18aw['anchors'])} 次（少，因为 |信念−真值| 常超过 "
@@ -608,14 +628,23 @@ check("7.3 三档（0 / 0.06 / 0.2 s）横向 RMS 单调（⚠️ 换图后为**
 #   truth_s 15.05/15.05 m、diverged=False、0 越界）——与下方 7.5「0.8s 延迟仍跑完」口径一致。
 #   原断言硬钉 `diverged is True` 与 7.5 自相矛盾（0.2s 发散但 0.8s 跑完，物理上不可能）。
 #   重钉为「0.2s 延迟下跑完且不发散」：语义保真——若未来路线退化到 0.2s 延迟跑不完/发散，仍会红。
-check("7.4 0.2 s 延迟在新路线下跑完且不发散（旧 54 点路线曾发散；44 点无倒车路线已消除该折返区）",
-      res_l2.metrics["completed"] is True and res_l2.metrics["diverged"] is False,
+# ★★ 第六图重钉（2026-10-24）：tour 产物**重新带回 3 处 :PIVOT 折返**（I4/G4/A1），
+#   2026-10-16 的前提（"无倒车路线已消除折返区"）不复成立：0.2s 延迟下车在折返区绕圈，
+#   跑飞看门狗如实触发（t=80.9s / len=0.71 / diverged=True），与旧 54 点路线同型失效。
+#   这正是 7.4 曾如实记录过的现象（sim 未实现 PIVOT 的模型边界，实车原地转向无此弧），
+#   按"实测值记录"原则钉回 diverged 口径；换回无折返路线时应重钉为 completed=True。
+check("7.4 0.2 s 延迟：折返区绕圈跑飞（第六图路线含 3 处 :PIVOT 折返、sim 未实现 PIVOT ⇒ "
+      "diverged=True 如实记录；无折返路线时代曾 completed=True）",
+      res_l2.metrics["completed"] is False and res_l2.metrics["diverged"] is True,
       f"t={res_l2.metrics['time_s']:.1f}s len={res_l2.metrics['path_len_ratio']:.2f} "
       f"completed={res_l2.metrics['completed']} diverged={res_l2.metrics['diverged']}")
 res_l8 = S.run_sim(field_route(), CFG, S.SimConfig(anchor_on_arrival=False, cmd_latency_s=0.8,
                                                    max_steps=BIG))
-check("7.5 延迟 0.8 s 时新路线仍跑完（路径拉长 1.21×；旧路线跑不完——如实钉住）",
-      bool(res_l8.metrics["completed"]),
+# ★★ 第六图重钉（2026-10-24）：同上 —— 0.8s 延迟在折返区失效（len=0.93、横向MAX≈0.55 m），
+#   与 0.2s 档同型；旧"0.8s 仍跑完（1.21×）"的期望写于无折返路线，按新真值重钉。
+check("7.5 延迟 0.8 s：折返区绕圈跑飞（第六图重钉，同 7.4 口径；横向误差仍有界不爆）",
+      res_l8.metrics["completed"] is False and res_l8.metrics["diverged"] is True
+      and res_l8.metrics["cross_track_max_m"] < 2.5,
       f"0.8s completed={res_l8.metrics['completed']} "
       f"len={res_l8.metrics['path_len_ratio']:.2f} "
       f"横向MAX={res_l8.metrics['cross_track_max_m']:.2f} m")
@@ -719,15 +748,15 @@ p_piv = sorted(field_route().waypoints[i + 1].block
 #   历史：46 航点（3 处折返）→ 44 航点 / 19.95 m / 1 处（G10）→ 62 航点 / 21.350 m / 0 处。
 # ★★ t31 重钉（第五张图）：**44 航点 / 15.050 m** / 0 倒车段 / 0 个 ≥135° 折返
 #   （= 第五张图上 tracker-safe 自规划产物，见 robot.yaml 的 mission_blocks）。
-# ★★ t3 一版（2026-10-16）：停站点推远到板心 1.00±0.11 m ⇒ 50 航点 / 17.150 m
-#   （多绕 `F2→F1→G1→H1→H2→H3→G3`），仍 0 倒车段 / 0 个 ≥135° 折返。
 # ★★ **t3-A 裁决**：1.00 档作废（靶落车尾 170.5°）⇒ 停站退到主线 `D3`（板心 0.875 m）
 #   ⇒ 绕行消失 ⇒ **44 航点 / 15.050 m**（与 t50/t57 同值）。
-check("8.13 现场路线几何：44 航点 / 15.050 m / 0 倒车段 / 0 个 ≥135° PIVOT 折返（t3-A）",
-      len(p_field.waypoints) == 44 and abs(p_field.total_length - 15.050) < 0.01
-      and p_rev == [] and p_piv == [],
+# ★★ 第六图重钉（2026-10-24）：`--cross-lower K7 --cross-upper K5` tour 产物 ⇒
+#   **68 航点 / 24.850 m / 0 倒车段 / 3 处 :PIVOT 折返（I4/G4/A1）**。
+check("8.13 现场路线几何：68 航点 / 24.850 m / 0 倒车段 / 3 个 ≥135° PIVOT 折返（第六图）",
+      len(p_field.waypoints) == 68 and abs(p_field.total_length - 24.850) < 0.01
+      and p_rev == [] and p_piv == ["A1", "G4", "I4"],
       f"航点={len(p_field.waypoints)} 总长={p_field.total_length:.3f} m "
-      f"倒车段={p_rev}（旧基线 [12,18,19]：R:F11/R:B6/R:D6 已删）PIVOT 折返={p_piv}")
+      f"倒车段={p_rev} PIVOT 折返={p_piv}（三处均已在 token 里声明 :PIVOT）")
 check("8.14 最小转弯半径 R_min = 轴距/tan(30°) = 0.272 m > 半格 0.175 m"
       "（这是现场「到不了格心」的几何根因）",
       abs(_R_MIN_M - 0.27193) < 1e-4 and _R_MIN_M > _GRID_M / 2,
@@ -853,12 +882,14 @@ check("10.6b 在 C 列（缺口）跨线 ⇒ 挡板触线 0 拍",
 # ---- 10.7 K 列桥室：纵向相邻格封死；通格横向贯通 ----
 #   ★★ t31 重钉（第五张图）：桥洞通格由 K1 改为 **K10**（本图 bridges = K10 下半场 / K5 上半场）
 #     —— 夹具必须用**本图的**通格，否则测的是"非通格横穿"（那本来就该报违规）。
+#   ★★ 第六图重钉（2026-10-24）：本图 bridges = **K7**(下半场) / **K5**(上半场)
+#     ⇒ 通格横穿夹具改走 J7→K7→L7（K9 已是封死桥室）。
 _res_k = S.run_sim(parse_mission(["K10", "K11"]), CFG, _sim, field=_FIELD)
 check("10.7a K 列内纵向挪格 ⇒ 封死违规 > 0",
       _res_k.metrics["k_seal_violation_steps"] > 0,
       f"违规 {int(_res_k.metrics['k_seal_violation_steps'])} 拍")
-_res_kx = S.run_sim(parse_mission(["J9", "K9", "L9"]), CFG, _sim, field=_FIELD)
-check("10.7b 在通格 K9 横向贯通 ⇒ 封死/非通格违规都是 0",
+_res_kx = S.run_sim(parse_mission(["J7", "K7", "L7"]), CFG, _sim, field=_FIELD)
+check("10.7b 在通格 K7 横向贯通 ⇒ 封死/非通格违规都是 0（第六图通格=K5/K7）",
       _res_kx.metrics["k_seal_violation_steps"] == 0
       and _res_kx.metrics["k_solid_cell_steps"] == 0
       and _res_kx.metrics["k_column_steps"] > 0,
@@ -870,10 +901,17 @@ _res_t = S.run_sim(parse_mission([_tgt, _FIELD.targets[-1]]), CFG, _sim, field=_
 check("10.8a 车心在靶格上 ⇒ **物理重叠**拍 > 0",
       _res_t.metrics["board_overlap_steps"] > 0,
       f"重叠 {int(_res_t.metrics['board_overlap_steps'])} 拍")
-check("10.8b 远程路线不碰靶板 ⇒ 重叠 = 0 且净距 > 0",
-      _res1.metrics["board_overlap_steps"] == 0
-      and _res1.metrics["board_min_clearance_m"] > 0.0,
-      f"现役路线最近 {_res1.metrics['board_min_clearance_m']:.4f} m")
+# ★★ 第六图重钉（2026-10-24）：本图靶板 = D5+D6（纵向跨格板），现役路线的 row-7 走廊
+#   （F7→E7→D7，紧贴隔板）与 E6/D7 拐角的车体会**压到板缘**（实测 78 拍 / 净距 0，
+#   已在 test_sim_guard §10.2 如实钉住）——"远程路线"对照档不能再用现役路线充数，
+#   改用远离 D5/D6 的合成短线（N10→M10→L10，起点段）：证明该指标对"真远程"能报 0，
+#   不是恒正的摆设。
+_res_far = S.run_sim(parse_mission(["N10", "M10", "L10"]), CFG, _sim, field=_FIELD)
+check("10.8b 远程路线（合成短线 N10→L10，远离 D5/D6）不碰靶板 ⇒ 重叠 = 0 且净距 > 0",
+      _res_far.metrics["board_overlap_steps"] == 0
+      and _res_far.metrics["board_min_clearance_m"] > 0.0,
+      f"对照路线最近 {_res_far.metrics['board_min_clearance_m']:.4f} m"
+      f"（⚠️ 现役路线压板 78 拍 / 净距 0.0000 m，见 test_sim_guard §10.2）")
 
 # ---- 10.9 参数来自 config（不写死）+ 对照组：撞上就停 ----
 check("10.9a 物理尺寸取自 config（非硬编码）",

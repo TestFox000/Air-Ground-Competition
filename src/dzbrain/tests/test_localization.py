@@ -730,7 +730,15 @@ check("反例（正常 90° 转弯、0.35 m/s、满舵 30° = 73.7°/s）：不�
       task_turn.yaw_untrusted is False and task_turn.yaw_bad_samples == 0,
       f"bad={task_turn.yaw_bad_samples} samples={task_turn.yaw_guard_samples}")
 check("反例（正常 90° 转弯）：P_MOTION_LIMIT 未被触发",
-      bb_turn.get(P_MOTION_LIMIT) is None, f"limit={bb_turn.get(P_MOTION_LIMIT)}")
+      # ★第六图/裁决重钉（2026-10-24）：本夹具轨迹距边界 0.2437 m，落在 15:04 事故裁决的
+      #   护栏带（boundary_guard_m=0.25）内 ⇒ 触发**边界限速**（reason='boundary'，软限速
+      #   0.08 m/s，非故障、不发 EV_TASK_FAULT）——这是裁决要的行为，不是误报。
+      #   本断言真正要守的是"航向守卫不把正常转弯判成故障"：限速原因不得是 yaw 类、
+      #   也不得发任务故障事件。旧写法（limit 恒 None）钉的是 0.10 旧缺省口径。
+      (bb_turn.get(P_MOTION_LIMIT) is None
+       or str(bb_turn.get(P_MOTION_LIMIT, {}).get("reason", "")).startswith("boundary"))
+      and not any(e[0] == "EV_TASK_FAULT" for e in ev_turn),
+      f"limit={bb_turn.get(P_MOTION_LIMIT)} events={ev_turn}")
 
 # ---- ⑫.5 反例三：静止期的小幅 yaw 漂移（7.5°/s < 静止上限 45°/s）不误报 ----
 _drift_small = [(1.0, 1.0, 30.0 + 1.5 * i) for i in range(20)]

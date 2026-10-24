@@ -133,9 +133,12 @@ try:
     #   改成"外圈绕行"，全程**没有 ≥135° 的折返顶点**（最大转角 90°，PIVOT 门限 135°）
     #   ⇒ 旧断言"折返点恰好 1 处（G10*）"不再成立。仍写成**正向**断言：
     #   将来若有人把折返顶点加回来（或最大转角越过 135°），这两条立刻变红。
-    check("★第三张图路线无 ≥135° 折返顶点（U 形靠外圈绕行，最大转角 90°）",
-          sorted(piv_blocks) == [] and max_turn < 135.0,
-          f"pivots={piv_blocks}；最大转角={max_turn:.1f}°（门限 135°）")
+    # ★ 第六图重钉（2026-10-24）：现役 68-token 手动线含 **3 处声明折返**（I4/G4/A1
+    #   :PIVOT，180° 原地转向是设计行为）；牙齿保留：折返必须逐处带 :PIVOT 声明，
+    #   出现未声明折返立即红。
+    check("★第六图路线折返顶点恰好 3 处且全部 :PIVOT 声明（I4/G4/A1）",
+          sorted(piv_blocks) == ["A1", "G4", "I4"],
+          f"pivots={piv_blocks}；最大转角={max_turn:.1f}°")
     # ★ 2026-10-11 重钉（t18 → t20）：原断言「现场图存在 A→B→A 式的同格回折」是**旧路线（带 R: 折返腿）**
     #   的语义；路线把折返全部改成「直线穿越 + 外圈绕行」后已**不再有任何同格回折**。
     #   语义变了但不许删 —— 保持「已无同格回折」+「折返顶点 0 处」两条**正向**断言：
@@ -143,11 +146,12 @@ try:
     blocks = field.blocks()
     backtrack = [i for i in range(len(blocks) - 2)
                  if blocks[i + 2] == blocks[i]]
-    check("★新路线已无 A→B→A 式同格回折（折返腿已全部改为直线穿越）",
-          backtrack == [], f"index={backtrack}")
-    check("★与「无同格回折」自洽：折返顶点 0 处 + 同格回折 0 处",
-          len(piv_blocks) == 0 and len(backtrack) == 0,
-          f"pivots={piv_blocks}；同格回折数={len(backtrack)}")
+    # ★ 第六图重钉：3 处 :PIVOT 折返即 3 处同格回折（A1/G4/H4 邻域），与折返顶点数自洽。
+    check("★第六图路线同格回折恰好 3 处（与 :PIVOT 折返一一对应）",
+          len(backtrack) == 3, f"index={backtrack}")
+    check("★自洽：折返顶点数 == 同格回折数（3==3，:PIVOT 声明与几何一一对应）",
+          len(piv_blocks) == len(backtrack) == 3,
+          f"pivots={len(piv_blocks)}；同格回折数={len(backtrack)}")
     if backtrack:
         # 仅在回折腿回归时才会执行（上面第二条断言那时已变红，必须人工复核本段）
         i = backtrack[0]

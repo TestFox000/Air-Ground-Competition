@@ -205,15 +205,17 @@ def main() -> int:
         "localization.anchor_scale_max": 0.08,
         "localization.implied_scale_window": 4,
         "localization.reanchor_pull_max_m": 0.35,
-        # ★ 2026-10-11 快速采集(用户指令)：两条漂移门禁有意偏离代码默认
-        #   （3→999 只告警不降速 / 8→999 只告警不停车；代码默认值仍是 3/8）
-        "localization.drift_slow_after": 999,
+        # ★ 2026-10-11 快速采集档曾有意放宽为 999；**2026-10-17 15:04 事故裁决已收回**
+        #   （robot.yaml 61e6b5d 恢复 3/8），第六图重钉（2026-10-24）：期望=裁决值，
+        #   且 SCHEMA 缺省已同步对齐（缺键不再静默回退到宽松档）。
+        "localization.drift_slow_after": 3,
         "localization.drift_slow_speed_mps": 0.08,
-        "localization.drift_stop_after": 999,
+        "localization.drift_stop_after": 8,
         "localization.drift_clear_ticks": 5,
-        "localization.boundary_guard_m": 0.10,
+        # ★ 边界两键同裁决（0.10→0.25 / 0.03→0.10，须 >0.044 m 滑行距离）；第六图重钉。
+        "localization.boundary_guard_m": 0.25,
         "localization.boundary_guard_speed_mps": 0.08,
-        "localization.boundary_stop_m": 0.03,
+        "localization.boundary_stop_m": 0.10,
     }
     missing = [k for k in expect if real.get(k) is None]
     ok("5.1 12 个键都在 robot.yaml 里", not missing, f"缺 {missing}" if missing else "12/12")
@@ -228,11 +230,13 @@ def main() -> int:
     #      `tools/calib_backfill.py` 的钉锚点（内容式定位；该映射在 t2 写域，本卡不改）。
     #   ★ t3-A（2026-10-16）：停站退到 `D3`（板心 0.875 m）⇒ 路线回到 **44 点**（t3 一版的
     #     50 点是 `F2*` 绕行产物，随 1.00 档一起作废）。
-    ok("5.3 落盘值（cruise 0.35 / ld_max 0.40 / 官方图路线 44 点（t3-A 板心 0.90 m 停站 D3） / ticksPerMeter 3280）"
-       "（旧 cruise 0.30 / 0.35）",
+    #   ★★ 第六图重钉（2026-10-24）：路线 = mission_blocks **68 token**（含 :PIVOT 声明，
+    #     K7/K5 穿洞，auto_plan_enabled=false 手动线）；44/54/62 点均为历史口径。
+    ok("5.3 落盘值（cruise 0.35 / ld_max 0.40 / 第六图现役路线 68 token / ticksPerMeter 3280）"
+       "（第五图 t3-A 44 点已过时）",
        abs(real.get("pursuit.cruise_speed_mps") - 0.35) < 1e-12
-       and abs(real.get("pursuit.lookahead_max_m") - 0.40) < 1e-12
-       and len(real.get("route.tokens") or []) == 44
+       and abs(real.get("pursuit.lookahead_max_m") - 0.40) < 1e-12  # 2026-10-24 修正矩阵后维持 0.40（短前视 A1:PIVOT 不完赛，回退）
+       and len(real.get("route.tokens") or []) == 68
        and abs(real.get("dzactuator.ticksPerMeter") - 3280.0) < 1e-9,
        f"cruise={real.get('pursuit.cruise_speed_mps')} ld_max={real.get('pursuit.lookahead_max_m')} "
        f"tokens={len(real.get('route.tokens') or [])} ticks={real.get('dzactuator.ticksPerMeter')}")

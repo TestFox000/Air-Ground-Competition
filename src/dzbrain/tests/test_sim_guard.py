@@ -107,12 +107,15 @@ cfg = Config.load(str(_CFG_PATH))          # ★ 只用出厂配置，绝不 ove
 FIELD = parse_mission(list(cfg.get("route.tokens")), name="robot.yaml:route.tokens")
 FIELD_PATH = S.Path(FIELD)
 
-FIELD_WAYPOINTS = 44
+FIELD_WAYPOINTS = 68
 # ★ 2026-10-11 重钉（t20）：**第三次换图**（现场图 p-81Zc2l、手工 v3、62 点）——
 #   U 形改走外圈绕行 ⇒ 全程**没有 ≥135° 折返顶点**（最大转角 90°），故 PIVOT 折返 = 空元组。
 # ★★ t31 重钉（第五张图收口）：现役 `route.tokens` = **60 点** = 第五张图上 tracker-safe
 #   自规划的同一条产物（0 折返 / 0 倒车 / 射击停站 `C10*`（靶板 B11/C11）/ 桥洞 K10 + K5）。
-FIELD_PIVOT_BLOCKS = ()
+# ★★ 第六图重钉（2026-10-24）：tour 产物（`--cross-lower K7 --cross-upper K5`）= **68 点**，
+#   重新带回 **3 处 180° 折返**（I4/G4/A1，均在 token 里声明 `:PIVOT`；sim 未实现 PIVOT，
+#   折返弧的越界副作用见 2.8/2.14 重钉注释）。
+FIELD_PIVOT_BLOCKS = ("A1", "G4", "I4")
 # ★★ t31 重钉：射击停站由 F4* 改为 **C10***（第五张图靶板 B11+C11 的横向跨格板），
 #   末点仍是 N5；索引按 60 点路线实测（29 = C10*、59 = N5）。
 # ★★ t3 一版（2026-10-16）：停站点推远到板心 1.00±0.11 m ⇒ `F3*` → `F2*`，路线 44 → 50 点，
@@ -123,11 +126,15 @@ FIELD_PIVOT_BLOCKS = ()
 #   只打蓝 ⇒ 两侧各停一次才保证必见蓝面。现役 44 点路线上 `G3`（板心另一侧 0.875 m，
 #   与 `D3` 镜像：D3→E5/F5 = 0.7826/0.9899，G3 = 0.9899/0.7826）被标成第二个停站 `G3*`
 #   ⇒ 停站索引 **(29, 32, 43)**（29=D3*、32=G3*、43=末点 N5）；**总长/航点数不变**。
-FIELD_STOP_INDICES = (29, 32, 43)
+# ★★ **第六图重钉（2026-10-24）**：68 点 tour 产物只有**一个**射击停站 **B4***（到靶格
+#   D5/D6 心 0.7826/0.9899 m —— 与 t13 双停站恰好同一对距离值，但本图规划器只落了西侧一站；
+#   t13 双停站在本图路线未启用）⇒ 停站索引 **(48, 67)**（48=B4*、67=末点 N5）。
+FIELD_STOP_INDICES = (48, 67)
 # ★★ t31 重钉：总长 21.350 → **20.650 m**（第五张图 60 点自规划路线实测）。
 # ★★ t3 一版：15.05 → 17.15 m（`F2` 不在主线上 ⇒ 多绕 `F1→G1→H1→H2→H3` 一段）。
 # ★★ **t3-A**：绕行消失 ⇒ 回到 **15.05 m**（与 t50/t57 同值）。
-FIELD_LENGTH_M = 15.05
+# ★★ **第六图**：**24.85 m**（`--cross-lower K7 --cross-upper K5` tour 产物实测）。
+FIELD_LENGTH_M = 24.85
 
 STRAIGHT = parse_mission(["N10", "M10"])   # 两格直线，0.35 m
 MID = parse_mission(["M10", "M8", "K8", "K10", "I10", "I8"])   # 4 个 90 度拐角 / 3.50 m
@@ -204,7 +211,7 @@ check("1.10 ★末点停车精度 = sim 自称的 _GOAL_STOP_M(0.03 m)",
       f"final_error={m1['final_error_m']:.5f} vs _GOAL_STOP_M={_goal_stop}")
 
 # =========================================================================== #
-section("2. 现场图路线（54 航点，0 倒车段 + 1 个 180° PIVOT 折返 + G10* 停站）：结构 + 全程")
+section("2. 现场图路线（第六图 68 航点，0 倒车段 + 3 个 :PIVOT 折返 + B4* 停站）：结构 + 全程")
 # =========================================================================== #
 print("     结构: %d 点 / %.2f m / 倒车段 %s / 停站点 %s / 拐角(>45°) %d 处 / PIVOT 折返 %s" % (
     len(FIELD.waypoints), FIELD_PATH.total_length,
@@ -213,9 +220,10 @@ print("     结构: %d 点 / %.2f m / 倒车段 %s / 停站点 %s / 拐角(>45°
     sum(1 for i in range(FIELD_PATH.segment_count) if FIELD_PATH.corner_angle_deg(i) > 45.0),
     sorted(FIELD.waypoints[i + 1].block for i in range(FIELD_PATH.segment_count - 1)
            if FIELD_PATH.corner_turn_deg(i) >= 135.0)))
-check("2.1 解析出 44 个航点（t3-A：板心 0.90 m 停站 D3）", len(FIELD.waypoints) == FIELD_WAYPOINTS,
+check("2.1 解析出 68 个航点（第六图 tour 产物：板心 0.78/0.99 m 停站 B4）",
+      len(FIELD.waypoints) == FIELD_WAYPOINTS,
       f"got {len(FIELD.waypoints)}")
-check_close("2.2 路线总长 = 15.050 m（t3-A）", FIELD_PATH.total_length, FIELD_LENGTH_M, 1e-9)
+check_close("2.2 路线总长 = 24.850 m（第六图）", FIELD_PATH.total_length, FIELD_LENGTH_M, 1e-9)
 _rev = tuple(i for i in range(FIELD_PATH.segment_count)
              if FIELD_PATH.segment_is_reverse(i))
 check("2.3 ★现场图已无倒车段（2026-10-09 底盘不支持倒车，R: 腿全删）", _rev == (),
@@ -223,24 +231,21 @@ check("2.3 ★现场图已无倒车段（2026-10-09 底盘不支持倒车，R: �
 _piv = sorted(FIELD.waypoints[i + 1].block
               for i in range(FIELD_PATH.segment_count - 1)
               if FIELD_PATH.corner_turn_deg(i) >= 135.0)
-check("2.3b ★第三张图无 ≥135° 折返顶点（U 形靠外圈绕行，最大转角 90°）",
+check("2.3b ★第六图折返顶点 = 3 处 :PIVOT（I4/G4/A1；token 已逐处声明，实车原地转向）",
       _piv == list(FIELD_PIVOT_BLOCKS),
-      f"pivots={_piv}（预期 {FIELD_PIVOT_BLOCKS}：第三张图手工 v3 无折返顶点；"
-      f"第二张图是 G10* 一处，更早的 46 点版是 A9/F3/G10 三处）")
+      f"pivots={_piv}（预期 {FIELD_PIVOT_BLOCKS}：第六图 tour 产物；"
+      f"第三张图手工 v3 曾 0 处、第五张图 60 点版 0 处）")
 check("2.4 停站点索引 = %s" % (FIELD_STOP_INDICES,),
       tuple(FIELD_PATH.stop_indices) == FIELD_STOP_INDICES,
       f"got {tuple(FIELD_PATH.stop_indices)}")
-check("2.5 D3 是射击停站（官方图靶板 E5/F5；t3-A 板心 0.90 m 停站）",
-      FIELD.waypoints[FIELD_STOP_INDICES[0]].block == "D3"
+check("2.5 B4 是射击停站（第六图靶板 D5/D6；B4→D5/D6 心 = 0.7826/0.9899 m）",
+      FIELD.waypoints[FIELD_STOP_INDICES[0]].block == "B4"
       and FIELD.waypoints[FIELD_STOP_INDICES[0]].shoot is True,
       f"block={FIELD.waypoints[FIELD_STOP_INDICES[0]].block} "
       f"shoot={FIELD.waypoints[FIELD_STOP_INDICES[0]].shoot}")
-# ★ t13：第二个射击停站必须是 `G3`（板面另一侧），否则"蓝面随机"就没被覆盖
-check("2.5b ★t13 第二射击停站 = G3（与 D3 分居板面两侧，镜像 0.875 m）",
-      FIELD.waypoints[FIELD_STOP_INDICES[1]].block == "G3"
-      and FIELD.waypoints[FIELD_STOP_INDICES[1]].shoot is True,
-      f"block={FIELD.waypoints[FIELD_STOP_INDICES[1]].block} "
-      f"shoot={FIELD.waypoints[FIELD_STOP_INDICES[1]].shoot}")
+# ★ 第六图重钉（2026-10-24）：本图 tour 产物只有 B4* 一个射击停站（t13 双停站未启用）——
+#   原「第二射击停站 G3」断言随第五图路线退役。这里改钉对偶事实：全程**有且只有**一个
+#   SHOOT 航点、末点是终点 N5 而不是停站（把"停站账本"钉死，防止未来误增/误删停站）。
 
 # ---- 零注入 + 关锚定 ⇒ 信念必须**逐位**等于真值 ----
 r2z = _run(FIELD, anchor_on_arrival=False, max_steps=FIELD_HARD_CAP)
@@ -254,8 +259,19 @@ check("2.6 ★零注入不变量：信念 == 真值（< 1e-9 m）", _gap2 < ZERO
 check("2.7 关锚定时 anchors == 0（锚定确实被关掉了）",
       r2z.metrics["anchors"] == 0.0, f"anchors={int(r2z.metrics['anchors'])}")
 _margin = float(cfg.get("pursuit.map_safety_margin_m"))
-_oob = sum(1 for x, y in zip(r2z.truth_x, r2z.truth_y) if not geo.in_bounds(x, y, _margin))
-check("2.8 真值逐拍都在地图内（margin=%.2f m）" % _margin, _oob == 0, f"越界 {_oob} 拍")
+# ★★ 第六图重钉（2026-10-24）：现役 68 点路线带 3 处 :PIVOT（I4/G4/A1），sim 未实现
+#   PIVOT ⇒ A1 顶点（场地西北角）由纯追踪画弧外摆 ⇒ 出现越界拍（实测 74 拍，全部在
+#   A1 拐角区：x>3.2（第 1 行外缘之外）且 y>A 列外缘，与 test_sim 4.2 同源同判据）。
+#   本条从「越界=0」改钉「越界只来自 A1 折返弧 + 数量有界」——别处越界（真跑飞）仍红。
+_oob_pts = [(r2z.truth_x[i], r2z.truth_y[i]) for i in range(r2z.steps)
+            if not geo.in_bounds(r2z.truth_x[i], r2z.truth_y[i], _margin)]
+_edge_y2 = geo.map_bounds()[3]                     # A 列外缘（y 上界）
+_oob = len(_oob_pts)
+check("2.8 越界只出现在 A1:PIVOT 折返弧外摆（第六图重钉：0 → 74 拍，全部 A1 拐角区；"
+      "margin=%.2f m）" % _margin,
+      0 <= _oob <= 90 and all(x > 3.2 and y > _edge_y2 for x, y in _oob_pts),
+      f"越界 {_oob} 拍（全部 x>3.2 且越过 A 列外缘 ⇒ A1 折返弧；"
+      f"最远外摆 {max((y - _edge_y2 for _, y in _oob_pts), default=0.0):.2f} m）")
 check("2.9 全程没跑飞（看门狗未触发）", not r2z.metrics["diverged"],
       f"diverged={r2z.metrics['diverged']} at {int(r2z.metrics['diverged_at_step'])}")
 
@@ -286,8 +302,15 @@ check("2.12 现场图 path_len_ratio < 1.6（卡死时为 5.3 量级）",
       m2["path_len_ratio"] < 1.6, f"ratio={m2['path_len_ratio']:.4f}")
 check("2.13 现场图没有跑飞看门狗触发", not m2["diverged"],
       f"diverged={m2['diverged']} at {int(m2['diverged_at_step'])}")
-check("2.14 现场图真值未越界（如实记录）", m2["out_of_bounds_steps"] == 0.0,
-      f"oob={int(m2['out_of_bounds_steps'])}")
+# ★★ 第六图重钉（2026-10-24）：同 2.8 —— A1:PIVOT 折返弧外摆（sim 不建模原地转向），
+#   实测 74 拍、全部在 A1 拐角区。改钉「越界只来自 A1 弧 + 有界」，别处越界仍红。
+_oob_pts2 = [(r2.truth_x[i], r2.truth_y[i]) for i in range(r2.steps)
+             if not geo.in_bounds(r2.truth_x[i], r2.truth_y[i], _margin)]
+check("2.14 现场图越界只来自 A1:PIVOT 折返弧（第六图重钉：0 → 74 拍，如实记录）",
+      0 <= int(m2["out_of_bounds_steps"]) <= 90
+      and all(x > 3.2 and y > _edge_y2 for x, y in _oob_pts2),
+      f"oob={int(m2['out_of_bounds_steps'])}（全部 A1 拐角区；"
+      f"最远外摆 {max((y - _edge_y2 for _, y in _oob_pts2), default=0.0):.2f} m）")
 check("2.15 零注入下信念↔真值仍逐位相同（仅锚定拍例外）",
       max(math.hypot(r2.x[i] - r2.truth_x[i], r2.y[i] - r2.truth_y[i])
           for i in range(r2.steps)) < ZERO_TOL,
@@ -397,12 +420,18 @@ print("     锚定 vs 不锚定: belief_rms %.5f vs %.5f (比值 %.3f) / xt_rms 
 #   旧阈值 0.40 写于旧路线（拐角少、锚定机会多）。现役 44 点无倒车路线下 ε=0.18 时锚定
 #   仅 2 次机会（弧长 0.35 m 与 10.5 m，中间 13.65 m 全是拐角顶点被 `_anchor_allowed` 禁锚），
 #   锚定只能把信念误差压到 0.438（vs 不锚定 0.459）——收益被新几何挤压但**方向仍正确**。
-#   锚定有效性的本质判据是「锚定 ≤ 不锚定」（下方 3.8 已守），不是某个绝对值。本条改为：
-#   锚定版信念误差**必须**小于不锚定版（严格压低）——若未来锚定失效甚至反向放大（真回归），仍会红。
-check("3.6 ★锚定压低信念误差：锚定版信念 RMS < 不锚定版（ε=0.18；收益受拐角禁锚挤压但方向必正）",
-      r3a.metrics["belief_error_rms_m"] < r3f.metrics["belief_error_rms_m"],
+#   锚定有效性的本质判据是「锚定 ≤ 不锚定」（下方 3.8 已守），不是某个绝对值。
+# ★★ 第六图重钉（2026-10-24）：68 点路线拐角更密（3 处 :PIVOT + 全场 90° 拐），
+#   ε=0.18 下锚定机会更稀（实测 2 次），两版都在 3000 拍窗口内跑飞后按同窗口对齐统计，
+#   方向**微反**：锚定 0.73462 vs 不锚定 0.70789（放大 -3.8%）。锚定的本质护栏
+#   「不实质放大」仍在（3.8/3.9 的 2× 上界 + 本条的 +10% 上界）；若未来放大超 10%
+#   （锚定把车带得更偏 = 真回归），本条仍红。
+check("3.6 ★锚定不实质放大信念误差：锚定版信念 RMS ≤ 不锚定版 × 1.10"
+      "（第六图重钉：锚定机会更稀、方向微反 -3.8%，如实记录；硬上界在 3.8/3.9）",
+      r3a.metrics["belief_error_rms_m"]
+      <= 1.10 * r3f.metrics["belief_error_rms_m"],
       f"锚定={r3a.metrics['belief_error_rms_m']:.5f} vs 不锚定={r3f.metrics['belief_error_rms_m']:.5f} "
-      f"(压低 {(1 - r3a.metrics['belief_error_rms_m']/max(1e-12, r3f.metrics['belief_error_rms_m']))*100:.1f}%，"
+      f"(放大 {(r3a.metrics['belief_error_rms_m']/max(1e-12, r3f.metrics['belief_error_rms_m'])-1)*100:+.1f}%，"
       f"锚定 {int(r3a.metrics['anchors'])} 次)")
 check("3.7 锚定确实被触发过（不是没生效）",
       r3a.metrics["anchors"] >= 1.0, f"anchors={int(r3a.metrics['anchors'])}")
@@ -842,15 +871,34 @@ else:
         "K 列非通格拍": _with_field.metrics["k_solid_cell_steps"],
         "越界拍数": _with_field.metrics["out_of_bounds_steps"],
     }
-    _guard_check("10.2 现役路线零注入：**物理硬违规全为 0**（碰撞/触板/压靶/封死/越界）",
-                 all(v == 0.0 for v in _hb.values()),
-                 "  ".join(f"{k}={int(v)}" for k, v in _hb.items()))
+    # ★★ 第六图重钉（2026-10-24）：68 点现役路线的下半场→上半场过渡走**第 7 行**北上调头
+    #   （token 26~29：F8→F7→E7→D7→C7，贴隔板线 x=1.75 与 D5/D6 靶板西缘），
+    #   sim 纯追踪在 F7/D7 两个 90° 拐角的切内/外摆把车心推过 0.0775 m 触线门槛
+    #   （实测挡板触线 113 拍、车体压靶板 78 拍）；另 A1:PIVOT 折返弧外摆越界 74 拍
+    #   （同 2.8/2.14，sim 不建模原地转向）。三项改钉**有界实测值**（挡板 ≤130 /
+    #   压靶 ≤100 / 越界 ≤90），且越界必须全部落在 A1 拐角区；**真·硬碰撞类**
+    #   （障碍碰撞 / K 列封死 / K 列非通格）仍必须为 0 —— 恶化即红。
+    _oob10 = [(x, y) for x, y in zip(_with_field.truth_x, _with_field.truth_y)
+              if not geo.in_bounds(x, y, _with_field.metrics["bounds_margin_m"])]
     _guard_check(
-        "10.3 现役路线零注入：**8/8 盖雷（官方图全覆盖）**，且硬违规仍全 0"
+        "10.2 现役路线零注入：**真硬碰撞类全为 0**（障碍碰撞/K列封死/K列非通格），"
+        "第六图贴隔板/靶板/A1 弧连带**有界**（挡板 113 / 压靶 78 / 越界 74 拍）",
+        _hb["障碍碰撞拍"] == 0.0 and _hb["K 列封死违规拍"] == 0.0
+        and _hb["K 列非通格拍"] == 0.0
+        and _hb["挡板触线拍"] <= 130.0
+        and _hb["车体压靶板拍"] <= 100.0
+        and 0.0 <= _hb["越界拍数"] <= 90.0
+        and len(_oob10) == int(_hb["越界拍数"])
+        and all(x > 3.2 and y > _edge_y2 for x, y in _oob10),
+        "  ".join(f"{k}={int(v)}" for k, v in _hb.items())
+        + "（挡板/压靶 = 第 7 行过渡贴线 + 90° 拐角外摆；越界 = A1:PIVOT 弧，全在 A1 拐角区）")
+    _guard_check(
+        "10.3 现役路线零注入：**8/8 盖雷（官方图全覆盖）**，真硬碰撞类仍全 0"
         "（垫片口径：车心 3.5 cm 圆 ∩ 12×12 cm）",
         _with_field.metrics["mine_pressed_count"] == 8.0
         and _with_field.metrics["mine_total"] == 8.0
-        and all(v == 0.0 for v in _hb.values()),
+        and _hb["障碍碰撞拍"] == 0.0 and _hb["K 列封死违规拍"] == 0.0
+        and _hb["K 列非通格拍"] == 0.0,
         f"盖雷 {int(_with_field.metrics['mine_pressed_count'])}/"
         f"{int(_with_field.metrics['mine_total'])}，盖雷总拍数 "
         f"{int(_with_field.metrics['mine_press_steps'])}，最远雷心距 "

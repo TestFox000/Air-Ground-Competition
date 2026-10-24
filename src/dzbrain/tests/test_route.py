@@ -572,18 +572,22 @@ def test_real_robot_yaml() -> None:
     #   停站退一档到 `D3`（板心 0.875 m、偏离车头 36.9°）。`D3` 也在主线上 ⇒ 绕行消失 ⇒
     #   回到 **44 点 / 15.05 m**（与 t50/t57 同值，只是星号从 `F3` 前移到 `D3`）。
     #   历史：34 点(10-07) → 46 → 54(t11) → 62(t20) → 60(t31) → 44(t50) → 50(t3一版) → **44(t3-A)**。
-    check("route.tokens 是 44 个 token（官方图 tracker-safe 自规划产物；t3-A 板心 0.90 m 停站）",
-          isinstance(tokens, list) and len(tokens) == 44,
+    # ★ 第六图重钉（2026-10-24）：现役 mission_blocks 68 token（手动线，tracker-safe
+    #   对第六图 K7 结构性无解；44 点为第五图 t3-A 历史口径）。
+    check("route.tokens 是 68 个 token（第六图现役 mission_blocks 手动线）",
+          isinstance(tokens, list) and len(tokens) == 68,
           f"{len(tokens) if isinstance(tokens, list) else type(tokens).__name__} 个")
-    if isinstance(tokens, list) and len(tokens) == 44:
+    if isinstance(tokens, list) and len(tokens) == 68:
         check("现场图路线首点 N10", tokens[0] == "N10", repr(tokens[0]))
         check("现场图路线末点 N5", tokens[-1].startswith("N5"), repr(tokens[-1]))
-        check("现场图路线含射击点 D3*（官方图靶板 E5/F5；t3-A 板心窗口 0.78~1.02 m）",
-              any(t.startswith("D3*") for t in tokens), repr(tokens))
-        check("现场图路线含两处桥洞穿越（K9 下半场 / K5 上半场）",
-              "K9" in tokens and "K5" in tokens, repr([t for t in tokens if t.startswith("K")]))
+        # ★ 第六图重钉（2026-10-24）：靶 D5/D6 ⇒ 射击停站 B4*（route_check 验证
+        #   D5 0.78m / D6 0.99m 双覆盖）；穿洞 K7 下半场 / K5 上半场。
+        check("现场图路线含射击点 B4*（第六图靶板 D5/D6 板心窗口 0.78~1.02 m）",
+              any(t.startswith("B4*") for t in tokens), repr(tokens))
+        check("现场图路线含两处桥洞穿越（K7 下半场 / K5 上半场）",
+              "K7" in tokens and "K5" in tokens, repr([t for t in tokens if t.startswith("K")]))
         route = P.parse_mission(tokens)
-        check("现场图路线能被 parse_mission 解析（44 点）", len(route) == 44, f"{len(route)} 点")
+        check("现场图路线能被 parse_mission 解析（68 点）", len(route) == 68, f"{len(route)} 点")  # 第六图重钉
     check("mission.reset 迁移自 mission_reset", cfg.get("mission.reset") == "N10,y",
           repr(cfg.get("mission.reset")))
     # ★ 2026-10-11 重钉（t22）：巡航 0.30 → **0.35 m/s**（用户现场口径）。

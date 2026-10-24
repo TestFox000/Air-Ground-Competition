@@ -175,8 +175,10 @@ check("新键 pursuit.cruise_speed_mps 与旧键同值（0.35）",
 #     `F2` 不在 `D3→E3→F3→G3` 主线上 ⇒ 多绕 `F2→F1→G1→H1→H2→H3→G3` ⇒ 44 → 50 点。
 #   ★ t3-A 裁决（同日）：1.00 档因"靶在车尾 170.5°"作废 ⇒ 停站退到 `D3`（板心 0.875 m），
 #     `D3` 在主线上 ⇒ 绕行消失 ⇒ **44 点**（与 t50/t57 同长，仅星号前移两格）。
-check("route.tokens 由 mission_blocks 迁移（官方图自规划，44 点；t3-A）",
-      len(cfg.get("route.tokens") or []) == 44)
+# ★ 第六图重钉（2026-10-24）：现役 = mission_blocks 68 token（K7/K5 穿洞手动线，
+#   含 :PIVOT 声明；44 点为第五图 t3-A 历史口径）。
+check("route.tokens 由 mission_blocks 迁移（第六图现役 68 token）",
+      len(cfg.get("route.tokens") or []) == 68)
 # ★ 2026-10-11 重钉（t20）：第三次换图**关闭**了"桥洞强制直行保护"（`bridge_blocks: []`，
 #   见 robot.yaml 该行注释：保护窗含 90° 拐时锁错航向，改用纯追踪 + 转角减速过洞）
 #   ⇒ 旧断言"整列 K1~K11 共 11 个保护点"不再成立。
@@ -195,7 +197,7 @@ check("真实配置无 error", not errs, "; ".join(str(i) for i in errs))
 # ★★ t31 重钉：穿洞兜底格随第五张图改为 **K10**(下半场) / **K5**(上半场)（第三张图是 K11/K1）。
 #   为什么这算"语义未放宽"：`_default_cross()` 要求 default ∈ 候选集合，第五张图的候选集合就是
 #   ["K10"]/["K5"] ⇒ K11/K1 是**失效值**（只会让 validate 报 warn、让开机横幅打错通口名）。
-check("配置摘要包含穿洞兜底格（官方图 K9）", "K9" in cfg.summary(), repr(cfg.summary()[:120]))
+check("配置摘要包含穿洞兜底格（第六图 K7）", "K7" in cfg.summary(), repr(cfg.summary()[:120]))  # 第六图重钉
 
 section("Config：校验真的会拦（负例）")
 bad = Config.from_dict({

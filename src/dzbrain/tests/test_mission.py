@@ -1209,7 +1209,7 @@ def test_waypoint_ledger() -> None:
 #    而 `P_DRONE` 只有**一个**桥洞槽且被覆盖式赋值（state.py:107-108 / drone.py:283）。
 #    所以夹具必须**忠实模拟 DroneTask**：写槽 + 发事件两件事一起做（见 `t6_drone_round`），
 #    并且要能造出"槽里只剩 upper，lower 仍然生效"的稳态盘面（14.40/14.41 就是这条回归）。
-#  夹具：第五张图的副本，只把 `bridges:` 放宽成 K4/K5/K9/K10（现场每局随机会换洞），
+#  夹具：第六张图 map.yaml 的副本，只把 `bridges:` 放宽成 K4/K5/K9/K10（现场每局随机会换洞），
 #        其余要素（雷/障/靶/隔板/起终）逐字照抄 `config/map.yaml`。
 _WS_ROOT = pathlib.Path(__file__).resolve().parents[3]
 _T6_ROBOT = _WS_ROOT / "config" / "robot.yaml"
@@ -1220,8 +1220,10 @@ _T6_MAP.write_text(
     re.sub(r"(?m)^([ \t]*)bridges:.*$",
            lambda m: m.group(1) + 'bridges:    ["K4", "K5", "K9", "K10"]',
            _T6_MAP_SRC.read_text(encoding="utf-8")), encoding="utf-8")
-#: 现役手工路线（`config/robot.yaml` 的 route.tokens = 车上 tracker-safe 产物，60 token）：
-#: 下半场穿 L10→K10→J10、上半场穿 J5→K5→L5 —— 正是换洞要动的两个三连。
+#: 现役手工路线（`config/robot.yaml` 的 route.tokens = 第六张图 tour 引擎产物，68 token）：
+#: 下半场穿 L7→K7→J7、上半场穿 J5→K5→L5 —— 正是换洞要动的两个三连。
+#: ★第六图重钉（2026-10-17）：68 token / 24.85 m / 射击停站 B4* / 折返 I4:PIVOT G4:PIVOT A1:PIVOT；
+#:   used 的"无情报取值"= 路线自身穿洞格（route.crossing 自推断）⇒ lower=K7（不再是第五图的 K9/K10）。
 _T6_TOKENS = [str(t) for t in (Config.load(str(_T6_ROBOT)).get("route.tokens") or [])]
 _T6_BASE = [parse_token(t)["block"] for t in _T6_TOKENS]
 
@@ -1313,8 +1315,9 @@ def test_bridge_intel() -> None:
     added = sorted(set(blocks) - set(_T6_BASE))
     check("14.1 ★ 情报注入：下半场穿洞格 K9 → K11（换洞生效）",
           "K11" in blocks and "K9" not in blocks, f"K 列格={t6_kblocks(rig)}")
-    check("14.2 ★ 只改了穿洞**三连**那一行（L9/K9/J9 → L11/K11/J11，实测 44 点不变），其余航点逐格不变",
-          removed == ["J9", "K9", "L9"] and added == ["J11", "K11", "L11"]
+    check("14.2 ★ 只改了穿洞**三连**那一行（L7/K7/J7 → L11/K11/J11，实测 68 点不变），其余航点逐格不变"
+          "（第六图重钉：J11 本就在基线路线的第 11 行扫雷段里 ⇒ 集合差只新增 K11/L11）",
+          removed == ["J7", "K7", "L7"] and added == ["K11", "L11"]
           and len(blocks) == len(_T6_BASE),
           f"−{removed} +{added} / 点数 {len(blocks)} vs {len(_T6_BASE)}")
     check("14.3 ★ 两半场独立：只有 lower 情报 → upper 仍是默认 K5（K4 未出现）",
@@ -1329,7 +1332,7 @@ def test_bridge_intel() -> None:
           st["seen"].get("lower", {}).get("cell") == "K11" and st["events"] >= 1,
           f"seen={st['seen']} events={st.get('events')}")
     check("14.7 日志留下换洞证据（旧格 → 新格 + 校验口径）",
-          any("换洞生效：K9 → K11" in s and "validate_route 0 error" in s for s in rig.logs),
+          any("换洞生效：K7 → K11" in s and "validate_route 0 error" in s for s in rig.logs),
           str([s for s in rig.logs if "换洞" in s][:2]))
     check("14.8 换洞后照样出发（DRIVE + 恰好一次 EV_ROUTE_LOADED）",
           rig.task.phase == MissionPhase.DRIVE and rig.count(EV_ROUTE_LOADED) == 1,
@@ -1349,11 +1352,11 @@ def test_bridge_intel() -> None:
     t6_drone_round(rigb, upper="K4")
     rigb.ticks(3)
     blocksb = list(rigb.task.route.blocks())
-    check("14.11 ★ 反向独立：只有 upper 情报 → K5 → K4，下半场仍是默认 K9",
-          "K4" in blocksb and "K5" not in blocksb and "K9" in blocksb and "K10" not in blocksb,
+    check("14.11 ★ 反向独立：只有 upper 情报 → K5 → K4，下半场仍是本图穿洞格 K7（无情报不改洞）",
+          "K4" in blocksb and "K5" not in blocksb and "K7" in blocksb and "K10" not in blocksb,
           f"K 列格={t6_kblocks(rigb)}")
-    check("14.12 遥测 `used` = {lower:K10（默认）, upper:K4（情报）}",
-          rigb.task.state()["bridge"]["used"] == {"lower": "K9", "upper": "K4"},
+    check("14.12 遥测 `used` = {lower:K7（路线现役格）, upper:K4（情报）}",
+          rigb.task.state()["bridge"]["used"] == {"lower": "K7", "upper": "K4"},
           str(rigb.task.state()["bridge"]["used"]))
 
     # ---------------- ①c ★★ D3 回归：单槽被 upper 覆盖后，lower 仍然生效 ----------------
@@ -1455,12 +1458,12 @@ def test_bridge_intel() -> None:
           rig7.task.phase == MissionPhase.DRIVE
           and not any("等待无人机桥洞情报" in s for s in rig7.logs),
           f"phase={rig7.task.phase} t={rig7.clock.now() - 1000.0:.2f}s")
-    check("14.25 ★ 无无人机时路线与接线前**逐 token 一致**（44/44 全等；t3-A 停站 D3 ⇒ 回到 44 点）",
-          list(rig7.task.route.blocks()) == _T6_BASE and len(_T6_BASE) == 44,
+    check("14.25 ★ 无无人机时路线与接线前**逐 token 一致**（68/68 全等；第六图 tour 产物 ⇒ 68 点）",
+          list(rig7.task.route.blocks()) == _T6_BASE and len(_T6_BASE) == 68,
           f"{len(rig7.task.route)} 点 vs 基线 {len(_T6_BASE)} 点")
-    check("14.26 无无人机时来源记为 no_link，且 used = 默认格",
+    check("14.26 无无人机时来源记为 no_link，且 used = 路线现役穿洞格（第六图 K7/K5）",
           rig7.task.state()["bridge"]["lower"]["source"] == "no_link"
-          and rig7.task.state()["bridge"]["used"] == {"lower": "K9", "upper": "K5"},
+          and rig7.task.state()["bridge"]["used"] == {"lower": "K7", "upper": "K5"},
           str(rig7.task.state()["bridge"]["lower"]))
 
     # ---------------- ③b ★★ 卡 t20（t14-F1 裁决）：等待窗口**只在"等得到东西"时开** -------------
@@ -1478,9 +1481,9 @@ def test_bridge_intel() -> None:
           and not any("等待无人机桥洞情报" in s for s in rig8.logs)
           and rig8.task.state()["bridge"]["note"].get("waiting") is not True,
           f"phase={rig8.task.phase} note={rig8.task.state()['bridge']['note']}")
-    check("14.28 F1①：遥测如实记 offline、used=默认格 K10/K5（离线情报一律不采纳）",
+    check("14.28 F1①：遥测如实记 offline、used=路线现役格 K7/K5（离线情报一律不采纳）",
           rig8.task.state()["bridge"]["lower"]["source"] == "offline"
-          and rig8.task.state()["bridge"]["used"] == {"lower": "K9", "upper": "K5"},
+          and rig8.task.state()["bridge"]["used"] == {"lower": "K7", "upper": "K5"},
           str(rig8.task.state()["bridge"]["lower"]))
 
     #   F1③ online 但**情报过期** → 不等待、立即出发
@@ -1536,7 +1539,7 @@ def test_bridge_intel() -> None:
     st10 = rig10.task.state()["bridge"]
     check("14.32 ★ 发车后晚到的情报**不改路线**（已冻结），只更新遥测实时结论",
           list(rig10.task.route.blocks()) == before
-          and st10["used"] == {"lower": "K9", "upper": "K5"}
+          and st10["used"] == {"lower": "K7", "upper": "K5"}
           and st10["lower"]["source"] == "drone" and st10["lower"]["cell"] == "K9",
           f"used={st10['used']} live={st10['lower']['source']}")
 
@@ -1578,7 +1581,7 @@ def test_bridge_intel() -> None:
     check("14.40b 这条路径在生产上不可达：DroneTask 的写槽与发事件在同一段代码（drone.py:283-287）"
           "⇒ 事件覆盖 ⊇ 槽覆盖（框架层 bridge_of() 仍认这条情报，Mission 不认）",
           st11.bridge_of("lower", now=rig11.clock.now(), stale_s=30.0) == "K9"
-          and rig11.task.state()["bridge"]["used"] == {"lower": "K9", "upper": "K5"},
+          and rig11.task.state()["bridge"]["used"] == {"lower": "K7", "upper": "K5"},
           f"bridge_of={st11.bridge_of('lower', now=rig11.clock.now(), stale_s=30.0)!r} "
           f"used={rig11.task.state()['bridge']['used']}")
 
@@ -1624,12 +1627,12 @@ def test_bridge_intel() -> None:
           f"k={t6_kblocks(rig15)} dropped={st15['events_dropped']} events={st15['events']} "
           f"溢出日志={len(drop_logs)}")
 
-    # ---------------- ⑦ ★卡 t13：默认穿洞格 = 现场真值 K10/K5（robot.yaml:513-521） ----------------
+    # ---------------- ⑦ ★卡 t13：默认穿洞格 = 现场真值 K7/K5（第六图 robot.yaml） ----------------
     real = Config.load(str(_T6_ROBOT))
-    check("14.44 ★ 现役 `config/robot.yaml`：兜底穿洞格 K9(下)/K5(上)，且都在候选集合里",
-          real.get("route.cross_lower_default") == "K9"
+    check("14.44 ★ 现役 `config/robot.yaml`：兜底穿洞格 K7(下)/K5(上)，且都在候选集合里（第六图重钉）",
+          real.get("route.cross_lower_default") == "K7"
           and real.get("route.cross_upper_default") == "K5"
-          and list(real.get("route.cross_lower_candidates") or []) == ["K9"]
+          and list(real.get("route.cross_lower_candidates") or []) == ["K7"]
           and list(real.get("route.cross_upper_candidates") or []) == ["K5"],
           f"default={real.get('route.cross_lower_default')}/{real.get('route.cross_upper_default')} "
           f"cand={real.get('route.cross_lower_candidates')}/{real.get('route.cross_upper_candidates')}")
@@ -1638,15 +1641,15 @@ def test_bridge_intel() -> None:
     real.override("planner.auto_plan_enabled", False)     # 本节只验"手动路线 + 默认格"这条路径
     rig13 = Rig(cfg=real, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
     rig13.ticks(3)
-    check("14.45 ★ 用**现役配置**跑：无情报 → 穿洞格 = 默认 K10/K5，且与现役路线逐 token 一致",
+    check("14.45 ★ 用**现役配置**跑：无情报 → 穿洞格 = 默认 K7/K5，且与现役路线逐 token 一致",
           rig13.task.phase == MissionPhase.DRIVE
           and list(rig13.task.route.blocks()) == _T6_BASE
-          and rig13.task.state()["bridge"]["used"] == {"lower": "K9", "upper": "K5"}
+          and rig13.task.state()["bridge"]["used"] == {"lower": "K7", "upper": "K5"}
           and rig13.task.state()["bridge"]["lower"]["source"] == "no_link",
           f"phase={rig13.task.phase} k={t6_kblocks(rig13)} "
           f"used={rig13.task.state()['bridge']['used']}")
-    check("14.46 默认格直接取自配置（`_cross_default` = {lower:K10, upper:K5}），无硬编码兜底值",
-          rig13.task._cross_default == {"lower": "K9", "upper": "K5"},
+    check("14.46 默认格直接取自配置（`_cross_default` = {lower:K7, upper:K5}），无硬编码兜底值",
+          rig13.task._cross_default == {"lower": "K7", "upper": "K5"},
           str(rig13.task._cross_default))
     check("14.47 遥测暴露订阅状态与事件计数（现场排『情报到没到』不必翻日志）",
           rig13.task.state()["bridge"]["subscribed"] is True
@@ -1692,9 +1695,9 @@ def test_bridge_hold_t32() -> None:
     check("15.1 ★ t32 无链路：不在 L10 停（phase 恒 DRIVE，HOLD 一次都没进）",
           (not entered1) and rig1.task.phase != MissionPhase.HOLD,
           f"phase={rig1.task.phase} entered={entered1}")
-    check("15.2 无链路时路线与接线前一致（默认洞 K10/K5，没改道）",
+    check("15.2 无链路时路线与接线前一致（路线现役洞 K7/K5，没改道）",
           rig1.task.state()["bridge"]["note"].get("reroute") is None
-          and rig1.task.state()["bridge"]["used"] == {"lower": "K9", "upper": "K5"},
+          and rig1.task.state()["bridge"]["used"] == {"lower": "K7", "upper": "K5"},
           str(rig1.task.state()["bridge"].get("used")))
 
     # ---- 15.3 链路在线 + 两半场未齐 → 到决策点进 HOLD；保持期间进度冻结 ----
@@ -1766,11 +1769,11 @@ def test_bridge_hold_t32() -> None:
     t6_drone_round(rig5, upper="K4")                 # 齐 → 放行 + 决策点前改道
     rig5.ticks(3)
     note5 = rig5.task.state()["bridge"]["note"]
-    check("15.11 ★ 决策点前迟到情报 → 换洞（K9→K11）且**保留段索引**（不是从 N10 重来）",
+    check("15.11 ★ 决策点前迟到情报 → 换洞（K7→K11）且**保留段索引**（不是从 N10 重来）",
           rig5.task.phase == MissionPhase.DRIVE and "K11" in blockers(rig5)
           and rig5.bb.get(P_ROUTE_INDEX) == idx5
           and isinstance(note5.get("reroute"), dict) and note5["reroute"]["count"] == 1
-          and note5["reroute"]["old"] == "K9" and note5["reroute"]["new"] == "K11",
+          and note5["reroute"]["old"] == "K7" and note5["reroute"]["new"] == "K11",
           f"idx={rig5.bb.get(P_ROUTE_INDEX)} vs {idx5} k={[b for b in blockers(rig5) if b.startswith('K')]} "
           f"reroute={note5.get('reroute')}")
     check("15.12 改道只动穿洞格：决策点及其之前的航点顺序不变（前缀一致）",
@@ -1804,10 +1807,10 @@ def test_bridge_hold_t32() -> None:
     first = blockers(rig6)
     t6_drone_round(rig6, upper="K4")                 # 再报一次（不应触发第二次改道）
     rig6.ticks(3)
-    check("15.14 ★ 全程改道上限 1 次：下半场已改 K9→K11、上半场未换洞（仍 K5）、计数仍是 1",
+    check("15.14 ★ 全程改道上限 1 次：下半场已改 K7→K11、上半场未换洞（仍 K5）、计数仍是 1",
           blockers(rig6) == first
           and rig6.task.state()["bridge"]["note"]["reroute"]["count"] == 1
-          and rig6.task.state()["bridge"]["note"]["reroute"]["old"] == "K9"
+          and rig6.task.state()["bridge"]["note"]["reroute"]["old"] == "K7"
           and rig6.task.state()["bridge"]["note"]["reroute"]["new"] == "K11"
           and "K5" in blockers(rig6),
           f"k={[b for b in blockers(rig6) if b.startswith('K')]} "
@@ -2055,7 +2058,7 @@ def test_stop_ledger_t7() -> None:
     section("18. ★t7 停站台账：射击停站与终点分开记（15:04 现场错账的根因）")
     ws = pathlib.Path(__file__).resolve().parents[3]
     cfg = Config.load(str(ws / "config" / "robot.yaml"))
-    cfg.override("planner.auto_plan_enabled", False)     # 走 route.tokens（现役 44 点手路线）
+    cfg.override("planner.auto_plan_enabled", False)     # 走 route.tokens（现役 68 点手路线，第六图）
     cfg.override("mission.auto_start", True)
     cfg.override("mission.auto_start_delay_s", 0.0)
     toks = [str(t) for t in (cfg.get("route.tokens") or [])]
@@ -2063,21 +2066,21 @@ def test_stop_ledger_t7() -> None:
     rig.ticks(3)
     route = rig.bb.get(P_ROUTE)
     ledger = rig.task.stop_ledger()
-    check("18.0 前置：现役路线 44 点、两个射击停站（D3* / G3*）",
-          len(toks) == 44 and len(route) == 44
-          and [w.block for w in route.waypoints if w.shoot] == ["D3", "G3"],
+    check("18.0 前置：现役路线 68 点、一个射击停站 B4*（第六图重钉：tour 产物，旧双停站 D3*/G3* 是第五图路线）",
+          len(toks) == 68 and len(route) == 68
+          and [w.block for w in route.waypoints if w.shoot] == ["B4"],
           f"{len(route)} 点 / {[w.block for w in route.waypoints if w.shoot]}")
-    check("18.1 ★ 台账分类：射击 2 + 终点 1（末端单独记 END，不再混进停站个数）",
-          ledger["count"] == 3 and ledger["counts"] == {"shoot": 2, "scan": 0, "end": 1},
+    check("18.1 ★ 台账分类：射击 1 + 终点 1（末端单独记 END，不再混进停站个数）",
+          ledger["count"] == 2 and ledger["counts"] == {"shoot": 1, "scan": 0, "end": 1},
           str(ledger["counts"]))
-    check("18.2 逐点 kind：D3/G3 = SHOOT，末点 = END 且就是路线末航点",
-          [p["block"] for p in ledger["points"]] == ["D3", "G3", "N5"]
-          and [p["kind"] for p in ledger["points"]] == ["SHOOT", "SHOOT", "END"]
+    check("18.2 逐点 kind：B4 = SHOOT，末点 = END 且就是路线末航点",
+          [p["block"] for p in ledger["points"]] == ["B4", "N5"]
+          and [p["kind"] for p in ledger["points"]] == ["SHOOT", "END"]
           and ledger["points"][-1]["index"] == len(route) - 1,
           str(ledger["points"]))
     text = "\n".join(rig.logs)
-    check("18.3 横幅一行可读：'停站点 3 个（射击 2 / 终点 1）' + 'N5(终点)' 标注",
-          "停站点 3 个（射击 2 / 终点 1）" in text
+    check("18.3 横幅一行可读：'停站点 2 个（射击 1 / 终点 1）' + 'N5(终点)' 标注（第六图重钉）",
+          "停站点 2 个（射击 1 / 终点 1）" in text
           and "N5(终点)" in text and "(射击)" in text,
           next((ln for ln in rig.logs if ln.startswith("停站点 ")), ""))
     first_shoot = ledger["points"][0]["index"]

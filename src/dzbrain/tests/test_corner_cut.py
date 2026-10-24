@@ -10,9 +10,17 @@ r"""卡 t53 专项：拐角**条件切角**（90° 直角 → 45° 斜段）。
 本文件钉住三件事：
   ① 七条硬规则逐条生效（① 雷格 ② 离雷 0.15 m/不更近 ③ 障碍·挡板·靶板净空不更近
      ④ 雷三连 ⑤ 桥洞三连 ⑥ 只切 90°±2° ⑦ 停站/指令格）；
-  ② **默认关闭** ⇒ 现役发车路线逐 token 不变（冻结路线不受影响）；
-  ③ 开启后的产物：39 点、5 处切角、`F3*` 保留、`validate` 0 error、
-     顶点超调显著下降且**受保护指标**（雷 8/8 / 压靶 0 / 碰撞 0 / 挡板 0 / 越界 0 / 靶板净空不降）全保持。
+  ② **默认关闭** ⇒ 产物逐 token 不变（第六图重钉：整线无解 ⇒ "冻结现役路线"改钉在
+     **B3 增量形态**上：开关缺省时产物 == B3 基线、无切角 warning）；
+  ③ 开启后的产物：第六图 B3 形态上三处直角全被硬规则拦下（⑦停站 B4 / ③靶板 E4 /
+     ②雷 E5）⇒ 0 处切角、逐 token 不变、validate 0 error；
+     另加**合成图端到端正证**（K10 桥 + 7 雷 + D5/D6 靶板，tracker-safe 可解）：
+     56 → 50 点、6 处切角、`B4*` 保留、validate 0 error —— 特性本身仍会切、规则放行时
+     真的切；sim 两臂对照受保护指标不劣化。
+
+★★ 第六图重钉（2026-10-24）：tracker-safe 对第六图整线结构性无解（K7 死锁）⇒
+   本文件 §2~§5 的"现役路线两臂"全部改用 `from_cell="B3" + already_covered=全部 8 雷`
+   的可行增量形态（15 token；详见 test_incremental_plan.py 文件头）。
 
 跑：python src\dzbrain\tests\test_corner_cut.py
 """
@@ -21,6 +29,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
+from collections import Counter
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.stdout.reconfigure(errors="replace")
@@ -132,126 +141,167 @@ def test_rules() -> None:
 
 
 # --------------------------------------------------------------------------- #
-#  2. 开关默认关闭 + 冻结路线不变
+#  2. 开关默认关闭 + 产物不变（第六图：整线无解 ⇒ B3 增量形态上钉"逐 token 不变"）
 # --------------------------------------------------------------------------- #
+MINES = list(SPEC.mines)
+
+
+def _plan6(cfg, **kw):
+    """第六图唯一可行形态：B3 + 全部雷已压（详见 test_incremental_plan.py）。"""
+    return PL.plan_route_tracker_safe(MAP, cfg, max_seconds=30.0,
+                                      from_cell="B3", already_covered=MINES, **kw)
+
+
 def test_default_off() -> None:
-    section("2. 开关默认关闭 ⇒ 现役发车路线逐 token 不变")
+    section("2. 开关默认关闭 ⇒ 产物逐 token 不变（第六图重钉：整线无解 → B3 增量基底）")
     check("2.1 cfg=None 时关闭", PL.corner_cut_enabled(None) is False, "None")
     cfg = _cfg()
     check("2.2 现役 robot.yaml 没有该键（缺省 False）",
           cfg.get("planner.corner_cut", None) is None and PL.corner_cut_enabled(cfg) is False,
           repr(cfg.get("planner.corner_cut", "<缺键>")))
-    off = PL.plan_route_tracker_safe(MAP, cfg, max_seconds=10.0)
-    check("2.3 规划器产物 == 冻结 mission_blocks（逐 token，%d 点）" % len(LIVE),
-          list(off.tokens) == LIVE, " ".join(off.tokens))
-    check("2.4 关闭时不得出现任何切角 warning",
-          not any("切角" in w for w in off.warnings), str(off.warnings))
+    # ★★ 第六图重钉（2026-10-24）：默认整线（不带 from_cell）结构性无解（K7 死锁）——
+    #   旧 2.3「规划器产物 == 冻结 mission_blocks」在第六图上无从谈起，改钉两件事：
+    #   (a) 默认整线 = PlannerError + 归因（不因切角开关而变）；
+    #   (b) "缺省关闭 ⇒ 产物不变"在可行形态（B3 增量）上保住：产物 == B3 基线逐 token，
+    #       且无任何切角 warning。
+    try:
+        PL.plan_route_tracker_safe(MAP, cfg, max_seconds=10.0)
+        e_msg = ""
+    except PL.PlannerError as exc:
+        e_msg = str(exc)
+    check("2.3 默认整线 ⇒ PlannerError + 归因（第六图结构性死锁，与切角开关无关）",
+          "无解" in e_msg and "归因" in e_msg, e_msg.splitlines()[0][:80] or "居然成功了")
+    off = _plan6(cfg)
+    base_tokens = [str(t) for t in off.tokens]
+    check("2.4 缺省关闭 + B3 增量形态 ⇒ 产物 == B3 基线（15 token）且无任何切角 warning",
+          len(base_tokens) == 15 and not any("切角" in w for w in off.warnings),
+          "%d token / warnings=%s" % (len(base_tokens),
+                                      [w for w in off.warnings if "切角" in w]))
 
 
 # --------------------------------------------------------------------------- #
-#  3. 开启后的产物与门禁
+#  3. 开启后的产物与门禁（第六图：0 处可切 + 合成图端到端正证）
 # --------------------------------------------------------------------------- #
 def test_cut_on() -> None:
-    section("3. 开启切角：产物 39 点 / 5 处 / D3* 保留 / validate 0 error")
-    on = PL.plan_route_tracker_safe(MAP, _cfg(**{"planner.corner_cut": True}), max_seconds=10.0)
+    section("3. 开启切角：第六图 B3 形态 0 处可切（三规则拦下）+ 合成图 56→50 端到端")
+    on = _plan6(_cfg(**{"planner.corner_cut": True}))
     cut_warn = next((w for w in on.warnings if "切角" in w), "")
-    # ★ 卡 t3 一版（2026-10-16）：停站点推远到板心 1.00 m ⇒ 路线 44 → 50 点，条件切角 5 → 8 处
-    #   （新增 `F1`/`H1`/`H3` 三个直角，全在 `F3→F2*→F1→G1→H1→H2→H3→G3` 那段绕行上）。
-    # ★ 卡 t3-A（同日）：停站退到主线上的 `D3` ⇒ 绕行段消失 ⇒ **回到 44 点 / 5 处**
-    #   （`M10` `J10` `E10` `B9` `G6`，与 t57 逐格相同）。
-    check("3.1 切 5 处：M10 / J10 / E10 / B9 / G6",
-          all(b + ":" in cut_warn for b in ("M10", "J10", "E10", "B9", "G6"))
-          and "拐角条件切角 5 处" in cut_warn, cut_warn[:120])
-    check("3.2 44 → 39 点", len(LIVE) == 44 and len(on.tokens) == 39, "%d → %d"
-          % (len(LIVE), len(on.tokens)))
-    check("3.3 删掉的就是那 5 个格（其余逐 token 保序不变）",
-          [t for t in LIVE if t.rstrip("*,y") not in
-           ("M10", "J10", "E10", "B9", "G6")]
-          == list(on.tokens), " ".join(on.tokens))
-    check("3.4 两个射击停站 `D3*`+`G3*` 保留（t13 双停站 + t3-A 板心窗口语义都不受影响）",
-          [t for t in on.tokens if t.endswith("*")] == [t for t in LIVE if t.endswith("*")]
-          == ["D3*", "G3*"], str([t for t in on.tokens if t.endswith("*")]))
-    check("3.5 末点 `N5,y` 朝向后缀保留", on.tokens[-1] == "N5,y", on.tokens[-1])
-    check("3.6 token 往返一致（纯格名，可被车侧 parse_mission 读回）",
-          [w.block for w in P.parse_mission(on.tokens).waypoints]
-          == [w.block for w in on.tokens and P.parse_mission(on.tokens).waypoints],
-          "roundtrip")
-    issues = V.validate_route(P.parse_mission(on.tokens), map_cfg=MAP, cfg=_cfg())
-    errs = [i.code for i in issues if i.severity == "error"]
-    check("3.7 切角后 validate 0 error", not errs, V.summary(issues)[:60] + " errs=" + str(errs))
+    # ---- 第六图真几何逐格证据：三处直角全被硬规则拦下（corner_cut_cells 直查）----
+    cells6 = [str(t).rstrip("*,y") for t in on.tokens]
+    kept, dropped, notes = PL.corner_cut_cells(
+        _cells(cells6), SPEC, mine_clear_m=0.15,
+        stop_cells=_cells(["B4"]), crossings=("K5",), **BAR)
+    check("3.1 第六图 B3 形态三处直角全被拦：B4=⑦停站 / E4=③靶板更近 / E5=②雷更近"
+          "（逐条原因钉死，规则真的在第六图几何上生效）",
+          dropped == [] and notes == ["B4:⑦停站/指令格", "E4:③靶板更近（0.350→0.247）",
+                                      "E5:②切后比切前更近雷（0.350→0.247）"],
+          "dropped=%s notes=%s" % (dropped, notes))
+    kept_ns, dropped_ns, _notes_ns = PL.corner_cut_cells(
+        _cells(cells6), SPEC, mine_clear_m=0.15, stop_cells=(), crossings=("K5",), **BAR)
+    check("3.2 反证：去掉⑦停站保护 ⇒ B4 立刻可切（⑦ 正是保护停站的那条规则）",
+          [geo.index_to_block(r - 1, c) for r, c in dropped_ns] == ["B4"],
+          "dropped=%s" % [geo.index_to_block(r - 1, c) for r, c in dropped_ns])
+    check("3.3 端到端：corner_cut=True 的产物与关闭时**逐 token 相同**（0 处切角 ⇒ "
+          "无切角 warning；开关只增不删，被拦下就原样放行）",
+          list(on.tokens) == [t for t in _plan6(_cfg()).tokens] and cut_warn == "",
+          "%d token / cut_warn=%r" % (len(on.tokens), cut_warn[:60]))
+    check("3.4 射击停站 `B4*` 保留 + 末点 `N5,y` 朝向后缀保留",
+          [t for t in on.tokens if str(t).endswith("*")] == ["B4*"]
+          and on.tokens[-1] == "N5,y",
+          "%s / %s" % ([t for t in on.tokens if str(t).endswith("*")], on.tokens[-1]))
+    iss = V.validate_route(P.parse_mission(list(on.tokens)), map_cfg=MAP, cfg=_cfg(),
+                           expect_halves=("upper",), already_covered=MINES)
+    check("3.5 切角（0 处）后 validate 增量口径 0 error（只剩 R002 warn）",
+          not [i.code for i in iss if i.level == "error"],
+          V.summary(iss)[:60])
     spans = V.validate_route(P.parse_mission(LIVE), map_cfg=MAP, cfg=_cfg())
-    check("3.8 对照：冻结 44 点也 0 error（基线未被破坏）",
-          not [i.code for i in spans if i.severity == "error"], V.summary(spans)[:60])
+    check("3.6 对照：冻结现役 68 token 也 0 error（基线未被破坏）",
+          not [i.code for i in spans if i.level == "error"], V.summary(spans)[:60])
+    # ---- 合成图端到端正证：规则放行时特性真的会切（第六图整线无解 ⇒ 借合成图）----
+    #   K10 桥（离隔板两行，无 K7 类死锁）+ 7 雷 + D5/D6 靶板 ⇒ tracker-safe 可解。
+    #   ⚠️ 合成路线有重复格（G4/H4/I4/I5 各两访）⇒ 删除对照必须用**多重集差 + 保序
+    #   子序列**判据（按名字的集合过滤会把两访格一次全删，误判）。
+    syn = _map(mines=("B10", "E8", "I11", "A2", "F4", "H4", "G5"),
+               targets=("D5", "D6"), bridges=("K5", "K10"))
+    syn_off = PL.plan_route_tracker_safe(syn, _cfg(), max_seconds=20.0)
+    syn_on = PL.plan_route_tracker_safe(syn, _cfg(**{"planner.corner_cut": True}),
+                                        max_seconds=20.0)
+    syn_cut = next((w for w in syn_on.warnings if "切角" in w), "")
+    _off_b = [str(t).rstrip("*,y") for t in syn_off.tokens]
+    _on_b = [str(t).rstrip("*,y") for t in syn_on.tokens]
+    _diff = Counter(_off_b) - Counter(_on_b)
+    _it = iter(_off_b)
+    _subseq = all(b in _it for b in _on_b)          # 保序子序列（只删不换）
+    check("3.7 合成图正证：切 6 处（F11/D10/C1/C3/I6/I5）、56 → 50 点、"
+          "on 是 off 的保序删除（多重集差恰 = 6 个切点，各 1 次）",
+          "拐角条件切角 6 处" in syn_cut
+          and all(b + ":" in syn_cut for b in ("F11", "D10", "C1", "C3", "I6", "I5"))
+          and len(_off_b) == 56 and len(_on_b) == 50 and _subseq
+          and sorted(_diff.elements()) == ["C1", "C3", "D10", "F11", "I5", "I6"],
+          "%d → %d / 多重集差=%s / 保序=%s" % (len(_off_b), len(_on_b),
+                                              sorted(_diff.elements()), _subseq))
+    iss_syn = V.validate_route(P.parse_mission(list(syn_on.tokens)), map_cfg=syn, cfg=_cfg())
+    check("3.8 合成图切角后 validate 0 error（特性产物本身过门禁）",
+          not [i.code for i in iss_syn if i.level == "error"], V.summary(iss_syn)[:60])
 
 
 def test_determinism() -> None:
     section("4. 规划确定性（同配置两次 → 逐 token + warning 相同）")
-    a = PL.plan_route_tracker_safe(MAP, _cfg(**{"planner.corner_cut": True}), max_seconds=10.0)
-    b = PL.plan_route_tracker_safe(MAP, _cfg(**{"planner.corner_cut": True}), max_seconds=10.0)
+    a = _plan6(_cfg(**{"planner.corner_cut": True}))
+    b = _plan6(_cfg(**{"planner.corner_cut": True}))
     check("4.1 tokens 相同", list(a.tokens) == list(b.tokens),
           "%d vs %d" % (len(a.tokens), len(b.tokens)))
     check("4.2 warnings 相同", a.warnings == b.warnings, str(a.warnings)[:80])
-    c = PL.plan_route_tracker_safe(MAP, _cfg(), max_seconds=10.0)
-    d = PL.plan_route_tracker_safe(MAP, _cfg(), max_seconds=10.0)
-    check("4.3 关闭时两次也相同且 == 冻结 44 点",
-          list(c.tokens) == list(d.tokens) == LIVE, "%d" % len(c.tokens))
+    c = _plan6(_cfg())
+    d = _plan6(_cfg())
+    check("4.3 关闭时两次也相同且 == B3 基线 15 token",
+          list(c.tokens) == list(d.tokens) and len(c.tokens) == 15, "%d" % len(c.tokens))
 
 
 # --------------------------------------------------------------------------- #
-#  5. sim：峰值下降 + 受保护指标不劣化
+#  5. sim：两臂对照 + 受保护指标不劣化（第六图 B3 形态，两臂同路线）
 # --------------------------------------------------------------------------- #
 def test_sim_compare() -> None:
-    section("5. sim：拐角峰值下降 + 受保护指标保持（雷 8/8 / 压靶 0 / 碰撞 0 / 挡板 0 / 越界 0）")
+    section("5. sim：B3 两臂对照（0 处切角 ⇒ 指标逐位相同）+ 受保护指标全保持")
     field = S.load_field_spec(str(MAP_PATH))
-    off = PL.plan_route_tracker_safe(MAP, _cfg(), max_seconds=10.0)
-    on = PL.plan_route_tracker_safe(MAP, _cfg(**{"planner.corner_cut": True}), max_seconds=10.0)
+    off = _plan6(_cfg())
+    on = _plan6(_cfg(**{"planner.corner_cut": True}))
     cfg = _cfg()
     mo = S.run_sim(P.parse_mission(off.tokens), cfg, S.SimConfig(), field=field).metrics
     mn = S.run_sim(P.parse_mission(on.tokens), cfg, S.SimConfig(), field=field).metrics
-    # ★★ 卡 t3 实测（2026-10-16）：现役 44 点路线（停站 `D3*`）上**收益反转** —— 切 5 处后
-    #   顶点超调 0.04402 → **0.06366 m（+45%）**、拐角横向峰值 0.11620 → 0.14025 m（+21%）、
-    #   拐角 RMS 0.05222 → 0.04858 m（−7%）；换来的是更快（74.00 → 63.94 s）与靶板净空变大
-    #   （0.14331 → 0.20284 m）。
-    #   ⚠️ t3 一版曾把这次反转归因于"新增的 `F1`/`H1`/`H3` 三处落在停站绕行段上"——
-    #     **该归因已被 t3-A 证伪**：停站退回主线 `D3`（绕行段消失、只剩 5 处切点）后，
-    #     超调仍然 +45% ⇒ 反转是"删 90° 顶点 ⇒ 弯道变长直角 ⇒ 纯追踪切得更多"这个**机制**本身，
-    #     与停站位置无关。
-    #   ⇒ 本特性在现役路线上**没有精度收益**，继续**默认关闭**（发车路线不带它）；
-    #     下面的断言从"必须下降"改为"**不得超过基线的 1.5 倍**"—— 它守的是"删顶点不能把
-    #     弯道改到不可跟踪"这条底线，而不是"必然变好"这条已证伪的假设。
-    #     ⚠️ 若将来要用它，必须先重做前视/节拍整定，不能直接开 `planner.corner_cut`。
-    _LIMIT = 1.5
-    for key, label in (("vertex_overshoot_normal_m", "5.1 顶点超调"),
-                       ("cross_track_max_corner_m", "5.2 拐角横向峰值"),
-                       ("cross_track_rms_corner_m", "5.3 拐角横向 RMS")):
-        check("%s 不劣于基线的 %.1f 倍（%.5f → %.5f m）"
-              % (label, _LIMIT, mo[key], mn[key]),
-              mn[key] <= mo[key] * _LIMIT,
-              "%.5f → %.5f（基线 %.5f）" % (mo[key], mn[key], mo[key]))
-    check("5.4 雷覆盖仍 8/8", mn["mine_pressed_count"] == mo["mine_pressed_count"] == 8.0,
-          "%d/%d" % (mn["mine_pressed_count"], mn["mine_total"]))
-    check("5.5 车体不压靶板（硬）0 拍 + 靶板最近净距不降（%.5f → %.5f m）"
-          % (mo["board_min_clearance_m"], mn["board_min_clearance_m"]),
-          mn["board_overlap_steps"] == 0.0
-          and mn["board_min_clearance_m"] >= mo["board_min_clearance_m"],
-          "overlap=%.0f clearance=%.5f" % (mn["board_overlap_steps"], mn["board_min_clearance_m"]))
-    check("5.6 障碍碰撞 0 / 挡板触线 0 / 越界 0 / K 列封死 0",
-          mn["obstacle_hit_steps"] == 0.0 and mn["barrier_breach_steps"] == 0.0
+    # ★★ 第六图重钉（2026-10-24）：B3 形态 0 处可切（§3.1）⇒ 两臂是**同一条路线**，
+    #   指标必须逐位相同 —— 本条守的是"开关只增不删：被规则拦下就原样放行、
+    #   不许有隐藏副作用"。第六图前的旧断言（超调 1.5 倍上界 / 收益反转记录）随
+    #   第五图 44 点整线两臂退役；特性真实收益的 sim 对照需等有可切路线时再钉。
+    _SAME = ("completed", "path_len_ratio", "time_s", "vertex_overshoot_normal_m",
+             "cross_track_max_corner_m", "cross_track_rms_corner_m",
+             "mine_pressed_count", "board_overlap_steps", "board_min_clearance_m",
+             "obstacle_hit_steps", "barrier_breach_steps", "out_of_bounds_steps",
+             "k_seal_violation_steps", "final_error_m")
+    check("5.1 两臂 14 项契约指标逐位相同（0 处切角 = 同一条路线，无隐藏副作用）",
+          all(mo[k] == mn[k] for k in _SAME),
+          " | ".join("%s: %s→%s" % (k, mo[k], mn[k]) for k in _SAME
+                     if mo[k] != mn[k]) or "14/14 逐位相同")
+    check("5.2 受保护指标全保持：雷覆盖不降（段内 1/8，另 7 颗在 already_covered 台账）"
+          " / 压靶 0 / 碰撞 0 / 挡板 0 / 越界 0 / K 列封死 0",
+          mn["mine_pressed_count"] == mo["mine_pressed_count"]
+          and mn["board_overlap_steps"] == 0.0
+          and mn["obstacle_hit_steps"] == 0.0 and mn["barrier_breach_steps"] == 0.0
           and mn["out_of_bounds_steps"] == 0.0 and mn["k_seal_violation_steps"] == 0.0,
-          "hit=%.0f barrier=%.0f oob=%.0f kseal=%.0f"
-          % (mn["obstacle_hit_steps"], mn["barrier_breach_steps"],
+          "mines=%.0f/%.0f overlap=%.0f hit=%.0f barrier=%.0f oob=%.0f kseal=%.0f"
+          % (mn["mine_pressed_count"], mn["mine_total"], mn["board_overlap_steps"],
+             mn["obstacle_hit_steps"], mn["barrier_breach_steps"],
              mn["out_of_bounds_steps"], mn["k_seal_violation_steps"]))
-    check("5.7 全程跑完（completed=1）+ 里程比仍在 1 以内",
-          mn["completed"] == 1.0 and mn["path_len_ratio"] <= 1.0,
-          "completed=%.0f len_ratio=%.4f" % (mn["completed"], mn["path_len_ratio"]))
+    check("5.3 全程跑完（completed）+ 里程比仍在 1 以内",
+          bool(mn["completed"]) and mn["path_len_ratio"] <= 1.0,
+          "completed=%s len_ratio=%.4f" % (mn["completed"], mn["path_len_ratio"]))
     print("     峰值对比：超调 %.5f→%.5f m ｜ 拐角峰值 %.5f→%.5f m ｜ 拐角RMS %.5f→%.5f m"
-          " ｜ 时间 %.2f→%.2f s ｜ 靶板净空 %.5f→%.5f m ｜ 靶净空拍 %.0f→%.0f"
+          " ｜ 时间 %.2f→%.2f s ｜ 靶板净空 %.5f→%.5f m"
           % (mo["vertex_overshoot_normal_m"], mn["vertex_overshoot_normal_m"],
              mo["cross_track_max_corner_m"], mn["cross_track_max_corner_m"],
              mo["cross_track_rms_corner_m"], mn["cross_track_rms_corner_m"],
              mo["time_s"], mn["time_s"],
-             mo["board_min_clearance_m"], mn["board_min_clearance_m"],
-             mo["board_breach_steps"], mn["board_breach_steps"]))
+             mo["board_min_clearance_m"], mn["board_min_clearance_m"]))
 
 
 def main() -> int:
