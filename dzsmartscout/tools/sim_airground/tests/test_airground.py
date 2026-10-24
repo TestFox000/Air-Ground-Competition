@@ -257,6 +257,7 @@ def main() -> bool:
     r1 = run_car("t", baseline, cfg, field, out_dir=d1)
     r2 = run_car("t", baseline, cfg, field, out_dir=d2)
     check("run_sim 复跑 traj.csv sha256 逐字节相同", r1.sha256 == r2.sha256, r1.sha256[:16])
+    # ★前视回退后基线不变（2026-10-24 修正矩阵：0.26~0.28 与 A1:PIVOT 不完赛绑定，config 维持 0.36/0.40）
     check("基线完成指标（现役 68 token 线：108.50 s / RMS 0.1236，第六图重钉 2026-10-24）",
           r1.metrics["completed"]
           and abs(r1.metrics["time_s"] - 108.50) < 1.0

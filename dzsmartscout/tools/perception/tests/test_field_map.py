@@ -26,14 +26,14 @@ from .synth import SYNTH_FIELD_PALETTE, render_arena
 
 V1 = pathlib.Path(__file__).resolve().parents[4]
 MAP_YAML = V1 / "dzrobot_v2" / "config" / "map.yaml"
-OFFICIAL = V1 / "_tmp_session" / "t39_map_official" / "map_official.png"
+OFFICIAL = V1 / "_tmp_session" / "t40_map_parse" / "map_new.png"  # 第六图官方源图（2026-10-24 重钉；t39 为第五图）
 
 CFG = None  # 延迟构造（避免导入期副作用）
-TRUTH_OFFICIAL = {
-    "mines": ["C1", "A3", "E3", "G4", "I6", "B7", "D9", "H10"],
-    "obstacles": ["A1", "E2", "H4", "D8", "I8", "G9", "B11", "F11"],
-    "targets": ["E5", "F5"],
-    "bridges": ["K5", "K9"],
+TRUTH_OFFICIAL = {  # 第六图真值（2026-10-24 重钉；感知管线在本图实测全对账命中）
+    "mines": ["A2", "F4", "H4", "G5", "E8", "B10", "D11", "I11"],
+    "obstacles": ["B1", "D1", "F3", "I6", "H7", "A8", "C9", "E9"],
+    "targets": ["D5", "D6"],
+    "bridges": ["K5", "K7"],
 }
 
 

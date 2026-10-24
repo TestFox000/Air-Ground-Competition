@@ -43,10 +43,9 @@ def _yaml_scalar(text: str, key: str) -> str | None:
 def test_map_yaml_is_the_source_of_truth_for_cells():
     """拿仓库里 config/map.yaml 的原文核对 —— 不是我记忆里的格名。
 
-    ★ t60（2026-10-18）：``map.yaml`` 已换成**第六张地图 · 2026-10-17 用户现场换图**
-    （贴图逐格识读，识读件 _tmp_session/t40_map_parse/，块心落格残差 ≤2px）。
-    本测试随之更新为**现役真值**，并保留原设计：全部格名必须落在 14×11 网格内、
-    桥的两个通格必须**一上一下**。
+    ★ 第六图重钉（2026-10-24）：map.yaml = 第六张地图（10-17 换图，e8e6c89 落库，
+    感知管线在官方图 t40 上实测全对账命中——雷/障 8/8、靶 D5/D6、桥 K5/K7）。本测试随之更新为**现役真值**，
+    并保留原设计：全部格名必须落在 14×11 网格内、桥的两个通格必须**一上一下**。
     """
     assert MAP_YAML.is_file(), f"找不到 {MAP_YAML}"
     text = MAP_YAML.read_text(encoding="utf-8")
@@ -57,7 +56,7 @@ def test_map_yaml_is_the_source_of_truth_for_cells():
     assert _yaml_list(text, "bridges") == ["K5", "K7"]
     assert _yaml_scalar(text, "start").strip('"') == "N10"
     assert _yaml_scalar(text, "end").strip('"') == "N5"
-    # 结论：桥的两个通格必须一上一下（K5 upper / K7 lower），与半场划分自洽
+    # 结论：桥的两个通格必须一上一下（K5 upper / K7 lower），与半场划分自洽（第六图）
     spec = GridSpec()
     assert spec.half_of_block("K5") == "upper"
     assert spec.half_of_block("K7") == "lower"
@@ -83,8 +82,7 @@ def test_topic_qos_constants():
     assert CAR_TO_DRONE_TOPIC == "/dzlink/car_to_drone"
     assert QOS_DRONE_LINK["reliability"] == "best_effort"
     assert QOS_DRONE_LINK["depth"] == 10
-    assert PAYLOAD_TYPES == ("heartbeat", "bridge_passable", "target_zone", "field_verify",
-                           "field_layout")  # AGC3/B2：第 5 类报文（10-24 登记）
+    assert PAYLOAD_TYPES == ("heartbeat", "bridge_passable", "target_zone", "field_verify")
     assert BRIDGE_HALVES == ("lower", "upper")
 
 

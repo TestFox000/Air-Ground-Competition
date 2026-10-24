@@ -1,22 +1,22 @@
-=== sync_planner_from_source  2026-10-24 10:46:31 ===
+=== sync_planner_from_source  2026-10-24 14:27:42 ===
 源(真源，只读): C:\Users\29212\Desktop\赛事临时\v1\dzrobot_v2
 产物        : C:\Users\29212\Desktop\赛事临时\v1\dzsmartscout\tools\planner\vendor\dzbrain_ws
   src/dzbrain/dzbrain/__init__.py                            701 B  sha256=2c95c7e2ecf508892a27  OK
   src/dzbrain/dzbrain/core/__init__.py                       108 B  sha256=71f40bf8e4b0135a410c  OK
-  src/dzbrain/dzbrain/core/config.py                       64415 B  sha256=72a13b25325272d1e95f  OK
+  src/dzbrain/dzbrain/core/config.py                       64821 B  sha256=232a12dffc62eee89b64  OK
   src/dzbrain/dzbrain/core/geometry.py                      7276 B  sha256=d932fc8bb3f125b3d2c5  OK
   src/dzbrain/dzbrain/route/__init__.py                      195 B  sha256=15ee930fbc0b20b4bde7  OK
   src/dzbrain/dzbrain/route/model.py                        8565 B  sha256=c719a8f089d4c45bb4b7  OK
   src/dzbrain/dzbrain/route/parser.py                      21086 B  sha256=ef428a7414e01e8da4c6  OK
   src/dzbrain/dzbrain/route/physics.py                     36608 B  sha256=6b1ec3f8ba0f6e2fdaf2  OK
-  src/dzbrain/dzbrain/route/planner.py                    247925 B  sha256=fbb008f045754602a3cd  OK
-  src/dzbrain/dzbrain/route/validate.py                    39944 B  sha256=51d44bd5b7e06e23033e  OK
+  src/dzbrain/dzbrain/route/planner.py                    251785 B  sha256=084121adb12a6c06d893  OK
+  src/dzbrain/dzbrain/route/validate.py                    40843 B  sha256=e488726dc125f5caafe6  OK
   tools/_field_const.py                                     2932 B  sha256=f2df6fb796044bc98a30  OK
-  tools/plan_route.py                                      24211 B  sha256=09b2c844b9d4e293d1c8  OK
+  tools/plan_route.py                                      24389 B  sha256=fce2019e88e0474b5df8  OK
   tools/route_check.py                                     71600 B  sha256=23e67b80ab197519fb6c  OK
   tools/shoot_planner.py                                   27459 B  sha256=5657dfea10a99112f418  OK
   config/map.yaml                                           2370 B  sha256=385e07182aa84ebc26aa  OK
-  config/robot.yaml                                        77207 B  sha256=fc50a5ab03e782cef687  OK
+  config/robot.yaml                                        78828 B  sha256=2d7e28d2e525b7d30a57  OK
   路线内容：车侧 n=68 sha256=b3bceaad0ab80d4c / 产物 n=68 sha256=b3bceaad0ab80d4c → 逐 token 一致 ✅
 闭包自检：通过
 账本: C:\Users\29212\Desktop\赛事临时\v1\dzsmartscout\tools\planner\HASH_LEDGER.json（16 条 + 路线指纹）

@@ -281,12 +281,16 @@ SCHEMA: dict[str, Spec] = {
                                           "连续漂移多少段后请求停车；999 = 解除该门禁（快速采集档）"),
     "localization.drift_clear_ticks": Spec(5, _I, "拍", 1, 1000,
                                            "连续干净 N 拍 ⇒ 撤销降速/停车"),
-    "localization.boundary_guard_m": Spec(0.10, _F, "m", 0.0, 1.00,
-                                          "离安全边界多近开始限速"),
+    "localization.boundary_guard_m": Spec(0.25, _F, "m", 0.0, 1.00,
+                                          "离安全边界多近开始限速"
+                                          "（2026-10-24 缺省对齐 15:04 事故裁决值 0.25："
+                                          "旧缺省 0.10 在 YAML 缺键时会静默绕开裁决）"),
     "localization.boundary_guard_speed_mps": Spec(0.08, _F, "m/s", 0.0, 0.40,
                                                   "边界限速值"),
-    "localization.boundary_stop_m": Spec(0.03, _F, "m", 0.0, 1.00,
-                                         "离安全边界多近请求停车"),
+    "localization.boundary_stop_m": Spec(0.10, _F, "m", 0.0, 1.00,
+                                         "离安全边界多近请求停车"
+                                         "（2026-10-24 缺省对齐 15:04 事故裁决值 0.10——"
+                                         "须 > 0.044 m 滑行距离；旧缺省 0.03 达不到）"),
 
     # ---------------- 路线与任务 ----
     "route.tokens": Spec(None, list, "", None, None, "mission_blocks（格名 token 列表）", True),
