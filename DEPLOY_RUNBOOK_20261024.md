@@ -1,0 +1,70 @@
+# 无人机端部署运行手册（2026-10-24 · 缺雷修复 + 定位加固轮）
+
+> 分支：`agents/zcode/drone-replan-fixes-20261024`（基线 = 机上快照 snapshot/orin-20261023 + 本轮修复）
+> 本手册是本轮上机的**唯一入口**：按序执行，每步有验证门，失败即停。
+
+## 0. 前置（一次性）
+
+```bash
+# 操作机（与 Orin 同网）：
+git fetch origin && git checkout agents/zcode/drone-replan-fixes-20261024
+ping <Orin IP>                       # 不通先解决链路（mDNS: dzsmart.local）
+ssh duzhong@<Orin IP> 'date; date'   # 双机对时（偏差必须 <1s；历史实测偏过 ~3 天）
+set AG_ORIN_PASS=******              # 部署脚本密码环境变量
+```
+
+## 1. 本轮变更清单（为什么上这趟机）
+
+| # | 变更 | 文件 | 修复的问题 |
+|---|---|---|---|
+| 1 | **route_cells_of 认连写朝向后缀**（`N5,y`） | src/ag_integrate/ag_integrate/route_progress.py | 旧版抛 CommandError→静默退回摆位起点+全量雷，**"重规划基于最新进度"从未生效**（缺雷主因） |
+| 2 | **replan_on_update 默认开**（integrate_node + sidecar 双线） | integrate_node.py / orin_plan_sidecar.py | 首发后识别到的新雷永不进路线 |
+| 3 | **px4_odom_convert v2.2** | onboard/dzpx4_patch/（补齐载荷） | NaN 直通 EKF / armed 断流 fail-open / 对齐双锚 / 参数化 / 依赖清单 |
+| 4 | D13 13类/17通道（**已在树内，无新增**，本轮确认） | onboard/dzuav/ | 就绪度报告 P0-1 按旧副本误报，机上源码已是 17 通道 + 形状契约校验（:72 换错引擎即抛错） |
+
+## 2. 部署步骤
+
+```bash
+# ① 源码+工具链+规划包（含 ag_integrate，自动备份机上原副本）
+python tools/orin_deploy.py --host <IP> --user duzhong --verify
+#   验证门：远程 L1 编译 + L2 自检全过，输出含 ag_integrate 备份路径
+
+# ② 定位补丁（px4_odom_convert v2.2：备份→推送→colcon→重启节点→验证横幅）
+python tools/patch_deploy.py --host <IP> --user duzhong
+#   验证门：日志出现 "Resilience layer v2" + health 行含 "status_age_s=" 字段
+
+# ③ 引擎（D13/v4d；已存在则跳过）
+ssh duzhong@<IP> 'cd ~/dzuav_deploy/air_ground && bash tools/orin_check_engines.sh'
+ssh duzhong@<IP> 'cd ~/dzuav_deploy/air_ground && bash tools/orin_convert_engines.sh'   # 仅缺时
+#   验证门：~/dzuav/engines/ 下 hbb_detector_d13_fp16.engine + cell_classifier_v4d_fp16.engine 存在
+#           （v4d 构建必须带 --min/opt/maxShapes 动态形状，命令在脚本内已固化）
+
+# ④ 重启规划侧（sidecar 由 orin_bringup.sh / orin_menu.sh 管理）
+ssh duzhong@<IP> 'cd ~/dzuav_deploy/air_ground && bash tools/orin_bringup.sh restart'
+```
+
+## 3. 上机验证清单（全部过才算部署完成）
+
+- [ ] `pgrep -af orin_plan_sidecar` 存在，且日志含 `plan-mode=on-change`（重规划默认开）
+- [ ] 起飞前推一架：dzuav 侦察流起来后，sidecar 日志出现 `重规划基于最新进度: 起点 <当前格>`——**这是修复 1+2 生效的直接证据**（修复前该行永远不会出现，只会退回摆位起点）
+- [ ] 新雷进场（或回放含雷视频）：路线版本随态势签名变化重算（`replan` 计数 >0），新路线含该雷格
+- [ ] px4 health 行 `status_age_s` 持续 <2s；拔飞控 USB 模拟断流 → 日志出现 `status=断流(按armed处理)` 且不重锚
+- [ ] `orin_build_verify.sh` L3 推理自检过（D13 引擎 17 通道契约）
+
+## 4. 回滚（每步独立）
+
+```bash
+python tools/orin_deploy.py --host <IP> --user duzhong --restore    # ag_integrate 回备份
+python tools/patch_deploy.py  --host <IP> --user duzhong --rollback # px4 回原版
+# sidecar 一次性规划回退：--plan-mode once 或 yaml replan_on_update: false
+```
+
+## 5. 车端（同轮，另一入口）
+
+车端分支 `agents/dzhong/dzrobot-v2-20261024`；部署唯一入口 `tools/deploy_to_car.py`（见车端仓库 docs）。本轮车端变更：R005 增量契约 / 无解归因诊断 / auto_start 统一 false（等无人机 0x4003/`/nav/waypoint` 下发再出发）。
+
+## 6. 已知事实（不要当故障修）
+
+- 第六图 K7 桥洞贴隔板 = 结构性死锁（车端 tracker-safe 拒绝规划是**正确行为**，带归因诊断）；现役 68-token 路线 M7 转弯仿真隔板余量 1.2mm/113 拍穿渗——现场蹭板风险，处置见就绪度报告 P0。
+- sidecar 与车端 integrate_node **不可同时消费** UDP:50000（双决策核心互斥）。
+- v1 本地 `dzsmartscout/src/uav_camera_code/onboard/dzuav` 是 7 类旧参考副本，**勿部署**；机上以 `~/dzuav_deploy/air_ground/onboard/dzuav`（13 类）为准。

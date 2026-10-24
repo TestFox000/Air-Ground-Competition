@@ -105,7 +105,10 @@ class PlanConfig:
     car_pose_ttl_s: float = 1.0
     target_track: tuple[str, str] | None = None
     target_blue_face: str | None = None
-    replan_on_update: bool = False
+    # 2026-10-24 与 integrate_node 同步翻默认：重规划链开启（缺雷修复）。
+    # 依据同 integrate_node 注释——车端 _install_route 进度清零从头执行 +
+    # route_progress 起点换当前格 = 闭环安全；现场要一次性规划显式置 False。
+    replan_on_update: bool = True
     time_soft_cap_s: float = 165.0
     time_cruise_mps: float = 0.25
     time_accel_overhead_s: float = 0.4
@@ -223,7 +226,7 @@ def config_from_params(raw: dict) -> PlanConfig:
         car_pose_ttl_s=max(0.0, float(raw.get("car_pose_ttl_s", 1.0))),
         target_track=_as_tuple2(raw.get("target_track")),
         target_blue_face=face if face in ("S", "N", "E", "W") else None,
-        replan_on_update=bool(raw.get("replan_on_update", False)),
+        replan_on_update=bool(raw.get("replan_on_update", True)),  # 2026-10-24 默认开（缺雷修复）
         time_soft_cap_s=float(raw.get("time_soft_cap_s", 165.0)),
         time_cruise_mps=float(raw.get("time_cruise_mps", 0.25)),
         time_accel_overhead_s=float(raw.get("time_accel_overhead_s", 0.4)),
@@ -632,9 +635,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="canonical 参数文件（默认 src/ag_integrate/config/match_params.yaml）")
     ap.add_argument("--out", default="", help="产物目录（默认 /tmp/ag_plan_<时间戳>）")
     ap.add_argument("--udp-port", type=int, default=0, help="覆盖 yaml 的 udp_port")
-    ap.add_argument("--plan-mode", choices=("once", "on-change"), default="once",
-                    help="once=首次成功后不再重算（默认，对齐 yaml replan_on_update=false）；"
-                         "on-change=态势签名变化即重算（离线回放用）")
+    ap.add_argument("--plan-mode", choices=("once", "on-change"), default="on-change",
+                    help="on-change=态势签名变化即重算（2026-10-24 起默认，对齐"
+                         " integrate_node replan_on_update=true 缺雷修复）；"
+                         "once=首次成功后不再重算（离线回放/保守现场用）")
     ap.add_argument("--send", action="store_true",
                     help="广播 0x4003 车命令帧到车端（默认关闭=只落盘，安全）")
     ap.add_argument("--broadcast-addr", default="255.255.255.255")
