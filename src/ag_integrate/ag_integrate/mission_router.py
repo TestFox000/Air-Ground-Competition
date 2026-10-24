@@ -212,6 +212,18 @@ def _dijkstra(
         gates_bits = bytearray(_N_CELLS)
         for c in cross_gates:
             gates_bits[c.row * COLS + c.col] = 1
+    # 进洞邻格（隧道格东西两侧一格）集合：dzbrain 实测依据（L10→L9 横向进=124 拍蹭墙、
+    # M10→M9→L9→K9 沿轴进=0 拍）——桥室冗余墙向进洞侧突出 ~0.135m，换行（含对角）
+    # 进出该格的车身余量仅 ~2cm。2026-10-24 移植为边级硬规则：禁换行触碰进洞邻格。
+    entry_nbr: frozenset[int] | None = None
+    if tunnel_axes:
+        _en = set()
+        for _ci in tunnel_axes:
+            _r, _c = divmod(_ci, COLS)
+            for _c2 in (_c - 1, _c + 1):
+                if 0 <= _c2 < COLS:
+                    _en.add(_r * COLS + _c2)
+        entry_nbr = frozenset(_en) if _en else None
     term_ci = terminal.row * COLS + terminal.col if terminal is not None else -1
     start_ci = start.row * COLS + start.col
 
@@ -271,6 +283,10 @@ def _dijkstra(
                 req_h = tunnel_req.get(nci, -1)
                 if req_h >= 0 and nh != req_h:
                     continue
+            # 进洞邻格禁换行（2026-10-24，dzbrain 实测移植）：换行/对角进出
+            # 进洞邻格 = 蹭桥室冗余墙（余量 ~2cm）；沿行（东西向）进出不受限。
+            if entry_nbr is not None and dr and (ci in entry_nbr or nci in entry_nbr):
+                continue
             # 转角硬件守卫（opt-in，见 _TURN_GUARD，V1019 移植）：90° 弯的
             # 内切对角格 = 当前格 + dir(h) + dir(nh)；越界或被桶/挡板占用则此边不存在。
             if _TURN_GUARD and _TURNS[h][nh] == 2:
@@ -1212,6 +1228,11 @@ def plan_route(
     passable_names = {c.name for c in passable_cells}
     bridge_open: set[CellRef] = set()       # 桥洞列中可通行的格
     bridge_walls: set[CellRef] = set()
+    if not bridge_cols:
+        # 2026-10-24：侦察未出箭头（漏检/未识别）时，桥体结构在 K 列是**场地固定设施**
+        # ——整列按墙处理（路线只走 A/B/C 走廊），箭头识别后 replan 守卫换门。
+        # 旧版空 passable ⇒ 桥列凭空消失，早发路线可斜穿 K 列任意格（K8 直穿实测）。
+        bridge_cols = {LETTERS.index("K")}
     for col in bridge_cols:
         # 2026-10-15 现场模型修正：桥体其余格全部是结构体（不可踩），
         # 不再设"引道"——引道概念属于旧的"桥洞格南北穿越中线"模型，
@@ -1239,7 +1260,7 @@ def plan_route(
     blocked = frozenset(c for c in blocked if c != start and c != goal)
 
     # 中场横向挡板的穿越缺口：
-    # 1. 挡板范围外的列（A、B、I~N）可自由穿越边界；
+    # 1. 挡板范围外的列（A、B、C）可自由穿越边界；
     # 2. 桥洞列中位于边界附近的可通行格（箭头+引道）可穿越。
     # 若调用方未显式指定 cross_gates，则自动推导。
     if cross_gates is None:
@@ -1400,6 +1421,8 @@ def _transit_blocked(snapshot: WorldSnapshot) -> frozenset[CellRef]:
     passable_cells = tuple(snapshot.passable)
     passable_names = {c.name for c in passable_cells}
     bridge_cols = {c.col for c in passable_cells}
+    if not bridge_cols:
+        bridge_cols = {LETTERS.index("K")}  # 2026-10-24：无箭头时 K 列桥体仍按墙（同 plan_route）
     bridge_walls: set[CellRef] = set()
     for col in bridge_cols:
         open_rows = {c.row for c in passable_cells if c.col == col}
