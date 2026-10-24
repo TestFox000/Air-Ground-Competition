@@ -129,6 +129,7 @@ private:
       }
       detectPool_ = new_pool;
       frames_ = 0;
+      last_put_stamp_ = 0;   // 换池后第一帧必须重新推理
       model_mtime_ = 0;             // 让下一次 mtime 检查重新取基准
       last_mtime_check_ = now();
       return true;
@@ -187,6 +188,8 @@ private:
     {
       std::lock_guard<std::mutex> lk(img_mtx_);
       ros_frame_ = cv_bridge::toCvShare(msg, "bgr8")->image.clone();
+      img_stamp_ns_ = (long long)msg->header.stamp.sec * 1000000000LL +
+                      (long long)msg->header.stamp.nanosec;
     }
     catch (const cv_bridge::Exception &e)
     {
@@ -200,7 +203,16 @@ private:
     // 两处都卡会因为边界效应互相打架，反而把频率压低。
     checkHotReload();
 
+    // ★去重可观测性：每秒最多一行，便于现场确认去重在生效、跳过率多少
+    const rclcpp::Time stats_now = now();
+    if (skips_ > 0 && (stats_now - last_stats_time_).seconds() >= 1.0)
+    {
+      RCLCPP_INFO(this->get_logger(), "dedup: skips=%ld frames=%d", skips_, frames_);
+      last_stats_time_ = stats_now;
+    }
+
     cv::Mat frame;
+    long long cur_stamp = 0;
     {
       std::lock_guard<std::mutex> lk(img_mtx_);
       if (ros_frame_.empty())
@@ -210,7 +222,18 @@ private:
         return;
       }
       frame = ros_frame_.clone();
+      cur_stamp = img_stamp_ns_;
     }
+
+    // ★去重：与上次送推理的是同一张图 -> 整拍跳过（不 put、不 get、不发布重复结果）
+    //   单线程 executor 下定时器会阻塞在 get()，图像回调被饿死，同一帧被反复推理；
+    //   实测重复 1.95x、唯一帧率只有 14.3 Hz（相机 27 Hz）。
+    if (cur_stamp != 0 && cur_stamp == last_put_stamp_)
+    {
+      skips_++;
+      return;
+    }
+    last_put_stamp_ = cur_stamp;
 
     std_msgs::msg::Int32MultiArray msg;
     msg.layout.dim.push_back(std_msgs::msg::MultiArrayDimension());
@@ -294,6 +317,10 @@ private:
   rclcpp::Time last_mtime_check_{0, 0, RCL_ROS_TIME};
 
   int frames_;
+  long long img_stamp_ns_ = 0;    // 最近一次图像回调的 header.stamp
+  long long last_put_stamp_ = 0;   // 上次送推理用的 stamp
+  long skips_ = 0;                 // 去重跳过计数
+  rclcpp::Time last_stats_time_{0, 0, RCL_ROS_TIME};  // 去重统计打印节流
   long infer_count_ = 0;
 };
 
