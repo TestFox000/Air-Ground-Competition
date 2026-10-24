@@ -99,6 +99,20 @@ Px4OdomConvert::Px4OdomConvert()
   ekf_storm_max_resets_ =
     this->declare_parameter<int>("ekf_storm_max_resets", 5);
 
+  // 2026-10-24：jump guard 三个核心阈值补参数化（旧版硬编码在 hpp，
+  // 启动横幅却宣传"hold %.2fm / confirm %d frames"让人以为可调）。
+  jump_hold_m_ =
+    this->declare_parameter<double>("jump_hold_m", jump_hold_m_);
+  jump_yaw_rad_ =
+    this->declare_parameter<double>("jump_yaw_rad", jump_yaw_rad_);
+  jump_confirm_n_ =
+    this->declare_parameter<int>("jump_confirm_n", jump_confirm_n_);
+
+  // armed 判定新鲜度：vehicle_status 断流超过该时长即视为"状态未知"，
+  // disarmed 放行条件不再满足（fail-safe，见 hpp 注释）。
+  fcu_status_stale_s_ =
+    this->declare_parameter<double>("fcu_status_stale_s", fcu_status_stale_s_);
+
   if (enable_auto_align_) {
     sub_local_pos_ =
       this->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
@@ -252,6 +266,16 @@ void Px4OdomConvert::onFcuStatus(
   const px4_msgs::msg::VehicleStatus::SharedPtr msg)
 {
   fcu_armed_ = (msg->arming_state == 2);  // 2 = ARMED
+  // 2026-10-24：记录新鲜度 —— 断流时 disarmedConfirmed() 拒绝放行
+  // （旧版只存布尔，断流后 armed 门控静默失效为 fail-open）。
+  fcu_status_seen_ = true;
+  fcu_status_last_t_ = this->now().seconds();
+}
+
+bool Px4OdomConvert::disarmedConfirmed(double now_s) const
+{
+  return fcu_status_seen_ && !fcu_armed_ &&
+         (now_s - fcu_status_last_t_) <= fcu_status_stale_s_;
 }
 
 void Px4OdomConvert::onEkfLocalPosition(
@@ -416,6 +440,7 @@ void Px4OdomConvert::onHealthTimer()
             << "[px4_odom_convert_health] t=" << t
             << " guard=" << guard << (ekf_storm_ ? "+STORM" : "")
             << " armed=" << (fcu_armed_ ? 1 : 0)
+            << " status_age_s=" << (fcu_status_seen_ ? t - fcu_status_last_t_ : -1.0)
             << " aligned=" << (aligned_ ? 1 : 0)
             << " ekf_valid=" << (ekf_pos_valid_ ? 1 : 0)
             << " slam_frames=" << win_slam_frames_
@@ -459,6 +484,13 @@ void Px4OdomConvert::computeAlignment(
   ev_reset_counter_ = 1;  // 对齐完成：bump 0->1，EKF 重锚到 SLAM 帧
   last_bump_time_ = this->now().seconds();  // 记入 L2 节流窗口
   has_last_bump_ = true;
+  // 2026-10-24：对齐帧 gate 锚点失效重置 —— 本帧随后会应用 yaw 旋转，
+  // 旧 gate_prev_/gate_out_ 还是未旋转位姿；不重置的话本帧 gate 判定拿
+  // 旋转后位姿对比旧锚点会误走 hold（输出仍是未旋转旧位姿 ⇒ EKF 拿着
+  // 新 reset_counter 重锚到错位姿，~8 帧后 L2_ACCEPT 再 bump 一次才纠正，
+  // 形成"先 bump 后 hold"的双重重锚）。重置后本帧 gate 重新播种到
+  // 旋转后的位姿，单次 bump 一次到位。
+  gate_has_prev_ = false;
 
   RCLCPP_INFO(
     this->get_logger(),
@@ -478,6 +510,35 @@ void Px4OdomConvert::publishVehicleVisualOdometry(
   const auto & p = odom.pose.pose.position;
   const auto & q = odom.pose.pose.orientation;
 
+  // ---- NaN/非有限守卫（2026-10-24）：SLAM 崩溃帧会绕过全部防护直通 EKF ----
+  // NaN 与任何比较恒 false ⇒ gate_dp > slam_insane_m_ 不成立 ⇒ 落进"正常放行"
+  // 分支，NaN 位置/四元数原样喂给 EKF；win_jump_sum_m_ 也被污染。判非有限
+  // 等同 L1 熔断：slam_bad_ 置位 + 本帧丢弃（EKF 看到的是测量缺口，43Hz 下
+  // 无害），后续有限帧按 L1 恢复流程（稳定 86 帧）回归。
+  const bool pose_finite =
+    std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) &&
+    std::isfinite(q.x) && std::isfinite(q.y) &&
+    std::isfinite(q.z) && std::isfinite(q.w);
+  if (!pose_finite) {
+    slam_bad_ = true;
+    slam_recover_count_ = 0;
+    gate_hold_count_ = 0;
+    ++total_l1_triggers_;
+    last_l1_trigger_t_ = this->now().seconds();
+    l2_throttling_ = false;
+    if (gate_has_prev_) {
+      writeBlackbox(
+        "L1_TRIGGER", "OK->L1_LOCK", 0.0, 0.0,
+        gate_out_pos_, gate_out_pos_);
+    }
+    RCLCPP_ERROR(
+      this->get_logger(),
+      "jump guard: SLAM pose contains NaN/Inf — dropping frame and "
+      "arming L1 fuse (recover needs %d stable frames)",
+      slam_recover_n_);
+    return;
+  }
+
   // SLAM 位姿协方差迹（FAST-LIO 填充时有效）：3s 窗口峰值，质量代理指标
   // （v2.1 健康行 cov_max / blackbox slam_q 数据源）
   const double slam_cov_trace =
@@ -488,9 +549,15 @@ void Px4OdomConvert::publishVehicleVisualOdometry(
   }
 
   vio.timestamp = nowUs();
-  vio.timestamp_sample =
-    static_cast<uint64_t>(odom.header.stamp.sec) * 1000000ULL +
-    static_cast<uint64_t>(odom.header.stamp.nanosec) / 1000ULL;
+  // 2026-10-24：SLAM 不打戳时 header.stamp 全零 —— 直接发 0 会让 PX4 侧
+  // 时间戳无效；回退到本机 now()。
+  if (odom.header.stamp.sec == 0 && odom.header.stamp.nanosec == 0) {
+    vio.timestamp_sample = nowUs();
+  } else {
+    vio.timestamp_sample =
+      static_cast<uint64_t>(odom.header.stamp.sec) * 1000000ULL +
+      static_cast<uint64_t>(odom.header.stamp.nanosec) / 1000ULL;
+  }
 
   vio.pose_frame =
     px4_msgs::msg::VehicleOdometry::POSE_FRAME_NED;
@@ -568,6 +635,7 @@ void Px4OdomConvert::publishVehicleVisualOdometry(
         ev_reset_counter_ = 1;  // 对齐完成（SLAM 直通模式）：bump 0->1 让 EKF 重锚
         last_bump_time_ = this->now().seconds();  // 记入 L2 节流窗口
         has_last_bump_ = true;
+        gate_has_prev_ = false;  // 同 computeAlignment：对齐帧 gate 重新播种
         ++total_bumps_;
         writeBlackbox(
           "ALIGN_BUMP", "UNALIGNED->ALIGNED", 0.0, 0.0,
@@ -679,9 +747,12 @@ void Px4OdomConvert::publishVehicleVisualOdometry(
           "jump guard: SLAM recovered in place (%.2f m from held pose), "
           "passthrough resumed",
           d_out);
-      } else if (!fcu_armed_ && !ekf_storm_ && bump_ok) {
+      } else if (disarmedConfirmed(now_s) && !ekf_storm_ && bump_ok) {
         // 新位置恢复（真搬运完成 / 重定位到新锚点）且放行条件满足：
         // 一次 bump 平滑重锚（86 帧稳定远强于常规 8 帧确认）。
+        // ★ disarmedConfirmed（2026-10-24）：status 断流/过期 ≠ disarmed ——
+        //   旧版 `!fcu_armed_` 在断流时静默 fail-open，armed 下跟丢会被
+        //   当"搬运"放行。
         slam_bad_ = false;
         slam_recover_count_ = 0;
         gate_hold_count_ = 0;
@@ -751,9 +822,12 @@ void Px4OdomConvert::publishVehicleVisualOdometry(
       ++gate_hold_count_;
       // armed 时永不接受：无人机物理上不可能 0.2s 内移动数米，armed 大
       // 位移 100% 是 SLAM 跟丢——hold 到底保 EKF。
+      // ★ disarmedConfirmed（2026-10-24）：status 断流/过期按"未知"处理，
+      //   不满足 disarmed 放行条件（fail-safe 替代旧版 fail-open）。
       // EKF 风暴期间（L3）同样冻结 accept，防止火上浇油。
       const bool confirmed =
-        !fcu_armed_ && !ekf_storm_ && gate_hold_count_ >= jump_confirm_n_;
+        disarmedConfirmed(now_s) && !ekf_storm_ &&
+        gate_hold_count_ >= jump_confirm_n_;
       if (confirmed) {
         // ---- L2 bump 节流 ----
         // 窗口内 gate_prev 保持不动：后续帧继续走 hold/confirm 循环，每
@@ -807,9 +881,12 @@ void Px4OdomConvert::publishVehicleVisualOdometry(
         RCLCPP_WARN_THROTTLE(
           this->get_logger(), *this->get_clock(), 2000,
           "jump guard: holding previous pose (dpos=%.2f m, dyaw=%.0f deg, "
-          "frame %d%s%s)",
+          "frame %d%s%s%s)",
           gate_dp, gate_dy * 180.0 / M_PI, gate_hold_count_,
           fcu_armed_ ? ", armed=永不接受" : "",
+          (!fcu_status_seen_ ||
+           (now_s - fcu_status_last_t_) > fcu_status_stale_s_)
+            ? ", status=断流(按armed处理)" : "",
           ekf_storm_ ? ", storm=冻结重锚" : "");
       }
     } else {

@@ -223,10 +223,15 @@ BEST_EFFORT），`ros_publish.py` 因此把 QoS 写死成车侧一致，并提�
 python -m perception.cli coverage --slices s3 --json coverage.json
 
 # 逐片出报文（--scan-id 省略时按 图片+片清单 哈希自动生成并打印）
+# ⚠️ --preset field 的出厂调色板只有 deck/arrow 两类，slice 覆盖要求
+#    mine/obstacle/target 三类 ⇒ 现场标定 D1 前必须加 --provisional
+#    （provisional 规则补齐三类；不加会直接抛"不能声称覆盖"ValueError）
 python -m perception.cli detect --image 图.png --corners "..." \
-    --preset field --slices s3 --messages out.jsonl --coverage-report cov.json
+    --preset field --slices s3 --provisional \
+    --messages out.jsonl --coverage-report cov.json
 
 # 某片帧丢了/只扫一半：标 complete:false（片内未报 = UNKNOWN，不产生 ABSENT）
+# 序号与片 id 等价（"S4" 与 "4" 都行）
 python -m perception.cli detect ... --slices s3 --slice-incomplete S4
 ```
 

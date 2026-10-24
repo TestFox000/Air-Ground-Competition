@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 
 from dzbrain.core.config import Config
 
-from .car_gate import MissionFlow, RouteVersion
+from .car_gate import MissionFlow, RouteVersion, approach_cell
 from .carsim import gap_metrics, lead_table, run_car
 from .drone_model import DroneTimeline, build_timeline, emit_messages, bridge_half
 from .geo import meters_to_block
@@ -123,19 +124,25 @@ def run_arm(arm_id: str, scenario: Scenario, cfg: Config, baseline_tokens: list[
     arm.commit_t = round(commit_t, 3)
     arm.intel_complete_t = flow.result.intel_complete_t
 
-    # ================= 桥前等待（改进变体） =================
+    # ================= 桥前等待（与现车 mission.py 桥前等待段同型） =================
     executed_tokens = list(v1.tokens)
     wait_lower = 0.0
     v1_observe = None
     if scenario.wait_at_bridge:
-        # 先按 v1 观察轨迹拿 L10 到达时刻（stop=False 不改变轨迹，t24 硬不变量）
+        # 先按 v1 观察轨迹拿穿洞入口格（approach = 穿洞三连前格，现役线 L7）到达时刻
+        # （stop=False 不改变轨迹，t24 硬不变量）。入口格一律从路线现算（approach_cell），
+        # 旧版硬编码 L10 在换线后静默失效（2026-10-24 审计）。
         v1_observe = run_car(f"{arm_id}.v1.observe", list(v1.tokens), cfg, scenario.truth,
                              stop_on_violation=False,
                              out_dir=os.path.join(out_dir, "v1_observe"))
-        arrival_l10 = v1_observe.arrival_sim.get("L10")
-        if arrival_l10 is not None:
-            joint_l10 = commit_t + arrival_l10
-            v2 = flow.bridge_wait_decision(joint_l10, delivered)
+        approach = approach_cell(list(v1.tokens), "lower")
+        arrival_approach = v1_observe.arrival_sim.get(approach) if approach else None
+        if arrival_approach is None:
+            print(f"⚠️ [{arm_id}] 桥前等待：执行路线里找不到下半场穿洞三连（无 approach 格）"
+                  f"→ 跳过等待重规划（检查 baseline 是否含 K 列穿洞）", file=sys.stderr)
+        else:
+            joint_approach = commit_t + arrival_approach
+            v2 = flow.bridge_wait_decision(joint_approach, delivered)
             if v2 is not None:
                 flow.result.versions.append(v2)
                 executed_tokens = list(v2.tokens)
@@ -207,9 +214,11 @@ def run_arm(arm_id: str, scenario: Scenario, cfg: Config, baseline_tokens: list[
             block = str(msg.payload.get("block") or "").upper()
             if block and block not in reveal_joint:
                 reveal_joint[block] = msg.recv_t
-        # ③E 侦察截止：车到桥前决策点（L10 / I5）时刻 vs 该半场桥洞情报送达时刻
-        for half, approach in (("lower", "L10"), ("upper", "I5")):
-            arr = car.arrival_sim.get(approach)
+        # ③E 侦察截止：车到穿洞入口格（approach = 穿洞三连前格，现役线 L7/J5）时刻
+        #    vs 该半场桥洞情报送达时刻（入口格从路线现算，找不到 → deadline=None 如实报）
+        for half in ("lower", "upper"):
+            approach = approach_cell(executed_tokens, half)
+            arr = car.arrival_sim.get(approach) if approach else None
             deadline = (commit_t + arr) if arr is not None else None
             cells = [c for c in scenario.truth.bridges if bridge_half(c, scenario) == half]
             got = min((reveal_joint.get(c, 9e9) for c in cells), default=9e9)

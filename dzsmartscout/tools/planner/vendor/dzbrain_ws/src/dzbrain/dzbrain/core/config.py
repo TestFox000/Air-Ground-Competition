@@ -77,7 +77,7 @@ SCHEMA: dict[str, Spec] = {
                                      "横向加速度上限（曲率限速 v=sqrt(a/|κ|)）"),
     "pursuit.min_speed_mps": Spec(0.08, _F, "m/s", 0.01, 0.30, "最低前进速度（蠕动）"),
     "pursuit.cruise_speed_mps": Spec(0.15, _F, "m/s", 0.02, 0.60, "巡航速度"),
-    # ★t38：速度剖面第 5 层「加减速斜坡」的两键（真源 = t30 `pursuit/controller.py:speed_profile()`）
+    # 速度剖面第 5 层「加减速斜坡」的两键（真源 = `pursuit/controller.py:speed_profile()`）
     #   `default=0.0` 是**硬要求**：缺省即"整层不参与" ⇒ 与旧版逐位一致（回归安全）。
     "pursuit.accel_up_mps2": Spec(0.0, _F, "m/s²", 0.0, 3.0,
                                   "★升速上限（每拍速度增量 ≤ 该值×dt）；0=不启用斜坡"),
@@ -96,7 +96,7 @@ SCHEMA: dict[str, Spec] = {
     #    固定 0.25 m 窗口太紧）。eff = clamp(dist + lead×(v−v_ref), [dist, dist_max])：
     #    - 0.15 标定速度下 lead×(0.15−0.15)=0 ⇒ 行为逐位不变（不干扰标定）；
     #    - 0.30 巡航 ⇒ 0.25+1.0×0.15=0.40 → 钳到 0.32；触发更早、刹车余量更大；
-    #    - 硬上限保护：PIVOT 顶点常是压雷点，触发点离格心太远会漏压雷（t8 新图实测
+    #    - 硬上限保护：PIVOT 顶点常是压雷点，触发点离格心太远会漏压雷（新图实测
     #      盖雷对 pivot 行为敏感），故钳 pivot_dist_max_m。
     "pursuit.pivot_speed_lead_s": Spec(1.0, _F, "s", 0.3, 3.0,
                                         "PIVOT 触发距离随巡航速度加长的系数（秒）"),
@@ -110,8 +110,8 @@ SCHEMA: dict[str, Spec] = {
     #  ★超时值不是随手填的，必须覆盖**物理转弯时间**（否则触发即超时 = 这功能等于没实现）：
     #    偏航率上限 = v/L·tan(舵角) = 0.08/0.157·tan(30°) = 0.294 rad/s = 16.9°/s
     #    ⇒ 135°（触发阈值）需 8.01s、180°（现场 F11 折返）需 10.68s，再加 0.5s 刹车等待。
-    #    原来的 8.0s **比触发阈值的 8.01s 还短** —— 实闭环 bench 实测：E11 处 PIVOT 触发 →
-    #    8.0s 超时 → 半路放行 → 车在顶点来回摆、13/34 点后停滞。14.0s 留约 25% 余量。
+    #    旧值 8.0 s **比触发阈值的 8.01 s 还短** —— 实闭环 bench 实测：PIVOT 触发后
+    #    超时半路放行 ⇒ 车在顶点来回摆、随后停滞。14.0 s 留约 25% 余量。
     #    （test_pivot.py 第 5 组按这几个参数现算一遍并卡住，改参数改错立刻红。）
     "pursuit.pivot_timeout_s": Spec(14.0, _F, "s", 1.0, 30.0,
                                     "★PIVOT 硬超时（旧版**没有**超时，是本项目标注的缺口，"
@@ -185,7 +185,7 @@ SCHEMA: dict[str, Spec] = {
     "pursuit.align_kp": Spec(12.0, _F, "", 1.0, 40.0, "航向保持增益（度误差 → 度舵角 /10）"),
     "pursuit.align_steer_limit_deg": Spec(8.0, _F, "°", 1.0, 20.0, "直行段舵角限幅"),
 
-    # ---------------- ★物理几何（t22：用户 2026-10-11 现场口径）----------------
+    # ---------------- ★物理几何（用户 2026-10-11 现场口径）----------------
     #  为什么单独一组键：车体/障碍/雷垫片/挡板的**尺寸**以前散落在各模块的硬编码里
     #  （`route_check` 的 BARRIER_MIN_MARGIN=0.10 格带口径、雷覆盖用"到格心 0.21 m"），
     #  现场一量尺寸就得改多处。现在全部收口到这里，公式放 `route/physics.py`。
@@ -195,7 +195,7 @@ SCHEMA: dict[str, Spec] = {
                             "车体宽（现场实测 0.135；扫掠/挡板判据都用它的一半）"),
     "vehicle.coverage_radius_m": Spec(0.035, _F, "m", 0.005, 0.20,
                                       "★车心假设圆半径（压雷判据：车心到垫片 ≤ 此值算压到）"),
-    # ★★ 卡 t11：参考点偏移（现场卷尺实测 2026-10-11）
+    # 参考点偏移（现场卷尺实测 2026-10-11）
     #   后轴中心→车尾沿 6.5 cm、后轴中心→车头沿 21.5 cm、总长 28 cm
     #   ⇒ 车体几何中心在参考点（= 里程计/仿真积分点 = 后轴中心）**前方 (21.5−6.5)/2 = +7.5 cm**。
     #   正值 = 车体中心在参考点前方；0.0 = 老假设（中心与参考点重合，**与实测矛盾**）。
@@ -211,7 +211,7 @@ SCHEMA: dict[str, Spec] = {
                                   "挡板厚度（第 6/7 行之间的细条；半厚 0.01 进触线判据）"),
     "field.barrier_cols": Spec("D..N", _S, "", None, None,
                                "挡板覆盖的列（含两端；现场 D..N = 11 列 = 3.85 m）"),
-    # ★★ 卡 t4：桥洞**进洞侧**冗余长度（虚拟墙延长段）。
+    # 桥洞**进洞侧**冗余长度（虚拟墙延长段）。
     #   设计规格（用户 2026-10-16）：只加进洞侧，长度 = **1/4 格** = 0.35 × 0.25 = 0.0875 m。
     #   为什么给上限 0.35：超过一整格时"冗余墙"会伸进邻格、与邻格语义打架（1/4 格是设计值，
     #   上限留到一整格只为现场微调；真的需要更长就该改桥洞几何而不是抬这个键）。
@@ -224,7 +224,7 @@ SCHEMA: dict[str, Spec] = {
     "planner.obstacle_margin_m": Spec(0.02, _F, "m", 0.0, 0.30,
                                       "障碍净空余量（规划/校验共用；判据 = r + 车半宽 + 此值）"),
 
-    # ---------------- ★ 卡 t9：车上自动规划（`planner.*`）10 键登记 ----------------
+    # ---------------- ★ 车上自动规划（`planner.*`）10 键登记 ----------------
     #  为什么补这一组：这 10 个键**一直在 robot.yaml 里生效**（`tasks/mission.py` 读它们），
     #  却从没进过 SCHEMA ⇒ ① 没有类型/范围校验；② `validate()` 只能靠"段前缀"笼统放行，
     #  段内拼错（`planner.pivot_penality`）抓不到。登记后：类型/范围可查，拼错也能报。
@@ -232,14 +232,14 @@ SCHEMA: dict[str, Spec] = {
     #  值：`pivot_penalty` 现场 5.0 而代码兜底 0.0、`auto_plan_enabled` 现场 true 而兜底 False。
     #  两者含义不同（"缺键时怎么走" vs "现在怎么走"），所以**不要**把 default 改成现场值。
     "planner.engine": Spec("tour", _S, "", None, None,
-                           "规划引擎：tour(历史，逐字节不变) / tracker-safe(t7 新引擎，跑双门禁)；"
+                           "规划引擎：tour(历史，逐字节不变) / tracker-safe(新引擎，跑双门禁)；"
                            "缺省 tour = 与历史一致"),
     "planner.footprint_gate": Spec("warn", _S, "", None, None,
                                    "足迹诊断严重级：warn=只报不拦（现役）/ error=有侵入即门禁不过"),
     "planner.tracker_max_seconds": Spec(10.0, _F, "s", 1.0, 120.0,
                                         "tracker-safe 引擎时间预算（车端实测中位 2.79 s，取 ×3 ⇒ 10 s）"),
     "planner.auto_plan_enabled": Spec(False, _B, "", None, None,
-                                      "启动即自己算路线（卡 B）；false = 只用 mission_blocks"),
+                                      "启动即自己算路线；false = 只用 mission_blocks"),
     "planner.map_path": Spec("", _S, "", None, None,
                              "自动规划读哪张地图（空 = 按主流程顺序找 config/map.yaml）"),
     "planner.fallback_to_tokens": Spec(True, _B, "", None, None,
@@ -249,12 +249,12 @@ SCHEMA: dict[str, Spec] = {
     "planner.max_seconds": Spec(2.0, _F, "s", 0.1, 60.0,
                                 "tour 引擎时间预算（与历史同值 2.0 s；超时抛 PlannerError 走回退）"),
     "planner.pivot_penalty": Spec(0.0, _F, "", 0.0, 100.0,
-                                  "折返惩罚/处（tour 引擎；代码兜底 0.0 = 卡 A 基线，现场调成 5.0）"),
+                                  "折返惩罚/处（tour 引擎；代码兜底 0.0 = 历史基线，现场调成 5.0）"),
     "planner.mine_turn_penalty": Spec(2.0, _F, "", 0.0, 100.0,
                                       "雷格不得作拐点的惩罚（车心必须压过雷心；0 = 关闭）"),
 
-    # ---------------- ★ 卡 t9：定位/吸附/漂移门禁 12 键登记 ----------------
-    #  为什么也在本卡补：检查器改成"段内未登记键要报"后，这 12 个 `localization.*`
+    # ---------------- ★ 定位/吸附/漂移门禁 12 键登记 ----------------
+    #  为什么也要补：检查器改成"段内未登记键要报"后，这 12 个 `localization.*`
     #  立刻现形 —— 它们**一直在 robot.yaml 里生效**（`tasks/localization.py` 读），
     #  只是从没进 SCHEMA。不补的话，要么白报 12 条，要么把两级判据退回"段内一律放行"
     #  （= 拼写错误又抓不到了）。补完这一段，SCHEMA 对"现役 robot.yaml 用到的每一段"都是完备的。
@@ -262,7 +262,7 @@ SCHEMA: dict[str, Spec] = {
     #    它的 ±10° 护栏由 `tools/calib_backfill.py` 提供，`tests/test_calib_backfill.py:2.3`
     #    把"SCHEMA 里没有它"当成设计约束钉住（避免两套判据各说各话）。
     #  ⚠️ `default` 取代码兜底值；现场某些值被特意改大（`drift_slow_after/stop_after = 999`
-    #   = 2026-10-11 快速采集时**解除**降速/停车门禁）⇒ 上限必须容得下 999，不要按"常理"卡 10。
+    #   = 2026-10-11 快速采集时**解除**降速/停车门禁）⇒ 上限必须容得下 999，不要按"常理"限制为 10。
     "localization.anchor_max_pull_m": Spec(0.12, _F, "m", 0.0, 0.50,
                                           "单次吸附位移上限（缺省 = pursuit.arrival_m，双保险）"),
     "localization.anchor_reject_eps_m": Spec(0.005, _F, "m", 0.0, 0.10,
@@ -294,34 +294,30 @@ SCHEMA: dict[str, Spec] = {
                                          None, None, "下半场穿洞候选格（U 形赛道第一处）"),
     "route.cross_upper_candidates": Spec([f"K{r}" for r in range(1, 7)], list, "",
                                          None, None, "上半场穿洞候选格（U 形赛道第二处）"),
-    # ★ t17 收口 / t20 复查（t14-F3 指的就是本条旧表述）：**现缺省值 = K10(下) / K5(上)**，
-    #   即现役第五张图真值，与 `config/robot.yaml:520-521` 逐字一致。
-    #   历史值 K9/K4 属**第四张图**，本文件里已不存在（只留这句历史说明）：
-    #   留着旧值只会让"yaml 漏键"这条路径静默退回失效的洞，并让 `validate()` 因
-    #   default ∉ candidates（现役候选 `["K10"]`/`["K5"]`）多报一条 warn。
-    #   本次**只改兜底值**：`validate()` 一致性断言逻辑、候选集合宽口径缺省（K7~K11 / K1~K6）均未改。
+    # 兜底值 = K10(下) / K5(上)。现役 `config/robot.yaml` 已按第五张图覆盖为 K9/K5；
+    # 兜底值必须 ∈ 候选集合，否则"yaml 漏键"会静默退回失效的洞，并让 `validate()`
+    # 多报一条 warn。`validate()` 一致性断言逻辑与候选集合宽口径缺省（K7~K11 / K1~K6）不在此处。
     "route.cross_lower_default": Spec("K10", _S, "", None, None,
                                       "未收到无人机情报时的兜底穿洞格（第五张图下半场 = K10）"),
     "route.cross_upper_default": Spec("K5", _S, "", None, None,
                                       "未收到无人机情报时的兜底穿洞格（第五张图上半场 = K5）"),
-    # ---- ★ 卡 t57：SHOOT 停站点的**靶板中心距离窗口**（取代"靶格 1 格邻居"口径）----
-    #   旧口径：候选 = 各靶格的**正交邻居**且到该靶格距离 ∈ `accept_window(0.20~0.45)`
-    #           ⇒ 现役图命中 `E4`（到 E5 0.35 m），但那是"到靶**格**"的距离，
-    #             而实际打的是**靶板中心**（E5/F5 两格中点），E4 到板心只有 0.3913 m。
-    #   新口径：候选 = 到**靶板中心**距离 ∈ [shoot_distance_m − tol, + tol] 的可通行格
-    #           （默认 0.80 ± 0.10 ⇒ [0.70, 0.90]），再按"离轨道垂直平分线最近 +
-    #             距离误差最小 + 格名序"定序取首选 ⇒ 现役图命中 `F3`（0.7215 m）。
+    # ---- SHOOT 停站点的**靶板中心距离窗口**（取代"靶格 1 格邻居"口径）----
+    #   新口径：候选 = 到**靶板中心**距离 ∈ [shoot_distance_m − tol, + tol] 的可通行格，
+    #           再按"离轨道垂直平分线最近 + 距离误差最小 + 格名序"定序取首选。
+    #           现役 `config/robot.yaml` = 0.90 / 0.12 ⇒ [0.78, 1.02]，命中双停站 D3/G3。
     #   为什么用两个键：`shoot_distance_m` 是**现场标定值**（靶板到停站点的目标距离），
     #   `_tol_m` 是**窗口半宽**（靶会摆动/标定有误差）。改其一即可（只改常数）。
     #   ⚠️ 与 `path_executor.shoot_distance_target/min/max`（0.35 / 0.20 / 0.45）**语义不同**：
     #      那三键是**视觉侧**"哪一帧算命中"的口径（`route/validate.py` 与 `tools/route_check.py`
     #      的射击点距离判据），本两键管的是"**车停哪儿**"（规划期挑停站点）。两套不要互相抄。
-    #   消费者：`route/planner.py` 的 `shoot_distance_window()`（缺键时回落到**同值**常量
-    #      `SHOOT_DISTANCE_M_DEFAULT / SHOOT_DISTANCE_TOL_M_DEFAULT` = 0.80 / 0.10）。
-    "route.shoot_distance_m": Spec(0.80, _F, "m", 0.0, 5.0,
-                                   "★t57：SHOOT 停站点到**靶板中心**的目标距离（靶板中心 = 各靶格中心之中点）"),
-    "route.shoot_distance_tol_m": Spec(0.10, _F, "m", 0.0, 2.0,
-                                       "★t57：上述距离的窗口半宽（候选区间 = 目标距离 ± 本值 ⇒ 默认 [0.70, 0.90]）"),
+    #   消费者：`route/planner.py` 的 `shoot_distance_window()`；缺键时 planner 侧常量兜底
+    #      0.90 / 0.12 —— 2026-10-24 起 SCHEMA 兜底与 planner 常量 / robot.yaml 对齐为同值
+    #      （旧 SCHEMA 0.80/0.10 与另两处真源打架：YAML 缺键 + 有 Config 的路径会静默用
+    #      0.80 ⇒ 现役停站 D3（到板心 0.875 m）会被判"覆盖不足"无谓回退）。
+    "route.shoot_distance_m": Spec(0.90, _F, "m", 0.0, 5.0,
+                                   "SHOOT 停站点到**靶板中心**的目标距离（靶板中心 = 各靶格中心之中点）"),
+    "route.shoot_distance_tol_m": Spec(0.12, _F, "m", 0.0, 2.0,
+                                       "上述距离的窗口半宽（候选区间 = 目标距离 ± 本值 ⇒ 默认 [0.78, 1.02]）"),
     "mission.auto_start": Spec(True, _B, "", None, None, "起栈后自动出发"),
     "mission.auto_start_delay_s": Spec(10.0, _F, "s", 0.0, 120.0, "出发前初始化等待"),
     "mission.reset": Spec("N10,y", _S, "", None, None, "起步复位（格,航向）"),
@@ -329,15 +325,15 @@ SCHEMA: dict[str, Spec] = {
                               "continuous 边走边扫 / waypoint 到点扫描 / none"),
     "mission.bridge_info_wait_s": Spec(20.0, _F, "s", 0.0, 120.0,
                                        "等待无人机桥洞情报的最长时间，超时用兜底格"),
-    # ---- ★ 卡 t32：桥前等待（L10 决策点）+ 赛事预算 + 迟到改道上限 ----
+    # ---- 桥前等待（L10 决策点）+ 赛事预算 + 迟到改道上限 ----
     "mission.bridge_wait_at_start": Spec(False, _B, "", None, None,
-                                         "★t32：起点是否仍为情报推迟发车（默认 false = 等移到 L10 决策点）"),
+                                         "起点是否仍为情报推迟发车（默认 false = 等移到 L10 决策点）"),
     "mission.bridge_wait_max_s": Spec(12.0, _F, "s", 0.0, 120.0,
-                                      "★t32：L10 桥前等待的上限（与预算余量取 min；到点必发车）"),
+                                      "L10 桥前等待的上限（与预算余量取 min；到点必发车）"),
     "mission.race_budget_s": Spec(180.0, _F, "s", 10.0, 600.0,
-                                  "★t32：本局总预算（t11 的 3 分钟口径）= 桥前等待余量的数据源"),
+                                  "本局总预算（3 分钟口径）= 桥前等待余量的数据源"),
     "mission.bridge_reroute_max": Spec(1, _I, "次", 0, 5,
-                                       "★t32：迟到情报在决策点前允许的换洞改道次数（全程上限）"),
+                                       "迟到情报在决策点前允许的换洞改道次数（全程上限）"),
     "mission.shots_per_stop": Spec(3, _I, "发", 1, 10, "每个射击停站点要打几发（旧 shoot_count_target）"),
     "mission.shoot_timeout_s": Spec(30.0, _F, "s", 1.0, 120.0, "单个停站点硬超时（绝不卡死）"),
     "mission.lock_timeout_s": Spec(18.0, _F, "s", 1.0, 120.0, "等云台锁定的最长时间"),
@@ -346,19 +342,19 @@ SCHEMA: dict[str, Spec] = {
     "mission.settle_speed_mps": Spec(0.02, _F, "m/s", 0.001, 0.20, "停稳判定的速度容差"),
     "mission.scan_stop_timeout_s": Spec(8.0, _F, "s", 0.5, 60.0,
                                         "纯扫描停站点（:SCAN_STOP）的等待上限"),
-    # ---- ★ 卡 t36：动态档（按桥洞远近在近/远两档间选巡航速度；**默认关闭**）----
+    # ---- 动态档（按桥洞远近在近/远两档间选巡航速度；**默认关闭**）----
     #   闸门 = `pursuit.dynamic_gear_enabled`（false ⇒ `pursuit.controller.dynamic_gear_speed()`
     #   返回 None ⇒ tracker 不给 `compute_command` 传覆盖值 ⇒ 与历史逐位一致）。
     #   判据 = 车到**下一个桥洞格（K 列）**的距离：`≤ near_dist_m` 用 `near_mps`，否则 `far_mps`；
     #   前方没有桥洞（None）= `far_mps`（离洞远 ⇒ 放开跑）。
     "pursuit.dynamic_gear_enabled": Spec(False, _B, "", None, None,
-                                         "★t36 动态档总闸（默认 false；开启后按桥洞远近选档）"),
+                                         "动态档总闸（默认 false；开启后按桥洞远近选档）"),
     "pursuit.dynamic_gear_near_dist_m": Spec(1.05, _F, "m", 0.0, 20.0,
-                                             "★t36 近洞阈值（默认 1.05m = 3 格 × 0.35m）"),
+                                             "近洞阈值（默认 1.05m = 3 格 × 0.35m）"),
     "pursuit.dynamic_gear_near_mps": Spec(0.35, _F, "m/s", 0.02, 0.60,
-                                          "★t36 近洞档巡航速度（默认 0.35）"),
+                                          "近洞档巡航速度（默认 0.35）"),
     "pursuit.dynamic_gear_far_mps": Spec(0.40, _F, "m/s", 0.02, 0.60,
-                                         "★t36 远洞档巡航速度（默认 0.40）"),
+                                         "远洞档巡航速度（默认 0.40）"),
     "mission.stable_timeout_s": Spec(6.0, _F, "s", 0.5, 30.0, "等瞄准稳定的最长时间（超时降级放行）"),
     "mission.stable_offset_px": Spec(40.0, _F, "px", 5.0, 200.0, "瞄准稳定容差"),
     "mission.candidate_retry": Spec(3, _I, "个", 1, 10, "单个靶最多尝试几个候选射击点"),
@@ -374,7 +370,7 @@ SCHEMA: dict[str, Spec] = {
     "aim.scan_request_on_start": Spec(2, _I, "", 0, 2,
                                       "任务开始发出的扫描请求：2=持续（readme【十】：绝不在到点发 1 降级）"),
     "aim.lead_time_s": Spec(0.0, _F, "s", 0.0, 2.0,
-                            "★t53 打靶修复：提前量先归零（pred=dx 直接瞄准）；旧 0.35 未对准 0.5~0.9s 真实链路延迟"),
+                            "打靶修复：提前量先归零（pred=dx 直接瞄准）；旧 0.35 未对准 0.5~0.9s 真实链路延迟"),
     "aim.fire_policy": Spec("moving_lead", _S, "", None, None,
                             "moving_lead（本靶）/ sweep / turnaround（无停顿靶不适用）/ static"),
     "aim.rail_span_m": Spec(0.70, _F, "m", 0.05, 3.0, "靶轨道行程（G11+H11 = 2 格 = 0.70 m）"),
@@ -382,8 +378,8 @@ SCHEMA: dict[str, Spec] = {
     "aim.max_shots_total": Spec(10, _I, "发", 1, 10, "全场弹药上限"),
     "aim.max_shots_per_target": Spec(3, _I, "发", 1, 10, "单靶发数上限"),
     "aim.shot_cooldown_ms": Spec(500, _I, "ms", 100, 5000, "两发最小间隔"),
-    "aim.fire_box_far_px": Spec(14.0, _F, "px", 2.0, 100.0, "远处开火框（> 云台机械精度约 12px；t53 放宽回 14）"),
-    "aim.fire_box_near_px": Spec(26.0, _F, "px", 2.0, 200.0, "近处开火框（t53 放宽回 26）"),
+    "aim.fire_box_far_px": Spec(14.0, _F, "px", 2.0, 100.0, "远处开火框（> 云台机械精度约 12px；放宽回 14）"),
+    "aim.fire_box_near_px": Spec(26.0, _F, "px", 2.0, 200.0, "近处开火框（放宽回 26）"),
     "aim.lost_frames_to_rescan": Spec(180, _I, "帧", 10, 600,
                                       "★丢帧回扫阈值；旧版 180 帧≈6s 会让云台在丢失期间冻结"),
     "aim.scan_pitch_offset_deg": Spec(6.0, _F, "°", -60.0, 30.0,
@@ -394,13 +390,13 @@ SCHEMA: dict[str, Spec] = {
     "aim.box_w_far_px": Spec(30.0, _F, "px", 5.0, 200.0, "远处靶框宽标定（框宽→距离映射端点）"),
     "aim.box_w_near_px": Spec(120.0, _F, "px", 10.0, 400.0, "近处靶框宽标定"),
     "aim.cls_switch_confirm_frames": Spec(5, _I, "帧", 1, 60, "类别改锁需连续多少帧（抗抖动）"),
-    # ★ 卡 t13：红面早退。靶板一面蓝一面红（蓝面朝向每局随机但恒定），只打蓝、打红扣分
+    # 红面早退。靶板一面蓝一面红（蓝面朝向每局随机但恒定），只打蓝、打红扣分
     #   ⇒ 若本停站点只能看到红面，再等也是白等（30s 停站硬超时）。锁定红持续到这个秒数
     #   就置 `P_AIM_RED`，Mission 据此提前离站去下一个射击停站（两个停站分居板面两侧，
     #   对侧必见另一面）。缺省 3.0 s = 用户口径「红面 ≥3s 早退」。
     "aim.red_early_leave_s": Spec(3.0, _F, "s", 1.0, 10.0,
                                   "锁定红持续多久 ⇒ 置红面确认标志（Mission 提前离站）"),
-    # ★ 卡 t13：第一停站已经打出去了，就不必再去第二个射击停站（省一整段绕行 + 停站）。
+    # 第一停站已经打出去了，就不必再去第二个射击停站（省一整段绕行 + 停站）。
     #   判据 = 本停站点**发数增量达标**（与 `mission.shots_per_stop` 同一账本），不是"锁定蓝"：
     #   只见蓝但一直没打出去（开火框/冷却/门禁）时仍会去第二停站，避免"以为打了其实没打"。
     "mission.skip_second_stop_after_hit": Spec(True, _B, "", None, None,
@@ -431,7 +427,7 @@ SCHEMA: dict[str, Spec] = {
     "aim.rescan_on_lost": Spec(False, _B, "", None, None, "丢靶超阈值时是否发回扫请求"),
     "aim.reset_confirm_frames": Spec(5, _I, "帧", 1, 60, "估计器重置确认帧数（warmup 闭锁拍数）"),
     "aim.vision_nominal_fps": Spec(30.0, _F, "fps", 1.0, 120.0, "视觉名义帧率（丢帧计数换算）"),
-    # ---- ★ 卡 t24：云台扫描单写者 / 巡迹锁止（t13 的四把键，此前只在 AimTask 里读默认值）----
+    # ---- 云台扫描单写者 / 巡迹锁止（四把键，此前只在 AimTask 里读默认值）----
     "aim.gimbal_lock_enabled": Spec(True, _B, "", None, None,
                                     "★云台扫描**单写者**开关：true（默认）= 只有 AimTask 写 "
                                     "/nav/scan_request（巡迹段 0 锁止、最佳射击点停站 2 起转、"
@@ -496,6 +492,38 @@ SCHEMA: dict[str, Spec] = {
                                        "已不是车的位置。取 0.20 ≈ 仿真实测跟踪 RMS，"
                                        "既放过正常横向偏差、又不放过 >0.5 m 的冻结"),
 
+    # ---------------- ★★ 航向完整性守卫（LocalizationTask._update_yaw_guard，2026-10-17） ----
+    #  背景（_tmp_session/adjudication_t1_t4/裁决书.md §3.4/§4）：14:59:31.8 K9 处 IMU 地图
+    #  yaw 90°→−78°（−168°/1.8 s，峰值 120.3°/s @ 轮速 0.112 m/s = Ackermann 上限的 5.08 倍），
+    #  比投影跳变早 5.4~7.4 s；停车后静止期还有 169.2°/s 的 yaw 跳变。当时代码对"物理上
+    #  不可能的航向变化"没有任何判据 ⇒ 下游一路用坏航向。以下 10 键即该判据的阈值。
+    #  ⚠️ 全部 default = 代码兜底值（tasks/localization.py 模块常量），现场可在 robot.yaml 覆盖。
+    "localization.yaw_guard": Spec(True, _B, "", None, None,
+                                   "★航向完整性守卫总开关（关掉 = 行为回到 2026-10-17 之前）"),
+    "localization.yaw_kin_margin": Spec(1.25, _F, "", 1.0, 3.0,
+                                        "★运动学上限安全系数：ω_max = margin×v×tan(δmax)/L"
+                                        "（v=0.35 时 73.7°/s → 92°/s）"),
+    "localization.yaw_rate_floor_dps": Spec(8.0, _F, "°/s", 0.0, 60.0,
+                                            "★加在运动学上限上的绝对余量（量化噪声/舵角超调）"),
+    "localization.yaw_abs_floor_dps": Spec(20.0, _F, "°/s", 0.0, 90.0,
+                                           "★动态判据的绝对下限：低速蠕动时也允许的 yaw 率"),
+    "localization.yaw_static_dps": Spec(45.0, _F, "°/s", 5.0, 180.0,
+                                        "★静止期（v<yaw_min_speed）允许的 yaw 率上限：事故静止段"
+                                        "实测 169.2°/s，正常停车漂移 <5°/s"),
+    "localization.yaw_min_speed_mps": Spec(0.03, _F, "m/s", 0.0, 0.10,
+                                           "★判定『车没在动』的线速度阈值（帧间位移÷Δt）"),
+    "localization.yaw_bad_ticks": Spec(3, _I, "拍", 1, 20,
+                                       "★连续多少个**新帧**超限才判故障（单帧毛刺不刹；"
+                                       "事故的超限持续 1.8 s）"),
+    "localization.yaw_plausible_speed_mps": Spec(0.70, _F, "m/s", 0.20, 2.0,
+                                                 "★位姿连续性闸：帧间位移/Δt 超过它就不是"
+                                                 "『车在动』的样本（重定位/测试传送），跳过不判"),
+    "localization.yaw_max_dt_s": Spec(0.60, _F, "s", 0.10, 2.0,
+                                      "★帧间隔上限：超过它角速度不可信（丢帧/卡顿），跳过不判"),
+    "localization.yaw_imu_mismatch_ratio": Spec(0.35, _F, "", 0.0, 1.0,
+                                                "★有 IMU 时：|gyro z| 低于位姿角速度的这个比例 ⇒ "
+                                                "判『位姿-航向链内部不一致』（只改 reason 文案）"),
+
     # ---------------- 无人机链路 ----
     "drone.enabled": Spec(True, _B, "", None, None, "是否启用无人机链路"),
     "drone.topic_in": Spec("/dzlink/drone_to_car", _S, "", None, None, "无人机→车 话题"),
@@ -521,7 +549,7 @@ SCHEMA: dict[str, Spec] = {
     "telemetry.period_s": Spec(0.5, _F, "s", 0.1, 10.0, "遥测快照周期"),
 }
 
-#: ★ 卡 t9：**故意**不登记进 SCHEMA 的键（白名单，逐条有出处）。
+#: **故意**不登记进 SCHEMA 的键（白名单，逐条有出处）。
 #:   `localization.yaw_trim_deg` —— 它的 ±10° 护栏由 `tools/calib_backfill.py` 提供，
 #:   且 `tests/test_calib_backfill.py:2.3` 明确把「SCHEMA 里没有它」当作设计约束钉住
 #:   （理由：同一个量的护栏只该有一处，否则两套判据会各说各话）。登记它会让那条测试变红，
@@ -755,10 +783,10 @@ class Config:
                 note("error", key, err)
 
         # 已知键之外的路径段（打错键名会被发现，而不是静默忽略）
-        # ★ 卡 t9：改成**两级判据**，真源 = SCHEMA。
+        # 改成**两级判据**，真源 = SCHEMA。
         #   旧写法把段前缀手抄成常量表，漏了 `planner.` / `vehicle.` / `field.` 三段 ⇒
         #   这三段里**早已登记**的键被白报"未知配置段"，config_selfcheck 每次刷 20 条，
-        #   把真正该看的告警淹掉（reviewer t7 预复核点名）。
+        #   把真正该看的告警淹掉（复核点名）。
         #   两级判据（缺一不可）：
         #     ① 键在 SCHEMA 里 ⇒ 合法（**登记即生效**，不再依赖手抄表）；
         #     ② 键的**段**在 SCHEMA 里但键本身没登记 ⇒ 报"未登记的配置键"（拼错仍能抓到）；

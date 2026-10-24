@@ -23,7 +23,6 @@ from typing import Any, Iterable, Sequence
 
 from ..core import geometry as geo
 from ..core.config import Config
-from .model import Route
 
 __all__ = [
     "Issue", "validate_route", "summary", "crossing_entries",
@@ -68,8 +67,6 @@ _KEY_SHOOT_MIN = "path_executor.shoot_distance_min"
 _KEY_SHOOT_MAX = "path_executor.shoot_distance_max"
 _KEY_CROSS_LOWER = "route.cross_lower_candidates"
 _KEY_CROSS_UPPER = "route.cross_upper_candidates"
-_KEY_CROSS_LOWER_DEFAULT = "route.cross_lower_default"
-_KEY_CROSS_UPPER_DEFAULT = "route.cross_upper_default"
 _KEY_BRIDGE_BLOCKS = "pursuit.bridge_blocks"
 
 _FALLBACK_CFG: Config | None = None
@@ -143,30 +140,6 @@ def _cross_rows(cfg: Config | None,
     if not upper:
         upper = list(range(CROSS_UPPER_ROWS[0], CROSS_UPPER_ROWS[1] + 1))
     return lower, upper
-
-
-def _candidates(cfg: Config | None, cross_candidates: Iterable[str] | None) -> set[str]:
-    if cross_candidates:
-        return {str(c).upper() for c in cross_candidates}
-    pool = set(_as_list(_cfg_get(cfg, _KEY_CROSS_LOWER, None)))
-    pool |= set(_as_list(_cfg_get(cfg, _KEY_CROSS_UPPER, None)))
-    if pool:
-        return pool
-    lower, upper = _cross_rows(cfg)
-    pool = {f"{CROSS_COLUMN}{r}" for r in lower}
-    pool |= {f"{CROSS_COLUMN}{r}" for r in upper}
-    # ★ t20（t14-F3）：这里**不再写第二份兜底穿洞格**（旧代码硬编码 "K9"/"K4"，属第四张图，
-    #   与现役真值 K10/K5 不符 —— 过期值只会把人误导到失效的洞）。
-    #   改为**读配置**：`_cfg_get(..., None)` 在键缺失时会走 `Config.get()` 的 SCHEMA 缺省
-    #   （`core/config.py` 现值 K10/K5，与 `config/robot.yaml:520-521` 同源），
-    #   所以"候选与兜底都拿不到"时补进池子的仍是配置里的兜底穿洞格。
-    #   ⚠️ 本分支只在 `route.cross_{half}_candidates` 全空/非列表时才走到（现场两者都非空 ⇒ 不生效），
-    #   且此处已按 K 列上下半场行段建池，故这是一次**只去旧值、不改判定**的收口。
-    for key in (_KEY_CROSS_LOWER_DEFAULT, _KEY_CROSS_UPPER_DEFAULT):
-        cell = str(_cfg_get(cfg, key, None) or "").strip().upper()
-        if cell:
-            pool.add(cell)
-    return pool
 
 
 # --------------------------------------------------------------------------- #
@@ -282,7 +255,7 @@ def _is_cross(a: str, b: str) -> bool:
     于是 `K9 -> J9` 与 `K9 -> L9` 被正确区分开：两者几何相同，**方向相反** ——
     前者是"穿过 K 继续走"，后者是"离开 K 往外走"。
 
-    ★★ 2026-10-11 修正（t7；实证见 `_tmp_session/t3_verify/t3_报告_全量回归与复核.md` §5.1）：
+    ★★ 2026-10-11 修正（实证见 `_tmp_session/t3_verify/t3_报告_全量回归与复核.md` §5.1）：
       旧判据写成 `min(c1, c2) < k_col <= max(c1, c2)` —— 一端**恰好压在 K 列上**时
       `min == k_col` ⇒ `min < k_col` 恒假 ⇒ **东侧进洞（`L→K`）整类漏判**：
       不仅 `L8 -> K7` 这种 45° 斜切永远进不了 R009，连 docstring 自举的第一个例子
@@ -373,13 +346,13 @@ def crossing_entries(blocks: Sequence[str]
                      ) -> list[tuple[str, str, tuple[float, float, float, float]]]:
     """逐段给出**一次过洞各一条**的命中记录：`(a, b, (行号, 入洞角, 出洞角, Δ列))`。
 
-    ★ 为什么需要它（2026-10-11 t7 新增）：`_crossing_at_column` 对**一次过洞的两段**
+    ★ 为什么需要它（2026-10-11 新增）：`_crossing_at_column` 对**一次过洞的两段**
       都返回非 None —— 进洞那一半（`L7 -> K7`）与出洞那一半（`K7 -> J7`）；
       `validate_route` 靠 run 合并（同格、同行、`prev["dir"]` 同向）把它们拼回**一次**（R007）。
       需要"**一次过洞 = 一条记录**"的调用方（规划器自检 `planner.check_route_structure`、
       测试 `test_planner.audit`）请用本函数，**不要**各自重新发明"只数进洞那一半"的规则 ——
       两套口径必然打架（本模块前几版反复踩的坑）。
-      ⚠️ 背景：t7 把"东侧进洞 `L→K`"从整类漏判改成算数之后，两半都可见了；
+      ⚠️ 背景：把"东侧进洞 `L→K`"从整类漏判改成算数之后，两半都可见了；
       那些"按段数计过洞次数"的调用方若不换用本函数，现场路线会被数成 **2 次**。
 
     口径：只收**起点不在 `CROSS_COLUMN` 列上**的那一段 —— 它正是"朝 K 列推进 / 跨过 K"
@@ -416,7 +389,8 @@ class Issue:
 
 
 def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None,
-                   cross_candidates: Iterable[str] | None = None) -> list[Issue]:
+                   cross_candidates: Iterable[str] | None = None,
+                   expect_halves: Iterable[str] | None = None) -> list[Issue]:
     """出发前校验。返回 `list[Issue]`，**空列表 = 可以发车**。
 
     :param route: `Route`（也接受任何有 `.waypoints` 的对象，或格名序列）
@@ -424,6 +398,11 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     :param cfg: `core.config.Config`（点号键）；射击窗口、穿洞候选集等全部从这里读
     :param cross_candidates: 显式覆盖穿洞候选格集合（默认取 `cfg` 的
         `route.cross_lower_candidates/route.cross_upper_candidates`）
+    :param expect_halves: R007 的增量续算口径（t12，与 `tools/route_check.py`
+        `--expect-halves`、规划器 `check_route_structure(crossing_halves=...)` 同一契约）：
+        `None` = 整线路线口径（两个半场各恰 1 次，缺省行为不变）；否则为
+        `{"lower","upper"}` 的子集 —— 只有列出的半场要求"恰 1 次且方向正确"，
+        未列出的半场要求 **0 次**（增量段从上半场起步时传 `("upper",)`）。
     """
     issues: list[Issue] = []
     blocks = _blocks(route)
@@ -440,10 +419,7 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     obstacles = _cells(merged, "obstacles")
     targets = _cells(merged, "targets")
     lower_rows, upper_rows = _cross_rows(cfg, cross_candidates)
-    cross_pool = _candidates(cfg, cross_candidates)
     lo_m, hi_m = _window(cfg)
-    #: 两个半场的行号并集 —— R007 之外的检查里只用来判断"某行是否属于某个半场"
-    cross_rows = set(lower_rows) | set(upper_rows)
     k_col = geo.COL_LETTERS.index(CROSS_COLUMN)
 
     # ---------------------------------------------------------------- R002
@@ -592,7 +568,7 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
         run["cells"] |= set(crossed)
         run["k_cells"] = sorted(set(crossed))
         row = int(round(run["row"]))
-        # ★ t31 权威门放宽（按 t11 §10 建议①、t23 复核）：穿洞行的硬门 = **本半场行段**
+        # ★ 权威门放宽（按设计建议①、复核）：穿洞行的硬门 = **本半场行段**
         #   （下 7~11 / 上 1~6），不再要求"落在候选行"上 —— 候选集合 / `map.bridges`
         #   只用于挑**缺省洞**，可以过期，由无人机的新鲜情报纠正（见 R008 报文与
         #   `tasks/mission.py::_intel_cell_ok`、`route/planner.py` 的同口径硬门）。
@@ -609,9 +585,12 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     lower_runs = [r for r in runs if r["half"] == "lower"]
     upper_runs = [r for r in runs if r["half"] == "upper"]
 
-    # ★ R008（t31 后语义）：**只**看"穿洞行是否在 K 列本半场行段内"（下半场 7~11 /
+    # t12 增量续算口径：expect_halves 为 None 时与旧行为完全一致（两半场各恰 1 次）
+    _expect = set(expect_halves) if expect_halves is not None else {"lower", "upper"}
+
+    # ★ R008（当前语义）：**只**看"穿洞行是否在 K 列本半场行段内"（下半场 7~11 /
     #   上半场 1~6），候选行/候选集合不再当硬门；报文里仍打印候选行供现场对账。
-    #   "不在候选集合"因此**不再是 error** —— 那正是本卡要放开的（无人机情报可纠正过期地图）。
+    #   "不在候选集合"因此**不再是 error** —— 那正是要放开的（无人机情报可纠正过期地图）。
 
     # ★ R009：**每一次**过洞都要看夹角，不能只查 R007 那个"唯一一次"——
     #   现场一旦多了一次斜切（例如某段折线斜着蹭过 K 列），只查唯一一次就会漏掉。
@@ -625,7 +604,12 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     def _fmt(run_list: list[dict]) -> str:
         return " ".join(f"{r['a']}->{r['b']}@{int(round(r['row']))}行" for r in run_list)
 
-    if len(lower_runs) != 1:
+    if "lower" not in _expect:
+        if lower_runs:
+            issues.append(Issue("error", "R007",
+                                f"增量口径：本段起点已在上半场，不应再穿下半场"
+                                f"（实际 {len(lower_runs)} 次：{_fmt(lower_runs)}）"))
+    elif len(lower_runs) != 1:
         issues.append(Issue("error", "R007",
                             f"下半场（第 {CROSS_LOWER_ROWS[0]}~{CROSS_LOWER_ROWS[1]} 行）"
                             f"应恰好 1 次穿越 {CROSS_COLUMN} 列，实际 {len(lower_runs)} 次"
@@ -635,7 +619,12 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
         issues.append(Issue("error", "R007",
                             f"下半场穿越方向错：{run['a']}->{run['b']} 必须**向西**"
                             f"（列号减小，现场 bridge_order: L* -> K* -> J*）"))
-    if len(upper_runs) != 1:
+    if "upper" not in _expect:
+        if upper_runs:
+            issues.append(Issue("error", "R007",
+                                f"增量口径：本段起点已在下半场，不应再穿上半场"
+                                f"（实际 {len(upper_runs)} 次：{_fmt(upper_runs)}）"))
+    elif len(upper_runs) != 1:
         issues.append(Issue("error", "R007",
                             f"上半场（第 {CROSS_UPPER_ROWS[0]}~{CROSS_UPPER_ROWS[1]} 行）"
                             f"应恰好 1 次穿越 {CROSS_COLUMN} 列，实际 {len(upper_runs)} 次"
@@ -647,14 +636,15 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
                                 f"上半场穿越方向错：{run['a']}->{run['b']} 必须**向东**"
                                 f"（列号增大，现场 bridge_order: J* -> K* -> L*）"))
 
-    if not runs:
+    if not runs and _expect:
         issues.append(Issue("error", "R007",
-                            f"路线没有任何一次穿越 {CROSS_COLUMN} 列（两个半场各需一次）"))
+                            f"路线没有任何一次穿越 {CROSS_COLUMN} 列"
+                            f"（增量口径要求：{'、'.join(sorted(_expect))} 各一次）"))
 
     for run in runs:
         if not run["band_ok"]:
-            # ★ t31：报文写"行段"（硬门），候选行只作参考 —— 旧文"而候选行只有 …"会让现场
-            #   以为是候选集合把关（已放开：无人机新鲜情报可纠正过期地图）。
+            # 报文必须写"行段"（硬门），候选行只作参考 —— 否则现场会以为是候选
+            #   集合把关（已放开：无人机新鲜情报可纠正过期地图）。
             issues.append(Issue("error", "R008",
                                 f"第 {run['index']} 段 {run['a']}->{run['b']} 在 {CROSS_COLUMN} 列第 "
                                 f"{run['row']:.0f} 行穿行，不在本半场行段"

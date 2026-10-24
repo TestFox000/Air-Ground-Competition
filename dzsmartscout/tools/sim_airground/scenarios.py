@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 
 from dzbrain.core.config import Config
@@ -176,6 +177,26 @@ def _spec_with_targets(spec: FieldSpec, targets: tuple[str, ...]) -> FieldSpec:
     )
 
 
+def sync_target_with_truth(scenario: "Scenario",
+                           orient_deg: float | None = None) -> "Scenario":
+    """靶模型随**真值靶格**同步（t28③ + 2026-10-17 第六图对账）。
+
+    把 ``target.track_cells`` / ``stop_candidates`` 按 ``truth.targets``（config/map.yaml
+    现值，第六图 = D5/D6）重推，朝向可选覆盖；复用 ``apply_target_override`` 同一条
+    内存克隆路径，不落盘。★ 三个 ``build_world_*`` 与随机批量都必须走这里——否则
+    射击模型按 TargetParams 默认 B11/C11 判扇区 ⇒ 假 ``sector_fail``（2026-10-17 实踩）。
+
+    :param orient_deg: 覆盖蓝面朝向；None = 保留情景原朝向。
+    :return: 同步后的内存克隆；真值靶格异常时**保留原靶模型并显式告警**（绝不静默）。
+    """
+    try:
+        return apply_target_override(scenario, tuple(scenario.truth.targets), orient_deg)
+    except ValueError as exc:
+        print(f"⚠️ 靶模型随真值同步失败（{exc}）→ 保留原靶模型（射击账可能失真）",
+              file=sys.stderr)
+        return scenario
+
+
 def parse_target_cells(text: str) -> tuple[str, ...]:
     """'F11 G11' / 'F11,G11' → ('F11','G11')（格名一律大写，非法抛 ValueError）。"""
     parts = [p for p in str(text).replace(",", " ").split() if p]
@@ -251,17 +272,21 @@ def build_world_a() -> Scenario:
     """
     cfg = _repo_cfg()
     spec = _map_spec_from_text(_repo_map_text())
-    return Scenario(
-        name="A-桥洞K10/K5(默认),靶蓝面北",
+    defaults = _base_defaults(cfg)
+    sc = Scenario(
+        name=f"A-桥洞{defaults['lower']}/{defaults['upper']}(默认),靶蓝面北",
         truth=spec,
         belief_bridges=spec.bridges,
         candidates=_base_candidates(cfg),
-        defaults=_base_defaults(cfg),
+        defaults=defaults,
         arrows={"K10": "W", "K5": "E"},
         target=TargetParams(orientation_deg=0.0, judge_error_deg=0.0),
         mission=_base_mission(cfg),
-        notes="通口=默认值：无人机情报对轨迹零影响（预期），价值只在信息契约与 B/C 世界。",
+        notes=f"通口=默认值（robot.yaml 现役 {defaults['lower']}/{defaults['upper']}）："
+              f"无人机情报对轨迹零影响（预期），价值只在信息契约与 B/C 世界。",
     )
+    # ★ 靶模型随真值靶格同步（第六图 D5/D6；track_cells/停站候选不再停在默认 B11/C11）
+    return sync_target_with_truth(sc)
 
 
 def build_world_b(entrance: str = "K9", exit_cell: str = "K4") -> Scenario:
@@ -272,7 +297,7 @@ def build_world_b(entrance: str = "K9", exit_cell: str = "K4") -> Scenario:
     cfg = _repo_cfg()
     spec = _map_spec_from_text(_repo_map_text())
     truth = _spec_with_bridges(spec, (entrance, exit_cell))
-    return Scenario(
+    sc = Scenario(
         name=f"B-桥洞{entrance}/{exit_cell}(随机),靶蓝面东",
         truth=truth,
         belief_bridges=spec.bridges,
@@ -283,6 +308,7 @@ def build_world_b(entrance: str = "K9", exit_cell: str = "K4") -> Scenario:
         mission=_base_mission(cfg),
         notes="入口/出口都偏离默认格：默认格直冲必撞封死桥室（失败概率分析见报告）。",
     )
+    return sync_target_with_truth(sc)
 
 
 def build_world_c() -> Scenario:
@@ -293,7 +319,7 @@ def build_world_c() -> Scenario:
     cfg = _repo_cfg()
     spec = _map_spec_from_text(_repo_map_text())
     truth = _spec_with_bridges(spec, ("K11", "K1"))
-    return Scenario(
+    sc = Scenario(
         name="C-桥洞K11/K1(最坏揭示),靶蓝面南(贴墙)",
         truth=truth,
         belief_bridges=spec.bridges,
@@ -304,6 +330,7 @@ def build_world_c() -> Scenario:
         mission=_base_mission(cfg),
         notes="最坏揭示组合 + 贴墙不可打：预算压力上限（0 命中 → 驻留 30 s）。",
     )
+    return sync_target_with_truth(sc)
 
 
 ALL_BRIDGE_COMBOS: tuple[tuple[str, str], ...] = tuple(

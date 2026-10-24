@@ -27,7 +27,7 @@ from dzbrain.core.config import Config
 from dzbrain.route.planner import plan_route_tracker_safe
 from dzbrain.tools.sim import FieldSpec
 
-from .car_gate import MissionFlow
+from .car_gate import MissionFlow, approach_cell
 from .drone_model import build_timeline
 from .link import Link
 from .scenarios import ALL_BRIDGE_COMBOS, build_world_b
@@ -85,7 +85,7 @@ def _cells(tokens) -> set[str]:
     return out
 
 
-def _adopt_for_combo(scenario, cfg, baseline, delivered, arrival_l10_joint, cap_s,
+def _adopt_for_combo(scenario, cfg, baseline, delivered, arrival_approach_joint, cap_s,
                      authority: bool, wait_enabled: bool) -> tuple[str, str, float, str]:
     """复用任务流逻辑算一场的采纳结果：(adopted_lower, adopted_upper, wait, 原因)。"""
     scenario.authority_gate = authority
@@ -97,8 +97,9 @@ def _adopt_for_combo(scenario, cfg, baseline, delivered, arrival_l10_joint, cap_
     flow.result.versions.append(v1)
     tokens = list(v1.tokens)
     wait = 0.0
-    if wait_enabled and "L10" in _cells(v1.tokens):
-        v2 = flow.bridge_wait_decision(arrival_l10_joint, delivered)
+    # 穿洞入口格从路线现算（approach_cell；旧版硬编码 L10 在换线后静默失效）
+    if wait_enabled and approach_cell(tokens, "lower"):
+        v2 = flow.bridge_wait_decision(arrival_approach_joint, delivered)
         if v2 is not None:
             flow.result.versions.append(v2)
             tokens = list(v2.tokens)
@@ -135,12 +136,14 @@ _plan = plan_for_bridges
 
 
 def run_match_stats(cfg: Config, baseline: list[str], arrival_ref: dict[str, float],
-                    drive_s_per_m: float, commit_t: float, arrival_l10_sim: float,
+                    drive_s_per_m: float, commit_t: float, arrival_approach_sim: float,
                     delay_s: float = 8.0, cap_s: float = 12.0) -> dict:
     """30 组合 × 4 朝向 × 3 策略 的逐场统计 + 聚合。
 
-    :param arrival_ref: 基线轨迹逐格到达时刻（sim 时间）——停站锚点与 L10 用。
-    :param drive_s_per_m: 行驶时长标定（基线 142.14 s / 20.65 m）。
+    :param arrival_ref: 基线轨迹逐格到达时刻（sim 时间）——停站锚点用。
+    :param arrival_approach_sim: 基线轨迹上**穿洞入口格**（approach = 穿洞三连前格，
+        现役线 L7）的到达时刻（sim 时间）——桥前等待决策点用。
+    :param drive_s_per_m: 行驶时长标定（基线实测时间 / 路线长）。
     """
     base_sc = build_world_b("K9", "K4")       # 只借它的航线/链路/预算默认参数
     budget_s = base_sc.mission.budget_s
@@ -161,7 +164,7 @@ def run_match_stats(cfg: Config, baseline: list[str], arrival_ref: dict[str, flo
 
     policies: dict[str, PolicyStats] = {p: PolicyStats(policy=p)
                                         for p in ("no_drone", "ideal_wait", "constrained")}
-    arrival_l10_joint = commit_t + arrival_l10_sim
+    arrival_approach_joint = commit_t + arrival_approach_sim
     for entrance, exit_cell in ALL_BRIDGE_COMBOS:
         # 该组合的报文时间线：桥洞首报 = 该格揭示时刻；之后每 reemit_s 重发续期；心跳 1 Hz
         msgs: list[tuple[float, dict]] = []
@@ -204,7 +207,8 @@ def run_match_stats(cfg: Config, baseline: list[str], arrival_ref: dict[str, flo
                     plan_lo, plan_up = adopted
                 else:
                     adopted = _adopt_for_combo(sc, cfg, baseline, delivered,
-                                               arrival_l10_joint, cap_s, authority, wait_enabled)
+                                               arrival_approach_joint, cap_s,
+                                               authority, wait_enabled)
                     wait = adopted[2]
                     complete = (adopted[0] == entrance and adopted[1] == exit_cell)
                     reason = ("完赛" if complete else
@@ -242,8 +246,11 @@ def run_match_stats(cfg: Config, baseline: list[str], arrival_ref: dict[str, flo
                         blue=shot.blue_hits, red=shot.red_hits, score=shot.score,
                         stop=shot.stop))
                 else:
-                    # 未跑完：判负原因 = 撞封死桥室（非超时）；预算口径 = 中断时刻
-                    abort_cell = ("K10" if entrance != plan_lo else "K5")
+                    # 未跑完：判负原因 = 撞封死桥室（非超时）；预算口径 = 中断时刻。
+                    # 中断格 = 该半场**默认桥洞**（从情景读；旧版硬编码 K10/K5 已随
+                    # 第六图换线失效）。下洞不符 → 撞下半场默认洞；否则撞上半场默认洞。
+                    abort_cell = (sc.defaults["lower"] if entrance != plan_lo
+                                  else sc.defaults["upper"])
                     abort_sim = arrival_ref.get(abort_cell, 5.9)
                     st.rows.append(MatchRow(
                         entrance=entrance, exit_cell=exit_cell, phi=phi,
@@ -258,8 +265,8 @@ def run_match_stats(cfg: Config, baseline: list[str], arrival_ref: dict[str, flo
            "budget_s": budget_s,
            "note": f"航速 {base_sc.drone.speed_mps:g} m/s；drone_recon_s 不含起飞延迟"
                    f"（受限臂 +{delay_s:g}s）；drive_est 标定 = {drive_s_per_m:.3f} s/m；"
-                   f"L10 决策点到达时刻用基线轨迹实测 {arrival_l10_sim:.2f}s"
-                   f"（改道后路线在 L10 前 0.4 m 内因前视预转向有 ±0.5 s 轨迹差——保守口径）"}
+                   f"穿洞入口格到达时刻用基线轨迹实测 {arrival_approach_sim:.2f}s"
+                   f"（改道后路线在入口格前 0.4 m 内因前视预转向有 ±0.5 s 轨迹差——保守口径）"}
     for st in policies.values():
         rows = st.rows
         comp = [r for r in rows if r.complete]

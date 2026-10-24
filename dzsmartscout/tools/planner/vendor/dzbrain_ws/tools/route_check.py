@@ -29,7 +29,7 @@
 （不是重写一份 —— 重写就会两处逻辑各说各话，那正是要避免的）。
 
 --------------------------------------------------------------------------------
-五层检查（⑥ 折返层为卡 C 新增，共六层）
+五层检查（⑥ 折返层为新增，共六层）
 --------------------------------------------------------------------------------
     ① 语法层    token 合法性（复用 path_executor.validate_mission_blocks）
     ② 解析层    模拟 follow_route_command，产出航点与标记数组
@@ -65,7 +65,7 @@ import math
 import os
 import subprocess
 import sys
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List, Optional, Tuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WS = os.path.dirname(HERE)
@@ -81,7 +81,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 from _field_const import (                                    # noqa: E402
-    BARRIER_COL_FROM, BARRIER_ROW_HI, BARRIER_ROW_LO,
+    BARRIER_ROW_HI, BARRIER_ROW_LO,
     BLOCK_SIZE, COL_LETTERS, MAP_COLS, MAP_ROWS,
     MAP_X_MAX, MAP_X_MIN, MAP_Y_MAX, MAP_Y_MIN,
 )
@@ -90,7 +90,7 @@ from _field_const import (                                    # noqa: E402
 BARRIER_MIN_MARGIN = 0.10        # 过挡板缺口时离挡板边缘的最小余量(m)
 OBSTACLE_WARN_M = 0.30           # 航段离障碍的告警距离(m)
 
-#: ★★物理几何（t22：用户 2026-10-11 现场口径）—— 与 `config/robot.yaml` 的
+#: ★★物理几何（用户 2026-10-11 现场口径）—— 与 `config/robot.yaml` 的
 #: `vehicle.*` / `field.*` / `planner.obstacle_margin_m` 逐项对应，`load_cfg()` 会用配置值
 #: **覆盖**这里的默认值（默认值与 `core/config.py` SCHEMA 一致）。
 #: 公式与 `dzbrain/route/physics.py` 是**同一套**——本工具**不复用那份实现**（物理判据要能
@@ -234,7 +234,7 @@ def fallback_validate(tokens):
             elif tu in ('SCAN_STOP', 'SCAN'):
                 body = h.strip()
             elif tu == 'PIVOT':
-                # ★ 卡 C 新增后缀：折返点**声明**（该顶点车头需转过 ≥ PIVOT_DECL_DEG）。
+                # ★ 新增后缀：折返点**声明**（该顶点车头需转过 ≥ PIVOT_DECL_DEG）。
                 #   不产生停站、不改变循迹层行为，第 ⑥ 层再校验它与几何是否一致。
                 body, n_pivot = h.strip(), n_pivot + 1
         if body.endswith('*'):
@@ -257,7 +257,7 @@ def parse_route(tokens):
     这一步刻意与 path_executor 的解析顺序保持完全一致：
         R: 前缀  ->  :LABEL 标签  ->  * 后缀  ->  ,朝向
 
-    ★ `pivot`（第 5 个返回值，卡 C 新增）与 `pts` **逐点对齐**：
+    ★ `pivot`（第 5 个返回值，新增）与 `pts` **逐点对齐**：
       `:PIVOT` 只是声明，不产生新航点、不影响去重（同一个格 + 同样的 reverse 才合并）。
     """
     pts, shoot_f, scan_f, rev_f, pivot_f = [], [], [], [], []
@@ -367,10 +367,17 @@ R009_MAX_ANGLE_DEG = 10.0
 TARGET_RUNOVER_TOL_M = BLOCK_SIZE / 2.0
 
 
-def _bridge_group_check(bridges, pts):
+def _bridge_group_check(bridges, pts, expect_halves=None):
     """桥洞穿越检查（支持"整列都是桥洞"）。
 
-    ★ 三层口径（t7 硬化，2026-10-17，与 dzbrain.route.validate R007/R008/R009 同口径）：
+    :param expect_halves: `None` = 整线路线口径：两个半场**各恰 1 次**（缺省，行为
+        与未加此参前逐字节一致）。否则为 `{"lower","upper"}` 的子集（t12 增量续算
+        口径）：**只有**列出的半场要求"恰 1 次且方向正确"，**未列出的半场要求
+        0 次**（本段不该再折回另一半场）。与规划器 `_inc_shape` 的可行性硬门、
+        `check_route_structure(crossing_halves=...)`、`validate_route(expect_halves=...)`
+        同一契约 —— 三处缺一，增量段就会在外层门禁吃"下半场 0 次"的假红。
+
+    ★ 三层口径（2026-10-17 硬化，与 dzbrain.route.validate R007/R008/R009 同口径）：
 
     ① **水平直穿**（段严格同行 `x1 == x2`）：唯一合法形态。**把连续相接的穿越段并成
        一次"过洞"**（`L9->K9` 与 `K9->J9` 是同一次穿越的两段，旧版算成 2 段计数翻倍）；
@@ -385,7 +392,7 @@ def _bridge_group_check(bridges, pts):
 
     ★ 判级：① 的次数/方向违规报 ❌（改退出码）；② ③ 只报 ⚠️ 警告（硬拦由真源
       `dzbrain.route.validate` 的 R009 负责，本工具不抢判决权）。
-      —— 硬化背景：t7 实测旧版对「区间外穿越」「只穿 1 次」rc=0 假绿
+      —— 硬化背景：实测旧版对「区间外穿越」「只穿 1 次」rc=0 假绿
         （`_tmp_session/t7_review/p14_bridge_count.py`），而 dzbrain 复合门禁能拦。
     """
     if not bridges:
@@ -445,15 +452,26 @@ def _bridge_group_check(bridges, pts):
     def _fmt(runs, sym):
         return " ".join("段#%d(行%d%s)" % (r["index"], r["row"], sym) for r in runs[:4])
 
+    # t12 增量续算口径：expect_halves 为 None 时与旧行为完全一致（两半场各恰 1 次）。
+    expect = set(expect_halves) if expect_halves is not None else {"lower", "upper"}
+
     n_ok = 0
-    if len(lower) != 1:
+    if "lower" not in expect:
+        if lower:
+            bad("下半场桥洞穿越 %d 次（增量口径）" % len(lower),
+                "本段起点已在上半场，不应再穿下半场（%s）" % (_fmt(lower, "") or "无"))
+    elif len(lower) != 1:
         bad("下半场桥洞穿越 %d 次" % len(lower),
             "行 7~11 应恰 1 次（%s）" % (_fmt(lower, "") or "无"))
     elif lower[0]["dy"] <= 0:
         bad("下半场桥洞穿越方向错", "必须向西（L* -> K* -> J*，列号减小）")
     else:
         n_ok += 1
-    if len(upper) != 1:
+    if "upper" not in expect:
+        if upper:
+            bad("上半场桥洞穿越 %d 次（增量口径）" % len(upper),
+                "本段起点已在下半场，不应再穿上半场（%s）" % (_fmt(upper, "") or "无"))
+    elif len(upper) != 1:
         bad("上半场桥洞穿越 %d 次" % len(upper),
             "行 1~6 应恰 1 次（%s）" % (_fmt(upper, "") or "无"))
     elif upper[0]["dy"] >= 0:
@@ -463,11 +481,21 @@ def _bridge_group_check(bridges, pts):
     if other:
         bad("桥洞穿越行号异常 %d 次" % len(other),
             "%s 列  %s" % ("/".join(cols), _fmt(other, "")))
-    if n_ok == 2 and not other:
-        ok("桥洞穿越（下半场向西 / 上半场向东 各 1 次）",
-           "%s 列  下%s · 上%s"
-           % ("/".join(cols),
-              _fmt(lower, "向西"), _fmt(upper, "向东")))
+    if n_ok == len(expect) and not other:
+        if expect == {"lower", "upper"}:
+            ok("桥洞穿越（下半场向西 / 上半场向东 各 1 次）",
+               "%s 列  下%s · 上%s"
+               % ("/".join(cols),
+                  _fmt(lower, "向西"), _fmt(upper, "向东")))
+        else:
+            only = ("下半场" if expect == {"lower"} else
+                    "上半场" if expect == {"upper"} else
+                    "+".join(sorted(expect)))
+            ok("桥洞穿越（增量口径：仅要求 %s）" % only,
+               "%s 列  下%s · 上%s"
+               % ("/".join(cols),
+                  _fmt(lower, "向西") if "lower" in expect else "不要求",
+                  _fmt(upper, "向东") if "upper" in expect else "不要求"))
 
     steep = [d for d in diag if d[2] > R009_MAX_ANGLE_DEG + 1e-9]
     if steep:
@@ -551,7 +579,7 @@ def path_length(pts):
 
 
 # =============================================================================
-#  ★物理几何判据（t22）—— 公式与 `dzbrain/route/physics.py` 同一套（对拍见 test_physics.py）
+#  ★物理几何判据—— 公式与 `dzbrain/route/physics.py` 同一套（对拍见 test_physics.py）
 # =============================================================================
 def _phys_point_seg_dist(px, py, ax, ay, bx, by):
     """点 P 到线段 AB 的最近距离。"""
@@ -804,7 +832,7 @@ def run_check(route: str, cfg: dict) -> int:
 
     # ---------------- ② 解析层 ----------------
     sec("2/6 解析层")
-    pts, shoot_f, scan_f, rev_f, pivot_f = parse_route(toks)
+    pts, shoot_f, _, rev_f, pivot_f = parse_route(toks)
     if len(pts) < 2:
         bad("解析出的航点不足 2 个，无法构成路线")
         return summarise()
@@ -844,7 +872,7 @@ def run_check(route: str, cfg: dict) -> int:
                "均在 %s 列，最小余量 %.3f m"
                % ("/".join(sorted({c['col'] for c in crossings})), m))
 
-    # ★挡板**触线**（t22：细条口径替换旧的格带口径）
+    # ★挡板**触线**（细条口径替换旧的格带口径）
     #   旧口径：只看"过缺口时的余量 ≥ 0.10 m"（`BARRIER_MIN_MARGIN`），挡板被当成一整格宽。
     #   新口径：挡板是 2 cm 细条 ⇒ 车心到**中心线** ≥ 半厚 + 车半宽 = 0.0775 m；
     #          桥洞 K 处豁免（`seg_outside_band` 精确抠段，见其 docstring）。
@@ -872,7 +900,7 @@ def run_check(route: str, cfg: dict) -> int:
     else:
         info("障碍距离", "未提供障碍表，跳过")
 
-    # ★障碍**净空**（t22 新增，**error 级**）：直段 0.215 m / 拐角按扫掠圆 0.3029 m
+    # ★障碍**净空**（新增，**error 级**）：直段 0.215 m / 拐角按扫掠圆 0.3029 m
     if obstacles:
         _ds, _si, _sn, _dt, _ti, _tn = obstacle_clearances(pts, obstacles, rev_f)
         _req_straight = OBSTACLE_RADIUS_M + VEHICLE_WIDTH_M / 2.0 + OBSTACLE_MARGIN_M
@@ -922,9 +950,9 @@ def run_check(route: str, cfg: dict) -> int:
     #   （规划器会把直线段中间的格压缩掉，只查 token 会大面积误报）
     # 桥洞：K 列整列都是桥洞（每格被侧壁隔开），判据从"每个通格都要经过"
     # 改为"桥洞列被水平直穿足够多次"—— 把整列 11 格都算进去没有意义。
-    _bridge_group_check(bridges, pts)
+    _bridge_group_check(bridges, pts, cfg.get('expect_halves'))
 
-    # ★★★ 雷覆盖（t22 换成**物理判据**）：车心 3.5 cm 圆与 0.12×0.12 垫片是否产生过重叠
+    # ★★★ 雷覆盖（换成**物理判据**）：车心 3.5 cm 圆与 0.12×0.12 垫片是否产生过重叠
     #   ⇔ 路线（折线）到**垫片**的最近距离 ≤ `COVERAGE_RADIUS_M`（0.035 m）。
     #   ⚠️ 旧口径是"路线到**雷格心** ≤ BLOCK_SIZE*0.6 = 0.21 m"——它是个"差不多踩到"的宽松代理，
     #      既会把"擦着格心 0.2 m 过"判成压到（垫片只有 0.12 m 见方，实际差 0.1 m 就没压上），
@@ -949,16 +977,22 @@ def run_check(route: str, cfg: dict) -> int:
             bad("%s覆盖 %d/%d" % (name, len(req) - len(miss), len(req)),
                 "未压到（车心 %.3fm 圆 ∩ %.2fm 垫片）: %s"
                 % (COVERAGE_RADIUS_M, MINE_PAD_M, " ".join(miss)))
+        elif not req:
+            # t12 增量口径的空集分支：全部雷已列入 already-covered（后半程重规划
+            # 只剩回终点是常态）⇒ 无待压雷，直接放行；上面没有这层守卫时
+            # max(worst) 会抛 ValueError 把整个校验器打崩（门禁假红 → 触发回退）。
+            ok("%s覆盖 0/0（增量口径：全部已压，无需重压）" % name,
+               "%d 个雷全部已列入 already-covered，跳过物理覆盖判定" % len(lst))
         else:
             ok("%s覆盖 %d/%d（车心 %.3fm 圆 ∩ %.2fm 垫片）" % (name, len(req), len(req),
                                                               COVERAGE_RADIUS_M, MINE_PAD_M),
                "最差 %.4f m（阈值 %.3f）" % (max(worst), COVERAGE_RADIUS_M))
 
-    # ★★【航点压过靶板 = ❌ error】(t12, 2026-10-11)
+    # ★★【航点压过靶板 = ❌ error】(2026-10-11)
     #   用户口径：「所有靶子都是一个占用两格的跨格靶板」⇒ 靶板是**实体**，车不能开上去。
-    #   规划器侧已把靶格并进 `Grid.blocked`（t10），但本工具此前只查"打不打得到"、
+    #   规划器侧已把靶格并进 `Grid.blocked`，但本工具此前只查"打不打得到"、
     #   不查"有没有从靶板上开过去"：手工 `route.txt` 压过 `C1/D1` 仍拿 `0 error`
-    #   （t10 报告 §5.4 记的盲区，`probe_hand_check.txt` 独立复现）。
+    #   （取证报告 §5.4 记的盲区，`probe_hand_check.txt` 独立复现）。
     #   ★ 判据只看**航点 token 自身**（`token_block()` 剥后缀后的格名）∈ 本图 `targets`：
     #     不做坐标换算、不做曼哈顿展开 ⇒ 天然绕开 0-based/1-based 口径坑
     #     （`geo.block_to_index` 是 0-based、规划器 `Grid`/`_cell` 是 1-based，这里两边都不碰）。
@@ -979,10 +1013,10 @@ def run_check(route: str, cfg: dict) -> int:
             ok("航点不压靶板", "航点里没有 %s（靶板是实体，只在旁边停站射击）"
                % " ".join(sorted(tset)))
 
-    # ★★【航段几何横穿靶格 = ❌ error】(t14, 2026-10-11)
+    # ★★【航段几何横穿靶格 = ❌ error】(2026-10-11)
     #   为什么在 token 级判据之外还要这一条：规划器/手工路线会把直线段**中间的格压缩掉**
     #   （`F8 -> B8` 这种 4 格直段只留两端），于是 `B1 -> E1` 这类直段可以**几何上横穿
-    #   `C1`+`D1` 两块靶板**而航点里一个靶格 token 都没有 —— t12 报告 §4 的
+    #   `C1`+`D1` 两块靶板**而航点里一个靶格 token 都没有 —— 取证报告 §4 的
     #   `probe_residual_gap` 实测这种路线仍拿 `exit 0`（采样 34/101 点落在靶格内）。
     #   ★ 判据与「雷覆盖」**完全同一套**（`route_covers(pts, cell, tol)`：路线折线到格心的
     #     最短距离 ≤ tol，解析式、非采样），只是 tol 取**半格**（见 `TARGET_RUNOVER_TOL_M`）。
@@ -1004,7 +1038,7 @@ def run_check(route: str, cfg: dict) -> int:
             ok("航段不横穿靶板", "全路线（含直段中间的格）离最近靶格心 %.3f m > %.3f m"
                % (worst, TARGET_RUNOVER_TOL_M))
 
-    # ★★【车体压靶 = ❌ error】(t22 追加：用户 2026-10-11 现场澄清④)
+    # ★★【车体压靶 = ❌ error】(追加：用户 2026-10-11 现场澄清④)
     #   靶板 **35×35 cm/格、中心在格心** ⇒ 格级挡块（planner 侧）"恰好物理精确"（澄清③，那边不动）；
     #   路线几何这一侧的判据是：**车体 28×13.5 不许与靶板 overlap** ⇔
     #     直段：折线到靶板**矩形**的距离 ≥ 车半宽 0.0675；
@@ -1182,7 +1216,7 @@ def _pivot_layer(pts, rev_f, pivot_f):
         且相邻两段**都不是倒车段**（`_is_rev_vertex`：倒车段车头一度都不用转）；
       * 虚报（声明了 `:PIVOT` 但不是折返顶点）= ❌ 真缺陷（会让现场误判该处要掉头）；
       * 漏报（是折返顶点但没声明）= ⚠️ 提示（循迹层仍会按 `corner_turn_deg` 自动 PIVOT，
-        车不会撞 —— 但下发的路线就"没写明"，与本卡「折返点显式 :PIVOT」的目标不符）。
+        车不会撞 —— 但下发的路线就"没写明"，与「折返点显式 :PIVOT」的目标不符）。
     """
     thick = []
     for i, angle in turn_angles(pts):
@@ -1294,7 +1328,7 @@ def load_cfg(path):
             pu = dz.get('pursuit') if isinstance(dz.get('pursuit'), dict) else {}
             if pu and 'pivot_angle_deg' in pu:
                 globals()['PIVOT_DECL_DEG'] = float(pu['pivot_angle_deg'])
-            # ★★物理几何（t22）：尺寸全部随配置走，判据里**不许**再出现硬编码数字。
+            # ★★物理几何：尺寸全部随配置走，判据里**不许**再出现硬编码数字。
             #   现场一量尺寸只改 `config/robot.yaml`，本工具的判据自动跟上。
             veh = dz.get('vehicle') if isinstance(dz.get('vehicle'), dict) else {}
             fld = dz.get('field') if isinstance(dz.get('field'), dict) else {}
@@ -1376,8 +1410,13 @@ def main(argv=None) -> int:
     ap.add_argument('--targets', nargs='*', default=[])
     ap.add_argument('--bridges', nargs='*', default=[])
     ap.add_argument('--already-covered', nargs='*', default=[],
-                    help='已压雷格（t12 增量续算口径）：这些雷不再要求本路线重压，'
+                    help='已压雷格（增量续算口径）：这些雷不再要求本路线重压，'
                          '仅从覆盖判据里剔除，其余校验不变')
+    ap.add_argument('--expect-halves', nargs='*', default=None,
+                    choices=['lower', 'upper'],
+                    help='增量续算口径：只要求列出的半场各穿 1 次（方向照查），'
+                         '未列出的半场要求 0 次；缺省 = 两个半场各恰 1 次（整线路线口径）。'
+                         '与 --from-cell 搭配时可由规划器自动推导')
     args = ap.parse_args(argv)
 
     cfg = load_cfg(args.config)
@@ -1405,6 +1444,8 @@ def main(argv=None) -> int:
             cfg['obstacles'] = args.obstacles or cfg['obstacles']
         if args.mines:
             cfg['mines'] = args.mines
+        if args.expect_halves:
+            cfg['expect_halves'] = {h for h in args.expect_halves}
         print()
     elif args.route:
         route = args.route
@@ -1418,6 +1459,8 @@ def main(argv=None) -> int:
             cfg['bridges'] = args.bridges
         if args.already_covered:
             cfg['already_covered'] = args.already_covered
+        if args.expect_halves:
+            cfg['expect_halves'] = {h for h in args.expect_halves}
     else:
         mb = cfg.get('mission_blocks') or []
         if not mb:

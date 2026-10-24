@@ -93,9 +93,12 @@ VENDOR = HERE / "vendor" / "dzbrain_ws"
 BLOCK_RE = re.compile(r"^[A-N](?:1[01]|[1-9])$")
 #: token 头：格名后必须紧跟结尾 / `*` / `,` / `:`（`G10*`、`N5,y`、`F3:SCAN_STOP`）
 _TOKEN_BLOCK_RE = re.compile(r"^(?P<block>[A-N](?:1[01]|[1-9]))(?=$|[*,:])")
-#: token 尾巴白名单（★ 顺序固定：`*` → `:SCAN_STOP` → `,x|,y`）。
+#: token 尾巴白名单（★ 顺序固定：`*` → `:SCAN_STOP`/`:SCAN`/`:PIVOT` → `,x|,y`）。
 #: 有白名单才不会把 `N5,x,y`（两个朝向后缀）当成合法 token 放过去 —— 车侧会"收到但行为不明"。
-_TAIL_RE = re.compile(r"^(?:\*)?(?:[:]SCAN_STOP)?(?:,[XY])?$")
+#: 2026-10-24：补 `:PIVOT`/`:SCAN` —— 第六图 mission_blocks（车侧现役 68 token）已用
+#: `:PIVOT` 声明折返点（`route/parser.py`/`route_check` 侧早已接受），本白名单没跟上，
+#: L0 过渡线裁剪把车自己的现役路线判成非法 token（实测：I4:PIVOT/G4:PIVOT/A1:PIVOT 全拒）。
+_TAIL_RE = re.compile(r"^(?:\*)?(?:[:](?:SCAN_STOP|SCAN|PIVOT))?(?:,[XY])?$")
 #: 车侧 `route/parser.py` 认的命令前缀（`多点 A B` 之类）
 PREFIX_WORDS = ("多点", "多航点", "路线", "route", "multi", "waypoints", "单点", "single", "goto")
 #: ★ 路线文本的分隔符**不含逗号**：`,` 在路线里是语义（`N5,y` 的朝向后缀）
