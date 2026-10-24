@@ -184,7 +184,8 @@
     fire_dz_near_px: 26.0          # 近距离开火死区(px)
     box_w_far: 30.0                # 远处目标框宽标定值(px)
     box_w_near: 120.0              # 近处目标框宽标定值(px)
-    fire_hold_frames: 5            # 连续满足多少帧才开火
+    fire_hold_frames: 1            # ★2026-10-24 用户指令 5→1：首帧满足即开火（回退改回 5）
+                                   #   其余门不变：in_fire_zone / ammo / cooldown / target_confirm(2)
     fire_use_image_stable: true    # 稳定判据：true=画面稳定 / false=电机静止
     fire_stable_px_per_frame: 1.5  # 画面稳定阈值(px/帧)
     fire_real_speed_max: 20        # 电机静止阈值(realV)
