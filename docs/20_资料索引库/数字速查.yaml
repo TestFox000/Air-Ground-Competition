@@ -327,7 +327,7 @@
   名称: 无人机心跳超时（车判机离线）
   值: 3.0
   单位: s
-  出处: docs/20_资料索引库/空地链路/00_索引.md:32
+  出处: docs/20_资料索引库/空地链路/00_索引.md:34
   代码锚点: dzrobot_v2/config/robot.yaml:894 heartbeat_timeout_s
   校验: ros('dzrobot_v2/config/robot.yaml', 'heartbeat_timeout_s', '/dzbrain')
   状态: 文档
@@ -338,7 +338,7 @@
   名称: 桥洞情报有效期
   值: 30.0
   单位: s
-  出处: docs/20_资料索引库/空地链路/00_索引.md:32
+  出处: docs/20_资料索引库/空地链路/00_索引.md:34
   代码锚点: dzrobot_v2/config/robot.yaml:895 info_stale_s
   校验: ros('dzrobot_v2/config/robot.yaml', 'info_stale_s', '/dzbrain')
   状态: 文档
@@ -348,7 +348,7 @@
   名称: 桥洞情报等待窗口
   值: 2.0
   单位: s
-  出处: docs/20_资料索引库/空地链路/00_索引.md:33
+  出处: docs/20_资料索引库/空地链路/00_索引.md:35
   代码锚点: dzrobot_v2/config/robot.yaml:725 bridge_info_wait_s
   校验: ros('dzrobot_v2/config/robot.yaml', 'bridge_info_wait_s', '/dzbrain')
   状态: 文档
@@ -359,7 +359,7 @@
   名称: 段等待上限
   值: 0.0
   单位: s
-  出处: docs/20_资料索引库/空地链路/00_索引.md:34
+  出处: docs/20_资料索引库/空地链路/00_索引.md:36
   代码锚点: dzrobot_v2/config/robot.yaml:732 wait_timeout_s
   校验: ros('dzrobot_v2/config/robot.yaml', 'wait_timeout_s', '/dzbrain')
   状态: 文档

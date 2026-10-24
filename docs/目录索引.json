@@ -1,7 +1,18 @@
 {
- "generated": "2026-10-24 11:35",
- "count": 121,
+ "generated": "2026-10-24 16:01",
+ "count": 133,
  "files": [
+  {
+   "path": "实测就绪度评估_20261024.md",
+   "dir": ".",
+   "title": "实测就绪度评估与扫障报告（2026-10-24）",
+   "summary": "- **sim_airground 第六图全面重钉**：自检从崩溃 exit 1 → **51/51 全绿 exit 0**；桥前等待死代码复活（硬编码 L10 → 穿洞入口现…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "",
+   "lines": 85
+  },
   {
    "path": "00_项目总览/00_索引.md",
    "dir": "00_项目总览",
@@ -193,12 +204,12 @@
    "path": "10_agent提示词/00_索引.md",
    "dir": "10_agent提示词",
    "title": "agent 提示词库 · 册级索引",
-   "summary": "本库 **19 篇文件 = 18 篇正文 + 本索引 1 篇**：正文 = 入口 1（README）+ 一页纸 1 + 基础 3（01/02/05）+ 角色 6 + 场景 6，…",
+   "summary": "本库 **21 篇文件 = 20 篇正文 + 本索引 1 篇**：正文 = 入口 1（README）+ 一页纸 1 + 基础 3（01/02/05）+ 角色 6 + 场景 9，…",
    "from": "本库全部文件 + docs/agent_handoff/*（旧版）+ _tmp_session/PC-01-提示词压缩/账本.md",
    "level": "实/档",
    "updated": "2026-10-23",
    "status": "现行",
-   "lines": 56
+   "lines": 58
   },
   {
    "path": "10_agent提示词/01_提示词模板.md",
@@ -242,7 +253,7 @@
    "level": "实/档",
    "updated": "2026-10-23",
    "status": "现行",
-   "lines": 96
+   "lines": 97
   },
   {
    "path": "10_agent提示词/03_角色/auditor.md",
@@ -326,11 +337,22 @@
    "dir": "10_agent提示词/04_场景",
    "title": "场景卡 · 打靶/循迹 交接启动（2026-10-24）",
    "summary": "用途：换一个 agent 接手「云台射击 + 循迹」这条线时，**整段复制 §3 的提示词**发过去，让对方自己把现状读完。",
-   "from": "交接手册 docs/00_项目总览/交接_20261024_打靶闭环.md；artifacts/aim-mv-20261024/analyze.py 复算值；AGENTS.md §1/§8/§11",
+   "from": "交接手册 docs/00_项目总览/交接_20261024_打靶闭环.md；artifacts/aim-mv-20261024/analyze.py 复算值；AGENTS.md §1/§8/§11；用户 2026-10-24 口径「只交接、不派活」",
    "level": "实/档",
    "updated": "2026-10-24",
    "status": "现行",
    "lines": 97
+  },
+  {
+   "path": "10_agent提示词/04_场景/教员三件套实测_20261024.md",
+   "dir": "10_agent提示词/04_场景",
+   "title": "场景卡 · 教员三件套实测（2026-10-24）",
+   "summary": "用途：把教员给的三份现场工具交给**项目负责 agent 真跑一遍**并回报；用户确认后**整段复制 §3 的提示词**发过去。",
+   "from": "D:/User/Desktop/教员交接/{udp_bridge,motor_monitor,udp_hexdump}.py（2026-10-24 11:19 交付）；dzsmartscout/src/uav_camera_code/onboard/dzuav/include/dzuav/types.hpp:10-20；dzrobot_v2/src/dzactuator/src/dzactuator.cpp:1292/1296；dzrobot_v2/config/robot.yaml:936/945",
+   "level": "档",
+   "updated": "2026-10-24",
+   "status": "现行",
+   "lines": 135
   },
   {
    "path": "10_agent提示词/04_场景/文档收口归档.md",
@@ -375,6 +397,17 @@
    "updated": "2026-10-21",
    "status": "现行",
    "lines": 87
+  },
+  {
+   "path": "10_agent提示词/04_场景/空地二进制适配器_启动_20261024.md",
+   "dir": "10_agent提示词/04_场景",
+   "title": "场景卡 · 起飞：机端二进制情报适配器",
+   "summary": "用途：把\"机端 UDP 二进制情报 → 车端 JSON\"这层补上。**这是三件套实测后唯一真正要写的代码**（不是把三个 demo 搬进仓库）。",
+   "from": "docs/20_资料索引库/空地链路/04_教员三件套实测_20261024.md（实测证据）；D:/User/Desktop/教员交接/；机端 dzuav_deploy；dzrobot_v2/src/dzbrain/dzbrain/tasks/drone.py",
+   "level": "实",
+   "updated": "2026-10-24",
+   "status": "现行",
+   "lines": 77
   },
   {
    "path": "10_agent提示词/04_场景/空地协同闭环推进.md",
@@ -572,7 +605,7 @@
    "level": "实/档",
    "updated": "2026-10-22",
    "status": "现行",
-   "lines": 62
+   "lines": 68
   },
   {
    "path": "20_资料索引库/空地链路/01_协议v2与契约.md",
@@ -608,6 +641,17 @@
    "lines": 118
   },
   {
+   "path": "20_资料索引库/空地链路/04_教员三件套实测_20261024.md",
+   "dir": "20_资料索引库/空地链路",
+   "title": "教员三件套实测：能不能用 / 与现役是否一致 / 要不要入仓",
+   "summary": "**三件都能跑，但没有一件能直接当生产组件**：udp_bridge 只打印、不产出我们 schema 的 JSON；motor_monitor 默认参数已过期（轮距偏 **+…",
+   "from": "D:/User/Desktop/教员交接/{udp_bridge,motor_monitor,udp_hexdump}.py；机端 dzsmart 192.168.0.5 的 /home/duzhong/dzuav_deploy/air_ground（types.hpp、intel_protocol.py、build/dzuav、models/release）；车端 192.168.0.4 的 /home/duzhong/ag_ws；实测脚本 _tmp_session/sqc-20261024/",
+   "level": "实",
+   "updated": "2026-10-24",
+   "status": "现行",
+   "lines": 232
+  },
+  {
    "path": "20_资料索引库/视觉与云台/00_索引.md",
    "dir": "20_资料索引库/视觉与云台",
    "title": "视觉与云台 · 分册索引",
@@ -622,12 +666,12 @@
    "path": "20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md",
    "dir": "20_资料索引库/视觉与云台",
    "title": "云台瞄准与开火链路",
-   "summary": "**上电即扫**（v2 行为）：开机直接 `AIM_SCAN` 且 continuous，只有 `/nav/scan_request=0` 才停。",
+   "summary": "**10-24 本地修复**：停扫 0 在 TRACK 也生效并取消待开扫归位；两键各自按接收时间有 500 ms 租期，Mission 有效 FIRE 每拍续租，离站/换路撤…",
    "from": "dzrobot_v2/src/dzrknn_dataprocess/**, dzrobot_v2/src/dzjudgment/**, dzrobot_v2/docs/archive/20261018/survey_gimbal_fire.md, dzrobot_v2/docs/archive/20261018/云台补丁说明.md, docs/瞄准代码对比报告_gitee_vs_本地_20261018.md, _tmp_session/aim_audit/体检报告_20261018_1741.md, dzrobot_v2/config/robot.yaml, dzrobot_v2/docs/决策台账.md D-002/D-003/D-030",
    "level": "实/档",
-   "updated": "2026-10-23",
+   "updated": "2026-10-24",
    "status": "现行",
-   "lines": 132
+   "lines": 147
   },
   {
    "path": "20_资料索引库/视觉与云台/02_视觉模型与检测.md",
@@ -759,7 +803,7 @@
    "level": "实+档",
    "updated": "2026-10-24",
    "status": "现行",
-   "lines": 78
+   "lines": 79
   },
   {
    "path": "20_资料索引库/车端/01_架构与线程.md",
@@ -787,12 +831,12 @@
    "path": "20_资料索引库/车端/03_规划器与自动规划.md",
    "dir": "20_资料索引库/车端",
    "title": "规划器与自动规划",
-   "summary": "**生产只认 `tour`**（D-012）：`planner.engine: tour`；`tracker-safe` 仅「无折返图」候选；`global_planner` …",
+   "summary": "**10-24 本地候选更新**：tour 完整输出自行落双站并验证合法、异侧、全靶覆盖；用户图片实际图为 F9/C5（均距板心 0.875 m），62 token/22.75…",
    "from": "dzrobot_v2/docs/压测_规划器64图_20261018.md, dzrobot_v2/docs/三引擎审计_20261018.md, dzrobot_v2/docs/决策台账.md, dzrobot_v2/_tmp_session/TRACK-PLAN-B1-20261021/REPORT.md, dzrobot_v2/_tmp_session/p1_hybrid/",
    "level": "实（64 图复跑）+档（47/64 为卡内自报）",
-   "updated": "2026-10-21",
+   "updated": "2026-10-24",
    "status": "现行",
-   "lines": 84
+   "lines": 96
   },
   {
    "path": "20_资料索引库/车端/04_定位与安全.md",
@@ -810,11 +854,11 @@
    "dir": "20_资料索引库/车端",
    "title": "配置与部署",
    "summary": "**部署唯一入口** `tools/deploy_to_car.py`（`probe/backup/push/build/verify/all`）；`deploy_car.py…",
-   "from": "dzrobot_v2/docs/使用手册.md, dzrobot_v2/docs/library/现场联调与部署.md, dzrobot_v2/docs/决策台账.md, dzrobot_v2/config/robot.yaml, dzrobot_v2/config/map.yaml, _tmp_session/step_loop/map7.yaml, _tmp_session/sim_map_20261018/map.yaml",
+   "from": "dzrobot_v2/docs/使用手册.md, dzrobot_v2/docs/library/现场联调与部署.md, dzrobot_v2/docs/决策台账.md, dzrobot_v2/config/robot.yaml, dzrobot_v2/config/map.yaml, _tmp_session/step_loop/map7.yaml, _tmp_session/sim_map_20261018/map.yaml, SSH-DIAG-20261024",
    "level": "实+档",
-   "updated": "2026-10-23",
+   "updated": "2026-10-24",
    "status": "现行",
-   "lines": 87
+   "lines": 92
   },
   {
    "path": "20_资料索引库/车端/06_回归与测试基线.md",
@@ -858,7 +902,7 @@
    "level": "实（路径/行号/字节数均经实测核对）+ 档（云端 docstring 自述）",
    "updated": "2026-10-23",
    "status": "计划",
-   "lines": 124
+   "lines": 126
   },
   {
    "path": "20_资料索引库/车端/10_SmartMaster官方硬件手册_v1.0.md",
@@ -913,7 +957,7 @@
    "level": "",
    "updated": "2026-10-23",
    "status": "现行",
-   "lines": 25
+   "lines": 26
   },
   {
    "path": "30_任务卡库/在办/aim-1023/00_树.md",
@@ -960,6 +1004,61 @@
    "lines": 67
   },
   {
+   "path": "30_任务卡库/在办/carloop-1024/00_树.md",
+   "dir": "30_任务卡库/在办/carloop-1024",
+   "title": "carloop-1024 · 小车循迹与激光打靶任务树",
+   "summary": "用户授权小车全流程本地实现；先双站规划，再回正和权限撤销，部署与实车需另行确认。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-24",
+   "status": "过程",
+   "lines": 38
+  },
+  {
+   "path": "30_任务卡库/在办/carloop-1024/CAR-DUAL-20261024.md",
+   "dir": "30_任务卡库/在办/carloop-1024",
+   "title": "CAR-DUAL-20261024 · 双最佳射击点规则",
+   "summary": "tour 双站规则本地完成；真实图 F9/C5、62点/22.75m；聚焦35/35、自动规划177/177，未部署，待存量文档门禁解除。",
+   "from": "用户 2026-10-24 指令；交接_20261024_打靶闭环；现有 planner.py",
+   "level": "代码与离线",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 61
+  },
+  {
+   "path": "30_任务卡库/在办/carloop-1024/CAR-GATE-20261024.md",
+   "dir": "30_任务卡库/在办/carloop-1024",
+   "title": "CAR-GATE-20261024 · 开火权限撤销",
+   "summary": "两键按接收时间500ms失效，Mission有效FIRE每拍刷新，离站/换路撤销；Python58/58、C++26/26，未部署。",
+   "from": "用户 2026-10-24 指令；C++ 两键回调与 Mission edge-only 发布",
+   "level": "代码与离线",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 64
+  },
+  {
+   "path": "30_任务卡库/在办/carloop-1024/CAR-HOME-20261024.md",
+   "dir": "30_任务卡库/在办/carloop-1024",
+   "title": "CAR-HOME-20261024 · 离站回正",
+   "summary": "TRACK 停扫与取消待开扫归位已修；真实 C++ 消费者 HOME 9/9，未部署，待存量文档门禁解除。",
+   "from": "用户 2026-10-24 指令；交接手册 scan_request=0 缺陷",
+   "level": "代码与离线",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 44
+  },
+  {
+   "path": "30_任务卡库/在办/carloop-1024/CAR-PREFLIGHT-20261024.md",
+   "dir": "30_任务卡库/在办/carloop-1024",
+   "title": "CAR-PREFLIGHT-20261024 · 跑车准备",
+   "summary": "准备跑车，先车端只读版本/节点/路线/权限核对；本地形成差异与回滚方案，部署/发车/出光须另行确认。",
+   "from": "用户 2026-10-24 指令「现在准备跑车」；CAR-DUAL/CAR-HOME/CAR-GATE",
+   "level": "现场只读与本地候选",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 115
+  },
+  {
    "path": "30_任务卡库/在办/drone-1022/00_树.md",
    "dir": "30_任务卡库/在办/drone-1022",
    "title": "drone-1022 · 任务树（无人机上线）",
@@ -990,7 +1089,7 @@
    "level": "",
    "updated": "2026-10-23",
    "status": "过程",
-   "lines": 99
+   "lines": 110
   },
   {
    "path": "30_任务卡库/在办/lead-1023/AIM-CALIBER-20261023.md",
@@ -1057,6 +1156,17 @@
    "updated": "2026-10-23",
    "status": "in_progress",
    "lines": 93
+  },
+  {
+   "path": "30_任务卡库/在办/lead-1023/SSH-DIAG-20261024.md",
+   "dir": "30_任务卡库/在办/lead-1023",
+   "title": "SSH-DIAG-20261024 · 小车 SSH 连接失败只读诊断",
+   "summary": "定位本机到小车的 SSH 失败层级，区分地址解析、三层网络、TCP 22、SSH 握手与认证；只做只读探测，不修改 Windows `hosts`、SSH 配置、小车配置或车端…",
+   "from": "本会话现场记录",
+   "level": "实",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 68
   },
   {
    "path": "30_任务卡库/在办/tools-1022/00_树.md",
@@ -1166,7 +1276,7 @@
    "level": "档",
    "updated": "2026-10-23",
    "status": "",
-   "lines": 91
+   "lines": 95
   },
   {
    "path": "30_任务卡库/归档/_按日摘要/2026-10-18.md",
@@ -1255,6 +1365,28 @@
    "updated": "2026-10-24",
    "status": "已归档",
    "lines": 75
+  },
+  {
+   "path": "30_任务卡库/归档/lead-1023/2026-10-24_DRONE-AUTOSTART-20261024.md",
+   "dir": "30_任务卡库/归档/lead-1023",
+   "title": "DRONE-AUTOSTART-20261024 · 无人机自启单元与 start_drone.sh v4（本地产物卡）",
+   "summary": "在 `dzsmartscout/drone-scripts/systemd/`（新建目录）产出：",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-24",
+   "status": "已归档",
+   "lines": 165
+  },
+  {
+   "path": "30_任务卡库/归档/lead-1023/2026-10-24_DRONE-SYNC-20261024.md",
+   "dir": "30_任务卡库/归档/lead-1023",
+   "title": "DRONE-SYNC-20261024 · 机端部署漂移同步（仓内 → 机端）",
+   "summary": "1. **机端备份（回滚点）**：tar 打包机端现役两目标到 `~/backup-20261024/`，输出 sha256 清单落 `_tmp_session/DRONE-S…",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-24",
+   "status": "已归档",
+   "lines": 144
   },
   {
    "path": "30_任务卡库/归档/lead-1023/2026-10-24_PLUGIN-AGC2-20261024.md",
