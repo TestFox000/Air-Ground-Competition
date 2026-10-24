@@ -60,7 +60,7 @@ status: 现行
 | dzrobot_v2/ | 智能车（主项目，独立 git 仓） | HEAD 11d9999，tag 至 v4.0.0 | dzrobot_v2: git log/tag |
 | dzsmartscout/ | 无人机（非 git 仓，被根仓跟踪） | 2170 文件（历史口径） | dzsmartscout: git ls-files |
 | docs/ | 唯一长期文档库（四库） | 00/10/20/30 + history_cache | docs/README.md |
-| _tmp_session/、_archive/、backup/ | 过程稿/归档/备份（豁免区） | — | AGENTS.md §8.6 |
+| _tmp_session、_archive、backup | 过程稿/归档/备份（豁免区） | — | AGENTS.md §8.6 |
 
 ### 1.2 dzrobot_v2 代码地图（实读行数）
 

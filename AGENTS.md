@@ -150,7 +150,8 @@
 
 - **白名单/基线**：`docs/_工具/doc_policy.json` + `doc_policy_baseline.json`。基线记录当前库外**受管** .md（70 篇），语义是**只减不增**——新增一篇库外文档必须显式 `--accept`，没有"顺手放一下"。
 - **豁免区**（不进基线、只计数）：`_tmp_session/`（过程稿）、`backup/`、`_archive/`、`git_save/`（版本存档）、`dzrobot_v2/src/history/`（会话日志/大事记）、`artifacts/`、`docs/history_cache/`、第三方源码（mavros / px4_msgs / livox / FAST_LIO / vendor）。**豁免区里写"长期文档"同样违规**，由月度审计抓。
-- **顺序**：写卡（含 §8.8 文档变更）→ `gen_index.py` → `check_doc_policy.py` → `cd dzrobot_v2 && python tools/wf/check.py` → `check_links.py`。
+- **顺序**：写卡（含 §8.8 文档变更）→ `gen_index.py` → `check_doc_policy.py` → `check_anchors.py` → `check_numbers.py` → `cd dzrobot_v2 && python tools/wf/check.py` → `check_links.py`。
+- **2026-10-24 新增两守卫**（均只读、秒级）：`check_anchors.py` 校验正文里 4.6k 条 `路径:行号` 是否还指向真代码，**只对新增红判失败**（存量进 `anchor_baseline.json`，只减不增）；`check_numbers.py` 拿 `20_资料索引库/数字速查.yaml` 的 52 条数字去代码里重算，**默认只报不判红**（`--strict` 才挡），因为文档侧还有 6 条异文待裁决。
 
 ### 8.7 生命周期（front matter status）
 
@@ -290,7 +291,7 @@ cd dzrobot_v2 && python tools/wf/check.py       # 收口门禁（冻结区/复�
 ### 11.3 每项任务结束后的六步（缺一不可）
 
 1. **看清差异**：`git status` + `git diff`；**只 add 本次任务相关文件**，禁止 `git add .`，禁止把他人/其他卡未完成的改动（如 `air_ground_models/` 删除、他人已暂存项）带进提交；必要时用 `git commit --only <file>`；
-2. **跑检查**：卡面验收命令 + §4 门禁（`gen_index.py` → `check_doc_policy.py` → `dzrobot_v2/tools/wf/check.py` → `check_links.py`）；失败或无法运行 → **不提交、先报告原因**；
+2. **跑检查**：卡面验收命令 + §4 门禁（`gen_index.py` → `check_doc_policy.py` → `check_anchors.py` → `check_numbers.py` → `dzrobot_v2/tools/wf/check.py` → `check_links.py`）；失败或无法运行 → **不提交、先报告原因**；
 3. **查暂存内容**：禁止提交口令/令牌/私钥/敏感配置/无关日志录像/构建产物；发现疑似凭据 → 暂停并报告位置，**不展示凭据值**；
 4. **建本地 commit**：沿用现有格式 `<摘要> [<卡号>]`（例：`sim 测试三修：… [TOOLS-PLUGIN-REWORK-20261022]`）；**没有实际变更不建空提交**；
 5. **双推**：`git push github <branch>` + `git push gitee <branch>`（常规提交与推送无需逐次询问）；

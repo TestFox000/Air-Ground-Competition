@@ -1005,7 +1005,7 @@ render_line 是纯函数（同一 Telemetry 永远同一行文本），字段顺
 
 #### 2.9.5 scout/reference.py —— 用户手画路线对照（90 行）
 
-USER_ROUTE_BLOCKS（:31-39）：从 _tmp_session/step_loop/scout_route_user.png 还原的 66 格路线；
+USER_ROUTE_BLOCKS（:31-39）：从人飞手画路线图（scout_route_user.png，原图随 10-23 过程区治理已归档）还原的 66 格路线；
 起点 M8、终点 M2；只扫 6 条纵向条带+M 列，N 列有缺口。
 user_route_timeline / compare_routes（:51-86）：生成 vs 手绘（stride=1 与 stride=2 两组），
 输出覆盖率/帧数/时长 delta。
@@ -1023,8 +1023,8 @@ heartbeat_messages → compare_routes。
    必须一致（都指向 planner.shoot_distance_window），但一致性未核实（§7）。
 2. LayoutStream.retarget / observe_car_block 需要车端回报驱动，车端 DroneTask 只发 car_state，
    装配侧是否把 car_state 喂进 LayoutStream 未核实。
-3. USER_ROUTE_BLOCKS 的图源路径 _tmp_session/step_loop/scout_route_user.png 是否存在未核实
-   （该目录可能已被清理）。
+3. USER_ROUTE_BLOCKS 的图源（scout_route_user.png）已随 10-23 过程区治理离开原位，
+   现无法复核原图 —— 该路线的口径标注为「按图还原，原图不可复现」。
 
 ---
 

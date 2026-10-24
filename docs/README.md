@@ -10,11 +10,12 @@
 | 你想干什么 | 直接去 |
 |---|---|
 | 30 秒搞懂这项目 | [项目总览](00_项目总览/项目总览.md) |
-| 知道现在干到哪、卡在哪 | [现状快照](00_项目总览/现状快照.md) |
+| 知道现在干到哪、卡在哪 | [交接包 10-23](00_项目总览/交接_20261023.md)（现行）· 历史口径 [现状快照](00_项目总览/现状快照.md) |
 | 查某个事实/数字/参数 | [资料索引库](20_资料索引库/README.md)（百科全书） |
 | 领活干 / 交活 / 看历史卡 | [任务卡库](30_任务卡库/README.md)（作业台） |
 | 发给别的 agent / 接手 | [提示词库](10_agent提示词/README.md) |
 | 按文件名找东西 | [目录索引](目录索引.md)（自动生成，全库一览） |
+| 只记得关键词，想直接搜 | `python docs/_工具/doc_search.py "激光不亮"`（全库 top-N + 命中片段，2 s 内；`--in 视觉与云台` 限范围） |
 
 ---
 
@@ -50,10 +51,12 @@
 cd D:\User\Desktop\比赛存档\v1
 python docs\_工具\gen_index.py            # 1. 重建全库索引（新/改文档必跑）
 python docs\_工具\check_doc_policy.py     # 2. 文档守卫：库外新增 / docs 下开新库 / 未登记
+python docs\_工具\check_anchors.py        # 3. 锚点守卫：正文里的 路径:行号 是否还指向真代码（只认 exit1）
+python docs\_工具\check_numbers.py        # 4. 数字守卫：数字速查.yaml 逐条对代码重算（默认只报不判红）
 cd dzrobot_v2
-python tools\wf\check.py                  # 3. 仓库门禁（frozen / 断链 / 未登记脚本）
-python tools\wf\check_links.py            # 4. 断链（含 history/INDEX）
-cd .. && python docs\_工具\snapshot_docs.py  # 5. 文档快照（大收口/每月一次）
+python tools\wf\check.py                  # 5. 仓库门禁（frozen / 断链 / 未登记脚本）
+python tools\wf\check_links.py            # 6. 断链（含 history/INDEX）
+cd .. && python docs\_工具\snapshot_docs.py  # 7. 文档快照（大收口/每月一次）
 ```
 
 红线不归零不许收口。规则真源 `AGENTS.md` §8.6；配置真源 `docs/_工具/doc_policy.json`。

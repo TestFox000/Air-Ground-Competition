@@ -518,7 +518,7 @@ QoS 常量定义：`QOS_EVENT = QosSpec(depth=10, reliability="reliable")`、`QO
 - in_flight 过期 / `owner` 为空 = 红（`:147-163`，"无 owner = 没人收口的悬空改动"）。
 - 内联跑 `check_links.py` 与 `check_reuse.py`，非 0 即并入 fail（`:94-126`）。
 
-**`check_reuse.py`（88 行）**：新增 .py（git status ??/A/AM）位于 `tools/` 或 `src/dzbrain/dzbrain/` 必须在 `docs/复用清单.md` 或 `docs/能力索引.md` 出现文件名，否则红；既有 tools/*.py 未登记只警告（`:3-11`）。排除 `__pycache__/tests/_tmp_session/backup/legacy`（`:24`）。
+**`check_reuse.py`（88 行）**：新增 .py（git status ??/A/AM）位于 `tools/` 或 `src/dzbrain/dzbrain/` 必须在 `docs/复用清单.md` 或 `docs/能力索引.md` 出现文件名，否则红；既有 tools/*.py 未登记只警告（`:3-11`）。排除 `__pycache__` / `tests` / _tmp_session / `backup` / `legacy` 五类目录（`:24`）。
 
 **`check_links.py`（72 行）**：扫描 `docs/**/*.md` 与 `src/history/INDEX.md`、`AGENTS.md`（含 v1/docs/**），检查 markdown 相对链接是否存在；跳过 `_archive/history_cache/_work/_工具`（`:25-35`）。
 
