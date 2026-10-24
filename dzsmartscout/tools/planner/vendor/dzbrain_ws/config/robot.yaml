@@ -331,7 +331,10 @@ path_executor:
     linear_speed: 0.35   # ★基础巡航速度(m/s)。与 dzbrain 段 cruise_speed_mps 保持一致
                          #   （2026-10-11 t22：0.30→0.35；★t29 首跑安全档 0.35→0.15；t31 两段对齐；
                          #    ★t38 提速档落地：0.15→0.40（本轮实车暂回 0.15 安全档，跑完恢复 0.40））
-    auto_start: true             # ★一键启动后自动出发（本轮现场发车：翻 true 推车，跑完回 false）
+    auto_start: false            # ★2026-10-24 回归第六图发车协议（t31 F-t29-2 口径）：不自动出发，
+                                 #   等无人机 /nav/waypoint 下发再走（与 dzbrain 段 mission.auto_start=false
+                                 #   一致，防 LEGACY_PATH 回退绕过核对窗口）；上一轮"现场翻 true 推车"
+                                 #   的临时值已收回。要推车时显式翻 true，跑完必须回 false。
     auto_start_delay: 45.0        # ★t31 对齐 dzbrain 段 mission.auto_start_delay_s=45.0（旧值 2.0）
     mission_scan_mode: continuous # continuous = 边走边扫 | waypoint = 到点停车扫描 | none
     mission_reset: "N10,y"

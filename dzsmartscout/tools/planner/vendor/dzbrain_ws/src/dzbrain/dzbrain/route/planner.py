@@ -3663,6 +3663,72 @@ def _ts_phase(ts: _TSGrid, cache: dict, order: Sequence[tuple[int, int]],
     return sorted(((c, cells, hp) for hp, (c, cells) in res.items()), key=lambda t: t[0])
 
 
+def _ts_no_solution_diagnosis(ts: "_TSGrid", spec: MapSpec,
+                              start: tuple[int, int],
+                              cross_lower_cell: tuple[int, int],
+                              start_heading: int) -> str:
+    """无解归因（2026-10-24）：把"引擎无解"从笼统一句**定位到具体规则与格点**。
+
+    背景（第六图实测）：桥洞落在隔板相邻行（K7 = 行 7）时，两条实测硬规则联合构成
+    结构性死锁——① 隔板相邻行（行 7/6、D~N 列）禁 90° 转向（N7/H7 形态，实车
+    178/175 拍触线）；② 进洞邻格（L7）禁换行穿行（冗余墙余量 ~0.02 m）。二者叠加
+    ⇒ "沿行 7 西行进场"所需的 90° 转弯无处可打 ⇒ legs0=0。仿真同场实测（sim
+    A2 臂，现役 68-token 含 M7 转弯）：隔板最小余量 0.0012 m、穿渗 113 拍——
+    **规则拒得对，硬走的路线在蹭墙**。本函数把这类结论自动化，换图后不再人肉排查。
+
+    做法：对"起点 → 下半场洞"逐规则统计被杀的 (格, 出向)：
+      A) 几何可达性（只走 grid.move_ok，无视转弯/物理间隙）；
+      B) 逐条硬规则在**可达格**上的杀伤计数（转弯禁令 / 进洞邻格 / 物理间隙）。
+    返回一段可直接并进 PlannerError 的中文归因（两行以内）。
+    """
+    import collections
+    h0 = DIRS[start_heading]
+    # A) 纯几何可达（BFS，只判 grid.move_ok —— 含障碍/隔板/K 列进出）
+    seen = {start}
+    dq = collections.deque([start])
+    geo_reach = False
+    while dq:
+        cur = dq.popleft()
+        if cur == cross_lower_cell:
+            geo_reach = True
+            break
+        for v in DIRS:
+            nxt = (cur[0] + v[0], cur[1] + v[1])
+            if nxt in seen or not ts.grid.move_ok(cur[0], cur[1], nxt[0], nxt[1]):
+                continue
+            seen.add(nxt)
+            dq.append(nxt)
+    if not geo_reach:
+        return (f"｜归因：起点 {geo.index_to_block(start[0]-1, start[1])} 到下半场洞 "
+                f"{geo.index_to_block(cross_lower_cell[0]-1, cross_lower_cell[1])} "
+                f"**几何不可达**（障碍/隔板/K 列进出规则封死，与转弯规则无关）")
+    # B) 几何可达但引擎无解 ⇒ 逐规则统计杀伤（沿可达格的全部正交出边）
+    n_turn = n_entry = n_phys = 0
+    row_lo = int(spec.barrier_row_lo)
+    for cur in seen:
+        for v in DIRS:
+            nxt = (cur[0] + v[0], cur[1] + v[1])
+            if not ts.grid.move_ok(cur[0], cur[1], nxt[0], nxt[1]):
+                continue
+            d = _ts_unit(v)
+            if not ts.move_ok(cur, nxt):
+                if cur in ts.entry_adjacent or nxt in ts.entry_adjacent:
+                    n_entry += 1
+                else:
+                    n_phys += 1
+            elif not ts.turn_gate(cur, d, d, d)[0]:
+                n_turn += 1
+    hint = ""
+    band = (spec.barrier_row_hi, spec.barrier_row_lo)
+    if cross_lower_cell[0] in band:
+        hint = (f"；洞在**隔板相邻行**（行 {cross_lower_cell[0]}∈{band}）⇒ 行内 90° 进场"
+                f"转弯被『隔板相邻行转向禁令』杀（实测依据 N7/H7 178 拍），"
+                f"进洞邻格 {geo.index_to_block(cross_lower_cell[0]-1, cross_lower_cell[1]+1)}"
+                f" 又禁换行 —— 结构性死锁，硬走=蹭隔板（仿真 1.2 mm/113 拍实证）")
+    return (f"｜归因：几何可达但被硬规则筛空——转向禁令杀 {n_turn} 边、进洞邻格杀 "
+            f"{n_entry} 边、物理间隙杀 {n_phys} 边{hint}")
+
+
 def _ts_search_multi(ts: _TSGrid, spec: MapSpec, *,
                      cross_lower_cell: tuple[int, int],
                      cross_upper_cell: tuple[int, int],
@@ -4188,7 +4254,10 @@ def plan_route_tracker_safe(map_cfg: Any, cfg: "Config | None" = None, *,
         if best is None or cost < best[0] - 1e-12:
             best = (cost, cells, _bad, shoot)
     if best is None:
-        raise PlannerError("tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）")
+        raise PlannerError("tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）"
+                           + _ts_no_solution_diagnosis(ts, spec, _cell(spec.start),
+                                                       cross_lower_cell,
+                                                       start_heading))
     cost, cells, n_bad_u, shoot = best
     warnings: list[str] = []
 

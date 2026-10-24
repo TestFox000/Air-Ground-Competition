@@ -382,12 +382,14 @@ def main(argv: list[str] | None = None) -> int:
     # ---------------- 输出 ----------------
     worst = EXIT_OK
     checked: dict[int, tuple[int, str]] = {}
+    # 增量续算口径——已压雷集合（route_check --already-covered 与
+    # validate_route(already_covered=) 两道门禁共用；放 check 块外，
+    # --validate 单独跑时同样生效）
+    covered: tuple[str, ...] = ()
+    if getattr(args, "already_covered", None):
+        covered = tuple(c.strip().upper()
+                        for c in args.already_covered.split(",") if c.strip())
     if args.check:
-        # 增量续算口径——已压雷透传给 route_check（不要求重压）
-        covered: tuple[str, ...] = ()
-        if getattr(args, "already_covered", None):
-            covered = tuple(c.strip().upper()
-                            for c in args.already_covered.split(",") if c.strip())
         for _, _, res in results:
             code, text = run_route_check(res.tokens, cfg_path, map_path,
                                          already_covered=covered or None,
@@ -403,7 +405,8 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 route = parse_mission(res.tokens)
                 issues = validate_route(route, map_cfg=map_cfg, cfg=cfg,
-                                        expect_halves=expect_halves)
+                                        expect_halves=expect_halves,
+                                        already_covered=covered or None)
             except Exception as exc:                          # noqa: BLE001
                 issues = [f"{type(exc).__name__}: {exc}"]
             validates[id(res)] = issues
