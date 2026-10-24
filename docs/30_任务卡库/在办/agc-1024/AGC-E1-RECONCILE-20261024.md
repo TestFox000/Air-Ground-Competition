@@ -293,3 +293,71 @@ ssh duzhong@192.168.0.4 "bash /home/duzhong/dzrobot/start_all.sh restart; rm -rf
 ### 边界
 
 未推车、未改车端任何文件、未起栈、未发车。副本与脚本全部在 `_tmp_session/agc-1024/e1/m1_cfg/**`（`_tmp_session` 已在 .gitignore，不入库；可复现靠上面的 sha256 与 diff）。
+
+---
+
+## 15 AGC-25 独立评审：T1 进度契约补丁 A+B（t14 · 2026-10-24 19:2x）
+
+**结论：PASS**（5 条评审要点全部成立；4 条 low finding 都是注释/口径准确性，不挡合入）。被评对象=工作树未提交改动，`mission.py` 当前 `git diff --numstat` = **+50/−7**（= T1 的 +33/−4 叠加他人 FIRE 门的 +17/−3），`test_mission.py` 2 行改动。
+
+### 0 对象身份：三态字节级分解（先证明「补丁就是它，别处没动」）
+
+| 态 | 字节 | 说明 |
+|---|---|---|
+| HEAD | 233,584 | 提交态 |
+| pre-T1 | 234,231 | HEAD + 他人 FIRE 门（`mission_baseline.diff`，**+17/−3**） |
+| 当前工作树 | 236,667 | pre-T1 + T1 补丁（`mission_t1_patch.diff`，**+33/−4**） |
+
+- `diff(pre-T1 → 工作树)` 的 +/- 行集合与 `mission_t1_patch.diff` **完全相同**（+33/−4）；
+- `diff(HEAD → pre-T1)` 的 +/- 行集合与 `mission_baseline.diff` **完全相同**（+17/−3）。
+
+⇒ 两条链首尾相接：**T1 只加了它自己那些行，FIRE 门那 17/3 行逐字节未动**（要点④成立）。
+
+### ① A 段采纳判据（几何可信门）—— 成立
+
+```python
+proj = path.project(pose.x, pose.y, s_hint=self._last_s)          # :3072
+if float(proj.dist) > self._drift_gate_m:                          # :3073 只按横向偏差判
+    heal = path.project(pose.x, pose.y)                            # :3076 无 hint = 全路线
+    if float(heal.dist) < float(proj.dist): proj = heal            # :3077-3078 只在不更差时采用
+```
+- 触发条件只有 `proj.dist`（车到折线的横向距离），**没有时间/段号/计数条件** ⇒ 只在几何不可信时触发；
+- 采用条件是「无 hint 重投影**确实更贴近**」，不会强行改判；
+- `_drift_gate_m` 取 `pursuit.drift_warn_m`（`config.py:174` Spec 默认 **0.30**）⇒ **不新增配置键**，与 Localization `_heal_stuck`（`localization.py:1205` `if lat <= self.drift_warn_m: no-op`）同键同值同语义 ✓。
+
+### ② 读侧不回写 —— 成立
+
+`P_ROUTE_INDEX/P_ROUTE_S` 在 `mission.py` 的全部写点：`_reset_belief`（:2815、:2921-2931 快照恢复）、路线清空路径（:4043）。`_current_s` 里只剩读（:3069）——原来的 `self.bb.update(...)` 已删（补丁第 67 行处）。⇒ **读侧彻底不写**，键的常规写者只剩 Localization。
+
+### ③ `_last_seg` 零控制影响 —— 成立
+
+全仓只有两处：`:1706` 定义、`:3080` 赋值。**生产代码无任何读取**（`state()`/遥测都不读），只有 `test_mission` 读 ⇒ 对控制输出零影响。
+
+### ④ FIRE 门 hunk —— 逐字节未变（见 §0）
+
+### ⑤ 测试真断言 + 红集合逐条相同 —— 成立
+
+- 补丁 2 行都在 `check()` 的真断言里：`rig5.bb.get(P_ROUTE_INDEX)` → `rig5.task._last_seg`（与新契约一致）；第三处（失败消息里）仍读黑板，仅作诊断输出。
+- **红集合实证**：把 `mission_pre_t1.py` + `test_mission_pre_t1.py` 放进同深度副本（`<case>/src/dzbrain` + `<case>/config/{map,robot}.yaml`）跑：**pre-T1 = 229/246、17 红**；当前树 = **229/246、17 红**；两边失败 id 集合 `RESULT RED-SET-IDENTICAL`（14.2/14.7/14.11/14.12/14.25/14.26/14.28/14.32/14.40b/14.44/14.45/14.46/15.2/15.11/15.14/18.0/18.2）。17 条原因全指向在途的路线/桥洞配置（K7 vs K9/K10、68 点 vs 44 点、F4/B4 vs D3*/G3*），**与 T1 无关**。
+
+### findings（全部 low，不挡合入）
+
+| id | 位置 | 问题 | 修法 |
+|---|---|---|---|
+| L1 | `mission.py:1543`、`:3057-3058` | 注释称「与 Localization `_heal_stuck`、**Tracker relock 同一阈值**同一语义」。实际：Localization 用 `pursuit.drift_warn_m`（同键✓）；**Tracker relock 的触发阈值是另一个键** `pursuit.projection_release_m`（`config.py:151`，默认也 0.30），接受条件还用 `_RELOCK_MAX_JUMP_M=0.50` / `_RELOCK_TRUST_DIST_M=0.45`。两个键各自可调，调一个另一个不跟。 | 注释改成「与 `_heal_stuck` **同键**；与 Tracker relock **同机制、同默认值但独立键** `pursuit.projection_release_m`」，避免以后有人调错键。 |
+| L2 | `mission.py:3077` | 采用判据是 `heal.dist < proj.dist`，缺 Tracker relock 那个 `- 1e-6` 余量（`tracker.py:440` 是 `proj_relock.dist < proj.dist - 1e-6`）。两值相等时会每拍反复重投影（数值抖动下）。 | 统一成 `< proj.dist - 1e-6`（与既有 relock 惯例一致）。 |
+| L3 | `mission.py:1544` | 注释写「现场要临时关掉这层门就把它设成 inf」，但 `pursuit.drift_warn_m` 的 Spec 区间是 **[0.05, 1.0]**（`config.py:174`），inf 会触发 config validate 一条 warn；且 `cfg.get(...) or 0.30` 会把 0 变成 0.30（设 0 关不掉）。 | 要么改成显式开关（如 `planner.` 下新键 false=关，需评审批），要么注释改成「设 1.0 为最大容忍；要彻底关掉需改代码/加开关，设 inf 会带一条 config warn」。 |
+| L4 | `mission.py:1705` | 注释写「**遥测**/测试仍需…的见证」，但全仓遥测/`state()` 都不读 `_last_seg`，只有测试读。 | 要么在 `state()` 里补一行 `seg_index`（顺带给遥测用，需确认不撞键），要么把注释的"遥测"删掉。 |
+
+### 复跑（全部只读，未改 mission.py）
+
+```bash
+cd D:/User/Desktop/比赛存档/v1
+python -B -X utf8 _tmp_session/agc-1024/e1/t14_decomp.py    # 三态分解 + 行集合比对
+python -B -X utf8 _tmp_session/agc-1024/e1/t14_redset.py    # pre-T1 vs 当前 红集合比对（副本内跑，不动真树）
+cd dzrobot_v2/src/dzbrain && python -B -X utf8 tests/test_mission.py | tail -3   # 229/246，17 红
+```
+
+### 边界
+
+只读评审：未改 `mission.py` / `test_mission.py`；pre-T1 基线跑在 `_tmp_session/agc-1024/e1/t14_base/**` 副本里（自带 config 副本），真树零改动。未部署、未提交。
