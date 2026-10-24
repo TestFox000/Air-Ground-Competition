@@ -1,0 +1,37 @@
+# ==============================================================================
+# dz-rviz.service —— RViz 定位显示（VNC 桌面 :1）
+# 卡号: DRONE-AUTOSTART-20261024 · 2026-10-24
+#
+# ★ 默认 disabled：安装手册里【不 enable】本 unit。需要画面时人工：
+#     sudo systemctl start dz-rviz      # 用完 sudo systemctl stop dz-rviz
+#
+# 显示目标：DISPLAY=:1 = TigerVNC 桌面（tigervncserver@:1.service 已自启）。
+#   注意与 start_drone.sh v3 的 DISPLAY=:0（物理 HDMI）区分——RViz 归 VNC 桌面，
+#   外场无 HDMI 也能看；要看 :0 就改 Environment=DISPLAY 一行。
+#
+# X 认证：User=duzhong 跑在 VNC :1 上，XAUTHORITY 指向 ~/.Xauthority。
+#   TigerVNC 会话由 duzhong 持有，cookie 匹配；若 start 后报
+#   "could not connect to display / Authorization required"，先确认
+#   tigervncserver@:1.service 在跑、且 ~/.Xauthority 存在。
+#
+# 配置文件：fastlio_localization.rviz 随 dzpx4 工作区 install 而来
+#   （机上实测存在于下述绝对路径；launch 的 rviz:=false 与本 unit 解耦——
+#   FAST-LIO 不再自己带 rviz，显示永远走这里）。
+# ==============================================================================
+[Unit]
+Description=dz-rviz: RViz localization view on VNC desktop :1 (manual start, keep disabled)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=duzhong
+WorkingDirectory=/home/duzhong
+Environment=DISPLAY=:1
+Environment=XAUTHORITY=/home/duzhong/.Xauthority
+ExecStart=/usr/bin/bash -c 'source /home/duzhong/dzlink_tools/dzlink.env; source /opt/ros/humble/setup.bash; source /home/duzhong/dzpx4/install/setup.bash; exec rviz2 -d /home/duzhong/dzpx4/install/fast_lio_localization/share/fast_lio_localization/rviz/fastlio_localization.rviz'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,45 @@
+# ==============================================================================
+# dz-agent.service —— PX4 飞控 uXRCE 链路（MicroXRCEAgent + orin_agent_watchdog）
+# 卡号: DRONE-AUTOSTART-20261024 · 2026-10-24 · 吸收 crontab @reboot autostart_agup.sh v3 职责
+#
+# 设计（为什么这么写，逐条对应 10-16/10-17 两次事故）：
+#   1. 主进程 = 看门狗（前台常驻），Agent 由看门狗 setsid 拉起。
+#      原因（10-16 实机踩坑）：飞控 USB 断电重连后，MicroXRCEAgent 进程活着
+#      但会话已死（收不到 uXRCE 流量）——systemd 的 Restart 只能看进程死活，
+#      探测不到"遥测静默"。应用层健康检查只能靠看门狗：
+#      设备在 + 遥测静默>15s → pkill 旧 Agent → setsid 拉新 Agent。
+#      看门狗源码: /home/duzhong/dzuav_deploy/air_ground/tools/orin_agent_watchdog.py
+#   2. KillMode=control-group（systemd 默认）保证 systemctl stop 时
+#      看门狗和它 setsid 拉起的 Agent 一起被杀（setsid 只脱离会话，不脱离 cgroup）。
+#   3. 串口参数化在 Environment=DZ_SERIAL_DEV：v3 autostart 用 ttyACM1，
+#      老 start_drone.sh v3 用 ttyACM0（历史不一致，以 v3/看门狗的 ttyACM1 为真值）。
+#      换串口只改这一行 Environment，不要动 ExecStart。
+#   4. 域号唯一真相源 = ~/dzlink_tools/dzlink.env（ROS_DOMAIN_ID=118）。
+#      systemd 不读 ~/.bashrc，必须显式 source（10-07 联调事故）。
+#      注意：dzlink.env 带 export 前缀，不能用于 EnvironmentFile=，只能 bash 里 source。
+#   5. 飞控板未插时：看门狗进入 OFFLINE 静默等待（不空转重启），本 unit 保持 active。
+#      因此 After 只等网络，不等任何飞控设备节点。
+#
+# 硬约束（卡面）：px4_control / teleop / px4_path 永不进自启 —— ARM 能力必须人在场。
+#   本 unit 只保链路（Agent + 看门狗），不起任何控制/路径节点。
+# ==============================================================================
+[Unit]
+Description=dz-agent: PX4 flight-control uXRCE link (MicroXRCEAgent via orin_agent_watchdog)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=duzhong
+WorkingDirectory=/home/duzhong
+# 飞控串口真值（2026-10-24 机上实测 ttyACM0+ttyACM1 同在，现役 v3/看门狗用 ttyACM1）
+Environment=DZ_SERIAL_DEV=/dev/ttyACM1
+# 看门狗日志目录（家目录下，duzhong 自己可建；不加 - 前缀，建不出来就该报错）
+ExecStartPre=/usr/bin/mkdir -p /home/duzhong/drone_logs
+# set -a 不需要：dzlink.env 每条都是 export 形式
+ExecStart=/usr/bin/bash -c 'source /home/duzhong/dzlink_tools/dzlink.env; source /opt/ros/humble/setup.bash; source /home/duzhong/dzpx4/install/setup.bash; exec /usr/bin/python3 /home/duzhong/dzuav_deploy/air_ground/tools/orin_agent_watchdog.py --device "$DZ_SERIAL_DEV"'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

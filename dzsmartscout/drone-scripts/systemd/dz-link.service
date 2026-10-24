@@ -1,0 +1,35 @@
+# ==============================================================================
+# dz-link.service —— 空地链路纯心跳常驻（dzlink_supervisor run，无任务参数）
+# 卡号: DRONE-AUTOSTART-20261024 · 2026-10-24
+#
+# 职责边界（卡面硬约束）：纯心跳 + 监听车回传 + 30s 状态行。
+#   不带 --cmd-file / --perception-* / --bridge / --target / --mines / --obstacles
+#   / --route / --reset 等任何任务参数 —— 开机自启绝不带过期地图情报误导小车；
+#   赛前地图情报由人工 --cmd-file 注入（一次性格式见 dzlink_tools/README_supervisor.md）。
+#
+# 实测语义（源码核实 dzlink_supervisor.py cmd_run，1793-1866 行）：
+#   run 子命令下 tailers/udp_src/cmd_file 仅在对应参数非 None 时创建；
+#   1Hz 心跳在 tick() 里无条件发出 → 裸 run = 纯心跳常驻，语义成立。
+#
+# 域号：supervisor 在 import 期（早于 rclpy.init）自读 ~/dzlink_tools/dzlink.env
+#   （DEFAULT_ENV_FILE，源码 127 行）；此处仍显式 source，与其他 unit 入口形态一致。
+#   域错了的表现：ping 通、SSH 通、但 ROS 互不可见且不报错（10-07 事故）。
+#
+# 日志：默认落 ~/dzlink_logs/supervisor.jsonl（源码 default_log_path，218 行）；
+#   --echo-log 让日志同时进 stdout → journalctl -u dz-link 可直接看。
+# ==============================================================================
+[Unit]
+Description=dz-link: air-ground link pure-heartbeat resident (dzlink_supervisor, no task args)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=duzhong
+WorkingDirectory=/home/duzhong
+ExecStart=/usr/bin/bash -c 'source /home/duzhong/dzlink_tools/dzlink.env; source /opt/ros/humble/setup.bash; source /home/duzhong/dzpx4/install/setup.bash; exec /usr/bin/python3 /home/duzhong/dzlink_tools/dzlink_supervisor.py run --echo-log'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

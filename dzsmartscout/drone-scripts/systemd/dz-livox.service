@@ -1,0 +1,41 @@
+# ==============================================================================
+# dz-livox.service —— Livox MID-360 激光雷达驱动（只发点云 /livox/lidar + /livox/imu）
+# 卡号: DRONE-AUTOSTART-20261024 · 2026-10-24
+#
+# 安全定性：只发点云，不产生任何运动/控制指令 → 允许开机自启常保。
+#
+# 设计：
+#   1. ExecStartPre 的 "+-" 前缀："+" = 以 root 执行（不受 User=duzhong 限制），
+#      "-" = 失败忽略（雷达航插没插/eno1 不存在时，驱动自己会以错误日志续跑，
+#      人工插上后 NetworkManager 自动配 192.168.3.50，无需重启本 unit）。
+#      用 root 前缀替代老 start-lidar.sh 的「echo 密码 | sudo -S」：
+#      sudo 密码绝不落盘（本卡铁律），systemd 的 + 前缀从机制上消掉这个需求。
+#   2. ExecStart 是内联 bash -c 而非调用既有脚本，理由（复用例外，卡内已记录）：
+#      - tools/drone/start_lidar_bg.sh：setsid 后台分离形态（为 SSH 会话设计），
+#        systemd 需要前台主进程，调它会误判退出/管不到真进程；
+#      - drone-scripts/start-lidar.sh：前台但内嵌 sudo 密码 + pkill + tee 管道
+#        （tee 让主进程变管道末端，信号/状态管理变脏；内嵌密码违铁律）。
+#      内联串只做三件事：source dzlink.env（域号唯一真相源 118）+ 两个 ROS setup.bash
+#      + exec 既有 launch，不重写任何启动逻辑。
+#   3. 雷达不在时 livox_ros_driver2 不会退出（打印错误继续等），进程级 Restart
+#      帮不上"插雷达"这种物理恢复——这是预期行为，靠现场流程（插好再上电）兜。
+#   4. WorkingDirectory=/home/duzhong：livox 驱动会在 CWD 建 Log/ 目录，
+#      不给工作目录会建到 / 下（root 之外还会失败刷屏）。
+# ==============================================================================
+[Unit]
+Description=dz-livox: Livox MID-360 lidar driver (point cloud only, safe to autostart)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=duzhong
+WorkingDirectory=/home/duzhong
+# + = root 执行（替代内嵌密码的 sudo -S）; - = 忽略失败（雷达不在也照常起驱动）
+ExecStartPre=-+/usr/sbin/ip link set eno1 up
+ExecStart=/usr/bin/bash -c 'source /home/duzhong/dzlink_tools/dzlink.env; source /opt/ros/humble/setup.bash; source /home/duzhong/dzpx4/install/setup.bash; exec ros2 launch livox_ros_driver2 msg_MID360_launch.py'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
