@@ -30,3 +30,10 @@ git_save/
 
 # 2026-10-24 history-slimming: archived tarballs kept outside git (copies: backup/history_cache_bigfiles_20261024/)
 docs/history_cache/**/*.tar.gz
+
+
+# 2026-10-24 AGC-21：车端字节快照（8.1/9.9MB 模型 + 两份 det_node）只留清单，二进制留本地
+# 理由：30MB 二进制会让每次 clone/push 变慢；可复现靠 MANIFEST 哈希清单 + 车端随时重取
+artifacts/agc-1024/car_snapshot/*
+!artifacts/agc-1024/car_snapshot/MANIFEST.sha256
+!artifacts/agc-1024/car_snapshot/MANIFEST.json

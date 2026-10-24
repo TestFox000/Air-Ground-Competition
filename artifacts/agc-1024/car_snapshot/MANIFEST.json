@@ -1,0 +1,68 @@
+{
+ "collected_at": "2026-10-24T17:52:26+08:00",
+ "car_host": "duzhong@192.168.0.4",
+ "items": [
+  {
+   "file": "dzrobot__det_node",
+   "bytes": 776112,
+   "sha256": "1d0ae071732db7fac978e05164d222875084cec45eb57e143cb3828eec0d26c8",
+   "car_path": "/home/duzhong/dzrobot/install/det_node/lib/det_node/det_node",
+   "car_sha256": "1d0ae071732db7fac978e05164d222875084cec45eb57e143cb3828eec0d26c8"
+  },
+  {
+   "file": "dzrobot2__det_node",
+   "bytes": 3855872,
+   "sha256": "9b449ba21b6c629e2b1db7b5e3399c08ab61815659688e335758d969dff59084",
+   "car_path": "/home/duzhong/dzrobot2/install/det_node/lib/det_node/det_node",
+   "car_sha256": "9b449ba21b6c629e2b1db7b5e3399c08ab61815659688e335758d969dff59084"
+  },
+  {
+   "file": "dzrobot__light_det.rknn",
+   "bytes": 8125813,
+   "sha256": "8b17ec17bfed399d2773338deafc812c2cf9264f3ec58048e6b1eddb9765f429",
+   "car_path": "/home/duzhong/dzrobot/install/det_node/share/det_node/model/light_det.rknn",
+   "car_sha256": "8b17ec17bfed399d2773338deafc812c2cf9264f3ec58048e6b1eddb9765f429"
+  },
+  {
+   "file": "dzrobot__light_det.rknn.bak_20261023_1915",
+   "bytes": 8487541,
+   "sha256": "12a3b5487e0099f939666b81da82c58430b71af2a2a4d81e826af78c119c8c40",
+   "car_path": "/home/duzhong/dzrobot/install/det_node/share/det_node/model/light_det.rknn.bak_20261023_1915",
+   "car_sha256": "12a3b5487e0099f939666b81da82c58430b71af2a2a4d81e826af78c119c8c40"
+  },
+  {
+   "file": "dzrobot2__light_det.rknn",
+   "bytes": 9899901,
+   "sha256": "59aaad606a641d141dd54b40be73f0f5d1f6c8829935233492e1774df04a8c4f",
+   "car_path": "/home/duzhong/dzrobot2/install/det_node/share/det_node/model/light_det.rknn",
+   "car_sha256": "59aaad606a641d141dd54b40be73f0f5d1f6c8829935233492e1774df04a8c4f"
+  },
+  {
+   "file": "dzrobot__config_robot.yaml",
+   "bytes": 76923,
+   "sha256": "49128a01ab95d9a18385c923ee6ec3208f2a6ad3161f9c2a6a9bbd366beeb590",
+   "car_path": "/home/duzhong/dzrobot/config/robot.yaml",
+   "car_sha256": "49128a01ab95d9a18385c923ee6ec3208f2a6ad3161f9c2a6a9bbd366beeb590"
+  }
+ ],
+ "total_bytes": 31222162,
+ "car_side_hash_verified": true,
+ "car_conn_error": "",
+ "repo_refs": {
+  "dzrobot__light_det.rknn": [
+   "_tmp_session/VISION-MODEL-20261023/models/car_light_det_20261023_1912.rknn",
+   "_tmp_session/LEAD-VISION-20261023/target_pose_v2_20261016.rknn"
+  ],
+  "dzrobot__light_det.rknn.bak_20261023_1915": [
+   "dzrobot_v2/models/light_det.v2.3.2.rknn"
+  ]
+ },
+ "note": "只读采集：车端仅执行 sha256sum，无写入/无重启/无部署",
+ "git_policy": "按 Lead 裁决①（2026-10-24）：本目录只有 MANIFEST.sha256 / MANIFEST.json 进 git；*.rknn 与 det_node 二进制、README.md 由 .gitignore 留在本地。",
+ "verify_note": "新克隆里没有二进制 ⇒ sha256sum -c 会失败，这是预期；要复现先用本清单的 car_path 从车端重取（只读）再校验。",
+ "model_registration": {
+  "path": "dzrobot_v2/models/light_det.v2.4.0_20261023.rknn",
+  "sha256": "8b17ec17bfed399d2773338deafc812c2cf9264f3ec58048e6b1eddb9765f429",
+  "git": "*.rknn 按 dzrobot_v2/.gitignore 策略不入 git；sha 登记在 dzrobot_v2/docs/复用清单.md（commit adbb36c，仅本地）"
+ }
+}

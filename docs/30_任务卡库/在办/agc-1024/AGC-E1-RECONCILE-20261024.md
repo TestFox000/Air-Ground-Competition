@@ -119,3 +119,13 @@ owner: e-integ；reviewer: lead（独立评审）。
 **维护性提醒（非缺陷）**：分界行字节序列在文件里出现 2 次（一次是 `PINNED_MARKER` 赋值本身），测试靠 `MARKER + b"\n"` 才命中真的那条；后人若"简化"成裸 `find(MARKER)` 会取到 11,881 B 的错正文，建议在 `snapshot_payload()` 加一行注释。另：`dzudp_core.py` 头部的复跑命令实跑 90 例而非 105 例（105 是整目录），建议改写。
 
 **边界**：未改被测三文件；变异只在 `_tmp_session/agc-1024/e1/review_mut/**` 副本上做。复跑 `python -B -X utf8 _tmp_session/agc-1024/e1/review_adversarial.py`（B0/M1–M4/A1–A9，末行给 FAILS 清单）。
+
+---
+
+## L 坑库（按症状查 · 本卡产出）
+
+| 症状 | 机制 | 位置 | 怎么避 |
+|---|---|---|---|
+| 把「同尺寸模型」当成同一份 | `dzrobot2/install/det_node/share/det_node/model/` 下 **`light_det.rknn`=59aaad60** 与 **`light_det2.rknn`=5698ce0e** 都是 **9,899,901 B**，字节不同；实跑加载的是 `light_det.rknn` | 车 `/home/duzhong/dzrobot2/.../model/` | **只认 sha256**，不认文件名/字节数；`ls -l` 分不出 |
+| 用「差不多大」判断模型版本 | 8 字段栈模型 `8b17ec17`=8,125,813 B 与旧 `12a3b548`=8,487,541 B 只差 36 万字节，肉眼/字节数都像 | `artifacts/agc-1024/car_snapshot/MANIFEST.sha256` | 同上：`sha256sum` 一条命令定性 |
+| 以为 `dzrobot/install` 就是生效前缀 | `~/.bashrc` 两次 source `dzrobot2`、从不 source `dzrobot/install`；两套都 source 时 dzrobot 前缀落在 AMENT 索引 56–58、dzrobot2 在 49 ⇒ **首匹配 dzrobot2** | 车 `~/.bashrc` | 8 字段版必须**绝对路径直启**，`ros2 run det_node` 会解析到 dzrobot2（见 §6 manifest） |
