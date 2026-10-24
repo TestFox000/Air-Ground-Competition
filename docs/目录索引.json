@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-23 23:52",
- "count": 112,
+ "generated": "2026-10-24 08:24",
+ "count": 113,
  "files": [
   {
    "path": "00_项目总览/00_索引.md",
@@ -110,7 +110,7 @@
    "level": "实",
    "updated": "2026-10-23",
    "status": "现行",
-   "lines": 1613
+   "lines": 1615
   },
   {
    "path": "00_项目总览/时间线.md",
@@ -957,7 +957,18 @@
    "level": "",
    "updated": "2026-10-23",
    "status": "过程",
-   "lines": 66
+   "lines": 73
+  },
+  {
+   "path": "30_任务卡库/在办/lead-1023/AIM-CALIBER-20261023.md",
+   "dir": "30_任务卡库/在办/lead-1023",
+   "title": "AIM-CALIBER-20261023 · 移动靶六处口径冲突收口",
+   "summary": "- owner: **lead**",
+   "from": "2026-10-23 历史会话线考古（HIST-ARCH-20261023）提炼出的 6 处口径冲突；用户 2026-10-23 口头裁决 4 项",
+   "level": "实/档（配置与台账为实读；会话侧数值为档）",
+   "updated": "2026-10-23",
+   "status": "in_progress",
+   "lines": 69
   },
   {
    "path": "30_任务卡库/在办/lead-1023/DOC-FIX-20261023.md",
