@@ -32,6 +32,7 @@ MODULES = [
     "perception.tests.test_coverage",
     "perception.tests.test_field_map",
     "perception.tests.test_pipeline_e2e",
+    "perception.tests.test_field_layout_v2",
 ]
 
 

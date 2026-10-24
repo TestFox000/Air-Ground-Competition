@@ -1,4 +1,4 @@
-# --- 临时/会话产物（绝不入库）---
+﻿# --- 临时/会话产物（绝不入库）---
 _tmp_session/
 _tmp_car/
 _tmp_fixyaml/
@@ -24,3 +24,9 @@ memory/
 .zhiyuan/
 .agent-teams/
 dzsmartscout/crack_vnc_passwd.py
+
+# git_save 版本存档（§8.6 豁免区，不入库）
+git_save/
+
+# 2026-10-24 history-slimming: archived tarballs kept outside git (copies: backup/history_cache_bigfiles_20261024/)
+docs/history_cache/**/*.tar.gz
