@@ -212,32 +212,6 @@ check("注释与其它键原样保留", "自动出发" in _exp_text and "auto_st
       )  # ★t31:2.0→45.0（t29 首跑档留横幅核对窗口）
 
 
-section("③c 车端不留地图文件：部署清单不得含 config/map.yaml（布局由无人机 field_layout 下发）")
-#   用户 2026-10-18 定版：「车机内不留地图文件，跑图的规划依据由无人机下发信息」。
-#   本地 config/map.yaml 仍保留（开发/仿真入口），但**绝不部署**；车侧布局来自
-#   DroneTask 的 field_layout 报文 → 黑盒 P_FIELD_LAYOUT → main 内存规划。
-_push_locals = [local for local, _ in dep.PUSH_FILES]
-check("★ 推送清单不含 config/map.yaml（车机不留地图文件）",
-      "config/map.yaml" not in _push_locals, f"{_push_locals}")
-check("推送清单仍含 config/robot.yaml（统一配置必须上车）",
-      "config/robot.yaml" in _push_locals)
-check("★ backup 清单也不含 map.yaml（车端不再保留/备份地图文件）",
-      not any(str(p).replace("\\", "/").endswith("/config/map.yaml")
-              for p in dep.BACKUP_PATHS),
-      f"{dep.BACKUP_PATHS}")
-check("本地 config/map.yaml 仍保留（仅开发/仿真入口，不是上车文件）",
-      (WS / "config" / "map.yaml").is_file())
-
-_push_buf2 = io.StringIO()
-with contextlib.redirect_stdout(_push_buf2):
-    _push_rc2 = dep.main(["push", "--dry-run"])
-_push_out = _push_buf2.getvalue()
-check("★ push --dry-run 不打印 map.yaml 的推送/对账（清单已移除）",
-      _push_rc2 == 0 and "config/map.yaml" not in _push_out,
-      f"rc={_push_rc2} map_hits={_push_out.count('config/map.yaml')}")
-check("push --dry-run 仍推送 config/robot.yaml", "config/robot.yaml" in _push_out)
-
-
 section("④ 包完整性：整包替换后车端能直接编译（少一个文件就会把车端搞挂）")
 for rel in ("package.xml", "setup.py", "setup.cfg", "resource/dzbrain", "dzbrain/__init__.py"):
     check(f"src/dzbrain/{rel} 存在", (WS / "src" / "dzbrain" / rel).exists())

@@ -25,10 +25,11 @@
    为什么要有这一步：纯轮式死推里程计会累积漂移，锚定把"每过一个已知航点"变成一次
    误差归零的机会；偏差不丢弃而是记进 `FixState`，P3 的 FixTask 才有估计素材。
 5. 漂移告警：单段漂移 > `pursuit.drift_warn_m` → `EV_DRIFT_WARNING`（`core.logging.Throttle` 限流）。
-6. ★★ **航向完整性守卫**（`_update_yaw_guard`，差速底盘模型，2026-10-19 task-44）：每拍用
-   **相邻两帧位姿**估 yaw 率，与差速包络 `max(spin, gain·v)` 比；超限/单帧跳变/IMU 矛盾
-   持续 `localization.yaw_bad_ticks` 个新帧 ⇒ 判「航向失去可信」，经 `P_MOTION_LIMIT` +
-   `EV_TASK_FAULT` 请求停车（Safety 仍锁存）；连续 `yaw_clear_ticks` 个可信新帧后守卫自动复位。
+6. ★★ **航向完整性守卫**（`_update_yaw_guard`，2026-10-17 补）：每拍用**相邻两帧位姿**估
+   yaw 率，与 `v·tan(δmax)/L` 比。超上限持续 `localization.yaw_bad_ticks` 个新帧 ⇒
+   判「航向失去可信」：① 走既有 `P_MOTION_LIMIT` 通路请求 0 速；② 发既有
+   `EV_TASK_FAULT` 事件，由 SafetyTask 检查④锁存 SAFE_STOP（不新造机制、不杀本线程）。
+   静止期（v≈0）另给上限，并与「手动旋转/遥控接管」区分（接管期间只记账、不判故障）。
 
 铁律（core/task.py 文档 + P1 §4）：
 - `tick()` 非阻塞、无长 I/O；
@@ -83,39 +84,26 @@ _STUCK_TRUST_DIST_M = 0.45
 #: FINISH 只可能因"真到了"触发。非末点航点仍按 `arrival_m` 吸附，行为完全不变。
 _GOAL_STOP_M = 0.03
 
-#: ★漂移**升级**（限速/停机）的附加余量（米）：_report_drift 告警仍按 drift_warn_m(0.30)，
-#: 但"判不健康 → drift_run → 降速/停车"必须超过 drift_warn_m + 它。
-#: 为什么需要（2026-10-18 倒车窗口实测）：仿真真值在 R:H9 折返入口的**正常切角**横向离线
-#: 0.304~0.308 m（只是略大于 0.30 的门限），20 Hz 下 0.4 s 就攒够 8 拍 ⇒ 假 drift_stop；
-#: 而 15:04 类真漂移全路线离线 0.62~0.78 m，仍远大于本门限（0.35）。取 0.05：既盖住
-#: 0.308 的正常切角，又不放过 0.40 m 的真横向漂移（test_localization §⑮ 双带牙）。
-_DRIFT_ESCALATE_MARGIN_M = 0.05
-
 # --------------------------------------------------------------------------- #
 #  ★★ 航向完整性守卫的默认阈值（现场可经 SCHEMA `localization.yaw_*` 覆盖）
 # --------------------------------------------------------------------------- #
-#: 差速底盘偏航率包络（2026-10-19 task-44「T-HEAD 航向闩锁修复」）：
-#:   背景（2026-10-17 14:59 K9 事故）：IMU 地图 yaw 1.8 s 内 +90°→−78°（峰值 120.3°/s
-#:   @ 0.112 m/s）；旧版把 yaw 当"直接可用观测" ⇒ 下游一路用坏航向直到出界。
-#:   · 本车是差速底盘，可原地/低速转向 —— 不能用 Ackermann `v·tan(δmax)/L + 恒定 floor`；
-#:   · 低速/原地：允许 `yaw_diff_spin_dps`（差速原地转向能力，取 60°/s）；
-#:   · 随速度：底盘把舵角映射为左右轮差速，yaw 率与 v 成正比。A2 实测 79.8°/s @ v=0.19
-#:     ⇒ 420°/s per m/s；取 525（+25% 余量）作为包络增益；
-#:   · 包络 = `max(yaw_diff_spin_dps, yaw_diff_gain_dps_per_mps × v)`（v≥min_speed）；
-#:     v<min_speed 仍走静止判据 `yaw_static_dps`（停车后被转/被搬 = 不可信）；
-#:   · 单帧 yaw 跳变 > `yaw_jump_deg`（30°）⇒ 立即判故障（重定位/坐标跳变）；
-#:   · 连续 `yaw_clear_ticks`（20 个新帧 ≈ 5 Hz 下 4 s）可信 ⇒ 自动复位守卫（Safety 另清）。
-_DEFAULT_YAW_DIFF_GAIN_DPS_PER_MPS = 525.0
-_DEFAULT_YAW_DIFF_SPIN_DPS = 60.0
-_DEFAULT_YAW_JUMP_DEG = 30.0
-_DEFAULT_YAW_CLEAR_TICKS = 20
-_DEFAULT_YAW_IMU_CHECK_DPS = 30.0
-_DEFAULT_YAW_STATIC_DPS = 45.0
-_DEFAULT_YAW_MIN_SPEED_MPS = 0.03
-_DEFAULT_YAW_BAD_TICKS = 3
-_DEFAULT_YAW_PLAUSIBLE_SPEED_MPS = 0.70
-_DEFAULT_YAW_MAX_DT_S = 0.60
-_DEFAULT_YAW_IMU_MISMATCH_RATIO = 0.35
+#: 为什么需要（2026-10-17 14:59 K9 事故，真源 = `_tmp_session/adjudication_t1_t4/裁决书.md`）：
+#:   14:59:31.8 起 IMU 地图 yaw 由 +90° 掉到 −78°（−168°/1.8 s），峰值 **120.3°/s @ 轮速
+#:   0.112 m/s = Ackermann 上限（23.7°/s）的 5.08 倍**，比投影跳变（14:59:38.2）早 5.4~7.4 s；
+#:   停车后静止期还有 **169.2°/s** 的 yaw 跳变（位置全程不动）。当时的代码把 yaw 当"直接可用
+#:   的观测量"，对"物理上不可能"的变化没有任何判据 ⇒ 下游一路用坏航向，直到出界才被 Safety 停。
+#: 判据 = **帧间** yaw 差 ÷ **帧间隔**（不是任务拍间隔：20 Hz 任务 + 50 Hz 里程计时同一帧会被
+#:   重复读，用拍间隔算 0.2 s 里 24° 的跳变会得到 480°/s 的 4 倍假读数）。连续 N 个**新帧**
+#:   样本超限才判故障（单帧毛刺不刹；事故里超限是持续 1.8 s 的）。
+_DEFAULT_YAW_KIN_MARGIN = 1.25      # 运动学上限的安全系数（v=0.35 → 上限 92°/s）
+_DEFAULT_YAW_RATE_FLOOR_DPS = 8.0   # 加在运动学上限上的绝对余量（量化/舵角超调）
+_DEFAULT_YAW_ABS_FLOOR_DPS = 20.0   # 动态判据的绝对下限（低速蠕动也不误报）
+_DEFAULT_YAW_STATIC_DPS = 45.0      # 静止期上限（事故 169.2°/s；正常停车漂移 <5°/s）
+_DEFAULT_YAW_MIN_SPEED_MPS = 0.03   # 判定"车没在动"的线速度阈值（帧间位移 ÷ dt）
+_DEFAULT_YAW_BAD_TICKS = 3          # 连续 N 个超限**新帧**才判故障
+_DEFAULT_YAW_PLAUSIBLE_SPEED_MPS = 0.70   # 帧间位移/Δt 超过它 = 位姿不连续（重定位/测试传送）
+_DEFAULT_YAW_MAX_DT_S = 0.60        # 帧间隔超过它 = 丢帧/卡顿，角速度不可信
+_DEFAULT_YAW_IMU_MISMATCH_RATIO = 0.35    # |gyro| < 0.35×位姿角速度 ⇒ 判"链内部不一致"
 
 
 def _cfg_float(cfg: Config, key: str, fallback: float) -> float:
@@ -187,21 +175,16 @@ class LocalizationTask(TaskThread):
         #: 现场若要调，改这一行即可（未登记 SCHEMA 是刻意的：本轮写域不含 core/config.py）。
         self.stuck_trust_dist_m = float(_STUCK_TRUST_DIST_M)
 
-        # ---- ★★ 航向完整性守卫（差速底盘模型；2026-10-19 task-44）----
+        # ---- ★★ 航向完整性守卫（2026-10-17 14:59 K9 事故；判据/理由见 _update_yaw_guard）----
         #: 总开关。关掉 ⇒ 行为与加本守卫前**逐位一致**（回归对照/带牙实验用）。
         self.yaw_guard_enabled = bool(cfg.get("localization.yaw_guard"))
-        #: 差速包络：低速原地能力 + 随速度的差速增益（v≥min_speed 时取 max）。
-        self.yaw_diff_gain_dps_per_mps = _cfg_float(
-            cfg, "localization.yaw_diff_gain_dps_per_mps",
-            _DEFAULT_YAW_DIFF_GAIN_DPS_PER_MPS)
-        self.yaw_diff_spin_dps = _cfg_float(
-            cfg, "localization.yaw_diff_spin_dps", _DEFAULT_YAW_DIFF_SPIN_DPS)
-        self.yaw_jump_deg = _cfg_float(
-            cfg, "localization.yaw_jump_deg", _DEFAULT_YAW_JUMP_DEG)
-        self.yaw_clear_ticks = max(1, int(_cfg_float(
-            cfg, "localization.yaw_clear_ticks", _DEFAULT_YAW_CLEAR_TICKS)))
-        self.yaw_imu_check_dps = _cfg_float(
-            cfg, "localization.yaw_imu_check_dps", _DEFAULT_YAW_IMU_CHECK_DPS)
+        #: 运动学上限 = margin × v × tan(δmax) / L（v = 帧间位移/Δt，再用 _yaw_v_cap 钳住）。
+        self.yaw_kin_margin = _cfg_float(cfg, "localization.yaw_kin_margin",
+                                         _DEFAULT_YAW_KIN_MARGIN)
+        self.yaw_rate_floor_dps = _cfg_float(cfg, "localization.yaw_rate_floor_dps",
+                                             _DEFAULT_YAW_RATE_FLOOR_DPS)
+        self.yaw_abs_floor_dps = _cfg_float(cfg, "localization.yaw_abs_floor_dps",
+                                            _DEFAULT_YAW_ABS_FLOOR_DPS)
         #: 静止期（v < yaw_min_speed_mps）允许的 yaw 率：车没动却被"转"了 —— 只可能是被搬/
         #: 被转或 yaw 链坏了，两种都不许拿来导航（事故静止段实测 169.2°/s）。
         self.yaw_static_dps = _cfg_float(cfg, "localization.yaw_static_dps",
@@ -218,25 +201,28 @@ class LocalizationTask(TaskThread):
                                        _DEFAULT_YAW_MAX_DT_S)
         self.yaw_imu_mismatch_ratio = _cfg_float(cfg, "localization.yaw_imu_mismatch_ratio",
                                                  _DEFAULT_YAW_IMU_MISMATCH_RATIO)
+        #: 角速度上限的"每米每秒"增益（rad/s per m/s）：tan(δmax)/L。
+        self._yaw_kin_gain = (math.tan(math.radians(float(cfg.get("pursuit.max_steer_deg")
+                                                       or 30.0)))
+                              / max(1e-6, float(cfg.get("pursuit.wheelbase_m") or 0.157)))
+        #: 判据用的速度钳制上限：超过巡航 1.15 倍的速度不再给更高的角速度上限
+        #: （真实的位姿高速跳变应交给"位姿不连续闸"，而不是放宽运动学判据）。
+        self._yaw_v_cap = max(float(cfg.get("pursuit.cruise_speed_mps") or 0.15) * 1.15, 0.40)
         #: 桥的可选能力（鸭子类型：FakeBridge 没有 imu，判据自动降级为纯位姿判据）。
         self._imu_fn = getattr(bridge, "imu", None)
         self._imu_age_fn = getattr(bridge, "imu_age", None)
         self._manual_fn = getattr(bridge, "manual_override", None)
 
         self._yaw_prev: tuple | None = None    # (帧时刻, x, y, yaw)
-        self._yaw_bad_run = 0                  # 连续超限/跳变/矛盾的**新帧**数
-        self._yaw_good_run = 0                 # 闩锁后连续可信的新帧数（自动复位用）
+        self._yaw_bad_run = 0                  # 连续超限的**新帧**数
         self._yaw_reason = ""
         self._yaw_last_rate_dps = 0.0
         self._yaw_last_limit_dps = 0.0
-        self._yaw_last_dyaw_deg = 0.0
         self.yaw_max_rate_dps = 0.0     # 本轮见过的最大 yaw 率（误报率/峰值评估用）
         self._yaw_fault_published = False
         # 计数（测试/遥测直接断言，不靠解析日志）
-        self.yaw_untrusted = False    # 闩锁；条件消失后可自动复位或 reset_yaw_guard()
+        self.yaw_untrusted = False   # ★ 一旦判故障就闩锁（与 Safety「不自动恢复」同语义）
         self.yaw_guard_trips = 0
-        self.yaw_guard_recoveries = 0  # 自动复位次数
-        self.yaw_manual_resets = 0     # 人工复位次数
         self.yaw_bad_samples = 0     # 超限的新帧样本数（含尚未达到 N 的）
         self.yaw_guard_samples = 0   # 参与判定的新帧样本数（误报率的分母）
         self.yaw_skipped_frames = 0  # 因不连续/丢帧跳过的帧
@@ -305,22 +291,6 @@ class LocalizationTask(TaskThread):
         self.scale_suspect_max = 0.0        # 见过的最大疑似尺度误差（绝对值）
         self._last_odom_ts: float | None = None
 
-        # ---- ★★行进方向裁决（2026-10-18 10:14 烟测：折返压线把 s 锁死在 0.70）----
-        #: 位移小于它（米）就认为"车没在动"，方向锁存上次可信值（**不能**退回命令符号：
-        #: 命令符号→选段→segment_is_reverse→命令符号 是自指环，见 tracker.py:351 的长注释）。
-        self._motion_eps_m = float(cfg.get("pursuit.motion_heading_eps_m") or 0.001)
-        #: 锁存的"车正在往哪边走"（地图系弧度）。倒车时它是**车头反向**（由位移天然得到）。
-        self._travel_heading: float | None = None
-        self._last_motion_xy: tuple[float, float] | None = None
-        #: 带牙实验开关：关掉 = 回退到"不传 motion_heading"的旧行为（测试用）。
-        self.motion_heading_enabled = True
-        self.motion_heading_ticks = 0     # 用位移方向更新的拍数（可观测）
-        #: 上一次**被接受**的投影（方向一致性闸拒绝时原样沿用，见 _opposes_travel）。
-        self._last_proj = None
-        self.direction_rejects = 0        # 因"逆着行进方向"被拒绝的投影次数（可观测）
-        #: 路线内容签名（token/长度变化 ⇒ 换载）；identity 之外的第二道判据。
-        self._route_sig: tuple | None = None
-
         # 卡死判定的滑动窗口（起点：s 与位姿。s 一有前进就重新起算）
         self._stuck_s: float | None = None
         self._stuck_n: int = 0
@@ -379,9 +349,6 @@ class LocalizationTask(TaskThread):
         # 否则一次修正会被当成"车转了"。（吸附/重锚只改位置、不改 yaw，故无此问题。）
         self._update_yaw_guard(pose, age, now)
 
-        # ---------------- ①c ★行进方向（投影裁决的输入；折返压线时唯一能分段的判据） ---------------- #
-        self._update_travel_heading(pose)
-
         # ---------------- ② 应用 P_FIX 修正 ---------------- #
         fix = self.bb.get(P_FIX)
         if not isinstance(fix, FixState):
@@ -392,7 +359,7 @@ class LocalizationTask(TaskThread):
         self.bb.set(P_POSE_RAW, pose, source=self.name, ts=now)
 
         # ---------------- ③ 路线投影（带 s_hint） ---------------- #
-        proj = self._project(cx, cy, cyaw)
+        proj = self._project(cx, cy)
         if proj is not None:
             self.projected_ticks += 1
             self.bb.set(P_ROUTE_INDEX, proj.seg_index, source=self.name, ts=now)
@@ -410,23 +377,7 @@ class LocalizationTask(TaskThread):
                 self._report_drift(gwp.block, gidx, gwp.distance_to(cx, cy), now,
                                    anchored=False)
                 # ★"有漂移、没纠回来"= 不健康的一拍（驱动限速/停机）
-                # ★★「到下一航点远」**不等于**漂移：倒车/共线折返入口处投影会落后 0.6~0.9 m
-                #   （P_ROUTE_S 追不上真值弧长，实测见 _tmp_session/t14_proj/P0_reverse_lag.md），
-                #   此时连**窗口投影点到车的距离**（proj.dist）也是 0.6~0.9 —— 它衡量的是
-                #   "离窗口里那个候选点多远"，不是"离折线多远"，**不能**拿它判别。
-                #   唯一可靠的判据是「车是否真的离开了折线」：用**全路线**投影量横向离线
-                #   （hint=None + 全窗口；只在顶点窗口且航点距离超限时才扫，不是每拍热点）。
-                #   15:04 类真漂移：全路线最近点仍离线 0.62~0.78 m ⇒ 照旧停（§⑮ 带牙）。
-                if gwp.distance_to(cx, cy) > self.drift_warn_m:
-                    off_path = self._path.project(cx, cy, s_hint=None,
-                                                  window_m=self._path.total_length,
-                                                  allow_backward=True)
-                    # ★升级门限 = drift_warn + 余量：正常切角 0.304~0.308 不升级；
-                    #   真漂移 0.40/0.62~0.78 照旧升级（数值依据见 _DRIFT_ESCALATE_MARGIN_M）
-                    unhealthy = (float(off_path.dist)
-                                 > self.drift_warn_m + _DRIFT_ESCALATE_MARGIN_M)
-                else:
-                    unhealthy = False
+                unhealthy = gwp.distance_to(cx, cy) > self.drift_warn_m
 
         # ---------------- ⑤ ★信念漂移护栏 ---------------- #
         # 先算信念离安全边界还有多远（`geo.in_bounds/map_bounds` 与 Safety 同源，不重复实现），
@@ -438,7 +389,7 @@ class LocalizationTask(TaskThread):
         # 吸附把点挪了，就重新投影一次（单段内，代价可忽略）
         if anchored_pose is not None:
             self.bb.set(P_POSE, anchored_pose, source=self.name, ts=now)
-            proj2 = self._project(anchored_pose.x, anchored_pose.y, anchored_pose.yaw)
+            proj2 = self._project(anchored_pose.x, anchored_pose.y)
             if proj2 is not None:
                 self.bb.set(P_ROUTE_INDEX, proj2.seg_index, source=self.name, ts=now)
                 self.bb.set(P_ROUTE_S, proj2.s, source=self.name, ts=now)
@@ -470,7 +421,7 @@ class LocalizationTask(TaskThread):
             return _INF
         return _INF if math.isinf(out) or math.isnan(out) else out
 
-    def _project(self, x: float, y: float, yaw: float | None = None):
+    def _project(self, x: float, y: float):
         """用当前 s_hint 投影（无路线/路线太短 → None）。
 
         ★ 调用形状是**试出来的**，不是随手填的：`Path.project` 在 `allow_backward=True` 时把
@@ -491,14 +442,8 @@ class LocalizationTask(TaskThread):
         route = self.bb.get(P_ROUTE)
         if not isinstance(route, Route) or len(route.waypoints) < 2:
             return None
-        # ★换载重置：identity 之外再比「内容签名」（航点数 + 首末格）。Route 是 frozen 的，
-        #   identity 相同通常内容也相同；这道签名是给「换了新对象但内容/长度变了」的防御，
-        #   以及给中途外部命令换线一个明确复位点。**绝不能沿用上一趟的 s_hint**
-        #   （2026-10-18 烟测：上一趟终点 s=0.70 被带进新趟 ⇒ 共线折返上锁死）。
-        sig = (len(route.waypoints), route.waypoints[0].block, route.waypoints[-1].block)
-        if self._route is not route or sig != self._route_sig:
+        if self._route is not route:        # 换了路线：缓存与 hint 一起作废
             self._route = route
-            self._route_sig = sig
             self._path = Path(route)
             self._s_hint = None
             self._last_seg = -1
@@ -506,40 +451,13 @@ class LocalizationTask(TaskThread):
             self._reanchor_idx = -1
             self._anchor_key = None
             self._clear_stuck()
-            # 换载后方向必须重新建立（上一趟的方向/位移不能带到新路线）
-            self._travel_heading = None
-            self._last_motion_xy = None
             self._log(f"路线已装载：{len(route.waypoints)} 点 / {self._path.total_length:.2f} m")
         assert self._path is not None
-        # ★★必须带 motion_heading：路线折返压在同一条线上时（N10→M10→R:N10 就是），
-        #   同一物理点到两条段完全等距，位置裁决不了；s_hint 一旦坏掉就再也回不来。
-        #   方向取「实际位移」（倒车时天然是车头反向），见 _update_travel_heading。
-        # 方向：优先实测位移；换载后首拍还没有位移 ⇒ 用调用方的信念 yaw（车头方向）。
-        heading = self._travel_heading if self.motion_heading_enabled else None
-        if self.motion_heading_enabled and heading is None and yaw is not None:
-            heading = float(yaw)
         proj = self._path.project(x, y, s_hint=self._s_hint,
-                                  window_m=self.arrival_m, allow_backward=False,
-                                  motion_heading=heading)
+                                  window_m=self.arrival_m, allow_backward=False)
         proj = self._heal_stuck(proj, x, y)
-        # ---- ★★方向一致性闸：投影不许落在「逆着行进方向的共线支」上 ----
-        # 现场会怎么错：车在 N10→M10 去程上离顶点 6.4 cm 时触发「到位吸附 M10」，信念被锚到
-        # 顶点 ⇒ s_hint 被推到 0.35；下一拍原始位姿还在顶点**之前**，而前向窗口 [0.35, 0.47]
-        # 里只有回程段（共线、方向相反），投影返回回程段 0.414（离车 0）—— 位置更近、方向反了。
-        # 之后 _warning_gate 的下一个航点变成 N10，离车 0.31 m ⇒ 假漂移 → drift_stop。
-        # 判据：投影段几何方向与实际行进方向夹角 > 150°（折返压线就是 180°；90°/135° 的
-        # 正常直角/钝角弯不受影响）⇒ 拒绝本次推进，沿用上一拍被接受的投影（s 不往前跳）。
-        if self._opposes_travel(proj) and self._last_proj is not None:
-            self.direction_rejects += 1
-            if self._warn.allow("proj_dir_reject", self.clock()):
-                self._log(f"⛔ 投影方向不一致：段 {proj.seg_index} s={proj.s:.3f} 与行进方向"
-                          f" {geo.deg(self._travel_heading):.0f}° 相反（共线折返的另一支）"
-                          f" → 保留上一拍 s={self._last_proj.s:.3f}"
-                          f"（累计 {self.direction_rejects} 次）")
-            return self._last_proj
         self._s_hint = proj.s
         self._last_seg = proj.seg_index
-        self._last_proj = proj
         return proj
 
     # ------------------------------------------------------------------ #
@@ -597,22 +515,13 @@ class LocalizationTask(TaskThread):
         if self._path is None or not self._stuck_check(proj, x, y):
             return proj
         self.stuck_scans += 1
-        # ★★全路线搜索的裁决顺序（2026-10-18 烟测修）：
-        #   ① 有**行进方向**时，先按方向裁决、**不传 s_hint** —— 因为「卡死」的定义就是
-        #      s_hint 已经错了，此时「离 hint 最近」恰好会选回错误的共线支（实测：
-        #      s_hint=0.70 时全扫按 hint 选到回程段 0.483，而真值是去程段 0.217）。
-        #      方向能唯一区分前一趟/回程趟（两者等距），这是位置+连续性都做不到的。
-        #   ② 没有方向（车没动过/方向未知）时才退回旧的「保留 hint 连续性」，
-        #      即「仍歧义时按与上一拍 s 连续裁决」——不得跳到另一条共线段。
-        #   ③ 两条分支都保留既有的大跳跃可信闸（下面），不会因方向误判就把 s 瞬移。
-        heading = self._travel_heading if self.motion_heading_enabled else None
-        if heading is not None:
-            glob = self._path.project(x, y, s_hint=None,
-                                      window_m=self._path.total_length,
-                                      allow_backward=True, motion_heading=heading)
-        else:
-            glob = self._path.project(x, y, s_hint=self._s_hint,
-                                      window_m=self._path.total_length, allow_backward=True)
+        # ★ 全路线搜索，但**保留 hint**（只让它裁决等距候选）：
+        #   `s_hint=None` 时 path.py 对共线折返段按"取更靠后的段"裁决，会把投影误锁到
+        #   另一条边（"路线自交时会误锁到另一条边"是它 docstring 里既有的警告），
+        #   s 会凭空前跳一整段（实测 +1.15 m）；而"取离 hint 最近的候选"才是连续性语义。
+        #   窗口给到整条路线长度 = 全扫；候选集是窗口投影的**超集** ⇒ dist 只会变好不会变差。
+        glob = self._path.project(x, y, s_hint=self._s_hint,
+                                  window_m=self._path.total_length, allow_backward=True)
         jump = float(glob.s) - float(proj.s)
         # ---- ★大跳跃可信闸（2026-10-17 实车 +12.82 m 误锁的修复）----
         # 只判"新投影更近"是不够的：车跑到两条路线腿**之间**时，两条腿都离车 0.6~0.8 m，
@@ -659,43 +568,45 @@ class LocalizationTask(TaskThread):
         return moved > self.arrival_m and proj.dist > self.stuck_dist_m
 
     # ------------------------------------------------------------------ #
-    #  ★★ 航向完整性守卫（差速底盘模型；2026-10-17 K9 事故，2026-10-19 task-44）
+    #  ★★ 航向完整性守卫（2026-10-17 14:59 K9 事故）
     # ------------------------------------------------------------------ #
     def _update_yaw_guard(self, pose, age: float, now: float) -> None:
-        """用**相邻两帧位姿**估 yaw 率，按差速底盘包络判航向是否可信。
+        """用**相邻两帧位姿**估 yaw 率，判"物理上不可能/不可信"的航向变化。
 
-        ## 判据（三条闸 + 可恢复闩锁）
+        ## 判据（三条闸，缺一不可）
 
         1. **帧间隔可信**：`dt = 帧时刻差`，必须 `1e-6 < dt ≤ yaw_max_dt_s`。
            同一帧被两拍重复读（20 Hz 任务 vs 50 Hz 里程计）时 dt=0 ⇒ 不是新样本，跳过
            （**不清**连续计数）；丢帧/卡顿（dt > 0.6 s）角速度算不准 ⇒ 跳过并清零。
         2. **位姿连续**：帧间位移/Δt ≤ `yaw_plausible_speed_mps`。超过它说明这一帧不是
            "车开过去的"（重定位、测试传送、坐标系切换），角速度没有物理意义 ⇒ 跳过。
-        3. **差速包络**（不再用 Ackermann `v·tan(δmax)/L`）：
-           · 运动（v ≥ yaw_min_speed_mps）：
-             `ω_max = max(yaw_diff_spin_dps, yaw_diff_gain_dps_per_mps × v)`
-             —— 低速允许原地转向（60°/s），随速度按左右轮差速比例放大
-             （A2 实测 79.8°/s @ 0.19 m/s ⇒ 420°/s per m/s，取 525 含 25% 余量）。
-           · 静止（v < yaw_min_speed_mps）：`ω_max = yaw_static_dps`（45°/s）。
-             车没动却被"转"了 —— 只可能是被搬/被转或 yaw 链坏了。
-        4. **单帧跳变**：`|Δyaw| > yaw_jump_deg`（30°）⇒ 立即判故障（重定位/坐标跳变）。
-        5. **IMU 交叉核对**：位姿 yaw 率 > `yaw_imu_check_dps` 且 IMU |gz| < ratio×位姿率
-           ⇒ 判"链内部矛盾"（与差速包络无关，IMU 说没转就是不可信）。
-        6. **持续 N 帧**：超限/矛盾连续 `yaw_bad_ticks` 个新帧才判故障；单帧毛刺不刹。
-
-        ## 闩锁与恢复（2026-10-19 改）
-
-        判故障后 `yaw_untrusted=True`，经 `P_MOTION_LIMIT{speed_mps:0}` + `EV_TASK_FAULT`
-        请求停车（Safety 仍锁存 SAFE_STOP，需显式 `clear_safety()`）。
-        **不再永久锁死**：连续 `yaw_clear_ticks`（默认 20 个新帧）全部可信 ⇒ 自动复位
-        `yaw_untrusted=False` 并把 P_MOTION_LIMIT 撤为 None；也可调用
-        `reset_yaw_guard()` 人工复位。复位只清"航向守卫"，Safety 的清场仍按原规程人工执行。
+           ★ 这一条同时是"静止 vs 手动旋转"的分界：静止时位移≈0 ⇒ 走静止判据；
+           人推着车走（轮速/位移在动）⇒ 按运动判据，超过 Ackermann 上限一样判故障。
+        3. **超限且持续**：`|ω| > ω_max` 连续 `yaw_bad_ticks` 个**新帧**样本才判故障。
+           · 运动（v ≥ yaw_min_speed_mps）：ω_max = margin·v·tan(δmax)/L + floor，
+             且不低于 abs_floor（低速蠕动不误报）；
+           · 静止（v <  yaw_min_speed_mps）：ω_max = yaw_static_dps。
+             车没动却被"转"了 —— 只可能是被搬/被转或 yaw 链坏了，两种都不许拿来导航。
 
         ## 为什么用帧间隔而不是拍间隔
 
         任务 20 Hz、里程计 50 Hz、serial_reader 打印 5 Hz（事故日志实测 dt 中位 0.2 s）。
         用拍间隔（0.05 s）算 0.2 s 里 24° 的跳变会得到 **480°/s 的 4 倍假读数**；
         用帧时刻差才是物理角速度。
+
+        ## 动作（**复用现有机制**，不新造）
+
+        判故障后：① 写 `P_MOTION_LIMIT{speed_mps:0}`（既有写/读契约 ⇒ 执行侧立刻刹）；
+        ② 发 `EV_TASK_FAULT`（SafetyTask 检查④ ⇒ 锁存 SAFE_STOP + 每拍续发零速）。
+        本任务**不**把自己置 FAULT：线程还要继续发 P_POSE/遥测（与 Safety 的"唯一制动者"
+        分工一致）。闩锁：判定后 `yaw_untrusted=True` 永不复位（与 Safety"不自动恢复"同语义）。
+
+        ## 实测（_tmp_session/run_20261017_1504/3_localization.log:152-185，5 Hz 真实片段）
+
+        前 3.4 s（14:59:28.6~32.0，18 帧，正常沿 K9 直道）**0 个超限样本**（角速度
+        0~60°/s，上限 55~110°/s）⇒ 不误报；14:59:32.6 起连续 3 个样本超限
+        （85/112/79 vs 82/52/39）⇒ 判故障，比投影跳变（38.2 s）早 **5.6 s**、
+        比越界（49.2 s）早 **16.6 s**。
         """
         if not self.yaw_guard_enabled:
             return
@@ -721,127 +632,69 @@ class LocalizationTask(TaskThread):
         limit = self._yaw_limit_dps(v)
         self._yaw_last_rate_dps = rate
         self._yaw_last_limit_dps = limit
-        self._yaw_last_dyaw_deg = geo.deg(dyaw)
         if rate > self.yaw_max_rate_dps:
             self.yaw_max_rate_dps = rate
         self.yaw_guard_samples += 1
-        mismatch = self._yaw_imu_mismatch(rate)
-        jump = abs(geo.deg(dyaw)) > self.yaw_jump_deg
-        # ---- 手动旋转 / 遥控接管：人比机器优先（但 IMU 矛盾不豁免）----
-        if self._manual_override() and not mismatch:
-            self.yaw_manual_ticks += 1
+        if rate <= limit:
             self._yaw_bad_run = 0
-            self._yaw_good_run = 0
-            if self._warn.allow("yaw_manual", now):
-                self._log(f"航向守卫：遥控接管中 yaw {rate:.1f}°/s / 单帧 {geo.deg(dyaw):+.1f}°"
-                          f"（上限 {limit:.1f}°/s，{'静止' if v < self.yaw_min_speed_mps else '运动'}，"
-                          f"v={v:.2f} m/s）→ 按人工操作处理，不判故障"
-                          f"（累计 {self.yaw_manual_ticks} 拍）")
-            return
-        bad = jump or rate > limit or mismatch
-        if not bad:
-            self._yaw_bad_run = 0
-            if self.yaw_untrusted:
-                self._yaw_good_run += 1
-                if self._yaw_good_run >= self.yaw_clear_ticks:
-                    self._clear_yaw_untrusted(now)
             return
         self.yaw_bad_samples += 1
-        self._yaw_good_run = 0
-        if jump:
-            # 单帧跳变：不等 N 帧，立即判故障（重定位/坐标跳变不会连续 3 帧才出现）
-            self._yaw_bad_run = self.yaw_bad_ticks
-            self._trip_yaw_untrusted(v, rate, limit, now,
-                                     jump_deg=abs(geo.deg(dyaw)), mismatch=mismatch)
-            return
         self._yaw_bad_run += 1
+        # ---- 手动旋转 / 遥控接管：人比机器优先（与 Safety 检查⑤同口径）----
+        if self._manual_override():
+            self.yaw_manual_ticks += 1
+            self._yaw_bad_run = 0
+            if self._warn.allow("yaw_manual", now):
+                self._log(f"航向守卫：遥控接管中 yaw {rate:.1f}°/s 超上限 {limit:.1f}°/s"
+                          f"（{'静止' if v < self.yaw_min_speed_mps else '运动'}，v={v:.2f} m/s）"
+                          f" → 按人工操作处理，不判故障（累计 {self.yaw_manual_ticks} 拍）")
+            return
         if self._yaw_bad_run < self.yaw_bad_ticks:
             return
-        self._trip_yaw_untrusted(v, rate, limit, now, mismatch=mismatch)
+        self._trip_yaw_untrusted(v, rate, limit, now)
 
     def _yaw_limit_dps(self, v: float) -> float:
-        """当前速度下允许的 yaw 率上限（°/s）；差速底盘包络，理由见 `_update_yaw_guard`。"""
+        """当前速度下允许的 yaw 率上限（°/s）；取值理由见 `_update_yaw_guard`。"""
         if v < self.yaw_min_speed_mps:
             return self.yaw_static_dps
-        return max(self.yaw_diff_spin_dps,
-                   self.yaw_diff_gain_dps_per_mps * v)
+        v_eff = min(v, self._yaw_v_cap)
+        kin_dps = geo.deg(v_eff * self._yaw_kin_gain)
+        return max(kin_dps * self.yaw_kin_margin + self.yaw_rate_floor_dps,
+                   self.yaw_abs_floor_dps)
 
-    def _yaw_imu_mismatch(self, rate: float) -> bool:
-        """位姿 yaw 率与 IMU gyro 是否矛盾；无 IMU / 低于核对阈值 → False（自动降级）。"""
-        if self._imu_fn is None or rate < self.yaw_imu_check_dps:
-            return False
-        imu_rate = self._imu_yaw_rate_dps()
-        if imu_rate is None:
-            return False
-        return imu_rate < rate * self.yaw_imu_mismatch_ratio
-
-    def _trip_yaw_untrusted(self, v: float, rate: float, limit: float, now: float,
-                            *, jump_deg: float | None = None,
-                            mismatch: bool = False) -> None:
+    def _trip_yaw_untrusted(self, v: float, rate: float, limit: float, now: float) -> None:
         """判「航向失去可信」：走既有 `P_MOTION_LIMIT` + `EV_TASK_FAULT` 两条通路。"""
-        if self.yaw_untrusted:
-            return                          # 已闩锁：不重复计数/不重复发事件
         self.yaw_untrusted = True
         self.yaw_guard_trips += 1
         moving = v >= self.yaw_min_speed_mps
+        # ---- 诊断增强：有 IMU 就比一下（只决定 reason 文案，不改刹车语义）----
         imu_rate = self._imu_yaw_rate_dps()
+        mismatch = (imu_rate is not None and rate > 0.0
+                    and imu_rate < rate * self.yaw_imu_mismatch_ratio)
         if mismatch:
             self.yaw_imu_mismatch += 1
-        if jump_deg is not None:
-            reason = "yaw_jump"
-            text = (f"单帧 yaw 跳变 {jump_deg:.1f}° > 阈值 {self.yaw_jump_deg:.1f}°"
-                    f"（帧间隔角速度 {rate:.1f}°/s，v={v:.2f} m/s）"
-                    f" = 重定位/坐标跳变，航向不可信")
-        elif not moving:
+        if not moving:
             reason = "yaw_static_rotation"
             text = (f"静止期 yaw {rate:.1f}°/s > 上限 {limit:.1f}°/s（v={v:.3f} m/s）："
                     f"车没在动、yaw 却被转了 = 被搬/被转或 yaw 链坏了")
-        elif mismatch and imu_rate is not None:
+        elif mismatch:
             reason = "yaw_pose_imu_mismatch"
-            text = (f"yaw 率与 IMU 矛盾：位姿 {rate:.1f}°/s > 包络 {limit:.1f}°/s，"
+            text = (f"yaw 率与 IMU 矛盾：位姿 {rate:.1f}°/s > 上限 {limit:.1f}°/s，"
                     f"但 IMU |gz|={imu_rate:.1f}°/s（v={v:.2f} m/s）⇒ 位姿/航向链内部不一致")
         else:
-            reason = "yaw_rate_over_diff"
-            text = (f"yaw {rate:.1f}°/s > 差速包络 {limit:.1f}°/s（v={v:.2f} m/s，"
-                    f"增益 {self.yaw_diff_gain_dps_per_mps:.0f}°/s per m/s，"
-                    f"低速允许 {self.yaw_diff_spin_dps:.0f}°/s）")
+            reason = "yaw_rate_over_kinematic"
+            kin = geo.deg(min(v, self._yaw_v_cap) * self._yaw_kin_gain)
+            text = (f"yaw {rate:.1f}°/s > 运动学上限 {limit:.1f}°/s（v={v:.2f} m/s，"
+                    f"Ackermann 极限 {kin:.1f}°/s）")
         self._yaw_reason = reason
         if self.yaw_guard_trips == 1:
             self._log(f"🧭❌ 航向失去可信（{reason}）：{text} → 请求停车 + 发 EV_TASK_FAULT"
-                      f"（连续 {self._yaw_bad_run} 个新帧；连续 {self.yaw_clear_ticks} 帧可信后自动复位）")
+                      f"（连续 {self._yaw_bad_run} 个新帧超限；已闩锁，不自动恢复）")
         if not self._yaw_fault_published:
             self._yaw_fault_published = True
             # ★ 复用既有 fault 事件通路：SafetyTask 检查④ 据此锁存 SAFE_STOP 并逐拍刹车。
             self.bus.publish(EV_TASK_FAULT, source=self.name, task=self.name,
                              where="heading_untrusted", error=text)
-
-    def _clear_yaw_untrusted(self, now: float) -> None:
-        """条件消失后自动复位守卫（Safety 的 SAFE_STOP 仍需显式 clear_safety()）。"""
-        if not self.yaw_untrusted:
-            return
-        self.yaw_untrusted = False
-        self.yaw_guard_recoveries += 1
-        self._yaw_bad_run = 0
-        self._yaw_good_run = 0
-        self._yaw_fault_published = False
-        self._log(f"✅ 航向守卫自动恢复：连续 {self.yaw_clear_ticks} 个新帧可信"
-                  f"（累计恢复 {self.yaw_guard_recoveries} 次）→ 撤销限速请求；"
-                  f"Safety 若已锁存，需显式 clear_safety()")
-
-    def reset_yaw_guard(self, now: float | None = None) -> None:
-        """人工复位航向守卫（条件消失但不想等自动复位时用；不替代 Safety 清场）。"""
-        ts = self.clock() if now is None else now
-        was = self.yaw_untrusted
-        self.yaw_untrusted = False
-        self._yaw_bad_run = 0
-        self._yaw_good_run = 0
-        self._yaw_fault_published = False
-        self._yaw_reason = ""
-        self.yaw_manual_resets += 1
-        if was:
-            self.bb.set(P_MOTION_LIMIT, None, source=self.name, ts=ts)
-        self._log(f"航向守卫：人工复位（第 {self.yaw_manual_resets} 次；原状态"
-                  f"{'闩锁' if was else '未闩锁'}）→ Safety 仍需显式 clear_safety()")
 
     def _imu_yaw_rate_dps(self) -> float | None:
         """最近一帧 IMU 的 |gyro z|（°/s）；无 IMU/过期/形状不对 → None（判据自动降级）。"""
@@ -872,72 +725,6 @@ class LocalizationTask(TaskThread):
             return bool(self._manual_fn())
         except Exception:                    # noqa: BLE001
             return False
-
-    # ------------------------------------------------------------------ #
-    #  ★★ 行进方向裁决（共线折返时投影唯一能用的分段判据）
-    # ------------------------------------------------------------------ #
-    def _update_travel_heading(self, pose) -> None:
-        """用**实际位移**估计「车正在往哪边走」（地图系弧度），位移过小时锁存上次值。
-
-        ## 为什么必须做（2026-10-18 10:14 实车烟测，路线 N10 M10 R:N10）
-
-        折返段压在同一条直线上：同一个物理点到「去程段」和「回程段」**完全等距**，
-        位置信息裁决不了它属于哪一段。Localization 启动时 s_hint=None，第一次全路线
-        投影在 N10（= 终点格，s=0.70）上按「无提示取更靠后的段」选中了**回程段末点**
-        ⇒ P_ROUTE_S=0.700 并当场触发「到位吸附 N10（航点 #2）」；之后每拍用
-        allow_backward=False 的窗口 [0.70, 0.82] 投影，车怎么走都只能返回 0.700，
-        dist 从 0.11 涨到 0.32 ⇒ 假漂移 0.301 → drift 限速 → drift_stop 急停。
-
-        唯一能区分两条共线段的判据是「车正在往哪边走」：往前一趟 ⇒ 命中去程段，
-        倒回来 ⇒ 命中回程段。方向取**实测位移**：
-        · 倒车时位移方向天然是车头反向，不需要知道 segment_is_reverse，
-          也就不会形成「命令符号 → 选段 → is_rev → 命令符号」的自指环
-          （tasks/tracker.py 的同款长注释有完整血证）；
-        · 位移小于 pursuit.motion_heading_eps_m（1 mm）时方向是噪声 ⇒ 锁存上次可信值；
-        · 从未动过（首拍/换载后首拍）⇒ 退化为车头 yaw（自动任务总是从路线起点对准
-          首段出发；一旦车动 ≥1 mm，位移方向立刻纠正它）。
-
-        ⚠️ 已知边界：yaw 兜底假设「首段是正向」。若路线首段本身是倒车段（R: 开头）
-        且车头已对准倒车方向，首拍方向会反 —— 本卡的烟测路线首段是正向，未覆盖；
-        车一动（≥1 mm）即自我纠正。
-        """
-        dist = 0.0
-        dx = dy = 0.0
-        if self._last_motion_xy is not None:
-            dx = float(pose.x) - self._last_motion_xy[0]
-            dy = float(pose.y) - self._last_motion_xy[1]
-            dist = math.hypot(dx, dy)
-        self._last_motion_xy = (float(pose.x), float(pose.y))
-        # 位姿不连续（重定位/测试传送/换载）：方向不可信，不更新。
-        # 门限 0.10 m/拍：本车最快 0.35 m/s，20 Hz = 1.8 cm、5 Hz 回放 = 7 cm，都在门限内；
-        # 超过 0.10 m 的"单拍位移"不可能是开出来的（测试里常见的 set_pose 传送就会命中）。
-        if dist >= 0.10:
-            return
-        if dist >= self._motion_eps_m:
-            self._travel_heading = math.atan2(dy, dx)   # 倒车时天然是车头反向
-            self.motion_heading_ticks += 1
-        elif self._travel_heading is None:
-            self._travel_heading = float(pose.yaw)
-
-    def _opposes_travel(self, proj) -> bool:
-        """投影点所在段的几何方向是否与「实际行进方向」相反（折返压线误锁的判据）。
-
-        为什么需要（2026-10-18 烟测）：折返段与去程段完全共线时，顶点附近的同一个物理点
-        同时属于两条段；窗口一旦把搜索范围推到顶点之后（例如「到位吸附」把信念锚到顶点、
-        下一拍原始位姿还在顶点之前），最近点会落在**回程段**上 —— 距离比去程段的顶点候选
-        更近（0 vs 6.4 cm），纯位置/连续性都裁决不了，只有方向能。
-        ⚠️ 阈值取 150°（不是 90°）：90° 直角弯、135° PIVOT 换向都属正常，不能误伤；
-        共线折返是 180°，留 30° 给噪声与「先原地转再走」的过渡拍。
-        """
-        if not self.motion_heading_enabled or self._travel_heading is None:
-            return False
-        if self._path is None:
-            return False
-        i = int(proj.seg_index)
-        segs = self._path.segments
-        if i < 0 or i >= len(segs):
-            return False
-        return abs(geo.ang_diff(segs[i][5], self._travel_heading)) > math.radians(150.0)
 
     def _anchor(self, x: float, y: float, yaw: float, proj, now: float):
         """到位吸附。返回锚定后的 Pose；未触发返回 None。
@@ -1158,19 +945,8 @@ class LocalizationTask(TaskThread):
             "scale_suspect_max": round(self.scale_suspect_max, 4),
             "anchor_scale_max": self.anchor_scale_max,
             # ★航向完整性守卫（2026-10-17 K9 事故）：判定结果 + 分母（误报率评估用）
-            # ★行进方向裁决（折返压线）的可见化
-            "motion_heading_ticks": self.motion_heading_ticks,
-            "direction_rejects": self.direction_rejects,
-            "travel_heading_deg": (None if self._travel_heading is None
-                                   else round(geo.deg(self._travel_heading), 1)),
             "yaw_untrusted": self.yaw_untrusted,
             "yaw_guard_trips": self.yaw_guard_trips,
-            "yaw_guard_recoveries": self.yaw_guard_recoveries,
-            "yaw_manual_resets": self.yaw_manual_resets,
-            "yaw_clear_ticks": self.yaw_clear_ticks,
-            "yaw_jump_deg": self.yaw_jump_deg,
-            "yaw_diff_gain_dps_per_mps": self.yaw_diff_gain_dps_per_mps,
-            "yaw_diff_spin_dps": self.yaw_diff_spin_dps,
             "yaw_guard_samples": self.yaw_guard_samples,
             "yaw_bad_samples": self.yaw_bad_samples,
             "yaw_skipped_frames": self.yaw_skipped_frames,
@@ -1180,7 +956,6 @@ class LocalizationTask(TaskThread):
             "yaw_last_rate_dps": round(self._yaw_last_rate_dps, 1),
             "yaw_max_rate_dps": round(self.yaw_max_rate_dps, 1),
             "yaw_last_limit_dps": round(self._yaw_last_limit_dps, 1),
-            "yaw_last_dyaw_deg": round(self._yaw_last_dyaw_deg, 1),
             "warnings": self.drift_warnings,
             "note": "吸附会掩盖尺度误差：漂移告警为 0 **不等于**里程健康",
         }
@@ -1317,7 +1092,6 @@ class LocalizationTask(TaskThread):
                            "scale_suspect": self.scale_suspect,
                            # ★航向守卫的可见化（读侧只该用 speed_mps/reason，其余仅供遥测）
                            "yaw_untrusted": self.yaw_untrusted,
-                            "yaw_guard_recoveries": self.yaw_guard_recoveries,
                            "yaw_rate_dps": round(self._yaw_last_rate_dps, 1),
                            "yaw_limit_dps": round(self._yaw_last_limit_dps, 1),
                            "since": now}

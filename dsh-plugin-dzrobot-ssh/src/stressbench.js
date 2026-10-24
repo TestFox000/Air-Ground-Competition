@@ -15,8 +15,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  appendMeta, CELL_RE, checkPlan, COL_LETTERS, fieldSpec, normalizeCells,
-  plannerEngineChoices, runSimJob, setStressBusy, SIM_ROOT,
+  appendMeta, CELL_RE, COL_LETTERS, fieldSpec, normalizeCells, runSimJob, setStressBusy, SIM_ROOT,
 } from './simbench.js'
 
 /** 压测产物根（§B.8：地图/统计只落这里，config/**、src/dzbrain/** 零写入）。 */
@@ -192,42 +191,18 @@ export function stressStats(records) {
   const sum = { finishS: 0, planMs: 0, wallS: 0, ratio: 0 }
   const cnt = { finishS: 0, planMs: 0, wallS: 0, ratio: 0 }
   let finished = 0
-  let planned = 0
-  let planFailed = 0
-  let genUnsolved = 0
-  const tokens = []
-  const engines = {}
-  const failReasons = {}
   for (const record of list) {
     const status = String(record?.status ?? 'unknown')
     statusCounts[status] = (statusCounts[status] ?? 0) + 1
-    if (status === 'planned') planned += 1
-    if (status === 'plan-failed') planFailed += 1
-    if (status === 'generator-unsolvable') genUnsolved += 1
     if (record?.metrics?.finished === true) {
       finished += 1
       if (Number.isFinite(record.metrics.time_s)) { sum.finishS += record.metrics.time_s; cnt.finishS += 1 }
     }
     if (Number.isFinite(record?.plan?.ms)) { sum.planMs += record.plan.ms; cnt.planMs += 1 }
-    if (Number.isFinite(record?.plan?.tokenCount) && record.plan.tokenCount > 0) tokens.push(record.plan.tokenCount)
-    if (record?.plan?.engine) engines[record.plan.engine] = (engines[record.plan.engine] ?? 0) + 1
-    // 失败主因：plan-failed / generator-unsolvable / invalid / error 的末行（页面顶部「失败主因」同源）
-    if (status !== 'planned' && status !== 'done') {
-      const raw = String(record?.plan?.stderrTail || record?.error || '')
-      const last = raw.split('\n').filter(line => line.trim() !== '').pop() || ''
-      const reason = last.replace(/^[\s·•-]+/, '').trim().slice(0, 120)
-      if (reason) failReasons[reason] = (failReasons[reason] ?? 0) + 1
-    }
     if (Number.isFinite(record?.seconds)) { sum.wallS += record.seconds; cnt.wallS += 1 }
     if (Number.isFinite(record?.metrics?.length_ratio)) { sum.ratio += record.metrics.length_ratio; cnt.ratio += 1 }
   }
   const avg = (value, count, digits) => (count > 0 ? Math.round((value / count) * (10 ** digits)) / (10 ** digits) : null)
-  const tokenStats = tokens.length > 0
-    ? { avg: Math.round((tokens.reduce((a, b) => a + b, 0) / tokens.length) * 10) / 10,
-        min: Math.min(...tokens), max: Math.max(...tokens) }
-    : { avg: null, min: null, max: null }
-  const topReasons = Object.entries(failReasons).sort((a, b) => b[1] - a[1])
-    .slice(0, 5).map(([reason, count]) => ({ reason, count }))
   return {
     n,
     statusCounts,
@@ -236,20 +211,8 @@ export function stressStats(records) {
     avgPlanMs: avg(sum.planMs, cnt.planMs, 1),
     avgWallS: avg(sum.wallS, cnt.wallS, 2),
     avgLengthRatio: avg(sum.ratio, cnt.ratio, 4),
-    // 规划压测口径（跟踪压测下 ok=0 属正常：track 没有 planned 状态）
-    plan: {
-      ok: planned,
-      fail: planFailed,
-      okRate: n > 0 ? Math.round((planned / n) * 10000) / 10000 : null,
-      genUnsolved,
-      avgMs: avg(sum.planMs, cnt.planMs, 1),
-      tokens: tokenStats,
-      engines,
-      topReasons,
-    },
     // 分母显式（§B.6：只给均值不给分母，50 张挂 20 张也看不出来）
-    counts: { total: n, finished, finishS: cnt.finishS, planMs: cnt.planMs, wallS: cnt.wallS,
-              lengthRatio: cnt.ratio, planned, planFailed },
+    counts: { total: n, finished, finishS: cnt.finishS, planMs: cnt.planMs, wallS: cnt.wallS, lengthRatio: cnt.ratio },
     missing: { time_s: n - cnt.finishS, planMs: n - cnt.planMs, wallS: n - cnt.wallS, lengthRatio: n - cnt.ratio },
   }
 }
@@ -262,8 +225,7 @@ export function stressStatus() {
 /** 批次结果回读（供 GET /sim/stress/result?id=）：summary.json 里存 {batch, stats, records}。 */
 export function stressResult(id) {
   const clean = String(id ?? '')
-  // label 来自调用方（cleanLabel 允许下划线）⇒ batchId 可能含多个下划线，不能只认一个
-  if (!/^[0-9]+_[0-9A-Za-z_一-龥-]+$/.test(clean)) return { ok: false, code: 404, error: '非法 batchId' }
+  if (!/^[0-9]+_[0-9A-Za-z一-龥-]+$/.test(clean)) return { ok: false, code: 404, error: '非法 batchId' }
   try {
     const summary = JSON.parse(fs.readFileSync(path.join(STRESS_DIR, clean, 'summary.json'), 'utf8'))
     return { ok: true, batch: summary.batch, stats: summary.stats, records: summary.records }
@@ -282,29 +244,19 @@ const state = { running: false, batchId: null, done: 0, total: 0 }
  *     默认（false）仍 await 全批返回完整结果，合同签名不变。
  *   · 仿真 seed = `(seed*1000+i) mod 2^31`（§B.7，与地图生成同源可复现）。
  */
-export async function runStress({
-  count = 64, seed, concurrency = 4, label = 'stress', background = false,
-  mode = 'track', engine = null, resample = false, maxAttempts = 8,
-} = {}) {
+export async function runStress({ count = 64, seed, concurrency = 4, label = 'stress', background = false } = {}) {
   if (state.running) return { ok: false, code: 409, error: '压测批次正在进行，稍候再试' }
   if (!fs.existsSync(path.join(SIM_ROOT, 'src', 'dzbrain'))) {
-    return { ok: false, code: 503, error: '工作区不可用（' + SIM_ROOT + ' 下没有 src/dzbrain）' }
+    return { ok: false, code: 503, error: `工作区不可用（${SIM_ROOT} 下没有 src/dzbrain）` }
   }
-  const runMode = mode === 'plan' ? 'plan' : 'track'
   const total = clampInt(count, LIMITS.count, 64)
   const pool = clampInt(concurrency, LIMITS.concurrency, 4)
   const cleanLabel = String(label ?? '').replace(/[^\w一-龥-]/g, '').slice(0, 40) || 'stress'
   const parsedSeed = Number(seed)
   const useSeed = Number.isInteger(parsedSeed) && parsedSeed >= 0 ? parsedSeed : Date.now() % 2147483647
-  const engineWanted = engine == null || String(engine).trim() === '' ? null : String(engine).trim()
-  if (engineWanted && !plannerEngineChoices().includes(engineWanted)) {
-    return { ok: false, code: 400,
-      error: '不认识的规划引擎：' + engineWanted + '（plan_route.py 只认 ' + plannerEngineChoices().join('/') + '）' }
-  }
-  // 补图只给「跟踪压测」用：规划压测若也补图，plan-failed 会被选择偏差吃掉，成功率永远≈100%。
-  const resampleOn = runMode === 'track' && resample === true
-  const maxTry = resampleOn ? clampInt(maxAttempts, [1, 20], 8) : 1
-  const batchId = String(Date.now()) + '_' + cleanLabel
+  const batchId = `${Date.now()}_${cleanLabel}`
+  const maps = []
+  for (let i = 0; i < total; i += 1) maps.push(generateMap({ seed: useSeed, index: i }))
 
   state.running = true
   state.batchId = batchId
@@ -316,91 +268,35 @@ export async function runStress({
     const records = new Array(total)
     let cursor = 0
     const runOne = async seq => {
+      const map = maps[seq]
       const simSeed = (useSeed * 1000 + seq) % 2147483648     // §B.7 mod 2^31
       // §B.5 防同毫秒互踩 + §B.8 产物只落 stress/<batchId>/：outDir = artifacts/sim/<runId>，
-      // 所以 runId = 'stress/<batchId>/<规格字面 ts_batchId_seq_label>' —— 两个口径同时满足。
-      const runId = 'stress/' + batchId + '/' + Date.now() + '_' + batchId + '_' + seq + '_' + cleanLabel
-      let last = null
-      for (let attempt = 0; attempt < maxTry; attempt += 1) {
-        // attempt 0 = 老口径 mulberry32(seed+seq)；重试用固定大步长偏移，同 seed 仍可复现。
-        const map = generateMap({ seed: (useSeed + attempt * 1000003) >>> 0, index: seq })
-        if (!map.ok) { last = { kind: 'invalid', map }; continue }
-
-        // 规划压测：每张图只跑一次 plan_route，成败即测量结果（不进入仿真）。
-        if (runMode === 'plan') {
-          const check = await checkPlan({ field: map.field, engine: engineWanted })
+      // 所以 runId = `stress/<batchId>/<规格字面 ts_batchId_seq_label>` —— 两个口径同时满足。
+      const runId = `stress/${batchId}/${Date.now()}_${batchId}_${seq}_${cleanLabel}`
+      try {
+        if (!map.ok) {
           const record = {
             id: runId, at: new Date().toISOString(), label: cleanLabel,
-            batchId, seq, seed: simSeed, mode: 'plan',
-            genAttempts: attempt + 1, planRejects: 0,
-            field: map.field,
-            status: check.ok ? 'planned' : 'plan-failed',
-            plan: {
-              exitCode: check.exitCode, timedOut: check.timedOut,
-              engine: check.engine, engineRequested: check.engineRequested,
-              engineSource: check.engineSource, ms: check.ms,
-              tokenCount: check.tokens.length,
-              crossing: check.plan?.crossing ?? null,
-              polyline_m: check.plan?.polylength_m ?? null,
-              reverseSegments: check.plan?.reverse_segments ?? null,
-              checkExit: check.check?.exit ?? null,
-              failures: check.failures,
-              stderrTail: check.stderrTail,
-            },
-            ...(check.ok ? { route: check.tokens } : {}),
+            batchId, seq, seed: simSeed, status: 'invalid', error: map.error, field: map.field,
           }
-          // 规划压测没有仿真产物，不进 run_meta.jsonl（否则 64 条无轨迹记录淹没「运行历史」）；
-          // 批次级审计看 artifacts/sim/stress/<batchId>/summary.json（含全部 records）。
+          appendMeta(record)                // 生成失败照实进同一台账（§B.2）
           return record
         }
-
-        // 跟踪压测（补图时先轻量预规划；预规划不过 => 换下一张图，不浪费整趟仿真）
-        let planRejects = 0
-        if (resampleOn) {
-          const pre = await checkPlan({ field: map.field, engine: engineWanted })
-          if (!pre.ok) { planRejects += 1; last = { kind: 'plan', pre, map }; continue }
+        const result = await runSimJob(
+          { label: cleanLabel, seed: simSeed, field: map.field },
+          { lock: false, runId, batch: { batchId, seq } },
+        )
+        return result.record ?? {
+          id: runId, batchId, seq, seed: simSeed, status: 'error', error: result.error ?? 'unknown',
         }
-        try {
-          const body = { label: cleanLabel, seed: simSeed, field: map.field }
-          if (engineWanted) body.engine = engineWanted
-          const result = await runSimJob(body, { lock: false, runId, batch: { batchId, seq } })
-          const record = result.record ?? {
-            id: runId, batchId, seq, seed: simSeed, status: 'error', error: result.error ?? 'unknown',
-          }
-          record.mode = 'track'
-          record.genAttempts = attempt + 1
-          record.planRejects = planRejects
-          return record
-        } catch (error) {
-          const record = {
-            id: runId, batchId, seq, seed: simSeed, status: 'error',
-            mode: 'track', genAttempts: attempt + 1, planRejects,
-            error: String(error?.message ?? error),
-          }
-          appendMeta(record)
-          return record
+      } catch (error) {
+        const record = {
+          id: runId, batchId, seq, seed: simSeed, status: 'error',
+          error: String(error?.message ?? error),
         }
+        appendMeta(record)
+        return record
       }
-      // 生成器/预筛耗尽：单列 generator-unsolvable（不混进规划器的 plan-failed 失败率）
-      const plan = last?.kind === 'plan' ? last.pre : null
-      const record = {
-        id: runId, at: new Date().toISOString(), label: cleanLabel, batchId, seq, seed: simSeed,
-        mode: runMode, genAttempts: maxTry, planRejects: plan ? maxTry : 0,
-        status: plan ? 'generator-unsolvable' : 'invalid',
-        field: last?.map?.field ?? null,
-        error: plan ? (plan.error || '规划器无解') : (last?.map?.error || '生成器静态自检未过'),
-        ...(plan ? {
-          plan: {
-            exitCode: plan.exitCode, timedOut: plan.timedOut,
-            engine: plan.engine, engineRequested: plan.engineRequested,
-            engineSource: plan.engineSource, ms: plan.ms,
-            tokenCount: plan.tokens.length,
-            failures: plan.failures, stderrTail: plan.stderrTail,
-          },
-        } : {}),
-      }
-      appendMeta(record)
-      return record
     }
     const workers = []
     for (let w = 0; w < Math.min(pool, total); w += 1) {
@@ -417,14 +313,12 @@ export async function runStress({
 
     const stats = stressStats(records)
     const summary = {
-      batch: { batchId, seed: useSeed, count: total, concurrency: pool, label: cleanLabel,
-               mode: runMode, engine: engineWanted, resample: resampleOn, maxAttempts: maxTry,
-               at: new Date().toISOString() },
+      batch: { batchId, seed: useSeed, count: total, concurrency: pool, label: cleanLabel, at: new Date().toISOString() },
       stats,
       records,
     }
     fs.mkdirSync(path.join(STRESS_DIR, batchId), { recursive: true })
-    fs.writeFileSync(path.join(STRESS_DIR, batchId, 'summary.json'), JSON.stringify(summary, null, 2) + '\n', 'utf8')
+    fs.writeFileSync(path.join(STRESS_DIR, batchId, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`, 'utf8')
     return { ok: true, batchId, records, stats }
   })()
 

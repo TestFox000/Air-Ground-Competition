@@ -274,14 +274,6 @@ ROUTE_CHECK_TOL_HI = 0.06
 
 _CROSS_COL = geo.COL_LETTERS.index(V.CROSS_COLUMN)
 
-#: ★ 目标函数口径（TRACK-PLAN-B1-20261021）。**默认 legacy = 历史行为逐字节不变**。
-#:   · legacy：最短巡回 + 硬约束，结构不满足抛 PlannerError（旧口径）；
-#:   · tasks ：任务优先 —— 先最大化成功任务数（8 雷 + 可达射击停站），再最小化时间；
-#:     约束不满足不再判"无解"，而是显式 degraded + 可执行兜底路线。
-OBJECTIVE_LEGACY = "legacy"
-OBJECTIVE_TASKS = "tasks"
-OBJECTIVES = (OBJECTIVE_LEGACY, OBJECTIVE_TASKS)
-
 
 class PlannerError(RuntimeError):
     """规划失败（无解 / 与校验器冲突 / 超出时间预算）。**绝不静默降级。**"""
@@ -1016,22 +1008,6 @@ def plate_bisector_axis_m(spec: MapSpec) -> tuple[float, float]:
     return (0.0, 0.0) if n < 1e-12 else (ax[0] / n, ax[1] / n)
 
 
-def plate_face_normal_m(spec: MapSpec) -> tuple[float, float]:
-    """靶板**板面法向**（= 垂直于两靶格连线的单位向量，米制地图帧）。单格靶区返回 (0,0)。
-
-    ★ 为什么必须与 plate_bisector_axis_m() 分开（2026-10-18 用户指令「射击点要顾及
-      靶子的两个面」）：两靶格连线是**轨道轴**（板沿它排开），而板面法向是它的**垂线** ——
-      两者差 90°，拿错轴的后果是把「南北」当成「东西」：
-      新图靶板 D7+E7（两格沿 y 排开、板心 (1.575,3.5)、面法向 = ±x）上，
-      C9=(0.875,4.025) 与 F9=(0.875,2.975) 的 x 都小于板心 ⇒ **物理上同在南侧**；
-      旧实现按轨道轴 (0,-1) 投影（比 y）却判出 C9=-1 / F9=+1 ⇒ 「双停站」是假的。
-    """
-    ax, ay = plate_bisector_axis_m(spec)
-    if ax == 0.0 and ay == 0.0:
-        return (0.0, 0.0)
-    return (-ay, ax)                      # 逆时针 90°：法向
-
-
 def barrier_sight_blocked(spec: MapSpec, p: tuple[float, float],
                           q: tuple[float, float]) -> bool:
     """线段 `p→q` 是否被**隔板**挡住。
@@ -1070,18 +1046,6 @@ def barrier_sight_blocked(spec: MapSpec, p: tuple[float, float],
         return False
     t = (x_wall - p[0]) / (q[0] - p[0])
     y = p[1] + t * (q[1] - p[1])
-    # ★靶窗例外（2026-10-18 用户指令：「射击点就是要顾及靶子的两个面」）：
-    #   靶板本身嵌在两半场隔板上 ⇒ 从隔板另一侧看过去时，视线交点必然落在**靶板自己的
-    #   y 跨度内**（穿过靶窗），这不是"被墙挡"，而是"正好从靶窗看靶"。
-    #   窗口 = 靶格 y 跨度 ± 半格（靶板可能比格心连线略宽半格）。
-    #   ⚠️ 只对"靶板确实嵌在这道隔板上"的图生效：靶格 x 与墙 x 相差 ≤ 半格；
-    #   其余图/其余方向仍按整墙拦（不做"任何靶都能穿墙看"的通用放行）。
-    half = 0.5 * geo.BLOCK_SIZE
-    tgt_y = [geo.block_to_meters(tg)[1] for tg in spec.targets]
-    tgt_x = [geo.block_to_meters(tg)[0] for tg in spec.targets]
-    on_wall = any(abs(tx - x_wall) <= half + 1e-9 for tx in tgt_x)
-    if on_wall and tgt_y and (min(tgt_y) - half - 1e-9) <= y <= (max(tgt_y) + half + 1e-9):
-        return False
     return y_lo <= y <= y_hi
 
 
@@ -1187,12 +1151,18 @@ def covering_stops(spec: MapSpec, pool: Sequence[str],
 
 
 def plate_side_of(spec: MapSpec, block: str) -> int:
-    """格 `block` 在靶板**哪一面**：+1 / -1（0 = 正好在板心平面或点名非法）。
+    """格 `block` 在靶板**哪一面**：+1 / -1（0 = 正好在板面平面内或点名非法）。
 
-    判据 = 该格相对板心的位移在 **板面法向**（plate_face_normal_m()，= 两靶格连线的
-    垂线）上的投影符号 ⇒ 同一侧看到同一个板面；两侧看到**相反**的板面。
-    ★ 2026-10-18 修：旧实现错把「靶格连线方向」（轨道轴）当法向，两靶沿 y 排开时会在
-      南北（±x）两侧都给出 ±1 —— 详见 plate_face_normal_m() 的注释。
+    判据 = 该格相对板心的位移在**板面法向**上的投影符号。板面法向 = 轨道轴的
+    **垂直方向**（靶板沿轨道平移 ⇒ 板面恒平行于轨道 ⇒ 法向 ⊥ 轨道）⇒ 同一侧
+    看到同一个板面；两侧看到**相反**的板面。
+
+    ★ 修正记录（2026-10-24）：旧版把 `plate_bisector_axis_m()` 的返回（**轨道轴**）
+    当成法向直接投影 —— 轨道轴区分的是"轨道哪一端"，与看到板面的哪一面无关
+    （实测：第五图 D3/G3 都在板心 x+0.70 m 一侧，旧判据却给出 ±1 两个"面"）。
+    ⇒ 旧版"两侧各留一个停站保证必见蓝面"的物理保障不成立：两个停站可能都只见
+    红面。t13 语义按本函数修正后重新自检；`check_route_structure` 的双停站侧别
+    检查随之真正把关。
 
     ★ 物理依据：靶板一面蓝一面红，**蓝面朝向每局随机但恒定**。只打蓝、
     打红扣分 ⇒ 必须两侧各留一个停站，保证至少一侧必见蓝面（见 `second_shoot_stop`）。
@@ -1200,7 +1170,10 @@ def plate_side_of(spec: MapSpec, block: str) -> int:
     if not block:
         return 0
     ctr_x, ctr_y = plate_center_m(spec)
-    nx, ny = plate_face_normal_m(spec)
+    ax, ay = plate_bisector_axis_m(spec)
+    if abs(ax) < 1e-12 and abs(ay) < 1e-12:              # 单格靶区：无轨道轴可言
+        return 0
+    nx, ny = -ay, ax                                     # 板面法向 = 轨道轴旋转 90°
     try:
         x, y = geo.block_to_meters(block)
     except ValueError:
@@ -1785,13 +1758,7 @@ def assert_legal(route: Route) -> None:
         prev, cur, nxt = route.waypoints[i - 1], route.waypoints[i], route.waypoints[i + 1]
         # 只要相邻两段里有倒车段，就不算"原地掉头"（车头没掉过来）——与
         # route_check 的 _is_rev_vertex 同一判据。
-        # ★ 判据必须落在**与本顶点相邻的两段**上：`reverse[i]` 表示"段 (i-1→i) 倒车"，
-        #   所以顶点 i 的两条邻段是 cur.reverse（进）与 nxt.reverse（出）。
-        #   旧写法 `prev.reverse or cur.reverse` 看的是顶点 i-1/i 的段：
-        #   ① 漏判"正向进 + 倒车出"——现场 41 token 第 7 顶点 H10→H8→R:H9 被误报 180° 折返，
-        #      导致规划器自己产出的合法倒车路线过不了 assert_legal；
-        #   ② 错杀"上一段倒车"的正常顶点。与 pivot_vertices 的判据逐字对齐。
-        if cur.reverse or nxt.reverse:
+        if prev.reverse or cur.reverse:
             continue
         angle = _angle_of(prev, cur, nxt)
         if angle > UTURN_REVERSE_DEG:
@@ -1936,16 +1903,6 @@ class PlanResult:
     mine_runs: tuple[tuple[str, int], ...] = ()
     #: 顺序代价（含折返惩罚）—— 供"加惩罚前 vs 后"对比用
     tour_cost: float = 0.0
-    #: ★ 任务向量（TRACK-PLAN-B1 新口径）：本路线**实际覆盖**的雷格名（按路线序）。
-    tasks_mines: tuple[str, ...] = ()
-    #: 本路线**实际落标**的射击停站格名（= token 里的 `*`，按路线序）。
-    tasks_stops: tuple[str, ...] = ()
-    #: 地图雷总数（分母；与 `tasks_mines` 一起构成 `雷 n/N`）。
-    tasks_mines_total: int = 0
-    #: True = 本条路线是**降级解**（任务没全做完 / 结构约束不满足）。
-    degraded: bool = False
-    #: 降级原因（`缺雷 …` / `缺停站` / `超时` / `结构`；空 = 未降级）。
-    degraded_reason: str = ""
 
     @property
     def pivot_count(self) -> int:
@@ -1989,17 +1946,6 @@ class PlanResult:
             "mine_axes": [{"block": b, "axis": a, "ok": o} for b, a, o in self.mine_axes],
             "mine_runs": [{"block": b, "run": r} for b, r in self.mine_runs],
             "tour_cost": round(self.tour_cost, 4),
-            # ★ 任务优先口径的显式读数（acceptance A 逐图要求 planned/degraded/reason/tasks）
-            "tasks_mines": list(self.tasks_mines),
-            "tasks_stops": list(self.tasks_stops),
-            "tasks": {
-                "mines_covered": len(self.tasks_mines),
-                "mines_total": int(self.tasks_mines_total or len(self.tasks_mines)),
-                "stops": len(self.tasks_stops),
-                "full": (not self.degraded),
-            },
-            "degraded": bool(self.degraded),
-            "degraded_reason": self.degraded_reason,
             "pivot_count": self.pivot_count,
             "pivots": [{"index": i, "block": b, "deg": round(d, 1)}
                        for i, b, d in self.pivots],
@@ -2022,10 +1968,6 @@ class PlanResult:
             f" | 顺序代价 {self.tour_cost:.2f}（折返惩罚 {self.pivot_penalty:.1f}/处）",
             "  " + " ".join(self.tokens),
         ]
-        if self.degraded:
-            lines.append(f"  🔶 降级：{self.degraded_reason or '未命名'} "
-                         f"（任务 雷 {len(self.tasks_mines)}/{self.tasks_mines_total}、"
-                         f"射击停站 {len(self.tasks_stops)}）")
         lines.extend(f"  ⚠️ {w}" for w in self.warnings)
         return "\n".join(lines)
 
@@ -2533,315 +2475,10 @@ def _u_shape_order(tour: "_Tour", start: tuple[int, int], end: tuple[int, int],
     return [start] + lower + upper + [end]
 
 
-# --------------------------------------------------------------------------- #
-#  ★ 任务优先口径（TRACK-PLAN-B1-20261021）的辅助函数
-# --------------------------------------------------------------------------- #
-def objective_mode(value: object) -> str:
-    """校验 objective 开关（缺省 legacy）。未知值 → PlannerError（不静默回退）。"""
-    obj = str(value or OBJECTIVE_LEGACY).strip().lower()
-    if obj not in OBJECTIVES:
-        raise PlannerError(f"未知 objective={value!r}（只支持 {'/'.join(OBJECTIVES)}）")
-    return obj
-
-
-def _side_split(cells: Sequence[tuple[int, int]]) -> tuple[list[tuple[int, int]],
-                                                          list[tuple[int, int]]]:
-    """按 K 列把本半场必访点分成「东侧（穿洞前）」与「西侧（穿洞后）」。"""
-    east = [c for c in cells if c[1] > _CROSS_COL]
-    west = [c for c in cells if c[1] < _CROSS_COL]
-    on = [c for c in cells if c[1] == _CROSS_COL]
-    return east, west + on
-
-
-def _side_shape_order(tour: "_Tour", start: tuple[int, int], end: tuple[int, int],
-                      mines_lower: Sequence[tuple[int, int]],
-                      mines_upper: Sequence[tuple[int, int]],
-                      cross_lower: tuple[int, int],
-                      cross_upper: tuple[int, int]) -> list[tuple[int, int]]:
-    """U 形单回路 + 每半场按 K 列**东西分组**的顺序（任务优先口径的结构候选）。
-
-    旧 U 形候选把「本半场雷」当一个整体排序，再硬钉穿洞格在边界；随机图里雷会
-    同时落在 K 列两侧 ⇒ 2-opt 可能让一条腿**来回穿 K 两次**（实测 19 张图）。
-    本候选把结构写进顺序本身：**先东侧、穿洞一次、再西侧**，每半场只穿一次洞。
-    """
-    def walk(anchor: tuple[int, int], nodes: Sequence[tuple[int, int]]
-             ) -> tuple[list[tuple[int, int]], tuple[int, int]]:
-        if not nodes:
-            return [], anchor
-        seq = tour.two_opt(tour.nearest(anchor, list(nodes)))
-        return seq, seq[-1]
-
-    lower_east, lower_west = _side_split(mines_lower)
-    upper_east, upper_west = _side_split(mines_upper)
-    seq: list[tuple[int, int]] = [start]
-    prev = start
-    part, prev = walk(prev, lower_east)
-    seq += part
-    seq.append(cross_lower)
-    prev = cross_lower
-    part, prev = walk(prev, lower_west)
-    seq += part
-    part, prev = walk(prev, upper_west)
-    seq += part
-    seq.append(cross_upper)
-    prev = cross_upper
-    part, prev = walk(prev, upper_east)
-    seq += part
-    seq.append(end)
-    out: list[tuple[int, int]] = []
-    for cell in seq:
-        if not out or out[-1] != cell:
-            out.append(cell)
-    return out
-
-
-def _shoot_positions_for(order: Sequence[tuple[int, int]], cell: tuple[int, int],
-                         cross_lower: tuple[int, int] | None,
-                         cross_upper: tuple[int, int] | None) -> list[int]:
-    """停站的**合法插入位**：按「半场 × K 列东西」限制在穿洞格之间，避免多穿一次洞。"""
-    n = len(order)
-    if n < 2:
-        return []
-    if n == 2:
-        return [1]
-    li = order.index(cross_lower) if cross_lower in order else -1
-    ui = order.index(cross_upper) if cross_upper in order else -1
-    lower = cell[0] >= V.LOWER_HALF_ROWS[0]
-    east = cell[1] > _CROSS_COL
-    if li >= 0 and ui > li:
-        if lower and east:
-            lo, hi = 1, li + 1
-        elif lower:
-            lo, hi = li + 1, ui
-        elif east:
-            lo, hi = ui + 1, n - 1
-        else:
-            lo, hi = li + 1, ui
-    else:
-        lo, hi = 1, n - 1
-    lo = max(1, lo)
-    hi = min(n - 1, hi)
-    if hi <= lo:
-        return [lo] if 0 < lo < n else []
-    return list(range(lo, hi))
-
-
-def _insert_stop_ranged(tour: "_Tour", order: list[tuple[int, int]],
-                        cell: tuple[int, int], positions: Sequence[int]
-                        ) -> list[tuple[int, int]]:
-    """在给定插入位里选「绕路增量最小」的一处插入停站（不新增阈值）。"""
-    best: tuple[float, int] | None = None
-    for i in positions:
-        if i < 1 or i > len(order) - 1:
-            continue
-        prev_cell, next_cell = order[i - 1], order[i]
-        value = (tour.leg_cost(prev_cell, cell) + tour.leg_cost(cell, next_cell)
-                 - tour.leg_cost(prev_cell, next_cell))
-        if not math.isfinite(value):
-            continue
-        key = (value, i)
-        if best is None or key < best:
-            best = key
-    if best is None:
-        return order
-    out = list(order)
-    out.insert(best[1], cell)
-    return out
-
-
-def _insert_shoot_sided(tour: "_Tour", order: list[tuple[int, int]],
-                         pool: Sequence[str], cross_lower: tuple[int, int],
-                         cross_upper: tuple[int, int]
-                         ) -> tuple[list[tuple[int, int]], str]:
-    """任务优先口径的**主**射击停站插入：只在不会破坏穿洞次数的区间里选点。"""
-    best: tuple[float, int, str] | None = None
-    for block in pool:
-        cell = _cell(block)
-        if cell in order:
-            pos = order.index(cell)
-            if pos in (0, len(order) - 1):      # 起点/终点不能当射击停站
-                continue
-            cand, detour = list(order), 0.0
-        else:
-            positions = _shoot_positions_for(order, cell, cross_lower, cross_upper)
-            if not positions:
-                continue
-            cand = _insert_stop_ranged(tour, order, cell, positions)
-            if cell not in cand:
-                continue
-            pos = cand.index(cell)
-            prev_cell = order[pos - 1] if pos > 0 else None
-            next_cell = order[pos] if pos < len(order) else None
-            if prev_cell is None or next_cell is None:
-                continue
-            detour = (tour.leg_cost(prev_cell, cell) + tour.leg_cost(cell, next_cell)
-                      - tour.leg_cost(prev_cell, next_cell))
-            if not math.isfinite(detour):
-                continue
-        key = (detour, pos, block)
-        if best is None or key < best[0]:
-            best = (key, cand, block)
-    if best is None:
-        return order, ""
-    return best[1], best[2]
-
-
-def _insert_second_sided(tour: "_Tour", order: list[tuple[int, int]],
-                         block: str, cross_lower: tuple[int, int],
-                         cross_upper: tuple[int, int]) -> list[tuple[int, int]]:
-    """对侧第二射击停站：作为**普通航点**插入（不收口时也保留路径形状）。"""
-    cell = _cell(block)
-    if cell in order:
-        return list(order)
-    positions = _shoot_positions_for(order, cell, cross_lower, cross_upper)
-    return _insert_stop_ranged(tour, order, cell, positions)
-
-
-def _reachable_any(dist: dict, rank: dict, cell: tuple[int, int]) -> bool:
-    return any(math.isfinite(_flood_value(dist, (cell[0], cell[1], head), rank))
-               for head in range(4))
-
-
-def _pick_crossing_tasks(spec: MapSpec, cfg: "Config | None",
-                         lower_pool: Sequence[str], upper_pool: Sequence[str],
-                         *, allow_reverse: bool, barrier_turn_margin_m: float
-                         ) -> tuple[str, str] | None:
-    """任务优先口径：在候选穿洞格里选「终点可达 + 可达雷最多」的一对（≤8 组）。
-
-    为什么需要：随机图的 bridges 可能两格都在同一半场，或默认格恰好被靶板/障碍
-    堵死；旧实现只取 sorted(pool)[0]，一条路走到黑。这里用每次洪泛（ms 级）先
-    选可行组合，再交给完整规划，避免在不可行组合上白烧整轮编译。
-    """
-    start_cell, end_cell = _cell(spec.start), _cell(spec.end)
-
-    def preferred(pool: Sequence[str], half: str) -> str:
-        want = str(V._cfg_get(cfg, f"route.cross_{half}_default", "") or "").strip().upper()
-        return want if want in pool else sorted(pool)[0]
-
-    combos: list[tuple[str, str, int, int]] = []
-    for lower in lower_pool:
-        for upper in upper_pool:
-            try:
-                lr = geo.block_to_index(lower)[0] + 1
-                ur = geo.block_to_index(upper)[0] + 1
-            except ValueError:
-                continue
-            combos.append((lower, upper, lr, ur))
-    if not combos:
-        return None
-    pl, pu = preferred(lower_pool, "lower"), preferred(upper_pool, "upper")
-    combos.sort(key=lambda c: (0 if (c[0] == pl and c[1] == pu) else 1, c[0], c[1]))
-    best: tuple[tuple[int, int], str, str] | None = None
-    for lower, upper, lr, ur in combos[:8]:
-        try:
-            grid = Grid(spec, bridge_rows=(lr, ur), allow_reverse=allow_reverse,
-                        barrier_turn_margin_m=barrier_turn_margin_m)
-        except Exception:                              # noqa: BLE001
-            continue
-        if not grid.passable(*start_cell) or not grid.passable(*end_cell):
-            continue
-        dist, _came, _actions, _settled, rank = flood(
-            grid, (start_cell[0], start_cell[1], START_HEADING))
-        end_ok = int(_reachable_any(dist, rank, end_cell))
-        mines_ok = sum(1 for mine in spec.mines
-                       if _reachable_any(dist, rank, _cell(mine)))
-        score = (end_ok, mines_ok)
-        if best is None or score > best[0]:
-            best = (score, lower, upper)
-    if best is None:
-        return None
-    return best[1], best[2]
-
-
-def _best_effort_result(spec: MapSpec, cfg: "Config | None", grid: Grid, *,
-                        name: str, source: str, t0: float, allow_reverse: bool,
-                        reason: str, warnings: Sequence[str],
-                        deadline: float | None = None) -> PlanResult:
-    """降级兜底：终点不可达时，沿**真实可通行**路径走到离终点最近的格并落串。
-
-    ★ 这不是「假装规划成功」：返回 degraded=True + degraded_reason 会进 CLI/JSON；
-      token 全部是 A* 验证过的可通行相邻格，车能照着跑（只是到不了终点）。
-      绝不发明穿障碍/穿桥墩的段。
-    """
-    start_cell = _cell(spec.start)
-    dist, came, actions, _settled, rank = flood(
-        grid, (start_cell[0], start_cell[1], START_HEADING))
-    cells = {(k[0], k[1]) for k in dist}
-    if not cells:
-        raise PlannerError(f"无法生成降级路线：起点 {spec.start} 在栅格里不可达")
-    ex, ey = geo.block_to_meters(spec.end.strip().upper())
-
-    def end_dist(cell: tuple[int, int]) -> float:
-        block = geo.index_to_block(cell[0] - 1, cell[1])
-        x, y = geo.block_to_meters(block)
-        return math.hypot(x - ex, y - ey)
-
-    # ★ 任务优先兜底：先把**本连通块内可达的雷**都排进去，再去离终点最近的可行格；
-    #   这样降级路线仍尽可能多压雷（而不是第一步就停在离终点最近的邻居）。
-    reachable_mines = [_cell(m) for m in spec.mines
-                       if _reachable_any(dist, rank, _cell(m))]
-    goal = min(cells, key=lambda c: (end_dist(c), geo.index_to_block(c[0] - 1, c[1])))
-    nodes = [start_cell] + reachable_mines + [goal]
-    dl = deadline if deadline is not None else t0 + DEFAULT_MAX_SECONDS
-    tour = _Tour(grid, dl)
-    tour.build(nodes)
-    middle = tour.nearest(start_cell, reachable_mines) if reachable_mines else []
-    order = [start_cell] + middle
-    if goal != order[-1]:
-        order.append(goal)
-    if len(order) > 2:
-        order = tour.two_opt(order, keep_ends=True)
-    heads = tour.best_headings(order, fixed={order[0]: START_HEADING})
-    keep = set(order)
-    stops: list[_Stop] = [_Stop(start_cell[0], start_cell[1], spec.start,
-                                heading=START_HEADING, tag="start")]
-    for i2 in range(len(order) - 1):
-        path, _seg = tour.path(order[i2], order[i2 + 1], heads[i2], heads[i2 + 1])
-        if not path:
-            continue
-        for (row, col, face, back) in _collapse(path, keep):
-            if (row, col) == (stops[-1].row, stops[-1].col):
-                stops[-1].reverse = back
-                stops[-1].heading = face
-                continue
-            blk = geo.index_to_block(row - 1, col)
-            stops.append(_Stop(row, col, blk, heading=face, reverse=back,
-                               tag="mine" if blk in set(spec.mines) else "path"))
-    stops = _split_long_hops(stops, grid)
-    stops = _merge_duplicate_stops(stops)
-    _refresh_headings(stops)
-    if not allow_reverse:
-        mark_pivots(stops)
-    route = _to_route(stops, name=name, crossing={},
-                      final_heading=_final_heading(stops))
-    tokens = route_tokens(route)
-    blocks = route.blocks()
-    covered = tuple(m for m in spec.mines if m.strip().upper() in set(blocks))
-    shoots = tuple(wp.block for _i, wp in route.shoot_points())
-    polyline = sum(math.hypot(route.waypoints[i + 1].x - route.waypoints[i].x,
-                              route.waypoints[i + 1].y - route.waypoints[i].y)
-                   for i in range(len(route.waypoints) - 1))
-    return PlanResult(
-        route=route, tokens=tokens, crossing={},
-        cost=float("inf"), expanded=0,
-        elapsed_ms=(time.perf_counter() - t0) * 1000.0,
-        reverse_segments=sum(1 for wp in route.waypoints if wp.reverse),
-        warnings=tuple(warnings) + (
-            "降级路线只走到离终点最近的可行格（不是完整任务路线）",),
-        map_name=spec.name, map_source=source, start=spec.start, end=spec.end,
-        polyline_m=polyline, start_heading=HEAD_NAMES[START_HEADING],
-        allow_reverse=bool(allow_reverse),
-        tasks_mines=covered, tasks_stops=shoots,
-        tasks_mines_total=len(spec.mines),
-        degraded=True, degraded_reason=reason,
-    )
-
-
 def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                cross_lower: str | None = None, cross_upper: str | None = None,
                max_seconds: float = DEFAULT_MAX_SECONDS,
                allow_reverse: bool = True,
-               objective: str = OBJECTIVE_LEGACY,
                pivot_penalty: float | None = None,
                mine_turn_penalty: float | None = None,
                barrier_turn_penalty: float | None = None,
@@ -2879,22 +2516,13 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         `None`（缺省）= 跟随配置 `planner.barrier_turn_margin_m`（键缺失 → 0.0）。
         行心到隔板只有半格（`0.5 × 0.35 = 0.175 m`）：`0.0` = 按纯几何一律拦下；
         **负值 = 关闭该判据**（退化成诊断模式，路线与历史逐字相同）。
-    :param objective: 目标函数口径（★TRACK-PLAN-B1-20261021）。**缺省 legacy = 历史
-        行为逐字节不变**；`tasks` = 任务优先（先最大化成功任务数：8 雷 + 可达射击
-        停站；再最小化时间）。`tasks` 下结构/任务约束不满足不再判"无解"：先选可达的
-        穿洞组合、按 K 列东西分组压雷，仍不满足则返回 `degraded=True` 的**可执行兜底
-        路线**（`degraded_reason` 进 CLI/JSON）。未知值抛 `PlannerError`（不静默回退）。
     :raises PlannerError: 无解 / 结构约束矛盾 / 超时 / 折返声明不一致 /
-        隔板行内 90° 转向未避开（legacy 口径；tasks 口径见 `objective`）
+        隔板行内 90° 转向未避开（**绝不静默降级**）
     """
     t0 = time.perf_counter()
     spec = map_cfg if isinstance(map_cfg, MapSpec) else load_map(map_cfg, source=source)
-    objective = objective_mode(objective)
     limits = _limits(cfg)
     warnings: list[str] = []
-    timed_out = False
-    missing_mines: list[str] = []
-    shoot_missing = False
     deadline = t0 + max(0.05, float(max_seconds))
     if pivot_penalty is None:
         pivot_penalty = float(V._cfg_get(cfg, "planner.pivot_penalty", 0.0) or 0.0)   # noqa: SLF001
@@ -2939,12 +2567,6 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     lower_pool, upper_pool = _cross_pools(cfg, spec)
     lower_cross = (cross_lower or _default_cross(cfg, lower_pool, "lower")).strip().upper()
     upper_cross = (cross_upper or _default_cross(cfg, upper_pool, "upper")).strip().upper()
-    if objective == OBJECTIVE_TASKS and not (cross_lower or cross_upper):
-        _pick = _pick_crossing_tasks(spec, cfg, lower_pool, upper_pool,
-                                     allow_reverse=allow_reverse,
-                                     barrier_turn_margin_m=barrier_turn_margin_m)
-        if _pick is not None:
-            lower_cross, upper_cross = _pick
     for cell, half, band in ((lower_cross, "下半场", V.LOWER_HALF_ROWS),
                              (upper_cross, "上半场", V.UPPER_HALF_ROWS)):
         try:
@@ -2975,22 +2597,6 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                              (cross_upper_cell, upper_cross, "上半场")):
         if not grid.passable(*cell):
             raise PlannerError(f"{half}穿洞格 {name} 是障碍格，无法通行")
-    if objective == OBJECTIVE_TASKS:
-        _dist0, _came0, _act0, _set0, _rank0 = flood(
-            grid, (start_cell[0], start_cell[1], START_HEADING))
-        if not _reachable_any(_dist0, _rank0, end_cell):
-            warnings.append(f"终点 {spec.end} 在该穿洞组合下不可达（起点连通块到不了"
-                            f"上半场东侧）→ 输出降级兜底路线")
-            return _best_effort_result(
-                spec, cfg, grid, name=name, source=source, t0=t0,
-                allow_reverse=allow_reverse, reason="结构（终点不可达）",
-                warnings=warnings, deadline=deadline)
-        for mine in spec.mines:
-            cell = _cell(mine)
-            if grid.passable(*cell) and not _reachable_any(_dist0, _rank0, cell):
-                missing_mines.append(mine)
-        if missing_mines:
-            warnings.append(f"雷不可达、任务降级：{' '.join(missing_mines)}")
 
     # ---------------- 起点朝向 = 设计常量 ----------------
     #   ★ 真源不再是 `mission.reset`（旧实现按 `reset_yaw` 反推，还会在"朝西不可行"时
@@ -3015,16 +2621,9 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
 
     # ---------------- 必访点：雷按半场分组 ----------------
     mines_lower, mines_upper = [], []
-    _missing_set = {m.strip().upper() for m in missing_mines}
     for mine in spec.mines:
-        if str(mine).strip().upper() in _missing_set:
-            continue                                    # 任务优先：不可达雷已记降级
         cell = _cell(mine)
         if not grid.passable(*cell):
-            if objective == OBJECTIVE_TASKS:
-                missing_mines.append(mine)
-                warnings.append(f"雷 {mine} 落在障碍格上 → 任务降级（跳过）")
-                continue
             raise PlannerError(f"雷 {mine} 落在障碍格上（地图自相矛盾），无法压雷")
         (mines_lower if grid.zone_of(cell[0]) == 1 else mines_upper).append(cell)
 
@@ -3033,21 +2632,12 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         acc = _shoot_accept(cfg)
         acc_lo, acc_hi = shoot_distance_window(acc)
         pool = shoot_candidates(spec, grid, acc)
-        if not pool and objective == OBJECTIVE_TASKS:
-            shoot_missing = True
-            warnings.append(f"靶 {' '.join(spec.targets)} 周围没有窗口 "
-                            f"{acc_lo:.2f}~{acc_hi:.2f} m 内的可通行射击点 → 缺停站")
-        elif not pool:
+        if not pool:
             raise PlannerError(f"靶 {' '.join(spec.targets)} 周围没有落在窗口 "
                                f"{acc_lo:.2f}~{acc_hi:.2f} m 内的可通行射击点")
-        cov = covering_stops(spec, pool, acc) if pool else {}
+        cov = covering_stops(spec, pool, acc)
         shoot_pool = [b for b in pool if len(cov[b]) == len(spec.targets)]
-        if not shoot_pool and objective == OBJECTIVE_TASKS:
-            shoot_missing = True
-            detail = "; ".join(f"{b}->{'/'.join(cov[b]) or '无'}" for b in pool)
-            warnings.append(f"没有一个停站能同时覆盖全部 {len(spec.targets)} 格靶"
-                            f"（候选 {detail}）→ 缺停站")
-        elif not shoot_pool:
+        if not shoot_pool:
             detail = "; ".join(f"{b}->{'/'.join(cov[b]) or '无'}" for b in pool)
             raise PlannerError(
                 f"靶区 {' '.join(spec.targets)} 找不到**一个**能同时覆盖全部 "
@@ -3088,30 +2678,19 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     if order[0] != start_cell or order[-1] != end_cell:
         raise PlannerError("内部错误：优化后起点/终点被挪动")
     heads[0] = start_heading                          # 起点朝向 = 设计常量
-    order_candidates: list[dict] = [{"order": list(order), "side": False}]
+    order_candidates: list[list[tuple[int, int]]] = [list(order)]
     # ★★ U 形单回路**硬约束**兜底候选 ——见 `_u_shape_order()` 的说明。
     #   只在候选 1（现有行为：polish 整条）**结构自检失败**时才会被用到 ⇒
     #   对已经合规的地图（n8 图等）零影响。
     #   ★ 两个变体都试：`nearest(start, …)` 与 `nearest(cross_lower, …)` 的下半场顺序
     #   在第三张图（K1+K11）上表现不同（前者编译后会多一次 `L11→K11→J11` 往返）。
-    order_candidates.append({"order": _u_shape_order(tour, start_cell, end_cell,
-                                          mines_lower, mines_upper,
-                                          cross_lower_cell, cross_upper_cell),
-                             "side": False})
-    order_candidates.append({"order": _u_shape_order(tour, start_cell, end_cell,
-                                          mines_lower, mines_upper,
-                                          cross_lower_cell, cross_upper_cell,
-                                          seed_from_cross=True),
-                             "side": False})
-    # ★ 任务优先口径的结构候选：每半场先东侧、穿洞一次、再西侧（治『随机图多穿一次』）。
-    _side_cand = {"order": _side_shape_order(tour, start_cell, end_cell,
+    order_candidates.append(_u_shape_order(tour, start_cell, end_cell,
                                            mines_lower, mines_upper,
-                                           cross_lower_cell, cross_upper_cell),
-                  "side": True}
-    if objective == OBJECTIVE_TASKS:
-        order_candidates.insert(0, _side_cand)      # 新口径先试结构正确的候选（快）
-    else:
-        order_candidates.append(_side_cand)         # 旧口径：仅作末位兜底（零影响）
+                                           cross_lower_cell, cross_upper_cell))
+    order_candidates.append(_u_shape_order(tour, start_cell, end_cell,
+                                           mines_lower, mines_upper,
+                                           cross_lower_cell, cross_upper_cell,
+                                           seed_from_cross=True))
 
     # ---------------- 顺序候选（U 形单回路硬约束）----------------
     #   候选 1 = 现有行为（polish 整条）；候选 2 = U 形单回路（穿洞格钉在本半场边界）。
@@ -3134,25 +2713,13 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                       obstacle_turn_penalty=obstacle_turn_penalty,
                       obstacle_cells=obstacle_cells, phys=phys)
         _tour.__dict__.update(tour.__dict__)            # 共享洪泛缓存（只读复用）
-        _order = list(_cand["order"])
-        _is_side = bool(_cand.get("side"))
+        _order = list(_cand)
         _heads = _tour.best_headings(_order, fixed={_order[0]: start_heading})
 
-        # ---------------- 射击停站：主停站 + 对侧第二停站（★P0-2 双面覆盖） ----------------
+        # ---------------- 射击停站：插到"绕路代价最小"的位置 ----------------
         _shoot = ""
-        _second = ""
         if shoot_pool:
-            if _is_side:
-                _order, _shoot = _insert_shoot_sided(
-                    _tour, _order, shoot_pool, cross_lower_cell, cross_upper_cell)
-            else:
-                _order, _heads, _shoot = _insert_shoot(_tour, _order, _heads, shoot_pool)
-            if _shoot:
-                _second = second_shoot_stop(spec, grid, _shoot, _shoot_accept(cfg))
-                if _second:
-                    _order = _insert_second_sided(
-                        _tour, _order, _second, cross_lower_cell, cross_upper_cell)
-            _heads = _tour.best_headings(_order, fixed={_order[0]: start_heading})
+            _order, _heads, _shoot = _insert_shoot(_tour, _order, _heads, shoot_pool)
 
         # ---------------- ★ 雷心直线穿越 ----------------
         _axes: list[tuple[str, int, bool]] = []
@@ -3186,17 +2753,9 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                 _stops.append(_Stop(row, col, _blk, heading=face, reverse=back,
                                     tag="mine" if _blk in set(spec.mines) else "path"))
             if time.perf_counter() > deadline:
-                if objective == OBJECTIVE_TASKS:
-                    timed_out = True
-                    _bad_seg = "超时"
-                    warnings.append(f"规划超时（>{max_seconds:.2f} s）→ 降级兜底")
-                    break
                 raise PlannerError(f"规划超时（>{max_seconds:.2f} s），未生成完整路线")
         if _bad_seg:
             if _ci >= len(order_candidates) - 1:
-                if objective == OBJECTIVE_TASKS:
-                    warnings.append(f"顺序候选均无可行段：{_bad_seg}")
-                    continue
                 raise PlannerError(f"无解：{_bad_seg}")
             continue
         if (_stops[0].row, _stops[0].col) != start_cell:
@@ -3229,8 +2788,7 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         _route = _to_route(_stops, name=name,
                            crossing={"lower": lower_cross, "upper": upper_cross},
                            final_heading=_final_heading(_stops))
-        problems = check_route_structure(_route, spec, grid, limits, _shoot_accept(cfg),
-                                         already_covered=tuple(missing_mines))
+        problems = check_route_structure(_route, spec, grid, limits, _shoot_accept(cfg))
         # ★★【硬校验】隔板相邻行的"侧向 90° 转向"—— 与结构自检同层：
         #   只在 `barrier_turn_penalty > 0`（显式启用）时生效；默认 0.0 ⇒ 恒空、零影响。
         _bturns: list[str] = []
@@ -3243,14 +2801,10 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                               "实测会把车甩进隔板）"
                             % (spec.barrier_row_lo, 0.5 * geo.BLOCK_SIZE)]
         if problems and _ci < len(order_candidates) - 1:
-            warnings.append("顺序候选 #%d 未过结构自检（%s）→ 换用其它顺序候选重试"
+            warnings.append("顺序候选 #%d 未过结构自检（%s）→ 换用 U 形单回路候选重试"
                             % (_ci + 1, "；".join(problems[:2])))
             continue
         if problems:
-            if objective == OBJECTIVE_TASKS:
-                warnings.append("所有顺序候选均未过结构自检（"
-                                + "；".join(problems[:3]) + "）→ 降级兜底")
-                break
             raise PlannerError("规划结果未通过结构自检：\n  - " + "\n  - ".join(problems))
         # ---- 该候选通过，固化为最终结果 ----
         tour, order, heads, stops, _ = _tour, _order, _heads, _stops, _shoot
@@ -3258,14 +2812,8 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         barrier_turns = _bturns
         route = _route
         break
-    if route is None:
-        if objective == OBJECTIVE_TASKS:
-            reason = "超时" if timed_out else "结构（无可行顺序）"
-            return _best_effort_result(
-                spec, cfg, grid, name=name, source=source, t0=t0,
-                allow_reverse=allow_reverse, reason=reason, warnings=warnings,
-                deadline=deadline)
-        raise PlannerError("内部错误：没有任何顺序候选被接受")   # pragma: no cover - 旧口径必抛
+    if route is None:                               # pragma: no cover - 上面必抛
+        raise PlannerError("内部错误：没有任何顺序候选被接受")
 
     # ★【自诊断】逐雷"雷前共线格数"：<2 的雷在纯追踪下会被切角，车心压不到雷心。
     #   只报一条汇总 warning（每个雷一行会把启动日志淹掉），数据同时进 `PlanResult.mine_runs`。
@@ -3304,20 +2852,6 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                               route.waypoints[i + 1].y - route.waypoints[i].y)
                    for i in range(len(route.waypoints) - 1))
 
-    # ---------------- 任务向量 + 降级标记（★TRACK-PLAN-B1 新口径） ----------------
-    _blocks = set(route.blocks())
-    tasks_mines = tuple(str(m) for m in spec.mines
-                        if str(m).strip().upper() in _blocks)
-    tasks_stops = tuple(wp.block for _i, wp in route.shoot_points())
-    _lost = [str(m) for m in spec.mines if str(m).strip().upper() not in _blocks]
-    _reasons: list[str] = []
-    if _lost:
-        _reasons.append("缺雷 " + " ".join(_lost))
-    if spec.targets and not tasks_stops:
-        _reasons.append("缺停站")
-    degraded = bool(_reasons)
-    degraded_reason = "；".join(_reasons)
-
     return PlanResult(
         route=route, tokens=tokens, stops=tuple(stops), crossing=crossing,
         shoot_stop=shoot_at, shoot_distance_m=float(shoot_dist),
@@ -3334,9 +2868,6 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         barrier_turn_penalty=float(barrier_turn_penalty),
         barrier_turns=tuple(barrier_turns),
         tour_cost=tour.order_cost_total(order),
-        tasks_mines=tasks_mines, tasks_stops=tasks_stops,
-        tasks_mines_total=len(spec.mines),
-        degraded=degraded, degraded_reason=degraded_reason,
     )
 
 

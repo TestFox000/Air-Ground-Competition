@@ -15,7 +15,7 @@ r"""LocalizationTask 测试（纯脚本，无 pytest）。
   9. 投影卡死自愈（离开走廊后 P_ROUTE_S 跟得上全局投影）
  10. 尺度疑似闸（吸附掩盖尺度误差的可见化）
  11. ★ 2026-10-17 14:59 实车 +12.82 m 投影误锁的回归：大跳跃必须"新投影贴在车上"
- 12. ★★ 航向完整性守卫（差速底盘模型）：14:59 真实片段回放必须报（比投影跳变早 5.2 s），
+ 12. ★★ 航向完整性守卫（yaw 率超运动学上限 ⇒ 判故障）：14:59:29~40 真实片段回放必须报
      （比投影跳变早 5.2 s），正常 90° 转弯/静止小漂移不得误报，遥控接管中的转动只记账
 """
 
@@ -677,8 +677,8 @@ check("真实片段：连续 3 个新帧超限才判（yaw_bad_samples ≥ 3）"
 check("真实片段：33 个新帧样本（5 Hz 帧频；同一帧重复读不算样本）",
       task_y.yaw_guard_samples == len(YAW_EVENT_FRAMES) - 1,
       f"samples={task_y.yaw_guard_samples}")
-check("真实片段：原因 = 差速包络超限（yaw_rate_over_diff）",
-      task_y._yaw_reason == "yaw_rate_over_diff", f"reason={task_y._yaw_reason!r}")
+check("真实片段：原因 = 运动学上限（yaw_rate_over_kinematic）",
+      task_y._yaw_reason == "yaw_rate_over_kinematic", f"reason={task_y._yaw_reason!r}")
 check("真实片段：见过的峰值角速度 ≈ 120°/s（与裁决书 120.3°/s 同量级）",
       100.0 < task_y.yaw_max_rate_dps < 140.0,
       f"max_rate={task_y.yaw_max_rate_dps:.1f}°/s")
@@ -732,104 +732,6 @@ check("反例（正常 90° 转弯、0.35 m/s、满舵 30° = 73.7°/s）：不�
 check("反例（正常 90° 转弯）：P_MOTION_LIMIT 未被触发",
       bb_turn.get(P_MOTION_LIMIT) is None, f"limit={bb_turn.get(P_MOTION_LIMIT)}")
 
-# ---- ⑫.4b A2 真实案例：差速底盘正常过弯 79.8°/s @ v=0.19 → 不误停 ----
-def _diff_arc_frames(v: float, yaw_rate_dps: float, n: int, *,
-                     dt: float = 0.2, yaw0_deg: float = 90.0,
-                     x0: float = 0.0, y0: float = 0.0) -> list:
-    """差速底盘恒定 yaw 率的圆弧帧（5 Hz；v/yaw 率都按真实帧间隔算）。"""
-    yaw = math.radians(yaw0_deg)
-    w = math.radians(yaw_rate_dps)
-    x, y = x0, y0
-    out = []
-    for _ in range(n):
-        yaw += w * dt
-        x += v * math.cos(yaw) * dt
-        y += v * math.sin(yaw) * dt
-        out.append((x, y, math.degrees(yaw)))
-    return out
-
-
-A2_FRAMES = _diff_arc_frames(0.19, 79.8, 40)
-task_a2, _, bb_a2, ev_a2, trip_a2 = _replay_frames(A2_FRAMES, with_route=False)
-check("A2 案例（v=0.19、yaw 79.8°/s，差速底盘正常过弯）：不误停、0 个超限样本",
-      task_a2.yaw_untrusted is False and task_a2.yaw_bad_samples == 0
-      and task_a2.yaw_guard_samples == len(A2_FRAMES) - 1,
-      f"untrusted={task_a2.yaw_untrusted} bad={task_a2.yaw_bad_samples} "
-      f"samples={task_a2.yaw_guard_samples} max={task_a2.yaw_max_rate_dps:.1f} "
-      f"limit={task_a2._yaw_last_limit_dps:.1f}")
-check("A2 案例：P_MOTION_LIMIT 未被触发（不会因航向守卫停车）",
-      bb_a2.get(P_MOTION_LIMIT) is None, f"limit={bb_a2.get(P_MOTION_LIMIT)}")
-check("A2 案例：不是恰好没触发 —— 峰值 79.8 确实落在旧模型会误判的区间",
-      78.0 < task_a2.yaw_max_rate_dps < 82.0, f"max={task_a2.yaw_max_rate_dps:.1f}")
-
-# ---- ⑫.4c 静止正常转向（差速原地 40°/s）不误报 ----
-_STATIC_40 = [(1.0, 1.0, 30.0 + 8.0 * i) for i in range(20)]   # 8°/帧 @5Hz = 40°/s
-task_s40, _, bb_s40, _, _ = _replay_frames(_STATIC_40, with_route=False)
-check("静止正常转向 40°/s（低于静止上限 45°/s）：不误报",
-      task_s40.yaw_untrusted is False and task_s40.yaw_bad_samples == 0,
-      f"bad={task_s40.yaw_bad_samples} max={task_s40.yaw_max_rate_dps:.1f}")
-
-# ---- ⑫.4d 真实 yaw 跳变（单帧 +90°）：必须停 ----
-def _straight_frames(v: float, n: int, *, dt: float = 0.2,
-                     yaw0_deg: float = 90.0, x0: float = 0.0, y0: float = 0.0) -> list:
-    yaw = math.radians(yaw0_deg)
-    x, y = x0, y0
-    out = []
-    for _ in range(n):
-        x += v * math.cos(yaw) * dt
-        y += v * math.sin(yaw) * dt
-        out.append((x, y, math.degrees(yaw)))
-    return out
-
-
-_base_j = _straight_frames(0.35, 5)
-_last = _base_j[-1]
-_jump = [(_last[0], _last[1], _last[2] + 90.0)]
-_after = _straight_frames(0.35, 3, yaw0_deg=180.0, x0=_last[0], y0=_last[1])
-task_j, _, bb_j, ev_j, trip_j = _replay_frames(_base_j + _jump + _after, with_route=False)
-check("真实 yaw 跳变（单帧 +90°）：立即判故障（yaw_jump）",
-      task_j.yaw_untrusted is True and task_j._yaw_reason == "yaw_jump",
-      f"reason={task_j._yaw_reason!r} trip_t={trip_j}")
-check("真实 yaw 跳变：P_MOTION_LIMIT 请求 0 速 + 发 EV_TASK_FAULT",
-      isinstance(bb_j.get(P_MOTION_LIMIT), dict)
-      and bb_j.get(P_MOTION_LIMIT).get("speed_mps") == 0.0
-      and any(e.data.get("where") == "heading_untrusted" for e in ev_j),
-      f"limit={bb_j.get(P_MOTION_LIMIT)} events={len(ev_j)}")
-
-# ---- ⑫.4e 闩锁可恢复：条件消失后自动复位（不再永久锁死）----
-task_rec, bridge_rec, bb_rec, bus_rec, clock_rec = build(
-    overrides={"fix": {"anchor_at_waypoint": False}}, route=None, seed_pose=False)
-for x, y, yaw in YAW_STATIC_FRAMES[:8]:
-    bridge_rec.set_pose(x, y, math.radians(yaw))
-    clock_rec.advance(0.2)
-    task_rec.tick()
-check("恢复前置：先触发航向闩锁", task_rec.yaw_untrusted is True,
-      f"reason={task_rec._yaw_reason!r}")
-_clean = _straight_frames(0.20, 25, yaw0_deg=90.0, x0=1.0, y0=1.0)
-for x, y, yaw in _clean:
-    bridge_rec.set_pose(x, y, math.radians(yaw))
-    clock_rec.advance(0.2)
-    task_rec.tick()
-check("闩锁可恢复：连续 20 个可信新帧后自动复位",
-      task_rec.yaw_untrusted is False and task_rec.yaw_guard_recoveries == 1,
-      f"untrusted={task_rec.yaw_untrusted} recoveries={task_rec.yaw_guard_recoveries}")
-check("自动复位后 P_MOTION_LIMIT 撤为 None（不残留 0 速请求）",
-      bb_rec.get(P_MOTION_LIMIT) is None, f"limit={bb_rec.get(P_MOTION_LIMIT)}")
-
-# ---- ⑫.4f 人工复位 API ----
-task_mr, bridge_mr, _, _, clock_mr = build(
-    overrides={"fix": {"anchor_at_waypoint": False}}, route=None, seed_pose=False)
-for x, y, yaw in YAW_STATIC_FRAMES[:8]:
-    bridge_mr.set_pose(x, y, math.radians(yaw))
-    clock_mr.advance(0.2)
-    task_mr.tick()
-task_mr.reset_yaw_guard()
-check("人工复位：reset_yaw_guard() 清闩锁 + 计数 + 清原因",
-      task_mr.yaw_untrusted is False and task_mr.yaw_manual_resets == 1
-      and task_mr._yaw_reason == "",
-      f"untrusted={task_mr.yaw_untrusted} resets={task_mr.yaw_manual_resets} "
-      f"reason={task_mr._yaw_reason!r}")
-
 # ---- ⑫.5 反例三：静止期的小幅 yaw 漂移（7.5°/s < 静止上限 45°/s）不误报 ----
 _drift_small = [(1.0, 1.0, 30.0 + 1.5 * i) for i in range(20)]
 task_dr, _, _, ev_dr, _ = _replay_frames(_drift_small, with_route=False)
@@ -865,8 +767,8 @@ check("IMU 交叉核对：pose 超限而 IMU |gz|≈0 → 判「位姿/航向链
       and task_im.yaw_imu_mismatch >= 1,
       f"reason={task_im._yaw_reason!r} mismatch={task_im.yaw_imu_mismatch}")
 task_is, _, _, ev_is, _ = _replay_frames(YAW_EVENT_FRAMES, with_route=False, imu_dps=200.0)
-check("IMU 交叉核对：IMU 也报高速转动 → 仍判差速包络超限（不误标成矛盾）",
-      task_is.yaw_untrusted is True and task_is._yaw_reason == "yaw_rate_over_diff"
+check("IMU 交叉核对：IMU 也报高速转动 → 仍判运动学超限（不误标成矛盾）",
+      task_is.yaw_untrusted is True and task_is._yaw_reason == "yaw_rate_over_kinematic"
       and task_is.yaw_imu_mismatch == 0,
       f"reason={task_is._yaw_reason!r} mismatch={task_is.yaw_imu_mismatch}")
 
@@ -891,252 +793,5 @@ _p_safe = bb_sf.get(P_SAFETY)
 check("复用 fault 通路：P_SAFETY.ok=False 且已发零速指令",
       _p_safe is not None and _p_safe.ok is False and bridge_sf.brakes >= 1,
       f"ok={getattr(_p_safe, 'ok', None)} brakes={bridge_sf.brakes}")
-
-# --------------------------------------------------------------------------- #
-#  ⑬ 折返/共线投影（2026-10-18 10:14 实车烟测：N10 M10 R:N10 在折返处 s 锁死 0.70）
-# --------------------------------------------------------------------------- #
-section("⑬ 折返共线投影：motion_heading + 换载重置 + 倒车方向 + 真漂移不削弱")
-
-SMOKE_TOKENS = ["N10", "M10", "R:N10"]      # 烟测路线：3 点 / 0.70 m，最后一段倒车折返
-#: 7_path.log 的 [T] 真实位姿（15 个去重采样点，yaw=度）；车从 N10 东行到 M10 前 2.6 cm。
-SMOKE_POSES = [
-    (0.525, 0.175, 90.5), (0.524, 0.253, 89.7), (0.524, 0.288, 89.6),
-    (0.524, 0.357, 89.1), (0.524, 0.392, 89.0), (0.525, 0.461, 87.8),
-    (0.526, 0.482, 87.3), (0.526, 0.499, 87.7), (0.526, 0.499, 87.8),
-    (0.526, 0.499, 87.7), (0.526, 0.499, 87.8), (0.526, 0.499, 87.9),
-    (0.526, 0.499, 88.0), (0.526, 0.499, 87.9), (0.526, 0.499, 88.0),
-]
-
-
-def _fold_s(x: float, y: float, phase: str = "out") -> float:
-    """折返路线的几何真值弧长（与投影链无关）。out=去程，back=倒车回程。"""
-    n10y, m10y = geo.block_to_meters("N10")[1], geo.block_to_meters("M10")[1]
-    if phase == "out":
-        return max(0.0, min(y - n10y, 0.35))
-    return 0.35 + max(0.0, min(m10y - y, 0.35))
-
-
-def _fold_rig(motion: bool = True):
-    task, bridge, bb, bus, clock = build(
-        overrides={"fix": {"anchor_at_waypoint": True}},
-        route=parse_mission(list(SMOKE_TOKENS)), seed_pose=False)
-    task.motion_heading_enabled = bool(motion)
-    return task, bridge, bb, bus, clock
-
-
-def _fold_replay(frames, phases, motion: bool = True):
-    """按 20 Hz（每个采样点 10 拍）回放，返回 (task, bb, 最大误差, [(pose,s,truth)…])."""
-    task, bridge, bb, bus, clock = _fold_rig(motion)
-    worst = 0.0
-    rows = []
-    for idx, (x, y, yaw_deg) in enumerate(frames):
-        for _ in range(10):
-            bridge.set_pose(x, y, math.radians(yaw_deg))
-            clock.advance(0.05)
-            task.tick()
-        s = bb.get(P_ROUTE_S)
-        truth = _fold_s(x, y, phases[idx])
-        worst = max(worst, abs(s - truth))
-        rows.append((x, y, s, truth))
-    return task, bb, worst, rows
-
-
-# ---- ⑬.1 正例：真实烟测位姿回放（旧行为：首拍 s=0.700、末拍 0.483、drift_stop）----
-task_f, bb_f, worst_f, rows_f = _fold_replay(SMOKE_POSES, ["out"] * len(SMOKE_POSES))
-s_first, s_last = rows_f[0][2], rows_f[-1][2]
-check("真实烟测回放：首拍 s=0.000（旧行为 0.700 = 提前锁定终点格）",
-      abs(s_first) < 0.02, f"first_s={s_first:.3f}")
-check("真实烟测回放：末拍 s ≤ 0.37（旧行为 0.483 回程段；真值 0.324）",
-      s_last <= 0.37, f"last_s={s_last:.3f}")
-check("真实烟测回放：全程 |s-真值| ≤ 0.075（含到位吸附 ≤arrival_m 的前拉）",
-      worst_f <= 0.075, f"worst={worst_f:.3f}")
-check("真实烟测回放：0 漂移告警（旧行为 1 次 / 偏差 0.301>0.300）",
-      task_f.drift_warnings == 0, f"warnings={task_f.drift_warnings}")
-check("真实烟测回放：P_MOTION_LIMIT 未被触发（旧行为 drift→drift_stop）",
-      bb_f.get(P_MOTION_LIMIT) is None, f"limit={bb_f.get(P_MOTION_LIMIT)}")
-check("真实烟测回放：方向拒绝闸确实工作过（不是'恰好没触发'）",
-      task_f.direction_rejects >= 1 and task_f.motion_heading_ticks >= 1,
-      f"rejects={task_f.direction_rejects} ticks={task_f.motion_heading_ticks}")
-
-# ---- ⑬.2 ★带牙对照：关掉 motion_heading = 回退旧行为，必须红 ----
-task_of, bb_of, worst_of, rows_of = _fold_replay(SMOKE_POSES, ["out"] * len(SMOKE_POSES),
-                                                motion=False)
-lim_of = bb_of.get(P_MOTION_LIMIT)
-check("★带牙对照：关掉 motion_heading 后首拍 s=0.700（旧吸收态复现）",
-      rows_of[0][2] > 0.5, f"first_s={rows_of[0][2]:.3f}")
-# ★ 2026-10-18：新的漂移升级门限（drift_warn + 0.05、按"全路线离线"判）之后，
-#   旧行为不再升级到 drift_stop（那是**修对了**：这里的"漂移"同样是投影落后引起的假信号）。
-#   带牙改钉"假漂移告警 + 末拍仍落在回程侧 0.483"，motion_heading 的作用由 §⑬.1 的 s 断言覆盖。
-check("★带牙对照：关掉 motion_heading 后仍报假漂移、末拍落在回程侧（旧行为）",
-      task_of.drift_warnings >= 1 and rows_of[-1][2] > 0.45,
-      f"warnings={task_of.drift_warnings} last_s={rows_of[-1][2]:.3f} limit={lim_of}")
-
-# ---- ⑬.3 倒车段方向符号：一出（y↑）一回（y↓，车头不变）----
-n_drive = 88
-y = geo.block_to_meters("N10")[1]
-_frames, _phases = [], []
-for _ in range(n_drive):
-    y = min(geo.block_to_meters("M10")[1], y + 0.08 * 0.05)
-    _frames.append((geo.block_to_meters("N10")[0], y, 90.0))
-    _phases.append("out")
-for _ in range(n_drive):
-    y = max(geo.block_to_meters("N10")[1], y - 0.08 * 0.05)
-    _frames.append((geo.block_to_meters("N10")[0], y, 90.0))
-    _phases.append("back")
-
-task_rev, bb_rev, worst_rev, rows_rev = _fold_replay(_frames, _phases)
-_s_seq = [r[2] for r in rows_rev]
-check("倒车回程：s 单调不减（倒车段 s 仍沿路线前进，不倒退）",
-      all(b >= a - 1e-9 for a, b in zip(_s_seq, _s_seq[1:])),
-      f"min step={min(b - a for a, b in zip(_s_seq, _s_seq[1:])):+.4f}")
-check("倒车回程：末拍 s≈0.70（走到路线终点）",
-      abs(_s_seq[-1] - 0.70) <= 0.05, f"end_s={_s_seq[-1]:.3f}")
-check("倒车回程：|s-真值| ≤ 0.125（仅到位吸附那一拍的前拉 ≤arrival_m）",
-      worst_rev <= 0.125, f"worst={worst_rev:.3f}")
-check("倒车回程：0 漂移告警 / 无限速（折返不被误判成漂移）",
-      task_rev.drift_warnings == 0 and bb_rev.get(P_MOTION_LIMIT) is None)
-
-# ---- ⑬.4 换载重置：上一趟终点 s=0.70 不得带进新路线 ----
-task_rl, bridge_rl, bb_rl, bus_rl, clock_rl = _fold_rig()
-for x, y2, yaw_deg in _frames:                 # 先跑完一整趟（末拍 s=0.70）
-    bridge_rl.set_pose(x, y2, math.radians(yaw_deg))
-    clock_rl.advance(0.05)
-    task_rl.tick()
-s_prev = bb_rl.get(P_ROUTE_S)
-bb_rl.set(P_ROUTE, parse_mission(list(SMOKE_TOKENS)), source="test-reload")  # 换载（新对象）
-bridge_rl.set_pose(0.525, 0.175, math.pi / 2)
-clock_rl.advance(0.05)
-task_rl.tick()
-s_new = bb_rl.get(P_ROUTE_S)
-check("换载重置：上一趟 s=0.70 没有带进新路线（首拍回到 0.0）",
-      s_prev >= 0.65 and abs(s_new) < 0.02, f"prev={s_prev:.3f} new={s_new:.3f}")
-
-# ---- ⑬.5 真漂移护栏不得削弱：横向偏 0.40 m 直行仍要报漂移并停车 ----
-_drift_frames = [(geo.block_to_meters("N10")[0] + 0.40,
-                  geo.block_to_meters("N10")[1] + 0.08 * 0.05 * i, 90.0) for i in range(60)]
-task_d2, bb_d2, _, _ = _fold_replay(_drift_frames, ["out"] * 60)
-_lim_d2 = bb_d2.get(P_MOTION_LIMIT)
-check("真漂移 0.40 m：仍报漂移告警（护栏未被本轮修复削弱）",
-      task_d2.drift_warnings >= 1, f"warnings={task_d2.drift_warnings}")
-check("真漂移 0.40 m：仍下发 drift/drift_stop 限速",
-      isinstance(_lim_d2, dict) and _lim_d2.get("reason") in ("drift", "drift_stop"),
-      f"limit={_lim_d2}")
-
-# --------------------------------------------------------------------------- #
-#  ⑭ G4「按方向自愈」带牙回归（verifier C1：§⑬ 正例回放 stuck_scans=0，方向自愈分支无牙）
-# --------------------------------------------------------------------------- #
-section("⑭ G4 按方向自愈：冻在错误支时自愈必须回去程侧；关掉方向则落回程侧")
-
-#: 冻结态复现台架：用公共 tick() 驱动，再把旧 bug 的**结果**（hint 冻在 0.70 + 上一拍投影
-#: 已失效）注入回去，逼出 _heal_stuck 的方向裁决分支。
-#: ★ 为什么直接注入 _s_hint/_last_proj/_last_seg 而不是纯回放：
-#:   生产上制造这个冻结态的 bug（首拍 s=0.700）已被 §⑬ 修掉，回放再也走不到卡死分支；
-#:   而 _heal_stuck 的方向分支只在这种状态下被调用 —— 不注入就无法给该分支上牙。
-#:   注入的是旧 bug 的**状态结果**，不是 _heal_stuck 的入参；断言只看自愈结果落在哪一侧。
-def _heal_branch_replay(motion: bool = True):
-    task, bridge, bb, bus, clock = build(
-        overrides={"fix": {"anchor_at_waypoint": True}},
-        route=parse_mission(list(SMOKE_TOKENS)), seed_pose=False)
-    task.motion_heading_enabled = bool(motion)
-    for (x, y, yaw_deg) in SMOKE_POSES[:3]:      # 先走 3 个真实采样点，建立可信 travel_heading
-        for _ in range(10):
-            bridge.set_pose(x, y, math.radians(yaw_deg))
-            clock.advance(0.05)
-            task.tick()
-    s_before = float(bb.get(P_ROUTE_S))
-    # ---- 注入旧 bug 产生的冻结态（hint=0.70=回程段末点；上一拍投影作废，方向闸无从拒绝）----
-    task._last_proj = None
-    task._s_hint = 0.70
-    task._last_seg = 1
-    seq = []
-    for y in (0.318, 0.348, 0.378, 0.408, 0.438, 0.468, 0.498):
-        bridge.set_pose(0.525, y, math.pi / 2)   # 车继续向北（去程方向）走
-        clock.advance(0.05)
-        task.tick()
-        seq.append(float(bb.get(P_ROUTE_S)))
-    return task, s_before, seq
-
-
-task_hm, s_before_hm, seq_hm = _heal_branch_replay(motion=True)
-task_nm, s_before_nm, seq_nm = _heal_branch_replay(motion=False)
-s_hm, s_nm = seq_hm[-1], seq_nm[-1]
-
-check("自愈前置：方向开启时正常投影 s≈0.113（证明 travel_heading 已建立，不是空值兜底）",
-      abs(s_before_hm - 0.113) <= 0.02, f"s_before={s_before_hm:.3f}")
-check("方向自愈确实被触发（stuck_scans == 1 且 projection_heals == 1）",
-      task_hm.stuck_scans == 1 and task_hm.projection_heals == 1,
-      f"scans={task_hm.stuck_scans} heals={task_hm.projection_heals}")
-check("方向自愈结果落在去程侧（s≈0.35 一侧，不得跳回 0.497 的回程段）",
-      abs(s_hm - 0.35) <= 0.02, f"final_s={s_hm:.3f} seq={[round(x, 3) for x in seq_hm]}")
-_healed_hm = [v for v in seq_hm if v <= 0.60]        # 去掉自愈触发前仍冻在 0.70 的样本
-check("方向自愈后 s 只到 ≤0.36（没有落到回程段 0.497）",
-      bool(_healed_hm) and max(_healed_hm) <= 0.36,
-      f"healed_s={[round(x, 3) for x in _healed_hm]}")
-
-# ★ 带牙对照：同一冻结态 + 同一位姿序列，关掉 motion_heading ⇒ 旧连续性裁决落回程段 0.497
-check("★带牙对照：关掉方向后同样触发自愈（stuck_scans == 1）",
-      task_nm.stuck_scans == 1, f"scans={task_nm.stuck_scans}")
-check("★带牙对照：关掉方向后自愈落回回程侧 s≈0.497（旧行为）",
-      abs(s_nm - 0.497) <= 0.01, f"final_s={s_nm:.3f} seq={[round(x, 3) for x in seq_nm]}")
-check("★带牙对照：开/关方向的终值差 >0.10 m（该分支对结果有实质影响）",
-      (s_nm - s_hm) > 0.10, f"on={s_hm:.3f} off={s_nm:.3f} diff={s_nm - s_hm:+.3f}")
-
-# --------------------------------------------------------------------------- #
-#  ⑮ 漂移升级判据：倒车/共线窗口的「投影落后」不得假停；真横向漂移仍要停
-# --------------------------------------------------------------------------- #
-section("⑮ 倒车窗口投影落后：不得假 drift_stop；0.40 m 真漂移仍 drift_stop")
-
-#: field7 仿真**成功跑完**的 41 token 路线（artifacts/sim/...ld018；与 sim_t29 报告同源）。
-FIELD7_TOKENS = ["N10", "M10", "L10", "K10", "J10", "I10", "H10", "H8", "R:H9", "G9", "F9*", "E9", "E8", "C8", "C7", "C6", "C5", "C4", "C3", "C2", "A2", "A1", "B1", "C1", "C3", "E3", "F3", "R:F5", "R:F4", "F3", "F2", "G2", "H2", "I2", "J2", "J4", "K4", "L4", "M4", "N4", "N5,x"]
-#: 真值轨迹 t=7.0~12.6 s 的 5 Hz 采样（artifacts/sim/1792291186306_field7_route_ld018/traj.csv
-#: 的 truth_x/truth_y/truth_yaw）。这一段覆盖 R:H9 折返入口：仿真真值 s 在 t=9.08 从 2.354
-#: 跳到 3.245（同一点上的两条共线段弧长差 0.89 m），车端窗口投影只能慢慢追。
-FIELD7_LAG_POSES = [(0.5258, 2.098, 1.52), (0.5276, 2.1219, 1.4624), (0.531, 2.1457, 1.3845), (0.537, 2.1712, 1.288), (0.5534, 2.2149, 1.1163), (0.5772, 2.2552, 0.9439), (0.6076, 2.2911, 0.7707), (0.6443, 2.3214, 0.5956), (0.6867, 2.3454, 0.416), (0.7351, 2.3621, 0.2274), (0.7906, 2.3696, 0.0211), (0.8345, 2.3677, -0.0989), (0.8754, 2.3634, -0.0943), (0.9164, 2.3613, 0.0234), (0.9574, 2.3651, 0.175), (0.9974, 2.375, 0.3266), (1.0354, 2.3908, 0.4781), (1.0705, 2.4122, 0.6293), (1.0984, 2.4352, 0.7625), (1.1222, 2.4608, 0.8912), (1.1422, 2.4885, 1.0169), (1.1581, 2.5177, 1.1392), (1.17, 2.5476, 1.2576), (1.178, 2.5776, 1.372), (1.1825, 2.6072, 1.482), (1.1836, 2.6359, 1.5876), (1.1819, 2.6633, 1.6885), (1.1777, 2.6891, 1.7848), (1.1714, 2.7132, 1.8765)]
-
-
-def _lag_stop_replay():
-    """把 5 Hz 真值帧 ×4 拍（= 20 Hz）喂进 LocalizationTask，记录限速原因与 drift_run 峰值。
-
-    这一段在修复前会：车贴线正常走（全路线离线仅 0.304~0.308 m，属于折返入口的正常切角），
-    但"到下一航点"的距离 >0.30 连续 ≥8 拍 ⇒ drift_run 升级 ⇒ drift_stop。
-    """
-    task, bridge, bb, bus, clock = build(
-        overrides={}, route=parse_mission(list(FIELD7_TOKENS)), seed_pose=False)
-    reasons, max_run = [], 0
-    for (x, y, yaw) in FIELD7_LAG_POSES:
-        for _ in range(4):
-            bridge.set_pose(x, y, yaw)
-            clock.advance(0.05)
-            task.tick()
-            lim = bb.get(P_MOTION_LIMIT)
-            if isinstance(lim, dict):
-                reasons.append(lim.get("reason"))
-            max_run = max(max_run, task.drift_run)
-    return task, bb, reasons, max_run
-
-
-task_lag, bb_lag, reasons_lag, max_run_lag = _lag_stop_replay()
-check("预置：落后窗口确实触发了漂移判定（drift_warnings ≥1，否则本用例没走到判据）",
-      task_lag.drift_warnings >= 1, f"warnings={task_lag.drift_warnings}")
-check("预置：116 拍全部参与投影（20 Hz × 29 帧）",
-      task_lag.projected_ticks == len(FIELD7_LAG_POSES) * 4,
-      f"projected={task_lag.projected_ticks}")
-check("倒车落后窗口：drift_run 不得升级到 8 拍（正常切角 0.308 < 0.35 门限）",
-      max_run_lag < 8, f"max_drift_run={max_run_lag}")
-check("倒车落后窗口：不得出现 drift / drift_stop 限速请求",
-      not any(r in ("drift", "drift_stop") for r in reasons_lag),
-      f"reasons={sorted(set(reasons_lag))}")
-check("倒车落后窗口：最终 P_MOTION_LIMIT 为 None（未被假停锁住）",
-      bb_lag.get(P_MOTION_LIMIT) is None, f"limit={bb_lag.get(P_MOTION_LIMIT)}")
-
-# ★ 对照（另一侧带牙）：0.40 m 真横向漂移必须仍然 drift_stop —— 门限 0.35 不放过真漂移
-_real_drift = [(geo.block_to_meters("N10")[0] + 0.40,
-                geo.block_to_meters("N10")[1] + 0.08 * 0.05 * i, 90.0) for i in range(60)]
-task_rd, bb_rd, _, _ = _fold_replay(_real_drift, ["out"] * 60)
-_lim_rd = bb_rd.get(P_MOTION_LIMIT)
-check("★真漂移 0.40 m：仍然 drift_stop（不能因为本次修复被放过）",
-      task_rd.drift_warnings >= 1 and isinstance(_lim_rd, dict)
-      and _lim_rd.get("reason") == "drift_stop",
-      f"warnings={task_rd.drift_warnings} limit={_lim_rd}")
 
 finish()

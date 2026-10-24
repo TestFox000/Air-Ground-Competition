@@ -113,17 +113,11 @@ check('B1 默认调用 argv 不含任何增量开关（也不含重复的 --engi
   && baseline.argv.filter(a => a === '--engine').length === 1, `${baseline.argv.length} 项`)
 check('B2 台账 incremental：flags 为空、requested 为空、supported 如实',
   Array.isArray(baseline.incremental.flags) && baseline.incremental.flags.length === 0
-  && Array.isArray(baseline.incremental.dropped) ? baseline.incremental.dropped.length === 0 : baseline.incremental.dropped === 0,
-  JSON.stringify({ flags: baseline.incremental.flags, dropped: (Array.isArray(baseline.incremental.dropped) ? baseline.incremental.dropped.length : baseline.incremental.dropped) }))
+  && baseline.incremental.dropped.length === 0,
+  JSON.stringify({ flags: baseline.incremental.flags, dropped: baseline.incremental.dropped.length }))
 if (baseline.tokens.length > 0) {
-  if (IS_TRACKER_SAFE) {
-    check('B3 缺省产物 == 车端 route.tokens（逐 token）', baseline.tokens.join(' ') === car.join(' '),
-      `${baseline.tokens.length} vs ${car.length}`)
-  } else {
-    check('B3 缺省产物非空（引擎 tour，只验证能规划出路线，不要求与手动路线逐 token 一致）',
-      baseline.tokens.length > 0,
-      `${baseline.tokens.length} token（车端 ${car.length} token）`)
-  }
+  check('B3 缺省产物 == 车端 route.tokens（逐 token）', baseline.tokens.join(' ') === car.join(' '),
+    `${baseline.tokens.length} vs ${car.length}`)
 } else {
   // 第六张图：车端 tracker-safe 无解（robot.yaml planner.auto_plan_enabled=false 已记录），
   //   缺省重规划必须**显式失败**、不能悄悄给出假路线；车端实发的是手动 route.tokens。
@@ -160,100 +154,93 @@ check('C3 非法格名不塞给 argparse（reason=invalid-cell），不让用户
   JSON.stringify(badProbe.applied.dropped.map(d => d.key + ':' + d.reason)))
 
 const liveWired = liveSupport.supported.length === CANON.length
-// 引擎检测：增量规划（from_cell/already_covered）仅 tracker-safe 有效
-const TEST_ENGINE = plannerEngineOf(CFG)
-const IS_TRACKER_SAFE = TEST_ENGINE === 'tracker-safe'
 let inc = null
 let covered = null
-if (IS_TRACKER_SAFE) {
-  if (liveWired) {
-    skip('D1-D9 影子 CLI E2E', '现役 CLI 已接线——影子只为"未接线"过渡期存在，E 段实跑承接')
-    inc = await planRoute({ configPath: CFG, mapPath: e2eMap, fromCell: 'M9' })
-    covered = await planRoute({ configPath: CFG, mapPath: e2eMap, fromCell: 'M9', alreadyCovered: ['A3', 'C1'] })
-  } else if (!shadow) {
-    console.error('✗ 影子 CLI 构造失败（tools/plan_route.py 的 argparse/传参锚点变了）——本守卫的 E2E 段无法成立')
-    process.exit(2)
-  } else {
-    h('D. 影子 CLI（声明了才传）：追加顺序/取值 + 产物 == 车端 planner')
-    const shadowSupport = plannerIncrementalSupport(shadowCli)
-    check('D1 影子 CLI 的 support == 两条规范选项', shadowSupport.supported.map(s => s.option).join(' ') === CANON.join(' '),
-      JSON.stringify(shadowSupport.supported.map(s => s.option)))
-    const argvProbe = ['python', 'plan_route.py']
-    appendIncrementalArgs(argvProbe, { fromCell: 'm9', alreadyCovered: ['c1', 'A3', 'C1'] }, { cliPath: shadowCli })
-    check('D2 追加恰 +4 项、顺序固定、值已归一（M9 / A3,C1 去重排序、小写转大写）',
-      argvProbe.slice(2).join('|') === '--from-cell|M9|--already-covered|A3,C1',
-      JSON.stringify(argvProbe.slice(2)))
-    const reverted = shadow.text
-      .replace([...PATCH_LINES_FLAGS, PATCH_ANCHOR_ARGS].join('\n'), PATCH_ANCHOR_ARGS)
-      .replace([PATCH_ANCHOR_CALL, ...PATCH_LINES_CALL].join('\n'), PATCH_ANCHOR_CALL)
-    check('D3 影子 CLI == 源文件 + 仅 4 行接线（回滚 patch 后逐字节相同）', reverted === shadow.srcText,
-      `+${shadow.text.split('\n').length - shadow.srcText.split('\n').length} 行`)
-    inc = await planRoute({ configPath: CFG, mapPath: e2eMap, cliPath: shadowCli, fromCell: 'M9' })
-    const shadowBase = await planRoute({ configPath: CFG, mapPath: e2eMap, cliPath: shadowCli })
-    console.log('    增量: exit=%d tokens=%d 首点=%s checkExit=%s ｜ 基线: tokens=%d',
-      inc.exitCode, inc.tokens.length, inc.tokens[0], inc.check?.exit, shadowBase.tokens.length)
-    check('D4 增量重规划 exit 0 且 route_check 通过', inc.exitCode === 0 && inc.check?.exit === 0,
-      inc.stderrTail || '')
-    check('D5 路线首点 == from_cell（真的从 M9 续算，不是从地图起点整线）', inc.tokens[0] === 'M9', String(inc.tokens[0]))
-    check('D6 增量产物 != 基线产物（参数确实生效，不是被忽略）',
-      inc.tokens.join(' ') !== shadowBase.tokens.join(' '),
-      `${inc.tokens.length} vs ${shadowBase.tokens.length}`)
-    check('D7 页面（planRoute）增量产物 == 显式 CLI 直跑产物（逐 token）', (() => {
-      const raw = execFileSync('python', [shadowCli, '--config', CFG, '--map', MAP, '--emit', 'json',
-        '--check', '--quiet', '--engine', baseline.engine, '--from-cell', 'M9'], {
-        cwd: SIM_ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
-        env: { ...process.env, PYTHONPATH: path.join(SIM_ROOT, 'src', 'dzbrain'), PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' },
-      })
-      const payload = JSON.parse(raw.slice(raw.indexOf('{')))
-      const explicit = payload.plans?.[0]?.tokens ?? []
-      return explicit.length > 0 && explicit.join(' ') === inc.tokens.join(' ')
-    })(), `${inc.tokens.length} token`)
-    covered = await planRoute({ configPath: CFG, mapPath: e2eMap, cliPath: shadowCli, fromCell: 'M9', alreadyCovered: ['A3', 'C1'] })
-    console.log('    +already_covered(A3,C1): tokens=%d 首点=%s', covered.tokens.length, covered.tokens[0])
-    check('D8 already_covered 生效：路线不比"只给 from_cell"更长，且 argv 两项俱全',
-      covered.tokens.length <= inc.tokens.length
-      && covered.argv.includes('--already-covered') && covered.argv.includes('--from-cell')
-      && covered.incremental.alreadyCovered.join(',') === 'A3,C1',
-      `${covered.tokens.length} ≤ ${inc.tokens.length}`)
-    check('D9 增量请求下 dropped 为空（声明了就一定传，不再降级）', covered.incremental.dropped.length === 0)
-  }
+if (liveWired) {
+  skip('D1-D9 影子 CLI E2E', '现役 CLI 已接线——影子只为"未接线"过渡期存在，E 段实跑承接')
+  inc = await planRoute({ configPath: CFG, mapPath: e2eMap, fromCell: 'M9' })
+  covered = await planRoute({ configPath: CFG, mapPath: e2eMap, fromCell: 'M9', alreadyCovered: ['A3', 'C1'] })
+} else if (!shadow) {
+  console.error('✗ 影子 CLI 构造失败（tools/plan_route.py 的 argparse/传参锚点变了）——本守卫的 E2E 段无法成立')
+  process.exit(2)
 } else {
-  skip('D-E 节 增量 E2E', '引擎 tour 下无增量规划支持（from_cell/already_covered 仅 tracker-safe）')
-}/* ── G. 三方对账：页面 == CLI（影子或现役）== 车端 planner 直调 —— 仅 tracker-safe 引擎 */
-// 增量规划对账仅在 tracker-safe 引擎有效（tour 下无 plan_route_tracker_safe + CLI 硬拒 --from-cell）。
-{
-  const gEngine = plannerEngineOf(CFG)
-  if (gEngine === 'tracker-safe') {
-    h('G. 三方对账：页面 planRoute == CLI == 车端 planner 直调（仅 tracker-safe 引擎）')
-    const probePath = path.join(shadowDir, 'planner_probe.py')
-    fs.writeFileSync(probePath, [
-      'import json, sys',
-      'ROOT = sys.argv[1]',
-      'sys.path.insert(0, ROOT + "/src/dzbrain")',
-      'import yaml',
-      'from dzbrain.core.config import Config',
-      'from dzbrain.route import planner as PL',
-      'cfg = Config.load(ROOT + "/config/robot.yaml")',
-      'map_cfg = yaml.safe_load(open(sys.argv[2], encoding="utf-8")) or {}',
-      'a = PL.plan_route_tracker_safe(map_cfg, cfg, from_cell="M9")',
-      'b = PL.plan_route_tracker_safe(map_cfg, cfg, from_cell="M9", already_covered=["A3", "C1"])',
-      'print(json.dumps({"from_cell": list(a.tokens), "covered": list(b.tokens)}))',
-    ].join('\n'), 'utf8')
-    const probe = JSON.parse(execFileSync('python', [probePath, SIM_ROOT, e2eMap], {
+  h('D. 影子 CLI（声明了才传）：追加顺序/取值 + 产物 == 车端 planner')
+  const shadowSupport = plannerIncrementalSupport(shadowCli)
+  check('D1 影子 CLI 的 support == 两条规范选项', shadowSupport.supported.map(s => s.option).join(' ') === CANON.join(' '),
+    JSON.stringify(shadowSupport.supported.map(s => s.option)))
+  const argvProbe = ['python', 'plan_route.py']
+  appendIncrementalArgs(argvProbe, { fromCell: 'm9', alreadyCovered: ['c1', 'A3', 'C1'] }, { cliPath: shadowCli })
+  check('D2 追加恰 +4 项、顺序固定、值已归一（M9 / A3,C1 去重排序、小写转大写）',
+    argvProbe.slice(2).join('|') === '--from-cell|M9|--already-covered|A3,C1',
+    JSON.stringify(argvProbe.slice(2)))
+
+  // 影子 CLI 可信度：除这两处 patch 外与源文件逐字节相同（不是"另一个规划器"）
+  const reverted = shadow.text
+    .replace([...PATCH_LINES_FLAGS, PATCH_ANCHOR_ARGS].join('\n'), PATCH_ANCHOR_ARGS)
+    .replace([PATCH_ANCHOR_CALL, ...PATCH_LINES_CALL].join('\n'), PATCH_ANCHOR_CALL)
+  check('D3 影子 CLI == 源文件 + 仅 4 行接线（回滚 patch 后逐字节相同）', reverted === shadow.srcText,
+    `+${shadow.text.split('\n').length - shadow.srcText.split('\n').length} 行`)
+
+  inc = await planRoute({ configPath: CFG, mapPath: e2eMap, cliPath: shadowCli, fromCell: 'M9' })
+  const shadowBase = await planRoute({ configPath: CFG, mapPath: e2eMap, cliPath: shadowCli })
+  console.log('    增量: exit=%d tokens=%d 首点=%s checkExit=%s ｜ 基线: tokens=%d',
+    inc.exitCode, inc.tokens.length, inc.tokens[0], inc.check?.exit, shadowBase.tokens.length)
+  check('D4 增量重规划 exit 0 且 route_check 通过', inc.exitCode === 0 && inc.check?.exit === 0,
+    inc.stderrTail || '')
+  check('D5 路线首点 == from_cell（真的从 M9 续算，不是从地图起点整线）', inc.tokens[0] === 'M9', String(inc.tokens[0]))
+  check('D6 增量产物 != 基线产物（参数确实生效，不是被忽略）',
+    inc.tokens.join(' ') !== shadowBase.tokens.join(' '),
+    `${inc.tokens.length} vs ${shadowBase.tokens.length}`)
+  check('D7 页面（planRoute）增量产物 == 显式 CLI 直跑产物（逐 token）', (() => {
+    const raw = execFileSync('python', [shadowCli, '--config', CFG, '--map', MAP, '--emit', 'json',
+      '--check', '--quiet', '--engine', baseline.engine, '--from-cell', 'M9'], {
       cwd: SIM_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
       env: { ...process.env, PYTHONPATH: path.join(SIM_ROOT, 'src', 'dzbrain'), PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' },
-    }))
-    console.log('    planner 直调: from_cell=%d token ｜ +already_covered=%d token',
-      probe.from_cell.length, probe.covered.length)
-    check('G1 车端 planner 直调（from_cell=M9）== 页面增量产物（逐 token）',
-      probe.from_cell.length > 0 && probe.from_cell.join(' ') === inc.tokens.join(' '),
-      `${probe.from_cell.length} vs ${inc.tokens.length}`)
-    check('G2 车端 planner 直调（+already_covered A3,C1）== 页面产物（逐 token）',
-      probe.covered.length > 0 && probe.covered.join(' ') === covered.tokens.join(' '),
-      `${probe.covered.length} vs ${covered.tokens.length}`)
-  } else {
-    skip('G 三方对账', '引擎 tour 下无 plan_route_tracker_safe，增量规划对账仅限 tracker-safe')
-  }
+    })
+    const payload = JSON.parse(raw.slice(raw.indexOf('{')))
+    const explicit = payload.plans?.[0]?.tokens ?? []
+    return explicit.length > 0 && explicit.join(' ') === inc.tokens.join(' ')
+  })(), `${inc.tokens.length} token`)
+
+  covered = await planRoute({ configPath: CFG, mapPath: e2eMap, cliPath: shadowCli, fromCell: 'M9', alreadyCovered: ['A3', 'C1'] })
+  console.log('    +already_covered(A3,C1): tokens=%d 首点=%s', covered.tokens.length, covered.tokens[0])
+  check('D8 already_covered 生效：路线不比"只给 from_cell"更长，且 argv 两项俱全',
+    covered.tokens.length <= inc.tokens.length
+    && covered.argv.includes('--already-covered') && covered.argv.includes('--from-cell')
+    && covered.incremental.alreadyCovered.join(',') === 'A3,C1',
+    `${covered.tokens.length} ≤ ${inc.tokens.length}`)
+  check('D9 增量请求下 dropped 为空（声明了就一定传，不再降级）', covered.incremental.dropped.length === 0)
+}
+
+/* ── G. 三方对账：页面 == CLI（影子或现役）== 车端 planner 直调（t9 的 API 语义）── */
+h('G. 三方对账：页面 planRoute == CLI == 车端 planner 直调')
+{
+  const probePath = path.join(shadowDir, 'planner_probe.py')
+  fs.writeFileSync(probePath, [
+    'import json, sys',
+    'ROOT = sys.argv[1]',
+    'sys.path.insert(0, ROOT + "/src/dzbrain")',
+    'import yaml',
+    'from dzbrain.core.config import Config',
+    'from dzbrain.route import planner as PL',
+    'cfg = Config.load(ROOT + "/config/robot.yaml")',
+    'map_cfg = yaml.safe_load(open(sys.argv[2], encoding="utf-8")) or {}',
+    'a = PL.plan_route_tracker_safe(map_cfg, cfg, from_cell="M9")',
+    'b = PL.plan_route_tracker_safe(map_cfg, cfg, from_cell="M9", already_covered=["A3", "C1"])',
+    'print(json.dumps({"from_cell": list(a.tokens), "covered": list(b.tokens)}))',
+  ].join('\n'), 'utf8')
+  const probe = JSON.parse(execFileSync('python', [probePath, SIM_ROOT, e2eMap], {
+    cwd: SIM_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    env: { ...process.env, PYTHONPATH: path.join(SIM_ROOT, 'src', 'dzbrain'), PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' },
+  }))
+  console.log('    planner 直调: from_cell=%d token ｜ +already_covered=%d token',
+    probe.from_cell.length, probe.covered.length)
+  check('G1 车端 planner 直调（from_cell=M9）== 页面增量产物（逐 token）',
+    probe.from_cell.length > 0 && probe.from_cell.join(' ') === inc.tokens.join(' '),
+    `${probe.from_cell.length} vs ${inc.tokens.length}`)
+  check('G2 车端 planner 直调（+already_covered A3,C1）== 页面产物（逐 token）',
+    probe.covered.length > 0 && probe.covered.join(' ') === covered.tokens.join(' '),
+    `${probe.covered.length} vs ${covered.tokens.length}`)
 }
 
 h('E. 现役 CLI 分支（车端接线后自动从 SKIP 转为实跑）')

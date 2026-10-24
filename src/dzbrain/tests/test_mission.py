@@ -789,23 +789,11 @@ def test_stall_fallback() -> None:
     check("10.2 起步阶段未误判停滞", getattr(rig.task, "_forced_skips", 0) == 0,
           f"forced_skips={getattr(rig.task, '_forced_skips', None)}")
 
-    def _move_while_stuck(rig_, n, *, dt=0.2, amp=0.10):
-        """车**在动**（横向抖动，速度 > 静止门限）但 s 不前进 = 正常的"卡在拐角"。
-
-        ★ 2026-10-18 静止闸之后，旧版"位姿一动不动"的写法属于**禁止跳点**的场景
-          （见 test_stall_stationary_gate）；正常跳点必须证明"车在动但卡住"。
-        """
-        base = rig_.bb.get(P_POSE)
-        for i in range(n):
-            x = base.x + (amp if i % 2 == 0 else -amp)
-            rig_.bridge.set_pose(x, base.y, base.yaw)
-            rig_.bb.set(P_POSE, geo.Pose(x, base.y, base.yaw), "test")
-            rig_.task.tick()
-            rig_.events.extend(rig_.sub.poll(4096))
-            rig_.clock.advance(dt)
-
-    # 车在动但 s 冻结，快进 4 s（> stall_timeout 2.0s）
-    _move_while_stuck(rig, 20)
+    # 位姿一动不动，快进 4 s（> stall_timeout 2.0s）
+    for _ in range(20):
+        rig.task.tick()
+        rig.events.extend(rig.sub.poll(4096))
+        rig.clock.advance(0.2)
 
     skips = getattr(rig.task, "_forced_skips", 0)
     forced = [e for e in rig.of(EV_WAYPOINT_REACHED) if e.data.get("forced_skip")]
@@ -826,18 +814,14 @@ def test_stall_fallback() -> None:
     cfg2 = _field_cfg(stall_timeout_s=3600.0, stall_yaw_deg=180.0)  # 关超时，只测绕圈
     rig2 = Rig(cfg=cfg2, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
     rig2.ticks(3)
-    # 原地"打转"必须是**车在动**的版本（小圆圈 + 每拍 +90°），否则会被静止闸拦下：
-    # 静止闸只放行"车在动但 s 卡住"的绕圈兜底（2026-10-18 H8 卡死教训）。
-    base2 = rig2.bb.get(P_POSE)
     yaw = geo.HEADING_Y
-    for k in range(6):            # 每拍 +90° → 两拍就够 180°；圆周位移 > 静止门限
+    for _ in range(6):            # 每拍 +90° → 两拍就够 180°
         yaw = geo.normalize_angle(yaw + _math.radians(90))
-        ang = _math.radians(60 * k)
-        x = base2.x + 0.05 * _math.cos(ang)
-        y = base2.y + 0.05 * _math.sin(ang)
         rig2.clock.advance(0.1)
-        rig2.bridge.set_pose(x, y, yaw)
-        rig2.bb.set(P_POSE, geo.Pose(x, y, yaw), "test")
+        b = rig2.bridge
+        p = rig2.bb.get(P_POSE)
+        b.set_pose(p.x, p.y, yaw)
+        rig2.bb.set(P_POSE, geo.Pose(p.x, p.y, yaw), "test")
         rig2.task.tick()
         rig2.events.extend(rig2.sub.poll(4096))
     skips2 = getattr(rig2.task, "_forced_skips", 0)
@@ -849,7 +833,10 @@ def test_stall_fallback() -> None:
     cfg3 = _field_cfg(stall_timeout_s=2.0, stall_yaw_deg=3600.0)
     rig3 = Rig(cfg=cfg3, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
     rig3.ticks(3)
-    _move_while_stuck(rig3, 20)          # 车在动但 s 冻结（静止闸放行）
+    for _ in range(20):
+        rig3.task.tick()
+        rig3.events.extend(rig3.sub.poll(4096))
+        rig3.clock.advance(0.2)
     n_after_stall = getattr(rig3.task, "_forced_skips", 0)
     rig3.walk(step=0.05, max_steps=200, stop_on_stop_point=False)
     normal = [e for e in rig3.of(EV_WAYPOINT_REACHED) if not e.data.get("forced_skip")]
@@ -879,86 +866,15 @@ def test_stall_fallback() -> None:
     check("10.12 ★PIVOT 进行中不判停滞（4s>超时2s、累计转600°>60°，仍 0 跳点）",
           skips4 == 0, f"skips={skips4}")
 
-    # 机动结束 → 停滞判定必须照常生效（豁免不能变成永久免疫）。
-    # 车必须"在动"（小圆圈 + 每拍 +30°），静止的原地打转会被静止闸拦下 —— 那是 2026-10-18
-    # H8 卡死事故后的新语义（静止不许跳点），不是本用例要测的东西。
-    base4 = rig4.bb.get(P_POSE)
-    yaw4b = base4.yaw
-    for k in range(20):
-        yaw4b = geo.normalize_angle(yaw4b + _math.radians(30))
-        ang = _math.radians(60 * k)
-        x = base4.x + 0.05 * _math.cos(ang)
-        y = base4.y + 0.05 * _math.sin(ang)
+    # 机动结束 → 停滞判定必须照常生效（豁免不能变成永久免疫）
+    for _ in range(20):
         rig4.bb.set(P_TELEMETRY, {"tracker_cmd": {"pivot_phase": "IDLE"}}, "test")
-        rig4.bridge.set_pose(x, y, yaw4b)
-        rig4.bb.set(P_POSE, geo.Pose(x, y, yaw4b), "test")
         rig4.task.tick()
         rig4.events.extend(rig4.sub.poll(4096))
         rig4.clock.advance(0.2)
     skips4b = getattr(rig4.task, "_forced_skips", 0)
     check("10.13 PIVOT 结束后停滞判定照常生效（豁免不是永久免疫）",
           skips4b >= 1, f"skips={skips4b}")
-
-
-def test_stall_stationary_gate() -> None:
-    """★20. 静止闸：车实际不动时禁止绕圈兜底跳点（防「假完赛」安全洞）。
-
-    背景（2026-10-18 实车 H8 卡死）：s 冻结后 mission 每 12s 强制跳过航点
-    （E9/D9/D10/C10…）——车一步没动也能把航点逐个跳完 ⇒ _passed 全 True ⇒ FINISH。
-    本组验证：
-      20.1-20.5 车静止 + s 冻结 → 不跳点、不推进、不 FINISH，且拦住可观测/可审计；
-      20.6 车一动（s 仍冻结）→ 跳点能力立刻恢复（闸不是永久封印）。
-    """
-    section("20. 静止闸：车静止时禁止跳点/假完赛；车一动即恢复")
-    cfg = _field_cfg(stall_timeout_s=2.0, stall_yaw_deg=3600.0)   # 只测超时判据
-    rig = Rig(cfg=cfg, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
-    rig.ticks(3)
-    passed0 = sum(1 for x in rig.task._passed if x)
-    arrived0 = rig.task._arrived
-
-    # 位姿**一动不动**，快进 4 s（> stall_timeout 2.0s）
-    for _ in range(20):
-        rig.task.tick()
-        rig.events.extend(rig.sub.poll(4096))
-        rig.clock.advance(0.2)
-
-    forced = [e for e in rig.of(EV_WAYPOINT_REACHED) if e.data.get("forced_skip")]
-    check("20.1 ★静止 + s 冻结：0 次强制跳点（旧行为 12s 一跳）",
-          getattr(rig.task, "_forced_skips", 0) == 0,
-          f"skips={getattr(rig.task, '_forced_skips', None)} "
-          f"stall_skip_blocked={getattr(rig.task, 'stall_skip_blocked', None)}")
-    check("20.2 ★静止：路线进度未推进（_passed 数 / _arrived 均不变）",
-          sum(1 for x in rig.task._passed if x) == passed0
-          and rig.task._arrived == arrived0,
-          f"passed={sum(1 for x in rig.task._passed if x)} (was {passed0}) "
-          f"arrived={rig.task._arrived} (was {arrived0})")
-    check("20.3 ★静止：不报 FINISH（阶段非 FINISH、未锁存完赛）",
-          rig.task.phase != MissionPhase.FINISH
-          and not getattr(rig.task, "_finish_latched", False),
-          f"phase={rig.task.phase!r} finish_latched={getattr(rig.task, '_finish_latched', None)}")
-    check("20.4 ★静止：没有 forced_skip 事件（不假装到达）",
-          not forced, f"forced={[e.data.get('block') for e in forced]}")
-    check("20.5 ★静止：拦住可观测（stall_skip_blocked ≥1）+ 日志含「车静止/禁止跳点/如实上报 stall」",
-          getattr(rig.task, "stall_skip_blocked", 0) >= 1
-          and any(("车静止" in ln and "禁止跳点" in ln and "如实上报 stall" in ln)
-                  for ln in rig.logs),
-          f"blocked={getattr(rig.task, 'stall_skip_blocked', None)} logs={rig.logs[-2:]}")
-
-    # ---- 车一动（横向抖动，s 仍冻结）→ 跳点能力恢复 ----
-    base = rig.bb.get(P_POSE)
-    for i in range(20):
-        x = base.x + (0.10 if i % 2 == 0 else -0.10)
-        rig.bridge.set_pose(x, base.y, base.yaw)
-        rig.bb.set(P_POSE, geo.Pose(x, base.y, base.yaw), "test")
-        rig.task.tick()
-        rig.events.extend(rig.sub.poll(4096))
-        rig.clock.advance(0.2)
-    forced_after = [e for e in rig.of(EV_WAYPOINT_REACHED) if e.data.get("forced_skip")]
-    check("20.6 ★车一动（s 仍冻结）→ 跳点恢复（forced_skips ≥1）",
-          getattr(rig.task, "_forced_skips", 0) >= 1,
-          f"skips={getattr(rig.task, '_forced_skips', None)}")
-    check("20.7 ★恢复跳点有事件可审计（forced_skip=True）",
-          len(forced_after) >= 1, f"forced={[e.data.get('block') for e in forced_after]}")
 
 
 def test_arrival_requires_proximity() -> None:
@@ -2174,112 +2090,6 @@ def test_stop_ledger_t7() -> None:
           tele == ledger, str(tele))
 
 
-# --------------------------------------------------------------------------- #
-#  19. ★T27 步进循环：MissionTask 的段执行接口
-# --------------------------------------------------------------------------- #
-def test_segment_api() -> None:
-    section("19. ★T27 段执行接口：request_segment / segment_status / stop_segment")
-    cfg = cfg_of(mission={"auto_start": False})
-    rig = Rig(cfg=cfg, pose=geo.block_to_meters("N10") + (geo.HEADING_Y,))
-
-    # ---- (a) 投递 → tick 载入 → DRIVE；不再走 auto_start ----
-    res = rig.task.request_segment(["N10", "M10"], segment_id=7,
-                                   target_cell="M10", known_count=2)
-    check("19.1 request_segment 被接受（返回 accepted=True）",
-          res.get("accepted") is True, str(res))
-    check("19.2 接受后任务线程还没 tick：阶段仍 IDLE（投递与执行解耦）",
-          rig.task.phase == MissionPhase.IDLE, rig.task.phase)
-    rig.tick()
-    check("19.3 tick 后段载入并发车：阶段 DRIVE、路线 = N10→M10",
-          rig.task.phase == MissionPhase.DRIVE
-          and [w.block for w in rig.task.route.waypoints] == ["N10", "M10"],
-          f"{rig.task.phase} / "
-          f"{[w.block for w in rig.task.route.waypoints] if rig.task.route else None}")
-    check("19.4 段状态 active=True、段号/目标/known 已记录",
-          rig.task.segment_status()["active"] is True
-          and rig.task.segment_status()["segment_id"] == 7
-          and rig.task.segment_status()["target_cell"] == "M10"
-          and rig.task.segment_status()["known_count"] == 2,
-          str(rig.task.segment_status()))
-
-    # ---- (b) 段内再投递 → 拒绝（换段只在段边界）----
-    res2 = rig.task.request_segment(["N10", "M10"], segment_id=8)
-    check("19.5 ★段内再投递被拒（换段只在段边界）",
-          res2.get("accepted") is False and "段边界" in str(res2.get("reason")),
-          str(res2))
-
-    # ---- (c) 走到段末 → 完成单 ----
-    rig.walk(step=0.05, max_steps=120)
-    check("19.6 段末到点：阶段 FINISH（Mission 的终点判据 = 段完成）",
-          rig.task.phase == MissionPhase.FINISH, rig.task.phase)
-    st = rig.task.segment_status()
-    done = st.get("done") or {}
-    check("19.7 完成单字段：segment_id=7 / target=M10 / block=M10 / pose_block=M10",
-          done.get("segment_id") == 7 and done.get("target_cell") == "M10"
-          and done.get("block") == "M10" and done.get("pose_block") == "M10",
-          str(done))
-    check("19.8 完成单含 known_count=2 / elapsed_s≥0 / waypoints=2",
-          done.get("known_count") == 2 and float(done.get("elapsed_s", -1)) >= 0.0
-          and done.get("waypoints") == 2,
-          str({k: done.get(k) for k in ("known_count", "elapsed_s", "waypoints")}))
-    check("19.9 段完成后 active=False（下一段可投递）",
-          st.get("active") is False, str(st.get("active")))
-
-    # ---- (d) FINISH 锁存跨段解闩：第二段能正常起、正常完 ----
-    rig.ticks(3)                                   # FINISH → IDLE（需求2 的延迟复位）
-    check("19.10 结算后回 IDLE（FINISH 锁存已复位）",
-          rig.task.phase == MissionPhase.IDLE, rig.task.phase)
-    rig.set_pose_at("M10", yaw=geo.HEADING_Y)      # 车停在上一段目标格
-    res3 = rig.task.request_segment(["M10", "L10"], segment_id=8,
-                                    target_cell="L10", known_count=3)
-    rig.tick()
-    check("19.11 ★第二段能起（跨段 FINISH 锁存已解闩，不是永远 FINISH）",
-          res3.get("accepted") is True and rig.task.phase == MissionPhase.DRIVE
-          and [w.block for w in rig.task.route.waypoints] == ["M10", "L10"],
-          f"{res3} / {rig.task.phase}")
-    rig.walk(step=0.05, max_steps=120)
-    done2 = rig.task.segment_status().get("done") or {}
-    check("19.12 第二段完成单段号=8（不会被上一段的 done 串号）",
-          done2.get("segment_id") == 8 and done2.get("block") == "L10", str(done2))
-
-    # ---- (e) 坏段路线：不崩、写 error、回 IDLE ----
-    rig.ticks(3)
-    res_bad = rig.task.request_segment(["M10"], segment_id=9)
-    check("19.13 坏段路线（只有 1 点）也被接收（执行期才校验）",
-          res_bad.get("accepted") is True, str(res_bad))
-    rig.tick()
-    st_bad = rig.task.segment_status()
-    check("19.14 坏段路线：error 非空、阶段回 IDLE、P_ROUTE 清空（绝不带病发车）",
-          bool(st_bad.get("error")) and rig.task.phase == MissionPhase.IDLE
-          and rig.bb.get(P_ROUTE) is None and st_bad.get("active") is False,
-          f"{st_bad.get('error')} / {rig.task.phase}")
-
-    # ---- (f) stop_segment：停段 + 清路线 + 回 IDLE ----
-    rig.set_pose_at("L10", yaw=geo.HEADING_Y)
-    rig.task.request_segment(["L10", "M10"], segment_id=10, target_cell="M10")
-    rig.tick()
-    check("19.15 停段前置：DRIVE 中", rig.task.phase == MissionPhase.DRIVE,
-          rig.task.phase)
-    rig.task.stop_segment("测试停止")
-    rig.tick()
-    st_stop = rig.task.segment_status()
-    check("19.16 stop_segment：回 IDLE + 路线清空 + error 写明停止原因",
-          rig.task.phase == MissionPhase.IDLE and rig.bb.get(P_ROUTE) is None
-          and "测试停止" in st_stop.get("error", ""), str(st_stop))
-
-    # ---- (g) reset_pose：只改 belief，不动阶段/路线 ----
-    route_before = rig.bb.get(P_ROUTE)
-    rig.task.reset_pose("N10,y")
-    pose = rig.bb.get(P_POSE)
-    x, y = geo.block_to_meters("N10")
-    check("19.17 reset_pose 把 belief 放到格心 + 朝向（不改路线对象）",
-          pose is not None and abs(pose.x - x) < 1e-9 and abs(pose.y - y) < 1e-9
-          and abs(pose.yaw - geo.HEADING_Y) < 1e-9
-          and rig.bb.get(P_ROUTE) is route_before,
-          f"pose={pose} / route_same={rig.bb.get(P_ROUTE) is route_before}")
-    rig.task.teardown()
-
-
 def main() -> int:
     print("=" * 72)
     print("dzbrain MissionTask 自测（纯脚本）")
@@ -2296,7 +2106,6 @@ def main() -> int:
     test_phase_gate()
     test_rate()
     test_stall_fallback()
-    test_stall_stationary_gate()
     test_arrival_requires_proximity()
     test_pivot_done_marks_arrival()
     test_waypoint_ledger()
@@ -2305,7 +2114,6 @@ def main() -> int:
     test_dual_stop_t13()
     test_dual_stop_t14()
     test_stop_ledger_t7()
-    test_segment_api()
     finish()
     return 0
 

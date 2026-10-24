@@ -56,6 +56,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -118,7 +119,8 @@ def load_yaml(path: pathlib.Path) -> dict:
 # --------------------------------------------------------------------------- #
 def run_route_check(tokens: list[str], cfg_path: pathlib.Path,
                     map_path: pathlib.Path,
-                    already_covered: tuple[str, ...] | None = None) -> tuple[int, str]:
+                    already_covered: tuple[str, ...] | None = None,
+                    expect_halves: tuple[str, ...] | None = None) -> tuple[int, str]:
     """调用 `tools/route_check.py --route "..."`。
 
     地图不在默认位置时把 `ROBOT_MAP` 传进子进程 —— 这是该工具自带的入口，
@@ -126,6 +128,10 @@ def run_route_check(tokens: list[str], cfg_path: pathlib.Path,
 
     `already_covered`（增量续算）：已压雷格 → `--already-covered` 透传给
     route_check，覆盖判据不要求这些雷重压；缺省不传、校验口径逐字节不变。
+    `expect_halves`（增量续算，t12 契约收口）：透传给 route_check 的
+    `--expect-halves` —— 增量段只要求列出的半场各穿 1 次；不传则外层门禁
+    仍按"两半场各恰 1 次"判，会把合法的"从上半场接着算"假红成
+    "下半场穿越 0 次"（实测复现过：--from-cell B3 --check 必挂）。
     """
     script = HERE / "route_check.py"
     if not script.is_file():
@@ -140,6 +146,8 @@ def run_route_check(tokens: list[str], cfg_path: pathlib.Path,
            "--config", str(cfg_path)]
     if already_covered:
         cmd += ["--already-covered", *already_covered]
+    if expect_halves:
+        cmd += ["--expect-halves", *expect_halves]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
                               cwd=str(WS), env=env, encoding="utf-8", errors="replace")
@@ -180,12 +188,6 @@ def _close_dual_shoot_stop(res: PL.PlanResult, map_cfg: dict, cfg: Config,
         res.shoot_stop2 = marked
         res.shoot_distance_m2 = PL.shoot_stop_distance(marked, map_cfg)
         res.warnings = tuple(res.warnings) + (note,)
-        # ★ 收口只改"停不停"：把 PlanResult.route 里对应航点同步标上 shoot，
-        #   否则 as_dict()["shoot_stops"]（读 route）与 tokens 里的星号会两套账。
-        for wp in getattr(getattr(res, "route", None), "waypoints", ()):
-            if wp.block == marked and not wp.shoot:
-                wp.shoot = True
-                break
     return res
 
 
@@ -214,8 +216,7 @@ def plan_once(map_cfg: dict, cfg: Config, args, *, cross_lower: str | None,
         map_cfg, cfg, cross_lower=cross_lower, cross_upper=cross_upper,
         allow_reverse=bool(args.allow_reverse), pivot_penalty=args.pivot_penalty,
         name=map_path.stem or "route", source=str(map_path),
-        max_seconds=args.max_seconds,
-        objective=getattr(args, "objective", PL.OBJECTIVE_LEGACY))
+        max_seconds=args.max_seconds)
     return _close_dual_shoot_stop(res, map_cfg, cfg, map_path)
 
 
@@ -272,10 +273,6 @@ def main(argv: list[str] | None = None) -> int:
                     help="规划引擎：tour=历史『顺序+朝向联合优化』（默认，行为不变）；"
                          "tracker-safe=『真车可跟踪』引擎（禁 180°/禁紧凑 U/"
                          "雷直线穿心，实测追平现役手工路线）")
-    ap.add_argument("--objective", choices=("legacy", "tasks"), default="legacy",
-                    help="目标函数口径：legacy=历史『最短巡回+硬约束』（默认，逐字节不变）；"
-                         "tasks=任务优先『先最大化 8 雷+可达停站，再最小化时间』，"
-                         "结构/任务不满足时输出显式 degraded 降级路线而非无解")
     ap.add_argument("--phase-cell", default=None,
                     help="tracker-safe 引擎的隔板过渡航点（默认跟随 PL.TS_PHASE_CELL=C6）")
     ap.add_argument("--t7-turn-w", type=float, default=None,
@@ -289,14 +286,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--already-covered", default=None,
                     help="已压格集合，逗号分隔（如 C1,A3；只对雷生效，写进来的雷不再要求重压）"
                          "（仅 --engine tracker-safe）")
+    ap.add_argument("--expect-halves", nargs="*", default=None,
+                    choices=("lower", "upper"),
+                    help="增量续算门禁口径：只要求列出的半场各穿 1 次（缺省 = 两半场各恰 1 次）。"
+                         "不显式给时按 --from-cell 所在半场自动推导"
+                         "（起点在上半场 ⇒ 只要求 upper）；与 route_check/validate 三处同契约")
     args = ap.parse_args(argv)
     if (args.from_cell or args.already_covered) and args.engine != "tracker-safe":
         print("❌ --from-cell / --already-covered 只支持 --engine tracker-safe（增量续算 G4）",
               file=sys.stderr)
         return EXIT_USAGE
-    if args.engine == "tracker-safe" and args.objective != "legacy":
-        print("⚠️ --objective tasks 目前只作用于 tour 引擎；tracker-safe 仍按 legacy"
-              "（D-012 仅作参考实现，不作现役回退）", file=sys.stderr)
     if args.engine == "tracker-safe":
         if args.phase_cell is None:
             args.phase_cell = PL.TS_PHASE_CELL
@@ -308,6 +307,19 @@ def main(argv: list[str] | None = None) -> int:
         # ★ 两种引擎的默认预算不同（tracker-safe 的状态空间多一维、且要遍历射击点候选）
         args.max_seconds = (PL.TS_MAX_SECONDS if args.engine == "tracker-safe"
                             else PL.DEFAULT_MAX_SECONDS)
+
+    # 增量续算门禁口径（t12 契约收口）：显式 --expect-halves 优先；否则按
+    # --from-cell 所在半场推导 —— 起点在上半场（行 1~6）= 下半场已过 ⇒ 本段
+    # 只要求 upper 一次；起点在下半场 ⇒ 本段大概率仍要跨到上半场 ⇒ 保持缺省
+    # （两半场各恰 1 次）。三处同契约：route_check --expect-halves /
+    # validate_route(expect_halves=) / 规划器 check_route_structure(crossing_halves=)。
+    expect_halves: tuple[str, ...] | None = None
+    if args.expect_halves:
+        expect_halves = tuple(args.expect_halves)
+    elif args.from_cell:
+        _m = re.fullmatch(r"([A-Na-n])(\d{1,2})", args.from_cell.strip())
+        if _m and 1 <= int(_m.group(2)) <= 6:
+            expect_halves = ("upper",)
 
     cfg_path = pathlib.Path(args.config)
     if not cfg_path.is_file():
@@ -378,12 +390,10 @@ def main(argv: list[str] | None = None) -> int:
                             for c in args.already_covered.split(",") if c.strip())
         for _, _, res in results:
             code, text = run_route_check(res.tokens, cfg_path, map_path,
-                                         already_covered=covered or None)
+                                         already_covered=covered or None,
+                                         expect_halves=expect_halves)
             checked[id(res)] = (code, text)
-            # ★ 任务优先（objective=tasks）的降级路线：route_check 会如实地红（缺雷/
-            #   缺停站/终点不可达），但这是**显式降级**而非"无解" ⇒ 不再把退出码打红。
-            #   JSON 里 route_check.exit 仍保留真实值，透明可查。
-            if code != 0 and not getattr(res, "degraded", False):
+            if code != 0:
                 worst = EXIT_FAIL
 
     validates: dict[int, list] = {}
@@ -392,12 +402,12 @@ def main(argv: list[str] | None = None) -> int:
         for res in (r for _, _, r in results):
             try:
                 route = parse_mission(res.tokens)
-                issues = validate_route(route, map_cfg=map_cfg, cfg=cfg)
+                issues = validate_route(route, map_cfg=map_cfg, cfg=cfg,
+                                        expect_halves=expect_halves)
             except Exception as exc:                          # noqa: BLE001
                 issues = [f"{type(exc).__name__}: {exc}"]
             validates[id(res)] = issues
-            if (any(getattr(i, "level", "") == "error" for i in issues)
-                    and not getattr(res, "degraded", False)):
+            if any(getattr(i, "level", "") == "error" for i in issues):
                 worst = EXIT_FAIL
 
     if args.emit == "json" or args.json:

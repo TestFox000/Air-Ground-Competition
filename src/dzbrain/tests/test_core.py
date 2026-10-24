@@ -175,13 +175,8 @@ check("新键 pursuit.cruise_speed_mps 与旧键同值（0.35）",
 #     `F2` 不在 `D3→E3→F3→G3` 主线上 ⇒ 多绕 `F2→F1→G1→H1→H2→H3→G3` ⇒ 44 → 50 点。
 #   ★ t3-A 裁决（同日）：1.00 档因"靶在车尾 170.5°"作废 ⇒ 停站退到 `D3`（板心 0.875 m），
 #     `D3` 在主线上 ⇒ 绕行消失 ⇒ **44 点**（与 t50/t57 同长，仅星号前移两格）。
-# ★★ 2026-10-18 重钉（T26 配置收口发现）：快照提交 004a2dd 已把现役图切到**第六张地图**
-#   （`config/map.yaml` = "第六张地图 · 2026-10-17 用户现场图"），`robot.yaml` 的
-#   `mission_blocks` 实测 **68 点**、下半场穿洞兜底 K9→**K7**；但该提交没有同步本文件
-#   （提交里的 `_tmp_full_regression/suite_table.csv` 是旧跑批，test_core=0 是陈的）⇒
-#   旧断言 44/K9 在 HEAD 上必红。这里按**当前 robot.yaml 实测**重钉（不降低判据，只对齐真源）。
-check("route.tokens 由 mission_blocks 迁移（第六张图自规划，68 点）",
-      len(cfg.get("route.tokens") or []) == 68)
+check("route.tokens 由 mission_blocks 迁移（官方图自规划，44 点；t3-A）",
+      len(cfg.get("route.tokens") or []) == 44)
 # ★ 2026-10-11 重钉（t20）：第三次换图**关闭**了"桥洞强制直行保护"（`bridge_blocks: []`，
 #   见 robot.yaml 该行注释：保护窗含 90° 拐时锁错航向，改用纯追踪 + 转角减速过洞）
 #   ⇒ 旧断言"整列 K1~K11 共 11 个保护点"不再成立。
@@ -190,11 +185,8 @@ check("桥洞强制直行保护已按第三张图关闭（bridge_blocks 为空�
       f"got {cfg.get('pursuit.bridge_blocks')!r}")
 check("旧 dzactuator 段可读（2026-10-11 实车直线标定 → 3280.0）",
       cfg.get("dzactuator.ticksPerMeter") == 3280.0)
-# ★ 2026-10-18 重钉（aim-tune-1018）：t53 曾把 lead_time_s 归零，今天实车回标为 0.27
-#   （链路延迟实测口径，配 lead_apply_gain=0.5）。判据强度不变——仍要求"参数段已生效且与真源一致"，
-#   真源换成 robot.yaml:827 的当前值；不回钉就与已上车的配置永久漂移。
-check("新版参数段 /dzbrain 生效（curvature_gain 非默认；lead_time_s 按 2026-10-18 实车回标 0.27）",
-      cfg.get("aim.lead_time_s") == 0.27 and cfg.get("pursuit.curvature_gain") == 1.0)
+check("新版参数段 /dzbrain 生效（curvature_gain 非默认；lead_time_s 已 t53 归零）",
+      cfg.get("aim.lead_time_s") == 0.0 and cfg.get("pursuit.curvature_gain") == 1.0)
 check("新版默认值可读（SCHEMA 默认）", cfg.get("pursuit.wheelbase_m") == 0.157)
 check("case: 未知键给出告警", True)
 issues = cfg.validate(strict=False)
@@ -203,8 +195,7 @@ check("真实配置无 error", not errs, "; ".join(str(i) for i in errs))
 # ★★ t31 重钉：穿洞兜底格随第五张图改为 **K10**(下半场) / **K5**(上半场)（第三张图是 K11/K1）。
 #   为什么这算"语义未放宽"：`_default_cross()` 要求 default ∈ 候选集合，第五张图的候选集合就是
 #   ["K10"]/["K5"] ⇒ K11/K1 是**失效值**（只会让 validate 报 warn、让开机横幅打错通口名）。
-# ★★ 2026-10-18 重钉（同上，第六张图）：下半场穿洞兜底格 K9→**K7**（候选 ["K7"]），上半场仍 K5。
-check("配置摘要包含穿洞兜底格（第六张图 K7）", "K7" in cfg.summary(), repr(cfg.summary()[:120]))
+check("配置摘要包含穿洞兜底格（官方图 K9）", "K9" in cfg.summary(), repr(cfg.summary()[:120]))
 
 section("Config：校验真的会拦（负例）")
 bad = Config.from_dict({
@@ -220,35 +211,5 @@ check_raises("strict=True 直接抛 ConfigError", ConfigError, bad.validate, Tru
 check("SCHEMA 覆盖了关键键", "route.tokens" in SCHEMA and SCHEMA["route.tokens"].critical)
 missing = Config.from_dict({})
 check_raises("关键键缺失即报错", ConfigError, missing.get, "route.tokens")
-
-section("Config：t26 收口 —— drone.field_layout_wait_s 进 SCHEMA + 越界拦截 + 未知 drone.* 告警")
-spec_wait = SCHEMA.get("drone.field_layout_wait_s")
-check("SCHEMA 已登记 drone.field_layout_wait_s", spec_wait is not None)
-check("默认 30.0 s、范围 1..120",
-      spec_wait is not None and spec_wait.default == 30.0 and spec_wait.unit == "s"
-      and spec_wait.lo == 1.0 and spec_wait.hi == 120.0,
-      f"{spec_wait}")
-cfg_wait = Config.from_dict({"drone": {"field_layout_wait_s": 30.0}})
-wait_issues = [i for i in cfg_wait.validate(strict=False)
-               if i.key == "drone.field_layout_wait_s"]
-check("合法值 30.0 不报该键问题", not wait_issues,
-      "; ".join(str(i) for i in wait_issues))
-cfg_lo = Config.from_dict({"drone": {"field_layout_wait_s": 0.5}})
-lo = [i for i in cfg_lo.validate(strict=False)
-      if i.level == "error" and i.key == "drone.field_layout_wait_s"]
-check("0.5 s 被拦（低于下限 1.0 s）", bool(lo) and "低于下限 1.0" in lo[0].msg,
-      "; ".join(str(i) for i in lo))
-cfg_hi = Config.from_dict({"drone": {"field_layout_wait_s": 121.0}})
-hi = [i for i in cfg_hi.validate(strict=False)
-      if i.level == "error" and i.key == "drone.field_layout_wait_s"]
-check("121 s 被拦（高于上限 120.0 s）", bool(hi) and "高于上限 120.0" in hi[0].msg,
-      "; ".join(str(i) for i in hi))
-cfg_typo = Config.from_dict({"drone": {"field_layout_wait_s": 30.0,
-                                       "field_layout_wait": 30.0}})
-typo = [i for i in cfg_typo.validate(strict=False)
-        if i.level == "warn" and i.key == "drone.field_layout_wait"]
-check("未知 drone.* 键记 warning（拼错键不会被静默吞掉）",
-      bool(typo) and "未登记的配置键" in typo[0].msg,
-      "; ".join(str(i) for i in typo))
 
 finish()

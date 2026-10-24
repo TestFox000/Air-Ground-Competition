@@ -299,72 +299,6 @@ def main() -> int:
           f"{spec.start}->{spec.end} 雷{len(spec.mines)} 障{len(spec.obstacles)} "
           f"靶{spec.targets} 通{spec.bridges}")
 
-    # ------------------------------------------------------------------ #
-    section("⑯ t24 双面射击点：板面法向轴 / 靶窗视线 / 新图真双停站")
-    # 新图（2026-10-18 现场图）：靶板 D7+E7 沿 y 排开、板心 (1.575,3.5)、面法向 = ±x。
-    # 旧实现把「两靶格连线」（轨道轴 (0,-1)）当脸法向 ⇒ C9/F9 被分成一南一北（假双面）。
-    _field7_raw = {"map": {
-        "name": "现场图 2026-10-18（t24 验证）",
-        "start": "N10", "end": "N5",
-        "barrier_col_from": "D", "barrier_row_hi": 6, "barrier_row_lo": 7,
-        "mines": ["B1", "A2", "I2", "C3", "E3", "G5", "I8", "H9"],
-        "obstacles": ["D5", "I6", "A7", "F8", "B9", "F10", "H10", "A11"],
-        "targets": ["D7", "E7"], "bridges": ["K4", "K10"],
-    }}
-    _spec7 = P.load_map(_field7_raw)
-    _ctr7 = P.plate_center_m(_spec7)
-    check("⑯.1 新图板心=(1.575,3.5) 且板面法向=±x（轨道轴 (0,-1) 仍只作排序用）",
-          abs(_ctr7[0] - 1.575) < 1e-9 and abs(_ctr7[1] - 3.5) < 1e-9
-          and abs(P.plate_face_normal_m(_spec7)[0]) > 0.999
-          and abs(P.plate_bisector_axis_m(_spec7)[1]) > 0.999,
-          f"ctr={_ctr7} normal={P.plate_face_normal_m(_spec7)} "
-          f"axis={P.plate_bisector_axis_m(_spec7)}")
-    _side7 = {b: P.plate_side_of(_spec7, b)
-              for b in ("C9", "F9", "D6", "E6", "E5", "F5", "C7")}
-    check("⑯.2 侧向轴=面法向：C9/F9 同侧(-1)、D6/E6/E5/F5 同侧(+1)、C7 在板面平面(0)",
-          _side7["C9"] == -1 and _side7["F9"] == -1
-          and _side7["D6"] == 1 and _side7["E6"] == 1
-          and _side7["E5"] == 1 and _side7["F5"] == 1
-          and _side7["C7"] == 0, f"sides={_side7}")
-    check("⑯.3 靶窗例外：F5→板心 的视线不再被隔板挡（靶板就嵌在这道墙上）",
-          not P.barrier_sight_blocked(_spec7, geo.block_to_meters("F5"), _ctr7))
-    check("⑯.4 非靶窗方向仍整墙拦：K1→D9 视线交点 y≈2.91 在靶窗外",
-          P.barrier_sight_blocked(_spec7, geo.block_to_meters("K1"),
-                                  geo.block_to_meters("D9")))
-    _res7 = None
-    _err7 = ""
-    try:
-        _res7 = P.plan_route_tracker_safe(_field7_raw, cfg, max_seconds=TEST_PLAN_BUDGET_S)
-    except Exception as _e:                                  # noqa: BLE001
-        _err7 = f"{type(_e).__name__}: {_e}"
-    if _res7 is None:
-        check("⑯.5 新图 tracker-safe 规划成功", False, _err7)
-    else:
-        _stars7 = [t.rstrip("*") for t in _res7.tokens if "*" in t]
-        _acc7 = P._shoot_accept(cfg)
-        _cov7 = P.covering_stops(_spec7, _stars7, _acc7)
-        _lo7, _hi7 = P.shoot_distance_window(_acc7)
-        _d7 = {b: P.shoot_stop_distance(b, _spec7) for b in _stars7}
-        _s7 = {b: P.plate_side_of(_spec7, b) for b in _stars7}
-        check("⑯.5 新图真双停站：恰好 2 个星标且分居板面两侧（-1/+1）",
-              len(_stars7) == 2 and set(_s7.values()) == {-1, 1},
-              f"stars={_stars7} sides={_s7}")
-        _dist_ok = all(_lo7 - 1e-9 <= _d7[b] <= _hi7 + 1e-9 for b in _stars7)
-        _cover_ok = all(len(_cov7.get(b, ())) == len(_spec7.targets) for b in _stars7)
-        check("⑯.6 两个停站都在板心窗口内且各自覆盖全部靶格",
-              _dist_ok and _cover_ok,
-              f"dists={ {b: round(v, 4) for b, v in _d7.items()} } "
-              f"window=({_lo7:.2f},{_hi7:.2f}) "
-              f"covers={ {b: len(_cov7.get(b, ())) for b in _stars7} }")
-    # ---- 旧图（config/map.yaml：D5+D6，板沿 x、面法向 ±y）的裁决记录 ----
-    _spec_old = P.load_map(map_cfg)
-    check("⑯.7 旧图板面法向 = ±y（D5+D6 沿 x 排开）",
-          abs(P.plate_face_normal_m(_spec_old)[1]) > 0.999,
-          f"normal={P.plate_face_normal_m(_spec_old)}")
-    check("⑯.8 旧图 t7 主停站 D3 在板心平面上（side=0，边缘视角；旧双面口径需 Lead 裁决）",
-          P.plate_side_of(_spec_old, "D3") == 0,
-          f"D3 side={P.plate_side_of(_spec_old, 'D3')} "
-          f"G3 side={P.plate_side_of(_spec_old, 'G3')}")
     section("1 当前地图：规划 + 6 条硬约束")
     result = P.plan_route(map_cfg, cfg, name="auto")
     tokens = result.tokens
@@ -638,7 +572,7 @@ def main() -> int:
           "0 违规" if not k_bad else " | ".join(k_bad[:3]))
     check("没有'同模式 180° 折返'（assert_legal 的核心不变量）",
           all(P._angle_of(wps[i - 1], wps[i], wps[i + 1]) <= P.UTURN_REVERSE_DEG
-              or wps[i].reverse or wps[i + 1].reverse   # ★ 顶点 i 的两条邻段 = 进入段/离开段
+              or wps[i - 1].reverse or wps[i].reverse
               for i in range(1, len(wps) - 1)),
           "无违规顶点")
     check("接受窗口 = route_check 的容差窗口（0.17~0.51 m）",
@@ -1260,39 +1194,6 @@ def main() -> int:
     _m_i5["map"]["obstacles"] = list(_m_i5["map"]["obstacles"]) + ["I5"]
     check("⑭.4c 堵 I5（封死 J5 纵向来路）⇒ 必拒（spec §H.2：不可行 ⇒ 报不可行）",
           _plan_must_fail(_m_i5))
-    # ------------------------------------------------------------------ #
-    section("⑮ t32 倒车折返合法性：assert_legal 判据对齐（现场 41 token 复算）")
-    # 现场形态（2026-10-18 第七张图倒车版）：H10→H8（正向）→ R:H9（倒车出）。
-    # 旧判据用 prev/cur 看错了一格，把这条合法路线误报成"第 7 个航点 H8 处 180° 折返"。
-    _field41 = ("N10 M10 L10 K10 J10 I10 H10 H8 R:H9 G9 F9* E9 E8 C8 C7 C6 C5 C4 C3 C2 "
-                "A2 A1 B1 C1 C3 E3 F3 R:F5 R:F4 F3 F2 G2 H2 I2 J2 J4 K4 L4 M4 N4 N5").split()
-    _r41 = None
-    try:
-        _r41 = PARSER.parse_mission(_field41)
-        P.assert_legal(_r41)
-        _ok41, _d41 = True, "41 航点 / %d 段倒车 → 通过" % sum(
-            1 for w in _r41.waypoints if w.reverse)
-    except Exception as _e:                                  # noqa: BLE001
-        _ok41, _d41 = False, "%s: %s" % (type(_e).__name__, _e)
-    check("⑮.1 现场 41 token 倒车路线能过 assert_legal（H10→H8→R:H9 共线折返）",
-          _ok41, _d41)
-    check("⑮.2 该路线不需要 :PIVOT（pivot_vertices 为空）",
-          _r41 is not None and P.pivot_vertices(_r41) == [],
-          str(P.pivot_vertices(_r41)) if _r41 is not None else "parse 失败")
-    # ⑮.3 负向控制：同模式 180° 折返仍必须被拦（N10→M10→N10，无 R:）
-    check_raises("⑮.3 负向控制：同模式 180° 折返（N10 M10 N10，无 R:）必须抛 PlannerError",
-                 P.assert_legal, PARSER.parse_mission(["N10", "M10", "N10"]))
-    # ⑮.4 判据对齐：assert_legal 与 pivot_vertices 必须用同一套"相邻两段"口径
-    _mis = []
-    if _r41 is not None:
-        for _i in range(1, len(_r41.waypoints) - 1):
-            _p, _c, _n = _r41.waypoints[_i - 1], _r41.waypoints[_i], _r41.waypoints[_i + 1]
-            if _c.reverse or _n.reverse:
-                continue
-            if P._angle_of(_p, _c, _n) > P.UTURN_REVERSE_DEG:
-                _mis.append(_c.block)
-    check("⑮.4 判据对齐后：41 token 无『未声明的同模式 180° 折返』", _mis == [], str(_mis))
-
     return finish()
 
 

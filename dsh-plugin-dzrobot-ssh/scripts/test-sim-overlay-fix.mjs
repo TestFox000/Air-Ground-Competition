@@ -167,10 +167,8 @@ section('D. 变更路径全部走统一咽喉（静态接线）')
 section('E. 页面与车端同引擎（修「乱算」）')
 {
   check('E1 simbench 导出 plannerEngineOf', /export function plannerEngineOf/.test(benchSrc))
-  // R1 显式引擎后默认路径 = explicit || plannerEngineOf(configPath)；两种写法都算「把车端
-  //   planner.engine 传给 --engine」，但都必须真的 push 同一个 engine 变量（不许拼第二份）。
-  check('E2 planRoute 把 planner.engine（或显式 R1 值）传给 --engine',
-    /const engine = (?:explicit \|\| )?plannerEngineOf\(configPath\)/.test(benchSrc)
+  check('E2 planRoute 把 planner.engine 传给 --engine',
+    /const engine = plannerEngineOf\(configPath\)/.test(benchSrc)
     && /argv\.push\('--engine', engine\)/.test(benchSrc))
   check('E3 台账落 record.plan.engine（取证字段）', /engine: planned\.engine/.test(benchSrc))
   const root = findWorkspaceRoot()
@@ -178,7 +176,7 @@ section('E. 页面与车端同引擎（修「乱算」）')
   if (root) {
     const { plannerEngineOf } = await import(pathToFileURL(path.join(PLUGIN, 'src', 'simbench.js')).href)
     const engine = plannerEngineOf(path.join(root, 'config', 'robot.yaml'))
-    check('E5 读到车端引擎值（现役 robot.yaml planner.engine）', engine !== null && engine !== 'bogus', `engine=${engine}`)
+    check('E5 从现役 robot.yaml 读到 tracker-safe（与车端一致）', engine === 'tracker-safe', `读到 ${engine}`)
     const tmpNo = path.join(os.tmpdir(), 't-overlay-no-planner.yaml')
     fs.writeFileSync(tmpNo, 'route:\n  tokens: ["N10"]\n', 'utf8')
     check('E6 无 planner 块 → null（不传 --engine，保持历史默认）', plannerEngineOf(tmpNo) === null)

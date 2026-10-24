@@ -4,8 +4,7 @@ r"""上车部署工具（本地 → 小车，走 SSH/SCP）。
 流程（对应"本地唯一真源 → 车端替换 → 编译验证"铁律）：
     probe    解析车端当前 IP 与关键状态（mDNS 会抖，所以先解析出 IP 再用 IP 干活）
     backup   在车上把将被覆盖的文件打包到 ~/dzrobot/_backups/<时间戳>/
-    push     把本地文件/目录推到车上（默认含 dzbrain 包、云台补丁源码、config/robot.yaml、tools）
-             ★ **不推 config/map.yaml**：车机不留地图文件，布局由无人机 field_layout 下发
+    push     把本地文件/目录推到车上（默认含 dzbrain 包、云台补丁源码、config、tools）
     build    车上 colcon build（默认 dzbrain + dzrknn_dataprocess）
     verify   车上验证（**独立可选子命令，想要才跑**，不在 all 内）：dzbrain 包/入口存在性 +
              云台补丁符号检查（原「配置+路线门禁 dry-run」「bench 冒烟 4s」已随自检简化移除）
@@ -59,10 +58,7 @@ PUSH_FILES: list[tuple[str, str]] = [
     ("src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp",
      f"{CAR_WS}/src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp"),
     ("config/robot.yaml", f"{CAR_WS}/config/robot.yaml"),                        # 统一配置（含新键）
-    # ★ 2026-10-18 用户定版「车机内不留地图文件，跑图的规划依据由无人机下发信息」：
-    #   **不推 config/map.yaml**（车端地图由无人机 field_layout 报文下发，车侧在内存里建
-    #   MapSpec 规划；本地地图文件只作开发/仿真入口，见 main.py 的 --map）。删掉这一行
-    #   后车端即使残留旧 map.yaml 也不会被新部署覆盖 —— 它不参与规划。
+    ("config/map.yaml", f"{CAR_WS}/config/map.yaml"),
     ("tools/config_selfcheck.py", f"{CAR_WS}/tools/config_selfcheck.py"),         # 车上自检
     ("tools/dzbrain.py", f"{CAR_WS}/tools/dzbrain.py"),
     # ★ 出车体检脚本：**必须推**，否则车上一直跑旧版 —— 实测踩过：本地给 healthcheck.sh
@@ -76,7 +72,7 @@ PUSH_FILES: list[tuple[str, str]] = [
 #: backup 时打包的车端路径
 BACKUP_PATHS = [
     f"{CAR_WS}/config/robot.yaml",
-    # ★ 车端不再保留/使用 map.yaml（布局由无人机下发）⇒ 也不再备份它。
+    f"{CAR_WS}/config/map.yaml",
     f"{CAR_WS}/start_all.sh",
     f"{CAR_WS}/src/dzbrain",
     f"{CAR_WS}/src/dzrknn_dataprocess",

@@ -16,7 +16,6 @@
      3.2 达到 slow_after → `P_MOTION_LIMIT` = 降速（0.08）
      3.3 达到 stop_after → 速度 0
      3.4 恢复干净 drift_clear_ticks 拍 → 撤销为 None（读侧 no-op）
-     3.5 航向守卫闩锁（task-44）：条件消失 20 帧后自动复位，P_MOTION_LIMIT 撤为 None
   §4 边界护栏：信念进 margin 内 → 告警 + 限速；再近 → 停车请求
   §5 `P_MOTION_LIMIT` 载荷契约（字段齐全、类型正确）
   §6 注入对照扫描（--sweep，A2）：本机自建闭环驱动**真 LocalizationTask**，
@@ -218,8 +217,7 @@ check("3.2 ★达到 slow_after → 下发降速请求（speed_mps = 0.08、reas
       and lim.get("reason") == "drift", f"limit={lim}")
 check("3.2b 载荷字段齐全（读侧契约）",
       isinstance(lim, dict) and {"speed_mps", "reason", "drift_run", "anchor_refused",
-                                 "distance_to_boundary_m", "since",
-                                 "yaw_untrusted", "yaw_guard_recoveries"} <= set(lim),
+                                 "distance_to_boundary_m", "since"} <= set(lim),
       f"payload keys={sorted(lim) if isinstance(lim, dict) else None}")
 rig7.ticks(8)
 lim7 = rig7.limit()
@@ -239,27 +237,7 @@ check("3.4 ★恢复干净 → 撤销限速：P_MOTION_LIMIT 变 None（读侧�
 
 
 # =========================================================================== #
-# 3.5 航向守卫闩锁可恢复：条件消失后自动复位，不残留 0 速请求（task-44）
-d4 = geo.block_to_meters("D4")
-rig_y = Rig(cfg_of(), pose=(d4[0], d4[1], 0.0))
-_yaw = 0.0
-for _ in range(6):                       # 0.4 rad/50ms = 458°/s；静止判据 45°/s ⇒ 3 帧后闩锁
-    rig_y.bridge.set_pose(d4[0], d4[1], _yaw)
-    _yaw += 0.4
-    rig_y.tick()
-check("3.5 前置：静止期快速 yaw → 触发航向闩锁",
-      rig_y.task.yaw_untrusted is True, f"reason={rig_y.task._yaw_reason!r}")
-for _ in range(25):                      # 条件消失后连续 20 个可信新帧 ⇒ 自动复位
-    rig_y.bridge.set_pose(d4[0], d4[1], _yaw)
-    rig_y.tick()
-check("3.5 ★闩锁可恢复：连续 20 个可信帧后 yaw_untrusted=False（不再永久锁死）",
-      rig_y.task.yaw_untrusted is False and rig_y.task.yaw_guard_recoveries == 1,
-      f"untrusted={rig_y.task.yaw_untrusted} recoveries={rig_y.task.yaw_guard_recoveries}")
-check("3.5b 自动复位后 P_MOTION_LIMIT 撤为 None（不残留 0 速请求）",
-      rig_y.limit() is None, f"limit={rig_y.limit()}")
-
-
-# =========================================================================== #section("4. ★边界护栏：接近安全边界就提前降速 / 停车（而不是只有越界后硬停）")
+section("4. ★边界护栏：接近安全边界就提前降速 / 停车（而不是只有越界后硬停）")
 # =========================================================================== #
 x_min, x_max, y_min, y_max = geo.map_bounds(MARGIN)
 rig8 = Rig(cfg_of(), pose=(x_max - 0.05, y_min + 0.50, 0.0))     # 离边界 0.05 m（< guard 0.10）

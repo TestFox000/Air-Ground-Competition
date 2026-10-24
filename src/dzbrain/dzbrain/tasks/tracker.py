@@ -43,8 +43,7 @@ from ..core.logging import Throttle
 from ..core.state import SafetyState
 from ..core.task import TaskThread
 from ..io.contract import MissionPhase
-from ..pursuit.controller import (PursuitCommand, compute_command, dynamic_gear_speed,
-                                    motion_limit_speed_limit)
+from ..pursuit.controller import PursuitCommand, compute_command, dynamic_gear_speed
 from ..pursuit.path import Path, Projection
 from ..route.model import Route
 
@@ -102,20 +101,6 @@ _RELOCK_MAX_JUMP_M = 0.50
 #: （0.12→0.35 m/s），车直线冲出边界。取 0.45 m（一个整格 0.35 m 的 1.3 倍）。
 _RELOCK_TRUST_DIST_M = 0.45
 
-#: ★倒车入口闭环推车（2026-10-18 实车 H8 卡死）：底盘速度平滑窗 ~0.4 s
-#: （base_driver smooth_window_speed=20 拍），旧"推一把"只推 dist_to_vertex≤0.20 的 2 拍
-#: —— 负速度还没填满平滑窗，车就继续前冲 0.44 m；过冲后旧判据永不成立 ⇒ s 冻死、
-#: mission 每 12 s 跳点（7_path.log：⛔ 投影方向不一致 ×1695，s 冻在 2.800）。
-#: 三个参数形成闭环：进入允许"已越过顶点 ≤0.65m"，保持到"实测位移反向 ≥2cm 或投影切段"，
-#: 3 s 未成功则告警退出（绝不无限推）。
-_REV_PUSH_REVERSED_M = 0.02      # 实测位移沿本段航向反向 ≥ 2cm = 推成功（不看命令符号）
-_REV_PUSH_OVERSHOOT_M = 0.65     # 车已越过顶点但 ≤ 0.65 m 时仍可补推
-_REV_PUSH_TIMEOUT_S = 3.0        # 推车超时（告警后退出状态机）
-#: ★超时后的冷却/放弃（verifier F2）：单次超时后至少 2 s 不得重入；连续 2 次超时 ⇒
-#: 置"同段放弃闩锁"（不再推、显式刹车、遥测告警），换载/投影离开该段后解除。
-_REV_PUSH_COOLDOWN_S = 2.0
-_REV_PUSH_GIVEUP_STREAK = 2
-
 
 class TrackerTask(TaskThread):
     """循迹任务（50 Hz）。"""
@@ -166,21 +151,6 @@ class TrackerTask(TaskThread):
         #    （见 `_tick` 里的长注释），该字段已删除 —— 别再加回来。
         self._last_tick_at: float | None = None
         self._reverse_state: bool | None = None     # ★ 仅变化时发 motion_state
-        # ---- ★倒车入口闭环推车（跨拍状态；判据见 _tick 里的注释）----
-        self._rev_push_active = False
-        self._rev_push_started_at = 0.0
-        self._rev_push_xy: tuple[float, float] | None = None
-        self._rev_push_heading = 0.0        # 本段行进方向（推车"反向"的参照）
-        self._rev_push_seg = -1             # 推车时所在的正向段（下一段是倒车段）
-        self.rev_push_count = 0             # 成功进入倒车段次数（测试/遥测）
-        self.rev_push_timeouts = 0          # 超时退出次数
-        self.rev_push_ticks = 0             # 累计推车拍数
-        self._rev_push_cooldown_until = 0.0 # 超时冷却截止（≥2s 内不得重入）
-        self._rev_push_timeout_streak = 0   # 连续超时次数（成功/换载清零）
-        self._rev_push_gave_up = False      # 放弃闩锁（同段不再推）
-        self._rev_push_gave_up_seg = -1     # 闩锁对应的段
-        self.rev_push_gave_up = 0           # 触发放弃闩锁的次数（遥测/测试）
-        self.rev_push_refused = 0           # 过冲超上限被拒绝推车的拍数（遥测/测试）
         self._align_segs: frozenset[int] = frozenset()
         self._align_build_key: tuple | None = None
 
@@ -310,13 +280,6 @@ class TrackerTask(TaskThread):
                 # ★ 同理复位"已处理顶点"标记：旧路线的顶点 s 对新路线毫无意义，
                 #   不复位的话同几何重载会把新轮次的 PIVOT 整个抑制掉。
                 self._pivot_abandon_until_s = 0.0
-                # ★ 倒车推车状态也复位（旧路线的顶点/航向对新路线毫无意义）
-                self._rev_push_active = False
-                self._rev_push_xy = None
-                self._rev_push_cooldown_until = 0.0
-                self._rev_push_timeout_streak = 0
-                self._rev_push_gave_up = False
-                self._rev_push_gave_up_seg = -1
         self._ensure_align_segments(route_obj)
         return path
 
@@ -424,9 +387,7 @@ class TrackerTask(TaskThread):
         #  变成自洽的不动点，车走多远都拉不回来。
         #  仿真的 `_project_with_floor` 一直有同样的出口（`release_dist`），实车代码此前没有
         #  （与"弧长地板"同属"仿真有、实车缺"的一类缺口）。
-        # ★推车期间不做 relock：此刻的"离线大"正是过冲造成的，relock 会把 s 推到
-        #   错误分支上（旧代码另一处 s 冻死来源），交给倒车闭环状态机处理。
-        if proj.dist > self._release_m and not self._rev_push_active:
+        if proj.dist > self._release_m:
             proj_relock = path.project(pose.x, pose.y)        # 丢掉 hint 与地板，全路线重投影
             # ★ 只接受**向前**的修正（`s` 不许后退到地板之前）：
             #   · 地板过时（bench 实测：地板停在 7.70 而车已在 16.30）→ 重投影向前 ✓ 采用
@@ -447,34 +408,15 @@ class TrackerTask(TaskThread):
                         f"全路线重投影 → 段{proj.seg_index} s={proj.s:.2f}"
                         f"（累计 {self.projection_relocks + 1} 次）")
                 self.projection_relocks += 1
-        # ★推车期间不动 _seg_s（旧代码这里会把 s 踢到 vertex+1e-3，而 travel_heading
-        #   仍指向前进方向 ⇒ 投影切不到倒车段 ⇒ s 冻死）。冻结在本段，等实测反向再切段。
-        # ★F4：冷却期同样冻结（冷却窗口内不许悄悄把 hint 推进到下一段，否则冷却结束那拍
-        #   窗口/段号已经变了，重入判定与投影语义都会漂）。
-        if not (self._rev_push_active or self._rev_push_cooldown_until > now):
-            self._seg_s = proj.s
+        self._seg_s = proj.s
 
         # ---- ★弧长地板：贴到顶点就算"这个顶点走过了"，此后投影不许退回去 ----
         #  为什么在"贴到"（而不是"越过"）时就抬升：越过顶点的那一拍，投影可能已经被
         #  另一条共线段抢走（s 很小的那一支），此时再抬升就晚了 —— 探针里车正是这样
         #  在 F11 处冻住（倒车段末端 ↔ 正向段起点，两候选的 s 都在顶点附近、Δs 几乎相同，
         #  连续性分不出 ⇒ 落到"行进方向"⇒ 而方向由命令符号决定 ⇒ 自指环）。
-        # ★★F3：过冲超上限时**不抬地板**——否则下一拍投影被地板推到倒车段（is_rev=True），
-        #   "不推车"只刹一拍就被普通倒车分支接管（0.66/2.0 m 仍会出现负速度）。
-        _pre_rev_next = (proj.seg_index + 1 < path.segment_count
-                         and path.segment_is_reverse(proj.seg_index + 1))
-        _pre_over = None
-        if _pre_rev_next:
-            _pre_vs = path.s_at_waypoint(proj.seg_index + 1)
-            _pre_h = path.heading_at(max(0.0, _pre_vs - 1e-3))
-            _pre_wp = path.waypoints[proj.seg_index + 1]
-            _pre_over = ((pose.x - _pre_wp.x) * math.cos(_pre_h)
-                         + (pose.y - _pre_wp.y) * math.sin(_pre_h))
-        _pre_refuse = (_pre_over is not None
-                       and _pre_over > _REV_PUSH_OVERSHOOT_M)
         if (proj.dist_to_vertex <= self._vertex_floor_m
-                and proj.seg_index + 1 < path.segment_count
-                and not _pre_refuse):
+                and proj.seg_index + 1 < path.segment_count):
             v_s = path.s_at_waypoint(proj.seg_index + 1)
             if v_s > self._s_floor:
                 self._s_floor = v_s
@@ -502,138 +444,37 @@ class TrackerTask(TaskThread):
         # ---- ★PIVOT 原地转向：优先级最高（它在"顶点前"接管，免得纯追踪画出 0.4 m 的大弧） ----
         pivot = self._pivot_update(pose, path, proj, now, dt)
 
-        # ---- ★倒车入口闭环推车（2026-10-18 实车 H8 卡死；跨拍状态机）----
-        #  为什么必须有：投影"换到下一段"靠**实测位移方向**（见 travel_heading 长注释），
-        #  而"车真的往后动"要先换到倒车段才发 v<0 —— 鸡生蛋。旧写法只推
-        #  dist_to_vertex ≤ reverse_entry_m(0.20) 的几拍；而底盘速度平滑窗 ~0.4 s
-        #  （base_driver smooth_window_speed=20）会把这几拍的负速度吃掉：车继续前冲 0.44 m，
-        #  过冲后旧判据永不成立 ⇒ s 冻死、mission 每 12 s 跳点（7_path.log：投影方向不一致
-        #  ×1695、s 冻在 2.800）。闭环三件事：
-        #    进入：pivot 未接管 + 本段非倒车 + 下一段是倒车，且（贴顶点 ≤ reverse_entry_m
-        #          **或** 已越过顶点且沿段方向 ≤ 0.65 m —— 用位移在段方向的投影判"越过"）；
-        #    保持：每拍发 -min_speed，**不因 dist_to_vertex 变大而退出**；
-        #    退出：① 投影已切到倒车段；② 实测位移沿本段航向**反向 ≥2 cm**（pose 位移判，
-        #          不用命令符号 —— 命令符号是自指环）；③ 3 s 超时告警退出（不许无限推）。
-        #  推车期间：不 relock、不动 _seg_s（上面两处已跳过）、航向保持沿用既有公式。
-        rev_next = (proj.seg_index + 1 < path.segment_count
-                    and path.segment_is_reverse(proj.seg_index + 1))
-        # ★投影已离开"放弃闩锁"所在段 ⇒ 解除闩锁（换载/复位在 _resolve_path 里已清）
-        if (self._rev_push_gave_up and not is_rev
-                and proj.seg_index != self._rev_push_gave_up_seg):
-            self._rev_push_gave_up = False
-            self._log(f"倒车推车放弃闩锁解除（投影已到段#{proj.seg_index}）")
-        rev_refuse = False
-        if self._rev_push_active:
-            self.rev_push_ticks += 1
-            _done = bool(is_rev)
-            if not _done and self._rev_push_xy is not None:
-                _dxp = pose.x - self._rev_push_xy[0]
-                _dyp = pose.y - self._rev_push_xy[1]
-                _along = (_dxp * math.cos(self._rev_push_heading)
-                          + _dyp * math.sin(self._rev_push_heading))
-                _done = _along <= -_REV_PUSH_REVERSED_M
-            if _done:
-                self._rev_push_active = False
-                self.rev_push_count += 1
-                self._rev_push_timeout_streak = 0
-                if self._log_throttle.allow("rev_push_done", now):
-                    self._log(f"✓ 倒车入口推车完成：{self.rev_push_ticks} 拍后"
-                              f"{'投影已切倒车段' if is_rev else '实测位移已反向'}")
-            elif now - self._rev_push_started_at > _REV_PUSH_TIMEOUT_S:
-                # ---- ★F2：超时 → 冷却 ≥2s（不许立即重入）；连续 2 次 → 放弃闩锁 ----
-                self._rev_push_active = False
-                self.rev_push_timeouts += 1
-                self._rev_push_timeout_streak += 1
-                self._rev_push_cooldown_until = now + _REV_PUSH_COOLDOWN_S
-                if self._rev_push_timeout_streak >= _REV_PUSH_GIVEUP_STREAK:
-                    self._rev_push_gave_up = True
-                    self._rev_push_gave_up_seg = self._rev_push_seg
-                    self.rev_push_gave_up += 1
-                    self._log(f"⛔ 倒车推车连续 {self._rev_push_timeout_streak} 次超时"
-                              f"（段#{self._rev_push_seg}）→ 放弃该段推车："
-                              f"刹车 + 告警，交 Mission 兜底（换载/离开该段后解除）")
-                elif self._log_throttle.allow("rev_push_timeout", now):
-                    self._log(f"⚠️ 倒车推车超时（{_REV_PUSH_TIMEOUT_S:.1f}s，"
-                              f"{self.rev_push_ticks} 拍未反向）→ 退出并冷却 "
-                              f"{_REV_PUSH_COOLDOWN_S:.1f}s 后再试")
-        if (not self._rev_push_active and not self._rev_push_gave_up
-                and now >= self._rev_push_cooldown_until
-                and pivot is None and not is_rev and rev_next):
-            _v_s = path.s_at_waypoint(proj.seg_index + 1)
-            _h = path.heading_at(max(0.0, _v_s - 1e-3))       # 本段行进方向
-            _wp = path.waypoints[proj.seg_index + 1]
-            # ★★F3：_over **总是先算**（pose 过顶点时投影会钳回顶点 ⇒ dist_to_vertex≈0，
-            #   旧逻辑先命中"贴顶点"分支，0.65 m 上限形同虚设，0.66/2.0 m 都进推车）。
-            _over = ((pose.x - _wp.x) * math.cos(_h)
-                     + (pose.y - _wp.y) * math.sin(_h))
-            if _over > 0.0:
-                if _over <= _REV_PUSH_OVERSHOOT_M:
-                    _entered = True
-                    _why = f"已越过顶点 {_over:.2f}m"
-                else:
-                    _entered = False
-                    rev_refuse = True
-                    self.rev_push_refused += 1
-                    if self._log_throttle.allow("rev_push_over_limit", now):
-                        self._log(f"⛔ 倒车入口过冲 {_over:.2f} m > 上限 "
-                                  f"{_REV_PUSH_OVERSHOOT_M:.2f} m → 不推车"
-                                  f"（显式刹车，交 Mission 兜底）")
-            else:
-                _entered = proj.dist_to_vertex <= self._reverse_entry_m
-                _why = f"贴顶点 {proj.dist_to_vertex:.2f}m"
-            if _entered:
-                # ★把"顶点已走过"的弧长地板抬到顶点：投影从此不许再落回前一条段，
-                #   只能落在倒车段上（旧代码用"把 _seg_s 踢到 vertex+1e-3"达到同一效果，
-                #   但那会移动 _seg_s；本卡改用设计好的地板机制，推车期间 _seg_s 保持不动）。
-                if _v_s > self._s_floor:
-                    self._s_floor = _v_s
-                self._rev_push_active = True
-                self._rev_push_started_at = now
-                self._rev_push_xy = (pose.x, pose.y)
-                self._rev_push_heading = _h
-                self._rev_push_seg = proj.seg_index
-                self.rev_push_ticks = 0
-                if self._log_throttle.allow("rev_push_begin", now):
-                    self._log(f"★倒车入口推车：段#{proj.seg_index} 顶点 s={_v_s:.2f}"
-                              f"（{_why}）→ 持续 -{self._min_speed_mps:.2f} m/s，"
-                              f"直到实测反向 ≥{_REV_PUSH_REVERSED_M * 100:.0f}cm 或切段（≤3s）")
+        # ---- ★倒车段入口的"推一把"（否则永远进不去倒车段） ----
+        #  为什么必须有：投影"换到下一段"靠的是**实测位移方向**（见本文件 travel_heading
+        #  那段长注释），而"车真的往后动"又需要**先换到倒车段**才会发 v<0 —— 鸡生蛋。
+        #  实闭环 bench 实测（现场 F10→F11→E11→R:F11→F10）：车到了 E11 顶点后
+        #  s 冻在 4.20 不动、yaw 一直转、每 12s 触发一次「绕圈跳点」。
+        #  条件收得很紧：**已经贴到顶点** + **下一段是倒车段** + **本段不是倒车段**，
+        #  此时直接给一个小倒车速度把车"推"回倒车段；投影一旦落到下一段就自动接管。
+        rev_entry = (pivot is None and not is_rev
+                     and proj.seg_index + 1 < path.segment_count
+                     and path.segment_is_reverse(proj.seg_index + 1)
+                     and proj.dist_to_vertex <= self._reverse_entry_m)
 
         if pivot is not None:
             steer, speed, reason_tag = pivot.steer_deg, pivot.linear_x, pivot.speed_reason
-        elif rev_refuse:
-            # ★F3：过冲超上限 → 显式刹车（不推），告警已在上面打过一次
-            steer, speed, reason_tag = 0.0, 0.0, "rev_push_over_limit"
-        elif (self._rev_push_gave_up and not is_rev
-              and proj.seg_index == self._rev_push_gave_up_seg):
-            # ★F2：连续超时后的放弃闩锁 → 刹车（不许再推）
-            steer, speed, reason_tag = 0.0, 0.0, "rev_push_gave_up"
-        elif (not self._rev_push_active and not self._rev_push_gave_up
-              and now < self._rev_push_cooldown_until):
-            # ★F4：推车超时后的冷却窗口必须**刹车**（旧行为落回普通纯追踪：冻结投影时
-            #   stop_approach 会给 +0.099 m/s 正速度 —— 实车会朝过冲方向再前进 ~0.2 m / 顶障碍）。
-            steer, speed, reason_tag = 0.0, 0.0, "rev_push_cooldown"
-        elif self._rev_push_active:
-            # 只做航向保持，别让推车把车带偏（倒车段车头与行进方向相反，此刻车头正是
-            # 下一段需要的车头朝向）。★ 不再把 _seg_s 踢到 vertex+1e-3：旧代码那一步
-            # 是 s 冻死的直接来源（travel_heading 仍朝前，投影切不到倒车段）。
-            seg_heading = path.car_heading_on(self._rev_push_seg
-                                              if self._rev_push_seg >= 0
-                                              else proj.seg_index)
+        elif rev_entry:
+            # 只做航向保持，别让"推一把"把车带偏（车头本来就该保持原朝向：倒车段车头与
+            # 行进方向相反，而此刻车头的朝向正是下一段需要的车头朝向）
+            seg_heading = path.car_heading_on(proj.seg_index)
             err_deg = geo.deg(geo.ang_diff(seg_heading, pose.yaw))
             steer = err_deg * self._align_kp / 10.0
             lim = self._align_steer_limit_deg
             steer = lim if steer > lim else (-lim if steer < -lim else steer)
-            # ★F1：推车速度必须走既有 P_MOTION_LIMIT 读侧（与普通分支同口径）：
-            #   limit 存在 ⇒ speed = -min(min_speed, limit)；limit<=0 ⇒ 刹车 0。
-            _mlim = motion_limit_speed_limit(self.bb)
-            if _mlim is not None and float(_mlim) <= 0.0:
-                speed = 0.0
-                reason_tag = "reverse_entry_blocked"
-            else:
-                speed = -self._min_speed_mps
-                if _mlim is not None:
-                    speed = -min(self._min_speed_mps, float(_mlim))
-                reason_tag = "reverse_entry"
+            speed = -self._min_speed_mps
+            reason_tag = "reverse_entry"
+            # ★ 还要把投影**显式推进到下一段**：换段（连续性/实测位移）在这个时刻都指向
+            #   前一段（车刚从顶点退开、行进方向还没翻），于是 s 会**倒退**而不是继续增长。
+            #   两条折返段在顶点处代表的是**同一个物理点**（这里只差 <1mm），
+            #   所以这不是"跳变"，而是把"这一段已经走完"这件事告诉投影。
+            vertex_s = path.s_at_waypoint(proj.seg_index + 1)
+            if self._seg_s is None or self._seg_s <= vertex_s:
+                self._seg_s = vertex_s + 1e-3
         elif align:
             # ---- 桥洞直行：关掉纯追踪，只做航向保持（survey §6.1 的 2480–2481 复刻） ----
             seg_heading = path.heading_at(proj.s)
@@ -649,20 +490,6 @@ class TrackerTask(TaskThread):
             steer = cmd.steer_deg
             speed = cmd.linear_x
             reason_tag = cmd.speed_reason
-
-        # ---- ★R1 最终发布限速：以上分支各自赋值 speed，但只有普通分支经过
-        #   compute_command 的读侧；ALIGN(644)/PIVOT(602) 直接覆盖，R0 已复现二者
-        #   在注入 P_MOTION_LIMIT 后仍发 0.10/0.08。所有分支都汇入下面唯一一处
-        #   publish_command，故在发布前用**同一份**读侧再钳一次：
-        #     · None（无键/None/非法/bool/负数/NaN/±inf）= 无信号 ⇒ 原值、转向、
-        #       状态机逐位不变；
-        #     · 0 ⇒ 真 0（不抬回 min_speed）；L>0 ⇒ 只降不升、|v|<=L、倒车保号、
-        #       原 0 不抬高；
-        #     · 推车分支(628-636)已按同口径钳过 ⇒ 此处幂等，不改变已受限结果。
-        _mlim_final = motion_limit_speed_limit(self.bb)
-        if _mlim_final is not None and abs(speed) > _mlim_final:
-            speed = (0.0 if _mlim_final == 0.0
-                     else math.copysign(float(_mlim_final), speed))
 
         self._last_steer_deg = steer
         self.bridge.publish_command(speed, steer)
@@ -686,15 +513,6 @@ class TrackerTask(TaskThread):
             "seg_index": int(proj.seg_index), "s": float(proj.s),
             "dist_to_path": float(proj.dist), "curvature": float(cmd.curvature),
             "speed_reason": cmd.speed_reason, "reason_tag": reason_tag,
-            # ★倒车入口闭环推车的可观测状态（测试/遥测）
-            "rev_push": bool(self._rev_push_active),
-            "rev_push_count": int(self.rev_push_count),
-            "rev_push_timeouts": int(self.rev_push_timeouts),
-            "rev_push_gave_up": bool(self._rev_push_gave_up),
-            "rev_push_refused": int(self.rev_push_refused),
-            "rev_push_cooldown": bool(not self._rev_push_active
-                                      and not self._rev_push_gave_up
-                                      and now < self._rev_push_cooldown_until),
             "lookahead_m": float(lookahead_distance(self._cruise_mps, self.cfg)),
             # ★ 动态档：当拍档位也进遥测（关闭时恒为 None / "off"，与历史一致）
             "gear_mps": (None if gear is None else float(gear)),
@@ -888,5 +706,3 @@ class TrackerTask(TaskThread):
             self.bridge.publish_brake()
         except Exception:                                  # noqa: BLE001  收尾不许抛
             pass
-        self._log(f"倒车入口推车：成功 {self.rev_push_count} 次 / 超时 {self.rev_push_timeouts} 次"
-                  f"（累计 {self.rev_push_ticks} 拍）")

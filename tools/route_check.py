@@ -367,8 +367,15 @@ R009_MAX_ANGLE_DEG = 10.0
 TARGET_RUNOVER_TOL_M = BLOCK_SIZE / 2.0
 
 
-def _bridge_group_check(bridges, pts):
+def _bridge_group_check(bridges, pts, expect_halves=None):
     """桥洞穿越检查（支持"整列都是桥洞"）。
+
+    :param expect_halves: `None` = 整线路线口径：两个半场**各恰 1 次**（缺省，行为
+        与未加此参前逐字节一致）。否则为 `{"lower","upper"}` 的子集（t12 增量续算
+        口径）：**只有**列出的半场要求"恰 1 次且方向正确"，**未列出的半场要求
+        0 次**（本段不该再折回另一半场）。与规划器 `_inc_shape` 的可行性硬门、
+        `check_route_structure(crossing_halves=...)`、`validate_route(expect_halves=...)`
+        同一契约 —— 三处缺一，增量段就会在外层门禁吃"下半场 0 次"的假红。
 
     ★ 三层口径（2026-10-17 硬化，与 dzbrain.route.validate R007/R008/R009 同口径）：
 
@@ -445,15 +452,26 @@ def _bridge_group_check(bridges, pts):
     def _fmt(runs, sym):
         return " ".join("段#%d(行%d%s)" % (r["index"], r["row"], sym) for r in runs[:4])
 
+    # t12 增量续算口径：expect_halves 为 None 时与旧行为完全一致（两半场各恰 1 次）。
+    expect = set(expect_halves) if expect_halves is not None else {"lower", "upper"}
+
     n_ok = 0
-    if len(lower) != 1:
+    if "lower" not in expect:
+        if lower:
+            bad("下半场桥洞穿越 %d 次（增量口径）" % len(lower),
+                "本段起点已在上半场，不应再穿下半场（%s）" % (_fmt(lower, "") or "无"))
+    elif len(lower) != 1:
         bad("下半场桥洞穿越 %d 次" % len(lower),
             "行 7~11 应恰 1 次（%s）" % (_fmt(lower, "") or "无"))
     elif lower[0]["dy"] <= 0:
         bad("下半场桥洞穿越方向错", "必须向西（L* -> K* -> J*，列号减小）")
     else:
         n_ok += 1
-    if len(upper) != 1:
+    if "upper" not in expect:
+        if upper:
+            bad("上半场桥洞穿越 %d 次（增量口径）" % len(upper),
+                "本段起点已在下半场，不应再穿上半场（%s）" % (_fmt(upper, "") or "无"))
+    elif len(upper) != 1:
         bad("上半场桥洞穿越 %d 次" % len(upper),
             "行 1~6 应恰 1 次（%s）" % (_fmt(upper, "") or "无"))
     elif upper[0]["dy"] >= 0:
@@ -463,11 +481,21 @@ def _bridge_group_check(bridges, pts):
     if other:
         bad("桥洞穿越行号异常 %d 次" % len(other),
             "%s 列  %s" % ("/".join(cols), _fmt(other, "")))
-    if n_ok == 2 and not other:
-        ok("桥洞穿越（下半场向西 / 上半场向东 各 1 次）",
-           "%s 列  下%s · 上%s"
-           % ("/".join(cols),
-              _fmt(lower, "向西"), _fmt(upper, "向东")))
+    if n_ok == len(expect) and not other:
+        if expect == {"lower", "upper"}:
+            ok("桥洞穿越（下半场向西 / 上半场向东 各 1 次）",
+               "%s 列  下%s · 上%s"
+               % ("/".join(cols),
+                  _fmt(lower, "向西"), _fmt(upper, "向东")))
+        else:
+            only = ("下半场" if expect == {"lower"} else
+                    "上半场" if expect == {"upper"} else
+                    "+".join(sorted(expect)))
+            ok("桥洞穿越（增量口径：仅要求 %s）" % only,
+               "%s 列  下%s · 上%s"
+               % ("/".join(cols),
+                  _fmt(lower, "向西") if "lower" in expect else "不要求",
+                  _fmt(upper, "向东") if "upper" in expect else "不要求"))
 
     steep = [d for d in diag if d[2] > R009_MAX_ANGLE_DEG + 1e-9]
     if steep:
@@ -922,7 +950,7 @@ def run_check(route: str, cfg: dict) -> int:
     #   （规划器会把直线段中间的格压缩掉，只查 token 会大面积误报）
     # 桥洞：K 列整列都是桥洞（每格被侧壁隔开），判据从"每个通格都要经过"
     # 改为"桥洞列被水平直穿足够多次"—— 把整列 11 格都算进去没有意义。
-    _bridge_group_check(bridges, pts)
+    _bridge_group_check(bridges, pts, cfg.get('expect_halves'))
 
     # ★★★ 雷覆盖（换成**物理判据**）：车心 3.5 cm 圆与 0.12×0.12 垫片是否产生过重叠
     #   ⇔ 路线（折线）到**垫片**的最近距离 ≤ `COVERAGE_RADIUS_M`（0.035 m）。
@@ -949,6 +977,12 @@ def run_check(route: str, cfg: dict) -> int:
             bad("%s覆盖 %d/%d" % (name, len(req) - len(miss), len(req)),
                 "未压到（车心 %.3fm 圆 ∩ %.2fm 垫片）: %s"
                 % (COVERAGE_RADIUS_M, MINE_PAD_M, " ".join(miss)))
+        elif not req:
+            # t12 增量口径的空集分支：全部雷已列入 already-covered（后半程重规划
+            # 只剩回终点是常态）⇒ 无待压雷，直接放行；上面没有这层守卫时
+            # max(worst) 会抛 ValueError 把整个校验器打崩（门禁假红 → 触发回退）。
+            ok("%s覆盖 0/0（增量口径：全部已压，无需重压）" % name,
+               "%d 个雷全部已列入 already-covered，跳过物理覆盖判定" % len(lst))
         else:
             ok("%s覆盖 %d/%d（车心 %.3fm 圆 ∩ %.2fm 垫片）" % (name, len(req), len(req),
                                                               COVERAGE_RADIUS_M, MINE_PAD_M),
@@ -1350,10 +1384,7 @@ def run_planner(args, cfg) -> Optional[str]:
     print("  → 调用规划器: %s" % " ".join(
         "'%s'" % c if ' ' in c else c for c in cmd[2:]))
     try:
-        # ★2026-10-18 修（同类）：Windows 默认 GBK 解码，规划器输出含中文横幅时会 UnicodeDecodeError
-        #   并让 r.stdout 变 None（后续 .strip() 直接崩）。与 tools/wf/check.py 同一处坑。
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=900)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
         if r.returncode != 0:
             print("  ❌ 规划器失败:\n%s" % r.stderr[-800:], file=sys.stderr)
             return None
@@ -1381,6 +1412,11 @@ def main(argv=None) -> int:
     ap.add_argument('--already-covered', nargs='*', default=[],
                     help='已压雷格（增量续算口径）：这些雷不再要求本路线重压，'
                          '仅从覆盖判据里剔除，其余校验不变')
+    ap.add_argument('--expect-halves', nargs='*', default=None,
+                    choices=['lower', 'upper'],
+                    help='增量续算口径：只要求列出的半场各穿 1 次（方向照查），'
+                         '未列出的半场要求 0 次；缺省 = 两个半场各恰 1 次（整线路线口径）。'
+                         '与 --from-cell 搭配时可由规划器自动推导')
     args = ap.parse_args(argv)
 
     cfg = load_cfg(args.config)
@@ -1408,6 +1444,8 @@ def main(argv=None) -> int:
             cfg['obstacles'] = args.obstacles or cfg['obstacles']
         if args.mines:
             cfg['mines'] = args.mines
+        if args.expect_halves:
+            cfg['expect_halves'] = {h for h in args.expect_halves}
         print()
     elif args.route:
         route = args.route
@@ -1421,6 +1459,8 @@ def main(argv=None) -> int:
             cfg['bridges'] = args.bridges
         if args.already_covered:
             cfg['already_covered'] = args.already_covered
+        if args.expect_halves:
+            cfg['expect_halves'] = {h for h in args.expect_halves}
     else:
         mb = cfg.get('mission_blocks') or []
         if not mb:

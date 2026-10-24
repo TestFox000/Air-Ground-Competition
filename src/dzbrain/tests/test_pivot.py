@@ -29,7 +29,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.stdout.reconfigure(errors="replace")
 
 from dzbrain.core import geometry as geo                        # noqa: E402
-from dzbrain.core.blackboard import (P_MISSION_PHASE, P_MOTION_LIMIT, P_POSE, P_ROUTE, P_ROUTE_INDEX,  # noqa: E402
+from dzbrain.core.blackboard import (P_MISSION_PHASE, P_POSE, P_ROUTE, P_ROUTE_INDEX,  # noqa: E402
                                      P_ROUTE_S, P_SAFETY, Blackboard)
 from dzbrain.core.config import Config                          # noqa: E402
 from dzbrain.core.events import EventBus                        # noqa: E402
@@ -499,145 +499,6 @@ def test_adaptive_trigger_dist() -> None:
           f"phase={rig15.task._pivot_phase} count={rig15.task.pivot_count}")
 
 
-
-# --------------------------------------------------------------------------- #
-#  10. ★R1 最终发布限速：PIVOT TURN 常驻回归
-# --------------------------------------------------------------------------- #
-def test_final_publish_motion_limit() -> None:
-    """★10. R1 最终发布限速：PIVOT TURN × 零·低正上限·撤回 + 无信号序列一致。
-
-    背景：R0 探针在修补前复现 P3-02/P3-03 —— TURN 段注入 0 / 0.04 时仍发 0.08。
-    R1 补丁在唯一 publish_command 出口前统一钳位；本组把该失败固化成常驻回归。
-    ★ 必须**先 SETTLE 再 TURN**：SETTLE 是既有停车段，不计入 TURN 限速证据；
-      SETTLE 段只额外验证"已停车分支不因正上限起步"。
-    ★ 断言 bridge.commands[-1]；同拍遥测 speed 必须相等（speed_reason 不作独立证据）。
-    """
-    section("10. ★R1 最终发布限速：PIVOT TURN（先 SETTLE 再 TURN）× 零/低正上限/撤回")
-    DT = 0.02
-    N_BASE, N_INJ, N_REC, N_SEQ = 3, 6, 6, 40
-    inj_s = f"{N_INJ}拍/{N_INJ * DT:.2f}s"
-    cfg = _cfg(pivot_dist_m=0.25, pivot_wait_s=0.6, pivot_speed_mps=0.08,
-               pivot_yaw_tol_deg=15.0, pivot_timeout_s=8.0)
-    a6x, a6y = geo.block_to_meters("A6")
-    b6x, b6y = geo.block_to_meters("B6")
-    dx, dy = a6x - b6x, a6y - b6y
-    d = math.hypot(dx, dy)
-    ux, uy = dx / d, dy / d
-
-    def _seq(rig, n: int):
-        out = []
-        for _ in range(n):
-            rig.task.tick()
-            v, steer = rig.bridge.commands[-1]
-            tel = rig.task.telemetry()
-            out.append({"v": float(v), "steer": float(steer),
-                        "tel": tel.get("speed"), "reason": tel.get("reason_tag"),
-                        "align": tel.get("align"), "pivot": tel.get("pivot_phase")})
-            rig.clock.advance(DT)
-        return out
-
-    def _same_as_published(seq) -> bool:
-        return all(r["tel"] is not None and abs(float(r["tel"]) - r["v"]) <= 1e-12
-                   for r in seq)
-
-    def _vs(seq) -> str:
-        return "[" + ", ".join(f"{r['v']:.3f}" for r in seq) + "]"
-
-    def _trigger():
-        rig = Rig(tokens=U_TURN, cfg=cfg,
-                  pose=(b6x - 0.10, b6y, geo.heading_of(ux, uy)))
-        for frac in (0.2, 0.4, 0.6, 0.75, 0.85, 0.92):
-            rig.set_pose(b6x + ux * d * frac, b6y + uy * d * frac, geo.heading_of(ux, uy))
-            rig.tick()
-        return rig
-
-    def _to_turn():
-        rig = _trigger()
-        settle_seen = rig.task._pivot_phase == PivotPhase.SETTLE
-        ticks = 0
-        while rig.task._pivot_phase != PivotPhase.TURN and ticks < 100:
-            rig.tick()
-            ticks += 1
-        return rig, settle_seen, ticks
-
-    # 10.1 分支进入证据：SETTLE 先出现、再进 TURN（两段都记录）
-    rig, settle_seen, ticks_to_turn = _to_turn()
-    check("10.1 分支进入：先 SETTLE 再 TURN（禁止用提前停车/退出分支充数）",
-          settle_seen and rig.task._pivot_phase == PivotPhase.TURN,
-          f"settle_seen={settle_seen} phase={rig.task._pivot_phase} 到TURN={ticks_to_turn}拍")
-
-    # 10.2 SETTLE 停车段 × 正上限：不得起步（独立 rig，避免污染 TURN 证据）
-    rig_s = _trigger()
-    settle_now = rig_s.task._pivot_phase == PivotPhase.SETTLE
-    rig_s.bb.set(P_MOTION_LIMIT, {"speed_mps": 0.50, "reason": "r1_settle"}, "test")
-    stop = _seq(rig_s, 5)
-    check("10.2 SETTLE 停车段 × 正上限 0.50：保持 0（已停车分支不得起步）且仍在 SETTLE",
-          settle_now and all(abs(r["v"]) <= 1e-12 for r in stop)
-          and all(r["pivot"] == "SETTLE" for r in stop)
-          and _same_as_published(stop),
-          f"v={_vs(stop)} pivot={sorted({r['pivot'] for r in stop})}")
-    rig_s.bb.set(P_MOTION_LIMIT, None, "test")
-    steps = 0
-    while rig_s.task._pivot_phase != PivotPhase.TURN and steps < 100:
-        rig_s.tick()
-        steps += 1
-    check("10.3 撤回后继续推进：SETTLE → TURN（TURN 才计入限速证据）",
-          rig_s.task._pivot_phase == PivotPhase.TURN, f"phase={rig_s.task._pivot_phase} steps={steps}")
-
-    # 10.4 TURN 基线（无限速）：必须 0.08 且分支证据完整
-    base = _seq(rig, N_BASE)
-    check(f"10.4 TURN 无限速基线 0.08×{N_BASE}拍，reason_tag=pivot_turn、align=False、pivot_phase=TURN",
-          all(abs(r["v"] - 0.08) <= 1e-9 for r in base)
-          and all(r["reason"] == "pivot_turn" for r in base)
-          and all(r["align"] is False and r["pivot"] == "TURN" for r in base)
-          and _same_as_published(base),
-          f"v={_vs(base)} reason={[r['reason'] for r in base]}")
-
-    # 10.5 零上限（连续多拍）→ 每拍 0.0，TURN 分支证据不变
-    rig.bb.set(P_MOTION_LIMIT, {"speed_mps": 0.0, "reason": "r1_zero"}, "test")
-    zero = _seq(rig, N_INJ)
-    check(f"10.5 TURN 零上限（{inj_s}）→ 每拍发布 0.0，pivot_phase 仍 TURN、reason_tag 仍 pivot_turn",
-          all(abs(r["v"]) <= 1e-12 for r in zero)
-          and all(r["reason"] == "pivot_turn" and r["pivot"] == "TURN" for r in zero)
-          and _same_as_published(zero),
-          f"v={_vs(zero)} pivot={sorted({r['pivot'] for r in zero})}")
-
-    # 10.6 低正上限（低于 min_speed=0.08）→ 0.04，不被蠕动下限顶回
-    rig.bb.set(P_MOTION_LIMIT, {"speed_mps": 0.04, "reason": "r1_half"}, "test")
-    half = _seq(rig, N_INJ)
-    check(f"10.6 TURN 低正上限 0.04（{inj_s}）→ 每拍 0.04（只降不升，不被 min_speed 顶回）",
-          all(abs(r["v"] - 0.04) <= 1e-9 for r in half)
-          and all(r["reason"] == "pivot_turn" and r["pivot"] == "TURN" for r in half)
-          and _same_as_published(half),
-          f"v={_vs(half)}")
-
-    # 10.7 撤回（None）→ 恢复 0.08
-    rig.bb.set(P_MOTION_LIMIT, None, "test")
-    rec = _seq(rig, N_REC)
-    check(f"10.7 TURN 撤回（None，{N_REC}拍）→ 恢复 0.08",
-          all(abs(r["v"] - 0.08) <= 1e-9 for r in rec)
-          and all(r["reason"] == "pivot_turn" and r["pivot"] == "TURN" for r in rec)
-          and _same_as_published(rec),
-          f"v={_vs(rec)}")
-
-    # 10.8 无信号/非法载荷/高于基线：相同初态 + 相同时钟下速度与转向序列逐位一致
-    payloads = (None, "not-a-dict", {}, {"speed_mps": "0.05"},
-                {"speed_mps": float("nan")}, {"speed_mps": float("inf")},
-                {"speed_mps": float("-inf")}, {"speed_mps": -0.05},
-                {"speed_mps": True}, {"speed_mps": 999.0})
-    control = [(r["v"], r["steer"]) for r in _seq(_to_turn()[0], N_SEQ)]
-    mismatches = []
-    for payload in payloads:
-        rig_v = _to_turn()[0]
-        rig_v.bb.set(P_MOTION_LIMIT, payload, "test")
-        got = [(r["v"], r["steer"]) for r in _seq(rig_v, N_SEQ)]
-        if got != control:
-            idx = next((i for i, (a, b) in enumerate(zip(got, control)) if a != b), -1)
-            mismatches.append(f"{payload!r}@{idx}")
-    check(f"10.8 TURN：无信号/非法/高于基线 {len(payloads)} 种载荷 × {N_SEQ} 拍 → 速度+转向序列逐位一致",
-          not mismatches, f"mismatch={mismatches[:3]}")
-
-
 def main() -> int:
     print("=" * 72)
     print("dzbrain PIVOT 原地转向专项测试（纯脚本）")
@@ -651,7 +512,6 @@ def main() -> int:
     test_reverse_vertex_no_pivot()
     test_done_notice_to_mission()
     test_adaptive_trigger_dist()
-    test_final_publish_motion_limit()
     finish()
     return 0
 

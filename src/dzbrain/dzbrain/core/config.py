@@ -311,11 +311,13 @@ SCHEMA: dict[str, Spec] = {
     #      那三键是**视觉侧**"哪一帧算命中"的口径（`route/validate.py` 与 `tools/route_check.py`
     #      的射击点距离判据），本两键管的是"**车停哪儿**"（规划期挑停站点）。两套不要互相抄。
     #   消费者：`route/planner.py` 的 `shoot_distance_window()`；缺键时 planner 侧常量兜底
-    #      0.90 / 0.12（SCHEMA 兜底仍为历史默认 0.80 / 0.10，yaml 正常提供本两键时不触发）。
-    "route.shoot_distance_m": Spec(0.80, _F, "m", 0.0, 5.0,
+    #      0.90 / 0.12 —— 2026-10-24 起 SCHEMA 兜底与 planner 常量 / robot.yaml 对齐为同值
+    #      （旧 SCHEMA 0.80/0.10 与另两处真源打架：YAML 缺键 + 有 Config 的路径会静默用
+    #      0.80 ⇒ 现役停站 D3（到板心 0.875 m）会被判"覆盖不足"无谓回退）。
+    "route.shoot_distance_m": Spec(0.90, _F, "m", 0.0, 5.0,
                                    "SHOOT 停站点到**靶板中心**的目标距离（靶板中心 = 各靶格中心之中点）"),
-    "route.shoot_distance_tol_m": Spec(0.10, _F, "m", 0.0, 2.0,
-                                       "上述距离的窗口半宽（候选区间 = 目标距离 ± 本值 ⇒ 默认 [0.70, 0.90]）"),
+    "route.shoot_distance_tol_m": Spec(0.12, _F, "m", 0.0, 2.0,
+                                       "上述距离的窗口半宽（候选区间 = 目标距离 ± 本值 ⇒ 默认 [0.78, 1.02]）"),
     "mission.auto_start": Spec(True, _B, "", None, None, "起栈后自动出发"),
     "mission.auto_start_delay_s": Spec(10.0, _F, "s", 0.0, 120.0, "出发前初始化等待"),
     "mission.reset": Spec("N10,y", _S, "", None, None, "起步复位（格,航向）"),
@@ -531,20 +533,6 @@ SCHEMA: dict[str, Spec] = {
     "drone.car_state_period_s": Spec(0.7, _F, "s", 0.1, 10.0, "车状态周期上报间隔"),
     "drone.ack_enabled": Spec(True, _B, "", None, None, "收到需确认消息时回 ack"),
     "drone.field_diff_max": Spec(8, _I, "条", 0, 100, "靶区/雷障核对差异条数上限"),
-    "drone.field_layout_wait_s": Spec(30.0, _F, "s", 1.0, 120.0,
-                                      "启动等待无人机布局的上限；超时 exit 3"),
-    "step.wait_timeout_s": Spec(0.0, _F, "s", 0.0, 3600.0,
-                                    "WAIT_INFO 等待上限；0=不限时（一直等下一份布局）"),
-    # ★2026-10-18 现场 pose_stale 事故：布局模式下若 /odom/localization 没进决策层，
-    #   任务层会带着种子位姿照常发指令（车一步不动、排障两分钟）。下面两个键让
-    #   "半死图"当场变成"退出码 5 + 三条排查命令"。
-    "step.pose_ready_wait_s": Spec(8.0, _F, "s", 0.0, 120.0,
-                                    "★位姿就绪门：出发前最多等多少秒 /odom/localization 首帧；"
-                                    "超时 exit 5；0=关闭（测试/bench）"),
-    "step.odom_watch_s": Spec(6.0, _F, "s", 0.0, 120.0,
-                               "★运行期位姿看门狗：DRIVING 中连续多少秒无新 odom 帧即判 ROS_LOST"
-                               "（停段+刹车+exit 5）；0=关闭"),
-
     "drone.map_path": Spec("", _S, "", None, None,
                            "本地地图路径（空 = 自动定位 <repo>/config/map.yaml）"),
 

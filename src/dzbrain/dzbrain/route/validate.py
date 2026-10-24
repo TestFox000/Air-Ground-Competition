@@ -389,7 +389,8 @@ class Issue:
 
 
 def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None,
-                   cross_candidates: Iterable[str] | None = None) -> list[Issue]:
+                   cross_candidates: Iterable[str] | None = None,
+                   expect_halves: Iterable[str] | None = None) -> list[Issue]:
     """出发前校验。返回 `list[Issue]`，**空列表 = 可以发车**。
 
     :param route: `Route`（也接受任何有 `.waypoints` 的对象，或格名序列）
@@ -397,6 +398,11 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     :param cfg: `core.config.Config`（点号键）；射击窗口、穿洞候选集等全部从这里读
     :param cross_candidates: 显式覆盖穿洞候选格集合（默认取 `cfg` 的
         `route.cross_lower_candidates/route.cross_upper_candidates`）
+    :param expect_halves: R007 的增量续算口径（t12，与 `tools/route_check.py`
+        `--expect-halves`、规划器 `check_route_structure(crossing_halves=...)` 同一契约）：
+        `None` = 整线路线口径（两个半场各恰 1 次，缺省行为不变）；否则为
+        `{"lower","upper"}` 的子集 —— 只有列出的半场要求"恰 1 次且方向正确"，
+        未列出的半场要求 **0 次**（增量段从上半场起步时传 `("upper",)`）。
     """
     issues: list[Issue] = []
     blocks = _blocks(route)
@@ -579,6 +585,9 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     lower_runs = [r for r in runs if r["half"] == "lower"]
     upper_runs = [r for r in runs if r["half"] == "upper"]
 
+    # t12 增量续算口径：expect_halves 为 None 时与旧行为完全一致（两半场各恰 1 次）
+    _expect = set(expect_halves) if expect_halves is not None else {"lower", "upper"}
+
     # ★ R008（当前语义）：**只**看"穿洞行是否在 K 列本半场行段内"（下半场 7~11 /
     #   上半场 1~6），候选行/候选集合不再当硬门；报文里仍打印候选行供现场对账。
     #   "不在候选集合"因此**不再是 error** —— 那正是要放开的（无人机情报可纠正过期地图）。
@@ -595,7 +604,12 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
     def _fmt(run_list: list[dict]) -> str:
         return " ".join(f"{r['a']}->{r['b']}@{int(round(r['row']))}行" for r in run_list)
 
-    if len(lower_runs) != 1:
+    if "lower" not in _expect:
+        if lower_runs:
+            issues.append(Issue("error", "R007",
+                                f"增量口径：本段起点已在上半场，不应再穿下半场"
+                                f"（实际 {len(lower_runs)} 次：{_fmt(lower_runs)}）"))
+    elif len(lower_runs) != 1:
         issues.append(Issue("error", "R007",
                             f"下半场（第 {CROSS_LOWER_ROWS[0]}~{CROSS_LOWER_ROWS[1]} 行）"
                             f"应恰好 1 次穿越 {CROSS_COLUMN} 列，实际 {len(lower_runs)} 次"
@@ -605,7 +619,12 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
         issues.append(Issue("error", "R007",
                             f"下半场穿越方向错：{run['a']}->{run['b']} 必须**向西**"
                             f"（列号减小，现场 bridge_order: L* -> K* -> J*）"))
-    if len(upper_runs) != 1:
+    if "upper" not in _expect:
+        if upper_runs:
+            issues.append(Issue("error", "R007",
+                                f"增量口径：本段起点已在下半场，不应再穿上半场"
+                                f"（实际 {len(upper_runs)} 次：{_fmt(upper_runs)}）"))
+    elif len(upper_runs) != 1:
         issues.append(Issue("error", "R007",
                             f"上半场（第 {CROSS_UPPER_ROWS[0]}~{CROSS_UPPER_ROWS[1]} 行）"
                             f"应恰好 1 次穿越 {CROSS_COLUMN} 列，实际 {len(upper_runs)} 次"
@@ -617,9 +636,10 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
                                 f"上半场穿越方向错：{run['a']}->{run['b']} 必须**向东**"
                                 f"（列号增大，现场 bridge_order: J* -> K* -> L*）"))
 
-    if not runs:
+    if not runs and _expect:
         issues.append(Issue("error", "R007",
-                            f"路线没有任何一次穿越 {CROSS_COLUMN} 列（两个半场各需一次）"))
+                            f"路线没有任何一次穿越 {CROSS_COLUMN} 列"
+                            f"（增量口径要求：{'、'.join(sorted(_expect))} 各一次）"))
 
     for run in runs:
         if not run["band_ok"]:
