@@ -1,18 +1,7 @@
 {
- "generated": "2026-10-24 16:09",
- "count": 133,
+ "generated": "2026-10-24 16:56",
+ "count": 144,
  "files": [
-  {
-   "path": "实测就绪度评估_20261024.md",
-   "dir": ".",
-   "title": "实测就绪度评估与扫障报告（2026-10-24）",
-   "summary": "- **sim_airground 第六图全面重钉**：自检从崩溃 exit 1 → **51/51 全绿 exit 0**；桥前等待死代码复活（硬编码 L10 → 穿洞入口现…",
-   "from": "",
-   "level": "",
-   "updated": "",
-   "status": "",
-   "lines": 85
-  },
   {
    "path": "00_项目总览/00_索引.md",
    "dir": "00_项目总览",
@@ -22,7 +11,7 @@
    "level": "实",
    "updated": "2026-10-24",
    "status": "现行",
-   "lines": 46
+   "lines": 49
   },
   {
    "path": "00_项目总览/06_本机值守与守护器.md",
@@ -34,6 +23,17 @@
    "updated": "2026-10-22",
    "status": "现行",
    "lines": 66
+  },
+  {
+   "path": "00_项目总览/五链精度参数时间审计_20261024.md",
+   "dir": "00_项目总览",
+   "title": "五链精度·参数·时间审计（2026-10-24，对齐赛事要求）",
+   "summary": "五链（规划/循迹/压雷/识别/瞄准打靶）精度·参数·时间逐链量化：时间富余 ~50s，短板全在精度——循迹 RMS 0.124m 劣化 2.8×、压雷最差余量 1.6mm、瞄准…",
+   "from": "sim_airground A2 臂实测 + robot.yaml 现役真值 + 模型包指标（2026-10-24）",
+   "level": "实",
+   "updated": "2026-10-24",
+   "status": "现行",
+   "lines": 85
   },
   {
    "path": "00_项目总览/交接_20261023.md",
@@ -54,8 +54,30 @@
    "from": "2026-10-24 09:00~11:00 实车会话（4 发自测 + 75 s 移动靶录制 + 开火判据／两键门控／C++ 扫描回调源码对读）；artifacts/aim-mv-20261024/{mvlog.csv,mvrec.py,analyze.py}；_tmp_session/aim-p0/T1~T5；dzrobot_v2@f794c48；v1@598ae1db",
    "level": "实/档",
    "updated": "2026-10-24",
+   "status": "历史",
+   "lines": 428
+  },
+  {
+   "path": "00_项目总览/交接_20261024_空地协同接手.md",
+   "dir": "00_项目总览",
+   "title": "空地协同接手交接 · 2026-10-24",
+   "summary": "小车已证倒车后前进及F9停站离站，尚未全程；双站与权限补丁已部署。无人机自启已实证，实时感知和实飞未验收。交给DeepSeek按模块完成并逐级合流。",
+   "from": "CAR-PREFLIGHT-20261024 两趟实跑；两次部署清单；DRONE-AUTOSTART/DRONE-SYNC；教员三件套实测；用户接手要求",
+   "level": "实/档/未，逐项区分",
+   "updated": "2026-10-24",
    "status": "现行",
-   "lines": 426
+   "lines": 131
+  },
+  {
+   "path": "00_项目总览/会话纪要_20261024_全链部署化与五链审计.md",
+   "dir": "00_项目总览",
+   "title": "会话纪要 · 全链部署化与五链精度审计（2026-10-24）",
+   "summary": "全链部署化与五链精度审计的会话记录：车端 34 套回归首次全绿、五链全部量化、缺雷根因修复、一键部署两链 dry-run 通过；属沿革记录，现行结论以同目录两篇评估为准。",
+   "from": "ZCode 会话线（本地 v1 + Gitee air_ground 34 分支）2026-10-24 会话收尾纪要；Lead 于同日按 §8.2 定归属搬入",
+   "level": "实",
+   "updated": "2026-10-24",
+   "status": "历史",
+   "lines": 143
   },
   {
    "path": "00_项目总览/团队与分工.md",
@@ -67,6 +89,17 @@
    "updated": "2026-10-21",
    "status": "现行",
    "lines": 62
+  },
+  {
+   "path": "00_项目总览/实测就绪度评估_20261024.md",
+   "dir": "00_项目总览",
+   "title": "实测就绪度评估与扫障报告（2026-10-24）",
+   "summary": "发车前障碍台账与当日修复清单：车端规划链 6 项修复（双停站板面轴、route_check 空集崩溃、增量续算门禁、shoot_distance 三源对齐、vendor 重同步…",
+   "from": "ZCode 全库扫描（本地 v1 + Gitee air_ground 34 分支）+ 车/机双端实测（2026-10-24）",
+   "level": "实",
+   "updated": "2026-10-24",
+   "status": "现行",
+   "lines": 113
   },
   {
    "path": "00_项目总览/技术全景_A_车端核心.md",
@@ -412,13 +445,13 @@
   {
    "path": "10_agent提示词/04_场景/空地协同闭环推进.md",
    "dir": "10_agent提示词/04_场景",
-   "title": "空地协同闭环推进 · DSH团队执行方案",
-   "summary": "先以完整循迹与云台PID/打靶为两条验收主线，部署集成并行；车端基线成立后推进空地运动联调与比赛闭环。",
-   "from": "交接_20261023.md；决策台账D-027/028/029/031/032/033（靶速 0.3 m/s 现行口径）；当前在办卡与代码只读复核；AG-TEAM-PLAN-20261023",
-   "level": "实/档/未",
-   "updated": "2026-10-23",
+   "title": "空地协同闭环推进 · DeepSeek团队执行计划",
+   "summary": "以两趟实跑为基线，先修进度/访问次序/停滞时钟并完成小车双站全程；并行解决F9无目标和机端情报接缝；再地面两段接续、实飞及整赛验收。",
+   "from": "交接_20261024_空地协同接手；CAR-PREFLIGHT两趟实跑；D-012/019/027/029/033/039/040；用户要求DeepSeek团队继续完成空地协同",
+   "level": "计划；事实引用交接页及原始证据",
+   "updated": "2026-10-24",
    "status": "计划",
-   "lines": 133
+   "lines": 183
   },
   {
    "path": "20_资料索引库/README.md",
@@ -649,7 +682,7 @@
    "level": "实",
    "updated": "2026-10-24",
    "status": "现行",
-   "lines": 232
+   "lines": 244
   },
   {
    "path": "20_资料索引库/视觉与云台/00_索引.md",
@@ -671,7 +704,7 @@
    "level": "实/档",
    "updated": "2026-10-24",
    "status": "现行",
-   "lines": 147
+   "lines": 148
   },
   {
    "path": "20_资料索引库/视觉与云台/02_视觉模型与检测.md",
@@ -699,12 +732,12 @@
    "path": "20_资料索引库/赛事与治理/00_索引.md",
    "dir": "20_资料索引库/赛事与治理",
    "title": "赛事与治理 · 分册索引",
-   "summary": "这一册回答八件事：**场地长什么样**（01）、**怎么算分、多少时间**（02）、**动手前守什么规矩**（03）、**哪些事已裁决不许重开**（04）、**现在回归什么颜色…",
-   "from": "本册 01~08（源见各篇 front matter）, docs/20_资料索引库/README.md, AGENTS.md",
+   "summary": "这一册回答九件事：**场地长什么样**（01）、**怎么算分、多少时间**（02）、**动手前守什么规矩**（03）、**哪些事已裁决不许重开**（04）、**现在回归什么颜色…",
+   "from": "本册 01~09（源见各篇 front matter）, docs/20_资料索引库/README.md, AGENTS.md",
    "level": "实/档/未",
-   "updated": "2026-10-23",
+   "updated": "2026-10-24",
    "status": "现行",
-   "lines": 57
+   "lines": 60
   },
   {
    "path": "20_资料索引库/赛事与治理/01_赛题规则与场地.md",
@@ -737,18 +770,18 @@
    "level": "实/档",
    "updated": "2026-10-21",
    "status": "现行",
-   "lines": 146
+   "lines": 155
   },
   {
    "path": "20_资料索引库/赛事与治理/04_决策台账摘编.md",
    "dir": "20_资料索引库/赛事与治理",
-   "title": "决策台账摘编（D-001 ~ D-033）",
+   "title": "决策台账摘编（D-001 ~ D-040）",
    "summary": "这是**防开倒车**的表：已裁决的事不得重开。要重开先答三问：**新证据 / 影响面 / 不重开的代价**。",
-   "from": "dzrobot_v2/docs/决策台账.md（D-001~D-033 全文，165 行）",
+   "from": "dzrobot_v2/docs/决策台账.md（D-001~D-040 全文，241 行）",
    "level": "档",
-   "updated": "2026-10-23",
+   "updated": "2026-10-24",
    "status": "现行",
-   "lines": 97
+   "lines": 106
   },
   {
    "path": "20_资料索引库/赛事与治理/05_已知红与回归口径.md",
@@ -795,6 +828,17 @@
    "lines": 73
   },
   {
+   "path": "20_资料索引库/赛事与治理/09_工具复用与能力登记.md",
+   "dir": "20_资料索引库/赛事与治理",
+   "title": "工具复用与能力登记",
+   "summary": "两张表是**防重复造轮子的登记簿**，且被 `check_reuse.py` 机器读取；本篇只是查表用的蒸馏视图，**不是第二份登记表**——要登记请改源文件（两张表属 §8.…",
+   "from": "dzrobot_v2/docs/复用清单.md + 能力索引.md（活文件，本表为蒸馏）",
+   "level": "实",
+   "updated": "2026-10-24",
+   "status": "现行",
+   "lines": 171
+  },
+  {
    "path": "20_资料索引库/车端/00_索引.md",
    "dir": "20_资料索引库/车端",
    "title": "车端 · 分册索引",
@@ -803,7 +847,7 @@
    "level": "实+档",
    "updated": "2026-10-24",
    "status": "现行",
-   "lines": 79
+   "lines": 82
   },
   {
    "path": "20_资料索引库/车端/01_架构与线程.md",
@@ -836,7 +880,7 @@
    "level": "实（64 图复跑）+档（47/64 为卡内自报）",
    "updated": "2026-10-24",
    "status": "现行",
-   "lines": 96
+   "lines": 97
   },
   {
    "path": "20_资料索引库/车端/04_定位与安全.md",
@@ -916,6 +960,17 @@
    "lines": 202
   },
   {
+   "path": "20_资料索引库/车端/11_工作法与经验.md",
+   "dir": "20_资料索引库/车端",
+   "title": "工作法与经验总集",
+   "summary": "1. **只信三样**：启动横幅、话题的 publisher/subscriber 计数、实车数据。文件、\"我改好了\"、\"应该生效了\"都不算证据。",
+   "from": "2026-10-21~10-24 实车/联调/审计会话提炼；数据 artifacts/aim-mv-20261024、_tmp_session/sqc-20261024",
+   "level": "实+档",
+   "updated": "2026-10-24",
+   "status": "现行",
+   "lines": 209
+  },
+  {
    "path": "30_任务卡库/README.md",
    "dir": "30_任务卡库",
    "title": "任务卡库（作业台）",
@@ -957,7 +1012,62 @@
    "level": "",
    "updated": "2026-10-23",
    "status": "现行",
-   "lines": 26
+   "lines": 27
+  },
+  {
+   "path": "30_任务卡库/在办/agc-1024/00_树.md",
+   "dir": "30_任务卡库/在办/agc-1024",
+   "title": "agc-1024 · 空地协同整赛闭环任务树",
+   "summary": "DeepSeek 五角色团队接手空地协同闭环；首轮并行 T1 进度契约、P1 目标获取、DL1 二进制适配、E1 四方对账。树单写点：Lead。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-24",
+   "status": "过程",
+   "lines": 58
+  },
+  {
+   "path": "30_任务卡库/在办/agc-1024/AGC-DL1-ADAPTER-20261024.md",
+   "dir": "30_任务卡库/在办/agc-1024",
+   "title": "AGC-DL1-ADAPTER-20261024 · 二进制:50000→既有 JSON 情报链薄适配层",
+   "summary": "复用教员 udp_bridge.py 解析核，做二进制 50000 到既有 JSON 情报入口的薄适配，13 类映射与坏帧拒收可单测，0x4003 只记录不写 waypoint。",
+   "from": "交接_20261024 §6；教员三件套实测；用户 2026-10-24 接手指令",
+   "level": "档（机端同编码器样本）+ 只读源码 + 离线单测",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 44
+  },
+  {
+   "path": "30_任务卡库/在办/agc-1024/AGC-E1-RECONCILE-20261024.md",
+   "dir": "30_任务卡库/在办/agc-1024",
+   "title": "AGC-E1-RECONCILE-20261024 · 四方版本对账",
+   "summary": "对本地HEAD/工作树/两份覆盖层/车端src+install 做四方差异，检测 dzrobot2 与 dzrobot 分列，产出可审计对账表与恢复范围。",
+   "from": "交接_20261024 §4；manifest.json；用户 2026-10-24 接手指令",
+   "level": "实（车在线，可只读拉取）+ 档",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 44
+  },
+  {
+   "path": "30_任务卡库/在办/agc-1024/AGC-P1-TARGET-20261024.md",
+   "dir": "30_任务卡库/在办/agc-1024",
+   "title": "AGC-P1-TARGET-20261024 · F9 为何 target=none",
+   "summary": "解释第二趟 F9 搜索 6.10s target=none 的唯一可验证原因（未入画/漏检/陈旧/消费拒绝），只读起步，不调 PID、不换模型。",
+   "from": "交接_20261024 §2/§3；CAR-PREFLIGHT §9.2；用户 2026-10-24 接手指令",
+   "level": "档（run2-mission.log、云台日志、上午旧栈样本）+ 只读源码 + 证据包",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 48
+  },
+  {
+   "path": "30_任务卡库/在办/agc-1024/AGC-T1-PROGRESS-20261024.md",
+   "dir": "30_任务卡库/在办/agc-1024",
+   "title": "AGC-T1-PROGRESS-20261024 · 进度生产者/消费者契约",
+   "summary": "查清 Tracker/Localization/Mission 三处写 P_ROUTE_INDEX/P_ROUTE_S 的生产-消费契约，给出唯一可判定假设与最小复现；生产文件…",
+   "from": "交接_20261024_空地协同接手 §3；CAR-PREFLIGHT §9.2；用户 2026-10-24 接手指令",
+   "level": "档（run2-mission.log / run2-localization.log）+ 只读源码 + 本地最小复现",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 51
   },
   {
    "path": "30_任务卡库/在办/aim-1023/00_树.md",
@@ -1012,40 +1122,51 @@
    "level": "",
    "updated": "2026-10-24",
    "status": "过程",
-   "lines": 38
+   "lines": 39
   },
   {
    "path": "30_任务卡库/在办/carloop-1024/CAR-DUAL-20261024.md",
    "dir": "30_任务卡库/在办/carloop-1024",
    "title": "CAR-DUAL-20261024 · 双最佳射击点规则",
-   "summary": "tour 双站规则本地完成；真实图 F9/C5、62点/22.75m；聚焦35/35、自动规划177/177，未部署，待存量文档门禁解除。",
+   "summary": "双站规则本地35/35、车端旧接口32/32；窄移植已部署。54点F9/C5路线已跑到F9离站，C5与全程待验。",
    "from": "用户 2026-10-24 指令；交接_20261024_打靶闭环；现有 planner.py",
    "level": "代码与离线",
    "updated": "2026-10-24",
    "status": "in_progress",
-   "lines": 61
+   "lines": 63
   },
   {
    "path": "30_任务卡库/在办/carloop-1024/CAR-GATE-20261024.md",
    "dir": "30_任务卡库/在办/carloop-1024",
    "title": "CAR-GATE-20261024 · 开火权限撤销",
-   "summary": "两键按接收时间500ms失效，Mission有效FIRE每拍刷新，离站/换路撤销；Python58/58、C++26/26，未部署。",
+   "summary": "两键500ms租期及Mission刷新/撤销已部署；Python58/58、车端兼容30/30；两趟禁火，实物有效目标授权撤销待验。",
    "from": "用户 2026-10-24 指令；C++ 两键回调与 Mission edge-only 发布",
    "level": "代码与离线",
    "updated": "2026-10-24",
    "status": "in_progress",
-   "lines": 64
+   "lines": 66
+  },
+  {
+   "path": "30_任务卡库/在办/carloop-1024/CAR-HANDOFF-20261024.md",
+   "dir": "30_任务卡库/在办/carloop-1024",
+   "title": "CAR-HANDOFF-20261024 · DeepSeek团队接手",
+   "summary": "汇总两趟实跑与其他团队最新成果，复用现行计划生成模块任务、验收依赖、交接入口和可校验证据包；不操作设备。",
+   "from": "用户要求总结进度并生成DeepSeek团队接手的详细模块与集成计划",
+   "level": "",
+   "updated": "2026-10-24",
+   "status": "in_progress",
+   "lines": 59
   },
   {
    "path": "30_任务卡库/在办/carloop-1024/CAR-HOME-20261024.md",
    "dir": "30_任务卡库/在办/carloop-1024",
    "title": "CAR-HOME-20261024 · 离站回正",
-   "summary": "TRACK 停扫与取消待开扫归位已修；真实 C++ 消费者 HOME 9/9，未部署，待存量文档门禁解除。",
+   "summary": "TRACK停扫与取消待开扫归位已修并部署；HOME 9/9，F9实跑SCAN→IDLE；真实TRACK→0中心反馈待验。",
    "from": "用户 2026-10-24 指令；交接手册 scan_request=0 缺陷",
    "level": "代码与离线",
    "updated": "2026-10-24",
    "status": "in_progress",
-   "lines": 44
+   "lines": 46
   },
   {
    "path": "30_任务卡库/在办/carloop-1024/CAR-PREFLIGHT-20261024.md",
@@ -1089,7 +1210,7 @@
    "level": "",
    "updated": "2026-10-23",
    "status": "过程",
-   "lines": 110
+   "lines": 111
   },
   {
    "path": "30_任务卡库/在办/lead-1023/AIM-CALIBER-20261023.md",
@@ -1156,17 +1277,6 @@
    "updated": "2026-10-23",
    "status": "in_progress",
    "lines": 93
-  },
-  {
-   "path": "30_任务卡库/在办/lead-1023/SSH-DIAG-20261024.md",
-   "dir": "30_任务卡库/在办/lead-1023",
-   "title": "SSH-DIAG-20261024 · 小车 SSH 连接失败只读诊断",
-   "summary": "定位本机到小车的 SSH 失败层级，区分地址解析、三层网络、TCP 22、SSH 握手与认证；只做只读探测，不修改 Windows `hosts`、SSH 配置、小车配置或车端…",
-   "from": "本会话现场记录",
-   "level": "实",
-   "updated": "2026-10-24",
-   "status": "in_progress",
-   "lines": 68
   },
   {
    "path": "30_任务卡库/在办/tools-1022/00_树.md",
@@ -1270,13 +1380,13 @@
   {
    "path": "30_任务卡库/归档/00_索引.md",
    "dir": "30_任务卡库/归档",
-   "title": "归档卡索引（2026-10-18 → 2026-10-23）",
-   "summary": "已归档 **29 张**卡（另有在办 8 张：B1 / B5 / T12 / R3B / D11 / DAY-22 / CFG-TARGETSPEED / PLUGIN-REW…",
+   "title": "归档卡索引（2026-10-18 → 2026-10-24）",
+   "summary": "已归档 **35 张**卡（§2 全表实扫：通过 33 / 部分完成 1 / 终止 1；= `归档/_按日摘要/` 4 篇 24 张 + `归档/<ns>/` 单卡 12 张，…",
    "from": "_tmp_session/TRACK-*/CARD*.md, _tmp_session/TRACK-*/REPORT*.md, _tmp_session/TRACK-*/review*.md, dzrobot_v2/_tmp_session/*/REPORT.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/PROJECT_STATUS_20261021.md",
    "level": "档",
-   "updated": "2026-10-23",
+   "updated": "2026-10-24",
    "status": "",
-   "lines": 95
+   "lines": 96
   },
   {
    "path": "30_任务卡库/归档/_按日摘要/2026-10-18.md",
@@ -1409,6 +1519,17 @@
    "updated": "2026-10-24",
    "status": "已归档",
    "lines": 66
+  },
+  {
+   "path": "30_任务卡库/归档/lead-1023/2026-10-24_SSH-DIAG-20261024.md",
+   "dir": "30_任务卡库/归档/lead-1023",
+   "title": "SSH-DIAG-20261024 · 小车 SSH 连接失败只读诊断",
+   "summary": "定位本机到小车的 SSH 失败层级，区分地址解析、三层网络、TCP 22、SSH 握手与认证；只做只读探测，不修改 Windows `hosts`、SSH 配置、小车配置或车端…",
+   "from": "本会话现场记录",
+   "level": "实",
+   "updated": "2026-10-24",
+   "status": "已归档",
+   "lines": 68
   },
   {
    "path": "30_任务卡库/归档/tools-1022/2026-10-22_TOOLS-ORGANIZE-20261022.md",
