@@ -6,7 +6,7 @@ agent: 待指派（建议 sim-integrator；Lead 不开工，本卡即交接件�
 status: pending
 创建: 2026-10-24
 owner: 待指派
-写域: D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/**（工作区外·当前不在任何 git 仓内，见 P0-1）；_tmp_session/SIM-STUDIO-OPT-20261024/**（过程稿）；docs/20_资料索引库/空地链路/**（仅 P2-3 新篇 + 00_索引.md）；docs/能力索引.md
+写域: D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/**（工作区外·当前不在任何 git 仓内，见 P0-1）；_tmp_session/SIM-STUDIO-OPT-20261024/**（过程稿）；docs/20_资料索引库/空地链路/**（仅 P2-3 新篇 + 00_索引.md）；dzrobot_v2/docs/能力索引.md
 只读依赖: dzrobot_v2/tools/plan_route.py、dzrobot_v2/src/dzbrain/dzbrain/tools/sim_cli.py、dzrobot_v2/config/robot.yaml（**只读，禁改**）、dzrobot_v2/src/dzbrain/dzbrain/route/planner.py（**冻结区，禁改**）、dzrobot_v2/artifacts/sim/**（产物区，按 P1-3 规则裁剪）
 ---
 
@@ -31,9 +31,9 @@ owner: 待指派
    → 任何写 `tools/plugins/dsh-dzairground-ssh/...` 的路径引用**全部失效**（库内现存 8 处，见 P2-2）。
    → 更要紧：`D:/User/Desktop/ZhiYuan/dsh_plugin/` 下**没有 `.git`**，插件源码目前**零版本控制**（这就是 P0-1）。
 
-2. **「移交包不读 `DZROBOT_SIM_ROOT`」是上一轮的错判**。包 `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/src/simbench.js` 第 61 行 `process.env.DZROBOT_SIM_ROOT ?? ''` 就是第一优先级。
+2. **「移交包不读 `DZROBOT_SIM_ROOT`」是上一轮的错判**。包 `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/src/simbench.js` 第 62 行 `process.env.DZROBOT_SIM_ROOT ?? ''` 就是第一优先级。
    E4/F0 判红的**真因**是另外两条：
-   - 包内 `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/sim-root.json` 烧死了打包机的路径 `D:/v1/v1/dzrobot_v2`，本机实测**该路径不存在**；
+   - 包内 `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/sim-root.json:2` 烧死了打包机的路径 `D:/v1/v1/dzrobot_v2`，本机实测**该路径不存在**（对照：插件自己的 `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/sim-root.json:2` 指向本机真源，**有效**，见 F-14）；
    - `scripts/test-sim-*.mjs` 各自**另抄了一份** `findWorkspaceRoot`（包版：先读指针再向上走 4 级；插件版：先向上走 4 级再读指针），**而这份内联副本不读环境变量**——所以设了 env 仍然 E4 FAIL。
    → 同一仓库里两个同名解析器、语义还不一样，这就是 P0-2 要收的口。
 
@@ -84,7 +84,7 @@ owner: 待指派
 
 ## 3 复用检索结果（§2 必填）
 
-- `dzrobot_v2/docs/复用清单.md` + `docs/能力索引.md` 检索「仿真 / sim / 仿真台」：能力索引**没有「仿真台（界面+编排层）」这一条能力** → 这正是第 4 份副本（本 zip）长出来的原因，见 P2-2 的登记动作。
+- `dzrobot_v2/docs/复用清单.md` + `dzrobot_v2/docs/能力索引.md` 检索「仿真 / sim / 仿真台」：能力索引**没有「仿真台（界面+编排层）」这一条能力** → 这正是第 4 份副本（本 zip）长出来的原因，见 P2-2 的登记动作。
 - **优先复用，别新写**：
   - `plan_route.py` 已有 `--map / --engine / --json / --check / --emit tokens / --cross-lower / --cross-upper / --from-cell / --already-covered`（头 80 行文档即契约）→ **夹具图 + 显式引擎这条今天就通**，不需要任何新工具。
   - `dzrobot_v2/tools/scout_sim.py` 已存在 → `/sim/scout` 的内核侧不缺。
@@ -128,7 +128,7 @@ owner: 待指派
   # 台账须出现 simJson:true，且 rms_m 与 62 键里的真值横向 RMS 逐位一致
   ```
   再把 `SIM_ROOT` 指到一份**无 `--json`** 的旧内核副本（可用 `_archive` 里的旧版），验证 `simJson:false` 回落且**不崩**。
-- **边界**：**不改** `sim_cli.py`（冻结区）；不加 `--json` 之外的新内核参数；探测不确定时**不许硬传**（旧内核 argparse exit 2，包 `:1039` 已注明这条实测教训）。
+- **边界**：**不改** `sim_cli.py`（冻结区）；不加 `--json` 之外的新内核参数；探测不确定时**不许硬传**（旧内核 argparse exit 2，包 `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/src/simbench.js:1039` 已注明这条实测教训）。
 
 ### P1-1 离线重规划闸门：先给绕行口径，改判走台账（**不许动内核**）
 
@@ -163,7 +163,7 @@ owner: 待指派
 ### P2-2 副本治理与能力登记 · 约 30 分钟
 
 - **做什么**：
-  1. `docs/能力索引.md` 新增两行：**「仿真台（界面 + 编排层）→ 唯一权威实现 = `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/sim.html` + `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/src/simbench.js`/`D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/stressbench.js`/`D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/dronesim.js`，owner = lead-1023」**；「**仿真内核 → `dzrobot_v2/src/dzbrain/dzbrain/tools/sim_cli.py` + `dzrobot_v2/tools/plan_route.py`，owner = 车端**」。
+  1. `dzrobot_v2/docs/能力索引.md` 新增两行：**「仿真台（界面 + 编排层）→ 唯一权威实现 = `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/sim.html` + `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/src/simbench.js`/`D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/stressbench.js`/`D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/dronesim.js`，owner = lead-1023」**；「**仿真内核 → `dzrobot_v2/src/dzbrain/dzbrain/tools/sim_cli.py` + `dzrobot_v2/tools/plan_route.py`，owner = 车端**」。
   2. `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/scripts/check-divergence.mjs` 扫描范围加上 `_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/`（第 4 副本）与桌面 zip 的登记路径，输出「哪几份漂了」。
   3. 库内 8 处 `tools/plugins/dsh-dz*` 死引用（F-1）：`归档/tools-1022/2026-10-23_TOOLS-PLUGIN-TERMGATE-20261023`（:22/:37/:46/:63 共 4 处）、`在办/tools-1022/TOOLS-PLUGIN-REWORK-20261022`（:17 写域）、`docs/_工具/anchor_baseline.json`(:246)、`docs/_工具/doc_policy_baseline.json`(:71/:76)。归档卡加「路径已迁，现址 D:/...」一行**不改正文结论**；在办卡的写域**由该 ns owner 改**。
 - **为什么**：AGENTS.md §3「同一能力不建第二份」；F-10 的六文件哈希全不同、F-1 的 8 处死引用，都是**没有登记入口**的直接后果。不登记，下一份副本还会来。
@@ -189,7 +189,7 @@ owner: 待指派
 2. 套包的 `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/sim.html` + `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/src/simbench.js`（含 62 键与台账尾部 64 KB 倒读）+ `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/src/stressbench.js` + `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/src/dronesim.js`；
 3. 回填两个缺失函数：`routeExportPayload`（33 行）+ `latestIntel`（24 行）到合并后的文件（**照插件实现搬，不重写**）；
 4. 加 `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/src/scoutsim.js` + `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/index.js` 两条路由 `/sim/scout`、`/sim/step-loop`（内核侧 `dzrobot_v2/tools/scout_sim.py` 已在）；
-5. 改前缀：包 `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/sim.html:511` `/api/dzrobot-ssh` → `/api/dzairground-ssh`（连同 `:510` 注释一起改）；
+5. 改前缀：包 `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/sim.html:511` `/api/dzrobot-ssh` → `/api/dzairground-ssh`（连同 `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/sim.html:510` 注释一起改）；
 6. 测试收口：包独有 14 测试（源在 `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/scripts/`）进 `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/scripts/` 并在 `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/scripts/test-package-files.mjs` 清单登记 —— 此时它们才有宿主可跑（F-10 的「现在搬必全红」届时解除）。
 
 **全程对账**：`git diff --ignore-all-space --stat` 记真实改动量（这包全 CRLF，直接 diff 会虚高，F-12）；逐文件 sha256 前后清单；`admin.mjs verify` 收尾。
@@ -274,7 +274,8 @@ cd dzrobot_v2 && python tools/wf/check.py
 ## 10 文档变更（§8.8 预告 · 收口时按实填）
 
 - **新增**：`docs/20_资料索引库/空地链路/05_仿真台契约与版本钉扎_20261024.md`（P2-3）。
-- **修改**：`docs/能力索引.md`（+2 条能力行，P2-2）；`docs/20_资料索引库/空地链路/00_索引.md`（§1 加行 + TL;DR 补一句）；`docs/20_资料索引库/README.md`（R6 篇数）；`归档/tools-1022/2026-10-23_TOOLS-PLUGIN-TERMGATE-20261023.md`（加「路径已迁」一行，需该 ns owner 同意）；插件 `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/README.md`（367 行版，补「diff 一律 `--ignore-all-space`」与两代 API 前缀说明）。
+- **新增**：`docs/10_agent提示词/04_场景/仿真台优化执行_20261024.md`（本卡的**派发形态**，10-24 用户指令「把任务卡写成提示词」）——同步登记 `10_agent提示词/00_索引.md`（+1 行、计数 22→23）与 `README.md`（决策树 + 文件表，并补上此前漏登记的「空地二进制适配器_启动」）；正文 §2 为整段可复制提示词，§1/§5 为发送前确认与收口验收。
+- **修改**：`dzrobot_v2/docs/能力索引.md`（+2 条能力行，P2-2）；`docs/20_资料索引库/空地链路/00_索引.md`（§1 加行 + TL;DR 补一句）；`docs/20_资料索引库/README.md`（R6 篇数）；`归档/tools-1022/2026-10-23_TOOLS-PLUGIN-TERMGATE-20261023.md`（加「路径已迁」一行，需该 ns owner 同意）；插件 `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/README.md`（367 行版，补「diff 一律 `--ignore-all-space`」与两代 API 前缀说明）。
 - **重跑**：`gen_index.py --ns lead-1023` → `目录索引.md/json`（自动生成，勿手改）。
 - **不新建**：任何 `docs2/`、`sim_studio/` 平行目录；不把包三篇原文整篇入库。
 
