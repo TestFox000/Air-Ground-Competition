@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-24 12:16:24",
+  "generated_at": "2026-10-24 14:27:42",
   "source_root": "C:\\Users\\29212\\Desktop\\赛事临时\\v1\\dzrobot_v2",
   "vendor_root": "C:\\Users\\29212\\Desktop\\赛事临时\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws",
   "file_set_count": 16,
@@ -40,11 +40,11 @@
     {
       "rel": "src/dzbrain/dzbrain/core/config.py",
       "src": "C:\\Users\\29212\\Desktop\\赛事临时\\v1\\dzrobot_v2\\src\\dzbrain\\dzbrain\\core\\config.py",
-      "size": 64415,
-      "sha256": "72a13b25325272d1e95ff9d87232d545e3df74bf0faf94ae116cd68f5afc771d",
-      "vendor_sha256": "72a13b25325272d1e95ff9d87232d545e3df74bf0faf94ae116cd68f5afc771d",
+      "size": 64821,
+      "sha256": "232a12dffc62eee89b6410930e37a754b24c1487824944a996a131a3b8edeec6",
+      "vendor_sha256": "232a12dffc62eee89b6410930e37a754b24c1487824944a996a131a3b8edeec6",
       "same": true,
-      "src_mtime": "2026-10-24T10:39:44"
+      "src_mtime": "2026-10-24T13:24:13"
     },
     {
       "rel": "src/dzbrain/dzbrain/core/geometry.py",
@@ -157,11 +157,11 @@
     {
       "rel": "config/robot.yaml",
       "src": "C:\\Users\\29212\\Desktop\\赛事临时\\v1\\dzrobot_v2\\config\\robot.yaml",
-      "size": 77563,
-      "sha256": "3e2f04532e20fff51eda365bcb03bbb5f38454bcba46d5d29c0ab8bff00a9fa9",
-      "vendor_sha256": "3e2f04532e20fff51eda365bcb03bbb5f38454bcba46d5d29c0ab8bff00a9fa9",
+      "size": 78828,
+      "sha256": "2d7e28d2e525b7d30a5797b39b8df75b924d74774e344b069b11d28141a223ce",
+      "vendor_sha256": "2d7e28d2e525b7d30a5797b39b8df75b924d74774e344b069b11d28141a223ce",
       "same": true,
-      "src_mtime": "2026-10-24T12:14:07"
+      "src_mtime": "2026-10-24T13:52:26"
     }
   ]
 }
