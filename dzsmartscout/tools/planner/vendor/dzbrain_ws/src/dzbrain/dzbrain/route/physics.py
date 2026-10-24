@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""物理几何基础（t22）—— **纯函数**：不读文件、不 import ROS、不产生 Issue。
+"""物理几何基础—— **纯函数**：不读文件、不 import ROS、不产生 Issue。
 
 用户 2026-10-11 现场口径（**数值全部来自 `config/robot.yaml` / `core/config.py` 的 SCHEMA**，
 本模块只提供**公式**与默认形参，绝不把现场数值烘焙进调用方）：
@@ -25,11 +25,11 @@
 ⚠️ 门禁口径在 `tools/route_check.py`（用户侧脚本，**刻意不 import dzbrain**：车端没装包也要能单跑）
   —— 它按**同一套公式**复算，并由 `src/dzbrain/tests/test_physics.py` 的**对拍断言**钉住
   两份实现不许分叉。规划器/仿真侧请直接 import 本模块。
-⚠️ 卡 t11 起本模块还提供**参考点偏移感知**的车体足迹（`body_corners()` / `body_*_clearance_m()`，
+⚠️ 本模块还提供**参考点偏移感知**的车体足迹（`body_corners()` / `body_*_clearance_m()`，
   真源 = `config/robot.yaml: vehicle.ref_offset_m`，现场实测 +7.5 cm）。**默认偏移 0.0**，
   所以既有调用方行为不变；而 `tools/route_check.py` 那份副本**不含**偏移口径（它读不到
   `vehicle.ref_offset_m`）——它的挡板/障碍判据只等价于 `offset=0` 的情形，这一点必须在
-  报告里说明（t11：+7.5 cm 时挡板余量从 +7.6 mm 变成 −5.2 mm 的侵入）。
+  报告里说明（+7.5 cm 时挡板余量从 +7.6 mm 变成 −5.2 mm 的侵入）。
 ⚠️ 本模块**不做**语义判断（该不该压雷、绕不绕路），只回答"几何上有没有碰上"。
 """
 
@@ -63,7 +63,7 @@ __all__ = [
     "required_target_body_clearance_m",
     "target_body_overlap",
     "body_overlaps_rect_centered",
-    # ★★ 卡 t11：**参考点偏移**感知的车体足迹（净空唯一真源）
+    # **参考点偏移**感知的车体足迹（净空唯一真源）
     "DEFAULT_REF_OFFSET_M",
     "body_center",
     "body_corners",
@@ -73,7 +73,7 @@ __all__ = [
     "body_obstacle_clearance_m",
     "body_barrier_clearance_m",
     "body_rect_clearance_m",
-    # ★★ 卡 t4：**桥洞进洞侧冗余墙**（虚拟墙，现实不存在，规划器当真实墙）
+    # **桥洞进洞侧冗余墙**（虚拟墙，现实不存在，规划器当真实墙）
     "BRIDGE_ENTRY_LOWER_ROW_IDX",
     "bridge_entry_walls",
     "body_bridge_wall_clearance_m",
@@ -411,7 +411,7 @@ def segment_outside_band(ax: float, ay: float, bx: float, by: float, *,
 
 
 # --------------------------------------------------------------------------- #
-#  ★★ 卡 t11：参考点偏移感知的车体足迹（"净空唯一真源"补齐）
+#  参考点偏移感知的车体足迹（"净空唯一真源"补齐）
 # --------------------------------------------------------------------------- #
 #  背景（现场卷尺实测，2026-10-11）：
 #    后轴中心→车尾沿 6.5 cm、后轴中心→车头沿 21.5 cm、车身总长 28 cm
@@ -421,7 +421,7 @@ def segment_outside_band(ax: float, ay: float, bx: float, by: float, *,
 #    是**真实几何**，不是建模花招。
 #
 #  为什么必须落在本模块：本模块是净空/碰撞的**唯一真源**（`tools/route_check.py` 那份
-#  是等价的用户侧副本，由 `test_physics.py` 对拍钉住）。t5 实测：把车体矩形沿车头方向
+#  是等价的用户侧副本，由 `test_physics.py` 对拍钉住）。实测：把车体矩形沿车头方向
 #  平移 +3.5 cm 就让现役路线"顶到挡板"，+7.5 cm 报 35~38 拍侵入 ⇒ 偏移必须能进真源，
 #  否则所有"净空够不够"的结论都默认了 `offset=0`（= 假设车体中心与后轴重合，**与实测矛盾**）。
 #
@@ -534,7 +534,7 @@ def body_obstacle_clearance_m(px: float, py: float, yaw: float, ox: float, oy: f
     """车体矩形表面 → **圆柱障碍表面**的间隙（米；`≤ 0` = 真重叠）。
 
     比老口径（"车心到柱心 ≥ r + 车半宽 + 余量"）严格：它算的是旋转车体的真实角点，
-    所以"斜着蹭柱面"不会被漏掉（t5 实测：老口径报 0 拍，本口径报 253 拍真重叠）。
+    所以"斜着蹭柱面"不会被漏掉（实测：老口径报 0 拍，本口径报 253 拍真重叠）。
     """
     poly = body_corners(px, py, yaw, length_m=length_m, width_m=width_m, offset_m=offset_m)
     if _point_in_poly(ox, oy, poly):
@@ -556,7 +556,7 @@ def body_barrier_clearance_m(px: float, py: float, yaw: float, *,
 
     挡板是 `barrier_width_m` 厚的细条（`x = barrier_x` 恒定，`y ∈ [y0, y1]`），
     所以判据是"两个矩形的最近距离"，**不是**"车心到中心线 ≥ 半厚 + 车半宽"（后者把
-    旋转中的车身当成半宽细条，t5 实测两口径差 13 mm）。
+    旋转中的车身当成半宽细条，实测两口径差 13 mm）。
     """
     poly = body_corners(px, py, yaw, length_m=length_m, width_m=width_m, offset_m=offset_m)
     strip = corner_poly(barrier_x, (barrier_y0 + barrier_y1) / 2.0,
@@ -578,7 +578,7 @@ def body_rect_clearance_m(px: float, py: float, yaw: float, *,
 
 
 # --------------------------------------------------------------------------- #
-#  ★★ 卡 t4：桥洞**进洞侧**冗余墙（虚拟墙 / 设计冗余，现实不存在）
+#  桥洞**进洞侧**冗余墙（虚拟墙 / 设计冗余，现实不存在）
 # --------------------------------------------------------------------------- #
 #  用户设计规格（2026-10-16）：在桥洞的**进洞侧**加一段 1/4 格长的冗余长度，
 #  逼规划器让车"进洞前摆正、不碰桥室侧壁"。
@@ -643,7 +643,7 @@ def body_bridge_wall_clearance_m(px: float, py: float, yaw: float, walls, *,
       逐边与每段墙做 `_seg_seg_distance`（相交 = 0）取最小 —— 与 `body_barrier_clearance_m`
       同一套"多边形 vs 线段"口径，所以"斜着蹭墙"不会被漏掉。
 
-    ★★ **包含检测（t4 实测补的真 bug，不要删）**：`_seg_seg_distance` 的合同只在
+    ★★ **包含检测（实测补的真 bug，不要删）**：`_seg_seg_distance` 的合同只在
       "两段**边**相交"时给 0。墙段完全落在车体矩形**内部**时不与任何一条边相交
       ⇒ 退化成"端点↔边"距离 ⇒ **错报正间隙**。实测：`K9` 进洞线 `y=1.05`、车心
       `x = cx+0.13`（近似车心压住南壁）时错报 **0.0225 m**（真值 0，墙整段在车身内）。
@@ -656,7 +656,7 @@ def body_bridge_wall_clearance_m(px: float, py: float, yaw: float, walls, *,
     :return: 间隙（米），**永远 ≥ 0**：`0` = 碰到或压进墙里，`> 0` = 没碰到。
     ⚠️ 因为"重叠 = 0"是本模块（`polygon_distance_m` / `_seg_seg_distance`）的既有口径，
       **判据必须写成"间隙 > 0"**：写成 `>= 0` 会**恒真**（重叠也返回 0）⇒ 判据形同虚设。
-      这是本函数与 `body_barrier_clearance_m()` 共同的坑，t4 实测确认（见 planner 侧注释）。
+      这是本函数与 `body_barrier_clearance_m()` 共同的坑，实测确认（见 planner 侧注释）。
     """
     segs = [tuple(float(v) for v in seg) for seg in (walls or ())]
     if not segs:

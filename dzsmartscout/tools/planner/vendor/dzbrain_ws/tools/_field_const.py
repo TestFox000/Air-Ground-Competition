@@ -5,9 +5,9 @@
 为什么需要这个文件
 --------------------------------------------------------------------------------
 `global_planner.py` / `route_check.py` / `shoot_planner.py` 都是**独立脚本**：
-车上不 `pip install dzbrain` 也要能 `python tools/xxx.py` 直接跑。历史做法是每个
-脚本自己抄一份 `COL_LETTERS / MAP_COLS / MAP_ROWS / BLOCK_SIZE / BARRIER_* /
-MAP_X*_MIN..MAX`（共 4 份）。副本一旦漂移，就会出现"规划器按 14 列、校验器按 13 列"
+车上不 `pip install dzbrain` 也要能 `python tools/xxx.py` 直接跑。若每个脚本自己抄一份
+`COL_LETTERS / MAP_COLS / MAP_ROWS / BLOCK_SIZE / BARRIER_* / MAP_X*_MIN..MAX`（共 4 份），
+副本一旦漂移，就会出现"规划器按 14 列、校验器按 13 列"
 这种只能在车上现场才发现的鬼故事（`docs/survey_path_executor.md` 的 K13 教训）。
 
 本模块把「脚本自举」收敛到**一处**：把 `src/dzbrain` 插到 `sys.path` 首位后，
@@ -16,7 +16,7 @@ MAP_X*_MIN..MAX`（共 4 份）。副本一旦漂移，就会出现"规划器按
     from _field_const import (COL_LETTERS, MAP_COLS, MAP_ROWS, BLOCK_SIZE,
                               BARRIER_ROW_HI, BARRIER_ROW_LO, BARRIER_COL_FROM)
 
-运行口径（任务卡硬约束）
+运行口径（硬约束）
 --------------------------------------------------------------------------------
 * **不需要 PYTHONPATH**：本文件自己按 `__file__` 推导 `src/dzbrain` 并插入 `sys.path`。
 * **任意 cwd 可跑**：所有路径从 `__file__` 解析，与当前工作目录无关；`tools/` 也

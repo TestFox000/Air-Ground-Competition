@@ -5,7 +5,8 @@
 M2 降落；每拍揭示以自身为中心半径 2.5 格（0.875 m）的圆形区域；情报按 t2 感知管线协议
 JSON（`bridge_passable`/`target_zone`/`field_verify`，dzlink 契约）经 0.06 s 量级延迟与
 可配丢包注入小车；小车侧采纳门与 t6 `BridgeIntel` 对齐（缺/过期/离线 → 回落
-`route.cross_lower_default=K10 / cross_upper_default=K5`）。
+`route.cross_lower_default=K7 / cross_upper_default=K5`——robot.yaml 第六图现役值；
+2026-10-24 注：旧文档写 K10/K5，两棵 config（第五/六图）分叉待与车侧对账）。
 
 ## t28 四项改进（用户验收口径）
 
@@ -35,7 +36,7 @@ python dzsmartscout\tools\sim_airground\run_airground.py               # 全臂�
 python dzsmartscout\tools\sim_airground\run_airground.py --quick       # 四臂快检 A1/A2/B1/B3
 python dzsmartscout\tools\sim_airground\run_airground.py --arms B3,C1  # 指定臂
 # t28③ 靶坐标/方向（只机侧参数化）:
-python dzsmartscout\tools\sim_airground\run_airground.py --arms b3 --targets "H11 I11" --target-orient 0 --no-stats
+python dzsmartscout\tools\sim_airground\run_airground.py --arms b3 --targets "G11 H11" --target-orient 0 --no-stats
 # t28④ 随机地图批量（先 10 张试点再 50 张）:
 python dzsmartscout\tools\sim_airground\run_airground.py --random-maps 10 --seed-base 20261012
 python dzsmartscout\tools\sim_airground\run_airground.py --random-maps 50 --seed-base 20261012
@@ -65,13 +66,15 @@ python dzsmartscout\tools\sim_airground\run_airground.py --random-maps 50 --seed
 
 ## 臂矩阵（World A/B/C）
 
-- **A**（桥洞=默认 K10/K5；靶蓝面北）：`A1` 无无人机基线（等价现基线）、`A2` 理想揭示、
+- **A**（桥洞=默认 K7/K5〔robot.yaml 第六图现役〕；靶=地图真值 D5/D6 朝北）：`A1` 无无人机基线（等价现基线）、`A2` 理想揭示、
   `A3` 链路受限（丢包 0.5）。
-- **B**（随机桥洞 K9/K4；靶蓝面东）：`B1` 无无人机直冲中断、`B2` 理想无人机+**现车代码**
-  （情报被采纳门拒）、`B3` 改进变体（权威门+L10 桥前等待+重规划）、`B4` 起飞晚 8 s+等待
-  上限 3 s、`B5` 靶朝向误判（蓝红翻转 180°）、`B6` 受限旗舰（随机桥洞+迟到+误判）、
-  `B7` 迟到 8 s+现车代码（无桥前等待）。
-- **C**（最坏组合 K11/K1；靶蓝面南=贴墙不可打）：`C1` 3 分钟预算上限压力测试。
+- **B**（随机桥洞 K9/K4；靶蓝面东）：`B1` 无无人机直冲中断、`B2` 理想无人机+**t6 前池锁死口径**
+  （情报被采纳门拒；现车 `_intel_cell_ok` 已放宽，本臂保留旧口径作对照）、`B3` 改进变体（权威门〔=现车口径〕
+  +穿洞入口格桥前等待+重规划；第六图实测：上洞 K4 换洞成功改道 1、蓝 6；下洞不可换行→中断，见"第六图已知局限"）、
+  `B4` 起飞晚 8 s+等待上限 4 s（实测等待吃满 4 s 后按已得情报出发）、`B5` 靶朝向误判（蓝红翻转 180°）、
+  `B6` 受限旗舰（随机桥洞+迟到+误判）、`B7` 迟到 8 s+旧口径（无权威门）。
+- **C**（最坏组合 K11/K1；靶 D5/D6 朝南）：`C1` 3 分钟预算上限压力测试（第六图几何下
+  φ=180 经绕行段 E7 可打，旧"贴墙不可打"叙事作废）。
 - **MC1~4**：无情报直冲失败概率的蒙特卡洛抽样验证（解析 29/30）。
 - **MV1~3**：drive_est 标定（6.883 s/m）的全仿真验证场。
 
@@ -96,14 +99,36 @@ python dzsmartscout\tools\sim_airground\run_airground.py --random-maps 50 --seed
    "仿真无法裁决"，需实车/闭环 bench 验。
 2. **sim 不建模射击停站驻留与云台**：射击/驻留/扣分账由本包 `shoot.py` 解析模型给出
    （命中确定性、无弹道散布；面板相位锚定标注 ±2 s 不确定）。
-3. 车侧任务流为**镜像**（`car_gate.py`，逐条 file:line 出处），不 import
+3. 车侧任务流为**镜像**（`car_gate.py`，**函数名锚定**出处——行号会随车侧在途改动漂移，
+   2026-10-24 审计 8 处 file:line 全部失效后改为 `mission.py::_函数名` 记法），不 import
    `dzbrain.tasks.mission`（其运行时状态机不在本仿真范围）。
-4. 桥前等待/权威门是**改进变体**（现车代码只在发车窗口取一次情报，执行中不改 token）；
-   所有含这两个开关的臂在台账里显式标注。
+4. 发车窗口语义差异如实标注：本镜像在无链路时仍跑完 2 s 窗口（t6 前口径）；现车
+   `mission.py::_should_wait_for_intel` 按 F1 裁决已收回（无链路/离线不等待）——无情报臂
+   的 commit 账因此比现车多 ~2 s，读预算裕量时注意。桥前等待/权威门与现车同型
+   （`authority_gate=True` = 现车 `_intel_cell_ok` 放宽口径；`False` = t6 前池锁死对照）。
 5. 轨迹时间轴把桥前等待**折叠**掉（run_sim 连续行驶），总时长 = commit+drive+wait+dwell
-   相加；改道 splice 的前提 = 新旧路线前缀逐位相同（自检钉住现役 `N10 M10 M9`；2026-10-17 t6 换线后口径）。
+   相加；改道 splice 的前提 = 新旧路线前缀逐位相同（自检钉住现役 `N10 M10 M9`；
+   三连换洞带边界断链快筛 + `validate_route` 0 error 门禁，下洞 K7→K9 因前驱 M7 锁死
+   被正确拒绝——见"第六图已知局限"）。
 6. 飞行高度 1.5 m 在 2D 投影下无几何效应（仅记录口径）；感知连续采样（帧率远高于 dt）。
 7. 链路：单发布者 FIFO（BEST_EFFORT 真实语义）→ 不建模乱序，只建模延迟 0.06 s+抖动+丢包。
+
+## 第六图已知局限（2026-10-24 对账，随 map.yaml 第六张图产生）
+
+1. **靶 D6 无人机永不揭示**：D6 距行 3 侦察腿 1.05 m，超出 2.5 格揭示半径 0.875 m
+   → target_zone 永缺 D6。需加侦察支腿或车端自找靶；自检以 `known_limitation` 单列。
+2. **tracker-safe 对第六图桥洞组合无解**：实测抽中组合全部 `PlannerError`（与
+   robot.yaml `planner.auto_plan_enabled: false` 的注释同源——"K7 进洞形态下无解
+   （legs0=0）"）。随机批量 5/5 走 `plan_failed_rows`（失败单列机制如实呈现），
+   端到端射击账需 planner 适配第六图后重验。
+3. **下洞不可换行**：现役 68-token 线下洞三连 `M7 L7 K7 J7` 的前驱 M7 锁在行 7，
+   三连换行到任何其它行都会产生 `M7→L9` 型跳格断链——`_rewrite_triple` 边界快筛
+   正确拒绝（有牙）；K7→K9 只能靠真规划器重规划（受限见第 2 条）。
+4. **现役线越界 74 拍 / 压靶板 78 拍**：第六图 68-token 线的 run_sim 实测物理指标
+   （A2 臂），如实入账；路线本身需车侧优化（超出本包范围）。
+5. **两棵 config 分叉待对账**：README 旧文写回落默认 K10/K5（第五图口径），
+   robot.yaml 现役为 K7/K5；车侧在途改动（`mission.py`/`planner.py` 放宽池校验、
+   实装桥前等待）未入 git，`car_gate.py` 已按函数名锚定对齐现车语义。
 
 ## 目录
 
@@ -121,13 +146,13 @@ sim_airground/
   runner.py         臂编排 + 台账落盘 + 半径/速度/扇区敏感度 + 出图（t28①②）
   plot.py           route_map.png（Pillow；t28①② 双路线同图 + 60 个真值位姿）
   run_airground.py  主入口（--selfcheck/--quick/--arms/--out-dir/--targets/--random-maps）
-  tests/            46 项确定性自检
+  tests/            51 项确定性自检（48 常规 + 3 项 known_limitation 单列；2026-10-24 第六图重钉）
 ```
 
 ## 复现与验证
 
 ```powershell
-# 1) 自检
+# 1) 自检（51 项：全绿 exit 0；known_limitation 3 项单列不算 FAIL）
 python dzsmartscout\tools\sim_airground\run_airground.py --selfcheck
 # 2) 全矩阵（同一命令复跑 → 同 sha256）
 python dzsmartscout\tools\sim_airground\run_airground.py --out-dir _tmp_session\sim_ag\rerun1

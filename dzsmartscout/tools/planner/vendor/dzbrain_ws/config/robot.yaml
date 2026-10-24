@@ -164,9 +164,9 @@
     #     开快了位置与速度不同步（位置先到、速度还在冲）⇒ 本组让二者同源（u 同时给位置与速度）。
     #   整定顺序：kp（先看收敛与有没有来回摆）→ ki（吃掉稳态残差）→ kd 最后再加。
     pid_enable: true               # ★本轮实测开关；改 false 立即回到旧式（只需重启，无需重编）
-    pid_kp: 10.0                   # ★2026-10-17 用户指定测试值 kp10（当前口径 10/1.1/1.8）
-    pid_ki: 1.1                    # ★2026-10-17 用户指定测试值 ki1.1（当前口径 10/1.1/1.8）
-    pid_kd: 1.8                    # ★2026-10-17 用户指定测试值 kd1.8（当前口径 10/1.1/1.8）
+    pid_kp: 12.0                   # ★2026-10-17 用户指定测试值 kp12（当前口径 12/1.1/1.8）
+    pid_ki: 1.1                    # ★2026-10-17 用户指定测试值 ki1.1（当前口径 12/1.1/1.8）
+    pid_kd: 1.8                    # ★2026-10-17 用户指定测试值 kd1.8（当前口径 12/1.1/1.8）
     pid_i_clamp: 600.0             # 积分输出限幅(tick/s)：防饱和导致反向迟滞
     pid_d_alpha: 0.3               # D 项一阶低通（0=不滤）
     pid_min_step: 1                # 最小位置步长(tick)：小于它本帧不动，压死区边缘点动
@@ -518,45 +518,78 @@ path_executor:
     #      ⚠️ 同时保留 t6 的两处"进洞前对正"（`M10 M9` / `I6 I5`），见上一段。
     #      📌 历史档（`F2*` 50 点 / 17.15 m）证据留在 `artifacts/sim/t3_shoot_100/`；
     #        现役 `D3*` 44 点证据在 `artifacts/sim/t3_shoot_090_d3/`。
+    # ★★ 2026-10-17 第六张地图（用户现场换图）：雷 A2 F4 H4 G5 E8 B10 D11 I11 /
+    #   障 B1 D1 F3 I6 H7 A8 C9 E9 / 靶 D5+D6（纵向跨格靶板）/ 通口 K7(下) K5(上) / N10→N5。
+    #   本表 = `tools/plan_route.py --cross-lower K7 --cross-upper K5`（tour 引擎）产物：
+    #   68 token / 24.85 m / 射击停站 B4* / 折返 3 处（I4、G4、A1，均声明 :PIVOT）。
+    #   证据（2026-10-17 本机）：route_check exit 0（0 error，1 warn=急转弯已声明 PIVOT）；
+    #   route.validate_route **0 error / 0 warn**。
+    #   ⚠️ tracker-safe 引擎在本图无解：下半场通口 K7 紧邻隔板（行 7），
+    #   `_barrier_turn_cell` 硬否决"从行 8 进行 7 后侧向 90° 转向" ⇒ legs0=0；
+    #   实测 K8/K9/K10/K11 均有解、唯 K7 无解（2026-10-17 ts_legs 探针）。
     mission_blocks:
       - N10
       - M10
       - M9
-      - L9
-      - K9
+      - M8
+      - M7
+      - L7
+      - K7
+      - J7
+      - J8
       - J9
       - J10
-      - I10
-      - H10
-      - G10
-      - F10
-      - E10
-      - E9
-      - D9
-      - C9
+      - J11
+      - I11
+      - H11
+      - G11
+      - F11
+      - E11
+      - D11
+      - C11
+      - B11
+      - B10
       - B9
       - B8
-      - B7
-      - B6
-      - A6
-      - A5
-      - A4
+      - D8
+      - E8
+      - F8
+      - F7
+      - E7
+      - D7
+      - C7
+      - C6
+      - C5
+      - C4
+      - E4
+      - F4
+      - G4
+      - H4
+      - I4:PIVOT
+      - H4
+      - G4:PIVOT
+      - H4
+      - H5
+      - G5
+      - F5
+      - F4
+      - E4
+      - D4
+      - C4
+      - B4*
+      - B3
       - A3
       - A2
-      - B2
-      - B1
-      - C1
-      - D1
-      - D2
-      - D3*
-      - E3
-      - F3
-      - G3*
-      - G4
+      - A1:PIVOT
+      - A2
+      - A4
+      - B4
+      - C4
+      - D4
+      - E4
+      - E5
       - G5
-      - G6
-      - H6
-      - I6
+      - H5
       - I5
       - J5
       - K5
@@ -608,14 +641,14 @@ path_executor:
     route:
       # ★ U 形赛道两处穿洞的候选格（每局随机，由无人机情报选定；超时用 default）
       # ★ 2026-10-14 官方贴图重掷版：下半场通口 K9（旧 K10）、上半场 K5 不变
-      cross_lower_candidates: ["K9"]
+      cross_lower_candidates: ["K7"]
       cross_upper_candidates: ["K5"]
       # ★★ t31 收口：兜底穿洞格同步为新图通口（旧值 K11/K1 属第四张图，已失效）。
       #   为什么必须改：① `_default_cross()` 只在 default ∈ 候选集合时才用它，否则回落候选集合首元素
       #   ⇒ 旧值不会改路线，但会让 `Config.validate()` 报「兜底穿洞格不在候选集合里」warn、
       #   且 `main.py:200` 的开机横幅会把**错误的通口名**打给现场（横幅真源就是这两个键）；
       #   ② `test_bridge_gate` 把 `route.cross_lower_default` 当"本图下半场桥洞格"用。
-      cross_lower_default: "K9"
+      cross_lower_default: "K7"
       cross_upper_default: "K5"
       # ★★ 卡 t57（2026-10-15）：SHOOT 停站点从「靶格 1 格邻居」迁到「距**靶板中心** 0.80 ± 0.10 m」——
       #   靶板中心 = **各靶格中心之中点**（本图 E5+F5 ⇒ (2.2750, 3.1500) m；
@@ -665,7 +698,7 @@ path_executor:
       bridge_entry_redundancy_m: 0.0875
 
     mission:
-      auto_start: true   # 实车自规划跑：一键启动后自动出发
+      auto_start: false  # ★2026-10-17 第六张图发车：改为 false，等无人机经 /nav/waypoint 下发指令再出发
       auto_start_delay_s: 10.0   # 实车：等 10s 即发车；原注释：★t29 首跑档：给队长留横幅核对窗口（旧值 2.0；SCHEMA 类型 float，必须写 45.0）
       reset: "N10,y"
       scan_mode: continuous           # ★t24：lock 模式下 **inert**（见下方注释）；readme【十】：绝不在到点发 1 降级成单次
@@ -730,7 +763,7 @@ path_executor:
       #   （20.0 是超时应急值，会白等 17 s；5.0 是 PC 时代值，第七趟实车证明不够）。
       #   证据与方法：`_tmp_session/t19/`（ARM 探针走 ssh stdin、内存补丁，车端零落盘）。
       tracker_max_seconds: 10.0
-      auto_plan_enabled: true         # ★ 2026-10-11 第七趟(用户指令):只给地图参数,路线由车上
+      auto_plan_enabled: false        # ★2026-10-17 第六张图：tracker-safe 在本图 K7 进洞形态下无解（legs0=0），改为手动路线 + 无人机 /nav/waypoint 触发；原注释：
                                       #   tracker-safe 引擎现算(t11 双门禁 + t13 起始航向 +y 已落地;
                                       #   J7 挡板现场量测 3.5cm ≥ 2cm ⇒ 放行)。失败时按
                                       #   fallback_to_tokens 回退 mission_blocks 手工 62 点(同一路线)。
@@ -822,13 +855,13 @@ path_executor:
       anchor_scale_max: 0.08            # 隐含尺度误差判别上限（仅判别，不改标定值）
       implied_scale_window: 4           # 尺度/沿程修正量统计窗口（拍）
       reanchor_pull_max_m: 0.35         # 横向重锚单次上限（且只在顶点窗口内）
-      drift_slow_after: 999             # ★2026-10-11 快速采集(用户指令):3→999 解除"漂移降速"门禁(只告警不降速)
+      drift_slow_after: 3               # ★2026-10-17 恢复(15:04事故裁决):999→3 漂移连续超阈值即降速
       drift_slow_speed_mps: 0.08        # 降速目标（经 motion_limit 下发给执行侧）
-      drift_stop_after: 999             # ★2026-10-11 快速采集(用户指令):8→999 解除"漂移停车"门禁(只告警不停车)
+      drift_stop_after: 8               # ★2026-10-17 恢复(15:04事故裁决):999→8 漂移连续超阈值即停车
       drift_clear_ticks: 5              # 连续干净 N 拍 → 撤销降速/停车
-      boundary_guard_m: 0.10            # 离安全边界多近开始限速
+      boundary_guard_m: 0.25            # 离安全边界多近开始限速（2026-10-17: 0.10→0.25）
       boundary_guard_speed_mps: 0.08    # 边界限速值
-      boundary_stop_m: 0.03             # 离安全边界多近请求停车
+      boundary_stop_m: 0.10             # 离安全边界多近请求停车（2026-10-17: 0.03→0.10，须>0.044 滑行距离）
       # ★横向漂移补偿(2026-10-11 两点插值:trim=0→右漂10cm/3.86m=+1.48°;
       #   trim=-1.4→左漂3.5cm/1.05m=-1.91° ⇒ 线性零点 -1.4×1.48/(1.48+1.91)=-0.61° ⇒ 取 -0.6)
       #   车右漂 → 物理前进方向比陀螺读数偏右 ⇒ 信念 yaw 减去该角,控制器见信念偏右

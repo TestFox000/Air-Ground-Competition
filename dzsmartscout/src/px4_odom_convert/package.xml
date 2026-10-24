@@ -19,8 +19,13 @@
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2_ros</depend>
   <depend>px4_msgs</depend>
   <depend>px4_ros_com</depend>
+  <!-- 2026-10-24：补 nav_msgs/tf2_ros —— 源码 include 了 nav_msgs/msg/odometry.hpp
+       与 tf2_ros/buffer.h，CMakeLists 也 find_package 了，但 rosdep 清单缺项会
+       导致 colcon 构建顺序无保证 / 干净环境 rosdep 装不到依赖。 -->
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

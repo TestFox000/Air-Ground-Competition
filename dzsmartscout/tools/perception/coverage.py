@@ -218,8 +218,12 @@ class SlicePlan:
         """把指定片标成 ``complete=False``（帧丢失/只扫了一半时用）。
 
         ``selectors``：片 id（``"S4"``，大小写不敏感）或 1-based 序号（``4``）。
+        纯数字字符串（CLI 传参必然是 str，如 ``--slice-incomplete 4``）按序号处理。
         """
         sel = list(selectors)
+        # CLI 的 argparse 只能给字符串：`--slice-incomplete 4` 传进来是 "4"，
+        # 旧版把它当片 id 找不到直接报错（帮助文本却写着"可重复，如 S4 或 4"）。
+        sel = [int(s) if isinstance(s, str) and s.strip().isdigit() else s for s in sel]
         wanted = {str(s).strip().upper() for s in sel if not isinstance(s, int)}
         unknown = wanted - {s.id.upper() for s in self.slices}
         bad_index = {s for s in sel if isinstance(s, int)} - {

@@ -74,14 +74,18 @@ def build_arm_matrix(cfg: Config, baseline: list[str], out_root: str) -> list[tu
 
     wb = build_world_b("K9", "K4")
     arms.append(("B1", dict(drone_on=False, stop_on_violation=True), _clone(wb),
-                 "随机桥洞（K9/K4）+ 无无人机：默认 K10 直冲 → 撞封死桥室中断（③a 直冲失败样例）"))
+                 "随机桥洞（K9/K4）+ 无无人机：默认直冲 → 撞封死桥室中断（③a 直冲失败样例）"))
     arms.append(("B2", dict(drone_on=True, stop_on_violation=True), _clone(wb),
-                 "随机桥洞 + 理想无人机 + **现车代码**：情报 K9 被采纳门拒（候选∩地图锁死 K10）→ 仍中断"))
+                 "随机桥洞 + 理想无人机 + **t6 前池锁死口径**（authority_gate=False）：情报 K9 被"
+                 "采纳门拒（候选∩地图锁死）→ 仍中断（现车 _intel_cell_ok 已放宽为列+行段，"
+                 "本臂保留旧口径作对照）"))
     wb3 = _clone(wb)
     wb3.authority_gate = True
     wb3.wait_at_bridge = True
     arms.append(("B3", dict(drone_on=True, stop_on_violation=True), wb3,
-                 "改进变体（权威门 + L10 桥前等待 + 重规划）：采纳 K9/K4 → 完赛；改道 1 次；D10 停站蓝面命中"))
+                 "改进变体（权威门[=现车口径] + 穿洞入口格桥前等待 + 重规划）：上洞 K5→K4 换洞"
+                 "成功、改道 1 次、射击账复活（蓝 6）；下洞 K7→K9 因前驱 M7 锁死不可换行"
+                 "（第六图已知局限 3）+ planner 对该形态无解（局限 2）→ 撞封死桥室中断"))
     wb4 = _clone(wb3)
     wb4.drone.takeoff_delay_s = 8.0
     wb4.mission.wait_cap_s = 4.0
@@ -91,7 +95,8 @@ def build_arm_matrix(cfg: Config, baseline: list[str], out_root: str) -> list[tu
     wb5 = _clone(wb3)
     wb5.target.judge_error_deg = 180.0        # 蓝红翻转误判
     arms.append(("B5", dict(drone_on=True, stop_on_violation=True), wb5,
-                 "受限：靶朝向误判（蓝红翻转 180°）→ 选 A10 站打红面 ×10 = 扣分账（车程不受影响）"))
+                 "受限：靶朝向误判（蓝红翻转 180°）→ 路线上无蓝面扇区停站 → 0 发 + 驻留吃满"
+                 " 30 s 硬死线拖垮预算（车程不受影响）"))
     wb6 = _clone(wb5)
     wb6.drone.takeoff_delay_s = 8.0
     arms.append(("B6", dict(drone_on=True, stop_on_violation=True), wb6,
@@ -99,14 +104,15 @@ def build_arm_matrix(cfg: Config, baseline: list[str], out_root: str) -> list[tu
     wb7 = _clone(wb)
     wb7.drone.takeoff_delay_s = 8.0
     arms.append(("B7", dict(drone_on=True, stop_on_violation=True), wb7,
-                 "受限对照：情报迟到 8 s + 现车代码（无桥前等待）→ 车已入 K10 才收到情报 → 中断"
-                 "（改道采纳点≠揭示时刻的证据）"))
+                 "受限对照：情报迟到 8 s + **t6 前池锁死口径**（无权威门）→ 车已入桥才收到情报"
+                 " → 中断（改道采纳点≠揭示时刻的证据；现车 _intel_cell_ok 已放宽，本臂保留旧口径）"))
 
     wc = build_world_c()
     wc.authority_gate = True
     wc.wait_at_bridge = True
     arms.append(("C1", dict(drone_on=True, stop_on_violation=True), wc,
-                 "最坏组合（入口 K11/出口 K1 揭示最晚 + 靶蓝面贴墙不可打）：3 分钟预算上限压力测试"))
+                 "最坏组合（入口 K11/出口 K1 揭示最晚）：3 分钟预算上限压力测试"
+                 "（第六图靶 D5/D6 后 φ=180 经绕行段 E7 可打，不再是贴墙无解——旧叙事作废）"))
 
     # 蒙特卡洛：无情报直冲失败概率的抽样验证（③a）
     for i, (ent, ext) in enumerate((("K9", "K4"), ("K10", "K4"), ("K11", "K5"), ("K10", "K5"))):
@@ -187,8 +193,11 @@ def run_all(out_root: str, arms: list[str] | None = None,
         ref_dir = os.path.join(out_root, "_ref")
         ref = run_car("_ref", baseline, cfg, map_field, out_dir=ref_dir)
         drive_s_per_m = ref.metrics["time_s"] / max(ref.metrics["path_length_m"], 1e-9)
+        from sim_airground.car_gate import approach_cell
+        _approach = approach_cell(baseline, "lower")
         ms = run_match_stats(cfg, baseline, ref.arrival_sim, drive_s_per_m,
-                             commit_t=2.0, arrival_l10_sim=ref.arrival_sim.get("L10", 5.9))
+                             commit_t=2.0,
+                             arrival_approach_sim=ref.arrival_sim.get(_approach, 5.9))
         print(f"[④] 无人机侦察耗时 = {ms['drone_recon_s']} s（航速 0.5 m/s；不含起飞延迟）｜"
               f"总预算 = {ms['budget_s']} s｜drive_est 标定 = {drive_s_per_m:.3f} s/m"
               f"（基线实测 {ref.metrics['time_s']:.2f} s / {ref.metrics['path_length_m']:.2f} m）")

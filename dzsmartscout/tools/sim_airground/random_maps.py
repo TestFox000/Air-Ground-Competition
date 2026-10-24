@@ -4,7 +4,8 @@
 ## 随机口径（按 t11 规则）
 
 - 桥洞：入口 K7~K11（5 格）随机、出口 K1~K6（6 格）随机；
-- 靶蓝面朝向 φ ∈ {0°, 90°, −90°, 180°} 随机（靶格默认 B11/C11，可用 ``targets`` 覆盖）；
+- 靶蓝面朝向 φ ∈ {0°, 90°, −90°, 180°} 随机（靶格 = config/map.yaml 真值，
+  第六图 = D5/D6，可用 ``targets`` 覆盖）；
 - 每张图种子 = ``seed_base + i`` ⇒ 全程确定性，同参数复跑统计逐位相同（墙钟时间除外）。
 
 ## 统计定义（交付判据 ④：定义到分量级，失败/超时单列）
@@ -42,7 +43,7 @@ from .drone_model import build_timeline
 from .match_stats import plan_for_bridges
 from .plot import draw_map
 from .runner import run_arm
-from .scenarios import apply_target_override, build_world_b
+from .scenarios import apply_target_override, build_world_b, sync_target_with_truth
 
 _ORIENTATIONS = (0.0, 90.0, -90.0, 180.0)
 
@@ -95,7 +96,7 @@ def run_random_maps(cfg: Config, baseline: list[str], out_root: str, *,
                     repo_map_path: str | None = None) -> dict:
     """一键 N 张随机地图：每张规划最佳路线 → run_arm 全仿真 → 一张 route_map.png。
 
-    :param targets: 覆盖靶格（两格相邻）；None = 默认 B11/C11。
+    :param targets: 覆盖靶格（两格相邻）；None = config/map.yaml 真值（第六图 D5/D6）。
     :param orient: 覆盖蓝面朝向（度）；None = 每场随机。
     :return: 统计 dict（rows 明细 + 分量级聚合；见模块 docstring 的统计定义）。
     """
@@ -117,13 +118,11 @@ def run_random_maps(cfg: Config, baseline: list[str], out_root: str, *,
         if targets is not None:
             sc = apply_target_override(sc, targets, phi if orient is None else orient)
         else:
-            # ★ 靶模型（track_cells / stop_candidates）必须跟真值靶格同步：
-            #   地图靶格已改为 E5/F5，若只改 `orientation_deg`，射击模型仍按默认
-            #   B11/C11 的候选停站判扇区 ⇒ 规划器按 E5/F5 选 D3/G3，射击却在 B11/C11
-            #   上判 sector_fail（0 命中）。这里用同一个 apply_target_override 把
-            #   "真值靶格 + 随机朝向"一起落到情景上（与显式 targets 分支同一条路径）。
-            sc = apply_target_override(sc, tuple(sc.truth.targets),
-                                       phi if orient is None else float(orient))
+            # ★ 靶模型（track_cells / stop_candidates）必须跟真值靶格同步（第六图 D5/D6）：
+            #   若只改 `orientation_deg`，射击模型仍按默认 B11/C11 的候选停站判扇区
+            #   ⇒ 规划器按真值靶选停站，射击却在 B11/C11 上判 sector_fail（0 命中）。
+            #   统一走 sync_target_with_truth（与 build_world_a/b/c 同一条路径）。
+            sc = sync_target_with_truth(sc, phi if orient is None else float(orient))
         sc.target.judge_error_deg = 0.0
 
         map_cfg = _yaml.safe_load(open(map_path, encoding="utf-8"))

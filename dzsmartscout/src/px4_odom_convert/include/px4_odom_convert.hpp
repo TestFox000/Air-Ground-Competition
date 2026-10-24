@@ -145,6 +145,7 @@ private:
   // 疯跳（ICP 摇摆输出 26~585m/帧）时把疯跳当真实位移放行；②每次接受都
   // bump EV reset_counter，EKF 被每秒重锚（xy_reset 每秒 +1，累计 3764 次，
   // 计数 255 饱和循环），悬停被反复撕扯。三级修复见hpp 头注释。
+  // 2026-10-24：三个核心阈值参数化（旧版硬编码、启动横幅却宣传它们可调）。
   double jump_hold_m_{0.5};     // 单步位置跳变阈值（米）：超出先 hold 观察
   double jump_yaw_rad_{0.8};   // 单步 yaw 跳变阈值（弧度，~46°）
   int jump_confirm_n_{8};       // 连续多少帧大位移才判定"真实大位移"（43Hz 下约 0.2s）
@@ -159,6 +160,16 @@ private:
 
   // L2 bump 节流：真实大位移接受后 bump reset_counter 的最小间隔。
   double bump_min_interval_s_{10.0};
+
+  // armed 判定的新鲜度守卫（2026-10-24）：/fmu/out/vehicle_status 断流时
+  // fcu_armed_ 冻结为旧值（fail-open）——解锁状态下 jump guard 会把 SLAM
+  // 跟丢大位移当"disarmed 搬运"放行。超时视为"状态未知"，按保守处理：
+  // 只要不满足"新鲜且确认 disarmed"，一律不放行（宁可在地面少一次重锚，
+  // 不在空中错一次重锚）。
+  bool fcu_status_seen_{false};
+  double fcu_status_last_t_{0.0};
+  double fcu_status_stale_s_{2.0};
+  bool disarmedConfirmed(double now_s) const;
 
   // L3 EKF reset 风暴熔断：滑动窗内 EKF reset 超过阈值即冻结一切 accept/bump。
   double ekf_storm_window_s_{60.0};

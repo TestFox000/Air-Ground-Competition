@@ -3,7 +3,7 @@ r"""协议发射器：把感知结果编成**车侧能吃的 JSON**。
 
 ## 契约来源（逐条对照，不靠记忆）
 
-消费端：``dzrobot_v2/src/dzbrain/dzbrain/tasks/drone.py``（1196 行，`DroneTask`，5 Hz）
+消费端：``dzrobot_v2/src/dzbrain/dzbrain/tasks/drone.py``（484 行，`DroneTask`，5 Hz）
 
 | 报文 | 车侧要求的字段 | 车侧行为 | 出处 |
 |---|---|---|---|
@@ -12,7 +12,6 @@ r"""协议发射器：把感知结果编成**车侧能吃的 JSON**。
 | ``target_zone`` | ``blocks``（非空 list） | 与本地 ``map.yaml.targets`` 做差集 → ``field_diff`` | ``drone.py:292-304`` |
 | ``field_verify`` | ``mines`` / ``obstacles``（list） | 同上（雷/障） | ``drone.py:307-326`` |
 | ``field_verify`` + ``coverage``/``slice``/``scan_id`` | 旧车侧**不读**这三个键（``payload.get``） | 记录新键、按旧规则处理 | ``drone.py:307-326``；语义见 ``docs/黑图探索与动态规划_决策层方案.md`` §4.2 / §5.1 |
-| ``field_layout`` v2 | ``version``/``start``/``end``/``known``/``mines``/``obstacles``/``targets``/``bridges`` 必填；``target_cell``/``segment_id``/``barrier_*`` 可选 | 校验过 → 写 ``P_FIELD_LAYOUT``（**规划真源**，车端不留地图文件）；version 单调：旧版/同版异内容**整份拒收** | ``drone.py:181-294``；``FIELD_LAYOUT_VERSION=2`` |
 | 任意带 ``seq`` | — | 回一条 ``ack{type:"ack",of:seq}``（**发送成功的硬证据**） | ``drone.py:255-270`` |
 
 **四个容易踩的坑（都是从 ``drone.py`` 读出来的，不是推测）**：
@@ -25,7 +24,7 @@ r"""协议发射器：把感知结果编成**车侧能吃的 JSON**。
 3. ``target_zone`` 的 ``blocks`` 为空列表 = 车侧记一次 ``missing_fields``（``:294``），
    等于白发一条；要么不发，要么别发空表。
 4. 未知 ``type`` 只记日志不崩（``:236-240``），所以**新增字段是安全的、新增类型不安全**
-   （会被当成未知类型忽略）。本模块只产出上述 5 种类型。
+   （会被当成未知类型忽略）。本模块只产出上述 4 种类型。
 
 话题与 QoS（``dzrobot_v2/src/dzbrain/dzbrain/io/contract.py:40-41,94-96``）：
 ``/dzlink/drone_to_car`` / ``std_msgs/String`` / **depth 10 · BEST_EFFORT**。
@@ -74,8 +73,6 @@ __all__ = [
     "build_bridge_passable",
     "build_target_zone",
     "build_field_verify",
-    "build_field_layout",
-    "FIELD_LAYOUT_VERSION",
     "encode",
     "encode_all",
     "validate_payload",
@@ -89,14 +86,7 @@ __all__ = [
 DRONE_TO_CAR_TOPIC = "/dzlink/drone_to_car"
 CAR_TO_DRONE_TOPIC = "/dzlink/car_to_drone"
 QOS_DRONE_LINK = {"depth": 10, "reliability": "best_effort"}
-PAYLOAD_TYPES = ("heartbeat", "bridge_passable", "target_zone", "field_verify",
-                 "field_layout")
-#: ``field_layout`` 协议版本上限，**与车侧** ``drone.py FIELD_LAYOUT_VERSION``
-#: **保持相等**（契约测试断言两边一致，漂移 = 测试红）。
-FIELD_LAYOUT_VERSION = 2
-#: ``field_layout`` 里必须 ⊆ ``known`` 的要素键（车侧逐键强制）；
-#: ``bridges`` 照图不受限（桥洞格每局随机、可能在未观测区，无人机是权威）。
-_LAYOUT_FEATURE_KEYS: tuple[str, ...] = ("mines", "obstacles", "targets")
+PAYLOAD_TYPES = ("heartbeat", "bridge_passable", "target_zone", "field_verify")
 BRIDGE_HALVES = ("lower", "upper")
 #: ``coverage.mode`` 白名单（语义见 ``coverage.py`` 模块头）
 COVERAGE_MODES = ("strip", "point", "full")
@@ -331,136 +321,6 @@ def build_field_verify(mines: Sequence[str] | None = None,
     return msg
 
 
-
-
-# --------------------------------------------------------------------------- #
-#  field_layout v2（AGC3 / B2：机端 → 车端的「本局规划真源」报文）
-# --------------------------------------------------------------------------- #
-def _norm_layout_cells(cells: Any, spec: GridSpec, *, key: str,
-                       allow_empty: bool = True) -> list[str]:
-    """``field_layout`` 专用格名归一化：**非法格直接抛错**。
-
-    与 :func:`_norm_blocks` 的差别是有意的：车侧 ``normalize_field_layout``
-    对非法格名**整份拒收**；发送端若静默丢格，等于发出一张缺格布局让车照跑。
-    大写、去重、逐格 ``spec.block_to_index`` 校验。
-    """
-    if not isinstance(cells, (list, tuple)):
-        raise ValueError(f"{key} 必须是格名列表（收到 {type(cells).__name__}）")
-    out: list[str] = []
-    for item in cells:
-        text = str(item).strip().upper()
-        if not text:
-            raise ValueError(f"{key} 含空格名")
-        try:
-            spec.block_to_index(text)
-        except RegistrationError as exc:
-            raise ValueError(f"{key} 含非法格名：{text}（{exc}）") from exc
-        if text not in out:
-            out.append(text)
-    if not out and not allow_empty:
-        raise ValueError(f"{key} 不能为空")
-    return out
-
-
-def build_field_layout(*, version: int, start: str, end: str,
-                       known: Sequence[str], bridges: Sequence[str],
-                       spec: GridSpec,
-                       mines: Sequence[str] = (), obstacles: Sequence[str] = (),
-                       targets: Sequence[str] = (),
-                       barrier_col_from: str | None = None,
-                       barrier_row_hi: int | None = None,
-                       barrier_row_lo: int | None = None,
-                       target_cell: str = "", segment_id: int | None = None,
-                       ts: float | None = None, seq: int | None = None) -> dict:
-    """场地布局 v2（``type="field_layout"``）—— 本局**规划真源**报文。
-
-    车侧校验真源：``dzrobot_v2/.../tasks/drone.py:181 normalize_field_layout``
-    （1196 行版）。以下每条都对照车侧代码，不是推测：
-
-    * ``version`` 单调：车侧对「旧版」记 ``layout_stale`` 拒收、「同版异内容」
-      记 ``layout_rejects`` 拒收（``drone.py:69-71``）⇒ **改内容必须升 version**；
-      同版同内容周期重发是安全心跳（不重写、不重复计数）。
-    * ``known`` 非空 ⇒ v2（车端据此开**步进循环**；无 known 键 = v1「整图已知」
-      旧语义，且归一化后**不补键**——``drone.py:217-229``）。本构造器恒发 known；
-      要 v1 旧行为请别用本函数。
-    * ``mines``/``obstacles``/``targets`` 键恒带（可空表）且必须 **⊆ known**
-      —— 半张布局拿去规划 = 漏压雷路线，车侧宁可整份拒收（``:231-239``）。
-    * ``bridges`` 至少 1 个、**不受 known 限制**（``:241-244``；桥洞格每局随机，
-      可能落在未观测区，车侧正是这么放行的）。
-    * ``target_cell`` 空 = 车只等不做；非空必须 ∈ ``known``（``:266-280``）。
-    * ``segment_id`` 缺省取 ``version`` 且**恒显式发送**：车侧 docstring 写
-      「缺省=version」但代码实际缺省 0（``:283-292``）——发送端不留歧义；
-      这处漂移已在 AGC3 卡登记，待车端卡裁决。
-    * ``barrier_*`` 三键**要么全给要么全不给**（不给 = 车侧吃 geo 缺省 D/6/7；
-      只给一部分时另一部分吃缺省再查 hi<lo，发送端预测不了 ⇒ 禁止）。
-    * ``spec`` **必填**：车侧对非法格名整份拒收，发送端没有网格表就无权发布局。
-    """
-    if isinstance(version, bool) or not isinstance(version, int):
-        raise ValueError(f"version 必须是 int（收到 {version!r}）")
-    if version < 0:
-        raise ValueError(f"version 不能为负：{version}")
-    known_l = _norm_layout_cells(known, spec, key="known", allow_empty=False)
-    known_set = set(known_l)
-    msg: dict = {
-        "type": "field_layout",
-        "version": version,
-        "start": _norm_layout_cells([start], spec, key="start",
-                                    allow_empty=False)[0],
-        "end": _norm_layout_cells([end], spec, key="end",
-                                  allow_empty=False)[0],
-        "known": known_l,
-    }
-    for key, raw in (("mines", mines), ("obstacles", obstacles),
-                     ("targets", targets)):
-        cells = _norm_layout_cells(raw, spec, key=key)
-        missing = [c for c in cells if c not in known_set]
-        if missing:
-            raise ValueError(f"{key} 含未观测格 {missing[:4]}（v2 要求 ⊆ known，"
-                             f"车侧 drone.py:235-238 整份拒收）")
-        msg[key] = cells
-    msg["bridges"] = _norm_layout_cells(bridges, spec, key="bridges",
-                                        allow_empty=False)
-    trio = (barrier_col_from is not None, barrier_row_hi is not None,
-            barrier_row_lo is not None)
-    if any(trio):
-        if not all(trio):
-            raise ValueError("barrier_col_from/barrier_row_hi/barrier_row_lo "
-                             "必须三键同给或同不给（车侧缺省各自独立回落，"
-                             "给一半无法预测合成结果）")
-        col = str(barrier_col_from).strip().upper()
-        if col not in spec.col_letters:
-            raise ValueError(f"barrier_col_from 非法：{col!r}（列字母表 "
-                             f"{spec.col_letters[0]}~{spec.col_letters[-1]}）")
-        for name, value in (("barrier_row_hi", barrier_row_hi),
-                            ("barrier_row_lo", barrier_row_lo)):
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise ValueError(f"{name} 必须是 int（收到 {value!r}）")
-        if not (1 <= barrier_row_hi < barrier_row_lo <= spec.rows):
-            raise ValueError(f"挡板行区间非法：{barrier_row_hi}/{barrier_row_lo}"
-                             f"（要求 1 ≤ hi < lo ≤ {spec.rows}）")
-        msg["barrier_col_from"] = col
-        msg["barrier_row_hi"] = barrier_row_hi
-        msg["barrier_row_lo"] = barrier_row_lo
-    tcell = str(target_cell or "").strip().upper()
-    if tcell:
-        try:
-            spec.block_to_index(tcell)
-        except RegistrationError as exc:
-            raise ValueError(f"target_cell 非法：{tcell}（{exc}）") from exc
-        if tcell not in known_set:
-            raise ValueError(f"target_cell {tcell} 不在 known 内"
-                             f"（车无法只走已知格到达，drone.py:278-279 拒收）")
-    msg["target_cell"] = tcell
-    seg = version if segment_id is None else segment_id
-    if isinstance(seg, bool) or not isinstance(seg, int) or seg < 0:
-        raise ValueError(f"segment_id 必须是非负 int（收到 {segment_id!r}）")
-    msg["segment_id"] = seg
-    msg["ts"] = _now(ts)
-    if seq is not None:
-        msg["seq"] = int(seq)
-    return msg
-
-
 # --------------------------------------------------------------------------- #
 #  编码 / 校验
 # --------------------------------------------------------------------------- #
@@ -549,68 +409,6 @@ def validate_payload(payload: Any, spec: GridSpec | None = None) -> list[str]:
                 _norm_confidence(payload.get("confidence"), spec)
             except ValueError as exc:
                 problems.append(f"confidence：{exc}")
-    elif mtype == "field_layout":
-        # 车侧真源 drone.py:181-294；发送端严格版（spec 给定时查网格）
-        ver = payload.get("version", 0)
-        if isinstance(ver, bool) or not isinstance(ver, int) or ver < 0:
-            problems.append(f"version 非法：{payload.get('version')!r}")
-        known = payload.get("known")
-        known_set: set = set()
-        if known is None:
-            problems.append("无 known 键（= v1 整图已知语义；发 v2 必须带非空 known）")
-        elif not isinstance(known, (list, tuple)) or not known:
-            problems.append("known 为空（v2 至少要有一个已观测格）")
-        else:
-            known_set = {str(c).strip().upper() for c in known}
-        def _cell_ok(name: str) -> bool:
-            if spec is None:
-                return True
-            try:
-                spec.block_to_index(name)
-                return True
-            except RegistrationError:
-                return False
-        for key in ("start", "end"):
-            v = payload.get(key)
-            if not isinstance(v, str) or not v.strip():
-                problems.append(f"缺少 {key}")
-            elif not _cell_ok(v.strip().upper()):
-                problems.append(f"{key} 不在网格内：{v!r}")
-        for key in ("mines", "obstacles", "targets"):
-            if key not in payload:
-                problems.append(f"缺 {key} 键（缺键 = 车侧整份拒收，不是按空表猜）")
-                continue
-            raw = payload[key]
-            if not isinstance(raw, (list, tuple)):
-                problems.append(f"{key} 必须是 list")
-                continue
-            for c in raw:
-                cn = str(c).strip().upper()
-                if not _cell_ok(cn):
-                    problems.append(f"{key} 含非法格名：{c!r}")
-                elif known_set and cn not in known_set:
-                    problems.append(f"{key} 含未观测格 {cn}（v2 要求 ⊆ known）")
-        bridges = payload.get("bridges")
-        if not isinstance(bridges, (list, tuple)) or not bridges:
-            problems.append("bridges 至少要 1 个（本局穿洞格）")
-        hi, lo = payload.get("barrier_row_hi"), payload.get("barrier_row_lo")
-        if (hi is None) != (lo is None):
-            problems.append("barrier_row_hi/lo 要同给或同不给")
-        elif hi is not None:
-            try:
-                if not (1 <= int(hi) < int(lo)):
-                    problems.append(f"barrier_row_hi({hi}) 必须 < barrier_row_lo({lo})")
-            except (TypeError, ValueError):
-                problems.append("barrier_row_* 不是整数")
-        tcell = str(payload.get("target_cell") or "").strip().upper()
-        if tcell:
-            if not _cell_ok(tcell):
-                problems.append(f"target_cell 不在网格内：{tcell!r}")
-            elif known_set and tcell not in known_set:
-                problems.append(f"target_cell {tcell} 不在 known 内")
-        seg = payload.get("segment_id")
-        if seg is not None and (isinstance(seg, bool) or not isinstance(seg, int) or seg < 0):
-            problems.append(f"segment_id 非法：{seg!r}")
     return problems
 
 
@@ -680,16 +478,6 @@ def mirror_car_side_parse(raw: str, spec: GridSpec | None = None) -> dict:
                 res["notes"].append(
                     "coverage/slice/scan_id：旧车侧不读（payload.get）；"
                     "片内 ABSENT 由 t5b 台账按 complete 语义消费")
-    elif mtype == "field_layout":
-        # 车侧真源 drone.py:181-294 normalize_field_layout（镜像只到 v1/v2 分流，
-        # 字段级判定以 validate_payload + 契约测试里的真函数为准）
-        if "known" in payload:
-            res["action"] = "v2：校验通过 → 写 P_FIELD_LAYOUT（规划真源）+ 步进循环"
-            res["notes"].append("drone.py:217-229（known 在 ⇒ v2）；version 单调拒旧/拒同版异内容 :69-71")
-        else:
-            res["action"] = "v1：校验通过 → 写 P_FIELD_LAYOUT（旧『规划一次』路径）"
-            res["notes"].append("drone.py:217-229（无 known ⇒ v1 整图已知语义，不补键）")
-        res["notes"].append("任一必填/格式字段非法 ⇒ 整份拒收并保留上一份好布局 :67-68")
     else:
         res["action"] = "未知类型：记日志（不崩）"
         res["notes"].append("drone.py:236-240")
@@ -743,8 +531,10 @@ def recommended_cadence(*, heartbeat_hz: float = 1.0) -> dict:
         "bridge_passable": "首次检到立即发；此后每次重检到同结论也重发（续 30 s 窗口）",
         "target_zone": "一次检测一条，带 seq 要 ack",
         "field_verify": "一片一条（带 coverage/slice/scan_id）；重发同一片必须复用 scan_id",
-        "field_layout": "每局首扫定版后 version+1 发一次；同版同内容可周期重发当心跳；改内容必须升 version（同版异内容车侧拒收）",
         "topic": DRONE_TO_CAR_TOPIC,
         "qos": QOS_DRONE_LINK,
-        "note": "发车前必须发（Mission 最多等 2 s，等不到就用默认 K9(下)/K5(上)）",
+        "note": "发车前必须发（Mission 最多等 2 s，等不到就按 robot.yaml 的 "
+                "route.cross_lower_default / cross_upper_default 兜底——"
+                "车上现役 K7(下)/K5(上)；planner vendor 镜像是 K9(下)/K5(上)，"
+                "两棵 config 已分叉待对账，发车兜底以机上 robot.yaml 为准）",
     }

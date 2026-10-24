@@ -1,46 +1,54 @@
 # -*- coding: utf-8 -*-
-"""车侧采纳门与任务流**镜像**（t6 BridgeIntel 口径，逐条 file:line 出处）。
+"""车侧采纳门与任务流**镜像**（t6 BridgeIntel 口径，函数名锚定出处）。
 
 镜像而非 import 的理由：``dzbrain.tasks.mission`` 属车侧主线（本任务只读、不 import
-其运行时状态机）；本模块按 ``mission.py`` 的采纳顺序**复述**判定，所有行号出处写在注释里。
+其运行时状态机）；本模块按 ``mission.py`` 的采纳顺序**复述**判定。出处一律用
+**函数名锚定**（不写行号：车侧在途改动会让 file:line 全部漂移——2026-10-24 审计
+实测 8 处行号出处全部失效，漂移 +46 ~ +325 行）。
 
-## 镜像的判定（``tasks/mission.py``）
+## 镜像的判定（``tasks/mission.py``，函数名锚定）
 
-- 采纳顺序 ``_intel_of``（mission.py:1490-1524）：
+- 采纳顺序 ``mission.py::_intel_of``：
   disabled（drone.enabled=false）→ no_link（无 P_DRONE）→ offline（无心跳，即使情报
   仍在过期窗口内也回落）→ missing（该半场从未收到）→ stale（age > ``drone.info_stale_s``）
-  → rejected（``_intel_cell_ok`` 三道校验失败）→ drone（新鲜情报采纳）。
-- ``_intel_cell_ok``（mission.py:1391-1410）：① 在 K 列；② 行号落在本半场行段
-  （lower 7~11 / upper 1~6）；③ 在 ``_bridge_pool``（候选集合 ∩ 地图桥洞）内。
-- 发车窗口 ``_should_wait_for_intel``（mission.py:1557-1572）：有无人机链路且两半场情报
-  未齐时，最多等到 ``mission.bridge_info_wait_s``（本图 2.0 s）；无链路 → 不等。
-- 路线装载 ``_load_startup_route``（mission.py:1782-1859）：情报新鲜的半场把格名透传给
-  规划器（``cross_lower/cross_upper``），否则 None（规划器走默认格）；自动规划失败 →
-  ``fallback_to_tokens`` 回退 route.tokens 并做三连换洞（``_apply_intel_to_tokens``）。
-  ★ 关键事实：**执行中的 token 列表只在发车时定一次**——桥前改道在本镜像里是
-  ``wait_at_bridge`` 改进变体（现车代码没有）。
+  → rejected（``mission.py::_intel_cell_ok`` 校验失败）→ drone（新鲜情报采纳）。
+- ``mission.py::_intel_cell_ok``：**现车已放宽**为 ①在 K 列 ②行号落在本半场行段
+  （lower 7~11 / upper 1~6）两道；旧第三道"③在 ``mission.py::_bridge_pool``
+  （候选 ∩ 地图桥洞）内"已删除（无人机情报可纠正过期地图；``route/planner.py``
+  的 R008 同口径放宽：候选集合只用来挑缺省洞）。本模块：``authority_gate=True``
+  = **现车语义**（只做①②）；``authority_gate=False`` 保留③ = t6 前旧口径**对照**
+  （B2/B7 臂的"情报被拒"叙事即旧口径）。
+- 发车窗口 ``mission.py::_should_wait_for_intel``：现车按 F1 裁决已收回判据
+  （无链路 / 离线 → **不等待**）；本镜像保留"窗口照跑 2.0 s"的 t6 前口径
+  （差异在 README 模型边界 4 如实标注）。
+- 路线装载 ``mission.py::_load_startup_route``：情报新鲜的半场把格名透传给
+  规划器（自动规划），否则走手动路线三连换洞（``mission.py::rewrite_crossing_tokens``
+  形状校验 + ``mission.py::_swapped_tokens_ok`` 的 validate_route 0 error 门禁，
+  本模块同款两道）；自动规划失败 → ``fallback_to_tokens`` 回退 route.tokens。
+- ★ 执行中改道：**现车已实装**桥前等待 + 迟到情报改道一次（``mission.py`` 桥前等待段、
+  ``mission.py::_bridge_wait_cap``）——本模块 ``wait_at_bridge`` 与其同型：穿洞入口格
+  （approach = 穿洞三连前格，见 ``approach_cell``；现役 68-token 线下 L7 / 上 J5）前等
+  "两半场情报新鲜"，等齐后重规划，上限 ``mission.wait_cap_s``；超限按"已得情报"出发。
 
-## 改进变体（本包的建模，标注非现车行为）
+## 对照与改进变体（台账显式标注）
 
-- ``authority_gate``：采纳门去掉 ③（候选∩地图桥洞锁死），只做 ①列 ②行段；规划器调用时
-  把池扩充为 候选 ∪ {情报格}（等价地：给规划器喂一份 bridges 含情报格的内存地图）。
-  —— 依据：planner.py:2159-2164 要求显式穿洞格必须在池内，否则 PlannerError；而池来自
-  ``route.cross_*_candidates ∩ map.bridges``，桥洞每场随机后地图必过期 → 现车代码
-  **任何候选配置都无法采纳与地图矛盾的无人机情报**。
-- ``wait_at_bridge``：K 列三连入口格（L10）前等待"两半场情报都新鲜"，等齐后重规划
-  （一次覆盖两处穿洞），上限 ``mission.wait_cap_s``；超限按"已得情报"出发（入口新鲜则
-  换入口、出口走默认）。
+- ``authority_gate``：True = 现车（采纳门①②）；False = t6 前池锁死口径（采纳门①②③）。
+- ``wait_at_bridge``：与现车桥前等待同型；旧注记"现车代码没有"已按 2026-10-24
+  对账更正。
 """
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass, field
 
 import yaml
 
 from dzbrain.core.config import Config
+from dzbrain.route.parser import parse_mission
 from dzbrain.route.planner import plan_route_tracker_safe
+from dzbrain.route.validate import validate_route
 from dzbrain.tools.sim import parse_map_yaml
 
 from .geo import block_to_index
@@ -52,11 +60,46 @@ CROSS_UPPER_ROWS = (1, 6)
 CROSS_COLUMN = "K"
 
 
+def _pure_block(token: str) -> str | None:
+    """token → 纯格名（剥 ``R:`` 前缀 / ``*`` 停站 / ``,y`` 朝向 / ``:PIVOT``）；非法 → None。"""
+    text = str(token).strip().upper()
+    base = text[2:] if text.startswith("R:") else text
+    base = base.split(":")[0].strip("*").rstrip(",y").strip(",")
+    if not base:
+        return None
+    try:
+        block_to_index(base)
+    except ValueError:
+        return None
+    return base
+
+
+def approach_cell(tokens: list[str], half: str) -> str | None:
+    """穿洞**入口格**（approach）= 本半场穿洞三连的前一格（桥前等待/侦察截止的决策点）。
+
+    现役 68-token 线：下洞三连 ``M7 L7 K7 J7`` → lower 入口 = ``L7``；
+    上洞三连 ``I5 J5 K5 L5 M5`` → upper 入口 = ``J5``。旧版硬编码 ``L10`` 在换线后
+    会静默失效（2026-10-24 审计：B3 改道/等待整段死代码的根因），故一律现算。
+    路线里找不到本半场穿洞格 → 返回 ``None``（调用方必须显式告警，不许静默跳过）。
+    """
+    band = CROSS_LOWER_ROWS if half == "lower" else CROSS_UPPER_ROWS
+    toks = [str(t) for t in tokens]
+    for idx, tok in enumerate(toks):
+        base = _pure_block(tok)
+        if base is None or not base.startswith(CROSS_COLUMN) or idx == 0:
+            continue
+        row = block_to_index(base)[0] + 1
+        if not (band[0] <= row <= band[1]):
+            continue
+        return _pure_block(toks[idx - 1])
+    return None
+
+
 @dataclass
 class BridgeRecord:
     half: str
     cell: str
-    ts: float              # 车侧**收到时刻**（drone.py:284：载荷 ts 车侧不用）
+    ts: float              # 车侧**收到时刻**（drone.py::_on_bridge_passable：载荷 ts 车侧不用）
     confidence: float = 0.0
 
 
@@ -271,24 +314,59 @@ class MissionFlow:
             kind = "startup_adopted" if crosses else "baseline"
         return RouteVersion(tokens=tokens, kind=kind, crosses=crosses, note=note)
 
-    def _plan(self, cross: dict[str, str | None]) -> tuple[list[str], dict[str, str], str]:
-        """调用**真规划器** ``plan_route_tracker_safe``（只读）。
+    def _repo_map_cfg(self) -> dict | None:
+        """只读仓库 ``config/map.yaml`` 的内存副本；靶格 patch 跟情景真值走（t28③）。
 
-        authority 模式：内存副本把池扩充为 候选 ∪ {情报格}（等价于放宽 planner.py:2159-2164
-        的池校验）；非 authority 模式：现车口径（候选∩地图桥洞，情报格不在池内 → 情报
-        在采纳门已判 rejected，这里 cross=None 走规划器默认）。
+        :return: ``{'map': {...}}`` dict；文件不可读 → None（调用方保守回退）。
         """
-        sc = self.sc
         import os as _os
         _repo = _os.path.abspath(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
                                                "..", "..", "..", "dzrobot_v2"))
-        map_cfg = yaml.safe_load(open(_os.path.join(_repo, "config", "map.yaml"),
-                                      encoding="utf-8"))
-        # t28 ③：规划器地图里的靶格跟情景真值走（默认情景 == map.yaml 靶格，逐位不变；
-        # 覆盖后规划器绕开新靶格——只改内存副本，绝不落 config/map.yaml）
-        tgt = sorted(set(sc.truth.targets))
+        try:
+            with open(_os.path.join(_repo, "config", "map.yaml"), encoding="utf-8") as fh:
+                map_cfg = yaml.safe_load(fh)
+        except OSError:
+            return None
+        tgt = sorted(set(self.sc.truth.targets))
         if tgt:
-            map_cfg["map"]["targets"] = tgt
+            map_cfg.setdefault("map", {})["targets"] = tgt
+        return map_cfg
+
+    def _swapped_tokens_ok(self, tokens: list[str], half: str, old: str,
+                           new: str) -> tuple[bool, str]:
+        """换洞后的整线 token 列表能否执行：``validate_route`` **0 error** 才放行。
+
+        镜像 ``mission.py::_swapped_tokens_ok``（换洞会挪三格，可能把路线挪到雷/障上
+        或制造斜切入洞，不能靠"看上去对"来判）。
+        """
+        map_cfg = self._repo_map_cfg()
+        if map_cfg is None:
+            return False, "本地地图不可用 → 不做换洞（保守：读得到地图才允许改路线）"
+        try:
+            route = parse_mission([str(t) for t in tokens])
+        except Exception as exc:                     # noqa: BLE001
+            return False, f"换洞后路线解析失败（{type(exc).__name__}: {exc}）"
+        blocks = [w.block for w in route.waypoints]
+        if new not in blocks or old in blocks:
+            return False, f"换洞后 token 列表不符（{old} 仍在 / {new} 缺失）"
+        try:
+            issues = validate_route(route, map_cfg=map_cfg, cfg=self.cfg)
+        except Exception as exc:                     # noqa: BLE001
+            return False, f"换洞后校验异常（{type(exc).__name__}: {exc}）"
+        errors = [str(i) for i in issues if getattr(i, "level", "") == "error"]
+        if errors:
+            return False, "换洞后校验未过：" + "；".join(errors[:3])
+        return True, ""
+
+    def _plan(self, cross: dict[str, str | None]) -> tuple[list[str], dict[str, str], str]:
+        """调用**真规划器** ``plan_route_tracker_safe``（只读）。
+
+        authority 模式：内存副本把池扩充为 候选 ∪ {情报格}（现规划器 R008 已放宽，
+        此扩池主要影响缺省洞挑选）；非 authority 模式：t6 前口径（候选∩地图桥洞，
+        情报格不在池内 → 情报在采纳门已判 rejected，这里 cross=None 走规划器默认）。
+        """
+        sc = self.sc
+        map_cfg = self._repo_map_cfg() or {"map": {}}
         flat = dict(self.cfg._flat)
         if sc.authority_gate:
             for half in ("lower", "upper"):
@@ -316,7 +394,9 @@ class MissionFlow:
 
     def _manual_rewrite(self, tokens: list[str],
                         cross: dict[str, str | None]) -> tuple[list[str], dict[str, str], str]:
-        """镜像 ``rewrite_crossing_tokens``（mission.py:288-343）三连换洞。"""
+        """镜像 ``mission.py::rewrite_crossing_tokens`` 三连换洞 + ``::_swapped_tokens_ok``
+        validate 门禁（每个半场独立：形状不符 / 边界断链 / 校验未过 → 该半场不换）。
+        """
         crosses: dict[str, str] = {}
         for half, cell in cross.items():
             if not cell:
@@ -325,10 +405,16 @@ class MissionFlow:
             if not old or old == cell:
                 continue
             new = _rewrite_triple(tokens, old, cell)
-            if new is not None:
-                tokens = new
-                crosses[half] = cell
-        return tokens, crosses, "手动三连换洞（形状不符的半场不换）"
+            if new is None:
+                continue
+            ok, why = self._swapped_tokens_ok(new, half, old, cell)
+            if not ok:
+                print(f"⚠️ [{self.sc.name}] 换洞 {old}→{cell} 校验未过 → 该半场走默认 {old}"
+                      f"（{why}）", file=sys.stderr)
+                continue
+            tokens = new
+            crosses[half] = cell
+        return tokens, crosses, "手动三连换洞（形状不符/校验未过的半场不换）"
 
     @staticmethod
     def _detect_cross(tokens: list[str], half: str) -> str | None:
@@ -348,17 +434,21 @@ class MissionFlow:
     # ------------------------------------------------------------------ #
     #  桥前等待（改进变体：现车代码没有）
     # ------------------------------------------------------------------ #
-    def bridge_wait_decision(self, joint_arrival_l10: float,
+    def bridge_wait_decision(self, joint_arrival_approach: float,
                              delivered: list[DeliveredMessage]) -> RouteVersion | None:
-        """L10 入口格前：等两半场情报新鲜（≤上限），齐了重规划；超限按已得情报。
+        """穿洞**入口格**（approach = 穿洞三连前格，见 ``approach_cell``）前：
+        等两半场情报新鲜（≤上限），齐了重规划；超限按已得情报。
 
-        :param joint_arrival_l10: 车到达 L10 的 joint 时刻（启动窗口已含）。
+        与现车 ``mission.py`` 桥前等待段（``_bridge_wait_cap``）同型。
+
+        :param joint_arrival_approach: 车到达入口格的 joint 时刻（启动窗口已含）。
+            现役 68-token 线 lower 入口 = L7（旧版硬编码 L10 在换线后静默失效，已废）。
         :return: 新路线版本（若与现版本不同）；无需改道 → None。
         """
         if not self.sc.wait_at_bridge:
             return None
         cap = self.sc.mission.wait_cap_s
-        horizon = joint_arrival_l10 + cap
+        horizon = joint_arrival_approach + cap
         complete_t: float | None = None
         for msg in delivered:
             if msg.recv_t > horizon + 1e-9:
@@ -369,9 +459,9 @@ class MissionFlow:
                 complete_t = msg.recv_t
                 break                       # 两半场齐了 → 立即决策
         t_decision = complete_t if complete_t is not None else horizon
-        snap0 = self.gate.intel_snapshot(joint_arrival_l10)
+        snap0 = self.gate.intel_snapshot(joint_arrival_approach)
         if complete_t is not None:
-            wait = max(0.0, complete_t - joint_arrival_l10)
+            wait = max(0.0, complete_t - joint_arrival_approach)
         else:
             wait = cap if not all(v.from_drone for v in snap0.values()) else 0.0
         self.result.wait_lower_s += wait
@@ -389,7 +479,14 @@ class MissionFlow:
 
 
 def _rewrite_triple(tokens: list[str], old: str, new: str) -> list[str] | None:
-    """镜像 ``rewrite_crossing_tokens``（mission.py:288-343）：三连同行换行。"""
+    """镜像 ``mission.py::rewrite_crossing_tokens``：三连同行换行。
+
+    ★ v6 审计补充（第六图 B3 断链教训）：三连整体挪行会改动两个**边界对**
+    （i-2→i-1 与 i+1→i+2）。改写后先做 **8 邻快筛**：边界对跳格（切比雪夫距离 ≥2，
+    如现役线的 ``M7→L9``）= 物理断链 → 拒绝改写返回 None；半格斜切（切比雪夫 1，
+    如 ``I5→J4``）放行，交由 ``validate_route``（R009 斜切入洞 ≤10° 等）与执行层裁决
+    ——与 ``mission.py::_swapped_tokens_ok`` 的"真校验放行"口径一致。
+    """
     hits = [i for i, t in enumerate(tokens)
             if str(t).strip().upper().strip("*").rstrip(",y").strip(",") == old]
     if len(hits) != 1:
@@ -409,7 +506,7 @@ def _rewrite_triple(tokens: list[str], old: str, new: str) -> list[str] | None:
     for j in (i - 1, i, i + 1):
         text = str(out[j]).strip().upper()
         # 后缀（`*` 停站 / `,y` 朝向 / `R:` 前缀）只出现在洞格本身，三连两侧是纯格名；
-        # 这里按"洞格保留后缀、邻格纯格名"的现役路线形状处理（现役 44 token：`… L9 K9 J9 …`）。
+        # 这里按"洞格保留后缀、邻格纯格名"的现役路线形状处理（现役 68 token：`… L7 K7 J7 …`）。
         prefix = "R:" if text.startswith("R:") else ""
         base = text[2:] if prefix else text
         base = base.strip("*").rstrip(",y").strip(",")
@@ -424,4 +521,19 @@ def _rewrite_triple(tokens: list[str], old: str, new: str) -> list[str] | None:
             return None
         new_base = f"{'ABCDEFGHIJKLMN'[col]}{new_row + 1}"
         out[j] = prefix + new_base + (suffix if j == i else "")
+    # ★ 边界对 8 邻快筛（改写后）：三连整体挪行只可能破坏 i-2→i-1 与 i+1→i+2 两对，
+    #   跳格（切比雪夫 ≥2）= 断链，物理不可达 → 拒绝（如现役线 K7→K9 的 M7→L9）。
+    for j_edge, k_edge in ((i - 1, i - 2), (i + 1, i + 2)):
+        if k_edge < 0 or k_edge >= len(out):
+            continue
+        b_in, b_out = _pure_block(out[j_edge]), _pure_block(out[k_edge])
+        if b_in is None or b_out is None:
+            continue                     # 无法解析（PIVOT 等）→ 交给 validate_route 裁决
+        r_in, c_in = block_to_index(b_in)
+        r_out, c_out = block_to_index(b_out)
+        chebyshev = max(abs(r_in - r_out), abs(c_in - c_out))
+        if chebyshev > 1:
+            print(f"⚠️ 三连换洞 {old}→{new} 拒绝：边界对 {b_out}->{b_in} 跳格断链"
+                  f"（切比雪夫距离 {chebyshev} > 1），整线不换该洞", file=sys.stderr)
+            return None
     return out

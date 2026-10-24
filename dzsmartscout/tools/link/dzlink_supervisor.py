@@ -556,7 +556,10 @@ def slot_key(event_type: str, payload: Dict[str, Any]) -> str:
 #: re.UNICODE == 32`，把它当 match-flag 传给已编译 pattern 反而会**清掉** UNICODE，
 #: 让 `N10` 这种最普通的输入直接匹配失败。这类"显式 flag 打翻默认 flag"的坑不值得踩。
 RE_BLOCK = re.compile(r"^[A-N](?:1[01]|[1-9])$")
-RE_TAIL = re.compile(r"^(?!,)([A-N](?:1[01]|[1-9]))?(\*)?(:SCAN_STOP)?(?:,([xyXY]))?$")
+#: 2026-10-24：补 `:PIVOT` —— 车侧 route/parser.py、route_check、第六图现役
+#: mission_blocks（68 token）都已使用 `:PIVOT` 折返声明后缀；本白名单没跟上时，
+#: 下发链路会把车自己的现役路线整条判"形状不认识"（实测 I4:PIVOT/G4:PIVOT/A1:PIVOT 全拒）。
+RE_TAIL = re.compile(r"^(?!,)([A-N](?:1[01]|[1-9]))?(\*)?(:SCAN_STOP|:SCAN|:PIVOT)?(?:,([xyXY]))?$")
 PREFIX_WORDS = ("多点", "多航点", "路线", "route", "multi", "waypoints", "单点", "single", "goto")
 
 
@@ -615,7 +618,7 @@ def _route_token_problems(tok: str, idx: int, last: bool) -> List[str]:
     tail_match = RE_TAIL.fullmatch(body)
     if tail_match is None:
         out.append(f"token#{idx} {tok!r} 形状不认识"
-                   + "（合法：格名 / G10* / R:F11 / R:B5* / N5,y / :SCAN_STOP / SHOOT@G11）")
+                   + "（合法：格名 / G10* / R:F11 / R:B5* / N5,y / :SCAN_STOP / :PIVOT / SHOOT@G11）")
         return out
     block, star, scan, facing = (tail_match.group(1), tail_match.group(2),
                                  tail_match.group(3), tail_match.group(4))
