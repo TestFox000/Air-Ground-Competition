@@ -846,6 +846,20 @@ def recon_video(video: str | Path, out_dir: str | Path,
             f"  常见原因：文件损坏 / 编码不受 OpenCV 支持（试转 h264 mp4）/ "
             f"路径含中文且系统编码不匹配")
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    seq_mode = False
+    if total <= 0 or total > 10**9:
+        # 机载 MKV（MJPEG 直存无索引）会让 FRAME_COUNT 返回垃圾值（实测
+        # -2.7e17，2026-10-25）。回退：grab() 顺序数一遍帧数，且整跑改为
+        # 顺序采样——这类 MKV 上 POS_FRAMES 定位会取到错误帧（同日抽帧
+        # 验证过 seek 错位）；索引正常的 MP4 仍走原 seek 路径。
+        cap.release()
+        cap = cv2.VideoCapture(str(video))
+        total = 0
+        while cap.grab():
+            total += 1
+        cap.release()
+        cap = cv2.VideoCapture(str(video))
+        seq_mode = total > 0
     if total <= 0:
         cap.release()
         raise RuntimeError(
@@ -871,9 +885,19 @@ def recon_video(video: str | Path, out_dir: str | Path,
     frame_errors = 0
     error_samples: list[str] = []
     frames_detected = 0                # 成功跑完检测的帧数（全 0 = 链路真坏了）
+    next_read = 0                       # 顺序模式：已读到的下一帧号
     for fi, fidx in enumerate(idxs):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, fidx)
-        ok, frame = cap.read()
+        if seq_mode:
+            # 顺序读到采样点（无索引 MKV 上 seek 不可靠，见上）
+            ok, frame = cap.read()
+            while ok and next_read < fidx:
+                next_read += 1
+                ok, frame = cap.read()
+            if ok:
+                next_read += 1
+        else:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, fidx)
+            ok, frame = cap.read()
         if not ok:
             continue
         try:
