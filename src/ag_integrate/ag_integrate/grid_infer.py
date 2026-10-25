@@ -91,11 +91,17 @@ def ransac_homography(px: np.ndarray, grid: np.ndarray, *, iters: int = 60,
     """RANSAC：像面点 px(N,2) → 网格点 grid(N,2) 的单应。
 
     tol：重投影容差（网格单位；0.35 = 恰一格内）。
+    接受门 min_in：n≤4 时 4（旧行为——4 点本身无验证力可用）；n≥5 时 5——
+    任意 4 点对应都精确确定单应（零验证力），含 1 误读的 4 点子集照样给出
+    完美假解，与正确子集打平后由采样顺序裁决（2026-10-26 测试实证：5 读
+    1 错时 J7 误读反成 label+geo、真锚投出场）。≥5 内点才含首个过约束点，
+    假解几乎必被淘汰。口径对齐 MapLocalizer 单应兜底的 inlier 下限取 5。
     返回 (H 或 None, inlier 布尔, inlier 重投影 RMS)。
     """
     n = len(px)
     if n < 4:
         return None, np.zeros(n, bool), math.inf
+    min_in = 4 if n <= 4 else 5
     rng = np.random.default_rng(seed)
     best_inliers = np.zeros(n, bool)
     best_rms = math.inf
@@ -108,16 +114,16 @@ def ransac_homography(px: np.ndarray, grid: np.ndarray, *, iters: int = 60,
         proj = _apply_h(H, px)
         err = np.linalg.norm(proj - grid, axis=1)
         inliers = err < tol
-        if inliers.sum() >= 4 and inliers.sum() > best_inliers.sum():
+        if inliers.sum() >= min_in and inliers.sum() > best_inliers.sum():
             # 用 inliers 重拟合提精度
             H2 = _fit_homography_dlt(px[inliers], grid[inliers])
             if H2 is not None:
                 err2 = np.linalg.norm(_apply_h(H2, px) - grid, axis=1)
                 in2 = err2 < tol
-                if in2.sum() >= 4:
+                if in2.sum() >= min_in:
                     best_H, best_inliers = H2, in2
                     best_rms = float(np.sqrt((err2[in2] ** 2).mean()))
-    if best_H is None and best_inliers.sum() >= 4:
+    if best_H is None and best_inliers.sum() >= min_in:
         best_H = _fit_homography_dlt(px[best_inliers], grid[best_inliers])
     return best_H, best_inliers, best_rms
 

@@ -132,6 +132,19 @@ def test_gate2_infer_world_frame_same_gating():
     assert tr == []                                    # B11 域外目标不落格
 
 
+# ---------------- 过约束门（4 点单应零验证力） ---------------- #
+
+def test_overconstraint_rejects_exact4_poisoned_fit():
+    """5 读含 1 误读：含误读的 4 点子集给出完美假解（4 内点零验证力），
+    与正确 4 点平局由采样顺序裁决——实测 J7 误读反成 label+geo、真锚
+    H6 被投出场。过约束门（n≥5 需 ≥5 内点）后整帧拒解，读数保原值。"""
+    gi = GridInferencer()
+    lr, _ = gi.infer(_frame(["F5", "F6", "G5", "H6", "G6"], 200, 300,
+                            corrupt={"G6": "J7"}))
+    assert not gi.grid_ok                       # 4 正确 1 误读：无过约束解，拒
+    assert all(r.source == "label" for r in lr)  # 全部保留原读（fail-safe）
+
+
 # ---------------- 原合成场景（防门误伤） ---------------- #
 
 def test_edge_misread_within_support_still_corrected():
