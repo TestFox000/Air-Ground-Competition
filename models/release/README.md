@@ -1,0 +1,32 @@
+# models/release —— 正式发布的模型（唯一入库处）
+
+> 2026-10-26 重建：原 README 随 air_ground_models 目录清理丢失，规则自 Git 前身恢复。
+> 旧登记表中的 `light_det.rknn`（车端现役基线，md5 49F3700590A907994E7EE20E4D30CC13，8.09MB）
+> 未随本次清理出现在本目录，待车端线补挂。
+
+## 入库规则
+
+1. 只放"要上车/要联调"的成品模型；训练中间产物不入库
+2. 每新增一个模型在下面登记：文件名 / md5 / 体积 / 来源 / 用途 / 日期
+3. 不用同名覆盖：版本变了换名字
+4. 单个 < 50 MB
+5. hbb 检测器发布必须过泛化门禁：`tools/ml/eval_generalization.py`
+   （留出集用 `--images` 指定；基线 `generalization_baseline.json`；紧急绕过
+   `--skip-generalization` 须在登记表留标记）
+
+## 登记表
+
+| 文件名 | md5 | 体积 | 来源 | 用途 | 入库日期 |
+|---|---|---|---|---|---|
+| `cell_classifier_v4d_20261015.onnx` | `9DE102A6519127EEB787381FEEFDC14D` | 4.13 MB | 机载部署线 | 格号分类器（双头 96×96，A~N × 1~11，4 向 TTA） | 2026-10-15 |
+| `hbb_detector_d13_20261016.onnx` | `9DAE6083239B3B6C0B553C5F94261E78` | 36.67 MB | 云端 ds_13 训练 | 13 类主检测器（[1,17,33600]，target_red/blue=整体口径） | 2026-10-16 |
+| `hbb_detector_ft_v1_20261026.onnx` | `43431CFB66CBBFAD316C8C0C1BC0A976` | 36.67 MB | 本机 5070Ti ft_v1（data_14，2173 图 14 类） | **14 类**（[1,18,33600]）：新增 `target`=靶板+导轨整体(id 13)；target_red/blue 改为**可见靶面**。幻影 1.5→0.05/帧、桶→靶 0、真靶 0→53/54、蓝面 33/34（flight_20261025 实测） | 2026-10-26 |
+
+指针：`current_hbb_detector` / `current_cell_classifier` 指向现役版本（一行文件名）。
+**换机/换模型**：`tools/orin_convert_engines.sh` 重转 FP16 engine 后跑 orin_accept。
+
+## 泛化评估记录
+
+| 日期 | 模型 | 留出集 | 结果 |
+|---|---|---|---|
+| 2026-10-26 | hbb_detector_ft_v1 | 官方爆炸物图集 B-爆炸物（158 图，近景域） | **放行**（首轮无基线，绝对底线判定；recall 68.8%，已建基线供后续回归比较） |
