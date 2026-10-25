@@ -17,6 +17,7 @@
   Y4 基线里已消失的路径（可精简基线）
   Y5 根目录临时件（_tmp*/_work_tmp*/_recover_tmp*，应进 _tmp_session/ 或 _archive/）
   Y9 文档引用 _tmp_session 失效路径数上升（过程区已清空，应改指归档包或标〔档〕）
+   Y10 归档卡缺「经验总结」段  —— 归档卡正文必须有六要素经验总结（现象→机制→位置→处置→证据→落点）
 
 用法：
   python docs/_工具/check_doc_policy.py                 # 体检
@@ -323,7 +324,41 @@ def main():
         if not seg.strip().strip("-—:： ").strip():
             red.append(("R9", rel, "已归档卡缺「文档变更」落地记录（§8.8 / 设计 §5）"))
 
-    # 写基线模式
+    # Y10 归档卡经验总结（2026-10-25 增 · 六要素规范 §8.1）
+    # 规范真源：docs/10_agent提示词/06_工作完结经验总结规范_20261024.md
+    # 归档卡正文必须有「经验总结」段，至少含「现象」和「处置」两个要素
+    for rel_y in buckets["doc"]:
+        if not rel_y.startswith(ARCH):
+            continue
+        parts_y = rel_y.split("/")
+        name_y = parts_y[-1]
+        if name_y == "00_索引.md" or name_y.endswith("_按日摘要.md"):
+            continue
+        if len(parts_y) < 5:
+            continue
+        ns_y = parts_y[3]
+        if ns_y.startswith("_"):
+            continue
+        try:
+            with open(os.path.join(WS, rel_y), "r", encoding="utf-8", errors="replace") as fh_y:
+                body_y = fh_y.read()
+        except OSError:
+            continue
+        # 找「经验总结」段：从标题到下一个 ## 标题之间
+        m_y = re.search(r"^## .*?经验总结.*?$(?:\n(?!## ).*?)*?(?=\n## |\Z)", body_y, re.MULTILINE | re.DOTALL)
+        if not m_y:
+            yellow.append(("Y10", rel_y, "归档卡缺「经验总结」段（六要素：现象→机制→位置→处置→证据→落点）"))
+            continue
+        seg_y = m_y.group(0)
+        # 至少含「现象」和「处置」两个要素
+        has_phenom = bool(re.search(r"现象|症状|故障|错误|异常|失败|挂了|炸了|不亮|不动|无响应", seg_y))
+        has_action = bool(re.search(r"处置|修复|改|加|删|调|重启|回滚|临时|绕过", seg_y))
+        if not has_phenom:
+            yellow.append(("Y10", rel_y, "经验总结段缺「现象」描述（说了怎么修，没说坏在哪）"))
+        if not has_action:
+            yellow.append(("Y10", rel_y, "经验总结段缺「处置」描述（说了坏在哪，没说怎么修）"))
+        if not has_phenom and not has_action:
+            yellow.append(("Y10", rel_y, "经验总结段缺「现象」和「处置」（六要素至少写两要素）"))
     if "--write-baseline" in sys.argv:
         payload = {"generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
                    "count": len(managed_now), "managed": sorted(managed_now)}

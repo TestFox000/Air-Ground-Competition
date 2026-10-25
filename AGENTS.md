@@ -157,6 +157,7 @@
 - **豁免区**（不进基线、只计数）：`_tmp_session/`（过程稿）、`backup/`、`_archive/`、`git_save/`（版本存档）、`dzrobot_v2/src/history/`（会话日志/大事记）、`artifacts/`、`docs/history_cache/`、第三方源码（mavros / px4_msgs / livox / FAST_LIO / vendor）。**豁免区里写"长期文档"同样违规**，由月度审计抓。
 - **顺序**：写卡（含 §8.8 文档变更）→ `gen_index.py` → `check_doc_policy.py` → `check_anchors.py` → `check_numbers.py` → `cd dzrobot_v2 && python tools/wf/check.py` → `check_links.py`。
 - **2026-10-24 新增两守卫**（均只读、秒级）：`check_anchors.py` 校验正文里 4.6k 条 `路径:行号` 是否还指向真代码，**只对新增红判失败**（存量进 `anchor_baseline.json`，只减不增）；`check_numbers.py` 拿 `20_资料索引库/数字速查.yaml` 的 52 条数字去代码里重算，**默认只报不判红**（`--strict` 才挡），因为文档侧还有 6 条异文待裁决。
+- **2026-10-25 新增 Y10**（只读、秒级）：归档卡正文必须有「经验总结」段，至少含「现象」和「处置」两个要素；缺段或缺要素 = Y10 黄。规范真源：`10_agent提示词/06_工作完结经验总结规范_20261024.md` §8。
 
 ### 8.7 生命周期（front matter status）
 
@@ -244,7 +245,7 @@ docs/30_任务卡库/
 cd D:/User/Desktop/比赛存档/v1
 ls docs/30_任务卡库/在办/<ns>/                 # 开场：只看自己 ns
 python docs/_工具/gen_index.py --ns <ns>        # 只重扫本 ns，保留外部索引行
-python docs/_工具/check_doc_policy.py           # R4/R6/R7/R8/R9 红；Y5/Y9 黄
+python docs/_工具/check_doc_policy.py           # R4/R6/R7/R8/R9 红；Y5/Y9/Y10 黄
 cd dzrobot_v2 && python tools/wf/check.py       # 收口门禁（冻结区/复用/断链）
 ```
 
@@ -258,6 +259,7 @@ cd dzrobot_v2 && python tools/wf/check.py       # 收口门禁（冻结区/复�
 | R7 | 卡 `ns` 与目录不一致；ns 未登记；ns 无 `00_树.md`；缺 `agent` | 红 |
 | R8 | 卡缺 `树节点`；树里无本卡；树指向不存在的卡 | 红 |
 | R9 | 归档平铺未按 ns 分层；归档卡 `ns` 与目录不一致；缺「文档变更」 | 红 |
+| Y10 | 归档卡缺「经验总结」段（六要素至少写两要素） | 黄 |
 
 > **2026-10-23 22:0x：Y6~Y8 已转红线 R7~R9**（改表 + 改脚本同一提交；迁移后三项负向测试 3/3 命中）。新增规则仍按「跑满一轮零告警再转红」的路径走。
 
