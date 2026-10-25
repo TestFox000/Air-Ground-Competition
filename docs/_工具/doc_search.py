@@ -25,8 +25,8 @@
      连续空白折叠为单空格 —— 保证一行一条、可直接读。
   5. 英文整词匹配失败时自动退化为子串匹配：若该词在全语料边界匹配为 0 命中，
      则改用子串（例 "arrival" 能命中 arrival_m）。退化的词在 --json 里标 mode="sub"。
-  6. 归档降权：history_cache/ 与 _work/ 在"同词种数同分"时排在活动库之后（默认开），
-     避免旧文压掉现行结论；--no-demote 关闭，--live-only 直接排除。
+  6. 归档降权：history_cache/、20_资料索引库/历史/ 与 _work/ 在"同词种数同分"时排在
+     活动库之后（默认开），避免旧文压掉现行结论；--no-demote 关闭，--live-only 直接排除。
 
 退出码：0 有命中；1 无命中（grep 习惯，便于链式判断）；2 用法错误。
 """
@@ -193,7 +193,12 @@ def make_snippet(raw, low, matched):
 
 
 def tier_of(rel):
-    if rel.startswith("history_cache/"):
+    """归档层级：2 = 归档（排序末位 + 被 --live-only 排除），1 = 临时，0 = 现行。
+
+    20_资料索引库/历史/ 是沿革库（该分册 9 篇全为 status: 历史，按 §8.7
+    "只作沿革、不作判据"），不归入归档层的话 10-03 旧核手册会压掉现行结论。
+    """
+    if rel.startswith("history_cache/") or rel.startswith("20_资料索引库/历史/"):
         return 2
     if rel.startswith("_work/"):
         return 1
@@ -319,7 +324,8 @@ def main(argv=None):
                     help="限定 docs 下子路径，可重复；写路径前缀（20_资料索引库）或子目录名"
                          "（视觉与云台）都行，例：--in 视觉与云台 --in 无人机")
     ap.add_argument("--lines", type=int, default=3, help="每篇展示命中行数，默认 3")
-    ap.add_argument("--live-only", action="store_true", help="排除 history_cache/ 与 _work/")
+    ap.add_argument("--live-only", action="store_true",
+                    help="排除归档层（history_cache/、20_资料索引库/历史/）与 _work/")
     ap.add_argument("--no-demote", action="store_true", help="归档层级不参与排序（纯路径定序）")
     ap.add_argument("--no-timing", action="store_true",
                     help="不输出耗时（仅用于逐字节复现测试；排序本身与时序无关）")
