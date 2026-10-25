@@ -102,6 +102,25 @@ _RELOCK_MAX_JUMP_M = 0.50
 #: （0.12→0.35 m/s），车直线冲出边界。取 0.45 m（一个整格 0.35 m 的 1.3 倍）。
 _RELOCK_TRUST_DIST_M = 0.45
 
+
+def _relock_trusted(jump_m: float, old_dist_m: float, new_dist_m: float,
+                    release_m: float) -> bool:
+    """全路线重投影的「可信」判据（AGC-20 现场 2026-10-25 收紧）。
+
+    原规则：|jump| <= 0.50 或 新点离线 <= 0.45 ⇒ 信任。
+    实车反例（run2 7_path.log L145）：车只是**横向差 0.44 m**（刚好越过
+    projection_release_m=0.30），全路线重投影在 **2 m 之外**找到一条平行腿
+    （新点离线 0.44 <= 0.45）⇒ 信任、s 从 1.4 跳到 3.51（段10）⇒ 之后 ds 护栏
+    每窗口丢弃（18 次 / 25 m）、漂移护栏 drift_stop 停车。
+
+    收紧：新点离线小，只在「旧投影已明显跟丢」（old_dist > 2×release，车确实不在
+    任何腿附近）时才足以说明问题；刚过阈值时只接受小跳，宁可保持 s
+    （车会把误差走回来，或按既有护栏降速/停车）。
+    """
+    if abs(jump_m) <= _RELOCK_MAX_JUMP_M:
+        return True
+    return bool(old_dist_m > 2.0 * release_m and new_dist_m <= _RELOCK_TRUST_DIST_M)
+
 #: ★倒车入口闭环推车（2026-10-18 实车 H8 卡死）：底盘速度平滑窗 ~0.4 s
 #: （base_driver smooth_window_speed=20 拍），旧"推一把"只推 dist_to_vertex≤0.20 的 2 拍
 #: —— 负速度还没填满平滑窗，车就继续前冲 0.44 m；过冲后旧判据永不成立 ⇒ s 冻死、
@@ -434,8 +453,8 @@ class TrackerTask(TaskThread):
             #   后者如果也采用，就等于把"地板"整个绕过去了 —— test_tracker 第 9 组立刻红
             #   （翻转 2 → 11、s 只推进到 1.05）。
             jump = float(proj_relock.s) - float(proj.s)
-            trusted = (abs(jump) <= _RELOCK_MAX_JUMP_M
-                       or float(proj_relock.dist) <= _RELOCK_TRUST_DIST_M)
+            trusted = _relock_trusted(jump, float(proj.dist),
+                                      float(proj_relock.dist), self._release_m)
             if (trusted
                     and proj_relock.dist < proj.dist - 1e-6
                     and proj_relock.s >= self._s_floor - 1e-9):

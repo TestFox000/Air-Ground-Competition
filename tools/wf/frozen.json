@@ -9,16 +9,16 @@
   "in_flight": [
     {
       "path": "src/dzbrain/dzbrain/tasks/tracker.py",
-      "card": "TRACK-R1-20261020-01",
-      "owner": "implementer",
-      "reason": "Tracker 最终发布限速统一钳位：ALIGN/PIVOT 绕过 P_MOTION_LIMIT；离线验收，待人工部署",
-      "expires": "2026-10-27"
+      "card": "TRACK-R1-20261020-01 + AGC-20-STEPFIX-20261024",
+      "owner": "implementer / lead",
+      "reason": "Tracker 最终发布限速统一钳位：ALIGN/PIVOT 绕过 P_MOTION_LIMIT；离线验收，待人工部署；+ AGC-20：_relock_trusted 收紧（旧离线刚过阈值时禁止 2m 外大跳，run2 L145 反例），test_tracker 139/139",
+      "expires": "2026-11-01"
     },
     {
       "path": "src/dzbrain/dzbrain/route/planner.py",
-      "card": "TRACK-PLAN-B1-20261021",
-      "owner": "implementer",
-      "reason": "T-B1 目标函数换口径（任务优先+降级标记）与第七图双停站；本地离线，待评审",
+      "card": "CAR-DUAL-20261024",
+      "owner": "/root/history_audit",
+      "reason": "用户授权双最佳射击点规则本地实现；当前文件干净，继承已提交 TRACK-PLAN-B1 基线，仅离线不部署",
       "expires": "2026-11-04"
     },
     {
@@ -41,6 +41,69 @@
       "owner": "lead",
       "reason": "SCHEMA 登记 aim.stop_on_hit（_B，默认 True），供 config_selfcheck 与 validate 校验",
       "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp",
+      "card": "CAR-HOME-20261024 + CAR-GATE-20261024",
+      "owner": "/root/gimbal_audit",
+      "reason": "用户授权离站回正及两键权限失联撤销；两卡串行交接，不改 PID/lead，不部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzrknn_dataprocess/include/dzrknn_dataprocess.h",
+      "card": "CAR-GATE-20261024",
+      "owner": "/root/gimbal_audit",
+      "reason": "配套 C++ 状态与可离线编译的生产逻辑测试；两卡串行",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzrknn_dataprocess/test/",
+      "card": "CAR-HOME-20261024 + CAR-GATE-20261024",
+      "owner": "/root/gimbal_audit",
+      "reason": "现有 Python 测试未覆盖 C++ 消费者；两文件 test_control_contract.py/control_contract_fixture.cpp。门禁按 git status 的未跟踪目录精确匹配，暂存时需改登记为这两个文件",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/main.py",
+      "card": "AGC-20-STEPFIX-20261024",
+      "owner": "lead",
+      "reason": "F1 布局新鲜度：StepLoop 认 P_LAYOUT_ARRIVALS 计数（同版心跳也刷新），不再只认版本递增；离线单测，未部署",
+      "expires": "2026-10-31"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/tasks/drone.py",
+      "card": "AGC-20-STEPFIX-20261024",
+      "owner": "lead",
+      "reason": "F1 配套：每接受一帧 field_layout（新版本/同版心跳）layout_arrivals+1 并写黑盒；拒收帧不计数；离线单测，未部署",
+      "expires": "2026-10-31"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/core/config.py",
+      "card": "AGC-20-STEPFIX-20261024",
+      "owner": "lead",
+      "reason": "F8：注册 step.layout_ttl_s(4.0s) / step.done_replay_s(1.0s) 到 SCHEMA，自检覆盖；离线单测，未部署",
+      "expires": "2026-10-31"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/scout/layout.py",
+      "card": "AGC-20-STEPFIX-20261024",
+      "owner": "lead",
+      "reason": "F2：LayoutStream._recompute_target 跳过「检查点 == 车当前格」（end 除外，同格雷直接记 covered），test_scout 79/79",
+      "expires": "2026-10-31"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/core/blackboard.py",
+      "card": "AGC-20-STEPFIX-20261024",
+      "owner": "lead",
+      "reason": "F1：新增 P_LAYOUT_ARRIVALS 键（布局帧到达计数），纯加键，旧消费方忽略",
+      "expires": "2026-10-31"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/tasks/mission.py",
+      "card": "AGC-T1-PROGRESS-20261024",
+      "owner": "t-car",
+      "reason": "T1 进度契约最小补丁：_current_s 采纳加几何可信门（复用 proj.dist>drift_warn_m 时无 hint 全路线重投影）+ 读侧不再回写 P_ROUTE_INDEX/S；离线 28 条 + 日志 449/452/459 指纹回归，未部署",
+      "expires": "2026-10-31"
     }
   ]
 }

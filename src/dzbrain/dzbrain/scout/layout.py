@@ -581,19 +581,32 @@ class LayoutStream:
                                       max_stops=self.max_stops)
             reach = self._reachable()
             for cp in cps:
-                if cp.block in self.known and cp.block in reach:
-                    if cp.kind == "stop":
-                        self.known_stops.add(cp.block)
-                    self._target = MissionTarget(cp.block, cp.kind,
-                                                 engine=self._mission_engine,
-                                                 route=tuple(self._mission_tokens))
-                    return
+                if cp.block not in self.known or cp.block not in reach:
+                    continue
+                # ★AGC-20 F2：检查点不许等于"车当前所在格"（end 除外）——
+                #   车已在格上再发同格目标 = 0 token 空段，机端据此换版/车端报完成，
+                #   两边空转（7_path.log L511/L543 的同格死循环）。
+                #   若同格是雷格：车**压在上面本身就算已压**，直接记 covered 并跳过，
+                #   否则永远选不到下一个检查点。
+                if cp.block == self.car_block and cp.kind != "end":
+                    if cp.kind == "mine":
+                        self.covered_mines.add(cp.block)
+                    continue
+                if cp.kind == "stop":
+                    self.known_stops.add(cp.block)
+                self._target = MissionTarget(cp.block, cp.kind,
+                                             engine=self._mission_engine,
+                                             route=tuple(self._mission_tokens))
+                return
             self._mission_tokens = None
         # ② 任务规划（只有目标都进 known 才会真的调 planner）
         mt = plan_mission_target(self.known, self.truth, self.car_block,
                                  covered_mines=self.covered_mines,
                                  done_stops=self.done_stops, cfg=self.cfg,
                                  max_stops=self.max_stops)
+        if mt is not None and mt.block == self.car_block and mt.kind != "end":
+            # ★AGC-20 F2：任务规划同样不许把"当前格"当目标（同格空段）。
+            mt = None
         if mt is not None:
             if mt.route:
                 self._mission_tokens = list(mt.route)

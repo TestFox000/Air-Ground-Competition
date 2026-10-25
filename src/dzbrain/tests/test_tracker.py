@@ -616,6 +616,21 @@ def test_projection_relock() -> None:
     check("10.5 自愈日志可查（含「跟丢」字样）",
           any("跟丢" in ln for ln in rig.logs), f"logs_tail={rig.logs[-2:]}")
 
+    # ★AGC-20 现场（2026-10-25 run2 7_path.log L145）：横向差只有 0.44 m（刚过
+    #   projection_release_m=0.30），全路线重投影在 2 m 外找到一条平行腿（新点离线
+    #   0.44 ≤ 0.45）→ 原规则信任大跳、s 从 1.4 跳到 3.51（段10），随后 ds 护栏每窗口
+    #   丢弃、漂移护栏 drift_stop。下面三条钉住收紧后的判据（含负向反例）。
+    from dzbrain.tasks.tracker import _relock_trusted
+    check("10.6 ★收紧：旧离线 0.44（刚过阈值）时，2.1 m 外的大跳不许信（run2 反例）",
+          _relock_trusted(2.11, 0.44, 0.44, 0.30) is False,
+          str(_relock_trusted(2.11, 0.44, 0.44, 0.30)))
+    check("10.7 旧离线已明显跟丢（1.5 > 2×0.30）时，小离线的大跳仍可信（保留自愈能力）",
+          _relock_trusted(9.0, 1.5, 0.40, 0.30) is True,
+          str(_relock_trusted(9.0, 1.5, 0.40, 0.30)))
+    check("10.8 小跳（0.3 ≤ 0.5 m）永远可信（正常追回几厘米）",
+          _relock_trusted(0.3, 0.44, 0.40, 0.30) is True,
+          str(_relock_trusted(0.3, 0.44, 0.40, 0.30)))
+
 
 def test_motion_limit_wiring() -> None:
     """★11. 限速请求接线（卡 t21）：`P_MOTION_LIMIT` 必须真的钳到**指令速度**。

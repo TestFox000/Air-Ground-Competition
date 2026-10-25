@@ -67,7 +67,7 @@ import time
 from typing import Any, Callable, Iterable
 
 from .core import geometry as geo
-from .core.blackboard import P_POSE, Blackboard
+from .core.blackboard import P_LAYOUT_ARRIVALS, P_POSE, Blackboard
 from .core.config import Config
 from .core.events import EventBus
 from .core.logging import banner, kv_lines
@@ -637,8 +637,11 @@ class StepLoop:
             self._layout_ttl_s = max(0.0, float(cfg.get("step.layout_ttl_s", 10.0) or 0.0))
         except (TypeError, ValueError):
             self._layout_ttl_s = 10.0
-        self._layout_rx_at = 0.0          # monotonic：收到"当前版本"布局的时刻（0=还没有）
+        self._layout_rx_at = 0.0          # monotonic：**最近一帧被接受的布局**到达时刻（0=还没有）
         self._layout_sender_ts = 0.0      # 机侧 ts，仅诊断
+        # ★AGC-20 F1：布局帧到达计数（DroneTask 每接受一帧 +1，含同版心跳）。
+        #   只认"计数变了"⇒ 新鲜度刷新；不依赖 wall clock，也不把同版心跳当内容变化。
+        self._layout_arrivals_seen = 0
         #: D-022：完整布局（known=整图 / coverage complete）视为静态场地信息，不过期。
         #: 只在"过期但完整"时打一次说明，避免每拍刷屏。
         self._layout_complete_noted = False
@@ -730,6 +733,7 @@ class StepLoop:
             self._planned_version = -1
             self._layout_rx_at = self._clock()
             self._layout_sender_ts = self._layout_ts_of(layout)
+            self._layout_arrivals_seen = self._arrivals_of()
             self._layout_complete_noted = False
             self._stop_done_replay("步进循环启动（新的一轮）")
             self._phase = STEP_PHASE_PLANNING
@@ -833,7 +837,22 @@ class StepLoop:
                 f"等无人机下一份布局，不拿旧布局规划）")
 
 
+    def _arrivals_of(self) -> int:
+        """读布局帧计数（黑盒键；缺失/坏值 ⇒ 0）。"""
+        try:
+            return int(self.bb.get(P_LAYOUT_ARRIVALS) or 0)
+        except (TypeError, ValueError):
+            return 0
+
     def _poll_layout(self, now: float) -> None:
+        # ★AGC-20 F1：同版心跳也算"布局到达"。DroneTask 每接受一帧（新版本或心跳）就
+        #   把 P_LAYOUT_ARRIVALS +1；这里只在计数变化时刷新 _layout_rx_at，**不**据此
+        #   换内容（内容仍按 version 单调裁决）。修的是 7_path.log L344 的 11.2 s 白等。
+        arrivals = self._arrivals_of()
+        if arrivals != self._layout_arrivals_seen:
+            self._layout_arrivals_seen = arrivals
+            if self._layout is not None:
+                self._layout_rx_at = now
         layout = self._layout_getter()
         if not isinstance(layout, dict):
             return

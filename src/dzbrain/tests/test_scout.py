@@ -371,6 +371,19 @@ check("已压雷不重复压（covered_mines 累积）",
       stream29.covered_mines == set(t29.mines)
       and len([b for k, b in seq if k == "mine"]) == 8, f"{len(seq)} 段")
 
+# ★AGC-20 F2：检查点不许等于"车当前所在格"（end 除外）
+#   现场证据 7_path.log L511/L543：车在 I7、目标还是 I7 ⇒ 0 token 空段空转。
+stream20 = LayoutStream(t29, car_block="N10")
+stream20.known = set(all29)
+stream20.retarget(now=0.0)
+_first20 = stream20.target_cell
+stream20.observe_car_block(_first20, now=1.0)          # 车已到该格（还没报段完成）
+stream20.retarget(now=2.0)                             # 机端重算目标
+check("★ F2 车停在检查点格上时重算 ⇒ 跳过同格目标（不再发 0 token 空段）",
+      stream20.target_cell != _first20 and _first20 in stream20.covered_mines,
+      f"first={_first20} next={stream20.target_kind}:{stream20.target_cell} "
+      f"covered={sorted(stream20.covered_mines)[:3]}")
+
 # 显式 already_covered：把 I8 标成已压 -> 下一个目标不再是 I8
 mt2 = choose_mission_target(all29, t29, "N10",
                             covered_mines={"I8"}, cfg=default_config())

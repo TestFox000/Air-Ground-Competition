@@ -540,6 +540,14 @@ SCHEMA: dict[str, Spec] = {
                                       "启动等待无人机布局的上限；超时 exit 3"),
     "step.wait_timeout_s": Spec(0.0, _F, "s", 0.0, 3600.0,
                                     "WAIT_INFO 等待上限；0=不限时（一直等下一份布局）"),
+    # ★AGC-20 F1/F8（2026-10-25）：两个键原本只被代码 cfg.get() 读、**不在 SCHEMA** ⇒
+    #   默认值飘在代码里、自检看不见。TTL 判据 = 距"最近一帧被接受的布局"（含同版心跳，
+    #   见 DroneTask.layout_arrivals）；0 = 关闭新鲜度门（D-022 的完整布局例外另算）。
+    "step.layout_ttl_s": Spec(4.0, _F, "s", 0.0, 120.0,
+                              "布局新鲜度门：距最近一帧布局超过该秒数 ⇒ WAIT_INFO(layout_stale)"),
+    # D1b 完成单 1 Hz 重发间隔（WAIT_INFO 等新布局期间），0=关。
+    "step.done_replay_s": Spec(1.0, _F, "s", 0.0, 60.0,
+                               "段完成单在 WAIT_INFO 期间的重发周期；0=不重发"),
     # ★2026-10-18 现场 pose_stale 事故：布局模式下若 /odom/localization 没进决策层，
     #   任务层会带着种子位姿照常发指令（车一步不动、排障两分钟）。下面两个键让
     #   "半死图"当场变成"退出码 5 + 三条排查命令"。

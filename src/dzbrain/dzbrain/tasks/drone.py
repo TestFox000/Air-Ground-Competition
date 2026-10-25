@@ -94,7 +94,8 @@ from typing import Any, Callable, Iterable
 
 from ..core import geometry as geo
 from ..core.blackboard import (P_DRONE, P_FIELD_LAYOUT, P_FIELD_VERIFY,     # noqa: F401
-                               P_MISSION_PHASE, P_POSE, Blackboard)
+                               P_LAYOUT_ARRIVALS, P_MISSION_PHASE, P_POSE,
+                               Blackboard)
 from ..core.config import Config
 from ..core.events import (EV_BRIDGE_INFO, EV_DRONE_OFFLINE, EV_DRONE_ONLINE,
                            EV_FIELD_VERIFY, EventBus)
@@ -580,6 +581,9 @@ class DroneTask(TaskThread):
         self.layout_rejects = 0
         self.layout_stale = 0              # v2：迟到旧版本被拒收的次数
         self.layout_ts = 0.0
+        #: ★AGC-20 F1：已**接受**的布局帧计数（新版本 + 同版心跳都算；拒收的不算）。
+        #: 写黑盒 `P_LAYOUT_ARRIVALS`，StepLoop 据此刷新"布局新鲜度"，不再只看版本号。
+        self.layout_arrivals = 0
 
         # ---------------- 链路状态 ----------------
         self.online = False
@@ -868,8 +872,19 @@ class DroneTask(TaskThread):
                         self._log(f"⚠️ field_layout v{new_version} 内容与当前版不一致"
                                   f"（同版必须同内容，已忽略；累计拒收 {self.layout_rejects}）")
                     return
+                # ★AGC-20 F1：同版心跳也是"一帧到达"——刷新计数器与落库时间戳，
+                #   让 StepLoop 的新鲜度判据看得见它（否则 12 s 一版的发射器在
+                #   step.layout_ttl_s=10 s 下必被判 stale，每段白等 11 s，7_path.log L344）。
+                #   值不变、不覆盖内容；被拒收的帧（旧版/同版异内容）走不到这里。
+                self.layout_ts = float(now)
+                self.layout_arrivals += 1
+                self.bb.set(P_LAYOUT_ARRIVALS, self.layout_arrivals,
+                            source=self.name, ts=now)
+                self.bb.set(P_FIELD_LAYOUT, self.field_layout,
+                            source=self.name, ts=now)
                 if self._warn.allow("layout_heartbeat", now):
-                    self._log(f"field_layout v{new_version} 心跳重发（同版同内容，忽略）")
+                    self._log(f"field_layout v{new_version} 心跳重发（同版同内容；"
+                              f"新鲜度已刷新，累计 {self.layout_arrivals} 帧）")
                 return
         if new_version > FIELD_LAYOUT_VERSION:
             if self._warn.allow("layout_ver", now):
@@ -879,6 +894,9 @@ class DroneTask(TaskThread):
         self.layout_updates += 1
         self.layout_ts = float(now)
         self.bb.set(P_FIELD_LAYOUT, layout, source=self.name, ts=now)
+        # ★AGC-20 F1：新版本同样计一帧（与心跳共用同一计数器，StepLoop 只认变化）
+        self.layout_arrivals += 1
+        self.bb.set(P_LAYOUT_ARRIVALS, self.layout_arrivals, source=self.name, ts=now)
         known_n = (len(layout["known"]) if "known" in layout
                    else geo.MAP_COLS * geo.MAP_ROWS)
         self._log(f"场地布局：v{new_version} 起 {layout['start']} 终 {layout['end']} "

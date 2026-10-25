@@ -47,6 +47,14 @@ P_AIM = "aim"                         # AimState：云台与开火状态
 P_AIM_RED = "aim_red_face"            # dict：红面确认（AimTask 写 / MissionTask 读）
 P_DRONE = "drone"                     # DroneState：无人机情报
 P_FIELD_LAYOUT = "field_layout"       # dict：无人机下发的完整场地布局（DroneTask 写 / main 读）
+#: `P_LAYOUT_ARRIVALS`：**DroneTask 写、StepLoop 读**的"布局帧到达计数"（int，单调递增）。
+#:
+#: 为什么需要它（AGC-20 F1，2026-10-24 实跑 7_path.log L344 证据）：无人机每 0.5 s 重发
+#: 同版本心跳，而 `P_FIELD_LAYOUT` 的值不变 ⇒ StepLoop 无法从"值"判断这是新到的一帧还是
+#: 手里捂着的旧值；只有 **版本递增** 才刷新新鲜度 ⇒ 发射器 12 s 一版时每段白等 11 s。
+#: 语义：每接受一份 field_layout（**新版本** 或 **同版同内容心跳**，被拒收的不算）就 +1；
+#: StepLoop 只认计数变化，不把机/车 wall clock 混进过期判据（ts 仍只作诊断）。
+P_LAYOUT_ARRIVALS = "layout_arrivals"  # int：已接受的布局帧计数（DroneTask 写 / StepLoop 读）
 P_FIELD_VERIFY = "field_verify"       # dict：无人机核对差异消费汇总（DroneTask 写）
 P_FIX = "fix"                         # FixState：误差修正量（Localization 写：吸附/漂移台账）
 P_FIX_EST = "fix_est"                 # FixState：**估计量**（FixTask 写：比例误差估计/漂移统计）

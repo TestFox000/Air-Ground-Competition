@@ -1064,6 +1064,31 @@ check("14.8 布局过期只挡新规划：DRIVING 中照常执行当前段（不
       and rig14c.loop.status()["layout_stale"] is True,
       f"{rig14c.loop.phase} / stale={rig14c.loop.status()['layout_stale']}")
 rig14c.close()
+
+# ---- 14.9 ★AGC-20 F1：同版心跳也刷新新鲜度（修 7_path.log L344 的 11.2 s 白等）----
+#   机制：DroneTask 每接受一帧（新版本/同版心跳）就把 P_LAYOUT_ARRIVALS +1；
+#   StepLoop 只认计数变化刷新 _layout_rx_at —— 不看版本号、不混 wall clock。
+rig14d = Rig(cfg=cfg_of().override("step.layout_ttl_s", 0.5))
+rig14d.start(layout_of(known=["N10", "M10", "L10"], target="M10", version=1, segment_id=1))
+rig14d.step(2)                                   # → DRIVING
+_arr14 = 0
+for _ in range(5):                               # 2.0 s 内每 0.4 s 一帧同版心跳
+    rig14d.clock.advance(0.4)
+    _arr14 += 1
+    rig14d.bb.set(M.P_LAYOUT_ARRIVALS, _arr14, "test")
+    rig14d.step(1)
+_st14d = rig14d.loop.status()
+check("14.9 ★ 同版心跳（arrivals+1）持续到达 ⇒ 2.0 s > ttl 0.5 s 仍不判 stale",
+      _st14d["layout_stale"] is False and rig14d.loop.phase == M.STEP_PHASE_DRIVING,
+      f"{rig14d.loop.phase} / stale={_st14d['layout_stale']} / age={_st14d['layout_age_s']}")
+# 心跳停发 0.8 s（>ttl 0.5 s）⇒ 判 stale
+rig14d.clock.advance(0.8)
+rig14d.step(1)
+check("14.10 ★ 心跳停发 0.8 s > ttl 0.5 s ⇒ stale（计数不变 ⇒ 不刷新）",
+      rig14d.loop.status()["layout_stale"] is True,
+      f"stale={rig14d.loop.status()['layout_stale']} / "
+      f"age={rig14d.loop.status()['layout_age_s']}")
+rig14d.close()
 # =========================================================================== #
 # 15. ★D1b（task-42）：完成单闩锁 + 1Hz 重发 + D-022 完整布局例外 + recon 序列
 # =========================================================================== #
