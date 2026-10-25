@@ -34,12 +34,19 @@ class RouteTimeParams:
                       逐格与压缩两种表达必须算出同一个数，见 _count_straight_runs）。
     mine_slow_s       过雷格的减速附加（轮心进 12cm 圆即得分，无需停稳）。
     shoot_stop_s      每个射击位：停靠 + 瞄准 + 开火 + 计数器确认。
+    reverse_mps       倒车巡航 m/s（2026-10-25）：180° 折返段按执行器"沿原路
+                      倒回"假设计价——折返段里程按此速度、每次 F↔R 边界加
+                      gear_switch_s。None=关闭倒车差异化（旧口径，全部按
+                      cruise 计、不计换挡）。
+    gear_switch_s     每次前进↔倒车换挡的停车+挂挡附加秒。
     """
 
     cruise_mps: float = 0.25
     accel_overhead_s: float = 0.4
     mine_slow_s: float = 0.6
     shoot_stop_s: float = 4.0
+    reverse_mps: float | None = 0.15
+    gear_switch_s: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -51,6 +58,8 @@ class RouteTimeBudget:
     n_shoots: int           # 射击停靠数
     over_soft_cap: bool     # 超 SOFT_CAP_S：应压缩任务或提速
     over_match_limit: bool  # 超 MATCH_LIMIT_S：必然被腰斩，不可接受
+    reverse_m: float = 0.0  # 倒车段里程（2026-10-25；0=无折返或旧口径）
+    n_gear_switches: int = 0  # 前进↔倒车换挡次数
 
 
 def _pos(name: str) -> tuple[int, int]:
@@ -58,26 +67,59 @@ def _pos(name: str) -> tuple[int, int]:
     return LETTERS.index(s[0]), int(s[1:]) - 1
 
 
-def _count_straight_runs(names: list[str]) -> int:
-    """路线折成几条直线段（= 加减速发生次数）。
+def _straight_runs(names: list[str]) -> list[tuple[tuple[int, int], float]]:
+    """路线折成 (方向, 里程格数) 直线段序列（= 加减速发生次数）。
 
     与路线用"逐格"还是"压缩"表达**无关**：方向不变就仍属同一条直线段。
     折返（同线反向）单独算一段——那需要停稳再起步。
     """
-    if len(names) < 2:
-        return 0
-    runs = 1
+    runs: list[tuple[tuple[int, int], float]] = []
     prev: tuple[int, int] | None = None
     for a, b in zip(names, names[1:]):
         (c1, r1), (c2, r2) = _pos(a), _pos(b)
         cur = (c2 - c1, r2 - r1)
-        if prev is not None:
-            cross = cur[0] * prev[1] - cur[1] * prev[0]
-            dot = cur[0] * prev[0] + cur[1] * prev[1]
-            if cross != 0 or dot <= 0:
-                runs += 1
+        seg = ((cur[0] ** 2 + cur[1] ** 2) ** 0.5,
+               (c2 - c1) ** 2 + (r2 - r1) ** 2)  # (欧氏长, 平方长，判 180° 用)
+        if prev is not None and cur == prev:
+            d, cells = runs[-1]
+            runs[-1] = (d, cells + seg[0])
+        else:
+            runs.append((cur, seg[0]))
         prev = cur
     return runs
+
+
+def _count_straight_runs(names: list[str]) -> int:
+    return len(_straight_runs(names))
+
+
+def _reverse_segments(runs) -> tuple[float, int]:
+    """折返段里程与换挡次数（执行器"沿原路倒回"假设，2026-10-25）。
+
+    判据：一段方向与上一段恰好相反（点积 = −|a||b|，即 180° 折返）→ 该段
+    按倒车执行；相邻段的前进↔倒车属性每翻转一次 = 一次换挡（F→R 进、
+    R→F 出各算一次）。非 180° 的转向段仍按前进计（多点掉头的逐段小折
+    已由 accel_overhead_s 覆盖，格序列上无法可靠辨识，宁不高估掉头时间）。
+    """
+    reverse_m = 0.0
+    switches = 0
+    is_rev_prev = False
+    prev_dir: tuple[int, int] | None = None
+    for direction, cells in runs:
+        if prev_dir is not None:
+            dot = direction[0] * prev_dir[0] + direction[1] * prev_dir[1]
+            n1 = (direction[0] ** 2 + direction[1] ** 2) ** 0.5
+            n2 = (prev_dir[0] ** 2 + prev_dir[1] ** 2) ** 0.5
+            is_rev = dot < 0 and abs(dot - (-n1 * n2)) < 1e-9
+        else:
+            is_rev = False
+        if prev_dir is not None and is_rev != is_rev_prev:
+            switches += 1
+        if is_rev:
+            reverse_m += cells
+        is_rev_prev = is_rev
+        prev_dir = direction
+    return reverse_m, switches
 
 
 def estimate_seconds(
@@ -110,18 +152,33 @@ def estimate_seconds(
     # 里程完全相同）。pipeline 走的是逐格、tests 走的是压缩，等于生产门限比
     # 测试门限严 13s —— 幻影开销足以把一条真实 158s 的路线判成超 165s 软顶，
     # 触发不必要的弃靶/弃雷（每弃一项 −5 分）。
-    n_segments = _count_straight_runs(names)
+    runs = _straight_runs(names)
+    n_segments = len(runs)
     # 按**出现次数**计，不按集合：同一格被路线经过两次，车就要减速/停靠两次。
     mine_names = {m.strip().upper() for m in mine_cells}
     shoot_names = {s.strip().upper() for s in shoot_cells}
     n_mines = sum(1 for n in names if n in mine_names)
     n_shoots = sum(1 for n in names if n in shoot_names)
 
+    # 倒车差异化（2026-10-25）：180° 折返段按 reverse_mps 计、F↔R 边界计换挡。
+    # reverse_mps=None = 旧口径（全部按 cruise、不计换挡）。
+    reverse_cells, n_switches = _reverse_segments(runs)
+    reverse_m = reverse_cells * CELL_SIZE
+    fwd_m = distance_m - reverse_m
+    if params.reverse_mps is None or reverse_m <= 0.0:
+        travel_s = distance_m / params.cruise_mps
+        switch_s = 0.0
+    else:
+        travel_s = (fwd_m / params.cruise_mps
+                    + reverse_m / params.reverse_mps)
+        switch_s = n_switches * params.gear_switch_s
+
     seconds = (
-        distance_m / params.cruise_mps
+        travel_s
         + n_segments * params.accel_overhead_s
         + n_mines * params.mine_slow_s
         + n_shoots * params.shoot_stop_s
+        + switch_s
     )
     return RouteTimeBudget(
         seconds=seconds,
@@ -131,4 +188,6 @@ def estimate_seconds(
         n_shoots=n_shoots,
         over_soft_cap=seconds > SOFT_CAP_S,
         over_match_limit=seconds > MATCH_LIMIT_S,
+        reverse_m=reverse_m,
+        n_gear_switches=n_switches,
     )

@@ -49,6 +49,13 @@ PRIM_FORBID = "forbid135"
 
 ACT_OK, ACT_TIGHT, ACT_PIVOT, ACT_FORBID = "ok", "tight", "pivot", "forbid"
 
+# 8 向位移 -> 朝向索引（与 mission_router._DIRS 同约定：0=东，顺时针）。
+# solid 探测表按此索引取值。
+_DIR8 = {
+    (1, 0): 0, (1, 1): 1, (0, 1): 2, (-1, 1): 3,
+    (-1, 0): 4, (-1, -1): 5, (0, -1): 6, (1, -1): 7,
+}
+
 
 def need_mm(delta_deg: float) -> float:
     """该转角所需的最小横向空间：R(1−cosΔθ) + 半车宽。"""
@@ -83,8 +90,19 @@ def _in_field(c: int, r: int) -> bool:
     return 0 <= c < 14 and 0 <= r < 11
 
 
-def _probe(cell: str, d: tuple[int, int], blocked: set[str]) -> float:
-    """沿方向 d 从格心探测，返回遇到障碍**边缘**的距离（mm）；场外无围挡 → 视为开阔。"""
+def _probe(cell: str, d: tuple[int, int], blocked: set[str], solid=None) -> float:
+    """沿方向 d 从格心探测，返回遇到障碍**边缘**的距离（mm）；场外无围挡 → 视为开阔。
+
+    solid（2026-10-25）：{格名: 8 向可用 mm}——中场挡板实体侵入边界两侧格
+    87.5mm 的探测表（mission_router._build_solid_barriers 产）。挡板在格内，
+    比邻格的桶更近，必须先于桶判。与搜索内守卫（_dijkstra）同一口径。
+    """
+    if solid is not None:
+        row = solid.get(cell)
+        if row is not None:
+            dd = _DIR8.get(d)
+            if dd is not None and row[dd] < OPEN_MM:
+                return row[dd]
     c, r = _xy(cell)
     for k in (1, 2):
         nc, nr = c + d[0] * k, r + d[1] * k
@@ -106,21 +124,26 @@ def _inside_dir(v_in: tuple[int, int], v_out: tuple[int, int]) -> tuple[int, int
 
 
 def _clearance_inside(cell: str, v_in: tuple[int, int], v_out: tuple[int, int],
-                      blocked: set[str]) -> tuple[float, str]:
+                      blocked: set[str], solid=None) -> tuple[float, str]:
     side = _inside_dir(v_in, v_out)
     if side is None:
         return OPEN_MM, "直行"
-    a1 = _probe(cell, side, blocked)
+    a1 = _probe(cell, side, blocked, solid)
     # 内切对角方向（弧线从内侧前方擦过）：取 v_out 与 side 的合成方向
     dx = v_out[0] + side[0]
     dy = v_out[1] + side[1]
     dg = (1 if dx > 0 else -1, 1 if dy > 0 else -1)
-    a2 = _probe(cell, dg, blocked)
+    a2 = _probe(cell, dg, blocked, solid)
     return min(a1, a2), ("左转内侧" if side == (-v_in[1], v_in[0]) else "右转内侧")
 
 
-def turn_space(cell: str, v_in: tuple[int, int], v_out: tuple[int, int], blocked=()) -> dict:
-    """★ 单一权威判据：一个转角的空间需求/可用/余量/动作。"""
+def turn_space(cell: str, v_in: tuple[int, int], v_out: tuple[int, int],
+               blocked=(), solid=None) -> dict:
+    """★ 单一权威判据：一个转角的空间需求/可用/余量/动作。
+
+    solid（2026-10-25）：实体挡板探测表（{格名: 8 向 mm}）——给出时挡板
+    实体先于桶判（87.5mm < 桶 225mm），与 mission_router 搜索内守卫同口径。
+    """
     bl = set(blocked)
     a1 = math.atan2(v_in[1], v_in[0])
     a2 = math.atan2(v_out[1], v_out[0])
@@ -128,7 +151,7 @@ def turn_space(cell: str, v_in: tuple[int, int], v_out: tuple[int, int], blocked
     if deg < 1e-6:
         return {"delta_deg": 0.0, "primitive": PRIM_STRAIGHT, "need_mm": 0.0,
                 "avail_mm": OPEN_MM, "margin_mm": OPEN_MM, "action": ACT_OK, "side": "直行"}
-    avail, side = _clearance_inside(cell, v_in, v_out, bl)
+    avail, side = _clearance_inside(cell, v_in, v_out, bl, solid)
     nd = need_mm(deg)
     margin = avail - nd
     prim = classify(deg)
@@ -175,7 +198,7 @@ class TurnCheck:
         return R_MIN_MM / 1000.0
 
 
-def check_route(cells, blocked=()) -> list[TurnCheck]:
+def check_route(cells, blocked=(), solid=None) -> list[TurnCheck]:
     bl = set(blocked)
     out: list[TurnCheck] = []
     cs = list(cells)
@@ -185,7 +208,7 @@ def check_route(cells, blocked=()) -> list[TurnCheck]:
         v_out = (c2[0] - b[0], c2[1] - b[1])
         if v_in == (0, 0) or v_out == (0, 0):
             continue
-        sp = turn_space(cs[i], v_in, v_out, bl)
+        sp = turn_space(cs[i], v_in, v_out, bl, solid)
         if sp["primitive"] == PRIM_STRAIGHT:
             continue
         feasible = sp["action"] in (ACT_OK, ACT_TIGHT)
@@ -221,8 +244,8 @@ def summarize(checks) -> dict:
     }
 
 
-def verify(cells, blocked=()) -> dict:
-    chk = check_route(cells, blocked)
+def verify(cells, blocked=(), solid=None) -> dict:
+    chk = check_route(cells, blocked, solid)
     s = summarize(chk)
     bad = [c for c in cells if c in set(blocked)]
     return {"ok": s["forbid135"] == 0 and s["pivot_needed"] == 0 and not bad,
