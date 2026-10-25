@@ -1,0 +1,4 @@
+# bash 脚本必须 LF：桌面 clone autocrlf=true 时 checkout 会变 CRLF，SFTP
+# 原样上机后 bash 直接报 set: pipefail\r invalid option（2026-10-26 Orin
+# ft_v1 换装实测，机上 14 个 orin_*.sh 全中招）。
+*.sh text eol=lf

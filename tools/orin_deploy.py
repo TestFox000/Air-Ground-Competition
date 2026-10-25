@@ -154,6 +154,18 @@ def main(argv=None) -> int:
     if code != 0:
         raise SystemExit(f"[失败] 远端 chmod +x 工具脚本失败: {cerr.strip()[:120]}")
 
+    # ---- 2.2 机载依赖工具（orin_convert/orin_accept 的硬依赖） ----
+    # tools/ml/verify_contract.py：orin_convert_engines.sh 转换前无条件调用
+    # （$REPO/tools/ml/ 路径），名单缺它时换装直接 exit 5 拒转（2026-10-26
+    # ft_v1 换装实测踩坑）。
+    # tools/fake_udp_sender.py：orin_accept_plan.sh 的态势注入器，同日踩坑
+    # （机上缺失时验收②③无法执行）。
+    for dep, rel in ((REPO / "tools" / "ml" / "verify_contract.py", "tools/ml/verify_contract.py"),
+                     (REPO / "tools" / "fake_udp_sender.py", "tools/fake_udp_sender.py")):
+        if not dep.is_file():
+            raise SystemExit(f"[失败] 仓库缺少机载依赖 {dep}")
+        put(dep, f"{REMOTE_ROOT}/{rel}")
+
     # ---- 2.5 机载规划包：orin_plan_sidecar 的 import 依赖（机上必需件） ----
     # 官方控制要求「无人机的定位、建图、识别、规划与控制等实时任务须由机载平台
     # 自主完成」→ 规划层在机上跑，sidecar 直接 sys.path 复用这个包；只推 sidecar
@@ -232,11 +244,11 @@ def main(argv=None) -> int:
         "  tools/orin_bringup.sh up                            # 全栈启动（规划默认只落盘）\n"
         "  PLAN_SEND=1 tools/orin_bringup.sh up                # 确认产物后再开 0x4003 实发\n"
         "\n"
-        "⚠️ 机上已有 13 类引擎（hbb_detector_d13 + cell_classifier_v4d）时，"
-        "**不要**跑 tools/orin_convert_engines.sh：\n"
-        "   它按 models/release 的 7 类指针重新生成 hbb_detector_fp16 / cell_classifier_fp16，\n"
-        "   会覆盖并不可逆地降级现网 13 类引擎（类别索引错位 → 障碍被当蓝靶）。\n"
-        "   仅换机/刷机后机上确实没有任何引擎时才使用。\n"
+        "⚠️ 换模型后（指针变动）必须跑 tools/orin_convert_engines.sh 重转引擎：\n"
+        "   它按 current_* 指针选 ONNX（转换前自带契约门禁），引擎文件名沿用\n"
+        "   hbb_detector_d13_fp16.engine（与 run/verify 脚本三处逐字一致，测试锁定），\n"
+        "   旧引擎自动留 .bak_时间戳 备份。前置：python3 -m pip install --user onnx。\n"
+        "   顺序见 DEPLOY_RUNBOOK ft_v1 契约换装段。\n"
         "无无人机时车端自测：tools/fake_udp_sender.py --scenario \"...\"\n"
         "====================================================")
     return 0
