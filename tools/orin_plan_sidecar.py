@@ -402,6 +402,38 @@ class PlannerCore:
             return None       # 过期按"没有观测"处理（绝不用冻结 yaw 断言）
         return self.car_yaw
 
+    def _route_near_cells(self) -> frozenset[str]:
+        """当前路线途经格 + 8 邻域膨胀（与车端 integrate_node._route_needs_replan
+        同口径，防其 M2 盲区在机载链路复活）。
+
+        压缩路线只留拐点/必经点，相邻显式航点必共线且为 8 邻域单位方向步的
+        整数倍（compress_route 契约），gcd 步长逐格铺开即途经格；'*' 尾缀与
+        末尾朝向 token 被正则自然忽略。
+        """
+        cells: set[str] = set()
+        prev: tuple[int, int] | None = None
+        for name in _CELL_RE.findall(self.last_route or ""):
+            col, row = ord(name[0]) - 65, int(name[1:]) - 1
+            if prev is None:
+                cells.add(name)
+            else:
+                dc, dr = col - prev[0], row - prev[1]
+                g = gcd(abs(dc), abs(dr)) or 1
+                cc, rr = prev
+                for _ in range(g):
+                    cc += dc // g
+                    rr += dr // g
+                    cells.add(f"{chr(65 + cc)}{rr + 1}")
+            prev = (col, row)
+        near = set(cells)
+        for name in cells:
+            col, row = ord(name[0]) - 65, int(name[1:]) - 1
+            for dc in (-1, 0, 1):
+                for dr in (-1, 0, 1):
+                    if 0 <= col + dc < 14 and 0 <= row + dr < 11:
+                        near.add(f"{chr(65 + col + dc)}{row + dr + 1}")
+        return frozenset(near)
+
     # -------- 决策 --------
     def step(self) -> str | None:
         """一拍决策：门控 -> 规划 -> 落盘。返回新路线串（无更新返回 None）。
@@ -437,6 +469,18 @@ class PlannerCore:
                 return None
             if sig == self.last_sig:
                 return None
+            # 只有障碍变化时按"路线相关"过滤（对齐车端 local 模式守卫）：
+            # 远场障碍增删不换线——雷/门/靶没动时新路线大概率与旧线相同、
+            # 会被 _plan 去重，这里省掉的是无谓重算与偶发换线抖动（每次换线
+            # 车端执行器进度清零）。基线同步推进，防同签名反复进过滤器。
+            if (self.last_sig is not None
+                    and sig[0] == self.last_sig[0]
+                    and sig[1] == self.last_sig[1]
+                    and sig[2] == self.last_sig[2]):
+                delta = (sig[3] - self.last_sig[3]) | (self.last_sig[3] - sig[3])
+                if not (delta & self._route_near_cells()):
+                    self.last_sig = sig
+                    return None
         return self._plan(snapshot, sig)
 
     def _plan(self, snapshot, sig: tuple) -> str | None:
