@@ -25,10 +25,12 @@ status: 现行
 | [无人机/](无人机/00_索引.md) | 7 | 架构、飞控与 uXRCE、感知、路线回放、现场脚本、未验证项 | 碰机端/空地演练 |
 | [空地链路/](空地链路/00_索引.md) | 6 | 协议 v2、契约、联调坑、车侧话题对账、机端二进制三件套实测、**步进协同真车复盘** | 改 /dzlink、/nav/waypoint、布局语义、接二进制情报 |
 | [视觉与云台/](视觉与云台/00_索引.md) | 4 | 检测/模型、云台瞄准、开火链路、移动靶缺口 | 打靶、调云台、换模型 |
-| [赛事与治理/](赛事与治理/00_索引.md) | 11 | 规则场地、计分口径、工作流铁律、决策台账、已知红、版本存档、官方物料、存档线收尾、工具复用与能力登记 | 动手前必读（尤其决策台账）；新建任何脚本前先查 09 |
+| [赛事与治理/](赛事与治理/00_索引.md) | 12 | 规则场地、计分口径、工作流铁律、决策台账、已知红、版本存档、官方物料、存档线收尾、工具复用与能力登记、**文档库进化与 MCP 方案**、**热词缺口清单** | 动手前必读（尤其决策台账）；新建任何脚本前先查 09 |
 | [历史/](历史/00_索引.md) | 9 | 09-27 至今沿革、并入改名、自主工作期、10-03 旧核手册/对话/遗留处置、**自家 38 份会话日志的存废判定** | 想知道「为什么会变成现在这样」 |
+| [外部资料/](外部资料/00_索引.md) | 7 | 成员交接（自瞄设计）、实体训练、yb 精度对照 / 终点线分析 / 接口契约、官方 SDK 与手册索引 | 接外部团队资料、比对外接口契约 |
+| [运维与排障/](运维与排障/00_索引.md) | 6 | 症状索引（52 条）、起栈与发车 runbook、弹仓与射击复位、常见拒绝与权限、日常动作速查 | 现场不动手先查这里；车不动 / 激光不亮按症状索引走 |
 
-> 篇数口径（2026-10-24 19:5x 复核）：含各册 `00_索引.md`。合计本目录 **63 篇文件**（含本 README 与各册 `00_索引.md`）；`ls docs/20_资料索引库 -Recurse -Filter *.md` 应为 64 篇。（10-24 新增 10 篇：外部资料 6 篇 + 1 册级索引；运维与排障 2 篇 + 1 册级索引；编年 1 篇。**P1b/P1c 仍在落地，篇数还会涨，P3a 收口以机器实测为准重扫。**）
+> 篇数口径（2026-10-24 23:4x 复核）：含各册 `00_索引.md` 与本 README。**8 册合计 63 篇 + 本 README = 64 篇**；`ls docs/20_资料索引库 -Recurse -Filter *.md` 应为 64 篇（守卫 `check_doc_policy.py` R6 按此口径判）。（10-24 新增：外部资料 6 篇 + 1 册级索引；运维与排障 5 篇 + 1 册级索引；编年 6 篇 + 总纲。）
 
 ---
 
@@ -199,6 +201,21 @@ status: 现行
 - 本篇与各分册**只写已核实的**；不确定一律写「未核实」，不许用「应该是」。
 - 发现本篇与代码/现场不符 → **以代码和现场为准**，并回来改本篇（改完在 `00_索引.md` 更新日期）。
 - 新增知识要**先通读再写入**（`AGENTS.md` §8.2），并登记到所属册的 `00_索引.md` 与本目录 `docs/目录索引.md`。
+
+## 7. 主题矩阵（缺口扫描 · 2026-10-24）
+
+> 由 `_tmp_session/doc-1024/` 热词扫描产出。机器可读版：`artifacts/wordcloud/热词_2026W43.csv`（173 词）与 `artifacts/wordcloud/gap_classification_20261024.csv`（89 缺口）。
+> 扫描口径：历史 489 篇里只提炼过 16 篇，其余按关键词频次列候选。**本表是「该入库 / 该降级 / 该删」的三档判定，不是主题目录。**
+
+| 档 | 判据 | 数量 | 代表词 |
+|---|---|---:|---|
+| 该入库 | 可复用长期对象：契约 / 接口 / 协议、规划方案、检查单 / SOP、能力评估、精度 / 终点分析、测试规范 | 20 | airgroundinterface、interfacecontract、fieldvalidationchecklist、preflightchecklist、movingtargetplan、hybridengineplan、MEASURE_SOP、car-side-result-payload、finish_line_analysis、CAPABILITY_L1 |
+| 该降级为过程稿 | 单次会话的评审 / 审计 / 复盘 / 运行记录 / 夜间报告 / 一次性 runbook | 47 | control_review、motion_review、r3_readonly_review、regression_review、deployment_review、NIGHT_AUDIT、NIGHT_REPORT、RUNBOOK_MORNING、PROJECT_STATUS、failure_attribution、radius_audit、topic_coupling_audit、EMITTER_CROSSCHECK、FLOW_COMPARISON、tracking_analysis |
+| 该删 | 文件名残渣 / 批次标签 / 泛词 / 已废弃 | 22 | docs__TEAM_STATUS、papers_misc、papers_path、papers_airground、papers_gimbal、papers_misc_batch1E_raw、misc_setY、px4_path、candidate_r1、evidence、implementation、verification、scoring、sensitivity、tables、link_status、DEPRECATED_dz_send_waypoint、dispatch_update_1911 |
+
+**结论**：89 个缺口里「该入库」只占 **22%** —— 与「多数是 `_tmp_session` 一次性过程稿」一致，没有因为「没条目」就判入库。
+
+**下一步**：本表转 `docs/30_任务卡库/在办/doc-1024/` 建卡，一档一卡；入库篇按 `AGENTS.md` §8.2 三步走（先通读 → 定归属 → 必要时拆）。
 
 ## 相关文件
 

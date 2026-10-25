@@ -1,0 +1,280 @@
+[
+ {
+  "词": "controlreview",
+  "缺口数": 3,
+  "489词频": 3,
+  "已覆盖": false,
+  "原题": [
+   "control_review",
+   "control_review",
+   "control_review"
+  ]
+ },
+ {
+  "词": "runcard",
+  "缺口数": 3,
+  "489词频": 3,
+  "已覆盖": false,
+  "原题": [
+   "RUN_CARD",
+   "RUN_CARD_20261021",
+   "RUN_CARD"
+  ]
+ },
+ {
+  "词": "provenance",
+  "缺口数": 2,
+  "489词频": 3,
+  "已覆盖": false,
+  "原题": [
+   "PROVENANCE",
+   "PROVENANCE"
+  ]
+ },
+ {
+  "词": "docsteamstatus",
+  "缺口数": 2,
+  "489词频": 2,
+  "已覆盖": false,
+  "原题": [
+   "docs__TEAM_STATUS",
+   "docs__TEAM_STATUS"
+  ]
+ },
+ {
+  "词": "leadbaseline",
+  "缺口数": 2,
+  "489词频": 2,
+  "已覆盖": false,
+  "原题": [
+   "lead_baseline",
+   "lead_baseline"
+  ]
+ },
+ {
+  "词": "motionreview",
+  "缺口数": 2,
+  "489词频": 2,
+  "已覆盖": false,
+  "原题": [
+   "motion_review",
+   "motion_review"
+  ]
+ },
+ {
+  "词": "deprecateddzsendwaypoint",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "DEPRECATED_dz_send_waypoint"
+  ]
+ },
+ {
+  "词": "fieldvalidationchecklist",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "FIELD_VALIDATION_CHECKLIST"
+  ]
+ },
+ {
+  "词": "controlcasesrerunnote",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "control_cases_rerun_note"
+  ]
+ },
+ {
+  "词": "carsideresultpayload",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "car-side-result-payload"
+  ]
+ },
+ {
+  "词": "papersmiscbatch1eraw",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "papers_misc_batch1E_raw"
+  ]
+ },
+ {
+  "词": "acceptancechecklist",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "acceptance_checklist"
+  ]
+ },
+ {
+  "词": "airgroundinterface",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "AIR_GROUND_INTERFACE"
+  ]
+ },
+ {
+  "词": "dispatchupdate1911",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "dispatch_update_1911"
+  ]
+ },
+ {
+  "词": "failureattribution",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "failure_attribution"
+  ]
+ },
+ {
+  "词": "finishlineanalysis",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "finish_line_analysis"
+  ]
+ },
+ {
+  "词": "preflightchecklist",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "preflight_checklist"
+  ]
+ },
+ {
+  "词": "preflightreference",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "PREFLIGHT_REFERENCE_20261018"
+  ]
+ },
+ {
+  "词": "topiccouplingaudit",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "topic_coupling_audit"
+  ]
+ },
+ {
+  "词": "airgroundprotocol",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "AIR_GROUND_PROTOCOL"
+  ]
+ },
+ {
+  "词": "attributionmatrix",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "attribution_matrix"
+  ]
+ },
+ {
+  "词": "emittercrosscheck",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "EMITTER_CROSSCHECK"
+  ]
+ },
+ {
+  "词": "geometrydocsreuse",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "geometry_docs_reuse"
+  ]
+ },
+ {
+  "词": "interfacecontract",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "interface_contract"
+  ]
+ },
+ {
+  "词": "deploymentreview",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "deployment_review"
+  ]
+ },
+ {
+  "词": "hybridengineplan",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "HYBRID_ENGINE_PLAN"
+  ]
+ },
+ {
+  "词": "movingtargetplan",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "MOVING_TARGET_PLAN"
+  ]
+ },
+ {
+  "词": "r3readonlyreview",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "r3_readonly_review"
+  ]
+ },
+ {
+  "词": "regressionreview",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "regression_review"
+  ]
+ },
+ {
+  "词": "schedulesimvalue",
+  "缺口数": 1,
+  "489词频": 1,
+  "已覆盖": false,
+  "原题": [
+   "schedule_sim_value"
+  ]
+ }
+]
