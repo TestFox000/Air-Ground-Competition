@@ -52,9 +52,11 @@ CAR_POSE_SIZE = 20        # x8 + y8 + yaw4
 
 
 class ObjectType(IntEnum):
-    """目标类别，顺序必须与 dzuav main.cpp 的 className 一致。
+    """目标类别，顺序必须与 dzuav main.cpp 的 className 表严格一致。
 
     2026-10-16 起切换 D 方案 13 类统一模型（hbb_d13_best.pt）。
+    2026-10-26 起 ft_v1 14 类（data_14_20261025）：新增 TARGET=整体靶板，
+    红/蓝面仍由 TARGET_RED/TARGET_BLUE 表达（world_model 不为整体板造态势实体）。
     PAPER 是场地纸片（雷图卡/桥顶箭头标志），语义由 world_model 按落格判定：
     普通格 PAPER=雷；K 列桥洞区 PAPER=通行箭头。
     """
@@ -72,6 +74,7 @@ class ObjectType(IntEnum):
     CAR_END = 10      # car_end 智能车终点
     UAV_START = 11    # uav_start 无人机起点
     UAV_END = 12      # uav_end 无人机终点
+    TARGET = 13       # target 整体靶板（ft_v1；面朝向看 TARGET_RED/BLUE）
 
 
 @dataclass(frozen=True)
@@ -167,7 +170,7 @@ def parse(data: bytes) -> IntelFrame:
     offset = HEADER_SIZE
     for _ in range(count):
         type_index, x, y, length, width = struct.unpack_from("<Bddff", data, offset)
-        if not ObjectType.PAPER <= type_index <= ObjectType.UAV_END:
+        if not ObjectType.PAPER <= type_index <= ObjectType.TARGET:
             raise ValueError(f"unknown object type: {type_index}")
         if not all(math.isfinite(v) for v in (x, y, length, width)):
             raise ValueError("object contains NaN/Inf")

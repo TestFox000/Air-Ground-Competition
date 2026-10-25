@@ -39,7 +39,7 @@ const char* className(ObjectClass type)
     static const char* names[] = {"paper",     "cell_label", "car",        "target_red",
                                   "target_blue", "obstacle", "bucket_red", "bucket_green",
                                   "bucket_cyan", "car_start", "car_end",    "uav_start",
-                                  "uav_end"};
+                                  "uav_end",    "target"};
     return names[static_cast<int>(type)];
 }
 
@@ -64,6 +64,7 @@ std::array<float, kObjectClassCount> kDeployConf = {
     0.25F,  // car_end
     0.25F,  // uav_start
     0.25F,  // uav_end
+    0.25F,  // target（ft_v1 整体板；与靶面类同门保召回，面语义仍由 red/blue 承担）
 };
 constexpr float kDeployNms = 0.45F;
 constexpr float kEdgePaperThr = 0.005F;

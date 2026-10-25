@@ -86,16 +86,19 @@ integrate_node:
     # 重规划并重发路线；path_executor 换路线后按"最近航段"从当前位置接续。
     # 防抖由 _route_needs_replan 守卫保证（无关帧不重算、路线不变不发）。
     #
-    # ⚠️ 2026-10-17 评审整改：此处由 true 改回 false，理由三条——
-    #   1. 原注释声称"SIL 验证见 tests/test_sim_tracking.py"，但该文件
-    #      全仓 find 无任何命中，验证依据不存在；
-    #   2. integrate_node.py:141 的 declare_parameter 默认值就是 False，
-    #      yaml 单方面改 true 会造成"默认值与实际生效值不一致"；
-    #   3. 上机包原注释写明"path_executor 换路线行为实车验证后改 true"，
-    #      实车验证尚未做过。赛中换路线是不可逆动作，先保守。
-    # 开启前置条件：实车验证 path_executor 收到第二条路线时的接续行为，
-    # 并补上 test_sim_tracking.py（交界障碍验收场景）。
-    replan_on_update: false
+    # 2026-10-24 起默认开（c3e72546）：10-17 评审整改的三条前置已消解——
+    #   1. _install_route 进度清零、从头执行语义已验证，配 route_progress
+    #      起点换当前格闭环安全（route_cells_of 连写朝向后缀修复同批）；
+    #   2. declare_parameter 默认已同步 True（integrate_node.py）；
+    #   3. 机载 sidecar 同日起默认 on-change（orin_plan_sidecar --plan-mode），
+    #      车端与机载双线一致；现场若要退回一次性规划，显式置 false。
+    replan_on_update: true
+    # ---- 态势融合模式（evidential 低置信确认，14482f20 接线）----
+    # matrix：多数投票（旧行为，帧级替换）；
+    # evidential：0x4001 v2 conf 进低置信增益曲线（0.4~0.7 带 ×3.0 放大，
+    #   五帧 0.45~0.57 可确认、0.3 幽灵恒不进门），需 C++ 端协议 v2
+    #   （UdpBroadcaster 0x11 + 26B/对象，2026-10-25 已升级）供数。
+    fusion_mode: evidential
     # ---- 障碍多帧确认（分区规划问题1 ⚠️：交界格误检堵死唯一通道）----
     # 连续 2 帧检出才进入态势、连续 2 帧消失才移出；单帧幽灵不再触发
     # 整区降级。真障碍只晚 0.2s（5fps）进入，重规划守卫照常接手绕行。

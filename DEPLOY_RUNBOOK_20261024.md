@@ -42,6 +42,31 @@ python tools/deploy_car_one_click.py                  # 同款 --dry-run / --ip 
 - 无人机：预检（SSH 探活/时钟偏差告警）→ 阶段①~④ → 静态验证门 G1~G4（缺雷修复标记/px4 进程/引擎在位/规划侧进程），任一 FAIL 给回滚命令；
 - 车端：推前推后各跑一遍本地门禁（route_check 0 error / config_selfcheck / test_deploy 88/88）——**推上车的东西必须是绿的**。
 
+#### 备选全链入口：orin_chain.py（2026-10-25 在册）
+
+```bash
+# 8 段链：探活→preflight→orin_deploy→patch_deploy→引擎转换→编译验证→bringup→健康检查+冒烟
+python tools/orin_chain.py --dry-run   # 密码走 AG_ORIN_PASS 环境变量，不落盘
+```
+
+与 deploy_one_click 的分工：one_click = 四阶段+静态验证门（本轮推荐主线）；
+orin_chain = 多了 patch_deploy 段、check_stack_health --kill-dup 与
+smoke_test_chain 冒烟（首装/换机后值得跑全 8 段）。两者编排重叠部分的取代
+关系待团队评审（2026-10-25 审计在案）；现场二选一即可，不要连跑。
+
+### ⚠️ ft_v1 契约换装（2026-10-26 起，与本仓 dzuav 代码绑定）
+
+C++ 契约已切 **14 类/18 通道**（types.hpp kObjectClassCount=14，含 target
+整体板）。HbbDetector 构造期形状校验 `[1,18,33600]`：**17 通道 d13 引擎配
+本代码会 fail-fast，侦察栈起不来**。上机编译本代码前必须同批完成：
+1. `models/release/current_hbb_detector` 指针 → ft_v1 ONNX（best.onnx，
+   `default\data_14_20261025\runs\...\weights\`）；
+2. `orin_convert_engines.sh` 重转 `~/dzuav/engines/hbb_detector_*_fp16.engine`；
+3. `tools/ml/verify_contract.py --model <ft_v1.onnx>` 通过（通道数从
+   types.hpp 单点派生，18 不符会拒）。
+反向回退同理：要继续用 d13 引擎，须回退到本契约变更之前的提交。
+cell_classifier（v4d 格号）契约不变，无需动。
+
 ### 分步执行（fallback / 排障时用）
 
 ```bash

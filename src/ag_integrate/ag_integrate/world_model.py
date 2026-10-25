@@ -137,6 +137,8 @@ class WorldModel:
             elif obj.type is ObjectType.TARGET_RED:
                 targets.append(TargetRef(cell, False))
             # CAR / CELL_LABEL / BUCKET_* / 起止点：不进态势
+            # TARGET（ft_v1 整体板）同样不进：红/蓝面才携带禁火/必打语义，
+            # 整体板只是存在性证据，单独造实体会和面框的 TargetRef 重复计格。
 
         # 蓝靶去重（2026-10-17 修订）：同帧对同一蓝靶双检出会产生两个
         # TargetRef → 规划侧生成两组射击位候选，组合数翻倍且两个停靠格

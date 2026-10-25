@@ -9,6 +9,10 @@ namespace dzuav
 
 // 检测类别。顺序必须与 main.cpp className 表及训练标签严格一致。
 // 2026-10-16 起切换 D 方案 13 类统一模型（hbb_d13_best.pt，17 通道引擎）。
+// 2026-10-26 起 ft_v1 14 类（data_14_20261025，18 通道引擎）：新增 Target=整体
+// 靶板，红/蓝面仍由 TargetRed/TargetBlue 判定。⚠️ 契约与引擎必须同批换装：
+// 18 通道代码配 17 通道 d13 引擎会在 HbbDetector 形状校验处 fail-fast，
+// 上机时需同步换 hbb ft_v1 engine（见 BINARY_MANIFEST）。
 // Paper 语义由车端按落格判定：普通格纸片=雷，K 列桥洞区纸片=通行箭头。
 enum class ObjectClass : int
 {
@@ -25,9 +29,10 @@ enum class ObjectClass : int
     CarEnd = 10,     // 智能车终点
     UavStart = 11,   // 无人机起点
     UavEnd = 12,     // 无人机终点
+    Target = 13,     // 整体靶板（ft_v1；面朝向由 TargetRed/TargetBlue 表达）
 };
 
-constexpr int kObjectClassCount = 13;
+constexpr int kObjectClassCount = 14;
 
 // 地面格号：列字母 A~N + 行号 1~11。
 struct CellId

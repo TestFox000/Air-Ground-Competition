@@ -4,8 +4,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -79,10 +81,12 @@ void UdpBroadcaster::send(uint64_t ts, const std::vector<WorldObject>& o)
     // count 字段仅 uint16：防御性截断（实际每帧检测数十个，正常不会触及），
     // 截断时长度字段与序列化目标数同步收窄，保持帧内自洽。
     const size_t count = o.size() < 0xffff ? o.size() : 0xffff;
-    buf_.insert(buf_.end(), {0xef, 0xef, 0xef, 0xef, 0x10});
+    // 2026-10-24 协议 v2（0x11）：目标段尾 1B conf（uint8=round(conf*255)），
+    // 车端 intel_protocol 按 version 分发对象长度（v1 帧零破坏，conf 按 1.0 兼容）。
+    buf_.insert(buf_.end(), {0xef, 0xef, 0xef, 0xef, 0x11});
     put<uint64_t>(buf_, ts);
     put<uint16_t>(buf_, 0x4001);
-    put<uint32_t>(buf_, uint32_t(2 + count * 25));
+    put<uint32_t>(buf_, uint32_t(2 + count * 26));
     put<uint16_t>(buf_, uint16_t(count));
     for (size_t i = 0; i < count; ++i)
     {
@@ -92,6 +96,9 @@ void UdpBroadcaster::send(uint64_t ts, const std::vector<WorldObject>& o)
         put<double>(buf_, x.position.y);
         put<float>(buf_, x.length);
         put<float>(buf_, x.width);
+        // clamp 防御：检测置信度恒在 [0,1]，越界值不产生非法 uint8 量化。
+        put<uint8_t>(buf_, uint8_t(
+            std::lround(std::clamp(x.confidence, 0.F, 1.F) * 255.F)));
     }
     put<uint16_t>(buf_, crc(buf_.data() + 4, buf_.size() - 4));
     buf_.insert(buf_.end(), 4, 0xfe);

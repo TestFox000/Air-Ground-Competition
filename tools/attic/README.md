@@ -16,3 +16,6 @@
 | `split_cell_labels.py` | 根目录 | 格号标签一次性切分脚本 |
 | `test_crops_onnx.py` | 根目录 | 裁片 ONNX 一次性验证脚本（非 pytest 套件成员） |
 | `convert_yolo_to_xanylabeling_json.py` | 根目录 | YOLO→X-AnyLabeling 一次性转换；现役改编版是 `tools/convert_capture_to_xanylabeling.py` |
+| `dzuav_mjpg/` | `onboard/dzuav_mjpg` | 机上13类部署线收编存档:板载 CellGrid/RoutePlanner 规划已被 sidecar 取代、参数序落后于 8df968f8、不在 orin_deploy 编排线(2026-10-25 未接线审计) |
+| `orin_run_dzuav_d13.sh` | `tools/` | D13 侦察栈启动脚本,依赖 dzuav_mjpg 残留二进制;现役引擎线由 `tools/orin_run_dzuav.sh` 承担(默认即 D13+v4d) |
+| `ground_projection.py`、`anchored_registration.py` | `src/ag_integrate/ag_integrate` | 2026-10-17 像素→场地系反投影方案;世界坐标已由 dzuav C++ PnP(types.hpp WorldObject)承担,Python 复线未采用、零引用(2026-10-25 未接线审计) |

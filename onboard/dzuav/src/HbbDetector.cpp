@@ -1,13 +1,14 @@
 #include "dzuav/HbbDetector.hpp"
 
 #include <algorithm>
+#include <string>
 #include <opencv2/dnn/dnn.hpp>
 #include <opencv2/imgproc.hpp>
 namespace dzuav
 {
 namespace
 {
-// 引擎输出形状契约校验用：Dims 打印成 "[1,17,33600]" 便于定位换错引擎的问题。
+// 引擎输出形状契约校验用：Dims 打印成 "[1,K,33600]" 便于定位换错引擎的问题。
 // 模板形参兼容 TRT 8.x 的 Dims（int32）与 10.x 的 Dims64。
 template <class DimsT>
 std::string dimsToString(const DimsT& d)
@@ -23,8 +24,8 @@ std::string dimsToString(const DimsT& d)
     return s;
 }
 
-// 输出通道数：4 框坐标 + 13 类（D 方案 13 类统一模型）。
-constexpr int kOutChannels = 4 + kObjectClassCount;   // 17
+// 输出通道数：4 框坐标 + 类别数（types.hpp 单点派生；ft_v1 14 类 = 18）。
+constexpr int kOutChannels = 4 + kObjectClassCount;   // 18（旧 d13 = 17）
 constexpr int kAnchors = 33600;                        // (160²+80²+40²)，imgsz=1280
 constexpr int kInputSide = 1280;
 
@@ -66,11 +67,14 @@ void HbbDetector::allocate(const std::string& p)
     if (!context_->setInputShape("images", nvinfer1::Dims4{1, 3, kInputSide, kInputSide}))
         throw std::runtime_error("cannot set hbb_detector input shape");
     // 输出形状契约校验：不符即抛错并打印实际形状，防换引擎后静默读垃圾。
+    // kOutChannels 随 types.hpp 类别数派生：ft_v1 14 类 = 18，旧 d13 = 17——
+    // 17 通道 d13 引擎配本代码会在此 fail-fast（换引擎见 BINARY_MANIFEST）。
     const auto out_dims = context_->getTensorShape("output0");
     if (out_dims.nbDims != 3 || out_dims.d[0] != 1 ||
         out_dims.d[1] != kOutChannels || out_dims.d[2] != kAnchors)
-        throw std::runtime_error("hbb_detector output0 shape mismatch: expect [1,17,33600], got " +
-                                 dimsToString(out_dims));
+        throw std::runtime_error("hbb_detector output0 shape mismatch: expect [1," +
+                                 std::to_string(kOutChannels) + "," + std::to_string(kAnchors) +
+                                 "], got " + dimsToString(out_dims));
     const size_t in_bytes = 3 * static_cast<size_t>(kInputSide) * kInputSide * sizeof(float);
     cudaCheck(cudaMalloc(&input_, in_bytes));
     cudaCheck(cudaMalloc(&output_, kOutChannels * kAnchors * sizeof(float)));

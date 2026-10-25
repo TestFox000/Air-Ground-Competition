@@ -65,6 +65,7 @@ _KIND_BY_TYPE = {
     ObjectType.CAR_END: "car_end",
     ObjectType.UAV_START: "uav_start",
     ObjectType.UAV_END: "uav_end",
+    ObjectType.TARGET: "target",
 }
 
 SYMBOLS = {

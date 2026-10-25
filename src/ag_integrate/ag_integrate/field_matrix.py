@@ -47,6 +47,7 @@ KIND_NAMES: dict[ObjectType, str] = {
     ObjectType.CAR_END: "car_end",
     ObjectType.UAV_START: "uav_start",
     ObjectType.UAV_END: "uav_end",
+    ObjectType.TARGET: "target",
 }
 
 # 同格多目标时的显示优先级（越小越优先）
