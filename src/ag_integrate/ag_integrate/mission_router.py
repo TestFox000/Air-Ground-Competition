@@ -145,6 +145,107 @@ def _build_edges() -> tuple[tuple[tuple[int, int, float, bool, int, int, int, in
 _EDGES = _build_edges()
 
 
+def _build_inedges() -> tuple[tuple[tuple[int, int, float, bool, int, int, int, int], ...], ...]:
+    """_INEDGES[ci] = ((p_ci, trav, step, diag, o1, o2, dr, p_row), ...)
+
+    倒车镜像边表：前进边 (p,h_dep)→(ci,trav) 的倒车遍历是 (ci,trav,R)→(p,h_dep,R)
+    ——同一条物理弧、扫掠同一片空间，因此边级过滤（防切角/桥门/隧道）与前进边
+    完全同判（2026-10-25 倒车挡位原语）。trav = p→ci 的行驶方向索引。
+    """
+    ine: list[list[tuple[int, int, float, bool, int, int, int, int]]] = [
+        [] for _ in range(_N_CELLS)
+    ]
+    for r in range(ROWS):
+        for c in range(COLS):
+            ci = r * COLS + c
+            for nci, nh, step, diag, o1, o2, dr, _nrow in _EDGES[ci]:
+                ine[nci].append((ci, nh, step, diag, o1, o2, dr, r))
+    return tuple(tuple(x) for x in ine)
+
+
+_INEDGES = _build_inedges()
+
+
+def _build_turn_side_tables() -> tuple[tuple[tuple[int, ...], ...], tuple[tuple[int, ...], ...]]:
+    """转弯内侧正交方向 _INNER 与内切对角方向 _IDIAG 的 8×8 查表（-1=共线）。
+
+    与 turn_feasibility_v2._inside_dir/_clearance_inside 同一几何口径：
+    左转（cross>0）取 v_in 逆时针 90°，右转取顺时针 90°；内切对角 =
+    sign(v_in + v_out)。守卫与实体挡板探测共用（2026-10-25 综合规划）。
+    """
+    idx = {d: i for i, d in enumerate(_DIRS)}
+    inner: list[list[int]] = [[-1] * 8 for _ in range(8)]
+    idiag: list[list[int]] = [[-1] * 8 for _ in range(8)]
+    for h, vh in enumerate(_DIRS):
+        for nh, vo in enumerate(_DIRS):
+            cross = vh[0] * vo[1] - vh[1] * vo[0]
+            if cross > 0:
+                inner[h][nh] = idx.get((-vh[1], vh[0]), -1)
+            elif cross < 0:
+                inner[h][nh] = idx.get((vh[1], -vh[0]), -1)
+            sx, sy = vh[0] + vo[0], vh[1] + vo[1]
+            if sx or sy:
+                idiag[h][nh] = idx.get((1 if sx > 0 else -1, 1 if sy > 0 else -1), -1)
+    return tuple(tuple(r) for r in inner), tuple(tuple(r) for r in idiag)
+
+
+_INNER, _IDIAG = _build_turn_side_tables()
+
+# _SIDES[h][nh] = 转弯需探测的方向元组（内侧正交+内切对角，共线=空）——
+# 守卫热路径查表用，避免每次转弯现算 min(genexpr)（实测占增强模式 60%+ 耗时）。
+_SIDES: tuple[tuple[tuple[int, ...], ...], ...] = tuple(
+    tuple(
+        tuple(d for d in (_INNER[h][nh], _IDIAG[h][nh]) if d >= 0)
+        for nh in range(8)
+    )
+    for h in range(8)
+)
+
+# 实体挡板侵入深度：中场挡板总高半格（175mm），上下各伸进邻格 1/4 格。
+# 格占用模型看不见这部分几何（K7 贴板死锁 / M7 转弯 1.2mm 余量的直接成因），
+# solid_barriers=True 时进搜索内判可行性。
+_BOARD_INTRUDE_MM = 87.5
+
+# 挡位：F=前进、R=倒车。倒车距离按 rev_mult 倍计价、换挡按 gear_switch
+# 格当量计价（2026-10-25 倒车挡位原语；三点掉头 = F弧+换挡+R弧+换挡+F弧
+# 的自然涌现，不再需要单独宏原语）。
+_REV_MULT = 1.5
+_GEAR_SWITCH = 0.5
+
+# 朝向传递 Held-Karp 的必经点数上限：状态 2^n×n×8、转移 ×8n（n=10 →
+# 约 330 万次内层，纯 Python 亚秒级；n=12 最坏千万级太慢）。n 大退乐观界
+# 口径（2026-10-25 朝向传递边权）。分区后 n≤8 天然覆盖。
+_HK_HEADING_MAX = 10
+
+
+def _build_solid_barriers(
+    mid_boundary: int, bridge_open, board_intrude_mm: float = _BOARD_INTRUDE_MM,
+) -> tuple[dict[int, list[float]] | None, tuple]:
+    """实体挡板探测表：{格索引: 8 向可用横向空间 mm}（575=开阔哨兵）。
+
+    中场挡板（D~N 列）实体侵入边界两侧格：上侧格（第 mid_boundary 行 1 基）
+    朝南、下侧格朝北的探测值 = 侵入深度（默认 87.5mm）。桥洞开口列无挡板。
+    返回 (map 或 None, 缓存键)；map 供 _dijkstra 查询，键供 _cached_dijkstra
+    进缓存键（dict 不可哈希）。
+    """
+    holes = {c.col for c in bridge_open}
+    smap: dict[int, list[float]] = {}
+    for col in _BARRIER_COLS:
+        if col in holes:
+            continue
+        # 上侧格（0 基 row=mid-1）朝南探测（_DIRS[2]=(0,1)，行号增=南）；
+        # 下侧格（row=mid）朝北（_DIRS[6]=(0,-1)）。首版曾写反——
+        # _DIRS 的 y 轴向下，(0,-1) 是北不是南。
+        for row, d_idx in ((mid_boundary - 1, 2), (mid_boundary, 6)):
+            # 行越界（mid_boundary 异常时）防御跳过
+            if 0 <= row < ROWS:
+                ci = row * COLS + col
+                arr = smap.setdefault(ci, [575.0] * 8)
+                arr[d_idx] = board_intrude_mm
+    key = tuple(sorted((ci, tuple(a)) for ci, a in smap.items()))
+    return (smap or None), key
+
+
 def _turn_units(h1: int, h2: int) -> int:
     """两个航向之间相差几个 45°。"""
     d = abs(h1 - h2)
@@ -178,8 +279,13 @@ def _dijkstra(
     cross_penalty: float = 0.0,
     tunnel_axes: frozenset[int] | None = None,
     tunnel_req: dict[int, int] | None = None,
+    turn90_guard: bool = False,
+    solids: dict[int, list[float]] | None = None,
+    reverse: bool = False,
+    rev_mult: float = _REV_MULT,
+    gear_switch: float = _GEAR_SWITCH,
 ) -> tuple[dict, dict, dict]:
-    """(格, 航向) 状态空间的 Dijkstra；返回 (dist, prev, aux)。
+    """(格, 航向[, 挡位]) 状态空间的 Dijkstra；返回 (dist, prev, aux)。
 
     aux[(cell, h)] = (累计转向 45° 单位数, 累计步数)——同代价平局裁决用：
     代价相同时偏好更平直（转向少）再步数少的路线（步数/姿态平衡）。
@@ -195,14 +301,27 @@ def _dijkstra(
     terminal 指定时，该格成为终点态：进入即停、不许穿过再离开
     （避免“路过目标又折返”的路径）。
 
+    2026-10-25 综合规划三项（默认全关 = 行为与旧版逐字节一致）：
+      turn90_guard：90° 弯内切对角格被桶/挡板占用则删边（原模块级
+        _TURN_GUARD 的运行时化；模块级开关仍生效，两者取或）。
+      solids：实体挡板探测表（{格: 8 向 mm}）。给出时转弯可用空间按
+        内侧正交 + 内切对角两向探测取小（桶=225、开阔=575、挡板=探测值），
+        avail < need（_NEED_MM 物理判据）的边直接删除——45° 贴板、
+        90° 贴桶这类"格占用模型看不见"的几何债在搜索内出清。
+      reverse：倒车挡位原语。状态扩为 (格, 朝向, F/R)：R 态走镜像边
+        （倒车遍历同一条物理弧，边级过滤同判），距离按 rev_mult 倍、
+        换挡（F↔R 原地）按 gear_switch 计价。三点掉头由此自然涌现，
+        替代旧"180° 转向按倒车计 ×1"的代价口径假设。
+
     平局裁决（2026-10-17 步数-姿态平衡）：代价、转向、步数三者沿路径
     可加且非负 → (代价, 转向, 步数) 字典序 Dijkstra 仍最优。turn_45=0
     （纯距离最短）时所有同距离形态全平局，本裁决保证取"转向最少 →
     步数最少"的最平直形态，不出锯齿路线；turn_45>0 时转向已计价，
     裁决只在精确补偿平局（如 Δ转向=4×0.75 ↔ Δ正交步=3）中生效。
 
-    实现：整数态 (si = ci*8+h) + 预构边表 + 位图障碍，出口处物化为
-    原 {(CellRef, h): ...} 字典接口（消费方 _arrival_state/_trace_states 不变）。
+    实现：整数态 (si = ci*8+h [+ N8 偏移= R 挡]) + 预构边表 + 位图障碍，
+    出口处物化为原 {(CellRef, h): ...} 字典接口（消费方 _arrival_state/
+    _trace_states 不变；挡位是搜索内部维度，同 (格,朝向) 双挡位取更优）。
     """
     blocked_bits = bytearray(_N_CELLS)
     for c in blocked:
@@ -227,11 +346,21 @@ def _dijkstra(
     term_ci = terminal.row * COLS + terminal.col if terminal is not None else -1
     start_ci = start.row * COLS + start.col
 
-    dist_i = [_INF] * (_N_CELLS * 8)
-    turns_i = [_BIG_INT] * (_N_CELLS * 8)   # 累计转向 45° 单位（平局裁决）
-    steps_i = [_BIG_INT] * (_N_CELLS * 8)    # 累计步数（平局裁决）
-    prev_i = [-1] * (_N_CELLS * 8)
-    settled = bytearray(_N_CELLS * 8)
+    guard_on = turn90_guard or _TURN_GUARD
+    solid_on = solids is not None
+    # 实体挡板行表：全格列表（无挡板的格 = None），热路径一次下标取行，
+    # 避免 dict.get 哈希 + min(genexpr)（实测占增强模式 60%+ 耗时）。
+    solid_rows: list[list[float] | None] = [None] * _N_CELLS
+    if solid_on:
+        for _ci, _row8 in solids.items():
+            solid_rows[_ci] = _row8
+    n8 = _N_CELLS * 8
+    nst = n8 * 2 if reverse else n8
+    dist_i = [_INF] * nst
+    turns_i = [_BIG_INT] * nst   # 累计转向 45° 单位（平局裁决）
+    steps_i = [_BIG_INT] * nst    # 累计步数（平局裁决）
+    prev_i = [-1] * nst
+    settled = bytearray(nst)
     tick = count()
     pq: list[tuple[float, int, int, int, int]] = []
     for h in entry_headings:
@@ -242,6 +371,8 @@ def _dijkstra(
         heapq.heappush(pq, (0.0, 0, 0, next(tick), si))
     push, pop = heapq.heappush, heapq.heappop
     _grade, _sw = _TURN_GRADE, _SPACE_W   # 热路径预取（转角分级，V1019 移植）
+    _sides, _need, _dirs = _SIDES, _NEED_MM, _DIRS
+
     while pq:
         d, t, s, _, si = pop(pq)
         if settled[si]:
@@ -249,102 +380,244 @@ def _dijkstra(
         settled[si] = 1
         if dist_i[si] < d - 1e-12:
             continue
-        ci = si >> 3
+        in_r = reverse and si >= n8
+        core = si - n8 if in_r else si
+        ci = core >> 3
         if ci == term_ci:
             continue  # 终点态：不再向外扩展
-        h = si & 7
+        h = core & 7
         row = ci // COLS
-        for nci, nh, step, diag, o1, o2, dr, nrow in _EDGES[ci]:
-            if blocked_bits[nci]:
-                continue
-            if diag:
-                if not allow_diagonal:
+        if not in_r:
+            # ---- F 挡：前进边（旧行为原样 + 守卫/实体挡板增强）----
+            for nci, nh, step, diag, o1, o2, dr, nrow in _EDGES[ci]:
+                if blocked_bits[nci]:
                     continue
-                # 防切角：对角移动要求两侧正交格均非障碍
-                if blocked_bits[o1] or blocked_bits[o2]:
+                if diag:
+                    if not allow_diagonal:
+                        continue
+                    # 防切角：对角移动要求两侧正交格均非障碍
+                    if blocked_bits[o1] or blocked_bits[o2]:
+                        continue
+                if (
+                    dr and gates_bits is not None
+                    and ((row < mid_boundary <= nrow) or (nrow < mid_boundary <= row))
+                ):
+                    # 桥洞一格宽：只能正交穿越，且必须贴着 gate 格
+                    if diag or not (gates_bits[ci] or gates_bits[nci]):
+                        continue
+                # 桥洞隧道轴向约束：斜进斜出/洞内转向=撞桥边（物理必修）
+                if tunnel_axes is not None:
+                    if nci in tunnel_axes and dr != 0:
+                        continue            # 进出隧道格只允许同行正交（东西向）
+                    if ci in tunnel_axes:
+                        rev = (h + 4) % 8
+                        if dr != 0 or (nh != h and nh != rev):
+                            continue        # 出洞只许直行穿洞或原路倒出（倒车=4×45°转向代价）
+                # 隧道单向：逆向入洞禁边（规则方向=桥顶箭头指向）
+                if tunnel_req is not None:
+                    req_h = tunnel_req.get(nci, -1)
+                    if req_h >= 0 and nh != req_h:
+                        continue
+                # 进洞邻格禁换行（2026-10-24，dzbrain 实测移植）：换行/对角进出
+                # 进洞邻格 = 蹭桥室冗余墙（余量 ~2cm）；沿行（东西向）进出不受限。
+                if entry_nbr is not None and dr and (ci in entry_nbr or nci in entry_nbr):
                     continue
-            if (
-                dr and gates_bits is not None
-                and ((row < mid_boundary <= nrow) or (nrow < mid_boundary <= row))
-            ):
-                # 桥洞一格宽：只能正交穿越，且必须贴着 gate 格
-                if diag or not (gates_bits[ci] or gates_bits[nci]):
-                    continue
-            # 桥洞隧道轴向约束：斜进斜出/洞内转向=撞桥边（物理必修）
-            if tunnel_axes is not None:
-                if nci in tunnel_axes and dr != 0:
-                    continue            # 进出隧道格只允许同行正交（东西向）
-                if ci in tunnel_axes:
-                    rev = (h + 4) % 8
-                    if dr != 0 or (nh != h and nh != rev):
-                        continue        # 出洞只许直行穿洞或原路倒出（倒车=4×45°转向代价）
-            # 隧道单向：逆向入洞禁边（规则方向=桥顶箭头指向）
-            if tunnel_req is not None:
-                req_h = tunnel_req.get(nci, -1)
-                if req_h >= 0 and nh != req_h:
-                    continue
-            # 进洞邻格禁换行（2026-10-24，dzbrain 实测移植）：换行/对角进出
-            # 进洞邻格 = 蹭桥室冗余墙（余量 ~2cm）；沿行（东西向）进出不受限。
-            if entry_nbr is not None and dr and (ci in entry_nbr or nci in entry_nbr):
-                continue
-            # 转角硬件守卫（opt-in，见 _TURN_GUARD，V1019 移植）：90° 弯的
-            # 内切对角格 = 当前格 + dir(h) + dir(nh)；越界或被桶/挡板占用则此边不存在。
-            if _TURN_GUARD and _TURNS[h][nh] == 2:
-                _cr = row + _DIRS[h][1] + _DIRS[nh][1]
-                _cc = ci % COLS + _DIRS[h][0] + _DIRS[nh][0]
-                if not (0 <= _cr < ROWS and 0 <= _cc < COLS):
-                    continue
-                if blocked_bits[_cr * COLS + _cc]:
-                    continue
-            # 穿越挡板边界附加代价：分区策略软约束（docs/分区规划与感知约束）
-            extra = 0.0
-            if cross_penalty and dr and (
-                    (row < mid_boundary <= nrow) or (nrow < mid_boundary <= row)):
-                extra = cross_penalty
-            _tu = _TURNS[h][nh]
-            # 转角分级代价（V1019 移植）：90°×2、135°+×10（见 _TURN_GRADE 注释）。
-            # _grade/_sw 循环外预取：内循环热路径尽量只碰局部名（求解器路径
-            # O(n²) 次规划对每一点开销都敏感，见 test_worst_case_solver_planning_speed）。
-            nd = d + step + _tu * turn_45 * _grade[_tu] + extra
-            if _sw > 0.0 and _tu >= 2:
-                # 空间缺口代价：内切对角格被桶/挡板占用 → avail 仅 225mm
-                # （半格 175 + 桶边 50）；空着 → 575mm。与 turn_feasibility_v2 同判据。
-                _cr2 = row + _DIRS[h][1] + _DIRS[nh][1]
-                _cc2 = ci % COLS + _DIRS[h][0] + _DIRS[nh][0]
-                _av = 225.0
-                if 0 <= _cr2 < ROWS and 0 <= _cc2 < COLS and not blocked_bits[_cr2 * COLS + _cc2]:
+                _tu = _TURNS[h][nh]
+                if _tu and (guard_on or solid_on):
+                    # 转弯空间判定：90° 守卫（旧口径：内切对角格被占/越界删边）
+                    # 与实体挡板（新口径：内侧正交+内切对角探测，avail<need 删边）。
+                    # 45° 快速通道：桶邻格 225 ≥ need 146 恒可行，只有实体挡板
+                    # 能否决——本格无实体行的 45° 弯直接放行，不进探测循环。
+                    if solid_on:
+                        _srow = solid_rows[ci]
+                        if _tu != 1 or _srow is not None:
+                            av = 575.0
+                            for dd in _sides[h][nh]:
+                                av2 = _srow[dd] if _srow is not None else 575.0
+                                if av2 >= 575.0:
+                                    _cc2 = ci % COLS + _dirs[dd][0]
+                                    _cr2 = row + _dirs[dd][1]
+                                    if 0 <= _cr2 < ROWS and 0 <= _cc2 < COLS \
+                                            and blocked_bits[_cr2 * COLS + _cc2]:
+                                        av2 = 225.0
+                                if av2 < av:
+                                    av = av2
+                            if av < _need[_tu]:
+                                continue
+                    elif guard_on and _tu == 2:
+                        _cr = row + _dirs[h][1] + _dirs[nh][1]
+                        _cc = ci % COLS + _dirs[h][0] + _dirs[nh][0]
+                        if not (0 <= _cr < ROWS and 0 <= _cc < COLS):
+                            continue
+                        if blocked_bits[_cr * COLS + _cc]:
+                            continue
+                # 穿越挡板边界附加代价：分区策略软约束（docs/分区规划与感知约束）
+                extra = 0.0
+                if cross_penalty and dr and (
+                        (row < mid_boundary <= nrow) or (nrow < mid_boundary <= row)):
+                    extra = cross_penalty
+                # 转角分级代价（V1019 移植）：90°×2、135°+×10（见 _TURN_GRADE 注释）。
+                # _grade/_sw 循环外预取：内循环热路径尽量只碰局部名（求解器路径
+                # O(n²) 次规划对每一点开销都敏感，见 test_worst_case_solver_planning_speed）。
+                nd = d + step + _tu * turn_45 * _grade[_tu] + extra
+                if _sw > 0.0 and _tu >= 2:
+                    # 空间缺口代价：内切对角格被桶/挡板占用 → avail 仅 225mm
+                    # （半格 175 + 桶边 50）；空着 → 575mm。与 turn_feasibility_v2 同判据
+                    # （2026-10-25：实体挡板格优先取探测值，与守卫同一口径）。
+                    _idg = _IDIAG[h][nh]
                     _av = 575.0
-                _def = _NEED_MM[_tu] - _av
-                if _def > 0.0:
-                    nd += _sw * _def
-            nt = t + _tu
-            nst = s + 1
-            nsi = nci * 8 + nh
-            cur_d = dist_i[nsi]
-            # 主序：代价更小直接胜出；同代价平局比 (转向, 步数) 字典序
-            better = nd < cur_d - 1e-12 or (
-                abs(nd - cur_d) <= 1e-12
-                and (nt, nst) < (turns_i[nsi], steps_i[nsi])
-            )
-            if better:
-                dist_i[nsi] = nd
-                turns_i[nsi] = nt
-                steps_i[nsi] = nst
-                prev_i[nsi] = si
-                push(pq, (nd, nt, nst, next(tick), nsi))
+                    if _idg >= 0:
+                        if solid_on:
+                            _sr = solid_rows[ci]
+                            if _sr is not None:
+                                _av = _sr[_idg]
+                        if _av >= 575.0:
+                            _cc2 = ci % COLS + _dirs[_idg][0]
+                            _cr2 = row + _dirs[_idg][1]
+                            if 0 <= _cr2 < ROWS and 0 <= _cc2 < COLS \
+                                    and blocked_bits[_cr2 * COLS + _cc2]:
+                                _av = 225.0
+                    nd += _sw * max(0.0, _need[_tu] - _av)
+                nt = t + _tu
+                nst_ = s + 1
+                nsi = nci * 8 + nh
+                cur_d = dist_i[nsi]
+                # 主序：代价更小直接胜出；同代价平局比 (转向, 步数) 字典序
+                better = nd < cur_d - 1e-12 or (
+                    abs(nd - cur_d) <= 1e-12
+                    and (nt, nst_) < (turns_i[nsi], steps_i[nsi])
+                )
+                if better:
+                    dist_i[nsi] = nd
+                    turns_i[nsi] = nt
+                    steps_i[nsi] = nst_
+                    prev_i[nsi] = si
+                    push(pq, (nd, nt, nst_, next(tick), nsi))
+            if reverse and gear_switch > 0.0:
+                # F→R 换挡（原地：停车+换挡）
+                nsi = n8 + ci * 8 + h
+                nd = d + gear_switch
+                if nd < dist_i[nsi] - 1e-12:
+                    dist_i[nsi] = nd
+                    turns_i[nsi] = t
+                    steps_i[nsi] = s
+                    prev_i[nsi] = si
+                    push(pq, (nd, t, s, next(tick), nsi))
+        else:
+            # ---- R 挡：倒车镜像边 (ci,h,R)→(p,h_dep,R) ----
+            # 底层前进边 (p,h_dep)→(ci,h)：同一条物理弧，边级过滤（防切角/
+            # 桥门/隧道/进洞邻格）按该前进边同判；转向代价 = h_dep→h 在 p 处
+            # 的转弯（镜像几何：同一片扫掠空间）。
+            if gear_switch > 0.0:
+                nsi = ci * 8 + h          # R→F 换挡
+                nd = d + gear_switch
+                if nd < dist_i[nsi] - 1e-12:
+                    dist_i[nsi] = nd
+                    turns_i[nsi] = t
+                    steps_i[nsi] = s
+                    prev_i[nsi] = si
+                    push(pq, (nd, t, s, next(tick), nsi))
+            for p_ci, trav, step, diag, o1, o2, dr, prow in _INEDGES[ci]:
+                if trav != h or blocked_bits[p_ci]:
+                    continue              # 倒车行驶方向 = 车尾方向（trav 必须 = 车头 h）
+                if diag:
+                    if not allow_diagonal:
+                        continue
+                    if blocked_bits[o1] or blocked_bits[o2]:
+                        continue
+                if (
+                    dr and gates_bits is not None
+                    and ((prow < mid_boundary <= row) or (row < mid_boundary <= prow))
+                ):
+                    if diag or not (gates_bits[p_ci] or gates_bits[ci]):
+                        continue
+                if tunnel_axes is not None:
+                    if ci in tunnel_axes and dr != 0:
+                        continue          # 镜像：倒车进入隧道格 ci 也只许同行正交
+                    if p_ci in tunnel_axes:
+                        prev_in_tunnel = True
+                    else:
+                        prev_in_tunnel = False
+                else:
+                    prev_in_tunnel = False
+                if tunnel_req is not None:
+                    req_h = tunnel_req.get(ci, -1)
+                    if req_h >= 0 and h != req_h:
+                        continue          # 镜像：倒车进入 ci 的行驶方向受单向约束
+                if entry_nbr is not None and dr and (p_ci in entry_nbr or ci in entry_nbr):
+                    continue
+                extra = 0.0
+                if cross_penalty and dr and (
+                        (prow < mid_boundary <= row) or (row < mid_boundary <= prow)):
+                    extra = cross_penalty
+                for h_dep in range(8):
+                    if prev_in_tunnel:
+                        rev = (h_dep + 4) % 8
+                        if h != h_dep and h != rev:
+                            continue      # 镜像：隧道格上的倒车出弧只许直退/原路倒出
+                    _tu = _TURNS[h_dep][h]
+                    if _tu and (guard_on or solid_on):
+                        # 同 F 挡口径（含 45° 无挡板快速通道），探测格 = 弧的
+                        # 转弯发生格 p（镜像几何），方向对 = (h_dep → h)。
+                        if solid_on:
+                            _srow = solid_rows[p_ci]
+                            if _tu != 1 or _srow is not None:
+                                av = 575.0
+                                for dd in _sides[h_dep][h]:
+                                    av2 = _srow[dd] if _srow is not None else 575.0
+                                    if av2 >= 575.0:
+                                        _cc2 = p_ci % COLS + _dirs[dd][0]
+                                        _cr2 = prow + _dirs[dd][1]
+                                        if 0 <= _cr2 < ROWS and 0 <= _cc2 < COLS \
+                                                and blocked_bits[_cr2 * COLS + _cc2]:
+                                            av2 = 225.0
+                                    if av2 < av:
+                                        av = av2
+                                if av < _need[_tu]:
+                                    continue
+                        elif guard_on and _tu == 2:
+                            _cr = prow + _dirs[h_dep][1] + _dirs[h][1]
+                            _cc = p_ci % COLS + _dirs[h_dep][0] + _dirs[h][0]
+                            if not (0 <= _cr < ROWS and 0 <= _cc < COLS):
+                                continue
+                            if blocked_bits[_cr * COLS + _cc]:
+                                continue
+                    nd = d + step * rev_mult + _tu * turn_45 * _grade[_tu] + extra
+                    nt = t + _tu
+                    nst_ = s + 1
+                    nsi = n8 + p_ci * 8 + h_dep
+                    cur_d = dist_i[nsi]
+                    better = nd < cur_d - 1e-12 or (
+                        abs(nd - cur_d) <= 1e-12
+                        and (nt, nst_) < (turns_i[nsi], steps_i[nsi])
+                    )
+                    if better:
+                        dist_i[nsi] = nd
+                        turns_i[nsi] = nt
+                        steps_i[nsi] = nst_
+                        prev_i[nsi] = si
+                        push(pq, (nd, nt, nst_, next(tick), nsi))
 
     dist: dict[tuple[CellRef, int], float] = {}
     prev: dict[tuple[CellRef, int], tuple[CellRef, int]] = {}
     aux: dict[tuple[CellRef, int], tuple[int, int]] = {}
-    for si in range(_N_CELLS * 8):
+    _best_ts: dict[tuple[CellRef, int], tuple[int, int]] = {}
+    for si in range(nst):
         dd = dist_i[si]
-        if dd < _INF:
-            st = (_CELLS[si >> 3], si & 7)
+        if dd >= _INF:
+            continue
+        core = si - n8 if (reverse and si >= n8) else si
+        st = (_CELLS[core >> 3], core & 7)
+        ts = (turns_i[si], steps_i[si])
+        cur = dist.get(st)
+        if cur is None or (dd, ts) < (cur, _best_ts[st]):
             dist[st] = dd
-            aux[st] = (turns_i[si], steps_i[si])
+            aux[st] = ts
+            _best_ts[st] = ts
             p = prev_i[si]
             if p >= 0:
-                prev[st] = (_CELLS[p >> 3], p & 7)
+                pc = p - n8 if (reverse and p >= n8) else p
+                prev[st] = (_CELLS[pc >> 3], pc & 7)
     return dist, prev, aux
 
 
@@ -399,18 +672,30 @@ def _cached_dijkstra(
     cross_penalty: float = 0.0,
     tunnel_axes: frozenset[int] | None = None,
     tunnel_req: dict[int, int] | None = None,
+    turn90_guard: bool = False,
+    solids: dict[int, list[float]] | None = None,
+    solid_key: tuple | None = None,
+    reverse: bool = False,
+    rev_mult: float = _REV_MULT,
+    gear_switch: float = _GEAR_SWITCH,
 ) -> tuple[dict, dict, dict]:
-    """_dijkstra 的缓存封装：键 = (起点, 进入朝向集, 终点态, 障碍集)。
+    """_dijkstra 的缓存封装：键 = (起点, 进入朝向集, 终点态, 障碍集, 增强项)。
 
     cross_gates/mid_boundary/turn_45/allow_diagonal 在一次 plan_route 调用内
     不变，由调用方保证；避让重算的 blocked 会变，故必须进键。
     cross_penalty/tunnel_axes/tunnel_req 同属本约定（一次调用内不变），不进键。
+    2026-10-25 增强项（turn90_guard/solid_key/reverse/rev_mult/gear_switch）
+    一次调用内同样不变，但会改变同一 (起点,障碍) 下的结果，必须进键——
+    solids 本体是 dict 不可哈希，进键的是它的排序元组投影 solid_key。
     """
-    key = (start, entry_headings, terminal, blocked)
+    key = (start, entry_headings, terminal, blocked,
+           turn90_guard, solid_key, reverse, rev_mult, gear_switch)
     if cache is not None and key in cache:
         return cache[key]
     result = _dijkstra(start, blocked, cross_gates, mid_boundary, entry_headings, turn_45, allow_diagonal, terminal=terminal,
-                       cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
+                       cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req,
+                       turn90_guard=turn90_guard, solids=solids,
+                       reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch)
     if cache is not None:
         cache[key] = result
     return result
@@ -432,8 +717,17 @@ def _route_leg(
     tunnel_axes: frozenset[int] | None = None,
     tunnel_req: dict[int, int] | None = None,
     face_idx: int | None = None,
+    turn90_guard: bool = False,
+    solids: dict[int, list[float]] | None = None,
+    solid_key: tuple | None = None,
+    reverse: bool = False,
+    rev_mult: float = _REV_MULT,
+    gear_switch: float = _GEAR_SWITCH,
 ) -> tuple[list[CellRef] | None, int | None, float]:
     """frm→to 单段路由：优先走避开已踩格子的等代价路径。返回 (cells, 到达航向, 代价)。
+
+    2026-10-25 增强项（turn90_guard/solids/reverse 等）原样透传给底层
+    Dijkstra——搜索内判可行性，不再只靠事后体检。
 
     face_idx：射击停靠段的正对朝向（_DIRS 索引）。给出时按
     "到达朝向 + 停靠转身"联合最省选择到达态（朝向零转向准则：
@@ -455,8 +749,10 @@ def _route_leg(
         return [frm], h0, 0.0
 
     term = to if want_arrival is not None else None
+    _enh = dict(turn90_guard=turn90_guard, solids=solids, solid_key=solid_key,
+                reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch)
     d_free, p_free, a_free = _cached_dijkstra(cache, frm, blocked, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term,
-                                      cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
+                                      cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, **_enh)
 
     def _pick(dist_map, aux_map) -> tuple[float, tuple[CellRef, int] | None]:
         if face_idx is not None and want_arrival is None:
@@ -496,7 +792,7 @@ def _route_leg(
     avoid = frozenset(blocked | avoid_cells)
     if avoid != blocked:
         d_av, p_av, _ = _cached_dijkstra(cache, frm, avoid, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term,
-                                  cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
+                                  cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, **_enh)
         c_av, e_av = _pick(d_av, None)
         if e_av is not None and c_av <= cost + _EPS:
             return _trace_states(p_av, e_av), e_av[1], c_av
@@ -581,8 +877,17 @@ def _assemble(
     tunnel_req: dict[int, int] | None = None,
     face_req: dict[str, int] | None = None,
     align_degraded: set[str] | None = None,
+    turn90_guard: bool = False,
+    solids: dict[int, list[float]] | None = None,
+    solid_key: tuple | None = None,
+    reverse: bool = False,
+    rev_mult: float = _REV_MULT,
+    gear_switch: float = _GEAR_SWITCH,
 ) -> tuple[tuple[str, ...] | None, float]:
     """按给定顺序逐段拼接（真实朝向链 + 顺路避让），返回 (路线, 真实总代价)。
+
+    2026-10-25 增强项（turn90_guard/solids/reverse 等）透传给每一段
+    _route_leg——段与段之间朝向链已真实传递，增强项保证段内几何一致。
 
     face_req：射击停靠格的"正对朝向"要求（格名 -> _DIRS 朝向索引）。
     靶向对齐（2026-10-23）：停靠段**强制先试**"到达朝向 = 正对朝向"（一次
@@ -598,6 +903,8 @@ def _assemble(
     放弃终点朝向分，保住完赛。严格模式（False）下不可达即整段返回 None。
     """
     used: set[CellRef] = {nodes[0]}
+    _aenh = dict(turn90_guard=turn90_guard, solids=solids, solid_key=solid_key,
+                 reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch)
     segments: list[list[CellRef]] = []
     total = 0.0
     cur, entry = nodes[0], entry0
@@ -611,14 +918,15 @@ def _assemble(
             # 一次到位：终点态约束（到达朝向=正对朝向）的进段。
             seg, h, c = _route_leg(cur, w, blocked, used, cross_gates, mid_boundary,
                                    entry, fidx, turn_45, allow_diagonal, cache,
-                                   cross_penalty, tunnel_axes, tunnel_req)
+                                   cross_penalty, tunnel_axes, tunnel_req, **_aenh)
         if seg is None:
             # 普通段（fidx=None）的主路径；射击段则是"逐渐调整"兜底——对齐
             # 到达不可行（对侧进段被堵），退回代价择优 + 停靠转身假设，并
             # 记录降级格供上层一次性告警。
             seg, h, c = _route_leg(cur, w, blocked, used, cross_gates, mid_boundary,
                                    entry, None, turn_45, allow_diagonal, cache,
-                                   cross_penalty, tunnel_axes, tunnel_req, face_idx=fidx)
+                                   cross_penalty, tunnel_axes, tunnel_req,
+                                   face_idx=fidx, **_aenh)
             if seg is not None and fidx is not None and align_degraded is not None:
                 align_degraded.add(w.name)
         if seg is None:
@@ -630,10 +938,10 @@ def _assemble(
         cur = w
         entry = (face_req[w.name],) if (face_req and w.name in face_req) else (h,)
     seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, h_final, turn_45, allow_diagonal, cache,
-                               cross_penalty, tunnel_axes, tunnel_req)
+                               cross_penalty, tunnel_axes, tunnel_req, **_aenh)
     if seg is None and fallback_any_heading and h_final is not None:
         seg, _h, c = _route_leg(cur, goal, blocked, used, cross_gates, mid_boundary, entry, None, turn_45, allow_diagonal, cache,
-                               cross_penalty, tunnel_axes, tunnel_req)
+                               cross_penalty, tunnel_axes, tunnel_req, **_aenh)
     if seg is None:
         return None, _INF
     segments.append(seg)
@@ -765,6 +1073,112 @@ def _held_karp_orders(W: list[list[float]], dgoal: list[float],
             + _enumerate_optimal_orders(dp, W, dgoal, n, best_cost))
 
 
+def _held_karp_orders_heading(
+    cache: dict | None,
+    nodes: list[CellRef],
+    goal: CellRef,
+    entry0: tuple[int, ...],
+    h_final: int | None,
+    blocked, cross_gates, mid_boundary, turn_45, allow_diagonal,
+    cross_penalty, tunnel_axes, tunnel_req, aenh: dict,
+) -> list[list[int]]:
+    """朝向传递 Held-Karp（2026-10-25）：边权带 (进入朝向, 到达朝向) 二元组。
+
+    旧口径边权 = 自由进入朝向的乐观界——必经点拼接处可能出现"上一段到达
+    朝向逼出下一段急弯/U 形回头"的形态，拼装层只能被动消化。本 DP 把到达
+    朝向放进状态 (mask, last, h)：
+        dp[mask][i][h] = 恰好经过 mask、停在 i、**以朝向 h 到达**的最少代价；
+        转移 = dp + W[i][h][j][h2]（i 处不停车，到达朝向即出发朝向）；
+        终局 = dp[full][i][h] + dgoal(i, h)（h_final 约束在 goal 段生效）。
+    每节点 8 次固定进入朝向 Dijkstra（共享 _cached_dijkstra 缓存）。
+    返回候选顺序（保底一条）；全不可行返回 []（调用方退回乐观界候选）。
+    """
+    m = len(nodes)              # 0 = 起点，1..n = 必经点
+    n = m - 1
+    INF = _INF
+    targets = list(nodes) + [goal]
+    # Wh[i][h_in][j][h_out]：i 以 h_in 进入、j 以 h_out 到达的段代价；j=m 是 goal
+    Wh: list[list[list[list[float]]]] = [[None] * 8 for _ in range(m)]
+    for i in range(m):
+        for h_in in range(8):
+            dist, _, _ = _cached_dijkstra(
+                cache, nodes[i], blocked, cross_gates, mid_boundary, (h_in,),
+                turn_45, allow_diagonal, cross_penalty=cross_penalty,
+                tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, **aenh)
+            Wh[i][h_in] = [
+                [dist.get((t, h_out), INF) for h_out in range(8)] for t in targets
+            ]
+    full = 1 << n
+    dp = [[[INF] * 8 for _ in range(n)] for _ in range(full)]
+    par: list[list[list[tuple[int, int] | None]]] = [
+        [[None] * 8 for _ in range(n)] for _ in range(full)
+    ]
+    mask_alive = bytearray(full)          # 有有限态的 mask 快速跳过（热路径）
+    for j in range(n):
+        for h_out in range(8):
+            dp[1 << j][j][h_out] = min(
+                Wh[0][h0][j + 1][h_out] for h0 in entry0)
+        mask_alive[1 << j] = 1
+    for mask in range(1, full):
+        if not mask_alive[mask]:
+            continue
+        dpm = dp[mask]
+        free_k = [k for k in range(n) if not (mask >> k) & 1]
+        for i in range(n):
+            if not (mask >> i) & 1:
+                continue
+            base = dpm[i]
+            Wi = Wh[i + 1]
+            for h in range(8):
+                cur = base[h]
+                if cur >= INF:
+                    continue
+                Wih = Wi[h]
+                for k in free_k:
+                    row = Wih[k + 1]
+                    nm = mask | (1 << k)
+                    dpk = dp[nm][k]
+                    park = par[nm][k]
+                    for h2 in range(8):
+                        w = row[h2]
+                        if w >= INF:
+                            continue
+                        nd = cur + w
+                        if nd < dpk[h2] - 1e-12:
+                            dpk[h2] = nd
+                            park[h2] = (i, h)
+                            mask_alive[nm] = 1
+    best_cost, best_end = INF, None
+    for i in range(n):
+        dgh = Wh[i + 1]          # 从 i 出发的边权：[h_in][m=goal][h_out]
+        for h in range(8):
+            cur = dp[full - 1][i][h]
+            if cur >= INF:
+                continue
+            if h_final is not None:
+                g = dgh[h][m][h_final]
+            else:
+                g = min(dgh[h][m])
+            if g >= INF:
+                continue
+            c = cur + g
+            if c < best_cost:
+                best_cost, best_end = c, (i, h)
+    if best_end is None:
+        return []
+    order: list[int] = []
+    mask, (i, h) = full - 1, best_end
+    while i >= 0:
+        order.append(i)
+        p = par[mask][i][h]
+        if p is None:
+            break
+        mask ^= 1 << i
+        i, h = p
+    order.reverse()
+    return [order]
+
+
 def _plan_core(
     start: CellRef,
     goal: CellRef,
@@ -783,12 +1197,23 @@ def _plan_core(
     face_req: dict[str, int] | None = None,
     diag: dict | None = None,
     align_degraded: set[str] | None = None,
+    turn90_guard: bool = False,
+    solids: dict[int, list[float]] | None = None,
+    solid_key: tuple | None = None,
+    reverse: bool = False,
+    rev_mult: float = _REV_MULT,
+    gear_switch: float = _GEAR_SWITCH,
+    heading_prop: bool = False,
 ) -> tuple[tuple[str, ...], float]:
     """给定障碍集与必经点，输出（最优路线, 真实总代价）。
     diag：不可达诊断上下文（障碍/靶/轨道名集 + 桥列/开放门），由 plan_route 提供。
-    align_degraded：靶向对齐降级格收集集（见 _assemble），None 表示不需要收集。"""
+    align_degraded：靶向对齐降级格收集集（见 _assemble），None 表示不需要收集。
+    2026-10-25 增强项：turn90_guard/solids/reverse 进每层搜索；heading_prop
+    在 n ≤ _HK_HEADING_MAX 时用朝向传递 Held-Karp 选序（见 _held_karp_orders_heading）。"""
+    _aenh = dict(turn90_guard=turn90_guard, solids=solids, solid_key=solid_key,
+                 reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch)
     dist0, _, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal,
-                     cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
+                     cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, **_aenh)
     if _arrival_state(dist0, goal, None)[0] >= _INF:
         raise ValueError(_unreachable_detail(
             start, goal, dist0, blocked, cross_gates, mid_boundary, diag))
@@ -815,7 +1240,7 @@ def _plan_core(
     n = len(nodes) - 1
     if n == 0:
         seg, _h, _c = _route_leg(start, goal, blocked, set(), cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
-                             cross_penalty, tunnel_axes, tunnel_req)
+                             cross_penalty, tunnel_axes, tunnel_req, **_aenh)
         if seg is None and h_final is not None:
             # 终点朝向到达不可行（口袋地形）：降级任意朝向进终点
             warnings.warn(
@@ -824,7 +1249,7 @@ def _plan_core(
                 RuntimeWarning, stacklevel=3,
             )
             seg, _h, _c = _route_leg(start, goal, blocked, set(), cross_gates, mid_boundary, entry0, None, turn_45, allow_diagonal, cache,
-                                 cross_penalty, tunnel_axes, tunnel_req)
+                                 cross_penalty, tunnel_axes, tunnel_req, **_aenh)
         if seg is None:
             raise ValueError(_unreachable_detail(
                 start, goal, dist0, blocked, cross_gates, mid_boundary, diag))
@@ -834,7 +1259,7 @@ def _plan_core(
     # aux 供等代价边权平局裁决（姿态更平直的到达态优先）。
     _maps = [
         _cached_dijkstra(cache, c, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal,
-                          cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
+                          cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, **_aenh)
         for c in [start] + nodes[1:]
     ]
     dists = [m[0] for m in _maps]
@@ -856,17 +1281,34 @@ def _plan_core(
     if n > _TSP_EXACT_MAX_NODES:
         warnings.warn(
             f"必经点 {n} 个超过精确 TSP 上限 {_TSP_EXACT_MAX_NODES}，退化为"
-            "最近邻顺序（路线次优）——检查感知是否把大片格误判为必经点",
+            "最近邻顺序（路线次优）——检查感知是否把大片格误判成必经点",
             RuntimeWarning, stacklevel=3,
         )
         candidates = _greedy_orders(W, n)
     else:
         candidates = _held_karp_orders(W, dgoal, n)
+        if heading_prop and 1 < n <= _HK_HEADING_MAX:
+            # 朝向传递候选置前（拼接循环按序取前 64 条）：它按"真实朝向链"
+            # 选序，拼接真实代价不劣于乐观界口径；失败/超限时静默退回旧候选。
+            # 内部 Dijkstra 用轻量边模型（关倒车挡）：本 DP 只是候选顺序生成器，
+            # 最终定序与可行性一律由 _assemble 的全模型真实代价裁决——倒车态
+            # 让单次 Dijkstra 翻倍（实测 2ms→6ms），候选层省掉不损正确性。
+            try:
+                horders = _held_karp_orders_heading(
+                    cache, nodes, goal, entry0, h_final, blocked, cross_gates,
+                    mid_boundary, turn_45, allow_diagonal, cross_penalty,
+                    tunnel_axes, tunnel_req,
+                    {k: v for k, v in _aenh.items() if k != "reverse"})
+            except Exception:
+                horders = []
+            if horders:
+                seen = {tuple(c) for c in candidates}
+                candidates = horders + [c for c in candidates if tuple(c) not in seen]
 
     def assemble(order: list[int]) -> tuple[tuple[str, ...] | None, float]:
         return _assemble(order, nodes, goal, blocked, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
                          cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, face_req=face_req,
-                         align_degraded=align_degraded)
+                         align_degraded=align_degraded, **_aenh)
 
     # 保底顺序 + 枚举其余等代价顺序，取（真实代价, 重复踩格, 姿态形态）最小者。
     # 形态键 = (总转向 45° 单位, 总步数)：等时代价里更平直、航段更少者优先
@@ -902,7 +1344,7 @@ def _plan_core(
                 entry0, h_final, turn_45, allow_diagonal, cache,
                 fallback_any_heading=True,
                 cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req,
-                face_req=face_req, align_degraded=align_degraded,
+                face_req=face_req, align_degraded=align_degraded, **_aenh,
             )
             if route is None:
                 continue
@@ -1143,6 +1585,12 @@ def plan_route(
     crossing_penalty: float = 0.0,
     tunnel_dirs: dict[str, str] | None = None,
     require_gates: bool = True,
+    turn90_guard: bool = False,
+    solid_barriers: bool = False,
+    reverse: bool = False,
+    rev_mult: float = _REV_MULT,
+    gear_switch: float = _GEAR_SWITCH,
+    heading_prop: bool = False,
 ) -> tuple[str, ...]:
     """输出有序格号；转向按 turn_45/45° 计费，起点/终点朝向可约束。
 
@@ -1276,6 +1724,16 @@ def plan_route(
         if gates:
             cross_gates = frozenset(gates)
 
+    # 2026-10-25 综合规划增强项：实体挡板探测表（solid_barriers=True 时启用）。
+    # 挡板侵入边界两侧格各 1/4 格（87.5mm），桥洞开口列豁免；转角可用空间
+    # 在搜索内按物理判据（need/avail）删边，K7 贴板死锁/M7 1.2mm 余量这类
+    # "格占用模型看不见"的几何债由此出清。turn90_guard/reverse/heading_prop
+    # 的语义见 _dijkstra/_held_karp_orders_heading docstring。
+    solid_map, solid_key = (
+        _build_solid_barriers(mid_boundary, bridge_open) if solid_barriers else (None, None))
+    _aenh = dict(turn90_guard=turn90_guard, solids=solid_map, solid_key=solid_key,
+                 reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch)
+
     # 雷为普通必经点；蓝靶的必经点是其停靠射击格（每靶一组候选）。
     # cache 在本次 plan_route 内共享：blocked/cross_gates 已定型，
     # 等最优顺序枚举与射击位组合会大量重复同一段 Dijkstra。
@@ -1332,7 +1790,7 @@ def plan_route(
     dist0 = None
     if cand_lists:
         dist0, _, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal,
-                     cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
+                     cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, **_aenh)
         cand_lists = [
             [c for c in cl if _arrival_state(dist0, c, None)[0] < _INF]
             for cl in cand_lists
@@ -1342,7 +1800,7 @@ def plan_route(
     if not cand_lists:
         route, _ = _plan_core(start, goal, blocked, base_required, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
                               cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req,
-                              diag=diag_ctx)
+                              diag=diag_ctx, heading_prop=heading_prop, **_aenh)
         return ensure_mine_center_pass(
             route, {c.name for c in snapshot.mines}, blocked,
             mid_boundary=mid_boundary, cross_gates=cross_gates,
@@ -1374,7 +1832,8 @@ def plan_route(
         try:
             route, cost = _plan_core(start, goal, blocked, req, cross_gates, mid_boundary, entry0, h_final, turn_45, allow_diagonal, cache,
                                      cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req,
-                                     face_req=face_req, diag=diag_ctx, align_degraded=align_degraded)
+                                     face_req=face_req, diag=diag_ctx, align_degraded=align_degraded,
+                                     heading_prop=heading_prop, **_aenh)
         except ValueError:
             continue
         dup = len(route) - len(set(route))
@@ -1384,7 +1843,7 @@ def plan_route(
     if best_route is None:
         # 所有射击位组合都不可达：给出带封锁点分类的诊断而非裸报错
         dist_all, _, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal,
-                                          cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req)
+                                          cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, **_aenh)
         raise ValueError(_unreachable_detail(
             start, goal, dist_all, blocked, cross_gates, mid_boundary, diag_ctx))
     degraded_hit = sorted(align_degraded & set(best_route))
