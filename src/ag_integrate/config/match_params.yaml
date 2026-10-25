@@ -112,6 +112,24 @@ integrate_node:
     time_accel_overhead_s: 0.4      # 每条直线段的加减速附加 s
     time_mine_slow_s: 0.6           # 过雷格的减速附加 s
     time_shoot_stop_s: 4.0          # 每射击位：停靠+瞄准+开火+确认 s
+    time_reverse_mps: 0.15          # 倒车巡航 m/s（180°折返段按此计；null=关闭旧口径）
+    time_gear_switch_s: 1.0         # 前进↔倒车换挡停车+挂挡附加 s
+    # ---- 2026-10-25 综合规划：运动可行性进搜索 + 实体挡板几何 ----
+    # turn90_guard：90° 弯内切对角格被桶/挡板占用则删边（原模块级开关运行时化）。
+    # solid_barriers：中场挡板实体侵入边界两侧格 87.5mm 进转弯空间判定——
+    #   K7 贴板死锁 / M7 转弯 1.2mm 余量这类格占用模型看不见的几何债出清。
+    # reverse_gear：倒车挡位原语（F/R 状态 + 镜像弧 + 换挡代价），三点掉头
+    #   由 F弧+换挡+R弧 自然涌现；替代旧"180° 按倒车计 ×1"代价假设。
+    #   ⚠ 车端 path_executor 需能沿原路倒回（画圈则置 false 回旧口径）。
+    # heading_prop：Held-Karp 朝向传递选序（n≤10，内部轻量模型出候选、
+    #   拼装层全模型定真值）。增强全开时单次规划约 0.9s（本机），on-change
+    #   重规划事件驱动可接受；全置 false 即回 2026-10-24 口径。
+    turn90_guard: true
+    solid_barriers: true
+    reverse_gear: true
+    rev_mult: 1.5                   # 倒车距离计价倍数（格当量）
+    gear_switch_cost: 0.5           # 换挡代价（格当量）
+    heading_prop: true
   # ---- U1 联合求解器（全线升级方案 20261018，默认关：台架验证后开）----
   # 超软预算时联合解"保留任务集+访问顺序"（得分字典序优先、耗时次之），
   # 替代"整砍射击位"两步启发式；求解失败自动退回启发式。

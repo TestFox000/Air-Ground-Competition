@@ -34,7 +34,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 
-from .car_commands import parse_cell
+from .car_commands import parse_cell, to_car_heading
 from .field_matrix import MatrixFusion, render_report_from_spots
 from .heading_calibration import closed_loop_rate, nearest_axis
 from .intel_protocol import (MSG_ID_CAR_COMMAND, detect_msg_id, parse, parse_car_command,
@@ -175,6 +175,17 @@ class IntegrateNode(Node):
         self.declare_parameter("time_accel_overhead_s", 0.4)  # 每直线段加减速附加 s
         self.declare_parameter("time_mine_slow_s", 0.6)    # 过雷格减速附加 s
         self.declare_parameter("time_shoot_stop_s", 4.0)   # 每射击位停靠+瞄准+开火 s
+        self.declare_parameter("time_reverse_mps", 0.15)   # 倒车巡航 m/s（null=关闭）
+        self.declare_parameter("time_gear_switch_s", 1.0)  # 前进↔倒车换挡附加 s
+        # ---- 2026-10-25 综合规划增强项（语义见 mission_router._dijkstra）----
+        # 90° 内切守卫进搜索 / 实体挡板几何（K7-M2 债）/ 倒车挡位原语 /
+        # Held-Karp 朝向传递。默认与 sidecar 一致全开；退回旧口径全置 false。
+        self.declare_parameter("turn90_guard", True)
+        self.declare_parameter("solid_barriers", True)
+        self.declare_parameter("reverse_gear", True)
+        self.declare_parameter("rev_mult", 1.5)            # 倒车距离计价倍数（格当量）
+        self.declare_parameter("gear_switch_cost", 0.5)    # 换挡代价（格当量）
+        self.declare_parameter("heading_prop", True)       # HK 朝向传递（n≤10）
         # ---- U1 联合求解器（全线升级方案 2026-10-18，默认关：台架验证后开）----
         # 超软预算时改用 ortools_solver 联合解"保留任务集+访问顺序"（得分
         # 字典序优先），替代"整砍射击位"两步启发式。失败自动退回启发式。
@@ -230,6 +241,13 @@ class IntegrateNode(Node):
         self.zone_order = tuple(n.strip() for n in p("zone_order") if n.strip()) or None
         self.turn_45 = float(p("turn_45"))
         self.allow_diagonal = bool(p("allow_diagonal"))
+        # 2026-10-25 综合规划增强项（与 sidecar 同默认）
+        self.turn90_guard = bool(p("turn90_guard"))
+        self.solid_barriers = bool(p("solid_barriers"))
+        self.reverse_gear = bool(p("reverse_gear"))
+        self.rev_mult = float(p("rev_mult"))
+        self.gear_switch_cost = float(p("gear_switch_cost"))
+        self.heading_prop = bool(p("heading_prop"))
         self.heading_bias_source = str(p("heading_bias_source")).strip().lower()
         self.cmd_vel_topic = str(p("cmd_vel_topic"))
         self.align_creep_speed = float(p("align_creep_speed"))
@@ -254,6 +272,8 @@ class IntegrateNode(Node):
             accel_overhead_s=float(p("time_accel_overhead_s")),
             mine_slow_s=float(p("time_mine_slow_s")),
             shoot_stop_s=float(p("time_shoot_stop_s")),
+            reverse_mps=float(p("time_reverse_mps")),
+            gear_switch_s=float(p("time_gear_switch_s")),
         )
         self.matrix_log = bool(p("matrix_log"))
         self._matrix_sig: tuple | None = None  # 上次打印的矩阵签名
@@ -828,6 +848,12 @@ class IntegrateNode(Node):
                     zone_order=self.zone_order,
                     turn_45=self.turn_45,
                     allow_diagonal=self.allow_diagonal,
+                    turn90_guard=self.turn90_guard,        # 2026-10-25 综合规划
+                    solid_barriers=self.solid_barriers,
+                    reverse=self.reverse_gear,
+                    rev_mult=self.rev_mult,
+                    gear_switch=self.gear_switch_cost,
+                    heading_prop=self.heading_prop,
                 )
         except (ValueError, IndexError, KeyError) as exc:
             # 规划失败（goal 不可达、桥洞未识别全等）：记日志 + 黑匣子，
@@ -920,8 +946,25 @@ class IntegrateNode(Node):
           - dry_run：只打日志不发命令（默认安全）；
           - 路线发布闸门：/nav/waypoint 无订阅者时不发（话题无滞留，发了即丢）。
         """
-        if self._align_state == "aligning":
-            return
+        # 对齐门补全：机上 0x4003 可能早于首帧 0x4002 到达，reset 的固定断言
+        # 朝向（机上按 start_heading 下发）此时未经物理对齐，放行 = 画圆根因
+        # 同款。扣住最多 5s 等 0x4002；超时仍放行（0x4002 全程缺失时车不动
+        # = 0 分，两害取轻）并告警。
+        if self._needs_heading_alignment() and self._align_state not in ("aligned", "failed"):
+            if self._align_state == "aligning":
+                return
+            now = time.monotonic()
+            if getattr(self, "_onboard_hold_mono", None) is None:
+                self._onboard_hold_mono = now
+                self.get_logger().info(
+                    "机上命令已到但对齐未启动（未见 0x4002），暂扣 5s")
+                self._blog(EV.ROUTE_BLOCKED, level="warn",
+                           reason="align_not_started")
+                return
+            if now - self._onboard_hold_mono < 5.0:
+                return
+            self.get_logger().warning(
+                "0x4002 缺失超 5s，放行机上命令——reset 断言朝向未经物理对齐")
         cmd = self._onboard_cmd
         if cmd is None:
             if not getattr(self, "_onboard_no_cmd_logged", False):
@@ -937,6 +980,17 @@ class IntegrateNode(Node):
             return
         self.last_route = route
         self._onboard_no_cmd_logged = False
+        # align 失败回退：机上 reset 仍断言 start_heading，车头实测偏差可能
+        # >45°。有新鲜 0x4002 时改写成最近轴（车端坐标架），残差 ≤45°，
+        # 与 local 模式 udp 回退同语义。
+        if (self.heading_bias_source == "align" and self._align_state == "failed"
+                and reset.startswith("reset:")):
+            yaw = self._car_yaw()
+            if yaw is not None:
+                cell, _sep, _tok = reset[len("reset:"):].partition(",")
+                reset = f"reset:{cell},{to_car_heading(nearest_axis(yaw))}"
+                self.get_logger().warning(
+                    f"align 失败，reset 断言朝向按实测改写: {reset}")
         if self.dry_run:
             self.get_logger().info(f"[dry_run] 机上命令 {reset} | {route}")
             return

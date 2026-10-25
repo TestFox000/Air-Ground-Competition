@@ -47,11 +47,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import socket
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from math import gcd
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -76,6 +78,10 @@ from ag_integrate.route_time import RouteTimeParams  # noqa: E402
 from ag_integrate.world_model import WorldModel  # noqa: E402
 
 MATRIX_LEGEND = "M=爆炸物 O=障碍 B=蓝靶(敌) R=红靶(友) A=桥洞 C=车 .=空"
+
+# 格号正则（与 integrate_node._CELL_RE 同款）：两位行号分支在前，
+# 否则 "N10" 会被 [1-9] 截成 "N1"。
+_CELL_RE = re.compile(r"[A-N](?:1[01]|[1-9])")
 
 
 # ---------------------------------------------------------------- 配置
@@ -114,6 +120,18 @@ class PlanConfig:
     time_accel_overhead_s: float = 0.4
     time_mine_slow_s: float = 0.6
     time_shoot_stop_s: float = 4.0
+    # 2026-10-25 综合规划增强项（语义见 mission_router._dijkstra docstring）：
+    # 90° 内切守卫 / 实体挡板（K7-M7 几何债）/ 倒车挡位原语 / HK 朝向传递。
+    # yaml 缺键时取此默认（与 integrate_node declare_parameter 默认一致）。
+    turn90_guard: bool = True
+    solid_barriers: bool = True
+    reverse_gear: bool = True
+    rev_mult: float = 1.5
+    gear_switch_cost: float = 0.5
+    heading_prop: bool = True
+    # 倒车差异化计时（route_time）：None=关闭（yaml 置 null）。
+    time_reverse_mps: float = 0.15
+    time_gear_switch_s: float = 1.0
     matrix_enabled: bool = True
     matrix_fuse_window: int = 5
     matrix_fuse_confirm: int = 2
@@ -132,6 +150,8 @@ class PlanConfig:
             accel_overhead_s=self.time_accel_overhead_s,
             mine_slow_s=self.time_mine_slow_s,
             shoot_stop_s=self.time_shoot_stop_s,
+            reverse_mps=self.time_reverse_mps,
+            gear_switch_s=self.time_gear_switch_s,
         )
 
 
@@ -238,6 +258,14 @@ def config_from_params(raw: dict) -> PlanConfig:
         time_accel_overhead_s=float(raw.get("time_accel_overhead_s", 0.4)),
         time_mine_slow_s=float(raw.get("time_mine_slow_s", 0.6)),
         time_shoot_stop_s=float(raw.get("time_shoot_stop_s", 4.0)),
+        turn90_guard=bool(raw.get("turn90_guard", True)),          # 2026-10-25 综合规划
+        solid_barriers=bool(raw.get("solid_barriers", True)),
+        reverse_gear=bool(raw.get("reverse_gear", True)),
+        rev_mult=float(raw.get("rev_mult", 1.5)),
+        gear_switch_cost=float(raw.get("gear_switch_cost", 0.5)),
+        heading_prop=bool(raw.get("heading_prop", True)),
+        time_reverse_mps=float(raw.get("time_reverse_mps", 0.15)),
+        time_gear_switch_s=float(raw.get("time_gear_switch_s", 1.0)),
         matrix_enabled=bool(raw.get("matrix_log", True)),
         matrix_fuse_window=int(raw.get("matrix_fuse_window", 5)),
         matrix_fuse_confirm=int(raw.get("matrix_fuse_confirm", 2)),
@@ -455,6 +483,12 @@ class PlannerCore:
                     zone_order=self.cfg.zone_order,
                     turn_45=self.cfg.turn_45,
                     allow_diagonal=self.cfg.allow_diagonal,
+                    turn90_guard=self.cfg.turn90_guard,      # 2026-10-25 综合规划
+                    solid_barriers=self.cfg.solid_barriers,
+                    reverse=self.cfg.reverse_gear,
+                    rev_mult=self.cfg.rev_mult,
+                    gear_switch=self.cfg.gear_switch_cost,
+                    heading_prop=self.cfg.heading_prop,
                 )
         except (ValueError, IndexError, KeyError) as exc:
             self.last_report = f"规划失败，等待态势更新: {exc}"

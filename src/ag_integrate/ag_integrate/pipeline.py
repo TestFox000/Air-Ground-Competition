@@ -19,6 +19,16 @@ REASON_NOT_ENOUGH_MINES = "not_enough_mines"
 REASON_FACE_UNKNOWN = "face_unknown"
 
 
+def _audit_solid(snapshot: WorldSnapshot, mid_boundary: int, solid_barriers: bool):
+    """体检用实体挡板表（{格名: 8 向 mm}）；solid_barriers 关闭时 None（旧口径）。"""
+    if not solid_barriers:
+        return None
+    from .mission_router import _build_solid_barriers, _CELLS
+
+    smap, _ = _build_solid_barriers(mid_boundary, snapshot.passable)
+    return {_CELLS[ci].name: row for ci, row in smap.items()} if smap else None
+
+
 @dataclass(frozen=True)
 class Gate:
     ok: bool
@@ -38,18 +48,22 @@ def evaluate_gate(
     return Gate(True)
 
 
-def _post_plan_audit(snapshot: WorldSnapshot, ordered) -> None:
+def _post_plan_audit(snapshot: WorldSnapshot, ordered, solid=None) -> None:
     """规划后只读体检（V1019 移植，2026-10-20）：转角物理可行性 + 现场规则。
 
     纯告警不改路线、异常不影响出车：
     - 转角判据（转弯内侧侧向投影，ok/tight/pivot/forbid）见 turn_feasibility_v2；
     - 规则校验（雷只在 A~I / 雷数≤8 / 隧道直穿）见 field_rules；
     - 方案与实测：docs/路径规划优化-转角物理分级-20261020.md。
+
+    solid（2026-10-25）：实体挡板探测表（{格名: 8 向 mm}）——solid_barriers
+    开启时由 build_mission 传入，体检与搜索内守卫看同一片挡板几何，
+    "守卫按 A 优化、体检按 B 打分"的口径分裂不再发生。
     """
     try:
         from .turn_feasibility_v2 import check_route, report_lines, summarize
 
-        chk = check_route(ordered, [c.name for c in snapshot.obstacles])
+        chk = check_route(ordered, [c.name for c in snapshot.obstacles], solid)
         rep = summarize(chk)
         if rep["pivot_needed"]:
             warnings.warn(
@@ -98,6 +112,13 @@ def build_mission(
     use_ortools_solver: bool = False,
     ortools_drop_policy: str = "shooting_only",
     ortools_backend: str = "auto",
+    # 2026-10-25 综合规划增强项（透传 plan_route；语义见 mission_router._dijkstra）：
+    turn90_guard: bool = False,
+    solid_barriers: bool = False,
+    reverse: bool = False,
+    rev_mult: float = 1.5,
+    gear_switch: float = 0.5,
+    heading_prop: bool = False,
 ) -> CarCommands:
     """态势 -> reset + route 两条命令。
 
@@ -126,14 +147,17 @@ def build_mission(
     gates = frozenset(_parse_name(name) for name in cross_gates) or None
     if target_track is not None:
         snapshot = _inject_track(snapshot, target_track, target_blue_face)
+    _motion = dict(turn90_guard=turn90_guard, solid_barriers=solid_barriers,
+                   reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch,
+                   heading_prop=heading_prop)
     ordered = plan_route_zoned(
         snapshot, start, goal, zone_order, cross_gates=gates, mid_boundary=mid_boundary,
         start_heading=start_heading, final_heading=final_heading,
         crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
-        turn_45=turn_45, allow_diagonal=allow_diagonal,
+        turn_45=turn_45, allow_diagonal=allow_diagonal, **_motion,
     )
     commands = adapt(snapshot, ordered, start_cell, start_heading, final_heading)
-    _post_plan_audit(snapshot, ordered)
+    _post_plan_audit(snapshot, ordered, _audit_solid(snapshot, mid_boundary, solid_barriers))
 
     if soft_cap_s is None or soft_cap_s <= 0:
         return commands
@@ -159,6 +183,7 @@ def build_mission(
             allow_diagonal=allow_diagonal,
             params=params, soft_cap_s=soft_cap_s,
             drop_policy=ortools_drop_policy, backend=ortools_backend,
+            motion=_motion,
         )
         if solved is not None:
             return solved
@@ -175,7 +200,7 @@ def build_mission(
             shed_snapshot, start, goal, zone_order, cross_gates=gates, mid_boundary=mid_boundary,
             start_heading=start_heading, final_heading=final_heading,
             crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
-            turn_45=turn_45, allow_diagonal=allow_diagonal,
+            turn_45=turn_45, allow_diagonal=allow_diagonal, **_motion,
         )
     except ValueError:
         return commands   # 同一地图可达性不变，理论上不会到这里；防御性保底
@@ -191,7 +216,7 @@ def _solve_with_joint_solver(
     snapshot, commands, est_seconds, *, start_cell, goal_cell,
     start_heading, final_heading, gates, mid_boundary,
     crossing_penalty, tunnel_dirs, zone_order, turn_45,
-    allow_diagonal, params, soft_cap_s, drop_policy, backend,
+    allow_diagonal, params, soft_cap_s, drop_policy, backend, motion,
 ):
     """U1 联合求解路径：解出保留集后按保留集重规划。
 
@@ -274,7 +299,7 @@ def _solve_with_joint_solver(
                 zone_order, cross_gates=gates, mid_boundary=mid_boundary,
                 start_heading=start_heading, final_heading=final_heading,
                 crossing_penalty=crossing_penalty, tunnel_dirs=tunnel_dirs,
-                turn_45=turn_45, allow_diagonal=allow_diagonal,
+                turn_45=turn_45, allow_diagonal=allow_diagonal, **motion,
             )
         except ValueError:
             return None
