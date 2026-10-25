@@ -11,9 +11,13 @@
 # 用法：
 #   tools/orin_accept_plan.sh                # dry-run，只落盘不发车命令（推荐先跑）
 #   tools/orin_accept_plan.sh --send         # 额外验证 0x4003 真广播
-#   AG_ACCEPT_SCEN="D2:paper,H9:paper,F5:target_blue,M9:obstacle" tools/orin_accept_plan.sh
+#   AG_ACCEPT_SCEN="D2:paper,..." tools/orin_accept_plan.sh
 #
-# ⚠️ 场景类别必须按 13 类口径写：雷 = 非 K 列 paper（K 列 paper 落格判为桥洞箭头）
+# ⚠️ 场景类别按 14 类口径写（ft_v1，2026-10-26 起）：雷 = 非 K 列 paper，
+#    K 列 paper 落格判为桥洞箭头。**K 列箭头是必需元素**：桥门规则下
+#    无箭头则门全关，N10 摆位是孤岛（连通域仅 15 格），门控过后规划
+#    必报"goal N5 不可达"——2026-10-26 机载验收实测踩坑，双箭头 K7+K2
+#    才能同时满足"东→西扫雷→北门回 N5"的完整可达拓扑。
 # 端口：优先 50000；若已被全栈里的 plan 窗口占用，自动改用 5010x 空闲端口，
 #       本脚本自己的 sidecar 与注入器一起换——**不必先停全栈**（2026-10-22 实测：
 #       按手册"先起全栈再验收"，原实现直接 bind 失败 Address already in use）。
@@ -24,7 +28,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SIDECAR="$REPO/tools/orin_plan_sidecar.py"
 PARAMS="$REPO/src/ag_integrate/config/match_params.yaml"
 SENDER="$REPO/tools/fake_udp_sender.py"
-SCEN="${AG_ACCEPT_SCEN:-D2:paper,H9:paper,F5:target_blue,M9:obstacle}"
+SCEN="${AG_ACCEPT_SCEN:-D2:paper,H9:paper,F5:target_blue,M9:obstacle,K7:paper,K2:paper}"
 SEND=""
 [ "${1:-}" = "--send" ] && SEND="--send"
 OUT="/tmp/ag_accept_$(date +%Y%m%d_%H%M%S)"
@@ -40,16 +44,18 @@ mkdir -p "$OUT"
 # ---- ⓪ 栈一致性：一键启动实际会用哪套二进制/引擎（错版本不会报错，只会静默错结果） ----
 BIN="$REPO/onboard/dzuav/build/dzuav"
 [ -f "$BIN" ] || fail "缺少 dzuav 二进制 $BIN —— 先 bash tools/orin_build_verify.sh"
-# 类别名表可直接在二进制里查：13 类含 uav_end/paper，7 类旧版含 mine/arrow。
+# 类别名表可直接在二进制里查：13/14 类都含 uav_end/paper，7 类旧版含 mine/arrow。
 # 这条是 2026-10-20 查出的真实事故形态：一键启动曾指向 9 月的 7 类老二进制。
-grep -qa uav_end "$BIN" || fail "dzuav 二进制不是 13 类（未见类别名 uav_end）——疑似 7 类旧版，跑起来会与 13 类协议错位"
-grep -qa paper "$BIN" || fail "dzuav 二进制未见 13 类类别名 paper"
-ok "dzuav 二进制为 13 类（含 uav_end / paper 类别名）"
+# （ft_v1 起的"target"整体板名是 target_red 的子串，grep 无法单独判 14 类；
+#   通道契约由 HbbDetector 构造期形状校验兜底，18≠17 直接 fail-fast。）
+grep -qa uav_end "$BIN" || fail "dzuav 二进制未见类别名 uav_end——疑似 7 类旧版，跑起来会与协议错位"
+grep -qa paper "$BIN" || fail "dzuav 二进制未见类别名 paper"
+ok "dzuav 二进制类目表正常（含 uav_end / paper 类别名，13/14 类同判）"
 for e in hbb_detector_d13_fp16 cell_classifier_v4d_fp16; do
     [ -f "$HOME/dzuav/engines/$e.engine" ] || \
-        fail "缺少 canonical 引擎 $e.engine（13 类部署线要求 d13 + v4d，勿用 *_fp16 旧名）"
+        fail "缺少 canonical 引擎 $e.engine（文件名沿用 d13 旧名，内容随 current 指针——2026-10-26 起为 ft_v1）"
 done
-ok "canonical 引擎齐备（hbb_detector_d13 + cell_classifier_v4d）"
+ok "canonical 引擎齐备（hbb_detector_d13_fp16.engine 现为 ft_v1 内容 + cell_classifier_v4d）"
 
 # ---- ① 规划进程起来 ----
 # 选端口：50000 空闲就用它；被占（全栈在跑）则换 5010x，两边一起换端口。
