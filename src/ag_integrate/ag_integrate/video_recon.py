@@ -78,14 +78,16 @@ except ImportError:                     # 直接以文件路径运行（比赛�
 # ---------------------------------------------------------------- 常量
 NAMES = ["paper", "cell_label", "car", "target_red", "target_blue", "obstacle",
          "bucket_red", "bucket_green", "bucket_cyan",
-         "car_start", "car_end", "uav_start", "uav_end"]
+         "car_start", "car_end", "uav_start", "uav_end", "target"]
+# 2026-10-26 ft_v1 起第 14 类：target=靶板+导轨整体（id 13，与协议 TARGET=13 对齐）；
+# target_red/blue 语义改为"可见靶面"，继续驱动敌我判定投票。
 CONF = {  # 离线侦察工作点（paper 0.15 + 投票门控；默认 stride=5 实测最优点）
     # 与机载 C++ kDeployConf（paper=0.25、cell_label=0.50）**不同源**：机载是
     # 实时单帧无时序投票，必须收紧；离线有跨帧投票，放宽才不丢单帧可见的目标。
     # 实测教训（同一段视频，官方基线 8 雷）：stride 15→3 雷（漏检）、5→8 雷、
     # 1→14 雷（弱误检累积票后混入）。默认 5 是召回/精度的实测平衡点。
     "paper": 0.15, "cell_label": 0.35, "car": 0.25,
-    "target_red": 0.25, "target_blue": 0.25, "obstacle": 0.40,
+    "target_red": 0.25, "target_blue": 0.25, "target": 0.25, "obstacle": 0.40,
     "bucket_red": 0.40, "bucket_green": 0.40, "bucket_cyan": 0.40,
     "car_start": 0.25, "car_end": 0.25, "uav_start": 0.25, "uav_end": 0.25,
 }
@@ -1121,6 +1123,10 @@ def aggregate_state(frames_meta: list[dict], video: str = "",
                               TARGET_MIN_VOTES, TARGET_MEAN_CONF_MIN)
     tgt_blue = confirmed_cells(["target_blue"], votes, vconf, vframes,
                                TARGET_MIN_VOTES, TARGET_MEAN_CONF_MIN)
+    # 整体板票（ft_v1 第 14 类）：只记录供审计/打击点定位，不参与单格裁决——
+    # 敌我判定与静靶仲裁仍由面类票驱动，避免在 14 类切换日改变规划输入。
+    tgt_asm = confirmed_cells(["target"], votes, vconf, vframes,
+                              TARGET_MIN_VOTES, TARGET_MEAN_CONF_MIN)
 
     # 单格单标签裁决：靶 vs 桶/障 vs 雷（K 列桥门不参与，见函数说明）
     _obst_votes: Counter = Counter()
@@ -1161,7 +1167,7 @@ def aggregate_state(frames_meta: list[dict], video: str = "",
         "mines_review": mines_review,   # 高conf单票待人工复核（非雷、不挡路线）
         "phantoms_eliminated": phantom_log,
         "obstacles_video": obstacles,
-        "targets_video": {"red": tgt_red, "blue": tgt_blue},
+        "targets_video": {"red": tgt_red, "blue": tgt_blue, "assembly": tgt_asm},
         "car_start_video": car_start, "car_end_video": car_end,
         "uav_marks_video": uav_marks,
         "conflicts": _conflicts,          # 单格多类命中的人工复核明细
