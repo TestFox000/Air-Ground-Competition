@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-24 22:27",
- "count": 183,
+ "generated": "2026-10-25 08:19",
+ "count": 184,
  "files": [
   {
    "path": "00_项目总览/00_索引.md",
@@ -1298,7 +1298,7 @@
    "level": "",
    "updated": "2026-10-24",
    "status": "过程",
-   "lines": 70
+   "lines": 72
   },
   {
    "path": "30_任务卡库/在办/agc-1024/AGC-16-TFCOMPAT-20261024.md",
@@ -1343,6 +1343,17 @@
    "updated": "2026-10-24（18:0x 阶段一：脚本 + 日志分流 + dry-run + 只读预检）",
    "status": "in_progress",
    "lines": 255
+  },
+  {
+   "path": "30_任务卡库/在办/agc-1024/AGC-20-STEPFIX-20261024.md",
+   "dir": "30_任务卡库/在办/agc-1024",
+   "title": "AGC-20-STEPFIX-20261024 · 步进协同与空地通信 · 修正方案",
+   "summary": "把 05 复盘的 6 个问题 + 3 条通信发现落成 8 个可执行修正项（F1~F8）+ 1 个安全验证项（V0）；每项带代码锚点/改法/测试/验收/回滚，按依赖排序：先 TT…",
+   "from": "docs/20_资料索引库/空地链路/05_步进协同与空地通信_实测复盘_20261024.md §5/§6/§8；今夜实跑证据 _tmp_session/agc-1024/s2run/evidence",
+   "level": "实（车端日志证据目录 `_tmp_session/agc-1024/s2run/evidence/` + 源码逐行）",
+   "updated": "2026-10-24",
+   "status": "pending",
+   "lines": 168
   },
   {
    "path": "30_任务卡库/在办/agc-1024/AGC-DL1-ADAPTER-20261024.md",
