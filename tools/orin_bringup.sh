@@ -18,6 +18,10 @@
 #   tools/orin_bringup.sh up              # 全栈启动（默认相机 /dev/video0 1920x1080@30）
 #   tools/orin_bringup.sh up --no-teleop  # 不要键盘遥控窗口
 #   tools/orin_bringup.sh up --no-plan    # 不起机载规划窗口（调试感知栈时用）
+#   tools/orin_bringup.sh restart [flags] # down + up，flags 透传给 up
+#                                         # （deploy_one_click 阶段④入口；2026-10-25 之前
+#                                         #   阶段④调 restart 会落进默认分支只打用法——编排层
+#                                         #   看到非零退出码，但栈从未真正重启）
 #   PLAN_SEND=1 tools/orin_bringup.sh up  # 机载规划真广播 0x4003 车命令（默认只落盘不发）
 #   DZUAV_CAM=/dev/video1 tools/orin_bringup.sh up
 #   tools/orin_bringup.sh status          # 各窗口存活状态（含已退出窗口的 rc）
@@ -139,7 +143,28 @@ up() {
     else
         warn "飞控串口 $PX4_DEV 不存在：by-id 里没找到 NxtPX4，px4 窗口会起不来"
     fi
+    # 墙钟健全性：Orin 无 RTC 电池，每次上电回到 1970 纪元（2026-10-25 部署
+    # 实测，当时人工 sudo date -s 对回）。闭环各节点走单调钟不受影响，但日志/
+    # 录像/KML 时间轴与地面端交叉比对全数失真——赛场上表现为"飞完对不上录像
+    # 段"。只强提示不自动改（改时间要 sudo + 时区确认）。
+    local now_epoch
+    now_epoch=$(date +%s 2>/dev/null || echo 0)
+    if (( now_epoch > 0 && now_epoch < 1735689600 )); then   # 2025-01-01 之前＝明显没对过
+        warn "墙钟 $(date '+%F %T' 2>/dev/null) 未对（Orin 无 RTC，上电即 1970）——"
+        warn "    日志/录像时间轴会失真。起飞前先对时: sudo date -s 'YYYY-MM-DD HH:MM:SS'"
+        warn "    （或 deploy_one_click.py --fix-clock，免密 sudo 时自动对）"
+    fi
     check_strays
+
+    # 参数逐个解析（旧版只看 $1：up --no-teleop --no-plan 会静默丢掉第二个）
+    local want_plan=1 want_teleop=1 a
+    for a in "$@"; do
+        case "$a" in
+            --no-plan)   want_plan=0 ;;
+            --no-teleop) want_teleop=0 ;;
+            *)  warn "未知参数 $a（忽略；支持 --no-plan / --no-teleop）" ;;
+        esac
+    done
 
     tmux kill-session -t "$SESSION" 2>/dev/null || true
     rm -rf "$STATE_DIR"; mkdir -p "$STATE_DIR"
@@ -158,7 +183,7 @@ up() {
     # ⚠️ 默认 **dry-run（只落盘不发）**：首次上机先确认产物正确，再显式
     #    PLAN_SEND=1 开真广播——坏命令直接上底盘是不可逆的。
     local plan_send_flag=""
-    if [[ "${1:-}" != "--no-plan" ]]; then
+    if [[ $want_plan == 1 ]]; then
         [[ "${PLAN_SEND:-0}" == "1" ]] && plan_send_flag="--send"
         win plan "python3 $REPO/tools/orin_plan_sidecar.py --params $REPO/src/ag_integrate/config/match_params.yaml --out /tmp/ag_plan_live $plan_send_flag"
         started+=(plan)
@@ -185,7 +210,7 @@ up() {
     started+=(path)
 
     # 5. 键盘遥控（可选）
-    if [[ "${1:-}" != "--no-teleop" ]]; then
+    if [[ $want_teleop == 1 ]]; then
         win teleop "ros2 run px4_control px4_teleop_node --params-file $WS/install/px4_control/share/px4_control/config/params.yaml"
         started+=(teleop)
     fi
@@ -227,9 +252,10 @@ down() {
 }
 
 case "${1:-}" in
-    up)   up "${2:-}" ;;
-    down) down ;;
-    status) status ;;
+    up)      shift; up "$@" ;;
+    restart) shift; say "restart: down + up（$*）"; down; up "$@" ;;
+    down)    down ;;
+    status)  status ;;
     # 只打文件头那段连续注释块（到第一行非注释为止），不用写死行数——
     # 之前 head -32 会在头部变长后把用法说明截掉一半。
     *) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 2 ;;

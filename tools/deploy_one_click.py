@@ -6,18 +6,19 @@
     ① tools/orin_deploy.py --verify     源码+模型+工具链+ag_integrate（远端备份+L1/L2 自检）
     ② tools/patch_deploy.py             px4_odom_convert v2.2（备份→推送→colcon→重启→横幅验证）
     ③ tools/orin_check_engines.sh       引擎指纹核查；缺 D13/v4d 时自动调 orin_convert_engines.sh
-    ④ tools/orin_bringup.sh restart     规划侧重启
+    ④ tools/orin_bringup.sh restart     规划侧（全栈）重启：down + up
 
 预检（全部通过才进阶段①）：
     - IP 解析：--host 显式 > mDNS（dzsmart.local）> 历史网段候选逐一探测
     - SSH BatchMode 探活（密码走 AG_ORIN_PASS，与既有工具同约定）
-    - 时钟偏差：>1s WARN（历史实测偏过 ~3 天；不自动改时间——需人工确认时区）
+    - 时钟偏差：>1s WARN（Orin 无 RTC，上电即 1970）；--fix-clock 且免密 sudo
+      可用时自动 date -s 对平（需要密码时绝不把口令放上命令行，只给人工指令）
 
 验证门（阶段后逐项判 PASS/FAIL，输出证据；任一 FAIL 汇总为非零退出）：
     G1  ~/dzuav_deploy/air_ground 存在 + ag_integrate/route_progress.py 含"连写朝向"修复标记
-    G2  px4 进程存在 + 日志含 "Resilience layer v2"（横幅）
+    G2  px4 进程存在（探针 | grep -v pgrep 防自匹配假 PASS）+ G2b 韧性层 v2 横幅
     G3  ~/dzuav/engines 下 hbb_detector_d13_fp16.engine 与 cell_classifier_v4d_fp16.engine 存在
-    G4  sidecar 进程存在（orin_plan_sidecar / orin_bringup 托管）
+    G4  sidecar 进程存在（orin_plan_sidecar + tmux 会话 agup）
     （动态验证 G5/G6——"重规划基于最新进度"日志行与 health 行 status_age_s 字段——
       需起飞/侦察流才出现，列为本机静态门之外的现场项，见 DEPLOY_RUNBOOK §3）
 
@@ -26,6 +27,7 @@
     python tools/deploy_one_click.py --host <IP> --dry-run       # 只打印将执行的命令
     python tools/deploy_one_click.py --host <IP> --skip px4      # 跳过某阶段: code/px4/engines/bringup
     python tools/deploy_one_click.py --host <IP> --verify-only   # 只跑验证门（部署后体检）
+    python tools/deploy_one_click.py --host <IP> --fix-clock     # 预检时钟偏>1s 时自动对时（免密 sudo）
     AG_ORIN_PASS=... python tools/deploy_one_click.py --host <IP>
 
 回滚（失败时报告尾部打印）：
@@ -138,7 +140,7 @@ def resolve_host(args) -> str | None:
     return None
 
 
-def preflight(host: str, user: str, *, dry: bool) -> bool:
+def preflight(host: str, user: str, *, dry: bool, fix_clock: bool = False) -> bool:
     print(f"== 预检：SSH 探活 + 时钟偏差（{user}@{host}）==")
     rc, _ = ssh(host, user, "true", dry=dry)
     if rc != 0:
@@ -148,7 +150,21 @@ def preflight(host: str, user: str, *, dry: bool) -> bool:
     rc, out = ssh(host, user, "date +%s", dry=dry)
     if rc == 0 and out.strip().isdigit():
         skew = abs(int(out.strip()) - int(time.time()))
-        gate("时钟偏差", skew <= 1 or None, f"{skew}s（>1s 仅告警：历史偏过 ~3 天，需人工对时）")
+        # --fix-clock：Orin 无 RTC，上电即 1970（2026-10-25 部署实测）。免密
+        # sudo（sudo -n）可用时自动 date -s 对平；需要密码时绝不走
+        # echo 口令 | sudo -S（口令进远端 ps 进程列表），退回人工指令。
+        if fix_clock and skew > 1 and not dry:
+            local_epoch = int(time.time())
+            rc2, out2 = ssh(host, user,
+                            f"sudo -n date -s @{local_epoch} >/dev/null 2>&1 && date +%s",
+                            dry=False)
+            if rc2 == 0 and out2.strip().isdigit():
+                skew = abs(int(out2.strip()) - int(time.time()))
+                gate("时钟自动对时", skew <= 1, f"sudo -n date -s 对平后偏差 {skew}s")
+            else:
+                print("  ⚠ 免密 sudo 不可用，未自动对时。人工执行：")
+                print(f"    ssh {user}@{host} 'sudo date -s @{local_epoch}'")
+        gate("时钟偏差", skew <= 1 or None, f"{skew}s（>1s 仅告警：需对时或 --fix-clock）")
     return True
 
 
@@ -188,9 +204,13 @@ def stage_engines(host: str, user: str, *, dry: bool) -> bool:
 
 
 def stage_bringup(host: str, user: str, *, dry: bool) -> bool:
-    print("== 阶段④ 规划侧重启（orin_bringup restart）==")
+    print("== 阶段④ 规划侧重启（orin_bringup restart = down + up）==")
+    # up() 内含逐窗口沉降验活（SETTLE 12s + 各级 sleep），慢启动机器上整程
+    # 可逼近 2 分钟——120s 会把好栈误判成超时，放宽到 300s。
     rc, out = ssh(host, user, f"cd {REMOTE_ROOT} && bash tools/orin_bringup.sh restart",
-                  dry=dry, timeout=120)
+                  dry=dry, timeout=300)
+    if rc != 0 and not dry:
+        print(f"  ✗ 阶段④非零退出 rc={rc}（restart 缺失/栈未就绪，证据见上）")
     return rc == 0
 
 
@@ -203,16 +223,30 @@ def verify_gates(host: str, user: str, *, dry: bool) -> None:
                   dry=dry)
     gate_d("G1 缺雷修复在位", rc == 0 and out.strip() not in ("0", ""),
            "route_progress.py 含连写朝向修复（2026-10-24）" if rc == 0 else "文件缺失", dry=dry)
-    # G2 px4 进程 + 横幅
-    rc, out = ssh(host, user, "pgrep -af px4_odom_convert | head -1", dry=dry)
+    # G2 px4 进程（探针防假绿：裸 pgrep -f 会匹配到探针自身命令行——2026-10-25
+    # 部署实测进程死了门照样 PASS。一律 | grep -v pgrep，复核口径同部署 RUNBOOK）
+    rc, out = ssh(host, user, "pgrep -af px4_odom_convert | grep -v pgrep | head -1", dry=dry)
     gate_d("G2 px4 进程", rc == 0 and bool(out.strip()), (out.strip() or "无进程")[:80], dry=dry)
+    # G2b 韧性层横幅：live tmux pane 与 node_odom 日志双源（pane 滚出横幅后
+    # 靠日志兜底；patch_deploy 同口径）。进程活着≠v2.2 已加载，横幅才是版本证据。
+    rc, out = ssh(host, user,
+                  "{ tmux capture-pane -pt agup:odom -S -2000 2>/dev/null; "
+                  "cat $(ls -t ~/drone_logs/node_odom_*.log 2>/dev/null | head -1) 2>/dev/null; } "
+                  "| grep -m1 'Resilience layer v2'",
+                  dry=dry)
+    gate_d("G2b 韧性层 v2 横幅", rc == 0 and bool(out.strip()),
+           (out.strip() or "pane 与日志均无横幅——patch 阶段未生效或栈未起")[:90], dry=dry)
     # G3 引擎（与阶段③同判，复核）
     rc, out = ssh(host, user, "ls ~/dzuav/engines/*.engine 2>/dev/null | xargs -n1 basename",
                   dry=dry)
     has = ("hbb_detector_d13_fp16" in out) and ("cell_classifier_v4d_fp16" in out)
     gate_d("G3 D13/v4d 引擎", has, f"{len([l for l in out.splitlines() if l.strip()])} 个引擎", dry=dry)
-    # G4 sidecar 进程
-    rc, out = ssh(host, user, "pgrep -af 'orin_plan_sidecar|orin_bringup' | head -2", dry=dry)
+    # G4 sidecar 进程（同 G2 防假绿；orin_bringup 只是编排包装进程，验活看
+    # tmux 会话 agup 而不是把它放进 pgrep 模式）
+    rc, out = ssh(host, user,
+                  "pgrep -af orin_plan_sidecar | grep -v pgrep | head -1; "
+                  "tmux has-session -t agup 2>/dev/null && echo 'tmux:agup-alive'",
+                  dry=dry)
     joined = out.strip().replace("\n", " | ") or "无"
     gate_d("G4 规划侧进程", rc == 0 and bool(out.strip()), joined[:100], dry=dry)
 
@@ -232,7 +266,7 @@ def report(rollback_hint: bool) -> int:
     print("\n✅ 全部通过。动态验证项（起飞后）：")
     print("    - sidecar 日志出现『重规划基于最新进度: 起点 <格>』（修复生效直接证据）")
     print("    - px4 health 行 status_age_s < 2；拔飞控 USB 应出现『status=断流(按armed处理)』")
-    print("    - orin_build_verify.sh L3 推理自检（D13 17 通道契约）")
+    print("    - orin_build_verify.sh L3 推理自检（hbb 契约: 4+K 通道，K 见 types.hpp）")
     return 0
 
 
@@ -243,6 +277,8 @@ def main() -> int:
     ap.add_argument("--skip", nargs="*", default=[], choices=["code", "px4", "engines", "bringup"],
                     help="跳过指定阶段")
     ap.add_argument("--verify-only", action="store_true", help="只跑验证门（部署后体检）")
+    ap.add_argument("--fix-clock", action="store_true",
+                    help="预检时钟偏差>1s 时自动对时（仅免密 sudo 可用时；默认只告警）")
     ap.add_argument("--dry-run", action="store_true", help="只打印将执行的命令（含验证门）")
     args = ap.parse_args()
 
@@ -250,7 +286,7 @@ def main() -> int:
     if not host:
         print("✗ 无法解析 Orin 地址：--host 指定，或确认机器在线/mDNS 可达")
         return 2
-    if not preflight(host, args.user, dry=args.dry_run):
+    if not preflight(host, args.user, dry=args.dry_run, fix_clock=args.fix_clock):
         return 2
 
     if not args.verify_only:
