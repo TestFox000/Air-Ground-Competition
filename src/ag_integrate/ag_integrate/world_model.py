@@ -74,19 +74,31 @@ class WorldModel:
     必须先被多帧否决。真障碍只晚 N-1 帧（5fps 下 0.2s）进入，代价可忽略。
     2026-10-17 默认 N=1→2：实拍复盘确认单帧幻影障碍触发无效重规划的
     代价远大于 0.2s 确认延迟（车载版三帧共识）。
+
+    蓝靶多帧确认（blue_confirm_frames，2026-10-25，与红靶对称）：
+    flight_20261025 诊断③——d13 类别横跳（同物 obstacle/target/bucket
+    异判）与红蓝面随视角翻转下单帧蓝检不可信，幽灵蓝靶会骗规划为一格
+    不存在的敌人安排停靠射击位（白绕路 + 占用必经点）。N 帧确认只晚
+    N-1 帧；N=1 退化为旧行为。红帧证据清零蓝候选：红蓝对半横跳的格
+    永不放行开火位（身份含糊宁可不打，fail-safe）；红侧自身语义
+    （确认/粘性/否决）不受影响。
     """
 
     def __init__(self, red_veto_ttl_s: float = 5.0,
                  obstacle_confirm_frames: int = 2,
-                 red_confirm_frames: int = 2) -> None:
+                 red_confirm_frames: int = 2,
+                 blue_confirm_frames: int = 2) -> None:
         self._snapshot: WorldSnapshot | None = None
         self.red_veto_ttl_s = float(red_veto_ttl_s)
         self.obstacle_confirm_frames = max(1, int(obstacle_confirm_frames))
         self.red_confirm_frames = max(1, int(red_confirm_frames))
+        self.blue_confirm_frames = max(1, int(blue_confirm_frames))
         # 红靶格 -> 最后一次见到的时刻（本地 monotonic 秒）
         self._red_seen: dict[CellRef, float] = {}
         # 候选红靶格 -> (最后一次见到时刻, TTL 内累计帧数)，确认后才进 _red_seen
         self._red_cand: dict[CellRef, tuple[float, int]] = {}
+        # 蓝靶候选格 -> (最后一次见到时刻, TTL 内累计帧数)，确认后才进态势
+        self._blue_cand: dict[str, tuple[float, int]] = {}
         # 障碍多帧确认状态：格名 -> (CellRef, 连续检出计, 连续漏检计)
         self._ob_state: dict[str, tuple[CellRef, int, int]] = {}
 
@@ -114,6 +126,7 @@ class WorldModel:
         passable: dict[str, CellRef] = {}
         obstacles: dict[str, CellRef] = {}
         targets: list[TargetRef] = []
+        blue_cells: dict[str, CellRef] = {}   # 本帧蓝检（同帧按格名去重，延迟进态势）
 
         for obj in frame.objects:
             try:
@@ -133,12 +146,28 @@ class WorldModel:
             elif obj.type is ObjectType.OBSTACLE:
                 obstacles.setdefault(cell.name, cell)
             elif obj.type is ObjectType.TARGET_BLUE:
-                targets.append(TargetRef(cell, True))
+                blue_cells[cell.name] = cell     # 见下方蓝靶多帧确认块
             elif obj.type is ObjectType.TARGET_RED:
                 targets.append(TargetRef(cell, False))
             # CAR / CELL_LABEL / BUCKET_* / 起止点：不进态势
             # TARGET（ft_v1 整体板）同样不进：红/蓝面才携带禁火/必打语义，
             # 整体板只是存在性证据，单独造实体会和面框的 TargetRef 重复计格。
+
+        # 蓝靶多帧确认（2026-10-25，与红靶机制对称）。窗口复用
+        # red_veto_ttl_s（同一批证据的时间尺度）；红帧证据清零蓝候选——
+        # 红蓝对半横跳的格永不放行开火位（身份含糊宁可不打）。
+        red_frame_cells = {t.cell.name for t in targets if t.is_blue is False}
+        for name in [k for k, (ts, _) in self._blue_cand.items()
+                     if now_mono - ts > self.red_veto_ttl_s]:
+            del self._blue_cand[name]
+        for name in red_frame_cells:
+            self._blue_cand.pop(name, None)
+        for name, cell in blue_cells.items():
+            ts, hits = self._blue_cand.get(name, (now_mono, 0))
+            hits = hits + 1 if now_mono - ts <= self.red_veto_ttl_s else 1
+            self._blue_cand[name] = (now_mono, hits)
+            if hits >= self.blue_confirm_frames:
+                targets.append(TargetRef(cell, True))
 
         # 蓝靶去重（2026-10-17 修订）：同帧对同一蓝靶双检出会产生两个
         # TargetRef → 规划侧生成两组射击位候选，组合数翻倍且两个停靠格

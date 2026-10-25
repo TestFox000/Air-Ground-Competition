@@ -48,6 +48,19 @@ class FusionDecision:
     coverage_frac: float = 0.0
 
 
+def _pick_target(pick: dict, cell: CellRef, is_blue: bool, prob: float) -> None:
+    """同报格红蓝仲裁（2026-10-25，flight_20261025 诊断③）：d13 类别横跳
+    会让同一格的红/蓝 logit 各自独立过确认门，"敌我同格"双 TargetRef 会
+    让规划安排停靠、fire_guard 又因红邻接拒绝开火（白停一趟）。prob 是
+    有效 logit 的单调 sigmoid，可直接比较证据强弱；平手判红（身份含糊
+    不放行开火位，fail-safe）。仲裁只决定"上报哪侧身份"，不清除
+    evidential_map 内的任何证据——红侧粘性仍在地图内部保持。
+    """
+    cur = pick.get(cell.name)
+    if cur is None or prob > cur[0] or (prob == cur[0] and not is_blue):
+        pick[cell.name] = (prob, is_blue, cell)
+
+
 class EvidentialFusion:
     """evidential_map → WorldSnapshot 的适配器。
 
@@ -95,14 +108,15 @@ class EvidentialFusion:
         passable: dict[str, CellRef] = {}
         obstacles: dict[str, CellRef] = {}
         targets: list[TargetRef] = []
+        tgt_pick: dict[str, tuple[float, bool, CellRef]] = {}   # 同报格红蓝仲裁
         dec = FusionDecision(coverage_frac=self.map.coverage_frac())
         for spot in self.map.confirmed_only(t):
             if isinstance(spot, TrackSpot):
                 # 移动靶轨道级：报告格取轨道中点（blue_face 判别归 cfg/识别层）
                 cells = spot.cells
                 mid = cells[len(cells) // 2]
-                targets.append(TargetRef(mid, spot.kind is ObjectType.TARGET_BLUE))
-                dec.targets_confirmed += 1
+                _pick_target(tgt_pick, mid,
+                             spot.kind is ObjectType.TARGET_BLUE, spot.conf)
                 continue
             cell = spot.cell
             kind = spot.kind
@@ -117,8 +131,11 @@ class EvidentialFusion:
                 obstacles.setdefault(cell.name, cell)
                 dec.obstacles_confirmed += 1
             elif kind in (ObjectType.TARGET_BLUE, ObjectType.TARGET_RED):
-                targets.append(TargetRef(cell, kind is ObjectType.TARGET_BLUE))
-                dec.targets_confirmed += 1
+                _pick_target(tgt_pick, cell,
+                             kind is ObjectType.TARGET_BLUE, spot.conf)
+        for _name, (_p, is_blue, cell) in tgt_pick.items():
+            targets.append(TargetRef(cell, is_blue))
+            dec.targets_confirmed += 1
         self._snapshot = WorldSnapshot(self._ts_ms,
                                        tuple(mines.values()),
                                        tuple(passable.values()),
