@@ -88,31 +88,34 @@ def generate_maps(n: int = 64, seed: int = SEED) -> list[dict]:
         mines = rng.sample(pool, 8)
         rest = [c for c in pool if c not in mines]
         obstacles = rng.sample(rest, 8)
-        # 蓝面朝向追加抽取（不扰动上面的随机序列）：取首个"两端候选停站
-        # 均在界内且不在障碍/桥墙/轨道上"的一侧；全无效 = 该靶物理不可射
-        # （双方都应无解）。依据 _shoot_candidates_moving：候选=轨道两端在
-        # 蓝面侧的正交邻格。
+        # 蓝面朝向按"标定站距环带有候选"选边（确定性推导、不抽取随机数、
+        # 不扰动图序）：某一侧至少存在一个界内且未占用候选，该侧才有效；
+        # 全无效 = 该靶物理不可射（双方都应无解）。
+        # 候选口径 = _STANDOFF_OFFSETS：垂直轨道按 dc 定侧、水平轨道按 dr 定侧。
         occupied = set(obstacles) | set(mines) | set(pair) | set(BRIDGES) | _k_col()
         vertical = pair[0][0] == pair[1][0]
+        _STANDOFF = ((1, 2), (2, 1), (2, 2), (-1, 2), (-2, 1), (-2, 2),
+                     (1, -2), (2, -1), (2, -2), (-1, -2), (-2, -1), (-2, -2))
 
-        def _cand_ok(c: str) -> bool:
-            return (c[0] in COLS and 1 <= int(c[1:]) <= N_ROWS
-                    and c not in occupied)
+        def _side_has_cand(positive: bool) -> bool:
+            for base in pair:
+                bi, br = COLS.index(base[0]), int(base[1:])
+                for dc, dr in _STANDOFF:
+                    if vertical:
+                        if (dc > 0) != positive:
+                            continue
+                    else:
+                        if (dr > 0) != positive:
+                            continue
+                    ci2, ri2 = bi + dc, br + dr
+                    if 0 <= ci2 < len(COLS) and 1 <= ri2 <= N_ROWS:
+                        if COLS[ci2] + str(ri2) not in occupied:
+                            return True
+            return False
 
-        if vertical:
-            col = pair[0][0]
-            faces = ("E", "W")
-            cand = {"E": [COLS[COLS.index(col) + 1] + pair[0][1:],
-                          COLS[COLS.index(col) + 1] + pair[1][1:]],
-                    "W": [COLS[COLS.index(col) - 1] + pair[0][1:],
-                          COLS[COLS.index(col) - 1] + pair[1][1:]]}
-        else:
-            row = pair[0][1:]
-            faces = ("S", "N")
-            cand = {"S": [pair[0][0] + str(int(row) + 1), pair[1][0] + str(int(row) + 1)],
-                    "N": [pair[0][0] + str(int(row) - 1), pair[1][0] + str(int(row) - 1)]}
-        blue_face = next((f for f in faces
-                          if all(_cand_ok(c) for c in cand[f])), None)
+        blue_face = (("E" if vertical else "S") if _side_has_cand(True)
+                     else (("W" if vertical else "N") if _side_has_cand(False)
+                           else None))
         maps.append(dict(idx=idx, start=START, end=END, bridges=list(BRIDGES),
                          targets=list(pair), mines=mines, obstacles=obstacles,
                          blue_face=blue_face))
@@ -184,12 +187,12 @@ def _load_ours():
     sys.path.insert(0, os.path.join(OURS_ROOT, "src", "ag_integrate"))
     from ag_integrate.field_frame import CellRef, LETTERS
     from ag_integrate.world_model import WorldSnapshot, TargetRef
-    from ag_integrate.mission_router import plan_route
+    from ag_integrate.mission_router import plan_route, _shoot_candidates_moving
     from ag_integrate.route_time import estimate_seconds
 
     def cell(name: str) -> CellRef:
         return CellRef(LETTERS.index(name[0]), int(name[1:]) - 1)
-    return cell, WorldSnapshot, TargetRef, plan_route, estimate_seconds
+    return cell, WorldSnapshot, TargetRef, plan_route, estimate_seconds, _shoot_candidates_moving
 
 
 def _polyline_len(route) -> float:
@@ -206,28 +209,26 @@ def _polyline_len(route) -> float:
 
 
 def run_ours(m: dict, kit, permissive: bool = False) -> dict:
-    cell, WorldSnapshot, TargetRef, plan_route, estimate_seconds = kit
+    cell, WorldSnapshot, TargetRef, plan_route, estimate_seconds, cands_moving = kit
     pair = m["targets"]
     vertical = pair[0][0] == pair[1][0]
     blue_face = m.get("blue_face") or ("E" if vertical else "S")
+    tgt = TargetRef(cell(pair[0]), True,
+                    track=(cell(pair[0]), cell(pair[1])), blue_face=blue_face)
     snap = WorldSnapshot(
         timestamp_ms=1,
         mines=tuple(cell(n) for n in m["mines"]),
         passable=tuple(cell(n) for n in m["bridges"]),
         obstacles=tuple(cell(n) for n in m["obstacles"]),
-        targets=(TargetRef(cell(pair[0]), True,
-                           track=(cell(pair[0]), cell(pair[1])),
-                           blue_face=blue_face),),
+        targets=(tgt,),
     )
-    # 停站判定与规划器同源（_shoot_candidates_moving）：轨道两端蓝面侧邻格
-    if vertical:
-        ci = COLS.index(pair[0][0])
-        dci = 1 if blue_face == "E" else -1
-        stop_cells = {COLS[ci + dci] + pair[0][1:], COLS[ci + dci] + pair[1][1:]}
-    else:
-        ri = int(pair[0][1:])
-        dri = 1 if blue_face == "S" else -1
-        stop_cells = {pair[0][0] + str(ri + dri), pair[1][0] + str(ri + dri)}
+    # 停站判定与规划器同源：_shoot_candidates_moving（0.78~1.02 m 标定环带）
+    blocked_c = frozenset(
+        [cell(n) for n in m["obstacles"]]
+        + [cell(c + str(r)) for c in ("K",) for r in range(1, N_ROWS + 1)
+           if c + str(r) not in m["bridges"]]
+        + [cell(n) for n in m["targets"]])
+    stop_cells = {c.name for c in cands_moving(tgt, blocked_c)}
     kw = dict(_MOTION_ON)
     if permissive:
         # 宽松口径：tunnel_dirs={} 关隧道轴向+进洞邻格硬规则（2026-10-24 实测
@@ -246,6 +247,17 @@ def run_ours(m: dict, kit, permissive: bool = False) -> dict:
     mines_cov = sum(1 for x in m["mines"] if x in names)
     bridge_cov = sum(1 for x in m["bridges"] if x in names)
     stops = [x for x in names if x in stop_cells]
+    # 成功口径与车端 route_check 第④层同源：**每个轨端**都要有路线格落在
+    # 其 0.78~1.02 m 窗内（√5/√8 整数格偏移），不是"路过任一环带格"。
+    from ag_integrate.field_frame import LETTERS as _L
+
+    def _serves(stop: str, rail: str) -> bool:
+        dc = _L.index(stop[0]) - _L.index(rail[0])
+        dr = int(stop[1:]) - int(rail[1:])
+        return dc * dc + dr * dr in (5, 8)
+
+    ends_served = sum(1 for rail in m["targets"]
+                      if any(_serves(x, rail) for x in names))
     length_m = _polyline_len(names)
     try:
         with warnings.catch_warnings():
@@ -255,9 +267,11 @@ def run_ours(m: dict, kit, permissive: bool = False) -> dict:
                 shoot_cells=set(stops) or frozenset()).seconds)
     except Exception:
         sec = None
-    ok = mines_cov == 8 and bridge_cov == len(m["bridges"]) and stops
+    ok = (mines_cov == 8 and bridge_cov == len(m["bridges"])
+          and ends_served == len(m["targets"]))
     return dict(ok=ok, reason="" if ok else
-                f"mines {mines_cov}/8 bridges {bridge_cov}/2 stops {len(stops)}",
+                f"mines {mines_cov}/8 bridges {bridge_cov}/2 "
+                f"ends_served {ends_served}/{len(m['targets'])}",
                 tokens=len(names), length_m=length_m, seconds=sec,
                 mines_cov=mines_cov, bridge_cov=bridge_cov,
                 stop_count=len(stops), route=names)

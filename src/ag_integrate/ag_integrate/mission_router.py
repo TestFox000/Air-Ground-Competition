@@ -1543,31 +1543,56 @@ def _shoot_candidates(
     return sorted(out, key=lambda c: c.name)
 
 
+_STANDOFF_OFFSETS = ((1, 2), (2, 1), (2, 2), (-1, 2), (-2, 1), (-2, 2),
+                     (1, -2), (2, -1), (2, -2), (-1, -2), (-2, -1), (-2, -2))
+# ★ 2026-10-26 吸收车端官方标定：射击停站与靶心距离须在 0.78~1.02 m
+#   （route_check 第④层"射击点距离"红线；车端 fire_dz 25~26px 开火框按此
+#   站距标定）。0.78/0.35=2.229、1.02/0.35=2.914 格 ⇒ 合法偏移只有
+#   (±1,±2)/(±2,±1)（√5=2.236 格=0.783 m）与 (±2,±2)（√8=2.828 格=0.990 m）；
+#   轴向 2 格=0.70 m 太近、3 格=1.05 m 太远，都在窗外。
+#   旧口径（贴轨正交邻格=0.35 m）在 64 图头对头基准里造成 5 张停站失败、
+#   官方六层校验"靶覆盖 0/2"❌，实锤为口径债而非搜索缺陷。
+
+
+def _standoff_serves(c: CellRef, rail: CellRef) -> bool:
+    """c 是否在 rail 的 0.78~1.02 m 标定窗内（窗内整数格偏移恰为 √5/√8 两档）。"""
+    dc, dr = c.col - rail.col, c.row - rail.row
+    return dc * dc + dr * dr in (5, 8)
+
+
 def _shoot_candidates_moving(
     t: "TargetRef",
     blocked: frozenset[CellRef],
 ) -> list[CellRef]:
-    """移动靶的候选停靠射击格：轨道两端在蓝面朝向一侧的正交邻格。
+    """移动靶的候选停靠射击格：轨道两端在蓝面朝向一侧的标定站距环带。
 
-    车停这类格上，靶移动到正对端点时恰好正交相邻（距离 1 格），
-    车头正对靶心开火最准；红面朝向另一侧，不可能误伤。
+    候选 = 各轨端 + _STANDOFF_OFFSETS 斜偏移，须落在蓝面一侧（红面侧不可
+    见蓝面、不可能停）、界内、未被障碍/桥墙/轨道占用；对最近轨端的距离
+    天然在 0.78~1.02 m 标定窗内（见 _STANDOFF_OFFSETS 注释）。
     轨道水平（两端同行）时 blue_face='S'(row+1)/'N'(row-1)；
     垂直（两端同列）时 'E'(col+1)/'W'(col-1)。
     """
     a, b = t.track
-    if a.row == b.row:  # 水平轨道
-        dr = 1 if t.blue_face == "S" else -1
-        cells = (CellRef(a.col, a.row + dr), CellRef(b.col, b.row + dr))
-    else:               # 垂直轨道
-        dc = 1 if t.blue_face == "E" else -1
-        cells = (CellRef(a.col + dc, a.row), CellRef(b.col + dc, b.row))
-    out = []
-    for c in cells:
-        if not (0 <= c.col < COLS and 0 <= c.row < ROWS):
-            continue
-        if c in blocked:
-            continue
-        out.append(c)
+    vertical = a.col != b.col
+    out: set[CellRef] = set()
+    for rail in (a, b):
+        for dc, dr in _STANDOFF_OFFSETS:
+            c = CellRef(rail.col + dc, rail.row + dr)
+            if not (0 <= c.col < COLS and 0 <= c.row < ROWS):
+                continue
+            if vertical:            # 垂直轨道：蓝面侧判定
+                if t.blue_face == "E" and c.col <= a.col:
+                    continue
+                if t.blue_face == "W" and c.col >= a.col:
+                    continue
+            else:                   # 水平轨道：蓝面侧判定
+                if t.blue_face == "S" and c.row <= a.row:
+                    continue
+                if t.blue_face == "N" and c.row >= a.row:
+                    continue
+            if c in blocked or c == a or c == b:
+                continue
+            out.add(c)
     return sorted(out, key=lambda c: c.name)
 
 
@@ -1775,13 +1800,24 @@ def plan_route(
             continue   # 红面可见（友方）或红靶：不打不停靠
         if t.track is not None:
             cands = _shoot_candidates_moving(t, blocked)
-            faces = {s.name: _FACE_OPP[t.blue_face] for s in cands}
+            # 按轨端分组必经（2026-10-26 吸收车端 route_check 第④层语义：
+            # 每个轨端都要有停站在 0.78~1.02 m 窗内，单格可同时服务两端，
+            # 如 D5 距 E7=√5 格、距 F7=√8 格；只到访"任一环带格"会漏掉
+            # 另一端——官方六层校验"靶覆盖 n/2"❌ 的根因）。
+            end_groups = []
+            for rail in t.track:
+                g = [c for c in cands if _standoff_serves(c, rail)]
+                if g:
+                    end_groups.append(g)
+            for g in end_groups:
+                cand_lists.append(g)
+                cand_faces.append({s.name: _FACE_OPP[t.blue_face] for s in g})
         else:
             cands = _shoot_candidates(t.cell, blocked, target_cells)
             faces = {s.name: _face_heading(s, t.cell) for s in cands}
-        if cands:
-            cand_lists.append(cands)
-            cand_faces.append(faces)
+            if cands:
+                cand_lists.append(cands)
+                cand_faces.append(faces)
         # 无候选 = 该靶被围死无处停靠，跳过（与不可达必经点语义一致）
 
     # 射击位候选按"起点可达性"预过滤：不可达候选直接移出组合枚举。

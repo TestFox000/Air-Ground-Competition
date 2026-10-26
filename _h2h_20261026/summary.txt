@@ -1,20 +1,20 @@
 {
   "n": 64,
-  "blue_face_none_unshootable_by_our_model": 4,
+  "blue_face_none_unshootable_by_our_model": 0,
   "tour_ok": 37,
-  "ours_ok_strict": 32,
-  "ours_ok_permissive": 43,
-  "policy_gap_strict_vs_permissive": 11,
-  "both_ok": 23,
+  "ours_ok_strict": 34,
+  "ours_ok_permissive": 48,
+  "policy_gap_strict_vs_permissive": 14,
+  "both_ok": 25,
   "ours_only": 9,
-  "tour_only": 14,
-  "tour_only_vs_permissive": 5,
+  "tour_only": 12,
+  "tour_only_vs_permissive": 0,
   "permissive_only_vs_tour": 11,
   "len_delta_tour_minus_ours": {
-    "mean": 1.81,
-    "n": 23,
-    "ours_shorter": 18,
-    "tour_shorter": 5
+    "mean": 2.37,
+    "n": 25,
+    "ours_shorter": 22,
+    "tour_shorter": 3
   },
   "tour_fail_reasons": {
     "穿洞": 11,
@@ -22,11 +22,10 @@
     "无解": 11
   },
   "ours_fail_reasons": {
-    "mines 7/8 bridges 2/2 stops 1": 3,
-    "不可达": 26,
-    "mines 8/8 bridges 2/2 stops 0": 3
+    "mines 7/8 bridges 2/2 ends_served 2/2": 3,
+    "不可达": 27
   },
   "ours_seconds_both_solved": {
-    "mean": 109.0
+    "mean": 125.0
   }
 }
