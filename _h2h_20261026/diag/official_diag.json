@@ -1,0 +1,198 @@
+{
+ "ft_v1": {
+  "n": 157,
+  "detected": 108,
+  "miss_A_threshold": 6,
+  "miss_B_class_taken": 4,
+  "miss_C_nothing": 39,
+  "sweep": {
+   "0.05": 117,
+   "0.1": 114,
+   "0.15": 112,
+   "0.2": 110,
+   "0.25": 108
+  },
+  "miss_A": [
+   [
+    "explosive_051.jpg",
+    0.2045
+   ],
+   [
+    "explosive_076.jpg",
+    0.1807
+   ],
+   [
+    "explosive_082.jpg",
+    0.1596
+   ],
+   [
+    "explosive_088.jpg",
+    0.1259
+   ],
+   [
+    "explosive_123.jpg",
+    0.1497
+   ],
+   [
+    "explosive_125.jpg",
+    0.234
+   ]
+  ],
+  "miss_B": [
+   [
+    "explosive_035.jpg",
+    [
+     [
+      "car",
+      0.13
+     ]
+    ]
+   ],
+   [
+    "explosive_106.jpg",
+    [
+     [
+      "bucket_red",
+      0.09
+     ]
+    ]
+   ],
+   [
+    "explosive_132.jpg",
+    [
+     [
+      "car",
+      0.07
+     ]
+    ]
+   ],
+   [
+    "explosive_154.jpg",
+    [
+     [
+      "car",
+      0.38
+     ]
+    ]
+   ]
+  ],
+  "miss_C": [
+   "explosive_009.jpg",
+   "explosive_011.jpg",
+   "explosive_013.jpg",
+   "explosive_020.jpg",
+   "explosive_023.jpg",
+   "explosive_025.jpg",
+   "explosive_033.jpg",
+   "explosive_034.jpg",
+   "explosive_039.jpg",
+   "explosive_040.jpg"
+  ]
+ },
+ "d13": {
+  "n": 157,
+  "detected": 112,
+  "miss_A_threshold": 23,
+  "miss_B_class_taken": 4,
+  "miss_C_nothing": 18,
+  "sweep": {
+   "0.05": 144,
+   "0.1": 135,
+   "0.15": 125,
+   "0.2": 121,
+   "0.25": 112
+  },
+  "miss_A": [
+   [
+    "explosive_008.jpg",
+    0.2142
+   ],
+   [
+    "explosive_016.jpg",
+    0.2433
+   ],
+   [
+    "explosive_017.jpg",
+    0.1482
+   ],
+   [
+    "explosive_020.jpg",
+    0.2171
+   ],
+   [
+    "explosive_025.jpg",
+    0.1006
+   ],
+   [
+    "explosive_039.jpg",
+    0.2022
+   ],
+   [
+    "explosive_042.jpg",
+    0.2097
+   ],
+   [
+    "explosive_045.jpg",
+    0.1831
+   ],
+   [
+    "explosive_060.jpg",
+    0.1323
+   ],
+   [
+    "explosive_061.jpg",
+    0.1676
+   ]
+  ],
+  "miss_B": [
+   [
+    "explosive_048.jpg",
+    [
+     [
+      "target_blue",
+      0.1
+     ]
+    ]
+   ],
+   [
+    "explosive_098.jpg",
+    [
+     [
+      "cell_label",
+      0.23
+     ]
+    ]
+   ],
+   [
+    "explosive_108.jpg",
+    [
+     [
+      "target_red",
+      0.24
+     ]
+    ]
+   ],
+   [
+    "explosive_121.jpg",
+    [
+     [
+      "target_red",
+      0.13
+     ]
+    ]
+   ]
+  ],
+  "miss_C": [
+   "explosive_003.jpg",
+   "explosive_011.jpg",
+   "explosive_013.jpg",
+   "explosive_023.jpg",
+   "explosive_031.jpg",
+   "explosive_034.jpg",
+   "explosive_043.jpg",
+   "explosive_049.jpg",
+   "explosive_052.jpg",
+   "explosive_053.jpg"
+  ]
+ }
+}

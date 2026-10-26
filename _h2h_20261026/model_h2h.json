@@ -12,19 +12,24 @@
     "fn": 65
    },
    "bucket_green": {
-    "tp": 68,
-    "fp": 6,
-    "fn": 110
+    "tp": 0,
+    "fp": 74,
+    "fn": 178
+   },
+   "family:桶障族": {
+    "tp": 346,
+    "fp": 174,
+    "fn": 98
    },
    "bucket_cyan": {
-    "tp": 33,
-    "fp": 5,
-    "fn": 63
+    "tp": 0,
+    "fp": 38,
+    "fn": 96
    },
    "bucket_red": {
-    "tp": 58,
-    "fp": 5,
-    "fn": 112
+    "tp": 0,
+    "fp": 63,
+    "fn": 170
    },
    "obstacle": {
     "tp": 0,
@@ -92,19 +97,24 @@
     "fn": 51
    },
    "bucket_green": {
-    "tp": 172,
-    "fp": 8,
-    "fn": 6
+    "tp": 0,
+    "fp": 180,
+    "fn": 178
+   },
+   "family:桶障族": {
+    "tp": 441,
+    "fp": 25,
+    "fn": 3
    },
    "bucket_cyan": {
-    "tp": 96,
-    "fp": 11,
-    "fn": 0
+    "tp": 0,
+    "fp": 107,
+    "fn": 96
    },
    "bucket_red": {
-    "tp": 169,
-    "fp": 10,
-    "fn": 1
+    "tp": 0,
+    "fp": 179,
+    "fn": 170
    },
    "car": {
     "tp": 24,
@@ -153,16 +163,5 @@
    "recall": 0.6879,
    "n_boxes": 218
   }
- },
- "notes": {
-  "closure": "2026-10-26 用户裁决关闭本对比：两模型均用户亲训，D13 为旧代模型（非对方现役冠军），对比无\"我方vs对方\"意义；ft_v1 为现行冠军。",
-  "taxonomy": "D13 的 obstacle(id5)=桶统称（与桶GT IoU 0.90-0.99 三图实证）；data_14 分色标注。若日后复跑，h2h_models.py 已内置匹配层族合并。",
-  "official_protocol": "图级雷召回=cls0(paper)≥1框, conf0.25, 同 eval_generalization 门禁口径；ft_v1 108/157 与入库基线逐数复现",
-  "official_gap_note": "泛化集 D13 71.3% vs ft_v1 68.8%（差4图）——若做 ft_v2，官方爆炸物近景图纳入增强是已知最短补强方向（可选）。",
-  "frozen_models_md5": {
-   "d13": "9DAE6083239B3B6C0B553C5F94261E78",
-   "ft_v1": "43431CFB66CBBFAD316C8C0C1BC0A976"
-  },
-  "protocol": "letterbox1280/conf0.25/NMS0.45/匹配IoU0.5/CPU deterministic"
  }
 }
