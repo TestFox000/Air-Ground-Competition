@@ -215,8 +215,25 @@ def stage_bringup(host: str, user: str, *, dry: bool) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-def verify_gates(host: str, user: str, *, dry: bool) -> None:
+def verify_gates(host: str, user: str, *, dry: bool, fresh_after: float = 0.0) -> None:
     print("== 验证门（静态项；动态项见 RUNBOOK §3）==")
+
+    def _fresh_ok(pat: str) -> tuple[bool | None, str]:
+        """进程新鲜度（2026-10-26 假绿实锤）：进程必须是部署开始之后才启动的——
+        旧栈残留进程照样能过"有进程"判据，阶段④实际没重启也全绿。
+        fresh_after=0（--verify-only 体检口径）不做新鲜度检查。"""
+        if not fresh_after:
+            return None, ""
+        budget = int(time.time() - fresh_after) + 120   # 120s 链路/启动余量
+        rc, out = ssh(host, user,
+                      f"p=$(pgrep -af '{pat}' | grep -v pgrep | grep -v bash | "
+                      f"head -1 | awk '{{print $1}}'); "
+                      f"[ -n \"$p\" ] && ps -o etimes= -p $p", dry=dry)
+        if not out.strip().isdigit():
+            return False, "进程不存在"
+        et = int(out.strip())
+        return et <= budget, f"启动于 {et}s 前（阈值 {budget}s）"
+
     # G1 部署树 + route_progress 修复标记
     rc, out = ssh(host, user,
                   f"grep -c '连写' {REMOTE_ROOT}/src/ag_integrate/ag_integrate/route_progress.py",
@@ -226,7 +243,13 @@ def verify_gates(host: str, user: str, *, dry: bool) -> None:
     # G2 px4 进程（探针防假绿：裸 pgrep -f 会匹配到探针自身命令行——2026-10-25
     # 部署实测进程死了门照样 PASS。一律 | grep -v pgrep，复核口径同部署 RUNBOOK）
     rc, out = ssh(host, user, "pgrep -af px4_odom_convert | grep -v pgrep | head -1", dry=dry)
-    gate_d("G2 px4 进程", rc == 0 and bool(out.strip()), (out.strip() or "无进程")[:80], dry=dry)
+    ok2 = rc == 0 and bool(out.strip())
+    ev2 = (out.strip() or "无进程")[:80]
+    fok, fev = _fresh_ok("px4_odom_convert")
+    if fok is not None:
+        ok2 = ok2 and fok
+        ev2 += f"｜新鲜度 {'PASS' if fok else 'FAIL:旧实例(假绿)'} {fev}"
+    gate_d("G2 px4 进程", ok2, ev2, dry=dry)
     # G2b 韧性层横幅：live tmux pane 与 node_odom 日志双源（pane 滚出横幅后
     # 靠日志兜底；patch_deploy 同口径）。进程活着≠v2.2 已加载，横幅才是版本证据。
     rc, out = ssh(host, user,
@@ -248,7 +271,12 @@ def verify_gates(host: str, user: str, *, dry: bool) -> None:
                   "tmux has-session -t agup 2>/dev/null && echo 'tmux:agup-alive'",
                   dry=dry)
     joined = out.strip().replace("\n", " | ") or "无"
-    gate_d("G4 规划侧进程", rc == 0 and bool(out.strip()), joined[:100], dry=dry)
+    ok4 = rc == 0 and bool(out.strip())
+    fok, fev = _fresh_ok("orin_plan_sidecar[.]py")
+    if fok is not None:
+        ok4 = ok4 and fok
+        joined += f"｜新鲜度 {'PASS' if fok else 'FAIL:旧实例(假绿)'} {fev}"
+    gate_d("G4 规划侧进程", ok4, joined[:100], dry=dry)
 
 
 def report(rollback_hint: bool) -> int:
@@ -289,7 +317,9 @@ def main() -> int:
     if not preflight(host, args.user, dry=args.dry_run, fix_clock=args.fix_clock):
         return 2
 
+    fresh_after = 0.0
     if not args.verify_only:
+        fresh_after = time.time()   # G2/G4 新鲜度基准：部署开始时刻（假绿判据）
         ok = True
         if "code" not in args.skip:
             ok = stage_code(host, args.user, dry=args.dry_run) and ok
@@ -302,7 +332,7 @@ def main() -> int:
         if not ok and not args.dry_run:
             print("⚠️ 有阶段失败——继续跑验证门取证，报告将给回滚命令")
 
-    verify_gates(host, args.user, dry=args.dry_run)
+    verify_gates(host, args.user, dry=args.dry_run, fresh_after=fresh_after)
     return report(rollback_hint=any(s == "FAIL" for _, s, _ in GATES))
 
 
