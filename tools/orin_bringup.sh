@@ -190,7 +190,9 @@ up() {
     fi
 
     # 2. 雷达 -> SLAM
-    win livox "ros2 launch livox_ros_driver2 msg_MID360_launch.py"
+    # 2026-10-26 换型 Mid-360S：launch 切 S 版（驱动 1.2.6/S 配置 install 树 10-21 已就位，
+    # 机上同步提交 e2218bf）。雷达 .105 ↔ eno1 192.168.3.189。
+    win livox "ros2 launch livox_ros_driver2 msg_MID360s_launch.py"
     started+=(livox); sleep 3
     win fastlio "ros2 launch fast_lio_localization velodyne_localization.launch.py"
     started+=(fastlio); sleep 3
