@@ -69,7 +69,14 @@ else
     chk slam_hz   "$(val slam_hz)"   ">=30"         "≥30 Hz"
     chk storm     "$(val storm)"     "==0"          "0（复位风暴中=禁飞）"
     chk jump_max  "$(val jump_max_m)" "<=0.05"      "≤0.05 m"
-    chk resets    "$(val ekf_reset_60s)" "<=2"      "≤2 次/分"
+    # ekf 复位：看 total 是否还在涨（双采样间隔 10s）。不能用 ekf_reset_60s——
+    # 它的滑动窗只在"新复位到来/风暴期"才修剪，复位停止后窗口值冻结不归零
+    # （2026-10-26 实测：total 冻结 17 而窗口恒显 5，属显示层陈旧队列）。
+    rt1=$(grep -oE 'ekf_reset_total=[0-9]+' <<<"$H" | cut -d= -f2)
+    sleep 10
+    H2=$(tmux capture-pane -t "$SESSION:odom" -p -J -S -800 2>/dev/null | grep health | tail -1)
+    rt2=$(grep -oE 'ekf_reset_total=[0-9]+' <<<"$H2" | cut -d= -f2)
+    chk 复位增长 "$(python3 -c "print(max(0,(${rt2:-0})-(${rt1:-0})))")" "==0" "10s 内 total 零增长(${rt1:-?}→${rt2:-?})"
     if [[ $(val aligned) != 1 ]]; then
         printf '      提示：刚起栈需 2~3 分钟收敛，aligned=0 时先等再重跑本体检\n'
     fi
