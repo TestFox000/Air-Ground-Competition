@@ -280,7 +280,9 @@ def route_cells(route_text: str) -> list[str]:
     """从车端 route 命令串取回执行格序列（去掉 '*' 与尾部 ',x/,y' 朝向 token）。"""
     cells: list[str] = []
     for token in route_text.split():
-        tok = token.strip().rstrip("*")
+        tok = token.strip()
+        tok = tok.split(":", 1)[0]      # ':PIVOT' 顶点声明（route_check 第⑥层）——不剥则 route_metrics int() 崩整拍（2026-10-26 机上实锤）
+        tok = tok.rstrip("*")
         tok = tok.split(",", 1)[0]      # 末段 ",x/,y/,-y" 是终点朝向 token
         if tok:
             cells.append(tok)

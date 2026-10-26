@@ -59,6 +59,12 @@ def route_cells_of(route_text: str) -> list[str]:
     """
     out: list[str] = []
     for tok in (route_text or "").split():
+        # ':PIVOT' 等顶点声明后缀（car_commands route_check 第⑥层口径，形如
+        # 'F2*:PIVOT'）先剥再解析——不剥则 parse_cell 抛错被上层静默吞掉、
+        # 退回摆位起点（2026-10-26 机上实测：倒车过雷路线全灭，缺雷修复复活）。
+        tok = tok.split(":", 1)[0]
+        if not tok:
+            continue
         if tok.startswith(","):       # 独立 ",x" 朝向 token（兼容旧写法）
             break
         if "," in tok:                # 连写 "N5,y"：朝向后缀必在最后一个 token

@@ -63,7 +63,8 @@ class RouteTimeBudget:
 
 
 def _pos(name: str) -> tuple[int, int]:
-    s = name.strip().upper().rstrip("*").rstrip(",xy")
+    # ':PIVOT' 顶点声明后缀（route_check 第⑥层）先剥——int() 吃不下带标注的格名
+    s = name.strip().upper().split(":", 1)[0].rstrip("*").rstrip(",xy")
     return LETTERS.index(s[0]), int(s[1:]) - 1
 
 
