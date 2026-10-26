@@ -78,28 +78,66 @@ echo \"== 窗口已退出（rc=\$rc），按回车关闭\"; read"
 
 # 会话外残留进程：两个 MicroXRCEAgent 会抢 /dev/ttyACM0，两个 px4_odom_convert
 # 会同发 /fmu/in/vehicle_visual_odometry 触发 EKF reset 风暴（2026-10-20 实机
-# 事故）。kill-session 只清得掉自己这个会话，清不掉 autostart 起的实例。
+# 事故）；双 global_localization/transform_fusion 会同发 /localization 撕扯
+# EKF（2026-10-17 实测 26~585m 跳变）。kill-session 只清得掉自己这个会话，
+# 清不掉 autostart/手工（含 qoder 等编排工具）起的实例——2026-10-26 事故夜
+# 即手工栈与 bringup 栈叠加。名单必须覆盖全栈所有发布关键话题的节点。
 STRAY_PROCS=(MicroXRCEAgent px4_odom_convert px4_imu_bridge fastlio_mapping
-             livox_ros_driver2_node dzuav)
+             livox_ros_driver2_node dzuav px4_control_node px4_teleop_node
+             path_follow_node sensor_combined_to_imu)
+# python 脚本节点 comm=python3，按命令行匹配；[.] 写法防 pgrep 命令自身回环匹配
+STRAY_PATTERNS=(global_localization[.]py transform_fusion[.]py
+                global_map_publisher[.]py orin_plan_sidecar[.]py)
+
+stray_pids() {
+    # 输出"<名> <pid> 列表"（bash 包装行除外——那不是节点本体）
+    local name pids p
+    for name in "${STRAY_PROCS[@]}"; do
+        pids=$(pgrep -x "$name" 2>/dev/null)
+        [[ -z ${pids// /} ]] || for p in $pids; do echo "$name $p"; done
+    done
+    for name in "${STRAY_PATTERNS[@]}"; do
+        pids=$(pgrep -af "$name" 2>/dev/null | grep -v 'bash' | awk '{print $1}')
+        [[ -z ${pids// /} ]] || for p in $pids; do echo "$name $p"; done
+    done
+}
 
 check_strays() {
-    local found=0 name pids
-    for name in "${STRAY_PROCS[@]}"; do
-        pids=$(pgrep -x "$name" 2>/dev/null | tr '\n' ' ')
-        [[ -z ${pids// /} ]] && continue
-        warn "会话外已在跑 $name（pid: $pids）—— 再启会双实例"
+    local found=0 line name p
+    while read -r name p; do
+        [[ -z $name ]] && continue
+        warn "会话外已在跑 $name（pid: $p）—— 再启会双实例"
         # 把命令行打出来：挂错串口（如 Agent 指着 CH340 而不是 NxtPX4）时，
         # 光看进程名会误以为"飞控链路已有"，实际遥测是空的。
-        local p
-        for p in $pids; do
-            warn "    pid $p: $(ps -o args= -p "$p" 2>/dev/null | cut -c1-120)"
-        done
+        warn "    pid $p: $(ps -o args= -p "$p" 2>/dev/null | cut -c1-120)"
         found=1
-    done
+    done < <(stray_pids)
     if [[ $found == 1 ]]; then
         [[ "${ALLOW_STRAY:-0}" == "1" ]] && { warn "ALLOW_STRAY=1，继续（后果自负）"; return 0; }
-        fail "请先停掉上述进程（或 tmux kill-server / systemctl 关掉 autostart），
+        fail "请先停掉上述进程（或运行 tools/orin_bringup.sh down 全停清扫），
        确认要共存则用 ALLOW_STRAY=1 tools/orin_bringup.sh up"
+    fi
+}
+
+# 双实例断言：起栈后任何关键节点 >1 实例 = 未就绪（宁可拦下也不带病起飞）
+assert_single_instance() {
+    local bad=0 name p count last=""
+    while read -r name p; do
+        [[ -z $name ]] && continue
+        if [[ ${last:-} == "$name" ]]; then continue; fi
+        if [[ $name == *'['*'.'*']'* ]]; then
+            count=$(pgrep -af "$name" 2>/dev/null | grep -cv 'bash')
+        else
+            count=$(pgrep -xc "$name" 2>/dev/null || true)
+        fi
+        if (( count > 1 )); then
+            printf '\e[1;31m[双实例]\e[0m %-24s %s 个实例——两路同发关键话题会撕扯 EKF\n' "$name" "$count"
+            bad=1
+        fi
+        last=$name
+    done < <(stray_pids)
+    if (( bad == 1 )); then
+        fail "存在双实例（tools/check_stack_health.py --kill-dup 可自动清多余），全栈**未**就绪，不要起飞"
     fi
 }
 
@@ -126,6 +164,8 @@ verify_up() {
                 "$(tmux list-panes -t "$SESSION:$name" -F '#{pane_current_command}' 2>/dev/null)"
         fi
     done
+    # 双实例断言：窗口活着≠只有一份——别家栈/手工实例可能正在同发关键话题
+    assert_single_instance
     if [[ $bad == 1 ]]; then
         echo
         fail "有窗口没起来，全栈**未**就绪。排查后重跑 up；不要据此起飞。"
@@ -251,6 +291,19 @@ status() {
 down() {
     tmux kill-session -t "$SESSION" 2>/dev/null && ok "已停止 $SESSION" || warn "会话不存在"
     rm -rf "$STATE_DIR"
+    # 全停清扫：kill-session 清不掉会话外起的实例（手工/qoder/autostart）。
+    # down 的语义 = "全停"——不留任何双实例口子（2026-10-26 事故夜教训）。
+    local line name p still
+    while read -r name p; do
+        [[ -z $name ]] && continue
+        kill "$p" 2>/dev/null && warn "已清扫会话外实例 $name (pid $p)"
+    done < <(stray_pids)
+    sleep 1
+    # 还活着的（忽略 TERM）补 SIGKILL
+    while read -r name p; do
+        [[ -z $name ]] && continue
+        kill -9 "$p" 2>/dev/null && warn "强杀 $name (pid $p)"
+    done < <(stray_pids)
 }
 
 case "${1:-}" in
