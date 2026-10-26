@@ -101,6 +101,40 @@ def route_command(plan: RoutePlan) -> str:
     shoot = {s for s in (parse_cell(x) for x in plan.shoot_at) if s in present}
 
     tokens = [f"{c}*" if c in shoot else c for c in ordered]
+    # :PIVOT 声明（官方 route_check 第⑥层口径：车头转角 ≥135° 的顶点须声明，
+    # 虚报=❌、漏报=⚠️）。按下标记、不按格名——同名格重访时直行通过的那次
+    # 不能被别处的 180° 折返连坐成虚报。与 '*' 叠加形如 'F2*:PIVOT'，
+    # 对应车端解析器先剥 :PIVOT 再剥 * 的顺序。
+    for i in _pivot_indices(ordered):
+        tokens[i] += ":PIVOT"
     if plan.final_heading:
         tokens.append(f",{to_car_heading(plan.final_heading)}")
     return " ".join(tokens).replace(" ,", ",")
+
+
+def _pos(name: str) -> tuple[int, int]:
+    return (COL_LETTERS.index(name[0]), int(name[1:]) - 1)
+
+
+def _pivot_indices(cells: list[str]) -> list[int]:
+    """相邻三格的车头转角 ≥135° 的中间格下标（含 180° 原路折返）。
+
+    转角 = 相邻两段方向向量夹角，对角步按实际向量算，阈值与官方
+    route_check.PIVOT_DECL_DEG=135.0 一致。零向量（重复格，防御）跳过。
+    """
+    import math
+    out: list[int] = []
+    for i in range(1, len(cells) - 1):
+        c0, r0 = _pos(cells[i - 1])
+        c1, r1 = _pos(cells[i])
+        c2, r2 = _pos(cells[i + 1])
+        v1 = (c1 - c0, r1 - r0)
+        v2 = (c2 - c1, r2 - r1)
+        n1 = math.hypot(*v1)
+        n2 = math.hypot(*v2)
+        if not n1 or not n2:
+            continue
+        cos = (v1[0] * v2[0] + v1[1] * v2[1]) / (n1 * n2)
+        if math.degrees(math.acos(max(-1.0, min(1.0, cos)))) >= 135.0:
+            out.append(i)
+    return out
