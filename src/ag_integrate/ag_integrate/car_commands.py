@@ -14,6 +14,7 @@ _CAR_HEADING）：上面两行是**上线的字节**，配置里写的 start_hea
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 COL_LETTERS = "ABCDEFGHIJKLMN"
@@ -122,7 +123,6 @@ def _pivot_indices(cells: list[str]) -> list[int]:
     转角 = 相邻两段方向向量夹角，对角步按实际向量算，阈值与官方
     route_check.PIVOT_DECL_DEG=135.0 一致。零向量（重复格，防御）跳过。
     """
-    import math
     out: list[int] = []
     for i in range(1, len(cells) - 1):
         c0, r0 = _pos(cells[i - 1])

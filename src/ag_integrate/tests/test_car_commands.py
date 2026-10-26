@@ -47,3 +47,21 @@ def test_revisit_straight_leg_not_polluted():
 def test_final_heading_appends():
     out = route_command(RoutePlan(cells=("A1", "B1"), final_heading="x"))
     assert out == "A1 B1,-y"   # 本机 x -> 车端 -y（坐标架翻译不变）
+
+
+def test_diagonal_180_declared():
+    # 对角原路折返：A1→B2→A1 夹角恰 180°
+    out = route_command(RoutePlan(cells=("A1", "B2", "A1")))
+    assert out == "A1 B2:PIVOT A1"
+
+
+def test_two_cell_route_no_pivot_no_crash():
+    assert route_command(RoutePlan(cells=("A1", "A2"))) == "A1 A2"
+
+
+def test_pivot_with_final_heading_combo():
+    # F2: 180° 折返+射击；A1: F2→A1(-1,-1) 转 A1→B1(1,0) 恰 135° 也须声明
+    out = route_command(RoutePlan(cells=("A1", "F2", "A1", "B1"),
+                                  shoot_at=frozenset({"F2"}),
+                                  final_heading="y"))
+    assert out == "A1 F2*:PIVOT A1:PIVOT B1,x"

@@ -1560,6 +1560,30 @@ def _standoff_serves(c: CellRef, rail: CellRef) -> bool:
     return dc * dc + dr * dr in (5, 8)
 
 
+def _los_clear(stop: CellRef, rail: CellRef,
+               blocked: frozenset[CellRef]) -> bool:
+    """停站→轨端连线是否不被障碍方格遮挡（激光是光路，挡住即白停）。
+
+    采样线段两格心连线（步长 0.1 格），任一采样点落入障碍格的 0.35 m
+    方内（|dc|<0.5 且 |dr|<0.5）即遮挡。车端 route_check 不查这条
+    （2026-10-26 交叉验证在 11/64 图抓到 51 对擦边，最重 0.0 m 正穿），
+    我方比它严一档：候选优先无遮挡，端点全遮挡才降级用带遮挡候选。
+    """
+    if not blocked:
+        return True
+    blocked_idx = {c.row * COLS + c.col for c in blocked}
+    steps = 10
+    for i in range(steps + 1):
+        t = i / steps
+        col = rail.col + (stop.col - rail.col) * t
+        row = rail.row + (stop.row - rail.row) * t
+        ci = int(col + 0.5)          # 四舍五入到最近格
+        ri = int(row + 0.5)
+        if ri * COLS + ci in blocked_idx:
+            return False
+    return True
+
+
 def _shoot_candidates_moving(
     t: "TargetRef",
     blocked: frozenset[CellRef],
@@ -1573,7 +1597,7 @@ def _shoot_candidates_moving(
     垂直（两端同列）时 'E'(col+1)/'W'(col-1)。
     """
     a, b = t.track
-    vertical = a.col != b.col
+    vertical = a.row != b.row      # 行不同=垂直轨道（同列）；行相同=水平轨道
     out: set[CellRef] = set()
     for rail in (a, b):
         for dc, dr in _STANDOFF_OFFSETS:
@@ -1804,9 +1828,17 @@ def plan_route(
             # 每个轨端都要有停站在 0.78~1.02 m 窗内，单格可同时服务两端，
             # 如 D5 距 E7=√5 格、距 F7=√8 格；只到访"任一环带格"会漏掉
             # 另一端——官方六层校验"靶覆盖 n/2"❌ 的根因）。
+            # 组内优选无视线遮挡候选（_los_clear）；全遮挡才降级用全组
+            # （best-effort：可见端打不到也别整靶放弃）。
+            los_blocked = frozenset(
+                c for c in blocked if c.name not in target_cells
+                and c.name not in track_cells)
             end_groups = []
             for rail in t.track:
                 g = [c for c in cands if _standoff_serves(c, rail)]
+                g_clear = [c for c in g
+                           if _los_clear(c, rail, los_blocked)]
+                g = g_clear or g
                 if g:
                     end_groups.append(g)
             for g in end_groups:
@@ -1819,6 +1851,7 @@ def plan_route(
                 cand_lists.append(cands)
                 cand_faces.append(faces)
         # 无候选 = 该靶被围死无处停靠，跳过（与不可达必经点语义一致）
+        # 部分轨端无组 = 该端放弃、其余端仍要停（best-effort 同上）。
 
     # 射击位候选按"起点可达性"预过滤：不可达候选直接移出组合枚举。
     # 否则某组合的候选不可达会被当成"该靶无可停靠"静默跳过，
