@@ -38,3 +38,6 @@ artifacts/agc-1024/car_snapshot/*
 !artifacts/agc-1024/car_snapshot/MANIFEST.sha256
 !artifacts/agc-1024/car_snapshot/MANIFEST.json
 !artifacts/agc-1024/car_snapshot/README.md
+
+# 2026-10-26 Lead：backup/ 存全仓 bundle（2.18 GiB），绝不能进 git（会打爆 push 与 clone）
+backup/

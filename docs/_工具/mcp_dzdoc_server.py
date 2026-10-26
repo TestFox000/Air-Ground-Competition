@@ -11,6 +11,9 @@
   doc_anchors_check -> docs/_工具/check_anchors.py
   doc_numbers_check -> docs/_工具/check_numbers.py
   doc_links_check   -> dzrobot_v2/tools/wf/check_links.py
+    doc_list_libraries -> built-in (list sub-libraries under 20_资料索引库/)
+    doc_list_documents -> built-in (list documents in a sub-library)
+    doc_get_summary    -> built-in (get front matter + TL;DR, no full content)
 
 危险脚本一律不注册：cleanup_* / salvage_* / repo_index --write 等 27 个
 （salvage_repack.py 能重打包归档 tar，cleanup_restore.py 会回滚）。
@@ -38,7 +41,7 @@ DZROBOT = os.path.join(ROOT, "dzrobot_v2")
 TOOLS_DIR = os.path.join(DOCS, "_工具")
 
 SERVER_NAME = "dzdoc"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "1.1.0"
 PROTOCOL_VERSION = "2025-06-18"
 
 # 上限，防止一次调用把模型上下文打爆
@@ -49,7 +52,7 @@ OUT_TAIL = 4000
 
 
 # --------------------------------------------------------------------------- #
-#  工具定义（8 个，全部只读；inputSchema 用 MCP JSON Schema）
+#  工具定义（11 个，全部只读；inputSchema 用 MCP JSON Schema）
 # --------------------------------------------------------------------------- #
 STR = {"type": "string"}
 
@@ -131,6 +134,49 @@ TOOLS = [
         "description": "断链检查：转发 dzrobot_v2/tools/wf/check_links.py。docs/** 与 history/INDEX 的 markdown 相对链接断链 = 红。",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
+    {
+
+         "name": "doc_list_libraries",
+         "description": "列出 20_资料索引库/ 下所有分册（车端/无人机/空地链路/视觉与云台/赛事与治理/历史/外部资料/运维与排障），含每册篇数与路径。",
+         "inputSchema": {
+
+             "type": "object",
+             "properties": {},
+             "additionalProperties": False,
+         },
+     },
+     {
+
+         "name": "doc_list_documents",
+         "description": "列出 20_资料索引库/ 下指定分册的所有文档，含 front matter status 与相对路径。",
+         "inputSchema": {
+
+             "type": "object",
+             "properties": {
+
+                 "library": {"type": "string", "description": "分册名，如 车端 / 无人机 / 视觉与云台 / 赛事与治理 / 历史 / 外部资料 / 运维与排障"}
+
+             },
+             "required": ["library"],
+             "additionalProperties": False,
+         },
+     },
+     {
+
+         "name": "doc_get_summary",
+         "description": "获取 docs/ 内一篇文档的 front matter + TL;DR 摘要（前 50 行），不返回全文，适合快速判断是否需要精读。",
+         "inputSchema": {
+
+             "type": "object",
+             "properties": {
+
+                 "path": {"type": "string", "description": "相对 docs/ 的路径，例：20_资料索引库/车端/01_架构与线程.md"}
+
+             },
+             "required": ["path"],
+             "additionalProperties": False,
+         },
+     },
 ]
 
 TOOL_INDEX = {t["name"]: t for t in TOOLS}
@@ -376,6 +422,84 @@ def tool_doc_gate(args):
     }
 
 
+# -----------------------------------------------------------------------------
+
+#  资料索引库浏览工具（内置实现，只读）
+# -----------------------------------------------------------------------------
+
+
+def tool_doc_list_libraries(_args):
+    base = os.path.join(DOCS, "20_资料索引库")
+    if not os.path.isdir(base):
+        return {"tool": "doc_list_libraries", "ok": False, "exit_code": 1, "error": "20_资料索引库/ 不存在"}
+
+    libraries = []
+    for entry in sorted(os.listdir(base)):
+        full = os.path.join(base, entry)
+        if not os.path.isdir(full):
+            continue
+        md_count = 0
+        for _root, _dirs, files in os.walk(full):
+            md_count += sum(1 for f in files if f.endswith(".md"))
+        libraries.append({"name": entry, "documents": md_count, "path": os.path.relpath(full, DOCS).replace("\\", "/")})
+    return {"tool": "doc_list_libraries", "ok": True, "exit_code": 0, "libraries": libraries, "total": len(libraries)}
+
+
+def tool_doc_list_documents(args):
+    library = args.get("library")
+    if not isinstance(library, str) or not library.strip():
+        return {"tool": "doc_list_documents", "ok": False, "exit_code": 2, "error": "library 必填"}
+
+    base = os.path.join(DOCS, "20_资料索引库", library)
+    if not os.path.isdir(base):
+        return {"tool": "doc_list_documents", "ok": False, "exit_code": 1, "error": "分册不存在: %s" % library}
+
+    docs = []
+    for root, _dirs, files in os.walk(base):
+        for f in sorted(files):
+            if not f.endswith(".md"):
+                continue
+            full = os.path.join(root, f)
+            rel = os.path.relpath(full, DOCS).replace("\\", "/")
+            status = "未知"
+            try:
+                with open(full, "r", encoding="utf-8", errors="replace") as fh:
+                    head = fh.read(2000)
+                    m = re.search(r"status:\s*(\S+)", head)
+                    if m:
+                        status = m.group(1).strip()
+            except OSError:
+                pass
+            docs.append({"path": rel, "status": status})
+    return {"tool": "doc_list_documents", "ok": True, "exit_code": 0, "library": library, "documents": docs, "total": len(docs)}
+
+
+def tool_doc_get_summary(args):
+    path = args.get("path")
+    if not isinstance(path, str) or not path.strip():
+        return {"tool": "doc_get_summary", "ok": False, "exit_code": 2, "error": "path 必填"}
+
+    try:
+        real = resolve_doc_path(path)
+    except PathDenied as exc:
+        return {"tool": "doc_get_summary", "ok": False, "exit_code": 1, "error": str(exc)}
+
+    try:
+        with open(real, "r", encoding="utf-8", errors="replace") as fh:
+            content = fh.read()
+    except OSError as exc:
+        return {"tool": "doc_get_summary", "ok": False, "exit_code": 3, "error": "读取失败: %s" % exc}
+
+    all_lines = content.splitlines()
+    total = len(all_lines)
+    front_matter = "\n".join(all_lines[:20])
+    tldr = ""
+    for i, ln in enumerate(all_lines):
+        if "TL;DR" in ln or "TLDR" in ln or "一句话" in ln:
+            tldr = "\n".join(all_lines[i:i + 10])
+            break
+    rel = os.path.relpath(real, ROOT).replace("\\", "/")
+    return {"tool": "doc_get_summary", "ok": True, "exit_code": 0, "path": rel, "total_lines": total, "front_matter": front_matter, "tldr": tldr}
 HANDLERS = {
     "doc_search": tool_doc_search,
     "doc_read": tool_doc_read,
@@ -385,8 +509,10 @@ HANDLERS = {
     "doc_anchors_check": tool_doc_anchors_check,
     "doc_numbers_check": tool_doc_numbers_check,
     "doc_links_check": tool_doc_links_check,
+    "doc_list_libraries": tool_doc_list_libraries,
+    "doc_list_documents": tool_doc_list_documents,
+    "doc_get_summary": tool_doc_get_summary,
 }
-
 
 # --------------------------------------------------------------------------- #
 #  MCP stdio 循环（换行分隔 JSON-RPC 2.0）
@@ -446,6 +572,33 @@ def main():
         except Exception:  # noqa: BLE001
             pass
 
+    # 命令行参数：--list-tools / --call
+    if len(sys.argv) >= 2:
+        arg = sys.argv[1]
+        if arg == "--list-tools":
+            for t in TOOLS:
+                sys.stdout.write(t["name"] + "\n")
+            sys.stdout.flush()
+            return
+        if arg == "--call":
+            tool_name = sys.argv[2] if len(sys.argv) >= 3 else ""
+            args_json = sys.argv[4] if len(sys.argv) >= 5 and sys.argv[3] == "--args" else "{}"
+            try:
+                args = json.loads(args_json)
+            except ValueError:
+                args = {}
+            if tool_name not in HANDLERS:
+                sys.stdout.write(json.dumps({"error": "unknown tool: %s" % tool_name}, ensure_ascii=False) + "\n")
+                sys.stdout.flush()
+                return
+            try:
+                result = HANDLERS[tool_name](args)
+            except Exception as exc:  # noqa: BLE001
+                result = {"error": "%s: %s" % (type(exc).__name__, exc)}
+            sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+            return
+
     for raw in sys.stdin:
         line = raw.strip()
         if not line:
@@ -470,7 +623,6 @@ def main():
         if "id" not in out:
             out["id"] = msg.get("id")
         send(out)
-
 
 if __name__ == "__main__":
     main()

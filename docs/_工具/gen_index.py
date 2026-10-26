@@ -152,6 +152,7 @@ def main():
     out.append("---")
     out.append("来源: 由 docs/_工具/gen_index.py 自动生成，勿手改")
     out.append("取证: 实")
+    out.append("status: 现行")   # 2026-10-26 补：生成物也是现行索引，缺 status 会被读者当沿革
     out.append("更新: " + now[:10])
     out.append("取代: 无")
     out.append("---")
@@ -170,10 +171,24 @@ def main():
             out.append("")
             out.append("### " + (cur if cur != "." else ".") + "/")
             out.append("")
-            out.append("| 文件 | 一句话 | 取证 | 更新 | 行数 |")
-            out.append("|---|---|---|---|---|")
+            # 2026-10-26 增「状态」列：status 早就从 front matter 读进 rows 了，
+            # 但生成表格时被丢掉 —— 读者打开索引看不出哪篇是现行真源、哪篇已降级成沿革，
+            # 只能一篇篇点进去看。这一列是索引可用性的关键，缺它索引就只是文件名清单。
+            out.append("| 文件 | 一句话 | 状态 | 取证 | 更新 | 行数 |")
+            out.append("|---|---|---|---|---|---|")
+        # 状态列按库别渲染：知识库（00/10/20）= 现行|计划|历史|过程；
+        # 任务卡库（30）= pending|in_progress|已归档（细则 11.7 本就分两套词表）。
+        # 不区分库别混列，读者会以为"8 种状态乱用"，实为两套合法词表并存。
+        _raw_st = (r["status"] or "").strip()
+        if not _raw_st:
+            _st = "—"
+        elif r["dir"].startswith("30_任务卡库"):
+            _st = {"pending": "待领", "in_progress": "在办", "已归档": "已归档"}.get(_raw_st, _raw_st)
+        else:
+            _st = {"现行": "**现行**"}.get(_raw_st, _raw_st)
+        _st = _st.replace("|", "/")
         out.append("| [" + r["title"].replace("|", "/") + "](" + r["path"].replace(" ", "%20") + ") | " +
-                   (r["summary"] or "—").replace("|", "/") + " | " + (r["level"] or "—") + " | " +
+                   (r["summary"] or "—").replace("|", "/") + " | " + _st + " | " + (r["level"] or "—") + " | " +
                    (r["updated"] or "—") + " | " + str(r["lines"]) + " |")
     out.append("")
     out.append("## 最近更新 20 篇")

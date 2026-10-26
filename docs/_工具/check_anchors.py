@@ -31,7 +31,7 @@
   python docs/_工具/check_anchors.py --all              # 连存量红一起列出
   python docs/_工具/check_anchors.py --json             # 机器读
   python docs/_工具/check_anchors.py --ns lead-1023     # 只扫路径含该串的文档
-  python docs/_工具/check_anchors.py --write-baseline   # 收口时重建基线（只减不增）
+  python docs/_工具/check_anchors.py --write-baseline   # 收口时收缩基线（只减不增；新增须 --allow-grow）
   python docs/_工具/check_anchors.py --include-archive  # 连 history_cache/_work 一起扫
   python docs/_工具/check_anchors.py --root <树根>      # 换工作区根（负向测试/沙盒，不动真文档）
 退出码：0 无新增红；1 有新增红。
@@ -499,12 +499,27 @@ def main():
     gone = sorted(base_keys - set(r[1] for r in reds))
 
     if "--write-baseline" in sys.argv:
-        keys = sorted(set(r[1] for r in reds))
+        # 2026-10-26：只减不增必须由机器执行，不能只写在说明里。
+        # 旧版直接把「当前全部红」写成新基线——新增红会被一并收编，等于一次动作就洗白
+        # （上一版实测：存量 240 条、其中 2 条已修好，重写后反而变成 241 条）。
+        # 现在默认只保留「老基线 ∩ 当前红」= 纯收缩；要收新红必须显式 --allow-grow。
+        cur = set(r[1] for r in reds)
+        grew = sorted(cur - base_keys)
+        if grew and "--allow-grow" not in sys.argv:
+            print("[拒绝写基线] 本次会新增 %d 条存量条目（基线只许收缩）：" % len(grew))
+            for k in grew[:10]:
+                print("   + " + k)
+            print("   修文档，别改基线；确属历史遗留须一次性收编，加 --allow-grow 并写明理由。")
+            keys = sorted(base_keys & cur)
+            print("   （本次按纯收缩写入：%d → %d 条）" % (len(base_keys), len(keys)))
+        else:
+            keys = sorted(cur)
         payload = {
             "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "count": len(keys),
             "说明": ("存量红的 (文档 :: 路径) 集合，语义只减不增。默认只对不在此表里的新增红判失败；"
-                     "修好一条就该变小一条（重跑 --write-baseline 精简）。行号不进 key：同一文件的多个行号引用只算一条。"),
+                     "修好一条就该变小一条（重跑 --write-baseline 精简）。行号不进 key：同一文件的多个行号引用只算一条。"
+                     "write-baseline 默认纯收缩（老基线 ∩ 当前红），新增红须 --allow-grow，防一次动作洗白全部新红。"),
             "keys": keys,
         }
         with open(BASELINE, "w", encoding="utf-8") as f:

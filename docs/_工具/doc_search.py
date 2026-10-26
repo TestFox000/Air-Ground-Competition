@@ -297,12 +297,23 @@ def search(terms, corpus, sub_mode, bre_map, show_lines, demote):
             "hits": hits,
         })
 
-    results.sort(key=lambda r: (
-        -r["terms_matched"],
-        -r["score"],
-        r["tier"] if demote else 0,
-        r["path"],
-    ))
+    # 排序（2026-10-26 修正）：原先把 tier 放在第三键，前两键是命中词种数与分数，
+    # 实际效果是"归档 doc 只要多命中一个词，就永远压住现行文档"—— 降权形同虚设。
+    # 实测搜「横向偏差」，前三全是 history_cache 旧文，现行库一条不进前排。
+    # 现改为：降权开启时 tier 提前到第一键（活动库整体优先），tier 内再按命中词种数与分数。
+    if demote:
+        results.sort(key=lambda r: (
+            r["tier"],
+            -r["terms_matched"],
+            -r["score"],
+            r["path"],
+        ))
+    else:
+        results.sort(key=lambda r: (
+            -r["terms_matched"],
+            -r["score"],
+            r["path"],
+        ))
     return results
 
 

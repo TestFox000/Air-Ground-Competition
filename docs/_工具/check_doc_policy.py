@@ -10,19 +10,21 @@
   R7 命名空间不合法     —— 在办/<ns>/ 缺 00_树.md、卡面 ns 与目录不符、ns 未登记、缺 agent
   R8 卡未挂树           —— 缺 树节点 / 树里没有本卡 / 树指向不存在的卡
   R9 归档归属错         —— 归档未按 <ns> 分层、归档卡 ns 与目录不符、缺「文档变更」
+  Y9 新增 _tmp_session 死链 —— 按 (文档 :: 路径) 记账：存量进 tmprefs_baseline.json 只减不增，
+                          不在表里的新死链判红；该行标〔档〕或〔证失效〕= 声明原物已不在，豁免
 提醒（不判红）：
   Y1 库内文档缺 front matter status
   Y2 status=现行 但 updated 超过 stale_days 天（过期候选）
   Y3 库内标题重复（副本即债）
   Y4 基线里已消失的路径（可精简基线）
   Y5 根目录临时件（_tmp*/_work_tmp*/_recover_tmp*，应进 _tmp_session/ 或 _archive/）
-  Y9 文档引用 _tmp_session 失效路径数上升（过程区已清空，应改指归档包或标〔档〕）
-   Y10 归档卡缺「经验总结」段  —— 归档卡正文必须有六要素经验总结（现象→机制→位置→处置→证据→落点）
+  Y10 归档卡缺「经验总结」段  —— 归档卡正文必须有六要素经验总结（现象→机制→位置→处置→证据→落点）
 
 用法：
   python docs/_工具/check_doc_policy.py                 # 体检
   python docs/_工具/check_doc_policy.py --write-baseline # 收口时重建基线（只减不增）
   python docs/_工具/check_doc_policy.py --accept <path> --reason "为什么它可以留在库外"
+  python docs/_工具/check_doc_policy.py --write-tmprefs-baseline  # 修完死链后精简存量清单（只减不增）
   python docs/_工具/check_doc_policy.py --json          # 机器读
 """
 import json, os, sys, re
@@ -53,6 +55,32 @@ def walk(ws, cfg):
                 out.append(norm(os.path.join(rel_dir, n)) if rel_dir else n)
     return sorted(out)
 
+def looks_like_path(raw):
+    r"""Y9 专用：判断一段 `_tmp_session/...` 捕获是否真像路径（而不是散文里顺带提到过程区）。
+
+    起因（2026-10-26）：原正则 `_tmp_session/[^s，,；;）)】]|]+` 会把中文列举、花括号占位、
+    省略号截断一并吞进来，实测 836 条捕获里 384 条根本不是路径（如
+    `_tmp_session/aimtune、aim-lat`、`_tmp_session/{t3`、`_tmp_session/DRONE-S…`），
+    把 Y9 的数字撑大了约一倍，导致"真实死链"被噪声淹没、无法据数决策。
+    判据：带占位符/枚举符/省略号/全角括号 → 非路径；结尾是 / → 是目录不是文件；
+    只有一段且无扩展名 → 多半是散文；含中文却无扩展名 → 散文。
+    """
+    if any(ch in raw for ch in "{}、…（"):
+        return False
+    if raw.endswith("/"):
+        return False
+    body = raw[len("_tmp_session/"):]
+    if not body:
+        return False
+    segs = body.split("/")
+    has_ext = bool(re.search(r"\.[A-Za-z0-9]{1,6}$", body))
+    if len(segs) < 2 and not has_ext:
+        return False
+    if re.search(r"[\u4e00-\u9fff]", body) and not has_ext:
+        return False
+    return True
+
+
 def classify(rel, cfg):
     """-> (class, reason)  class in {doc, readonly, exempt, vendor, managed}"""
     for r in cfg["readonly_roots"]:
@@ -72,6 +100,14 @@ def classify(rel, cfg):
     if rel.startswith("docs/"):
         return "out_of_policy", "docs/ 下但不在白名单"
     return "managed", "库外受管"
+
+def read_text_top(path):
+    """整篇读入（册级索引要按文件名做包含判断，不能只读前 4000 字节）。缺文件返回 None。"""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return None
 
 def front_matter(path):
     try:
@@ -197,6 +233,55 @@ def main():
                 if st != done_val:
                     red.append(("R4", rel, "归档卡 status 必须是「%s」，现在是「%s」" % (done_val, st or "空")))
 
+    # R10 册级索引漏登（2026-10-26 增）——细则 11.4「索引义务三层，缺一层就白写」的第一层，
+    # 此前只有文字承诺、没有任何机器判据：gen_index 会把这 232 篇全收进 目录索引（第二层），
+    # 于是"写进全库索引"必然成立，第一层漂移被第二层完全掩盖。
+    # 实证：编年 6 卷 + 10 库 2 个自报数 + 20 库 2 个分册篇数，全是手写、全腐。
+    # 口径：20 库按各分册 00_索引.md 逐个对文件名；00/10 按库根 00_索引.md 对（含子目录）。
+    _INDEX_CHECK_LIBS = {
+        "docs/20_资料索引库": "vol",
+        "docs/00_项目总览": "root",
+        "docs/10_agent提示词": "root",
+    }
+    for _lib, _mode in _INDEX_CHECK_LIBS.items():
+        _libp = os.path.join(WS, _lib)
+        if not os.path.isdir(_libp):
+            continue
+        if _mode == "vol":
+            for _vol in sorted(os.listdir(_libp)):
+                _vp = os.path.join(_libp, _vol)
+                if not os.path.isdir(_vp):
+                    continue
+                _txt = read_text_top(os.path.join(_vp, "00_索引.md"))
+                if _txt is None:
+                    red.append(("R10", _lib + "/" + _vol,
+                                "分册缺 00_索引.md（细则 11.4 第一层：册级索引）"))
+                    continue
+                # 分册内可能还有子目录（当前无，防将来），按 walk 遍历而不是只 listdir
+                for _dp, _dn, _fn in os.walk(_vp):
+                    _dn[:] = [d for d in _dn if not d.startswith(".")]
+                    for _f in _fn:
+                        if not _f.endswith(".md") or _f == "00_索引.md":
+                            continue
+                        _relsub2 = norm(os.path.relpath(os.path.join(_dp, _f), _vp))
+                        if _relsub2 not in _txt and _f not in _txt:
+                            red.append(("R10", _lib + "/" + _vol + "/" + _relsub2,
+                                        "未登记进本分册 00_索引.md（全库索引会收它，但读者从册级索引找不到）"))
+        else:
+            _txt = read_text_top(os.path.join(_libp, "00_索引.md"))
+            if _txt is None:
+                red.append(("R10", _lib, "库缺 00_索引.md（细则 11.4 第一层：册级索引）"))
+                continue
+            for _dp, _dn, _fn in os.walk(_libp):
+                _dn[:] = [d for d in _dn if not d.startswith(".")]
+                for _f in _fn:
+                    if not _f.endswith(".md") or _f == "00_索引.md":
+                        continue
+                    _relsub = norm(os.path.relpath(os.path.join(_dp, _f), _libp))
+                    if _f not in _txt and _relsub not in _txt:
+                        red.append(("R10", _lib + "/" + _relsub,
+                                    "未登记进库根 00_索引.md（细则 11.4 第一层：册级索引）"))
+
     # R6 20 库 README 篇数口径 vs 实际（手写计数必腐，用扫描结果对账）
     lib_readme = os.path.join(WS, "docs/20_资料索引库/README.md")
     if os.path.exists(lib_readme):
@@ -208,31 +293,98 @@ def main():
             red.append(("R6", "docs/20_资料索引库/README.md",
                         "README 写「应为 %s 篇」，实际 %d 篇（口径：本目录全部 .md，含 README 与册级索引）"
                         % (m.group(1), actual)))
+        # R6b 逐分册篇数（2026-10-26 增）：原来只校验总数，分册表里 8 个数字全靠手写。
+        # 实测 2 处已腐且总数仍对得上（赛事与治理写 12 实 16；运维与排障写 6 实 7）——
+        # 总数校验掩盖了分册漂移，读者按表找篇数会找错册。
+        _vol_actual = {}
+        for _vol in os.listdir(os.path.join(WS, "docs/20_资料索引库")):
+            _vp = os.path.join(WS, "docs/20_资料索引库", _vol)
+            if os.path.isdir(_vp):
+                _vol_actual[_vol] = sum(1 for r in files
+                                        if r.startswith("docs/20_资料索引库/" + _vol + "/"))
+        for _mm in re.finditer(r"\| \[([^/\]]+)/\]\([^)]*\) \| (\d+) \|", rt):
+            _vol, _claim = _mm.group(1), int(_mm.group(2))
+            _act = _vol_actual.get(_vol)
+            if _act is not None and _claim != _act:
+                red.append(("R6", "docs/20_资料索引库/README.md",
+                            "分册表「%s」写 %d 篇，实际 %d 篇（含该册 00_索引.md；总数对不代表分册对）"
+                            % (_vol, _claim, _act)))
 
     # Y9 文档里 _tmp_session 引用失效（10-21 过程目录清空后的烂指针），只准降不准升
     tr = cfg.get("tmprefs", {})
     if tr.get("enabled", True):
-        base_dead = int(tr.get("dangling_baseline", 0))
-        cited = set()
+        tb_path = os.path.join(HERE, tr.get("baseline_file", "tmprefs_baseline.json"))
+        cited, acked = {}, set()   # cited: 文档 → 该文档引用的过程区路径集合（按 key 记账，不再用总量阈值）
         for rel in buckets["doc"]:
             try:
                 with open(os.path.join(WS, rel), "r", encoding="utf-8", errors="replace") as f:
                     txt = f.read()
             except OSError:
                 continue
-            for m in re.finditer(r"_tmp_session/[^\s，,；;）)】\]|]+", txt):
-                raw = m.group(0).rstrip(".。,，;；:：").rstrip(chr(96) + chr(34) + chr(39))
-                for suf in ("〔档〕", "〔证失效〕", chr(96)):
-                    if raw.endswith(suf):
-                        raw = raw[:-len(suf)]
-                if "<" in raw or "*" in raw or raw == "_tmp_session/" or raw.endswith("..."):
+            for line in txt.splitlines():
+                # 〔档〕= 作者已声明"此处只有文档记载、原物已进归档包"。规则文字一直承诺这条
+                # 豁免，但旧代码只是把标记后缀从字符串尾部剥掉、仍照旧计入死链 —— 等于标记无效。
+                # 2026-10-26 起：整行带〔档〕的引用计入"已声明"，不参与死链判定。
+                # 〔证失效〕与〔档〕同为"宣告该引用已无害"的标记（细则 §11.3.1 表），
+                # 旧代码只把它从字符串尾部剥掉、没有豁免，等于标记无效——与〔档〕同一个坑。
+                declared = "〔档〕" in line or "〔证失效〕" in line
+                for m in re.finditer(r"_tmp_session/[^\s，,；;）)】\]|]+", line):
+                    raw = m.group(0).rstrip(".。,，;；:：").rstrip(chr(96) + chr(34) + chr(39))
+                    for suf in ("〔档〕", "〔证失效〕", chr(96)):
+                        if raw.endswith(suf):
+                            raw = raw[:-len(suf)]
+                    if "<" in raw or "*" in raw or raw == "_tmp_session/" or raw.endswith("..."):
+                        continue
+                    if not looks_like_path(raw):
+                        continue
+                    if declared:
+                        acked.add(raw)
+                    cited.setdefault(rel, set()).add(raw)
+        # 2026-10-26：旧的「死链总数 > 250」阈值撑不住只减不增——实测存量 136、余量 114，
+        # 等于允许静默新增 114 条烂指针而不判红。改成按 (文档 :: 路径) 记账：
+        # 存量进 tmprefs_baseline.json（只减不增），不在表里的 = 新债 = 判红。
+        dead_pairs = set()
+        for rel, raws in cited.items():
+            for r in raws:
+                if r in acked:
                     continue
-                cited.add(raw)
-        dead = [r for r in cited if not os.path.exists(os.path.join(WS, r))]
-        if len(dead) > base_dead:
+                if not os.path.exists(os.path.join(WS, r)):
+                    dead_pairs.add(rel + " :: " + r)
+        if "--write-tmprefs-baseline" in sys.argv:
+            # 防「用重建基线偷偷洗白新债」：基线只许收缩。要放大必须显式 --allow-grow 并写理由，
+            # 否则改基线就从"修文档的动作"变成了"抹掉证据的动作"（同 --write-baseline 的老坑）。
+            _old = load(tb_path) if os.path.exists(tb_path) else {}
+            _old_keys = set(_old.get("keys", []))
+            _new_pairs = dead_pairs - _old_keys
+            if _new_pairs and "--allow-grow" not in sys.argv:
+                print("[拒绝写基线] 本次会新增 %d 条存量条目（基线只许收缩）：" % len(_new_pairs))
+                for k in sorted(_new_pairs)[:10]:
+                    print("   + " + k)
+                print("   修文档，别改基线；确属历史遗留须一次性收编，加 --allow-grow 并写明理由。")
+                return 1
+            payload = {"generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                       "count": len(dead_pairs),
+                       "说明": "存量过程区死链的 (文档 :: 路径) 集合，语义只减不增。修好一条就该变小一条"
+                              "（修完重跑本命令精简；新增死链不在本表 = Y9 判红）。行号不进 key。",
+                       "keys": sorted(dead_pairs)}
+            json.dump(payload, open(tb_path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+            print("[过程区死链基线已写入] %s  存量 %d 条" % (cfg["tmprefs"]["baseline_file"], len(dead_pairs)))
+        if tr.get("enforce_keys", False):
+            prev_tb = load(tb_path) if os.path.exists(tb_path) else {}
+            base_keys = set(prev_tb.get("keys", []))
+            for key in sorted(dead_pairs - base_keys):
+                doc_rel, raw_ref = key.split(" :: ", 1)
+                red.append(("Y9", doc_rel,
+                            "新增过程区死链 `%s`：docs 不该指过程区，改指归档包，或在该行标〔档〕/〔证失效〕；"
+                            "确属存量则跑 --write-tmprefs-baseline（只许收已存在的老债）" % raw_ref))
+            resolved = len(base_keys - dead_pairs)
+            if resolved:
+                yellow.append(("Y9", "docs/**",
+                               "存量死链已修复 %d 条，跑 --write-tmprefs-baseline 精简基线（不降不算修完）" % resolved))
+        else:
             yellow.append(("Y9", "docs/**",
-                           "引用 _tmp_session 失效路径 %d 个（基线 %d）：docs 不该指过程区，改指归档包或标〔档〕"
-                           % (len(dead), base_dead)))
+                           "过程区死链 %d 条（key 基线尚未启用：跑 --write-tmprefs-baseline 固化后新增才判红）"
+                           % len(dead_pairs)))
 
     # Y5 根目录临时件（应进 _tmp_session/，不参与版本管理）
     for n in sorted(os.listdir(WS)):
@@ -345,8 +497,18 @@ def main():
         except OSError:
             continue
         # 找「经验总结」段：从标题到下一个 ## 标题之间
-        m_y = re.search(r"^## .*?经验总结.*?$(?:\n(?!## ).*?)*?(?=\n## |\Z)", body_y, re.MULTILINE | re.DOTALL)
+        # 2026-10-25 修复：原正则 `^## .*?经验总结.*?$...` 因 DOTALL 让 `.*?` 跨行，
+        # 会从文件里第一个 `## ` 标题一直吃到「经验总结」标题之前，抓到的是该段**之前**的正文，
+        # 导致写得对的卡也被判「缺现象」。改为只匹配标题行 + 捕获其后的段体。
+        m_y = re.search(r"^##[^\n]*经验总结[^\n]*$(?:\n(?!## )[\s\S]*?)*?(?=^## |\Z)", body_y, re.MULTILINE)
         if not m_y:
+            # 存量豁免（2026-10-26）：归档索引（archive/00_索引.md）一开头就写明
+            # 「存量 11 张无该段的卡暂不追溯」，但守卫此前不认这条豁免，
+            # 每次体检都报同一批历史卡 → 执行者误当违规，进而可能替历史卡编造「经验总结」
+            # （伪造证据，比缺段更糟）。改为显式白名单：写进 doc_policy.json 的
+            # y10_legacy_exempt，只对列明的那几张免催办；新归档卡一律照判，不许搪塞。
+            if rel_y in set(cfg.get("y10_legacy_exempt", [])):
+                continue
             yellow.append(("Y10", rel_y, "归档卡缺「经验总结」段（六要素：现象→机制→位置→处置→证据→落点）"))
             continue
         seg_y = m_y.group(0)
@@ -367,9 +529,10 @@ def main():
         json.dump(payload, open(bl_path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         print("[基线已写入] %s  受管 %d 篇" % (cfg["baseline"], len(managed_now)))
 
-    summary = ("受管 %d（库内 %d / 库外受管 %d / 只读 %d / 豁免 %d / 第三方 %d）｜红线 %d ｜提醒 %d"
+    y9_mode = "按key判红" if cfg.get("tmprefs", {}).get("enforce_keys") else "仅提示(未启用key基线)"
+    summary = ("受管 %d（库内 %d / 库外受管 %d / 只读 %d / 豁免 %d / 第三方 %d）｜红线 %d ｜提醒 %d ｜Y9 %s"
                % (len(files), len(buckets["doc"]), len(buckets["managed"]), len(buckets["readonly"]),
-                  len(buckets["exempt"]), len(buckets["vendor"]), len(red), len(yellow)))
+                  len(buckets["exempt"]), len(buckets["vendor"]), len(red), len(yellow), y9_mode))
     if "--json" in sys.argv:
         print(json.dumps({"summary": summary, "red": red, "yellow": yellow,
                           "counts": {k: len(v) for k, v in buckets.items()}}, ensure_ascii=False, indent=1))
@@ -390,7 +553,7 @@ def main():
             if len(yellow) > 20:
                 print("  ... 另有 %d 条" % (len(yellow) - 20))
         if not red:
-            print("\n结论：GREEN —— 库外无新增文档，库内全部登记。")
+            print("\n结论：GREEN —— 库外无新增文档，库内全部登记，无新增过程区死链。")
         else:
             print("\n结论：RED —— %d 条红线。" % len(red))
     return 1 if red else 0

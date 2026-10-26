@@ -1,7 +1,7 @@
 {
- "generated": "2026-10-24 22:25",
- "count": 240,
- "说明": "存量红的 (文档 :: 路径) 集合，语义只减不增。默认只对不在此表里的新增红判失败；修好一条就该变小一条（重跑 --write-baseline 精简）。行号不进 key：同一文件的多个行号引用只算一条。",
+ "generated": "2026-10-26 21:57",
+ "count": 238,
+ "说明": "存量红的 (文档 :: 路径) 集合，语义只减不增。默认只对不在此表里的新增红判失败；修好一条就该变小一条（重跑 --write-baseline 精简）。行号不进 key：同一文件的多个行号引用只算一条。write-baseline 默认纯收缩（老基线 ∩ 当前红），新增红须 --allow-grow，防一次动作洗白全部新红。",
  "keys": [
   "docs/00_项目总览/06_本机值守与守护器.md :: dsh-goal/index.js",
   "docs/00_项目总览/06_本机值守与守护器.md :: heartbeat.txt",
@@ -106,7 +106,6 @@
   "docs/20_资料索引库/视觉与云台/02_视觉模型与检测.md :: tests/test_release_gate.py",
   "docs/20_资料索引库/赛事与治理/01_赛题规则与场地.md :: _20261018.md",
   "docs/20_资料索引库/赛事与治理/01_赛题规则与场地.md :: memory/digest_20261018.md",
-  "docs/20_资料索引库/赛事与治理/03_工作流与铁律.md :: dzrobot_v2/docs2/x.md",
   "docs/20_资料索引库/赛事与治理/06_版本存档规则.md :: _archive/20261023/tmp_session/GIT-SYNC-20261023.zip",
   "docs/20_资料索引库/车端/03_规划器与自动规划.md :: _tmp_session/p1_hybrid/STRESS_REPORT.md",
   "docs/20_资料索引库/车端/03_规划器与自动规划.md :: _tmp_session/p1_hybrid/stress_results.json",
@@ -117,7 +116,6 @@
   "docs/20_资料索引库/车端/04_定位与安全.md :: YAWDRIFT-FIX-20261022.zip",
   "docs/20_资料索引库/车端/04_定位与安全.md :: _archive/20261023/tmp_session/YAWDRIFT-20261022.zip",
   "docs/20_资料索引库/车端/05_配置与部署.md :: _tmp_session/report_20261018/7_path.log",
-  "docs/20_资料索引库/车端/05_配置与部署.md :: _tmp_session/step_loop/map7.yaml",
   "docs/30_任务卡库/README.md :: _tmp_session/TRACK-FIELD-R2-20261020-01/review.md",
   "docs/30_任务卡库/README.md :: _tmp_session/TRACK-FIELD-R3-20261020-01/review_20261021.md",
   "docs/30_任务卡库/README.md :: _tmp_session/TRACK-R0-20261020-01/CARD.md",

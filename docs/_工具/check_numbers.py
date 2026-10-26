@@ -9,14 +9,29 @@
 零第三方依赖（只用标准库；不 import yaml —— 本文件的扁平 YAML 子集由 parse_yaml_flat 解析）。
 
 用法（在 v1 仓库根跑）：
-    python docs/_工具/check_numbers.py                # 退出码 1 = 有 mismatch
+    python docs/_工具/check_numbers.py                # 退出码 1 = 有 mismatch 或新增漂移
     python docs/_工具/check_numbers.py -v             # 每行带表达式
-    python docs/_工具/check_numbers.py --strict       # 文档侧漂移（异文/行号/字面量）也判红
+    python docs/_工具/check_numbers.py --strict       # 连存量漂移一起判红（收口用）
+    python docs/_工具/check_numbers.py --fix-sources  # 自愈：把能唯一定位的 出处/代码锚点 行号改对
+    python docs/_工具/check_numbers.py --write-baseline  # 把现存漂移收进基线（只减不增）
     python docs/_工具/check_numbers.py --yaml <路径> --repo <仓库根>
 
+判红口径（2026-10-26 改）：
+    旧的「文档侧漂移默认不判红、只有 --strict 才判」等于让 46 条行号漂移永远沉默：
+    robot.yaml 从 894 行长到 900 行后 heartbeat_timeout_s:894 一直指错地方，
+    没有一次收口会停下来处理它。现在按 (id :: 类别) 记账，与 check_anchors 的
+    anchor_baseline.json 同一范式：
+      * 异文仍存（文档值与代码真源冲突）—— 直接判红。除非该条在 yaml 里显式声明
+        「异文说明」（= 有意并列的口径冲突，如用户尺量与代码常量），那才放行。
+      * 其余漂移（代码锚点行号搬了 / 出处行号或字面量漂了 / 异文已消失）——
+        存量写进 numbers_baseline.json，不在表里的新增漂移判红。
+    写基线有守卫：本次会新增条目时拒绝写入，必须显式 --allow-grow 并写理由。
+    改基线等于抹证据，和 anchor_baseline 的老坑同源。
+
 退出码：
-    0  = 全部重算通过（文档侧只剩警告）
+    0  = 全部重算通过，且无新增漂移、无异文冲突
     1  = 有 mismatch（重算 diff 超容差 / 值缺失 / 锚点或出处文件不存在 / 表达式非法）
+         或 新增漂移 / 未声明异文 / （--strict 时）任何漂移
     2  = YAML 本身读不懂（格式错）
 
 校验表达式可用函数（在 yaml 的 校验 字段里写，只能是算术表达式）：
@@ -43,6 +58,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_YAML = "docs/20_资料索引库/数字速查.yaml"
+BASELINE_NAME = "numbers_baseline.json"
 REQUIRED_FIELDS = ("id", "名称", "值", "单位", "出处", "代码锚点", "校验", "状态")
 STATUS_VALUES = ("实测", "文档", "待核")
 DEFAULT_TOL = 1e-3        # 相对容差
@@ -131,6 +147,7 @@ def parse_yaml_flat(text: str) -> list[dict[str, Any]]:
             cur = {}
             key, val = split_kv(body[2:].strip(), lineno)
             cur[key] = scalar(val)
+            cur["_line"] = lineno
             continue
         if cur is None:
             raise AnchorError(f"第 {lineno} 行出现在第一个 '- id:' 之前：{body!r}")
@@ -138,6 +155,7 @@ def parse_yaml_flat(text: str) -> list[dict[str, Any]]:
             raise AnchorError(f"第 {lineno} 行缩进异常（应 >= 2 空格）：{raw!r}")
         key, val = split_kv(body, lineno)
         cur[key] = scalar(val)
+        cur["_" + key + "_line"] = lineno
     if cur is not None:
         items.append(cur)
     return items
@@ -333,6 +351,103 @@ def fmt_num(v: float) -> str:
 
 
 # --------------------------------------------------------------------------- #
+#  自愈：把行号改回真代码所在行（只改行号，不改路径、不改值）
+# --------------------------------------------------------------------------- #
+HEAL_ANCHOR_RE = re.compile(r"^(?P<path>.+?):(?P<line>\d+)\s+(?P<token>\S*)")
+HEAL_SOURCE_RE = re.compile(r"^(?P<path>.+?):(?P<line>\d+)")
+
+
+def self_heal(items: list[dict[str, Any]], drift: dict[str, Any],
+              yaml_path: Path, root: Path, ctx: Ctx) -> int:
+    """把「代码锚点行号漂移」里能唯一定位的条目改回实际行号。
+
+    只处理 token 在目标文件里**唯一出现**的情形：唯一 = 没有二义，改是安全的。
+    多处出现一律不猜（宁留红，不许猜错）。出处（文档侧）不动——那是别人正文。
+    """
+    out = read_text(yaml_path)
+    lines = out.splitlines(keepends=True)
+    fixed = 0
+    for key, (kind, eid, heal) in drift.items():
+        if kind != "anchor_drift" or not heal:
+            continue
+        raw = str(next((it for it in items if str(it.get("id")) == eid), {}).get(heal["field"], ""))
+        m = HEAL_ANCHOR_RE.match(raw.strip())
+        if not m:
+            continue
+        rel, old_line, token = m.group("path"), int(m.group("line")), m.group("token")
+        tpath = (root / rel).resolve()
+        if not tpath.exists():
+            continue
+        body = ctx.text(rel).splitlines()
+        hits = [i + 1 for i, ln in enumerate(body) if token in ln]
+        if not hits:
+            continue
+        if len(hits) == 1:
+            new_line = hits[0]
+        else:
+            # 多处出现：取离旧行号最近的一个，且不许有并列（并列 = 猜，宁留红）
+            dist = sorted((abs(h - old_line), h) for h in hits)
+            if len(dist) > 1 and dist[0][0] == dist[1][0]:
+                continue
+            new_line = dist[0][1]
+        if new_line == old_line:
+            continue
+        lineno_key = heal["line_key"]
+        idx = next((it for it in items if str(it.get("id")) == eid), {})
+        yline = idx.get(lineno_key)
+        if not isinstance(yline, int) or not (1 <= yline <= len(lines)):
+            continue
+        old_text = lines[yline - 1]
+        new_text = old_text.replace(f"{rel}:{old_line}", f"{rel}:{new_line}", 1)
+        if new_text != old_text:
+            lines[yline - 1] = new_text
+            fixed += 1
+            continue
+        continue
+
+    # ---- 出处（文档侧）行号：按 出处应含 字面量唯一定位 ----
+    for key, (kind, eid, heal) in drift.items():
+        if kind != "source_drift" or not heal:
+            continue
+        idx = next((it for it in items if str(it.get("id")) == eid), {})
+        raw = str(idx.get(heal["field"], "") or "").strip()
+        m = HEAL_SOURCE_RE.match(raw)
+        if not m:
+            continue
+        rel, old_line = m.group("path"), int(m.group("line"))
+        tokens = [t.strip() for t in str(idx.get("出处应含") or "").split(";") if t.strip()]
+        if not tokens:
+            continue
+        dpath = (root / rel).resolve()
+        if not dpath.exists():
+            continue
+        body = read_text(dpath).splitlines()
+        hits = [i + 1 for i, ln in enumerate(body) if all(t in ln for t in tokens)]
+        if not hits:
+            continue
+        if len(hits) == 1:
+            new_line = hits[0]
+        else:
+            dist = sorted((abs(h - old_line), h) for h in hits)
+            if len(dist) > 1 and dist[0][0] == dist[1][0]:
+                continue          # 并列最近 = 猜，宁留红
+            new_line = dist[0][1]
+        if new_line == old_line:
+            continue
+        yline = idx.get(heal["line_key"])
+        if not isinstance(yline, int) or not (1 <= yline <= len(lines)):
+            continue
+        old_text = lines[yline - 1]
+        new_text = old_text.replace(f"{rel}:{old_line}", f"{rel}:{new_line}", 1)
+        if new_text != old_text:
+            lines[yline - 1] = new_text
+            fixed += 1
+    if fixed:
+        yaml_path.write_text("".join(lines), encoding="utf-8")
+    return fixed
+
+
+# --------------------------------------------------------------------------- #
 #  主流程
 # --------------------------------------------------------------------------- #
 def main(argv: list[str] | None = None) -> int:
@@ -345,7 +460,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--yaml", default=None, help=f"真源文件（默认 {DEFAULT_YAML}）")
     ap.add_argument("--repo", default=None, help="仓库根（默认为本脚本上两级）")
     ap.add_argument("-v", "--verbose", action="store_true", help="打印表达式与锚点")
-    ap.add_argument("--strict", action="store_true", help="文档侧漂移也判红")
+    ap.add_argument("--strict", action="store_true", help="连存量漂移一起判红（收口用）")
+    ap.add_argument("--fix-sources", action="store_true",
+                    help="自愈：把能唯一定位的 代码锚点/出处 行号改回真代码所在行")
+    ap.add_argument("--write-baseline", action="store_true",
+                    help="把现存漂移收进 numbers_baseline.json（只减不增）")
+    ap.add_argument("--allow-grow", action="store_true",
+                    help="配合 --write-baseline：本次确实要新增条目时显式允许（须写明理由）")
     args = ap.parse_args(argv)
 
     root = Path(args.repo).resolve() if args.repo else Path(__file__).resolve().parents[2]
@@ -372,7 +493,10 @@ def main(argv: list[str] | None = None) -> int:
     env = make_env(ctx)
 
     fails: list[str] = []
-    warns: list[str] = []
+    # 漂移警告： (类别, id, 人读说明, 自愈信息)
+    #   类别 = anchor_drift / source_drift / doc_gone / doc_conflict / doc_unsourced
+    #   doc_conflict 直接判红（除非 yaml 里写了 异文说明）；其余按基线判红
+    warns: list[tuple[str, str, str, dict[str, Any] | None]] = []
     manual: list[tuple[str, str, str]] = []
     passed = 0
     auto_total = 0
@@ -400,21 +524,24 @@ def main(argv: list[str] | None = None) -> int:
         if lvl == "fail":
             fails.append(f"{eid}: 代码锚点失效 —— {why}")
         elif lvl == "drift":
-            warns.append(f"{eid}: 代码锚点行号漂移 —— {why}")
+            warns.append(("anchor_drift", eid, f"代码锚点行号漂移 —— {why}",
+                          {"field": "代码锚点", "line_key": "_代码锚点_line", "why": why}))
 
         dlvl, dwhy = check_doc_source(ctx, item["出处"], str(item.get("出处应含") or ""))
         if dlvl == "fail":
             fails.append(f"{eid}: 出处失效 —— {dwhy}")
         elif dlvl == "drift":
-            warns.append(f"{eid}: 出处内容/行号变化 —— {dwhy}")
+            warns.append(("source_drift", eid, f"出处内容/行号变化 —— {dwhy}",
+                          {"field": "出处", "line_key": "_出处_line", "why": dwhy}))
 
         # ---- 文档异文 ----
         doc_value = item.get("文档值")
         if doc_value is not None:
             loc = parse_loc(item.get("文档值出处") or "")
             token = fmt_num(float(doc_value))
+            declared = str(item.get("异文说明") or "").strip()  # 有意并列的口径冲突
             if loc is None:
-                warns.append(f"{eid}: 填了 文档值={token} 但没填 文档值出处")
+                warns.append(("doc_unsourced", eid, f"填了 文档值={token} 但没填 文档值出处", None))
             else:
                 dp = (root / loc[0]).resolve()
                 if not dp.exists():
@@ -422,13 +549,15 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     dlines = read_text(dp).splitlines()
                     still = 1 <= loc[1] <= len(dlines) and token in dlines[loc[1] - 1]
+                    now = fmt_num(float(value)) if value is not None else "待核"
                     if still:
-                        warns.append(
-                            f"{eid}: 异文仍存 —— 文档 {loc[0]}:{loc[1]} 记 {token}，"
-                            f"代码现值 {fmt_num(float(value)) if value is not None else '待核'}")
+                        note = f"异文仍存 —— 文档 {loc[0]}:{loc[1]} 记 {token}，代码现值 {now}"
+                        if declared:
+                            note += f"（已声明并列：{declared}）"
+                        warns.append(("doc_conflict", eid, note, None))
                     else:
-                        warns.append(
-                            f"{eid}: 异文已消失（可清理文档值）—— {loc[0]}:{loc[1]} 已无 {token}")
+                        warns.append(("doc_gone", eid,
+                                      f"异文已消失（可清理文档值）—— {loc[0]}:{loc[1]} 已无 {token}", None))
 
         # ---- 重算 ----
         if check == "manual":
@@ -487,19 +616,87 @@ def main(argv: list[str] | None = None) -> int:
         for eid, unit, note in manual:
             tail = f" —— {note}" if note else ""
             print(f"  - {eid} ({unit}){tail}")
+    # ---------------- 漂移记账 / 自愈 / 判红 ----------------
+    base_path = Path(args.repo).resolve() / "docs/_工具" / BASELINE_NAME if args.repo \
+        else Path(__file__).resolve().parent / BASELINE_NAME
+    base_keys: set[str] = set()
+    if base_path.exists():
+        try:
+            import json as _json
+            base_keys = set(_json.loads(read_text(base_path)).get("keys") or [])
+        except Exception as exc:  # noqa: BLE001
+            print(f"[WARN] 基线读不懂，按空处理：{exc}")
+
+    drift_now: dict[str, tuple[str, str, dict[str, Any] | None]] = {}
+    conflicts: list[tuple[str, str]] = []
+    for kind, eid, why, heal in warns:
+        if kind == "doc_conflict":
+            if "（已声明并列：" in why:
+                continue                          # 作者已在 yaml 里声明并列：不是债，也不入基线
+            conflicts.append((eid, why))          # 未声明的异文：直接判红
+            continue
+        drift_now[f"{kind} :: {eid}"] = (kind, eid, heal)
+
+    fixed = 0
+    if args.fix_sources:
+        fixed = self_heal(items, drift_now, yaml_path, root, ctx)
+
+    new_drift = sorted(k for k in drift_now if k not in base_keys)
+    gone_drift = sorted(base_keys - set(drift_now))
+
+    if args.write_baseline:
+        if new_drift and not args.allow_grow:
+            print("\n[拒绝写基线] 本次会新增 %d 条漂移条目（基线只许收缩）：" % len(new_drift))
+            for k in new_drift[:10]:
+                print("   + " + k)
+            print("   修文档/yaml，别改基线；确属历史遗留须一次性收编，加 --allow-grow 并写明理由。")
+            return 1
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import json as _json
+        payload = {
+            "generated": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "count": len(drift_now),
+            "说明": ("数字侧漂移的 (类别 :: id) 集合，语义只减不增。不在本表里的新增漂移直接判红；"
+                     "write-baseline 拒绝新增（须 --allow-grow）。异文冲突不受本表豁免，"
+                     "要放行只能在 数字速查.yaml 里写 异文说明。"),
+            "keys": sorted(drift_now),
+        }
+        base_path.write_text(_json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+        print("\n[基线已写入] %s  存量漂移 %d 条" % (base_path.name, len(drift_now)))
+
     if warns:
-        print(f"\n文档侧警告 {len(warns)} 条（默认不判红，--strict 才判）：")
-        for w in warns:
-            print(f"  ! {w}")
+        print(f"\n文档侧漂移 {len(warns)} 条（分类见下；新增/未声明异文判红，存量进基线）：")
+        for kind, eid, why, _heal in warns:
+            mark = "RED" if (f"{kind} :: {eid}" in new_drift or kind == "doc_conflict"
+                             and "（已声明并列：" not in why) else "base"
+            print(f"  {mark} {eid}: {why}")
+    if new_drift:
+        print(f"\n[新增漂移] {len(new_drift)} 条不在基线里（修 yaml 或跑 --fix-sources）：")
+        for k in new_drift[:20]:
+            _kind, eid, heal = drift_now[k]
+            tail = " | 自愈: " + heal["why"] if heal else ""
+            print(f"   + {k}{tail}")
+    if conflicts:
+        print(f"\n[异文冲突] {len(conflicts)} 条：文档值与代码真源冲突且未声明并列")
+        for eid, why in conflicts[:20]:
+            print(f"   x {eid}: {why}")
+        print("   要么改文档，要么在 数字速查.yaml 里给该条写 异文说明（有意并列才许写）。")
+    if gone_drift:
+        print(f"\n[可精简] 基线里 {len(gone_drift)} 条漂移已消失，跑 --write-baseline 收缩基线")
+    if fixed:
+        print(f"\n[自愈] 已就地修正 {fixed} 条 yaml 行号引用（重跑确认）")
+
     if fails:
         print(f"\n[FAIL] mismatch {len(fails)} 条：")
         for f in fails:
             print(f"  x {f}")
     print("=" * 78)
-    bad = bool(fails) or (args.strict and bool(warns))
+    bad = bool(fails) or bool(conflicts) or bool(new_drift) or (args.strict and bool(drift_now))
     print(f"退出码 {1 if bad else 0}"
           + ("（有 mismatch）" if fails else "")
-          + ("（strict：文档侧漂移判红）" if bad and not fails else ""))
+          + (f"（新增漂移 {len(new_drift)}）" if new_drift else "")
+          + (f"（异文冲突 {len(conflicts)}）" if conflicts else "")
+          + ("（strict：存量漂移也判红）" if args.strict and drift_now else ""))
     return 1 if bad else 0
 
 

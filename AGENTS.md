@@ -65,7 +65,7 @@ cd D:/User/Desktop/比赛存档/v1
 python docs/_工具/gen_index.py            # 1. 重建全库索引
 python docs/_工具/check_doc_policy.py     # 2. 文档守卫 R1/R2/R3 + 卡库 R7/R8/R9
 python docs/_工具/check_anchors.py        # 3. 锚点守卫（只认 exit1）
-python docs/_工具/check_numbers.py        # 4. 数字守卫（默认只报不判红）
+python docs/_工具/check_numbers.py        # 4. 数字守卫（新增漂移/未声明异文判红，基线只减不增）
 cd dzrobot_v2
 python tools/wf/check.py                  # 5. 仓库门禁（冻结区/复用/断链）
 python tools/wf/check_links.py            # 6. 断链（含 history/INDEX）
@@ -77,7 +77,8 @@ cd .. && python docs/_工具/snapshot_docs.py   # 7. 文档快照（大收口/�
 | 守卫 | 判什么 |
 |---|---|
 | `check_doc_policy.py` | **R1** 库外新增 .md / **R2** docs 下开新库 / **R3** 库内写了没登记 / **R7** 卡 ns 与目录不符、ns 未登记、缺 agent / **R8** 卡缺树节点、树指向不存在的卡 / **R9** 归档未按 ns 分层、缺「文档变更」 |
-| `check_anchors.py` | 正文里的 `路径:行号` 是否还指向真代码（**只对新增红判失败**，存量进 baseline） |
+| `check_anchors.py` | 正文里的 `路径:行号` 是否还指向真代码（**只对新增红判失败**，存量进 baseline；重建基线默认纯收缩） |
+| `check_numbers.py` | 数字是否与代码真源一致（**新增行号漂移 / 未声明异文判红**，存量进 `numbers_baseline.json`） |
 | `tools/wf/check.py` | 冻结区未登记脏文件 / 文档断链 / 新增 .py 未登记 / 缺 frozen.json / 缺必备文档 |
 | `tools/wf/check_links.py` | `docs/**` 与 `src/history/INDEX` 的相对链接断链 |
 
@@ -120,6 +121,7 @@ DSH 按目录**自动向下加载** `AGENTS.md`：`read/write/edit` 进入更深
 | 建卡、领卡、归档、卡面格式 | `赛事与治理/12_卡库命名空间与任务树细则_20261025.md` |
 | 提交、双远端推送、异常边界 | `赛事与治理/13_提交与双远端细则_20261025.md` |
 | 每轮怎么排、度量看什么 | `赛事与治理/14_工作流规划_高效与有效_20261025.md` |
+| **看到旧编号 §8.1~8.8 / §9.5 不知去哪了** | `赛事与治理/11_文档纪律细则_20261025.md` **§11.0 旧章节号映射表** |
 
 **文档纪律的三条硬判断（细则在 11）：**
 
@@ -127,7 +129,7 @@ DSH 按目录**自动向下加载** `AGENTS.md`：`read/write/edit` 进入更深
 |---|---|
 | **存放地** | 所有长期文档只存 `v1/docs/` 一处（00/10/20/30 四库 + history_cache）；被门禁工具机器读取的 8 个活文件留在 `dzrobot_v2/docs/` 原位，不搬不删不改路径 |
 | **禁止** | 同内容两处各存 / 只搬标题不写结论 / 把 `_tmp_session` 过程稿直接搬进库 / 新增不登记索引 |
-| **索引义务** | 册级 `00_索引.md` → 全库 `目录索引.md`（跑 `gen_index.py` 生成，**不手改**）→ 入口 `docs/README.md`。三层缺一层 = 白写 |
+| **索引义务** | 册级 `00_索引.md` → 全库 `目录索引.md`（跑 `gen_index.py` 生成，**不手改**）→ 入口 `docs/README.md`。三层缺一层 = 白写。**第一层有机器判据**（2026-10-26 增）：`check_doc_policy.py` 的 **R10** 逐文件名比对分册索引，漏登即红；`R6` 另校验 20 库 README 的分册篇数（总数对不代表分册对） |
 
 ## 9. 卡库命名空间与任务树（TL;DR）
 
