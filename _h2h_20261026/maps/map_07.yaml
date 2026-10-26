@@ -1,0 +1,11 @@
+map:
+  name: "H2H-20261026 idx07"
+  start: "N10"
+  end: "N5"
+  barrier_col_from: "D"
+  barrier_row_hi: 6
+  barrier_row_lo: 7
+  mines:      ['N6', 'J9', 'L10', 'E6', 'N3', 'I8', 'L1', 'H6']
+  obstacles:  ['D5', 'H1', 'M5', 'B11', 'F1', 'J5', 'I5', 'L5']
+  targets:    ['I3', 'I4']
+  bridges:    ['K5', 'K7']

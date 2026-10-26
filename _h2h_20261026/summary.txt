@@ -1,0 +1,32 @@
+{
+  "n": 64,
+  "blue_face_none_unshootable_by_our_model": 4,
+  "tour_ok": 37,
+  "ours_ok_strict": 32,
+  "ours_ok_permissive": 43,
+  "policy_gap_strict_vs_permissive": 11,
+  "both_ok": 23,
+  "ours_only": 9,
+  "tour_only": 14,
+  "tour_only_vs_permissive": 5,
+  "permissive_only_vs_tour": 11,
+  "len_delta_tour_minus_ours": {
+    "mean": 1.81,
+    "n": 23,
+    "ours_shorter": 18,
+    "tour_shorter": 5
+  },
+  "tour_fail_reasons": {
+    "穿洞": 11,
+    "射击停站": 5,
+    "无解": 11
+  },
+  "ours_fail_reasons": {
+    "mines 7/8 bridges 2/2 stops 1": 3,
+    "不可达": 26,
+    "mines 8/8 bridges 2/2 stops 0": 3
+  },
+  "ours_seconds_both_solved": {
+    "mean": 109.0
+  }
+}
