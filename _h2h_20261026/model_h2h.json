@@ -1,0 +1,168 @@
+{
+ "d13": {
+  "val_common": {
+   "cell_label": {
+    "tp": 4160,
+    "fp": 1375,
+    "fn": 42
+   },
+   "paper": {
+    "tp": 3770,
+    "fp": 243,
+    "fn": 65
+   },
+   "bucket_green": {
+    "tp": 68,
+    "fp": 6,
+    "fn": 110
+   },
+   "bucket_cyan": {
+    "tp": 33,
+    "fp": 5,
+    "fn": 63
+   },
+   "bucket_red": {
+    "tp": 58,
+    "fp": 5,
+    "fn": 112
+   },
+   "obstacle": {
+    "tp": 0,
+    "fp": 345,
+    "fn": 0
+   },
+   "uav_end": {
+    "tp": 7,
+    "fp": 14,
+    "fn": 6
+   },
+   "car": {
+    "tp": 9,
+    "fp": 15,
+    "fn": 20
+   },
+   "car_end": {
+    "tp": 4,
+    "fp": 8,
+    "fn": 2
+   },
+   "target": {
+    "tp": 2,
+    "fp": 673,
+    "fn": 45
+   },
+   "uav_start": {
+    "tp": 5,
+    "fp": 13,
+    "fn": 1
+   },
+   "target_blue": {
+    "tp": 0,
+    "fp": 0,
+    "fn": 6
+   },
+   "target_red": {
+    "tp": 0,
+    "fp": 0,
+    "fn": 2
+   },
+   "car_start": {
+    "tp": 0,
+    "fp": 0,
+    "fn": 2
+   }
+  },
+  "official": {
+   "n_images": 157,
+   "detected_images": 112,
+   "recall": 0.7134,
+   "n_boxes": 264
+  }
+ },
+ "ft_v1": {
+  "val_common": {
+   "cell_label": {
+    "tp": 4158,
+    "fp": 256,
+    "fn": 44
+   },
+   "paper": {
+    "tp": 3784,
+    "fp": 154,
+    "fn": 51
+   },
+   "bucket_green": {
+    "tp": 172,
+    "fp": 8,
+    "fn": 6
+   },
+   "bucket_cyan": {
+    "tp": 96,
+    "fp": 11,
+    "fn": 0
+   },
+   "bucket_red": {
+    "tp": 169,
+    "fp": 10,
+    "fn": 1
+   },
+   "car": {
+    "tp": 24,
+    "fp": 3,
+    "fn": 5
+   },
+   "target": {
+    "tp": 43,
+    "fp": 3,
+    "fn": 4
+   },
+   "car_end": {
+    "tp": 5,
+    "fp": 10,
+    "fn": 1
+   },
+   "uav_end": {
+    "tp": 7,
+    "fp": 11,
+    "fn": 6
+   },
+   "car_start": {
+    "tp": 2,
+    "fp": 3,
+    "fn": 0
+   },
+   "uav_start": {
+    "tp": 5,
+    "fp": 2,
+    "fn": 1
+   },
+   "target_blue": {
+    "tp": 6,
+    "fp": 1,
+    "fn": 0
+   },
+   "target_red": {
+    "tp": 0,
+    "fp": 1,
+    "fn": 2
+   }
+  },
+  "official": {
+   "n_images": 157,
+   "detected_images": 108,
+   "recall": 0.6879,
+   "n_boxes": 218
+  }
+ },
+ "notes": {
+  "closure": "2026-10-26 用户裁决关闭本对比：两模型均用户亲训，D13 为旧代模型（非对方现役冠军），对比无\"我方vs对方\"意义；ft_v1 为现行冠军。",
+  "taxonomy": "D13 的 obstacle(id5)=桶统称（与桶GT IoU 0.90-0.99 三图实证）；data_14 分色标注。若日后复跑，h2h_models.py 已内置匹配层族合并。",
+  "official_protocol": "图级雷召回=cls0(paper)≥1框, conf0.25, 同 eval_generalization 门禁口径；ft_v1 108/157 与入库基线逐数复现",
+  "official_gap_note": "泛化集 D13 71.3% vs ft_v1 68.8%（差4图）——若做 ft_v2，官方爆炸物近景图纳入增强是已知最短补强方向（可选）。",
+  "frozen_models_md5": {
+   "d13": "9DAE6083239B3B6C0B553C5F94261E78",
+   "ft_v1": "43431CFB66CBBFAD316C8C0C1BC0A976"
+  },
+  "protocol": "letterbox1280/conf0.25/NMS0.45/匹配IoU0.5/CPU deterministic"
+ }
+}
