@@ -96,6 +96,19 @@ ssh duzhong@<IP> 'cd ~/dzuav_deploy/air_ground && bash tools/orin_bringup.sh res
 - [ ] px4 health 行 `status_age_s` 持续 <2s；拔飞控 USB 模拟断流 → 日志出现 `status=断流(按armed处理)` 且不重锚
 - [ ] `orin_build_verify.sh` L3 推理自检过（D13 引擎 17 通道契约）
 
+## 3.5 起飞前 30 秒体检（硬门，2026-10-26 起）
+
+**每次起飞前必跑，13 项全绿（EXIT=0）才允许解锁**。本门收编自 2026-10-26 悬停失控事故教训（多实例撕扯 EKF / numpy 2.x / 墙钟 1970），随 `orin_*.sh` 通配自动上机：
+
+```bash
+# Orin 上，栈由 orin_bringup.sh up 启动并沉降 2~3 分钟后：
+ssh duzhong@<IP> 'cd ~/dzuav_deploy/air_ground && bash tools/orin_preflight_check.sh'
+# 退出码 0=可飞；1=有红项（每项 FAIL 行自带排查指引，按提示处理后再跑）
+```
+
+- 体检面：栈存活 / 关键节点单实例 / 定位→EKF 链路（aligned、ekf_valid、slam≥30Hz、复位风暴=0、跳变） / **EKF 复位增长**（10s 双采样 `ekf_reset_total` 零增长——不能用 `ekf_reset_60s`，那是陈旧队列假象，见 2026-10-26 冷启动实测）/ 飞控链路 / 墙钟与环境。
+- `aligned=0` 且刚起栈：先等 2~3 分钟收敛再重跑，不要带红起飞。
+
 ## 4. 回滚（每步独立）
 
 ```bash
