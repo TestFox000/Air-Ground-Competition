@@ -1,0 +1,2288 @@
+{
+ "summary": {
+  "forward_runs": 83,
+  "forward_pass": 83,
+  "forward_fail": 0,
+  "fail_detail": [],
+  "warn_only": 83,
+  "reverse_ring_mismatch": [],
+  "los_suspect": [
+   {
+    "idx": 0,
+    "stop": "A7",
+    "rail": "B5",
+    "obstacle": "B6",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 0,
+    "stop": "C7",
+    "rail": "B5",
+    "obstacle": "B6",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 9,
+    "stop": "C7",
+    "rail": "E9",
+    "obstacle": "D8",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 9,
+    "stop": "D7",
+    "rail": "E9",
+    "obstacle": "D8",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 9,
+    "stop": "C7",
+    "rail": "E9",
+    "obstacle": "D8",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 9,
+    "stop": "D7",
+    "rail": "E9",
+    "obstacle": "D8",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 16,
+    "stop": "G10",
+    "rail": "F8",
+    "obstacle": "G9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 16,
+    "stop": "H10",
+    "rail": "F8",
+    "obstacle": "G9",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 16,
+    "stop": "H9",
+    "rail": "F8",
+    "obstacle": "G9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 16,
+    "stop": "G10",
+    "rail": "F8",
+    "obstacle": "G9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 16,
+    "stop": "H10",
+    "rail": "F8",
+    "obstacle": "G9",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 37,
+    "stop": "C6",
+    "rail": "A7",
+    "obstacle": "B7",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 37,
+    "stop": "C6",
+    "rail": "A8",
+    "obstacle": "B7",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 37,
+    "stop": "C7",
+    "rail": "A8",
+    "obstacle": "B7",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 37,
+    "stop": "C8",
+    "rail": "A7",
+    "obstacle": "B7",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 37,
+    "stop": "C6",
+    "rail": "A7",
+    "obstacle": "B7",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 37,
+    "stop": "C6",
+    "rail": "A8",
+    "obstacle": "B7",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 37,
+    "stop": "C7",
+    "rail": "A8",
+    "obstacle": "B7",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 37,
+    "stop": "C8",
+    "rail": "A7",
+    "obstacle": "B7",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 53,
+    "stop": "G9",
+    "rail": "H11",
+    "obstacle": "H10",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 53,
+    "stop": "G9",
+    "rail": "I11",
+    "obstacle": "H10",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 53,
+    "stop": "H9",
+    "rail": "I11",
+    "obstacle": "H10",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 53,
+    "stop": "I9",
+    "rail": "H11",
+    "obstacle": "H10",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 53,
+    "stop": "G9",
+    "rail": "H11",
+    "obstacle": "H10",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 53,
+    "stop": "G9",
+    "rail": "I11",
+    "obstacle": "H10",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 53,
+    "stop": "H9",
+    "rail": "I11",
+    "obstacle": "H10",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 53,
+    "stop": "I9",
+    "rail": "H11",
+    "obstacle": "H10",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 55,
+    "stop": "B8",
+    "rail": "D9",
+    "obstacle": "C9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 55,
+    "stop": "B8",
+    "rail": "D10",
+    "obstacle": "C9",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 55,
+    "stop": "B9",
+    "rail": "D10",
+    "obstacle": "C9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 55,
+    "stop": "B8",
+    "rail": "D9",
+    "obstacle": "C9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 55,
+    "stop": "B8",
+    "rail": "D10",
+    "obstacle": "C9",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 55,
+    "stop": "B9",
+    "rail": "D10",
+    "obstacle": "C9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 58,
+    "stop": "D11",
+    "rail": "E9",
+    "obstacle": "E10",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 58,
+    "stop": "F11",
+    "rail": "E9",
+    "obstacle": "E10",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 58,
+    "stop": "F6",
+    "rail": "E8",
+    "obstacle": "E7",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 60,
+    "stop": "C10",
+    "rail": "A9",
+    "obstacle": "B9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 60,
+    "stop": "C8",
+    "rail": "A9",
+    "obstacle": "B9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 60,
+    "stop": "C8",
+    "rail": "A10",
+    "obstacle": "B9",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 60,
+    "stop": "C9",
+    "rail": "A10",
+    "obstacle": "B9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 60,
+    "stop": "C10",
+    "rail": "A9",
+    "obstacle": "B9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 60,
+    "stop": "C8",
+    "rail": "A9",
+    "obstacle": "B9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 60,
+    "stop": "C8",
+    "rail": "A10",
+    "obstacle": "B9",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 60,
+    "stop": "C9",
+    "rail": "A10",
+    "obstacle": "B9",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 63,
+    "stop": "B4",
+    "rail": "D6",
+    "obstacle": "C5",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 63,
+    "stop": "B5",
+    "rail": "D6",
+    "obstacle": "C5",
+    "dist_m": 0.157
+   },
+   {
+    "idx": 63,
+    "stop": "B4",
+    "rail": "D6",
+    "obstacle": "C5",
+    "dist_m": 0.0
+   },
+   {
+    "idx": 63,
+    "stop": "B5",
+    "rail": "D6",
+    "obstacle": "C5",
+    "dist_m": 0.157
+   }
+  ]
+ },
+ "forward": [
+  {
+   "idx": 0,
+   "side": "ours_p",
+   "stops": [
+    "A2",
+    "A3",
+    "A6",
+    "A7",
+    "C3",
+    "C7",
+    "D4",
+    "D5",
+    "D7"
+   ],
+   "tokens": 43,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 15 处                       最大 180° @航点#1（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 1,
+   "side": "ours_p",
+   "stops": [
+    "C2",
+    "C3",
+    "C5",
+    "C6",
+    "F2",
+    "G3",
+    "H3",
+    "H5",
+    "H6"
+   ],
+   "tokens": 42,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 12 处                       最大 180° @航点#26（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 3,
+   "side": "ours",
+   "stops": [
+    "C8",
+    "D9",
+    "F9",
+    "G8"
+   ],
+   "tokens": 48,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 12 处                       最大 180° @航点#19（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 3,
+   "side": "ours_p",
+   "stops": [
+    "C8",
+    "C9",
+    "D9",
+    "G8"
+   ],
+   "tokens": 45,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 13 处                       最大 180° @航点#7（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 4,
+   "side": "ours",
+   "stops": [
+    "B8",
+    "C3",
+    "C4",
+    "C7",
+    "E3",
+    "F3",
+    "F8"
+   ],
+   "tokens": 55,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 19 处                       最大 180° @航点#12（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 4,
+   "side": "ours_p",
+   "stops": [
+    "B8",
+    "C3",
+    "C4",
+    "C7",
+    "E3",
+    "F3",
+    "F8"
+   ],
+   "tokens": 54,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 19 处                       最大 180° @航点#10（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 6,
+   "side": "ours_p",
+   "stops": [
+    "D1",
+    "D2",
+    "D3",
+    "E2",
+    "G2",
+    "H2"
+   ],
+   "tokens": 50,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 15 处                       最大 180° @航点#7（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 8,
+   "side": "ours_p",
+   "stops": [
+    "C6",
+    "C7",
+    "D10"
+   ],
+   "tokens": 39,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 16 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 9,
+   "side": "ours",
+   "stops": [
+    "C7",
+    "D7",
+    "F8",
+    "G8"
+   ],
+   "tokens": 43,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 9 处                        最大 180° @航点#1（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 9,
+   "side": "ours_p",
+   "stops": [
+    "C7",
+    "D7",
+    "F8",
+    "G8"
+   ],
+   "tokens": 41,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 8 处                        最大 180° @航点#1（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 10,
+   "side": "ours_p",
+   "stops": [
+    "D3",
+    "E3",
+    "G3",
+    "G8",
+    "H7",
+    "H8"
+   ],
+   "tokens": 49,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 17 处                       最大 180° @航点#38（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 12,
+   "side": "ours",
+   "stops": [
+    "G5",
+    "H5",
+    "H6",
+    "J5",
+    "K5"
+   ],
+   "tokens": 43,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 16 处                       最大 180° @航点#14（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 12,
+   "side": "ours_p",
+   "stops": [
+    "G5",
+    "H6",
+    "J5",
+    "K5"
+   ],
+   "tokens": 44,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 18 处                       最大 180° @航点#14（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 14,
+   "side": "ours",
+   "stops": [
+    "B2",
+    "B4",
+    "B5",
+    "C1",
+    "D1",
+    "E1",
+    "F2"
+   ],
+   "tokens": 40,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 10 处                       最大 180° @航点#36（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 14,
+   "side": "ours_p",
+   "stops": [
+    "B2",
+    "B4",
+    "B5",
+    "C1",
+    "D1",
+    "E1",
+    "F2"
+   ],
+   "tokens": 38,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 10 处                       最大 180° @航点#34（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 15,
+   "side": "ours",
+   "stops": [
+    "D7",
+    "E8",
+    "G4",
+    "G8",
+    "H5",
+    "H7"
+   ],
+   "tokens": 38,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 8 处                        最大 180° @航点#12（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 15,
+   "side": "ours_p",
+   "stops": [
+    "D7",
+    "E8",
+    "G4",
+    "H5",
+    "H7"
+   ],
+   "tokens": 37,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 8 处                        最大 180° @航点#7（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 16,
+   "side": "ours",
+   "stops": [
+    "D10",
+    "D6",
+    "E10",
+    "E6",
+    "G10",
+    "G6",
+    "H10",
+    "H6",
+    "H7",
+    "H9"
+   ],
+   "tokens": 51,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 19 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 16,
+   "side": "ours_p",
+   "stops": [
+    "D10",
+    "D6",
+    "E10",
+    "E6",
+    "G10",
+    "G5",
+    "H10",
+    "H6"
+   ],
+   "tokens": 44,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 15 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 17,
+   "side": "ours",
+   "stops": [
+    "L9"
+   ],
+   "tokens": 47,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 16 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 17,
+   "side": "ours_p",
+   "stops": [
+    "L9"
+   ],
+   "tokens": 42,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 13 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 18,
+   "side": "ours_p",
+   "stops": [
+    "E6",
+    "F6",
+    "H5",
+    "H9",
+    "I5",
+    "I7"
+   ],
+   "tokens": 44,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 13 处                       最大 180° @航点#24（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 19,
+   "side": "ours",
+   "stops": [
+    "D9",
+    "G9"
+   ],
+   "tokens": 45,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 12 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 19,
+   "side": "ours_p",
+   "stops": [
+    "D9",
+    "G9"
+   ],
+   "tokens": 44,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 13 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 22,
+   "side": "ours_p",
+   "stops": [
+    "E3",
+    "H3"
+   ],
+   "tokens": 50,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 13 处                       最大 180° @航点#16（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 24,
+   "side": "ours_p",
+   "stops": [
+    "B4",
+    "B5",
+    "C4"
+   ],
+   "tokens": 54,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 18 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 25,
+   "side": "ours",
+   "stops": [
+    "G2",
+    "H2",
+    "H3",
+    "I3"
+   ],
+   "tokens": 51,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 15 处                       最大 180° @航点#20（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 25,
+   "side": "ours_p",
+   "stops": [
+    "G2",
+    "H2",
+    "H3",
+    "I3"
+   ],
+   "tokens": 48,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 14 处                       最大 180° @航点#19（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 26,
+   "side": "ours",
+   "stops": [
+    "E9",
+    "F9",
+    "H8",
+    "H9",
+    "I9"
+   ],
+   "tokens": 43,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 18 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 26,
+   "side": "ours_p",
+   "stops": [
+    "E9",
+    "F9",
+    "H8",
+    "H9",
+    "I8"
+   ],
+   "tokens": 42,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 19 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 27,
+   "side": "ours",
+   "stops": [
+    "E11",
+    "E8",
+    "F11",
+    "F8",
+    "F9"
+   ],
+   "tokens": 54,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 19 处                       最大 180° @航点#13（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 27,
+   "side": "ours_p",
+   "stops": [
+    "E11",
+    "E8",
+    "F11",
+    "F8",
+    "F9"
+   ],
+   "tokens": 50,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 18 处                       最大 180° @航点#13（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 28,
+   "side": "ours",
+   "stops": [
+    "F1",
+    "F3",
+    "G4",
+    "I4",
+    "J3"
+   ],
+   "tokens": 53,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 25 处                       最大 180° @航点#11（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 28,
+   "side": "ours_p",
+   "stops": [
+    "F1",
+    "F3",
+    "G4",
+    "J3",
+    "J4"
+   ],
+   "tokens": 48,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 20 处                       最大 180° @航点#14（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 29,
+   "side": "ours_p",
+   "stops": [
+    "E3",
+    "F3",
+    "H3",
+    "I3",
+    "I4"
+   ],
+   "tokens": 41,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 12 处                       最大 180° @航点#20（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 31,
+   "side": "ours",
+   "stops": [
+    "L3"
+   ],
+   "tokens": 45,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 16 处                       最大 180° @航点#8（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 31,
+   "side": "ours_p",
+   "stops": [
+    "L3"
+   ],
+   "tokens": 42,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 16 处                       最大 180° @航点#6（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 34,
+   "side": "ours",
+   "stops": [
+    "A5",
+    "A6",
+    "A8",
+    "A9",
+    "C9"
+   ],
+   "tokens": 52,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 17 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 34,
+   "side": "ours_p",
+   "stops": [
+    "A5",
+    "A6",
+    "A8",
+    "A9",
+    "C9"
+   ],
+   "tokens": 48,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 14 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 35,
+   "side": "ours",
+   "stops": [
+    "G7",
+    "H4",
+    "H7",
+    "H8",
+    "K5",
+    "K7",
+    "L5",
+    "L7"
+   ],
+   "tokens": 51,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 16 处                       最大 180° @航点#9（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 35,
+   "side": "ours_p",
+   "stops": [
+    "G7",
+    "H4",
+    "H7",
+    "H8",
+    "K5",
+    "K7",
+    "L5",
+    "L7"
+   ],
+   "tokens": 49,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 15 处                       最大 180° @航点#8（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 36,
+   "side": "ours",
+   "stops": [
+    "B2",
+    "B5",
+    "B6",
+    "D2",
+    "E2",
+    "E3",
+    "E4"
+   ],
+   "tokens": 51,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 13 处                       最大 180° @航点#11（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 36,
+   "side": "ours_p",
+   "stops": [
+    "B2",
+    "B5",
+    "B6",
+    "D2",
+    "E2",
+    "E3",
+    "E4"
+   ],
+   "tokens": 47,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 13 处                       最大 180° @航点#9（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 37,
+   "side": "ours",
+   "stops": [
+    "C10",
+    "C6",
+    "C7",
+    "C8",
+    "C9"
+   ],
+   "tokens": 44,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 15 处                       最大 180° @航点#8（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 37,
+   "side": "ours_p",
+   "stops": [
+    "C10",
+    "C6",
+    "C7",
+    "C8",
+    "C9"
+   ],
+   "tokens": 38,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 12 处                       最大 180° @航点#19（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 39,
+   "side": "ours",
+   "stops": [
+    "C10",
+    "C9"
+   ],
+   "tokens": 49,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 16 处                       最大 180° @航点#16（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 39,
+   "side": "ours_p",
+   "stops": [
+    "C10",
+    "C9"
+   ],
+   "tokens": 44,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 15 处                       最大 180° @航点#14（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 40,
+   "side": "ours",
+   "stops": [
+    "C10",
+    "D10",
+    "F10",
+    "G10",
+    "G7"
+   ],
+   "tokens": 49,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 14 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 40,
+   "side": "ours_p",
+   "stops": [
+    "C10",
+    "D10",
+    "F10",
+    "G10"
+   ],
+   "tokens": 44,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 13 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 42,
+   "side": "ours",
+   "stops": [
+    "B5",
+    "C5",
+    "C6",
+    "C7",
+    "C8",
+    "C9"
+   ],
+   "tokens": 46,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 16 处                       最大 180° @航点#17（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 42,
+   "side": "ours_p",
+   "stops": [
+    "B5",
+    "C5",
+    "C6",
+    "C7",
+    "C8",
+    "C9"
+   ],
+   "tokens": 43,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 14 处                       最大 180° @航点#16（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 43,
+   "side": "ours",
+   "stops": [
+    "F7",
+    "H3",
+    "H7",
+    "I4",
+    "I7",
+    "J7"
+   ],
+   "tokens": 49,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 15 处                       最大 180° @航点#11（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 43,
+   "side": "ours_p",
+   "stops": [
+    "F7",
+    "H3",
+    "H7",
+    "I4",
+    "I7",
+    "J7"
+   ],
+   "tokens": 48,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 15 处                       最大 180° @航点#11（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 44,
+   "side": "ours",
+   "stops": [
+    "C9",
+    "D9",
+    "F9",
+    "G9"
+   ],
+   "tokens": 44,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 15 处                       最大 180° @航点#36（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 44,
+   "side": "ours_p",
+   "stops": [
+    "C9",
+    "D9",
+    "F9",
+    "G9"
+   ],
+   "tokens": 43,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 15 处                       最大 180° @航点#38（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 45,
+   "side": "ours",
+   "stops": [
+    "B8",
+    "B9",
+    "C9"
+   ],
+   "tokens": 51,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 12 处                       最大 180° @航点#14（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 45,
+   "side": "ours_p",
+   "stops": [
+    "B8",
+    "B9",
+    "C9"
+   ],
+   "tokens": 49,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 13 处                       最大 180° @航点#13（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 46,
+   "side": "ours",
+   "stops": [
+    "B9",
+    "C5",
+    "C6",
+    "C8",
+    "C9",
+    "D9"
+   ],
+   "tokens": 39,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 11 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 46,
+   "side": "ours_p",
+   "stops": [
+    "B9",
+    "C5",
+    "C6",
+    "C8",
+    "C9",
+    "D5",
+    "D9"
+   ],
+   "tokens": 42,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 11 处                       最大 180° @航点#2（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 47,
+   "side": "ours",
+   "stops": [
+    "A3",
+    "A4",
+    "C3",
+    "C4",
+    "D3",
+    "D4"
+   ],
+   "tokens": 45,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 11 处                       最大 180° @航点#20（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 47,
+   "side": "ours_p",
+   "stops": [
+    "A3",
+    "A4",
+    "C3",
+    "C4",
+    "D3",
+    "D4"
+   ],
+   "tokens": 42,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 12 处                       最大 180° @航点#19（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 48,
+   "side": "ours_p",
+   "stops": [
+    "A7",
+    "B8",
+    "D8",
+    "E8"
+   ],
+   "tokens": 41,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 11 处                       最大 180° @航点#21（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 49,
+   "side": "ours_p",
+   "stops": [
+    "E10",
+    "E11",
+    "H10",
+    "I10",
+    "I11"
+   ],
+   "tokens": 47,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 11 处                       最大 180° @航点#11（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 51,
+   "side": "ours",
+   "stops": [
+    "F3",
+    "G3",
+    "G5",
+    "G6",
+    "H2",
+    "H6",
+    "I6",
+    "J5",
+    "J6",
+    "K5"
+   ],
+   "tokens": 51,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 11 处                       最大 180° @航点#24（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 51,
+   "side": "ours_p",
+   "stops": [
+    "F3",
+    "G3",
+    "G5",
+    "G6",
+    "H2",
+    "H6",
+    "I6",
+    "J5",
+    "J6",
+    "K5"
+   ],
+   "tokens": 48,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 12 处                       最大 180° @航点#23（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 52,
+   "side": "ours",
+   "stops": [
+    "B3",
+    "C3",
+    "E3",
+    "F2",
+    "F6"
+   ],
+   "tokens": 49,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 10 处                       最大 180° @航点#36（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 52,
+   "side": "ours_p",
+   "stops": [
+    "B3",
+    "C3",
+    "E3",
+    "F2",
+    "F6"
+   ],
+   "tokens": 47,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 10 处                       最大 180° @航点#34（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 53,
+   "side": "ours",
+   "stops": [
+    "F9",
+    "G9",
+    "H9",
+    "I9",
+    "J10",
+    "J9"
+   ],
+   "tokens": 45,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 12 处                       最大 180° @航点#7（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 53,
+   "side": "ours_p",
+   "stops": [
+    "F9",
+    "G9",
+    "H9",
+    "I9",
+    "J10",
+    "J9"
+   ],
+   "tokens": 40,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 11 处                       最大 180° @航点#4（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 55,
+   "side": "ours",
+   "stops": [
+    "B7",
+    "B8",
+    "B9",
+    "C7",
+    "E7",
+    "F7",
+    "F8"
+   ],
+   "tokens": 42,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 13 处                       最大 180° @航点#8（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 55,
+   "side": "ours_p",
+   "stops": [
+    "B7",
+    "B8",
+    "B9",
+    "C7",
+    "E7",
+    "F7",
+    "F8",
+    "F9"
+   ],
+   "tokens": 40,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 11 处                       最大 180° @航点#20（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 56,
+   "side": "ours",
+   "stops": [
+    "F4",
+    "G3",
+    "I4",
+    "I7",
+    "I8",
+    "J5",
+    "J7"
+   ],
+   "tokens": 39,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 13 处                       最大 180° @航点#11（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 56,
+   "side": "ours_p",
+   "stops": [
+    "F4",
+    "G3",
+    "I4",
+    "J5",
+    "J7",
+    "J8"
+   ],
+   "tokens": 37,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 11 处                       最大 180° @航点#28（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 57,
+   "side": "ours",
+   "stops": [
+    "H4",
+    "L1"
+   ],
+   "tokens": 48,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 14 处                       最大 180° @航点#17（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 57,
+   "side": "ours_p",
+   "stops": [
+    "H4",
+    "L1",
+    "L3",
+    "L4"
+   ],
+   "tokens": 44,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 12 处                       最大 180° @航点#16（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 58,
+   "side": "ours_p",
+   "stops": [
+    "C10",
+    "C6",
+    "C7",
+    "C8",
+    "C9",
+    "D11",
+    "F11",
+    "F6",
+    "G10"
+   ],
+   "tokens": 40,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 12 处                       最大 180° @航点#20（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 59,
+   "side": "ours",
+   "stops": [
+    "C4",
+    "C5",
+    "C7",
+    "D7",
+    "D8",
+    "H4",
+    "H8"
+   ],
+   "tokens": 47,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 15 处                       最大 180° @航点#9（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 59,
+   "side": "ours_p",
+   "stops": [
+    "C4",
+    "C5",
+    "C7",
+    "D7",
+    "D8",
+    "H4"
+   ],
+   "tokens": 46,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 17 处                       最大 180° @航点#9（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 60,
+   "side": "ours",
+   "stops": [
+    "B11",
+    "C10",
+    "C11",
+    "C7",
+    "C8",
+    "C9"
+   ],
+   "tokens": 56,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 14 处                       最大 180° @航点#9（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 60,
+   "side": "ours_p",
+   "stops": [
+    "B11",
+    "C10",
+    "C11",
+    "C7",
+    "C8",
+    "C9"
+   ],
+   "tokens": 54,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 14 处                       最大 180° @航点#9（其中",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 62,
+   "side": "ours_p",
+   "stops": [
+    "E8",
+    "F8",
+    "H8",
+    "I8"
+   ],
+   "tokens": 52,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 12 处                       最大 180° @航点#11（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 63,
+   "side": "ours",
+   "stops": [
+    "B4",
+    "B5",
+    "B7",
+    "B8",
+    "C7",
+    "C8",
+    "D8",
+    "E8",
+    "F8"
+   ],
+   "tokens": 53,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 14 处                       最大 180° @航点#12（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  },
+  {
+   "idx": 63,
+   "side": "ours_p",
+   "stops": [
+    "B4",
+    "B5",
+    "B7",
+    "B8",
+    "C7",
+    "C8",
+    "D8",
+    "E8",
+    "F8"
+   ],
+   "tokens": 51,
+   "ok": true,
+   "n_err": 0,
+   "n_warn": 3,
+   "errs": [],
+   "warns_summary": [
+    "\u001b[33m⚠️ \u001b[0m 无法导入 path_executor（ModuleNotFoundError），改用内置副本校",
+    "\u001b[33m⚠️ \u001b[0m 急转弯 13 处                       最大 180° @航点#11（其",
+    "\u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+   ],
+   "bullets": [],
+   "rc": 0
+  }
+ ]
+}

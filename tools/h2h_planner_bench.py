@@ -34,6 +34,7 @@ import random
 import subprocess
 import sys
 import warnings
+from collections import Counter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OURS_ROOT = os.path.dirname(HERE)
@@ -52,14 +53,6 @@ _MOTION_ON = dict(turn90_guard=True, solid_barriers=True,
 
 
 # ---------------------------------------------------------------- 图集生成
-def _neighbors4(name: str):
-    ci, ri = COLS.index(name[0]), int(name[1:]) - 1
-    for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-        c, r = ci + dc, ri + dr
-        if 0 <= c < len(COLS) and 0 <= r < N_ROWS:
-            yield COLS[c] + str(r + 1)
-
-
 def _k_col() -> set[str]:
     return {c + str(r) for c in ("K",) for r in range(1, N_ROWS + 1)}
 
@@ -183,28 +176,45 @@ def run_tour(map_path: str) -> dict:
 
 
 # ---------------------------------------------------------------- B 方（我方）
-def _load_ours():
-    sys.path.insert(0, os.path.join(OURS_ROOT, "src", "ag_integrate"))
-    from ag_integrate.field_frame import CellRef, LETTERS
-    from ag_integrate.world_model import WorldSnapshot, TargetRef
-    from ag_integrate.mission_router import plan_route, _shoot_candidates_moving
-    from ag_integrate.route_time import estimate_seconds
+_FF = None        # _load_ours() 填充的 ag_integrate.field_frame 引用（延迟导入）
+_AGI = None       # _load_ours() 填充的 ag_integrate 包引用
 
-    def cell(name: str) -> CellRef:
-        return CellRef(LETTERS.index(name[0]), int(name[1:]) - 1)
-    return cell, WorldSnapshot, TargetRef, plan_route, estimate_seconds, _shoot_candidates_moving
+
+def _load_ours():
+    global _FF, _AGI
+    sys.path.insert(0, os.path.join(OURS_ROOT, "src", "ag_integrate"))
+    import ag_integrate.field_frame as ff
+    import ag_integrate.world_model as wm
+    import ag_integrate.mission_router as mr
+    import ag_integrate.route_time as rt
+    _FF, _AGI = ff, mr
+
+    def cell(name: str):
+        return ff.CellRef(ff.LETTERS.index(name[0]), int(name[1:]) - 1)
+    return (cell, wm.WorldSnapshot, wm.TargetRef,
+            mr.plan_route, rt.estimate_seconds, mr._shoot_candidates_moving)
+
+
+def _serves(stop: str, rail: str) -> bool:
+    """stop 是否在 rail 的 0.78~1.02 m 标定窗内（整数格偏移恰为 √5/√8 两档）。"""
+    dc = _FF.LETTERS.index(stop[0]) - _FF.LETTERS.index(rail[0])
+    dr = int(stop[1:]) - int(rail[1:])
+    return dc * dc + dr * dr in (5, 8)
 
 
 def _polyline_len(route) -> float:
-    from ag_integrate.field_frame import LETTERS
     total = 0.0
     for a, b in zip(route, route[1:]):
-        dc = abs(LETTERS.index(b[0]) - LETTERS.index(a[0]))
+        dc = abs(_FF.LETTERS.index(b[0]) - _FF.LETTERS.index(a[0]))
         dr = abs(int(b[1:]) - int(a[1:]))
+        if max(dc, dr) > 1:
+            raise ValueError(
+                f"路线存在非相邻步 {a}->{b}：plan_route 输出应为逐格序列，"
+                "压缩/断链都会让里程与秒数失真")
         if dc and dr:
             total += CELL * math.sqrt(2)
         else:
-            total += CELL * max(dc, dr)
+            total += CELL
     return round(total, 2)
 
 
@@ -249,13 +259,6 @@ def run_ours(m: dict, kit, permissive: bool = False) -> dict:
     stops = [x for x in names if x in stop_cells]
     # 成功口径与车端 route_check 第④层同源：**每个轨端**都要有路线格落在
     # 其 0.78~1.02 m 窗内（√5/√8 整数格偏移），不是"路过任一环带格"。
-    from ag_integrate.field_frame import LETTERS as _L
-
-    def _serves(stop: str, rail: str) -> bool:
-        dc = _L.index(stop[0]) - _L.index(rail[0])
-        dr = int(stop[1:]) - int(rail[1:])
-        return dc * dc + dr * dr in (5, 8)
-
     ends_served = sum(1 for rail in m["targets"]
                       if any(_serves(x, rail) for x in names))
     length_m = _polyline_len(names)
@@ -311,7 +314,6 @@ def main() -> None:
               if r["tour"].get("length_m") and r["ours"].get("length_m")]
 
     def _reasons(side):
-        from collections import Counter
         c = Counter()
         for r in rows:
             if not r[side]["ok"]:
