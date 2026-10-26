@@ -104,6 +104,69 @@
       "owner": "t-car",
       "reason": "T1 进度契约最小补丁：_current_s 采纳加几何可信门（复用 proj.dist>drift_warn_m 时无 hint 全路线重投影）+ 读侧不再回写 P_ROUTE_INDEX/S；离线 28 条 + 日志 449/452/459 指纹回归，未部署",
       "expires": "2026-10-31"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/pursuit/trajectory.py",
+      "card": "TRAJ-GEOM-20261025",
+      "owner": "/root/trajectory",
+      "reason": "用户授权连续轨迹替换；本轮离线候选，旧默认不动；原有已提交登记保留；本轮写者以本卡为准",
+      "expires": "2026-11-01"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/pursuit/velocity.py",
+      "card": "TRAJ-SPEED-20261025",
+      "owner": "/root/speed",
+      "reason": "用户授权连续轨迹替换；本轮离线候选，旧默认不动；原有已提交登记保留；本轮写者以本卡为准",
+      "expires": "2026-11-01"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/pursuit/controller.py",
+      "card": "TRAJ-CONTROL-20261025",
+      "owner": "/root/speed",
+      "reason": "用户授权连续轨迹替换；本轮离线候选，旧默认不动；原有已提交登记保留；本轮写者以本卡为准",
+      "expires": "2026-11-01"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/pursuit/lookahead.py",
+      "card": "TRAJ-CONTROL-20261025",
+      "owner": "/root/speed",
+      "reason": "用户授权连续轨迹替换；本轮离线候选，旧默认不动；原有已提交登记保留；本轮写者以本卡为准",
+      "expires": "2026-11-01"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/core/config.py",
+      "card": "TRAJ-INTEG-20261025",
+      "owner": "/root",
+      "reason": "用户授权连续轨迹替换；本轮离线候选，旧默认不动；原有已提交登记保留；本轮写者以本卡为准",
+      "expires": "2026-11-01"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/tools/sim.py",
+      "card": "TRAJ-CONTROL-20261025",
+      "owner": "/root/speed",
+      "reason": "用户授权连续轨迹替换；本轮离线候选，旧默认不动；原有已提交登记保留；本轮写者以本卡为准",
+      "expires": "2026-11-01"
+    },
+    {
+      "path": "config/map.yaml",
+      "card": "TRAJ-FRAME-CORE-20261025",
+      "owner": "lead",
+      "reason": "零地图+布局模式架构变更的组成部分：车端不留地图文件，地图仅由无人机 field_layout 下发（config/robot.yaml:786 map_path:\"\" 已落地并登记）。HEAD 内仍有此文件=历史快照，工作区删除为有意。TRAJ-BASE 第41行/FRAME-PHYS 第48行均记『改前即不存在，不恢复』。Lead 2026-10-26 授权补登（原应由该在途卡 owner 落，用户指令『2补上』）。",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "config/map_v3.yaml",
+      "card": "TRAJ-FRAME-CORE-20261025",
+      "owner": "lead",
+      "reason": "同上：零地图+布局模式的既有删除，非本轮制造。TRAJ-BASE 第41行明确『前两项为既有删除，不恢复』。",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/tasks/localization.py",
+      "card": "F5-REANCHOR-STEP-20261025",
+      "owner": "lead",
+      "reason": "F5 横向重锚改分拍收敛（+45/-11）：新增 reanchor_step_max_m=0.12 / reanchor_done_m=0.02 / _reanchor_active 状态位，_reanchor() 增 cx,cy 形参。动机有实车证据：run4 中 0.303m 一步到位造成 0.313m 位姿突跳（>0.20 门限）→ FixTask 清窗 + 漂移护栏停机。配套测试 src/dzbrain/tests/test_reanchor_step.py（未跟踪）。Lead 2026-10-26 授权补登（用户指令『2补上』）。",
+      "expires": "2026-11-01"
     }
   ]
 }
