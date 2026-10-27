@@ -49,6 +49,17 @@
 依赖: paramiko（仅笔记本端）；Orin 侧只用 rclpy + 标准库。
 """
 from __future__ import annotations
+import argparse
+import json
+import math
+import os
+import queue
+import socket
+import sys
+import threading
+import time
+from collections import Counter, deque
+from pathlib import Path
 
 # 2026-10-27 模块化拆分：实现移入 tools/uavlink/ 包（config/telemetry/safety/host/rules/blackbox/sampler_src/link/report/cli）。
 # 本文件是对外稳定门面：CLI 用法、import uav_link 语义均不变；所有名字自包内再导出。

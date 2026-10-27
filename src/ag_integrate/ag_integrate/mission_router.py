@@ -25,6 +25,16 @@
 # 2026-10-27 模块化拆分：实现移入同目录扁平模块 mr_params/mr_board/mr_nav/mr_shooting/mr_route。
 # 本文件是对外稳定门面：from .mission_router import X / from ag_integrate.mission_router import X 语义不变（含 _ 私有名）。
 
+from __future__ import annotations
+
+import heapq
+import warnings
+from itertools import count, product
+from math import gcd
+
+from .field_frame import CellRef, ROWS, COLS, LETTERS
+from .fire_guard import blue_targets_hit, decide_fire
+from .world_model import WorldSnapshot
 from .mr_params import _ALL_HEADINGS, _BIG_INT, _DIRS, _EPS, _GEAR_SWITCH, _HEADING_IDX, _HK_HEADING_MAX, _INF, _NEED_MM, _REV_MULT, _SPACE_W, _SQRT2, _TSP_EXACT_MAX_NODES, _TURN_GRADE, _TURN_GUARD  # noqa: F401
 from .mr_board import _BARRIER_COLS, _BOARD_INTRUDE_MM, _CELLS, _EDGES, _IDIAG, _INEDGES, _INNER, _MID_BOUNDARY, _N_CELLS, _SIDES, _TURNS, _build_edges, _build_inedges, _build_solid_barriers, _build_turn_side_tables, _crosses_mid, _turn_units, _zone_of  # noqa: F401
 from .mr_nav import _DIR_INDEX, _ORTHO_STEPS, _arrival_state, _assemble, _cached_dijkstra, _classify_blocked, _dijkstra, _enumerate_optimal_orders, _flatten, _greedy_orders, _held_karp_orders, _held_karp_orders_heading, _norm_dir, _plan_core, _pos, _reconstruct_order, _route_leg, _route_shape, _trace_states, _unreachable_detail, ensure_mine_center_pass  # noqa: F401

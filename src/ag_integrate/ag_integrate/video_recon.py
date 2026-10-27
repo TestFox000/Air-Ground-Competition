@@ -44,6 +44,8 @@
     label_crops/       格号裁剪图抽样（v4d 读数人工抽检用）
 """
 
+from __future__ import annotations
+
 # 2026-10-27 模块化拆分：实现移入同目录 vr_const/vr_geom/vr_models/vr_pipeline（扁平互导）。
 # 双模式兼容：包导入（from ag_integrate import video_recon）与按路径直跑（python3 .../video_recon.py，机载 orin_*.sh 用）都成立——
 # 门面先把本目录推上 sys.path，再用扁平导入再导出全部名字（含 _ 私有名）。
@@ -51,6 +53,21 @@ import os as _os, sys as _sys
 _here = _os.path.dirname(_os.path.abspath(__file__))
 if _here not in _sys.path:
     _sys.path.insert(0, _here)  # 扁平互导在包模式下也可解析
+
+import argparse
+import glob
+import json
+import os
+import sys
+import time
+from collections import Counter, defaultdict
+from datetime import datetime
+from itertools import combinations
+from pathlib import Path
+
+import cv2
+import numpy as np
+from vr_pipeline import _BARRIER_COLS, _MID_BOUNDARY, COLS, CellRef, LETTERS, MAX_MINES, ROWS, TargetRef, WorldSnapshot, compact_and_adapt, load_cjk_font, plan_route  # noqa: F401  # 原头部名再导出（旧代码可能借道 vr.plan_route 等）
 
 from vr_const import ANCHOR_GATE, BLUE_FACE_DFT, BRIDGE_COL, BRIDGE_COL_IDX, CARRY_INLIER, CARRY_MAX_STEPS, CONF, FIT_INLIER, GOAL_DFT, GRID_MAE_MAX, IN_SIZE, LABEL_OVERLAP_IOU, MAX_VOTE_RESIDUAL, NAMES, NMS_IOU, OBJ_CLASSES, PAPER_MEAN_CONF_MIN, PASSABLE_DFT, PHANTOM_STRONG_RECALL_MIN, REVIEW_CONF_MIN, SAHI_OVERLAP, SAHI_TILE, START_DFT, TARGET_MEAN_CONF_MIN, TARGET_MIN_VOTES, TRACK_DFT, TRACK_NEIGHBOR_R, V4D_IN, V4D_MIN_CONF, V4D_PAD, VOTE_MIN  # noqa: F401
 from vr_geom import _iou, _nms_merge, anchor_within, cell_name, circular_mode, confirmed_cells, eliminate_phantoms, filter_label_overlap, fit_consensus_affine, imwrite_u, mine_review_candidates, parse_cell, resolve_cell_conflicts, slice_tiles, snap_cell, split_mines_passable, validate_affine_carry  # noqa: F401
