@@ -43,3 +43,5 @@
 | 2026-10-27 | cell_v4f vs v4e | 同 617 误读集 + v6 val | joint 80.4→**81.4%** / 87.5→**87.9%**；三道门（总分/G/C）全过；G 定向增广仅 +1，确认退化裁剪为数据上限 |
 
 > 🚨 2026-10-27 部署审计回退：**current_cell_classifier 指针 v4f→v4d**。上表 617/v6 成绩均在评测器外加 ImageNet 归一化口径下取得，而机载 C++ CellClassifier 部署链喂裸 [0,1]（CellClassifier.cpp 注释 2026-10-17 A/B 实测：v4d 裸喂 106/106 全对）。onnxruntime 双口径对照（flight 前150+base 前80 共230张、四向TTA）：v4d 裸 51%/inet 86%，v4e 裸 11%/inet 67%，v4f 裸 36%/inet 66%——**v4e/v4f 均未烘焙归一化，部署口径下劣于 v4d，直接上机格号识别回退**。重新发布前置：export_v4e_norm.py 烘焙重导出（dynamo=False 单文件）+ pack106 裸口径 ≥95% + 金标 ≥70%（发布纪律见 retrain 记录）。回退后指针 md5=dd5f6ef4...与 BINARY_MANIFEST.md5 原值一致（manifest 零改动；两次发布切换指针时 manifest 未同步，本次顺带复位）。
+
+| 2026-10-27 | cell_v4f_baked vs v4d（部署口径:裸[0,1]+四向TTA, ort） | G1 v6 val 2695：v4d 裸喂 **41.8%**（其"72.4%"为 ImageNet 口径——现役在 v6 域的机载真实水平一直被口径错觉掩盖）vs v4f_baked **86.5%**（+44.7）；flight 真机 1041 张 82.4%→90.6%；G2 金标误读 88 张 11.4%→67.0% | **发布（指针→v4f_baked）**：G1 大样本通过；G2 未达 v4e3 线自设 70% 纪律（差 3 张），但全口径碾压现役且六倍改善，如实记档待 v4e3 升权版出山再比。v4f_baked=v4f 权重+前置 Sub/Div 烘焙归一化（逐样本与原版 inet 口径 230/230 一致，C++/TRT 零改动、转换时折叠进首层）；617 误读集未复测（发布会话私有目录），以 v6 val+flight+金标三门替代 |
