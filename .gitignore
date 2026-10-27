@@ -17,3 +17,6 @@ __pycache__/
 *.log
 # 部署工具的回滚锚与目录快照（盘上保留；回滚自此改走 git）
 *.bak_*
+
+# agent 会话本地目录（PROJECT-MAP/sessions，不入库）
+.zcode/
