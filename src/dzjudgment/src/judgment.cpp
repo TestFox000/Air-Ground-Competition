@@ -3,7 +3,18 @@
 dzjudgment::dzjudgment() : Node("dzjudgment_node")
 {
     m_baudrate = 115200;
-    m_serialport = "/dev/ttyACM0";
+    // ★ 默认值必须是 udev 稳定软链，不能写死 ttyACMx。
+    //   两块板子的 ACM 序号会随插拔/上电顺序互换：
+    //     1a86:55d4  QinHeng   = 云台/底盘板  -> /dev/dzactuator
+    //     303a:1001  Espressif = 裁判/激光板  -> /dev/dzjudgment
+    //   （规则见 /etc/udev/rules.d/dz{judgment,actuator}.rules，按 idVendor/idProduct 固定）
+    //
+    //   历史事故（2026-10-25 实车）：本节点被 ros2 run 手工拉起时读不到 robot.yaml，
+    //   回落到写死的 ttyACM0 —— 正好是云台板，与 dzactuator 抢同一个串口。
+    //   后果：开火帧 B5 5B 03 21 01 25 被写进云台板，日志里只有一句"开火指令已下发"，
+    //   激光不亮、裁判无记录，串口还每秒刷 "device reports readiness to read"。
+    //   改成软链后，即使绕过 launch 直接 ros2 run，也不会再打到隔壁板子。
+    m_serialport = "/dev/dzjudgment";
 
     this->declare_parameter("mcubaudrate", m_baudrate);
     this->get_parameter("mcubaudrate", m_baudrate);

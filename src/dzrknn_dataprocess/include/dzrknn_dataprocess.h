@@ -1,5 +1,6 @@
 #include "rclcpp/rclcpp.hpp"
 #include <string>
+#include <chrono>
 
 #include <boost/thread/thread.hpp>
 #include <boost/bind.hpp>
@@ -99,11 +100,16 @@ public:
 	void callback_fire_gate(const std_msgs::msg::UInt8::SharedPtr msg);
 	void callback_fire_ready(const std_msgs::msg::UInt8::SharedPtr msg);
 	void callback_lead_x(const std_msgs::msg::Float32::SharedPtr msg);
+	bool externalFireAllowed() const;
 
 	bool use_external_fire_gate_ = false; // true = 开火改由"两键"决定（移动靶模式）
 	double lead_apply_gain_ = 0.0;        // 0 = 不施加提前量（旧行为）；1 = 完全施加 /aim/lead_x
 	bool external_gate_ = false;          // /aim/fire_gate 当前值
 	bool external_ready_ = false;         // /aim/fire_ready 当前值
+	// 两键按各自接收时间计 500ms 租期：断流后最后一个 true 不再放行；不受 ROS 时钟跳变影响。
+	static constexpr int FIRE_PERMISSION_TIMEOUT_MS = 500;
+	std::chrono::steady_clock::time_point external_gate_received_at_{};
+	std::chrono::steady_clock::time_point external_ready_received_at_{};
 	double lead_px_ = 0.0;                // /aim/lead_x 当前值（px，正 = 目标向右）
 
 	// ★云台手动接管标志：1 = 停止下发 CameMo_Conl，把云台控制权让给遥控器。

@@ -117,6 +117,28 @@ def topic(key: str) -> Topic:
     return TOPICS[key]
 
 
+def canonical_topic_name(name: str) -> str:
+    """话题名规范化（**只用于比较**，不改真名）：去空白/多余斜杠，保证恰好一个前导斜杠。
+
+    ★ 为什么必须有（2026-10-29 真车假红，LINK-HARDEN）：本表里有两条**历史话题名
+      没有前导斜杠** —— `nav/manual_gimbal`（云台手动接管；车端 C++ 侧
+      `dzrknn_dataprocess.cpp` 就写成 `nav/manual_gimbal`）与 `pursuitAngle`
+      （底盘侧同名）。它们是 ROS 的**相对名**，解析后等价于 `/nav/manual_gimbal`，
+      所以改名会断链 —— 真名必须原样保留（`test_contract.py` 已钉死）。
+
+      而 rclpy 的 `Subscription.topic_name` 返回的是**解析后的全名**（带前导斜杠），
+      于是启动契约做 `"nav/manual_gimbal" in {"/nav/manual_gimbal", ...}` 必然不命中
+      ⇒ 把**已经建好的订阅**误报成「本节点未创建订阅（装配/代码问题）」。
+      真车日志形态：横幅先报 `ROS_DOMAIN_ID=118`，紧接着契约表给 manual_gimbal
+      打这条假红。两边的名字口径统一到本函数后，假红消失而真缺失（装配没走完）照样判红。
+
+    不变量：本函数是**幂等**的，`canonical_topic_name(canonical_topic_name(x)) ==
+    canonical_topic_name(x)`；空名返回空串（不伪造根名 `"/"`）。
+    """
+    parts = [p for p in str(name or "").strip().split("/") if p]
+    return "/" + "/".join(parts) if parts else ""
+
+
 # --------------------------------------------------------------------------- #
 #  单位换算（只在这里做，别处不许再写）
 # --------------------------------------------------------------------------- #

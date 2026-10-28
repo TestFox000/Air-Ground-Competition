@@ -177,11 +177,15 @@ check("★ 变化的行全部是 auto_start 行（不误伤别的配置）",
       len(_syn_diff) >= 1 and all(a.strip().startswith("auto_start:")
                                   and "delay" not in a for a, _ in _syn_diff),
       f"合成样本改了 {len(_syn_diff)} 行：{_syn_diff}")
-check("★ 真实文件：auto_start 现为 true ⇒ 强制改写确实改变内容（不再是空操作）",
-      dep.sha256_bytes(_expected) != dep.sha256_bytes(_raw_bytes),
-      "GOT：robot.yaml:283/514 现均 auto_start: true（现场发车档）⇒ 归一化把 true→false，基准≠原始字节")
 _raw_text = _raw_bytes.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 _exp_text = _expected.decode("utf-8")
+# ★★ 2026-10-29 P1/T4 再钉：本条原硬假设「真文件 auto_start 现为 true ⇒ sha 必变」。
+#   T4 把 path_executor.auto_start 归位 false ⇒ 真文件回 false 稳态（归一化 = 幂等空操作），
+#   旧断言只靠 CRLF→LF 副作用偶然存活，行尾归一后必红。改成与取值/行尾无关的条件语义：
+#   残留 true ⇒ 内容必须变；无 true ⇒ 内容必须不变。
+check("★ 真实文件：强制改写对残留 true 必改、false 稳态内容幂等（与行尾/取值无关）",
+      ("auto_start: true" in _raw_text) == (_exp_text != _raw_text),
+      f"raw含true={'auto_start: true' in _raw_text} / 内容变化={_exp_text != _raw_text}")
 check("归一化不增删行（只改行内内容）",
       len(_exp_text.splitlines()) == len(_raw_text.splitlines()),
       f"{len(_exp_text.splitlines())} vs {len(_raw_text.splitlines())}")
@@ -190,11 +194,13 @@ _diff_lines = [(a, b) for a, b in zip(_raw_text.splitlines(), _exp_text.splitlin
 #   `mission.auto_start`）均 `true` ⇒ 归一化把**两处**都翻 false，改动行数是 2 不是 1。
 #   原断言硬钉 `== 1`（写于 t31「两段均 false」稳态），发车档下必红。语义不变式是「改动
 #   仅限 auto_start 配置行、不误伤别的配置」，行数随真值 true 数动态变化 —— 故改为：
-#   至少 1 行、且**每一**改动行两侧都是 `auto_start:` 配置行（`auto_start_delay` 前缀不匹配）。
-check("★ 真实文件改动仅限 auto_start 配置行（发车档两段均 true → 2 行；注释与其它键逐位不变）",
-      len(_diff_lines) >= 1
-      and all(a.strip().startswith("auto_start:") and b.strip().startswith("auto_start:")
-              for a, b in _diff_lines),
+#   **每一**改动行两侧都是 `auto_start:` 配置行（`auto_start_delay` 前缀不匹配）。
+# ★★ 2026-10-29 P1/T4 再钉：`len >= 1` 的硬前提随 T4（false 稳态 ⇒ 幂等空操作）失效；
+#   不变式只留「改动行 ⊆ auto_start 配置行」（空 diff 合法）；「true ⇒ 必变」方向由
+#   上条条件断言与合成样本（171-179）共同钉住，语义不降。
+check("★ 真实文件改动仅限 auto_start 配置行（false 稳态 → 0 行合法；有 true → 每行都是 auto_start 行）",
+      all(a.strip().startswith("auto_start:") and b.strip().startswith("auto_start:")
+          for a, b in _diff_lines),
       f"改了 {len(_diff_lines)} 行：{_diff_lines}")
 # ★★ t31 重钉：计数只数**配置行**（`#` 注释行不算）——注释里出现同名键字面串会污染
 #   `text.count(...)`，本卡就踩过一次（注释里的自动出发键把 false 计数抬到 4 ⇒ 假红）。

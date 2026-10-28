@@ -121,7 +121,7 @@ stop_all() {
 #    外部已显式 export 的 ROS_DOMAIN_ID 仍优先（临时 A/B 用），但启动横幅会报警。
 # ==============================================================================
 if [ -f "$WS/dzros.env" ]; then . "$WS/dzros.env"; fi    # ★ 全车唯一真相源
-DZ_ROS_DOMAIN="${DZ_ROS_DOMAIN:-118}"                    # 兜底：上面文件缺失时才用它
+export DZ_ROS_DOMAIN="${DZ_ROS_DOMAIN:-118}"             # 兜底：上面文件缺失时才用它（2026-10-29 补 export：子进程要核对）
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$DZ_ROS_DOMAIN}"
 export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-0}"
 
@@ -161,6 +161,66 @@ echo "ROS 链路域号: ROS_DOMAIN_ID=$ROS_DOMAIN_ID  ROS_LOCALHOST_ONLY=$ROS_LO
 if [ "$ROS_DOMAIN_ID" != "$DZ_ROS_DOMAIN" ]; then
   echo "        ⚠️  域号偏离标准值 —— 无人机侧必须跟着改 ~/dzlink_tools/dzlink.env，否则互相看不见"
 fi
+
+# ==============================================================================
+#  ★ 出车模式守卫（LINK-HARDEN-20261029）—— 起栈**前**把两件"车会不会自己动"的真相打出来
+# ------------------------------------------------------------------------------
+#  ① 地图：车端**不留地图文件**。main.py 的分派（main.py:_layout_mode_enabled）：
+#       传了 --map 且该文件**存在** → 文件模式（按这张图静态规划，无人机布局不再决定走法）
+#       传了 --map 但文件不存在 / 完全不传 → 布局模式（先起无人机线程等 field_layout）
+#     历史写法是恒传 --map "$WS/config/map.yaml"，而该文件已从工作树删除 ⇒ 参数恒指向
+#     一个不存在的文件：结果仍然是布局模式，但**谎报了意图**；更危险的是，谁把旧
+#     map.yaml 塞回车上，就会**静默**从布局模式切成文件模式（拿一张过期图规划）。
+#     ⇒ 这里显式分叉：有文件就喊"你现在是文件模式"，没有就走纯布局模式（不带 --map）。
+#  ② 旧核自跑：LEGACY_PATH=1 时起的是旧 path_executor，它按 path_executor.auto_start
+#     + auto_start_delay 在起栈后**自己出发**，中间没有任何确认步骤 ⇒ 值若为真必须喊。
+#  ⚠️ 本段必须留在"节点 7"那段**之前**（出车信息越早看到越好），且**不得**插进
+#     节点 7 的二选一分支内部（那段被 tests/test_deploy.py ⑥ 按结构锚点钉死：
+#     从节点 7 的起栈行往前 1500 字符里，只允许出现 1 个 "if " —— 这里多写一个就红）。
+# ==============================================================================
+MAP_ARGS=()
+if [ -f "$WS/config/map.yaml" ]; then
+  echo "⚠️⚠️ 地图：发现残留文件 $WS/config/map.yaml"
+  echo "        → 将进入【文件模式】：按这张图静态规划，无人机 field_layout 不决定走法"
+  echo "        → 若本轮应按无人机情报跑：rm -f $WS/config/map.yaml 后重起"
+  MAP_ARGS=(--map "$WS/config/map.yaml")
+else
+  echo "地图：布局模式（$WS/config/map.yaml 不存在）—— 规划依据由无人机 field_layout 下发"
+fi
+
+# ---- 旧核自跑开关的真实值（读配置；读不到就如实打 "?"，绝不猜）----
+#  解释器：车上必有 python3；开发机（Windows/git-bash）上可能只有 python 或 python3 是
+#  Microsoft Store 的空壳 —— 用 DZ_PY 可显式指定，读不到配置时横幅会如实打 "?"。
+PY_BIN="${DZ_PY:-$(command -v python3 || command -v python || true)}"
+LEGACY_AUTO="?"
+LEGACY_DELAY="?"
+if [ -n "$PY_BIN" ] && [ -f "$CONFIG" ]; then
+  LEGACY_PAIR=$("$PY_BIN" -c 'import sys, yaml
+try:
+    _d = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+except Exception:
+    sys.exit(0)
+_s = _d.get("path_executor") or {}
+if isinstance(_s, dict) and isinstance(_s.get("ros__parameters"), dict):
+    _s = _s["ros__parameters"]
+_s = _s if isinstance(_s, dict) else {}
+_dly = _s.get("auto_start_delay")
+print("true" if _s.get("auto_start") else "false", "?" if _dly is None else _dly)
+' "$CONFIG" 2>/dev/null)
+  if [ -n "$LEGACY_PAIR" ]; then
+    LEGACY_AUTO=${LEGACY_PAIR%% *}
+    LEGACY_DELAY=${LEGACY_PAIR#* }
+  fi
+fi
+if [ "$LEGACY_AUTO" = "true" ]; then
+  echo "⛔⛔ 旧核自跑已武装：path_executor 段 auto_start 为真（延时 ${LEGACY_DELAY}s）"
+  echo "        起栈后旧核会【自己出发】，没有任何确认步骤 —— 先核对：起点格心 / 车头朝向 / 走廊净空"
+  echo "        LINK-HARDEN-20261029 口径：常态应为假；现场发车才临时改真，跑完立刻改回"
+  echo "        要立刻停：bash $0 stop"
+else
+  echo "旧核自跑：auto_start=${LEGACY_AUTO}（不会自己出发）"
+fi
+echo ""
 
 # ---- 自检已收敛到发车前 auto_start_delay_s=10 准备窗口（dzbrain 就绪横幅），起栈路径不再跑任何门禁 ----
 
@@ -212,12 +272,16 @@ echo "7/7 循迹（默认新决策层 dzbrain；LEGACY_PATH=1 回退旧核）...
 #   极易误判成"循迹节点没起来/卡死"（2026-10-03 实测踩到，进程其实在跑）。
 if [ "${LEGACY_PATH:-0}" = "1" ]; then
   echo "        [回退] 旧 path_executor（install 的 console_scripts 入口）"
+  echo "        旧核自跑开关 = ${LEGACY_AUTO}（真则起栈后自己出发 —— 见上方【出车模式守卫】）"
   spawn 7_path env PYTHONUNBUFFERED=1 ros2 run car_localization path_executor_node
 else
   echo "        [新核] dzbrain —— 8 任务线程 / 通用纯追踪（启动后约 8~10 秒自动出发）"
   echo "        [--force] 起栈前自检已卸载（用户令 2026-10-11：提速优先，标定路线不满足 R007 全图规则属预期）"
+  # ★ 地图参数由上方【出车模式守卫】决定：车端无图 ⇒ **不传 --map**（纯布局模式，
+  #   规划依据只由无人机 field_layout 下发）；只有真的发现残留 map.yaml 时才传，
+  #   而那时横幅已经警告过"会切成文件模式"。
   spawn 7_path env PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 \
-    python3 -u -m dzbrain.main --config "$CONFIG" --map "$WS/config/map.yaml" --force
+    python3 -u -m dzbrain.main --config "$CONFIG" ${MAP_ARGS[@]+"${MAP_ARGS[@]}"} --force
 fi
 sleep 2
 

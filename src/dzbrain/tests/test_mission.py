@@ -1841,7 +1841,7 @@ def test_bridge_hold_t32() -> None:
     t6_drone(rig5, half=None, block=None, online=True)
     rig5.ticks(3)
     entered5 = drive_to_hold(rig5)
-    idx5 = rig5.bb.get(P_ROUTE_INDEX)
+    idx5 = rig5.task._last_seg
     t6_drone_round(rig5, lower="K11")                 # 迟到：下半场注入 K11（现行路线穿洞格 = K9，注入同值不构成改道）
     rig5.ticks(5)
     check("15.10 只到一半 → 仍在 HOLD（没到点不放行）",
@@ -1852,7 +1852,7 @@ def test_bridge_hold_t32() -> None:
     note5 = rig5.task.state()["bridge"]["note"]
     check("15.11 ★ 决策点前迟到情报 → 换洞（K9→K11）且**保留段索引**（不是从 N10 重来）",
           rig5.task.phase == MissionPhase.DRIVE and "K11" in blockers(rig5)
-          and rig5.bb.get(P_ROUTE_INDEX) == idx5
+          and rig5.task._last_seg == idx5
           and isinstance(note5.get("reroute"), dict) and note5["reroute"]["count"] == 1
           and note5["reroute"]["old"] == "K9" and note5["reroute"]["new"] == "K11",
           f"idx={rig5.bb.get(P_ROUTE_INDEX)} vs {idx5} k={[b for b in blockers(rig5) if b.startswith('K')]} "

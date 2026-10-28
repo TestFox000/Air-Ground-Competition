@@ -287,7 +287,7 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
     //     /aim/fire_ready（AimTask：目标确认 + **预测落点**在开火框内 + 冷却/预算允许）
     //   注意：AimTask 的 ready 已包含"预测落点在框内"，所以这里不再叠加 aim_stable，
     //   否则等于又要求画面静止 —— 那个坑正是本次要修的。
-    const bool external_fire_ok = use_external_fire_gate_ && external_gate_ && external_ready_;
+    const bool external_fire_ok = use_external_fire_gate_ && externalFireAllowed();
     const bool aim_ready_effective = use_external_fire_gate_ ? external_fire_ok : aim_ready;
 
     // 开火零点取"激光实际中心"：激光与摄像头不同轴时，画面几何中心并非命中点
@@ -945,22 +945,23 @@ void turn_on_robot::enterScanPhase()
 //   2 及以上 -> 持续扫描：一轮扫完自动重来，**最多 scan_continuous_cycles_ 轮**（t25，默认 3），
 //               到达上限仍无目标 ⇒ 回 IDLE 归位；锁定后转跟随；目标脱离视野再自动重开
 //   1        -> 单次扫描：扫完 scan_passes_ 趟就回 IDLE（循迹到达点位时用这个）★t25 语义未变
-//   0        -> 停止扫描，回到 IDLE
-//   已在 AIM_TRACK 时一律忽略，不打断跟随。
+//   0        -> 停止扫描/跟踪并取消待开扫归位，回到 IDLE 由现有控制循环归位
+//   已在 AIM_TRACK 时只忽略非零请求，不打断跟随；停止请求始终生效。
 //   ★t25：无论 1 还是 2，**进入扫描前都先走归位段**（正前方 + 水平，超时兜底）。
 void turn_on_robot::callback_scan_request(const std_msgs::msg::UInt8::SharedPtr msg)
 {
-  if (aim_state_ == AIM_TRACK)
-  {
-    return; // 已锁定，不打断跟随
-  }
-
   if (msg->data == 0)
   {
     scan_continuous_ = false;
+    scan_homing_ = false; // 取消待开扫：否则下一拍到位/超时会从 IDLE 再进 SCAN
     setAimState(AIM_IDLE);
     std::cout << "==> 收到停止扫描请求" << std::endl;
     return;
+  }
+
+  if (aim_state_ == AIM_TRACK)
+  {
+    return; // 已锁定，非零请求不打断跟随
   }
 
   if (aim_state_ == AIM_SCAN)
@@ -1140,11 +1141,26 @@ void turn_on_robot::callback_imu(const sensor_msgs::msg::Imu::SharedPtr msg)
 }
 
 // ================= ★新版本补丁：两键开火 + 提前量的三个回调 =================
-// 设计原则：回调只**更新状态**，不做决策 —— 决策集中在 CaremaMontorControl 的开火判定里，
+// 设计原则：回调更新权限及其租期；实际开火集中在 callback_offset_center 的判定里，
 // 这样"什么时候开火"只有一个地方可读、可测、可回退（use_external_fire_gate_ = false 即旧行为）。
+bool turn_on_robot::externalFireAllowed() const
+{
+  const auto now = std::chrono::steady_clock::now();
+  const auto timeout = std::chrono::milliseconds(FIRE_PERMISSION_TIMEOUT_MS);
+  return external_gate_ && external_ready_ &&
+         (now - external_gate_received_at_ < timeout) &&
+         (now - external_ready_received_at_ < timeout);
+}
+
 void turn_on_robot::callback_fire_gate(const std_msgs::msg::UInt8::SharedPtr msg)
 {
   const bool on = (msg->data != 0);
+  // 撤销/失联会打断连续合格帧。先查旧租期，避免无视觉帧期间过期后
+  // 新 true 覆盖时戳，把上一轮 fire_hold_count_ 带进重新授权的第一帧。
+  if (use_external_fire_gate_ && (!on || !externalFireAllowed()))
+  {
+    fire_hold_count_ = 0;
+  }
   if (on != external_gate_)
   {
     std::cout << (on ? "★ 收到【开火放行】/aim/fire_gate=1（任务级：已到站停稳）"
@@ -1152,11 +1168,16 @@ void turn_on_robot::callback_fire_gate(const std_msgs::msg::UInt8::SharedPtr msg
               << std::endl;
   }
   external_gate_ = on;
+  external_gate_received_at_ = std::chrono::steady_clock::now();
 }
 
 void turn_on_robot::callback_fire_ready(const std_msgs::msg::UInt8::SharedPtr msg)
 {
   const bool on = (msg->data != 0);
+  if (use_external_fire_gate_ && (!on || !externalFireAllowed()))
+  {
+    fire_hold_count_ = 0;
+  }
   if (on != external_ready_)
   {
     std::cout << (on ? "★ 收到【瞄准合格】/aim/fire_ready=1（预测落点在开火框内）"
@@ -1164,6 +1185,7 @@ void turn_on_robot::callback_fire_ready(const std_msgs::msg::UInt8::SharedPtr ms
               << std::endl;
   }
   external_ready_ = on;
+  external_ready_received_at_ = std::chrono::steady_clock::now();
 }
 
 void turn_on_robot::callback_lead_x(const std_msgs::msg::Float32::SharedPtr msg)

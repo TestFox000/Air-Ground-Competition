@@ -24,8 +24,22 @@ r"""dzbrain 主进程 —— 单进程多线程任务架构的入口。
 
 * `--map <图>`：**仅开发/仿真入口**（显式传参才用文件；该文件不部署到车）。
 * 车端（无可用的地图文件、且 `planner.auto_plan_enabled=true`）→ 启动时先起无人机线程等布局：
-  超时（`drone.field_layout_wait_s`，缺省 30 s）/ 布局非法 ⇒ 退出码 3（不规划、不出发）；
+  超时 / 布局非法 ⇒ 退出码 3（不规划、不出发；等待上限只由 `drone.field_layout_wait_s`
+  一处给出，**缺省值听 `core/config.py` SCHEMA**，本文件不再写死 30 s）；
   布局规划失败 ⇒ 退出码 4（同样不出发）。
+
+## ★AGC-RECTIFY 运行面闸门分级（2026-10-27 用户裁决 A 区 / B 区）
+
+运行面（发车前 + 步进循环）的**拦停型互锁一律降级 warn + 日志**，只留 3 条硬拦：
+① 硬件急停 / 遥控接管（`hw_estop`）；② 激光 / 开火联锁（含红蓝面未定，`fire_interlock`）；
+③ 软件边界保护（边界 = 地面线，`field_boundary`）。降级键与日志字段见 `GATE_SPECS`；
+每条 warn 打印 `GATE[warn] key=<键> 字段=值 …`，并按 key 计入归档 summary 的 `warn_counts`。
+**离线交付面（§4 门禁 / check.py / 单测）不降级。**
+
+生效口径 `step.gate_policy`（不在 SCHEMA，缺省 = `auto`）：
+- `auto`：`step.layout_ttl_s <= 0`（B 区"取消保质期"已落的配置）⇒ `warn`，否则 `hard`；
+- `warn` / `degrade`：运行面降级（本裁决的目标态）；
+- `hard` / `legacy`：旧的拦停语义（只给既有回归断言用，**不是**交付目标态）。
 
 ## ★T27 步进循环（docs/step_loop.md，2026-10-18 定稿）
 
@@ -64,13 +78,16 @@ import signal
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
 from .core import geometry as geo
-from .core.blackboard import P_LAYOUT_ARRIVALS, P_POSE, Blackboard
-from .core.config import Config
+from .core.blackboard import (P_AIM, P_LAYOUT_ARRIVALS, P_POSE, P_SAFETY, P_TELEMETRY,
+                              Blackboard)
+from .core.config import SCHEMA, Config
 from .core.events import EventBus
 from .core.logging import banner, kv_lines
+from .core.run_archive import RunArchive, install_log_tee
 from .core.task import TaskGroup
 
 LOG = print
@@ -163,12 +180,22 @@ def load_and_check(config_path: str | None, map_path: str | None,
     elif env_map:
         map_file = pathlib.Path(env_map)
     else:
-        # 与配置同目录的 map.yaml（车上 ~/dzrobot/config、开发机 <ws>/config）
-        map_file = pathlib.Path(cfg.source).parent / "map.yaml"
-        if not map_file.is_file():
-            map_file = ws / "config" / "map.yaml"
+        # ★★ 2026-10-25：先认 `planner.map_path`（与 `tasks.mission.resolve_map_path` 同一真源）。
+        #   旧代码**完全绕过** planner.map_path，去猜 <配置目录>/map.yaml → <ws>/config/map.yaml ——
+        #   这是第二份"地图真源"，与配置不一致时静默选错图；零地图后它还会拼出一个
+        #   根本不存在的 config/map.yaml，报错"地图文件不存在"把人引去修一张不该有的文件。
+        #   兼容策略：只有在候选文件**真的存在**时才采用猜测结果，否则置 None（布局模式）。
+        _spec = str(cfg.get("planner.map_path") or "").strip()
+        if _spec:
+            from .tasks.mission import resolve_map_path as _rmp
+            map_file = _rmp(cfg, _spec)
+        else:
+            _cand = pathlib.Path(cfg.source).parent / "map.yaml"
+            if not _cand.is_file():
+                _cand = ws / "config" / "map.yaml"
+            map_file = _cand if (_cand.is_file() or _cand.exists()) else None
     map_cfg: dict = {}
-    if map_file.is_file():
+    if map_file is not None and map_file.is_file():
         try:
             import yaml
             map_cfg = yaml.safe_load(map_file.read_text(encoding="utf-8")) or {}
@@ -179,8 +206,11 @@ def load_and_check(config_path: str | None, map_path: str | None,
         #   注意这里**不猜任何默认地图**（map_cfg 保持空）—— 后续规划只认 P_FIELD_LAYOUT。
         if announce:
             LOG("")
-            LOG(f"地图：车端无地图文件（{map_file} 不存在）→ 规划依据由无人机 "
-                f"field_layout 下发（启动后等待布局，未收到则不起任务、不出发）")
+            LOG("地图：车端无地图文件（planner.map_path 为空）→ 规划依据由无人机 "
+                "field_layout 下发（启动后等待布局，未收到则不起任务、不出发）")
+    elif map_file is None:
+        errors.append("未配置地图：planner.map_path 为空，且未开启 allow_missing_map"
+                      "（布局模式）—— 请二选一：给 --map 一张图，或开自动规划")
     else:
         errors.append(f"地图文件不存在: {map_file}")
 
@@ -358,6 +388,365 @@ STEP_PHASE_ROS_LOST = "ROS_LOST"
 #: 刻意不新增配置键（"所有新增配置键必须进 SCHEMA"，本卡不碰 robot.yaml/SCHEMA）。
 _STEP_UNKNOWN_STOP_TICKS = 3
 
+#: WAIT_INFO 的"可为空等"预算（秒）：只用来**写清理由**，不是退出条件（S3 的负例：
+#: 无新布局时不得无界等待而不给理由）。到期打一行 wait_info_bounded，仍继续等。
+_WAIT_INFO_BUDGET_S = 300.0
+
+
+# --------------------------------------------------------------------------- #
+#  ★AGC-RECTIFY rt-gate（2026-10-27 用户裁决 A 区 / B 区）：运行面闸门分级
+# --------------------------------------------------------------------------- #
+#  为什么要有这张表（而不是各处零散 if）：
+#    · 用户裁决只留 3 条硬拦，其余降级 warn + 日志 —— 判据必须**一处可查、可 grep**，
+#      否则下一次改动很容易又把某个降级项写回拦停；
+#    · 每条 warn 的字段名固定，机端/复盘脚本才能按 key 聚合，归档 summary 的
+#      warn_counts 才有稳定含义（V1 的"5 条对应 warn"就靠 key 比对）。
+#  ★ 本表是**运行面**清单。离线交付面（§4 门禁 / check.py / 单测）不在此列，不降级。
+GATE_HW_ESTOP = "hw_estop"
+GATE_FIRE_INTERLOCK = "fire_interlock"
+GATE_FIELD_BOUNDARY = "field_boundary"
+GATE_LAYOUT_INCOMPLETE = "layout_incomplete"
+GATE_LAYOUT_STALE = "layout_stale"
+GATE_FOOTPRINT = "footprint"
+GATE_REVISIT = "revisit"
+GATE_DRIFT_STOP = "drift_stop"
+GATE_POSE_READY = "pose_ready"
+GATE_ODOM_WATCHDOG = "odom_watchdog"
+GATE_SEGMENT_TIMEOUT = "segment_timeout"
+GATE_DONE_MISSING = "done_missing"
+GATE_TARGET_UNLOCKED = "target_unlocked"
+GATE_GIMBAL_STATUS = "gimbal_status"
+
+#: **只保留的 3 条硬拦**（用户裁决 A 区）。V2 验收 = grep 到 `_hard_stop(` 的调用点只剩 3 处。
+GATE_HARD_KEYS = (GATE_HW_ESTOP, GATE_FIRE_INTERLOCK, GATE_FIELD_BOUNDARY)
+#: 11 条降级项（warn + 日志，绝不据此退出/停死）。
+GATE_WARN_KEYS = (GATE_LAYOUT_INCOMPLETE, GATE_LAYOUT_STALE, GATE_FOOTPRINT, GATE_REVISIT,
+                  GATE_DRIFT_STOP, GATE_POSE_READY, GATE_ODOM_WATCHDOG,
+                  GATE_SEGMENT_TIMEOUT, GATE_DONE_MISSING, GATE_TARGET_UNLOCKED,
+                  GATE_GIMBAL_STATUS)
+
+GATE_POLICY_WARN = "warn"
+GATE_POLICY_HARD = "hard"
+
+
+@dataclass(frozen=True)
+class GateSpec:
+    """一条闸门的机器可读定义：key / 级别 / 固定日志字段 / 信号来源 / 一句话理由。"""
+
+    key: str
+    level: str
+    fields: tuple[str, ...]
+    source: str
+    note: str
+
+
+#: 运行面闸门清单（G1 的"逐条 key + 日志字段"交付物；改这里 = 改判据，须过评审）。
+GATE_SPECS: tuple[GateSpec, ...] = (
+    # ---- 只保留的 3 条硬拦 ----
+    GateSpec(GATE_HW_ESTOP, GATE_POLICY_HARD, ("source", "manual", "safety_reasons"),
+             "bridge.manual_override() / P_SAFETY", "硬件急停或遥控接管：停段 + 刹车，不自动恢复"),
+    GateSpec(GATE_FIRE_INTERLOCK, GATE_POLICY_HARD, ("gate", "expected", "actual", "where"),
+             "aim.fire_only_blue / aim.max_shots 等配置自检", "激光/开火联锁（含红蓝面未定）：联锁不在位就拒绝进入任务组"),
+    GateSpec(GATE_FIELD_BOUNDARY, GATE_POLICY_HARD, ("x", "y", "limit_x", "limit_y", "block"),
+             "P_POSE vs 场地几何（地面线）", "软件边界保护：信念越过地面线即停段 + 刹车"),
+    # ---- 11 条降级项（warn + 日志，车继续跑）----
+    GateSpec(GATE_LAYOUT_INCOMPLETE, GATE_POLICY_WARN,
+             ("known_cells", "target_cell", "unknown_cells", "route_cells", "why"),
+             "布局 known / target_cell", "布局不完整（known 为空 / 目标不在 known / 段路线穿未知格）只记不拦"),
+    GateSpec(GATE_LAYOUT_STALE, GATE_POLICY_WARN, ("age_s", "ttl_s", "known_cells", "sender_ts"),
+             "StepLoop 布局新鲜度", "布局过期只记不拦（ttl=0 关闭；B 区一场一图）"),
+    GateSpec(GATE_FOOTPRINT, GATE_POLICY_WARN, ("segment", "risks", "source"),
+             "planner.footprint_gate / footprint_diagnostic", "车体足迹侵入只记不拦"),
+    GateSpec(GATE_REVISIT, GATE_POLICY_WARN, ("segment", "block", "detail"),
+             "MissionTask 段错误文本", "重复访问同一格只记不拦"),
+    GateSpec(GATE_DRIFT_STOP, GATE_POLICY_WARN, ("segment", "detail", "pose_age_s"),
+             "MissionTask 段错误文本 / Localization drift 限速", "停滞 drift_stop 只记不拦"),
+    GateSpec(GATE_POSE_READY, GATE_POLICY_WARN, ("waited_s", "pose_age_s", "fresh_s"),
+             "位姿就绪门 _wait_for_pose_ready", "首帧位姿未到只记不拦（不再 exit 5）"),
+    GateSpec(GATE_ODOM_WATCHDOG, GATE_POLICY_WARN, ("age_s", "limit_s", "phase"),
+             "运行期位姿看门狗 _odom_watch", "odom 断流只记不拦（停段 + 刹车，位姿恢复后继续）"),
+    GateSpec(GATE_SEGMENT_TIMEOUT, GATE_POLICY_WARN, ("waited_s", "limit_s", "segment"),
+             "WAIT_INFO 等待计时", "段/等待超时只记不拦（继续等下一份布局）"),
+    GateSpec(GATE_DONE_MISSING, GATE_POLICY_WARN, ("segment", "idle_s", "phase"),
+             "MissionTask.segment_status()", "完成单缺失只记不拦（重新规划该段）"),
+    GateSpec(GATE_TARGET_UNLOCKED, GATE_POLICY_WARN, ("reason", "fire_gate", "segment"),
+             "P_AIM.last_reason / fire_gate", "靶未锁只记不拦（是否开火由 AimTask 联锁决定）"),
+    GateSpec(GATE_GIMBAL_STATUS, GATE_POLICY_WARN, ("status", "reason", "manual"),
+             "P_AIM.status / manual_gimbal", "云台状态异常只记不拦"),
+)
+GATE_SPEC_BY_KEY: dict[str, GateSpec] = {spec.key: spec for spec in GATE_SPECS}
+
+
+def gate_table_lines() -> list[str]:
+    """闸门清单的一行式说明（启动横幅/日志用；机端按 key 解析）。"""
+    return [f"{spec.level:4} {spec.key:18} ← {spec.source}｜字段 {','.join(spec.fields)}"
+            for spec in GATE_SPECS]
+
+
+def _spec_default(key: str, fallback: float = 0.0) -> float:
+    """取 SCHEMA 里的缺省值（**单一真源**：代码兜底不再自己写死数，避免三处口径漂移）。"""
+    spec = SCHEMA.get(str(key))
+    try:
+        return float(getattr(spec, "default")) if spec is not None else float(fallback)
+    except (TypeError, ValueError):
+        return float(fallback)
+
+
+def _cfg_float(cfg: Any, key: str, fallback: float) -> float:
+    """读浮点配置；缺失/坏值 ⇒ SCHEMA 缺省（再不行才用 fallback）。"""
+    try:
+        return float(cfg.get(key, fallback))
+    except (TypeError, ValueError):
+        return _spec_default(key, fallback)
+
+
+def _cfg_explicit(cfg: Any, key: str) -> bool:
+    """该键是否**由配置显式给出**（区别于"读了个代码兜底/SCHEMA 默认"）。
+
+    为什么需要：`auto` 口径要靠"配置有没有表态"来区分**生产配置**与**测试替身**，
+    否则同一份代码在"没写这个键的最小 cfg"上会被判成另一个口径（回归断言就会莫名翻红）。
+    """
+    flat = getattr(cfg, "_flat", None)
+    try:
+        if isinstance(flat, dict) and str(key) in flat:
+            return True
+    except Exception:                                    # noqa: BLE001
+        pass
+    raw = getattr(cfg, "raw", None)
+    if isinstance(raw, dict):
+        node: Any = raw
+        for part in str(key).split("."):
+            if not isinstance(node, dict) or part not in node:
+                return False
+            node = node[part]
+        return True
+    return False
+
+
+def gate_policy(cfg: Any) -> str:
+    """运行面闸门生效口径：`warn`（降级，目标态）/ `hard`（旧拦停语义）。
+
+    解析顺序：
+      ① `step.gate_policy` 显式 `warn`/`hard` ⇒ 直接听它；
+      ② 否则 `auto`：**配置必须显式给出** `step.layout_ttl_s`，且其值 <= 0（B 区"取消保质期"
+         已落的配置）⇒ 整套运行面降级生效；未表态或 ttl>0 ⇒ 保持旧拦停语义。
+    为什么 auto 要"显式"才降级：A 区（互锁降级）与 B 区（一场一图、取消保质期）是同一次
+    裁决的两半，两半的握手点就是**配置落 ttl=0**；配置没表态时悄悄换掉拦停语义，会让
+    既有回归断言与现场"以为还在拦"的预期同时失真 —— 这是比"多写一行配置"贵得多的风险。
+    """
+    raw = ""
+    try:
+        raw = str(cfg.get("step.gate_policy", "") or "").strip().lower()
+    except Exception:                                    # noqa: BLE001 配置替身也允许
+        raw = ""
+    if raw in ("warn", "degrade", "degraded", "warn_only"):
+        return GATE_POLICY_WARN
+    if raw in ("hard", "legacy", "block", "stop"):
+        return GATE_POLICY_HARD
+    if not _cfg_explicit(cfg, "step.layout_ttl_s"):
+        return GATE_POLICY_HARD                      # 配置没表态 ⇒ 语义不漂移
+    ttl = _cfg_float(cfg, "step.layout_ttl_s", _spec_default("step.layout_ttl_s", 0.0))
+    return GATE_POLICY_WARN if ttl <= 0.0 else GATE_POLICY_HARD
+
+
+class GateLedger:
+    """闸门台账：一条 warn/hard = 一行结构化日志 + 计数（归档 summary 的 warn_counts 来源）。
+
+    日志行格式（机端/脚本可 grep，V1 逐 key 比对就靠它）::
+
+        ⚠️ GATE[warn] key=layout_stale age_s=12.3 ttl_s=0.0 known_cells=23 policy=warn
+        ⛔ GATE[hard] key=field_boundary x=4.90 y=3.51 limit_x=4.90 limit_y=3.50 block=?
+
+    节流（throttle_s>0）只压**同一 key** 的重复打印，计数照加 —— 否则每拍一条会刷屏，
+    且"计数"本身是有用的运行指标（warn_counts）。
+    """
+
+    def __init__(self, log: Callable[[str], None] = LOG, *,
+                 policy: str = GATE_POLICY_WARN, archive: Any = None,
+                 clock: Callable[[], float] | None = None) -> None:
+        self._log = log
+        self.policy = str(policy)
+        self._archive = archive
+        self._clock = clock or time.monotonic
+        self.counts: dict[str, int] = {}
+        self.last: dict[str, dict[str, Any]] = {}
+        self._last_at: dict[str, float] = {}
+
+    # -- 记录 ---------------------------------------------------------- #
+    def record(self, key: str, level: str | None = None, *, throttle_s: float = 0.0,
+               **fields: Any) -> bool:
+        spec = GATE_SPEC_BY_KEY.get(str(key))
+        lvl = str(level or (spec.level if spec is not None else GATE_POLICY_WARN))
+        now = float(self._clock())
+        self.counts[str(key)] = int(self.counts.get(str(key), 0)) + 1
+        self.last[str(key)] = dict(fields)
+        if self._archive is not None and lvl == GATE_POLICY_WARN:
+            try:
+                self._archive.warn(str(key))
+            except Exception:                            # noqa: BLE001 归档失败不挡循环
+                pass
+        if throttle_s > 0.0:
+            prev = self._last_at.get(str(key))
+            if prev is not None and (now - prev) < float(throttle_s):
+                return False
+        self._last_at[str(key)] = now
+        order = list(spec.fields) if spec is not None else []
+        keys = [k for k in order if k in fields] + [k for k in fields if k not in order]
+        body = " ".join(f"{k}={fields[k]}" for k in keys)
+        mark = "⚠️" if lvl == GATE_POLICY_WARN else "⛔"
+        self._log(f"{mark} GATE[{lvl}] key={key}" + (f" {body}" if body else ""))
+        if self._archive is not None:
+            try:
+                self._archive.trace("gate", key=str(key), level=lvl, **dict(fields))
+            except Exception:                            # noqa: BLE001
+                pass
+        return True
+
+    def warn(self, key: str, *, throttle_s: float = 0.0, **fields: Any) -> bool:
+        return self.record(key, GATE_POLICY_WARN, throttle_s=throttle_s, **fields)
+
+    def hard(self, key: str, **fields: Any) -> bool:
+        return self.record(key, GATE_POLICY_HARD, **fields)
+
+    # -- 读取 ---------------------------------------------------------- #
+    def count(self, key: str) -> int:
+        return int(self.counts.get(str(key), 0))
+
+    def counts_snapshot(self) -> dict[str, int]:
+        return {str(k): int(v) for k, v in sorted(self.counts.items())}
+
+    def total(self) -> int:
+        return int(sum(self.counts.values()))
+
+    def info(self, key: str, **fields: Any) -> None:
+        """只记不拦的 info 级（S2 的 info_lead_low 走这里；不计入 warn_counts）。"""
+        body = " ".join(f"{k}={fields[k]}" for k in fields)
+        self._log(f"ℹ️ INFO key={key}" + (f" {body}" if body else ""))
+        if self._archive is not None:
+            try:
+                self._archive.trace("info", key=str(key), **dict(fields))
+            except Exception:                            # noqa: BLE001
+                pass
+
+
+#: 段错误的文本特征 → 闸门 key（MissionTask/定位/云台只在 error 字符串里报原因，
+#: 降级判定就必须能把这些原因映射回 G1 清单里的 key；顺序 = 先具体后笼统）。
+_GATE_ERROR_HINTS: tuple[tuple[str, str], ...] = (
+    ("drift", GATE_DRIFT_STOP),
+    ("停滞", GATE_DRIFT_STOP),
+    ("漂移", GATE_DRIFT_STOP),
+    ("重复访问", GATE_REVISIT),
+    ("revisit", GATE_REVISIT),
+    ("已完成", GATE_REVISIT),
+    ("足迹", GATE_FOOTPRINT),
+    ("footprint", GATE_FOOTPRINT),
+    ("云台", GATE_GIMBAL_STATUS),
+    ("gimbal", GATE_GIMBAL_STATUS),
+    ("靶", GATE_TARGET_UNLOCKED),
+    ("target", GATE_TARGET_UNLOCKED),
+    ("锁定", GATE_TARGET_UNLOCKED),
+    ("超时", GATE_SEGMENT_TIMEOUT),
+    ("timeout", GATE_SEGMENT_TIMEOUT),
+    ("完成单", GATE_DONE_MISSING),
+    ("done", GATE_DONE_MISSING),
+    ("布局", GATE_LAYOUT_INCOMPLETE),
+    ("layout", GATE_LAYOUT_INCOMPLETE),
+)
+
+
+def classify_gate_reason(text: Any) -> str | None:
+    """段错误/停因文本 → 闸门 key（认不出返回 None：那属于"未知故障"，按 PLAN 重试并留原文）。"""
+    low = str(text or "").lower()
+    if not low:
+        return None
+    for needle, key in _GATE_ERROR_HINTS:
+        if needle.lower() in low:
+            return key
+    return None
+
+
+#: 场地外框（地面线）：x 沿行方向 = 11 格 × 0.35 m，y 沿列方向 = 14 格 × 0.35 m。
+#: 硬拦③"软件边界保护（边界 = 地面线）"就用这个矩形，**不是**实体围栏/余量带。
+_FIELD_W_M = float(geo.MAP_ROWS * geo.BLOCK_SIZE)
+_FIELD_H_M = float(geo.MAP_COLS * geo.BLOCK_SIZE)
+
+
+def _belief_out_of_field(x: float, y: float, *, tol: float = 0.0) -> bool:
+    """信念位姿是否越过地面线（硬拦③的唯一判据）。tol 只给单测注入用，运行面恒 0。"""
+    try:
+        fx, fy = float(x), float(y)
+    except (TypeError, ValueError):
+        return False
+    return not (-tol <= fx <= _FIELD_W_M + tol and -tol <= fy <= _FIELD_H_M + tol)
+
+
+def hard_stop(gates: "GateLedger", mission: Any, bridge: Any, *, key: str, reason: str,
+              phase: str = "SAFE_STOP", **fields: Any) -> str:
+    """**唯一的硬拦出口**（用户裁决只留 3 条硬拦，三处共用这一个实现）。
+
+    做四件事：停段 → 刹车 → GATE[hard] 结构化日志 → 归档 trace；返回落定的阶段字符串。
+    mission/bridge 允许为 None（发车门那一层还没造任务组时只能留痕 + 拒绝启动）。
+
+    ★ 不在这里 "自动恢复"：硬拦一律要求人查（A 区裁决）。降级项**绝不能**走这里，
+      它们走 GateLedger.warn（车继续跑）。
+    """
+    if mission is not None:
+        try:
+            mission.stop_segment(f"硬拦 {key}：{reason}")
+        except Exception:                                # noqa: BLE001 停段失败也要刹车
+            pass
+    if bridge is not None:
+        try:
+            bridge.publish_brake()
+        except Exception:                                # noqa: BLE001
+            pass
+    gates.hard(key, reason=reason, **fields)
+    try:
+        if gates._archive is not None:                   # noqa: SLF001 同一份台账
+            gates._archive.trace("hard_stop", key=key, reason=reason, **fields)  # noqa: SLF001
+    except Exception:                                    # noqa: BLE001
+        pass
+    return str(phase)
+
+
+def assert_fire_interlock(cfg: Any, gates: "GateLedger", *, log: Callable[[str], None] = LOG) -> bool:
+    """硬拦② 激光/开火联锁（含红蓝面未定）：联锁不在位 ⇒ 拒绝进入任务组。
+
+    判据（任一不满足即硬拦，逐条列出来，便于现场按名字查配置）：
+      ① `aim.fire_only_blue` 必须为真（只打蓝面 = 红蓝面未定不许开火）；
+      ② `aim.max_shots` 必须为正（没有发数上限 = 联锁失控）；
+      ③ `aim.enabled`（若有该键）不得被显式关掉而同时要求出光。
+    这是**发车前**的唯一硬拦点，不做"先上车再发现"。
+    """
+    problems: list[str] = []
+    try:
+        fire_blue = cfg.get("aim.fire_only_blue", None)
+    except Exception:                                    # noqa: BLE001
+        fire_blue = None
+    if fire_blue is False:
+        problems.append("aim.fire_only_blue=false（红蓝面未定也要开火）")
+    try:
+        max_shots = cfg.get("aim.max_shots", None)
+    except Exception:                                    # noqa: BLE001
+        max_shots = None
+    if max_shots is not None:
+        try:
+            if int(max_shots) <= 0:
+                problems.append(f"aim.max_shots={max_shots}（无发数上限）")
+        except (TypeError, ValueError):
+            problems.append(f"aim.max_shots={max_shots!r}（无法解析）")
+    if problems:
+        hard_stop(gates, None, None, key=GATE_FIRE_INTERLOCK, reason="开火联锁不在位",
+                  phase="REFUSED", gate=";".join(problems), expected="fire_only_blue=true ∧ max_shots>0",
+                  actual=f"fire_only_blue={fire_blue} / max_shots={max_shots}",
+                  where="run_live/发车前")
+        log("⛔ 开火联锁未在位 ⇒ 拒绝进入任务组（发车前硬拦②）；修好配置再起")
+        return False
+    gates.info("fire_interlock_ok",
+               expected="fire_only_blue=true ∧ max_shots>0",
+               actual=f"fire_only_blue={fire_blue} / max_shots={max_shots}")
+    return True
+
 
 def _step_cells(value: Any, key: str, *, allow_empty: bool = True
                 ) -> tuple[list[str] | None, str]:
@@ -519,12 +908,20 @@ def classify_segment_target(cfg: Config, layout: dict[str, Any], target_cell: st
 def plan_segment_from_layout(cfg: Config, layout: dict[str, Any], *,
                              from_cell: str, target_cell: str,
                              heading_dir: tuple[int, int] | None = None,
-                             log: Callable[[str], None] | None = None) -> Any:
-    """用**步进布局**规划一段：未知格（不在 known）= 不可通行，但**不是**物理障碍。
+                             log: Callable[[str], None] | None = None,
+                             gates: "GateLedger | None" = None,
+                             degrade: bool | None = None) -> Any:
+    """用**步进布局**规划一段。**未知格怎么算，由闸门口径决定**（AGC-RECTIFY B 区）：
+
+    · `degrade=True`（运行面降级）：unknown **当可通行**，只记 warn + 日志
+      （key=layout_incomplete，字段 known_cells / target_cell / unknown_cells / why）——
+      "先走边补"，不必等整图；known 为空 / 目标不在 known / 段路线穿未知格**都不再拦**。
+    · `degrade=False`（旧的拦停语义，只给既有回归断言用）：known 为空、目标不在 known、
+      段路线进未知格 ⇒ 拒发（历史判据逐字节不变）。
 
     返回 tasks.mission.SegmentPlan（永不抛异常；失败原因在 .error）。
-    map_cfg 只把**真障碍/靶格/雷/桥洞/隔板**给规划器；未知格通过 blocked_extra
-    传（只影响通行性），否则一格宽的 known 走廊会因为"把未知格当水桶算净空"而无解。
+    map_cfg 只把**真障碍/靶格/雷/桥洞/隔板**给规划器；未知格在 hard 口径下通过
+    blocked_extra 传（只影响通行性），否则一格宽的 known 走廊会因为"把未知格当水桶算净空"而无解。
 
     ★T32 段末停站语义：目标格命中**射击停站**（T21 判据，见
     `tasks.mission.stop_kind_for_cell()`）时，`plan.tokens` 末项已由
@@ -534,28 +931,47 @@ def plan_segment_from_layout(cfg: Config, layout: dict[str, Any], *,
     from .tasks.mission import (SEG_STOP_END, SEG_STOP_MINE, SEG_STOP_SHOOT,
                                 SegmentPlan, plan_segment_route)
 
+    if degrade is None:                                # 缺省跟配置口径走（不自立一套默认）
+        degrade = gate_policy(cfg) == GATE_POLICY_WARN
     known = [str(c) for c in (layout.get("known") or [])]
     known_set = set(known)
     target = str(target_cell).strip().upper()
     src = str(from_cell).strip().upper()
-    if not known:
-        return SegmentPlan(ok=False, from_cell=src, target_cell=target,
-                           error="布局里 known 为空（无人机还没看到任何格）")
-    if target not in known_set:
-        return SegmentPlan(ok=False, from_cell=src, target_cell=target,
-                           error=f"目标格 {target} 不在 known 里（车绝不进未知格）")
+    all_cells = all_map_cells()
+    unknown = [c for c in all_cells if c not in known_set and c != src]
+    if degrade and gates is not None:
+        if not known:
+            gates.warn(GATE_LAYOUT_INCOMPLETE, throttle_s=10.0, known_cells=0,
+                       target_cell=target, unknown_cells=len(all_cells),
+                       route_cells=0, why="known_empty_drive_anyway")
+        elif target not in known_set:
+            gates.warn(GATE_LAYOUT_INCOMPLETE, throttle_s=10.0, known_cells=len(known_set),
+                       target_cell=target, unknown_cells=len(unknown),
+                       route_cells=0, why="target_unknown_plan_anyway")
+    if not degrade:
+        # ---- 旧的拦停语义（不动一行判据；只给回归断言/backward 用）----
+        if not known:
+            return SegmentPlan(ok=False, from_cell=src, target_cell=target,
+                               error="布局里 known 为空（无人机还没看到任何格）")
+        if target not in known_set:
+            return SegmentPlan(ok=False, from_cell=src, target_cell=target,
+                               error=f"目标格 {target} 不在 known 里（车绝不进未知格）")
     # ⚠️ 当前格若还没被观测到，**只对起点破例**：车物理上就在那里，把它判成未知格
-    #    会让每一步都规划失败（真·死锁）。除起点外一律不许进未知格。
-    unknown = [c for c in all_map_cells() if c not in known_set and c != src]
+    #    会让每一步都规划失败（真·死锁）。除起点外一律不许进未知格（hard 口径）。
     map_cfg = _segment_map_cfg(layout, src, target)
     plan = plan_segment_route(map_cfg, cfg, from_cell=src, target_cell=target,
-                              heading_dir=heading_dir, blocked_extra=unknown,
+                              heading_dir=heading_dir,
+                              blocked_extra=([] if degrade else unknown),
                               source="drone:step_layout")
     if plan.ok:
         bad = [c for c in plan.cells if c in set(unknown)]
-        if bad:                                        # 双保险：规划器保证 ∩ 这里再查一次
+        if bad and not degrade:                        # 双保险（hard 口径）：规划器保证 ∩ 这里再查一次
             return SegmentPlan(ok=False, from_cell=src, target_cell=target,
                                error=f"段路线进入未知格（自检拒收）：{' '.join(bad[:5])}")
+        if bad and degrade and gates is not None:      # 降级口径：只记不拦（B 区"先走边补"）
+            gates.warn(GATE_LAYOUT_INCOMPLETE, throttle_s=10.0, known_cells=len(known_set),
+                       target_cell=target, unknown_cells=len(unknown),
+                       route_cells=len(bad), why="route_through_unknown")
         # ★T32：终点优先 —— 到 end 就 FINISH，绝不在终点停站打靶（task-33 要求 2）
         end_cell = str(layout.get("end") or "").strip().upper()
         if end_cell and plan.target_cell == end_cell:
@@ -592,11 +1008,16 @@ class StepLoop:
                                                 ↘（无新布局）WAIT_INFO →（新布局）PLANNING
         SEGMENT_DONE（目标 = end）→ FINISH；规划失败/无目标/无位姿 → WAIT_INFO（不退出）
     ★ 三条硬语义：
-      ① WAIT_INFO **无超时**（step.wait_timeout_s 缺省 0 = 无限；>0 才超时退出）；
+      ① WAIT_INFO **不因 unknown/stale 退出**（step.wait_timeout_s 缺省 0 = 无限；>0 也只
+         记 warn(segment_timeout)，不再转 WAIT_INFO_TIMEOUT 退出）；
       ② **换段只发生在段边界**：DRIVING 期间到达的新布局只记 version，绝不重规划；
-      ③ **布局新鲜度**（缺口 E）：规划前 now-收到时刻 > step.layout_ttl_s（缺省 10s，0=关）
-         ⇒ WAIT_INFO(reason=layout_stale)，不拿过期布局规划；version 递增的新布局到达即清零。
-         sender ts 只作诊断（机/车时钟不同步，不参与门控）。
+      ③ **布局新鲜度**（缺口 E）：now-最近一帧布局 > step.layout_ttl_s（**缺省 0 = 关闭**，
+         取值只由 core/config.py SCHEMA 一处给出）时按门禁分级：`warn` 只记
+         GATE[warn] key=layout_stale 后**照常规划**（B 区一场一图：unknown 当可通行，
+         不必等整图），`hard` 才回旧的 WAIT_INFO(layout_stale)。version 递增的新布局
+         到达即清零；sender ts 只作诊断（机/车时钟不同步，不参与门控）。
+    ★ 闸门分级（AGC-RECTIFY A 区）：运行面拦停型互锁降级 warn + 日志，
+      只留 hw_estop / fire_interlock / field_boundary 三条硬拦；清单见模块级 GATE_SPECS。
     """
 
     def __init__(self, cfg: Config, bb: Blackboard, bridge: Any, mission: Any, *,
@@ -630,13 +1051,12 @@ class StepLoop:
         except (TypeError, ValueError):
             self._odom_fresh_s = 1.5
         self._odom_bad_since: float | None = None
-        # ★缺口 E（2026-10-19）：布局新鲜度。规划前若 now - 收到时刻 > ttl ⇒ WAIT_INFO(layout_stale)，
-        #   不拿过期布局规划；新（version 递增的）布局到达即清零。sender ts 只作诊断，
-        #   **不参与门控**（机/车时钟不同步，拿它判过期必然误杀）。
-        try:
-            self._layout_ttl_s = max(0.0, float(cfg.get("step.layout_ttl_s", 10.0) or 0.0))
-        except (TypeError, ValueError):
-            self._layout_ttl_s = 10.0
+        # ★缺口 E（2026-10-19）：布局新鲜度。**缺省 0 = 关闭**（B 区一场一图：按格 known/unknown，
+        #   不再拿"整张图的保质期"当拦停条件）。口径只有一处真源 = core/config.py SCHEMA；
+        #   S3 验收要求代码兜底 / docstring / 模块说明三处一致，故这里不再写死 10.0。
+        #   新（version 递增的）布局到达即清零；sender ts 只作诊断，**不参与门控**。
+        self._layout_ttl_s = max(0.0, _cfg_float(cfg, "step.layout_ttl_s",
+                                                 _spec_default("step.layout_ttl_s", 0.0)))
         self._layout_rx_at = 0.0          # monotonic：**最近一帧被接受的布局**到达时刻（0=还没有）
         self._layout_sender_ts = 0.0      # 机侧 ts，仅诊断
         # ★AGC-20 F1：布局帧到达计数（DroneTask 每接受一帧 +1，含同版心跳）。
@@ -645,6 +1065,42 @@ class StepLoop:
         #: D-022：完整布局（known=整图 / coverage complete）视为静态场地信息，不过期。
         #: 只在"过期但完整"时打一次说明，避免每拍刷屏。
         self._layout_complete_noted = False
+
+        # ★AGC-RECTIFY：运行面闸门分级（A 区）+ 一场一图的脑内地图（B 区）
+        self._gate_policy = gate_policy(cfg)
+        self._gates = GateLedger(log, policy=self._gate_policy)
+        #: 降级口径下"车继续跑"的计数（诊断：同一 key 反复触发说明该机制在打架）
+        self._gated_continues = 0
+        #: 脑内地图版本：只在 known 集合**变化**时 +1（同格/同图重复到达不换版）
+        self._map_version = 0
+        self._known_cells: frozenset[str] = frozenset()
+        self._cell_state: dict[str, bool] = {}          # 逐格 known(True)/unknown(False)
+        self._unknown_cells = 0
+        self._unknown_traversed: set[str] = set()       # 本场真正走过的 unknown 格
+        self._lead_cells: int | None = None             # S2：领先量（只记不拦）
+        self._lead_low = 0                              # info_lead_low 次数
+        self._archive: Any = None
+        self._archive_segments: list[dict[str, Any]] = []   # 本场段台账（只写不读）
+        self._pose_lost_wait = False          # 位姿断流降级后的"等位姿"状态（恢复即继续）
+        self._wait_budget_noted = False       # WAIT_INFO 预算理由是否已写过（只写一次）
+        # ★ 降级口径下就不再让配置层的"足迹硬拦"生效（否则 warn 判定等于白降级）
+        if self._gate_policy == GATE_POLICY_WARN:
+            try:
+                fp_gate = str(cfg.get("planner.footprint_gate", "") or "").strip().lower()
+            except Exception:                        # noqa: BLE001
+                fp_gate = ""
+            if fp_gate in ("error", "hard", "block", "stop"):
+                cfg.override("planner.footprint_gate", "warn")
+                self._gates.warn(GATE_FOOTPRINT, segment="-", risks="config_downgraded",
+                                 source=f"planner.footprint_gate {fp_gate}→warn")
+        self._log(f"运行面闸门：policy={self._gate_policy}"
+                  f"（step.layout_ttl_s={self._layout_ttl_s:g}s；0=关闭；"
+                  f"硬拦 {len(GATE_HARD_KEYS)} 条 / 降级 {len(GATE_WARN_KEYS)} 条）")
+        if self._gate_policy == GATE_POLICY_HARD:
+            # 不许"静默留在旧口径"：裁决目标态是 warn，配置没表态时大声说出来（一行，不刷屏）
+            self._log("⚠️ 运行面闸门仍是 hard（旧拦停语义）：裁决目标态为 warn。"
+                      "让它在车上生效 = 配置显式写 step.layout_ttl_s: 0.0（或 step.gate_policy: warn）"
+                      "—— 见 AGC-RECTIFY G1/S3 与 GATE_SPECS")
 
         # ★D1b（task-42）：段完成回报闩锁 + WAIT_INFO 期间 1 Hz 重发。
         #   审计：SEGMENT_DONE 只活 1~2 拍，对端漏收就永久等（丢失约 86%）。
@@ -712,6 +1168,15 @@ class StepLoop:
             "layout_age_s": (round(self._clock() - self._layout_rx_at, 2)
                              if self._layout_rx_at else 0.0),
             "layout_stale": self._layout_is_stale(self._clock()),
+            # ★AGC-RECTIFY：闸门分级 + 一场一图的地图台账（测试/遥测/归档共用一份口径）
+            "gate_policy": self._gate_policy,
+            "gate_counts": self._gates.counts_snapshot(),
+            "map_version": int(self._map_version),
+            "unknown_cells": int(self._unknown_cells),
+            "unknown_traversed": sorted(self._unknown_traversed),
+            "lead_cells": (None if self._lead_cells is None else int(self._lead_cells)),
+            "lead_low": int(self._lead_low),
+            "gated_continues": int(self._gated_continues),
             # ★D1b：最后一单完成回报（与 P_CAR_STATE 的 done 字段同源）
             "done_seq": int(self._done_seq),
             "done": dict(self._done_latch) if self._done_latch else None,
@@ -760,6 +1225,8 @@ class StepLoop:
             self._after_segment_done(now)
         elif self._phase == STEP_PHASE_WAIT_INFO:
             self._wait_tick(now)
+        # ★AGC-RECTIFY M2：每拍采样位姿进归档（无归档时是空操作）
+        self._archive_pose(now)
         self._publish_car_state(now)
         return self._phase
 
@@ -803,6 +1270,73 @@ class StepLoop:
             return float(layout.get("ts") or 0.0)
         except (TypeError, ValueError):
             return 0.0
+
+    # ------------------------------------------------------------------ #
+    #  ★AGC-RECTIFY：归档挂钩 + 一场一图的脑内地图（B 区）
+    # ------------------------------------------------------------------ #
+    def attach_archive(self, archive: Any) -> None:
+        """挂上本场的运行归档器（run_live 建好目录后调用；None = 不归档，单测默认）。"""
+        self._archive = archive
+        self._gates._archive = archive                      # noqa: SLF001 同一份台账
+        if archive is not None:
+            try:
+                archive.trace("brain", event="attach", known_cells=len(self._known_cells),
+                              unknown_cells=int(self._unknown_cells))
+            except Exception:                              # noqa: BLE001
+                pass
+
+    def _sync_brain(self, layout: dict[str, Any]) -> bool:
+        """把布局的 known 并进本场脑内地图；返回"是否换版"。
+
+        语义（B 区"一场一图 / 逐格 known-unknown / 同格不换版"）：
+          · 只**增量并集**已知格（无人机只增不减；旧格不会因为我们没看见而变 unknown）；
+          · known 集合没变化 ⇒ **不换版、不重算**（同一份图读两次 = 幂等）；
+          · unknown 数 = 整图 - known，仅供日志/归档，**不再**当作拦停判据。
+        """
+        try:
+            known = frozenset(str(x).strip().upper() for x in (layout.get("known") or []))
+        except TypeError:
+            known = frozenset()
+        merged = self._known_cells | known
+        changed = merged != self._known_cells
+        if changed:
+            self._known_cells = merged
+            self._cell_state = {c: (c in merged) for c in all_map_cells()}
+            self._map_version += 1
+        total = len(all_map_cells())
+        self._unknown_cells = max(0, total - len(self._known_cells))
+        if self._archive is not None:
+            try:
+                self._archive.unknown_cells = int(self._unknown_cells)
+            except Exception:                              # noqa: BLE001
+                pass
+        if self._archive is not None and changed:
+            try:
+                self._archive.trace("brain", event="map_version", map_version=self._map_version,
+                                    known_cells=len(self._known_cells),
+                                    unknown_cells=int(self._unknown_cells))
+            except Exception:                              # noqa: BLE001
+                pass
+        return changed
+
+    def _archive_pose(self, now: float) -> None:
+        """采样一行位姿到归档（step/legacy 共用；无归档时是空操作）。"""
+        if self._archive is None:
+            return
+        pose = self.bb.get(P_POSE)
+        if pose is None:
+            return
+        block = ""
+        try:
+            block = geo.meters_to_block(pose.x, pose.y)
+        except Exception:                                  # noqa: BLE001
+            block = ""
+        out = _belief_out_of_field(pose.x, pose.y)
+        try:
+            self._archive.pose(now, pose.x, pose.y, pose.yaw, block, self._phase,
+                               self._segment_id, out_of_bounds=out)
+        except Exception:                                  # noqa: BLE001 归档失败不挡循环
+            pass
 
     def _layout_is_stale(self, now: float) -> bool:
         """当前手上这份布局是否已过期（step.layout_ttl_s；0=关闭；还没收到过=False）。"""
@@ -895,6 +1429,8 @@ class StepLoop:
             self._segment_id = 0
         self._target_cell = str(layout.get("target_cell") or "").strip().upper()
         self._known_count = len(layout.get("known") or [])
+        # ★AGC-RECTIFY M1：把 known 并进本场脑内地图（同图重复到达不换版、不重算）
+        self._sync_brain(layout)
         # ★T32 先清空：规划失败/无目标时 P_CAR_STATE 不该带着上一段的停站类型
         self._stop_kind = ""
         if not self._target_cell:
@@ -929,9 +1465,19 @@ class StepLoop:
                               f"step.layout_ttl_s={self._layout_ttl_s:g}s）但为**完整布局**"
                               f"（known {self._known_count} 格 / coverage complete）⇒ 按 D-022 "
                               "视为静态场地信息，允许规划（本条只说明一次）")
-            else:
+            elif self._gate_policy == GATE_POLICY_HARD:
+                # 旧拦停语义（只给既有回归断言用；交付目标态见下一条分支）
                 self._to_wait_info(self._layout_stale_reason(now), now)
                 return
+            else:
+                # ★AGC-RECTIFY S3：降级为 warn —— 记录新鲜度，**照常规划**。
+                #   为什么不再空等：B 区一场一图按格 known/unknown 走，"整图过期"不是
+                #   安全性判据；真过期的风险由"未知格当可通行 + 逐格日志"承担。
+                self._gates.warn(GATE_LAYOUT_STALE, throttle_s=5.0,
+                                 age_s=round(max(0.0, now - self._layout_rx_at), 2),
+                                 ttl_s=round(self._layout_ttl_s, 2),
+                                 known_cells=int(self._known_count),
+                                 sender_ts=round(self._layout_sender_ts, 3))
         self._replans += 1
         try:
             plan = self._planner(layout, from_cell, self._target_cell, self._heading_dir())
@@ -939,6 +1485,13 @@ class StepLoop:
             self._to_wait_info(f"段规划异常：{type(exc).__name__}: {exc}", now)
             return
         if not plan.ok:
+            if self._gate_policy == GATE_POLICY_WARN:
+                # ★AGC-RECTIFY：规划失败也按闸门分级留痕（不改变"没路线就不出发"的功能前提）
+                key = classify_gate_reason(getattr(plan, "error", "")) or GATE_LAYOUT_INCOMPLETE
+                self._gates.warn(key, throttle_s=10.0, known_cells=int(self._known_count),
+                                 target_cell=self._target_cell,
+                                 unknown_cells=int(self._unknown_cells),
+                                 route_cells=0, why=f"plan_failed:{plan.error}")
             self._to_wait_info(f"段规划失败：{plan.error}", now)
             return
         # ★T32 段末停站类型（规划器已按 T21 判据算好；终点由 plan_segment_from_layout 覆盖）
@@ -958,6 +1511,24 @@ class StepLoop:
             return
         self._segments_started += 1
         self._segment_started_at = now
+        # ★AGC-RECTIFY：足迹侵入降级为 warn（配置层已在 __init__ 降过级，这里再按真值判一次）
+        self._footprint_check(plan)
+        # ★AGC-RECTIFY S2：领先量 = 已确认可通行格数 - 车前方需走格数（只记不拦）
+        self._lead_update(plan, from_cell=from_cell)
+        # ★AGC-RECTIFY M2：本场段台账（只写不读）
+        if self._archive is not None:
+            try:
+                self._archive.write_route(
+                    plan.tokens, segments=self._archive_segments,
+                    source=f"step:v{self._planned_version}",
+                    from_cell=from_cell, target_cell=self._target_cell)
+                self._archive_segments.append({
+                    "segment_id": int(self._segment_id),
+                    "from_cell": from_cell, "target_cell": self._target_cell,
+                    "cells": list(plan.cells), "stop_kind": self._stop_kind,
+                    "map_version": int(self._map_version), "replans": int(self._replans)})
+            except Exception:                      # noqa: BLE001 归档失败不挡发车
+                pass
         # ★D1b：开新段 ⇒ 上一条完成单停止重发（对端已经拿到过；新段有自己的完成单）
         self._stop_done_replay(f"新段 {self._segment_id} 开始")
         self._phase = STEP_PHASE_DRIVING
@@ -971,13 +1542,21 @@ class StepLoop:
                   + (("｜⚠️ " + "；".join(plan.warnings)) if plan.warnings else ""))
 
     def _drive_tick(self, now: float) -> None:
-        # ★ 防线③：运行期位姿看门狗（先于任何"用旧位姿判完成"的判定）
+        # ★AGC-RECTIFY 硬拦①：硬件急停 / 遥控接管（任何情况下最高优先）
+        if self._hard_estop(now):
+            return
+        # ★AGC-RECTIFY 硬拦③：软件边界保护（信念越过地面线；不是实体围栏/余量带）
+        if self._hard_boundary(now):
+            return
+        # ★AGC-RECTIFY 只记不拦：靶未锁 / 云台状态（信息面，不参与本拍运动决策）
+        self._observe_aim(now)
+        # ★AGC-RECTIFY：位姿看门狗按闸门分级（warn = 停段 + 刹车等位姿；hard = 旧的 ROS_LOST）
         if self._odom_watch(now):
             return
         st = self.mission.segment_status() if hasattr(self.mission, "segment_status") else {}
         err = str(st.get("error") or "")
         if err:
-            self._to_wait_info(f"段执行失败：{err}", now)
+            self._on_segment_error(err, now)
             return
         done = st.get("done") if isinstance(st.get("done"), dict) else None
         if done and int(done.get("segment_id", -1)) == self._segment_id:
@@ -985,13 +1564,24 @@ class StepLoop:
                                     elapsed=float(done.get("elapsed_s") or 0.0),
                                     stop_kind=str(done.get("stop_kind") or ""))
             return
-        if self._unknown_violation():
+        if self._unknown_traversal(now):
+            # hard 口径（旧语义，逐字节保留）：连续 3 拍落在未知格 ⇒ 停段 + 刹车 + SAFE_STOP。
+            # warn 口径（B 区）根本走不到这里：unknown 当可通行，只记 unknown_traversed。
             self._to_safe_stop("belief 连续落在未知格（实际投影进入未知区域）", now)
             return
         if str(st.get("phase") or "") == "IDLE" and not done:
             # 任务线程既没在跑段、也没给完成单 ⇒ 路线被外部命令清空/复位了。
             # 给 1 s 宽限（段请求刚投递、任务线程还没取走时也是 IDLE）。
             if now - self._segment_started_at > 1.0:
+                if self._gate_policy == GATE_POLICY_WARN:
+                    # ★AGC-RECTIFY「完成单缺失」降级：留痕 + 重新规划该段，不停死
+                    self._gates.warn(GATE_DONE_MISSING, throttle_s=5.0,
+                                     segment=int(self._segment_id),
+                                     idle_s=round(now - self._segment_started_at, 2),
+                                     phase=str(st.get("phase") or ""))
+                    self._gated_replan(GATE_DONE_MISSING,
+                                       "任务线程回到 IDLE 且无完成单（完成单缺失）")
+                    return
                 self._to_wait_info("任务线程回到 IDLE（路线被外部命令清空？）", now)
 
     def _after_segment_done(self, now: float) -> None:
@@ -1010,17 +1600,47 @@ class StepLoop:
         self._to_wait_info(f"停在 {self._last_done_block or '?'}，等无人机下一份布局", now)
 
     def _wait_tick(self, now: float) -> None:
+        # ★AGC-RECTIFY：位姿断流降级后的**出口** —— 位姿一恢复就立刻回 PLANNING
+        if self._pose_lost_wait:
+            fresh_s = self._odom_fresh_s
+            try:
+                age = float(self.bridge.pose_age())
+            except Exception:                            # noqa: BLE001
+                age = float("inf")
+            if age <= fresh_s:
+                self._pose_lost_wait = False
+                self._phase = STEP_PHASE_PLANNING
+                self._reason = "位姿已恢复"
+                self._log(f"✅ 位姿已恢复（age={age:.2f}s ≤ {fresh_s:g}s）→ 回 PLANNING 继续跑")
+                return
         if self._seen_version > self._planned_version:
             self._phase = STEP_PHASE_PLANNING
             self._log(f"WAIT_INFO 收到新布局 v{self._seen_version} → 立即转 PLANNING")
             return
         waited = max(0.0, now - self._wait_started)
         if self._wait_timeout_s > 0.0 and waited >= self._wait_timeout_s:
-            self._phase = STEP_PHASE_WAIT_TIMEOUT
-            self._reason = (f"WAIT_INFO 超时 {waited:.1f}s"
-                            f"（step.wait_timeout_s={self._wait_timeout_s:g}）")
-            self._log(f"⛔ {self._reason}")
-            return
+            if self._gate_policy == GATE_POLICY_WARN:
+                # ★AGC-RECTIFY G1「段超时」降级：只记 warn，绝不转 WAIT_INFO_TIMEOUT 退出。
+                self._gates.warn(GATE_SEGMENT_TIMEOUT, throttle_s=30.0,
+                                 waited_s=round(waited, 1),
+                                 limit_s=round(self._wait_timeout_s, 2),
+                                 segment=int(self._segment_id))
+            else:
+                self._phase = STEP_PHASE_WAIT_TIMEOUT
+                self._reason = (f"WAIT_INFO 超时 {waited:.1f}s"
+                                f"（step.wait_timeout_s={self._wait_timeout_s:g}）")
+                self._log(f"⛔ {self._reason}")
+                return
+        # ★S3 负例要求：无新布局时**不得无界等待而不给理由** —— 到预算就写明"为什么还在等"。
+        if waited >= _WAIT_INFO_BUDGET_S and not self._wait_budget_noted:
+            self._wait_budget_noted = True
+            self._gates.info("wait_info_bounded", waited_s=round(waited, 1),
+                             budget_s=_WAIT_INFO_BUDGET_S,
+                             reason=(self._reason or "-")[:120],
+                             why=("没有 target_cell / 没有位姿 / 段规划失败之一 ⇒ 不发车是功能前提，"
+                                  "不是闸门拦停；新布局或位姿恢复立即继续"))
+            self._log(f"… WAIT_INFO 已达 {waited:.0f}s（预算 {_WAIT_INFO_BUDGET_S:.0f}s）："
+                      "仍在等 —— 理由见上行 wait_info_bounded（不退出、不空发运动指令）")
         if now - self._last_wait_log >= 5.0:
             self._last_wait_log = now
             self._log(f"… WAIT_INFO 已 {waited:.0f}s：{self._reason}"
@@ -1139,6 +1759,28 @@ class StepLoop:
             return False
         if now - self._odom_bad_since < self._odom_watch_s:
             return False
+        if self._gate_policy == GATE_POLICY_WARN:
+            # ★AGC-RECTIFY G1「odom 看门狗」降级：留痕 + 停段 + 刹车 + 等位姿恢复，
+            #   不再 exit 5。为什么仍要停段刹车：位姿断了就没有可信的"当前格"，
+            #   继续发运动指令等于拿旧信念盲开（2026-10-18 现场 78 s 空跑就是这么来的）。
+            self._gates.warn(GATE_ODOM_WATCHDOG, throttle_s=2.0,
+                             age_s=round(float(age), 3), limit_s=round(self._odom_watch_s, 2),
+                             phase=self._phase)
+            try:
+                self.mission.stop_segment("运行期位姿断流（降级：等位姿恢复后继续）")
+            except Exception:                            # noqa: BLE001
+                pass
+            try:
+                self.bridge.publish_brake()
+            except Exception:                            # noqa: BLE001
+                pass
+            self._pose_lost_wait = True
+            self._phase = STEP_PHASE_WAIT_INFO
+            self._reason = (f"位姿断流 {age:.2f}s（> step.odom_watch_s={self._odom_watch_s:g}s）"
+                            "→ 降级：停段+刹车，等位姿恢复后继续（不退出）")
+            self._wait_started = now
+            self._publish_car_state(now)
+            return True
         self._to_ros_lost(now, age)
         return True
 
@@ -1197,6 +1839,11 @@ class StepLoop:
             # 后续任意一帧（含 WAIT_INFO 的 1Hz 重发）拿到 segment_id/block/stop_kind/done_seq。
             "done_seq": int(self._done_seq),
             "done": dict(self._done_latch) if self._done_latch else None,
+            # ★AGC-RECTIFY：闸门口径 + 一场一图台账（机端/复盘按 key 聚合 warn_counts）
+            "gate_policy": self._gate_policy,
+            "map_version": int(self._map_version),
+            "unknown_cells": int(self._unknown_cells),
+            "lead_cells": (None if self._lead_cells is None else int(self._lead_cells)),
         }
         if not force and data == self._last_car_state:
             return
@@ -1223,8 +1870,152 @@ class StepLoop:
         from .tasks.mission import heading_dir_from_yaw
         return heading_dir_from_yaw(pose.yaw)
 
-    def _unknown_violation(self) -> bool:
-        known = set((self._layout or {}).get("known") or [])
+    # ------------------------------------------------------------------ #
+    #  ★AGC-RECTIFY G1：硬拦①②③ 的运行面入口 + 11 条降级项
+    # ------------------------------------------------------------------ #
+    def _hard_estop(self, now: float) -> bool:
+        """硬拦①：硬件急停 / 遥控接管（bridge.manual_override 或 P_SAFETY 里的接管原因）。"""
+        manual = False
+        try:
+            manual = bool(self.bridge.manual_override())
+        except Exception:                                # noqa: BLE001 替身没有该方法
+            manual = False
+        reasons: list[str] = []
+        try:
+            safety = self.bb.get(P_SAFETY)
+            reasons = [str(r) for r in (getattr(safety, "reasons", ()) or ())]
+        except Exception:                                # noqa: BLE001
+            reasons = []
+        words = ("estop", "e_stop", "急停", "manual", "接管", "remote")
+        hit = manual or any(any(w in r.lower() for w in words) for r in reasons)
+        if not hit:
+            return False
+        phase = hard_stop(self._gates, self.mission, self.bridge, key=GATE_HW_ESTOP,
+                          reason="硬件急停 / 遥控接管", phase=STEP_PHASE_SAFE_STOP,
+                          source="bridge.manual_override" if manual else "P_SAFETY",
+                          manual=manual, safety_reasons=(";".join(reasons[:4]) or "-"))
+        self._stop_done_replay(f"硬拦 {GATE_HW_ESTOP}")
+        self._phase = phase
+        self._reason = "硬拦 hw_estop：硬件急停 / 遥控接管"
+        self._publish_car_state(now)
+        return True
+
+    def _hard_boundary(self, now: float) -> bool:
+        """硬拦③：软件边界保护（边界 = 地面线，不是实体围栏/余量带）。"""
+        pose = self.bb.get(P_POSE)
+        if pose is None:
+            return False
+        if not _belief_out_of_field(pose.x, pose.y):
+            return False
+        phase = hard_stop(self._gates, self.mission, self.bridge, key=GATE_FIELD_BOUNDARY,
+                          reason="信念越过地面线", phase=STEP_PHASE_SAFE_STOP,
+                          x=round(float(pose.x), 3), y=round(float(pose.y), 3),
+                          limit_x=round(_FIELD_W_M, 3), limit_y=round(_FIELD_H_M, 3),
+                          block=(self._current_block() or "?"))
+        self._stop_done_replay(f"硬拦 {GATE_FIELD_BOUNDARY}")
+        self._phase = phase
+        self._reason = "硬拦 field_boundary：信念越过地面线"
+        self._publish_car_state(now)
+        return True
+
+    def _observe_aim(self, now: float) -> None:
+        """只记不拦：靶未锁（P_AIM.last_reason）与云台状态（P_AIM.status / manual_gimbal）。"""
+        aim = None
+        try:
+            aim = self.bb.get(P_AIM)
+        except Exception:                                # noqa: BLE001
+            aim = None
+        reason = str(getattr(aim, "last_reason", "") or "") if aim is not None else ""
+        fire_gate = bool(getattr(aim, "fire_gate", False)) if aim is not None else False
+        if aim is not None and (reason or not fire_gate):
+            self._gates.warn(GATE_TARGET_UNLOCKED, throttle_s=5.0,
+                             reason=(reason or "none"), fire_gate=fire_gate,
+                             segment=int(self._segment_id))
+        manual_gimbal = False
+        try:
+            manual_gimbal = bool(self.bridge.manual_gimbal())
+        except Exception:                                # noqa: BLE001
+            manual_gimbal = False
+        status = getattr(aim, "status", None) if aim is not None else None
+        if manual_gimbal:
+            self._gates.warn(GATE_GIMBAL_STATUS, throttle_s=5.0, status=str(status),
+                             reason="manual_gimbal", manual=True)
+
+    def _on_segment_error(self, err: str, now: float) -> None:
+        """段执行报错：按闸门分级 —— hard 才 WAIT_INFO（旧语义），warn 记日志后继续重规划。"""
+        if self._gate_policy == GATE_POLICY_HARD:
+            self._to_wait_info(f"段执行失败：{err}", now)
+            return
+        key = classify_gate_reason(err) or GATE_DRIFT_STOP
+        pose_age = -1.0
+        try:
+            pose_age = round(float(self.bridge.pose_age()), 3)
+        except Exception:                                # noqa: BLE001
+            pose_age = -1.0
+        self._gates.warn(key, throttle_s=2.0, segment=int(self._segment_id),
+                         detail=err[:120], pose_age_s=pose_age)
+        self._gated_replan(key, f"段执行失败（降级为 warn）：{err}")
+
+    def _gated_replan(self, key: str, why: str) -> None:
+        """降级口径下的"继续跑"：停本段 + 刹车 + 拉回 PLANNING（下一拍按同一目标重规划）。"""
+        self._gated_continues += 1
+        try:
+            self.mission.stop_segment(f"{key}：{why}")
+        except Exception:                                # noqa: BLE001
+            pass
+        try:
+            self.bridge.publish_brake()
+        except Exception:                                # noqa: BLE001
+            pass
+        # planned_version=-1 ⇒ _wait_tick 立刻把本段拉回 PLANNING（不必等新布局）
+        self._planned_version = -1
+        self._phase = STEP_PHASE_PLANNING
+        self._reason = f"降级继续（{key}）：{why}"
+        self._log(f"↻ 降级继续（{key}，第 {self._gated_continues} 次）：{why}"
+                  "｜停段+刹车后立即重规划（不退出、不空等）")
+
+    def _footprint_check(self, plan: Any) -> None:
+        """只记不拦：段路线足迹侵入（配置层 `planner.footprint_gate` 已在 __init__ 降级）。"""
+        try:
+            from .tasks.mission import footprint_diagnostic
+            tokens = list(getattr(plan, "tokens", ()) or ())
+            if not tokens:
+                return
+            layout = self._layout or {}
+            src = str(layout.get("start") or "").strip().upper() or "?"
+            target = str(self._target_cell or "?").strip().upper()
+            rep = footprint_diagnostic(tokens, _segment_map_cfg(layout, src, target), self.cfg)
+            if rep is not None and not rep.ok:
+                self._gates.warn(GATE_FOOTPRINT, throttle_s=5.0,
+                                 segment=int(self._segment_id),
+                                 risks=("；".join(rep.risks[:3]) or "-")[:160],
+                                 source="footprint_diagnostic")
+        except Exception:                                # noqa: BLE001 诊断失败不挡段
+            return
+
+    def _lead_update(self, plan: Any, *, from_cell: str) -> None:
+        """S2：lead_cells = 已确认可通行格数 − 车前方需走格数；<2 记 info_lead_low（只记不拦）。"""
+        cells = list(getattr(plan, "cells", ()) or ())
+        ahead = max(0, len(cells) - 1)                   # 不含当前格
+        known = len(self._known_cells) or int(self._known_count)
+        lead = int(known - ahead)
+        self._lead_cells = lead
+        if lead < 2:
+            self._lead_low += 1
+            self._gates.info("info_lead_low", lead_cells=lead, known_cells=int(known),
+                             ahead_cells=int(ahead), from_cell=str(from_cell),
+                             target_cell=str(self._target_cell or "?"),
+                             segment=int(self._segment_id))
+        if self._archive is not None:
+            try:
+                self._archive.trace("lead", lead_cells=lead, known_cells=int(known),
+                                    ahead_cells=int(ahead), segment=int(self._segment_id))
+            except Exception:                            # noqa: BLE001
+                pass
+
+    def _unknown_traversal(self, now: float) -> bool:
+        """belief 落在未知格：warn 口径 = 只记 unknown_traversed 继续跑；hard 口径 = 旧 SAFE_STOP。"""
+        known = set(self._known_cells) or set((self._layout or {}).get("known") or [])
         if not known:
             return False
         block = self._current_block()
@@ -1234,7 +2025,14 @@ class StepLoop:
             self._unknown_hits = 0
             return False
         self._unknown_hits += 1
-        return self._unknown_hits >= _STEP_UNKNOWN_STOP_TICKS
+        if block not in self._unknown_traversed:
+            self._unknown_traversed.add(block)
+        self._gates.info("unknown_traversed", block=block, hits=int(self._unknown_hits),
+                         map_version=int(self._map_version),
+                         unknown_cells=int(self._unknown_cells))
+        if self._gate_policy == GATE_POLICY_HARD:
+            return self._unknown_hits >= _STEP_UNKNOWN_STOP_TICKS
+        return False                                     # B 区：unknown 当可通行，只记不拦
 
     def _seed_pose(self, layout: dict[str, Any]) -> None:
         spec = str(self.cfg.get("mission.reset") or "").strip()
@@ -1251,7 +2049,8 @@ class StepLoop:
                          target_cell: str, heading_dir: tuple[int, int] | None) -> Any:
         return plan_segment_from_layout(self.cfg, layout, from_cell=from_cell,
                                         target_cell=target_cell, heading_dir=heading_dir,
-                                        log=self._log)
+                                        log=self._log, gates=self._gates,
+                                        degrade=(self._gate_policy == GATE_POLICY_WARN))
 
 
 def _run_step_loop(loop: StepLoop, *, stop_flag: dict,
@@ -1460,6 +2259,12 @@ def startup_contract(bridge: Any, mode: str = "live", *,
 
     blocking_levels = _CONTRACT_BLOCKING[mode]
     created = _subscription_topics_of(bridge)
+    # ★ 名字口径统一（2026-10-29 真车假红，LINK-HARDEN）：rclpy 的 Subscription.topic_name
+    #   是**解析后的全名**（带前导斜杠），而合同表里 manual_gimbal / pursuitAngle 是
+    #   无前导斜杠的历史相对名 ⇒ 裸比较会把**已建好的订阅**误报"本节点未创建订阅"。
+    #   两边都过 canonical_topic_name 再比；真缺失（装配没走完）照样判红。
+    created_canon = (None if created is None
+                     else {ct.canonical_topic_name(x) for x in created})
     rows: list[dict] = []
     for key, direction, level, need_pubs, need_subs, need_own in _CONTRACT_ROWS:
         try:
@@ -1472,7 +2277,8 @@ def startup_contract(bridge: Any, mode: str = "live", *,
             problems.append("发布方 0（对端未起/域不同）")
         if need_subs and subs == 0:
             problems.append("订阅方 0（无人接收：QoS 不匹配或对端没订阅）")
-        if need_own and created is not None and topic not in set(created):
+        if (need_own and created_canon is not None
+                and ct.canonical_topic_name(topic) not in created_canon):
             problems.append("本节点未创建订阅（装配/代码问题）")
         blocking = level in blocking_levels
         rows.append({"dir": direction, "key": key, "topic": topic, "level": level,
@@ -1504,14 +2310,16 @@ def _format_contract_table(rows: list[dict], *, mode: str = "live",
 
 def _log_subscriptions(bridge: Any, *, log: Callable[[str], None] = LOG) -> None:
     """打印决策层真实创建了的订阅清单（与 required_subscription_topics 对账）。"""
-    from .io.ros_io import required_subscription_topics
+    from .io.ros_io import missing_required_subscriptions
 
     try:
         actual = list(bridge.subscription_topics())
     except Exception:                                    # noqa: BLE001
         actual = []
-    required = required_subscription_topics()
-    missing = [key for key, topic in required.items() if topic not in set(actual)]
+    # ★ 对账逻辑收到 ros_io.missing_required_subscriptions()（单一真源）：
+    #   它内部走 ct.canonical_topic_name() —— 否则 manual_gimbal 这种"无前导斜杠的
+    #   历史相对名"会被 rclpy 的全名（/nav/manual_gimbal）判成"清单缺 manual_gimbal"（假红）。
+    missing = missing_required_subscriptions(actual)
     log("订阅清单：" + (", ".join(actual) if actual else "<空：ROS 图里不会有本节点订阅>"))
     if missing:
         log(f"⚠️ 订阅清单缺 {missing}（与 required_subscription_topics 对账失败）")
@@ -1628,6 +2436,19 @@ def _wait_for_pose_ready(bridge: Any, cfg: Config, *, stop_flag: dict,
         if now() >= deadline:
             break
         sleep(0.1)
+    policy = gate_policy(cfg)
+    if policy == GATE_POLICY_WARN:
+        # ★AGC-RECTIFY G1「位姿就绪」降级：只记 warn，不 exit 5。
+        #   为什么可以放行：位姿断流由运行期看门狗（同样是 warn 级）在 DRIVING 里兜，
+        #   而"没有位姿就不规划、不发段"仍由 _plan 的 P_POSE 判据保证（功能前提，不是闸门）。
+        GateLedger(log, policy=policy).warn(
+            GATE_POSE_READY, waited_s=round(now() - t0, 2),
+            pose_age_s=(round(float(age), 3) if age != float("inf") else -1.0),
+            fresh_s=round(fresh_s, 2))
+        log("⚠️ 位姿就绪门超时（降级为 warn，不退出）：继续起来，等运行期第一帧 /odom/localization"
+            "；在此之前 _plan 会因缺位姿停在 WAIT_INFO（不发运动指令）")
+        _ros_diagnosis(bridge, log=log)
+        return True
     log("⛔ 位姿就绪门超时：窗口内 /odom/localization 没有进入决策层 ⇒ 不规划、不出发（退出码 5）")
     _ros_diagnosis(bridge, log=log)
     return False
@@ -1643,8 +2464,9 @@ def _wait_for_field_layout(bb: Blackboard, cfg: Config, *, stop_flag: dict,
     ★T27：这里返回的是**步进归一化布局**（v2 会带 known/target_cell/segment_id；v1 与
       `load_field_layout()` 逐键相同）—— 启动门据此决定走"步进循环"还是旧"规划一次"。
     """
-    wait_s = float(cfg.get("drone.field_layout_wait_s", 30.0) or 30.0)
-    wait_s = max(0.0, wait_s)
+    # 缺省值只认 core/config.py SCHEMA 一处（S3：三处口径一致，本函数不再写死 30 s）
+    wait_s = max(0.0, _cfg_float(cfg, "drone.field_layout_wait_s",
+                                 _spec_default("drone.field_layout_wait_s", 0.0)))
     t0 = now()
     deadline = t0 + wait_s
     last_note = t0
@@ -1768,6 +2590,70 @@ def _tele_field(tele: Any, name: str, default: Any = "—") -> Any:
     if isinstance(tele, dict):
         return tele.get(name, default)
     return getattr(tele, name, default)
+
+
+#: 任务线程把上下文写进 `P_TELEMETRY` 的这个键下（与 `tasks.mission.MISSION_STATE_KEY` 同值）。
+#: 这里用字面量而不是 import：取证代码不能因为"任务模块没装好"而拖垮收尾。
+MISSION_STATE_TELE_KEY = "mission_state"
+
+
+def mission_accounting(bb: Blackboard) -> dict[str, Any] | None:
+    """从黑盒遥测里取**逐点到达台账**（= `MissionTask.state()['accounting']`）。
+
+    为什么收尾要再取一次：`accounting()` 一直只出现在 `finish_report` 打到 stdout 的
+    横幅里，**跑完就散**。而"某个航点是被强制跳过的"恰恰决定本场横向数据能不能用来
+    评控制精度 —— 2026-10-29 实跑就是这样踩的：A10 被停滞兜底跳掉后路线接错，
+    终点量到的 12 cm 被误当成"转角收不回来"，白查了半天。
+    取不到（未起任务 / 替身没写遥测 / 类型不对）一律返回 None，**绝不抛** —— 取证失败
+    不许影响收尾。
+    """
+    try:
+        tele = bb.get(P_TELEMETRY)
+        if not isinstance(tele, dict):
+            return None
+        state = tele.get(MISSION_STATE_TELE_KEY)
+        if not isinstance(state, dict):
+            return None
+        acc = state.get("accounting")
+        return dict(acc) if isinstance(acc, dict) else None
+    except Exception:                                # noqa: BLE001
+        return None
+
+
+def data_trust(accounting: dict[str, Any] | None) -> dict[str, Any]:
+    """本场数据可信度：**有航点被强制跳过 ⇒ 路线连续性已破坏 ⇒ 不可用来评控制精度**。
+
+    判据只看"跳没跳过点"，与横向数值无关（这是刻意的）：
+      · 零跳点 + 无未解释航点 ⇒ 本场的横向/到点/耗时都可以拿来评精度；
+      · 任一跳点（停滞兜底 / s 越窗 / 收尾补账）⇒ 路线在跳点处**已接错**，后续所有
+        几何量都建立在错的弧长上：仍可回答"程序跑完没有""停在哪个格"，
+        **不可以**用来回答"转角收得回不回来""横向误差多少"。
+    返回 dict（直接进 summary.json），字段稳定便于机器判读。
+    """
+    if not accounting:
+        return {"trustworthy": None, "why": "无逐点台账（未起任务或替身未写遥测）"}
+    skipped = int(accounting.get("skipped_total") or 0)
+    stall = int(accounting.get("stall_skips") or 0)
+    crossed = int(accounting.get("cross_skips") or 0)
+    unexplained = list(accounting.get("unexplained") or [])
+    if skipped or stall or crossed or unexplained:
+        return {
+            "trustworthy": False,
+            "skipped_total": skipped,
+            "stall_skips": stall,
+            "cross_skips": crossed,
+            "unexplained": unexplained,
+            "skipped": accounting.get("skipped") or {},
+            "why": (f"航点被跳过：共 {skipped} 个（停滞兜底 {stall} / 越窗 {crossed}）"
+                    + (f"、未解释 {len(unexplained)} 个" if unexplained else "")
+                    + " ⇒ 路线连续性已破坏，本场横向/到点数据**不可**用于评控制精度"),
+        }
+    return {
+        "trustworthy": True,
+        "skipped_total": 0,
+        "why": (f"零跳点（到达 {accounting.get('arrived')} 点 / "
+                f"分母 {accounting.get('denominator')}）"),
+    }
 
 
 def finish_report(bb: Blackboard, group: TaskGroup, bus: EventBus,
@@ -2022,6 +2908,56 @@ def _live_loop(stop_flag: dict, *, bb: Blackboard, alive: Callable[[], bool] = r
 def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
              alive: Callable[[], bool] = ros_context_alive,
              map_path: str | None = None) -> int:
+    """真跑入口（AGC-RECTIFY M2）：**先建本场归档目录 → 跑 → 收尾必归档**。
+
+    为什么包一层：归档必须在**所有**退出路径上都发生（完赛 / 手动停 / 故障 / SIGTERM，
+    以及等布局超时这类早期 return）；把它放在 body 外面用 try/finally 兜，才不会漏。
+    归档起不来（磁盘满/权限）只打一行 warn 继续跑 —— 取证能力不许拖垮跑车。
+    """
+    archive: Any = None
+    tee: Callable[[str], None] = log
+    try:
+        archive = RunArchive(log=log, clock=time.time)
+        archive.blank_map(rows=geo.MAP_ROWS, cols=geo.MAP_COLS, block_size_m=geo.BLOCK_SIZE,
+                          barrier_col_from=geo.BARRIER_COL_FROM,
+                          barrier_row_hi=geo.BARRIER_ROW_HI,
+                          barrier_row_lo=geo.BARRIER_ROW_LO)
+        tee = install_log_tee(log, archive.log_path)
+    except Exception as exc:                     # noqa: BLE001 归档不可用 ⇒ 退化为不归档
+        archive = None
+        tee = log
+        log(f"⚠️ 运行归档不可用（{type(exc).__name__}: {exc}）→ 本场不归档，继续跑")
+    t0 = time.time()
+    report: dict[str, Any] = {}
+    rc = 1
+    try:
+        rc = _run_live_body(cfg, log=tee, alive=alive, map_path=map_path,
+                            archive=archive, report=report)
+    finally:
+        if archive is not None:
+            try:
+                # ★逐点台账 + 可信度进 summary.json：finalize 对 extra 用 setdefault，
+                #  六个必备键（SUMMARY_KEYS）一个都不会被挤掉。
+                _extra = {k: report[k] for k in ("accounting", "data_trust")
+                          if report.get(k) is not None}
+                archive.finalize(reason=str(report.get("reason") or f"exit_rc_{rc}"),
+                                 duration_s=time.time() - t0,
+                                 extra=_extra or None)
+            except Exception as exc:             # noqa: BLE001 归档失败绝不改退出码
+                log(f"⚠️ 运行归档 finalize 失败：{type(exc).__name__}: {exc}")
+            try:
+                close = getattr(tee, "close", None)
+                if callable(close):
+                    close()
+            except Exception:                    # noqa: BLE001
+                pass
+    return rc
+
+
+def _run_live_body(cfg: Config, *, log: Callable[[str], None] = LOG,
+                   alive: Callable[[], bool] = ros_context_alive,
+                   map_path: str | None = None, archive: Any = None,
+                   report: dict[str, Any] | None = None) -> int:
     from .io.ros_io import RosBridge          # 只在真跑时导入（无 ROS 的机器 import 会失败但惰性）
     from .io import contract as ct
 
@@ -2144,6 +3080,22 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
             log("⛔ 步进循环需要 MissionTask，但任务组里没有（模块未实现/导入失败）→ 不出发")
             return 3
         step_loop = StepLoop(cfg, bb, bridge, mission_task, bus=bus, log=log)
+        # ★AGC-RECTIFY M2：把本场归档器挂到步进循环（位姿采样 / 段台账 / warn 计数都经它落盘）
+        step_loop.attach_archive(archive)
+
+    # ★AGC-RECTIFY 硬拦②（发车前）：激光/开火联锁不在位 ⇒ 拒绝进入任务组（退出码 7）
+    pre_gates = GateLedger(log, policy=gate_policy(cfg), archive=archive)
+    pre_gates.info("gate_policy", policy=pre_gates.policy,
+                   ttl_s=round(_cfg_float(cfg, "step.layout_ttl_s",
+                                          _spec_default("step.layout_ttl_s", 0.0)), 2),
+                   hard_keys=",".join(GATE_HARD_KEYS))
+    if not assert_fire_interlock(cfg, pre_gates, log=log):
+        if layout_task is not None:
+            layout_task.stop(timeout=2.0)
+        bridge.shutdown(brake=True)
+        if report is not None:
+            report["reason"] = "fire_interlock_refused"
+        return 7
 
     start_banner(cfg, group, plan=layout_plan, layout_mode=layout_mode,
                  step_mode=step_mode)
@@ -2169,6 +3121,9 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
             why = _run_step_loop(step_loop, stop_flag=stop_flag, alive=alive, log=log)
             log(f"退出原因 = {why}（步进循环；运行 {time.time() - t0:.1f}s；"
                 f"信号={stop_flag.get('signal')}；rclpy.ok()={alive()}）")
+            if report is not None:
+                report["reason"] = f"{why}" + (f"/{stop_flag.get('signal')}"
+                                               if stop_flag.get("signal") else "")
             rc = (1 if why in ("context_dead", "safe_stop")
                   else 5 if why == "ros_lost"
                   else 4 if why == "timeout" else 0)
@@ -2177,6 +3132,9 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
             # ★ teardown 留痕（实测指出收栈时**一条都没有**，事后无法判断是正常收尾还是被打死）
             log(f"退出原因 = {why}（运行 {time.time() - t0:.1f}s；"
                 f"信号={stop_flag.get('signal')}；rclpy.ok()={alive()}）")
+            if report is not None:
+                report["reason"] = f"{why}" + (f"/{stop_flag.get('signal')}"
+                                               if stop_flag.get("signal") else "")
             if why == "context_dead":
                 rc = 1
     finally:
@@ -2189,6 +3147,21 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
         log(f"收尾：ros 上下文{'已失效' if shutdown_rc else '正常'}，"
             f"刹车已尝试={'否' if shutdown_rc else '是'}，任务线程已停")
         finish_report(bb, group, bus, elapsed=time.time() - t0)
+        # ★取证收口：把"逐点到达台账 + 数据可信度"带出运行体 → run_live 写进 summary.json。
+        #  为什么放在 finally 里：完赛/手动停/故障/SIGTERM 都要落这一份，
+        #  这样"这一场的数据到底能不能用"是**磁盘上的事实**，不必靠翻 stdout。
+        if report is not None:
+            try:
+                acc = mission_accounting(bb)
+                report["accounting"] = acc
+                trust = data_trust(acc)
+                report["data_trust"] = trust
+                if trust.get("trustworthy") is False:
+                    log("⚠️ 本场数据可信度：不可用于评控制精度 —— " + str(trust.get("why")))
+                elif trust.get("trustworthy") is True:
+                    log("✅ 本场数据可信度：零跳点，可用于评控制精度")
+            except Exception as exc:                 # noqa: BLE001 取证失败绝不改退出码
+                log(f"⚠️ 逐点台账取证失败（不影响收尾）：{type(exc).__name__}: {exc}")
         if step_loop is not None:
             st = step_loop.status()
             log(f"  [步进循环] 阶段={st['phase']} 布局 v{st['seen_version']} "
@@ -2203,6 +3176,50 @@ def run_live(cfg: Config, *, log: Callable[[str], None] = LOG,
 
 
 # --------------------------------------------------------------------------- #
+#  旧核自跑防护（LINK-HARDEN-20261029 · T4）
+# --------------------------------------------------------------------------- #
+#  现场形态：我用 LEGACY_PATH=1 回退旧核时，旧核按 `path_executor.auto_start` +
+#  `path_executor.auto_start_delay` 在起栈后**自己出发**，中间没有任何确认步骤 ——
+#  人还在核对站位，车已经动了。两条防线（本函数 + start_all.sh 的旧核分支横幅）：
+#    ① 常态值必须是"假"（现场发车才临时改真，跑完立刻改回；见 config/robot.yaml）；
+#    ② 万一是"真"，起栈时**大声**喊出来，把延时与停车办法一起打出来。
+#  ★ 诚实边界：`LEGACY_PATH=1` 时 start_all.sh 起的是旧核，**dzbrain 压根不在场**，
+#    所以本函数只能在"环境变量声称回退旧核、却仍跑起新核"这类形态下生效；真正拦人的
+#    是 start_all.sh 的同口径横幅。两处都留，是因为任何一处被人绕过都不该是静默的。
+LEGACY_PATH_ENV = "LEGACY_PATH"
+
+
+def _legacy_autostart_armed(cfg: Config) -> tuple[bool, float]:
+    """旧核自跑是否已武装 → `(armed, delay_s)`（**纯读**，不改配置、不写文件）。"""
+    raw = cfg.get("path_executor.auto_start", None)
+    armed = raw is True or str(raw).strip().lower() in ("true", "1", "yes", "on")
+    try:
+        delay = float(cfg.get("path_executor.auto_start_delay", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        delay = 0.0
+    return armed, delay
+
+
+def _warn_legacy_autostart(cfg: Config, *,
+                           log: Callable[[str], None] = LOG) -> bool:
+    """旧核自跑防护横幅：武装了就喊（返回是否武装）。"""
+    armed, delay = _legacy_autostart_armed(cfg)
+    if not armed:
+        return False
+    legacy_env = str(os.environ.get(LEGACY_PATH_ENV, "") or "").strip().lower()
+    if legacy_env in ("1", "true", "yes", "on"):
+        log(f"⛔⛔ 旧核自跑已武装：环境变量 {LEGACY_PATH_ENV}=1 且旧核自跑开关为真"
+            f"（延时 {delay:g}s）—— 旧核起来后会**自己出发**，没有任何确认步骤！"
+            "→ 先核对：车压在起点格心吗 / 车头朝向对吗 / 走廊无人无物吗；"
+            "要立刻停：bash start_all.sh stop")
+    else:
+        log("⚠️ 旧核自跑已武装：旧的 path_executor 段自跑开关为真"
+            f"（延时 {delay:g}s）。本轮起的是新核 dzbrain（该键对 dzbrain 无效），"
+            "但**一旦 LEGACY_PATH=1 回退旧核**，它会在该延时后自己出发 —— "
+            "现场回退前先核对站位（常态应为假，见 config/robot.yaml）")
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="dzbrain", description="dzrobot 新决策层（多线程任务架构）")
     ap.add_argument("--config", default=None, help="robot.yaml 路径（默认 ~/dzrobot/config/robot.yaml）")
@@ -2226,6 +3243,12 @@ def main(argv: list[str] | None = None) -> int:
         #   注意 start_all.sh 仍按历史习惯传 `--map $WS/config/map.yaml` —— 车端没有
         #   该文件时就属于这个分支：**允许启动，等布局**（run_live 会判布局模式）。
         allow_missing_map=True)
+
+    # ★ 旧核自跑防护（LINK-HARDEN-20261029 · T4）：配置里"旧的 path_executor 段自跑开关"
+    #   若为真，任何一次 LEGACY_PATH=1 回退都会让车在无人确认的情况下自己出发。
+    #   位置：配置读完之后、门禁 return 2 / --plan-only 分流**之前** ——
+    #   这是"车会不会自己动"的安全信息，不该被后面的任何 return 吞掉。
+    _warn_legacy_autostart(cfg, log=LOG)
 
     # ★ --map 透传（2026-10-11 修复）：planner.map_path 的相对解析以 workspace_root() 为基准；
     #   install 拷贝树里 workspace_root() = install/dzbrain/lib → config/map.yaml 永远找不到

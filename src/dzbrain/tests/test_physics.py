@@ -4,8 +4,8 @@
 覆盖：
  1. 车体与扫掠半径（含与 `pursuit.*` 同源的最小转弯半径）
  2. **压雷判据**：车心 3.5 cm 圆 ∩ 0.12×0.12 垫片（含边界：0.095 压到 / 0.096 压不到）
- 3. 障碍圆柱净空（直段 0.215 / 拐角按扫掠圆 0.3029）
- 4. 挡板 2 cm 细条（中心线 x=1.75、长 3.85 m、门槛 0.0775）+ 桥洞 K 处精确抠段
+ 3. 障碍圆柱净空（直段 0.2325 / 拐角按扫掠圆 0.3113）
+ 4. 挡板 2 cm 细条（中心线 x=1.75、长 3.85 m、门槛 0.095）+ 桥洞 K 处精确抠段
  5. `config/robot.yaml` 与 `core/config.py` 的键值一致（数值只许在 config 里出现一次）
  6. **对拍** `tools/route_check.py` 的同一套公式（用户侧工具刻意不 import dzbrain，
     两份实现必须不分叉 —— 这条断言是唯一的防分叉机制）
@@ -69,16 +69,19 @@ RC = _load_route_check()
 #  1. 车体与扫掠半径
 # --------------------------------------------------------------------------- #
 def test_vehicle_and_sweep() -> None:
-    section("1. 车体（0.28 × 0.135）与扫掠半径")
-    check_close("车体半对角线 = √(0.14²+0.0675²) = 0.15542 m",
-                P.vehicle_half_diagonal_m(L, W), 0.15542, 1e-5)
+    section("1. 车体（0.28 × 0.17）与扫掠半径")
+    check_close("车体半对角线 = √(0.14²+0.085²) = 0.16378 m",
+                P.vehicle_half_diagonal_m(L, W), 0.16378, 1e-5)
     sweep, turn_r = P.sweep_radius(length_m=L, width_m=W,
                                    wheelbase_m=_CFG.get("pursuit.wheelbase_m"),
                                    max_steer_deg=_CFG.get("pursuit.max_steer_deg"))
-    check_close("扫掠半径 = 半对角线", sweep, 0.15542, 1e-5)
+    check_close("扫掠半径 = 半对角线", sweep, 0.16378, 1e-5)
     check_close("最小转弯半径 R = 轴距/tan(30°) = 0.27193 m", turn_r, 0.27193, 1e-5)
-    check("★ 扫掠半径(0.1554) 远大于车半宽(0.0675)：拐角判据不能用半宽",
-          sweep > W / 2.0 + 0.08, f"sweep={sweep:.4f} half_w={W/2:.4f}")
+    # ★ 2026-10-27 真值：车宽 0.135→0.17 后 sweep−半宽 = 0.1638−0.085 = 0.0788
+    #   （旧断言写死 `> W/2 + 0.08` 会以 1.2 mm 之差失败）。**意图不变**（扫掠圆远大于半宽，
+    #   拐角不能用半宽），判据改成**比值**，避免再被绝对毫米数钉死。
+    check("★ 扫掠半径(0.1638) 远大于车半宽(0.085)：拐角判据不能用半宽",
+          sweep >= 1.8 * (W / 2.0), f"sweep={sweep:.4f} half_w={W/2:.4f} ratio={sweep/(W/2):.2f}")
     check("R_min(0.272) > 半格(0.175)（这就是「到不了格心」的几何根因）",
           turn_r > 0.35 / 2.0, f"R={turn_r:.4f}")
     check_raises("非法舵角上限（0°）抛 ValueError", ValueError,
@@ -135,10 +138,12 @@ def test_obstacle_clearance() -> None:
     req_corner = P.required_obstacle_center_distance_m(
         obstacle_radius_m=R_OBS,
         body_radius_m=P.vehicle_half_diagonal_m(L, W), margin_m=MARGIN)
-    check_close("直段门槛 = 0.1275+0.0675+0.02 = 0.215 m", req_straight, 0.215, 1e-9)
-    check_close("拐角门槛 = 0.1275+0.15542+0.02 = 0.3029 m", req_corner, 0.30292, 1e-5)
-    check("拐角门槛比直段严 0.088 m（扫掠半径 − 车半宽）",
-          req_corner - req_straight > 0.08, f"{req_corner:.4f} - {req_straight:.4f}")
+    check_close("直段门槛 = 0.1275+0.085+0.02 = 0.2325 m", req_straight, 0.2325, 1e-9)
+    check_close("拐角门槛 = 0.1275+0.16378+0.02 = 0.3113 m", req_corner, 0.31128, 1e-5)
+    # 意图：拐角门槛必须**显著**更严。真值差 = 0.16378 − 0.085 = 0.0788 m
+    # （旧写死 `> 0.08` 在车宽 0.17 下差 1.2 mm 即失败）。
+    check("拐角门槛比直段严 0.0788 m（扫掠半径 − 车半宽）",
+          req_corner - req_straight > 0.07, f"{req_corner:.4f} - {req_straight:.4f}")
     ox, oy = 0.525, 2.975
     check_close("点到柱心距离 = 欧氏距离",
                 P.obstacle_clearance_point_m(ox + 0.3, oy + 0.4, ox, oy), 0.5, 1e-12)
@@ -163,11 +168,11 @@ def test_barrier_criterion() -> None:
     check("`parse_col_span` 也吃单列写法", P.parse_col_span("K") == ("K", "K"),
           str(P.parse_col_span("K")))
     req = P.required_barrier_distance_m(barrier_width_m=B_W, car_width_m=W)
-    check_close("触线门槛 = 0.01 + 0.0675 = 0.0775 m", req, 0.0775, 1e-12)
-    # 行 7 格心（x=1.575）到中心线 1.75 ⇒ 0.175 m > 0.0775 ⇒ 安全
+    check_close("触线门槛 = 0.01 + 0.085 = 0.095 m", req, 0.095, 1e-12)
+    # 行 7 格心（x=1.575）到中心线 1.75 ⇒ 0.175 m > 0.095 ⇒ 安全
     check_close("行 7 格心上行驶 ⇒ 0.175 m（安全）",
                 P.barrier_distance_point_m(1.575, 1.0, x=x, y0=y0, y1=y1), 0.175, 1e-12)
-    check("贴到中心线 0.05 m ⇒ 触线（< 0.0775）",
+    check("贴到中心线 0.05 m ⇒ 触线（< 0.095）",
           P.barrier_distance_point_m(x + 0.05, 1.0, x=x, y0=y0, y1=y1) < req)
     check("中心线上（x=1.75）⇒ 0 m ⇒ 触线",
           P.barrier_distance_point_m(x, 1.0, x=x, y0=y0, y1=y1) == 0.0)
@@ -188,7 +193,7 @@ def test_barrier_criterion() -> None:
 # --------------------------------------------------------------------------- #
 def test_config_values() -> None:
     section("5. `config/robot.yaml` + SCHEMA：数值只出现一次")
-    want = {"vehicle.length_m": 0.28, "vehicle.width_m": 0.135,
+    want = {"vehicle.length_m": 0.28, "vehicle.width_m": 0.17,
             "vehicle.coverage_radius_m": 0.035, "field.obstacle_radius_m": 0.1275,
             "field.mine_pad_m": 0.12, "field.barrier_width_m": 0.02,
             "planner.obstacle_margin_m": 0.02, "pursuit.cruise_speed_mps": 0.35,
@@ -280,11 +285,11 @@ def test_amended_field_spec() -> None:
           abs(P.board_half_m() - P.CELL_M / 2.0) < 1e-12, "半格口径")
     req_s = P.required_target_body_clearance_m(length_m=L, width_m=W, at_corner=False)
     req_c = P.required_target_body_clearance_m(length_m=L, width_m=W, at_corner=True)
-    check_close("压靶（车体）直段门槛 = 车半宽 0.0675 m", req_s, 0.0675, 1e-12)
-    check_close("压靶（车体）拐角门槛 = 车体半对角线 0.15542 m", req_c, 0.15542, 1e-5)
-    check("车体压到靶板（间隙 0.05 < 0.0675）⇒ 判 overlap",
+    check_close("压靶（车体）直段门槛 = 车半宽 0.085 m", req_s, 0.085, 1e-12)
+    check_close("压靶（车体）拐角门槛 = 车体半对角线 0.16378 m", req_c, 0.16378, 1e-5)
+    check("车体压到靶板（间隙 0.05 < 0.085）⇒ 判 overlap",
           P.target_body_overlap(0.05, length_m=L, width_m=W))
-    check("车体没压到靶板（间隙 0.20 > 0.1554 拐角门槛）⇒ 不 overlap",
+    check("车体没压到靶板（间隙 0.20 > 0.1638 拐角门槛）⇒ 不 overlap",
           not P.target_body_overlap(0.20, length_m=L, width_m=W, at_corner=True))
     check("★ K 列纵向相邻格全部封死（澄清②）—— 由 validate 的 R009「列内」硬拦兑现",
           P.k_cells_sealed_along_column() is True, "见 physics.k_cells_sealed_along_column 说明")
@@ -297,13 +302,13 @@ def test_amended_field_spec() -> None:
     check("K9→K10（列内挪一格）被 R009「列内」硬拦（与澄清②一致）",
           any(i.code == "R009" and "列内" in i.msg for i in _iss),
           str([i.msg for i in _iss if i.code == "R009"]))
-    # 挡板：D..N 含 K 段、无豁免 ⇒ 现场路线仍 0 风险（实测 0.175 ≥ 0.0775）
+    # 挡板：D..N 含 K 段、无豁免 ⇒ 现场路线仍 0 风险（实测 0.175 ≥ 0.095）
     from dzbrain.core import geometry as _geo
     _live_pts = [_geo.block_to_meters(b) for b in _pm(
         [str(t) for t in _CFG.get("route.tokens") or []]).blocks()]
     _bmin, _bidx = RC.barrier_touch_min(_live_pts)
-    check(f"挡板（D..N 含 K 段、**无豁免**）：现役路线最近 {_bmin:.4f} m ≥ 0.0775 m",
-          _bmin >= 0.0775 - 1e-9, f"航段#{_bidx}")
+    check(f"挡板（D..N 含 K 段、**无豁免**）：现役路线最近 {_bmin:.4f} m ≥ 0.095 m",
+          _bmin >= 0.095 - 1e-9, f"航段#{_bidx}")
     # 车体压靶（追加判据）在现役路线上的实测值
     _req_s = RC.VEHICLE_WIDTH_M / 2.0
     _req_c = RC.vehicle_half_diagonal_m(RC.VEHICLE_LENGTH_M, RC.VEHICLE_WIDTH_M)
@@ -341,8 +346,8 @@ def test_ref_offset_footprint() -> None:
     check("offset=0 的四角 == 以参考点为心的旋转矩形（与 sim.body_corners 口径一致）",
           all(abs(a[0] - b[0]) < 1e-12 and abs(a[1] - b[1]) < 1e-12
               for a, b in zip(P.body_corners(0.0, 0.0, 0.0),
-                              ((0.14, 0.0675), (0.14, -0.0675),
-                               (-0.14, -0.0675), (-0.14, 0.0675)))),
+                              ((0.14, 0.085), (0.14, -0.085),
+                               (-0.14, -0.085), (-0.14, 0.085)))),
           str(P.body_corners(0.0, 0.0, 0.0)))
     check("offset=+7.5cm 的四角 == 整体沿 +x 平移 0.075（yaw=0）",
           all(abs(a[0] - (b[0] + 0.075)) < 1e-12 and abs(a[1] - b[1]) < 1e-12
@@ -414,9 +419,170 @@ def test_ref_offset_footprint() -> None:
           _g_diag < _g_axis, f"{_g_diag:.4f} < {_g_axis:.4f}")
 
 
+def test_trajectory_field_audit() -> None:
+    """The compiler and the verifier share physics, not acceptance shortcuts."""
+    from dataclasses import replace
+    from dzbrain.tools.sim import FieldSpec
+    from dzbrain.route.parser import parse_mission
+    from dzbrain.pursuit.path import Path
+    import random
+    section("9. 连续轨迹物理门禁：车体净空 / 严格雷心 / 宽相位对拍")
+    field = FieldSpec(mines=('M10',), obstacles=('F9',), targets=('D7', 'E7'),
+                      bridges=('K10', 'K4'))
+    gate = RC.TrajectoryFieldGate(field, _CFG)
+    rng = random.Random(20261025)
+    mismatch = []
+    for _ in range(500):
+        x, y, yaw = rng.uniform(-0.1, 4), rng.uniform(-0.1, 5), rng.uniform(-math.pi, math.pi)
+        inspected = gate.inspect(x, y, yaw)
+        expected = (inspected['obstacle_surface_m'] >= MARGIN and
+                    all(value > 1e-9 for key, value in inspected.items()
+                        if key not in ('obstacle_surface_m', 'obstacle_center_m')) and
+                    all(not (abs(y-by) <= geo.BLOCK_SIZE/2 and abs(x-bx) <= geo.BLOCK_SIZE/2)
+                        or abs(x-bx) <= geo.BLOCK_SIZE/4 for bx, by in gate.openings) and
+                    (abs(math.cos(yaw)) <= 1e-6 or all(P.body_rect_clearance_m(
+                        x, y, yaw, rect_cx=bx, rect_cy=by, rect_half_x=geo.BLOCK_SIZE/2,
+                        rect_half_y=geo.BLOCK_SIZE/2, **gate.body) > 1e-9 for bx, by in gate.openings)))
+        if gate(x, y, yaw) != expected:
+            mismatch.append((x, y, yaw))
+    check("AABB只筛远物体：500随机姿态与完整物理复核逐项一致", not mismatch, str(mismatch[:1]))
+    ox, oy = geo.block_to_meters('F9')
+    check("障碍中心距0.25<0.30只告警，车体侧面净空达标可通过",
+          gate(ox, oy+0.25, 0.0))
+    check("障碍中心距同为0.25，车头ref_offset侵入则拒绝",
+          not gate(ox-0.25, oy, 0.0))
+    check("非有限姿态拒绝", not gate(float('nan'), 1, 0) and not gate(1, 1, float('inf')))
+    route = parse_mission(['N10', 'M10,y'])
+    path = Path(route)
+    clean = RC.TrajectoryFieldGate(replace(field, obstacles=(), targets=()), _CFG)
+    samples = RC._sample_path(path, 0.01, continuous=False)
+    shifted = [replace(q, x=q.x+0.05) for q in samples]
+    result = RC.trajectory_metrics(route, shifted, [0, path.total_length], clean.field, clean,
+                                   mandatory_indices=(0, 1), curvature_bound=0.0)
+    check("严格雷心判据与旧垫片覆盖分别报告：横偏5cm=严格0/1、垫片1/1",
+          result['strict_mine_covered'] == 0 and result['pad_mine_covered'] == 1)
+    check_close("原顶点误差仍报告5cm，不能用轨迹自身零误差替代",
+                result['waypoint_error_max_m'], 0.05, 1e-9)
+    check_close("雷任务必经点按映射事件的真车心计误差",
+                result['mandatory_error_max_m'], math.hypot(0.05, _CFG.get('vehicle.ref_offset_m')), 1e-9)
+    check_close("轨迹对原折线偏离独立保留",
+                result['trajectory_to_source_polyline_max_m'], 0.05, 1e-9)
+    from dzbrain.route.model import Route
+    short_route = Route((route[1], replace(route[1], y=route[1].y+0.03)))
+    short_path = Path(short_route)
+    reference_only = RC.trajectory_metrics(short_route, RC._sample_path(short_path, 0.001, continuous=False),
+        [0, short_path.total_length], clean.field, clean, curvature_bound=0.0)
+    check("后轴压雷不冒充几何车心：rear 1/1但body 0/1分别保留",
+          reference_only['strict_mine_covered'] == 1 and reference_only['strict_body_center_mine_covered'] == 0)
+    bridge_route = parse_mission(['L10', 'K10', 'J10,y'])
+    bridge_path = Path(bridge_route)
+    bridge_samples = RC._sample_path(bridge_path, 0.01, continuous=False)
+    bridge_report = RC.trajectory_metrics(bridge_route, bridge_samples,
+        [bridge_path.s_at_waypoint(i) for i in range(3)], clean.field, clean, curvature_bound=0.0)
+    check("0.35m桥洞沿轴直穿可验证净空",
+          bridge_report['clearance_certified'] and bridge_report['bridge_axis_error_max_rad'] < 1e-9)
+    bx, by = geo.block_to_meters('K10')
+    check("桥洞横向偏离9cm即使矩形仍有墙余量也拒绝", not clean(bx+0.09, by, math.pi/2))
+    # ★ 2026-10-27 真值：净开口 0.33、车宽 0.17 ⇒ 横向余量恰为 **0.080 m**
+    #   ⇒ 偏 8.0 cm 正好**贴壁**（clearance=0，判不通过），"刚好过"是 7.9 cm。
+    #   旧断言"8cm 安全可通过"是"整格无墙 0.175 + 车宽 0.135"时代的产物，意图不变只换真值。
+    check("桥洞横向偏离7.9cm且精确矩形安全可通过", clean(bx+0.079, by, math.pi/2))
+    check("桥洞横向偏离8.0cm=真值余量边界 ⇒ 贴壁不可通过", not clean(bx+0.08, by, math.pi/2))
+    check("参考点尚未进洞但车头已进洞，提前转弯必须拒绝",
+          not clean(bx, by-geo.BLOCK_SIZE/2-0.1, math.pi/2+0.1))
+    bad = [replace(q, yaw=q.yaw+0.1) for q in bridge_samples]
+    tilted = RC.trajectory_metrics(bridge_route, bad,
+        [bridge_path.s_at_waypoint(i) for i in range(3)], clean.field, clean, curvature_bound=0.0)
+    check("桥洞横摆有独立对正误差，不能仅凭参考点没撞墙宣称通过",
+          tilted['bridge_axis_error_max_rad'] > 0.09)
+    jumped = [replace(q, reverse=i > len(samples)//2) for i, q in enumerate(samples)]
+    jump_report = RC.trajectory_metrics(route, jumped, [0, path.total_length], clean.field, clean,
+                                        curvature_bound=0.0)
+    check("cusp车身若跳转180度，不得发连续扫掠净空证书",
+          jump_report['body_yaw_step_excess_rad'] > 3.0 and not jump_report['clearance_certified'])
+    check("末点朝向逗号保留", RC._trajectory_tokens('N10 M10,y') == ['N10', 'M10,y'])
+
+
+def test_trajectory_cli() -> None:
+    import json
+    import tempfile
+    import subprocess
+    import os
+    section("10. 现有route_check CLI：显式地图、双图、失败结构化")
+    with tempfile.TemporaryDirectory(prefix='trajectory-physics-') as directory:
+        folder = pathlib.Path(directory)
+        maps = [folder/'one.yaml', folder/'two.yaml']
+        for map_path, extra in zip(maps, ('[]', '[A1]')):
+            map_path.write_text('map:\n  mines: [M10]\n  obstacles: '+extra+
+                '\n  targets: []\n  bridges: [K10, K4]\n', encoding='utf-8')
+        env = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUTF8='1')
+        cmd = [sys.executable, str(_WS/'tools/route_check.py'), '--trajectory',
+               '--config', str(_WS/'config/robot.yaml'), '--route', 'N10 M10,y',
+               '--json', '--max-nodes', '10']
+        proc = subprocess.run(cmd+['--map', str(maps[0]), '--map', str(maps[1])],
+                              capture_output=True, text=True, encoding='utf-8', env=env, timeout=30)
+        lines = [line for line in proc.stdout.splitlines() if line.startswith('TRAJECTORY_RESULT_JSON ')]
+        report = json.loads(lines[-1].split(' ', 1)[1]) if lines else {}
+        check("同一CLI/参数接受不同布局两图并输出严格JSON", proc.returncode == 0 and
+              report.get('ok') and len(report.get('reports', [])) == 2, proc.stderr)
+        check("CLI同时保留旧折线指标和新轨迹指标", all(
+              'polyline' in r and 'trajectory' in r for r in report.get('reports', [])))
+        from dzbrain.tools.sim import SimConfig, resolve_initial_yaw, DESIGN_START_YAW
+        from dzbrain.route.parser import parse_mission
+        crossed = parse_mission(['N10', 'N9,x'])
+        yaw, source = resolve_initial_yaw(crossed, SimConfig())
+        check("真实N10起姿由共享规则给+Y，不能跟首段+X洗平",
+              abs(yaw-DESIGN_START_YAW) < 1e-12 and abs(yaw-crossed[0].heading_to(crossed[1])) > 1.0)
+        check("CLI记录真实起姿且候选在同一车身角起步", all(
+              abs(r['initial_pose']['yaw']-DESIGN_START_YAW) < 1e-12 and
+              r['trajectory']['initial_body_yaw_error_rad'] < 1e-9 for r in report['reports']))
+        before, after = folder/'before.csv', folder/'after.csv'
+        before.write_text('file,exit\ntest_old.py,1\ntest_same.py,0\n', encoding='utf-8')
+        after.write_text('file,exit\ntest_old.py,0\ntest_same.py,0\n', encoding='utf-8')
+        partial = subprocess.run(cmd+['--map', str(maps[0]), '--simulate', '--sim-max-steps', '5',
+            '--output-dir', str(folder/'artifacts'), '--baseline-suites', str(before), '--candidate-suites', str(after)],
+            capture_output=True, text=True, encoding='utf-8', env=env, timeout=30)
+        partial_batch = json.loads(next(line.split(' ', 1)[1] for line in partial.stdout.splitlines()
+                                       if line.startswith('TRAJECTORY_RESULT_JSON ')))
+        partial_report = partial_batch['reports'][0]
+        comparison = partial_report['simulation']
+        check("--simulate复用两臂且未完赛RMS不能证提升", partial.returncode == 1 and
+              not comparison['rms_comparison_eligible'] and
+              all(not arm['completed'] for arm in comparison['arms'].values()))
+        check("两臂真值pose经过当前精确车体场地观察", all(
+              'strict_body_center_mine_covered' in arm['observed_field'] and
+              'sampled_region_violations' in arm['observed_field'] for arm in comparison['arms'].values()))
+        check("复用现有CSV/SVG保存器，路径真实落盘", all(
+              pathlib.Path(path).is_file() for arm in comparison['arms'].values() for path in arm['artifacts'].values()))
+        check("既有suite CSV只读合表保留哈希和修复红数", partial_batch['suite_comparison']['fixed_red'] == ['test_old.py']
+              and partial_batch['suite_comparison']['new_red'] == []
+              and len(partial_batch['suite_comparison']['snapshots']['baseline']['sha256']) == 64)
+        maps[0].write_text('map:\n  mines: [M10]\n  obstacles: [N10]\n'
+                           '  targets: []\n  bridges: [K10, K4]\n', encoding='utf-8')
+        failed = subprocess.run(cmd+['--map', str(maps[0])], capture_output=True, text=True,
+                                encoding='utf-8', env=env, timeout=30)
+        failure = json.loads(next(line.split(' ', 1)[1] for line in failed.stdout.splitlines()
+                                 if line.startswith('TRAJECTORY_RESULT_JSON ')))
+        check("不可编译输出失败JSON及非零退出码", failed.returncode == 1 and not failure['ok'] and
+              failure['reports'][0]['errors'], failed.stderr)
+        check("有限搜索失败不等同世界无解", 'not a proof' in failure['reports'][0]['conclusion'])
+        unplanned = subprocess.run([sys.executable, str(_WS/'tools/route_check.py'), '--trajectory',
+            '--map', str(maps[0]), '--json'], capture_output=True, text=True,
+            encoding='utf-8', env=env, timeout=30)
+        planning_failure = json.loads(next(line.split(' ', 1)[1] for line in unplanned.stdout.splitlines()
+                                           if line.startswith('TRAJECTORY_RESULT_JSON ')))
+        check("原planner输入拒绝也输出结构化失败（不补造起终点）",
+              unplanned.returncode == 2 and planning_failure['reports'][0]['stage'] == 'input_or_planning')
+
+
 def main() -> None:
     print("=" * 74)
-    print("dzbrain 物理几何基础自测（t22：0.28×0.135 车体 / r=0.1275 障碍 / 0.12 垫片 / 2cm 挡板）")
+    test_trajectory_field_audit()
+    test_trajectory_cli()
+    if '--trajectory-only' in sys.argv:
+        finish()
+        return
+    print("dzbrain 物理几何基础自测（t22：0.28×0.17 车体 / r=0.1275 障碍 / 0.12 垫片 / 2cm 挡板）")
     print(f"python {sys.version.split()[0]}   工作区 {_WS}")
     print("=" * 74)
     test_vehicle_and_sweep()

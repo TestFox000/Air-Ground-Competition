@@ -8,13 +8,6 @@
   ],
   "in_flight": [
     {
-      "path": "src/dzbrain/dzbrain/tasks/tracker.py",
-      "card": "TRACK-R1-20261020-01 + AGC-20-STEPFIX-20261024",
-      "owner": "implementer / lead",
-      "reason": "Tracker 最终发布限速统一钳位：ALIGN/PIVOT 绕过 P_MOTION_LIMIT；离线验收，待人工部署；+ AGC-20：_relock_trusted 收紧（旧离线刚过阈值时禁止 2m 外大跳，run2 L145 反例），test_tracker 139/139",
-      "expires": "2026-11-01"
-    },
-    {
       "path": "src/dzbrain/dzbrain/route/planner.py",
       "card": "CAR-DUAL-20261024",
       "owner": "/root/history_audit",
@@ -26,13 +19,6 @@
       "card": "AIM-LAT-20261022 + SHOOT-LINK-20261023",
       "owner": "lead",
       "reason": "AIM-LAT：det_node.thread_num 8→2（输出率 30.4Hz 不变、流水线滞后 264→66ms）。SHOOT-LINK：aim.stop_on_hit=false（用户 2026-10-24 口径「蓝面打满 10 发」）＋ mission_blocks 第二射击停站 F4*（与 B4* 分居靶板两侧）。本地已过 config_selfcheck/route_check/test_aim，未部署",
-      "expires": "2026-11-07"
-    },
-    {
-      "path": "src/dzbrain/dzbrain/tasks/aim.py",
-      "card": "SHOOT-LINK-20261023",
-      "owner": "lead",
-      "reason": "新增 aim.stop_on_hit 闸门：false 时 hit_latched 只记账不闭锁 fire_ready（打满 10 发口径）；默认 true 逐位不变",
       "expires": "2026-11-07"
     },
     {
@@ -71,31 +57,10 @@
       "expires": "2026-10-31"
     },
     {
-      "path": "src/dzbrain/dzbrain/tasks/drone.py",
-      "card": "AGC-20-STEPFIX-20261024",
-      "owner": "lead",
-      "reason": "F1 配套：每接受一帧 field_layout（新版本/同版心跳）layout_arrivals+1 并写黑盒；拒收帧不计数；离线单测，未部署",
-      "expires": "2026-10-31"
-    },
-    {
       "path": "src/dzbrain/dzbrain/core/config.py",
       "card": "AGC-20-STEPFIX-20261024",
       "owner": "lead",
       "reason": "F8：注册 step.layout_ttl_s(4.0s) / step.done_replay_s(1.0s) 到 SCHEMA，自检覆盖；离线单测，未部署",
-      "expires": "2026-10-31"
-    },
-    {
-      "path": "src/dzbrain/dzbrain/scout/layout.py",
-      "card": "AGC-20-STEPFIX-20261024",
-      "owner": "lead",
-      "reason": "F2：LayoutStream._recompute_target 跳过「检查点 == 车当前格」（end 除外，同格雷直接记 covered），test_scout 79/79",
-      "expires": "2026-10-31"
-    },
-    {
-      "path": "src/dzbrain/dzbrain/core/blackboard.py",
-      "card": "AGC-20-STEPFIX-20261024",
-      "owner": "lead",
-      "reason": "F1：新增 P_LAYOUT_ARRIVALS 键（布局帧到达计数），纯加键，旧消费方忽略",
       "expires": "2026-10-31"
     },
     {
@@ -148,25 +113,102 @@
       "expires": "2026-11-01"
     },
     {
-      "path": "config/map.yaml",
-      "card": "TRAJ-FRAME-CORE-20261025",
-      "owner": "lead",
-      "reason": "零地图+布局模式架构变更的组成部分：车端不留地图文件，地图仅由无人机 field_layout 下发（config/robot.yaml:786 map_path:\"\" 已落地并登记）。HEAD 内仍有此文件=历史快照，工作区删除为有意。TRAJ-BASE 第41行/FRAME-PHYS 第48行均记『改前即不存在，不恢复』。Lead 2026-10-26 授权补登（原应由该在途卡 owner 落，用户指令『2补上』）。",
-      "expires": "2026-11-07"
-    },
-    {
-      "path": "config/map_v3.yaml",
-      "card": "TRAJ-FRAME-CORE-20261025",
-      "owner": "lead",
-      "reason": "同上：零地图+布局模式的既有删除，非本轮制造。TRAJ-BASE 第41行明确『前两项为既有删除，不恢复』。",
-      "expires": "2026-11-07"
-    },
-    {
       "path": "src/dzbrain/dzbrain/tasks/localization.py",
       "card": "F5-REANCHOR-STEP-20261025",
       "owner": "lead",
       "reason": "F5 横向重锚改分拍收敛（+45/-11）：新增 reanchor_step_max_m=0.12 / reanchor_done_m=0.02 / _reanchor_active 状态位，_reanchor() 增 cx,cy 形参。动机有实车证据：run4 中 0.303m 一步到位造成 0.313m 位姿突跳（>0.20 门限）→ FixTask 清窗 + 漂移护栏停机。配套测试 src/dzbrain/tests/test_reanchor_step.py（未跟踪）。Lead 2026-10-26 授权补登（用户指令『2补上』）。",
       "expires": "2026-11-01"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/route/physics.py",
+      "card": "P1-GEOM-TRUTH",
+      "owner": "9aff0fda-1af0-4272-b40b-52a154e23a12",
+      "reason": "用户 2026-10-27 P1 一次性授权：桥室按开口 0.33 + 桥墙 0.02 推导，width_m 默认值 0.135→0.17（只改默认值不改算法）；离线，不部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/tasks/drone.py",
+      "card": "S1-CORRIDOR",
+      "owner": "39437d35-62ab-4680-acef-62fc4a6232b8",
+      "reason": "S1 起步走廊 35 s：首布局到达/拒收语义最小改动与 corridor_confirm 观测；config 等待值由 P1 同批改 60 s；离线，不部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/core/run_archive.py",
+      "card": "M2-ARCHIVE",
+      "owner": "6719d8a0-37ff-45a1-af0b-f24157aa831b",
+      "reason": "M2 运行归档新模块（如新建）：只写不读，落 artifacts/runs/<UTC ts>/；离线，不部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/route/planner.py",
+      "card": "CAR-DUAL-20261024 + P1-GEOM-TRUTH",
+      "owner": "9aff0fda-1af0-4272-b40b-52a154e23a12",
+      "reason": "双射击点规则在途 + P1 默认值/注释算式同步（0.135→0.17）；只改默认值与注释，离线，不部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "config/robot.yaml",
+      "card": "AIM-LAT + SHOOT-LINK + P1-GEOM-TRUTH",
+      "owner": "9aff0fda-1af0-4272-b40b-52a154e23a12",
+      "reason": "P1 几何批：width_m 0.17、bridge_opening_m 0.33、bridge_wall_m 0.02、bridge_entry_redundancy_m 0.0；离线，不部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/core/config.py",
+      "card": "P1-GEOM-TRUTH + SHOOT-LINK + AGC-20-STEPFIX",
+      "owner": "9aff0fda-1af0-4272-b40b-52a154e23a12",
+      "reason": "P1 同批：SCHEMA 同步车宽/桥洞两键；drone.field_layout_wait_s 30→60；step.layout_ttl_s 4→0；离线，不部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/main.py",
+      "card": "G1-DEGRADE + S3-STEP-GATE + M1-BRAINMAP + M2-ARCHIVE + S2-LEAD-GATE",
+      "owner": "6719d8a0-37ff-45a1-af0b-f24157aa831b",
+      "reason": "运行面互锁降级（3 硬拦）、StepLoop gate 分级、ttl=0 语义、unknown 格继续、运行归档、lead_cells 日志；离线单测，不部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/io/ros_io.py",
+      "card": "LINK-HARDEN-20261029",
+      "owner": "session-912213b6-c2f3-4960-a203-71648b2aa1fb",
+      "reason": "T1/T3 链路止血：新增 missing_required_subscriptions()（对账走 ct.canonical_topic_name，修 manual_gimbal 无前导斜杠造成的『本节点未创建订阅』假红）+ env_problems/format_env_line 不再把『DZ_ROS_DOMAIN 未导出』谎报成『域号按 ROS 默认 0』；离线静态/单测，不部署",
+      "expires": "2026-11-05"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/io/contract.py",
+      "card": "LINK-HARDEN-20261029",
+      "owner": "session-912213b6-c2f3-4960-a203-71648b2aa1fb",
+      "reason": "T1：新增 canonical_topic_name() 纯函数（只用于比较，不改历史话题真名 nav/manual_gimbal / pursuitAngle）；离线，不部署",
+      "expires": "2026-11-05"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/main.py",
+      "card": "G1-DEGRADE + S3-STEP-GATE + M1-BRAINMAP + M2-ARCHIVE + S2-LEAD-GATE + LINK-HARDEN-20261029",
+      "owner": "session-912213b6-c2f3-4960-a203-71648b2aa1fb",
+      "reason": "运行面互锁降级（3 硬拦）、StepLoop gate 分级、ttl=0 语义、unknown 格继续、运行归档、lead_cells 日志（既有在途，owner 6719d8a0 同文件）；本轮叠加 LINK-HARDEN：① 启动契约/订阅清单比较走 canonical_topic_name（manual_gimbal 假红）② _warn_legacy_autostart 旧核自跑横幅（仅在 LEGACY_PATH=1 且旧核自跑开关为真时喊）；离线单测，不部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "config/robot.yaml",
+      "card": "AIM-LAT + SHOOT-LINK + P1-GEOM-TRUTH + LINK-HARDEN-20261029",
+      "owner": "9aff0fda-1af0-4272-b40b-52a154e23a12",
+      "reason": "P1 几何批（width_m 0.17、bridge_opening_m 0.33、bridge_wall_m 0.02、bridge_entry_redundancy_m 0.0；既有在途）；本轮叠加 LINK-HARDEN：path_executor.auto_start 真→假（常态假，旧核自跑需现场临时改真）+ 注释同步；只动这一处，标定/路线/几何键零改动；离线，不部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/tasks/mission.py",
+      "card": "MISSION-GATE-20261029",
+      "owner": "session-912213b6-c2f3-4960-a203-71648b2aa1fb",
+      "reason": "P2-T1 段完成劫持闸：新增 _travel_m/_update_travel/_segment_completion_gate（行驶距离 ≥ 段长×0.5 或 用时 ≥ 2 s，≤0.30 m 短段豁免，只对 _segment_active 的步进段生效）+ 三键 mission.segment_gate_min_m/ratio/min_s；P2-T2 reset_pose 起点口径以 field_layout.start 为唯一权威（无布局时旧语义逐位不变）；既有在途改动（AGC-T1 几何可信门 / FIRE 门 / 首步禁反向）原样保留未覆盖；离线单测，不部署",
+      "expires": "2026-11-05"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/tasks/drone.py",
+      "card": "MISSION-GATE-20261029",
+      "owner": "session-912213b6-c2f3-4960-a203-71648b2aa1fb",
+      "reason": "P2-T2 起点口径：新增 _apply_start_authority（三值对照 layout.start/belief(P_POSE)/odom(P_POSE_RAW) → 两两 > 半格 0.175 m 打 WARNING；首份带 start 的布局把 belief 写到 start 格心，只写一次不搬车）+ START_AUTHORITY_TOL_M 常量；既有在途改动（S1-CORRIDOR 走廊确认）原样保留未覆盖；离线单测，不部署",
+      "expires": "2026-11-05"
     }
   ]
 }

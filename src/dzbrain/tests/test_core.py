@@ -224,8 +224,10 @@ check_raises("关键键缺失即报错", ConfigError, missing.get, "route.tokens
 section("Config：t26 收口 —— drone.field_layout_wait_s 进 SCHEMA + 越界拦截 + 未知 drone.* 告警")
 spec_wait = SCHEMA.get("drone.field_layout_wait_s")
 check("SCHEMA 已登记 drone.field_layout_wait_s", spec_wait is not None)
-check("默认 30.0 s、范围 1..120",
-      spec_wait is not None and spec_wait.default == 30.0 and spec_wait.unit == "s"
+# ★ 2026-10-27 P1-GEOM-TRUTH：默认 30.0 → **60.0**（机端整片原生识别首帧常在 30~50 s
+#   才下发，30 s 会把"还没算完"误判成"没布局"）。范围与"越界必拦"的意图**不变**。
+check("默认 60.0 s、范围 1..120",
+      spec_wait is not None and spec_wait.default == 60.0 and spec_wait.unit == "s"
       and spec_wait.lo == 1.0 and spec_wait.hi == 120.0,
       f"{spec_wait}")
 cfg_wait = Config.from_dict({"drone": {"field_layout_wait_s": 30.0}})

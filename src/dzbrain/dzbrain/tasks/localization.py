@@ -25,8 +25,8 @@
    为什么要有这一步：纯轮式死推里程计会累积漂移，锚定把"每过一个已知航点"变成一次
    误差归零的机会；偏差不丢弃而是记进 `FixState`，P3 的 FixTask 才有估计素材。
 5. 漂移告警：单段漂移 > `pursuit.drift_warn_m` → `EV_DRIFT_WARNING`（`core.logging.Throttle` 限流）。
-6. ★★ **航向完整性守卫**（`_update_yaw_guard`，差速底盘模型，2026-10-19 task-44）：每拍用
-   **相邻两帧位姿**估 yaw 率，与差速包络 `max(spin, gain·v)` 比；超限/单帧跳变/IMU 矛盾
+6. ★★ **航向完整性守卫**（`_update_yaw_guard`，2026-10-19 task-44）：每拍用
+   **相邻两帧位姿**估 yaw 率，与偏航率**经验包络** `max(spin, gain·v)` 比；超限/单帧跳变/IMU 矛盾
    持续 `localization.yaw_bad_ticks` 个新帧 ⇒ 判「航向失去可信」，经 `P_MOTION_LIMIT` +
    `EV_TASK_FAULT` 请求停车（Safety 仍锁存）；连续 `yaw_clear_ticks` 个可信新帧后守卫自动复位。
 
@@ -94,13 +94,21 @@ _DRIFT_ESCALATE_MARGIN_M = 0.05
 # --------------------------------------------------------------------------- #
 #  ★★ 航向完整性守卫的默认阈值（现场可经 SCHEMA `localization.yaw_*` 覆盖）
 # --------------------------------------------------------------------------- #
-#: 差速底盘偏航率包络（2026-10-19 task-44「T-HEAD 航向闩锁修复」）：
+#: 偏航率**经验包络**（2026-10-19 task-44「T-HEAD 航向闩锁修复」）：
 #:   背景（2026-10-17 14:59 K9 事故）：IMU 地图 yaw 1.8 s 内 +90°→−78°（峰值 120.3°/s
 #:   @ 0.112 m/s）；旧版把 yaw 当"直接可用观测" ⇒ 下游一路用坏航向直到出界。
-#:   · 本车是差速底盘，可原地/低速转向 —— 不能用 Ackermann `v·tan(δmax)/L + 恒定 floor`；
-#:   · 低速/原地：允许 `yaw_diff_spin_dps`（差速原地转向能力，取 60°/s）；
-#:   · 随速度：底盘把舵角映射为左右轮差速，yaw 率与 v 成正比。A2 实测 79.8°/s @ v=0.19
-#:     ⇒ 420°/s per m/s；取 525（+25% 余量）作为包络增益；
+#:   ★ 2026-10-27 现场更正（旧注释写"本车是差速底盘，可原地转向"，是错的）：
+#:     本车是**阿克曼**底盘 —— `pursuitAngle.angular.z` 是**舵角(度)**（底盘侧
+#:     `servo=角+60` 夹到 ±35°），`pursuit/controller.py` 自己写的就是阿克曼自行车模型，
+#:     没有任何左右轮独立速度通道 ⇒ **不存在原地旋转**。名义最小转弯半径
+#:     `L/tan(δmax)=0.157/tan30°≈0.272 m`，掉头横向扫幅 ≈0.544 m（> 一格 0.35 m）。
+#:   · 但**本段的数值增益不因此改动**：`yaw_diff_gain_dps_per_mps=525` 是 A2 实测
+#:     79.8°/s @ v=0.19（≈420°/s per m/s）再加 25% 余量标定的**经验包络**，而 420 已高于
+#:     名义阿克曼极限 210.7°/s per m/s —— 说明实车 yaw 率不服从名义模型（含滑移/有效轴距
+#:     差异）。按名义值收紧会把实测到的真实运动判成"物理不可能"⇒ 假停车。
+#:     **结论：改前提（不能再假设原地转向），不改这个经验阈值；要改必须先用实车数据重标。**
+#:   · 低速/原地：仅作包络下限 `yaw_diff_spin_dps`（60°/s），**不代表车真能原地转**；
+#:   · 随速度：yaw 率与 v 成正比（当前取 525°/s per m/s，见上）；
 #:   · 包络 = `max(yaw_diff_spin_dps, yaw_diff_gain_dps_per_mps × v)`（v≥min_speed）；
 #:     v<min_speed 仍走静止判据 `yaw_static_dps`（停车后被转/被搬 = 不可信）；
 #:   · 单帧 yaw 跳变 > `yaw_jump_deg`（30°）⇒ 立即判故障（重定位/坐标跳变）；
@@ -187,10 +195,11 @@ class LocalizationTask(TaskThread):
         #: 现场若要调，改这一行即可（未登记 SCHEMA 是刻意的：本轮写域不含 core/config.py）。
         self.stuck_trust_dist_m = float(_STUCK_TRUST_DIST_M)
 
-        # ---- ★★ 航向完整性守卫（差速底盘模型；2026-10-19 task-44）----
+        # ---- ★★ 航向完整性守卫（偏航率经验包络；2026-10-19 task-44）----
         #: 总开关。关掉 ⇒ 行为与加本守卫前**逐位一致**（回归对照/带牙实验用）。
         self.yaw_guard_enabled = bool(cfg.get("localization.yaw_guard"))
-        #: 差速包络：低速原地能力 + 随速度的差速增益（v≥min_speed 时取 max）。
+        #: 经验包络：低速下限 + 随速度的增益（v≥min_speed 时取 max）。
+        #: **本车是阿克曼，不能原地旋转**；spin 只是数值下限，不是「原地转能力」。
         self.yaw_diff_gain_dps_per_mps = _cfg_float(
             cfg, "localization.yaw_diff_gain_dps_per_mps",
             _DEFAULT_YAW_DIFF_GAIN_DPS_PER_MPS)
@@ -269,6 +278,14 @@ class LocalizationTask(TaskThread):
         #: 把它沿**垂直方向**拉回折线（这一步按构造只会让"离线距离"变小）；
         #: 残差超过这个上限 ⇒ 不硬拉（那已经不是"横向噪声"而是"整段跑偏"），拒绝并请求降速。
         self.reanchor_pull_max_m = float(cfg.get("localization.reanchor_pull_max_m") or 0.35)
+        #: ★★横向重锚的**单拍步长上限**（米，2026-10-25 F5）：
+        #: 0.35 上限允许一次性把信念拽回 0.3 m 量级 —— 实车 run4 里 0.303 m 的"一步到位"
+        #: 制造了 0.313 m 的位姿突跳（> 0.20 m 突跳门限）→ FixTask 清窗 + 漂移护栏停机。
+        #: 改为**分拍收敛**：每拍最多拉回这么多，几拍内收敛到折线，单拍位移 < 突跳门限。
+        #: 0.12 = 与"到位吸附"同款上限（沿用实车标定口径），可按配置覆盖。
+        self.reanchor_step_max_m = float(cfg.get("localization.reanchor_step_max_m") or 0.12)
+        #: 收敛完成阈值（米）：剩余横向残差 ≤ 它即视为已拉回折线（默认 0.02 = 2 cm）。
+        self.reanchor_done_m = float(cfg.get("localization.reanchor_done_m") or 0.02)
         #: ★★「吸附掩盖尺度误差」闸（2026-10-11 实车标定教训）：
         #: 实车 17.9% 里程虚增时，**吸附每段归零**会让漂移告警一条都不出（实测 13/13 吸附、
         #: 0 告警），而真值早在终点前 69 cm —— "仅靠吸附不产生告警 ≠ 里程健康"。
@@ -290,6 +307,8 @@ class LocalizationTask(TaskThread):
         self._anchor_idx: int = -1          # 上一个"已吸附过"的航点索引（防同一航点反复锚）
         self._anchor_key: tuple | None = None   # 上次发过漂移告警的锚点（按航点，不按时间）
         self._reanchor_idx: int = -1        # 上一处已横向重锚过的顶点索引（防每拍重做）
+        self._reanchor_active: bool = False     # ★F5 分拍收敛进行中（残差 > 触发门限后继续拉）
+        self._reanchor_active_idx: int = -1     # 正在收敛的顶点索引（换顶点即作废）
         #: ★★ 横向漂移补偿（2026-10-11 实车标定第 3/4 趟：直线 4.55 m 右偏 10/11 cm ≈ 1.4°）
         #: 陀螺只测角速度，"恒定横漂"（车头与真实前进方向固定夹角）它测不到 ⇒
         #: 信念 yaw 永远等于陀螺 yaw，控制器自认为笔直、物理车却在平移侧滑。
@@ -404,7 +423,7 @@ class LocalizationTask(TaskThread):
         if anchored_pose is None and proj is not None and self.anchor_enabled:
             gate = self._warning_gate(proj)
             # ---------------- ④b ★横向重锚：只在"已知顶点窗口内"动手 ----------------
-            anchored_pose = self._reanchor(proj, cyaw, gate, now)
+            anchored_pose = self._reanchor(proj, cx, cy, cyaw, gate, now)
             if anchored_pose is None and gate is not None:
                 gidx, gwp = gate
                 self._report_drift(gwp.block, gidx, gwp.distance_to(cx, cy), now,
@@ -659,10 +678,10 @@ class LocalizationTask(TaskThread):
         return moved > self.arrival_m and proj.dist > self.stuck_dist_m
 
     # ------------------------------------------------------------------ #
-    #  ★★ 航向完整性守卫（差速底盘模型；2026-10-17 K9 事故，2026-10-19 task-44）
+    #  ★★ 航向完整性守卫（偏航率经验包络；2026-10-17 K9 事故，2026-10-19 task-44）
     # ------------------------------------------------------------------ #
     def _update_yaw_guard(self, pose, age: float, now: float) -> None:
-        """用**相邻两帧位姿**估 yaw 率，按差速底盘包络判航向是否可信。
+        """用**相邻两帧位姿**估 yaw 率，按偏航率经验包络判航向是否可信。
 
         ## 判据（三条闸 + 可恢复闩锁）
 
@@ -671,16 +690,19 @@ class LocalizationTask(TaskThread):
            （**不清**连续计数）；丢帧/卡顿（dt > 0.6 s）角速度算不准 ⇒ 跳过并清零。
         2. **位姿连续**：帧间位移/Δt ≤ `yaw_plausible_speed_mps`。超过它说明这一帧不是
            "车开过去的"（重定位、测试传送、坐标系切换），角速度没有物理意义 ⇒ 跳过。
-        3. **差速包络**（不再用 Ackermann `v·tan(δmax)/L`）：
+        3. **偏航率经验包络**（不用 Ackermann 名义值 `v·tan(δmax)/L`）：
            · 运动（v ≥ yaw_min_speed_mps）：
              `ω_max = max(yaw_diff_spin_dps, yaw_diff_gain_dps_per_mps × v)`
-             —— 低速允许原地转向（60°/s），随速度按左右轮差速比例放大
-             （A2 实测 79.8°/s @ 0.19 m/s ⇒ 420°/s per m/s，取 525 含 25% 余量）。
+             —— 60°/s 只是**数值下限**（低速噪声地板），不是「车能原地转」；
+             随速度线性放大（A2 实测 79.8°/s @ 0.19 m/s ⇒ ≈420°/s per m/s，取 525 含 25% 余量）。
+           · ⚠️ 为何不用阿克曼名义值：名义 210.7°/s per m/s 低于实测 ≈420，说明实车 yaw 率
+             含滑移/有效轴距差异；按名义收紧会把真实运动判成「物理不可能」⇒ 假停车。
+             本车**底盘**是阿克曼（不能原地转向），但**判据阈值**是实测标定的经验值，两者不矛盾。
            · 静止（v < yaw_min_speed_mps）：`ω_max = yaw_static_dps`（45°/s）。
              车没动却被"转"了 —— 只可能是被搬/被转或 yaw 链坏了。
         4. **单帧跳变**：`|Δyaw| > yaw_jump_deg`（30°）⇒ 立即判故障（重定位/坐标跳变）。
         5. **IMU 交叉核对**：位姿 yaw 率 > `yaw_imu_check_dps` 且 IMU |gz| < ratio×位姿率
-           ⇒ 判"链内部矛盾"（与差速包络无关，IMU 说没转就是不可信）。
+           ⇒ 判"链内部矛盾"（与包络值无关，IMU 说没转就是不可信）。
         6. **持续 N 帧**：超限/矛盾连续 `yaw_bad_ticks` 个新帧才判故障；单帧毛刺不刹。
 
         ## 闩锁与恢复（2026-10-19 改）
@@ -760,7 +782,7 @@ class LocalizationTask(TaskThread):
         self._trip_yaw_untrusted(v, rate, limit, now, mismatch=mismatch)
 
     def _yaw_limit_dps(self, v: float) -> float:
-        """当前速度下允许的 yaw 率上限（°/s）；差速底盘包络，理由见 `_update_yaw_guard`。"""
+        """当前速度下允许的 yaw 率上限（°/s）；经验包络，理由见 `_update_yaw_guard`。"""
         if v < self.yaw_min_speed_mps:
             return self.yaw_static_dps
         return max(self.yaw_diff_spin_dps,
@@ -802,7 +824,7 @@ class LocalizationTask(TaskThread):
                     f"但 IMU |gz|={imu_rate:.1f}°/s（v={v:.2f} m/s）⇒ 位姿/航向链内部不一致")
         else:
             reason = "yaw_rate_over_diff"
-            text = (f"yaw {rate:.1f}°/s > 差速包络 {limit:.1f}°/s（v={v:.2f} m/s，"
+            text = (f"yaw {rate:.1f}°/s > 包络上限 {limit:.1f}°/s（v={v:.2f} m/s，"
                     f"增益 {self.yaw_diff_gain_dps_per_mps:.0f}°/s per m/s，"
                     f"低速允许 {self.yaw_diff_spin_dps:.0f}°/s）")
         self._yaw_reason = reason
@@ -1185,7 +1207,7 @@ class LocalizationTask(TaskThread):
             "note": "吸附会掩盖尺度误差：漂移告警为 0 **不等于**里程健康",
         }
 
-    def _reanchor(self, proj, yaw: float, gate, now: float):
+    def _reanchor(self, proj, cx: float, cy: float, yaw: float, gate, now: float):
         """★横向重锚（"重锚/自愈"路径）：在**顶点窗口内**把信念的横向分量拉回折线。
 
         为什么只在顶点窗口内动手：**"误差变小才施加"**这条规则要落地，必须先知道
@@ -1200,11 +1222,16 @@ class LocalizationTask(TaskThread):
              按构造"离线距离 0 ≤ 原来的 dist"，即"误差确实变小了"。
         """
         if proj is None or self._path is None or gate is None:
+            self._reanchor_active = False
             return None
         lat = float(proj.dist)
-        if lat <= self.drift_warn_m:
-            return None                                  # ① 不制造误差：没必要动
         gidx, gwp = gate
+        # ★ 顶点换了 ⇒ 收敛状态作废（避免跨顶点沿用"正在拉回"标记）
+        if self._reanchor_active_idx != gidx:
+            self._reanchor_active = False
+            self._reanchor_active_idx = gidx
+        if lat <= self.drift_warn_m and not self._reanchor_active:
+            return None                                  # ① 不制造误差：没必要动
         if gidx == self._reanchor_idx:
             # ★ 同一顶点只重锚一次：它是**幂等的**（把信念投影到垂直足点），每拍重做不会更准，
             #   只会把计数和日志刷爆；换顶点后重新允许（与 `_anchor_idx` 同款闩锁）。
@@ -1214,15 +1241,34 @@ class LocalizationTask(TaskThread):
             self._refuse_anchor(gwp.block, gidx, lat, now,
                                 f"横向残差 {lat:.3f} m > 重锚上限 {self.reanchor_pull_max_m:.3f} m")
             return None
-        self._reanchor_idx = gidx
-        self.reanchored += 1
+        # ★★ F5（2026-10-25 实车 run4）：**分拍收敛**，而不是一步拽到足点。
+        #   run4 证据：残差 0.303 m 一次拉满 → 位姿突跳 0.313 m（> 0.20 门限）→
+        #   FixTask 判"清窗" + 漂移护栏 drift_run 累到 8 → drift_stop 停死。
+        #   现在每拍最多拉 reanchor_step_max_m（默认 0.12 m），几拍内收敛到
+        #   reanchor_done_m（默认 0.02 m），单拍位移 < 突跳门限；收敛完成才闩锁该顶点。
+        step = min(lat, self.reanchor_step_max_m)
+        frac = step / lat
+        tx = cx + (float(proj.x) - cx) * frac
+        ty = cy + (float(proj.y) - cy) * frac
+        remain = lat - step
+        done = remain <= self.reanchor_done_m
+        if done:
+            self._reanchor_idx = gidx
+            self._reanchor_active = False
+            self.reanchored += 1
+        else:
+            self._reanchor_active = True
         self.drift_run = 0
-        self._store_drift(geo.Pose(proj.x, proj.y, yaw), lat, now)
+        new_pose = geo.Pose(tx, ty, yaw)
+        self._store_drift(new_pose, remain, now)
         self.bus.publish(EV_POSE_ANCHORED, source=self.name, block=gwp.block, index=gidx,
-                         drift=round(lat, 4), x=round(proj.x, 4), y=round(proj.y, 4))
-        self._log(f"↩️ 横向重锚：{gwp.block}（航点 #{gidx}）横向残差 {lat:.3f} m"
-                  f" → 信念拉回折线 ({proj.x:.3f}, {proj.y:.3f})（只消横向分量）")
-        return geo.Pose(proj.x, proj.y, yaw)
+                         drift=round(lat, 4), step=round(step, 4),
+                         x=round(tx, 4), y=round(ty, 4))
+        if done or self._warn.allow("reanchor", now):
+            self._log(f"↩️ 横向重锚：{gwp.block}（航点 #{gidx}）横向残差 {lat:.3f} m"
+                      f" → 本拍拉回 {step:.3f} m（上限 {self.reanchor_step_max_m:.2f}）"
+                      f"，剩 {max(0.0, remain):.3f} m{'' if done else '，下拍继续'}")
+        return new_pose
 
     # ------------------------------------------------------------------ #
     #  ★信念漂移护栏：P_MOTION_LIMIT 的**写**侧

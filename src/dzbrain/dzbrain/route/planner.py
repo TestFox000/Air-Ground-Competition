@@ -105,6 +105,7 @@ __all__ = [
     # 双射击停站（对侧互备）：候选判据 + 引擎无关的 token 落标（t7，自动规划收口）
     "second_shoot_stop",
     "ensure_second_shoot_stop",
+    "check_shoot_stops",
     "shoot_stop_distance",
     "plate_side_of",
     "stop_distance_m",
@@ -643,7 +644,7 @@ def _phys_params(cfg: "Config | None") -> dict:
         return V._cfg_get(cfg, key, fallback)                             # noqa: SLF001
     return {
         "length_m": float(g("vehicle.length_m", 0.28)),
-        "width_m": float(g("vehicle.width_m", 0.135)),
+        "width_m": float(g("vehicle.width_m", 0.17)),
         "coverage_radius_m": float(g("vehicle.coverage_radius_m", 0.035)),
         "obstacle_radius_m": float(g("field.obstacle_radius_m", 0.1275)),
         "mine_pad_m": float(g("field.mine_pad_m", 0.12)),
@@ -652,7 +653,12 @@ def _phys_params(cfg: "Config | None") -> dict:
         "obstacle_margin_m": float(g("planner.obstacle_margin_m", 0.02)),
         "wheelbase_m": float(g("pursuit.wheelbase_m", 0.157)),
         "max_steer_deg": float(g("pursuit.max_steer_deg", 30.0)),
-        # 桥洞进洞侧冗余长度（= 1/4 格）；缺 key ⇒ 兜底常量（与 YAML 同值）
+        # 桥洞真实几何（2026-10-27 真值）：净开口 + 侧壁厚；缺 key ⇒ 兜底常量（与 YAML 同值）
+        "bridge_opening_m": float(
+            g("field.bridge_opening_m", _phys.DEFAULT_BRIDGE_OPENING_M)),
+        "bridge_wall_m": float(
+            g("field.bridge_wall_m", _phys.DEFAULT_BRIDGE_WALL_M)),
+        # 进洞侧冗余延长（现实不存在的设计冗余；现场 0.0 = 关闭）
         "bridge_entry_redundancy_m": float(
             g("field.bridge_entry_redundancy_m", BRIDGE_ENTRY_REDUNDANCY_M)),
         # 进洞前 1 格拐弯的惩罚（米）；缺 key ⇒ 兜底常量（与 YAML 同值）
@@ -1260,6 +1266,147 @@ def shoot_stop_distance(block: str, map_cfg: Any, *, source: str = "") -> float:
     return math.hypot(x - ctr_x, y - ctr_y)
 
 
+def check_shoot_stops(blocks: Sequence[str], spec: MapSpec,
+                      accept: tuple[float, float] | None = None, *,
+                      require_pair: bool = True) -> list[str]:
+    """核对射击停站；完整双面任务须两个不同合法点、各覆盖全靶且异侧。
+
+    复用候选、覆盖与板面判据，不另设距离/视线规则。局部分段可只验已声明
+    停站（``require_pair=False``），不会强迫 StepLoop 每段都包含两个站。
+    """
+    names = [str(block).strip().upper() for block in blocks]
+    problems: list[str] = []
+    if require_pair and len(names) != 2:
+        problems.append(f"双射击停站应为 2 个，实际 {len(names)} 个：{' '.join(names)}")
+    if len(set(names)) != len(names):
+        problems.append("射击停站重复：" + " ".join(names))
+    legal = set(shoot_candidates(spec, Grid(spec), accept))
+    cover = covering_stops(spec, [b for b in names if b in legal], accept)
+    for block in names:
+        if block not in legal:
+            problems.append(f"射击停站 {block} 不在合法候选中（雷/障碍/距离/视线）")
+        elif len(cover.get(block, ())) != len(spec.targets):
+            problems.append(f"射击停站 {block} 不能覆盖全部靶格 {'/'.join(spec.targets)}")
+    if require_pair and len(names) == 2 and all(b in legal for b in names):
+        sides = [plate_side_of(spec, block) for block in names]
+        if set(sides) != {-1, 1}:
+            problems.append(f"双射击停站必须分居板面两侧：{names} sides={sides}")
+    return problems
+
+def _opposite_excluded(spec: MapSpec, grid: Grid, block: str,
+                       accept: tuple[float, float] | None = None,
+                       *, pool: Sequence[str] = ()) -> list[tuple[str, str]]:
+    """板面另一侧「几何/距离都命中、但拿不到」的格 —— 逐格给出**排除原因**。
+
+    判据与 shoot_candidates() / covering_stops() 完全同源（板心窗口 + 覆盖全靶 +
+    异侧），只多一步「它为什么不在候选池里」：
+
+      · 雷格     —— shoot_candidates() 显式剔除 spec.mines；
+      · 障碍格   —— 同上剔除 spec.obstacles；
+      · 视线被挡 —— barrier_sight_blocked() 的隔板视线判据；
+      · 不可通行 —— Grid.passable() 的其他否决（K 列桥洞/隔板/边界）。
+
+    ★ 为什么必须算出来（而不是只说「没有合法点」）：第六图的真实情况是 F4 到板心
+      0.875 m、覆盖两靶 D5/D6，**而且本来就在路线上**（现役手写路线写的就是
+      F4*），它进不了池只因为「雷格不作停站」这条策略。只说「物理无解」会把操作员
+      引向「这图打不了两面」；事实是「规划器不落、人工可以落」。
+
+    :return: [(格名, 原因)]，按 (到板心距离, 格名) 升序 —— 确定性。
+    """
+    side = plate_side_of(spec, block)
+    if side == 0:
+        return []
+    lo, hi = shoot_distance_window(accept)
+    ctr_x, ctr_y = plate_center_m(spec)
+    in_pool = set(pool)
+    tgt = tuple(spec.targets)
+    rows: list[tuple[float, str, str]] = []
+    for row in range(1, geo.MAP_ROWS + 1):
+        for col in range(geo.MAP_COLS):
+            name = geo.index_to_block(row - 1, col)
+            if not name or name == block or name in tgt or name in in_pool:
+                continue
+            if plate_side_of(spec, name) != -side:
+                continue
+            try:
+                x, y = geo.block_to_meters(name)
+            except ValueError:
+                continue
+            dist = math.hypot(x - ctr_x, y - ctr_y)
+            if not (lo - 1e-9 <= dist <= hi + 1e-9):
+                continue
+            if any(not (lo - 1e-9 <= stop_distance_m(name, t) <= hi + 1e-9)
+                   for t in tgt):
+                continue
+            if name in spec.mines:
+                rows.append((round(dist, 9), name, "雷格"))
+            elif name in spec.obstacles:
+                rows.append((round(dist, 9), name, "障碍格"))
+            elif barrier_sight_blocked(spec, (x, y), (ctr_x, ctr_y)):
+                rows.append((round(dist, 9), name, "视线被挡"))
+            elif not grid.passable(row, col):
+                rows.append((round(dist, 9), name, "不可通行"))
+    # ★ 距离先 round(9) 再排序：F4/F7 这类对称格在 math.hypot 下会差 1 ulp，
+    #   不 round 会让"先列哪一个"变成浮点噪声的函数（实测 F7 抢在 F4 前面）。
+    rows.sort()
+    return [(name, why) for _d, name, why in rows]
+
+
+def _single_stop_degradation(spec: MapSpec, grid: Grid, block: str,
+                             accept: tuple[float, float] | None = None
+                             ) -> tuple[str, list[str]]:
+    """单停站**显式降级**的一句话原因（+ 对侧候选清单）。**只报不判死。**
+
+    ## 为什么单站不判死
+
+    check_route_structure() 的判据本来就是「1~2 个」
+    （if not 1 <= len(stops) <= 2，其注释写着「不再因此把整条路线判死」）。
+    CAR-DUAL-20261024 又在 plan_route() 末尾加了一道
+    check_shoot_stops(..., require_pair=True)，等于把口径改回「必须 2 个」
+    ⇒ 第六图这种「只有单侧合法站」的图**整趟判死**（实测 tokens=0、IDLE 不出车）。
+    本函数把两处口径统一：单站**放行**，但必须留下可追踪的降级理由
+    （进 warnings + PlanResult.degraded_reason，CLI 的 summary() 打印 🔶 行）。
+
+    ## 三个分支（**不许**把「本路线没兑现」说成「物理无解」）
+
+      1. 落在板心平面：plate_side_of() == 0 ⇒ 停站落在两靶连线上，板面侧无从判定；
+      2. 本路线未兑现：候选池里**有**「异侧且覆盖全靶」的格 ⇒ 是这条路没走到它；
+      3. 物理无解：池里没有 ⇒ 再逐格列出「几何命中但被策略排除」的格（雷/障/视线/
+         不可通行），让操作员一眼看清「规划器为什么不落、人工怎么补」。
+
+    :return: (note, opposite)。note 可直接进日志与 degraded_reason；
+        opposite = 「异侧且覆盖全靶」的候选格名（按 shoot_candidates() 的定序）。
+    """
+    if not block or not spec.targets:
+        return "", []
+    lo, hi = shoot_distance_window(accept)
+    side = plate_side_of(spec, block)
+    if side == 0:
+        return (f"单停站 {block}（落在板心平面：停站在靶 "
+                f"{'/'.join(spec.targets)} 的连线上 ⇒ 板面侧无从判定，"
+                f"蓝面朝哪一局都需临场判）", [])
+    pool = shoot_candidates(spec, grid, accept)
+    cover = covering_stops(spec, pool, accept)
+    opposite = [c for c in pool
+                if c != block and plate_side_of(spec, c) == -side
+                and len(cover.get(c, ())) == len(spec.targets)]
+    if opposite:
+        return (f"单停站 {block}（对侧有 {len(opposite)} 个『异侧且覆盖全靶』的合法候选 "
+                f"{' '.join(opposite[:4])}，但本路线未兑现 ⇒ 蓝面朝对侧那局打不到）",
+                opposite)
+    excluded = _opposite_excluded(spec, grid, block, accept, pool=pool)
+    if excluded:
+        detail = "、".join(f"{b}（{why}）" for b, why in excluded[:5])
+        first = excluded[0][0]
+        return (f"单停站 {block}（对侧没有可入池的合法候选：到板心 {lo:.2f}~{hi:.2f} m "
+                f"且覆盖全靶 {'/'.join(spec.targets)} 的对侧格只有 {detail}，"
+                f"都被候选策略排除 ⇒ 规划器不落第二站；"
+                f"要打另一面只能人工加星号（如 {first}*），蓝面朝对侧那局才打得着）", [])
+    return (f"单停站 {block}（对侧没有任何到板心 {lo:.2f}~{hi:.2f} m 且覆盖全靶 "
+            f"{'/'.join(spec.targets)} 的格 ⇒ 本图物理上不可双面停站，"
+            f"蓝面朝对侧那局打不到）", [])
+
+
 def ensure_second_shoot_stop(tokens: Sequence[str], map_cfg: Any,
                              cfg: "Config | None" = None, *,
                              source: str = "") -> tuple[list[str], str, str]:
@@ -1269,12 +1416,11 @@ def ensure_second_shoot_stop(tokens: Sequence[str], map_cfg: Any,
 
     靶板一面蓝一面红、蓝面朝向**每局随机但恒定**，只打蓝、打红扣分 ⇒ 路线必须在靶板
     **两侧各留一个射击停站**（`second_shoot_stop()` 的判据）。但"两个停站"在引擎里的
-    实现形态是**编译期顺手落标**（tracker-safe 的 `_compile`）——
-      · `tour` 引擎（缺省引擎）**没有这段落标**：它的 `plan_route()` 只标主停站；
-      · tracker-safe 的落标只在"候选格恰好是本路线上的普通航点"时生效，落不上只 warn。
-    ⇒ 任何一处退化，自动规划就**静默**给出"单停站路线"，蓝面朝错方向那一局整场打不到靶。
-    本函数是**引擎无关**的收口：拿一条已经规划好的 token 串，用与 `second_shoot_stop()`
-    完全同一份判据算出对侧候选；候选确实在路线上时，把那个 token 标成 `BLOCK*`。
+    历史实现只在 tracker-safe 编译期落标，tour 曾只标主停站，需调用方补标。
+    CAR-DUAL-20261024 起 tour 编译期也直接落双站，完整双面任务缺站即失败或显式降级。
+    本函数仍是**引擎无关**的收口：已有双站须通过合法性、全靶覆盖与异侧校验；
+    单站则复用 `second_shoot_stop()` 算对侧候选，候选确实在路线上才补 `BLOCK*`。
+    局部分段找不到对侧航点时只报告原因，保留原路线。
 
     ★ 为什么"零路径改动"是硬约束：候选格本来就是路线上的普通航点（现图 = `G3`，
     夹在 `F3` 与 `G4` 之间），标星只改"到站停不停"，**不动 token 个数/顺序/里程** ⇒
@@ -1304,13 +1450,16 @@ def ensure_second_shoot_stop(tokens: Sequence[str], map_cfg: Any,
     shoot_pos = [i for i, info in enumerate(parsed) if info["shoot"]]
     if not shoot_pos:
         return out, "", "路线没有任何射击停站（不补：补星号等于凭空加一个停车点）"
-    if len(shoot_pos) >= 2:
-        return out, "", ("已有 %d 个射击停站：%s"
-                         % (len(shoot_pos), " ".join(parsed[i]["block"] for i in shoot_pos)))
-    primary = parsed[shoot_pos[0]]["block"]
     spec = map_cfg if isinstance(map_cfg, MapSpec) else load_map(map_cfg, source=source)
     if not spec.targets:
         return out, "", "地图没有靶格（不需要射击停站）"
+    blocks = [parsed[i]["block"] for i in shoot_pos]
+    if len(shoot_pos) >= 2:
+        problems = check_shoot_stops(blocks, spec, _shoot_accept(cfg))
+        if problems:
+            raise PlannerError("射击停站校验失败：" + "；".join(problems))
+        return out, "", "已有合法双射击停站：" + " ".join(blocks)
+    primary = blocks[0]
     second = second_shoot_stop(spec, Grid(spec), primary, _shoot_accept(cfg))
     if not second:
         return out, "", ("第二停站无解：板面另一侧没有能覆盖全部靶格 %s 的候选格"
@@ -1318,6 +1467,9 @@ def ensure_second_shoot_stop(tokens: Sequence[str], map_cfg: Any,
     idx = next((i for i, info in enumerate(parsed) if info["block"] == second), None)
     if idx is None:
         return out, "", f"对侧候选 {second} 不在本路线上（不擅自改路线 ⇒ 仍是单停站）"
+    problems = check_shoot_stops([primary, second], spec, _shoot_accept(cfg))
+    if problems:
+        raise PlannerError("射击停站校验失败：" + "；".join(problems))
     info = parsed[idx]
     token = ("R:" if info["reverse"] else "") + info["block"] + _SHOOT_SUFFIX
     if info["scan"]:
@@ -2696,8 +2848,8 @@ def _insert_second_sided(tour: "_Tour", order: list[tuple[int, int]],
     """第二射击停站：作为**普通航点**插入（不收口时也保留路径形状）。
 
     物理依据（用户 2026-10-21 确认）：靶=1:1 圆面 + 35×70 跨格板，沿 0.70 m 轨道
-    水平横移、不旋转不翻面 ⇒ 相邻两格都要留可打停站。停站本身不标 `*`，由收口
-    `ensure_second_shoot_stop()` 统一落星（保持"只加星、零路径改动"的旧语义）。
+    水平横移、不旋转不翻面 ⇒ 相邻两格都要留可打停站。本函数只插入普通航点，
+    由 tour 编译期落星；`ensure_second_shoot_stop()` 保留校验与兼容补标入口。
     """
     cell = _cell(block)
     if cell in order:
@@ -2905,6 +3057,10 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
     missing_mines: list[str] = []
     shoot_missing = False
     no_shoot_possible = False
+    # RECT-PLAN-FIX-20261026：单站降级理由（空 = 本路线不是单站 / 本图不是多格靶板）。
+    #   ★ 必须**逐候选重算**（else 分支显式清空），否则被否决候选的 note 会残留给
+    #     后面采纳的双站产物。
+    single_stop_note = ""
     deadline = t0 + max(0.05, float(max_seconds))
     if pivot_penalty is None:
         pivot_penalty = float(V._cfg_get(cfg, "planner.pivot_penalty", 0.0) or 0.0)   # noqa: SLF001
@@ -3195,6 +3351,8 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         _keep |= set(mines_lower) | set(mines_upper)
         if _shoot:
             _keep.add(_cell(_shoot))
+        if _second:
+            _keep.add(_cell(_second))
         _stops: list[_Stop] = [_Stop(start_cell[0], start_cell[1], spec.start,
                                      heading=start_heading, tag="start")]
         _cost = 0.0
@@ -3241,14 +3399,14 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                 _st.tag = "lower_bridge"
             elif (_st.row, _st.col) == cross_upper_cell:
                 _st.tag = "upper_bridge"
-        if _shoot:
+        for _shoot_block in (_shoot, _second):
+            if not _shoot_block:
+                continue
             for _st in _stops:
-                if _st.block == _shoot:
+                if _st.block == _shoot_block:
                     _st.shoot = True
                     _st.tag = "shoot"
                     break
-            else:                                   # pragma: no cover - 防御性
-                raise PlannerError(f"内部错误：射击点 {_shoot} 不在编译后的路线里")
 
         _fixes = _fix_uturn_reverse(_stops) if allow_reverse else 0
         _stops = _merge_duplicate_stops(_stops)
@@ -3264,6 +3422,24 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
                                          allow_no_stop=(objective == OBJECTIVE_TASKS
                                                         and (shoot_missing
                                                              or no_shoot_possible)))
+        # CAR-DUAL-20261024：完整 tour 产物自己兑现双站，不依赖 CLI/Mission 补星。
+        # 无法兑现时沿用 legacy 报错 / tasks 显式 degraded，不能单站伪装成功。
+        # ★ RECT-PLAN-FIX-20261026：本段口径与 check_route_structure() 的「1~2 个」统一。
+        #   旧写法是无条件 check_shoot_stops(...)（默认 require_pair=True）⇒ 把
+        #   「只有单侧合法站」的图（第六图）**整趟判死**，与上面 allow_no_stop 那段
+        #   自相矛盾。现口径：
+        #     · 2 个  ⇒ **全量校验**（异侧 / 去重 / 全靶覆盖，一条都不放松）；
+        #     · 1 个  ⇒ 放行，但**显式降级**（degraded + degraded_reason + warnings）；
+        #     · 0 个 / 3 个以上 ⇒ 沿用原判据（不扩大爆炸半径：0 停站的 tasks 兜底
+        #       路径与「多余星号」仍按旧行为判）。
+        _stop_blocks = [wp.block for _i, wp in _route.shoot_points()]
+        if len(spec.targets) >= 2:
+            if len(_stop_blocks) == 1:
+                single_stop_note, _opposite = _single_stop_degradation(
+                    spec, grid, _stop_blocks[0], _shoot_accept(cfg))
+            else:
+                single_stop_note = ""
+                problems.extend(check_shoot_stops(_stop_blocks, spec, _shoot_accept(cfg)))
         # ★★【硬校验】隔板相邻行的"侧向 90° 转向"—— 与结构自检同层：
         #   只在 `barrier_turn_penalty > 0`（显式启用）时生效；默认 0.0 ⇒ 恒空、零影响。
         _bturns: list[str] = []
@@ -3291,6 +3467,9 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         barrier_turns = _bturns
         route = _route
         break
+    if route is not None and single_stop_note:
+        # 只给**最终采纳**的那条路线记一次（被否决候选的 note 不进 warnings）
+        warnings.append("单站降级（仅 1 个射击停站）：" + single_stop_note)
     if route is None:
         if objective == OBJECTIVE_TASKS:
             reason = ("缺停站" if (shoot_missing or no_shoot_possible) else
@@ -3322,7 +3501,10 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
 
     crossing = {"lower": lower_cross, "upper": upper_cross}
     tokens = route_tokens(route)
-    shoot_at = next((wp.block for _, wp in route.shoot_points()), "")
+    shoot_blocks = [wp.block for _, wp in route.shoot_points()]
+    shoot_at = shoot_blocks[0] if shoot_blocks else ""
+    shoot_at2 = shoot_blocks[1] if len(shoot_blocks) > 1 else ""
+    shoot_dist2 = shoot_stop_distance(shoot_at2, spec) if shoot_at2 else 0.0
     shoot_dist = 0.0
     shoot_targets: tuple[str, ...] = ()
     if shoot_at:
@@ -3349,12 +3531,17 @@ def plan_route(map_cfg: Any, cfg: Config | None = None, *,
         _reasons.append("缺雷 " + " ".join(_lost))
     if spec.targets and not tasks_stops:
         _reasons.append("缺停站")
+    if single_stop_note:
+        # RECT-PLAN-FIX-20261026：单站是**显式降级**（不是通过）—— 理由进返回值，
+        #   CLI 的 summary() 打印 🔶 行、mission 的日志同时带出，不靠口头传播。
+        _reasons.append(single_stop_note)
     degraded = bool(_reasons)
     degraded_reason = "；".join(_reasons)
 
     return PlanResult(
         route=route, tokens=tokens, stops=tuple(stops), crossing=crossing,
         shoot_stop=shoot_at, shoot_distance_m=float(shoot_dist),
+        shoot_stop2=shoot_at2, shoot_distance_m2=float(shoot_dist2),
         shoot_targets=shoot_targets, cost=cost, expanded=tour.settled,
         elapsed_ms=(time.perf_counter() - t0) * 1000.0,
         reverse_segments=sum(1 for wp in route.waypoints if wp.reverse),
@@ -3651,12 +3838,16 @@ TS_PARETO_KEEP = 2
 #:   （旧值 5.0 s 是 PC 实测 1.5 s 年代的；第七趟实车就是被这个 5 s 卡住而回退手工路线。）
 TS_MAX_SECONDS = 10.0
 
-#: 桥洞**进洞侧冗余墙**的兜底长度（米）= **1/4 格** = 0.35 × 0.25 = 0.0875。
-#: 语义与几何见 `physics.bridge_entry_walls()`：把桥室南北壁沿 y 向进洞侧虚拟延长这段长度，
-#: 逼车"进洞前 1/4 格内已经摆正"。**这段墙现实中不存在**（设计冗余）。
+#: 桥洞**进洞侧冗余延长**的兜底值（米）—— **2026-10-27 现场已置 0.0 = 关闭**。
+#: 旧设计（t4，2026-10-16）= 1/4 格 = 0.0875，把桥室南北壁沿 y 向进洞侧**虚拟**延长，
+#: 逼车"进洞前 1/4 格内已经摆正"；**这段墙现实中不存在**，实测它让规划器多拿 2.75 cm
+#: 假余量（0.0875 冗余 + 0.01 桥室内缘误差）⇒ 拐角/横向穿行必然负余量却仍"看起来可行"。
+#: ★ 现在桥洞是**真实墙**（`field.bridge_opening_m` = 0.33 / `field.bridge_wall_m` = 0.02），
+#:   内缘 ±0.165 由 `physics.bridge_entry_walls()` 直接给出；本键只作"再往前延长"的可回退冗余。
+#:   注意 `0.0` 不等于"没有墙"：墙段仍覆盖桥室自身 y 跨度（旧实现的零长线段坑已修）。
 #: 真源是 `config/robot.yaml: field.bridge_entry_redundancy_m`（本常量只在缺 config 时兜底，
 #: 与 `planner.obstacle_margin_m` / `barrier_width_m` 等键同一套"签名兜底值"惯例）。
-BRIDGE_ENTRY_REDUNDANCY_M = 0.0875
+BRIDGE_ENTRY_REDUNDANCY_M = 0.0
 #: ★ 判据容差（米）：间隙必须 **> 本值**才算通过。
 #: ⚠️ 为什么必须严格大于 0 而不是 `>= 0`：本模块的距离口径是"**重叠 = 0**"
 #:   （`physics._seg_seg_distance` / `polygon_distance_m` 都这么写）⇒ 写成 `>= 0` 会
@@ -3770,14 +3961,21 @@ class _TSGrid:
         #:   ⇒ 车在这个格里**横向**穿行/拐弯时余量只剩 ~2 cm，必然蹭墙（见
         #:   `entry_cell_crossed_sideways()` 的实测证据）。沿桥洞轴（y）穿行则余量 0.1075 m。
         self.entry_adjacent: dict[tuple[int, int], tuple[int, int]] = {}
-        if self.entry_redundancy_m > 0.0:
-            for _r in _bridges:
-                _blk = geo.index_to_block(int(_r) - 1, _CROSS_COL)
-                self.entry_walls[(_r, _CROSS_COL)] = _phys.bridge_entry_walls(
-                    _blk, self.entry_redundancy_m)
-                # 进洞方向由 row 决定（与 `physics.bridge_entry_walls()` 同一约定）：
-                #   下半场（row_idx >= 6）向西穿 ⇒ 从**东侧**踏进（col+1）；
-                #   上半场（row_idx < 6）向东穿 ⇒ 从**西侧**踏进（col-1）。
+        # ★ 2026-10-27：墙是**真实墙**（净开口 0.33 + 壁厚 0.02），所以**无条件建**，
+        #   不能再挂在 `entry_redundancy_m > 0` 上 —— 否则现场把冗余归零时，
+        #   进洞侧判据会**整体消失**（真墙也跟着没了），这是静默的安全回退。
+        _opening = float(self.phys.get("bridge_opening_m", _phys.DEFAULT_BRIDGE_OPENING_M))
+        _wall = float(self.phys.get("bridge_wall_m", _phys.DEFAULT_BRIDGE_WALL_M))
+        for _r in _bridges:
+            _blk = geo.index_to_block(int(_r) - 1, _CROSS_COL)
+            self.entry_walls[(_r, _CROSS_COL)] = _phys.bridge_entry_walls(
+                _blk, self.entry_redundancy_m, opening_m=_opening, wall_m=_wall)
+            # 进洞方向由 row 决定（与 `physics.bridge_entry_walls()` 同一约定）：
+            #   下半场（row_idx >= 6）向西穿 ⇒ 从**东侧**踏进（col+1）；
+            #   上半场（row_idx < 6）向东穿 ⇒ 从**西侧**踏进（col-1）。
+            # ⚠️ `entry_adjacent`（入口邻格禁横向穿行）的前提是"冗余墙戳进邻格"，
+            #   冗余 = 0 时墙不越出桥室 ⇒ 该判据**不再启用**（保留其物理前提，不硬凑）。
+            if self.entry_redundancy_m > 0.0:
                 _dy = 1 if (int(_r) - 1) >= _phys.BRIDGE_ENTRY_LOWER_ROW_IDX else -1
                 self.entry_adjacent[(int(_r), _CROSS_COL + _dy)] = (int(_r), _CROSS_COL)
         self._legal: dict[tuple, bool] = {}
@@ -3894,9 +4092,13 @@ class _TSGrid:
           冗余墙把桥室南北壁向进洞侧延长，落点正好压进**入口邻格**里 ——
           K9 的墙 `y∈[0.9625,1.05]` 落在 `L9` 格内、K5 的墙 `y∈[1.4000,1.4875]` 落在 `J5` 格内。
           于是车只要**横向**穿行该格（或在该格拐弯），车身与墙的余量只剩
-          `0.175 − 0.135/2 − 0.175/2 ≈ 0.02 m`；而纯追踪的横向跟踪误差 RMS 约 0.05 m
+          `0.175 − 0.17/2 − 0.175/2 ≈ 0.0025 m`（2026-10-27 真值：车宽 0.135→0.17 后
+          从旧算式的 ≈0.02 m 掉到 ≈2.5 mm）；而纯追踪的横向跟踪误差 RMS 约 0.05 m
           ⇒ **必然**蹭墙。
-          反之，沿桥洞轴（y）穿行时余量是 `0.175 − 0.0675 = 0.1075 m` ≫ 0.05 m ⇒ 安全。
+          反之，沿桥洞轴（y）穿行时走的是**净开口**，真值余量 `(0.33 − 0.17)/2 = 0.080 m`
+          ≫ 0.05 m ⇒ 安全（旧口径 0.1075 m 是"整格无墙 + 车宽 0.135"的虚高值）。
+          ⚠️ 本判据（`entry_adjacent`）只在 `bridge_entry_redundancy_m > 0` 时启用：
+          它的物理前提就是"冗余墙越出桥室进入邻格"，冗余归零后墙不越界，判据随之关闭。
 
           实测印证（全部来自夹具/实测扫描，见 artifacts）：
             · `L10→L9→K9`（L9 横向进）= **124 拍**；`M10→M9→L9→K9`（L9 纵向进）= **0 拍**；

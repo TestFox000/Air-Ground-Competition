@@ -61,6 +61,23 @@ _B = bool
 #  新版 SCHEMA（P0 范围；P1/P2/P3 继续追加）
 # --------------------------------------------------------------------------- #
 SCHEMA: dict[str, Spec] = {
+    # Offline continuous-trajectory candidates. These keys only participate
+    # when compute_command receives an explicitly compiled Trajectory.
+    # Existing Path callers and robot.yaml defaults remain unchanged.
+    "pursuit.trajectory_lateral_gain": Spec(1.2, _F, "1/s", 0.01, 10.0,
+                                            "连续轨迹 Frenet 横向反馈增益（未实车标定）"),
+    "pursuit.trajectory_heading_gain": Spec(1.0, _F, "", 0.01, 5.0,
+                                            "连续轨迹航向反馈增益（未实车标定）"),
+    "pursuit.trajectory_progress_gain": Spec(1.0, _F, "1/s", 0.01, 5.0,
+                                             "连续轨迹沿程位置误差反馈增益"),
+    "pursuit.trajectory_soft_speed_mps": Spec(0.10, _F, "m/s", 0.01, 1.0,
+                                              "连续轨迹低速反馈正则项"),
+    "pursuit.trajectory_accel_up_mps2": Spec(0.5, _F, "m/s²", 0.01, 3.0,
+                                             "候选轨迹加速度硬上限"),
+    "pursuit.trajectory_accel_down_mps2": Spec(0.7, _F, "m/s²", 0.01, 3.0,
+                                               "候选轨迹减速度硬上限"),
+    "pursuit.trajectory_jerk_max_mps3": Spec(1.0, _F, "m/s³", 0.01, 10.0,
+                                             "候选轨迹纵向 jerk 硬上限"),
     # ---------------- 循迹几何与限幅（旧代码里全是硬编码，现在全部可配） ----
     "pursuit.wheelbase_m": Spec(0.157, _F, "m", 0.05, 0.60,
                                 "轴距（自行车模型）。旧代码硬编码 0.157"),
@@ -191,8 +208,8 @@ SCHEMA: dict[str, Spec] = {
     #  现场一量尺寸就得改多处。现在全部收口到这里，公式放 `route/physics.py`。
     "vehicle.length_m": Spec(0.28, _F, "m", 0.10, 1.00,
                              "车体长（沿车头方向；现场实测 0.28）"),
-    "vehicle.width_m": Spec(0.135, _F, "m", 0.05, 0.60,
-                            "车体宽（现场实测 0.135；扫掠/挡板判据都用它的一半）"),
+    "vehicle.width_m": Spec(0.17, _F, "m", 0.05, 0.60,
+                            "车体宽（现场实测 0.17，2026-10-27 真值；扫掠/挡板判据都用它的一半）"),
     "vehicle.coverage_radius_m": Spec(0.035, _F, "m", 0.005, 0.20,
                                       "★车心假设圆半径（压雷判据：车心到垫片 ≤ 此值算压到）"),
     # 参考点偏移（现场卷尺实测 2026-10-11）
@@ -211,16 +228,23 @@ SCHEMA: dict[str, Spec] = {
                                   "挡板厚度（第 6/7 行之间的细条；半厚 0.01 进触线判据）"),
     "field.barrier_cols": Spec("D..N", _S, "", None, None,
                                "挡板覆盖的列（含两端；现场 D..N = 11 列 = 3.85 m）"),
-    # 桥洞**进洞侧**冗余长度（虚拟墙延长段）。
-    #   设计规格（用户 2026-10-16）：只加进洞侧，长度 = **1/4 格** = 0.35 × 0.25 = 0.0875 m。
-    #   为什么给上限 0.35：超过一整格时"冗余墙"会伸进邻格、与邻格语义打架（1/4 格是设计值，
-    #   上限留到一整格只为现场微调；真的需要更长就该改桥洞几何而不是抬这个键）。
+    # ---------------- ★ 桥洞几何（2026-10-27 现场实测真值 · P1-GEOM-TRUTH）----------------
+    #   现实：桥洞侧壁是**真实存在**的 0.02 m 厚墙，居中压在格边界线上
+    #     ⇒ 净开口 = 格宽 0.35 − 墙厚 0.02 = **0.33**；墙心 = 格心 ± (0.33/2 + 0.02/2) = ±0.175；
+    #     ⇒ 车必须让开的是**内缘** ±0.165；车宽 0.17 居中穿洞的横向真值余量 = **0.080 m**。
+    #   旧实现把桥室当"整格无墙"（内缘 ±0.175，多给 0.01/侧），故现场一量就发现拐角余量为负。
     #   消费者：`route/physics.py: bridge_entry_walls()`（几何）与
-    #   `route/planner.py: _TSGrid`（tracker-safe 引擎的进洞侧判据，兜底常量
-    #   `planner.BRIDGE_ENTRY_REDUNDANCY_M` 与本默认值同值）。
-    #   ⚠️ 这段墙**现实不存在**（设计冗余），**不得**加进 `tools/route_check.py` 的用户侧判据。
-    "field.bridge_entry_redundancy_m": Spec(0.0875, _F, "m", 0.0, 0.35,
-                                            "桥洞进洞侧冗余长度（= 1/4 格，虚拟墙延长）"),
+    #   `route/planner.py: _TSGrid`（tracker-safe 引擎的进洞侧判据）及 `tools/sim.py: FieldObs`。
+    "field.bridge_opening_m": Spec(0.33, _F, "m", 0.10, 0.35,
+                                   "桥洞净开口宽（= 格宽 0.35 − 墙厚 0.02；现场实测 0.33）"),
+    "field.bridge_wall_m": Spec(0.02, _F, "m", 0.0, 0.10,
+                                "桥洞侧壁厚度（居中压在格边界线上；与挡板同料同厚）"),
+    # 进洞侧冗余延长量（**现实不存在**的设计冗余，旧 t4 设计；现场已置 0 = 关闭）。
+    #   保留键与实现只为可回退。`> 0` 时把侧壁内缘沿 y 向进洞侧再延长该长度；
+    #   `0.0` 时墙段恰好覆盖桥室自身 y 跨度（**不是**零长线段 —— 零长线段会误报，
+    #   见 `physics.bridge_entry_walls()` 文件头注释里记的坑）。
+    "field.bridge_entry_redundancy_m": Spec(0.0, _F, "m", 0.0, 0.35,
+                                            "桥洞进洞侧冗余延长（现实不存在的设计冗余；0=关闭）"),
     "planner.obstacle_margin_m": Spec(0.02, _F, "m", 0.0, 0.30,
                                       "障碍净空余量（规划/校验共用；判据 = r + 车半宽 + 此值）"),
 
@@ -499,17 +523,27 @@ SCHEMA: dict[str, Spec] = {
     #  背景（_tmp_session/adjudication_t1_t4/裁决书.md §3.4/§4）：14:59:31.8 K9 处 IMU 地图
     #  yaw 90°→−78°（−168°/1.8 s，峰值 120.3°/s @ 轮速 0.112 m/s = Ackermann 上限的 5.08 倍），
     #  比投影跳变早 5.4~7.4 s；停车后静止期还有 169.2°/s 的 yaw 跳变。当时代码对"物理上
-    #  不可能的航向变化"没有任何判据 ⇒ 下游一路用坏航向。以下 10 键即该判据的阈值。
+    #  不可能的航向变化"没有任何判据 ⇒ 下游一路用坏航向。以下 12 键即该判据的阈值。
     #  ⚠️ 全部 default = 代码兜底值（tasks/localization.py 模块常量），现场可在 robot.yaml 覆盖。
+    #  ★2026-10-27 键口径收口：旧版这里混着两批坏键 ——
+    #    · 3 个**从没被读过**的死键（yaw_kin_margin / yaw_rate_floor_dps / yaw_abs_floor_dps，
+    #      属已废弃的阿克曼包络方案）⇒ 现场调它们完全无效，已删除；
+    #    · 5 个**代码一直在读却没登记**的键（yaw_diff_gain / yaw_diff_spin / yaw_jump_deg /
+    #      yaw_clear_ticks / yaw_imu_check_dps）⇒ 默认值飘在代码里、自检看不见，已补登。
+    #    现在 SCHEMA 与代码读取**一一对应**，由 test_localization §⑫.0 的读写闭环断言守住。
     "localization.yaw_guard": Spec(True, _B, "", None, None,
                                    "★航向完整性守卫总开关（关掉 = 行为回到 2026-10-17 之前）"),
-    "localization.yaw_kin_margin": Spec(1.25, _F, "", 1.0, 3.0,
-                                        "★运动学上限安全系数：ω_max = margin×v×tan(δmax)/L"
-                                        "（v=0.35 时 73.7°/s → 92°/s）"),
-    "localization.yaw_rate_floor_dps": Spec(8.0, _F, "°/s", 0.0, 60.0,
-                                            "★加在运动学上限上的绝对余量（量化噪声/舵角超调）"),
-    "localization.yaw_abs_floor_dps": Spec(20.0, _F, "°/s", 0.0, 90.0,
-                                           "★动态判据的绝对下限：低速蠕动时也允许的 yaw 率"),
+    "localization.yaw_diff_gain_dps_per_mps": Spec(525.0, _F, "°/s per m/s", 50.0, 2000.0,
+                                                    "★移动期包络增益：ω_max = max(spin, 本值×v)。"
+                                                    "525 = A2 实测 79.8°/s @ 0.19 m/s（≈420）含 25% 余量"),
+    "localization.yaw_diff_spin_dps": Spec(60.0, _F, "°/s", 0.0, 300.0,
+                                          "★包络下限（低速噪声地板）；**不代表车能原地旋转**（本车阿克曼）"),
+    "localization.yaw_jump_deg": Spec(30.0, _F, "°", 1.0, 180.0,
+                                      "★单帧 yaw 跳变阈值：超过即判重定位/坐标跳变，立即故障"),
+    "localization.yaw_clear_ticks": Spec(20, _I, "帧", 1, 200,
+                                         "★连续多少个可信新帧后自动复位守卫（5 Hz 下 20 帧≈4 s）"),
+    "localization.yaw_imu_check_dps": Spec(30.0, _F, "°/s", 0.0, 300.0,
+                                           "★低于该角速度不做 IMU 交叉核对（噪声区，避免误判矛盾）"),
     "localization.yaw_static_dps": Spec(45.0, _F, "°/s", 5.0, 180.0,
                                         "★静止期（v<yaw_min_speed）允许的 yaw 率上限：事故静止段"
                                         "实测 169.2°/s，正常停车漂移 <5°/s"),
@@ -536,15 +570,24 @@ SCHEMA: dict[str, Spec] = {
     "drone.car_state_period_s": Spec(0.7, _F, "s", 0.1, 10.0, "车状态周期上报间隔"),
     "drone.ack_enabled": Spec(True, _B, "", None, None, "收到需确认消息时回 ack"),
     "drone.field_diff_max": Spec(8, _I, "条", 0, 100, "靶区/雷障核对差异条数上限"),
-    "drone.field_layout_wait_s": Spec(30.0, _F, "s", 1.0, 120.0,
-                                      "启动等待无人机布局的上限；超时 exit 3"),
+    # ★ 2026-10-27 P1-GEOM-TRUTH 同批（M1/S1 前置）：30 → **60 s**。
+    #   理由：机端整片原生识别（task-28 路径）首帧布局常在 30~50 s 才下发；30 s 会在
+    #   布局到来前就 exit 3，把"还没算完"误判成"没布局"。上限仍 120 s，0.0 不许（启动必须有限）。
+    "drone.field_layout_wait_s": Spec(60.0, _F, "s", 1.0, 120.0,
+                                      "启动等待无人机布局的上限；超时 exit 3（2026-10-27: 30→60）"),
     "step.wait_timeout_s": Spec(0.0, _F, "s", 0.0, 3600.0,
                                     "WAIT_INFO 等待上限；0=不限时（一直等下一份布局）"),
     # ★AGC-20 F1/F8（2026-10-25）：两个键原本只被代码 cfg.get() 读、**不在 SCHEMA** ⇒
     #   默认值飘在代码里、自检看不见。TTL 判据 = 距"最近一帧被接受的布局"（含同版心跳，
     #   见 DroneTask.layout_arrivals）；0 = 关闭新鲜度门（D-022 的完整布局例外另算）。
-    "step.layout_ttl_s": Spec(4.0, _F, "s", 0.0, 120.0,
-                              "布局新鲜度门：距最近一帧布局超过该秒数 ⇒ WAIT_INFO(layout_stale)"),
+    # ★ 2026-10-27 P1-GEOM-TRUTH 同批（M1/S1 前置）：4.0 → **0.0 = 关闭新鲜度门**。
+    #   理由：机端是"边侦察边下发"，同一份布局在 WAIT_INFO 期间本就不会刷新；
+    #   4 s 门会把**合法的一次性布局**在等待下一段时反复判 stale 并回退 WAIT_INFO，
+    #   形成"等布局 → 判过期 → 继续等"的空转。TTL 归零后由 `step.wait_timeout_s`
+    #   （0 = 一直等）与段完成单重发（`step.done_replay_s`）共同兜住节奏。
+    #   要恢复旧行为把本键写回 4.0 即可（0 = 关闭，不是"立即过期"）。
+    "step.layout_ttl_s": Spec(0.0, _F, "s", 0.0, 120.0,
+                              "布局新鲜度门：距最近一帧布局超过该秒数 ⇒ WAIT_INFO(layout_stale)；0=关闭"),
     # D1b 完成单 1 Hz 重发间隔（WAIT_INFO 等新布局期间），0=关。
     "step.done_replay_s": Spec(1.0, _F, "s", 0.0, 60.0,
                                "段完成单在 WAIT_INFO 期间的重发周期；0=不重发"),
@@ -715,7 +758,7 @@ class Config:
             # ---- ★ 物理几何真源迁移（真 bug 修复，2026-10-16）----
             #   真源在 `/dzactuator` 段（vehicle.* / field.*，见 robot.yaml:749-769），
             #   而 planner.py / sim.py / route_check 读**规范名** `vehicle.*` / `field.*`。
-            #   缺这组映射时规范名恒吃 SCHEMA 默认（0.28/0.135/0.1275…）⇒ 现场改尺寸被静默忽略（P0）。
+            #   缺这组映射时规范名恒吃 SCHEMA 默认（0.28/0.17/0.1275…）⇒ 现场改尺寸被静默忽略（P0）。
             #   仅 mission.py 曾用 `_f((dzactuator.*, vehicle.*))` 双键兜底读对，其余消费者全断。
             #   迁移后规范名从 dzactuator 段取真值，两端一致，零行为变化（现值恰等于默认）。
             "vehicle.length_m": ["dzactuator.vehicle.length_m"],

@@ -393,8 +393,10 @@ check("6.8 ③ 追踪期间持续下发云台指令（lead/位置序列非空）
       f"leads={len(d.bridge.leads)} 末值={d.bridge.leads[-1] if d.bridge.leads else None}")
 check("6.9 ③ 追踪期间扫描开关**保持** 2（不来回切）",
       d.scans()[-1] == SEEK, f"scans={d.scans()[-3:]}")
-check("6.10 ③ aim 绝不写 fire_gate（仍是 Mission 的钥匙）",
-      d.bridge.fire_gate.count(True) == 0 or True, f"gate={d.bridge.fire_gate[-3:]}")
+gates_before_aim = list(d.bridge.fire_gate)
+d.aim.tick()
+check("6.10 ③ aim 单独运行不写 fire_gate（仍是 Mission 的钥匙）",
+      d.bridge.fire_gate == gates_before_aim, f"gate={d.bridge.fire_gate[-3:]}")
 check("6.11 ③ aim 侧许可：fire_ready=True（追稳即给许可）",
       True in d.bridge.fire_ready, f"fire_ready 末值={d.bridge.fire_ready[-1] if d.bridge.fire_ready else None}")
 check("6.12 ③ 黑盒 P_AIM.fire_gate = True（遥测可读）",
@@ -452,6 +454,97 @@ d2.step()
 d2.step()
 check("6.18 对照档 lock=false：Mission 照旧按 scan_mode 下发 2（旧行为回退可用）",
       d2.mission._scans[:1] == [SEEK], f"mission_scans={d2.mission._scans[:2]}")
+
+
+section("7. CAR-GATE：许可心跳与离站撤销（复用同车 DualRig）")
+
+
+def at_fire() -> DualRig:
+    rig = DualRig()
+    rig.bridge.push_waypoint_command("多点 " + " ".join(DualRig.ROUTE))
+    rig.step()
+    assert rig.cruise_to("G10", max_ticks=200), "未到射击停站"
+    rig.bridge.set_aim_status(AimStatus.TRACK)
+    for _ in range(30):
+        rig.bridge.set_vision(dx=0, dy=0, cls=1, box_w=24, box_h=30)
+        rig.step(0.1)
+        if rig.bridge.fire_gate[-1:] == [True]:
+            return rig
+    raise AssertionError("未进入 FIRE，不能把无许可当撤销通过")
+
+
+heartbeat = at_fire()
+start_gate = len(heartbeat.bridge.fire_gate)
+for _ in range(12):
+    heartbeat.bridge.set_vision(dx=0, dy=0, cls=1, box_w=24, box_h=30)
+    heartbeat.step(0.1)
+check("7.1 正常 FIRE 以 Mission 每拍持续刷新许可（跨越 500ms 接收租期）",
+      heartbeat.bridge.fire_gate[start_gate:] == [True] * 12,
+      f"refreshes={len(heartbeat.bridge.fire_gate) - start_gate}")
+
+start_gate = len(heartbeat.bridge.fire_gate)
+heartbeat.bridge.add_shots(10)
+heartbeat.step(0.1)
+check("7.2 达预算当拍只撤销，不再先刷新 True",
+      heartbeat.bridge.fire_gate[start_gate:] == [False]
+      and heartbeat.mission.phase == "DRIVE",
+      f"gate={heartbeat.bridge.fire_gate[start_gate:]}")
+check("7.3 达预算离站时 Aim ready 撤销并发停扫 0",
+      heartbeat.bridge.fire_ready[-1:] == [False]
+      and heartbeat.scans()[-1:] == [LOCK])
+
+timeout = at_fire()
+start_gate = len(timeout.bridge.fire_gate)
+timeout.clock.advance(31.0)
+timeout.step()
+check("7.4 到站 30s 硬死线立即撤销，不能续租后才检查超时",
+      timeout.bridge.fire_gate[start_gate:] == [False]
+      and timeout.mission.phase == "DRIVE",
+      f"gate={timeout.bridge.fire_gate[start_gate:]}")
+
+safe = at_fire()
+start_gate = len(safe.bridge.fire_gate)
+safe.bb.set(P_SAFETY, SafetyState(ok=False), "test")
+for _ in range(4):
+    safe.step(0.1)
+check("7.5 SAFE_STOP 撤销两键，此后不得刷新 True",
+      safe.mission.phase == "SAFE_STOP"
+      and safe.bridge.fire_gate[start_gate:] == [False]
+      and safe.bridge.fire_ready[-1:] == [False])
+
+shutdown = at_fire()
+shutdown.mission.teardown()
+shutdown.aim.teardown()
+check("7.6 正常退出撤销两键（异常退出由 C++ 租期测试覆盖）",
+      shutdown.bridge.fire_gate[-1:] == [False]
+      and shutdown.bridge.fire_ready[-1:] == [False])
+
+replaced = at_fire()
+start_gate = len(replaced.bridge.fire_gate)
+replaced.bridge.push_waypoint_command("多点 G10 H10 I10")
+replaced.step()
+check("7.7 FIRE 中外部换路线立即撤销旧许可",
+      replaced.bridge.fire_gate[start_gate:] == [False]
+      and replaced.mission.phase == "DRIVE",
+      f"gate={replaced.bridge.fire_gate[start_gate:]} phase={replaced.mission.phase}")
+
+lost_context = at_fire()
+start_gate = len(lost_context.bridge.fire_gate)
+lost_context.mission._stopctx = None  # 注入停站上下文丢失，走生产回退分支
+lost_context.step()
+check("7.8 停站上下文丢失回 DRIVE 必须撤销旧许可",
+      lost_context.bridge.fire_gate[start_gate:] == [False]
+      and lost_context.mission.phase == "DRIVE")
+
+phase_timeout = at_fire()
+phase_timeout.mission._shot_timeout_s = 0.2  # 短于到站硬死线，专门覆盖 FIRE 段超时
+start_gate = len(phase_timeout.bridge.fire_gate)
+phase_timeout.clock.advance(0.3)
+phase_timeout.step()
+check("7.9 FIRE 自身超时只撤销并返回，不再发 True",
+      phase_timeout.bridge.fire_gate[start_gate:] == [False]
+      and any("开火超时" in line for line in phase_timeout.mission_logs)
+      and phase_timeout.mission.phase == "DRIVE")
 
 
 if __name__ == "__main__":

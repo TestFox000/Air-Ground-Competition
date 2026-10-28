@@ -11,35 +11,35 @@
  {
   "path": "_archive",
   "type": "dir",
-  "size": 70490422,
-  "mtime": "2026-10-22 19:35",
+  "size": 133965230,
+  "mtime": "2026-10-23 17:29",
   "status": "归档",
   "owner": "团队",
   "note": "已归档证据（reborn/TestFox 差异/旧配置）"
  },
  {
-  "path": "_recover_tmp",
-  "type": "dir",
-  "size": 0,
-  "mtime": "2026-10-22 18:28",
-  "status": "未登记",
-  "owner": "",
-  "note": "请补 docs/索引标注.yaml"
- },
- {
   "path": "_tmp_session",
   "type": "dir",
-  "size": 599448184,
-  "mtime": "2026-10-23 16:38",
+  "size": 114471146,
+  "mtime": "2026-10-24 14:05",
   "status": "临时",
   "owner": "团队",
   "note": "跨任务临时区；活跃目录见下表"
  },
  {
-  "path": "air_ground_最新视觉识别模型_20261023",
+  "path": "artifacts",
   "type": "dir",
-  "size": 105069503,
-  "mtime": "2026-10-23 16:28",
+  "size": 652316,
+  "mtime": "2026-10-24 11:05",
+  "status": "未登记",
+  "owner": "",
+  "note": "请补 docs/索引标注.yaml"
+ },
+ {
+  "path": "backup",
+  "type": "dir",
+  "size": 2290733144,
+  "mtime": "2026-10-24 10:17",
   "status": "未登记",
   "owner": "",
   "note": "请补 docs/索引标注.yaml"
@@ -47,8 +47,8 @@
  {
   "path": "docs",
   "type": "dir",
-  "size": 1445176112,
-  "mtime": "2026-10-23 16:14",
+  "size": 1396757552,
+  "mtime": "2026-10-24 11:31",
   "status": "文档",
   "owner": "Lead",
   "note": "工作区级文档"
@@ -65,8 +65,8 @@
  {
   "path": "dzrobot_v2",
   "type": "dir",
-  "size": 3582713086,
-  "mtime": "2026-10-22 21:41",
+  "size": 3580711188,
+  "mtime": "2026-10-23 17:29",
   "status": "核心",
   "owner": "Lead",
   "note": "车端决策层仓库（唯一真源）"
@@ -74,7 +74,7 @@
  {
   "path": "dzsmartscout",
   "type": "dir",
-  "size": 215932633,
+  "size": 215280481,
   "mtime": "2026-10-23 15:32",
   "status": "仓库",
   "owner": "无人机",
@@ -83,8 +83,8 @@
  {
   "path": "git_save",
   "type": "dir",
-  "size": 3155359788,
-  "mtime": "2026-10-23 15:57",
+  "size": 3155360060,
+  "mtime": "2026-10-23 16:41",
   "status": "未登记",
   "owner": "",
   "note": "请补 docs/索引标注.yaml"
@@ -101,8 +101,8 @@
  {
   "path": "tools",
   "type": "dir",
-  "size": 4324716,
-  "mtime": "2026-10-22 23:04",
+  "size": 31519,
+  "mtime": "2026-10-23 20:37",
   "status": "工具",
   "owner": "团队",
   "note": "工作区级工具"
@@ -128,8 +128,8 @@
  {
   "path": ".gitignore",
   "type": "file",
-  "size": 660,
-  "mtime": "2026-10-23 16:08",
+  "size": 808,
+  "mtime": "2026-10-24 10:44",
   "status": "规范",
   "owner": "团队",
   "note": "git 忽略规则"
@@ -144,28 +144,10 @@
   "note": "子模块声明"
  },
  {
-  "path": "_work_tmp_d11_session.sh",
-  "type": "file",
-  "size": 1393,
-  "mtime": "2026-10-22 23:04",
-  "status": "未登记",
-  "owner": "",
-  "note": "请补 docs/索引标注.yaml"
- },
- {
-  "path": "_work_tmp_start_aim_d11.sh",
-  "type": "file",
-  "size": 1062,
-  "mtime": "2026-10-22 23:04",
-  "status": "未登记",
-  "owner": "",
-  "note": "请补 docs/索引标注.yaml"
- },
- {
   "path": "AGENTS.md",
   "type": "file",
-  "size": 14799,
-  "mtime": "2026-10-23 16:36",
+  "size": 24098,
+  "mtime": "2026-10-24 09:48",
   "status": "规范",
   "owner": "Lead",
   "note": "项目工作流 v2（全员强制）"
@@ -227,7 +209,7 @@
  {
   "path": "dzrobot_v2/artifacts",
   "type": "dir",
-  "size": 240651148,
+  "size": 242917521,
   "mtime": "2026-10-20 18:03",
   "status": "证据",
   "owner": "团队",
@@ -245,8 +227,8 @@
  {
   "path": "dzrobot_v2/config",
   "type": "dir",
-  "size": 389786,
-  "mtime": "2026-10-22 22:37",
+  "size": 390122,
+  "mtime": "2026-10-24 08:20",
   "status": "冻结",
   "owner": "Lead",
   "note": "统一配置中心；cleanup 未动；与车端第七张图不同步（注意）"
@@ -254,8 +236,8 @@
  {
   "path": "dzrobot_v2/docs",
   "type": "dir",
-  "size": 108847,
-  "mtime": "2026-10-23 15:57",
+  "size": 131200,
+  "mtime": "2026-10-24 08:22",
   "status": "核心",
   "owner": "Lead",
   "note": "决策台账/复用清单/工作流/目录索引/现状报告"
@@ -272,8 +254,8 @@
  {
   "path": "dzrobot_v2/src",
   "type": "dir",
-  "size": 2259228285,
-  "mtime": "2026-10-18 20:20",
+  "size": 2255566733,
+  "mtime": "2026-10-23 17:29",
   "status": "核心",
   "owner": "schema-owner",
   "note": "车端源码（V1 旧树已删；归档 backup/archive_src_v1_20261018.tar.gz）"
@@ -281,7 +263,7 @@
  {
   "path": "dzrobot_v2/tools",
   "type": "dir",
-  "size": 852651,
+  "size": 854701,
   "mtime": "2026-10-21 21:27",
   "status": "核心",
   "owner": "团队",
@@ -407,7 +389,7 @@
  {
   "path": "dzrobot_v2/src/dzbrain",
   "type": "dir",
-  "size": 6016405,
+  "size": 6045446,
   "mtime": "2026-10-12 18:02",
   "status": "冻结",
   "owner": "schema-owner",
@@ -425,8 +407,8 @@
  {
   "path": "dzrobot_v2/src/dzrknn_dataprocess",
   "type": "dir",
-  "size": 115148,
-  "mtime": "2026-10-12 18:02",
+  "size": 134879,
+  "mtime": "2026-10-24 13:52",
   "status": "冻结",
   "owner": "aim-tuner",
   "note": "云台/视觉 C++ 包；冻结"
@@ -434,8 +416,8 @@
  {
   "path": "dzrobot_v2/src/history",
   "type": "dir",
-  "size": 2232329390,
-  "mtime": "2026-10-23 15:57",
+  "size": 2232316317,
+  "mtime": "2026-10-23 19:06",
   "status": "历史",
   "owner": "团队",
   "note": "会话日志 + 附加资源（2.1GB 唯一素材副本）"
@@ -452,7 +434,7 @@
  {
   "path": "dzrobot_v2/src/rknn_pt",
   "type": "dir",
-  "size": 16585734,
+  "size": 16587074,
   "mtime": "2026-10-12 18:02",
   "status": "素材",
   "owner": "视觉",
@@ -468,28 +450,10 @@
   "note": "RViz 配置"
  },
  {
-  "path": "dzrobot_v2/src/todo",
-  "type": "dir",
-  "size": 3662043,
-  "mtime": "2026-10-12 18:02",
-  "status": "历史",
-  "owner": "团队",
-  "note": "旧待办/交接"
- },
- {
-  "path": "dzrobot_v2/src/readme.txt",
-  "type": "file",
-  "size": 36548,
-  "mtime": "2026-10-03 14:27",
-  "status": "文档",
-  "owner": "团队",
-  "note": "源码目录说明"
- },
- {
   "path": "dzrobot_v2/docs/TEAM_STATUS.md",
   "type": "file",
-  "size": 17047,
-  "mtime": "2026-10-23 16:40",
+  "size": 20293,
+  "mtime": "2026-10-24 14:06",
   "status": "文档",
   "owner": "团队",
   "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
@@ -497,8 +461,8 @@
  {
   "path": "dzrobot_v2/docs/决策台账.md",
   "type": "file",
-  "size": 36009,
-  "mtime": "2026-10-23 15:57",
+  "size": 52771,
+  "mtime": "2026-10-24 10:50",
   "status": "文档",
   "owner": "团队",
   "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
@@ -506,8 +470,8 @@
  {
   "path": "dzrobot_v2/docs/复用清单.md",
   "type": "file",
-  "size": 3887,
-  "mtime": "2026-10-18 20:44",
+  "size": 4351,
+  "mtime": "2026-10-24 13:52",
   "status": "文档",
   "owner": "团队",
   "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
@@ -515,8 +479,8 @@
  {
   "path": "dzrobot_v2/docs/工作流v2.md",
   "type": "file",
-  "size": 5509,
-  "mtime": "2026-10-18 20:14",
+  "size": 5538,
+  "mtime": "2026-10-23 17:30",
   "status": "文档",
   "owner": "团队",
   "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
@@ -524,8 +488,8 @@
  {
   "path": "dzrobot_v2/docs/目录索引.json",
   "type": "file",
-  "size": 18763,
-  "mtime": "2026-10-22 21:41",
+  "size": 19664,
+  "mtime": "2026-10-24 13:53",
   "status": "文档",
   "owner": "团队",
   "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
@@ -533,8 +497,8 @@
  {
   "path": "dzrobot_v2/docs/目录索引.md",
   "type": "file",
-  "size": 13080,
-  "mtime": "2026-10-22 21:41",
+  "size": 13635,
+  "mtime": "2026-10-24 13:53",
   "status": "核心",
   "owner": "团队",
   "note": "本文件（自动生成，勿手改）"
@@ -542,8 +506,8 @@
  {
   "path": "dzrobot_v2/docs/索引标注.yaml",
   "type": "file",
-  "size": 11133,
-  "mtime": "2026-10-23 16:40",
+  "size": 11529,
+  "mtime": "2026-10-24 13:52",
   "status": "文档",
   "owner": "团队",
   "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
@@ -558,10 +522,46 @@
   "note": "docs 文档；历史文档以文件名区分，现状看最新报告"
  },
  {
-  "path": "_tmp_session/_check_csv.py",
+  "path": "_tmp_session/_commit_msg_dzbrain.txt",
   "type": "file",
-  "size": 255,
-  "mtime": "2026-10-22 19:10",
+  "size": 1251,
+  "mtime": "2026-10-24 10:49",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/_commit_msg_v410.txt",
+  "type": "file",
+  "size": 1809,
+  "mtime": "2026-10-24 10:46",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/_tag_msg_v410.txt",
+  "type": "file",
+  "size": 510,
+  "mtime": "2026-10-24 10:46",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/abs",
+  "type": "dir",
+  "size": 208240,
+  "mtime": "2026-10-23 17:53",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/AG-TEAM-20261023",
+  "type": "dir",
+  "size": 487696,
+  "mtime": "2026-10-23 18:35",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
@@ -569,11 +569,38 @@
  {
   "path": "_tmp_session/AG-TEAM-PLAN-20261023",
   "type": "dir",
-  "size": 92623,
-  "mtime": "2026-10-23 16:27",
+  "size": 161806,
+  "mtime": "2026-10-23 17:06",
   "status": "临时",
   "owner": "Codex Lead",
   "note": "DSH空地闭环方案编制的原始门禁输出与hash备份；正式卡与方案在四库"
+ },
+ {
+  "path": "_tmp_session/AGC3",
+  "type": "dir",
+  "size": 1119488,
+  "mtime": "2026-10-24 11:02",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/AGC4",
+  "type": "dir",
+  "size": 7365,
+  "mtime": "2026-10-24 14:06",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/aim-handoff",
+  "type": "dir",
+  "size": 1947,
+  "mtime": "2026-10-24 11:32",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
  },
  {
   "path": "_tmp_session/aim-lat",
@@ -585,10 +612,10 @@
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/AIM-OBS-20261022",
+  "path": "_tmp_session/aim-live-20261024",
   "type": "dir",
-  "size": 46988,
-  "mtime": "2026-10-22 20:10",
+  "size": 1318867,
+  "mtime": "2026-10-24 13:02",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
@@ -596,8 +623,8 @@
  {
   "path": "_tmp_session/aim-p0",
   "type": "dir",
-  "size": 4536828,
-  "mtime": "2026-10-22 22:20",
+  "size": 7888375,
+  "mtime": "2026-10-24 10:04",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
@@ -612,55 +639,37 @@
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/audit_lib2_20261023.py",
-  "type": "file",
-  "size": 2582,
-  "mtime": "2026-10-23 16:32",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/audit_lib_20261023.py",
-  "type": "file",
-  "size": 2815,
-  "mtime": "2026-10-23 16:31",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/commitmsg.txt",
-  "type": "file",
-  "size": 628,
-  "mtime": "2026-10-22 20:15",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/DET-20261022",
+  "path": "_tmp_session/CAR-BASELINE-20261023",
   "type": "dir",
-  "size": 8749403,
-  "mtime": "2026-10-22 22:13",
+  "size": 616535,
+  "mtime": "2026-10-23 22:38",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/docx_20261022",
+  "path": "_tmp_session/carloop-1024",
   "type": "dir",
-  "size": 19598,
-  "mtime": "2026-10-22 20:37",
+  "size": 397994,
+  "mtime": "2026-10-24 14:07",
+  "status": "临时",
+  "owner": "/root",
+  "note": "双站规划、回正、权限撤销基线与离线命令原始输出；正式结论在 carloop-1024 三卡"
+ },
+ {
+  "path": "_tmp_session/doc-smartmaster-20261024",
+  "type": "dir",
+  "size": 16542559,
+  "mtime": "2026-10-24 09:52",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/gitee_ag",
-  "type": "dir",
-  "size": 560126909,
-  "mtime": "2026-10-23 15:42",
+  "path": "_tmp_session/fixpaths.py",
+  "type": "file",
+  "size": 537,
+  "mtime": "2026-10-24 11:05",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
@@ -668,206 +677,107 @@
  {
   "path": "_tmp_session/gui_20261022",
   "type": "dir",
-  "size": 20544523,
-  "mtime": "2026-10-22 21:15",
+  "size": 1485413,
+  "mtime": "2026-10-23 21:28",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/history_cache_20261022",
+  "path": "_tmp_session/lead-1023",
   "type": "dir",
-  "size": 25117,
-  "mtime": "2026-10-22 18:57",
+  "size": 15895,
+  "mtime": "2026-10-23 22:18",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/INFRA-RESET-20261022",
+  "path": "_tmp_session/lead-1024",
   "type": "dir",
-  "size": 29588,
-  "mtime": "2026-10-22 20:06",
+  "size": 1619668,
+  "mtime": "2026-10-24 14:01",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/kill_car_stack.py",
-  "type": "file",
-  "size": 946,
-  "mtime": "2026-10-22 21:12",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/LEAD-FIELD-20261022",
+  "path": "_tmp_session/lead-docs-audit",
   "type": "dir",
-  "size": 11507,
-  "mtime": "2026-10-22 20:33",
+  "size": 10765,
+  "mtime": "2026-10-24 08:58",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/list_car_procs.py",
-  "type": "file",
-  "size": 703,
-  "mtime": "2026-10-22 21:12",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/log_raw.txt",
-  "type": "file",
-  "size": 218,
-  "mtime": "2026-10-22 19:58",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/PREFLIGHT-20261022",
+  "path": "_tmp_session/LEAD-VISION-20261023",
   "type": "dir",
-  "size": 19803,
-  "mtime": "2026-10-22 21:37",
+  "size": 11305147,
+  "mtime": "2026-10-23 21:46",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/probe-dir",
+  "path": "_tmp_session/mv_test",
+  "type": "dir",
+  "size": 651107,
+  "mtime": "2026-10-24 11:01",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/NS-MIGRATE-20261023",
+  "type": "dir",
+  "size": 5229,
+  "mtime": "2026-10-23 21:27",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/PLUGIN-PREFLIGHT-20261024",
+  "type": "dir",
+  "size": 342067,
+  "mtime": "2026-10-24 08:38",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/sim_t29",
   "type": "dir",
   "size": 0,
-  "mtime": "2026-10-22 18:55",
+  "mtime": "2026-10-23 22:42",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/pushlog.txt",
-  "type": "file",
-  "size": 527,
-  "mtime": "2026-10-22 21:49",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/pushlog2.txt",
-  "type": "file",
-  "size": 853,
-  "mtime": "2026-10-22 22:01",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/pushlog3.txt",
-  "type": "file",
-  "size": 1085,
-  "mtime": "2026-10-22 22:57",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/remote_refs.txt",
-  "type": "file",
-  "size": 222,
-  "mtime": "2026-10-22 20:19",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/RESET-EPOCH-20261022",
+  "path": "_tmp_session/SSH-DIAG-20261024",
   "type": "dir",
-  "size": 2022175,
-  "mtime": "2026-10-22 20:32",
+  "size": 900,
+  "mtime": "2026-10-24 12:47",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/staged.txt",
-  "type": "file",
-  "size": 26554,
-  "mtime": "2026-10-22 20:10",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/staged2.txt",
-  "type": "file",
-  "size": 26386,
-  "mtime": "2026-10-22 20:14",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/stagedstat.txt",
-  "type": "file",
-  "size": 16790,
-  "mtime": "2026-10-22 20:14",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/status2.txt",
-  "type": "file",
-  "size": 32403,
-  "mtime": "2026-10-22 20:14",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/status_bash.txt",
-  "type": "file",
-  "size": 18256,
-  "mtime": "2026-10-22 20:03",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/status_raw.txt",
-  "type": "file",
-  "size": 18256,
-  "mtime": "2026-10-22 19:58",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/tagmsg_v401.txt",
-  "type": "file",
-  "size": 233,
-  "mtime": "2026-10-23 16:38",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/tagmsg_v402.txt",
-  "type": "file",
-  "size": 271,
-  "mtime": "2026-10-23 16:38",
-  "status": "临时",
-  "owner": "团队",
-  "note": "未登记任务/临时目录；过期归档"
- },
- {
-  "path": "_tmp_session/tools-organize-20261022",
+  "path": "_tmp_session/termgate-deploycheck",
   "type": "dir",
-  "size": 370563,
-  "mtime": "2026-10-22 21:28",
+  "size": 776,
+  "mtime": "2026-10-23 20:58",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/test_autoplan_fixtures",
+  "type": "dir",
+  "size": 162709,
+  "mtime": "2026-10-24 14:00",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
@@ -875,26 +785,44 @@
  {
   "path": "_tmp_session/TOOLS-PLUGIN-REWORK-20261022",
   "type": "dir",
-  "size": 116369,
-  "mtime": "2026-10-23 16:29",
+  "size": 129146,
+  "mtime": "2026-10-23 18:00",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/YAWDRIFT-20261022",
+  "path": "_tmp_session/USBCAM-STAMP-20261024",
   "type": "dir",
-  "size": 22996,
-  "mtime": "2026-10-22 20:08",
+  "size": 8309,
+  "mtime": "2026-10-24 08:52",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"
  },
  {
-  "path": "_tmp_session/YAWDRIFT-FIX-20261022",
+  "path": "_tmp_session/VISION-MODEL-20261023",
   "type": "dir",
-  "size": 19623,
-  "mtime": "2026-10-22 20:30",
+  "size": 61304331,
+  "mtime": "2026-10-23 20:37",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/VISION-NPU3CORE-20261023",
+  "type": "dir",
+  "size": 4692877,
+  "mtime": "2026-10-24 09:15",
+  "status": "临时",
+  "owner": "团队",
+  "note": "未登记任务/临时目录；过期归档"
+ },
+ {
+  "path": "_tmp_session/vnc_car_det_20261023",
+  "type": "dir",
+  "size": 1043400,
+  "mtime": "2026-10-23 20:05",
   "status": "临时",
   "owner": "团队",
   "note": "未登记任务/临时目录；过期归档"

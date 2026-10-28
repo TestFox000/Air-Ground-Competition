@@ -258,18 +258,26 @@ check("2.7 段规划显式带引擎与耗时（日志/遥测可读）",
       and p_full.route_len_m > 0.0,
       f"{p_full.engine} / {p_full.elapsed_ms:.1f}ms / {p_full.route_len_m:.2f}m")
 
-# 纯几何单测：起点车头与首段相反时，允许"原地转向"重规划并留警告
+# 纯几何单测（2026-10-27 改写）：180° 反向首步必须**拒发**，90° 转向必须**放行**。
+#   旧断言写的是"允许原地转向重规划"——那是差速底盘假设的遗留，与阿克曼实车不符。
 raw_map = {"map": {"start": "N10", "end": "M10", "mines": [], "obstacles": [],
                    "targets": [], "bridges": ["K7", "K5"],
                    "barrier_col_from": "D", "barrier_row_hi": 6, "barrier_row_lo": 7}}
-# 把 N10/M10 之外全禁掉（只剩一条 N10→M10 的走廊）；车头朝反方向 (0,1) ⇒ 首步必是 180°
+# 只留 N10→M10 一条走廊：N10=(row9,col13)、M10=(row9,col12) ⇒ M10 在**正西**。
 only_corridor = [c for c in all_cells if c not in ("N10", "M10")]
+# 2.8a ★车头朝北 (0,1) ⇒ 唯一首步正西 = 精确反向（180°）⇒ 拒发，转 WAIT_INFO 等新目标。
 p_back = plan_segment_route(raw_map, cfg, from_cell="N10", target_cell="M10",
                             heading_dir=(0, 1), blocked_extra=only_corridor)
-check("2.8 起点朝向与唯一可行首步相反 ⇒ 允许原地转向重规划（不再永久 WAIT_INFO）",
-      p_back.ok and p_back.cells == ["N10", "M10"]
-      and any("原地转向" in w for w in p_back.warnings),
-      f"{p_back.error} / {p_back.cells} / {p_back.warnings}")
+check("2.8a 起点车头与唯一可行首步精确相反（180°）⇒ 拒发（阿克曼掉不了头）",
+      (not p_back.ok) and "段规划拒绝" in p_back.error and "180" in p_back.error,
+      f"{p_back.error} / {p_back.cells}")
+# 2.8b ★同一走廊、车头朝东 (1,0) ⇒ 首步正西只是 90° 转向，物理可行 ⇒ 必须放行。
+#   这一面是 20:0x 版"能搜到就拒绝"的带牙回归：它曾把合法转向一起拒掉。
+p_turn = plan_segment_route(raw_map, cfg, from_cell="N10", target_cell="M10",
+                            heading_dir=(1, 0), blocked_extra=only_corridor)
+check("2.8b 起点只需 90° 转向 ⇒ 必须放行（判据不得连合法转向一起拒）",
+      p_turn.ok and p_turn.cells == ["N10", "M10"],
+      f"{p_turn.error} / {p_turn.cells}")
 
 # =========================================================================== #
 #  3. 规划失败 → WAIT_INFO（不退出、不规划、不出发、只刹车）
@@ -636,10 +644,17 @@ SIM_TARGETS = ["D7", "E7"]
 SIM_BRIDGES = ("K4", "K10")
 
 
-def sim_layout(*, target: str, version: int = 1, segment_id: int = 1) -> dict:
-    """全 known 的 T29 台架图布局（带 targets，才能判"段末是不是射击停站"）。"""
+def sim_layout(*, target: str, version: int = 1, segment_id: int = 1,
+               start: str = "N10") -> dict:
+    """全 known 的 T29 台架图布局（带 targets，才能判"段末是不是射击停站"）。
+
+    ★2026-10-29 同格/空段口径：布局 start 唯一权威——同格停站与空段测试必须把
+    start 设为与 cfg 复位格相同（否则 _authoritative_reset_spec 会把 belief 搬到
+    布局 start，"车已在目标格"前提被破坏，12.18/15.13/15.14 即此类）。
+    """
     return layout_of(known=M.all_map_cells(), target=target, version=version,
-                     segment_id=segment_id, mines=SIM_MINES, obstacles=SIM_OBSTACLES,
+                     segment_id=segment_id, start=start,
+                     mines=SIM_MINES, obstacles=SIM_OBSTACLES,
                      targets=SIM_TARGETS, bridges=SIM_BRIDGES)
 
 
@@ -696,7 +711,7 @@ check("12.8 执行路线末航点 = C9 且带 shoot 标记（'C9*' 真的落进 
 phases12: list[str] = []
 mission_phases12: list[str] = []
 stop_seen: dict = {}
-fired12 = False
+fired12 = 0                     # 已"打进"的发数（逐发注入，见循环内注释）
 done12: dict | None = None
 for _ in range(900):
     rig12.bridge.set_vision(dx=0, dy=0, cls=1, box_w=45, box_h=55)   # 目标持续可见
@@ -711,9 +726,15 @@ for _ in range(900):
     _ctx = rig12.mission.stop_context
     if _ctx is not None and not stop_seen:
         stop_seen = {"block": _ctx.block, "kind": _ctx.kind, "index": _ctx.index}
-    if rig12.mission.phase == MissionPhase.STOP and not fired12:
-        rig12.bridge.add_shots(3)               # 模拟"打进 3 发"（shots_per_stop 默认 3）
-        fired12 = True
+    # 逐发注入：**先看到开火门真的为 True，再打进 1 发**（shots_per_stop 默认 3）。
+    #   旧写法在刚进 STOP（SETTLE）那拍就 add_shots(3)，于是 FIRE 首拍 delta 已 ≥ 3
+    #   ⇒ 直接走 _complete_stop 返回，`_set_fire_gate(True)` 一次都不执行，
+    #   却又断言"开火门开过" —— 是测试自己的激励与断言自相矛盾（12.11 的根因）。
+    if (_ph == StopPhase.FIRE
+            and rig12.bridge.fire_gate and rig12.bridge.fire_gate[-1] is True
+            and fired12 < 3):
+        rig12.bridge.add_shots(1)
+        fired12 += 1
     _snap = rig12.bb.get(M.P_CAR_STATE)
     if isinstance(_snap, dict) and _snap.get("phase") == M.STEP_PHASE_SEGMENT_DONE:
         done12 = dict(_snap)
@@ -724,9 +745,12 @@ check("12.9 ★ MissionTask 进三段式停站：SETTLE→ACQUIRE→FIRE→DONE 
 check("12.10 停站上下文 = C9 / SHOOT（不是普通航点跑完）",
       stop_seen.get("block") == "C9" and stop_seen.get("kind") == StopKind.SHOOT,
       str(stop_seen))
-check("12.11 开火门真的开过、且收尾为关（发数增量达标即离站）",
-      True in rig12.bridge.fire_gate and rig12.bridge.fire_gate[-1] is False,
-      f"fire_gate 首次 {rig12.bridge.fire_gate[:6]} … 末态 {rig12.bridge.fire_gate[-2:]}")
+_gate12 = rig12.bridge.fire_gate
+check("12.11 开火门真的开过、且收尾为关（每发都有开门拍 / 发数增量达标即离站）",
+      True in _gate12 and _gate12[-1] is False
+      and fired12 == 3 and sum(1 for g in _gate12 if g) >= fired12,
+      f"开门拍 {sum(1 for g in _gate12 if g)} / 注入 {fired12} 发 / "
+      f"首次 {_gate12[:6]} … 末态 {_gate12[-2:]}")
 check("12.12 ★ 打完才判段完成：P_CAR_STATE(SEGMENT_DONE) 带 stop_kind='shoot' / target=C9",
       done12 is not None and done12.get("phase") == M.STEP_PHASE_SEGMENT_DONE
       and done12.get("stop_kind") == "shoot" and done12.get("target_cell") == "C9"
@@ -792,7 +816,7 @@ rig14.close()
 
 # ---- 空段（车已在目标格）：不走规划器也要如实报 shoot ----
 rig15 = Rig(cfg=cfg_of(reset="C9,x"))
-rig15.start(sim_layout(target="C9"))
+rig15.start(sim_layout(target="C9", start="C9"))
 rig15.step(2)
 _done15 = [s for s in rig15.car_states
            if s.get("phase") == M.STEP_PHASE_SEGMENT_DONE]
@@ -1209,7 +1233,7 @@ rig19.close()
 
 # ---- 15.13/15.14 recon 段 6：到站后同格射击停站（C9）也要回报 stop_kind='shoot' + 重发 ----
 rig20 = Rig(cfg=cfg_of(reset="C9,x"))
-rig20.start(sim_layout(target="C9", version=1, segment_id=6))
+rig20.start(sim_layout(target="C9", version=1, segment_id=6, start="C9"))
 rig20.step(1)                       # 同格停站 → 当拍即发 SEGMENT_DONE（下一拍转 WAIT_INFO）
 _s20 = rig20.bb.get(M.P_CAR_STATE) or {}
 _d20 = _s20.get("done") or {}

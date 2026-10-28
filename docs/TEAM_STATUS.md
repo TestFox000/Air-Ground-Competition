@@ -1,5 +1,105 @@
 # 团队状态板（TEAM_STATUS）
 
+> **2026-10-29 04:0x V2 裁定修复 + V3 小修全落地（lead · 未 commit/未连车）**：
+**P2 修复（V-04）**：Lead 第一手复核坐实 V2 归因（备份-pas补丁-还原：mission.py sha 119d7f23 前后一致，passthrough→118/118）。裁定走 ①号方案：sim_layout 加 start 形参（默认 N10 不变），12.18/15.13/15.14 三处同格/空段用例 start 设为 C9=复位格 + 口径注释。**test_stepper 118/118、test_p2_t2 30/30 双绿**，生产语义（布局 start 唯一权威）原样保留。P2 正式判**接受（修复后）**。V2 另两条挂账：test_mission 17 红=既有基线（换 HEAD config 同红，入 K10/K11）；drift 1.2b=localization F5 在途（入 K13）；2s 逃生门=设计取舍（入 K14）。**V3 小修 4 件全做**：07 页 G1 命令①改有图/无图双分支、07/09 页 start_all.sh 锚点改 228/265/284（带日期注）、AGENTS.md:28 旧档路径补层、**删 dzrobot_v2/_tmp_session/p2_verify（19G 整仓副本，doc_policy 188 条 R1 源）探针留 p2_verify_probes/**。frozen.json 删 map.yaml/map_v3.yaml 两条失效登记（29 条，JSON 有效）。门禁终态：policy 仅 R8 / anchors 新增 3（他卡） / numbers 0 / wf GREEN 零 WARN。
+
+> **2026-10-29 03:5x map.yaml 恢复裁决 + K10 挂账（lead · 未 commit/未连车）**：
+**裁决：config/map.yaml + map_v3.yaml 从 HEAD 恢复**（刀口仅这两文件，不动他人在途）。理由：门禁机器判据 test_deploy ③c「本地仍保留」+ G1 自检 --map 依赖 + test_mission/test_drone 模块级依赖三方同指；「冷启动无图」线的正确落点是车端不部署（PUSH_FILES 本就不含 map.yaml），不是删仓内开发/仿真入口。恢复后实测：**test_deploy 94/94 全绿**、**G1 error 0 / warn 0 通过**、test_drone 177/177、test_fix 74/74。新发现预存红：test_mission §18 两条（期望 44 点 D3*/G3* vs 现役 68 点 F4*/B4*）——route.tokens HEAD==工作区无在途改动，测试与已提交配置**双向陈旧**（且 F4* 落在第六图雷区，路线本身不自洽），与今晚任何卡无关、不在彩排路径（fallback_to_tokens=false）。已挂 **K10**（08 页，到期 11-05，处置=路线卡 owner 更新 config+测试）。8 套件全量回归后台扫描中（bash-97869b09dcbb4de8）。
+
+> **2026-10-29 03:40 V1 独立验收通过（lead · 未 commit/未连车）**：
+V1（e50a9aef，误挂 Kimi 路由，Lead 已复核 verdict 语义）对 P1 LINK-HARDEN 12/12 全过：canonical 话题口径（斜杠全量不缺失/删一条报缺/None 不谎报）、--map 守卫（无图不传/残留图警告+带参）、T3/T3b 域号真话（一致 0错0警/分叉1错）、auto_start=false + 横幅、test_deploy 93/94（③c 唯一红=map.yaml 预存）、sim_cli 冒烟 exit 0、frozen.json 4 条登记齐。P1 **接受，可进 P4**。
+
+> **2026-10-29 03:3x P3 交付 + Lead 指针修复 + numbers 自愈（lead · 未 commit/未连车）**：
+P3 交付三篇现行文档（07 发车门禁 G1-G4 267 行 / 08 known_reds K1-K9 215 行 / 09 明早 SOP 395 行）+ car_reconcile.py 三方对账工具（254 行，复用 deploy_to_car 清单逻辑）。六处「文档≠代码」全部按代码真相修正（布局门 60s、exit 7、SAFE_STOP 三分、stall 10 拍、planner SCHEMA warn 已销、无现行表节）。Lead 补 5 处指针/陈旧值（AGENTS.md G1-G4→07 页、known_reds→08 页、复用清单→08 页、00_索引 与 02_runbook 30s→60s〔实〕）。**numbers --fix-sources 自愈 23 条 yaml 行号漂移 → exit 0**（fire_hold_frames 异文为 D-052 声明并存项，非失败）。门禁终态：gen_index 0 / doc_policy 1(仅 R8 他卡) / anchors 1(新增 3 全他卡) / numbers 0 / wf GREEN。V3 已派（raccoon/on）。
+
+> **2026-10-29 03:35 P2 交付 + 两条 Lead 裁决（lead · 未 commit/未连车）**：
+P2 交付 T1/T2/T3：劫持闸（步进段限定 + 反证）、起点口径（布局 start 强制 + 只写一次 belief）、AIM 链路核查（只验证）。三套新测试 26/30/19 自报全绿，check.py GREEN，sim_cli 冒烟 exit 0。**裁决一：mission.reset 不置空**——P2 的 _authoritative_reset_spec 已在有布局时强制 layout.start（配置值仅剩无布局回退用途）；且 :2730 bridge.set_pose_at_block 的兜底硬编码 N10,y 与配置无关，置空治不了 odom 基线，还要动冻结区 ⇒ 一变量原则，不动。**裁决二：AIM lead_apply_gain 维持 0.5**——等效提前 0.135 s vs 链路延迟 0.5-0.9 s 的杠杆问题记入实跑检查单（明天脱靶时第一杠杆=lead_apply_gain 0.5→1.0，须实靶验证后动），今晚不动冻结配置。**V2 已派（raccoon/v4.1-flash/on，ae4441b7）**，头号靶子=stepper 3 红「118/118 中途 vs 3 红终报」矛盾 + test_mission/test_drone map.yaml 模块级依赖真假。**路由口径**：全部子智能体一律 raccoon/sn-deepseek-v4-1-flash-1017 + effort on（V1 误挂 Kimi 为唯一例外，Lead 逐条复核其 verdict）。
+
+> **2026-10-29 03:2x P2 中途诊断 + T7/T8 生产重写授权（lead · 未 commit/未连车）**：
+P2 交付中途报告：T5 诊断三红各自根因（①belief 未重锚到布局 start → 首段偏一格；②GATE_MIN_PROGRESS 0.02 m 形同虚设；③token 重锚跳 s）；T6 已改 _seg_locked 信念锚定（:1026-1150，含负例：未应用补丁旧闸放 0.02 s 段 + 应用后正确拒绝）；T7 验收清单成文（→即 V2 判据）；T8 步进器测试重写 **115→118/118 全绿**（12.18/15.13/15.14 修复，同格 0 token 停站算有效段）。**Lead 授权**（subagent 不可中途寻址，落盘供核对）：T7+T8 语义落生产 _report_segment_done 重写（:1419-1554 区）方向批准，约束五条——①frozen.json in_flight 登记先行；②负例探针保留（去 30% 闸必红）；③本地全回归（test_mission 103/103、test_stepper 118/118、test_drone、test_safety）+ sim_cli --help 冒烟全绿；④T7 清单逐条对应报告；⑤判据⑤ SAFE_STOP 超时恢复同纪律（先诊断+负例，全绿才动，登记 in_flight）。与 A 审查问题 4（段完成劫持）方向收敛。
+
+> **2026-10-29 03:15 P1 交付 + T3b 根因收口（lead · 未 commit/未部署/未连车）**：
+① P1-LINK-HARDEN 交付 T1-T4：T1 纠正了我 A 审查里「manual_gimbal 订阅缺失」的判断——订阅早就在（f883c520），真问题是名字口径（合同无前导斜杠，rclpy 回读带斜杠），已用 canonical 统一，不建双订阅；T2 start_all MAP_ARGS 守卫；T3 env 文案；T4 auto_start=false + 横幅。② **T3b 根因（Lead 补）**：dzros.env:16 / start_all.sh:124 DZ_ROS_DOMAIN 只 set 未 export ⇒ 子进程核不了域一致性；已补 export 两行，bash -n OK，env_problems 四态实测（一致 0/0、分叉 1 错、未导出 1 警、全空 1 警）正确，A/B 打法仍可用（两个域一起设为同值即通过）。③ test_deploy 93/94（③c 预存）、test_contract 待 V1、check.py GREEN。④ test_stepper 3 红（12.18/15.13/15.14）归因=P2 在途改动（mission.py 03:09 mtime + _tmp_p2_*.log），不归 P1，V2 硬判据含「stepper 全绿」。⑤ **路由失误**：V1（e50a9aef）误继承 Kimi 路由（用户要求 raccoon/v4.1-flash/on），其产出的 12 条 verdict 将由 Lead 逐条复核；后续所有子智能体一律 raccoon/sn-deepseek-v4-1-flash-1017/on。
+
+> **2026-10-29 03:1x test_deploy ③b 幂等语义再钉（lead · 未 commit/未部署/未连车）**：
+P1/T4 把 config/robot.yaml 的 path_executor.auto_start 归位 false 后，test_deploy.py:180-198 两条断言因硬假设「真文件 auto_start 为 true」转红（真实文件 diff=0 行；180 行只靠 CRLF→LF 副作用偶然存活）。Lead 裁定**幂等空操作语义**（t31 形态）：180 行改条件断言「残留 true ⇒ 内容必变；false 稳态 ⇒ 内容不变」（与取值/行尾无关），194 行去掉 len>=1 硬前提只留「改动行 ⊆ auto_start 配置行」（空 diff 合法）；「true⇒必变」方向由合成样本(:171-179)钉住，语义不降。**复跑 test_deploy 93/94 rc0**，唯一红=③c「本地 config/map.yaml 仍保留」（预存，map.yaml 被「冷启动无图」线在途删除，与门禁 ③c 不变式及 G1 --map 依赖直接冲突）⇒ **map.yaml 恢复裁决挂 P4**。写域备注：test_deploy.py 名义属 P2 域，本改动为阻断项+两行级，P2 未触该文件，无冲突；V1 验收须复跑 test_deploy。
+
+> **2026-10-29 02:5x 夜间收口开工（lead · 用户全权授权「睡觉期间自行执行」· 未 commit/未部署/未连车/未连机）**：三实现者并行——P1 链路止血（manual_gimbal 订阅 / start_all.sh --map 死参数 / 域号横幅假警报 / 旧核 auto_start 防护，子 eaa71f4d）、P2 判据口径（段完成劫持闸 / 起点三口径收敛 / AIM 提前量链路核验，子 ef4d2891）、P3 发车文档+对账 SOP（子 ea283d62）。已知转向修正待验收时落实：发车门禁口径应建 dzrobot_v2/docs/（dzrobot_v2/AGENTS.md 引用点）、回归守护_known_reds.md 不得重建（02:45 已改指决策台账+TEAM_STATUS，原件在 history_cache）——本运行时 subagent 不可中途寻址，V3 验收时修。回滚锚 _tmp_session/BASELINE-20261029/（哈希+diff，**回滚禁 git checkout**）。每阶段独立验收员复跑后才进 P4 清理与 P5 仿真彩排。车/机均离线，今晚全部本机验证。
+
+> **2026-10-29 02:45 档案库卫生小轮（lead · 未 commit/未部署/未连车）**：删根目录再生垃圾 nul；交接_20261024 红锚补全路径（新增红 4→3）；dzrobot_v2/AGENTS.md 悬空指针「回归守护_known_reds」改指 决策台账+TEAM_STATUS（原件在 history_cache）；anchors 基线纯收缩 28 行（Thin Ledger 修好的 4 条出基线）；20库 8 分册篇数复核全绿；gen_index 257 篇。门禁：numbers/wf/links exit 0；policy 1=agc-1026 树 R8（他 ns）；anchors 1=3 条红全在 agc-1024/agc-1026 在办卡（他 ns，处方：各 1 行标〔失效〕或补路径）。
+
+> **2026-10-29 01:45 Thin Ledger v1 收口（lead · 未 commit/未部署/未连车）**：决策台账三线分流全链完成并独立验收通过（v2 7/8 + v3 4/4）。台账 420→500 行：首屏速查区 19 条（40 行压线）、主表 D-001~D-023 严格递增、D+ 现行指针 26 处、D-058/D-059 入附录 A；数字速查.yaml 52→72 条（§7 台账分流迁入 20 条，65 auto 全 PASS / 靶速 0.3 manual 带曾判沿革）；查账四处统一（AGENTS/台账/03 细则），全库现行区「查账三步」0 残留；5 处台账行号锚点 + PIVOT 锚点 :108→:125 修复。门禁：gen_index/numbers/wf/check/links exit 0；policy 1（agc-1026 存量 R8）与 anchors 1（10 条他域在途红）核实非本任务。**回滚禁 git checkout**（HEAD 与工作区差 199 行他人未提交）。验收报告 _tmp_session/doc-thin-ledger/verdict_v2.md + verdict_v3.md。
+
+> **2026-10-29 01:5x test_stepper 12.11 红转绿（lead · 未 commit/未部署/未连车）**：`test_stepper` **117/118 → 118/118 rc0**。根因是测试自己的激励与断言自相矛盾：旧写法在刚进 STOP（SETTLE）那拍就 `add_shots(3)`，FIRE 首拍 `delta=3 ≥ shots_needed` ⇒ 走 `_complete_stop` 返回，`_set_fire_gate(True)` **一次都不执行**，却又断言「开火门开过」。修法：注入条件绑定开门拍（`fire_gate[-1] is True` 时逐发注入 1 发），断言改为「开门拍数 ≥ 注入发数 = 3 且末态 False」；实测 **开门 3 拍 / 注入 3 发**。**负例已证**：把 `_set_fire_gate` 打成 no-op ⇒ 12.11 必红（开门 0 / 注入 0 / exit1），脚本 `_tmp_session/stepper_1211_negative.py`。**产品代码 0 行改动**（仅 `src/dzbrain/tests/test_stepper.py`，+30/−13）⇒ sim_cli 无路径变化、不适用；`tools/wf/check.py` **GREEN**。附带：`dzrobot_v2/AGENTS.md` 指向的 `docs/回归守护_known_reds.md` 在现树**不存在**（只在 `docs/history_cache/` 与 `git_save/` 有副本），挂账红实际记在决策台账/TEAM_STATUS。
+
+> **2026-10-29 逐模块架构研究续接（/root）**：已只读评估车端任务/算法、公共状态与配置、机端飞控/感知及云台跨语言边界；建议保留总体分层，优先收紧状态写权、观测身份和任务职责，再按证据拆分。记录续入 [ARCH-RESEARCH](../../docs/30_任务卡库/在办/archrev-1028/ARCH-RESEARCH-20261028.md)。未实施代码改造、未连接设备，不把架构建议当实车验收。
+
+> **2026-10-28 架构研究（/root）**：用户优先改善现场故障定位与复现。只读核查现有任务分层、sim/bench、运行归档与工作流，建议优先落实既有 E3 证据链，再做小范围解耦；未改生产/配置、未连接设备、未提交推送。研究与待讨论建议见 [ARCH-RESEARCH](../../docs/30_任务卡库/在办/archrev-1028/ARCH-RESEARCH-20261028.md)。工作流门禁与断链过；全库文档守卫仍有其他 ns 红，未报全局收口。
+
+> **2026-10-28 缓存直连已实际执行，首段仍拒收（lead）**：仅给既有Lead入口补--saved-stream及构造成功后进入原laptop.main的接缝；本次启用live参数实际运行，0.91秒返回exit2/SOURCE_REJECTED，新推理0帧。消费既有2347条记录，64次原布局构造均因首段格子未同时覆盖拒绝；后续源累积类别/坐标冲突，含M10类别冲突，不能拿最终诊断known替代可用observation。controller_entered=false，下发0/运动0，未重新连接SSH或起车栈；规划/循迹/真实done未发生。实时成功分支尚未实际走到，不报通过。未补known/清冲突/改生产默认，未追加审计或测试套件，未提交推送。[本次运行原件](../../_tmp_session/laptop_step_control/lead/program_run_1793200530310965400/run.json)；[实际命令](../../_tmp_session/laptop_step_control/lead/resume_4_cached_1793200500.sh)；[整合卡](../../docs/30_任务卡库/在办/laptopstep-1028/LS-LIVE.md)。
+
+> **2026-10-28 真实车端直跑，未进入循迹（lead）**：用户要求直接加入车端规划/循迹，已实际起自有监护、原底盘节点、定位与dzbrain，不是bench/仿真。已恢复原先仅留TF的缺失底盘驱动；真实串口打开，定位N10，odom与转向所需端点均接通，原live契约通过。原程序随后因60秒收到0条field_layout自行停车退出exit3，未进入规划/循迹，未发车/出光/飞行。4号素材已全片执行但布局未构造/下发，当前断点仍是视频观测→布局输入。自有unit全部MainPID0、监护最后停至inactive；保留旧TF/他人进程。未改生产源码/默认配置/未提交推送。完整原件：[本次真实结束及回收](../../_tmp_session/laptop_step_control/lead/direct_car_finished_4.json)；[整合卡](../../docs/30_任务卡库/在办/laptopstep-1028/LS-LIVE.md)。后续复用已落盘素材，不再重放整片或增加审计。
+
+> **2026-10-28 22:21 · 改用4号素材直接执行（lead）**：用户最新指令“不验证，直接放入制作好的程序链路里执行，要看完成的替代链路能否正常运行”。已停止额外审计/回归，成员已回收且无运行作业。Lead直接将[指定素材](D:/User/Desktop/无人机视频/测试素材/4.mp4)接现有来源→观测→布局入口，run=LSPROGRAM-1793197278785180900，2347帧/约78s已全部实际处理，1861帧定位、64帧来源候选；进程最终exit2/LAYOUT_REJECTED，未能构造首段。最后N10/M10均在诊断known中但最终observation=null，不能概括成全片起点不可见。未用旧实飞3结果代替、未改冻结候选/生产默认；未下发、未发车，后续规划/循迹/真实完成回传未执行。完整结果见[本次直接执行原件](../../_tmp_session/laptop_step_control/lead/program_run_1793197278785180900/run.json)。替代全流程仍未跑通，目标/卡保持在办，不继续额外验收。下文22:0x为前一素材阶段。
+
+> **2026-10-28 22:0x · 笔记本替代本轮阶段交付，未发车（lead）**：本轮[laptopstep-1028](../../docs/30_任务卡库/在办/laptopstep-1028/00_树.md)实验桥接、租约锁存、逐段人工放行及视频来源适配已实现；stop-review独立复跑整套110/110（源53）与来源反例10/10，候选前后哈希稳定，只有实验功能窄范围接受。此前经唯一部署器窄推4份实验文件并做真实ROS锁停订阅/SSH挑战租约静态验证；自有服务已停，未启动脑/底盘/定位，未发车/出光/飞行。最终候选3e090903的新实飞3短窗8处理/8定位/0drop，完整H/mask/raw已保留，诊断known13格仍缺N10/M10，当前校核拒绝F11/K11，observation=null，首段NO_GO。不能将reason名称当作物理矛盾已证；格心边界与物理格边/全局锚定需定向诊断，不补known、不借旧桥、不调阈值。冷启动静态已有现役listener与fresh-start同步复用路径，不再报缺第三实现；真实冷启动、GID、到点停稳/断链停距均未验。生产冻结源码/默认配置未由本轮改动，未commit/push。整库门禁他ns仍有红，本ns不归档、不报可提交。证据及复跑见[本轮整合卡](../../docs/30_任务卡库/在办/laptopstep-1028/LS-LIVE.md)。
+
+> **2026-10-28 本轮停在S1，未跑通（Lead）**：指定机端192.168.137.62 SSH首次与原地址一次重试均exit255超时（最后结果17:25:29）；车.164 SSH可达，仅只读。用户已确认N10朝M10/清场/人在旁可接管/本趟发射器物理禁用，并重申机IP应为.62。未启动dzuav、未写发射器、未部署/重启车栈/发车、未飞行/射击。P0八条已签，A1–A6未验收。A7本轮生产代码+0行/文件0/测试0/配置0/依赖0/仿真0；**子线扩展备用IP与网段探测违反N3，已记账且不再探测**。备份裁决不重开，未补做备份。事实、时序、证据见[PLAN](../../_tmp_session/今晚实跑/PLAN.md)。等待现场确认机端当前网络，不写修复方案。下方17:1x为开工快照，不是现状。
+
+> **2026-10-28 17:1x 实机直跑开工 · S0 落账（lead · 未连车/未连机/未跑门禁/未改生产）**：用户 17:12 裁决已落 **D-057**（**覆写行动口径**，不改 D-056 记录、不修旧报告）：Lead 启动 dzuav；车端 `~/dzrobot` **覆盖部署**，**唯一命令** `python tools/deploy_to_car.py all`；**不旁路、不离线 truth map、不仿真（0）**、不预验证（部署前仅 `py_compile main.py` ≤5 s）；不改冻结区/他人写域/测试、不修问题、不新配置/依赖；**只跑一趟抓日志，不起飞不射击**。**P0 八条 8/8 已签**（2026-10-28 17:12），另登记 **1 条**问题：§一 第 2 条公式缺 0-based 限定（`row=行号−1`、`col=A=0`），字面代入 N11 得 −0.175 与第 3 条冲突——**只记不改源码**。新卡 **R-22**（树 `agc-1026/00_树.md`）；卡面/现场快照/A1–A7 清单/A7 增量基线统一在 [_tmp_session/今晚实跑/PLAN.md](../../_tmp_session/今晚实跑/PLAN.md)，不另建卡文件。**硬停**：S1 15 min 无帧 / S2 60 min（硬上限 90 min）或代码 >150 行 / S3 部署失败即停不换方法。**A7 开工基线**：根仓 104 files +2335/−839（status 133 行）、车仓 39 files +4900/−1065（status 58 行），收口按增量算。**待确认**：v4.3.1 **备份目录路径与备份时间两文件未记载 ⇒ 未知**（可核回滚锚点 = tag v4.3.1 / `0c846010` @ 2026-10-27 21:33:03 +08）；**场地清空尚无用户确认**（S4 前必须确认）；车 .164 / 机 .62 / 两端已连 / 车复位 N10 朝 M10 均为**用户报告、未实测**。**A1–A7 全部未测，不得预填完成；本次仅文档签字，不代表实机验收**。
+
+> **2026-10-28 16:5x 首次实车冷启动（lead · 只测不修 · 历史记录，行动口径已由 D-057 覆写）**：车/机在线，车复位 N10 朝 M10。`start_all.sh` 起 7/7 节点，dzbrain 布局模式；**`/dzlink/drone_to_car publishers=0`**、等 30 s 收到 **0 条 field_layout** → 不规划不出发（设计如此），**无移动无开火**。根因：机端**没有 field_layout 发射器**（`dzbrain_bridge.py` 只发 intel 四类；`~/dzlink_tools` 不存在；全盘无 layout*.py）；车端 build 旧（main.py 2297 行 vs 本地 3162、等待 30 s vs 60 s、无降级/归档）。日志已取回 `_tmp_session/live/car_logs/`（7 份）。按用户令**先不修**；待拍板：机端补发射器 vs 车端本地发射器验步进。见 D-056。
+
+
+> **2026-10-27 23:3x 三线整备开工（lead · 用户拍板）**：用户裁决三件——**P1 一次性授权**（车宽 0.135→0.17、桥洞开口 0.33/桥墙 0.02、清 0.0875 虚拟冗余墙；同批 wait 30→60、ttl 4→0）、**A1 开火路线选 A**（保持 C++ 内部判据只喂 lead）、**运行归档落点自定**（定为 `dzrobot_v2/artifacts/runs/<UTC ts>/`，只写不读）。Lead 建卡 **R-12..R-20**（P0/P1/G1/S3/M1/S1/S2/M2/A1）并登记 frozen.json（physics.py/main.py/drone.py/config 批）。派出 4 个子智能体，路由 **raccoon/sn-deepseek-v4-1-flash-1017**，该模型仅 on/off、**max 不可用**，取最高档 **on**：p1-geom(9aff0fda)、rt-gate(6719d8a0)、coord-s1(39437d35)、aim-a1(d3eaabdd)。运行面按 D-051 降级，只留 3 硬拦（急停/激光联锁/地面线边界）；离线 §4 门禁不降级。界内未 commit/push/部署，未连车/未飞/未出光。
+
+> **2026-10-28 00:0x A1 判据链回放裁决（lead · 未连车/未出光/未打靶）**：Lead 独立复跑 `_tmp_session/A1-AIM-STAGE1/` 三脚本（a1_numbers exit0、`--do-assert` PASS 7/7、gate_replay exit0），数字与作者报告逐位一致：匀速段 `|dx+lead|` 41.0→67.0（+T·v，−63.4%）/ 14.9（−T·v，+63.6%）；`dx≈0.245·v`（CI 0.127–0.360）；判据链五种 lead 配置开火时刻全同 51.724/61.212 s，仅 `hold=5` 复现实车 max|dt|=0.05 s（默认 1 出 12 发）⇒ **车端加载 5、仓内 robot.yaml:187=1**，第三例仓内≠车端。**裁决**：符号锁 **+v·T**、`−T·v` 假绿禁用；路线 A 匀速段结构无效（lead 只进 cpp:300 门、伺服 cpp:113-122 不读），预期改为「门更严」；**不花弹药验 A**、A2 暂停；伺服 1 行 + 稳定门语义待用户批。见 D-052 与 R-20 卡。
+
+> **2026-10-28 00:3x R-17 S1 复核（lead · 未连机/未出光）**：Lead 独立复跑 `test_drone_corridor` **48/48 rc0**、`--require-production-60` **49/49 rc0**、`replay_corridor_injection` **6/6 rc0** —— 原报「48/49、5/6 仅 F 红」已过期：rt-gate 在途 `main.py:_wait_for_field_layout` 改用 `_spec_default`，生产等待 **60.1 s**（yaml 无键亦成立）⇒ **取消** p1-geom 补 yaml 的派工。V4 判因**退回**：18:50 `drone_in pubs=0` 与机端 SSH 超时同现；真发射端是机端 `~/dzlink_tools/layout_batches.py`（不在仓），`perception.protocol` 缺 field_layout 属 D-039 已删构造器的遗留测试残影，**禁止补回**。树 R-17 已存在（23:37）。drone 当前 SSH 超时 ⇒ 空地实测仍缺机端。见 D-053。
+
+> **2026-10-28 01:0x P1 复核 + R-21 收尾（lead · 未 commit/未连车）**：P1 几何真值**接受**（V2/V5/V6/V8 绿；V7.2 仍 FAIL：洞口前 1 格起转 **+5.9 mm 放行**，记已知缺口，不为变绿改判据）。Lead 补两处写域外高危：`sim.py` bridge_modeled 改「有桥洞即建墙」（探针 0.09 m→**21 拍违规**）、`route_check.py` 车宽 0.17 + vehicle 段改读 `/dzactuator` + 桥墙随配置（carloop trajectory rc0 PASS；sixth legacy **rc0 / 雷 8-8 / 靶 2-2**）。sim 无图 ⇒ `field_modeled=0`，桥洞指标待接图。见 D-054 与 R-21 卡。
+
+> **2026-10-28 01:1x rt-gate 五卡复核（lead · 未 commit/未部署/未连车）**：Lead 独立复跑 **69/69**；`config_selfcheck` 0/0；`check.py` **GREEN**（`run_archive.py` 已登记复用清单）；`sim_cli` **118.12 s / 0.0300 m / 74**（与改前同）；`test_stepper` **117/118**（仅 12.11 存量）。**Lead 落配置**：`robot.yaml step.layout_ttl_s: 0.0` ⇒ `gate_policy=warn` 实测，A 区降级在车上生效；numbers `--fix-sources` 自愈 **8** 条 → exit0。G1/S3/M1/S2 **接受**；M2 **部分**（六键/只写不读/同名 RUNX-1 已证，**SIGTERM 未证**：Windows 无 POSIX 语义，真机待实跑）。非本线：`test_corner_cut` 90/91（5.9 预算，pursuit/trajectory 并行候选）。见 D-055。
+
+> **2026-10-27 22:2x R-8 决策 A 落生产工作树（lead · 未提交/未部署/未连车）**：生产 `src/dzbrain/dzbrain/route/planner.py` `c14dadd4`→**`405d8e8d`**（+137 行），并按决策 A 改写 4 条在途断言（`test_dual_shoot.py`→`cc77bf4a`、`test_autoplan.py`→`4da2a542`）；三者与作者隔离副本 `iso/cand` 逐字节相同。**A/B 隔离**（两棵当前生产树仅差该 planner）：第六图 legacy/tasks **由 rc=2 整趟判死 → rc=0 / 68 token / 单站 `B4*` / degraded=True**，且与 HEAD `lead_head.json` **逐 token 一致**；carloop 62/63、field 54/53 **逐 token 零变化**。`route_check` rc=0（雷 8/8、靶 2/2、射击点#48）、`sim_cli` rc=0（108.24 s、末点 0.0285 m，**但 `out_of_bounds=74`/`field_modeled=0` 存量未解，不得当空间安全**）。测试 `test_dual_shoot` 37/37、`test_autoplan` 182/182；规划相关 10 套 pre/post 无新增红。§4 门禁：gen_index rc0 / doc_policy GREEN / numbers rc0 / check.py GREEN / check_links 0 / **anchors 新增红 2，全部落在他人新卡 `lead-1023/DOC-LIB-TIDY-20261027.md`（裸文件名），与本改动无关**。**待用户拍板**是否本地 commit（D-044）；回滚点 `_tmp_session/AGC-RECTIFY-20261026/lead-land/preimage/`，禁 `git checkout`。见 [REPORT](../../_tmp_session/AGC-RECTIFY-20261026/lead-land/REPORT.md) 与 [R-8 卡](../../docs/30_任务卡库/在办/agc-1026/RECT-PLAN-FIX.md)。
+
+> **2026-10-27 网络固化（lead · 已实测，现场请勿再用旧地址）**：热点 **LapFox000** / 0d000721。**小车 = 192.168.137.164/24**（LapFox000 静态 manual，autoconnect 优先级 100，默认路由 192.168.137.1，ssh 别名 `dzrobot` 已直连 IP，不再依赖 mDNS）。**无人机 = 192.168.137.62/24**（静态 manual，优先级 100，免密 SSH，别名 `dzsmart`；USB 备用 `dzsmart-usb` = 192.168.55.1）。Windows 防火墙拦入站 ICMP（ping 不通本机属正常）；热点面板「已连接设备」只列 DHCP 租约，静态设备看不到不代表没连上；换网后须重启 `dzlink_supervisor`，否则车端显示无人机 offline。**沿革**：下文较早记录的 192.168.0.4 / 192.168.0.5 / 137.79 均为历史地址，仅作参考，不可用于现场连接。
+
+> **2026-10-27 19:02 实跑续轮1（lead）**：未重发无地图任务，未点动/回归。无人机旧地址与当前名称解析地址SSH均超时；热点仅见车端有效邻居，不能据此证明无人机断电。待恢复机端网络或获得当前IP，才能续取真实全片结果；既有桥洞语义缺口未解除。未追加运动/开火/飞行命令。见[当轮连接证据](../../_tmp_session/AGC-RECTIFY-20261026/video-step-20261027/lead/goal_round1_connectivity.json)。
+
+> **2026-10-27 18:50 全程正式入口实际执行（lead）· 未发车/未完赛**：按用户“不要测试、直接跑全程”运行车端既有 `/usr/bin/python3 -u -m dzbrain.main --config /home/duzhong/dzrobot/config/robot.yaml`，未使用 bench/dry-run/force、未恢复固定图、未改生产。真实 live 契约通过，定位有发布方；无人机输入发布方0，等布局30秒、实际收到0条，随后brake/shutdown并以exit 3退出。程序没有进入任务组、没有发出运动/开火任务。无人机别名及设备本名均解析192.168.137.62且SSH超时，完整原生结果未能续取；已有partial布局的桥洞语义仍未解决，不把恢复连接当作全链完成。首次带timeout包装被旧重复实例检测误判，包装已去除；该次包装退出码采集也有错误，保留原记录，不计为业务结果。当前正式结果：[启动](../../_tmp_session/AGC-RECTIFY-20261026/video-step-20261027/lead/full_run_direct_result.json) / [结束](../../_tmp_session/AGC-RECTIFY-20261026/video-step-20261027/lead/full_run_direct_completed.json)。原四个基础节点未清场，未重启他人进程。
+
+> **2026-10-27 本轮实体起栈（lead）**：用户已明确现场值守/可急停并要求视频驱动完整实跑，含有条件比赛打靶；不授权飞行。task-27已真实起底盘与定位，PGID 60127/60169，定位约50Hz，自报N10/+y；采样时cmd_vel无发布者，未发运动指令，未起云台/裁判。相机真实帧已回取见[现场画面](../../_tmp_session/AGC-RECTIFY-20261026/video-step-20261027/entity-car/frame_n10_181012.jpg)。机端清晰片段60帧均有地标和定位，已取回[原生观测](../../_tmp_session/AGC-RECTIFY-20261026/video-step-20261027/lead/clear_clip_trace.jsonl)，这不代表物体类别或整图可靠。整片原生识别正在机端隔离网络运行，task-28接真实布局，尚未向实车发布布局或任务。当前目标实际闭环，不再增加离线审计；没有把起栈记作发车、打靶或完赛。下列较早NO-GO记录按各自时点理解，生产默认配置未改，不提交推送。
+
+> **2026-10-27 A对短测后 · 仍NO-GO**：A整对结构匹配，隔离短测381条逐帧记录、零格号地标/零定位，rc124为超时非EOF；模型类别语义未证，不定为生产配对。旧观测候选漏world且存在NaN/越界格/时间校验缺口，独立评审及Lead复跑后拒绝作为交付。已只读补齐部署网格源码，纠正“缺map文件所以不能落格”的伪阻塞；当前只做task-24完成单错配及task-25观测接口定向修复。未起车栈、未发路线/动车/出光/飞行，生产冻结。最新裁决见[集成卡](../../docs/30_任务卡库/在办/agc-1026/RECT-INTEGRATION.md)。
+
+> **2026-10-27 16:22 视频步进准备（lead协调）**：用户确认N10朝M10、录像同场与现场值守/硬件急停等条件；task-17/18/19分担视频链、停车链与设备只读预检，Lead不重复执行。指定视频hash复核一致。task-17确认原生无field_layout接口，固定图emit_step_v3禁用；task-20正补隔离观测导出/保守布局候选，task-21只准机端30秒空netns推理探针，不能放行车。保留打靶目标，但先禁光，实际出光另确认；技术放行仍NO-GO，未起车栈或动车。此后新子调用使用Raccoon DeepSeek-V4.1-Flash-1017/on，先前在跑任务不重开。详见[本轮集成卡](../../docs/30_任务卡库/在办/agc-1026/RECT-INTEGRATION.md)。
+
+> **2026-10-27 16时连接窗口（lead）· 仅只读/NO-GO**：用户提供当前连接入口，两端免交互SSH已成功，硬件确认Jetson Orin Nano与OPi 5 Pro。未见关键词匹配业务进程，不代表物理禁动；车端两处auto_start文件值均false，选定7文件有5项与本地不同。机端原生入口已找到，两目录同名引擎SHA不同；文件视频源码仍有UDP广播路径，不能直接当无副作用离线模式。未运行推理/起ROS/部署/改参数/运动/出光/飞行；下一步须固定模型身份并证实禁发隔离，待现场禁动禁火与机端临时推理许可。保活未重启。见[本次证据与边界](../../docs/30_任务卡库/在办/agc-1026/RECT-INTEGRATION.md)；以下较早状态按记录时点理解。
+
+> **2026-10-27 离线检修续办交接（lead）· NO-GO**：task-10至14已交回并独立裁决。已复现跨趟旧布局/回执混用、节点失败却启动成功、空图失败闭合缺口及零有效帧仍rc0；尚未生产修复。回归退出传播一行候选、临时保活快照容错仅限域接受。视频已用既有ONNX评测入口跑完全片，但无可靠侦察地图；独立复核推翻“负z即地下相机/两符号同负”推论，不移植为NED高度闸。保活已于昨夜23:01正常释放，[释放记录](../../_tmp_session/AGC-RECTIFY-20261026/offline-night/heartbeat-release.json)，今天未续期；无运行中的后台job。未改冻结生产、未连车机、未部署/提交/推送。整体集成及现场完赛/双有效点/命中仍未验收；本轮收口与待办见[现行集成卡](../../docs/30_任务卡库/在办/agc-1026/RECT-INTEGRATION.md)。
+
+> **2026-10-26 较早续办记录 · agc-1026（lead）· NO-GO**：按deepseek-account/deepseek-flash/max派出独立前沿评审与复跑入口整改。**前沿候选拒绝合入**：独立反例及Lead重跑确认运动缩格可从WAIT_INFO重回DRIVING、新版不覆盖当前格也续跑，且无新版或版号抖动时等待无界。保留生产锁存停车。**DDS等待原候选needs_revision**；隔离v2现经独立28例窄范围接受（原候选同探针8反例），仅限等待与日志；未合入/部署，真实DDS与严格总时限未证。sim_cli两版本输出相同但均越界74拍、field_modeled=0，不能宣称空间安全。上轮13PASS混有旧日志与SKIP已撤回；作者运行器交回后Lead真跑19EXP/3BIND/0SKIP及7个注入场景。R7原136/136、隔离141/141实跑；R8单站降级与两fixture非回归实跑，但非运动/打靶验收。Lead把ACCEPTED改为REPRODUCED并显式NOT_ASSESSED/launch_go=false，此口径修订已独立PASS_LIMITED，Lead复核检查器rc0；elapsed强转、仓内TMPDIR自测分类及R11临时out侧写局限均留账，不当作全工具安全保证。定位17m不能直接除3认定实丢5.7m；缺图仍空间UNKNOWN，不固定夹具或换obstacle_blocks制造GO。详见[本轮证据与复跑](../../docs/30_任务卡库/在办/agc-1026/RECT-INTEGRATION.md)。本轮未改生产冻结源码/配置，未部署/发车/出光/飞行/commit/push。用户随后确认N10朝M10及人工急停，Lead只读连车：基础栈与step_emitter_v3在线、未见dzbrain及空地布局话题；零末帧速度不等于定位对齐。待确认控制归属，不擅自接管。文档全链最终仍有数字守卫RED（数值重算通过、文档漂移/异文未清），不报整卡收口或可提交。
+
+> **2026-10-24 17:2x 正式容器 `agc-1024` 上岗（lead）**：已用 `agent_teams_create(approval=automatic)` 建正式容器（此前 17:0x 的 spawn 层四卡已并入），成员 **t-car / p-aim / dl-drone / e-integ**，首轮四任务并行：T1 进度契约、P1B det_node 3→8 字段修复候选、DL1 二进制→JSON 薄适配、E1 四方对账。本轮**只做离线与只读**：不部署、不重启、不发车、不出光、不飞。
+> **Lead 只读取证（2026-10-24 17:2x，SSH 192.168.0.4，零写入）——F9 target=none 根因升级为「选错检测进程」**：① `dzrobot2/src/rknn_pt/src/det_node.cc:28` 建 publisher，`:104-106` **只填 3 字段** `[dx,dy,1]`（无 cls 映射/无 box_w/box_h/conf）；② 同一台车的 `dzrobot/src/rknn_pt/src/det_node.cc:273-281` **填满 8 字段** `[dx,dy,cls+1(1蓝2红),box.w,box.h,kpt_dx,kpt_dy,kpt_conf*100]`，与上午 mvlog 8 字段逐位对应（w p50=133 / conf p50=99）；③ 两个 install 二进制与模型都不同（dzrobot 二进制 10-24 09:06 构建、模型 8.1MB@10-23 19:12；dzrobot2 二进制 10-20 21:51、模型 9.9MB@10-20 20:15）；④ **两仓同名包 `det_node`，实测 source dzrobot/install/setup.bash 覆盖在 dzrobot2 之后 `ros2 pkg prefix det_node` 仍解析到 dzrobot2/install** ⇒ 15:43 那次栈起的是 3 字段版。结论：**这是进程/环境选择问题，不是必须重编译的代码缺陷**；最小修复 = 换回 dzrobot 的 8 字段 det_node 进程（只换一个进程，不动 lead/EKF/停止锁存）。待用户决定：下一次现场窗口是否批准该窄启动变更（含 `ros2 topic echo /offset_center --once` 看到 8 个数的验收判据）。
+> **设备可达性（17:2x）**：车 192.168.0.4 ping 11-19ms、SSH 免密可用；无人机 192.168.0.5 ping 29-44ms。当前**无** det_node/视觉/云台/dzbrain 进程在跑（上趟栈已停），车位须重新确认，不能沿用上趟末位姿。
+> **2026-10-24 17:1x 增设攻坚席 `h-ops`（用户指令）**：模型 `codex/gpt-6-astra`（用户口径 GPT6_Astra），思考强度 **`max`**（该路由只提供 low/medium/high/xhigh/max，**无 "Ultra" 档**；max = Maximum reasoning depth for the hardest problems，按最高档落地，已向用户说明此名称映射）。**只由 Lead 召唤**：任何成员直连一律拒收并回「请把问题与证据交回 Lead」。**只接硬阻塞**（现有证据互相矛盾 / 两条独立路径都失败 / 根因不明且卡住 M1–M6 之一），不接日常问题、进度催促、重复审计、写卡收口。默认只读、**无写域**；产出=根因排序+判别实验+修复方案（落 `_tmp_session/agc-1024/h-ops/`），由 Lead 派给对应 owner 落地。无待命任务，不被召唤不产生调用。树节点 AGC-15。
+
+> **2026-10-24 17:0x 团队 agc-1024 上岗（lead）**：DeepSeek 五角色团队已建，ns=`agc-1024`（登记表已加行，树 `docs/30_任务卡库/在办/agc-1024/00_树.md`）。成员与写域：**t-car**=tasks/{tracker,localization,mission}.py + dzbrain/tests 新增测试；**p-aim**=dzrknn_dataprocess/**（云台C++）+ aim.py；**dl-drone**=dzsmartscout/tools/link/** + 机端链路；**e-integ**=tools/deploy_to_car.py（其改动由 lead 独立评审）；**lead**=树/卡库索引/TEAM_STATUS/冻结登记。首轮四卡并行：T1 进度生产者-消费者契约、P1 F9 target=none 归因、DL1 二进制:50000→JSON 薄适配、E1 四方对账。卡面写域即文件锁，mission.py 单写者为 t-car。本轮**只做离线与只读**：不部署、不重启节点、不发车、不出光、不飞。实测网络：车 192.168.0.4、无人机 192.168.0.5 均可 ping。
+> **2026-10-24 DeepSeek接手交付**：事实入口改为[空地协同接手](../../docs/00_项目总览/交接_20261024_空地协同接手.md)，详细任务原位更新[推进计划](../../docs/10_agent提示词/04_场景/空地协同闭环推进.md)。当前保留第二趟已证倒车后前进及F9停站离站；进度三处写入、重复访问提前记账、停滞时钟/H8覆盖分别交T线验证，P线先解释F9无目标，D/L接续机端真实数据/协议与飞行。66文件证据ZIP已校验。此轮只编制交接，不操作设备；程序PID与车位须按最后确认时点理解。
+
+> **2026-10-24 第二趟实跑结果（/root，当前）**：用户归位并批准后，定位里程符号+Tracker倒车确认两补丁已窄部署，两包构建2.85s/exit0，备份100文件，运行安装哈希一致。第二趟真实倒车53拍完成，随后恢复前进，F9停站搜索6.10s未锁靶后离站、云台SCAN→IDLE，禁火。运行100.7s后主agent因路线进度旧段与E9强制跳点执行停车；不是drift_stop，八任务已退出。未到C5/N5、未第三次发车。定位626901保留，新Mission626921已退出。回滚点carloop_reverse_20261024_153942；证据与具体判据见 [CAR-PREFLIGHT](../../docs/30_任务卡库/在办/carloop-1024/CAR-PREFLIGHT-20261024.md)。本地正式源码尚未同步这两份车端候选；未提交/推送。
+
+> **2026-10-24 首趟实跑结果（/root）**：用户要求先跑再采数，已低速0.10m/s、54点F9/C5禁火发车；在首个H8倒车区失败停住，未到射击站/终点。直接停因drift_stop限速0；负速度期间定位仍正向增长。已回取实际serial_reader，发现hypot距离恒正且未乘倒车方向；另有Tracker仅1拍即误判倒车入口完成。已manual_override接管并结束本趟Mission，激光隔离保留，未二次发车。详见 [CAR-PREFLIGHT](../../docs/30_任务卡库/在办/carloop-1024/CAR-PREFLIGHT-20261024.md)。后续聚焦这处真实失败，不扩展检查矩阵。
+
+> **2026-10-24 部署及静止恢复完成（/root）**：用户批准的四文件已窄部署，源/安装哈希吻合；两包ROS编译45.1s、exit0，96文件备份已校验。随后单独获准恢复camera/chassis/loc/gimbal，DDS118恢复；云台外门禁true、LaserShot输出隔离到/carloop/inhibited，裁判和Mission未启动，车未发。用户确认N10朝M10；云台最终IDLE、目标/反馈残差2/5 tick。54点替代路线虽静态门禁绿，动态仿真横偏最大0.432m且场地约束失败，未放行。用户要求不再检查，已停止追加测试。详情见 [CAR-PREFLIGHT](../../docs/30_任务卡库/在办/carloop-1024/CAR-PREFLIGHT-20261024.md)；未提交/推送，文档门禁旧阻塞未解除。
+
+> **2026-10-24 14:31 跑车准备（/root）**：只读直连192.168.0.4；相机/底盘/云台DDS仍绑定旧137.79；无dzbrain/定位/裁判进程，云台argv外门禁false/max_shots3。真实车端源码窄合并候选已备，原调优保留；Python专项32/32、自动规划177/177、云台58/58、C++30/30、R3部署器187/187。四文件部署预演退出0，尚待用户批准。62点F9/C5路线有靶板40mm/挡板20mm足迹告警，两轮未消；tour入口footprint_gate=error仍不拦，候选配置拒用，不发车。见 [CAR-PREFLIGHT](../../docs/30_任务卡库/在办/carloop-1024/CAR-PREFLIGHT-20261024.md)。未部署/车端构建/节点重启/出光；以下较早离线结论不代表实车就绪。
+
+> **2026-10-24 carloop-1024 更新（/root）**：双站规划、离站回正、权限500ms失联撤销已完成本地修改。当前图 F9/C5、62 token/22.75 m，几何未改；双站35/35、自动规划177/177、Python云台58/58、Aim136/136、真实C++函数编译26/26均过。Mission修前后229/246，17旧失败无增减。已登记本ns与冻结写域；共享索引外部行保持不变。全库收口仍被既有R2文档位置与SSH-DIAG两条索引断链阻塞，未提交/推送。卡见 [carloop-1024](../../docs/30_任务卡库/在办/carloop-1024/00_树.md)。未完整ROS构建，且本地源码与车端版本不同；未部署/发车/出光，后续须用户确认。
+
+> **2026-10-24 · 治理形态裁决（用户 A 案，lead）**：当前四线跑在 spawn 层（`team_task_*` 共享板 + durable 成员），**未建 `agent_teams` 容器**（无 team plan / 无质量合同 / 无 attempt 接管）。A 案：不迁移在跑的 T1/P1/DL1/E1，**在 M2（双站打击验收）前用 `agent_teams_create(approval="required")` 建正式容器**，把 M2/M5/M6 的门禁做成带 objective+acceptance+verify 的 review/repair 循环；T/P/DL 成果经卡片交接，不重跑。
 > **维护**：Lead 每轮跑车 / 关键裁决 / 收工前更新；只写"此刻为真"的状态，不复述历史（历史看 `src/history/大事记.md`）。
 > **2026-10-23优先级纠正（用户确认）**：PID与完整循迹尚未完成；[空地闭环计划](../../docs/10_agent提示词/04_场景/空地协同闭环推进.md)现按Lead/T循迹/P云台/E集成/R评审推进F-T、F-P双主线，空地链路只做不抢现场窗口的准备。C1三趟/曾到N5不等于完整循迹验收；R3B的C0外测/C2b仍缺，D11有效FIRE样本仍0发。B1候选47/64、171/171为离线结果，靶速以D-031=1m/s为准。F-T通过后安排运动协同，含射击整赛还须F-P与飞控/链路验收。本轮仅修订方案，未SSH/部署/改生产；以下旧摘要不当今日实时事实。
 > 更新于：2026-10-22 夜 · **TOOLS-ORGANIZE 整理半归档（332 文件双哈希核），重做拆出 TOOLS-PLUGIN-REWORK-20261022（缺口 1/2/3/5/6/7 已修，deploy --dry-run 成为事实，honest-offline 503 落地；sim 家族 5 项待用户机复跑；profile 两个 file: 依赖已改指 tools/plugins/（部署债清），挂载进 bundles 等窗口）**。以下为旧注：**用户确认B/D/E三包已交回，目录D:\User\Desktop\交回包，待本地DeepSeek验包/三方合入/主副本复测，见37文§4。** 36§7阿克曼路线继续有效；R4A/R4B1为待领取建议，未实施。R3实车0趟、证据不足收口；R1候选 `e9bff6f0…8eab9b` 无新发布证据，136/136等仍为原测试。最新已回收车端身份仅截至10-20 20:55。本轮论文复核不等于三包验收，其余旧任务未重新验收。
@@ -134,3 +234,49 @@ fbc03b2 docs: 车端更新补记——src/ 根误建包已备份移除，dzbrain
 | 只读 / 豁免 / 第三方 | 119 / 1496 / 101 | 豁免含 history_cache、_tmp_session、git_save 等 |
 | 10-23 新增 | **8 篇** | 历史/04、历史/05、历史/06、车端/08、车端/09、空地链路/03、赛事与治理/06、赛事与治理/07 |
 
+## 9. 文档库指标（2026-10-24 P3 收口复核 · t7）
+
+> 来源：`python docs/_工具/check_doc_policy.py`、`python docs/_工具/check_anchors.py`、`python tools/wf/check_links.py` 实跑；非估数。口径见 AGENTS §8.9。
+
+| 指标 | 值 | 备注 |
+|---|---:|---|
+| 库内篇数 | **184** | check_doc_policy「库内」桶（docs/ 白名单内 .md） |
+| 库外受管 .md | **63** | 基线只减不增 |
+| 红线 | **0** | R1/R2/R3/R6/R7/R8/R9 全清（R6 由 lead 更新 README 计数后消掉） |
+| 过期候选（现行且 >180 天） | **0** | 提醒仅 Y9（_tmp_session 失效引用 321，基线 250） |
+| 断链 | **0** | check_links：checked 191 / broken 0 |
+| 锚点新增红 | **0** | check_anchors：存量红 306（基线 240），黄 195 |
+| 20_资料索引库实扫 | **63** | README「应为 63 篇」一致 |
+| 文档异文 | **6** | check_numbers 默认只报不判：前视区间 / 视觉 thread_num / 流水线延迟 / 巡航 / 轴距 / 丢靶回扫 |
+## 17:4x 更新（Lead 亲自复核）
+- **AGC-3/t3 DL1 完成并经 Lead 复跑**：link 105 OK（pipefail）、dl1 51 OK、verify_dl1 exit 0、坏帧 5 类全拒收、dzsmartscout 生产树零改动、快照 sha256 9ff259a3… 与教员原件一致。候选件全在 _tmp_session/agc-1024/dl1/。
+- **DL1 四条裁决已下**：①解析核入仓一份=钉死快照（sha256 PIN + provenance 单测，禁 .md）②合入窗口开（仅三个 link 文件）③单写者=替代不并存（双写即红）④空类别整键不发（缺失≠空，合成 confidence 不参与阈值）。
+- **新增卡**：t5=AGC-17 合入（dl-drone）；t6=AGC-16 transform_fusion tf2_ros.transformations 导入失败修复（dl-drone，排队）。
+- **在跑**：t1 t-car、t2 p-aim、t4 e-integ。
+- **物理阻塞（待用户窗口）**：D1 雷达 eno1 carrier=0（插线）；D3 无 /dev/ttyACM*、PX4 板未插；D2 机上感知未启动取不到真样本；车端 UDP:50000 无监听（需窄部署）。
+
+- **AGC-2/t2 P1B 完成（Lead 复跑 verify PASSED）**：3 字段 vs 8 字段源级定案；车上有两份 det_node（776K@10-24 09:06 / 3.86M@10-20）与两份模型（8.1M / 9.9M），零代码换进程即修。**等用户现场授权 GO**（只起 camera+det_node，V1-V3）。
+- 新增卡：t7=AGC-19 上车验证（p-aim，等 GO）；t8=AGC-18 fire_dz_far_px 漂移取证（只取证不改值）。
+- 现场实测：车 192.168.0.4 可达；当前无 det_node/云台/dzbrain 进程（V1 前须确认无残留，防双发布）。
+
+- **DL1 已提交并双推**：commit a5a662df（5 个文件，link 195 OK）；github/gitee main 均 a5a662df，ls-remote 已核对。
+- **门禁修复（Lead）**：check_anchors.py 空 max() 崩溃守卫；回报模板两处相对路径；20_资料索引库 README 篇数 48→49；gen_index 登记 2 篇。现 doc_policy GREEN / wf/check GREEN；anchors 尚余 13 条新增红全在他人会话文档（纪要 6 + 日志线 7）。
+- **mission.py** 已登记 frozen in_flight（owner t-car，到期 10-31），T1 最小补丁进行中。
+- **AGC-19 阶段一**：p-aim 交付脚本+日志分流+dry-run+只读预检 13 PASS/0 FAIL，车上零进程；等用户 GO。V6 证据加强：per-run 5_gimbal.log 1425 条「字段不足(3<5)」覆盖 14:52–16:51（含 15:43 趟）。
+
+- **DL1 闭环（18:3x）**：e-integ 独立复评 **PASS**（RESULT ADVERSARIAL CLEAN；B0 绿、M1–M4 四变异全红、A1–A9 全绿；A4/A8/A9 三个原 bug 均判红）。提交链 a5a662df → 9c722bfc（快照 MANIFEST）→ a066e7c8 → e58aa4a9（守卫修复）→ 74af8812（README 放行），两端 main 一致。
+- **AGC-16**：tf_compat 32 单测绿；FAST_LIO 是未初始化子模块 ⇒ 改走 fc-audit/fixes/02-tfcompat 补丁包（含 CMakeLists install 行）。
+- **门禁**：doc_policy / wf/check / check_links 全 GREEN；anchors 新增红 27（18 在我们两张卡，p-aim 标注中；9 在他人文档）。
+- **现场**：车 192.168.0.4 通；无人机 192.168.0.5 **掉线**（ARP 无效，需重新上电/联网）。
+
+## 21:4x doc-1024 收口推进（Lead · 2026-10-24）
+
+- **t5 热词缺口清单已完成**（att 929ce48f）：242 待提炼 → 173 关键词 → 84 覆盖 / **89 缺口**；交付 `docs/20_资料索引库/赛事与治理/热词缺口清单_20261024.md` + `artifacts/wordcloud/热词_2026W43.csv`；门禁 gen_index/check_links/check_numbers 全绿，check_doc_policy 仅既有 R6（README 60 vs 实扫 62，未动）。
+- **R6 漂移待消**：README「应为」计数落后 2 篇，已交 t7 处置，lead 不擅自改 README。
+- **t7 已派 doc-archivist-ops**：6 条门禁 + R6 处置 + 主题矩阵（89 缺口三档分类）。
+- **t10 已建并派 doc-mcpsmith**：dzdoc 8 个工具端到端冒烟（t6 只证明握手，本卡证明真跑得通）。
+- **MCP 已交付并挂载**：server `docs/_工具/mcp_dzdoc_server.py`（sha256 d15131f5ab30…，19121 B，477 行，8 只读工具）；注册块 `dsh-dzairground-ssh/cordis.patch.yml`（sha256 5a3bb92fb5ee…，1082 B，L10 起，stdio / serverName dzdoc）；本会话 list_mcp_resources 返回 OK。
+
+## 2026-10-25 traj-1025 本轮登记
+
+/root 负责共享登记与独立复核；原三个子agent已交回本轮写域。三层循迹候选仍离线、未部署。用户明确AGC-T1未交还tracker/localization/mission，运行链及全仓+X西/+Y南坐标迁移只在`_tmp_session/traj-1025/frame-migration`副本评审，不覆盖共享原文件；PIVOT/ALIGN尚未删除。开场基线41套/18红；pytest临时补装后因原harness导入SystemExit退出3，原生套件另记。用户追加64新图压测已完整跑完：49规划失败、8编译失败、7闭环完赛、全部已实现验收0/64；7张均车心8/8、采样区域通过，但赛时206.42–265.46秒。固定输入、同版哈希与逐图结果见本ns INTEG卡和random64-results。坐标迁移最终原生全量复验41套/18非零退出，与开场红套件集合一致；corner_cut仍89/92，固定第七图障碍净空、动力学与约束冲突、180秒三项未通过。外测资料暂无，外测仍未通过；新图首动方向接口、jerk硬cap冲突、跨端场地帧接线未完成。冻结门禁仍有3项任务外未登记改动，锚点守卫12条任务外新增红；不能代填owner，不满足提交/双推条件。

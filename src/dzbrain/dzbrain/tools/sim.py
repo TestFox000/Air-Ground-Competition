@@ -99,7 +99,8 @@ from dataclasses import dataclass, field
 
 from ..core import geometry as geo
 from ..core.config import Config, lookahead_distance
-from ..pursuit.controller import brake_command, compute_command
+from ..pursuit.controller import brake_command, compute_command, TrajectoryControlState
+from ..pursuit.trajectory import Trajectory
 from ..pursuit.path import Path, Projection
 from ..route import physics as ph
 from ..route.model import Route
@@ -293,7 +294,7 @@ def load_field_spec(map_path: str | os.PathLike | None = None, *,
 
 
 def body_corners(x: float, y: float, yaw: float, *, length_m: float = 0.28,
-                 width_m: float = 0.135) -> tuple[tuple[float, float], ...]:
+                 width_m: float = 0.17) -> tuple[tuple[float, float], ...]:
     """车体矩形的 4 个角（地图系，逆时针）。★ 车体半长/半宽来自 config，不写死。"""
     c, s = math.cos(yaw), math.sin(yaw)
     hl, hw = length_m / 2.0, width_m / 2.0
@@ -302,7 +303,7 @@ def body_corners(x: float, y: float, yaw: float, *, length_m: float = 0.28,
 
 
 def body_point_clearance_m(x: float, y: float, yaw: float, px: float, py: float, *,
-                           length_m: float = 0.28, width_m: float = 0.135) -> float:
+                           length_m: float = 0.28, width_m: float = 0.17) -> float:
     """**点 P 到车体矩形**的最近距离（m；点在车内 = 0）。
 
     ★ 做法：把 P 变到**车体系**，再套 `physics.point_rect_distance_m()` 的同一个公式 ——
@@ -331,7 +332,7 @@ class FieldObs:
 
     spec: FieldSpec
     length_m: float = 0.28
-    width_m: float = 0.135
+    width_m: float = 0.17
     coverage_radius_m: float = 0.035
     obstacle_radius_m: float = 0.1275
     mine_pad_m: float = 0.12
@@ -343,8 +344,8 @@ class FieldObs:
     #: 冗余长度（米）：真源 = config `field.bridge_entry_redundancy_m`
     #: （缺省 0.0875 = 0.35 × 1/4 格，与 `planner.BRIDGE_ENTRY_REDUNDANCY_M` **同源同值**；
     #: `run_sim` 一律 `cfg.get(key, 本默认)` 取值 —— 与上面 8 个键同一约定）。
-    #: `<= 0` ⇒ 判据**整体关闭**（指标 `bridge_redundancy_modeled = 0`），
-    #: 让"判据关了"与"建了墙但零违规"（modeled=1 / steps=0）在指标上长得**不一样**。
+    #: `<= 0` ⇒ 只建**真实墙**（仍是 modeled=1；R-21 起不再关判据）；
+    #: `modeled=0` 只在「本图无桥洞」时出现 —— 让"没测"与"测了没事"可区分。
     bridge_entry_redundancy_m: float = 0.0875
     #: 车体矩形相对参考点（后轴中心 = 仿真积分点）的纵向偏移：真源 = `vehicle.ref_offset_m`
     #: （本仓实测 +0.075）。默认 `physics.DEFAULT_REF_OFFSET_M = 0.0` ⇒ 老调用方口径不变。
@@ -386,8 +387,10 @@ class FieldObs:
         #      而正摆穿洞的轨迹横向偏移本就在 ±0.05 m 内 ⇒ 全轨迹恰好 0 拍而"看着没事"，
         #      这个陷阱是**潜伏**的（换个横向偏一点的路线立刻假绿翻红）。
         #      所以关闭必须走"不建墙 + modeled=0"，让"没测"与"测了没事"可区分。
-        self.bridge_modeled = 1 if (self.spec.bridges and self.bridge_entry_redundancy_m > 0.0) \
-            else 0
+        # ★2026-10-28 R-21：真墙段在 redundancy=0 时**非退化**（覆盖桥室自身 y 跨度），
+        #   现场置 0 也必须建墙判据；只有「本图无桥洞」才 modeled=0。旧旁路是
+        #   为规避零长墙假阳性（physics 已改真实段），继续挂着会变成「没测」。
+        self.bridge_modeled = 1 if self.spec.bridges else 0
         self.bridge_entry_walls: dict[str, tuple] = {}
         if self.bridge_modeled:
             for _b in self.spec.bridges:
@@ -540,7 +543,7 @@ class FieldObs:
             "k_seal_violation_steps": float(self.k_seal_steps),
             "k_solid_cell_steps": float(self.k_solid_steps),
             # ---- 桥洞进洞侧冗余墙 ----
-            # ⚠️ `modeled = 0`（关判据 / 本图无桥洞）时下面三条**照样存在**但语义是
+            # ⚠️ `modeled = 0`（本图无桥洞）时下面三条**照样存在**但语义是
             #    "没测"：`bridge_redundancy_steps` 恒 0、`bridge_..._min_clearance_m = inf`。
             #    报告里必须与 `modeled` 一起读 —— 单独看 steps=0 会误读成"不蹭墙"。
             "bridge_redundancy_modeled": float(self.bridge_modeled),
@@ -578,6 +581,7 @@ __all__ = [
     "SimResult",
     "SegmentStat",
     "run_sim",
+    "resolve_initial_yaw",
     "step_bicycle",
     "write_csv",
     "write_segments_csv",
@@ -889,8 +893,35 @@ def auto_max_steps(path: Path, cfg: Config, sim: SimConfig) -> int:
 # --------------------------------------------------------------------------- #
 #  主循环
 # --------------------------------------------------------------------------- #
+def resolve_initial_yaw(route_or_path, sim: SimConfig,
+                        trajectory: Trajectory | None = None) -> tuple[float, str]:
+    """Single initial-heading rule for compilation and simulation.
+
+    Passing the raw Route before compilation preserves the real start pose;
+    explicit route mode may use a compiled trajectory's initial body heading.
+    """
+    head = route_or_path.waypoints[0]
+    if sim.init_yaw == "waypoint":
+        init = head.yaw
+        source = f"waypoint（首点 yaw 字段 = {geo.deg(init):.1f}°）"
+    elif sim.init_yaw == "start" and str(getattr(head, "block", "") or "").upper() == DESIGN_START_BLOCK:
+        init = DESIGN_START_YAW
+        source = (f"设计常量：{DESIGN_START_BLOCK} 出发、车头 +y"
+                  f"（{geo.deg(DESIGN_START_YAW):.1f}°，现场摆位约定）")
+    else:
+        init = head.heading_to(route_or_path.waypoints[1])
+        source = (f"首段方向（{geo.deg(init):.1f}°）"
+                  + ("，非设计起点出发的合成夹具" if sim.init_yaw == "start"
+                     else f"，init_yaw={sim.init_yaw!r}"))
+    if trajectory is not None and sim.init_yaw == "route":
+        init = trajectory.sample(0.0).body_yaw
+        source = "trajectory initial body yaw (explicit route mode)"
+    return init, source
+
+
 def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
-            field: FieldSpec | None = None) -> SimResult:
+            field: FieldSpec | None = None, *, trajectory: Trajectory | None = None,
+            trajectory_state: TrajectoryControlState | None = None) -> SimResult:
     """跑一次闭环仿真，返回 `SimResult`（含真值/信念两条轨迹与全部指标）。
 
     :param route: 路线（通常 `parse_mission(cfg.get("route.tokens"))` 或读路线文件）。
@@ -898,10 +929,25 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
     :param sim: 误差注入参数；None = 理想车（无误差、有锚定）。
     :param field: 场地物理要素（`load_field_spec()` 的产物）；None = **不建模任何地图要素**
         （= 老行为；此时 `metrics["field_modeled"] == 0.0`，报告里那些场地指标一律不打印）。
+    :param trajectory: 显式候选连续轨迹；默认 None 完整保留旧 Path 行为。候选用同一个
+        自行车/延迟队列/执行器/场地观察器，横偏改为相对连续参考轨迹的投影距离。
+    :param trajectory_state: 可选候选执行状态，会被本次运行消费；缺省时每趟创建独立状态。
+        这不是完整 Mission/射击系统：只执行轨迹停点、显式 dwell_s 与零速换向。
     """
     sim = sim or SimConfig()
     sim.validate()
-    path = Path(route)
+    if trajectory is not None and trajectory.route != route:
+        raise ValueError("trajectory and route must refer to the same ordered route")
+    path = trajectory if trajectory is not None else Path(route)
+    control = (trajectory_state or TrajectoryControlState(trajectory, cfg)) if trajectory is not None else None
+    if control is not None and control.path is not trajectory:
+        raise ValueError("trajectory_state belongs to a different trajectory")
+    if control is not None:
+        control.command_delay_s = sim.cmd_latency_s
+    stop_started_t = None
+    released_stops = 0
+    trajectory_overrides = 0
+    trajectory_speed_commands = [0.0]
 
     wheelbase = float(cfg.get("pursuit.wheelbase_m"))
     arrival = float(cfg.get("pursuit.arrival_m"))
@@ -919,7 +965,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
         obs = FieldObs(
             spec=field,
             length_m=float(cfg.get("vehicle.length_m", 0.28)),
-            width_m=float(cfg.get("vehicle.width_m", 0.135)),
+            width_m=float(cfg.get("vehicle.width_m", 0.17)),
             coverage_radius_m=float(cfg.get("vehicle.coverage_radius_m", 0.035)),
             obstacle_radius_m=float(cfg.get("field.obstacle_radius_m", 0.1275)),
             mine_pad_m=float(cfg.get("field.mine_pad_m", 0.12)),
@@ -957,19 +1003,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
     #   车摆在设计起点格、车头 `+y`（图左 / K 列方向）—— 现场用户保证摆位。
     #   ⚠️ 只对"从设计起点格出发"的路线生效；合成夹具（从别处出发的短路线）保持历史
     #      行为「对齐首段方向」，见 `SimConfig.init_yaw` 的说明。
-    if sim.init_yaw == "waypoint":
-        init = head.yaw
-        result.init_yaw_src = f"waypoint（首点 yaw 字段 = {geo.deg(init):.1f}°）"
-    elif sim.init_yaw == "start" and str(getattr(head, "block", "") or "").upper() \
-            == DESIGN_START_BLOCK:
-        init = DESIGN_START_YAW
-        result.init_yaw_src = (f"设计常量：{DESIGN_START_BLOCK} 出发、车头 +y"
-                               f"（{geo.deg(DESIGN_START_YAW):.1f}°，现场摆位约定）")
-    else:
-        init = head.heading_to(path.waypoints[1])
-        result.init_yaw_src = (f"首段方向（{geo.deg(init):.1f}°）"
-                               + ("，非设计起点出发的合成夹具" if sim.init_yaw == "start"
-                                  else f"，init_yaw={sim.init_yaw!r}"))
+    init, result.init_yaw_src = resolve_initial_yaw(path, sim, trajectory)
     tyaw = byaw = init
     tx0, ty0 = tx, ty          # 轨迹起点（用于"实走里程"的独立核算）
 
@@ -1092,7 +1126,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
         # ⚠️ 不动 `byaw`：航向是另一路估计（陀螺积分），把航向一起掰到段方向等于凭空给车
         #   一个"瞬间转 90°"的角速度（实测跑 60 s 就跑飞）。
         anchored_now = False
-        if sim.anchor_on_arrival:
+        if sim.anchor_on_arrival and trajectory is None:
             anchor_idx = _advance_anchor(path, anchor_idx, s_prev)
             if anchor_idx < len(path.waypoints) and _anchor_allowed(path, anchor_idx):
                 target_wp = path.waypoints[anchor_idx]
@@ -1112,105 +1146,142 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
                         anchored_now = True
                         anchor_idx += 1
 
-        # ================== ③ 任务推进（MissionTask：到点即换下一个航点） ==================
-        # ★ 这是仿真能否跑完的**关键**，也是现实里真实存在的机制：循迹永远只朝**当前航段**追。
-        #   两条推进规则缺一不可：
-        #   ① 到位：真值进入当前航点的 `pursuit.arrival_m` 球内 → 推进；
-        #   ② **已过点即放行**：投影弧长已越过该顶点（`s >= s_at_waypoint(target)`）→ 推进。
-        #   ⚠️ 只有 ① 会死锁两处（都是实测）：
-        #     · `max_steer_deg=30°` + `wheelbase=0.157 m` → 最小转弯半径 0.27 m，
-        #       而现场路线一个 90° 弯只给 0.35 m 段长，车过弯必然从顶点外侧掠过
-        #       （实测最近 0.24 m），永远进不了 0.12 m 到位球 → `target_idx` 卡死、无限绕圈；
-        #     · 倒车段（`R:B6` → `R:D6`）要求 0.35 m 的最小转弯半径，而车的物理下限是
-        #       `L/tan(δmax) = 0.157/tan30° = 0.272 m` —— 这一段只有 0.70 m 空间可用。
-        #   现实里执行器就是"过了这个点就认账、往下走"（旧 OVERSHOOT 补触发同语义）。
-        #   ⚠️ **"过了"的判据必须包含"车已经越过该顶点的垂面"**，只用投影弧长会死锁：
-        #      `_clamp_forward` 把投影钉在顶点弧长上（`s == s_at_waypoint(i)`），
-        #      而判据是 `s >= s_at_waypoint(i)` —— 差一个浮点 epsilon 就永远不成立。
-        #      实测（现场图，A6/B6 折返）：车在外圈绕到天荒地老，`target_idx` 卡在 19，
-        #      投影弧长死在 8.050 m 不动，822 s 也没跑完。
-        #      物理上"越过垂面"= 车到目标点的距离 < 车到**当前段起点**的距离。
-        if target_idx < len(path.waypoints):
-            wp = path.waypoints[target_idx]
-            is_goal = (target_idx == len(path.waypoints) - 1)
-            passed = s_prev >= path.s_at_waypoint(target_idx) - _END_EPS_M
-            if not passed:
-                anchor_wp = path.waypoints[target_idx - 1]
-                d_target = math.hypot(tx - wp.x, ty - wp.y)
-                d_prev = math.hypot(tx - anchor_wp.x, ty - anchor_wp.y)
-                # ⚠️ 末点的"已过点即放行"必须用同一个更紧半径：用 `arrival_m`(0.12) 判
-                #    "越过了终点垂面"等于在 0.12 m 外就认账，`_GOAL_STOP_M` 永远轮不到生效
-                #    （这正是 `final_error_m` 长期钉在 0.118 的原因）。
-                passed = d_target < d_prev and d_target <= (_GOAL_STOP_M if is_goal else arrival)
-            # ⚠️ 末点用更紧的到位半径：一旦按 `arrival_m`(0.12) 推进到末点，
-            #    `s_floor` 立刻抬到 `total_length`，投影被夹到末点 → 控制器认为"到终点了"，
-            #    车会停在离终点 0.12 m 处（实测 `final_error_m = 0.117`）。
-            #    末点必须真的走到 `_GOAL_STOP_M` 内才算到 —— 与现场"终点要停车"一致。
-            radius = _GOAL_STOP_M if is_goal else arrival
-            # ★★ **朝向门**：进到位球还不够，车头必须已经**朝着下一段的走向**。
-            #   为什么（端到端实测出来的最后一处死锁）：现场图 `F11→E11`（朝北）之后紧接
-            #   `R:F11`（朝南，倒车）—— 车在 E11 的 `arrival_m` 球内、**还朝北**时就推进目标，
-            #   于是 `s_floor` 抬到 E11、投影被拉到 `E11→F11` 段上且**朝向翻 180°**：
-            #     · `dist_to_vertex = 0` → `find_lookahead_point` 把前视点钳成顶点本身
-            #       （前视点塌缩 = 方位角退化，见 `_anchor_allowed` 的注释）；
-            #     · 控制器按"已到 E11、该往南走"算，可车还在 E11 北侧 0.17 m 处 ——
-            #       指令与实际位置不自洽，车被推离路线且再也回不来
-            #       （实测：`s` 在 4.200 上钉死 1100 拍、`xt_rms` 0.107 → 0.249）。
-            #   加门之后，车会先按"还差最后一段"把最后 0.12 m 走完 / 原地把车头转到
-            #   下一段方向，投影与指令重新自洽，折返才能完成。
-            #   ⚠️ 容差 90°：现场图 90° 拐角（`L10` / `F10` / `A6` / `D6` …）必须照常放行，
-            #      只挡"掉头"这一种（下一段与当前段反向 = 差 180°）。
-            #   ⚠️ `passed`（已过垂面）不受门限制：那是"车已经走过去了"的既成事实，
-            #      再等朝向只会让它原地打转。
-            facing = True
-            if target_idx < path.segment_count:
-                out_heading = path.segments[target_idx][5]
-                facing = abs(geo.normalize_angle(out_heading - tyaw)) <= math.radians(
-                    _ADVANCE_FACING_TOL_DEG)
-            if math.hypot(tx - wp.x, ty - wp.y) <= radius and facing:
-                target_idx += 1
-            elif passed:
-                target_idx += 1
+        if trajectory is None:
+            # ================== ③ 任务推进（MissionTask：到点即换下一个航点） ==================
+            # ★ 这是仿真能否跑完的**关键**，也是现实里真实存在的机制：循迹永远只朝**当前航段**追。
+            #   两条推进规则缺一不可：
+            #   ① 到位：真值进入当前航点的 `pursuit.arrival_m` 球内 → 推进；
+            #   ② **已过点即放行**：投影弧长已越过该顶点（`s >= s_at_waypoint(target)`）→ 推进。
+            #   ⚠️ 只有 ① 会死锁两处（都是实测）：
+            #     · `max_steer_deg=30°` + `wheelbase=0.157 m` → 最小转弯半径 0.27 m，
+            #       而现场路线一个 90° 弯只给 0.35 m 段长，车过弯必然从顶点外侧掠过
+            #       （实测最近 0.24 m），永远进不了 0.12 m 到位球 → `target_idx` 卡死、无限绕圈；
+            #     · 倒车段（`R:B6` → `R:D6`）要求 0.35 m 的最小转弯半径，而车的物理下限是
+            #       `L/tan(δmax) = 0.157/tan30° = 0.272 m` —— 这一段只有 0.70 m 空间可用。
+            #   现实里执行器就是"过了这个点就认账、往下走"（旧 OVERSHOOT 补触发同语义）。
+            #   ⚠️ **"过了"的判据必须包含"车已经越过该顶点的垂面"**，只用投影弧长会死锁：
+            #      `_clamp_forward` 把投影钉在顶点弧长上（`s == s_at_waypoint(i)`），
+            #      而判据是 `s >= s_at_waypoint(i)` —— 差一个浮点 epsilon 就永远不成立。
+            #      实测（现场图，A6/B6 折返）：车在外圈绕到天荒地老，`target_idx` 卡在 19，
+            #      投影弧长死在 8.050 m 不动，822 s 也没跑完。
+            #      物理上"越过垂面"= 车到目标点的距离 < 车到**当前段起点**的距离。
+            if target_idx < len(path.waypoints):
+                wp = path.waypoints[target_idx]
+                is_goal = (target_idx == len(path.waypoints) - 1)
+                passed = s_prev >= path.s_at_waypoint(target_idx) - _END_EPS_M
+                if not passed:
+                    anchor_wp = path.waypoints[target_idx - 1]
+                    d_target = math.hypot(tx - wp.x, ty - wp.y)
+                    d_prev = math.hypot(tx - anchor_wp.x, ty - anchor_wp.y)
+                    # ⚠️ 末点的"已过点即放行"必须用同一个更紧半径：用 `arrival_m`(0.12) 判
+                    #    "越过了终点垂面"等于在 0.12 m 外就认账，`_GOAL_STOP_M` 永远轮不到生效
+                    #    （这正是 `final_error_m` 长期钉在 0.118 的原因）。
+                    passed = d_target < d_prev and d_target <= (_GOAL_STOP_M if is_goal else arrival)
+                # ⚠️ 末点用更紧的到位半径：一旦按 `arrival_m`(0.12) 推进到末点，
+                #    `s_floor` 立刻抬到 `total_length`，投影被夹到末点 → 控制器认为"到终点了"，
+                #    车会停在离终点 0.12 m 处（实测 `final_error_m = 0.117`）。
+                #    末点必须真的走到 `_GOAL_STOP_M` 内才算到 —— 与现场"终点要停车"一致。
+                radius = _GOAL_STOP_M if is_goal else arrival
+                # ★★ **朝向门**：进到位球还不够，车头必须已经**朝着下一段的走向**。
+                #   为什么（端到端实测出来的最后一处死锁）：现场图 `F11→E11`（朝北）之后紧接
+                #   `R:F11`（朝南，倒车）—— 车在 E11 的 `arrival_m` 球内、**还朝北**时就推进目标，
+                #   于是 `s_floor` 抬到 E11、投影被拉到 `E11→F11` 段上且**朝向翻 180°**：
+                #     · `dist_to_vertex = 0` → `find_lookahead_point` 把前视点钳成顶点本身
+                #       （前视点塌缩 = 方位角退化，见 `_anchor_allowed` 的注释）；
+                #     · 控制器按"已到 E11、该往南走"算，可车还在 E11 北侧 0.17 m 处 ——
+                #       指令与实际位置不自洽，车被推离路线且再也回不来
+                #       （实测：`s` 在 4.200 上钉死 1100 拍、`xt_rms` 0.107 → 0.249）。
+                #   加门之后，车会先按"还差最后一段"把最后 0.12 m 走完 / 原地把车头转到
+                #   下一段方向，投影与指令重新自洽，折返才能完成。
+                #   ⚠️ 容差 90°：现场图 90° 拐角（`L10` / `F10` / `A6` / `D6` …）必须照常放行，
+                #      只挡"掉头"这一种（下一段与当前段反向 = 差 180°）。
+                #   ⚠️ `passed`（已过垂面）不受门限制：那是"车已经走过去了"的既成事实，
+                #      再等朝向只会让它原地打转。
+                facing = True
+                if target_idx < path.segment_count:
+                    out_heading = path.segments[target_idx][5]
+                    facing = abs(geo.normalize_angle(out_heading - tyaw)) <= math.radians(
+                        _ADVANCE_FACING_TOL_DEG)
+                if math.hypot(tx - wp.x, ty - wp.y) <= radius and facing:
+                    target_idx += 1
+                elif passed:
+                    target_idx += 1
 
-        # ================== ④ 物理投影（"Localization 报的 P_ROUTE_S"） ==================
-        # ⚠️ 投影弧长**不允许退回上一段**：纯追踪一定会把车带过顶点一点，一旦越过顶点，
-        #   `Path.project` 窗口内的"最近点"可能仍是那个顶点 → 弧长**再也不前进**
-        #   → 前视点塌缩到顶点（车已在它上面）→ 方位角退化 → 舵角恒 0 → 车直着开走。
-        s_floor = path.s_at_waypoint(target_idx - 1) if target_idx >= 1 else 0.0
-        proj_t = _project_sticky(path, tx, ty, s_hint=s_prev, window_m=_PROJ_FWD_M,
-                                 allow_backward=True, motion_heading=motion_heading,
-                                 prev_seg=prev_truth_seg, s_min=s_floor)
-        proj_t = _clamp_forward(path, proj_t, s_floor, tx, ty, arrival)
-        s_prev = proj_t.s
-        prev_truth_seg = proj_t.seg_index
+            # ================== ④ 物理投影（"Localization 报的 P_ROUTE_S"） ==================
+            # ⚠️ 投影弧长**不允许退回上一段**：纯追踪一定会把车带过顶点一点，一旦越过顶点，
+            #   `Path.project` 窗口内的"最近点"可能仍是那个顶点 → 弧长**再也不前进**
+            #   → 前视点塌缩到顶点（车已在它上面）→ 方位角退化 → 舵角恒 0 → 车直着开走。
+            s_floor = path.s_at_waypoint(target_idx - 1) if target_idx >= 1 else 0.0
+            proj_t = _project_sticky(path, tx, ty, s_hint=s_prev, window_m=_PROJ_FWD_M,
+                                     allow_backward=True, motion_heading=motion_heading,
+                                     prev_seg=prev_truth_seg, s_min=s_floor)
+            proj_t = _clamp_forward(path, proj_t, s_floor, tx, ty, arrival)
+            s_prev = proj_t.s
+            prev_truth_seg = proj_t.seg_index
 
-        # 终点判据（**用真值，不用信念**）：吸附会把信念瞬移到格心，
-        # 用信念判会提前 `arrival_m` 就刹车，`final_error_m` 平白多 0.12 m。
-        goal = path.waypoints[-1]
-        if math.hypot(tx - goal.x, ty - goal.y) <= _GOAL_STOP_M:
-            reached_end = True
-        if proj_t.s >= path.total_length - _END_EPS_M and not reached_end:
-            reached_end = True      # 投影已到末点（车开过终点的情况）
+            # 终点判据（**用真值，不用信念**）：吸附会把信念瞬移到格心，
+            # 用信念判会提前 `arrival_m` 就刹车，`final_error_m` 平白多 0.12 m。
+            goal = path.waypoints[-1]
+            if math.hypot(tx - goal.x, ty - goal.y) <= _GOAL_STOP_M:
+                reached_end = True
+            if proj_t.s >= path.total_length - _END_EPS_M and not reached_end:
+                reached_end = True      # 投影已到末点（车开过终点的情况）
 
-        # ================== ⑤ 信念投影 → 纯追踪算一拍指令 ==================
-        # 信念投影：**以物理弧长为锚 ± `_PROJ_BELIEF_M`**，再夹到当前航段之后。
-        # ⚠️ 不能给它一个很大的自由窗口：车在拐角处时"最近点"可能落在**别的航段**上
-        #   （现场路线在 B6/F11 附近自交），于是信念投影跳到前面 1.2 m 处，
-        #   控制器拿着"我还在前面"的假信息反向打舵 —— 实测误差注入下就在这里开始绕圈。
-        proj = _project_sticky(path, bx, by, s_hint=proj_t.s, window_m=_PROJ_BELIEF_M,
-                               allow_backward=True, motion_heading=motion_heading,
-                               prev_seg=prev_belief_seg, s_min=s_floor)
-        proj = _clamp_forward(path, proj, s_floor, bx, by, arrival)
-        prev_belief_seg = proj.seg_index
+            # ================== ⑤ 信念投影 → 纯追踪算一拍指令 ==================
+            # 信念投影：**以物理弧长为锚 ± `_PROJ_BELIEF_M`**，再夹到当前航段之后。
+            # ⚠️ 不能给它一个很大的自由窗口：车在拐角处时"最近点"可能落在**别的航段**上
+            #   （现场路线在 B6/F11 附近自交），于是信念投影跳到前面 1.2 m 处，
+            #   控制器拿着"我还在前面"的假信息反向打舵 —— 实测误差注入下就在这里开始绕圈。
+            proj = _project_sticky(path, bx, by, s_hint=proj_t.s, window_m=_PROJ_BELIEF_M,
+                                   allow_backward=True, motion_heading=motion_heading,
+                                   prev_seg=prev_belief_seg, s_min=s_floor)
+            proj = _clamp_forward(path, proj, s_floor, bx, by, arrival)
+            prev_belief_seg = proj.seg_index
 
-        if reached_end and sim.stop_on_completion:
-            cmd = brake_command(cfg)
+            if reached_end and sim.stop_on_completion:
+                cmd = brake_command(cfg)
+            else:
+                cmd = compute_command(geo.Pose(bx, by, byaw), path, proj, cfg,
+                                      last_steer_deg=(last_cmd_steer if sim.command_rate_limit
+                                                      else None),
+                                      dt=dt,
+                                      last_speed_mps=last_cmd_speed)
         else:
-            cmd = compute_command(geo.Pose(bx, by, byaw), path, proj, cfg,
-                                  last_steer_deg=(last_cmd_steer if sim.command_rate_limit
-                                                  else None),
-                                  dt=dt,
-                                  last_speed_mps=last_cmd_speed)
+            # Same bicycle, delay queue, actuator and field observers as legacy;
+            # only path projection and the controller/stop clock are replaced.
+            # Geometry never comes from the source polyline in this branch.
+            s_floor = control.s_floor
+            proj_t = path.project(tx, ty, s_hint=s_prev, window_m=_PROJ_FWD_M,
+                                  allow_backward=True, motion_heading=motion_heading,
+                                  back_m=0.02, s_min=s_floor, s_max=control.next_stop_s)
+            s_prev = proj_t.s
+            prev_truth_seg = proj_t.seg_index
+            proj = path.project(bx, by, s_hint=proj_t.s, window_m=_PROJ_BELIEF_M,
+                                allow_backward=True, motion_heading=motion_heading,
+                                back_m=0.02, s_min=s_floor, s_max=control.next_stop_s)
+            prev_belief_seg = proj.seg_index
+            target_idx = min(len(path.waypoints)-1, proj.seg_index+1)
+            goal = path.sample(path.total_length)
+            if control.holding and not control.reference_completed:
+                if stop_started_t is None:
+                    stop_started_t = t
+                point = path.sample(control.next_stop_s)
+                dwell = max((w.dwell_s for i,w in enumerate(path.waypoints)
+                             if abs(path.s_at_waypoint(i)-control.next_stop_s) < 1e-8),
+                            default=0.0)
+                if (t-stop_started_t >= dwell
+                        and math.hypot(tx-point.x,ty-point.y) <= _GOAL_STOP_M
+                        and control.release_stop(proj.s, speed_mps=v_exec,
+                                                 tolerance_m=_GOAL_STOP_M)):
+                    released_stops += 1
+                    stop_started_t = None
+            reached_end = (control.reference_completed and abs(v_exec) <= 1e-3
+                           and math.hypot(tx-goal.x,ty-goal.y) <= _GOAL_STOP_M)
+            cmd = compute_command(geo.Pose(bx,by,byaw), path, proj, cfg,
+                                  last_steer_deg=(last_cmd_steer if sim.command_rate_limit else None),
+                                  dt=dt, trajectory_state=control)
+            trajectory_speed_commands.append(cmd.linear_x)
+            trajectory_overrides += int(control.constraint_override)
         # ---- 指令侧速率：相邻两拍**控制器输出**之差（这才是"速率限幅"的观测量）----
         # ⚠️ 老实现拿"当前指令 − 上一拍采样到的执行值"当指令速率，末端/对齐点上会算出
         #    680.9 °/s 的**假峰值**（真实指令从没超过 120 °/s，见测试 test_sim 第 8 组）。
@@ -1255,12 +1326,12 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
         #   把它单独拎出来才能回答"这 0.2 m 是直段蹭的还是拐角吃的"。
         d_front = proj_t.s - path.s_at_waypoint(proj_t.seg_index)
         near_vertex = min(proj_t.dist_to_vertex, max(0.0, d_front)) <= _CORNER_ZONE_M
-        is_rev = path.segment_is_reverse(proj_t.seg_index)
+        is_rev = cmd.reverse if trajectory is not None else path.segment_is_reverse(proj_t.seg_index)
         kind = ("reverse" if is_rev
                 else "corner" if near_vertex else "normal")
-        xt_truth = _cross_track_m(tx, ty, path.segments)
+        xt_truth = proj_t.dist if trajectory is not None else _cross_track_m(tx, ty, path.segments)
         truth_xt.append(xt_truth)
-        belief_xt.append(_cross_track_m(bx, by, path.segments))
+        belief_xt.append(proj.dist if trajectory is not None else _cross_track_m(bx, by, path.segments))
         belief_gap.append(math.hypot(bx - tx, by - ty))
         in_bounds_belief.append(1.0 if geo.in_bounds(bx, by, margin) else 0.0)
         in_bounds_truth.append(1.0 if geo.in_bounds(tx, ty, margin) else 0.0)
@@ -1362,7 +1433,7 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
                   proj_t.s if truth_xt else 0.0)
 
     # ---- 指标 ----
-    final = path.waypoints[-1]
+    final = path.sample(path.total_length) if trajectory is not None else path.waypoints[-1]
     # "顶点冲过头"：真值轨迹在某个顶点处**离格心最近**时的超出量（超过到位半径的部分）。
     # 严格沿路线走的车该值是 0；信念领先（ε>0）或转弯半径不够时车会在拐角外侧掠过顶点 → 出现正值。
     # ★ 按段类型分开统计：不分组时"倒车折返在原地掉头"和"90° 弯切角"会混在同一个
@@ -1528,6 +1599,28 @@ def run_sim(route: Route, cfg: Config, sim: SimConfig | None = None,
     metrics["speed_ramp_steps"] = float(speed_ramp_steps)
     # ⚠️ `completed` / `anchor_on_arrival` 是 bool，其余指标是 float —— 混类型是刻意的：
     #    CSV/SVG/控制台都不依赖 metrics 的类型统一，而测试要读布尔真值。
+    if trajectory is not None:
+        metrics["trajectory_mode"] = True
+        metrics["trajectory_released_stops"] = float(released_stops)
+        metrics["trajectory_waiting_stop"] = bool(control.holding and not reached_end)
+        metrics["trajectory_profile_time_s"] = control.profile.duration_s
+        metrics["trajectory_profile_direction_time_s"] = sum(
+            interval.duration / (float(cfg.get("pursuit.reverse_speed_ratio"))
+                if trajectory.sample((interval.s0+interval.s1)*.5).reverse else 1.0)
+            for interval in control.profile._intervals)
+        metrics["trajectory_reference_s"] = control.reference_s
+        metrics["trajectory_constraint_override_steps"] = float(trajectory_overrides)
+        accelerations = [(b-a)/dt for a,b in zip(trajectory_speed_commands,trajectory_speed_commands[1:])]
+        # Up/down are changes of speed magnitude, also while reversing. Signed
+        # acceleration changes meaning across gears; jerk below is still the
+        # finite difference of the actual signed command acceleration.
+        speed_accelerations = [(abs(b)-abs(a))/dt
+                               for a,b in zip(trajectory_speed_commands,trajectory_speed_commands[1:])]
+        jerks = [(b-a)/dt for a,b in zip([0.0]+accelerations,accelerations)]
+        metrics["trajectory_command_accel_max_mps2"] = max(map(abs,accelerations),default=0.0)
+        metrics["trajectory_command_accel_up_max_mps2"] = max([0.0]+speed_accelerations)
+        metrics["trajectory_command_accel_down_max_mps2"] = max([0.0]+[-a for a in speed_accelerations])
+        metrics["trajectory_command_jerk_max_mps3"] = max(map(abs,jerks),default=0.0)
     return result
 
 

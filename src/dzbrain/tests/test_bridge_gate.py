@@ -63,7 +63,9 @@ from dzbrain.tools import sim as S                          # noqa: E402
 from dzbrain.tools import sim_cli as SC                     # noqa: E402
 
 _ROBOT_YAML = _WS / "config" / "robot.yaml"
-_MAP_YAML = _WS / "config" / "map.yaml"
+# ★ 2026-10-25：车端改为「零地图 + 布局模式」，`config/map.yaml` 已归档到
+#   `artifacts/maps/`。本文件改成读**测试夹具**（内容与原文件逐字相同），语义零变化。
+_MAP_YAML = _WS / "src" / "dzbrain" / "tests" / "fixtures" / "map_sixth_20261017.yaml"
 
 CELL = geo.BLOCK_SIZE
 #: 车身外包尺寸（估值，见模块 docstring）—— 实测后改这里，再按新实测重钉断言
@@ -248,6 +250,10 @@ def _k_intrusion(res: S.SimResult) -> tuple[int, int]:
 def _sim(tokens: list[str], overrides: dict) -> S.SimResult:
     """官方仿真器进程内跑一次；参数覆盖走 `sim_cli` 的同一条路径（与 CLI 等价）。"""
     cfg = Config.load(str(_ROBOT_YAML))
+    # ★ 2026-10-25：车端改成「零地图 + 布局模式」，robot.yaml 的 planner.map_path 已置空。
+    #   仿真器按 cfg 的 map_path 取图 ⇒ 不钉图时会用另一张图，本文件的"未开放 K 桥室"
+    #   就与仿真几何对不上（实测：现役路线侵入由 0 变 6 拍）。这里显式钉成同一个夹具。
+    cfg = cfg.override("planner.map_path", str(_MAP_YAML))   # override 返回新对象，必须接住
     cfg = SC._apply_overrides(cfg, SC._parse_set_overrides(
         [f"{k}={v}" for k, v in overrides.items()]))
     return S.run_sim(P.parse_mission(tokens), cfg, S.SimConfig())

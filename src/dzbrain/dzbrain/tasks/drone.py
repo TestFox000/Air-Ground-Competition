@@ -84,18 +84,49 @@ r"""DroneTask —— 无人机链路（5 Hz），架构 §7.2 / §7.3 的车侧�
   `drone.field_verify_policy`（缺省 `record`）/ `drone.coverage_enabled`（缺省 true）。
   `drone.map_path` / `drone.field_diff_max` / `drone.ack_enabled` 已随其它卡登记进 SCHEMA；
   `drone.enabled` / `topic_in` / `topic_out` / `heartbeat_timeout_s` / `info_stale_s` 亦在。
+
+## 起步走廊确认 `corridor_confirm_s`（S1-CORRIDOR / R-17，本卡新增）
+
+用户 2026-10-27 裁决：无人机全程在线报点，**开赛后 35 s 内**要确认起步走廊
+（N10 往左 5~8 格），总限时 180 s。车端在这里只做**观测**，不做路线决策：
+
+* `first_layout_s` —— 从本任务 `setup()` 到**首份被接受的布局**的秒数（单调时钟域）。
+* `corridor_confirm_s` —— 从 `setup()` 到**走廊格全部出现在 `known` 里**的秒数；
+  判据 ≤35 s，量不出就是 `None`（`teardown` 打 `NONE`，绝不填 0 糊过去）。
+* `corridor_since_gate_s` —— 只有同时配了 `drone.start_gate_ts`（**与机侧 `ts` 同一
+  epoch 域**）时才出数：`首布局 ts − gate`，即"开赛后多少秒收到走廊"；两个时钟不同步
+  时该值只作证据，不作判决（域号分裂史见 TEAM_STATUS）。
+
+走廊口径见 `:func:`corridor_cells_of``（起点左手侧 5 格，不计起点格）。
+v1 布局没有 `known` 键 = 整图已知 ⇒ 首布局即确认（与旧行为逐位一致）。
+
+## 开赛信号 gate（车端可判的那一半）
+
+用户裁决"准备阶段禁止升空与采集"。**车端没有起飞/采集通道**（`topic_out` 只发
+`car_state` 与 `ack`，见 `DRONE_PAYLOAD_TYPES` 与 `_maybe_send_car_state`）⇒ 车端在结构上
+不会命令机端起飞/采集，"禁升空/禁采集"必须由机端执行。车端能判的是**证据侧**：
+
+* `drone.start_gate_ts`（缺省 0 = 未配）—— 开赛信号时刻（epoch，须与机侧 `ts` 同域）；
+* 收到 `ts < start_gate_ts` 的布局 ⇒ `layouts_pre_gate += 1` + 一条日志，
+  **照收不拒**（拒收会在现场把车卡死在 exit 3，见 `main._wait_for_field_layout`）；
+* 配了 gate 却收到预 gate 布局 = 机端在赛前就采集了，是现场一眼可见的红旗。
+
+⚠️ 本卡新增两键同样**未登记 SCHEMA**（写域不含 `core/config.py`）：`drone.corridor_min_cells`
+（缺省 5）/ `drone.start_gate_ts`（缺省 0.0 = 关）。两键都只影响**观测**，不影响布局接收/
+拒收/版本语义，可与加特性前逐位对比（A/B 反证见 `src/dzbrain/tests/test_drone_corridor.py`）。
 """
 
 from __future__ import annotations
 
 import json
+import math
 import pathlib
 from typing import Any, Callable, Iterable
 
 from ..core import geometry as geo
 from ..core.blackboard import (P_DRONE, P_FIELD_LAYOUT, P_FIELD_VERIFY,     # noqa: F401
                                P_LAYOUT_ARRIVALS, P_MISSION_PHASE, P_POSE,
-                               Blackboard)
+                               P_POSE_RAW, Blackboard)
 from ..core.config import Config
 from ..core.events import (EV_BRIDGE_INFO, EV_DRONE_OFFLINE, EV_DRONE_ONLINE,
                            EV_FIELD_VERIFY, EventBus)
@@ -107,7 +138,9 @@ from ..io import contract
 __all__ = ["DroneTask", "DRONE_PAYLOAD_TYPES", "default_map_path",
            "CoverageLedger", "FieldVerifyConsumer",
            "FIELD_VERIFY_POLICIES", "P_FIELD_VERIFY", "P_DRONE_COVERAGE",
-           "P_FIELD_LAYOUT", "FIELD_LAYOUT_VERSION", "normalize_field_layout"]
+           "P_FIELD_LAYOUT", "FIELD_LAYOUT_VERSION", "normalize_field_layout",
+           "corridor_cells_of", "CORRIDOR_MIN_CELLS", "CORRIDOR_MAX_CELLS",
+           "START_AUTHORITY_TOL_M"]
 
 #: 已知的无人机报文类型（其余一律"未知类型"，记日志不崩）
 DRONE_PAYLOAD_TYPES: tuple[str, ...] = (
@@ -152,6 +185,45 @@ _LAYOUT_CELL_KEYS: tuple[str, ...] = ("mines", "obstacles", "targets")
 #: 全图格名（行优先）—— v1 报文没有 `known` 键时的语义：v1 发的是**整图已知**。
 _ALL_CELLS: tuple[str, ...] = tuple(
     f"{col}{row}" for row in range(1, geo.MAP_ROWS + 1) for col in geo.COL_LETTERS)
+
+# --------------------------------------------------------------------------- #
+#  起步走廊确认（S1-CORRIDOR / 树节点 R-17）
+# --------------------------------------------------------------------------- #
+#: 用户 2026-10-27 裁决的走廊口径：从起点格 N10 **往左**（列字母递减 = 朝 M10 的左手侧）
+#: 数 5~8 格。判据是 **≤35 s 内确认**；观测量是本任务实测的 `corridor_confirm_s`。
+#: 为什么是"往左 5 格"而不是整图：机载相机视场约 6 格宽（用户视频 4.mp4 为证），
+#: 一条横带走过去就能覆盖 5 格 ⇒ 不必等全场扫完才发车（全场 layout 仍是里程碑）。
+CORRIDOR_MIN_CELLS = 5
+CORRIDOR_MAX_CELLS = 8
+
+# --------------------------------------------------------------------------- #
+#  起点口径收敛（MISSION-GATE-20261029 / T2）
+# --------------------------------------------------------------------------- #
+#: 起点三值对照的告警门（米）= **半格**（0.35/2）。超过它就是"整格级偏差"：
+#: 真车 2026-10-28 布局 start=L7、belief 复位 N10、odom 实停 L7 ⇒ 0.350 m，
+#: 段1 四个航点横向偏差清一色 0.350 m。半格是"同一格内噪声"与"差一格"的分界，
+#: 与 Localization 的 drift_warn_m(0.30) 同一量级但**语义不同**（这是格位口径，不是离线距离）。
+START_AUTHORITY_TOL_M = 0.175
+
+
+def corridor_cells_of(start_cell: str, n_cells: int = CORRIDOR_MIN_CELLS) -> list[str]:
+    """起点格**左手侧**的 `n_cells` 格（列字母递减；越出 A 列即截断）。
+
+    例：`("N10", 5) -> ["M10", "L10", "K10", "J10", "I10"]`；`("A5", 5) -> []`。
+
+    ★ 不计起点格本身：起点是车所在格，机侧必然先看到，计进来会把"走廊没扫到"
+      伪装成"已确认"。★ 不返回短于 `n_cells` 的清单——截断即"这条走廊天生短"，
+      调用方用 `len()` 比对，不会因为表短就误判成已覆盖。
+    """
+    row_idx, col_idx = geo.block_to_index(str(start_cell).strip().upper())
+    row = row_idx + 1                                  # 外层行号 1~MAP_ROWS
+    out: list[str] = []
+    for step in range(1, int(n_cells) + 1):
+        c = col_idx - step                             # 左手侧 = 列号减小
+        if c < 0:
+            break
+        out.append(f"{geo.COL_LETTERS[c]}{row}")
+    return out
 
 
 def _layout_cells(value: Any, key: str, *,
@@ -585,6 +657,33 @@ class DroneTask(TaskThread):
         #: 写黑盒 `P_LAYOUT_ARRIVALS`，StepLoop 据此刷新"布局新鲜度"，不再只看版本号。
         self.layout_arrivals = 0
 
+        # ---------------- 起步走廊确认（S1-CORRIDOR / R-17） ----------------
+        #: 走廊需要确认的格数（起点左手侧；cfg `drone.corridor_min_cells`，缺省 5）。
+        self.corridor_min_cells = CORRIDOR_MIN_CELLS
+        #: 本次要确认的走廊格（首份布局的 `start` 决定；未收到布局前为空）。
+        self.corridor_cells: tuple[str, ...] = ()
+        #: 首份被接受布局的到达时刻（距 setup 秒）/ 该布局的机侧 ts（epoch 证据）。
+        self.first_layout_s: float | None = None
+        self.layout_ts_first = 0.0
+        #: 走廊确认时刻（距 setup 秒）；None = 到退出都没确认（**绝不填 0**）。
+        self.corridor_confirm_s: float | None = None
+        #: `首布局机侧 ts − gate`（仅当 gate 与机侧 ts 同域时有意义）。
+        self.corridor_since_gate_s: float | None = None
+        #: 开赛信号时刻（epoch；0 = 未配 ⇒ gate 观测整体关闭）。
+        self.start_gate_ts = 0.0
+        #: 收到 ts < gate 的布局帧数（照收不拒，只作"赛前就采集"的证据）。
+        self.layouts_pre_gate = 0
+
+        # ---------------- 起点口径收敛（MISSION-GATE-20261029 / T2） ----------------
+        #: 是否已用布局 start 写过一次 belief（只写一次：后到的布局版本不搬车）。
+        self.start_authority_seeded = False
+        #: 当前生效的权威起点格（布局 start；空 = 还没收到带 start 的布局）。
+        self.start_authority_cell = ""
+        #: 三值偏差超半格的次数（可观测；不阻断接收/规划）。
+        self.start_authority_warnings = 0
+        #: 最近一次三值对照快照（遥测/测试/现场日志对账用）。
+        self.start_authority_last: dict = {}
+
         # ---------------- 链路状态 ----------------
         self.online = False
         self.last_heartbeat = 0.0
@@ -621,6 +720,20 @@ class DroneTask(TaskThread):
         self._log(f"无人机链路：心跳超时 {self.heartbeat_timeout_s:g}s"
                   f" 情报过期 {self.info_stale_s:g}s 车状态 {1.0 / self.car_state_period_s:.1f}Hz"
                   f" 本地地图={'已载入(' + self._map_source + ')' if self.map_loaded else '缺失→不核对'}")
+        # ★S1-CORRIDOR：只读观测口径，不改变接收/拒收/版本语义。
+        try:
+            self.corridor_min_cells = max(0, int(self.cfg.get("drone.corridor_min_cells",
+                                                            CORRIDOR_MIN_CELLS)))
+        except (TypeError, ValueError):
+            self.corridor_min_cells = CORRIDOR_MIN_CELLS
+        try:
+            self.start_gate_ts = max(0.0, float(self.cfg.get("drone.start_gate_ts", 0.0) or 0.0))
+        except (TypeError, ValueError):
+            self.start_gate_ts = 0.0
+        self._log(f"起步走廊确认：起点左手侧 {self.corridor_min_cells} 格（上限 "
+                  f"{CORRIDOR_MAX_CELLS}），判据 ≤35 s；开赛 gate="
+                  + (f"{self.start_gate_ts:g}（epoch，预期 ts 域相同）"
+                     if self.start_gate_ts > 0 else "未配（0=关，预 gate 计数不发生）"))
         if not self.map_loaded:
             self._log("⚠️ 未找到本地地图（config/map.yaml）→ 靶区/雷障核对降级为不核对")
         if self._policy_invalid:
@@ -650,6 +763,17 @@ class DroneTask(TaskThread):
         if self.layout_updates or self.layout_rejects or self.layout_stale:
             line += (f" ｜场地布局 {self.layout_updates} 份"
                      f"（拒收 {self.layout_rejects} / 迟到旧版 {self.layout_stale}）")
+        if self.first_layout_s is not None or self.corridor_cells:
+            line += (f" ｜起步走廊 首布局 "
+                     + (f"{self.first_layout_s:.2f}s" if self.first_layout_s is not None
+                        else "NONE")
+                     + " 确认 "
+                     + (f"{self.corridor_confirm_s:.2f}s"
+                        if self.corridor_confirm_s is not None else "NONE")
+                     + (f"（距 gate {self.corridor_since_gate_s:.2f}s）"
+                        if self.corridor_since_gate_s is not None else "")
+                     + (f" ｜预 gate 帧 {self.layouts_pre_gate}"
+                        if self.layouts_pre_gate else ""))
         self._log(line)
 
     # ------------------------------------------------------------------ #
@@ -894,6 +1018,10 @@ class DroneTask(TaskThread):
         self.layout_updates += 1
         self.layout_ts = float(now)
         self.bb.set(P_FIELD_LAYOUT, layout, source=self.name, ts=now)
+        # ★S1-CORRIDOR：只在"新版本被接受"这一刻量首布局/走廊（心跳重发不重复计时）。
+        self._note_layout_arrival(layout, now)
+        # ★P2-T2：起点口径三值对照 + belief 以布局 start 为唯一权威（只写一次）。
+        self._apply_start_authority(layout, now)
         # ★AGC-20 F1：新版本同样计一帧（与心跳共用同一计数器，StepLoop 只认变化）
         self.layout_arrivals += 1
         self.bb.set(P_LAYOUT_ARRIVALS, self.layout_arrivals, source=self.name, ts=now)
@@ -905,6 +1033,150 @@ class DroneTask(TaskThread):
                   f"靶 {len(layout['targets'])} 桥洞 {layout['bridges']} "
                   f"target={layout['target_cell'] or '-'} seg={layout['segment_id']}"
                   f"（第 {self.layout_updates} 份）")
+
+    # ---- 起步走廊确认（S1-CORRIDOR / R-17；只观测，不改接收语义） ----
+    def _note_layout_arrival(self, layout: dict, now: float) -> None:
+        """量 `first_layout_s` / `corridor_confirm_s` / 预 gate 帧数。
+
+        ★ 只读：不改 `field_layout`、不改版本语义、不发事件、不动黑盒已有键。
+        ★ 走廊格在**首份布局**时按它的 `start` 定死（不随后续布局改口径），
+          否则机侧一改 `start` 就会把已经等过的秒数清零重算。
+        """
+        elapsed = (float(now - self._started_at) if self._started_at is not None else 0.0)
+        elapsed = max(0.0, elapsed)
+        if self.first_layout_s is None:
+            self.first_layout_s = elapsed
+            try:
+                self.layout_ts_first = float(layout.get("ts") or 0.0)
+            except (TypeError, ValueError):
+                self.layout_ts_first = 0.0
+            self.corridor_cells = tuple(corridor_cells_of(layout.get("start", ""),
+                                                          self.corridor_min_cells)) \
+                if layout.get("start") else ()
+            if self.start_gate_ts > 0 and self.layout_ts_first > 0:
+                self.corridor_since_gate_s = self.layout_ts_first - self.start_gate_ts
+            self._log(f"首布局到达 first_layout_s={self.first_layout_s:.2f}"
+                      f"（v{layout.get('version')}，机侧 ts={self.layout_ts_first:g}s，"
+                      f"走廊口径 {len(self.corridor_cells)} 格="
+                      f"{'/'.join(self.corridor_cells) or '空'}）")
+        # ---- 开赛 gate 证据（照收不拒；见模块头"车端可判的那一半"） ----
+        try:
+            frame_ts = float(layout.get("ts") or 0.0)
+        except (TypeError, ValueError):
+            frame_ts = 0.0
+        if self.start_gate_ts > 0 and frame_ts > 0 and frame_ts < self.start_gate_ts:
+            self.layouts_pre_gate += 1
+            if self._warn.allow("layout_pre_gate", now):
+                self._log(f"⚠️ field_layout v{layout.get('version')} 的机侧 ts={frame_ts:g} "
+                          f"早于开赛 gate={self.start_gate_ts:g} ⇒ 机端可能在准备阶段就采集了"
+                          f"（第 {self.layouts_pre_gate} 帧；照收不拒）")
+        # ---- 走廊 ----
+        if self.corridor_confirm_s is None and self.corridor_cells:
+            known = set(layout["known"]) if "known" in layout else set(_ALL_CELLS)
+            missing = [c for c in self.corridor_cells if c not in known]
+            if not missing:
+                self.corridor_confirm_s = elapsed
+                self._log(f"起步走廊确认 corridor_confirm_s={self.corridor_confirm_s:.2f}"
+                          f"（起点 {layout.get('start')}，"
+                          f"{'/'.join(self.corridor_cells)} = "
+                          f"{len(self.corridor_cells)}/{len(self.corridor_cells)} 格，"
+                          f"第 {self.layout_updates} 份布局"
+                          + (f"，距 gate {self.corridor_since_gate_s:.2f}s"
+                             if self.corridor_since_gate_s is not None else "") + "）")
+            elif self._warn.allow("corridor_wait", now):
+                self._log(f"起步走廊未确认（起点 {layout.get('start')}，已覆盖 "
+                          f"{len(self.corridor_cells) - len(missing)}/{len(self.corridor_cells)} 格，"
+                          f"缺 {'/'.join(missing[:4])}"
+                          + ("…" if len(missing) > 4 else "") + "）")
+
+    # ---- 起点口径收敛（MISSION-GATE-20261029 / T2） ----
+    def _apply_start_authority(self, layout: dict, now: float) -> None:
+        """★P2-T2 起点口径：`layout.start` 是**唯一权威**，belief 跟着它走。
+
+        现场证据（2026-10-28 真车）：布局 start=L7、步进器把 belief 复位到 N10、
+        odom 实停 L7 ⇒ 段1 四个航点横向偏差**清一色 0.350 m**（整格偏移）。
+        三个值各说各话，才让"投影/到点"整段失真。
+
+        本函数只做两件事，**都不阻断**接收/规划/发车：
+          ① **三值对照**：layout.start / belief 当前格（`P_POSE`）/ odom 当前格
+             （`P_POSE_RAW` = 未加修正的融合位姿）。两两偏差 > 半格
+             （`START_AUTHORITY_TOL_M`=0.175 m）⇒ WARNING 提示人工确认；
+          ② **写入权威**：首份带 `start` 的布局，把 belief 放到 `layout.start` 格心
+             （朝向沿用当前信念，没有位姿则按 +x）——**只写一次**，后到的布局版本不搬车
+             （车可能正在走，反复搬 = 自己制造漂移）。
+
+        ⚠️ 已知局限（写域之外，必须如实说）：`LocalizationTask` 每拍用 odom 重算
+           `P_POSE`，本函数的一次性写入会被它按 odom 帧覆盖回去；要让**odom 基线**也
+           用布局起点，得改车端复位命令/驱动（不在本卡写域）。所以长期抓手是 ① 的
+           WARNING：它把"odom 与布局不同格"变成现场一眼可见的红旗。
+        """
+        start = str(layout.get("start") or "").strip().upper()
+        if not start:
+            return
+        x, y = geo.block_to_meters(start)
+        pose = self.bb.get(P_POSE)
+        raw = self.bb.get(P_POSE_RAW)
+        belief_cell = geo.meters_to_block(pose.x, pose.y) if pose is not None else ""
+        odom_cell = geo.meters_to_block(raw.x, raw.y) if raw is not None else ""
+
+        rows: list[tuple[str, str, float, float]] = [("layout.start", start, x, y)]
+        if pose is not None:
+            rows.append(("belief", belief_cell, float(pose.x), float(pose.y)))
+        if raw is not None:
+            rows.append(("odom", odom_cell, float(raw.x), float(raw.y)))
+        pairs: list[tuple[str, str, float]] = []
+        for i in range(len(rows)):
+            for j in range(i + 1, len(rows)):
+                d = ((rows[i][2] - rows[j][2]) ** 2 + (rows[i][3] - rows[j][3]) ** 2) ** 0.5
+                pairs.append((rows[i][0], rows[j][0], d))
+        worst = max((p[2] for p in pairs), default=0.0)
+        self.start_authority_cell = start
+        self.start_authority_last = {
+            "start": start, "belief_cell": belief_cell, "odom_cell": odom_cell,
+            "worst_m": round(worst, 3),
+            "warnings": self.start_authority_warnings,
+            "seeded": self.start_authority_seeded,
+        }
+        line = (f"起点口径：layout.start={start} / belief={belief_cell or '-'}"
+                f" / odom={odom_cell or '-'}")
+        if pairs:
+            line += "（" + "，".join(f"{a}↔{b} {d * 100:.1f}cm" for a, b, d in pairs) + "）"
+        self._log(line)
+        if worst > START_AUTHORITY_TOL_M:
+            self.start_authority_warnings += 1
+            self.start_authority_last["warnings"] = self.start_authority_warnings
+            if self._warn.allow("start_authority", now):
+                self._log(f"⚠️ 起点口径不一致（最大 {worst * 100:.1f} cm > 半格 "
+                          f"{START_AUTHORITY_TOL_M * 100:.0f} cm）：layout.start={start}"
+                          f" / belief={belief_cell or '-'} / odom={odom_cell or '-'}"
+                          f" ⇒ 以**布局为真值**继续，请人工确认车实际停在 {start}"
+                          f"（第 {self.start_authority_warnings} 次）")
+        if self.start_authority_seeded:
+            return
+        self.start_authority_seeded = True
+        yaw = float(getattr(pose, "yaw", geo.HEADING_X)) if pose is not None else geo.HEADING_X
+        moved = (math.hypot(float(pose.x) - x, float(pose.y) - y)
+                 if pose is not None else None)
+        self.bb.update(self.name, **{P_POSE: geo.Pose(x, y, yaw)})
+        self.start_authority_last["seeded"] = True
+        self._log(f"起点权威：belief ← 布局 start {start} ({x:.3f}, {y:.3f})，yaw 沿用"
+                  f" {geo.deg(yaw):.1f}°"
+                  + ("" if moved is None else
+                     f"（原 belief={belief_cell or '-'}，挪了 {moved:.3f} m）"))
+
+    def corridor_stats(self) -> dict:
+        """只读快照（遥测/测试/现场日志对账用）。`None` 就是量不出来，不补 0。"""
+        return {
+            "min_cells": self.corridor_min_cells,
+            "cells": list(self.corridor_cells),
+            "first_layout_s": self.first_layout_s,
+            "corridor_confirm_s": self.corridor_confirm_s,
+            "corridor_since_gate_s": self.corridor_since_gate_s,
+            "start_gate_ts": self.start_gate_ts,
+            "layouts_pre_gate": self.layouts_pre_gate,
+            "layout_updates": self.layout_updates,
+            "layout_rejects": self.layout_rejects,
+        }
 
     # ---- 雷/障/靶核对（+ 可选的片级覆盖） ----
     def _on_field_verify(self, payload: dict, now: float) -> None:

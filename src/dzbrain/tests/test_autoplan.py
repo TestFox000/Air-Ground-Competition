@@ -63,6 +63,8 @@ from fakes import FakeBridge, FakeClock                           # noqa: E402
 WS = pathlib.Path(__file__).resolve().parents[3]          # <ws>/src/dzbrain/tests/x.py
 CONFIG = WS / "config" / "robot.yaml"
 MAP = WS / "config" / "map.yaml"
+# CAR-DUAL-20261024: 接口成功场景固定用合法双面图；生产配置只读。
+GOOD_MAP = pathlib.Path(__file__).resolve().parent / "fixtures" / "map_carloop_20261024.yaml"
 #: ★ TRACK-PLAN-B1-20261021 §10/§12 的夹具：第七图 t24（D7/E7 两格靶板、K4/K10 桥洞）。
 #:   靶板是 1:1 圆面 + 35×70 跨格板，沿 0.70 m 轨道横移、不旋转 ⇒ 相邻两格都要留
 #:   可打停站；夹具与 _tmp_session/t35/map7_t24.yaml 逐字一致。
@@ -124,7 +126,7 @@ def _drop_mines(text: str) -> str:
 
 
 def _make_fixtures() -> None:
-    map_text = MAP.read_text(encoding="utf-8")
+    map_text = GOOD_MAP.read_text(encoding="utf-8")
     # ① 坏图：mines 含非法格名 `Z9` → load_map 抛 PlannerError（**回退分支的正确夹具**）
     (_FIX / "broken_map.yaml").write_text(_sub_mines(map_text, 'mines:      ["H1", "Z9"]'),
                                           encoding="utf-8")
@@ -139,19 +141,31 @@ def _make_fixtures() -> None:
     lines = CONFIG.read_text(encoding="utf-8").splitlines(keepends=True)
     at = next(i for i, ln in enumerate(lines) if ln.rstrip("\r\n") == "    route:")
     lines.insert(at + 1, '      tokens: ["N10", "N5"]          # ★ 本套件现场注入的过时路线\n')
-    (_FIX / "gate_fail.yaml").write_text("".join(lines), encoding="utf-8")
+    #   ★ 2026-10-25：本轮配置改成 auto_plan_enabled=true（布局模式）。本夹具测的是
+    #   "手写 route.tokens 过时 => 门禁 R012 必红"，属**文件模式/手写路线**语义，
+    #   必须钉回 false；否则自动规划绕过 route.tokens，R012 自然不再触发。
+    _gf = re.sub(r"(?m)^      auto_plan_enabled:.*$",
+                 "      auto_plan_enabled: false",
+                 _success_map_config("".join(lines)))
+    (_FIX / "gate_fail.yaml").write_text(_gf, encoding="utf-8")
     # ⑦ ★ TRACK-PLAN-B1：第七图 t24 夹具（§10/§12 换图重钉的靶心）
     MAP7.write_text(MAP7_TEXT, encoding="utf-8")
     # ⑥ ★卡 t21：`engine: tour` 的配置副本 —— 把"读配置"落到夹具里。
     #   为什么需要：§1.12/1.13（缺 mines 的图能解）与 §9（`--map` 透传）测的是 **tour 引擎**的
     #   既有语义，而 `config/robot.yaml` 的 `planner.engine` 自第七趟（用户指令）起是
     #   `tracker-safe` —— 它对这两张夹具图会"无解 / 被双门禁拦下"（那是 t11 引入的正确行为）。
-    #   夹具只改 `engine:` 那一行，其余逐字照抄真配置。
+    #   夹具只改 engine 与 map_path，其余逐字照抄真配置。
     _lines = CONFIG.read_text(encoding="utf-8").splitlines(keepends=True)
     (_FIX / "engine_tour.yaml").write_text(
-        "".join("      engine: tour\n"
+        _success_map_config("".join("      engine: tour\n"
                 if (ln.startswith("      ") and ln.lstrip().startswith("engine:")) else ln
-                for ln in _lines), encoding="utf-8")
+                for ln in _lines)), encoding="utf-8")
+
+
+def _success_map_config(text: str) -> str:
+    """只在临时配置副本钉住成功图，不改变生产 config/。"""
+    return re.sub(r"(?m)^      map_path:.*$",
+                  lambda _m: f'      map_path: "{GOOD_MAP.as_posix()}"', text)
 
 
 _make_fixtures()
@@ -170,6 +184,7 @@ def real_cfg(**kv) -> Config:
     `source` 指向哪里（决定"相对配置文件目录"这条解析规则），都只有真配置能验证。
     """
     cfg = Config.load(str(CONFIG))
+    cfg.override("planner.map_path", str(GOOD_MAP))
     cfg.override("mission.auto_start", True)
     cfg.override("mission.auto_start_delay_s", 0.0)       # 测试不需要等 10s
     for k, v in kv.items():
@@ -237,7 +252,7 @@ def blocks_of(tokens) -> list[str]:
 # =========================================================================== #
 section("1. plan_route_from_config()：成功 / 坏图 / 宽捕获 / 文件不存在 / 缺 mines 的真相")
 # =========================================================================== #
-cfg = real_cfg(auto_plan_enabled=True, map_path=str(MAP),
+cfg = real_cfg(auto_plan_enabled=True, map_path=str(GOOD_MAP),
                allow_reverse=False, max_seconds=2.0, fallback_to_tokens=True)
 out = plan_route_from_config(cfg, log=lambda s: None)
 check("1.1 真地图 + 无倒车模式 → ok=True", out.ok, f"error={out.error!r}")
@@ -309,13 +324,14 @@ abs_out = resolve_map_path(None, str(MAP))
 check("2.1 绝对路径原样返回（不拼接）", abs_out == MAP, str(abs_out))
 
 # 两个候选**都存在**的对照：配置目录里的那份必须赢过工作区里的那份。
-# ★ 用 `config/map.yaml` 当相对路径：工作区那份天然存在（仓库文件），配置目录那份放临时目录里，
+# ★ 用 `config/robot.yaml` 当相对路径：工作区那份天然存在（仓库文件），配置目录那份放临时目录里
+#   （2026-10-25：原用 config/map.yaml，该文件已归档 → 换成同样存在的 robot.yaml，判据不变），
 #   于是**两个候选同时为真**，且测试不再往工作区里写任何文件（原先会留 `_scratch_auto_plan` 垃圾）。
 probe_dir = _FIX / "_order_probe"
 (probe_dir / "config").mkdir(parents=True, exist_ok=True)
-rel = "config/map.yaml"
-ws_side = WS / "config" / "map.yaml"
-cfg_side = probe_dir / "config" / "map.yaml"
+rel = "config/robot.yaml"
+ws_side = WS / "config" / "robot.yaml"
+cfg_side = probe_dir / "config" / "robot.yaml"
 cfg_side.write_text('map:\n  name: "CONFIGDIR"\n', encoding="utf-8")
 cfg_probe = Config.from_dict({"x": 1}, source=str(probe_dir / "cfg.yaml"))
 picked = resolve_map_path(cfg_probe, rel)
@@ -343,7 +359,7 @@ check("2.6 `Config.from_dict`（无真实文件）只走工作区候选，不炸
 # =========================================================================== #
 section("3. auto_plan_enabled=true：启动即自己算路（验收项 2）")
 # =========================================================================== #
-rig = Rig(real_cfg(auto_plan_enabled=True, map_path=str(MAP),
+rig = Rig(real_cfg(auto_plan_enabled=True, map_path=str(GOOD_MAP),
                    allow_reverse=False, max_seconds=2.0, fallback_to_tokens=True))
 rig.ticks(3)
 st = rig.state()
@@ -516,7 +532,7 @@ try:
     os.chdir(WS.parent)                                # ★ 换到任何目录，靠 __file__ 定位
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        rc = M.main(["--plan-only"])
+        rc = M.main(["--plan-only", "--map", str(GOOD_MAP)])
     out_txt = buf.getvalue()
 finally:
     os.chdir(cwd0)
@@ -534,8 +550,8 @@ check("7.7 ★ 不起线程", threading.active_count() == n_before,
       f"{n_before} → {threading.active_count()}")
 check("7.8 ★ 无 ROS：全程没有 import rclpy", ("rclpy" in sys.modules) is mods0,
       f"before={mods0} after={'rclpy' in sys.modules}")
-check("7.9 地图解析到工作区 config/map.yaml（cwd 无关）",
-      str(MAP) in out_txt, str(MAP))
+check("7.9 显式地图解析到合法双面夹具（cwd 无关）",
+      str(GOOD_MAP) in out_txt, str(GOOD_MAP))
 check("7.10 模式行 = 无倒车（planner.allow_reverse=false）",
       "无倒车（planner.allow_reverse=False）" in out_txt, "见输出")
 
@@ -642,7 +658,7 @@ check("8.6 缺 planner 段 → 按手动模式出发（向后兼容旧配置）"
       and rig_blank.state()["route_source"] == ROUTE_SOURCE_MANUAL,
       f"{rig_blank.task.phase} / {rig_blank.state()['route_source']}")
 
-cfg_junk = real_cfg(auto_plan_enabled=True, map_path=str(MAP),
+cfg_junk = real_cfg(auto_plan_enabled=True, map_path=str(GOOD_MAP),
                     allow_reverse=False, max_seconds="not-a-number", fallback_to_tokens=True)
 out_junk = plan_route_from_config(cfg_junk, log=lambda s: None)
 check("8.7 非法 max_seconds 不崩（回落到默认预算 2.0s）", out_junk.ok
@@ -673,7 +689,7 @@ def _tokens_of(text: str) -> str:
 # 9.1 造一张**会改路线**的变体图：把一颗雷挪到远角的空格（config/ 只读，写在临时目录）
 import yaml as _yaml                                           # noqa: E402
 
-_raw = _yaml.safe_load(MAP.read_text(encoding="utf-8"))
+_raw = _yaml.safe_load(GOOD_MAP.read_text(encoding="utf-8"))
 #: ★ TRACK-PLAN-B1：§10/§12 换到第七图 t24 夹具后，门禁/校验必须用同一张图的 dict。
 _raw7 = _yaml.safe_load(MAP7.read_text(encoding="utf-8"))
 _mines = list((_raw.get("map") or _raw).get("mines") or [])
@@ -684,16 +700,17 @@ _far = next(c for c in ("A11", "A1", "N7", "A3", "N1") if c not in _taken)
 _tmpdir = _FIX / "cards"
 _tmpdir.mkdir(parents=True, exist_ok=True)
 _variant = _tmpdir / "map_variant.yaml"
-_variant.write_text(MAP.read_text(encoding="utf-8").replace(f'"{_mines[0]}"', f'"{_far}"'),
-                    encoding="utf-8")
+_variant_raw = _yaml.safe_load(GOOD_MAP.read_text(encoding="utf-8"))
+_variant_raw["map"]["mines"][0] = _far
+_variant.write_text(_yaml.safe_dump(_variant_raw, allow_unicode=True), encoding="utf-8")
 check("9.1 变体图已生成（把第一颗雷挪到远角空格，config/ 未改动）",
       _variant.is_file() and _far not in _mines, f"{_mines[0]}→{_far} @ {_variant}")
 
 # ★★ 卡 t21（读配置口径）：本节的判据是 **D2「`--map` 透传」** —— 与"用哪个引擎、门禁过不过"无关。
 #   变体图（把一颗雷挪到远角 A11/A1/…）在 **tracker-safe** 下是"**无解**"（禁 180°/禁紧凑 U/
 #   雷穿心把它筛空），会让 `--plan-only` 退 1、把"地图透传"这条判据污染成"引擎能不能解这张图"。
-#   故本节统一走 **`engine: tour` 的配置副本 `CFG_TOUR`**（只改 engine 一行，其余逐字同真配置），
-#   判据回到 D2 本身；同时把"默认图打印的是工作区 map.yaml"这条也一并钉住。
+#   故本节走 `CFG_TOUR`：显式 tour + 合法双面夹具；其余取真配置。
+#   判据回到 D2 本身，同时验证未传 --map 时用配置里的 GOOD_MAP。
 _buf_def = io.StringIO()
 with contextlib.redirect_stdout(_buf_def):
     _rc_def = M.main(["--plan-only", "--config", str(CFG_TOUR)])
@@ -708,7 +725,7 @@ _var_tokens = _tokens_of(_var_txt)
 check("9.2 两次 --plan-only 都 exit 0（engine=tour 夹具：本节只判 `--map` 透传，不判引擎能否解该图）",
       _rc_def == 0 and _rc_var == 0, f"默认={_rc_def} 变体={_rc_var}")
 check("9.3 ★D2：`--map <变体图>` 真的决定规划用的地图（打印的是变体图）",
-      str(_variant) in _var_txt and str(MAP) in _buf_def.getvalue(),
+      str(_variant) in _var_txt and str(GOOD_MAP) in _buf_def.getvalue(),
       [l for l in _var_txt.splitlines() if l.startswith("地图:")][:1])
 check("9.4 ★D2：变体图的 token 与默认图**不同**（旧代码：静默忽略 --map、逐字节相同）",
       # ★ 卡 t3：删掉"token 数也必须不同"这条附加条件 —— 50 点新路线下两张图的 tour 产物
@@ -955,13 +972,13 @@ check("10.30 假门禁已还原（后续用例/其它套件不受污染）",
 #  （与 length_m/width_m 同段）。这里钉三件事：① 读得到真源（含段前缀回退）；
 #  ② 诊断能报出 t5/t11 实测的挡板风险；③ 严重级开关在 warn/error 间真的起作用。
 _vg = MT.vehicle_geometry(Config.load(str(CONFIG)))
-check("10.31 ★ 车辆几何读得到真源：长度/宽度/偏移 = 0.28 / 0.135 / +0.075",
-      abs(_vg["length_m"] - 0.28) < 1e-9 and abs(_vg["width_m"] - 0.135) < 1e-9
+check("10.31 ★ 车辆几何读得到真源：长度/宽度/偏移 = 0.28 / 0.17 / +0.075",
+      abs(_vg["length_m"] - 0.28) < 1e-9 and abs(_vg["width_m"] - 0.17) < 1e-9
       and abs(_vg["offset_m"] - 0.075) < 1e-9, str(_vg))
 check("10.32 ★ 段前缀回退真的在起作用（`dzactuator.vehicle.*` 是 YAML 里的键路径）",
       "dzactuator.vehicle.ref_offset_m" in list(Config.load(str(CONFIG)).keys()),
       "见 robot.yaml /dzactuator: ros__parameters: vehicle:")
-_fp_cfg = real_cfg(auto_plan_enabled=True, map_path=str(MAP))
+_fp_cfg = real_cfg(auto_plan_enabled=True, map_path=str(GOOD_MAP))
 _fp = MT.footprint_diagnostic(out.tokens, _raw, _fp_cfg)
 check("10.33 ★ 足迹诊断用实测偏移跑得动（折线口径 400+ 采样）",
       _fp.samples > 400 and abs(_fp.offset_m - 0.075) < 1e-9,
@@ -995,13 +1012,13 @@ check("10.38 遥测把足迹诊断原样带出来（现场不翻日志也能看�
 #  11. ★卡 t6：无人机桥洞情报 → 规划器 cross_lower/cross_upper（自动规划路径）
 # =========================================================================== #
 section("11. 无人机桥洞情报 → 自动规划透传 cross_lower/upper（卡 t6）")
-#  夹具：第五张图副本，只把 `bridges:` 放宽成 K4/K5/K9/K10（现场每局随机会换洞），
-#        其余要素逐字照抄 `config/map.yaml` —— 这样"换洞"才是**真的换了一个合法洞**。
+#  夹具：合法双面图副本，只把 `bridges:` 放宽成 K4/K5/K9/K10；
+#  其余要素照抄 GOOD_MAP，避免接口测试依赖生产图能否完成双面任务。
 _T6_MAP = _FIX / "map_bridge_intel.yaml"
 _T6_MAP.write_text(
     re.sub(r"(?m)^([ \t]*)bridges:.*$",
            lambda m: m.group(1) + 'bridges:    ["K4", "K5", "K9", "K10"]',
-           MAP.read_text(encoding="utf-8")), encoding="utf-8")
+           GOOD_MAP.read_text(encoding="utf-8")), encoding="utf-8")
 
 
 def intel_cfg(**kv) -> Config:
@@ -1061,22 +1078,29 @@ _out_up = plan_route_from_config(intel_cfg(), log=lambda s: None, cross_upper="K
 check("11.4 ★ 两半场独立：只给 upper=K4 → upper=K4、lower 仍是默认 K10",
       _out_up.ok and _out_up.cross_upper == "K4" and _out_up.cross_lower == "K10",
       f"cross={_out_up.cross_lower}/{_out_up.cross_upper}")
+_outside_cfg = real_cfg(map_path=str(GOOD_MAP), engine=MT.ENGINE_TOUR)
+_outside_lower, _outside_upper = PL._cross_pools(_outside_cfg, PL.load_map(_raw))
+check("11.5a 前置：GOOD_MAP 下半场只有 K10，K9 确实在候选池外",
+      _outside_lower == ["K10"] and "K9" not in _outside_lower,
+      f"lower={_outside_lower} upper={_outside_upper}")
 _out_bad = plan_route_from_config(
-    Config.load(str(CONFIG)).override("planner.engine", MT.ENGINE_TOUR),
+    _outside_cfg,
     log=lambda s: None, cross_lower="K9")
 check("11.5 ★ t31 权威门放宽：现役候选只有 K10，但 K9 在**下半场行段（7~11 行）内** "
       "⇒ 规划器采纳（无人机新鲜情报可纠正过期地图）",
-      _out_bad.ok and _out_bad.cross_lower == "K9" and _out_bad.cross_upper == "K5",
+      _out_bad.ok and _out_bad.cross_lower == "K9" and _out_bad.cross_upper == "K4",
       f"ok={_out_bad.ok} cross={_out_bad.cross_lower}/{_out_bad.cross_upper} "
       f"err={_out_bad.error[:80]}")
 _out_off = plan_route_from_config(
     Config.load(str(CONFIG)).override("planner.engine", MT.ENGINE_TOUR),
+    map_path=str(GOOD_MAP),                # 2026-10-25 零地图后必须显式给图
     log=lambda s: None, cross_lower="K3")
 check("11.5b ★ t31 **仍拒**：下半场给上半场行段的 K3 → PlannerError（跨半场借用不放宽）",
       (not _out_off.ok) and _out_off.error.startswith("PlannerError:")
       and "行段" in _out_off.error, _out_off.error[:90])
 _out_z = plan_route_from_config(
     Config.load(str(CONFIG)).override("planner.engine", MT.ENGINE_TOUR),
+    map_path=str(GOOD_MAP),                # 2026-10-25 零地图后必须显式给图
     log=lambda s: None, cross_lower="Z9")
 check("11.5c ★ t31 **仍拒**：格名非法 Z9 → PlannerError（不是 ValueError 上抛、不炸调用方）",
       (not _out_z.ok) and _out_z.error.startswith("PlannerError:") and "Z9" in _out_z.error,
@@ -1186,10 +1210,8 @@ check("11.17 无人机离线 → 自动规划用默认洞 K10",
 section("12. ★t7 自动规划必须保留所有 `*` 停站（双射击停站收口）")
 # =========================================================================== #
 #  靶板一面蓝一面红、蓝面朝向**每局随机且恒定**，只打蓝、打红扣分 ⇒ 自动规划给出
-#  "单停站路线"就等于把那一局的一半概率判成 0 发。两处真缺口（**都是静默的**）：
-#    ① `tour` 引擎（缺省引擎）的 `plan_route()` 压根没有"落第二个星号"这段；
-#    ② tracker-safe 只在"候选格恰好是本路线普通航点"时落标，落不上旧版**一条 warning 都没有**。
-#  12.1/12.3 是判据本体；12.5 是"把收口关掉 ⇒ 12.3 必红"的反证。
+#  CAR-DUAL-20261024 起 tour 自己落双星；这里同时验证原生产物、幂等收口、
+#  真实单星输入的兼容补标，以及 Mission 遥测与 token 同源。
 
 def _stars(toks) -> list[str]:
     """路线 token 里的射击停站（`*`）串。"""
@@ -1206,14 +1228,20 @@ check("12.3 ★ tour（缺省引擎）自动规划**也**必须有 C5*（对侧�
       f"{_stars(_out_tour.tokens)} / {len(_out_tour.tokens)} token、{_out_tour.route_len_m:.2f} m")
 _raw_tour = PL.plan_route(_raw7, real_cfg(auto_plan_enabled=True),
                           allow_reverse=False, max_seconds=10.0)
-check("12.4 tour 的补标只加一个星号：token 数/块名序列与裸引擎产物逐位相同（零路径改动）",
-      _stars(_raw_tour.tokens) == ["C9*"]
-      and _out_tour.second_stop_added == "C5"
-      and len(_out_tour.tokens) == len(_raw_tour.tokens)
-      and [parse_token(t)["block"] for t in _out_tour.tokens]
-      == [parse_token(t)["block"] for t in _raw_tour.tokens],
+check("12.4 tour 原生双站经收口后完全幂等（token 与 metadata 同源）",
+      _stars(_raw_tour.tokens) == ["C9*", "C5*"]
+      and _out_tour.second_stop_added == ""
+      and _out_tour.tokens == _raw_tour.tokens
+      and _raw_tour.shoot_stop2 == "C5",
       f"裸引擎 {_stars(_raw_tour.tokens)} → 收口后 {_stars(_out_tour.tokens)}｜"
       f"added={_out_tour.second_stop_added!r}｜两边都是 {len(_raw_tour.tokens)} token")
+_single_tokens = [t.replace("*", "", 1) if parse_token(t)["block"] == "C5" else t
+                  for t in _raw_tour.tokens]
+_closed_tokens, _added, _note = PL.ensure_second_shoot_stop(
+    _single_tokens, _raw7, real_cfg())
+check("12.4b 真单星输入只补合法对侧星、保留全部路线几何",
+      _stars(_single_tokens) == ["C9*"] and _closed_tokens == _raw_tour.tokens
+      and _added == "C5", _note)
 _ensure_real = PL.ensure_second_shoot_stop
 PL.ensure_second_shoot_stop = lambda toks, *_a, **_k: (list(toks), "", "（测试：收口被关掉）")
 try:
@@ -1222,8 +1250,9 @@ try:
         log=lambda s: None)
 finally:
     PL.ensure_second_shoot_stop = _ensure_real
-check("12.5 ★反证：把收口关掉 ⇒ tour 自动规划只剩 C9*（证明 12.3 的绿只来自收口本身）",
-      _stars(_out_tour_off.tokens) == ["C9*"], str(_stars(_out_tour_off.tokens)))
+check("12.5 关闭补标仍保留 tour 原生双站（不依赖 wrapper 补星）",
+      _out_tour_off.tokens == _raw_tour.tokens and _out_tour_off.second_stop_added == "",
+      str(_stars(_out_tour_off.tokens)))
 check("12.6 收口已还原（后续用例/其它套件不受污染）",
       PL.ensure_second_shoot_stop is _ensure_real, str(PL.ensure_second_shoot_stop))
 
@@ -1238,7 +1267,7 @@ check("12.7 ★ 上车执行（tour 自动规划）：两个射击停站都真�
       str([w.block for w in rig_t7.task.route.waypoints if w.shoot]))
 check("12.8 遥测 plan.shoot_stops / second_stop_added 与产物同源",
       st_t7["plan"]["shoot_stops"] == ["C9", "C5"]
-      and st_t7["plan"]["second_stop_added"] == "C5",
+      and st_t7["plan"]["second_stop_added"] == "",
       f"{st_t7['plan']['shoot_stops']} / added={st_t7['plan']['second_stop_added']!r}")
 
 # ---- 12.C 停站台账：SHOOT 与终点必须分开（终点不是"第二个打靶停站"）----
@@ -1252,10 +1281,11 @@ check("12.10 横幅台账一行看清类型：'停站点 3 个（射击 2 / 终�
       _ledger_line.startswith("停站点 3 个（射击 2 / 终点 1）")
       and "22:C9(射击)" in _ledger_line and "38:C5(射击)" in _ledger_line
       and "63:N5(终点)" in _ledger_line, _ledger_line)
-# 反向控制：把 G3* 退回普通航点（单停站路线）⇒ 台账必须如实变"射击 1 / 终点 1"
+# 反向控制：把当前路线的一个真射击点退回普通航点 ⇒ 台账必须如实变"射击 1 / 终点 1"
 #   为什么需要：防止台账把"射击 2"写死（那样 12.9 会变成永远绿的假证据）。
-_one = ["G3" if (parse_token(t)["block"] == "G3" and parse_token(t)["shoot"]) else t
-        for t in (cfg_off.get("route.tokens") or [])]
+_one = list(cfg_off.get("route.tokens") or [])
+_first_shoot = next(i for i, t in enumerate(_one) if parse_token(t)["shoot"])
+_one[_first_shoot] = _one[_first_shoot].replace("*", "", 1)
 _cfg_one = real_cfg(auto_plan_enabled=False)
 _cfg_one.override("route.tokens", _one)
 rig_one = Rig(_cfg_one)
@@ -1265,5 +1295,105 @@ check("12.11 反向控制：单停站路线 ⇒ 台账如实变'停站点 2 个�
       and "停站点 2 个（射击 1 / 终点 1）" in rig_one.text(),
       str(rig_one.state()["stops"]["counts"]) + " / "
       + next((ln for ln in rig_one.logs if ln.startswith("停站点 ")), ""))
+
+section("13. 第六图无合法对侧：明确拒绝与既有回退行为")
+# 固定 2026-10-17 第六图内容，避免生产 map.yaml 后续换图悄悄消掉负例。
+# F4 是雷；合法全靶候选 B4/B7 同侧，不能拿 F4*/B4* 冒充合法双面产物。
+_map6 = _FIX / "map6_no_opposite.yaml"
+_map6.write_text('''map:
+  name: field6-no-opposite-regression
+  start: N10
+  end: N5
+  barrier_col_from: D
+  barrier_row_hi: 6
+  barrier_row_lo: 7
+  mines: [A2, F4, H4, G5, E8, B10, D11, I11]
+  obstacles: [B1, D1, F3, I6, H7, A8, C9, E9]
+  targets: [D5, D6]
+  bridges: [K5, K7]
+''', encoding="utf-8")
+_raw6 = _yaml.safe_load(_map6.read_text(encoding="utf-8"))
+_spec6 = PL.load_map(_raw6)
+_pool6 = PL.shoot_candidates(_spec6, PL.Grid(_spec6), PL._shoot_accept(real_cfg()))
+_cover6 = PL.covering_stops(_spec6, _pool6, PL._shoot_accept(real_cfg()))
+_full6 = [b for b in _pool6 if len(_cover6[b]) == len(_spec6.targets)]
+check("13.1 第六图负例真实：F4为雷，完整覆盖候选B4/B7均同侧",
+      "F4" in _spec6.mines and "F4" not in _pool6 and set(_full6) == {"B4", "B7"}
+      and len({PL.plate_side_of(_spec6, b) for b in _full6}) == 1, str(_full6))
+# ★RECT-PLAN-FIX-20261026：原断言（before）
+#     not _no_pair.ok and not _no_pair.tokens and "双射击停站" in _no_pair.error
+#   期望：单站 -> 整趟失败（ok=False / 0 token）。
+#   现断言（after）：**意图不变**（单站不得静默成功），机制换成"显式降级"：
+#     ok=True + 恰好 1 个停站 B4 + 运营日志显式告警 + 引擎侧 degraded 三元组齐全；
+#     同时钉死"2 个停站仍走全量校验"（同侧/重复/非法候选一条都不放松）。
+_logs6: list[str] = []
+_no_pair = plan_route_from_config(real_cfg(map_path=str(_map6), engine=ENGINE_TOUR,
+                                          max_seconds=10.0), log=_logs6.append)
+check("13.2 ★ 单站不再判死：规划成功且只有 1 个停站 B4",
+      _no_pair.ok and list(_no_pair.shoot_stops) == ["B4"],
+      f"ok={_no_pair.ok} stops={_no_pair.shoot_stops} err={_no_pair.error[:80]}")
+check("13.2a 单站不许静默：运营日志必须有『只有 1 个射击停站』告警",
+      any("只有 1 个射击停站" in ln for ln in _logs6),
+      " / ".join(ln for ln in _logs6 if "射击停站" in ln))
+_res6 = PL.plan_route(_raw6, real_cfg(), allow_reverse=False, objective="legacy",
+                      max_seconds=10.0)
+check("13.2b 引擎侧 degraded=True + reason 命中三分支之一 + 进 warnings",
+      _res6.degraded and bool(_res6.degraded_reason)
+      and any(w.startswith("单站降级") for w in _res6.warnings)
+      and any(k in _res6.degraded_reason
+              for k in ("没有可入池的合法候选", "本路线未兑现", "落在板心平面")),
+      _res6.degraded_reason)
+_acc6 = PL._shoot_accept(real_cfg())
+_2same_side = PL.check_shoot_stops(["B4", "B7"], _spec6, _acc6)
+_2dup = PL.check_shoot_stops(["B4", "B4"], _spec6, _acc6)
+_2illegal = PL.check_shoot_stops(["F4", "B4"], _spec6, _acc6)
+check("13.2c ★ 2 个停站仍走全量校验：同侧 / 重复 / 非法候选一条都不放松",
+      any("分居板面两侧" in s for s in _2same_side)
+      and any("重复" in s for s in _2dup)
+      and any("不在合法候选中" in s for s in _2illegal),
+      f"{_2same_side} | {_2dup} | {_2illegal}")
+# ★RECT-PLAN-FIX-20261026：13.3/13.4 的**意图**是「规划失败时回退 / 停 IDLE 的机制不变」。
+#   旧机制 = 单站规划失败（A 方案后单站不再失败）⇒ 机制换成**注入 PlannerError**；
+#   **断言体一个字没改**（回退手写路线 / 停 IDLE / 不 publish EV_MISSION_STARTED）。
+def _boom_plan(*_a, **_k):
+    raise PL.PlannerError("（13.3/13.4 注入）规划器失败：本用例只验回退/IDLE 机制")
+
+
+_orig_plan_route = PL.plan_route
+try:
+    PL.plan_route = _boom_plan
+    _fallback6 = Rig(real_cfg(auto_plan_enabled=True, map_path=str(_map6), engine=ENGINE_TOUR,
+                             max_seconds=10.0, fallback_to_tokens=True))
+    _fallback6.ticks(3)
+finally:
+    PL.plan_route = _orig_plan_route
+check("13.3 允许回退时保留既有手写路线且遥测记录规划失败",
+      _fallback6.task.phase == MissionPhase.DRIVE
+      and _fallback6.state()["route_source"] == ROUTE_SOURCE_MANUAL
+      and not _fallback6.state()["plan"]["ok"]
+      and list(_fallback6.task.route.blocks()) == blocks_of(cfg_off.get("route.tokens")),
+      _fallback6.state()["plan"]["error"])
+# 13.3b：新口径本身 —— 单站不再失败 ⇒ 不回退手写路线，走自动规划产物（带 B4 单站）
+_fallback6b = Rig(real_cfg(auto_plan_enabled=True, map_path=str(_map6), engine=ENGINE_TOUR,
+                           max_seconds=10.0, fallback_to_tokens=True))
+_fallback6b.ticks(3)
+_st6b = _fallback6b.state()
+check("13.3b ★ 单站不再触发回退：route_source=自动规划、停站只有 B4",
+      _fallback6b.task.phase == MissionPhase.DRIVE
+      and _st6b["route_source"] == ROUTE_SOURCE_AUTO
+      and list(_st6b["plan"]["shoot_stops"]) == ["B4"],
+      str((_st6b["route_source"], _st6b["plan"].get("shoot_stops"))))
+try:
+    PL.plan_route = _boom_plan
+    _stop6 = Rig(real_cfg(auto_plan_enabled=True, map_path=str(_map6), engine=ENGINE_TOUR,
+                         max_seconds=10.0, fallback_to_tokens=False))
+    _stop6.ticks(3)
+finally:
+    PL.plan_route = _orig_plan_route
+check("13.4 禁止回退时保持IDLE、没有EV_MISSION_STARTED",
+      _stop6.task.phase == MissionPhase.IDLE and _stop6.count(EV_MISSION_STARTED) == 0,
+      _stop6.task.phase)
+check("13.4b 注入已还原（后续用例不受污染）",
+      PL.plan_route is _orig_plan_route, str(PL.plan_route))
 
 finish()

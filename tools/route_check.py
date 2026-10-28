@@ -61,10 +61,14 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import math
 import os
+import pathlib
+import re
 import subprocess
 import sys
+import time
 from typing import List, Optional, Tuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -98,7 +102,7 @@ OBSTACLE_WARN_M = 0.30           # 航段离障碍的告警距离(m)
 #: 两份实现不许分叉。★ 场地常量（格边/行列数/挡板行列）**不在此列**：它们已统一由
 #: `core/geometry.py` 单点供源（见上方 `_field_const` import）。
 VEHICLE_LENGTH_M = 0.28          # 车体长
-VEHICLE_WIDTH_M = 0.135          # 车体宽（半宽 0.0675 进挡板/障碍判据）
+VEHICLE_WIDTH_M = 0.17           # 车体宽（实测 0.17；半宽 0.085 进挡板/障碍判据）
 COVERAGE_RADIUS_M = 0.035        # 车心假设圆半径（压雷判据）
 OBSTACLE_RADIUS_M = 0.1275       # 障碍圆柱半径（柱心在格心）
 MINE_PAD_M = 0.12                # 雷垫片边长（0.12×0.12 正方形）
@@ -667,9 +671,9 @@ def mine_clearance_by_route(pts, mine_block):
 def obstacle_clearances(pts, obstacles, rev_f=None):
     """障碍净空：``(直段最小距离, 段号, 障碍名, 拐角最小距离, 航点号, 障碍名)``。
 
-    * **直段口径**：折线到柱心 ≥ `柱半径 + 车半宽 + margin` = 0.1275+0.0675+0.02 = **0.215 m**；
-    * **拐角口径**：转向顶点到柱心 ≥ `柱半径 + 扫掠半径 + margin` = 0.1275+0.1554+0.02 = **0.3029 m**
-      （车绕顶点转向时车身外包圆 = 半对角线；用"车半宽"会低估 0.088 m）。
+    * **直段口径**：折线到柱心 ≥ `柱半径 + 车半宽 + margin` = 0.1275+0.085+0.02 = **0.2325 m**；
+    * **拐角口径**：转向顶点到柱心 ≥ `柱半径 + 扫掠半径 + margin` = 0.1275+0.16378+0.02 = **0.3113 m**
+      （车绕顶点转向时车身外包圆 = 半对角线；用"车半宽"会低估 0.079 m）。
       倒车顶点（`_is_rev_vertex`）不算转向 —— 那只是"开到死格再退出来"，车没掉头。
     """
     d_seg, seg_i, seg_name = 9e9, -1, ""
@@ -745,7 +749,7 @@ def seg_outside_band(ax, ay, bx, by, band_y, band_half):
 def barrier_touch_min(pts, bridge_col="K"):
     """车心到挡板**中心线**的最近距离，返回 ``(距离, 段号)``。
 
-    ★ 判据：该值 ≥ `挡板半厚 + 车半宽` = 0.01 + 0.0675 = **0.0775 m**（2 cm 细条口径），
+    ★ 判据：该值 ≥ `挡板半厚 + 车半宽` = 0.01 + 0.085 = **0.095 m**（2 cm 细条口径），
       **不得跨越**。
     ★★ 2026-10-11 用户现场澄清（以澄清为准）：挡板是 385 cm × 2 cm 细条、第 6/7 行之间、
       **D..N 列（含 K 段）** ⇒ 挡板在 K 列处**没有通口**（"通格 K1/K11 横向贯通"说的是
@@ -1296,7 +1300,14 @@ def load_cfg(path):
                 globals()['PIVOT_DECL_DEG'] = float(pu['pivot_angle_deg'])
             # ★★物理几何：尺寸全部随配置走，判据里**不许**再出现硬编码数字。
             #   现场一量尺寸只改 `config/robot.yaml`，本工具的判据自动跟上。
-            veh = dz.get('vehicle') if isinstance(dz.get('vehicle'), dict) else {}
+            # ★2026-10-28 R-22：vehicle 段在 `/dzactuator`（不是 /dzbrain）。
+            #   只读 /dzbrain 会静默留在 0.135 旧默认（test_physics §6 对拍正是为此红）。
+            _act = (d.get('/dzactuator') or {}).get('ros__parameters', {}) or {}
+            veh = {}
+            for _node in (dz, _act):
+                _v = _node.get('vehicle') if isinstance(_node, dict) else None
+                if isinstance(_v, dict):
+                    veh.update(_v)
             fld = dz.get('field') if isinstance(dz.get('field'), dict) else {}
             pln = dz.get('planner') if isinstance(dz.get('planner'), dict) else {}
             for _src, _k, _g in ((veh, 'length_m', 'VEHICLE_LENGTH_M'),
@@ -1363,6 +1374,781 @@ def run_planner(args, cfg) -> Optional[str]:
         return None
 
 
+class TrajectoryFieldGate:
+    """Continuous-pose gate shared by the trajectory connector and its audit.
+
+    Uses route.physics for the oriented vehicle footprint, including the rear
+    axle reference offset. The hard surface clearance comes from
+    planner.obstacle_margin_m; 0.30 m centre distance is only a warning.
+    A pose predicate does
+    not by itself certify the swept path between two poses.
+    """
+
+    def __init__(self, field, cfg, *, obstacle_center_m=0.0,
+                 obstacle_surface_m=None):
+        from dzbrain.core import geometry as geo
+        from dzbrain.route import physics as ph
+        self.geo, self.ph = geo, ph
+        self.field = field
+        self.body = dict(length_m=float(cfg.get('vehicle.length_m')),
+                         width_m=float(cfg.get('vehicle.width_m')),
+                         offset_m=float(cfg.get('vehicle.ref_offset_m', 0.0)))
+        self.radius = float(cfg.get('field.obstacle_radius_m'))
+        self.mine_pad_m = float(cfg.get('field.mine_pad_m'))
+        self.coverage_radius_m = float(cfg.get('vehicle.coverage_radius_m'))
+        self.obstacle_center_m = float(obstacle_center_m)
+        self.obstacle_surface_m = (float(cfg.get('planner.obstacle_margin_m'))
+                                   if obstacle_surface_m is None else obstacle_surface_m)
+        self.obstacles = [geo.block_to_meters(b) for b in field.obstacles]
+        self.targets = [geo.block_to_meters(b) for b in field.targets]
+        openings = set(field.bridges)
+        self.openings = [geo.block_to_meters(b) for b in field.bridges]
+        self.bridge_lateral_limit_m = geo.BLOCK_SIZE / 4  # User acceptance: 0.0875 m.
+        self.solid = [geo.block_to_meters('K%d' % r)
+                      for r in range(1, geo.MAP_ROWS + 1)
+                      if 'K%d' % r not in openings]
+        # Physical walls stop at the cell edge. The legacy tool's virtual
+        # approach extensions are not obstacles in this trajectory model.
+        # ★R-22：开口/墙厚必须随配置传，否则 config 一改就静默分叉。
+        _opening = float(cfg.get('field.bridge_opening_m', 0.33))
+        _wall = float(cfg.get('field.bridge_wall_m', 0.02))
+        self.walls = [ph.bridge_entry_walls(b, 0.0, opening_m=_opening, wall_m=_wall)
+                      for b in field.bridges]
+        c0, c1 = ph.parse_col_span(str(cfg.get('field.barrier_cols', 'D..N')))
+        bx, by0, by1 = ph.barrier_centerline(
+            col_from=c0, col_to=c1, row_hi=field.barrier_row_hi,
+            row_lo=field.barrier_row_lo)
+        self.barrier = dict(barrier_x=bx, barrier_y0=by0, barrier_y1=by1,
+                            barrier_width_m=float(cfg.get('field.barrier_width_m')))
+        self.half = geo.BLOCK_SIZE / 2
+        self._opening_polygons = [(name, geo.block_to_meters(name),
+            ph.corner_poly(*geo.block_to_meters(name), self.half, self.half)) for name in field.bridges]
+        self.bounds = (geo.MAP_X_MIN - self.half, geo.MAP_X_MAX + self.half,
+                       geo.MAP_Y_MIN - self.half, geo.MAP_Y_MAX + self.half)
+        self._rectangles = [(ph.corner_poly(x, y, self.half, self.half),
+                             (x-self.half, x+self.half, y-self.half, y+self.half))
+                            for x, y in self.targets + self.solid]
+        strip = ph.corner_poly(bx, (by0+by1)/2,
+                               self.barrier['barrier_width_m']/2, (by1-by0)/2)
+        self._rectangles.append((strip, self._bbox(strip)))
+        self._wall_boxes = [(walls, (min(p[0] for p in walls), max(p[2] for p in walls),
+                                     min(min(p[1], p[3]) for p in walls),
+                                     max(max(p[1], p[3]) for p in walls)))
+                            for walls in self.walls]
+
+    @staticmethod
+    def _bbox(poly):
+        return (min(p[0] for p in poly), max(p[0] for p in poly),
+                min(p[1] for p in poly), max(p[1] for p in poly))
+
+    @staticmethod
+    def _box_gap(a, b):
+        """AABB distance is a lower bound; never substitutes for a close test."""
+        return math.hypot(max(a[0]-b[1], b[0]-a[1], 0.0),
+                          max(a[2]-b[3], b[2]-a[3], 0.0))
+
+    def inspect(self, x, y, yaw):
+        ph = self.ph
+        poly = ph.body_corners(x, y, yaw, **self.body)
+        xmin, xmax, ymin, ymax = self.bounds
+        boundary = min(min(px-xmin, xmax-px, py-ymin, ymax-py) for px, py in poly)
+        center = min((math.hypot(x-ox, y-oy) for ox, oy in self.obstacles),
+                     default=float('inf'))
+        obstacle = min((ph.body_obstacle_clearance_m(
+            x, y, yaw, ox, oy, obstacle_radius_m=self.radius, **self.body)
+            for ox, oy in self.obstacles), default=float('inf'))
+        def rectangles(points):
+            return min((ph.body_rect_clearance_m(
+                x, y, yaw, rect_cx=ox, rect_cy=oy,
+                rect_half_x=self.half, rect_half_y=self.half, **self.body)
+                for ox, oy in points), default=float('inf'))
+        return dict(boundary_m=boundary, obstacle_center_m=center,
+                    obstacle_surface_m=obstacle,
+                    target_surface_m=rectangles(self.targets),
+                    bridge_solid_m=rectangles(self.solid),
+                    barrier_surface_m=ph.body_barrier_clearance_m(
+                        x, y, yaw, **self.barrier, **self.body),
+                    bridge_entry_m=min((ph.body_bridge_wall_clearance_m(
+                        x, y, yaw, walls, **self.body) for walls in self.walls),
+                        default=float('inf')))
+
+    def __call__(self, x, y, yaw):
+        if not all(math.isfinite(v) for v in (x, y, yaw)):
+            return False
+        # Cheap rejection before polygon distances (search calls this often).
+        xmin, xmax, ymin, ymax = self.bounds
+        if not (xmin <= x <= xmax and ymin <= y <= ymax):
+            return False
+        if any(abs(y-by) <= self.half and abs(x-bx) <= self.half and
+               abs(x-bx) > self.bridge_lateral_limit_m for bx, by in self.openings):
+            return False
+        if any(math.hypot(x-ox, y-oy) < self.obstacle_center_m
+               for ox, oy in self.obstacles):
+            return False
+        poly = self.ph.body_corners(x, y, yaw, **self.body)
+        box = self._bbox(poly)
+        # Apply the tunnel's straight-body constraint to every connector,
+        # including its approach/exit while any part of the body is in the cell.
+        if abs(math.cos(yaw)) > 1e-6:
+            for name, center, opening in self._opening_polygons:
+                if self._box_gap(box, self._bbox(opening)) <= 1e-9 and self.ph.polygon_distance_m(poly, opening) <= 1e-9:
+                    return False
+        if box[0] <= xmin+1e-9 or box[1] >= xmax-1e-9 or box[2] <= ymin+1e-9 or box[3] >= ymax-1e-9:
+            return False
+        required = max(1e-9, self.obstacle_surface_m or 0.0)
+        for ox, oy in self.obstacles:
+            if self._box_gap(box, (ox, ox, oy, oy)) > self.radius + required:
+                continue
+            if self.ph.body_obstacle_clearance_m(
+                    x, y, yaw, ox, oy, obstacle_radius_m=self.radius,
+                    **self.body) < required:
+                return False
+        for rect, rect_box in self._rectangles:
+            if self._box_gap(box, rect_box) > 1e-9:
+                continue
+            if self.ph.polygon_distance_m(poly, rect) <= 1e-9:
+                return False
+        for walls, wall_box in self._wall_boxes:
+            if self._box_gap(box, wall_box) > 1e-9:
+                continue
+            if self.ph.body_bridge_wall_clearance_m(x, y, yaw, walls, **self.body) <= 1e-9:
+                return False
+        return True
+
+
+def _finite_json(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {str(k): _finite_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite_json(v) for v in value]
+    return value
+
+
+def trajectory_metrics(route, samples, waypoint_s, field, gate, *,
+                       mandatory_indices=(), curvature_bound=None):
+    """Independent geometric audit of sampled poses, using route.physics.
+
+    Corner miss = vertex-to-curve chord distance within that visit's adjacent
+    waypoint interval. It is not lateral tracking error or vertex overshoot.
+    The chord-distance error bound k*ds^2/8 is reported separately. A footprint
+    clearance lower bound subtracts (1+r*k)*ds/2 from sampled clearances; a
+    positive result certifies the intervals, not merely the sampled poses.
+    """
+    ph = gate.ph
+    if len(samples) < 2:
+        raise ValueError('trajectory audit needs at least two samples')
+    pairs = list(zip(samples, samples[1:]))
+    ds = max(b.s-a.s for a, b in pairs)
+    k = max(abs(q.curvature) for q in samples)
+    chord_error = float(curvature_bound)*ds*ds/8 if curvature_bound is not None else None
+    yaw_excess = (max(0.0, max(abs(math.atan2(math.sin(b.body_yaw-a.body_yaw),
+                              math.cos(b.body_yaw-a.body_yaw)))-float(curvature_bound)*(b.s-a.s)
+                              for a, b in pairs)) if curvature_bound is not None else None)
+
+    def distance_to_curve(x, y, lo=None, hi=None):
+        candidates = pairs if lo is None else [(a, b) for a, b in pairs
+                                               if b.s >= lo and a.s <= hi]
+        return min(ph.point_segment_distance_m(x, y, a.x, a.y, b.x, b.y)
+                   for a, b in candidates)
+
+    errors = []
+    visit_errors = []
+    corners = []
+    from dzbrain.pursuit.path import Path
+    original = Path(route)
+    source_pairs = list(zip(route.waypoints, route.waypoints[1:]))
+    curve_to_source = max(min(ph.point_segment_distance_m(
+        q.x, q.y, a.x, a.y, b.x, b.y) for a, b in source_pairs) for q in samples)
+    for i, wp in enumerate(route.waypoints):
+        lo, hi = waypoint_s[max(0, i-1)], waypoint_s[min(len(waypoint_s)-1, i+1)]
+        errors.append(distance_to_curve(wp.x, wp.y, lo, hi))
+        visit = min(samples, key=lambda q: abs(q.s-waypoint_s[i]))
+        vx, vy = (ph.body_center(visit.x, visit.y, visit.body_yaw, offset_m=gate.body['offset_m'])
+                  if wp.block in field.mines else (visit.x, visit.y))
+        visit_errors.append(math.hypot(wp.x-vx, wp.y-vy))
+        if 0 < i < len(route.waypoints)-1 and original.corner_angle_deg(i-1) > 1e-6:
+            corners.append(errors[-1])
+    mine_distances, pad_distances, body_center_distances = {}, {}, {}
+    body_centers = [ph.body_center(q.x, q.y, q.body_yaw, offset_m=gate.body['offset_m']) for q in samples]
+    for name in field.mines:
+        x, y = gate.geo.block_to_meters(name)
+        mine_distances[name] = distance_to_curve(x, y)
+        # A sampled physical centre inside the circle is direct coverage evidence;
+        # no rear-axle / body-centre substitution or interpolated chord is used.
+        body_center_distances[name] = min(math.hypot(x-bx, y-by) for bx, by in body_centers)
+        pad_distances[name] = min(ph.segment_rect_distance_m(
+            a.x, a.y, b.x, b.y, x, y, float(gate.mine_pad_m)/2) for a, b in pairs)
+    required = {name: 0.0 for name in ('boundary_m', 'target_surface_m',
+                                     'bridge_solid_m', 'barrier_surface_m', 'bridge_entry_m')}
+    required['obstacle_surface_m'] = gate.obstacle_surface_m
+    clearance = {name: float('inf') for name in (*required, 'obstacle_center_m')}
+    witnesses = {}
+    violations = {name: 0 for name in required}
+    axis_errors = []
+    bridge_curvatures = []
+    bridge_lateral = []
+    bridge_failures = []
+    openings = [gate.geo.block_to_meters(name) for name in field.bridges]
+    for sample_index, q in enumerate(samples):
+        values = gate.inspect(q.x, q.y, q.body_yaw)
+        for name, value in values.items():
+            if value < clearance[name]:
+                clearance[name] = value
+                witnesses[name] = dict(s_m=q.s, x=q.x, y=q.y, body_yaw=q.body_yaw,
+                    body_corners=ph.body_corners(q.x, q.y, q.body_yaw, **gate.body))
+        for name, threshold in required.items():
+            if values[name] < threshold - 1e-9 or (threshold == 0 and values[name] <= 1e-9):
+                violations[name] += 1
+        # Reference point inside an open cell: tangent must follow the tunnel.
+        body = ph.body_corners(q.x, q.y, q.body_yaw, **gate.body)
+        box = gate._bbox(body)
+        inside = [center for name, center, opening in gate._opening_polygons
+                  if gate._box_gap(box, gate._bbox(opening)) <= 1e-9 and
+                  ph.polygon_distance_m(body, opening) <= 1e-9]
+        if inside:
+            axis_error = math.asin(min(1.0, abs(math.cos(q.body_yaw))))
+            axis_errors.append(axis_error)
+            bridge_curvatures.append(abs(q.curvature))
+            bridge_lateral.append(max(abs(q.x-x) for x, y in inside))
+            if axis_error > 1e-6 or abs(q.curvature) > 1e-6:
+                bridge = next(name for name in field.bridges
+                              if gate.geo.block_to_meters(name) in inside)
+                if (bridge_failures and bridge_failures[-1]['bridge'] == bridge and
+                        bridge_failures[-1]['last_sample'] == sample_index-1):
+                    event = bridge_failures[-1]
+                    event['s_to_m'] = q.s
+                    event['last_sample'] = sample_index
+                    event['original_segments'] = sorted(set(event['original_segments']+[q.seg_index]))
+                    event['yaw_error_max_rad'] = max(event['yaw_error_max_rad'], axis_error)
+                    event['abs_curvature_max'] = max(event['abs_curvature_max'], abs(q.curvature))
+                else:
+                    bridge_failures.append(dict(bridge=bridge, s_from_m=q.s, s_to_m=q.s,
+                        original_segments=[q.seg_index], yaw_error_max_rad=axis_error,
+                        abs_curvature_max=abs(q.curvature), last_sample=sample_index))
+    body_radius = math.hypot(gate.body['length_m']/2, gate.body['width_m']/2) + abs(gate.body['offset_m'])
+    sweep_bound = ((1+body_radius*float(curvature_bound))*ds/2
+                   if curvature_bound is not None else None)
+    lower = ({name: clearance[name]-sweep_bound-1e-7 for name in required}
+             if sweep_bound is not None else None)
+    certified = (lower is not None and yaw_excess <= 1e-6 and all(lower[name] > threshold
+                                          for name, threshold in required.items()))
+    error_bound = chord_error or 0.0
+    strict = sum(d+error_bound <= COVERAGE_RADIUS_M+1e-12 for d in mine_distances.values())
+    pad = sum(d+error_bound <= gate.coverage_radius_m+1e-12 for d in pad_distances.values())
+    return dict(waypoint_error_max_m=max(errors, default=0.0),
+                mandatory_error_max_m=max((visit_errors[i] for i in mandatory_indices), default=0.0),
+                mapped_waypoint_errors_m=visit_errors,
+                waypoint_errors_m=errors, max_corner_miss_m=max(corners, default=0.0),
+                trajectory_to_source_polyline_max_m=curve_to_source,
+                trajectory_to_source_error_bound_m=ds/2 if curvature_bound is not None else None,
+                corner_miss_definition='original vertex to trajectory chords within adjacent waypoint visit interval; not tracking error',
+                chord_distance_error_bound_m=chord_error,
+                strict_mine_covered=strict, mine_total=len(field.mines),
+                strict_mine_radius_m=COVERAGE_RADIUS_M, mine_center_distances_m=mine_distances,
+                reference_point='rear axle; body geometric centre is +vehicle.ref_offset_m along body heading',
+                strict_body_center_mine_covered=sum(d <= COVERAGE_RADIUS_M+1e-12 for d in body_center_distances.values()),
+                body_center_mine_sample_distances_m=body_center_distances,
+                pad_mine_covered=pad, pad_clearance_m=pad_distances,
+                pad_coverage_radius_m=gate.coverage_radius_m,
+                clearances=clearance, violations=violations,
+                clearance_witnesses=witnesses,
+                clearance_lower_bounds_m=lower, clearance_certified=certified,
+                max_sample_interval_m=ds, footprint_motion_bound_m=sweep_bound,
+                max_abs_curvature=k, bridge_axis_error_max_rad=max(axis_errors, default=0.0),
+                body_yaw_step_excess_rad=yaw_excess,
+                bridge_curvature_max=max(bridge_curvatures, default=0.0),
+                bridge_lateral_max_m=max(bridge_lateral, default=0.0),
+                bridge_lateral_limit_m=gate.bridge_lateral_limit_m,
+                bridge_lateral_upper_bound_m=(max(bridge_lateral)+ds/2 if bridge_lateral else 0.0),
+                bridge_alignment_failures=[{key: value for key, value in event.items()
+                                            if key != 'last_sample'} for event in bridge_failures],
+                obstacle_center_warning=clearance['obstacle_center_m'] < OBSTACLE_WARN_M,
+                sample_count=len(samples))
+
+
+def _sample_path(path, step, *, continuous):
+    from dzbrain.pursuit.trajectory import TrajectorySample
+    count = max(1, math.ceil(path.total_length/step))
+    positions = {path.total_length*i/count for i in range(count+1)}
+    positions.update(path.s_at_waypoint(i) for i in range(len(path.waypoints)))
+    if continuous:
+        positions.update(path.sampled_s)
+        return [path.sample(s) for s in sorted(positions)]
+    out = []
+    for s in sorted(positions):
+        x, y, segment = path.point_at(s)
+        out.append(TrajectorySample(x, y, path.heading_at(s), 0.0, 0.0,
+                                    path.segment_is_reverse(segment), s, segment))
+    return out
+
+
+def trajectory_junction_metrics(trajectory):
+    """Read analytic endpoints on both sides; sampling can hide a junction jump."""
+    maxima = dict(position_jump_m=0.0, body_yaw_jump_rad=0.0,
+                  steering_curvature_jump=0.0, cusp_abs_curvature=0.0)
+    pieces = trajectory._pieces  # Offline verifier deliberately inspects both one-sided states.
+    for left, right in zip(pieces, pieces[1:]):
+        ax, ay, ah, ak = left.at(left.length)
+        bx, by, bh, bk = right.at(0.0)
+        ah += math.pi if left.reverse else 0.0
+        bh += math.pi if right.reverse else 0.0
+        maxima['position_jump_m'] = max(maxima['position_jump_m'], math.hypot(ax-bx, ay-by))
+        maxima['body_yaw_jump_rad'] = max(maxima['body_yaw_jump_rad'],
+            abs(math.atan2(math.sin(ah-bh), math.cos(ah-bh))))
+        maxima['steering_curvature_jump'] = max(maxima['steering_curvature_jump'],
+            abs(ak*(-1 if left.reverse else 1)-bk*(-1 if right.reverse else 1)))
+        if left.reverse != right.reverse:
+            maxima['cusp_abs_curvature'] = max(maxima['cusp_abs_curvature'], abs(ak), abs(bk))
+    maxima['continuous'] = all(value <= 1e-6 for value in maxima.values())
+    maxima['junction_count'] = max(0, len(pieces)-1)
+    return maxima
+
+
+def _trajectory_tokens(spec):
+    """Preserve the comma heading suffix; legacy file splitting loses N5,x."""
+    text = str(spec).strip()
+    path = pathlib.Path(text)
+    try:
+        is_file = path.is_file()
+    except OSError:
+        is_file = False
+    if is_file:
+        text = path.read_text(encoding='utf-8-sig')
+    if text.lstrip().startswith('['):
+        values = json.loads(text)
+        if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
+            raise ValueError('route JSON must be a list of token strings')
+        return values
+    body = '\n'.join(line.split('#', 1)[0] for line in text.splitlines())
+    return [part for part in re.split(r'[;\s]+', body.strip()) if part]
+
+
+def _observed_motion_metrics(result, field, gate):
+    """Observe the existing simulator's true poses with the current field model."""
+    points = list(zip(result.truth_x, result.truth_y, result.truth_yaw))
+    required = {name: 0.0 for name in ('boundary_m', 'target_surface_m',
+        'bridge_solid_m', 'barrier_surface_m', 'bridge_entry_m')}
+    required['obstacle_surface_m'] = gate.obstacle_surface_m
+    counts = {name: 0 for name in required}
+    minima = {name: float('inf') for name in required}
+    first = {}
+    gate_rejections = 0
+    bridge_lateral = 0.0
+    counts['bridge_lateral'] = 0
+    for index, (x, y, yaw) in enumerate(points):
+        gate_rejections += not gate(x, y, yaw)
+        values = gate.inspect(x, y, yaw)
+        for key, threshold in required.items():
+            minima[key] = min(minima[key], values[key])
+            if values[key] < threshold-1e-9 or (threshold == 0 and values[key] <= 1e-9):
+                counts[key] += 1
+                if key not in first:
+                    first[key] = dict(t_s=result.t[index], x=x, y=y, body_yaw=yaw,
+                                      body_corners=gate.ph.body_corners(x, y, yaw, **gate.body))
+        body = gate.ph.body_corners(x, y, yaw, **gate.body)
+        box = gate._bbox(body)
+        for name, center, opening in gate._opening_polygons:
+            if (gate._box_gap(box, gate._bbox(opening)) <= 1e-9 and
+                    gate.ph.polygon_distance_m(body, opening) <= 1e-9):
+                lateral = abs(x-center[0])
+                bridge_lateral = max(bridge_lateral, lateral)
+                if lateral > gate.bridge_lateral_limit_m+1e-9:
+                    counts['bridge_lateral'] += 1
+                    first.setdefault('bridge_lateral', dict(t_s=result.t[index], x=x, y=y))
+    distances, pad_distances, body_distances = {}, {}, {}
+    body_centers = [gate.ph.body_center(x, y, yaw, offset_m=gate.body['offset_m']) for x, y, yaw in points]
+    for name in field.mines:
+        mx, my = gate.geo.block_to_meters(name)
+        distances[name] = min((gate.ph.point_segment_distance_m(mx, my, a[0], a[1], b[0], b[1])
+            for a, b in zip(points, points[1:])), default=float('inf'))
+        body_distances[name] = min((math.hypot(mx-bx, my-by) for bx, by in body_centers), default=float('inf'))
+        pad_distances[name] = min((gate.ph.segment_rect_distance_m(
+            a[0], a[1], b[0], b[1], mx, my, gate.mine_pad_m/2)
+            for a, b in zip(points, points[1:])), default=float('inf'))
+    return dict(sampled_region_violations=counts, sampled_region_ok=not any(counts.values()),
+        sampled_gate_rejections=gate_rejections,
+        gate_note='Gate additionally requires exact planned tunnel heading; measured heading rejections are shown separately from physical region violations.',
+        sampled_clearances_m=minima, first_violation=first,
+        bridge_lateral_max_m=bridge_lateral,
+        strict_mine_covered=sum(d <= COVERAGE_RADIUS_M for d in distances.values()),
+        mine_total=len(field.mines), mine_center_distances_m=distances,
+        strict_body_center_mine_covered=sum(d <= COVERAGE_RADIUS_M+1e-12 for d in body_distances.values()),
+        body_center_mine_sample_distances_m=body_distances,
+        pad_mine_covered=sum(d <= gate.coverage_radius_m for d in pad_distances.values()),
+        sampling_note='Simulator truth poses/chords at dt; sampled observation, not a continuous swept-volume certificate.')
+
+
+def compare_simulation(route, cfg, field, gate, trajectory, *, max_steps=20000, output_dir=None):
+    """Two explicit arms of run_sim, with equal inputs and independent state."""
+    from dataclasses import asdict, replace
+    import hashlib
+    from dzbrain.tools.sim import SimConfig, run_sim, write_csv, write_segments_csv, write_svg
+    from dzbrain.route.model import Route, Waypoint
+    from dzbrain.pursuit.controller import TrajectoryControlState
+    from dzbrain.pursuit.velocity import build_velocity_profile
+    if max_steps < 0:
+        raise ValueError('sim-max-steps must be nonnegative')
+    sources = (('sim.py', run_sim), ('controller.py', TrajectoryControlState),
+               ('velocity.py', build_velocity_profile))
+    def hashes():
+        return {name: hashlib.sha256(pathlib.Path(sys.modules[obj.__module__].__file__).read_bytes()).hexdigest()
+                for name, obj in sources}
+    source_sha256 = hashes()
+    sim = SimConfig(max_steps=max_steps, anchor_on_arrival=False)
+    reports = {}
+    for label in ('polyline', 'trajectory'):
+        if label == 'trajectory' and trajectory is None:
+            reports[label] = dict(available=False, reason='trajectory compilation failed')
+            continue
+        started = time.perf_counter()
+        state = TrajectoryControlState(trajectory, cfg) if label == 'trajectory' else None
+        result = run_sim(route, cfg, sim, field=field,
+                        trajectory=trajectory if label == 'trajectory' else None,
+                        trajectory_state=state)
+        reports[label] = dict(available=True, completed=bool(result.metrics.get('completed')),
+            reference=label, cross_track_rms_m=result.metrics.get('cross_track_rms_m'),
+            rms_is_completion_evidence=bool(result.metrics.get('completed')),
+            time_s=result.metrics.get('time_s'), wall_time_s=time.perf_counter()-started,
+            observed_field=_observed_motion_metrics(result, field, gate),
+            native_simulator_metrics=result.metrics,
+            command_steer_max_deg=max(map(abs, result.steer_cmd), default=0.0),
+            physical_camera_replay_rms_m=None)
+        wheelbase = float(cfg.get('pursuit.wheelbase_m'))
+        lateral_limit = float(cfg.get('pursuit.lat_acc_max_mps2'))
+        lateral = [v*v*abs(math.tan(math.radians(steer)))/wheelbase for v, steer in zip(result.v, result.steer)]
+        peak = max(range(len(lateral)), key=lateral.__getitem__) if lateral else 0
+        reports[label]['delivered_lateral_acceleration'] = dict(max_mps2=max(lateral, default=0.0),
+            limit_mps2=lateral_limit, exceeding_samples=sum(value > lateral_limit+1e-6 for value in lateral),
+            peak_time_s=result.t[peak] if result.t else None,
+            formula='v_exec^2 * abs(tan(steer_exec_degrees)) / wheelbase')
+        if state is not None:
+            count = max(1, math.ceil(trajectory.total_length/0.001))
+            positions = sorted({trajectory.total_length*i/count for i in range(count+1)} | set(state.profile.s))
+            nominal, directional = [], []
+            ratio = float(cfg.get('pursuit.reverse_speed_ratio'))
+            for s in positions:
+                sample = trajectory.sample(s)
+                value = state.profile.speed_at(s)**2*abs(sample.curvature)
+                nominal.append(value)
+                directional.append(value*(ratio*ratio if sample.reverse else 1.0))
+            reports[label]['profile_grid_lateral_acceleration'] = dict(
+                max_nominal_mps2=max(nominal, default=0.0), max_direction_adjusted_mps2=max(directional, default=0.0),
+                step_m=trajectory.total_length/count, sample_count=len(positions),
+                note='Fine-grid observation of v(s)^2|kappa(s)|; not a continuous between-grid certificate.')
+        extra_shoot = sum(max(0.0, 30.0-wp.dwell_s) for index, wp in route.shoot_points())
+        mission_time = float(result.metrics.get('time_s', 0.0))+extra_shoot
+        reports[label]['mission_time_budget'] = dict(sim_time_s=result.metrics.get('time_s'),
+            shooting_stops=len(route.shoot_points()), shooting_allowance_s_per_stop=30.0,
+            extra_shooting_s=extra_shoot, total_if_completed_s=mission_time if reports[label]['completed'] else None,
+            completed=reports[label]['completed'], budget_s=180.0,
+            within_budget=reports[label]['completed'] and mission_time <= 180.0,
+            note='sim time includes explicit waypoint dwell; only max(30-dwell,0) is added per shooting stop.')
+        if output_dir is not None:
+            target = pathlib.Path(output_dir)/label
+            target.mkdir(parents=True, exist_ok=False)
+            render_route = route
+            if label == 'trajectory':
+                count = max(1, math.ceil(trajectory.total_length/0.04))
+                positions = sorted({trajectory.total_length*i/count for i in range(count+1)} | set(trajectory.stop_s))
+                render_route = Route(tuple(Waypoint(block='', x=q.x, y=q.y, yaw=q.body_yaw,
+                    reverse=q.reverse, shoot=q.s in trajectory.stop_s) for q in map(trajectory.sample, positions)))
+            render_field = dict(result.field_report)
+            render_field['shape'] = dict(render_field.get('shape', {}), bridge_entry_walls={}, bridge_redundancy_m=0.0)
+            rendered = replace(result, field_report=render_field)
+            reports[label]['artifacts'] = dict(
+                trace_csv=write_csv(result, str(target/'traj.csv')),
+                segments_csv=write_segments_csv(result, str(target/'by_segment.csv')),
+                svg=write_svg(rendered, str(target/'traj.svg'), render_route,
+                    title=f'{label}: own reference, completed={result.metrics.get("completed")}', field=field))
+    eligible = all(r.get('completed') for r in reports.values())
+    improved = eligible and reports['trajectory']['cross_track_rms_m'] < reports['polyline']['cross_track_rms_m']
+    candidate = reports['trajectory']
+    measurements = candidate.get('native_simulator_metrics', {})
+    tolerance = 1e-6
+    limits = dict(accel_up_mps2=float(cfg.get('pursuit.trajectory_accel_up_mps2')),
+        accel_down_mps2=float(cfg.get('pursuit.trajectory_accel_down_mps2')),
+        jerk_mps3=float(cfg.get('pursuit.trajectory_jerk_max_mps3')),
+        lateral_accel_mps2=float(cfg.get('pursuit.lat_acc_max_mps2')),
+        steer_deg=float(cfg.get('pursuit.max_steer_deg')),
+        steer_rate_deg_s=float(cfg.get('pursuit.max_steer_rate_deg_s')))
+    checks = dict(completed=bool(candidate.get('completed')), rms_improved=bool(improved),
+        body_center_mines=(candidate.get('observed_field', {}).get('strict_body_center_mine_covered') == len(field.mines)),
+        sampled_physical_regions=bool(candidate.get('observed_field', {}).get('sampled_region_ok')),
+        no_constraint_override=measurements.get('trajectory_constraint_override_steps') == 0,
+        accel_up=measurements.get('trajectory_command_accel_up_max_mps2', float('inf')) <= limits['accel_up_mps2']+tolerance,
+        accel_down=measurements.get('trajectory_command_accel_down_max_mps2', float('inf')) <= limits['accel_down_mps2']+tolerance,
+        jerk=measurements.get('trajectory_command_jerk_max_mps3', float('inf')) <= limits['jerk_mps3']+tolerance,
+        final_command_steer=candidate.get('command_steer_max_deg', float('inf')) <= limits['steer_deg']+tolerance,
+        final_command_steer_rate=measurements.get('steer_rate_max_deg_s', float('inf')) <= limits['steer_rate_deg_s']+tolerance,
+        delivered_lateral_acceleration=candidate.get('delivered_lateral_acceleration', {}).get('max_mps2', float('inf')) <= limits['lateral_accel_mps2']+tolerance,
+        profile_grid_lateral_acceleration=candidate.get('profile_grid_lateral_acceleration', {}).get('max_nominal_mps2', float('inf')) <= limits['lateral_accel_mps2']+tolerance,
+        mission_time_within_180s=bool(candidate.get('mission_time_budget', {}).get('within_budget')))
+    return dict(parameters=asdict(sim), arms=reports, source_sha256=source_sha256,
+        source_files_unchanged_during_run=source_sha256 == hashes(),
+        rms_comparison_eligible=eligible,
+        candidate_rms_improved=bool(improved),
+        candidate_acceptance=dict(ok=all(checks.values()), checks=checks, limits=limits, numeric_tolerance=tolerance),
+        note='RMS uses each arm own reference. Incomplete runs cannot establish improvement. '
+             'Equal simulator parameters; waypoint belief snapping disabled in both arms. '
+             'Native legacy board_breach counters add half-width/half-diagonal margins and use different '
+             'reference-offset semantics; they are retained separately and are not current collision evidence.')
+
+
+def check_trajectory(map_path, config_path, *, route_spec=None, sample_step=0.002,
+                     max_nodes=18000, baseline_path=None, simulate=False, sim_max_steps=20000,
+                     output_dir=None):
+    """Compile the existing planner's ordered Route, then independently audit it."""
+    import hashlib
+    import types
+    import yaml
+    from dzbrain.core.config import Config
+    from dzbrain.pursuit.path import Path
+    from dzbrain.pursuit.trajectory import Trajectory, TrajectoryInfeasible
+    from dzbrain.route.parser import parse_mission
+    from dzbrain.route import planner as route_planner
+    from dzbrain.tools.sim import load_field_spec, SimConfig, resolve_initial_yaw
+    if not math.isfinite(sample_step) or sample_step <= 0 or sample_step > 0.05:
+        raise ValueError('sample-step must be finite and in (0, 0.05] metres')
+    if max_nodes < 1:
+        raise ValueError('max-nodes must be positive')
+    map_path, config_path = pathlib.Path(map_path).resolve(), pathlib.Path(config_path).resolve()
+    cfg = Config.load(str(config_path))
+    map_data = yaml.safe_load(map_path.read_text(encoding='utf-8'))
+    field = load_field_spec(str(map_path))
+    if field is None:
+        raise ValueError('explicit map did not load')
+    started = time.perf_counter()
+    if route_spec is None:
+        spec = importlib.util.spec_from_file_location('_trajectory_plan_cli', os.path.join(HERE, 'plan_route.py'))
+        planner_cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(planner_cli)
+        plan_args = types.SimpleNamespace(engine='tour', allow_reverse=False,
+                                          pivot_penalty=None, max_seconds=route_planner.DEFAULT_MAX_SECONDS,
+                                          objective=route_planner.OBJECTIVE_LEGACY)
+        lower = next((b for b in field.bridges if int(str(b)[1:]) >= 7), None)
+        upper = next((b for b in field.bridges if int(str(b)[1:]) <= 6), None)
+        plan = planner_cli.plan_once(map_data, cfg, plan_args, cross_lower=lower,
+                                     cross_upper=upper, map_path=map_path)
+        tokens = list(plan.tokens)
+    else:
+        tokens = _trajectory_tokens(route_spec)
+    route = parse_mission(tokens, name=map_path.stem)
+    initial_yaw, initial_source = resolve_initial_yaw(route, SimConfig())
+    original = Path(route)
+    gate = TrajectoryFieldGate(field, cfg)
+    payload = dict(schema='dzrobot-trajectory-audit/1', map=str(map_path), config=str(config_path),
+                   scope='static geometry only; excludes tracking RMS and full suites; original vertex distances and 0.113 m are comparison only',
+                   python=sys.version.split()[0],
+                   source_sha256={name: hashlib.sha256(pathlib.Path(filename).read_bytes()).hexdigest()
+                       for name, filename in (('route_check.py', __file__),
+                           ('trajectory.py', sys.modules[Trajectory.__module__].__file__),
+                           ('physics.py', gate.ph.__file__), ('planner.py', route_planner.__file__))},
+                   map_sha256=hashlib.sha256(map_path.read_bytes()).hexdigest(),
+                   config_sha256=hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                   tokens=tokens, sample_step_m=sample_step, search_max_nodes=max_nodes,
+                   initial_pose=dict(x=route[0].x, y=route[0].y, yaw=initial_yaw,
+                                     source=initial_source, policy=SimConfig().init_yaw),
+                   ok=False, stage='compile', errors=[],
+                   baseline_physical_replay_rms_m=None, candidate_physical_replay_rms_m=None)
+    payload['polyline'] = trajectory_metrics(
+        route, _sample_path(original, sample_step, continuous=False),
+        [original.s_at_waypoint(i) for i in range(len(route))], field, gate)
+    payload['polyline']['length_m'] = original.total_length
+    payload['polyline']['curvature_continuous'] = False
+    trajectory = None
+    try:
+        trajectory = Trajectory(route, cfg, field, pose_valid=gate, max_nodes=max_nodes,
+                                start_yaw=initial_yaw)
+    except TrajectoryInfeasible as exc:
+        payload.update(stage='compile', errors=list(exc.errors), failure_waypoint=exc.waypoint,
+                       conclusion='No connection found by this compiler/budget; not a proof that the map is infeasible.')
+    else:
+        metrics = trajectory_metrics(
+            route, _sample_path(trajectory, sample_step, continuous=True),
+            [trajectory.s_at_waypoint(i) for i in range(len(route))], field, gate,
+            mandatory_indices=trajectory.mandatory_indices, curvature_bound=trajectory.max_curvature)
+        metrics.update(length_m=trajectory.total_length, cusp_count=len(trajectory.cusp_s),
+                       curvature_limit=trajectory.max_curvature,
+                       search_expansions=trajectory.search_expansions,
+                       junctions=trajectory_junction_metrics(trajectory))
+        first = trajectory.sample(0.0)
+        metrics['initial_pose_error_m'] = math.hypot(first.x-route[0].x, first.y-route[0].y)
+        metrics['initial_body_yaw_error_rad'] = abs(math.atan2(math.sin(first.body_yaw-initial_yaw),
+                                                             math.cos(first.body_yaw-initial_yaw)))
+        shooting = []
+        window = route_planner.shoot_distance_window((
+            float(cfg.get('route.shoot_distance_m')), float(cfg.get('route.shoot_distance_tol_m'))))
+        if field.targets:
+            plate = route_planner.plate_center_m(route_planner.load_map(map_data))
+            for index, wp in route.shoot_points():
+                q = trajectory.sample(trajectory.s_at_waypoint(index))
+                distance = math.hypot(q.x-plate[0], q.y-plate[1])
+                shooting.append(dict(waypoint=index, block=wp.block, distance_to_plate_m=distance,
+                                     within_window=window[0]-1e-9 <= distance <= window[1]+1e-9))
+        metrics.update(shooting_stops=shooting, shooting_window_m=window)
+        payload['trajectory'] = metrics
+        errors = []
+        if metrics['initial_pose_error_m'] > 1e-6 or metrics['initial_body_yaw_error_rad'] > 1e-6:
+            errors.append('trajectory initial body pose disagrees with the shared simulator initial-pose policy')
+        if not metrics['junctions']['continuous']:
+            metrics['clearance_certified'] = False
+            errors.append('analytic piece junctions are not position/body-yaw/steering-curvature continuous')
+        if metrics['strict_body_center_mine_covered'] != metrics['mine_total']:
+            errors.append('strict 0.035 m physical body-centre mine coverage incomplete')
+        if metrics['mandatory_error_max_m'] > COVERAGE_RADIUS_M:
+            errors.append('mandatory waypoint error exceeds 0.035 m')
+        if any(metrics['violations'].values()):
+            errors.append('sampled oriented footprint violates a field constraint')
+        if not metrics['clearance_certified']:
+            errors.append('continuous clearance not certified at this sample spacing')
+        if metrics['max_abs_curvature'] > trajectory.max_curvature*(1+1e-7):
+            errors.append('curvature bound exceeded')
+        if metrics['bridge_axis_error_max_rad'] > 1e-6 or metrics['bridge_curvature_max'] > 1e-6:
+            errors.append('bridge traversal is not straight and aligned')
+        if metrics['bridge_lateral_upper_bound_m'] > gate.bridge_lateral_limit_m+1e-9:
+            errors.append('bridge lateral deviation <= 0.0875 m not certified')
+        if field.targets and (not shooting or not all(q['within_window'] for q in shooting)):
+            errors.append('shooting stops missing or outside the configured plate-centre window')
+        payload.update(ok=not errors, stage='audit', errors=errors)
+    if baseline_path:
+        baseline = json.loads(pathlib.Path(baseline_path).read_text(encoding='utf-8'))
+        matches = (baseline.get('map_sha256') == payload['map_sha256']
+                   and baseline.get('plan', {}).get('tokens') == tokens
+                   and baseline.get('config_sha256') == payload['config_sha256'])
+        payload['saved_baseline_matches'] = matches
+        if matches:
+            payload['saved_baseline_simulation'] = baseline.get('metrics', {})
+        else:
+            payload['baseline_note'] = 'Map, tokens or configuration hash differs; baseline numbers omitted.'
+    payload['static_geometry_ok'] = payload['ok']
+    artifact_dir = (pathlib.Path(output_dir).resolve()/(map_path.stem+'-'+payload['map_sha256'][:8])
+                    if output_dir is not None else None)
+    if simulate:
+        payload['simulation'] = compare_simulation(route, cfg, field, gate, trajectory,
+                                                  max_steps=sim_max_steps, output_dir=artifact_dir)
+        dynamic_ok = payload['simulation']['candidate_acceptance']['ok']
+        payload['simulation_candidate_ok'] = bool(dynamic_ok)
+        if not dynamic_ok:
+            payload['ok'] = False
+            failed = [name for name, ok in payload['simulation']['candidate_acceptance']['checks'].items() if not ok]
+            payload['errors'].append('candidate simulation acceptance not met: '+', '.join(failed))
+    payload['elapsed_s'] = time.perf_counter()-started
+    payload = _finite_json(payload)
+    if artifact_dir is not None:
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        report_path = artifact_dir/'audit.json'
+        with report_path.open('x', encoding='utf-8') as stream:
+            json.dump(payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
+        payload['audit_json'] = str(report_path)
+    return payload
+
+
+def compare_suite_snapshots(baseline_path, candidate_path):
+    """Read existing native-runner CSVs; never execute a new test runner."""
+    import csv
+    import hashlib
+    reports = {}
+    reds = {}
+    for label, path in (('baseline', baseline_path), ('candidate', candidate_path)):
+        if path is None:
+            continue
+        source = pathlib.Path(path).resolve()
+        with source.open(encoding='utf-8-sig', newline='') as stream:
+            rows = list(csv.DictReader(stream))
+        if not rows or not all('file' in row and 'exit' in row for row in rows):
+            raise ValueError('suite snapshot must contain nonempty file/exit CSV columns')
+        reds[label] = {row['file'] for row in rows if int(row['exit']) != 0}
+        reports[label] = dict(source=str(source), sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+                             suites=len(rows), red_suites=len(reds[label]), failed_suites=sorted(reds[label]))
+    return dict(source='saved native-runner snapshots; tests were not rerun by this command', snapshots=reports,
+                new_red=sorted(reds['candidate']-reds['baseline']) if len(reds) == 2 else None,
+                fixed_red=sorted(reds['baseline']-reds['candidate']) if len(reds) == 2 else None)
+
+
+def _trajectory_main(args):
+    import yaml
+    from dzbrain.route.planner import PlannerError
+    if not args.maps:
+        print('--trajectory requires an explicit --map', file=sys.stderr)
+        if args.json:
+            print('TRAJECTORY_RESULT_JSON '+json.dumps(dict(
+                schema='dzrobot-trajectory-audit-batch/1', ok=False,
+                reports=[dict(ok=False, stage='input_or_planning', errors=['explicit --map required'])])))
+        return 2
+    reports, exit_code = [], 0
+    suite_comparison = None
+    if args.baseline_suites or args.candidate_suites:
+        try:
+            suite_comparison = compare_suite_snapshots(args.baseline_suites, args.candidate_suites)
+        except (OSError, ValueError) as exc:
+            suite_comparison = dict(error=str(exc))
+            exit_code = 2
+    for map_path in args.maps:
+        try:
+            report = check_trajectory(map_path, args.config, route_spec=args.route,
+                                      sample_step=args.sample_step, max_nodes=args.max_nodes,
+                                      baseline_path=args.baseline, simulate=args.simulate,
+                                      sim_max_steps=args.sim_max_steps, output_dir=args.output_dir)
+            exit_code = max(exit_code, 0 if report['ok'] else 1)
+        except (ValueError, OSError, KeyError, PlannerError, yaml.YAMLError) as exc:
+            report = dict(schema='dzrobot-trajectory-audit/1', map=str(map_path),
+                          ok=False, stage='input_or_planning', errors=[str(exc)])
+            exit_code = 2
+        reports.append(report)
+        print('Map: %s | STATIC GEOMETRY %s' % (map_path, 'PASS' if report.get('static_geometry_ok', report['ok']) else 'FAIL'))
+        print('kind       waypoint_max_m  mandatory_max_m  corner_miss_m  curve_to_polyline_m  rear_mines  body_mines  pad_mines  surface_min_m')
+        for kind in ('polyline', 'trajectory'):
+            metrics = report.get(kind)
+            if not metrics:
+                continue
+            surface = metrics['clearances']['obstacle_surface_m']
+            print('%-10s %.6f        %.6f         %.6f       %.6f              %d/%d         %d/%d         %d/%d        %s' % (
+                kind, metrics['waypoint_error_max_m'], metrics['mandatory_error_max_m'],
+                metrics['max_corner_miss_m'], metrics['trajectory_to_source_polyline_max_m'],
+                metrics['strict_mine_covered'], metrics['mine_total'],
+                metrics['strict_body_center_mine_covered'], metrics['mine_total'], metrics['pad_mine_covered'],
+                metrics['mine_total'], 'n/a' if surface is None else '%.6f' % surface))
+        for error in report['errors']:
+            print('  ERROR: '+error)
+        if 'simulation' in report:
+            print('simulation  completed  rms_own_reference_m  time_s  rear_mines  body_mines  sampled_region_ok')
+            for label, arm in report['simulation']['arms'].items():
+                if not arm['available']:
+                    print(label+' unavailable: '+arm['reason'])
+                    continue
+                observed = arm['observed_field']
+                print('%-10s %-9s %.6f             %.2f   %d/%d         %d/%d         %s' % (
+                    label, arm['completed'], arm['cross_track_rms_m'], arm['time_s'],
+                    observed['strict_mine_covered'], observed['mine_total'],
+                    observed['strict_body_center_mine_covered'], observed['mine_total'], observed['sampled_region_ok']))
+            if not report['simulation']['rms_comparison_eligible']:
+                print('  RMS comparison unavailable: both arms must complete; partial RMS is not improvement evidence.')
+            candidate = report['simulation']['arms']['trajectory']
+            if candidate.get('available'):
+                print('  candidate constraints: '+json.dumps(report['simulation']['candidate_acceptance']['checks']))
+                print('  mission budget: '+json.dumps(candidate['mission_time_budget']))
+    if suite_comparison is not None:
+        print('Suite snapshots (read only; this command did not rerun the test suites):')
+        if 'error' in suite_comparison:
+            print('  ERROR: '+suite_comparison['error'])
+        else:
+            for label, snapshot in suite_comparison['snapshots'].items():
+                print('  %s: %d suites / %d red | %s' % (label, snapshot['suites'],
+                      snapshot['red_suites'], snapshot['source']))
+            if suite_comparison['new_red'] is not None:
+                print('  new red: %s | fixed red: %s' % (suite_comparison['new_red'], suite_comparison['fixed_red']))
+                if suite_comparison['new_red']:
+                    exit_code = max(exit_code, 1)
+    if args.json:
+        print('TRAJECTORY_RESULT_JSON '+json.dumps(dict(
+            schema='dzrobot-trajectory-audit-batch/1', ok=exit_code == 0, reports=reports,
+            suite_comparison=suite_comparison),
+            ensure_ascii=False, allow_nan=False))
+    return exit_code
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="路线全链路校验（规划器输出 -> 路线下发 -> 几何校验）",
@@ -1370,6 +2156,17 @@ def main(argv=None) -> int:
     ap.add_argument('--config',
                     default=os.path.join(WS, 'config', 'robot.yaml'))
     ap.add_argument('--route', default=None, help='直接给一条路线串')
+    ap.add_argument('--trajectory', action='store_true', help='编译并审计连续轨迹；不部署')
+    ap.add_argument('--map', dest='maps', action='append', help='连续轨迹显式地图，可重复；不设route时复用tour规划器')
+    ap.add_argument('--json', action='store_true', help='连续轨迹模式末行输出TRAJECTORY_RESULT_JSON')
+    ap.add_argument('--sample-step', type=float, default=0.002, help='连续轨迹审计最大采样弧长(m)')
+    ap.add_argument('--max-nodes', type=int, default=18000, help='每个连接的有限搜索预算；用尽不等于地图无解')
+    ap.add_argument('--baseline', help='可选：之前保存的仿真baseline.json，仅hash和tokens一致才合表')
+    ap.add_argument('--simulate', action='store_true', help='可选复用run_sim作旧Path/候选闭环对照；未完赛RMS不能证提升')
+    ap.add_argument('--sim-max-steps', type=int, default=20000, help='两仿真臂同一步数上限，0=既有sim自动预算')
+    ap.add_argument('--output-dir', help='可选：保存每图审计JSON及既有sim CSV/SVG；已有产物拒绝覆盖')
+    ap.add_argument('--baseline-suites', help='可选：读取改前原生runner suite_table.csv，不重新运行')
+    ap.add_argument('--candidate-suites', help='可选：读取改后原生runner suite_table.csv，不重新运行')
     ap.add_argument('--from-planner', action='store_true',
                     help='先跑 global_planner.py 拿路线，再校验')
     ap.add_argument('--start', default=None)
@@ -1382,6 +2179,11 @@ def main(argv=None) -> int:
                     help='已压雷格（增量续算口径）：这些雷不再要求本路线重压，'
                          '仅从覆盖判据里剔除，其余校验不变')
     args = ap.parse_args(argv)
+
+    if args.trajectory:
+        return _trajectory_main(args)
+    if args.maps or args.json or args.baseline or args.simulate or args.output_dir or args.baseline_suites or args.candidate_suites:
+        ap.error('--map/--json/--baseline require --trajectory; legacy checking is unchanged')
 
     cfg = load_cfg(args.config)
 

@@ -24,8 +24,20 @@ from dataclasses import dataclass
 
 from ..core.config import Config
 from .path import Path, Projection
+from .trajectory import Trajectory
+from ..core.config import lookahead_distance
 
 __all__ = ["LookaheadPoint", "find_lookahead_point"]
+
+
+def trajectory_lookahead_distance(path: Trajectory, s: float, cfg: Config,
+                                  stop_s: float | None = None) -> float:
+    """Cruise-derived arc preview, shortened by reference curvature only."""
+    base = lookahead_distance(cfg.get("pursuit.cruise_speed_mps"), cfg)
+    end = path.total_length if stop_s is None else min(path.total_length, stop_s)
+    peak = max(abs(path.sample(min(end, s + d)).curvature)
+               for d in (0.0, base * 0.5, base))
+    return max(cfg.get("pursuit.lookahead_floor_m"), base / (1.0 + base * peak))
 
 #: 已经站在顶点上时，把前视目标抬到**顶点之后**这幺多（米）。
 #: 与 `path._VERTEX_STEP_M` 同值同理由：必须 > 浮点噪声，又必须 ≪ 段长 0.35 m
@@ -56,6 +68,14 @@ def find_lookahead_point(path: Path, proj: Projection, ld: float, cfg: Config) -
     ★ 退化保护触发时返回的 `seg_index` 是**顶点之后那一段**（`path.point_at` 给谁算谁），
       `clamped_to_vertex=False`、`s` 严格大于 `proj.s` —— 保证前视点不落在车身上。
     """
+    if isinstance(path, Trajectory):
+        # No grid-vertex clamp or degenerate-vertex exception exists on the
+        # continuous path. A cusp is a required stop, so preview never crosses
+        # into its opposite travel direction before that event is released.
+        end = min((s for s in path.cusp_s if s > proj.s + 1e-9),
+                  default=path.total_length)
+        target = path.sample(min(end, proj.s + max(0.0, ld)))
+        return LookaheadPoint(target.x, target.y, target.seg_index, target.s, False)
     total = path.total_length
     seg_index = proj.seg_index
 

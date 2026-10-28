@@ -175,7 +175,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
 from ..core import geometry as geo
-from ..core.blackboard import (P_AIM_RED, P_DRONE, P_MISSION_PHASE, P_POSE, P_ROUTE,
+from ..core.blackboard import (P_AIM_RED, P_DRONE, P_FIELD_LAYOUT, P_MISSION_PHASE,
+                               P_POSE, P_ROUTE,
                                P_ROUTE_INDEX, P_ROUTE_S, P_SAFETY, P_STOP_POINT,
                                P_TELEMETRY, Blackboard)
 from ..core.config import Config, pivot_dist_eff
@@ -229,6 +230,12 @@ _GOAL_STOP_M = 0.03
 _STILL_TICKS = 10
 _STILL_DISP_M = 0.01
 _STILL_SPEED_MPS = 0.03
+
+#: ★P2-T1 段完成劫持闸（MISSION-GATE-20261029，见 `_segment_completion_gate`）：
+#: 单拍位姿增量超过它（米）就当成"位姿被吸附/重投影搬过一步"，**不计入**行驶距离。
+#: 真车巡航 0.35 m/s × 10 Hz = 0.035 m/拍 ⇒ 0.25 m 有 ~7 倍余量（掉一拍也兜得住）；
+#: 而到位吸附/横向重锚单次只挪 0.05~0.12 m，重投影跳变通常 > 0.3 m，二者能被分开。
+_TRAVEL_JUMP_M = 0.25
 
 # --------------------------------------------------------------------------- #
 #  ★ 自动规划：路线来源标注 + 规划入口
@@ -911,7 +918,12 @@ def resolve_map_path(cfg: Any = None, spec: str | None = None) -> pathlib.Path:
     错误信息里能看到实际尝试的路径）。本函数不抛异常、也不读文件内容。
     """
     text = spec if spec is not None else (cfg.get("planner.map_path") if cfg is not None else None)
-    text = str(text or DEFAULT_MAP_PATH)
+    text = str(text or "").strip()
+    if not text:
+        # ★ 2026-10-25「车端零地图 + 布局模式」：空 map_path 不再回落到 DEFAULT_MAP_PATH。
+        #   旧行为会拼出 <ws>/config/map.yaml，而那张图已从车端删除 => 报错变成
+        #   "地图文件不存在: ...config/map.yaml"，诱导人去修一张本就不该存在的文件。
+        return pathlib.Path("<unset-map>")
     raw = pathlib.Path(text).expanduser()
     if raw.is_absolute():
         return raw
@@ -930,6 +942,10 @@ def _read_map_yaml(path: pathlib.Path) -> dict:
     """读地图 YAML（失败即抛，由 `plan_route_from_config` 统一转成 `PlanOutcome.error`）。"""
     import yaml                                   # 车上/本地都有 PyYAML（core/config.py 同款）
 
+    if str(path) == "<unset-map>":
+        raise FileNotFoundError(
+            "未配置地图：planner.map_path 为空 => 布局模式（车端不存地图，布局只由无人机 "
+            "field_layout 下发）；离线工具请用 --map 显式指定一张图")
     if not path.is_file():
         raise FileNotFoundError(f"地图文件不存在: {path}")
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -1323,6 +1339,12 @@ def plan_segment_route(map_cfg: Any, cfg: Any = None, *,
             cand = (int(heading_dir[0]), int(heading_dir[1]))
             if cand in dirs:
                 first = cand
+        #: ★首步禁止方向（= 车头精确反向）：只在"从起点迈出第一步"时生效。
+        #  为什么不能只靠 seed 排除：dirs0 只定义**初始朝向**，A* 仍允许从 seed 朝向
+        #  再转 90° 才迈步 —— 于是"车头朝北"可以借 seed=东 走出"第一步朝南"，等于放行 180°。
+        #  必须直接钉在第一步上（h_prev is None 即"还没走过任何一步"）。
+        _first_ban: tuple | None = None
+
         def _search(dirs0: tuple) -> tuple[tuple | None, dict, dict]:
             dist0: dict[tuple, float] = {}
             came0: dict[tuple, tuple | None] = {}
@@ -1341,6 +1363,8 @@ def plan_segment_route(map_cfg: Any, cfg: Any = None, *,
                 if cell == goal:
                     return st, dist0, came0
                 for v in dirs:
+                    if h_prev is None and v == _first_ban:      # 首步精确反向：禁
+                        continue
                     nxt = (cell[0] + v[0], cell[1] + v[1])
                     if not _move_ok(cell, nxt):
                         continue
@@ -1370,14 +1394,33 @@ def plan_segment_route(map_cfg: Any, cfg: Any = None, *,
             return None, dist0, came0
 
         goal_state, dist, came = _search(dirs if first is None else (first,))
-        turned_around = False
         if goal_state is None and first is not None:
-            # ★ 起点车头朝向与唯一可行首步相反（180°）时，若直接判"无解"会永久 WAIT_INFO
-            #   （段边界上很常见：上一段从西往东开，下一段要往西回）。纯追踪无法从静止
-            #   直接横移/掉头，但车可以原地转/小圆弧掉头 —— 故允许"首步任意方向"再搜一次，
-            #   并如实留 warning（现场需确认该格前方有 ~0.3 m 掉头空间）。
-            goal_state, dist, came = _search(dirs)
-            turned_around = True
+            # ★ 车头朝向已知时，先只准"沿车头直行"；走不通再允许**转向**（左/右 90°）。
+            #   物理依据（2026-10-27 现场实测）：本车是**阿克曼**底盘，**不能原地掉头** ——
+            #   最小转弯半径 = wheelbase/tan(max_steer) = 0.157/tan(30°) ≈ 0.272 m，
+            #   掉头横向扫幅 2R ≈ 0.544 m > 一格 0.35 m ⇒ 段起点做不出 180° 反向，
+            #   满舵前冲会越过挡板（10-27 19:xx 实测 M7→M6→M5 穿板）。
+            #   tracker 的 pivot 也只是 0.08 m/s 蠕动 + 打死舵（PursuitCommand 的 linear_x
+            #   非零），物理上仍是一次掉头圆弧，不是原地旋转。
+            #   ⇒ **允许**首步左/右转（90° 转向在段起点完全可行），**禁止**首步精确反向。
+            # ★★ 2026-10-27 20:xx 二次更正（推翻 20:0x 两版）：
+            #   20:0x 版写"排除反向首步后仍能搜到就拒绝" ⇒ 把**合法的 90° 转向**也拒了，
+            #   凡起点要转向的段都规划不出来（test_stepper 5.6/7.1 当场红）。
+            #   但只把条件反过来（能搜到就放行）**同样错**：dirs0 只是初始朝向，A* 允许
+            #   先转 90° 再迈步 ⇒ 借 seed=侧向 就能走出"第一步精确反向"，等于放行 180°
+            #   （M7→M11 那类穿板仍会发生）。
+            #   正解 = 判据落在**第一步本身**：_first_ban 只禁 h_prev is None 时的精确反向，
+            #   其余方向照常，故 90° 可走、180° 必拒。
+            _opposite = (-first[0], -first[1])
+            _first_ban = _opposite
+            _dirs_turn_only = tuple(d for d in dirs if d != _opposite)
+            goal_state, dist, came = _search(_dirs_turn_only)
+            if goal_state is None:
+                out.error = (f"段规划拒绝：{out.from_cell} → {out.target_cell} 唯一可行首步与车头"
+                             "相反（约 180°）；本车阿克曼最小转弯半径 0.272 m，掉头扫幅 0.544 m"
+                             " 大于一格 0.35 m，段起点无法完成反向 ⇒ 不发车，等新目标/新布局")
+                out.elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                return out
         if goal_state is None:
             out.error = (f"段规划无解：{out.from_cell} → {out.target_cell}"
                          "（只走 known 格；物理净空/禁 180°/禁紧凑 U）")
@@ -1424,9 +1467,6 @@ def plan_segment_route(map_cfg: Any, cfg: Any = None, *,
         if out.stop_kind == SEG_STOP_SHOOT and out.target_cell in set(spec.mines):
             warns.append(f"目标格 {out.target_cell} 同时是雷格与射击停站 ⇒ 按射击停站处理"
                          "（车站在雷上开火：压雷与打靶一次完成）")
-        if turned_around:
-            warns.append("起点车头朝向与首段相反（180°）⇒ 已按「允许原地转向」重规划："
-                         "车会先转头/小圆弧掉头，请确认该格前方约有 0.3 m 空间")
         if soft:
             warns.append("段路线含 %d 处整线 tracker-safe 会否决的策略性转弯"
                          "（已按代价处理）：%s" % (len(soft), " ".join(soft)))
@@ -1537,6 +1577,25 @@ class MissionTask(TaskThread):
             self._stop_deadline_s = self._shot_timeout_s
         self._settle_grace_s = max(0.4 * self._shot_timeout_s, 1.0)     # ★ 旧版 0.4×SHOOT_TIMEOUT
         self._arrival_m = float(cfg.get("pursuit.arrival_m"))
+        #: ★AGC-T1 几何可信门阈值（米）：`_current_s` 的 hint 窗口投影离线超过它 ⇒
+        #: 先做一次无 hint 全路线重投影（见 `_current_s` 的 ★★ 说明）。真源复用
+        #: `pursuit.drift_warn_m`（默认 0.30），与 Localization `_heal_stuck`、
+        #: Tracker relock 同一阈值同一 `Path.project` 语义；**不新增配置键**
+        #: （现场要临时关掉这层门就把它设成 inf）。
+        self._drift_gate_m = float(cfg.get("pursuit.drift_warn_m", 0.30) or 0.30)
+        #: ★★P2-T1 段完成劫持闸（MISSION-GATE-20261029）：运动段"段完成/终点"的判据必须
+        #: 带**最小行驶证据**。真车 2026-10-28 段1「N10→L8」在 0.02 s 就报完成
+        #: （到点航点 0/4）：全路线重投影把 s 一脚推到段末 1.40 m，`_check_finish` 只看
+        #: `s` 与 `_passed[last]` 就锁存 FINISH ⇒ 段完成被"投影异常"劫持。
+        #: 判据（任一成立即放行）：
+        #:   · 实际行驶距离 ≥ 段长 × `segment_gate_ratio`（0.5）；
+        #:   · 本段用时 ≥ `segment_gate_min_s`（2.0 s）。
+        #: `segment_gate_min_m`（0.30 m）**及其以下的短段整体豁免**：跨格短段与
+        #: 0 token 同格停站本来就不靠"走满半段"判完成，卡它们只会让车白等。
+        #: 三个键都只影响"何时认可完成"，不改任何几何/控制量；置 ratio=0 或 min_s=0 即关闸。
+        self._seg_gate_min_m = self._cfg_float("mission.segment_gate_min_m", 0.30)
+        self._seg_gate_ratio = self._cfg_float("mission.segment_gate_ratio", 0.50)
+        self._seg_gate_min_s = self._cfg_float("mission.segment_gate_min_s", 2.0)
         self._stop_radius_m = float(cfg.get("pursuit.stop_radius_m"))
         self._approach_m = float(cfg.get("pursuit.approach_m"))
         self._rate_limit_s = float(cfg.get("logging.rate_limit_s") or 1.0)
@@ -1695,6 +1754,18 @@ class MissionTask(TaskThread):
         self._stall_last_yaw: float | None = None    # 停滞期间累计航向（绕圈判定）
         #: ★到点判定的"是否贴在路径上"：`_current_s` 现算投影时记下的横向偏差（米）
         self._last_lat_m: float | None = None
+        #: 本拍投影段号（**本地缓存，不写黑板**）：补丁后 Mission 不写 P_ROUTE_INDEX，
+        #: 但遥测/测试仍需"Mission 认为自己在第几段"的见证。
+        self._last_seg: int | None = None
+        #: ★P2-T1 行驶证据：本段累计**实际行驶距离**（米；逐拍位姿增量求和，不是净位移 ——
+        #: 折返段的净位移可以是 0）。`_install_route` 换段时清零。
+        self._travel_m: float = 0.0
+        #: 上一拍位姿 (x, y)；`None` = 本段还没有可用位姿（首拍只建基线）
+        self._travel_prev: tuple[float, float] | None = None
+        #: 被"单拍突跳 > `_TRAVEL_JUMP_M`"过滤掉的拍数（吸附/重投影跳变，可观测）
+        self._travel_jumps: int = 0
+        #: 段完成被判"疑似劫持"而保持等待的次数（可观测；横幅/测试据此对账）
+        self.segment_gate_holds: int = 0
         self._stall_yaw_sum: float = 0.0
         #: ★静止闸窗口（见 _update_still_window）：上一拍位姿/时刻 + 连续静止拍数
         self._still_prev: tuple[float, float, float] | None = None
@@ -1838,8 +1909,60 @@ class MissionTask(TaskThread):
                     "phase": self._phase}
 
     def reset_pose(self, spec: str) -> None:
-        """把 belief 放到 spec（BLOCK,HEAD）格心（步进器启动时复位一次；不改阶段/路线）。"""
-        self._reset_belief(spec)
+        """把 belief 放到 spec（BLOCK,HEAD）格心（步进器启动时复位一次；不改阶段/路线）。
+
+        ★★P2-T2 起点口径收敛（MISSION-GATE-20261029）：**布局 `start` 是唯一权威**。
+          真车 2026-10-28 证据：布局 start=L7、步进器按 `mission.reset` 复位到 N10、
+          odom 实停 L7 ⇒ 段1 四个航点横向偏差**清一色 0.350 m**（整格偏移）。
+          根因是"复位串"与布局各说各话：StepLoop 的复位串来自 `mission.reset`(N10,y)，
+          而它比布局晚写一拍 ⇒ 布局的真值被配置的旧默认盖掉。
+
+          规则（只在本函数生效，`_reset_belief` 的 DDS `reset:` 命令语义不变）：
+            · 黑盒上**有** `field_layout` 且带 `start`，而 spec 说的是别的格 ⇒
+              以布局为准（朝向仍沿用 spec 的 ',x/',y' —— 那是车头姿态，与格位无关），
+              并打一条 WARNING（不阻断：现场以布局为真值，日志只是让人看见分歧）；
+            · 没有布局（仿真/bench/离线/旧 v1 报文无 start）⇒ 逐位保持旧语义。
+        """
+        self._seed_belief_from_reset(spec)
+
+    def _seed_belief_from_reset(self, spec: str) -> None:
+        """起点复位（布局 start 唯一权威）：`reset_pose` 与 `auto_start` 共用这一条。
+
+        ⚠️ DDS `reset:BLOCK,HEAD` 外部命令**不**走这里（它是操作员显式指定格位，
+           走 `_reset_belief` 本义）；本函数只覆盖"启动复位"这一类自动播下的种子。
+        """
+        effective, overridden = self._authoritative_reset_spec(spec)
+        if overridden is not None:
+            self._log(f"⚠️ 复位串起点 {overridden} 与场地布局 start 不一致 ⇒ "
+                      f"以**布局为真值**复位 belief 到 {effective}"
+                      f"（配置 route 起点建议留空，让 StepLoop 直接用布局起点）")
+        self._reset_belief(effective)
+
+    def _authoritative_reset_spec(self, spec: str) -> tuple[str, str | None]:
+        """按"布局 start 唯一权威"改写复位串 → `(生效串, 被覆盖的原格名|None)`。
+
+        只改**格名**（不改阶段/路线/朝向）：朝向后缀 ',x'/',y' 描述车头姿态，与格位无关。
+        任何解析失败都原样返回 —— 这条路径宁可不改，也不能因为布局报文畸形就抛。
+        """
+        text = str(spec or "").strip()
+        if not text:
+            return spec, None
+        layout = self.bb.get(P_FIELD_LAYOUT)
+        if not isinstance(layout, dict):
+            return spec, None
+        start = str(layout.get("start") or "").strip().upper()
+        if not start:
+            return spec, None
+        try:
+            block, _yaw = parse_reset(text)
+            geo.block_to_index(start)                        # 布局格名必须先自证合法
+        except ValueError:
+            return spec, None
+        if block == start:
+            return spec, None
+        parts = [p.strip() for p in text.split(",")]
+        heading = parts[1] if len(parts) > 1 and parts[1] else "x"
+        return f"{start},{heading}", block
 
     def _process_segment_requests(self) -> None:
         """tick 开头处理段请求（★ 只有本线程改 route/阶段，见 __init__ 注释）。"""
@@ -2578,6 +2701,8 @@ class MissionTask(TaskThread):
             self._run_bridge_hold()                 # 保持中（Tracker 每拍自刹，见段①）
         elif self._phase == MissionPhase.STOP:
             self._run_stop_point()
+        # ★P2-T1：先把"本段到底走了多少"累计好，再判段完成（闸的输入必须比判据新）。
+        self._update_travel()
         self._check_finish()
         self._publish_state(now)
 
@@ -2618,7 +2743,9 @@ class MissionTask(TaskThread):
                       f"upper={self._intel.get('upper', BridgeIntel('upper')).describe()}")
             self._publish_intel_note(waiting=False)     # 遥测别停在"还在等"的假状态上
         try:
-            self._reset_belief(self._reset_spec)
+            # ★P2-T2：auto_start 的起点复位与 StepLoop 的 _seed_pose 同一口径，
+            #   都受"布局 start 唯一权威"约束（否则配置里的旧默认会盖掉布局真值）。
+            self._seed_belief_from_reset(self._reset_spec)
             self._load_startup_route()              # ★ 自动规划 / 读 route.tokens（见函数 docstring）
         except AutoPlanBlocked:
             self._autoplan_blocked = True           # ★ 停在 IDLE：不 publish EV_MISSION_STARTED
@@ -2864,6 +2991,8 @@ class MissionTask(TaskThread):
         穿洞三连 ⇒ 决策点及其之前的航点下标一一对应，保留进度自洽）。
         """
         snapshot: dict[str, Any] = {}
+        # 换路线会清空停站上下文，旧 FIRE 许可不能跟随到新路线。
+        self._set_fire_gate(False)
         if keep_progress:
             for name in ("_passed", "_arrived", "_next_wp", "_min_dist", "_arrived_by",
                          "_skipped_at", "_pending_skip", "_cross_skips", "_route_s",
@@ -2894,6 +3023,8 @@ class MissionTask(TaskThread):
         self._last_stop_state = StopPointState()
         self._route_s = 0.0
         self._last_s = 0.0
+        # ★P2-T1：换段 = 新的"行驶证据"窗口（旧段的里程不能替新段作证）。
+        self._reset_travel()
         self._dist_to_next_stop = None
         self._finish_info = {}
         self._stop_s = {}
@@ -3034,8 +3165,22 @@ class MissionTask(TaskThread):
         ★ 读 `P_ROUTE_S` 之前**必须验一致性**：该键可能是上一次任务残留的旧值
           （例如刚 `reset`、或本轮 Localization/Tracker 还没写过），
           拿它当"车已经走到哪"会让"到点/到站/终点"判定全部失真。
-          验法是把它与"用当前位姿现算的弧长"比对：差得离谱就丢掉、用现算值，
-          并把现算值写回（与 Localization 写的是**同一投影语义**，不会互相打架）。
+          验法是把它与"用当前位姿现算的弧长"比对：差得离谱就丢掉、用现算值。
+
+        ★★ 几何可信门（AGC-T1-PROGRESS-20261024 §4A.10，Lead 已批）：
+          `Path.project(s_hint=...)` 只在 `hint ± window_m` 内搜，hint 一旦驻留在旧段，
+          就**再也看不到车真正所在的那条线**：run2 现场 F9 停站时 hint 停在 2.42
+          （H10→H8），投影给出 段6/s2.48，而同一姿态的真值是 段11/s4.40，横向偏差
+          0.55 m —— **这个 `proj.dist` 本来就算出来了**（旧代码只把它记进
+          `_last_lat_m` 供到点判定用），却没参与"这个估计值不可信"的裁决，于是错值
+          被写进共享键、又反过来拖累自己的到点判定（run2 的 E9 因此被 12 s 兜底跳过）。
+          现在：`proj.dist > self._drift_gate_m`（默认 `pursuit.drift_warn_m`=0.30，与
+          Localization `_heal_stuck` / Tracker relock 同一阈值、同一 `Path.project`）
+          时，先做一次**无 hint 全路线**重投影；只有它确实更贴近路径才采用。
+
+        ★★ 读侧不回写（同批）`P_ROUTE_INDEX/P_ROUTE_S`：本函数只**算**不**写**。
+          Localization 是这两个键的唯一常规写者 ⇒"槽里是谁的投影"不再由 Mission 的旧
+          hint 决定；Mission 改键只走授权路径（`_reset_belief` / `_install_route`）。
         """
         path = self._path
         if path is None:                            # 单点路线：没有弧长概念
@@ -3045,12 +3190,18 @@ class MissionTask(TaskThread):
         s: float | None = None
         if pose is not None:
             proj = path.project(pose.x, pose.y, s_hint=self._last_s)
+            if float(proj.dist) > self._drift_gate_m:
+                # 无 hint = 全路线搜索（`Path.project` 的 hint=None 分支），
+                # 与 localization._heal_stuck / tracker relock 同一语义。
+                heal = path.project(pose.x, pose.y)
+                if float(heal.dist) < float(proj.dist):
+                    proj = heal
             self._last_lat_m = float(proj.dist)      # ★ 横向偏差（"是否贴在路径上"的判据）
+            self._last_seg = int(proj.seg_index)     # ★ 本地缓存段号（不写共享键）
             if isinstance(cached, (int, float)) and abs(float(cached) - proj.s) <= self._arrival_m:
                 s = float(cached)                   # 与位姿一致 → 沿用（Localization 的权威值）
             else:
-                s = float(proj.s)
-                self.bb.update(self.name, **{P_ROUTE_INDEX: int(proj.seg_index), P_ROUTE_S: s})
+                s = float(proj.s)                   # ★ 只算不写：键由 Localization 更新
         elif isinstance(cached, (int, float)):
             s = float(cached)
         if s is None:
@@ -3541,10 +3692,13 @@ class MissionTask(TaskThread):
     # ---- 段 3：FIRE ----
     def _phase_fire(self, stop: _StopContext, now: float) -> None:
         if stop.kind == StopKind.SCAN:
+            self._set_fire_gate(False)
             if (now - stop.phase_started_at) >= self._scan_stop_timeout_s:
                 self._complete_stop(stop, f"扫描停站完成（{self._scan_stop_timeout_s:.1f}s）")
             return
-        self._set_fire_gate(True)                   # ★ 放行门：进本段即打开（幂等）
+        if stop.kind != StopKind.SHOOT:
+            self._abandon_stop(stop, f"非射击停站不能进入开火段：{stop.kind}")
+            return
         delta = int(self.bridge.shoot_count()) - stop.shots_at_arrival
         if delta >= stop.shots_needed:
             # 这一路是"真的打出去了"的唯一证据（发数增量达标），
@@ -3557,6 +3711,9 @@ class MissionTask(TaskThread):
             self._abandon_stop(stop, f"开火超时 {(now - stop.phase_started_at):.2f}s"
                                      f" ≥ {self._shot_timeout_s:.2f}s（增量 {delta}"
                                      f"/{stop.shots_needed}）")
+            return
+        # 仅在有效的 SHOOT/FIRE 内续租；先检查预算/超时，避免离站当拍发出 True。
+        self._set_fire_gate(True)
 
     # ---- 扫描停站（`F2:SCAN_STOP`）：不停顿打靶，只保证到位停稳 ----
     def _run_scan_stop(self, stop: _StopContext, now: float) -> None:
@@ -3656,9 +3813,12 @@ class MissionTask(TaskThread):
     #  放行门 / 扫描 / 阶段 / 遥测
     # ------------------------------------------------------------------ #
     def _set_fire_gate(self, allow: bool) -> None:
-        """放行门是**锁存式**的：只在变化时发（避免 10 Hz 刷屏，同时保证状态可追）。"""
+        """FIRE 每拍刷新 True；False 边沿立即撤销，接收端 500ms 未续租失效。
+
+        不在 tick 中按缓存盲目续租：调用点必须仍是有效射击停站。
+        """
         allow = bool(allow)
-        if allow == self._fire_gate_state:
+        if not allow and not self._fire_gate_state:
             return
         self.bridge.publish_fire_gate(allow)
         self._fire_gate_state = allow
@@ -3686,6 +3846,9 @@ class MissionTask(TaskThread):
         self._scans.append(mode)
 
     def _write_phase(self, phase: str) -> None:
+        # 覆盖换路、HOLD、上下文丢失等退出 STOP 的路径，包括重复写同一阶段。
+        if phase != MissionPhase.STOP:
+            self._set_fire_gate(False)
         if phase == self._phase:
             return
         old, self._phase = self._phase, phase
@@ -3716,6 +3879,93 @@ class MissionTask(TaskThread):
         self._publish_stop_state(now)
 
     # ------------------------------------------------------------------ #
+    #  ★P2-T1 段完成的最小行驶证据（MISSION-GATE-20261029）
+    # ------------------------------------------------------------------ #
+    def _cfg_float(self, key: str, default: float) -> float:
+        """读 `mission.*` 的浮点配置（缺键/坏值回落默认；负值夹到 0）。
+
+        为什么不用裸 `float(cfg.get(...))`：现场 YAML 里写空值/字符串是常态，
+        而"段完成闸"读崩了就是**整条任务线程挂掉**（比配置写错严重得多）。
+        """
+        try:
+            value = float(self.cfg.get(key, default))
+        except (TypeError, ValueError):
+            return float(default)
+        return max(0.0, value)
+
+    def _reset_travel(self) -> None:
+        """换段/清路线：把"本段行驶证据"归零（换段后不能拿上一段的里程作证）。"""
+        self._travel_m = 0.0
+        self._travel_prev = None
+
+    def _update_travel(self) -> None:
+        """逐拍累计**实际行驶距离**（`P_POSE` 增量求和）。
+
+        ★ 为什么用"增量求和"而不是"起点到当前点的直线距离"：折返/绕行段的净位移
+          可以接近 0，直线距离会把真跑过的一段算成没动。
+        ★ 为什么要过滤单拍突跳：到位吸附（`anchor_max_pull_m`≈0.12 m）与横向重锚
+          （`reanchor_step_max_m`≈0.12 m）会把信念**搬**一步，那不是车走的；
+          重投影跳变更大。用 `_TRAVEL_JUMP_M`(0.25 m) 一刀切，只记账不报警。
+        ★ 只读位姿、不写任何黑盒键（本闸绝不改变定位/控制）。
+        """
+        pose = self.bb.get(P_POSE)
+        if pose is None:                            # 没有位姿 = 没有证据，等下一拍
+            self._travel_prev = None
+            return
+        cur = (float(pose.x), float(pose.y))
+        prev = self._travel_prev
+        self._travel_prev = cur
+        if prev is None:                            # 首拍只建基线
+            return
+        step = math.hypot(cur[0] - prev[0], cur[1] - prev[1])
+        if step > _TRAVEL_JUMP_M:
+            self._travel_jumps += 1
+            return
+        self._travel_m += step
+
+    def _segment_completion_gate(self, now: float) -> tuple[bool, str]:
+        """段完成是否被"投影异常"劫持 → `(是否拦截, 原因)`。
+
+        判据（任一成立即**放行**）：
+          · 段长 ≤ `mission.segment_gate_min_m`（0.30 m）⇒ **豁免**（短段/同格停站）；
+          · 实际行驶距离 ≥ 段长 × `mission.segment_gate_ratio`（0.5）；
+          · 本段用时 ≥ `mission.segment_gate_min_s`（2.0 s）。
+
+        为什么"用时"也要算证据：路线可能被设计成"原地掉头 + 短距离"（净位移小），
+        真车走完它照样要几秒；只看里程会把合法完成卡死。反过来，0.02 s 完成且
+        一步没走，两条都不满足 ⇒ 必拦。
+
+        ★ 关闭方式（现场应急）：`mission.segment_gate_ratio: 0`
+          （0 ⇒ 里程条件恒真）或 `mission.segment_gate_min_s: 0`。
+
+        ★ 中途换路线（`keep_progress` 换洞）：`_install_route` 会把行驶证据清零（旧里程
+          不能替新路线作证），但**用时**继续从段起点算 ⇒ 最坏情况是"换洞后最多等到
+          2 s 再认可完成"，不会永久卡住。
+        """
+        # ★ 只对**步进循环的段**生效（`_segment_active`）：这个"劫持"是段投影被整线
+        #   重投影推走的产物，判据本身就叫"段完成"。整段一次性任务（route.tokens
+        #   直跑、仿真/bench、离线回归）没有"段完成单"这个概念，不介入 ⇒ 它们逐位不变。
+        if not self._segment_active:
+            return False, ""
+        path = self._path
+        if path is None:                            # 单点路线：没有弧长概念，不介入
+            return False, ""
+        length = float(path.total_length)
+        if length <= self._seg_gate_min_m:          # ★短段豁免（0 token 同格停站也走这里）
+            return False, ""
+        elapsed = (now - self._started_at) if self._started_at is not None else math.inf
+        need_m = length * self._seg_gate_ratio
+        if self._travel_m + 1e-9 >= need_m or elapsed + 1e-9 >= self._seg_gate_min_s:
+            return False, ""
+        arrived = self._arrived
+        total = max(0, len(self._route) - 1) if self._route is not None else 0
+        return True, (f"段长 {length:.2f} m / 已行驶 {self._travel_m:.3f} m"
+                      f"（需 ≥ {need_m:.2f} m = {self._seg_gate_ratio:.0%}）"
+                      f" / 用时 {elapsed:.2f} s（需 ≥ {self._seg_gate_min_s:.1f} s）"
+                      f" / 到点航点 {arrived}/{total}"
+                      f" / 投影 s 已到段末")
+
+    # ------------------------------------------------------------------ #
     #  终点（锁存）
     # ------------------------------------------------------------------ #
     def _check_finish(self) -> None:
@@ -3735,6 +3985,17 @@ class MissionTask(TaskThread):
         # ★ 末点终点判据收紧到 `_GOAL_STOP_M`(0.03，对齐 tools/sim.py)：`arrival_m`(0.12)
         #   会让车在离终点 0.12 m 处触发 FINISH 提前刹车（2026 直线标定欠程 11 cm 的根因）。
         if not (self._passed[last] or s + _GOAL_STOP_M >= path.s_at_waypoint(last)):
+            return
+        # ★★P2-T1 段完成劫持闸（MISSION-GATE-20261029）：**只在"本来要判完成"这一拍**才查，
+        #   正常行驶期间完全不介入（不刷日志、不拖慢）。不满足 ⇒ 保持不推进（不锁存
+        #   FINISH、不报段完成、不发 EV_MISSION_FINISHED），下一拍照常再判。
+        now = self._clock()
+        hijacked, why = self._segment_completion_gate(now)
+        if hijacked:
+            self.segment_gate_holds += 1
+            if self._log_throttle.allow("seg_gate_hold", now):
+                self._log(f"⏸ 段完成疑似劫持，继续等待（{why}）"
+                          f"｜不锁存 FINISH / 不报段完成 / 不推进路线")
             return
 
         self._finish_latched = True

@@ -22,14 +22,18 @@ paths:
     status: 冻结
     owner: aim-tuner
     note: 云台/视觉 C++ 包；冻结
+  dzrobot_v2/src/dzrknn_dataprocess/test:
+    status: 活跃
+    owner: /root/gimbal_audit
+    note: CAR-HOME/CAR-GATE 离线编译真实生产函数；替换 ROS 硬件接口，不等于 ROS 全包构建
+  _tmp_session/carloop-1024:
+    status: 临时
+    owner: /root
+    note: 双站规划、回正、权限撤销基线与离线命令原始输出；正式结论在 carloop-1024 三卡
   dzrobot_v2/config:
     status: 冻结
     owner: Lead
     note: 统一配置中心；cleanup 未动；与车端第七张图不同步（注意）
-  dzrobot_v2/config/map.yaml:
-    status: 冻结
-    owner: Lead
-    note: 本地=第六张图 D5+D6/K5+K7；车端=第七张图 D7+E7/K10+K4
   dzrobot_v2/tools:
     status: 核心
     owner: 团队

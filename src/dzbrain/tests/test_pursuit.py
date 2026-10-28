@@ -38,9 +38,12 @@ from dzbrain.core import geometry as geo                                        
 from dzbrain.core.config import Config, curve_speed_limit, lookahead_distance         # noqa: E402
 from dzbrain.pursuit import lookahead as lookahead_module                             # noqa: E402
 from dzbrain.pursuit import path as path_module                                       # noqa: E402
-from dzbrain.pursuit.controller import brake_command, compute_command, speed_profile  # noqa: E402
+from dzbrain.pursuit.controller import (brake_command, compute_command, speed_profile,
+                                       TrajectoryControlState)                      # noqa: E402
 from dzbrain.pursuit.lookahead import find_lookahead_point                            # noqa: E402
 from dzbrain.pursuit.path import Path                                                 # noqa: E402
+from dzbrain.pursuit.velocity import MotionState, SpeedEnvelope, build_velocity_profile # noqa: E402
+from dzbrain.pursuit.trajectory import Trajectory                                     # noqa: E402
 from dzbrain.route.model import Route, RouteBuilder, Waypoint                         # noqa: E402
 from dzbrain.route.parser import parse_mission                                        # noqa: E402
 
@@ -685,6 +688,335 @@ def test_speed_ramp() -> None:
     close("7b.22 compute_command 不传历史 ⇒ 旧行为（直接 0.40）", cmd_r2.linear_x, 0.40, 1e-12)
 
 
+def test_trajectory_velocity() -> None:
+    sec("7c. 连续轨迹速度：可达包络、硬停点、连续加速度及 jerk")
+    options = dict(cruise_mps=0.35, lat_acc_max_mps2=0.35,
+                   accel_up_mps2=0.5, accel_down_mps2=0.7, jerk_max_mps3=1.0)
+    s = [i * 0.01 for i in range(401)]
+    caps = [0.12 if 190 <= i <= 210 else 0.35 for i in range(401)]
+    kappa = [3.0 if 250 <= i <= 310 else 0.0 for i in range(401)]
+    profile = build_velocity_profile(s, kappa, speed_caps=caps,
+                                     stop_indices=[100, 300], **options)
+    audit = profile.audit()
+    ok("7c.1 起终点与两个强制停车点精确为零（不受蠕动下限抬升）",
+       all(abs(profile.speed_at(x)) < 1e-10 for x in (0.0, 1.0, 3.0, 4.0)))
+    ok("7c.2 全程正时间且完成到末端，没有停点造成的正距离零速度区间",
+       0.0 < profile.duration_s < float("inf")
+       and abs(profile.sample_time(profile.duration_s).s - 4.0) < 1e-10,
+       str(audit))
+    ok("7c.3 全连续区间速度服从任务包络（采 4001 点，不只验结点）",
+       all(profile.speed_at(i * .001) <= (0.12 if 1.89 <= i * .001 <= 2.11 else .35) + 1e-9
+           for i in range(4001)), str(audit))
+    ok("7c.4 曲率限速生效",
+       all(profile.speed_at(2.5 + i * .001)**2 * 3.0 <= .35 + 1e-9 for i in range(601)))
+    ok("7c.5 解析峰值满足升/降加速度及 jerk；无全局最优虚假声明",
+       audit["max_accel_mps2"] <= .5 + 1e-10
+       and audit["max_decel_mps2"] <= .7 + 1e-10
+       and audit["max_abs_jerk_mps3"] <= 1.0 + 1e-10
+       and profile.duration_s >= profile.second_order_duration_s - 1e-10,
+       str(audit))
+    ok("7c.6 所有拼接点加速度双侧连续且停车前后也是零",
+       all(abs(profile.sample_time(t - 1e-7).acceleration_mps2
+                   - profile.sample_time(t + 1e-7).acceleration_mps2) < 1e-5
+           for t in profile.times_s[1:-1]))
+    # Verify derivatives independently from the analytic audit implementation.
+    dt = profile.duration_s / 12000.0
+    samples = [profile.sample_time(i * dt) for i in range(12001)]
+    finite_accel = [(b.speed_mps - a.speed_mps) / dt for a, b in zip(samples, samples[1:])]
+    finite_jerk = [(b - a) / dt for a, b in zip(finite_accel, finite_accel[1:])]
+    ok("7c.7 均匀时间采样差分独立核对 acceleration/jerk",
+       max(finite_accel) <= .5 + 1e-6 and min(finite_accel) >= -.7 - 1e-6
+       and max(abs(j) for j in finite_jerk) <= 1.0 + 1e-5,
+       f"a=[{min(finite_accel):.5f},{max(finite_accel):.5f}] j={max(map(abs, finite_jerk)):.5f}")
+    ok("7c.8 弧长与时间双向映射一致，起步必须推进时间",
+       all(abs(profile.sample_time(profile.time_at(x)).s - x) < 1e-9
+           for x in (.0001, .1, .9999, 1.0001, 2.03, 3.999))
+       and profile.speed_at(0.0) == 0.0 and profile.sample_time(.1).speed_mps > 0.0)
+
+    two = build_velocity_profile([0.0, .01], [0.0, 0.0], **options)
+    ok("7c.9 两点静止到静止也能执行（内部插峰，10 mm 非零距离）",
+       len(two.s) == 3 and two.duration_s > 0.0
+       and two.sample_time(two.duration_s / 2).speed_mps > 0.0
+       and two.audit()["max_abs_jerk_mps3"] <= 1.0 + 1e-10)
+    multi = build_velocity_profile([0.0, .01, .02], [0.0] * 3,
+                                   stop_indices=[1], **options)
+    ok("7c.10 相邻停点不会合并吞掉中间停止语义",
+       len(multi.stop_indices) == 3 and multi.speed_at(.01) == 0.0)
+    flat = build_velocity_profile([0.0, 1.0], [0.0, 0.0], speed_caps=[.2,.2], start_speed_mps=.2,
+                                  end_speed_mps=.2, **options)
+    ok("7c.11 可行的非零边界保持原值，时间伸长不偷偷修改边界",
+       flat.speed_at(0) == .2 and flat.speed_at(1) == .2 and flat.duration_s == 5.0)
+
+    invalid = [
+        lambda: build_velocity_profile([0, 0], [0, 0], **options),
+        lambda: build_velocity_profile([0, 1], [0, float("nan")], **options),
+        lambda: build_velocity_profile([0, 1], [0, 0], speed_caps=[.3, 0], **options),
+        lambda: build_velocity_profile([0, .01], [0, 0], start_speed_mps=.35, **options),
+        lambda: build_velocity_profile([0, 1], [0, 0], stop_indices=[2], **options),
+        lambda: build_velocity_profile([0, 1], [0, 0], **dict(options, jerk_max_mps3=0)),
+    ]
+    rejected = 0
+    for call in invalid:
+        try:
+            call()
+        except ValueError:
+            rejected += 1
+    ok("7c.12 重复弧长/NaN/零速度区间/不可达边界/越界停点/零 jerk 全部明确拒绝",
+       rejected == len(invalid), f"{rejected}/{len(invalid)}")
+
+    # An ordinary straight should not slow towards zero as geometry sampling
+    # is refined; common-acceleration transitions are coalesced before smoothing.
+    dense = build_velocity_profile([4 * i / 1000 for i in range(1001)], [0.0] * 1001, **options)
+    ok("7c.13 4 m 直线细化到 4 mm 采样仍达到巡航，非逐节点停车",
+       abs(max(dense.speeds_mps) - .35) < 1e-12 and dense.duration_s < 14.0,
+       f"time={dense.duration_s:.6f}s nodes={len(dense.s)}")
+    sparse = build_velocity_profile([0.0,4.0], [0.0,0.0], **options)
+    ok("7c.14 两个几何点也有加速/巡航/制动区，时长与密网格差小于1%",
+       abs(sparse.duration_s / dense.duration_s - 1.0) < .01,
+       f"sparse={sparse.duration_s:.6f}s dense={dense.duration_s:.6f}s")
+    separated_s = [i*.02 for i in range(401)]
+    separated = build_velocity_profile(
+        separated_s, [0.]*len(separated_s),
+        speed_caps=[.08 if x<1.98 else .35 for x in separated_s],
+        stop_indices=[100], **options)
+    ok("7c.15 已有停点隔开局部限速，后续直道仍达巡航且总时间不被全图最小cap拖慢",
+       separated.duration_s < 50. and abs(separated.speed_at(5.)-.35)<1e-10,
+       f"time={separated.duration_s:.6f}s v(5m)={separated.speed_at(5.):.6f}")
+    join_t = separated.time_at(2.)
+    before, after = separated.sample_time(join_t-1e-7), separated.sample_time(join_t+1e-7)
+    ok("7c.16 独立时间参数化段在原停点精确零速、加速度连续、全程jerk有界",
+       separated.speed_at(2.)==0. and abs(before.acceleration_mps2-after.acceleration_mps2)<1e-5
+       and separated.audit()["max_abs_jerk_mps3"]<=1.+1e-10)
+    variable_s = [i*.02 for i in range(201)]
+    variable_caps = [.35-.23*math.exp(-((x-2.)/.05)**2) for x in variable_s]
+    local = build_velocity_profile(variable_s,[0.]*len(variable_s),speed_caps=variable_caps,**options)
+    ok("7c.17 平滑局部速度谷不要求整条4m恒取谷底速度，无新增停车",
+       local.duration_s<20. and len(local.stop_indices)==2,
+       f"time={local.duration_s:.6f}s local_min_cap={min(variable_caps):.3f}")
+    cap_valid = all(local.speed_at(i*.001)<=min(variable_caps[min(199,i//20)],
+                                                        variable_caps[min(200,i//20+1)])+1e-10
+                    for i in range(4001))
+    step = local.duration_s/12000.
+    values = [local.sample_time(i*step).speed_mps for i in range(12001)]
+    accels = [(b-a)/step for a,b in zip(values,values[1:])]
+    jerks = [(b-a)/step for a,b in zip(accels,accels[1:])]
+    ok("7c.18 变化cap合并后独立1mm密采样逐原区间验包络，时间差分验a/j",
+       cap_valid and max(accels)<=.5+1e-8 and min(accels)>=-.7-1e-8
+       and max(map(abs,jerks))<=1.+1e-7)
+
+
+def test_jerk_command_state() -> None:
+    sec("7d. 命令状态：有限差分 jerk、复位及安全强制覆盖")
+    options = dict(accel_up_mps2=.5, accel_down_mps2=.7, jerk_max_mps3=1.0)
+    state = MotionState()
+    values = [0.0]
+    accelerations = [0.0]
+    records = []
+    for i in range(500):
+        result = state.step(.35 if i < 200 else 0.0, .02, **options)
+        records.append(result)
+        values.append(result.speed_mps)
+        accelerations.append((values[-1] - values[-2]) / .02)
+    jerks = [(b - a) / .02 for a, b in zip(accelerations, accelerations[1:])]
+    ok("7d.1 首拍从零按 jerk 起步，无 0.08 m/s 蠕动跃变",
+       0.0 < values[1] <= .0004 + 1e-12, f"first={values[1]:.8f}")
+    ok("7d.2 完整升速/降速的命令有限差分满足 a/j 界",
+       max(accelerations) <= .5 + 1e-9 and min(accelerations) >= -.7 - 1e-9
+       and max(map(abs, jerks)) <= 1.0 + 1e-8,
+       f"a=[{min(accelerations):.5f},{max(accelerations):.5f}] j={max(map(abs,jerks)):.8f}")
+    ok("7d.3 稳态达到巡航并精确停止，无超调/负速度/假覆盖",
+       max(values) == .35 and values[-1] == 0.0
+       and min(values) >= 0.0 and not any(r.constraint_override for r in records))
+    a, b = MotionState(), MotionState()
+    seq_a = [a.step(.3, .02, **options) for _ in range(50)]
+    seq_b = [b.step(.3, .02, hard_limit_mps=None, **options) for _ in range(50)]
+    ok("7d.4 无外部信号与显式 None 逐位同值", seq_a == seq_b)
+    state.reset(.25, 0.0)
+    emergency = state.step(.35, .02, hard_limit_mps=0.0, **options)
+    ok("7d.5 急停硬限速最后生效且显式标记本拍 jerk 不可行",
+       emergency.speed_mps == 0.0 and emergency.constraint_override
+       and emergency.reason == "hard_limit_override"
+       and abs(emergency.jerk_mps3) > 1.0,
+       str(emergency))
+    state.reset()
+    restart = state.step(.35, .02, **options)
+    fresh = MotionState().step(.35, .02, **options)
+    ok("7d.6 reset 清除速度/加速度历史，路线切换首拍同新实例", restart == fresh)
+    tiny = MotionState()
+    for _ in range(200):
+        tiny.step(.35,.02,accel_up_mps2=.01,accel_down_mps2=.01,jerk_max_mps3=1.0)
+    ok("7d.7 小加速度长序列不因浮点1ULP越界崩溃", 0 < tiny.speed_mps < .35)
+    envelope = SpeedEnvelope([0.,.75,.75001,2.],[.35,.35,.1,.1])
+    moving = MotionState()
+    position = 0.
+    cap_excess = jerk_peak = 0.
+    overrides = infeasible = 0
+    for _ in range(1000):
+        ceiling,feasible = envelope.acceleration_ceiling(
+            position,moving.speed_mps,moving.acceleration_mps2,.02,
+            end_s=2.,delay_s=.06,**options)
+        sample = moving.step(.35,.02,hard_limit_mps=envelope.minimum(position,position),
+                             acceleration_ff_mps2=0.,velocity_gain_s=2.,
+                             acceleration_ceiling_mps2=ceiling,**options)
+        following = position+sample.speed_mps*.02
+        cap_excess = max(cap_excess,sample.speed_mps-envelope.minimum(position,following))
+        jerk_peak = max(jerk_peak,abs(sample.jerk_mps3))
+        overrides += sample.constraint_override
+        infeasible += not feasible
+        position = following
+        if position>1.4:break
+    ok("7d.8 未来几何cap .35→.10提前按当前v/a及jerk刹车，不靠最后硬钳",
+       position>1.4 and cap_excess<=1e-10 and jerk_peak<=1.+1e-10
+       and overrides==0 and infeasible==0,
+       f"cap_excess={cap_excess:.3g} jerk={jerk_peak:.6f} override={overrides}")
+    _,can_stop = envelope.acceleration_ceiling(.749,.35,0.,.02,
+                                               end_s=2.,delay_s=.06,**options)
+    ok("7d.9 已来不及按jerk制动的初始状态明确不可达，不声称cap已满足",not can_stop)
+
+
+def test_trajectory_control_contract() -> None:
+    sec("7e. 显式轨迹控制接线与旧 Path 隔离")
+    c = cfg_of(cruise_speed_mps=.35)
+    route = Route((Waypoint("Q0",1.,1.,0.), Waypoint("Q1",2.,1.,0.)))
+    path = Trajectory(route,c)
+    pose = geo.Pose(1.,1.,0.)
+    proj = path.project(pose.x,pose.y)
+    a,b = TrajectoryControlState(path,c),TrajectoryControlState(path,c)
+    cmd = compute_command(pose,path,proj,c,trajectory_state=a)
+    cmd_none = compute_command(pose,path,proj,c,trajectory_state=b,motion_limit_mps=None,bb=None)
+    ok("7e.1 时间剖面首拍可起步且无信号与显式 None 逐位同值",
+       0 < cmd.linear_x < .001 and cmd == cmd_none and cmd.steer_deg == 0.)
+    raised = False
+    try:
+        compute_command(pose,path,proj,c)
+    except ValueError:
+        raised = True
+    ok("7e.2 连续轨迹禁止无状态逐拍重新起步（清晰拒绝）",raised)
+    left_pose = geo.Pose(1.2,1.1,0.)
+    left_proj = path.project(left_pose.x,left_pose.y)
+    first = compute_command(left_pose,path,left_proj,c,trajectory_state=TrajectoryControlState(path,c))
+    limited = compute_command(left_pose,path,left_proj,c,last_steer_deg=0.,dt=.02,
+                              trajectory_state=TrajectoryControlState(path,c))
+    ok("7e.3 左偏的前进车右打；首拍不rate clamp，带历史最后限幅",
+       first.steer_deg < -2.4 and abs(limited.steer_deg+2.4)<1e-10)
+    back = compute_command(geo.Pose(1.2,1.1,math.pi),path,left_proj,c,reverse=True,
+                           trajectory_state=TrajectoryControlState(path,c))
+    ok("7e.4 倒车使用负速度ratio与物理反向舵角（默认sign=+1）",
+       back.linear_x == -first.linear_x*c.get("pursuit.reverse_speed_ratio")
+       and back.steer_deg == -first.steer_deg)
+    csign = cfg_of(cruise_speed_mps=.35,reverse_steer_sign=-1.)
+    backsign = compute_command(geo.Pose(1.2,1.1,math.pi),path,left_proj,csign,reverse=True,
+                               trajectory_state=TrajectoryControlState(path,csign))
+    ok("7e.5 reverse_steer_sign 仍实际参与",backsign.steer_deg == -back.steer_deg)
+    stopstate = TrajectoryControlState(path,c)
+    stopped = compute_command(left_pose,path,left_proj,c,motion_limit_mps=0.,last_steer_deg=20.,
+                              trajectory_state=stopstate)
+    ok("7e.6 硬急停速度立即归零，最终舵角仍按rate回正",
+       stopped.linear_x==0 and abs(stopped.steer_deg-17.6)<1e-10
+       and stopstate.constraint_override)
+    resumed = compute_command(left_pose,path,left_proj,c,trajectory_state=stopstate)
+    ok("7e.7 急停解除从当前投影重新零速启动，不跳回巡航",0 < resumed.linear_x < .001)
+
+    # Exercise the actual shared bicycle/actuator/delay code, not a controller
+    # formula mirrored into this test. Multi-turn field acceptance is separate.
+    from dzbrain.tools.sim import run_sim, SimConfig
+    result = run_sim(route,c,SimConfig(cmd_latency_s=0.,anchor_on_arrival=False,
+                                      init_yaw="route",max_steps=1500),trajectory=path)
+    dv = [(b-a)/.02 for a,b in zip(result.v,result.v[1:])]
+    dj = [(b-a)/.02 for a,b in zip(dv,dv[1:])]
+    ok("7e.8 真实既有自行车仿真走完直线并落入3cm停车窗",
+       result.metrics["completed"] and result.metrics["final_error_m"] <= .03,
+       f"completed={result.metrics['completed']} end={result.metrics['final_error_m']:.6f}")
+    ok("7e.9 正常执行的速度有限差分满足a/j，转向最终rate不超限",
+       max(dv)<=.5+1e-8 and min(dv)>=-.7-1e-8 and max(map(abs,dj))<=1+1e-7
+       and result.metrics["steer_rate_max_deg_s"]<=120+1e-8,
+       f"a=[{min(dv):.6f},{max(dv):.6f}] j={max(map(abs,dj)):.6f}")
+    reverse_route = Route((Waypoint("R0",1.,1.,0.),Waypoint("R1",2.,1.,0.),
+                           Waypoint("R2",1.,1.,0.,reverse=True)))
+    reverse_path = Trajectory(reverse_route,c)
+    reversed_run = run_sim(reverse_route,c,SimConfig(cmd_latency_s=.06,anchor_on_arrival=False,
+                                                    init_yaw="route",max_steps=1500),
+                           trajectory=reverse_path)
+    ok("7e.10 延迟60ms真实闭环先停再倒车，无PIVOT/ALIGN且不漏终点",
+       reversed_run.metrics["completed"] and reversed_run.metrics["final_error_m"] <= .03
+       and reversed_run.metrics["trajectory_released_stops"] == 1.
+       and min(reversed_run.v) >= -.35*c.get("pursuit.reverse_speed_ratio")-1e-10
+       and max(reversed_run.v) <= .35+1e-10,
+       f"time={reversed_run.metrics['time_s']:.3f}s end={reversed_run.metrics['final_error_m']:.6f}")
+    ok("7e.11 换向跨零的命令jerk有界，无硬cap覆盖掩盖超限",
+       reversed_run.metrics["trajectory_command_jerk_max_mps3"]<=1.+1e-7
+       and reversed_run.metrics["trajectory_constraint_override_steps"]==0.,
+       f"jerk={reversed_run.metrics['trajectory_command_jerk_max_mps3']:.6f}")
+    curve_route = Route((Waypoint("C0",1.,1.,0.),Waypoint("C1",2.,1.,0.),
+                         Waypoint("C2",2.,2.,math.pi/2)))
+    curve = Trajectory(curve_route,c)
+    probe_s = max((s for s in curve.sampled_s if .2<s<curve.total_length-.2),
+                  key=lambda s:abs(curve.sample(s).curvature_rate))
+    probe = curve.sample(probe_s)
+    projection = curve.project(probe.x,probe.y,s_hint=probe_s)
+    ref = curve.sample(projection.s)
+    no_delay = TrajectoryControlState(curve,c)
+    no_delay.reset(projection.s)
+    nominal = compute_command(geo.Pose(ref.x,ref.y,ref.body_yaw),curve,projection,c,
+                              trajectory_state=no_delay)
+    expected = math.degrees(math.atan(c.get("pursuit.wheelbase_m")*ref.curvature))
+    ok("7e.12 无执行延迟的零Frenet误差状态不被超前曲率主动推出轨迹",
+       abs(nominal.steer_deg-expected)<1e-7,
+       f"delta={nominal.steer_deg:.8f} current_ff={expected:.8f}")
+    history = 30.
+    emergency = TrajectoryControlState(path,c)
+    for _ in range(20):
+        step = compute_command(pose,path,proj,c,trajectory_state=emergency,
+                               motion_limit_mps=0.,last_steer_deg=history)
+        assert step.linear_x == 0. and abs(step.steer_deg-history)<=2.4+1e-10
+        history = step.steer_deg
+    ok("7e.13 外部限速突变持续停车且逐拍舵rate合法，最终零Twist",history==0.)
+    rejected = False
+    try:
+        compute_command(pose,path,proj,c,trajectory_state=TrajectoryControlState(path,c),
+                        cruise_mps=.2)
+    except ValueError as exc:
+        rejected = "time profile" in str(exc)
+    ok("7e.14 候选时间剖面显式拒绝中途动态巡航覆盖，不静默忽略",rejected)
+    from dzbrain.core.blackboard import Blackboard, P_MOTION_LIMIT
+    quiet = Blackboard()
+    absent = compute_command(pose,path,proj,c,trajectory_state=TrajectoryControlState(path,c),bb=quiet)
+    quiet.set(P_MOTION_LIMIT,{"speed_mps":float("nan")})
+    invalid_signal = compute_command(pose,path,proj,c,trajectory_state=TrajectoryControlState(path,c),bb=quiet)
+    ok("7e.15 真实黑板缺键或无效载荷均与无该层逐位相等",absent==cmd and invalid_signal==cmd)
+    late_stop = TrajectoryControlState(reverse_path,c)
+    late_stop.reference_s = late_stop.next_stop_s
+    late_stop.time_s = late_stop._stops[0][1]
+    late_stop.motion.reset(.03,0.)
+    incoming = reverse_path.sample(late_stop.next_stop_s-.1)
+    incoming_proj = reverse_path.project(incoming.x,incoming.y,
+                                          s_hint=late_stop.next_stop_s-.1,
+                                          s_max=late_stop.next_stop_s)
+    before_release = compute_command(geo.Pose(incoming.x,incoming.y,incoming.body_yaw),
+                                     reverse_path,incoming_proj,c,trajectory_state=late_stop)
+    ok("7e.16 参考时钟到cusp但尚未实停许可时不提前切入出站倒挡",
+       before_release.linear_x>0. and not before_release.reverse)
+    def at_cruise(previous):
+        state = TrajectoryControlState(path,c)
+        state.reference_s = .5
+        state.time_s = state.profile.time_at(.5)
+        state.motion.reset(.35,0.)
+        point = geo.Pose(1.5,1.,-1.)
+        command = compute_command(point,path,path.project(point.x,point.y),c,
+                                  trajectory_state=state,last_steer_deg=previous)
+        return command,state
+    coupled,coupled_state = at_cruise(24.)
+    lateral = coupled.linear_x**2*abs(math.tan(math.radians(coupled.steer_deg)))/c.get("pursuit.wheelbase_m")
+    ok("7e.17 舵角rate域与横向加速度域最终求交，不再rate后顶破lat",
+       lateral<=.35+1e-12 and abs(coupled.steer_deg-24.)<=2.4+1e-12
+       and not coupled_state.steering_constraint_infeasible)
+    unreachable,unreachable_state = at_cruise(30.)
+    ok("7e.18 空交保留最终rate并显式报不可达，不硬裁速度伪造jerk合格",
+       abs(unreachable.steer_deg-27.6)<1e-10 and unreachable.linear_x==.35
+       and unreachable_state.steering_constraint_infeasible and unreachable_state.constraint_override
+       and unreachable.speed_reason=="trajectory_lateral_infeasible")
+
+
 # --------------------------------------------------------------------------- #
 #  8. 刹车
 # --------------------------------------------------------------------------- #
@@ -920,6 +1252,9 @@ def main() -> int:
     test_steer()
     test_speed_profile()
     test_speed_ramp()          # ★ t30：加减速斜坡（第 5 层）
+    test_trajectory_velocity()
+    test_jerk_command_state()
+    test_trajectory_control_contract()
     test_brake()
     test_legacy_parity()
     test_vertex_lookahead()

@@ -38,6 +38,25 @@ def required_subscription_topics() -> dict[str, str]:
     return {key: ct.topic(key).name for key in REQUIRED_SUBSCRIPTIONS}
 
 
+def missing_required_subscriptions(actual: list[str] | None) -> list[str]:
+    """与 `required_subscription_topics()` 对账 → 缺失的**逻辑键**（纯函数，可离线测）。
+
+    :param actual: 本节点真实创建的订阅话题名；`None` = 未知（**不判缺**，
+        宁可不报也不谎报 —— 与启动契约"未知不阻断"同一口径）。
+        空列表 `[]` 是**已知为空**，会如实报全缺。
+
+    ★ 比较必须走 `ct.canonical_topic_name()`（2026-10-29 真车假红，LINK-HARDEN）：
+      rclpy 的 `Subscription.topic_name` 是**解析后的全名**（`/nav/manual_gimbal`），
+      而本表里 manual_gimbal / pursuitAngle 是**无前导斜杠的历史相对名**。
+      裸字符串比较会把已建好的订阅误报成"缺失"。
+    """
+    if actual is None:
+        return []
+    have = {ct.canonical_topic_name(x) for x in actual}
+    return [key for key, topic in required_subscription_topics().items()
+            if ct.canonical_topic_name(topic) not in have]
+
+
 #: 启动自检要打点数的关键话题（逻辑名）：收（odom / drone_in）+ 发（pursuit_angle）。
 #: 现场排障只要看这一行就知道"决策层站在图里了吗"（count_publishers/subscribers）。
 WATCHED_TOPICS: tuple[str, ...] = ("odom", "drone_in", "pursuit_angle")
@@ -70,7 +89,9 @@ def env_problems(env: dict[str, str] | None = None) -> tuple[list[str], list[str
     errors（**不出发**）：ROS_DOMAIN_ID 与车标准域 DZ_ROS_DOMAIN 不一致 —— 这正是
       "同一条 SSH 会话里 export 过 0 后忘了退"的形态，DDS 静默分裂。
     warnings（照常出发但必须进日志）：
-      · DZ_ROS_DOMAIN 未设置 ⇒ 没 source dzros.env（域号落到 ROS 默认 0）；
+      · DZ_ROS_DOMAIN 未导出 ⇒ 本进程拿不到车标准域，**无法核对**一致性
+        （只报这一句；生效域号照抄 ROS_DOMAIN_ID，**绝不**替它猜成 0）；
+      · ROS_DOMAIN_ID 与 DZ_ROS_DOMAIN **都**未设置 ⇒ 域号才是 ROS 默认 0；
       · ROS_LOCALHOST_ONLY=1 ⇒ 跨机无人机链路必断。
     """
     env = dict(env if env is not None else ros_env())
@@ -86,9 +107,19 @@ def env_problems(env: dict[str, str] | None = None) -> tuple[list[str], list[str
                 "跨机 /dzlink 可能通、同机 /odom/localization 收不到，车不会动")
         elif not domain:
             warnings.append(f"ROS_DOMAIN_ID 未设置（车标准域 ={dz_domain}）")
+    elif domain:
+        # ★ 2026-10-29 真车假红（LINK-HARDEN）：横幅上一行刚打完 ROS_DOMAIN_ID=118，
+        #   这里却断言"域号按 ROS 默认 0"，自相矛盾。根因是 dzros.env / start_all.sh
+        #   只 `set` 了 DZ_ROS_DOMAIN 而**没有 export** ⇒ 子进程（dzbrain）根本看不到
+        #   标准域，于是把"标准域值未知"误报成"域号是 0"。
+        #   真话只有两句：① 标准域没导出、无法核对一致性；② **实际生效域号 = ROS_DOMAIN_ID**。
+        warnings.append(
+            f"DZ_ROS_DOMAIN 未导出：本进程没拿到车标准域（dzros.env/start_all.sh 只 set 未"
+            f" export），无法核对域号是否与车标准一致；实际生效域号 = "
+            f"ROS_DOMAIN_ID={domain}（**不是** ROS 默认 0）")
     else:
-        warnings.append("DZ_ROS_DOMAIN 未设置：本进程没 source dzros.env"
-                        "（域号按 ROS 默认 0；与车上其它节点可能不在同一图）")
+        warnings.append("ROS_DOMAIN_ID 与 DZ_ROS_DOMAIN 都未设置：域号按 ROS 默认 0"
+                        "（与车上其它节点可能不在同一图）")
     if str(env.get("ROS_LOCALHOST_ONLY", "0") or "0").strip() == "1":
         warnings.append("ROS_LOCALHOST_ONLY=1：跨机（无人机 /dzlink）链路不可能建立")
     return errors, warnings
@@ -103,8 +134,12 @@ def format_env_line(env: dict[str, str] | None = None) -> str:
         source = "dzros.env 一致"
     elif dz:
         source = "外部 export 覆盖"
+    elif domain == "<未设置>":
+        source = "未设置（ROS 默认域 0）"
     else:
-        source = "未 source dzros.env"
+        # ★ 不能写"未 source dzros.env"：dzros.env 与 start_all.sh 都只 set 未 export
+        #   DZ_ROS_DOMAIN，子进程里它**永远是空**（照实说"标准域没导出"才不误导人）。
+        source = "DZ_ROS_DOMAIN 未导出，以本值为准"
     return (f"ROS 环境：ROS_DOMAIN_ID={domain}（{source}） "
             f"DZ_ROS_DOMAIN={dz or '<未设置>'} "
             f"ROS_LOCALHOST_ONLY={env.get('ROS_LOCALHOST_ONLY') or '<未设置>'} "

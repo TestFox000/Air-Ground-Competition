@@ -1,0 +1,14 @@
+# CAR-DUAL-20261024: user field image, independently checked against the
+# 2026-10-23 car snapshot (_tmp_session/CAR-BASELINE-20261023/remote/config/map.yaml).
+# This is the t27 layout, not the t24 fixture (which differs by 3 mines/4 obstacles).
+map:
+  name: carloop-20261024-t27
+  start: N10
+  end: N5
+  barrier_col_from: D
+  barrier_row_hi: 6
+  barrier_row_lo: 7
+  mines: [H8, G9, A2, B1, C3, E3, F5, I2]
+  obstacles: [D5, I6, B7, F8, C9, E10, G10, A11]
+  targets: [D7, E7]
+  bridges: [K10, K4]

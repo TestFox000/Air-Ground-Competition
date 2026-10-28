@@ -6,21 +6,21 @@
 
 | 物件 | 现场几何 | 判据 |
 |---|---|---|
-| **车体** | 长 0.28 m × 宽 0.135 m 的矩形；另有"车心假设圆"半径 **0.035 m** | 压雷用那个 3.5 cm 圆；转弯用扫掠圆（半对角线） |
+| **车体** | 长 0.28 m × 宽 0.17 m 的矩形；另有"车心假设圆"半径 **0.035 m** | 压雷用那个 3.5 cm 圆；转弯用扫掠圆（半对角线） |
 | **障碍** | 半径 **0.1275 m** 的圆柱，柱心在障碍格格心 | 车心距柱心 ≥ `r + 车半宽 + margin`（拐角处车半宽取扫掠半径） |
 | **雷** | **0.12 × 0.12 m 垫片**，中心在雷格格心 | 车心 3.5 cm 圆与垫片**产生过重叠** ⇔ 车心到垫片最近距离 ≤ 0.035 m |
-| **挡板** | 第 6/7 行之间、**D..N 列**，长 11×0.35 = **3.85 m**、厚 **0.02 m** 细条（中心线在 x=1.75） | 车心到中心线 ≥ `0.01 + 0.0675 = 0.0775 m`（桥洞 K 处豁免，沿用通口逻辑） |
+| **挡板** | 第 6/7 行之间、**D..N 列**，长 11×0.35 = **3.85 m**、厚 **0.02 m** 细条（中心线在 x=1.75） | 车心到中心线 ≥ `0.01 + 0.085 = 0.095 m`（桥洞 K 处豁免，沿用通口逻辑） |
 
 ★★ 三个容易搞错的地方（本模块存在的理由）：
 1. **压雷不能用"车心到雷心 ≤ 3.5 cm"**：垫片是 0.12 m 见方的**方块**，"贴边压过"时
    车心离雷心可以到 `0.06 + 0.035 = 0.095 m` 仍算压到 —— 差一个垫片半宽（0.06 m）量级。
    正确判据是 **点到矩形的最近距离**（见 `point_rect_distance_m`）。
 2. **转弯时不能用"车半宽"当扫掠半径**：车体绕顶点转 90° 时，车身外包圆半径是
-   **半对角线** `√((0.28/2)²+(0.135/2)²) = 0.1554 m`（远大于 0.0675）；顶点邻着障碍/挡板时
+   **半对角线** `√((0.28/2)²+(0.17/2)²) = 0.1638 m`（远大于 0.085）；顶点邻着障碍/挡板时
    必须按扫掠圆算。
 3. **挡板是 2 cm 细条而不是"一整格"**：格带口径（旧 `tools/route_check.py` 的
    `BARRIER_MIN_MARGIN = 0.10` 从缺口西缘算）会**高估**挡板占位，把"其实过得去"的路线判红；
-   细条口径的门槛是 `挡板半厚 0.01 + 车半宽 0.0675 = 0.0775 m`。
+   细条口径的门槛是 `挡板半厚 0.01 + 车半宽 0.085 = 0.095 m`。
 
 ⚠️ 门禁口径在 `tools/route_check.py`（用户侧脚本，**刻意不 import dzbrain**：车端没装包也要能单跑）
   —— 它按**同一套公式**复算，并由 `src/dzbrain/tests/test_physics.py` 的**对拍断言**钉住
@@ -73,8 +73,13 @@ __all__ = [
     "body_obstacle_clearance_m",
     "body_barrier_clearance_m",
     "body_rect_clearance_m",
-    # **桥洞进洞侧冗余墙**（虚拟墙，现实不存在，规划器当真实墙）
+    # **桥洞侧壁（真实墙）**：真值 = 净开口 0.33 + 墙厚 0.02（2026-10-27 现场实测）
     "BRIDGE_ENTRY_LOWER_ROW_IDX",
+    "DEFAULT_BRIDGE_OPENING_M",
+    "DEFAULT_BRIDGE_WALL_M",
+    "bridge_wall_center_offset_m",
+    "bridge_wall_inner_offset_m",
+    "bridge_side_margin_m",
     "bridge_entry_walls",
     "body_bridge_wall_clearance_m",
 ]
@@ -159,15 +164,15 @@ def _segment_rect_intersects(ax: float, ay: float, bx: float, by: float,
 # --------------------------------------------------------------------------- #
 #  车体：扫掠半径
 # --------------------------------------------------------------------------- #
-def vehicle_half_diagonal_m(length_m: float = 0.28, width_m: float = 0.135) -> float:
+def vehicle_half_diagonal_m(length_m: float = 0.28, width_m: float = 0.17) -> float:
     """车体**半对角线**（= 车身外包圆半径）= `√((L/2)² + (W/2)²)`。
 
-    现场值：`√(0.14² + 0.0675²) = 0.15542 m`。
+    现场值：`√(0.14² + 0.085²) = 0.16378 m`。
     """
     return math.hypot(length_m / 2.0, width_m / 2.0)
 
 
-def sweep_radius(*, length_m: float = 0.28, width_m: float = 0.135,
+def sweep_radius(*, length_m: float = 0.28, width_m: float = 0.17,
                  wheelbase_m: float = 0.157, max_steer_deg: float = 30.0
                  ) -> tuple[float, float]:
     """``(扫掠半径, 最小转弯半径)``。
@@ -225,12 +230,12 @@ def obstacle_clearance_segment_m(ax: float, ay: float, bx: float, by: float,
 
 
 def required_obstacle_center_distance_m(*, obstacle_radius_m: float = 0.1275,
-                                        body_radius_m: float = 0.0675,
+                                        body_radius_m: float = 0.085,
                                         margin_m: float = 0.02) -> float:
     """净空判据的门槛：`柱半径 + 车身半径 + 余量`。
 
-    直段用 `body_radius_m = 车半宽 = 0.0675` ⇒ **0.215 m**；
-    拐角顶点用 `body_radius_m = 扫掠半径 = 0.1554` ⇒ **0.3029 m**。
+    直段用 `body_radius_m = 车半宽 = 0.085` ⇒ **0.2325 m**；
+    拐角顶点用 `body_radius_m = 扫掠半径 = 0.1638` ⇒ **0.3113 m**。
     """
     return obstacle_radius_m + body_radius_m + margin_m
 
@@ -272,7 +277,7 @@ def barrier_centerline(*, col_from: str = "D", col_to: str = "N",
 
 def barrier_distance_point_m(px: float, py: float, *, x: float = 1.75,
                              y0: float = 0.0, y1: float = 3.85) -> float:
-    """车心 P 到挡板**中心线**的距离（m）—— 判据 ≥ `挡板半厚 + 车半宽 = 0.0775`。"""
+    """车心 P 到挡板**中心线**的距离（m）—— 判据 ≥ `挡板半厚 + 车半宽 = 0.095`。"""
     return point_segment_distance_m(px, py, x, y0, x, y1)
 
 
@@ -284,13 +289,13 @@ def barrier_distance_segment_m(ax: float, ay: float, bx: float, by: float, *,
 
 
 def required_barrier_distance_m(*, barrier_width_m: float = 0.02,
-                                car_width_m: float = 0.135) -> float:
-    """不触线的门槛：`挡板半厚 + 车半宽 = 0.01 + 0.0675 = 0.0775 m`。
+                                car_width_m: float = 0.17) -> float:
+    """不触线的门槛：`挡板半厚 + 车半宽 = 0.01 + 0.085 = 0.095 m`。
 
     ★★ 2026-10-11 用户现场澄清（以澄清为准）：挡板是 **385 cm × 2 cm** 的细条，
       第 6/7 行之间、**D..N 列（含 K 段）**——即**挡板在 K 列处也是连续的，没有通口**；
       "通格 K1/K11 横向贯通"说的是 K 列**格与格之间**的纵向封死关系（见下），
-      不是挡板上的洞。所以判据就是"车心到中心线 ≥ 0.0775 m，**不得跨越**"，
+      不是挡板上的洞。所以判据就是"车心到中心线 ≥ 0.095 m，**不得跨越**"，
       **不需要任何桥洞豁免**（`segment_outside_band()` 仍作为通用工具保留，本判据不再调用）。
     """
     return barrier_width_m / 2.0 + car_width_m / 2.0
@@ -326,27 +331,27 @@ def board_half_m() -> float:
     return CELL_M / 2.0
 
 
-def required_target_body_clearance_m(*, length_m: float = 0.28, width_m: float = 0.135,
+def required_target_body_clearance_m(*, length_m: float = 0.28, width_m: float = 0.17,
                                      at_corner: bool = False) -> float:
     """车体不压靶板所需的最小**间隙**（折线/顶点到靶板矩形的距离）。
 
-    * **直段**：车身横向占位 = 车半宽 `0.0675 m`；
-    * **拐角**：车绕顶点转向时车身外包圆 = 车体半对角线 `0.1554 m`（≥ 半宽 0.088 m）。
+    * **直段**：车身横向占位 = 车半宽 `0.085 m`；
+    * **拐角**：车绕顶点转向时车身外包圆 = 车体半对角线 `0.1638 m`（比半宽 0.085 多 0.0788 m）。
 
-    ⇒ 判据：``间隙 ≥ 本函数返回值``；等价于"车体 28×13.5 不与 35×35 靶板 overlap"。
+    ⇒ 判据：``间隙 ≥ 本函数返回值``；等价于"车体 28×17 不与 35×35 靶板 overlap"。
     """
     return vehicle_half_diagonal_m(length_m, width_m) if at_corner else width_m / 2.0
 
 
 def target_body_overlap(clearance_to_board_m: float, *, length_m: float = 0.28,
-                        width_m: float = 0.135, at_corner: bool = False) -> bool:
+                        width_m: float = 0.17, at_corner: bool = False) -> bool:
     """给"折线/顶点到靶板矩形的间隙"，判定**车体是否压到靶板**（澄清④）。"""
     return clearance_to_board_m < required_target_body_clearance_m(
         length_m=length_m, width_m=width_m, at_corner=at_corner) - 1e-12
 
 
 def body_overlaps_rect_centered(px: float, py: float, cx: float, cy: float, *, half: float,
-                                length_m: float = 0.28, width_m: float = 0.135) -> bool:
+                                length_m: float = 0.28, width_m: float = 0.17) -> bool:
     """**保守**版本：把车体当"以车心为心、半径 = 半对角线"的圆，判它是否与靶板矩形相交。
 
     ⚠️ 这只是给"只有一个点（例如某个航点）"的场景用的粗判（比真实的 28×13.5 矩形更保守）；
@@ -439,7 +444,7 @@ def body_center(px: float, py: float, yaw: float, *,
 
 
 def body_corners(px: float, py: float, yaw: float, *,
-                 length_m: float = 0.28, width_m: float = 0.135,
+                 length_m: float = 0.28, width_m: float = 0.17,
                  offset_m: float = DEFAULT_REF_OFFSET_M
                  ) -> tuple[tuple[float, float], ...]:
     """车体矩形 4 角（地图系，逆时针；中心 = `body_center()`）。
@@ -529,7 +534,7 @@ def _point_in_poly(px: float, py: float, poly) -> bool:
 
 def body_obstacle_clearance_m(px: float, py: float, yaw: float, ox: float, oy: float, *,
                               obstacle_radius_m: float = 0.1275,
-                              length_m: float = 0.28, width_m: float = 0.135,
+                              length_m: float = 0.28, width_m: float = 0.17,
                               offset_m: float = DEFAULT_REF_OFFSET_M) -> float:
     """车体矩形表面 → **圆柱障碍表面**的间隙（米；`≤ 0` = 真重叠）。
 
@@ -550,7 +555,7 @@ def body_barrier_clearance_m(px: float, py: float, yaw: float, *,
                              barrier_width_m: float = 0.02,
                              barrier_x: float = 1.75,
                              barrier_y0: float = 0.0, barrier_y1: float = 3.85,
-                             length_m: float = 0.28, width_m: float = 0.135,
+                             length_m: float = 0.28, width_m: float = 0.17,
                              offset_m: float = DEFAULT_REF_OFFSET_M) -> float:
     """车体矩形表面 → **挡板细条表面**的间隙（米；重叠 = 0）。
 
@@ -567,7 +572,7 @@ def body_barrier_clearance_m(px: float, py: float, yaw: float, *,
 def body_rect_clearance_m(px: float, py: float, yaw: float, *,
                           rect_cx: float, rect_cy: float,
                           rect_half_x: float, rect_half_y: float,
-                          length_m: float = 0.28, width_m: float = 0.135,
+                          length_m: float = 0.28, width_m: float = 0.17,
                           offset_m: float = DEFAULT_REF_OFFSET_M) -> float:
     """车体矩形表面 → **任意轴对齐矩形实体**表面（靶板/桥室侧壁都用它）的间隙。
 
@@ -578,21 +583,33 @@ def body_rect_clearance_m(px: float, py: float, yaw: float, *,
 
 
 # --------------------------------------------------------------------------- #
-#  桥洞**进洞侧**冗余墙（虚拟墙 / 设计冗余，现实不存在）
+#  桥洞侧壁（**真实墙**，2026-10-27 几何真值修正）
 # --------------------------------------------------------------------------- #
-#  用户设计规格（2026-10-16）：在桥洞的**进洞侧**加一段 1/4 格长的冗余长度，
-#  逼规划器让车"进洞前摆正、不碰桥室侧壁"。
+#  ★ 2026-10-27 用户现场实测（P1-GEOM-TRUTH）：桥洞侧壁是**真实存在**的 0.02 m 厚墙，
+#    净开口 **0.33 m**。旧实现把桥室当"整格无墙"（half = CELL_M/2 = 0.175），
+#    比真值多给 0.01 m/侧；再叠上那段现实**不存在**的 0.0875 m 进洞侧虚拟冗余墙，
+#    规划器一共多拿 2.75 cm 余量 ⇒ 拐角/横向穿行必然算出负余量却仍“看起来可行”。
 #
-#  为什么需要（物理根据）：K 列每格是一个**桥室** —— 东西向（y 方向）横向贯通，
-#  南北向（x 方向）有侧壁、格间封死（见 `k_cells_sealed_along_column`）。车东西穿洞时
-#  车身长边沿 y、**车宽 0.135 m 沿 x**，所以真正会撞的是**桥室南北壁**（x = 格心 ± 半格）。
-#  现状：`Grid` 的 R007/R009 只保证"在桥洞行水平进出"，**不保证进洞瞬间车已摆正** ——
-#  车若带着偏航角在进洞前就开始斜切，半个车身会扫到进洞侧的壁。把南北壁沿 y 向
-#  进洞侧**虚拟延长** 0.0875 m（= 0.35 × 0.25），就等价于要求"进洞前 1/4 格内已经摆正"。
+#  几何自洽关系（本模块的真值，改一处必须三处同改）：
+#      格宽 CELL_M = 0.35；墙厚 wall_m = 0.02，**居中**压在格边界线上
+#      ⇒ 墙心 x = cx ± (opening_m/2 + wall_m/2) = cx ± 0.175 = 格边界线 ✓
+#      ⇒ 净开口 opening_m = 0.35 − 0.02 = **0.33**
+#      ⇒ 车必须让开的是墙的**内缘** x = cx ± opening_m/2 = cx ± 0.165
+#      ⇒ 车宽 0.17 穿洞的横向真值余量 = (0.33 − 0.17)/2 = **0.080 m**
+#    （这就是负例 V8 的判据来源：横向偏移 0.081 > 0.080 ⇒ 必然蹭壁。）
 #
-#  ⚠️ 这段墙**现实中不存在**（桥室外侧没有墙），它是**设计冗余**：规划器必须当真实墙
-#     对待（判据写成 **间隙 > 0** —— 本模块的距离口径是“重叠 = 0”，见
-#     `body_bridge_wall_clearance_m()` 的说明），但 **不要** 把它加进
+#  ⚠️ 碰撞面取**内缘**而不是墙心：车身在开口内时，到墙实体的最近距离恒等于到内缘的距离
+#     （墙实体 ∈ [opening/2, opening/2 + wall]，内缘是最靠近的一侧）。取墙心会多给
+#     0.01 m 假余量，负例 0.081 m 会被判成“安全”，与真值余量 0.080 直接矛盾。
+#
+#  `redundancy_m` 语义**保留但归零**（真源 = `field.bridge_entry_redundancy_m`）：
+#    > 0 ⇒ 把内缘沿 y 向**进洞侧**再延长该长度（旧 t4 设计冗余，现实不存在，现场已置 0）；
+#    = 0 ⇒ 墙段恰好覆盖桥室自身的 y 跨度（`cy ± CELL_M/2`），**不是零长线段**。
+#      ★ 这一点是修过的坑：旧实现在 red=0 时返回 (x, y_entry, x, y_entry) 的**零长线段**，
+#        而零长墙正好落在洞口边线上 ⇒ 正摆穿洞时车体横向边缘离它仅 `0.175 − 0.085`
+#        ⇒ 横向偏移 ≥ 0.09 m 就误报 0（假阳性），所以 `tools/sim.py` 当年只能靠
+#        "`redundancy <= 0` ⇒ 干脆不建墙 + modeled=0" 绕过。现在墙是真墙、段是真段，
+#        不再需要那个旁路。
 #
 #  进洞侧方向（真源 = `config/robot.yaml` 的 `bridge_order`，两处取值在**同一次改动**内
 #  必须一致，刻意不另开配置键以免两处漂移）：
@@ -602,40 +619,77 @@ def body_rect_clearance_m(px: float, py: float, yaw: float, *,
 #: （row 7 的 row_idx = 6；上半场 row 1~6 的 row_idx = 0~5。）
 BRIDGE_ENTRY_LOWER_ROW_IDX = 6
 
+#: 桥洞**净开口**宽（米）—— 真源 `field.bridge_opening_m`（现场实测 0.33 = 格宽 0.35 − 墙厚 0.02）。
+DEFAULT_BRIDGE_OPENING_M = 0.33
+#: 桥洞**侧壁厚度**（米）—— 真源 `field.bridge_wall_m`（与挡板同料同厚 0.02，居中压在格边界线）。
+DEFAULT_BRIDGE_WALL_M = 0.02
 
-def bridge_entry_walls(block: str, redundancy_m: float
+
+def bridge_wall_center_offset_m(*, opening_m: float = DEFAULT_BRIDGE_OPENING_M,
+                                 wall_m: float = DEFAULT_BRIDGE_WALL_M) -> float:
+    """桥洞侧壁**墙心**到桥室中心的横向距离 = `opening_m/2 + wall_m/2`（米）。
+
+    现场真值：`0.33/2 + 0.02/2 = 0.175` = **格边界线**（墙居中压在边界上，故自洽）。
+    本函数只用于**自洽断言**与留痕；碰撞面用 `bridge_wall_inner_offset_m()`。
+    """
+    return float(opening_m) / 2.0 + float(wall_m) / 2.0
+
+
+def bridge_wall_inner_offset_m(*, opening_m: float = DEFAULT_BRIDGE_OPENING_M,
+                               wall_m: float = DEFAULT_BRIDGE_WALL_M) -> float:
+    """桥洞侧壁**内缘**到桥室中心的横向距离 = `opening_m/2`（米）—— **真正的碰撞面**。
+
+    现场真值：`0.33/2 = 0.165`。车身在开口内时，它到墙实体的最近距离恒等于到内缘的距离。
+    """
+    return float(opening_m) / 2.0
+
+
+def bridge_side_margin_m(*, opening_m: float = DEFAULT_BRIDGE_OPENING_M,
+                         width_m: float = 0.17) -> float:
+    """车体居中穿洞时的**横向真值余量** = `(opening_m − width_m)/2`（米，可为负）。
+
+    现场真值：`(0.33 − 0.17)/2 = 0.080 m`。负例 V8 用的就是这条边界。
+    """
+    return (float(opening_m) - float(width_m)) / 2.0
+
+
+def bridge_entry_walls(block: str, redundancy_m: float, *,
+                       opening_m: float = DEFAULT_BRIDGE_OPENING_M,
+                       wall_m: float = DEFAULT_BRIDGE_WALL_M
                        ) -> tuple[tuple[float, float, float, float],
                                   tuple[float, float, float, float]]:
-    """某桥洞格**进洞侧**的两段虚拟墙：`((北壁), (南壁))`，每段 = `(x0,y0,x1,y1)`。
+    """某桥洞格的两段**侧壁内缘**墙段：`((x 大侧), (x 小侧))`，每段 = `(x0,y0,x1,y1)`。
 
-    * 桥室南北壁：`x_hi = cx + 0.175`（北 / x 大侧）、`x_lo = cx - 0.175`（南 / x 小侧），
-      其中 `cx` = `geo.block_to_meters(block)` 的 x，`cy` = 其 y（K 列恒 1.225）。
-    * 进洞侧边界 `y_entry`：下半场（`row_idx >= BRIDGE_ENTRY_LOWER_ROW_IDX`）`cy - 0.175`
-      （向西穿 ⇒ y 小侧）；上半场 `cy + 0.175`（向东穿 ⇒ y 大侧）。
-    * 冗余墙 = 把两条壁从 `y_entry` 往进洞侧再延长 `redundancy_m`：
-        下半场 `y ∈ [y_entry - redundancy, y_entry]`；
-        上半场 `y ∈ [y_entry, y_entry + redundancy]`。
-      它们是**竖线段**（x 恒定 = `x_hi` / `x_lo`，y 走上面那段区间）。
+    * 桥室中心 `(cx, cy)` = `geo.block_to_meters(block)`（K 列 y 恒 1.225）。
+    * 墙心 = `cx ± (opening_m/2 + wall_m/2)`（自洽时等于格边界线 `cx ± CELL_M/2`）；
+      **碰撞面取内缘** `x_hi = cx + opening_m/2`、`x_lo = cx − opening_m/2`（真值 ±0.165）。
+    * y 跨度 = 桥室自身的 `cy ± CELL_M/2`（= ±0.175），再按 `redundancy_m`
+      向**进洞侧**延长：
+        下半场（`row_idx >= BRIDGE_ENTRY_LOWER_ROW_IDX`，y 小侧进洞）`y ∈ [cy − 0.175 − red, cy + 0.175]`；
+        上半场（y 大侧进洞）`y ∈ [cy − 0.175, cy + 0.175 + red]`。
+      ⇒ `red = 0` 时墙段**恰好覆盖桥室自身的 y 跨度**，不是零长线段（见文件头注释的坑）。
 
-    :param redundancy_m: 冗余长度（米）。`0.0` ⇒ 退化成"桥室口那一条线"（等价于只判
-        "进洞瞬间车体不压壁"）。**负值按 0 处理**（调用方传负值不当"反向入侵"）。
+    :param redundancy_m: 进洞侧延长量（米）。`0.0` = 只建真实墙（现场现役值）。
+        **负值按 0 处理**（调用方传负值不当"反向入侵"）。
+    :param opening_m: 净开口宽（米），真源 `field.bridge_opening_m`。
+    :param wall_m: 侧壁厚（米），真源 `field.bridge_wall_m`；只用于自洽核对外缘。
     :raises ValueError: `block` 不是合法格名。
     """
     cx, cy = geo.block_to_meters(block)
-    half = CELL_M / 2.0                                   # 0.175：桥室半格宽
-    x_hi, x_lo = cx + half, cx - half
+    cell_half = CELL_M / 2.0                              # 0.175：桥室（格）半宽
+    inner = bridge_wall_inner_offset_m(opening_m=opening_m, wall_m=wall_m)  # 0.165
+    x_hi, x_lo = cx + inner, cx - inner
     row_idx = geo.block_to_index(block)[0]
-    y_entry = (cy - half) if row_idx >= BRIDGE_ENTRY_LOWER_ROW_IDX else (cy + half)
     red = max(0.0, float(redundancy_m))
     if row_idx >= BRIDGE_ENTRY_LOWER_ROW_IDX:             # 下半场：向 y 小侧（西）延长
-        y_a, y_b = y_entry - red, y_entry
+        y_a, y_b = cy - cell_half - red, cy + cell_half
     else:                                                 # 上半场：向 y 大侧（东）延长
-        y_a, y_b = y_entry, y_entry + red
+        y_a, y_b = cy - cell_half, cy + cell_half + red
     return ((x_hi, y_a, x_hi, y_b), (x_lo, y_a, x_lo, y_b))
 
 
 def body_bridge_wall_clearance_m(px: float, py: float, yaw: float, walls, *,
-                                 length_m: float = 0.28, width_m: float = 0.135,
+                                 length_m: float = 0.28, width_m: float = 0.17,
                                  offset_m: float = DEFAULT_REF_OFFSET_M) -> float:
     """车体（旋转矩形）→ 全部**桥洞冗余墙线段**的最短距离（米；**重叠 = 0**）。
 

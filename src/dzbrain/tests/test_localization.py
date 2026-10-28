@@ -15,14 +15,15 @@ r"""LocalizationTask 测试（纯脚本，无 pytest）。
   9. 投影卡死自愈（离开走廊后 P_ROUTE_S 跟得上全局投影）
  10. 尺度疑似闸（吸附掩盖尺度误差的可见化）
  11. ★ 2026-10-17 14:59 实车 +12.82 m 投影误锁的回归：大跳跃必须"新投影贴在车上"
- 12. ★★ 航向完整性守卫（差速底盘模型）：14:59 真实片段回放必须报（比投影跳变早 5.2 s），
-     （比投影跳变早 5.2 s），正常 90° 转弯/静止小漂移不得误报，遥控接管中的转动只记账
+ 12. ★★ 航向完整性守卫（偏航率经验包络）：14:59 真实片段回放必须报（比投影跳变早 5.2 s），
+     正常 90° 转弯/静止小漂移不得误报，遥控接管中的转动只记账
 """
 
 from __future__ import annotations
 
 import math
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -596,17 +597,32 @@ check("★ 带牙对照：修复前那一跳 ≈ +12.8 m（与 7_path 行 210 �
 # --------------------------------------------------------------------------- #
 section("⑫ 航向完整性守卫：真实片段回放必须报故障；正常 90° 转弯不得误报")
 
-# ---- ⑫.0 SCHEMA 登记（阈值不写死在代码里；现场可经 robot.yaml 覆盖）----
-_yaw_keys = (
-    "localization.yaw_guard", "localization.yaw_kin_margin",
-    "localization.yaw_rate_floor_dps", "localization.yaw_abs_floor_dps",
-    "localization.yaw_static_dps", "localization.yaw_min_speed_mps",
-    "localization.yaw_bad_ticks", "localization.yaw_plausible_speed_mps",
-    "localization.yaw_max_dt_s", "localization.yaw_imu_mismatch_ratio",
-)
+# ---- ⑫.0 SCHEMA 读写闭环（阈值不写死在代码里；现场可经 robot.yaml 覆盖）----
+#   2026-10-27 收口：旧断言只说"这 10 个键已登记"，于是两种漂移都漏网 ——
+#     · 3 个键从没被代码读过（yaw_kin_margin / yaw_rate_floor_dps / yaw_abs_floor_dps）
+#       ⇒ 现场调它们完全无效；
+#     · 5 个键代码一直在读却没登记（yaw_diff_gain_dps_per_mps / yaw_diff_spin_dps /
+#       yaw_jump_deg / yaw_clear_ticks / yaw_imu_check_dps）⇒ 默认值飘在代码里、自检看不见。
+#   现改为**双向闭环**：SCHEMA 声明的 yaw 键 == 源码真实读取的 yaw 键，多一个少一个都红。
+_SRC = pathlib.Path(__file__).resolve().parents[1] / "dzbrain" / "tasks" / "localization.py"
+_src_txt = _SRC.read_text(encoding="utf-8")
+_read_keys = set(re.findall(r'"localization\.(yaw_[a-z_]+)"', _src_txt))
+_read_keys.discard("yaw_trim_deg")          # 航向补偿，不是守卫阈值，不参与闭环
+_schema_keys = {k.split(".", 1)[1] for k in SCHEMA if k.startswith("localization.yaw_")}
+_schema_keys.discard("yaw_trim_deg")
+check("⑫.0a 代码读取的 yaw 键 ⊆ SCHEMA（没有偷偷飘着的默认值）",
+      not (_read_keys - _schema_keys), f"读了但没登记={sorted(_read_keys - _schema_keys)}")
+check("⑫.0b SCHEMA 声明的 yaw 键 ⊆ 代码读取（没有调了也无效的死键）",
+      not (_schema_keys - _read_keys), f"登记但没读={sorted(_schema_keys - _read_keys)}")
+check("⑫.0c 闭环非空且两侧相等（防两边都空也算过）",
+      len(_read_keys) >= 10 and _read_keys == _schema_keys,
+      f"read={len(_read_keys)} schema={len(_schema_keys)}")
 _cfg0 = Config.from_dict({})
-_missing = [k for k in _yaw_keys if k not in SCHEMA]
-check("10 个 localization.yaw_* 阈值全部登记进 SCHEMA", not _missing, f"missing={_missing}")
+check("SCHEMA 默认值可读到：yaw_guard=True", _cfg0.get("localization.yaw_guard") is True)
+check("SCHEMA 默认值可读到：yaw_static_dps=45°/s、yaw_bad_ticks=3",
+      _cfg0.get("localization.yaw_static_dps") == 45.0
+      and _cfg0.get("localization.yaw_bad_ticks") == 3,
+      f"{_cfg0.get('localization.yaw_static_dps')!r}/{_cfg0.get('localization.yaw_bad_ticks')!r}")
 check("SCHEMA 默认值可读到：yaw_guard=True", _cfg0.get("localization.yaw_guard") is True)
 check("SCHEMA 默认值可读到：yaw_static_dps=45°/s、yaw_bad_ticks=3",
       _cfg0.get("localization.yaw_static_dps") == 45.0
@@ -677,7 +693,7 @@ check("真实片段：连续 3 个新帧超限才判（yaw_bad_samples ≥ 3）"
 check("真实片段：33 个新帧样本（5 Hz 帧频；同一帧重复读不算样本）",
       task_y.yaw_guard_samples == len(YAW_EVENT_FRAMES) - 1,
       f"samples={task_y.yaw_guard_samples}")
-check("真实片段：原因 = 差速包络超限（yaw_rate_over_diff）",
+check("真实片段：原因 = 包络超限（yaw_rate_over_diff）",
       task_y._yaw_reason == "yaw_rate_over_diff", f"reason={task_y._yaw_reason!r}")
 check("真实片段：见过的峰值角速度 ≈ 120°/s（与裁决书 120.3°/s 同量级）",
       100.0 < task_y.yaw_max_rate_dps < 140.0,
@@ -732,11 +748,11 @@ check("反例（正常 90° 转弯、0.35 m/s、满舵 30° = 73.7°/s）：不�
 check("反例（正常 90° 转弯）：P_MOTION_LIMIT 未被触发",
       bb_turn.get(P_MOTION_LIMIT) is None, f"limit={bb_turn.get(P_MOTION_LIMIT)}")
 
-# ---- ⑫.4b A2 真实案例：差速底盘正常过弯 79.8°/s @ v=0.19 → 不误停 ----
-def _diff_arc_frames(v: float, yaw_rate_dps: float, n: int, *,
+# ---- ⑫.4b A2 真实案例：阿克曼正常过弯 79.8°/s @ v=0.19 → 不误停（实车标定样本）----
+def _arc_frames(v: float, yaw_rate_dps: float, n: int, *,
                      dt: float = 0.2, yaw0_deg: float = 90.0,
                      x0: float = 0.0, y0: float = 0.0) -> list:
-    """差速底盘恒定 yaw 率的圆弧帧（5 Hz；v/yaw 率都按真实帧间隔算）。"""
+    """恒定 yaw 率的圆弧帧（5 Hz；v/yaw 率都按真实帧间隔算）。"""
     yaw = math.radians(yaw0_deg)
     w = math.radians(yaw_rate_dps)
     x, y = x0, y0
@@ -749,9 +765,9 @@ def _diff_arc_frames(v: float, yaw_rate_dps: float, n: int, *,
     return out
 
 
-A2_FRAMES = _diff_arc_frames(0.19, 79.8, 40)
+A2_FRAMES = _arc_frames(0.19, 79.8, 40)
 task_a2, _, bb_a2, ev_a2, trip_a2 = _replay_frames(A2_FRAMES, with_route=False)
-check("A2 案例（v=0.19、yaw 79.8°/s，差速底盘正常过弯）：不误停、0 个超限样本",
+check("A2 案例（v=0.19、yaw 79.8°/s，阿克曼正常过弯）：不误停、0 个超限样本",
       task_a2.yaw_untrusted is False and task_a2.yaw_bad_samples == 0
       and task_a2.yaw_guard_samples == len(A2_FRAMES) - 1,
       f"untrusted={task_a2.yaw_untrusted} bad={task_a2.yaw_bad_samples} "
@@ -762,7 +778,7 @@ check("A2 案例：P_MOTION_LIMIT 未被触发（不会因航向守卫停车）"
 check("A2 案例：不是恰好没触发 —— 峰值 79.8 确实落在旧模型会误判的区间",
       78.0 < task_a2.yaw_max_rate_dps < 82.0, f"max={task_a2.yaw_max_rate_dps:.1f}")
 
-# ---- ⑫.4c 静止正常转向（差速原地 40°/s）不误报 ----
+# ---- ⑫.4c 静止被转 40°/s（低于静止上限 45°/s）不误报 ----
 _STATIC_40 = [(1.0, 1.0, 30.0 + 8.0 * i) for i in range(20)]   # 8°/帧 @5Hz = 40°/s
 task_s40, _, bb_s40, _, _ = _replay_frames(_STATIC_40, with_route=False)
 check("静止正常转向 40°/s（低于静止上限 45°/s）：不误报",
@@ -865,7 +881,7 @@ check("IMU 交叉核对：pose 超限而 IMU |gz|≈0 → 判「位姿/航向链
       and task_im.yaw_imu_mismatch >= 1,
       f"reason={task_im._yaw_reason!r} mismatch={task_im.yaw_imu_mismatch}")
 task_is, _, _, ev_is, _ = _replay_frames(YAW_EVENT_FRAMES, with_route=False, imu_dps=200.0)
-check("IMU 交叉核对：IMU 也报高速转动 → 仍判差速包络超限（不误标成矛盾）",
+check("IMU 交叉核对：IMU 也报高速转动 → 仍判包络超限（不误标成矛盾）",
       task_is.yaw_untrusted is True and task_is._yaw_reason == "yaw_rate_over_diff"
       and task_is.yaw_imu_mismatch == 0,
       f"reason={task_is._yaw_reason!r} mismatch={task_is.yaw_imu_mismatch}")

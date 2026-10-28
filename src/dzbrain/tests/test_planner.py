@@ -923,13 +923,13 @@ def main() -> int:
     # ---- ⑪ t23 物理几何接入（physics.py / config 键 / 障碍净空）----
     section("⑪ t23 物理几何接入（physics 模块 + config 键）")
     check("⑪.1 物理参数从 config 读到现场值（真源在 config，不在 planner 里写常量）",
-          abs(_ph["width_m"] - 0.135) < 1e-9 and abs(_ph["obstacle_radius_m"] - 0.1275) < 1e-9
+          abs(_ph["width_m"] - 0.17) < 1e-9 and abs(_ph["obstacle_radius_m"] - 0.1275) < 1e-9
           and abs(_ph["mine_pad_m"] - 0.12) < 1e-9 and abs(_ph["barrier_width_m"] - 0.02) < 1e-9
           and abs(_ph["wheelbase_m"] - 0.157) < 1e-9 and abs(_ph["max_steer_deg"] - 30.0) < 1e-9,
           f"w={_ph['width_m']} r={_ph['obstacle_radius_m']} pad={_ph['mine_pad_m']}")
-    check("⑪.2 障碍净空门槛：直段 0.215 m（半宽）/ 拐角 0.3029 m（扫掠半径）",
-          abs(P._required_obstacle_clearance_m(_ph, at_corner=False) - 0.2150) < 5e-5      # noqa: SLF001
-          and abs(P._required_obstacle_clearance_m(_ph, at_corner=True) - 0.3029) < 5e-5,   # noqa: SLF001
+    check("⑪.2 障碍净空门槛：直段 0.2325 m（半宽）/ 拐角 0.3113 m（扫掠半径）",
+          abs(P._required_obstacle_clearance_m(_ph, at_corner=False) - 0.2325) < 5e-5      # noqa: SLF001
+          and abs(P._required_obstacle_clearance_m(_ph, at_corner=True) - 0.3113) < 5e-5,   # noqa: SLF001
           f"直段={P._required_obstacle_clearance_m(_ph, at_corner=False):.4f} "             # noqa: SLF001
           f"拐角={P._required_obstacle_clearance_m(_ph, at_corner=True):.4f}")              # noqa: SLF001
     _pr = P._phys_params(None)                        # noqa: SLF001
@@ -1211,7 +1211,7 @@ def main() -> int:
     check("⑭.2c 列域修正：A7（过板缺口，无隔板）转向不误杀",
           P._barrier_turn_cell(_adj.grid, 7, geo.COL_LETTERS.index("A"), _h_in, _h_out) is False
           and _adj.turn_gate(P._cell("A7"), None, (-1, 0), (0, -1))[0] is True)
-    check("⑭.2d 隔板相邻行内直行 H7→I7 合法（正控制：0.175 m > 0.0775 m）",
+    check("⑭.2d 隔板相邻行内直行 H7→I7 合法（正控制：0.175 m > 0.095 m）",
           _adj.move_ok(P._cell("H7"), P._cell("I7")) is True)
     _g_neg = P.Grid(spec, bridge_rows=_t6_rows, allow_reverse=False,
                     barrier_turn_margin_m=-1.0)

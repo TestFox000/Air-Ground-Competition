@@ -334,7 +334,10 @@ path_executor:
     linear_speed: 0.35   # ★基础巡航速度(m/s)。与 dzbrain 段 cruise_speed_mps 保持一致
                          #   （2026-10-11 t22：0.30→0.35；★t29 首跑安全档 0.35→0.15；t31 两段对齐；
                          #    ★t38 提速档落地：0.15→0.40（本轮实车暂回 0.15 安全档，跑完恢复 0.40））
-    auto_start: true             # ★一键启动后自动出发（本轮现场发车：翻 true 推车，跑完回 false）
+    auto_start: false            # ★本键＝"一键启动后自动出发"（LINK-HARDEN-20261029）：常态【假】。
+                                 #   旧核自跑属危险动作（起栈后无人确认就动）—— 现场发车才临时改真，
+                                 #   改真前先核对站位；跑完立刻改回假。真实值与延时由
+                                 #   start_all.sh【出车模式守卫】在起栈横幅里打出来，此处不重复数值。
     auto_start_delay: 45.0        # ★t31 对齐 dzbrain 段 mission.auto_start_delay_s=45.0（旧值 2.0）
     mission_scan_mode: continuous # continuous = 边走边扫 | waypoint = 到点停车扫描 | none
     mission_reset: "N10,y"
@@ -688,17 +691,23 @@ path_executor:
       shoot_distance_m: 0.90          # 停站点 → **靶板中心** 的目标距离（现场卷尺标定值）
       shoot_distance_tol_m: 0.12      # 窗口半宽 ⇒ 候选区间 [0.78, 1.02]（靶板行走/标定误差都吃在这里）
 
-    # ★★ 卡 t4：桥洞**进洞侧冗余长度**（虚拟墙延长，**现实不存在**的设计冗余）。
-    #   设计规格（用户 2026-10-16）：只加进洞侧，长度 = 1/4 格 = 0.35 × 0.25 = 0.0875 m。
-    #   用途：把桥室南北壁沿 y 向进洞侧虚拟延长，逼规划器让车"进洞前 1/4 格内已摆正"。
+    # ★★ 桥洞几何（2026-10-27 现场实测真值 · P1-GEOM-TRUTH）
+    #   现实：桥洞侧壁是**真实存在**的 0.02 m 厚墙，居中压在格边界线上
+    #         ⇒ 净开口 = 格宽 0.35 − 墙厚 0.02 = **0.33 m**；墙心 = 格心 ± 0.175；
+    #         车宽 0.17 居中穿洞的横向真值余量 = (0.33 − 0.17)/2 = **0.080 m**。
+    #   旧实现错在哪：把桥室当"整格无墙"（内缘 ±0.175，比真值多 0.01 m/侧），
+    #     又叠了一段**现实不存在**的 0.0875 m 进洞侧虚拟冗余墙 ⇒ 一共多给 2.75 cm 余量，
+    #     拐角/横向穿行必然算出负余量却仍"看起来可行"。
     #   几何真源：`route/physics.py: bridge_entry_walls()`（按 row 判进洞侧 —— row 7~11 向西、
     #     row 1~6 向东，与 `path_executor.bridge_order` 同一次改动内一致）。
     #   判据消费者：`route/planner.py` 的 tracker-safe 引擎 `_TSGrid`（段级 `entry_gate_segment`
-    #     + 顶点级 `entry_gate_turn`），兜底常量 `planner.BRIDGE_ENTRY_REDUNDANCY_M` 与本值同值。
-    #   ⚠️ 只影响**规划**：`tools/route_check.py` 的用户侧判据刻意**不含**这段墙（否则现场
-    #      实跑路线会被莫须有的墙判红）。`0.0` = 关闭该冗余（回到 t4 之前的行为）。
+    #     + 顶点级 `entry_gate_turn`），兜底常量与本文件同值。
     field:
-      bridge_entry_redundancy_m: 0.0875
+      bridge_opening_m: 0.33    # 桥洞**净开口**宽（= 格宽 0.35 − 墙厚 0.02；现场实测）
+      bridge_wall_m: 0.02       # 桥洞侧壁厚度（与挡板同料同厚；居中压在格边界线上）
+      # ★ 进洞侧冗余延长量：**现实不存在**的设计冗余（旧 t4），现场已置 0 = 关闭。
+      #   保留键与实现只为可回退；`0.0` 时墙段恰好覆盖桥室自身 y 跨度（不是零长线段）。
+      bridge_entry_redundancy_m: 0.0
 
     mission:
       auto_start: false  # ★2026-10-17 第六张图发车：改为 false，等无人机经 /nav/waypoint 下发指令再出发
@@ -731,6 +740,9 @@ path_executor:
     #   >0 才超时退出（run_live 退出码 4）。
     step:
       wait_timeout_s: 0.0
+      # ★2026-10-28 G1/S3（D-051/D-055）：显式取消保质期 ⇒ gate_policy=auto 判 warn，
+      #   运行面互锁整体降级为 warn+日志（只留 3 硬拦）。缺此键则 auto 判 hard（旧拦停）。
+      layout_ttl_s: 0.0
 
     # ---- ★车上自动规划（任务卡 B）：启动时自己读地图算路线 ----
     #   与 route:/mission: 同级同缩进（4 空格）→ 点号键 planner.*
@@ -777,14 +789,19 @@ path_executor:
       #   （20.0 是超时应急值，会白等 17 s；5.0 是 PC 时代值，第七趟实车证明不够）。
       #   证据与方法：`_tmp_session/t19/`（ARM 探针走 ssh stdin、内存补丁，车端零落盘）。
       tracker_max_seconds: 10.0
-      auto_plan_enabled: false        # ★2026-10-17 第六张图：tracker-safe 在本图 K7 进洞形态下无解（legs0=0），改为手动路线 + 无人机 /nav/waypoint 触发；原注释：
+      auto_plan_enabled: true         # ★★2026-10-25：车端改为「零地图 + 布局模式」（用户指令：情报只能来自无人机，
+                                      #   车端不存配置地图）。上一轮的 false 是为"第六图 K7 无解"关的，那条前提已双重失效
+                                      #   （引擎已换 tour + 场地是第七图、洞是 K10/K4）。false 时车按手写 mission_blocks 走，情报不起作用。原注释：
                                       #   tracker-safe 引擎现算(t11 双门禁 + t13 起始航向 +y 已落地;
                                       #   J7 挡板现场量测 3.5cm ≥ 2cm ⇒ 放行)。失败时按
                                       #   fallback_to_tokens 回退 mission_blocks 手工 62 点(同一路线)。
-      map_path: "config/map.yaml"     # 解析顺序：绝对路径 → 相对配置文件目录 → 相对工作区
+      map_path: ""                    # ★★2026-10-25：车端不留地图文件 ⇒ 空串 = 布局模式（`main.py:_layout_mode_enabled`）。
+                                      #   地图只由无人机 field_layout 下发；离线工具用 `--map` 显式指定（如 artifacts/maps/*.yaml）。
+                                      # 解析顺序：绝对路径 → 相对配置文件目录 → 相对工作区
                                       # ★ 2026-10-11 t3:换图就是**覆盖这个文件**(第四张图识图版),
                                       #   所有消费方(route_check/planner/sim/config_selfcheck)按此名查找
-      fallback_to_tokens: true        # 规划失败（PlannerError/超时/坏图）→ warn 后回退 route.tokens，仍出发
+      fallback_to_tokens: false       # ★★2026-10-25：规划失败**不再回退**手写路线（回退=按旧图路线出车，比停车更危险）；
+                                      #   失败 ⇒ 停在 IDLE 报错。原语义：规划失败 → warn 后回退 route.tokens，仍出发
       allow_reverse: false            # ★真车底盘不支持倒车 → 规划器走无倒车模式（0 段 R:，折返交 PIVOT）
       max_seconds: 2.0                # 规划时间预算；超出抛 PlannerError → 走上面的回退分支
       pivot_penalty: 5.0              # ★ 折返惩罚/处；与 mission_blocks 生成参数一致（--pivot-penalty 5），
@@ -885,10 +902,13 @@ path_executor:
       #   车右漂 → 物理前进方向比陀螺读数偏右 ⇒ 信念 yaw 减去该角,控制器见信念偏右
       #   即左打舵,物理车头左旋抵消横漂。符号反了就把正负号翻过来。0=关闭。重启生效。
       yaw_trim_deg: -0.6
-      # ★2026-10-18（实跑 A2 停车裁决）：低速/静止期航向守卫的噪声地板。
-      #   默认 8 → 40：v=0.19 时上限 75.8°/s，实测 79.8°/s 被判 heading_untrusted；
-      #   差速底盘可原地转向，Ackermann 上限只能当下限用，故留足噪声余量。
-      yaw_rate_floor_dps: 40.0
+      # ★2026-10-27：原 yaw_rate_floor_dps 已删除 —— 该键**从未被任何代码读取**
+      #   （守卫只读 yaw_static_dps / yaw_diff_*），2026-10-18 在此处调 8→40 其实无效。
+      #   当时要解决的是"v=0.19 实测 79.8°/s 被判 heading_untrusted"，现由
+      #   localization.yaw_diff_gain_dps_per_mps（=525，A2 实测标定）承担。
+      #   ⚠️ 本车是**阿克曼**底盘，不能原地转向；该增益高于名义阿克曼极限的原因
+      #   （实车含滑移/有效轴距差异）见 tasks/localization.py 的
+      #   _DEFAULT_YAW_DIFF_GAIN_DPS_PER_MPS 上方注释。
 
     drone:
       enabled: true
@@ -943,12 +963,18 @@ path_executor:
     #     而**到位吸附会拒收**（观测与预测差超阈就不修正）⇒ 若实车出现"转完对不上、吸附不生效"，
     #     按下面流程二分：先回 2723 复跑一趟 → 若明显变好则说明 2680 过冲 → 取中间值再试。
     #   几何等价轮距 = 2680/(2π×3280) = 0.130 m（yaw 通道独立常数，与 ticksPerMeter 不必同源）。
-    ticksPer2PI: 2680.0
+    #  ★★★ 2026-10-29 第四次修正：2630.0 → 2670.0（用户现场指令，同日回调）★★★
+    #   沿革：2723（v1 血统）→ 2680（10-11 用户口径，scale≈0.97）→ 2630（同日试档）→ 2670（本轮）。
+    #   几何等价轮距 = 2670/(2π×3280) = 0.1296 m；与实测轮距 0.157 m 偏差 17.5%，仲裁仍挂账。
+    #   ⚠️ 2670 相对 2680 仅 −0.37%，单趟实车噪声（打滑/吸附拒收）足以盖过这一档
+    #     ⇒ 判据看多趟同向趋势，不看单趟；二分收敛，每档 1.5% 量级，勿跳档 >2%。
+    #   2670 < 2680 ⇒ 换算出的转角更大 ⇒ 实车更早停；若 2680 时是"转多了"则方向正确。
+    ticksPer2PI: 2670.0
 
     # ---- ★物理几何（t22：用户 2026-10-11 现场口径；公式在 dzbrain/route/physics.py）----
     vehicle:
       length_m: 0.28            # 车体长（沿车头方向）
-      width_m: 0.135            # 车体宽（半宽 0.0675 进挡板/障碍判据）
+      width_m: 0.17             # 车体宽（**实测 0.17**；半宽 0.085 进挡板/障碍判据）
       coverage_radius_m: 0.035  # ★车心假设圆半径（压雷判据：车心到 0.12×0.12 垫片 ≤ 此值算压到）
       # ★★ 卡 t11：参考点(后轴中心) → 车体**几何中心**的纵向偏移（米）。
       #   实测来源（用户现场卷尺，2026-10-11）：后轴中心→车尾沿 6.5 cm、
