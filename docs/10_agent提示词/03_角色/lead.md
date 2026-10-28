@@ -1,5 +1,5 @@
 ---
-来源: AGENTS.md §2/§4, docs/agent_handoff/30_循迹团队执行方案.md §4, _tmp_session/TRACK-R1-20261020-01/CARD.md, docs/agent_handoff/33_循迹R0复核与R1任务.md §3
+来源: AGENTS.md §2/§4, docs/history_cache/01_旧文档归档/docs/agent_handoff/30_循迹团队执行方案.md §4, _tmp_session/TRACK-R1-20261020-01/CARD.md, docs/history_cache/01_旧文档归档/docs/agent_handoff/33_循迹R0复核与R1任务.md §3
 取证: 实/档
 更新: 2026-10-21
 取代: 无（首版）
@@ -31,7 +31,7 @@ status: 现行
 - `docs/30_任务卡库/在办/<卡号>.md`（卡即报告）
 - `dzrobot_v2/docs/TEAM_STATUS.md`、`frozen.json`、`索引标注.yaml` + 生成的 `目录索引.*`
 - `dzrobot_v2/docs/决策台账.md`（**只追加**，不删旧条）
-- `dzrobot_v2/src/history/log/log_YYYY-MM-DD_HHMM.md` + `INDEX.md`
+- `dzrobot_v2/src/history/log/log_<YYYY-MM-DD>_<HHMM>.md` + `INDEX.md`
 
 只读：一切生产源码、测试、配置、地图。
 

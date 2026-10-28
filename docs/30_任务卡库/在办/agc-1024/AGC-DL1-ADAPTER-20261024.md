@@ -7,7 +7,7 @@ ns: agc-1024
 agent: dl-drone
 树节点: AGC-3
 写域: 本卡；`dzsmartscout/tools/link/dzudp_adapter.py`；`dzsmartscout/tools/link/dzudp_core.py`；`dzsmartscout/tools/link/tests/test_dzudp_*.py`（AGC-17 合入窗口，2026-10-24 Lead 开；禁改 `dzlink_supervisor.py`／车端任何文件／`dzbrain_bridge`）
-摘要: 复用教员 udp_bridge.py 解析核，做二进制 50000 到既有 JSON 情报入口的薄适配，13 类映射与坏帧拒收可单测，0x4003 只记录不写 waypoint。
+摘要: 复用教员解析核（仓内镜像 `_tmp_session/sqc-20261024/tools/udp_bridge.py`，与教员原件逐字节相同），做二进制 50000 到既有 JSON 情报入口的薄适配，13 类映射与坏帧拒收可单测，0x4003 只记录不写 waypoint。
 结论(2026-10-24 17:5x · 合入后)：生产件已入库（适配器／解析核钉死快照／provenance／单写者三件），link 套件 105→**195** 全绿、dl1 51 全绿、verify 0、supervisor selftest 通过；候选↔生产 10 组构造帧＋3 类坏帧＋两份真帧**逐项一致（PARITY_FAILURES=0）**。13 类/坏帧/字段保真/路线只记录结论不变；真实感知与实飞仍卡在 DL4 数据面（雷达 carrier=0、真实相机样本缺失、FAST-LIO/PX4 未验）。工作区**未提交**，等 Lead 放行 add+双推。
 ---
 
@@ -18,7 +18,7 @@ owner: dl-drone；reviewer: e-integ（只读评审）。
 ## 1 依据与复用（五必填）
 
 - 读过的台账：D-039（情报契约三态 source）；现行推进计划 §5 DL1/DL2。
-- 复用检索：教员交接 `udp_bridge.py` 的 crc16/parse_* 解析核、现有 supervisor/契约、`dzlink_supervisor.py selftest`、`dzsmartscout/tools/link/tests`；**不复制协议、不启 udp_bridge 的路线发布开关**。
+- 复用检索：教员交接的解析核 `_tmp_session/sqc-20261024/tools/udp_bridge.py` 的 crc16/parse_*、现有 supervisor/契约、`dzlink_supervisor.py selftest`、`dzsmartscout/tools/link/tests`；**不复制协议、不启 udp_bridge 的路线发布开关**。
 - 新增轮子：薄适配层（唯一理由：二进制:50000 与既有 JSON 入口之间缺接缝，仓内无第二实现）。
 - 验收命令：`python -B -X utf8 -m unittest discover -s dzsmartscout/tools/link/tests -p "test_*.py"` + 新增适配器单测。
 - 回滚点：候选只在过程目录，未改生产即回滚点。
@@ -118,7 +118,7 @@ owner: dl-drone；reviewer: e-integ（只读评审）。
 
 | 文件 | 来源 | 这次改了什么 |
 |---|---|---|
-| `dzsmartscout/tools/link/dzudp_core.py` | 教员 `udp_bridge.py` 逐字节快照 | 新增：文件头 docstring（来源路径／sha256 全值／抓取日期／只同步不改／改后重跑两根命令）＋分界行；分界行之后与原件逐字节相同 |
+| `dzsmartscout/tools/link/dzudp_core.py` | 教员原件逐字节快照（同一份，见 §5-2 的 sha256） | 新增：文件头 docstring（来源路径／sha256 全值／抓取日期／只同步不改／改后重跑两根命令）＋分界行；分界行之后与原件逐字节相同 |
 | `dzsmartscout/tools/link/dzudp_adapter.py` | 候选 `agc_binary_adapter.py` | 解析核候选顺序（仓内快照升为第一）＋单写者自检 `SingleWriterGuard` 与 `--selfcheck` CLI ＋ `RUNTIME_CONSTRAINT` 常量；解析/映射逻辑一字未动 |
 | `.../tests/test_dzudp_adapter.py` | 候选单测 51 条 | 平移＋新增 3 条（运行时约束可读／诊断指向自检／守卫可导入） |
 | `.../tests/test_dzudp_core_provenance.py` | 新增 | 12 条：快照段 sha256==PIN、PUBLISH_ENABLED=False、候选顺序、与原件/镜像逐字节相等 |
@@ -154,6 +154,39 @@ owner: dl-drone；reviewer: e-integ（只读评审）。
 本次入库的 blob 是 **LF**（`git ls-files --eol` = i/lf，`git show :path` 与工作区 sha256 同为 `cd1167f1…`），
 所以**仓内内容**与 PIN 一致；但 Windows 重新检出/`reset --hard` 会把工作区该文件变成 CRLF ⇒ provenance 单测会红
 （机端 Linux 无此问题）。一行修法：`.gitattributes` 加 `dzsmartscout/tools/link/dzudp_core.py -text`。
+
+### 5-9 AGC-20 评审修复（F1–F5 · 2026-10-24 18:2x）
+
+e-integ 用**复现**（不是读码）打穿了三处，全部修完并复跑：
+
+| 编号 | 缺陷 | 修法 | 落点 |
+|---|---|---|---|
+| **F1** high | `acquire()` 全仓只有测试调用；`--selfcheck` 只读不写 ⇒ claim 永远空闲，两个实例的 selfcheck 都 ok | 新增 `--run`：preflight→acquire→心跳刷 ts→`finally` release；`--selfcheck` 明确降级为"只诊断不占位"（报告里 `mode: diagnose-only…`） | `_hold_claim()` + CLI |
+| **F2** high | 判据 `alive and age<=600` ⇒ 存活但 10 分钟前写的 claim 被判可接管 ⇒ **任何跑满 10 分钟的实例都能被合法抢占** | 改成 `if alive: red`（存活即占用，与时间无关）；age 只用来描述"死进程残留多久"；`acquire()` 只在 pid 已死时接管 | `_channel_claim()` |
+| **F3** medium | `len(uniq)>1` 只在两人同时在发时成立；preflight 时外来者**独自**在发 ⇒ ok | 判红改为"图里出现了名字不属于本进程的 publisher"（`own_node_names`，默认 `_dzudp_selfcheck`）；一个也算红 | `_channel_ros()` + `SELF_NODE_NAME` |
+| **F4** | 分界行字节在 `dzudp_core.py` 里出现 **2 次**（常量字面量 + 真分界行），naive `find(MARKER)` 会抓错位置 | 常量改成**隐式拼接两段** ⇒ 连续 marker 字节只出现 1 次；provenance 单测改断言 `count(MARKER)==1` | `dzudp_core.py` 头 + provenance 单测 |
+| **F5** | 头注释复跑命令的"90/105"口径不清（90 是本卡子集，105 是整目录） | 头注释改成三条并标数：`test_dzudp_*.py`=90（本卡）、`test_*.py` 整目录（105 起，现 203）、dl1=51 | `dzudp_core.py` 头 |
+
+**复跑（全绿，退出码 0）**：
+
+| # | 命令 | 退出码 | 结果 |
+|---|---|---|---|
+| 1 | link 全量 `-p "test_*.py"` | 0 | Ran **203** · OK |
+| 2 | dzudp 子集 `-p "test_dzudp_*.py"` | 0 | Ran **98** · OK（0 skip；旧 90 + 新增 8） |
+| 3 | dl1 `-p "test_*.py"` | 0 | Ran **51** · OK |
+| 4 | `verify_dl1.py` | 0 | 7 组独立复算一致 |
+| 5 | `dzlink_supervisor.py selftest` | 0 | 结果：全部通过 |
+| 6 | **`_tmp_session/agc-1024/e1/review_adversarial.py`** | **0** | **ADVERSARIAL CLEAN**：B0 绿、M1–M4 各判红、A1–A9 全过 |
+| 7 | `review_keycheck.py` | 0 | 报文禁止键=无 |
+
+新增的 8 条单测：`--selfcheck` 不写 claim；`--run` 占位时第二个实例 selfcheck 退出码 **2**；
+运行结束 release 且 claim 消失；持有中被拒（`refused`/exit 2）；心跳刷新 ts；`refresh()` 不碰别人的 claim；
+**单个**外来 publisher 判红；自定义 `own_node_names`。
+
+**提交**：`e58aa4a9` `fix(link): 单写者守卫 F1-F3 [AGC-20]`
+（只 4 个文件：适配器／快照头／provenance 单测／单写者单测）；`git push github main` 与
+`git push gitee main` 均 `9c722bfc..e58aa4a9`；两端 `ls-remote refs/heads/main` =
+`e58aa4a91278182700238368c8ee55c7125cf878` = 本地 HEAD。**没有** rebase/force，属缺陷修复的后续提交。
 
 ## 6 字段保真表（二进制有/无 → JSON 有/缺）
 

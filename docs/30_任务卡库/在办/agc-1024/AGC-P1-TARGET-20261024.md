@@ -167,17 +167,17 @@ V5 蓝=1/红=2 类别语义；V6 `字段不足` 计数不再增长（**C++ 日�
 `fire_dz_far_px` 漂移(10:39 记录 25 → 现值 18.0，与本修复无关，需单列 A/B) 四项见 §2 表；
 回滚 = 杀掉该 pid 按原命令重起（车上**零文件改动**，不动 lead/EKF/云台/停止锁存/任何 config）。
 
-**⑧ 候选 B（备选，需 Lead 批）**：把 dzrobot2 源补成 8 字段 = `:73-75` 改 8/8、`:76` 初值 8 个 0、`:104-106` 改 `cls+1` 并补 `box.w/box.h`、 〔非路径：字段名〕
+**⑧ 候选 B（备选，需 Lead 批）**：把 dzrobot2 源补成 8 字段 = `:73-75` 改 8/8、`:76` 初值 8 个 0、`:104-106` 改 `cls+1` 并补 `box.w/box.h`、 〔非路径：字段名〕 〔未入库：字段名，非路径〕
 再 `colcon build --packages-select det_node`（= 二进制替换 = 部署动作）。只补到 5 字段属"能跟踪"，补 `[3]/[4]` 才"能打准"。
 
 **过程证据**：`_tmp_session/agc-1024/p1b/{P1B_8字段恢复方案.md, car-probe-evidence.md, verify_p1b_8fields.py, p1b-summary.json, dzrobot2_det_node.cc.txt, probe1..11.sh}`。
 
 ### 4.9 V6 日志级基线更正（p-aim · 2026-10-24 18:0x，append-only，不改既有结论）
 
-§4.8 与 P1B 方案 §2(c) 里「C++ 丢帧只有源码级+症状级证据、`5_gimbal.log` grep=0」这条注记**需更正**（结论不变，证据更强）：
+§4.8 与 P1B 方案 §2(c) 里「C++ 丢帧只有源码级+症状级证据、`5_gimbal.log` grep=0」这条注记**需更正**（结论不变，证据更强）： 〔未入库：车端〕
 
-- 顶层 `/home/duzhong/robot_logs/5_gimbal.log` 确实是 **0 条**（该进程只接了 fd1）；
-- 但 **per-run 复制件** `carloop_20261024_static/5_gimbal.log` 有 **1425 条** `[WARN] [dzrknn_dataprocess]: offset_center 字段不足(3 < 5)，已丢弃该帧`，覆盖 **14:52:06 → 16:51:10**（含 15:43 那趟 run2 窗口）；同进程 launch 捕获 `.../ros/dzactuator_node_620811_*.log` 另计 **1398 条**；
+- 顶层 `/home/duzhong/robot_logs/5_gimbal.log` 确实是 **0 条**（该进程只接了 fd1）； 〔未入库：车端〕
+- 但 **per-run 复制件** `carloop_20261024_static/5_gimbal.log` 有 **1425 条** `[WARN] [dzrknn_dataprocess]: offset_center 字段不足(3 < 5)，已丢弃该帧`，覆盖 **14:52:06 → 16:51:10**（含 15:43 那趟 run2 窗口）；同进程 launch 捕获 `.../ros/dzactuator_node_620811_*.log` 另计 **1398 条**； 〔未入库：车端〕
 - 该 WARN 为 `WARN_THROTTLE 5s`：1425 × 5 s ≈ 1.98 h ≈ 文件跨度 ⇒ 整段**连续丢弃**（条数不能换算帧数）。
 
 ⇒ 字段丢弃已有**日志级**铁证；AGC-19 的 V6 判据据此收紧为「新日志 0 条新增」。详见 `AGC-19.md §4.4`。

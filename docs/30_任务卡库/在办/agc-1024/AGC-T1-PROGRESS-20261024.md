@@ -89,10 +89,10 @@ P_ROUTE_INDEX / P_ROUTE_S 是**一张单槽键：没有权威、没有新鲜度�
 
 **反向证据（本卡最硬的一条）**：全程日志里 **0 条** "⚠️ 投影跟丢自愈"（那是 Tracker 独有文案，tracker.py:444-448，1 s 限流）。说明 Tracker 每拍 proj.dist 从未超过 pursuit.projection_release_m=0.30——它一直贴着车，**不可能写出 2.4x**（车在 F9 时离 H10→H8 那条线 0.55 m）。探针 7 也证实：把 Tracker 强行按到 _seg_s=2.60 / _s_floor=2.10，它在 F9 位姿上第一拍就自愈到 段11/4.41，输出的 (v,st) 与实跑日志 400~441 行逐拍吻合（v0.08~0.10 / st+1.7→+28.5）。**所以控制用的是 4.4x，不是 2.4x。**
 
-### 4A.5 最小修补候选（★需要 Lead 加锁，未动生产文件）
+### 4A.5 最小修补候选（**Lead 2026-10-24 已批准并放行写域 —— 实施记录见 §4A.10**）
 
 > **请求 Lead 加锁 dzrobot_v2/src/dzbrain/dzbrain/tasks/mission.py**，理由：_current_s 是唯一"读-算-回写"闭环，既影响任务判定又把旧值固化进共享键，改一处即可（D-036 边界内）。
-> 建议改法（待批，未实施）：采纳判据加一条**几何可信门**——复用同一函数已算出的 proj.dist（3050 里的 _last_lat_m）：当 proj.dist > pursuit.drift_warn_m(0.30) 时，先做一次**无 hint 全路线重投影**（与 localization._heal_stuck、tracker 的 relock 同语义，复用 Path.project），再与缓存比对；并且**读侧不回写**（只有 Localization 写键），或回写时带 max_stale_m 约束。
+> 获批后按此改法实施（`mission.py:1540-1545` / `3069-3075` / `3080`，增量补丁 `mission_t1_patch.diff` +29/−4）：采纳判据加一条**几何可信门**——复用同一函数已算出的 proj.dist（3050 里的 _last_lat_m）：当 proj.dist > pursuit.drift_warn_m(0.30) 时，先做一次**无 hint 全路线重投影**（与 localization._heal_stuck、tracker 的 relock 同语义，复用 Path.project），再与缓存比对；并且**读侧不回写**（只有 Localization 写键），或回写时带 max_stale_m 约束。
 > 明确不做：不删写入点、不关 motion_heading/方向守卫、不为显示好看改任何常量、不动 config/**。
 
 ### 4A.6 版本差异（只读发现，不在本卡修）
@@ -134,8 +134,130 @@ F9 窗口（STOP→DRIVE 换手最清楚）：
 
 ### 4A.9 回滚点
 
-只新增文件，零生产改动：删 dzrobot_v2/src/dzbrain/tests/test_agc_t1_progress_contract.py 与 _tmp_session/agc-1024/t1/（6 个探针/复跑脚本）即完全回滚；生产 mission.py / tracker.py / localization.py / config/** 未触碰（git status 可证）。
+- **2026-10-24 前（只读阶段）**：只新增文件，零生产改动；删两个 `test_agc_t1_*.py` 与 `_tmp_session/agc-1024/t1/` 即完全回滚。
+- **2026-10-24 后（§4A.10 补丁阶段）**：`mission.py` 已被本卡修改 **+29/−4**；回滚 = 一个 commit 的 revert（补丁 + 两个测试文件同一个 commit）。
+  未提交前若要撤销：`git -C dzrobot_v2 apply --reverse _tmp_session/agc-1024/t1/patch/mission_t1_patch.diff`（只撤本卡增量，**保留**他人 +18/−4）。
+  `tracker.py` / `localization.py` / `config/**` 全程未触碰。
+
+### 4A.10 生产补丁（Lead 2026-10-24 批准 · **只交补丁，不提交** · **B 已落地 · 已转 e-integ 评审**）
+
+> 前置事实（Lead 已复核并更正）：改前 `mission.py` 工作树里有 **+17/−3** 的**他人**未提交 hunk
+> （CAR-GATE-20261024，owner `/root`，status in_progress：FIRE 放行门加固）。基线原样另存，
+> 我的增量单独成补丁；两者用 `git apply --check --reverse` 互证 ⇒ 没吃掉别人的改动。
+> （早期卡面写的 +18/−4 是 `grep -c '^+'` 把 `+++`/`---` 文件头也数进去的假数，真实改动为 **17 增 3 删**。）
+
+#### 归属与拼合证明（给 e-integ 逐字节复核用）
+
+| 断言 | 方法 | 结果 |
+|---|---|---|
+| 他人 FIRE hunk **逐字节未变** | 把 `mission_baseline.diff` 的 17 条 `+` 行逐条在当前文件里查、3 条 `−` 行确认已消失 | **17/17 存在、3/3 已消失、0 残留** |
+| 当前文件 = 改前快照 + 本卡增量 | 在临时目录放 `mission_pre_t1.py` → `git apply` 本卡增量 → 比 sha256（同行尾归一后） | `a202dcb3…1b58ef` == 当前 `mission.py` **完全一致** |
+| 本卡增量不含他人行 | 增量 diff 的 `+` 行 **33/33** 全部落在当前文件、且全部来自本卡两处区域 | 见 `patch/mission_t1_patch.diff` |
+| 拼合计数 | 17+33=50 vs `git diff --stat` 的 52 / 3+4=7 vs 9 | **差 2/2 是 diff 对齐差异**（A→B 与 B→C 的 diff 不可加），不是漏改 |
+
+#### 交付物（全部在 `_tmp_session/agc-1024/t1/patch/`）
+
+| 文件 | 内容 | 校验 |
+|---|---|---|
+| `mission_baseline.diff` | 改前工作树 diff（**他人** hunk） | 63 行 / **+17 −3** / ``git diff`` 原样 |
+| `mission_pre_t1.py` | 改前全文快照 | sha256 `8a47e341…0c0abf` |
+| `mission_t1_patch.diff` | **本卡增量 A+B 定稿**（**+33 −4**；含 B 的 2 行 `_last_seg`） | `git apply --check --reverse` **通过** ⇒ 与工作树逐字一致 |
+| `test_mission_t1_patch.diff` | 本卡对 `test_mission.py` 的 **2 行**（15.10/15.11 改读 `_last_seg`） | `git apply --check --reverse` 通过 |
+| `test_mission_pre_t1.py` | `test_mission.py` 改前快照（生成增量用） | 与 `git show HEAD:` 一致 |
+| `mission_full_after.diff` | 改后完整 diff（他人 + 本卡） | 供 e-integ 逐行审 |
+| `history/` | 落地前的 A-only 增量与两份 optionB 候选（沿革留档） | 已 apply，仅备查 |
+
+#### 改动（严格按批：两半、可分开回退）
+
+| 半 | 位置 | 内容 |
+|---|---|---|
+| (a) | `mission.py:1540-1545` | 新增 `_drift_gate_m = float(cfg.get("pursuit.drift_warn_m", 0.30) or 0.30)`；**不新增配置键**（现场要临时关这层门就设 inf） |
+| (a) | `mission.py:3069-3075` | 门：`proj.dist > _drift_gate_m` ⇒ `path.project(x, y)`（无 hint = 全路线，与 `localization._heal_stuck` / tracker relock 同一 `Path.project` 语义），只有更贴线才采用 |
+| (b) | `mission.py:3080` | 删掉 `bb.update(P_ROUTE_INDEX=…, P_ROUTE_S=…)`：读侧只算不写 |
+| (B) | `mission.py:1706` + `3080` | **Lead 裁定的扩展 B**：段号留在**本地** `_last_seg = int(proj.seg_index)`，**仍不写黑板**——给遥测/测试一个"Mission 认为自己在第几段"的见证，替代被删掉的共享键回写 |
+| (B) | `test_mission.py:1844` / `1855`（共 2 行） | 15.10/15.11 的进度见证由 `bb.get(P_ROUTE_INDEX)` 改 `task._last_seg`；该文件原本干净，**只动这 2 行** |
+
+**未动**：`Path.project`、tracker.py、localization.py、FIRE 段、`config/**`、任何常量；
+授权写路径（`_reset_belief` → 段-1/s0.0、`_install_route` → 段0/s0.0 / keep_progress 快照）**原样保留**（G6 专门断言）。
+
+#### 测试（28 + 22）
+
+| 命令（v1 根） | 结果 |
+|---|---|
+| `python -B -X utf8 dzrobot_v2/src/dzbrain/tests/test_agc_t1_progress_contract.py` | **28/28** |
+| `python -B -X utf8 dzrobot_v2/src/dzbrain/tests/test_agc_t1_mission_gate_fix.py` | **22/22**（G1 F9 自愈 / G2 449-452-459 指纹 / G3 零写 / G4-G5 采纳 / G6 授权写 / G7 幂等） |
+| 40 套全量 A/B（同深度镜像树，同一套测试，只差补丁） | 未打补丁 **17 红** / 打补丁 **16 红**；**patched-only 红 = ∅**；唯一差异是本卡 contract 文件由红转绿 |
+| `test_mission.py`（A+B 落地后） | **229/246，17 失败**；与基线逐条 diff **完全相同**（`diff fails_unpatched.txt fails_now_AplusB.txt` 空输出 ⇒ 红集合一字不差） |
+
+复跑命令（v1 根，全部可直接跑）：
+
+    python -B -X utf8 dzrobot_v2/src/dzbrain/tests/test_agc_t1_progress_contract.py     # 28/28
+    python -B -X utf8 dzrobot_v2/src/dzbrain/tests/test_agc_t1_mission_gate_fix.py      # 22/22
+    python -B -X utf8 _tmp_session/agc-1024/t1/replay_full_ab.py --json .../replay_ab.json
+    python -B -X utf8 _tmp_session/agc-1024/t1/run_suite.py dzrobot_v2/src/dzbrain/tests out.txt
+    git -C dzrobot_v2 apply --check --reverse _tmp_session/agc-1024/t1/patch/mission_t1_patch.diff
+    cd dzrobot_v2 && python tools/wf/check.py        # 结果: GREEN（mission.py 已按本卡登记 in_flight）
+
+★ 28 条里有 6 条（1.2 / 1.4 / 2.5 / 3.2 / 3.3 / 并 7.1 的取值口径）原本断言的是"Mission 用旧 hint 把共享键改错"这一**缺陷行为**；
+补丁把回写删掉后它们必须改口径：现在断言「Mission 自己算出的值（**数值指纹一字未改**：2.483 / 2.18 / 2.13 / 2.10）+ 键不再被它覆盖」。
+修复后的语义由 G1/G2/G3 断言；"修复前"用 `Rig(legacy=True)`（`_drift_gate_m = inf`）仍可逐值复现。
+
+★ **既有的 `test_mission.py` 冲突：已由 Lead 裁决"要 B"并落地（以下留作归因证据）**：
+基线（未打补丁）`test_mission.py` = **229/246，17 红**（其中 15.2 / 15.11 / 15.14 是他人路线在途改动导致的**存量红**）；
+打本卡补丁 = **228/246，18 红**（**只多 15.10 这一条**）；补丁 + 可选扩展 B = **229/246，17 红，红集合与基线逐条相同**。
+实测变体 A（测试改读 `task._next_wp`）= 15.10 绿但 15.11/15.12 转红（`_next_wp` 与"段号"语义不等价）⇒ **不可用**。
+
+具体到那一条（**已按 B 落地**）：
+`test_mission.py:1847` 的 **15.10「只到一半 → 仍在 HOLD」** 断言 `rig5.bb.get(P_ROUTE_INDEX) > 0`——
+它拿**共享键**当"进度没被 HOLD 归零"的代理指标，而那个键在该 Rig 里**只有 Mission 会写**（`test_mission.Rig` 不含 Tracker/Localization）。
+补丁按批准口径删掉回写 ⇒ 键恒为 0 ⇒ 该断言会失效（**不是回归**：HOLD 期间进度确实没归零）。
+落地改法：`idx5 = rig5.task._last_seg`（`test_mission.py:1844`）+ 15.11 的 `rig5.task._last_seg == idx5`（:1855），共 2 行，其余未碰。
+落地后 `test_mission.py` = **229/246，红集合与未打补丁基线逐条相同**（`diff` 空输出）。
+车端三任务同构时 Localization 20 Hz 会持续写键，**现场不会出现键恒 0**（G5.3 已断言"下一拍就修回"）。
+
+#### 整段 7_path 回放对比（`_tmp_session/agc-1024/t1/replay_full_ab.py`）
+
+源：`_tmp_session/carloop-1024/reverse-fix/run2-mission.log`（即车上 `7_path` 节点日志，565 行 / 125 个 2 Hz 采样，N10/IDLE → A8/DRIVE）。
+驱动频率与车端一致（Tracker 50 Hz / Localization 20 Hz / Mission 10 Hz），**同一份代码只差 `_drift_gate_m`**。
+
+| 模式 | 到达 | 置位 | 键段跳变/回退/最大回退/大跳 | Mission s 回退(>5cm) | s 误差 均值/最大/超门限(0.30)拍数 |
+|---|---|---|---|---|---|
+| before（inf，修复前） | 17 | 18 | 19 / 0 / 0 / 1 | **5**（最深 −0.167） | **1.541 / 4.721 / 73 拍** |
+| after（0.30，补丁后） | **20** | 21 | 19 / 0 / 0 / 1 | **3**（最深 −0.167） | **0.256 / 1.611 / 21 拍** |
+
+- **零新跳变**：键段跳变序列**逐条相同**（19 次，事件列表完全一致）；停滞兜底跳点 before/after **都是 0**；越窗待定两边都是 `[]`。
+- **新增 3 个"判到达"**：`#7 H8`、`#15 D10`、`#18 B9`——车实际压过这三个格心，旧代码因 s 驻留在 2.4x 只能靠 0.12 m 的"距格心"碰运气，碰不到就**静默漏点**（这正是后段一连串"距格心"的来源）。
+- **8 条到达的判据变干净**：#11~#20 的到达**时刻完全相同**，只是 `why` 从"距格心"（几何兜底）变成"s+近路径"（主判据自己成立）。
+- **逐拍差异 52/125**，典型（t, before_s, after_s, 真值_s）：`(1016.0, 2.483, 4.402, 4.402)`、`(1018.4, 2.455, 4.759, 4.718)`、`(1022.6, 2.359, 6.7555, 6.527)`——旧值整段冻在 H10→H8 那条线上，新值与真值差 0~2 cm。
+- **after 残留的 21 拍超门限全部落在 t=1010.6~1014.6（H8 折返/倒车段）**，且 before 在这段的值与 after **逐位相同**（`diff_rows` 首条是 t=1014.8，此前 21 拍 |Δ|≤0.01 m 全部未入 diff）⇒ 门根本没参与：belief 位姿同时压在去程段与回程段上，**两段 dist 都 ≈0**，门判不出来。
+
+**T1b（登记，非本补丁引入）· 证据行号**
+| # | 证据 | 位置 |
+|---|---|---|
+| 1 | Mission 这层投影**不传 `motion_heading`**，共线折返只能靠 `s_hint` 裁决 | `mission.py:3072` `path.project(pose.x, pose.y, s_hint=self._last_s)` |
+| 2 | Tracker 传了 —— 它用"实测位移方向"断同一物理点落在去程还是回程 | `tracker.py:405-416`（`travel_heading` → `motion_heading=travel_heading`） |
+| 3 | 等距容差只有 1e-6 m²（=1 mm），H8 处两段真等距 ⇒ 只能由 hint/方向裁决 | `path.py:40,45`（`_TIE_D2_M2`）、`path.py:351`（`tie_tol = _TIE_D2_M2`） |
+| 4 | 现象：`proj.dist≈0` 两段都是 0 ⇒ 本卡几何可信门（`dist>0.30` 才重投影）**结构上不可能触发** | `mission.py:3069-3075` 门；`replay_ab.json` 的 `over_gate_after` 21 行 t 全在 1010.6~1014.6 |
+
+修法方向（不在本卡）：`_current_s` 复用 Tracker 的实测位移方向（`P_POSE` 相邻拍差分）作为 `motion_heading`，或改用 `s_min` 地板；两者都要单独验证倒车段`R:`与 PIVOT，故另开卡。
+
+#### 回滚点
+
+一个 commit 的 revert：**`mission.py` 补丁 + `test_mission.py` 2 行 + 两个新增测试 = 同一个 commit**。
+只 revert 补丁（留下新测试）会让 contract 文件 5 条红、gate_fix 文件自动 SUSPEND —— 前者是"契约被破坏"的正确信号，后者已做 `hasattr` 守卫。
+未提交前要单独撤：`git -C dzrobot_v2 apply --reverse <patch>/mission_t1_patch.diff` + `.../test_mission_t1_patch.diff`（只撤本卡，**保留**他人 +17/−3）。
+
+#### 未闭合（交 Lead 裁）
+
+1. ~~`test_mission.py:1847`（15.10）的代理指标要换~~ → **已由 Lead 裁决"要 B"并落地**（2 行，红集合与基线逐条相同）。
+2. **提交边界**：他人 +17/−3 hunk 不能进本卡 commit（`git commit --only` 仍会带整文件；需按 hunk 拆分，或等 CAR-GATE 先提交）。**暂存区实测为空（未 add），维持不动 —— Lead 裁决 ③。**
+3. 按 Lead 要求，本卡归档时把 §4A.2 的**写者-读者-复位点全表**提炼进 `docs/20_资料索引库/车端/`（可迁移的坑）。
+4. **T1b：挂起（Lead 裁决：现在别做）**。四条行号已收下，结论定为"H8 等距裁决的隐患在**数据层**（路线/几何），不在本卡的门里"；等 **M1 实跑**回来再定，届时 `_current_s` 补 `motion_heading` 或改 `s_min` 由那条线负责。
+5. **诊断串混源（挂起）**：`test_mission.py:1858` 的 15.11 **失败提示串**仍打印 `bb.get(P_ROUTE_INDEX)`（补丁后恒 0），会出现 `idx=0 vs 4` 的混源打印。**只影响失败时可读性，不影响判定**。Lead 裁决 ①：**不改**（保持 2 行最小 diff），等 CAR-GATE 收口后一起清。
+6. **K7 / K10 / K9 三处不一致**（车端现役默认格 K7、仓库测试期待 K10、另有一条期待 K9）：**不在本卡写域**，已由 Lead 转入 e-integ 的路线回归。
 
 ## 10 文档变更
 
 新增本卡；修改本 ns 任务树节点状态。新增 §4A 执行记录（本卡内）；新增契约测试 dzrobot_v2/src/dzbrain/tests/test_agc_t1_progress_contract.py（代码仓 tests，不计文档）；过程脚本在 _tmp_session/agc-1024/t1/（豁免区）。归档：无。
+
+**2026-10-24 补丁轮追加（含 Lead 裁决"要 B"后的二次落地、三条收口裁决）**：卡内新增 §4A.10（补丁交付/归属拼合证明/测试/回放/回滚/T1b+诊断串+三处不一致的挂起项）；新增回归测试 `dzrobot_v2/src/dzbrain/tests/test_agc_t1_mission_gate_fix.py`（代码仓 tests，不计文档）；新增过程件 `_tmp_session/agc-1024/t1/patch/`（4 份 diff/快照）、`replay_full_ab.py`、`run_suite.py`、`ab/`（同深度镜像树）。**资料库提炼（`20_资料索引库/车端/` 写者-读者-复位全表）按 Lead 要求留到归档时做**，本轮未写库。

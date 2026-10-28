@@ -43,7 +43,7 @@ status: 现行
 7. **【high】scan_pitch_offset_deg 三处不一致**：SCHEMA 默认 +6.0（config.py:383）、/dzrknn_dataprocess +10.0（robot.yaml:50）、/dzbrain.aim +10.0（robot.yaml:849），注释自相矛盾。
 8. **【high】Config.get 默认值分支缺陷**：缺键且调用方传了 default 时返回调用方默认而非 SCHEMA 默认；_schema_hits 一旦标记缺键，后续 override() 不再校验。
 9. **【medium】dzactuator 里程计除零无守护**：ticksPerMeter 默认 1000.0 与配置 3280.0 不一致，leftSpeed = Robot_Vel.Left / ticksPerMeter（dzactuator.cpp:1292）无零值保护。
-10. **【medium】三套地图口径并存**：config/map.yaml（第六张图，2026-10-17）、config/map_v3.yaml（第三次识图，2026-10-11）、文档「第七张图」（docs/20_资料索引库/历史/03:36）。
+10. **【medium】三套地图口径并存**：config/map.yaml（第六张图，2026-10-17）、config/map_v3.yaml（第三次识图，2026-10-11）、文档「第七张图」（docs/20_资料索引库/历史/03:36）。**2026-10-27 状态更新**：已按用户裁决收敛为「仓库不存现役地图、每局真图」——`config/map.yaml` 与 `config/map_v3.yaml`〔已删〕 均已移出工作树，第六/第四图快照归档于 `artifacts/maps/`。
 
 ### 0.3 证据约定
 

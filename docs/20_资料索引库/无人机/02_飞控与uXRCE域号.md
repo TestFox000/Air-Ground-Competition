@@ -1,5 +1,5 @@
 ---
-来源: dzsmartscout/docs/drone/uXRCE恢复手册.md, dzsmartscout/docs/drone/域号切换单_118.md, dzsmartscout/docs/drone/无人机架构总览.md, docs/交接_无人机飞行分析_agent技术文档.md, dzsmartscout/tools/reports/t4-链路验证报告.md
+来源: docs/history_cache/01_旧文档归档/dzsmartscout/docs/drone/uXRCE恢复手册.md, docs/history_cache/01_旧文档归档/dzsmartscout/docs/drone/域号切换单_118.md, docs/history_cache/01_旧文档归档/dzsmartscout/docs/drone/无人机架构总览.md, docs/history_cache/01_旧文档归档/docs/交接_无人机飞行分析_agent技术文档.md, dzsmartscout/tools/reports/t4-链路验证报告.md
 取证: 实/档
 更新: 2026-10-21
 取代: 无（原文仍为现场一手材料，本册为提炼 + 状态更新）

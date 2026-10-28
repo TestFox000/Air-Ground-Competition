@@ -1,5 +1,5 @@
 ---
-来源: 本角色通读的 docs/agent_handoff/*、AGENTS.md、dzrobot_v2/docs/发车门禁口径.md、_tmp_session 各卡证据
+来源: 本角色通读的 docs/agent_handoff/*、AGENTS.md、docs/history_cache/01_旧文档归档/dzrobot_v2/docs/发车门禁口径.md、_tmp_session 各卡证据
 取证: 实/档
 更新: 2026-10-21
 取代: 无（首版，供 Lead 合并进 00_项目总览/时间线.md 后删除）

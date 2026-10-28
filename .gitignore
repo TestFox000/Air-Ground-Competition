@@ -41,3 +41,10 @@ artifacts/agc-1024/car_snapshot/*
 
 # 2026-10-26 Lead：backup/ 存全仓 bundle（2.18 GiB），绝不能进 git（会打爆 push 与 clone）
 backup/
+
+# --- 本地内容仓（数据/快照不入库；dzrobot_v2 同理已忽略）---
+_archive/
+artifacts/
+git_save/
+backup/
+cache/

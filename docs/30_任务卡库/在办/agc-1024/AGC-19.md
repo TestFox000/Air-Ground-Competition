@@ -50,10 +50,10 @@ owner: p-aim；reviewer: lead。前置：AGC-2 ✔（F9 target=none 根因=3 字
 | # | 交付 | 路径 |
 |---|---|---|
 | ① | 一条 run 脚本（启动/采样/判定/一键回滚） | `_tmp_session/agc-1024/p1b/p1b_det8.sh`（543 行） + 本地入口 `p1b_car.sh` |
-| ② | 日志分流 | det_node：`/tmp/det_8field.out`（fd1）/ `/tmp/det_8field.err`（fd2）；camera：`/tmp/p1b_camera.out/.err`；采样：`/tmp/p1b_sample.json`、`/tmp/p1b_echo_once.txt`、`/tmp/p1b_hz.txt`；判定：`/tmp/p1b_verdict.txt` |
+| ② | 日志分流 | det_node：`/tmp/det_8field.out`（fd1）/ `/tmp/det_8field.err`（fd2）；camera：`/tmp/p1b_camera.out/.err`；采样：`/tmp/p1b_sample.json`、`/tmp/p1b_echo_once.txt`、`/tmp/p1b_hz.txt`；判定：`/tmp/p1b_verdict.txt` | 〔未入库：车端〕
 | ③ | dry-run 输出（只打印不执行） | `_tmp_session/agc-1024/p1b/dryrun-FINAL.txt`（54 行） |
 | ④ | 只读预检实测 | `_tmp_session/agc-1024/p1b/preflight-20261024_1802.txt`（13 PASS / 0 FAIL） |
-| ⑤ | 车端只读探针 | `probe12.sh`、`probe13.sh`（本目录） |
+| ⑤ | 车端只读探针 | `probe12.sh`、`probe13.sh`（本目录） | 〔未入库：车端〕
 
 **运行方式**
 
@@ -67,13 +67,13 @@ owner: p-aim；reviewer: lead。前置：AGC-2 ✔（F9 target=none 根因=3 字
 ### 4.1 dry-run 关键命令（原文，来自 dryrun-FINAL.txt）
 
     # P2 camera
-    setsid nohup bash -c 'source /opt/ros/humble/setup.bash; source /home/duzhong/dzrobot/install/setup.bash; export ROS_DOMAIN_ID=118; export RCUTILS_LOGGING_BUFFERED_STREAM=0; ros2 launch dzactuator camera.launch.py' > /tmp/p1b_camera.out 2> /tmp/p1b_camera.err < /dev/null & echo $! > /tmp/p1b_cam.pid
+    setsid nohup bash -c 'source /opt/ros/humble/setup.bash; source /home/duzhong/dzrobot/install/setup.bash; export ROS_DOMAIN_ID=118; export RCUTILS_LOGGING_BUFFERED_STREAM=0; ros2 launch dzactuator camera.launch.py' > /tmp/p1b_camera.out 2> /tmp/p1b_camera.err < /dev/null & echo $! > /tmp/p1b_cam.pid 〔未入库：车端〕
 
     # P3 det_node（8 字段，绝对路径 + 显式模型）
-    setsid nohup /home/duzhong/dzrobot/install/det_node/lib/det_node/det_node --ros-args --params-file /home/duzhong/dzrobot/config/robot.yaml -p model_path:=/home/duzhong/dzrobot/install/det_node/share/det_node/model/light_det.rknn -p draw:=false > /tmp/det_8field.out 2> /tmp/det_8field.err < /dev/null & echo $! > /tmp/p1b_det.pid
+    setsid nohup /home/duzhong/dzrobot/install/det_node/lib/det_node/det_node --ros-args --params-file /home/duzhong/dzrobot/config/robot.yaml -p model_path:=/home/duzhong/dzrobot/install/det_node/share/det_node/model/light_det.rknn -p draw:=false > /tmp/det_8field.out 2> /tmp/det_8field.err < /dev/null & echo $! > /tmp/p1b_det.pid 〔未入库：车端〕
 
     # P4 采样（只读订阅，不发布）
-    timeout 42 python3 /tmp/p1b_sampler.py --seconds 12 --json /tmp/p1b_sample.json
+    timeout 42 python3 /tmp/p1b_sampler.py --seconds 12 --json /tmp/p1b_sample.json 〔未入库：车端〕
 
     # P7 回滚
     kill -TERM -<DET_PGID>; kill -TERM -<CAM_PGID>
@@ -105,7 +105,7 @@ owner: p-aim；reviewer: lead。前置：AGC-2 ✔（F9 target=none 根因=3 字
 
 **过程中修掉的两个脚本级坑（真缺陷，不是环境问题）**
 
-1. `strings | grep -qx` 在 `set -o pipefail` 下**假 FAIL**：`grep -q` 命中即退出 → `strings` 吃 SIGPIPE(141) → pipeline 非零。已改为先落 `/tmp/p1b_strings.txt` 再 `grep -qx`（无管道）；修复前的失败输出留证 `preflight-BEFOREFIX_1757_pipefail-bug.txt`（13 项里 1 项 FAIL，其余全绿）。
+1. `strings | grep -qx` 在 `set -o pipefail` 下**假 FAIL**：`grep -q` 命中即退出 → `strings` 吃 SIGPIPE(141) → pipeline 非零。已改为先落 `/tmp/p1b_strings.txt` 再 `grep -qx`（无管道）；修复前的失败输出留证 `preflight-BEFOREFIX_1757_pipefail-bug.txt`（13 项里 1 项 FAIL，其余全绿）。 〔未入库：车端〕
 2. `c=$(grep -c ... || echo 0)` 在无匹配时输出**两行 0**（grep 打印 0 且退出 1，`|| echo 0` 又补一个）。已改为先取值、空则用 bash 参数默认值补 0。
 
 ### 4.3 本轮新增的车端事实（probe12/13，只读）
@@ -121,24 +121,24 @@ owner: p-aim；reviewer: lead。前置：AGC-2 ✔（F9 target=none 根因=3 字
 
 ### 4.4 **V6 基线拿到日志级铁证（更正前轮一处注记）**
 
-- `/home/duzhong/robot_logs/carloop_20261024_static/5_gimbal.log`：**1425 条**
+- `/home/duzhong/robot_logs/carloop_20261024_static/5_gimbal.log`：**1425 条** 〔未入库：车端〕
   `[WARN] [dzrknn_dataprocess]: offset_center 字段不足(3 < 5)，已丢弃该帧`，
   时间跨度 `1792824726.85`→`1792831870.05` = **14:52:06 → 16:51:10**（含 15:43 那趟 run2 窗口）；
   同一进程的 launch 捕获 `carloop_20261024_static/ros/dzactuator_node_620811_*.log` 另计 **1398 条**。
 - 该 WARN 是 `WARN_THROTTLE 5s`：1425 × 5 s = 7125 s ≈ 1.98 h，与文件跨度 1.98 h 吻合 ⇒ **整段连续丢弃**
   （条数不能换算帧数，只能证明「持续丢弃」）。
-- **更正**：AGC-P1 §4.8 与 P1B 方案 §2(c) 写的「`5_gimbal.log` 只接 fd1，`grep -c` = 0，日志级未捕获」
-  只对**顶层** `/home/duzhong/robot_logs/5_gimbal.log`（=0）成立；**per-run 复制件里有 stderr**，
+- **更正**：AGC-P1 §4.8 与 P1B 方案 §2(c) 写的「`5_gimbal.log` 只接 fd1，`grep -c` = 0，日志级未捕获」 〔未入库：车端〕
+  只对**顶层** `/home/duzhong/robot_logs/5_gimbal.log`（=0）成立；**per-run 复制件里有 stderr**， 〔未入库：车端〕
   字段丢弃早就有日志级证据。V6 判据据此收紧为「新日志 0 条新增」。
 
 ### 4.5 V1-V6 判定口径（脚本已实现；阶段一能判哪些）
 
 | # | 判据（脚本内） | 证据载体 | 阶段一可判？ |
 |---|---|---|---|
-| V1 | `data_lens` 含 `"8"` 且 `layout.size=8` | `/tmp/p1b_sample.json` + `/tmp/p1b_echo_once.txt` | **可判** |
-| V2 | `rate_hz` ∈ [18,32]（期望≈25）+ `ros2 topic hz` 第二路 | 同上 + `/tmp/p1b_hz.txt` | **可判** |
-| V3 | fd1 启动行逐字命中：模型=dzrobot 的 8.1 MB `light_det.rknn` + `线程=2` + `窗口=关` + `热加载=开`，并有 `已关闭识别画面窗口` | `/tmp/det_8field.out` | **可判** |
-| V5 | `cls` 直方图：1=蓝 2=红 0=无目标 | `/tmp/p1b_sample.json` | **仅当靶入画**；否则 INCONCLUSIVE（不许猜） |
+| V1 | `data_lens` 含 `"8"` 且 `layout.size=8` | `/tmp/p1b_sample.json` + `/tmp/p1b_echo_once.txt` | **可判** | 〔未入库：车端〕
+| V2 | `rate_hz` ∈ [18,32]（期望≈25）+ `ros2 topic hz` 第二路 | 同上 + `/tmp/p1b_hz.txt` | **可判** | 〔未入库：车端〕
+| V3 | 启动行逐字命中（在 **.err**；ROS 日志默认 stderr，见 §9.4）：模型=dzrobot 的 8.1 MB `light_det.rknn` + `线程=2` + `窗口=关` + `热加载=开`，并有 `已关闭识别画面窗口` | `/tmp/det_8field.out` | **可判** |
+| V5 | `cls` 直方图：1=蓝 2=红 0=无目标 | `/tmp/p1b_sample.json` | **仅当靶入画**；否则 INCONCLUSIVE（不许猜） | 〔未入库：车端〕
 | V6 | 生产者侧 `len_lt5 == 0`；消费端新增 `字段不足` **0 条** | sampler / `/tmp/det_8field.err` | 生产者侧可判；**消费端需 V4 阶段**（本阶段不起 dzrknn_dataprocess） |
 | V4 | 蓝靶入画 `/aim/status` 1→2 | `/aim/status` | **本阶段不判**（Lead 二次确认后另起整栈） |
 
@@ -162,7 +162,7 @@ owner: p-aim；reviewer: lead。前置：AGC-2 ✔（F9 target=none 根因=3 字
 | 解析到 dzrobot2（3 字段） | 绝对路径 + 预检断言 pkg prefix + V3 模型路径反查，三重 |
 | 模型被顺带换掉（9.9 MB） | 显式 `-p model_path` + sha256 校验 |
 | 双发布 | 起前断言无发布者/无残留；起后断言=1；无 systemd 看门狗 |
-| camera 抢 `/dev/video0` 失败（respawn 循环） | camera.launch.py 自带 respawn 2 s；失败时脚本打印 `/tmp/p1b_camera.err` 尾部 |
+| camera 抢 `/dev/video0` 失败（respawn 循环） | camera.launch.py 自带 respawn 2 s；失败时脚本打印 `/tmp/p1b_camera.err` 尾部 | 〔未入库：车端〕
 | 回滚不干净 | 按**进程组** TERM→KILL + 精确路径 pkill + pgrep/topic 双校验 |
 
 ## 7 结论（阶段一）
@@ -179,8 +179,72 @@ owner: p-aim；reviewer: lead。前置：AGC-2 ✔（F9 target=none 根因=3 字
 ## 8 相关文件
 
 - 脚本：`_tmp_session/agc-1024/p1b/p1b_det8.sh`、`p1b_car.sh`
-- 证据：`dryrun-FINAL.txt`、`preflight-20261024_1802.txt`、`probe12.sh`、`probe13.sh`
+- 证据：`dryrun-FINAL.txt`、`preflight-20261024_1802.txt`、`probe12.sh`、`probe13.sh` 〔未入库：车端〕
 - 前置：`_tmp_session/agc-1024/p1b/P1B_8字段恢复方案.md`、`car-probe-evidence.md`、`AGC-P1-TARGET-20261024.md §4.8`
+
+## 9 V4 阶段脚本（云台自瞄节点）· 2026-10-24 18:4x，Lead 追加
+
+Lead 指令：V4 要看消费端（dzrknn_dataprocess）的 stderr，先交脚本 + dry-run，GO 后再执行。**本脚本不碰已验证的 p1b_det8.sh。**
+
+| 项 | 内容 |
+|---|---|
+| 脚本 | `_tmp_session/agc-1024/p1b/p1b_stack.sh`（397 行；模式 dry-run/preflight/start/watch/judge/all/status/rollback；`start|all` 需 `--go`） |
+| 本地入口 | `p1b_stack_car.sh`（ssh 送脚本，车上不落地） |
+| 日志分流 | `/tmp/gimbal.out`（fd1）/ `/tmp/gimbal.err`（fd2）；采样 `/tmp/p1b_status.json`；判定 `/tmp/stack_verdict.txt` | 〔未入库：车端〕
+| dry-run 证据 | `_tmp_session/agc-1024/p1b/stack-dryrun-FINAL.txt`（46 行，18:41:46，车上零动作） | 〔未入库：车端〕
+| 预检实测 | `stack-preflight-1843.txt`：PASS=11 FAIL=2 WARN=1 —— 2 个 FAIL 正是「det 栈没起，先去跑 p1b_det8」的前置门，行为正确 | 〔未入库：车端〕
+
+### 9.1 三条必须写清的事实
+
+1. **同名可执行陷阱**：云台包 `dzrknn_dataprocess` 编出来的可执行文件叫 **`dzactuator_node`**（CMakeLists:91），与底盘包 `dzactuator` 的同名可执行撞名。
+   两者路径不同但基名相同 ⇒ 脚本一律用**绝对路径**启/杀，回滚时额外校验「底盘未被误杀」。
+   云台二进制实测：`/home/duzhong/dzrobot/install/dzrknn_dataprocess/lib/dzrknn_dataprocess/dzactuator_node`，1 802 776 B / md5 `5a7ad337…` / 10-24 14:40。
+2. **不出光的两道物理保险**（起前+起后各查一次）：①`dzjudgment` 未运行；②`/LaserShot_Command` 订阅者数 = 0 ⇒ C++ 即使发开火指令也无人接收。
+   **不动底盘**：底盘 `dzactuator` 未运行 ⇒ `/CameMo_Conl` 无人订阅，云台物理不转（`/aim/status` 仍会正常发布状态）。
+3. **V4-3（SCAN→TRACK）单起云台节点验不出来**：源码 `:47-50` 明确「纯 IDLE 忽略视觉」，TRACK 只能从 SCAN 进；而 `scan_request=2` 由 AimTask（Python dzbrain）发。
+   所以：本脚本阶段只判 **V4-1（链起来）+ V4-2（状态有输出）+ V6 消费端（stderr 0 条「字段不足」）**；V4-3 留整栈验。
+   为将来现场可测，脚本留了**默认关闭**的 `--allow-scan-request`（只发一条 `/nav/scan_request=2`，把"发指令"显式化、可审计）。
+
+### 9.2 判定口径
+
+| # | 判据 | 阶段 | 通过条件 |
+|---|---|---|---|
+| V4-1 | 云台链起来 | 本脚本 | fd1 有 `射击: 动态开火框 18~26px` 与 `自瞄: 状态机`，且 `/aim/status` 发布者=1 |
+| V4-2 | 状态有输出 | 本脚本 | `/aim/status` n>0，取值 ∈ {0,1,2}，附直方图与跳变序列 |
+| **V6 消费端** | **8 字段真修好的 C++ 侧证据** | 本脚本 | `/tmp/gimbal.err` 与 `.out` 里 `offset_center 字段不足` 计数 = 0/0（3 字段时代是每 5s 一条） |
+| V4-3 | SCAN→TRACK | 整栈 | 靶入画 + AimTask 发 scan_request，状态 1→2 |
+
+### 9.3 回滚
+
+只杀云台：进程组 TERM→KILL + `pkill -f '^<云台绝对路径>'`；**det 栈（camera+det_node）保持不动**；回滚后校验「云台零残留 / 底盘未被误杀 / det 栈仍在 / `/aim/status` 回到无发布者」。
+
+### 9.4 实跑复核（Lead 2026-10-24 18:5x）与两处真 bug 修复
+
+Lead 用本脚本实跑，结论 **V1/V2/V3 全 PASS**：`/offset_center` **size=8**、**24.78 Hz**、publisher=1；
+det_node 启动行 = 模型 8.1 MB / 线程=2 / 推理周期 33 ms(≈30 fps) / 窗口=关 / 热加载=开。
+同时抓到本脚本**两处真 bug**，均已修：
+
+| # | Bug | 现象 | 根因 | 修法 | 证据 |
+|---|---|---|---|---|---|
+| 1 | det_node 启动行**没 source ROS 环境** | `error while loading shared libraries: librclcpp.so` → 45 s 超时 FAIL | 绝对路径直启时进程没有 LD_LIBRARY_PATH/PYTHONPATH；camera 那行有 `bash -c '$ROSENV …'`，det_node 那行漏了 | 改为 `setsid nohup bash -lc '$ROSENV exec <bin> --ros-args …'`（source 后再 exec；setsid→nohup→bash→exec 同一 PID，进程组不变） | 只读探针 probe23：**未 source → ldd 缺 11 个库；修正后的形态 → 缺 0 个**（云台二进制同款：10 → 0） |
+| 2 | V3 判据 grep 错了流 | 健康运行也会判 V3 FAIL（启动行找不到） | **ROS 日志默认写 stderr**（fd2）；fd1 只有 RKNN SDK 的 `Loading model…` 与 std::cout | 启动等待与 V3 判据都改成 `grep -h … "$ERR" "$OUT"`（.err 优先） | Lead 留证 `/tmp/det_8field.out`=208 B（只有 SDK printf）、`/tmp/det_8field.err`=5 497 B（全部 [INFO] 行） |
+
+**同类修复也应用到 V4 脚本**（`p1b_stack.sh`）：启动行同样 `bash -lc + exec`；启动等待与 V4-1 判据改为在 `/tmp/gimbal.err` 里找（`射击: 动态开火框` / `自瞄: 状态机` 都是 RCLCPP_INFO）。
+
+**现场状态（Lead 交接时的实测，与我脚本的预期不同，记下来免得下次误判）**
+- det_node 已停，但 **`usb_cam_node_exe` 仍在跑**（pid 83 742，启动于 18:49:31）⇒ 下次 start 会被本脚本预检的"残留进程"闸挡住；
+  正确收尾是跑一条 `p1b_det8.sh rollback`（无 pid 文件时走兜底 pkill，会连 camera 一起清）。
+- 相机本身是通的（640×480 YUYV，能抓帧），但**镜头正对通信机柜**（"信息通信系"铭牌）⇒ 车不在场地。
+  所以 "F9 能不能看见靶" 今晚验不了，必须等车摆到场地、车头对靶板；V4-3（SCAN→TRACK）同理。
+- 遗留日志按 Lead 要求保留：`/tmp/det_8field.{out,err}`（本次不回滚删除）。
+
+**下次复跑（一条命令链）**
+
+    bash p1b_det8.sh preflight          # 先看残留：若报 usb_cam → 先 rollback
+    bash p1b_det8.sh rollback           # 清掉 Lead 手工留的 camera
+    bash p1b_det8.sh all 12 --go        # 起 camera+det_node → 采样 12s → V1/V2/V3 判定
+    bash p1b_stack.sh all --go 15       # （可选，V4 阶段）起云台 → 判 V4-1/V4-2/V6 消费端
+    bash p1b_det8.sh rollback; bash p1b_stack.sh rollback   # 收尾
 
 ## 10 文档变更
 

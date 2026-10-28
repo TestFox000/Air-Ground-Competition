@@ -108,6 +108,39 @@ except ImportError:                    # ROS2 没有 tf2_ros.transformations（A
 | R2 | **CMakeLists 的 install(PROGRAMS) 没列 `tf_compat.py`** ⇒ `colcon build` 后 `lib/FAST_LIO_LOCALIZATION_ROS2/` 里没有它，节点运行期 `import tf_compat` 仍会失败 | 部署后依旧起不来 | 部署窗口在 `CMakeLists.txt` 的 install(PROGRAMS) 里加一行 `scripts/tf_compat.py`（不在本卡写域） |
 | R3 | 另有两条**同因未修**的脚本：`global_localization.py`（裸 `import tf_transformations` 无兜底）、`publish_initial_pose.py`（还用 `quaternion_from_euler`） | 它们仍会 import 即死；但按本卡边界不碰 | 需要时另立卡：给 `tf_compat` 补 `quaternion_from_euler` 或让两脚本同样回退到 shim |
 
+## 7-1 补丁包落盘（2026-10-24 18:3x · Lead 裁决①）
+
+因为 FAST_LIO 目录在本仓是**未初始化子模块**（父仓只有 gitlink，`git add` 报 "is in submodule"），
+按 Lead 裁决改为本仓既有形态的补丁包（编号顺延：02 已被 `02-px4-path-config` 占用 → 用 **07**）：
+
+```
+dzsmartscout/fc-audit/fixes/07-tfcompat/
+├── README.txt                                        # 纯文本（不建 .md，避免 R1）
+├── apply.sh                                          # 应用 / --rollback；bash -n 通过
+└── files/dzpx4/src/FAST_LIO_LOCALIZATION_ROS2/        # 目标机路径镜像（机端 ~/dzpx4/src/...）
+    ├── CMakeLists.txt                                # install(PROGRAMS) + scripts/tf_compat.py
+    └── scripts/
+        ├── tf_compat.py
+        └── transform_fusion.py
+```
+
+`apply.sh` 做的事：备份被覆盖的原文件到 `<DEST>/.tfcompat-backup-<时间戳>/` → 拷贝三件 →
+四项校验（`import tf_compat` 成功 / 兜底串在位 / **旧兜底已清除** / CMake 已列 `tf_compat.py`）→
+打印后续手动步骤（`colcon build --packages-select fast_lio_localization` 与 `ros2 topic hz /localization`）；
+`--rollback` 从最近一次备份还原两个原文件并删掉新增的 `tf_compat.py`。
+
+**实测（在临时 DEST 上用"改动前原件"跑通全流程，不碰机端）**：
+
+| 步骤 | 结果 |
+|---|---|
+| `bash -n apply.sh` | exit 0 |
+| apply（目标为改动前原件） | exit 0；四项校验全过（`import tf_compat OK: 4 functions` / 兜底在位 / 旧兜底 0 处 / CMake 列上） |
+| 备份一致性 | `cmp` 备份的 `transform_fusion.py`、`CMakeLists.txt` 与原件**逐字节相同** |
+| rollback | exit 0；两个文件**逐字节还原**、新增的 `tf_compat.py` 已删除 |
+| 镜像一致性 | `files/` 三件与工作区 `dzsmartscout/src/FAST_LIO_LOCALIZATION_ROS2/` 同路径文件 sha256 全等 |
+
+**注意（部署前置）**：`apply.sh` 只改源文件，不替你 `colcon build`、不重启节点；机上仍需现场窗口。
+
 ## 8 边界声明
 
 不连无人机、不部署机端、不改 `config`/launch、不碰 FAST_LIO 其它源码；本次只改上表三个文件。

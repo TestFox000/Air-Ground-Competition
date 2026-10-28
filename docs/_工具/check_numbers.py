@@ -537,27 +537,36 @@ def main(argv: list[str] | None = None) -> int:
         # ---- 文档异文 ----
         doc_value = item.get("文档值")
         if doc_value is not None:
-            loc = parse_loc(item.get("文档值出处") or "")
             token = fmt_num(float(doc_value))
             declared = str(item.get("异文说明") or "").strip()  # 有意并列的口径冲突
-            if loc is None:
-                warns.append(("doc_unsourced", eid, f"填了 文档值={token} 但没填 文档值出处", None))
+            # 2026-10-27 增：文档值 == 代码现值 ⇒ 根本没有异文，是冗余声明。
+            # 起因：cruise_speed_mps 的 文档值 0.15 在文档行改成 0.35 之后仍挂着，
+            # 靠正文里另一处 0.15 把「异文仍存」判绿，再用 异文说明 放行 ——
+            # 等于用一句说明把已经修好的漂移继续留在账上。凡此类一律要求删声明。
+            if value is not None and abs(float(doc_value) - float(value)) < 1e-9:
+                warns.append(("doc_redundant", eid,
+                              f"文档值 {token} 与代码现值相同 ⇒ 无真实异文，应删掉 文档值/文档值出处/异文说明",
+                              None))
             else:
-                dp = (root / loc[0]).resolve()
-                if not dp.exists():
-                    fails.append(f"{eid}: 文档值出处文件不存在 —— {loc[0]}")
+                loc = parse_loc(item.get("文档值出处") or "")
+                if loc is None:
+                    warns.append(("doc_unsourced", eid, f"填了 文档值={token} 但没填 文档值出处", None))
                 else:
-                    dlines = read_text(dp).splitlines()
-                    still = 1 <= loc[1] <= len(dlines) and token in dlines[loc[1] - 1]
-                    now = fmt_num(float(value)) if value is not None else "待核"
-                    if still:
-                        note = f"异文仍存 —— 文档 {loc[0]}:{loc[1]} 记 {token}，代码现值 {now}"
-                        if declared:
-                            note += f"（已声明并列：{declared}）"
-                        warns.append(("doc_conflict", eid, note, None))
+                    dp = (root / loc[0]).resolve()
+                    if not dp.exists():
+                        fails.append(f"{eid}: 文档值出处文件不存在 —— {loc[0]}")
                     else:
-                        warns.append(("doc_gone", eid,
-                                      f"异文已消失（可清理文档值）—— {loc[0]}:{loc[1]} 已无 {token}", None))
+                        dlines = read_text(dp).splitlines()
+                        still = 1 <= loc[1] <= len(dlines) and token in dlines[loc[1] - 1]
+                        now = fmt_num(float(value)) if value is not None else "待核"
+                        if still:
+                            note = f"异文仍存 —— 文档 {loc[0]}:{loc[1]} 记 {token}，代码现值 {now}"
+                            if declared:
+                                note += f"（已声明并列：{declared}）"
+                            warns.append(("doc_conflict", eid, note, None))
+                        else:
+                            warns.append(("doc_gone", eid,
+                                          f"异文已消失（可清理文档值）—— {loc[0]}:{loc[1]} 已无 {token}", None))
 
         # ---- 重算 ----
         if check == "manual":

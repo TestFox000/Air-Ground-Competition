@@ -173,7 +173,7 @@ owner: 待指派
 ### P2-3 包内长期文档提炼入库 · 约 40 分钟（动文档库，需 Lead 排期）
 
 - **做什么**：包里三份长期文档现在躺在 `_tmp_session`（豁免区，§8.1 违规风险；桌面另有 zip 原件）。按 §8.2 三步处理：
-  - `CONTRACT.md`（62 键清单、`--json` 契约、HTTP 语义、`_pinnedCommit` 版本钉扎）+ `OPTIMIZATION.md` + `CHANGELOG-20261024.md` → **提炼为一篇** `docs/20_资料索引库/空地链路/05_仿真台契约与版本钉扎_20261024.md`（`status: 现行`，front matter 写「来源: sim_studio 移交包三篇 + 本卡实测 F-1~F-15」）；
+  - `_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/CONTRACT.md`（62 键清单、`--json` 契约、HTTP 语义、`_pinnedCommit` 版本钉扎）+ `OPTIMIZATION.md` + `CHANGELOG-20261024.md` → **提炼为一篇** `docs/20_资料索引库/空地链路/06_仿真台契约与版本钉扎_20261024.md`（`status: 现行`，front matter 写「来源: sim_studio 移交包三篇 + 本卡实测 F-1~F-15」）；
   - 在 `空地链路/00_索引.md` §1 加一行（标题 / 一句话结论 / 关键数字 / 来源），TL;DR 补「仿真台 = 界面+编排层在插件、内核在 `dzrobot_v2`；两代 API 前缀并存」；
   - 跑 `python docs/_工具/gen_index.py --ns lead-1023`（**只用 `--ns`**，§9.8：全量重扫会把别人未入库的文档卷进索引）；`20_资料索引库/README.md` 的「应为 N 篇」同步（R6）。
   - 原文留 `_tmp_session/.../sim_studio/`（过程稿），库内写「原文位置」。
@@ -273,7 +273,7 @@ cd dzrobot_v2 && python tools/wf/check.py
 
 ## 10 文档变更（§8.8 预告 · 收口时按实填）
 
-- **新增**：`docs/20_资料索引库/空地链路/05_仿真台契约与版本钉扎_20261024.md`（P2-3）。
+- **新增**：`docs/20_资料索引库/空地链路/06_仿真台契约与版本钉扎_20261024.md`（P2-3）。
 - **新增**：`docs/10_agent提示词/04_场景/仿真台优化执行_20261024.md`（本卡的**派发形态**，10-24 用户指令「把任务卡写成提示词」）——同步登记 `10_agent提示词/00_索引.md`（+1 行、计数 22→23）与 `README.md`（决策树 + 文件表，并补上此前漏登记的「空地二进制适配器_启动」）；正文 §2 为整段可复制提示词，§1/§5 为发送前确认与收口验收。
 - **修改**：`dzrobot_v2/docs/能力索引.md`（+2 条能力行，P2-2）；`docs/20_资料索引库/空地链路/00_索引.md`（§1 加行 + TL;DR 补一句）；`docs/20_资料索引库/README.md`（R6 篇数）；`归档/tools-1022/2026-10-23_TOOLS-PLUGIN-TERMGATE-20261023.md`（加「路径已迁」一行，需该 ns owner 同意）；插件 `D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/README.md`（367 行版，补「diff 一律 `--ignore-all-space`」与两代 API 前缀说明）。
 - **重跑**：`gen_index.py --ns lead-1023` → `目录索引.md/json`（自动生成，勿手改）。
@@ -283,8 +283,38 @@ cd dzrobot_v2 && python tools/wf/check.py
 
 ## 附：本卡证据位置
 
-- 解压包：`_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/`（含 `CONTRACT.md` / `OPTIMIZATION.md` / `CHANGELOG-20261024.md` / `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/scripts/fixtures/`）
+- 解压包：`_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/`（含 `_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/CONTRACT.md` / `OPTIMIZATION.md` / `CHANGELOG-20261024.md` / `D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/scripts/fixtures/`）
 - 独立宿主对照：`_tmp_session/SIM-STUDIO-MERGE-20261024/baseline_host/`
 - 真跑产物与截图：`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/…/resp.json`、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/shot_top.png`、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/shot_modal_tall.png`、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/shot_compare_tall.png`
 - 包测试逐项日志（20 套）：`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/…/tests.log`
-- 本卡新增实测输出：`_tmp_session/m_6th_tour.txt`、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/m_6th_tracker-safe.txt`、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/m_5th_tour.txt`、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/m_5th_tracker-safe.txt`、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/plan_tour.txt`、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/plan_tracker-safe.txt`
+- 本卡新增实测输出：`_tmp_session/m_6th_tour.txt`
+
+## 11 2026-10-29 用户裁决（五问全答）与执行排程
+
+| # | 问题 | 裁决 |
+|---|---|---|
+| 1 | 离线规划闸门 (a)/(b)/(c) | **(b)** —— 给 tour 补第二停站搜索。**属冻结区 `route/planner.py»，必须走 `tools/wf/frozen.json» in_flight 登记 + 解冻日期**，不走绕行口径 |
+| 2 | 插件入不入 git / 哪个仓 | **入，归属「空地协同」的一部分**。落地：`dsh_plugin/» 外层建仓 `772fe0b»；`dsh-dzairground-ssh/» **已有独立仓**（`92ee1a1»，10-25），外层排除、不重复跟踪 |
+| 3 | `latestIntel» 若写侧不可达 | **接受**降级为「恒 `none»·链路未验证」 |
+| 4 | 桌面 zip（第 4 副本） | **允许当参考实现直接改** |
+| 5 | `check-divergence.mjs» 纳入常规守卫 | **要** |
+
+### 11.1 排程（Lead 定；写域不重叠）
+
+- **A（plugin-core，串行一条线）**：P0-2 单一根解析器 → P0-3 JSON 契约 → P2-1 行尾治理 → P1-2 情报写侧取证。
+  四项共用 `src/simbench.js» / `stressbench.js» / `dronesim.js»，**必须同一人按序做，不许拆给两人**。
+- **B（docs，可与 A 并行）**：P2-3 三篇契约提炼入库 + P2-2 ①③（`能力索引.md» + `check-divergence.mjs» 扩扫）。
+- **串行待办（Lead 后续）**：P1-1(b)（冻结区，独立轮次）；P1-3 产物裁剪（先出 dry-run 清单再动）。
+
+### 11.2 P0-1 实测更正（推翻本卡 §0-1 的「零版本控制」）
+
+`D:/User/Desktop/ZhiYuan/dsh_plugin/dsh-dzairground-ssh/.git» **已存在**：基线 `92ee1a1»（2026-10-25 09:30），
+117 文件跟踪；当前 4 文件在途未提交（`float.html»/`index.js»/`src/files.js»/`src/ssh.js»，属 SSH/VNC 线他人写域，**本轮不碰**）。
+外层 `dsh_plugin/» 本轮建仓 `772fe0b»（`_backup»/`_archive»/`_tmp»/`_verify» 已忽略），并排除该子目录以避免 gitlink。
+
+### 11.3 已知前置缺陷（执行者必看）
+
+`node admin.mjs verify» **当前 2 通过 / 1 失败**（`dsh-dzairground-ssh» 文件数 **272 ≠ 基线 116**），
+**早于本轮存在**，非本卡引入。P0-2/P0-3 收口判据为「**FAIL 集合不扩大**」，**不许**用
+`verify --update-baseline» 把它洗白。
+、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/m_6th_tracker-safe.txt`、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/m_5th_tour.txt`、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/m_5th_tracker-safe.txt`、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/plan_tour.txt`、`D:/User/Desktop/比赛存档/v1/_tmp_session/SIM-STUDIO-MERGE-20261024/plan_tracker-safe.txt`

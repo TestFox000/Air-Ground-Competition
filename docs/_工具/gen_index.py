@@ -187,17 +187,20 @@ def main():
         else:
             _st = {"现行": "**现行**"}.get(_raw_st, _raw_st)
         _st = _st.replace("|", "/")
+        # 更新 只取前 10 位日期：卡面习惯写成「2026-10-24（18:0x 阶段一…）」，整串进表格会把「最近更新」排序和列宽一起带歪
+        _upd_cell = (r["updated"] or "")[:10] or "—"
         out.append("| [" + r["title"].replace("|", "/") + "](" + r["path"].replace(" ", "%20") + ") | " +
                    (r["summary"] or "—").replace("|", "/") + " | " + _st + " | " + (r["level"] or "—") + " | " +
-                   (r["updated"] or "—") + " | " + str(r["lines"]) + " |")
+                   _upd_cell + " | " + str(r["lines"]) + " |")
     out.append("")
     out.append("## 最近更新 20 篇")
     out.append("")
     out.append("| 更新 | 文件 | 一句话 |")
     out.append("|---|---|---|")
-    recent = sorted([x for x in rows if x["updated"]], key=lambda x: x["updated"], reverse=True)[:20]
+    recent = sorted([x for x in rows if x["updated"]],
+                    key=lambda x: x["updated"][:10], reverse=True)[:20]
     for r in recent:
-        out.append("| " + r["updated"] + " | [" + r["title"].replace("|", "/") + "](" +
+        out.append("| " + r["updated"][:10] + " | [" + r["title"].replace("|", "/") + "](" +
                    r["path"].replace(" ", "%20") + ") | " + (r["summary"] or "—").replace("|", "/") + " |")
     out.append("")
 

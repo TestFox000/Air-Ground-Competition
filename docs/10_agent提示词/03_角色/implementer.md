@@ -1,5 +1,5 @@
 ---
-来源: docs/agent_handoff/33_循迹R0复核与R1任务.md §3, _tmp_session/TRACK-R1-20261020-01/CARD.md, _tmp_session/TRACK-R1-20261020-01/REPORT.md §6.2, docs/agent_handoff/37_论文方案取舍与三包集成.md §2
+来源: docs/history_cache/01_旧文档归档/docs/agent_handoff/33_循迹R0复核与R1任务.md §3, _tmp_session/TRACK-R1-20261020-01/CARD.md, _tmp_session/TRACK-R1-20261020-01/REPORT.md §6.2, docs/history_cache/01_旧文档归档/docs/agent_handoff/37_论文方案取舍与三包集成.md §2
 取证: 实/档
 更新: 2026-10-21
 取代: 无（首版）

@@ -1,7 +1,7 @@
 ---
 来源: 本次代码级技术审计（2026-10-23，子智能体 link-doc）
 取证: 实
-更新: 2026-10-23
+更新: 2026-10-27
 status: 现行
 ---
 
@@ -10,7 +10,7 @@ status: 现行
 > 任务卡：task-E（空地链路与工程设施）。审计人：link-doc（子智能体）。
 > 工作区根：D:/User/Desktop/比赛存档/v1。
 > 纪律：**只读代码**，未修改任何源码/配置/测试；唯一写入目标为本文档。
-> 覆盖面：① 空地链路端到端（/nav/waypoint RELIABLE、/dzlink/* BEST_EFFORT、StepLoop 状态机、布局版本与过期、心跳/情报超时、桥洞窗口、D1/D1b/D2/D3）；② 工程设施（wf 门禁、部署唯一入口、aim_autotune、dzmem、dsh-plugin-*、.zhiyuan、V2.0、git_save、CI/门禁命令）。
+> 覆盖面：① 空地链路端到端（/nav/waypoint RELIABLE、/dzlink/* BEST_EFFORT、StepLoop 状态机、布局版本与过期、心跳/情报超时、桥洞窗口、D1/D1b/D2/D3）；② 工程设施（wf 门禁、部署唯一入口、aim_autotune、dzmem、dsh-plugin-*、.zhiyuan〔已清理 2026-10-27〕、V2.0、git_save、CI/门禁命令）。
 > 既有文章（docs/20_资料索引库/空地链路/00~03）只引用、不重复展开 scout 内部细节；与代码冲突处以代码为准并并列写 A/B 版。
 
 ---
@@ -79,7 +79,7 @@ status: 现行
 | `tools/`（根级） | 根级工具（aim_autotune、pack_handoff） | 799 行 | §2.7.4 |
 | `memory/` | dzmem 本地长期记忆（SQLite） | 262+60+73 行 | §2.7.5 |
 | `dsh_plugin/`（D:/User/Desktop/ZhiYuan/dsh_plugin） | DSH 插件唯一存放处 + admin.mjs | admin 1397 行 | §2.7.6 |
-| `.zhiyuan/` | 纸鸢心跳守护 v2 + 双保险 | 99+60 行 | §2.7.7 |
+| `.zhiyuan/`〔已清理 2026-10-27〕 | 纸鸢心跳守护 v2 + 双保险 | 99+60 行 | §2.7.7 |
 | `V2.0/` | 独立 git 仓（仅 .git + .gitattributes） | 1 文件 | §2.7.8 |
 | `git_save/` | V1 大项目版本存档（20 个文件夹） | README 47 行 | §2.7.9 |
 | `dzrobot_v2/config/robot.yaml` | 车端统一配置（唯一改参数处） | 968 行 | §5 |
@@ -122,7 +122,7 @@ status: 现行
 | 云台 PID 整定 | `tools/aim_autotune/autotune_pid.py` | id/sweep/verify/report 三步 | `autotune_pid.py:1-33` |
 | 本地记忆 | `memory/dzmem.py` | 单文件 SQLite，12 子命令 | `dzmem.py:1-258` |
 | DSH 插件管理 | `D:/User/Desktop/ZhiYuan/dsh_plugin/admin.mjs` | 唯一生命周期管理器（1397 行） | `dsh_plugin/README.md:8-18` |
-| 纸鸢守护 | `.zhiyuan/watchdog.ps1` + `poll.ps1` | 5min/30min 双层看门狗 | `watchdog.ps1:1-99`、`poll.ps1:1-60` |
+| 纸鸢守护〔已清理 2026-10-27〕 | 原 `.zhiyuan/` 下 `watchdog.ps1` + `poll.ps1` | 5min/30min 双层看门狗 | 归档 `artifacts/zhiyuan_retired_20261027.tar.gz` |
 | 版本存档 | `git_save/<v>/` | 20 个版本归档 | `git_save/README.md:1-47` |
 | 交接打包 | `tools/pack_handoff.py` | L0/L1/L2 三级交接包 | `pack_handoff.py:1-260` |
 
@@ -613,7 +613,9 @@ QoS 常量定义：`QOS_EVENT = QosSpec(depth=10, reliability="reliable")`、`QO
 
 `admin.mjs`（1397 行）：唯一生命周期管理器，命令 `list / verify / enable / disable / remove / install / repair`（`README.md:10-17`）。`verify` 是门禁（6 通过 0 失败才继续）。生效条件：改插件文件后 **Host 半身要重启 DSH** 才换（`README.md:60`）。
 
-#### 2.7.7 `.zhiyuan` 纸鸢守护
+#### 2.7.7 `.zhiyuan` 纸鸢守护〔已清理 2026-10-27〕
+
+> 目录与两个任务计划已于 2026-10-27 按用户决定清理，归档 `artifacts/zhiyuan_retired_20261027.tar.gz`；下方为当时的实际实现记录，作重建参考。
 
 **`watchdog.ps1`（99 行）**：主守护，每 5 分钟执行。职责：检测 DSH 会话假死/崩溃，假死时重装目标并发送"继续"唤醒；进程死了重启应用。三步：
 
@@ -1006,7 +1008,7 @@ QoS 常量定义：`QOS_EVENT = QosSpec(depth=10, reliability="reliable")`、`QO
 | `cmd_probe/cmd_backup/cmd_push/cmd_build/cmd_verify` | deploy_to_car.py:333,344,357,389,405 | 六个子命令 |
 | `main` | deploy_to_car.py:424 | 入口 |
 
-**`tools/aim_autotune/` + `tools/pack_handoff.py` + `memory/dzmem.py` + `.zhiyuan`**
+**`tools/aim_autotune/` + `tools/pack_handoff.py` + `memory/dzmem.py` + `.zhiyuan`〔已清理 2026-10-27〕**
 
 | 函数/类 | 位置 | 一句话 |
 |---|---|---|
@@ -1343,7 +1345,7 @@ QoS 常量定义：`QOS_EVENT = QosSpec(depth=10, reliability="reliable")`、`QO
 | `aim.red_early_leave_s` | 3.0 | 锁定红面持续秒数 → 提前离站 | `robot.yaml:819` |
 | `aim.lead_time_s` | 0.27 | 提前量（2026-10-18 实车回标） | `robot.yaml:833` |
 | `aim.fire_policy` | moving_lead | 开火策略 | `robot.yaml:834` |
-| `aim.px_per_m_rail` | 140.0 | 轨道 px/m（标定值） | `robot.yaml:842` |
+| `aim.px_per_m_rail` | 140.0 | 轨道 px/m（**配置估值，未标定**：yaml 注释自述「只是估值」，从未现场标定） | `robot.yaml:852` |
 | `aim.max_shots_total / per_target` | 10 / 10 | 弹药硬上限 | `robot.yaml:843-846` |
 | `aim.shot_cooldown_ms` | 500 | 射击冷却 | `robot.yaml:847` |
 | `aim.lost_frames_to_rescan` | 60 | 丢靶重扫帧数 | `robot.yaml:848` |
@@ -1393,7 +1395,7 @@ QoS 常量定义：`QOS_EVENT = QosSpec(depth=10, reliability="reliable")`、`QO
 | 9 | `docs/20_资料索引库/车端/05_配置与部署.md` | grep 无 `dzlink/car_state/SEGMENT_DONE` 命中，未读全文 | 与部署/配置主题交叉核对 |
 | 10 | 机侧 dzlink 测试"70 项"vs 实测 81+24 | README 写 70 项，`grep -c "def test_"` 得 81（supervisor）+24（sender） | 统计口径不同（含/不含参数化），需确认 |
 | 11 | `config/robot.yaml` 中 `step.layout_ttl_s` / `step.done_replay_s` / `step.odom_watch_s` 是否显式写出 | 只看到 `step.wait_timeout_s`（`robot.yaml:732`）；其余走代码默认 | 现场是否已显式配置需查车端 robot.yaml |
-| 12 | `git_save/` 各版本是否含 `.zhiyuan/` 与 `dsh-plugin` | 只抽查了 v1.1.0/v2.1.0 的 `dsh-plugin-dzrobot-ssh` 存在 | 全版本盘点 |
+| 12 | `git_save/` 各版本是否含 `.zhiyuan/` 与 `dsh-plugin`（`.zhiyuan` 已于 2026-10-27 清理，此条改为查 `git_save` 内是否留有旧副本） | 只抽查了 v1.1.0/v2.1.0 的 `dsh-plugin-dzrobot-ssh` 存在 | 全版本盘点 |
 | 13 | `dzsmartscout/tools/link/README.md:12` 的"70 个单测" | 同 #10 | 同 #10 |
 | 14 | `docs/20_资料索引库/空地链路/02` 引用的 `_tmp_session/t3/...` 原始文件 | 未逐一核对其存在性（本次只读代码，未深入 `_tmp_session`） | 若要复核 NO-GO 原文需补 |
 
@@ -1457,11 +1459,11 @@ QoS 常量定义：`QOS_EVENT = QosSpec(depth=10, reliability="reliable")`、`QO
 
 ## §2 附录 A：前置真源（地图 / 域号 / 环境）
 
-### A.1 地图真源 `config/map.yaml`（41 行）
+### A.1 场地要素（原 `config/map.yaml` 41 行 → 归档 `artifacts/maps/sixth_20261017_map.yaml` 43 行）
 
-地图要素与 robot.yaml **分开存放**：ROS params 文件顶层只允许 `<节点名>: ros__parameters:` 结构，多一个顶层键会让 `--params-file` 解析失败，相机/视觉/云台三节点同时 abort（`map.yaml:1-5`）。
+地图要素与 robot.yaml **分开存放**：ROS params 文件顶层只允许 `<节点名>: ros__parameters:` 结构，多一个顶层键会让 `--params-file` 解析失败，相机/视觉/云台三节点同时 abort（归档文件顶部说明注释）。
 
-文件字段（`map.yaml:24-41`）：
+文件字段（`map:` 段，即归档文件第 26~43 行）：
 
 | 字段 | 当前值（第六图） | 语义 |
 |---|---|---|

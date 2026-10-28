@@ -194,6 +194,18 @@ def main():
             yellow.append(("Y1", rel, "缺 front matter status（现行/计划/历史/过程）"))
         elif in_scope and st not in life.get("statuses", []) and life.get("require_status", False):
             red.append(("R3", rel, "status 取值非法：" + st))
+        # R11（2026-10-27 增）：只要写了 status，就必须是合法取值——不受 require_status 开关、也不受 status_scope 限制。
+        # 起因实测：树模板把整句说明写进 status（"现行  # 唯一正本……"），30 库不在 status_scope 内、
+        # require_status 又是 false，两道闸都不管，于是守卫全绿，而 目录索引.md 的「状态」列被渲染成一整句话。
+        # 另：更新 值必须以 YYYY-MM-DD 开头（允许尾随括注），否则 目录索引 的日期排序与「最近更新」失真。
+        _cs = cfg.get("card_status", {})
+        _valid_st = (set(life.get("statuses", [])) | set(_cs.get("in_progress_values", []))
+                     | {_cs.get("archived_value", "已归档")})
+        if st and st not in _valid_st:
+            red.append(("R11", rel, "status 取值非法（只能一个词，说明写正文）：" + st))
+        _upd = fm.get("更新", "")
+        if _upd and not re.match(r"^\d{4}-\d{2}-\d{2}", _upd):
+            yellow.append(("Y11", rel, "更新 不以 YYYY-MM-DD 开头，索引排序会失真：" + _upd))
         if in_scope and st == "现行" and fm.get("更新"):
             try:
                 d = datetime.strptime(fm["更新"][:10], "%Y-%m-%d").date()
@@ -386,6 +398,67 @@ def main():
                            "过程区死链 %d 条（key 基线尚未启用：跑 --write-tmprefs-baseline 固化后新增才判红）"
                            % len(dead_pairs)))
 
+    # R12 front matter「原文路径」可达性（2026-10-27 增）
+    # 起因：10-21 文档收口把 dzrobot_v2/docs、dzsmartscout/docs、根 docs/ 的旧文整体搬进
+    # docs/history_cache/，但 60 篇库内文档的 来源: / 取代: 仍写着**迁移前**的路径。
+    # 后果：读者想追溯原始材料，照 front matter 抄路径一律找不到 —— 实测 151 条里 101 条可解析
+    # （同一 basename 就在 history_cache 里）、8 条全库无副本、其余是通配/伪匹配。
+    # 判据：库内文档 front matter 的 来源/取代 里出现的路径必须指向**现存**文件；
+    # 行尾标〔档〕/〔证失效〕= 已声明无副本，豁免。存量进 fm_paths_baseline.json，只减不增。
+    fp = cfg.get("fm_paths", {})
+    if fp.get("enabled", True):
+        fp_path = os.path.join(HERE, fp.get("baseline_file", "fm_paths_baseline.json"))
+        _fm_re = re.compile(r"((?:dzsmartscout|dzrobot_v2|docs)/[^\s、，,；;（）()|" + chr(96) + r"]+?\.(?:md|yaml|json))")
+        dead_fm = set()
+        for rel in buckets["doc"]:
+            try:
+                with open(os.path.join(WS, rel), "r", encoding="utf-8", errors="replace") as f:
+                    txt = f.read()
+            except OSError:
+                continue
+            if not txt.startswith("---"):
+                continue
+            raw_head = txt.split("---")[1]
+            for line in raw_head.splitlines():
+                if not line.startswith(("来源:", "取代:")):
+                    continue
+                if "〔档〕" in line or "〔证失效〕" in line:
+                    continue
+                for tok in _fm_re.findall(line):
+                    if "*" in tok or "<" in tok or "..." in tok:
+                        continue
+                    if not os.path.exists(os.path.join(WS, tok)):
+                        dead_fm.add(rel + " :: " + tok)
+        if "--write-fm-baseline" in sys.argv:
+            _first = not os.path.exists(fp_path)   # 首次固化：全部都是"存量"，不算洗白
+            _old = load(fp_path) if not _first else {}
+            _oldk = set(_old.get("keys", []))
+            _grow = dead_fm - _oldk
+            if _first:
+                _grow = set()
+            if _grow and "--allow-grow" not in sys.argv:
+                print("[拒绝写基线] 会新增 %d 条 front matter 死路径（基线只许收缩）：" % len(_grow))
+                for k in sorted(_grow)[:10]:
+                    print("   + " + k)
+                print("   改文档（指到 history_cache 现存位置）或在该行标〔档〕，不要改基线。")
+                return 1
+            with open(fp_path, "w", encoding="utf-8", newline="\n") as f:
+                json.dump({"generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                           "count": len(dead_fm),
+                           "说明": "front matter 来源/取代 指向不存在的路径之 (文档 :: 路径) 集合，语义只减不增",
+                           "keys": sorted(dead_fm)}, f, ensure_ascii=False, indent=1)
+            print("[front matter 路径基线已写入] %s  存量 %d 条" % (fp.get("baseline_file"), len(dead_fm)))
+        else:
+            _base = set((load(fp_path) if os.path.exists(fp_path) else {}).get("keys", []))
+            for key in sorted(dead_fm - _base):
+                doc_rel, tok = key.split(" :: ", 1)
+                red.append(("R12", doc_rel,
+                            "front matter 的来源/取代 指向不存在的路径 %s：改指 docs/history_cache 下的现存位置，"
+                            "或在该行标〔档〕（无副本）" % tok))
+            _res = len(_base - dead_fm)
+            if _res:
+                yellow.append(("R12", "docs/**",
+                               "front matter 死路径已修 %d 条，跑 --write-fm-baseline 精简（不降不算修完）" % _res))
     # Y5 根目录临时件（应进 _tmp_session/，不参与版本管理）
     for n in sorted(os.listdir(WS)):
         if n == "_tmp_session":

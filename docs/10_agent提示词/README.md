@@ -1,8 +1,8 @@
 ---
-来源: docs/agent_handoff/README.md, docs/agent_handoff/20_发送指南.md, AGENTS.md §8
+来源: docs/history_cache/01_旧文档归档/docs/agent_handoff/README.md, docs/history_cache/01_旧文档归档/docs/agent_handoff/20_发送指南.md, AGENTS.md §8
 取证: 实/档
 更新: 2026-10-24
-取代: docs/agent_handoff/README.md（新旧并存期为历史，本篇为现行入口）
+取代: docs/history_cache/01_旧文档归档/docs/agent_handoff/README.md（新旧并存期为历史，本篇为现行入口）
 status: 现行
 ---
 
@@ -64,7 +64,7 @@ status: 现行
 
 | # | 文件 | 一句话 |
 |---|---|---|
-| — | `00_索引.md` | 册级索引（全部文件 + 关键数字） |
+| — | [`00_索引.md`](00_索引.md) | 册级索引（全部文件 + 关键数字）；**篇数与逐文件一览以它为正本**，本表 §4 只列用法分组，不重复计数 |
 | L0 | `00_一页纸.md` | 30 秒项目卡，直接贴 |
 | 01 | `01_提示词模板.md` | 6 套基础模板（速览/接管/单卡/审查/子智能体/小模型） |
 | 02 | `02_发送指南.md` | 通道、上下文预算、能发什么、发后验收 5 问 |

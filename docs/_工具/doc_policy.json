@@ -76,6 +76,11 @@
     "baseline_file": "tmprefs_baseline.json",
     "说明": "（2026-10-26 改口径）旧版是「死链总数超过 dangling_baseline 才提醒」；实测存量 136 / 阈值 250，余量 114 条，等于允许静默新增 114 条烂指针而不报警，没设防。现改为按 (文档 :: 路径) 记账：存量写进 tmprefs_baseline.json（只减不增），不在表里的新死链 = Y9 判红。修好一条就重跑 check_doc_policy.py --write-tmprefs-baseline 精简。行号不进 key。"
   },
+  "fm_paths": {
+    "enabled": true,
+    "baseline_file": "fm_paths_baseline.json",
+    "说明": "（2026-10-27 增）库内文档 front matter 的 来源/取代 里的路径必须指向现存文件。10-21 收口把旧文整体搬进 history_cache 后，60 篇仍写迁移前的路径，读者照抄一律找不到。存量进 fm_paths_baseline.json，只减不增。"
+  },
   "baseline": "docs/_工具/doc_policy_baseline.json",
   "y10_legacy_exempt": [
     "docs/30_任务卡库/归档/lead-1023/2026-10-23_AG-TEAM-PLAN-20261023.md",

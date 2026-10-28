@@ -1,7 +1,7 @@
 ---
 来源: 本次代码级技术审计（2026-10-23，子智能体）
 取证: 实
-更新: 2026-10-23
+更新: 2026-10-27
 status: 现行
 ---
 
@@ -977,8 +977,8 @@ robot.yaml 共 968 行，7 个段：/dzrknn_dataprocess（31）、/usb_cam_node�
 
 #### 2.6.4 map.yaml 与 map_v3.yaml
 
-- config/map.yaml（41 行）：第六张图（2026-10-17 用户现场换图）。雷 A2 F4 H4 G5 E8 B10 D11 I11；障 B1 D1 F3 I6 H7 A8 C9 E9；靶 D5+D6（纵向跨格）；通口 K5（上半场）/K7（下半场）；起终 N10/N5。barrier_col_from=D、barrier_row_hi=6、barrier_row_lo=7。
-- config/map_v3.yaml（46 行）：第四张图（2026-10-11），历史备份。雷 B2 H2 F3 C4 G4 I7 D8 E10；障 A5 G5 B6 D7 C8 E9 I9 H10；靶 E4+E5；通口 K1/K11。
+- artifacts/maps/sixth_20261017_map.yaml（43 行 = 原 config/map.yaml 41 行 + 2 行归档头）：第六张图（2026-10-17 用户现场换图）。雷 A2 F4 H4 G5 E8 B10 D11 I11；障 B1 D1 F3 I6 H7 A8 C9 E9；靶 D5+D6（纵向跨格）；通口 K5（上半场）/K7（下半场）；起终 N10/N5。barrier_col_from=D、barrier_row_hi=6、barrier_row_lo=7。
+- artifacts/maps/map_v3.yaml（46 行，原 config/map_v3.yaml）：第四张图（2026-10-11），历史备份。雷 B2 H2 F3 C4 G4 I7 D8 E10；障 A5 G5 B6 D7 C8 E9 I9 H10；靶 E4+E5；通口 K1/K11。
 - ⚠ robot.yaml 的 obstacle_blocks（432）与 map.yaml 的 obstacles 需保持一致（route_check.py 会校验）。本报告只确认两文件当前都指向第六张图。
 
 #### 2.6.5 备份文件
@@ -1099,7 +1099,7 @@ tools/wf/frozen.json:3-8 定义冻结区：src/dzbrain/dzbrain/**、src/dzrknn_d
 | 开火链路（裁判串口） | /dzjudgment.mcuserialport / mcubaudrate | tools/restart_node.sh judgment | 6_judgment.log；ros2 topic info /LaserShot_Command（Subscription >= 1） |
 | 底盘里程计标定 | /dzactuator.ticksPerMeter / ticksPer2PI | tools/restart_node.sh chassis | 直线跑 2.10 m 后 /odom/localization 位移 |
 | ROS 域号 | dzros.env（DZ_ROS_DOMAIN） | 重启起栈脚本 | start_all.sh 横幅「ROS 链路域号」 |
-| 地图要素 | config/map.yaml（不放 robot.yaml！） | 重新部署 + 重启 dzbrain | route_check.py / config_selfcheck.py |
+| 地图要素 | **现役不入库·每局真图**（2026-10-27 裁决）；历史快照见 `artifacts/maps/`；仍不放 robot.yaml | 布局由无人机 `field_layout` 下发 + 重启 dzbrain | route_check.py / config_selfcheck.py |
 
 生效规则：
 

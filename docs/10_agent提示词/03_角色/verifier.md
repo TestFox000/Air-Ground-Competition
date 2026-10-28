@@ -1,5 +1,5 @@
 ---
-来源: _tmp_session/TRACK-R1-20261020-01/verification.md, docs/agent_handoff/33_循迹R0复核与R1任务.md §3, _tmp_session/TRACK-R1-20261020-01/CARD.md
+来源: _tmp_session/TRACK-R1-20261020-01/verification.md, docs/history_cache/01_旧文档归档/docs/agent_handoff/33_循迹R0复核与R1任务.md §3, _tmp_session/TRACK-R1-20261020-01/CARD.md
 取证: 实/档
 更新: 2026-10-21
 取代: 无（首版）
@@ -91,4 +91,4 @@ status: 现行
 
 ## 相关文件
 
-`03_角色/implementer.md`、`03_角色/reviewer.md`、`04_场景/离线回归攻坚.md`、`_tmp_session/TRACK-R1-20261020-01/verification.md`
+`03_角色/implementer.md`、`03_角色/reviewer.md`、`04_场景/离线回归攻坚.md`、`_tmp_session/TRACK-R1-20261020-01/verification.md` 〔失效：会话过程目录已清理〕
