@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-29 03:38",
- "count": 258,
+ "generated": "2026-10-29 03:50",
+ "count": 259,
  "files": [
   {
    "path": "00_项目总览/00_索引.md",
@@ -1585,6 +1585,17 @@
    "updated": "",
    "status": "in_progress",
    "lines": 44
+  },
+  {
+   "path": "30_任务卡库/在办/agc-1026/LIVE-RUN-20261028.md",
+   "dir": "30_任务卡库/在办/agc-1026",
+   "title": "R-22 · 实机直跑：机端补 field_layout 发射器 + 车端覆盖部署 + 一趟真链路抓日志",
+   "summary": "**状态（2026-10-28 17:1x 落账）**：S0 完成（P0 八条 8/8 已签）；S1–S5 未开始；A1–A7 全部未测。",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "in_progress",
+   "lines": 28
   },
   {
    "path": "30_任务卡库/在办/agc-1026/M1-BRAINMAP.md",
