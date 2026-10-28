@@ -1,5 +1,8 @@
 # 团队状态板（TEAM_STATUS）
 
+> **2026-10-29 04:0x P4/P5 收口完成 · 可跑证书签发（lead · 已本地 commit ×2 / 未推送 / 未连车）**：
+**里程碑提交**：dzrobot_v2 **8e30e509**（68 文件 +11407/−1043，P1+P2+P3+Lead 修复+各卡 frozen 在途）；v1 **8c5a1a75**（205 文件文档收口 + .gitignore 隔离 _archive/artifacts/git_save/backup/cache）。两仓工作树现已干净。**P5 彩排**：sim_cli RC=0 / 118.12 s / RMS 0.1187 m（68 点全路程），route_check 六层全过（雷 8/8 靶 2/2 桥 K5/K7）。**可跑证书** _tmp_session/CERT-20261029/RUN-CERTIFICATE.md（验证矩阵 + K10-K14 红账 + 明早前置 + 回滚锚）。**清理战果**：p2_verify 19G 回收、根目录 _tmp 垃圾清零、frozen 失效登记清除、K-list 扩至 K14。明早入口 = 09_SOP（20 库运维与排障）。
+
 > **2026-10-29 04:0x V2 裁定修复 + V3 小修全落地（lead · 未 commit/未连车）**：
 **P2 修复（V-04）**：Lead 第一手复核坐实 V2 归因（备份-pas补丁-还原：mission.py sha 119d7f23 前后一致，passthrough→118/118）。裁定走 ①号方案：sim_layout 加 start 形参（默认 N10 不变），12.18/15.13/15.14 三处同格/空段用例 start 设为 C9=复位格 + 口径注释。**test_stepper 118/118、test_p2_t2 30/30 双绿**，生产语义（布局 start 唯一权威）原样保留。P2 正式判**接受（修复后）**。V2 另两条挂账：test_mission 17 红=既有基线（换 HEAD config 同红，入 K10/K11）；drift 1.2b=localization F5 在途（入 K13）；2s 逃生门=设计取舍（入 K14）。**V3 小修 4 件全做**：07 页 G1 命令①改有图/无图双分支、07/09 页 start_all.sh 锚点改 228/265/284（带日期注）、AGENTS.md:28 旧档路径补层、**删 dzrobot_v2/_tmp_session/p2_verify（19G 整仓副本，doc_policy 188 条 R1 源）探针留 p2_verify_probes/**。frozen.json 删 map.yaml/map_v3.yaml 两条失效登记（29 条，JSON 有效）。门禁终态：policy 仅 R8 / anchors 新增 3（他卡） / numbers 0 / wf GREEN 零 WARN。
 
