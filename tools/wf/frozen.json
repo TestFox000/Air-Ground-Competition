@@ -134,13 +134,6 @@
       "expires": "2026-11-07"
     },
     {
-      "path": "src/dzbrain/dzbrain/core/run_archive.py",
-      "card": "M2-ARCHIVE",
-      "owner": "6719d8a0-37ff-45a1-af0b-f24157aa831b",
-      "reason": "M2 运行归档新模块（如新建）：只写不读，落 artifacts/runs/<UTC ts>/；离线，不部署",
-      "expires": "2026-11-07"
-    },
-    {
       "path": "src/dzbrain/dzbrain/route/planner.py",
       "card": "CAR-DUAL-20261024 + P1-GEOM-TRUTH",
       "owner": "9aff0fda-1af0-4272-b40b-52a154e23a12",
@@ -167,20 +160,6 @@
       "owner": "6719d8a0-37ff-45a1-af0b-f24157aa831b",
       "reason": "运行面互锁降级（3 硬拦）、StepLoop gate 分级、ttl=0 语义、unknown 格继续、运行归档、lead_cells 日志；离线单测，不部署",
       "expires": "2026-11-07"
-    },
-    {
-      "path": "src/dzbrain/dzbrain/io/ros_io.py",
-      "card": "LINK-HARDEN-20261029",
-      "owner": "session-912213b6-c2f3-4960-a203-71648b2aa1fb",
-      "reason": "T1/T3 链路止血：新增 missing_required_subscriptions()（对账走 ct.canonical_topic_name，修 manual_gimbal 无前导斜杠造成的『本节点未创建订阅』假红）+ env_problems/format_env_line 不再把『DZ_ROS_DOMAIN 未导出』谎报成『域号按 ROS 默认 0』；离线静态/单测，不部署",
-      "expires": "2026-11-05"
-    },
-    {
-      "path": "src/dzbrain/dzbrain/io/contract.py",
-      "card": "LINK-HARDEN-20261029",
-      "owner": "session-912213b6-c2f3-4960-a203-71648b2aa1fb",
-      "reason": "T1：新增 canonical_topic_name() 纯函数（只用于比较，不改历史话题真名 nav/manual_gimbal / pursuitAngle）；离线，不部署",
-      "expires": "2026-11-05"
     },
     {
       "path": "src/dzbrain/dzbrain/main.py",

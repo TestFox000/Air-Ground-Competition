@@ -1,5 +1,8 @@
 # 团队状态板（TEAM_STATUS）
 
+> **2026-10-29 04:0x P4 全项清零 · 证书挪位更正（lead · commit ×3 / 未推送 / 未连车）**：
+① **agc-1026 R8 修复**：补建 LIVE-RUN-20261028.md 文件入口（D-057「不另建卡文件」口径与 R8 的冲突裁决：树节点必须有文件，正文仍统一在 PLAN.md）+ 树节点挂链接 + gen_index 重扫 → **check_doc_policy 首次全 GREEN（0 红）**（v1 commit 1780b5e2）。② **可跑证书挪位**：dzrobot_v2/_tmp_session 内的 .md 触发 R1（库外新增）→ 移至 **v1/_tmp_session/CERT-20261029/**（含 sim_full.log；TEAM_STATUS 上一条所指路径以此为准）。③ **CRLF 归一**：dzrobot_v2 .gitattributes（eol=lf 全套策略）早已在位，renormalize 后仅 TEAM_STATUS.md 索引转 LF（commit 47ad60e7）；v1 索引本已全 LF。④ **_tmp_session 5.7G→1019M**：archive-20261025 + vtest-1025 压成 1.49G tar.gz 存 _archive/trim_20261029/（内容可恢复），原目录删除。P4 六项全清。
+
 > **2026-10-29 04:0x P4/P5 收口完成 · 可跑证书签发（lead · 已本地 commit ×2 / 未推送 / 未连车）**：
 **里程碑提交**：dzrobot_v2 **8e30e509**（68 文件 +11407/−1043，P1+P2+P3+Lead 修复+各卡 frozen 在途）；v1 **8c5a1a75**（205 文件文档收口 + .gitignore 隔离 _archive/artifacts/git_save/backup/cache）。两仓工作树现已干净。**P5 彩排**：sim_cli RC=0 / 118.12 s / RMS 0.1187 m（68 点全路程），route_check 六层全过（雷 8/8 靶 2/2 桥 K5/K7）。**可跑证书** _tmp_session/CERT-20261029/RUN-CERTIFICATE.md（验证矩阵 + K10-K14 红账 + 明早前置 + 回滚锚）。**清理战果**：p2_verify 19G 回收、根目录 _tmp 垃圾清零、frozen 失效登记清除、K-list 扩至 K14。明早入口 = 09_SOP（20 库运维与排障）。
 
