@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-29 03:50",
- "count": 259,
+ "generated": "2026-10-29 18:54",
+ "count": 264,
  "files": [
   {
    "path": "00_项目总览/00_索引.md",
@@ -957,7 +957,7 @@
    "level": "实/档/未",
    "updated": "2026-10-29",
    "status": "现行",
-   "lines": 77
+   "lines": 79
   },
   {
    "path": "20_资料索引库/赛事与治理/01_赛题规则与场地.md",
@@ -1114,6 +1114,17 @@
    "lines": 66
   },
   {
+   "path": "20_资料索引库/赛事与治理/15_新手3小时路径_导览_20261029.md",
+   "dir": "20_资料索引库/赛事与治理",
+   "title": "新手 3 小时上手路径（6 个 15 分钟单元 + 30 题自测卷）",
+   "summary": "1. 路径是 **6 个 15 分钟单元**，每单元固定四件套：**读哪几节（带行号）→ 做哪个实验（一条命令 + 预期输出）→ 答哪组题（5 题）→ 过关判据（能不看文档说出…",
+   "from": "docs/20_资料索引库/车端/12_可调参数速查_按场景.md, docs/20_资料索引库/车端/13_模块协调与链路展开.md, docs/20_资料索引库/运维与排障/10_日志阅读课_新手版.md, dzrobot_v2/src/dzbrain/dzbrain/tasks/mission.py, dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, dzrobot_v2/src/dzbrain/dzbrain/core/config.py, dzrobot_v2/config/robot.yaml",
+   "level": "实",
+   "updated": "2026-10-29",
+   "status": "现行",
+   "lines": 280
+  },
+  {
    "path": "20_资料索引库/赛事与治理/热词缺口清单_20261024.md",
    "dir": "20_资料索引库/赛事与治理",
    "title": "热词缺口清单（2026-10-24 扫描 · t5）",
@@ -1133,7 +1144,7 @@
    "level": "实+档",
    "updated": "2026-10-29",
    "status": "现行",
-   "lines": 95
+   "lines": 100
   },
   {
    "path": "20_资料索引库/车端/01_架构与线程.md",
@@ -1257,6 +1268,39 @@
    "lines": 218
   },
   {
+   "path": "20_资料索引库/车端/12_可调参数速查_按场景.md",
+   "dir": "20_资料索引库/车端",
+   "title": "可调参数速查（按场景）",
+   "summary": "1. `robot.yaml` 现役 **256 个有效键**（18 段）；另有 **117 个键只登记在 `core/config.py` 的 SCHEMA 里、没写进 ya…",
+   "from": "dzrobot_v2/config/robot.yaml, dzrobot_v2/src/dzbrain/dzbrain/core/config.py, dzrobot_v2/src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp, dzrobot_v2/src/dzactuator/src/dzactuator.cpp, dzrobot_v2/src/car_localization/car_localization/path_executor.py, dzrobot_v2/src/dzbrain/dzbrain/io/contract.py",
+   "level": "实+档",
+   "updated": "2026-10-29",
+   "status": "现行",
+   "lines": 694
+  },
+  {
+   "path": "20_资料索引库/车端/13_模块协调与链路展开.md",
+   "dir": "20_资料索引库/车端",
+   "title": "车端模块协调与链路展开（L3）",
+   "summary": "**一个 Python 进程 = 8 个任务线程 + 主线程里的步进循环；此外还有 5 个外部节点**（底盘 dzactuator、云台 dzrknn_dataprocess、…",
+   "from": "dzrobot_v2/src/dzbrain/dzbrain/main.py, dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, dzrobot_v2/src/dzbrain/dzbrain/tasks/*.py, dzrobot_v2/src/dzbrain/dzbrain/core/blackboard.py, dzrobot_v2/src/dzbrain/dzbrain/core/task.py, dzrobot_v2/src/dzbrain/dzbrain/core/events.py, dzrobot_v2/src/dzbrain/dzbrain/pursuit/controller.py, dzrobot_v2/src/car_localization/car_localization/serial_reader.py, dzrobot_v2/src/car_localization/car_localization/path_executor.py, dzrobot_v2/src/dzactuator/src/dzactuator.cpp, dzrobot_v2/src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp, dzrobot_v2/src/dzjudgment/src/judgment.cpp, dzrobot_v2/src/rknn_pt/src/det_node.cc",
+   "level": "实",
+   "updated": "2026-10-29",
+   "status": "现行",
+   "lines": 420
+  },
+  {
+   "path": "20_资料索引库/车端/14_sim_lab调参实验室_怎么跑与看什么.md",
+   "dir": "20_资料索引库/车端",
+   "title": "交互式调参实验室（sim_lab）：改之前先用仿真看一眼",
+   "summary": "1. **15 个实验**，每个 = 一个可调的键 + **A/B 两臂**（A = 出厂现值，B = 单变量改值）。一条命令跑全部：`python tools/sim_lab…",
+   "from": "dzrobot_v2/tools/sim_lab/catalog.py, dzrobot_v2/tools/sim_lab/runner.py, dzrobot_v2/tools/sim_lab/run_experiments.py, dzrobot_v2/src/dzbrain/dzbrain/tools/sim_cli.py, dzrobot_v2/src/dzbrain/dzbrain/tools/sim.py, dzrobot_v2/config/robot.yaml",
+   "level": "实",
+   "updated": "2026-10-29",
+   "status": "现行",
+   "lines": 257
+  },
+  {
    "path": "20_资料索引库/运维与排障/00_索引.md",
    "dir": "20_资料索引库/运维与排障",
    "title": "运维与排障 · 分册索引",
@@ -1265,7 +1309,7 @@
    "level": "实+档",
    "updated": "2026-10-29",
    "status": "现行",
-   "lines": 87
+   "lines": 89
   },
   {
    "path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
@@ -1353,7 +1397,7 @@
    "level": "实",
    "updated": "2026-10-29",
    "status": "现行",
-   "lines": 227
+   "lines": 258
   },
   {
    "path": "20_资料索引库/运维与排障/09_明早全流程SOP_20261029.md",
@@ -1365,6 +1409,17 @@
    "updated": "2026-10-29",
    "status": "现行",
    "lines": 395
+  },
+  {
+   "path": "20_资料索引库/运维与排障/10_日志阅读课_新手版.md",
+   "dir": "20_资料索引库/运维与排障",
+   "title": "日志阅读课（新手版）",
+   "summary": "七份真车日志的判读课：每份「先看哪三行」+ 逐行精读（好/坏样例）、启动横幅三种模式判读、7 个退出码→根因→处置一张表",
+   "from": "dzrobot_v2/start_all.sh（七步起栈与出车横幅）、dzrobot_v2/src/dzbrain/dzbrain/main.py（启动自检/启动契约/布局等待/退出码）、dzrobot_v2/src/dzbrain/dzbrain/io/contract.py（话题名真源）、dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py（环境自检与订阅对账）、dzrobot_v2/src/dzbrain/dzbrain/tasks/drone.py（布局监听退出摘要）、dzrobot_v2/config/robot.yaml（参数真源）、2026-10-28 16:50 真车七份日志 `_tmp_session/live/car_logs/`",
+   "level": "实",
+   "updated": "2026-10-29",
+   "status": "现行",
+   "lines": 549
   },
   {
    "path": "30_任务卡库/README.md",
