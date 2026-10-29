@@ -186,26 +186,30 @@ paths:
     status: 证据
     owner: 无人机
     note: 飞行记录
+  dzrobot_v2/_archive_20261029:
+    status: 历史
+    owner: 团队
+    note: 2026-10-29 按日期归档区（20261012/18/23/24/25/29 六个日期桶）；只收过程物与旧草稿，不收现用源码
   dzrobot_v2/_backups:
     status: 历史
     owner: 团队
-    note: 小体量旧备份目录；可归档
+    note: 小体量旧备份目录；check_anchors baseline 依赖（:71 硬编码），**不可移动/删除**（2026-10-29 复核）
   dzrobot_v2/_scratch_aim:
-    status: 临时
+    status: 已归档
     owner: 团队
-    note: 旧实验草稿；可归档
+    note: 2026-10-29 归档到 _archive_20261029/20261012/_scratch_aim（git mv，内容哈希不变）
   dzrobot_v2/_scratch_auto_plan:
-    status: 临时
+    status: 已归档
     owner: 团队
-    note: 旧实验草稿；可归档
+    note: 已归档到 _archive_20261029/20261012/_scratch_auto_plan
   dzrobot_v2/_scratch_displayfix:
-    status: 临时
+    status: 已归档
     owner: 团队
-    note: 旧实验草稿；可归档
+    note: 已归档到 _archive_20261029/20261012/_scratch_displayfix
   dzrobot_v2/_scratch_scout:
-    status: 临时
+    status: 已归档
     owner: 团队
-    note: 旧实验草稿；可归档
+    note: 已归档到 _archive_20261029/20261018/_scratch_scout
   dzrobot_v2/models:
     status: 素材
     owner: 团队

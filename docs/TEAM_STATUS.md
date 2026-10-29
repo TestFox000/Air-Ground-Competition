@@ -1,5 +1,38 @@
 # 团队状态板（TEAM_STATUS）
 
+> **2026-10-29 18:3x onboarding t4 验收通过 + Lead 修复复用门禁绕过漏洞（lead · t6 终验中）**：
+**t4 调参实验室**（sim-lab）判 **接受**：tools/sim_lab/ 三件 1084 行 + 车端/14 文档 257 行。Lead 独立复跑：--selftest 9/9、--all 15/15 exit 0；**确定性复跑两遍全量产物 diff=2722B，逐条核对差异全部是 report.txt 的墙钟秒数，traj/by_segment 等观测产物逐字节一致**（成员口头报的「逐字符相同」不成立，但其文档并未写这句话——文档无虚标，口径以本条为准：观测数据逐字节可复现，报告耗时字段除外）。三条教学结论产物坐实：lookahead_min 零差异（max 钳住机理写入）、safety_margin 74→212 拍轨迹不动（只观测不改控）、latency RMS-41.5% 假象带「⚠ 未跑完·不可横比」旗（4476 拍发散）——诚实标注是本实验室最值钱的设计。**Lead 修复（工具写域）**：check_reuse.py:37 加 --untracked-files=all——t4 报的绕过漏洞属实（未跟踪新目录折叠成 ?? dir/ 使 .py 判定失效），探针实证修复后嵌套新文件判红、撤探针 GREEN；K9 warn 计数经核仍 13（修复未误伤存量口径）。**外部干扰第三例**：dzrobot_v2/_archive_20261029/（256M，17:33 外部进程建，非本队）出现在 git 未跟踪——与 clear/、根目录两份草稿一并留给用户定夺，本队不动。t1~t5 全接受，t6 终验进行中。
+
+> **2026-10-29 18:2x onboarding t5 验收通过 + README 入口落笔（lead）**：
+**t5 导览+题库**（quiz-teacher）判 **接受**：15 页 279 行/6 单元/30 题；Lead 独立复核——quiz spec 结构解析（5 radio 各带 group+answer、submit 在位）+ validate_dsh_ui 现场重验 valid/rendered=6；答案表出处可回溯（scan_pitch 实验命令在文）。**README.md 入口行已落**（30 秒行后新增「完全新手/想接手」行，链 15 页+三篇配套），更新日期 10-26→10-29，gen_index --only 两册，links 275/0 断。**R1 三条红线全部为外部并发进程**（clear/goals/ + clear/ontology/ 17:45 后持续增文件、根目录 dzbrain_零基础深挖报告.md 17:59）——非本队成员所写，不动，收口报告用户。车端/14（sim-lab 18:17 落盘中）README 计数已被其 owner 同步至 15，无 R6 风险。t4 在途。
+
+
+> **2026-10-29 18:0x 工作区归档整理（lead · 未 commit/未推送/未连设备）**：
+按用户口令「能删的按日期归档；不能删的先验证是否现用，纯备份也一起归档」执行。
+
+**已归档**：① v1 `backup/v1-full-20261024.bundle`（2.13 GiB 纯备份，10-24 全仓快照，落后 HEAD 5 天，文档 0 引用）→ `_archive/20261024/`，附 MANIFEST（sha256 `0afae0ee…4741` + 三种恢复命令），源目录已删。② dzrobot_v2 `_scratch_aim`（3 .py）→ `_archive_20261029/20261012/`（git mv 保历史，内容哈希不变）。
+
+**沿用既有归档区不另造**：`dzrobot_v2/_archive_20261029/`（并行会话 17:32 建，248 MB、六日期桶）内已含截图里疑似「消失」的 `_scratch_auto_plan`/`_scratch_displayfix`（20261012）、`_scratch_scout`（20261018）、`artifacts_sim`（20261018/23/24/25）；`.agent-teams`、`_tmp_pre` 已不存在（后者原为空目录）。
+
+**核实后不动（附证据）**：
+- `v1/git_save/`（3.0 G，v1.1.0~v4.0.2 共 20 版）保留原位：D-032 版本存档线实体，有 `06_版本存档规则.md`/`08_版本存档线收尾_20261023.md` 与 5 处真链接，且已在 doc_policy 豁免区。**但落后当前 v4.3.2 五版** ⇒ 挂账。
+- `dzrobot_v2/_backups/`（84 K / 3 跟踪文件）**不可移动**：`docs/_工具/check_anchors.py:71` 硬编码其为 baseline 目录；`tools/calib_backfill.py:_HISTORICAL_SNAPSHOTS` 登记为「历史部署快照」豁免项。动它同时弄坏两个现行工具。
+- `dzrobot_v2/backup/`（69 M）**本就是官方归档区**（`tools/wf/repo_index.py:183` 写明「归档 | dzrobot_v2/backup/」），3 个 v3.9 bundle + 9 个改前快照已在位。
+- `artifacts/sim`（2.0 M）、`artifacts/runs`（914 K/93 场）**现用非备份**：sim_cli 默认输出目录 / `run_archive.py` 运行期写入。
+
+**门禁**：`wf/check.py` GREEN；`check_links` 273 文件 0 断；`calib_backfill --selfcheck` error 0/warn 4（标的仲裁，非本轮）；索引经 `repo_index.py --write` 自愈（`_scratch_*` 四条过期行消失、`_archive_20261029` 已登记、`_backups` 加「不可移动」注解）。
+
+**挂账（不挡明早）**：`git_save` 缺 v4.3.0/4.3.1/4.3.2 三版存档；`dzrobot_v2/.gitignore` 未列 `_archive_20261029/`（现靠 doc_policy 豁免区兜住，非 git 忽略）。
+
+> **2026-10-29 18:0x onboarding t2 验收通过 + anchors 欠账清偿 45/50（lead）**：
+**t2 模块协调**（chain-guide）判 **接受**：420 行/176 锚点。Lead 抽查：行数属实、代码锚点密度实测、§5 P_POSE 写者断言抽中（localization.py:459/:465 实测在——「3 写者」全表与 contract.py:48 字段序完整复核移交 t6）；本篇 anchors 零贡献，numbers/links/wf 全绿。**索引口径核对**：README 车端 14/全库 77 与实扫一致。gen_index 全量误触发已两例——收口前 Lead 给工具补 --help no-op。**anchors 欠账清偿**：50→5，方式=自 _archive/trim tar 选择性还原 ~26 个成员（distill/、rec/、emit/、detbench/、runs/、digest 等），_tmp_session 仍 1.1G；剩 5 条全归他卡在途（agc-1024/1026 ×3、suite_table 裸名误判 ×2——实际文件在 TRAJ-BASE/suites/ 与 traj-1025/frame-migration/），移交 t6/收口不扩修复面。policy 唯一红 = 外部 clear/（非本队，报用户）。t4/t5 在途。
+
+> **2026-10-29 17:5x onboarding t3 验收通过（lead）**：
+**t3 日志课堂**（log-medic）判 **接受**：549 行，§1~§4+§6 四段齐全。Lead 独立抽查：版本差异表逐行可指（1_chassis.log 第25行 ticksPer2PI 2680 vs robot.yaml:972=2670——「先对版本再判故障」纪律成立）；manual_gimbal 假红指到修复点（ros_io.py:48-57/main.py:2262）；**Y9 口径成文**（过程区引用禁写 path:line，改「路径+第 N 行」）已吸收进收口规范。README 篇数口径核对一致（车端 14 文件/运维 11、全库 77，R6 无红）。本篇 policy 零贡献。**遗留**：main.py 头注释缺退出码 7 的补行——代码注释属冻结区，Lead 收口时一并裁定。**外部干扰登记**：clear/ontology/verification-loop.md 系非本队并发进程 17:45 重建（17:19 草稿的副本在 ONBOARD-SCRATCH，已双份保全），R1 单条红为外因——不再反复搬移，收口时报用户定夺。
+
+> **2026-10-29 17:4x onboarding t1 验收通过 + Lead 欠账登记（lead · 未 commit）**：
+**t1 调参地图**（param-mapper）判 **接受**：694 行/256 键全表+117 默认档+26 场景反查。Lead 独立抽查：死键断言逐行属实（mission.py:1564 读 shot_timeout_s，yaml:724 写 shoot_timeout_s），锚点格式实样合格，其文档在 policy/anchors 零贡献（policy GREEN / numbers 0 / wf GREEN）。11 条「改了不生效」键与 18 键迁移表价值高，t4/t5 受益。**Lead 欠账**：anchors 新增红 50——归属核对 ~40 条系昨晚 _tmp 裁剪余震（历史/09、车端/06、vtest 卡指向 archive-20261025/vtest-1025 未选择性还原的文件；当时只按 Y9 清单还原 17 个，anchors 扫描面更广），余为他卡存量。处方：补还原小文件 或 标〔失效〕/tmprefs 基线——收口时 Lead 清偿，不挡在途成员。杂物清理：robot.yaml_配置解读报告.md + clear/ 两份草稿（17:19/17:29 并发产物）收进 _tmp_session/ONBOARD-SCRATCH-20261029/，policy 回 GREEN。
+
 > **2026-10-29 04:0x P4 全项清零 · 证书挪位更正（lead · commit ×3 / 未推送 / 未连车）**：
 ① **agc-1026 R8 修复**：补建 LIVE-RUN-20261028.md 文件入口（D-057「不另建卡文件」口径与 R8 的冲突裁决：树节点必须有文件，正文仍统一在 PLAN.md）+ 树节点挂链接 + gen_index 重扫 → **check_doc_policy 首次全 GREEN（0 红）**（v1 commit 1780b5e2）。② **可跑证书挪位**：dzrobot_v2/_tmp_session 内的 .md 触发 R1（库外新增）→ 移至 **v1/_tmp_session/CERT-20261029/**（含 sim_full.log；TEAM_STATUS 上一条所指路径以此为准）。③ **CRLF 归一**：dzrobot_v2 .gitattributes（eol=lf 全套策略）早已在位，renormalize 后仅 TEAM_STATUS.md 索引转 LF（commit 47ad60e7）；v1 索引本已全 LF。④ **_tmp_session 5.7G→1019M**：archive-20261025 + vtest-1025 压成 1.49G tar.gz 存 _archive/trim_20261029/（内容可恢复），原目录删除。P4 六项全清。
 
@@ -214,7 +247,7 @@ fbc03b2 docs: 车端更新补记——src/ 根误建包已备份移除，dzbrain
 - 车端配置文件：`planner.engine=tracker-safe`、`auto_plan_enabled=true`、`fallback_to_tokens=true`、`footprint_gate=warn`；`mission.auto_start=false`。与 D-012 的 tour 口径差异待核实验归属；本轮未切换或修改，文件值不等于进程实际加载值。
 - 最新 `7_path.log:71` 有静止 yaw 异常；用户说明架空测试过或不确定，不能据此归因为传感器坏。本轮未起栈、未发布运动、未实测轨迹。
 - 无人机本轮未连接，运行状态未验证。
-- 证据：[只读快照](../artifacts/tracking_readonly_20261020.json)；后续：[循迹团队执行方案](../../docs/history_cache/01_旧文档归档/docs/agent_handoff/30_循迹团队执行方案.md)。旧 E4/E5 停位和 auto_plan=false 仅是上次快照，不能继续当当前事实。
+- 证据：只读快照（原 artifacts/tracking_readonly_20261020.json，2026-10-29 起归档于 [scatter_archive_20261029.zip](../artifacts/scatter_archive_20261029.zip)）；后续：[循迹团队执行方案](../../docs/history_cache/01_旧文档归档/docs/agent_handoff/30_循迹团队执行方案.md)。旧 E4/E5 停位和 auto_plan=false 仅是上次快照，不能继续当当前事实。
 
 ## 7. 里程碑消息模板（发给 Lead / 全员）
 

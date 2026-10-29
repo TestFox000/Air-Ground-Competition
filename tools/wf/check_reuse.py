@@ -33,8 +33,11 @@ def registered_text() -> str:
 
 
 def new_code_files() -> list[str]:
+    # ★2026-10-29（t4 发现）：默认 -u 会把全新未跟踪目录折叠成 "?? dir/"，
+    #   整目录新文件绕过复用门禁 ⇒ 必须 -uall 展开到文件粒度。
     r = subprocess.run(
-        ["git", "-C", str(REPO), "-c", "core.quotepath=false", "status", "--porcelain"],
+        ["git", "-C", str(REPO), "-c", "core.quotepath=false", "status",
+         "--porcelain", "--untracked-files=all"],
         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
     )
     out = []
