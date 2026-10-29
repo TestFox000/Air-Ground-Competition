@@ -1,5 +1,8 @@
 # 团队状态板（TEAM_STATUS）
 
+> **2026-10-29 21:0x 用户四条令执行完毕 · 团队归档解散（lead · 未 push / 未连车）**：
+① clear/ 已删（外部对话确认停手，草稿在 ONBOARD-SCRATCH 双份保全，无新文件再入）。② 根目录 dzbrain_零基础深挖报告.md → **车端/15_dzbrain零基础源码导读**（435 行/62 锚点抽查属实，front matter 补齐，两处「建议新文件」改暂名写法，三层索引全登记，v1 **6be0d930**）。③ 外部清理会话在途账代为收口（dzrobot_v2 **cd1ef0fd**）：calib 的 _ARCHIVE_ROOTS 豁免是对症修复（4161 归档副本脏命中），但 test_calib 10.1 仍红——真因是**我昨晚裁剪 _tmp_session 抽掉了它的自然变异样本**（stash 对拍证实），修法=测试自带 WS 守卫样本（gitignored _tmp_verify，现造现清），**101/101** 回全绿；_archive_20261029/（256M）+ .codebuddy/ 进 .gitignore。④ onboarding-1029 团队已归档解散。**终态**：两仓 0 未提交、check_doc_policy 连续 GREEN、anchors 剩 6 条全他卡存量（agc/traj/车端06，处方见 REVIEW）。教训一条入册：裁剪 _tmp_session 前必须先查**测试的样本依赖**（不只文档引用）——10.1 这条自然副本依赖就是盲区。
+
 > **2026-10-29 19:0x onboarding-1029 全队收口 · t6 判 pass + 双仓 commit（lead · 未推送 / 未连车）**：
 t6（qc-reviewer）终验 **verdict=pass**：577 锚点 100% 存在/0 越界、17% 内容抽样 91/98 精确、t1 数值 236/256 逐字符、t4 --all 独立复跑 15/15+双跑一致、t5 卷 30/30 一致、quiz validate 6/6；无 blocker/major。**收口**：dzrobot_v2 **7d527fd3**（sim_lab + check_reuse -uall 防绕过 + 台账/索引/18:06 清理历史账）；v1 **bfcdff16**（五篇文档 + README「完全新手/想接手」入口行〔即 t6-O②，归因=Lead 本人 18:20 落笔〕+ gen_index 全量含 5 新篇）。**遗留全属外部并发进程（未动，待用户）**：R1×3（clear/ 两文件、根目录 dzbrain_零基础深挖报告.md）；anchors 他卡新增 6+越界 2；dzrobot_v2 侧 3 个 staged rename + calib_backfill 未提交改动（18:06 清理会话，方案B 由用户拍板，其 owner 自行收口）。K9 warn 13 口径复核无变化。
 
