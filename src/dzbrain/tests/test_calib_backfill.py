@@ -397,6 +397,15 @@ _guard.mkdir(parents=True, exist_ok=True)
     "# 模拟 t9 变异测试的临时副本（与 src 下真 test_core.py 同名）\n"
     "TICKS_PER_METER = 3280  # 旧标定字面量\n"
     "assert 3280 == 3280\n", encoding="utf-8")
+# ★ 2026-10-29（夜间裁剪余波登记）：_raw_guard 原依赖工作区里恰好存在的 t9 变异
+#   自然副本（_tmp_session 下含 3280 的 _tmp_* 文件）。10-29 凌晨 _tmp_session 裁剪后
+#   自然副本消失 ⇒ 本条必红（与 calib_backfill 改动无关，stash 对拍证实）。改成测试
+#   自带 WS 内守卫样本：gitignored 的 _tmp_verify/（工具应排除、raw 应包含），
+#   每次现造、finally 现清——判据强度不变，但不再靠工作区残骸吃饭。
+_wsguard = WS / "_tmp_verify" / "t2_calib_guard_copy"
+_wsguard.mkdir(parents=True, exist_ok=True)
+(_wsguard / "test_core.py").write_text(
+    "TICKS_PER_METER = 3280  # 守卫样本（本测试自带，非自然副本\n", encoding="utf-8")
 
 
 def _raw_scan_3280() -> list[str]:
@@ -435,6 +444,7 @@ try:
        f"判据合成串自检={_synth_ok}")
 finally:
     shutil.rmtree(_guard, ignore_errors=True)
+    shutil.rmtree(_wsguard, ignore_errors=True)
 ok("10.2 已登记的钉不再重复列出", not any("test_core.py" == h.split("（")[0].split("/")[-1] for h in _hits),
    "; ".join(_hits[:4]))
 ok("10.3 工具自身/模板/目标配置不再自报（去噪）",

@@ -287,6 +287,14 @@ _SCAN_SKIP = {".git", "build", "install", "log", "backup", "artifacts", "__pycac
               "_tmp_session", "_scratch_aim", "_scratch_auto_plan", "_tmp_install_repro", ".agent-teams"}
 
 
+#: ★ 2026-10-29：**归档根目录**豁免（按整条前缀判，不是按路径段）。
+#  为什么不能塞进 _SCAN_SKIP：_skip_dir 是**逐段**判，归档位于仓库根 ⇒ 加进去会把
+#  它下面的一切（正常源码也在里面吗？不——归档只含过程物）连同**调用方遍历**一起误伤，
+#  实测扫描数从 1065 骤降到 5，test 10.1 直接崩。归档的语义是"整个子树都不参与扫描"，
+#  用前缀豁免才等价于 _scratch_* 原位时的效果。
+_ARCHIVE_ROOTS = ("_archive_20261029",)
+
+
 def _skip_dir(name: str) -> bool:
     """该目录名是否属于"草稿/临时"（不参与旧值引用扫描）。
 
@@ -962,6 +970,9 @@ def scan_untracked_refs(old_literal: str, root: pathlib.Path,
     hits: list[str] = []
     for path in root.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in _SCAN_EXT:
+            continue
+        rel_parts = path.relative_to(root).parts
+        if rel_parts and rel_parts[0] in _ARCHIVE_ROOTS:   # 归档整树豁免（见 _ARCHIVE_ROOTS 注释）
             continue
         if any(_skip_dir(part) for part in path.parts):
             continue

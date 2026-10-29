@@ -46,3 +46,5 @@ src_v1/navigation2/
 .agent-teams/
 _tmp_install_repro/
 _tmp_*.txt
+# ★2026-10-29 外部清理会话（方案B）的过程产物归档：只读备份，不入库
+_archive_20261029/
