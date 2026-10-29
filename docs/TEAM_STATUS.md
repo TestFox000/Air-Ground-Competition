@@ -1,5 +1,8 @@
 # 团队状态板（TEAM_STATUS）
 
+> **2026-10-29 19:0x onboarding-1029 全队收口 · t6 判 pass + 双仓 commit（lead · 未推送 / 未连车）**：
+t6（qc-reviewer）终验 **verdict=pass**：577 锚点 100% 存在/0 越界、17% 内容抽样 91/98 精确、t1 数值 236/256 逐字符、t4 --all 独立复跑 15/15+双跑一致、t5 卷 30/30 一致、quiz validate 6/6；无 blocker/major。**收口**：dzrobot_v2 **7d527fd3**（sim_lab + check_reuse -uall 防绕过 + 台账/索引/18:06 清理历史账）；v1 **bfcdff16**（五篇文档 + README「完全新手/想接手」入口行〔即 t6-O②，归因=Lead 本人 18:20 落笔〕+ gen_index 全量含 5 新篇）。**遗留全属外部并发进程（未动，待用户）**：R1×3（clear/ 两文件、根目录 dzbrain_零基础深挖报告.md）；anchors 他卡新增 6+越界 2；dzrobot_v2 侧 3 个 staged rename + calib_backfill 未提交改动（18:06 清理会话，方案B 由用户拍板，其 owner 自行收口）。K9 warn 13 口径复核无变化。
+
 > **2026-10-29 18:3x onboarding t4 验收通过 + Lead 修复复用门禁绕过漏洞（lead · t6 终验中）**：
 **t4 调参实验室**（sim-lab）判 **接受**：tools/sim_lab/ 三件 1084 行 + 车端/14 文档 257 行。Lead 独立复跑：--selftest 9/9、--all 15/15 exit 0；**确定性复跑两遍全量产物 diff=2722B，逐条核对差异全部是 report.txt 的墙钟秒数，traj/by_segment 等观测产物逐字节一致**（成员口头报的「逐字符相同」不成立，但其文档并未写这句话——文档无虚标，口径以本条为准：观测数据逐字节可复现，报告耗时字段除外）。三条教学结论产物坐实：lookahead_min 零差异（max 钳住机理写入）、safety_margin 74→212 拍轨迹不动（只观测不改控）、latency RMS-41.5% 假象带「⚠ 未跑完·不可横比」旗（4476 拍发散）——诚实标注是本实验室最值钱的设计。**Lead 修复（工具写域）**：check_reuse.py:37 加 --untracked-files=all——t4 报的绕过漏洞属实（未跟踪新目录折叠成 ?? dir/ 使 .py 判定失效），探针实证修复后嵌套新文件判红、撤探针 GREEN；K9 warn 计数经核仍 13（修复未误伤存量口径）。**外部干扰第三例**：dzrobot_v2/_archive_20261029/（256M，17:33 外部进程建，非本队）出现在 git 未跟踪——与 clear/、根目录两份草稿一并留给用户定夺，本队不动。t1~t5 全接受，t6 终验进行中。
 
