@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-29 18:54",
- "count": 264,
+ "generated": "2026-10-29 20:41",
+ "count": 265,
  "files": [
   {
    "path": "00_项目总览/00_索引.md",
@@ -1144,7 +1144,7 @@
    "level": "实+档",
    "updated": "2026-10-29",
    "status": "现行",
-   "lines": 100
+   "lines": 102
   },
   {
    "path": "20_资料索引库/车端/01_架构与线程.md",
@@ -1299,6 +1299,17 @@
    "updated": "2026-10-29",
    "status": "现行",
    "lines": 257
+  },
+  {
+   "path": "20_资料索引库/车端/15_dzbrain零基础源码导读.md",
+   "dir": "20_资料索引库/车端",
+   "title": "dzbrain 零基础深挖报告",
+   "summary": "一辆比赛小车，物理上分成两半：",
+   "from": "dzrobot_v2/src/dzbrain/dzbrain/main.py, dzrobot_v2/src/dzbrain/dzbrain/blackboard.py, dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, dzrobot_v2/src/dzbrain/dzbrain/core/config.py, dzrobot_v2/src/dzbrain/dzbrain/tasks/safety.py",
+   "level": "实",
+   "updated": "2026-10-29",
+   "status": "现行",
+   "lines": 442
   },
   {
    "path": "20_资料索引库/运维与排障/00_索引.md",
