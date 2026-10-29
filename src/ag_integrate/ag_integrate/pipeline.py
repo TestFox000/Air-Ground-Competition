@@ -119,6 +119,7 @@ def build_mission(
     rev_mult: float = 1.5,
     gear_switch: float = 0.5,
     heading_prop: bool = False,
+    tunnel_corridor: int = 1,
 ) -> CarCommands:
     """态势 -> reset + route 两条命令。
 
@@ -149,7 +150,7 @@ def build_mission(
         snapshot = _inject_track(snapshot, target_track, target_blue_face)
     _motion = dict(turn90_guard=turn90_guard, solid_barriers=solid_barriers,
                    reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch,
-                   heading_prop=heading_prop)
+                   heading_prop=heading_prop, tunnel_corridor=tunnel_corridor)
     ordered = plan_route_zoned(
         snapshot, start, goal, zone_order, cross_gates=gates, mid_boundary=mid_boundary,
         start_heading=start_heading, final_heading=final_heading,

@@ -24,6 +24,7 @@ def _dijkstra(
     cross_penalty: float = 0.0,
     tunnel_axes: frozenset[int] | None = None,
     tunnel_req: dict[int, int] | None = None,
+    tunnel_corridor: int = 1,
     turn90_guard: bool = False,
     solids: dict[int, list[float]] | None = None,
     reverse: bool = False,
@@ -76,17 +77,23 @@ def _dijkstra(
         gates_bits = bytearray(_N_CELLS)
         for c in cross_gates:
             gates_bits[c.row * COLS + c.col] = 1
-    # 进洞邻格（隧道格东西两侧一格）集合：dzbrain 实测依据（L10→L9 横向进=124 拍蹭墙、
-    # M10→M9→L9→K9 沿轴进=0 拍）——桥室冗余墙向进洞侧突出 ~0.135m，换行（含对角）
-    # 进出该格的车身余量仅 ~2cm。2026-10-24 移植为边级硬规则：禁换行触碰进洞邻格。
+    # 进洞邻格（隧道格东西两侧 tunnel_corridor 格）集合：dzbrain 实测依据
+    # （L10→L9 横向进=124 拍蹭墙、M10→M9→L9→K9 沿轴进=0 拍）——桥室冗余墙向
+    # 进洞侧突出 ~0.135m，换行（含对角）进出该格的车身余量仅 ~2cm。
+    # 2026-10-24 移植为边级硬规则：禁换行触碰进洞邻格。
+    # 2026-10-29 tunnel_corridor：直线走廊长度可配（默认 1=两侧各一格，历史行为）。
+    # 桥洞有真实体积，走廊加长 = 过洞必须沿隧道轴直线跑更远再许转向
+    # （如 corridor=2 时过 K2 强制 J2→K2→L2→M2 全直行，转向最早 N2/I2）。
     entry_nbr: frozenset[int] | None = None
     if tunnel_axes:
+        _span = max(1, int(tunnel_corridor))
         _en = set()
         for _ci in tunnel_axes:
             _r, _c = divmod(_ci, COLS)
-            for _c2 in (_c - 1, _c + 1):
-                if 0 <= _c2 < COLS:
-                    _en.add(_r * COLS + _c2)
+            for _k in range(1, _span + 1):
+                for _c2 in (_c - _k, _c + _k):
+                    if 0 <= _c2 < COLS:
+                        _en.add(_r * COLS + _c2)
         entry_nbr = frozenset(_en) if _en else None
     term_ci = terminal.row * COLS + terminal.col if terminal is not None else -1
     start_ci = start.row * COLS + start.col
@@ -411,6 +418,7 @@ def _cached_dijkstra(
     cross_penalty: float = 0.0,
     tunnel_axes: frozenset[int] | None = None,
     tunnel_req: dict[int, int] | None = None,
+    tunnel_corridor: int = 1,
     turn90_guard: bool = False,
     solids: dict[int, list[float]] | None = None,
     solid_key: tuple | None = None,
@@ -428,11 +436,12 @@ def _cached_dijkstra(
     solids 本体是 dict 不可哈希，进键的是它的排序元组投影 solid_key。
     """
     key = (start, entry_headings, terminal, blocked,
-           turn90_guard, solid_key, reverse, rev_mult, gear_switch)
+           turn90_guard, solid_key, reverse, rev_mult, gear_switch, tunnel_corridor)
     if cache is not None and key in cache:
         return cache[key]
     result = _dijkstra(start, blocked, cross_gates, mid_boundary, entry_headings, turn_45, allow_diagonal, terminal=terminal,
                        cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req,
+                       tunnel_corridor=tunnel_corridor,
                        turn90_guard=turn90_guard, solids=solids,
                        reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch)
     if cache is not None:
@@ -454,6 +463,7 @@ def _route_leg(
     tunnel_axes: frozenset[int] | None = None,
     tunnel_req: dict[int, int] | None = None,
     face_idx: int | None = None,
+    tunnel_corridor: int = 1,
     turn90_guard: bool = False,
     solids: dict[int, list[float]] | None = None,
     solid_key: tuple | None = None,
@@ -486,7 +496,7 @@ def _route_leg(
         return [frm], h0, 0.0
 
     term = to if want_arrival is not None else None
-    _enh = dict(turn90_guard=turn90_guard, solids=solids, solid_key=solid_key,
+    _enh = dict(turn90_guard=turn90_guard, solids=solids, solid_key=solid_key, tunnel_corridor=tunnel_corridor,
                 reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch)
     d_free, p_free, a_free = _cached_dijkstra(cache, frm, blocked, cross_gates, mid_boundary, entry, turn_45, allow_diagonal, terminal=term,
                                       cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, **_enh)
@@ -606,6 +616,7 @@ def _assemble(
     tunnel_req: dict[int, int] | None = None,
     face_req: dict[str, int] | None = None,
     align_degraded: set[str] | None = None,
+    tunnel_corridor: int = 1,
     turn90_guard: bool = False,
     solids: dict[int, list[float]] | None = None,
     solid_key: tuple | None = None,
@@ -632,7 +643,7 @@ def _assemble(
     放弃终点朝向分，保住完赛。严格模式（False）下不可达即整段返回 None。
     """
     used: set[CellRef] = {nodes[0]}
-    _aenh = dict(turn90_guard=turn90_guard, solids=solids, solid_key=solid_key,
+    _aenh = dict(turn90_guard=turn90_guard, solids=solids, solid_key=solid_key, tunnel_corridor=tunnel_corridor,
                  reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch)
     segments: list[list[CellRef]] = []
     total = 0.0
@@ -913,6 +924,7 @@ def _plan_core(
     tunnel_req: dict[int, int] | None = None,
     face_req: dict[str, int] | None = None,
     diag: dict | None = None,
+    tunnel_corridor: int = 1,
     align_degraded: set[str] | None = None,
     turn90_guard: bool = False,
     solids: dict[int, list[float]] | None = None,
@@ -927,10 +939,11 @@ def _plan_core(
     align_degraded：靶向对齐降级格收集集（见 _assemble），None 表示不需要收集。
     2026-10-25 增强项：turn90_guard/solids/reverse 进每层搜索；heading_prop
     在 n ≤ _HK_HEADING_MAX 时用朝向传递 Held-Karp 选序（见 _held_karp_orders_heading）。"""
-    _aenh = dict(turn90_guard=turn90_guard, solids=solids, solid_key=solid_key,
+    _aenh = dict(turn90_guard=turn90_guard, solids=solids, solid_key=solid_key, tunnel_corridor=tunnel_corridor,
                  reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch)
     dist0, _, _ = _cached_dijkstra(cache, start, blocked, cross_gates, mid_boundary, _ALL_HEADINGS, turn_45, allow_diagonal,
                      cross_penalty=cross_penalty, tunnel_axes=tunnel_axes, tunnel_req=tunnel_req, **_aenh)
+    # corridor 经 _aenh 已进缓存键与求解;此处无额外动作
     if _arrival_state(dist0, goal, None)[0] >= _INF:
         raise ValueError(_unreachable_detail(
             start, goal, dist0, blocked, cross_gates, mid_boundary, diag))

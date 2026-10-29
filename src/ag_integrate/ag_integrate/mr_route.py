@@ -27,6 +27,7 @@ def plan_route(
     allow_diagonal: bool = True,
     crossing_penalty: float = 0.0,
     tunnel_dirs: dict[str, str] | None = None,
+    tunnel_corridor: int = 1,
     require_gates: bool = True,
     turn90_guard: bool = False,
     solid_barriers: bool = False,
@@ -174,8 +175,15 @@ def plan_route(
     # 的语义见 _dijkstra/_held_karp_orders_heading docstring。
     solid_map, solid_key = (
         _build_solid_barriers(mid_boundary, bridge_open) if solid_barriers else (None, None))
+    # tunnel_corridor：过洞直线走廊长度（两侧各 N 格禁换行，默认 1=历史行为；
+    # 2026-10-29 用户需求——桥洞有真实体积，corridor=2 时过 K2 强制 J2→K2→L2→M2
+    # 全直行，转向最早在洞口外第 3 格）。走廊越长隧道越难用：走廊格被桶占/误检
+    # 堵死时该隧道整条弃用（不可达告警口径），现场按需回调。
+    if tunnel_corridor < 1:
+        raise ValueError(f"tunnel_corridor 须 >=1，收到 {tunnel_corridor}")
     _aenh = dict(turn90_guard=turn90_guard, solids=solid_map, solid_key=solid_key,
-                 reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch)
+                 reverse=reverse, rev_mult=rev_mult, gear_switch=gear_switch,
+                 tunnel_corridor=tunnel_corridor)
 
     # 雷为普通必经点；蓝靶的必经点是其停靠射击格（每靶一组候选）。
     # cache 在本次 plan_route 内共享：blocked/cross_gates 已定型，

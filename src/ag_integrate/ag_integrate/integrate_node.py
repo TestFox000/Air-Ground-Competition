@@ -186,6 +186,7 @@ class IntegrateNode(Node):
         self.declare_parameter("rev_mult", 1.5)            # 倒车距离计价倍数（格当量）
         self.declare_parameter("gear_switch_cost", 0.5)    # 换挡代价（格当量）
         self.declare_parameter("heading_prop", True)       # HK 朝向传递（n≤10）
+        self.declare_parameter("tunnel_corridor", 1)      # 过洞直线走廊格数(2026-10-29)
         # ---- U1 联合求解器（全线升级方案 2026-10-18，默认关：台架验证后开）----
         # 超软预算时改用 ortools_solver 联合解"保留任务集+访问顺序"（得分
         # 字典序优先），替代"整砍射击位"两步启发式。失败自动退回启发式。
@@ -248,6 +249,7 @@ class IntegrateNode(Node):
         self.rev_mult = float(p("rev_mult"))
         self.gear_switch_cost = float(p("gear_switch_cost"))
         self.heading_prop = bool(p("heading_prop"))
+        self.tunnel_corridor = max(1, int(p("tunnel_corridor")))
         self.heading_bias_source = str(p("heading_bias_source")).strip().lower()
         self.cmd_vel_topic = str(p("cmd_vel_topic"))
         self.align_creep_speed = float(p("align_creep_speed"))
@@ -854,6 +856,7 @@ class IntegrateNode(Node):
                     rev_mult=self.rev_mult,
                     gear_switch=self.gear_switch_cost,
                     heading_prop=self.heading_prop,
+                    tunnel_corridor=self.tunnel_corridor,
                 )
         except (ValueError, IndexError, KeyError) as exc:
             # 规划失败（goal 不可达、桥洞未识别全等）：记日志 + 黑匣子，

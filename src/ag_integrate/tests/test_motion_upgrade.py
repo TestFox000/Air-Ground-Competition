@@ -254,3 +254,40 @@ def test_pipeline_motion_kwargs_end_to_end():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ================================================================ 桥洞直线走廊
+def test_tunnel_corridor_levels():
+    """过洞直线走廊：桥洞有真实体积，走廊越长出口/入口直线段越长。
+
+    实测口径（dzbrain 10-24）：corridor=1（±1 格）沿轴进出 0 拍蹭墙。
+    诱饵雷 M8 紧贴出洞口东北：corridor=1 允许 M7 转向吃雷；corridor=2
+    强制直行到 N7 才许转；corridor=3 时 K 列隧道东侧走廊顶到 N 列边界，
+    出洞方向被封（设计内取舍——走廊越长隧道越难用）。
+    """
+    snap = make_snapshot(mines=["M8"], passable=["K7"])
+    kw = dict(start_heading="x")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        r1 = plan_route(snap, cell("J10"), cell("N9"), tunnel_corridor=1, **kw)
+        r2 = plan_route(snap, cell("J10"), cell("N9"), tunnel_corridor=2, **kw)
+    i1, i2 = r1.index("K7"), r2.index("K7")
+    assert list(r1[i1:i1 + 3]) == ["K7", "L7", "M7"]      # 现状：M7 即可转
+    assert list(r2[i2:i2 + 4]) == ["K7", "L7", "M7", "N7"]  # 加长：N7 才许转
+    assert len(r2) > len(r1)                               # 安全换里程
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(ValueError):
+            plan_route(snap, cell("J10"), cell("N9"), tunnel_corridor=3, **kw)
+    with pytest.raises(ValueError):
+        plan_route(snap, cell("J10"), cell("N9"), tunnel_corridor=0, **kw)
+
+
+def test_tunnel_corridor_default_is_legacy():
+    """默认 corridor=1 = 历史行为：不带参数的路线与显式 1 完全一致。"""
+    snap = make_snapshot(mines=["M8"], passable=["K7"])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        a = plan_route(snap, cell("J10"), cell("N9"), start_heading="x")
+        b = plan_route(snap, cell("J10"), cell("N9"), start_heading="x", tunnel_corridor=1)
+    assert a == b

@@ -104,6 +104,7 @@ class PlanConfig:
     mid_boundary: int = _MID_BOUNDARY
     crossing_penalty: float = 0.0
     tunnel_dirs: dict[str, str] | None = None
+    tunnel_corridor: int = 1            # 过洞直线走廊(两侧各N格禁换行;1=旧行为)
     zone_order: tuple[str, ...] | None = None
     turn_45: float = 0.75
     allow_diagonal: bool = True
@@ -245,6 +246,7 @@ def config_from_params(raw: dict) -> PlanConfig:
         mid_boundary=int(raw.get("mid_boundary", _MID_BOUNDARY)),
         crossing_penalty=float(raw.get("crossing_penalty", 0.0)),
         tunnel_dirs=_parse_tunnel_dirs(raw.get("tunnel_dirs")),
+        tunnel_corridor=int(raw.get("tunnel_corridor", 1)),
         zone_order=_as_tuple_str(raw.get("zone_order")) or None,
         turn_45=float(raw.get("turn_45", 0.75)),
         allow_diagonal=bool(raw.get("allow_diagonal", True)),
@@ -526,6 +528,7 @@ class PlannerCore:
                     soft_cap_s=self.cfg.time_soft_cap_s,
                     crossing_penalty=self.cfg.crossing_penalty,
                     tunnel_dirs=self.cfg.tunnel_dirs,
+                    tunnel_corridor=self.cfg.tunnel_corridor,
                     zone_order=self.cfg.zone_order,
                     turn_45=self.cfg.turn_45,
                     allow_diagonal=self.cfg.allow_diagonal,
