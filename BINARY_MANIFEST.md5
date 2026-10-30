@@ -11,3 +11,4 @@ e93dec04f9c7d8f272cc11624261741d  models/release/hbb_detector_7cls_distill_20261
 703d135630b0b2d9c2f8d389f514dceb  models/release/cell_classifier_v4f_baked_20261027.onnx
 b58d0c23dbc557d1e60704719b17ef9d  models/release/cell_classifier_v4e_20261027.onnx
 928979a1aa4672732236cb48f585f43f  models/release/cell_classifier_v4f_20261027.onnx
+de80711e51a5531e07853ae774d1998d  models/release/hbb_detector_ft_v3b_20261027.onnx
