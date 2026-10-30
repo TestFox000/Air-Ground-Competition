@@ -1,13 +1,11 @@
 # 被忽略二进制的 md5 锁（引擎/模型不入库，漂移用 md5sum -c BINARY_MANIFEST.md5 检出）
 eb46548d02690c553158e75a093dea67  engines/cell_classifier_fp16.engine
 d9779a7b6f007bc2756424179743553b  engines/hbb_detector_fp16.engine
-11be1a3cd2780f67cbb8273b8aa0a410  models/release/cell_classifier_v4c_ft_20261010.onnx
 9de102a6519127eeb787381feefdc14d  models/release/cell_classifier_v4d_20261015.onnx
 4ea0edde97804e5dbc0d8d37202750bc  models/release/current_cell_classifier
 5e6e41571a4c1f5d71fd192e9efab542  models/release/current_hbb_detector
-e93dec04f9c7d8f272cc11624261741d  models/release/hbb_detector_7cls_distill_20261011.onnx
 9dae6083239b3b6c0b553c5f94261e78  models/release/hbb_detector_d13_20261016.onnx
-53404e82c317a970934da797e2f0af87  models/release/README.md
+cee6faec581e30b0a3d43218673d03bf  models/release/README.md
 703d135630b0b2d9c2f8d389f514dceb  models/release/cell_classifier_v4f_baked_20261027.onnx
 b58d0c23dbc557d1e60704719b17ef9d  models/release/cell_classifier_v4e_20261027.onnx
 928979a1aa4672732236cb48f585f43f  models/release/cell_classifier_v4f_20261027.onnx
