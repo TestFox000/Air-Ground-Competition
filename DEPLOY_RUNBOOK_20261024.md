@@ -75,8 +75,12 @@ python tools/orin_deploy.py --host <IP> --user duzhong --verify
 #   验证门：远程 L1 编译 + L2 自检全过，输出含 ag_integrate 备份路径
 
 # ② 定位补丁（px4_odom_convert v2.2：备份→推送→colcon→重启节点→验证横幅）
-python tools/patch_deploy.py --host <IP> --user duzhong
-#   验证门：日志出现 "Resilience layer v2" + health 行含 "status_age_s=" 字段
+# ⛔ 2026-10-30 起本阶段废除：px4_odom_convert v2.2 已定案弃用（10-26/27 两次
+#    飞控事故链根因=补丁 bump/重锚逻辑与 EKF 交互；机上已回退官方 7758B 原版并
+#    整体对齐官方交付版）。**dzpx4 官方栈零触碰**：不运行 patch_deploy.py、不重编
+#    dzpx4 下任何包、不改其 launch/config；机上 pip 严禁再动 numpy（官方栈硬依赖
+#    1.26.x）。护栏需求若复活须新评审+系留验证后走新通道。
+#    官方基线核查报告：桌面\无人机备份总库_20261028\10_官方nano板源码核查报告
 
 # ③ 引擎（D13/v4d；一键版缺引擎时自动转换）
 ssh duzhong@<IP> 'cd ~/dzuav_deploy/air_ground && bash tools/orin_check_engines.sh'
@@ -113,7 +117,7 @@ ssh duzhong@<IP> 'cd ~/dzuav_deploy/air_ground && bash tools/orin_preflight_chec
 
 ```bash
 python tools/orin_deploy.py --host <IP> --user duzhong --restore    # ag_integrate 回备份
-python tools/patch_deploy.py  --host <IP> --user duzhong --rollback # px4 回原版
+# ⛔ patch_deploy 已废除（2026-10-30）：px4_odom_convert 保持官方原版,无回滚需求
 # sidecar 一次性规划回退：--plan-mode once 或 yaml replan_on_update: false
 ```
 
@@ -126,3 +130,11 @@ python tools/patch_deploy.py  --host <IP> --user duzhong --rollback # px4 回原
 - 第六图 K7 桥洞贴隔板 = 结构性死锁（车端 tracker-safe 拒绝规划是**正确行为**，带归因诊断）；现役 68-token 路线 M7 转弯仿真隔板余量 1.2mm/113 拍穿渗——现场蹭板风险，处置见就绪度报告 P0。
 - sidecar 与车端 integrate_node **不可同时消费** UDP:50000（双决策核心互斥）。
 - v1 本地 `dzsmartscout/src/uav_camera_code/onboard/dzuav` 是 7 类旧参考副本，**勿部署**；机上以 `~/dzuav_deploy/air_ground/onboard/dzuav`（13 类）为准。
+
+## 5. 2026-10-30 改版注记（部署口径更新）
+
+- **部署源分支**:`agents/zcode/modularize-20261027`(完整包含部署线全部历史+模块化+走廊安全+模型候选;单线无分叉)。模块化新结构(mr_*/vr_* 扁平模块、tools/uavlink/ 包)随 orin_deploy 整目录同步上机即可,机载 sidecar 按路径直跑不受 setup.py 打包影响。
+- **阶段②废除**(见上);三阶段部署:①源码+规划包 → ③引擎(cell 指针=v4f_baked,若机上引擎内容未变则跳过重转)→ ④起栈。
+- **上机第一动作**:EKF2/PX4 参数全量 dump 建档(从未建档;官方交付无参数单)——`param dump > param_baseline_$(date).txt` 存档后才能动任何东西。
+- **飞前硬门不变**:orin_preflight_check 13 项全绿 EXIT=0;首飞流程按事故后纪律(系留/低空悬停→复查→逐步放开)。
+- 模型现役:hbb=ft_v1(候选 ft_v3b 已入库未切,切换=改指针一行+重转引擎);cell=v4f_baked。
