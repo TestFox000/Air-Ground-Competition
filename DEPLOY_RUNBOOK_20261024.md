@@ -19,7 +19,7 @@ set AG_ORIN_PASS=******              # 部署脚本密码环境变量
 |---|---|---|---|
 | 1 | **route_cells_of 认连写朝向后缀**（`N5,y`） | src/ag_integrate/ag_integrate/route_progress.py | 旧版抛 CommandError→静默退回摆位起点+全量雷，**"重规划基于最新进度"从未生效**（缺雷主因） |
 | 2 | **replan_on_update 默认开**（integrate_node + sidecar 双线） | integrate_node.py / orin_plan_sidecar.py | 首发后识别到的新雷永不进路线 |
-| 3 | **px4_odom_convert v2.2** | onboard/dzpx4_patch/（补齐载荷） | NaN 直通 EKF / armed 断流 fail-open / 对齐双锚 / 参数化 / 依赖清单 |
+| 3 | ~~px4_odom_convert v2.2~~（⛔ 2026-10-30 废除,见 §5） | onboard/dzpx4_patch/（载荷留档不用） | 已定案弃用：机上为官方原版直通,dzpx4 零触碰 |
 | 4 | D13 13类/17通道（**已在树内，无新增**，本轮确认） | onboard/dzuav/ | 就绪度报告 P0-1 按旧副本误报，机上源码已是 17 通道 + 形状契约校验（:72 换错引擎即抛错） |
 
 ## 2. 部署步骤
