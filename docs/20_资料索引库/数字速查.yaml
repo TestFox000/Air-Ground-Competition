@@ -464,7 +464,7 @@
   名称: 跟踪速度上限
   值: 2000
   单位: 刻度/s
-  出处: docs/20_资料索引库/视觉与云台/00_索引.md:48
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:49
   代码锚点: dzrobot_v2/config/robot.yaml:83 track_speed_max
   校验: ros('dzrobot_v2/config/robot.yaml', 'track_speed_max', '/dzrknn_dataprocess')
   状态: 文档
@@ -474,7 +474,7 @@
   名称: 跟踪速度上限（角速度）
   值: 175.78
   单位: °/s
-  出处: docs/20_资料索引库/视觉与云台/00_索引.md:48
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:49
   代码锚点: dzrobot_v2/config/robot.yaml:83 track_speed_max
   校验: ros('dzrobot_v2/config/robot.yaml', 'track_speed_max', '/dzrknn_dataprocess') / ros('dzrobot_v2/config/robot.yaml', 'yaw_ticks_per_deg', '/dzrknn_dataprocess')
   状态: 文档
@@ -538,7 +538,7 @@
   名称: 全程弹药上限
   值: 10
   单位: 发
-  出处: docs/20_资料索引库/视觉与云台/00_索引.md:45
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:46
   代码锚点: dzrobot_v2/config/robot.yaml:204 max_shots
   校验: ros('dzrobot_v2/config/robot.yaml', 'max_shots', '/dzrknn_dataprocess')
   状态: 文档
@@ -548,7 +548,7 @@
   名称: 丢靶回扫帧数（C++ 云台节点）
   值: 180
   单位: 帧
-  出处: docs/20_资料索引库/视觉与云台/00_索引.md:43
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:44
   代码锚点: dzrobot_v2/config/robot.yaml:237 lost_frames_to_rescan
   校验: ros('dzrobot_v2/config/robot.yaml', 'lost_frames_to_rescan', '/dzrknn_dataprocess')
   状态: 文档
@@ -559,7 +559,7 @@
   名称: 丢靶回扫帧数（Python 段）
   值: 60
   单位: 帧
-  出处: docs/20_资料索引库/视觉与云台/00_索引.md:43
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:44
   代码锚点: dzrobot_v2/config/robot.yaml:870 lost_frames_to_rescan
   校验: ros('dzrobot_v2/config/robot.yaml', 'lost_frames_to_rescan', '/dzbrain')
   状态: 文档

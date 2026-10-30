@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-29 20:41",
- "count": 265,
+ "generated": "2026-10-31 03:01",
+ "count": 266,
  "files": [
   {
    "path": "00_项目总览/00_索引.md",
@@ -854,11 +854,11 @@
    "dir": "20_资料索引库/空地链路",
    "title": "链路联调与已知缺口",
    "summary": "三个未闭环缺口按代价排：**D1b**（SEGMENT_DONE 漏收 ≈86%，段末永久等）> **D2**（到站 block 差半格/一格）> **D3**（停站 0 发，…",
-   "from": "_tmp_session/t3/audit/FLOW_COMPARISON.md, _tmp_session/t3/carcheck/EMITTER_CROSSCHECK.md, _tmp_session/t3/carcheck/runbook.md, _tmp_session/t3_batch/README.md, docs/history_cache/01_旧文档归档/dzrobot_v2/docs/空地指挥链路_协议与运行手册.md, dzrobot_v2/docs/决策台账.md D-015/017/020/022, docs/history_cache/01_旧文档归档/docs/空地联合仿真设计.md",
+   "from": "_tmp_session/t3/audit/FLOW_COMPARISON.md, _tmp_session/t3/carcheck/EMITTER_CROSSCHECK.md, _tmp_session/t3/carcheck/runbook.md, _tmp_session/t3_batch/README.md, docs/history_cache/01_旧文档归档/dzrobot_v2/docs/空地指挥链路_协议与运行手册.md, dzrobot_v2/docs/决策台账.md D-015/017/020/022, docs/history_cache/01_旧文档归档/docs/空地联合仿真设计.md、dzsmartscout/tools/reports/t12-修复说明.md、dzsmartscout/tools/reports/t18-复核整改说明.md",
    "level": "实/档",
-   "updated": "2026-10-29",
+   "updated": "2026-10-30",
    "status": "现行",
-   "lines": 109
+   "lines": 132
   },
   {
    "path": "20_资料索引库/空地链路/03_车侧话题对账_20261018.md",
@@ -911,9 +911,9 @@
    "summary": "链路：相机 → det_node(RKNN 30 Hz) → /offset_center[8 字段] → dzrknn_dataprocess(incPID + 开火判据) …",
    "from": "docs/history_cache/01_旧文档归档/dzrobot_v2/docs/archive/20261018/survey_gimbal_fire.md, docs/history_cache/01_旧文档归档/docs/瞄准代码对比报告_gitee_vs_本地_20261018.md, docs/history_cache/01_旧文档归档/docs/云台PID自动整定方案.md, docs/history_cache/01_旧文档归档/docs/第三趟实车验证方案_射击链.md, docs/history_cache/01_旧文档归档/docs/感知可行性_摄像头评估.md, air_ground_models/README.md, dzrobot_v2/docs/决策台账.md",
    "level": "实/档",
-   "updated": "2026-10-29",
+   "updated": "2026-10-31",
    "status": "现行",
-   "lines": 87
+   "lines": 88
   },
   {
    "path": "20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md",
@@ -947,6 +947,17 @@
    "updated": "2026-10-29",
    "status": "现行",
    "lines": 115
+  },
+  {
+   "path": "20_资料索引库/视觉与云台/04_视觉链路延迟压降操作规程_P0-P4.md",
+   "dir": "20_资料索引库/视觉与云台",
+   "title": "视觉链路延迟压降操作规程（P0~P4）",
+   "summary": "**四把尺子不许混**：A 口径（帧到达→推理完）是**唯一验收口径**；B 口径、提前量折算口径、端到端口径各自只服务各自的下游问题，**不能相加、不能互相替代验收**（§1）。",
+   "from": "dzrobot_v2/src/rknn_pt/**（det_node.cc / rknnPool.hpp / ThreadPool.hpp / det/rkpt.cc / coreNum.hpp / common.h）, dzrobot_v2/config/robot.yaml, dzrobot_v2/tools/test_rknn.py, dzrobot_v2/src/dzbrain/dzbrain/tasks/aim.py, artifacts/agc-1024/car_snapshot/README.md, artifacts/agc-1024/car_snapshot/dzrobot__config_robot.yaml, docs/20_资料索引库/视觉与云台/02_视觉模型与检测.md, docs/00_项目总览/技术全景_C_车端硬件与配置.md",
+   "level": "实/档",
+   "updated": "2026-10-31（P0 车端实测已回填，见 §12）",
+   "status": "现行",
+   "lines": 367
   },
   {
    "path": "20_资料索引库/赛事与治理/00_索引.md",
@@ -1144,7 +1155,7 @@
    "level": "实+档",
    "updated": "2026-10-29",
    "status": "现行",
-   "lines": 102
+   "lines": 103
   },
   {
    "path": "20_资料索引库/车端/01_架构与线程.md",
@@ -1320,7 +1331,7 @@
    "level": "实+档",
    "updated": "2026-10-29",
    "status": "现行",
-   "lines": 89
+   "lines": 90
   },
   {
    "path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
@@ -1439,9 +1450,9 @@
    "summary": "**10-23新增方案卡**：AG-TEAM-PLAN-20261023编制DSH空地闭环场景；以下10-22卡数是历史快照，当前入口见空地闭环计划，卡的最终归档见归档索引。方…",
    "from": "docs/history_cache/01_旧文档归档/docs/agent_handoff/30_循迹团队执行方案.md, docs/history_cache/01_旧文档归档/docs/agent_handoff/32_循迹回报模板.md, docs/history_cache/01_旧文档归档/docs/agent_handoff/36_R2复核_R3补测与收尾计划.md, _tmp_session/PROJECT_STATUS_20261021.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/TRACK-*/CARD*.md, dzrobot_v2/_tmp_session/*/REPORT.md",
    "level": "档",
-   "updated": "2026-10-26",
+   "updated": "2026-10-29",
    "status": "现行",
-   "lines": 126
+   "lines": 133
   },
   {
    "path": "30_任务卡库/_模板/任务卡模板.md",
@@ -1494,9 +1505,9 @@
    "summary": "ns 登记表（lead 单写）。新 ns 先登记再建目录，否则守卫 Y6。",
    "from": "",
    "level": "",
-   "updated": "2026-10-23",
+   "updated": "2026-10-29",
    "status": "现行",
-   "lines": 35
+   "lines": 39
   },
   {
    "path": "30_任务卡库/在办/agc-1024/00_树.md",
@@ -1914,7 +1925,7 @@
    "level": "",
    "updated": "2026-10-28",
    "status": "过程",
-   "lines": 18
+   "lines": 19
   },
   {
    "path": "30_任务卡库/在办/archrev-1028/ARCH-RESEARCH-20261028.md",
@@ -2882,7 +2893,7 @@
    "level": "实",
    "updated": "2026-10-23",
    "status": "已归档",
-   "lines": 112
+   "lines": 117
   },
   {
    "path": "30_任务卡库/归档/tools-1022/2026-10-23_TOOLS-PLUGIN-TERMGATE-20261023.md",
