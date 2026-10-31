@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-31 03:01",
- "count": 266,
+ "generated": "2026-10-31 11:21",
+ "count": 320,
  "files": [
   {
    "path": "00_项目总览/00_索引.md",
@@ -913,7 +913,7 @@
    "level": "实/档",
    "updated": "2026-10-31",
    "status": "现行",
-   "lines": 88
+   "lines": 89
   },
   {
    "path": "20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md",
@@ -922,9 +922,9 @@
    "summary": "**10-24 本地修复**：停扫 0 在 TRACK 也生效并取消待开扫归位；两键各自按接收时间有 500 ms 租期，Mission 有效 FIRE 每拍续租，离站/换路撤…",
    "from": "dzrobot_v2/src/dzrknn_dataprocess/**, dzrobot_v2/src/dzjudgment/**, docs/history_cache/01_旧文档归档/dzrobot_v2/docs/archive/20261018/survey_gimbal_fire.md, docs/history_cache/01_旧文档归档/dzrobot_v2/docs/archive/20261018/云台补丁说明.md, docs/history_cache/01_旧文档归档/docs/瞄准代码对比报告_gitee_vs_本地_20261018.md, _tmp_session/aim_audit/体检报告_20261018_1741.md, dzrobot_v2/config/robot.yaml, dzrobot_v2/docs/决策台账.md D-002/D-003/D-030",
    "level": "实/档",
-   "updated": "2026-10-29",
+   "updated": "2026-10-31",
    "status": "现行",
-   "lines": 157
+   "lines": 218
   },
   {
    "path": "20_资料索引库/视觉与云台/02_视觉模型与检测.md",
@@ -958,6 +958,17 @@
    "updated": "2026-10-31（P0 车端实测已回填，见 §12）",
    "status": "现行",
    "lines": 367
+  },
+  {
+   "path": "20_资料索引库/视觉与云台/05_云台实测数据档案_20261031.md",
+   "dir": "20_资料索引库/视觉与云台",
+   "title": "云台实测数据档案（2026-10-31）",
+   "summary": "这是 10-31 云台跟踪实测的**数据档案索引**，不是结论页：数据在归档目录，结论在 01 §10–13。",
+   "from": "artifacts/aim-1031/README.md 与 MANIFEST.txt；AIM-DYNAMIC / AIM-STEP / AIM-STATIC / AIM-MOVING-20261031 卡；视觉与云台/01 §10–13",
+   "level": "实/档",
+   "updated": "2026-10-31",
+   "status": "现行",
+   "lines": 110
   },
   {
    "path": "20_资料索引库/赛事与治理/00_索引.md",
@@ -1032,9 +1043,9 @@
    "summary": "两仓统一版本线（dzrobot_v2 v1.1.0~v4.0.0 + 根仓 v4.0.1/v4.0.2）；下一版 v4.0.3；存档六步 + 备份矩阵；禁 git add -A",
    "from": "D-032（决策台账）、git_save/README.md、log_2026-10-23_1632.md、history_cache/01_旧文档归档/docs/history_cache/01_旧文档归档/dzrobot_v2/docs/版本号台账.md（v3 规则原文，已归档）",
    "level": "实/档",
-   "updated": "2026-10-23",
+   "updated": "2026-10-31（§7.1 更正：全史不可行限 v1；v2 全史已推成）",
    "status": "现行",
-   "lines": 121
+   "lines": 131
   },
   {
    "path": "20_资料索引库/赛事与治理/07_官方资料与物料清单.md",
@@ -1208,9 +1219,9 @@
    "summary": "**部署唯一入口** `tools/deploy_to_car.py`（`probe/backup/push/build/verify/all`）；`deploy_car.py…",
    "from": "docs/history_cache/01_旧文档归档/dzrobot_v2/docs/使用手册.md, docs/history_cache/01_旧文档归档/dzrobot_v2/docs/library/现场联调与部署.md, dzrobot_v2/docs/决策台账.md, dzrobot_v2/config/robot.yaml, artifacts/maps/sixth_20261017_map.yaml, _tmp_session/step_loop/map7.yaml, _tmp_session/sim_map_20261018/map.yaml, SSH-DIAG-20261024",
    "level": "实+档",
-   "updated": "2026-10-24",
+   "updated": "2026-10-31",
    "status": "现行",
-   "lines": 92
+   "lines": 101
   },
   {
    "path": "20_资料索引库/车端/06_回归与测试基线.md",
@@ -1282,12 +1293,12 @@
    "path": "20_资料索引库/车端/12_可调参数速查_按场景.md",
    "dir": "20_资料索引库/车端",
    "title": "可调参数速查（按场景）",
-   "summary": "1. `robot.yaml` 现役 **256 个有效键**（18 段）；另有 **117 个键只登记在 `core/config.py` 的 SCHEMA 里、没写进 ya…",
+   "summary": "1. `robot.yaml` 现役 **252 个有效键**（18 段）；另有 **117 个键只登记在 `core/config.py` 的 SCHEMA 里、没写进 ya…",
    "from": "dzrobot_v2/config/robot.yaml, dzrobot_v2/src/dzbrain/dzbrain/core/config.py, dzrobot_v2/src/dzrknn_dataprocess/src/dzrknn_dataprocess.cpp, dzrobot_v2/src/dzactuator/src/dzactuator.cpp, dzrobot_v2/src/car_localization/car_localization/path_executor.py, dzrobot_v2/src/dzbrain/dzbrain/io/contract.py",
    "level": "实+档",
-   "updated": "2026-10-29",
+   "updated": "2026-10-31",
    "status": "现行",
-   "lines": 694
+   "lines": 700
   },
   {
    "path": "20_资料索引库/车端/13_模块协调与链路展开.md",
@@ -1323,6 +1334,17 @@
    "lines": 442
   },
   {
+   "path": "20_资料索引库/车端/16_dzbrain接口契约表.md",
+   "dir": "20_资料索引库/车端",
+   "title": "dzbrain 接口契约表（对外/对内 ROS 接口 · 人读对照版）",
+   "summary": "**一个 Python 进程 = 8 个任务线程 + 主线程里的步进循环 + 一个 4 线程 ROS executor**。线程之间**不发 ROS 话题**，只走黑板（Bla…",
+   "from": "dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, dzrobot_v2/src/dzbrain/dzbrain/io/referee.py, dzrobot_v2/src/dzbrain/dzbrain/main.py, dzrobot_v2/src/dzbrain/dzbrain/tasks/*.py, dzrobot_v2/src/dzbrain/dzbrain/core/blackboard.py, dzrobot_v2/src/dzbrain/dzbrain/core/events.py, dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py",
+   "level": "实",
+   "updated": "2026-10-30",
+   "status": "现行",
+   "lines": 132
+  },
+  {
    "path": "20_资料索引库/运维与排障/00_索引.md",
    "dir": "20_资料索引库/运维与排障",
    "title": "运维与排障 · 分册索引",
@@ -1340,7 +1362,7 @@
    "summary": "52 条「症状→机制→位置→处置命令」四列索引，由 README §4 迁移并扩列，条数不变",
    "from": "docs/20_资料索引库/README.md §4（52 条症状索引，行 125-176）；机制/位置原散见 车端/05、车端/04、车端/02、车端/03、车端/08、视觉与云台/00-03、无人机/02-05、空地链路/02-03、历史/07、赛事与治理/02-06",
    "level": "实+档",
-   "updated": "2026-10-27",
+   "updated": "2026-10-31（症-49 机制改写，条数不变；GIT-PUSH-DZV2-20261030）",
    "status": "现行",
    "lines": 103
   },
@@ -1444,6 +1466,17 @@
    "lines": 549
   },
   {
+   "path": "20_资料索引库/运维与排障/11_dzbrain链路诊断手册.md",
+   "dir": "20_资料索引库/运维与排障",
+   "title": "dzbrain 链路诊断手册",
+   "summary": "dzbrain 链路诊断手册：5 类现场症状各自连到候选原因 + 可复跑命令 + 预期输出 + 判据；遥测字段判读；离线可跑命令已本机实跑标〔实〕，现场命令标〔码〕。",
+   "from": "dzrobot_v2/src/dzbrain/dzbrain/**（io/contract.py、io/ros_io.py、core/blackboard.py、core/task.py、core/events.py、tasks/aim.py、tasks/safety.py、tasks/tracker.py、tasks/mission.py、tasks/localization.py、tasks/telemetry.py、main.py）；dzrobot_v2/start_all.sh；dzrobot_v2/tools/{wf/check.py, config_selfcheck.py, car_reconcile.py, route_check.py, healthcheck.sh, deploy_to_car.py}",
+   "level": "实",
+   "updated": "2026-10-30",
+   "status": "现行",
+   "lines": 269
+  },
+  {
    "path": "30_任务卡库/README.md",
    "dir": "30_任务卡库",
    "title": "任务卡库（作业台）",
@@ -1507,7 +1540,7 @@
    "level": "",
    "updated": "2026-10-29",
    "status": "现行",
-   "lines": 39
+   "lines": 41
   },
   {
    "path": "30_任务卡库/在办/agc-1024/00_树.md",
@@ -1939,6 +1972,17 @@
    "lines": 160
   },
   {
+   "path": "30_任务卡库/在办/archrev-1028/DBG-LINK-DIAG-20261030.md",
+   "dir": "30_任务卡库/在办/archrev-1028",
+   "title": "DBG-LINK-DIAG-20261030 · dzbrain 链路诊断手册（P0-3）",
+   "summary": "P0-3 落地——把 ARCH-RESEARCH-20261028 挖出的 6 个 dzbrain 结构性隐患与 ARCH-RESEARCH §「建议先做的可验收切片」变成一份…",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "in_progress",
+   "lines": 105
+  },
+  {
    "path": "30_任务卡库/在办/archrev-1028/FLOW-RESEARCH-20261028.md",
    "dir": "30_任务卡库/在办/archrev-1028",
    "title": "FLOW-RESEARCH-20261028 · agent 工作流研究",
@@ -2025,6 +2069,50 @@
    "updated": "2026-10-24",
    "status": "in_progress",
    "lines": 115
+  },
+  {
+   "path": "30_任务卡库/在办/config-1031/00_树.md",
+   "dir": "30_任务卡库/在办/config-1031",
+   "title": "config-1031 · 配置重构",
+   "summary": "A已交付；B已实际实施（仅删aim三处重复赋值、由dzrknn迁移），待非作者独立复验。",
+   "from": "用户批准robot配置A-B执行及V4.1 Flash最高思考强度",
+   "level": "实",
+   "updated": "2026-10-31",
+   "status": "现行",
+   "lines": 39
+  },
+  {
+   "path": "30_任务卡库/在办/config-1031/A.md",
+   "dir": "30_任务卡库/在办/config-1031",
+   "title": "A · A等价瘦身",
+   "summary": "A已应用470行版本，review3配置与review4维护集成独立通过；本阶段已交付并停止，B暂停，原计划留在办。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-31",
+   "status": "in_progress",
+   "lines": 60
+  },
+  {
+   "path": "30_任务卡库/在办/config-1031/B.md",
+   "dir": "30_任务卡库/在办/config-1031",
+   "title": "B · B重复真源收敛",
+   "summary": "B已实施并通过非作者独立复验（45/45）：仅删aim段三处重复赋值、由dzrknn迁移；当前live 467行；回指已按终态重锚。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-31",
+   "status": "in_progress",
+   "lines": 78
+  },
+  {
+   "path": "30_任务卡库/在办/config-1031/VERIFY.md",
+   "dir": "30_任务卡库/在办/config-1031",
+   "title": "VERIFY · 独立验证与消费者核查",
+   "summary": "review3 独立复验 A 最终收口 pass：candidate/live/artifact 均 108b4487（470 行）、前像 97a604e9（999 行）；数据…",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-31",
+   "status": "in_progress",
+   "lines": 139
   },
   {
    "path": "30_任务卡库/在办/doc-1024/00_树.md",
@@ -2222,7 +2310,7 @@
    "level": "",
    "updated": "2026-10-27",
    "status": "过程",
-   "lines": 146
+   "lines": 148
   },
   {
    "path": "30_任务卡库/在办/lead-1023/ACK-PURGE-20261027.md",
@@ -2333,6 +2421,17 @@
    "updated": "",
    "status": "pending",
    "lines": 320
+  },
+  {
+   "path": "30_任务卡库/在办/shoot-1031/00_树.md",
+   "dir": "30_任务卡库/在办/shoot-1031",
+   "title": "shoot-1031 · 移动靶已有数据分析",
+   "summary": "跳过前置重测，复用10-31云台记录开展移动靶禁火分析；树由本会话Lead单写。",
+   "from": "本会话用户指令",
+   "level": "实/未",
+   "updated": "2026-10-31",
+   "status": "过程",
+   "lines": 52
   },
   {
    "path": "30_任务卡库/在办/tools-1022/00_树.md",
@@ -2555,6 +2654,380 @@
    "lines": 151
   },
   {
+   "path": "30_任务卡库/在办/trim-1029/00_树.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "trim-1029 · 当前任务树",
+   "summary": "当前任务与唯一写域；历史详细裁决在各卡及Team记录，树不复抄长合同。",
+   "from": "经用户批准的架构精简方案及AgentTeams任务/修订ledger",
+   "level": "实/未",
+   "updated": "2026-10-31",
+   "status": "现行",
+   "lines": 143
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/A2.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "A2 · 并行只读架构预研与后续改造波次设计",
+   "summary": "并行只读架构预研：以既有 B0/B0R/v1 方案与守卫实测为输入，产出逐域保留-精简-重构-阻塞矩阵、8 条锚点红逐条「可修引用 vs 真实证失效」判定、9 条下一波候选（含…",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 02:18",
+   "status": "in_progress",
+   "lines": 246
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/B0.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "B0 · 锁定双仓基线与可恢复验收副本",
+   "summary": "建立两仓真实现场基线（非仅 HEAD）与唯一隔离验收副本；在业务源码未改前封存逐套回归、输入哈希与逐文件恢复证据。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-29 23:35",
+   "status": "in_progress",
+   "lines": 348
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/B0R.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "B0R · 复核基线计数、逐失败对照与门禁归属",
+   "summary": "复核 B0 基线计数与失败集合、纠正汇总口径歧义、查清全局门禁红归属；不改源码/测试/守卫/基线，不重跑全量 59 套。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 01:05",
+   "status": "in_progress",
+   "lines": 394
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/C1.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "C1 · 车端最小注释试点",
+   "summary": "车端最小注释试点已实施：仅删 rkpt.hpp:36-37 两条旧 infer 签名注释（一个白名单块），后像哈希等于 R0 声明值；无代码 token 变化，未新增红；未跑全…",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "in_progress",
+   "lines": 214
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/C2.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "C2 · 车端白名单扩展",
+   "summary": "车端白名单扩展已实施：只删 R0 六个白名单块（common.h 2 + rknnPool.hpp 3 + dzjudgment.cpp 1，共 32 行纯 // 注释）；三文…",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 11:45",
+   "status": "in_progress",
+   "lines": 217
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/D0.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "D0 · 有效历史先提炼入既有资料库（源码不删减前）",
+   "summary": "源码不动，把 R0 唯一有价值的历史迁移（发送器四条参数边界）提炼进既有空地链路02；其余 7 个 CPP 重复旧实现只留处置理由，并建立 块→章节→局部保留→来源 四向台账。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 04:30",
+   "status": "in_progress",
+   "lines": 288
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/D1.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "D1 · 试点回指与锚点补偿",
+   "summary": "试点回指与锚点补偿：把 S1 造成的发送器行号漂移（452→444 行）按内容重定位修进技术全景 D/E 与空地链路 02；未用「>=47 减 8」公式，未改历史取证卡原行号。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "in_progress",
+   "lines": 274
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/D2.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "D2 · 扩展知识回指与新锚点补偿",
+   "summary": "C2/S2 后扩展回指：按真实当前源码重定位技术全景_C 的 11 处引用（非机械平移）；已删块改指固定前像并标历史；A2/RD/D0 历史卡零改动、原时代保留。h2c_ctx…",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 12:05",
+   "status": "in_progress",
+   "lines": 232
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/G0.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "G0 · 既有文档阻断治理需求门",
+   "summary": "既有文档阻断治理需求门；Lead仅预置派发元数据，owner领卡后按Team正式合同核实并填证，不代表已实施或通过。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "in_progress",
+   "lines": 543
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/G1.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "G1 · 引用与守卫精确性治理实施",
+   "summary": "G1 引用与守卫精确性治理已实施：两篇现行文档 3 处引用改真实现存路径、check_anchors 加两套收严机制（同文档唯一显式 Markdown 别名 + 同行完整规范词…",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 13:35",
+   "status": "in_progress",
+   "lines": 242
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/G2.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "G2 · 治理独立验证",
+   "summary": "治理独立验证；Lead仅预置派发元数据，owner领卡后按Team正式合同核实并填证，不代表已实施或通过。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "pending",
+   "lines": 181
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/G3.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "G3 · 治理独立评审（第三轮，审 t48）",
+   "summary": "t49 第三轮独立评审。审 t48 实际后像（guard f032d676/39413B、tests 1769b1bb/29394B/41 例，实测与自报一致）。F-G3-2 …",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 15:55",
+   "status": "in_progress",
+   "lines": 115
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/G4.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "G4 · 治理独立集成",
+   "summary": "治理独立集成；Lead仅预置派发元数据，owner领卡后按Team正式合同核实并填证，不代表已实施或通过。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "in_progress",
+   "lines": 206
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/I0.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "I0 · 第一阶段最终集成",
+   "summary": "第一阶段最终集成；Lead仅预置派发元数据，owner领卡后按Team正式合同核实并填证，不代表已实施或通过。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "in_progress",
+   "lines": 61
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/I1.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "I1 · 试点集成验收",
+   "summary": "试点集成验收；Lead仅预置派发元数据，owner领卡后按Team正式合同核实并填证，不代表已实施或通过。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "pending",
+   "lines": 204
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/INDEX-1.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "INDEX-1 · 本ns索引队列维护",
+   "summary": "生成索引单写者的行政维护——把本 ns 新落卡按路径增量登记进目录索引，并保全外部在途条目字节；不代 D0 内容或知识保全验收。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 03:10",
+   "status": "in_progress",
+   "lines": 306
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/P2-ALL.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "P2-ALL · 全域预研覆盖合并与缺口核对",
+   "summary": "第一阶段行政门未闭时的只读预研，不开启生产改造、不宣称第一阶段完成。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "pending",
+   "lines": 191
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/P2-CAR.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "P2-CAR · 车端全域只读覆盖预研",
+   "summary": "第一阶段行政门未闭时的只读预研，不开启生产改造、不宣称第一阶段完成。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 17:05",
+   "status": "in_progress",
+   "lines": 266
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/P2-ENG.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "P2-ENG · 工程根与工具链只读覆盖预研",
+   "summary": "第一阶段行政门未闭时的只读预研，不开启生产改造、不宣称第一阶段完成。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "pending",
+   "lines": 477
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/P2-SCOUT.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "P2-SCOUT · 机端全域只读覆盖预研",
+   "summary": "第一阶段行政门未闭时的只读预研，不开启生产改造、不宣称第一阶段完成。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "pending",
+   "lines": 291
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/R0.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "R0 · 第一阶段有限白名单合同",
+   "summary": "有限白名单需求门已判pass；仅放行后续知识保全，不代表源码已改、全局门禁或回归全绿。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "in_progress",
+   "lines": 87
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/RC1.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "RC1 · 独立评审试点车端最新实现（审查 t6 / C1）",
+   "summary": "独立评审 trim-car 的 C1（车端 rkpt.hpp 注释试点）；按文件系统证据重推实际变更集并逐项复跑，无待修问题，判 pass。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 08:55",
+   "status": "in_progress",
+   "lines": 185
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/RC2.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "RC2 · 独立评审扩展车端最新实现（审 t14 / C2）",
+   "summary": "独立评审 C2（t14）—— 三文件后像哈希、六块纯注释删除可精确重建、token/预处理/__LINE__ 等价、保留项在位、dzactuator 零改动、前像==B0。ve…",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 12:45",
+   "status": "in_progress",
+   "lines": 167
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/RD.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "RD · 独立评审知识保全（D0）",
+   "summary": "独立评审 t3/D0（非自评）：迁移内容语义成立且无偷换，但机器台账不可解析、正文改后哈希与在场文件不符、一处锚点引错，判 needs_revision。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 05:52",
+   "status": "in_progress",
+   "lines": 327
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/RD1.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "RD1 · 试点文档独立评审",
+   "summary": "试点文档独立评审；Lead仅预置派发元数据，owner领卡后按Team正式合同核实并填证，不代表已实施或通过。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "in_progress",
+   "lines": 189
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/RD2.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "RD2 · 扩展文档独立评审",
+   "summary": "扩展文档独立评审；Lead仅预置派发元数据，owner领卡后按Team正式合同核实并填证，不代表已实施或通过。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "pending",
+   "lines": 33
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/RS1.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "RS1 · 试点机端独立评审（round 1）",
+   "summary": "独立评审 S1（t7）机端试点：源码语义无变化（我独立复算全部通过）；S1 卡仍有未修问题（行数 1444 是假数、--help 比较前提未写），故 needs_revisio…",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "in_progress",
+   "lines": 435
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/RS2.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "RS2 · 扩展机端独立评审（round 1，审 t15/S2）",
+   "summary": "独立评审 t15/S2 机端三块注释扩展（实现者 trim-doc）：源码 before/after 与 R0 S2 精确 SHA 相等、完整 AST 含 docstring …",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 13:05",
+   "status": "in_progress",
+   "lines": 194
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/S1.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "S1 · 机端历史降噪试点",
+   "summary": "只压 R0 白名单块 S1-DOC（发送器模块 docstring 的历史修订叙述），保留 VOLATILE/QoS/退出码/CLI 语法；AST 除 docstring 不变。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 11:05",
+   "status": "in_progress",
+   "lines": 432
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/S2.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "S2 · 机端自研工具同门禁扩展",
+   "summary": "机端 S2 扩展：实际只改 R0 白名单 sender 的 S2 三块注释（另三目录 R0 块数 0 故不改）。after 与 R0 S2.after 逐字节相等，完整 AST…",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30 11:55",
+   "status": "in_progress",
+   "lines": 160
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/V1.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "V1 · 试点独立回归与语义对拍",
+   "summary": "试点独立回归与语义对拍；Lead仅预置派发元数据，owner领卡后按Team正式合同核实并填证，不代表已实施或通过。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "in_progress",
+   "lines": 406
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/V2.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "V2 · 扩展独立回归与语义对拍",
+   "summary": "扩展独立回归与语义对拍；Lead仅预置派发元数据，owner领卡后按Team正式合同核实并填证，不代表已实施或通过。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "in_progress",
+   "lines": 214
+  },
+  {
+   "path": "30_任务卡库/在办/trim-1029/VD.md",
+   "dir": "30_任务卡库/在办/trim-1029",
+   "title": "VD · 独立验证知识保全",
+   "summary": "独立验证知识保全；Lead仅预置派发元数据，owner领卡后按Team正式合同核实并填证，不代表已实施或通过。",
+   "from": "",
+   "level": "",
+   "updated": "2026-10-30",
+   "status": "in_progress",
+   "lines": 250
+  },
+  {
    "path": "30_任务卡库/在办/vtest-1025/00_树.md",
    "dir": "30_任务卡库/在办/vtest-1025",
    "title": "vtest-1025 · 视频静态空地协同测试树",
@@ -2624,12 +3097,12 @@
    "path": "30_任务卡库/归档/00_索引.md",
    "dir": "30_任务卡库/归档",
    "title": "归档卡索引（2026-10-18 → 2026-10-25）",
-   "summary": "已归档 **44 张**卡（§2 全表 36 行：通过 34 / 部分完成 1 / 终止 1；= `归档/_按日摘要/` 4 篇 24 张 + `归档/<ns>/` 单卡 12…",
+   "summary": "已归档 **55 张**卡（§2 全表 **48 行**；10-25 旧口径「45 张 / 37 行」、10-31 上午此前写的「42 行」均按当时快照，实测已 43 行再加本…",
    "from": "_tmp_session/TRACK-*/CARD*.md, _tmp_session/TRACK-*/REPORT*.md, _tmp_session/TRACK-*/review*.md, dzrobot_v2/_tmp_session/*/REPORT.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/PROJECT_STATUS_20261021.md",
    "level": "档",
    "updated": "2026-10-26",
    "status": "现行",
-   "lines": 110
+   "lines": 123
   },
   {
    "path": "30_任务卡库/归档/_按日摘要/2026-10-18.md",
@@ -2872,6 +3345,127 @@
    "updated": "2026-10-24",
    "status": "已归档",
    "lines": 68
+  },
+  {
+   "path": "30_任务卡库/归档/lead-1023/2026-10-31_GIT-PUSH-DZV2-20261030.md",
+   "dir": "30_任务卡库/归档/lead-1023",
+   "title": "GIT-PUSH-DZV2-20261030 · dzrobot_v2 全史推 GitHub：机制三连坑钉死 + 06 §7 旧口径更正",
+   "summary": "1. **`blob:none` 部分克隆不能直推**：promisor 让「have 协商」失真，git 以为服务端有对象而少发 → 远端 `did not receive …",
+   "from": "本会话现场执行记录（2026-10-30 20:5x – 23:3x，用户四问拍板 B/B/A + 「登上」）；旧口径 `docs/20_资料索引库/赛事与治理/06_版本存档规则.md` §7；GIT-SYNC-20261023",
+   "level": "实/机检",
+   "updated": "2026-10-31",
+   "status": "已归档",
+   "lines": 83
+  },
+  {
+   "path": "30_任务卡库/归档/shoot-1031/2026-10-31_AIM-DYNAMIC-20261031.md",
+   "dir": "30_任务卡库/归档/shoot-1031",
+   "title": "AIM-DYNAMIC-20261031 · 最新云台记录离线复算",
+   "summary": "复用10-31凌晨云台数据，只做移动靶离线复算与独立复核；不把相关估计当出光延迟或命中证据。",
+   "from": "本会话用户指令",
+   "level": "实/未",
+   "updated": "2026-10-31",
+   "status": "已归档",
+   "lines": 175
+  },
+  {
+   "path": "30_任务卡库/归档/shoot-1031/2026-10-31_AIM-LOGGER-20261031.md",
+   "dir": "30_任务卡库/归档/shoot-1031",
+   "title": "AIM-LOGGER-20261031 · 补齐观察器缺失信号",
+   "summary": "复用原观察器，补lead与指定缓存通道的logger接收时间及缓存年龄；禁火采样，不改生产或控制参数。",
+   "from": "本会话用户指令；复用原件 artifacts/aim-1031/tools/log_aim.py",
+   "level": "实/未",
+   "updated": "2026-10-31",
+   "status": "已归档",
+   "lines": 97
+  },
+  {
+   "path": "30_任务卡库/归档/shoot-1031/2026-10-31_AIM-MOVING-20261031.md",
+   "dir": "30_任务卡库/归档/shoot-1031",
+   "title": "AIM-MOVING-20261031 · 禁火左右往返视觉跟踪",
+   "summary": "PID保持、禁火测左右往返移动靶；复用静止靶编排和原始数据格式，固定窗口评价换向与丢靶。",
+   "from": "本会话用户指令；docs/30_任务卡库/归档/shoot-1031/2026-10-31_AIM-STATIC-20261031.md",
+   "level": "实/未",
+   "updated": "2026-10-31",
+   "status": "已归档",
+   "lines": 71
+  },
+  {
+   "path": "30_任务卡库/归档/shoot-1031/2026-10-31_AIM-MOVING-ANALYZE-20261031.md",
+   "dir": "30_任务卡库/归档/shoot-1031",
+   "title": "AIM-MOVING-ANALYZE-20261031",
+   "summary": "复用S7时间/质量/证据核，按S8动态门槛全窗复算，换向和无目标样本均保留。",
+   "from": "docs/30_任务卡库/归档/shoot-1031/2026-10-31_AIM-MOVING-20261031.md",
+   "level": "未",
+   "updated": "2026-10-31",
+   "status": "已归档",
+   "lines": 44
+  },
+  {
+   "path": "30_任务卡库/归档/shoot-1031/2026-10-31_AIM-MOVING-RUNNER-20261031.md",
+   "dir": "30_任务卡库/归档/shoot-1031",
+   "title": "AIM-MOVING-RUNNER-20261031",
+   "summary": "以固定SHA的S6实车编排为唯一实现，仅做移动场景确认/元数据/保护包络适配。",
+   "from": "docs/30_任务卡库/归档/shoot-1031/2026-10-31_AIM-MOVING-20261031.md",
+   "level": "未",
+   "updated": "2026-10-31",
+   "status": "已归档",
+   "lines": 44
+  },
+  {
+   "path": "30_任务卡库/归档/shoot-1031/2026-10-31_AIM-STATIC-20261031.md",
+   "dir": "30_任务卡库/归档/shoot-1031",
+   "title": "AIM-STATIC-20261031 · 禁火静止靶视觉跟踪",
+   "summary": "保持现有PID与禁火，验证静止靶视觉闭环能否持续收敛；先复用观察器，预注册后单趟记录。",
+   "from": "本会话用户指令；docs/30_任务卡库/归档/shoot-1031/2026-10-31_AIM-STEP-20261031.md",
+   "level": "实/未",
+   "updated": "2026-10-31",
+   "status": "已归档",
+   "lines": 120
+  },
+  {
+   "path": "30_任务卡库/归档/shoot-1031/2026-10-31_AIM-STATIC-ANALYZE-20261031.md",
+   "dir": "30_任务卡库/归档/shoot-1031",
+   "title": "AIM-STATIC-ANALYZE-20261031",
+   "summary": "用既有S2 CSV口径复算静止视觉闭环，固定时间分母、质量与稳定判据，reviewer独立复跑。",
+   "from": "docs/30_任务卡库/归档/shoot-1031/2026-10-31_AIM-STATIC-20261031.md",
+   "level": "实",
+   "updated": "2026-10-31",
+   "status": "已归档",
+   "lines": 81
+  },
+  {
+   "path": "30_任务卡库/归档/shoot-1031/2026-10-31_AIM-STATIC-RUNNER-20261031.md",
+   "dir": "30_任务卡库/归档/shoot-1031",
+   "title": "AIM-STATIC-RUNNER-20261031",
+   "summary": "复用S2观察器与S3只读参数/身份帮助函数，准备有禁火监测及正常停止的静止靶单趟封装。",
+   "from": "docs/30_任务卡库/归档/shoot-1031/2026-10-31_AIM-STATIC-20261031.md",
+   "level": "未",
+   "updated": "2026-10-31",
+   "status": "已归档",
+   "lines": 63
+  },
+  {
+   "path": "30_任务卡库/归档/shoot-1031/2026-10-31_AIM-STEP-20261031.md",
+   "dir": "30_任务卡库/归档/shoot-1031",
+   "title": "AIM-STEP-20261031 · 保持PID的禁火固定位置到位测试",
+   "summary": "PID参数保持，暂时接管位置输出，测水平小阶跃固定保持的编码器到位；不判视觉PID或命中。",
+   "from": "本会话用户指令；docs/30_任务卡库/归档/shoot-1031/2026-10-31_AIM-DYNAMIC-20261031.md",
+   "level": "实/未",
+   "updated": "2026-10-31",
+   "status": "已归档",
+   "lines": 110
+  },
+  {
+   "path": "30_任务卡库/归档/shoot-1031/2026-10-31_AIM-STEP-RUNNER-20261031.md",
+   "dir": "30_任务卡库/归档/shoot-1031",
+   "title": "AIM-STEP-RUNNER-20261031 · 有界固定位置试验脚本",
+   "summary": "复用手动接管与现有命令协议，准备单活跃写者、有界阶跃及安全退出的临时脚本；不连设备。",
+   "from": "本会话用户指令；docs/30_任务卡库/归档/shoot-1031/2026-10-31_AIM-STEP-20261031.md",
+   "level": "实/未",
+   "updated": "2026-10-31",
+   "status": "已归档",
+   "lines": 67
   },
   {
    "path": "30_任务卡库/归档/tools-1022/2026-10-22_TOOLS-ORGANIZE-20261022.md",
