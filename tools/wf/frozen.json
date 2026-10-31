@@ -8,6 +8,13 @@
   ],
   "in_flight": [
     {
+      "path": "src/dzbrain/dzbrain/route/parser.py",
+      "card": "WB-1-ROUTE-20261031",
+      "owner": "wb-core（ns wb-1031，Lead 授权）",
+      "reason": "用户 2026-10-31 21:0x 授权「授权/改函数」：豁免范围严格限定 `_read_token_file` 一个函数——该函数 docstring 自称「整行一个 token」，实现却用 _BARE_GAP_RE 把逗号当分隔符，把合法终点朝向后缀 `N5,y`（HEADING_SUFFIXES）撕成 `y`，致 sim_cli --route 夹具路线 rc=2；其余函数与同文件其余部分不在豁免内，越界即返工。不改夹具内容（D-062 逐字快照口径）",
+      "expires": "2026-11-07"
+    },
+    {
       "path": "src/dzbrain/dzbrain/route/planner.py",
       "card": "CAR-DUAL-20261024",
       "owner": "/root/history_audit",
@@ -16,9 +23,9 @@
     },
     {
       "path": "config/robot.yaml",
-      "card": "AIM-LAT-20261022 + SHOOT-LINK-20261023 + CFG-A-20261031 + CFG-B-20261031",
+      "card": "AIM-LAT-20261022 + SHOOT-LINK-20261023 + CFG-A-20261031 + CFG-B-20261031 + WB-7-HANDSHAKE-20261031",
       "owner": "lead",
-      "reason": "AIM-LAT：det_node.thread_num 8→2（输出率 30.4Hz 不变、流水线滞后 264→66ms）。SHOOT-LINK：aim.stop_on_hit=false（用户 2026-10-24 口径「蓝面打满 10 发」）＋ mission_blocks 第二射击停站 F4*（与 B4* 分居靶板两侧）。本地已过 config_selfcheck/route_check/test_aim，未部署。CFG-A/B-20261031：用户已批准串行等价重构；A只缩说明并保持全部数据行，B仅在A独立通过后收敛已证迁移的aim弹药三键，其他有歧义组保留；保住2130及所有标定/安全值，旧调参与归属保留。B已于2026-10-31在A后实施：仅删aim段max_shots_total/max_shots_per_target/shot_cooldown_ms三处重复赋值，改由dzrknn_dataprocess同名/同义键迁移（10/10/500），独立复验见config-1031/B卡；未部署",
+      "reason": "AIM-LAT：det_node.thread_num 8→2（输出率 30.4Hz 不变、流水线滞后 264→66ms）。SHOOT-LINK：aim.stop_on_hit=false（用户 2026-10-24 口径「蓝面打满 10 发」）＋ mission_blocks 第二射击停站 F4*（与 B4* 分居靶板两侧）。本地已过 config_selfcheck/route_check/test_aim，未部署。CFG-A/B-20261031：用户已批准串行等价重构；A只缩说明并保持全部数据行，B仅在A独立通过后收敛已证迁移的aim弹药三键，其他有歧义组保留；保住2130及所有标定/安全值，旧调参与归属保留。B已于2026-10-31在A后实施：仅删aim段max_shots_total/max_shots_per_target/shot_cooldown_ms三处重复赋值，改由dzrknn_dataprocess同名/同义键迁移（10/10/500），独立复验见config-1031/B卡；未部署。WB-7-HANDSHAKE-20261031（用户 2026-10-31 21:0x 裁决8授权）：豁免范围严格限定新增一行 `step.layout_ttl_s: 0.0`——A 区互锁降级与 B 区一场一图是同一次裁决的两半，握手点即此配置行；main.py:546 的 gate_policy auto 要求「显式表态否则 hard」，故不加此行则运行面 A 区/B 区语义今天仍不生效。其余配置键不在豁免内，改它即返工",
       "expires": "2026-11-07"
     },
     {
