@@ -978,13 +978,13 @@ python -m perception.cli detect --image 图.png --corners "..."
 
 **日志 kind**（`README.md:282-295`）：`intel_in`/`intel_emit`/`intel_stale` / `route_queued`/`route_emit` / `car_ack`/`car_state`/`car_other` / `sample_rejected`/`sample_bad_line` / `cmd_in`/`cmd_rejected` / `subs` / `status`/`final_status`。
 
-#### 2.7.2 dz_send_waypoint.py（452 行）—— 一次性发送器
+#### 2.7.2 dz_send_waypoint.py（444 行）—— 一次性发送器
 
 > 单次发送路线/情报/心跳；退出码 0 正常 / 2 无 ROS 环境 / 3 发出去了但无订阅者。
 
 **子命令**：`route` / `bridge` / `heartbeat` / `target` / `field` / `listen` / `contract`。
 
-**格名拆分**（`split_blocks()` `:101-117`，t12/D4 修复点）：分隔符 `[空格 , ; | 、]`，去空 → 大写 → 按序去重。
+**格名拆分**（`split_blocks()` `:93-109`，t12/D4 修复点）：分隔符 `[空格 , ; | 、]`，去空 → 大写 → 按序去重。
 - 修复前：`--mines A3,B4` 会发出**畸形格名** `"A3,B4"`（车侧 `_norm_blocks` 不拆逗号）且**全程不报错**。
 - `target` 新增 `--blocks` 别名（修复前 `target --blocks G10,H10` 会 argparse 报 unrecognized arguments → exit 2）。
 - `bridge <half>=` 只允许一个格名（`lower=K9,K4` 明确报错）。
@@ -1001,11 +1001,11 @@ python -m perception.cli detect --image 图.png --corners "..."
 | `blocks_payload(kind, blocks, seq)` | `{"type":"target_zone",...}` |
 | `field_payload(mines, obstacles, seq)` | `{"type":"field_verify",...}` |
 
-**发送**（`send()` `:189-234`）：`make_qos(reliability)`（`:80-87`）设 depth10；先等 DDS 匹配（`wait_match_s` 默认 3s）→ 再给 1.5s 让计数收敛 → 打印订阅者匹配数 → 按 repeat 发。匹配数 0 时仍按 repeat 发（供判断）。
+**发送**（`send()` `:181-226`）：`make_qos(reliability)`（`:72-79`）设 depth10；先等 DDS 匹配（`wait_match_s` 默认 3s）→ 再给 1.5s 让计数收敛 → 打印订阅者匹配数 → 按 repeat 发。匹配数 0 时仍按 repeat 发（供判断）。
 
-**监听**（`listen(duration)` `:237-268`）：订阅 `/dzlink/car_to_drone`（BEST_EFFORT），统计按 type 的计数。
+**监听**（`listen(duration)` `:229-260`）：订阅 `/dzlink/car_to_drone`（BEST_EFFORT），统计按 type 的计数。
 
-**热点话题与 QoS**：`TOPIC_ROUTE=/nav/waypoint`（reliable）、`TOPIC_TO_CAR=/dzlink/drone_to_car`（best_effort）、`TOPIC_FROM_CAR=/dzlink/car_to_drone`（best_effort）（`:66-68`）。
+**热点话题与 QoS**：`TOPIC_ROUTE=/nav/waypoint`（reliable）、`TOPIC_TO_CAR=/dzlink/drone_to_car`（best_effort）、`TOPIC_FROM_CAR=/dzlink/car_to_drone`（best_effort）（`:58-60`）。
 
 #### 2.7.3 部署与验证
 
@@ -1104,7 +1104,7 @@ python -m perception.cli detect --image 图.png --corners "..."
 - **废弃说明**（`DEPRECATED_dz_send_waypoint.md`）：本目录 `files/dz_send_waypoint.py` 已废弃，唯一真源是 `tools/link/dz_send_waypoint.py`（md5 `EB41DBF4B944…`）；旧副本 md5 `B3AA2ED999CD…` 已分叉。
 
 **补丁 06 要点**（`06-car-wait-for-drone/APPLY.md`）：
-- 根因：`path_executor.py:849` `if AUTO_START: create_timer(AUTO_START_DELAY, _auto_start_mission)`，起栈后自动把内置路线当外部指令下发。
+- 根因：`path_executor.py:849`〔已删：D-062〕 `if AUTO_START: create_timer(AUTO_START_DELAY, _auto_start_mission)`，起栈后自动把内置路线当外部指令下发。
 - 改法：`auto_start: false` + `DZ_AUTO_START` 环境变量覆盖（`1/true/yes/on` 强制开，`0/false/no/off` 强制关）+ 启动横幅。
 - **★ 关键发现**：`ros2 run` 跑的是 **install 副本**不是 `src/`（纯 Python 包 colcon build 就是逐字节拷贝）→ 只改 `src/` 行为零变化。
 
@@ -1577,20 +1577,20 @@ python -m perception.cli detect --image 图.png --corners "..."
 
 | 位置 | 签名 | 职责 |
 |---|---|---|
-| `:80` | `make_qos(reliability)` | depth10 + VOLATILE + KEEP_LAST |
-| `:90` | `now_s()` | 秒级时间 |
-| `:101` | `split_blocks(tokens)` | 格名拆分（t12/D4） |
-| `:120` | `had_separator(tokens)` | 检测非空格分隔符 |
-| `:125` | `note_split(raw,blocks,label)` | 打印拆分提示 |
-| `:135` | `route_payload(text)` | 裸文本路线 |
-| `:143` | `bridge_payload(half,block,confidence,seq)` | 桥洞 JSON |
-| `:158` | `heartbeat_payload(seq)` | 心跳 JSON |
-| `:165` | `blocks_payload(kind,blocks,seq)` | 靶区 JSON |
-| `:174` | `field_payload(mines,obstacles,seq)` | 雷障 JSON |
-| `:189` | `send(topic,reliability,texts,repeat,period,wait_match_s,label)` | 发送 + DDS 匹配等待 |
-| `:237` | `listen(duration)` | 监听车回传 |
-| `:272` | `parse_kv(pairs)` | key=value 解析 |
-| `:282` | `main(argv)` | 入口分派 |
+| `:72` | `make_qos(reliability)` | depth10 + VOLATILE + KEEP_LAST |
+| `:82` | `now_s()` | 秒级时间 |
+| `:93` | `split_blocks(tokens)` | 格名拆分（t12/D4） |
+| `:112` | `had_separator(tokens)` | 检测非空格分隔符 |
+| `:117` | `note_split(raw,blocks,label)` | 打印拆分提示 |
+| `:127` | `route_payload(text)` | 裸文本路线 |
+| `:135` | `bridge_payload(half,block,confidence,seq)` | 桥洞 JSON |
+| `:150` | `heartbeat_payload(seq)` | 心跳 JSON |
+| `:157` | `blocks_payload(kind,blocks,seq)` | 靶区 JSON |
+| `:166` | `field_payload(mines,obstacles,seq)` | 雷障 JSON |
+| `:181` | `send(topic,reliability,texts,repeat,period,wait_match_s,label)` | 发送 + DDS 匹配等待 |
+| `:229` | `listen(duration)` | 监听车回传 |
+| `:264` | `parse_kv(pairs)` | key=value 解析 |
+| `:274` | `main(argv)` | 入口分派 |
 
 ### 3.8 perception（tools/perception/）
 

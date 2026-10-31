@@ -17,7 +17,7 @@ owner: p-aim；reviewer: lead。
 ## 1 依据与复用（五必填）
 
 - 读过的台账：D-001（不整包替换自瞄）；现行推进计划 §4 P1；10-24 交接 §2（上午 74.91s 连续目标样本、本趟 target=none）。
-- 复用检索：`mvrec.py`、`fire_rec`、既有检测诊断与 JSONL 采样、`docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md`；**不新建感知管线**。
+- 复用检索：[mvrec.py](../../../../artifacts/aim-mv-20261024/mvrec.py)、`fire_rec`、既有检测诊断与 JSONL 采样、`docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md`；**不新建感知管线**。
 - 新增轮子：预计无；若需一次性解析脚本，仅进过程目录。
 - 验收命令：见 §3。
 - 回滚点：本轮零生产写入即回滚点。
@@ -157,7 +157,7 @@ nohup /home/duzhong/dzrobot/install/det_node/lib/det_node/det_node --ros-args \
 
 **⑤ 离线已验（exit 0）**：`python -B -X utf8 _tmp_session/agc-1024/p1b/verify_p1b_8fields.py` → `P1B VERIFY PASSED`（20 项断言）：
 两份源逐字段布局；`contract.decode_offset_center` 8 字段→`OffsetObservation(box_w=135,box_h=140)`、3 字段→`None`（`contract.py:246`）；
-C++ 守卫镜像对真实样本 —— 上午 `mvlog.csv` **1895/1897 通过(99.9%)**、开火死区算得 18..26 px；下午 3 字段 **0/439** 与 **0/240**（全死 `size<5`）。
+C++ 守卫镜像对真实样本 —— 上午 [mvlog.csv](../../../../artifacts/aim-mv-20261024/mvlog.csv) **1895/1897 通过(99.9%)**、开火死区算得 18..26 px；下午 3 字段 **0/439** 与 **0/240**（全死 `size<5`）。
 
 **⑥ 必须上车验（待授权，只动 det_node 一个进程）**：V1 `topic echo /offset_center --once` 见 **8 个数**；
 V2 `topic hz` ≈25 Hz；V3 启动日志模型路径 = dzrobot 8.1 MB/线程2/窗口关；V4 蓝靶入画 `/aim/status` 1→**2 TRACK**（F9 能否打下的判据）；

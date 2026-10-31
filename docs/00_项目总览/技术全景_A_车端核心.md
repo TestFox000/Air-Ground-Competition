@@ -1104,7 +1104,7 @@ reset = frame.targethp > prev.targethp                  # 上升 = 新一局/复
 
 #### 2.7.1 `route/validate.py` —— R001~R014 出发前路线校验
 
-**定位**：纯函数、无 ROS 依赖、**只报问题不改写路线**（`validate.py:2`）。血统：旧 path_executor.validate_mission_blocks（path_executor.py:342-478，只报错不改写）+ 用户侧 tools/route_check.py。每个检查一个**稳定编号** R001~R014，被测试与文档引用，**不得改号**；每条 msg 都带证据数值。
+**定位**：纯函数、无 ROS 依赖、**只报问题不改写路线**（`validate.py:2`）。血统：旧 path_executor.validate_mission_blocks（path_executor.py:342-478〔已删：D-062〕，只报错不改写）+ 用户侧 tools/route_check.py。每个检查一个**稳定编号** R001~R014，被测试与文档引用，**不得改号**；每条 msg 都带证据数值。
 
 **常量**（`validate.py:35-61`）：
 

@@ -171,7 +171,10 @@ PLACEHOLDER = ("<", ">", "*", "{", "}", "$")
 
 # 已声明失效：作者在锚点同一行写以下标记，即视为「已处置」，不再判新增红。
 # （定级一节一直承诺「标〔失效〕」，但此前只是提示文案，代码里没实现 —— 2026-10-24 补上。）
-DEAD_MARKERS = ("〔失效", "〔未入库", "〔已删", "〔未实现")   # 前缀匹配：〔失效：外部仓库〕也算
+# 2026-10-30 G1（D-060 第 3 条）：新增只认「同行完整规范词 + 同行配对 」」；
+# 不新增未闭合前缀（〔证失效 无 」 不豁免），〔档〕 不当通用免检，其余四族前缀行为保持不变。
+DEAD_MARKERS = ("〔失效", "〔未入库", "〔已删", "〔未实现")   # 前缀匹配（行为不变）
+DEAD_QUALIFIED = "〔证失效"   # 历史常量名（保留以免外部引用断裂）；实际判定用 QUALIFIED_TOKEN
 
 
 def line_at(text, pos):
@@ -179,6 +182,114 @@ def line_at(text, pos):
     s = text.rfind("\n", 0, pos) + 1
     e = text.find("\n", pos)
     return text[s:e if e >= 0 else len(text)]
+
+
+QUALIFIED_TOKEN = "〔证失效〕"   # 精确规范词（字面值；只有这一个合法词）
+FENCE = chr(96) * 3                  # 代码块围栏（避免源码里出现反引号字面值）
+INLINE_SPAN_RE = re.compile(r"(?<!`)(`)([^`]*)(`)")   # 行内单反引号 code span（展示位）
+
+
+# 显式「非声明」措辞：只认**否定式**短语（说明这一行不是声明），
+# 不是把「例如/写法/语法」这类普通用词当黑名单 —— 括号外理由里出现它们属正常书写。
+# 且只在 token 附近的窗口内判定，不做整行裸词黑名单。
+DISPLAY_NEGATION = ("不是声明", "非声明", "不算声明", "不是失效声明",
+                    "仅展示", "只作展示", "仅作展示", "仅示例", "只示例")
+PUNCT = set("（），。；、：？！ ") | set("(),.;:?!")
+
+
+def word_glued(ch):
+    """该字符是否为「文字」（非标点、非空白、非反引号/围栏）。"""
+    return ch not in PUNCT and not ch.isspace() and ch != chr(96)
+
+
+def in_fence_at(pos, spans):
+    """pos 是否落在任一围栏区间内。
+
+    必须按**区间包含**判，不能写 `pos in spans` —— 那是「pos 等于某个 (start,end) 元组」
+    的成员测试，永远为 False（我实测踩过：围栏判定整条链路形同虚设）。
+    """
+    return any(a <= pos < b for a, b in spans)
+
+
+def token_occurrences(line, token):
+    """token 在行内的全部出现位置。"""
+    out, pos = [], line.find(token)
+    while pos != -1:
+        out.append(pos)
+        pos = line.find(token, pos + len(token))
+    return out
+
+
+def is_display_occurrence(line, token, pos, spans, next_pos):
+    """单次出现是否为展示（而非声明）。三条任一成立即展示：
+
+      1) 被行内反引号 code span 包住（纯语法位置）；
+      2) 紧随片段含显式非声明措辞（否定式短语）；
+      3) token 两侧都被文字紧贴（嵌在行文里当写法），且后侧不是标点。
+
+    第 3 条是语法结构判据，不是「任意字符紧邻」：
+      展示 ：写〔证失效〕即可            （两侧都是文字，嵌在句子里）
+      声明 ：〔证失效〕（理由）／〔证失效〕 理由   （后侧是标点或空白）
+    所以「紧贴全角括号」「紧贴反引号收尾」都属正常声明，照常豁免；
+    而 token 外仅差一个空格的两句（〔证失效〕（理由）与〔证失效〕 （理由））结果相同。
+    """
+    if any(a <= pos < b for a, b in spans):
+        return True
+    seg = line[pos + len(token): (next_pos if next_pos is not None else len(line))]
+    if any(w in seg for w in DISPLAY_NEGATION):
+        return True
+    prev = line[pos - 1] if pos > 0 else ' '
+    nxt = line[pos + len(token):pos + len(token) + 1] or ' '
+    return word_glued(prev) and word_glued(nxt)
+
+
+def token_all_display(line, token):
+    """该行的 token 是否**全部**处于展示位。只要有一次是声明位 ⇒ False（视为声明）。"""
+    occ = token_occurrences(line, token)
+    if not occ:
+        return False
+    spans = [(m.start(2), m.end(2)) for m in INLINE_SPAN_RE.finditer(line)]
+    for k, pos in enumerate(occ):
+        nxt = occ[k + 1] if k + 1 < len(occ) else None
+        if not is_display_occurrence(line, token, pos, spans, nxt):
+            return False
+    return True
+
+
+def marker_exempt(line, in_fence=False):
+    """同行标记豁免判定（G1 定稿：新增只认精确规范词，理由必须在括号外）。
+
+    原有四族 DEAD_MARKERS 仍是**前缀匹配**，**行为一字不改**（不收紧也不放宽）。
+
+    新增只支持**同行完整规范词**，判据是**字面等值** —— 不是正则、不是前缀、不是可选组：
+      合法（唯一正例）：规范词紧跟闭合，理由写在括号**外**；
+      不合法：规范词+冒号+理由+闭合（全角/半角冒号都算非规范，不得扩族）；
+      不合法：伪字形（规范词后还有别的字再闭合）；
+      不合法：未闭合；
+      不合法：标记写在**下一行**（跨行不豁免）；
+      不合法：〔档〕 跨行或整篇免检（〔档〕 语义原样保留，只豁免同一行引用）。
+
+    「展示 vs 声明」按**语法位置**判，不按词表：
+      · token 只被**行内反引号**包住，或整行落在**代码围栏**内 ⇒ 视为展示，**不豁免**；
+      · 只要有一处出现在 code span 之外 ⇒ 视为声明，**豁免**。
+    因此括号外理由里写「例如 / 写法 / 语法 / 演示」都**不影响**判定 ——
+    上一版用词表裸匹配，把这些正常措辞的真声明误拒了（t28 F-G3-1 A 面）。
+    """
+    # 原四族：前缀匹配，行为一字不改（与下面新 token 的判定完全无关）
+    if any(mk in line for mk in DEAD_MARKERS):
+        return True
+    if QUALIFIED_TOKEN not in line:
+        return False
+    # 新 token：三条「展示」判据，任一成立即不豁免；都不成立才是声明。
+    #   a) 整行在代码围栏内；
+    #   b) token 每次出现都被**行内反引号**包住（纯语法位置）；
+    #   c) token 邻域出现**显式非声明/展示**措辞（否定式短语，且限窗口）。
+    # 括号外自由理由里写「例如 / 写法 / 语法 / 演示」不参与判定，照常豁免。
+    if in_fence:
+        return False
+    if token_all_display(line, QUALIFIED_TOKEN):
+        return False
+    return True
 
 
 def split_line(tok):
@@ -288,6 +399,100 @@ def extract(text):
 
 # ---------------------------------------------------------------- 解析
 CODE_ROOTS = ["dzrobot_v2", "dzsmartscout"]
+
+
+ALIAS_LINK_RE = re.compile(r"\[([^\]\n]{1,240})\]\(([^)\n]{1,300})\)")
+
+
+def fenced_char_spans(text):
+    """返回代码块围栏覆盖的字符区间，用于判定某锚点是否落在围栏内。
+
+    只服务新增标签的「展示 vs 声明」判定；extract() 的抽取语义一行未改。
+    """
+    spans = []
+    pos = 0
+    open_at = None
+    for line in text.split(chr(10)):
+        start = pos
+        pos += len(line) + 1
+        if line.lstrip().startswith(FENCE):
+            if open_at is None:
+                open_at = pos
+            else:
+                spans.append((open_at, start))
+                open_at = None
+    if open_at is not None:
+        spans.append((open_at, len(text)))
+    return spans
+
+
+def build_alias_table(text):
+    """同文档 Markdown 链接近似别名表：{旧引用文本: [目标,...]}（大小写敏感，不做归一）。
+
+    只收同文档内显式 Markdown 链接；同一旧引用出现多条 = 歧义，调用方不得择优。
+    """
+    tbl = {}
+    for m in ALIAS_LINK_RE.finditer(text):
+        old, tgt = m.group(1).strip(), m.group(2).strip()
+        if not old or not tgt:
+            continue
+        tbl.setdefault(old, []).append(tgt)
+    return tbl
+
+
+def inside_ws(path):
+    """目标是否真正落在工作区内：用 realpath 解析，符号链接穿出即拒。
+
+    abspath 只做字符串规整，跟着 symlink 走会穿到工作区外（实测逃逸成立），
+    故 containment 一律按 realpath 判。
+    """
+    try:
+        real = os.path.realpath(path)
+        wsreal = os.path.realpath(WS)
+    except (OSError, ValueError):
+        return False
+    real_n = norm(os.path.normcase(real))
+    ws_n = norm(os.path.normcase(wsreal))
+    return real_n == ws_n or real_n.startswith(ws_n.rstrip("/") + "/")
+
+
+def doc_alias(tbl, p, docdir, hi=None, fits=None):
+    """机制甲：仅在直接解析失败（red）之后尝试；返回 (rel, note) 或 None（仍判红）。
+
+    五条全满足才认：① 本文档内同旧引用链接恰 1 条（≥2=歧义不择优）；
+    ② clean_path 后仍是仓库内相对路径；③ **realpath 落在工作区内**（防符号链接穿出）；
+    ④ 目标真实存在；⑤ 目标不等于裸名自身（防自指）。
+
+    **行号校验不跳过**：调用方必须把原 l1/l2 交回原来的 fits/warning 判定，
+    命中也只算「已处置」，不算「免检」—— 越界行号照旧出 WARN。
+    """
+    if not tbl:
+        return None
+    hits = tbl.get(p)
+    if not hits or len(hits) != 1:
+        return None                      # 0 条或 ≥2 条（歧义，不择优）
+    tgt = hits[0]
+    if "#" in tgt:
+        tgt = tgt.split("#", 1)[0]
+    if "://" in tgt:
+        return None                      # UNC/外链先拒
+    cp = clean_path(tgt)
+    if not cp or cp == p:
+        return None                      # 越界/非仓库内，或自指
+    cand = os.path.join(docdir, tgt)
+    if not inside_ws(cand):
+        return None                      # 符号链接穿出工作区 ⇒ 拒
+    if not os.path.exists(cand):
+        return None                      # 目标不存在 ⇒ 仍红
+    try:
+        rel2 = norm(os.path.relpath(os.path.abspath(cand), WS))
+    except ValueError:
+        return None
+    if rel2.startswith("../"):
+        return None
+    if hi is not None and fits is not None and not fits(rel2, hi):
+        return None                      # 行号落不进目标 ⇒ 别名不成立，仍红
+    return rel2, "doc-alias"
 
 
 class Resolver(object):
@@ -443,10 +648,13 @@ def main():
     docs = live_docs(cfg, ns, "--include-archive" in sys.argv)
 
     reds, yellows, warns, ambs, externs, unfit, deads = [], [], [], [], [], [], []
+    alias_deads = []
     n_ref = n_anchor = 0
     for rel in docs:
         text = read_text(os.path.join(WS, rel))
         docdir = os.path.dirname(os.path.join(WS, rel))
+        resolve_alias_table = build_alias_table(text)
+        fence_spans = fenced_char_spans(text)
         hints = []            # 最近成功解析的文件（新在前），给「承前省略 :245」用
         votes = {}            # 本文档已解析文件的目录票数，给同名 basename 兜底用
         for _pos, kind, p, l1, l2 in extract(text):
@@ -489,10 +697,20 @@ def main():
                 yellows.append((rel, key, hit, how))
             elif status == "extern":
                 externs.append((rel, key, hit))
-            elif any(mk in line_at(text, _pos) for mk in DEAD_MARKERS):
-                deads.append((rel, key, p))      # 作者已标〔失效〕：算处置过，不判新增红
+            elif marker_exempt(line_at(text, _pos), in_fence_at(_pos, fence_spans)):
+                deads.append((rel, key, p))      # 作者已标〔失效〕/规范闭合〔证失效…〕：算处置过，不判新增红
             else:
-                reds.append((rel, key, p))
+                alias_hit = doc_alias(resolve_alias_table, p, docdir, hi, res.fits)
+                if alias_hit is not None:
+                    rel2, _note = alias_hit
+                    # 命中只算「已处置」，不算免检：行号越界照旧出 WARN（与直连同口径）
+                    if l1 is not None:
+                        nn = tree.nlines(rel2)
+                        if nn > 0 and hi is not None and hi > nn:
+                            warns.append((rel, key, rel2, hi, nn))
+                    alias_deads.append((rel, key, p, rel2))
+                else:
+                    reds.append((rel, key, p))
 
     new_reds = [r for r in reds if r[1] not in base_keys]
     old_reds = [r for r in reds if r[1] in base_keys]
@@ -530,9 +748,9 @@ def main():
     for _rel, _k, _hit, how in yellows:
         areas[how] = areas.get(how, 0) + 1
     summary = ("扫描 %d 篇 / 引用 %d 条（带行号锚点 %d）｜新增红 %d（存量红 %d）｜黄 %d｜行号越界 %d"
-               "｜同名待判 %d｜行号无主 %d｜外部 %d｜已标失效 %d"
+               "｜同名待判 %d｜行号无主 %d｜外部 %d｜已标失效 %d｜别名解析 %d"
                % (len(docs), n_ref, n_anchor, len(new_reds), len(old_reds), len(yellows),
-                  len(warns), len(ambs), len(unfit), len(externs), len(deads)))
+                  len(warns), len(ambs), len(unfit), len(externs), len(deads), len(alias_deads)))
 
     if "--json" in sys.argv:
         out = {
@@ -541,6 +759,7 @@ def main():
                        "red_new": len(new_reds), "red_baseline": len(old_reds),
                        "yellow": len(yellows), "warn": len(warns), "ambiguous": len(ambs),
                        "extern": len(externs), "unfit": len(unfit), "dead_marked": len(deads),
+                       "alias_doc": len(alias_deads),
                        "yellow_areas": areas},
             "red_new": [{"doc": r[0], "key": r[1], "target": r[2]} for r in new_reds],
             "red_baseline": [{"doc": r[0], "key": r[1], "target": r[2]} for r in old_reds],
@@ -549,6 +768,7 @@ def main():
             "ambiguous": [{"doc": a[0], "key": a[1], "note": a[2]} for a in ambs],
             "extern": [{"doc": e[0], "key": e[1], "found": e[2]} for e in externs],
             "unfit": [{"doc": u[0], "line": u[1], "nearest": u[2]} for u in unfit],
+            "alias_doc": [{"doc": a[0], "key": a[1], "target": a[2], "found": a[3]} for a in alias_deads],
             "baseline_stale": gone,
         }
         print(json.dumps(out, ensure_ascii=False, indent=1))

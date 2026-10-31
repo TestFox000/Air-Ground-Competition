@@ -151,7 +151,7 @@ owner: 待指派
 - **做什么**：给 `D:/User/Desktop/比赛存档/v1/dzrobot_v2/artifacts/sim/` 定保留规则（例：`stress/` 保最近 N 批 + 被 label/pinned 标记的；`drone/` 保最近 M 个；顶层裸 `*_smoke` 目录按日期清），实现为**先 dry-run 出清单**（大小 + mtime + 是否被 `run_meta.jsonl` 引用），确认后再执行；`run_meta.jsonl` 与产物**同步裁**，不留指向已删目录的行。
 - **为什么**：F-7 —— 234 MB 且四文件零 prune/retention/cleanup，只增不减；压测一轮几十 MB，赛前几周会把磁盘吃穿，还会让「找那张图」变成翻垃圾。
 - **验收**：dry-run 清单进 `_tmp_session/SIM-STUDIO-OPT-20261024/`；执行后 `D:/User/Desktop/比赛存档/v1/dzrobot_v2/artifacts/sim` ≤ 目标值（建议 ≤80 MB）；`run_meta.jsonl` 无悬空引用（写条断言）；被保留的 run 仍能打开产物页。
-- **边界**：**不许**删有裁决价值的证据 run（F-15 那次真跑、双站/禁火相关）；`dzrobot_v2/artifacts` 里非 sim 的 `t1_/t3_` 截图与 `D:/User/Desktop/比赛存档/v1/dzrobot_v2/artifacts/tracking_readonly_20261020.json` **不属本卡**。
+- **边界**：**不许**删有裁决价值的证据 run（F-15 那次真跑、双站/禁火相关）；`dzrobot_v2/artifacts` 里非 sim 的 `t1_/t3_` 截图与 `D:/User/Desktop/比赛存档/v1/dzrobot_v2/artifacts/tracking_readonly_20261020.json`〔失效〕（2026-10-30 仅指旧定位当前不可解析；原件未定位，不代表历史证据被推翻；原禁删非 sim 资产边界不变，不作现存文件/本轮产出证据） **不属本卡**。
 
 ### P2-1 行尾与 diff 噪声治理 · 约 15 分钟
 

@@ -1,0 +1,1103 @@
+{
+  "recorded_at": "2026-10-31T13:15:28+08:00",
+  "ground_truth": "docs\\20_资料索引库\\运维与排障\\01_症状索引_52条.md",
+  "agg": {
+    "queries_parsed": 52,
+    "queries_scored": 51,
+    "queries_skipped": 1,
+    "top1_hits": 5,
+    "row_hits": 27,
+    "either_hits": 32,
+    "top5_hits": 15,
+    "hub_top1": 0,
+    "self_top1": 26,
+    "top1_pct": 9.8,
+    "row_pct": 52.9,
+    "either_pct": 62.7,
+    "top5_pct": 29.4,
+    "hub_top1_pct": 0.0,
+    "self_top1_pct": 51.0,
+    "wall_s": 15.1
+  },
+  "gates": {
+    "row_pct": [
+      76.5,
+      85.0
+    ],
+    "either_pct": [
+      76.5,
+      90.0
+    ],
+    "hub_top1_pct": [
+      56.9,
+      10.0
+    ]
+  },
+  "detail": [
+    {
+      "no": "症-01",
+      "query": "车收到了指令但不动",
+      "locator": "车端/05 §5 坑1；start_all.sh 起栈前未 kill cam_viewer",
+      "frags": [
+        "车端/05_"
+      ],
+      "text_frags": [
+        "车端/05"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/02_起栈与发车_runbook.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-02",
+      "query": "传了 --map 却不进布局模式",
+      "locator": "车端/05 §5 坑2；start_all.sh:220 恰好传 config/map.yaml",
+      "frags": [
+        "车端/05_"
+      ],
+      "text_frags": [
+        "车端/05"
+      ],
+      "top1_path": "00_项目总览/技术全景_A_车端核心.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-03",
+      "query": "ping/SSH 通",
+      "locator": "车端/05 §1；空地链路/02 联调铁律；无人机/02 §3",
+      "frags": [
+        "车端/05_",
+        "空地链路/02_",
+        "无人机/02_"
+      ],
+      "text_frags": [
+        "车端/05",
+        "空地链路/02",
+        "无人机/02"
+      ],
+      "top1_path": "20_资料索引库/空地链路/05_步进协同与空地通信_实测复盘_20261024.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/车端/05_配置与部署.md",
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-04",
+      "query": "起栈后相机/视觉/云台三节点同时 abort",
+      "locator": "车端/05 §5 坑4",
+      "frags": [
+        "车端/05_"
+      ],
+      "text_frags": [
+        "车端/05"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/07_发车门禁口径_G1-G4.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-05",
+      "query": "激光不亮",
+      "locator": "视觉与云台/01 §1",
+      "frags": [
+        "视觉与云台/01_"
+      ],
+      "text_frags": [
+        "视觉与云台/01"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/10_日志阅读课_新手版.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-06",
+      "query": "停站 30 s 一发没打",
+      "locator": "视觉与云台/01 §4/§6",
+      "frags": [
+        "视觉与云台/01_"
+      ],
+      "text_frags": [
+        "视觉与云台/01"
+      ],
+      "top1_path": "10_agent提示词/04_场景/云台瞄准调参.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-07",
+      "query": "det_node 起来就崩",
+      "locator": "视觉与云台/02（det_node）",
+      "frags": [
+        "视觉与云台/02_"
+      ],
+      "text_frags": [
+        "视觉与云台/02"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/10_日志阅读课_新手版.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-08",
+      "query": "车半路停死",
+      "locator": "车端/04 §6；RESET-EPOCH-20261022",
+      "frags": [
+        "车端/04_"
+      ],
+      "text_frags": [
+        "车端/04"
+      ],
+      "top1_path": "20_资料索引库/车端/13_模块协调与链路展开.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-09",
+      "query": "规划器一半的图无解",
+      "locator": "车端/03 §2/§4；28/64 = 43.75%",
+      "frags": [
+        "车端/03_"
+      ],
+      "text_frags": [
+        "车端/03"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/车端/03_规划器与自动规划.md",
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-10",
+      "query": "到点报错差半格/一格",
+      "locator": "空地链路/02 §3（D2）",
+      "frags": [
+        "空地链路/02_"
+      ],
+      "text_frags": [
+        "空地链路/02"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/04_常见拒绝与权限.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-11",
+      "query": "无人机起不来 / /fmu/out 无数据",
+      "locator": "无人机/02 §2",
+      "frags": [
+        "无人机/02_"
+      ],
+      "text_frags": [
+        "无人机/02"
+      ],
+      "top1_path": "10_agent提示词/04_场景/无人机恢复.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-12",
+      "query": "机上检测 det=0",
+      "locator": "无人机/03",
+      "frags": [
+        "无人机/03_"
+      ],
+      "text_frags": [
+        "无人机/03"
+      ],
+      "top1_path": "00_项目总览/技术全景_D_无人机.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-13",
+      "query": "验收说你改的没生效",
+      "locator": "docs/00_项目总览/现状快照.md",
+      "frags": [
+        "00_项目总览/现状快照.md"
+      ],
+      "text_frags": [
+        "现状快照.md"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-14",
+      "query": "车上改了代码/参数却没反应",
+      "locator": "车端/05 §3；交接_20261023 §1",
+      "frags": [
+        "车端/05_"
+      ],
+      "text_frags": [
+        "车端/05"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-15",
+      "query": "改了一个 yaml 值",
+      "locator": "车端/05 §4",
+      "frags": [
+        "车端/05_"
+      ],
+      "text_frags": [
+        "车端/05"
+      ],
+      "top1_path": "00_项目总览/技术全景_F_代码审计报告.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-16",
+      "query": "限速不管用：PIVOT/ALIGN 段冲出去",
+      "locator": "车端/02 §6；D-025",
+      "frags": [
+        "车端/02_"
+      ],
+      "text_frags": [
+        "车端/02"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-17",
+      "query": "照文档调前视/提速",
+      "locator": "车端/02 §3；core/config.py:866-871",
+      "frags": [
+        "车端/02_"
+      ],
+      "text_frags": [
+        "车端/02"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/车端/02_循迹与控制.md",
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-18",
+      "query": "车掉不了头 / 说好的原地转做不到",
+      "locator": "车端/08 §2；pursuit/path.py:228-241；D-027/D-029",
+      "frags": [
+        "车端/08_"
+      ],
+      "text_frags": [
+        "车端/08"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/车端/08_车体几何与执行约束.md",
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-19",
+      "query": "里程/位移算出来差近 3 倍",
+      "locator": "车端/04 §1",
+      "frags": [
+        "车端/04_"
+      ],
+      "text_frags": [
+        "车端/04"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/车端/04_定位与安全.md",
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-20",
+      "query": "车停一会儿车头自己就歪了",
+      "locator": "车端/04 §6；YAWDRIFT-20261022",
+      "frags": [
+        "车端/04_"
+      ],
+      "text_frags": [
+        "车端/04"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-21",
+      "query": "reset/重启后车立刻又被锁死",
+      "locator": "车端/04 §6；RESET-EPOCH-20261022",
+      "frags": [
+        "车端/04_"
+      ],
+      "text_frags": [
+        "车端/04"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-22",
+      "query": "车离格心 0.2 m 就算到点",
+      "locator": "车端/04 §1；core/config.py:155",
+      "frags": [
+        "车端/04_"
+      ],
+      "text_frags": [
+        "车端/04"
+      ],
+      "top1_path": "20_资料索引库/车端/04_定位与安全.md",
+      "top1_hit": true,
+      "row_hit": false,
+      "either_hit": true,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/车端/04_定位与安全.md",
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-23",
+      "query": "换个网络就连不上车/机",
+      "locator": "车端/05 §5 坑7；无人机/05 §1",
+      "frags": [
+        "车端/05_",
+        "无人机/05_"
+      ],
+      "text_frags": [
+        "车端/05",
+        "无人机/05"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-24",
+      "query": "明明框住了却打不出去",
+      "locator": "视觉与云台/01 §5",
+      "frags": [
+        "视觉与云台/01_"
+      ],
+      "text_frags": [
+        "视觉与云台/01"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-25",
+      "query": "打了一两发就再也不打了",
+      "locator": "视觉与云台/01 §4/§6；cpp:1120-1134",
+      "frags": [
+        "视觉与云台/01_"
+      ],
+      "text_frags": [
+        "视觉与云台/01"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/03_弹仓与射击复位.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-26",
+      "query": "红靶不打了",
+      "locator": "视觉与云台/01 §6；cpp:333,337-351",
+      "frags": [
+        "视觉与云台/01_"
+      ],
+      "text_frags": [
+        "视觉与云台/01"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/04_常见拒绝与权限.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-27",
+      "query": "云台追着靶头上方看",
+      "locator": "视觉与云台/01 §3；robot.yaml:50",
+      "frags": [
+        "视觉与云台/01_"
+      ],
+      "text_frags": [
+        "视觉与云台/01"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-28",
+      "query": "云台怎么调都晃",
+      "locator": "视觉与云台/00 §3",
+      "frags": [
+        "视觉与云台/00_"
+      ],
+      "text_frags": [
+        "视觉与云台/00"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/视觉与云台/00_索引.md",
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-29",
+      "query": "这趟数据能不能用来评价 PID",
+      "locator": "历史/07 §4.1",
+      "frags": [
+        "历史/07_"
+      ],
+      "text_frags": [
+        "历史/07"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-30",
+      "query": "FIRE 的时候画面里根本没靶",
+      "locator": "视觉与云台/02 §6；DET-20261022",
+      "frags": [
+        "视觉与云台/02_"
+      ],
+      "text_frags": [
+        "视觉与云台/02"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/视觉与云台/02_视觉模型与检测.md",
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-31",
+      "query": "日志里丢失 N 次到底是谁算的",
+      "locator": "视觉与云台/02 §6；aim.py:723-724,802-805",
+      "frags": [
+        "视觉与云台/02_"
+      ],
+      "text_frags": [
+        "视觉与云台/02"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-32",
+      "query": "提前量该按 0.267 s 还是 0.9 s 算",
+      "locator": "视觉与云台/03 §3",
+      "frags": [
+        "视觉与云台/03_"
+      ],
+      "text_frags": [
+        "视觉与云台/03"
+      ],
+      "top1_path": "00_项目总览/交接_20261024_打靶闭环.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/视觉与云台/03_移动靶缺口与改进方向.md",
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-33",
+      "query": "换了新视觉模型",
+      "locator": "视觉与云台/02 §7；VISION-MODEL-20261023",
+      "frags": [
+        "视觉与云台/02_"
+      ],
+      "text_frags": [
+        "视觉与云台/02"
+      ],
+      "top1_path": "20_资料索引库/视觉与云台/02_视觉模型与检测.md",
+      "top1_hit": true,
+      "row_hit": false,
+      "either_hit": true,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/视觉与云台/02_视觉模型与检测.md",
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-34",
+      "query": "机端发的目标帧永远是空的",
+      "locator": "视觉与云台/02 §3；dzuav/main.cpp:186",
+      "frags": [
+        "视觉与云台/02_"
+      ],
+      "text_frags": [
+        "视觉与云台/02"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-35",
+      "query": "段完成了车还在段末干等",
+      "locator": "空地链路/02 §2；D1b；main.py:700-713→859-870",
+      "frags": [
+        "空地链路/02_"
+      ],
+      "text_frags": [
+        "空地链路/02"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/04_常见拒绝与权限.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-36",
+      "query": "车第一拍就 SAFE_STOP：belief 落在未知格",
+      "locator": "空地链路/02 §6 E1；main.py:1034",
+      "frags": [
+        "空地链路/02_"
+      ],
+      "text_frags": [
+        "空地链路/02"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/04_常见拒绝与权限.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/空地链路/02_链路联调与已知缺口.md",
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-37",
+      "query": "该打的靶不打",
+      "locator": "空地链路/02 §6 E2",
+      "frags": [
+        "空地链路/02_"
+      ],
+      "text_frags": [
+        "空地链路/02"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/04_常见拒绝与权限.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-38",
+      "query": "想让决策核主动急停",
+      "locator": "空地链路/03 §4；10-18 审计 P0①",
+      "frags": [
+        "空地链路/03_"
+      ],
+      "text_frags": [
+        "空地链路/03"
+      ],
+      "top1_path": "20_资料索引库/空地链路/03_车侧话题对账_20261018.md",
+      "top1_hit": true,
+      "row_hit": false,
+      "either_hit": true,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/空地链路/03_车侧话题对账_20261018.md",
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-39",
+      "query": "ros2 topic list 里能看到 /fmu",
+      "locator": "无人机/02 §2",
+      "frags": [
+        "无人机/02_"
+      ],
+      "text_frags": [
+        "无人机/02"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/10_日志阅读课_新手版.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-40",
+      "query": "VIO 一直不出",
+      "locator": "无人机/03 §1；launch:35",
+      "frags": [
+        "无人机/03_"
+      ],
+      "text_frags": [
+        "无人机/03"
+      ],
+      "top1_path": "00_项目总览/技术全景_E_空地链路与工程设施.md",
+      "top1_hit": false,
+      "row_hit": false,
+      "either_hit": false,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-41",
+      "query": "teleop 按了没反应",
+      "locator": "无人机/05 §5 坑4",
+      "frags": [
+        "无人机/05_"
+      ],
+      "text_frags": [
+        "无人机/05"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-42",
+      "query": "机载画面糊",
+      "locator": "无人机/03 §2/§3；CAPABILITY_L1:125-127",
+      "frags": [
+        "无人机/03_"
+      ],
+      "text_frags": [
+        "无人机/03"
+      ],
+      "top1_path": "20_资料索引库/无人机/03_感知与视觉侦察.md",
+      "top1_hit": true,
+      "row_hit": false,
+      "either_hit": true,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/无人机/03_感知与视觉侦察.md",
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-43",
+      "query": "机上 FAST-LIO 突然滞后",
+      "locator": "历史/07 §4.4",
+      "frags": [
+        "历史/07_"
+      ],
+      "text_frags": [
+        "历史/07"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-44",
+      "query": "回归是不是已经全绿了",
+      "locator": "赛事与治理/05 §1；D-023",
+      "frags": [
+        "赛事与治理/05_"
+      ],
+      "text_frags": [
+        "赛事与治理/05"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-45",
+      "query": "这 13 红直接重钉掉不就行了",
+      "locator": "赛事与治理/05 §4；D-023",
+      "frags": [
+        "赛事与治理/05_"
+      ],
+      "text_frags": [
+        "赛事与治理/05"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-46",
+      "query": "门禁绿了是不是就能发车",
+      "locator": "赛事与治理/03 §4；发车门禁口径.md §0",
+      "frags": [
+        "赛事与治理/03_"
+      ],
+      "text_frags": [
+        "赛事与治理/03"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-47",
+      "query": "老是超时/预算不够",
+      "locator": "赛事与治理/02 §6",
+      "frags": [
+        "赛事与治理/02_"
+      ],
+      "text_frags": [
+        "赛事与治理/02"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/赛事与治理/02_计分与时间预算.md",
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-48",
+      "query": "文档里写的路径点过去是空目录",
+      "skip": true,
+      "reason": "无查询串或无定位符"
+    },
+    {
+      "no": "症-49",
+      "query": "推不上去",
+      "locator": "赛事与治理/06 §7+§7.1；归档卡 GIT-PUSH-DZV2-20261030 §2",
+      "frags": [
+        "赛事与治理/06_"
+      ],
+      "text_frags": [
+        "赛事与治理/06"
+      ],
+      "top1_path": "20_资料索引库/赛事与治理/06_版本存档规则.md",
+      "top1_hit": true,
+      "row_hit": false,
+      "either_hit": true,
+      "top5_hit": true,
+      "top5_hit_path": "20_资料索引库/赛事与治理/06_版本存档规则.md",
+      "hub_top1": false,
+      "self_top1": false,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-50",
+      "query": "插件面板显示在线",
+      "locator": "PLUGIN-PREFLIGHT 卡；历史/07 §3.2",
+      "frags": [
+        "PLUGIN-PREFLIGHT",
+        "历史/07_"
+      ],
+      "text_frags": [
+        "PLUGIN-PREFLIGHT",
+        "历史/07"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-51",
+      "query": "改了插件代码没生效 / 路由 404 但显示已启用",
+      "locator": "历史/07 §3.2",
+      "frags": [
+        "历史/07_"
+      ],
+      "text_frags": [
+        "历史/07"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    },
+    {
+      "no": "症-52",
+      "query": "插件改了却还在跑旧代码",
+      "locator": "历史/07 §3",
+      "frags": [
+        "历史/07_"
+      ],
+      "text_frags": [
+        "历史/07"
+      ],
+      "top1_path": "20_资料索引库/运维与排障/01_症状索引_52条.md",
+      "top1_hit": false,
+      "row_hit": true,
+      "either_hit": true,
+      "top5_hit": false,
+      "top5_hit_path": null,
+      "hub_top1": false,
+      "self_top1": true,
+      "elapsed_ms": null
+    }
+  ],
+  "baseline_history": [
+    {
+      "caliber": "M1（top-1 文件本身是权威篇）",
+      "recorded_at": "2026-10-31T11:51:00+08:00",
+      "code_version": "git HEAD 8814…（doc_search.py 未改版）+ hub 226 行旧版",
+      "agg": {
+        "queries_scored": 51,
+        "top1_pct": 0.0,
+        "top5_pct": 27.5,
+        "hub_top1_pct": 56.9,
+        "self_top1_pct": 17.6
+      },
+      "note": "此记录后被 13:15 的 --record 覆盖；数值由 LIB-05b 验收报告 F3 项与 Lead swap 重建双重佐证。"
+    },
+    {
+      "caliber": "M4（M1 ∪ M2 ∪ 期望篇在 top-5）",
+      "recorded_at": "2026-10-31T13:40:00+08:00",
+      "code_version": "git HEAD 的 doc_search.py（未改版）+ hub 225 行旧版",
+      "agg": {
+        "queries_scored": 51,
+        "top1_pct": 0.0,
+        "row_pct": 76.5,
+        "either_pct": 76.5,
+        "m4_pct": 78.4,
+        "hub_top1_pct": 56.9,
+        "self_top1_pct": 17.6
+      },
+      "note": "swap 法实测（_tmp_session/_baseline_v2.sh，含 sha256 恢复校验 PASS）。由此得真实回归：M4 78.4% → 68.6% = −9.8pt，而非早前按 M3 基线粗估的 −23.6pt。"
+    }
+  ],
+  "baseline_history_说明": "按时间顺序保存每次基线的口径与数值。为什么需要它：2026-10-31 发生过一次覆盖式 re-record（旧口径 top1_pct=0.0/hub=56.9 被换成新口径 row_pct=52.9/hub=0.0），由独立验收者判为『基线被改写而非被修复』。并档而非回滚，是为了让口径变更史可查、同时不回到已被证伪的错量尺。任何后续 --record 都应保留本数组，不覆盖。"
+}

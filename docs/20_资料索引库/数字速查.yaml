@@ -130,7 +130,7 @@
   值: 0.36
   单位: m
   出处: docs/20_资料索引库/车端/02_循迹与控制.md:42
-  代码锚点: dzrobot_v2/config/robot.yaml:625 lookahead_min_m
+  代码锚点: dzrobot_v2/config/robot.yaml:166 lookahead_min_m
   校验: ros('dzrobot_v2/config/robot.yaml', 'lookahead_min_m', '/dzbrain')
   状态: 文档
   出处应含: 0.36
@@ -141,7 +141,7 @@
   值: 0.40
   单位: m
   出处: docs/20_资料索引库/车端/02_循迹与控制.md:42
-  代码锚点: dzrobot_v2/config/robot.yaml:626 lookahead_max_m
+  代码锚点: dzrobot_v2/config/robot.yaml:167 lookahead_max_m
   校验: ros('dzrobot_v2/config/robot.yaml', 'lookahead_max_m', '/dzbrain')
   状态: 文档
   出处应含: 0.40
@@ -152,7 +152,7 @@
   值: 1.2
   单位: s
   出处: docs/20_资料索引库/README.md:64
-  代码锚点: dzrobot_v2/config/robot.yaml:627 lookahead_k_v
+  代码锚点: dzrobot_v2/config/robot.yaml:168 lookahead_k_v
   校验: ros('dzrobot_v2/config/robot.yaml', 'lookahead_k_v', '/dzbrain')
   状态: 文档
   出处应含: k_v=1.2
@@ -163,7 +163,7 @@
   值: 0.157
   单位: m
   出处: docs/20_资料索引库/车端/08_车体几何与执行约束.md:26
-  代码锚点: dzrobot_v2/config/robot.yaml:621 wheelbase_m
+  代码锚点: dzrobot_v2/config/robot.yaml:162 wheelbase_m
   校验: ros('dzrobot_v2/config/robot.yaml', 'wheelbase_m', '/dzbrain')
   状态: 文档
   文档值: 0.15
@@ -187,7 +187,7 @@
   值: 30.0
   单位: °
   出处: docs/20_资料索引库/车端/08_车体几何与执行约束.md:40
-  代码锚点: dzrobot_v2/config/robot.yaml:622 max_steer_deg
+  代码锚点: dzrobot_v2/config/robot.yaml:163 max_steer_deg
   校验: ros('dzrobot_v2/config/robot.yaml', 'max_steer_deg', '/dzbrain')
   状态: 文档
   出处应含: ±30
@@ -209,7 +209,7 @@
   值: 0.35
   单位: m/s
   出处: docs/20_资料索引库/车端/02_循迹与控制.md:41
-  代码锚点: dzrobot_v2/config/robot.yaml:629 cruise_speed_mps
+  代码锚点: dzrobot_v2/config/robot.yaml:170 cruise_speed_mps
   校验: ros('dzrobot_v2/config/robot.yaml', 'cruise_speed_mps', '/dzbrain')
   状态: 文档
   出处应含: 0.35
@@ -231,7 +231,7 @@
   值: 180.0
   单位: s
   出处: docs/20_资料索引库/README.md:56
-  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:355 mission.race_budget_s
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:358 mission.race_budget_s
   校验: spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'mission.race_budget_s')
   状态: 文档
   出处应含: 180 s
@@ -274,7 +274,7 @@
   值: 10.0
   单位: Hz
   出处: docs/20_资料索引库/README.md:63
-  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/tasks/mission.py:1516 MissionTask
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/tasks/mission.py:1523 MissionTask
   校验: init_rate('dzrobot_v2/src/dzbrain/dzbrain/tasks/mission.py')
   状态: 文档
   出处应含: 任务 10
@@ -326,7 +326,7 @@
   值: 3.0
   单位: s
   出处: docs/20_资料索引库/空地链路/00_索引.md:37
-  代码锚点: dzrobot_v2/config/robot.yaml:915 heartbeat_timeout_s
+  代码锚点: dzrobot_v2/config/robot.yaml:285 heartbeat_timeout_s
   校验: ros('dzrobot_v2/config/robot.yaml', 'heartbeat_timeout_s', '/dzbrain')
   状态: 文档
   出处应含: 3.0
@@ -337,7 +337,7 @@
   值: 30.0
   单位: s
   出处: docs/20_资料索引库/空地链路/00_索引.md:49
-  代码锚点: dzrobot_v2/config/robot.yaml:916 info_stale_s
+  代码锚点: dzrobot_v2/config/robot.yaml:286 info_stale_s
   校验: ros('dzrobot_v2/config/robot.yaml', 'info_stale_s', '/dzbrain')
   状态: 文档
   出处应含: 30.0
@@ -347,7 +347,7 @@
   值: 2.0
   单位: s
   出处: docs/20_资料索引库/空地链路/00_索引.md:50
-  代码锚点: dzrobot_v2/config/robot.yaml:735 bridge_info_wait_s
+  代码锚点: dzrobot_v2/config/robot.yaml:214 bridge_info_wait_s
   校验: ros('dzrobot_v2/config/robot.yaml', 'bridge_info_wait_s', '/dzbrain')
   状态: 文档
   出处应含: 2.0
@@ -358,7 +358,7 @@
   值: 0.0
   单位: s
   出处: docs/20_资料索引库/空地链路/00_索引.md:51
-  代码锚点: dzrobot_v2/config/robot.yaml:742 wait_timeout_s
+  代码锚点: dzrobot_v2/config/robot.yaml:217 wait_timeout_s
   校验: ros('dzrobot_v2/config/robot.yaml', 'wait_timeout_s', '/dzbrain')
   状态: 文档
   出处应含: = 0
@@ -380,8 +380,8 @@
   名称: 视觉流水线深度（RKNN 线程数）
   值: 2
   单位: 帧
-  出处: docs/20_资料索引库/视觉与云台/02_视觉模型与检测.md:24
-  代码锚点: dzrobot_v2/config/robot.yaml:306 thread_num
+  出处: docs/20_资料索引库/视觉与云台/02_视觉模型与检测.md:14
+  代码锚点: dzrobot_v2/config/robot.yaml:149 thread_num
   校验: ros('dzrobot_v2/config/robot.yaml', 'thread_num', '/det_node')
   状态: 文档
   出处应含: thread_num=2
@@ -391,8 +391,8 @@
   名称: 视觉推理帧率上限
   值: 30.0
   单位: Hz
-  出处: docs/20_资料索引库/视觉与云台/02_视觉模型与检测.md:24
-  代码锚点: dzrobot_v2/config/robot.yaml:309 max_fps
+  出处: docs/20_资料索引库/视觉与云台/02_视觉模型与检测.md:36
+  代码锚点: dzrobot_v2/config/robot.yaml:150 max_fps
   校验: ros('dzrobot_v2/config/robot.yaml', 'max_fps', '/det_node')
   状态: 文档
   出处应含: max_fps=30
@@ -402,7 +402,7 @@
   值: 0.0667
   单位: s
   出处: docs/20_资料索引库/视觉与云台/00_索引.md:32
-  代码锚点: dzrobot_v2/config/robot.yaml:306 thread_num
+  代码锚点: dzrobot_v2/config/robot.yaml:149 thread_num
   校验: ros('dzrobot_v2/config/robot.yaml', 'thread_num', '/det_node') / ros('dzrobot_v2/config/robot.yaml', 'max_fps', '/det_node')
   状态: 文档
   出处应含: 0.066
@@ -413,7 +413,7 @@
   值: 11.378
   单位: 刻度/度
   出处: docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md:57
-  代码锚点: dzrobot_v2/config/robot.yaml:101 yaw_ticks_per_deg
+  代码锚点: dzrobot_v2/config/robot.yaml:38 yaw_ticks_per_deg
   校验: ros('dzrobot_v2/config/robot.yaml', 'yaw_ticks_per_deg', '/dzrknn_dataprocess')
   状态: 文档
   出处应含: 11.378
@@ -424,7 +424,7 @@
   值: 11.3778
   单位: 刻度/度
   出处: docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md:57
-  代码锚点: dzrobot_v2/config/robot.yaml:101 yaw_ticks_per_deg
+  代码锚点: dzrobot_v2/config/robot.yaml:38 yaw_ticks_per_deg
   校验: 4096 / 360
   状态: 文档
   容差: 0.0001
@@ -435,7 +435,7 @@
   值: 3700
   单位: 刻度/s
   出处: docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md:56
-  代码锚点: dzrobot_v2/config/robot.yaml:82 gimbal_max_speed
+  代码锚点: dzrobot_v2/config/robot.yaml:30 gimbal_max_speed
   校验: ros('dzrobot_v2/config/robot.yaml', 'gimbal_max_speed', '/dzrknn_dataprocess')
   状态: 文档
   出处应含: 3700
@@ -445,7 +445,7 @@
   值: 1110
   单位: 刻度/s
   出处: docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md:56
-  代码锚点: dzrobot_v2/config/robot.yaml:81 patrol_speed_ratio
+  代码锚点: dzrobot_v2/config/robot.yaml:29 patrol_speed_ratio
   校验: ros('dzrobot_v2/config/robot.yaml', 'gimbal_max_speed', '/dzrknn_dataprocess') * ros('dzrobot_v2/config/robot.yaml', 'patrol_speed_ratio', '/dzrknn_dataprocess')
   状态: 文档
   出处应含: 1110
@@ -455,7 +455,7 @@
   值: 97.56
   单位: °/s
   出处: docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md:56
-  代码锚点: dzrobot_v2/config/robot.yaml:81 patrol_speed_ratio
+  代码锚点: dzrobot_v2/config/robot.yaml:29 patrol_speed_ratio
   校验: ros('dzrobot_v2/config/robot.yaml', 'gimbal_max_speed', '/dzrknn_dataprocess') * ros('dzrobot_v2/config/robot.yaml', 'patrol_speed_ratio', '/dzrknn_dataprocess') / ros('dzrobot_v2/config/robot.yaml', 'yaw_ticks_per_deg', '/dzrknn_dataprocess')
   状态: 文档
   备注: 卡面候选写扫描 12 度/s，全仓 0 命中；现役换算是 1110 / 11.378 = 97.56 度/s。文档未直接写这个数，是本人按 01:52 的两个数换算的
@@ -464,8 +464,8 @@
   名称: 跟踪速度上限
   值: 2000
   单位: 刻度/s
-  出处: docs/20_资料索引库/视觉与云台/00_索引.md:49
-  代码锚点: dzrobot_v2/config/robot.yaml:83 track_speed_max
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:50
+  代码锚点: dzrobot_v2/config/robot.yaml:31 track_speed_max
   校验: ros('dzrobot_v2/config/robot.yaml', 'track_speed_max', '/dzrknn_dataprocess')
   状态: 文档
   出处应含: 2000
@@ -474,8 +474,8 @@
   名称: 跟踪速度上限（角速度）
   值: 175.78
   单位: °/s
-  出处: docs/20_资料索引库/视觉与云台/00_索引.md:49
-  代码锚点: dzrobot_v2/config/robot.yaml:83 track_speed_max
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:50
+  代码锚点: dzrobot_v2/config/robot.yaml:31 track_speed_max
   校验: ros('dzrobot_v2/config/robot.yaml', 'track_speed_max', '/dzrknn_dataprocess') / ros('dzrobot_v2/config/robot.yaml', 'yaw_ticks_per_deg', '/dzrknn_dataprocess')
   状态: 文档
   出处应含: 176
@@ -486,7 +486,7 @@
   值: 325.19
   单位: °/s
   出处: docs/20_资料索引库/视觉与云台/01_云台瞄准与开火链路.md:56
-  代码锚点: dzrobot_v2/config/robot.yaml:82 gimbal_max_speed
+  代码锚点: dzrobot_v2/config/robot.yaml:30 gimbal_max_speed
   校验: ros('dzrobot_v2/config/robot.yaml', 'gimbal_max_speed', '/dzrknn_dataprocess') / ros('dzrobot_v2/config/robot.yaml', 'yaw_ticks_per_deg', '/dzrknn_dataprocess')
   状态: 文档
   备注: 卡面候选写云台角速度上限 70.3 度/s，全仓 0 命中；3700 / 11.378 = 325.19 度/s 是满速，2000 刻度/s 的跟踪档是 175.78
@@ -495,8 +495,8 @@
   名称: 巡航扫描行程（左右各 150 度）
   值: 300.0
   单位: °
-  出处: docs/20_资料索引库/视觉与云台/00_索引.md:31
-  代码锚点: dzrobot_v2/config/robot.yaml:37 scan_yaw_min_deg
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:46
+  代码锚点: dzrobot_v2/config/robot.yaml:18 scan_yaw_min_deg
   校验: ros('dzrobot_v2/config/robot.yaml', 'scan_yaw_max_deg', '/dzrknn_dataprocess') - ros('dzrobot_v2/config/robot.yaml', 'scan_yaw_min_deg', '/dzrknn_dataprocess')
   状态: 文档
   出处应含: ±150
@@ -507,7 +507,7 @@
   值: 25.0
   单位: px
   出处: docs/20_资料索引库/视觉与云台/00_索引.md:31
-  代码锚点: dzrobot_v2/config/robot.yaml:179 fire_dz_far_px
+  代码锚点: dzrobot_v2/config/robot.yaml:90 fire_dz_far_px
   校验: ros('dzrobot_v2/config/robot.yaml', 'fire_dz_far_px', '/dzrknn_dataprocess')
   状态: 文档
   出处应含: 25
@@ -518,7 +518,7 @@
   值: 26.0
   单位: px
   出处: docs/20_资料索引库/视觉与云台/00_索引.md:31
-  代码锚点: dzrobot_v2/config/robot.yaml:184 fire_dz_near_px
+  代码锚点: dzrobot_v2/config/robot.yaml:92 fire_dz_near_px
   校验: ros('dzrobot_v2/config/robot.yaml', 'fire_dz_near_px', '/dzrknn_dataprocess')
   状态: 文档
   出处应含: 26
@@ -528,7 +528,7 @@
   值: 500
   单位: ms
   出处: docs/20_资料索引库/视觉与云台/00_索引.md:32
-  代码锚点: dzrobot_v2/config/robot.yaml:198 shot_cooldown_ms
+  代码锚点: dzrobot_v2/config/robot.yaml:102 shot_cooldown_ms
   校验: ros('dzrobot_v2/config/robot.yaml', 'shot_cooldown_ms', '/dzrknn_dataprocess')
   状态: 文档
   出处应含: 500
@@ -538,8 +538,8 @@
   名称: 全程弹药上限
   值: 10
   单位: 发
-  出处: docs/20_资料索引库/视觉与云台/00_索引.md:46
-  代码锚点: dzrobot_v2/config/robot.yaml:204 max_shots
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:47
+  代码锚点: dzrobot_v2/config/robot.yaml:105 max_shots
   校验: ros('dzrobot_v2/config/robot.yaml', 'max_shots', '/dzrknn_dataprocess')
   状态: 文档
   出处应含: 10 发
@@ -548,19 +548,19 @@
   名称: 丢靶回扫帧数（C++ 云台节点）
   值: 180
   单位: 帧
-  出处: docs/20_资料索引库/视觉与云台/00_索引.md:44
-  代码锚点: dzrobot_v2/config/robot.yaml:237 lost_frames_to_rescan
-  校验: ros('dzrobot_v2/config/robot.yaml', 'lost_frames_to_rescan', '/dzrknn_dataprocess')
-  状态: 文档
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:45
+  代码锚点: 无
+  校验: manual
+  状态: 待核
   出处应含: 180
-  备注: 卡面候选写 lost_frames_to_rescan 20，与实际不符：C++ 是 180，Python 段是 60；20 帧是航向闩锁自恢复口径，不是丢靶回扫
+  备注: 2026-10-31 04:27 外部改动删除了 YAML 键；生效值回落对应 C++ 声明默认，本卡不裁决该外部改动，待下一次实车复核/裁决后再定论。；卡面候选写 lost_frames_to_rescan 20，与实际不符：C++ 是 180，Python 段是 60；20 帧是航向闩锁自恢复口径，不是丢靶回扫
 
 - id: lost_frames_py
   名称: 丢靶回扫帧数（Python 段）
   值: 60
   单位: 帧
-  出处: docs/20_资料索引库/视觉与云台/00_索引.md:44
-  代码锚点: dzrobot_v2/config/robot.yaml:870 lost_frames_to_rescan
+  出处: docs/20_资料索引库/视觉与云台/00_索引.md:45
+  代码锚点: dzrobot_v2/config/robot.yaml:258 lost_frames_to_rescan
   校验: ros('dzrobot_v2/config/robot.yaml', 'lost_frames_to_rescan', '/dzbrain')
   状态: 文档
   出处应含: 60 帧
@@ -597,7 +597,7 @@
   值: null
   单位: -
   出处: docs/20_资料索引库/视觉与云台/02_视觉模型与检测.md:14
-  代码锚点: dzrobot_v2/config/robot.yaml:303 draw
+  代码锚点: dzrobot_v2/config/robot.yaml:148 draw
   校验: manual
   状态: 文档
   出处应含: draw
@@ -608,7 +608,7 @@
   值: null
   单位: -
   出处: docs/20_资料索引库/车端/03_规划器与自动规划.md:13
-  代码锚点: dzrobot_v2/config/robot.yaml:762 engine
+  代码锚点: dzrobot_v2/config/robot.yaml:225 engine
   校验: manual
   状态: 文档
   出处应含: engine: tour
@@ -619,7 +619,7 @@
   值: 0.0
   单位: s
   出处: docs/20_资料索引库/空地链路/01_协议v2与契约.md:135
-  代码锚点: dzrobot_v2/config/robot.yaml:745 layout_ttl_s
+  代码锚点: dzrobot_v2/config/robot.yaml:218 layout_ttl_s
   校验: spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'step.layout_ttl_s')
   状态: 文档
   出处应含: layout_ttl_s
@@ -629,8 +629,8 @@
   名称: 航向守卫包络增益
   值: 525.0
   单位: °/s per m/s
-  出处: docs/20_资料索引库/车端/04_定位与安全.md:42
-  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:536 localization.yaw_diff_gain_dps_per_mps
+  出处: docs/20_资料索引库/车端/04_定位与安全.md:50
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:539 localization.yaw_diff_gain_dps_per_mps
   校验: spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'localization.yaw_diff_gain_dps_per_mps')
   状态: 文档
   出处应含: 525.0
@@ -640,8 +640,8 @@
   名称: 航向守卫低速包络下限
   值: 60.0
   单位: °/s
-  出处: docs/20_资料索引库/车端/04_定位与安全.md:42
-  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:539 localization.yaw_diff_spin_dps
+  出处: docs/20_资料索引库/车端/04_定位与安全.md:51
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:542 localization.yaw_diff_spin_dps
   校验: spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'localization.yaw_diff_spin_dps')
   状态: 文档
   出处应含: 60.0
@@ -651,8 +651,8 @@
   名称: 航向单帧跳变阈值
   值: 30.0
   单位: °
-  出处: docs/20_资料索引库/车端/04_定位与安全.md:42
-  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:541 localization.yaw_jump_deg
+  出处: docs/20_资料索引库/车端/04_定位与安全.md:51
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:544 localization.yaw_jump_deg
   校验: spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'localization.yaw_jump_deg')
   状态: 文档
   出处应含: 30.0
@@ -662,8 +662,8 @@
   名称: 静止期航向漂移上限
   值: 45.0
   单位: °/s
-  出处: docs/20_资料索引库/车端/04_定位与安全.md:42
-  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:547 localization.yaw_static_dps
+  出处: docs/20_资料索引库/车端/04_定位与安全.md:51
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:550 localization.yaw_static_dps
   校验: spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'localization.yaw_static_dps')
   状态: 文档
   出处应含: 45.0
@@ -673,8 +673,8 @@
   名称: 里程计每米编码器计数（冻结）
   值: 3280.0
   单位: 计数/m
-  出处: docs/20_资料索引库/车端/04_定位与安全.md:26
-  代码锚点: dzrobot_v2/config/robot.yaml:957 ticksPerMeter
+  出处: docs/20_资料索引库/车端/04_定位与安全.md:35
+  代码锚点: dzrobot_v2/config/robot.yaml:308 ticksPerMeter
   校验: ros('dzrobot_v2/config/robot.yaml', 'ticksPerMeter', '/dzactuator')
   状态: 文档
   出处应含: 3280
@@ -685,7 +685,7 @@
   值: 0.70
   单位: m
   出处: docs/20_资料索引库/视觉与云台/03_移动靶缺口与改进方向.md:22
-  代码锚点: dzrobot_v2/config/robot.yaml:857 rail_span_m
+  代码锚点: dzrobot_v2/config/robot.yaml:251 rail_span_m
   校验: ros('dzrobot_v2/config/robot.yaml', 'rail_span_m', '/dzbrain')
   状态: 文档
   出处应含: rail_span_m=0.70
@@ -696,7 +696,7 @@
   值: 140.0
   单位: px/m
   出处: docs/20_资料索引库/视觉与云台/03_移动靶缺口与改进方向.md:22
-  代码锚点: dzrobot_v2/config/robot.yaml:862 px_per_m_rail
+  代码锚点: dzrobot_v2/config/robot.yaml:255 px_per_m_rail
   校验: ros('dzrobot_v2/config/robot.yaml', 'px_per_m_rail', '/dzbrain')
   状态: 文档
   出处应含: px_per_m_rail=140.0
@@ -707,7 +707,7 @@
   值: 0.27
   单位: s
   出处: docs/20_资料索引库/视觉与云台/03_移动靶缺口与改进方向.md:62
-  代码锚点: dzrobot_v2/config/robot.yaml:855 lead_time_s
+  代码锚点: dzrobot_v2/config/robot.yaml:249 lead_time_s
   校验: ros('dzrobot_v2/config/robot.yaml', 'lead_time_s', '/dzbrain')
   状态: 文档
   出处应含: 0.27
@@ -718,28 +718,28 @@
   值: 0.60
   单位: -
   出处: docs/20_资料索引库/视觉与云台/03_移动靶缺口与改进方向.md:31
-  代码锚点: dzrobot_v2/config/robot.yaml:235 aspect_min
-  校验: ros('dzrobot_v2/config/robot.yaml', 'aspect_min', '/dzrknn_dataprocess')
-  状态: 文档
+  代码锚点: 无
+  校验: manual
+  状态: 待核
   出处应含: aspect_min/max=0.60/1.60
-  备注: 靶面是 1:1 圆面（D-030），aspect 落在 0.60~1.60 内；10-16 曾放宽到 2.40 容纳 2:1 横板，同日撤销
+  备注: 2026-10-31 04:27 外部改动删除了 YAML 键；生效值回落对应 C++ 声明默认，本卡不裁决该外部改动，待下一次实车复核/裁决后再定论。；靶面是 1:1 圆面（D-030），aspect 落在 0.60~1.60 内；10-16 曾放宽到 2.40 容纳 2:1 横板，同日撤销
 
 - id: target_aspect_max
   名称: 靶面宽高比上限（1:1 圆面过滤）
   值: 1.60
   单位: -
   出处: docs/20_资料索引库/视觉与云台/03_移动靶缺口与改进方向.md:31
-  代码锚点: dzrobot_v2/config/robot.yaml:236 aspect_max
-  校验: ros('dzrobot_v2/config/robot.yaml', 'aspect_max', '/dzrknn_dataprocess')
-  状态: 文档
+  代码锚点: 无
+  校验: manual
+  状态: 待核
   出处应含: aspect_min/max=0.60/1.60
-  备注: 与 target_aspect_min 成对；「两块独立靶」与「旋转翻面相位窗口」都被 D-030 否决，故不需要放宽上限
+  备注: 2026-10-31 04:27 外部改动删除了 YAML 键；生效值回落对应 C++ 声明默认，本卡不裁决该外部改动，待下一次实车复核/裁决后再定论。；与 target_aspect_min 成对；「两块独立靶」与「旋转翻面相位窗口」都被 D-030 否决，故不需要放宽上限
 - id: vehicle_width_m
   名称: 车体宽（规划/净空真值）
   值: 0.17
   单位: m
   出处: docs/20_资料索引库/车端/08_车体几何与执行约束.md:123
-  代码锚点: dzrobot_v2/config/robot.yaml:977 width_m
+  代码锚点: dzrobot_v2/config/robot.yaml:316 width_m
   校验: ros('dzrobot_v2/config/robot.yaml', 'width_m', '/dzactuator')
   状态: 文档
   出处应含: 0.17
@@ -750,7 +750,7 @@
   值: 0.33
   单位: m
   出处: docs/20_资料索引库/车端/08_车体几何与执行约束.md:124
-  代码锚点: dzrobot_v2/config/robot.yaml:706 bridge_opening_m
+  代码锚点: dzrobot_v2/config/robot.yaml:200 bridge_opening_m
   校验: ros('dzrobot_v2/config/robot.yaml', 'bridge_opening_m', '/dzbrain')
   状态: 文档
   出处应含: 0.33
@@ -761,7 +761,7 @@
   值: 0.02
   单位: m
   出处: docs/20_资料索引库/车端/08_车体几何与执行约束.md:125
-  代码锚点: dzrobot_v2/config/robot.yaml:707 bridge_wall_m
+  代码锚点: dzrobot_v2/config/robot.yaml:201 bridge_wall_m
   校验: ros('dzrobot_v2/config/robot.yaml', 'bridge_wall_m', '/dzbrain')
   状态: 文档
   出处应含: 0.02
@@ -772,7 +772,7 @@
   值: 0.0
   单位: m
   出处: docs/20_资料索引库/车端/08_车体几何与执行约束.md:126
-  代码锚点: dzrobot_v2/config/robot.yaml:710 bridge_entry_redundancy_m
+  代码锚点: dzrobot_v2/config/robot.yaml:202 bridge_entry_redundancy_m
   校验: ros('dzrobot_v2/config/robot.yaml', 'bridge_entry_redundancy_m', '/dzbrain')
   状态: 文档
   出处应含: 0.0
@@ -783,7 +783,7 @@
   值: 60.0
   单位: s
   出处: docs/20_资料索引库/空地链路/01_协议v2与契约.md:135
-  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:576 drone.field_layout_wait_s
+  代码锚点: dzrobot_v2/src/dzbrain/dzbrain/core/config.py:579 drone.field_layout_wait_s
   校验: spec('dzrobot_v2/src/dzbrain/dzbrain/core/config.py', 'drone.field_layout_wait_s')
   状态: 文档
   出处应含: 60.0
@@ -794,7 +794,7 @@
   值: 1
   单位: 帧
   出处: docs/20_资料索引库/运维与排障/06_实车打靶_runbook.md:119
-  代码锚点: dzrobot_v2/config/robot.yaml:187 fire_hold_frames
+  代码锚点: dzrobot_v2/config/robot.yaml:95 fire_hold_frames
   校验: ros('dzrobot_v2/config/robot.yaml', 'fire_hold_frames', '/dzrknn_dataprocess')
   状态: 文档
   文档值: 5

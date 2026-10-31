@@ -146,7 +146,7 @@ start_all.sh 共 7 步，每步 sleep 3（云台 2s），用 setsid 让每个节
 
 ### 1.4 与 dzbrain 的关系（边界）
 
-`start_all.sh:205-221` 默认走**新决策层 dzbrain**，旧单体 `path_executor.py`（2622 行）只在 `LEGACY_PATH=1` 时启用。两者共用 `config/robot.yaml` 的 path_executor 段与 map.yaml。本报告按任务范围覆盖 car_localization（旧核）与车端硬件包；dzbrain 的 8 任务线程内部不在本次审计范围，其关键键在 §5 中一并列出以便对照。
+`start_all.sh:205-221` 默认走**新决策层 dzbrain**，旧单体 `path_executor.py`〔已删：D-062〕（2622 行）只在 `LEGACY_PATH=1` 时启用。两者共用 `config/robot.yaml` 的 path_executor 段与 map.yaml。本报告按任务范围覆盖 car_localization（旧核）与车端硬件包；dzbrain 的 8 任务线程内部不在本次审计范围，其关键键在 §5 中一并列出以便对照。
 
 ## §2 逐模块详解
 
@@ -166,12 +166,12 @@ start_all.sh 共 7 步，每步 sleep 3（云台 2s），用 setsid 让每个节
     y = (13.5 - col_idx) * 0.35     # col N → 0.175 m，col A → 4.725 m
 
 证据：
-- `path_executor.py:106-116`（常量）
-- `path_executor.py:501-526` `block_to_meters()`
+- `path_executor.py:106-116`〔已删：D-062〕（常量）
+- `path_executor.py:501-526`〔已删：D-062〕 `block_to_meters()`
 - `serial_reader.py:38-48`（常量与 `HEADING_YAWS`）
 - `generate_path.py:17-32` `block_to_meters()`
 
-> ⚠ **潜在不一致（未核实）**：`generate_path.py:22` 的列字母表是 `'ABCDEFGHIJKLMN'`（14 个），`get_block_name` 在 `serial_reader.py:68-75` 用 `round(10.5 - x)` / `round(13.5 - y)`，而 `path_executor.py` 用 int 语义。本报告未逐格穷举验证边界格，仅确认三者坐标公式一致。
+> ⚠ **潜在不一致（未核实）**：`generate_path.py:22` 的列字母表是 `'ABCDEFGHIJKLMN'`（14 个），`get_block_name` 在 `serial_reader.py:68-75` 用 `round(10.5 - x)` / `round(13.5 - y)`，而 `path_executor.py`〔已删：D-062〕 用 int 语义。本报告未逐格穷举验证边界格，仅确认三者坐标公式一致。
 
 ### 2.1.2 generate_path.py（路径生成工具）
 
@@ -180,15 +180,15 @@ start_all.sh 共 7 步，每步 sleep 3（云台 2s），用 setsid 让每个节
 - `generate_straight_path(...)`：`generate_path.py:42-64`，按 step（默认 0.05 m）生成直线点。
 - `generate_waypoint_path(start_block, waypoints, step=0.05)`：`generate_path.py:67-106`，多点折线；输出格式 `x,y,z,qx,qy,qz,qw,`（**每行末尾带逗号**，`generate_path.py:62,101`）。
 
-> ⚠ **坑**：输出行末尾多一个逗号，而 `path_executor.load_path()` 用 `line.split(',')` 且要求 `len(parts) >= 7`（`path_executor.py:919-920`）。末尾逗号会产生第 8 个空字段，`len(parts)==8` 仍可通过，但 `parts[7]` 为空串、未被使用——**当前能工作但格式不干净**（未核实是否有下游依赖精确 7 字段）。
+> ⚠ **坑**：输出行末尾多一个逗号，而 `path_executor.load_path()` 用 `line.split(',')` 且要求 `len(parts) >= 7`（`path_executor.py:919-920`〔已删：D-062〕）。末尾逗号会产生第 8 个空字段，`len(parts)==8` 仍可通过，但 `parts[7]` 为空串、未被使用——**当前能工作但格式不干净**（未核实是否有下游依赖精确 7 字段）。
 
-- 路径文件格式（被 `path_executor.load_path` 消费）：`x, y, z, qx, qy, qz, qw`（`path_executor.py:908-948`）。
+- 路径文件格式（被 `path_executor.load_path` 消费）：`x, y, z, qx, qy, qz, qw`（`path_executor.py:908-948`〔已删：D-062〕）。
 
 ### 2.1.3 path_executor.py（循迹单体，2622 行）
 
 **职责**：解析路线命令或路径文件 → 在 50 Hz 控制环里用 Pure Pursuit 发布 `pursuitAngle`（Twist），在射击点/终点停车并交还开火权。
 
-#### (a) 模块级常量（`path_executor.py:105-275`）
+#### (a) 模块级常量（`path_executor.py:105-275`〔已删：D-062〕）
 
 | 常量 | 值 | 行号 |
 |---|---|---|
@@ -226,22 +226,22 @@ start_all.sh 共 7 步，每步 sleep 3（云台 2s），用 setsid 让每个节
 | LINEAR_SPEED | 0.15 | 271 |
 | SHOOT_COUNT_TARGET | 3 | 275 |
 
-**配置中心覆盖**（`path_executor.py:287-472`）：`_load_config_center()` 读 `~/dzrobot/config/robot.yaml` 的 `path_executor` 段（兼容 `/path_executor` 前缀，`path_executor.py:306-310`）；任何异常**静默回退**内置默认值（`path_executor.py:293,301-304`）。覆盖键见 `path_executor.py:424-472`（含 `linear_speed`、`auto_start`、`mission_blocks`、`bridge_blocks`、`obstacle_blocks` 等）。
+**配置中心覆盖**（`path_executor.py:287-472`）：`_load_config_center()` 读 `~/dzrobot/config/robot.yaml` 的 `path_executor` 段（兼容 `/path_executor` 前缀，`path_executor.py:306-310`）；任何异常**静默回退**内置默认值（`path_executor.py:293,301-304`）。覆盖键见 `path_executor.py:424-472`〔已删：D-062〕（含 `linear_speed`、`auto_start`、`mission_blocks`、`bridge_blocks`、`obstacle_blocks` 等）。
 
-> ⚠ **冲突（重要）**：代码内置 `MISSION_BLOCKS` 是 **20 个点**的旧路线（`path_executor.py:141-163`），而 `config/robot.yaml:532-600` 的 `mission_blocks` 是 **68 token**（第六张图路线）。默认 `AUTO_START=True` 时，`_auto_start_mission()`（`path_executor.py:1460-1514`）会下发配置中心的 68 点路线。两者只在 `AUTO_START=False` 时才会用到内置 20 点。**上车执行以配置中心为准**。
+> ⚠ **冲突（重要）**：代码内置 `MISSION_BLOCKS` 是 **20 个点**的旧路线（`path_executor.py:141-163`），而 `config/robot.yaml:532-600` 的 `mission_blocks` 是 **68 token**（第六张图路线）。默认 `AUTO_START=True` 时，`_auto_start_mission()`（`path_executor.py:1460-1514`〔已删：D-062〕）会下发配置中心的 68 点路线。两者只在 `AUTO_START=False` 时才会用到内置 20 点。**上车执行以配置中心为准**。
 
 #### (b) 数学工具
 
-- `euler_from_quaternion(x,y,z,w)`：`path_executor.py:479-487`，`yaw=atan2(2(wz+xy), 1-2(y²+z²))`。
-- `normalize_angle(angle)`：`path_executor.py:490-498`，归一到 (-π, π]。
-- `block_to_meters(block_name)`：`path_executor.py:501-526`。
-- `heading_to_quaternion(heading_dir)`：`path_executor.py:529-546`，`'y'→yaw=π/2`、`'x'→yaw=0`。
+- `euler_from_quaternion(x,y,z,w)`：`path_executor.py:479-487`〔已删：D-062〕，`yaw=atan2(2(wz+xy), 1-2(y²+z²))`。
+- `normalize_angle(angle)`：`path_executor.py:490-498`〔已删：D-062〕，归一到 (-π, π]。
+- `block_to_meters(block_name)`：`path_executor.py:501-526`〔已删：D-062〕。
+- `heading_to_quaternion(heading_dir)`：`path_executor.py:529-546`〔已删：D-062〕，`'y'→yaw=π/2`、`'x'→yaw=0`。
 
 #### (c) _GatedCmdPub（手动接管闸门）
 
-`path_executor.py:554-577`。包装 `pursuitAngle` 发布器，`manual_override=True` 时吞掉所有自动 Twist，避免与遥控器抢同一个话题。动机注释：本文件有 15 处 `self.cmd_pub.publish(...)`，包一层是唯一入口（`path_executor.py:563-565`）。
+`path_executor.py:554-577`。包装 `pursuitAngle` 发布器，`manual_override=True` 时吞掉所有自动 Twist，避免与遥控器抢同一个话题。动机注释：本文件有 15 处 `self.cmd_pub.publish(...)`，包一层是唯一入口（`path_executor.py:563-565`〔已删：D-062〕）。
 
-#### (d) 构造器状态（`path_executor.py:581-874`）
+#### (d) 构造器状态（`path_executor.py:581-874`〔已删：D-062〕）
 
 关键状态：
 - 路径：`path_points`、`current_target_idx`、`path_loaded`（594-596）。
@@ -254,16 +254,16 @@ start_all.sh 共 7 步，每步 sleep 3（云台 2s），用 setsid 让每个节
 - 控制定时器 50 Hz（838）；发布者健康检查 3 s 后跑一次（843）。
 - 订阅/发布清单：`/odom/localization`(747)、`/nav/waypoint`(757)、`pursuitAngle`(776)、`/move_base/stop_signal`(786)、`/shoot_count`(793)、`/nav/manual_override`(804)、`/aim/status`(807)、`/nav/scan_request`(811)、`/nav/motion_state`(815)、`/offset_center`(824)、`/voice_switch`(829)。
 
-> ⚠ **单位约定（关键）**：`/odom/localization` 的位置是 **block 单位**，`path_executor` 乘 `BLOCK_SIZE` 得米（`path_executor.py:1602-1603`）；四元数携带的是 **raw yaw_rel**，加 `RAW_YAW_TO_MAP_YAW_OFFSET=π/2` 转 map 系（`path_executor.py:1609-1613`）。
+> ⚠ **单位约定（关键）**：`/odom/localization` 的位置是 **block 单位**，`path_executor` 乘 `BLOCK_SIZE` 得米（`path_executor.py:1602-1603`）；四元数携带的是 **raw yaw_rel**，加 `RAW_YAW_TO_MAP_YAW_OFFSET=π/2` 转 map 系（`path_executor.py:1609-1613`〔已删：D-062〕）。
 
 #### (e) 命令解析
 
-`waypoint_callback(msg)`（`path_executor.py:954-1097`）支持：
+`waypoint_callback(msg)`（`path_executor.py:954-1097`〔已删：D-062〕）支持：
 - `load:/path/file.txt` → `load_path`（961-964）
 - `reset:BLOCK,HEAD` → 重锚里程计（966-996 区间）
 - `M10,y` 单点 / `G8 A10 D2*` 多点 / `A10` 单点 → `follow_route_command`
 
-`follow_route_command(data)`（`path_executor.py:1098-1295`）解析规则：
+`follow_route_command(data)`（`path_executor.py:1098-1295`〔已删：D-062〕）解析规则：
 - 末尾 `,x` / `,y` 强制终点朝向（1108-1117）。
 - `SHOOT@<靶标>` → 调 `compute_shoot_chain()` 插候选点（1136-1161）。
 - `R:B5` 倒车前缀（1167-1169）；`:SHOOT_STOP`/`:SCAN_STOP` 标签（1174-1181）；`*` 射击后缀（1182-1183）。
@@ -274,27 +274,27 @@ start_all.sh 共 7 步，每步 sleep 3（云台 2s），用 setsid 让每个节
 
 #### (f) 传感器回调
 
-- `shoot_count_cb`（`path_executor.py:1302-1306`）：缓存累计发数。
-- `_update_chassis_speed()`（`path_executor.py:1312-1323`）：位姿差分 + 一阶低通 `0.7*旧+0.3*新`。
-- `offset_center_cb`（`path_executor.py:1325-1337`）：缓存 `det_dx/dy/cls/box_w`（要求 `len>=3`）。
-- `aim_status_cb`（`path_executor.py:1339-1341`）、`manual_override_cb`（1343-1354）。
+- `shoot_count_cb`（`path_executor.py:1302-1306`〔已删：D-062〕）：缓存累计发数。
+- `_update_chassis_speed()`（`path_executor.py:1312-1323`〔已删：D-062〕）：位姿差分 + 一阶低通 `0.7*旧+0.3*新`。
+- `offset_center_cb`（`path_executor.py:1325-1337`〔已删：D-062〕）：缓存 `det_dx/dy/cls/box_w`（要求 `len>=3`）。
+- `aim_status_cb`（`path_executor.py:1339-1341`〔已删：D-062〕）、`manual_override_cb`（1343-1354）。
 
 #### (g) 停站与射击
 
-- `enter_scan_stop(wp_idx)`（`path_executor.py:1356-1370`）：零 Twist 刹车 + 发 `/nav/scan_request=1`，等待最多 `SCAN_WAIT_TIMEOUT=8 s`。
-- `enter_shoot_stop(wp_idx)`（`path_executor.py:1516-1589`）：零 Twist + 把信念位姿吸附到格心、航向吸附到进入段方向（1529-1541）；清 `shoot_flags[wp_idx]`；`shoot_phase=0`；**先发 `stop_signal=0` 收回许可**（1570-1572）。
-- 打靶四阶段（`control_loop` 分支，`path_executor.py:2034-2193`）：
-  - **0 SETTLE**：等 `chassis_speed < 0.02` 且位置连续 `0.4 s` 不变（`path_executor.py:2051-2074`；配置 `shoot_settle_time` 在 robot.yaml:439 为 0.4）。
+- `enter_scan_stop(wp_idx)`（`path_executor.py:1356-1370`〔已删：D-062〕）：零 Twist 刹车 + 发 `/nav/scan_request=1`，等待最多 `SCAN_WAIT_TIMEOUT=8 s`。
+- `enter_shoot_stop(wp_idx)`（`path_executor.py:1516-1589`〔已删：D-062〕）：零 Twist + 把信念位姿吸附到格心、航向吸附到进入段方向（1529-1541）；清 `shoot_flags[wp_idx]`；`shoot_phase=0`；**先发 `stop_signal=0` 收回许可**（1570-1572）。
+- 打靶四阶段（`control_loop` 分支，`path_executor.py:2034-2193`〔已删：D-062〕）：
+  - **0 SETTLE**：等 `chassis_speed < 0.02` 且位置连续 `0.4 s` 不变（`path_executor.py:2051-2074`〔已删：D-062〕；配置 `shoot_settle_time` 在 robot.yaml:439 为 0.4）。
   - **1 ACQUIRE**：等 `det_cls != 0` 且 det 新鲜 <1 s；或云台扫完 `SHOOT_SCAN_ROUNDS=2` 轮仍无靶则放弃（2076-2105）。
   - **2 STABLE**：偏移落在 ±`SHOOT_STABLE_OFFSET_PX`（配置 40 px）且连续 `SHOOT_STABLE_FRAMES`（配置 5）帧 → 放行（2108-2148）。
   - **3 FIRE**：等 `shoot_count` 增量达 `SHOOT_COUNT_TARGET`（配置 10）→ 成功；否则 `SHOOT_TIMEOUT=30 s` 硬超时换点（2150-2193）。
-- `_passed_waypoint(wp_idx, wp)`（`path_executor.py:1882-1904`）：判断是否冲过射击点（点积为负），用于「过冲容忍」补触发。
+- `_passed_waypoint(wp_idx, wp)`（`path_executor.py:1882-1904`〔已删：D-062〕）：判断是否冲过射击点（点积为负），用于「过冲容忍」补触发。
 
 #### (h) Pure Pursuit 几何
 
-- `find_nearest_segment()`（`path_executor.py:1617-1653`）：从 `current_target_idx` 向后搜索，投影参数 `t = clamp(dot(AP,AB)/|AB|², 0, 1)`。
-- `find_lookahead_point(seg)`（`path_executor.py:1657-1732`）：前视 `lookahead_dist=0.15` m；转角 > 20° 且距顶点 < 4 cm 时钳到顶点（1677, 1702-1706）。
-- `pure_pursuit_control(target_point, reverse=False)`（`path_executor.py:1736-1809`）：
+- `find_nearest_segment()`（`path_executor.py:1617-1653`〔已删：D-062〕）：从 `current_target_idx` 向后搜索，投影参数 `t = clamp(dot(AP,AB)/|AB|², 0, 1)`。
+- `find_lookahead_point(seg)`（`path_executor.py:1657-1732`〔已删：D-062〕）：前视 `lookahead_dist=0.15` m；转角 > 20° 且距顶点 < 4 cm 时钳到顶点（1677, 1702-1706）。
+- `pure_pursuit_control(target_point, reverse=False)`（`path_executor.py:1736-1809`〔已删：D-062〕）：
 
     alpha      = atan2(rel_y, rel_x)
     steer      = degrees(atan(wheelbase * sin(alpha) / max(dist, 0.10)))
@@ -304,11 +304,11 @@ start_all.sh 共 7 步，每步 sleep 3（云台 2s），用 setsid 让每个节
     reverse: steer *= REVERSE_STEER_SIGN
              rev = linear_speed*0.6*(1-0.5*turn_factor), 下限 0.08; 返回 (-rev, steer)
 
-  证据：`path_executor.py:1778-1809`。
+  证据：`path_executor.py:1778-1809`〔已删：D-062〕。
 
 #### (i) 主控制环（50 Hz）
 
-`control_loop()`（`path_executor.py:2005-2592`）优先级：
+`control_loop()`（`path_executor.py:2005-2592`〔已删：D-062〕）优先级：
 
 1. **无里程计** → 什么都不做（2010-2011）。
 2. **shoot_wait** → 零 Twist 保活 + 四阶段状态机（2034-2193）。
@@ -324,7 +324,7 @@ start_all.sh 共 7 步，每步 sleep 3（云台 2s），用 setsid 让每个节
 
 #### (j) 入口
 
-`main(args=None)`（`path_executor.py:2599-2618`）：可选第 1 个 argv 作为路径文件；Ctrl-C 时发布零 Twist 刹车。
+`main(args=None)`（`path_executor.py:2599-2618`〔已删：D-062〕）：可选第 1 个 argv 作为路径文件；Ctrl-C 时发布零 Twist 刹车。
 
 ### 2.1.4 serial_reader.py（死推算定位）
 
@@ -348,7 +348,7 @@ start_all.sh 共 7 步，每步 sleep 3（云台 2s），用 setsid 让每个节
 
   证据：`serial_reader.py:214-244`。
 
-> ⚠ **健康检查依赖**：`path_executor.check_odom_publishers()`（`path_executor.py:880-903`）要求 `/odom/localization` 恰好 1 个发布者，否则报「两个死推算节点交替 → 90° 跳变」。`localization.launch.py:5-9` 明确注释不要起第二个发布者。
+> ⚠ **健康检查依赖**：`path_executor.check_odom_publishers()`（`path_executor.py:880-903`〔已删：D-062〕）要求 `/odom/localization` 恰好 1 个发布者，否则报「两个死推算节点交替 → 90° 跳变」。`localization.launch.py:5-9` 明确注释不要起第二个发布者。
 
 ### 2.1.5 send_waypoint.py（一次性航点发送）
 
@@ -358,7 +358,7 @@ start_all.sh 共 7 步，每步 sleep 3（云台 2s），用 setsid 让每个节
 
 - `localization.launch.py:10-19`：只起 `serial_reader_node`。
 - `setup.py:22-31`：注册两个 console_scripts——`serial_reader_node` 与 `path_executor_node`（2026-10-03 补充；注释强调 `start_all.sh` 仍直跑、不要贸然改）。
-- `start_path_executor.sh:23-35`：先生成 test_path.txt 再起 `path_executor.py`，然后 `ros2 topic pub /nav/waypoint`。
+- `start_path_executor.sh:23-35`：先生成 test_path.txt 再起 `path_executor.py`〔已删：D-062〕，然后 `ros2 topic pub /nav/waypoint`。
 
 ### 2.2 dzactuator（底盘串口 + TF + IMU）
 
@@ -754,7 +754,7 @@ resetPid()（645-653）：进入 TRACK 时清零所有 PID 状态与 inited 标�
 
 裁判/激光驱动节点。它订阅开火指令，经串口写 6 字节帧到激光模块，同时接收裁判板状态帧并转发为 ROS 话题。这是开火链路唯一真正点亮激光的一环——start_all.sh:194-202 有醒目注释：以前只起 dzrknn_dataprocess，导致 /LaserShot_Command 的 Subscription count = 0，开火指令全进空话题，激光永不亮且无任何报错。
 
-线程模型：单线程 main → node->run()（dzjudgment.cpp:15-22；run 见 judgment.cpp:119-160）。run() 以 100 Hz 循环（int run_rate = 100;，judgment.cpp:127）每拍 spin_some + recvESP32Info + 每 100 拍 publish_referee_state。原为 10 Hz，是按下开火后延迟很大的主因（judgment.cpp:121-125）。
+线程模型：单线程 main → node->run()（dzjudgment.cpp:5-12；run 见 judgment.cpp:130-171）。run() 以 100 Hz 循环（int run_rate = 100;，judgment.cpp:138）每拍 spin_some + recvESP32Info + 每 100 拍 publish_referee_state。原为 10 Hz，是按下开火后延迟很大的主因（judgment.cpp:132-137，即 run() 开头那段 `★ 原来是 10Hz` 注释）。
 
 参数：mcubaudrate（默认 115200）、mcuserialport（默认 /dev/ttyACM0；配置中心为 /dev/dzjudgment → ttyACM1）（judgment.cpp:5-11；robot.yaml:290-291）。
 
@@ -805,7 +805,7 @@ reconnectSerial()（judgment.cpp:162-191）：关闭后重试 3 次，间隔 1 s
 - dzactuator/launch/judgment.launch.py:6-16：另一份副本，硬编码 mcubaudrate=115200、mcuserialport=/dev/dzjudgment，不走配置中心。⚠ 两份 launch 同名不同包，start_all.sh:202 用的是 dzjudgment 包那份。
 - CMakeLists.txt:44：add_executable(dzjudgment src/dzjudgment.cpp src/judgment.cpp)；依赖 rclcpp/Boost/serial/geometry_msgs/nav2_msgs/tf2（45）。
 
-⚠ 坑：dzjudgment.cpp:3 与 13 各 #include 一次 judgment.h（重复包含，靠头文件 guard 兜住）。dzjudgment.cpp:3-12 有一段被注释掉的旧 main。
+⚠ 坑：`dzjudgment.cpp:1` 与 `dzjudgment.cpp:3` 各 `#include` 一次 `judgment.h`（重复包含，靠头文件 guard 兜住；C2 删掉旧 main 注释段后由 1/13 变为 1/3）。**旧 main 注释段（原 B0 前像 3–12 行）已被 C2 删除**，现属历史；原文见 `_tmp_session/TRIM-EXEC-20261029/B0/accept_root/dzrobot_v2/src/dzjudgment/src/dzjudgment.cpp`。
 
 ### 2.5 rknn_pt / det_node（RKNN 视觉检测）
 
@@ -861,7 +861,7 @@ det_node 订阅相机 /image_raw，用 RKNN NPU 跑 YOLOv8-pose 模型，输出 
    - 关键点 kpt_shape [1,3] → kx,ky,kconf（132-143）
    - nms（39-66）：按分数降序，同类 IoU > nms_threshold(0.45) 抑制
    - 映射回原图：clamp 到 [0, model_in_w/h] 后 /scale_w/scale_h（154-163）；kpt 同理
-5. 线程池：rknnPool（rknnPool.hpp）持有 threadNum 个模型实例，每个绑定不同 NPU 核（rkpt.cc:112-126 通过 get_core_num() 轮转 RKNN_NPU_CORE_0/1/2；coreNum.hpp:12-22）；父 context 通过 rknn_dup_context 复用权重（rkpt.cc:102-105）。put/get 用同一把 queueMtx（rknnPool.hpp:91-111）。ThreadPool.hpp 是通用池，worker 空闲 2 s 后回收（WAIT_SECONDS=2，150）。
+5. 线程池：rknnPool（rknnPool.hpp）持有 threadNum 个模型实例，每个绑定不同 NPU 核（rkpt.cc:112-126 通过 get_core_num() 轮转 RKNN_NPU_CORE_0/1/2；coreNum.hpp:12-22）；父 context 通过 rknn_dup_context 复用权重（rkpt.cc:102-105）。put/get 用同一把 queueMtx（`rknnPool.hpp:84-102`，put 84–91 / get 94–102；C2 删注释块后整体前移 7 行）。ThreadPool.hpp 是通用池，worker 空闲 2 s 后回收（WAIT_SECONDS=2，150）。
 
 #### 2.5.4 launch / CMake
 
@@ -1078,10 +1078,10 @@ tools/wf/frozen.json:3-8 定义冻结区：src/dzbrain/dzbrain/**、src/dzrknn_d
 | B22 | 相机进程退出后无信号 | /dev/video0 未释放 | camera.launch.py:30-35 | 已修（respawn=True） |
 | B23 | 里程计虚增 17.9% | ticksPerMeter 标定错 | robot.yaml:925-932 | 已修（3280） |
 | B24 | 航向系统性偏大约 3% | ticksPer2PI 插值尺度约 0.97 | robot.yaml:933-941 | 已改 2680，风险记录待仲裁 |
-| B25 | 倒车时车尾方向可能反 | REVERSE_STEER_SIGN 无实车依据 | path_executor.py:192-195；robot.yaml:344-346 | 待实车验证 |
-| B26 | 倒车段丢失 | 重复点合并 | path_executor.py:1196-1203 | 已处理（标记不同不合并） |
+| B25 | 倒车时车尾方向可能反 | REVERSE_STEER_SIGN 无实车依据 | path_executor.py:192-195〔已删：D-062〕；robot.yaml:344-346 | 待实车验证 |
+| B26 | 倒车段丢失 | 重复点合并 | path_executor.py:1196-1203〔已删：D-062〕 | 已处理（标记不同不合并） |
 | B27 | 桥洞保护锁错航向 | 保护窗含 90° 拐 | robot.yaml:351-355 | 已关闭 bridge_blocks |
-| B28 | 两个发布者交替导致 90° 跳变 | 两个死推算节点并存 | path_executor.py:880-903 | 机制已加（健康检查） |
+| B28 | 两个发布者交替导致 90° 跳变 | 两个死推算节点并存 | path_executor.py:880-903〔已删：D-062〕 | 机制已加（健康检查） |
 | B29 | generate_path 输出行尾多逗号 | 格式不干净 | generate_path.py:62,101 | 未修（当前可用） |
 | B30 | 可执行名歧义 | dzrknn 与 dzactuator 都叫 dzactuator_node | dzrknn CMakeLists.txt:91 vs dzactuator:87 | 未修（P1-2） |
 
@@ -1104,7 +1104,7 @@ tools/wf/frozen.json:3-8 定义冻结区：src/dzbrain/dzbrain/**、src/dzrknn_d
 生效规则：
 
 1. **C++ 参数**（dzrknn_dataprocess / dzactuator / dzjudgment / det_node）：改 robot.yaml 后必须重启对应节点；只有重启才从参数服务器重新读取。
-2. **Python 参数**（path_executor）：改 robot.yaml 后重启 path_executor_node；它启动时一次性 _load_config_center()（path_executor.py:292-310），运行中不重读。
+2. **Python 参数**（path_executor）：改 robot.yaml 后重启 path_executor_node；它启动时一次性 _load_config_center()（path_executor.py:292-310〔已删：D-062〕），运行中不重读。
 3. **dzbrain**：改 robot.yaml 后重启 dzbrain.main；它启动时读 --config。
 4. **类型必须匹配**：declare 的 double 收 double、int 收 int、bool 收 bool。用 LaunchConfiguration 传字符串会静默失败（各 launch 头注释）。
 5. **declare/get 必须配对**：只 declare 不 get 的参数改了不生效（healthcheck.sh:139-179 会报）。
@@ -1137,42 +1137,42 @@ tools/wf/frozen.json:3-8 定义冻结区：src/dzbrain/dzbrain/**、src/dzrknn_d
 | WaypointSender.__init__ | send_waypoint.py:18 | (cmd) | 创建发布器与 0.1 s 定时器 |
 | WaypointSender.send_once | send_waypoint.py:25 | () | 发一次 /nav/waypoint 后 shutdown |
 | main | send_waypoint.py:38 | () -> None | 入口 |
-| euler_from_quaternion | path_executor.py:479 | (x,y,z,w) -> float | 四元数 → yaw(rad) |
-| normalize_angle | path_executor.py:490 | (float) -> float | 归一到 (-π,π] |
-| block_to_meters | path_executor.py:501 | (str) -> (float,float) | 格名 → 米 |
-| heading_to_quaternion | path_executor.py:529 | (str) -> (qx,qy,qz,qw) | x/y → 四元数 |
-| _GatedCmdPub.__init__ | path_executor.py:570 | (pub,node) | 包装发布器 |
-| _GatedCmdPub.publish | path_executor.py:574 | (msg) | manual_override 时吞掉 |
-| PathExecutorNode.__init__ | path_executor.py:581 | (path_file=None) | 初始化全部状态与话题 |
-| check_odom_publishers | path_executor.py:880 | () | /odom/localization 发布者数量检查 |
-| load_path | path_executor.py:908 | (file_path) | 解析路径文件 |
-| waypoint_callback | path_executor.py:954 | (msg) | 命令入口分发 |
-| follow_route_command | path_executor.py:1098 | (data) | 路线解析与提交 |
-| shoot_count_cb | path_executor.py:1302 | (msg) | 缓存累计发数 |
-| _update_chassis_speed | path_executor.py:1312 | () | 位姿差分 + 低通估速 |
-| offset_center_cb | path_executor.py:1325 | (msg) | 缓存视觉检测 |
-| aim_status_cb | path_executor.py:1339 | (msg) | 缓存 aim 状态 |
-| manual_override_cb | path_executor.py:1343 | (msg) | 手动接管开关 |
-| enter_scan_stop | path_executor.py:1356 | (wp_idx) | 停车并请求扫描 |
-| _banner | path_executor.py:1372 | (lines) | 打印边框横幅 |
-| _print_start_banner | path_executor.py:1377 | () | 任务开始横幅 |
-| _print_finish_banner | path_executor.py:1387 | () | 完成横幅 + 漂移汇总 |
-| _publish_motion | path_executor.py:1427 | (reversing) | 发布运动状态（变化才发） |
-| _start_mission_scan | path_executor.py:1437 | () | 按 mission_scan_mode 启动扫描 |
-| _auto_start_mission | path_executor.py:1460 | () | 延时自动下发内置路线 |
-| enter_shoot_stop | path_executor.py:1516 | (wp_idx) | 射击停站：吸附 + 状态机复位 |
-| odom_callback | path_executor.py:1591 | (msg) | block→米、yaw 换算、叠加 snap |
-| find_nearest_segment | path_executor.py:1617 | () -> dict|None | 最近航段 + 投影 |
-| find_lookahead_point | path_executor.py:1657 | (seg) -> dict | 前视点 + 转角钳位 |
-| pure_pursuit_control | path_executor.py:1736 | (tp,reverse) -> (v,steer) | 纯追踪核心输出 |
-| _load_shoot_planner | path_executor.py:1812 | () -> module|False | 懒加载 shoot_planner |
-| compute_shoot_chain | path_executor.py:1841 | (target_name) -> [str] | 候选射击点链 |
-| _passed_waypoint | path_executor.py:1882 | (wp_idx,wp) -> bool | 是否冲过航点 |
-| _is_reverse_segment | path_executor.py:1907 | (seg) -> bool | 本段是否倒车 |
-| _rebuild_align_segments | path_executor.py:1926 | () | 预计算桥洞保护航段 |
-| _align_straight_update | path_executor.py:1956 | () -> (bool,yaw,name) | 维护强制直行状态 |
-| control_loop | path_executor.py:2005 | () | 50 Hz 优先级状态机 |
-| main | path_executor.py:2599 | (args=None) | 入口，Ctrl-C 发零 Twist |
+| euler_from_quaternion | path_executor.py:479〔已删：D-062〕 | (x,y,z,w) -> float | 四元数 → yaw(rad) |
+| normalize_angle | path_executor.py:490〔已删：D-062〕 | (float) -> float | 归一到 (-π,π] |
+| block_to_meters | path_executor.py:501〔已删：D-062〕 | (str) -> (float,float) | 格名 → 米 |
+| heading_to_quaternion | path_executor.py:529〔已删：D-062〕 | (str) -> (qx,qy,qz,qw) | x/y → 四元数 |
+| _GatedCmdPub.__init__ | path_executor.py:570〔已删：D-062〕 | (pub,node) | 包装发布器 |
+| _GatedCmdPub.publish | path_executor.py:574〔已删：D-062〕 | (msg) | manual_override 时吞掉 |
+| PathExecutorNode.__init__ | path_executor.py:581〔已删：D-062〕 | (path_file=None) | 初始化全部状态与话题 |
+| check_odom_publishers | path_executor.py:880〔已删：D-062〕 | () | /odom/localization 发布者数量检查 |
+| load_path | path_executor.py:908〔已删：D-062〕 | (file_path) | 解析路径文件 |
+| waypoint_callback | path_executor.py:954〔已删：D-062〕 | (msg) | 命令入口分发 |
+| follow_route_command | path_executor.py:1098〔已删：D-062〕 | (data) | 路线解析与提交 |
+| shoot_count_cb | path_executor.py:1302〔已删：D-062〕 | (msg) | 缓存累计发数 |
+| _update_chassis_speed | path_executor.py:1312〔已删：D-062〕 | () | 位姿差分 + 低通估速 |
+| offset_center_cb | path_executor.py:1325〔已删：D-062〕 | (msg) | 缓存视觉检测 |
+| aim_status_cb | path_executor.py:1339〔已删：D-062〕 | (msg) | 缓存 aim 状态 |
+| manual_override_cb | path_executor.py:1343〔已删：D-062〕 | (msg) | 手动接管开关 |
+| enter_scan_stop | path_executor.py:1356〔已删：D-062〕 | (wp_idx) | 停车并请求扫描 |
+| _banner | path_executor.py:1372〔已删：D-062〕 | (lines) | 打印边框横幅 |
+| _print_start_banner | path_executor.py:1377〔已删：D-062〕 | () | 任务开始横幅 |
+| _print_finish_banner | path_executor.py:1387〔已删：D-062〕 | () | 完成横幅 + 漂移汇总 |
+| _publish_motion | path_executor.py:1427〔已删：D-062〕 | (reversing) | 发布运动状态（变化才发） |
+| _start_mission_scan | path_executor.py:1437〔已删：D-062〕 | () | 按 mission_scan_mode 启动扫描 |
+| _auto_start_mission | path_executor.py:1460〔已删：D-062〕 | () | 延时自动下发内置路线 |
+| enter_shoot_stop | path_executor.py:1516〔已删：D-062〕 | (wp_idx) | 射击停站：吸附 + 状态机复位 |
+| odom_callback | path_executor.py:1591〔已删：D-062〕 | (msg) | block→米、yaw 换算、叠加 snap |
+| find_nearest_segment | path_executor.py:1617〔已删：D-062〕 | () -> dict|None | 最近航段 + 投影 |
+| find_lookahead_point | path_executor.py:1657〔已删：D-062〕 | (seg) -> dict | 前视点 + 转角钳位 |
+| pure_pursuit_control | path_executor.py:1736〔已删：D-062〕 | (tp,reverse) -> (v,steer) | 纯追踪核心输出 |
+| _load_shoot_planner | path_executor.py:1812〔已删：D-062〕 | () -> module|False | 懒加载 shoot_planner |
+| compute_shoot_chain | path_executor.py:1841〔已删：D-062〕 | (target_name) -> [str] | 候选射击点链 |
+| _passed_waypoint | path_executor.py:1882〔已删：D-062〕 | (wp_idx,wp) -> bool | 是否冲过航点 |
+| _is_reverse_segment | path_executor.py:1907〔已删：D-062〕 | (seg) -> bool | 本段是否倒车 |
+| _rebuild_align_segments | path_executor.py:1926〔已删：D-062〕 | () | 预计算桥洞保护航段 |
+| _align_straight_update | path_executor.py:1956〔已删：D-062〕 | () -> (bool,yaw,name) | 维护强制直行状态 |
+| control_loop | path_executor.py:2005〔已删：D-062〕 | () | 50 Hz 优先级状态机 |
+| main | path_executor.py:2599〔已删：D-062〕 | (args=None) | 入口，Ctrl-C 发零 Twist |
 | get_block_name | serial_reader.py:68 | (x,y) -> str | 米 → 格名 |
 | euler_yaw | serial_reader.py:78 | (x,y,z,w) -> float | 四元数 → yaw |
 | normalize_angle | serial_reader.py:84 | (float) -> float | 归一 |
@@ -1276,7 +1276,7 @@ tools/wf/frozen.json:3-8 定义冻结区：src/dzbrain/dzbrain/**、src/dzrknn_d
 
 | 函数 / 符号 | 文件:行 | 签名 | 职责 |
 |---|---|---|---|
-| main | dzjudgment.cpp:15 | (argc,argv) | 入口 → run() |
+| main | `dzjudgment.cpp:5` | (argc,argv) | 入口 → run() |
 | dzjudgment::dzjudgment | judgment.cpp:3 | () | 构造：串口、话题 |
 | ~dzjudgment | judgment.cpp:68 | () | 关串口 |
 | callback_LaserShot_Command | judgment.cpp:77 | (UInt8) | data==1 → sendLaserShot |
@@ -1316,10 +1316,10 @@ tools/wf/frozen.json:3-8 定义冻结区：src/dzbrain/dzbrain/**、src/dzrknn_d
 | letterbox | preprocess.cc:9 | (img,padded,pads,scale,size,color) | letterbox 缩放填充 |
 | resize_rga | preprocess.cc:28 | (src,dst,img,resized,size) -> int | RGA 硬件 resize |
 | rknnPool::init | rknnPool.hpp:49 | () -> int | 建线程池 + threadNum 个模型 |
-| rknnPool::put | rknnPool.hpp:91 | (input,frame_id) -> int | 提交推理 |
-| rknnPool::get | rknnPool.hpp:102 | (output&) -> int | 取结果 |
+| rknnPool::put | `rknnPool.hpp:84` | (input,frame_id) -> int | 提交推理 |
+| rknnPool::get | `rknnPool.hpp:94` | (output&) -> int | 取结果 |
 | rknnPool::getModelId | rknnPool.hpp:74 | () -> int | 轮转模型实例 |
-| ~rknnPool | rknnPool.hpp:114 | () | drain 在途任务 |
+| ~rknnPool | `rknnPool.hpp:105` | () | drain 在途任务 |
 | ThreadPool::submit | ThreadPool.hpp:59 | (func,...) -> future | 提交任务 |
 | ThreadPool::worker | ThreadPool.hpp:97 | () | 工作线程 |
 | get_core_num | coreNum.hpp:12 | () -> int | 轮转 NPU 核 0/1/2 |
@@ -1542,7 +1542,7 @@ tools/wf/frozen.json:3-8 定义冻结区：src/dzbrain/dzbrain/**、src/dzrknn_d
 | 五套 PID 口径分支 | dzrknn_dataprocess.cpp:157-171, 208-224, 243-257 |
 | 开火判定 | dzrknn_dataprocess.cpp:261-392 |
 | 扫描状态机 | dzrknn_dataprocess.cpp:877-1101 |
-| 打靶四阶段 | path_executor.py:2034-2193 |
+| 打靶四阶段 | path_executor.py:2034-2193〔已删：D-062〕 |
 | 裁判帧协议 | judgment.cpp:358-401 |
 | /offset_center 格式 | det_node.cc:215-259 |
 | 部署哈希对账 | deploy_to_car.py:306-328 |
@@ -1596,10 +1596,10 @@ tools/wf/frozen.json:3-8 定义冻结区：src/dzbrain/dzbrain/**、src/dzrknn_d
 | KPT_NUM / KPT_DIM | 1 / 3 | postprocess.h:22-23 |
 | NMS_THRESH | 0.45 | postprocess.h:25 |
 | BOX_THRESH | 0.4 | postprocess.h:26 |
-| COL_LETTERS | ABCDEFGHIJKLMN（14） | path_executor.py:106 |
-| MAP_COLS / MAP_ROWS | 14 / 11 | path_executor.py:107-108 |
-| BLOCK_SIZE | 0.35 | path_executor.py:109 |
-| RAW_YAW_TO_MAP_YAW_OFFSET | π/2 | path_executor.py:123 |
+| COL_LETTERS | ABCDEFGHIJKLMN（14） | path_executor.py:106〔已删：D-062〕 |
+| MAP_COLS / MAP_ROWS | 14 / 11 | path_executor.py:107-108〔已删：D-062〕 |
+| BLOCK_SIZE | 0.35 | path_executor.py:109〔已删：D-062〕 |
+| RAW_YAW_TO_MAP_YAW_OFFSET | π/2 | path_executor.py:123〔已删：D-062〕 |
 | 裁判开火帧 | B5 5B 03 21 01 25 | judgment.cpp:360-366 |
 | ROBOT 域号 | 118 | dzros.env:16 |
 

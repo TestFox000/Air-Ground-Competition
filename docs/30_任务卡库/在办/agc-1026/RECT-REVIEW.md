@@ -78,7 +78,7 @@ rc=3 + status=CONFIG-ONLY + launch_go=false + spatial_checked=false + route_stat
 ### 7. 条目 C（起栈自动发车）独立复核：线索成立
 详见 review/auto-start/evidence.md。要点：
 - config/robot.yaml:320 旧段 path_executor.auto_start: true @337、delay 45.0 @338、mission_blocks 68 点、mission_reset: N10,y；/dzbrain 段 @704 mission.auto_start: false、delay 10.0。WORKTREE 与 HEAD 都 split=true，非在途改动。
-- 旧核 path_executor.py:437-440 读自己那段，850-851 挂定时器 → 1460 自动下发 68 点；AUTO_START 硬默认 @171 = True。新核 mission.py:1501 只读 mission 段。
+- 旧核 path_executor.py:437-440〔已删：D-062〕 读自己那段，850-851 挂定时器 → 1460 自动下发 68 点；AUTO_START 硬默认 @171 = True。新核 mission.py:1501 只读 mission 段。
 - start_all.sh:213 LEGACY_PATH=1 → 216 旧核；默认 219-221 新核 ⇒ 默认栈当前不发车，回退栈 45 s 自行出发。
 - 预检只打印 mission.auto_start（37-47/124），不读旧段：实测 O06 打印 False + ✅ 通过（rc=0），而旧段是 true。test_deploy.py:199-208 不钉两段一致；start_all.sh:217 文案“8~10 秒自动出发”与实际口径相反。
 - 判定：清单第 4 项「起栈自动发车」未闭合，P1 安全可见性缺口。若把 split 直接判 NO-GO，现网默认档会立刻变红（真分裂），建议先对齐 config / 先 warn 一周期再升 error。
@@ -107,7 +107,7 @@ rc=3 + status=CONFIG-ONLY + launch_go=false + spatial_checked=false + route_stat
 ## 经验总结
 - 现象：预检工具在“缺集合字段/空集合/错根配置”上曾以 rc0 放行；工具被改写但无 preimage，导致复核对象漂移。
 - 机制：判据只看“字段存在且类型对”，未区分“显式空 = 主张”与“缺失 = 未知”；失败闭合只覆盖解析层，没覆盖语义层；mission.auto_start 与 path_executor.auto_start 双真源、迁移单向，使预检显示与真实执行器取值相反。
-- 位置：tools/config_selfcheck.py:_map_evidence（空集合只拦 bridges）、verdict 分支（warn ⇒ rc0）、core/config.py:695-754（单向迁移）、path_executor.py:437-440/850-851。
+- 位置：tools/config_selfcheck.py:_map_evidence（空集合只拦 bridges）、verdict 分支（warn ⇒ rc0）、core/config.py:695-754（单向迁移）、path_executor.py:437-440〔已删：D-062〕/850-851。
 - 处置：C1/C2 升 error 或改 rc；C3 收紧分类；C4 冻结留 preimage；条目 C 按最小整改加两段读取与 AUTOSTART_ARMED。
 - 证据：_tmp_session/AGC-RECTIFY-20261026/review/round1/results.json、residual_false_green.json、typeerror_probe.json、auto-start/evidence.md。
 - 落点：本卡 + Lead 的 RECT-GATE 增量；机制类结论待 Lead 决定是否入决策台账/D-xxx（reviewer 不写台账）。

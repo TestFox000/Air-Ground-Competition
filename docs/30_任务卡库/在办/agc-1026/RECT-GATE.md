@@ -76,7 +76,7 @@ dzrobot_v2/tools/config_selfcheck.py；dzrobot_v2/src/dzbrain/tests/test_config_
 - 双真源分裂（**HEAD 已提交态**，非本轮在途改动；`git -C dzrobot_v2 diff -- config/robot.yaml` 无 auto_start 行）：
   - `dzrobot_v2/config/robot.yaml:337` 旧段 `path_executor.ros__parameters.auto_start: true`（delay 45.0，行 338），行内注释自证「本轮现场发车：翻 true 推车，跑完回 false」；
   - `dzrobot_v2/config/robot.yaml:704` 新段 `mission.auto_start: false`。
-- 消费方分叉：旧核 `src/car_localization/car_localization/path_executor.py:441-446` 读自己那段；新核 `src/dzbrain/dzbrain/tasks/mission.py:1501` 只读 `mission.auto_start`；`start_all.sh:213` `LEGACY_PATH=1` 回退旧核 ⇒ 起栈 45s 后自行出发，绕过横幅核对窗口。
+- 消费方分叉：旧核 `src/car_localization/car_localization/path_executor.py:441-446`〔已删：D-062〕 读自己那段；新核 `src/dzbrain/dzbrain/tasks/mission.py:1501` 只读 `mission.auto_start`；`start_all.sh:213` `LEGACY_PATH=1` 回退旧核 ⇒ 起栈 45s 后自行出发，绕过横幅核对窗口。
 - 迁移是单向补键：`core/config.py:695-754` `_migrate_legacy` 在 `mission.auto_start` 已存在时不会反向覆盖，故两类消费者各读各的。
 - 预检现状：本卡工具只在 `CHECK_KEYS`（`tools/config_selfcheck.py:47`）与打印段（124-125 行）呈现 `mission.auto_start`，**不读旧段、无 GO 判据**；`src/dzbrain/tests/test_deploy.py:180-208` 只钉「归一化 true→false、配置行恰好 2 处 false」，不钉两段原值一致，故分裂不会让它红。
 - 状态：**线索已交 `gate-reviewer`（task-4）独立判定**；本轮不据此改工具、不改冻结 `config/`。倾向的最小整改（待复核同意后另起断言）：预检把两段都读出，取值不一致即非零/告警，并把 LEGACY_PATH 回退的 auto_start 纳入「起栈自动发车」判据。
@@ -89,7 +89,7 @@ dzrobot_v2/tools/config_selfcheck.py；dzrobot_v2/src/dzbrain/tests/test_config_
 - `robot.yaml:337` legacy `auto_start: true` + `338 delay 45.0`；该段 `mission_blocks` 68 点（首 5：N10 M10 M9 M8 M7），`mission_reset: N10,y`；`:704/705` mission.auto_start=false / delay 10.0。
 - WORKTREE 与 `git show HEAD:config/robot.yaml` **同为 legacy=true / mission=false（split=True）**；work vs HEAD diff 27 行无 auto_start 行。
 - `cfg.get('mission.auto_start')=False`、`cfg.get('path_executor.auto_start')=True`、`path_executor.auto_start_delay=45.0`，且 `cfg.validate()` 中 auto_start 相关 issue **0 条** ⇒ 分裂不产生任何 error/warn。
-- 旧核消费点实为 `path_executor.py:437-440`（读值）、`850-851`（ARM 定时器）、`1460`（`_auto_start_mission` 下发 68 点）；`171` 行 `AUTO_START` 硬默认 True。新核仍是 `mission.py:1501`。
+- 旧核消费点实为 `path_executor.py:437-440`〔已删：D-062〕（读值）、`850-851`（ARM 定时器）、`1460`（`_auto_start_mission` 下发 68 点）；`171` 行 `AUTO_START` 硬默认 True。新核仍是 `mission.py:1501`。
 - `start_all.sh:213` → `216` 走 `path_executor_node`；默认 `219-221` 走 dzbrain ⇒ **默认栈安全，回退栈 45s 自发车**。
 - 预检盲区确认：`config_selfcheck.py:37-47` CHECK_KEYS 只有 mission.auto_start、`124` 只打印，全文件无 auto_start 判据且从不读 path_executor 段；`wf/check.py` grep auto_start=0；`deploy_to_car.py --force-no-autostart` 仅 opt-in 且改车端文件；`test_deploy.py:199-208` 不钉两段一致，其 208 行「本仓两段已显式 false」注释与现网 legacy=true 不符。
 - 旁证：`start_all.sh:217` echo 写「（启动后约 8~10 秒自动出发）」，与实际 false/10.0 口径相反，属误导性提示。

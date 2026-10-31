@@ -43,7 +43,7 @@ status: in_progress
 ## 新增轮子及理由
 **无永久新增轮子。** 新增件全部是隔离副本内的一次性证据脚本（不登记、不进生产）：
 - `probes/setup_iso.py`：建隔离副本 + 注入 HEAD 历史地图 fixture + 记 preimage sha256；
-- `probes/run_suites.py` / `rerun_tools.py`：现行套件复跑与真实 rc/日志落盘；
+- [probes/run_suites.py](../../../../_tmp_session/AGC-RECTIFY-20261026/link/probes/run_suites.py) / `rerun_tools.py`：现行套件复跑与真实 rc/日志落盘；
 - `probes/probe_batches.py`：10 批布局 targets∩known / target∈known / batch7 是否有靶；
 - `probes/probe_c01_c02.py`：生产者-消费者最小闭环（真实 LayoutStream→DroneTask→StepLoop→MissionTask→DroneTask→LayoutStream）；
 - `probes/probe_wait_info.py`：真实 Tracker+Mission 下 WAIT_INFO 停段持久性 + 白盒反证；

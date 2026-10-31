@@ -594,6 +594,32 @@ def main():
             yellow.append(("Y10", rel_y, "经验总结段缺「处置」描述（说了坏在哪，没说怎么修）"))
         if not has_phenom and not has_action:
             yellow.append(("Y10", rel_y, "经验总结段缺「现象」和「处置」（六要素至少写两要素）"))
+
+    # Y12 在办目录残留「已归档」卡（2026-10-31 增 · LIB-06；原拟 Y11，已被 :208「更新字段格式」占用，让号改 Y12）
+    # 场景：卡已声明归档、却没搬出 在办/。Y10 只扫 归档/ 目录，这批卡**不在 Y10 覆盖面上**。
+    #
+    # 实测（sandbox 复现，非推断）：这种情况 **R4 已经判红**
+    # （R4：「在办卡 status 只能是 pending / in_progress，现在是『已归档』」）。
+    # 所以 Y12 **不是**补一条没人判的空缺（那话写出来就是假的），
+    # 它补的是**诊断方向**：R4 只说「状态值越界，去改正文」，会把人引向「把 status 改回 in_progress」
+    # ——那是把归档动作抹掉，卡永远归不了档。Y12 明说根因是**卡放错地方**，并给出正解：
+    # 先过 check_archive_ready.py 门禁，再搬到 归档/<ns>/。
+    # 一句话分工：R4 判「status 值域」；Y12 判「位置」，并点名该跑的下一步。
+    #
+    # 只加不改：Y10 段（上）与 R4 段一字未动。
+    for rel_y11 in buckets["doc"]:
+        if not rel_y11.startswith(CARD_LIVE):
+            continue
+        parts_y11 = rel_y11.split("/")
+        name_y11 = parts_y11[-1]
+        if name_y11 in ("README.md", "00_索引.md", "00_树.md") or "/模板/" in rel_y11 or "/_设计/" in rel_y11:
+            continue
+        st_y11 = front_matter(os.path.join(WS, rel_y11)).get("status", "")
+        if st_y11 == cs.get("archived_value", "已归档"):
+            yellow.append(("Y12", rel_y11,
+                           "在办目录里残留 status=「%s」的卡（已声明归档却没搬出 在办/）："
+                           "先跑 python docs/_工具/check_archive_ready.py <卡路径> 过门禁，再移到 归档/<ns>/"
+                           % st_y11))
     if "--write-baseline" in sys.argv:
         payload = {"generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
                    "count": len(managed_now), "managed": sorted(managed_now)}

@@ -44,16 +44,8 @@
 
 退出码：0 正常 / 2 无 ROS 环境 / 3 发出去了但**没有任何小车订阅者**（链路或起栈问题）
 
-修订（2026-10-12，t12 修复 t4 真机缺陷 D4）：
-  · `target` 新增 `--blocks` 别名（以前只吃位置参数，写成 `target --blocks G10,H10` 会
-    argparse 报 unrecognized arguments → exit 2，而两份在库文档写的正是这个错用法）。
-  · `target` / `field` 的格名一律按 `[空格 , ; | 、]` 拆开再去空/大写/去重。以前
-    `--mines A3,B4` 会原样生成**畸形格名** `"A3,B4"`（车侧 `_norm_blocks` 不拆逗号，
-    会把它当成一个格名进 field_diff），且**全程不报错**。
-  · `bridge <half>=` 只允许一个格名：`lower=K9,K4` 现在会明确报错，而不是静默发畸形值。
-  · （t18）修正上一版**报错提示里的错用法**：上一版建议写 `--bridge lower=K9 --bridge upper=K4`，
-    那是 **`dzlink_supervisor.py` 的参数，不在本发送器上**。本发送器可执行的两种写法是
-    `bridge lower=K9 upper=K4`（位置参数并列，推荐）或分两次调用 `bridge lower=K9` / `bridge upper=K4`。
+历史修复说明见 docs/20_资料索引库/空地链路/02_链路联调与已知缺口.md「发送器参数边界与历史修复」。
+当前用法与分隔符、单半场约束保留在上方示例和 split_blocks()/bridge 校验中。
 """
 from __future__ import annotations
 
@@ -92,7 +84,7 @@ def now_s() -> float:
 
 
 # --------------------------------------------------------------------------- #
-#  格名拆分（t12 / D4 修复点）
+#  格名拆分：去空、大写、按序去重
 # --------------------------------------------------------------------------- #
 #: 格名分隔符：空格、逗号、分号、竖线、顿号。写成正则是因为现场三种写法都会被用到。
 BLOCK_SEP = re.compile(r"[\s,;|、]+")
@@ -308,8 +300,7 @@ def main(argv: list[str]) -> int:
 
     p = sub.add_parser("target", help="发靶区（blocks）")
     p.add_argument("blocks", nargs="*", help="格名，空格分隔，如 G10 H10")
-    # ★ D4：以前只有位置参数，`target --blocks G10,H10` 会 argparse 报错 exit 2，
-    #   而两份在库文档写的正是这个错用法。现在两种写法都支持，逗号也会被拆开。
+    # target 合并位置参数与 --blocks；格名由 split_blocks 统一拆分。
     p.add_argument("--blocks", nargs="*", default=None, dest="blocks_opt",
                    help="同上（别名；逗号/分号也会被拆开，如 --blocks G10,H10）")
     common(p)
@@ -360,8 +351,7 @@ def main(argv: list[str]) -> int:
         for h, b in kv.items():
             got = split_blocks([b])
             if len(got) != 1:
-                # ★ D4：以前 `lower=K9,K4` 会静默发畸形格名 "K9,K4"
-                # ★ t18/F2：提示必须给**本发送器可执行**的写法，别写成 supervisor 的 `--bridge`
+                # 单半场只收一个格名；错误提示必须采用本发送器的参数语法。
                 raise SystemExit(
                     f"bridge {h}= 只能给一个格名，收到 {b!r}（解析出 {got}）。\n"
                     f"  两个半场请用**位置参数并列**一次给出：  "

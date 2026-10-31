@@ -101,6 +101,8 @@ agent: lead
 
 - 修改：本卡（新增）、TOOLS-ORGANIZE-20261022（拆分注记+归档件）、docs/30_任务卡库/归档/00_索引.md、docs/目录索引.md/.json（gen_index 重跑）、dzrobot_v2/docs/TEAM_STATUS.md（在跑表+更新头）
 - profile 侧（库外、非文档）：C:/Users/TestFox/.dsh/profiles/desktop/package.json 两行 file: 依赖路径
-- docs 快照：`_archive/docs_snapshots/docs-20261022-2253.zip`（187 文件）
+- docs 快照：`_archive/docs_snapshots/docs-20261022-2253.zip`（187 文件）〔已删：原物已不在工作区〕
+  - 复核（2026-10-31）：该 zip **从未进 git（`git log --all --diff-filter=A` 空）**；10-22 那批的另一份（19:35 那份）现只在 `git_save/v4.3.2/_archive/docs_snapshots/` 里还留着一份（现行 `_archive/docs_snapshots/` 两份都已不在），现行只剩 10-27 之后的 12 份。⇒ 本条是**纯档案记载**：当时确实打过这份快照（187 文件），但原件已被后续清理摘除且无副本可恢复。
+  - 本卡（原 P-1）已随 tools 线收口停摆，不改写成「当代路径」（当时没有别的路径可指）。
 - 无新增长期文档于库外。
 - 2026-10-23 补：v1 `9387901`（事故#2 恢复：7 代码 + 本卡 + 归档卡/索引 + 在办删旧卡）、`d333925`（sim 三修）；归档/00_索引.md 增 10-23 导航与 AG-TEAM 行、REWORK 在办行刷新；docs/目录索引.md/.json 随 gen_index 重跑。

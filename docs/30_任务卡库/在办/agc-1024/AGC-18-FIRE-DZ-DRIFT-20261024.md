@@ -69,7 +69,7 @@ owner: p-aim；reviewer: Lead。
 - 单一变量 = `dzrknn_dataprocess.fire_dz_far_px`（alias 自动同步 Python 侧，A/B 才干净）；
 - 靶位选 box_w 稳定 **40–60 px**（dz 差 5–7 px 的最敏感区间，用 `/offset_center` 的 `data[3]` 现场读数确认）；
 - **A(18) → B(25) → B → A**，每轮打满 10 发（全场弹药用满）；冻结 near=26 / hold=5 / cooldown=800 / max_shots=10 / lead 全部不动；
-- 录制 `mvrec.py`（9 话题）+ 该轮 gimbal 日志**必须带时间戳**（`awk '{print systime(), $0}'`，否则 dz= 行无时间锚点 —— A1 那次的局限正在此）；
+- 录制 [mvrec.py](../../../../artifacts/aim-mv-20261024/mvrec.py)（9 话题）+ 该轮 gimbal 日志**必须带时间戳**（`awk '{print systime(), $0}'`，否则 dz= 行无时间锚点 —— A1 那次的局限正在此）；
 - 记账：发射 = `cnt` 事件数、命中 = 裁判 hp 前后差；判据：命中率差 ≤1 发且首放延迟差 <1 s ⇒ 判「无差别，维持 18.0」；
 - 弹药纪律：一轮 A/B 吃掉全场上限 ⇒ 必须单独调参时段，不跑整赛；任一值连续 3 发异常即停。
 

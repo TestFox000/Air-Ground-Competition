@@ -25,7 +25,7 @@ status: 现行
 
 1. **两条链路是"语义相反"的通道**：`/nav/waypoint` 用 RELIABLE（丢包会重传），`/dzlink/*` 用 BEST_EFFORT（丢包即丢）。
    - 车侧真值：`src/dzbrain/dzbrain/io/contract.py:73-74`（waypoint_cmd）、`:94-97`（drone_in/drone_out）。
-   - 机侧真值：`dzsmartscout/tools/link/dzlink_supervisor.py:100-106,1237-1242`；`dz_send_waypoint.py:73-76,80-88`。
+   - 机侧真值：`dzsmartscout/tools/link/dzlink_supervisor.py:100-106,1237-1242`；`dz_send_waypoint.py:65-68,72-80`。
 2. **BEST_EFFORT 发 → RELIABLE 收 = 静默 0 条**，两端端点计数仍各为 1；**ack 是唯一硬证据**（`dzlink_supervisor.py:1158-1159` 注释；`docs/20_资料索引库/空地链路/01_协议v2与契约.md:35`）。
 3. **布局 `known` 只增不减**，车端 `unknown = 不可通行`；`known=154`（14×11）才算完整布局（`main.py:808-824`；`docs/01:15`）。
 4. **StepLoop 的 SEGMENT_DONE 只活 1~2 拍**，机侧 1.4 Hz 采样 → 漏收率约 86%（`main.py:646-657` 注释；`docs/02:34`）。这是 D1b。
@@ -70,7 +70,7 @@ status: 现行
 | `dzrobot_v2/src/dzbrain/dzbrain/io/contract.py` | 车侧话题表 + QoS 单一真源 | 456 行 | §2.1 |
 | `dzrobot_v2/src/dzbrain/dzbrain/tasks/mission.py` | 车端任务编排 + 段执行（D2 根因） | 4007 行 | §2.5.3 |
 | `dzsmartscout/tools/link/dzlink_supervisor.py` | 机侧常驻指挥节点 | 2014 行 | §2.4 全精读 |
-| `dzsmartscout/tools/link/dz_send_waypoint.py` | 机侧一次性发送器 | 452 行 | §2.4.2 |
+| `dzsmartscout/tools/link/dz_send_waypoint.py` | 机侧一次性发送器 | 444 行 | §2.4.2 |
 | `dzsmartscout/tools/link/patches/patch_drone_sender.py` | 机侧域号补丁（方案 A） | 224 行 | §2.4.3 |
 | `dzsmartscout/tools/drone/dzlink_*.py` | 机侧雷达/点云/序号信标辅助 | 约 600 行 | §2.4.4 |
 | `dzsmartscout/tools/sim_airground/` | 空地联合仿真（18 臂 + 360 场） | 约 2500 行 | §2.4.5 |
@@ -192,7 +192,7 @@ QoS 常量定义：`QOS_EVENT = QosSpec(depth=10, reliability="reliable")`、`QO
 | `load:文件名` | 读车侧文件并出发 |
 | `SHOOT@G11` | 指令非坐标：车侧算候选链整链插入 |
 
-★ 第二写者警告：`/nav/waypoint` 还有车上 `start_path_executor.sh:35`、`send_waypoint.py:20` 两处；与机侧 supervisor 同跑会让路线在两个来源间跳（`docs/01:123`）。
+★ 第二写者警告：`/nav/waypoint` 还有车上 `start_path_executor.sh:35`〔已删：D-062〕、`send_waypoint.py:20` 两处；与机侧 supervisor 同跑会让路线在两个来源间跳（`docs/01:123`）。
 
 ---
 
@@ -368,19 +368,19 @@ QoS 常量定义：`QOS_EVENT = QosSpec(depth=10, reliability="reliable")`、`QO
 
 **输入三选一可叠加**：文件尾随 `FileTailer/GlobTailer`（`:665-745`）、ROS 话题、UDP JSON `UdpJsonSource`（`:757-797`）。命令文件 `CommandFile`（`:1365-1438`，JSONL 追加即生效，坏命令只跳过不崩）。日志 `JsonlLogger`（`:889-943`，64 MB 轮转，每次写 flush）。
 
-**退出码**：0 正常 / 2 无 ROS 环境 / 3 发得出去但没有任何订阅者 / 1 参数错（`:48`）。
+**退出码**：0 正常 / 2 无 ROS 环境 / 3 发得出去但没有任何订阅者 / 1 参数错（源码 `raise SystemExit(字符串)`，退出码 docstring 在 `:45`；1 的五类语义与各分支行号见 `docs/20_资料索引库/空地链路/02_链路联调与已知缺口.md` §8.2）。
 
-#### 2.4.2 `dz_send_waypoint.py`（452 行，一次性发送器）
+#### 2.4.2 `dz_send_waypoint.py`（444 行，一次性发送器）
 
 职责：直接下发路线 / 桥洞情报 / 靶区 / 雷障 / 心跳，或监听车回传。**默认发 3 遍**（两入口都是 VOLATILE，订阅端还没被发现时一条就永久丢）（`:22-24`）。
 
-- `send`（`:189-236`）：等 DDS 匹配（`pub.get_subscription_count()`），再给发现过程 1.5 s 让计数收敛；订阅者匹配数 = 0 时打印两种可能（车没起栈 / 两端 DDS 没互相发现）但**仍然按 repeat 发出**；返回 `0 if matched else 3`。
-- `listen`（`:237-270`）：订阅 `/dzlink/car_to_drone`，收到 0 条 → 退出码 3。
-- t12 修复 t4 真机缺陷 D4（`:52-68`）：`target` 新增 `--blocks` 别名；格名按 `[空格 , ; | 、]` 拆开，避免 `--mines A3,B4` 生成畸形格名 `"A3,B4"`（车侧 `_norm_blocks` 不拆逗号，会当一个格名进 field_diff 且全程不报错）。
+- `send`（`:181-228`）：等 DDS 匹配（`pub.get_subscription_count()`），再给发现过程 1.5 s 让计数收敛；订阅者匹配数 = 0 时打印两种可能（车没起栈 / 两端 DDS 没互相发现）但**仍然按 repeat 发出**；返回 `0 if matched else 3`。
+- `listen`（`:229-262`）：订阅 `/dzlink/car_to_drone`，收到 0 条 → 退出码 3。
+- t12 修复 t4 真机缺陷 D4（历史修订段已迁至 `docs/20_资料索引库/空地链路/02_链路联调与已知缺口.md` §8.2；原字节保留在 S1 源前像 `_tmp_session/TRIM-EXEC-20261029/S1/preimage_dz_send_waypoint.py` 第 47–56 行（22089 B / sha `00f746d8…` = R0 before；只作引用，不修改））：`target` 新增 `--blocks` 别名；格名按 `[空格 , ; | 、]` 拆开，避免 `--mines A3,B4` 生成畸形格名 `"A3,B4"`（车侧 `_norm_blocks` 不拆逗号，会当一个格名进 field_diff 且全程不报错）。
 
 #### 2.4.3 `patch_drone_sender.py`（224 行，机侧域号补丁）
 
-方案 A 的机侧补丁，做两件事：① 写 `~/dzlink_tools/dzlink.env`（域号 118）；② 给 `dz_send_waypoint.py` 加"自动读 env + 打印实际域号"。必须在 import 阶段读 env（`:7-8`）。三处插入全部基于唯一锚点、幂等、先备份（`:10-13`）；NOSUB_BLOCK 缩进必须是 12 空格（`:105-106`）。最后 `py_compile` 检查，失败即回滚（`:206-211`）。
+方案 A 的机侧补丁，做两件事：① 写 `~/dzlink_tools/dzlink.env`（域号 118）；② 给 `dz_send_waypoint.py` 加"自动读 env + 打印实际域号"。必须在 import 阶段读 env（`:7-8`）。三处插入全部基于唯一锚点、幂等、先备份（`:10-13`）；NOSUB_BLOCK 缩进必须是 12 空格（`:105-106`）。最后 `py_compile` 检查，失败即回滚（`:206-211`）。（**本段四个行号均为裸 `:NN`，作用域仅指本节的补丁脚本 `dzsmartscout/tools/link/patches/patch_drone_sender.py`（224 行 / sha `d35395174cb69951…`，与 B0 副本逐字节相同、未被 S1 改动），不是上一节的 `dz_send_waypoint.py`；守卫实测把这四个 carry 全部解析到该补丁 live，故未判红。**）
 
 #### 2.4.4 机侧辅助节点 `dzsmartscout/tools/drone/dzlink_*.py`
 
@@ -904,20 +904,20 @@ QoS 常量定义：`QOS_EVENT = QosSpec(depth=10, reliability="reliable")`、`QO
 
 | 函数/类 | 位置 | 一句话 |
 |---|---|---|
-| `make_qos` | dz_send_waypoint.py:80 | QoS（RELIABLE/BEST_EFFORT） |
-| `now_s` | dz_send_waypoint.py:90 | 当前秒 |
-| `split_blocks` | dz_send_waypoint.py:101 | 按 [空格 , ; | 、] 拆格名 |
-| `had_separator` | dz_send_waypoint.py:120 | 是否多格 |
-| `note_split` | dz_send_waypoint.py:125 | 拆分告警 |
-| `route_payload` | dz_send_waypoint.py:135 | 路线→裸文本 |
-| `bridge_payload` | dz_send_waypoint.py:143 | 桥洞情报 JSON |
-| `heartbeat_payload` | dz_send_waypoint.py:158 | 心跳 JSON |
-| `blocks_payload` | dz_send_waypoint.py:165 | 靶区 JSON |
-| `field_payload` | dz_send_waypoint.py:174 | 雷障 JSON |
-| `send` | dz_send_waypoint.py:189 | 发 repeat 遍（等匹配+1.5s 收敛） |
-| `listen` | dz_send_waypoint.py:237 | 监听车回传 |
-| `parse_kv` | dz_send_waypoint.py:272 | key=value 解析 |
-| `main` | dz_send_waypoint.py:282 | 入口 |
+| `make_qos` | dz_send_waypoint.py:72 | QoS（RELIABLE/BEST_EFFORT） |
+| `now_s` | dz_send_waypoint.py:82 | 当前秒 |
+| `split_blocks` | dz_send_waypoint.py:93 | 按 [空格 , ; | 、] 拆格名 |
+| `had_separator` | dz_send_waypoint.py:112 | 是否多格 |
+| `note_split` | dz_send_waypoint.py:117 | 拆分告警 |
+| `route_payload` | dz_send_waypoint.py:127 | 路线→裸文本 |
+| `bridge_payload` | dz_send_waypoint.py:135 | 桥洞情报 JSON |
+| `heartbeat_payload` | dz_send_waypoint.py:150 | 心跳 JSON |
+| `blocks_payload` | dz_send_waypoint.py:157 | 靶区 JSON |
+| `field_payload` | dz_send_waypoint.py:166 | 雷障 JSON |
+| `send` | dz_send_waypoint.py:181 | 发 repeat 遍（等匹配+1.5s 收敛） |
+| `listen` | dz_send_waypoint.py:229 | 监听车回传 |
+| `parse_kv` | dz_send_waypoint.py:264 | key=value 解析 |
+| `main` | dz_send_waypoint.py:274 | 入口 |
 | `_read_link_env` | patch_drone_sender.py:59 | 读 dzlink.env |
 | `domain_report` | patch_drone_sender.py:86 | 一行域号摘要 |
 | `die` | patch_drone_sender.py:111 | 报错退出 |

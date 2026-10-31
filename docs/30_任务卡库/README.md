@@ -2,7 +2,7 @@
 来源: docs/history_cache/01_旧文档归档/docs/agent_handoff/30_循迹团队执行方案.md, docs/history_cache/01_旧文档归档/docs/agent_handoff/32_循迹回报模板.md, docs/history_cache/01_旧文档归档/docs/agent_handoff/36_R2复核_R3补测与收尾计划.md, _tmp_session/PROJECT_STATUS_20261021.md, dzrobot_v2/docs/TEAM_STATUS.md, _tmp_session/TRACK-*/CARD*.md, dzrobot_v2/_tmp_session/*/REPORT.md
 取证: 档
 status: 现行
-更新: 2026-10-26
+更新: 2026-10-29
 取代: 无
 ---
 
@@ -32,6 +32,13 @@ status: 现行
 | **B 版：平台质量卡契约** | AgentTeams 任务契约（质量类 kind） | objective / acceptance / verify / inScope / outOfScope + verdict/findings |
 
 两版不是替代关系：A 版管"这张卡凭什么开工"，B 版管"这张卡凭什么算过"。字段映射与可直接复制的空卡见 [模板/任务卡模板.md](模板/任务卡模板.md)。
+
+## 2.1 新增团队入口（2026-10-29）
+
+- [config-1031 · robot配置精简](在办/config-1031/00_树.md)：用户已批准A→B；先隔离等价瘦身，再依消费者证据收敛重复配置，不改现行调参，不连设备。
+
+- [trim-1029 · 架构精简第一阶段](在办/trim-1029/00_树.md)：Lead 单写治理树，成员依次建立自己的卡；知识先保全，车机分域试点、扩展、独立验证评审与回滚验收。质量状态与依赖以已批准的 AgentTeams 图为准，未执行不算通过。
+- 下列带 2026-10-26 时间的扫描统计保留历史口径，不将本次新增团队手工叠加到旧计数；当前逐卡状态回对应任务树与卡面查。
 
 ## 3 在办状态板（2026-10-26 20:5x 实扫，13 ns / 64 张）
 

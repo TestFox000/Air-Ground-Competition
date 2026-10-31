@@ -260,4 +260,4 @@ F9 窗口（STOP→DRIVE 换手最清楚）：
 
 新增本卡；修改本 ns 任务树节点状态。新增 §4A 执行记录（本卡内）；新增契约测试 dzrobot_v2/src/dzbrain/tests/test_agc_t1_progress_contract.py（代码仓 tests，不计文档）；过程脚本在 _tmp_session/agc-1024/t1/（豁免区）。归档：无。
 
-**2026-10-24 补丁轮追加（含 Lead 裁决"要 B"后的二次落地、三条收口裁决）**：卡内新增 §4A.10（补丁交付/归属拼合证明/测试/回放/回滚/T1b+诊断串+三处不一致的挂起项）；新增回归测试 `dzrobot_v2/src/dzbrain/tests/test_agc_t1_mission_gate_fix.py`（代码仓 tests，不计文档）；新增过程件 `_tmp_session/agc-1024/t1/patch/`（4 份 diff/快照）、`replay_full_ab.py`、`run_suite.py`、`ab/`（同深度镜像树）。**资料库提炼（`20_资料索引库/车端/` 写者-读者-复位全表）按 Lead 要求留到归档时做**，本轮未写库。
+**2026-10-24 补丁轮追加（含 Lead 裁决"要 B"后的二次落地、三条收口裁决）**：卡内新增 §4A.10（补丁交付/归属拼合证明/测试/回放/回滚/T1b+诊断串+三处不一致的挂起项）；新增回归测试 `dzrobot_v2/src/dzbrain/tests/test_agc_t1_mission_gate_fix.py`（代码仓 tests，不计文档）；新增过程件 `_tmp_session/agc-1024/t1/patch/`（4 份 diff/快照）、`replay_full_ab.py`、[run_suite.py](../../../../_tmp_session/agc-1024/t1/run_suite.py)、`ab/`（同深度镜像树）。**资料库提炼（`20_资料索引库/车端/` 写者-读者-复位全表）按 Lead 要求留到归档时做**，本轮未写库。
