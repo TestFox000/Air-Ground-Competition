@@ -1,5 +1,24 @@
 # 团队状态板（TEAM_STATUS）
 
+> **2026-10-31 config-1031 · ns 收口（Lead）**：
+A/B 均已实施并通过独立复验（review3 配置收口 / review4 维护集成 74/74·0 失败 / reviewB 非作者 45/45），A/B/VERIFY 三卡已归档至 `docs/30_任务卡库/归档/config-1031/`，ns 登记改「已结（3 卡已归档）」，树留 `在办/` 仅作路由。归档前置门禁 `check_archive_ready` 三卡 PASS（经验总结/落点/status/文档变更/跨卡不重复）。收口时实测：`config_selfcheck` exit0 error0/warn0（LAYOUT-MODE、launch_go=false）；`check_numbers` exit0、`check_doc_policy` GREEN、`check_anchors` GREEN（新增红 0）、`wf/check.py` GREEN、links 0 broken。后续变动如实登记：用户另令 D-062 删除旧循迹整块（`config/map.yaml` 与 robot.yaml `path_executor` 段 143 行），当前 `robot.yaml` 328 行；云台段三键仍在并由迁移入 aim（10/10/500），B 结论不受影响。未 stage/commit/push/deploy/连设备（AGENTS §10 等用户指令）。
+
+> **2026-10-31 config-1031 · B 已实施（用户授权“开始推进B”）**：
+B 仅删 `/dzbrain: aim:` 的三处重复赋值（max_shots_total / max_shots_per_target / shot_cooldown_ms），由既有 `_migrate_legacy` 从 `/dzrknn_dataprocess` 取 10/10/500。预-B `8d0dd1b4…` / 468 行（含 04:27 用户删除宽高比过滤的外部改动，原样保留），B 后 `da6fff36…` / 467 行。隔离探针 20 项 PASS（键集合/值/类型一致；迁移 info 18→21；唯一差异=三键移入迁移块）；config_selfcheck 与基线仅差路径一行；test_config 21/21、test_calib 101/101、test_core 56/56、test_aim 136/136、test_deploy 94/94；test_mission 前后均 229/246、17 失败（B 新增 0，受控换回已核哈希恢复）。回退边界：若云台段三键也被删，`max_shots_per_target` 会回落 SCHEMA 默认 3（05/12 已写明）。reviewB 非作者独立复验 **pass**（45/45，`_tmp_session/CONFIG-1031/reviewB/B-final.json`）；回指已按 467 行终态逐键重锚（参数表 231 行 0 待改；4 个被 04:27 外部删除的键行号标 —；数字速查 39 锚点重锚、3 个被删键改“无锚点/待核/manual”），numbers 余 6 条 source_drift 全属外部 `视觉与云台/00_索引.md` 改写，未吞红、未扩基线。收口门禁（`_tmp_session/CONFIG-1031/baseline/B-close.*`）：index/policy/anchors/wf/links/snapshot 全 0；numbers 仅 6 条外部 `视觉与云台/00_索引.md` 出处漂移，B 新增 0，未改基线。未 stage/commit/push/deploy/连设备。下方 A 记录保留其当时口径。
+
+> **2026-10-31 config-1031 · 只完成A后停止（用户最新指令）**：
+配置A已实际应用并由review3非作者复验PASS：999→470行，82269→29012B，335数据行、256有效键、219 SCHEMA键投影、类型/顺序/load/validate全保真，2130未提交调参保留；live/candidate/A快照SHA均108b4487…44a5，初像97a604e9…完整留存。42数字锚点/238参数表行已按节点更新，既有05/12与两工具维护显示回指有限同步；维护集成非作者review4已pass，74条hard check全过、0失败，完整原件及负例保留。G1 error0/warn0、21例配置与101例标定自测已由Lead实跑；motion_limit15/17预存红保留。原anchors失败原样保留；A-final2完整六门已实测全0，当前终态门禁另按时点留日志，不追改旧红。**该 A 段落笔时 B 尚未实施**；其后用户在同一会话明确指令“开始推进B”，B 已实施并通过独立复验（见上方 B 段），本段不覆盖历史。未stage/commit/push/deploy/连设备。下方此前I0等历史按其各自采样/最终卡引用，不因新A覆盖旧证据。 本阶段A已交付，所有所需子代理已结束；按用户要求停止，不再自动推进。
+
+
+> **2026-10-31 trim-1029 第一阶段I0终轮候选 · lead（未提交/未推送/未部署/未连设备）**：
+当前仅收第一阶段：五源十一块批准后像、六基线、两已审工具保全；获权十文档最小补债t63–t67与原G4 attempt3已独立通过，原生五门/41例真实0。原I0 attempt2候选已新重证59套原日志59退出码/57可计数/59断言名同，3949与skip7不回退；fresh CLI及固定seed实跑同；B0已声明1684输入1660同/24批准差异/0缺件，822运行副本完好，61隔离恢复实核。此刻仅候选发布，尚待本次索引/快照后独立终轮，不预报第一阶段完成。保留既有失败/CRASH/零检查与未覆盖项、t48偏差、pre-r3仅39例前像、旧6份D0报告/日志真覆写、平台200路径未采及外部动态消费者未知；nul/refspecs来源unknown保留不删，不冒整盘保全。后续源码审计/架构精简暂缓，未stage/commit/push/deploy/连设备；最终状态以原t21终态及实证为准。下方历史按各自时点引用。
+
+> **2026-10-30 B0R 交回后 · trim-1029（lead · 未提交/未推送/未部署/未连车）**：
+B0R 补充取证已交回，需求门按逐套/逐失败与 skip ID 比较，不把混合总数作判据；白名单注释允许登记源码哈希变化并证明 AST/token 等价，其他测试、配置、夹具和源码不漂移。Lead 另纠正重复行净差与状态板采样时序，不扩任何守卫或失败免责基线。R0 原尝试长时间未落卡，已合法转 trim-scout attempt 2，后续独立评审仍由 trim-review 承担；现有 A2 改由 trim-car 提前只读预研，与第一阶段并行，不提前改生产。当前业务源码精简尚未放行，全局文档/锚点红仍未清。此为后续管理追加，不倒灌改变 B0 测试输入。
+
+> **2026-10-29 23:54 B0 交回后 · trim-1029 架构精简（lead · 未提交/未推送/未部署/未连车）**：
+基线采集 t1 已完成，[B0 卡](../../docs/30_任务卡库/在办/trim-1029/B0.md)与[任务树](../../docs/30_任务卡库/在办/trim-1029/00_树.md)可定位；恢复材料已做隔离演练，业务源码/默认配置尚未由本队精简。真实 Git 工作树为 **v1 与 dzrobot_v2**，dzsmartscout 是 v1 子树，没有独立 HEAD。B0 报告了既有失败、CRASH 与 skip，但在册数量及计数单位有矛盾，**不得把采集完成写成回归通过**；Lead 已派 t23/B0R 逐套逐失败核对，R0 需求门必须独立检查后才放行。未在册项暂挂本 ns 发现，不自动扩大正式 known-red 或守卫基线。全局文档/锚点门禁仍红，另列逐文件归属与安全修复建议，不以他域原因报全绿。此条仅追加当前状态，不覆盖下方按各自时点记录的既有历史。
+
 > **2026-10-29 21:0x 用户四条令执行完毕 · 团队归档解散（lead · 未 push / 未连车）**：
 ① clear/ 已删（外部对话确认停手，草稿在 ONBOARD-SCRATCH 双份保全，无新文件再入）。② 根目录 dzbrain_零基础深挖报告.md → **车端/15_dzbrain零基础源码导读**（435 行/62 锚点抽查属实，front matter 补齐，两处「建议新文件」改暂名写法，三层索引全登记，v1 **6be0d930**）。③ 外部清理会话在途账代为收口（dzrobot_v2 **cd1ef0fd**）：calib 的 _ARCHIVE_ROOTS 豁免是对症修复（4161 归档副本脏命中），但 test_calib 10.1 仍红——真因是**我昨晚裁剪 _tmp_session 抽掉了它的自然变异样本**（stash 对拍证实），修法=测试自带 WS 守卫样本（gitignored _tmp_verify，现造现清），**101/101** 回全绿；_archive_20261029/（256M）+ .codebuddy/ 进 .gitignore。④ onboarding-1029 团队已归档解散。**终态**：两仓 0 未提交、check_doc_policy 连续 GREEN、anchors 剩 6 条全他卡存量（agc/traj/车端06，处方见 REVIEW）。教训一条入册：裁剪 _tmp_session 前必须先查**测试的样本依赖**（不只文档引用）——10.1 这条自然副本依赖就是盲区。
 
@@ -325,3 +344,29 @@ fbc03b2 docs: 车端更新补记——src/ 根误建包已备份移除，dzbrain
 ## 2026-10-25 traj-1025 本轮登记
 
 /root 负责共享登记与独立复核；原三个子agent已交回本轮写域。三层循迹候选仍离线、未部署。用户明确AGC-T1未交还tracker/localization/mission，运行链及全仓+X西/+Y南坐标迁移只在`_tmp_session/traj-1025/frame-migration`副本评审，不覆盖共享原文件；PIVOT/ALIGN尚未删除。开场基线41套/18红；pytest临时补装后因原harness导入SystemExit退出3，原生套件另记。用户追加64新图压测已完整跑完：49规划失败、8编译失败、7闭环完赛、全部已实现验收0/64；7张均车心8/8、采样区域通过，但赛时206.42–265.46秒。固定输入、同版哈希与逐图结果见本ns INTEG卡和random64-results。坐标迁移最终原生全量复验41套/18非零退出，与开场红套件集合一致；corner_cut仍89/92，固定第七图障碍净空、动力学与约束冲突、180秒三项未通过。外测资料暂无，外测仍未通过；新图首动方向接口、jerk硬cap冲突、跨端场地帧接线未完成。冻结门禁仍有3项任务外未登记改动，锚点守卫12条任务外新增红；不能代填owner，不满足提交/双推条件。
+
+## 2026-10-31 shoot-1031 移动靶已有记录复算（本会话Lead）
+
+用户要求直接从第三步开始；子智能体统一GPT-6 Luna high。旧phase5原始行独立复算通过，相关峰约113ms不能当出光延迟；整个来源目录因外部并行变化触发保护，当前旧算法全树复跑NOT_RUN，不伪报整体源树未变。phase5 CSV哈希仍f7db…c7a3，已固定输入副本。用户确认车固定/物理禁火并更正IP为192.168.0.9后，恢复换网前旧云台与底盘节点通信，参数文件SHA f43b…7d4不变；新PID61934/62307，独立采后观测IDLE0、无行驶/lead/两键发布者。60秒补录用户确认全程左右往返：1516检测行/1500有效TRACK+cls1行，横向绝对偏差中位55px、P90为117px，二维±25px窗口27.47%且最长0.520s；lead实际0条、LASER_CMD事件0，65项采集哈希独立通过。这不是命中率或补偿效果。未改生产文件/控制参数，未启动dzbrain、未部署/发车/出光/提交/推送。旧裁判节点未重建，不宣称整条射击链恢复；方向/重复预测/曝光到出光/命中仍未证。根文档门禁待最终独立执行，卡保持in_progress。详见根库docs/30_任务卡库/在办/shoot-1031/AIM-DYNAMIC-20261031.md。
+
+shoot-1031门禁补记：独立七步初跑退出0/1/1/0/0/0/0，snapshot成功。本域S2来源迁移与路径标点两项已修；config-1031卡的外域锚点红未代修。逐次原始输出以本轮gates目录独立JSON为准，不据记录完成勾选宣称全绿。旧数据已正式归档到artifacts/aim-1031，固定phase5输入及新采集仍可独立复算；S1旧全树保护未重新过，动态补偿/命中未验，卡不归档、不报可提交。
+
+shoot-1031稳定跟踪续问（仅离线）：独立复算显示dy P50/P90=1/4px、dx=55/117px；框中心与关键点差4/5px，孤立低分帧不解释整体水平误差。命令/反馈同接收时间的yaw位置差代理P50/P90=35/88ticks，但恒定指令片段最长97.379ms，无足够长保持，执行端settling未评估，不能认定电机慢/PID过大/113ms为物理延迟。下一轮仅改变测试协议，先小角固定指令保持与静止/可重复运动基线；执行合格后再决定水平单参数或单处有界运动前馈。所有原始65项哈希仍一致；本轮无设备操作/参数变更，分析与独立review见S1卡§7.2，原始结论不升级为稳定/命中验收。
+
+shoot-1031 S3采前登记：用户明确保持现有PID、禁火做固定位置执行层试验；Lead独占192.168.0.9设备操作。只读确认PID12/.5/2.4、external gate true、IDLE目标[2161,2047,555,555]、反馈[2160,2045]五秒恒定，配置SHA f43b…7d4；CPP精确PID61934/starttime1274567/exe SHA dc3b…040ac。拟在小幅±30tick/每段2秒固定保持，暂manual接管并精确SIGSTOP隔离原CPP，正常回home后销毁测试pub→SIGCONT→manual0恢复。Humble仅单参数消息回调，来源用进程T覆盖与端点图证明，不能伪造逐帧GID；既有LaserShot端点不等于发射，任何data1中止。本次尚未发出阶跃，脚本独立review通过并锁SHA后才执行；不改生产/PID、不启动dzbrain、不发车/出光/commit/push。
+
+shoot-1031 S3采后（04:50–04:51）：兼容性两次启动失败均在接管前，修复真实array反馈/GetParameters后，唯一实际阶跃attempt03完整完成，runner exit0。独立Luna high复算PASS_ATTEMPT03_ENCODER_ONLY：13段质量有效/12切换全部通过，yaw settling 221.992–259.931ms，中位242.192ms；每段末500ms yaw在±3tick比例100%、p-p0，pitch误差P95=1tick。4份原始hash逐项一致，正式证据artifacts/aim-1031/step_20261031_attempt03。发射事件0、PID12/.5/2.4及配置/二进制SHA未变，正常回原home、同CPP PID恢复S并manual0；采后只读122命令/127FB、IDLE0、无临时控制发布者。结论只限局部编码器位置执行，不证明视觉跟踪/命中；下一项仍先保持PID测静止靶视觉闭环。文档七步门禁待独立最终收口。
+
+shoot-1031收口初跑：七步exit0/1/0/1/0/0/0；本域两条Y9路径和册索引数字来源已修。numbers另有robot.yaml键缺失/行号漂移，未越界修改配置或扩baseline；S3/S4设备/实现验收已完成，按红线规则暂不归档、不报可提交。最终原始输出留在本卡gates_final目录。
+
+shoot-1031最终独立七步：exit0/0/0/1/0/0/0，本域doc_policy GREEN，anchors/wf/links/snapshot通过；数字守卫剩外域26条新增锚/出处漂移、5项mismatch。测试结果独立PASS保持，S3/S4因全库数字红暂不归档；未commit/push。
+
+shoot-1031 S5静止靶采前：用户明确继续PID不变/禁火，已确认靶固定在视野内。旧192.168.0.9登录前关闭；通过现有TurboVNC连接只读定位10.67.88.188:5901并用旧SSH主机key严格核验。小车重启后只有用户已起base/camera；Root保留它们，仅窄恢复同配置/原二进制的CPP11297与det11307，未启动整车/裁判。运行PID仍12/.5/2.4，external gate=true，config f43b…7d4/CPP dc3b…040ac相同；75条offset均8字段cls1，IDLE0、home稳定、无motion/manual/lead/两键写者、发射0。S5预注册首TRACK后60秒/前5暖机后55固定评价，99%跟踪覆盖、5px中位/10px P95及抖动/连续10秒等工程门槛；S6/S7临时候选与独立review尚在进行，未正式采样或宣称视觉稳定。
+
+shoot-1031 S5续记：解析/输出目录/SSH/缺FB预检四次启动均未执行scan2；用户原起的base/camera后来退出，Root用同dzrobot2原launch及相同二进制窄恢复，CPP/det未换、PID/config未改。S6最终692a…92f2已独立核准先only初始化；S7 A2da…241d仅合成分支验证。SSH再次在身份验证前关闭，only初始化未成功、60秒采样仍未开始；已请求用户VNC确认当前IP/SSH服务。恢复后先新preflight/GID锚，严禁复用旧bundle或报静止靶稳定。
+
+shoot-1031 09:04更新：用户确认wlan0=10.67.88.188/24、ssh active，SSH恢复。新preflight/GID锚和bundle_v3已生成；真实完整only初始化exit0（PREFLIGHT_ONLY_COMPLETED_NO_SCAN、原home确认、许可及scan0），参数/原件SHA保持。只在此前置成功后由Root执行单趟正式60秒，不改PID/控制阈值；性能仍待真实数据独立复算。
+
+shoot-1031 S5正式结果（09:05:03–09:06:03）：唯一60秒原视觉PID闭环完成，独立PASS。固定后55秒1467行、26.673Hz，offset maxgap202.288ms；TRACK+cls1样本100%/时间99.9052%，dx绝对中位/P95=2/2px、dy=1/1px，连续二维±10px54.948s；开始几秒有收敛摆动。运行PID12/.5/2.4与全参数/配置/二进制不变，fire_edges0、false门，scan0后IDLE/home；采后只读count/首末与身份参数已独立交叉核验。67原始hash一致；正式包artifacts/aim-1031/static_20261031_capture01含曲线/1fps采样帧回放（非连续原录像）。分析器首版误加未注册graph100ms硬门导致INVALID，保留首版并独立确认后仅撤额外门，实际174.307ms仍报告，S5门槛未动。此PASS仅静止像素跟踪，不代表光轴/命中/移动；最终文档门禁待跑，不commit/push。
+
+shoot-1031最终收口记录：正式包87/87及raw67/67独立SHA一致，正式输入离线复跑PASS且输出hash与原review相同；postflight已独立交叉通过。最终七守卫0/0/0/1/0/0/0，本域新增锚点红0；剩numbers外域26漂移/5mismatch，S5/S6/S7按规则不归档、不报可提交，未commit/push。原始门禁日志正式落artifacts/aim-1031/static_20261031_document_guards。
