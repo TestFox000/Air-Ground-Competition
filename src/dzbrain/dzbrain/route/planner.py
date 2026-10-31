@@ -2563,13 +2563,14 @@ class _Tour:
 #  主入口
 # --------------------------------------------------------------------------- #
 def _limits(cfg: Config | None) -> tuple[float, float]:
-    """射击距离窗口。真源 = `Config`（`path_executor.shoot_distance_min/max`），
-    缺省值直接用 `validate.DEFAULT_SHOOT_DISTANCE_*`（不硬编码第二份默认值）。"""
-    lo = float(V._cfg_get(cfg, "path_executor.shoot_distance_min",     # noqa: SLF001
-                          V.DEFAULT_SHOOT_DISTANCE_MIN_M))
-    hi = float(V._cfg_get(cfg, "path_executor.shoot_distance_max",     # noqa: SLF001
-                          V.DEFAULT_SHOOT_DISTANCE_MAX_M))
-    return (lo, hi) if lo <= hi else (hi, lo)
+    """射击距离窗口 `(lo, hi)`。**单一真源** = `route.shoot_distance_m ± tol_m`。
+
+    ★2026-10-31：旧实现读 `path_executor.shoot_distance_min/max`（该段已随旧核删除），
+    落到 `validate.DEFAULT_SHOOT_DISTANCE_*` 的 0.20/0.45 —— 与现场板心窗口
+    [0.78, 1.02] 不一致（同一个词「射击窗口」两套数，`test_planner` 钉的是板心窗口）。
+    现改为直接复用 `validate._window(cfg)`：真源只有一处，缺键时的兜底也在那里。
+    """
+    return V._window(cfg)
 
 
 def _shoot_accept(cfg: Config | None) -> tuple[float, float]:

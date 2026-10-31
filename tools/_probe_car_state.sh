@@ -26,17 +26,14 @@ import yaml
 try:
     d = yaml.safe_load(open('/home/duzhong/dzrobot/config/robot.yaml'))
     a = d.get('/dzactuator', {}).get('ros__parameters', {})
-    p = d.get('path_executor', {}).get('ros__parameters', {})
-    print('ticksPerMeter :', a.get('ticksPerMeter'))
-    print('ticksPer2PI   :', a.get('ticksPer2PI'))
-    print('waypoints     :', len(p.get('mission_blocks', [])))
-    print('auto_start    :', p.get('auto_start'))
-    print('linear_speed  :', p.get('linear_speed'))
-    print('obstacles     :', p.get('obstacle_blocks'))
-    print('bridge_blocks :', (p.get('bridge_blocks') or ['<无>'])[:3], '... 共', len(p.get('bridge_blocks') or []))
-    print('mission_blocks:')
-    for i, b in enumerate(p.get('mission_blocks', [])):
-        print(f'   {i:2d} {b}')
+    b = d.get('/dzbrain', {}).get('ros__parameters', {})
+    m = b.get('mission') or {}
+    pl = b.get('planner') or {}
+    print('auto_start    :', m.get('auto_start'))
+    print('scan_mode     :', m.get('scan_mode'))
+    print('cruise_speed  :', (b.get('pursuit') or {}).get('cruise_speed_mps'))
+    print('auto_plan     :', pl.get('auto_plan_enabled'), '| engine', pl.get('engine'))
+    print('mission_blocks: <已删除：车端无本地地图，路线由无人机 field_layout 生成>')
 except Exception as e:
     print('解析失败:', e)
 PY
@@ -46,11 +43,11 @@ fi
 
 echo
 echo "########## 5. 地图配置 ##########"
-cat ~/dzrobot/config/map.yaml 2>/dev/null || echo "(无)"
+echo "无本地地图（布局模式）：map.yaml 已删，规划依据由无人机 field_layout 下发"
 
 echo
 echo "########## 6. 配置指纹 ##########"
-md5sum ~/dzrobot/config/robot.yaml ~/dzrobot/config/map.yaml 2>/dev/null
+md5sum ~/dzrobot/config/robot.yaml 2>/dev/null
 
 echo
 echo "########## 7. ROS 栈状态 ##########"

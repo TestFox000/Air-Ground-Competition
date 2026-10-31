@@ -313,7 +313,10 @@ SCHEMA: dict[str, Spec] = {
                                          "离安全边界多近请求停车"),
 
     # ---------------- 路线与任务 ----
-    "route.tokens": Spec(None, list, "", None, None, "mission_blocks（格名 token 列表）", True),
+    # ★2026-10-31：手写路线随旧核（path_executor.mission_blocks）一起移除 —— 车端无本地地图，
+    #   路线由无人机 field_layout 运行期生成；布局模式下本键只是占位（可为空）。
+    #   critical 由 True 改 False：缺键不再记 error（否则 G1 与启动门禁必红）。
+    "route.tokens": Spec([], list, "", None, None, "手写路线 token（可选；布局模式由 field_layout 生成）", False),
     "route.cross_lower_candidates": Spec([f"K{r}" for r in range(7, 12)], list, "",
                                          None, None, "下半场穿洞候选格（U 形赛道第一处）"),
     "route.cross_upper_candidates": Spec([f"K{r}" for r in range(1, 7)], list, "",
@@ -721,6 +724,10 @@ class Config:
     def _migrate_legacy(self) -> None:
         """把旧键映射到新版键（不删旧键，只补新键，保证双向兼容）。"""
         legacy_map = {
+            # ---- 旧核兼容垫片（2026-10-31：path_executor 段已从 robot.yaml 删除） ----
+            #   映射保留：车端若还留着旧 yaml（mission_blocks / linear_speed 等），
+            #   规范键仍能取到值，不会静默退回 SCHEMA 默认；本地新配置下这些旧键不存在，
+            #   垫片自动失效（无副作用）。
             "route.tokens": ["path_executor.mission_blocks"],
             "mission.auto_start": ["path_executor.auto_start"],
             "mission.auto_start_delay_s": ["path_executor.auto_start_delay"],

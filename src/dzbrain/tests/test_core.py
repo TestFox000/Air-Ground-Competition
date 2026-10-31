@@ -163,9 +163,9 @@ check("来源路径正确", cfg.source.endswith("robot.yaml"))
 #     旧断言本体 == 0.30（linear_speed 那条）
 #     旧断言本体 == 0.30（cruise_speed_mps 那条）
 #      历史：0.15（t18 前）→ 0.30（t18）→ 0.35（t22）→ **0.15（t29 安全档 + t31 两段对齐）**。
-check("旧键 path_executor.linear_speed 可读（0.35，与 cruise 同步）",
-      cfg.get("path_executor.linear_speed") == 0.35)
-check("新键 pursuit.cruise_speed_mps 与旧键同值（0.35）",
+check("旧键 path_executor.linear_speed 随旧核删除（规范键成唯一真源）",
+      cfg.get("path_executor.linear_speed") is None)
+check("新键 pursuit.cruise_speed_mps 仍为 0.35（真源在 /dzbrain 段）",
       cfg.get("pursuit.cruise_speed_mps") == 0.35)
 # ★★ t31 重钉（第五张图）：换图 + tracker-safe 自规划出解 ⇒ `mission_blocks` = **60 点**
 #   （= 第五张图上的自规划产物；旧 62 点是第四张图手工 v3，在新图上有 12 条 error ⇒ 已替换）。
@@ -180,8 +180,8 @@ check("新键 pursuit.cruise_speed_mps 与旧键同值（0.35）",
 #   `mission_blocks` 实测 **68 点**、下半场穿洞兜底 K9→**K7**；但该提交没有同步本文件
 #   （提交里的 `_tmp_full_regression/suite_table.csv` 是旧跑批，test_core=0 是陈的）⇒
 #   旧断言 44/K9 在 HEAD 上必红。这里按**当前 robot.yaml 实测**重钉（不降低判据，只对齐真源）。
-check("route.tokens 由 mission_blocks 迁移（第六张图自规划，68 点）",
-      len(cfg.get("route.tokens") or []) == 68)
+check("route.tokens 不再由配置提供（车端无手写路线：布局模式运行期生成）",
+      len(cfg.get("route.tokens") or []) == 0)
 # ★ 2026-10-11 重钉（t20）：第三次换图**关闭**了"桥洞强制直行保护"（`bridge_blocks: []`，
 #   见 robot.yaml 该行注释：保护窗含 90° 拐时锁错航向，改用纯追踪 + 转角减速过洞）
 #   ⇒ 旧断言"整列 K1~K11 共 11 个保护点"不再成立。
@@ -217,9 +217,14 @@ check("负轴距被拦", "pursuit.wheelbase_m" in codes)
 check("前视上下限颠倒被拦", "pursuit.lookahead_min_m" in codes)
 check("token 非字符串被拦", "route.tokens" in codes)
 check_raises("strict=True 直接抛 ConfigError", ConfigError, bad.validate, True)
-check("SCHEMA 覆盖了关键键", "route.tokens" in SCHEMA and SCHEMA["route.tokens"].critical)
-missing = Config.from_dict({})
-check_raises("关键键缺失即报错", ConfigError, missing.get, "route.tokens")
+# ★2026-10-31：手写路线移除后，SCHEMA 里已无 critical=True 的键（route.tokens 转可选默认 []）。
+#   本条从"必有一个 critical 键"改为"critical 集合已清空 + route.tokens 登记且可选"，
+#   语义仍是**钉住 SCHEMA 的真实形态**，不再假设已删除的配置。
+check("route.tokens 已登记、非 critical、默认 []（布局模式可选）",
+      "route.tokens" in SCHEMA and not SCHEMA["route.tokens"].critical
+      and SCHEMA["route.tokens"].default == [])
+check("SCHEMA 已无 critical=True 键（手写路线随旧核删除后的现状）",
+      [k for k, s in SCHEMA.items() if s.critical] == [])
 
 section("Config：t26 收口 —— drone.field_layout_wait_s 进 SCHEMA + 越界拦截 + 未知 drone.* 告警")
 spec_wait = SCHEMA.get("drone.field_layout_wait_s")

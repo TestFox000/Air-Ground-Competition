@@ -206,15 +206,15 @@ check("★ 真实文件改动仅限 auto_start 配置行（false 稳态 → 0 �
 #   `text.count(...)`，本卡就踩过一次（注释里的自动出发键把 false 计数抬到 4 ⇒ 假红）。
 _bare_cfg = [ln for ln in _exp_text.splitlines()
              if "auto_start:" in ln and not ln.lstrip().startswith("#")]
-check("★ 每处 auto_start 都被归一化成 false（配置行恰好 2 处、全文无 true）",
+check("★ 每处 auto_start 都被归一化成 false（配置行恰好 1 处、全文无 true）",
       _exp_text.count("auto_start: true") == 0
-      and sum(1 for ln in _bare_cfg if "auto_start: false" in ln) == 2,
+      and sum(1 for ln in _bare_cfg if "auto_start: false" in ln) == 1,
       f"true={_exp_text.count('auto_start: true')} / 配置行 false="
       f"{sum(1 for ln in _bare_cfg if 'auto_start: false' in ln)}"
       f"（★t31：本仓两段都已显式 false ⇒ 归一化是幂等空操作，本条仍守『不得残留 true』不变式）")
 # ★★ t31 重钉：`auto_start_delay` 的期望值随本卡对齐改为 **45.0**（dzbrain 段与 legacy 段同值；
 #   历史 10.0 → 2.0（t29 前的快速采集）→ 45.0（t29 首跑档 + t31 两段对齐））。
-check("注释与其它键原样保留", "自动出发" in _exp_text and "auto_start_delay: 45.0" in _exp_text
+check("注释与其它键原样保留", "统一配置中心" in _exp_text and "auto_start_delay_s: 10.0" in _exp_text
       )  # ★t31:2.0→45.0（t29 首跑档留横幅核对窗口）
 
 
@@ -231,8 +231,9 @@ check("★ backup 清单也不含 map.yaml（车端不再保留/备份地图文�
       not any(str(p).replace("\\", "/").endswith("/config/map.yaml")
               for p in dep.BACKUP_PATHS),
       f"{dep.BACKUP_PATHS}")
-check("本地 config/map.yaml 仍保留（仅开发/仿真入口，不是上车文件）",
-      (WS / "config" / "map.yaml").is_file())
+check("★ 本地 config/map.yaml 已删（2026-10-31 真·无本地地图：布局模式成为唯一路径）",
+      not (WS / "config" / "map.yaml").exists(),
+      "该文件存在时 main.py:_layout_mode_enabled 会切回文件模式 ⇒ 必须不存在")
 
 _push_buf2 = io.StringIO()
 with contextlib.redirect_stdout(_push_buf2):
@@ -268,7 +269,6 @@ for _need, _why in (
         ("/aim/fire_ready", "双钥匙门控第二把钥匙（缺它就永远不开火）"),
         ("/HpAndHitmsg", "裁判回传真源（命中即停火 / 弹药对账）"),
         ("pursuitAngle", "底盘 1s 看门狗的保活指令"),
-        ("LEGACY_PATH", "走旧核时必须降级为提示，而不是误报失败"),
         ("--pre", "--pre 模式（节点未起）不得报错")):
     check(f"healthcheck.sh 覆盖 {_need}（{_why}）", _need in _hc)
 check("healthcheck.sh 语法基本自洽：if/then/fi 数量配平",
@@ -290,9 +290,7 @@ section("⑥ start_all.sh 必须「默认新核 + 可回退 + 保住现场适配
 #     必须从 start_all.sh 里**不存在**；YAML 可解析守卫（瞬时、不算自检）保留。
 _sa = (WS / "start_all.sh").read_text(encoding="utf-8")
 for _need, _why in (
-        ("python3 -u -m dzbrain.main", "节点 7 默认必须是新核（否则重启回到旧核）"),
-        ("LEGACY_PATH", "必须留一键回退旧核的开关"),
-        ("ros2 run car_localization path_executor_node", "回退路径要指向 install 入口"),
+        ("python3 -u -m dzbrain.main", "节点 7 必须是新核（唯一循迹实现）"),
         ("dzros.env", "★现场适配：ROS 域号必须钉住（否则无人机/网页静默看不见）"),
         ("PYTHONUNBUFFERED", "★现场适配：无缓冲（否则日志 0 字节被误判卡死）")):
     check(f"start_all.sh 覆盖 {_need}（{_why}）", _need in _sa)
@@ -309,11 +307,14 @@ check("★ YAML 可解析守卫保留（瞬时、防三节点 abort，不算自�
 #     而代码其实是好的。锚点必须锚在**结构**上（`spawn 7_path` 的位置），不是文案上。
 _i7 = _sa.index("spawn 7_path")
 _n7 = _sa[max(0, _i7 - 1500): _sa.index("sleep 2", _i7)]
-check("★节点 7 是二选一分支：旧核入口 + 新核启动都在同一块里",
-      "LEGACY_PATH" in _n7 and "path_executor_node" in _n7 and "dzbrain.main" in _n7,
+# 只看**代码行**：注释里出现"旧核/LEGACY_PATH"是历史说明，不是启动路径。
+_code7 = "\n".join(ln for ln in _n7.splitlines() if not ln.lstrip().startswith("#"))
+check("★节点 7 只剩一条启动路径（旧核回退分支已删，2026-10-31）",
+      "dzbrain.main" in _code7 and "path_executor_node" not in _code7
+      and "LEGACY_PATH" not in _code7,
       f"块长度 {len(_n7)}")
-check("★节点 7 分支只启动**一个**（不是顺序起两个）",
-      _n7.count("spawn 7_path") == 2 and _n7.count("if ") == 1,
+check("★节点 7 只启动**一次**且不带条件分支",
+      _n7.count("spawn 7_path") == 1 and _n7.count("if ") == 0,
       f"spawn7={_n7.count('spawn 7_path')} if={_n7.count('if ')}")
 
 section("⑦ 自检简化契约：all 不跑 verify / push 默认不碰 auto_start（2026-10-11 用户定版）")

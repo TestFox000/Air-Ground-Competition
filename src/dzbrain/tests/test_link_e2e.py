@@ -70,9 +70,19 @@ from harness import check, finish, section                            # noqa: E4
 #  路径与夹具
 # --------------------------------------------------------------------------- #
 _WS = pathlib.Path(__file__).resolve().parents[3]          # dzrobot_v2/
+#: ★2026-10-31：生产配置不再有手写路线（path_executor.mission_blocks 随旧核删除）。
+#:   本文件原先直接读 robot.yaml 的 route.tokens；为空时改用固定夹具
+#:   （与删除前 robot.yaml 逐字一致的第七图 68 token），保证断言仍在验一条真实路线。
+_ROUTE_FIXTURE = _WS / "src" / "dzbrain" / "tests" / "fixtures" / "route_field7_t24.txt"
+
+
+def _live_tokens(cfg) -> list:
+    toks = [str(t) for t in (cfg.get("route.tokens") or [])]
+    return toks or _ROUTE_FIXTURE.read_text(encoding="utf-8").split()
+
 _ROOT = _WS.parent                                          # 比赛存档/v1/
 _ROBOT = _WS / "config" / "robot.yaml"
-_MAP_SRC = _WS / "config" / "map.yaml"
+_MAP_SRC = _WS / "src" / "dzbrain" / "tests" / "fixtures" / "map_field7_t24.yaml"
 _PERCEPTION_DIR = _ROOT / "dzsmartscout" / "tools"
 _PERCEPTION_PRODUCT = _PERCEPTION_DIR / "perception" / "reports" / "cli_messages.jsonl"
 
@@ -87,7 +97,7 @@ _MAP.write_text(
            _MAP_SRC.read_text(encoding="utf-8")), encoding="utf-8")
 
 _ROBOT_CFG = Config.load(str(_ROBOT))
-_TOKENS = [str(t) for t in (_ROBOT_CFG.get("route.tokens") or [])]
+_TOKENS = _live_tokens(_ROBOT_CFG)
 
 
 def _base_cells() -> list[str]:
@@ -139,6 +149,13 @@ def cfg_of(*, wait: float = 0.0, drone_enabled: bool = True, auto_plan: bool = F
         "drone.enabled": bool(drone_enabled),
         "planner.auto_plan_enabled": bool(auto_plan),
         "planner.map_path": str(_MAP),              # 放宽 bridges 的临时地图
+        # ★2026-10-31：`config/map.yaml` 已随 NOLEGACY 删除，DroneTask 的核对真源
+        #   （targets/mines/obstacles）不再能从默认路径读；测试显式给临时地图。
+        #   ⚠ 生产缺口已另记：布局模式下核对不会自动恢复，待 field_layout 路径补齐。
+        "drone.map_path": str(_MAP),
+        # ★2026-10-31：现场配置不再手写路线（path_executor.mission_blocks 随旧核删除），
+        #   这里显式注入夹具 token，否则 MissionTask 装不上路线、`rig.route()` 返回 None。
+        "route.tokens": list(_TOKENS),
         "logging.rate_limit_s": 0.0,
     })
     return cfg

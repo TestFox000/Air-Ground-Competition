@@ -14,6 +14,9 @@ TOOL = WS / 'tools' / 'config_selfcheck.py'
 BASELINE = WS.parent / '_tmp_session' / 'AGC-RECTIFY-20261026' / 'baseline' / 'car_files' / 'tools' / 'config_selfcheck.py'
 CONFIG = WS / 'config' / 'robot.yaml'
 FIXTURE = WS / 'src' / 'dzbrain' / 'tests' / 'fixtures' / 'map_sixth_20261017.yaml'
+#: ★2026-10-31：生产配置不再有手写路线（path_executor.mission_blocks 随旧核删除）。
+#:   "配置+地图 → 路线校验" 这类用例在临时副本里注入夹具路线，判据（该绿则绿/该红则红）不变。
+ROUTE_FIXTURE = WS / 'src' / 'dzbrain' / 'tests' / 'fixtures' / 'route_field7_t24.txt'
 
 
 def run_tool(config, map_path, quiet=False, source=None, extra=()):
@@ -30,6 +33,16 @@ def run_tool(config, map_path, quiet=False, source=None, extra=()):
 
 
 class InputFailureTests(unittest.TestCase):
+    def _cfg_with_route(self):
+        """临时配置副本：真 robot.yaml + 注入夹具路线（生产配置已无手写路线）。"""
+        import yaml
+        data = yaml.safe_load(CONFIG.read_text(encoding='utf-8'))
+        data['/dzbrain']['ros__parameters'].setdefault('route', {})['tokens'] = \
+            ROUTE_FIXTURE.read_text(encoding='utf-8').split()
+        path = self.root / 'cfg_with_route.yaml'
+        path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding='utf-8')
+        return path
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -186,7 +199,7 @@ class InputFailureTests(unittest.TestCase):
         data['map']['mines'] = []
         path = self.root / 'empty_mines.yaml'
         path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding='utf-8')
-        result = run_tool(CONFIG, path)
+        result = run_tool(self._cfg_with_route(), path)
         self.assertNotIn('Traceback', result.stdout + result.stderr)
         self.assertIn('[显式空集合]', result.stdout)
         self.assertNotIn('✅ 通过', result.stdout)
@@ -215,15 +228,16 @@ class InputFailureTests(unittest.TestCase):
 
     def test_fixture_behaviour_is_unchanged(self):
         # 先断言契约本身（不依赖 _tmp 基线副本），避免基线被清理后"静默 skip 变绿"（复核 F4）
-        contract = run_tool(CONFIG, FIXTURE, quiet=True)
+        cfg = self._cfg_with_route()
+        contract = run_tool(cfg, FIXTURE, quiet=True)
         self.assertEqual(contract.returncode, 0, contract.stdout + contract.stderr)
         self.assertIn('✅ 通过', contract.stdout)
         self.assertNotIn('Traceback', contract.stdout + contract.stderr)
         if not BASELINE.exists():
             self.skipTest('captured pre-change baseline is not installed')
         self.assertTrue(FIXTURE.exists(), 'reuse fixture must exist')
-        before = run_tool(CONFIG, FIXTURE, quiet=True, source=BASELINE)
-        after = run_tool(CONFIG, FIXTURE, quiet=True)
+        before = run_tool(cfg, FIXTURE, quiet=True, source=BASELINE)
+        after = run_tool(cfg, FIXTURE, quiet=True)
         self.assertEqual((after.returncode, after.stdout, after.stderr), (before.returncode, before.stdout, before.stderr))
         self.assertNotIn('Traceback', after.stdout + after.stderr)
 

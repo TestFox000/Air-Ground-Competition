@@ -756,7 +756,7 @@ def load_from_config(path: str):
 
 
 def load_shoot_limits(cfg_path):
-    """读射击距离约束（真源 = config/robot.yaml 的 path_executor 段）。
+    """读射击距离约束（真源 = /dzbrain 的 route.shoot_distance_m ± tol）。
 
     单独抽一个函数而不是塞进 load_from_config()，是为了让"地图要素"与
     "规划约束"两类来源保持分离，也避免动到既有调用方。
@@ -766,6 +766,13 @@ def load_shoot_limits(cfg_path):
         import yaml
         with open(cfg_path, encoding='utf-8') as fp:
             d = yaml.safe_load(fp) or {}
+        # ★2026-10-31：旧核 path_executor 段已删除 ⇒ 唯一真源是 /dzbrain 的板心窗口；
+        #   旧键（车端若还留着旧 yaml）作兜底，最后才是历史默认 0.20~0.45。
+        dz = (d.get('/dzbrain') or {}).get('ros__parameters', {}) or {}
+        rt = dz.get('route') if isinstance(dz.get('route'), dict) else {}
+        if 'shoot_distance_m' in rt and 'shoot_distance_tol_m' in rt:
+            mid, tol = float(rt['shoot_distance_m']), float(rt['shoot_distance_tol_m'])
+            return (mid - tol, mid + tol)
         p = (d.get('path_executor') or {}).get('ros__parameters', {}) or {}
         return (float(p.get('shoot_distance_min', 0.20)),
                 float(p.get('shoot_distance_max', 0.45)))

@@ -49,10 +49,8 @@ void turn_on_robot::callback_offset_center(const std_msgs::msg::Int32MultiArray:
     return;
   }
 
-  // 长宽比过滤：只跟踪接近正方形(1:1)的目标，长方形的描边目标直接忽略
-  const bool is_target = is_target_cls && aspectRatioOk(temp_msg);
-
-  if (is_target) // 识别到合格的方形目标
+  // ★2026-10-31 用户指令：不再用宽高比辅助判定靶子（aspectRatioOk 已删除），只按类别判目标。
+  if (is_target_cls) // 识别到目标类别（1=蓝靶/2=红靶）
   {
     if (!isTracking())
     {
@@ -575,24 +573,6 @@ double turn_on_robot::scanPitchDeg() const
 int turn_on_robot::patrolSpeed() const
 {
   return static_cast<int>(gimbal_max_speed_ * patrol_speed_ratio_);
-}
-
-// 长宽比过滤：只接受接近正方形(1:1)的检测框，长方形的描边目标返回 false。
-// 视觉消息不足 5 个字段或宽高无效时不做过滤（与旧版视觉节点保持兼容）。
-bool turn_on_robot::aspectRatioOk(const std_msgs::msg::Int32MultiArray &msg) const
-{
-  if (msg.data.size() < 5)
-  {
-    return true;
-  }
-  const int box_w = msg.data[3];
-  const int box_h = msg.data[4];
-  if (box_w <= 0 || box_h <= 0)
-  {
-    return true;
-  }
-  const double aspect = static_cast<double>(box_w) / static_cast<double>(box_h);
-  return (aspect >= aspect_min_) && (aspect <= aspect_max_);
 }
 
 // PD 跟踪速度：
@@ -1354,7 +1334,7 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   // ★卡 t25：连续扫描轮数上限（默认 3，用户口径"最多 3 循环"）与进入扫描前的归位超时
   this->declare_parameter("scan_continuous_cycles", 3);  // 连续扫描最多几轮；<=0 = 不限(旧行为)
   this->declare_parameter("scan_home_timeout_ms", 1500); // 进扫描前归位段超时(ms)：卡住也要进扫描
-  this->declare_parameter("lost_frames_to_rescan", 60);
+  this->declare_parameter("lost_frames_to_rescan", 180);  // 跟踪丢帧回扫阈值(帧)；2026-10-31 起由代码默认承担（原 robot.yaml 覆盖值 180）
   this->declare_parameter("rescan_min_frames", 10);    // ★t42 去抖：连续未见帧数下限
   this->declare_parameter("rescan_debounce_ms", 400);  // ★t42 去抖：连续未见时长下限(ms)	  // 跟踪中丢帧回扫描阈值
   this->declare_parameter("vision_timeout_ms", 1000);	  // 视觉静默超时(ms)
@@ -1413,8 +1393,6 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->declare_parameter("laser_offset_y", 0.0);		  // 激光落点竖直偏移(标定值,像素)
   this->declare_parameter("max_shots", 10);				  // 最大发射次数(<=0 不限)
   this->declare_parameter("shot_cooldown_ms", 500);		  // 两发之间的最小间隔(ms)
-  this->declare_parameter("aspect_min", 0.75);			  // 目标框宽高比下限(只跟踪近似1:1)
-  this->declare_parameter("aspect_max", 1.35);			  // 目标框宽高比上限
   this->declare_parameter("target_confirm_frames", 4);	  // 连续识别多少帧才算"扫描确认"(之后才允许射击)
   this->declare_parameter("cls_switch_confirm_frames", 5); // ★P1-3 类别改锁需连续多少帧
   this->declare_parameter("loop_hz_track", 100);	  // ★流畅度 跟踪时主循环频率(Hz)
@@ -1539,8 +1517,6 @@ turn_on_robot::turn_on_robot(std::string name) : Node(name)
   this->get_parameter("laser_offset_y", laser_offset_y_);
   this->get_parameter("max_shots", max_shots_);
   this->get_parameter("shot_cooldown_ms", shot_cooldown_ms_);
-  this->get_parameter("aspect_min", aspect_min_);
-  this->get_parameter("aspect_max", aspect_max_);
   this->get_parameter("target_confirm_frames", target_confirm_frames_);
   this->get_parameter("cls_switch_confirm_frames", cls_switch_confirm_frames_);
   this->get_parameter("loop_hz_track", loop_hz_track_);

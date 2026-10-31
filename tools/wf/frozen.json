@@ -16,9 +16,9 @@
     },
     {
       "path": "config/robot.yaml",
-      "card": "AIM-LAT-20261022 + SHOOT-LINK-20261023",
+      "card": "AIM-LAT-20261022 + SHOOT-LINK-20261023 + CFG-A-20261031 + CFG-B-20261031",
       "owner": "lead",
-      "reason": "AIM-LAT：det_node.thread_num 8→2（输出率 30.4Hz 不变、流水线滞后 264→66ms）。SHOOT-LINK：aim.stop_on_hit=false（用户 2026-10-24 口径「蓝面打满 10 发」）＋ mission_blocks 第二射击停站 F4*（与 B4* 分居靶板两侧）。本地已过 config_selfcheck/route_check/test_aim，未部署",
+      "reason": "AIM-LAT：det_node.thread_num 8→2（输出率 30.4Hz 不变、流水线滞后 264→66ms）。SHOOT-LINK：aim.stop_on_hit=false（用户 2026-10-24 口径「蓝面打满 10 发」）＋ mission_blocks 第二射击停站 F4*（与 B4* 分居靶板两侧）。本地已过 config_selfcheck/route_check/test_aim，未部署。CFG-A/B-20261031：用户已批准串行等价重构；A只缩说明并保持全部数据行，B仅在A独立通过后收敛已证迁移的aim弹药三键，其他有歧义组保留；保住2130及所有标定/安全值，旧调参与归属保留。B已于2026-10-31在A后实施：仅删aim段max_shots_total/max_shots_per_target/shot_cooldown_ms三处重复赋值，改由dzrknn_dataprocess同名/同义键迁移（10/10/500），独立复验见config-1031/B卡；未部署",
       "expires": "2026-11-07"
     },
     {
@@ -188,6 +188,62 @@
       "owner": "session-912213b6-c2f3-4960-a203-71648b2aa1fb",
       "reason": "P2-T2 起点口径：新增 _apply_start_authority（三值对照 layout.start/belief(P_POSE)/odom(P_POSE_RAW) → 两两 > 半格 0.175 m 打 WARNING；首份带 start 的布局把 belief 写到 start 格心，只写一次不搬车）+ START_AUTHORITY_TOL_M 常量；既有在途改动（S1-CORRIDOR 走廊确认）原样保留未覆盖；离线单测，不部署",
       "expires": "2026-11-05"
+    },
+    {
+      "path": "config/robot.yaml",
+      "card": "NOLEGACY-20261031",
+      "owner": "lead",
+      "reason": "删除 path_executor 整段（手写路线/旧核参数）；路由改由无人机 field_layout 运行期生成。离线，未部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "config/map.yaml",
+      "card": "NOLEGACY-20261031",
+      "owner": "lead",
+      "reason": "删除本地地图（真·无本地地图）：存在时 main.py:_layout_mode_enabled 会切回文件模式。离线，未部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/core/config.py",
+      "card": "NOLEGACY-20261031",
+      "owner": "lead",
+      "reason": "route.tokens 由 critical 改可选（默认 []）；legacy_map 保留旧键兼容垫片。离线，未部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/main.py",
+      "card": "NOLEGACY-20261031",
+      "owner": "lead",
+      "reason": "删除旧核自跑防护（LEGACY_PATH 分支随旧核删除）。离线，未部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/route/validate.py",
+      "card": "NOLEGACY-20261031",
+      "owner": "lead",
+      "reason": "R006/R013 射程窗口改走 route.shoot_distance_m ± tol（旧核段删除后不能再用旧默认 0.20~0.45）。离线，未部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/main.py",
+      "card": "CONFIG-DEBT-20261031",
+      "owner": "lead",
+      "reason": "配置键债收口①：开火联锁读 aim.max_shots（不存在）→ aim.max_shots_total；此前『无发数上限』判据永远跳过、台账却记 ok。默认 10>0 ⇒ 行为不变，只是判据真正执行。离线单测，不部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/tasks/mission.py",
+      "card": "CONFIG-DEBT-20261031",
+      "owner": "lead",
+      "reason": "配置键债收口②：mission.shot_timeout_s 拼写错→shoot_timeout_s（三段时间/到站死线/宽限此前恒 30.0，与现场同值故零行为变化）；删 mission_blocks 死回退（legacy_map 已把 route.tokens←path_executor.mission_blocks）；SHOOT@ 候选窗口固化常量（旧 path_executor 段已删，该窗口是格心距 0.20~0.45，不可换成板心距 0.78~1.02）。离线单测，不部署",
+      "expires": "2026-11-07"
+    },
+    {
+      "path": "src/dzbrain/dzbrain/route/planner.py",
+      "card": "CONFIG-DEBT-20261031",
+      "owner": "lead",
+      "reason": "配置键债收口③：_limits() 读已删的 path_executor.shoot_distance_min/max，落到 validate 旧默认 0.20/0.45；改为复用 validate._window()（真源 route.shoot_distance_m ± tol_m ⇒ 现场 0.78~1.02）。此前 planner 的提示文案/自检窗口与实际判据不一致（test_planner 钉的是板心窗口）。离线单测，不部署",
+      "expires": "2026-11-07"
     }
   ]
 }

@@ -17,7 +17,7 @@ def generate_launch_description():
        5s  图像识别            det_node     det_node.launch.py      -> /offset_center
        7s  目标追寻/云台       dzrknn_dataprocess dzrknn_dataprocess.launch.py -> /CameMo_Conl
        9s  射击模块驱动        dzjudgment   judgment.launch.py       -> 订阅 LaserShot_Command
-      11s  循迹移动            path_executor (python3 直跑)          -> /pursuitAngle
+      11s  循迹移动            （旧核已删除；正式起栈见 start_all.sh）
 
     注：旧避障雷达(rplidar)分支已移除 —— 本车无激光雷达(readme 装备说明)，
         旧激光导航栈(rplidar/slam_gmapping/navigation2/robot_localization)已移出工作空间。
@@ -81,11 +81,8 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(dzactuator_share, 'launch', 'judgment.launch.py')))
 
-    # 8) 循迹移动（path_executor 是 python3 直跑，没有 console_scripts 入口，用 ExecuteProcess）
-    path_executor = ExecuteProcess(
-        cmd=['python3',
-             '/home/duzhong/dzrobot/src/car_localization/car_localization/path_executor.py'],
-        output='screen')
+    # 8) 循迹移动：★2026-10-31 旧核 path_executor 已删除 —— 循迹只在 dzbrain 里，
+    #    本调试 launch 不再起旧核（正式起栈见 start_all.sh 节点 7）。
 
     return LaunchDescription([
         DeclareLaunchArgument('track_kp', default_value='8.0',
@@ -110,7 +107,6 @@ def generate_launch_description():
         TimerAction(period=5.0, actions=[det_node]),
         TimerAction(period=7.0, actions=[gimbal]),
         TimerAction(period=9.0, actions=[judgment]),
-        TimerAction(period=11.0, actions=[path_executor]),
         TimerAction(period=13.0, actions=[
             LogInfo(msg='===== 全部模块已启动完毕，可开始发送路线 =====')]),
     ])

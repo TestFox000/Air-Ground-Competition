@@ -62,7 +62,7 @@ done
 echo ""
 echo "=============================================================="
 echo "  试音结束。满意的 ID 填到:"
-echo "      $WS/config/robot.yaml   ->   path_executor -> finish_voice_id"
+echo "      $WS/config/robot.yaml   ->   /dzbrain mission.finish_voice_id"
 echo ""
 echo "  改完不用重启整套，只重启循迹即可:"
 echo "      $WS/tools/restart_node.sh path"

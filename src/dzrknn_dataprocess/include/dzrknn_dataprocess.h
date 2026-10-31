@@ -200,7 +200,7 @@ public:
 	rclcpp::Time scan_home_deadline_;  // 归位段截止时刻（startScan 时按上面超时设置）
 	bool scan_homing_ = false;         // true = 当前处于"进扫描前先归位"阶段（此时 aim_state_ 仍是 IDLE）
 	int scan_cycles_done_ = 0;         // 本次连续扫描已完成的轮数（用于 3 轮上限）
-	int lost_frames_to_rescan_ = 60;  // 跟踪中连续丢帧超过该值才放弃追踪回到扫描
+	int lost_frames_to_rescan_ = 180;  // 跟踪中连续丢帧超过该值才放弃追踪回到扫描
   // ★t42（t41 台账 §3 主因 H1）丢靶去抖滞回：重启扫掠前必须【连续未见 >= rescan_min_frames_
   //   帧】且【持续 >= rescan_debounce_ms_】；旧行为（单帧即重扫）可把两参数设 1 / 0 回退。
   int rescan_min_frames_ = 10;      // ★t42 连续未见帧数下限（10 帧 @33fps ~= 300ms）
@@ -303,9 +303,6 @@ public:
 	int shots_on_target_ = 0;       // 当前目标已连发数
 	bool fire_only_blue_ = true;    // ★P0-4 仅攻击蓝色靶(cls==1)，忽略红色靶(cls==2)
 	int shot_cooldown_ms_ = 500;			 // 两发之间的最小间隔(ms)
-	// ===== 目标筛选：只跟踪长宽比近似 1:1 的目标 =====
-	double aspect_min_ = 0.75;		   // 框宽/框高 下限，超出范围视为长方形不跟踪
-	double aspect_max_ = 1.35;		   // 框宽/框高 上限
 	// 扫描运行时状态
 	int scan_yaw_idx_ = 0;	  // 当前水平点索引
 	int scan_yaw_dir_ = 1;	  // 水平横扫方向(+1 向右扫 / -1 向左扫)
@@ -351,7 +348,6 @@ public:
 	double scanPitchDeg() const;
 	int pitchLevelCount() const;
 	int patrolSpeed() const;
-	bool aspectRatioOk(const std_msgs::msg::Int32MultiArray &msg) const;
 	void applyScanTarget();
 	void advanceScanIndex();
 	void startScan(bool continuous, bool home = true);   // ★t42 重扫传 home=false：不重跑归位段 // 启动全向扫描；continuous=true 时扫完自动重来

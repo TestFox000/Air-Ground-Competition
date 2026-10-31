@@ -91,8 +91,19 @@ def _cfg_get(cfg: Config | None, key: str, fallback: Any = None) -> Any:
 
 
 def _window(cfg: Config | None) -> tuple[float, float]:
-    lo = float(_cfg_get(cfg, _KEY_SHOOT_MIN, DEFAULT_SHOOT_DISTANCE_MIN_M))
-    hi = float(_cfg_get(cfg, _KEY_SHOOT_MAX, DEFAULT_SHOOT_DISTANCE_MAX_M))
+    # ★2026-10-31：射程口径**唯一真源** = `route.shoot_distance_m ± tol`（板心窗口，决定车停哪儿）。
+    #   旧核 path_executor 段已从 robot.yaml 删除，它的靶格级窗口（0.78/1.02）不再存在；
+    #   车端若还留着旧 yaml，旧键仍按下方兜底兼容（不产生第二套默认值）。
+    #   为什么不能只留 DEFAULT 0.20~0.45：那张图靶板距离 0.78~0.99 m，用旧默认会把
+    #   正确路线判成"没覆盖靶"（2026-10-31 实跑：R006/R013 全红，tracker-safe 门禁被误杀）。
+    mid = _cfg_get(cfg, "route.shoot_distance_m", None)
+    tol = _cfg_get(cfg, "route.shoot_distance_tol_m", None)
+    if mid is not None and tol is not None:
+        lo = float(mid) - float(tol)
+        hi = float(mid) + float(tol)
+    else:
+        lo = float(_cfg_get(cfg, _KEY_SHOOT_MIN, DEFAULT_SHOOT_DISTANCE_MIN_M))
+        hi = float(_cfg_get(cfg, _KEY_SHOOT_MAX, DEFAULT_SHOOT_DISTANCE_MAX_M))
     if lo > hi:
         lo, hi = hi, lo
     return lo, hi

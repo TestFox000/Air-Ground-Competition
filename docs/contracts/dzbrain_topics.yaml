@@ -1,0 +1,483 @@
+# =============================================================================
+# dzbrain 决策脑对外/对内 ROS 接口契约表（机器可读版）
+# =============================================================================
+# 真源：dzrobot_v2/src/dzbrain/dzbrain/io/contract.py:58-110 的 TOPICS（21 条）
+#       装配接线：io/ros_io.py 的 _create_subs(:256) / _create_pubs(:386)
+# 行号只对 dzrobot_v2 提交 ff231e1e（2026-10-29）成立。冻结区，只读不改。
+#
+# direction 口径（dzbrain 视角）：
+#   sub = dzbrain 订阅（车外节点发给我们）
+#   pub = dzbrain 发布（我们发给车外节点）
+# QoS 三值 = reliability / depth / durability（QosSpec.describe() 输出格式）
+# =============================================================================
+
+meta:
+  generated_at: "2026-10-30"
+  scope: "dzbrain 决策脑对外/对内 ROS 接口（不含车内线程通信）"
+  source_roots:
+    - dzrobot_v2/src/dzbrain/dzbrain/io/contract.py
+    - dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py
+    - dzrobot_v2/src/dzbrain/dzbrain/io/referee.py
+    - dzrobot_v2/src/dzbrain/dzbrain/main.py
+    - dzrobot_v2/src/dzbrain/dzbrain/tasks/
+    - dzrobot_v2/src/dzbrain/dzbrain/core/blackboard.py
+    - dzrobot_v2/src/dzbrain/dzbrain/core/events.py
+  topic_count: 21
+  sub_count: 12
+  pub_count: 9
+  code_frozen: true          # src/dzbrain/dzbrain/** 属冻结区，改话题名会断链
+
+qos_constants:
+  QOS_PURSUIT_ANGLE: {reliability: best_effort, depth: 1, durability: volatile}
+  QOS_ODOM:           {reliability: best_effort, depth: 10, durability: volatile}
+  QOS_SENSOR_FRAME:   {reliability: best_effort, depth: 10, durability: volatile}
+  QOS_EVENT:          {reliability: reliable,     depth: 10, durability: volatile}
+  QOS_LINK:           {reliability: best_effort, depth: 10, durability: volatile}
+
+# ★ RELIABLE 与 BEST_EFFORT 不互通 ⇒ 跨进程/跨机改错一侧会静默失败（无报错、无数据）。
+#   pursuitAngle(depth=1, BEST_EFFORT) 换成 RELIABLE 会让底盘收到慢/旧指令，表现为"车一顿一顿"。
+
+topics:
+  # ---------------------------- 车外输入（12 条） ----------------------------
+  - key: odom
+    name: "/odom/localization"
+    msg_type: "nav_msgs/Odometry"
+    qos: {reliability: best_effort, depth: 10, durability: volatile}
+    direction: sub
+    producers: ["serial_reader（车端 install 副本）"]
+    consumers: ["RosBridge.on_odom", "LocalizationTask"]
+    unit: "position 格（×0.35=米）；四元数 yaw=原始车体角(+π/2=地图航向)"
+    field_semantics:
+      position: "格单位；乘 0.35 得米（geometry.py BLOCK_SIZE）"
+      orientation.quaternion: "原始车体 yaw；+π/2 = 地图 yaw（RAW_YAW_TO_MAP_YAW_OFFSET）"
+    timing_notes: "定位中继周期帧；收不到则 P_ODOM_AGE=inf、不写 P_POSE"
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 60}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 264}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 145}
+
+  - key: imu
+    name: "/imu_data"
+    msg_type: "sensor_msgs/Imu"
+    qos: {reliability: best_effort, depth: 10, durability: volatile}
+    direction: sub
+    producers: ["dzactuator（底盘串口）"]
+    consumers: ["RosBridge.on_imu", "LocalizationTask"]
+    unit: "rad/s, m/s²"
+    field_semantics: {}
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 63}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 276}
+
+  - key: offset_center
+    name: "/offset_center"
+    msg_type: "std_msgs/Int32MultiArray"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: sub
+    producers: ["det_node（rknn_pt 目标检测）"]
+    consumers: ["RosBridge.on_vision", "AimTask"]
+    unit: "px / 类别 / 框宽高"
+    field_semantics:
+      data[0]: "dx（目标中心横向偏差 px）"
+      data[1]: "dy"
+      data[2]: "cls+1（类别，0=无目标）"
+      data[3]: "框宽"
+      data[4]: "框高"
+      data[5..7]: "关键点"
+      note: "长度不足时无观测，绝不猜字段（on_vision）"
+    timing_notes: "0.5s 内的才算新鲜（vision()）；过期观测拿去开火就是打空气"
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 64}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 284}
+
+  - key: aim_status
+    name: "/aim/status"
+    msg_type: "std_msgs/Int32"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: sub
+    producers: ["dzrknn_dataprocess"]
+    consumers: ["RosBridge.on_aim_status", "AimTask", "MissionTask"]
+    unit: "0=IDLE 1=SCAN 2=TRACK"
+    field_semantics: {}
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 67}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 293}
+
+  - key: shoot_count
+    name: "/shoot_count"
+    msg_type: "std_msgs/Int32"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: sub
+    producers: ["dzrknn_dataprocess"]
+    consumers: ["RosBridge.on_shoot_count", "AimTask"]
+    unit: "累计发数（云台硬件侧）"
+    field_semantics:
+      note: "与 referee_hp[3]（judgment 硬件发数）交叉校验"
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 68}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 298}
+
+  - key: manual_override
+    name: "/nav/manual_override"
+    msg_type: "std_msgs/UInt8"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: sub
+    producers: ["遥控接收端 / 底盘手动接管"]
+    consumers: ["RosBridge.on_manual_override", "SafetyTask", "StepLoop(硬拦①)"]
+    unit: "1=遥控接管底盘"
+    field_semantics: {}
+    timing_notes: "电平保持；1 即硬拦停车"
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 69}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 336}
+
+  - key: manual_gimbal
+    name: "nav/manual_gimbal"
+    msg_type: "std_msgs/UInt8"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: sub
+    producers: ["遥控云台"]
+    consumers: ["RosBridge.on_manual_gimbal", "AimTask"]
+    unit: "1=遥控接管云台"
+    field_semantics:
+      note: "★ 历史相对名，无前导斜杠；改名会断链（2026-10-29 真车假红）"
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 71}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 342}
+
+  - key: waypoint_cmd
+    name: "/nav/waypoint"
+    msg_type: "std_msgs/String"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: sub
+    producers: ["serial_reader（只为 reset: 重锚）", "外部地面站/操作员"]
+    consumers: ["RosBridge.on_waypoint", "MissionTask(_handle_command)"]
+    unit: "外部命令：路线/复位/单点"
+    field_semantics:
+      "reset:BLOCK,HEAD": "复位 belief"
+      "load:文件": "装载路线"
+      "单点 BLOCK,HEAD": "单点路线"
+      "多点 ...": "多航点路线"
+      note: "未知命令只告警不崩"
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 73}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 353}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/tasks/mission.py, line: 4145}
+
+  - key: drone_in
+    name: "/dzlink/drone_to_car"
+    msg_type: "std_msgs/String"
+    qos: {reliability: best_effort, depth: 10, durability: volatile}
+    direction: sub
+    producers: ["无人机端 dzsmartscout"]
+    consumers: ["RosBridge.on_drone", "DroneTask"]
+    unit: "JSON 情报"
+    field_semantics:
+      "type=heartbeat": "心跳；超时发 EV_DRONE_OFFLINE"
+      "type=bridge_passable": "桥洞可通行 {half,block,confidence,ts}"
+      "type=target_zone": "靶区 {blocks:[...]}"
+      "type=field_verify": "雷/障/靶核对 {mines,obstacles,targets?,coverage?,slice?,scan_id?}"
+      "type=field_layout": "★ 完整场地布局 v2 {version,start,end,known,mines,obstacles,targets,bridges,barrier_*,target_cell?,segment_id?}（规划真源）"
+      note: "未知 type / 非法 JSON / 缺字段 → 记日志不崩"
+    timing_notes: "field_layout version 单调递增；旧版/同版异内容拒收，心跳重发不重写"
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 94}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 346}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/tasks/drone.py, line: 14}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/tasks/drone.py, line: 970}
+
+  - key: referee_hp
+    name: "/HpAndHitmsg"
+    msg_type: "std_msgs/UInt8MultiArray"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: sub
+    producers: ["dzjudgment（裁判）"]
+    consumers: ["RosBridge.on_referee_hp", "RefereeTracker", "AimTask"]
+    unit: "★★ 命中闭环真源帧（dzjudgment 收帧即发 + 1Hz 心跳）"
+    field_semantics:
+      data[0]: "targethp 对方血量（★我们打中靶的唯一真信号）"
+      data[1]: "self_hp 己方血量"
+      data[2]: "Bing_hit 被击打方位 0x01左 0x02前 0x03右 0x04后 0x10未被"
+      data[3]: "Shooting_Count 硬件侧累计射击次数"
+      data[4]: "ammo 剩余弹药"
+      note: "命中判据是 targethp 下降，不是 Bing_hit；心跳重复推同 5 字节，须按状态变化计数"
+    timing_notes: "帧长 <5 记 malformed 并丢弃；首帧只建基线不计命中"
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 98}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 319}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/referee.py, line: 23}
+
+  - key: referee_hit
+    name: "/referee/hit"
+    msg_type: "std_msgs/Int32"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: sub
+    producers: ["（无：车端无生产者兜底）"]
+    consumers: ["RosBridge.on_hit（兜底）"]
+    unit: "命中确认（兜底）"
+    field_semantics:
+      note: "★ 车端无生产者；实际命中由 referee_hp 解析。valid_seen 后彻底忽略，防双计"
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 103}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 302}
+
+  - key: referee_ammo
+    name: "/referee/ammo"
+    msg_type: "std_msgs/Int32"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: sub
+    producers: ["（无：兜底源）"]
+    consumers: ["RosBridge.on_ammo"]
+    unit: "剩余弹药（兜底）"
+    field_semantics:
+      note: "★ 兜底源；referee_hp[4] 才是弹药真源"
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 106}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 311}
+
+  # ---------------------------- 车外输出（9 条） ----------------------------
+  - key: pursuit_angle
+    name: "pursuitAngle"
+    msg_type: "geometry_msgs/Twist"
+    qos: {reliability: best_effort, depth: 1, durability: volatile}
+    direction: pub
+    producers: ["TrackerTask（唯一非零驱动指令写者）", "Safety/Mission/StepLoop（零 Twist）"]
+    consumers: ["dzactuator（底盘串口）"]
+    unit: "linear.x=m/s；★ angular.z=舵角【度】(正=左转)"
+    field_semantics:
+      linear.x: "前进速度 m/s"
+      angular.z: "舵角【度】，不是 rad/s"
+      note: "零 Twist=刹车；50Hz 保活（底盘 1s 看门狗）"
+    timing_notes: "QOS_PURSUIT_ANGLE depth=1；换 RELIABLE 会让底盘收到慢/旧指令"
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 77}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 391}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 499}
+
+  - key: scan_request
+    name: "/nav/scan_request"
+    msg_type: "std_msgs/UInt8"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: pub
+    producers: ["AimTask（★单写者，gimbal_lock 时唯一）"]
+    consumers: ["dzrknn_dataprocess"]
+    unit: "0=停扫 1=单趟 2=持续扫描"
+    field_semantics:
+      note: "电平保持语义；只在取值变化时发（_gimbal_cmd 去重）"
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 80}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 393}
+
+  - key: aim_fire_gate
+    name: "/aim/fire_gate"
+    msg_type: "std_msgs/UInt8"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: pub
+    producers: ["MissionTask"]
+    consumers: ["dzrknn_dataprocess（云台补丁）"]
+    unit: "1=允许开火"
+    field_semantics:
+      note: "★新增，修旧版死线；历史 stop_signal 同步发一份便于对拍"
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 82}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 395}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/tasks/mission.py, line: 3823}
+
+  - key: aim_fire_ready
+    name: "/aim/fire_ready"
+    msg_type: "std_msgs/UInt8"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: pub
+    producers: ["AimTask"]
+    consumers: ["dzrknn_dataprocess（云台补丁）"]
+    unit: "1=瞄准合格（预测落点在开火框内）"
+    field_semantics:
+      note: "与 fire_gate 构成两键开火：云台补丁只在两者都为 1 时开火"
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 84}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 397}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 539}
+
+  - key: stop_signal
+    name: "/move_base/stop_signal"
+    msg_type: "std_msgs/UInt8"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: pub
+    producers: ["MissionTask（随 fire_gate 同步发）"]
+    consumers: ["（历史话题，云台侧原先无人订阅）"]
+    unit: "1=允许云台扫描+射击"
+    field_semantics: {}
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 87}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 399}
+
+  - key: motion_state
+    name: "/nav/motion_state"
+    msg_type: "std_msgs/UInt8"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: pub
+    producers: ["TrackerTask"]
+    consumers: ["（机/地面站/上位显示）"]
+    unit: "0 前进 / 1 倒车"
+    field_semantics:
+      note: "仅状态变化时发"
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 89}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 401}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/tasks/tracker.py, line: 691}
+
+  - key: voice_switch
+    name: "/voice_switch"
+    msg_type: "std_msgs/UInt8"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: pub
+    producers: ["（装配侧调用 publish_voice）"]
+    consumers: ["（语音播报节点）"]
+    unit: "语音 ID"
+    field_semantics: {}
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 91}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 403}
+
+  - key: drone_out
+    name: "/dzlink/car_to_drone"
+    msg_type: "std_msgs/String"
+    qos: {reliability: best_effort, depth: 10, durability: volatile}
+    direction: pub
+    producers: ["DroneTask"]
+    consumers: ["无人机端 dzsmartscout"]
+    unit: "JSON：车状态/ack"
+    field_semantics:
+      "type=car_state": "{type,block,yaw_deg,phase,ts,seq}" + 段级字段（stop_kind/segment_id 等）
+      "type=ack": "{type:ack,of:seq}"
+    timing_notes: "car_state 1~2 Hz 周期上报（默认 0.7s）；QOS_LINK 允许丢旧帧"
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 96}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 405}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/tasks/drone.py, line: 1411}
+
+  - key: aim_lead
+    name: "/aim/lead_x"
+    msg_type: "std_msgs/Float32"
+    qos: {reliability: reliable, depth: 10, durability: volatile}
+    direction: pub
+    producers: ["AimTask"]
+    consumers: ["dzrknn_dataprocess（云台补丁）"]
+    unit: "提前量（px）"
+    field_semantics:
+      note: "lead_px = v_dx × aim.lead_time_s；旧版无此能力"
+    timing_notes: ""
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 108}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 407}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 570}
+
+# =============================================================================
+# 车内通信（非 ROS，供对照；不算 topic_count）
+#   - 黑板 Blackboard：键值事实（核心/blackboard.py:21-95）
+#   - 事件总线 EventBus：通知（核心/events.py:24-48）
+# =============================================================================
+
+blackboard_keys:
+  - {key: "pose",              const: P_POSE,           writers: "Localization",         readers: "Safety/Tracker/Mission/Drone/Telemetry"}
+  - {key: "pose_raw",          const: P_POSE_RAW,       writers: "Localization",         readers: "Fix/Localization"}
+  - {key: "odom_age",          const: P_ODOM_AGE,       writers: "Localization",         readers: "Safety/Telemetry"}
+  - {key: "route",             const: P_ROUTE,          writers: "Mission",              readers: "Tracker/Localization"}
+  - {key: "route_index",       const: P_ROUTE_INDEX,    writers: "Tracker/Localization", readers: "Telemetry"}
+  - {key: "route_s",           const: P_ROUTE_S,        writers: "Tracker/Localization", readers: "Telemetry"}
+  - {key: "mission_phase",     const: P_MISSION_PHASE,  writers: "Mission",              readers: "Tracker/Safety/Drone"}
+  - {key: "stop_point",        const: P_STOP_POINT,     writers: "Mission",              readers: "Mission/Aim"}
+  - {key: "target",            const: P_TARGET,         writers: "Aim",                  readers: "Telemetry"}
+  - {key: "aim",               const: P_AIM,            writers: "Aim",                  readers: "Mission/Telemetry"}
+  - {key: "aim_red_face",      const: P_AIM_RED,        writers: "Aim",                  readers: "Mission"}
+  - {key: "drone",             const: P_DRONE,          writers: "DroneTask",            readers: "Mission/Telemetry"}
+  - {key: "field_layout",      const: P_FIELD_LAYOUT,   writers: "DroneTask",            readers: "main(StepLoop)"}
+  - {key: "layout_arrivals",   const: P_LAYOUT_ARRIVALS,writers: "DroneTask",            readers: "main(StepLoop)"}
+  - {key: "field_verify",      const: P_FIELD_VERIFY,   writers: "DroneTask",            readers: "Telemetry/诊断"}
+  - {key: "fix",               const: P_FIX,            writers: "Localization",         readers: "Fix/Localization"}
+  - {key: "fix_est",           const: P_FIX_EST,        writers: "FixTask",              readers: "Localization"}
+  - {key: "safety",            const: P_SAFETY,         writers: "SafetyTask",           readers: "Tracker/Mission/Telemetry"}
+  - {key: "telemetry",         const: P_TELEMETRY,      writers: "TelemetryTask",        readers: "网页/横幅/复盘"}
+  - {key: "pursuit_gear",      const: P_PURSUIT_GEAR,   writers: "Tracker",              readers: "遥测/诊断"}
+  - {key: "motion_limit",      const: P_MOTION_LIMIT,   writers: "Localization",         readers: "pursuit.controller/Tracker"}
+  - {key: "car_state",         const: P_CAR_STATE,      writers: "main(StepLoop)",       readers: "DroneTask"}
+  evidence_blackboard:
+    - {path: dzrobot_v2/src/dzbrain/dzbrain/core/blackboard.py, line: 21}
+
+event_types:
+  - {event: EV_MISSION_STARTED,     const_line: 24}
+  - {event: EV_MISSION_FINISHED,    const_line: 25}
+  - {event: EV_ROUTE_LOADED,        const_line: 26}
+  - {event: EV_WAYPOINT_REACHED,    const_line: 27}
+  - {event: EV_ARRIVED_STOP_POINT,  const_line: 28}
+  - {event: EV_STOP_POINT_DONE,     const_line: 29}
+  - {event: EV_TARGET_FIRST_SEEN,   const_line: 31}
+  - {event: EV_TARGET_LOST,         const_line: 32}
+  - {event: EV_FIRE_ALLOWED,        const_line: 33}
+  - {event: EV_FIRE_BLOCKED,        const_line: 34}
+  - {event: EV_HIT_CONFIRMED,       const_line: 35}
+  - {event: EV_AMMO_CHANGED,        const_line: 36}
+  - {event: EV_POSE_ANCHORED,       const_line: 38}
+  - {event: EV_DRIFT_WARNING,       const_line: 39}
+  - {event: EV_DRONE_ONLINE,        const_line: 41}
+  - {event: EV_DRONE_OFFLINE,       const_line: 42}
+  - {event: EV_BRIDGE_INFO,         const_line: 43}
+  - {event: EV_FIELD_VERIFY,        const_line: 44}
+  - {event: EV_SAFETY_STOP,         const_line: 46}
+  - {event: EV_SAFETY_CLEAR,        const_line: 47}
+  - {event: EV_TASK_FAULT,          const_line: 48}
+  evidence_events:
+    - {path: dzrobot_v2/src/dzbrain/dzbrain/core/events.py, line: 24}
+
+# =============================================================================
+# ★ 三个最容易踩的静默失败（跨进程/跨机不会报错，只会"看起来没反应"）
+# =============================================================================
+silent_failure_modes:
+  - id: SF-1
+    title: "QoS 不匹配 ⇒ 无端点连通、无报错"
+    detail: "pursuitAngle 是 depth=1 + BEST_EFFORT。若任一侧改成 RELIABLE，发布/订阅不互通，rclpy 不报错，但底盘收不到任何指令（车不动）或收到慢/旧指令（车一顿一顿）。QoS 只在装配时静默失败，启动契约靠端点计数对账能抓，运行期无信号。"
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 37}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 36}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 169}
+  - id: SF-2
+    title: "单位/坐标系三处漂移 ⇒ 车动但走错、打飞"
+    detail: "① odom position 是【格】，×0.35=米（geometry.BLOCK_SIZE）；② pursuitAngle angular.z 是【度】舵角，不是 rad/s；③ odom 四元数 yaw 是原始车体角，+π/2=地图 yaw。三处都集中在 contract.odom_to_pose 与 publish_command，别处手写换算即埋雷。"
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/contract.py, line: 145}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 499}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/core/geometry.py, line: 45}
+  - id: SF-3
+    title: "ROS_DOMAIN_ID 分裂 ⇒ 部分话题通、部分收不到"
+    detail: "env_problems 判 error 的正是域号不一致（DZ_ROS_DOMAIN）。一旦域分裂：DDS 图会裂成两半，跨机的 /dzlink 可能还通、同机的 /odom/localization 却收不到 ⇒ 车不动。症状是'某些话题有、某些没有'，极易误判为对端节点没起。"
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 103}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 111}
+  - id: SF-4
+    title: "刹车静默失效 ⇒ 日志自证安全、实际一条零速都没发"
+    detail: "旧写法 _safe_call(publish_brake) 把 publisher.publish() 抛的 RCLError 吞成 None，照样打'已发零速指令'。真刹手段只剩底盘 1s 看门狗。现 publish_brake 显式判 rclpy.ok()，发不出去就抛异常，不可能被误读成发出去了。"
+    evidence:
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/io/ros_io.py, line: 509}
+      - {path: dzrobot_v2/src/dzbrain/dzbrain/tasks/safety.py, line: 461}
+
+# =============================================================================
+# 未核实清单（读不到 / 依赖外部节点源码，本篇未取证据）
+# =============================================================================
+unverified:
+  - "voice_switch 的实际订阅节点与取值编码（本篇未见消费方源码）"
+  - "stop_signal 当前是否被云台补丁真正订阅（docstring 记'原先无人订阅'）"
+  - "dzsmartscout 端 heartbeat/bridge_passable/target_zone 的精确 JSON 字段（仅据车端 DRONE_PAYLOAD_TYPES 与 normalize 校验推断）"
+  - "path_executor 旧核与 dzbrain 同时跑时的 pursuitAngle 抢写（本篇未验证二选一装配）"

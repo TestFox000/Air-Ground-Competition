@@ -62,6 +62,16 @@ for _p in (str(_SRC), str(_TESTS)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 _WS = _SRC.parents[1]
+#: ★2026-10-31：生产配置不再有手写路线（path_executor.mission_blocks 随旧核删除）。
+#:   本文件原先直接读 robot.yaml 的 route.tokens；为空时改用固定夹具
+#:   （与删除前 robot.yaml 逐字一致的第七图 68 token），保证断言仍在验一条真实路线。
+_ROUTE_FIXTURE = _WS / "src" / "dzbrain" / "tests" / "fixtures" / "route_field7_t24.txt"
+
+
+def _live_tokens(cfg) -> list:
+    toks = [str(t) for t in (cfg.get("route.tokens") or [])]
+    return toks or _ROUTE_FIXTURE.read_text(encoding="utf-8").split()
+
 
 try:                                    # Windows 控制台 GBK：° / ε / ↔ 编不出来会打断输出
     sys.stdout.reconfigure(errors="replace")   # type: ignore[union-attr]
@@ -115,7 +125,7 @@ def field_route() -> Route:
     if not _FIELD_CACHE:
         cfg = Config.load(str(_CONFIG))
         _FIELD_CACHE["route"] = parse_mission(
-            list(cfg.get("route.tokens")), name="robot.yaml:route.tokens")
+            _live_tokens(cfg), name="fixture:route_field7_t24")
     return _FIELD_CACHE["route"]
 
 
@@ -775,8 +785,8 @@ def _neighbor(block: str, drow: int = 0, dcol: int = 0) -> str:
                               min(max(c + dcol, 0), geo.MAP_COLS - 1))
 
 
-_FIELD = S.load_field_spec(str(_WS / "config" / "map.yaml"))
-check("10.1 config/map.yaml 能加载成 FieldSpec（8 雷）",
+_FIELD = S.load_field_spec(str(_WS / "src" / "dzbrain" / "tests" / "fixtures" / "map_field7_t24.yaml"))
+check("10.1 测试夹具地图能加载成 FieldSpec（8 雷）",
       _FIELD is not None and len(_FIELD.mines) == 8 and _FIELD.source.endswith("map.yaml"),
       _FIELD.describe() if _FIELD else "None")
 

@@ -43,7 +43,7 @@ from dzbrain.route.model import Waypoint                      # noqa: E402
 
 HERE = pathlib.Path(__file__).resolve().parent
 WS_ROOT = HERE.parents[2]                       # <ws>/src/dzbrain/tests -> <ws>
-MAP_YAML = WS_ROOT / "config" / "map.yaml"
+MAP_YAML = WS_ROOT / "src" / "dzbrain" / "tests" / "fixtures" / "map_field7_t24.yaml"
 ROBOT_YAML = WS_ROOT / "config" / "robot.yaml"
 ROUTE_CHECK = WS_ROOT / "tools" / "route_check.py"
 
@@ -141,13 +141,14 @@ def alt_map() -> dict:
 
 
 def handwritten_tokens() -> list[str]:
-    """手写路线（`robot.yaml` 的 `path_executor.mission_blocks`，34 token）。"""
-    if yaml is None:                                         # pragma: no cover
-        return []
-    with open(ROBOT_YAML, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
-    params = (data.get("path_executor") or {}).get("ros__parameters", {}) or {}
-    return [str(x) for x in (params.get("mission_blocks") or [])]
+    """现场真走过的那条路线（历史来源：`robot.yaml` 的 `path_executor.mission_blocks`）。
+
+    ★2026-10-31：`path_executor` 段已随旧核删除（NOLEGACY），生产配置不再手写路线。
+    改为读固定夹具 `route_field7_t24.txt`（与删除前 robot.yaml 逐字一致的第七图 68 token）
+    —— 本节验的是「现场路线也必须满足同 6 条硬约束」，不依赖它写在哪个文件里。
+    """
+    fixture = WS_ROOT / "src" / "dzbrain" / "tests" / "fixtures" / "route_field7_t24.txt"
+    return fixture.read_text(encoding="utf-8").split()
 
 
 # --------------------------------------------------------------------------- #
@@ -287,7 +288,7 @@ def main() -> int:
     spec = P.load_map(map_cfg)
 
     section("0 前置：资产与判据")
-    check("config/map.yaml 存在且含 map 段", bool(map_cfg.get("map")), str(MAP_YAML))
+    check("测试夹具地图存在且含 map 段（生产无本地地图）", bool(map_cfg.get("map")), str(MAP_YAML))
     check("config/robot.yaml 存在", ROBOT_YAML.is_file(), str(ROBOT_YAML))
     # ★ 卡 t3 重钉：靶格级窗口 0.70/0.90 → 1.00/1.15（板心 1.00 m 档）；**t3-A 裁决再重钉**
     #   → **0.78/1.02**（板心 0.90±0.12 m ⇒ 停站 `D3`，到 E5/F5 = 0.7826/0.9899 m）。
@@ -395,14 +396,14 @@ def main() -> int:
     except P.PlannerError as exc:
         gen_ok &= check("[生成] 结构自检 + assert_legal 复跑无误", False, str(exc))
 
-    section("2 对照：手写路线（robot.yaml 的 mission_blocks）也必须满足同 6 条")
+    section("2 对照：现场路线（夹具，删除前 robot.yaml 逐字一致）也必须满足同 6 条")
     manual = handwritten_tokens()
-    check("读到手写路线", len(manual) >= 2, f"{len(manual)} token")
+    check("读到现场路线", len(manual) >= 2, f"{len(manual)} token")
     manual_route = PARSER.parse_mission(manual)
-    manual_ok = six_checks("手写", manual_route.blocks(), map_cfg, limits,
+    manual_ok = six_checks("现场", manual_route.blocks(), map_cfg, limits,
                            [w.shoot for w in manual_route.waypoints])
-    # 手写路线没有 ",x/,y" 后缀，块名直接比对
-    ok = check("[手写] ⑥ 起终点与地图一致且 token 可编译",
+    # 现场路线没有 ",x/,y" 后缀，块名直接比对
+    ok = check("[现场] ⑥ 起终点与地图一致且 token 可编译",
                manual_route.blocks()[0] == spec.start
                and manual_route.blocks()[-1] == spec.end,
                f"{manual_route.blocks()[0]}->{manual_route.blocks()[-1]}")

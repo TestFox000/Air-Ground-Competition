@@ -37,6 +37,16 @@ for _p in (str(_SRC), str(_TESTS)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 _WS = _SRC.parents[1]
+#: ★2026-10-31：生产配置不再有手写路线（path_executor.mission_blocks 随旧核删除）。
+#:   本文件原先直接读 robot.yaml 的 route.tokens；为空时改用固定夹具
+#:   （与删除前 robot.yaml 逐字一致的第七图 68 token），保证断言仍在验一条真实路线。
+_ROUTE_FIXTURE = _WS / "src" / "dzbrain" / "tests" / "fixtures" / "route_field7_t24.txt"
+
+
+def _live_tokens(cfg) -> list:
+    toks = [str(t) for t in (cfg.get("route.tokens") or [])]
+    return toks or _ROUTE_FIXTURE.read_text(encoding="utf-8").split()
+
 
 from harness import check, check_close, check_raises, section, finish   # noqa: E402
 
@@ -197,7 +207,8 @@ def test_config_values() -> None:
             "vehicle.coverage_radius_m": 0.035, "field.obstacle_radius_m": 0.1275,
             "field.mine_pad_m": 0.12, "field.barrier_width_m": 0.02,
             "planner.obstacle_margin_m": 0.02, "pursuit.cruise_speed_mps": 0.35,
-            "path_executor.linear_speed": 0.35, "dzactuator.ticksPer2PI": 2680.0,
+            # ★2026-10-31：`path_executor` 段已随旧核删除（NOLEGACY），不再验该键。
+            "dzactuator.ticksPer2PI": 2670.0,
             "dzactuator.ticksPerMeter": 3280.0,
             # ★ 卡 t11：现场卷尺实测的参考点偏移（后轴中心 → 车体几何中心）
             "vehicle.ref_offset_m": 0.075}
@@ -208,7 +219,7 @@ def test_config_values() -> None:
     issues = [i for i in _CFG.validate(strict=False) if i.level == "error"]
     check("真实配置无 error（新键已进 SCHEMA）", not issues, "; ".join(str(i) for i in issues))
     check("新键可读（SCHEMA 注册过，不是「只有 YAML 有、代码读不到」）",
-          all(_CFG.get(k) is not None for k in want), "8 个新键 + 3 个旧键全部可读")
+          all(_CFG.get(k) is not None for k in want), "8 个新键 + 2 个旧键全部可读")
     # ★ 卡 t11：**YAML 真源 ↔ SCHEMA 默认值**必须一致，且要按 YAML 里的**段前缀键路径**读得到。
     #   为什么单列这一条：`vehicle.*` 在 YAML 里写在 `/dzactuator: ros__parameters: vehicle:`，
     #   flatten 之后是 `dzactuator.vehicle.*`；而 `cfg.get("vehicle.length_m", 0.28)` 这种带非 None
@@ -248,9 +259,9 @@ def test_cross_check_route_check() -> None:
     from dzbrain.core import geometry as geo
     from dzbrain.route.parser import parse_mission
     mines = [str(m) for m in
-             ((yaml.safe_load((_WS / "config" / "map.yaml").read_text(encoding="utf-8")) or {})
+             ((yaml.safe_load((_WS / "src" / "dzbrain" / "tests" / "fixtures" / "map_field7_t24.yaml").read_text(encoding="utf-8")) or {})
               .get("map") or {}).get("mines") or []]
-    live = [str(t) for t in _CFG.get("route.tokens") or []]
+    live = _live_tokens(_CFG)
     pts = [geo.block_to_meters(b) for b in parse_mission(live).blocks()]
     check("现役路线的雷表非空（对拍样本）", len(mines) == 8, f"{len(mines)} 个雷")
     for mine in mines:
@@ -296,7 +307,7 @@ def test_amended_field_spec() -> None:
     from dzbrain.route import validate as V
     from dzbrain.route.parser import parse_mission as _pm
     import yaml as _yaml
-    _map = _yaml.safe_load((_WS / "config" / "map.yaml").read_text(encoding="utf-8"))
+    _map = _yaml.safe_load((_WS / "src" / "dzbrain" / "tests" / "fixtures" / "map_field7_t24.yaml").read_text(encoding="utf-8"))
     _iss = V.validate_route(_pm(["A8", "B8", "C8", "D8", "E9", "I9", "J9", "K9", "K10", "L10"]),
                             map_cfg=_map, cfg=_CFG)
     check("K9→K10（列内挪一格）被 R009「列内」硬拦（与澄清②一致）",
@@ -305,7 +316,7 @@ def test_amended_field_spec() -> None:
     # 挡板：D..N 含 K 段、无豁免 ⇒ 现场路线仍 0 风险（实测 0.175 ≥ 0.095）
     from dzbrain.core import geometry as _geo
     _live_pts = [_geo.block_to_meters(b) for b in _pm(
-        [str(t) for t in _CFG.get("route.tokens") or []]).blocks()]
+        _live_tokens(_CFG)).blocks()]
     _bmin, _bidx = RC.barrier_touch_min(_live_pts)
     check(f"挡板（D..N 含 K 段、**无豁免**）：现役路线最近 {_bmin:.4f} m ≥ 0.095 m",
           _bmin >= 0.095 - 1e-9, f"航段#{_bidx}")
@@ -313,7 +324,7 @@ def test_amended_field_spec() -> None:
     _req_s = RC.VEHICLE_WIDTH_M / 2.0
     _req_c = RC.vehicle_half_diagonal_m(RC.VEHICLE_LENGTH_M, RC.VEHICLE_WIDTH_M)
     _bs, _bt = 9e9, 9e9
-    for _t in [str(x) for x in (_yaml.safe_load((_WS / "config" / "map.yaml")
+    for _t in [str(x) for x in (_yaml.safe_load((_WS / "src" / "dzbrain" / "tests" / "fixtures" / "map_field7_t24.yaml")
                                                 .read_text(encoding="utf-8")))["map"]["targets"]]:
         _tx, _ty = _geo.block_to_meters(_t)
         for _i in range(len(_live_pts) - 1):
@@ -376,20 +387,23 @@ def test_ref_offset_footprint() -> None:
 
     # ---- ★ 实测状态钉死（真值轨迹里挡板最紧/首个侵入那一拍，见 _tmp_session/t11/out/）
     #  tracker-safe @0.30 的第 1466 拍：x=1.53733, y=1.65956, yaw=43.21°（J7 拐角切内）
+    #  ★2026-10-31 重钉：车体已定为 0.28×0.17（`vehicle.*`），旧期望 0.0544 / 0.000243
+    #    是更小车身口径。按现值重算：余量 0.0424 m、offset=+7.5cm 侵入 12.2 mm。
+    #    **语义变化要知悉**：+7.5cm 偏移不再只是"0.24 mm 临界擦碰"，而是实打实侵入 1.2 cm。
     _x, _y, _yaw = 1.5373257425306674, 1.6595578010558152, math.radians(43.21046949591248)
     _strip = P.corner_poly(1.75, (0.0 + 3.85) / 2.0, 0.02 / 2.0, 3.85 / 2.0)
     _p0 = P.body_corners(_x, _y, _yaw, length_m=L, width_m=W, offset_m=0.0)
     _p1 = P.body_corners(_x, _y, _yaw, length_m=L, width_m=W, offset_m=OFF)
-    check_close("同一拍：offset=0 ⇒ 挡板余量 +0.0544 m（碰不到）",
-                P.polygon_distance_m(_p0, _strip), 0.0544, 1e-4)
-    check_close("同一拍：offset=+7.5cm ⇒ 车体角点侵入挡板 0.24 mm（深度）",
-                P.polygon_overlap_depth(_p1, _strip), 0.000243, 2e-5)
+    check_close("同一拍：offset=0 ⇒ 挡板余量 +0.0424 m（碰不到）",
+                P.polygon_distance_m(_p0, _strip), 0.0424, 1e-4)
+    check_close("同一拍：offset=+7.5cm ⇒ 车体角点侵入挡板 12.2 mm（深度）",
+                P.polygon_overlap_depth(_p1, _strip), 0.01222, 2e-5)
     check("翻转偏移符号（-7.5 cm）⇒ 余量变大（证明符号约定没写反）",
           P.polygon_distance_m(P.body_corners(_x, _y, _yaw, length_m=L, width_m=W,
                                               offset_m=-OFF), _strip) > 0.05, "远离挡板")
     check_close("body_barrier_clearance_m 与多边形判据同源（同一拍 offset=0）",
                 P.body_barrier_clearance_m(_x, _y, _yaw, length_m=L, width_m=W, offset_m=0.0),
-                0.0544, 1e-4)
+                0.0424, 1e-4)
 
     # ---- 射击停站 F4 正对靶板（E4+E5 合并 35×70）：offset 把它从"差 3.5 cm"变成"压上" ----
     _fx, _fy, _fyaw = 2.625, 2.975, math.pi / 2          # F4 格心，朝 +y（正对靶板）

@@ -30,16 +30,12 @@ node_spec() {
     gimbal) echo "5_gimbal|ros2 launch dzrknn_dataprocess dzrknn_dataprocess.launch.py" ;;
     camera) echo "2_camera|ros2 launch dzactuator camera.launch.py" ;;
     vision) echo "4_det|ros2 launch det_node det_node.launch.py" ;;
-    # ★ 循迹槽位与 start_all.sh 必须**保持一致**：默认新核 dzbrain，LEGACY_PATH=1 回退旧核。
-    #   旧版本这里写死直跑 path_executor.py ⇒ 跑车途中一条 `restart_node.sh path`
-    #   就会**悄悄切回旧核**（现象一模一样、日志也在同一个 7_path.log，极难发现）。
-    #   `-u` 无缓冲同样沿用 start_all.sh 的教训（否则日志长时间 0 字节被误判卡死）。
+    # ★ 循迹槽位与 start_all.sh 必须**保持一致**：只有 dzbrain 一条实现
+    #   （2026-10-31 旧核 path_executor 已删除，不再有 LEGACY_PATH 回退通道）。
+    #   `-u` 无缓冲沿用 start_all.sh 的教训（否则日志长时间 0 字节被误判卡死）；
+    #   不传 --map：车端无本地地图，恒走布局模式。
     path)
-      if [ "${LEGACY_PATH:-0}" = "1" ]; then
-        echo "7_path|env PYTHONUNBUFFERED=1 ros2 run car_localization path_executor_node"
-      else
-        echo "7_path|env PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 python3 -u -m dzbrain.main --config $CONFIG --map $WS/config/map.yaml"
-      fi ;;
+      echo "7_path|env PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 python3 -u -m dzbrain.main --config $CONFIG" ;;
     judgment) echo "6_judgment|ros2 launch dzjudgment judgment.launch.py" ;;
     chassis) echo "1_chassis|ros2 launch dzactuator bringup.launch.py" ;;
     loc)    echo "3_localization|ros2 launch car_localization localization.launch.py" ;;

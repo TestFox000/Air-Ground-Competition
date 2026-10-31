@@ -62,7 +62,10 @@ from fakes import FakeBridge, FakeClock                           # noqa: E402
 # --------------------------------------------------------------------------- #
 WS = pathlib.Path(__file__).resolve().parents[3]          # <ws>/src/dzbrain/tests/x.py
 CONFIG = WS / "config" / "robot.yaml"
-MAP = WS / "config" / "map.yaml"
+MAP = WS / "config" / "map.yaml"          # ★2026-10-31 已删（这里只用它验证路径解析，不要求文件存在）
+#: ★2026-10-31：生产配置不再有手写路线（mission_blocks 随旧核删除）⇒ 手动模式/回退分支的
+#:   用例显式注入一条短路线；断言仍与 `parse_mission(cfg.route.tokens)` 同源自洽。
+MANUAL_TOKENS = ["N10", "M10", "M9", "M8"]
 # CAR-DUAL-20261024: 接口成功场景固定用合法双面图；生产配置只读。
 GOOD_MAP = pathlib.Path(__file__).resolve().parent / "fixtures" / "map_carloop_20261024.yaml"
 #: ★ TRACK-PLAN-B1-20261021 §10/§12 的夹具：第七图 t24（D7/E7 两格靶板、K4/K10 桥洞）。
@@ -187,6 +190,7 @@ def real_cfg(**kv) -> Config:
     cfg.override("planner.map_path", str(GOOD_MAP))
     cfg.override("mission.auto_start", True)
     cfg.override("mission.auto_start_delay_s", 0.0)       # 测试不需要等 10s
+    cfg.override("route.tokens", list(MANUAL_TOKENS))     # 生产配置已无手写路线，用例显式注入
     for k, v in kv.items():
         cfg.override("planner." + k, v)
     return cfg
@@ -460,7 +464,7 @@ check("5.6 遥测记下失败证据：plan.ok=False + error 非空 + 失败的�
 check("5.7 仍然 publish 了 EV_MISSION_STARTED（回退也要出车）",
       rig_fb.count(EV_MISSION_STARTED) == 1, str(rig_fb.count(EV_MISSION_STARTED)))
 check("5.8 载入 source 标明是回退来的",
-      any("route.tokens/mission_blocks(自动规划失败回退)" in s for s in rig_fb.logs), "见日志")
+      any("route.tokens(自动规划失败回退)" in s for s in rig_fb.logs), "见日志")
 
 # 文件不存在也算失败 → 同样回退
 rig_nf = Rig(real_cfg(auto_plan_enabled=True, map_path=str(NO_SUCH_MAP),
@@ -1283,7 +1287,9 @@ check("12.10 横幅台账一行看清类型：'停站点 3 个（射击 2 / 终�
       and "63:N5(终点)" in _ledger_line, _ledger_line)
 # 反向控制：把当前路线的一个真射击点退回普通航点 ⇒ 台账必须如实变"射击 1 / 终点 1"
 #   为什么需要：防止台账把"射击 2"写死（那样 12.9 会变成永远绿的假证据）。
-_one = list(cfg_off.get("route.tokens") or [])
+# ★2026-10-31：生产配置已无手写路线（mission_blocks 随旧核删除）⇒ 反向控制直接用
+#   tour 规划产物（含 C9*/C5* 双停站）作为输入；判据（退回一个星 ⇒ 台账变 1/1）不变。
+_one = list(_out_tour.tokens)
 _first_shoot = next(i for i, t in enumerate(_one) if parse_token(t)["shoot"])
 _one[_first_shoot] = _one[_first_shoot].replace("*", "", 1)
 _cfg_one = real_cfg(auto_plan_enabled=False)

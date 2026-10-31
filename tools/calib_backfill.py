@@ -77,7 +77,7 @@ CARW_H = _WS / "src" / "dzactuator" / "include" / "dzactuator.h"
 _CARW_RE = re.compile(r"#define\s+CARW\s+([0-9.]+)")
 
 #: 默认容差（与 R3/R4 报告的判据一致）
-TOL_LONG_CM = 4.0        # 纵向残差容差（robot.yaml:563「停位距 A10 中心 ≤4 cm」）
+TOL_LONG_CM = 4.0        # 纵向残差容差（robot.yaml 的 /dzactuator.ticksPerMeter 说明「停位距 A10 中心 ≤4 cm」）
 TOL_YAW_TRIM_DEG = 0.3   # yaw_trim 变动小于此值不折腾
 TOL_WHEELBASE_M = 0.002  # 轴距小于 2 mm 不折腾
 
@@ -125,11 +125,11 @@ CHANNELS: tuple[dict, ...] = (
         "lo": 1000.0, "hi": 20000.0,
         "guard_pct": 25.0,
         "inputs": ("r3.belief_travel_m", "r3.long_residual_cm", "r3.residual_measured_by"),
-        "note": ("公式（robot.yaml:557-563 的实测口径）：new = old × 信念行程 / 实走行程，"
+        "note": ("公式（robot.yaml 的 /dzactuator.ticksPerMeter 实测记录）：new = old × 信念行程 / 实走行程，"
                  "实走行程 = 信念行程 − 欠程。容差 |欠程| ≤ 4 cm ⇒ 冻结不改。"
                  "⚠车端 C++ 另有内置默认值 dzactuator.cpp:1127 `declare_parameter(\"ticksPerMeter\", 1000.0)` —— "
                  "只在参数没传进去时才会用到（不碰 C++）。"),
-        "comment_note": "robot.yaml:553-563 的标定说明段落需同步改写（本工具只改标量行）",
+        "comment_note": "robot.yaml 的 /dzactuator.ticksPerMeter 标定说明需同步改写（本工具只改标量行）",
         "pins": (
             _pin("src/dzbrain/tests/test_core.py", 164, "→ 3280.0）", "→ {v}）",
                  "断言失败信息里的历史数字"),
@@ -157,7 +157,7 @@ CHANNELS: tuple[dict, ...] = (
                  "几何下界：ticksPer2PI_geo = 2π · 轮距 · ticksPerMeter。"
                  "⚠车端 C++ 另有内置默认值 dzactuator.cpp:1128 `declare_parameter(\"ticksPer2PI\", 3200.0)` —— "
                  "只在参数没传进去时才会用到（不碰 C++）。"),
-        "comment_note": "robot.yaml:565-572 的 3236/2309.4 说明段需同步改写",
+        "comment_note": "robot.yaml 的 /dzactuator.ticksPer2PI 几何与实测说明需同步改写",
         "pins": (),   # ★ dzbrain 测试里 0 处钉它（只有 route/validate.py:10 注释）—— 见 --selfcheck 的"覆盖缺口"
     },
     {
@@ -174,7 +174,7 @@ CHANNELS: tuple[dict, ...] = (
         "inputs": ("r3.lat_drift_cm", "r3.belief_travel_m", "r3.lat_drift_confirmed"),
         "note": ("符号约定（tasks/localization.py:172-178）：实测横向偏移 ÷ 行程 → 角度；"
                  "**车偏右 ⇒ 取负值**。suggested = −degrees(atan(漂移m / 行程m))。"),
-        "comment_note": ("robot.yaml:515-517 的「直线4.55m 右偏 10/11 cm ≈ 1.4°」与 "
+        "comment_note": ("robot.yaml 的 /dzbrain.localization.yaw_trim_deg 直线偏移记录与 "
                          "tasks/localization.py:172-177 的同段注释需按实测改写"),
         "pins": (),   # ★ 无任何断言钉它（且不在 SCHEMA 里 ⇒ 无范围校验）—— 见 --selfcheck
     },
@@ -192,7 +192,7 @@ CHANNELS: tuple[dict, ...] = (
         "note": "注意：这是**轴距**（前后轮），不是轮距（左右轮）。轮距只进几何校核，不回填。"
                 "⚠ 代码默认值也在钉（core/config.py:65 的 `Spec(0.157, …)`）——改轴距要连它一起改，"
                 "否则任何「没传参数」的构造会回到旧轴距。",
-        "comment_note": "robot.yaml:422 的注释（旧代码硬编码 path_executor.py:629）+ core/config.py:66 的说明",
+        "comment_note": "robot.yaml 的 pursuit.drift_warn_m 注释（旧核 path_executor.py 已删除，真源只剩 dzbrain）+ core/config.py 的说明",
         "pins": (
             _pin("src/dzbrain/tests/test_core.py", 168, "== 0.157", "== {v}",
                  "★ 断言本体：pursuit.wheelbase_m（SCHEMA 默认读数）"),
@@ -247,8 +247,8 @@ CHANNELS: tuple[dict, ...] = (
         "lo": 0.02, "hi": 0.60,
         "guard_pct": None,
         "inputs": (),
-        "note": ("必须与旧键 `path_executor.linear_speed`（robot.yaml:251）**同步**改，"
-                 "否则车里出现两个速度（robot.yaml:430 的注释就是这么约束的）。"),
+        "note": ("2026-10-31 起唯一速度真源：旧核 path_executor.linear_speed 已随旧核删除，"
+                 "本键不再需要与任何 legacy 键同步。"),
         "pins": (
             _pin("src/dzbrain/tests/test_core.py", 154, "（0.30，与 cruise 同步）", "（{v}，与 cruise 同步）"),
             _pin("src/dzbrain/tests/test_core.py", 155, "== 0.30", "== {v}"),
@@ -271,7 +271,7 @@ CHANNELS: tuple[dict, ...] = (
         "lo": 20.0, "hi": 600.0,
         "guard_pct": None,
         "inputs": (),
-        "note": ("标定法见 robot.yaml:478-483（靶放轨道两端量 |Δdx|）。"
+        "note": ("标定法见 robot.yaml 的 /dzbrain.aim.px_per_m_rail/rail_span_m 标定说明（靶放轨道两端量 |Δdx|）。"
                  "test_aim.py:264 只断言「键存在」，**不钉值** ⇒ 改 140 不会红，属覆盖缺口。"),
         "pins": (),   # 无值钉（test_aim.py:264 只查键存在）
     },
@@ -930,14 +930,11 @@ def selfcheck(config_path: pathlib.Path, root: pathlib.Path) -> dict:
         info.append(f"[交叉] 几何预期 ticksPer2PI = 2π·{carw}·{tpm:.1f} = {geo:.1f}；"
                     f"现值 {t2p} ⇒ ×{float(t2p) / geo:.3f}")
     cruise = cfg.get("pursuit.cruise_speed_mps")
-    legacy = cfg.get("path_executor.linear_speed")
-    if cruise is not None and legacy is not None:
-        if abs(float(cruise) - float(legacy)) > 1e-9:
-            errors.append(f"[交叉] pursuit.cruise_speed_mps={cruise} ≠ path_executor.linear_speed={legacy}")
-        else:
-            info.append(f"[交叉] 巡航双键同步：{cruise} == {legacy} ✓")
+    if cruise is not None:
+        info.append(f"[交叉] 巡航速度唯一真源 pursuit.cruise_speed_mps={cruise}"
+                    "（旧核 path_executor.linear_speed 已删除，无第二键可比）")
     else:
-        warns.append("[交叉] 巡航双键之一读不到，无法核对同步性")
+        warns.append("[交叉] 读不到 pursuit.cruise_speed_mps")
     info.append(f"[交叉] 轮距来源 dzactuator.h CARW = {carw}")
     # yaw_trim 无 SCHEMA
     if "localization.yaw_trim_deg" not in _schema_keys():

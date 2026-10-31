@@ -54,7 +54,7 @@ from fakes import FakeBridge, FakeClock                                        #
 from harness import check, finish, section                                     # noqa: E402
 
 WS = pathlib.Path(__file__).resolve().parents[3]          # <ws> = dzrobot_v2/
-MAP_PATH = WS / "config" / "map.yaml"
+MAP_PATH = WS / "src" / "dzbrain" / "tests" / "fixtures" / "map_field7_t24.yaml"
 CONFIG_PATH = WS / "config" / "robot.yaml"
 
 #: 与现场 `config/map.yaml` 同口径的本地地图（靶区两格相连、雷/障各若干）
@@ -356,11 +356,13 @@ check("没有发上线/离线事件",
 
 # --------------------------------------------------------------------------- #
 section("⑨ 本地地图三级来源")
-check("默认路径指向 <repo>/config/map.yaml 且存在",
-      default_map_path().name == "map.yaml" and default_map_path().is_file(),
+check("默认路径仍指向 <repo>/config/map.yaml（车端无此文件 = 布局模式）",
+      default_map_path().name == "map.yaml" and not default_map_path().is_file(),
       f"got {default_map_path()}")
-task, bridge, bb, bus, clock, sub = build(local_map=None)
-check("不传 local_map → 自动读仓库默认地图（loaded=True）", task.map_loaded is True,
+# ★2026-10-31：仓库里已无 config/map.yaml（真·无本地地图）⇒ "不传 local_map" 应如实降级，
+#   绝不能再静默用一张过期图；要素核对改由显式 drone.map_path 驱动（下两条断言不变）。
+task, bridge, bb, bus, clock, sub = build({"drone": {"map_path": str(MAP_PATH)}}, local_map=None)
+check("不传 local_map、显式给 drone.map_path → 读该图（loaded=True）", task.map_loaded is True,
       f"got {task.map_loaded} source={task._map_source}")
 # ★★ t22 重钉（车端不留地图文件同卡）：**期望值从 map.yaml 现场读**，不再硬编码某张图。
 #   原断言钉 {E5,F5}（第三张图），换到第六张图（D5+D6）后变成"数据过期红"——判据本身

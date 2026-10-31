@@ -269,7 +269,7 @@ class DualRig:
                             "settle_eps_m": 5.0, "lock_timeout_s": 18.0,
                             # ★t26（用户指令 4）：shots_per_stop 3 → 10（"打完全部弹药"口径），
                             #   与 config/robot.yaml:mission.shots_per_stop=10 对齐。
-                            "shot_timeout_s": 30.0, "shots_per_stop": 10},
+                            "shoot_timeout_s": 30.0, "shots_per_stop": 10},
                 "pursuit": {"arrival_m": 0.12, "stop_radius_m": 0.17, "approach_m": 0.60},
                 "aim": {"gimbal_lock_enabled": lock, "gimbal_lock_scan_request": LOCK,
                         "gimbal_seek_scan_request": SEEK,

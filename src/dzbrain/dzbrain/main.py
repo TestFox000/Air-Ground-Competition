@@ -726,25 +726,25 @@ def assert_fire_interlock(cfg: Any, gates: "GateLedger", *, log: Callable[[str],
     if fire_blue is False:
         problems.append("aim.fire_only_blue=false（红蓝面未定也要开火）")
     try:
-        max_shots = cfg.get("aim.max_shots", None)
+        max_shots = cfg.get("aim.max_shots_total", None)
     except Exception:                                    # noqa: BLE001
         max_shots = None
     if max_shots is not None:
         try:
             if int(max_shots) <= 0:
-                problems.append(f"aim.max_shots={max_shots}（无发数上限）")
+                problems.append(f"aim.max_shots_total={max_shots}（无发数上限）")
         except (TypeError, ValueError):
-            problems.append(f"aim.max_shots={max_shots!r}（无法解析）")
+            problems.append(f"aim.max_shots_total={max_shots!r}（无法解析）")
     if problems:
         hard_stop(gates, None, None, key=GATE_FIRE_INTERLOCK, reason="开火联锁不在位",
-                  phase="REFUSED", gate=";".join(problems), expected="fire_only_blue=true ∧ max_shots>0",
-                  actual=f"fire_only_blue={fire_blue} / max_shots={max_shots}",
+                  phase="REFUSED", gate=";".join(problems), expected="fire_only_blue=true ∧ max_shots_total>0",
+                  actual=f"fire_only_blue={fire_blue} / max_shots_total={max_shots}",
                   where="run_live/发车前")
         log("⛔ 开火联锁未在位 ⇒ 拒绝进入任务组（发车前硬拦②）；修好配置再起")
         return False
     gates.info("fire_interlock_ok",
-               expected="fire_only_blue=true ∧ max_shots>0",
-               actual=f"fire_only_blue={fire_blue} / max_shots={max_shots}")
+               expected="fire_only_blue=true ∧ max_shots_total>0",
+               actual=f"fire_only_blue={fire_blue} / max_shots_total={max_shots}")
     return True
 
 
@@ -3175,51 +3175,6 @@ def _run_live_body(cfg: Config, *, log: Callable[[str], None] = LOG,
     return rc
 
 
-# --------------------------------------------------------------------------- #
-#  旧核自跑防护（LINK-HARDEN-20261029 · T4）
-# --------------------------------------------------------------------------- #
-#  现场形态：我用 LEGACY_PATH=1 回退旧核时，旧核按 `path_executor.auto_start` +
-#  `path_executor.auto_start_delay` 在起栈后**自己出发**，中间没有任何确认步骤 ——
-#  人还在核对站位，车已经动了。两条防线（本函数 + start_all.sh 的旧核分支横幅）：
-#    ① 常态值必须是"假"（现场发车才临时改真，跑完立刻改回；见 config/robot.yaml）；
-#    ② 万一是"真"，起栈时**大声**喊出来，把延时与停车办法一起打出来。
-#  ★ 诚实边界：`LEGACY_PATH=1` 时 start_all.sh 起的是旧核，**dzbrain 压根不在场**，
-#    所以本函数只能在"环境变量声称回退旧核、却仍跑起新核"这类形态下生效；真正拦人的
-#    是 start_all.sh 的同口径横幅。两处都留，是因为任何一处被人绕过都不该是静默的。
-LEGACY_PATH_ENV = "LEGACY_PATH"
-
-
-def _legacy_autostart_armed(cfg: Config) -> tuple[bool, float]:
-    """旧核自跑是否已武装 → `(armed, delay_s)`（**纯读**，不改配置、不写文件）。"""
-    raw = cfg.get("path_executor.auto_start", None)
-    armed = raw is True or str(raw).strip().lower() in ("true", "1", "yes", "on")
-    try:
-        delay = float(cfg.get("path_executor.auto_start_delay", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        delay = 0.0
-    return armed, delay
-
-
-def _warn_legacy_autostart(cfg: Config, *,
-                           log: Callable[[str], None] = LOG) -> bool:
-    """旧核自跑防护横幅：武装了就喊（返回是否武装）。"""
-    armed, delay = _legacy_autostart_armed(cfg)
-    if not armed:
-        return False
-    legacy_env = str(os.environ.get(LEGACY_PATH_ENV, "") or "").strip().lower()
-    if legacy_env in ("1", "true", "yes", "on"):
-        log(f"⛔⛔ 旧核自跑已武装：环境变量 {LEGACY_PATH_ENV}=1 且旧核自跑开关为真"
-            f"（延时 {delay:g}s）—— 旧核起来后会**自己出发**，没有任何确认步骤！"
-            "→ 先核对：车压在起点格心吗 / 车头朝向对吗 / 走廊无人无物吗；"
-            "要立刻停：bash start_all.sh stop")
-    else:
-        log("⚠️ 旧核自跑已武装：旧的 path_executor 段自跑开关为真"
-            f"（延时 {delay:g}s）。本轮起的是新核 dzbrain（该键对 dzbrain 无效），"
-            "但**一旦 LEGACY_PATH=1 回退旧核**，它会在该延时后自己出发 —— "
-            "现场回退前先核对站位（常态应为假，见 config/robot.yaml）")
-    return True
-
-
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="dzbrain", description="dzrobot 新决策层（多线程任务架构）")
     ap.add_argument("--config", default=None, help="robot.yaml 路径（默认 ~/dzrobot/config/robot.yaml）")
@@ -3240,15 +3195,9 @@ def main(argv: list[str] | None = None) -> int:
         args.config, args.map_path, force=args.force, announce=not args.plan_only,
         # ★ 车端不留地图文件：地图缺失时由无人机 field_layout 顶替（只在
         #   planner.auto_plan_enabled=true 时生效；见 load_and_check 的 docstring）。
-        #   注意 start_all.sh 仍按历史习惯传 `--map $WS/config/map.yaml` —— 车端没有
-        #   该文件时就属于这个分支：**允许启动，等布局**（run_live 会判布局模式）。
+        #   2026-10-31 起 start_all.sh 不再传 --map（本地地图已删）：恒走这个分支，
+        #   **允许启动，等布局**（run_live 会判布局模式）。
         allow_missing_map=True)
-
-    # ★ 旧核自跑防护（LINK-HARDEN-20261029 · T4）：配置里"旧的 path_executor 段自跑开关"
-    #   若为真，任何一次 LEGACY_PATH=1 回退都会让车在无人确认的情况下自己出发。
-    #   位置：配置读完之后、门禁 return 2 / --plan-only 分流**之前** ——
-    #   这是"车会不会自己动"的安全信息，不该被后面的任何 return 吞掉。
-    _warn_legacy_autostart(cfg, log=LOG)
 
     # ★ --map 透传（2026-10-11 修复）：planner.map_path 的相对解析以 workspace_root() 为基准；
     #   install 拷贝树里 workspace_root() = install/dzbrain/lib → config/map.yaml 永远找不到

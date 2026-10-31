@@ -48,6 +48,7 @@ src/history/log/log_YYYY-MM-DD_HHMM.md     # 日志：log_ + 生成日期(精确
 ## 4. 日志清单（log/）
 
 | 生成时间 | 文件 | 一句话摘要 | 当时的 P0 |
+| 2026-10-31 03:10 | [log_2026-10-31_0310.md](log/log_2026-10-31_0310.md) | dzrobot_v2 全史推 GitHub（42 分支前缀 dzrobot-v2/·37 tag·逐笔 ls-remote 哈希对账）+ 三机制钉死（blob:none promisor / HTTP/2×代理假死 / CRLF refspec）；06 §7.1 更正「全史不可行」限 v1；台账 D-061；症-49 改写 | 探针分支×3 删否待用户；改动未 commit 未推（D-044） |
 | 2026-10-29 18:06 | [log_2026-10-29_1806.md](log/log_2026-10-29_1806.md) | artifacts 根 8 散文件清理（方案B）：归档 scatter_archive_20261029.zip（1.15MB/sha256 0a859ea1…）后删原件；TEAM_STATUS 快照链接改指 zip；四门禁复跑全绿零新增 | 本地 commit 等用户指令；sim/ 234MB 保留策略仍待 SIM-STUDIO-OPT P1-3 |
 | 2026-10-29 02:45 | [log_2026-10-29_0245.md](log/log_2026-10-29_0245.md) | 档案库卫生小轮：删 nul/修 2 红锚/收缩 anchors 基线 28 行/8 分册篇数复核全绿；anchors 红 4→3 全他 ns | 3 条他 ns 红与 1 条 R8 待各 owner |
 | 2026-10-29 01:45 | [log_2026-10-29_0145.md](log/log_2026-10-29_0145.md) | 决策台账三线分流（Thin Ledger v1）收口：薄索引+附录、数→数字速查.yaml(72条/机器校验)、查账四处统一；D-058/D-059 入台账；独立验收 8 判据全过 | 本地 commit 等用户指令；他域 10 条 anchors 新增红待各 owner 处置 |

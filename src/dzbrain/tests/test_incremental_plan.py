@@ -43,13 +43,23 @@ from dzbrain.route import validate as V                           # noqa: E402
 from harness import check, check_raises, finish, section           # noqa: E402
 
 WS = pathlib.Path(__file__).resolve().parents[3]
+#: ★2026-10-31：生产配置不再有手写路线（path_executor.mission_blocks 随旧核删除）。
+#:   本文件原先直接读 robot.yaml 的 route.tokens；为空时改用固定夹具
+#:   （与删除前 robot.yaml 逐字一致的第七图 68 token），保证断言仍在验一条真实路线。
+_ROUTE_FIXTURE = WS / "src" / "dzbrain" / "tests" / "fixtures" / "route_field7_t24.txt"
+
+
+def _live_tokens(cfg) -> list:
+    toks = [str(t) for t in (cfg.get("route.tokens") or [])]
+    return toks or _ROUTE_FIXTURE.read_text(encoding="utf-8").split()
+
 CFG_PATH = WS / "config" / "robot.yaml"
-MAP_PATH = WS / "config" / "map.yaml"
+MAP_PATH = WS / "src" / "dzbrain" / "tests" / "fixtures" / "map_field7_t24.yaml"
 
 MAP = yaml.safe_load(MAP_PATH.read_text(encoding="utf-8"))
 SPEC = PL.load_map(MAP, source=str(MAP_PATH))
 CFG = Config.load(str(CFG_PATH))
-LIVE = [str(t) for t in (CFG.get("route.tokens") or [])]
+LIVE = _live_tokens(CFG)
 MINES = list(SPEC.mines)
 TARGETS = list(SPEC.targets)
 

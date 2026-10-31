@@ -17,21 +17,21 @@
     config/robot.yaml            人工填进 mission_blocks
             |
             v
-    path_executor 校验器         语法层：token 合不合法
+    内置校验器                    语法层：token 合不合法
             |
             v
-    path_executor 解析器         解析层：转成航点 + 三个标记数组
+    内置解析器                    解析层：转成航点 + 三个标记数组
             |                    （shoot / scan / reverse）
             v
     实际行驶                     几何层：真的能开过去吗？
 
-本工具把后三步全部自动化，并且**直接复用 path_executor 里的校验与解析函数**
-（不是重写一份 —— 重写就会两处逻辑各说各话，那正是要避免的）。
+本工具把后三步全部自动化。★2026-10-31：旧核 path_executor.py 已删除，校验/解析改用
+本文件内置实现（规则与旧 validate_mission_blocks 逐条一致）。
 
 --------------------------------------------------------------------------------
 五层检查（⑥ 折返层为新增，共六层）
 --------------------------------------------------------------------------------
-    ① 语法层    token 合法性（复用 path_executor.validate_mission_blocks）
+    ① 语法层    token 合法性（内置 fallback_validate）
     ② 解析层    模拟 follow_route_command，产出航点与标记数组
     ③ 几何层    挡板穿越列/余量、障碍最近距离、地图边界、转弯角度
     ④ 任务层    雷/靶/桥洞覆盖、射击点距离是否在 0.20~0.45m
@@ -188,24 +188,10 @@ def zone_of(row: int) -> int:
 
 
 # =============================================================================
-#  复用 path_executor 的校验/解析逻辑（不重写，避免两处逻辑分叉）
 # =============================================================================
-def load_path_executor():
-    p = os.path.join(WS, 'src', 'car_localization', 'car_localization',
-                     'path_executor.py')
-    if not os.path.exists(p):
-        return None
-    try:
-        spec = importlib.util.spec_from_file_location("pe_for_check", p)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod
-    except Exception as exc:
-        print("  \033[33m⚠️ \033[0m 无法导入 path_executor（%s），改用内置副本校验"
-              % type(exc).__name__)
-        return None
-
-
+#  内置校验（2026-10-31：旧核 path_executor.py 已删除，不再有「权威实现」可复用）
+#  规则与旧版 fallback_validate 逐条一致；两处逻辑分叉的风险随之消失。
+# =============================================================================
 def fallback_validate(tokens):
     """path_executor 不可用时的内置等价校验（保持同样的规则）。"""
     problems, n_rev, n_shoot, n_norm = [], 0, 0, 0
@@ -788,15 +774,9 @@ def run_check(route: str, cfg: dict) -> int:
 
     # ---------------- ① 语法层 ----------------
     sec("1/6 语法层")
-    pe = load_path_executor()
-    if pe is not None and hasattr(pe, 'normalize_mission_token'):
-        toks = [x for x in (pe.normalize_mission_token(t) for t in tokens) if x]
-        valid, problems, stats = pe.validate_mission_blocks(toks)
-        info("校验来源", "path_executor.validate_mission_blocks（权威实现）")
-    else:
-        toks = tokens
-        valid, problems, stats = fallback_validate(tokens)
-        info("校验来源", "内置等价副本")
+    toks = tokens
+    valid, problems, stats = fallback_validate(tokens)
+    info("校验来源", "内置校验（旧核已删除；规则与旧 validate_mission_blocks 逐条一致）")
 
     if valid:
         ok("全部 token 合法", "普通 %d | 倒车 %d | 射击 %d | 折返 %d"
@@ -1282,19 +1262,18 @@ def load_cfg(path):
         try:
             with open(path, encoding='utf-8') as fp:
                 d = yaml.safe_load(fp) or {}
-            p = (d.get('path_executor') or {}).get('ros__parameters', {}) or {}
-            cfg['mission_blocks'] = list(p.get('mission_blocks') or [])
-            cfg['obstacles'] = list(p.get('obstacle_blocks') or [])
-            cfg['bridges'] = list(p.get('bridge_blocks') or [])
-            # ★射程随配置走：射程一变，合法射击点就完全不同，
-            #   校验器硬编码旧值会把正确的路线判成错的（已经踩过一次）。
-            for _k, _g in (('shoot_distance_min', 'SHOOT_DIST_MIN'),
-                           ('shoot_distance_max', 'SHOOT_DIST_MAX')):
-                if _k in p:
-                    globals()[_g] = float(p[_k])
+            # ★2026-10-31：旧核 path_executor 段已删除 —— 手写路线、障碍/桥洞、
+            #   靶格级射程窗口一并移除；要素只来自 map.yaml（可选）与命令行。
+            #   射程口径改为 /dzbrain 的 route.shoot_distance_m ± tol。
+            dz = (d.get('/dzbrain') or {}).get('ros__parameters', {}) or {}
+            dz_route = dz.get('route') if isinstance(dz.get('route'), dict) else {}
+            if 'shoot_distance_m' in dz_route and 'shoot_distance_tol_m' in dz_route:
+                _d = float(dz_route['shoot_distance_m'])
+                _t = float(dz_route['shoot_distance_tol_m'])
+                globals()['SHOOT_DIST_MIN'] = _d - _t
+                globals()['SHOOT_DIST_MAX'] = _d + _t
             # ★ 折返声明门限也随配置走（`/dzbrain: ros__parameters: pursuit:` 段；
             #   robot.yaml 目前没写这个键，所以取 `core/config.py` 的默认 135°）。
-            dz = (d.get('/dzbrain') or {}).get('ros__parameters', {}) or {}
             pu = dz.get('pursuit') if isinstance(dz.get('pursuit'), dict) else {}
             if pu and 'pivot_angle_deg' in pu:
                 globals()['PIVOT_DECL_DEG'] = float(pu['pivot_angle_deg'])
@@ -2226,9 +2205,15 @@ def main(argv=None) -> int:
     else:
         mb = cfg.get('mission_blocks') or []
         if not mb:
-            print("❌ 未指定路线：用 --route / --from-planner，"
-                  "或确保配置中心有 mission_blocks", file=sys.stderr)
-            return 2
+            # ★2026-10-31：车端无本地地图、无手写路线（布局模式）—— 这里没有可校验对象。
+            #   与 config_selfcheck 同口径：退出码 3 = 配置可用但**空间证据未校验**，
+            #   不是"路线通过"（绝不能因为没东西可查就报绿）。
+            print("-" * 78)
+            print("[布局模式] 无手写路线（mission_blocks 已随旧核删除）")
+            print("           路线由无人机 field_layout 在运行期生成 ⇒ 静态路线校验不适用。")
+            print("           要校验具体路线请显式给 --route / --from-planner / --trajectory。")
+            print("           退出码 3 = 未校验（不是通过）。")
+            return 3
         route = ' '.join(str(x) for x in mb)
         print("=" * 78)
         print("  校验配置中心当前路线")
@@ -2241,3 +2226,4 @@ def main(argv=None) -> int:
 
 if __name__ == '__main__':
     sys.exit(main())
+

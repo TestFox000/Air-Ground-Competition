@@ -22,7 +22,7 @@ r"""deploy_car.py —— 新版 dzbrain 的部署工作流（本地唯一真源 
 
 用法示例：
     python tools\deploy_car.py plan
-    python tools\deploy_car.py --write push config/robot.yaml config/map.yaml start_all.sh
+    python tools\deploy_car.py --write push config/robot.yaml start_all.sh
     python tools\deploy_car.py --write push src/dzbrain
     python tools\deploy_car.py --write build
     python tools\deploy_car.py gate
@@ -52,7 +52,6 @@ SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostK
 DEFAULT_PAYLOAD = [
     "src/dzbrain",
     "config/robot.yaml",
-    "config/map.yaml",
     "start_all.sh",
     "tools/config_selfcheck.py",
     "docs/云台补丁说明.md",
@@ -121,7 +120,7 @@ def cmd_status(_args) -> int:
         ("主机/内核", "hostname; uptime | head -1; uname -r"),
         ("工作区", f"ls -d {REMOTE_WS} && du -sh {REMOTE_WS} 2>/dev/null | cut -f1"),
         ("dzbrain 是否已装", "python3 -c 'import dzbrain,sys; print(\"dzbrain\", dzbrain.__version__)' 2>&1 | tail -1"),
-        ("配置指纹", f"md5sum {REMOTE_WS}/config/robot.yaml {REMOTE_WS}/config/map.yaml 2>/dev/null"),
+        ("配置指纹", f"md5sum {REMOTE_WS}/config/robot.yaml 2>/dev/null"),
         ("标定值", f"python3 -c \"import yaml;d=yaml.safe_load(open('{REMOTE_WS}/config/robot.yaml'))['/dzactuator']['ros__parameters'];print('ticksPerMeter',d['ticksPerMeter'],'ticksPer2PI',d['ticksPer2PI'])\" 2>&1 | tail -1"),
         ("设备节点", "ls -l /dev/dzactuator /dev/dzjudgment 2>&1 | head -2"),
         ("ROS 节点", "source /opt/ros/humble/setup.bash 2>/dev/null; timeout 8 ros2 node list 2>&1 | head -12"),
@@ -137,7 +136,7 @@ def cmd_status(_args) -> int:
 def cmd_gate(args) -> int:
     print("== 车上启动门禁（配置+路线校验，只读）==")
     rc, out = ssh(f"cd {REMOTE_WS} && PYTHONIOENCODING=utf-8 timeout 60 python3 -m dzbrain.main "
-                  f"--config {REMOTE_WS}/config/robot.yaml --map {REMOTE_WS}/config/map.yaml --dry-run",
+                  f"--config {REMOTE_WS}/config/robot.yaml --map --dry-run",
                   timeout=90)
     print(out.strip())
     print(f"\n门禁退出码 = {rc}  →  {'✅ 通过' if rc == 0 else '❌ 未通过（车端禁止起栈）'}")
@@ -184,9 +183,9 @@ def cmd_plan(_args) -> int:
     print("\n② 车上要执行的命令（需 --write）：")
     print("   cd ~/dzrobot && colcon build --packages-select dzbrain dzrknn_dataprocess")
     print("   source install/setup.bash")
-    print("   python3 -m dzbrain.main --config config/robot.yaml --map config/map.yaml --dry-run")
-    print("   ./start_all.sh restart        # step7 默认走 dzbrain；LEGACY_PATH=1 回退旧实现")
-    print("\n③ 回退：LEGACY_PATH=1 ./start_all.sh restart / SKIP_PRECHECK=1 / git checkout")
+    print("   python3 -m dzbrain.main --config config/robot.yaml --dry-run")
+    print("   ./start_all.sh restart        # step7 默认走 dzbrain（唯一循迹实现，旧核已删）")
+    print("\n③ 回退：git checkout 上一个提交 / SKIP_PRECHECK=1（无旧核回退通道）")
     print("\n④ 注意：云台补丁默认关闭（use_external_fire_gate=false），"
           "开火行为与旧版一致；整定步骤见 docs/云台补丁说明.md")
     return 0

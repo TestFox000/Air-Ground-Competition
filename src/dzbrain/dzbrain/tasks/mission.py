@@ -1490,6 +1490,13 @@ _TERMINAL_PHASES: tuple[str, ...] = (MissionPhase.FINISH, MissionPhase.SAFE_STOP
 
 _EPS = 1e-9
 
+#: `SHOOT@<靶标>` 候选窗口：**格心距**（相邻格心 0.35 m），不是板心距。
+#:   旧核 `path_executor.shoot_distance_*` 随路径核删除后本窗口无配置来源 ⇒
+#:   固化为常量，行为与删除前逐字一致（2026-10-31 CONFIG-DEBT 收口）。
+SHOOT_AT_MIN_M = 0.20
+SHOOT_AT_MAX_M = 0.45
+SHOOT_AT_KEEP = 3
+
 
 @dataclass
 class _StopContext:
@@ -1561,7 +1568,7 @@ class MissionTask(TaskThread):
         self._settle_eps_m = float(cfg.get("mission.settle_eps_m", 0.02))
         self._settle_speed_mps = float(cfg.get("mission.settle_speed_mps", 0.02))
         self._lock_timeout_s = float(cfg.get("mission.lock_timeout_s", 18.0))
-        self._shot_timeout_s = float(cfg.get("mission.shot_timeout_s", 30.0))
+        self._shot_timeout_s = float(cfg.get("mission.shoot_timeout_s", 30.0))
         self._scan_stop_timeout_s = float(cfg.get("mission.scan_stop_timeout_s", 8.0))
         # ★★ **到站级硬死线**（秒）—— 自"到站那一刻"起累计超过它
         #   就强制离站（0 发也一样），口径 = "最佳射击点停留最长 30s"。
@@ -2787,11 +2794,11 @@ class MissionTask(TaskThread):
                  for half in BRIDGE_HALVES}
         if not self._auto_plan_enabled:
             self._route_source = ROUTE_SOURCE_MANUAL
-            tokens = self.cfg.get("route.tokens") or self.cfg.get("mission_blocks")
+            tokens = self.cfg.get("route.tokens")
             tokens, accepted = self._apply_intel_to_tokens(tokens, snap)
             self._intel_note["manual_substituted"] = {
                 half: f"{old}→{new}" for half, (old, new) in accepted.items()}
-            src = "route.tokens(或 mission_blocks)"
+            src = "route.tokens"
             if accepted:
                 src += "（无人机情报换洞）"
             self._load_tokens(tokens, source=src)
@@ -2830,15 +2837,15 @@ class MissionTask(TaskThread):
         detail = (f"自动规划失败：map={out.map_path} {out.mode} 引擎 {out.engine or self._planner_engine} "
                   f"预算 {self._planner_budget_s:g}s → {out.error}")
         if self._planner_fallback:
-            self._log(f"⚠️ {detail}；fallback_to_tokens=true → 回退 route.tokens/mission_blocks 并继续出发")
+            self._log(f"⚠️ {detail}；fallback_to_tokens=true → 回退 route.tokens 并继续出发")
             self._route_source = ROUTE_SOURCE_MANUAL
-            tokens = self.cfg.get("route.tokens") or self.cfg.get("mission_blocks")
+            tokens = self.cfg.get("route.tokens")
             # 回退路线**也是要执行**的路线，所以同样吃情报换洞（否则"规划失败"
             #   会把穿洞格悄悄退回默认，而现场恰恰最需要这条兜底路线是安全的）。
             tokens, accepted = self._apply_intel_to_tokens(tokens, snap)
             self._intel_note["manual_substituted"] = {
                 half: f"{old}→{new}" for half, (old, new) in accepted.items()}
-            src = "route.tokens/mission_blocks(自动规划失败回退)"
+            src = "route.tokens(自动规划失败回退)"
             if accepted:
                 src += "（无人机情报换洞）"
             self._load_tokens(tokens, source=src)
@@ -3132,14 +3139,15 @@ class MissionTask(TaskThread):
         """靶格 → 候选射击停站点（4 邻格中落在射击窗口内的）。
 
         语法：`SHOOT@G11` 是**指令不是坐标**（`route/parser.py`），由本回调展开成候选链。
-        取窗口与候选保留数沿用现场键 `path_executor.shoot_distance_target` /
-        `shoot_distance_min` / `shoot_distance_max`（缺省 0.35 / 0.20 / 0.45，与 map.yaml 一致）。
+        窗口口径 = **格心距**（相邻格心 0.35 m），**不是**板心距 —— 与
+        `route.shoot_distance_m ± tol`（0.90±0.12，板心距离）不同源、不可互换：
+        换成 0.78~1.02 会让 4 邻格（0.35 / 0.495）全部落空。
+        旧核 `path_executor.shoot_distance_*` 随路径核删除后本窗口无配置来源 ⇒
+        固化为常量，行为与删除前逐字一致（2026-10-31 CONFIG-DEBT 收口）。
         """
         tx, ty = geo.block_to_meters(target)
-        win_lo = float(self.cfg.get("path_executor.shoot_distance_min", 0.20))
-        win_hi = float(self.cfg.get("path_executor.shoot_distance_max", 0.45))
-        self.cfg.get("path_executor.shoot_distance_target", 0.35)
-        keep = int(self.cfg.get("path_executor.shoot_candidates_keep", 3) or 3)
+        win_lo, win_hi = SHOOT_AT_MIN_M, SHOOT_AT_MAX_M
+        keep = SHOOT_AT_KEEP
 
         row_idx, col_idx = geo.block_to_index(target)
         cands: list[tuple[float, str]] = []

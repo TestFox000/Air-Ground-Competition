@@ -68,7 +68,7 @@ except Exception as e:
 p = (d.get('/dzrknn_dataprocess') or {}).get('ros__parameters', {}) or {}
 qz  = p.get('track_deadzone_px')
 ff  = p.get('fire_dz_far_px')
-lf  = p.get('lost_frames_to_rescan')
+lf  = p.get('lost_frames_to_rescan', 180)  # 未写则取 C++ 代码默认 180
 pm  = p.get('patrol_speed_ratio')
 po  = p.get('scan_pitch_offset_deg')
 fb  = p.get('fire_only_blue')
@@ -214,7 +214,7 @@ PY
   VID=$(python3 -c "
 import yaml
 d = yaml.safe_load(open('$CONFIG', encoding='utf-8')) or {}
-print((d.get('path_executor') or {}).get('ros__parameters', {}).get('finish_voice_id', 0))
+print(((d.get('/dzbrain') or {}).get('ros__parameters', {}).get('mission') or {}).get('finish_voice_id', 0))
 " 2>/dev/null || echo 0)
   if [ "${VID:-0}" -gt 0 ] 2>/dev/null; then
     warn "完成提示音 ID=$VID" "确认已在车上用 tools/test_voice.sh 试听过这句"
@@ -329,16 +329,11 @@ if [ "$MODE" = "--pre" ]; then
   printf "  (--pre 模式跳过)\n"
 else
   NODES=$(timeout 8 ros2 node list 2>/dev/null)
-  # ★ 循迹槽位是**二选一**：新核 dzbrain / 旧核 path_executor_node。
-  #   旧版本把 path_executor_node 写死在"必须在线"名单里 —— 走新核时它当然不在线，
-  #   于是**每次出车都报一条假提醒**（2026-10-09 车端实测：全套体检只剩这一条 ⚠️，
-  #   而车其实是健康的）。假警报会训练人忽略提醒，比没有体检更糟。
+  # ★ 循迹槽位（2026-10-31）：旧核 path_executor_node 已删除，只剩 dzbrain 一条实现。
   if grep -q dzbrain <<<"$NODES"; then
-    ok "循迹槽位" "dzbrain 在线（新核）"
-  elif grep -q path_executor_node <<<"$NODES"; then
-    ok "循迹槽位" "path_executor_node 在线（旧核 / LEGACY_PATH=1）"
+    ok "循迹槽位" "dzbrain 在线"
   else
-    warn "循迹槽位" "dzbrain 与 path_executor_node 都不在线 —— 车不会动"
+    warn "循迹槽位" "dzbrain 不在线 —— 车不会动"
   fi
   for n in usb_cam_node det_node dzrknn_dataprocess serial_reader; do
     if grep -q "$n" <<<"$NODES"; then ok "$n" "在线"; else warn "$n" "未在线"; fi

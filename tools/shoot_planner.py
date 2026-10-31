@@ -522,15 +522,24 @@ def load_config_map(path: str) -> dict:
                 m = (yaml.safe_load(_fp) or {}).get("map") or {}
         except Exception:
             m = {}
+    # ★2026-10-31：旧核 path_executor 段已删除；射程/起点改读 /dzbrain，旧键仅作兜底。
     p = (d.get("path_executor") or {}).get("ros__parameters", {}) or {}
+    _dz = (d.get("/dzbrain") or {}).get("ros__parameters", {}) or {}
+    _rt = _dz.get("route") if isinstance(_dz.get("route"), dict) else {}
+    _ms = _dz.get("mission") if isinstance(_dz.get("mission"), dict) else {}
+    _mid = _rt.get("shoot_distance_m")
+    _tol = _rt.get("shoot_distance_tol_m")
     g = (d.get("dzrknn_dataprocess") or {}).get("ros__parameters", {}) or {}
     return {
         "obstacles": list(m.get("obstacles") or []),
         "targets": list(m.get("targets") or []),
-        "start": m.get("start") or p.get("mission_reset", "M10,y").split(",")[0],
-        "shoot_distance_target": float(p.get("shoot_distance_target", 0.30)),
-        "shoot_distance_min": float(p.get("shoot_distance_min", 0.20)),
-        "shoot_distance_max": float(p.get("shoot_distance_max", 0.45)),
+        "start": m.get("start") or (_ms.get("reset") or p.get("mission_reset", "M10,y")).split(",")[0],
+        "shoot_distance_target": float(_mid if _mid is not None
+                                       else p.get("shoot_distance_target", 0.30)),
+        "shoot_distance_min": float((_mid - _tol) if (_mid is not None and _tol is not None)
+                                    else p.get("shoot_distance_min", 0.20)),
+        "shoot_distance_max": float((_mid + _tol) if (_mid is not None and _tol is not None)
+                                    else p.get("shoot_distance_max", 0.45)),
         "shoot_score_w_gimbal": float(p.get("shoot_score_w_gimbal", 0.6)),
         "shoot_score_w_detour": float(p.get("shoot_score_w_detour", 0.5)),
         "keep_per_target": int(p.get("shoot_candidates_keep", 3)),

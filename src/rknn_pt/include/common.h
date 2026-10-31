@@ -27,12 +27,6 @@ typedef struct _DetectionBox
 
 
 
-// typedef struct _DetectionBox
-// {
-//     float score;
-//     std::string det_name;
-//     BOX_RECT box;
-// }DetectionBox;
 
 
 
@@ -43,13 +37,6 @@ typedef struct _DetectResultsGroup
     std::vector<DetectionBox> dets; // 修改为vector
 } DetectResultsGroup;
 
-// typedef struct _DetectResultsGroup
-// {
-//     cv::Mat cur_img;
-//     int cur_frame_id;
-//     int count;
-//     DetectionBox results[OBJ_NUMB_MAX_SIZE];
-// } DetectResultsGroup;
 
 
 #endif // COMMON_H

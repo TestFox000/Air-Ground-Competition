@@ -21,7 +21,7 @@
 ## 车端专属判据
 
 1. **改车端代码必须跑仿真闭环**：`sim_cli` 退出码 + 指标表。单元测试绿不算过。
-2. **改 config 必须跑 G1**：`python tools/config_selfcheck.py --config config/robot.yaml --map config/map.yaml`，判据是 error 0 ∧ warn 0，**不是只看退出码**。
+2. **改 config 必须跑 G1**：`python tools/config_selfcheck.py --config config/robot.yaml`（2026-10-31 起车端无本地地图，不再传 `--map`）。判据是 error 0 ∧ warn 0；exit 3 = `LAYOUT-MODE`（配置可用但空间未校验，**不是发车放行**）。
 3. **部署唯一入口 `tools/deploy_to_car.py`**（D-019），禁止手工 scp 散文件。
 4. **标定真源**：ticksPerMeter=3280.0（冻结）、ticksPer2PI=2670.0（待仲裁；2026-10-29 由 2680 下调后回调至 2670）、yaw_trim=-0.6。改标定 = 必须实车复标。
 5. **门禁 GREEN ≠ 回归绿 ≠ 实车通过**：三件事三套判据。

@@ -22,12 +22,8 @@ setup(
     entry_points={
         "console_scripts": [
             "serial_reader_node = car_localization.serial_reader:main",
-            # ★2026-10-03 补(P2)：此前 path_executor 只能"python3 源码直跑"，
-            #   `ros2 run car_localization ...` 不可用，体检/调试时无法用统一入口。
-            #   它本身就有 main(args=None)，直接注册即可。
-            #   ★注意：start_all.sh 仍沿用直跑方式(已实车验证)，此处只作补充入口，
-            #     不要贸然把启动脚本改成 ros2 run，避免影响已稳定的启动时序。
-            "path_executor_node = car_localization.path_executor:main",
+            # ★2026-10-31：path_executor_node 入口随旧核删除（用户指令）——
+            #   车端循迹只有 dzbrain 一条实现，不再保留 ros2 run 回退入口。
         ],
     },
 )

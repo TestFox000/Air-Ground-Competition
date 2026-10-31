@@ -68,6 +68,16 @@ from dzbrain.route.parser import parse_mission                             # noq
 from dzbrain.tools import sim as S                                         # noqa: E402
 
 _WS = _TESTS_DIR.parents[2]
+#: ★2026-10-31：生产配置不再有手写路线（path_executor.mission_blocks 随旧核删除）。
+#:   本文件原先直接读 robot.yaml 的 route.tokens；为空时改用固定夹具
+#:   （与删除前 robot.yaml 逐字一致的第七图 68 token），保证断言仍在验一条真实路线。
+_ROUTE_FIXTURE = _WS / "src" / "dzbrain" / "tests" / "fixtures" / "route_field7_t24.txt"
+
+
+def _live_tokens(cfg) -> list:
+    toks = [str(t) for t in (cfg.get("route.tokens") or [])]
+    return toks or _ROUTE_FIXTURE.read_text(encoding="utf-8").split()
+
 _CFG_PATH = _WS / "config" / "robot.yaml"
 
 # --------------------------------------------------------------------------- #
@@ -104,7 +114,7 @@ def _sha256(path: pathlib.Path) -> str:
 cfg = Config.load(str(_CFG_PATH))          # ★ 只用出厂配置，绝不 override
 # ★ 2026-10-09 起现场图路线 = robot.yaml 的 route.tokens（旧夹具 route_field.txt 含 R: 腿，
 #   已停用——继续用它 = 全绿假象，在验证一条车端已不存在的路线）
-FIELD = parse_mission(list(cfg.get("route.tokens")), name="robot.yaml:route.tokens")
+FIELD = parse_mission(_live_tokens(cfg), name="fixture:route_field7_t24")
 FIELD_PATH = S.Path(FIELD)
 
 FIELD_WAYPOINTS = 44
@@ -820,10 +830,10 @@ check("9.1 差异与缺陷清单已记录（>= 5 条）", len(_NOTES) >= 5, f"n=
 # =========================================================================== #
 section("10. 场地物理护栏（t24）：加地图不改轨迹 + 现役路线物理洁净度")
 
-_FIELD_SPEC = S.load_field_spec(str(_WS / "config" / "map.yaml"))
+_FIELD_SPEC = S.load_field_spec(str(_WS / "src" / "dzbrain" / "tests" / "fixtures" / "map_field7_t24.yaml"))
 _guard_check = check
 if _FIELD_SPEC is None:                      # pragma: no cover - 地图文件缺失
-    _guard_check("10.0 config/map.yaml 存在（场地护栏的前提）", False, "找不到地图文件")
+    _guard_check("10.0 测试夹具地图存在（场地护栏的前提）", False, "找不到地图文件")
 else:
     _guard_check("10.0 config/map.yaml 可加载", True, _FIELD_SPEC.describe())
     _no_field = S.run_sim(FIELD, cfg, S.SimConfig())

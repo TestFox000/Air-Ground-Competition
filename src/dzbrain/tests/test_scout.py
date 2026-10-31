@@ -49,7 +49,7 @@ from dzbrain.tasks.drone import (FIELD_LAYOUT_VERSION, normalize_field_layout)  
 from harness import check, finish, section                                     # noqa: E402
 
 WS = pathlib.Path(__file__).resolve().parents[3]          # <repo> = dzrobot_v2/
-MAP = WS / "config" / "map.yaml"
+MAP = WS / "src" / "dzbrain" / "tests" / "fixtures" / "map_field7_t24.yaml"
 ALL = set(all_blocks())
 TOTAL = geo.MAP_COLS * geo.MAP_ROWS
 
@@ -294,7 +294,8 @@ check("用户路线相邻帧重叠同样 >=30%（同一视场模型）",
 
 # --------------------------------------------------------------------------- #
 section("⑥ 一站式 simulate + CLI 冒烟")
-res = simulate(start_t=-30.0, frame_hz=2.0)
+# ★2026-10-31：车端/仓库已无 config/map.yaml（布局模式）⇒ 仿真显式给夹具真值图。
+res = simulate(start_t=-30.0, frame_hz=2.0, map_path=str(MAP))
 check("simulate：帧/布局/心跳/对照一次产出",
       len(res.frames) == 68 and res.layouts and res.heartbeat
       and res.stats["coverage_cells"] == TOTAL and res.known_count == TOTAL,
@@ -306,7 +307,9 @@ _d = res.as_dict()
 check("as_dict 可 JSON 序列化（T29 直接落盘）",
       bool(json.dumps(_d, ensure_ascii=False)) and _d["known_count"] == TOTAL)
 
-_proc = subprocess.run([sys.executable, str(WS / "tools" / "scout_sim.py"), "--json"],
+# ★2026-10-31：仓库已无 config/map.yaml（布局模式）⇒ CLI 冒烟显式给夹具真值图。
+_proc = subprocess.run([sys.executable, str(WS / "tools" / "scout_sim.py"),
+                        "--map", str(MAP), "--json"],
                        cwd=str(WS), capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=120)
 check("CLI tools/scout_sim.py --json exit 0", _proc.returncode == 0,
