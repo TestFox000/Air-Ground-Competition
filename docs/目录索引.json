@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-31 20:59",
- "count": 321,
+ "generated": "2026-10-31 21:24",
+ "count": 334,
  "files": [
   {
    "path": "00_项目总览/00_索引.md",
@@ -3070,6 +3070,149 @@
    "updated": "2026-10-25",
    "status": "in_progress",
    "lines": 58
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/00_树.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "wb-1031 · 循迹仿真工作台重建 任务树",
+   "summary": "循迹仿真工作台重建线（wb-1031）任务树",
+   "from": "用户 2026-10-31 21:0x 裁决（A 革命重构不做止血 / B 放 tools 下 / C 排一次实车对拍 / D 双出口；1~8 按建议、9 收窄到循迹、10 提一批、11 立卡、12 不重指）；dzrobot_v2/docs/决策台账.md D-026/D-035/D-037/D-054/D-062；本轮五份只读审计（内核/插件/测试网/循迹契约/裁决链）",
+   "level": "实/档",
+   "updated": "2026-10-31",
+   "status": "现行",
+   "lines": 90
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-0-GATE-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-0-GATE-20261031 · 循迹仿真工作台重建的合法化（翻案 + 授权登记 + 立项）",
+   "summary": "把用户 2026-10-31 21:0x 的四项裁决落成**机器可查的在册依据**：D-026「暂停仿真 UI 扩建/重写」的翻案写进台账（D-063）、冻结区两处点名的例外写…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "in_progress",
+   "lines": 107
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-1-ROUTE-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-1-ROUTE-20261031 · 路线与地图真源修复（单函数 + 入口收敛）",
+   "summary": "- D-054 裁决4（`决策台账.md:438`）：`config/map.yaml` 禁止恢复、验收改 fixture 口径 ⇒ 本卡只加具名夹具引用。",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 65
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-2-RIG-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-2-RIG-20261031 · 台架地基（真线程 × 带误差信念 × 真实执行器）",
+   "summary": "D-035（内核留家、契约 = 末行 JSON、五键只增）；D-026 保留子条（未校准扫参禁止、仿真绿≠实车绿）；D-063（本线翻案依据）；06 册 §2（`field_m…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 81
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-3-INCIDENTS-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-3 · 案例场景库 + 事件注入 + 无人机步进 stub",
+   "summary": "只做三件事：① 按段吐 `field_layout`（known/unknown 逐格）驱动 StepLoop；② 可配置「提前给全图 / 逐段给 / 中途断供」三种节奏；③ …",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 57
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-4-SWEEP-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-4 · 多图合成 + 批量压测 + 扫掠一等公民",
+   "summary": "外部建议说「规划器不是图特判的」——**取证成立**：`_barrier_turn_cell` 读的是地图派生的 `barrier_lo`，不是写死第 7 行。所以本卡要修的不…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 67
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-5-REGNET-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-5 · 台架敏感度证明与假绿封堵（tier-0 重钉推迟到 wb-7 之后）",
+   "summary": "审计的变异探针是**决定性证据**：直线/合成夹具下，把循迹故意改坏（舵角增益反号、前视钉死 3.0 m）→ **0 条红（全漏检）**；换现场 68-token → 抓出 6…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 58
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-6-STUDIO-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-6 · 插件重建：rig 的编排与逐拍回放（双出口的人侧）",
+   "summary": "D-035（内核留家、界面+编排归插件、契约=末行 JSON）；D-037（source 三态不许把 sim 画成 live → 本卡的水印/置灰即其界面化）；D-026 保留…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 58
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-7-HANDSHAKE-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-7 · 运行面握手 + tier-0 重钉 + 文档真源收口",
+   "summary": "D-026（不把仿真绿当实车绿）；D-055 / B 区裁决（一场一图、取消保质期 `step.layout_ttl_s→0`）；D-063（本线依据）；AGENTS §1 铁…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 61
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-8-CARCAL-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-8 · 实车对拍回流（标定三常数）",
+   "summary": "台架默认档的三个关键常数今天全是推导值：`17.9%` 来自 docstring（`localization.py:290`）、`0.4 s` 是 20 拍 ÷ 100 Hz …",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 39
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-R1-REVIEW-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-R1 · 台架可信度独立验收",
+   "summary": "D-035（契约层唯一硬物是末行 JSON）；D-026 保留子条（仿真绿≠实车绿）；D-063（本线判据四条 + 冻结区两处豁免）；细则 12.5（收口=提炼，本卡结论须落 …",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 48
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-R2-REVIEW-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-R2 · 通用性判据与假绿封堵独立验收",
+   "summary": "D-063 判据④（多图可行率与违规分布）、豁免边界（planner 是冻结区，扫掠升级只能\"加调用\"不能改冻结实现）；症-44（RC≠0 一律红，不许把 exit 5/2 当…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 44
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-R3-REVIEW-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-R3 · 出口与握手独立验收",
+   "summary": "D-035（内核留家 / 界面+编排归插件 / 末行 JSON 为唯一硬契约）；D-037（source 三态、sim 不得画成 live → 水印与置灰是其界面化）；`能力索…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 48
   },
   {
    "path": "30_任务卡库/归档/00_索引.md",
