@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-31 21:24",
+ "generated": "2026-10-31 21:41",
  "count": 334,
  "files": [
   {
@@ -1485,7 +1485,7 @@
    "level": "档",
    "updated": "2026-10-29",
    "status": "现行",
-   "lines": 133
+   "lines": 135
   },
   {
    "path": "30_任务卡库/_模板/任务卡模板.md",
@@ -1540,7 +1540,7 @@
    "level": "",
    "updated": "2026-10-29",
    "status": "现行",
-   "lines": 43
+   "lines": 45
   },
   {
    "path": "30_任务卡库/在办/agc-1024/00_树.md",
@@ -3080,7 +3080,7 @@
    "level": "实/档",
    "updated": "2026-10-31",
    "status": "现行",
-   "lines": 90
+   "lines": 114
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-0-GATE-20261031.md",
@@ -3102,7 +3102,7 @@
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 65
+   "lines": 70
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-2-RIG-20261031.md",
@@ -3113,7 +3113,7 @@
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 81
+   "lines": 86
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-3-INCIDENTS-20261031.md",
@@ -3124,7 +3124,7 @@
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 57
+   "lines": 62
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-4-SWEEP-20261031.md",
@@ -3135,7 +3135,7 @@
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 67
+   "lines": 72
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-5-REGNET-20261031.md",
@@ -3146,7 +3146,7 @@
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 58
+   "lines": 63
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-6-STUDIO-20261031.md",
@@ -3157,7 +3157,7 @@
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 58
+   "lines": 63
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-7-HANDSHAKE-20261031.md",
@@ -3168,7 +3168,7 @@
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 61
+   "lines": 66
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-8-CARCAL-20261031.md",
@@ -3190,7 +3190,7 @@
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 48
+   "lines": 53
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-R2-REVIEW-20261031.md",
@@ -3201,7 +3201,7 @@
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 44
+   "lines": 49
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-R3-REVIEW-20261031.md",
@@ -3212,7 +3212,7 @@
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 48
+   "lines": 53
   },
   {
    "path": "30_任务卡库/归档/00_索引.md",

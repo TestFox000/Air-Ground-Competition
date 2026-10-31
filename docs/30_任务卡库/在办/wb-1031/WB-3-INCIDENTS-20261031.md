@@ -55,3 +55,8 @@ outOfScope: dzrobot_v2/src/dzbrain/dzbrain/**；dzrobot_v2/config/**；dzrobot_v
 ## 回滚点
 
 全为新增文件（`fixtures/incidents/`、`tools/wb_events.py`〔未实现〕、新测试）⇒ 逆转 = 删除；不动 wb-2 的 `sim_world.py`/`sim_rig.py` 主体结构。
+
+
+## 开工前置（强制，captain 2026-10-31 21:4x 追加）
+
+动手前先读 `00_树.md` §开工前置：`dzrobot_v2` 有 9 个上一会话留下的**未提交脏文件**（最后写入 18:12–18:38，v1 侧干净），其中若干正压在本卡写域上。**三步**：① 跑测试前先记录当前通过数当基线（别拿 git HEAD 当基线，否则会把别人的改动算成自己引入的红）；② `git diff` 只读判明归属并写进本卡「## 执行报告」；③ 禁止 `checkout`/`stash`/`restore` 清理、禁止顺手提交、禁止格式化；CRLF 文件保持原行尾。
