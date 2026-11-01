@@ -183,8 +183,15 @@ def parse_block(name: str) -> Tuple[int, int]:
     return int(round(10.5 - x / BLOCK_SIZE)) + 1, int(round(13.5 - y / BLOCK_SIZE))
 
 
-def zone_of(row: int) -> int:
-    return 0 if row <= BARRIER_ROW_HI else 1
+def zone_of(row: int, row_hi=None) -> int:
+    """行号 -> 半场区号（0=上半场，1=下半场）。
+
+    ★ 卡 WB-14 审计结论：**本函数当前无调用方**（`grep -n "zone_of(" ` 只有定义行）。
+    保留并按 `barrier_row_hi` 可传，是为了让"如果有人再启用它"不会再踩同一个坑；
+    未传 ⇒ 回落模块常量（与原行为逐字相同）。
+    """
+    hi = BARRIER_ROW_HI if row_hi is None else int(row_hi)
+    return 0 if row <= hi else 1
 
 
 # =============================================================================
@@ -690,13 +697,24 @@ def obstacle_clearances(pts, obstacles, rev_f=None):
     return d_seg, seg_i, seg_name, d_turn, turn_i, turn_name
 
 
-def barrier_centerline():
-    """挡板**中心线** ``(x, y0, y1)``：第 6/7 行中点、`BARRIER_COLS` 覆盖列的外缘。
+def barrier_centerline(row_hi=None, row_lo=None):
+    """挡板**中心线** ``(x, y0, y1)``：隔板两行的中点、`BARRIER_COLS` 覆盖列的外缘。
 
     现场 = `(1.75, 0.0, 3.85)`（长 3.85 m = 11 列 × 0.35 m）。
+
+    ★★ 卡 WB-14（2026-11-01）：隔板行**可由调用方按地图声明传入**。
+    此前这里写死 `BARRIER_ROW_HI/LO` 模块常量（6/7），而地图的 `map.barrier_row_hi/lo`
+    只有 `planner.load_map` 读、本文件 1398 行另用 `field.barrier_row_hi` ⇒ 同文件两套口径。
+    换一张"隔板行不同但合法"的图时，中心线会算错整整一个格宽：
+        hi=6/lo=7 → x=1.7500（常量口径，现场值）
+        hi=5/lo=6 → x=2.1000（差 +0.35 m）
+        hi=7/lo=8 → x=1.4000（差 −0.35 m）
+    传 `None` ⇒ **回落常量**（向后兼容，未传地图的调用点逐字不变）。
     """
-    x_hi = (10.5 - (BARRIER_ROW_HI - 1)) * BLOCK_SIZE
-    x_lo = (10.5 - (BARRIER_ROW_LO - 1)) * BLOCK_SIZE
+    hi = BARRIER_ROW_HI if row_hi is None else int(row_hi)
+    lo = BARRIER_ROW_LO if row_lo is None else int(row_lo)
+    x_hi = (10.5 - (hi - 1)) * BLOCK_SIZE
+    x_lo = (10.5 - (lo - 1)) * BLOCK_SIZE
     spec = str(BARRIER_COLS).upper().replace("..", "-").replace("—", "-")
     a, _, b = spec.partition("-")
     a = (a.strip() or "D")[0]
@@ -732,7 +750,7 @@ def seg_outside_band(ax, ay, bx, by, band_y, band_half):
     return out
 
 
-def barrier_touch_min(pts, bridge_col="K"):
+def barrier_touch_min(pts, bridge_col="K", row_hi=None, row_lo=None):
     """车心到挡板**中心线**的最近距离，返回 ``(距离, 段号)``。
 
     ★ 判据：该值 ≥ `挡板半厚 + 车半宽` = 0.01 + 0.085 = **0.095 m**（2 cm 细条口径），
@@ -742,8 +760,9 @@ def barrier_touch_min(pts, bridge_col="K"):
       K 列**格与格之间**的纵向封死关系，不是挡板上的洞）⇒ 本判据**不做桥洞豁免**。
       （`seg_outside_band()` 作为通用工具保留，本判据不再调用。）
     :param bridge_col: 仅为兼容旧签名保留；判据本身已与桥洞无关。
+    :param row_hi/row_lo: 地图声明的隔板行（卡 WB-14）。`None` ⇒ 回落模块常量。
     """
-    x, y0, y1 = barrier_centerline()
+    x, y0, y1 = barrier_centerline(row_hi, row_lo)
     best, best_i = 9e9, -1
     for i in range(len(pts) - 1):
         (ax, ay), (bx, by) = pts[i], pts[i + 1]
@@ -832,8 +851,13 @@ def run_check(route: str, cfg: dict) -> int:
     #   旧口径：只看"过缺口时的余量 ≥ 0.10 m"（`BARRIER_MIN_MARGIN`），挡板被当成一整格宽。
     #   新口径：挡板是 2 cm 细条 ⇒ 车心到**中心线** ≥ 半厚 + 车半宽 = 0.0775 m；
     #          桥洞 K 处豁免（`seg_outside_band` 精确抠段，见其 docstring）。
-    _bx, _by0, _by1 = barrier_centerline()
-    _bd, _bi = barrier_touch_min(pts, bridge_col=bridge_column(bridges))
+    # ★ 卡 WB-14：中心线按**地图声明**的隔板行算（cfg 由 load_cfg 从 map.yaml 带上来）；
+    #   缺键时 cfg.get 返回 None ⇒ barrier_centerline 回落常量（行为不变）。
+    _bar_hi = cfg.get('barrier_row_hi')
+    _bar_lo = cfg.get('barrier_row_lo')
+    _bx, _by0, _by1 = barrier_centerline(_bar_hi, _bar_lo)
+    _bd, _bi = barrier_touch_min(pts, bridge_col=bridge_column(bridges),
+                                 row_hi=_bar_hi, row_lo=_bar_lo)
     _bd_req = BARRIER_WIDTH_M / 2.0 + VEHICLE_WIDTH_M / 2.0
     if _bd < _bd_req - 1e-9:
         bad("挡板触线 %.4f m < %.4f m" % (_bd, _bd_req),
@@ -1313,6 +1337,12 @@ def load_cfg(path):
             for k in ('obstacles', 'mines', 'targets', 'bridges'):
                 if m.get(k):
                     cfg[k] = list(m[k])
+            # ★ 卡 WB-14：隔板行也要跟着地图走（此前只取上面 4 个键，
+            #   `barrier_centerline()`/R003 于是永远按模块常量 6/7 判 —— 换图即分叉）。
+            #   缺失键则不写入 ⇒ 下游回落常量（向后兼容）。
+            for k in ('barrier_row_hi', 'barrier_row_lo'):
+                if m.get(k) is not None:
+                    cfg[k] = m[k]
             cfg['map_name'] = m.get('name', '')
             cfg['map_file'] = mf
         except Exception as exc:

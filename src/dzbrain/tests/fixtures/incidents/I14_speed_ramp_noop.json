@@ -1,0 +1,30 @@
+{
+  "schema": "dzrobot-incident/1",
+  "id": "I14",
+  "slug": "I14-SPEED-RAMP-NOOP",
+  "title": "加减速斜坡 accel_up/down 恒为 0.0 ⇒ 速度命令阶跃直达，横向劣化 2.4×",
+  "symptom": "同路线同控制器：realistic 横向 RMS 0.4177 m / MAX 0.9335 m / 末点 0.1902 m；ideal 0.1766 / 0.6008 / 0.0058",
+  "root_cause": "`pursuit.accel_up_mps2` / `accel_down_mps2` 在 `config/robot.yaml` 里都是 `0.0`（斜坡关闭）。台上没有加速度限幅 ⇒ 控制器算出的速度命令当拍就变成执行速度，车身没有「肉」，转弯时横向被甩出去。修复方式是把这两个键设成正数（属 wb-8 标定口径）；本夹具只负责让「斜坡关掉之后的横向代价」可复现、可读数。",
+  "rationale_negative": "★ 负例臂必须**显式换档**（`negative.arm=\"ideal\"`）。第一版漏了这一行，负例跟着正例跑 realistic，三条判据当然全绿 —— 那种「负例没红」看起来像夹具问题，其实是**负例根本没换变量**。这是本卡最值得记的一条工程教训：负例不只要声明，还要能被机判断言「它真的换了档」。",
+  "sources": [
+    "config/robot.yaml:171-172（accel_up_mps2 / accel_down_mps2 = 0.0）",
+    "docs/20_资料索引库/车端/04_定位与安全.md（五链审计：横向 RMS 0.124 / MAX 0.68，劣化 2.8×，归因斜坡关）",
+    "tools/sim_world.py:198-234（唯一推进入口 `step_bicycle`；执行器链在外，斜坡属配置侧）"
+  ],
+  "scenario": "field7",
+  "arm": "realistic",
+  "seconds": 120.0,
+  "events": [],
+  "arm_patch": {},
+  "derived": {},
+  "criteria": [
+    {"name": "横向 RMS 劣化到半米级", "metric": "cross_track_rms_m", "op": "gt", "value": 0.35},
+    {"name": "横向峰值劣化", "metric": "cross_track_max_m", "op": "gt", "value": 0.80},
+    {"name": "末点误差劣化", "metric": "final_error_m", "op": "gt", "value": 0.10}
+  ],
+  "negative": {
+    "desc": "换 `--arm ideal`（零注入：信念≡真值）⇒ 三条同时回落（0.1766 / 0.6008 / 0.0058）。口径要说准：它证明的是「横向代价来自 realistic 那组注入」，**不能**单独证明「代价全由斜坡关造成」——斜坡键在 ideal 档同样关着，所以斜坡的单独贡献需 wb-8 用 `--set pursuit.accel_up_mps2=…` 对照才能分离。本夹具钉住「劣化幅度」，不冒充归因",
+    "arm": "ideal",
+    "events_on": false
+  }
+}

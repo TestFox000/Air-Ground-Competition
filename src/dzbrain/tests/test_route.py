@@ -556,34 +556,21 @@ def test_real_robot_yaml() -> None:
     cfg = Config.load(str(ROBOT_YAML))
     tokens = cfg.get("route.tokens")
     check("cfg.get('route.tokens') 不是 None", tokens is not None, repr(tokens)[:80])
-    # ★ 2026-10-11 重钉（t18）：路线 46 点 → 54 点。理由（t11 加固后的新几何）：
-    #   8 个雷全部改走「进点—雷格—出点」直线穿越（每个雷多 1 个进点：J8/I8/H8/H7/C4/B4/B2/C1 等），
-    #   0 段 R:、:PIVOT 只剩 1 处（G10* 射击停站），总长仍 19.95 m。历史：34 点(10-07) → 46 点 → 54 点。
-    # ★ 2026-10-11 重钉（t20）：**第三次换图**（现场图 p-81Zc2l，用户已实跑两趟）⇒ 路线 **62 点**。
-    #   这一版是**手工 v3**（`path_executor.mission_blocks`；规划器 `auto_plan_enabled=false`
-    #   期间的现役路线）：U 形靠外圈绕行、最大转角 90°（**无 ≥135° 折返顶点**）、0 段 R:、
-    #   射击停站 `F4*`（靶板 E4/E5）、桥洞 K11(下半场) / K1(上半场)。
-    # ★★ t31 重钉（第五张图收口）：`mission_blocks` = **60 点** = 第五张图上 tracker-safe
-    #   自规划的同一条产物（0 折返 / 0 倒车 / 射击停站 `C10*`（靶板 B11+C11）/ 桥洞 K10 + K5）。
-    #   历史：34 点(10-07) → 46 点 → 54 点(t11) → 62 点(t20) → **60 点(t31)**。
-    # ★★ t3 一版（2026-10-16）：射击停站点推远到板心 1.00±0.11 m ⇒ `F3*` → `F2*`；
-    #   `F2` 不在 `D3→E3→F3→G3` 主线上 ⇒ 多绕 `F1→G1→H1→H2→H3` ⇒ 44 → 50 点 / 17.15 m。
-    # ★★ **t3-A 裁决再重钉**：`F2` 到站让靶板落在**车尾 170.5°**（云台 ∓150° 扫不到）⇒ 作废，
-    #   停站退一档到 `D3`（板心 0.875 m、偏离车头 36.9°）。`D3` 也在主线上 ⇒ 绕行消失 ⇒
-    #   回到 **44 点 / 15.05 m**（与 t50/t57 同值，只是星号从 `F3` 前移到 `D3`）。
-    #   历史：34 点(10-07) → 46 → 54(t11) → 62(t20) → 60(t31) → 44(t50) → 50(t3一版) → **44(t3-A)**。
-    check("route.tokens 是 44 个 token（官方图 tracker-safe 自规划产物；t3-A 板心 0.90 m 停站）",
-          isinstance(tokens, list) and len(tokens) == 44,
+    # ★★ 2026-10-31 重钉（第七张图 / 布局模式，v4.4.0 fc3aba29）：车端**删除本地地图**
+    #   （`config/map.yaml` 已删）并切「布局模式」—— 路线不再手写进 robot.yaml，改由无人机
+    #   `field_layout` 在运行期规划。`route.tokens` 因此只剩**占位空表**（SCHEMA 默认 `[]`、
+    #   `critical=False`）；历史 34→46→54→62→60→44→50→**44(t3-A)** → **0（本卡重钉）**。
+    #   三个互锁键必须同时成立，否则「空 tokens」会被误读成配置漏写。
+    check("route.tokens 是空表（第七图布局模式：路线由无人机 field_layout 运行期规划）",
+          isinstance(tokens, list) and tokens == [],
           f"{len(tokens) if isinstance(tokens, list) else type(tokens).__name__} 个")
-    if isinstance(tokens, list) and len(tokens) == 44:
-        check("现场图路线首点 N10", tokens[0] == "N10", repr(tokens[0]))
-        check("现场图路线末点 N5", tokens[-1].startswith("N5"), repr(tokens[-1]))
-        check("现场图路线含射击点 D3*（官方图靶板 E5/F5；t3-A 板心窗口 0.78~1.02 m）",
-              any(t.startswith("D3*") for t in tokens), repr(tokens))
-        check("现场图路线含两处桥洞穿越（K9 下半场 / K5 上半场）",
-              "K9" in tokens and "K5" in tokens, repr([t for t in tokens if t.startswith("K")]))
-        route = P.parse_mission(tokens)
-        check("现场图路线能被 parse_mission 解析（44 点）", len(route) == 44, f"{len(route)} 点")
+    check("布局模式互锁：map_path 空串 / auto_plan_enabled 真 / fallback_to_tokens 假",
+          (cfg.get("planner.map_path") or "") == ""
+          and cfg.get("planner.auto_plan_enabled") is True
+          and cfg.get("planner.fallback_to_tokens") is False,
+          f"map_path={cfg.get('planner.map_path')!r} "
+          f"auto_plan={cfg.get('planner.auto_plan_enabled')!r} "
+          f"fallback={cfg.get('planner.fallback_to_tokens')!r}")
     check("mission.reset 迁移自 mission_reset", cfg.get("mission.reset") == "N10,y",
           repr(cfg.get("mission.reset")))
     # ★ 2026-10-11 重钉（t22）：巡航 0.30 → **0.35 m/s**（用户现场口径）。
@@ -594,6 +581,33 @@ def test_real_robot_yaml() -> None:
     check("pursuit.cruise_speed_mps = 0.35（官方图现场档；旧 linear_speed（0.30）/（0.35））",
           abs(float(cfg.get("pursuit.cruise_speed_mps")) - 0.35) < 1e-9,
           repr(cfg.get("pursuit.cruise_speed_mps")) + "（旧断言本体 - 0.30 / - 0.35）")
+
+    # ---- 10b. 第七图现场路线夹具（布局模式下的路线本体）------------------------
+    #   车端无地图后路线不再写在 robot.yaml，改由**固定夹具**承载（68 token，与删除前
+    #   robot.yaml 逐字一致）—— 与 test_planner / test_physics / test_sim / test_mission
+    #   同一口径：验的是「现场路线」本身，不依赖它写在哪个文件里。
+    print("\n=== 10b. 第七图现场路线夹具 route_field7_t24.txt（68 token）===")
+    field7 = FIXTURES / "route_field7_t24.txt"
+    check("第七图路线夹具 route_field7_t24.txt 存在", field7.is_file(), str(field7))
+    if field7.is_file():
+        ftokens = field7.read_text(encoding="utf-8").split()
+        check("第七图路线夹具是 68 个 token", len(ftokens) == 68, f"{len(ftokens)} 个")
+        check("第七图路线首点 N10", ftokens[0] == "N10", repr(ftokens[0]))
+        check("第七图路线末点 N5（带朝向 y）", ftokens[-1] == "N5,y", repr(ftokens[-1]))
+        check("第七图路线含两处射击停站 F4* / B4*（车体 0.28 m 档）",
+              [t for t in ftokens if "*" in t] == ["F4*", "B4*"],
+              repr([t for t in ftokens if "*" in t]))
+        check("第七图路线含两处桥洞穿越（K7 下半场 / K5 上半场）",
+              "K7" in ftokens and "K5" in ftokens,
+              repr([t for t in ftokens if t.startswith("K")]))
+        check("第七图路线 0 段倒车 R:（底盘不支持倒车）",
+              not any(t.startswith("R:") for t in ftokens),
+              repr([t for t in ftokens if t.startswith("R:")]))
+        check("第七图路线含 3 处 :PIVOT 折返（I4 / G4 / A1，180° 回折靠原地掉头）",
+              [t for t in ftokens if t.endswith(":PIVOT")] == ["I4:PIVOT", "G4:PIVOT", "A1:PIVOT"],
+              repr([t for t in ftokens if "PIVOT" in t]))
+        froute = P.parse_mission(ftokens)
+        check("第七图路线能被 parse_mission 解析（68 点）", len(froute) == 68, f"{len(froute)} 点")
 
 
 # --------------------------------------------------------------------------- #

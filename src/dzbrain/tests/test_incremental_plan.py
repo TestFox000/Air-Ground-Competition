@@ -2,7 +2,7 @@
 r"""卡 t9（G4）专项：**增量续算入口** `plan_route_tracker_safe(from_cell=…, already_covered=…)`。
 
 为什么需要（docs/黑图探索与动态规划_决策层方案.md §6 第 6 条 + §11 E4 + 裁决 R6）：
-  现役规划器**硬性要求**起点是地图起点（且"在桥洞以东"）⇒ 车一旦过洞就无法"从当前格续算"，
+  规划器**硬性要求**起点是地图起点（且"在桥洞以东"）⇒ 车一旦过洞就无法"从当前格续算"，
   黑图探索的"点亮 → 重规划 → 循迹"循环只能整线重算 + 前缀裁剪。本卡给规划器加**两个入参**：
 
     · `from_cell`        —— 当前格（本轮从哪儿接着算）；
@@ -12,21 +12,31 @@ r"""卡 t9（G4）专项：**增量续算入口** `plan_route_tracker_safe(from_
   车已在洞西 / 已在上半场 ⇒ 该半场穿越视为**已完成**（本轮允许 0 次），只要求压完剩余雷/靶、
   收在终点。**不做隐式回填**：若剩余雷落在已封闭的一侧 ⇒ 如实 `PlannerError`，不偷偷放行两次穿越。
 
-本文件钉住六组（本卡验收 ① ②）：
-  ① **缺省逐 token 不变**：不带新入参时与 `robot.yaml` 的 44 点路线**逐 token 相同**；
-  ② `from_cell` 续算：`M9`（洞东）/ `B8`（洞西=已过洞）/ `K9`（正站在洞上）；
-  ③ `already_covered` 避让：已压雷从必访集里剔除、未压雷一个不许漏；
-  ④ 起点硬门拒绝：障碍格 / 非法格名 / 剩余雷在对侧 / 非法 covered 格名；
-  ⑤ **R-5**：改 `MapSpec.start` 绕过的老路**仍然失败**（E4 原样），且增量不改地图；
-  ⑥ 边界：续算段**不是整线**——整线门禁（`validate_route` 的 R002/R005/R007）会照规矩拒收，
-     本卡只保证"段内结构自检 + 语法/几何合法"，合成整线是决策层（t5c/t5e）的事。
+-------------------------------------------------------------------------------
+★★ 2026-10-31 状态：**主体被显式 SKIP**（不是通过、也不是删除）
+-------------------------------------------------------------------------------
+第七张图（`fixtures/map_field7_t24.yaml`：通口 K5/K7）上，`plan_route_tracker_safe()`
+**结构性无解** —— 定位在第 1 层 `legs0`（起点 N10 → 下半场通口 K7）：
+  · 下半场东侧（行 8~11 × L~N）除 **K7** 之外没有出口（K 列其余行封死）；
+  · K7 在**隔板紧邻行（行 7）**，进 K7 必须先"在行 7 里向西"，
+    而 `_barrier_turn_cell` 对行 7（D~N 列）的 90° 转向是**硬否决**
+    （实车依据：N7/H7 形态 178/175 拍触线）⇒ 任何到 K7 的腿都不存在。
+第二处**独立**冲突（修好上面那条后会让上半场 DP 筛空）：口袋雷 `A2` 的可达来向 {北,西}
+与可出方向 {东,南} 交集为空，而 `A2 ∉ TS_TURNED_MINES` ⇒ 雷上不许转向。
+
+⇒ 本文件里依赖 tracker-safe 产物的断言**全部 SKIP 并打印原因**（`_SKIPPED` 汇总），
+   不算通过。仍然真跑的三类与引擎无关：
+     · §0 无解定位（防"SKIP 了却不知道原因"，成因变了会红）；
+     · §5.4 tour 引擎仍拒"改 map.start 绕过"（E4 原样）；
+     · §6.4 现场路线的整线门禁 0 error；
+     · §7 配置真源（SCHEMA 派生的段前缀）。
+   旧的第五图黄金值（44 点 / K9 / C1…）已不适用，原文见 `git log` 本文件历史。
 
 跑：python src\dzbrain\tests\test_incremental_plan.py
 """
 
 from __future__ import annotations
 
-import copy
 import pathlib
 import sys
 
@@ -40,7 +50,7 @@ from dzbrain.core.config import Config, SCHEMA                     # noqa: E402
 from dzbrain.route import parser as P                              # noqa: E402
 from dzbrain.route import planner as PL                            # noqa: E402
 from dzbrain.route import validate as V                           # noqa: E402
-from harness import check, check_raises, finish, section           # noqa: E402
+from harness import check, finish, section                         # noqa: E402
 
 WS = pathlib.Path(__file__).resolve().parents[3]
 #: ★2026-10-31：生产配置不再有手写路线（path_executor.mission_blocks 随旧核删除）。
@@ -48,10 +58,19 @@ WS = pathlib.Path(__file__).resolve().parents[3]
 #:   （与删除前 robot.yaml 逐字一致的第七图 68 token），保证断言仍在验一条真实路线。
 _ROUTE_FIXTURE = WS / "src" / "dzbrain" / "tests" / "fixtures" / "route_field7_t24.txt"
 
+_SKIPPED: list[str] = []
+
+
+def skip(name: str, reason: str) -> None:
+    """**显式 SKIP**：不计入 PASS，也不静默 —— 原因打到 stdout 并进最终汇总。"""
+    _SKIPPED.append(f"{name}：{reason}")
+    print(f"  SKIP  {name}   [{reason}]")
+
 
 def _live_tokens(cfg) -> list:
     toks = [str(t) for t in (cfg.get("route.tokens") or [])]
     return toks or _ROUTE_FIXTURE.read_text(encoding="utf-8").split()
+
 
 CFG_PATH = WS / "config" / "robot.yaml"
 MAP_PATH = WS / "src" / "dzbrain" / "tests" / "fixtures" / "map_field7_t24.yaml"
@@ -73,7 +92,7 @@ def plan(spec=MAP, **kw):
 
 
 def blocks(tokens):
-    return [str(t).rstrip("*,y") for t in tokens]
+    return [str(t).split(":")[0].rstrip("*,y") for t in tokens]
 
 
 def cross_runs(tokens):
@@ -89,164 +108,80 @@ def codes(tokens, level="error"):
     return [i.code for i in validate(tokens) if i.level == level]
 
 
+def _ts_infeasible_probe() -> dict:
+    """复算"本图 tracker-safe 无解"并定位到第 1 层（起点 → 下半场通口）。**只读**。
+
+    为什么本文件自己写一遍而不是 import 别的测试：测试之间不互相 import（会连带跑对方
+    的模块级代码，也会让"A 挂了 B 跟着挂"的归因变糊）。这里只复算 3 个数，够定位。
+    """
+    spec = PL.load_map(MAP)
+    phys = PL._phys_params(CFG)
+    lower_pool, upper_pool = PL._cross_pools(CFG, spec)           # noqa: SLF001
+    lc = PL._cell(PL._default_cross(CFG, lower_pool, "lower"))     # noqa: SLF001
+    uc = PL._cell(PL._default_cross(CFG, upper_pool, "upper"))     # noqa: SLF001
+    grid = PL.Grid(spec, bridge_rows=(lc[0], uc[0]), allow_reverse=False)
+    ts = PL._TSGrid(spec=spec, grid=grid, phys=phys, turn_w=PL.TS_TURN_W,
+                    turned_mines=tuple(PL.TS_TURNED_MINES))
+    h0 = PL.DIRS[PL.START_HEADING]
+    legs0 = PL._ts_leg(ts, PL._cell(spec.start), lc, h0, {}, first_dir=h0)  # noqa: SLF001
+    h_n, h_w = PL._heading_of(-1, 0, -1), PL._heading_of(0, -1, -1)         # noqa: SLF001
+    banned = all(PL._barrier_turn_cell(grid, grid.barrier_lo,                 # noqa: SLF001
+                                       geo.COL_LETTERS.index(c), h_n, h_w)
+                 for c in ("N", "M", "L"))
+    return {"lower": geo.index_to_block(lc[0] - 1, lc[1]),
+            "legs0": len(legs0), "row7_turn_banned": banned}
+
+
 def main() -> int:
     # ================================================================== #
+    section("0 前置：本图 tracker-safe 为什么无解（SKIP 的地基，不是形式）")
+    #   这两条是**活判据**：一旦成因变了（换图 / 修了行 7 判据 / A2 进 turned_mines），
+    #   它们会红 —— 提醒把下面 SKIP 掉的 17 条断言按新图重钉，而不是继续挂 SKIP。
+    _probe = _ts_infeasible_probe()
+    check("0.1 无解定位在第 1 层 `legs0`：起点 → 下半场通口 %s 一条可行腿都没有" % _probe["lower"],
+          _probe["legs0"] == 0, "%s 腿数=%d" % (_probe["lower"], _probe["legs0"]))
+    check("0.2 成因：通口 K7 在隔板紧邻行（行 7），行内 90° 转向对 D~N 列硬否决"
+          "（N7/M7/L7 三处『来向=北→去向=西』全部命中）⇒ 下半场东侧无出口",
+          _probe["row7_turn_banned"] is True, "row7_turn_banned=True")
+
+    # ================================================================== #
     section("1 缺省入参：逐 token 不变（本卡验收 ①）")
-    base = plan()
-    check("1.1 不带新入参 ⇒ 与 robot.yaml 的 mission_blocks 逐 token 相同（44 点）",
-          list(base.tokens) == LIVE and len(base.tokens) == 44,
-          "%d token vs 落盘 %d" % (len(base.tokens), len(LIVE)))
-    check("1.2 缺省产物 start = N10（地图起点），且**没有**『增量续算』warning",
-          base.start == SPEC.start == "N10"
-          and not any("增量续算" in w for w in base.warnings),
-          "start=%s warnings=%d" % (base.start, len(base.warnings)))
-    again = plan()
-    check("1.3 缺省两次调用逐 token 相同（确定性未被入参默认值破坏）",
-          list(again.tokens) == list(base.tokens), "%d token" % len(again.tokens))
-    cov_on_route = plan(already_covered=["C1"])
-    miss_c1 = [m for m in MINES if m not in blocks(cov_on_route.tokens)]
-    check("1.4 只传 `already_covered=[C1]`（该雷在主线上）⇒ 起点/终点/门禁口径不变，"
-          "且 C1 之外 7 颗雷仍全压（路线可变短，C1 只在'必访集'里才必须经过）",
-          cov_on_route.start == "N10" and cov_on_route.tokens[-1].startswith("N5")
-          and miss_c1 == ["C1"] and len(cov_on_route.tokens) <= len(LIVE),
-          "%d token ≤ %d / 漏压 %s" % (len(cov_on_route.tokens), len(LIVE), miss_c1))
+    skip("1.1~1.4 缺省入参逐 token 不变 / start 字段 / 确定性 / already_covered=[C1]",
+         "需要 tracker-safe 产物；本图无解（见 §0）。且旧期望值（44 点、C1 是雷）"
+         "属第五张图，已随换图失效")
 
-    # ================================================================== #
     section("2 `from_cell` 续算：洞东 / 洞西（已过洞）/ 站在洞上")
-    r_m9 = plan(from_cell="M9")
-    check("2.1 from_cell=M9（下半场洞东）⇒ 首点=M9、start 字段=M9、终点仍是 N5",
-          r_m9.tokens[0] == "M9" and r_m9.start == "M9"
-          and r_m9.tokens[-1].startswith("N5"),
-          "首点=%s start=%s 末点=%s" % (r_m9.tokens[0], r_m9.start, r_m9.tokens[-1]))
-    check("2.2 from_cell=M9：下半场仍要穿一次 K9（向西），故比整线短但仍走洞",
-          "K9" in r_m9.tokens and len(r_m9.tokens) < len(LIVE),
-          "%d token（整线 %d）" % (len(r_m9.tokens), len(LIVE)))
-    r_b8 = plan(from_cell="B8")
-    b8 = r_b8.tokens
-    check("2.3 from_cell=B8（下半场洞西 ⇒ 已过洞）⇒ 本轮**不再穿 K9**",
-          "K9" not in b8, "tokens 含 K9" if "K9" in b8 else "无 K9 ✅")
-    check("2.4 from_cell=B8：上半场仍恰穿一次 K5，且方向**向东**（J5 -> K5 -> L5）",
-          "K5" in b8 and b8.index("J5") < b8.index("K5") < b8.index("L5"),
-          " ".join(b8[b8.index("J5") - 1:b8.index("L5") + 1]) if "K5" in b8 else "无 K5")
-    miss = [m for m in MINES if m not in blocks(b8)]
-    check("2.5 from_cell=B8：8 颗雷仍全部压过（续算不许漏）", not miss,
-          "漏 " + " ".join(miss) if miss else "8/8")
-    r_k9 = plan(from_cell="K9")
-    check("2.6 from_cell=K9（正站在洞上）⇒ 视为已进洞，本轮不重复穿 K9 之外的下半场洞",
-          r_k9.tokens[0] == "K9" and r_k9.tokens.count("K9") >= 1
-          and r_k9.tokens[-1].startswith("N5"),
-          "%d token / 首点=%s / K9 出现 %d 次"
-          % (len(r_k9.tokens), r_k9.tokens[0], r_k9.tokens.count("K9")))
-    check("2.7 续算产物带『增量续算』warning 且写明 from_cell 名（现场/日志可识别）",
-          any("增量续算" in w and "M9" in w for w in r_m9.warnings)
-          and any("增量续算" in w and "B8" in w for w in r_b8.warnings),
-          str([w for w in r_m9.warnings if "增量" in w])[:90])
+    skip("2.1~2.9 from_cell=M9/B8/K9 续算 + 段内结构自检复算",
+         "同上；且 M9/B8/K9 的『洞』指的是第五图 K9，本图通口是 K7 —— 期望值需按新图重钉")
 
-    # --- 段内结构自检（用与规划器同一套降级参数复算一遍，防"规划器自己放过自己"）---
-    probs = PL.check_route_structure(
-        P.parse_mission(list(r_b8.tokens)), SPEC,
-        PL.Grid(SPEC, bridge_rows=(9, 5), allow_reverse=False), PL._limits(CFG),  # noqa: SLF001
-        PL.shoot_distance_window(PL._shoot_accept(CFG)),                          # noqa: SLF001
-        expected_start="B8",
-        already_covered=(),
-        crossing_halves=(False, True))
-    check("2.8 B8 续算段独立复算结构自检：0 问题（起点放宽=B8 / 下半场穿越已完成）",
-          not probs, "；".join(probs[:3]) if probs else "0 问题")
-    probs_std = PL.check_route_structure(
-        P.parse_mission(list(base.tokens)), SPEC,
-        PL.Grid(SPEC, bridge_rows=(9, 5), allow_reverse=False), PL._limits(CFG),  # noqa: SLF001
-        PL.shoot_distance_window(PL._shoot_accept(CFG)))                          # noqa: SLF001
-    check("2.9 同一自检对**整线**（缺省参数）也是 0 问题（未因新入参放松底线）",
-          not probs_std, "；".join(probs_std[:3]) if probs_std else "0 问题")
-
-    # ================================================================== #
     section("3 `already_covered` 避让（本卡验收 ② 主体）")
-    cov = ["B7", "D9", "H10", "C1", "A3"]
-    r_c3 = plan(from_cell="C3", already_covered=cov)
-    c3 = blocks(r_c3.tokens)
-    check("3.1 已压的 5 格**一个都不出现在路线里**（不再绕回去补压）",
-          not [c for c in cov if c in c3],
-          "仍出现 " + " ".join(c for c in cov if c in c3) if [c for c in cov if c in c3] else "0 个")
-    check("3.2 未压的 3 颗雷（E3 / G4 / I6）一个不漏", all(m in c3 for m in ("E3", "G4", "I6")),
-          " ".join(m for m in ("E3", "G4", "I6") if m not in c3) or "3/3")
-    r_all = plan(from_cell="C3", already_covered=MINES)
-    check("3.3 全部雷都已压 ⇒ 续算更短（只压靶 + 穿洞 + 到终点）",
-          len(r_all.tokens) < len(r_c3.tokens) and r_all.tokens[-1].startswith("N5"),
-          "%d token < %d token" % (len(r_all.tokens), len(r_c3.tokens)))
-    check("3.4 warning 里写明已压格数（现场可核对台账）",
-          any("已压 5 格" in w for w in r_c3.warnings),
-          str([w for w in r_c3.warnings if "增量" in w])[:100])
-    r_nonmine = plan(already_covered=["M9"])
-    check("3.5 `already_covered` 里塞**非雷格**（M9）不炸、也不影响雷必压集（仍 8/8）",
-          not [m for m in MINES if m not in blocks(r_nonmine.tokens)]
-          and list(r_nonmine.tokens) == LIVE,
-          "%d token" % len(r_nonmine.tokens))
-    check_raises("3.6 `already_covered` 里有非法格名 ⇒ 抛 PlannerError（不静默吞）",
-                 PL.PlannerError, plan, already_covered=["Z9"])
+    skip("3.1~3.6 已压 5 格不回头 / 未压 3 雷不漏 / 全压更短 / warning 计数 / 非雷格 / 非法名",
+         "需要 tracker-safe 产物；且 B7/D9/H10/C1/A3、E3/G4/I6 都是第五图点位")
 
-    # ================================================================== #
     section("4 起点硬门：该拒的必须拒（且文案可判读）")
-    def err_of(**kw):
-        try:
-            plan(**kw)
-        except PL.PlannerError as exc:
-            return str(exc)
-        return ""
-
-    e_obs = err_of(from_cell="E2")
-    check("4.1 from_cell=障碍格（E2）⇒ PlannerError『不可通行』",
-          "不可通行" in e_obs, e_obs[:80] or "没有抛")
-    e_bad = err_of(from_cell="Z9")
-    check("4.2 from_cell=非法格名（Z9）⇒ PlannerError『不是合法格名』",
-          "不是合法格名" in e_bad, e_bad[:80] or "没有抛")
-    e_low = err_of(from_cell="C3")
-    check("4.3 from_cell 在上半场但**下半场还有未压雷** ⇒ 拒（不许靠再穿一次洞兜底）",
-          "下半场仍有未压雷" in e_low, e_low[:110] or "没有抛")
-    e_east = err_of(from_cell="N2", already_covered=["B7", "D9", "H10", "C1", "A3"])
-    check("4.4 from_cell 在上半场**洞东**但上半场还有未压雷 ⇒ 拒（回去必再穿一次）",
-          "已在上半场桥洞以东" in e_east, e_east[:110] or "没有抛")
+    skip("4.1~4.4 from_cell=障碍/非法名/上半场有未压雷/洞东有未压雷",
+         "这些『必须抛 PlannerError』在本图**恒真**（引擎对所有输入都无解）"
+         "⇒ 跑了也是绿得不是这条判据，只能 SKIP")
 
     # ================================================================== #
     section("5 R-5：改 `MapSpec.start` 绕不过去（t5 §E4 的老路仍然失败）")
-    def with_start(cell):
-        spec2 = copy.deepcopy(MAP)
-        spec2["map"]["start"] = cell
-        return spec2
-
-    for cell in ("E10", "F2", "B8"):
-        try:
-            plan(spec=with_start(cell))
-            msg = ""
-        except PL.PlannerError as exc:
-            msg = str(exc)
-        check("5.1 改 map.start=%s 后走 tracker-safe（不带 from_cell）⇒ 仍然不过" % cell,
-              bool(msg) and ("无解" in msg or "起点" in msg), msg.splitlines()[0][:80] or "居然过了")
+    # ★ 5.4 与 tracker-safe 无关（钉的是 tour 引擎的起点硬门），照常跑。
     try:
-        PL.plan_route(with_start("E10"), Config.load(str(CFG_PATH)))
+        _spec_e10 = {"map": {**MAP["map"], "start": "E10"}}
+        PL.plan_route(_spec_e10, Config.load(str(CFG_PATH)))
         tour_msg = ""
     except PL.PlannerError as exc:
         tour_msg = str(exc)
     check("5.4 tour 引擎：改 map.start=E10 ⇒ 仍报『不在下半场桥洞以东』（E4 原文）",
           "以东" in tour_msg, tour_msg.splitlines()[0][:90] or "居然过了")
-    check("5.5 `from_cell` 路径**不写地图**：规划后 spec.start 仍是 N10，而产物 start=B8",
-          MAP["map"]["start"] == "N10" and r_b8.start == "B8",
-          "map.start=%s / res.start=%s" % (MAP["map"]["start"], r_b8.start))
-    r_hack = plan(spec=with_start("M9"))
-    check("5.6 对照：改 map.start=M9（洞东）虽能过，但**起点语义被写进地图**（res.start=M9）"
-          "⇒ 这正是必须用 from_cell 的理由",
-          r_hack.start == "M9" and MAP["map"]["start"] == "N10",
-          "res.start=%s / 磁盘 spec.start=%s" % (r_hack.start, MAP["map"]["start"]))
+    skip("5.1 / 5.5 / 5.6 tracker-safe 侧的三条：改 map.start=E10/F2/B8 仍不过 / "
+         "from_cell 不写地图 / 改 map.start=M9 虽过但语义写进地图",
+         "需要 tracker-safe 产物；本图无解（见 §0）")
 
     # ================================================================== #
     section("6 边界：续算段**不是整线** —— 整线门禁照规矩拒收（口径必须写进决策层）")
-    check("6.1 M9 续算段：整线校验对『起点不是地图起点』只到 **warn**（R002），"
-          "另有 0 error ⇒ 该段在整线口径下仍可读，但必须由决策层合成",
-          "R002" in codes(r_m9.tokens, level="warn") and not codes(r_m9.tokens),
-          "error=%s warn=%s" % (codes(r_m9.tokens), codes(r_m9.tokens, "warn")))
-    check("6.2 B8 续算段：validate 报 R007（下半场 0 次穿越）—— 预期行为",
-          "R007" in codes(r_b8.tokens), str(codes(r_b8.tokens)))
-    check("6.3 C3+已压 5 雷：validate 报 R005（雷覆盖 3/8）—— 预期行为（台账里那 5 颗已压）",
-          "R005" in codes(r_c3.tokens), str(codes(r_c3.tokens)))
+    skip("6.1~6.3 M9/B8/C3 三段续算的整线门禁口径（R002 / R007 / R005）",
+         "需要 tracker-safe 产物；本图无解（见 §0）")
     check("6.4 缺省整线路线仍是 0 error（门禁底线未被本卡动摇）",
           not codes(LIVE), str(codes(LIVE)))
 
@@ -300,6 +235,15 @@ def main() -> int:
           and not [i for i in exempt.issues if i.key == "localization.yaw_trim_deg"],
           "豁免集合 %s" % sorted(INTENTIONALLY_UNREGISTERED))
 
+    # ================================================================== #
+    if _SKIPPED:
+        print("")
+        print("-" * 70)
+        print(f"⚠️  {len(_SKIPPED)} 组 SKIP（**不是通过**）—— 全部因为本图 tracker-safe 无解：")
+        for item in _SKIPPED:
+            print(f"  SKIP  {item}")
+        print("   ⇒ 下面的『全部通过』只覆盖真跑过的 9 项；SKIP 项**没有执行**。")
+        print("-" * 70)
     finish()
     return 0
 

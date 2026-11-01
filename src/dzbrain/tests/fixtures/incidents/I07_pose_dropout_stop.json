@@ -1,0 +1,31 @@
+{
+  "schema": "dzrobot-incident/1",
+  "id": "I07",
+  "slug": "I07-POSE-DROPOUT-STOP",
+  "title": "位姿整段丢样 ⇒ 定位停写 P_POSE ⇒ Safety 锁存 SAFE_STOP，须重启栈",
+  "symptom": "phase=SAFE_STOP（基线 DRIVE）；横向 MAX 0.230 m（基线 0.933）—— 车停在原地，不是跑飞",
+  "root_cause": "`LocalizationTask.tick()` 拿不到位姿时**明确不写 P_POSE**（localization.py:6-12 头注：宁愿让下游看到「没有位姿」）；Safety 第①道检查按 `safety.pose_timeout_s` 判位姿断流 ⇒ 锁存 SAFE_STOP。现场「车半路停死须重启栈」的另一支（区别于 I16 的 yaw 闩锁：那条是航向不可信，这条是位姿根本没来）。",
+  "rationale_criteria": "★ 这条的判别量是 `phase_final` 与 `cross_track_max_m`，**不是** `length_ratio`。实测发现：realistic 基线本身跑不完（length_ratio=0.20），而夹具正例是 0.25 —— 比基线还高。把 length_ratio 写成「越大越坏」会得出「注入让车走得更远」的荒谬结论。真实的差别是**结局**：基线是 DRIVE（还在跑），正例是 SAFE_STOP（被锁死）。横偏则反过来：正例只有 0.23 m（车停住了），基线 0.93 m。两条判据的方向**相反**，正是这条夹具的价值。",
+  "sources": [
+    "src/dzbrain/dzbrain/tasks/localization.py:6-12（模块头注 ①：拿不到位姿就不写 P_POSE，绝不沿用旧值）",
+    "src/dzbrain/dzbrain/tasks/localization.py:384-392（`missing_pose_ticks` 与 P_ODOM_AGE=inf 的写入点）",
+    "src/dzbrain/dzbrain/tasks/safety.py:63,76,261-273（位姿断流判据与 SAFE_STOP 锁存）",
+    "config/robot.yaml safety.pose_timeout_s（=1.0）"
+  ],
+  "scenario": "field7",
+  "arm": "realistic",
+  "seconds": 120.0,
+  "events": ["drop=2.5@20.0"],
+  "arm_patch": {},
+  "derived": {},
+  "criteria": [
+    {"name": "落到 SAFE_STOP", "metric": "phase_final", "op": "eq", "value": "SAFE_STOP"},
+    {"name": "是「停下」不是「跑飞」", "metric": "cross_track_max_m", "op": "lt", "value": 0.40},
+    {"name": "定位确实断了（这条要说清楚：是缺位姿，不是航向不可信）", "metric": "cnt_saf_stopped", "op": "gt", "value": 0.5}
+  ],
+  "negative": {
+    "desc": "关掉这 2.5 s 丢样（realistic 基线）⇒ phase=DRIVE、横偏 0.933 m、Safety 没锁存。三条全部失效。注意基线本身也是「跑不完」（length_ratio=0.20），所以差异只能来自丢样这件事",
+    "arm": "realistic",
+    "events_on": false
+  }
+}

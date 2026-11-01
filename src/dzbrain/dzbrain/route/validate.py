@@ -183,6 +183,23 @@ def _cells(merged: dict, key: str) -> list[str]:
     return [str(v).strip().upper() for v in _as_list(merged.get(key)) if str(v).strip()]
 
 
+def _as_barrier_row(value: Any, default: int) -> int:
+    """地图 `barrier_row_hi/lo` -> int；缺失/非法一律回落 `default`（编译期常量）。
+
+    ★ 卡 WB-14：只做"读地图"这一件事，**不校验、不改写**地图值。
+    为什么非法值回落而不是报错：本函数在 R003 的循环外被调用一次，
+    抛异常会让一条坏地图把整条路线校验变成崩溃；回落常量至少保持现状行为，
+    且地图合法性由 `planner.load_map` / `config_selfcheck` 各自负责。
+    """
+    if value is None or isinstance(value, bool):
+        return default
+    try:
+        row = int(value)
+    except (TypeError, ValueError):
+        return default
+    return row if 1 <= row <= geo.MAP_ROWS else default
+
+
 # --------------------------------------------------------------------------- #
 #  几何小工具（一律走 geometry，不另写换算）
 # --------------------------------------------------------------------------- #
@@ -209,21 +226,31 @@ def _blocks(route: Any) -> list[str]:
     return out
 
 
-def _barrier_crossing(a: str, b: str) -> tuple[bool, float, float] | None:
-    """线段 a→b 是否**真正跨越**第 6/7 行隔板，且交点落在禁行列。
+def _barrier_crossing(a: str, b: str,
+                      barrier_row_hi: int | None = None) -> tuple[bool, float, float] | None:
+    """线段 a→b 是否**真正跨越**隔板，且交点落在禁行列。
 
     返回 ``(是否违规, 交点列索引, 交点行坐标)``；不跨越隔板返回 None。
     坐标系与 `geometry.block_to_meters` 一致：``x`` 随行号增大而减小、
     ``y`` 随列号增大而减小，所以"行"在几何上等价于 `x`。
 
-    ★ 判据只有一条：**两个端点的行号必须分居第 6 行两侧**（``(6-r1)*(6-r2) < 0``）。
-    只在第 6 行或第 7 行内横向移动（现场 `B6 -> D6 -> C6`：车在 A/B/C 通道口探出再退回）
+    ★ 判据只有一条：**两个端点的行号必须分居隔板行两侧**（``(hi-r1)*(hi-r2) < 0``）。
+    只在隔板行内横向移动（现场 `B6 -> D6 -> C6`：车在 A/B/C 通道口探出再退回）
     **不算跨越隔板** —— 否则会把合法路线误判成 R003（这是本模块第一版踩过的坑）。
+
+    ★★ 卡 WB-14（2026-11-01）：隔板行**改由地图声明传入**（`barrier_row_hi`）。
+    此前这里写死 `geo.BARRIER_ROW_HI`（编译期常量 =6），而地图的
+    `map.barrier_row_hi` 只有 `planner.load_map` 读 —— 换一张"隔板行不同但合法"的图，
+    **规划器按地图走、校验器按常量判**，同一条路线两边结论对立。
+    最小反例见 `_tmp_session/wb-1031/wb14/barrier_row_probe.py`：
+    地图声明 hi=5 时 `K7→K5` 按地图几何不跨（K5 正压隔板行），校验器却报 R003。
+    `barrier_row_hi=None` ⇒ **回落原常量行为**（向后兼容，未传地图的调用点逐字不变）。
     """
+    hi = geo.BARRIER_ROW_HI if barrier_row_hi is None else int(barrier_row_hi)
     r1, c1 = _rc(a)
     r2, c2 = _rc(b)
-    d1 = geo.BARRIER_ROW_HI - r1                         # 第 6 行：>0 在隔板下方，<0 在上方
-    d2 = geo.BARRIER_ROW_HI - r2
+    d1 = hi - r1                                         # >0 在隔板下方，<0 在上方
+    d2 = hi - r2
     if d1 == 0 or d2 == 0:
         return None                                      # 端点正压在隔板行上 → 不算跨越
     if d1 * d2 >= 0:
@@ -471,16 +498,20 @@ def validate_route(route: Any, *, map_cfg: Any = None, cfg: Config | None = None
                                 f"—— parser 应当已经合并，检查是否手工构造了路线"))
 
     # ---------------------------------------------------------------- R003（隔板硬约束）
+    # ★ 卡 WB-14：隔板行取**地图声明**（`merged` 就是地图的 `map:` 段）。
+    #   缺失键 ⇒ None ⇒ `_barrier_crossing` 回落 `geo.BARRIER_ROW_HI` 常量（向后兼容）。
+    _bar_hi = _as_barrier_row(merged.get("barrier_row_hi"), geo.BARRIER_ROW_HI)
+    _bar_lo = _as_barrier_row(merged.get("barrier_row_lo"), geo.BARRIER_ROW_LO)
     for i in range(len(valid) - 1):
         a, b = valid[i][1], valid[i + 1][1]
-        hit = _barrier_crossing(a, b)
+        hit = _barrier_crossing(a, b, _bar_hi)
         if hit is None:
             continue
         bad, cd, rd = hit
         if bad:
             col_name = geo.COL_LETTERS[min(geo.MAP_COLS - 1, max(0, int(round(cd))))]
             issues.append(Issue("error", "R003",
-                                f"第 {i} 段 {a}->{b} 跨越第 {geo.BARRIER_ROW_HI}/{geo.BARRIER_ROW_LO} 行隔板"
+                                f"第 {i} 段 {a}->{b} 跨越第 {_bar_hi}/{_bar_lo} 行隔板"
                                 f"（交点行 {rd:.2f}、列 {col_name}，禁行列 {geo.BARRIER_COL_FROM}~N）"
                                 f"—— 只有 {'/'.join(U_TURN_COLUMNS)} 列能上下穿行"))
 

@@ -1,0 +1,30 @@
+{
+  "schema": "dzrobot-incident/1",
+  "id": "I16",
+  "slug": "I16-YAW-LATCH-STOP",
+  "title": "单帧 yaw 跳变 > 阈值 ⇒ 航向守卫闩锁，车半路停死、须重启栈才恢复",
+  "symptom": "phase 落到 SAFE_STOP；只走了全程 7%（< 10%）；横向误差反而很小（< 0.1 m，因为它停下了）",
+  "root_cause": "localization.py 的航向完整性守卫：|Δyaw| > localization.yaw_jump_deg（默认 30°）立即判故障 → P_MOTION_LIMIT 限速 + EV_TASK_FAULT → Safety 锁存 SAFE_STOP。旧版不回退（必须人工 reset_yaw_guard），所以现场表现为「车半路停死须重启栈」。",
+  "sources": [
+    "src/dzbrain/dzbrain/tasks/localization.py:683-833（_update_yaw_guard；:751 jump=|Δyaw|>yaw_jump_deg；:813-833 reason=yaw_jump）",
+    "src/dzbrain/dzbrain/tasks/localization.py:114-115（阈值与自动复位口径）",
+    "docs/20_资料索引库/运维与排障/01_症状索引_52条.md 症-08（yaw 闩锁 / 车半路停死）",
+    "docs/20_资料索引库/车端/04_定位与安全.md §3/§6（reset 后 yaw 突跳 130.7°、静止包络 51 倍）"
+  ],
+  "scenario": "field7",
+  "arm": "ideal",
+  "seconds": 120.0,
+  "events": ["yaw-jump=35@8.0"],
+  "arm_patch": {},
+  "derived": {},
+  "criteria": [
+    {"name": "守卫锁存到 SAFE_STOP", "metric": "phase_final", "op": "eq", "value": "SAFE_STOP"},
+    {"name": "半路停死", "metric": "length_ratio", "op": "lt", "value": 0.10},
+    {"name": "车确实被停住不是跑偏", "metric": "cross_track_max_m", "op": "lt", "value": 0.10}
+  ],
+  "negative": {
+    "desc": "关掉 yaw 跳变这一条（ideal 档跑全程）⇒ phase=IDLE 且 length_ratio≈1，症状彻底消失（证明夹具测的是那一次单帧跳变，而不是 ideal 档本身跑不完）",
+    "arm": "ideal",
+    "events_on": false
+  }
+}

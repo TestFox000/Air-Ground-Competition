@@ -1,0 +1,35 @@
+{
+  "schema": "dzrobot-incident/1",
+  "id": "I08",
+  "slug": "I08-VERTEX-CUT-MINE",
+  "title": "顶点切内：180° 折返画大弧，车心从雷格边上擦过 ⇒ 漏压",
+  "symptom": "真值离雷格 H4 最近 0.0024 m、F4 最近 0.0124 m（都在压到范围内）；整体只压到 6/8 颗雷",
+  "root_cause": "前视 0.36–0.40 m ≥ 一格 0.35 m（robot.yaml:166-167）⇒ 紧凑折返时前视点已落到下一顶点之外，纯追踪按切线走大弧，车心扫过顶点外侧而不是格心。core/config.py:105 红头注释记着实测横向偏差 0.37~0.41 m，而那里正是压雷段。判据落在**车心到雷格心的最近距离**：< 半格 0.175 m 即算压到。",
+  "rationale_criteria": "★ 这条的判别量是**两条几何**（车心到 H4/F4 格心的最近距离），**不是** `mine_pressed_count`。实测发现：`field` 场景（负例）只压到 3/8 颗雷，比第七图的 6/8 更差 —— 把「压不满」写成判据会给出「负例更像症状」的荒谬结论。压不满是这条图的**既有状态**，不是症状；症状是「顶点处那两颗雷的车心距离」。",
+  "sources": [
+    "config/robot.yaml:166-167（lookahead_min_m=0.36 / lookahead_max_m=0.40，均 ≥ 一格 0.35 m）",
+    "src/dzbrain/dzbrain/core/config.py:105（实测该处横向偏差 0.37~0.41 m，那里正是压雷段 E11/F8）",
+    "docs/20_资料索引库/车端/15_…§8.2（顶点切内与紧凑 U 形被整段切掉；车心离顶点 0.240 m）",
+    "src/dzbrain/tests/fixtures/map_field7_t24.yaml:32（雷 8 颗：A2 F4 H4 G5 E8 B10 D11 I11）"
+  ],
+  "scenario": "field7",
+  "arm": "ideal",
+  "seconds": 120.0,
+  "events": [],
+  "arm_patch": {},
+  "derived": {
+    "d_h4_m": {"kind": "min_dist_cell", "cell": "H4"},
+    "d_f4_m": {"kind": "min_dist_cell", "cell": "F4"}
+  },
+  "criteria": [
+    {"name": "顶点处的雷被压到（车心进半格）", "metric": "d_h4_m", "op": "lt", "value": 0.175},
+    {"name": "折返入口的雷也被压到", "metric": "d_f4_m", "op": "lt", "value": 0.175},
+    {"name": "压到就是压到（不是「擦边但没压」）", "metric": "mine_press_steps", "op": "gt", "value": 3000}
+  ],
+  "negative": {
+    "desc": "换 `field` 场景（早期 34 点直线路线，几何里没有这两个顶点）⇒ 车心离 H4 最近 0.739 m、离 F4 0.711 m、压雷拍数 1133。三条同时失效。证明它们测的是**这条第七图路线**的顶点几何，不是「ideal 档压不到雷」这种普遍结论",
+    "arm": "ideal",
+    "events_on": false,
+    "scenario": "field"
+  }
+}

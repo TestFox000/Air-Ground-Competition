@@ -1,0 +1,29 @@
+{
+  "schema": "dzrobot-incident/1",
+  "id": "I03",
+  "slug": "I03-COMMAND-LAG-OVERRUN",
+  "title": "指令延迟阶跃 ⇒ 命令与位姿错拍 ⇒ 横向被带到米级并冲出地图边界",
+  "symptom": "横向 MAX 从 0.93 m 涨到 2.33 m；越界拍数从 0 变成 3857；横向 RMS 从 0.42 涨到 0.82",
+  "root_cause": "底盘速度平滑窗约 0.4 s（20 拍 @100 Hz，dzactuator.cpp:149/1129）＋链路延迟，使「控制器以为的这一刻」与「车真正动起来的这一刻」差一截。现场 H8 卡死那一段（tracker.py:124-136）就是这条：旧逻辑只推 2 拍，负速度还没填满平滑窗，车继续前冲 0.44 m。本夹具注入的是同一件事的**稳态**形态（延迟整段抬到 0.90 s），症状是「车按旧前视点走、越走越偏」。",
+  "sources": [
+    "src/dzbrain/dzbrain/tasks/tracker.py:124-136（2026-10-18 H8 卡死：底盘速度平滑窗 ~0.4 s，负速度被吃掉，车前冲 0.44 m）",
+    "src/dzbrain/dzactuator（`smooth_window_speed=20` @100 Hz ≈ 0.4 s 群延迟；wb_rig/actuator.py 逐行对拍）",
+    "tools/wb_rig/actuator.py:1-23（执行器链四项建模，含延迟队列与平滑窗）"
+  ],
+  "scenario": "field7",
+  "arm": "realistic",
+  "seconds": 120.0,
+  "events": ["latency-step=0.90@6.0"],
+  "arm_patch": {},
+  "derived": {},
+  "criteria": [
+    {"name": "横向被带到米级", "metric": "cross_track_max_m", "op": "gt", "value": 1.8},
+    {"name": "冲出地图边界", "metric": "out_of_bounds", "op": "gt", "value": 2000},
+    {"name": "整体贴线质量劣化", "metric": "cross_track_rms_m", "op": "gt", "value": 0.7}
+  ],
+  "negative": {
+    "desc": "关掉延迟阶跃（realistic 基线）⇒ 横向 MAX 回到 0.93 m、越界 0 拍、RMS 回到 0.42 m。三条判据全部失效；而基线本身仍然是「跑不完的 realistic」，说明差异来自延迟这一条，不是档位本身",
+    "arm": "realistic",
+    "events_on": false
+  }
+}

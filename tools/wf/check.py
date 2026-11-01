@@ -77,6 +77,68 @@ def git_status():
     return files, None
 
 
+#: ★★ WB-20：台账全量视图。**过期检查与失效检查都从这里取**，
+#:   不允许两处各遍历一遍（那会变成第二份实现）。
+#:
+#: 为什么需要它（本卡根因）：原写法 `reg = {e["path"]: e for e in in_flight}`
+#: 是 dict，同 path 只留**最后一条** ⇒ 实测 36 条只映射出 19 个 path，
+#: **17 条被静默覆盖**，其中 3 条过期未收口 ⇒ 门禁报 GREEN。
+#:   “后来的登记代表当前状态”这个假设在本仓是错的：多条登记的语义
+#:   是“**多个卡同时在改同一文件**”（铁证：`config/robot.yaml` 那条把 5 个卡号
+#:   塞进一个 `card` 字符串——使用者已在手动绕开 dict）。
+#:
+#: 返回顺序保留原文件顺序（可逐条对账）；`is_last` 标记同 path 的最后一条
+#: （仅供“被覆盖”诊断与兼容旧输出之用，**不参与判定是否有主**）。
+def _ledger_view(in_flight: list) -> list[dict]:
+    """台账全量视图。每条登记都出现一次，不合并、不覆盖。"""
+    last_idx: dict[str, int] = {}
+    for i, e in enumerate(in_flight):
+        last_idx[e.get("path", "").replace("\\", "/")] = i
+    out = []
+    for i, e in enumerate(in_flight):
+        path = e.get("path", "").replace("\\", "/")
+        out.append({
+            "index": i,
+            "path": path,
+            "entry": e,
+            "is_last": last_idx.get(path) == i,
+        })
+    return out
+
+
+#: ★★ WB-20：卡库卡号索引。登记里写的卡号必须**真实存在**。
+#:   为什么需要它：实测 13 条登记指向不存在的卡号
+#:   （4 幻灵 + 7 截断碎片），其中含 `main.py` / `config/map.yaml` 这种核心文件
+#:   ⇒ 等于“**用不存在的卡洗白冻结区改动**”，而门禁完全不知道。
+def _card_index(card_root: str | None = None) -> set[str]:
+    """卡库里所有卡号（**在办 + 归档**都算，只看文件名，不看 status）。"""
+    import pathlib as _pl
+    root = _pl.Path(card_root) if card_root else (ROOT / ".." / "docs" / "30_任务卡库")
+    try:
+        return {p.stem for p in root.rglob("*.md")}
+    except OSError:
+        return set()
+
+
+def _split_cards(card_field: object) -> list[str]:
+    """`card` 字段可能是 `A + B + C` 拼接形态（实测有人这么写），拆开逐个验。"""
+    return [c.strip() for c in str(card_field or "").split("+") if c.strip()]
+
+
+def _superseded_problem(e: dict, path: str, cards: set[str]) -> str:
+    """校 `superseded_by`。返回空字符串 = 合法；否则返回不合法理由。"""
+    sup = str(e.get("superseded_by") or "").strip()
+    if not sup:
+        return ""
+    my_cards = _split_cards(e.get("card", ""))
+    if sup in my_cards:
+        return "`superseded_by` 指向自己（%s）—— 自指 = 无操作" % sup
+    if sup not in cards:
+        return ("`superseded_by` 指向不存在的卡号 %s "
+                "—— 不许用虚构接手者洗白过期条" % sup)
+    return ""
+
+
 def main():
     as_json = "--json" in sys.argv
     fail, warn = [], []
@@ -137,35 +199,58 @@ def main():
         if any(rx.match(posix) for _, rx in pats):
             dirty_frozen.append(posix)
 
-    reg = {e["path"].replace("\\", "/"): e for e in cfg.get("in_flight", [])}
+    # ★★ WB-20：全量视图。下面两处遍历（过期检查 + 失效检查）**都从它取**。
+    ledger = _ledger_view(cfg.get("in_flight", []))
+    # ★★ WB-20 第③步：卡库索引（一次建好，后面校 `card` 与 `superseded_by` 都用它）。
+    cards = _card_index()
     today = date.today()
 
-    unregistered = [f for f in dirty_frozen if f not in reg]
+    # “该文件有没有人管”= **任一登记存在**（不要求未过期——过期会单独报 RED。
+    #   这里只判“有没有登记”，避免把两件事（有主 / 过期）挤在一个判据里。
+    registered_paths = {x["path"] for x in ledger}
+    unregistered = [f for f in dirty_frozen if f not in registered_paths]
     for f in unregistered:
         fail.append("冻结区未登记改动: %s" % f)
 
     expired, unassigned = [], []
-    for path, e in reg.items():
+    for x in ledger:
+        path, e = x["path"], x["entry"]
         try:
             exp = date.fromisoformat(e.get("expires", "1970-01-01"))
         except ValueError:
-            fail.append("登记日期格式错误: %s" % path)
+            fail.append("登记日期格式错误: %s（卡 %s）" % (path, e.get("card", "?")))
             continue
         if exp < today:
+            # ★ WB-20 第③步：过期条分两级——
+            #   写了**合法** `superseded_by` ⇒ WARN（已被取代，可从台账移除）；
+            #   没写 / 写了但不合法        ⇒ RED（过期且无人有效声明接手）。
             expired.append(path)
-            fail.append("登记已过期未收口: %s（卡 %s，到期 %s）" % (path, e.get("card", "?"), exp))
+            sup_bad = _superseded_problem(e, path, cards)
+            sup = str(e.get("superseded_by") or "").strip()
+            if sup and not sup_bad:
+                warn.append("登记已过期但已声明取代: %s（卡 %s，到期 %s，由 %s 接手）"
+                            % (path, e.get("card", "?"), exp, sup))
+            else:
+                fail.append("登记已过期未收口: %s（卡 %s，到期 %s）%s"
+                            % (path, e.get("card", "?"), exp,
+                               ("；" + sup_bad) if sup_bad else ""))
+        # ★ WB-20 第③步：`card` 里每个卡号必须真实存在（截断碎片与幻灵都由此判出）。
+        bad_cards = [c for c in _split_cards(e.get("card", "")) if c not in cards]
+        if bad_cards:
+            fail.append("登记指向不存在的卡号: %s（查不到 %s）"
+                        % (path, ", ".join(bad_cards)))
         if e.get("owner", "unassigned") in ("", "unassigned"):
             unassigned.append(path)
-            # ★2026-10-18 升级为阻断：无 owner 的在途改动 = 没人收口的悬空改动（项目“反复开倒车”的物理来源）。
-            #   曾经只 WARN，结果 4 条 v4.0 收口改动悬了多轮无人认领。
             fail.append("登记未指定 owner（无人收口）: %s（卡 %s）" % (path, e.get("card", "?")))
+        # ★ WB-20：失效检查也走**全量**——旧写法只对 dict 的 19 条跑，
+        #   被覆盖的 17 条即使“文件已不脏、登记该删了”也永远不提示。
         if path not in dirty_frozen:
-            warn.append("登记已失效（文件已不脏，可移除）: %s" % path)
+            warn.append("登记已失效（文件已不脏，可移除）: %s（卡 %s）" % (path, e.get("card", "?")))
 
     result = {
         "ok": not fail,
         "frozen_dirty": dirty_frozen,
-        "registered": sorted(reg),
+        "registered": sorted(registered_paths),
         "unregistered": unregistered,
         "expired": expired,
         "warnings": warn,
@@ -177,7 +262,7 @@ def main():
         print("== 工作流 v2 收口门禁 ==")
         print("冻结区脏文件: %d" % len(dirty_frozen))
         for f in dirty_frozen:
-            mark = "OK " if f in reg else "RED"
+            mark = "OK " if f in registered_paths else "RED"
             print("  [%s] %s" % (mark, f))
         if link_status:
             print("  [OK ] 文档链接 %s" % link_status)

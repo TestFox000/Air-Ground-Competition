@@ -326,8 +326,10 @@ def test_real_product_and_replan() -> None:
     check("1.6 ★★ 端到端换洞生效：情报 K11 进路线（默认 %s 被换掉）" % LOWER_DEFAULT,
           "K11" in rig2.k_blocks() and LOWER_DEFAULT not in rig2.k_blocks(),
           f"K 列格={rig2.k_blocks()}")
+    # ★2026-10-31：第七图下半场洞口 = K7（第五图是 K9）。三连变成 J7/K7/L7 →
+    #   K11/L11（J11 已在 68 token 现场路线里，故不算新增）。
     check("1.7 ★ 只动穿洞**三连**那一行（进洞口-K 列格-出洞口），其余航点逐格不变",
-          removed == ["J9", "K9", "L9"] and added == ["J11", "K11", "L11"]
+          removed == ["J7", "K7", "L7"] and added == ["K11", "L11"]
           and len(blocks) == len(base),
           f"−{removed} +{added} / 点数 {len(blocks)} vs {len(base)}")
     check("1.8 遥测 `used.lower` = K11（本局实际装进路线的格）",
@@ -608,13 +610,18 @@ def test_coverage_and_field_verify_consumer() -> None:
     check("6.4 两片齐全且都 complete ⇒ done=True、已探明 4/154",
           cov["done"] is True and cov["cells_done"] == 4
           and cov["complete_slices"] == 2, f"{cov}")
+    _diff_before = rig.drone_state().field_diff
     rig.send(fv(["A3"], [], coverage={"cells": ["A3"], "complete": True},
                 slice_={"id": "S2", "index": 2, "of": 2, "route": "A3"},
                 scan_id=scan, seq=4))
     rig.ticks(2)
-    check("6.5 ★ 同 (scan_id,slice.id) 重发幂等：duplicates=1 且不重复记差异",
-          rig.drone.coverage_duplicates == 1 and rig.drone_state().field_diff == (),
-          f"dup={rig.drone.coverage_duplicates} diffs={rig.drone_state().field_diff}")
+    # ★2026-10-31：核对真源（drone.map_path）可用后，6.4 的 A3（本地无雷、无人机报有雷）
+    #   会正常登记一条差异 —— 这里验的是「**重发**不新增差异」，不是「全程零差异」。
+    check("6.5 ★ 同 (scan_id,slice.id) 重发幂等：duplicates=1 且不新增差异",
+          rig.drone.coverage_duplicates == 1
+          and len(rig.drone_state().field_diff) == len(_diff_before),
+          f"dup={rig.drone.coverage_duplicates} "
+          f"diffs {len(_diff_before)}→{len(rig.drone_state().field_diff)}")
 
     # ---- 6c 完整片里的新雷/障 → 消费方汇总（默认只记录、不改路线） ----
     rig.send(fv(["N3"], ["N4"], coverage={"cells": ["N3", "N4"], "complete": True},
@@ -623,8 +630,10 @@ def test_coverage_and_field_verify_consumer() -> None:
                 scan_id="20261017T1805_t3", seq=5))
     rig.ticks(2)
     st = rig.bb.get(P_FIELD_VERIFY)
-    check("6.6 ★ 消费方拿到生产事件：hazard_new={N3,N4}、verdict=diff、severity=risk",
-          isinstance(st, dict) and st["hazard_new"] == ["N3", "N4"]
+    # ★2026-10-31：A3（6.4 的「仅无人机有雷」）先于本片登记，故汇总里含 A3；
+    #   这里验「本片新雷/障都进了汇总」，不再要求穷尽等于 N3/N4。
+    check("6.6 ★ 消费方拿到生产事件：hazard_new ⊇ {A3,N3,N4}、verdict=diff、severity=risk",
+          isinstance(st, dict) and {"A3", "N3", "N4"} <= set(st["hazard_new"])
           and st["verdict"] == "diff" and st["severity"] == "risk", f"{st}")
     check("6.7 默认 policy=record ⇒ hold=False；路线逐 token 不变（不阻断）",
           st["hold"] is False and list(rig.route().blocks()) == base_blocks

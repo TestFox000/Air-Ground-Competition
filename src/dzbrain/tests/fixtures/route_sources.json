@@ -1,0 +1,30 @@
+{
+  "schema": "dzrobot-route-source/1",
+  "note": "具名路线/地图来源登记（卡 WB-1-ROUTE-20261031）。name -> 本目录内既有逐字快照文件的相对路径。消费方（wb-2 的 wb_rig 路径解析器、测试、离线工具）只按名字取，取不到就显式报错，绝不回落到仓库内的现役地图（D-054 裁决4 / D-062）。本文件不复制任何快照内容，只做名字 -> 路径的映射。",
+  "sources": {
+    "field7": {
+      "map": "map_field7_t24.yaml",
+      "route": "route_field7_t24.txt",
+      "origin": "第七张图（2026-10-17 现场图，24 号 t 段路线 = 删除前 68 token 逐字快照）",
+      "ledger": "D-062"
+    },
+    "sixth": {
+      "map": "map_sixth_20261017.yaml",
+      "route": null,
+      "origin": "第六张图逐字快照（无对应路线快照；路线由布局模式运行期规划）",
+      "ledger": "01 册 §0"
+    },
+    "carloop": {
+      "map": "map_carloop_20261024.yaml",
+      "route": null,
+      "origin": "车环图（规划类测试现役地图）",
+      "ledger": "test_planner/test_corner_cut 现役引用"
+    },
+    "field": {
+      "map": "map_field.yaml",
+      "route": "route_field.txt",
+      "origin": "早期 34 点直线夹具（历史回归基线）",
+      "ledger": "test_route §5"
+    }
+  }
+}

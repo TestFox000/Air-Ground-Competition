@@ -1,0 +1,31 @@
+{
+  "schema": "dzrobot-incident/1",
+  "id": "I13",
+  "slug": "I13-ANCHOR-MAKES-ERROR",
+  "title": "到位吸附把 0.000 的误差造到 0.119 m；吸附每段归零 ⇒ 里程尺度误差被彻底掩盖",
+  "symptom": "同场景同注入，开吸附时 drift 告警 18 条、anchor_refused 27 次、信念误差 1.678 m；关掉吸附后漂移告警/拒绝吸附双双归零，而信念误差分布形态改变",
+  "root_cause": "fix.anchor_at_waypoint 的 L2 格心修正：信念被外部拽到航点格心（localization.py:82-88 `arrival_m=0.12`；末点另收紧到 `_GOAL_STOP_M=0.03`）。吸附是「零误差不变量的唯一例外」——它不是被控对象特性，是外部修正；而它每段把沿程误差归零，会让「里程虚增 17.9%」这类尺度误差一条告警都不出（红头注释 :283-288 记着实车 13/13 吸附、0 告警、真值早在终点前 69 cm）。",
+  "sources": [
+    "src/dzbrain/dzbrain/tasks/localization.py:82-88（arrival_m 与 _GOAL_STOP_M 的注释：实测「到位吸附 A10 偏差 0.118 m → 锚回格心」）",
+    "src/dzbrain/dzbrain/tasks/localization.py:283-288（「吸附掩盖尺度误差」闸的实证：实车 17.9% 虚增、13/13 吸附、0 告警、真值提前 69 cm）",
+    "docs/20_资料索引库/历史/08_坑库.md 坑④（吸附造误差 0.000→0.119 现场记录）",
+    "tools/wb_rig/arms.py:27-37（吸附属于「注入档」的口径：它让信念偏离真值）"
+  ],
+  "scenario": "field7",
+  "arm": "realistic",
+  "seconds": 120.0,
+  "events": [],
+  "arm_patch": {},
+  "derived": {},
+  "criteria": [
+    {"name": "吸附确实施加过", "metric": "cnt_loc_anchored", "op": "gt", "value": 20},
+    {"name": "吸附制造了可观测的漂移告警", "metric": "cnt_loc_drift_warnings", "op": "gt", "value": 5},
+    {"name": "吸附同时被闸拒绝过（尺度误差没被完全掩盖）", "metric": "cnt_loc_anchor_refused", "op": "gt", "value": 10}
+  ],
+  "negative": {
+    "desc": "把吸附关掉（fix.anchor_at_waypoint=false，其余同臂）⇒ 三个计数全部归零：吸附次数 0 / 吸附拒绝 0 / 漂移告警 0。证明这三条数不是 realistic 档自带，而是**吸附**这一个开关造成的",
+    "arm": "realistic",
+    "events_on": false,
+    "arm_patch": {"anchor_on_arrival": false}
+  }
+}

@@ -117,8 +117,25 @@ try:
     from dzbrain.core.config import Config
     from dzbrain.route.parser import parse_mission
     ws = pathlib.Path(__file__).resolve().parents[3]
+    # ★ 2026-10-31 重钉（第七张图 / 布局模式，v4.4.0）：车端删除本地地图（`config/map.yaml`）
+    #   后 `robot.yaml` 不再手写路线 —— `route.tokens` 只剩占位空表（SCHEMA 默认 `[]`），
+    #   路线改由无人机 `field_layout` 运行期规划。**现场路线本体改由固定夹具承载**
+    #   （`route_field7_t24.txt`，68 token，与删除前 robot.yaml 逐字一致）——
+    #   与 test_planner / test_physics / test_sim / test_mission 同一口径：
+    #   本节验的是「现场路线的几何」，不依赖它写在哪个文件里。
+    #   （旧代码 `parse_mission(cfg.get("route.tokens") or [])` 在零 token 下必抛
+    #     「Path 至少需要 2 个航点」⇒ 本节整段报异常。）
     cfg = Config.load(str(ws / "config" / "robot.yaml"))
-    field = parse_mission(cfg.get("route.tokens") or [])   # Config 别名 route.tokens == mission_blocks（54 点）
+    check("布局模式互锁（planner.auto_plan_enabled=true / map_path 空串）⇒ 现场路线取自夹具",
+          cfg.get("planner.auto_plan_enabled") is True
+          and (cfg.get("planner.map_path") or "") == "",
+          f"auto_plan={cfg.get('planner.auto_plan_enabled')!r} "
+          f"map_path={cfg.get('planner.map_path')!r}")
+    fixture = ws / "src" / "dzbrain" / "tests" / "fixtures" / "route_field7_t24.txt"
+    tokens = fixture.read_text(encoding="utf-8").split()
+    check("现场路线夹具 route_field7_t24.txt = 68 token（第七图）",
+          len(tokens) == 68, f"{len(tokens)} 个")
+    field = parse_mission(tokens)
     fpath = Path(field)
     rev = field.reverse_segments()
     # ★ 2026-10-09 设计变更（实车铁证）：底盘**不支持倒车**（决定性实验：发 linear.x<0，
@@ -126,36 +143,63 @@ try:
     #   180° 折返改为**原地 PIVOT 掉头**（corner_turn_deg=180° > 阈值 135°）。
     check("★现场图路线已无倒车段（底盘不支持倒车 → 折返改为 PIVOT）",
           len(rev) == 0, f"reverse_segments={rev}")
-    piv_blocks = [field.blocks()[i + 1] for i in range(1, fpath.segment_count)
-                  if fpath.corner_turn_deg(i) >= 135.0]
-    max_turn = max((fpath.corner_turn_deg(i) for i in range(1, fpath.segment_count)), default=0.0)
-    # ★ 2026-10-11 重钉（t20）：**第三次换图**（现场图 p-81Zc2l，手工 v3，62 点）把 U 形
-    #   改成"外圈绕行"，全程**没有 ≥135° 的折返顶点**（最大转角 90°，PIVOT 门限 135°）
-    #   ⇒ 旧断言"折返点恰好 1 处（G10*）"不再成立。仍写成**正向**断言：
-    #   将来若有人把折返顶点加回来（或最大转角越过 135°），这两条立刻变红。
-    check("★第三张图路线无 ≥135° 折返顶点（U 形靠外圈绕行，最大转角 90°）",
-          sorted(piv_blocks) == [] and max_turn < 135.0,
-          f"pivots={piv_blocks}；最大转角={max_turn:.1f}°（门限 135°）")
-    # ★ 2026-10-11 重钉（t18 → t20）：原断言「现场图存在 A→B→A 式的同格回折」是**旧路线（带 R: 折返腿）**
-    #   的语义；路线把折返全部改成「直线穿越 + 外圈绕行」后已**不再有任何同格回折**。
-    #   语义变了但不许删 —— 保持「已无同格回折」+「折返顶点 0 处」两条**正向**断言：
-    #   将来若有人把回折腿加回来，这两条会立刻变红，不存在静默跳过。
+    # ★ 2026-10-31 重钉（第七图）：第六图靠「外圈绕行」把 180° 折返消掉（0 处折返顶点）；
+    #   第七图把回折**加回来**了（H4→I4→H4 / H4→G4→H4 / A2→A1→A2），而底盘仍不能倒车
+    #   ⇒ 全部用 `:PIVOT` 表达（原地掉头）。真正的不变量是**第二条**：≥135° 的顶点必须
+    #   带 :PIVOT —— 不带就是让车硬拐 180°（实车会绕圈跳点，见 test_route §11 的 PIVOT 契约）。
+    sharp = [i for i in range(1, fpath.segment_count) if fpath.corner_turn_deg(i) >= 135.0]
+    check("★现场图路线有 3 处 180° 折返顶点（第七图 H4→I4 / H4→G4 / A2→A1 回折）",
+          len(sharp) == 3 and all(abs(fpath.corner_turn_deg(i) - 180.0) < 1e-9 for i in sharp),
+          f"顶点段号={sharp}；转角={[round(fpath.corner_turn_deg(i), 1) for i in sharp]}")
+    unpivot = [(i, field.waypoints[i + 1].token) for i in sharp
+               if not field.waypoints[i + 1].pivot]
+    check("★每一处 ≥135° 折返都带 :PIVOT 声明（不能倒车 ⇒ 只能原地掉头）",
+          unpivot == [], f"未声明 PIVOT 的折返={unpivot}")
+    # 回折腿 = A→B→A 同格回折（几何上两段压同一条直线）——本文件的 s_hint 修复就是为它写的。
+    # 第七图恰好 3 处，与上面 3 个 PIVOT 顶点一一对应；两条断言互相钉住「声明」与「几何」。
     blocks = field.blocks()
-    backtrack = [i for i in range(len(blocks) - 2)
-                 if blocks[i + 2] == blocks[i]]
-    check("★新路线已无 A→B→A 式同格回折（折返腿已全部改为直线穿越）",
-          backtrack == [], f"index={backtrack}")
-    check("★与「无同格回折」自洽：折返顶点 0 处 + 同格回折 0 处",
-          len(piv_blocks) == 0 and len(backtrack) == 0,
-          f"pivots={piv_blocks}；同格回折数={len(backtrack)}")
-    if backtrack:
-        # 仅在回折腿回归时才会执行（上面第二条断言那时已变红，必须人工复核本段）
-        i = backtrack[0]
-        sa = fpath.s_at_waypoint(i)
-        sb = fpath.s_at_waypoint(i + 2)
-        check("回折两段长度相等（几何重叠）",
-              abs((sb - sa) - 2 * fpath.segments[i][4]) < 1e-6,
-              f"Δs={sb - sa:.4f} 段长={fpath.segments[i][4]:.4f}")
+    backtrack = [i for i in range(len(blocks) - 2) if blocks[i + 2] == blocks[i]]
+    check("★现场图路线存在 3 处 A→B→A 同格回折，且与 PIVOT 顶点一一对应",
+          backtrack == sharp, f"同格回折={backtrack}；PIVOT 顶点段号={sharp}")
+    overlap_bad = [(i, round(fpath.segments[i][4], 4), round(fpath.segments[i + 1][4], 4))
+                   for i in backtrack
+                   if abs(fpath.segments[i][4] - fpath.segments[i + 1][4]) >= 1e-6]
+    check("★回折两段长度相等（同一条线压两条航段 ⇒ 投影歧义，必须靠 s_hint 裁决）",
+          overlap_bad == [], f"{overlap_bad}")
+    # ★ 修复本体在**真实第七图路线**上复验（照 §2/§2b 的同一调用式）：
+    #   回折压线时两段完全共线、同一物理点到两段**等距**，位置本身无法裁决
+    #   ⇒ 只能靠 `motion_heading`（实际行进方向）+ `s_hint` 连续性。回程腿必须命中返回段、
+    #   s 单调增长到 `顶点 + 段长`；去程腿（反向对照）必须仍命中去程段、s 不越过顶点。
+    stuck = []
+    for i in backtrack:
+        seg = fpath.segments[i + 1]                    # 回程段 mid -> 出发格
+        ux, uy = seg[2] - seg[0], seg[3] - seg[1]
+        travel = geo.heading_of(ux, uy)
+        s_prev = fpath.s_at_waypoint(i + 1)            # 折返顶点弧长
+        for frac in (0.15, 0.45, 0.75, 0.95):
+            pr = fpath.project(seg[0] + ux * frac, seg[1] + uy * frac,
+                               s_hint=s_prev, motion_heading=travel)
+            expect_s = fpath.s_at_waypoint(i + 1) + frac * seg[4]
+            if pr.seg_index != i + 1 or pr.s < s_prev - 1e-9 or abs(pr.s - expect_s) >= 1e-6:
+                stuck.append((i, frac, pr.seg_index, round(pr.s, 4), round(expect_s, 4)))
+            s_prev = pr.s
+    check("★回程腿上投影命中返回段且 s 单调前进（修复本体，现场路线实测）",
+          stuck == [], f"{stuck}")
+    bad_fwd = []
+    for i in backtrack:
+        seg = fpath.segments[i]                        # 去程段 出发格 -> mid
+        ux, uy = seg[2] - seg[0], seg[3] - seg[1]
+        travel = geo.heading_of(ux, uy)
+        apex = fpath.s_at_waypoint(i + 1)
+        s_prev = fpath.s_at_waypoint(i)
+        for frac in (0.15, 0.45, 0.75, 0.95):
+            pr = fpath.project(seg[0] + ux * frac, seg[1] + uy * frac,
+                               s_hint=s_prev, motion_heading=travel)
+            if pr.seg_index != i or pr.s >= apex - 1e-9:
+                bad_fwd.append((i, frac, pr.seg_index, round(pr.s, 4)))
+            s_prev = pr.s
+    check("★反向对照：去程腿仍命中去程段、不提前跳到返回段（不会提前掉头）",
+          bad_fwd == [], f"{bad_fwd}")
 except Exception as exc:      # 配置读不到 = 测试环境坏了，必须红，绝不允许静默跳过（2026-10-11 假绿教训）
     check(f"现场图路线检查失败（{type(exc).__name__}: {exc}）", False, "异常")
 

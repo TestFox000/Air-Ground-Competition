@@ -392,6 +392,103 @@ _STEP_UNKNOWN_STOP_TICKS = 3
 #: 无新布局时不得无界等待而不给理由）。到期打一行 wait_info_bounded，仍继续等。
 _WAIT_INFO_BUDGET_S = 300.0
 
+# --------------------------------------------------------------------------- #
+#  ★WB-18：三键危险组合的**启动期硬闸**（2026-11-01）
+# --------------------------------------------------------------------------- #
+#  为什么需要（WB-14 实测，不是推测）：
+#    `engine=tracker-safe` 在四张现场真实图上 **4/4 无解**；逐组放宽证明三种成因；
+#    放宽后产出仍被 `assert_legal_no_reverse` 拒绝 180° 掉头 ⇒ **没有"调参修好"路径**。
+#    与另两键组合起来就是："自动规划开着 + 失败不回退手写线" ⇒ 每次规划失败即停车报错，
+#    **配置能瞬间把车变成不能动**。
+#
+#  闸门的价值：把这件事从「调试时才发现」变成「启动时就报错」，并给出可行动作。
+#  明确不做（避免过度防御）：不改默认值、不放宽 tracker-safe 规则、不删该引擎、
+#    不改 config/** —— 本闸只**读**三键。
+#
+#  ⚠️ 为什么必须区分「键缺失」与「显式 false」（本卡最容易假红的地方）：
+#    `SCHEMA` 兜底值是 engine=tour / auto_plan_enabled=False / fallback_to_tokens=**True**
+#    ⇒ 三键全缺时组合 = tour + 不自动规划 ⇒ **安全**。
+#    判据用 `key in cfg._flat`（= 配置里真的写了这个键）只为了在报错文本里注明
+#    "该键未显式配置、取的是代码兜底值"，让人知道该改哪一行；
+#    **判定本身按生效值**（缺键⇒兜底⇒安全），不把"没配"当危险。
+# --------------------------------------------------------------------------- #
+
+#: 危险组合的引擎名（拦的只有这一个；`tour` 是现役取值）。
+GATE_DANGER_ENGINE = "tracker-safe"
+#: 启动期硬闸的日志键。与运行期 GATE_* warn 表**分属两类**：这条是 hard，且只在启动期判一次。
+GATE_ENGINE_COMBO = "engine_combo"
+#: 启动期危险配置组合的退出码（与已有 3=布局/无人机、4=布局规划失败、5=重复实例/自检、
+#: 6=启动契约 并列，不重复占用）。
+EXIT_ENGINE_COMBO = 7
+
+
+def _planner_engine_combo_risk(cfg: Config) -> dict[str, Any] | None:
+    """三键危险组合判定。**命中返回证据 dict，安全返回 None。**
+
+    危险组合 = `engine==tracker-safe` **且** `auto_plan_enabled==True`
+    **且** `fallback_to_tokens==False`（三者同时成立）。
+
+    读值一律走 `cfg.get()`（= **生效值**，含 SCHEMA 兜底）；缺键 ⇒ 兜底安全 ⇒ 不判危险。
+    `explicit` 只用于报错文本里注明"哪个键没写"，不参与判定。
+    """
+    engine = str(cfg.get("planner.engine", "tour") or "").strip()
+    auto_plan = bool(cfg.get("planner.auto_plan_enabled", False))
+    fallback = bool(cfg.get("planner.fallback_to_tokens", True))
+    if engine != GATE_DANGER_ENGINE or not auto_plan or fallback:
+        return None
+    flat = getattr(cfg, "_flat", {}) or {}
+    return {
+        "engine": engine,
+        "auto_plan_enabled": auto_plan,
+        "fallback_to_tokens": fallback,
+        "explicit": {k: f"planner.{k}" in flat
+                     for k in ("engine", "auto_plan_enabled", "fallback_to_tokens")},
+        "source": str(getattr(cfg, "source", "") or ""),
+    }
+
+
+def _engine_combo_error_lines(risk: dict[str, Any]) -> list[str]:
+    """危险组合的**报错正文**（诚实两层：可用出路只有一条 + 两条"看似可行实则无效"）。
+
+    ★ 2026-11-01 按 captain 更正重写（原写"三选一"是错的，会误导）：
+      `mission.py` 的 **B 分支（fallback_to_tokens=true，:2842）** 与
+      **C 分支（auto_plan_enabled=false，:2797）** 读的是**同一个键** `route.tokens`，
+      而该键已随 NOLEGACY 删除（`path_executor` 整段没了、`mission_blocks` 也没有）
+      ⇒ `_load_tokens(None)` 在 `:2949` `raise ValueError`。
+      **两条路通向同一堵墙**，且失败发生在**最后一刻**（人已经在等车动）——比不设闸更糟。
+
+    抽成纯函数是为了让单测能**逐字**断言正文（含"哪条可用/哪条不可用"的标注），
+    而不是靠"启动一次看日志里有没有字"这种脆弱判法。
+    """
+    exp = risk.get("explicit") or {}
+
+    def mark(key: str) -> str:
+        return "" if exp.get(key) else "（该键未显式配置，取代码兜底值）"
+
+    return [
+        f"❌ 拒绝进入 DRIVE（exit {EXIT_ENGINE_COMBO} · gate={GATE_ENGINE_COMBO}）：",
+        f"    planner.engine = {risk['engine']}{mark('engine')}"
+        f" + planner.auto_plan_enabled = {risk['auto_plan_enabled']}"
+        f"{mark('auto_plan_enabled')}"
+        f" + planner.fallback_to_tokens = {risk['fallback_to_tokens']}"
+        f"{mark('fallback_to_tokens')}",
+        "    该组合下自动规划每次失败即停车"
+        f"（{GATE_DANGER_ENGINE} 在四张现场图 4/4 无解，WB-14）。",
+        "",
+        "    可用出路只有一条，且需要改配置：",
+        "      · 把 planner.engine 改回 tour（现状值，四张真实图全部出串）",
+        "",
+        "    另有两条看似可行、但在本仓当前配置下无效：",
+        "      · 打开 fallback_to_tokens：route.tokens 已随 NOLEGACY 删除"
+        " ⇒ 只会从『规划失败』变成『载入路线失败』",
+        "      · 关掉 auto_plan_enabled：读的是同一个 route.tokens ⇒ 同样失败",
+        "      ⇒ 这两条要真能用，必须先把手工路线写回 route.tokens。",
+        "",
+        f"    配置来源：{risk.get('source') or '(未知)'}",
+        "    本闸只读三键，不改任何默认值，也不放宽 tracker-safe 规则。",
+        "    本闸不杀进程：栈仍在、可被接管（遥控通道不因配置错而丢失）。",
+    ]
+
 
 # --------------------------------------------------------------------------- #
 #  ★AGC-RECTIFY rt-gate（2026-10-27 用户裁决 A 区 / B 区）：运行面闸门分级
@@ -2723,7 +2820,44 @@ def run_bench(cfg: Config, *, seconds: float, drive: bool = False,
             log(f"bench：自动规划异常（{type(exc).__name__}: {exc}）→ 用 route.tokens")
 
     bridge = fakes.FakeBridge()
-    route = parse_mission(cfg.get("route.tokens") or [])
+    # ★ WB-21：bench 入口的空路线**显式拦在解析处**（与 :222 的 R001 / mission._load_tokens 对齐）。
+    #   为什么必须在这里拦而不是让 `Path(route)` 去抛：
+    #     ① 现状是**裸 Traceback**（`path = Path(route)` → `ValueError: Path 至少需要 2 个航点`），
+    #        现场看到的是一坨栈，**看不出是 route.tokens 为空**，更看不到"该怎么办"；
+    #     ② 同一件事仓里有三种处理规格（`:222` 走 R001 / `mission._load_tokens` 抛可读 ValueError /
+    #        这里裸栈）—— **声明面 ≠ 可用面**；本卡把 bench 这条补成"可读报错"。
+    #     ③ `--bench` 是**无车联调**入口，它恰恰是最需要"一眼看懂哪里没配"的地方。
+    #   ① **`None`（键不存在）与 `[]`（显式空）必须区分**（captain 2026-11-01 要求）。
+    #      ★ 实测结论（本卡坐实）：**`cfg.get()` 分不出来** ——
+    #        SCHEMA(`route.tokens` default=`[]`) 兜底后，两种情形都返回 `[]`；
+    #        唯一能区分的是 `"route.tokens" in cfg._flat`（True=配置里真写了，False=走兜底）。
+    #      ⇒ 用 `_flat` 判，报错文本里如实说"你没配这一项"或"你配了个空列表"，
+    #        否则用户会收到"你配了空列表"而实际上他根本没配 —— 归因错位（L14 同族）。
+    #   ② 报错必须点名 `route.tokens` 为空 + 给出可行动作，不许裸栈。
+    _raw_tokens = cfg.get("route.tokens")
+    _explicit = "route.tokens" in (getattr(cfg, "_flat", {}) or {})
+    _route_tokens = [str(t) for t in (_raw_tokens or [])]
+    if len(_route_tokens) < 2:
+        if _raw_tokens is None:
+            _state, _why = "none", "配置里读到 None（该项不存在或显式 null）"
+        elif not _explicit:
+            _state, _why = "missing", "配置里**没有** route.tokens 这一项（走 SCHEMA 兜底 `[]`）"
+        elif not _route_tokens:
+            _state, _why = "empty", "配置里 route.tokens 是**显式的空列表 `[]`**"
+        else:
+            _state, _why = "short", f"route.tokens 只有 {len(_route_tokens)} 点（不足 2 点）"
+        log(f"❌ bench 拒绝启动：{_why}，无法构成可循迹路径。")
+        log(f"    （读到值：{_raw_tokens!r}；状态：{_state}；显式配置：{_explicit}）")
+        log("    这是什么：`--bench` 跑的是真实任务线程组，空路线下没有段可执行，"
+            "跑出来的指标与「根本没跑」无法区分。")
+        log("    怎么办（二选一）：")
+        log("      ① 传一张地图让它自动规划：`--bench --drive --map <地图文件>`"
+            "（会先调 plan_route_from_config，再把产物写回 route.tokens）")
+        log("      ② 显式给路线：在配置里填 `route.tokens`（≥2 个 token，形如 L1,L2 的格名序列）")
+        log("    ⚠ 这条与 `main.py` 启动门禁（R001）和 `mission._load_tokens`（ValueError）"
+            "是**同一个口径**：空路线一律不静默放行。")
+        return 2
+    route = parse_mission(_route_tokens)
     reset_block, reset_yaw = "N10", geo.HEADING_X
     try:
         from .route.parser import parse_reset
@@ -2958,6 +3092,20 @@ def _run_live_body(cfg: Config, *, log: Callable[[str], None] = LOG,
                    alive: Callable[[], bool] = ros_context_alive,
                    map_path: str | None = None, archive: Any = None,
                    report: dict[str, Any] | None = None) -> int:
+    # ★WB-18：**三键危险组合的启动期硬闸**（全函数第一件事，先于 import ROS / 建 bridge）。
+    #   放在最前有三个理由：
+    #     ① 纯配置判定，不需要 ROS 上下文 ⇒ 无 ROS 的机器也能被这条拦住、也能被单测覆盖；
+    #     ② 早于「等布局」（后者在有无人机在飞时会等很久）⇒ 危险配置不会先耗掉等待时间；
+    #     ③ 早于一切资源获取 ⇒ 拒绝时不留下半启动的节点/线程。
+    #   判据见 `_planner_engine_combo_risk()`；这里只负责"拒绝 + 报错 + 退出码"。
+    _combo_risk = _planner_engine_combo_risk(cfg)
+    if _combo_risk is not None:
+        for _line in _engine_combo_error_lines(_combo_risk):
+            log(_line)
+        if report is not None:
+            report["reason"] = f"engine_combo:{GATE_ENGINE_COMBO}"
+        return EXIT_ENGINE_COMBO
+
     from .io.ros_io import RosBridge          # 只在真跑时导入（无 ROS 的机器 import 会失败但惰性）
     from .io import contract as ct
 

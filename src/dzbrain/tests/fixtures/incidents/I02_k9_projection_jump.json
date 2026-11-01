@@ -1,0 +1,32 @@
+{
+  "schema": "dzrobot-incident/1",
+  "id": "I02",
+  "slug": "I02-K9-PROJECTION-JUMP",
+  "title": "K9 桥洞蹭墙后投影跳到 10 m 之外的另一支，减速层同时失效，车直线出界",
+  "symptom": "横向 MAX 2.777 m（基线 0.933）、越界 29893 拍（基线 0）；信念误差 2.826 m（基线 1.678）",
+  "root_cause": "全路线重投影只判「新投影更近」，没有任何跳跃上限（localization.py:74-80 / `_STUCK_TRUST_DIST_M=0.45`）；Tracker 侧的接受判据同款（tracker.py:98-103）。投影跳到 10 m 之外另一支后前视点瞬移、转角减速层失效（0.12→0.35 m/s），车直线冲出边界。",
+  "rationale_no_s_jump": "★ 这条**不用**单拍弧长跳变（`s_jump_max`）当判据，这是实测发现的：realistic 基线自己的 `s_jump_max` 就有 13.0 m（换段时弧长本来就会跳），而本夹具正例是 10.57 m —— **比基线还小**。把 s 跳变写成「越大越坏」的判据会给出「注入让情况变好了」的荒谬结论。真正的判别量是**横向被带到多远 + 是否出界**，那两条在正负例里的差距是 3× 与 ∞。",
+  "sources": [
+    "src/dzbrain/dzbrain/tasks/localization.py:74-80（_STUCK_TRUST_DIST_M 注释里的 2026-10-17 14:59 实证：s 1.288 → 14.112，+12.824 m）",
+    "src/dzbrain/dzbrain/tasks/tracker.py:98-103（同一次实车证据的 Tracker 侧记录）",
+    "docs/20_资料索引库/车端/04_定位与安全.md §1（台账口径）"
+  ],
+  "scenario": "field7",
+  "arm": "realistic",
+  "seconds": 120.0,
+  "events": ["scale-step=0.45@5.0"],
+  "arm_patch": {},
+  "derived": {
+    "s_jump_m": {"kind": "s_jump_max"}
+  },
+  "criteria": [
+    {"name": "横向被带到米级", "metric": "cross_track_max_m", "op": "gt", "value": 1.5},
+    {"name": "冲出地图边界", "metric": "out_of_bounds", "op": "gt", "value": 10000},
+    {"name": "信念误差同步劣化", "metric": "belief_error_rms_m", "op": "gt", "value": 2.0}
+  ],
+  "negative": {
+    "desc": "关掉里程比例突变（同臂同场景同种子，只把这一条事件摘掉）⇒ 横向 MAX 回 0.933 m、越界回 0 拍、信念误差回 1.678 m。三条全部失效（注意 `s_jump_m` 仍有 13.0 m —— 它被**故意**留在 values 里但不进判据，见 rationale_no_s_jump）",
+    "arm": "realistic",
+    "events_on": false
+  }
+}

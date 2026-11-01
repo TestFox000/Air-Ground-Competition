@@ -1,0 +1,32 @@
+{
+  "schema": "dzrobot-incident/1",
+  "id": "I11",
+  "slug": "I11-POSE-STEP-JUMP",
+  "title": "单帧位姿突跳 1.2 m ⇒ 信念单拍位移 = 注入量，投影卡死自愈被多触发一次",
+  "symptom": "信念单拍位移 = 1.1999 m（= 注入量本身）；卡死自愈次数从 5 涨到 6；全程仍跑完（自愈把它吃掉了）",
+  "root_cause": "重锚/吸附若一步拽满，会在**单拍**制造 >0.20 m 的位姿突跳（localization.py:283-288 原文：实车 run4 残差 0.303 m 一次拉满 → 位姿突跳 0.313 m > 0.20 门限 → FixTask 判清窗 + 漂移护栏 drift_run 累到 8 → drift_stop 停死）。F5 改成**分拍收敛**（:1246-1249，每拍最多 `reanchor_step_max_m=0.12`）后这条牙被夹住了；本夹具注入的正是「不受 F5 约束的那一类突跳」（reset / 重定位跳帧），用来钉住上游有没有真的把突跳吃掉。",
+  "sources": [
+    "src/dzbrain/dzbrain/tasks/localization.py:283-288（单拍步长上限的现场实证：0.303 m → 0.313 m 突跳 → 清窗 + drift_stop）",
+    "src/dzbrain/dzbrain/tasks/localization.py:1246-1249（F5 分拍收敛实现：每拍最多 0.12 m）",
+    "src/dzbrain/dzbrain/tasks/localization.py:74-80（`_STUCK_TRUST_DIST_M=0.45`：大跳跃采纳的离线上限）"
+  ],
+  "scenario": "field7",
+  "arm": "ideal",
+  "seconds": 120.0,
+  "events": ["pose-step=1.20@12.0"],
+  "arm_patch": {},
+  "derived": {
+    "belief_jump_m": {"kind": "belief_jump_max"}
+  },
+  "criteria": [
+    {"name": "信念单拍突跳 = 注入量（不是 0.12 的收敛步长）", "metric": "belief_jump_m", "op": "gt", "value": 1.1},
+    {"name": "自愈链路被这次突跳多触发一次", "metric": "cnt_loc_stuck_scans", "op": "gt", "value": 5},
+    {"name": "F5 分拍收敛没被这一帧绕过（仍跑得完）", "metric": "finished", "op": "gt", "value": 0.5}
+  ],
+  "negative": {
+    "desc": "关掉这条单帧突跳（ideal 档）⇒ 信念单拍最大位移回落到 0.0172 m（纯积分步长量级）、卡死自愈回到基线 5 次；而 `finished` 两边都是 1.0（这一条**故意**留在判据里，用来钉住「注入不该把一次能跑完的行程变成跑不完」——它是**不变式**，不是症状）。所以这条夹具的负例只让前两条失效，第三条在 `unchanged` 里显式列出、必须两边都绿",
+    "arm": "ideal",
+    "events_on": false,
+    "unchanged": ["F5 分拍收敛没被这一帧绕过（仍跑得完）"]
+  }
+}

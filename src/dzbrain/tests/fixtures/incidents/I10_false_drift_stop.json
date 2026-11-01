@@ -1,0 +1,31 @@
+{
+  "schema": "dzrobot-incident/1",
+  "id": "I10",
+  "slug": "I10-FALSE-DRIFT-STOP",
+  "title": "漂移护栏在正常切角（0.304~0.308 m）上攒够拍数 ⇒ 假 drift_stop 停机",
+  "symptom": "漂移告警 18 条、限速 160 拍、里程比例 20%（车被反复限速）；横偏 0.93 m 只是「走得慢」的结果，不是「跑偏」",
+  "root_cause": "漂移判据 `drift_warn_m=0.30` 与顶点窗口的**正常切角**宽度几乎重合（localization.py:86-93 原文：2026-10-18 倒车窗口实测正常切角横向离线 0.304~0.308 m，只略大于 0.30 门限，20 Hz 下 0.4 s 就攒够 8 拍 ⇒ 假 drift_stop）。升级门限 `_DRIFT_ESCALATE_MARGIN_M=0.05`（即 0.35 m）就是为了把这条牙嵌进去：0.308 不升级、0.40 升级。",
+  "sources": [
+    "src/dzbrain/dzbrain/tasks/localization.py:86-93（_DRIFT_ESCALATE_MARGIN_M 的现场实证：正常切角 0.304~0.308 m ⇒ 假 drift_stop）",
+    "src/dzbrain/dzbrain/tasks/localization.py:439-446（漂移告警与升级门限的判定点）",
+    "docs/20_资料索引库/车端/04_定位与安全.md §1（漂移护栏口径）"
+  ],
+  "scenario": "field7",
+  "arm": "realistic",
+  "seconds": 120.0,
+  "events": [],
+  "arm_patch": {},
+  "derived": {},
+  "criteria": [
+    {"name": "漂移告警确实被攒出来", "metric": "cnt_loc_drift_warnings", "op": "gt", "value": 10},
+    {"name": "护栏真的限速了", "metric": "cnt_loc_motion_limited_ticks", "op": "gt", "value": 100},
+    {"name": "车被限速而不是跑偏到米级", "metric": "cross_track_max_m", "op": "lt", "value": 1.2}
+  ],
+  "negative": {
+    "desc": "把 realistic 只留**里程比例**这一项（关掉陀螺零漂 / 位置噪声 / 吸附 / yaw_trim）⇒ 漂移告警 0 条、限速 0 拍、横偏 0.597 m、length_ratio 回到 93.4%。证明「假 drift_stop」需要的是**现场那套修正项与实车量级尺寸误差同场**，而不是任意噪声都能拱出来（这条正是 wb-2 卡面风险 #1 的单注入分解）",
+    "arm": "realistic",
+    "events_on": false,
+    "arm_patch": {"yaw_drift_dps": 0.0, "pos_noise_m": 0.0,
+                  "anchor_on_arrival": false, "yaw_trim_deg": 0.0}
+  }
+}

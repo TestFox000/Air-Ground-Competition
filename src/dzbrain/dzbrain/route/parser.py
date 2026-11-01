@@ -254,18 +254,42 @@ def _looks_like_file(spec: str) -> bool:
 
 
 def _read_token_file(path: str) -> list[str]:
-    """读路线文件：**整行一个 token**；`#` 注释行与空行跳过（也支持行内 `#` 注释）。"""
+    """读路线文件：**以行为主单位**（一行可含多个 token）；`#` 注释行与空行跳过（也支持行内 `#` 注释）。
+
+    token 之间用空白 / 分号 / 逗号分隔（兼容手写路线「一行多点」）。★ 但逗号同时是
+    **终点朝向后缀**的一部分（`N5,y`，见 `HEADING_SUFFIXES` 与 `_CANON_TAIL_RE`），
+    所以切分必须先把 chunk 尾部的 `,x|,y` 保护起来，否则 `N5,y` 会被撕成 `N5` + `y`，
+    下游以 `无法解析的 token: 'y'` 报错 —— 这正是 2026-10-31
+    `sim_cli --route fixtures/route_field7_t24.txt` rc=2 的真因
+    （卡 `WB-1-ROUTE-20261031`：修实现，不改夹具内容）。
+
+    本函数**只做切分，不做任何放宽**：朝向后缀只允许出现在最后一个 token、
+    后缀的严格规范序（`*` → `:SCAN` → `:PIVOT` → `,x|,y`）仍由 `normalize_token` /
+    `parse_mission` 判定，乱序写法（`F2:SCAN*`、`N5,y*`、`N5,y,M10`）照旧抛 `ValueError`。
+    """
     if not os.path.isfile(path):
         raise ValueError(f"路线文件不存在: {path}")
+    # 只在函数内部使用：chunk 结尾的 `,x|,y`（大小写不敏感）= 朝向尾缀，不参与逗号切分。
+    _tail_re = re.compile(r"(?P<base>.*?)(?P<tail>,[XxYy])\Z", re.DOTALL)
     out: list[str] = []
     with open(path, "r", encoding="utf-8") as fh:
         for line in fh:
             body = line.split("#", 1)[0].strip()
             if not body:
                 continue
-            for piece in _BARE_GAP_RE.split(body):
-                if piece:
-                    out.append(piece)
+            for chunk in re.split(r"[;\s]+", body):      # ① 空白/分号：永远是分隔符
+                if not chunk:
+                    continue
+                hit = _tail_re.match(chunk)
+                if hit is None:
+                    out.extend(p for p in _BARE_GAP_RE.split(chunk) if p)   # ② 无尾缀：逗号按分隔符
+                    continue
+                base = [p for p in _BARE_GAP_RE.split(hit.group("base")) if p]
+                if not base:                             # ③ 光秃秃一个 `,y`：不猜，原样交给 parser 报错
+                    out.append(chunk)
+                    continue
+                base[-1] += hit.group("tail")            # ④ 尾缀粘回本 chunk 的最后一个 token
+                out.extend(base)
     if not out:
         raise ValueError(f"路线文件里没有任何 token: {path}")
     return out

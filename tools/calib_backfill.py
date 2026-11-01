@@ -137,7 +137,7 @@ CHANNELS: tuple[dict, ...] = (
                  "★ 断言本体：dzactuator.ticksPerMeter"),
             _pin("src/dzbrain/tests/test_motion_limit.py", 220, "ticksPerMeter 3280）", "ticksPerMeter {v_short}）",
                  "断言失败信息里的历史数字"),
-            _pin("src/dzbrain/tests/test_motion_limit.py", 224, "- 3280.0", "- {v}",
+            _pin("src/dzbrain/tests/test_motion_limit.py", 266, "- 3280.0", "- {v}",
                  "★ 断言本体：abs(...ticksPerMeter) - <值>"),
         ),
     },

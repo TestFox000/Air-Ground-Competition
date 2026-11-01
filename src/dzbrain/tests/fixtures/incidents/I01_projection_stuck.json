@@ -1,0 +1,31 @@
+{
+  "schema": "dzrobot-incident/1",
+  "id": "I01",
+  "slug": "I01-PROJECTION-STUCK",
+  "title": "带 s_hint 的投影进自洽不动点：s 反复冻结、靠全路线重投影自愈才爬得动",
+  "symptom": "投影卡死判定 37 次、其中 27 次真的改了上报值；方向一致性拒绝 121 次；只跑完 59%；限速 90 拍",
+  "root_cause": "带 `s_hint` 的投影有一个**吸收态**：窗口 + 弧长地板会让「原地不动」成为自洽解（localization.py 头注第 13 行原文）。唯一出口是 `_heal_stuck()` 的全路线重投影（:616-660），而它本身受 `_STUCK_TRUST_DIST_M=0.45` 约束 —— 离线超过 0.45 m 就拒绝采纳（:74-80），于是车在错误段上继续攒拍。现场表现为「s 冻在 7.70 而车在 16.30、追幻影、横偏 4.101 m」。",
+  "sources": [
+    "src/dzbrain/dzbrain/tasks/localization.py:13-24（模块头注：卡死自愈 `_heal_stuck`，2026-10-07 补）",
+    "src/dzbrain/dzbrain/tasks/localization.py:573-680（`_heal_stuck` / `_stuck_check` 判据）",
+    "src/dzbrain/dzbrain/tasks/localization.py:74-80（`_STUCK_TRUST_DIST_M=0.45` 的采纳上限）",
+    "src/dzbrain/dzbrain/tasks/localization.py:552-557（方向一致性闸 `direction_rejects`）"
+  ],
+  "scenario": "field7",
+  "arm": "ideal",
+  "seconds": 120.0,
+  "events": ["latency-step=1.20@6.0"],
+  "arm_patch": {},
+  "derived": {},
+  "criteria": [
+    {"name": "卡死判定被反复触发（不是偶发）", "metric": "cnt_loc_stuck_scans", "op": "gt", "value": 20},
+    {"name": "自愈真的改了上报值", "metric": "cnt_loc_projection_heals", "op": "gt", "value": 12},
+    {"name": "方向一致性闸在打架", "metric": "cnt_loc_direction_rejects", "op": "gt", "value": 50},
+    {"name": "没跑完（被卡住而不是从头顺到尾）", "metric": "length_ratio", "op": "lt", "value": 0.75}
+  ],
+  "negative": {
+    "desc": "关掉 1.2 s 延迟阶跃（ideal 档全程）⇒ 卡死判定回落到基线 5 次、自愈 5 次、方向拒绝 0、length_ratio≈1。四个判据同时失效，证明它们测的是那次延迟阶跃导致的「命令与位姿错拍」，不是 ideal 档自带",
+    "arm": "ideal",
+    "events_on": false
+  }
+}

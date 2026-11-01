@@ -48,3 +48,7 @@ _tmp_install_repro/
 _tmp_*.txt
 # ★2026-10-29 外部清理会话（方案B）的过程产物归档：只读备份，不入库
 _archive_20261029/
+
+# ★WB-5(2026-11-01)：一键全量回归的产物目录（_run_full_regression.py 会写）——
+#   实测此前未被忽略，跑一次就常态出 49 个 ?? 条目，把别人在途改动淹掉。
+_tmp_full_regression/
