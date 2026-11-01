@@ -1,0 +1,268 @@
+---
+卡号: WB-18-ENGINEGATE-20261101
+ns: wb-1031
+agent: wb-core
+树节点: wb-18
+kind: implementation
+status: pending
+创建: 2026-11-01 05:5x
+owner: 待领
+reviewer: wb-reviewer
+objective: 给「三个配置键的危险组合」加一道**启动期硬闸**：当 `engine==tracker-safe` **且** `auto_plan_enabled==True` **且** `fallback_to_tokens==False` 时，启动期**拒绝进入 DRIVE** 并报错退出（给出三种可行动作）。实测背景：`tracker-safe` 在四张现场真实图上 **4/4 无解**（放宽规则也只产出被 `assert_legal_no_reverse` 拒绝的 180° 掉头）⇒ 该组合今天等于「自动规划每次失败即停车报错」，是一种"配置能瞬间把车变成不能动"的形态。**本卡不改默认值、不放宽 tracker-safe 规则、不删引擎**。
+acceptance:
+  - 三键按危险组合配置 ⇒ 启动期**拒绝进入 DRIVE**，报错信息**可读**且列出三种可行动作（换回 `tour` / 打开 `fallback_to_tokens` / 关掉 `auto_plan_enabled`）
+  - 负例（三条各跑一次）：① `engine=tour` ② `fallback_to_tokens=true` ③ `auto_plan_enabled=false` ⇒ 三种组合**都必须正常启动**（证明闸门只拦危险组合，不是一刀切）
+  - `config/**` **零写入**（本卡只读配置三键，不修改它们）
+  - `planner.py` 零写入（不改引擎规则）
+  - 断言只增不减；`test_stepper` 保持 118/118
+  - 冻结区登记：`src/dzbrain/dzbrain/main.py` 已由 captain 补 `in_flight`（card=本卡，owner=wb-core）⇒ 本卡是该文件**本轮唯一写者**
+verify:
+  - cd D:/User/Desktop/比赛存档/v1/dzrobot_v2 && PYTHONPATH=src/dzbrain PYTHONIOENCODING=utf-8 python -m dzbrain.main --config config/robot.yaml --dry-run 2>&1 | tail -5   # 〔按实际入口调整〕
+  - cd D:/User/Desktop/比赛存档/v1/dzrobot_v2 && git status --short config/   # 期望空
+  - cd D:/User/Desktop/比赛存档/v1/dzrobot_v2 && PYTHONIOENCODING=utf-8 python tools/wf/check.py
+inScope: `dzrobot_v2/src/dzbrain/dzbrain/main.py`（运行面启动期）；新测试文件；`_tmp_session/wb-1031/wb18/`
+outOfScope: `dzrobot_v2/config/**`（**零写入**）；`src/dzbrain/dzbrain/route/planner.py`；`dzsmartscout/**`；`tools/wf/frozen.json`（由 captain 维护）
+---
+
+# WB-18 · 三键危险组合的启动期硬闸
+
+## 读过的台账条目
+
+- WB-14 §执行报告：tracker-safe 四张真实图 4/4 无解；逐组放宽证明三种成因；放宽后仍被 `assert_legal_no_reverse` 拒绝 180° 掉头 ⇒ **无"调参修好"路径**。
+- D-063（本线翻案依据）；铁律 5「证不出来 = 没完成」。
+
+## 为什么需要这道闸（不是"多此一举的防御"）
+
+实测配置三键（captain 按正确 ROS 层级复核）：
+```
+/dzbrain/ros__parameters/planner:
+  engine = 'tour'
+  auto_plan_enabled = True
+  fallback_to_tokens = False
+```
+⇒ 现役安全（`tour`）。但**把 `engine` 切到 `tracker-safe` 就同时激活三键组合**：自动规划开着、失败不回退手写线 ⇒ **每次规划失败即停车报错**。
+
+WB-14 还证明：**放宽 tracker-safe 的规则也救不了**（field7/sixth 全开后产出仍含 180° 掉头，被自家禁令拒绝）。⇒ 所以这不是"调参问题"，是"这个引擎在当前图上根本产不出合法解"。
+
+**闸门的价值**：把"配置组合能瞬间让车不能动"这件事，从**调试时才发现**变成**启动时就报错**。报错信息给出三种可行动作，比让车静默停车好。
+
+## 明确不做（避免过度防御）
+
+| 不做 | 理由 |
+|---|---|
+| 不改 `engine` 默认值 | 改默认值属改产品能力，走用户裁决 |
+| 不放宽 tracker-safe 规则 | WB-14 已证明放宽也产不出合法解 |
+| 不删 tracker-safe 引擎 | 它那套规则（禁 180°/禁紧凑 U）本身是**有价值的反例生成器** |
+| 不改 `config/**` | 冻结区；且跨仓账本已漂移 56 KB，改配置会扩散到 vendored 产物树 |
+
+## 冻结区与写者归属（captain 已补登记）
+
+`main.py` 属 `frozen` 级；boot 期 `in_flight` 已有多条历史登记，但 `wf/check.py:140` 的 `reg` 是 **dict**（同路径**只保留最后一条**）。captain 已补一条 card=本卡、owner=wb-core 的登记，使其成为"最后一条" ⇒ **本卡是该文件本轮唯一写者**。
+
+⚠️ 该 dict 语义的副作用：补登记会覆盖此前生效的 `CONFIG-DEBT-20261031`；另有一条已过期的 `AGC-20-STEPFIX` 在机器层面**被长期掩盖**。这两条 captain 另行跟踪，**不属于本卡**。
+
+## 验收（独立复跑）
+
+见 front matter `verify` + 三条负例。改动者自报不算过。
+
+## 回滚点
+
+`_tmp_session/wb-1031/wb18/preimage/main.py.head`（改前 = HEAD 版逐字节，sha256 `255fc08d…`）；禁止 `git checkout`。
+
+## 执行报告
+
+> **归属**：卡面 `agent: wb-core`，实际由 **wb-plant** 执行（captain 04:4x 派 t20）。wb-core 全程只读、零写入，
+> 并在中途两次来信报了两条**关键事实**（下文的"空回退"与"短路提醒"），本报告已采纳并致谢。
+
+### 一句话
+
+给三键危险组合加了**启动期硬闸**：命中即 `return EXIT_ENGINE_COMBO(7)`（**不 raise、不杀进程**），
+报错正文按 captain 更正后的**两层口径**（1 条真能用 + 2 条"看似可行实则无效"）。
+`test_wb18_engine_gate.py` **41/41**、`test_wb18_negatives.py` **20/20**（含两种变异自证），
+`test_stepper` **118/118** 保持，七道门禁全绿，`config/**` `planner.py` `mission.py` **零写入**。
+
+### ① 闸门放在启动期哪一步（卡面必答）
+
+`_run_live_body()` **函数第一行**，先于 `from .io.ros_io import RosBridge`。三个理由：
+1. 纯配置判定，不需要 ROS 上下文 ⇒ 无 ROS 的机器也被拦、也能被单测覆盖；
+2. 早于「等布局」（有无人机在飞时会等很久）⇒ 危险配置不会先耗掉等待时间；
+3. 早于一切资源获取 ⇒ 拒绝时不留半启动节点（**实测 bridge 构造次数 = 0**，断言 4.2）。
+
+### ② ★ 报错原文（按 captain 2026-11-01 更正后的两层口径）
+
+```
+❌ 拒绝进入 DRIVE（exit 7 · gate=engine_combo）：
+    planner.engine = tracker-safe + planner.auto_plan_enabled = True + planner.fallback_to_tokens = False
+    该组合下自动规划每次失败即停车（tracker-safe 在四张现场图 4/4 无解，WB-14）。
+
+    可用出路只有一条，且需要改配置：
+      · 把 planner.engine 改回 tour（现状值，四张真实图全部出串）
+
+    另有两条看似可行、但在本仓当前配置下无效：
+      · 打开 fallback_to_tokens：route.tokens 已随 NOLEGACY 删除 ⇒ 只会从『规划失败』变成『载入路线失败』
+      · 关掉 auto_plan_enabled：读的是同一个 route.tokens ⇒ 同样失败
+      ⇒ 这两条要真能用，必须先把手工路线写回 route.tokens。
+
+    配置来源：<cfg.source>
+    本闸只读三键，不改任何默认值，也不放宽 tracker-safe 规则。
+    本闸不杀进程：栈仍在、可被接管（遥控通道不因配置错而丢失）。
+```
+
+**我原来的版本是错的**（写成"三选一，②关 auto_plan 今天可用"）。captain 与 wb-core 各自核实：
+`mission.py:2797`（auto_plan=false）与 `:2842`（fallback=true）读**同一个** `route.tokens`
+⇒ **两条路通向同一堵墙**，选了会在最后一刻失败（那时人已经在等车动）。**已改，并加断言 3.3a~3.3c 防复发。**
+
+### ③ 负例：**四条**（卡面三条 + captain 点名的第 4 条）
+
+判据按 captain 的 A/B/C 三分（**原卡面"三种都必须正常启动"是错的**）：
+
+| 判据 | 内容 | 断言 |
+|---|---|---|
+| **A 机制** | 启动日志里**没有闸门拒绝行**，且 bridge 被构造（哨兵命中） | 5.①~5.④ 全 PASS |
+| **B 结局** | ②③ 的运行期失败归因为 `route.tokens` 空，**不是闸门** | 5b.1~5b.5（独立事实链） |
+| **C 唯一** | 只有 `(tracker-safe, true, false)` 这个组合被拒 | 1.0 / 4.1 / 7.2 / 7.3 |
+
+| # | 组合 | A 越闸门 | B 运行期结局（仅记录，不判过/失败） |
+|---|---|---|---|
+| ① | `engine=tour`（现役） | ✅ bridge 调用=1 | 未走到失败点（哨兵先拦住） |
+| ② | `fallback_to_tokens=true` | ✅ | 同上（结局由 5b 独立证明：`route.tokens=[]` ⇒ ValueError） |
+| ③ | `auto_plan_enabled=false` | ✅ | 同上（同一堵墙） |
+| ④ | `engine=tour + auto_plan=false`（合法但不常见） | ✅ | 同上 |
+
+> **不判 ②③ 的"启动成功"**：它们今天必然失败，但原因是 NOLEGACY 删了 `route.tokens`，**不是本闸**。
+> 把它们判红就是"过严也是失真"（L9）；为了让它们绿去改 `mission.py` 则越界。⇒ 如实分档（B 只记录）。
+
+### ④ ★ 最关键的语义：拒绝时**不杀进程**（captain 第 ④ 条）
+
+实现用 `return EXIT_ENGINE_COMBO`，**不用 `raise` / `sys.exit`**；且放在最前、先于任何资源获取。
+⇒ 栈不会被杀，遥控通道不因配置错丢失（从"配置错"升级成"现场救不回来"的风险被避免）。
+正文里明写这一条（断言 3.4a），并写入 `report["reason"]="engine_combo:engine_combo"` 供归档。
+
+### ⑤ 这个闸门有没有可能误伤合法配置（卡面特别要这条）
+
+**不会，且是机器证明的**：枚举三键全部 2×2×2 = 8 种组合，**恰好 1 种**判危险：
+```
+危险组合 = [('tracker-safe', True, False)]     ← 断言 7.2 / 7.3
+```
+- 现役 `config/robot.yaml`（tour / true / false）**判安全**（7.1）；
+- `tracker-safe + fallback=true` 的 2 种组合**全部放行**（7.4）——防"凡 tracker-safe 就拦"式过度防御。
+
+**缺键也不误伤**（本卡最容易假红处，§2 五条）：SCHEMA 兜底是 `engine=tour` / `auto_plan=False` /
+`fallback_to_tokens=**True**` ⇒ 任何键缺失的组合都**安全**；断言 2.5 反向证明"显式 false 判危险、缺键判安全"
+两态可区分（不是恒真也不是恒假）。
+
+### ⑥ 变异自证（`test_wb18_negatives.py` 20/20）
+
+**光有 41 条全绿证明不了它们在测闸门**（断言恒真时同样全绿）。因此做两种变异：
+
+| 变异 | 手段 | 结果 |
+|---|---|---|
+| 一（拆**调用点**） | `if _combo_risk is not None:` → `if False and ...` | **4.1/4.2/4.3 精确变红**；文案/缺键/不误伤那几节**仍绿**（13 条）⇒ 分层没串味 |
+| 二（改**纯函数判据**） | 去掉 `engine != GATE_DANGER_ENGINE` 条件 | **12 条红**，含 1.1 负例①、7.1、7.2（"8 组合恰好 1 种"当场打红） |
+
+**两次都原子还原并断言 sha256 逐位相同**（N3.1 / N6.1）。
+
+> ⚠️ **我自己踩过一个坑，写下来防后人**：第一版把还原放在脚本末尾，中途被 subprocess 的
+> Windows GBK 编码异常打断 ⇒ `main.py` **停在短路状态**（`if False and ...`）。是 wb-core 只读巡检
+> 先看到的（他来消息提醒，我随即核对并还原）。**教训**：改源码做变异的脚本，还原必须 `try/finally` +
+> 事后 sha256 双向核对；subprocess 读输出**必须显式 encoding + errors**。已写进测试文件 docstring。
+
+### ⑦ 顺带核查：NOLEGACY 留下的"看起来存在但实际空转"（captain L12 要求继续找）
+
+| 键 | 状态 | 判定 |
+|---|---|---|
+| `route.tokens` | **SCHEMA 仍在**（`config.py:319`，兜底 `[]`），现役 YAML 未配 | 生效值 `[]`（**空列表，不是 None**）；`not []` 与 `not None` 等价 ⇒ 结局相同（5b.1a/5b.1b） |
+| `path_executor` 段 | **整个不存在** | 手工路线真被删了，不是改名（5b.2） |
+| `mission_blocks` | 仅作 `route.tokens` 的**映射别名**（`config.py:731`） | 同样读不到内容 |
+
+⇒ 结论：**B/C 两分支是"删了被读的键、没删读它的代码"**，与 captain 立的 L12 完全一致。
+**未再发现第二批空转键**（扫描范围：`src/dzbrain/dzbrain/**` 里所有读 `route.tokens`/`mission_blocks` 处）。
+⚠️ 但 `run_live` 之外还有 `main.py:222` 的 `parse_mission(cfg.get("route.tokens") or [])` → **已用 `or []` 兜底**，
+空列表走进去会得到空 Route（非 ValueError），**这是另一条独立路径，不在本卡写域，建议另立卡**。
+
+### ⑧ 命令与真实输出
+
+```
+PYTHONPATH=src/dzbrain python src/dzbrain/tests/test_wb18_engine_gate.py   → 结果：41/41 全部通过 ✅  rc=0
+PYTHONPATH=src/dzbrain python src/dzbrain/tests/test_wb18_negatives.py     → 结果：20/20 全部通过 ✅  rc=0
+PYTHONPATH=src/dzbrain python src/dzbrain/tests/test_stepper.py            → 结果：118/118 全部通过 ✅（卡面要求保持）
+python _run_full_regression.py                                             → 60 套 / 红=10，**无一条来自本卡**
+git status --short config/                                                 → 空（零写入）
+git status --short src/dzbrain/dzbrain/route/planner.py                    → 空
+git status --short src/dzbrain/dzbrain/tasks/mission.py                    → 空
+```
+
+**全量回归 10 条红逐条对账**（均为基线存量）：
+- `test_sim` 108/114（6 红）、`test_sim_guard` 109/111（2 红）→ **WB-7 重划后的既定基线**（WB-11/WB-12/WB-14 三卡均记此数）
+- `test_corner_cut` 5.9（90/91）→ **known_reds K12**
+- `test_drift` 1.2b（23/24）→ **known_reds K13**
+- `test_aim_probe` 0/0、`test_config_keys`/`config_selfcheck`/`planner`/`pursuit`/`wb4_sweep` 无结果行 → **WB-5 已登记的"0 断言/解析器不认"家族**
+
+### ⑨ 七道门禁
+
+| 门禁 | 结果 |
+|---|---|
+| `gen_index.py` | OK |
+| `check_doc_policy.py` | **GREEN**（红线 0） |
+| `check_anchors.py` | **GREEN**（新增红 0，存量 264 在基线） |
+| `check_numbers.py` | **退出码 0**（0 新增漂移） |
+| `tools/wf/check.py` | **GREEN**（`main.py` 冻结区 in_flight 登记有效，未报 RED） |
+| `tools/wf/check_links.py` | **0 断链**（357 文件） |
+| 文档快照 | 未跑（大收口/每月才跑） |
+
+### ⑩ 终版哈希与行尾（卡面要求按字节判读）
+
+```
+a0e7f9901cb182f126f140821cbb7b9b53fc25b9dc88d39df742e1257f7b780a  src/dzbrain/dzbrain/main.py          (3366 行，改前 3255)
+                                                                    src/dzbrain/tests/test_wb18_engine_gate.py   (345 行，新)
+                                                                    src/dzbrain/tests/test_wb18_negatives.py     (170 行，新)
+行尾：main.py  CRLF=0 / LF-only=3366 ⇒ **LF**
+     两测试   CRLF=0 / LF-only=345、170 ⇒ **LF**（与 main.py 一致，非 MIXED）
+```
+
+### 我没验证到的
+
+1. **无 ROS 环境，未真跑一次完整启动**：所有端到端断言都停在「越过闸门 → 建 bridge」这一步
+   （哨兵替换了 `RosBridge`）。**真实 ROS 下的启动行为未验**，需要在车上或带 ROS 的机器上跑一次。
+2. **未验证"栈可被接管"的实际效果**：我只保证 `return` 而非 `raise`/`sys.exit`、且早于资源获取；
+   **遥控通道是否真的还在**，只能在车上验（本卡无车、禁网）。
+3. **`EXIT_ENGINE_COMBO=7` 的语义是新占用的**：见下方 §⑪（**已补证**：两个启动脚本都不读退出码，
+   所以"7 被别处误当别的东西"这个风险**在本仓不成立**；但反过来也意味着**拒绝只在日志里可见**）。
+4. **②③ 的"运行期失败"是源码事实链**（5b），未在真机上跑到 `mission.py` 那一行（同 1）。
+5. **`main.py:222` 那条 `or []` 兜底的独立路径未测**（见 §⑦末），已由 captain 立 **WB-21-SILENTEMPTY**。
+6. `wf/check.py` 的 `in_flight` 台账状态——**captain 已更正**：我看到的"6 条并存"是 wb-doc 的
+   WB-20 清算**之前**的快照；清算后 `in_flight 26 / 去重 path 17`，`main.py` 生效条 = WB-18。
+   `check.py:140` 的 `reg` 确实是 dict（我读到的 list 是另一处全量视图）。**两条都对，说的是不同时刻。**
+
+---
+
+## ⑪ 补证：退出码 7 有没有消费方（captain 指定）
+
+卡面原把这条件列为"未核"。现已跑完，结论**比预期更明确**：
+
+**① 全仓无任何地方按 7 分类处理**
+```
+grep -rn "== *7\b|exit 7|case 7|-eq 7" --include=*.sh --include=*.py .
+→ 命中全部是测试里的 `== 7`（segment_id / 命中数 / 下标），与退出码无关；
+   `start_all.sh` / `healthcheck.sh` / `restart_node.sh` 里 0 处判 7。
+```
+
+**② 两个真实启动点都不读退出码**（这是根因）
+- `start_all.sh:55` 的 `spawn()`：`setsid "$@" > log 2>&1 &` —— **后台启动、只记 pid、不 wait**；
+  脚本只有 `set -u`（**没有 `set -e`**）⇒ 子进程退出码**从未被观察**。
+- `tools/restart_node.sh:95`：同样 `setsid ... &`，无 `$?` / 无 `wait`。
+
+⇒ **风险反转**：不是"7 会被误当别的东西"（没人判它），而是**"拒绝只在
+起栈脚本的 `tail` 日志里可见，起栈脚本会继续往下走并打印『全部启动完成』"**。
+这与现场习惯一致（看日志而非看 rc），但对**自动化/CI** 是个缺口：
+**此刻 `start_all.sh` 跑完 rc 仍是 0，即使 dzbrain 因危险配置被拒。**
+→ 建议（不在本卡写域）：`spawn()` 后加一次 `kill -0 $pid` 存活检查，或起栈末尾汇总各 pid 存活状态。
+
+**③ 闸门确实先于 ROS import（不装哨兵的真实环境实测）**
+```
+（不替换 RosBridge，本机无 rclpy 环境）
+_run_live_body(危险组合配置) → rc = 7
+日志首行 = "❌ 拒绝进入 DRIVE（exit 7 · gate=engine_combo）："
+```
+**这是最强的执行顺序证据**：若闸门排在 `from .io.ros_io import RosBridge` 之后，
+无 rclpy 的机器会抛 `ModuleNotFoundError`（rc≠7）。实测拿到 rc=7 ⇒ **确实先于 ROS 生效**。

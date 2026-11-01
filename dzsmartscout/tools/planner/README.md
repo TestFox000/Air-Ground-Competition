@@ -6,8 +6,12 @@
 
 ## 0. 铁律（先读这三条）
 
-1. **真源永远是 `dzrobot_v2/`**（`src/dzbrain/{core,route}` + `tools/{plan_route,route_check,shoot_planner}.py` + `config/{map,robot}.yaml`）。
+1. **真源永远是 `dzrobot_v2/`**（`src/dzbrain/{core,route}` + `tools/{plan_route,route_check,shoot_planner}.py` + `config/robot.yaml`）。
    本目录 `vendor/**` 是**生成物** —— 手工改它 = fork，一定会在 `--verify-only` 上爆。
+   ★ **地图不在同步清单里**（卡 WB-9-VENDOR-20261031）：真源 `config/map.yaml` 按 D-054 裁决4 已从工作树移除
+   （车端布局模式零地图），WB-1 又把 vendor 下那份副本移出工作树 ⇒ 地图改由 `map_source.py` 解析到
+   **仓库内已有逐字快照**（缺省 `dzrobot_v2/src/dzbrain/tests/fixtures/map_field7_t24.yaml`，
+   与账本旧 `config/map.yaml` 条目 sha256 `385e0718…` 逐字节同源）。**禁止**把地图拷回 vendor。
 2. `dzrobot_v2/**` 对本目录**只读**：同步脚本只读它、只往本目录写。
 3. 跑的是**同一个入口**：`vendor/dzbrain_ws/tools/plan_route.py`（保持 `src/ + tools/ + config/` 结构），
    机上路径 `~/dzplanner/dzbrain_ws/`。
@@ -16,7 +20,8 @@
 
 | 路径 | 说明 |
 |---|---|
-| `sync_planner_from_source.py` | **同步脚本**：逐字节复制真源 → `vendor/dzbrain_ws/`，写 `HASH_LEDGER.json`（文件哈希 **＋ 路线内容指纹**）+ `EVIDENCE/sync_log.txt`；`--verify-only` 检测文件/路线双层漂移（写 `EVIDENCE/verify_log.txt`，不覆盖同步日志）；`--push-drone [--run-drone]` 推机上并跑 |
+| `sync_planner_from_source.py` | **同步脚本**：逐字节复制真源 → `vendor/dzbrain_ws/`，写 `HASH_LEDGER.json`（文件哈希 **＋ 路线内容指纹 ＋ 地图引用**）+ `EVIDENCE/sync_log.txt`；`--verify-only` 检测文件/路线/地图引用三层漂移（写 `EVIDENCE/verify_log.txt`，不覆盖同步日志）；`--prune-ledger` 把「真源与产物都不在盘上」的退役条目（`config/map.yaml`）从账本剔除并记 `retired` 账；`--push-drone [--run-drone --remote-map P]` 推机上并跑 |
+| `map_source.py` | **地图解析唯一入口**（WB-9）：`--map` > `DZ_PLANNER_MAP` > `ROBOT_MAP` > 具名缺省（`field7` = 仓库内逐字快照）；读 `dzrobot_v2/src/dzbrain/tests/fixtures/route_sources.json`，取不到即**显式报错**，绝不回落 `config/map.yaml` |
 | `run_plan_and_compare.py` | 双侧对拍：`vendor`(无人机侧) 与 `dzrobot_v2`(小车侧) 同一输入各跑 2 次 + `--check`；逐 token 比较 |
 | `dryrun_full_route.py` | 整线下发**干跑**：planner → `dzlink_supervisor.py route --dry-run` / `dz_send_waypoint.py route --dry-run` |
 | `dzlink_mission_ctl.py` | 编排：`plan → route_check 门禁 → 下发 /nav/waypoint`，带 15 s 计时 |

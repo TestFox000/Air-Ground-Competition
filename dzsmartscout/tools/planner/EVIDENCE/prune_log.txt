@@ -1,0 +1,6 @@
+=== sync_planner_from_source  2026-11-01 00:14:32 ===
+源(真源，只读): D:\User\Desktop\比赛存档\v1\dzrobot_v2
+产物        : D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\planner\vendor\dzbrain_ws
+地图引用    : 地图 = D:\User\Desktop\比赛存档\v1\dzrobot_v2\src\dzbrain\tests\fixtures\map_field7_t24.yaml（具名缺省，具名 'field7'，2370 B，sha256 385e07182aa84ebc26aa  ★ 与 WB-1 移出的 vendor 副本逐字节同源）
+模式: prune-ledger —— 账本里没有需要剔除的退役条目
+账本已更新: D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\planner\HASH_LEDGER.json（files 15 条 + retired 1 条 + map_source）

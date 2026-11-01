@@ -1,6 +1,25 @@
-=== sync_planner_from_source  2026-10-17 17:02:08 ===
+=== sync_planner_from_source  2026-11-01 00:25:35 ===
 源(真源，只读): D:\User\Desktop\比赛存档\v1\dzrobot_v2
 产物        : D:\User\Desktop\比赛存档\v1\dzsmartscout\tools\planner\vendor\dzbrain_ws
+地图引用    : 地图 = D:\User\Desktop\比赛存档\v1\dzrobot_v2\src\dzbrain\tests\fixtures\map_field7_t24.yaml（具名缺省，具名 'field7'，2370 B，sha256 385e07182aa84ebc26aa  ★ 与 WB-1 移出的 vendor 副本逐字节同源）
 模式: verify-only（账本 vs 真源 vs 产物；含路线内容级对账）
-路线内容：车侧 n=44 sha256=df24e944ae4ccf8b / 产物 n=44 sha256=df24e944ae4ccf8b → 逐 token 一致 ✅
-漂移 0 条 / 缺失 0 条
+路线内容：无可比数据（缺 robot.yaml 或缺 mission_blocks）
+地图引用    map_field7_t24.yaml sha256 未变 ✅
+漂移 17 条 / 缺失 0 条
+  ! src/dzbrain/dzbrain/__init__.py  产物与真源不一致 2c95c7e2ecf5 -> 7daf45c27d2e
+  ! src/dzbrain/dzbrain/core/__init__.py  产物与真源不一致 71f40bf8e4b0 -> 79c1552b24e0
+  ! src/dzbrain/dzbrain/core/config.py  真源变了 232a12dffc62 -> 154956457104
+  ! src/dzbrain/dzbrain/core/geometry.py  产物与真源不一致 d932fc8bb3f1 -> f419488bda45
+  ! src/dzbrain/dzbrain/route/__init__.py  产物与真源不一致 15ee930fbc0b -> 48007fef37e1
+  ! src/dzbrain/dzbrain/route/model.py  产物与真源不一致 c719a8f089d4 -> 13d3b0c1330d
+  ! src/dzbrain/dzbrain/route/parser.py  真源变了 ef428a7414e0 -> 767e614b8b0f
+  ! src/dzbrain/dzbrain/route/physics.py  真源变了 6b1ec3f8ba0f -> 026c71ab64b8
+  ! src/dzbrain/dzbrain/route/planner.py  真源变了 084121adb12a -> 4cd7dd32ed27
+  ! src/dzbrain/dzbrain/route/validate.py  真源变了 e488726dc125 -> 853c9c18a861
+  ! tools/_field_const.py  产物与真源不一致 f2df6fb79604 -> 25787d36aec0
+  ! tools/plan_route.py  真源变了 fce2019e88e0 -> df856f6903d8
+  ! tools/route_check.py  真源变了 23e67b80ab19 -> aacb561276d2
+  ! tools/shoot_planner.py  真源变了 5657dfea10a9 -> 7ce6c96a68bc
+  ! config/robot.yaml  真源变了 2d7e28d2e525 -> c3bdb3896b28
+  ! 路线内容  账本 b3bceaad0ab80d4c -> 车侧现役 e3b0c44298fc1c14（mission_blocks 已变）
+  ! 路线内容  产物与车侧现役不一致（见上）

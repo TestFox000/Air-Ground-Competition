@@ -2,7 +2,7 @@
   "generated_at": "2026-10-24 14:27:42",
   "source_root": "C:\\Users\\29212\\Desktop\\赛事临时\\v1\\dzrobot_v2",
   "vendor_root": "C:\\Users\\29212\\Desktop\\赛事临时\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws",
-  "file_set_count": 16,
+  "file_set_count": 15,
   "all_same": true,
   "closure_problems": [],
   "route": {
@@ -146,15 +146,6 @@
       "src_mtime": "2026-10-17T17:32:32"
     },
     {
-      "rel": "config/map.yaml",
-      "src": "C:\\Users\\29212\\Desktop\\赛事临时\\v1\\dzrobot_v2\\config\\map.yaml",
-      "size": 2370,
-      "sha256": "385e07182aa84ebc26aab6e1c970838d912fc4f0ddea4abcacbf1b2dc63ed20d",
-      "vendor_sha256": "385e07182aa84ebc26aab6e1c970838d912fc4f0ddea4abcacbf1b2dc63ed20d",
-      "same": true,
-      "src_mtime": "2026-10-17T22:04:42"
-    },
-    {
       "rel": "config/robot.yaml",
       "src": "C:\\Users\\29212\\Desktop\\赛事临时\\v1\\dzrobot_v2\\config\\robot.yaml",
       "size": 78828,
@@ -163,5 +154,27 @@
       "same": true,
       "src_mtime": "2026-10-24T13:52:26"
     }
-  ]
+  ],
+  "retired": [
+    {
+      "rel": "config/map.yaml",
+      "src": "C:\\Users\\29212\\Desktop\\赛事临时\\v1\\dzrobot_v2\\config\\map.yaml",
+      "size": 2370,
+      "sha256": "385e07182aa84ebc26aab6e1c970838d912fc4f0ddea4abcacbf1b2dc63ed20d",
+      "vendor_sha256": "385e07182aa84ebc26aab6e1c970838d912fc4f0ddea4abcacbf1b2dc63ed20d",
+      "same": true,
+      "src_mtime": "2026-10-17T22:04:42",
+      "retired_reason": "D-054 裁决4（真源不放地图 / 车端布局模式）+ WB-1 移出 vendor 副本；地图改由 map_source.py 指 dzrobot_v2/src/dzbrain/tests/fixtures/map_field7_t24.yaml（不复制内容）"
+    }
+  ],
+  "map_source": {
+    "path": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\tests\\fixtures\\map_field7_t24.yaml",
+    "sha256": "385e07182aa84ebc26aab6e1c970838d912fc4f0ddea4abcacbf1b2dc63ed20d",
+    "size": 2370,
+    "origin": "具名缺省",
+    "name": "field7",
+    "why": "选 field7 而非 sixth 的理由：① 与 HASH_LEDGER.json 记录的 config/map.yaml 逐字节相同（sha256 385e0718…, 2370 B），哈希门禁可继续钉死；② map_sixth_20261017.yaml（2369 B）与它只差末尾一个换行（field7 == sixth + b'\\n'），YAML 语义相同；③ WB-1 移出的 vendor 副本（2411 B, CRLF）归一化换行后即本文件。",
+    "registry": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\tests\\fixtures\\route_sources.json",
+    "note": "内容不复制；vendor/dzbrain_ws/config/ 下不存地图（D-054/D-062）"
+  }
 }

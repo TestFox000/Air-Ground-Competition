@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-31 21:41",
- "count": 334,
+ "generated": "2026-11-01 13:23",
+ "count": 350,
  "files": [
   {
    "path": "00_项目总览/00_索引.md",
@@ -900,9 +900,9 @@
    "summary": "**契约只有一层是硬的**：stdout **末行** `SIM_RESULT_JSON {\"schema\":\"dzrobot-sim-result/1\",...}`。文字指标…",
    "from": "sim_studio 移交包三篇（CONTRACT.md / OPTIMIZATION.md / CHANGELOG-20261024.md，过程区 _tmp_session/SIM-STUDIO-MERGE-20261024/incoming/sim_studio/；桌面原件 sim_studio_优化版_20261024.zip）；卡 SIM-STUDIO-OPT-20261024 实测 F-1~F-15",
    "level": "实",
-   "updated": "2026-10-29",
+   "updated": "2026-10-31（§2 置灰口径按 wb-7 probe12 实测校正：越界类 ≠ 场地类）",
    "status": "现行",
-   "lines": 152
+   "lines": 161
   },
   {
    "path": "20_资料索引库/视觉与云台/00_索引.md",
@@ -1111,7 +1111,7 @@
    "level": "实/档",
    "updated": "2026-10-25",
    "status": "现行",
-   "lines": 103
+   "lines": 249
   },
   {
    "path": "20_资料索引库/赛事与治理/13_提交与双远端细则_20261025.md",
@@ -1197,9 +1197,9 @@
    "summary": "**10-24 本地候选更新**：tour 完整输出自行落双站并验证合法、异侧、全靶覆盖；用户图片实际图为 F9/C5（均距板心 0.875 m），62 token/22.75…",
    "from": "docs/history_cache/01_旧文档归档/dzrobot_v2/docs/压测_规划器64图_20261018.md, docs/history_cache/01_旧文档归档/dzrobot_v2/docs/三引擎审计_20261018.md, dzrobot_v2/docs/决策台账.md, dzrobot_v2/_tmp_session/TRACK-PLAN-B1-20261021/REPORT.md, dzrobot_v2/_tmp_session/p1_hybrid/",
    "level": "实（64 图复跑）+档（47/64 为卡内自报）",
-   "updated": "2026-10-24",
+   "updated": "2026-11-01",
    "status": "现行",
-   "lines": 97
+   "lines": 218
   },
   {
    "path": "20_资料索引库/车端/04_定位与安全.md",
@@ -3080,7 +3080,7 @@
    "level": "实/档",
    "updated": "2026-10-31",
    "status": "现行",
-   "lines": 114
+   "lines": 133
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-0-GATE-20261031.md",
@@ -3101,8 +3101,118 @@
    "from": "",
    "level": "",
    "updated": "",
+   "status": "in_progress",
+   "lines": 120
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-10-EVIDENCE-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-10 · 干跑工具的副作用污染（证据被当草稿纸 + 根目录泄漏）",
+   "summary": "- D-063（本线翻案依据）；铁律 5「证不出来 = 没完成」——**证据文件被随手覆写，等于证据链自我作废**。",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "in_progress",
+   "lines": 166
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-11-FIELDSEM-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-11 · 场地语义不自洽：`field_stopped` 在\"已建模\"时反而不存在",
+   "summary": "- 06 册 §2（2026-10-31 wb-7 实测校正版）：**按 `field_modeled` 置灰的只有那 20 个场地键；越界类不许标 null**；`field…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "in_progress",
+   "lines": 171
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-12-VARIANT-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-12 · 三条空转绿灯：`--variant` 死开关 + 双臂 diff 缺失 + `mission_completed` 恒 0",
+   "summary": "- WB-R1 独立验收（`_tmp_session/wb-1031/review-r1/REPORT.md`，verdict=needs_revision）F2 / F3 /…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "in_progress",
+   "lines": 299
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-13-LOGPATH-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-13 · `dzlink_supervisor.default_log_path()` 的 cwd 兜底陷阱",
+   "summary": "- WB-10 卡面 §执行报告·遗留：`tools/link/dzlink_supervisor.py:215-218` 的 `os.getcwd()` 兜底**仍在**，W…",
+   "from": "",
+   "level": "",
+   "updated": "",
    "status": "pending",
-   "lines": 70
+   "lines": 203
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-14-PLANAUDIT-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-14 · 规划器通用性记账 + 校验器口径缺口",
+   "summary": "- WB-4 §执行报告（多图分布与 4 个真 bug）；WB-9 §执行报告（同一 tracker-safe 现象的机理）。",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "in_progress",
+   "lines": 218
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-15-PIVOT-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-15 · PIVOT 计数器：生产有、台架不采 ⇒ 三条现场案例无法重放",
+   "summary": "- WB-3 §执行报告·5 条不可重放：I05/I06/I15 **同一个缺件**（台架不暴露 PIVOT 观测量）。",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 263
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-16-DECLARE-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-16 · 声明面 ≠ 可用面：探针说支持，实跑 exit 2",
+   "summary": "- WB-5 §执行报告·⚠️① 产品缺陷（写域外，只读记录）。",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 201
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-17-COVERAGE-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-17 · 「跑完」≠「走完」：`finished=1.0` 可以在 21/67 段没走过时为真",
+   "summary": "- WB-15 §执行报告·★ 更值钱的发现（wb-doc 实测，captain 独立复现）。",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 252
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-18-ENGINEGATE-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-18 · 三键危险组合的启动期硬闸",
+   "summary": "- WB-14 §执行报告：tracker-safe 四张真实图 4/4 无解；逐组放宽证明三种成因；放宽后仍被 `assert_legal_no_reverse` 拒绝 18…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 268
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-19-UNPROVEN-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-19 · \"未证明\"不能当成\"合法\"：`--trajectory` 三档状态",
+   "summary": "- WB-R2 独立验收 verdict=needs_revision，blocker F2（`_tmp_session/wb-1031/review-r2/REPORT.md…",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 86
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-2-RIG-20261031.md",
@@ -3112,8 +3222,52 @@
    "from": "",
    "level": "",
    "updated": "",
+   "status": "in_progress",
+   "lines": 183
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-20-LEDGER-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-20 · 冻结区登记台账的归属清算（门禁自身的假绿）",
+   "summary": "- WB-18 卡面 §冻结区与写者归属（captain 发现 dict 语义副作用）。",
+   "from": "",
+   "level": "",
+   "updated": "",
    "status": "pending",
-   "lines": 86
+   "lines": 334
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-21-SILENTEMPTY-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-21 · 「静默得到一个空对象」比报错更难查",
+   "summary": "- WB-18 §执行报告·L12 补充扫描第 ② 条（wb-plant 发现）。",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 325
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-22-STARTRC-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-22 · 起栈脚本从不观察退出码：闸门拦住了进程，脚本却说「全部启动完成」",
+   "summary": "- WB-18 §执行报告·§⑪ 补证（wb-sweep 实测：`spawn` 不 wait、无 `set -e`、末尾无条件打印）。",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 210
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-23-REFEREE-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-23 · 裁判规则地图生成器",
+   "summary": "**证据完整、可读、已核对**（不是\"无法访问\"）。以下两点是**静态分析边界**，必须写进交付：",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "pending",
+   "lines": 264
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-3-INCIDENTS-20261031.md",
@@ -3123,8 +3277,8 @@
    "from": "",
    "level": "",
    "updated": "",
-   "status": "pending",
-   "lines": 62
+   "status": "in_progress",
+   "lines": 171
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-4-SWEEP-20261031.md",
@@ -3135,7 +3289,7 @@
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 72
+   "lines": 366
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-5-REGNET-20261031.md",
@@ -3146,7 +3300,7 @@
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 63
+   "lines": 195
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-6-STUDIO-20261031.md",
@@ -3156,19 +3310,30 @@
    "from": "",
    "level": "",
    "updated": "",
-   "status": "pending",
-   "lines": 63
+   "status": "in_progress",
+   "lines": 283
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-6b-PANELUI-20261101.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-6b · 补齐面板 UI：逐拍回放时间轴 + 双臂并排",
+   "summary": "- WB-6 卡面 `:227/:229`（#4、#6 两条 `partial`，含实测 `grep = 0` 证据）。",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "in_progress",
+   "lines": 153
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-7-HANDSHAKE-20261031.md",
    "dir": "30_任务卡库/在办/wb-1031",
-   "title": "WB-7 · 运行面握手 + tier-0 重钉 + 文档真源收口",
+   "title": "WB-7 · tier-0 重钉 + 文档真源收口（握手项已落地，范围重划）",
    "summary": "D-026（不把仿真绿当实车绿）；D-055 / B 区裁决（一场一图、取消保质期 `step.layout_ttl_s→0`）；D-063（本线依据）；AGENTS §1 铁…",
    "from": "",
    "level": "",
    "updated": "",
    "status": "pending",
-   "lines": 66
+   "lines": 167
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-8-CARCAL-20261031.md",
@@ -3180,6 +3345,17 @@
    "updated": "",
    "status": "pending",
    "lines": 39
+  },
+  {
+   "path": "30_任务卡库/在办/wb-1031/WB-9-VENDOR-20261031.md",
+   "dir": "30_任务卡库/在办/wb-1031",
+   "title": "WB-9 · vendor 副本移出后的跨仓回归修复",
+   "summary": "- D-054 裁决4 / D-062：`config/map.yaml` 禁止恢复为现役地图，验收走 fixture 口径。",
+   "from": "",
+   "level": "",
+   "updated": "",
+   "status": "in_progress",
+   "lines": 343
   },
   {
    "path": "30_任务卡库/在办/wb-1031/WB-R1-REVIEW-20261031.md",

@@ -4,9 +4,9 @@ ns: wb-1031
 agent: wb-plant
 树节点: wb-3
 kind: implementation
-status: pending
+status: in_progress
+owner: wb-plant
 创建: 2026-10-31 21:2x
-owner: 待领
 reviewer: wb-reviewer
 objective: 把 16 条现场循迹翻车案例变成可一键重放的场景夹具，并补上「事件注入 API」（reset yaw 跳变 / odom 长时间丢样 / 单帧位姿突跳）与「无人机步进 stub」，使台架能真正复现那 10 条需要状态机×噪声同场的案例。
 acceptance:
@@ -60,3 +60,112 @@ outOfScope: dzrobot_v2/src/dzbrain/dzbrain/**；dzrobot_v2/config/**；dzrobot_v
 ## 开工前置（强制，captain 2026-10-31 21:4x 追加）
 
 动手前先读 `00_树.md` §开工前置：`dzrobot_v2` 有 9 个上一会话留下的**未提交脏文件**（最后写入 18:12–18:38，v1 侧干净），其中若干正压在本卡写域上。**三步**：① 跑测试前先记录当前通过数当基线（别拿 git HEAD 当基线，否则会把别人的改动算成自己引入的红）；② `git diff` 只读判明归属并写进本卡「## 执行报告」；③ 禁止 `checkout`/`stash`/`restore` 清理、禁止顺手提交、禁止格式化；CRLF 文件保持原行尾。
+
+## 执行报告（wb-plant · 2026-11-01 04:0x）
+
+### 做了什么
+
+新增 **3 个文件 + 11 个夹具**，零修改既有文件（`sim_rig.py` / `sim_world.py` / `wb_rig/**` 主体一字未动，`config/**` 与 `src/dzbrain/dzbrain/**` 零写入）：
+
+| 文件 | 职责 |
+|---|---|
+| `tools/wb_events.py`（978 行） | 事件注入 API（3 个缝的可撤销包装）+ 夹具加载器 + **逐条**机器判据 + 契约行 |
+| `tools/wb_drone_stub.py`（196 行） | 无人机步进 stub：按段吐 `field_layout` + 三节奏（一次给全 / 逐段给 / 中途断供） |
+| `src/dzbrain/tests/test_wb3_incidents.py`（620 行） | 验收：判据①守卫 + 11 条正例 + 11 条负例**逐条** + API 四类 + stub 闭环 + 工程判据 |
+| `src/dzbrain/tests/fixtures/incidents/*.json`（11 份） | 每份 = 场景 + 注入 + 期望症状 + 机器判据 + 出处 + 负例声明 |
+
+### 覆盖率：11/16 可重放（卡面下限 8，**不凑数**）
+
+| ID | 症状 | 可重放 | 判据数 |
+|---|---|---|---|
+| I01 | s 冻结 + 投影卡死自愈反复触发 | ✅ | 4 |
+| I02 | K9 投影跳到另一支 + 直线出界 | ✅ | 3 |
+| I03 | 指令延迟阶跃 ⇒ 横向米级 + 出界 | ✅ | 3 |
+| I04 | 折返方向一致性闸自指环 | ✅ | 3 |
+| I07 | 位姿整段丢样 ⇒ SAFE_STOP | ✅ | 3 |
+| I08 | 顶点切内 ⇒ 雷格车心距离 | ✅ | 3 |
+| I10 | 假 drift_stop | ✅ | 3 |
+| I11 | 单帧位姿突跳（F5 分拍收敛的对照） | ✅ | 3 |
+| I13 | 到位吸附造误差 / 掩盖尺度误差 | ✅ | 3 |
+| I14 | 斜坡关闭 ⇒ 横向劣化 2.4× | ✅ | 3 |
+| I16 | 单帧 yaw 跳变 ⇒ 航向守卫闩锁 | ✅ | 3 |
+
+**不可重放的 5 条（具体缺件，不是"以后再做"）**
+
+| ID | 缺什么 |
+|---|---|
+| I05 | **PIVOT 计数器不可观测**。实测 `book.trk_attrs == {}`、`trk_tel.pivot_phase` 恒不在 `TRK_TEL_KEYS` 里、`metrics` 无任何含 `pivot` 的键 ⇒ 「PIVOT 无限重入 / 240 s 只走 4.4 m」判不了。需 wb-core 在 `wb_rig/counters.py` 加 `pivot_count` / `pivot_abandon_count`（跨写域，已请 captain 派卡） |
+| I06 | 同上（兜底 12 s 强跳依赖 PIVOT 观测量） |
+| I09 | 紧凑 U 形被整段切掉需要**另一张图**的几何；现有 `field7`/`field` 两张夹具图都没有那个 U 形，造假图又违反"夹具必须来自现场快照" |
+| I12 | 需要**起点三方**（布局 L7 / 复位 N10 / odom L7）建模；台架起点只走 `mission.reset` 一个来源（`_resolve_start`），另两个源不存在 |
+| I15 | 需要 `P_MOTION_LIMIT` 入环判「限速被绕过」；台架虽传 `bb`（`wb-2` 已做），但 PIVOT/ALIGN 段本身不可观测（同 I05） |
+
+### 三条必须报的设计发现（都是"不这么写就会假绿"）
+
+1. **事件时刻是相对秒，不是虚拟时钟绝对秒。** 台架 `VirtualClock` 从 **1000.0 s** 起（`wb_rig/sched.py`），第一版拿 `at_t` 直接比绝对时刻 ⇒ `yaw-jump=35@8.0` 在 t=0 就判"到点"，**所有事件挤在第一拍生效**。症状看起来很"复现"（`SAFE_STOP` 加 `length_ratio=0.0`），但测的其实是"我把全部注入一次性砸在起步"。修法是 `EventDriver.rel(now)` 在首帧钉死 `t0`。测试 §4.2 有守卫（t=1000 不生效 / t=1008 生效）。
+2. **判据不能只看「越大越坏」。** 三条实测反例：I02 负例的 `s_jump_max`（13.0 m）**比正例**（10.57 m）**还大**（realistic 本身换段就跳）；I07 负例的 `length_ratio`（0.20）**比正例**（0.25）**还低**；I08 负例 `field` 场景只压 3/8 颗雷（正例 6/8）。三条判据都改成"真正的判别量"（横向被带到多远 / 结局是 DRIVE 还是 SAFE_STOP / 车心到格心距离），并在每份夹具里写了 `rationale_*` 段记下为什么换。**这是本卡最容易放水的地方**：只看 RMS 或只看"跑完了没有"，三条都会判反。
+3. **负例必须能被机判断言「它真的换了变量」。** I14 第一版漏写 `negative.arm`，负例跟着正例跑 `realistic`，三条判据当然全绿 —— 看起来像"夹具没测注入"，其实是**负例根本没换档**。现在 §3 有一条专门断言 `arm/patch/scenario/events_on` 至少变了一个。
+
+### 负例：11/11 逐条全红（不是"整体没复现"）
+
+`test_wb3_incidents.py` §3 对**每一条判据**分别比对：正例每一条绿 ⇒ 负例**同一条**红。
+一条例外：`I11` 的 `finished`（注入一帧不该把一次能跑完的行程变成跑不完）是**不变式**，写在 `negative.unchanged` 里、两边都必须绿。§3b 单独证这一条。
+
+### 证据（四条卡面 verify 全跑）
+
+| 命令 | 结果 |
+|---|---|
+| `python tools/wb_events.py --list-incidents` | **rc=0**，11 条逐条打症状/根因/出处/场景 |
+| `--scenario incident:I02 --arm realistic --json \| tail -1` | **rc=0**；3/3 判据绿（横向 2.777 m / 越界 29893 / 信念 2.826 m）；负例 ok=True |
+| `--scenario incident:I03 --arm realistic --json \| tail -1` | **rc=0**；3/3 绿（横向 2.328 m / 越界 3857 / RMS 0.819）；负例 ok=True |
+| `python src/dzbrain/tests/test_wb3_incidents.py` | **292/292 全过，exit 0** |
+| 11 条夹具全跑（正例+负例） | 11/11 `seen=True`、`neg_ok=True`、判据全绿 |
+
+### 事件注入 API（卡面四个入口 + 两个扩展）
+
+| 卡面写法 | 内部 kind | 作用缝 | 实测 |
+|---|---|---|---|
+| `--inject yaw-jump=<deg>` | `yaw-jump` | 桥 `pose()` | ✅ `--inject yaw-jump=35` → `phase=SAFE_STOP`、21 拍限速 |
+| `--inject drop-s=<s>` | `drop`（别名吸收） | 桥 `set_pose()` 吞帧 | ✅ `--inject drop-s=1.5` → 定位断流 |
+| `--inject pose-step=<m>` | `pose-step` | 桥 `pose()`（沿航向垂直） | ✅ `--inject pose-step=0.30` → 信念突跳 0.30 |
+| （扩展）`--inject scale-step=<ratio>` | `scale-step` | `World.injection` | 夹具主力（I02） |
+| （扩展）`--inject latency-step=<s>` | `latency-step` | `Actuator.latency_s` | 夹具主力（I01/I03） |
+| （扩展）`pose-step-x` / `pose-step-y` | 同上 | 世界轴方向 | 备用 |
+
+不带 `@t` 时按 `DEFAULT_AT_T=8.0 s` 生效（卡面简写）；带 `@t` 精确到点。**事件按时刻排队、按**下标**记账（不按字符串 —— 两条同文事件各自生效）**，每条只生效一次 ⇒ "单帧跳变"真的是单帧。
+
+### 无人机步进 stub
+
+三种节奏全部接真 `DroneTask`（零拒收 / 零 stale）：`all-at-once` / `per-segment` / `cutoff`。
+一次给全与逐段给的**最终 known 相同**（节奏只影响时序不影响内容）⇒ 两个自由度穷尽了"known 什么时候到"这件事。
+
+★ **一条协议硬约束（实测撞出来的）**：车端 v2 `normalize_field_layout` 要求 **特征 ⊆ known** —— `mines`/`obstacles`/`targets` 里出现一个还没观测到的格，**整份拒收**（`layout_rejects+=1`）。第一版 stub 无视这条，四条报文全被拒收，而拒收日志措辞看起来像"车端有 bug"，实际是我的发报机不合协议。现在 stub 只报 known 里的特征；想让某个雷立刻生效就把它放进第 1 段。§5.4 有正反证。
+
+**不做**：天眼模型 / 侦察覆盖率 / 航线优化（用户裁决 9）。`transfer` 分级 = **仅结构**：它证明的是车端对报文时序的响应，不是"无人机能扫多准"。
+
+### 判据①（不得有第二份投影/推进）：本卡写域也守
+
+`test_wb3_incidents.py` §1 扫 3 个写域文件的**真代码**（剥注释 + 剥字符串字面量）。含反证（同一套签名在 tier-0 `sim.py` 上命中 ≥3 条，证明判据不是空转）与负例（植入 `def project(` 立刻红）。
+
+★ 一个必须记的坑：**必须剥字符串字面量**，本文件自己就在 `FORBIDDEN_DEFS` 元组里把 `"def project"` 当数据写着 —— 只剥注释的话，扫描本文件会命中自己那张名单（判据把"判据的定义"当成违规）。wc-2 那条判据也栽过同款。
+
+### 风险与挂账
+
+1. ⚠️ **`tools/wf/check.py` RED 1 项 = `tools/wb_drone_stub.py` 未登记**。登记表在 wb-doc 写域，已发信请它补一行（附建议文案）。**没有自己改那份清单**。
+2. ⚠️ **5 条不可重放里有 3 条（I05/I06/I15）卡在同一个缺件**：台架没暴露 PIVOT 观测量。实测 `book.trk_attrs == {}`、`pivot_phase` 不在 `TRK_TEL_KEYS`、`metrics` 无含 `pivot` 的键。要补属 `wb_rig/counters.py`（wb-core 写域），**跨写域需 captain 派卡**，我没有自行伸手。
+3. ⚠️ **I10 的负例口径要读准**：它证明的是"假 drift_stop 需要现场那套修正项与尺寸误差**同场**"，不是"任意噪声都能拱出来"。这正是 wb-2 卡面风险 #1 的单注入分解。
+4. ⚠️ **I14 归因不完整**：`accel_up/down=0.0` 在 ideal 档**也**是 0，所以 ideal vs realistic 的差**不能**单独归给斜坡，需要 wb-8 用 `--set pursuit.accel_up_mps2=…` 对照才能分离。夹具只钉"劣化幅度"，不冒充归因。
+5. ⚠️ **11 条里有 8 条跑 120 s 虚拟时长**（单条墙钟 15~40 s）。全套 `test_wb3_incidents.py` 约 **14 分钟**。压测（wb-4/wb-6）要留意这个成本。
+
+### 顺带核实的两件事（captain 提醒的两条）
+
+- **`sim_rig.py` 03:39 一度有语法错误**（wb-core 正在改 `--compare-arms`），我测试时撞上（`SyntaxError: f-string: expecting '}'`）。**我没碰该文件**，几分钟后 wb-core 自己修好，复跑即恢复。
+- 另一处复用 RED（WB-12 当时落在 `tools/wb_rig/` 下的变体夹具）也已由 wb-doc 改为**运行时生成到临时目录**，该历史路径〔失效〕不再存在；那是 WB-12 的件，本卡未碰。
+
+### 孤儿脏改动判定（开工前置三步的②）
+
+`git status` 里那批在途脏文件（`test_planner` / `test_incremental_plan` / `test_sim*` / `test_route` / `test_path_overlap` / `test_motion_limit` / `test_link_e2e` / `tools/calib_backfill.py`）**我一件没碰**（mtime 全停在开工前）。本卡 14 个新文件全是 `??` 未跟踪。CRLF 工作副本一个没动。
+
+### 回滚点
+
+全为新增文件 ⇒ 逆转 = 删除 `tools/wb_events.py`、`tools/wb_drone_stub.py`、`src/dzbrain/tests/test_wb3_incidents.py`、`src/dzbrain/tests/fixtures/incidents/`。未动 wb-2 的 `sim_world.py`/`sim_rig.py`/`wb_rig/` 主体结构。

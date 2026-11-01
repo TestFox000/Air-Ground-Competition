@@ -11,6 +11,14 @@ r"""t60 单测 —— 无人机侧规划器"单源码同步"的哈希门禁 + �
   ② 产物未被手改：vendor 每文件 sha256 == 账本；vendor == 真源当前字节（真源漂移会**失败**，提示重跑同步）
   ③ 规划确定性与双侧一致：vendor 跑 2 次 + 真源跑 1 次，三条 token 串完全相同；且长度 ≥ 8
   ④ 出车校验：vendor 的 `plan_route --check` 返回 0（0 error）
+
+★ 地图（卡 WB-9-VENDOR-20261031）：本套件**不再**用 `<树>/config/map.yaml`。
+  WB-1 按 D-054 裁决4 / D-062 把 `vendor/dzbrain_ws/config/map.yaml` 移出工作树，真源
+  `dzrobot_v2/config/map.yaml` 也早已不存在（车端零地图/布局模式）⇒ 两侧树里都没有地图可指。
+  改由 `map_source.resolve()` 取**仓库内已有逐字快照**
+  （缺省 `dzrobot_v2/src/dzbrain/tests/fixtures/map_field7_t24.yaml`，与账本旧 `config/map.yaml`
+  条目逐字节同源），可用 `--map`/`DZ_PLANNER_MAP`/`ROBOT_MAP` 覆盖。
+  **断言一条没放宽**：这里只换「喂给规划器的输入文件」，token/引擎/route_check 的期望原样不动。
 """
 from __future__ import annotations
 
@@ -28,6 +36,18 @@ WORKSPACE = PLANNER.parents[2]
 VENDOR = PLANNER / "vendor" / "dzbrain_ws"
 SOURCE = WORKSPACE / "dzrobot_v2"
 LEDGER = PLANNER / "HASH_LEDGER.json"
+
+if str(PLANNER) not in sys.path:                        # 同目录 map_source.py
+    sys.path.insert(0, str(PLANNER))
+import map_source                                       # noqa: E402
+
+
+def map_path() -> pathlib.Path:
+    """本轮规划用的地图：仓库内逐字快照（可被 --map 之外的 DZ_PLANNER_MAP/ROBOT_MAP 覆盖）。
+
+    失败就**显式抛**（`MapSourceError`），不回落任何 `<树>/config/map.yaml`。
+    """
+    return map_source.resolve().path
 
 
 def sha256(p: pathlib.Path) -> str:
@@ -56,7 +76,7 @@ def run_plan(root: pathlib.Path, extra=()):
     cmd = [sys.executable, str(root / "tools" / "plan_route.py"), "--emit", "tokens",
            "--engine", config_engine(),
            "--config", str(root / "config" / "robot.yaml"),
-           "--map", str(root / "config" / "map.yaml"), *extra]
+           "--map", str(map_path()), *extra]
     p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
                        errors="replace", cwd=str(root), env=budget_env(), timeout=600)
     import re
@@ -146,7 +166,7 @@ class TestPlanning(unittest.TestCase):
         cmd = [sys.executable, str(VENDOR / "tools" / "plan_route.py"), "--emit", "tokens",
                "--engine", "tour",                              # 显式 tour 作对照
                "--config", str(VENDOR / "config" / "robot.yaml"),
-               "--map", str(VENDOR / "config" / "map.yaml")]
+               "--map", str(map_path())]
         p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
                            errors="replace", cwd=str(VENDOR), env=budget_env(), timeout=600)
         import re

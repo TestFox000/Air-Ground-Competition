@@ -1,0 +1,325 @@
+---
+卡号: WB-21-SILENTEMPTY-20261101
+ns: wb-1031
+agent: wb-plant
+树节点: wb-21
+kind: implementation
+status: pending
+创建: 2026-11-01 07:1x
+owner: 待领
+reviewer: wb-reviewer
+objective: 修掉 L12 的一个变体——**"静默得到一个空对象"比报错更难查**：**两处** `parse_mission(cfg.get("route.tokens") or [])`（`main.py:222` 启动门禁 / `main.py:2823` bench 起跑前）在 `route.tokens` 为空时**不报错**，而是得到一个**空 `Route`** 让它往下走。与 `mission.py:2949` 的 `_load_tokens`（空就 `raise ValueError`）**行为完全不同**：同一种"路线缺失"，两条路径一条报错、一条静默成功。
+acceptance:
+  - 定位 `main.py:222` 那条调用链，实测「`route.tokens` 为空 ⇒ 得到空 Route」确实发生（给出最小复现命令与输出）
+  - 与 `mission.py:2949` 的 `raise` 行为做**对照表**：同一输入，两条路径各得到什么（报错 / 空对象 / 别的）
+  - 修法二选一并在卡面写清理由：(A) 改为显式报错或显式进入某模式（与 `_load_tokens` 对齐）；(B) 若"空 Route 合法"是有意设计，则必须**显式标注**该状态并让它可观测（不许静默）
+  - 负例：`route.tokens` 为空时，**必须能观察到明确结局**（报错 **或** 显式的"空路线模式"标记），不许"啥都没发生"
+  - 断言只增不减；`test_stepper` 保持 118/118；`test_wb18_engine_gate` 41/41 与 `test_wb18_negatives` 20/20 保持
+verify:
+  - cd D:/User/Desktop/比赛存档/v1/dzrobot_v2 && grep -n 'parse_mission(cfg.get("route.tokens")' src/dzbrain/dzbrain/main.py
+  - cd D:/User/Desktop/比赛存档/v1/dzrobot_v2 && PYTHONPATH=src/dzbrain PYTHONIOENCODING=utf-8 python -c "from dzbrain.route.parser import parse_mission; r=parse_mission([]); print('empty route:', r, 'len=', len(r))"   # 〔按实际 API 调整〕
+  - cd D:/User/Desktop/比赛存档/v1/dzrobot_v2 && PYTHONIOENCODING=utf-8 python tools/wf/check.py
+inScope: `dzrobot_v2/src/dzbrain/dzbrain/main.py`（**该两处调用点** `:222` 与 `:2823` 及其后续处置；同在 main.py，写域不变）；新测试文件；`_tmp_session/wb-1031/wb21/`
+outOfScope: `dzrobot_v2/config/**`（**零写入**）；`tasks/mission.py`（只读对照，不改）；`route/planner.py`；`dzsmartscout/**`
+---
+
+# WB-21 · 「静默得到一个空对象」比报错更难查
+
+## 读过的台账条目
+
+- WB-18 §执行报告·L12 补充扫描第 ② 条（wb-plant 发现）。
+- `§12.10 L12`（删配置键前先改读它的代码）、**L14**（「缺失」≠「等于某个替代值」）。
+- D-063（本线翻案依据）。
+
+## 问题形态
+
+同一种"路线缺失"，仓里有**两条行为完全不同**的路径：
+
+| 路径 | 输入 `route.tokens = null/[]` | 行为 |
+|---|---|---|
+| `tasks/mission.py:2842/2797` → `_load_tokens` (`:2949`) | 空 | **`raise ValueError("route.tokens 为空，无法载入路线")`** |
+| `main.py:222` `parse_mission(cfg.get("route.tokens") or [])` | 空 | **`or []` 兜底 ⇒ 得到空 `Route`** ⇒ 静默往下 |
+
+⇒ **后者是「L12 的变体」**：不是"键被删了但代码还在读"（会报错），而是**"键空着、代码兜了一下、得到一个合法的空对象"**。
+
+**为什么更难查**：
+- 报错会立刻把人拦在启动期；
+- **空对象会静默往下走**，直到某处 `route.waypoints[0]` 才 `IndexError`，或者**根本不崩、只是不走路**——那时现场看到的是"车不动"，而不是"配置错"。
+
+与 **L14** 同族：**空列表是"合法的缺失"，`or []` 把它兜成"存在但空"的东西** ⇒ 缺失被替换成了替代值。
+
+## ★★ 实测推翻初版前提（wb-plant 2026-11-01 07:3x，captain 已独立复现 ①）
+
+**初版卡面（及 captain 上一轮采信的预核）说「`:222` 空 Route ⇒ `validate_route` 返回 0 error ⇒ 静默放行」——实测是错的。**
+
+captain 复现：
+```
+parse_mission([]) → 空 Route（0 航点）
+validate_route(空 Route) → 1 条 issue
+  code=R001 | level=error | msg=❌ [R001] 路线为空或少于 2 点（实际 0 点），无法循迹
+```
+
+### 真实形态：同一输入、四条路径、四种结局
+
+| 路径 | 行为 | 可读性 | 处置 |
+|---|---|---|---|
+| `mission.py:2949` `_load_tokens` | `raise ValueError("route.tokens 为空")` | ✅ | 不改（对照基准） |
+| `main.py:222`（**有地图**） | `validate_route` → **R001 error** → 门禁拦 | ✅ | **不改**（R001 已拦，改是画蛇添足） |
+| `main.py:222`（**布局模式**） | 整块跳过，报「未配置地图」（**归因错位**） | ⚠️ 错因 | **只记录不改**（动它=改地图门禁语义，属另一张卡） |
+| **`main.py:2823`（bench）** | **裸 ValueError Traceback**（`Path(route)` → `ValueError: Path 至少需要 2 个航点才能构成路径（当前 0 个）`） | ❌ | **本卡要改的就是这一处** |
+
+⇒ 这不是"某处静默"，而是 **「同一件事在不同入口有不同的处理规格」= L1 的又一实例**。
+
+## ★ 两处调用点，性质不同（wb-plant 只读预核发现，captain 已复核）
+
+```
+222:   route = parse_mission(cfg.get("route.tokens") or [])    ← 启动门禁（if map_cfg and not errors 里）
+2823:  route = parse_mission(cfg.get("route.tokens") or [])    ← --bench --drive 起跑前
+```
+
+| 位置 | 空 Route 的后果 | 隐蔽度 |
+|---|---|---|
+| `:222` 启动门禁 | 下一步 `validate_route(route, ...)` → **R001 error（"路线为空或少于 2 点"）** ⇒ **门禁拦下** | 已被拦住，**不隐蔽**（见下方更正） |
+| `:2823` bench | 无前置校验，一路到 `Path(route)` → **裸 ValueError Traceback** | **本卡修的就是这一处** |
+
+> ⚠️ **更正（2026-11-01 实测，推翻本节早先的推断）**：本节原写「`:222` 空路线返回 **0 条 issue** ⇒ 门禁放行」，
+> 那是**只读代码推断、未实测**，**是错的**。实测 `validate_route(parse_mission([]), map_cfg=…, cfg=…)`
+> 返回 **1 条 `R001 error`**（`❌ [R001] 路线为空或少于 2 点（实际 0 点），无法循迹`）⇒ **`:222` 会被拦下**。
+> ⇒ 因此「只修 `:222` 会留一半」这句也要按新事实理解：**:222 不需要修，真正缺防护的是 `:2823`（bench）**。
+
+**只修 `:2823`；`:222` 保持原样（R001 已拦住，改它是画蛇添足）。**
+
+## ★ 分层判据：两处允许的修法不同
+
+- **`:222`（启动门禁）只允许 (A) 显式报错**。
+  理由：这门禁的职责就是"配置不对就拒绝启动"；**空 tokens + 有地图 = 配置缺项 ⇒ 必须算 error**。此位置**不存在"空 Route 合法"的可能**。
+- **`:2823`（bench）允许 (A) 或 (B)**。
+  理由：bench 是联调路径，空跑一个 0 航点任务是合理的；若选 (B)，**必须打印出来**（可观测），不许静默。
+
+## ★ 还要区分 `None` 与 `[]`（wb-core 提醒，captain 采纳）
+
+`cfg.get("route.tokens")` 当前生效值是 **`[]`**（SCHEMA 兜底，见下方更正），而 `or []` 把 `None` 也变成 `[]`。
+⇒ **它掩盖了两件事**：① 键**不存在**（配置缺项）② 键存在但**显式为空**（可能是合法空路线）。
+
+**要求**：修法必须**先区分这两者**：
+- 缺键（`"route.tokens" not in cfg._flat`）⇒ 报"配置缺键"；
+- 显式空（`in _flat` 且值为 `[]`）⇒ 才是"空路线"，按上面分层判据处理。
+否则修完仍是假绿：**看起来处理了"空"，实际把"缺"也归进"空"了。**
+
+> ⚠️ **更正（2026-11-01 实测）**：本节原写「`cfg.get()` 现在是 `None`」**不准确**。
+> 实测（三态探针）：
+>
+> | 配置状态 | `cfg.get("route.tokens")` | `"route.tokens" in cfg._flat` |
+> |---|---|---|
+> | 整个 `route` 段不存在 | `[]` | **False** |
+> | `route.tokens: []`（显式空） | `[]` | **True** |
+> | 正常两点 | `['A1','B1']` | True |
+>
+> ⇒ **`cfg.get()` 对"缺键"与"显式空"返回同一个 `[]`，分不出来**；
+> **唯一可用判据是 `cfg._flat`**。本卡实现即按此判（见执行报告 §三）。
+
+## 处置原则
+
+1. **先实测，不靠读码断言**：给出"空 ⇒ 空 Route"的最小复现。
+2. **两条路径的差异必须写进卡面**（对照表），否则下一个人不知道仓里有两个口径。
+3. **不许静默**：要么报错（与 `_load_tokens` 对齐），要么**显式标注"空路线模式"并让它可观测**。
+4. 只改 `main.py` 那一处调用点；`mission.py` 只读对照，**不改**。
+
+## 验收（独立复跑）
+
+见 front matter `verify` 三条 + 负例。改动者自报不算过。
+
+## 回滚点
+
+`_tmp_session/wb-1031/wb21/preimage/`（改前文件逐字节 + sha256）；禁止 `git checkout`。
+
+## 执行报告
+
+### 一句话
+
+`main.py:2823`（`--bench`）的空路线由**裸 `ValueError` Traceback** 改为**可读报错 + rc=2**，
+并区分 `missing` / `empty` / `short` 三态；`:222` **不动**（实测 R001 已拦）；`mission.py` 零写入。
+`test_wb21_silentempty.py` **31/31**（含 captain 要求补的 5b 边界五条）、`test_wb21_negatives.py` **14/14**（变异自证）。
+
+### ① 最小复现（卡面 acceptance #1，实测非读码）
+
+```bash
+$ PYTHONPATH=src/dzbrain python -c "from dzbrain.route.parser import parse_mission; r=parse_mission([]); print(repr(r), len(r))"
+Route(waypoints=(), name='mission', crossing={}) 0
+$ ... r[0]
+IndexError: tuple index out of range
+$ ... Path(r)        # <-- bench 原本死在这里
+ValueError: Path 至少需要 2 个航点才能构成路径（当前 0 个）
+```
+
+**端到端（L1 推论：纯函数测试证不了接线）**：
+```bash
+$ python -m dzbrain.main --bench --seconds 2 --config <空tokens副本> --force
+Traceback (most recent call last):
+  ... main.py:2852, in run_bench
+    path = Path(route)
+ValueError: Path 至少需要 2 个航点才能构成路径（当前 0 个）
+rc=1
+```
+
+### ② 四条路径 × 四种行为（实测对照，卡面要求的那张表）
+
+| # | 路径 | 同一输入（空 tokens）下的行为 | 可读 | 复跑命令 | 本卡处置 |
+|---|---|---|---|---|---|
+| ① | `mission.py:2949 _load_tokens` | `raise ValueError("route.tokens 为空，无法载入路线")` | ✅ | `python -c "import inspect;from dzbrain.tasks import mission as M;print(inspect.getsource(M.MissionTask._load_tokens))"` | **不改**（对照基准） |
+| ② | `main.py:222`（**有地图**） | `validate_route` → **R001 error** → 启动门禁拦 | ✅ | 见 ③ 的探针 | **不改**（R001 已拦） |
+| ③ | `main.py:222`（**布局模式/无地图**） | 整块 `if map_cfg and not errors` **跳过**；报的是"未配置地图" | ⚠️ 归因错位 | `load_and_check(cfg, map_path=None, announce=False)` | **只记录不改** |
+| ④ | **`main.py:2823`（bench）** | 无前置校验 → `Path(route)` → **裸 Traceback** | ❌ | `python -m dzbrain.main --bench --seconds 2 --config <空> --force` | **本卡改这里** |
+
+②③ 的实测探针（同一条命令，换 `map_path`）：
+```python
+load_and_check(cfg_empty, map_path=<夹具图>, announce=False)  # ② → errors=['❌ [R001] 路线为空或少于 2 点（实际 0 点），无法循迹']
+load_and_check(cfg_empty, map_path=None,     announce=False)  # ③ → errors=['未配置地图：planner.map_path 为空…']
+```
+
+**② 为什么不改**：R001 已经把空路线拦在启动期，再改是画蛇添足。不写清这一点，下一个人会以为它也有问题。
+**③ 为什么只记录**：它的"归因错位"（报"未配置地图"而非"路线为空"）确实是真的，但**改它要动地图门禁语义**，属另一张卡。
+
+### ③ 修法与理由（卡面 acceptance #3：选了 (A)，逐条理由）
+
+**选 (A) 显式报错**，不引入"空路线模式"：
+
+1. **bench 跑的是真实任务线程组（8 线程）**，空路线下 MissionTask 无段可下发，
+   跑出来的指标与「根本没跑」**无法区分** —— 那种"看起来跑了"的绿灯正是本线要消灭的。
+2. bench 是**无车联调**入口，恰恰最需要"一眼看懂哪里没配"。
+3. 与 `_load_tokens` / `:222` 的 R001 **同口径**（空路线一律不静默放行），不新造第三套规格。
+
+**报错原文**（实跑输出）：
+```
+❌ bench 拒绝启动：配置里 route.tokens 是**显式的空列表 `[]`**，无法构成可循迹路径。
+    （读到值：[]；状态：empty；显式配置：True）
+    这是什么：`--bench` 跑的是真实任务线程组，空路线下没有段可执行，跑出来的指标与「根本没跑」无法区分。
+    怎么办（二选一）：
+      ① 传一张地图让它自动规划：`--bench --drive --map <地图文件>`（会先调 plan_route_from_config，再把产物写回 route.tokens）
+      ② 显式给路线：在配置里填 `route.tokens`（≥2 个 token，形如 L1,L2 的格名序列）
+    ⚠ 这条与 `main.py` 启动门禁（R001）和 `mission._load_tokens`（ValueError）是**同一个口径**：空路线一律不静默放行。
+```
+
+### ④ 三态区分（`None` / `[]` / 不足 2 点）—— 卡面第 94 节要求
+
+**关键实测**：`cfg.get()` **分不出来**，唯一判据是 `cfg._flat`：
+
+| 配置状态 | `cfg.get("route.tokens")` | `in cfg._flat` | 报错措辞（各不同） |
+|---|---|---|---|
+| 整个 `route` 段不存在 | `[]` | **False** | "配置里**没有** route.tokens 这一项（走 SCHEMA 兜底 `[]`）" |
+| 显式 `route.tokens: []` | `[]` | **True** | "配置里 route.tokens 是**显式的空列表 `[]`**" |
+| 只有 1 点 | `['A1']` | True | "route.tokens 只有 1 点（不足 2 点）" |
+
+三态报错行**互不相同**（断言 4.6 直接比集合，不是自己拼恒真表达式）。
+
+### ④-b ★ 闸门触发的**精确边界**（captain 2026-11-01 要求补 · 已实测坐实）
+
+**下一个人最容易误读的地方**：以为"配了空 tokens 就会触发 `:2823` 闸门"。**实际不是。**
+
+原因：`:2823` 闸门**之前**有一段自动规划（`main.py:2808`），成功时会把产物**覆盖**写回：
+```python
+main.py:2808   if bool(cfg.get("planner.auto_plan_enabled", False)):
+main.py:2813       cfg.override("route.tokens", list(out.tokens))   # ← 覆盖掉原始空 tokens
+main.py:2840   if len(_route_tokens) < 2:                            # ← 本卡闸门（读的是覆盖后的值）
+```
+⇒ **闸门读的是 `cfg.get("route.tokens")` = 规划产物，不一定是用户原始配置。**
+
+**实测四种情形（全部真跑，不是推断）**：
+
+| # | 条件 | `:222` 门禁 | `:2808` 自动规划 | `:2840` 闸门 | 实测 rc |
+|---|---|---|---|---|---|
+| A | 无地图 + `auto_plan=true` | ~~R001 拦~~ **不触发**（见下方 WB-R4 F2 更正） | 不到达 | **`bench` 闸门拦**（报 `missing`） | 2 |
+| B | 空 tokens + 有地图 | **R001 拦** | 不到达 | 不到达 | 2（**同上**） |
+| C | `--force` + `auto_plan=true` + **规划成功**（`--map` 夹具图） | 跳过 | **68 token 覆盖** | **不触发**（读到 68 ≥ 2） | **0** |
+| D | `--force` + `auto_plan=true` + **规划失败**（无 `--map`） | 跳过 | 失败，不覆盖 | **触发**（仍读原始空） | **2** |
+
+> ⚠️ **F2 更正（WB-R4 独立复核发现 + captain 实测证实，2026-11-01 12:0x）**：
+> 本表 A 行原写「`:222` **R001 拦**」——**错**。captain 复跑实测：
+> ```
+> --bench --config config/robot.yaml           # 无地图 + auto_plan=true
+> rc=2
+> R001 出现次数  = 1     ← 只是报错文案里的**引用**（"这条与启动门禁 R001…是同一个口径"）
+> bench 拒绝启动 = 1     ← 真拦截者
+> 输出：❌ bench 拒绝启动：配置里**没有** route.tokens 这一项（走 SCHEMA 兜底 []）
+> ```
+> ⇒ **A 的实际拦截者是 `:2840` bench 闸门（报 `missing` 态）**，R001 根本没有触发。
+> **真触发 R001 的是 B（`--bench` 之外走启动门禁；或 B 那种"有地图但 tokens 空"）。**
+> 区分意义：A 与 B 是**同一道闸门、两种原因**（A="没有这项配置" / B="有配置但为空"）。
+> 若两行都写 R001 拦，下一个人会以为存在两条不同的拦截路径。
+
+> ⚠️ **对 captain 那条"`--force` 后没触发闸门"的修正**：那条成立的前提是**自动规划成功**（他当时给了可用地图）。
+> 我复跑同一命令但**不带 `--map`**（默认 `config/robot.yaml`，车端布局模式无地图）⇒ 自动规划**失败**、不覆盖 ⇒ **闸门照样触发，rc=2**。
+> ⇒ 精确表述是：**闸门拦截的是「自动规划也没能产出 ≥2 点路线」**，而不是「用户没配 route.tokens」。
+
+**由此推出三条（写清是为了防误读）**：
+1. **`auto_plan_enabled=true` 且能规划出路线时，`missing` / `empty` 两态永远不会出现** ——
+   因为 `cfg.override` 之后 `"route.tokens" in cfg._flat` 变成 **True**（实测：override 前 False → 后 True）。
+   ⇒ 这两个报错措辞**只在自动规划未发生或失败时才可达**。
+2. `:2823` 闸门实际是**「规划失败后的最后一道兜底」**，不是主防线 —— 主防线是 `:222` 的 R001。
+3. 所以本卡的价值在于：**把"最后一刻裸栈"改成可读报错**，而不是"发现了一个主要缺口"。
+   （诚实边界：`:222` 已经挡住了绝大多数真实场景，`:2823` 的改动价值小于其表述给人的印象。）
+
+### ⑤ 负例（卡面 acceptance #4）：必须能观察到明确结局
+
+| 负例 | 期望 | 实测 |
+|---|---|---|
+| 空 tokens + `--force` 进 bench | rc=2 + 点名 route.tokens + 可行动作 + **零 Traceback** | ✅ 全满足 |
+| `missing`（删掉该键） | 报"没有这一项" | ✅ `in_flat=False` |
+| `empty`（显式 `[]`） | 报"显式的空列表" | ✅ |
+| `short`（1 点） | 报"只有 1 点" | ✅ |
+| **不误伤**：`--map` 自动规划成功 | **不被拦**、rc=0、自动规划回写 ≥2 token | ✅ 68 token，rc=0 |
+
+**最后一条是本卡最重要的负例**：加了闸门却没把 `--bench` 的常规用法打断。
+（判据用**提取真实 token 数**而非文本匹配 —— 第一版用子串匹配抓到了旁边的「射击停站无解」警告，假红，已修。）
+
+### ⑥ 变异自证（L16，`test_wb21_negatives.py` 14/14）
+
+拆掉闸门（`if len(_route_tokens) < 2:` → `if False and …`）→ **22 条 FAIL**，两组都精准命中：
+- **必须红的**：`3.1`/`3.2`/`4.3`/`4.4`/`4.5` + **`5b.3`/`5b.5`**（新增的边界断言，拆闸后情形 D 退化成裸 Traceback）；
+- **必须仍绿的**：`5.1`/`5.2`/`5.3`/`5.4`/`5b.1`/`5b.2` —— 实测**错误变红 = []**
+  ⇒ 这条 `N2.3b` 是"分类正确性"的证据：**新增断言没有把正常路径牵连进去**，
+  也说明不是"一刀切全红"（一刀切全红=断言互相耦合，同样是坏信号）。
+- **§2（下游行为）与 §6（写域边界）仍绿**（8 条）⇒ 分层没串味。
+
+L16 四条：`try/finally` + 双重 sha256（`d4301cf3…` 前后逐位一致）+ 子进程显式 `encoding` + 锚点唯一性先断言。
+
+### ⑦ 我自己犯的三个错（如实报）
+
+1. **预核推断错了**：我给 captain 的预核写"`:222` 空 Route ⇒ `validate_route` 返回 0 error ⇒ 静默放行"，
+   **实测是 1 条 R001 error**。只读代码推断、没跑下游行为。captain 据此写进了卡面，我已**在卡面加更正块**。
+2. **第一版负例判据假红**：`5.2` 用 `"自动规划路线" in line` 匹配，抓到的是旁边同为 ⚠️ 开头的
+   「射击停站无解」警告 ⇒ 判据改成 `re.search(r"自动规划路线\s+(\d+)\s+token")` 提取真实数字。
+3. **另修掉两处恒真断言**：`4.6` 原本拼了个恒真表达式、`6.4` 原本 `… and True or True`，都改成真判据。
+4. **对 captain 那条「`--force` 后没触发闸门」的修正**：那条只在他「给了可用地图、规划成功」时成立。
+   我复跑同一命令**不带 `--map`** ⇒ 规划**失败**、不覆盖 ⇒ **闸门照样触发 rc=2**（见 §④-b 情形 D）。
+   ⇒ 边界表述已按实测收紧，不照抄"没触发"。
+
+### ⑧ 命令与真实输出
+
+```
+PYTHONPATH=src/dzbrain python src/dzbrain/tests/test_wb21_silentempty.py  → 结果：31/31 全部通过 ✅  rc=0
+PYTHONPATH=src/dzbrain python src/dzbrain/tests/test_wb21_negatives.py    → 结果：14/14 全部通过 ✅  rc=0
+PYTHONPATH=src/dzbrain python src/dzbrain/tests/test_stepper.py           → 118/118 ✅（卡面要求保持）
+PYTHONPATH=src/dzbrain python src/dzbrain/tests/test_wb18_engine_gate.py  → 41/41 ✅（卡面要求保持）
+PYTHONPATH=src/dzbrain python src/dzbrain/tests/test_wb18_negatives.py    → 20/20 ✅（卡面要求保持）
+git status --short config/                                                → 空（零写入）
+git status --short src/dzbrain/dzbrain/tasks/mission.py                   → 空（零写入）
+git status --short src/dzbrain/dzbrain/route/planner.py                   → 空（零写入）
+```
+
+### ⑨ 终版哈希与行尾（按字节判读）
+
+```
+main.py         3403 行  CRLF=0 / LF=3403  ⇒ **LF**
+test_wb21_silentempty.py  257 行  CRLF=0 / LF=257  ⇒ **LF**（写成 CRLF 后已统一）
+test_wb21_negatives.py    121 行  CRLF=0 / LF=121  ⇒ **LF**
+```
+
+### 我没验证到的
+
+1. **无 ROS**：本卡端到端都走 `--bench`（FakeBridge），**真实 ROS 启动未验**。
+2. **`--bench --drive` 的子路径**：我只验到 `--bench`（不带 `--drive`）；`--drive` 会起虚拟小车线程，
+   空路线在其之前就被拦，逻辑上应同样生效，但**未单独实跑**。
+3. **`cfg.override("route.tokens", None)` 这条注入路径未测**：我按 `_raw_tokens is None` 写了分支，
+   但仓里没有真实调用点会在 bench 前往黑板上写 None，**该分支是防御性的，未走到**。
+4. **`test_planner.py` 的 401 行改动不是我做的**（WB-21 写域不含它），交付时它已在工作树脏状态。

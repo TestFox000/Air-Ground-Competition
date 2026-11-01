@@ -1,0 +1,218 @@
+---
+卡号: WB-14-PLANAUDIT-20261101
+ns: wb-1031
+agent: wb-core
+树节点: wb-14
+kind: implementation
+status: in_progress
+创建: 2026-11-01 03:3x
+owner: wb-core
+reviewer: wb-reviewer
+objective: 把 WB-4 交付的两个**事实性发现**从"两个 agent 的观察"提升为"有机器可判证据的裁决条目"：① `planner.engine=tracker-safe` 在 30 张合成图与 4 张真实夹具图上全部无解（机理：洞在隔板相邻行 ⇒ 行内 90° 进场被转向禁令杀 + 进洞邻格 L7 禁换行 ⇒ 死锁），须逐图给出死锁点并裁定它对现役配置的实际影响；② `barrier_row_hi/lo` 被 `planner.load_map` 读、但 `validate.py:225` 与 `route_check.py:698` 读的是 `core.geometry` 全局常量 ⇒ 声明与校验器分叉，须给出最小反例与可修性结论。
+acceptance:
+  - 四张真实夹具图（map_field7_t24 / map_sixth_20261017 / map_field / map_carloop_20261024）× tracker-safe 的复现表：每张给出有解/无解、死锁点（段号/格名）、触发的禁令，一条命令可重跑
+  - 明确写出**现役 `planner.engine` 的实际值**（实测配置读出来的字面值），并据此裁定：是生产级风险还是备选引擎不可用；引用配置里已有的注释原文作为佐证
+  - 校验器口径缺口的最小反例：一张隔板行与全局常量**不等**的合法地图，机器可判地展示分叉；修复后该反例转绿
+  - 若修读法：`validate_route` / `route_check` 在四张真实夹具上**结果不变**（防修出新错）；断言只增不减
+  - 若判为结构性不可修：写成硬约束条目（"禁止在隔板行不等的图上做自动规划裁决"）并进 06 册或规划篇
+  - 文档过 `check_doc_policy`（R3 登记 + R10 册级索引）
+  - 凡 docstring/help 写「只读/只校验/dry」的模式，必有 verify 断言它跑完 `git status` 无变化
+verify:
+  - cd D:/User/Desktop/比赛存档/v1/dzrobot_v2 && PYTHONPATH=src/dzbrain PYTHONIOENCODING=utf-8 python tools/plan_route.py --emit tokens --engine tracker-safe --config config/robot.yaml --map src/dzbrain/tests/fixtures/map_field7_t24.yaml; echo rc=$?
+  - cd D:/User/Desktop/比赛存档/v1/dzrobot_v2 && python -c "import yaml;d=yaml.safe_load(open('config/robot.yaml',encoding='utf-8'));print(d['planner']['engine'])"
+  - cd D:/User/Desktop/比赛存档/v1 && PYTHONIOENCODING=utf-8 python docs/_工具/check_doc_policy.py
+inScope: `docs/20_资料索引库/车端/`（新开一篇或加节，须登记）；`_tmp_session/wb-1031/wb14/`；若判可修则加 `dzrobot_v2/tools/route_check.py` 与 `dzrobot_v2/src/dzbrain/dzbrain/route/validate.py`
+outOfScope: `dzrobot_v2/config/**`（**不得改 `planner.engine` 默认值**，改默认值属用户裁决）；`src/dzbrain/dzbrain/core/**`（含 geometry.py 零写入）；`planner.py`；`dzsmartscout/**`
+---
+
+# WB-14 · 规划器通用性记账 + 校验器口径缺口
+
+## 读过的台账条目
+
+- WB-4 §执行报告（多图分布与 4 个真 bug）；WB-9 §执行报告（同一 tracker-safe 现象的机理）。
+- D-063（本线翻案依据）；铁律 5「证不出来 = 没完成」。
+
+## 背景：本轮最值钱的产物是"事实"，不是"功能"
+
+WB-4 首次给出分布式结论（captain 用 `artifacts/synth_maps/sweep.csv` 独立复算，去重到 (map, engine)）：
+
+| 引擎 | 有解 | 无解 | 可行率 |
+|---|---|---|---|
+| tour | **20** | **10** | **66.7%** |
+| tracker-safe | 0 | 30 | 0.0% |
+
+- 120 行 → 唯一组合 60（30 图 × 2 引擎），无冲突
+- 按 arm 拆：ideal 与 realistic **逐图完全相同**（`--arms` 维度对规划无差异）——20/10 两个 arm 一致
+- tour 有解行 `validate_errors` 非 0 = **0** ⇒「不是规划出来了但走不了」
+
+**关键澄清（captain 实测配置）**：`config/robot.yaml:224` 现役 `engine: tour`，注释原文写着「现役 tour（tracker-safe 现役图无解）」。⇒ **tracker-safe 无解不是生产风险**，是"备选引擎不可用"的记录。本卡不得把它写成生产告警，也不得因此改默认值。
+
+## 第二件事：声明与校验器分叉
+
+WB-4 实测：`validate.py:225` 与 `route_check.py:698` 读 `core.geometry` **全局常量**、**不读**地图的 `barrier_row_hi/lo`（只有 `planner.load_map` 读）。
+
+后果：换一张隔板行不同但合法的地图 ⇒ 规划器按地图避障、校验器按常量判对错。WB-4 因此**没做**卡面"变隔板行"那一条，只保留 `--vary-barrier` 诊断开关并在 SELFCHECK 打 `BARRIER_DECLARED_NOT_HONORED`。**这个处置是对的**——让不可做的那条变成可看见的事实。
+
+## 数字更正记录（captain 2026-11-01 04:3x）
+
+本卡初版引用的 tour 分布是「17 有解 / 13 无解 / 56.7%」，**该数已撤回**。captain 用工作区内**现存全部** sweep 产物复核：
+`artifacts/synth_maps/sweep.csv`(04:16) / `wb4/recount.csv`(03:29) / `rep1~3.csv`(03:58~04:00) / `det1~3.csv`(04:12~04:13) —— **全部是 20/10，无一份给出 17**。
+captain 的 17 来自 03:18:53 的旧版产物（已被覆盖），且**其统计脚本现已复现不出 17** ⇒ 该数不成立，采信 **20/10/66.7%**。
+
+*tracker-safe 0/30 与"现场 4 张真实图 4/4 无解"不受此更正影响，仍成立。*
+
+## 处置原则
+
+1. 先取证再修：最小反例必须先跑出来，不许凭代码阅读就断言"会分叉"。
+2. 修则验不回归：四张真实夹具上 `validate_route` / `route_check` 结果必须**逐项不变**。
+3. 不修则立约束：写成硬性禁止条目，进文档，让后来人撞得到。
+4. **不改 `core.geometry` 常量值**：那是另一条真源链（`BLOCK_SIZE` / 隔板行等），改动面远超本卡。
+
+## 交付
+
+报告必须回答一个问题：**这两条里哪一条会影响用户的下一次实车**？只写"已修复"不合格。
+
+## 回滚点
+
+`_tmp_session/wb-1031/wb14/preimage/`（改前文件逐字节 + sha256）；禁止 `git checkout`。
+
+---
+
+## 执行报告（wb-core，2026-11-01 03:28–05:3x）
+
+### 先回答卡面要求的那一个问题：这两条哪条会影响用户的下一次实车？
+
+**第二条（`barrier_row_hi/lo` 口径缺口）**——但**只在换隔板行不同的场地图时**。
+现役第六图与四张夹具的隔板行都是 **6/7**（= geometry 常量值），所以今天跑任何现有图，
+修与不修结果都一样。**用户下次换一张"隔板画在别的行"的场地图**时，旧口径会让
+`route_check` 用**错位整整一个格宽（0.350 m）**的中心线算挡板触线余量
+⇒ 该红的判成绿（几何侧），或该绿的判成红（拓扑侧）。
+
+**第一条（tracker-safe 无解）今天不影响实车**，但有一条**卡面没预料到的加重事实**：
+`auto_plan_enabled` 实测是 **`true`**（`:231`，2026-10-25 用户指令改的"零地图+布局模式"），
+不是文档旧版写的 `false`。现役引擎是 `tour` 所以没事；但**若把 `planner.engine` 切成
+`tracker-safe`**，因为 `fallback_to_tokens: false`（失败不回退手写线），自动规划会**每次失败后直接停车报错**。
+这条已写进 `03_规划器与自动规划.md` §8.1，让人在切引擎前看到。
+
+### 一、`tracker-safe` 在真实图上 4/4 无解 —— 已记账（卡面验收①②）
+
+**现役引擎实测值**：`planner.engine = 'tour'`（`config/robot.yaml:225`，行内注释原文
+"现役 tour（tracker-safe 现役图无解）"）。⇒ **备选引擎不可用，不是生产级风险**（除上面那条加重事实）。
+
+**四张真实夹具 × tracker-safe 复现表**（一条命令重跑 `python _tmp_session/wb-1031/wb14/repro_tracker_safe.py`，纯只读）：
+
+| 夹具 | 起点→终点 | 桥洞 | 靶 | 结果 | 未放宽时各规则拒绝次数 |
+|---|---|---|---|---|---|
+| field7_t24 | N10→N5 | K5/K7 | D5,D6 | **无解** | G1 180°=34 / G2 紧凑U=21 / G6 隔板行=7 |
+| sixth_20261017 | N10→N5 | K5/K7 | D5,D6 | **无解** | G1=34 / G2=21 / G6=7 |
+| field | N10→N5 | K4/K9 | G8 | **无解** | G1=11698 / G2=6642 / G3 雷格=820 / G6=305 |
+| carloop_20261024 | N10→N5 | K10/K4 | D7,E7 | **无解** | G1=3134 / G2=1690 / G3=269 / G6=54 |
+
+**★ 卡面原设想的那条机理（"洞在隔板相邻行 → 行内 90° 进场被转向禁令杀 + 进洞邻格禁换行"）
+只对 field7/sixth 成立。逐图单独放宽实验给出的是三种不同形态：**
+
+| 图 | 单条放宽 | 联合放宽 | 真实绞索 |
+|---|---|---|---|
+| field7 / sixth | 单条**全不行** | **G2+G3+G6 三条同时**才出 54 token（0 折返） | 禁紧凑U + 雷格转角 + 隔板紧邻行侧向90° **三者叠加** |
+| field | 单条全不行 | 两两 `G3+G6` 出解 | 雷格转角与隔板行转角的**互补**约束 |
+| carloop | **G2 或 G3 或 G6 单独即有解**（58/52/56 token，0 折返） | 全放开 52 token | 单条禁令即绞索（**这张图离可用最近**） |
+
+**★ 并且：放宽不是解。** field7/sixth 全放开后 `assert_legal_no_reverse` 当场拒绝：
+`折返点缺少 :PIVOT 声明：#46 G5 180°` —— 即使角度类禁令全开，解仍含 180° 原地掉头，
+而那正是 `tracker-safe` 定义要禁止的。**本卡没有任何"调参就能修好"的路径。**
+
+> **卡面死锁点要求（段号/格/禁令）的如实交代**：`plan_route.py` 在失败时只抛一句笼统消息
+> （`planner.py:4900`），CLI **无任何诊断开关**（`--help` 已核）。要拿到"哪条禁令在哪个格"，
+> 只能从内部按 `turn_gate` 的判定顺序逐条重算——本卡已做成 `_why_rejected()`
+> （`repro_tracker_safe.py`），能给出逐组拒绝次数与逐顶点审计；但"段号"这一维度
+> 在 tracker-safe 里不成立（它根本没有段的概念，是朝向感知 Dijkstra 的整条搜索）。
+
+### 二、`barrier_row_hi/lo` 口径缺口 —— 已修（卡面验收③④）
+
+**判为可修，不是结构性**：三处调用点都能拿到地图（`validate.py` 的 `merged`、
+`route_check.py` 的 `load_cfg` 已读到整个 `map:` 段），改动面各 3–5 行。
+
+**改了 5 处**（`dzrobot_v2/tools/route_check.py` + `src/dzbrain/dzbrain/route/validate.py`）：
+
+| 位置 | 改法 |
+|---|---|
+| `validate.py:_barrier_crossing(a,b)` | 增可选 `barrier_row_hi`；`None` ⇒ 回落 `geo.BARRIER_ROW_HI` |
+| `validate.py` R003 文案 | 报**实际用到的** hi/lo（不再写死 6/7） |
+| `validate.py` 新增 `_as_barrier_row()` | 安全解析（缺失/非法/越界一律回落常量，不抛异常） |
+| `route_check.py:barrier_centerline()` | 增可选 `row_hi/row_lo`；`None` ⇒ 回落常量 |
+| `route_check.py:barrier_touch_min()` / `zone_of()` | 透传（`zone_of` **当前无调用方**，属预防性） |
+| `route_check.py:load_cfg` | **增取 `barrier_row_hi/lo`**（此前只取 obstacles/mines/targets/bridges） |
+
+**最小反例（机器可判，修复后转绿）**
+
+拓扑侧 `_tmp_session/wb-1031/wb14/barrier_row_probe.py`（地图只改隔板两行，路线含 `K7→K5`）：
+
+| 地图声明 | 按地图几何应判 | 修复前 | 修复后 |
+|---|---|---|---|
+| hi=6/lo=7 | 红（跨禁列 K） | 红 ✅ | 红 ✅ |
+| hi=5/lo=6 | 不红（K5 正压隔板行） | **红 ❌ 误报** | 不红 ✅ |
+| hi=7/lo=8 | 不红（同侧） | **红 ❌ 误报** | 不红 ✅ |
+
+几何侧 `route_check_barrier_probe.py`（同一条车心轨迹）：
+
+| 隔板行 | 中心线 x | 触线距离 | 该判 | 旧口径 |
+|---|---|---|---|---|
+| hi=6/lo=7 | 1.7500 | 0.1750 m | 绿 | 绿（相同） |
+| hi=5/lo=6 | 2.1000 | 0.5250 m | 绿 | 绿（相同） |
+| hi=7/lo=8 | 1.4000 | **0.0000 m** | **红** | **绿 ❌ 漏报**（错位 0.350 m = 整格） |
+
+**验收④：四张真实夹具结果不变**
+
+```
+map_field7_t24       tokens=68(期望68) error=0  ✅不变
+map_sixth_20261017   tokens=68(期望68) error=0  ✅不变
+map_field            tokens=54(期望54) error=0  ✅不变
+map_carloop_20261024 tokens=62(期望62) error=0  ✅不变
+```
+
+`route_check` legacy 路径：`rc=0`、`挡板不触线 0.1750 m ≥ 0.0950 m`（= 修复前同一个数）。
+**根因**：四张图的 `barrier_row_hi/lo` 全部是 6/7（= 常量值）⇒ 读地图与读常量数值相同，
+修复**只在换图时生效**。
+
+### 三、回归与门禁
+
+| 项 | 改动前 | 改动后 |
+|---|---|---|
+| 全量回归 | 58 套 / 10 红 | **58 套 / 10 红，红色集合逐条相同** |
+| `test_route` | — | **167/167 通过** |
+| `test_planner` | — | 145 通过 + 5 SKIP（0 失败；SKIP 原因正是本卡记录的 tracker-safe 无解） |
+| `sim_cli` | — | `ok=true / completed=true / time_s=118.12 / RMS=0.11871971 / final_error=0.02997`（**与 tier-0 基线逐位一致**） |
+| `check_doc_policy` | — | **GREEN，红线 0** |
+| `check_anchors` | — | **GREEN，新增红 0** |
+| `check_numbers` | — | 退出码 0 |
+| `check_links` | — | 0 断链 |
+| `wf/check` | — | 仅 `wb_drone_stub.py` 未登记（WB-3 的件，非本卡） |
+
+**"改出假红"的排他性证据**：`test_sim`(108/114, 6 红) 与 `test_sim_guard`(109/111, 2 红)
+不在 known_reds 里，我**临时把 R003 改回常量口径**再跑，两套结果**逐位相同** ⇒ 确认是既有红，
+与我这次改动无关（随后已恢复）。`test_corner_cut`(K12) / `test_drift`(K13) 在 known_reds 里有条目。
+
+### 四、关键数字（≥3）
+
+1. **四张真实图 × tracker-safe = 0/4 有解**；独立复算拒绝次数 field7 `G1=34/G2=21/G6=7`，
+   carloop `G1=3134/G2=1690/G3=269/G6=54`。
+2. **carloop 单条放宽即可解**（G2→58、G3→52、G6→56 token，全部 0 折返）——四张图里离可用最近的一张。
+3. **隔板行错位 = 0.3500 m（正好一个 `BLOCK_SIZE`）**：hi=6 中心线 x=1.7500，hi=5 → 2.1000，hi=7 → 1.4000。
+4. **四张真实夹具 id 全部 6/7** ⇒ 修复对本仓现状**零影响**（tokens 68/68/54/62 逐位不变）。
+5. **全量回归 58 套 / 10 红，改动前后红色集合逐条相同**（0 新增、0 消失）。
+
+### 五、风险与下一步
+
+- **风险（低）**：`_as_barrier_row` 对非法值**回落常量而非报错**。理由：它被 R003 循环外调用一次，
+  抛异常会让一张坏地图把整条路线校验变成崩溃。地图合法性由 `planner.load_map` 与
+  `config_selfcheck` 各自负责。若后续要"坏地图必须红"，应在 `load_map` 侧加，不在这里。
+- **风险（低）**：`zone_of()` 我加了参数但它**当前无调用方**，属预防性改造；未传参行为与原来逐字相同。
+- **下一步（不属本卡）**：① 若要让 `tracker-safe` 可用，需改赛道拓扑或改规则组合（结构决策）；
+  ② `auto_plan_enabled=true` + 引擎切换的联锁检查，建议另立卡（属 config 域，本卡零写入）。
+- **回滚点**：`_tmp_session/wb-1031/wb14/preimage/`（`route_check.py.head`、`validate.py.head`
+  为 git HEAD 逐字节导出 + `WB14_PREIMAGE_SHA256.txt`）。**未用 git checkout/stash/restore，
+  未 commit，未 push，未碰车/无人机/部署。**
+- **写域核对**：本轮写入 `dzrobot_v2/tools/route_check.py`、`dzrobot_v2/src/dzbrain/dzbrain/route/validate.py`、
+  `docs/20_资料索引库/车端/03_规划器与自动规划.md`、`_tmp_session/wb-1031/wb14/`、本卡面。
+  **`config/**` 与 `src/dzbrain/dzbrain/core/**` 零写入**（`geometry.py` 常量未动）；
+  `planner.py` 零写入；`dzsmartscout/**` 零写入。行尾：route_check 2258/2258、validate 814/814，全 CRLF。

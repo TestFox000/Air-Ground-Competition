@@ -1,56 +1,56 @@
 {
-  "when": "2026-10-17 16:59:33",
+  "when": "2026-11-01 00:25:08",
   "cases": {
     "vendor": {
       "run1": {
-        "cmd": "C:\\Users\\TestFox\\AppData\\Local\\Programs\\Python\\Python312\\python.exe D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\tools\\plan_route.py --emit tokens --engine tracker-safe --config D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\config\\robot.yaml --map D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\config\\map.yaml",
+        "cmd": "C:\\Users\\TestFox\\AppData\\Local\\Programs\\Python\\Python312\\python.exe D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\tools\\plan_route.py --emit tokens --engine tracker-safe --config D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\config\\robot.yaml --map D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\tests\\fixtures\\map_field7_t24.yaml",
         "root": "D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws",
-        "rc": 0,
-        "tokens": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y",
-        "stdout": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y\n",
-        "stderr": "",
-        "secs": 0.67
+        "rc": 1,
+        "tokens": "",
+        "stdout": "",
+        "stderr": "❌ 规划失败：没有生成任何可行路线\n   · 下=默认 上=默认: tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）｜归因：几何可达但被硬规则筛空——转向禁令杀 0 边、进洞邻格杀 2 边、物理间隙杀 0 边；洞在**隔板相邻行**（行 7∈(6, 7)）⇒ 行内 90° 进场转弯被『隔板相邻行转向禁令』杀（实测依据 N7/H7 178 拍），进洞邻格 L7 又禁换行 —— 结构性死锁，硬走=蹭隔板（仿真 1.2 mm/113 拍实证）\n",
+        "secs": 0.32
       },
       "run2": {
-        "cmd": "C:\\Users\\TestFox\\AppData\\Local\\Programs\\Python\\Python312\\python.exe D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\tools\\plan_route.py --emit tokens --engine tracker-safe --config D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\config\\robot.yaml --map D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\config\\map.yaml",
+        "cmd": "C:\\Users\\TestFox\\AppData\\Local\\Programs\\Python\\Python312\\python.exe D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\tools\\plan_route.py --emit tokens --engine tracker-safe --config D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\config\\robot.yaml --map D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\tests\\fixtures\\map_field7_t24.yaml",
         "root": "D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws",
-        "rc": 0,
-        "tokens": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y",
-        "stdout": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y\n",
-        "stderr": "",
-        "secs": 0.63
+        "rc": 1,
+        "tokens": "",
+        "stdout": "",
+        "stderr": "❌ 规划失败：没有生成任何可行路线\n   · 下=默认 上=默认: tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）｜归因：几何可达但被硬规则筛空——转向禁令杀 0 边、进洞邻格杀 2 边、物理间隙杀 0 边；洞在**隔板相邻行**（行 7∈(6, 7)）⇒ 行内 90° 进场转弯被『隔板相邻行转向禁令』杀（实测依据 N7/H7 178 拍），进洞邻格 L7 又禁换行 —— 结构性死锁，硬走=蹭隔板（仿真 1.2 mm/113 拍实证）\n",
+        "secs": 0.32
       },
-      "deterministic": true,
+      "deterministic": false,
       "check": {
-        "rc": 0,
+        "rc": 1,
         "tokens_same_as_plain": true,
-        "tail": "   \u001b[32m✅\u001b[0m 航段不横穿靶板                        全路线（含直段中间的格）离最近靶格心 0.350 m > 0.175 m\n   \u001b[32m✅\u001b[0m 车体不压靶板                         直段 0.1750 ≥ 0.0675 m；拐角 0.2475 ≥ 0.1554 m（靶板 0.35 m 见方，中心在格心）\n   \u001b[32m✅\u001b[0m 靶覆盖 2/2（射击点可达）                 E5<-射击点#29(0.78m) F5<-射击点#32(0.78m)\n   \u001b[32m✅\u001b[0m 射击点距离                          2 个射击点都能服务于某个靶（0.78~1.02 m 内）\n   \u001b[32m✅\u001b[0m 桥洞保护点覆盖                        K5 K9\n   \u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+        "tail": ""
       }
     },
     "source": {
       "run1": {
-        "cmd": "C:\\Users\\TestFox\\AppData\\Local\\Programs\\Python\\Python312\\python.exe D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\tools\\plan_route.py --emit tokens --engine tracker-safe --config D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\robot.yaml --map D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\map.yaml",
+        "cmd": "C:\\Users\\TestFox\\AppData\\Local\\Programs\\Python\\Python312\\python.exe D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\tools\\plan_route.py --emit tokens --engine tracker-safe --config D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\robot.yaml --map D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\tests\\fixtures\\map_field7_t24.yaml",
         "root": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2",
-        "rc": 0,
-        "tokens": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y",
-        "stdout": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y\n",
-        "stderr": "",
-        "secs": 0.61
+        "rc": 1,
+        "tokens": "",
+        "stdout": "",
+        "stderr": "❌ 规划失败：没有生成任何可行路线\n   · 下=默认 上=默认: tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）\n",
+        "secs": 0.24
       },
       "run2": {
-        "cmd": "C:\\Users\\TestFox\\AppData\\Local\\Programs\\Python\\Python312\\python.exe D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\tools\\plan_route.py --emit tokens --engine tracker-safe --config D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\robot.yaml --map D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\map.yaml",
+        "cmd": "C:\\Users\\TestFox\\AppData\\Local\\Programs\\Python\\Python312\\python.exe D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\tools\\plan_route.py --emit tokens --engine tracker-safe --config D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\config\\robot.yaml --map D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\tests\\fixtures\\map_field7_t24.yaml",
         "root": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2",
-        "rc": 0,
-        "tokens": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y",
-        "stdout": "N10 M10 M9 L9 K9 J9 J10 I10 H10 G10 F10 E10 E9 D9 C9 B9 B8 B7 B6 A6 A5 A4 A3 A2 B2 B1 C1 D1 D2 D3* E3 F3 G3* G4 G5 G6 H6 I6 I5 J5 K5 L5 M5 N5,y\n",
-        "stderr": "",
-        "secs": 0.61
+        "rc": 1,
+        "tokens": "",
+        "stdout": "",
+        "stderr": "❌ 规划失败：没有生成任何可行路线\n   · 下=默认 上=默认: tracker-safe 引擎无解（可能被『禁 180°/禁紧凑 U/雷穿心』筛空）\n",
+        "secs": 0.25
       },
-      "deterministic": true,
+      "deterministic": false,
       "check": {
-        "rc": 0,
+        "rc": 1,
         "tokens_same_as_plain": true,
-        "tail": "   \u001b[32m✅\u001b[0m 航段不横穿靶板                        全路线（含直段中间的格）离最近靶格心 0.350 m > 0.175 m\n   \u001b[32m✅\u001b[0m 车体不压靶板                         直段 0.1750 ≥ 0.0675 m；拐角 0.2475 ≥ 0.1554 m（靶板 0.35 m 见方，中心在格心）\n   \u001b[32m✅\u001b[0m 靶覆盖 2/2（射击点可达）                 E5<-射击点#29(0.78m) F5<-射击点#32(0.78m)\n   \u001b[32m✅\u001b[0m 射击点距离                          2 个射击点都能服务于某个靶（0.78~1.02 m 内）\n   \u001b[32m✅\u001b[0m 桥洞保护点覆盖                        K5 K9\n   \u001b[33m\u001b[1m⚠️  全部通过，但有 1 项提醒\u001b[0m"
+        "tail": ""
       }
     }
   },
@@ -62,59 +62,22 @@
     "allow_reverse": false,
     "map_path": "config/map.yaml",
     "fallback_to_tokens": true,
-    "auto_plan_enabled": true,
+    "auto_plan_enabled": false,
     "config_path": "D:\\User\\Desktop\\比赛存档\\v1\\dzsmartscout\\tools\\planner\\vendor\\dzbrain_ws\\config\\robot.yaml",
     "warnings": [],
-    "source_engine": "tracker-safe"
+    "source_engine": "tour"
   },
-  "mission_blocks": [
-    "N10",
-    "M10",
-    "M9",
-    "L9",
-    "K9",
-    "J9",
-    "J10",
-    "I10",
-    "H10",
-    "G10",
-    "F10",
-    "E10",
-    "E9",
-    "D9",
-    "C9",
-    "B9",
-    "B8",
-    "B7",
-    "B6",
-    "A6",
-    "A5",
-    "A4",
-    "A3",
-    "A2",
-    "B2",
-    "B1",
-    "C1",
-    "D1",
-    "D2",
-    "D3*",
-    "E3",
-    "F3",
-    "G3*",
-    "G4",
-    "G5",
-    "G6",
-    "H6",
-    "I6",
-    "I5",
-    "J5",
-    "K5",
-    "L5",
-    "M5",
-    "N5,y"
-  ],
-  "same_tokens": true,
-  "token_count": 44,
-  "all_pass": true,
-  "mission_blocks_same": true
+  "map_source": {
+    "path": "D:\\User\\Desktop\\比赛存档\\v1\\dzrobot_v2\\src\\dzbrain\\tests\\fixtures\\map_field7_t24.yaml",
+    "sha256": "385e07182aa84ebc26aab6e1c970838d912fc4f0ddea4abcacbf1b2dc63ed20d",
+    "size": 2370,
+    "origin": "具名缺省",
+    "name": "field7",
+    "why": "选 field7 而非 sixth 的理由：① 与 HASH_LEDGER.json 记录的 config/map.yaml 逐字节相同（sha256 385e0718…, 2370 B），哈希门禁可继续钉死；② map_sixth_20261017.yaml（2369 B）与它只差末尾一个换行（field7 == sixth + b'\\n'），YAML 语义相同；③ WB-1 移出的 vendor 副本（2411 B, CRLF）归一化换行后即本文件。"
+  },
+  "mission_blocks": [],
+  "same_tokens": false,
+  "token_count": 0,
+  "all_pass": false,
+  "mission_blocks_same": false
 }

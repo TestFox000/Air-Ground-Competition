@@ -29,6 +29,14 @@ r"""dzlink_mission_ctl.py —— 无人机侧「空地指挥链」编排节点�
 `指令→规划→门禁→下发` 各段耗时，车侧发车时刻以车端日志为准（本节点不假装知道车何时动）。
 
 单源码纪律：本文件只读 vendor 树；真源仍是 dzrobot_v2。禁止手工改 vendor/**。
+
+★ 卡 WB-10-EVIDENCE-20261101 查证结论（**本文件无需改**，留档免得后来者再查一遍）：
+  本节点**是纯编排器，完全不写盘** —— 它只 print 到 stdout，把规划交给
+  `vendor/…/plan_route.py`（只 print JSON，无写盘）、把下发交给 `dz_send_waypoint.py`
+  （无任何 `write_text`/`open('w')`/`.jsonl`）。`--cmd-file` 是**只读**尾随，不写。
+  ★ 特别地：它**不调** `dzlink_supervisor.py`，所以不会触发后者 `default_log_path()`
+  那个 `os.getcwd()` 兜底（= 根目录掉 jsonl 的那个坑）。因此本卡的两处缺陷
+  （证据覆写 / 根目录泄漏）**在本文件上都不成立**，不做改动。
 """
 from __future__ import annotations
 
@@ -69,6 +77,10 @@ BUDGET_S = 15.0                                                # 15s 判据（�
 _UTF8 = {"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1",
          "PYTHONDONTWRITEBYTECODE": "1"}
 
+if str(HERE) not in sys.path:                                  # 同目录 map_source.py
+    sys.path.insert(0, str(HERE))
+import map_source                                              # noqa: E402
+
 
 def _read_engine() -> tuple[str, dict]:
     """用 vendor 树同款 Config 读 planner.engine（与 mission.py 同源口径，不写死）。"""
@@ -82,9 +94,16 @@ def _read_engine() -> tuple[str, dict]:
 
 def _plan(engine: str, *, map_path: str | None = None, cross_lower: str | None = None,
           cross_upper: str | None = None) -> tuple[int, dict, float]:
-    """跑规划器 --emit json --check，返回 (rc, json_payload, elapsed_s)。"""
+    """跑规划器 --emit json --check，返回 (rc, json_payload, elapsed_s)。
+
+    ★ 地图（卡 WB-9-VENDOR-20261031）：默认值**不再**是 `vendor/dzbrain_ws/config/map.yaml`
+      —— 那个副本已被 WB-1 按 D-054 裁决4 / D-062 移出工作树。默认走 `map_source.resolve()`：
+        `--map` > `DZ_PLANNER_MAP` > `ROBOT_MAP` > 具名缺省（field7 = 仓库内逐字快照
+        `dzrobot_v2/src/dzbrain/tests/fixtures/map_field7_t24.yaml`，与 HASH_LEDGER.json
+        记的 config/map.yaml 逐字节同源）。**绝不把地图拷回 vendor。**
+    """
     cfg = VENDOR / "config" / "robot.yaml"
-    mpath = map_path or (VENDOR / "config" / "map.yaml")
+    mpath = map_source.resolve(map_path).path
     cmd = [sys.executable, str(PLAN_ROUTE), "--emit", "json", "--engine", engine,
            "--config", str(cfg), "--map", str(mpath), "--check"]
     if cross_lower:
@@ -147,7 +166,14 @@ def _run_pipeline(*, map_path: str | None, cross_lower: str | None, cross_upper:
         _p(f"  planner.{k} = {einfo.get(k)}")
 
     t_plan0 = time.perf_counter()
-    rc, payload, dt_plan = _plan(engine, map_path=map_path,
+    try:
+        minfo = map_source.resolve(map_path)
+    except map_source.MapSourceError as exc:
+        _p(f"❌ 地图解析失败：{exc}")
+        return 2
+    _p(f"[mission_ctl] 地图 = {minfo.path.name}（{minfo.origin}"
+       + (("，具名 %r" % minfo.name) if minfo.name else "") + f"，sha256 {minfo.sha256[:20]}）")
+    rc, payload, dt_plan = _plan(engine, map_path=str(minfo.path),
                                  cross_lower=cross_lower, cross_upper=cross_upper)
     if rc != 0:
         _p(f"❌ 规划+门禁失败（rc={rc}），详情：")
@@ -204,7 +230,10 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd")
 
     def common(p):
-        p.add_argument("--map", default=None, help="覆盖地图（默认 vendor config/map.yaml）")
+        p.add_argument("--map", default=None,
+                       help="覆盖地图 yaml（缺省=map_source 具名缺省 field7："
+                            "dzrobot_v2/…/fixtures/map_field7_t24.yaml，仓库内逐字快照；"
+                            "也可用环境变量 DZ_PLANNER_MAP / ROBOT_MAP 覆盖）")
         p.add_argument("--cross-lower", default=None, help="下半场穿洞格（无人机情报）")
         p.add_argument("--cross-upper", default=None, help="上半场穿洞格（无人机情报）")
         p.add_argument("--wait-match", type=float, default=3.0,

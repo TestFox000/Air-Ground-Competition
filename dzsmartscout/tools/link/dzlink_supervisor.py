@@ -83,7 +83,6 @@ import argparse
 import glob as globmod
 import json
 import os
-import platform
 import re
 import signal
 import sys
@@ -213,8 +212,46 @@ def bootstrap_domain(env_file: str = DEFAULT_ENV_FILE, argv: Optional[Sequence[s
 
 
 def default_log_path() -> str:
-    if platform.system() == "Windows":
-        return os.path.join(os.getcwd(), "dzlink_supervisor.jsonl")
+    """默认 JSONL 日志路径 —— **与 cwd 无关**（卡 WB-13）。
+
+    ## ★★ 这条曾经是陷阱（2026-11-01 修，卡 `WB-13-LOGPATH-20261101`）
+
+    旧实现::
+
+        if platform.system() == "Windows":
+            return os.path.join(os.getcwd(), "dzlink_supervisor.jsonl")   # ← 陷阱
+        return "~/dzlink_logs/supervisor.jsonl"
+
+    **任何**在 Windows 上从工作区根调用 supervisor 的路径都会在 `v1/` 根掉一个未跟踪
+    jsonl —— 不只是 `dryrun_full_route.py`（那条 WB-10 已改成显式 `--no-log`）。
+    实测复现（2026-11-01 05:1x，本机）：
+
+    | cwd | 结果 |
+    |---|---|
+    | `v1/` 根 | 根目录出现 `dzlink_supervisor.jsonl`（未跟踪） |
+    | `dzsmartscout/` | `dzsmartscout/` 出现同文件（未跟踪） |
+    | `dzsmartscout/tools/link/` | 落在该目录（该处另有一份**已跟踪**的历史同名文件） |
+
+    ## 为什么选「两平台统一落 `~/dzlink_logs/`」而不是别的
+
+    三条实测依据（先查后改，不是拍脑袋）：
+
+    1. **`~` 在 Windows 上解析得出来**：`os.path.expanduser("~")` = `C:\\Users\\TestFox`，
+       于是 `~/dzlink_logs/supervisor.jsonl` → `C:\\Users\\TestFox/dzlink_logs/supervisor.jsonl`。
+       纯 stdlib、无需额外依赖，两平台同一套语义。
+    2. **目录创建逻辑已存在**：`JsonlLogger.__init__`（本文件约 :900）对 `os.path.dirname(path)`
+       做 `os.makedirs(d, exist_ok=True)` ⇒ 首次落盘会自建 `~/dzlink_logs/`。
+       **不需要**在这里再写一遍 mkdir（两处各写一份迟早分叉）。
+    3. **没有调用方依赖「默认写 cwd」**：全仓 grep `default_log_path` 的调用点只有本文件
+       两处（`--log-file` 的 help 文案 + `_core_from_args` 的兜底）；
+       `deploy_supervisor.sh:153`、`README.md:112/121`、`smoke_ros.sh`、`route_crop.py:60`
+       **全部已经显式传 `--log-file`**；`dz_send_waypoint.py` 不 import 本模块。
+       ⇒ 切断「默认落 cwd」不影响任何既有用法（清单见卡面 §迁移期兼容）。
+
+    ★ 为什么不是「无路径就不写日志」（方案 A）：日志是排障的第一现场（README §8 的
+      7 种 `kind` 全靠它），默认**静默不写**会让"没日志"和"没事件"分不清 —— 那是一种
+      新的假绿。固定位置 + 明确的 `--no-log` 开关比"默认什么都不写"更好判。
+    """
     return "~/dzlink_logs/supervisor.jsonl"
 
 

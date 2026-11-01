@@ -12,5 +12,4 @@ tools/_field_const.py
 tools/plan_route.py
 tools/route_check.py
 tools/shoot_planner.py
-config/map.yaml
 config/robot.yaml
